@@ -187,11 +187,16 @@ func NewDefaultServerIos(
 	ctx context.Context,
 	wgInterface WGIface,
 	iosDnsManager IosDnsManager,
+	hostsDnsList []netip.AddrPort,
 	statusRecorder *peer.Status,
 	disableSys bool,
 ) *DefaultServer {
+	log.Debugf("iOS host dns address list is: %v", hostsDnsList)
 	ds := newDefaultServer(ctx, wgInterface, NewServiceViaMemory(wgInterface), statusRecorder, nil, disableSys)
 	ds.iosDnsManager = iosDnsManager
+	ds.hostsDNSHolder.set(hostsDnsList)
+	ds.permanent = true
+	ds.addHostRootZone()
 	return ds
 }
 

@@ -53,7 +53,6 @@ func (n *Notifier) OnNewPrefixes(prefixes []netip.Prefix) {
 	n.currentPrefixes = newNets
 	n.notify()
 }
-
 func (n *Notifier) notify() {
 	n.listenerMux.Lock()
 	defer n.listenerMux.Unlock()

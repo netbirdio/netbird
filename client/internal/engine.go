@@ -47,6 +47,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
+	"github.com/netbirdio/netbird/client/internal/portforward"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
@@ -214,9 +215,10 @@ type Engine struct {
 	// checks are the client-applied posture checks that need to be evaluated on the client
 	checks []*mgmProto.Checks
 
-	relayManager *relayClient.Manager
-	stateManager *statemanager.Manager
-	srWatcher    *guard.SRWatcher
+	relayManager       *relayClient.Manager
+	stateManager       *statemanager.Manager
+	portForwardManager *portforward.Manager
+	srWatcher          *guard.SRWatcher
 
 	// Sync response persistence (protected by syncRespMux)
 	syncRespMux         sync.RWMutex
@@ -263,26 +265,27 @@ func NewEngine(
 	mobileDep MobileDependency,
 ) *Engine {
 	engine := &Engine{
-		clientCtx:      clientCtx,
-		clientCancel:   clientCancel,
-		signal:         services.SignalClient,
-		signaler:       peer.NewSignaler(services.SignalClient, config.WgPrivateKey),
-		mgmClient:      services.MgmClient,
-		relayManager:   services.RelayManager,
-		peerStore:      peerstore.NewConnStore(),
-		syncMsgMux:     &sync.Mutex{},
-		config:         config,
-		mobileDep:      mobileDep,
-		STUNs:          []*stun.URI{},
-		TURNs:          []*stun.URI{},
-		networkSerial:  0,
-		statusRecorder: services.StatusRecorder,
-		stateManager:   services.StateManager,
-		checks:         services.Checks,
-		probeStunTurn:  relay.NewStunTurnProbe(relay.DefaultCacheTTL),
-		jobExecutor:    jobexec.NewExecutor(),
-		clientMetrics:  services.ClientMetrics,
-		updateManager:  services.UpdateManager,
+		clientCtx:          clientCtx,
+		clientCancel:       clientCancel,
+		signal:             services.SignalClient,
+		signaler:           peer.NewSignaler(services.SignalClient, config.WgPrivateKey),
+		mgmClient:          services.MgmClient,
+		relayManager:       services.RelayManager,
+		peerStore:          peerstore.NewConnStore(),
+		syncMsgMux:         &sync.Mutex{},
+		config:             config,
+		mobileDep:          mobileDep,
+		STUNs:              []*stun.URI{},
+		TURNs:              []*stun.URI{},
+		networkSerial:      0,
+		statusRecorder:     services.StatusRecorder,
+		stateManager:       services.StateManager,
+		portForwardManager: portforward.NewManager(),
+		checks:             services.Checks,
+		probeStunTurn:      relay.NewStunTurnProbe(relay.DefaultCacheTTL),
+		jobExecutor:        jobexec.NewExecutor(),
+		clientMetrics:      services.ClientMetrics,
+		updateManager:      services.UpdateManager,
 	}
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
@@ -540,6 +543,13 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	// Set up notrack rules immediately after proxy is listening to prevent
 	// conntrack entries from being created before the rules are in place
 	e.setupWGProxyNoTrack()
+
+	// Start after interface is up since port may have been resolved from 0 or changed if occupied
+	e.shutdownWg.Add(1)
+	go func() {
+		defer e.shutdownWg.Done()
+		e.portForwardManager.Start(e.ctx, uint16(e.config.WgPort))
+	}()
 
 	// Set the WireGuard interface for rosenpass after interface is up
 	if e.rpManager != nil {
@@ -1627,12 +1637,13 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 	}
 
 	serviceDependencies := peer.ServiceDependencies{
-		StatusRecorder:  e.statusRecorder,
-		Signaler:        e.signaler,
-		IFaceDiscover:   e.mobileDep.IFaceDiscover,
-		RelayManager:    e.relayManager,
-		SrWatcher:       e.srWatcher,
-		MetricsRecorder: e.clientMetrics,
+		StatusRecorder:     e.statusRecorder,
+		Signaler:           e.signaler,
+		IFaceDiscover:      e.mobileDep.IFaceDiscover,
+		RelayManager:       e.relayManager,
+		SrWatcher:          e.srWatcher,
+		PortForwardManager: e.portForwardManager,
+		MetricsRecorder:    e.clientMetrics,
 	}
 	peerConn, err := peer.NewConn(config, serviceDependencies)
 	if err != nil {
@@ -1789,6 +1800,12 @@ func (e *Engine) close() {
 	if e.rpManager != nil {
 		_ = e.rpManager.Close()
 	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := e.portForwardManager.GracefullyStop(ctx); err != nil {
+		log.Warnf("failed to gracefully stop port forwarding manager: %s", err)
+	}
 }
 
 func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, bool, error) {
@@ -1894,7 +1911,7 @@ func (e *Engine) newDnsServer(dnsConfig *nbdns.Config) (dns.Server, error) {
 		return dnsServer, nil
 
 	case "ios":
-		dnsServer := dns.NewDefaultServerIos(e.ctx, e.wgInterface, e.mobileDep.DnsManager, e.statusRecorder, e.config.DisableDNS)
+		dnsServer := dns.NewDefaultServerIos(e.ctx, e.wgInterface, e.mobileDep.DnsManager, e.mobileDep.HostDNSAddresses, e.statusRecorder, e.config.DisableDNS)
 		return dnsServer, nil
 
 	default:

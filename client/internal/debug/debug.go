@@ -25,6 +25,7 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/netbirdio/netbird/client/anonymize"
+	"github.com/netbirdio/netbird/client/configs"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/updater/installer"
@@ -52,6 +53,7 @@ resolved_domains.txt: Anonymized resolved domain IP addresses from the status re
 config.txt: Anonymized configuration information of the NetBird client.
 network_map.json: Anonymized sync response containing peer configurations, routes, DNS settings, and firewall rules.
 state.json: Anonymized client state dump containing netbird states for the active profile.
+service_params.json: Sanitized service install parameters (service.json). Sensitive environment variable values are masked. Only present when service.json exists.
 metrics.txt: Buffered client metrics in InfluxDB line protocol format. Only present when metrics collection is enabled. Peer identifiers are anonymized.
 mutex.prof: Mutex profiling information.
 goroutine.prof: Goroutine profiling information.
@@ -359,6 +361,10 @@ func (g *BundleGenerator) createArchive() error {
 		log.Errorf("failed to add corrupted state files to debug bundle: %v", err)
 	}
 
+	if err := g.addServiceParams(); err != nil {
+		log.Errorf("failed to add service params to debug bundle: %v", err)
+	}
+
 	if err := g.addMetrics(); err != nil {
 		log.Errorf("failed to add metrics to debug bundle: %v", err)
 	}
@@ -486,6 +492,90 @@ func (g *BundleGenerator) addConfig() error {
 	}
 
 	return nil
+}
+
+const (
+	serviceParamsFile    = "service.json"
+	serviceParamsBundle  = "service_params.json"
+	maskedValue          = "***"
+	envVarPrefix         = "NB_"
+	jsonKeyManagementURL = "management_url"
+	jsonKeyServiceEnv    = "service_env_vars"
+)
+
+var sensitiveEnvSubstrings = []string{"key", "token", "secret", "password", "credential"}
+
+// addServiceParams reads the service.json file and adds a sanitized version to the bundle.
+// Non-NB_ env vars and vars with sensitive names are masked. Other NB_ values are anonymized.
+func (g *BundleGenerator) addServiceParams() error {
+	path := filepath.Join(configs.StateDir, serviceParamsFile)
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read service params: %w", err)
+	}
+
+	var params map[string]any
+	if err := json.Unmarshal(data, &params); err != nil {
+		return fmt.Errorf("parse service params: %w", err)
+	}
+
+	if g.anonymize {
+		if mgmtURL, ok := params[jsonKeyManagementURL].(string); ok && mgmtURL != "" {
+			params[jsonKeyManagementURL] = g.anonymizer.AnonymizeURI(mgmtURL)
+		}
+	}
+
+	g.sanitizeServiceEnvVars(params)
+
+	sanitizedData, err := json.MarshalIndent(params, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal sanitized service params: %w", err)
+	}
+
+	if err := g.addFileToZip(bytes.NewReader(sanitizedData), serviceParamsBundle); err != nil {
+		return fmt.Errorf("add service params to zip: %w", err)
+	}
+
+	return nil
+}
+
+// sanitizeServiceEnvVars masks or anonymizes env var values in service params.
+// Non-NB_ vars and vars with sensitive names (key, token, etc.) are fully masked.
+// Other NB_ var values are passed through the anonymizer when anonymization is enabled.
+func (g *BundleGenerator) sanitizeServiceEnvVars(params map[string]any) {
+	envVars, ok := params[jsonKeyServiceEnv].(map[string]any)
+	if !ok {
+		return
+	}
+
+	sanitized := make(map[string]any, len(envVars))
+	for k, v := range envVars {
+		val, _ := v.(string)
+		switch {
+		case !strings.HasPrefix(k, envVarPrefix) || isSensitiveEnvVar(k):
+			sanitized[k] = maskedValue
+		case g.anonymize:
+			sanitized[k] = g.anonymizer.AnonymizeString(val)
+		default:
+			sanitized[k] = val
+		}
+	}
+	params[jsonKeyServiceEnv] = sanitized
+}
+
+// isSensitiveEnvVar returns true for env var names that may contain secrets.
+func isSensitiveEnvVar(key string) bool {
+	lower := strings.ToLower(key)
+	for _, s := range sensitiveEnvSubstrings {
+		if strings.Contains(lower, s) {
+			return true
+		}
+	}
+	return false
 }
 
 func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) {
