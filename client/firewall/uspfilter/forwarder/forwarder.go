@@ -303,14 +303,14 @@ func (f *Forwarder) Stop() {
 	f.stack.Wait()
 }
 
-func (f *Forwarder) determineDialAddr(addr tcpip.Address) net.IP {
+func (f *Forwarder) determineDialAddr(addr tcpip.Address) netip.Addr {
 	if f.netstack && f.ip.Equal(addr) {
-		return net.IPv4(127, 0, 0, 1)
+		return netip.AddrFrom4([4]byte{127, 0, 0, 1})
 	}
 	if f.netstack && f.ipv6.Equal(addr) {
-		return net.IPv6loopback
+		return netip.IPv6Loopback()
 	}
-	return addr.AsSlice()
+	return addrToNetipAddr(addr)
 }
 
 func (f *Forwarder) RegisterRuleID(srcIP, dstIP netip.Addr, srcPort, dstPort uint16, ruleID []byte) {

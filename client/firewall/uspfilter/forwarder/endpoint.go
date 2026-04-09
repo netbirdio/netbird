@@ -1,7 +1,8 @@
 package forwarder
 
 import (
-	"fmt"
+	"net"
+	"strconv"
 	"sync/atomic"
 
 	wgdevice "golang.zx2c4.com/wireguard/device"
@@ -109,5 +110,7 @@ type epID stack.TransportEndpointID
 
 func (i epID) String() string {
 	// src and remote is swapped
-	return fmt.Sprintf("%s:%d → %s:%d", i.RemoteAddress, i.RemotePort, i.LocalAddress, i.LocalPort)
+	return net.JoinHostPort(i.RemoteAddress.String(), strconv.Itoa(int(i.RemotePort))) +
+		" → " +
+		net.JoinHostPort(i.LocalAddress.String(), strconv.Itoa(int(i.LocalPort)))
 }

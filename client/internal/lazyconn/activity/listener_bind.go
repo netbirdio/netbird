@@ -57,6 +57,7 @@ func NewBindListener(wgIface WgInterface, bind device.EndpointManager, cfg lazyc
 // deriveFakeIP creates a deterministic fake IP for bind mode based on peer's NetBird IP.
 // Maps peer IP 100.64.x.y to fake IP 127.2.x.y (similar to relay proxy using 127.1.x.y).
 // It finds the peer's actual NetBird IP by checking which allowedIP is in the same subnet as our WG interface.
+// For IPv6-only peers, the last two bytes of the v6 address are used.
 func deriveFakeIP(wgIface WgInterface, allowedIPs []netip.Prefix) (netip.Addr, error) {
 	if len(allowedIPs) == 0 {
 		return netip.Addr{}, fmt.Errorf("no allowed IPs for peer")
@@ -64,6 +65,7 @@ func deriveFakeIP(wgIface WgInterface, allowedIPs []netip.Prefix) (netip.Addr, e
 
 	ourNetwork := wgIface.Address().Network
 
+	// Try v4 first (preferred: deterministic from overlay IP)
 	var peerIP netip.Addr
 	for _, allowedIP := range allowedIPs {
 		ip := allowedIP.Addr()
@@ -76,13 +78,24 @@ func deriveFakeIP(wgIface WgInterface, allowedIPs []netip.Prefix) (netip.Addr, e
 		}
 	}
 
-	if !peerIP.IsValid() {
-		return netip.Addr{}, fmt.Errorf("no peer NetBird IP found in allowed IPs")
+	if peerIP.IsValid() {
+		octets := peerIP.As4()
+		return netip.AddrFrom4([4]byte{127, 2, octets[2], octets[3]}), nil
 	}
 
-	octets := peerIP.As4()
-	fakeIP := netip.AddrFrom4([4]byte{127, 2, octets[2], octets[3]})
-	return fakeIP, nil
+	// Fallback: use last two bytes of first v6 overlay IP
+	addr := wgIface.Address()
+	if addr.IPv6Net.IsValid() {
+		for _, allowedIP := range allowedIPs {
+			ip := allowedIP.Addr()
+			if ip.Is6() && addr.IPv6Net.Contains(ip) {
+				raw := ip.As16()
+				return netip.AddrFrom4([4]byte{127, 2, raw[14], raw[15]}), nil
+			}
+		}
+	}
+
+	return netip.Addr{}, fmt.Errorf("no peer NetBird IP found in allowed IPs")
 }
 
 func (d *BindListener) setupLazyConn() error {

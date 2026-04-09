@@ -630,7 +630,7 @@ func (e *Engine) initFirewall() error {
 	rosenpassPort := e.rpManager.GetAddress().Port
 	port := firewallManager.Port{Values: []uint16{uint16(rosenpassPort)}}
 
-	// this rule is static and will be torn down on engine down by the firewall manager
+	// IPv4-only: rosenpass peers connect via AllowedIps[0] which is always v4.
 	if _, err := e.firewall.AddPeerFiltering(
 		nil,
 		net.IP{0, 0, 0, 0},
@@ -682,10 +682,15 @@ func (e *Engine) blockLanAccess() {
 
 	log.Infof("blocking route LAN access for networks: %v", toBlock)
 	v4 := netip.PrefixFrom(netip.IPv4Unspecified(), 0)
+	v6 := netip.PrefixFrom(netip.IPv6Unspecified(), 0)
 	for _, network := range toBlock {
+		source := v4
+		if network.Addr().Is6() {
+			source = v6
+		}
 		if _, err := e.firewall.AddRouteFiltering(
 			nil,
-			[]netip.Prefix{v4},
+			[]netip.Prefix{source},
 			firewallManager.Network{Prefix: network},
 			firewallManager.ProtocolALL,
 			nil,
@@ -2362,8 +2367,7 @@ func getInterfacePrefixes() ([]netip.Prefix, error) {
 			prefix := netip.PrefixFrom(addr.Unmap(), ones).Masked()
 			ip := prefix.Addr()
 
-			// TODO: add IPv6
-			if !ip.Is4() || ip.IsLoopback() || ip.IsMulticast() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			if ip.IsLoopback() || ip.IsMulticast() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
 				continue
 			}
 
