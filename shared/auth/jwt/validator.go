@@ -236,60 +236,32 @@ func getPemKeys(keysLocation string) (*Jwks, error) {
 }
 
 func getPublicKey(token *jwt.Token, jwks *Jwks) (interface{}, error) {
-	// todo as we load the jkws when the server is starting, we should build a JKS map with the pem cert at the boot time
 	for k := range jwks.Keys {
 		if token.Header["kid"] != jwks.Keys[k].Kid {
 			continue
 		}
- 
-		// Key with matching kid found - now check type
+
 		switch jwks.Keys[k].Kty {
 		case "RSA":
-			// For RSA, prefer x5c certificate if available
 			if len(jwks.Keys[k].X5c) != 0 {
 				cert := "-----BEGIN CERTIFICATE-----\n" + jwks.Keys[k].X5c[0] + "\n-----END CERTIFICATE-----"
 				return jwt.ParseRSAPublicKeyFromPEM([]byte(cert))
 			}
 			return getPublicKeyFromRSA(jwks.Keys[k])
- 
+
 		case "EC":
-			// For EC, prefer x, y, crv fields if present
 			if jwks.Keys[k].X != "" && jwks.Keys[k].Y != "" && jwks.Keys[k].Crv != "" {
 				return getPublicKeyFromECDSA(jwks.Keys[k])
 			}
- 
-			// Fallback to x5c if x/y/crv are missing
 			if len(jwks.Keys[k].X5c) != 0 {
-				cert := "-----BEGIN CERTIFICATE-----\n" + jwks.Keys[k].X5c[0] + "\n-----END CERTIFICATE-----"
-				
-				block, _ := pem.Decode([]byte(cert))
-				if block == nil {
-					return nil, fmt.Errorf("failed to decode PEM certificate for EC key (kid: %s)", jwks.Keys[k].Kid)
-				}
- 
-				certificate, err := x509.ParseCertificate(block.Bytes)
-				if err != nil {
-					return nil, fmt.Errorf("failed to parse x5c certificate for EC key (kid: %s): %w", jwks.Keys[k].Kid, err)
-				}
- 
-				ecKey, ok := certificate.PublicKey.(*ecdsa.PublicKey)
-				if !ok {
-					return nil, fmt.Errorf("x5c certificate does not contain EC public key (kid: %s)", jwks.Keys[k].Kid)
-				}
- 
-				return ecKey, nil
+				return parseECKeyFromCertificate(jwks.Keys[k]) // <- estratta
 			}
- 
-			// Neither x/y/crv nor x5c available
-			return nil, fmt.Errorf("EC key incomplete: missing both x/y/crv fields and x5c certificate (kid: %s)", jwks.Keys[k].Kid)
- 
+			return nil, fmt.Errorf("EC key incomplete (kid: %s)", jwks.Keys[k].Kid)
+
 		default:
-			// Key type not supported
 			return nil, fmt.Errorf("%w: %s (kid: %s)", errUnsupportedKeyType, jwks.Keys[k].Kty, jwks.Keys[k].Kid)
 		}
 	}
- 
-	// No key with matching kid found
 	return nil, errKeyNotFound
 }
 
