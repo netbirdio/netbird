@@ -342,7 +342,8 @@ func setupBenchmarkDB(b testing.TB) (*SqlStore, func(), string) {
 			ID:        fmt.Sprintf("peer-%d", i),
 			AccountID: accountID,
 			Key:       fmt.Sprintf("peerkey-%d", i),
-			IP:        net.ParseIP(fmt.Sprintf("100.64.0.%d", i+1)),
+			IP:        netip.MustParseAddr(fmt.Sprintf("100.64.0.%d", i+1)),
+			IPv6:      netip.MustParseAddr(fmt.Sprintf("fd00::%d", i+1)),
 			Name:      fmt.Sprintf("peer-name-%d", i),
 			Status:    &nbpeer.PeerStatus{Connected: i%2 == 0, LastSeen: time.Now()},
 		})

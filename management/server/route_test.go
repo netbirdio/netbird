@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/netip"
 	"sort"
 	"testing"
@@ -1328,14 +1327,24 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*types.Accou
 		return nil, err
 	}
 
+	v6Prefix, err := netip.ParsePrefix(account.Network.NetV6.String())
+	if err != nil {
+		return nil, err
+	}
+
 	ips := account.GetTakenIPs()
-	peer1IP, err := types.AllocatePeerIP(account.Network.Net, ips)
+	peer1IP, err := types.AllocatePeerIP(netip.MustParsePrefix(account.Network.Net.String()), ips)
+	if err != nil {
+		return nil, err
+	}
+	peer1IPv6, err := types.AllocateRandomPeerIPv6(v6Prefix)
 	if err != nil {
 		return nil, err
 	}
 
 	peer1 := &nbpeer.Peer{
 		IP:       peer1IP,
+		IPv6:     peer1IPv6,
 		ID:       peer1ID,
 		Key:      peer1Key,
 		Name:     "test-host1@netbird.io",
@@ -1356,13 +1365,18 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*types.Accou
 	account.Peers[peer1.ID] = peer1
 
 	ips = account.GetTakenIPs()
-	peer2IP, err := types.AllocatePeerIP(account.Network.Net, ips)
+	peer2IP, err := types.AllocatePeerIP(netip.MustParsePrefix(account.Network.Net.String()), ips)
+	if err != nil {
+		return nil, err
+	}
+	peer2IPv6, err := types.AllocateRandomPeerIPv6(v6Prefix)
 	if err != nil {
 		return nil, err
 	}
 
 	peer2 := &nbpeer.Peer{
 		IP:       peer2IP,
+		IPv6:     peer2IPv6,
 		ID:       peer2ID,
 		Key:      peer2Key,
 		Name:     "test-host2@netbird.io",
@@ -1383,13 +1397,18 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*types.Accou
 	account.Peers[peer2.ID] = peer2
 
 	ips = account.GetTakenIPs()
-	peer3IP, err := types.AllocatePeerIP(account.Network.Net, ips)
+	peer3IP, err := types.AllocatePeerIP(netip.MustParsePrefix(account.Network.Net.String()), ips)
+	if err != nil {
+		return nil, err
+	}
+	peer3IPv6, err := types.AllocateRandomPeerIPv6(v6Prefix)
 	if err != nil {
 		return nil, err
 	}
 
 	peer3 := &nbpeer.Peer{
 		IP:       peer3IP,
+		IPv6:     peer3IPv6,
 		ID:       peer3ID,
 		Key:      peer3Key,
 		Name:     "test-host3@netbird.io",
@@ -1410,13 +1429,18 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*types.Accou
 	account.Peers[peer3.ID] = peer3
 
 	ips = account.GetTakenIPs()
-	peer4IP, err := types.AllocatePeerIP(account.Network.Net, ips)
+	peer4IP, err := types.AllocatePeerIP(netip.MustParsePrefix(account.Network.Net.String()), ips)
+	if err != nil {
+		return nil, err
+	}
+	peer4IPv6, err := types.AllocateRandomPeerIPv6(v6Prefix)
 	if err != nil {
 		return nil, err
 	}
 
 	peer4 := &nbpeer.Peer{
 		IP:       peer4IP,
+		IPv6:     peer4IPv6,
 		ID:       peer4ID,
 		Key:      peer4Key,
 		Name:     "test-host4@netbird.io",
@@ -1437,13 +1461,18 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*types.Accou
 	account.Peers[peer4.ID] = peer4
 
 	ips = account.GetTakenIPs()
-	peer5IP, err := types.AllocatePeerIP(account.Network.Net, ips)
+	peer5IP, err := types.AllocatePeerIP(netip.MustParsePrefix(account.Network.Net.String()), ips)
+	if err != nil {
+		return nil, err
+	}
+	peer5IPv6, err := types.AllocateRandomPeerIPv6(v6Prefix)
 	if err != nil {
 		return nil, err
 	}
 
 	peer5 := &nbpeer.Peer{
 		IP:       peer5IP,
+		IPv6:     peer5IPv6,
 		ID:       peer5ID,
 		Key:      peer5Key,
 		Name:     "test-host5@netbird.io",
@@ -1544,7 +1573,8 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 		Peers: map[string]*nbpeer.Peer{
 			"peerA": {
 				ID:     "peerA",
-				IP:     net.ParseIP("100.65.14.88"),
+				IP:     netip.MustParseAddr("100.65.14.88"),
+				IPv6:   netip.MustParseAddr("fd00::1"),
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
 					GoOS: "linux",
@@ -1552,18 +1582,21 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 			},
 			"peerB": {
 				ID:     "peerB",
-				IP:     net.ParseIP(peerBIp),
+				IP:     netip.MustParseAddr(peerBIp),
+				IPv6:   netip.MustParseAddr("fd00::2"),
 				Status: &nbpeer.PeerStatus{},
 				Meta:   nbpeer.PeerSystemMeta{},
 			},
 			"peerC": {
 				ID:     "peerC",
-				IP:     net.ParseIP(peerCIp),
+				IP:     netip.MustParseAddr(peerCIp),
+				IPv6:   netip.MustParseAddr("fd00::3"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerD": {
 				ID:     "peerD",
-				IP:     net.ParseIP("100.65.62.5"),
+				IP:     netip.MustParseAddr("100.65.62.5"),
+				IPv6:   netip.MustParseAddr("fd00::4"),
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
 					GoOS: "linux",
@@ -1571,7 +1604,8 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 			},
 			"peerE": {
 				ID:     "peerE",
-				IP:     net.ParseIP("100.65.32.206"),
+				IP:     netip.MustParseAddr("100.65.32.206"),
+				IPv6:   netip.MustParseAddr("fd00::5"),
 				Key:    peer1Key,
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
@@ -1580,27 +1614,32 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 			},
 			"peerF": {
 				ID:     "peerF",
-				IP:     net.ParseIP("100.65.250.202"),
+				IP:     netip.MustParseAddr("100.65.250.202"),
+				IPv6:   netip.MustParseAddr("fd00::6"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerG": {
 				ID:     "peerG",
-				IP:     net.ParseIP("100.65.13.186"),
+				IP:     netip.MustParseAddr("100.65.13.186"),
+				IPv6:   netip.MustParseAddr("fd00::7"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerH": {
 				ID:     "peerH",
-				IP:     net.ParseIP(peerHIp),
+				IP:     netip.MustParseAddr(peerHIp),
+				IPv6:   netip.MustParseAddr("fd00::8"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerJ": {
 				ID:     "peerJ",
-				IP:     net.ParseIP(peerJIp),
+				IP:     netip.MustParseAddr(peerJIp),
+				IPv6:   netip.MustParseAddr("fd00::a"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerK": {
 				ID:     "peerK",
-				IP:     net.ParseIP(peerKIp),
+				IP:     netip.MustParseAddr(peerKIp),
+				IPv6:   netip.MustParseAddr("fd00::b"),
 				Status: &nbpeer.PeerStatus{},
 			},
 		},
@@ -1853,7 +1892,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 	})
 
 	t.Run("check peer routes firewall rules", func(t *testing.T) {
-		routesFirewallRules := account.GetPeerRoutesFirewallRules(context.Background(), "peerA", validatedPeers)
+		routesFirewallRules := account.GetPeerRoutesFirewallRules(context.Background(), "peerA", validatedPeers, true)
 		assert.Len(t, routesFirewallRules, 4)
 
 		expectedRoutesFirewallRules := []*types.RouteFirewallRule{
@@ -1907,7 +1946,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 		assert.ElementsMatch(t, orderRuleSourceRanges(routesFirewallRules), orderRuleSourceRanges(append(expectedRoutesFirewallRules, additionalFirewallRule...)))
 
 		// peerD is also the routing peer for route1, should contain same routes firewall rules as peerA
-		routesFirewallRules = account.GetPeerRoutesFirewallRules(context.Background(), "peerD", validatedPeers)
+		routesFirewallRules = account.GetPeerRoutesFirewallRules(context.Background(), "peerD", validatedPeers, true)
 		assert.Len(t, routesFirewallRules, 2)
 		for _, rule := range expectedRoutesFirewallRules {
 			rule.RouteID = "route1:peerD"
@@ -1915,7 +1954,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 		assert.ElementsMatch(t, orderRuleSourceRanges(routesFirewallRules), orderRuleSourceRanges(expectedRoutesFirewallRules))
 
 		// peerE is a single routing peer for route 2 and route 3
-		routesFirewallRules = account.GetPeerRoutesFirewallRules(context.Background(), "peerE", validatedPeers)
+		routesFirewallRules = account.GetPeerRoutesFirewallRules(context.Background(), "peerE", validatedPeers, true)
 		assert.Len(t, routesFirewallRules, 3)
 
 		expectedRoutesFirewallRules = []*types.RouteFirewallRule{
@@ -1949,7 +1988,7 @@ func TestAccount_getPeersRoutesFirewall(t *testing.T) {
 		assert.ElementsMatch(t, orderRuleSourceRanges(routesFirewallRules), orderRuleSourceRanges(expectedRoutesFirewallRules))
 
 		// peerC is part of route1 distribution groups but should not receive the routes firewall rules
-		routesFirewallRules = account.GetPeerRoutesFirewallRules(context.Background(), "peerC", validatedPeers)
+		routesFirewallRules = account.GetPeerRoutesFirewallRules(context.Background(), "peerC", validatedPeers, true)
 		assert.Len(t, routesFirewallRules, 0)
 	})
 
@@ -2239,84 +2278,101 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 		Peers: map[string]*nbpeer.Peer{
 			"peerA": {
 				ID:     "peerA",
-				IP:     net.ParseIP("100.65.14.88"),
+				IP:     netip.MustParseAddr("100.65.14.88"),
+				IPv6:   netip.MustParseAddr("fd00::1"),
 				Key:    "peerA",
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
-					GoOS: "linux",
+					GoOS:         "linux",
+					Capabilities: []int32{nbpeer.PeerCapabilityIPv6Overlay},
 				},
 			},
 			"peerB": {
 				ID:     "peerB",
-				IP:     net.ParseIP(peerBIp),
+				IP:     netip.MustParseAddr(peerBIp),
+				IPv6:   netip.MustParseAddr("fd00::2"),
 				Status: &nbpeer.PeerStatus{},
 				Meta:   nbpeer.PeerSystemMeta{},
 			},
 			"peerC": {
 				ID:     "peerC",
-				IP:     net.ParseIP(peerCIp),
+				IP:     netip.MustParseAddr(peerCIp),
+				IPv6:   netip.MustParseAddr("fd00::3"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerD": {
 				ID:     "peerD",
-				IP:     net.ParseIP("100.65.62.5"),
+				IP:     netip.MustParseAddr("100.65.62.5"),
+				IPv6:   netip.MustParseAddr("fd00::4"),
 				Key:    "peerD",
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
-					GoOS: "linux",
+					GoOS:         "linux",
+					Capabilities: []int32{nbpeer.PeerCapabilityIPv6Overlay},
 				},
 			},
 			"peerE": {
 				ID:     "peerE",
-				IP:     net.ParseIP("100.65.32.206"),
+				IP:     netip.MustParseAddr("100.65.32.206"),
+				IPv6:   netip.MustParseAddr("fd00::5"),
 				Key:    "peerE",
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
-					GoOS: "linux",
+					GoOS:         "linux",
+					Capabilities: []int32{nbpeer.PeerCapabilityIPv6Overlay},
 				},
 			},
 			"peerF": {
 				ID:     "peerF",
-				IP:     net.ParseIP("100.65.250.202"),
+				IP:     netip.MustParseAddr("100.65.250.202"),
+				IPv6:   netip.MustParseAddr("fd00::6"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerG": {
 				ID:     "peerG",
-				IP:     net.ParseIP("100.65.13.186"),
+				IP:     netip.MustParseAddr("100.65.13.186"),
+				IPv6:   netip.MustParseAddr("fd00::7"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerH": {
 				ID:     "peerH",
-				IP:     net.ParseIP(peerHIp),
+				IP:     netip.MustParseAddr(peerHIp),
+				IPv6:   netip.MustParseAddr("fd00::8"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerJ": {
 				ID:     "peerJ",
-				IP:     net.ParseIP(peerJIp),
+				IP:     netip.MustParseAddr(peerJIp),
+				IPv6:   netip.MustParseAddr("fd00::a"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerK": {
 				ID:     "peerK",
-				IP:     net.ParseIP(peerKIp),
+				IP:     netip.MustParseAddr(peerKIp),
+				IPv6:   netip.MustParseAddr("fd00::b"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerL": {
 				ID:     "peerL",
-				IP:     net.ParseIP("100.65.19.186"),
+				IP:     netip.MustParseAddr("100.65.19.186"),
+				IPv6:   netip.MustParseAddr("fd00::d"),
 				Key:    "peerL",
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
-					GoOS: "linux",
+					GoOS:         "linux",
+					Capabilities: []int32{nbpeer.PeerCapabilityIPv6Overlay},
 				},
 			},
 			"peerM": {
 				ID:     "peerM",
-				IP:     net.ParseIP(peerMIp),
+				IP:     netip.MustParseAddr(peerMIp),
+				IPv6:   netip.MustParseAddr("fd00::e"),
 				Status: &nbpeer.PeerStatus{},
 			},
 			"peerN": {
 				ID:     "peerN",
-				IP:     net.ParseIP("100.65.20.18"),
+				IP:     netip.MustParseAddr("100.65.20.18"),
+				IPv6:   netip.MustParseAddr("fd00::f"),
 				Key:    "peerN",
 				Status: &nbpeer.PeerStatus{},
 				Meta: nbpeer.PeerSystemMeta{
@@ -2325,7 +2381,8 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 			},
 			"peerO": {
 				ID:     "peerO",
-				IP:     net.ParseIP(peerOIp),
+				IP:     netip.MustParseAddr(peerOIp),
+				IPv6:   netip.MustParseAddr("fd00::10"),
 				Status: &nbpeer.PeerStatus{},
 			},
 		},
@@ -2692,7 +2749,7 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 		resourceRoutersMap := account.GetResourceRoutersMap()
 		_, routes, sourcePeers := account.GetNetworkResourcesRoutesToSync(context.Background(), "peerA", resourcePoliciesMap, resourceRoutersMap)
 		firewallRules := account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers["peerA"], validatedPeers, routes, resourcePoliciesMap)
-		assert.Len(t, firewallRules, 4)
+		assert.Len(t, firewallRules, 6)
 		assert.Len(t, sourcePeers, 5)
 
 		expectedFirewallRules := []*types.RouteFirewallRule{
@@ -2746,6 +2803,25 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 				IsDynamic:   true,
 				RouteID:     "resource4:peerA",
 			},
+			{
+				SourceRanges: []string{"fd00::a/128"},
+				Action:       "accept",
+				Destination:  "192.0.2.0/32",
+				Protocol:     "tcp",
+				Port:         80,
+				Domains:      domain.List{"example.com"},
+				IsDynamic:    true,
+				RouteID:      "resource4:peerA",
+			},
+			{
+				SourceRanges: []string{"fd00::b/128"},
+				Action:       "accept",
+				Destination:  "192.0.2.0/32",
+				Protocol:     "all",
+				Domains:      domain.List{"example.com"},
+				IsDynamic:    true,
+				RouteID:      "resource4:peerA",
+			},
 		}
 		assert.ElementsMatch(t, orderRuleSourceRanges(firewallRules), orderRuleSourceRanges(append(expectedFirewallRules, additionalFirewallRules...)))
 
@@ -2778,8 +2854,9 @@ func TestAccount_GetPeerNetworkResourceFirewallRules(t *testing.T) {
 		}
 		assert.ElementsMatch(t, orderRuleSourceRanges(firewallRules), orderRuleSourceRanges(expectedFirewallRules))
 
-		// peerC is part of distribution groups for resource2 but should not receive the firewall rules
-		firewallRules = account.GetPeerRoutesFirewallRules(context.Background(), "peerC", validatedPeers)
+		// peerC is in a distribution group for resource2 but is not a routing peer, so it should not receive firewall rules
+		_, peerCRoutes, _ := account.GetNetworkResourcesRoutesToSync(context.Background(), "peerC", resourcePoliciesMap, resourceRoutersMap)
+		firewallRules = account.GetPeerNetworkResourceFirewallRules(context.Background(), account.Peers["peerC"], validatedPeers, peerCRoutes, resourcePoliciesMap)
 		assert.Len(t, firewallRules, 0)
 
 		// peerL is the single routing peer for resource5
