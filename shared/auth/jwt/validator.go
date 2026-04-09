@@ -235,6 +235,16 @@ func getPemKeys(keysLocation string) (*Jwks, error) {
 	return jwks, nil
 }
 
+func isSupportedECCurve(crv string) bool {
+	switch crv {
+	case "P-256", "P-384", "P-521":
+		return true
+	default:
+		return false
+	}
+}
+ 
+// Sostituisci la funzione getPublicKey con questa versione aggiornata
 func getPublicKey(token *jwt.Token, jwks *Jwks) (interface{}, error) {
 	// todo as we load the jkws when the server is starting, we should build a JKS map with the pem cert at the boot time
 	for k := range jwks.Keys {
@@ -253,8 +263,12 @@ func getPublicKey(token *jwt.Token, jwks *Jwks) (interface{}, error) {
 			return getPublicKeyFromRSA(jwks.Keys[k])
  
 		case "EC":
-			// For EC, prefer x, y, crv fields if present
+			// For EC, prefer x, y, crv fields if present and curve is supported
 			if jwks.Keys[k].X != "" && jwks.Keys[k].Y != "" && jwks.Keys[k].Crv != "" {
+				// Validate curve is supported before calling getPublicKeyFromECDSA
+				if !isSupportedECCurve(jwks.Keys[k].Crv) {
+					return nil, fmt.Errorf("unsupported EC curve: %s (kid: %s)", jwks.Keys[k].Crv, jwks.Keys[k].Kid)
+				}
 				return getPublicKeyFromECDSA(jwks.Keys[k])
 			}
  
