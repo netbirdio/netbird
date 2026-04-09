@@ -2,6 +2,7 @@ package accesslog
 
 import (
 	"context"
+	"maps"
 	"net/netip"
 	"sync"
 	"sync/atomic"
@@ -170,7 +171,7 @@ func (l *Logger) LogL4(entry L4Entry) {
 		DurationMs:    entry.DurationMs,
 		BytesUpload:   entry.BytesUpload,
 		BytesDownload: entry.BytesDownload,
-		Metadata:      entry.Metadata,
+		Metadata:      maps.Clone(entry.Metadata),
 	}
 	if entry.DenyReason != "" {
 		if !l.allowDenyLog(entry.ServiceID, entry.DenyReason) {

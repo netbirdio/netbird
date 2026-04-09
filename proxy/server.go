@@ -1539,7 +1539,6 @@ func (s *Server) removeMapping(ctx context.Context, mapping *proto.ProxyMapping)
 // removal and in-place modification of mappings.
 func (s *Server) cleanupMappingRoutes(mapping *proto.ProxyMapping) {
 	svcID := types.ServiceID(mapping.GetId())
-	s.releaseCrowdSec(svcID)
 	host := mapping.GetDomain()
 
 	// HTTP/TLS cleanup (only relevant when a domain is set).
@@ -1580,6 +1579,9 @@ func (s *Server) cleanupMappingRoutes(mapping *proto.ProxyMapping) {
 	// UDP relay cleanup (idempotent).
 	s.removeUDPRelay(svcID)
 
+	// Release CrowdSec after all routes are removed so the shared bouncer
+	// isn't stopped while stale filters can still be reached by in-flight requests.
+	s.releaseCrowdSec(svcID)
 }
 
 // removeUDPRelay stops and removes a UDP relay by service ID.
