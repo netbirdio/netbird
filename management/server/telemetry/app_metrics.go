@@ -206,7 +206,9 @@ func (appMetrics *defaultAppMetrics) GetMeter() metric2.Meter {
 
 // NewDefaultAppMetrics and expose them via defaultEndpoint on a given HTTP port
 func NewDefaultAppMetrics(ctx context.Context) (AppMetrics, error) {
-	exporter, err := prometheus.New()
+	exporter, err := prometheus.New(
+		prometheus.WithoutUnits(),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create prometheus exporter: %w", err)
 	}

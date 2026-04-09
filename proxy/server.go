@@ -236,7 +236,9 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	s.svcPorts = make(map[types.ServiceID][]uint16)
 	s.lastMappings = make(map[types.ServiceID]*proto.ProxyMapping)
 
-	exporter, err := prometheus.New()
+	exporter, err := prometheus.New(
+		prometheus.WithoutUnits(),
+	)
 	if err != nil {
 		return fmt.Errorf("create prometheus exporter: %w", err)
 	}

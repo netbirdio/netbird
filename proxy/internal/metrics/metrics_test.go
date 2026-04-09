@@ -51,7 +51,9 @@ func TestMetrics_RoundTripper(t *testing.T) {
 		},
 	}
 
-	exporter, err := prometheus.New()
+	exporter, err := prometheus.New(
+		prometheus.WithoutUnits(),
+	)
 	if err != nil {
 		t.Fatalf("create prometheus exporter: %v", err)
 	}

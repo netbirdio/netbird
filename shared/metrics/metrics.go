@@ -27,7 +27,9 @@ type Metrics struct {
 
 // NewServer initializes and returns a new Metrics instance
 func NewServer(port int, endpoint string) (*Metrics, error) {
-	exporter, err := prometheus.New()
+	exporter, err := prometheus.New(
+		prometheus.WithoutUnits(),
+	)
 	if err != nil {
 		return nil, err
 	}
