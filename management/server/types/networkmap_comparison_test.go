@@ -322,7 +322,7 @@ func createTestAccount() *Account {
 
 	for i := range numPeers {
 		peerID := fmt.Sprintf("peer-%d", i)
-		ip := net.IP{100, 64, 0, byte(i + 1)}
+		ip := netip.AddrFrom4([4]byte{100, 64, 0, byte(i + 1)})
 		wtVersion := "0.25.0"
 		if i%2 == 0 {
 			wtVersion = "0.40.0"

@@ -521,10 +521,17 @@ func (b *NetworkMapBuilder) generateResourcescached(
 
 		if len(rule.Ports) == 0 && len(rule.PortRanges) == 0 {
 			*rules = append(*rules, &fr)
-			continue
+		} else {
+			*rules = append(*rules, expandPortsAndRanges(fr, rule, targetPeer)...)
 		}
 
-		*rules = append(*rules, expandPortsAndRanges(fr, rule, targetPeer)...)
+		*rules = appendIPv6FirewallRule(*rules, rulesExists, peer, targetPeer, rule, firewallRuleContext{
+			direction:   direction,
+			dirStr:      strconv.Itoa(direction),
+			protocolStr: firewallRuleProtocol(rule.Protocol),
+			actionStr:   string(rule.Action),
+			portsJoined: strings.Join(rule.Ports, ","),
+		})
 	}
 }
 
@@ -720,7 +727,7 @@ func (b *NetworkMapBuilder) buildPeerRoutesView(account *Account, peerID string)
 	allRoutes := slices.Concat(enabledRoutes, networkResourcesRoutes)
 	b.updateACGIndexForPeer(peerID, allRoutes)
 
-	routeFirewallRules := b.getPeerRoutesFirewallRules(account, peerID, b.validatedPeers)
+	routeFirewallRules := b.getPeerRoutesFirewallRules(account, peerID, b.validatedPeers, peer.SupportsIPv6() && peer.IPv6.IsValid())
 	for _, rule := range routeFirewallRules {
 		ruleID := b.generateRouteFirewallRuleID(rule)
 		view.RouteFirewallRuleIDs = append(view.RouteFirewallRuleIDs, ruleID)
@@ -823,13 +830,13 @@ func (b *NetworkMapBuilder) getRoutingPeerRoutes(peerID string) (enabledRoutes [
 	return enabledRoutes, disabledRoutes
 }
 
-func (b *NetworkMapBuilder) getPeerRoutesFirewallRules(account *Account, peerID string, validatedPeersMap map[string]struct{}) []*RouteFirewallRule {
+func (b *NetworkMapBuilder) getPeerRoutesFirewallRules(account *Account, peerID string, validatedPeersMap map[string]struct{}, includeIPv6 bool) []*RouteFirewallRule {
 	routesFirewallRules := make([]*RouteFirewallRule, 0)
 
 	enabledRoutes, _ := b.getRoutingPeerRoutes(peerID)
 	for _, route := range enabledRoutes {
 		if len(route.AccessControlGroups) == 0 {
-			defaultPermit := getDefaultPermit(route)
+			defaultPermit := getDefaultPermit(route, includeIPv6)
 			routesFirewallRules = append(routesFirewallRules, defaultPermit...)
 			continue
 		}
@@ -839,7 +846,7 @@ func (b *NetworkMapBuilder) getPeerRoutesFirewallRules(account *Account, peerID 
 		for _, accessGroup := range route.AccessControlGroups {
 			policies := b.getAllRoutePoliciesFromGroups([]string{accessGroup})
 
-			rules := b.getRouteFirewallRules(peerID, policies, route, validatedPeersMap, distributionPeers, account)
+			rules := b.getRouteFirewallRules(peerID, policies, route, validatedPeersMap, distributionPeers, account, includeIPv6)
 			routesFirewallRules = append(routesFirewallRules, rules...)
 		}
 	}
@@ -887,7 +894,7 @@ func (b *NetworkMapBuilder) getAllRoutePoliciesFromGroups(accessControlGroups []
 
 func (b *NetworkMapBuilder) getRouteFirewallRules(
 	peerID string, policies []*Policy, route *route.Route, validatedPeersMap map[string]struct{},
-	distributionPeers map[string]struct{}, account *Account,
+	distributionPeers map[string]struct{}, account *Account, includeIPv6 bool,
 ) []*RouteFirewallRule {
 	ctx := context.Background()
 	var fwRules []*RouteFirewallRule
@@ -903,7 +910,7 @@ func (b *NetworkMapBuilder) getRouteFirewallRules(
 
 			rulePeers := b.getRulePeers(rule, policy.SourcePostureChecks, peerID, distributionPeers, validatedPeersMap, account)
 
-			rules := generateRouteFirewallRules(ctx, route, rule, rulePeers, FirewallRuleDirectionIN)
+			rules := generateRouteFirewallRules(ctx, route, rule, rulePeers, FirewallRuleDirectionIN, includeIPv6)
 			fwRules = append(fwRules, rules...)
 		}
 	}
@@ -1100,14 +1107,17 @@ func (b *NetworkMapBuilder) assembleNetworkMap(
 		}
 	}
 
-	var routes []*route.Route
+	includeIPv6 := peer.SupportsIPv6() && peer.IPv6.IsValid()
+
+	var rawRoutes []*route.Route
 	allRouteIDs := slices.Concat(routesView.OwnRouteIDs, routesView.NetworkResourceIDs, routesView.InheritedRouteIDs)
 
 	for _, routeID := range allRouteIDs {
 		if route := b.cache.globalRoutes[routeID]; route != nil {
-			routes = append(routes, route)
+			rawRoutes = append(rawRoutes, route)
 		}
 	}
+	routes := filterAndExpandRoutes(rawRoutes, includeIPv6)
 
 	var firewallRules []*FirewallRule
 	for _, ruleID := range aclView.FirewallRuleIDs {
@@ -1654,12 +1664,20 @@ func (b *NetworkMapBuilder) calculateRouteFirewallUpdates(
 ) {
 	processedPeerRoutes := make(map[string]map[route.ID]struct{})
 
+	peerV6 := ""
+	if newPeer.IPv6.IsValid() {
+		peerV6 = newPeer.IPv6.String()
+	}
+
 	for routeID, info := range b.cache.noACGRoutes {
 		if info.PeerID == newPeerID {
 			continue
 		}
 
 		b.addRouteFirewallUpdate(updates, info.PeerID, string(routeID), newPeer.IP.String())
+		if peerV6 != "" {
+			b.addRouteFirewallUpdate(updates, info.PeerID, string(routeID), peerV6)
+		}
 
 		if processedPeerRoutes[info.PeerID] == nil {
 			processedPeerRoutes[info.PeerID] = make(map[route.ID]struct{})
@@ -1685,6 +1703,9 @@ func (b *NetworkMapBuilder) calculateRouteFirewallUpdates(
 			}
 
 			b.addRouteFirewallUpdate(updates, info.PeerID, string(routeID), newPeer.IP.String())
+			if peerV6 != "" {
+				b.addRouteFirewallUpdate(updates, info.PeerID, string(routeID), peerV6)
+			}
 
 			if processedPeerRoutes[info.PeerID] == nil {
 				processedPeerRoutes[info.PeerID] = make(map[route.ID]struct{})
@@ -1875,6 +1896,18 @@ func (b *NetworkMapBuilder) addUpdateForPeersInGroups(
 			Action:    string(rule.Action),
 			Protocol:  firewallRuleProtocol(rule.Protocol),
 		}
+
+		var v6fr *FirewallRule
+		if newPeer.IPv6.IsValid() {
+			v6fr = &FirewallRule{
+				PolicyID:  rule.ID,
+				PeerIP:    newPeer.IPv6.String(),
+				Direction: direction,
+				Action:    string(rule.Action),
+				Protocol:  firewallRuleProtocol(rule.Protocol),
+			}
+		}
+
 		for _, peerID := range peers {
 			if peerID == newPeerID {
 				continue
@@ -1893,6 +1926,14 @@ func (b *NetworkMapBuilder) addUpdateForPeersInGroups(
 			}
 
 			b.addOrUpdateFirewallRuleInDelta(updates, peerID, newPeerID, rule, direction, fr, peerIPForRule, targetPeer)
+
+			if v6fr != nil && targetPeer.SupportsIPv6() && targetPeer.IPv6.IsValid() {
+				v6PeerIP := v6fr.PeerIP
+				if all {
+					v6PeerIP = "::"
+				}
+				b.addOrUpdateFirewallRuleInDelta(updates, peerID, newPeerID, rule, direction, v6fr, v6PeerIP, targetPeer)
+			}
 		}
 	}
 }
@@ -1928,6 +1969,17 @@ func (b *NetworkMapBuilder) addUpdateForDirectPeerResource(
 	}
 
 	b.addOrUpdateFirewallRuleInDelta(updates, targetPeerID, newPeerID, rule, direction, fr, fr.PeerIP, targetPeer)
+
+	if newPeer.IPv6.IsValid() && targetPeer.SupportsIPv6() && targetPeer.IPv6.IsValid() {
+		v6fr := &FirewallRule{
+			PolicyID:  rule.ID,
+			PeerIP:    newPeer.IPv6.String(),
+			Direction: direction,
+			Action:    string(rule.Action),
+			Protocol:  firewallRuleProtocol(rule.Protocol),
+		}
+		b.addOrUpdateFirewallRuleInDelta(updates, targetPeerID, newPeerID, rule, direction, v6fr, v6fr.PeerIP, targetPeer)
+	}
 }
 
 func (b *NetworkMapBuilder) addOrUpdateFirewallRuleInDelta(
@@ -2002,33 +2054,45 @@ func (b *NetworkMapBuilder) applyDeltaToPeer(account *Account, peerID string, de
 
 func (b *NetworkMapBuilder) updateRouteFirewallRules(routesView *PeerRoutesView, updates []*RouteFirewallRuleUpdate) {
 	for _, update := range updates {
+		isV6Source := strings.Contains(update.AddSourceIP, ":")
+
 		for _, ruleID := range routesView.RouteFirewallRuleIDs {
 			rule := b.cache.globalRouteRules[ruleID]
 			if rule == nil {
 				continue
 			}
 
-			if string(rule.RouteID) == update.RuleID {
-				if hasWildcard := slices.Contains(rule.SourceRanges, allWildcard) || slices.Contains(rule.SourceRanges, v6AllWildcard); hasWildcard {
-					break
-				}
+			if string(rule.RouteID) != update.RuleID {
+				continue
+			}
 
-				sourceIP := update.AddSourceIP
+			// Dynamic routes share the same RouteID for v4 and v6 rules.
+			// Match the source IP family to the rule's destination family.
+			isV6Rule := strings.Contains(rule.Destination, ":")
+			if isV6Source != isV6Rule {
+				continue
+			}
 
-				if strings.Contains(sourceIP, ":") {
-					sourceIP += "/128" // IPv6
-				} else {
-					sourceIP += "/32" // IPv4
-				}
-
-				if !slices.Contains(rule.SourceRanges, sourceIP) {
-					rule.SourceRanges = append(rule.SourceRanges, sourceIP)
-				}
+			if slices.Contains(rule.SourceRanges, allWildcard) || slices.Contains(rule.SourceRanges, v6AllWildcard) {
 				break
 			}
+
+			sourceIP := update.AddSourceIP
+			if isV6Source {
+				sourceIP += "/128"
+			} else {
+				sourceIP += "/32"
+			}
+
+			if !slices.Contains(rule.SourceRanges, sourceIP) {
+				rule.SourceRanges = append(rule.SourceRanges, sourceIP)
+			}
+			break
 		}
 	}
 }
+
+
 
 func (b *NetworkMapBuilder) OnPeerDeleted(acc *Account, peerID string) error {
 	b.cache.mu.Lock()
