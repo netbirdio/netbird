@@ -111,13 +111,23 @@ func (n *networkManagerDbusConfigurator) applyDNSConfig(config HostDNSConfig, st
 	connSettings.cleanDeprecatedSettings()
 
 	ipKey := networkManagerDbusIPv4Key
+	staleKey := networkManagerDbusIPv6Key
 	if config.ServerIP.Is6() {
 		ipKey = networkManagerDbusIPv6Key
+		staleKey = networkManagerDbusIPv4Key
 		raw := config.ServerIP.As16()
 		connSettings[ipKey][networkManagerDbusDNSKey] = dbus.MakeVariant([][]byte{raw[:]})
 	} else {
 		convDNSIP := binary.LittleEndian.Uint32(config.ServerIP.AsSlice())
 		connSettings[ipKey][networkManagerDbusDNSKey] = dbus.MakeVariant([]uint32{convDNSIP})
+	}
+
+	// Clear stale DNS settings from the opposite address family to avoid
+	// leftover entries if the server IP family changed.
+	if staleSettings, ok := connSettings[staleKey]; ok {
+		delete(staleSettings, networkManagerDbusDNSKey)
+		delete(staleSettings, networkManagerDbusDNSPriorityKey)
+		delete(staleSettings, networkManagerDbusDNSSearchKey)
 	}
 	var (
 		searchDomains []string

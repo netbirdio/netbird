@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/configs"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/netiputil"
 )
 
 func TestAnonymizeStateFile(t *testing.T) {
@@ -168,7 +170,7 @@ func TestAnonymizeStateFile(t *testing.T) {
 	assert.Equal(t, "100.64.0.1", state["protected_ip"]) // Protected IP unchanged
 	assert.Equal(t, "8.8.8.8", state["well_known_ip"])   // Well-known IP unchanged
 	assert.NotEqual(t, "2001:db8::1", state["ipv6_addr"])
-	assert.Equal(t, "fd00::1", state["private_ipv6"]) // Private IPv6 unchanged
+	assert.NotEqual(t, "fd00::1", state["private_ipv6"]) // ULA IPv6 anonymized (global ID is a fingerprint)
 	assert.NotEqual(t, "test.example.com", state["domain"])
 	assert.True(t, strings.HasSuffix(state["domain"].(string), ".domain"))
 	assert.Equal(t, "device.netbird.cloud", state["netbird_domain"]) // Netbird domain unchanged
@@ -272,11 +274,13 @@ func mustMarshal(v any) json.RawMessage {
 }
 
 func TestAnonymizeNetworkMap(t *testing.T) {
+	origV6Prefix := netip.MustParsePrefix("2001:db8:abcd::5/64")
 	networkMap := &mgmProto.NetworkMap{
 		PeerConfig: &mgmProto.PeerConfig{
-			Address: "203.0.113.5",
-			Dns:     "1.2.3.4",
-			Fqdn:    "peer1.corp.example.com",
+			Address:   "203.0.113.5",
+			AddressV6: netiputil.EncodePrefix(origV6Prefix),
+			Dns:       "1.2.3.4",
+			Fqdn:      "peer1.corp.example.com",
 			SshConfig: &mgmProto.SSHConfig{
 				SshPubKey: []byte("ssh-rsa AAAAB3NzaC1..."),
 			},
@@ -349,6 +353,12 @@ func TestAnonymizeNetworkMap(t *testing.T) {
 	require.NotEqual(t, "1.2.3.4", peerCfg.Dns)
 	require.NotEqual(t, "peer1.corp.example.com", peerCfg.Fqdn)
 	require.True(t, strings.HasSuffix(peerCfg.Fqdn, ".domain"))
+
+	// Verify AddressV6 is anonymized but preserves prefix length
+	anonV6Prefix, err := netiputil.DecodePrefix(peerCfg.AddressV6)
+	require.NoError(t, err)
+	assert.Equal(t, origV6Prefix.Bits(), anonV6Prefix.Bits(), "prefix length must be preserved")
+	assert.NotEqual(t, origV6Prefix.Addr(), anonV6Prefix.Addr(), "IPv6 address must be anonymized")
 
 	// Verify SSH key is replaced
 	require.Equal(t, []byte("ssh-placeholder-key"), peerCfg.SshConfig.SshPubKey)
@@ -784,8 +794,8 @@ COMMIT`
 	assert.NotContains(t, anonNftables, "2001:db8::")
 	assert.Contains(t, anonNftables, "2001:db8:ffff::") // Default anonymous v6 range
 
-	// ULA addresses in nftables should remain unchanged (private)
-	assert.Contains(t, anonNftables, "fd00:1234::1")
+	// ULA addresses in nftables should be anonymized (global ID is a fingerprint)
+	assert.NotContains(t, anonNftables, "fd00:1234::1")
 
 	// IPv6 nftables structure preserved
 	assert.Contains(t, anonNftables, "ip6 saddr")
@@ -794,8 +804,8 @@ COMMIT`
 	// Test ip6tables-save anonymization
 	anonIp6tablesSave := anonymizer.AnonymizeString(ip6tablesSave)
 
-	// ULA (private) IPv6 should remain unchanged
-	assert.Contains(t, anonIp6tablesSave, "fd00:1234::1/128")
+	// ULA IPv6 should be anonymized (global ID is a fingerprint)
+	assert.NotContains(t, anonIp6tablesSave, "fd00:1234::1/128")
 
 	// Public IPv6 addresses should be anonymized
 	assert.NotContains(t, anonIp6tablesSave, "2607:f8b0:4005::1")
