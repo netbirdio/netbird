@@ -272,10 +272,11 @@ func (m *Manager) AddNatRule(pair firewall.RouterPair) error {
 		return err
 	}
 
-	// Dynamic routes need NAT in both tables
-	if m.hasIPv6() && pair.Destination.IsSet() {
-		v6Pair := pair
-		v6Pair.Source = firewall.Network{Prefix: netip.PrefixFrom(netip.IPv6Unspecified(), 0)}
+	// Dynamic routes need NAT in both tables since resolved IPs can be
+	// either v4 or v6. This covers both DomainSet (modern) and the legacy
+	// wildcard 0.0.0.0/0 destination where the client resolves DNS.
+	if m.hasIPv6() && firewall.NeedsV6NATDuplicate(pair) {
+		v6Pair := firewall.ToV6NatPair(pair)
 		if err := m.router6.AddNatRule(v6Pair); err != nil {
 			return fmt.Errorf("add v6 NAT rule: %w", err)
 		}
@@ -299,9 +300,8 @@ func (m *Manager) RemoveNatRule(pair firewall.RouterPair) error {
 		return err
 	}
 
-	if m.hasIPv6() && pair.Destination.IsSet() {
-		v6Pair := pair
-		v6Pair.Source = firewall.Network{Prefix: netip.PrefixFrom(netip.IPv6Unspecified(), 0)}
+	if m.hasIPv6() && firewall.NeedsV6NATDuplicate(pair) {
+		v6Pair := firewall.ToV6NatPair(pair)
 		if err := m.router6.RemoveNatRule(v6Pair); err != nil {
 			return fmt.Errorf("remove v6 NAT rule: %w", err)
 		}
