@@ -14,15 +14,14 @@ import (
 )
 
 // EncodePrefix encodes a netip.Prefix into compact bytes.
-// The address is always unmapped before encoding. If unmapping produces a v4
-// address, the prefix length is clamped to 32.
-func EncodePrefix(p netip.Prefix) []byte {
+// The address is always unmapped before encoding.
+func EncodePrefix(p netip.Prefix) ([]byte, error) {
 	addr := p.Addr().Unmap()
 	bits := p.Bits()
 	if addr.Is4() && bits > 32 {
-		bits = 32
+		return nil, fmt.Errorf("invalid prefix length %d for IPv4 address %s (max 32)", bits, addr)
 	}
-	return append(addr.AsSlice(), byte(bits))
+	return append(addr.AsSlice(), byte(bits)), nil
 }
 
 // DecodePrefix decodes compact bytes into a netip.Prefix.
@@ -43,7 +42,7 @@ func DecodePrefix(b []byte) (netip.Prefix, error) {
 		bits := int(b[len(b)-1])
 		if addr.Is4() {
 			if bits > 32 {
-				bits = 32
+				return netip.Prefix{}, fmt.Errorf("invalid prefix length %d for v4-mapped address (max 32)", bits)
 			}
 		} else if bits > 128 {
 			return netip.Prefix{}, fmt.Errorf("invalid IPv6 prefix length %d (max 128)", bits)
@@ -62,7 +61,9 @@ func EncodeAddr(a netip.Addr) []byte {
 	if a.Is4() {
 		bits = 32
 	}
-	return EncodePrefix(netip.PrefixFrom(a, bits))
+	// Host prefix lengths are always valid for the address family, so error is impossible.
+	b, _ := EncodePrefix(netip.PrefixFrom(a, bits))
+	return b
 }
 
 // DecodeAddr decodes compact prefix bytes and returns only the address,

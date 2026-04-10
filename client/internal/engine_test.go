@@ -1701,6 +1701,13 @@ func getPeers(e *Engine) int {
 	return len(e.peerStore.PeersPubKey())
 }
 
+func mustEncodePrefix(t *testing.T, p netip.Prefix) []byte {
+	t.Helper()
+	b, err := netiputil.EncodePrefix(p)
+	require.NoError(t, err)
+	return b
+}
+
 func TestEngine_hasIPv6Changed(t *testing.T) {
 	v4Only := wgaddr.MustParseWGAddress("100.64.0.1/16")
 
@@ -1723,7 +1730,7 @@ func TestEngine_hasIPv6Changed(t *testing.T) {
 		{
 			name:     "no v6 before, v6 added",
 			current:  v4Only,
-			confV6:   netiputil.EncodePrefix(netip.MustParsePrefix("fd00::1/64")),
+			confV6:   mustEncodePrefix(t, netip.MustParsePrefix("fd00::1/64")),
 			expected: true,
 		},
 		{
@@ -1735,19 +1742,19 @@ func TestEngine_hasIPv6Changed(t *testing.T) {
 		{
 			name:     "had v6, same v6",
 			current:  v4v6,
-			confV6:   netiputil.EncodePrefix(netip.MustParsePrefix("fd00::1/64")),
+			confV6:   mustEncodePrefix(t, netip.MustParsePrefix("fd00::1/64")),
 			expected: false,
 		},
 		{
 			name:     "had v6, different v6",
 			current:  v4v6,
-			confV6:   netiputil.EncodePrefix(netip.MustParsePrefix("fd00::2/64")),
+			confV6:   mustEncodePrefix(t, netip.MustParsePrefix("fd00::2/64")),
 			expected: true,
 		},
 		{
 			name:     "same v6 addr, different prefix length",
 			current:  v4v6,
-			confV6:   netiputil.EncodePrefix(netip.MustParsePrefix("fd00::1/80")),
+			confV6:   mustEncodePrefix(t, netip.MustParsePrefix("fd00::1/80")),
 			expected: true,
 		},
 		{

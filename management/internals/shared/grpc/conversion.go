@@ -119,7 +119,9 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 	if peer.SupportsIPv6() && peer.IPv6.IsValid() && network.NetV6.IP != nil {
 		ones, _ := network.NetV6.Mask.Size()
 		v6Prefix := netip.PrefixFrom(peer.IPv6.Unmap(), ones)
-		peerConfig.AddressV6 = netiputil.EncodePrefix(v6Prefix)
+		if b, err := netiputil.EncodePrefix(v6Prefix); err == nil {
+			peerConfig.AddressV6 = b
+		}
 	}
 
 	return peerConfig
@@ -344,9 +346,9 @@ func populateSourcePrefixes(fwRule *proto.FirewallRule, rule *types.FirewallRule
 		return nil
 	}
 
-	fwRule.SourcePrefixes = [][]byte{
-		netiputil.EncodePrefix(netip.PrefixFrom(netip.IPv4Unspecified(), 0)),
-	}
+	// IPv4Unspecified/0 is always valid, error is impossible.
+	v4Wildcard, _ := netiputil.EncodePrefix(netip.PrefixFrom(netip.IPv4Unspecified(), 0))
+	fwRule.SourcePrefixes = [][]byte{v4Wildcard}
 
 	if !includeIPv6 {
 		return nil
@@ -354,9 +356,9 @@ func populateSourcePrefixes(fwRule *proto.FirewallRule, rule *types.FirewallRule
 
 	v6Rule := goproto.Clone(fwRule).(*proto.FirewallRule)
 	v6Rule.PeerIP = "::" //nolint:staticcheck // populated for backward compatibility
-	v6Rule.SourcePrefixes = [][]byte{
-		netiputil.EncodePrefix(netip.PrefixFrom(netip.IPv6Unspecified(), 0)),
-	}
+	// IPv6Unspecified/0 is always valid, error is impossible.
+	v6Wildcard, _ := netiputil.EncodePrefix(netip.PrefixFrom(netip.IPv6Unspecified(), 0))
+	v6Rule.SourcePrefixes = [][]byte{v6Wildcard}
 	if shouldUsePortRange(v6Rule) {
 		v6Rule.PortInfo = rule.PortRange.ToProto()
 	}

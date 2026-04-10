@@ -1262,7 +1262,9 @@ func anonymizePeerConfig(config *mgmProto.PeerConfig, anonymizer *anonymize.Anon
 
 	if v6Prefix, err := netiputil.DecodePrefix(config.GetAddressV6()); err == nil {
 		anonV6 := anonymizer.AnonymizeIP(v6Prefix.Addr())
-		config.AddressV6 = netiputil.EncodePrefix(netip.PrefixFrom(anonV6, v6Prefix.Bits()))
+		if b, err := netiputil.EncodePrefix(netip.PrefixFrom(anonV6, v6Prefix.Bits())); err == nil {
+			config.AddressV6 = b
+		}
 	}
 
 	anonymizeSSHConfig(config.SshConfig)

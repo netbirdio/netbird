@@ -20,6 +20,13 @@ import (
 	"github.com/netbirdio/netbird/shared/netiputil"
 )
 
+func mustEncodePrefix(t *testing.T, p netip.Prefix) []byte {
+	t.Helper()
+	b, err := netiputil.EncodePrefix(p)
+	require.NoError(t, err)
+	return b
+}
+
 func TestAnonymizeStateFile(t *testing.T) {
 	testState := map[string]json.RawMessage{
 		"null_state": json.RawMessage("null"),
@@ -278,7 +285,7 @@ func TestAnonymizeNetworkMap(t *testing.T) {
 	networkMap := &mgmProto.NetworkMap{
 		PeerConfig: &mgmProto.PeerConfig{
 			Address:   "203.0.113.5",
-			AddressV6: netiputil.EncodePrefix(origV6Prefix),
+			AddressV6: mustEncodePrefix(t, origV6Prefix),
 			Dns:       "1.2.3.4",
 			Fqdn:      "peer1.corp.example.com",
 			SshConfig: &mgmProto.SSHConfig{
