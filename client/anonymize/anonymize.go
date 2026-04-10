@@ -50,7 +50,7 @@ func (a *Anonymizer) AnonymizeIP(ip netip.Addr) netip.Addr {
 		ip.IsLinkLocalUnicast() ||
 		ip.IsLinkLocalMulticast() ||
 		ip.IsInterfaceLocalMulticast() ||
-		ip.IsPrivate() ||
+		(ip.Is4() && ip.IsPrivate()) ||
 		ip.IsUnspecified() ||
 		ip.IsMulticast() ||
 		isWellKnown(ip) ||

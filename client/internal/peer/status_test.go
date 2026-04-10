@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAddPeer(t *testing.T) {
@@ -46,7 +47,7 @@ func TestUpdatePeerState(t *testing.T) {
 	ip := "10.10.10.10"
 	fqdn := "peer-a.netbird.local"
 	status := NewRecorder("https://mgm")
-	_ = status.AddPeer(key, fqdn, ip, "")
+	require.NoError(t, status.AddPeer(key, fqdn, ip, ""))
 
 	peerState := State{
 		PubKey:           key,

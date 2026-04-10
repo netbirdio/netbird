@@ -93,11 +93,13 @@ func (t *TunDevice) Create() (WGConfigurer, error) {
 	if t.address.HasIPv6() {
 		nbiface6, err := luid.IPInterface(windows.AF_INET6)
 		if err != nil {
-			log.Warnf("failed to get IPv6 interface for MTU: %v", err)
+			log.Warnf("failed to get IPv6 interface for MTU, continuing v4-only: %v", err)
+			t.address.ClearIPv6()
 		} else {
 			nbiface6.NLMTU = uint32(t.mtu)
 			if err := nbiface6.Set(); err != nil {
-				log.Warnf("failed to set IPv6 interface MTU: %v", err)
+				log.Warnf("failed to set IPv6 interface MTU, continuing v4-only: %v", err)
+				t.address.ClearIPv6()
 			}
 		}
 	}

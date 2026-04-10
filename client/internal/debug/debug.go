@@ -31,6 +31,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/updater/installer"
 	nbstatus "github.com/netbirdio/netbird/client/status"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/netiputil"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -1257,6 +1258,11 @@ func anonymizePeerConfig(config *mgmProto.PeerConfig, anonymizer *anonymize.Anon
 
 	if addr, err := netip.ParseAddr(config.Address); err == nil {
 		config.Address = anonymizer.AnonymizeIP(addr).String()
+	}
+
+	if v6Prefix, err := netiputil.DecodePrefix(config.GetAddressV6()); err == nil {
+		anonV6 := anonymizer.AnonymizeIP(v6Prefix.Addr())
+		config.AddressV6 = netiputil.EncodePrefix(netip.PrefixFrom(anonV6, v6Prefix.Bits()))
 	}
 
 	anonymizeSSHConfig(config.SshConfig)

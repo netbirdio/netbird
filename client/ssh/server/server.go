@@ -322,6 +322,8 @@ func (s *Server) Stop() error {
 	}
 	s.sshServer = nil
 	s.listener = nil
+	extraListeners := s.extraListeners
+	s.extraListeners = nil
 	s.mu.Unlock()
 
 	// Close outside the lock: session handlers need s.mu for unregisterSession.
@@ -329,15 +331,11 @@ func (s *Server) Stop() error {
 		log.Debugf("close SSH server: %v", err)
 	}
 
-	for _, ln := range s.extraListeners {
+	for _, ln := range extraListeners {
 		if err := ln.Close(); err != nil {
 			log.Debugf("close extra SSH listener: %v", err)
 		}
 	}
-	s.extraListeners = nil
-
-	s.sshServer = nil
-	s.listener = nil
 
 	s.mu.Lock()
 	maps.Clear(s.sessions)
