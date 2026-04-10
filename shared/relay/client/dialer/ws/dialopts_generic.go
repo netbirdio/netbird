@@ -2,10 +2,14 @@
 
 package ws
 
-import "github.com/coder/websocket"
+import (
+	"crypto/tls"
 
-func createDialOptions() *websocket.DialOptions {
+	"github.com/coder/websocket"
+)
+
+func createDialOptions(clientCert *tls.Certificate) *websocket.DialOptions {
 	return &websocket.DialOptions{
-		HTTPClient: httpClientNbDialer(),
+		HTTPClient: httpClientNbDialer(clientCert),
 	}
 }

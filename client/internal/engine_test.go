@@ -249,7 +249,7 @@ func TestEngine_SSH(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
+	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU, nil)
 	engine := NewEngine(
 		ctx, cancel,
 		&EngineConfig{
@@ -428,7 +428,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
+	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU, nil)
 	engine := NewEngine(ctx, cancel, &EngineConfig{
 		WgIfaceName:  "utun102",
 		WgAddr:       "100.64.0.1/24",
@@ -652,7 +652,7 @@ func TestEngine_Sync(t *testing.T) {
 		}
 		return nil
 	}
-	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
+	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU, nil)
 	engine := NewEngine(ctx, cancel, &EngineConfig{
 		WgIfaceName:  "utun103",
 		WgAddr:       "100.64.0.1/24",
@@ -822,7 +822,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 			wgIfaceName := fmt.Sprintf("utun%d", 104+n)
 			wgAddr := fmt.Sprintf("100.66.%d.1/24", n)
 
-			relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
+			relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU, nil)
 			engine := NewEngine(ctx, cancel, &EngineConfig{
 				WgIfaceName:  wgIfaceName,
 				WgAddr:       wgAddr,
@@ -1029,7 +1029,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			wgIfaceName := fmt.Sprintf("utun%d", 104+n)
 			wgAddr := fmt.Sprintf("100.66.%d.1/24", n)
 
-			relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
+			relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU, nil)
 			engine := NewEngine(ctx, cancel, &EngineConfig{
 				WgIfaceName:  wgIfaceName,
 				WgAddr:       wgAddr,
@@ -1530,11 +1530,11 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 	if err != nil {
 		return nil, err
 	}
-	mgmtClient, err := mgmt.NewClient(ctx, mgmtAddr, key, false)
+	mgmtClient, err := mgmt.NewClient(ctx, mgmtAddr, key, false, nil)
 	if err != nil {
 		return nil, err
 	}
-	signalClient, err := signal.NewClient(ctx, signalAddr, key, false)
+	signalClient, err := signal.NewClient(ctx, signalAddr, key, false, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1561,7 +1561,7 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 		MTU:          iface.DefaultMTU,
 	}
 
-	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
+	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU, nil)
 	e, err := NewEngine(ctx, cancel, conf, EngineServices{
 		SignalClient:   signalClient,
 		MgmClient:      mgmtClient,

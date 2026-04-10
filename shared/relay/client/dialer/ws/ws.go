@@ -20,6 +20,8 @@ import (
 )
 
 type Dialer struct {
+	// ClientCert is an optional client certificate for mTLS authentication
+	ClientCert *tls.Certificate
 }
 
 func (d Dialer) Protocol() string {
@@ -32,7 +34,7 @@ func (d Dialer) Dial(ctx context.Context, address string) (net.Conn, error) {
 		return nil, err
 	}
 
-	opts := createDialOptions()
+	opts := createDialOptions(d.ClientCert)
 
 	parsedURL, err := url.Parse(wsURL)
 	if err != nil {
@@ -64,7 +66,7 @@ func prepareURL(address string) (string, error) {
 	return strings.Replace(address, "rel", "ws", 1), nil
 }
 
-func httpClientNbDialer() *http.Client {
+func httpClientNbDialer(clientCert *tls.Certificate) *http.Client {
 	customDialer := nbnet.NewDialer()
 
 	certPool, err := x509.SystemCertPool()
@@ -73,13 +75,21 @@ func httpClientNbDialer() *http.Client {
 		certPool = embeddedroots.Get()
 	}
 
+	tlsConfig := &tls.Config{
+		RootCAs: certPool,
+	}
+
+	// Add client certificate if provided (for mTLS)
+	if clientCert != nil {
+		tlsConfig.Certificates = []tls.Certificate{*clientCert}
+		log.Debugf("Using client certificate for mTLS with relay server")
+	}
+
 	customTransport := &http.Transport{
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			return customDialer.DialContext(ctx, network, addr)
 		},
-		TLSClientConfig: &tls.Config{
-			RootCAs: certPool,
-		},
+		TLSClientConfig: tlsConfig,
 	}
 
 	return &http.Client{
