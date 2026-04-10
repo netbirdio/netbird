@@ -2159,6 +2159,14 @@ func (e *Engine) GetWgAddr() netip.Addr {
 	return e.wgInterface.Address().IP
 }
 
+// GetWgV6Addr returns the IPv6 overlay address of the WireGuard interface.
+func (e *Engine) GetWgV6Addr() netip.Addr {
+	if e.wgInterface == nil {
+		return netip.Addr{}
+	}
+	return e.wgInterface.Address().IPv6
+}
+
 func (e *Engine) RenewTun(fd int) error {
 	e.syncMsgMux.Lock()
 	wgInterface := e.wgInterface
