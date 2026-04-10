@@ -275,7 +275,7 @@ func (m *Manager) AddNatRule(pair firewall.RouterPair) error {
 	// Dynamic routes need NAT in both tables since resolved IPs can be
 	// either v4 or v6. This covers both DomainSet (modern) and the legacy
 	// wildcard 0.0.0.0/0 destination where the client resolves DNS.
-	if m.hasIPv6() && firewall.NeedsV6NATDuplicate(pair) {
+	if m.hasIPv6() && pair.Dynamic {
 		v6Pair := firewall.ToV6NatPair(pair)
 		if err := m.router6.AddNatRule(v6Pair); err != nil {
 			return fmt.Errorf("add v6 NAT rule: %w", err)
@@ -296,18 +296,20 @@ func (m *Manager) RemoveNatRule(pair firewall.RouterPair) error {
 		return m.router6.RemoveNatRule(pair)
 	}
 
+	var merr *multierror.Error
+
 	if err := m.router.RemoveNatRule(pair); err != nil {
-		return err
+		merr = multierror.Append(merr, fmt.Errorf("remove v4 NAT rule: %w", err))
 	}
 
-	if m.hasIPv6() && firewall.NeedsV6NATDuplicate(pair) {
+	if m.hasIPv6() && pair.Dynamic {
 		v6Pair := firewall.ToV6NatPair(pair)
 		if err := m.router6.RemoveNatRule(v6Pair); err != nil {
-			return fmt.Errorf("remove v6 NAT rule: %w", err)
+			merr = multierror.Append(merr, fmt.Errorf("remove v6 NAT rule: %w", err))
 		}
 	}
 
-	return nil
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 func (m *Manager) SetLegacyManagement(isLegacy bool) error {

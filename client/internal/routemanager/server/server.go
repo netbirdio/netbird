@@ -160,6 +160,7 @@ func routeToRouterPair(route *route.Route, useNewDNSRoute bool) firewall.RouterP
 		Source:      source,
 		Destination: destination,
 		Masquerade:  route.Masquerade,
+		Dynamic:     route.IsDynamic(),
 	}
 }
 
