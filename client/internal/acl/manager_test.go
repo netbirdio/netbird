@@ -19,6 +19,9 @@ import (
 var flowLogger = netflow.NewManager(nil, []byte{}, nil).GetLogger()
 
 func TestDefaultManager(t *testing.T) {
+	t.Setenv("NB_WG_KERNEL_DISABLED", "true")
+	t.Setenv(firewall.EnvForceUserspaceFirewall, "true")
+
 	networkMap := &mgmProto.NetworkMap{
 		FirewallRules: []*mgmProto.FirewallRule{
 			{
@@ -135,6 +138,7 @@ func TestDefaultManager(t *testing.T) {
 func TestDefaultManagerStateless(t *testing.T) {
 	// stateless currently only in userspace, so we have to disable kernel
 	t.Setenv("NB_WG_KERNEL_DISABLED", "true")
+	t.Setenv(firewall.EnvForceUserspaceFirewall, "true")
 	t.Setenv("NB_DISABLE_CONNTRACK", "true")
 
 	networkMap := &mgmProto.NetworkMap{
@@ -194,6 +198,7 @@ func TestDefaultManagerStateless(t *testing.T) {
 // This tests the full ACL manager -> uspfilter integration.
 func TestDenyRulesNotAccumulatedOnRepeatedApply(t *testing.T) {
 	t.Setenv("NB_WG_KERNEL_DISABLED", "true")
+	t.Setenv(firewall.EnvForceUserspaceFirewall, "true")
 
 	networkMap := &mgmProto.NetworkMap{
 		FirewallRules: []*mgmProto.FirewallRule{
@@ -258,6 +263,7 @@ func TestDenyRulesNotAccumulatedOnRepeatedApply(t *testing.T) {
 // up when they're removed from the network map in a subsequent update.
 func TestDenyRulesCleanedUpOnRemoval(t *testing.T) {
 	t.Setenv("NB_WG_KERNEL_DISABLED", "true")
+	t.Setenv(firewall.EnvForceUserspaceFirewall, "true")
 
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -339,6 +345,7 @@ func TestDenyRulesCleanedUpOnRemoval(t *testing.T) {
 // one added without leaking.
 func TestRuleUpdateChangingAction(t *testing.T) {
 	t.Setenv("NB_WG_KERNEL_DISABLED", "true")
+	t.Setenv(firewall.EnvForceUserspaceFirewall, "true")
 
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

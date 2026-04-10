@@ -42,7 +42,6 @@ type Manager struct {
 type iFaceMapper interface {
 	Name() string
 	Address() wgaddr.Address
-	IsUserspaceBind() bool
 }
 
 // Create iptables firewall manager
@@ -107,10 +106,9 @@ func (m *Manager) hasIPv6() bool {
 func (m *Manager) Init(stateManager *statemanager.Manager) error {
 	state := &ShutdownState{
 		InterfaceState: &InterfaceState{
-			NameStr:       m.wgIface.Name(),
-			WGAddress:     m.wgIface.Address(),
-			UserspaceBind: m.wgIface.IsUserspaceBind(),
-			MTU:           m.router.mtu,
+			NameStr:   m.wgIface.Name(),
+			WGAddress: m.wgIface.Address(),
+			MTU:       m.router.mtu,
 		},
 	}
 	stateManager.RegisterState(state)
@@ -359,19 +357,17 @@ func (m *Manager) Close(stateManager *statemanager.Manager) error {
 	return nberrors.FormatErrorOrNil(merr)
 }
 
-// AllowNetbird allows netbird interface traffic
+// AllowNetbird allows netbird interface traffic.
+// This is called when USPFilter wraps the native firewall, adding blanket accept
+// rules so that packet filtering is handled in userspace instead of by netfilter.
 func (m *Manager) AllowNetbird() error {
-	if !m.wgIface.IsUserspaceBind() {
-		return nil
-	}
-
 	var merr *multierror.Error
-	if _, err := m.aclMgr.AddPeerFiltering(nil, net.IP{0, 0, 0, 0}, firewall.ProtocolALL, nil, nil, firewall.ActionAccept, ""); err != nil {
-		merr = multierror.Append(merr, fmt.Errorf("allow netbird interface traffic: %w", err))
+	if _, err := m.AddPeerFiltering(nil, net.IP{0, 0, 0, 0}, firewall.ProtocolALL, nil, nil, firewall.ActionAccept, ""); err != nil {
+		merr = multierror.Append(merr, fmt.Errorf("allow netbird v4 interface traffic: %w", err))
 	}
 	if m.hasIPv6() {
-		if _, err := m.aclMgr6.AddPeerFiltering(nil, net.IPv6zero, firewall.ProtocolALL, nil, nil, firewall.ActionAccept, ""); err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("allow v6 netbird interface traffic: %w", err))
+		if _, err := m.AddPeerFiltering(nil, net.IPv6zero, firewall.ProtocolALL, nil, nil, firewall.ActionAccept, ""); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("allow netbird v6 interface traffic: %w", err))
 		}
 	}
 	return nberrors.FormatErrorOrNil(merr)

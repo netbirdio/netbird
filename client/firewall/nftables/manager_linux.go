@@ -42,7 +42,6 @@ func getTableName() string {
 type iFaceMapper interface {
 	Name() string
 	Address() wgaddr.Address
-	IsUserspaceBind() bool
 }
 
 // Manager of iptables firewall
@@ -185,10 +184,9 @@ func (m *Manager) persistState(stateManager *statemanager.Manager) {
 
 	if err := stateManager.UpdateState(&ShutdownState{
 		InterfaceState: &InterfaceState{
-			NameStr:       m.wgIface.Name(),
-			WGAddress:     m.wgIface.Address(),
-			UserspaceBind: m.wgIface.IsUserspaceBind(),
-			MTU:           m.router.mtu,
+			NameStr:   m.wgIface.Name(),
+			WGAddress: m.wgIface.Address(),
+			MTU:       m.router.mtu,
 		},
 	}); err != nil {
 		log.Errorf("failed to update state: %v", err)
@@ -369,6 +367,9 @@ func (m *Manager) RemoveNatRule(pair firewall.RouterPair) error {
 }
 
 // AllowNetbird allows netbird interface traffic.
+// This is called when USPFilter wraps the native firewall, adding blanket accept
+// rules so that packet filtering is handled in userspace instead of by netfilter.
+//
 // TODO: In USP mode this only adds ACCEPT to the netbird table's own chains,
 // which doesn't override DROP rules in external tables (e.g. firewalld).
 // Should add passthrough rules to external chains (like the native mode router's
@@ -376,10 +377,6 @@ func (m *Manager) RemoveNatRule(pair firewall.RouterPair) error {
 // The netbird table itself is fine (routing chains already exist there), but
 // non-netbird tables with INPUT/FORWARD hooks can still DROP our WG traffic.
 func (m *Manager) AllowNetbird() error {
-	if !m.wgIface.IsUserspaceBind() {
-		return nil
-	}
-
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
