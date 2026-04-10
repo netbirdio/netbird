@@ -715,9 +715,13 @@ func (conn *Conn) evalStatus() ConnStatus {
 	return StatusConnecting
 }
 
+// isConnectedOnAllWay evaluates the overall connection status based on ICE and Relay transports.
+//
+// The result is a tri-state:
+//   - ConnStatusConnected:          all available transports are up
+//   - ConnStatusPartiallyConnected: relay is up but ICE is still pending/reconnecting
+//   - ConnStatusDisconnected:       no working transport
 func (conn *Conn) isConnectedOnAllWay() (status guard.ConnStatus) {
-	// would be better to protect this with a mutex, but it could cause deadlock with Close function
-
 	defer func() {
 		if status != guard.ConnStatusConnected {
 			conn.logTraceConnState()
@@ -727,38 +731,34 @@ func (conn *Conn) isConnectedOnAllWay() (status guard.ConnStatus) {
 	relayConnected := conn.workerRelay.IsRelayConnectionSupportedWithPeer() &&
 		conn.statusRelay.Get() == worker.StatusConnected
 
-	// For force-relayed connections (JS or NB_FORCE_RELAY): only relay status matters
+	// Force-relay mode (JS/WASM or NB_FORCE_RELAY): ICE is never used, relay is the only transport.
 	if IsForceRelayed() {
-		if relayConnected {
-			return guard.ConnStatusConnected
-		}
+		return boolToConnStatus(relayConnected)
+	}
+
+	iceAvailable := conn.handshaker.RemoteICESupported() && conn.workerICE != nil
+
+	// When ICE is not available (remote peer doesn't support it or worker not yet created),
+	// relay is the only possible transport.
+	if !iceAvailable {
+		return boolToConnStatus(relayConnected)
+	}
+
+	// ICE is considered "up" when it is connected or a connection attempt is in progress.
+	iceConnected := conn.statusICE.Get() != worker.StatusDisconnected || conn.workerICE.InProgress()
+
+	// Relay is OK if the peer doesn't use relay, or if relay is actually connected.
+	relayOK := !conn.workerRelay.IsRelayConnectionSupportedWithPeer() || relayConnected
+
+	switch {
+	case iceConnected && relayOK:
+		return guard.ConnStatusConnected
+	case relayConnected:
+		// Relay is up but ICE is down — partially connected.
+		return guard.ConnStatusPartiallyConnected
+	default:
 		return guard.ConnStatusDisconnected
 	}
-
-	iceConnected := true
-	// For non-forced platforms: check ICE connection status only if remote peer supports ICE
-	if conn.handshaker.RemoteICESupported() && conn.workerICE != nil {
-		iceConnected = conn.statusICE.Get() != worker.StatusDisconnected || conn.workerICE.InProgress()
-	} else if !conn.handshaker.RemoteICESupported() || conn.workerICE == nil {
-		// ICE is not available, so relay is the only possible transport
-		if !relayConnected {
-			return guard.ConnStatusDisconnected
-		}
-	}
-
-	relayNeeded := conn.workerRelay.IsRelayConnectionSupportedWithPeer()
-	relayOK := !relayNeeded || relayConnected
-
-	if iceConnected && relayOK {
-		return guard.ConnStatusConnected
-	}
-
-	// Relay is up but ICE is not
-	if relayConnected && !iceConnected {
-		return guard.ConnStatusPartiallyConnected
-	}
-
-	return guard.ConnStatusDisconnected
 }
 
 func (conn *Conn) enableWgWatcherIfNeeded(enabledTime time.Time) {
@@ -945,4 +945,11 @@ func isController(config ConnConfig) bool {
 
 func isRosenpassEnabled(remoteRosenpassPubKey []byte) bool {
 	return remoteRosenpassPubKey != nil
+}
+
+func boolToConnStatus(connected bool) guard.ConnStatus {
+	if connected {
+		return guard.ConnStatusConnected
+	}
+	return guard.ConnStatusDisconnected
 }
