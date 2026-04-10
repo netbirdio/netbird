@@ -747,31 +747,47 @@ func (c *NetworkMapComponents) getNetworkResourcesRoutesToSync(peerID string) (b
 			}
 		}
 
-		addedResourceRoute := false
-		for _, policy := range c.ResourcePoliciesMap[resource.ID] {
-			var peers []string
-			if policy.Rules[0].SourceResource.Type == ResourceTypePeer && policy.Rules[0].SourceResource.ID != "" {
-				peers = []string{policy.Rules[0].SourceResource.ID}
-			} else {
-				peers = c.getUniquePeerIDsFromGroupsIDs(policy.SourceGroups())
-			}
-			if addSourcePeers {
-				for _, pID := range c.getPostureValidPeers(peers, policy.SourcePostureChecks) {
-					allSourcePeers[pID] = struct{}{}
-				}
-			} else if slices.Contains(peers, peerID) && c.ValidatePostureChecksOnPeer(peerID, policy.SourcePostureChecks) {
-				for peerId, router := range networkRoutingPeers {
-					routes = append(routes, c.getNetworkResourcesRoutes(resource, peerId, router)...)
-				}
-				addedResourceRoute = true
-			}
-			if addedResourceRoute {
-				break
-			}
-		}
+		newRoutes := c.processResourcePolicies(peerID, resource, networkRoutingPeers, addSourcePeers, allSourcePeers)
+		routes = append(routes, newRoutes...)
 	}
 
 	return isRoutingPeer, routes, allSourcePeers
+}
+
+func (c *NetworkMapComponents) processResourcePolicies(
+	peerID string,
+	resource *resourceTypes.NetworkResource,
+	networkRoutingPeers map[string]*routerTypes.NetworkRouter,
+	addSourcePeers bool,
+	allSourcePeers map[string]struct{},
+) []*route.Route {
+	var routes []*route.Route
+
+	for _, policy := range c.ResourcePoliciesMap[resource.ID] {
+		peers := c.getResourcePolicyPeers(policy)
+		if addSourcePeers {
+			for _, pID := range c.getPostureValidPeers(peers, policy.SourcePostureChecks) {
+				allSourcePeers[pID] = struct{}{}
+			}
+			continue
+		}
+
+		if slices.Contains(peers, peerID) && c.ValidatePostureChecksOnPeer(peerID, policy.SourcePostureChecks) {
+			for peerId, router := range networkRoutingPeers {
+				routes = append(routes, c.getNetworkResourcesRoutes(resource, peerId, router)...)
+			}
+			break
+		}
+	}
+
+	return routes
+}
+
+func (c *NetworkMapComponents) getResourcePolicyPeers(policy *Policy) []string {
+	if policy.Rules[0].SourceResource.Type == ResourceTypePeer && policy.Rules[0].SourceResource.ID != "" {
+		return []string{policy.Rules[0].SourceResource.ID}
+	}
+	return c.getUniquePeerIDsFromGroupsIDs(policy.SourceGroups())
 }
 
 func (c *NetworkMapComponents) getNetworkResourcesRoutes(resource *resourceTypes.NetworkResource, peerID string, router *routerTypes.NetworkRouter) []*route.Route {
