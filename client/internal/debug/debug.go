@@ -1373,6 +1373,17 @@ func anonymizeFirewallRule(rule *mgmProto.FirewallRule, anonymizer *anonymize.An
 	if addr, err := netip.ParseAddr(rule.PeerIP); err == nil {
 		rule.PeerIP = anonymizer.AnonymizeIP(addr).String() //nolint:staticcheck
 	}
+
+	for i, raw := range rule.GetSourcePrefixes() {
+		p, err := netiputil.DecodePrefix(raw)
+		if err != nil {
+			continue
+		}
+		anonAddr := anonymizer.AnonymizeIP(p.Addr())
+		if b, err := netiputil.EncodePrefix(netip.PrefixFrom(anonAddr, p.Bits())); err == nil {
+			rule.SourcePrefixes[i] = b
+		}
+	}
 }
 
 func anonymizeRouteFirewallRule(rule *mgmProto.RouteFirewallRule, anonymizer *anonymize.Anonymizer) {
