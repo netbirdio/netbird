@@ -805,8 +805,28 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 		return status.Errorf(status.Internal, "failed to build user infos for account %s: %v", accountID, err)
 	}
 
-	if err := am.deleteAccountUsers(ctx, accountID, userID, account.Users, userInfosMap); err != nil {
-		return err
+	for _, otherUser := range account.Users {
+		if otherUser.Id == userID {
+			continue
+		}
+
+		if otherUser.IsServiceUser {
+			err = am.deleteServiceUser(ctx, accountID, userID, otherUser)
+			if err != nil {
+				return err
+			}
+			continue
+		}
+
+		userInfo, ok := userInfosMap[otherUser.Id]
+		if !ok {
+			return status.Errorf(status.NotFound, "user info not found for user %s", otherUser.Id)
+		}
+
+		_, deleteUserErr := am.deleteRegularUser(ctx, accountID, userID, userInfo)
+		if deleteUserErr != nil {
+			return deleteUserErr
+		}
 	}
 
 	userInfo, ok := userInfosMap[userID]
@@ -830,31 +850,6 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 	am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountDeleted, meta)
 
 	log.WithContext(ctx).Debugf("account %s deleted", accountID)
-	return nil
-}
-
-func (am *DefaultAccountManager) deleteAccountUsers(ctx context.Context, accountID, userID string, users map[string]*types.User, userInfosMap map[string]*types.UserInfo) error {
-	for _, otherUser := range users {
-		if otherUser.Id == userID {
-			continue
-		}
-
-		if otherUser.IsServiceUser {
-			if err := am.deleteServiceUser(ctx, accountID, userID, otherUser); err != nil {
-				return err
-			}
-			continue
-		}
-
-		userInfo, ok := userInfosMap[otherUser.Id]
-		if !ok {
-			return status.Errorf(status.NotFound, "user info not found for user %s", otherUser.Id)
-		}
-
-		if _, err := am.deleteRegularUser(ctx, accountID, userID, userInfo); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
