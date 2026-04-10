@@ -737,6 +737,11 @@ func (conn *Conn) isConnectedOnAllWay() (connected bool) {
 		if conn.statusICE.Get() == worker.StatusDisconnected && !conn.workerICE.InProgress() {
 			return false
 		}
+	} else {
+		// ICE is not available, so relay is the only possible transport
+		if !conn.workerRelay.IsRelayConnectionSupportedWithPeer() {
+			return false
+		}
 	}
 
 	// If relay is supported with peer, it must also be connected
