@@ -348,7 +348,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		}
 
 		if oldSettings.GroupsPropagationEnabled != newSettings.GroupsPropagationEnabled && newSettings.GroupsPropagationEnabled {
-			groupsUpdated, groupChangesAffectPeers, err = propagateUserGroupMemberships(ctx, transaction, accountID)
+			groupsUpdated, groupChangesAffectPeers, err = am.propagateUserGroupMemberships(ctx, transaction, accountID)
 			if err != nil {
 				return err
 			}
@@ -1599,6 +1599,11 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 				}
 			}
 
+			allGroupChanges := slices.Concat(addNewGroups, removeOldGroups)
+			if err = am.reconcileIPv6ForGroupChanges(ctx, transaction, userAuth.AccountId, allGroupChanges); err != nil {
+				return fmt.Errorf("reconcile IPv6 for group changes: %w", err)
+			}
+
 			if err = transaction.IncrementNetworkSerial(ctx, userAuth.AccountId); err != nil {
 				return fmt.Errorf("error incrementing network serial: %w", err)
 			}
@@ -2160,7 +2165,7 @@ func (am *DefaultAccountManager) UpdateToPrimaryAccount(ctx context.Context, acc
 
 // propagateUserGroupMemberships propagates all account users' group memberships to their peers.
 // Returns true if any groups were modified, true if those updates affect peers and an error.
-func propagateUserGroupMemberships(ctx context.Context, transaction store.Store, accountID string) (groupsUpdated bool, peersAffected bool, err error) {
+func (am *DefaultAccountManager) propagateUserGroupMemberships(ctx context.Context, transaction store.Store, accountID string) (groupsUpdated bool, peersAffected bool, err error) {
 	users, err := transaction.GetAccountUsers(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return false, false, err
@@ -2182,29 +2187,13 @@ func propagateUserGroupMemberships(ctx context.Context, transaction store.Store,
 		}
 	}
 
-	updatedGroups := []string{}
-	for _, user := range users {
-		userPeers, err := transaction.GetUserPeers(ctx, store.LockingStrengthNone, accountID, user.Id)
-		if err != nil {
-			return false, false, err
-		}
+	updatedGroups, err := propagateAutoGroupsForUsers(ctx, transaction, accountID, users, accountGroupPeers)
+	if err != nil {
+		return false, false, err
+	}
 
-		for _, peer := range userPeers {
-			for _, groupID := range user.AutoGroups {
-				if _, exists := accountGroupPeers[groupID]; !exists {
-					// we do not wanna create the groups here
-					log.WithContext(ctx).Warnf("group %s does not exist for user group propagation", groupID)
-					continue
-				}
-				if _, exists := accountGroupPeers[groupID][peer.ID]; exists {
-					continue
-				}
-				if err := transaction.AddPeerToGroup(ctx, accountID, peer.ID, groupID); err != nil {
-					return false, false, fmt.Errorf("error adding peer %s to group %s: %w", peer.ID, groupID, err)
-				}
-				updatedGroups = append(updatedGroups, groupID)
-			}
-		}
+	if err = am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, updatedGroups); err != nil {
+		return false, false, fmt.Errorf("reconcile IPv6 for group changes: %w", err)
 	}
 
 	peersAffected, err = areGroupChangesAffectPeers(ctx, transaction, accountID, updatedGroups)
@@ -2213,6 +2202,35 @@ func propagateUserGroupMemberships(ctx context.Context, transaction store.Store,
 	}
 
 	return len(updatedGroups) > 0, peersAffected, nil
+}
+
+// propagateAutoGroupsForUsers adds each user's peers to their AutoGroups where not already present.
+// Returns the list of group IDs that were modified.
+func propagateAutoGroupsForUsers(ctx context.Context, transaction store.Store, accountID string, users []*types.User, accountGroupPeers map[string]map[string]struct{}) ([]string, error) {
+	var updatedGroups []string
+	for _, user := range users {
+		userPeers, err := transaction.GetUserPeers(ctx, store.LockingStrengthNone, accountID, user.Id)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, peer := range userPeers {
+			for _, groupID := range user.AutoGroups {
+				if _, exists := accountGroupPeers[groupID]; !exists {
+					log.WithContext(ctx).Warnf("group %s does not exist for user group propagation", groupID)
+					continue
+				}
+				if _, exists := accountGroupPeers[groupID][peer.ID]; exists {
+					continue
+				}
+				if err := transaction.AddPeerToGroup(ctx, accountID, peer.ID, groupID); err != nil {
+					return nil, fmt.Errorf("error adding peer %s to group %s: %w", peer.ID, groupID, err)
+				}
+				updatedGroups = append(updatedGroups, groupID)
+			}
+		}
+	}
+	return updatedGroups, nil
 }
 
 // reallocateAccountPeerIPs re-allocates all peer IPs when the network range changes
@@ -2313,6 +2331,40 @@ func (am *DefaultAccountManager) updatePeerIPv6Addresses(ctx context.Context, tr
 		len(peers), accountID, len(settings.IPv6EnabledGroups))
 
 	return nil
+}
+
+// reconcileIPv6ForGroupChanges checks whether the given group IDs overlap with
+// the account's IPv6EnabledGroups. If they do, it runs a full IPv6 address
+// reconciliation so that peers gaining or losing membership in an IPv6-enabled
+// group get their addresses assigned or removed.
+func (am *DefaultAccountManager) reconcileIPv6ForGroupChanges(ctx context.Context, transaction store.Store, accountID string, groupIDs []string) error {
+	settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return fmt.Errorf("get account settings: %w", err)
+	}
+
+	if len(settings.IPv6EnabledGroups) == 0 {
+		return nil
+	}
+
+	enabledSet := make(map[string]struct{}, len(settings.IPv6EnabledGroups))
+	for _, gid := range settings.IPv6EnabledGroups {
+		enabledSet[gid] = struct{}{}
+	}
+
+	affected := false
+	for _, gid := range groupIDs {
+		if _, ok := enabledSet[gid]; ok {
+			affected = true
+			break
+		}
+	}
+
+	if !affected {
+		return nil
+	}
+
+	return am.updatePeerIPv6Addresses(ctx, transaction, accountID, settings)
 }
 
 func (am *DefaultAccountManager) ensureIPv6Subnet(ctx context.Context, transaction store.Store, accountID string, settings *types.Settings, network *types.Network) error {

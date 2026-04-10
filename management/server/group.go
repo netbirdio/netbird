@@ -174,6 +174,10 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 			return err
 		}
 
+		if err = am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, []string{newGroup.ID}); err != nil {
+			return err
+		}
+
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
@@ -278,37 +282,17 @@ func (am *DefaultAccountManager) UpdateGroups(ctx context.Context, accountID, us
 	var globalErr error
 	groupIDs := make([]string, 0, len(groups))
 	for _, newGroup := range groups {
-		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-			if err = validateNewGroup(ctx, transaction, accountID, newGroup); err != nil {
-				return err
-			}
-
-			newGroup.AccountID = accountID
-
-			if err = transaction.UpdateGroup(ctx, newGroup); err != nil {
-				return err
-			}
-
-			err = transaction.IncrementNetworkSerial(ctx, accountID)
-			if err != nil {
-				return err
-			}
-
-			events := am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
-			eventsToStore = append(eventsToStore, events...)
-
-			groupIDs = append(groupIDs, newGroup.ID)
-
-			return nil
-		})
+		events, err := am.updateSingleGroup(ctx, accountID, userID, newGroup)
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed to update group %s: %v", newGroup.ID, err)
 			if len(groups) == 1 {
 				return err
 			}
 			globalErr = errors.Join(globalErr, err)
-			// continue updating other groups
+			continue
 		}
+		eventsToStore = append(eventsToStore, events...)
+		groupIDs = append(groupIDs, newGroup.ID)
 	}
 
 	updateAccountPeers, err = areGroupChangesAffectPeers(ctx, am.Store, accountID, groupIDs)
@@ -325,6 +309,33 @@ func (am *DefaultAccountManager) UpdateGroups(ctx context.Context, accountID, us
 	}
 
 	return globalErr
+}
+
+func (am *DefaultAccountManager) updateSingleGroup(ctx context.Context, accountID, userID string, newGroup *types.Group) ([]func(), error) {
+	var events []func()
+	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		if err := validateNewGroup(ctx, transaction, accountID, newGroup); err != nil {
+			return err
+		}
+
+		newGroup.AccountID = accountID
+
+		if err := transaction.UpdateGroup(ctx, newGroup); err != nil {
+			return err
+		}
+
+		if err := am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, []string{newGroup.ID}); err != nil {
+			return err
+		}
+
+		if err := transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return err
+		}
+
+		events = am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
+		return nil
+	})
+	return events, err
 }
 
 // prepareGroupEvents prepares a list of event functions to be stored.
@@ -458,6 +469,10 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 			return err
 		}
 
+		if err = am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, groupIDsToDelete); err != nil {
+			return err
+		}
+
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
@@ -483,6 +498,10 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 		}
 
 		if err = transaction.AddPeerToGroup(ctx, accountID, peerID, groupID); err != nil {
+			return err
+		}
+
+		if err = am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, []string{groupID}); err != nil {
 			return err
 		}
 
@@ -549,6 +568,10 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 		}
 
 		if err = transaction.RemovePeerFromGroup(ctx, peerID, groupID); err != nil {
+			return err
+		}
+
+		if err = am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, []string{groupID}); err != nil {
 			return err
 		}
 
