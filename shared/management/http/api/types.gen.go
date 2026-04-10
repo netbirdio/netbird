@@ -2737,6 +2737,9 @@ type NetworkResource struct {
 	// Name Network resource name
 	Name string `json:"name"`
 
+	// OnRoutingPeer Indicate if the resource is on a routing peer or not. It is needed if the resource is targeting the IP of the routing peer itself
+	OnRoutingPeer *bool `json:"on_routing_peer,omitempty"`
+
 	// Type Network resource type based of the address
 	Type NetworkResourceType `json:"type"`
 }
@@ -2754,6 +2757,9 @@ type NetworkResourceMinimum struct {
 
 	// Name Network resource name
 	Name string `json:"name"`
+
+	// OnRoutingPeer Indicate if the resource is on a routing peer or not. It is needed if the resource is targeting the IP of the routing peer itself
+	OnRoutingPeer *bool `json:"on_routing_peer,omitempty"`
 }
 
 // NetworkResourceRequest defines model for NetworkResourceRequest.
@@ -2772,6 +2778,9 @@ type NetworkResourceRequest struct {
 
 	// Name Network resource name
 	Name string `json:"name"`
+
+	// OnRoutingPeer Indicate if the resource is on a routing peer or not. It is needed if the resource is targeting the IP of the routing peer itself
+	OnRoutingPeer *bool `json:"on_routing_peer,omitempty"`
 }
 
 // NetworkResourceType Network resource type based of the address

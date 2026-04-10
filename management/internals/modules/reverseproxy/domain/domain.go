@@ -30,3 +30,8 @@ func (d *Domain) EventMeta() map[string]any {
 		"validated":      d.Validated,
 	}
 }
+
+func (d *Domain) Copy() *Domain {
+	dCopy := *d
+	return &dCopy
+}

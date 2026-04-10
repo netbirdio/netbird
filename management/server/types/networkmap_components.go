@@ -122,9 +122,10 @@ func (c *NetworkMapComponents) Calculate(ctx context.Context) *NetworkMap {
 	routesUpdate := filterAndExpandRoutes(c.getRoutesToSync(targetPeerID, peersToConnect, peerGroups), includeIPv6)
 	routesFirewallRules := c.getPeerRoutesFirewallRules(ctx, targetPeerID, includeIPv6)
 
-	isRouter, networkResourcesRoutes, sourcePeers := c.getNetworkResourcesRoutesToSync(targetPeerID)
+	isRouter, networkResourcesRoutes, sourcePeers, peerFirewallRules := c.getNetworkResourcesRoutesToSync(targetPeerID)
 	var networkResourcesFirewallRules []*RouteFirewallRule
 	if isRouter {
+		firewallRules = append(firewallRules, peerFirewallRules...)
 		networkResourcesFirewallRules = c.getPeerNetworkResourceFirewallRules(ctx, targetPeerID, networkResourcesRoutes, includeIPv6)
 	}
 
@@ -726,10 +727,11 @@ func (c *NetworkMapComponents) getRulePeers(rule *PolicyRule, postureChecks []st
 	return distributionGroupPeers
 }
 
-func (c *NetworkMapComponents) getNetworkResourcesRoutesToSync(peerID string) (bool, []*route.Route, map[string]struct{}) {
+func (c *NetworkMapComponents) getNetworkResourcesRoutesToSync(peerID string) (bool, []*route.Route, map[string]struct{}, []*FirewallRule) {
 	var isRoutingPeer bool
 	var routes []*route.Route
 	allSourcePeers := make(map[string]struct{})
+	localResourceFwRule := make([]*FirewallRule, 0)
 
 	for _, resource := range c.NetworkResources {
 		if !resource.Enabled {
@@ -748,6 +750,9 @@ func (c *NetworkMapComponents) getNetworkResourcesRoutesToSync(peerID string) (b
 
 		addedResourceRoute := false
 		for _, policy := range c.ResourcePoliciesMap[resource.ID] {
+			if isRoutingPeer && resource.OnRoutingPeer {
+				localResourceFwRule = append(localResourceFwRule, c.getLocalResourceFirewallRules(policy)...)
+			}
 			var peers []string
 			if policy.Rules[0].SourceResource.Type == ResourceTypePeer && policy.Rules[0].SourceResource.ID != "" {
 				peers = []string{policy.Rules[0].SourceResource.ID}
@@ -770,7 +775,63 @@ func (c *NetworkMapComponents) getNetworkResourcesRoutesToSync(peerID string) (b
 		}
 	}
 
-	return isRoutingPeer, routes, allSourcePeers
+	return isRoutingPeer, routes, allSourcePeers, localResourceFwRule
+}
+
+func (c *NetworkMapComponents) getLocalResourceFirewallRules(policy *Policy) []*FirewallRule {
+	sourcePeerIDs := c.getPoliciesSourcePeers([]*Policy{policy})
+	postureValidatedPeerIDs := c.getPostureValidPeers(slices.Collect(maps.Keys(sourcePeerIDs)), policy.SourcePostureChecks)
+
+	rules := make([]*FirewallRule, 0)
+	for _, rule := range policy.Rules {
+		if !rule.Enabled {
+			continue
+		}
+
+		protocol := rule.Protocol
+		if protocol == PolicyRuleProtocolNetbirdSSH {
+			continue
+		}
+
+		for _, peerID := range postureValidatedPeerIDs {
+			peer := c.GetPeerInfo(peerID)
+			if peer == nil {
+				continue
+			}
+			peerIP := peer.IP.String()
+
+			fr := FirewallRule{
+				PolicyID:  rule.ID,
+				PeerIP:    peerIP,
+				Direction: FirewallRuleDirectionIN,
+				Action:    string(rule.Action),
+				Protocol:  string(protocol),
+			}
+
+			if len(rule.Ports) == 0 && len(rule.PortRanges) == 0 {
+				rules = append(rules, &fr)
+				continue
+			}
+
+			for _, port := range rule.Ports {
+				portRule := fr
+				portRule.Port = port
+				rules = append(rules, &portRule)
+			}
+
+			for _, portRange := range rule.PortRanges {
+				if len(rule.Ports) > 0 {
+					break
+				}
+				rangeRule := fr
+				rangeRule.PortRange = portRange
+				rules = append(rules, &rangeRule)
+			}
+
+		}
+	}
+
+	return rules
 }
 
 func (c *NetworkMapComponents) getNetworkResourcesRoutes(resource *resourceTypes.NetworkResource, peerID string, router *routerTypes.NetworkRouter) []*route.Route {
