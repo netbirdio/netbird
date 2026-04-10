@@ -401,9 +401,13 @@ func (r *router) cleanUpDefaultForwardRules() error {
 
 	// Remove jump rules from built-in chains before deleting custom chains,
 	// otherwise the chain deletion fails with "device or resource busy".
-	jumpRule := []string{"-j", chainNATOutput}
-	if err := r.iptablesClient.Delete(tableNat, "OUTPUT", jumpRule...); err != nil {
-		log.Debugf("clean OUTPUT jump rule: %v", err)
+	if ok, err := r.iptablesClient.ChainExists(tableNat, chainNATOutput); err != nil {
+		return fmt.Errorf("check chain %s: %w", chainNATOutput, err)
+	} else if ok {
+		jumpRule := []string{"-j", chainNATOutput}
+		if err := r.iptablesClient.Delete(tableNat, "OUTPUT", jumpRule...); err != nil {
+			log.Debugf("clean OUTPUT jump rule: %v", err)
+		}
 	}
 
 	for _, chainInfo := range []struct {
