@@ -29,39 +29,37 @@ func (p NetworkResourceType) String() string {
 }
 
 type NetworkResource struct {
-	ID            string `gorm:"primaryKey"`
-	NetworkID     string `gorm:"index"`
-	AccountID     string `gorm:"index"`
-	Name          string
-	Description   string
-	Type          NetworkResourceType
-	Address       string   `gorm:"-"`
-	GroupIDs      []string `gorm:"-"`
-	Domain        string
-	Prefix        netip.Prefix `gorm:"serializer:json"`
-	Enabled       bool
-	OnRoutingPeer bool
+	ID          string `gorm:"primaryKey"`
+	NetworkID   string `gorm:"index"`
+	AccountID   string `gorm:"index"`
+	Name        string
+	Description string
+	Type        NetworkResourceType
+	Address     string   `gorm:"-"`
+	GroupIDs    []string `gorm:"-"`
+	Domain      string
+	Prefix      netip.Prefix `gorm:"serializer:json"`
+	Enabled     bool
 }
 
-func NewNetworkResource(accountID, networkID, name, description, address string, groupIDs []string, onRoutingPeer, enabled bool) (*NetworkResource, error) {
+func NewNetworkResource(accountID, networkID, name, description, address string, groupIDs []string, enabled bool) (*NetworkResource, error) {
 	resourceType, domain, prefix, err := GetResourceType(address)
 	if err != nil {
 		return nil, fmt.Errorf("invalid address: %w", err)
 	}
 
 	return &NetworkResource{
-		ID:            xid.New().String(),
-		AccountID:     accountID,
-		NetworkID:     networkID,
-		Name:          name,
-		Description:   description,
-		Type:          resourceType,
-		Address:       address,
-		Domain:        domain,
-		Prefix:        prefix,
-		GroupIDs:      groupIDs,
-		Enabled:       enabled,
-		OnRoutingPeer: onRoutingPeer,
+		ID:          xid.New().String(),
+		AccountID:   accountID,
+		NetworkID:   networkID,
+		Name:        name,
+		Description: description,
+		Type:        resourceType,
+		Address:     address,
+		Domain:      domain,
+		Prefix:      prefix,
+		GroupIDs:    groupIDs,
+		Enabled:     enabled,
 	}, nil
 }
 
@@ -72,14 +70,13 @@ func (n *NetworkResource) ToAPIResponse(groups []api.GroupMinimum) *api.NetworkR
 	}
 
 	return &api.NetworkResource{
-		Id:            n.ID,
-		Name:          n.Name,
-		Description:   &n.Description,
-		Type:          api.NetworkResourceType(n.Type.String()),
-		Address:       addr,
-		Groups:        groups,
-		Enabled:       n.Enabled,
-		OnRoutingPeer: &n.OnRoutingPeer,
+		Id:          n.ID,
+		Name:        n.Name,
+		Description: &n.Description,
+		Type:        api.NetworkResourceType(n.Type.String()),
+		Address:     addr,
+		Groups:      groups,
+		Enabled:     n.Enabled,
 	}
 }
 
@@ -89,9 +86,6 @@ func (n *NetworkResource) FromAPIRequest(req *api.NetworkResourceRequest) {
 	if req.Description != nil {
 		n.Description = *req.Description
 	}
-	if req.OnRoutingPeer != nil {
-		n.OnRoutingPeer = *req.OnRoutingPeer
-	}
 	n.Address = req.Address
 	n.GroupIDs = req.Groups
 	n.Enabled = req.Enabled
@@ -99,18 +93,17 @@ func (n *NetworkResource) FromAPIRequest(req *api.NetworkResourceRequest) {
 
 func (n *NetworkResource) Copy() *NetworkResource {
 	return &NetworkResource{
-		ID:            n.ID,
-		AccountID:     n.AccountID,
-		NetworkID:     n.NetworkID,
-		Name:          n.Name,
-		Description:   n.Description,
-		Type:          n.Type,
-		Address:       n.Address,
-		Domain:        n.Domain,
-		Prefix:        n.Prefix,
-		GroupIDs:      n.GroupIDs,
-		Enabled:       n.Enabled,
-		OnRoutingPeer: n.OnRoutingPeer,
+		ID:          n.ID,
+		AccountID:   n.AccountID,
+		NetworkID:   n.NetworkID,
+		Name:        n.Name,
+		Description: n.Description,
+		Type:        n.Type,
+		Address:     n.Address,
+		Domain:      n.Domain,
+		Prefix:      n.Prefix,
+		GroupIDs:    n.GroupIDs,
+		Enabled:     n.Enabled,
 	}
 }
 

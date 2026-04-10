@@ -1980,10 +1980,6 @@ components:
           description: Network resource status
           type: boolean
           example: true
-        on_routing_peer:
-          description: Indicate if the resource is on a routing peer or not. It is needed if the resource is targeting the IP of the routing peer itself
-          type: boolean
-          example: true
       required:
         - name
         - address

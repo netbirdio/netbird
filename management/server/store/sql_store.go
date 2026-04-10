@@ -2291,7 +2291,7 @@ func (s *SqlStore) getNetworkRouters(ctx context.Context, accountID string) ([]*
 }
 
 func (s *SqlStore) getNetworkResources(ctx context.Context, accountID string) ([]*resourceTypes.NetworkResource, error) {
-	const query = `SELECT id, network_id, account_id, name, description, type, domain, prefix, enabled, on_routing_peer FROM network_resources WHERE account_id = $1`
+	const query = `SELECT id, network_id, account_id, name, description, type, domain, prefix, enabled FROM network_resources WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -2300,14 +2300,10 @@ func (s *SqlStore) getNetworkResources(ctx context.Context, accountID string) ([
 		var r resourceTypes.NetworkResource
 		var prefix []byte
 		var enabled sql.NullBool
-		var onRoutingPeer sql.NullBool
-		err := row.Scan(&r.ID, &r.NetworkID, &r.AccountID, &r.Name, &r.Description, &r.Type, &r.Domain, &prefix, &enabled, &onRoutingPeer)
+		err := row.Scan(&r.ID, &r.NetworkID, &r.AccountID, &r.Name, &r.Description, &r.Type, &r.Domain, &prefix, &enabled)
 		if err == nil {
 			if enabled.Valid {
 				r.Enabled = enabled.Bool
-			}
-			if onRoutingPeer.Valid {
-				r.OnRoutingPeer = onRoutingPeer.Bool
 			}
 			if prefix != nil {
 				_ = json.Unmarshal(prefix, &r.Prefix)
