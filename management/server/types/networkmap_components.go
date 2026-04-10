@@ -748,34 +748,53 @@ func (c *NetworkMapComponents) getNetworkResourcesRoutesToSync(peerID string) (b
 			}
 		}
 
-		addedResourceRoute := false
-		for _, policy := range c.ResourcePoliciesMap[resource.ID] {
-			if isRoutingPeer && resource.OnRoutingPeer {
-				localResourceFwRule = append(localResourceFwRule, c.getLocalResourceFirewallRules(policy)...)
-			}
-			var peers []string
-			if policy.Rules[0].SourceResource.Type == ResourceTypePeer && policy.Rules[0].SourceResource.ID != "" {
-				peers = []string{policy.Rules[0].SourceResource.ID}
-			} else {
-				peers = c.getUniquePeerIDsFromGroupsIDs(policy.SourceGroups())
-			}
-			if addSourcePeers {
-				for _, pID := range c.getPostureValidPeers(peers, policy.SourcePostureChecks) {
-					allSourcePeers[pID] = struct{}{}
-				}
-			} else if slices.Contains(peers, peerID) && c.ValidatePostureChecksOnPeer(peerID, policy.SourcePostureChecks) {
-				for peerId, router := range networkRoutingPeers {
-					routes = append(routes, c.getNetworkResourcesRoutes(resource, peerId, router)...)
-				}
-				addedResourceRoute = true
-			}
-			if addedResourceRoute {
-				break
-			}
-		}
+		newRoutes, fwRules := c.processResourcePolicies(peerID, resource, networkRoutingPeers, isRoutingPeer, addSourcePeers, allSourcePeers)
+		routes = append(routes, newRoutes...)
+		localResourceFwRule = append(localResourceFwRule, fwRules...)
 	}
 
 	return isRoutingPeer, routes, allSourcePeers, localResourceFwRule
+}
+
+func (c *NetworkMapComponents) processResourcePolicies(
+	peerID string,
+	resource *resourceTypes.NetworkResource,
+	networkRoutingPeers map[string]*routerTypes.NetworkRouter,
+	isRoutingPeer, addSourcePeers bool,
+	allSourcePeers map[string]struct{},
+) ([]*route.Route, []*FirewallRule) {
+	var routes []*route.Route
+	var localRules []*FirewallRule
+
+	for _, policy := range c.ResourcePoliciesMap[resource.ID] {
+		if isRoutingPeer && resource.OnRoutingPeer {
+			localRules = append(localRules, c.getLocalResourceFirewallRules(policy)...)
+		}
+
+		peers := c.getResourcePolicyPeers(policy)
+		if addSourcePeers {
+			for _, pID := range c.getPostureValidPeers(peers, policy.SourcePostureChecks) {
+				allSourcePeers[pID] = struct{}{}
+			}
+			continue
+		}
+
+		if slices.Contains(peers, peerID) && c.ValidatePostureChecksOnPeer(peerID, policy.SourcePostureChecks) {
+			for peerId, router := range networkRoutingPeers {
+				routes = append(routes, c.getNetworkResourcesRoutes(resource, peerId, router)...)
+			}
+			break
+		}
+	}
+
+	return routes, localRules
+}
+
+func (c *NetworkMapComponents) getResourcePolicyPeers(policy *Policy) []string {
+	if policy.Rules[0].SourceResource.Type == ResourceTypePeer && policy.Rules[0].SourceResource.ID != "" {
+		return []string{policy.Rules[0].SourceResource.ID}
+	}
+	return c.getUniquePeerIDsFromGroupsIDs(policy.SourceGroups())
 }
 
 func (c *NetworkMapComponents) getLocalResourceFirewallRules(policy *Policy) []*FirewallRule {
