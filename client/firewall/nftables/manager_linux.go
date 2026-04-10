@@ -238,7 +238,7 @@ func (m *Manager) AddPeerFiltering(
 	}
 
 	if !m.hasIPv6() {
-		return nil, fmt.Errorf("IPv6 not initialized, cannot add rule for %s", ip)
+		return nil, fmt.Errorf("add peer filtering for %s: %w", ip, firewall.ErrIPv6NotInitialized)
 	}
 	return m.aclManager6.AddPeerFiltering(id, ip, proto, sPort, dPort, action, ipsetName)
 }
@@ -256,7 +256,7 @@ func (m *Manager) AddRouteFiltering(
 
 	if isIPv6RouteRule(sources, destination) {
 		if !m.hasIPv6() {
-			return nil, fmt.Errorf("IPv6 not initialized, cannot add route rule")
+			return nil, fmt.Errorf("add route filtering: %w", firewall.ErrIPv6NotInitialized)
 		}
 		return m.router6.AddRouteFiltering(id, sources, destination, proto, sPort, dPort, action)
 	}
@@ -318,7 +318,7 @@ func (m *Manager) AddNatRule(pair firewall.RouterPair) error {
 
 	if pair.Destination.IsPrefix() && pair.Destination.Prefix.Addr().Is6() {
 		if !m.hasIPv6() {
-			return fmt.Errorf("IPv6 not initialized, cannot add NAT rule")
+			return fmt.Errorf("add NAT rule: %w", firewall.ErrIPv6NotInitialized)
 		}
 		return m.router6.AddNatRule(pair)
 	}
@@ -502,7 +502,10 @@ func (m *Manager) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) 
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	if m.hasIPv6() && rule.TranslatedAddress.Is6() {
+	if rule.TranslatedAddress.Is6() {
+		if !m.hasIPv6() {
+			return nil, fmt.Errorf("add DNAT rule: %w", firewall.ErrIPv6NotInitialized)
+		}
 		return m.router6.AddDNATRule(rule)
 	}
 	return m.router.AddDNATRule(rule)
@@ -547,41 +550,59 @@ func (m *Manager) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
 }
 
 // AddInboundDNAT adds an inbound DNAT rule redirecting traffic from NetBird peers to local services.
-func (m *Manager) AddInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+func (m *Manager) AddInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol, originalPort, translatedPort uint16) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	if m.hasIPv6() && localAddr.Is6() {
-		return m.router6.AddInboundDNAT(localAddr, protocol, sourcePort, targetPort)
+	if localAddr.Is6() {
+		if !m.hasIPv6() {
+			return fmt.Errorf("add inbound DNAT: %w", firewall.ErrIPv6NotInitialized)
+		}
+		return m.router6.AddInboundDNAT(localAddr, protocol, originalPort, translatedPort)
 	}
-	return m.router.AddInboundDNAT(localAddr, protocol, sourcePort, targetPort)
+	return m.router.AddInboundDNAT(localAddr, protocol, originalPort, translatedPort)
 }
 
 // RemoveInboundDNAT removes an inbound DNAT rule.
-func (m *Manager) RemoveInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+func (m *Manager) RemoveInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol, originalPort, translatedPort uint16) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	if m.hasIPv6() && localAddr.Is6() {
-		return m.router6.RemoveInboundDNAT(localAddr, protocol, sourcePort, targetPort)
+	if localAddr.Is6() {
+		if !m.hasIPv6() {
+			return fmt.Errorf("remove inbound DNAT: %w", firewall.ErrIPv6NotInitialized)
+		}
+		return m.router6.RemoveInboundDNAT(localAddr, protocol, originalPort, translatedPort)
 	}
-	return m.router.RemoveInboundDNAT(localAddr, protocol, sourcePort, targetPort)
+	return m.router.RemoveInboundDNAT(localAddr, protocol, originalPort, translatedPort)
 }
 
 // AddOutputDNAT adds an OUTPUT chain DNAT rule for locally-generated traffic.
-func (m *Manager) AddOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+func (m *Manager) AddOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, originalPort, translatedPort uint16) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	return m.router.AddOutputDNAT(localAddr, protocol, sourcePort, targetPort)
+	if localAddr.Is6() {
+		if !m.hasIPv6() {
+			return fmt.Errorf("add output DNAT: %w", firewall.ErrIPv6NotInitialized)
+		}
+		return m.router6.AddOutputDNAT(localAddr, protocol, originalPort, translatedPort)
+	}
+	return m.router.AddOutputDNAT(localAddr, protocol, originalPort, translatedPort)
 }
 
 // RemoveOutputDNAT removes an OUTPUT chain DNAT rule.
-func (m *Manager) RemoveOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+func (m *Manager) RemoveOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, originalPort, translatedPort uint16) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	return m.router.RemoveOutputDNAT(localAddr, protocol, sourcePort, targetPort)
+	if localAddr.Is6() {
+		if !m.hasIPv6() {
+			return fmt.Errorf("remove output DNAT: %w", firewall.ErrIPv6NotInitialized)
+		}
+		return m.router6.RemoveOutputDNAT(localAddr, protocol, originalPort, translatedPort)
+	}
+	return m.router.RemoveOutputDNAT(localAddr, protocol, originalPort, translatedPort)
 }
 
 const (

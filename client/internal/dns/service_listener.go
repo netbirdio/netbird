@@ -188,7 +188,6 @@ func (s *serviceViaListener) RuntimeIP() netip.Addr {
 	return s.listenIP
 }
 
-
 // evalListenAddress figures out the listen address for the DNS server.
 // IPv4-only: all peers have a v4 overlay address, and DNS config points to v4.
 // First checks port 53 on WG interface or lo, then tries eBPF on a random port,

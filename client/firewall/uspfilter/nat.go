@@ -494,14 +494,14 @@ func (m *Manager) DeleteDNATRule(rule firewall.Rule) error {
 }
 
 // addPortRedirection adds a port redirection rule.
-func (m *Manager) addPortRedirection(targetIP netip.Addr, protocol gopacket.LayerType, sourcePort, targetPort uint16) error {
+func (m *Manager) addPortRedirection(targetIP netip.Addr, protocol gopacket.LayerType, originalPort, translatedPort uint16) error {
 	m.portDNATMutex.Lock()
 	defer m.portDNATMutex.Unlock()
 
 	rule := portDNATRule{
 		protocol:   protocol,
-		origPort:   sourcePort,
-		targetPort: targetPort,
+		origPort:   originalPort,
+		targetPort: translatedPort,
 		targetIP:   targetIP,
 	}
 
@@ -513,7 +513,7 @@ func (m *Manager) addPortRedirection(targetIP netip.Addr, protocol gopacket.Laye
 
 // AddInboundDNAT adds an inbound DNAT rule redirecting traffic from NetBird peers to local services.
 // TODO: also delegate to nativeFirewall when available for kernel WG mode
-func (m *Manager) AddInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+func (m *Manager) AddInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol, originalPort, translatedPort uint16) error {
 	var layerType gopacket.LayerType
 	switch protocol {
 	case firewall.ProtocolTCP:
@@ -524,16 +524,16 @@ func (m *Manager) AddInboundDNAT(localAddr netip.Addr, protocol firewall.Protoco
 		return fmt.Errorf("unsupported protocol: %s", protocol)
 	}
 
-	return m.addPortRedirection(localAddr, layerType, sourcePort, targetPort)
+	return m.addPortRedirection(localAddr, layerType, originalPort, translatedPort)
 }
 
 // removePortRedirection removes a port redirection rule.
-func (m *Manager) removePortRedirection(targetIP netip.Addr, protocol gopacket.LayerType, sourcePort, targetPort uint16) error {
+func (m *Manager) removePortRedirection(targetIP netip.Addr, protocol gopacket.LayerType, originalPort, translatedPort uint16) error {
 	m.portDNATMutex.Lock()
 	defer m.portDNATMutex.Unlock()
 
 	m.portDNATRules = slices.DeleteFunc(m.portDNATRules, func(rule portDNATRule) bool {
-		return rule.protocol == protocol && rule.origPort == sourcePort && rule.targetPort == targetPort && rule.targetIP.Compare(targetIP) == 0
+		return rule.protocol == protocol && rule.origPort == originalPort && rule.targetPort == translatedPort && rule.targetIP.Compare(targetIP) == 0
 	})
 
 	if len(m.portDNATRules) == 0 {
@@ -544,7 +544,7 @@ func (m *Manager) removePortRedirection(targetIP netip.Addr, protocol gopacket.L
 }
 
 // RemoveInboundDNAT removes an inbound DNAT rule.
-func (m *Manager) RemoveInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+func (m *Manager) RemoveInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol, originalPort, translatedPort uint16) error {
 	var layerType gopacket.LayerType
 	switch protocol {
 	case firewall.ProtocolTCP:
@@ -555,23 +555,23 @@ func (m *Manager) RemoveInboundDNAT(localAddr netip.Addr, protocol firewall.Prot
 		return fmt.Errorf("unsupported protocol: %s", protocol)
 	}
 
-	return m.removePortRedirection(localAddr, layerType, sourcePort, targetPort)
+	return m.removePortRedirection(localAddr, layerType, originalPort, translatedPort)
 }
 
 // AddOutputDNAT delegates to the native firewall if available.
-func (m *Manager) AddOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+func (m *Manager) AddOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, originalPort, translatedPort uint16) error {
 	if m.nativeFirewall == nil {
 		return fmt.Errorf("output DNAT not supported without native firewall")
 	}
-	return m.nativeFirewall.AddOutputDNAT(localAddr, protocol, sourcePort, targetPort)
+	return m.nativeFirewall.AddOutputDNAT(localAddr, protocol, originalPort, translatedPort)
 }
 
 // RemoveOutputDNAT delegates to the native firewall if available.
-func (m *Manager) RemoveOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+func (m *Manager) RemoveOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, originalPort, translatedPort uint16) error {
 	if m.nativeFirewall == nil {
 		return nil
 	}
-	return m.nativeFirewall.RemoveOutputDNAT(localAddr, protocol, sourcePort, targetPort)
+	return m.nativeFirewall.RemoveOutputDNAT(localAddr, protocol, originalPort, translatedPort)
 }
 
 // translateInboundPortDNAT applies port-specific DNAT translation to inbound packets.
