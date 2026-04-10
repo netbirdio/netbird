@@ -21,6 +21,7 @@ type Router struct {
 	firewall       firewall.Manager
 	wgInterface    iface.WGIface
 	statusRecorder *peer.Status
+	useNewDNSRoute bool
 }
 
 func NewRouter(ctx context.Context, wgInterface iface.WGIface, firewall firewall.Manager, statusRecorder *peer.Status) (*Router, error) {
@@ -36,6 +37,8 @@ func NewRouter(ctx context.Context, wgInterface iface.WGIface, firewall firewall
 func (r *Router) UpdateRoutes(routesMap map[route.ID]*route.Route, useNewDNSRoute bool) error {
 	r.mux.Lock()
 	defer r.mux.Unlock()
+
+	r.useNewDNSRoute = useNewDNSRoute
 
 	serverRoutesToRemove := make([]route.ID, 0)
 
@@ -91,7 +94,7 @@ func (r *Router) removeFromServerNetwork(route *route.Route) error {
 		return r.ctx.Err()
 	}
 
-	routerPair := routeToRouterPair(route, false)
+	routerPair := routeToRouterPair(route, r.useNewDNSRoute)
 	if err := r.firewall.RemoveNatRule(routerPair); err != nil {
 		return fmt.Errorf("remove routing rules: %w", err)
 	}
@@ -124,7 +127,7 @@ func (r *Router) CleanUp() {
 	defer r.mux.Unlock()
 
 	for _, route := range r.routes {
-		routerPair := routeToRouterPair(route, false)
+		routerPair := routeToRouterPair(route, r.useNewDNSRoute)
 		if err := r.firewall.RemoveNatRule(routerPair); err != nil {
 			log.Errorf("Failed to remove cleanup route: %v", err)
 		}
