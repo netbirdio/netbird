@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strconv"
 	"sync"
 	"time"
 
@@ -137,12 +138,12 @@ func (info ICMPInfo) parseOriginalPacket() string {
 	case nftypes.TCP:
 		srcPort := uint16(transportData[0])<<8 | uint16(transportData[1])
 		dstPort := uint16(transportData[2])<<8 | uint16(transportData[3])
-		return fmt.Sprintf("TCP %s:%d → %s:%d", srcIP, srcPort, dstIP, dstPort)
+		return "TCP " + net.JoinHostPort(srcIP.String(), strconv.Itoa(int(srcPort))) + " → " + net.JoinHostPort(dstIP.String(), strconv.Itoa(int(dstPort)))
 
 	case nftypes.UDP:
 		srcPort := uint16(transportData[0])<<8 | uint16(transportData[1])
 		dstPort := uint16(transportData[2])<<8 | uint16(transportData[3])
-		return fmt.Sprintf("UDP %s:%d → %s:%d", srcIP, srcPort, dstIP, dstPort)
+		return "UDP " + net.JoinHostPort(srcIP.String(), strconv.Itoa(int(srcPort))) + " → " + net.JoinHostPort(dstIP.String(), strconv.Itoa(int(dstPort)))
 
 	case nftypes.ICMP:
 		icmpType := transportData[0]

@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"os/user"
@@ -759,8 +760,7 @@ func UpdateOldManagementURL(ctx context.Context, config *Config, configPath stri
 		return config, nil
 	}
 
-	newURL, err := parseURL("Management URL", fmt.Sprintf("%s://%s:%d",
-		config.ManagementURL.Scheme, defaultManagementURL.Hostname(), 443))
+	newURL, err := parseURL("Management URL", fmt.Sprintf("%s://%s", config.ManagementURL.Scheme, net.JoinHostPort(defaultManagementURL.Hostname(), "443")))
 	if err != nil {
 		return nil, err
 	}

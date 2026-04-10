@@ -523,7 +523,7 @@ func parseHostnameAndCommand(args []string) error {
 }
 
 func runSSH(ctx context.Context, addr string, cmd *cobra.Command) error {
-	target := fmt.Sprintf("%s:%d", addr, port)
+	target := net.JoinHostPort(strings.Trim(addr, "[]"), strconv.Itoa(port))
 	c, err := sshclient.Dial(ctx, target, username, sshclient.DialOptions{
 		KnownHostsFile:     knownHostsFile,
 		IdentityFile:       identityFile,

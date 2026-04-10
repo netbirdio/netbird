@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"net/netip"
 	"slices"
 	"strings"
@@ -918,20 +919,21 @@ func (s *Server) directTCPIPHandler(srv *ssh.Server, conn *cryptossh.ServerConn,
 	s.mu.RUnlock()
 
 	if !allowLocal {
-		logger.Warnf("local port forwarding denied for %s:%d: disabled", payload.Host, payload.Port)
+		logger.Warnf("local port forwarding denied for %s: disabled", net.JoinHostPort(payload.Host, strconv.Itoa(int(payload.Port))))
 		_ = newChan.Reject(cryptossh.Prohibited, "local port forwarding disabled")
 		return
 	}
 
 	if err := s.checkPortForwardingPrivileges(ctx, "local", payload.Port); err != nil {
-		logger.Warnf("local port forwarding denied for %s:%d: %v", payload.Host, payload.Port, err)
+		logger.Warnf("local port forwarding denied for %s: %v", net.JoinHostPort(payload.Host, strconv.Itoa(int(payload.Port))), err)
 		_ = newChan.Reject(cryptossh.Prohibited, "insufficient privileges")
 		return
 	}
 
-	forwardAddr := fmt.Sprintf("-L %s:%d", payload.Host, payload.Port)
+	hostPort := net.JoinHostPort(payload.Host, strconv.Itoa(int(payload.Port)))
+	forwardAddr := "-L " + hostPort
 	s.addConnectionPortForward(ctx.User(), ctx.RemoteAddr(), forwardAddr)
-	logger.Infof("local port forwarding: %s:%d", payload.Host, payload.Port)
+	logger.Infof("local port forwarding: %s", hostPort)
 
 	ssh.DirectTCPIPHandler(srv, conn, newChan, ctx)
 }
