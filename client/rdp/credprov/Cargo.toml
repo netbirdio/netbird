@@ -1,0 +1,31 @@
+[package]
+name = "netbird-credprov"
+version = "0.1.0"
+edition = "2021"
+description = "NetBird RDP Credential Provider for Windows"
+license = "BSD-3-Clause"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+windows = { version = "0.58", features = [
+    "implement",
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_UI_Shell",
+    "Win32_Security",
+    "Win32_Security_Authentication_Identity",
+    "Win32_Security_Credentials",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_Threading",
+] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+log = "0.4"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true

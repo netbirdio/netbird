@@ -197,6 +197,7 @@ type Engine struct {
 	networkMonitor *networkmonitor.NetworkMonitor
 
 	sshServer sshServer
+	rdpServer rdpServer
 
 	statusRecorder *peer.Status
 

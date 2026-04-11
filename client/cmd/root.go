@@ -150,6 +150,7 @@ func init() {
 	rootCmd.AddCommand(logoutCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(sshCmd)
+	rootCmd.AddCommand(rdpCmd)
 	rootCmd.AddCommand(networksCMD)
 	rootCmd.AddCommand(forwardingRulesCmd)
 	rootCmd.AddCommand(debugCmd)
