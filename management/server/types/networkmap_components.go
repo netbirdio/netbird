@@ -45,6 +45,13 @@ type NetworkMapComponents struct {
 	PostureFailedPeers map[string]map[string]struct{}
 
 	RouterPeers map[string]*nbpeer.Peer
+
+	// TransparentProxyConfig is the account-level transparent proxy configuration.
+	// Nil if no proxy is configured at account level.
+	TransparentProxyConfig *TransparentProxyConfig
+
+	// InspectionPolicies are reusable inspection rule sets referenced by policies.
+	InspectionPolicies map[string]*InspectionPolicy
 }
 
 type AccountSettingsInfo struct {
@@ -155,16 +162,21 @@ func (c *NetworkMapComponents) Calculate(ctx context.Context) *NetworkMap {
 		dnsUpdate.NameServerGroups = c.getPeerNSGroupsFromGroups(targetPeerID, peerGroups)
 	}
 
+	// Build transparent proxy config if this peer is a routing peer with inspection enabled.
+	// Falls back to the account-level config if set.
+	tpConfig := c.getTransparentProxyConfig(targetPeerID, isRouter)
+
 	return &NetworkMap{
-		Peers:               peersToConnectIncludingRouters,
-		Network:             c.Network.Copy(),
-		Routes:              append(networkResourcesRoutes, routesUpdate...),
-		DNSConfig:           dnsUpdate,
-		OfflinePeers:        expiredPeers,
-		FirewallRules:       firewallRules,
-		RoutesFirewallRules: append(networkResourcesFirewallRules, routesFirewallRules...),
-		AuthorizedUsers:     authorizedUsers,
-		EnableSSH:           sshEnabled,
+		Peers:                  peersToConnectIncludingRouters,
+		Network:                c.Network.Copy(),
+		Routes:                 append(networkResourcesRoutes, routesUpdate...),
+		DNSConfig:              dnsUpdate,
+		OfflinePeers:           expiredPeers,
+		FirewallRules:          firewallRules,
+		RoutesFirewallRules:    append(networkResourcesFirewallRules, routesFirewallRules...),
+		TransparentProxyConfig: tpConfig,
+		AuthorizedUsers:        authorizedUsers,
+		EnableSSH:              sshEnabled,
 	}
 }
 
@@ -525,7 +537,6 @@ func (c *NetworkMapComponents) getRoutingPeerRoutes(peerID string) (enabledRoute
 
 	return enabledRoutes, disabledRoutes
 }
-
 
 func (c *NetworkMapComponents) filterRoutesByGroups(routes []*route.Route, groupListMap LookupMap) []*route.Route {
 	var filteredRoutes []*route.Route
@@ -898,4 +909,199 @@ func (c *NetworkMapComponents) addNetworksRoutingPeers(
 	}
 
 	return peersToConnect
+}
+
+// getTransparentProxyConfig builds a TransparentProxyConfig for a routing peer
+// by checking if any ACL policy targeting its networks has inspection policies attached.
+func (c *NetworkMapComponents) getTransparentProxyConfig(peerID string, isRouter bool) *TransparentProxyConfig {
+	if c.TransparentProxyConfig != nil {
+		return c.TransparentProxyConfig
+	}
+
+	if !isRouter {
+		return nil
+	}
+
+	var networkIDs []string
+	for networkID, routers := range c.RoutersMap {
+		if _, ok := routers[peerID]; ok {
+			networkIDs = append(networkIDs, networkID)
+		}
+	}
+
+	if len(networkIDs) == 0 {
+		return nil
+	}
+
+	return c.buildTransparentProxyFromPolicies(networkIDs, peerID)
+}
+
+// buildTransparentProxyFromPolicies builds a TransparentProxyConfig from inspection
+// policies attached to ACL policies targeting the given networks.
+// Proxy infra config (CA, ICAP, mode) comes from the first inspection policy found.
+// Rules are aggregated from all inspection policies.
+func (c *NetworkMapComponents) buildTransparentProxyFromPolicies(networkIDs []string, peerID string) *TransparentProxyConfig {
+	var config *TransparentProxyConfig
+
+	// Accumulate redirect sources across all networks.
+	allSources := make(map[string]struct{})
+
+	for _, networkID := range networkIDs {
+		networkPolicies := c.getPoliciesForNetwork(networkID)
+		for _, policy := range networkPolicies {
+			for _, ipID := range policy.InspectionPolicies {
+				ip, ok := c.InspectionPolicies[ipID]
+				if !ok || !ip.Enabled {
+					continue
+				}
+
+				// First inspection policy sets the infra config
+				if config == nil {
+					config = &TransparentProxyConfig{
+						Enabled:       true,
+						ExternalURL:   ip.ExternalURL,
+						DefaultAction: toTransparentProxyAction(ip.DefaultAction),
+						CACertPEM:     []byte(ip.CACertPEM),
+						CAKeyPEM:      []byte(ip.CAKeyPEM),
+					}
+					switch ip.Mode {
+					case "envoy":
+						config.Mode = TransparentProxyModeEnvoy
+					case "external":
+						config.Mode = TransparentProxyModeExternal
+					default:
+						config.Mode = TransparentProxyModeBuiltin
+					}
+					for _, p := range ip.RedirectPorts {
+						config.RedirectPorts = append(config.RedirectPorts, uint16(p))
+					}
+					if ip.ICAP != nil {
+						config.ICAP = &TransparentProxyICAPConfig{
+							ReqModURL:      ip.ICAP.ReqModURL,
+							RespModURL:     ip.ICAP.RespModURL,
+							MaxConnections: ip.ICAP.MaxConnections,
+						}
+					}
+					if ip.Mode == "envoy" {
+						config.EnvoyBinaryPath = ip.EnvoyBinaryPath
+						config.EnvoyAdminPort = uint16(ip.EnvoyAdminPort)
+						if ip.EnvoySnippets != nil {
+							config.EnvoySnippets = &TransparentProxyEnvoySnippets{
+								HTTPFilters:    ip.EnvoySnippets.HTTPFilters,
+								NetworkFilters: ip.EnvoySnippets.NetworkFilters,
+								Clusters:       ip.EnvoySnippets.Clusters,
+							}
+						}
+					}
+				}
+
+				// Aggregate rules from all inspection policies
+				for _, pr := range ip.Rules {
+					rule := TransparentProxyRule{
+						ID:        ip.ID,
+						Domains:   pr.Domains,
+						Networks:  pr.Networks,
+						Protocols: pr.Protocols,
+						Paths:     pr.Paths,
+						Action:    toTransparentProxyAction(pr.Action),
+						Priority:  pr.Priority,
+					}
+					config.Rules = append(config.Rules, rule)
+				}
+			}
+		}
+
+		// Collect sources for this network
+		for _, src := range c.deriveRedirectSourcesFromPolicies(networkID, peerID) {
+			allSources[src] = struct{}{}
+		}
+	}
+
+	if config != nil {
+		config.RedirectSources = make([]string, 0, len(allSources))
+		for src := range allSources {
+			config.RedirectSources = append(config.RedirectSources, src)
+		}
+	}
+
+	return config
+}
+
+// deriveRedirectSourcesFromPolicies collects source peer IPs from policies
+// that target the given network and have inspection policies attached.
+func (c *NetworkMapComponents) deriveRedirectSourcesFromPolicies(networkID, routingPeerID string) []string {
+	sourceSet := make(map[string]struct{})
+
+	for _, policy := range c.getPoliciesForNetwork(networkID) {
+		if len(policy.InspectionPolicies) == 0 {
+			continue
+		}
+
+		peerIDs := c.getUniquePeerIDsFromGroupsIDs(policy.SourceGroups())
+		for _, peerID := range peerIDs {
+			if peerID == routingPeerID {
+				continue
+			}
+			peer := c.GetPeerInfo(peerID)
+			if peer != nil && peer.IP != nil {
+				sourceSet[peer.IP.String()+"/32"] = struct{}{}
+			}
+		}
+	}
+
+	sources := make([]string, 0, len(sourceSet))
+	for s := range sourceSet {
+		sources = append(sources, s)
+	}
+	return sources
+}
+
+// getPoliciesForNetwork returns all unique policies that have inspection policies attached
+// and target resources belonging to the given network.
+func (c *NetworkMapComponents) getPoliciesForNetwork(networkID string) []*Policy {
+	seen := make(map[string]bool)
+	var result []*Policy
+
+	add := func(policy *Policy) {
+		if len(policy.InspectionPolicies) == 0 || seen[policy.ID] {
+			return
+		}
+		seen[policy.ID] = true
+		result = append(result, policy)
+	}
+
+	// Only include policies that target resources in the given network.
+	networkResourceIDs := make(map[string]struct{})
+	for _, resource := range c.NetworkResources {
+		if resource.NetworkID == networkID {
+			networkResourceIDs[resource.ID] = struct{}{}
+		}
+	}
+
+	for resourceID, policies := range c.ResourcePoliciesMap {
+		if _, ok := networkResourceIDs[resourceID]; !ok {
+			continue
+		}
+		for _, policy := range policies {
+			add(policy)
+		}
+	}
+
+	// Also check classic policies whose destination groups contain peers in this network.
+	for _, policy := range c.Policies {
+		add(policy)
+	}
+
+	return result
+}
+
+func toTransparentProxyAction(s string) TransparentProxyAction {
+	switch s {
+	case "allow":
+		return TransparentProxyActionAllow
+	case "inspect":
+		return TransparentProxyActionInspect
+	default:
+		return TransparentProxyActionBlock
+	}
 }

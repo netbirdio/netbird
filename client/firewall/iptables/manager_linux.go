@@ -364,6 +364,28 @@ func (m *Manager) SetupEBPFProxyNoTrack(proxyPort, wgPort uint16) error {
 	return nil
 }
 
+// AddTProxyRule adds TPROXY redirect rules for the transparent proxy.
+func (m *Manager) AddTProxyRule(ruleID string, sources []netip.Prefix, dstPorts []uint16, redirectPort uint16) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.router.AddTProxyRule(ruleID, sources, dstPorts, redirectPort)
+}
+
+// RemoveTProxyRule removes TPROXY redirect rules by ID.
+func (m *Manager) RemoveTProxyRule(ruleID string) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.router.RemoveTProxyRule(ruleID)
+}
+
+// AddUDPInspectionHook is a no-op for iptables (kernel-mode firewall has no userspace packet hooks).
+func (m *Manager) AddUDPInspectionHook(_ uint16, _ func([]byte) bool) string { return "" }
+
+// RemoveUDPInspectionHook is a no-op for iptables.
+func (m *Manager) RemoveUDPInspectionHook(_ string) {}
+
 func (m *Manager) initNoTrackChain() error {
 	if err := m.cleanupNoTrackChain(); err != nil {
 		log.Debugf("cleanup notrack chain: %v", err)

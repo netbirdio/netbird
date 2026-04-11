@@ -51,6 +51,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/handlers/instance"
 	"github.com/netbirdio/netbird/management/server/http/handlers/networks"
 	"github.com/netbirdio/netbird/management/server/http/handlers/peers"
+	inspectionHandler "github.com/netbirdio/netbird/management/server/http/handlers/inspection"
 	"github.com/netbirdio/netbird/management/server/http/handlers/policies"
 	"github.com/netbirdio/netbird/management/server/http/handlers/routes"
 	"github.com/netbirdio/netbird/management/server/http/handlers/setup_keys"
@@ -162,6 +163,7 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 	setup_keys.AddEndpoints(accountManager, router)
 	policies.AddEndpoints(accountManager, LocationManager, router)
 	policies.AddPostureCheckEndpoints(accountManager, LocationManager, router)
+	inspectionHandler.AddEndpoints(accountManager, router)
 	policies.AddLocationsEndpoints(accountManager, LocationManager, permissionsManager, router)
 	groups.AddEndpoints(accountManager, router)
 	routes.AddEndpoints(accountManager, router)

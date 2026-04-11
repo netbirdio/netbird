@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/common"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"
+	"github.com/netbirdio/netbird/client/inspect"
 	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 )
@@ -46,6 +48,10 @@ type Forwarder struct {
 	netstack         bool
 	hasRawICMPAccess bool
 	pingSemaphore    chan struct{}
+	// proxy is the optional inspection engine.
+	// When set, TCP connections are handed to the engine for protocol detection
+	// and rule evaluation. Swapped atomically for lock-free hot-path access.
+	proxy atomic.Pointer[inspect.Proxy]
 }
 
 func New(iface common.IFaceMapper, logger *nblog.Logger, flowLogger nftypes.FlowLogger, netstack bool, mtu uint16) (*Forwarder, error) {
@@ -79,7 +85,7 @@ func New(iface common.IFaceMapper, logger *nblog.Logger, flowLogger nftypes.Flow
 	}
 
 	if err := s.AddProtocolAddress(nicID, protoAddr, stack.AddressProperties{}); err != nil {
-		return nil, fmt.Errorf("failed to add protocol address: %s", err)
+		return nil, fmt.Errorf("add protocol address: %s", err)
 	}
 
 	defaultSubnet, err := tcpip.NewSubnet(
@@ -155,6 +161,13 @@ func (f *Forwarder) InjectIncomingPacket(payload []byte) error {
 	return nil
 }
 
+// SetProxy sets the inspection engine. When set, TCP connections are handed
+// to it for protocol detection and rule evaluation instead of direct relay.
+// Pass nil to disable inspection.
+func (f *Forwarder) SetProxy(p *inspect.Proxy) {
+	f.proxy.Store(p)
+}
+
 // Stop gracefully shuts down the forwarder
 func (f *Forwarder) Stop() {
 	f.cancel()
@@ -165,6 +178,25 @@ func (f *Forwarder) Stop() {
 
 	f.stack.Close()
 	f.stack.Wait()
+}
+
+// CheckUDPPacket inspects a UDP payload against proxy rules before injection.
+// This is called by the filter for QUIC SNI-based blocking.
+// Returns true if the packet should be allowed, false if it should be dropped.
+func (f *Forwarder) CheckUDPPacket(payload []byte, srcIP, dstIP netip.Addr, srcPort, dstPort uint16, ruleID []byte) bool {
+	p := f.proxy.Load()
+	if p == nil {
+		return true
+	}
+
+	dst := netip.AddrPortFrom(dstIP, dstPort)
+	src := inspect.SourceInfo{
+		IP:       srcIP,
+		PolicyID: inspect.PolicyID(ruleID),
+	}
+
+	action := p.HandleUDPPacket(payload, dst, src)
+	return action != inspect.ActionBlock
 }
 
 func (f *Forwarder) determineDialAddr(addr tcpip.Address) net.IP {

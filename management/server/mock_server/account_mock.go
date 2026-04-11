@@ -909,6 +909,26 @@ func (am *MockAccountManager) ListPostureChecks(ctx context.Context, accountID, 
 	return nil, status.Errorf(codes.Unimplemented, "method ListPostureChecks is not implemented")
 }
 
+// GetInspectionPolicy mocks GetInspectionPolicy of the AccountManager interface
+func (am *MockAccountManager) GetInspectionPolicy(ctx context.Context, accountID, policyID, userID string) (*types.InspectionPolicy, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetInspectionPolicy is not implemented")
+}
+
+// SaveInspectionPolicy mocks SaveInspectionPolicy of the AccountManager interface
+func (am *MockAccountManager) SaveInspectionPolicy(ctx context.Context, accountID, userID string, policy *types.InspectionPolicy, create bool) (*types.InspectionPolicy, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SaveInspectionPolicy is not implemented")
+}
+
+// DeleteInspectionPolicy mocks DeleteInspectionPolicy of the AccountManager interface
+func (am *MockAccountManager) DeleteInspectionPolicy(ctx context.Context, accountID, policyID, userID string) error {
+	return status.Errorf(codes.Unimplemented, "method DeleteInspectionPolicy is not implemented")
+}
+
+// ListInspectionPolicies mocks ListInspectionPolicies of the AccountManager interface
+func (am *MockAccountManager) ListInspectionPolicies(ctx context.Context, accountID, userID string) ([]*types.InspectionPolicy, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListInspectionPolicies is not implemented")
+}
+
 // GetIdpManager mocks GetIdpManager of the AccountManager interface
 func (am *MockAccountManager) GetIdpManager() idp.Manager {
 	if am.GetIdpManagerFunc != nil {

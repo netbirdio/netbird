@@ -180,6 +180,22 @@ type Manager interface {
 	// SetupEBPFProxyNoTrack creates static notrack rules for eBPF proxy loopback traffic.
 	// This prevents conntrack from interfering with WireGuard proxy communication.
 	SetupEBPFProxyNoTrack(proxyPort, wgPort uint16) error
+
+	// AddTProxyRule adds TPROXY redirect rules for specific source CIDRs and destination ports.
+	// Traffic from sources on dstPorts is redirected to the transparent proxy on redirectPort.
+	// Empty dstPorts means redirect all ports.
+	AddTProxyRule(ruleID string, sources []netip.Prefix, dstPorts []uint16, redirectPort uint16) error
+
+	// RemoveTProxyRule removes TPROXY redirect rules by ID.
+	RemoveTProxyRule(ruleID string) error
+
+	// AddUDPInspectionHook registers a hook that inspects UDP packets before forwarding.
+	// The hook receives the raw packet and returns true to drop it.
+	// Used for QUIC SNI-based blocking. Returns a hook ID for removal.
+	AddUDPInspectionHook(dstPort uint16, hook func(packet []byte) bool) string
+
+	// RemoveUDPInspectionHook removes a previously registered inspection hook.
+	RemoveUDPInspectionHook(hookID string)
 }
 
 func GenKey(format string, pair RouterPair) string {

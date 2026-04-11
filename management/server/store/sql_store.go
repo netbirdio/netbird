@@ -134,7 +134,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		&installation{}, &types.ExtraSettings{}, &posture.Checks{}, &nbpeer.NetworkAddress{},
 		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{}, &types.AccountOnboarding{},
 		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInviteRecord{}, &rpservice.Service{}, &rpservice.Target{}, &domain.Domain{},
-		&accesslogs.AccessLogEntry{}, &proxy.Proxy{},
+		&accesslogs.AccessLogEntry{}, &proxy.Proxy{}, &types.InspectionPolicy{},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("auto migratePreAuto: %w", err)
@@ -1115,6 +1115,7 @@ func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types
 		Preload("RoutesG").
 		Preload("NameServerGroupsG").
 		Preload("PostureChecks").
+		Preload("InspectionPolicies").
 		Preload("Networks").
 		Preload("NetworkRouters").
 		Preload("NetworkResources").
@@ -3874,6 +3875,63 @@ func (s *SqlStore) DeletePostureChecks(ctx context.Context, accountID, postureCh
 		return status.NewPostureChecksNotFoundError(postureChecksID)
 	}
 
+	return nil
+}
+
+// GetAccountInspectionPolicies returns all inspection policies for the account.
+// CA cert and key are decrypted after loading.
+func (s *SqlStore) GetAccountInspectionPolicies(ctx context.Context, _ LockingStrength, accountID string) ([]*types.InspectionPolicy, error) {
+	var policies []*types.InspectionPolicy
+	result := s.db.Where("account_id = ?", accountID).Find(&policies)
+	if result.Error != nil {
+		return nil, status.Errorf(status.Internal, "failed to get inspection policies: %s", result.Error)
+	}
+	for _, p := range policies {
+		if err := p.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+			return nil, fmt.Errorf("decrypt inspection policy %s: %w", p.ID, err)
+		}
+	}
+	return policies, nil
+}
+
+// GetInspectionPolicyByID returns an inspection policy by ID.
+// CA cert and key are decrypted after loading.
+func (s *SqlStore) GetInspectionPolicyByID(ctx context.Context, _ LockingStrength, accountID, policyID string) (*types.InspectionPolicy, error) {
+	var policy types.InspectionPolicy
+	result := s.db.Where(accountAndIDQueryCondition, accountID, policyID).First(&policy)
+	if result.Error != nil {
+		return nil, status.Errorf(status.Internal, "failed to get inspection policy: %s", result.Error)
+	}
+	if err := policy.DecryptSensitiveData(s.fieldEncrypt); err != nil {
+		return nil, fmt.Errorf("decrypt inspection policy %s: %w", policyID, err)
+	}
+	return &policy, nil
+}
+
+// SaveInspectionPolicy saves an inspection policy to the database.
+// CA cert and key are encrypted before storage.
+func (s *SqlStore) SaveInspectionPolicy(ctx context.Context, _ LockingStrength, policy *types.InspectionPolicy) error {
+	if err := policy.EncryptSensitiveData(s.fieldEncrypt); err != nil {
+		return fmt.Errorf("encrypt inspection policy: %w", err)
+	}
+	result := s.db.Save(policy)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to save inspection policy: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to save inspection policy")
+	}
+	return nil
+}
+
+// DeleteInspectionPolicy deletes an inspection policy from the database.
+func (s *SqlStore) DeleteInspectionPolicy(ctx context.Context, _ LockingStrength, accountID, policyID string) error {
+	result := s.db.Delete(&types.InspectionPolicy{}, accountAndIDQueryCondition, accountID, policyID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete inspection policy: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to delete inspection policy")
+	}
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "inspection policy %s not found", policyID)
+	}
 	return nil
 }
 

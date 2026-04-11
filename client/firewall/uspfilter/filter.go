@@ -641,6 +641,45 @@ func (m *Manager) SetupEBPFProxyNoTrack(proxyPort, wgPort uint16) error {
 	return m.nativeFirewall.SetupEBPFProxyNoTrack(proxyPort, wgPort)
 }
 
+// AddTProxyRule delegates to the native firewall for TPROXY rules.
+// In userspace mode (no native firewall), this is a no-op since the
+// forwarder intercepts traffic directly.
+func (m *Manager) AddTProxyRule(ruleID string, sources []netip.Prefix, dstPorts []uint16, redirectPort uint16) error {
+	if m.nativeFirewall == nil {
+		return nil
+	}
+	return m.nativeFirewall.AddTProxyRule(ruleID, sources, dstPorts, redirectPort)
+}
+
+// AddUDPInspectionHook registers a hook for QUIC/UDP inspection via the packet filter.
+func (m *Manager) AddUDPInspectionHook(dstPort uint16, hook func(packet []byte) bool) string {
+	m.SetUDPPacketHook(netip.Addr{}, dstPort, hook)
+	return "udp-inspection"
+}
+
+// RemoveUDPInspectionHook removes a previously registered inspection hook.
+func (m *Manager) RemoveUDPInspectionHook(_ string) {
+	m.SetUDPPacketHook(netip.Addr{}, 0, nil)
+}
+
+// RemoveTProxyRule delegates to the native firewall for TPROXY rules.
+func (m *Manager) RemoveTProxyRule(ruleID string) error {
+	if m.nativeFirewall == nil {
+		return nil
+	}
+	return m.nativeFirewall.RemoveTProxyRule(ruleID)
+}
+
+// IsLocalIP reports whether the given IP belongs to the local machine.
+func (m *Manager) IsLocalIP(ip netip.Addr) bool {
+	return m.localipmanager.IsLocalIP(ip)
+}
+
+// GetForwarder returns the userspace packet forwarder, or nil if not initialized.
+func (m *Manager) GetForwarder() *forwarder.Forwarder {
+	return m.forwarder.Load()
+}
+
 // UpdateSet updates the rule destinations associated with the given set
 // by merging the existing prefixes with the new ones, then deduplicating.
 func (m *Manager) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {

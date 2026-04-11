@@ -1533,6 +1533,12 @@ components:
               items:
                 type: string
                 example: "chacdk86lnnboviihd70"
+            inspection_policies:
+              description: Inspection policy IDs applied to traffic matching this policy. When set, traffic is routed through a transparent proxy on the destination network's routing peers.
+              type: array
+              items:
+                type: string
+                example: "chacdk86lnnboviihd71"
             rules:
               description: Policy rule object for policy UI editor
               type: array
@@ -1551,6 +1557,12 @@ components:
               items:
                 type: string
                 example: "chacdk86lnnboviihd70"
+            inspection_policies:
+              description: Inspection policy IDs applied to traffic matching this policy
+              type: array
+              items:
+                type: string
+                example: "chacdk86lnnboviihd71"
             rules:
               description: Policy rule object for policy UI editor
               type: array
@@ -1573,6 +1585,12 @@ components:
               items:
                 type: string
                 example: "chacdk86lnnboviihd70"
+            inspection_policies:
+              description: Inspection policy IDs applied to traffic matching this policy
+              type: array
+              items:
+                type: string
+                example: "chacdk86lnnboviihd71"
             rules:
               description: Policy rule object for policy UI editor
               type: array
@@ -2050,6 +2068,9 @@ components:
           description: Network router status
           type: boolean
           example: true
+        inspection:
+          description: Optional traffic inspection configuration. When enabled, traffic through this routing peer is transparently proxied and inspected.
+          $ref: '#/components/schemas/RouterInspectionConfig'
       required:
         # Only one property has to be set
         #- peer
@@ -2057,6 +2078,174 @@ components:
         - metric
         - masquerade
         - enabled
+    RouterInspectionConfig:
+      type: object
+      properties:
+        enabled:
+          description: Whether traffic inspection is active on this routing peer
+          type: boolean
+          example: false
+        mode:
+          description: Inspection mode
+          type: string
+          enum: [ "builtin", "envoy", "external" ]
+          example: builtin
+        external_url:
+          description: External proxy URL (http:// or socks5://) when mode is external
+          type: string
+          example: "http://proxy.corp:8080"
+        default_action:
+          description: Action when no inspection rule matches
+          type: string
+          enum: [ "allow", "block", "inspect" ]
+          example: allow
+        redirect_ports:
+          description: Destination ports to intercept. Empty means all ports.
+          type: array
+          items:
+            type: integer
+          example: [80, 443]
+        icap:
+          description: ICAP service configuration for external content scanning
+          $ref: '#/components/schemas/InspectionICAPConfig'
+        ca_cert_pem:
+          description: PEM-encoded CA certificate for MITM TLS inspection
+          type: string
+        ca_key_pem:
+          description: PEM-encoded CA private key for MITM TLS inspection
+          type: string
+        envoy_binary_path:
+          description: Path to envoy binary when mode is envoy. Empty searches $PATH.
+          type: string
+        envoy_admin_port:
+          description: Envoy admin API port for health checks. 0 picks a free port.
+          type: integer
+      required:
+        - enabled
+    InspectionPolicyMinimum:
+      type: object
+      properties:
+        name:
+          description: Human-readable name for this inspection policy
+          type: string
+          example: "Corporate web filtering"
+        description:
+          description: Description
+          type: string
+        enabled:
+          description: Whether this inspection policy is active
+          type: boolean
+          example: true
+        rules:
+          description: L7 inspection rules
+          type: array
+          items:
+            $ref: '#/components/schemas/InspectionPolicyRule'
+        mode:
+          description: Proxy operation mode
+          type: string
+          enum: [ "builtin", "envoy", "external" ]
+          example: "builtin"
+        external_url:
+          description: External proxy URL (HTTP CONNECT or SOCKS5) when mode is external
+          type: string
+          example: "socks5://proxy.corp.com:1080"
+        default_action:
+          description: Action for recognized traffic when no rule matches
+          type: string
+          enum: [ "allow", "block", "inspect" ]
+          example: "allow"
+        redirect_ports:
+          description: Destination ports to intercept at L4. Empty means all ports.
+          type: array
+          items:
+            type: integer
+          example: [80, 443]
+        ca_cert_pem:
+          description: PEM-encoded CA certificate for MITM TLS inspection
+          type: string
+        ca_key_pem:
+          description: PEM-encoded CA private key for MITM TLS inspection
+          type: string
+        envoy_binary_path:
+          description: Path to envoy binary when mode is envoy. Empty searches $PATH.
+          type: string
+        envoy_admin_port:
+          description: Envoy admin API port for health checks. 0 picks a free port.
+          type: integer
+        icap:
+          description: ICAP configuration for external content scanning
+          $ref: '#/components/schemas/InspectionICAPConfig'
+      required:
+        - name
+        - enabled
+        - rules
+    InspectionPolicy:
+      allOf:
+        - type: object
+          properties:
+            id:
+              description: Inspection Policy ID
+              type: string
+              readOnly: true
+          required:
+            - id
+        - $ref: '#/components/schemas/InspectionPolicyMinimum'
+    InspectionPolicyRule:
+      type: object
+      properties:
+        domains:
+          description: Domain patterns to match via SNI or Host header. Supports wildcards (*.example.com).
+          type: array
+          items:
+            type: string
+          example: ["*.gambling.com", "*.betting.com"]
+        networks:
+          description: Destination CIDRs for optional L7 destination filtering
+          type: array
+          items:
+            type: string
+          example: ["10.0.0.0/8"]
+        protocols:
+          description: Protocols this rule applies to. Empty means all.
+          type: array
+          items:
+            type: string
+            enum: [ "http", "https", "h2", "h3", "websocket", "other" ]
+          example: ["https", "h2"]
+        paths:
+          description: URL path patterns. Exact ("/login"), prefix ("/api/*"), contains ("*/admin/*"). HTTPS requires inspect (MITM). Empty means all paths.
+          type: array
+          items:
+            type: string
+          example: ["/admin/*", "/api/internal/*"]
+        action:
+          description: What to do with matched connections
+          type: string
+          enum: [ "allow", "block", "inspect" ]
+          example: block
+        priority:
+          description: Evaluation order. Lower values are evaluated first.
+          type: integer
+          example: 1
+      required:
+        - action
+        - priority
+    InspectionICAPConfig:
+      type: object
+      properties:
+        reqmod_url:
+          description: ICAP REQMOD service URL
+          type: string
+          example: "icap://icap-server:1344/reqmod"
+        respmod_url:
+          description: ICAP RESPMOD service URL
+          type: string
+          example: "icap://icap-server:1344/respmod"
+        max_connections:
+          description: Maximum ICAP connection pool size
+          type: integer
+          example: 8
     NetworkRouter:
       allOf:
         - type: object
@@ -7402,6 +7591,144 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/NetworkRouter'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/inspection-policies:
+    get:
+      summary: List all Inspection Policies
+      description: Returns a list of all reusable inspection policy rule sets
+      tags: [ Inspection Policies ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of Inspection Policies
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/InspectionPolicy'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Create an Inspection Policy
+      description: Creates a reusable inspection policy rule set
+      tags: [ Inspection Policies ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InspectionPolicyMinimum'
+      responses:
+        '200':
+          description: An Inspection Policy object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InspectionPolicy'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/inspection-policies/{policyId}:
+    get:
+      summary: Get an Inspection Policy
+      description: Returns an inspection policy rule set
+      tags: [ Inspection Policies ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: policyId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: An Inspection Policy object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InspectionPolicy'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    put:
+      summary: Update an Inspection Policy
+      description: Updates an inspection policy rule set
+      tags: [ Inspection Policies ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: policyId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InspectionPolicyMinimum'
+      responses:
+        '200':
+          description: An Inspection Policy object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InspectionPolicy'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      summary: Delete an Inspection Policy
+      description: Deletes an inspection policy rule set
+      tags: [ Inspection Policies ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: policyId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successfully deleted
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':

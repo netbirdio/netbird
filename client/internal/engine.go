@@ -31,6 +31,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/device"
 	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
+	"github.com/netbirdio/netbird/client/inspect"
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/debug"
 	"github.com/netbirdio/netbird/client/internal/dns"
@@ -136,6 +137,12 @@ type EngineConfig struct {
 
 	MTU uint16
 
+	// InspectionCACertPath is a local CA cert for transparent proxy MITM.
+	// Takes priority over management-pushed CA.
+	InspectionCACertPath string
+	// InspectionCAKeyPath is the corresponding private key.
+	InspectionCAKeyPath string
+
 	// for debug bundle generation
 	ProfileConfig *profilemanager.Config
 
@@ -221,6 +228,10 @@ type Engine struct {
 	persistSyncResponse bool
 	latestSyncResponse  *mgmProto.SyncResponse
 	flowManager         nftypes.FlowManager
+
+	// transparentProxy is the transparent forward proxy for traffic inspection.
+	transparentProxy    *inspect.Proxy
+	udpInspectionHookID string
 
 	// auto-update
 	updateManager *updater.Manager
@@ -1272,6 +1283,9 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	fwdEntries := toRouteDomains(e.config.WgPrivateKey.PublicKey().String(), routes)
 	e.updateDNSForwarder(dnsRouteFeatureFlag, fwdEntries)
 
+	// Transparent proxy
+	e.updateTransparentProxy(networkMap.GetTransparentProxyConfig())
+
 	// Ingress forward rules
 	forwardingRules, err := e.updateForwardRules(networkMap.GetForwardingRules())
 	if err != nil {
@@ -1694,6 +1708,8 @@ func (e *Engine) parseNATExternalIPMappings() []string {
 
 func (e *Engine) close() {
 	log.Debugf("removing Netbird interface %s", e.config.WgIfaceName)
+
+	e.stopTransparentProxy()
 
 	if e.wgInterface != nil {
 		if err := e.wgInterface.Close(); err != nil {

@@ -584,6 +584,141 @@ func (e IngressPortAllocationRequestPortRangeProtocol) Valid() bool {
 	}
 }
 
+// Defines values for InspectionPolicyDefaultAction.
+const (
+	InspectionPolicyDefaultActionAllow   InspectionPolicyDefaultAction = "allow"
+	InspectionPolicyDefaultActionBlock   InspectionPolicyDefaultAction = "block"
+	InspectionPolicyDefaultActionInspect InspectionPolicyDefaultAction = "inspect"
+)
+
+// Valid indicates whether the value is a known member of the InspectionPolicyDefaultAction enum.
+func (e InspectionPolicyDefaultAction) Valid() bool {
+	switch e {
+	case InspectionPolicyDefaultActionAllow:
+		return true
+	case InspectionPolicyDefaultActionBlock:
+		return true
+	case InspectionPolicyDefaultActionInspect:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for InspectionPolicyMode.
+const (
+	InspectionPolicyModeBuiltin  InspectionPolicyMode = "builtin"
+	InspectionPolicyModeEnvoy    InspectionPolicyMode = "envoy"
+	InspectionPolicyModeExternal InspectionPolicyMode = "external"
+)
+
+// Valid indicates whether the value is a known member of the InspectionPolicyMode enum.
+func (e InspectionPolicyMode) Valid() bool {
+	switch e {
+	case InspectionPolicyModeBuiltin:
+		return true
+	case InspectionPolicyModeEnvoy:
+		return true
+	case InspectionPolicyModeExternal:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for InspectionPolicyMinimumDefaultAction.
+const (
+	InspectionPolicyMinimumDefaultActionAllow   InspectionPolicyMinimumDefaultAction = "allow"
+	InspectionPolicyMinimumDefaultActionBlock   InspectionPolicyMinimumDefaultAction = "block"
+	InspectionPolicyMinimumDefaultActionInspect InspectionPolicyMinimumDefaultAction = "inspect"
+)
+
+// Valid indicates whether the value is a known member of the InspectionPolicyMinimumDefaultAction enum.
+func (e InspectionPolicyMinimumDefaultAction) Valid() bool {
+	switch e {
+	case InspectionPolicyMinimumDefaultActionAllow:
+		return true
+	case InspectionPolicyMinimumDefaultActionBlock:
+		return true
+	case InspectionPolicyMinimumDefaultActionInspect:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for InspectionPolicyMinimumMode.
+const (
+	InspectionPolicyMinimumModeBuiltin  InspectionPolicyMinimumMode = "builtin"
+	InspectionPolicyMinimumModeEnvoy    InspectionPolicyMinimumMode = "envoy"
+	InspectionPolicyMinimumModeExternal InspectionPolicyMinimumMode = "external"
+)
+
+// Valid indicates whether the value is a known member of the InspectionPolicyMinimumMode enum.
+func (e InspectionPolicyMinimumMode) Valid() bool {
+	switch e {
+	case InspectionPolicyMinimumModeBuiltin:
+		return true
+	case InspectionPolicyMinimumModeEnvoy:
+		return true
+	case InspectionPolicyMinimumModeExternal:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for InspectionPolicyRuleAction.
+const (
+	InspectionPolicyRuleActionAllow   InspectionPolicyRuleAction = "allow"
+	InspectionPolicyRuleActionBlock   InspectionPolicyRuleAction = "block"
+	InspectionPolicyRuleActionInspect InspectionPolicyRuleAction = "inspect"
+)
+
+// Valid indicates whether the value is a known member of the InspectionPolicyRuleAction enum.
+func (e InspectionPolicyRuleAction) Valid() bool {
+	switch e {
+	case InspectionPolicyRuleActionAllow:
+		return true
+	case InspectionPolicyRuleActionBlock:
+		return true
+	case InspectionPolicyRuleActionInspect:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for InspectionPolicyRuleProtocols.
+const (
+	InspectionPolicyRuleProtocolsH2        InspectionPolicyRuleProtocols = "h2"
+	InspectionPolicyRuleProtocolsH3        InspectionPolicyRuleProtocols = "h3"
+	InspectionPolicyRuleProtocolsHttp      InspectionPolicyRuleProtocols = "http"
+	InspectionPolicyRuleProtocolsHttps     InspectionPolicyRuleProtocols = "https"
+	InspectionPolicyRuleProtocolsOther     InspectionPolicyRuleProtocols = "other"
+	InspectionPolicyRuleProtocolsWebsocket InspectionPolicyRuleProtocols = "websocket"
+)
+
+// Valid indicates whether the value is a known member of the InspectionPolicyRuleProtocols enum.
+func (e InspectionPolicyRuleProtocols) Valid() bool {
+	switch e {
+	case InspectionPolicyRuleProtocolsH2:
+		return true
+	case InspectionPolicyRuleProtocolsH3:
+		return true
+	case InspectionPolicyRuleProtocolsHttp:
+		return true
+	case InspectionPolicyRuleProtocolsHttps:
+		return true
+	case InspectionPolicyRuleProtocolsOther:
+		return true
+	case InspectionPolicyRuleProtocolsWebsocket:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for IntegrationResponsePlatform.
 const (
 	IntegrationResponsePlatformDatadog     IntegrationResponsePlatform = "datadog"
@@ -890,6 +1025,48 @@ func (e ReverseProxyDomainType) Valid() bool {
 	case ReverseProxyDomainTypeCustom:
 		return true
 	case ReverseProxyDomainTypeFree:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RouterInspectionConfigDefaultAction.
+const (
+	RouterInspectionConfigDefaultActionAllow   RouterInspectionConfigDefaultAction = "allow"
+	RouterInspectionConfigDefaultActionBlock   RouterInspectionConfigDefaultAction = "block"
+	RouterInspectionConfigDefaultActionInspect RouterInspectionConfigDefaultAction = "inspect"
+)
+
+// Valid indicates whether the value is a known member of the RouterInspectionConfigDefaultAction enum.
+func (e RouterInspectionConfigDefaultAction) Valid() bool {
+	switch e {
+	case RouterInspectionConfigDefaultActionAllow:
+		return true
+	case RouterInspectionConfigDefaultActionBlock:
+		return true
+	case RouterInspectionConfigDefaultActionInspect:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RouterInspectionConfigMode.
+const (
+	RouterInspectionConfigModeBuiltin  RouterInspectionConfigMode = "builtin"
+	RouterInspectionConfigModeEnvoy    RouterInspectionConfigMode = "envoy"
+	RouterInspectionConfigModeExternal RouterInspectionConfigMode = "external"
+)
+
+// Valid indicates whether the value is a known member of the RouterInspectionConfigMode enum.
+func (e RouterInspectionConfigMode) Valid() bool {
+	switch e {
+	case RouterInspectionConfigModeBuiltin:
+		return true
+	case RouterInspectionConfigModeEnvoy:
+		return true
+	case RouterInspectionConfigModeExternal:
 		return true
 	default:
 		return false
@@ -2464,6 +2641,140 @@ type IngressPortAllocationRequestPortRange struct {
 // IngressPortAllocationRequestPortRangeProtocol The protocol accepted by the port range
 type IngressPortAllocationRequestPortRangeProtocol string
 
+// InspectionICAPConfig defines model for InspectionICAPConfig.
+type InspectionICAPConfig struct {
+	// MaxConnections Maximum ICAP connection pool size
+	MaxConnections *int `json:"max_connections,omitempty"`
+
+	// ReqmodUrl ICAP REQMOD service URL
+	ReqmodUrl *string `json:"reqmod_url,omitempty"`
+
+	// RespmodUrl ICAP RESPMOD service URL
+	RespmodUrl *string `json:"respmod_url,omitempty"`
+}
+
+// InspectionPolicy defines model for InspectionPolicy.
+type InspectionPolicy struct {
+	// CaCertPem PEM-encoded CA certificate for MITM TLS inspection
+	CaCertPem *string `json:"ca_cert_pem,omitempty"`
+
+	// CaKeyPem PEM-encoded CA private key for MITM TLS inspection
+	CaKeyPem *string `json:"ca_key_pem,omitempty"`
+
+	// DefaultAction Action for recognized traffic when no rule matches
+	DefaultAction *InspectionPolicyDefaultAction `json:"default_action,omitempty"`
+
+	// Description Description
+	Description *string `json:"description,omitempty"`
+
+	// Enabled Whether this inspection policy is active
+	Enabled bool `json:"enabled"`
+
+	// EnvoyAdminPort Envoy admin API port for health checks. 0 picks a free port.
+	EnvoyAdminPort *int `json:"envoy_admin_port,omitempty"`
+
+	// EnvoyBinaryPath Path to envoy binary when mode is envoy. Empty searches $PATH.
+	EnvoyBinaryPath *string `json:"envoy_binary_path,omitempty"`
+
+	// ExternalUrl External proxy URL (HTTP CONNECT or SOCKS5) when mode is external
+	ExternalUrl *string               `json:"external_url,omitempty"`
+	Icap        *InspectionICAPConfig `json:"icap,omitempty"`
+
+	// Id Inspection Policy ID
+	Id *string `json:"id,omitempty"`
+
+	// Mode Proxy operation mode
+	Mode *InspectionPolicyMode `json:"mode,omitempty"`
+
+	// Name Human-readable name for this inspection policy
+	Name string `json:"name"`
+
+	// RedirectPorts Destination ports to intercept at L4. Empty means all ports.
+	RedirectPorts *[]int `json:"redirect_ports,omitempty"`
+
+	// Rules L7 inspection rules
+	Rules []InspectionPolicyRule `json:"rules"`
+}
+
+// InspectionPolicyDefaultAction Action for recognized traffic when no rule matches
+type InspectionPolicyDefaultAction string
+
+// InspectionPolicyMode Proxy operation mode
+type InspectionPolicyMode string
+
+// InspectionPolicyMinimum defines model for InspectionPolicyMinimum.
+type InspectionPolicyMinimum struct {
+	// CaCertPem PEM-encoded CA certificate for MITM TLS inspection
+	CaCertPem *string `json:"ca_cert_pem,omitempty"`
+
+	// CaKeyPem PEM-encoded CA private key for MITM TLS inspection
+	CaKeyPem *string `json:"ca_key_pem,omitempty"`
+
+	// DefaultAction Action for recognized traffic when no rule matches
+	DefaultAction *InspectionPolicyMinimumDefaultAction `json:"default_action,omitempty"`
+
+	// Description Description
+	Description *string `json:"description,omitempty"`
+
+	// Enabled Whether this inspection policy is active
+	Enabled bool `json:"enabled"`
+
+	// EnvoyAdminPort Envoy admin API port for health checks. 0 picks a free port.
+	EnvoyAdminPort *int `json:"envoy_admin_port,omitempty"`
+
+	// EnvoyBinaryPath Path to envoy binary when mode is envoy. Empty searches $PATH.
+	EnvoyBinaryPath *string `json:"envoy_binary_path,omitempty"`
+
+	// ExternalUrl External proxy URL (HTTP CONNECT or SOCKS5) when mode is external
+	ExternalUrl *string               `json:"external_url,omitempty"`
+	Icap        *InspectionICAPConfig `json:"icap,omitempty"`
+
+	// Mode Proxy operation mode
+	Mode *InspectionPolicyMinimumMode `json:"mode,omitempty"`
+
+	// Name Human-readable name for this inspection policy
+	Name string `json:"name"`
+
+	// RedirectPorts Destination ports to intercept at L4. Empty means all ports.
+	RedirectPorts *[]int `json:"redirect_ports,omitempty"`
+
+	// Rules L7 inspection rules
+	Rules []InspectionPolicyRule `json:"rules"`
+}
+
+// InspectionPolicyMinimumDefaultAction Action for recognized traffic when no rule matches
+type InspectionPolicyMinimumDefaultAction string
+
+// InspectionPolicyMinimumMode Proxy operation mode
+type InspectionPolicyMinimumMode string
+
+// InspectionPolicyRule defines model for InspectionPolicyRule.
+type InspectionPolicyRule struct {
+	// Action What to do with matched connections
+	Action InspectionPolicyRuleAction `json:"action"`
+
+	// Domains Domain patterns to match via SNI or Host header. Supports wildcards (*.example.com).
+	Domains *[]string `json:"domains,omitempty"`
+
+	// Networks Destination CIDRs for optional L7 destination filtering
+	Networks *[]string `json:"networks,omitempty"`
+
+	// Paths URL path patterns. Exact ("/login"), prefix ("/api/*"), contains ("*/admin/*"). HTTPS requires inspect (MITM). Empty means all paths.
+	Paths *[]string `json:"paths,omitempty"`
+
+	// Priority Evaluation order. Lower values are evaluated first.
+	Priority int `json:"priority"`
+
+	// Protocols Protocols this rule applies to. Empty means all.
+	Protocols *[]InspectionPolicyRuleProtocols `json:"protocols,omitempty"`
+}
+
+// InspectionPolicyRuleAction What to do with matched connections
+type InspectionPolicyRuleAction string
+
+// InspectionPolicyRuleProtocols defines model for InspectionPolicyRule.Protocols.
+type InspectionPolicyRuleProtocols string
+
 // InstanceStatus Instance status information
 type InstanceStatus struct {
 	// SetupRequired Indicates whether the instance requires initial setup
@@ -2774,7 +3085,8 @@ type NetworkRouter struct {
 	Enabled bool `json:"enabled"`
 
 	// Id Network Router Id
-	Id string `json:"id"`
+	Id         string                  `json:"id"`
+	Inspection *RouterInspectionConfig `json:"inspection,omitempty"`
 
 	// Masquerade Indicate if peer should masquerade traffic to this route's prefix
 	Masquerade bool `json:"masquerade"`
@@ -2792,7 +3104,8 @@ type NetworkRouter struct {
 // NetworkRouterRequest defines model for NetworkRouterRequest.
 type NetworkRouterRequest struct {
 	// Enabled Network router status
-	Enabled bool `json:"enabled"`
+	Enabled    bool                    `json:"enabled"`
+	Inspection *RouterInspectionConfig `json:"inspection,omitempty"`
 
 	// Masquerade Indicate if peer should masquerade traffic to this route's prefix
 	Masquerade bool `json:"masquerade"`
@@ -3380,6 +3693,9 @@ type Policy struct {
 	// Id Policy ID
 	Id *string `json:"id,omitempty"`
 
+	// InspectionPolicies Inspection policy IDs applied to traffic matching this policy
+	InspectionPolicies *[]string `json:"inspection_policies,omitempty"`
+
 	// Name Policy name identifier
 	Name string `json:"name"`
 
@@ -3397,6 +3713,9 @@ type PolicyCreate struct {
 
 	// Enabled Policy status
 	Enabled bool `json:"enabled"`
+
+	// InspectionPolicies Inspection policy IDs applied to traffic matching this policy
+	InspectionPolicies *[]string `json:"inspection_policies,omitempty"`
 
 	// Name Policy name identifier
 	Name string `json:"name"`
@@ -3557,6 +3876,9 @@ type PolicyUpdate struct {
 
 	// Enabled Policy status
 	Enabled bool `json:"enabled"`
+
+	// InspectionPolicies Inspection policy IDs applied to traffic matching this policy. When set, traffic is routed through a transparent proxy on the destination network's routing peers.
+	InspectionPolicies *[]string `json:"inspection_policies,omitempty"`
 
 	// Name Policy name identifier
 	Name string `json:"name"`
@@ -3873,6 +4195,43 @@ type RouteRequest struct {
 	// SkipAutoApply Indicate if this exit node route (0.0.0.0/0) should skip auto-application for client routing
 	SkipAutoApply *bool `json:"skip_auto_apply,omitempty"`
 }
+
+// RouterInspectionConfig defines model for RouterInspectionConfig.
+type RouterInspectionConfig struct {
+	// CaCertPem PEM-encoded CA certificate for MITM TLS inspection
+	CaCertPem *string `json:"ca_cert_pem,omitempty"`
+
+	// CaKeyPem PEM-encoded CA private key for MITM TLS inspection
+	CaKeyPem *string `json:"ca_key_pem,omitempty"`
+
+	// DefaultAction Action when no inspection rule matches
+	DefaultAction *RouterInspectionConfigDefaultAction `json:"default_action,omitempty"`
+
+	// Enabled Whether traffic inspection is active on this routing peer
+	Enabled bool `json:"enabled"`
+
+	// EnvoyAdminPort Envoy admin API port for health checks. 0 picks a free port.
+	EnvoyAdminPort *int `json:"envoy_admin_port,omitempty"`
+
+	// EnvoyBinaryPath Path to envoy binary when mode is envoy. Empty searches $PATH.
+	EnvoyBinaryPath *string `json:"envoy_binary_path,omitempty"`
+
+	// ExternalUrl External proxy URL (http:// or socks5://) when mode is external
+	ExternalUrl *string               `json:"external_url,omitempty"`
+	Icap        *InspectionICAPConfig `json:"icap,omitempty"`
+
+	// Mode Inspection mode
+	Mode *RouterInspectionConfigMode `json:"mode,omitempty"`
+
+	// RedirectPorts Destination ports to intercept. Empty means all ports.
+	RedirectPorts *[]int `json:"redirect_ports,omitempty"`
+}
+
+// RouterInspectionConfigDefaultAction Action when no inspection rule matches
+type RouterInspectionConfigDefaultAction string
+
+// RouterInspectionConfigMode Inspection mode
+type RouterInspectionConfigMode string
 
 // RulePortRange Policy rule affected ports range
 type RulePortRange struct {
@@ -4958,6 +5317,12 @@ type PostApiIngressPeersJSONRequestBody = IngressPeerCreateRequest
 
 // PutApiIngressPeersIngressPeerIdJSONRequestBody defines body for PutApiIngressPeersIngressPeerId for application/json ContentType.
 type PutApiIngressPeersIngressPeerIdJSONRequestBody = IngressPeerUpdateRequest
+
+// PostApiInspectionPoliciesJSONRequestBody defines body for PostApiInspectionPolicies for application/json ContentType.
+type PostApiInspectionPoliciesJSONRequestBody = InspectionPolicyMinimum
+
+// PutApiInspectionPoliciesPolicyIdJSONRequestBody defines body for PutApiInspectionPoliciesPolicyId for application/json ContentType.
+type PutApiInspectionPoliciesPolicyIdJSONRequestBody = InspectionPolicyMinimum
 
 // CreateAzureIntegrationJSONRequestBody defines body for CreateAzureIntegration for application/json ContentType.
 type CreateAzureIntegrationJSONRequestBody = CreateAzureIntegrationRequest

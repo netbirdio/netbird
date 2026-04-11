@@ -77,6 +77,7 @@ type router struct {
 	ipFwdState       *ipfwdstate.IPForwardingState
 	legacyManagement bool
 	mtu              uint16
+
 }
 
 func newRouter(workTable *nftables.Table, wgIface iFaceMapper, mtu uint16) (*router, error) {
@@ -2137,3 +2138,227 @@ func getIpSetExprs(ref refcounter.Ref[*nftables.Set], isSource bool) ([]expr.Any
 		},
 	}, nil
 }
+
+// AddTProxyRule adds nftables TPROXY redirect rules in the mangle prerouting chain.
+// Traffic from sources on dstPorts arriving on the WG interface is redirected to
+// the transparent proxy listener on redirectPort.
+// Separate rules are created for TCP and UDP protocols.
+func (r *router) AddTProxyRule(ruleID string, sources []netip.Prefix, dstPorts []uint16, redirectPort uint16) error {
+	if err := r.refreshRulesMap(); err != nil {
+		return fmt.Errorf(refreshRulesMapError, err)
+	}
+
+	// Use the nat redirect chain for DNAT rules.
+	// TPROXY doesn't work on WG kernel interfaces (socket assignment silently fails),
+	// so we use DNAT to 127.0.0.1:proxy_port instead. The proxy reads the original
+	// destination via SO_ORIGINAL_DST (conntrack).
+	chain := r.chains[chainNameRoutingRdr]
+	if chain == nil {
+		return fmt.Errorf("nat redirect chain not initialized")
+	}
+
+	for _, proto := range []uint8{unix.IPPROTO_TCP, unix.IPPROTO_UDP} {
+		protoName := "tcp"
+		if proto == unix.IPPROTO_UDP {
+			protoName = "udp"
+		}
+
+		ruleKey := fmt.Sprintf("tproxy-%s-%s", ruleID, protoName)
+
+		if existing, ok := r.rules[ruleKey]; ok && existing.Handle != 0 {
+			if err := r.decrementSetCounter(existing); err != nil {
+				log.Debugf("decrement set counter for %s: %v", ruleKey, err)
+			}
+			if err := r.conn.DelRule(existing); err != nil {
+				log.Debugf("remove existing tproxy rule %s: %v", ruleKey, err)
+			}
+			delete(r.rules, ruleKey)
+		}
+
+		exprs, err := r.buildRedirectExprs(proto, sources, dstPorts, redirectPort)
+		if err != nil {
+			return fmt.Errorf("build redirect exprs for %s: %w", protoName, err)
+		}
+
+		r.rules[ruleKey] = r.conn.AddRule(&nftables.Rule{
+			Table:    r.workTable,
+			Chain:    chain,
+			Exprs:    exprs,
+			UserData: []byte(ruleKey),
+		})
+	}
+
+	// Accept redirected packets in the ACL input chain. After REDIRECT, the
+	// destination port becomes the proxy port. Without this rule, the ACL filter
+	// drops the packet. We match on ct state dnat so only REDIRECT'd connections
+	// are accepted: direct connections to the proxy port are blocked.
+	inputAcceptKey := fmt.Sprintf("tproxy-%s-input", ruleID)
+	if _, ok := r.rules[inputAcceptKey]; !ok {
+		inputChain := &nftables.Chain{
+			Name:  "netbird-acl-input-rules",
+			Table: r.workTable,
+		}
+		r.rules[inputAcceptKey] = r.conn.InsertRule(&nftables.Rule{
+			Table: r.workTable,
+			Chain: inputChain,
+			Exprs: []expr.Any{
+				// Only accept connections that were REDIRECT'd (ct status dnat)
+				&expr.Ct{Register: 1, Key: expr.CtKeySTATUS},
+				&expr.Bitwise{
+					SourceRegister: 1,
+					DestRegister:   1,
+					Len:            4,
+					Mask:           binaryutil.NativeEndian.PutUint32(0x20), // IPS_DST_NAT
+					Xor:            binaryutil.NativeEndian.PutUint32(0),
+				},
+				&expr.Cmp{
+					Op:       expr.CmpOpNeq,
+					Register: 1,
+					Data:     binaryutil.NativeEndian.PutUint32(0),
+				},
+				// Accept both TCP and UDP redirected to the proxy port.
+				&expr.Payload{
+					DestRegister: 1,
+					Base:         expr.PayloadBaseTransportHeader,
+					Offset:       2,
+					Len:          2,
+				},
+				&expr.Cmp{
+					Op:       expr.CmpOpEq,
+					Register: 1,
+					Data:     binaryutil.BigEndian.PutUint16(redirectPort),
+				},
+				&expr.Verdict{Kind: expr.VerdictAccept},
+			},
+			UserData: []byte(inputAcceptKey),
+		})
+	}
+
+	if err := r.conn.Flush(); err != nil {
+		return fmt.Errorf("flush tproxy rules for %s: %w", ruleID, err)
+	}
+
+	return nil
+}
+
+// RemoveTProxyRule removes TPROXY redirect rules by ID (both TCP and UDP variants).
+func (r *router) RemoveTProxyRule(ruleID string) error {
+	if err := r.refreshRulesMap(); err != nil {
+		return fmt.Errorf(refreshRulesMapError, err)
+	}
+
+	var removed int
+	for _, suffix := range []string{"tcp", "udp", "input"} {
+		ruleKey := fmt.Sprintf("tproxy-%s-%s", ruleID, suffix)
+
+		rule, ok := r.rules[ruleKey]
+		if !ok {
+			continue
+		}
+
+		if rule.Handle == 0 {
+			delete(r.rules, ruleKey)
+			continue
+		}
+
+		if err := r.decrementSetCounter(rule); err != nil {
+			log.Debugf("decrement set counter for %s: %v", ruleKey, err)
+		}
+		if err := r.conn.DelRule(rule); err != nil {
+			log.Debugf("delete tproxy rule %s: %v", ruleKey, err)
+		}
+		delete(r.rules, ruleKey)
+		removed++
+	}
+
+	if removed > 0 {
+		if err := r.conn.Flush(); err != nil {
+			return fmt.Errorf("flush tproxy rule removal for %s: %w", ruleID, err)
+		}
+	}
+
+	return nil
+}
+
+// buildRedirectExprs builds nftables expressions for a REDIRECT rule.
+// Matches WG interface ingress, source CIDRs, destination ports, then REDIRECTs to the proxy port.
+func (r *router) buildRedirectExprs(proto uint8, sources []netip.Prefix, dstPorts []uint16, redirectPort uint16) ([]expr.Any, error) {
+	var exprs []expr.Any
+
+	exprs = append(exprs,
+		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: ifname(r.wgIface.Name())},
+	)
+
+	exprs = append(exprs,
+		&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{proto}},
+	)
+
+	// Source CIDRs use the named ipset shared with route rules.
+	if len(sources) > 0 {
+		srcSet := firewall.NewPrefixSet(sources)
+		srcExprs, err := r.getIpSet(srcSet, sources, true)
+		if err != nil {
+			return nil, fmt.Errorf("get source ipset: %w", err)
+		}
+		exprs = append(exprs, srcExprs...)
+	}
+
+	if len(dstPorts) == 1 {
+		exprs = append(exprs,
+			&expr.Payload{
+				DestRegister: 1,
+				Base:         expr.PayloadBaseTransportHeader,
+				Offset:       2,
+				Len:          2,
+			},
+			&expr.Cmp{
+				Op:       expr.CmpOpEq,
+				Register: 1,
+				Data:     binaryutil.BigEndian.PutUint16(dstPorts[0]),
+			},
+		)
+	} else if len(dstPorts) > 1 {
+		setElements := make([]nftables.SetElement, len(dstPorts))
+		for i, p := range dstPorts {
+			setElements[i] = nftables.SetElement{Key: binaryutil.BigEndian.PutUint16(p)}
+		}
+		portSet := &nftables.Set{
+			Table:     r.workTable,
+			Anonymous: true,
+			Constant:  true,
+			KeyType:   nftables.TypeInetService,
+		}
+		if err := r.conn.AddSet(portSet, setElements); err != nil {
+			return nil, fmt.Errorf("create port set: %w", err)
+		}
+		exprs = append(exprs,
+			&expr.Payload{
+				DestRegister: 1,
+				Base:         expr.PayloadBaseTransportHeader,
+				Offset:       2,
+				Len:          2,
+			},
+			&expr.Lookup{
+				SourceRegister: 1,
+				SetName:        portSet.Name,
+				SetID:          portSet.ID,
+			},
+		)
+	}
+
+	// REDIRECT to local proxy port. Changes the destination to the interface's
+	// primary address + specified port. Conntrack tracks the original destination,
+	// readable via SO_ORIGINAL_DST.
+	exprs = append(exprs,
+		&expr.Immediate{Register: 1, Data: binaryutil.BigEndian.PutUint16(redirectPort)},
+		&expr.Redir{
+			RegisterProtoMin: 1,
+		},
+	)
+
+	return exprs, nil
+}
+
+

@@ -562,6 +562,9 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 		MTU:     selectMTU(config.MTU, peerConfig.Mtu),
 		LogPath: logPath,
 
+		InspectionCACertPath: config.InspectionCACertPath,
+		InspectionCAKeyPath:  config.InspectionCAKeyPath,
+
 		ProfileConfig: config,
 	}
 

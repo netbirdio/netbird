@@ -281,6 +281,10 @@ func (h *handler) savePolicy(w http.ResponseWriter, r *http.Request, accountID s
 		policy.SourcePostureChecks = *req.SourcePostureChecks
 	}
 
+	if req.InspectionPolicies != nil {
+		policy.InspectionPolicies = *req.InspectionPolicies
+	}
+
 	policy, err := h.accountManager.SavePolicy(r.Context(), accountID, userID, policy, create)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
@@ -377,6 +381,7 @@ func toPolicyResponse(groups []*types.Group, policy *types.Policy) *api.Policy {
 		Description:         &policy.Description,
 		Enabled:             policy.Enabled,
 		SourcePostureChecks: policy.SourcePostureChecks,
+		InspectionPolicies:  &policy.InspectionPolicies,
 	}
 	for _, r := range policy.Rules {
 		rID := r.ID

@@ -156,6 +156,10 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 		response.NetworkMap.ForwardingRules = forwardingRules
 	}
 
+	if networkMap.TransparentProxyConfig != nil {
+		response.NetworkMap.TransparentProxyConfig = networkMap.TransparentProxyConfig.ToProto()
+	}
+
 	if networkMap.AuthorizedUsers != nil {
 		hashedUsers, machineUsers := buildAuthorizedUsersProto(ctx, networkMap.AuthorizedUsers)
 		userIDClaim := auth.DefaultUserIDClaim

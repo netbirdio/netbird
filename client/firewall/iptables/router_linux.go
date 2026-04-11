@@ -89,6 +89,8 @@ type router struct {
 
 	stateManager *statemanager.Manager
 	ipFwdState   *ipfwdstate.IPForwardingState
+
+	tproxyRules []tproxyRuleEntry
 }
 
 func newRouter(iptablesClient *iptables.IPTables, wgIface iFaceMapper, mtu uint16) (*router, error) {
@@ -1109,3 +1111,92 @@ func (r *router) addPrefixToIPSet(name string, prefix netip.Prefix) error {
 func (r *router) destroyIPSet(name string) error {
 	return ipset.Destroy(name)
 }
+
+// AddTProxyRule adds iptables nat PREROUTING REDIRECT rules for transparent proxy interception.
+// Traffic from sources on dstPorts arriving on the WG interface is redirected
+// to the transparent proxy listener on redirectPort.
+func (r *router) AddTProxyRule(ruleID string, sources []netip.Prefix, dstPorts []uint16, redirectPort uint16) error {
+	portStr := fmt.Sprintf("%d", redirectPort)
+
+	for _, proto := range []string{"tcp", "udp"} {
+		srcSpecs := r.buildSourceSpecs(sources)
+
+		for _, srcSpec := range srcSpecs {
+			if len(dstPorts) == 0 {
+				rule := append(srcSpec,
+					"-i", r.wgIface.Name(),
+					"-p", proto,
+					"-j", "REDIRECT",
+					"--to-ports", portStr,
+				)
+				if err := r.iptablesClient.AppendUnique(tableNat, chainRTRDR, rule...); err != nil {
+					return fmt.Errorf("add redirect rule %s/%s: %w", ruleID, proto, err)
+				}
+				r.tproxyRules = append(r.tproxyRules, tproxyRuleEntry{
+					ruleID: ruleID,
+					table:  tableNat,
+					chain:  chainRTRDR,
+					spec:   rule,
+				})
+			} else {
+				for _, port := range dstPorts {
+					rule := append(srcSpec,
+						"-i", r.wgIface.Name(),
+						"-p", proto,
+						"--dport", fmt.Sprintf("%d", port),
+						"-j", "REDIRECT",
+						"--to-ports", portStr,
+					)
+					if err := r.iptablesClient.AppendUnique(tableNat, chainRTRDR, rule...); err != nil {
+						return fmt.Errorf("add redirect rule %s/%s/%d: %w", ruleID, proto, port, err)
+					}
+					r.tproxyRules = append(r.tproxyRules, tproxyRuleEntry{
+						ruleID: ruleID,
+						table:  tableNat,
+						chain:  chainRTRDR,
+						spec:   rule,
+					})
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// RemoveTProxyRule removes all iptables REDIRECT rules for the given ruleID.
+func (r *router) RemoveTProxyRule(ruleID string) error {
+	var remaining []tproxyRuleEntry
+	for _, entry := range r.tproxyRules {
+		if entry.ruleID != ruleID {
+			remaining = append(remaining, entry)
+			continue
+		}
+		if err := r.iptablesClient.DeleteIfExists(entry.table, entry.chain, entry.spec...); err != nil {
+			log.Debugf("remove tproxy rule %s: %v", ruleID, err)
+		}
+	}
+	r.tproxyRules = remaining
+
+	return nil
+}
+
+type tproxyRuleEntry struct {
+	ruleID string
+	table  string
+	chain  string
+	spec   []string
+}
+
+func (r *router) buildSourceSpecs(sources []netip.Prefix) [][]string {
+	if len(sources) == 0 {
+		return [][]string{{}} // empty spec = match any source
+	}
+
+	specs := make([][]string, 0, len(sources))
+	for _, src := range sources {
+		specs = append(specs, []string{"-s", src.String()})
+	}
+	return specs
+}
+

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	_ "embed"
+	"slices"
 
 	"github.com/rs/xid"
 
@@ -148,6 +149,12 @@ func arePolicyChangesAffectPeers(ctx context.Context, transaction store.Store, a
 
 		if !policy.Enabled && !existingPolicy.Enabled {
 			return false, nil
+		}
+
+		// Inspection policy changes always affect peers since they control
+		// the transparent proxy config pushed in the network map.
+		if !slices.Equal(existingPolicy.InspectionPolicies, policy.InspectionPolicies) {
+			return true, nil
 		}
 
 		for _, rule := range existingPolicy.Rules {

@@ -113,6 +113,10 @@ type Manager interface {
 	SavePostureChecks(ctx context.Context, accountID, userID string, postureChecks *posture.Checks, create bool) (*posture.Checks, error)
 	DeletePostureChecks(ctx context.Context, accountID, postureChecksID, userID string) error
 	ListPostureChecks(ctx context.Context, accountID, userID string) ([]*posture.Checks, error)
+	GetInspectionPolicy(ctx context.Context, accountID, policyID, userID string) (*types.InspectionPolicy, error)
+	SaveInspectionPolicy(ctx context.Context, accountID, userID string, policy *types.InspectionPolicy, create bool) (*types.InspectionPolicy, error)
+	DeleteInspectionPolicy(ctx context.Context, accountID, policyID, userID string) error
+	ListInspectionPolicies(ctx context.Context, accountID, userID string) ([]*types.InspectionPolicy, error)
 	GetIdpManager() idp.Manager
 	UpdateIntegratedValidator(ctx context.Context, accountID, userID, validator string, groups []string) error
 	GroupValidation(ctx context.Context, accountId string, groups []string) (bool, error)

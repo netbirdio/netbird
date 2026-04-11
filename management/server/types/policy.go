@@ -73,6 +73,10 @@ type Policy struct {
 
 	// SourcePostureChecks are ID references to Posture checks for policy source groups
 	SourcePostureChecks []string `gorm:"serializer:json"`
+
+	// InspectionPolicies are ID references to inspection policies applied to traffic matching this policy.
+	// When set, traffic is routed through a transparent proxy on the destination network's routing peers.
+	InspectionPolicies []string `gorm:"serializer:json"`
 }
 
 // Copy returns a copy of the policy.
@@ -85,11 +89,13 @@ func (p *Policy) Copy() *Policy {
 		Enabled:             p.Enabled,
 		Rules:               make([]*PolicyRule, len(p.Rules)),
 		SourcePostureChecks: make([]string, len(p.SourcePostureChecks)),
+		InspectionPolicies:  make([]string, len(p.InspectionPolicies)),
 	}
 	for i, r := range p.Rules {
 		c.Rules[i] = r.Copy()
 	}
 	copy(c.SourcePostureChecks, p.SourcePostureChecks)
+	copy(c.InspectionPolicies, p.InspectionPolicies)
 	return c
 }
 

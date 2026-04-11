@@ -81,6 +81,12 @@ func (a *Account) GetPeerNetworkMapComponents(
 		return nil
 	}
 
+	// Build inspection policies map for the network map builder
+	inspectionPoliciesMap := make(map[string]*InspectionPolicy, len(a.InspectionPolicies))
+	for _, ip := range a.InspectionPolicies {
+		inspectionPoliciesMap[ip.ID] = ip
+	}
+
 	components := &NetworkMapComponents{
 		PeerID:              peerID,
 		Network:             a.Network.Copy(),
@@ -91,6 +97,7 @@ func (a *Account) GetPeerNetworkMapComponents(
 		NetworkResources:    make([]*resourceTypes.NetworkResource, 0),
 		PostureFailedPeers:  make(map[string]map[string]struct{}, len(a.PostureChecks)),
 		RouterPeers:         make(map[string]*nbpeer.Peer),
+		InspectionPolicies:  inspectionPoliciesMap,
 	}
 
 	components.AccountSettings = &AccountSettingsInfo{

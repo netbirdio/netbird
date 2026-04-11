@@ -37,9 +37,10 @@ type NetworkMap struct {
 	OfflinePeers        []*nbpeer.Peer
 	FirewallRules       []*FirewallRule
 	RoutesFirewallRules []*RouteFirewallRule
-	ForwardingRules     []*ForwardingRule
-	AuthorizedUsers     map[string]map[string]struct{}
-	EnableSSH           bool
+	ForwardingRules        []*ForwardingRule
+	TransparentProxyConfig *TransparentProxyConfig
+	AuthorizedUsers        map[string]map[string]struct{}
+	EnableSSH              bool
 }
 
 func (nm *NetworkMap) Merge(other *NetworkMap) {

@@ -387,6 +387,9 @@ message NetworkMap {
 
   // SSHAuth represents SSH authorization configuration
   SSHAuth sshAuth = 13;
+
+  // TransparentProxyConfig represents transparent proxy configuration for this peer
+  TransparentProxyConfig transparentProxyConfig = 14;
 }
 
 message SSHAuth {
@@ -684,3 +687,90 @@ message StopExposeRequest {
 }
 
 message StopExposeResponse {}
+
+// TransparentProxyConfig configures the transparent forward proxy on a routing peer.
+message TransparentProxyConfig {
+  bool enabled = 1;
+  TransparentProxyMode mode = 2;
+  // External proxy URL for MODE_EXTERNAL (http:// or socks5://)
+  string externalProxyUrl = 3;
+  TransparentProxyAction defaultAction = 4;
+
+  // L3/L4 interception: which traffic gets redirected to the proxy.
+  // Admin decides: activate for these users/subnets on these ports.
+  // Used for both kernel TPROXY rules and userspace forwarder source filtering.
+  repeated string redirectSources = 5;
+  // Destination ports to intercept. Empty means all ports.
+  repeated uint32 redirectPorts = 6;
+
+  // L7 inspection rules: what the proxy does with intercepted traffic.
+  repeated TransparentProxyRule rules = 7;
+
+  TransparentProxyICAPConfig icap = 8;
+  // MITM CA certificate in PEM format
+  bytes caCertPem = 9;
+  // MITM CA private key in PEM format
+  bytes caKeyPem = 10;
+  // TPROXY listen port for kernel mode. 0 means auto-assign.
+  uint32 listenPort = 11;
+
+  // Envoy sidecar configuration (MODE_ENVOY only)
+  string envoyBinaryPath = 12;
+  uint32 envoyAdminPort = 13;
+  TransparentProxyEnvoySnippets envoySnippets = 14;
+}
+
+enum TransparentProxyMode {
+  TP_MODE_BUILTIN = 0;
+  TP_MODE_EXTERNAL = 1;
+  TP_MODE_ENVOY = 2;
+}
+
+enum TransparentProxyAction {
+  TP_ACTION_ALLOW = 0;
+  TP_ACTION_BLOCK = 1;
+  TP_ACTION_INSPECT = 2;
+}
+
+enum TransparentProxyProtocol {
+  TP_PROTO_ALL = 0;
+  TP_PROTO_HTTP = 1;
+  TP_PROTO_HTTPS = 2;
+  TP_PROTO_H2 = 3;
+  TP_PROTO_H3 = 4;
+  TP_PROTO_WEBSOCKET = 5;
+  TP_PROTO_OTHER = 6;
+}
+
+// TransparentProxyRule is an L7 inspection rule evaluated by the proxy engine.
+message TransparentProxyRule {
+  string id = 1;
+  // Domain patterns to match via SNI or Host header (e.g., *.example.com)
+  repeated string domains = 2;
+  // Destination CIDRs for optional L7 destination filtering
+  repeated string networks = 3;
+  // Destination ports for optional per-rule port filtering
+  repeated uint32 ports = 4;
+  TransparentProxyAction action = 5;
+  int32 priority = 6;
+  // Protocols to match. Empty means all protocols.
+  repeated TransparentProxyProtocol protocols = 7;
+  // URL path patterns to match (HTTP only, requires inspect for HTTPS).
+  // Supports prefix ("/api/"), exact ("/login"), and wildcard ("/admin/*").
+  repeated string paths = 8;
+}
+
+message TransparentProxyICAPConfig {
+  string reqmodUrl = 1;
+  string respmodUrl = 2;
+  int32 maxConnections = 3;
+}
+
+message TransparentProxyEnvoySnippets {
+  // YAML injected into the HCM filter chain before the router filter.
+  string httpFilters = 1;
+  // YAML for additional upstream clusters referenced by filters.
+  string clusters = 2;
+  // YAML injected into the TLS filter chain before tcp_proxy (L4 filters).
+  string networkFilters = 3;
+}

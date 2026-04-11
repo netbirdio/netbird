@@ -97,6 +97,9 @@ type ConfigInput struct {
 	LazyConnectionEnabled *bool
 
 	MTU *uint16
+
+	InspectionCACertPath string
+	InspectionCAKeyPath  string
 }
 
 // Config Configuration type
@@ -171,6 +174,13 @@ type Config struct {
 	LazyConnectionEnabled bool
 
 	MTU uint16
+
+	// InspectionCACertPath is the path to a PEM CA certificate for transparent proxy MITM.
+	// Local CA takes priority over management-pushed CA.
+	InspectionCACertPath string
+
+	// InspectionCAKeyPath is the path to the PEM CA private key for transparent proxy MITM.
+	InspectionCAKeyPath string
 }
 
 var ConfigDirOverride string
@@ -600,6 +610,17 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 	} else if config.MTU == 0 {
 		config.MTU = iface.DefaultMTU
 		log.Infof("using default MTU %d", config.MTU)
+		updated = true
+	}
+
+	if input.InspectionCACertPath != "" && input.InspectionCACertPath != config.InspectionCACertPath {
+		log.Infof("updating inspection CA cert path to %s", input.InspectionCACertPath)
+		config.InspectionCACertPath = input.InspectionCACertPath
+		updated = true
+	}
+	if input.InspectionCAKeyPath != "" && input.InspectionCAKeyPath != config.InspectionCAKeyPath {
+		log.Infof("updating inspection CA key path to %s", input.InspectionCAKeyPath)
+		config.InspectionCAKeyPath = input.InspectionCAKeyPath
 		updated = true
 	}
 

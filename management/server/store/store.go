@@ -143,6 +143,11 @@ type Store interface {
 	SavePostureChecks(ctx context.Context, postureCheck *posture.Checks) error
 	DeletePostureChecks(ctx context.Context, accountID, postureChecksID string) error
 
+	GetAccountInspectionPolicies(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.InspectionPolicy, error)
+	GetInspectionPolicyByID(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) (*types.InspectionPolicy, error)
+	SaveInspectionPolicy(ctx context.Context, lockStrength LockingStrength, policy *types.InspectionPolicy) error
+	DeleteInspectionPolicy(ctx context.Context, lockStrength LockingStrength, accountID, policyID string) error
+
 	GetPeerLabelsInAccount(ctx context.Context, lockStrength LockingStrength, accountId string, hostname string) ([]string, error)
 	AddPeerToAllGroup(ctx context.Context, accountID string, peerID string) error
 	AddPeerToGroup(ctx context.Context, accountID, peerId string, groupID string) error
