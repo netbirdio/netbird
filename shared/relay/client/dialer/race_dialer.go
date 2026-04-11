@@ -40,10 +40,10 @@ func NewRaceDial(log *log.Entry, connectionTimeout time.Duration, serverURL stri
 	}
 }
 
-func (r *RaceDial) Dial() (net.Conn, error) {
+func (r *RaceDial) Dial(ctx context.Context) (net.Conn, error) {
 	connChan := make(chan dialResult, len(r.dialerFns))
 	winnerConn := make(chan net.Conn, 1)
-	abortCtx, abort := context.WithCancel(context.Background())
+	abortCtx, abort := context.WithCancel(ctx)
 	defer abort()
 
 	for _, dfn := range r.dialerFns {

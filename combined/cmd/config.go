@@ -179,9 +179,11 @@ type StoreConfig struct {
 
 // ReverseProxyConfig contains reverse proxy settings
 type ReverseProxyConfig struct {
-	TrustedHTTPProxies      []string `yaml:"trustedHTTPProxies"`
-	TrustedHTTPProxiesCount uint     `yaml:"trustedHTTPProxiesCount"`
-	TrustedPeers            []string `yaml:"trustedPeers"`
+	TrustedHTTPProxies            []string `yaml:"trustedHTTPProxies"`
+	TrustedHTTPProxiesCount       uint     `yaml:"trustedHTTPProxiesCount"`
+	TrustedPeers                  []string `yaml:"trustedPeers"`
+	AccessLogRetentionDays        int      `yaml:"accessLogRetentionDays"`
+	AccessLogCleanupIntervalHours int      `yaml:"accessLogCleanupIntervalHours"`
 }
 
 // DefaultConfig returns a CombinedConfig with default values
@@ -645,7 +647,9 @@ func (c *CombinedConfig) ToManagementConfig() (*nbconfig.Config, error) {
 
 	// Build reverse proxy config
 	reverseProxy := nbconfig.ReverseProxy{
-		TrustedHTTPProxiesCount: mgmt.ReverseProxy.TrustedHTTPProxiesCount,
+		TrustedHTTPProxiesCount:       mgmt.ReverseProxy.TrustedHTTPProxiesCount,
+		AccessLogRetentionDays:        mgmt.ReverseProxy.AccessLogRetentionDays,
+		AccessLogCleanupIntervalHours: mgmt.ReverseProxy.AccessLogCleanupIntervalHours,
 	}
 	for _, p := range mgmt.ReverseProxy.TrustedHTTPProxies {
 		if prefix, err := netip.ParsePrefix(p); err == nil {
