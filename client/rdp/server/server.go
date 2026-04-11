@@ -17,11 +17,11 @@ import (
 )
 
 const (
-	// InternalRDPAuthPort is the internal port the sideband auth server listens on.
-	InternalRDPAuthPort = 22023
+	// InternalRDPAuthPort is the port the sideband auth server listens on.
+	InternalRDPAuthPort = 22338
 
 	// DefaultRDPAuthPort is the external port on the WireGuard interface (DNAT target).
-	DefaultRDPAuthPort = 3390
+	DefaultRDPAuthPort = 22338
 
 	// maxRequestSize is the maximum size of an auth request in bytes.
 	maxRequestSize = 64 * 1024
