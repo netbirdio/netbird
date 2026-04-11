@@ -472,6 +472,7 @@ type LoginRequest struct {
 	EnableSSHRemotePortForwarding *bool   `protobuf:"varint,37,opt,name=enableSSHRemotePortForwarding,proto3,oneof" json:"enableSSHRemotePortForwarding,omitempty"`
 	DisableSSHAuth                *bool   `protobuf:"varint,38,opt,name=disableSSHAuth,proto3,oneof" json:"disableSSHAuth,omitempty"`
 	SshJWTCacheTTL                *int32  `protobuf:"varint,39,opt,name=sshJWTCacheTTL,proto3,oneof" json:"sshJWTCacheTTL,omitempty"`
+	ServerRDPAllowed              *bool   `protobuf:"varint,40,opt,name=serverRDPAllowed,proto3,oneof" json:"serverRDPAllowed,omitempty"`
 	unknownFields                 protoimpl.UnknownFields
 	sizeCache                     protoimpl.SizeCache
 }
@@ -778,6 +779,13 @@ func (x *LoginRequest) GetSshJWTCacheTTL() int32 {
 		return *x.SshJWTCacheTTL
 	}
 	return 0
+}
+
+func (x *LoginRequest) GetServerRDPAllowed() bool {
+	if x != nil && x.ServerRDPAllowed != nil {
+		return *x.ServerRDPAllowed
+	}
+	return false
 }
 
 type LoginResponse struct {
@@ -1312,6 +1320,7 @@ type GetConfigResponse struct {
 	EnableSSHRemotePortForwarding bool   `protobuf:"varint,23,opt,name=enableSSHRemotePortForwarding,proto3" json:"enableSSHRemotePortForwarding,omitempty"`
 	DisableSSHAuth                bool   `protobuf:"varint,25,opt,name=disableSSHAuth,proto3" json:"disableSSHAuth,omitempty"`
 	SshJWTCacheTTL                int32  `protobuf:"varint,26,opt,name=sshJWTCacheTTL,proto3" json:"sshJWTCacheTTL,omitempty"`
+	ServerRDPAllowed              bool   `protobuf:"varint,27,opt,name=serverRDPAllowed,proto3" json:"serverRDPAllowed,omitempty"`
 	unknownFields                 protoimpl.UnknownFields
 	sizeCache                     protoimpl.SizeCache
 }
@@ -1526,6 +1535,13 @@ func (x *GetConfigResponse) GetSshJWTCacheTTL() int32 {
 		return x.SshJWTCacheTTL
 	}
 	return 0
+}
+
+func (x *GetConfigResponse) GetServerRDPAllowed() bool {
+	if x != nil {
+		return x.ServerRDPAllowed
+	}
+	return false
 }
 
 // PeerState contains the latest state of a peer
@@ -4139,6 +4155,7 @@ type SetConfigRequest struct {
 	EnableSSHRemotePortForwarding *bool                `protobuf:"varint,32,opt,name=enableSSHRemotePortForwarding,proto3,oneof" json:"enableSSHRemotePortForwarding,omitempty"`
 	DisableSSHAuth                *bool                `protobuf:"varint,33,opt,name=disableSSHAuth,proto3,oneof" json:"disableSSHAuth,omitempty"`
 	SshJWTCacheTTL                *int32               `protobuf:"varint,34,opt,name=sshJWTCacheTTL,proto3,oneof" json:"sshJWTCacheTTL,omitempty"`
+	ServerRDPAllowed              *bool                `protobuf:"varint,35,opt,name=serverRDPAllowed,proto3,oneof" json:"serverRDPAllowed,omitempty"`
 	unknownFields                 protoimpl.UnknownFields
 	sizeCache                     protoimpl.SizeCache
 }
@@ -4409,6 +4426,13 @@ func (x *SetConfigRequest) GetSshJWTCacheTTL() int32 {
 		return *x.SshJWTCacheTTL
 	}
 	return 0
+}
+
+func (x *SetConfigRequest) GetServerRDPAllowed() bool {
+	if x != nil && x.ServerRDPAllowed != nil {
+		return *x.ServerRDPAllowed
+	}
+	return false
 }
 
 type SetConfigResponse struct {

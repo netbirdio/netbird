@@ -10,13 +10,17 @@ import (
 
 	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
+	sshauth "github.com/netbirdio/netbird/client/ssh/auth"
 	rdpserver "github.com/netbirdio/netbird/client/rdp/server"
+	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
+	sshuserhash "github.com/netbirdio/netbird/shared/sshauth"
 )
 
 type rdpServer interface {
 	Start(ctx context.Context, addr netip.AddrPort) error
 	Stop() error
 	GetPendingStore() *rdpserver.PendingStore
+	UpdateRDPAuth(config *sshauth.Config)
 }
 
 func (e *Engine) setupRDPPortRedirection() error {
@@ -57,6 +61,28 @@ func (e *Engine) cleanupRDPPortRedirection() error {
 	return nil
 }
 
+// updateRDP handles starting/stopping the RDP server based on the config flag.
+func (e *Engine) updateRDP() error {
+	if !e.config.ServerRDPAllowed {
+		if e.rdpServer != nil {
+			log.Info("RDP passthrough disabled, stopping RDP auth server")
+		}
+		return e.stopRDPServer()
+	}
+
+	if e.config.BlockInbound {
+		log.Info("RDP server is disabled because inbound connections are blocked")
+		return e.stopRDPServer()
+	}
+
+	if e.rdpServer != nil {
+		log.Debug("RDP auth server is already running")
+		return nil
+	}
+
+	return e.startRDPServer()
+}
+
 func (e *Engine) startRDPServer() error {
 	if e.wgInterface == nil {
 		return errors.New("wg interface not initialized")
@@ -92,6 +118,12 @@ func (e *Engine) startRDPServer() error {
 		log.Warnf("failed to setup RDP auth port redirection: %v", err)
 	}
 
+	// Register the credential provider DLL dynamically (Windows only)
+	if err := rdpserver.RegisterCredentialProvider(); err != nil {
+		log.Warnf("failed to register RDP credential provider (passwordless RDP will not work): %v", err)
+	}
+
+	log.Info("RDP passthrough enabled")
 	return nil
 }
 
@@ -113,6 +145,11 @@ func (e *Engine) stopRDPServer() error {
 		}
 	}
 
+	// Unregister the credential provider DLL (Windows only)
+	if err := rdpserver.UnregisterCredentialProvider(); err != nil {
+		log.Warnf("failed to unregister RDP credential provider: %v", err)
+	}
+
 	log.Info("stopping RDP auth server")
 	err := e.rdpServer.Stop()
 	e.rdpServer = nil
@@ -120,4 +157,35 @@ func (e *Engine) stopRDPServer() error {
 		return fmt.Errorf("stop: %w", err)
 	}
 	return nil
+}
+
+// updateRDPServerAuth reuses the SSH authorization config for RDP access control.
+// This means the same user/machine-user mappings that control SSH access also control RDP.
+func (e *Engine) updateRDPServerAuth(sshAuth *mgmProto.SSHAuth) {
+	if sshAuth == nil || e.rdpServer == nil {
+		return
+	}
+
+	protoUsers := sshAuth.GetAuthorizedUsers()
+	authorizedUsers := make([]sshuserhash.UserIDHash, len(protoUsers))
+	for i, hash := range protoUsers {
+		if len(hash) != 16 {
+			log.Warnf("invalid hash length %d, expected 16 - skipping RDP server auth update", len(hash))
+			return
+		}
+		authorizedUsers[i] = sshuserhash.UserIDHash(hash)
+	}
+
+	machineUsers := make(map[string][]uint32)
+	for osUser, indexes := range sshAuth.GetMachineUsers() {
+		machineUsers[osUser] = indexes.GetIndexes()
+	}
+
+	authConfig := &sshauth.Config{
+		UserIDClaim:     sshAuth.GetUserIDClaim(),
+		AuthorizedUsers: authorizedUsers,
+		MachineUsers:    machineUsers,
+	}
+
+	e.rdpServer.UpdateRDPAuth(authConfig)
 }

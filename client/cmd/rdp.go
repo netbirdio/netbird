@@ -25,17 +25,24 @@ import (
 	"github.com/netbirdio/netbird/util"
 )
 
+const (
+	serverRDPAllowedFlag = "allow-server-rdp"
+)
+
 var (
-	rdpUsername  string
-	rdpHost     string
-	rdpNoBrowser bool
-	rdpNoCache  bool
+	rdpUsername       string
+	rdpHost          string
+	rdpNoBrowser     bool
+	rdpNoCache       bool
+	serverRDPAllowed bool
 )
 
 func init() {
 	rdpCmd.PersistentFlags().StringVarP(&rdpUsername, "user", "u", "", "Windows username on remote peer")
 	rdpCmd.PersistentFlags().BoolVar(&rdpNoBrowser, noBrowserFlag, false, noBrowserDesc)
 	rdpCmd.PersistentFlags().BoolVar(&rdpNoCache, "no-cache", false, "Skip cached JWT token and force fresh authentication")
+
+	upCmd.PersistentFlags().BoolVar(&serverRDPAllowed, serverRDPAllowedFlag, false, "Allow RDP passthrough on peer (passwordless RDP via credential provider)")
 }
 
 var rdpCmd = &cobra.Command{

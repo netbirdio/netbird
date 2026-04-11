@@ -117,6 +117,7 @@ type EngineConfig struct {
 	RosenpassPermissive bool
 
 	ServerSSHAllowed              bool
+	ServerRDPAllowed              bool
 	EnableSSHRoot                 *bool
 	EnableSSHSFTP                 *bool
 	EnableSSHLocalPortForwarding  *bool
@@ -1037,6 +1038,10 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 		}
 	}
 
+	if err := e.updateRDP(); err != nil {
+		log.Warnf("failed handling RDP server setup: %v", err)
+	}
+
 	state := e.statusRecorder.GetLocalPeerState()
 	state.IP = e.wgInterface.Address().String()
 	state.PubKey = e.config.WgPrivateKey.PublicKey().String()
@@ -1324,6 +1329,9 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		}
 
 		e.updateSSHServerAuth(networkMap.GetSshAuth())
+
+		// Reuse SSH ACL for RDP authorization
+		e.updateRDPServerAuth(networkMap.GetSshAuth())
 	}
 
 	// must set the exclude list after the peers are added. Without it the manager can not figure out the peers parameters from the store

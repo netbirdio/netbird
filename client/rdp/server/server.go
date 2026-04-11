@@ -12,6 +12,8 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+
+	sshauth "github.com/netbirdio/netbird/client/ssh/auth"
 )
 
 const (
@@ -45,6 +47,7 @@ type Server struct {
 	pipeServer   PipeServer
 	jwtValidator JWTValidator
 	authorizer   Authorizer
+	sshAuthorizer *sshauth.Authorizer // reuses SSH ACL for RDP access control
 	networkAddr  netip.Prefix // WireGuard network for source IP validation
 
 	mu     sync.Mutex
@@ -76,12 +79,19 @@ func New(cfg *Config) *Server {
 	pending := NewPendingStore(ttl)
 
 	return &Server{
-		pending:      pending,
-		pipeServer:   newPipeServer(pending),
-		jwtValidator: cfg.JWTValidator,
-		authorizer:   cfg.Authorizer,
-		networkAddr:  cfg.NetworkAddr,
+		pending:       pending,
+		pipeServer:    newPipeServer(pending),
+		jwtValidator:  cfg.JWTValidator,
+		authorizer:    cfg.Authorizer,
+		sshAuthorizer: sshauth.NewAuthorizer(),
+		networkAddr:   cfg.NetworkAddr,
 	}
+}
+
+// UpdateRDPAuth updates the RDP authorization config (reuses SSH ACL).
+func (s *Server) UpdateRDPAuth(config *sshauth.Config) {
+	s.sshAuthorizer.Update(config)
+	log.Debugf("RDP auth: updated authorization config")
 }
 
 // Start begins listening for sideband auth requests on the given address.
@@ -219,10 +229,15 @@ func (s *Server) processAuthRequest(peerIP netip.Addr, req *AuthRequest) *AuthRe
 		return &AuthResponse{Status: StatusDenied, Reason: "JWT validation failed"}
 	}
 
-	// Check authorization
+	// Check authorization - try explicit authorizer first, then SSH ACL
 	if s.authorizer != nil {
 		if _, err := s.authorizer.Authorize(userID, req.RequestedUser); err != nil {
 			log.Warnf("RDP auth denied for user %s -> %s: %v", userID, req.RequestedUser, err)
+			return &AuthResponse{Status: StatusDenied, Reason: "not authorized for this user"}
+		}
+	} else if s.sshAuthorizer != nil {
+		if _, err := s.sshAuthorizer.Authorize(userID, req.RequestedUser); err != nil {
+			log.Warnf("RDP auth denied (SSH ACL) for user %s -> %s: %v", userID, req.RequestedUser, err)
 			return &AuthResponse{Status: StatusDenied, Reason: "not authorized for this user"}
 		}
 	}

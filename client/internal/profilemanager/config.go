@@ -64,6 +64,7 @@ type ConfigInput struct {
 	StateFilePath                 string
 	PreSharedKey                  *string
 	ServerSSHAllowed              *bool
+	ServerRDPAllowed              *bool
 	EnableSSHRoot                 *bool
 	EnableSSHSFTP                 *bool
 	EnableSSHLocalPortForwarding  *bool
@@ -114,6 +115,7 @@ type Config struct {
 	RosenpassEnabled              bool
 	RosenpassPermissive           bool
 	ServerSSHAllowed              *bool
+	ServerRDPAllowed              *bool
 	EnableSSHRoot                 *bool
 	EnableSSHSFTP                 *bool
 	EnableSSHLocalPortForwarding  *bool
@@ -412,6 +414,21 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			log.Infof("falling back to enabled SSH server for pre-existing configuration")
 			config.ServerSSHAllowed = util.True()
 		}
+		updated = true
+	}
+
+	if input.ServerRDPAllowed != nil {
+		if config.ServerRDPAllowed == nil || *input.ServerRDPAllowed != *config.ServerRDPAllowed {
+			if *input.ServerRDPAllowed {
+				log.Infof("enabling RDP passthrough")
+			} else {
+				log.Infof("disabling RDP passthrough")
+			}
+			config.ServerRDPAllowed = input.ServerRDPAllowed
+			updated = true
+		}
+	} else if config.ServerRDPAllowed == nil {
+		config.ServerRDPAllowed = util.False()
 		updated = true
 	}
 

@@ -356,6 +356,9 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 	if cmd.Flag(serverSSHAllowedFlag).Changed {
 		req.ServerSSHAllowed = &serverSSHAllowed
 	}
+	if cmd.Flag(serverRDPAllowedFlag).Changed {
+		req.ServerRDPAllowed = &serverRDPAllowed
+	}
 	if cmd.Flag(enableSSHRootFlag).Changed {
 		req.EnableSSHRoot = &enableSSHRoot
 	}
@@ -457,6 +460,9 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 
 	if cmd.Flag(serverSSHAllowedFlag).Changed {
 		ic.ServerSSHAllowed = &serverSSHAllowed
+	}
+	if cmd.Flag(serverRDPAllowedFlag).Changed {
+		ic.ServerRDPAllowed = &serverRDPAllowed
 	}
 
 	if cmd.Flag(enableSSHRootFlag).Changed {
@@ -581,6 +587,9 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 
 	if cmd.Flag(serverSSHAllowedFlag).Changed {
 		loginRequest.ServerSSHAllowed = &serverSSHAllowed
+	}
+	if cmd.Flag(serverRDPAllowedFlag).Changed {
+		loginRequest.ServerRDPAllowed = &serverRDPAllowed
 	}
 
 	if cmd.Flag(enableSSHRootFlag).Changed {
