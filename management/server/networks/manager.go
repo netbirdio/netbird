@@ -177,7 +177,7 @@ func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, netw
 		event()
 	}
 
-	go m.accountManager.UpdateAccountPeers(ctx, accountID)
+	go m.accountManager.UpdateAccountPeers(context.WithoutCancel(ctx), accountID)
 
 	return nil
 }

@@ -162,7 +162,7 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 		event()
 	}
 
-	go m.accountManager.UpdateAccountPeers(ctx, resource.AccountID)
+	go m.accountManager.UpdateAccountPeers(context.WithoutCancel(ctx), resource.AccountID)
 
 	return resource, nil
 }
@@ -270,7 +270,7 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 		}
 	}()
 
-	go m.accountManager.UpdateAccountPeers(ctx, resource.AccountID)
+	go m.accountManager.UpdateAccountPeers(context.WithoutCancel(ctx), resource.AccountID)
 
 	return resource, nil
 }
@@ -352,7 +352,7 @@ func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, net
 		event()
 	}
 
-	go m.accountManager.UpdateAccountPeers(ctx, accountID)
+	go m.accountManager.UpdateAccountPeers(context.WithoutCancel(ctx), accountID)
 
 	return nil
 }
