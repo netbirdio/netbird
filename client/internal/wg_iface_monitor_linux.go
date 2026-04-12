@@ -32,7 +32,10 @@ func watchInterface(ctx context.Context, ifaceName string, expectedIndex int) (b
 	// pairs are created/destroyed at once by container runtimes).
 	linkChan := make(chan netlink.LinkUpdate, 32)
 	if err := netlink.LinkSubscribe(linkChan, done); err != nil {
-		return false, fmt.Errorf("subscribe to link updates: %w", err)
+		// Return shouldRestart=true so the engine recovers monitoring
+		// via triggerClientRestart instead of silently losing it for
+		// the rest of the process lifetime.
+		return true, fmt.Errorf("subscribe to link updates: %w", err)
 	}
 
 	// Race window: the interface could have been deleted (or recreated)
