@@ -56,7 +56,12 @@ func watchInterface(ctx context.Context, ifaceName string, expectedIndex int) (b
 
 		case update, ok := <-linkChan:
 			if !ok {
-				return false, fmt.Errorf("link subscription channel closed unexpectedly")
+				// The vishvananda/netlink subscription goroutine closes
+				// the channel on receive errors. Signal the engine to
+				// restart so monitoring is re-established instead of
+				// silently ending.
+				log.Warnf("Interface monitor: link subscription channel closed unexpectedly for %s", ifaceName)
+				return true, fmt.Errorf("link subscription channel closed unexpectedly")
 			}
 
 			eventIndex := int(update.Index)
@@ -73,13 +78,30 @@ func watchInterface(ctx context.Context, ifaceName string, expectedIndex int) (b
 					return true, fmt.Errorf("interface %s deleted", ifaceName)
 				}
 			case syscall.RTM_NEWLINK:
-				// Recreation: a new link with our name appears at a
-				// different index. Same name + same index is just a
-				// flag/state change on the existing interface — ignore.
+				// Two cases trigger a restart:
+				//
+				//  1. Recreation: a link with our name appears at a
+				//     different index (the old interface was deleted
+				//     and a fresh one took its place).
+				//
+				//  2. Rename: a link still at our index now has a
+				//     different name. The previous polling
+				//     implementation caught this implicitly because
+				//     net.InterfaceByName(ifaceName) would start
+				//     failing; the event-driven version has to handle
+				//     it explicitly.
+				//
+				// Same name + same index is just a flag/state change on
+				// the existing interface — ignore.
 				if eventName == ifaceName && eventIndex != expectedIndex {
 					log.Infof("Interface monitor: %s recreated (index changed from %d to %d), restarting engine",
 						ifaceName, expectedIndex, eventIndex)
 					return true, nil
+				}
+				if eventIndex == expectedIndex && eventName != "" && eventName != ifaceName {
+					log.Infof("Interface monitor: %s renamed to %s (index %d), restarting engine",
+						ifaceName, eventName, expectedIndex)
+					return true, fmt.Errorf("interface %s renamed to %s", ifaceName, eventName)
 				}
 			}
 		}

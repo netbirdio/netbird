@@ -13,11 +13,16 @@ import (
 // watchInterface polls net.InterfaceByName at a fixed interval to detect
 // deletion or recreation of the WireGuard interface.
 //
-// This is the cross-platform fallback used on darwin, windows, freebsd,
-// android, and ios. The Linux build (see wg_iface_monitor_linux.go) uses
-// an event-driven RTNLGRP_LINK netlink subscription instead, because on
-// Linux net.InterfaceByName issues syscall.NetlinkRIB(RTM_GETLINK, ...)
-// which dumps the entire kernel link table on every call and produces
+// This is the fallback used on non-Linux desktop and server platforms
+// (darwin, windows, freebsd). It is also compiled on android and ios so
+// the package builds on every supported GOOS, but it is never reached
+// at runtime there because Start() in wg_iface_monitor.go exits early
+// on mobile platforms.
+//
+// The Linux build (see wg_iface_monitor_linux.go) uses an event-driven
+// RTNLGRP_LINK netlink subscription instead, because on Linux
+// net.InterfaceByName issues syscall.NetlinkRIB(RTM_GETLINK, ...) which
+// dumps the entire kernel link table on every call and produces
 // significant allocation churn (netbirdio/netbird#3678).
 //
 // Windows is also reported in #3678 as affected by RSS climb. A future
