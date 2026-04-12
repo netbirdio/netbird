@@ -36,7 +36,7 @@ func watchInterface(ctx context.Context, ifaceName string, expectedIndex int) (b
 		select {
 		case <-ctx.Done():
 			log.Infof("Interface monitor: stopped for %s", ifaceName)
-			return false, fmt.Errorf("wg interface monitor stopped: %v", ctx.Err())
+			return false, fmt.Errorf("wg interface monitor stopped: %w", ctx.Err())
 		case <-ticker.C:
 			currentIndex, err := getInterfaceIndex(ifaceName)
 			if err != nil {
