@@ -63,47 +63,51 @@ func watchInterface(ctx context.Context, ifaceName string, expectedIndex int) (b
 				log.Warnf("Interface monitor: link subscription channel closed unexpectedly for %s", ifaceName)
 				return true, fmt.Errorf("link subscription channel closed unexpectedly")
 			}
-
-			eventIndex := int(update.Index)
-			eventType := update.Header.Type
-			eventName := ""
-			if attrs := update.Attrs(); attrs != nil {
-				eventName = attrs.Name
-			}
-
-			switch eventType {
-			case syscall.RTM_DELLINK:
-				if eventIndex == expectedIndex {
-					log.Infof("Interface monitor: %s deleted", ifaceName)
-					return true, fmt.Errorf("interface %s deleted", ifaceName)
-				}
-			case syscall.RTM_NEWLINK:
-				// Two cases trigger a restart:
-				//
-				//  1. Recreation: a link with our name appears at a
-				//     different index (the old interface was deleted
-				//     and a fresh one took its place).
-				//
-				//  2. Rename: a link still at our index now has a
-				//     different name. The previous polling
-				//     implementation caught this implicitly because
-				//     net.InterfaceByName(ifaceName) would start
-				//     failing; the event-driven version has to handle
-				//     it explicitly.
-				//
-				// Same name + same index is just a flag/state change on
-				// the existing interface — ignore.
-				if eventName == ifaceName && eventIndex != expectedIndex {
-					log.Infof("Interface monitor: %s recreated (index changed from %d to %d), restarting engine",
-						ifaceName, expectedIndex, eventIndex)
-					return true, nil
-				}
-				if eventIndex == expectedIndex && eventName != "" && eventName != ifaceName {
-					log.Infof("Interface monitor: %s renamed to %s (index %d), restarting engine",
-						ifaceName, eventName, expectedIndex)
-					return true, fmt.Errorf("interface %s renamed to %s", ifaceName, eventName)
-				}
+			if restart, err := inspectLinkEvent(update, ifaceName, expectedIndex); restart {
+				return true, err
 			}
 		}
 	}
+}
+
+// inspectLinkEvent classifies a single netlink link update against the
+// tracked WireGuard interface. It returns (true, err) when the engine
+// should restart monitoring; (false, nil) means the event is unrelated
+// and the caller should keep waiting.
+//
+// The error component, when non-nil, describes the kernel-side reason
+// (deletion or rename); the recreation case returns (true, nil) since
+// no error condition is reported.
+func inspectLinkEvent(update netlink.LinkUpdate, ifaceName string, expectedIndex int) (bool, error) {
+	eventIndex := int(update.Index)
+	eventName := ""
+	if attrs := update.Attrs(); attrs != nil {
+		eventName = attrs.Name
+	}
+
+	switch update.Header.Type {
+	case syscall.RTM_DELLINK:
+		if eventIndex == expectedIndex {
+			log.Infof("Interface monitor: %s deleted", ifaceName)
+			return true, fmt.Errorf("interface %s deleted", ifaceName)
+		}
+	case syscall.RTM_NEWLINK:
+		// Recreation: a link with our name appears at a different index
+		// (the old interface was deleted and a fresh one took its place).
+		if eventName == ifaceName && eventIndex != expectedIndex {
+			log.Infof("Interface monitor: %s recreated (index changed from %d to %d), restarting engine",
+				ifaceName, expectedIndex, eventIndex)
+			return true, nil
+		}
+		// Rename: a link still at our index now has a different name.
+		// The previous polling implementation caught this implicitly
+		// because net.InterfaceByName(ifaceName) would start failing;
+		// the event-driven version has to handle it explicitly.
+		if eventIndex == expectedIndex && eventName != "" && eventName != ifaceName {
+			log.Infof("Interface monitor: %s renamed to %s (index %d), restarting engine",
+				ifaceName, eventName, expectedIndex)
+			return true, fmt.Errorf("interface %s renamed to %s", ifaceName, eventName)
+		}
+	}
+	return false, nil
 }
