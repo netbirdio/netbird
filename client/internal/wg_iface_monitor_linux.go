@@ -87,27 +87,45 @@ func inspectLinkEvent(update netlink.LinkUpdate, ifaceName string, expectedIndex
 
 	switch update.Header.Type {
 	case syscall.RTM_DELLINK:
-		if eventIndex == expectedIndex {
-			log.Infof("Interface monitor: %s deleted", ifaceName)
-			return true, fmt.Errorf("interface %s deleted", ifaceName)
-		}
+		return inspectDelLink(eventIndex, ifaceName, expectedIndex)
 	case syscall.RTM_NEWLINK:
-		// Recreation: a link with our name appears at a different index
-		// (the old interface was deleted and a fresh one took its place).
-		if eventName == ifaceName && eventIndex != expectedIndex {
-			log.Infof("Interface monitor: %s recreated (index changed from %d to %d), restarting engine",
-				ifaceName, expectedIndex, eventIndex)
-			return true, nil
-		}
-		// Rename: a link still at our index now has a different name.
-		// The previous polling implementation caught this implicitly
-		// because net.InterfaceByName(ifaceName) would start failing;
-		// the event-driven version has to handle it explicitly.
-		if eventIndex == expectedIndex && eventName != "" && eventName != ifaceName {
-			log.Infof("Interface monitor: %s renamed to %s (index %d), restarting engine",
-				ifaceName, eventName, expectedIndex)
-			return true, fmt.Errorf("interface %s renamed to %s", ifaceName, eventName)
-		}
+		return inspectNewLink(eventIndex, eventName, ifaceName, expectedIndex)
+	}
+	return false, nil
+}
+
+// inspectDelLink reports a restart when an RTM_DELLINK arrives for the
+// tracked interface index.
+func inspectDelLink(eventIndex int, ifaceName string, expectedIndex int) (bool, error) {
+	if eventIndex != expectedIndex {
+		return false, nil
+	}
+	log.Infof("Interface monitor: %s deleted", ifaceName)
+	return true, fmt.Errorf("interface %s deleted", ifaceName)
+}
+
+// inspectNewLink reports a restart when an RTM_NEWLINK either:
+//
+//  1. Introduces a link with our name at a different index (recreation
+//     after a delete), or
+//
+//  2. Reports a link still at our index but with a different name
+//     (in-place rename). The previous polling implementation caught
+//     this implicitly because net.InterfaceByName(ifaceName) would
+//     start failing; the event-driven version has to test it.
+//
+// Same name + same index is just a flag/state change on the existing
+// interface and is ignored.
+func inspectNewLink(eventIndex int, eventName, ifaceName string, expectedIndex int) (bool, error) {
+	if eventName == ifaceName && eventIndex != expectedIndex {
+		log.Infof("Interface monitor: %s recreated (index changed from %d to %d), restarting engine",
+			ifaceName, expectedIndex, eventIndex)
+		return true, nil
+	}
+	if eventIndex == expectedIndex && eventName != "" && eventName != ifaceName {
+		log.Infof("Interface monitor: %s renamed to %s (index %d), restarting engine",
+			ifaceName, eventName, expectedIndex)
+		return true, fmt.Errorf("interface %s renamed to %s", ifaceName, eventName)
 	}
 	return false, nil
 }
