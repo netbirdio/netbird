@@ -686,6 +686,7 @@ func (e NetworkResourceType) Valid() bool {
 // Defines values for NotificationChannelType.
 const (
 	NotificationChannelTypeEmail   NotificationChannelType = "email"
+	NotificationChannelTypeSlack   NotificationChannelType = "slack"
 	NotificationChannelTypeWebhook NotificationChannelType = "webhook"
 )
 
@@ -693,6 +694,8 @@ const (
 func (e NotificationChannelType) Valid() bool {
 	switch e {
 	case NotificationChannelTypeEmail:
+		return true
+	case NotificationChannelTypeSlack:
 		return true
 	case NotificationChannelTypeWebhook:
 		return true

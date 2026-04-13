@@ -4751,6 +4751,7 @@ components:
       enum:
         - email
         - webhook
+        - slack
       example: "email"
     NotificationEventType:
       type: string
@@ -4804,6 +4805,7 @@ components:
             Channel-specific target configuration. The shape depends on the `type` field:
             - `email`: requires an `EmailTarget` object
             - `webhook`: requires a `WebhookTarget` object
+            - `slack`: requires a `WebhookTarget` object
           oneOf:
             - $ref: '#/components/schemas/EmailTarget'
             - $ref: '#/components/schemas/WebhookTarget'
@@ -4837,6 +4839,7 @@ components:
             Channel-specific target configuration. The shape depends on the `type` field:
             - `email`: an `EmailTarget` object
             - `webhook`: a `WebhookTarget` object
+            - `slack`: a `WebhookTarget` object
           oneOf:
             - $ref: '#/components/schemas/EmailTarget'
             - $ref: '#/components/schemas/WebhookTarget'
