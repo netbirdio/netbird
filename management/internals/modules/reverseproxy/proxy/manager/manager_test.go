@@ -90,6 +90,12 @@ func (m *mockStore) DeleteProxy(ctx context.Context, proxyID string) error {
 	}
 	return nil
 }
+func (m *mockStore) GetClusterSupportsCustomPorts(_ context.Context, _ string) *bool {
+	return nil
+}
+func (m *mockStore) GetClusterRequireSubdomain(_ context.Context, _ string) *bool {
+	return nil
+}
 
 func newTestManager(s store) *Manager {
 	meter := noop.NewMeterProvider().Meter("test")
@@ -112,7 +118,7 @@ func TestConnect_WithAccountID(t *testing.T) {
 	}
 
 	mgr := newTestManager(s)
-	err := mgr.Connect(context.Background(), "proxy-1", "cluster.example.com", "10.0.0.1", &accountID)
+	err := mgr.Connect(context.Background(), "proxy-1", "cluster.example.com", "10.0.0.1", &accountID, nil)
 	require.NoError(t, err)
 
 	require.NotNil(t, savedProxy)
@@ -134,7 +140,7 @@ func TestConnect_WithoutAccountID(t *testing.T) {
 	}
 
 	mgr := newTestManager(s)
-	err := mgr.Connect(context.Background(), "proxy-1", "eu.proxy.netbird.io", "10.0.0.1", nil)
+	err := mgr.Connect(context.Background(), "proxy-1", "eu.proxy.netbird.io", "10.0.0.1", nil, nil)
 	require.NoError(t, err)
 
 	require.NotNil(t, savedProxy)
@@ -150,7 +156,7 @@ func TestConnect_StoreError(t *testing.T) {
 	}
 
 	mgr := newTestManager(s)
-	err := mgr.Connect(context.Background(), "proxy-1", "cluster.example.com", "10.0.0.1", nil)
+	err := mgr.Connect(context.Background(), "proxy-1", "cluster.example.com", "10.0.0.1", nil, nil)
 	assert.Error(t, err)
 }
 

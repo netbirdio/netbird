@@ -34,6 +34,10 @@ func (n *Notifier) SetInitialClientRoutes([]*route.Route, []*route.Route) {
 	// iOS doesn't care about initial routes
 }
 
+func (n *Notifier) SetFakeIPRoute(*route.Route) {
+	// Not used on iOS
+}
+
 func (n *Notifier) OnNewRoutes(route.HAMap) {
 	// Not used on iOS
 }
@@ -53,7 +57,6 @@ func (n *Notifier) OnNewPrefixes(prefixes []netip.Prefix) {
 	n.currentPrefixes = newNets
 	n.notify()
 }
-
 func (n *Notifier) notify() {
 	n.listenerMux.Lock()
 	defer n.listenerMux.Unlock()

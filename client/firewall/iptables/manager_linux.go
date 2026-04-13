@@ -33,7 +33,6 @@ type Manager struct {
 type iFaceMapper interface {
 	Name() string
 	Address() wgaddr.Address
-	IsUserspaceBind() bool
 }
 
 // Create iptables firewall manager
@@ -64,10 +63,9 @@ func Create(wgIface iFaceMapper, mtu uint16) (*Manager, error) {
 func (m *Manager) Init(stateManager *statemanager.Manager) error {
 	state := &ShutdownState{
 		InterfaceState: &InterfaceState{
-			NameStr:       m.wgIface.Name(),
-			WGAddress:     m.wgIface.Address(),
-			UserspaceBind: m.wgIface.IsUserspaceBind(),
-			MTU:           m.router.mtu,
+			NameStr:   m.wgIface.Name(),
+			WGAddress: m.wgIface.Address(),
+			MTU:       m.router.mtu,
 		},
 	}
 	stateManager.RegisterState(state)
@@ -203,12 +201,10 @@ func (m *Manager) Close(stateManager *statemanager.Manager) error {
 	return nberrors.FormatErrorOrNil(merr)
 }
 
-// AllowNetbird allows netbird interface traffic
+// AllowNetbird allows netbird interface traffic.
+// This is called when USPFilter wraps the native firewall, adding blanket accept
+// rules so that packet filtering is handled in userspace instead of by netfilter.
 func (m *Manager) AllowNetbird() error {
-	if !m.wgIface.IsUserspaceBind() {
-		return nil
-	}
-
 	_, err := m.AddPeerFiltering(
 		nil,
 		net.IP{0, 0, 0, 0},
@@ -284,6 +280,22 @@ func (m *Manager) RemoveInboundDNAT(localAddr netip.Addr, protocol firewall.Prot
 	defer m.mutex.Unlock()
 
 	return m.router.RemoveInboundDNAT(localAddr, protocol, sourcePort, targetPort)
+}
+
+// AddOutputDNAT adds an OUTPUT chain DNAT rule for locally-generated traffic.
+func (m *Manager) AddOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.router.AddOutputDNAT(localAddr, protocol, sourcePort, targetPort)
+}
+
+// RemoveOutputDNAT removes an OUTPUT chain DNAT rule.
+func (m *Manager) RemoveOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.router.RemoveOutputDNAT(localAddr, protocol, sourcePort, targetPort)
 }
 
 const (

@@ -40,7 +40,6 @@ func getTableName() string {
 type iFaceMapper interface {
 	Name() string
 	Address() wgaddr.Address
-	IsUserspaceBind() bool
 }
 
 // Manager of iptables firewall
@@ -106,10 +105,9 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 	// cleanup using Close() without needing to store specific rules.
 	if err := stateManager.UpdateState(&ShutdownState{
 		InterfaceState: &InterfaceState{
-			NameStr:       m.wgIface.Name(),
-			WGAddress:     m.wgIface.Address(),
-			UserspaceBind: m.wgIface.IsUserspaceBind(),
-			MTU:           m.router.mtu,
+			NameStr:   m.wgIface.Name(),
+			WGAddress: m.wgIface.Address(),
+			MTU:       m.router.mtu,
 		},
 	}); err != nil {
 		log.Errorf("failed to update state: %v", err)
@@ -205,12 +203,10 @@ func (m *Manager) RemoveNatRule(pair firewall.RouterPair) error {
 	return m.router.RemoveNatRule(pair)
 }
 
-// AllowNetbird allows netbird interface traffic
+// AllowNetbird allows netbird interface traffic.
+// This is called when USPFilter wraps the native firewall, adding blanket accept
+// rules so that packet filtering is handled in userspace instead of by netfilter.
 func (m *Manager) AllowNetbird() error {
-	if !m.wgIface.IsUserspaceBind() {
-		return nil
-	}
-
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -344,6 +340,22 @@ func (m *Manager) RemoveInboundDNAT(localAddr netip.Addr, protocol firewall.Prot
 	defer m.mutex.Unlock()
 
 	return m.router.RemoveInboundDNAT(localAddr, protocol, sourcePort, targetPort)
+}
+
+// AddOutputDNAT adds an OUTPUT chain DNAT rule for locally-generated traffic.
+func (m *Manager) AddOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.router.AddOutputDNAT(localAddr, protocol, sourcePort, targetPort)
+}
+
+// RemoveOutputDNAT removes an OUTPUT chain DNAT rule.
+func (m *Manager) RemoveOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.router.RemoveOutputDNAT(localAddr, protocol, sourcePort, targetPort)
 }
 
 const (

@@ -28,6 +28,14 @@ func (m *mockProxyManager) GetActiveClusterAddressesForAccount(ctx context.Conte
 	return nil, nil
 }
 
+func (m *mockProxyManager) ClusterSupportsCustomPorts(_ context.Context, _ string) *bool {
+	return nil
+}
+
+func (m *mockProxyManager) ClusterRequireSubdomain(_ context.Context, _ string) *bool {
+	return nil
+}
+
 func TestGetClusterAllowList_BYOPProxy(t *testing.T) {
 	pm := &mockProxyManager{
 		getActiveClusterAddressesForAccountFunc: func(_ context.Context, accID string) ([]string, error) {

@@ -3,7 +3,12 @@ package instance
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -11,173 +16,215 @@ import (
 	"github.com/netbirdio/netbird/management/server/idp"
 )
 
-// mockStore implements a minimal store.Store for testing
+type mockIdP struct {
+	mu              sync.Mutex
+	createUserFunc  func(ctx context.Context, email, password, name string) (*idp.UserData, error)
+	users           map[string][]*idp.UserData
+	getAllAccountsErr error
+}
+
+func (m *mockIdP) CreateUserWithPassword(ctx context.Context, email, password, name string) (*idp.UserData, error) {
+	if m.createUserFunc != nil {
+		return m.createUserFunc(ctx, email, password, name)
+	}
+	return &idp.UserData{ID: "test-user-id", Email: email, Name: name}, nil
+}
+
+func (m *mockIdP) GetAllAccounts(_ context.Context) (map[string][]*idp.UserData, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.getAllAccountsErr != nil {
+		return nil, m.getAllAccountsErr
+	}
+	return m.users, nil
+}
+
 type mockStore struct {
 	accountsCount int64
 	err           error
 }
 
-func (m *mockStore) GetAccountsCounter(ctx context.Context) (int64, error) {
+func (m *mockStore) GetAccountsCounter(_ context.Context) (int64, error) {
 	if m.err != nil {
 		return 0, m.err
 	}
 	return m.accountsCount, nil
 }
 
-// mockEmbeddedIdPManager wraps the real EmbeddedIdPManager for testing
-type mockEmbeddedIdPManager struct {
-	createUserFunc func(ctx context.Context, email, password, name string) (*idp.UserData, error)
-}
-
-func (m *mockEmbeddedIdPManager) CreateUserWithPassword(ctx context.Context, email, password, name string) (*idp.UserData, error) {
-	if m.createUserFunc != nil {
-		return m.createUserFunc(ctx, email, password, name)
+func newTestManager(idpMock *mockIdP, storeMock *mockStore) *DefaultManager {
+	return &DefaultManager{
+		store:              storeMock,
+		embeddedIdpManager: idpMock,
+		setupRequired:      true,
+		httpClient:         &http.Client{Timeout: httpTimeout},
 	}
-	return &idp.UserData{
-		ID:    "test-user-id",
-		Email: email,
-		Name:  name,
-	}, nil
-}
-
-// testManager is a test implementation that accepts our mock types
-type testManager struct {
-	store              *mockStore
-	embeddedIdpManager *mockEmbeddedIdPManager
-}
-
-func (m *testManager) IsSetupRequired(ctx context.Context) (bool, error) {
-	if m.embeddedIdpManager == nil {
-		return false, nil
-	}
-
-	count, err := m.store.GetAccountsCounter(ctx)
-	if err != nil {
-		return false, err
-	}
-
-	return count == 0, nil
-}
-
-func (m *testManager) CreateOwnerUser(ctx context.Context, email, password, name string) (*idp.UserData, error) {
-	if m.embeddedIdpManager == nil {
-		return nil, errors.New("embedded IDP is not enabled")
-	}
-
-	return m.embeddedIdpManager.CreateUserWithPassword(ctx, email, password, name)
-}
-
-func TestIsSetupRequired_EmbeddedIdPDisabled(t *testing.T) {
-	manager := &testManager{
-		store:              &mockStore{accountsCount: 0},
-		embeddedIdpManager: nil, // No embedded IDP
-	}
-
-	required, err := manager.IsSetupRequired(context.Background())
-	require.NoError(t, err)
-	assert.False(t, required, "setup should not be required when embedded IDP is disabled")
-}
-
-func TestIsSetupRequired_NoAccounts(t *testing.T) {
-	manager := &testManager{
-		store:              &mockStore{accountsCount: 0},
-		embeddedIdpManager: &mockEmbeddedIdPManager{},
-	}
-
-	required, err := manager.IsSetupRequired(context.Background())
-	require.NoError(t, err)
-	assert.True(t, required, "setup should be required when no accounts exist")
-}
-
-func TestIsSetupRequired_AccountsExist(t *testing.T) {
-	manager := &testManager{
-		store:              &mockStore{accountsCount: 1},
-		embeddedIdpManager: &mockEmbeddedIdPManager{},
-	}
-
-	required, err := manager.IsSetupRequired(context.Background())
-	require.NoError(t, err)
-	assert.False(t, required, "setup should not be required when accounts exist")
-}
-
-func TestIsSetupRequired_MultipleAccounts(t *testing.T) {
-	manager := &testManager{
-		store:              &mockStore{accountsCount: 5},
-		embeddedIdpManager: &mockEmbeddedIdPManager{},
-	}
-
-	required, err := manager.IsSetupRequired(context.Background())
-	require.NoError(t, err)
-	assert.False(t, required, "setup should not be required when multiple accounts exist")
-}
-
-func TestIsSetupRequired_StoreError(t *testing.T) {
-	manager := &testManager{
-		store:              &mockStore{err: errors.New("database error")},
-		embeddedIdpManager: &mockEmbeddedIdPManager{},
-	}
-
-	_, err := manager.IsSetupRequired(context.Background())
-	assert.Error(t, err, "should return error when store fails")
 }
 
 func TestCreateOwnerUser_Success(t *testing.T) {
-	expectedEmail := "admin@example.com"
-	expectedName := "Admin User"
-	expectedPassword := "securepassword123"
+	idpMock := &mockIdP{}
+	mgr := newTestManager(idpMock, &mockStore{})
 
-	manager := &testManager{
-		store: &mockStore{accountsCount: 0},
-		embeddedIdpManager: &mockEmbeddedIdPManager{
-			createUserFunc: func(ctx context.Context, email, password, name string) (*idp.UserData, error) {
-				assert.Equal(t, expectedEmail, email)
-				assert.Equal(t, expectedPassword, password)
-				assert.Equal(t, expectedName, name)
-				return &idp.UserData{
-					ID:    "created-user-id",
-					Email: email,
-					Name:  name,
-				}, nil
-			},
-		},
-	}
-
-	userData, err := manager.CreateOwnerUser(context.Background(), expectedEmail, expectedPassword, expectedName)
+	userData, err := mgr.CreateOwnerUser(context.Background(), "admin@example.com", "password123", "Admin")
 	require.NoError(t, err)
-	assert.Equal(t, "created-user-id", userData.ID)
-	assert.Equal(t, expectedEmail, userData.Email)
-	assert.Equal(t, expectedName, userData.Name)
+	assert.Equal(t, "admin@example.com", userData.Email)
+
+	_, err = mgr.CreateOwnerUser(context.Background(), "admin2@example.com", "password123", "Admin2")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "setup already completed")
+}
+
+func TestCreateOwnerUser_SetupAlreadyCompleted(t *testing.T) {
+	mgr := newTestManager(&mockIdP{}, &mockStore{})
+	mgr.setupRequired = false
+
+	_, err := mgr.CreateOwnerUser(context.Background(), "admin@example.com", "password123", "Admin")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "setup already completed")
 }
 
 func TestCreateOwnerUser_EmbeddedIdPDisabled(t *testing.T) {
-	manager := &testManager{
-		store:              &mockStore{accountsCount: 0},
-		embeddedIdpManager: nil,
-	}
+	mgr := &DefaultManager{setupRequired: true}
 
-	_, err := manager.CreateOwnerUser(context.Background(), "admin@example.com", "password123", "Admin")
-	assert.Error(t, err, "should return error when embedded IDP is disabled")
+	_, err := mgr.CreateOwnerUser(context.Background(), "admin@example.com", "password123", "Admin")
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "embedded IDP is not enabled")
 }
 
 func TestCreateOwnerUser_IdPError(t *testing.T) {
-	manager := &testManager{
-		store: &mockStore{accountsCount: 0},
-		embeddedIdpManager: &mockEmbeddedIdPManager{
-			createUserFunc: func(ctx context.Context, email, password, name string) (*idp.UserData, error) {
-				return nil, errors.New("user already exists")
-			},
+	idpMock := &mockIdP{
+		createUserFunc: func(_ context.Context, _, _, _ string) (*idp.UserData, error) {
+			return nil, errors.New("provider error")
 		},
 	}
+	mgr := newTestManager(idpMock, &mockStore{})
 
-	_, err := manager.CreateOwnerUser(context.Background(), "admin@example.com", "password123", "Admin")
-	assert.Error(t, err, "should return error when IDP fails")
+	_, err := mgr.CreateOwnerUser(context.Background(), "admin@example.com", "password123", "Admin")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "provider error")
+
+	required, _ := mgr.IsSetupRequired(context.Background())
+	assert.True(t, required, "setup should still be required after IdP error")
+}
+
+func TestCreateOwnerUser_TransientDBError_DoesNotBlockSetup(t *testing.T) {
+	mgr := newTestManager(&mockIdP{}, &mockStore{err: errors.New("connection refused")})
+
+	_, err := mgr.CreateOwnerUser(context.Background(), "admin@example.com", "password123", "Admin")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "connection refused")
+
+	required, _ := mgr.IsSetupRequired(context.Background())
+	assert.True(t, required, "setup should still be required after transient DB error")
+
+	mgr.store = &mockStore{}
+	userData, err := mgr.CreateOwnerUser(context.Background(), "admin@example.com", "password123", "Admin")
+	require.NoError(t, err)
+	assert.Equal(t, "admin@example.com", userData.Email)
+}
+
+func TestCreateOwnerUser_TransientIdPError_DoesNotBlockSetup(t *testing.T) {
+	idpMock := &mockIdP{getAllAccountsErr: errors.New("connection reset")}
+	mgr := newTestManager(idpMock, &mockStore{})
+
+	_, err := mgr.CreateOwnerUser(context.Background(), "admin@example.com", "password123", "Admin")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "connection reset")
+
+	required, _ := mgr.IsSetupRequired(context.Background())
+	assert.True(t, required, "setup should still be required after transient IdP error")
+
+	idpMock.getAllAccountsErr = nil
+	userData, err := mgr.CreateOwnerUser(context.Background(), "admin@example.com", "password123", "Admin")
+	require.NoError(t, err)
+	assert.Equal(t, "admin@example.com", userData.Email)
+}
+
+func TestCreateOwnerUser_DBCheckBlocksConcurrent(t *testing.T) {
+	idpMock := &mockIdP{
+		users: map[string][]*idp.UserData{
+			"acc1": {{ID: "existing-user"}},
+		},
+	}
+	mgr := newTestManager(idpMock, &mockStore{})
+
+	_, err := mgr.CreateOwnerUser(context.Background(), "admin@example.com", "password123", "Admin")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "setup already completed")
+}
+
+func TestCreateOwnerUser_DBCheckBlocksWhenAccountsExist(t *testing.T) {
+	mgr := newTestManager(&mockIdP{}, &mockStore{accountsCount: 1})
+
+	_, err := mgr.CreateOwnerUser(context.Background(), "admin@example.com", "password123", "Admin")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "setup already completed")
+}
+
+func TestCreateOwnerUser_ConcurrentRequests(t *testing.T) {
+	var idpCallCount atomic.Int32
+	var successCount atomic.Int32
+	var failCount atomic.Int32
+
+	idpMock := &mockIdP{
+		createUserFunc: func(_ context.Context, email, _, _ string) (*idp.UserData, error) {
+			idpCallCount.Add(1)
+			time.Sleep(50 * time.Millisecond)
+			return &idp.UserData{ID: "user-1", Email: email, Name: "Owner"}, nil
+		},
+	}
+	mgr := newTestManager(idpMock, &mockStore{})
+
+	var wg sync.WaitGroup
+	for i := range 10 {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			_, err := mgr.CreateOwnerUser(
+				context.Background(),
+				fmt.Sprintf("owner%d@example.com", idx),
+				"password1234",
+				fmt.Sprintf("Owner%d", idx),
+			)
+			if err != nil {
+				failCount.Add(1)
+			} else {
+				successCount.Add(1)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	assert.Equal(t, int32(1), successCount.Load(), "exactly one concurrent setup request should succeed")
+	assert.Equal(t, int32(9), failCount.Load(), "remaining concurrent requests should fail")
+	assert.Equal(t, int32(1), idpCallCount.Load(), "IdP CreateUser should be called exactly once")
+}
+
+func TestIsSetupRequired_EmbeddedIdPDisabled(t *testing.T) {
+	mgr := &DefaultManager{}
+
+	required, err := mgr.IsSetupRequired(context.Background())
+	require.NoError(t, err)
+	assert.False(t, required)
+}
+
+func TestIsSetupRequired_ReturnsFlag(t *testing.T) {
+	mgr := newTestManager(&mockIdP{}, &mockStore{})
+
+	required, err := mgr.IsSetupRequired(context.Background())
+	require.NoError(t, err)
+	assert.True(t, required)
+
+	mgr.setupMu.Lock()
+	mgr.setupRequired = false
+	mgr.setupMu.Unlock()
+
+	required, err = mgr.IsSetupRequired(context.Background())
+	require.NoError(t, err)
+	assert.False(t, required)
 }
 
 func TestDefaultManager_ValidateSetupRequest(t *testing.T) {
-	manager := &DefaultManager{
-		setupRequired: true,
-	}
+	manager := &DefaultManager{setupRequired: true}
 
 	tests := []struct {
 		name        string
@@ -188,11 +235,10 @@ func TestDefaultManager_ValidateSetupRequest(t *testing.T) {
 		errorMsg    string
 	}{
 		{
-			name:        "valid request",
-			email:       "admin@example.com",
-			password:    "password123",
-			userName:    "Admin User",
-			expectError: false,
+			name:     "valid request",
+			email:    "admin@example.com",
+			password: "password123",
+			userName: "Admin User",
 		},
 		{
 			name:        "empty email",
@@ -235,11 +281,24 @@ func TestDefaultManager_ValidateSetupRequest(t *testing.T) {
 			errorMsg:    "password must be at least 8 characters",
 		},
 		{
-			name:        "password exactly 8 characters",
+			name:     "password exactly 8 characters",
+			email:    "admin@example.com",
+			password: "12345678",
+			userName: "Admin User",
+		},
+		{
+			name:     "password exactly 72 characters",
+			email:    "admin@example.com",
+			password: "aaaaaaaabbbbbbbbccccccccddddddddeeeeeeeeffffffffgggggggghhhhhhhhiiiiiiii",
+			userName: "Admin User",
+		},
+		{
+			name:        "password too long",
 			email:       "admin@example.com",
-			password:    "12345678",
+			password:    "aaaaaaaabbbbbbbbccccccccddddddddeeeeeeeeffffffffgggggggghhhhhhhhiiiiiiiij",
 			userName:    "Admin User",
-			expectError: false,
+			expectError: true,
+			errorMsg:    "password must be at most 72 characters",
 		},
 	}
 
@@ -254,15 +313,4 @@ func TestDefaultManager_ValidateSetupRequest(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestDefaultManager_CreateOwnerUser_SetupAlreadyCompleted(t *testing.T) {
-	manager := &DefaultManager{
-		setupRequired:      false,
-		embeddedIdpManager: &idp.EmbeddedIdPManager{},
-	}
-
-	_, err := manager.CreateOwnerUser(context.Background(), "admin@example.com", "password123", "Admin")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "setup already completed")
 }

@@ -199,9 +199,11 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 		cmd.Println("Log level set to trace.")
 	}
 
+	needsRestoreUp := false
 	if _, err := client.Down(cmd.Context(), &proto.DownRequest{}); err != nil {
 		cmd.PrintErrf("Failed to bring service down: %v\n", status.Convert(err).Message())
 	} else {
+		needsRestoreUp = !stateWasDown
 		cmd.Println("netbird down")
 	}
 
@@ -217,6 +219,7 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	if _, err := client.Up(cmd.Context(), &proto.UpRequest{}); err != nil {
 		cmd.PrintErrf("Failed to bring service up: %v\n", status.Convert(err).Message())
 	} else {
+		needsRestoreUp = false
 		cmd.Println("netbird up")
 	}
 
@@ -262,6 +265,14 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	resp, err := client.DebugBundle(cmd.Context(), request)
 	if err != nil {
 		return fmt.Errorf("failed to bundle debug: %v", status.Convert(err).Message())
+	}
+
+	if needsRestoreUp {
+		if _, err := client.Up(cmd.Context(), &proto.UpRequest{}); err != nil {
+			cmd.PrintErrf("Failed to restore service up state: %v\n", status.Convert(err).Message())
+		} else {
+			cmd.Println("netbird up (restored)")
+		}
 	}
 
 	if stateWasDown {

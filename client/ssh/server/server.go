@@ -284,19 +284,21 @@ func (s *Server) closeListener(ln net.Listener) {
 // Stop closes the SSH server
 func (s *Server) Stop() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.sshServer == nil {
+	sshServer := s.sshServer
+	if sshServer == nil {
+		s.mu.Unlock()
 		return nil
 	}
+	s.sshServer = nil
+	s.listener = nil
+	s.mu.Unlock()
 
-	if err := s.sshServer.Close(); err != nil {
+	// Close outside the lock: session handlers need s.mu for unregisterSession.
+	if err := sshServer.Close(); err != nil {
 		log.Debugf("close SSH server: %v", err)
 	}
 
-	s.sshServer = nil
-	s.listener = nil
-
+	s.mu.Lock()
 	maps.Clear(s.sessions)
 	maps.Clear(s.pendingAuthJWT)
 	maps.Clear(s.connections)
@@ -307,6 +309,7 @@ func (s *Server) Stop() error {
 		}
 	}
 	maps.Clear(s.remoteForwardListeners)
+	s.mu.Unlock()
 
 	return nil
 }

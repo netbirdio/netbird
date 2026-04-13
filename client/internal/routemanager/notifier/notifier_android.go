@@ -16,6 +16,7 @@ import (
 type Notifier struct {
 	initialRoutes []*route.Route
 	currentRoutes []*route.Route
+	fakeIPRoute   *route.Route
 
 	listener    listener.NetworkChangeListener
 	listenerMux sync.Mutex
@@ -31,26 +32,15 @@ func (n *Notifier) SetListener(listener listener.NetworkChangeListener) {
 	n.listener = listener
 }
 
+// SetInitialClientRoutes stores the initial route sets for TUN configuration.
 func (n *Notifier) SetInitialClientRoutes(initialRoutes []*route.Route, routesForComparison []*route.Route) {
-	// initialRoutes contains fake IP block for interface configuration
-	filteredInitial := make([]*route.Route, 0)
-	for _, r := range initialRoutes {
-		if r.IsDynamic() {
-			continue
-		}
-		filteredInitial = append(filteredInitial, r)
-	}
-	n.initialRoutes = filteredInitial
+	n.initialRoutes = filterStatic(initialRoutes)
+	n.currentRoutes = filterStatic(routesForComparison)
+}
 
-	// routesForComparison excludes fake IP block for comparison with new routes
-	filteredComparison := make([]*route.Route, 0)
-	for _, r := range routesForComparison {
-		if r.IsDynamic() {
-			continue
-		}
-		filteredComparison = append(filteredComparison, r)
-	}
-	n.currentRoutes = filteredComparison
+// SetFakeIPRoute stores the fake IP route to be included in every TUN rebuild.
+func (n *Notifier) SetFakeIPRoute(r *route.Route) {
+	n.fakeIPRoute = r
 }
 
 func (n *Notifier) OnNewRoutes(idMap route.HAMap) {
@@ -83,11 +73,26 @@ func (n *Notifier) notify() {
 		return
 	}
 
-	routeStrings := n.routesToStrings(n.currentRoutes)
+	allRoutes := slices.Clone(n.currentRoutes)
+	if n.fakeIPRoute != nil {
+		allRoutes = append(allRoutes, n.fakeIPRoute)
+	}
+
+	routeStrings := n.routesToStrings(allRoutes)
 	sort.Strings(routeStrings)
 	go func(l listener.NetworkChangeListener) {
-		l.OnNetworkChanged(strings.Join(n.addIPv6RangeIfNeeded(routeStrings, n.currentRoutes), ","))
+		l.OnNetworkChanged(strings.Join(n.addIPv6RangeIfNeeded(routeStrings, allRoutes), ","))
 	}(n.listener)
+}
+
+func filterStatic(routes []*route.Route) []*route.Route {
+	out := make([]*route.Route, 0, len(routes))
+	for _, r := range routes {
+		if !r.IsDynamic() {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 func (n *Notifier) routesToStrings(routes []*route.Route) []string {

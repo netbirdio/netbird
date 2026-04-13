@@ -128,7 +128,7 @@ cat <<-EOF | ${SUDO} tee /etc/yum.repos.d/netbird.repo
 name=NetBird
 baseurl=https://pkgs.netbird.io/yum/
 enabled=1
-gpgcheck=0
+gpgcheck=1
 gpgkey=https://pkgs.netbird.io/yum/repodata/repomd.xml.key
 repo_gpgcheck=1
 EOF

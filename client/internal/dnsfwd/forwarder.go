@@ -237,8 +237,8 @@ func (f *DNSForwarder) writeResponse(logger *log.Entry, w dns.ResponseWriter, re
 		return
 	}
 
-	logger.Tracef("response: domain=%s rcode=%s answers=%s took=%s",
-		qname, dns.RcodeToString[resp.Rcode], resutil.FormatAnswers(resp.Answer), time.Since(startTime))
+	logger.Tracef("response: domain=%s rcode=%s answers=%s size=%dB took=%s",
+		qname, dns.RcodeToString[resp.Rcode], resutil.FormatAnswers(resp.Answer), resp.Len(), time.Since(startTime))
 }
 
 // udpResponseWriter wraps a dns.ResponseWriter to handle UDP-specific truncation.
@@ -263,20 +263,28 @@ func (u *udpResponseWriter) WriteMsg(resp *dns.Msg) error {
 
 func (f *DNSForwarder) handleDNSQueryUDP(w dns.ResponseWriter, query *dns.Msg) {
 	startTime := time.Now()
-	logger := log.WithFields(log.Fields{
+	fields := log.Fields{
 		"request_id": resutil.GenerateRequestID(),
 		"dns_id":     fmt.Sprintf("%04x", query.Id),
-	})
+	}
+	if addr := w.RemoteAddr(); addr != nil {
+		fields["client"] = addr.String()
+	}
+	logger := log.WithFields(fields)
 
 	f.handleDNSQuery(logger, &udpResponseWriter{ResponseWriter: w, query: query}, query, startTime)
 }
 
 func (f *DNSForwarder) handleDNSQueryTCP(w dns.ResponseWriter, query *dns.Msg) {
 	startTime := time.Now()
-	logger := log.WithFields(log.Fields{
+	fields := log.Fields{
 		"request_id": resutil.GenerateRequestID(),
 		"dns_id":     fmt.Sprintf("%04x", query.Id),
-	})
+	}
+	if addr := w.RemoteAddr(); addr != nil {
+		fields["client"] = addr.String()
+	}
+	logger := log.WithFields(fields)
 
 	f.handleDNSQuery(logger, w, query, startTime)
 }

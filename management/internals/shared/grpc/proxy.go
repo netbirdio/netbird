@@ -238,7 +238,14 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 		cancel:       cancel,
 	}
 
-	if err := s.proxyManager.Connect(ctx, proxyID, proxyAddress, peerInfo, accountID); err != nil {
+	var caps *proxy.Capabilities
+	if c := req.GetCapabilities(); c != nil {
+		caps = &proxy.Capabilities{
+			SupportsCustomPorts: c.SupportsCustomPorts,
+			RequireSubdomain:    c.RequireSubdomain,
+		}
+	}
+	if err := s.proxyManager.Connect(ctx, proxyID, proxyAddress, peerInfo, accountID, caps); err != nil {
 		if accountID != nil {
 			cancel()
 			if errors.Is(err, proxy.ErrAccountProxyAlreadyExists) {
@@ -253,6 +260,7 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 	if err := s.proxyController.RegisterProxyToCluster(ctx, conn.address, proxyID); err != nil {
 		log.WithContext(ctx).Warnf("Failed to register proxy %s in cluster: %v", proxyID, err)
 	}
+
 
 	log.WithFields(log.Fields{
 		"proxy_id":      proxyID,
@@ -381,6 +389,9 @@ func (s *ProxyServiceServer) snapshotServiceMappings(ctx context.Context, conn *
 		}
 
 		m := service.ToProtoMapping(rpservice.Create, token, s.GetOIDCValidationConfig())
+		if !proxyAcceptsMapping(conn, m) {
+			continue
+		}
 		mappings = append(mappings, m)
 	}
 	return mappings, nil
@@ -580,23 +591,47 @@ func (s *ProxyServiceServer) SendServiceUpdateToCluster(ctx context.Context, upd
 
 	log.Debugf("Sending service update to cluster %s", clusterAddr)
 	for _, proxyID := range proxyIDs {
-		if connVal, ok := s.connectedProxies.Load(proxyID); ok {
-			conn := connVal.(*proxyConnection)
-			if conn.accountID != nil && update.AccountId != "" && *conn.accountID != update.AccountId {
-				continue
-			}
-			msg := s.perProxyMessage(updateResponse, proxyID)
-			if msg == nil {
-				continue
-			}
-			select {
-			case conn.sendChan <- msg:
-				log.WithContext(ctx).Debugf("Sent service update with id %s to proxy %s in cluster %s", update.Id, proxyID, clusterAddr)
-			default:
-				log.WithContext(ctx).Warnf("Failed to send service update to proxy %s in cluster %s (channel full)", proxyID, clusterAddr)
-			}
+		connVal, ok := s.connectedProxies.Load(proxyID)
+		if !ok {
+			continue
+		}
+		conn := connVal.(*proxyConnection)
+		if conn.accountID != nil && update.AccountId != "" && *conn.accountID != update.AccountId {
+			continue
+		}
+		if !proxyAcceptsMapping(conn, update) {
+			log.WithContext(ctx).Debugf("Skipping proxy %s: does not support custom ports for mapping %s", proxyID, update.Id)
+			continue
+		}
+		msg := s.perProxyMessage(updateResponse, proxyID)
+		if msg == nil {
+			continue
+		}
+		select {
+		case conn.sendChan <- msg:
+			log.WithContext(ctx).Debugf("Sent service update with id %s to proxy %s in cluster %s", update.Id, proxyID, clusterAddr)
+		default:
+			log.WithContext(ctx).Warnf("Failed to send service update to proxy %s in cluster %s (channel full)", proxyID, clusterAddr)
 		}
 	}
+}
+
+// proxyAcceptsMapping returns whether the proxy should receive this mapping.
+// Old proxies that never reported capabilities are skipped for non-TLS L4
+// mappings with a custom listen port, since they don't understand the
+// protocol. Proxies that report capabilities (even SupportsCustomPorts=false)
+// are new enough to handle the mapping. TLS uses SNI routing and works on
+// any proxy. Delete operations are always sent so proxies can clean up.
+func proxyAcceptsMapping(conn *proxyConnection, mapping *proto.ProxyMapping) bool {
+	if mapping.Type == proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED {
+		return true
+	}
+	if mapping.ListenPort == 0 || mapping.Mode == "tls" {
+		return true
+	}
+	// Old proxies that never reported capabilities don't understand
+	// custom port mappings.
+	return conn.capabilities != nil && conn.capabilities.SupportsCustomPorts != nil
 }
 
 // perProxyMessage returns a copy of update with a fresh one-time token for
@@ -644,64 +679,6 @@ func shallowCloneMapping(m *proto.ProxyMapping) *proto.ProxyMapping {
 		ListenPort:         m.ListenPort,
 		AccessRestrictions: m.AccessRestrictions,
 	}
-}
-
-// ClusterSupportsCustomPorts returns whether any connected proxy in the given
-// cluster reports custom port support. Returns nil if no proxy has reported
-// capabilities (old proxies that predate the field).
-func (s *ProxyServiceServer) ClusterSupportsCustomPorts(clusterAddr string) *bool {
-	if s.proxyController == nil {
-		return nil
-	}
-
-	var hasCapabilities bool
-	for _, pid := range s.proxyController.GetProxiesForCluster(clusterAddr) {
-		connVal, ok := s.connectedProxies.Load(pid)
-		if !ok {
-			continue
-		}
-		conn := connVal.(*proxyConnection)
-		if conn.capabilities == nil || conn.capabilities.SupportsCustomPorts == nil {
-			continue
-		}
-		if *conn.capabilities.SupportsCustomPorts {
-			return ptr(true)
-		}
-		hasCapabilities = true
-	}
-	if hasCapabilities {
-		return ptr(false)
-	}
-	return nil
-}
-
-// ClusterRequireSubdomain returns whether any connected proxy in the given
-// cluster reports that a subdomain is required. Returns nil if no proxy has
-// reported the capability (defaults to not required).
-func (s *ProxyServiceServer) ClusterRequireSubdomain(clusterAddr string) *bool {
-	if s.proxyController == nil {
-		return nil
-	}
-
-	var hasCapabilities bool
-	for _, pid := range s.proxyController.GetProxiesForCluster(clusterAddr) {
-		connVal, ok := s.connectedProxies.Load(pid)
-		if !ok {
-			continue
-		}
-		conn := connVal.(*proxyConnection)
-		if conn.capabilities == nil || conn.capabilities.RequireSubdomain == nil {
-			continue
-		}
-		if *conn.capabilities.RequireSubdomain {
-			return ptr(true)
-		}
-		hasCapabilities = true
-	}
-	if hasCapabilities {
-		return ptr(false)
-	}
-	return nil
 }
 
 func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.AuthenticateRequest) (*proto.AuthenticateResponse, error) {
