@@ -56,6 +56,13 @@ func NewFirewall(iface IFaceMapper, stateManager *statemanager.Manager, flowLogg
 		return createUserspaceFirewall(iface, nil, disableServerRoutes, flowLogger, mtu)
 	}
 
+	// Native firewall handles packet filtering, but the userspace WireGuard bind
+	// needs a device filter for DNS interception hooks. Install a minimal
+	// hooks-only filter that passes all traffic through to the kernel firewall.
+	if err := iface.SetFilter(&uspfilter.HooksFilter{}); err != nil {
+		log.Warnf("failed to set hooks filter, DNS via memory hooks will not work: %v", err)
+	}
+
 	return fm, nil
 }
 

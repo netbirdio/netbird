@@ -142,15 +142,8 @@ type Manager struct {
 	mssClampEnabled bool
 
 	// Only one hook per protocol is supported. Outbound direction only.
-	udpHookOut atomic.Pointer[packetHook]
-	tcpHookOut atomic.Pointer[packetHook]
-}
-
-// packetHook stores a registered hook for a specific IP:port.
-type packetHook struct {
-	ip   netip.Addr
-	port uint16
-	fn   func([]byte) bool
+	udpHookOut atomic.Pointer[common.PacketHook]
+	tcpHookOut atomic.Pointer[common.PacketHook]
 }
 
 // decoder for packages
@@ -912,21 +905,11 @@ func (m *Manager) trackInbound(d *decoder, srcIP, dstIP netip.Addr, ruleID []byt
 }
 
 func (m *Manager) udpHooksDrop(dport uint16, dstIP netip.Addr, packetData []byte) bool {
-	return hookMatches(m.udpHookOut.Load(), dstIP, dport, packetData)
+	return common.HookMatches(m.udpHookOut.Load(), dstIP, dport, packetData)
 }
 
 func (m *Manager) tcpHooksDrop(dport uint16, dstIP netip.Addr, packetData []byte) bool {
-	return hookMatches(m.tcpHookOut.Load(), dstIP, dport, packetData)
-}
-
-func hookMatches(h *packetHook, dstIP netip.Addr, dport uint16, packetData []byte) bool {
-	if h == nil {
-		return false
-	}
-	if h.ip == dstIP && h.port == dport {
-		return h.fn(packetData)
-	}
-	return false
+	return common.HookMatches(m.tcpHookOut.Load(), dstIP, dport, packetData)
 }
 
 // filterInbound implements filtering logic for incoming packets.
@@ -1337,28 +1320,12 @@ func (m *Manager) ruleMatches(rule *RouteRule, srcAddr, dstAddr netip.Addr, prot
 
 // SetUDPPacketHook sets the outbound UDP packet hook. Pass nil hook to remove.
 func (m *Manager) SetUDPPacketHook(ip netip.Addr, dPort uint16, hook func(packet []byte) bool) {
-	if hook == nil {
-		m.udpHookOut.Store(nil)
-		return
-	}
-	m.udpHookOut.Store(&packetHook{
-		ip:   ip,
-		port: dPort,
-		fn:   hook,
-	})
+	common.SetHook(&m.udpHookOut, ip, dPort, hook)
 }
 
 // SetTCPPacketHook sets the outbound TCP packet hook. Pass nil hook to remove.
 func (m *Manager) SetTCPPacketHook(ip netip.Addr, dPort uint16, hook func(packet []byte) bool) {
-	if hook == nil {
-		m.tcpHookOut.Store(nil)
-		return
-	}
-	m.tcpHookOut.Store(&packetHook{
-		ip:   ip,
-		port: dPort,
-		fn:   hook,
-	})
+	common.SetHook(&m.tcpHookOut, ip, dPort, hook)
 }
 
 // SetLogLevel sets the log level for the firewall manager

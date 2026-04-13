@@ -202,9 +202,9 @@ func TestSetUDPPacketHook(t *testing.T) {
 
 	h := manager.udpHookOut.Load()
 	require.NotNil(t, h)
-	assert.Equal(t, netip.MustParseAddr("10.168.0.1"), h.ip)
-	assert.Equal(t, uint16(8000), h.port)
-	assert.True(t, h.fn(nil))
+	assert.Equal(t, netip.MustParseAddr("10.168.0.1"), h.IP)
+	assert.Equal(t, uint16(8000), h.Port)
+	assert.True(t, h.Fn(nil))
 	assert.True(t, called)
 
 	manager.SetUDPPacketHook(netip.MustParseAddr("10.168.0.1"), 8000, nil)
@@ -226,9 +226,9 @@ func TestSetTCPPacketHook(t *testing.T) {
 
 	h := manager.tcpHookOut.Load()
 	require.NotNil(t, h)
-	assert.Equal(t, netip.MustParseAddr("10.168.0.1"), h.ip)
-	assert.Equal(t, uint16(53), h.port)
-	assert.True(t, h.fn(nil))
+	assert.Equal(t, netip.MustParseAddr("10.168.0.1"), h.IP)
+	assert.Equal(t, uint16(53), h.Port)
+	assert.True(t, h.Fn(nil))
 	assert.True(t, called)
 
 	manager.SetTCPPacketHook(netip.MustParseAddr("10.168.0.1"), 53, nil)
