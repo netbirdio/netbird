@@ -761,6 +761,56 @@ func TestCheckIPRestrictions_NilGeoWithCountryRules(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, rr.Code, "country restrictions with nil geo must deny")
 }
 
+func TestProtect_OIDCOnlyRedirectsDirectly(t *testing.T) {
+	mw := NewMiddleware(log.StandardLogger(), nil, nil)
+	kp := generateTestKeyPair(t)
+
+	oidcURL := "https://idp.example.com/authorize?client_id=abc"
+	scheme := &stubScheme{
+		method: auth.MethodOIDC,
+		authFn: func(_ *http.Request) (string, string, error) {
+			return "", oidcURL, nil
+		},
+	}
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil))
+
+	handler := mw.Protect(newPassthroughHandler())
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusFound, rec.Code, "should redirect directly to IdP")
+	assert.Equal(t, oidcURL, rec.Header().Get("Location"))
+}
+
+func TestProtect_OIDCWithOtherMethodShowsLoginPage(t *testing.T) {
+	mw := NewMiddleware(log.StandardLogger(), nil, nil)
+	kp := generateTestKeyPair(t)
+
+	oidcScheme := &stubScheme{
+		method: auth.MethodOIDC,
+		authFn: func(_ *http.Request) (string, string, error) {
+			return "", "https://idp.example.com/authorize", nil
+		},
+	}
+	pinScheme := &stubScheme{
+		method: auth.MethodPIN,
+		authFn: func(_ *http.Request) (string, string, error) {
+			return "", "pin", nil
+		},
+	}
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{oidcScheme, pinScheme}, kp.PublicKey, time.Hour, "", "", nil))
+
+	handler := mw.Protect(newPassthroughHandler())
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rec.Code, "should show login page when multiple methods exist")
+}
+
 // mockAuthenticator is a minimal mock for the authenticator gRPC interface
 // used by the Header scheme.
 type mockAuthenticator struct {

@@ -358,6 +358,12 @@ func (mw *Middleware) authenticateWithSchemes(w http.ResponseWriter, r *http.Req
 			cd.SetAuthMethod(attemptedMethod)
 		}
 	}
+
+	if oidcURL, ok := methods[auth.MethodOIDC.String()]; ok && len(methods) == 1 && oidcURL != "" {
+		http.Redirect(w, r, oidcURL, http.StatusFound)
+		return
+	}
+
 	web.ServeHTTP(w, r, map[string]any{"methods": methods}, http.StatusUnauthorized)
 }
 
