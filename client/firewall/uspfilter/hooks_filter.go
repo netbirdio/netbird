@@ -10,14 +10,13 @@ import (
 )
 
 const (
-	ipv4HeaderMinLen  = 20
-	ipv4ProtoOffset   = 9
-	ipv4FlagsOffset   = 6
-	ipv4DstOffset     = 16
-	ipProtoUDP        = 17
-	ipProtoTCP        = 6
-	ipv4MoreFragsMask = 0x20
-	ipv4FragOffMask   = 0x1f
+	ipv4HeaderMinLen = 20
+	ipv4ProtoOffset  = 9
+	ipv4FlagsOffset  = 6
+	ipv4DstOffset    = 16
+	ipProtoUDP       = 17
+	ipProtoTCP       = 6
+	ipv4FragOffMask  = 0x1fff
 	// dstPortOffset is the offset of the destination port within a UDP or TCP header.
 	dstPortOffset = 2
 )
