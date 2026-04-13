@@ -16,6 +16,7 @@ import (
 type Notifier struct {
 	initialRoutes []*route.Route
 	currentRoutes []*route.Route
+	fakeIPRoutes []*route.Route
 
 	listener    listener.NetworkChangeListener
 	listenerMux sync.Mutex
@@ -31,11 +32,15 @@ func (n *Notifier) SetListener(listener listener.NetworkChangeListener) {
 	n.listener = listener
 }
 
-// SetInitialClientRoutes stores the full initial route set (including fake IP blocks)
-// and a separate comparison set (without fake IP blocks) for diff detection.
+// SetInitialClientRoutes stores the initial route sets for TUN configuration.
 func (n *Notifier) SetInitialClientRoutes(initialRoutes []*route.Route, routesForComparison []*route.Route) {
 	n.initialRoutes = filterStatic(initialRoutes)
 	n.currentRoutes = filterStatic(routesForComparison)
+}
+
+// SetFakeIPRoutes stores the fake IP routes to be included in every TUN rebuild.
+func (n *Notifier) SetFakeIPRoutes(routes []*route.Route) {
+	n.fakeIPRoutes = routes
 }
 
 func (n *Notifier) OnNewRoutes(idMap route.HAMap) {
@@ -69,30 +74,13 @@ func (n *Notifier) notify() {
 	}
 
 	allRoutes := slices.Clone(n.currentRoutes)
-	allRoutes = append(allRoutes, n.extraInitialRoutes()...)
+	allRoutes = append(allRoutes, n.fakeIPRoutes...)
 
 	routeStrings := n.routesToStrings(allRoutes)
 	sort.Strings(routeStrings)
 	go func(l listener.NetworkChangeListener) {
 		l.OnNetworkChanged(strings.Join(n.addIPv6RangeIfNeeded(routeStrings, allRoutes), ","))
 	}(n.listener)
-}
-
-// extraInitialRoutes returns initialRoutes whose network prefix is absent
-// from currentRoutes (e.g. the fake IP block added at setup time).
-func (n *Notifier) extraInitialRoutes() []*route.Route {
-	currentNets := make(map[netip.Prefix]struct{}, len(n.currentRoutes))
-	for _, r := range n.currentRoutes {
-		currentNets[r.Network] = struct{}{}
-	}
-
-	var extra []*route.Route
-	for _, r := range n.initialRoutes {
-		if _, ok := currentNets[r.Network]; !ok {
-			extra = append(extra, r)
-		}
-	}
-	return extra
 }
 
 func filterStatic(routes []*route.Route) []*route.Route {
