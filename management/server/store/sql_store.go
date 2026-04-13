@@ -396,6 +396,11 @@ func (s *SqlStore) DeleteAccount(ctx context.Context, account *types.Account) er
 			return result.Error
 		}
 
+		result = tx.Select(clause.Associations).Delete(account.Services, "account_id = ?", account.Id)
+		if result.Error != nil {
+			return result.Error
+		}
+
 		result = tx.Select(clause.Associations).Delete(account)
 		if result.Error != nil {
 			return result.Error
@@ -2099,6 +2104,8 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 		var createdAt, certIssuedAt sql.NullTime
 		var status, proxyCluster, sessionPrivateKey, sessionPublicKey sql.NullString
 		var mode, source, sourcePeer sql.NullString
+		var terminated, portAutoAssigned sql.NullBool
+		var listenPort sql.NullInt64
 		err := row.Scan(
 			&s.ID,
 			&s.AccountID,
@@ -2115,11 +2122,11 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 			&sessionPrivateKey,
 			&sessionPublicKey,
 			&mode,
-			&s.ListenPort,
-			&s.PortAutoAssigned,
+			&listenPort,
+			&portAutoAssigned,
 			&source,
 			&sourcePeer,
-			&s.Terminated,
+			&terminated,
 		)
 		if err != nil {
 			return nil, err
@@ -2160,7 +2167,15 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 		if sourcePeer.Valid {
 			s.SourcePeer = sourcePeer.String
 		}
-
+		if terminated.Valid {
+			s.Terminated = terminated.Bool
+		}
+		if portAutoAssigned.Valid {
+			s.PortAutoAssigned = portAutoAssigned.Bool
+		}
+		if listenPort.Valid {
+			s.ListenPort = uint16(listenPort.Int64)
+		}
 		s.Targets = []*rpservice.Target{}
 		return &s, nil
 	})

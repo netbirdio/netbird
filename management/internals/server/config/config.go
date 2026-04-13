@@ -203,7 +203,7 @@ type ReverseProxy struct {
 
 	// AccessLogRetentionDays specifies the number of days to retain access logs.
 	// Logs older than this duration will be automatically deleted during cleanup.
-	// A value of 0 or negative means logs are kept indefinitely (no cleanup).
+	// A value of 0 will default to 7 days. Negative means logs are kept indefinitely (no cleanup).
 	AccessLogRetentionDays int
 
 	// AccessLogCleanupIntervalHours specifies how often (in hours) to run the cleanup routine.

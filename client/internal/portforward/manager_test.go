@@ -4,23 +4,25 @@ package portforward
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"testing"
 	"time"
 
-	"github.com/libp2p/go-nat"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 type mockNAT struct {
-	natType          string
-	deviceAddr       net.IP
-	externalAddr     net.IP
-	internalAddr     net.IP
-	mappings         map[int]int
-	addMappingErr    error
-	deleteMappingErr error
+	natType             string
+	deviceAddr          net.IP
+	externalAddr        net.IP
+	internalAddr        net.IP
+	mappings            map[int]int
+	addMappingErr       error
+	deleteMappingErr    error
+	onlyPermanentLeases bool
+	lastTimeout         time.Duration
 }
 
 func newMockNAT() *mockNAT {
@@ -53,8 +55,12 @@ func (m *mockNAT) AddPortMapping(ctx context.Context, protocol string, internalP
 	if m.addMappingErr != nil {
 		return 0, m.addMappingErr
 	}
+	if m.onlyPermanentLeases && timeout != 0 {
+		return 0, fmt.Errorf("SOAP fault. Code:  | Explanation:  | Detail: <UPnPError xmlns=\"urn:schemas-upnp-org:control-1-0\"><errorCode>725</errorCode><errorDescription>OnlyPermanentLeasesSupported</errorDescription></UPnPError>")
+	}
 	externalPort := internalPort
 	m.mappings[internalPort] = externalPort
+	m.lastTimeout = timeout
 	return externalPort, nil
 }
 
@@ -80,6 +86,7 @@ func TestManager_CreateMapping(t *testing.T) {
 	assert.Equal(t, uint16(51820), mapping.ExternalPort)
 	assert.Equal(t, "Mock-NAT", mapping.NATType)
 	assert.Equal(t, net.ParseIP("203.0.113.50").To4(), mapping.ExternalIP.To4())
+	assert.Equal(t, defaultMappingTTL, mapping.TTL)
 }
 
 func TestManager_GetMapping_ReturnsNilWhenNotReady(t *testing.T) {
@@ -131,29 +138,64 @@ func TestManager_Cleanup_NilMapping(t *testing.T) {
 	m.cleanup(context.Background(), gateway)
 }
 
-func TestState_Cleanup(t *testing.T) {
-	origDiscover := discoverGateway
-	defer func() { discoverGateway = origDiscover }()
 
-	mockGateway := newMockNAT()
-	mockGateway.mappings[51820] = 51820
-	discoverGateway = func(ctx context.Context) (nat.NAT, error) {
-		return mockGateway, nil
-	}
+func TestManager_CreateMapping_PermanentLeaseFallback(t *testing.T) {
+	m := NewManager()
+	m.wgPort = 51820
 
-	state := &State{
-		Protocol:     "udp",
-		InternalPort: 51820,
-	}
+	gateway := newMockNAT()
+	gateway.onlyPermanentLeases = true
 
-	err := state.Cleanup()
-	assert.NoError(t, err)
+	mapping, err := m.createMapping(context.Background(), gateway)
+	require.NoError(t, err)
+	require.NotNil(t, mapping)
 
-	_, exists := mockGateway.mappings[51820]
-	assert.False(t, exists, "mapping should be deleted after cleanup")
+	assert.Equal(t, uint16(51820), mapping.InternalPort)
+	assert.Equal(t, time.Duration(0), mapping.TTL, "should return zero TTL for permanent lease")
+	assert.Equal(t, time.Duration(0), gateway.lastTimeout, "should have retried with zero duration")
 }
 
-func TestState_Name(t *testing.T) {
-	state := &State{}
-	assert.Equal(t, "port_forward_state", state.Name())
+func TestIsPermanentLeaseRequired(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "nil error",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name:     "UPnP error 725",
+			err:      fmt.Errorf("SOAP fault. Code:  | Detail: <UPnPError><errorCode>725</errorCode><errorDescription>OnlyPermanentLeasesSupported</errorDescription></UPnPError>"),
+			expected: true,
+		},
+		{
+			name:     "wrapped error with 725",
+			err:      fmt.Errorf("add port mapping: %w", fmt.Errorf("Detail: <errorCode>725</errorCode>")),
+			expected: true,
+		},
+		{
+			name:     "error 725 with newlines in XML",
+			err:      fmt.Errorf("<errorCode>\n  725\n</errorCode>"),
+			expected: true,
+		},
+		{
+			name:     "bare 725 without XML tag",
+			err:      fmt.Errorf("error code 725"),
+			expected: false,
+		},
+		{
+			name:     "unrelated error",
+			err:      fmt.Errorf("connection refused"),
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, isPermanentLeaseRequired(tt.err))
+		})
+	}
 }

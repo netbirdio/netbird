@@ -34,6 +34,10 @@ func (n *Notifier) SetInitialClientRoutes([]*route.Route, []*route.Route) {
 	// iOS doesn't care about initial routes
 }
 
+func (n *Notifier) SetFakeIPRoute(*route.Route) {
+	// Not used on iOS
+}
+
 func (n *Notifier) OnNewRoutes(route.HAMap) {
 	// Not used on iOS
 }

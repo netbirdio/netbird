@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/google/nftables"
@@ -35,20 +36,27 @@ const SKIP_NFTABLES_ENV = "NB_SKIP_NFTABLES_CHECK"
 type FWType int
 
 func NewFirewall(iface IFaceMapper, stateManager *statemanager.Manager, flowLogger nftypes.FlowLogger, disableServerRoutes bool, mtu uint16) (firewall.Manager, error) {
-	// on the linux system we try to user nftables or iptables
-	// in any case, because we need to allow netbird interface traffic
-	// so we use AllowNetbird traffic from these firewall managers
-	// for the userspace packet filtering firewall
+	// We run in userspace mode and force userspace firewall was requested. We don't attempt native firewall.
+	if iface.IsUserspaceBind() && forceUserspaceFirewall() {
+		log.Info("forcing userspace firewall")
+		return createUserspaceFirewall(iface, nil, disableServerRoutes, flowLogger, mtu)
+	}
+
+	// Use native firewall for either kernel or userspace, the interface appears identical to netfilter
 	fm, err := createNativeFirewall(iface, stateManager, disableServerRoutes, mtu)
 
+	// Kernel cannot fall back to anything else, need to return error
 	if !iface.IsUserspaceBind() {
 		return fm, err
 	}
 
+	// Fall back to the userspace packet filter if native is unavailable
 	if err != nil {
 		log.Warnf("failed to create native firewall: %v. Proceeding with userspace", err)
+		return createUserspaceFirewall(iface, nil, disableServerRoutes, flowLogger, mtu)
 	}
-	return createUserspaceFirewall(iface, fm, disableServerRoutes, flowLogger, mtu)
+
+	return fm, nil
 }
 
 func createNativeFirewall(iface IFaceMapper, stateManager *statemanager.Manager, routes bool, mtu uint16) (firewall.Manager, error) {
@@ -159,4 +167,18 @@ func check() FWType {
 func isIptablesClientAvailable(client *iptables.IPTables) bool {
 	_, err := client.ListChains("filter")
 	return err == nil
+}
+
+func forceUserspaceFirewall() bool {
+	val := os.Getenv(EnvForceUserspaceFirewall)
+	if val == "" {
+		return false
+	}
+
+	force, err := strconv.ParseBool(val)
+	if err != nil {
+		log.Warnf("failed to parse %s: %v", EnvForceUserspaceFirewall, err)
+		return false
+	}
+	return force
 }
