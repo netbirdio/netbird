@@ -106,8 +106,12 @@ func TestStopDuringReconnectBackoff(t *testing.T) {
 	// Trigger an error so the receiver enters reconnect.
 	mock.errChan <- assert.AnError
 
-	// Give the goroutine time to enter the reconnect backoff wait.
-	time.Sleep(500 * time.Millisecond)
+	// Wait for the error handler to close the old listener before calling Stop.
+	select {
+	case <-mock.closedCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for reconnect to start")
+	}
 
 	// Stop while reconnecting.
 	ct.Stop()

@@ -79,6 +79,7 @@ func (c *ConnTrack) Start(enableCounters bool) error {
 
 	conn, err := c.dial()
 	if err != nil {
+		c.RestoreAccounting()
 		return fmt.Errorf("dial conntrack: %w", err)
 	}
 	c.conn = conn
@@ -94,6 +95,7 @@ func (c *ConnTrack) Start(enableCounters bool) error {
 			log.Errorf("Error closing conntrack connection: %v", err)
 		}
 		c.conn = nil
+		c.RestoreAccounting()
 		return fmt.Errorf("start conntrack listener: %w", err)
 	}
 
@@ -252,15 +254,16 @@ func (c *ConnTrack) Close() error {
 
 	c.started = false
 
+	var closeErr error
 	if c.conn != nil {
-		err := c.conn.Close()
+		closeErr = c.conn.Close()
 		c.conn = nil
+	}
 
-		c.RestoreAccounting()
+	c.RestoreAccounting()
 
-		if err != nil {
-			return fmt.Errorf("close conntrack: %w", err)
-		}
+	if closeErr != nil {
+		return fmt.Errorf("close conntrack: %w", closeErr)
 	}
 
 	return nil
