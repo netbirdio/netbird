@@ -1,0 +1,128 @@
+name: TPM Integration Tests
+
+on:
+  push:
+    branches:
+      - main
+      - feature/tpm-cert-auth
+    paths:
+      - 'client/internal/tpm/**'
+      - 'client/internal/enrollment/**'
+      - 'management/server/devicepki/**'
+      - 'management/server/deviceinventory/**'
+  pull_request:
+    paths:
+      - 'client/internal/tpm/**'
+      - 'client/internal/enrollment/**'
+      - 'management/server/devicepki/**'
+      - 'management/server/deviceinventory/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
+  cancel-in-progress: true
+
+jobs:
+  tpm-integration:
+    name: "TPM 2.0 Integration (swtpm)"
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: "go.mod"
+
+      - name: Install swtpm and tpm2-tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends \
+            swtpm \
+            tpm2-tools \
+            libtpms-dev \
+            netcat-openbsd
+
+      - name: Start swtpm (TCP socket mode)
+        run: |
+          mkdir -p /tmp/swtpm-state
+          swtpm socket \
+            --tpmstate dir=/tmp/swtpm-state \
+            --tpm2 \
+            --flags not-need-init \
+            --server type=tcp,port=2321 \
+            --ctrl type=tcp,port=2322 \
+            --daemon
+          # Wait for swtpm to be ready on the command port.
+          for i in $(seq 1 15); do
+            nc -z localhost 2321 2>/dev/null && break
+            sleep 1
+          done
+          echo "NETBIRD_TPM_SIMULATOR=localhost:2321" >> $GITHUB_ENV
+          echo "swtpm ready on localhost:2321"
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-tpm-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-tpm-
+
+      - name: Run TPM unit tests (mock provider)
+        env:
+          NETBIRD_TPM_SIMULATOR: ${{ env.NETBIRD_TPM_SIMULATOR }}
+        run: go test ./client/internal/tpm/... -v -count=1 -timeout 60s
+
+      - name: Run TPM integration tests (swtpm TCP or /dev/tpmrm0)
+        env:
+          NETBIRD_TPM_SIMULATOR: ${{ env.NETBIRD_TPM_SIMULATOR }}
+        run: |
+          go test ./client/internal/tpm/... \
+            -v \
+            -count=1 \
+            -timeout 120s \
+            -tags integration
+
+      - name: Run enrollment manager tests
+        run: go test ./client/internal/enrollment/... -v -count=1 -timeout 60s
+
+      - name: Run devicepki tests
+        run: go test ./management/server/devicepki/... -v -count=1 -timeout 60s
+
+      - name: Run deviceinventory tests
+        run: go test ./management/server/deviceinventory/... -v -count=1 -timeout 60s
+
+  attestation-verification:
+    name: "Attestation Verification Unit Tests"
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: "go.mod"
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-attestation-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-attestation-
+
+      - name: Run attestation verification tests
+        run: |
+          go test ./management/server/devicepki/... \
+            -v \
+            -count=1 \
+            -run TestVerifyAttestation \
+            -timeout 30s

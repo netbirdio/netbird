@@ -1,0 +1,44 @@
+name: Device Auth Tests
+
+on:
+  push:
+    branches: [feature/tpm-cert-auth]
+  pull_request:
+    branches: [main]
+    paths:
+      - 'management/server/deviceauth/**'
+      - 'management/server/devicepki/**'
+      - 'management/server/http/handlers/device_auth/**'
+      - 'management/internals/shared/grpc/**'
+      - 'client/internal/enrollment/**'
+      - 'client/internal/tpm/**'
+      - 'shared/management/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  device-auth-tests:
+    name: Device Auth Tests (no sudo required)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: "go.mod"
+          cache: true
+
+      - name: Run device auth unit tests
+        run: |
+          go test -count=1 -timeout 300s -race \
+            ./management/server/deviceauth/... \
+            ./management/server/devicepki/... \
+            ./management/server/http/handlers/device_auth/... \
+            ./management/internals/shared/grpc/... \
+            ./client/internal/enrollment/... \
+            ./client/internal/tpm/... \
+            ./shared/management/...

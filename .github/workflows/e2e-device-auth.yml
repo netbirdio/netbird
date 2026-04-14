@@ -1,0 +1,51 @@
+name: E2E Device Auth Tests
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'management/**'
+      - 'client/**'
+      - 'netbird-stand/**'
+      - 'scripts/e2e-*.sh'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-device-auth:
+    name: E2E Device Auth (docker-compose stand)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build management server
+        run: go build -o bin/management ./management/cmd/management
+
+      # TODO: Start management server - requires testdata/mgmt-e2e.json
+      # Uncomment when mgmt-e2e.json config is available:
+      # - name: Start management server
+      #   run: |
+      #     ./bin/management --config testdata/mgmt-e2e.json --port 8080 &
+      #     echo "Management server started (PID $!)"
+      #   env:
+      #     NETBIRD_STORE_ENGINE: sqlite
+
+      - name: Validate E2E scripts
+        run: |
+          chmod +x scripts/e2e-lib.sh scripts/e2e-device-auth.sh
+          bash -n scripts/e2e-lib.sh
+          bash -n scripts/e2e-device-auth.sh
+          echo "Script syntax OK"
+          # Note: Full E2E requires management server with testdata/mgmt-e2e.json
+          # Run manually: NETBIRD_API_URL=http://localhost:8080 bash scripts/e2e-device-auth.sh
