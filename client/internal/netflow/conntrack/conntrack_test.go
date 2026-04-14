@@ -173,6 +173,55 @@ func TestStopRaceWithReconnectDial(t *testing.T) {
 	ct.mux.Unlock()
 }
 
+func TestCloseRaceWithReconnectDial(t *testing.T) {
+	first := newMockListener()
+	dialStarted := make(chan struct{})
+	dialProceed := make(chan struct{})
+	second := newMockListener()
+	callCount := atomic.Int32{}
+
+	ct := &ConnTrack{
+		dial: func() (listener, error) {
+			n := callCount.Add(1)
+			if n == 1 {
+				return first, nil
+			}
+			close(dialStarted)
+			<-dialProceed
+			return second, nil
+		},
+		done: make(chan struct{}, 1),
+	}
+
+	err := ct.Start(false)
+	require.NoError(t, err)
+
+	first.errChan <- assert.AnError
+
+	select {
+	case <-dialStarted:
+	case <-time.After(15 * time.Second):
+		t.Fatal("timed out waiting for reconnect dial")
+	}
+
+	// Close while dial is in progress (conn is nil).
+	require.NoError(t, ct.Close())
+
+	close(dialProceed)
+
+	// The second connection should be closed (not leaked).
+	select {
+	case <-second.closedCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("second connection was leaked after Close")
+	}
+
+	ct.mux.Lock()
+	assert.False(t, ct.started)
+	assert.Nil(t, ct.conn)
+	ct.mux.Unlock()
+}
+
 func TestStartIsIdempotent(t *testing.T) {
 	mock := newMockListener()
 	callCount := atomic.Int32{}

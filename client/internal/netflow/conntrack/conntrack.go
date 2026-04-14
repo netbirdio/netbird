@@ -241,17 +241,20 @@ func (c *ConnTrack) Close() error {
 	c.mux.Lock()
 	defer c.mux.Unlock()
 
-	if c.started {
-		select {
-		case c.done <- struct{}{}:
-		default:
-		}
+	if !c.started {
+		return nil
 	}
+
+	select {
+	case c.done <- struct{}{}:
+	default:
+	}
+
+	c.started = false
 
 	if c.conn != nil {
 		err := c.conn.Close()
 		c.conn = nil
-		c.started = false
 
 		c.RestoreAccounting()
 
