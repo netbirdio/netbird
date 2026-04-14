@@ -1,0 +1,38 @@
+# Device-auth Caddyfile override.
+# Management now serves TLS directly (NETBIRD_DEV_ENABLE_TLS=1 in the overlay).
+# Caddy proxies to management:443 using HTTPS, skipping server cert verification
+# (management uses a self-signed cert generated at startup).
+{
+    debug
+    servers :80,:443 {
+        protocols h1 h2c h2 h3
+    }
+}
+
+:80, localhost:443 {
+    # Signal gRPC
+    reverse_proxy /signalexchange.SignalExchange/* h2c://signal:10000
+
+    # Relay
+    reverse_proxy /relay* relay:80
+
+    # Dex OIDC
+    reverse_proxy /dex/* dex:5556
+
+    # Management REST API — proxy to management HTTPS backend
+    reverse_proxy /api/* https://management:443 {
+        transport http {
+            tls_insecure_skip_verify
+        }
+    }
+
+    # Management gRPC — proxy to management HTTPS backend (h2 over TLS)
+    reverse_proxy /management.ManagementService/* https://management:443 {
+        transport http {
+            tls_insecure_skip_verify
+        }
+    }
+
+    # Dashboard (catch-all)
+    reverse_proxy /* dashboard:80
+}

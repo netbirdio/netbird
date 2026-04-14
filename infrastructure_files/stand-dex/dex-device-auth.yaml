@@ -1,0 +1,47 @@
+# Device-auth Dex config override.
+# Issuer is set to https://localhost/dex so tokens match AUTH_AUTHORITY in dashboard.env
+# (browser talks to Dex through Caddy, not directly to localhost:5556).
+issuer: https://localhost/dex
+
+storage:
+  type: sqlite3
+  config:
+    file: /var/dex/dex.db
+
+web:
+  http: 0.0.0.0:5556
+
+grpc:
+  addr: 0.0.0.0:5557
+
+oauth2:
+  skipApprovalScreen: true
+  responseTypes: ["code"]
+
+staticClients:
+  - id: netbird-dashboard
+    name: NetBird Dashboard
+    secret: netbird-dashboard-secret
+    redirectURIs:
+      - https://localhost/#callback
+      - https://localhost/#silent-callback
+      - https://localhost/nb-auth
+      - https://localhost/nb-silent-auth
+
+  - id: netbird-cli
+    name: NetBird CLI
+    public: true
+    redirectURIs:
+      - http://localhost:53000/
+      - http://localhost:54000/
+
+enablePasswordDB: true
+
+# Admin credentials for UI login (dashboard at https://localhost):
+#   Email:    admin@netbird.localhost
+#   Password: Netbird@dev1
+staticPasswords:
+  - email: "admin@netbird.localhost"
+    hash: "$2a$10$CQx4J9U6r/j2dmy/WzvwWuiVRTTAwqi3a7vIk1cCAlg1DCMOmDrWm"
+    username: "admin"
+    userID: "08a8684b-db88-4b73-90a9-3cd1661f5466"

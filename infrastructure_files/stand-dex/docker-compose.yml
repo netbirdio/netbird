@@ -1,0 +1,105 @@
+# NetBird Device Certificate Auth — Development Stand
+# Uses Dex as OIDC provider (simpler than Zitadel, ideal for dev/CI).
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.device-auth.yml up -d
+#
+# UI login: https://localhost  (admin@netbird.localhost / Netbird@dev1)
+# API token: value of NETBIRD_DEV_INIT_TOKEN in docker-compose.device-auth.yml
+
+services:
+
+  caddy:
+    image: caddy
+    restart: unless-stopped
+    networks: [netbird]
+    ports:
+      - "443:443"
+      - "443:443/udp"
+      - "80:80"
+    volumes:
+      - netbird_caddy_data:/data
+      - ./Caddyfile:/etc/caddy/Caddyfile
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "2"
+
+  dashboard:
+    image: netbirdio/dashboard:latest
+    restart: unless-stopped
+    networks: [netbird]
+    env_file: ./dashboard.env
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "2"
+
+  dex:
+    image: ghcr.io/dexidp/dex:v2.38.0
+    restart: unless-stopped
+    networks: [netbird]
+    volumes:
+      - ./dex.yaml:/etc/dex/config.docker.yaml:ro
+      - netbird_dex_data:/var/dex
+    command: ["dex", "serve", "/etc/dex/config.docker.yaml"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "2"
+
+  management:
+    image: netbirdio/management:latest
+    restart: unless-stopped
+    networks: [netbird]
+    depends_on: [dex]
+    volumes:
+      - netbird_management:/var/lib/netbird
+      - ./management.json:/etc/netbird/management.json
+    command:
+      - management
+      - --config=/etc/netbird/management.json
+      - --datadir=/var/lib/netbird
+      - --log-file=console
+      - --log-level=info
+      - --disable-anonymous-metrics
+      - --single-account-mode-domain=netbird.localhost
+    environment:
+      - NB_DISABLE_GEOLOCATION=true
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "2"
+
+  signal:
+    image: netbirdio/signal:latest
+    restart: unless-stopped
+    networks: [netbird]
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "2"
+
+  relay:
+    image: netbirdio/relay:latest
+    restart: unless-stopped
+    networks: [netbird]
+    env_file: ./relay.env
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "2"
+
+volumes:
+  netbird_caddy_data:
+  netbird_dex_data:
+  netbird_management:
+
+networks:
+  netbird:

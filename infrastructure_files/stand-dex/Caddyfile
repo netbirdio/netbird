@@ -1,0 +1,24 @@
+{
+    debug
+    servers :80,:443 {
+        protocols h1 h2c h2 h3
+    }
+}
+
+:80, localhost:443 {
+    # Signal gRPC
+    reverse_proxy /signalexchange.SignalExchange/* h2c://signal:10000
+
+    # Relay
+    reverse_proxy /relay* relay:80
+
+    # Dex OIDC
+    reverse_proxy /dex/* dex:5556
+
+    # Management API and gRPC
+    reverse_proxy /api/* management:80
+    reverse_proxy /management.ManagementService/* h2c://management:80
+
+    # Dashboard (catch-all)
+    reverse_proxy /* dashboard:80
+}

@@ -14,6 +14,11 @@ infrastructure_files/**/zitadel.env
 infrastructure_files/**/management.json
 infrastructure_files/**/management-*.json
 infrastructure_files/**/docker-compose.yml
+# Stand-dex is a versioned dev stand — its config files must be tracked
+!infrastructure_files/stand-dex/Caddyfile
+!infrastructure_files/stand-dex/dashboard.env
+!infrastructure_files/stand-dex/management.json
+!infrastructure_files/stand-dex/docker-compose.yml
 infrastructure_files/**/openid-configuration.json
 infrastructure_files/**/turnserver.conf
 infrastructure_files/**/management.json.bkp.**
@@ -33,3 +38,7 @@ infrastructure_files/setup-*.env
 vendor/
 /netbird
 client/netbird-electron/
+/dev-stand-init
+/enroll-demo
+/mtls-demo
+infrastructure_files/stand/

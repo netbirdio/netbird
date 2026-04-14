@@ -1,0 +1,48 @@
+{
+    "DataStoreEncryptionKey": "bmV0YmlyZGRldnN0YW5ka2V5MDAwMDAwMDAwMDAwMDA=",
+    "Stuns": [],
+    "TURNConfig": {
+        "Turns": [],
+        "CredentialsTTL": "1h",
+        "Secret": "devstandsecret",
+        "TimeBasedCredentials": false
+    },
+    "Relay": {
+        "Addresses": ["rel://relay:80"],
+        "CredentialsTTL": "24h",
+        "Secret": "devstandrelay"
+    },
+    "Signal": {
+        "Proto": "http",
+        "URI": "signal:10000"
+    },
+    "HttpConfig": {
+        "Address": "0.0.0.0:80",
+        "AuthIssuer": "http://localhost:5556/dex",
+        "AuthAudience": "netbird-dashboard",
+        "OIDCConfigEndpoint": "http://dex:5556/dex/.well-known/openid-configuration"
+    },
+    "IdpManagerConfig": {
+        "ManagerType": "dex",
+        "ClientConfig": {
+            "Issuer": "http://localhost:5556/dex"
+        },
+        "ExtraConfig": {
+            "GRPCAddr": "dex:5557"
+        }
+    },
+    "DeviceAuthorizationFlow": {
+        "Provider": "none"
+    },
+    "PKCEAuthorizationFlow": {
+        "ProviderConfig": {
+            "Audience": "netbird-cli",
+            "ClientID": "netbird-cli",
+            "Scope": "openid profile email offline_access",
+            "RedirectURLs": ["http://localhost:53000/", "http://localhost:54000/"]
+        }
+    },
+    "StoreConfig": {
+        "Engine": "sqlite"
+    }
+}

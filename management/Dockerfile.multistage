@@ -9,9 +9,79 @@ RUN go mod download
 
 COPY . .
 RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o netbird-mgmt ./management
+RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o dev-stand-init ./tools/dev-stand-init/
+RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o enroll-demo ./management/cmd/enroll-demo/
+RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o mtls-demo ./management/cmd/mtls-demo/
 
 FROM ubuntu:24.04
-RUN apt update && apt install -y ca-certificates && rm -fr /var/cache/apt
-ENTRYPOINT [ "/go/bin/netbird-mgmt","management"]
-CMD ["--log-file", "console"]
+# openssl for self-signed cert generation; python3 for management.json patching
+RUN apt-get update && apt-get install -y ca-certificates openssl python3-minimal && rm -rf /var/lib/apt/lists/*
+
+# /entrypoint.sh:
+#   1. Trust extra CA cert (if mounted at /etc/ssl/extra-ca.crt).
+#   2. Run dev-stand-init to bootstrap DB when NETBIRD_DEV_INIT_TOKEN is set.
+#   3. When NETBIRD_DEV_ENABLE_TLS=1, generate a self-signed cert and write a
+#      management config override at /var/lib/netbird/management-generated.json
+#      that enables TLS on the management gRPC/HTTP server.  The management
+#      container is then also reachable directly on port 443 (host port 8443 in
+#      the device-auth overlay), bypassing Caddy for real mTLS testing.
+RUN printf '#!/bin/sh\n\
+set -e\n\
+\n\
+# ── Extra CA trust ─────────────────────────────────────────────────────────\n\
+if [ -f /etc/ssl/extra-ca.crt ]; then\n\
+  cp /etc/ssl/extra-ca.crt /usr/local/share/ca-certificates/extra-ca.crt\n\
+  update-ca-certificates\n\
+fi\n\
+\n\
+# ── Dev stand bootstrap ────────────────────────────────────────────────────\n\
+if [ -n "${NETBIRD_DEV_INIT_TOKEN:-}" ]; then\n\
+  echo "[entrypoint] Running dev-stand-init..."\n\
+  mkdir -p /var/lib/netbird\n\
+  /usr/local/bin/dev-stand-init \\\n\
+    --db "${NETBIRD_DB_DATADIR:-/var/lib/netbird}" \\\n\
+    --token "${NETBIRD_DEV_INIT_TOKEN}" \\\n\
+    > /var/lib/netbird/init.env 2>&1 || true\n\
+  echo "[entrypoint] dev-stand-init done"\n\
+  cat /var/lib/netbird/init.env || true\n\
+fi\n\
+\n\
+# ── TLS cert for direct gRPC mTLS testing ─────────────────────────────────\n\
+# Set NETBIRD_DEV_ENABLE_TLS=1 in the environment to enable TLS on the\n\
+# management server so that clients can present device certificates via mTLS.\n\
+# A self-signed cert is generated once in /var/lib/netbird/ (persisted in the\n\
+# named volume so it survives container restarts).\n\
+if [ "${NETBIRD_DEV_ENABLE_TLS:-0}" = "1" ]; then\n\
+  mkdir -p /var/lib/netbird\n\
+  CERT=/var/lib/netbird/server.crt\n\
+  KEY=/var/lib/netbird/server.key\n\
+  CFG=/var/lib/netbird/management-generated.json\n\
+  if [ ! -f "${CERT}" ]; then\n\
+    echo "[entrypoint] Generating self-signed TLS cert for mTLS testing..."\n\
+    openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 \\\n\
+      -keyout "${KEY}" -out "${CERT}" -days 3650 -nodes \\\n\
+      -subj "/CN=localhost" 2>/dev/null\n\
+    echo "[entrypoint] TLS cert generated at ${CERT}"\n\
+  fi\n\
+  # Patch management.json: set CertFile, CertKey, change address to :443\n\
+  python3 - <<PYEOF\n\
+import json, sys\n\
+with open("/etc/netbird/management.json") as f:\n\
+    cfg = json.load(f)\n\
+cfg["HttpConfig"]["CertFile"] = "/var/lib/netbird/server.crt"\n\
+cfg["HttpConfig"]["CertKey"] = "/var/lib/netbird/server.key"\n\
+cfg["HttpConfig"]["Address"] = "0.0.0.0:443"\n\
+with open("/var/lib/netbird/management-generated.json", "w") as f:\n\
+    json.dump(cfg, f, indent=2)\n\
+print("[entrypoint] management-generated.json written with TLS config")\n\
+PYEOF\n\
+fi\n\
+\n\
+exec /go/bin/netbird-mgmt "$@"\n' > /entrypoint.sh && chmod +x /entrypoint.sh
+
 COPY --from=builder /app/netbird-mgmt /go/bin/netbird-mgmt
+COPY --from=builder /app/dev-stand-init /usr/local/bin/dev-stand-init
+COPY --from=builder /app/enroll-demo /usr/local/bin/enroll-demo
+COPY --from=builder /app/mtls-demo /usr/local/bin/mtls-demo
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["management", "--log-file", "console"]

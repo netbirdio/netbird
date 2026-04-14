@@ -1,0 +1,14 @@
+# Device Certificate Authentication — Management Service Override
+#
+# This overlay switches the management service to a locally-built image
+# containing the feature/tpm-cert-auth branch changes.
+#
+# Prerequisites:
+#   1. cd /path/to/netbird && make docker-management-dev
+#   2. docker compose -f docker-compose.yml -f docker-compose.device-auth.yml up -d
+#   3. bash infrastructure_files/scripts/setup-device-auth.sh
+
+services:
+  management:
+    image: ${NETBIRD_MANAGEMENT_IMAGE:-netbird/management:tpm-dev}
+    build: null   # disable the default build; use pre-built image instead
