@@ -15,6 +15,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/debug"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -26,6 +27,7 @@ import (
 	"github.com/netbirdio/netbird/formatter"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
+	types "github.com/netbirdio/netbird/upload-server/types"
 )
 
 // ConnectionListener export internal Listener for mobile
@@ -69,6 +71,8 @@ type Client struct {
 	networkChangeListener listener.NetworkChangeListener
 
 	connectClient *internal.ConnectClient
+	config        *profilemanager.Config
+	cacheDir      string
 }
 
 // NewClient instantiate a new Client
@@ -125,6 +129,8 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
+	c.config = cfg
+	c.cacheDir = cacheDir
 	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder)
 	return c.connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, stateFile, cacheDir)
 }
@@ -159,6 +165,8 @@ func (c *Client) RunWithoutLogin(platformFiles PlatformFiles, dns *DNSList, dnsR
 
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
+	c.config = cfg
+	c.cacheDir = cacheDir
 	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder)
 	return c.connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, stateFile, cacheDir)
 }
@@ -185,6 +193,71 @@ func (c *Client) RenewTun(fd int) error {
 	}
 
 	return e.RenewTun(fd)
+}
+
+// DebugBundle generates a debug bundle, uploads it, and returns the upload key.
+// It works both with and without a running engine.
+func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool) (string, error) {
+	cfg := c.config
+	cacheDir := c.cacheDir
+
+	// If the engine hasn't been started, load config from disk
+	if cfg == nil {
+		var err error
+		cfg, err = profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
+			ConfigPath: platformFiles.ConfigurationFilePath(),
+		})
+		if err != nil {
+			return "", fmt.Errorf("load config: %w", err)
+		}
+		cacheDir = platformFiles.CacheDir()
+	}
+
+	deps := debug.GeneratorDependencies{
+		InternalConfig: cfg,
+		StatusRecorder: c.recorder,
+		TempDir:        cacheDir,
+	}
+
+	if c.connectClient != nil {
+		resp, err := c.connectClient.GetLatestSyncResponse()
+		if err != nil {
+			log.Warnf("get latest sync response: %v", err)
+		}
+		deps.SyncResponse = resp
+
+		if e := c.connectClient.Engine(); e != nil {
+			if cm := e.GetClientMetrics(); cm != nil {
+				deps.ClientMetrics = cm
+			}
+		}
+	}
+
+	bundleGenerator := debug.NewBundleGenerator(
+		deps,
+		debug.BundleConfig{
+			Anonymize:         anonymize,
+			IncludeSystemInfo: true,
+		},
+	)
+
+	path, err := bundleGenerator.Generate()
+	if err != nil {
+		return "", fmt.Errorf("generate debug bundle: %w", err)
+	}
+	defer func() {
+		if err := os.Remove(path); err != nil {
+			log.Errorf("failed to remove debug bundle file: %v", err)
+		}
+	}()
+
+	key, err := debug.UploadDebugBundle(context.Background(), types.DefaultBundleURL, cfg.ManagementURL.String(), path)
+	if err != nil {
+		return "", fmt.Errorf("upload debug bundle: %w", err)
+	}
+
+	log.Infof("debug bundle uploaded with key %s", key)
+	return key, nil
 }
 
 // SetTraceLogLevel configure the logger to trace level
