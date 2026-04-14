@@ -314,6 +314,10 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		c.clientMetrics.RecordLoginDuration(engineCtx, time.Since(loginStarted), true)
 		c.statusRecorder.MarkManagementConnected()
 
+		if metricsConfig := loginResp.GetNetbirdConfig().GetMetrics(); metricsConfig != nil {
+			c.clientMetrics.UpdatePushFromMgm(c.ctx, metricsConfig.GetEnabled())
+		}
+
 		localPeerState := peer.LocalPeerState{
 			IP:              loginResp.GetPeerConfig().GetAddress(),
 			PubKey:          myPrivateKey.PublicKey().String(),

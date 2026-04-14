@@ -276,6 +276,11 @@ const (
 	// AgentNetworkSettingsUpdated indicates that a user updated Agent Network account settings
 	AgentNetworkSettingsUpdated Activity = 139
 
+	// AccountMetricsPushEnabled indicates that a user enabled metrics push for the account
+	AccountMetricsPushEnabled Activity = 140
+	// AccountMetricsPushDisabled indicates that a user disabled metrics push for the account
+	AccountMetricsPushDisabled Activity = 141
+
 	AccountDeleted Activity = 99999
 )
 
@@ -448,6 +453,9 @@ var activityMap = map[Activity]Code{
 	AgentNetworkBudgetRuleDeleted: {"Agent Network budget rule deleted", "agent_network.budget_rule.delete"},
 
 	AgentNetworkSettingsUpdated: {"Agent Network settings updated", "agent_network.settings.update"},
+
+	AccountMetricsPushEnabled:  {"Account metrics push enabled", "account.setting.metrics.push.enable"},
+	AccountMetricsPushDisabled: {"Account metrics push disabled", "account.setting.metrics.push.disable"},
 
 	DomainAdded:     {"Domain added", "domain.add"},
 	DomainDeleted:   {"Domain deleted", "domain.delete"},

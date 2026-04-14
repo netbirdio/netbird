@@ -184,7 +184,7 @@ func (c *ClientMetrics) Export(w io.Writer) error {
 	return c.impl.Export(w)
 }
 
-// StartPush starts periodic pushing of metrics with the given configuration
+// StartPush starts periodic pushing of metrics with the given configuration.
 // Precedence: PushConfig.ServerAddress > remote config server_url
 func (c *ClientMetrics) StartPush(ctx context.Context, config PushConfig) {
 	if c == nil {
@@ -199,6 +199,53 @@ func (c *ClientMetrics) StartPush(ctx context.Context, config PushConfig) {
 		return
 	}
 
+	c.startPushLocked(ctx, config)
+}
+
+// StopPush stops the periodic metrics push.
+func (c *ClientMetrics) StopPush() {
+	if c == nil {
+		return
+	}
+	c.pushMu.Lock()
+	defer c.pushMu.Unlock()
+
+	c.stopPushLocked()
+}
+
+// UpdatePushFromMgm updates metrics push based on management server configuration.
+// If NB_METRICS_PUSH_ENABLED is explicitly set (true or false), management config is ignored.
+// When unset, management controls whether push is enabled.
+func (c *ClientMetrics) UpdatePushFromMgm(ctx context.Context, enabled bool) {
+	if c == nil {
+		return
+	}
+
+	if isMetricsPushEnvSet() {
+		log.Debugf("ignoring management config, env var is explicitly set: %s", EnvMetricsPushEnabled)
+		return
+	}
+
+	c.pushMu.Lock()
+	defer c.pushMu.Unlock()
+
+	if enabled {
+		if c.push != nil {
+			return
+		}
+		log.Infof("enabled metrics push by management")
+		c.startPushLocked(ctx, PushConfigFromEnv())
+	} else {
+		if c.push == nil {
+			return
+		}
+		log.Infof("disabled metrics push by managmenet")
+		c.stopPushLocked()
+	}
+}
+
+// startPushLocked starts push. Caller must hold pushMu.
+func (c *ClientMetrics) startPushLocked(ctx context.Context, config PushConfig) {
 	c.mu.RLock()
 	agentVersion := c.agentInfo.Version
 	peerID := c.agentInfo.peerID
@@ -223,12 +270,8 @@ func (c *ClientMetrics) StartPush(ctx context.Context, config PushConfig) {
 	c.push = push
 }
 
-func (c *ClientMetrics) StopPush() {
-	if c == nil {
-		return
-	}
-	c.pushMu.Lock()
-	defer c.pushMu.Unlock()
+// stopPushLocked stops push. Caller must hold pushMu.
+func (c *ClientMetrics) stopPushLocked() {
 	if c.push == nil {
 		return
 	}

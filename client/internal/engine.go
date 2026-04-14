@@ -997,6 +997,8 @@ func (e *Engine) updateNetbirdConfig(wCfg *mgmProto.NetbirdConfig) error {
 		return fmt.Errorf("handle the flow configuration: %w", err)
 	}
 
+	e.handleMetricsUpdate(wCfg.GetMetrics())
+
 	if err := e.PopulateNetbirdConfig(wCfg, nil); err != nil {
 		log.Warnf("Failed to update DNS server config: %v", err)
 	}
@@ -1064,6 +1066,15 @@ func (e *Engine) handleFlowUpdate(config *mgmProto.FlowConfig) error {
 		return err
 	}
 	return e.flowManager.Update(flowConfig)
+}
+
+func (e *Engine) handleMetricsUpdate(config *mgmProto.MetricsConfig) {
+	if config == nil {
+		log.Debugf("no metrics configuration received from management")
+		return
+	}
+	log.Infof("received metrics configuration from management: enabled=%v", config.GetEnabled())
+	e.clientMetrics.UpdatePushFromMgm(e.ctx, config.GetEnabled())
 }
 
 func toFlowLoggerConfig(config *mgmProto.FlowConfig) (*nftypes.FlowConfig, error) {
