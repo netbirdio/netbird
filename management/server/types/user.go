@@ -18,6 +18,9 @@ const (
 	UserRoleBillingAdmin UserRole = "billing_admin"
 	UserRoleAuditor      UserRole = "auditor"
 	UserRoleNetworkAdmin UserRole = "network_admin"
+	// UserRoleCertApprover is a limited role that can only approve or reject device certificate enrollments.
+	// It does NOT have admin power and is NOT a regular user.
+	UserRoleCertApprover UserRole = "cert_approver"
 
 	UserStatusActive   UserStatus = "active"
 	UserStatusDisabled UserStatus = "disabled"
@@ -42,6 +45,8 @@ func StrRoleToUserRole(strRole string) UserRole {
 		return UserRoleAuditor
 	case "network_admin":
 		return UserRoleNetworkAdmin
+	case "cert_approver":
+		return UserRoleCertApprover
 	default:
 		return UserRoleUnknown
 	}
@@ -134,8 +139,9 @@ func (u *User) IsAdminOrServiceUser() bool {
 }
 
 // IsRegularUser checks if the user is a regular user.
+// cert_approver is a special limited role and is not considered a regular user.
 func (u *User) IsRegularUser() bool {
-	return !u.HasAdminPower() && !u.IsServiceUser
+	return !u.HasAdminPower() && !u.IsServiceUser && u.Role != UserRoleCertApprover
 }
 
 // IsRestrictable checks whether a user is in a restrictable role.

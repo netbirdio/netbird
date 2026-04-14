@@ -44,6 +44,7 @@ type MockAccountManager struct {
 	GetNetworkMapFunc                     func(ctx context.Context, peerKey string) (*types.NetworkMap, error)
 	GetPeerNetworkFunc                    func(ctx context.Context, peerKey string) (*types.Network, error)
 	AddPeerFunc                           func(ctx context.Context, accountID string, setupKey string, userId string, peer *nbpeer.Peer, temporary bool) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
+	RegisterPeerForEnrollmentFunc         func(ctx context.Context, accountID, wgPubKey, hostname string) (*nbpeer.Peer, error)
 	GetGroupFunc                          func(ctx context.Context, accountID, groupID, userID string) (*types.Group, error)
 	GetAllGroupsFunc                      func(ctx context.Context, accountID, userID string) ([]*types.Group, error)
 	GetGroupByNameFunc                    func(ctx context.Context, groupName, accountID, userID string) (*types.Group, error)
@@ -403,6 +404,14 @@ func (am *MockAccountManager) AddPeer(
 		return am.AddPeerFunc(ctx, accountID, setupKey, userId, peer, temporary)
 	}
 	return nil, nil, nil, status.Errorf(codes.Unimplemented, "method AddPeer is not implemented")
+}
+
+// RegisterPeerForEnrollment mock implementation of RegisterPeerForEnrollment from server.AccountManager interface
+func (am *MockAccountManager) RegisterPeerForEnrollment(ctx context.Context, accountID, wgPubKey, hostname string) (*nbpeer.Peer, error) {
+	if am.RegisterPeerForEnrollmentFunc != nil {
+		return am.RegisterPeerForEnrollmentFunc(ctx, accountID, wgPubKey, hostname)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method RegisterPeerForEnrollment is not implemented")
 }
 
 // GetGroupByName mock implementation of GetGroupByName from server.AccountManager interface

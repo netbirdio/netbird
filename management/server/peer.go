@@ -871,6 +871,85 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 	return p, nmap, pc, err
 }
 
+// RegisterPeerForEnrollment registers a peer that went through cert-first enrollment
+// (no setup key or SSO required). The peer is added to the All group with a VPN IP.
+// If the peer is already registered (idempotent), the existing peer is returned.
+func (am *DefaultAccountManager) RegisterPeerForEnrollment(ctx context.Context, accountID, wgPubKey, hostname string) (*nbpeer.Peer, error) {
+	// Idempotency: return existing peer if already registered.
+	existing, err := am.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, wgPubKey)
+	if err == nil {
+		return existing, nil
+	}
+
+	network, err := am.Store.GetAccountNetwork(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("get account network: %w", err)
+	}
+
+	if hostname == "" {
+		hostname = "enrolled-device"
+	}
+
+	now := time.Now().UTC()
+	newPeer := &nbpeer.Peer{
+		ID:        xid.New().String(),
+		AccountID: accountID,
+		Key:       wgPubKey,
+		Name:      hostname,
+		Meta:      nbpeer.PeerSystemMeta{Hostname: hostname},
+		Status:    &nbpeer.PeerStatus{Connected: false, LastSeen: now},
+		CreatedAt: now,
+		LastLogin: &now,
+	}
+
+	maxAttempts := 10
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		freeIP, allocErr := types.AllocateRandomPeerIP(network.Net)
+		if allocErr != nil {
+			return nil, fmt.Errorf("allocate peer IP: %w", allocErr)
+		}
+
+		var freeLabel string
+		if attempt > 1 {
+			freeLabel, err = getPeerIPDNSLabel(freeIP, hostname)
+		} else {
+			freeLabel, err = nbdns.GetParsedDomainLabel(hostname)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("get DNS label: %w", err)
+		}
+		newPeer.IP = freeIP
+		newPeer.DNSLabel = freeLabel
+
+		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+			if txErr := transaction.AddPeerToAccount(ctx, newPeer); txErr != nil {
+				return txErr
+			}
+			if txErr := transaction.AddPeerToAllGroup(ctx, accountID, newPeer.ID); txErr != nil {
+				return fmt.Errorf("add peer to All group: %w", txErr)
+			}
+			return transaction.IncrementNetworkSerial(ctx, accountID)
+		})
+		if err == nil {
+			break
+		}
+		if isUniqueConstraintError(err) {
+			log.WithContext(ctx).Tracef("RegisterPeerForEnrollment: IP/label conflict on attempt %d, retrying", attempt)
+			continue
+		}
+		return nil, fmt.Errorf("save peer: %w", err)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("save peer after %d attempts: %w", maxAttempts, err)
+	}
+
+	if err := am.networkMapController.OnPeersAdded(ctx, accountID, []string{newPeer.ID}); err != nil {
+		log.WithContext(ctx).Warnf("RegisterPeerForEnrollment: update network map for peer %s: %v", newPeer.ID, err)
+	}
+
+	return newPeer, nil
+}
+
 func getPeerIPDNSLabel(ip net.IP, peerHostName string) (string, error) {
 	ip = ip.To4()
 

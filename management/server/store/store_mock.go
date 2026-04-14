@@ -3035,3 +3035,194 @@ func (mr *MockStoreMockRecorder) UpdateZone(ctx, zone interface{}) *gomock.Call 
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateZone", reflect.TypeOf((*MockStore)(nil).UpdateZone), ctx, zone)
 }
+
+// SaveEnrollmentRequest mocks base method.
+func (m *MockStore) SaveEnrollmentRequest(ctx context.Context, lockStrength LockingStrength, req *types2.EnrollmentRequest) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveEnrollmentRequest", ctx, lockStrength, req)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SaveEnrollmentRequest indicates an expected call of SaveEnrollmentRequest.
+func (mr *MockStoreMockRecorder) SaveEnrollmentRequest(ctx, lockStrength, req interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveEnrollmentRequest", reflect.TypeOf((*MockStore)(nil).SaveEnrollmentRequest), ctx, lockStrength, req)
+}
+
+// GetEnrollmentRequest mocks base method.
+func (m *MockStore) GetEnrollmentRequest(ctx context.Context, lockStrength LockingStrength, accountID, id string) (*types2.EnrollmentRequest, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEnrollmentRequest", ctx, lockStrength, accountID, id)
+	ret0, _ := ret[0].(*types2.EnrollmentRequest)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEnrollmentRequest indicates an expected call of GetEnrollmentRequest.
+func (mr *MockStoreMockRecorder) GetEnrollmentRequest(ctx, lockStrength, accountID, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEnrollmentRequest", reflect.TypeOf((*MockStore)(nil).GetEnrollmentRequest), ctx, lockStrength, accountID, id)
+}
+
+// GetEnrollmentRequestByWGKey mocks base method.
+func (m *MockStore) GetEnrollmentRequestByWGKey(ctx context.Context, lockStrength LockingStrength, accountID, wgPubKey string) (*types2.EnrollmentRequest, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEnrollmentRequestByWGKey", ctx, lockStrength, accountID, wgPubKey)
+	ret0, _ := ret[0].(*types2.EnrollmentRequest)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEnrollmentRequestByWGKey indicates an expected call of GetEnrollmentRequestByWGKey.
+func (mr *MockStoreMockRecorder) GetEnrollmentRequestByWGKey(ctx, lockStrength, accountID, wgPubKey interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEnrollmentRequestByWGKey", reflect.TypeOf((*MockStore)(nil).GetEnrollmentRequestByWGKey), ctx, lockStrength, accountID, wgPubKey)
+}
+
+// ListEnrollmentRequests mocks base method.
+func (m *MockStore) ListEnrollmentRequests(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types2.EnrollmentRequest, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEnrollmentRequests", ctx, lockStrength, accountID)
+	ret0, _ := ret[0].([]*types2.EnrollmentRequest)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEnrollmentRequests indicates an expected call of ListEnrollmentRequests.
+func (mr *MockStoreMockRecorder) ListEnrollmentRequests(ctx, lockStrength, accountID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEnrollmentRequests", reflect.TypeOf((*MockStore)(nil).ListEnrollmentRequests), ctx, lockStrength, accountID)
+}
+
+// SaveDeviceCertificate mocks base method.
+func (m *MockStore) SaveDeviceCertificate(ctx context.Context, lockStrength LockingStrength, cert *types2.DeviceCertificate) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveDeviceCertificate", ctx, lockStrength, cert)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SaveDeviceCertificate indicates an expected call of SaveDeviceCertificate.
+func (mr *MockStoreMockRecorder) SaveDeviceCertificate(ctx, lockStrength, cert interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveDeviceCertificate", reflect.TypeOf((*MockStore)(nil).SaveDeviceCertificate), ctx, lockStrength, cert)
+}
+
+// GetDeviceCertificateByWGKey mocks base method.
+func (m *MockStore) GetDeviceCertificateByWGKey(ctx context.Context, lockStrength LockingStrength, accountID, wgPubKey string) (*types2.DeviceCertificate, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDeviceCertificateByWGKey", ctx, lockStrength, accountID, wgPubKey)
+	ret0, _ := ret[0].(*types2.DeviceCertificate)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDeviceCertificateByWGKey indicates an expected call of GetDeviceCertificateByWGKey.
+func (mr *MockStoreMockRecorder) GetDeviceCertificateByWGKey(ctx, lockStrength, accountID, wgPubKey interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceCertificateByWGKey", reflect.TypeOf((*MockStore)(nil).GetDeviceCertificateByWGKey), ctx, lockStrength, accountID, wgPubKey)
+}
+
+// GetDeviceCertificateByID mocks base method.
+func (m *MockStore) GetDeviceCertificateByID(ctx context.Context, lockStrength LockingStrength, accountID, id string) (*types2.DeviceCertificate, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDeviceCertificateByID", ctx, lockStrength, accountID, id)
+	ret0, _ := ret[0].(*types2.DeviceCertificate)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDeviceCertificateByID indicates an expected call of GetDeviceCertificateByID.
+func (mr *MockStoreMockRecorder) GetDeviceCertificateByID(ctx, lockStrength, accountID, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceCertificateByID", reflect.TypeOf((*MockStore)(nil).GetDeviceCertificateByID), ctx, lockStrength, accountID, id)
+}
+
+// ListDeviceCertificates mocks base method.
+func (m *MockStore) ListDeviceCertificates(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types2.DeviceCertificate, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListDeviceCertificates", ctx, lockStrength, accountID)
+	ret0, _ := ret[0].([]*types2.DeviceCertificate)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListDeviceCertificates indicates an expected call of ListDeviceCertificates.
+func (mr *MockStoreMockRecorder) ListDeviceCertificates(ctx, lockStrength, accountID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDeviceCertificates", reflect.TypeOf((*MockStore)(nil).ListDeviceCertificates), ctx, lockStrength, accountID)
+}
+
+// SaveTrustedCA mocks base method.
+func (m *MockStore) SaveTrustedCA(ctx context.Context, lockStrength LockingStrength, ca *types2.TrustedCA) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveTrustedCA", ctx, lockStrength, ca)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SaveTrustedCA indicates an expected call of SaveTrustedCA.
+func (mr *MockStoreMockRecorder) SaveTrustedCA(ctx, lockStrength, ca interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveTrustedCA", reflect.TypeOf((*MockStore)(nil).SaveTrustedCA), ctx, lockStrength, ca)
+}
+
+// GetTrustedCAByID mocks base method.
+func (m *MockStore) GetTrustedCAByID(ctx context.Context, lockStrength LockingStrength, accountID, id string) (*types2.TrustedCA, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetTrustedCAByID", ctx, lockStrength, accountID, id)
+	ret0, _ := ret[0].(*types2.TrustedCA)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetTrustedCAByID indicates an expected call of GetTrustedCAByID.
+func (mr *MockStoreMockRecorder) GetTrustedCAByID(ctx, lockStrength, accountID, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTrustedCAByID", reflect.TypeOf((*MockStore)(nil).GetTrustedCAByID), ctx, lockStrength, accountID, id)
+}
+
+// GetTrustedCAByCRLToken mocks base method.
+func (m *MockStore) GetTrustedCAByCRLToken(ctx context.Context, token string) (*types2.TrustedCA, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetTrustedCAByCRLToken", ctx, token)
+	ret0, _ := ret[0].(*types2.TrustedCA)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetTrustedCAByCRLToken indicates an expected call of GetTrustedCAByCRLToken.
+func (mr *MockStoreMockRecorder) GetTrustedCAByCRLToken(ctx, token interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTrustedCAByCRLToken", reflect.TypeOf((*MockStore)(nil).GetTrustedCAByCRLToken), ctx, token)
+}
+
+// ListTrustedCAs mocks base method.
+func (m *MockStore) ListTrustedCAs(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types2.TrustedCA, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListTrustedCAs", ctx, lockStrength, accountID)
+	ret0, _ := ret[0].([]*types2.TrustedCA)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListTrustedCAs indicates an expected call of ListTrustedCAs.
+func (mr *MockStoreMockRecorder) ListTrustedCAs(ctx, lockStrength, accountID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTrustedCAs", reflect.TypeOf((*MockStore)(nil).ListTrustedCAs), ctx, lockStrength, accountID)
+}
+
+// DeleteTrustedCA mocks base method.
+func (m *MockStore) DeleteTrustedCA(ctx context.Context, accountID, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteTrustedCA", ctx, accountID, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteTrustedCA indicates an expected call of DeleteTrustedCA.
+func (mr *MockStoreMockRecorder) DeleteTrustedCA(ctx, accountID, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteTrustedCA", reflect.TypeOf((*MockStore)(nil).DeleteTrustedCA), ctx, accountID, id)
+}

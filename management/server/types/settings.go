@@ -55,6 +55,12 @@ type Settings struct {
 	// Extra is a dictionary of Account settings
 	Extra *ExtraSettings `gorm:"embedded;embeddedPrefix:extra_"`
 
+	// DeviceAuth controls hardware-backed device certificate authentication for the account.
+	// The pointer-to-embedded pattern is intentional and consistent with Extra *ExtraSettings above:
+	// GORM v2 allocates the struct on scan when any embedded column is non-zero.
+	// The migration round-trip is verified in device_auth_migration_test.go.
+	DeviceAuth *DeviceAuthSettings `gorm:"embedded;embeddedPrefix:device_auth_"`
+
 	// LazyConnectionEnabled indicates if the experimental feature is enabled or disabled
 	LazyConnectionEnabled bool `gorm:"default:false"`
 
@@ -101,6 +107,9 @@ func (s *Settings) Copy() *Settings {
 	}
 	if s.Extra != nil {
 		settings.Extra = s.Extra.Copy()
+	}
+	if s.DeviceAuth != nil {
+		settings.DeviceAuth = s.DeviceAuth.Copy()
 	}
 	return settings
 }

@@ -295,6 +295,21 @@ type Store interface {
 	GetCustomDomainsCounts(ctx context.Context) (total int64, validated int64, err error)
 
 	GetRoutingPeerNetworks(ctx context.Context, accountID, peerID string) ([]string, error)
+
+	// Device certificate enrollment
+	SaveEnrollmentRequest(ctx context.Context, lockStrength LockingStrength, req *types.EnrollmentRequest) error
+	GetEnrollmentRequest(ctx context.Context, lockStrength LockingStrength, accountID, id string) (*types.EnrollmentRequest, error)
+	GetEnrollmentRequestByWGKey(ctx context.Context, lockStrength LockingStrength, accountID, wgPubKey string) (*types.EnrollmentRequest, error)
+	ListEnrollmentRequests(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.EnrollmentRequest, error)
+	SaveDeviceCertificate(ctx context.Context, lockStrength LockingStrength, cert *types.DeviceCertificate) error
+	GetDeviceCertificateByWGKey(ctx context.Context, lockStrength LockingStrength, accountID, wgPubKey string) (*types.DeviceCertificate, error)
+	GetDeviceCertificateByID(ctx context.Context, lockStrength LockingStrength, accountID, id string) (*types.DeviceCertificate, error)
+	ListDeviceCertificates(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.DeviceCertificate, error)
+	SaveTrustedCA(ctx context.Context, lockStrength LockingStrength, ca *types.TrustedCA) error
+	GetTrustedCAByID(ctx context.Context, lockStrength LockingStrength, accountID, id string) (*types.TrustedCA, error)
+	GetTrustedCAByCRLToken(ctx context.Context, token string) (*types.TrustedCA, error)
+	ListTrustedCAs(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.TrustedCA, error)
+	DeleteTrustedCA(ctx context.Context, accountID, id string) error
 }
 
 const (
@@ -524,7 +539,7 @@ func NewTestStoreFromSQL(ctx context.Context, filename string, dataDir string) (
 		}
 	}
 
-	store, err := NewSqlStore(ctx, db, types.SqliteStoreEngine, nil, false)
+	store, err := NewSqlStore(ctx, db, types.SqliteStoreEngine, nil, nil, false)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create test store: %v", err)
 	}

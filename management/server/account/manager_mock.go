@@ -1347,6 +1347,21 @@ func (mr *MockManagerMockRecorder) RegenerateUserInvite(ctx, accountID, initiato
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegenerateUserInvite", reflect.TypeOf((*MockManager)(nil).RegenerateUserInvite), ctx, accountID, initiatorUserID, inviteID, expiresIn)
 }
 
+// RegisterPeerForEnrollment mocks base method.
+func (m *MockManager) RegisterPeerForEnrollment(ctx context.Context, accountID, wgPubKey, hostname string) (*peer.Peer, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RegisterPeerForEnrollment", ctx, accountID, wgPubKey, hostname)
+	ret0, _ := ret[0].(*peer.Peer)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RegisterPeerForEnrollment indicates an expected call of RegisterPeerForEnrollment.
+func (mr *MockManagerMockRecorder) RegisterPeerForEnrollment(ctx, accountID, wgPubKey, hostname interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterPeerForEnrollment", reflect.TypeOf((*MockManager)(nil).RegisterPeerForEnrollment), ctx, accountID, wgPubKey, hostname)
+}
+
 // RejectUser mocks base method.
 func (m *MockManager) RejectUser(ctx context.Context, accountID, initiatorUserID, targetUserID string) error {
 	m.ctrl.T.Helper()

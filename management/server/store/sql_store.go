@@ -27,6 +27,8 @@ import (
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
 
+	"encoding/base64"
+
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
@@ -40,6 +42,7 @@ import (
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/management/server/secretenc"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
@@ -75,6 +78,8 @@ type SqlStore struct {
 	pool               *pgxpool.Pool
 	fieldEncrypt       *crypt.FieldEncrypt
 	transactionTimeout time.Duration
+	// kp encrypts/decrypts CA private keys and integration credentials at rest.
+	kp secretenc.KeyProvider
 }
 
 type installation struct {
@@ -85,7 +90,12 @@ type installation struct {
 type migrationFunc func(*gorm.DB) error
 
 // NewSqlStore creates a new SqlStore instance.
-func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, metrics telemetry.AppMetrics, skipMigration bool) (*SqlStore, error) {
+// kp controls at-rest encryption of CA private keys and integration credentials.
+// Pass nil to use a no-op provider (plaintext storage; logs a warning).
+func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, metrics telemetry.AppMetrics, kp secretenc.KeyProvider, skipMigration bool) (*SqlStore, error) {
+	if kp == nil {
+		kp = secretenc.NewNoOpKeyProvider()
+	}
 	sql, err := db.DB()
 	if err != nil {
 		return nil, err
@@ -121,7 +131,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 
 	if skipMigration {
 		log.WithContext(ctx).Infof("skipping migration")
-		return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1, transactionTimeout: transactionTimeout}, nil
+		return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1, transactionTimeout: transactionTimeout, kp: kp}, nil
 	}
 
 	if err := migratePreAuto(ctx, db); err != nil {
@@ -135,6 +145,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		&networkTypes.Network{}, &routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{}, &types.AccountOnboarding{},
 		&types.Job{}, &zones.Zone{}, &records.Record{}, &types.UserInviteRecord{}, &rpservice.Service{}, &rpservice.Target{}, &domain.Domain{},
 		&accesslogs.AccessLogEntry{}, &proxy.Proxy{},
+		&types.DeviceCertificate{}, &types.TrustedCA{}, &types.EnrollmentRequest{},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("auto migratePreAuto: %w", err)
@@ -143,7 +154,7 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 		return nil, fmt.Errorf("migratePostAuto: %w", err)
 	}
 
-	return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1, transactionTimeout: transactionTimeout}, nil
+	return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1, transactionTimeout: transactionTimeout, kp: kp}, nil
 }
 
 func GetKeyQueryCondition(s *SqlStore) string {
@@ -2690,7 +2701,14 @@ func (s *SqlStore) GetAccountSettings(ctx context.Context, lockStrength LockingS
 		}
 		return nil, status.Errorf(status.Internal, "issue getting settings from store: %s", err)
 	}
-	return accountSettings.Settings, nil
+	settings := accountSettings.Settings
+	if settings != nil {
+		if err := s.decryptDeviceAuthSecrets(settings.DeviceAuth); err != nil {
+			log.WithContext(ctx).Errorf("failed to decrypt device auth secrets: %v", err)
+			return nil, status.Errorf(status.Internal, "issue getting settings from store")
+		}
+	}
+	return settings, nil
 }
 
 func (s *SqlStore) GetAccountCreatedBy(ctx context.Context, lockStrength LockingStrength, accountID string) (string, error) {
@@ -2788,7 +2806,7 @@ func NewSqliteStore(ctx context.Context, dataDir string, metrics telemetry.AppMe
 		return nil, err
 	}
 
-	return NewSqlStore(ctx, db, types.SqliteStoreEngine, metrics, skipMigration)
+	return NewSqlStore(ctx, db, types.SqliteStoreEngine, metrics, nil, skipMigration)
 }
 
 // NewPostgresqlStore creates a new Postgres store.
@@ -2801,7 +2819,7 @@ func NewPostgresqlStore(ctx context.Context, dsn string, metrics telemetry.AppMe
 	if err != nil {
 		return nil, err
 	}
-	store, err := NewSqlStore(ctx, db, types.PostgresStoreEngine, metrics, skipMigration)
+	store, err := NewSqlStore(ctx, db, types.PostgresStoreEngine, metrics, nil, skipMigration)
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -2841,7 +2859,7 @@ func NewMysqlStore(ctx context.Context, dsn string, metrics telemetry.AppMetrics
 		return nil, err
 	}
 
-	return NewSqlStore(ctx, db, types.MysqlStoreEngine, metrics, skipMigration)
+	return NewSqlStore(ctx, db, types.MysqlStoreEngine, metrics, nil, skipMigration)
 }
 
 func getGormConfig() *gorm.Config {
@@ -2930,7 +2948,7 @@ func NewPostgresqlStoreForTests(ctx context.Context, dsn string, metrics telemet
 	if err != nil {
 		return nil, err
 	}
-	store, err := NewSqlStore(ctx, db, types.PostgresStoreEngine, metrics, skipMigration)
+	store, err := NewSqlStore(ctx, db, types.PostgresStoreEngine, metrics, nil, skipMigration)
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -4083,10 +4101,155 @@ func (s *SqlStore) SaveDNSSettings(ctx context.Context, accountID string, settin
 	return nil
 }
 
+// caSecretFields maps each CAType to the JSON field name holding a secret credential.
+var caSecretFields = map[string]string{
+	types.DeviceAuthCATypeVault:     "token",
+	types.DeviceAuthCATypeSmallstep: "provisioner_token",
+	types.DeviceAuthCATypeSCEP:     "challenge",
+}
+
+// inventorySecretFields maps each InventoryType to the JSON field name holding a secret credential.
+var inventorySecretFields = map[string]string{
+	"intune": "client_secret",
+	"jamf":   "client_secret",
+}
+
+// encryptJSONField encrypts the named field inside a raw JSON blob.
+// If the field is absent or already has the "enc:" prefix it is left unchanged.
+// Returns the modified JSON or the original if nothing changed.
+func (s *SqlStore) encryptJSONField(raw, field string) (string, error) {
+	if raw == "" || field == "" {
+		return raw, nil
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		return "", fmt.Errorf("store: unmarshal JSON config: %w", err)
+	}
+	val, ok := m[field]
+	if !ok {
+		return raw, nil
+	}
+	str, ok := val.(string)
+	if !ok || str == "" || strings.HasPrefix(str, "enc:") {
+		return raw, nil
+	}
+	ct, err := s.kp.Encrypt([]byte(str))
+	if err != nil {
+		return "", fmt.Errorf("store: encrypt field %q: %w", field, err)
+	}
+	m[field] = "enc:" + base64.StdEncoding.EncodeToString(ct)
+	b, err := json.Marshal(m)
+	if err != nil {
+		return "", fmt.Errorf("store: marshal JSON config: %w", err)
+	}
+	return string(b), nil
+}
+
+// decryptJSONField decrypts the named field inside a raw JSON blob.
+// Fields without the "enc:" prefix are treated as plaintext and left unchanged.
+func (s *SqlStore) decryptJSONField(raw, field string) (string, error) {
+	if raw == "" || field == "" {
+		return raw, nil
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		return "", fmt.Errorf("store: unmarshal JSON config: %w", err)
+	}
+	val, ok := m[field]
+	if !ok {
+		return raw, nil
+	}
+	str, ok := val.(string)
+	if !ok || !strings.HasPrefix(str, "enc:") {
+		return raw, nil
+	}
+	rawBytes, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(str, "enc:"))
+	if err != nil {
+		return "", fmt.Errorf("store: decode field %q: %w", field, err)
+	}
+	plain, err := s.kp.Decrypt(rawBytes)
+	if err != nil {
+		return "", fmt.Errorf("store: decrypt field %q: %w", field, err)
+	}
+	m[field] = string(plain)
+	b, err := json.Marshal(m)
+	if err != nil {
+		return "", fmt.Errorf("store: marshal JSON config: %w", err)
+	}
+	return string(b), nil
+}
+
+// encryptDeviceAuthSecrets returns a copy of d with secrets encrypted in CAConfig and InventoryConfig.
+// The caller's struct is never mutated.
+func (s *SqlStore) encryptDeviceAuthSecrets(d *types.DeviceAuthSettings) (*types.DeviceAuthSettings, error) {
+	if d == nil {
+		return nil, nil
+	}
+	cp := d.Copy()
+	if cp.CAConfig != "" {
+		if field, ok := caSecretFields[cp.CAType]; ok {
+			encrypted, err := s.encryptJSONField(cp.CAConfig, field)
+			if err != nil {
+				return nil, fmt.Errorf("store: encrypt CA config secret: %w", err)
+			}
+			cp.CAConfig = encrypted
+		}
+	}
+	if cp.InventoryConfig != "" {
+		if field, ok := inventorySecretFields[cp.InventoryType]; ok {
+			encrypted, err := s.encryptJSONField(cp.InventoryConfig, field)
+			if err != nil {
+				return nil, fmt.Errorf("store: encrypt inventory config secret: %w", err)
+			}
+			cp.InventoryConfig = encrypted
+		}
+	}
+	return cp, nil
+}
+
+// decryptDeviceAuthSecrets decrypts secrets inside DeviceAuthSettings in-place.
+func (s *SqlStore) decryptDeviceAuthSecrets(d *types.DeviceAuthSettings) error {
+	if d == nil {
+		return nil
+	}
+	if d.CAConfig != "" {
+		if field, ok := caSecretFields[d.CAType]; ok {
+			decrypted, err := s.decryptJSONField(d.CAConfig, field)
+			if err != nil {
+				return fmt.Errorf("store: decrypt CA config secret: %w", err)
+			}
+			d.CAConfig = decrypted
+		}
+	}
+	if d.InventoryConfig != "" {
+		if field, ok := inventorySecretFields[d.InventoryType]; ok {
+			decrypted, err := s.decryptJSONField(d.InventoryConfig, field)
+			if err != nil {
+				return fmt.Errorf("store: decrypt inventory config secret: %w", err)
+			}
+			d.InventoryConfig = decrypted
+		}
+	}
+	return nil
+}
+
 // SaveAccountSettings stores the account settings in DB.
+// DeviceAuth CA config and inventory config secrets are encrypted before storage.
 func (s *SqlStore) SaveAccountSettings(ctx context.Context, accountID string, settings *types.Settings) error {
+	toSave := settings
+	if settings.DeviceAuth != nil {
+		encDeviceAuth, err := s.encryptDeviceAuthSecrets(settings.DeviceAuth)
+		if err != nil {
+			log.WithContext(ctx).Errorf("failed to encrypt device auth secrets: %v", err)
+			return status.Errorf(status.Internal, "failed to save account settings to store")
+		}
+		// Build a shallow copy of settings with the encrypted DeviceAuth.
+		settingsCopy := *settings
+		settingsCopy.DeviceAuth = encDeviceAuth
+		toSave = &settingsCopy
+	}
 	result := s.db.Model(&types.Account{}).
-		Select("*").Where(idQueryCondition, accountID).Updates(&types.AccountSettings{Settings: settings})
+		Select("*").Where(idQueryCondition, accountID).Updates(&types.AccountSettings{Settings: toSave})
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to save account settings to store: %v", result.Error)
 		return status.Errorf(status.Internal, "failed to save account settings to store")
@@ -5694,4 +5857,242 @@ func (s *SqlStore) GetRoutingPeerNetworks(_ context.Context, accountID, peerID s
 	}
 
 	return names, nil
+}
+
+// ─── Device certificate enrollment store methods ─────────────────────────────
+
+// SaveEnrollmentRequest upserts an EnrollmentRequest record.
+func (s *SqlStore) SaveEnrollmentRequest(ctx context.Context, lockStrength LockingStrength, req *types.EnrollmentRequest) error {
+	result := s.db.Save(req)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to save enrollment request: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to save enrollment request")
+	}
+	return nil
+}
+
+// GetEnrollmentRequest retrieves an EnrollmentRequest by ID within an account.
+func (s *SqlStore) GetEnrollmentRequest(ctx context.Context, lockStrength LockingStrength, accountID, id string) (*types.EnrollmentRequest, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+	var req types.EnrollmentRequest
+	if err := tx.Take(&req, "id = ? AND account_id = ?", id, accountID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "enrollment request not found")
+		}
+		log.WithContext(ctx).Errorf("failed to get enrollment request: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get enrollment request")
+	}
+	return &req, nil
+}
+
+// GetEnrollmentRequestByWGKey retrieves the latest EnrollmentRequest for a WireGuard public key.
+func (s *SqlStore) GetEnrollmentRequestByWGKey(ctx context.Context, lockStrength LockingStrength, accountID, wgPubKey string) (*types.EnrollmentRequest, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+	var req types.EnrollmentRequest
+	if err := tx.Where("account_id = ? AND wg_public_key = ?", accountID, wgPubKey).
+		Order("created_at DESC").
+		First(&req).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "enrollment request not found")
+		}
+		log.WithContext(ctx).Errorf("failed to get enrollment request by WG key: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get enrollment request")
+	}
+	return &req, nil
+}
+
+// ListEnrollmentRequests returns all EnrollmentRequests for an account.
+func (s *SqlStore) ListEnrollmentRequests(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.EnrollmentRequest, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+	var reqs []*types.EnrollmentRequest
+	if err := tx.Where("account_id = ?", accountID).Order("created_at DESC").Find(&reqs).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to list enrollment requests: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to list enrollment requests")
+	}
+	return reqs, nil
+}
+
+// SaveDeviceCertificate upserts a DeviceCertificate record.
+func (s *SqlStore) SaveDeviceCertificate(ctx context.Context, lockStrength LockingStrength, cert *types.DeviceCertificate) error {
+	result := s.db.Save(cert)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to save device certificate: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to save device certificate")
+	}
+	return nil
+}
+
+// GetDeviceCertificateByWGKey retrieves the most recently issued DeviceCertificate
+// for the given WireGuard public key.  When a device renews its certificate, multiple
+// rows can exist for the same key; ORDER BY not_before DESC ensures the newest is returned.
+func (s *SqlStore) GetDeviceCertificateByWGKey(ctx context.Context, lockStrength LockingStrength, accountID, wgPubKey string) (*types.DeviceCertificate, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+	var cert types.DeviceCertificate
+	if err := tx.Where("account_id = ? AND wg_public_key = ?", accountID, wgPubKey).
+		Order("not_before DESC").
+		Take(&cert).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "device certificate not found")
+		}
+		log.WithContext(ctx).Errorf("failed to get device certificate: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get device certificate")
+	}
+	return &cert, nil
+}
+
+// GetDeviceCertificateByID retrieves a DeviceCertificate by ID.
+func (s *SqlStore) GetDeviceCertificateByID(ctx context.Context, lockStrength LockingStrength, accountID, id string) (*types.DeviceCertificate, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+	var cert types.DeviceCertificate
+	if err := tx.Take(&cert, "id = ? AND account_id = ?", id, accountID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "device certificate not found")
+		}
+		log.WithContext(ctx).Errorf("failed to get device certificate by ID: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get device certificate")
+	}
+	return &cert, nil
+}
+
+// ListDeviceCertificates returns all DeviceCertificates for an account.
+func (s *SqlStore) ListDeviceCertificates(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.DeviceCertificate, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+	var certs []*types.DeviceCertificate
+	if err := tx.Where("account_id = ?", accountID).Order("created_at DESC").Find(&certs).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to list device certificates: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to list device certificates")
+	}
+	return certs, nil
+}
+
+// SaveTrustedCA upserts a TrustedCA record.
+// KeyPEM is encrypted before storage using the store's KeyProvider.
+// The caller's struct is never mutated.
+func (s *SqlStore) SaveTrustedCA(ctx context.Context, lockStrength LockingStrength, ca *types.TrustedCA) error {
+	toSave := *ca
+	if toSave.KeyPEM != "" && !strings.HasPrefix(toSave.KeyPEM, "enc:") {
+		ct, err := s.kp.Encrypt([]byte(toSave.KeyPEM))
+		if err != nil {
+			return fmt.Errorf("store: encrypt CA key: %w", err)
+		}
+		toSave.KeyPEM = "enc:" + base64.StdEncoding.EncodeToString(ct)
+	}
+	result := s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&toSave)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to save trusted CA: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to save trusted CA")
+	}
+	return nil
+}
+
+// decryptTrustedCA decrypts the KeyPEM field of a TrustedCA record in-place.
+// Values without the "enc:" prefix are treated as pre-encryption plaintext and left unchanged.
+func (s *SqlStore) decryptTrustedCA(ca *types.TrustedCA) error {
+	if ca.KeyPEM == "" || !strings.HasPrefix(ca.KeyPEM, "enc:") {
+		return nil
+	}
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(ca.KeyPEM, "enc:"))
+	if err != nil {
+		return fmt.Errorf("store: decode CA key: %w", err)
+	}
+	plain, err := s.kp.Decrypt(raw)
+	if err != nil {
+		return fmt.Errorf("store: decrypt CA key: %w", err)
+	}
+	ca.KeyPEM = string(plain)
+	return nil
+}
+
+// GetTrustedCAByID retrieves a TrustedCA by ID within an account.
+// KeyPEM is decrypted before returning.
+func (s *SqlStore) GetTrustedCAByID(ctx context.Context, lockStrength LockingStrength, accountID, id string) (*types.TrustedCA, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+	var ca types.TrustedCA
+	if err := tx.Take(&ca, "id = ? AND account_id = ?", id, accountID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "trusted CA not found")
+		}
+		log.WithContext(ctx).Errorf("failed to get trusted CA: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to get trusted CA")
+	}
+	if err := s.decryptTrustedCA(&ca); err != nil {
+		log.WithContext(ctx).Errorf("failed to decrypt trusted CA key: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to decrypt trusted CA")
+	}
+	return &ca, nil
+}
+
+// GetTrustedCAByCRLToken retrieves a TrustedCA by its random CRL distribution token.
+// Returns status.NotFound if the token does not match any known CA.
+// The token is used as the path segment for GET /api/device-auth/crl/{token};
+// using a random token prevents account enumeration via the public CRL endpoint.
+func (s *SqlStore) GetTrustedCAByCRLToken(ctx context.Context, token string) (*types.TrustedCA, error) {
+	var ca types.TrustedCA
+	if err := s.db.Where("crl_token = ?", token).First(&ca).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "CA not found for CRL token")
+		}
+		log.WithContext(ctx).Errorf("failed to get trusted CA by CRL token: %s", err)
+		return nil, status.Errorf(status.Internal, "get trusted CA by CRL token: %v", err)
+	}
+	if err := s.decryptTrustedCA(&ca); err != nil {
+		log.WithContext(ctx).Errorf("failed to decrypt trusted CA key (CRL token lookup): %s", err)
+		return nil, status.Errorf(status.Internal, "failed to decrypt trusted CA")
+	}
+	return &ca, nil
+}
+
+// ListTrustedCAs returns all TrustedCA records for an account.
+// KeyPEM is decrypted on each record before returning.
+func (s *SqlStore) ListTrustedCAs(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.TrustedCA, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+	var cas []*types.TrustedCA
+	if err := tx.Where("account_id = ?", accountID).Find(&cas).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to list trusted CAs: %s", err)
+		return nil, status.Errorf(status.Internal, "failed to list trusted CAs")
+	}
+	for _, ca := range cas {
+		if err := s.decryptTrustedCA(ca); err != nil {
+			log.WithContext(ctx).Errorf("failed to decrypt trusted CA key: %s", err)
+			return nil, status.Errorf(status.Internal, "failed to decrypt trusted CA")
+		}
+	}
+	return cas, nil
+}
+
+// DeleteTrustedCA removes a TrustedCA record.
+func (s *SqlStore) DeleteTrustedCA(ctx context.Context, accountID, id string) error {
+	result := s.db.Delete(&types.TrustedCA{}, "id = ? AND account_id = ?", id, accountID)
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to delete trusted CA: %s", result.Error)
+		return status.Errorf(status.Internal, "failed to delete trusted CA")
+	}
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "trusted CA not found")
+	}
+	return nil
 }

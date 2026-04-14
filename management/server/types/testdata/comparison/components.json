@@ -1,0 +1,7224 @@
+{
+  "PeerID": "peer-60",
+  "Network": {
+    "id": "net-comparison-test",
+    "Net": {
+      "IP": "100.64.0.0",
+      "Mask": "//8AAA=="
+    },
+    "Dns": "",
+    "Serial": 1
+  },
+  "AccountSettings": {
+    "PeerLoginExpirationEnabled": true,
+    "PeerLoginExpiration": 3600000000000,
+    "PeerInactivityExpirationEnabled": false,
+    "PeerInactivityExpiration": 0
+  },
+  "DNSSettings": {
+    "DisabledManagementGroups": [
+      "group-ops"
+    ]
+  },
+  "CustomZoneDomain": "",
+  "Peers": {
+    "peer-0": {
+      "ID": "peer-0",
+      "Key": "key-peer-0",
+      "IP": "100.64.0.1",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer1",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449158+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-1": {
+      "ID": "peer-1",
+      "Key": "key-peer-1",
+      "IP": "100.64.0.2",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer2",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449159+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-10": {
+      "ID": "peer-10",
+      "Key": "key-peer-10",
+      "IP": "100.64.0.11",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer11",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449164+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-11": {
+      "ID": "peer-11",
+      "Key": "key-peer-11",
+      "IP": "100.64.0.12",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer12",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449164+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-12": {
+      "ID": "peer-12",
+      "Key": "key-peer-12",
+      "IP": "100.64.0.13",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer13",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449165+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-13": {
+      "ID": "peer-13",
+      "Key": "key-peer-13",
+      "IP": "100.64.0.14",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer14",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449165+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-14": {
+      "ID": "peer-14",
+      "Key": "key-peer-14",
+      "IP": "100.64.0.15",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer15",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449165+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-15": {
+      "ID": "peer-15",
+      "Key": "key-peer-15",
+      "IP": "100.64.0.16",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer16",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449166+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-16": {
+      "ID": "peer-16",
+      "Key": "key-peer-16",
+      "IP": "100.64.0.17",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer17",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449166+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-17": {
+      "ID": "peer-17",
+      "Key": "key-peer-17",
+      "IP": "100.64.0.18",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer18",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449166+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-18": {
+      "ID": "peer-18",
+      "Key": "key-peer-18",
+      "IP": "100.64.0.19",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer19",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449167+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-19": {
+      "ID": "peer-19",
+      "Key": "key-peer-19",
+      "IP": "100.64.0.20",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer20",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449168+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-2": {
+      "ID": "peer-2",
+      "Key": "key-peer-2",
+      "IP": "100.64.0.3",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer3",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.44916+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-20": {
+      "ID": "peer-20",
+      "Key": "key-peer-20",
+      "IP": "100.64.0.21",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer21",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449169+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-21": {
+      "ID": "peer-21",
+      "Key": "key-peer-21",
+      "IP": "100.64.0.22",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer22",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449169+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-22": {
+      "ID": "peer-22",
+      "Key": "key-peer-22",
+      "IP": "100.64.0.23",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer23",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449169+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-23": {
+      "ID": "peer-23",
+      "Key": "key-peer-23",
+      "IP": "100.64.0.24",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer24",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449169+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-24": {
+      "ID": "peer-24",
+      "Key": "key-peer-24",
+      "IP": "100.64.0.25",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer25",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.44917+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-25": {
+      "ID": "peer-25",
+      "Key": "key-peer-25",
+      "IP": "100.64.0.26",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer26",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.44917+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-26": {
+      "ID": "peer-26",
+      "Key": "key-peer-26",
+      "IP": "100.64.0.27",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer27",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.44917+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-27": {
+      "ID": "peer-27",
+      "Key": "key-peer-27",
+      "IP": "100.64.0.28",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer28",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.44917+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-28": {
+      "ID": "peer-28",
+      "Key": "key-peer-28",
+      "IP": "100.64.0.29",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer29",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449171+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-29": {
+      "ID": "peer-29",
+      "Key": "key-peer-29",
+      "IP": "100.64.0.30",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer30",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449172+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-3": {
+      "ID": "peer-3",
+      "Key": "key-peer-3",
+      "IP": "100.64.0.4",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer4",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449161+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-30": {
+      "ID": "peer-30",
+      "Key": "key-peer-30",
+      "IP": "100.64.0.31",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer31",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449172+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-31": {
+      "ID": "peer-31",
+      "Key": "key-peer-31",
+      "IP": "100.64.0.32",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer32",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449172+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-32": {
+      "ID": "peer-32",
+      "Key": "key-peer-32",
+      "IP": "100.64.0.33",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer33",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449173+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-33": {
+      "ID": "peer-33",
+      "Key": "key-peer-33",
+      "IP": "100.64.0.34",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer34",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449173+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-34": {
+      "ID": "peer-34",
+      "Key": "key-peer-34",
+      "IP": "100.64.0.35",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer35",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449174+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-35": {
+      "ID": "peer-35",
+      "Key": "key-peer-35",
+      "IP": "100.64.0.36",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer36",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449174+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-36": {
+      "ID": "peer-36",
+      "Key": "key-peer-36",
+      "IP": "100.64.0.37",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer37",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449174+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-37": {
+      "ID": "peer-37",
+      "Key": "key-peer-37",
+      "IP": "100.64.0.38",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer38",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449174+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-38": {
+      "ID": "peer-38",
+      "Key": "key-peer-38",
+      "IP": "100.64.0.39",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer39",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449175+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-39": {
+      "ID": "peer-39",
+      "Key": "key-peer-39",
+      "IP": "100.64.0.40",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer40",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449175+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-4": {
+      "ID": "peer-4",
+      "Key": "key-peer-4",
+      "IP": "100.64.0.5",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer5",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449161+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-40": {
+      "ID": "peer-40",
+      "Key": "key-peer-40",
+      "IP": "100.64.0.41",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer41",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449175+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-41": {
+      "ID": "peer-41",
+      "Key": "key-peer-41",
+      "IP": "100.64.0.42",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer42",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449176+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-42": {
+      "ID": "peer-42",
+      "Key": "key-peer-42",
+      "IP": "100.64.0.43",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer43",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449176+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-43": {
+      "ID": "peer-43",
+      "Key": "key-peer-43",
+      "IP": "100.64.0.44",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer44",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449177+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-44": {
+      "ID": "peer-44",
+      "Key": "key-peer-44",
+      "IP": "100.64.0.45",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer45",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449177+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-45": {
+      "ID": "peer-45",
+      "Key": "key-peer-45",
+      "IP": "100.64.0.46",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer46",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449177+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-46": {
+      "ID": "peer-46",
+      "Key": "key-peer-46",
+      "IP": "100.64.0.47",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer47",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449178+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-47": {
+      "ID": "peer-47",
+      "Key": "key-peer-47",
+      "IP": "100.64.0.48",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer48",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449178+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-48": {
+      "ID": "peer-48",
+      "Key": "key-peer-48",
+      "IP": "100.64.0.49",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer49",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449178+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-49": {
+      "ID": "peer-49",
+      "Key": "key-peer-49",
+      "IP": "100.64.0.50",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer50",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449178+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-5": {
+      "ID": "peer-5",
+      "Key": "key-peer-5",
+      "IP": "100.64.0.6",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer6",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449161+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-50": {
+      "ID": "peer-50",
+      "Key": "key-peer-50",
+      "IP": "100.64.0.51",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer51",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449179+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-51": {
+      "ID": "peer-51",
+      "Key": "key-peer-51",
+      "IP": "100.64.0.52",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer52",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449179+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-52": {
+      "ID": "peer-52",
+      "Key": "key-peer-52",
+      "IP": "100.64.0.53",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer53",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449179+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-53": {
+      "ID": "peer-53",
+      "Key": "key-peer-53",
+      "IP": "100.64.0.54",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer54",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.44918+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-54": {
+      "ID": "peer-54",
+      "Key": "key-peer-54",
+      "IP": "100.64.0.55",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer55",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.44918+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-55": {
+      "ID": "peer-55",
+      "Key": "key-peer-55",
+      "IP": "100.64.0.56",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer56",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.44918+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-56": {
+      "ID": "peer-56",
+      "Key": "key-peer-56",
+      "IP": "100.64.0.57",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer57",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449181+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-57": {
+      "ID": "peer-57",
+      "Key": "key-peer-57",
+      "IP": "100.64.0.58",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer58",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449185+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-58": {
+      "ID": "peer-58",
+      "Key": "key-peer-58",
+      "IP": "100.64.0.59",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer59",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449186+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-59": {
+      "ID": "peer-59",
+      "Key": "key-peer-59",
+      "IP": "100.64.0.60",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer60",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449186+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-6": {
+      "ID": "peer-6",
+      "Key": "key-peer-6",
+      "IP": "100.64.0.7",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer7",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449162+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-60": {
+      "ID": "peer-60",
+      "Key": "key-peer-60",
+      "IP": "100.64.0.61",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer61",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449186+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-61": {
+      "ID": "peer-61",
+      "Key": "key-peer-61",
+      "IP": "100.64.0.62",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer62",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449186+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-62": {
+      "ID": "peer-62",
+      "Key": "key-peer-62",
+      "IP": "100.64.0.63",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer63",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449187+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-63": {
+      "ID": "peer-63",
+      "Key": "key-peer-63",
+      "IP": "100.64.0.64",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer64",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449187+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-64": {
+      "ID": "peer-64",
+      "Key": "key-peer-64",
+      "IP": "100.64.0.65",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer65",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449187+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-65": {
+      "ID": "peer-65",
+      "Key": "key-peer-65",
+      "IP": "100.64.0.66",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer66",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449187+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-66": {
+      "ID": "peer-66",
+      "Key": "key-peer-66",
+      "IP": "100.64.0.67",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer67",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449188+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-67": {
+      "ID": "peer-67",
+      "Key": "key-peer-67",
+      "IP": "100.64.0.68",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer68",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449189+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-68": {
+      "ID": "peer-68",
+      "Key": "key-peer-68",
+      "IP": "100.64.0.69",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer69",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449189+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-69": {
+      "ID": "peer-69",
+      "Key": "key-peer-69",
+      "IP": "100.64.0.70",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer70",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.44919+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-7": {
+      "ID": "peer-7",
+      "Key": "key-peer-7",
+      "IP": "100.64.0.8",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer8",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449163+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-70": {
+      "ID": "peer-70",
+      "Key": "key-peer-70",
+      "IP": "100.64.0.71",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer71",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.44919+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-71": {
+      "ID": "peer-71",
+      "Key": "key-peer-71",
+      "IP": "100.64.0.72",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer72",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.44919+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-72": {
+      "ID": "peer-72",
+      "Key": "key-peer-72",
+      "IP": "100.64.0.73",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer73",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449191+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-73": {
+      "ID": "peer-73",
+      "Key": "key-peer-73",
+      "IP": "100.64.0.74",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer74",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449191+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-74": {
+      "ID": "peer-74",
+      "Key": "key-peer-74",
+      "IP": "100.64.0.75",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer75",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449191+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-75": {
+      "ID": "peer-75",
+      "Key": "key-peer-75",
+      "IP": "100.64.0.76",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer76",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449191+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-76": {
+      "ID": "peer-76",
+      "Key": "key-peer-76",
+      "IP": "100.64.0.77",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer77",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449191+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-77": {
+      "ID": "peer-77",
+      "Key": "key-peer-77",
+      "IP": "100.64.0.78",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer78",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449192+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-78": {
+      "ID": "peer-78",
+      "Key": "key-peer-78",
+      "IP": "100.64.0.79",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer79",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449192+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-79": {
+      "ID": "peer-79",
+      "Key": "key-peer-79",
+      "IP": "100.64.0.80",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer80",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449192+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-8": {
+      "ID": "peer-8",
+      "Key": "key-peer-8",
+      "IP": "100.64.0.9",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer9",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449163+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-80": {
+      "ID": "peer-80",
+      "Key": "key-peer-80",
+      "IP": "100.64.0.81",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer81",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449193+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-81": {
+      "ID": "peer-81",
+      "Key": "key-peer-81",
+      "IP": "100.64.0.82",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer82",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449193+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-82": {
+      "ID": "peer-82",
+      "Key": "key-peer-82",
+      "IP": "100.64.0.83",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer83",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449193+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-83": {
+      "ID": "peer-83",
+      "Key": "key-peer-83",
+      "IP": "100.64.0.84",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer84",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449193+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-84": {
+      "ID": "peer-84",
+      "Key": "key-peer-84",
+      "IP": "100.64.0.85",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer85",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449194+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-85": {
+      "ID": "peer-85",
+      "Key": "key-peer-85",
+      "IP": "100.64.0.86",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer86",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449194+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-86": {
+      "ID": "peer-86",
+      "Key": "key-peer-86",
+      "IP": "100.64.0.87",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer87",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449194+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-87": {
+      "ID": "peer-87",
+      "Key": "key-peer-87",
+      "IP": "100.64.0.88",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer88",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449194+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-88": {
+      "ID": "peer-88",
+      "Key": "key-peer-88",
+      "IP": "100.64.0.89",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer89",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449195+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-89": {
+      "ID": "peer-89",
+      "Key": "key-peer-89",
+      "IP": "100.64.0.90",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer90",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449195+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-9": {
+      "ID": "peer-9",
+      "Key": "key-peer-9",
+      "IP": "100.64.0.10",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer10",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449164+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-90": {
+      "ID": "peer-90",
+      "Key": "key-peer-90",
+      "IP": "100.64.0.91",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer91",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449195+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-91": {
+      "ID": "peer-91",
+      "Key": "key-peer-91",
+      "IP": "100.64.0.92",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer92",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449196+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-92": {
+      "ID": "peer-92",
+      "Key": "key-peer-92",
+      "IP": "100.64.0.93",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer93",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449197+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-93": {
+      "ID": "peer-93",
+      "Key": "key-peer-93",
+      "IP": "100.64.0.94",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer94",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449197+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-94": {
+      "ID": "peer-94",
+      "Key": "key-peer-94",
+      "IP": "100.64.0.95",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer95",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449197+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-95": {
+      "ID": "peer-95",
+      "Key": "key-peer-95",
+      "IP": "100.64.0.96",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer96",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449197+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-96": {
+      "ID": "peer-96",
+      "Key": "key-peer-96",
+      "IP": "100.64.0.97",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer97",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449198+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-97": {
+      "ID": "peer-97",
+      "Key": "key-peer-97",
+      "IP": "100.64.0.98",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer98",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449198+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    },
+    "peer-98": {
+      "ID": "peer-98",
+      "Key": "key-peer-98",
+      "IP": "100.64.0.99",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.40.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer99",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449198+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": true,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": "2026-04-10T09:19:03.449198+03:00",
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    }
+  },
+  "Groups": {
+    "group-all": {
+      "ID": "group-all",
+      "Name": "All",
+      "Issued": "",
+      "Peers": [
+        "peer-0",
+        "peer-1",
+        "peer-2",
+        "peer-3",
+        "peer-4",
+        "peer-5",
+        "peer-6",
+        "peer-7",
+        "peer-8",
+        "peer-9",
+        "peer-10",
+        "peer-11",
+        "peer-12",
+        "peer-13",
+        "peer-14",
+        "peer-15",
+        "peer-16",
+        "peer-17",
+        "peer-18",
+        "peer-19",
+        "peer-20",
+        "peer-21",
+        "peer-22",
+        "peer-23",
+        "peer-24",
+        "peer-25",
+        "peer-26",
+        "peer-27",
+        "peer-28",
+        "peer-29",
+        "peer-30",
+        "peer-31",
+        "peer-32",
+        "peer-33",
+        "peer-34",
+        "peer-35",
+        "peer-36",
+        "peer-37",
+        "peer-38",
+        "peer-39",
+        "peer-40",
+        "peer-41",
+        "peer-42",
+        "peer-43",
+        "peer-44",
+        "peer-45",
+        "peer-46",
+        "peer-47",
+        "peer-48",
+        "peer-49",
+        "peer-50",
+        "peer-51",
+        "peer-52",
+        "peer-53",
+        "peer-54",
+        "peer-55",
+        "peer-56",
+        "peer-57",
+        "peer-58",
+        "peer-59",
+        "peer-60",
+        "peer-61",
+        "peer-62",
+        "peer-63",
+        "peer-64",
+        "peer-65",
+        "peer-66",
+        "peer-67",
+        "peer-68",
+        "peer-69",
+        "peer-70",
+        "peer-71",
+        "peer-72",
+        "peer-73",
+        "peer-74",
+        "peer-75",
+        "peer-76",
+        "peer-77",
+        "peer-78",
+        "peer-79",
+        "peer-80",
+        "peer-81",
+        "peer-82",
+        "peer-83",
+        "peer-84",
+        "peer-85",
+        "peer-86",
+        "peer-87",
+        "peer-88",
+        "peer-89",
+        "peer-90",
+        "peer-91",
+        "peer-92",
+        "peer-93",
+        "peer-94",
+        "peer-95",
+        "peer-96",
+        "peer-97",
+        "peer-98"
+      ],
+      "GroupPeers": [],
+      "Resources": [],
+      "IntegrationReference": {
+        "ID": 0,
+        "IntegrationType": ""
+      }
+    },
+    "group-dev": {
+      "ID": "group-dev",
+      "Name": "Developers",
+      "Issued": "",
+      "Peers": [
+        "peer-0",
+        "peer-1",
+        "peer-2",
+        "peer-3",
+        "peer-4",
+        "peer-5",
+        "peer-6",
+        "peer-7",
+        "peer-8",
+        "peer-9",
+        "peer-10",
+        "peer-11",
+        "peer-12",
+        "peer-13",
+        "peer-14",
+        "peer-15",
+        "peer-16",
+        "peer-17",
+        "peer-18",
+        "peer-19",
+        "peer-20",
+        "peer-21",
+        "peer-22",
+        "peer-23",
+        "peer-24",
+        "peer-25",
+        "peer-26",
+        "peer-27",
+        "peer-28",
+        "peer-29",
+        "peer-30",
+        "peer-31",
+        "peer-32",
+        "peer-33",
+        "peer-34",
+        "peer-35",
+        "peer-36",
+        "peer-37",
+        "peer-38",
+        "peer-39",
+        "peer-40",
+        "peer-41",
+        "peer-42",
+        "peer-43",
+        "peer-44",
+        "peer-45",
+        "peer-46",
+        "peer-47",
+        "peer-48",
+        "peer-49"
+      ],
+      "GroupPeers": null,
+      "Resources": null,
+      "IntegrationReference": {
+        "ID": 0,
+        "IntegrationType": ""
+      }
+    },
+    "group-ops": {
+      "ID": "group-ops",
+      "Name": "Operations",
+      "Issued": "",
+      "Peers": [
+        "peer-50",
+        "peer-51",
+        "peer-52",
+        "peer-53",
+        "peer-54",
+        "peer-55",
+        "peer-56",
+        "peer-57",
+        "peer-58",
+        "peer-59",
+        "peer-60",
+        "peer-61",
+        "peer-62",
+        "peer-63",
+        "peer-64",
+        "peer-65",
+        "peer-66",
+        "peer-67",
+        "peer-68",
+        "peer-69",
+        "peer-70",
+        "peer-71",
+        "peer-72",
+        "peer-73",
+        "peer-74",
+        "peer-75",
+        "peer-76",
+        "peer-77",
+        "peer-78",
+        "peer-79",
+        "peer-80",
+        "peer-81",
+        "peer-82",
+        "peer-83",
+        "peer-84",
+        "peer-85",
+        "peer-86",
+        "peer-87",
+        "peer-88",
+        "peer-89",
+        "peer-90",
+        "peer-91",
+        "peer-92",
+        "peer-93",
+        "peer-94",
+        "peer-95",
+        "peer-96",
+        "peer-97",
+        "peer-98"
+      ],
+      "GroupPeers": [],
+      "Resources": [],
+      "IntegrationReference": {
+        "ID": 0,
+        "IntegrationType": ""
+      }
+    }
+  },
+  "Policies": [
+    {
+      "ID": "policy-all",
+      "Name": "Default-Allow",
+      "Description": "",
+      "Enabled": true,
+      "Rules": [
+        {
+          "ID": "policy-all",
+          "Name": "Allow All",
+          "Description": "",
+          "Enabled": true,
+          "Action": "accept",
+          "Destinations": [
+            "group-all"
+          ],
+          "DestinationResource": {
+            "ID": "",
+            "Type": ""
+          },
+          "Sources": [
+            "group-all"
+          ],
+          "SourceResource": {
+            "ID": "",
+            "Type": ""
+          },
+          "Bidirectional": true,
+          "Protocol": "all",
+          "Ports": null,
+          "PortRanges": null,
+          "AuthorizedGroups": null,
+          "AuthorizedUser": ""
+        }
+      ],
+      "SourcePostureChecks": null
+    },
+    {
+      "ID": "policy-dev-ops",
+      "Name": "Dev to Ops Web Access",
+      "Description": "",
+      "Enabled": true,
+      "Rules": [
+        {
+          "ID": "policy-dev-ops",
+          "Name": "Dev -\u003e Ops (HTTP Range)",
+          "Description": "",
+          "Enabled": true,
+          "Action": "accept",
+          "Destinations": [
+            "group-ops"
+          ],
+          "DestinationResource": {
+            "ID": "",
+            "Type": ""
+          },
+          "Sources": [
+            "group-dev"
+          ],
+          "SourceResource": {
+            "ID": "",
+            "Type": ""
+          },
+          "Bidirectional": false,
+          "Protocol": "tcp",
+          "Ports": null,
+          "PortRanges": [
+            {
+              "Start": 8080,
+              "End": 8090
+            }
+          ],
+          "AuthorizedGroups": null,
+          "AuthorizedUser": ""
+        }
+      ],
+      "SourcePostureChecks": null
+    },
+    {
+      "ID": "policy-drop",
+      "Name": "Drop DB traffic",
+      "Description": "",
+      "Enabled": true,
+      "Rules": [
+        {
+          "ID": "policy-drop",
+          "Name": "Drop DB",
+          "Description": "",
+          "Enabled": true,
+          "Action": "drop",
+          "Destinations": [
+            "group-ops"
+          ],
+          "DestinationResource": {
+            "ID": "",
+            "Type": ""
+          },
+          "Sources": [
+            "group-dev"
+          ],
+          "SourceResource": {
+            "ID": "",
+            "Type": ""
+          },
+          "Bidirectional": true,
+          "Protocol": "tcp",
+          "Ports": [
+            "5432"
+          ],
+          "PortRanges": null,
+          "AuthorizedGroups": null,
+          "AuthorizedUser": ""
+        }
+      ],
+      "SourcePostureChecks": null
+    },
+    {
+      "ID": "policy-posture",
+      "Name": "Posture Check for DB Resource",
+      "Description": "",
+      "Enabled": true,
+      "Rules": [
+        {
+          "ID": "policy-posture",
+          "Name": "Allow DB Access",
+          "Description": "",
+          "Enabled": true,
+          "Action": "accept",
+          "Destinations": null,
+          "DestinationResource": {
+            "ID": "res-database",
+            "Type": ""
+          },
+          "Sources": [
+            "group-ops"
+          ],
+          "SourceResource": {
+            "ID": "",
+            "Type": ""
+          },
+          "Bidirectional": true,
+          "Protocol": "all",
+          "Ports": null,
+          "PortRanges": null,
+          "AuthorizedGroups": null,
+          "AuthorizedUser": ""
+        }
+      ],
+      "SourcePostureChecks": [
+        "posture-check-ver"
+      ]
+    }
+  ],
+  "Routes": [
+    {
+      "ID": "route-ha-1",
+      "AccountID": "account-comparison-test",
+      "Network": "10.10.0.0/16",
+      "Domains": null,
+      "KeepRoute": false,
+      "NetID": "",
+      "Description": "HA Route 1",
+      "Peer": "key-peer-80",
+      "PeerID": "peer-80",
+      "PeerGroups": [
+        "group-all"
+      ],
+      "NetworkType": 0,
+      "Masquerade": false,
+      "Metric": 1000,
+      "Enabled": true,
+      "Groups": [
+        "group-all"
+      ],
+      "AccessControlGroups": [
+        "group-all"
+      ],
+      "SkipAutoApply": false
+    },
+    {
+      "ID": "route-ha-2",
+      "AccountID": "account-comparison-test",
+      "Network": "10.10.0.0/16",
+      "Domains": null,
+      "KeepRoute": false,
+      "NetID": "",
+      "Description": "HA Route 2",
+      "Peer": "key-peer-90",
+      "PeerID": "peer-90",
+      "PeerGroups": [
+        "group-dev",
+        "group-ops"
+      ],
+      "NetworkType": 0,
+      "Masquerade": false,
+      "Metric": 900,
+      "Enabled": true,
+      "Groups": [
+        "group-dev",
+        "group-ops"
+      ],
+      "AccessControlGroups": [
+        "group-all"
+      ],
+      "SkipAutoApply": false
+    },
+    {
+      "ID": "route-main",
+      "AccountID": "account-comparison-test",
+      "Network": "192.168.10.0/24",
+      "Domains": null,
+      "KeepRoute": false,
+      "NetID": "",
+      "Description": "Route to internal resource",
+      "Peer": "key-peer-75",
+      "PeerID": "peer-75",
+      "PeerGroups": [
+        "group-dev",
+        "group-ops"
+      ],
+      "NetworkType": 0,
+      "Masquerade": false,
+      "Metric": 0,
+      "Enabled": true,
+      "Groups": [
+        "group-dev",
+        "group-ops"
+      ],
+      "AccessControlGroups": [
+        "group-dev"
+      ],
+      "SkipAutoApply": false
+    }
+  ],
+  "NameServerGroups": [
+    {
+      "ID": "ns-group-main",
+      "AccountID": "",
+      "Name": "Main NS",
+      "Description": "",
+      "NameServers": [
+        {
+          "IP": "8.8.8.8",
+          "NSType": 1,
+          "Port": 53
+        }
+      ],
+      "Groups": [
+        "group-dev"
+      ],
+      "Primary": false,
+      "Domains": null,
+      "Enabled": true,
+      "SearchDomainsEnabled": false
+    }
+  ],
+  "AllDNSRecords": null,
+  "AccountZones": null,
+  "ResourcePoliciesMap": {
+    "res-database": [
+      {
+        "ID": "policy-posture",
+        "Name": "Posture Check for DB Resource",
+        "Description": "",
+        "Enabled": true,
+        "Rules": [
+          {
+            "ID": "policy-posture",
+            "Name": "Allow DB Access",
+            "Description": "",
+            "Enabled": true,
+            "Action": "accept",
+            "Destinations": null,
+            "DestinationResource": {
+              "ID": "res-database",
+              "Type": ""
+            },
+            "Sources": [
+              "group-ops"
+            ],
+            "SourceResource": {
+              "ID": "",
+              "Type": ""
+            },
+            "Bidirectional": true,
+            "Protocol": "all",
+            "Ports": null,
+            "PortRanges": null,
+            "AuthorizedGroups": null,
+            "AuthorizedUser": ""
+          }
+        ],
+        "SourcePostureChecks": [
+          "posture-check-ver"
+        ]
+      }
+    ]
+  },
+  "RoutersMap": {
+    "net-database": {
+      "peer-95": {
+        "ID": "router-database",
+        "NetworkID": "net-database",
+        "AccountID": "account-comparison-test",
+        "Peer": "peer-95",
+        "PeerGroups": null,
+        "Masquerade": false,
+        "Metric": 0,
+        "Enabled": true
+      }
+    }
+  },
+  "NetworkResources": [
+    {
+      "ID": "res-database",
+      "NetworkID": "net-database",
+      "AccountID": "account-comparison-test",
+      "Name": "",
+      "Description": "",
+      "Type": "",
+      "Address": "db.netbird.cloud",
+      "GroupIDs": null,
+      "Domain": "",
+      "Prefix": "",
+      "Enabled": true
+    }
+  ],
+  "GroupIDToUserIDs": null,
+  "AllowedUserIDs": null,
+  "PostureFailedPeers": {
+    "posture-check-ver": {
+      "peer-51": {},
+      "peer-53": {},
+      "peer-55": {},
+      "peer-57": {},
+      "peer-59": {},
+      "peer-61": {},
+      "peer-63": {},
+      "peer-65": {},
+      "peer-67": {},
+      "peer-69": {},
+      "peer-71": {},
+      "peer-73": {},
+      "peer-75": {},
+      "peer-77": {},
+      "peer-79": {},
+      "peer-81": {},
+      "peer-83": {},
+      "peer-85": {},
+      "peer-87": {},
+      "peer-89": {},
+      "peer-91": {},
+      "peer-93": {},
+      "peer-95": {},
+      "peer-97": {}
+    }
+  },
+  "RouterPeers": {
+    "peer-95": {
+      "ID": "peer-95",
+      "Key": "key-peer-95",
+      "IP": "100.64.0.96",
+      "Meta": {
+        "Hostname": "",
+        "GoOS": "linux",
+        "Kernel": "",
+        "Core": "",
+        "Platform": "",
+        "OS": "",
+        "OSVersion": "",
+        "WtVersion": "0.25.0",
+        "UIVersion": "",
+        "KernelVersion": "",
+        "NetworkAddresses": null,
+        "SystemSerialNumber": "",
+        "SystemProductName": "",
+        "SystemManufacturer": "",
+        "Environment": {
+          "Cloud": "",
+          "Platform": ""
+        },
+        "Flags": {
+          "RosenpassEnabled": false,
+          "RosenpassPermissive": false,
+          "ServerSSHAllowed": false,
+          "DisableClientRoutes": false,
+          "DisableServerRoutes": false,
+          "DisableDNS": false,
+          "DisableFirewall": false,
+          "BlockLANAccess": false,
+          "BlockInbound": false,
+          "LazyConnectionEnabled": false
+        },
+        "Files": null
+      },
+      "ProxyMeta": {
+        "Embedded": false,
+        "Cluster": ""
+      },
+      "Name": "",
+      "DNSLabel": "peer96",
+      "Status": {
+        "LastSeen": "2026-04-10T11:19:03.449197+03:00",
+        "Connected": true,
+        "LoginExpired": false,
+        "RequiresApproval": false
+      },
+      "UserID": "user-admin",
+      "SSHKey": "",
+      "SSHEnabled": false,
+      "LoginExpirationEnabled": false,
+      "InactivityExpirationEnabled": false,
+      "LastLogin": null,
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "Ephemeral": false,
+      "Location": {
+        "ConnectionIP": "",
+        "CountryCode": "",
+        "CityName": "",
+        "GeoNameID": 0
+      },
+      "ExtraDNSLabels": null,
+      "AllowExtraDNSLabels": false
+    }
+  }
+}
