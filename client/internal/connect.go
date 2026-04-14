@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
@@ -22,12 +23,14 @@ import (
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/internal/dns"
+	"github.com/netbirdio/netbird/client/internal/enrollment"
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/metrics"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
+	"github.com/netbirdio/netbird/client/internal/tpm"
 	"github.com/netbirdio/netbird/client/internal/updater"
 	"github.com/netbirdio/netbird/client/internal/updater/installer"
 	nbnet "github.com/netbirdio/netbird/client/net"
@@ -257,6 +260,50 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}
 		mgmNotifier := statusRecorderToMgmConnStateNotifier(c.statusRecorder)
 		mgmClient.SetConnStateListener(mgmNotifier)
+
+		// Device certificate enrollment — runs idempotently on each connection attempt.
+		// Skipped on platforms without TPM/Secure Enclave support (iOS, Android, WASM, etc.)
+		// to avoid noisy "not supported" log warnings on every reconnect.
+		stateDir := profilemanager.DefaultConfigPathDir
+		tpmProv := tpm.NewPlatformProvider(stateDir)
+		if tpmProv.Available() {
+			enrollMgr := enrollment.NewManager(tpmProv, mgmClient, stateDir, myPrivateKey.PublicKey().String())
+
+			enrollCtx, enrollCancel := context.WithTimeout(engineCtx, 30*time.Second)
+			defer enrollCancel()
+			if _, certErr := enrollMgr.EnsureCertificate(enrollCtx); certErr != nil {
+				log.Warnf("device cert enrollment: %v — continuing without certificate", certErr)
+			} else if tlsCert, buildErr := enrollMgr.BuildTLSCertificate(engineCtx); buildErr != nil && !errors.Is(buildErr, enrollment.ErrNotEnrolled) {
+				log.Warnf("device cert: build TLS cert: %v — continuing without", buildErr)
+			} else if tlsCert != nil && mgmTlsEnabled {
+				// Reconnect with the device certificate as mTLS client cert.
+				certMgmClient, dialErr := mgm.NewClientWithCert(engineCtx, c.config.ManagementURL.Host, myPrivateKey, tlsCert)
+				if dialErr != nil {
+					log.Warnf("device cert: mTLS reconnect failed: %v — continuing without certificate", dialErr)
+				} else {
+					// Swap plain → cert client. The existing defer mgmClient.Close() will
+					// now close certMgmClient (Go closures capture the variable, not the value).
+					if closeErr := mgmClient.Close(); closeErr != nil {
+						log.Warnf("close plain mgm client before cert upgrade: %v", closeErr)
+					}
+					mgmClient = certMgmClient
+					mgmClient.SetConnStateListener(mgmNotifier)
+					cn := "<unknown>"
+					if tlsCert.Leaf != nil {
+						cn = tlsCert.Leaf.Subject.CommonName
+					}
+					log.Infof("device cert: management connection upgraded to mTLS (cert CN=%s)", cn)
+
+					// Start the certificate renewal loop. When the cert is approaching expiry
+					// and a fresh one is issued, cancel the engine context so the connection
+					// restarts with the new certificate.
+					enrollMgr.StartRenewalLoop(engineCtx, func(_ *x509.Certificate) {
+						log.Info("device cert: certificate renewed — reconnecting to apply new cert")
+						cancel()
+					})
+				}
+			}
+		}
 
 		// Update metrics with actual deployment type after connection
 		deploymentType := metrics.DetermineDeploymentType(mgmClient.GetServerURL())

@@ -2,6 +2,8 @@ package client
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +13,8 @@ import (
 	"time"
 
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 	gstatus "google.golang.org/grpc/status"
 
 	"github.com/cenkalti/backoff/v4"
@@ -95,6 +99,18 @@ func MaxRecvMsgSize() int {
 	return size
 }
 
+// NewClientFromConn creates a new client to Management service from an existing gRPC connection.
+// Useful for tests or demo tools that need custom TLS configuration (e.g. InsecureSkipVerify).
+func NewClientFromConn(ctx context.Context, conn *grpc.ClientConn, ourPrivateKey wgtypes.Key) *GrpcClient {
+	return &GrpcClient{
+		key:                   ourPrivateKey,
+		realClient:            proto.NewManagementServiceClient(conn),
+		ctx:                   ctx,
+		conn:                  conn,
+		connStateCallbackLock: sync.RWMutex{},
+	}
+}
+
 // NewClient creates a new client to Management service
 func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsEnabled bool) (*GrpcClient, error) {
 	var conn *grpc.ClientConn
@@ -130,6 +146,36 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 		connStateCallbackLock: sync.RWMutex{},
 		serverURL:             addr,
 	}, nil
+}
+
+// NewClientWithCert dials the management server using TLS with the given device
+// certificate as a client certificate (mTLS). The system cert pool is used to
+// verify the server certificate.
+func NewClientWithCert(ctx context.Context, addr string, key wgtypes.Key, cert *tls.Certificate) (*GrpcClient, error) {
+	certPool, err := x509.SystemCertPool()
+	if err != nil || certPool == nil {
+		certPool = x509.NewCertPool()
+	}
+	tlsCfg := &tls.Config{
+		RootCAs:      certPool,
+		Certificates: []tls.Certificate{*cert},
+	}
+	connCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	conn, err := grpc.DialContext(connCtx, addr, //nolint:staticcheck
+		grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)),
+		grpc.WithBlock(),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:    30 * time.Second,
+			Timeout: 10 * time.Second,
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("dial management with device cert: %w", err)
+	}
+	c := NewClientFromConn(ctx, conn, key)
+	c.serverURL = addr
+	return c, nil
 }
 
 // GetServerURL returns the management server URL
@@ -952,4 +998,117 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 			LazyConnectionEnabled: info.LazyConnectionEnabled,
 		},
 	}
+}
+
+// EnrollDevice submits a device certificate enrollment request (CSR) to the management server.
+// attestationProof is optional: when non-nil it carries the TPM 2.0 EK attestation evidence
+// required for Mode C (automatic attestation-based) enrollment.
+func (c *GrpcClient) EnrollDevice(csrPEM, systemInfo string, attestationProof *proto.AttestationProof) (*proto.DeviceEnrollResponse, error) {
+	if !c.ready() {
+		return nil, fmt.Errorf("no connection to management server")
+	}
+
+	serverKey, err := c.getServerPublicKey()
+	if err != nil {
+		return nil, err
+	}
+
+	mgmCtx, cancel := context.WithTimeout(c.ctx, 10*time.Second)
+	defer cancel()
+
+	req := &proto.DeviceEnrollRequest{
+		WgPubKey:         c.key.PublicKey().String(),
+		CsrPem:           csrPEM,
+		SystemInfo:       systemInfo,
+		AttestationProof: attestationProof,
+	}
+
+	encBody, err := encryption.EncryptMessage(*serverKey, c.key, req)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt EnrollDevice request: %w", err)
+	}
+
+	resp, err := c.realClient.EnrollDevice(mgmCtx, &proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     encBody,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	enrollResp := &proto.DeviceEnrollResponse{}
+	if err := encryption.DecryptMessage(*serverKey, c.key, resp.Body, enrollResp); err != nil {
+		return nil, fmt.Errorf("decrypt EnrollDevice response: %w", err)
+	}
+	return enrollResp, nil
+}
+
+// BeginTPMAttestation starts the two-round TPM 2.0 credential activation flow.
+// The server generates a credential challenge (MakeCredential) and returns a blob
+// that the client must decrypt using TPM2_ActivateCredential.
+func (c *GrpcClient) BeginTPMAttestation(ctx context.Context, req *proto.BeginTPMAttestationRequest) (*proto.BeginTPMAttestationResponse, error) {
+	if !c.ready() {
+		return nil, fmt.Errorf("no connection to management server")
+	}
+	mgmCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return c.realClient.BeginTPMAttestation(mgmCtx, req)
+}
+
+// CompleteTPMAttestation submits the activated secret from TPM2_ActivateCredential
+// to the server to complete attestation and receive a signed device certificate.
+func (c *GrpcClient) CompleteTPMAttestation(ctx context.Context, req *proto.CompleteTPMAttestationRequest) (*proto.AttestationResult, error) {
+	if !c.ready() {
+		return nil, fmt.Errorf("no connection to management server")
+	}
+	mgmCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return c.realClient.CompleteTPMAttestation(mgmCtx, req)
+}
+
+// AttestAppleSE performs a single-round Apple Secure Enclave attestation.
+// The client submits the SE attestation chain and CSR; the server verifies and
+// issues a device certificate.
+func (c *GrpcClient) AttestAppleSE(ctx context.Context, req *proto.AttestAppleSERequest) (*proto.AttestationResult, error) {
+	if !c.ready() {
+		return nil, fmt.Errorf("no connection to management server")
+	}
+	mgmCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return c.realClient.AttestAppleSE(mgmCtx, req)
+}
+
+// GetEnrollmentStatus polls the status of an enrollment request.
+func (c *GrpcClient) GetEnrollmentStatus(enrollmentID string) (*proto.DeviceEnrollResponse, error) {
+	if !c.ready() {
+		return nil, fmt.Errorf("no connection to management server")
+	}
+
+	serverKey, err := c.getServerPublicKey()
+	if err != nil {
+		return nil, err
+	}
+
+	mgmCtx, cancel := context.WithTimeout(c.ctx, 10*time.Second)
+	defer cancel()
+
+	req := &proto.EnrollmentStatusRequest{EnrollmentId: enrollmentID}
+	encBody, err := encryption.EncryptMessage(*serverKey, c.key, req)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt GetEnrollmentStatus request: %w", err)
+	}
+
+	resp, err := c.realClient.GetEnrollmentStatus(mgmCtx, &proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     encBody,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	statusResp := &proto.DeviceEnrollResponse{}
+	if err := encryption.DecryptMessage(*serverKey, c.key, resp.Body, statusResp); err != nil {
+		return nil, fmt.Errorf("decrypt GetEnrollmentStatus response: %w", err)
+	}
+	return statusResp, nil
 }
