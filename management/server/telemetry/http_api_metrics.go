@@ -183,7 +183,18 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 
 		w := WrapResponseWriter(rw)
 
+		handlerDone := make(chan struct{})
+		context.AfterFunc(ctx, func() {
+			select {
+			case <-handlerDone:
+			default:
+				log.Debugf("HTTP request context canceled mid-flight: %v %v (reqID=%s, after %v, cause: %v)",
+					r.Method, r.URL.Path, reqID, time.Since(reqStart), context.Cause(ctx))
+			}
+		})
+
 		h.ServeHTTP(w, r.WithContext(ctx))
+		close(handlerDone)
 
 		userAuth, err := nbContext.GetUserAuthFromContext(r.Context())
 		if err == nil {
