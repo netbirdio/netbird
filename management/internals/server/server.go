@@ -143,6 +143,7 @@ func (s *BaseServer) Start(ctx context.Context) error {
 			log.WithContext(srvCtx).Errorf("cannot load TLS credentials: %v", err)
 			return err
 		}
+		tlsConfig.VerifyPeerCertificate = s.DeviceAuthHandler().VerifyPeerCert
 		tlsEnabled = true
 	}
 
@@ -198,7 +199,9 @@ func (s *BaseServer) Start(ctx context.Context) error {
 			rootHandler = s.certManager.HTTPHandler(rootHandler)
 			s.listener = cml
 		} else {
-			s.listener, err = tls.Listen("tcp", fmt.Sprintf(":%d", s.mgmtPort), s.certManager.TLSConfig())
+			leTLSConfig := s.certManager.TLSConfig()
+			leTLSConfig.VerifyPeerCertificate = s.DeviceAuthHandler().VerifyPeerCert
+			s.listener, err = tls.Listen("tcp", fmt.Sprintf(":%d", s.mgmtPort), leTLSConfig)
 			if err != nil {
 				return fmt.Errorf("failed creating TLS listener on port %d: %v", s.mgmtPort, err)
 			}

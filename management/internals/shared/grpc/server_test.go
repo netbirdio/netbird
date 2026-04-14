@@ -106,3 +106,37 @@ func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
 		})
 	}
 }
+
+func TestServer_GetServerKey_Capabilities(t *testing.T) {
+	serverKey, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+
+	tests := []struct {
+		name                 string
+		deviceCertAuthEnabled bool
+		wantCapabilities     []string
+	}{
+		{
+			name:                  "device cert auth disabled — no capabilities advertised",
+			deviceCertAuthEnabled: false,
+			wantCapabilities:      nil,
+		},
+		{
+			name:                  "device cert auth enabled — DEVICE_CERT_AUTH and DEVICE_ATTESTATION advertised",
+			deviceCertAuthEnabled: true,
+			wantCapabilities:      []string{"DEVICE_CERT_AUTH", "DEVICE_ATTESTATION"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := &Server{
+				secretsManager:        &TimeBasedAuthSecretsManager{wgKey: serverKey},
+				deviceCertAuthEnabled: tt.deviceCertAuthEnabled,
+			}
+			resp, err := srv.GetServerKey(context.Background(), &mgmtProto.Empty{})
+			require.NoError(t, err)
+			require.Equal(t, tt.wantCapabilities, resp.Capabilities)
+		})
+	}
+}

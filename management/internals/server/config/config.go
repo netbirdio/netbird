@@ -61,6 +61,12 @@ type Config struct {
 	// EmbeddedIdP contains configuration for the embedded Dex OIDC provider.
 	// When set, Dex will be embedded in the management server and serve requests at /oauth2/
 	EmbeddedIdP *idp.EmbeddedIdPConfig
+
+	// SecretEncryption controls at-rest encryption of CA private keys and integration credentials.
+	SecretEncryption SecretEncryptionConfig
+
+	// ManagementURL is the externally accessible URL, e.g. "https://mgmt.example.com".
+	ManagementURL string
 }
 
 // GetAuthAudiences returns the audience from the http config and device authorization flow config
@@ -209,4 +215,14 @@ type ReverseProxy struct {
 	// AccessLogCleanupIntervalHours specifies how often (in hours) to run the cleanup routine.
 	// Defaults to 24 hours if not set or set to 0.
 	AccessLogCleanupIntervalHours int
+}
+
+// SecretEncryptionConfig controls at-rest encryption of CA private keys and credentials.
+type SecretEncryptionConfig struct {
+	// Provider selects the key source: "env", "file", or "" (disabled, uses NoOp).
+	Provider string
+	// EnvVar is the env variable name for base64-encoded 32-byte key (when Provider="env").
+	EnvVar string
+	// KeyFile is the path to a file containing the raw 32-byte key (when Provider="file").
+	KeyFile string
 }

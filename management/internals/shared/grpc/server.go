@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -20,7 +21,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/peer"
+	"google.golang.org/grpc/credentials"
+	grpcpeer "google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/shared/management/client/common"
@@ -31,6 +33,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/job"
 
+	"github.com/netbirdio/netbird/management/server/devicepki/appleroots"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/store"
 
@@ -84,6 +87,29 @@ type Server struct {
 
 	reverseProxyManager rpservice.Manager
 	reverseProxyMu      sync.RWMutex
+
+	// deviceCertAuthEnabled indicates whether the server has device certificate
+	// authentication support compiled in. When true, the server advertises
+	// the "DEVICE_CERT_AUTH" capability in GetServerKey responses.
+	deviceCertAuthEnabled bool
+
+	// deviceAuthHandler enforces the mTLS device certificate policy on Login.
+	// Nil means device certificate authentication is not configured.
+	deviceAuthHandler deviceAuthHandlerIface
+
+	// attestationSessions holds in-progress TPM two-round credential activation sessions.
+	attestationSessions *AttestationSessionStore
+	// stopAttestationCleanup cancels the background goroutine started by attestationSessions.StartCleanup.
+	stopAttestationCleanup context.CancelFunc
+
+	// appleSEConfig controls the Apple Root CA pool for Secure Enclave attestation.
+	appleSEConfig appleroots.Config
+}
+
+// deviceAuthHandlerIface is the subset of deviceauth.DeviceAuthHandler used by the gRPC server.
+// Defined locally to avoid an import cycle.
+type deviceAuthHandlerIface interface {
+	CheckDeviceAuth(ctx context.Context, wgPubKey string, certPresent bool, cert *x509.Certificate, settings *types.DeviceAuthSettings) error
 }
 
 // NewServer creates a new Management server
@@ -127,6 +153,10 @@ func NewServer(
 		}
 	}
 
+	attestSessions := NewAttestationSessionStore()
+	attestCtx, attestCancel := context.WithCancel(context.Background())
+	attestSessions.StartCleanup(attestCtx, 30*time.Second)
+
 	return &Server{
 		jobManager:               jobManager,
 		accountManager:           accountManager,
@@ -141,16 +171,33 @@ func NewServer(
 		networkMapController:     networkMapController,
 		oAuthConfigProvider:      oAuthConfigProvider,
 
-		loginFilter: newLoginFilter(),
+		loginFilter:            newLoginFilter(),
+		attestationSessions:    attestSessions,
+		stopAttestationCleanup: attestCancel,
 
-		syncLim:        syncLim,
-		syncLimEnabled: syncLimEnabled,
+		syncLim:               syncLim,
+		syncLimEnabled:        syncLimEnabled,
+		deviceCertAuthEnabled: true,
 	}, nil
+}
+
+// StopAttestationCleanup stops the background goroutine that removes expired TPM
+// attestation sessions. Call this when the server is shutting down.
+func (s *Server) StopAttestationCleanup() {
+	if s.stopAttestationCleanup != nil {
+		s.stopAttestationCleanup()
+	}
+}
+
+// SetDeviceAuthHandler wires the device certificate policy handler into the Login RPC.
+// Must be called before the first Login request is processed.
+func (s *Server) SetDeviceAuthHandler(h deviceAuthHandlerIface) {
+	s.deviceAuthHandler = h
 }
 
 func (s *Server) GetServerKey(ctx context.Context, req *proto.Empty) (*proto.ServerKeyResponse, error) {
 	ip := ""
-	p, ok := peer.FromContext(ctx)
+	p, ok := grpcpeer.FromContext(ctx)
 	if ok {
 		ip = p.Addr.String()
 	}
@@ -172,10 +219,19 @@ func (s *Server) GetServerKey(ctx context.Context, req *proto.Empty) (*proto.Ser
 		return nil, errors.New("failed to get wireguard key")
 	}
 
-	return &proto.ServerKeyResponse{
+	resp := &proto.ServerKeyResponse{
 		Key:       key.PublicKey().String(),
 		ExpiresAt: expiresAt,
-	}, nil
+	}
+	if s.deviceCertAuthEnabled {
+		// Always advertise DEVICE_CERT_AUTH; also advertise DEVICE_ATTESTATION so that
+		// clients know they can include an AttestationProof in EnrollDevice requests.
+		resp.Capabilities = []string{
+			types.CapabilityDeviceCertAuth,
+			types.CapabilityDeviceAttestation,
+		}
+	}
+	return resp, nil
 }
 
 func getRealIP(ctx context.Context) net.IP {
@@ -754,6 +810,19 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 		return nil, err
 	}
 
+	// Extract the client device certificate from the TLS handshake state (if any).
+	// This must be done before LoginPeer because the local variable peer shadows the grpcpeer package.
+	var (
+		clientCertPresent bool
+		clientCert        *x509.Certificate
+	)
+	if grpcPeer, ok := grpcpeer.FromContext(ctx); ok {
+		if tlsInfo, ok := grpcPeer.AuthInfo.(credentials.TLSInfo); ok && len(tlsInfo.State.PeerCertificates) > 0 {
+			clientCert = tlsInfo.State.PeerCertificates[0]
+			clientCertPresent = true
+		}
+	}
+
 	var sshKey []byte
 	if loginReq.GetPeerKeys() != nil {
 		sshKey = loginReq.GetPeerKeys().GetSshPubKey()
@@ -771,6 +840,45 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed logging in peer %s: %s", peerKey, err)
 		return nil, mapError(ctx, err)
+	}
+
+	// Enforce device certificate policy after successful peer login.
+	if s.deviceAuthHandler != nil {
+		// Load account settings directly from the store, bypassing the
+		// permissions-manager check in accountManager.GetAccountSettings.
+		// The device-auth enforcement is an internal server operation, not a
+		// user-initiated request, so no user permission validation is needed.
+		// Callers such as setup-key logins have no associated userID, which
+		// would cause GetAccountSettings to fail and silently skip enforcement.
+		accountSettings, settingsErr := s.accountManager.GetStore().GetAccountSettings(ctx, store.LockingStrengthNone, peer.AccountID)
+		if settingsErr != nil {
+			log.WithContext(ctx).Warnf("failed loading account settings for device auth check on peer %s: %v", peerKey, settingsErr)
+		}
+		var devAuthSettings *types.DeviceAuthSettings
+		if accountSettings != nil {
+			devAuthSettings = accountSettings.DeviceAuth
+		}
+		if checkErr := s.deviceAuthHandler.CheckDeviceAuth(ctx, peerKey.String(), clientCertPresent, clientCert, devAuthSettings); checkErr != nil {
+			log.WithContext(ctx).Debugf("device auth denied for peer %s: %v", peerKey, checkErr)
+			return nil, checkErr
+		}
+
+		// Revocation check: if the peer presented a client certificate, verify it has
+		// not been administratively revoked in the store.  The TLS handshake validates
+		// the certificate chain (trusted CA), but Go's TLS stack does not check CRLs
+		// automatically — revocation is enforced here via the store's Revoked flag.
+		//
+		// Known limitation: this check runs only at Login time. A peer that already has
+		// an active Sync stream when its certificate is revoked will not be disconnected
+		// until it re-connects and logs in again. Enforcing revocation on active streams
+		// requires injecting a disconnect signal into the peer's Sync context;
+		// this is tracked as a follow-up improvement.
+		if clientCertPresent && clientCert != nil {
+			if revErr := checkCertRevocation(ctx, s.accountManager.GetStore(), peer.AccountID, peerKey.String(), clientCert); revErr != nil {
+				log.WithContext(ctx).Debugf("device auth denied for peer %s: %v", peerKey, revErr)
+				return nil, revErr
+			}
+		}
 	}
 
 	loginResp, err := s.prepareLoginResponse(ctx, peer, netMap, postureChecks)

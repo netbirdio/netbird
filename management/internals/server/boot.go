@@ -5,6 +5,7 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"net/http"
 	"net/netip"
 	"slices"
@@ -27,6 +28,7 @@ import (
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
+	"github.com/netbirdio/netbird/management/server/deviceauth"
 	nbhttp "github.com/netbirdio/netbird/management/server/http"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -95,7 +97,7 @@ func (s *BaseServer) EventStore() activity.Store {
 
 func (s *BaseServer) APIHandler() http.Handler {
 	return Create(s, func() http.Handler {
-		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.IntegratedValidator(), s.ProxyController(), s.PermissionsManager(), s.PeersManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(), s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies)
+		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.IntegratedValidator(), s.ProxyController(), s.PermissionsManager(), s.PeersManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(), s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies, s.DeviceAuthHandler(), s.Config.ManagementURL)
 		if err != nil {
 			log.Fatalf("failed to create API handler: %v", err)
 		}
@@ -137,13 +139,19 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 			if err != nil {
 				log.Fatalf("failed to create certificate service: %v", err)
 			}
-			transportCredentials := credentials.NewTLS(certManager.TLSConfig())
+			leTLSConfig := certManager.TLSConfig()
+			// Allow clients to present device certificates without requiring them.
+			// Old clients without certs continue to work; enforcement is at application level.
+			leTLSConfig.ClientAuth = tls.RequestClientCert
+			leTLSConfig.VerifyPeerCertificate = s.DeviceAuthHandler().VerifyPeerCert
+			transportCredentials := credentials.NewTLS(leTLSConfig)
 			gRPCOpts = append(gRPCOpts, grpc.Creds(transportCredentials))
 		} else if s.Config.HttpConfig.CertFile != "" && s.Config.HttpConfig.CertKey != "" {
 			tlsConfig, err := loadTLSConfig(s.Config.HttpConfig.CertFile, s.Config.HttpConfig.CertKey)
 			if err != nil {
 				log.Fatalf("cannot load TLS credentials: %v", err)
 			}
+			tlsConfig.VerifyPeerCertificate = s.DeviceAuthHandler().VerifyPeerCert
 			transportCredentials := credentials.NewTLS(tlsConfig)
 			gRPCOpts = append(gRPCOpts, grpc.Creds(transportCredentials))
 		}
@@ -153,6 +161,7 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 		if err != nil {
 			log.Fatalf("failed to create management server: %v", err)
 		}
+		srv.SetDeviceAuthHandler(s.DeviceAuthHandler())
 		serviceMgr := s.ServiceManager()
 		srv.SetReverseProxyManager(serviceMgr)
 		if serviceMgr != nil {
@@ -214,6 +223,38 @@ func (s *BaseServer) PKCEVerifierStore() *nbgrpc.PKCEVerifierStore {
 	})
 }
 
+// DeviceAuthHandler returns the singleton deviceauth.Handler used for mTLS certificate
+// verification. On first use it loads all trusted CAs from the store to populate the
+// initial cert pool; subsequent updates are pushed via UpdateCertPool (e.g. from the
+// HTTP handler on POST/DELETE trusted-ca).
+func (s *BaseServer) DeviceAuthHandler() deviceauth.DeviceAuthHandler {
+	return Create(s, func() deviceauth.DeviceAuthHandler {
+		pool := s.buildInitialCertPool()
+		return deviceauth.NewHandler(pool)
+	})
+}
+
+// buildInitialCertPool loads all TrustedCA records from the store and returns an
+// x509.CertPool populated with their certificate PEMs.
+func (s *BaseServer) buildInitialCertPool() *x509.CertPool {
+	pool := x509.NewCertPool()
+
+	accounts := s.Store().GetAllAccounts(context.Background())
+
+	for _, acct := range accounts {
+		cas, err := s.Store().ListTrustedCAs(context.Background(), store.LockingStrengthNone, acct.Id)
+		if err != nil {
+			log.Warnf("deviceauth: build initial cert pool: failed to list CAs for account %s: %v", acct.Id, err)
+			continue
+		}
+		for _, ca := range cas {
+			pool.AppendCertsFromPEM([]byte(ca.PEM))
+		}
+	}
+
+	return pool
+}
+
 func (s *BaseServer) AccessLogsManager() accesslogs.Manager {
 	return Create(s, func() accesslogs.Manager {
 		accessLogManager := accesslogsmanager.NewManager(s.Store(), s.PermissionsManager(), s.GeoLocationManager())
@@ -233,10 +274,13 @@ func loadTLSConfig(certFile string, certKey string) (*tls.Config, error) {
 		return nil, err
 	}
 
-	// NewDefaultAppMetrics the credentials and return it
+	// RequestClientCert asks the client to send a certificate during TLS handshake
+	// but does NOT reject connections from clients without one.
+	// This allows old clients to connect while new clients can present device certificates.
+	// Enforcement of certificate presence happens at the application layer (Login RPC).
 	config := &tls.Config{
 		Certificates: []tls.Certificate{serverCert},
-		ClientAuth:   tls.NoClientCert,
+		ClientAuth:   tls.RequestClientCert,
 		NextProtos: []string{
 			"h2", "http/1.1", // enable HTTP/2
 		},
