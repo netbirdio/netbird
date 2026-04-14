@@ -183,6 +183,11 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 
 		w := WrapResponseWriter(rw)
 
+		context.AfterFunc(ctx, func() {
+			log.Warnf("HTTP request context canceled: %v %v (reqID=%s, after %v, cause: %v)",
+				r.Method, r.URL.Path, reqID, time.Since(reqStart), context.Cause(ctx))
+		})
+
 		h.ServeHTTP(w, r.WithContext(ctx))
 
 		userAuth, err := nbContext.GetUserAuthFromContext(r.Context())
