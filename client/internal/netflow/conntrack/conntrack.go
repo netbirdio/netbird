@@ -26,18 +26,29 @@ const (
 	reconnectRandomization = 0.5
 )
 
+// listener abstracts a netlink conntrack connection for testability.
+type listener interface {
+	Listen(evChan chan<- nfct.Event, numWorkers uint8, groups []netfilter.NetlinkGroup) (chan error, error)
+	Close() error
+}
+
 // ConnTrack manages kernel-based conntrack events
 type ConnTrack struct {
 	flowLogger nftypes.FlowLogger
 	iface      nftypes.IFaceMapper
 
-	conn *nfct.Conn
+	conn listener
 	mux  sync.Mutex
 
+	dial           func() (listener, error)
 	instanceID     uuid.UUID
 	started        bool
 	done           chan struct{}
 	sysctlModified bool
+}
+
+func defaultDial() (listener, error) {
+	return nfct.Dial(nil)
 }
 
 // New creates a new connection tracker that interfaces with the kernel's conntrack system
@@ -46,7 +57,7 @@ func New(flowLogger nftypes.FlowLogger, iface nftypes.IFaceMapper) *ConnTrack {
 		flowLogger: flowLogger,
 		iface:      iface,
 		instanceID: uuid.New(),
-		started:    false,
+		dial:       defaultDial,
 		done:       make(chan struct{}, 1),
 	}
 }
@@ -66,7 +77,7 @@ func (c *ConnTrack) Start(enableCounters bool) error {
 		c.EnableAccounting()
 	}
 
-	conn, err := nfct.Dial(nil)
+	conn, err := c.dial()
 	if err != nil {
 		return fmt.Errorf("dial conntrack: %w", err)
 	}
@@ -160,7 +171,7 @@ func (c *ConnTrack) reconnect() (chan nfct.Event, chan error) {
 		case <-time.After(delay):
 		}
 
-		conn, err := nfct.Dial(nil)
+		conn, err := c.dial()
 		if err != nil {
 			log.Warnf("reconnect conntrack dial: %v", err)
 			continue
