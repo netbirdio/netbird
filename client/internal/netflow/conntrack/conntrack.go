@@ -180,6 +180,14 @@ func (c *ConnTrack) reconnect() (chan nfct.Event, chan error) {
 		}
 
 		c.mux.Lock()
+		if !c.started {
+			// Stop() ran while we were reconnecting.
+			c.mux.Unlock()
+			if closeErr := conn.Close(); closeErr != nil {
+				log.Debugf("close conntrack connection: %v", closeErr)
+			}
+			return nil, nil
+		}
 		c.conn = conn
 		c.mux.Unlock()
 
