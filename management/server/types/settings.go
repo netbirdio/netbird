@@ -65,6 +65,9 @@ type Settings struct {
 	// when false, updates require user interaction from the UI
 	AutoUpdateAlways bool `gorm:"default:false"`
 
+	// MetricsPushEnabled globally enables or disables client metrics push for the account
+	MetricsPushEnabled bool `gorm:"default:false"`
+
 	// EmbeddedIdpEnabled indicates if the embedded identity provider is enabled.
 	// This is a runtime-only field, not stored in the database.
 	EmbeddedIdpEnabled bool `gorm:"-"`
@@ -96,6 +99,7 @@ func (s *Settings) Copy() *Settings {
 		NetworkRange:                    s.NetworkRange,
 		AutoUpdateVersion:               s.AutoUpdateVersion,
 		AutoUpdateAlways:                s.AutoUpdateAlways,
+		MetricsPushEnabled:              s.MetricsPushEnabled,
 		EmbeddedIdpEnabled:              s.EmbeddedIdpEnabled,
 		LocalAuthDisabled:               s.LocalAuthDisabled,
 	}

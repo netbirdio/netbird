@@ -225,6 +225,11 @@ const (
 	// AccountAutoUpdateAlwaysDisabled indicates that a user disabled always auto-update for the account
 	AccountAutoUpdateAlwaysDisabled Activity = 117
 
+	// AccountMetricsPushEnabled indicates that a user enabled metrics push for the account
+	AccountMetricsPushEnabled Activity = 121
+	// AccountMetricsPushDisabled indicates that a user disabled metrics push for the account
+	AccountMetricsPushDisabled Activity = 122
+
 	// DomainAdded indicates that a user added a custom domain
 	DomainAdded Activity = 118
 	// DomainDeleted indicates that a user deleted a custom domain
@@ -378,6 +383,9 @@ var activityMap = map[Activity]Code{
 
 	AccountPeerExposeEnabled:  {"Account peer expose enabled", "account.setting.peer.expose.enable"},
 	AccountPeerExposeDisabled: {"Account peer expose disabled", "account.setting.peer.expose.disable"},
+
+	AccountMetricsPushEnabled:  {"Account metrics push enabled", "account.setting.metrics.push.enable"},
+	AccountMetricsPushDisabled: {"Account metrics push disabled", "account.setting.metrics.push.disable"},
 
 	DomainAdded:     {"Domain added", "domain.add"},
 	DomainDeleted:   {"Domain deleted", "domain.delete"},
