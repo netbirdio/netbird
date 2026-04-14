@@ -16,7 +16,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/pprof"
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -31,7 +30,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/updater/installer"
 	nbstatus "github.com/netbirdio/netbird/client/status"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
-	"github.com/netbirdio/netbird/util"
 )
 
 const readmeContent = `Netbird debug bundle
@@ -376,15 +374,8 @@ func (g *BundleGenerator) createArchive() error {
 		log.Errorf("failed to add wg show output: %v", err)
 	}
 
-	if g.logPath != "" && !slices.Contains(util.SpecialLogs, g.logPath) {
-		if err := g.addLogfile(); err != nil {
-			log.Errorf("failed to add log file to debug bundle: %v", err)
-			if err := g.trySystemdLogFallback(); err != nil {
-				log.Errorf("failed to add systemd logs as fallback: %v", err)
-			}
-		}
-	} else if err := g.trySystemdLogFallback(); err != nil {
-		log.Errorf("failed to add systemd logs: %v", err)
+	if err := g.addPlatformLog(); err != nil {
+		log.Errorf("failed to add logs to debug bundle: %v", err)
 	}
 
 	if err := g.addUpdateLogs(); err != nil {
