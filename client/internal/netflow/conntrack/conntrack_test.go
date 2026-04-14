@@ -3,7 +3,6 @@
 package conntrack
 
 import (
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,7 +14,6 @@ import (
 )
 
 type mockListener struct {
-	mu       sync.Mutex
 	errChan  chan error
 	closed   atomic.Bool
 	closedCh chan struct{}
