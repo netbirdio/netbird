@@ -239,7 +239,7 @@ func (c *ClientMetrics) UpdatePushFromMgm(ctx context.Context, enabled bool) {
 		if c.push == nil {
 			return
 		}
-		log.Infof("disabled metrics push by managmenet")
+		log.Infof("disabled metrics push by management")
 		c.stopPushLocked()
 	}
 }
