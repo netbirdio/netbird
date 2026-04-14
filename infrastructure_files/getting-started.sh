@@ -647,7 +647,7 @@ render_docker_compose_traefik_builtin() {
       - ./crowdsec:/etc/crowdsec
       - crowdsec_db:/var/lib/crowdsec/data
     healthcheck:
-      test: [\"CMD\", \"cscli\", \"capi\", \"status\"]
+      test: ["CMD", "cscli", "lapi", "status"]
       interval: 10s
       timeout: 5s
       retries: 15
