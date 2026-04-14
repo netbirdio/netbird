@@ -1070,7 +1070,6 @@ func (e *Engine) handleFlowUpdate(config *mgmProto.FlowConfig) error {
 
 func (e *Engine) handleMetricsUpdate(config *mgmProto.MetricsConfig) {
 	if config == nil {
-		log.Debugf("no metrics configuration received from management")
 		return
 	}
 	log.Infof("received metrics configuration from management: enabled=%v", config.GetEnabled())
