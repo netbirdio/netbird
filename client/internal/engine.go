@@ -140,6 +140,7 @@ type EngineConfig struct {
 	ProfileConfig *profilemanager.Config
 
 	LogPath string
+	TempDir string
 }
 
 // EngineServices holds the external service dependencies required by the Engine.
@@ -1095,6 +1096,7 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 		StatusRecorder: e.statusRecorder,
 		SyncResponse:   syncResponse,
 		LogPath:        e.config.LogPath,
+		TempDir:        e.config.TempDir,
 		ClientMetrics:  e.clientMetrics,
 		RefreshStatus: func() {
 			e.RunHealthProbes(true)

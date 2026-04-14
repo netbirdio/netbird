@@ -93,6 +93,7 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 
 	cfgFile := platformFiles.ConfigurationFilePath()
 	stateFile := platformFiles.StateFilePath()
+	cacheDir := platformFiles.CacheDir()
 
 	log.Infof("Starting client with config: %s, state: %s", cfgFile, stateFile)
 
@@ -125,7 +126,7 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder)
-	return c.connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, stateFile)
+	return c.connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, stateFile, cacheDir)
 }
 
 // RunWithoutLogin we apply this type of run function when the backed has been started without UI (i.e. after reboot).
@@ -135,6 +136,7 @@ func (c *Client) RunWithoutLogin(platformFiles PlatformFiles, dns *DNSList, dnsR
 
 	cfgFile := platformFiles.ConfigurationFilePath()
 	stateFile := platformFiles.StateFilePath()
+	cacheDir := platformFiles.CacheDir()
 
 	log.Infof("Starting client without login with config: %s, state: %s", cfgFile, stateFile)
 
@@ -158,7 +160,7 @@ func (c *Client) RunWithoutLogin(platformFiles PlatformFiles, dns *DNSList, dnsR
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder)
-	return c.connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, stateFile)
+	return c.connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, stateFile, cacheDir)
 }
 
 // Stop the internal client and free the resources

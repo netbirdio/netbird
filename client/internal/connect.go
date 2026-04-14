@@ -94,6 +94,7 @@ func (c *ConnectClient) RunOnAndroid(
 	dnsAddresses []netip.AddrPort,
 	dnsReadyListener dns.ReadyListener,
 	stateFilePath string,
+	cacheDir string,
 ) error {
 	// in case of non Android os these variables will be nil
 	mobileDependency := MobileDependency{
@@ -103,6 +104,7 @@ func (c *ConnectClient) RunOnAndroid(
 		HostDNSAddresses:      dnsAddresses,
 		DnsReadyListener:      dnsReadyListener,
 		StateFilePath:         stateFilePath,
+		TempDir:               cacheDir,
 	}
 	return c.run(mobileDependency, nil, "")
 }
@@ -338,6 +340,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			log.Error(err)
 			return wrapErr(err)
 		}
+		engineConfig.TempDir = mobileDependency.TempDir
 
 		relayManager := relayClient.NewManager(engineCtx, relayURLs, myPrivateKey.PublicKey().String(), engineConfig.MTU)
 		c.statusRecorder.SetRelayMgr(relayManager)
