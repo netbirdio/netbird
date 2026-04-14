@@ -35,6 +35,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	serverauth "github.com/netbirdio/netbird/management/server/auth"
+	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/groups"
 	http2 "github.com/netbirdio/netbird/management/server/http"
@@ -87,22 +88,22 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 	jobManager := job.NewJobManager(nil, store, peersManager)
 
 	ctx := context.Background()
+
+	cacheStore, err := nbcache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
+	if err != nil {
+		t.Fatalf("Failed to create cache store: %v", err)
+	}
+
 	requestBuffer := server.NewAccountRequestBuffer(ctx, store)
 	networkMapController := controller.NewController(ctx, store, metrics, peersUpdateManager, requestBuffer, server.MockIntegratedValidator{}, settingsManager, "", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(store, peersManager), &config.Config{})
-	am, err := server.BuildManager(ctx, nil, store, networkMapController, jobManager, nil, "", &activity.InMemoryEventStore{}, geoMock, false, validatorMock, metrics, proxyController, settingsManager, permissionsManager, false)
+	am, err := server.BuildManager(ctx, nil, store, networkMapController, jobManager, nil, "", &activity.InMemoryEventStore{}, geoMock, false, validatorMock, metrics, proxyController, settingsManager, permissionsManager, false, cacheStore)
 	if err != nil {
 		t.Fatalf("Failed to create manager: %v", err)
 	}
 
 	accessLogsManager := accesslogsmanager.NewManager(store, permissionsManager, nil)
-	proxyTokenStore, err := nbgrpc.NewOneTimeTokenStore(ctx, 5*time.Minute, 10*time.Minute, 100)
-	if err != nil {
-		t.Fatalf("Failed to create proxy token store: %v", err)
-	}
-	pkceverifierStore, err := nbgrpc.NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
-	if err != nil {
-		t.Fatalf("Failed to create PKCE verifier store: %v", err)
-	}
+	proxyTokenStore := nbgrpc.NewOneTimeTokenStore(ctx, cacheStore)
+	pkceverifierStore := nbgrpc.NewPKCEVerifierStore(ctx, cacheStore)
 	noopMeter := noop.NewMeterProvider().Meter("")
 	proxyMgr, err := proxymanager.NewManager(store, noopMeter)
 	if err != nil {
@@ -216,22 +217,22 @@ func BuildApiBlackBoxWithDBStateAndPeerChannel(t testing_tools.TB, sqlFile strin
 	jobManager := job.NewJobManager(nil, store, peersManager)
 
 	ctx := context.Background()
+
+	cacheStore, err := nbcache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
+	if err != nil {
+		t.Fatalf("Failed to create cache store: %v", err)
+	}
+
 	requestBuffer := server.NewAccountRequestBuffer(ctx, store)
 	networkMapController := controller.NewController(ctx, store, metrics, peersUpdateManager, requestBuffer, server.MockIntegratedValidator{}, settingsManager, "", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(store, peersManager), &config.Config{})
-	am, err := server.BuildManager(ctx, nil, store, networkMapController, jobManager, nil, "", &activity.InMemoryEventStore{}, geoMock, false, validatorMock, metrics, proxyController, settingsManager, permissionsManager, false)
+	am, err := server.BuildManager(ctx, nil, store, networkMapController, jobManager, nil, "", &activity.InMemoryEventStore{}, geoMock, false, validatorMock, metrics, proxyController, settingsManager, permissionsManager, false, cacheStore)
 	if err != nil {
 		t.Fatalf("Failed to create manager: %v", err)
 	}
 
 	accessLogsManager := accesslogsmanager.NewManager(store, permissionsManager, nil)
-	proxyTokenStore, err := nbgrpc.NewOneTimeTokenStore(ctx, 5*time.Minute, 10*time.Minute, 100)
-	if err != nil {
-		t.Fatalf("Failed to create proxy token store: %v", err)
-	}
-	pkceverifierStore, err := nbgrpc.NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
-	if err != nil {
-		t.Fatalf("Failed to create PKCE verifier store: %v", err)
-	}
+	proxyTokenStore := nbgrpc.NewOneTimeTokenStore(ctx, cacheStore)
+	pkceverifierStore := nbgrpc.NewPKCEVerifierStore(ctx, cacheStore)
 	noopMeter := noop.NewMeterProvider().Meter("")
 	proxyMgr, err := proxymanager.NewManager(store, noopMeter)
 	if err != nil {

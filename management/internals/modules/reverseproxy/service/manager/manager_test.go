@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	cachestore "github.com/eko/gocache/lib/v4/store"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,6 +19,7 @@ import (
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	resourcetypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -28,6 +30,13 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
+
+func testCacheStore(t *testing.T) cachestore.StoreInterface {
+	t.Helper()
+	s, err := nbcache.NewStore(context.Background(), 30*time.Minute, 10*time.Minute, 100)
+	require.NoError(t, err)
+	return s
+}
 
 func TestInitializeServiceForCreate(t *testing.T) {
 	ctx := context.Background()
@@ -422,10 +431,8 @@ func TestDeletePeerService_SourcePeerValidation(t *testing.T) {
 
 	newProxyServer := func(t *testing.T) *nbgrpc.ProxyServiceServer {
 		t.Helper()
-		tokenStore, err := nbgrpc.NewOneTimeTokenStore(context.Background(), 1*time.Hour, 10*time.Minute, 100)
-		require.NoError(t, err)
-		pkceStore, err := nbgrpc.NewPKCEVerifierStore(context.Background(), 10*time.Minute, 10*time.Minute, 100)
-		require.NoError(t, err)
+		tokenStore := nbgrpc.NewOneTimeTokenStore(context.Background(), testCacheStore(t))
+		pkceStore := nbgrpc.NewPKCEVerifierStore(context.Background(), testCacheStore(t))
 		srv := nbgrpc.NewProxyServiceServer(nil, tokenStore, pkceStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil)
 		return srv
 	}
@@ -703,10 +710,8 @@ func setupIntegrationTest(t *testing.T) (*Manager, store.Store) {
 		},
 	}
 
-	tokenStore, err := nbgrpc.NewOneTimeTokenStore(ctx, 1*time.Hour, 10*time.Minute, 100)
-	require.NoError(t, err)
-	pkceStore, err := nbgrpc.NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
-	require.NoError(t, err)
+	tokenStore := nbgrpc.NewOneTimeTokenStore(ctx, testCacheStore(t))
+	pkceStore := nbgrpc.NewPKCEVerifierStore(ctx, testCacheStore(t))
 	proxySrv := nbgrpc.NewProxyServiceServer(nil, tokenStore, pkceStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil)
 
 	proxyController, err := proxymanager.NewGRPCController(proxySrv, noop.NewMeterProvider().Meter(""))
@@ -1128,10 +1133,8 @@ func TestDeleteService_DeletesTargets(t *testing.T) {
 	mockPerms := permissions.NewMockManager(ctrl)
 	mockAcct := account.NewMockManager(ctrl)
 
-	tokenStore, err := nbgrpc.NewOneTimeTokenStore(ctx, 1*time.Hour, 10*time.Minute, 100)
-	require.NoError(t, err)
-	pkceStore, err := nbgrpc.NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
-	require.NoError(t, err)
+	tokenStore := nbgrpc.NewOneTimeTokenStore(ctx, testCacheStore(t))
+	pkceStore := nbgrpc.NewPKCEVerifierStore(ctx, testCacheStore(t))
 	proxySrv := nbgrpc.NewProxyServiceServer(nil, tokenStore, pkceStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil)
 
 	proxyController, err := proxymanager.NewGRPCController(proxySrv, noop.NewMeterProvider().Meter(""))
