@@ -37,6 +37,7 @@ const (
 	BlockedUserId      = "blockedUserId"
 	OtherUserId        = "otherUserId"
 	InvalidToken       = "invalidToken"
+	TestCertApproverId = "testCertApproverId"
 
 	NewKeyName   = "newKey"
 	NewGroupId   = "newGroupId"

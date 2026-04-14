@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"crypto/x509"
 	"fmt"
 	"net/http"
 	"net/netip"
@@ -47,6 +48,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/handlers/dns"
 	"github.com/netbirdio/netbird/management/server/http/handlers/events"
 	"github.com/netbirdio/netbird/management/server/http/handlers/groups"
+	device_auth "github.com/netbirdio/netbird/management/server/http/handlers/device_auth"
 	"github.com/netbirdio/netbird/management/server/http/handlers/idp"
 	"github.com/netbirdio/netbird/management/server/http/handlers/instance"
 	"github.com/netbirdio/netbird/management/server/http/handlers/networks"
@@ -72,11 +74,23 @@ const (
 	rateLimitingRPMKey     = "NB_API_RATE_LIMITING_RPM"
 )
 
+// DeviceCertPoolUpdater can rebuild the TLS cert pool when trusted CAs change.
+// Implemented by deviceauth.Handler; nil-safe (pool rebuild is skipped when nil).
+type DeviceCertPoolUpdater interface {
+	UpdateCertPool(pool *x509.CertPool)
+}
+
 // NewAPIHandler creates the Management service HTTP API handler registering all the available endpoints.
-func NewAPIHandler(ctx context.Context, accountManager account.Manager, networksManager nbnetworks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation, authManager auth.Manager, appMetrics telemetry.AppMetrics, integratedValidator integrated_validator.IntegratedValidator, proxyController port_forwarding.Controller, permissionsManager permissions.Manager, peersManager nbpeers.Manager, settingsManager settings.Manager, zManager zones.Manager, rManager records.Manager, networkMapController network_map.Controller, idpManager idpmanager.Manager, serviceManager service.Manager, reverseProxyDomainManager *manager.Manager, reverseProxyAccessLogsManager accesslogs.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, trustedHTTPProxies []netip.Prefix) (http.Handler, error) {
+func NewAPIHandler(ctx context.Context, accountManager account.Manager, networksManager nbnetworks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation, authManager auth.Manager, appMetrics telemetry.AppMetrics, integratedValidator integrated_validator.IntegratedValidator, proxyController port_forwarding.Controller, permissionsManager permissions.Manager, peersManager nbpeers.Manager, settingsManager settings.Manager, zManager zones.Manager, rManager records.Manager, networkMapController network_map.Controller, idpManager idpmanager.Manager, serviceManager service.Manager, reverseProxyDomainManager *manager.Manager, reverseProxyAccessLogsManager accesslogs.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, trustedHTTPProxies []netip.Prefix, deviceCertPoolUpdater DeviceCertPoolUpdater, managementURL string) (http.Handler, error) {
 
 	// Register bypass paths for unauthenticated endpoints
 	if err := bypass.AddBypassPath("/api/instance"); err != nil {
+		return nil, fmt.Errorf("failed to add bypass path: %w", err)
+	}
+	// CRL endpoint is publicly accessible: PKI clients need to check revocation
+	// without presenting credentials. The path includes a random token segment
+	// that prevents account enumeration.
+	if err := bypass.AddBypassPath("/api/device-auth/crl/*"); err != nil {
 		return nil, fmt.Errorf("failed to add bypass path: %w", err)
 	}
 	if err := bypass.AddBypassPath("/api/setup"); err != nil {
@@ -167,6 +181,7 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 	routes.AddEndpoints(accountManager, router)
 	dns.AddEndpoints(accountManager, router)
 	events.AddEndpoints(accountManager, router)
+	device_auth.AddEndpoints(accountManager.GetStore(), deviceCertPoolUpdater, managementURL, networkMapController, router)
 	networks.AddEndpoints(networksManager, resourceManager, routerManager, groupsManager, accountManager, router)
 	zonesManager.RegisterEndpoints(router, zManager)
 	recordsManager.RegisterEndpoints(router, rManager)
