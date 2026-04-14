@@ -17,17 +17,28 @@ import (
 
 // RedisStoreEnvVar is the environment variable that determines if a redis store should be used.
 // The value should follow redis URL format. https://github.com/redis/redis-specifications/blob/master/uri/redis.txt
-const RedisStoreEnvVar = "NB_IDP_CACHE_REDIS_ADDRESS"
+const RedisStoreEnvVar = "NB_CACHE_REDIS_ADDRESS"
+
+// legacyIdPCacheRedisEnvVar is the previous environment variable used for IDP cache.
+const legacyIdPCacheRedisEnvVar = "NB_IDP_CACHE_REDIS_ADDRESS"
 
 // NewStore creates a new cache store with the given max timeout and cleanup interval. It checks for the environment Variable RedisStoreEnvVar
 // to determine if a redis store should be used. If the environment variable is set, it will attempt to connect to the redis store.
 func NewStore(ctx context.Context, maxTimeout, cleanupInterval time.Duration, maxConn int) (store.StoreInterface, error) {
-	redisAddr := os.Getenv(RedisStoreEnvVar)
+	redisAddr := getAddrFromEnv()
 	if redisAddr != "" {
 		return getRedisStore(ctx, redisAddr, maxConn)
 	}
 	goc := gocache.New(maxTimeout, cleanupInterval)
 	return gocache_store.NewGoCache(goc), nil
+}
+
+func getAddrFromEnv() string {
+	addr := os.Getenv(RedisStoreEnvVar)
+	if addr == "" {
+		addr = os.Getenv(legacyIdPCacheRedisEnvVar)
+	}
+	return addr
 }
 
 func getRedisStore(ctx context.Context, redisEnvAddr string, maxConn int) (store.StoreInterface, error) {
