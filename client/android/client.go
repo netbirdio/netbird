@@ -8,6 +8,7 @@ import (
 	"os"
 	"slices"
 	"sync"
+	"time"
 
 	"golang.org/x/exp/maps"
 
@@ -251,7 +252,10 @@ func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool) (strin
 		}
 	}()
 
-	key, err := debug.UploadDebugBundle(context.Background(), types.DefaultBundleURL, cfg.ManagementURL.String(), path)
+	uploadCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	key, err := debug.UploadDebugBundle(uploadCtx, types.DefaultBundleURL, cfg.ManagementURL.String(), path)
 	if err != nil {
 		return "", fmt.Errorf("upload debug bundle: %w", err)
 	}
