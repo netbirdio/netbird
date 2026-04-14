@@ -58,6 +58,26 @@ type ManagementServiceClient interface {
 	RenewExpose(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*EncryptedMessage, error)
 	// StopExpose terminates an active expose session
 	StopExpose(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*EncryptedMessage, error)
+	// EnrollDevice submits a device certificate enrollment request (CSR).
+	// EncryptedMessage body: DeviceEnrollRequest.
+	// EncryptedMessage response body: DeviceEnrollResponse.
+	EnrollDevice(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*EncryptedMessage, error)
+	// GetEnrollmentStatus polls the status of a pending enrollment request.
+	// EncryptedMessage body: EnrollmentStatusRequest.
+	// EncryptedMessage response body: DeviceEnrollResponse.
+	GetEnrollmentStatus(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*EncryptedMessage, error)
+	// BeginTPMAttestation starts the two-round TPM 2.0 credential activation flow.
+	// The server verifies the EK certificate chain, calls MakeCredential, and returns
+	// a session ID and encrypted credential blob for the client to activate.
+	BeginTPMAttestation(ctx context.Context, in *BeginTPMAttestationRequest, opts ...grpc.CallOption) (*BeginTPMAttestationResponse, error)
+	// CompleteTPMAttestation completes the two-round flow.
+	// The client submits the activated secret (output of TPM2_ActivateCredential).
+	// If the secret matches, the server issues a device certificate.
+	CompleteTPMAttestation(ctx context.Context, in *CompleteTPMAttestationRequest, opts ...grpc.CallOption) (*AttestationResult, error)
+	// AttestAppleSE performs a single-round Apple Secure Enclave attestation.
+	// The client submits its CSR and SE attestation certificate chain;
+	// the server verifies the chain and issues a device certificate.
+	AttestAppleSE(ctx context.Context, in *AttestAppleSERequest, opts ...grpc.CallOption) (*AttestationResult, error)
 }
 
 type managementServiceClient struct {
@@ -221,6 +241,51 @@ func (c *managementServiceClient) StopExpose(ctx context.Context, in *EncryptedM
 	return out, nil
 }
 
+func (c *managementServiceClient) EnrollDevice(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*EncryptedMessage, error) {
+	out := new(EncryptedMessage)
+	err := c.cc.Invoke(ctx, "/management.ManagementService/EnrollDevice", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *managementServiceClient) GetEnrollmentStatus(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*EncryptedMessage, error) {
+	out := new(EncryptedMessage)
+	err := c.cc.Invoke(ctx, "/management.ManagementService/GetEnrollmentStatus", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *managementServiceClient) BeginTPMAttestation(ctx context.Context, in *BeginTPMAttestationRequest, opts ...grpc.CallOption) (*BeginTPMAttestationResponse, error) {
+	out := new(BeginTPMAttestationResponse)
+	err := c.cc.Invoke(ctx, "/management.ManagementService/BeginTPMAttestation", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *managementServiceClient) CompleteTPMAttestation(ctx context.Context, in *CompleteTPMAttestationRequest, opts ...grpc.CallOption) (*AttestationResult, error) {
+	out := new(AttestationResult)
+	err := c.cc.Invoke(ctx, "/management.ManagementService/CompleteTPMAttestation", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *managementServiceClient) AttestAppleSE(ctx context.Context, in *AttestAppleSERequest, opts ...grpc.CallOption) (*AttestationResult, error) {
+	out := new(AttestationResult)
+	err := c.cc.Invoke(ctx, "/management.ManagementService/AttestAppleSE", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ManagementServiceServer is the server API for ManagementService service.
 // All implementations must embed UnimplementedManagementServiceServer
 // for forward compatibility
@@ -265,6 +330,26 @@ type ManagementServiceServer interface {
 	RenewExpose(context.Context, *EncryptedMessage) (*EncryptedMessage, error)
 	// StopExpose terminates an active expose session
 	StopExpose(context.Context, *EncryptedMessage) (*EncryptedMessage, error)
+	// EnrollDevice submits a device certificate enrollment request (CSR).
+	// EncryptedMessage body: DeviceEnrollRequest.
+	// EncryptedMessage response body: DeviceEnrollResponse.
+	EnrollDevice(context.Context, *EncryptedMessage) (*EncryptedMessage, error)
+	// GetEnrollmentStatus polls the status of a pending enrollment request.
+	// EncryptedMessage body: EnrollmentStatusRequest.
+	// EncryptedMessage response body: DeviceEnrollResponse.
+	GetEnrollmentStatus(context.Context, *EncryptedMessage) (*EncryptedMessage, error)
+	// BeginTPMAttestation starts the two-round TPM 2.0 credential activation flow.
+	// The server verifies the EK certificate chain, calls MakeCredential, and returns
+	// a session ID and encrypted credential blob for the client to activate.
+	BeginTPMAttestation(context.Context, *BeginTPMAttestationRequest) (*BeginTPMAttestationResponse, error)
+	// CompleteTPMAttestation completes the two-round flow.
+	// The client submits the activated secret (output of TPM2_ActivateCredential).
+	// If the secret matches, the server issues a device certificate.
+	CompleteTPMAttestation(context.Context, *CompleteTPMAttestationRequest) (*AttestationResult, error)
+	// AttestAppleSE performs a single-round Apple Secure Enclave attestation.
+	// The client submits its CSR and SE attestation certificate chain;
+	// the server verifies the chain and issues a device certificate.
+	AttestAppleSE(context.Context, *AttestAppleSERequest) (*AttestationResult, error)
 	mustEmbedUnimplementedManagementServiceServer()
 }
 
@@ -307,6 +392,21 @@ func (UnimplementedManagementServiceServer) RenewExpose(context.Context, *Encryp
 }
 func (UnimplementedManagementServiceServer) StopExpose(context.Context, *EncryptedMessage) (*EncryptedMessage, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method StopExpose not implemented")
+}
+func (UnimplementedManagementServiceServer) EnrollDevice(context.Context, *EncryptedMessage) (*EncryptedMessage, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method EnrollDevice not implemented")
+}
+func (UnimplementedManagementServiceServer) GetEnrollmentStatus(context.Context, *EncryptedMessage) (*EncryptedMessage, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetEnrollmentStatus not implemented")
+}
+func (UnimplementedManagementServiceServer) BeginTPMAttestation(context.Context, *BeginTPMAttestationRequest) (*BeginTPMAttestationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BeginTPMAttestation not implemented")
+}
+func (UnimplementedManagementServiceServer) CompleteTPMAttestation(context.Context, *CompleteTPMAttestationRequest) (*AttestationResult, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CompleteTPMAttestation not implemented")
+}
+func (UnimplementedManagementServiceServer) AttestAppleSE(context.Context, *AttestAppleSERequest) (*AttestationResult, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AttestAppleSE not implemented")
 }
 func (UnimplementedManagementServiceServer) mustEmbedUnimplementedManagementServiceServer() {}
 
@@ -548,6 +648,96 @@ func _ManagementService_StopExpose_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ManagementService_EnrollDevice_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EncryptedMessage)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ManagementServiceServer).EnrollDevice(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/management.ManagementService/EnrollDevice",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ManagementServiceServer).EnrollDevice(ctx, req.(*EncryptedMessage))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ManagementService_GetEnrollmentStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EncryptedMessage)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ManagementServiceServer).GetEnrollmentStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/management.ManagementService/GetEnrollmentStatus",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ManagementServiceServer).GetEnrollmentStatus(ctx, req.(*EncryptedMessage))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ManagementService_BeginTPMAttestation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BeginTPMAttestationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ManagementServiceServer).BeginTPMAttestation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/management.ManagementService/BeginTPMAttestation",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ManagementServiceServer).BeginTPMAttestation(ctx, req.(*BeginTPMAttestationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ManagementService_CompleteTPMAttestation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CompleteTPMAttestationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ManagementServiceServer).CompleteTPMAttestation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/management.ManagementService/CompleteTPMAttestation",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ManagementServiceServer).CompleteTPMAttestation(ctx, req.(*CompleteTPMAttestationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ManagementService_AttestAppleSE_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AttestAppleSERequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ManagementServiceServer).AttestAppleSE(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/management.ManagementService/AttestAppleSE",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ManagementServiceServer).AttestAppleSE(ctx, req.(*AttestAppleSERequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ManagementService_ServiceDesc is the grpc.ServiceDesc for ManagementService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -594,6 +784,26 @@ var ManagementService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "StopExpose",
 			Handler:    _ManagementService_StopExpose_Handler,
+		},
+		{
+			MethodName: "EnrollDevice",
+			Handler:    _ManagementService_EnrollDevice_Handler,
+		},
+		{
+			MethodName: "GetEnrollmentStatus",
+			Handler:    _ManagementService_GetEnrollmentStatus_Handler,
+		},
+		{
+			MethodName: "BeginTPMAttestation",
+			Handler:    _ManagementService_BeginTPMAttestation_Handler,
+		},
+		{
+			MethodName: "CompleteTPMAttestation",
+			Handler:    _ManagementService_CompleteTPMAttestation_Handler,
+		},
+		{
+			MethodName: "AttestAppleSE",
+			Handler:    _ManagementService_AttestAppleSE_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

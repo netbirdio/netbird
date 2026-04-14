@@ -60,6 +60,33 @@ service ManagementService {
 
   // StopExpose terminates an active expose session
   rpc StopExpose(EncryptedMessage) returns (EncryptedMessage) {}
+
+  // EnrollDevice submits a device certificate enrollment request (CSR).
+  // EncryptedMessage body: DeviceEnrollRequest.
+  // EncryptedMessage response body: DeviceEnrollResponse.
+  rpc EnrollDevice(EncryptedMessage) returns (EncryptedMessage) {}
+
+  // GetEnrollmentStatus polls the status of a pending enrollment request.
+  // EncryptedMessage body: EnrollmentStatusRequest.
+  // EncryptedMessage response body: DeviceEnrollResponse.
+  rpc GetEnrollmentStatus(EncryptedMessage) returns (EncryptedMessage) {}
+
+  // ── Hardware attestation RPCs ─────────────────────────────────────────────
+
+  // BeginTPMAttestation starts the two-round TPM 2.0 credential activation flow.
+  // The server verifies the EK certificate chain, calls MakeCredential, and returns
+  // a session ID and encrypted credential blob for the client to activate.
+  rpc BeginTPMAttestation(BeginTPMAttestationRequest) returns (BeginTPMAttestationResponse) {}
+
+  // CompleteTPMAttestation completes the two-round flow.
+  // The client submits the activated secret (output of TPM2_ActivateCredential).
+  // If the secret matches, the server issues a device certificate.
+  rpc CompleteTPMAttestation(CompleteTPMAttestationRequest) returns (AttestationResult) {}
+
+  // AttestAppleSE performs a single-round Apple Secure Enclave attestation.
+  // The client submits its CSR and SE attestation certificate chain;
+  // the server verifies the chain and issues a device certificate.
+  rpc AttestAppleSE(AttestAppleSERequest) returns (AttestationResult) {}
 }
 
 message EncryptedMessage {
@@ -239,6 +266,11 @@ message ServerKeyResponse {
   google.protobuf.Timestamp expiresAt = 2;
   // Version of the Netbird Management Service protocol
   int32 version = 3;
+  // Capabilities lists optional server features that clients can negotiate.
+  // An absent or empty slice means the server does not support any optional features.
+  // Old clients safely ignore this field (proto backward compatibility).
+  // Known values: "DEVICE_CERT_AUTH", "DEVICE_ATTESTATION"
+  repeated string capabilities = 4;
 }
 
 message Empty {}
@@ -684,3 +716,101 @@ message StopExposeRequest {
 }
 
 message StopExposeResponse {}
+
+// DeviceEnrollRequest is the body of an EnrollDevice RPC call.
+// The peer submits a PEM-encoded PKCS#10 CSR and its WireGuard public key.
+message DeviceEnrollRequest {
+  // wg_pub_key is the peer's WireGuard public key (also the CN of the issued certificate).
+  string wg_pub_key = 1;
+  // csr_pem is the PEM-encoded PKCS#10 certificate signing request.
+  string csr_pem = 2;
+  // system_info is a JSON-encoded snapshot of PeerSystemMeta for audit purposes.
+  string system_info = 3;
+  // attestation_proof carries the TPM attestation evidence when the client supports it.
+  // When present the server attempts automatic enrollment without admin approval.
+  // Absent on platforms that do not support TPM attestation (e.g. macOS Secure Enclave).
+  AttestationProof attestation_proof = 4;
+}
+
+// AttestationProof bundles the TPM 2.0 EK certificate and AK certify structures
+// needed for server-side attestation verification.
+message AttestationProof {
+  // ek_cert is the DER-encoded TPM Endorsement Key certificate issued by the manufacturer.
+  bytes ek_cert = 1;
+  // certify_info is the TPMS_ATTEST structure returned by TPM2_Certify, DER-encoded.
+  bytes certify_info = 2;
+  // certify_signature is the TPMT_SIGNATURE over certify_info, DER-encoded.
+  bytes certify_signature = 3;
+  // ak_pub is the DER-encoded SubjectPublicKeyInfo of the Attestation Key used to sign certify_info.
+  bytes ak_pub = 4;
+}
+
+// DeviceEnrollResponse is returned by EnrollDevice and GetEnrollmentStatus.
+message DeviceEnrollResponse {
+  // enrollment_id uniquely identifies this request (can be used to poll status).
+  string enrollment_id = 1;
+  // status is one of: pending | approved | rejected.
+  string status = 2;
+  // device_cert_pem is set when status == "approved".
+  string device_cert_pem = 3;
+  // reason is set when status == "rejected".
+  string reason = 4;
+}
+
+// EnrollmentStatusRequest is the body of a GetEnrollmentStatus RPC call.
+message EnrollmentStatusRequest {
+  // enrollment_id is the ID returned by EnrollDevice.
+  string enrollment_id = 1;
+}
+
+// ── Hardware attestation messages ─────────────────────────────────────────────
+
+// AttestationResult is returned by both TPM and Apple SE attestation RPCs.
+message AttestationResult {
+  // enrollment_id uniquely identifies this enrollment record.
+  string enrollment_id   = 1;
+  // status is one of: "pending" | "approved".
+  string status          = 2;
+  // device_cert_pem is the issued device certificate, set when status == "approved".
+  string device_cert_pem = 3;
+}
+
+// BeginTPMAttestationRequest starts the two-round TPM 2.0 credential activation.
+message BeginTPMAttestationRequest {
+  // ak_pub_pem is the Attestation Key public key encoded as PEM SubjectPublicKeyInfo.
+  string ak_pub_pem  = 1;
+  // ek_cert_pem is the Endorsement Key certificate chain (leaf + intermediates), PEM.
+  string ek_cert_pem = 2;
+  // csr_pem is the PKCS#10 certificate signing request, PEM.
+  string csr_pem     = 3;
+  // system_info is a JSON-encoded metadata blob (hostname, OS, serial, wg_pub_key).
+  string system_info = 4;
+}
+
+// BeginTPMAttestationResponse carries the server's credential challenge.
+message BeginTPMAttestationResponse {
+  // session_id is an opaque 32-byte hex token; pass to CompleteTPMAttestation.
+  string session_id      = 1;
+  // credential_blob is the output of server.MakeCredential (TPM2B_ID_OBJECT +
+  // TPM2B_ENCRYPTED_SECRET). The client decrypts it with TPM2_ActivateCredential.
+  bytes  credential_blob = 2;
+}
+
+// CompleteTPMAttestationRequest submits the activated secret to finish attestation.
+message CompleteTPMAttestationRequest {
+  // session_id is the opaque token returned by BeginTPMAttestation.
+  string session_id       = 1;
+  // activated_secret is the plaintext output of TPM2_ActivateCredential.
+  bytes  activated_secret = 2;
+}
+
+// AttestAppleSERequest performs a single-round Apple Secure Enclave attestation.
+message AttestAppleSERequest {
+  // csr_pem is the PKCS#10 certificate signing request, PEM.
+  string csr_pem                   = 1;
+  // attestation_pems contains the SE attestation certificate chain
+  // (leaf first, root last), one PEM block per element.
+  repeated string attestation_pems = 2;
+  // system_info is a JSON-encoded metadata blob.
+  string system_info               = 3;
+}
