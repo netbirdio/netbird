@@ -8,37 +8,29 @@ import (
 	"sync"
 	"syscall/js"
 
-	log "github.com/sirupsen/logrus"
-
 	netbird "github.com/netbirdio/netbird/client/embed"
-	"github.com/netbirdio/netbird/util/capture"
 )
 
-// Handle holds a running capture session and the embedded client reference
-// so it can be stopped later.
+// Handle holds a running capture session so it can be stopped later.
 type Handle struct {
-	client  *netbird.Client
-	sess    *capture.Session
+	cs      *netbird.CaptureSession
 	stopFn  js.Func
 	stopped bool
 }
 
 // Stop ends the capture and returns stats.
-func (h *Handle) Stop() capture.Stats {
+func (h *Handle) Stop() netbird.CaptureStats {
 	if h.stopped {
-		return h.sess.Stats()
+		return h.cs.Stats()
 	}
 	h.stopped = true
 	h.stopFn.Release()
 
-	if err := h.client.SetCapture(nil); err != nil {
-		log.Debugf("clear capture: %v", err)
-	}
-	h.sess.Stop()
-	return h.sess.Stats()
+	h.cs.Stop()
+	return h.cs.Stats()
 }
 
-func statsToJS(s capture.Stats) js.Value {
+func statsToJS(s netbird.CaptureStats) js.Value {
 	obj := js.Global().Get("Object").Call("create", js.Null())
 	obj.Set("packets", js.ValueOf(s.Packets))
 	obj.Set("bytes", js.ValueOf(s.Bytes))
@@ -70,13 +62,6 @@ func parseOpts(jsOpts js.Value) (filter string, verbose, ascii bool) {
 	return
 }
 
-func buildMatcher(filter string) (capture.Matcher, error) {
-	if filter == "" {
-		return nil, nil
-	}
-	return capture.ParseFilter(filter)
-}
-
 // Start creates a capture session and returns a JS interface for streaming text
 // output. The returned object exposes:
 //
@@ -87,16 +72,11 @@ func buildMatcher(filter string) (capture.Matcher, error) {
 func Start(client *netbird.Client, jsOpts js.Value) (js.Value, error) {
 	filter, verbose, ascii := parseOpts(jsOpts)
 
-	matcher, err := buildMatcher(filter)
-	if err != nil {
-		return js.Undefined(), err
-	}
-
 	cb := &jsCallbackWriter{}
 
-	sess, err := capture.NewSession(capture.Options{
+	cs, err := client.StartCapture(netbird.CaptureOptions{
 		TextOutput: cb,
-		Matcher:    matcher,
+		Filter:     filter,
 		Verbose:    verbose,
 		ASCII:      ascii,
 	})
@@ -104,12 +84,7 @@ func Start(client *netbird.Client, jsOpts js.Value) (js.Value, error) {
 		return js.Undefined(), err
 	}
 
-	if err := client.SetCapture(sess); err != nil {
-		sess.Stop()
-		return js.Undefined(), err
-	}
-
-	handle := &Handle{client: client, sess: sess}
+	handle := &Handle{cs: cs}
 
 	iface := js.Global().Get("Object").Call("create", js.Null())
 	handle.stopFn = js.FuncOf(func(_ js.Value, _ []js.Value) any {
@@ -127,16 +102,11 @@ func Start(client *netbird.Client, jsOpts js.Value) (js.Value, error) {
 func StartConsole(client *netbird.Client, jsOpts js.Value) (*Handle, error) {
 	filter, verbose, ascii := parseOpts(jsOpts)
 
-	matcher, err := buildMatcher(filter)
-	if err != nil {
-		return nil, err
-	}
-
 	cb := &jsCallbackWriter{}
 
-	sess, err := capture.NewSession(capture.Options{
+	cs, err := client.StartCapture(netbird.CaptureOptions{
 		TextOutput: cb,
-		Matcher:    matcher,
+		Filter:     filter,
 		Verbose:    verbose,
 		ASCII:      ascii,
 	})
@@ -144,12 +114,7 @@ func StartConsole(client *netbird.Client, jsOpts js.Value) (*Handle, error) {
 		return nil, err
 	}
 
-	if err := client.SetCapture(sess); err != nil {
-		sess.Stop()
-		return nil, err
-	}
-
-	handle := &Handle{client: client, sess: sess}
+	handle := &Handle{cs: cs}
 	handle.stopFn = js.FuncOf(func(_ js.Value, _ []js.Value) any {
 		return statsToJS(handle.Stop())
 	})

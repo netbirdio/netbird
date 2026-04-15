@@ -24,7 +24,6 @@ import (
 	"github.com/netbirdio/netbird/proxy/internal/health"
 	"github.com/netbirdio/netbird/proxy/internal/roundtrip"
 	"github.com/netbirdio/netbird/proxy/internal/types"
-	"github.com/netbirdio/netbird/util/capture"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -667,21 +666,12 @@ func (h *Handler) handleCapture(w http.ResponseWriter, r *http.Request, accountI
 		}
 	}
 
-	var matcher capture.Matcher
-	if expr := r.URL.Query().Get("filter"); expr != "" {
-		var err error
-		matcher, err = capture.ParseFilter(expr)
-		if err != nil {
-			http.Error(w, "invalid filter: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-	}
-
+	filter := r.URL.Query().Get("filter")
 	wantText := r.URL.Query().Get("format") == "text"
 	verbose := r.URL.Query().Get("verbose") == "true"
 	ascii := r.URL.Query().Get("ascii") == "true"
 
-	opts := capture.Options{Matcher: matcher, Verbose: verbose, ASCII: ascii}
+	opts := nbembed.CaptureOptions{Filter: filter, Verbose: verbose, ASCII: ascii}
 	if wantText {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		opts.TextOutput = w
@@ -692,18 +682,12 @@ func (h *Handler) handleCapture(w http.ResponseWriter, r *http.Request, accountI
 		opts.Output = w
 	}
 
-	sess, err := capture.NewSession(opts)
+	cs, err := client.StartCapture(opts)
 	if err != nil {
-		http.Error(w, "create capture session: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "start capture: "+err.Error(), http.StatusServiceUnavailable)
 		return
 	}
-	defer sess.Stop()
-
-	if err := client.SetCapture(sess); err != nil {
-		http.Error(w, "set capture: "+err.Error(), http.StatusServiceUnavailable)
-		return
-	}
-	defer client.SetCapture(nil) //nolint:errcheck
+	defer cs.Stop()
 
 	// Flush headers after setup succeeds so errors above can still set status codes.
 	if f, ok := w.(http.Flusher); ok {
@@ -718,12 +702,9 @@ func (h *Handler) handleCapture(w http.ResponseWriter, r *http.Request, accountI
 	case <-timer.C:
 	}
 
-	if err := client.SetCapture(nil); err != nil {
-		h.logger.Debugf("clear capture: %v", err)
-	}
-	sess.Stop()
+	cs.Stop()
 
-	stats := sess.Stats()
+	stats := cs.Stats()
 	h.logger.Infof("capture for %s finished: %d packets, %d bytes, %d dropped",
 		accountID, stats.Packets, stats.Bytes, stats.Dropped)
 }
