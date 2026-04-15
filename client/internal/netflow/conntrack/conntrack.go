@@ -47,19 +47,36 @@ type ConnTrack struct {
 	sysctlModified bool
 }
 
+// DialFunc is a constructor for netlink conntrack connections.
+type DialFunc func() (listener, error)
+
+// Option configures a ConnTrack instance.
+type Option func(*ConnTrack)
+
+// WithDialer overrides the default netlink dialer, primarily for testing.
+func WithDialer(dial DialFunc) Option {
+	return func(c *ConnTrack) {
+		c.dial = dial
+	}
+}
+
 func defaultDial() (listener, error) {
 	return nfct.Dial(nil)
 }
 
 // New creates a new connection tracker that interfaces with the kernel's conntrack system
-func New(flowLogger nftypes.FlowLogger, iface nftypes.IFaceMapper) *ConnTrack {
-	return &ConnTrack{
+func New(flowLogger nftypes.FlowLogger, iface nftypes.IFaceMapper, opts ...Option) *ConnTrack {
+	ct := &ConnTrack{
 		flowLogger: flowLogger,
 		iface:      iface,
 		instanceID: uuid.New(),
 		dial:       defaultDial,
 		done:       make(chan struct{}, 1),
 	}
+	for _, opt := range opts {
+		opt(ct)
+	}
+	return ct
 }
 
 // Start begins tracking connections by listening for conntrack events. This method is idempotent.
