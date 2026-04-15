@@ -80,6 +80,10 @@ func (m *managerImpl) GetAllRoutersInAccount(ctx context.Context, accountID, use
 }
 
 func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *types.NetworkRouter) (*types.NetworkRouter, error) {
+	if err := router.Validate(); err != nil {
+		return nil, status.Errorf(status.InvalidArgument, "invalid router: %s", err)
+	}
+
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, router.AccountID, userID, modules.Networks, operations.Create)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
@@ -146,6 +150,10 @@ func (m *managerImpl) GetRouter(ctx context.Context, accountID, userID, networkI
 }
 
 func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *types.NetworkRouter) (*types.NetworkRouter, error) {
+	if err := router.Validate(); err != nil {
+		return nil, status.Errorf(status.InvalidArgument, "invalid router: %s", err)
+	}
+
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, router.AccountID, userID, modules.Networks, operations.Update)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
