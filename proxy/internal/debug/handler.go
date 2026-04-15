@@ -24,6 +24,7 @@ import (
 	"github.com/netbirdio/netbird/proxy/internal/health"
 	"github.com/netbirdio/netbird/proxy/internal/roundtrip"
 	"github.com/netbirdio/netbird/proxy/internal/types"
+	"github.com/netbirdio/netbird/util/capture"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -174,6 +175,8 @@ func (h *Handler) handleClientRoutes(w http.ResponseWriter, r *http.Request, pat
 		h.handleClientStart(w, r, accountID)
 	case "stop":
 		h.handleClientStop(w, r, accountID)
+	case "capture":
+		h.handleCapture(w, r, accountID)
 	default:
 		return false
 	}
@@ -630,6 +633,99 @@ func (h *Handler) handleClientStop(w http.ResponseWriter, r *http.Request, accou
 		"success": true,
 		"message": "client stopped",
 	})
+}
+
+const maxCaptureDuration = 30 * time.Minute
+
+// handleCapture streams a pcap or text packet capture for the given client.
+//
+// Query params:
+//
+//	duration: capture duration (0 or absent = max, capped at 30m)
+//	format:   "text" for human-readable output (default: pcap)
+//	filter:   BPF-like filter expression (e.g. "host 10.0.0.1 and tcp port 443")
+func (h *Handler) handleCapture(w http.ResponseWriter, r *http.Request, accountID types.AccountID) {
+	client, ok := h.provider.GetClient(accountID)
+	if !ok {
+		http.Error(w, "client not found", http.StatusNotFound)
+		return
+	}
+
+	duration := maxCaptureDuration
+	if durationStr := r.URL.Query().Get("duration"); durationStr != "" {
+		d, err := time.ParseDuration(durationStr)
+		if err != nil {
+			http.Error(w, "invalid duration: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if d < 0 {
+			http.Error(w, "duration must not be negative", http.StatusBadRequest)
+			return
+		}
+		if d > 0 {
+			duration = min(d, maxCaptureDuration)
+		}
+	}
+
+	var matcher capture.Matcher
+	if expr := r.URL.Query().Get("filter"); expr != "" {
+		var err error
+		matcher, err = capture.ParseFilter(expr)
+		if err != nil {
+			http.Error(w, "invalid filter: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
+	wantText := r.URL.Query().Get("format") == "text"
+	verbose := r.URL.Query().Get("verbose") == "true"
+	ascii := r.URL.Query().Get("ascii") == "true"
+
+	opts := capture.Options{Matcher: matcher, Verbose: verbose, ASCII: ascii}
+	if wantText {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		opts.TextOutput = w
+	} else {
+		w.Header().Set("Content-Type", "application/vnd.tcpdump.pcap")
+		w.Header().Set("Content-Disposition",
+			fmt.Sprintf("attachment; filename=capture-%s.pcap", accountID))
+		opts.Output = w
+	}
+
+	sess, err := capture.NewSession(opts)
+	if err != nil {
+		http.Error(w, "create capture session: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer sess.Stop()
+
+	if err := client.SetCapture(sess); err != nil {
+		http.Error(w, "set capture: "+err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	defer client.SetCapture(nil) //nolint:errcheck
+
+	// Flush headers after setup succeeds so errors above can still set status codes.
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+
+	select {
+	case <-r.Context().Done():
+	case <-timer.C:
+	}
+
+	if err := client.SetCapture(nil); err != nil {
+		h.logger.Debugf("clear capture: %v", err)
+	}
+	sess.Stop()
+
+	stats := sess.Stats()
+	h.logger.Infof("capture for %s finished: %d packets, %d bytes, %d dropped",
+		accountID, stats.Packets, stats.Bytes, stats.Dropped)
 }
 
 func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request, wantJSON bool) {

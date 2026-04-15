@@ -310,6 +310,76 @@ func (c *Client) printError(data map[string]any) {
 	}
 }
 
+// CaptureOptions configures a capture request.
+type CaptureOptions struct {
+	AccountID  string
+	Duration   string
+	FilterExpr string
+	Text       bool
+	Verbose    bool
+	ASCII      bool
+	Output     io.Writer
+}
+
+// Capture streams a packet capture from the debug endpoint. The response body
+// (pcap or text) is written directly to opts.Output until the server closes the
+// connection or the context is cancelled.
+func (c *Client) Capture(ctx context.Context, opts CaptureOptions) error {
+	if opts.AccountID == "" {
+		return fmt.Errorf("account ID is required")
+	}
+	if opts.Output == nil {
+		return fmt.Errorf("output writer is required")
+	}
+
+	params := url.Values{}
+	if opts.Duration != "" {
+		params.Set("duration", opts.Duration)
+	}
+	if opts.FilterExpr != "" {
+		params.Set("filter", opts.FilterExpr)
+	}
+	if opts.Text {
+		params.Set("format", "text")
+	}
+	if opts.Verbose {
+		params.Set("verbose", "true")
+	}
+	if opts.ASCII {
+		params.Set("ascii", "true")
+	}
+
+	path := fmt.Sprintf("/debug/clients/%s/capture", url.PathEscape(opts.AccountID))
+	if len(params) > 0 {
+		path += "?" + params.Encode()
+	}
+
+	fullURL := c.baseURL + path
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+
+	// Use a separate client without timeout since captures stream for their full duration.
+	httpClient := &http.Client{}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("server error (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	_, err = io.Copy(opts.Output, resp.Body)
+	if err != nil && ctx.Err() != nil {
+		return nil
+	}
+	return err
+}
+
 func (c *Client) fetchAndPrint(ctx context.Context, path string, printer func(map[string]any)) error {
 	data, raw, err := c.fetch(ctx, path)
 	if err != nil {

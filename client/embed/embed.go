@@ -24,6 +24,7 @@ import (
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/util/capture"
 )
 
 var (
@@ -487,6 +488,22 @@ func (c *Client) getEngine() (*internal.Engine, error) {
 	}
 
 	return engine, nil
+}
+
+// SetCapture sets or clears packet capture on this client's WireGuard device.
+// Pass nil to disable capture.
+func (c *Client) SetCapture(sess *capture.Session) error {
+	engine, err := c.getEngine()
+	if err != nil {
+		return err
+	}
+	// Explicit nil check to avoid wrapping a nil *Session in the
+	// device.PacketCapture interface, which would appear non-nil to
+	// FilteredDevice and cause a nil-pointer dereference in Offer.
+	if sess == nil {
+		return engine.SetCapture(nil)
+	}
+	return engine.SetCapture(sess)
 }
 
 func (c *Client) getNet() (*wgnetstack.Net, netip.Addr, error) {

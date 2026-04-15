@@ -500,6 +500,7 @@ func fieldToGlobalVar(field string) string {
 		"LogFiles":              "logFiles",
 		"DisableProfiles":       "profilesDisabled",
 		"DisableUpdateSettings": "updateSettingsDisabled",
+		"EnableCapture":         "captureEnabled",
 		"ServiceEnvVars":        "serviceEnvVars",
 	}
 	if v, ok := m[field]; ok {
