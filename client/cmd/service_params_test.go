@@ -327,6 +327,41 @@ func TestApplyServiceEnvParams_NotChanged(t *testing.T) {
 	assert.Equal(t, map[string]string{"FROM_SAVED": "val"}, result)
 }
 
+func TestApplyServiceEnvParams_ExplicitEmptyClears(t *testing.T) {
+	origServiceEnvVars := serviceEnvVars
+	t.Cleanup(func() { serviceEnvVars = origServiceEnvVars })
+
+	// Simulate --service-env "" which produces [""] in the slice.
+	serviceEnvVars = []string{""}
+
+	cmd := &cobra.Command{}
+	cmd.Flags().StringSlice("service-env", nil, "")
+	require.NoError(t, cmd.Flags().Set("service-env", ""))
+
+	saved := &serviceParams{
+		ServiceEnvVars: map[string]string{"OLD_VAR": "should_be_cleared"},
+	}
+
+	applyServiceEnvParams(cmd, saved)
+
+	assert.Nil(t, serviceEnvVars, "explicit empty --service-env should clear all saved env vars")
+}
+
+func TestCurrentServiceParams_EmptyEnvVarsAfterParse(t *testing.T) {
+	origServiceEnvVars := serviceEnvVars
+	t.Cleanup(func() { serviceEnvVars = origServiceEnvVars })
+
+	// Simulate --service-env "" which produces [""] in the slice.
+	serviceEnvVars = []string{""}
+
+	params := currentServiceParams()
+
+	// After parsing, the empty string is skipped, resulting in an empty map.
+	// The map should still be set (not nil) so it overwrites saved values.
+	assert.NotNil(t, params.ServiceEnvVars, "empty env vars should produce empty map, not nil")
+	assert.Empty(t, params.ServiceEnvVars, "no valid env vars should be parsed from empty string")
+}
+
 // TestServiceParams_FieldsCoveredInFunctions ensures that all serviceParams fields are
 // referenced in both currentServiceParams() and applyServiceParams(). If a new field is
 // added to serviceParams but not wired into these functions, this test fails.

@@ -48,6 +48,8 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&serviceName, "service", "s", defaultServiceName, "Netbird system service name")
 	serviceEnvDesc := `Sets extra environment variables for the service. ` +
 		`You can specify a comma-separated list of KEY=VALUE pairs. ` +
+		`New keys are merged with previously saved env vars; existing keys are overwritten. ` +
+		`Use --service-env "" to clear all saved env vars. ` +
 		`E.g. --service-env NB_LOG_LEVEL=debug,CUSTOM_VAR=value`
 
 	installCmd.Flags().StringSliceVar(&serviceEnvVars, "service-env", nil, serviceEnvDesc)
