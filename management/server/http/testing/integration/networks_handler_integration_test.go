@@ -1170,13 +1170,17 @@ func Test_NetworkRouters_Create(t *testing.T) {
 				Metric:     100,
 				Enabled:    true,
 			},
-			expectedStatus: http.StatusOK,
-			verifyResponse: func(t *testing.T, router *api.NetworkRouter) {
-				t.Helper()
-				assert.NotEmpty(t, router.Id)
-				assert.Equal(t, peerID, *router.Peer)
-				assert.Equal(t, 1, len(*router.PeerGroups))
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:      "Create router without peer and peer_groups",
+			networkId: "testNetworkId",
+			requestBody: &api.NetworkRouterRequest{
+				Masquerade: true,
+				Metric:     100,
+				Enabled:    true,
 			},
+			expectedStatus: http.StatusBadRequest,
 		},
 		{
 			name:      "Create router in non-existing network",
@@ -1341,13 +1345,18 @@ func Test_NetworkRouters_Update(t *testing.T) {
 				Metric:     100,
 				Enabled:    true,
 			},
-			expectedStatus: http.StatusOK,
-			verifyResponse: func(t *testing.T, router *api.NetworkRouter) {
-				t.Helper()
-				assert.Equal(t, "testRouterId", router.Id)
-				assert.Equal(t, peerID, *router.Peer)
-				assert.Equal(t, 1, len(*router.PeerGroups))
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:      "Update router without peer and peer_groups",
+			networkId: "testNetworkId",
+			routerId:  "testRouterId",
+			requestBody: &api.NetworkRouterRequest{
+				Masquerade: true,
+				Metric:     100,
+				Enabled:    true,
 			},
+			expectedStatus: http.StatusBadRequest,
 		},
 	}
 
