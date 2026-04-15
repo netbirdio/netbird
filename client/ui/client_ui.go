@@ -314,6 +314,7 @@ type serviceClient struct {
 	lastNotifiedVersion  string
 	settingsEnabled      bool
 	profilesEnabled      bool
+	networksEnabled      bool
 	showNetworks         bool
 	wNetworks            fyne.Window
 	wProfiles            fyne.Window
@@ -368,6 +369,7 @@ func newServiceClient(args *newServiceClientArgs) *serviceClient {
 
 		showAdvancedSettings: args.showSettings,
 		showNetworks:         args.showNetworks,
+		networksEnabled:      true,
 	}
 
 	s.eventHandler = newEventHandler(s)
@@ -920,8 +922,10 @@ func (s *serviceClient) updateStatus() error {
 			s.mStatus.SetIcon(s.icConnectedDot)
 			s.mUp.Disable()
 			s.mDown.Enable()
-			s.mNetworks.Enable()
-			s.mExitNode.Enable()
+			if s.networksEnabled {
+				s.mNetworks.Enable()
+				s.mExitNode.Enable()
+			}
 			s.startExitNodeRefresh()
 			systrayIconState = true
 		case status.Status == string(internal.StatusConnecting):
@@ -1297,6 +1301,19 @@ func (s *serviceClient) checkAndUpdateFeatures() {
 		if s.profilesEnabled != profilesEnabled {
 			s.profilesEnabled = profilesEnabled
 			s.mProfile.setEnabled(profilesEnabled)
+		}
+	}
+
+	// Update networks and exit node menus based on current features
+	networksEnabled := features == nil || !features.DisableNetworks
+	if s.networksEnabled != networksEnabled {
+		s.networksEnabled = networksEnabled
+		if networksEnabled {
+			s.mNetworks.Enable()
+			s.mExitNode.Enable()
+		} else {
+			s.mNetworks.Disable()
+			s.mExitNode.Disable()
 		}
 	}
 }

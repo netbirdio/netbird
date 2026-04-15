@@ -535,6 +535,7 @@ func fieldToGlobalVar(field string) string {
 		"LogFiles":              "logFiles",
 		"DisableProfiles":       "profilesDisabled",
 		"DisableUpdateSettings": "updateSettingsDisabled",
+		"DisableNetworks":       "networksDisabled",
 		"ServiceEnvVars":        "serviceEnvVars",
 	}
 	if v, ok := m[field]; ok {
