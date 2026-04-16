@@ -1305,16 +1305,13 @@ func (s *serviceClient) checkAndUpdateFeatures() {
 	}
 
 	// Update networks and exit node menus based on current features
-	networksEnabled := features == nil || !features.DisableNetworks
-	if s.networksEnabled != networksEnabled {
-		s.networksEnabled = networksEnabled
-		if networksEnabled {
-			s.mNetworks.Enable()
-			s.mExitNode.Enable()
-		} else {
-			s.mNetworks.Disable()
-			s.mExitNode.Disable()
-		}
+	s.networksEnabled = features == nil || !features.DisableNetworks
+	if s.networksEnabled && s.connected {
+		s.mNetworks.Enable()
+		s.mExitNode.Enable()
+	} else {
+		s.mNetworks.Disable()
+		s.mExitNode.Disable()
 	}
 }
 
