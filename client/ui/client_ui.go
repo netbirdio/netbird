@@ -1097,13 +1097,13 @@ func (s *serviceClient) onTrayReady() {
 		s.getSrvConfig()
 		time.Sleep(100 * time.Millisecond) // To prevent race condition caused by systray not being fully initialized and ignoring setIcon
 		for {
+			// Check features before status so menus respect disable flags before being enabled
+			s.checkAndUpdateFeatures()
+
 			err := s.updateStatus()
 			if err != nil {
 				log.Errorf("error while updating status: %v", err)
 			}
-
-			// Check features periodically to handle daemon restarts
-			s.checkAndUpdateFeatures()
 
 			time.Sleep(2 * time.Second)
 		}
