@@ -179,7 +179,7 @@ func (am *DefaultAccountManager) getJWTGroupsChanges(user *types.User, groups []
 	return modified, newUserAutoGroups, newGroupsToCreate, nil
 }
 
-// BuildManager creates a new DefaultAccountManager with a provided Store
+// BuildManager creates a new DefaultAccountManager with all dependencies.
 func BuildManager(
 	ctx context.Context,
 	config *nbconfig.Config,
@@ -197,6 +197,7 @@ func BuildManager(
 	settingsManager settings.Manager,
 	permissionsManager permissions.Manager,
 	disableDefaultPolicy bool,
+	sharedCacheStore cacheStore.StoreInterface,
 ) (*DefaultAccountManager, error) {
 	start := time.Now()
 	defer func() {
@@ -245,16 +246,12 @@ func BuildManager(
 		log.WithContext(ctx).Infof("single account mode disabled, accounts number %d", accountsCounter)
 	}
 
-	cacheStore, err := nbcache.NewStore(ctx, nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval, nbcache.DefaultIDPCacheOpenConn)
-	if err != nil {
-		return nil, fmt.Errorf("getting cache store: %s", err)
-	}
-	am.externalCacheManager = nbcache.NewUserDataCache(cacheStore)
-	am.cacheManager = nbcache.NewAccountUserDataCache(am.loadAccount, cacheStore)
+	am.externalCacheManager = nbcache.NewUserDataCache(sharedCacheStore)
+	am.cacheManager = nbcache.NewAccountUserDataCache(am.loadAccount, sharedCacheStore)
 
 	if !isNil(am.idpManager) && !IsEmbeddedIdp(am.idpManager) {
 		go func() {
-			err := am.warmupIDPCache(ctx, cacheStore)
+			err := am.warmupIDPCache(ctx, sharedCacheStore)
 			if err != nil {
 				log.WithContext(ctx).Warnf("failed warming up cache due to error: %v", err)
 				// todo retry?

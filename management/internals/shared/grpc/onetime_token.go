@@ -14,8 +14,6 @@ import (
 	"github.com/eko/gocache/lib/v4/cache"
 	"github.com/eko/gocache/lib/v4/store"
 	log "github.com/sirupsen/logrus"
-
-	nbcache "github.com/netbirdio/netbird/management/server/cache"
 )
 
 type tokenMetadata struct {
@@ -32,17 +30,12 @@ type OneTimeTokenStore struct {
 	ctx   context.Context
 }
 
-// NewOneTimeTokenStore creates a token store with automatic backend selection
-func NewOneTimeTokenStore(ctx context.Context, maxTimeout, cleanupInterval time.Duration, maxConn int) (*OneTimeTokenStore, error) {
-	cacheStore, err := nbcache.NewStore(ctx, maxTimeout, cleanupInterval, maxConn)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create cache store: %w", err)
-	}
-
+// NewOneTimeTokenStore creates a token store using the provided shared cache store.
+func NewOneTimeTokenStore(ctx context.Context, cacheStore store.StoreInterface) *OneTimeTokenStore {
 	return &OneTimeTokenStore{
 		cache: cache.New[string](cacheStore),
 		ctx:   ctx,
-	}, nil
+	}
 }
 
 // GenerateToken creates a new cryptographically secure one-time token

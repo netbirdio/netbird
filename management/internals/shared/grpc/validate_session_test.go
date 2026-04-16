@@ -39,11 +39,8 @@ func setupValidateSessionTest(t *testing.T) *validateSessionTestSetup {
 	usersManager := &testValidateSessionUsersManager{store: testStore}
 	proxyManager := &testValidateSessionProxyManager{}
 
-	tokenStore, err := NewOneTimeTokenStore(ctx, time.Minute, 10*time.Minute, 100)
-	require.NoError(t, err)
-
-	pkceStore, err := NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
-	require.NoError(t, err)
+	tokenStore := NewOneTimeTokenStore(ctx, testCacheStore(t))
+	pkceStore := NewPKCEVerifierStore(ctx, testCacheStore(t))
 
 	proxyService := NewProxyServiceServer(nil, tokenStore, pkceStore, ProxyOIDCConfig{}, nil, usersManager, proxyManager)
 	proxyService.SetServiceManager(serviceManager)
@@ -327,7 +324,7 @@ func (m *testValidateSessionServiceManager) GetActiveClusters(_ context.Context,
 
 type testValidateSessionProxyManager struct{}
 
-func (m *testValidateSessionProxyManager) Connect(_ context.Context, _, _, _ string) error {
+func (m *testValidateSessionProxyManager) Connect(_ context.Context, _, _, _ string, _ *proxy.Capabilities) error {
 	return nil
 }
 
@@ -335,7 +332,7 @@ func (m *testValidateSessionProxyManager) Disconnect(_ context.Context, _ string
 	return nil
 }
 
-func (m *testValidateSessionProxyManager) Heartbeat(_ context.Context, _ string) error {
+func (m *testValidateSessionProxyManager) Heartbeat(_ context.Context, _, _, _ string) error {
 	return nil
 }
 
@@ -348,6 +345,18 @@ func (m *testValidateSessionProxyManager) GetActiveClusters(_ context.Context) (
 }
 
 func (m *testValidateSessionProxyManager) CleanupStale(_ context.Context, _ time.Duration) error {
+	return nil
+}
+
+func (m *testValidateSessionProxyManager) ClusterSupportsCustomPorts(_ context.Context, _ string) *bool {
+	return nil
+}
+
+func (m *testValidateSessionProxyManager) ClusterRequireSubdomain(_ context.Context, _ string) *bool {
+	return nil
+}
+
+func (m *testValidateSessionProxyManager) ClusterSupportsCrowdSec(_ context.Context, _ string) *bool {
 	return nil
 }
 
