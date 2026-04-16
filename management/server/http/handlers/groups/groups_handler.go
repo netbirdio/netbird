@@ -52,7 +52,7 @@ func (h *handler) getAllGroups(w http.ResponseWriter, r *http.Request, userAuth 
 			return
 		}
 
-		accountPeers, err := h.accountManager.GetPeers(r.Context(), userAuth.AccountId, userAuth.UserId, "", "")
+		accountPeers, err := h.accountManager.GetPeers(r.Context(), userAuth.AccountId, userAuth.UserId, "", "", true)
 		if err != nil {
 			util.WriteError(r.Context(), err, w)
 			return
@@ -71,7 +71,7 @@ func (h *handler) getAllGroups(w http.ResponseWriter, r *http.Request, userAuth 
 		return
 	}
 
-	accountPeers, err := h.accountManager.GetPeers(r.Context(), userAuth.AccountId, userAuth.UserId, "", "")
+	accountPeers, err := h.accountManager.GetPeers(r.Context(), userAuth.AccountId, userAuth.UserId, "", "", true)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -158,7 +158,7 @@ func (h *handler) updateGroup(w http.ResponseWriter, r *http.Request, userAuth *
 		return
 	}
 
-	accountPeers, err := h.accountManager.GetPeers(r.Context(), userAuth.AccountId, userAuth.UserId, "", "")
+	accountPeers, err := h.accountManager.GetPeers(r.Context(), userAuth.AccountId, userAuth.UserId, "", "", true)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -210,7 +210,7 @@ func (h *handler) createGroup(w http.ResponseWriter, r *http.Request, userAuth *
 		return
 	}
 
-	accountPeers, err := h.accountManager.GetPeers(r.Context(), userAuth.AccountId, userAuth.UserId, "", "")
+	accountPeers, err := h.accountManager.GetPeers(r.Context(), userAuth.AccountId, userAuth.UserId, "", "", true)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -256,7 +256,7 @@ func (h *handler) getGroup(w http.ResponseWriter, r *http.Request, userAuth *aut
 		return
 	}
 
-	accountPeers, err := h.accountManager.GetPeers(r.Context(), userAuth.AccountId, userAuth.UserId, "", "")
+	accountPeers, err := h.accountManager.GetPeers(r.Context(), userAuth.AccountId, userAuth.UserId, "", "", true)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return

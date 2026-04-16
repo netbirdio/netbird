@@ -23,7 +23,7 @@ import (
 
 // AuthErrorHandler is called when an auth error occurs during permission validation.
 // If it returns true, the error is considered handled and the default error response is skipped.
-type AuthErrorHandler func(w http.ResponseWriter, r *http.Request, err error) bool
+type AuthErrorHandler func(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth, err error) bool
 
 type Manager interface {
 	WithPermission(module modules.Module, operation operations.Operation, handlerFunc func(w http.ResponseWriter, r *http.Request, auth *auth.UserAuth), authErrHandler ...AuthErrorHandler) http.HandlerFunc
@@ -68,7 +68,7 @@ func (m *managerImpl) WithPermission(
 
 		allowed, err := m.ValidateUserPermissions(r.Context(), userAuth.AccountId, userAuth.UserId, module, operation)
 		if err != nil {
-			if onAuthErr != nil && onAuthErr(w, r, err) {
+			if onAuthErr != nil && onAuthErr(w, r, &userAuth, err) {
 				return
 			}
 			log.WithContext(r.Context()).Errorf("failed to validate permissions for user %s on account %s: %v", userAuth.UserId, userAuth.AccountId, err)
@@ -78,7 +78,7 @@ func (m *managerImpl) WithPermission(
 
 		if !allowed {
 			permErr := status.NewPermissionDeniedError()
-			if onAuthErr != nil && onAuthErr(w, r, permErr) {
+			if onAuthErr != nil && onAuthErr(w, r, &userAuth, permErr) {
 				return
 			}
 			log.WithContext(r.Context()).Tracef("user %s on account %s is not allowed to %s in %s", userAuth.UserId, userAuth.AccountId, operation, module)
