@@ -34,7 +34,7 @@ const (
 // NewStore creates a new cache store with the given max timeout and cleanup interval. It checks for the environment Variable RedisStoreEnvVar
 // to determine if a redis store should be used. If the environment variable is set, it will attempt to connect to the redis store.
 func NewStore(ctx context.Context, maxTimeout, cleanupInterval time.Duration, maxConn int) (store.StoreInterface, error) {
-	redisAddr := getAddrFromEnv()
+	redisAddr := GetAddrFromEnv()
 	if redisAddr != "" {
 		return getRedisStore(ctx, redisAddr, maxConn)
 	}
@@ -42,7 +42,8 @@ func NewStore(ctx context.Context, maxTimeout, cleanupInterval time.Duration, ma
 	return gocache_store.NewGoCache(goc), nil
 }
 
-func getAddrFromEnv() string {
+// GetAddrFromEnv returns the redis address from the environment variable RedisStoreEnvVar or its legacy counterpart.
+func GetAddrFromEnv() string {
 	addr := os.Getenv(RedisStoreEnvVar)
 	if addr == "" {
 		addr = os.Getenv(legacyIdPCacheRedisEnvVar)
