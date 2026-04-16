@@ -21,8 +21,12 @@ import (
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
+// AuthErrorHandler is called when an auth error occurs during permission validation.
+// If it returns true, the error is considered handled and the default error response is skipped.
+type AuthErrorHandler func(w http.ResponseWriter, r *http.Request, err error) bool
+
 type Manager interface {
-	WithPermission(module modules.Module, operation operations.Operation, handlerFunc func(w http.ResponseWriter, r *http.Request, auth *auth.UserAuth)) http.HandlerFunc
+	WithPermission(module modules.Module, operation operations.Operation, handlerFunc func(w http.ResponseWriter, r *http.Request, auth *auth.UserAuth), authErrHandler ...AuthErrorHandler) http.HandlerFunc
 	ValidateUserPermissions(ctx context.Context, accountID, userID string, module modules.Module, operation operations.Operation) (bool, error)
 	ValidateRoleModuleAccess(ctx context.Context, accountID string, role roles.RolePermissions, module modules.Module, operation operations.Operation) bool
 	ValidateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) error
@@ -42,11 +46,18 @@ func NewManager(store store.Store) Manager {
 }
 
 // WithPermission wraps an HTTP handler with permission checking logic.
+// An optional AuthErrorHandler can be provided to intercept auth errors before the default response is written.
 func (m *managerImpl) WithPermission(
 	module modules.Module,
 	operation operations.Operation,
 	handlerFunc func(w http.ResponseWriter, r *http.Request, auth *auth.UserAuth),
+	authErrHandler ...AuthErrorHandler,
 ) http.HandlerFunc {
+	var onAuthErr AuthErrorHandler
+	if len(authErrHandler) > 0 {
+		onAuthErr = authErrHandler[0]
+	}
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
 		if err != nil {
@@ -57,14 +68,21 @@ func (m *managerImpl) WithPermission(
 
 		allowed, err := m.ValidateUserPermissions(r.Context(), userAuth.AccountId, userAuth.UserId, module, operation)
 		if err != nil {
+			if onAuthErr != nil && onAuthErr(w, r, err) {
+				return
+			}
 			log.WithContext(r.Context()).Errorf("failed to validate permissions for user %s on account %s: %v", userAuth.UserId, userAuth.AccountId, err)
 			util.WriteError(r.Context(), status.NewPermissionValidationError(err), w)
 			return
 		}
 
 		if !allowed {
+			permErr := status.NewPermissionDeniedError()
+			if onAuthErr != nil && onAuthErr(w, r, permErr) {
+				return
+			}
 			log.WithContext(r.Context()).Tracef("user %s on account %s is not allowed to %s in %s", userAuth.UserId, userAuth.AccountId, operation, module)
-			util.WriteError(r.Context(), status.NewPermissionDeniedError(), w)
+			util.WriteError(r.Context(), permErr, w)
 			return
 		}
 

@@ -113,15 +113,20 @@ func (mr *MockManagerMockRecorder) ValidateUserPermissions(ctx, accountID, userI
 }
 
 // WithPermission mocks base method.
-func (m *MockManager) WithPermission(module modules.Module, operation operations.Operation, handlerFunc func(http.ResponseWriter, *http.Request, *auth.UserAuth)) http.HandlerFunc {
+func (m *MockManager) WithPermission(module modules.Module, operation operations.Operation, handlerFunc func(http.ResponseWriter, *http.Request, *auth.UserAuth), authErrHandler ...AuthErrorHandler) http.HandlerFunc {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "WithPermission", module, operation, handlerFunc)
+	varargs := []interface{}{module, operation, handlerFunc}
+	for _, a := range authErrHandler {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "WithPermission", varargs...)
 	ret0, _ := ret[0].(http.HandlerFunc)
 	return ret0
 }
 
 // WithPermission indicates an expected call of WithPermission.
-func (mr *MockManagerMockRecorder) WithPermission(module, operation, handlerFunc interface{}) *gomock.Call {
+func (mr *MockManagerMockRecorder) WithPermission(module, operation, handlerFunc interface{}, authErrHandler ...interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WithPermission", reflect.TypeOf((*MockManager)(nil).WithPermission), module, operation, handlerFunc)
+	varargs := append([]interface{}{module, operation, handlerFunc}, authErrHandler...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WithPermission", reflect.TypeOf((*MockManager)(nil).WithPermission), varargs...)
 }
