@@ -2,6 +2,8 @@ package system
 
 import (
 	"context"
+	"net"
+	"net/netip"
 	"runtime"
 
 	log "github.com/sirupsen/logrus"
@@ -40,6 +42,59 @@ func GetInfo(ctx context.Context) *Info {
 	gio.UIVersion = extractUserAgent(ctx)
 
 	return gio
+}
+
+// networkAddresses returns the list of network addresses on iOS.
+// On iOS, hardware (MAC) addresses are not available due to Apple's privacy
+// restrictions, so we skip the HardwareAddr check that other platforms use.
+func networkAddresses() ([]NetworkAddress, error) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+
+	var netAddresses []NetworkAddress
+	for _, iface := range interfaces {
+		if iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+
+		for _, address := range addrs {
+			ipNet, ok := address.(*net.IPNet)
+			if !ok {
+				continue
+			}
+
+			if ipNet.IP.IsLoopback() {
+				continue
+			}
+
+			netAddr := NetworkAddress{
+				NetIP: netip.MustParsePrefix(ipNet.String()),
+				Mac:   iface.HardwareAddr.String(),
+			}
+
+			if isDuplicated(netAddresses, netAddr) {
+				continue
+			}
+
+			netAddresses = append(netAddresses, netAddr)
+		}
+	}
+	return netAddresses, nil
+}
+
+func isDuplicated(addresses []NetworkAddress, addr NetworkAddress) bool {
+	for _, duplicated := range addresses {
+		if duplicated.NetIP == addr.NetIP {
+			return true
+		}
+	}
+	return false
 }
 
 // checkFileAndProcess checks if the file path exists and if a process is running at that path.
