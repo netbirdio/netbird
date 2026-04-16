@@ -4,10 +4,12 @@ import (
 	"context"
 	"runtime"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/version"
 )
 
-// UpdateStaticInfoAsync is a no-op on Android as there is no static info to update
+// UpdateStaticInfoAsync is a no-op on iOS as there is no static info to update
 func UpdateStaticInfoAsync() {
 	// do nothing
 }
@@ -15,11 +17,24 @@ func UpdateStaticInfoAsync() {
 // GetInfo retrieves and parses the system information
 func GetInfo(ctx context.Context) *Info {
 
-	// Convert fixed-size byte arrays to Go strings
 	sysName := extractOsName(ctx, "sysName")
 	swVersion := extractOsVersion(ctx, "swVersion")
 
-	gio := &Info{Kernel: sysName, OSVersion: swVersion, Platform: "unknown", OS: sysName, GoOS: runtime.GOOS, CPUs: runtime.NumCPU(), KernelVersion: swVersion}
+	addrs, err := networkAddresses()
+	if err != nil {
+		log.Warnf("failed to discover network addresses: %s", err)
+	}
+
+	gio := &Info{
+		Kernel:           sysName,
+		OSVersion:        swVersion,
+		Platform:         "unknown",
+		OS:               sysName,
+		GoOS:             runtime.GOOS,
+		CPUs:             runtime.NumCPU(),
+		KernelVersion:    swVersion,
+		NetworkAddresses: addrs,
+	}
 	gio.Hostname = extractDeviceName(ctx, "hostname")
 	gio.NetbirdVersion = version.NetbirdVersion()
 	gio.UIVersion = extractUserAgent(ctx)
