@@ -58,6 +58,7 @@ type Server interface {
 	UpdateServerConfig(domains dnsconfig.ServerDomains) error
 	PopulateManagementDomain(mgmtURL *url.URL) error
 	SetRouteChecker(func(netip.Addr) bool)
+	SetFirewall(Firewall)
 }
 
 type nsGroupsByDomain struct {
@@ -151,7 +152,7 @@ func NewDefaultServer(ctx context.Context, config DefaultServerConfig) (*Default
 	if config.WgInterface.IsUserspaceBind() {
 		dnsService = NewServiceViaMemory(config.WgInterface)
 	} else {
-		dnsService = newServiceViaListener(config.WgInterface, addrPort)
+		dnsService = newServiceViaListener(config.WgInterface, addrPort, nil)
 	}
 
 	server := newDefaultServer(ctx, config.WgInterface, dnsService, config.StatusRecorder, config.StateManager, config.DisableSys)
@@ -186,11 +187,16 @@ func NewDefaultServerIos(
 	ctx context.Context,
 	wgInterface WGIface,
 	iosDnsManager IosDnsManager,
+	hostsDnsList []netip.AddrPort,
 	statusRecorder *peer.Status,
 	disableSys bool,
 ) *DefaultServer {
+	log.Debugf("iOS host dns address list is: %v", hostsDnsList)
 	ds := newDefaultServer(ctx, wgInterface, NewServiceViaMemory(wgInterface), statusRecorder, nil, disableSys)
 	ds.iosDnsManager = iosDnsManager
+	ds.hostsDNSHolder.set(hostsDnsList)
+	ds.permanent = true
+	ds.addHostRootZone()
 	return ds
 }
 
@@ -374,6 +380,17 @@ func (s *DefaultServer) DnsIP() netip.Addr {
 	return s.service.RuntimeIP()
 }
 
+// SetFirewall sets the firewall used for DNS port DNAT rules.
+// This must be called before Initialize when using the listener-based service,
+// because the firewall is typically not available at construction time.
+func (s *DefaultServer) SetFirewall(fw Firewall) {
+	if svc, ok := s.service.(*serviceViaListener); ok {
+		svc.listenerFlagLock.Lock()
+		svc.firewall = fw
+		svc.listenerFlagLock.Unlock()
+	}
+}
+
 // Stop stops the server
 func (s *DefaultServer) Stop() {
 	s.probeMu.Lock()
@@ -395,8 +412,12 @@ func (s *DefaultServer) Stop() {
 	maps.Clear(s.extraDomains)
 }
 
-func (s *DefaultServer) disableDNS() error {
-	defer s.service.Stop()
+func (s *DefaultServer) disableDNS() (retErr error) {
+	defer func() {
+		if err := s.service.Stop(); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("stop DNS service: %w", err))
+		}
+	}()
 
 	if s.isUsingNoopHostManager() {
 		return nil

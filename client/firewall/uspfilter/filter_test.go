@@ -12,6 +12,7 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	wgdevice "golang.zx2c4.com/wireguard/device"
 
@@ -186,81 +187,52 @@ func TestManagerDeleteRule(t *testing.T) {
 	}
 }
 
-func TestAddUDPPacketHook(t *testing.T) {
-	tests := []struct {
-		name       string
-		in         bool
-		expDir     fw.RuleDirection
-		ip         netip.Addr
-		dPort      uint16
-		hook       func([]byte) bool
-		expectedID string
-	}{
-		{
-			name:   "Test Outgoing UDP Packet Hook",
-			in:     false,
-			expDir: fw.RuleDirectionOUT,
-			ip:     netip.MustParseAddr("10.168.0.1"),
-			dPort:  8000,
-			hook:   func([]byte) bool { return true },
-		},
-		{
-			name:   "Test Incoming UDP Packet Hook",
-			in:     true,
-			expDir: fw.RuleDirectionIN,
-			ip:     netip.MustParseAddr("::1"),
-			dPort:  9000,
-			hook:   func([]byte) bool { return false },
-		},
-	}
+func TestSetUDPPacketHook(t *testing.T) {
+	manager, err := Create(&IFaceMock{
+		SetFilterFunc: func(device.PacketFilter) error { return nil },
+	}, false, flowLogger, nbiface.DefaultMTU)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, manager.Close(nil)) })
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			manager, err := Create(&IFaceMock{
-				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false, flowLogger, nbiface.DefaultMTU)
-			require.NoError(t, err)
+	var called bool
+	manager.SetUDPPacketHook(netip.MustParseAddr("10.168.0.1"), 8000, func([]byte) bool {
+		called = true
+		return true
+	})
 
-			manager.AddUDPPacketHook(tt.in, tt.ip, tt.dPort, tt.hook)
+	h := manager.udpHookOut.Load()
+	require.NotNil(t, h)
+	assert.Equal(t, netip.MustParseAddr("10.168.0.1"), h.IP)
+	assert.Equal(t, uint16(8000), h.Port)
+	assert.True(t, h.Fn(nil))
+	assert.True(t, called)
 
-			var addedRule PeerRule
-			if tt.in {
-				// Incoming UDP hooks are stored in allow rules map
-				if len(manager.incomingRules[tt.ip]) != 1 {
-					t.Errorf("expected 1 incoming rule, got %d", len(manager.incomingRules[tt.ip]))
-					return
-				}
-				for _, rule := range manager.incomingRules[tt.ip] {
-					addedRule = rule
-				}
-			} else {
-				if len(manager.outgoingRules[tt.ip]) != 1 {
-					t.Errorf("expected 1 outgoing rule, got %d", len(manager.outgoingRules[tt.ip]))
-					return
-				}
-				for _, rule := range manager.outgoingRules[tt.ip] {
-					addedRule = rule
-				}
-			}
+	manager.SetUDPPacketHook(netip.MustParseAddr("10.168.0.1"), 8000, nil)
+	assert.Nil(t, manager.udpHookOut.Load())
+}
 
-			if tt.ip.Compare(addedRule.ip) != 0 {
-				t.Errorf("expected ip %s, got %s", tt.ip, addedRule.ip)
-				return
-			}
-			if tt.dPort != addedRule.dPort.Values[0] {
-				t.Errorf("expected dPort %d, got %d", tt.dPort, addedRule.dPort.Values[0])
-				return
-			}
-			if layers.LayerTypeUDP != addedRule.protoLayer {
-				t.Errorf("expected protoLayer %s, got %s", layers.LayerTypeUDP, addedRule.protoLayer)
-				return
-			}
-			if addedRule.udpHook == nil {
-				t.Errorf("expected udpHook to be set")
-				return
-			}
-		})
-	}
+func TestSetTCPPacketHook(t *testing.T) {
+	manager, err := Create(&IFaceMock{
+		SetFilterFunc: func(device.PacketFilter) error { return nil },
+	}, false, flowLogger, nbiface.DefaultMTU)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, manager.Close(nil)) })
+
+	var called bool
+	manager.SetTCPPacketHook(netip.MustParseAddr("10.168.0.1"), 53, func([]byte) bool {
+		called = true
+		return true
+	})
+
+	h := manager.tcpHookOut.Load()
+	require.NotNil(t, h)
+	assert.Equal(t, netip.MustParseAddr("10.168.0.1"), h.IP)
+	assert.Equal(t, uint16(53), h.Port)
+	assert.True(t, h.Fn(nil))
+	assert.True(t, called)
+
+	manager.SetTCPPacketHook(netip.MustParseAddr("10.168.0.1"), 53, nil)
+	assert.Nil(t, manager.tcpHookOut.Load())
 }
 
 // TestPeerRuleLifecycleDenyRules verifies that deny rules are correctly added
@@ -530,39 +502,12 @@ func TestRemovePacketHook(t *testing.T) {
 		require.NoError(t, manager.Close(nil))
 	}()
 
-	// Add a UDP packet hook
-	hookFunc := func(data []byte) bool { return true }
-	hookID := manager.AddUDPPacketHook(false, netip.MustParseAddr("192.168.0.1"), 8080, hookFunc)
+	manager.SetUDPPacketHook(netip.MustParseAddr("192.168.0.1"), 8080, func([]byte) bool { return true })
 
-	// Assert the hook is added by finding it in the manager's outgoing rules
-	found := false
-	for _, arr := range manager.outgoingRules {
-		for _, rule := range arr {
-			if rule.id == hookID {
-				found = true
-				break
-			}
-		}
-	}
+	require.NotNil(t, manager.udpHookOut.Load(), "hook should be registered")
 
-	if !found {
-		t.Fatalf("The hook was not added properly.")
-	}
-
-	// Now remove the packet hook
-	err = manager.RemovePacketHook(hookID)
-	if err != nil {
-		t.Fatalf("Failed to remove hook: %s", err)
-	}
-
-	// Assert the hook is removed by checking it in the manager's outgoing rules
-	for _, arr := range manager.outgoingRules {
-		for _, rule := range arr {
-			if rule.id == hookID {
-				t.Fatalf("The hook was not removed properly.")
-			}
-		}
-	}
+	manager.SetUDPPacketHook(netip.MustParseAddr("192.168.0.1"), 8080, nil)
+	assert.Nil(t, manager.udpHookOut.Load(), "hook should be removed")
 }
 
 func TestProcessOutgoingHooks(t *testing.T) {
@@ -592,8 +537,7 @@ func TestProcessOutgoingHooks(t *testing.T) {
 	}
 
 	hookCalled := false
-	hookID := manager.AddUDPPacketHook(
-		false,
+	manager.SetUDPPacketHook(
 		netip.MustParseAddr("100.10.0.100"),
 		53,
 		func([]byte) bool {
@@ -601,7 +545,6 @@ func TestProcessOutgoingHooks(t *testing.T) {
 			return true
 		},
 	)
-	require.NotEmpty(t, hookID)
 
 	// Create test UDP packet
 	ipv4 := &layers.IPv4{

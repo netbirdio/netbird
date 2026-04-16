@@ -228,6 +228,10 @@ func (m *testProxyManager) ClusterRequireSubdomain(_ context.Context, _ string) 
 	return nil
 }
 
+func (m *testProxyManager) ClusterSupportsCrowdSec(_ context.Context, _ string) *bool {
+	return nil
+}
+
 func (m *testProxyManager) CleanupStale(_ context.Context, _ time.Duration) error {
 	return nil
 }

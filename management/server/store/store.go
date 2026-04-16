@@ -289,6 +289,7 @@ type Store interface {
 	GetActiveProxyClusters(ctx context.Context) ([]proxy.Cluster, error)
 	GetClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
 	GetClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
+	GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
 	CleanupStaleProxies(ctx context.Context, inactivityDuration time.Duration) error
 
 	GetCustomDomainsCounts(ctx context.Context) (total int64, validated int64, err error)
@@ -447,6 +448,12 @@ func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 		},
 		func(db *gorm.DB) error {
 			return migration.RemoveDuplicatePeerKeys(ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.CleanupOrphanedResources[rpservice.Service, types.Account](ctx, db, "account_id")
+		},
+		func(db *gorm.DB) error {
+			return migration.CleanupOrphanedResources[domain.Domain, types.Account](ctx, db, "account_id")
 		},
 	}
 }

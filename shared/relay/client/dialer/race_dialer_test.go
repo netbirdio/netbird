@@ -78,7 +78,7 @@ func TestRaceDialEmptyDialers(t *testing.T) {
 	serverURL := "test.server.com"
 
 	rd := NewRaceDial(logger, DefaultConnectionTimeout, serverURL)
-	conn, err := rd.Dial()
+	conn, err := rd.Dial(context.Background())
 	if err == nil {
 		t.Errorf("Expected an error with empty dialers, got nil")
 	}
@@ -104,7 +104,7 @@ func TestRaceDialSingleSuccessfulDialer(t *testing.T) {
 	}
 
 	rd := NewRaceDial(logger, DefaultConnectionTimeout, serverURL, mockDialer)
-	conn, err := rd.Dial()
+	conn, err := rd.Dial(context.Background())
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
@@ -137,7 +137,7 @@ func TestRaceDialMultipleDialersWithOneSuccess(t *testing.T) {
 	}
 
 	rd := NewRaceDial(logger, DefaultConnectionTimeout, serverURL, mockDialer1, mockDialer2)
-	conn, err := rd.Dial()
+	conn, err := rd.Dial(context.Background())
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
@@ -160,7 +160,7 @@ func TestRaceDialTimeout(t *testing.T) {
 	}
 
 	rd := NewRaceDial(logger, 3*time.Second, serverURL, mockDialer)
-	conn, err := rd.Dial()
+	conn, err := rd.Dial(context.Background())
 	if err == nil {
 		t.Errorf("Expected an error, got nil")
 	}
@@ -188,7 +188,7 @@ func TestRaceDialAllDialersFail(t *testing.T) {
 	}
 
 	rd := NewRaceDial(logger, DefaultConnectionTimeout, serverURL, mockDialer1, mockDialer2)
-	conn, err := rd.Dial()
+	conn, err := rd.Dial(context.Background())
 	if err == nil {
 		t.Errorf("Expected an error, got nil")
 	}
@@ -230,7 +230,7 @@ func TestRaceDialFirstSuccessfulDialerWins(t *testing.T) {
 	}
 
 	rd := NewRaceDial(logger, DefaultConnectionTimeout, serverURL, mockDialer1, mockDialer2)
-	conn, err := rd.Dial()
+	conn, err := rd.Dial(context.Background())
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}

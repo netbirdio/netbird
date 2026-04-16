@@ -188,6 +188,7 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 		caps = &proxy.Capabilities{
 			SupportsCustomPorts: c.SupportsCustomPorts,
 			RequireSubdomain:    c.RequireSubdomain,
+			SupportsCrowdsec: c.SupportsCrowdsec,
 		}
 	}
 	if err := s.proxyManager.Connect(ctx, proxyID, proxyAddress, peerInfo, caps); err != nil {

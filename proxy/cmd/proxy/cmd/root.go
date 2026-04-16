@@ -35,7 +35,7 @@ var (
 )
 
 var (
-	logLevel            string
+	logLevel              string
 	debugLogs             bool
 	mgmtAddr              string
 	addr                  string
@@ -64,6 +64,8 @@ var (
 	supportsCustomPorts   bool
 	requireSubdomain      bool
 	geoDataDir            string
+	crowdsecAPIURL        string
+	crowdsecAPIKey        string
 )
 
 var rootCmd = &cobra.Command{
@@ -106,6 +108,8 @@ func init() {
 	rootCmd.Flags().DurationVar(&maxDialTimeout, "max-dial-timeout", envDurationOrDefault("NB_PROXY_MAX_DIAL_TIMEOUT", 0), "Cap per-service backend dial timeout (0 = no cap)")
 	rootCmd.Flags().DurationVar(&maxSessionIdleTimeout, "max-session-idle-timeout", envDurationOrDefault("NB_PROXY_MAX_SESSION_IDLE_TIMEOUT", 0), "Cap per-service session idle timeout (0 = no cap)")
 	rootCmd.Flags().StringVar(&geoDataDir, "geo-data-dir", envStringOrDefault("NB_PROXY_GEO_DATA_DIR", "/var/lib/netbird/geolocation"), "Directory for the GeoLite2 MMDB file (auto-downloaded if missing)")
+	rootCmd.Flags().StringVar(&crowdsecAPIURL, "crowdsec-api-url", envStringOrDefault("NB_PROXY_CROWDSEC_API_URL", ""), "CrowdSec LAPI URL for IP reputation checks")
+	rootCmd.Flags().StringVar(&crowdsecAPIKey, "crowdsec-api-key", envStringOrDefault("NB_PROXY_CROWDSEC_API_KEY", ""), "CrowdSec bouncer API key")
 }
 
 // Execute runs the root command.
@@ -187,6 +191,8 @@ func runServer(cmd *cobra.Command, args []string) error {
 		MaxDialTimeout:           maxDialTimeout,
 		MaxSessionIdleTimeout:    maxSessionIdleTimeout,
 		GeoDataDir:               geoDataDir,
+		CrowdSecAPIURL:           crowdsecAPIURL,
+		CrowdSecAPIKey:           crowdsecAPIKey,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)

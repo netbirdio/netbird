@@ -25,6 +25,8 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 	"github.com/netbirdio/netbird/shared/management/status"
 
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
+
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
@@ -1814,6 +1816,13 @@ func TestAccount_Copy(t *testing.T) {
 				Name:      "test-service",
 				AccountID: "account1",
 				Targets:   []*service.Target{},
+			},
+		},
+		Domains: []*domain.Domain{
+			{
+				ID:        "domain1",
+				Domain:    "test.com",
+				AccountID: "account1",
 			},
 		},
 		NetworkMapCache: &types.NetworkMapBuilder{},

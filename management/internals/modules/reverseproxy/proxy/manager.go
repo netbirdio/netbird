@@ -18,6 +18,7 @@ type Manager interface {
 	GetActiveClusters(ctx context.Context) ([]Cluster, error)
 	ClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
 	ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
+	ClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
 	CleanupStale(ctx context.Context, inactivityDuration time.Duration) error
 }
 
