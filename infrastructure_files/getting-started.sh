@@ -90,17 +90,18 @@ read_reverse_proxy_type() {
   echo "  [2] Nginx (generates config template)" > /dev/stderr
   echo "  [3] Nginx Proxy Manager (generates config + instructions)" > /dev/stderr
   echo "  [4] External Caddy (generates Caddyfile snippet)" > /dev/stderr
-  echo "  [5] Other/Manual (displays setup documentation)" > /dev/stderr
+  echo "  [5] BunkerWeb (WAF + reverse proxy, config file or Docker autoconf)" > /dev/stderr
+  echo "  [6] Other/Manual (displays setup documentation)" > /dev/stderr
   echo "" > /dev/stderr
-  echo -n "Enter choice [0-5] (default: 0): " > /dev/stderr
+  echo -n "Enter choice [0-6] (default: 0): " > /dev/stderr
   read -r CHOICE < /dev/tty
 
   if [[ -z "$CHOICE" ]]; then
     CHOICE="0"
   fi
 
-  if [[ ! "$CHOICE" =~ ^[0-5]$ ]]; then
-    echo "Invalid choice. Please enter a number between 0 and 5." > /dev/stderr
+  if [[ ! "$CHOICE" =~ ^[0-6]$ ]]; then
+    echo "Invalid choice. Please enter a number between 0 and 6." > /dev/stderr
     read_reverse_proxy_type
     return
   fi
@@ -162,6 +163,43 @@ read_proxy_docker_network() {
   echo "If yes, enter the Docker network ${proxy_name} is on (NetBird will join it)." > /dev/stderr
   echo -n "Docker network (leave empty if not in Docker): " > /dev/stderr
   read -r NETWORK < /dev/tty
+  echo "$NETWORK"
+  return 0
+}
+
+read_bunkerweb_mode() {
+  echo "" > /dev/stderr
+  echo "How will BunkerWeb discover NetBird services?" > /dev/stderr
+  echo "  [A] Config file (generates BunkerWeb settings to apply)" > /dev/stderr
+  echo "  [B] Docker autoconf labels (adds BunkerWeb labels to docker-compose)" > /dev/stderr
+  echo "" > /dev/stderr
+  echo -n "Enter choice [A/B] (default: A): " > /dev/stderr
+  read -r CHOICE < /dev/tty
+
+  if [[ -z "$CHOICE" ]]; then
+    CHOICE="A"
+  fi
+
+  CHOICE=$(echo "$CHOICE" | tr '[:lower:]' '[:upper:]')
+
+  if [[ ! "$CHOICE" =~ ^[AB]$ ]]; then
+    echo "Invalid choice. Please enter A or B." > /dev/stderr
+    read_bunkerweb_mode
+    return
+  fi
+
+  echo "$CHOICE"
+  return 0
+}
+
+read_bunkerweb_autoconf_network() {
+  echo "" > /dev/stderr
+  echo "Enter the Docker network that BunkerWeb autoconf uses to discover services." > /dev/stderr
+  echo -n "BunkerWeb network (default: bw-services): " > /dev/stderr
+  read -r NETWORK < /dev/tty
+  if [[ -z "$NETWORK" ]]; then
+    NETWORK="bw-services"
+  fi
   echo "$NETWORK"
   return 0
 }
@@ -290,6 +328,7 @@ initialize_default_values() {
   MANAGEMENT_HOST_PORT="8081"  # Combined server port (management + signal + relay)
   BIND_LOCALHOST_ONLY="true"
   EXTERNAL_PROXY_NETWORK=""
+  BUNKERWEB_MODE=""
 
   # Traefik static IP within the internal bridge network
   TRAEFIK_IP="172.30.0.10"
@@ -318,13 +357,39 @@ configure_domain() {
 }
 
 configure_reverse_proxy() {
-  # Prompt for reverse proxy type
-  REVERSE_PROXY_TYPE=$(read_reverse_proxy_type)
+  # Prompt for reverse proxy type (CI override supported)
+  if [[ -n "$CI_REVERSE_PROXY_TYPE" ]]; then
+    if [[ ! "$CI_REVERSE_PROXY_TYPE" =~ ^[0-6]$ ]]; then
+      echo "Invalid CI_REVERSE_PROXY_TYPE: $CI_REVERSE_PROXY_TYPE. Must be 0-6." > /dev/stderr
+      exit 1
+    else
+      REVERSE_PROXY_TYPE="$CI_REVERSE_PROXY_TYPE"
+    fi
+  else
+    REVERSE_PROXY_TYPE=$(read_reverse_proxy_type)
+  fi
 
   # Handle built-in Traefik prompts (option 0)
   if [[ "$REVERSE_PROXY_TYPE" == "0" ]]; then
-    TRAEFIK_ACME_EMAIL=$(read_traefik_acme_email)
-    ENABLE_PROXY=$(read_enable_proxy)
+    if [[ -n "$CI_TRAEFIK_ACME_EMAIL" ]]; then
+      TRAEFIK_ACME_EMAIL="$CI_TRAEFIK_ACME_EMAIL"
+    else
+      TRAEFIK_ACME_EMAIL=$(read_traefik_acme_email)
+    fi
+    if [[ -n "$CI_ENABLE_PROXY" ]]; then
+      local ci_proxy_val
+      ci_proxy_val=$(echo "$CI_ENABLE_PROXY" | tr '[:upper:]' '[:lower:]')
+      if [[ "$ci_proxy_val" == "true" || "$ci_proxy_val" == "1" || "$ci_proxy_val" == "yes" ]]; then
+        ENABLE_PROXY="true"
+      elif [[ "$ci_proxy_val" == "false" || "$ci_proxy_val" == "0" || "$ci_proxy_val" == "no" ]]; then
+        ENABLE_PROXY="false"
+      else
+        echo "Invalid CI_ENABLE_PROXY: $CI_ENABLE_PROXY. Must be true/false, yes/no, or 1/0." > /dev/stderr
+        exit 1
+      fi
+    else
+      ENABLE_PROXY=$(read_enable_proxy)
+    fi
   fi
 
   # Handle external Traefik-specific prompts (option 1)
@@ -334,16 +399,58 @@ configure_reverse_proxy() {
     TRAEFIK_CERTRESOLVER=$(read_traefik_certresolver)
   fi
 
-  # Handle port binding for external proxy options (2-5)
+  # Handle port binding for external proxy options (2-6)
   if [[ "$REVERSE_PROXY_TYPE" -ge 2 ]]; then
-    BIND_LOCALHOST_ONLY=$(read_port_binding_preference)
+    if [[ -n "$CI_BIND_LOCALHOST_ONLY" ]]; then
+      local ci_bind_val
+      ci_bind_val=$(echo "$CI_BIND_LOCALHOST_ONLY" | tr '[:upper:]' '[:lower:]')
+      if [[ "$ci_bind_val" == "true" ]]; then
+        BIND_LOCALHOST_ONLY="true"
+      elif [[ "$ci_bind_val" == "false" ]]; then
+        BIND_LOCALHOST_ONLY="false"
+      else
+        echo "Invalid CI_BIND_LOCALHOST_ONLY: $CI_BIND_LOCALHOST_ONLY. Must be true or false." > /dev/stderr
+        exit 1
+      fi
+    else
+      BIND_LOCALHOST_ONLY=$(read_port_binding_preference)
+    fi
   fi
 
-  # Handle Docker network prompts for external proxies (options 2-4)
+  # Handle Docker network prompts for external proxies (options 2-4, 6)
   case "$REVERSE_PROXY_TYPE" in
     2) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Nginx") ;;
     3) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Nginx Proxy Manager") ;;
     4) EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "Caddy") ;;
+    5)
+      if [[ -n "$CI_BUNKERWEB_MODE" ]]; then
+        CI_BUNKERWEB_MODE=$(echo "$CI_BUNKERWEB_MODE" | tr '[:lower:]' '[:upper:]')
+        if [[ ! "$CI_BUNKERWEB_MODE" =~ ^[AB]$ ]]; then
+          echo "Invalid CI_BUNKERWEB_MODE: $CI_BUNKERWEB_MODE. Must be A or B." > /dev/stderr
+          exit 1
+        else
+          BUNKERWEB_MODE="$CI_BUNKERWEB_MODE"
+        fi
+      else
+        BUNKERWEB_MODE=$(read_bunkerweb_mode)
+      fi
+      if [[ "$BUNKERWEB_MODE" == "A" ]]; then
+        if [[ "${CI_EXTERNAL_PROXY_NETWORK+set}" == "set" ]]; then
+          EXTERNAL_PROXY_NETWORK="$CI_EXTERNAL_PROXY_NETWORK"
+        else
+          EXTERNAL_PROXY_NETWORK=$(read_proxy_docker_network "BunkerWeb")
+        fi
+      else
+        if [[ -n "$CI_EXTERNAL_PROXY_NETWORK" ]]; then
+          EXTERNAL_PROXY_NETWORK="$CI_EXTERNAL_PROXY_NETWORK"
+        elif [[ -n "$CI_BUNKERWEB_MODE" ]]; then
+          echo "CI_EXTERNAL_PROXY_NETWORK is required when CI_BUNKERWEB_MODE is B." > /dev/stderr
+          exit 1
+        else
+          EXTERNAL_PROXY_NETWORK=$(read_bunkerweb_autoconf_network)
+        fi
+      fi
+      ;;
     *) ;; # No network prompt for other options
   esac
   return 0
@@ -354,7 +461,7 @@ check_existing_installation() {
     echo "Generated files already exist, if you want to reinitialize the environment, please remove them first."
     echo "You can use the following commands:"
     echo "  $DOCKER_COMPOSE_COMMAND down --volumes # to remove all containers and volumes"
-    echo "  rm -f docker-compose.yml dashboard.env config.yaml proxy.env traefik-dynamic.yaml nginx-netbird.conf caddyfile-netbird.txt npm-advanced-config.txt"
+    echo "  rm -f docker-compose.yml dashboard.env config.yaml proxy.env traefik-dynamic.yaml nginx-netbird.conf caddyfile-netbird.txt npm-advanced-config.txt bunkerweb-netbird.conf"
     echo "Be aware that this will remove all data from the database, and you will have to reconfigure the dashboard."
     exit 1
   fi
@@ -393,6 +500,14 @@ generate_configuration_files() {
       render_external_caddyfile > caddyfile-netbird.txt
       ;;
     5)
+      if [[ "$BUNKERWEB_MODE" == "B" ]]; then
+        render_docker_compose_bunkerweb_autoconf > docker-compose.yml
+      else
+        render_docker_compose_exposed_ports > docker-compose.yml
+        render_bunkerweb_conf > bunkerweb-netbird.conf
+      fi
+      ;;
+    6)
       render_docker_compose_exposed_ports > docker-compose.yml
       ;;
     *)
@@ -482,8 +597,21 @@ start_services_and_show_instructions() {
     echo ""
     echo "NetBird containers are running. Configure NPM as shown above, then access:"
     echo "  $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
+  elif [[ "$REVERSE_PROXY_TYPE" == "5" && "$BUNKERWEB_MODE" == "B" ]]; then
+    # BunkerWeb autoconf - start containers first (BunkerWeb discovers them via labels)
+    echo -e "$MSG_STARTING_SERVICES"
+    $DOCKER_COMPOSE_COMMAND up -d
+
+    sleep 3
+    wait_management_direct
+
+    echo -e "$MSG_DONE"
+    print_post_setup_instructions
+    echo ""
+    echo "NetBird containers are running. BunkerWeb autoconf will discover them automatically."
+    echo "Access the dashboard at: $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN"
   else
-    # External proxies (nginx, external Caddy, other) - need manual config first
+    # External proxies (nginx, external Caddy, BunkerWeb config, other) - need manual config first
     print_post_setup_instructions
 
     echo ""
@@ -513,6 +641,12 @@ init_environment() {
 
   check_existing_installation
   generate_configuration_files
+
+  if [[ "${CI_SKIP_START:-false}" == "true" ]]; then
+    echo "CI_SKIP_START is set, skipping service startup."
+    return 0
+  fi
+
   start_services_and_show_instructions
   return 0
 }
@@ -1130,6 +1264,213 @@ EOF
   return 0
 }
 
+render_bunkerweb_conf() {
+  local upstream_host=$(get_upstream_host)
+  local dashboard_addr="${upstream_host}:${DASHBOARD_HOST_PORT}"
+  local server_addr="${upstream_host}:${MANAGEMENT_HOST_PORT}"
+  local grpc_addr="grpc://${upstream_host}:${MANAGEMENT_HOST_PORT}"
+  local install_note="# Apply these settings to your BunkerWeb configuration for $NETBIRD_DOMAIN.
+# You can set them as environment variables, in the BunkerWeb UI, or via the API."
+
+  # If running in Docker network, use container names
+  if [[ -n "$EXTERNAL_PROXY_NETWORK" ]]; then
+    dashboard_addr="netbird-dashboard"
+    server_addr="netbird-server"
+    grpc_addr="grpc://netbird-server:80"
+    install_note="# This config uses container names since BunkerWeb is on the same Docker network.
+# Apply these settings to your BunkerWeb configuration for $NETBIRD_DOMAIN."
+  fi
+
+  cat <<EOF
+# NetBird BunkerWeb Settings
+# Generated by getting-started.sh
+# Requires BunkerWeb >= 1.6.9
+#
+${install_note}
+
+SERVER_NAME=$NETBIRD_DOMAIN
+#
+# If using MULTISITE mode, prefix all settings below with your domain.
+# Example: ${NETBIRD_DOMAIN}_USE_REVERSE_PROXY=yes
+# In singlesite mode or when using the Web UI / API, use settings as-is.
+
+# Global settings (apply to the entire BunkerWeb instance, not per-site)
+# Set these on the BunkerWeb scheduler or in the global config.
+CLIENT_BODY_TIMEOUT=1d
+CLIENT_HEADER_TIMEOUT=1d
+
+# TLS / HTTPS (uncomment ONE section below)
+#
+# Option A: Automatic Let's Encrypt
+# AUTO_LETS_ENCRYPT=yes
+# EMAIL_LETS_ENCRYPT=your-email@example.com
+#
+# Option B: Custom SSL certificates
+# USE_CUSTOM_SSL=yes
+# CUSTOM_SSL_CERT=/path/to/fullchain.pem
+# CUSTOM_SSL_KEY=/path/to/privkey.pem
+
+# WAF / request limits (BunkerWeb-specific)
+ALLOWED_METHODS=GET|POST|HEAD|OPTIONS|PUT|DELETE|PATCH
+USE_LIMIT_REQ=yes
+LIMIT_REQ_RATE=15r/s
+LIMIT_CONN_MAX_HTTP1=30
+LIMIT_CONN_MAX_HTTP2=200
+LIMIT_CONN_MAX_HTTP3=200
+
+USE_REVERSE_PROXY=yes
+REVERSE_PROXY_INTERCEPT_ERRORS=no
+
+# gRPC: signal (native BunkerWeb gRPC support)
+USE_GRPC=yes
+GRPC_URL=/signalexchange.SignalExchange/
+GRPC_HOST=${grpc_addr}
+GRPC_SOCKET_KEEPALIVE=on
+GRPC_READ_TIMEOUT=1d
+GRPC_SEND_TIMEOUT=1d
+
+# gRPC: management
+GRPC_URL_1=/management.ManagementService/
+GRPC_HOST_1=${grpc_addr}
+GRPC_SOCKET_KEEPALIVE_1=on
+GRPC_READ_TIMEOUT_1=1d
+GRPC_SEND_TIMEOUT_1=1d
+
+# WebSocket: relay
+REVERSE_PROXY_URL=/relay
+REVERSE_PROXY_HOST=http://${server_addr}
+REVERSE_PROXY_WS=yes
+REVERSE_PROXY_READ_TIMEOUT=1d
+
+# WebSocket: signal/management WS proxy
+REVERSE_PROXY_URL_1=/ws-proxy/
+REVERSE_PROXY_HOST_1=http://${server_addr}
+REVERSE_PROXY_WS_1=yes
+REVERSE_PROXY_READ_TIMEOUT_1=1d
+
+# HTTP: API
+REVERSE_PROXY_URL_2=/api/
+REVERSE_PROXY_HOST_2=http://${server_addr}
+
+# HTTP: OAuth2 / embedded IdP
+REVERSE_PROXY_URL_3=/oauth2/
+REVERSE_PROXY_HOST_3=http://${server_addr}
+REVERSE_PROXY_READ_TIMEOUT_3=1d
+
+# Dashboard catch-all (high number = lowest priority)
+REVERSE_PROXY_URL_999=/
+REVERSE_PROXY_HOST_999=http://${dashboard_addr}
+
+# ModSecurity CRS exclusions for NetBird OAuth2 endpoints
+# If you use ModSecurity CRS, copy the following rules to:
+#   /etc/bunkerweb/configs/modsec/$NETBIRD_DOMAIN/netbird.conf
+#
+# SecRule REQUEST_FILENAME "/oauth2/auth" "id:3000000,ctl:ruleRemoveById=931100,ctl:ruleRemoveById=934110,nolog"
+# SecRule REQUEST_FILENAME "/oauth2/token" "id:3000001,ctl:ruleRemoveById=931100,ctl:ruleRemoveById=934110,nolog"
+EOF
+  return 0
+}
+
+render_docker_compose_bunkerweb_autoconf() {
+  local network_name="${EXTERNAL_PROXY_NETWORK:-bw-services}"
+  local bind_addr=$(get_bind_address)
+
+  cat <<EOF
+services:
+  # UI dashboard
+  dashboard:
+    image: $DASHBOARD_IMAGE
+    container_name: netbird-dashboard
+    restart: unless-stopped
+    networks: [$network_name]
+    env_file:
+      - ./dashboard.env
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
+
+  # Combined server (Management + Signal + Relay + STUN)
+  netbird-server:
+    image: $NETBIRD_SERVER_IMAGE
+    container_name: netbird-server
+    restart: unless-stopped
+    networks: [$network_name]
+    ports:
+      - '${bind_addr}:${MANAGEMENT_HOST_PORT}:80'
+      - '$NETBIRD_STUN_PORT:$NETBIRD_STUN_PORT/udp'
+    volumes:
+      - netbird_data:/var/lib/netbird
+      - ./config.yaml:/etc/netbird/config.yaml
+    command: ["--config", "/etc/netbird/config.yaml"]
+    labels:
+      # IMPORTANT: Set these global settings on your BunkerWeb scheduler:
+      #   CLIENT_BODY_TIMEOUT=1d
+      #   CLIENT_HEADER_TIMEOUT=1d
+      bunkerweb.SERVER_NAME: "$NETBIRD_DOMAIN"
+      # WAF / request limits
+      bunkerweb.ALLOWED_METHODS: "GET|POST|HEAD|OPTIONS|PUT|DELETE|PATCH"
+      bunkerweb.USE_LIMIT_REQ: "yes"
+      bunkerweb.LIMIT_REQ_RATE: "15r/s"
+      bunkerweb.LIMIT_CONN_MAX_HTTP1: "30"
+      bunkerweb.LIMIT_CONN_MAX_HTTP2: "200"
+      bunkerweb.LIMIT_CONN_MAX_HTTP3: "200"
+      bunkerweb.USE_REVERSE_PROXY: "yes"
+      bunkerweb.REVERSE_PROXY_INTERCEPT_ERRORS: "no"
+      # gRPC: signal (native BunkerWeb gRPC support)
+      bunkerweb.USE_GRPC: "yes"
+      bunkerweb.GRPC_URL: "/signalexchange.SignalExchange/"
+      bunkerweb.GRPC_HOST: "grpc://netbird-server:80"
+      bunkerweb.GRPC_SOCKET_KEEPALIVE: "on"
+      bunkerweb.GRPC_READ_TIMEOUT: "1d"
+      bunkerweb.GRPC_SEND_TIMEOUT: "1d"
+      # gRPC: management
+      bunkerweb.GRPC_URL_1: "/management.ManagementService/"
+      bunkerweb.GRPC_HOST_1: "grpc://netbird-server:80"
+      bunkerweb.GRPC_SOCKET_KEEPALIVE_1: "on"
+      bunkerweb.GRPC_READ_TIMEOUT_1: "1d"
+      bunkerweb.GRPC_SEND_TIMEOUT_1: "1d"
+      # WebSocket: relay
+      bunkerweb.REVERSE_PROXY_URL: "/relay"
+      bunkerweb.REVERSE_PROXY_HOST: "http://netbird-server"
+      bunkerweb.REVERSE_PROXY_WS: "yes"
+      bunkerweb.REVERSE_PROXY_READ_TIMEOUT: "1d"
+      # WebSocket: signal/management WS proxy
+      bunkerweb.REVERSE_PROXY_URL_1: "/ws-proxy/"
+      bunkerweb.REVERSE_PROXY_HOST_1: "http://netbird-server"
+      bunkerweb.REVERSE_PROXY_WS_1: "yes"
+      bunkerweb.REVERSE_PROXY_READ_TIMEOUT_1: "1d"
+      # HTTP: API
+      bunkerweb.REVERSE_PROXY_URL_2: "/api/"
+      bunkerweb.REVERSE_PROXY_HOST_2: "http://netbird-server"
+      # HTTP: OAuth2
+      bunkerweb.REVERSE_PROXY_URL_3: "/oauth2/"
+      bunkerweb.REVERSE_PROXY_HOST_3: "http://netbird-server"
+      bunkerweb.REVERSE_PROXY_READ_TIMEOUT_3: "1d"
+      # Dashboard catch-all (high number = lowest priority)
+      bunkerweb.REVERSE_PROXY_URL_999: "/"
+      bunkerweb.REVERSE_PROXY_HOST_999: "http://netbird-dashboard"
+      # ModSecurity CRS exclusions for OAuth2
+      bunkerweb.CUSTOM_CONF_MODSEC_remove-false-positives: |
+        SecRule REQUEST_FILENAME "/oauth2/auth" "id:3000000,ctl:ruleRemoveById=931100,ctl:ruleRemoveById=934110,nolog"
+        SecRule REQUEST_FILENAME "/oauth2/token" "id:3000001,ctl:ruleRemoveById=931100,ctl:ruleRemoveById=934110,nolog"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500m"
+        max-file: "2"
+
+volumes:
+  netbird_data:
+
+networks:
+  $network_name:
+    external: true
+EOF
+  return 0
+}
+
 ############################################
 # Post-Setup Instructions per Proxy Type
 ############################################
@@ -1359,6 +1700,73 @@ print_manual_instructions() {
   return 0
 }
 
+print_bunkerweb_instructions() {
+  local bind_addr=$(get_bind_address)
+  echo ""
+  echo "$MSG_SEPARATOR"
+  echo "  BUNKERWEB SETUP (requires BunkerWeb >= 1.6.9)"
+  echo "$MSG_SEPARATOR"
+  echo ""
+
+  if [[ "$BUNKERWEB_MODE" == "A" ]]; then
+    echo "Generated: bunkerweb-netbird.conf"
+    echo ""
+    echo "This file lists the BunkerWeb settings for NetBird, including"
+    echo "native gRPC support (USE_GRPC), WebSocket, HTTP, and dashboard routes."
+    echo ""
+    if [[ -n "$EXTERNAL_PROXY_NETWORK" ]]; then
+      echo "NetBird containers have joined the '$EXTERNAL_PROXY_NETWORK' Docker network."
+      echo "The config uses container names for upstream servers."
+      echo ""
+      echo "$MSG_NEXT_STEPS"
+      echo "  1. Uncomment and configure the TLS section in bunkerweb-netbird.conf"
+      echo "     (Let's Encrypt or custom certificates)"
+      echo "  2. Apply the settings from bunkerweb-netbird.conf to your BunkerWeb site"
+      echo "     (via environment variables, BunkerWeb UI, or API)"
+      echo "  3. If using ModSecurity CRS, copy the exclusion rules shown at the"
+      echo "     end of bunkerweb-netbird.conf to /etc/bunkerweb/configs/modsec/$NETBIRD_DOMAIN/"
+      echo "  4. Reload BunkerWeb"
+    else
+      echo "$MSG_NEXT_STEPS"
+      echo "  1. Uncomment and configure the TLS section in bunkerweb-netbird.conf"
+      echo "     (Let's Encrypt or custom certificates)"
+      echo "  2. Apply the settings from bunkerweb-netbird.conf to your BunkerWeb site"
+      echo "     (via environment variables, BunkerWeb UI, or API)"
+      echo "  3. If using ModSecurity CRS, copy the exclusion rules shown at the"
+      echo "     end of bunkerweb-netbird.conf to /etc/bunkerweb/configs/modsec/$NETBIRD_DOMAIN/"
+      echo "  4. Reload BunkerWeb"
+      echo ""
+      echo "Container ports (bound to ${bind_addr}):"
+      echo "  Dashboard:     ${DASHBOARD_HOST_PORT}"
+      echo "  NetBird Server: ${MANAGEMENT_HOST_PORT} (all services)"
+    fi
+    echo ""
+    echo "BunkerWeb handles TLS termination, HTTP-to-HTTPS redirect,"
+    echo "forwarded headers, and HTTP/2 for gRPC automatically."
+    echo ""
+    echo "IMPORTANT: Set CLIENT_BODY_TIMEOUT=1d and CLIENT_HEADER_TIMEOUT=1d"
+    echo "on your BunkerWeb scheduler (global settings required for gRPC/WebSocket)."
+    echo ""
+    echo "If using MULTISITE mode, prefix each setting with your domain name."
+    echo "See bunkerweb-netbird.conf header for details."
+  else
+    echo "Docker Compose is configured with BunkerWeb autoconf labels."
+    echo "Native gRPC support is enabled via USE_GRPC and GRPC_* labels."
+    echo ""
+    echo "NetBird containers are running and will be auto-discovered by BunkerWeb."
+    echo ""
+    echo "Prerequisites:"
+    echo "  - BunkerWeb and bw-autoconf must be running on the '$EXTERNAL_PROXY_NETWORK' network"
+    echo ""
+    echo "TLS/HTTPS is configured on the BunkerWeb instance, not on these containers."
+    echo ""
+    echo "IMPORTANT: Set CLIENT_BODY_TIMEOUT=1d and CLIENT_HEADER_TIMEOUT=1d"
+    echo "on your BunkerWeb scheduler (global settings required for gRPC/WebSocket)."
+    echo "BunkerWeb autoconf must be running before starting NetBird containers."
+  fi
+  return 0
+}
+
 print_post_setup_instructions() {
   case "$REVERSE_PROXY_TYPE" in
     0)
@@ -1377,6 +1785,9 @@ print_post_setup_instructions() {
       print_external_caddy_instructions
       ;;
     5)
+      print_bunkerweb_instructions
+      ;;
+    6)
       print_manual_instructions
       ;;
     *)

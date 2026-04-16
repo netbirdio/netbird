@@ -247,6 +247,75 @@ jobs:
           docker compose exec management ls -l /var/lib/netbird/ | grep -i GeoLite2-City_[0-9]*.mmdb
           docker compose exec management ls -l /var/lib/netbird/ | grep -i geonames_[0-9]*.db
 
+  test-getting-started-bunkerweb:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Test BunkerWeb config file mode (mode A)
+      - name: run getting-started.sh with BunkerWeb config file mode
+        run: NETBIRD_DOMAIN=use-ip CI_REVERSE_PROXY_TYPE=5 CI_BUNKERWEB_MODE=A CI_BIND_LOCALHOST_ONLY=true CI_EXTERNAL_PROXY_NETWORK="" CI_SKIP_START=true bash -x infrastructure_files/getting-started.sh
+
+      - name: test bunkerweb config file generated
+        run: test -f bunkerweb-netbird.conf
+
+      - name: test docker-compose file generated (config mode)
+        run: test -f docker-compose.yml
+
+      - name: test config.yaml file generated (config mode)
+        run: test -f config.yaml
+
+      - name: verify BunkerWeb config contains all required routes
+        run: |
+          set -x
+          grep 'USE_GRPC=yes' bunkerweb-netbird.conf
+          grep 'GRPC_URL=/signalexchange.SignalExchange/' bunkerweb-netbird.conf
+          grep 'GRPC_URL_1=/management.ManagementService/' bunkerweb-netbird.conf
+          grep 'GRPC_HOST=' bunkerweb-netbird.conf
+          grep 'REVERSE_PROXY_URL=/relay' bunkerweb-netbird.conf
+          grep 'REVERSE_PROXY_WS=yes' bunkerweb-netbird.conf
+          grep 'REVERSE_PROXY_URL_999=/' bunkerweb-netbird.conf
+          grep 'REVERSE_PROXY_INTERCEPT_ERRORS=no' bunkerweb-netbird.conf
+          grep 'AUTO_LETS_ENCRYPT' bunkerweb-netbird.conf
+          grep 'USE_CUSTOM_SSL' bunkerweb-netbird.conf
+          grep 'ALLOWED_METHODS' bunkerweb-netbird.conf
+          grep 'LIMIT_REQ_RATE' bunkerweb-netbird.conf
+          grep 'CLIENT_BODY_TIMEOUT=1d' bunkerweb-netbird.conf
+          grep 'CLIENT_HEADER_TIMEOUT=1d' bunkerweb-netbird.conf
+
+      - name: verify docker-compose has STUN port (config mode)
+        run: grep '3478' docker-compose.yml
+
+      - name: cleanup config file mode
+        run: rm -f docker-compose.yml bunkerweb-netbird.conf config.yaml dashboard.env
+
+      # Test BunkerWeb Docker autoconf mode (mode B)
+      - name: run getting-started.sh with BunkerWeb autoconf mode
+        run: NETBIRD_DOMAIN=use-ip CI_REVERSE_PROXY_TYPE=5 CI_BUNKERWEB_MODE=B CI_BIND_LOCALHOST_ONLY=true CI_EXTERNAL_PROXY_NETWORK=bw-services CI_SKIP_START=true bash -x infrastructure_files/getting-started.sh
+
+      - name: test docker-compose file generated (autoconf mode)
+        run: test -f docker-compose.yml
+
+      - name: test docker-compose with BunkerWeb labels
+        run: |
+          set -x
+          grep 'bunkerweb.SERVER_NAME' docker-compose.yml
+          grep 'bunkerweb.USE_REVERSE_PROXY' docker-compose.yml
+          grep 'bunkerweb.USE_GRPC.*yes' docker-compose.yml
+          grep 'bunkerweb.GRPC_URL.*signalexchange.SignalExchange' docker-compose.yml
+          grep 'REVERSE_PROXY_URL.*relay' docker-compose.yml
+          grep 'REVERSE_PROXY_WS.*yes' docker-compose.yml
+          grep 'REVERSE_PROXY_URL_999' docker-compose.yml
+          grep 'CUSTOM_CONF_MODSEC' docker-compose.yml
+          grep 'ALLOWED_METHODS' docker-compose.yml
+          grep 'CLIENT_BODY_TIMEOUT' docker-compose.yml
+          grep 'CLIENT_HEADER_TIMEOUT' docker-compose.yml
+          grep '3478' docker-compose.yml
+
   test-getting-started-script:
     runs-on: ubuntu-latest
     steps:
