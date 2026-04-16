@@ -47,6 +47,7 @@ func GetInfo(ctx context.Context) *Info {
 // networkAddresses returns the list of network addresses on iOS.
 // On iOS, hardware (MAC) addresses are not available due to Apple's privacy
 // restrictions, so we skip the HardwareAddr check that other platforms use.
+// We also filter out link-local addresses as they are not useful for posture checks.
 func networkAddresses() ([]NetworkAddress, error) {
 	interfaces, err := net.Interfaces()
 	if err != nil {
@@ -69,7 +70,7 @@ func networkAddresses() ([]NetworkAddress, error) {
 				continue
 			}
 
-			if ipNet.IP.IsLoopback() {
+			if ipNet.IP.IsLoopback() || ipNet.IP.IsLinkLocalUnicast() || ipNet.IP.IsLinkLocalMulticast() {
 				continue
 			}
 
