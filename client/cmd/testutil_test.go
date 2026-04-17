@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/netbirdio/management-integrations/integrations"
+
 	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
@@ -97,7 +98,7 @@ func startManagement(t *testing.T, config *config.Config, testFile string) (*grp
 	t.Cleanup(ctrl.Finish)
 
 	permissionsManagerMock := permissions.NewMockManager(ctrl)
-	peersmanager := peers.NewManager(store, permissionsManagerMock)
+	peersmanager := peers.NewManager(store)
 	settingsManagerMock := settings.NewMockManager(ctrl)
 
 	jobManager := job.NewJobManager(nil, store, peersmanager)
