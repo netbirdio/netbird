@@ -115,7 +115,7 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 	if err != nil {
 		t.Fatalf("Failed to create proxy controller: %v", err)
 	}
-	serviceManager := reverseproxymanager.NewManager(store, am, permissionsManager, serviceProxyController, proxyMgr, domainManager)
+	serviceManager := reverseproxymanager.NewManager(store, am, permissionsManager, serviceProxyController, proxyMgr, domainManager, networkMapController)
 	proxyServiceServer.SetServiceManager(serviceManager)
 	am.SetServiceManager(serviceManager)
 
@@ -244,7 +244,7 @@ func BuildApiBlackBoxWithDBStateAndPeerChannel(t testing_tools.TB, sqlFile strin
 	if err != nil {
 		t.Fatalf("Failed to create proxy controller: %v", err)
 	}
-	serviceManager := reverseproxymanager.NewManager(store, am, permissionsManager, serviceProxyController, proxyMgr, domainManager)
+	serviceManager := reverseproxymanager.NewManager(store, am, permissionsManager, serviceProxyController, proxyMgr, domainManager, networkMapController)
 	proxyServiceServer.SetServiceManager(serviceManager)
 	am.SetServiceManager(serviceManager)
 
