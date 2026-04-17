@@ -154,24 +154,7 @@ func (m *Manager) replaceHostByLookup(ctx context.Context, accountID string, s *
 	for _, target := range s.Targets {
 		switch target.TargetType {
 		case service.TargetTypePeer:
-			peer, err := m.store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, target.TargetId)
-			if err != nil {
-				log.WithContext(ctx).Warnf("failed to get peer by id %s for service %s: %v", target.TargetId, s.ID, err)
-				target.Host = unknownHostPlaceholder
-				continue
-			}
-			if target.Protocol == "https" {
-				settings, err := m.accountManager.GetAccountSettings(ctx, accountID, activity.SystemInitiator)
-				if err != nil {
-					log.WithContext(ctx).Warnf("failed to get account settings for service %s: %v", s.ID, err)
-					target.Host = unknownHostPlaceholder
-					continue
-				}
-				dnsDomain := m.networkMapController.GetDNSDomain(settings)
-				target.Host = peer.FQDN(dnsDomain)
-			} else {
-				target.Host = peer.IP.String()
-			}
+			target.Host = m.getPeerTargetHost(ctx, accountID, target)
 		case service.TargetTypeHost:
 			resource, err := m.store.GetNetworkResourceByID(ctx, store.LockingStrengthNone, accountID, target.TargetId)
 			if err != nil {
@@ -196,6 +179,26 @@ func (m *Manager) replaceHostByLookup(ctx context.Context, accountID string, s *
 	}
 
 	return nil
+}
+
+func (m *Manager) getPeerTargetHost(ctx context.Context, accountID string, target *service.Target) string {
+	peer, err := m.store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, target.TargetId)
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed to get peer by id %s for service %s: %v", target.TargetId, target.ServiceID, err)
+		return unknownHostPlaceholder
+	}
+
+	if target.Protocol == "https" {
+		settings, err := m.accountManager.GetAccountSettings(ctx, accountID, activity.SystemInitiator)
+		if err != nil {
+			log.WithContext(ctx).Warnf("failed to get account settings for service %s: %v", target.ServiceID, err)
+			return unknownHostPlaceholder
+		}
+		dnsDomain := m.networkMapController.GetDNSDomain(settings)
+		return peer.FQDN(dnsDomain)
+	}
+
+	return peer.IP.String()
 }
 
 func (m *Manager) GetService(ctx context.Context, accountID, userID, serviceID string) (*service.Service, error) {
