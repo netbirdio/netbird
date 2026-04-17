@@ -44,7 +44,7 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 		return nil, err
 	}
 
-	if all {
+	if all || user.IsAdminOrServiceUser() {
 		return accountPeers, nil
 	}
 
@@ -560,6 +560,9 @@ func (am *DefaultAccountManager) handleUserAddedPeer(ctx context.Context, accoun
 	}
 	if user.PendingApproval {
 		return status.Errorf(status.PermissionDenied, "user pending approval cannot add peers")
+	}
+	if temporary && !user.IsAdminOrServiceUser() {
+		return status.Errorf(status.PermissionDenied, "only admin or service users can add peers")
 	}
 
 	if !temporary {

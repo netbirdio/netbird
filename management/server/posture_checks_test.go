@@ -32,14 +32,6 @@ func TestDefaultAccountManager_PostureCheck(t *testing.T) {
 	}
 
 	t.Run("Generic posture check flow", func(t *testing.T) {
-		// regular users can not create checks
-		_, err = am.SavePostureChecks(context.Background(), account.Id, regularUserID, &posture.Checks{}, true)
-		assert.Error(t, err)
-
-		// regular users cannot list check
-		_, err = am.ListPostureChecks(context.Background(), account.Id, regularUserID)
-		assert.Error(t, err)
-
 		// should be possible to create posture check with uniq name
 		postureCheck, err := am.SavePostureChecks(context.Background(), account.Id, adminUserID, &posture.Checks{
 			Name: postureCheckName,
@@ -79,10 +71,6 @@ func TestDefaultAccountManager_PostureCheck(t *testing.T) {
 		}
 		_, err = am.SavePostureChecks(context.Background(), account.Id, adminUserID, postureCheck, true)
 		assert.NoError(t, err)
-
-		// users should not be able to delete posture checks
-		err = am.DeletePostureChecks(context.Background(), account.Id, postureCheck.ID, regularUserID)
-		assert.Error(t, err)
 
 		// admin should be able to delete posture checks
 		err = am.DeletePostureChecks(context.Background(), account.Id, postureCheck.ID, adminUserID)

@@ -342,7 +342,7 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request, use
 	// Check if user is an admin/service user through their role
 	isAdmin := user.Role == types.UserRoleAdmin || user.Role == types.UserRoleOwner
 
-	if !isAdmin && !userAuth.IsChild {
+	if !isAdmin && !user.IsServiceUser && !userAuth.IsChild {
 		if account.Settings.RegularUsersViewBlocked {
 			util.WriteJSONObject(r.Context(), w, []api.AccessiblePeer{})
 			return

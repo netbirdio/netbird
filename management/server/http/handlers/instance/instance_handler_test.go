@@ -10,12 +10,17 @@ import (
 	"net/mail"
 	"testing"
 
+	"github.com/golang/mock/gomock"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/modules"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbinstance "github.com/netbirdio/netbird/management/server/instance"
+	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
@@ -295,8 +300,15 @@ func TestSetup_ManagerError(t *testing.T) {
 
 func TestGetVersionInfo_Success(t *testing.T) {
 	manager := &mockInstanceManager{}
+	ctrl := gomock.NewController(t)
+	permissionsManager := permissions.NewMockManager(ctrl)
+	permissionsManager.EXPECT().WithPermission(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(module modules.Module, operation operations.Operation, handler func(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth), authErrHandler ...permissions.AuthErrorHandler) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			handler(w, r, &auth.UserAuth{})
+		}
+	}).AnyTimes()
 	router := mux.NewRouter()
-	AddVersionEndpoint(manager, router, nil)
+	AddVersionEndpoint(manager, router, permissionsManager)
 
 	req := httptest.NewRequest(http.MethodGet, "/instance/version", nil)
 	rec := httptest.NewRecorder()

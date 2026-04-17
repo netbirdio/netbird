@@ -163,22 +163,6 @@ func TestCreateUserInvite_ExistingUserEmail(t *testing.T) {
 	assert.Equal(t, status.UserAlreadyExists, sErr.Type())
 }
 
-func TestCreateUserInvite_PermissionDenied(t *testing.T) {
-	am, cleanup := setupInviteTestManagerWithEmbeddedIdP(t)
-	defer cleanup()
-
-	invite := &types.UserInfo{
-		Email:      "newuser@test.com",
-		Name:       "New User",
-		Role:       "user",
-		AutoGroups: []string{},
-	}
-
-	// Regular user should not be able to create invites
-	_, err := am.CreateUserInvite(context.Background(), testAccountID, testRegularUserID, invite, 0)
-	require.Error(t, err)
-}
-
 func TestCreateUserInvite_InvalidEmail(t *testing.T) {
 	am, cleanup := setupInviteTestManagerWithEmbeddedIdP(t)
 	defer cleanup()
@@ -412,14 +396,6 @@ func TestListUserInvites_Empty(t *testing.T) {
 	assert.Len(t, invites, 0)
 }
 
-func TestListUserInvites_PermissionDenied(t *testing.T) {
-	am, cleanup := setupInviteTestManagerWithEmbeddedIdP(t)
-	defer cleanup()
-
-	_, err := am.ListUserInvites(context.Background(), testAccountID, testRegularUserID)
-	require.Error(t, err)
-}
-
 func TestRegenerateUserInvite_Success(t *testing.T) {
 	am, cleanup := setupInviteTestManagerWithEmbeddedIdP(t)
 	defer cleanup()
@@ -470,26 +446,6 @@ func TestRegenerateUserInvite_NotFound(t *testing.T) {
 	assert.Equal(t, status.NotFound, sErr.Type())
 }
 
-func TestRegenerateUserInvite_PermissionDenied(t *testing.T) {
-	am, cleanup := setupInviteTestManagerWithEmbeddedIdP(t)
-	defer cleanup()
-
-	// Create an invite first
-	invite := &types.UserInfo{
-		Email:      "newuser@test.com",
-		Name:       "New User",
-		Role:       "user",
-		AutoGroups: []string{},
-	}
-
-	result, err := am.CreateUserInvite(context.Background(), testAccountID, testAdminUserID, invite, 0)
-	require.NoError(t, err)
-
-	// Regular user should not be able to regenerate
-	_, err = am.RegenerateUserInvite(context.Background(), testAccountID, testRegularUserID, result.UserInfo.ID, 0)
-	require.Error(t, err)
-}
-
 func TestDeleteUserInvite_Success(t *testing.T) {
 	am, cleanup := setupInviteTestManagerWithEmbeddedIdP(t)
 	defer cleanup()
@@ -529,26 +485,6 @@ func TestDeleteUserInvite_NotFound(t *testing.T) {
 	sErr, ok := status.FromError(err)
 	require.True(t, ok)
 	assert.Equal(t, status.NotFound, sErr.Type())
-}
-
-func TestDeleteUserInvite_PermissionDenied(t *testing.T) {
-	am, cleanup := setupInviteTestManagerWithEmbeddedIdP(t)
-	defer cleanup()
-
-	// Create an invite first
-	invite := &types.UserInfo{
-		Email:      "newuser@test.com",
-		Name:       "New User",
-		Role:       "user",
-		AutoGroups: []string{},
-	}
-
-	result, err := am.CreateUserInvite(context.Background(), testAccountID, testAdminUserID, invite, 0)
-	require.NoError(t, err)
-
-	// Regular user should not be able to delete
-	err = am.DeleteUserInvite(context.Background(), testAccountID, testRegularUserID, result.UserInfo.ID)
-	require.Error(t, err)
 }
 
 func TestDeleteUserInvite_WrongAccount(t *testing.T) {

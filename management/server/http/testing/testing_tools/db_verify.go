@@ -12,6 +12,7 @@ import (
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
@@ -219,4 +220,21 @@ func VerifyNetworkRouterNotInDB(t *testing.T, db *gorm.DB, routerID string) {
 	var count int64
 	db.Model(&routerTypes.NetworkRouter{}).Where("id = ? AND account_id = ?", routerID, TestAccountId).Count(&count)
 	assert.Equal(t, int64(0), count, "Expected network router %s to NOT exist in DB", routerID)
+}
+
+// VerifyPostureCheckInDB reads a posture check directly from the DB and returns it.
+func VerifyPostureCheckInDB(t *testing.T, db *gorm.DB, postureCheckID string) *posture.Checks {
+	t.Helper()
+	var check posture.Checks
+	err := db.Where("id = ? AND account_id = ?", postureCheckID, TestAccountId).First(&check).Error
+	require.NoError(t, err, "Expected posture check %s to exist in DB", postureCheckID)
+	return &check
+}
+
+// VerifyPostureCheckNotInDB verifies that a posture check does not exist in the DB.
+func VerifyPostureCheckNotInDB(t *testing.T, db *gorm.DB, postureCheckID string) {
+	t.Helper()
+	var count int64
+	db.Model(&posture.Checks{}).Where("id = ? AND account_id = ?", postureCheckID, TestAccountId).Count(&count)
+	assert.Equal(t, int64(0), count, "Expected posture check %s to NOT exist in DB", postureCheckID)
 }

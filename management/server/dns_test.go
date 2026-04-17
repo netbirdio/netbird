@@ -28,7 +28,6 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 const (
@@ -78,16 +77,6 @@ func TestGetDNSSettings(t *testing.T) {
 
 	if len(dnsSettings.DisabledManagementGroups) != 1 {
 		t.Errorf("DNS settings should have one disabled mgmt group, groups: %s", dnsSettings.DisabledManagementGroups)
-	}
-
-	_, err = am.GetDNSSettings(context.Background(), account.Id, dnsRegularUserID)
-	if err == nil {
-		t.Errorf("An error should be returned when getting the DNS settings with a regular user")
-	}
-
-	s, ok := status.FromError(err)
-	if !ok && s.Type() != status.PermissionDenied {
-		t.Errorf("returned error should be Permission Denied, got err: %s", err)
 	}
 }
 

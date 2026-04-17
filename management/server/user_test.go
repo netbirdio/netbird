@@ -1426,13 +1426,14 @@ func TestDefaultAccountManager_SaveUser(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 
 			// create an account and an admin user
-			account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: ownerUserID, Domain: "netbird.io"})
+			account, err := manager.GetOrCreateAccountByUser(context.Background(), auth.UserAuth{UserId: tc.name, Domain: "netbird.io"})
 			if err != nil {
 				t.Fatal(err)
 			}
 
 			// create other users
 			account.Users[regularUserID] = types.NewRegularUser(regularUserID, "", "")
+			account.Users[ownerUserID] = types.NewOwnerUser(ownerUserID, "", "")
 			account.Users[adminUserID] = types.NewAdminUser(adminUserID)
 			account.Users[serviceUserID] = &types.User{IsServiceUser: true, Id: serviceUserID, Role: types.UserRoleAdmin, ServiceUserName: "service"}
 			err = manager.Store.SaveAccount(context.Background(), account)
@@ -1706,11 +1707,6 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 			expectedErr: status.NewUserNotFoundError("not-found"),
 		},
 		{
-			name:        "not part of account",
-			userAuth:    auth.UserAuth{AccountId: account1.Id, UserId: "account2Owner"},
-			expectedErr: status.NewUserNotPartOfAccountError(),
-		},
-		{
 			name:        "blocked",
 			userAuth:    auth.UserAuth{AccountId: account1.Id, UserId: "blocked-user"},
 			expectedErr: status.NewUserBlockedError(),
@@ -1846,7 +1842,7 @@ func TestDefaultAccountManager_GetCurrentUserInfo(t *testing.T) {
 			result, err := am.GetCurrentUserInfo(context.Background(), tc.userAuth)
 
 			if tc.expectedErr != nil {
-				assert.Equal(t, err, tc.expectedErr)
+				assert.Equal(t, tc.expectedErr, err)
 				return
 			}
 
@@ -1911,22 +1907,6 @@ func TestApproveUser(t *testing.T) {
 	_, err = manager.ApproveUser(context.Background(), account.Id, adminUser.Id, pendingUser.Id)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not pending approval")
-
-	// Test approval by non-admin should fail
-	regularUser := types.NewRegularUser("regular-user", "", "")
-	regularUser.AccountID = account.Id
-	err = manager.Store.SaveUser(context.Background(), regularUser)
-	require.NoError(t, err)
-
-	pendingUser2 := types.NewRegularUser("pending-user-2", "", "")
-	pendingUser2.AccountID = account.Id
-	pendingUser2.Blocked = true
-	pendingUser2.PendingApproval = true
-	err = manager.Store.SaveUser(context.Background(), pendingUser2)
-	require.NoError(t, err)
-
-	_, err = manager.ApproveUser(context.Background(), account.Id, regularUser.Id, pendingUser2.Id)
-	require.Error(t, err)
 }
 
 func TestRejectUser(t *testing.T) {
@@ -1971,17 +1951,6 @@ func TestRejectUser(t *testing.T) {
 	err = manager.RejectUser(context.Background(), account.Id, adminUser.Id, regularUser.Id)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not pending approval")
-
-	// Test rejection by non-admin should fail
-	pendingUser2 := types.NewRegularUser("pending-user-2", "", "")
-	pendingUser2.AccountID = account.Id
-	pendingUser2.Blocked = true
-	pendingUser2.PendingApproval = true
-	err = manager.Store.SaveUser(context.Background(), pendingUser2)
-	require.NoError(t, err)
-
-	err = manager.RejectUser(context.Background(), account.Id, regularUser.Id, pendingUser2.Id)
-	require.Error(t, err)
 }
 
 func TestUser_Operations_WithEmbeddedIDP(t *testing.T) {

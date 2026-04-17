@@ -919,8 +919,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(ctx context.Context, accoun
 	accountUsers := []*types.User{}
 
 	// Determine if user has full access based on their role
-	// Service users and regular users have limited visibility
-	hasFullAccess := user.HasAdminPower()
+	hasFullAccess := user.HasAdminPower() || user.IsServiceUser
 
 	switch {
 	case hasFullAccess:
