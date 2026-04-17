@@ -18,6 +18,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/management-integrations/integrations"
+
 	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 
@@ -92,7 +93,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 		Return(true, nil).
 		AnyTimes()
 
-	peersManger := peers.NewManager(store, permissionsManagerMock)
+	peersManger := peers.NewManager(store)
 	settingsManagerMock := settings.NewMockManager(ctrl)
 	jobManager := job.NewJobManager(nil, store, peersManger)
 
