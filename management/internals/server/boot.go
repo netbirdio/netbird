@@ -18,6 +18,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 
+	cachestore "github.com/eko/gocache/lib/v4/store"
 	"github.com/netbirdio/management-integrations/integrations"
 
 	"github.com/netbirdio/netbird/encryption"
@@ -26,6 +27,7 @@ import (
 	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	nbhttp "github.com/netbirdio/netbird/management/server/http"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -55,6 +57,18 @@ func (s *BaseServer) Metrics() telemetry.AppMetrics {
 			log.Fatalf("error while creating app metrics: %s", err)
 		}
 		return appMetrics
+	})
+}
+
+// CacheStore returns a shared cache store backed by Redis or in-memory depending on the environment.
+// All consumers should reuse this store to avoid creating multiple Redis connections.
+func (s *BaseServer) CacheStore() cachestore.StoreInterface {
+	return Create(s, func() cachestore.StoreInterface {
+		cs, err := nbcache.NewStore(context.Background(), nbcache.DefaultStoreMaxTimeout, nbcache.DefaultStoreCleanupInterval, nbcache.DefaultStoreMaxConn)
+		if err != nil {
+			log.Fatalf("failed to create shared cache store: %v", err)
+		}
+		return cs
 	})
 }
 
@@ -195,10 +209,7 @@ func (s *BaseServer) proxyOIDCConfig() nbgrpc.ProxyOIDCConfig {
 
 func (s *BaseServer) ProxyTokenStore() *nbgrpc.OneTimeTokenStore {
 	return Create(s, func() *nbgrpc.OneTimeTokenStore {
-		tokenStore, err := nbgrpc.NewOneTimeTokenStore(context.Background(), 5*time.Minute, 10*time.Minute, 100)
-		if err != nil {
-			log.Fatalf("failed to create proxy token store: %v", err)
-		}
+		tokenStore := nbgrpc.NewOneTimeTokenStore(context.Background(), s.CacheStore())
 		log.Info("One-time token store initialized for proxy authentication")
 		return tokenStore
 	})
@@ -206,11 +217,7 @@ func (s *BaseServer) ProxyTokenStore() *nbgrpc.OneTimeTokenStore {
 
 func (s *BaseServer) PKCEVerifierStore() *nbgrpc.PKCEVerifierStore {
 	return Create(s, func() *nbgrpc.PKCEVerifierStore {
-		pkceStore, err := nbgrpc.NewPKCEVerifierStore(context.Background(), 10*time.Minute, 10*time.Minute, 100)
-		if err != nil {
-			log.Fatalf("failed to create PKCE verifier store: %v", err)
-		}
-		return pkceStore
+		return nbgrpc.NewPKCEVerifierStore(context.Background(), s.CacheStore())
 	})
 }
 

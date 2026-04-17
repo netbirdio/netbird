@@ -1,6 +1,7 @@
 package accesslogs
 
 import (
+	"maps"
 	"net"
 	"net/netip"
 	"time"
@@ -37,6 +38,7 @@ type AccessLogEntry struct {
 	BytesUpload     int64             `gorm:"index"`
 	BytesDownload   int64             `gorm:"index"`
 	Protocol        AccessLogProtocol `gorm:"index"`
+	Metadata        map[string]string `gorm:"serializer:json"`
 }
 
 // FromProto creates an AccessLogEntry from a proto.AccessLog
@@ -55,6 +57,7 @@ func (a *AccessLogEntry) FromProto(serviceLog *proto.AccessLog) {
 	a.BytesUpload = serviceLog.GetBytesUpload()
 	a.BytesDownload = serviceLog.GetBytesDownload()
 	a.Protocol = AccessLogProtocol(serviceLog.GetProtocol())
+	a.Metadata = maps.Clone(serviceLog.GetMetadata())
 
 	if sourceIP := serviceLog.GetSourceIp(); sourceIP != "" {
 		if addr, err := netip.ParseAddr(sourceIP); err == nil {
@@ -117,6 +120,11 @@ func (a *AccessLogEntry) ToAPIResponse() *api.ProxyAccessLog {
 		protocol = &p
 	}
 
+	var metadata *map[string]string
+	if len(a.Metadata) > 0 {
+		metadata = &a.Metadata
+	}
+
 	return &api.ProxyAccessLog{
 		Id:              a.ID,
 		ServiceId:       a.ServiceID,
@@ -136,5 +144,6 @@ func (a *AccessLogEntry) ToAPIResponse() *api.ProxyAccessLog {
 		BytesUpload:     a.BytesUpload,
 		BytesDownload:   a.BytesDownload,
 		Protocol:        protocol,
+		Metadata:        metadata,
 	}
 }

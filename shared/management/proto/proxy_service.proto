@@ -34,6 +34,8 @@ message ProxyCapabilities {
   // Whether the proxy requires a subdomain label in front of its cluster domain.
   // When true, accounts cannot use the cluster domain bare.
   optional bool require_subdomain = 2;
+  // Whether the proxy has CrowdSec configured and can enforce IP reputation checks.
+  optional bool supports_crowdsec = 3;
 }
 
 // GetMappingUpdateRequest is sent to initialise a mapping stream.
@@ -104,6 +106,8 @@ message AccessRestrictions {
   repeated string blocked_cidrs = 2;
   repeated string allowed_countries = 3;
   repeated string blocked_countries = 4;
+  // CrowdSec IP reputation mode: "", "off", "enforce", or "observe".
+  string crowdsec_mode = 5;
 }
 
 message ProxyMapping {
@@ -152,6 +156,8 @@ message AccessLog {
   int64 bytes_upload = 14;
   int64 bytes_download = 15;
   string protocol = 16;
+  // Extra key-value metadata for the access log entry (e.g. crowdsec_verdict, scenario).
+  map<string, string> metadata = 17;
 }
 
 message AuthenticateRequest {

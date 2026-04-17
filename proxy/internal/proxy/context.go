@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"maps"
 	"net/netip"
 	"sync"
 
@@ -52,6 +53,7 @@ type CapturedData struct {
 	clientIP   netip.Addr
 	userID     string
 	authMethod string
+	metadata   map[string]string
 }
 
 // NewCapturedData creates a CapturedData with the given request ID.
@@ -148,6 +150,23 @@ func (c *CapturedData) GetAuthMethod() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.authMethod
+}
+
+// SetMetadata sets a key-value pair in the metadata map.
+func (c *CapturedData) SetMetadata(key, value string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.metadata == nil {
+		c.metadata = make(map[string]string)
+	}
+	c.metadata[key] = value
+}
+
+// GetMetadata returns a copy of the metadata map.
+func (c *CapturedData) GetMetadata() map[string]string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return maps.Clone(c.metadata)
 }
 
 // WithCapturedData adds a CapturedData struct to the context.

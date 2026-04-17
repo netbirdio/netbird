@@ -479,9 +479,14 @@ func (r *Router) checkRestrictions(conn net.Conn, route Route) restrict.Verdict 
 // On success (nil error), both conn and backend are closed by the relay.
 func (r *Router) relayTCP(ctx context.Context, conn net.Conn, sni SNIHost, route Route) error {
 	if verdict := r.checkRestrictions(conn, route); verdict != restrict.Allow {
-		r.logger.Debugf("connection from %s rejected by access restrictions: %s", conn.RemoteAddr(), verdict)
-		r.logL4Deny(route, conn, verdict)
-		return errAccessRestricted
+		if route.Filter != nil && route.Filter.IsObserveOnly(verdict) {
+			r.logger.Debugf("CrowdSec observe: would block %s for %s (%s)", conn.RemoteAddr(), sni, verdict)
+			r.logL4Deny(route, conn, verdict, true)
+		} else {
+			r.logger.Debugf("connection from %s rejected by access restrictions: %s", conn.RemoteAddr(), verdict)
+			r.logL4Deny(route, conn, verdict, false)
+			return errAccessRestricted
+		}
 	}
 
 	svcCtx, err := r.acquireRelay(ctx, route)
@@ -610,7 +615,7 @@ func (r *Router) logL4Entry(route Route, conn net.Conn, duration time.Duration, 
 }
 
 // logL4Deny sends an access log entry for a denied connection.
-func (r *Router) logL4Deny(route Route, conn net.Conn, verdict restrict.Verdict) {
+func (r *Router) logL4Deny(route Route, conn net.Conn, verdict restrict.Verdict, observeOnly bool) {
 	r.mu.RLock()
 	al := r.accessLog
 	r.mu.RUnlock()
@@ -621,14 +626,22 @@ func (r *Router) logL4Deny(route Route, conn net.Conn, verdict restrict.Verdict)
 
 	sourceIP, _ := addrFromConn(conn)
 
-	al.LogL4(accesslog.L4Entry{
+	entry := accesslog.L4Entry{
 		AccountID:  route.AccountID,
 		ServiceID:  route.ServiceID,
 		Protocol:   route.Protocol,
 		Host:       route.Domain,
 		SourceIP:   sourceIP,
 		DenyReason: verdict.String(),
-	})
+	}
+	if verdict.IsCrowdSec() {
+		entry.Metadata = map[string]string{"crowdsec_verdict": verdict.String()}
+		if observeOnly {
+			entry.Metadata["crowdsec_mode"] = "observe"
+			entry.DenyReason = ""
+		}
+	}
+	al.LogL4(entry)
 }
 
 // getOrCreateServiceCtxLocked returns the context for a service, creating one

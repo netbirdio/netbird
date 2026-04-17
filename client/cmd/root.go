@@ -75,6 +75,7 @@ var (
 	mtu                     uint16
 	profilesDisabled        bool
 	updateSettingsDisabled  bool
+	networksDisabled        bool
 
 	rootCmd = &cobra.Command{
 		Use:          "netbird",

@@ -182,6 +182,23 @@ read_enable_proxy() {
   return 0
 }
 
+read_enable_crowdsec() {
+  echo "" > /dev/stderr
+  echo "Do you want to enable CrowdSec IP reputation blocking?" > /dev/stderr
+  echo "CrowdSec checks client IPs against a community threat intelligence database" > /dev/stderr
+  echo "and blocks known malicious sources before they reach your services." > /dev/stderr
+  echo "A local CrowdSec LAPI container will be added to your deployment." > /dev/stderr
+  echo -n "Enable CrowdSec? [y/N]: " > /dev/stderr
+  read -r CHOICE < /dev/tty
+
+  if [[ "$CHOICE" =~ ^[Yy]$ ]]; then
+    echo "true"
+  else
+    echo "false"
+  fi
+  return 0
+}
+
 read_traefik_acme_email() {
   echo "" > /dev/stderr
   echo "Enter your email for Let's Encrypt certificate notifications." > /dev/stderr
@@ -297,6 +314,10 @@ initialize_default_values() {
   # NetBird Proxy configuration
   ENABLE_PROXY="false"
   PROXY_TOKEN=""
+
+  # CrowdSec configuration
+  ENABLE_CROWDSEC="false"
+  CROWDSEC_BOUNCER_KEY=""
   return 0
 }
 
@@ -325,6 +346,9 @@ configure_reverse_proxy() {
   if [[ "$REVERSE_PROXY_TYPE" == "0" ]]; then
     TRAEFIK_ACME_EMAIL=$(read_traefik_acme_email)
     ENABLE_PROXY=$(read_enable_proxy)
+    if [[ "$ENABLE_PROXY" == "true" ]]; then
+      ENABLE_CROWDSEC=$(read_enable_crowdsec)
+    fi
   fi
 
   # Handle external Traefik-specific prompts (option 1)
@@ -354,7 +378,7 @@ check_existing_installation() {
     echo "Generated files already exist, if you want to reinitialize the environment, please remove them first."
     echo "You can use the following commands:"
     echo "  $DOCKER_COMPOSE_COMMAND down --volumes # to remove all containers and volumes"
-    echo "  rm -f docker-compose.yml dashboard.env config.yaml proxy.env traefik-dynamic.yaml nginx-netbird.conf caddyfile-netbird.txt npm-advanced-config.txt"
+    echo "  rm -f docker-compose.yml dashboard.env config.yaml proxy.env traefik-dynamic.yaml nginx-netbird.conf caddyfile-netbird.txt npm-advanced-config.txt && rm -rf crowdsec/"
     echo "Be aware that this will remove all data from the database, and you will have to reconfigure the dashboard."
     exit 1
   fi
@@ -375,6 +399,9 @@ generate_configuration_files() {
         echo "NB_PROXY_TOKEN=placeholder" >> proxy.env
         # TCP ServersTransport for PROXY protocol v2 to the proxy backend
         render_traefik_dynamic > traefik-dynamic.yaml
+        if [[ "$ENABLE_CROWDSEC" == "true" ]]; then
+          mkdir -p crowdsec
+        fi
       fi
       ;;
     1)
@@ -417,8 +444,12 @@ start_services_and_show_instructions() {
 
     if [[ "$ENABLE_PROXY" == "true" ]]; then
       # Phase 1: Start core services (without proxy)
+      local core_services="traefik dashboard netbird-server"
+      if [[ "$ENABLE_CROWDSEC" == "true" ]]; then
+        core_services="$core_services crowdsec"
+      fi
       echo "Starting core services..."
-      $DOCKER_COMPOSE_COMMAND up -d traefik dashboard netbird-server
+      $DOCKER_COMPOSE_COMMAND up -d $core_services
 
       sleep 3
       wait_management_proxy traefik
@@ -438,7 +469,33 @@ start_services_and_show_instructions() {
 
       echo "Proxy token created successfully."
 
-      # Generate proxy.env with the token
+      if [[ "$ENABLE_CROWDSEC" == "true" ]]; then
+        echo "Registering CrowdSec bouncer..."
+        local cs_retries=0
+        while ! $DOCKER_COMPOSE_COMMAND exec -T crowdsec cscli capi status >/dev/null 2>&1; do
+          cs_retries=$((cs_retries + 1))
+          if [[ $cs_retries -ge 30 ]]; then
+            echo "WARNING: CrowdSec did not become ready. Skipping CrowdSec setup." > /dev/stderr
+            echo "You can register a bouncer manually later with:" > /dev/stderr
+            echo "  docker exec netbird-crowdsec cscli bouncers add netbird-proxy -o raw" > /dev/stderr
+            ENABLE_CROWDSEC="false"
+            break
+          fi
+          sleep 2
+        done
+
+        if [[ "$ENABLE_CROWDSEC" == "true" ]]; then
+          CROWDSEC_BOUNCER_KEY=$($DOCKER_COMPOSE_COMMAND exec -T crowdsec \
+            cscli bouncers add netbird-proxy -o raw 2>/dev/null)
+          if [[ -z "$CROWDSEC_BOUNCER_KEY" ]]; then
+            echo "WARNING: Failed to create CrowdSec bouncer key. Skipping CrowdSec setup." > /dev/stderr
+            ENABLE_CROWDSEC="false"
+          else
+            echo "CrowdSec bouncer registered."
+          fi
+        fi
+      fi
+
       render_proxy_env > proxy.env
 
       # Start proxy service
@@ -525,11 +582,25 @@ render_docker_compose_traefik_builtin() {
   # Generate proxy service section and Traefik dynamic config if enabled
   local proxy_service=""
   local proxy_volumes=""
+  local crowdsec_service=""
+  local crowdsec_volumes=""
   local traefik_file_provider=""
   local traefik_dynamic_volume=""
   if [[ "$ENABLE_PROXY" == "true" ]]; then
     traefik_file_provider='      - "--providers.file.filename=/etc/traefik/dynamic.yaml"'
     traefik_dynamic_volume="      - ./traefik-dynamic.yaml:/etc/traefik/dynamic.yaml:ro"
+
+    local proxy_depends="
+      netbird-server:
+        condition: service_started"
+    if [[ "$ENABLE_CROWDSEC" == "true" ]]; then
+      proxy_depends="
+      netbird-server:
+        condition: service_started
+      crowdsec:
+        condition: service_healthy"
+    fi
+
     proxy_service="
   # NetBird Proxy - exposes internal resources to the internet
   proxy:
@@ -539,8 +610,7 @@ render_docker_compose_traefik_builtin() {
     - 51820:51820/udp
     restart: unless-stopped
     networks: [netbird]
-    depends_on:
-      - netbird-server
+    depends_on:${proxy_depends}
     env_file:
       - ./proxy.env
     volumes:
@@ -563,6 +633,35 @@ render_docker_compose_traefik_builtin() {
 "
     proxy_volumes="
   netbird_proxy_certs:"
+
+    if [[ "$ENABLE_CROWDSEC" == "true" ]]; then
+      crowdsec_service="
+  crowdsec:
+    image: crowdsecurity/crowdsec:v1.7.7
+    container_name: netbird-crowdsec
+    restart: unless-stopped
+    networks: [netbird]
+    environment:
+      COLLECTIONS: crowdsecurity/linux
+    volumes:
+      - ./crowdsec:/etc/crowdsec
+      - crowdsec_db:/var/lib/crowdsec/data
+    healthcheck:
+      test: ["CMD", "cscli", "lapi", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+    labels:
+      - traefik.enable=false
+    logging:
+      driver: \"json-file\"
+      options:
+        max-size: \"500m\"
+        max-file: \"2\"
+"
+      crowdsec_volumes="
+  crowdsec_db:"
+    fi
   fi
 
   cat <<EOF
@@ -675,10 +774,10 @@ $traefik_dynamic_volume
       options:
         max-size: "500m"
         max-file: "2"
-${proxy_service}
+${proxy_service}${crowdsec_service}
 volumes:
   netbird_data:
-  netbird_traefik_letsencrypt:${proxy_volumes}
+  netbird_traefik_letsencrypt:${proxy_volumes}${crowdsec_volumes}
 
 networks:
   netbird:
@@ -783,6 +882,14 @@ NB_PROXY_PROXY_PROTOCOL=true
 # Trust Traefik's IP for PROXY protocol headers
 NB_PROXY_TRUSTED_PROXIES=$TRAEFIK_IP
 EOF
+
+  if [[ "$ENABLE_CROWDSEC" == "true" && -n "$CROWDSEC_BOUNCER_KEY" ]]; then
+    cat <<EOF
+NB_PROXY_CROWDSEC_API_URL=http://crowdsec:8080
+NB_PROXY_CROWDSEC_API_KEY=$CROWDSEC_BOUNCER_KEY
+EOF
+  fi
+
   return 0
 }
 
@@ -1172,6 +1279,17 @@ print_builtin_traefik_instructions() {
     echo ""
     echo "  *.$NETBIRD_DOMAIN    CNAME    $NETBIRD_DOMAIN"
     echo ""
+    if [[ "$ENABLE_CROWDSEC" == "true" ]]; then
+      echo "CrowdSec IP Reputation:"
+      echo "  CrowdSec LAPI is running and connected to the community blocklist."
+      echo "  The proxy will automatically check client IPs against known threats."
+      echo "  Enable CrowdSec per-service in the dashboard under Access Control."
+      echo ""
+      echo "  To enroll in CrowdSec Console (optional, for dashboard and premium blocklists):"
+      echo "    docker exec netbird-crowdsec cscli console enroll <your-enrollment-key>"
+      echo "  Get your enrollment key at: https://app.crowdsec.net"
+      echo ""
+    fi
   fi
   return 0
 }
