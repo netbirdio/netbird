@@ -335,8 +335,15 @@ func TestGetVersionInfo_Error(t *testing.T) {
 			return nil, errors.New("failed to fetch versions")
 		},
 	}
+	ctrl := gomock.NewController(t)
+	permissionsManager := permissions.NewMockManager(ctrl)
+	permissionsManager.EXPECT().WithPermission(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(module modules.Module, operation operations.Operation, handler func(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth), authErrHandler ...permissions.AuthErrorHandler) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			handler(w, r, &auth.UserAuth{})
+		}
+	}).AnyTimes()
 	router := mux.NewRouter()
-	AddVersionEndpoint(manager, router, nil)
+	AddVersionEndpoint(manager, router, permissionsManager)
 
 	req := httptest.NewRequest(http.MethodGet, "/instance/version", nil)
 	rec := httptest.NewRecorder()
