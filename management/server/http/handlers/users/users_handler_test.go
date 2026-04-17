@@ -699,7 +699,7 @@ func TestCurrentUser(t *testing.T) {
 			rr := httptest.NewRecorder()
 
 			userAuth := &auth.UserAuth{
-				UserId:    existingUserID,
+				UserId:    tc.requestAuth.UserId,
 				AccountId: existingAccountID,
 			}
 			userHandler.getCurrentUser(rr, req, userAuth)
