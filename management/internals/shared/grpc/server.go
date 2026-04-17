@@ -84,9 +84,15 @@ type Server struct {
 
 	reverseProxyManager rpservice.Manager
 	reverseProxyMu      sync.RWMutex
+
+	// peerSerialCache lets Sync skip full network map computation when the peer
+	// already has the latest account serial. A nil cache disables the fast path.
+	peerSerialCache *PeerSerialCache
 }
 
-// NewServer creates a new Management server
+// NewServer creates a new Management server. peerSerialCache is optional; when
+// nil the Sync fast path is disabled and every request runs the full map
+// computation, matching the pre-cache behaviour.
 func NewServer(
 	config *nbconfig.Config,
 	accountManager account.Manager,
@@ -98,6 +104,7 @@ func NewServer(
 	integratedPeerValidator integrated_validator.IntegratedValidator,
 	networkMapController network_map.Controller,
 	oAuthConfigProvider idp.OAuthConfigProvider,
+	peerSerialCache *PeerSerialCache,
 ) (*Server, error) {
 	if appMetrics != nil {
 		// update gauge based on number of connected peers which is equal to open gRPC streams
@@ -145,6 +152,8 @@ func NewServer(
 
 		syncLim:        syncLim,
 		syncLimEnabled: syncLimEnabled,
+
+		peerSerialCache: peerSerialCache,
 	}, nil
 }
 
@@ -305,6 +314,10 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	metahash := metaHash(peerMeta, realIP.String())
 	s.loginFilter.addLogin(peerKey.String(), metahash)
 
+	if took, err := s.tryFastPathSync(ctx, reqStart, syncStart, accountID, peerKey, peerMeta, realIP, metahash, srv, &unlock); took {
+		return err
+	}
+
 	peer, netMap, postureChecks, dnsFwdPort, err := s.accountManager.SyncAndMarkPeer(ctx, accountID, peerKey.String(), peerMeta, realIP, syncStart)
 	if err != nil {
 		log.WithContext(ctx).Debugf("error while syncing peer %s: %v", peerKey.String(), err)
@@ -319,6 +332,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, syncStart)
 		return err
 	}
+	s.recordPeerSyncEntry(peerKey.String(), netMap, metahash)
 
 	updates, err := s.networkMapController.OnPeerConnected(ctx, accountID, peer.ID)
 	if err != nil {
@@ -340,7 +354,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 
 	s.syncSem.Add(-1)
 
-	return s.handleUpdates(ctx, accountID, peerKey, peer, updates, srv, syncStart)
+	return s.handleUpdates(ctx, accountID, peerKey, peer, metahash, updates, srv, syncStart)
 }
 
 func (s *Server) handleHandshake(ctx context.Context, srv proto.ManagementService_JobServer) (wgtypes.Key, error) {
@@ -410,8 +424,9 @@ func (s *Server) sendJobsLoop(ctx context.Context, accountID string, peerKey wgt
 // handleUpdates sends updates to the connected peer until the updates channel is closed.
 // It implements a backpressure mechanism that sends the first update immediately,
 // then debounces subsequent rapid updates, ensuring only the latest update is sent
-// after a quiet period.
-func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, updates chan *network_map.UpdateMessage, srv proto.ManagementService_SyncServer, streamStartTime time.Time) error {
+// after a quiet period. peerMetaHash is forwarded to sendUpdate so the peer-sync
+// cache can record the serial this peer just received.
+func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, peerMetaHash uint64, updates chan *network_map.UpdateMessage, srv proto.ManagementService_SyncServer, streamStartTime time.Time) error {
 	log.WithContext(ctx).Tracef("starting to handle updates for peer %s", peerKey.String())
 
 	// Create a debouncer for this peer connection
@@ -436,7 +451,7 @@ func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wg
 			log.WithContext(ctx).Debugf("received an update for peer %s", peerKey.String())
 			if debouncer.ProcessUpdate(update) {
 				// Send immediately (first update or after quiet period)
-				if err := s.sendUpdate(ctx, accountID, peerKey, peer, update, srv, streamStartTime); err != nil {
+				if err := s.sendUpdate(ctx, accountID, peerKey, peer, peerMetaHash, update, srv, streamStartTime); err != nil {
 					log.WithContext(ctx).Debugf("error while sending an update to peer %s: %v", peerKey.String(), err)
 					return err
 				}
@@ -450,7 +465,7 @@ func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wg
 			}
 			log.WithContext(ctx).Debugf("sending %d debounced update(s) for peer %s", len(pendingUpdates), peerKey.String())
 			for _, pendingUpdate := range pendingUpdates {
-				if err := s.sendUpdate(ctx, accountID, peerKey, peer, pendingUpdate, srv, streamStartTime); err != nil {
+				if err := s.sendUpdate(ctx, accountID, peerKey, peer, peerMetaHash, pendingUpdate, srv, streamStartTime); err != nil {
 					log.WithContext(ctx).Debugf("error while sending an update to peer %s: %v", peerKey.String(), err)
 					return err
 				}
@@ -468,7 +483,9 @@ func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wg
 
 // sendUpdate encrypts the update message using the peer key and the server's wireguard key,
 // then sends the encrypted message to the connected peer via the sync server.
-func (s *Server) sendUpdate(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, update *network_map.UpdateMessage, srv proto.ManagementService_SyncServer, streamStartTime time.Time) error {
+// For MessageTypeNetworkMap updates it records the delivered serial in the
+// peer-sync cache so a subsequent Sync with the same serial can take the fast path.
+func (s *Server) sendUpdate(ctx context.Context, accountID string, peerKey wgtypes.Key, peer *nbpeer.Peer, peerMetaHash uint64, update *network_map.UpdateMessage, srv proto.ManagementService_SyncServer, streamStartTime time.Time) error {
 	key, err := s.secretsManager.GetWGKey()
 	if err != nil {
 		s.cancelPeerRoutines(ctx, accountID, peer, streamStartTime)
@@ -487,6 +504,9 @@ func (s *Server) sendUpdate(ctx context.Context, accountID string, peerKey wgtyp
 	if err != nil {
 		s.cancelPeerRoutines(ctx, accountID, peer, streamStartTime)
 		return status.Errorf(codes.Internal, "failed sending update message")
+	}
+	if update.MessageType == network_map.MessageTypeNetworkMap {
+		s.recordPeerSyncEntryFromUpdate(peerKey.String(), update, peerMetaHash)
 	}
 	log.WithContext(ctx).Debugf("sent an update to peer %s", peerKey.String())
 	return nil
@@ -772,6 +792,7 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 		log.WithContext(ctx).Warnf("failed logging in peer %s: %s", peerKey, err)
 		return nil, mapError(ctx, err)
 	}
+	s.invalidatePeerSyncEntry(peerKey.String())
 
 	loginResp, err := s.prepareLoginResponse(ctx, peer, netMap, postureChecks)
 	if err != nil {

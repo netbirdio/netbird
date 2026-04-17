@@ -1,0 +1,274 @@
+package server
+
+import (
+	"context"
+	"runtime"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
+	"github.com/netbirdio/netbird/encryption"
+	"github.com/netbirdio/netbird/management/internals/server/config"
+	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/util"
+)
+
+func fastPathTestConfig(t *testing.T) *config.Config {
+	t.Helper()
+	return &config.Config{
+		Datadir: t.TempDir(),
+		Stuns: []*config.Host{{
+			Proto: "udp",
+			URI:   "stun:stun.example:3478",
+		}},
+		TURNConfig: &config.TURNConfig{
+			TimeBasedCredentials: true,
+			CredentialsTTL:       util.Duration{Duration: time.Hour},
+			Secret:               "turn-secret",
+			Turns: []*config.Host{{
+				Proto: "udp",
+				URI:   "turn:turn.example:3478",
+			}},
+		},
+		Relay: &config.Relay{
+			Addresses:      []string{"rel.example:443"},
+			CredentialsTTL: util.Duration{Duration: time.Hour},
+			Secret:         "relay-secret",
+		},
+		Signal: &config.Host{
+			Proto: "http",
+			URI:   "signal.example:10000",
+		},
+		HttpConfig: nil,
+	}
+}
+
+// openSync opens a Sync stream with the given meta and returns the decoded first
+// SyncResponse plus a cancel function. The caller must call cancel() to release
+// server-side routines before opening a new stream for the same peer.
+func openSync(t *testing.T, client mgmtProto.ManagementServiceClient, serverKey, peerKey wgtypes.Key, meta *mgmtProto.PeerSystemMeta) (*mgmtProto.SyncResponse, context.CancelFunc) {
+	t.Helper()
+
+	req := &mgmtProto.SyncRequest{Meta: meta}
+	body, err := encryption.EncryptMessage(serverKey, peerKey, req)
+	require.NoError(t, err, "encrypt sync request")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	stream, err := client.Sync(ctx, &mgmtProto.EncryptedMessage{
+		WgPubKey: peerKey.PublicKey().String(),
+		Body:     body,
+	})
+	require.NoError(t, err, "open sync stream")
+
+	enc := &mgmtProto.EncryptedMessage{}
+	require.NoError(t, stream.RecvMsg(enc), "receive first sync response")
+
+	resp := &mgmtProto.SyncResponse{}
+	require.NoError(t, encryption.DecryptMessage(serverKey, peerKey, enc.Body, resp), "decrypt sync response")
+
+	return resp, cancel
+}
+
+// waitForPeerDisconnect gives the server's handleUpdates goroutine a moment to
+// notice the cancelled stream and run cancelPeerRoutines before the next open.
+// Without this the new stream can race with the old one's channel close and
+// trigger a spurious disconnect.
+func waitForPeerDisconnect() {
+	time.Sleep(50 * time.Millisecond)
+}
+
+func baseLinuxMeta() *mgmtProto.PeerSystemMeta {
+	return &mgmtProto.PeerSystemMeta{
+		Hostname:       "linux-host",
+		GoOS:           "linux",
+		OS:             "linux",
+		Platform:       "x86_64",
+		Kernel:         "5.15.0",
+		NetbirdVersion: "0.70.0",
+	}
+}
+
+func androidMeta() *mgmtProto.PeerSystemMeta {
+	return &mgmtProto.PeerSystemMeta{
+		Hostname:       "android-host",
+		GoOS:           "android",
+		OS:             "android",
+		Platform:       "arm64",
+		Kernel:         "4.19",
+		NetbirdVersion: "0.70.0",
+	}
+}
+
+func TestSyncFastPath_FirstSync_SendsFullMap(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping on windows; harness uses unix path conventions")
+	}
+	mgmtServer, _, addr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", fastPathTestConfig(t))
+	require.NoError(t, err)
+	defer cleanup()
+	defer mgmtServer.GracefulStop()
+
+	client, conn, err := createRawClient(addr)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	keys, err := registerPeers(1, client)
+	require.NoError(t, err)
+	serverKey, err := getServerKey(client)
+	require.NoError(t, err)
+
+	resp, cancel := openSync(t, client, *serverKey, *keys[0], baseLinuxMeta())
+	defer cancel()
+
+	require.NotNil(t, resp.NetworkMap, "first sync for a fresh peer must deliver a full NetworkMap")
+	assert.NotNil(t, resp.NetbirdConfig, "NetbirdConfig must accompany the full map")
+}
+
+func TestSyncFastPath_SecondSync_MatchingSerial_SkipsMap(t *testing.T) {
+	mgmtServer, _, addr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", fastPathTestConfig(t))
+	require.NoError(t, err)
+	defer cleanup()
+	defer mgmtServer.GracefulStop()
+
+	client, conn, err := createRawClient(addr)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	keys, err := registerPeers(1, client)
+	require.NoError(t, err)
+	serverKey, err := getServerKey(client)
+	require.NoError(t, err)
+
+	first, cancel1 := openSync(t, client, *serverKey, *keys[0], baseLinuxMeta())
+	require.NotNil(t, first.NetworkMap, "first sync primes cache with a full map")
+	cancel1()
+	waitForPeerDisconnect()
+
+	second, cancel2 := openSync(t, client, *serverKey, *keys[0], baseLinuxMeta())
+	defer cancel2()
+
+	assert.Nil(t, second.NetworkMap, "second sync with unchanged state must omit NetworkMap")
+	require.NotNil(t, second.NetbirdConfig, "fast path must still deliver NetbirdConfig")
+	assert.NotEmpty(t, second.NetbirdConfig.Turns, "time-based TURN credentials must be refreshed on fast path")
+	require.NotNil(t, second.NetbirdConfig.Relay, "relay config must be present on fast path")
+	assert.NotEmpty(t, second.NetbirdConfig.Relay.TokenPayload, "relay token must be refreshed on fast path")
+}
+
+func TestSyncFastPath_AndroidNeverSkips(t *testing.T) {
+	mgmtServer, _, addr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", fastPathTestConfig(t))
+	require.NoError(t, err)
+	defer cleanup()
+	defer mgmtServer.GracefulStop()
+
+	client, conn, err := createRawClient(addr)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	keys, err := registerPeers(1, client)
+	require.NoError(t, err)
+	serverKey, err := getServerKey(client)
+	require.NoError(t, err)
+
+	first, cancel1 := openSync(t, client, *serverKey, *keys[0], androidMeta())
+	require.NotNil(t, first.NetworkMap, "android first sync must deliver a full map")
+	cancel1()
+	waitForPeerDisconnect()
+
+	second, cancel2 := openSync(t, client, *serverKey, *keys[0], androidMeta())
+	defer cancel2()
+
+	require.NotNil(t, second.NetworkMap, "android reconnects must never take the fast path")
+}
+
+func TestSyncFastPath_MetaChanged_SendsFullMap(t *testing.T) {
+	mgmtServer, _, addr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", fastPathTestConfig(t))
+	require.NoError(t, err)
+	defer cleanup()
+	defer mgmtServer.GracefulStop()
+
+	client, conn, err := createRawClient(addr)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	keys, err := registerPeers(1, client)
+	require.NoError(t, err)
+	serverKey, err := getServerKey(client)
+	require.NoError(t, err)
+
+	first, cancel1 := openSync(t, client, *serverKey, *keys[0], baseLinuxMeta())
+	require.NotNil(t, first.NetworkMap, "first sync primes cache")
+	cancel1()
+	waitForPeerDisconnect()
+
+	changed := baseLinuxMeta()
+	changed.Hostname = "linux-host-renamed"
+	second, cancel2 := openSync(t, client, *serverKey, *keys[0], changed)
+	defer cancel2()
+
+	require.NotNil(t, second.NetworkMap, "meta change must force a full map even when serial matches")
+}
+
+func TestSyncFastPath_LoginInvalidatesCache(t *testing.T) {
+	mgmtServer, _, addr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", fastPathTestConfig(t))
+	require.NoError(t, err)
+	defer cleanup()
+	defer mgmtServer.GracefulStop()
+
+	client, conn, err := createRawClient(addr)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	key, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+
+	_, err = loginPeerWithValidSetupKey(key, client)
+	require.NoError(t, err, "initial login must succeed")
+
+	serverKey, err := getServerKey(client)
+	require.NoError(t, err)
+
+	first, cancel1 := openSync(t, client, *serverKey, key, baseLinuxMeta())
+	require.NotNil(t, first.NetworkMap, "first sync primes cache")
+	cancel1()
+	waitForPeerDisconnect()
+
+	// A subsequent login (e.g. SSH key rotation, re-auth) must clear the cache.
+	_, err = loginPeerWithValidSetupKey(key, client)
+	require.NoError(t, err, "second login must succeed")
+
+	second, cancel2 := openSync(t, client, *serverKey, key, baseLinuxMeta())
+	defer cancel2()
+	require.NotNil(t, second.NetworkMap, "Login must invalidate the cache so the next Sync delivers a full map")
+}
+
+func TestSyncFastPath_OtherPeerRegistered_ForcesFullMap(t *testing.T) {
+	mgmtServer, _, addr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", fastPathTestConfig(t))
+	require.NoError(t, err)
+	defer cleanup()
+	defer mgmtServer.GracefulStop()
+
+	client, conn, err := createRawClient(addr)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	keys, err := registerPeers(1, client)
+	require.NoError(t, err)
+	serverKey, err := getServerKey(client)
+	require.NoError(t, err)
+
+	first, cancel1 := openSync(t, client, *serverKey, *keys[0], baseLinuxMeta())
+	require.NotNil(t, first.NetworkMap, "first sync primes cache at serial N")
+	cancel1()
+	waitForPeerDisconnect()
+
+	// Registering another peer bumps the account serial via IncrementNetworkSerial.
+	_, err = registerPeers(1, client)
+	require.NoError(t, err)
+
+	second, cancel2 := openSync(t, client, *serverKey, *keys[0], baseLinuxMeta())
+	defer cancel2()
+	require.NotNil(t, second.NetworkMap, "serial advance must force a full map even if meta is unchanged")
+}
