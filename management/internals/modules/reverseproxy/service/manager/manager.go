@@ -163,7 +163,9 @@ func (m *Manager) replaceHostByLookup(ctx context.Context, accountID string, s *
 			if target.Protocol == "https" {
 				settings, err := m.accountManager.GetAccountSettings(ctx, accountID, activity.SystemInitiator)
 				if err != nil {
-					return fmt.Errorf("failed to get account settings for DNS domain lookup: %w", err)
+					log.WithContext(ctx).Warnf("failed to get account settings for service %s: %v", s.ID, err)
+					target.Host = unknownHostPlaceholder
+					continue
 				}
 				dnsDomain := m.networkMapController.GetDNSDomain(settings)
 				target.Host = peer.FQDN(dnsDomain)
