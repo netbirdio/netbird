@@ -14,6 +14,7 @@ import (
 	"go.opentelemetry.io/otel"
 
 	"github.com/netbirdio/management-integrations/integrations"
+
 	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
@@ -305,7 +306,7 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 	t.Cleanup(ctrl.Finish)
 
 	permissionsManagerMock := permissions.NewMockManager(ctrl)
-	peersManager := peers.NewManager(store, permissionsManagerMock)
+	peersManager := peers.NewManager(store)
 	settingsManagerMock := settings.NewMockManager(ctrl)
 
 	jobManager := job.NewJobManager(nil, store, peersManager)
