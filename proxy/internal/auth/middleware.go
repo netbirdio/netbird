@@ -433,6 +433,7 @@ func setSessionCookie(w http.ResponseWriter, token string, expiration time.Durat
 	http.SetCookie(w, &http.Cookie{
 		Name:     auth.SessionCookieName,
 		Value:    token,
+		Path:     "/",
 		HttpOnly: true,
 		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
