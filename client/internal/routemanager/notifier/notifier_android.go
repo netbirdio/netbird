@@ -79,7 +79,7 @@ func (n *Notifier) notify() {
 	routeStrings := n.routesToStrings(allRoutes)
 	sort.Strings(routeStrings)
 	go func(l listener.NetworkChangeListener) {
-		l.OnNetworkChanged(strings.Join(n.addIPv6RangeIfNeeded(routeStrings, allRoutes), ","))
+		l.OnNetworkChanged(strings.Join(routeStrings, ","))
 	}(n.listener)
 }
 
@@ -117,14 +117,5 @@ func (n *Notifier) hasRouteDiff(a []*route.Route, b []*route.Route) bool {
 func (n *Notifier) GetInitialRouteRanges() []string {
 	initialStrings := n.routesToStrings(n.initialRoutes)
 	sort.Strings(initialStrings)
-	return n.addIPv6RangeIfNeeded(initialStrings, n.initialRoutes)
-}
-
-func (n *Notifier) addIPv6RangeIfNeeded(inputRanges []string, routes []*route.Route) []string {
-	for _, r := range routes {
-		if r.Network.Addr().Is4() && r.Network.Bits() == 0 {
-			return append(slices.Clone(inputRanges), "::/0")
-		}
-	}
-	return inputRanges
+	return initialStrings
 }
