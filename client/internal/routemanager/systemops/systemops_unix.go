@@ -41,26 +41,42 @@ func init() {
 }
 
 func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager.Manager, advancedRouting bool) error {
+	if advancedRouting {
+		return r.setupAdvancedRouting()
+	}
+
+	log.Infof("Using legacy routing setup with ref counters")
 	return r.setupRefCounter(initAddresses, stateManager)
 }
 
 func (r *SysOps) CleanupRouting(stateManager *statemanager.Manager, advancedRouting bool) error {
+	if advancedRouting {
+		return r.cleanupAdvancedRouting()
+	}
+
 	return r.cleanupRefCounter(stateManager)
 }
 
 // FlushMarkedRoutes removes single IP exclusion routes marked with the configured RTF_PROTO flag.
+// On darwin it also flushes residual RTF_IFSCOPE scoped default routes so a
+// crashed prior session can't leave crud in the table.
 func (r *SysOps) FlushMarkedRoutes() error {
+	var merr *multierror.Error
+
+	if err := r.flushPlatformExtras(); err != nil {
+		merr = multierror.Append(merr, fmt.Errorf("flush platform extras: %w", err))
+	}
+
 	rib, err := retryFetchRIB()
 	if err != nil {
-		return fmt.Errorf("fetch routing table: %w", err)
+		return nberrors.FormatErrorOrNil(multierror.Append(merr, fmt.Errorf("fetch routing table: %w", err)))
 	}
 
 	msgs, err := route.ParseRIB(route.RIBTypeRoute, rib)
 	if err != nil {
-		return fmt.Errorf("parse routing table: %w", err)
+		return nberrors.FormatErrorOrNil(multierror.Append(merr, fmt.Errorf("parse routing table: %w", err)))
 	}
 
-	var merr *multierror.Error
 	flushedCount := 0
 
 	for _, msg := range msgs {
@@ -117,12 +133,12 @@ func (r *SysOps) routeSocket(action int, prefix netip.Prefix, nexthop Nexthop) e
 		return fmt.Errorf("invalid prefix: %s", prefix)
 	}
 
-	expBackOff := backoff.NewExponentialBackOff()
-	expBackOff.InitialInterval = 50 * time.Millisecond
-	expBackOff.MaxInterval = 500 * time.Millisecond
-	expBackOff.MaxElapsedTime = 1 * time.Second
+	msg, err := r.buildRouteMessage(action, prefix, nexthop)
+	if err != nil {
+		return fmt.Errorf("build route message: %w", err)
+	}
 
-	if err := backoff.Retry(r.routeOp(action, prefix, nexthop), expBackOff); err != nil {
+	if err := r.writeRouteMessage(msg); err != nil {
 		a := "add"
 		if action == unix.RTM_DELETE {
 			a = "remove"
@@ -132,50 +148,79 @@ func (r *SysOps) routeSocket(action int, prefix netip.Prefix, nexthop Nexthop) e
 	return nil
 }
 
-func (r *SysOps) routeOp(action int, prefix netip.Prefix, nexthop Nexthop) func() error {
-	operation := func() error {
-		fd, err := unix.Socket(syscall.AF_ROUTE, syscall.SOCK_RAW, syscall.AF_UNSPEC)
-		if err != nil {
-			return fmt.Errorf("open routing socket: %w", err)
+// writeRouteMessage sends a route message over AF_ROUTE and waits for the
+// kernel's matching reply, retrying transient failures. Callers do not need to
+// manage sockets or seq numbers themselves.
+func (r *SysOps) writeRouteMessage(msg *route.RouteMessage) error {
+	expBackOff := backoff.NewExponentialBackOff()
+	expBackOff.InitialInterval = 50 * time.Millisecond
+	expBackOff.MaxInterval = 500 * time.Millisecond
+	expBackOff.MaxElapsedTime = 1 * time.Second
+
+	return backoff.Retry(func() error { return routeMessageRoundtrip(msg) }, expBackOff)
+}
+
+func routeMessageRoundtrip(msg *route.RouteMessage) error {
+	fd, err := unix.Socket(syscall.AF_ROUTE, syscall.SOCK_RAW, syscall.AF_UNSPEC)
+	if err != nil {
+		return fmt.Errorf("open routing socket: %w", err)
+	}
+	defer func() {
+		if err := unix.Close(fd); err != nil && !errors.Is(err, unix.EBADF) {
+			log.Warnf("close routing socket: %v", err)
 		}
-		defer func() {
-			if err := unix.Close(fd); err != nil && !errors.Is(err, unix.EBADF) {
-				log.Warnf("failed to close routing socket: %v", err)
+	}()
+
+	tv := unix.Timeval{Sec: 1}
+	if err := unix.SetsockoptTimeval(fd, unix.SOL_SOCKET, unix.SO_RCVTIMEO, &tv); err != nil {
+		return backoff.Permanent(fmt.Errorf("set recv timeout: %w", err))
+	}
+
+	bytes, err := msg.Marshal()
+	if err != nil {
+		return backoff.Permanent(fmt.Errorf("marshal: %w", err))
+	}
+
+	if _, err = unix.Write(fd, bytes); err != nil {
+		if errors.Is(err, unix.ENOBUFS) || errors.Is(err, unix.EAGAIN) {
+			return fmt.Errorf("write: %w", err)
+		}
+		return backoff.Permanent(fmt.Errorf("write: %w", err))
+	}
+	return readRouteResponse(fd, msg.Type, msg.Seq)
+}
+
+// readRouteResponse reads from the AF_ROUTE socket until it sees a reply
+// matching our write (same type, seq, and pid). AF_ROUTE SOCK_RAW is a
+// broadcast channel: interface up/down, third-party route changes and neighbor
+// discovery events can all land between our write and read, so we must filter.
+func readRouteResponse(fd, wantType, wantSeq int) error {
+	pid := int32(os.Getpid())
+	resp := make([]byte, 2048)
+	deadline := time.Now().Add(time.Second)
+	for {
+		if time.Now().After(deadline) {
+			return backoff.Permanent(fmt.Errorf("read: timeout waiting for route reply type=%d seq=%d", wantType, wantSeq))
+		}
+		n, err := unix.Read(fd, resp)
+		if err != nil {
+			if errors.Is(err, unix.EAGAIN) || errors.Is(err, unix.EWOULDBLOCK) {
+				return fmt.Errorf("read: %w", err)
 			}
-		}()
-
-		msg, err := r.buildRouteMessage(action, prefix, nexthop)
-		if err != nil {
-			return backoff.Permanent(fmt.Errorf("build route message: %w", err))
+			return backoff.Permanent(fmt.Errorf("read: %w", err))
 		}
-
-		msgBytes, err := msg.Marshal()
-		if err != nil {
-			return backoff.Permanent(fmt.Errorf("marshal route message: %w", err))
+		if n < int(unsafe.Sizeof(unix.RtMsghdr{})) {
+			continue
 		}
-
-		if _, err = unix.Write(fd, msgBytes); err != nil {
-			if errors.Is(err, unix.ENOBUFS) || errors.Is(err, unix.EAGAIN) {
-				return fmt.Errorf("write: %w", err)
-			}
-			return backoff.Permanent(fmt.Errorf("write: %w", err))
+		hdr := (*unix.RtMsghdr)(unsafe.Pointer(&resp[0]))
+		if int(hdr.Type) != wantType || int(hdr.Seq) != wantSeq || hdr.Pid != pid {
+			continue
 		}
-
-		respBuf := make([]byte, 2048)
-		n, err := unix.Read(fd, respBuf)
-		if err != nil {
-			return backoff.Permanent(fmt.Errorf("read route response: %w", err))
+		if hdr.Errno != 0 {
+			return backoff.Permanent(fmt.Errorf("kernel errno %d", hdr.Errno))
 		}
-
-		if n > 0 {
-			if err := r.parseRouteResponse(respBuf[:n]); err != nil {
-				return backoff.Permanent(err)
-			}
-		}
-
 		return nil
 	}
-	return operation
 }
 
 func (r *SysOps) buildRouteMessage(action int, prefix netip.Prefix, nexthop Nexthop) (msg *route.RouteMessage, err error) {
@@ -219,19 +264,6 @@ func (r *SysOps) buildRouteMessage(action int, prefix netip.Prefix, nexthop Next
 
 	msg.Addrs = addrs
 	return msg, nil
-}
-
-func (r *SysOps) parseRouteResponse(buf []byte) error {
-	if len(buf) < int(unsafe.Sizeof(unix.RtMsghdr{})) {
-		return nil
-	}
-
-	rtMsg := (*unix.RtMsghdr)(unsafe.Pointer(&buf[0]))
-	if rtMsg.Errno != 0 {
-		return fmt.Errorf("parse: %d", rtMsg.Errno)
-	}
-
-	return nil
 }
 
 // addrToRouteAddr converts a netip.Addr to the appropriate route.Addr (*route.Inet4Addr or *route.Inet6Addr).
