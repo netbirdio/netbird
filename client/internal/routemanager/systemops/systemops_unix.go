@@ -205,7 +205,8 @@ func readRouteResponse(fd, wantType, wantSeq int) error {
 		n, err := unix.Read(fd, resp)
 		if err != nil {
 			if errors.Is(err, unix.EAGAIN) || errors.Is(err, unix.EWOULDBLOCK) {
-				return fmt.Errorf("read: %w", err)
+				// SO_RCVTIMEO fired while waiting; loop to re-check the absolute deadline.
+				continue
 			}
 			return backoff.Permanent(fmt.Errorf("read: %w", err))
 		}
