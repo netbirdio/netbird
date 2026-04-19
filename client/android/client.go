@@ -71,9 +71,30 @@ type Client struct {
 	uiVersion             string
 	networkChangeListener listener.NetworkChangeListener
 
+	stateMu       sync.RWMutex
 	connectClient *internal.ConnectClient
 	config        *profilemanager.Config
 	cacheDir      string
+}
+
+func (c *Client) setState(cfg *profilemanager.Config, cacheDir string, cc *internal.ConnectClient) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c.config = cfg
+	c.cacheDir = cacheDir
+	c.connectClient = cc
+}
+
+func (c *Client) stateSnapshot() (*profilemanager.Config, string, *internal.ConnectClient) {
+	c.stateMu.RLock()
+	defer c.stateMu.RUnlock()
+	return c.config, c.cacheDir, c.connectClient
+}
+
+func (c *Client) getConnectClient() *internal.ConnectClient {
+	c.stateMu.RLock()
+	defer c.stateMu.RUnlock()
+	return c.connectClient
 }
 
 // NewClient instantiate a new Client
@@ -130,10 +151,9 @@ func (c *Client) Run(platformFiles PlatformFiles, urlOpener URLOpener, isAndroid
 
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
-	c.config = cfg
-	c.cacheDir = cacheDir
-	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder)
-	return c.connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, stateFile, cacheDir)
+	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder)
+	c.setState(cfg, cacheDir, connectClient)
+	return connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, stateFile, cacheDir)
 }
 
 // RunWithoutLogin we apply this type of run function when the backed has been started without UI (i.e. after reboot).
@@ -166,10 +186,9 @@ func (c *Client) RunWithoutLogin(platformFiles PlatformFiles, dns *DNSList, dnsR
 
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
-	c.config = cfg
-	c.cacheDir = cacheDir
-	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder)
-	return c.connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, stateFile, cacheDir)
+	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder)
+	c.setState(cfg, cacheDir, connectClient)
+	return connectClient.RunOnAndroid(c.tunAdapter, c.iFaceDiscover, c.networkChangeListener, slices.Clone(dns.items), dnsReadyListener, stateFile, cacheDir)
 }
 
 // Stop the internal client and free the resources
@@ -184,11 +203,12 @@ func (c *Client) Stop() {
 }
 
 func (c *Client) RenewTun(fd int) error {
-	if c.connectClient == nil {
+	cc := c.getConnectClient()
+	if cc == nil {
 		return fmt.Errorf("engine not running")
 	}
 
-	e := c.connectClient.Engine()
+	e := cc.Engine()
 	if e == nil {
 		return fmt.Errorf("engine not initialized")
 	}
@@ -199,8 +219,7 @@ func (c *Client) RenewTun(fd int) error {
 // DebugBundle generates a debug bundle, uploads it, and returns the upload key.
 // It works both with and without a running engine.
 func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool) (string, error) {
-	cfg := c.config
-	cacheDir := c.cacheDir
+	cfg, cacheDir, cc := c.stateSnapshot()
 
 	// If the engine hasn't been started, load config from disk
 	if cfg == nil {
@@ -220,14 +239,14 @@ func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool) (strin
 		TempDir:        cacheDir,
 	}
 
-	if c.connectClient != nil {
-		resp, err := c.connectClient.GetLatestSyncResponse()
+	if cc != nil {
+		resp, err := cc.GetLatestSyncResponse()
 		if err != nil {
 			log.Warnf("get latest sync response: %v", err)
 		}
 		deps.SyncResponse = resp
 
-		if e := c.connectClient.Engine(); e != nil {
+		if e := cc.Engine(); e != nil {
 			if cm := e.GetClientMetrics(); cm != nil {
 				deps.ClientMetrics = cm
 			}
@@ -293,12 +312,13 @@ func (c *Client) PeersList() *PeerInfoArray {
 }
 
 func (c *Client) Networks() *NetworkArray {
-	if c.connectClient == nil {
+	cc := c.getConnectClient()
+	if cc == nil {
 		log.Error("not connected")
 		return nil
 	}
 
-	engine := c.connectClient.Engine()
+	engine := cc.Engine()
 	if engine == nil {
 		log.Error("could not get engine")
 		return nil
@@ -379,7 +399,7 @@ func (c *Client) toggleRoute(command routeCommand) error {
 }
 
 func (c *Client) getRouteManager() (routemanager.Manager, error) {
-	client := c.connectClient
+	client := c.getConnectClient()
 	if client == nil {
 		return nil, fmt.Errorf("not connected")
 	}
