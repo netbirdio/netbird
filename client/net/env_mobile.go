@@ -4,6 +4,7 @@ package net
 
 // Init initializes the network environment for mobile platforms.
 func Init() {
+	// no-op on mobile: routing scope is owned by the VPN extension.
 }
 
 // AdvancedRouting reports whether routing loops can be avoided without using exclusion routes.
@@ -15,6 +16,7 @@ func AdvancedRouting() bool {
 
 // SetVPNInterfaceName is a no-op on mobile.
 func SetVPNInterfaceName(string) {
+	// no-op on mobile: the VPN extension manages the interface.
 }
 
 // GetVPNInterfaceName returns an empty string on mobile.

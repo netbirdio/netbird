@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"os"
+	"time"
 
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
@@ -16,6 +18,11 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	nbnet "github.com/netbirdio/netbird/client/net"
 )
+
+// scopedRouteBudget bounds retries for the scoped default route. Installing or
+// deleting it matters enough that we're willing to spend longer waiting for the
+// kernel reply than for per-prefix exclusion routes.
+const scopedRouteBudget = 5 * time.Second
 
 // setupAdvancedRouting installs an RTF_IFSCOPE default route per address family
 // pinned to the current physical egress, so IP_BOUND_IF scoped lookups can
@@ -34,6 +41,12 @@ import (
 // the table. Any subsequent reconnect via nbnet.NewDialer picks up the
 // populated bound-iface cache and gets IP_BOUND_IF set cleanly.
 func (r *SysOps) setupAdvancedRouting() error {
+	// Drop any previously-cached egress interface before reinstalling. On a
+	// refresh, a family that no longer resolves would otherwise keep the stale
+	// binding, causing new sockets to scope to an interface without a matching
+	// scoped default.
+	nbnet.ClearBoundInterfaces()
+
 	if err := r.flushScopedDefaults(); err != nil {
 		log.Warnf("flush residual scoped defaults: %v", err)
 	}
@@ -72,14 +85,12 @@ func (r *SysOps) installScopedDefaultFor(unspec netip.Addr) (bool, error) {
 		}
 		return false, fmt.Errorf("get default nexthop for %s: %w", unspec, err)
 	}
-	if nexthop.Intf == nil || !nexthop.IP.IsValid() {
-		return false, fmt.Errorf("unusable default nexthop for %s (iface=%v gw=%v)",
-			unspec, nexthop.Intf, nexthop.IP)
+	if nexthop.Intf == nil {
+		return false, fmt.Errorf("unusable default nexthop for %s (no interface)", unspec)
 	}
 
 	if err := r.addScopedDefault(unspec, nexthop); err != nil {
-		return false, fmt.Errorf("add scoped default via %s on %s: %w",
-			nexthop.IP, nexthop.Intf.Name, err)
+		return false, fmt.Errorf("add scoped default on %s: %w", nexthop.Intf.Name, err)
 	}
 
 	af := unix.AF_INET
@@ -87,8 +98,11 @@ func (r *SysOps) installScopedDefaultFor(unspec netip.Addr) (bool, error) {
 		af = unix.AF_INET6
 	}
 	nbnet.SetBoundInterface(af, nexthop.Intf)
-	log.Infof("installed scoped default route via %s on %s for %s",
-		nexthop.IP, nexthop.Intf.Name, afOf(unspec))
+	via := "point-to-point"
+	if nexthop.IP.IsValid() {
+		via = nexthop.IP.String()
+	}
+	log.Infof("installed scoped default route via %s on %s for %s", via, nexthop.Intf.Name, afOf(unspec))
 	return true, nil
 }
 
@@ -172,16 +186,17 @@ func (r *SysOps) deleteScopedRoute(rtMsg *route.RouteMessage) error {
 		Index:   rtMsg.Index,
 		Addrs:   rtMsg.Addrs,
 	}
-	return r.writeRouteMessage(del)
+	return r.writeRouteMessage(del, scopedRouteBudget)
 }
 
 func (r *SysOps) scopedRouteSocket(action int, unspec netip.Addr, nexthop Nexthop) error {
-	flags := unix.RTF_UP | unix.RTF_STATIC | unix.RTF_GATEWAY | unix.RTF_IFSCOPE | routeProtoFlag
+	flags := unix.RTF_UP | unix.RTF_STATIC | unix.RTF_IFSCOPE | routeProtoFlag
 
 	msg := &route.RouteMessage{
 		Type:    action,
 		Flags:   flags,
 		Version: unix.RTM_VERSION,
+		ID:      uintptr(os.Getpid()),
 		Seq:     r.getSeq(),
 		Index:   nexthop.Intf.Index,
 	}
@@ -197,16 +212,25 @@ func (r *SysOps) scopedRouteSocket(action int, unspec netip.Addr, nexthop Nextho
 	if err != nil {
 		return fmt.Errorf("build netmask: %w", err)
 	}
-	gw, err := addrToRouteAddr(nexthop.IP.Unmap())
-	if err != nil {
-		return fmt.Errorf("build gateway: %w", err)
-	}
 	addrs[unix.RTAX_DST] = dst
 	addrs[unix.RTAX_NETMASK] = mask
-	addrs[unix.RTAX_GATEWAY] = gw
+
+	if nexthop.IP.IsValid() {
+		msg.Flags |= unix.RTF_GATEWAY
+		gw, err := addrToRouteAddr(nexthop.IP.Unmap())
+		if err != nil {
+			return fmt.Errorf("build gateway: %w", err)
+		}
+		addrs[unix.RTAX_GATEWAY] = gw
+	} else {
+		addrs[unix.RTAX_GATEWAY] = &route.LinkAddr{
+			Index: nexthop.Intf.Index,
+			Name:  nexthop.Intf.Name,
+		}
+	}
 	msg.Addrs = addrs
 
-	return r.writeRouteMessage(msg)
+	return r.writeRouteMessage(msg, scopedRouteBudget)
 }
 
 func afOf(a netip.Addr) string {

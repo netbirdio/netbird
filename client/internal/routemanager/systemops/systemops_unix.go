@@ -25,6 +25,9 @@ import (
 
 const (
 	envRouteProtoFlag = "NB_ROUTE_PROTO_FLAG"
+
+	// routeBudget bounds retries for per-prefix exclusion route programming.
+	routeBudget = 1 * time.Second
 )
 
 var routeProtoFlag int
@@ -138,7 +141,7 @@ func (r *SysOps) routeSocket(action int, prefix netip.Prefix, nexthop Nexthop) e
 		return fmt.Errorf("build route message: %w", err)
 	}
 
-	if err := r.writeRouteMessage(msg); err != nil {
+	if err := r.writeRouteMessage(msg, routeBudget); err != nil {
 		a := "add"
 		if action == unix.RTM_DELETE {
 			a = "remove"
@@ -149,13 +152,13 @@ func (r *SysOps) routeSocket(action int, prefix netip.Prefix, nexthop Nexthop) e
 }
 
 // writeRouteMessage sends a route message over AF_ROUTE and waits for the
-// kernel's matching reply, retrying transient failures. Callers do not need to
-// manage sockets or seq numbers themselves.
-func (r *SysOps) writeRouteMessage(msg *route.RouteMessage) error {
+// kernel's matching reply, retrying transient failures until budget elapses.
+// Callers do not need to manage sockets or seq numbers themselves.
+func (r *SysOps) writeRouteMessage(msg *route.RouteMessage, budget time.Duration) error {
 	expBackOff := backoff.NewExponentialBackOff()
 	expBackOff.InitialInterval = 50 * time.Millisecond
 	expBackOff.MaxInterval = 500 * time.Millisecond
-	expBackOff.MaxElapsedTime = 1 * time.Second
+	expBackOff.MaxElapsedTime = budget
 
 	return backoff.Retry(func() error { return routeMessageRoundtrip(msg) }, expBackOff)
 }
@@ -174,6 +177,13 @@ func routeMessageRoundtrip(msg *route.RouteMessage) error {
 	tv := unix.Timeval{Sec: 1}
 	if err := unix.SetsockoptTimeval(fd, unix.SOL_SOCKET, unix.SO_RCVTIMEO, &tv); err != nil {
 		return backoff.Permanent(fmt.Errorf("set recv timeout: %w", err))
+	}
+
+	// AF_ROUTE is a broadcast channel: every route socket on the host sees
+	// every RTM_* event. With concurrent route programming the default
+	// per-socket queue overflows and our own reply gets dropped.
+	if err := unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_RCVBUF, 1<<20); err != nil {
+		log.Debugf("set SO_RCVBUF on route socket: %v", err)
 	}
 
 	bytes, err := msg.Marshal()
@@ -200,7 +210,9 @@ func readRouteResponse(fd, wantType, wantSeq int) error {
 	deadline := time.Now().Add(time.Second)
 	for {
 		if time.Now().After(deadline) {
-			return backoff.Permanent(fmt.Errorf("read: timeout waiting for route reply type=%d seq=%d", wantType, wantSeq))
+			// Transient: under concurrent pressure the kernel can drop our reply
+			// from the socket buffer. Let backoff.Retry re-send with a fresh seq.
+			return fmt.Errorf("read: timeout waiting for route reply type=%d seq=%d", wantType, wantSeq)
 		}
 		n, err := unix.Read(fd, resp)
 		if err != nil {
@@ -214,11 +226,13 @@ func readRouteResponse(fd, wantType, wantSeq int) error {
 			continue
 		}
 		hdr := (*unix.RtMsghdr)(unsafe.Pointer(&resp[0]))
+		// Darwin reflects the sender's pid on replies; matching (Type, Seq, Pid)
+		// uniquely identifies our own reply among broadcast traffic.
 		if int(hdr.Type) != wantType || int(hdr.Seq) != wantSeq || hdr.Pid != pid {
 			continue
 		}
 		if hdr.Errno != 0 {
-			return backoff.Permanent(fmt.Errorf("kernel errno %d", hdr.Errno))
+			return backoff.Permanent(fmt.Errorf("kernel: %w", syscall.Errno(hdr.Errno)))
 		}
 		return nil
 	}
@@ -229,6 +243,7 @@ func (r *SysOps) buildRouteMessage(action int, prefix netip.Prefix, nexthop Next
 		Type:    action,
 		Flags:   unix.RTF_UP | routeProtoFlag,
 		Version: unix.RTM_VERSION,
+		ID:      uintptr(os.Getpid()),
 		Seq:     r.getSeq(),
 	}
 

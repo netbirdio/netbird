@@ -60,6 +60,11 @@ func ClearBoundInterfaces() {
 	boundIface6 = nil
 }
 
+// boundInterfaceFor returns the cached egress interface for a socket's address
+// family, falling back to the other family if the preferred slot is empty.
+// The kernel stores both IP_BOUND_IF and IPV6_BOUND_IF in inp_boundifp, so
+// either setsockopt scopes the socket; preferring same-family still matters
+// when v4 and v6 defaults egress different NICs.
 func boundInterfaceFor(network, address string) *net.Interface {
 	if iface := zoneInterface(address); iface != nil {
 		return iface
@@ -68,10 +73,14 @@ func boundInterfaceFor(network, address string) *net.Interface {
 	boundIfaceMu.RLock()
 	defer boundIfaceMu.RUnlock()
 
+	primary, secondary := boundIface4, boundIface6
 	if isV6Network(network) {
-		return boundIface6
+		primary, secondary = boundIface6, boundIface4
 	}
-	return boundIface4
+	if primary != nil {
+		return primary
+	}
+	return secondary
 }
 
 func isV6Network(network string) bool {
@@ -129,6 +138,7 @@ func applyBoundIfToSocket(network, address string, c syscall.RawConn) error {
 
 	iface := boundInterfaceFor(network, address)
 	if iface == nil {
+		log.Debugf("no bound iface cached for %s to %s, skipping BOUND_IF", network, address)
 		return nil
 	}
 
