@@ -14,6 +14,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/settings"
@@ -69,18 +70,6 @@ func initAccountsTestData(t *testing.T, account *types.Account) *handler {
 			},
 		},
 		settingsManager: settingsMockManager,
-	}
-}
-
-// wrapHandler wraps a handler function that requires userAuth parameter
-func wrapHandler(h func(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth)) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusUnauthorized)
-			return
-		}
-		h(w, r, &userAuth)
 	}
 }
 
@@ -302,8 +291,8 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/accounts", wrapHandler(handler.getAllAccounts)).Methods("GET")
-			router.HandleFunc("/api/accounts/{accountId}", wrapHandler(handler.updateAccount)).Methods("PUT")
+			router.HandleFunc("/api/accounts", permissions.WrapHandler(handler.getAllAccounts)).Methods("GET")
+			router.HandleFunc("/api/accounts/{accountId}", permissions.WrapHandler(handler.updateAccount)).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

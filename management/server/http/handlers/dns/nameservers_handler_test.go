@@ -18,6 +18,7 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/shared/auth"
 
@@ -201,10 +202,10 @@ func TestNameserversHandlers(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/dns/nameservers/{nsgroupId}", wrapHandler(p.getNameserverGroup)).Methods("GET")
-			router.HandleFunc("/api/dns/nameservers", wrapHandler(p.createNameserverGroup)).Methods("POST")
-			router.HandleFunc("/api/dns/nameservers/{nsgroupId}", wrapHandler(p.deleteNameserverGroup)).Methods("DELETE")
-			router.HandleFunc("/api/dns/nameservers/{nsgroupId}", wrapHandler(p.updateNameserverGroup)).Methods("PUT")
+			router.HandleFunc("/api/dns/nameservers/{nsgroupId}", permissions.WrapHandler(p.getNameserverGroup)).Methods("GET")
+			router.HandleFunc("/api/dns/nameservers", permissions.WrapHandler(p.createNameserverGroup)).Methods("POST")
+			router.HandleFunc("/api/dns/nameservers/{nsgroupId}", permissions.WrapHandler(p.deleteNameserverGroup)).Methods("DELETE")
+			router.HandleFunc("/api/dns/nameservers/{nsgroupId}", permissions.WrapHandler(p.updateNameserverGroup)).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

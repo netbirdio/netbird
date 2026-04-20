@@ -13,6 +13,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/shared/auth"
 
@@ -163,18 +164,6 @@ func generateEvents(accountID, userID string) []*activity.Event {
 	return events
 }
 
-// wrapHandler wraps a handler function that requires userAuth parameter
-func wrapHandler(h func(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth)) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusUnauthorized)
-			return
-		}
-		h(w, r, &userAuth)
-	}
-}
-
 func TestEvents_GetEvents(t *testing.T) {
 	tt := []struct {
 		name           string
@@ -208,7 +197,7 @@ func TestEvents_GetEvents(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/events/", wrapHandler(handler.getAllEvents)).Methods("GET")
+			router.HandleFunc("/api/events/", permissions.WrapHandler(handler.getAllEvents)).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

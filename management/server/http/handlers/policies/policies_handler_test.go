@@ -13,6 +13,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -111,7 +112,7 @@ func TestPoliciesGetPolicy(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/policies/{policyId}", wrapHandler(p.getPolicy)).Methods("GET")
+			router.HandleFunc("/api/policies/{policyId}", permissions.WrapHandler(p.getPolicy)).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -275,8 +276,8 @@ func TestPoliciesWritePolicy(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/policies", wrapHandler(p.createPolicy)).Methods("POST")
-			router.HandleFunc("/api/policies/{policyId}", wrapHandler(p.updatePolicy)).Methods("PUT")
+			router.HandleFunc("/api/policies", permissions.WrapHandler(p.createPolicy)).Methods("POST")
+			router.HandleFunc("/api/policies/{policyId}", permissions.WrapHandler(p.updatePolicy)).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

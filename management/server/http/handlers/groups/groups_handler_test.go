@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/exp/maps"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 	"github.com/netbirdio/netbird/management/server"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/mock_server"
@@ -31,18 +32,6 @@ import (
 var TestPeers = map[string]*nbpeer.Peer{
 	"A": {Key: "A", ID: "peer-A-ID", IP: net.ParseIP("100.100.100.100")},
 	"B": {Key: "B", ID: "peer-B-ID", IP: net.ParseIP("200.200.200.200")},
-}
-
-// wrapHandler wraps a handler function that requires userAuth parameter
-func wrapHandler(h func(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth)) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusUnauthorized)
-			return
-		}
-		h(w, r, &userAuth)
-	}
 }
 
 func initGroupTestData(initGroups ...*types.Group) *handler {
@@ -153,7 +142,7 @@ func TestGetGroup(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/groups/{groupId}", wrapHandler(p.getGroup)).Methods("GET")
+			router.HandleFunc("/api/groups/{groupId}", permissions.WrapHandler(p.getGroup)).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -279,8 +268,8 @@ func TestWriteGroup(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/groups", wrapHandler(p.createGroup)).Methods("POST")
-			router.HandleFunc("/api/groups/{groupId}", wrapHandler(p.updateGroup)).Methods("PUT")
+			router.HandleFunc("/api/groups", permissions.WrapHandler(p.createGroup)).Methods("POST")
+			router.HandleFunc("/api/groups/{groupId}", permissions.WrapHandler(p.updateGroup)).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -357,7 +346,7 @@ func TestGetAllGroups(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/groups", wrapHandler(p.getAllGroups)).Methods("GET")
+			router.HandleFunc("/api/groups", permissions.WrapHandler(p.getAllGroups)).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -438,7 +427,7 @@ func TestDeleteGroup(t *testing.T) {
 				AccountId: "test_id",
 			})
 			router := mux.NewRouter()
-			router.HandleFunc("/api/groups/{groupId}", wrapHandler(p.deleteGroup)).Methods("DELETE")
+			router.HandleFunc("/api/groups/{groupId}", permissions.WrapHandler(p.deleteGroup)).Methods("DELETE")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

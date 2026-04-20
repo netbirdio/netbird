@@ -14,6 +14,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/mock_server"
@@ -183,7 +184,7 @@ func TestGetPostureCheck(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/posture-checks/{postureCheckId}", wrapHandler(p.getPostureCheck)).Methods("GET")
+			router.HandleFunc("/api/posture-checks/{postureCheckId}", permissions.WrapHandler(p.getPostureCheck)).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -841,8 +842,8 @@ func TestPostureCheckUpdate(t *testing.T) {
 			}
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/posture-checks", wrapHandler(defaultHandler.createPostureCheck)).Methods("POST")
-			router.HandleFunc("/api/posture-checks/{postureCheckId}", wrapHandler(defaultHandler.updatePostureCheck)).Methods("PUT")
+			router.HandleFunc("/api/posture-checks", permissions.WrapHandler(defaultHandler.createPostureCheck)).Methods("POST")
+			router.HandleFunc("/api/posture-checks/{postureCheckId}", permissions.WrapHandler(defaultHandler.updatePostureCheck)).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

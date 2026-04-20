@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/util"
@@ -24,18 +25,6 @@ import (
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
-
-// wrapHandler wraps a handler function that requires userAuth parameter
-func wrapHandler(h func(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth)) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusUnauthorized)
-			return
-		}
-		h(w, r, &userAuth)
-	}
-}
 
 const (
 	existingRouteID         = "existingRouteID"
@@ -513,10 +502,10 @@ func TestRoutesHandlers(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/routes/{routeId}", wrapHandler(p.getRoute)).Methods("GET")
-			router.HandleFunc("/api/routes/{routeId}", wrapHandler(p.deleteRoute)).Methods("DELETE")
-			router.HandleFunc("/api/routes", wrapHandler(p.createRoute)).Methods("POST")
-			router.HandleFunc("/api/routes/{routeId}", wrapHandler(p.updateRoute)).Methods("PUT")
+			router.HandleFunc("/api/routes/{routeId}", permissions.WrapHandler(p.getRoute)).Methods("GET")
+			router.HandleFunc("/api/routes/{routeId}", permissions.WrapHandler(p.deleteRoute)).Methods("DELETE")
+			router.HandleFunc("/api/routes", permissions.WrapHandler(p.createRoute)).Methods("POST")
+			router.HandleFunc("/api/routes/{routeId}", permissions.WrapHandler(p.updateRoute)).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

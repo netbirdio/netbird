@@ -14,6 +14,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -21,18 +22,6 @@ import (
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
-
-// wrapHandler wraps a handler function that requires userAuth parameter
-func wrapHandler(h func(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth)) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusUnauthorized)
-			return
-		}
-		h(w, r, &userAuth)
-	}
-}
 
 const (
 	existingSetupKeyID  = "existingSetupKeyID"
@@ -183,11 +172,11 @@ func TestSetupKeysHandlers(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/setup-keys", wrapHandler(handler.getAllSetupKeys)).Methods("GET", "OPTIONS")
-			router.HandleFunc("/api/setup-keys", wrapHandler(handler.createSetupKey)).Methods("POST", "OPTIONS")
-			router.HandleFunc("/api/setup-keys/{keyId}", wrapHandler(handler.getSetupKey)).Methods("GET", "OPTIONS")
-			router.HandleFunc("/api/setup-keys/{keyId}", wrapHandler(handler.updateSetupKey)).Methods("PUT", "OPTIONS")
-			router.HandleFunc("/api/setup-keys/{keyId}", wrapHandler(handler.deleteSetupKey)).Methods("DELETE", "OPTIONS")
+			router.HandleFunc("/api/setup-keys", permissions.WrapHandler(handler.getAllSetupKeys)).Methods("GET", "OPTIONS")
+			router.HandleFunc("/api/setup-keys", permissions.WrapHandler(handler.createSetupKey)).Methods("POST", "OPTIONS")
+			router.HandleFunc("/api/setup-keys/{keyId}", permissions.WrapHandler(handler.getSetupKey)).Methods("GET", "OPTIONS")
+			router.HandleFunc("/api/setup-keys/{keyId}", permissions.WrapHandler(handler.updateSetupKey)).Methods("PUT", "OPTIONS")
+			router.HandleFunc("/api/setup-keys/{keyId}", permissions.WrapHandler(handler.deleteSetupKey)).Methods("DELETE", "OPTIONS")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/management/internals/modules/permissions"
 	"github.com/netbirdio/netbird/management/internals/modules/permissions/modules"
 	roles2 "github.com/netbirdio/netbird/management/internals/modules/permissions/roles"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
@@ -347,7 +348,7 @@ func TestUpdateUser(t *testing.T) {
 			})
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/users/{userId}", wrapHandler(userHandler.updateUser)).Methods("PUT")
+			router.HandleFunc("/api/users/{userId}", permissions.WrapHandler(userHandler.updateUser)).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -799,7 +800,7 @@ func TestApproveUserEndpoint(t *testing.T) {
 
 			handler := newHandler(am)
 			router := mux.NewRouter()
-			router.HandleFunc("/users/{userId}/approve", wrapHandler(handler.approveUser)).Methods("POST")
+			router.HandleFunc("/users/{userId}/approve", permissions.WrapHandler(handler.approveUser)).Methods("POST")
 
 			req, err := http.NewRequest("POST", "/users/pending-user/approve", nil)
 			require.NoError(t, err)
@@ -857,7 +858,7 @@ func TestRejectUserEndpoint(t *testing.T) {
 
 			handler := newHandler(am)
 			router := mux.NewRouter()
-			router.HandleFunc("/users/{userId}/reject", wrapHandler(handler.rejectUser)).Methods("DELETE")
+			router.HandleFunc("/users/{userId}/reject", permissions.WrapHandler(handler.rejectUser)).Methods("DELETE")
 
 			req, err := http.NewRequest("DELETE", "/users/pending-user/reject", nil)
 			require.NoError(t, err)
@@ -948,7 +949,7 @@ func TestChangePasswordEndpoint(t *testing.T) {
 
 			handler := newHandler(am)
 			router := mux.NewRouter()
-			router.HandleFunc("/users/{userId}/password", wrapHandler(handler.changePassword)).Methods("PUT")
+			router.HandleFunc("/users/{userId}/password", permissions.WrapHandler(handler.changePassword)).Methods("PUT")
 
 			reqPath := "/users/" + tc.targetUserID + "/password"
 			req, err := http.NewRequest("PUT", reqPath, bytes.NewBufferString(tc.requestBody))

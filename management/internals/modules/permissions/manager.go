@@ -181,3 +181,17 @@ func (m *managerImpl) GetPermissionsByRole(ctx context.Context, role types.UserR
 func (m *managerImpl) SetAccountManager(accountManager account.Manager) {
 	// no-op
 }
+
+// WrapHandler wraps a handler that expects UserAuth with context extraction.
+// Unlike WithPermission, it does not perform any permission checks.
+func WrapHandler(h func(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+		if err != nil {
+			log.WithContext(r.Context()).Errorf("failed to get user auth from context: %v", err)
+			util.WriteError(r.Context(), err, w)
+			return
+		}
+		h(w, r, &userAuth)
+	}
+}
