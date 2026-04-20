@@ -957,6 +957,10 @@ func (am *DefaultAccountManager) lookupUserInCache(ctx context.Context, userID s
 		return nil, err
 	}
 
+	if user.AccountID != accountID {
+		return nil, nil
+	}
+
 	key := user.IntegrationReference.CacheKey(accountID, userID)
 	ud, err := am.externalCacheManager.Get(am.ctx, key)
 	if err != nil {

@@ -943,8 +943,8 @@ func (s *SqlStore) GetAccountUserInvites(ctx context.Context, lockStrength Locki
 }
 
 // DeleteUserInvite deletes a user invite by its ID
-func (s *SqlStore) DeleteUserInvite(ctx context.Context, inviteID string) error {
-	result := s.db.Delete(&types.UserInviteRecord{}, idQueryCondition, inviteID)
+func (s *SqlStore) DeleteUserInvite(ctx context.Context, accountID, inviteID string) error {
+	result := s.db.Delete(&types.UserInviteRecord{}, accountAndIDQueryCondition, accountID, inviteID)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to delete user invite from store: %s", result.Error)
 		return status.Errorf(status.Internal, "failed to delete user invite from store")

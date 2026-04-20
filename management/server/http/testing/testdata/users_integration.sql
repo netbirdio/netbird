@@ -16,6 +16,7 @@ INSERT INTO users VALUES('testServiceAdminId','testAccountId','admin',1,0,'testS
 INSERT INTO users VALUES('blockedUserId','testAccountId','admin',0,0,'','[]',1,NULL,'2024-10-02 16:01:38.000000000+00:00','api',0,'');
 INSERT INTO users VALUES('otherUserId','otherAccountId','admin',0,0,'','[]',0,NULL,'2024-10-02 16:01:38.000000000+00:00','api',0,'');
 INSERT INTO users VALUES('deletableServiceUserId','testAccountId','user',1,0,'deletableServiceUser','[]',0,NULL,'2024-10-02 16:01:38.000000000+00:00','api',0,'');
+INSERT INTO users VALUES('otherServiceUserId','otherAccountId','user',1,0,'otherServiceUser','[]',0,NULL,'2024-10-02 16:01:38.000000000+00:00','api',0,'');
 INSERT INTO "groups" VALUES('testGroupId','testAccountId','testGroupName','api','["testPeerId"]',0,'');
 INSERT INTO "groups" VALUES('newGroupId','testAccountId','newGroupName','api','[]',0,'');
 INSERT INTO setup_keys VALUES('testKeyId','testAccountId','testKey','testK****','existingKey','one-off','2021-08-19 20:46:20.000000000+00:00','2321-09-18 20:46:20.000000000+00:00','2021-08-19 20:46:20.000000000+00:00',0,0,NULL,'["testGroupId"]',1,0);

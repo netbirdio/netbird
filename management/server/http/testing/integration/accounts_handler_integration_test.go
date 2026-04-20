@@ -233,6 +233,71 @@ func Test_Accounts_Update(t *testing.T) {
 	}
 }
 
+func Test_Accounts_Update_CrossAccountAttack(t *testing.T) {
+	t.Run("Other user attempts to update testAccount via URL", func(t *testing.T) {
+		apiHandler, _, _ := channel.BuildApiBlackBoxWithDBState(t, "../testdata/accounts.sql", nil, false)
+
+		body, err := json.Marshal(&api.AccountRequest{
+			Settings: api.AccountSettings{
+				PeerLoginExpirationEnabled: false,
+				PeerLoginExpiration:        86400,
+			},
+		})
+		if err != nil {
+			t.Fatalf("Failed to marshal request body: %v", err)
+		}
+
+		// OtherUserId belongs to otherAccountId, but we target testAccountId in URL
+		req := testing_tools.BuildRequest(t, body, http.MethodPut, "/api/accounts/"+testing_tools.TestAccountId, testing_tools.OtherUserId)
+		recorder := httptest.NewRecorder()
+		apiHandler.ServeHTTP(recorder, req)
+
+		assert.NotEqual(t, http.StatusOK, recorder.Code, "cross-account update must be rejected")
+	})
+}
+
+func Test_Accounts_Delete(t *testing.T) {
+	users := []struct {
+		name           string
+		userId         string
+		expectResponse bool
+	}{
+		{"Regular user", testing_tools.TestUserId, false},
+		{"Admin user", testing_tools.TestAdminId, false},
+		{"Owner user", testing_tools.TestOwnerId, true},
+		{"Regular service user", testing_tools.TestServiceUserId, false},
+		{"Admin service user", testing_tools.TestServiceAdminId, false},
+		{"Blocked user", testing_tools.BlockedUserId, false},
+		{"Other user", testing_tools.OtherUserId, false},
+		{"Invalid token", testing_tools.InvalidToken, false},
+	}
+
+	for _, user := range users {
+		t.Run(user.name+" - Delete account", func(t *testing.T) {
+			apiHandler, _, _ := channel.BuildApiBlackBoxWithDBState(t, "../testdata/accounts.sql", nil, false)
+
+			req := testing_tools.BuildRequest(t, []byte{}, http.MethodDelete, "/api/accounts/"+testing_tools.TestAccountId, user.userId)
+			recorder := httptest.NewRecorder()
+			apiHandler.ServeHTTP(recorder, req)
+
+			testing_tools.ReadResponse(t, recorder, http.StatusOK, user.expectResponse)
+		})
+	}
+}
+
+func Test_Accounts_Delete_CrossAccountAttack(t *testing.T) {
+	t.Run("Other user attempts to delete testAccount via URL", func(t *testing.T) {
+		apiHandler, _, _ := channel.BuildApiBlackBoxWithDBState(t, "../testdata/accounts.sql", nil, false)
+
+		// OtherUserId belongs to otherAccountId, but we target testAccountId in URL
+		req := testing_tools.BuildRequest(t, []byte{}, http.MethodDelete, "/api/accounts/"+testing_tools.TestAccountId, testing_tools.OtherUserId)
+		recorder := httptest.NewRecorder()
+		apiHandler.ServeHTTP(recorder, req)
+
+		assert.NotEqual(t, http.StatusOK, recorder.Code, "cross-account delete must be rejected")
+	})
+}
+
 func stringPointer(s string) *string {
 	return &s
 }

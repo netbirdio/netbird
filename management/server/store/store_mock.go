@@ -178,6 +178,7 @@ func (mr *MockStoreMockRecorder) GetClusterSupportsCrowdSec(ctx, clusterAddr int
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetClusterSupportsCrowdSec", reflect.TypeOf((*MockStore)(nil).GetClusterSupportsCrowdSec), ctx, clusterAddr)
 }
+
 // Close mocks base method.
 func (m *MockStore) Close(ctx context.Context) error {
 	m.ctrl.T.Helper()
@@ -673,17 +674,17 @@ func (mr *MockStoreMockRecorder) DeleteUser(ctx, accountID, userID interface{}) 
 }
 
 // DeleteUserInvite mocks base method.
-func (m *MockStore) DeleteUserInvite(ctx context.Context, inviteID string) error {
+func (m *MockStore) DeleteUserInvite(ctx context.Context, accountID, inviteID string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteUserInvite", ctx, inviteID)
+	ret := m.ctrl.Call(m, "DeleteUserInvite", ctx, accountID, inviteID)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // DeleteUserInvite indicates an expected call of DeleteUserInvite.
-func (mr *MockStoreMockRecorder) DeleteUserInvite(ctx, inviteID interface{}) *gomock.Call {
+func (mr *MockStoreMockRecorder) DeleteUserInvite(ctx, accountID, inviteID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUserInvite", reflect.TypeOf((*MockStore)(nil).DeleteUserInvite), ctx, inviteID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUserInvite", reflect.TypeOf((*MockStore)(nil).DeleteUserInvite), ctx, accountID, inviteID)
 }
 
 // DeleteZone mocks base method.

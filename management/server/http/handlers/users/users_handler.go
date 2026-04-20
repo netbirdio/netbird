@@ -66,6 +66,11 @@ func (h *handler) updateUser(w http.ResponseWriter, r *http.Request, userAuth *a
 		return
 	}
 
+	if existingUser.AccountID != userAuth.AccountId {
+		util.WriteError(r.Context(), status.Errorf(status.PermissionDenied, "user not found"), w)
+		return
+	}
+
 	req := &api.PutApiUsersUserIdJSONRequestBody{}
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {

@@ -252,12 +252,21 @@ func (am *DefaultAccountManager) UpdateUserPassword(ctx context.Context, account
 		return status.Errorf(status.InvalidArgument, "new password is required")
 	}
 
+	targetUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, targetUserID)
+	if err != nil {
+		return err
+	}
+
+	if targetUser.AccountID != accountID {
+		return status.NewUserNotFoundError(targetUserID)
+	}
+
 	embeddedIdp, ok := am.idpManager.(*idp.EmbeddedIdPManager)
 	if !ok {
 		return status.Errorf(status.Internal, "failed to get embedded IdP manager")
 	}
 
-	err := embeddedIdp.UpdateUserPassword(ctx, currentUserID, targetUserID, oldPassword, newPassword)
+	err = embeddedIdp.UpdateUserPassword(ctx, currentUserID, targetUserID, oldPassword, newPassword)
 	if err != nil {
 		return status.Errorf(status.InvalidArgument, "failed to update password: %v", err)
 	}
@@ -290,6 +299,10 @@ func (am *DefaultAccountManager) DeleteUser(ctx context.Context, accountID, init
 	targetUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, targetUserID)
 	if err != nil {
 		return err
+	}
+
+	if targetUser.AccountID != accountID {
+		return status.NewUserNotFoundError(targetUserID)
 	}
 
 	if targetUser.Role == types.UserRoleOwner {
@@ -1604,7 +1617,7 @@ func (am *DefaultAccountManager) AcceptUserInvite(ctx context.Context, token, pa
 		if err := transaction.SaveUser(ctx, newUser); err != nil {
 			return fmt.Errorf("failed to save user: %w", err)
 		}
-		if err := transaction.DeleteUserInvite(ctx, invite.ID); err != nil {
+		if err := transaction.DeleteUserInvite(ctx, invite.AccountID, invite.ID); err != nil {
 			return fmt.Errorf("failed to delete invite: %w", err)
 		}
 		return nil
@@ -1687,7 +1700,7 @@ func (am *DefaultAccountManager) DeleteUserInvite(ctx context.Context, accountID
 		return err
 	}
 
-	if err := am.Store.DeleteUserInvite(ctx, inviteID); err != nil {
+	if err := am.Store.DeleteUserInvite(ctx, accountID, inviteID); err != nil {
 		return err
 	}
 

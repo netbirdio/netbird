@@ -229,10 +229,9 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 
 // updateAccount is HTTP PUT handler that updates the provided account. Updates only account settings (server.Settings)
 func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
-	vars := mux.Vars(r)
-	accountID := vars["accountId"]
-	if len(accountID) == 0 {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid accountID ID"), w)
+	accountID := mux.Vars(r)["accountId"]
+	if accountID != userAuth.AccountId {
+		util.WriteError(r.Context(), status.Errorf(status.PermissionDenied, "account ID mismatch"), w)
 		return
 	}
 
@@ -294,14 +293,13 @@ func (h *handler) updateAccount(w http.ResponseWriter, r *http.Request, userAuth
 
 // deleteAccount is a HTTP DELETE handler to delete an account
 func (h *handler) deleteAccount(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth) {
-	vars := mux.Vars(r)
-	targetAccountID := vars["accountId"]
-	if len(targetAccountID) == 0 {
-		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "invalid account ID"), w)
+	accountID := mux.Vars(r)["accountId"]
+	if accountID != userAuth.AccountId {
+		util.WriteError(r.Context(), status.Errorf(status.PermissionDenied, "account ID mismatch"), w)
 		return
 	}
 
-	err := h.accountManager.DeleteAccount(r.Context(), targetAccountID, userAuth.UserId)
+	err := h.accountManager.DeleteAccount(r.Context(), userAuth.AccountId, userAuth.UserId)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return

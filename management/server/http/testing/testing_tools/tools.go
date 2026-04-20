@@ -106,6 +106,10 @@ func ReadResponse(t *testing.T, recorder *httptest.ResponseRecorder, expectedSta
 	}
 
 	if !expectResponse {
+		if recorder.Code == http.StatusOK || recorder.Code == http.StatusCreated {
+			t.Fatalf("expected unauthorized/error status code but got %d, content: %s",
+				recorder.Code, string(content))
+		}
 		return nil, false
 	}
 

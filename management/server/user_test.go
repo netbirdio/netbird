@@ -775,6 +775,52 @@ func TestUser_DeleteUser_ServiceUser(t *testing.T) {
 	}
 }
 
+func TestUser_DeleteUser_CrossAccountRejected(t *testing.T) {
+	s, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	if err != nil {
+		t.Fatalf("Error when creating store: %s", err)
+	}
+	t.Cleanup(cleanup)
+
+	// Create two accounts with users
+	account1 := newAccountWithId(context.Background(), mockAccountID, mockUserID, "", "", "", false)
+	targetServiceUser := &types.User{
+		Id:              mockServiceUserID,
+		IsServiceUser:   true,
+		ServiceUserName: mockServiceUserName,
+	}
+	account1.Users[mockServiceUserID] = targetServiceUser
+
+	otherAccountID := "otherAccountID"
+	otherUserID := "otherUserID"
+	account2 := newAccountWithId(context.Background(), otherAccountID, otherUserID, "", "", "", false)
+
+	err = s.SaveAccount(context.Background(), account1)
+	if err != nil {
+		t.Fatalf("Error when saving account1: %s", err)
+	}
+	err = s.SaveAccount(context.Background(), account2)
+	if err != nil {
+		t.Fatalf("Error when saving account2: %s", err)
+	}
+
+	permissionsManager := permissions.NewManager(s)
+	am := DefaultAccountManager{
+		Store:              s,
+		eventStore:         &activity.InMemoryEventStore{},
+		permissionsManager: permissionsManager,
+	}
+
+	// otherUserID (from account2) tries to delete mockServiceUserID (from account1)
+	err = am.DeleteUser(context.Background(), otherAccountID, otherUserID, mockServiceUserID)
+	assert.Error(t, err, "cross-account user deletion should be rejected")
+
+	// Verify the target user still exists
+	account, err := s.GetAccount(context.Background(), mockAccountID)
+	assert.NoError(t, err)
+	assert.NotNil(t, account.Users[mockServiceUserID], "target user should not have been deleted")
+}
+
 func TestUser_DeleteUser_SelfDelete(t *testing.T) {
 	store, cleanup, err := store.NewTestStoreFromSQL(context.Background(), "", t.TempDir())
 	if err != nil {

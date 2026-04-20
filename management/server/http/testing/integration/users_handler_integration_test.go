@@ -637,6 +637,38 @@ func Test_PATs_Create(t *testing.T) {
 	}
 }
 
+func Test_Users_Update_CrossAccountAttack(t *testing.T) {
+	t.Run("Admin attempts to update user from other account", func(t *testing.T) {
+		apiHandler, _, _ := channel.BuildApiBlackBoxWithDBState(t, "../testdata/users_integration.sql", nil, false)
+
+		body, _ := json.Marshal(&api.UserRequest{
+			Role:       "user",
+			AutoGroups: []string{},
+			IsBlocked:  true,
+		})
+
+		// TestAdminId belongs to testAccountId, but targets otherUserId which belongs to otherAccountId
+		req := testing_tools.BuildRequest(t, body, http.MethodPut, "/api/users/otherUserId", testing_tools.TestAdminId)
+		recorder := httptest.NewRecorder()
+		apiHandler.ServeHTTP(recorder, req)
+
+		assert.NotEqual(t, http.StatusOK, recorder.Code, "cross-account user update must be rejected")
+	})
+}
+
+func Test_Users_Delete_CrossAccountAttack(t *testing.T) {
+	t.Run("Admin attempts to delete service user from other account", func(t *testing.T) {
+		apiHandler, _, _ := channel.BuildApiBlackBoxWithDBState(t, "../testdata/users_integration.sql", nil, false)
+
+		// TestAdminId belongs to testAccountId, but targets otherServiceUserId which belongs to otherAccountId
+		req := testing_tools.BuildRequest(t, []byte{}, http.MethodDelete, "/api/users/otherServiceUserId", testing_tools.TestAdminId)
+		recorder := httptest.NewRecorder()
+		apiHandler.ServeHTTP(recorder, req)
+
+		assert.NotEqual(t, http.StatusOK, recorder.Code, "cross-account user delete must be rejected")
+	})
+}
+
 func Test_PATs_Delete(t *testing.T) {
 	users := []struct {
 		name           string
