@@ -192,34 +192,3 @@ func TestPolicyRuleEqual_EmptySlices(t *testing.T) {
 	assert.True(t, a.Equal(b))
 }
 
-func TestPolicyRuleNormalize(t *testing.T) {
-	rule := &PolicyRule{
-		Sources:      []string{"g3", "g1", "g2"},
-		Destinations: []string{"g6", "g4", "g5"},
-		Ports:        []string{"443", "80", "22"},
-		PortRanges: []RulePortRange{
-			{Start: 8000, End: 9000},
-			{Start: 80, End: 80},
-			{Start: 80, End: 443},
-		},
-		AuthorizedGroups: map[string][]string{
-			"g1": {"u3", "u1", "u2"},
-		},
-	}
-	rule.Normalize()
-
-	assert.Equal(t, []string{"g1", "g2", "g3"}, rule.Sources)
-	assert.Equal(t, []string{"g4", "g5", "g6"}, rule.Destinations)
-	assert.Equal(t, []string{"22", "443", "80"}, rule.Ports)
-	assert.Equal(t, []RulePortRange{
-		{Start: 80, End: 80},
-		{Start: 80, End: 443},
-		{Start: 8000, End: 9000},
-	}, rule.PortRanges)
-	assert.Equal(t, []string{"u1", "u2", "u3"}, rule.AuthorizedGroups["g1"])
-}
-
-func TestPolicyRuleNormalize_Nil(t *testing.T) {
-	var rule *PolicyRule
-	rule.Normalize()
-}

@@ -3,7 +3,6 @@ package types
 import (
 	"errors"
 	"fmt"
-	"slices"
 	"strconv"
 	"strings"
 )
@@ -130,16 +129,6 @@ func (p *Policy) Equal(other *Policy) bool {
 	}
 
 	return true
-}
-
-func (p *Policy) Normalize() {
-	if p == nil {
-		return
-	}
-	slices.Sort(p.SourcePostureChecks)
-	for _, r := range p.Rules {
-		r.Normalize()
-	}
 }
 
 // EventMeta returns activity event meta related to this policy

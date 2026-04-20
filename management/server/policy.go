@@ -49,19 +49,12 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 	var unchanged bool
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		if err = validatePolicy(ctx, transaction, accountID, policy); err != nil {
+		existingPolicy, err := validatePolicy(ctx, transaction, accountID, policy)
+		if err != nil {
 			return err
 		}
 
 		if isUpdate {
-			existingPolicy, getErr := transaction.GetPolicyByID(ctx, store.LockingStrengthNone, accountID, policy.ID)
-			if getErr != nil {
-				return getErr
-			}
-
-			existingPolicy.Normalize()
-			policy.Normalize()
-
 			if policy.Equal(existingPolicy) {
 				unchanged = true
 				return nil
@@ -78,7 +71,7 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 				return err
 			}
 		} else {
-			updateAccountPeers, err = arePolicyChangesAffectPeers(ctx, transaction, accountID, policy, false)
+			updateAccountPeers, err = arePolicyChangesAffectPeers(ctx, transaction, policy)
 			if err != nil {
 				return err
 			}
@@ -126,7 +119,7 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 			return err
 		}
 
-		updateAccountPeers, err = arePolicyChangesAffectPeers(ctx, transaction, accountID, policy, false)
+		updateAccountPeers, err = arePolicyChangesAffectPeers(ctx, transaction, policy)
 		if err != nil {
 			return err
 		}
@@ -163,17 +156,8 @@ func (am *DefaultAccountManager) ListPolicies(ctx context.Context, accountID, us
 	return am.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
 }
 
-// arePolicyChangesAffectPeers checks if changes to a policy will affect any associated peers.
-func arePolicyChangesAffectPeers(ctx context.Context, transaction store.Store, accountID string, policy *types.Policy, isUpdate bool) (bool, error) {
-	if isUpdate {
-		existingPolicy, err := transaction.GetPolicyByID(ctx, store.LockingStrengthNone, accountID, policy.ID)
-		if err != nil {
-			return false, err
-		}
-
-		return arePolicyChangesAffectPeersWithExisting(ctx, transaction, policy, existingPolicy)
-	}
-
+// arePolicyChangesAffectPeers checks if a policy (being created or deleted) will affect any associated peers.
+func arePolicyChangesAffectPeers(ctx context.Context, transaction store.Store, policy *types.Policy) (bool, error) {
 	for _, rule := range policy.Rules {
 		if rule.SourceResource.Type != "" || rule.DestinationResource.Type != "" {
 			return true, nil
@@ -212,12 +196,15 @@ func arePolicyChangesAffectPeersWithExisting(ctx context.Context, transaction st
 	return anyGroupHasPeersOrResources(ctx, transaction, policy.AccountID, policy.RuleGroups())
 }
 
-// validatePolicy validates the policy and its rules.
-func validatePolicy(ctx context.Context, transaction store.Store, accountID string, policy *types.Policy) error {
+// validatePolicy validates the policy and its rules. For updates it returns
+// the existing policy loaded from the store so callers can avoid a second read.
+func validatePolicy(ctx context.Context, transaction store.Store, accountID string, policy *types.Policy) (*types.Policy, error) {
+	var existingPolicy *types.Policy
 	if policy.ID != "" {
-		existingPolicy, err := transaction.GetPolicyByID(ctx, store.LockingStrengthNone, accountID, policy.ID)
+		var err error
+		existingPolicy, err = transaction.GetPolicyByID(ctx, store.LockingStrengthNone, accountID, policy.ID)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		// TODO: Refactor to support multiple rules per policy
@@ -228,7 +215,7 @@ func validatePolicy(ctx context.Context, transaction store.Store, accountID stri
 
 		for _, rule := range policy.Rules {
 			if rule.ID != "" && !existingRuleIDs[rule.ID] {
-				return status.Errorf(status.InvalidArgument, "invalid rule ID: %s", rule.ID)
+				return nil, status.Errorf(status.InvalidArgument, "invalid rule ID: %s", rule.ID)
 			}
 		}
 	} else {
@@ -238,12 +225,12 @@ func validatePolicy(ctx context.Context, transaction store.Store, accountID stri
 
 	groups, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthNone, accountID, policy.RuleGroups())
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	postureChecks, err := transaction.GetPostureChecksByIDs(ctx, store.LockingStrengthNone, accountID, policy.SourcePostureChecks)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	for i, rule := range policy.Rules {
@@ -262,7 +249,7 @@ func validatePolicy(ctx context.Context, transaction store.Store, accountID stri
 		policy.SourcePostureChecks = getValidPostureCheckIDs(postureChecks, policy.SourcePostureChecks)
 	}
 
-	return nil
+	return existingPolicy, nil
 }
 
 // getValidPostureCheckIDs filters and returns only the valid posture check IDs from the provided list.

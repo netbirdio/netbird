@@ -2,7 +2,6 @@ package types
 
 import (
 	"slices"
-	"sort"
 
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
@@ -158,25 +157,6 @@ func (pm *PolicyRule) Equal(other *PolicyRule) bool {
 	}
 
 	return true
-}
-
-func (pm *PolicyRule) Normalize() {
-	if pm == nil {
-		return
-	}
-	slices.Sort(pm.Sources)
-	slices.Sort(pm.Destinations)
-	slices.Sort(pm.Ports)
-	sort.Slice(pm.PortRanges, func(i, j int) bool {
-		if pm.PortRanges[i].Start != pm.PortRanges[j].Start {
-			return pm.PortRanges[i].Start < pm.PortRanges[j].Start
-		}
-		return pm.PortRanges[i].End < pm.PortRanges[j].End
-	})
-	for k, v := range pm.AuthorizedGroups {
-		slices.Sort(v)
-		pm.AuthorizedGroups[k] = v
-	}
 }
 
 func stringSlicesEqualUnordered(a, b []string) bool {

@@ -136,31 +136,6 @@ func TestPolicyEqual_RulesMismatchByID(t *testing.T) {
 	assert.False(t, a.Equal(b))
 }
 
-func TestPolicyNormalize(t *testing.T) {
-	p := &Policy{
-		SourcePostureChecks: []string{"pc3", "pc1", "pc2"},
-		Rules: []*PolicyRule{
-			{
-				ID:           "r1",
-				Sources:      []string{"g2", "g1"},
-				Destinations: []string{"g4", "g3"},
-				Ports:        []string{"443", "80"},
-			},
-		},
-	}
-	p.Normalize()
-
-	assert.Equal(t, []string{"pc1", "pc2", "pc3"}, p.SourcePostureChecks)
-	assert.Equal(t, []string{"g1", "g2"}, p.Rules[0].Sources)
-	assert.Equal(t, []string{"g3", "g4"}, p.Rules[0].Destinations)
-	assert.Equal(t, []string{"443", "80"}, p.Rules[0].Ports)
-}
-
-func TestPolicyNormalize_Nil(t *testing.T) {
-	var p *Policy
-	p.Normalize()
-}
-
 func TestPolicyEqual_FullScenario(t *testing.T) {
 	a := &Policy{
 		ID:                  "pol1",
