@@ -46,8 +46,10 @@ func GetInfo(ctx context.Context) *Info {
 
 // networkAddresses returns the list of network addresses on iOS.
 // On iOS, hardware (MAC) addresses are not available due to Apple's privacy
-// restrictions, so we skip the HardwareAddr check that other platforms use.
-// We also filter out link-local addresses as they are not useful for posture checks.
+// restrictions (iOS returns a fixed 02:00:00:00:00:00 placeholder), so we
+// leave Mac empty to match Android's behavior. We also skip the HardwareAddr
+// check that other platforms use and filter out link-local addresses as they
+// are not useful for posture checks.
 func networkAddresses() ([]NetworkAddress, error) {
 	interfaces, err := net.Interfaces()
 	if err != nil {
@@ -81,7 +83,7 @@ func networkAddresses() ([]NetworkAddress, error) {
 
 			netAddr := NetworkAddress{
 				NetIP: prefix,
-				Mac:   iface.HardwareAddr.String(),
+				Mac:   "",
 			}
 
 			if isDuplicated(netAddresses, netAddr) {
