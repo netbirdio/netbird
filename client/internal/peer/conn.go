@@ -723,7 +723,7 @@ func (conn *Conn) evalStatus() ConnStatus {
 //   - ConnStatusDisconnected:       no working transport
 func (conn *Conn) isConnectedOnAllWay() (status guard.ConnStatus) {
 	defer func() {
-		if status != guard.ConnStatusConnected {
+		if status == guard.ConnStatusDisconnected {
 			conn.logTraceConnState()
 		}
 	}()

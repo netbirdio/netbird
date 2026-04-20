@@ -29,10 +29,10 @@ func (s *iceRetryState) reset() {
 	}
 }
 
-// attempt processes a single ICE retry tick. It returns true if the caller should send an offer.
-// When retries are exhausted it starts the hourly ticker and returns false once to signal the caller
-// to swap the tick channel. Subsequent calls (from the hourly ticker) return true.
-func (s *iceRetryState) attempt() bool {
+// shouldRetry reports whether the caller should send another ICE offer on this tick.
+// Returns false when the per-cycle retry budget is exhausted and the caller must switch
+// to the hourly ticker via enterHourlyMode + hourlyC.
+func (s *iceRetryState) shouldRetry() bool {
 	if s.hourly != nil {
 		s.log.Debugf("hourly ICE retry attempt")
 		return true
@@ -44,9 +44,13 @@ func (s *iceRetryState) attempt() bool {
 		return true
 	}
 
+	return false
+}
+
+// enterHourlyMode starts the hourly retry ticker. Must be called after shouldRetry returns false.
+func (s *iceRetryState) enterHourlyMode() {
 	s.log.Infof("ICE retries exhausted (%d/%d), switching to hourly retry", maxICERetries, maxICERetries)
 	s.hourly = time.NewTicker(iceRetryInterval)
-	return false
 }
 
 func (s *iceRetryState) hourlyC() <-chan time.Time {

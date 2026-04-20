@@ -101,9 +101,10 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context, callback func()) {
 			case ConnStatusDisconnected:
 				callback()
 			case ConnStatusPartiallyConnected:
-				if iceState.attempt() {
+				if iceState.shouldRetry() {
 					callback()
 				} else {
+					iceState.enterHourlyMode()
 					ticker.Stop()
 					tickerChannel = iceState.hourlyC()
 				}
