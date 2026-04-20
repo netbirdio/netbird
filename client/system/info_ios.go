@@ -67,33 +67,32 @@ func networkAddresses() ([]NetworkAddress, error) {
 		}
 
 		for _, address := range addrs {
-			ipNet, ok := address.(*net.IPNet)
+			netAddr, ok := toNetworkAddress(address)
 			if !ok {
 				continue
 			}
-
-			if ipNet.IP.IsLoopback() || ipNet.IP.IsLinkLocalUnicast() || ipNet.IP.IsMulticast() {
-				continue
-			}
-
-			prefix, err := netip.ParsePrefix(ipNet.String())
-			if err != nil {
-				continue
-			}
-
-			netAddr := NetworkAddress{
-				NetIP: prefix,
-				Mac:   "",
-			}
-
 			if isDuplicated(netAddresses, netAddr) {
 				continue
 			}
-
 			netAddresses = append(netAddresses, netAddr)
 		}
 	}
 	return netAddresses, nil
+}
+
+func toNetworkAddress(address net.Addr) (NetworkAddress, bool) {
+	ipNet, ok := address.(*net.IPNet)
+	if !ok {
+		return NetworkAddress{}, false
+	}
+	if ipNet.IP.IsLoopback() || ipNet.IP.IsLinkLocalUnicast() || ipNet.IP.IsMulticast() {
+		return NetworkAddress{}, false
+	}
+	prefix, err := netip.ParsePrefix(ipNet.String())
+	if err != nil {
+		return NetworkAddress{}, false
+	}
+	return NetworkAddress{NetIP: prefix, Mac: ""}, true
 }
 
 func isDuplicated(addresses []NetworkAddress, addr NetworkAddress) bool {
