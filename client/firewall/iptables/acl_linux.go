@@ -450,7 +450,7 @@ func filterRuleSpecs(ip net.IP, protocol string, sPort, dPort *firewall.Port, ac
 
 	if matchByIP {
 		if ipsetName != "" {
-			specs = append(specs, "-m", "set", "--set", ipsetName, "src")
+			specs = append(specs, "-m", "set", "--match-set", ipsetName, "src")
 		} else {
 			specs = append(specs, "-s", ip.String())
 		}
