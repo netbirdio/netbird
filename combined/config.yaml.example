@@ -119,6 +119,8 @@ server:
 
   # Reverse proxy settings (optional)
   # reverseProxy:
-  #   trustedHTTPProxies: []
-  #   trustedHTTPProxiesCount: 0
-  #   trustedPeers: []
+  #   trustedHTTPProxies: []           # CIDRs of trusted reverse proxies (e.g. ["10.0.0.0/8"])
+  #   trustedHTTPProxiesCount: 0       # Number of trusted proxies in front of the server (alternative to trustedHTTPProxies)
+  #   trustedPeers: []                 # CIDRs of trusted peer networks (e.g. ["100.64.0.0/10"])
+  #   accessLogRetentionDays: 0        # Days to retain HTTP access logs (0 = keep forever)
+  #   accessLogCleanupIntervalHours: 0 # How often to run the access-log cleanup job (0 = disabled)
