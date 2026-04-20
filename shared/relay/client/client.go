@@ -333,7 +333,7 @@ func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
 	dialers := c.getDialers()
 
 	rd := dialer.NewRaceDial(c.log, dialer.DefaultConnectionTimeout, c.connectionURL, dialers...)
-	conn, err := rd.Dial()
+	conn, err := rd.Dial(ctx)
 	if err != nil {
 		return nil, err
 	}

@@ -81,12 +81,13 @@ func setupL4Test(t *testing.T, customPortsSupported *bool) (*Manager, store.Stor
 	mockCaps := proxy.NewMockManager(ctrl)
 	mockCaps.EXPECT().ClusterSupportsCustomPorts(gomock.Any(), testCluster).Return(customPortsSupported).AnyTimes()
 	mockCaps.EXPECT().ClusterRequireSubdomain(gomock.Any(), testCluster).Return((*bool)(nil)).AnyTimes()
+	mockCaps.EXPECT().ClusterSupportsCrowdSec(gomock.Any(), testCluster).Return((*bool)(nil)).AnyTimes()
 
 	accountMgr := &mock_server.MockAccountManager{
 		StoreEventFunc:         func(_ context.Context, _, _, _ string, _ activity.ActivityDescriber, _ map[string]any) {},
 		UpdateAccountPeersFunc: func(_ context.Context, _ string) {},
-		GetGroupByNameFunc: func(ctx context.Context, accountID, groupName string) (*types.Group, error) {
-			return testStore.GetGroupByName(ctx, store.LockingStrengthNone, groupName, accountID)
+		GetGroupByNameFunc: func(ctx context.Context, groupName, accountID, userID string) (*types.Group, error) {
+			return testStore.GetGroupByName(ctx, store.LockingStrengthNone, accountID, groupName)
 		},
 	}
 

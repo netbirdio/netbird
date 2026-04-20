@@ -336,8 +336,13 @@ func (r *Relay) checkAccessRestrictions(addr net.Addr) error {
 		return fmt.Errorf("parse client address %s for restriction check: %w", addr, err)
 	}
 	if v := r.filter.Check(clientIP, r.geo); v != restrict.Allow {
-		r.logDeny(clientIP, v)
-		return fmt.Errorf("access restricted for %s", addr)
+		if r.filter.IsObserveOnly(v) {
+			r.logger.Debugf("CrowdSec observe: would block %s (%s)", clientIP, v)
+			r.logDeny(clientIP, v, true)
+		} else {
+			r.logDeny(clientIP, v, false)
+			return fmt.Errorf("access restricted for %s", addr)
+		}
 	}
 	return nil
 }
@@ -498,19 +503,27 @@ func (r *Relay) logSessionEnd(sess *session) {
 }
 
 // logDeny sends an access log entry for a denied UDP packet.
-func (r *Relay) logDeny(clientIP netip.Addr, verdict restrict.Verdict) {
+func (r *Relay) logDeny(clientIP netip.Addr, verdict restrict.Verdict, observeOnly bool) {
 	if r.accessLog == nil {
 		return
 	}
 
-	r.accessLog.LogL4(accesslog.L4Entry{
+	entry := accesslog.L4Entry{
 		AccountID:  r.accountID,
 		ServiceID:  r.serviceID,
 		Protocol:   accesslog.ProtocolUDP,
 		Host:       r.domain,
 		SourceIP:   clientIP,
 		DenyReason: verdict.String(),
-	})
+	}
+	if verdict.IsCrowdSec() {
+		entry.Metadata = map[string]string{"crowdsec_verdict": verdict.String()}
+		if observeOnly {
+			entry.Metadata["crowdsec_mode"] = "observe"
+			entry.DenyReason = ""
+		}
+	}
+	r.accessLog.LogL4(entry)
 }
 
 // Close stops the relay, waits for all session goroutines to exit,

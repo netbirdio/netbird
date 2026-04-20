@@ -29,6 +29,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/job"
@@ -369,9 +370,15 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 	requestBuffer := NewAccountRequestBuffer(ctx, store)
 	ephemeralMgr := manager.NewEphemeralManager(store, peers.NewManager(store, permissionsManager))
 
+	cacheStore, err := cache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
+	if err != nil {
+		cleanup()
+		return nil, nil, "", cleanup, err
+	}
+
 	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock(), ephemeralMgr, config)
 	accountManager, err := BuildManager(ctx, nil, store, networkMapController, jobManager, nil, "",
-		eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+		eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 
 	if err != nil {
 		cleanup()

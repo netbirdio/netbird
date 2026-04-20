@@ -21,6 +21,10 @@ const (
 
 	// rules chains contains the effective ACL rules
 	chainNameInputRules = "NETBIRD-ACL-INPUT"
+
+	// mangleFwdKey is the entries map key for mangle FORWARD guard rules that prevent
+	// external DNAT from bypassing ACL rules.
+	mangleFwdKey = "MANGLE-FORWARD"
 )
 
 type aclEntries map[string][][]string
@@ -274,6 +278,12 @@ func (m *aclManager) cleanChains() error {
 		}
 	}
 
+	for _, rule := range m.entries[mangleFwdKey] {
+		if err := m.iptablesClient.DeleteIfExists(tableMangle, chainFORWARD, rule...); err != nil {
+			log.Errorf("failed to delete mangle FORWARD guard rule: %v, %s", rule, err)
+		}
+	}
+
 	for _, ipsetName := range m.ipsetStore.ipsetNames() {
 		if err := m.flushIPSet(ipsetName); err != nil {
 			if errors.Is(err, ipset.ErrSetNotExist) {
@@ -303,6 +313,10 @@ func (m *aclManager) createDefaultChains() error {
 	}
 
 	for chainName, rules := range m.entries {
+		// mangle FORWARD guard rules are handled separately below
+		if chainName == mangleFwdKey {
+			continue
+		}
 		for _, rule := range rules {
 			if err := m.iptablesClient.InsertUnique(tableName, chainName, 1, rule...); err != nil {
 				log.Debugf("failed to create input chain jump rule: %s", err)
@@ -321,6 +335,13 @@ func (m *aclManager) createDefaultChains() error {
 		}
 	}
 	clear(m.optionalEntries)
+
+	// Insert mangle FORWARD guard rules to prevent external DNAT bypass.
+	for _, rule := range m.entries[mangleFwdKey] {
+		if err := m.iptablesClient.AppendUnique(tableMangle, chainFORWARD, rule...); err != nil {
+			log.Errorf("failed to add mangle FORWARD guard rule: %v", err)
+		}
+	}
 
 	return nil
 }
@@ -343,6 +364,22 @@ func (m *aclManager) seedInitialEntries() {
 
 	m.appendToEntries("FORWARD", []string{"-o", m.wgIface.Name(), "-j", chainRTFWDOUT})
 	m.appendToEntries("FORWARD", []string{"-i", m.wgIface.Name(), "-j", chainRTFWDIN})
+
+	// Mangle FORWARD guard: when external DNAT redirects traffic from the wg interface, it
+	// traverses FORWARD instead of INPUT, bypassing ACL rules. ACCEPT rules in filter FORWARD
+	// can be inserted above ours. Mangle runs before filter, so these guard rules enforce the
+	// ACL mark check where it cannot be overridden.
+	m.appendToEntries(mangleFwdKey, []string{
+		"-i", m.wgIface.Name(),
+		"-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED",
+		"-j", "ACCEPT",
+	})
+	m.appendToEntries(mangleFwdKey, []string{
+		"-i", m.wgIface.Name(),
+		"-m", "conntrack", "--ctstate", "DNAT",
+		"-m", "mark", "!", "--mark", fmt.Sprintf("%#x", nbnet.PreroutingFwmarkRedirected),
+		"-j", "DROP",
+	})
 }
 
 func (m *aclManager) seedInitialOptionalEntries() {

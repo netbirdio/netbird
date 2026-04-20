@@ -22,4 +22,8 @@ type MobileDependency struct {
 	DnsManager     dns.IosDnsManager
 	FileDescriptor int32
 	StateFilePath  string
+
+	// TempDir is a writable directory for temporary files (e.g., debug bundle zip).
+	// On Android, this should be set to the app's cache directory.
+	TempDir string
 }

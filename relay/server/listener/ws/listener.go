@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/coder/websocket"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/relay/protocol"
+	relaylistener "github.com/netbirdio/netbird/relay/server/listener"
 	"github.com/netbirdio/netbird/shared/relay"
 )
 
@@ -27,18 +29,19 @@ type Listener struct {
 	TLSConfig *tls.Config
 
 	server   *http.Server
-	acceptFn func(conn net.Conn)
+	acceptFn func(conn relaylistener.Conn)
 }
 
-func (l *Listener) Listen(acceptFn func(conn net.Conn)) error {
+func (l *Listener) Listen(acceptFn func(conn relaylistener.Conn)) error {
 	l.acceptFn = acceptFn
 	mux := http.NewServeMux()
 	mux.HandleFunc(URLPath, l.onAccept)
 
 	l.server = &http.Server{
-		Addr:      l.Address,
-		Handler:   mux,
-		TLSConfig: l.TLSConfig,
+		Addr:              l.Address,
+		Handler:           mux,
+		TLSConfig:         l.TLSConfig,
+		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	log.Infof("WS server listening address: %s", l.Address)
@@ -93,18 +96,9 @@ func (l *Listener) onAccept(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	lAddr, err := net.ResolveTCPAddr("tcp", l.server.Addr)
-	if err != nil {
-		err = wsConn.Close(websocket.StatusInternalError, "internal error")
-		if err != nil {
-			log.Errorf("failed to close ws connection: %s", err)
-		}
-		return
-	}
-
 	log.Infof("WS client connected from: %s", rAddr)
 
-	conn := NewConn(wsConn, lAddr, rAddr)
+	conn := NewConn(wsConn, rAddr)
 	l.acceptFn(conn)
 }
 

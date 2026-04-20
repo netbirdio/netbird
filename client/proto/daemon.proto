@@ -727,6 +727,7 @@ message GetFeaturesRequest{}
 message GetFeaturesResponse{
   bool disable_profiles = 1;
   bool disable_update_settings = 2;
+  bool disable_networks = 3;
 }
 
 message TriggerUpdateRequest {}

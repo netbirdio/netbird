@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"net/netip"
 	"sync"
+	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	nfct "github.com/ti-mo/conntrack"
@@ -17,31 +19,64 @@ import (
 	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
-const defaultChannelSize = 100
+const (
+	defaultChannelSize     = 100
+	reconnectInitInterval  = 5 * time.Second
+	reconnectMaxInterval   = 5 * time.Minute
+	reconnectRandomization = 0.5
+)
+
+// listener abstracts a netlink conntrack connection for testability.
+type listener interface {
+	Listen(evChan chan<- nfct.Event, numWorkers uint8, groups []netfilter.NetlinkGroup) (chan error, error)
+	Close() error
+}
 
 // ConnTrack manages kernel-based conntrack events
 type ConnTrack struct {
 	flowLogger nftypes.FlowLogger
 	iface      nftypes.IFaceMapper
 
-	conn *nfct.Conn
+	conn listener
 	mux  sync.Mutex
 
+	dial           func() (listener, error)
 	instanceID     uuid.UUID
 	started        bool
 	done           chan struct{}
 	sysctlModified bool
 }
 
+// DialFunc is a constructor for netlink conntrack connections.
+type DialFunc func() (listener, error)
+
+// Option configures a ConnTrack instance.
+type Option func(*ConnTrack)
+
+// WithDialer overrides the default netlink dialer, primarily for testing.
+func WithDialer(dial DialFunc) Option {
+	return func(c *ConnTrack) {
+		c.dial = dial
+	}
+}
+
+func defaultDial() (listener, error) {
+	return nfct.Dial(nil)
+}
+
 // New creates a new connection tracker that interfaces with the kernel's conntrack system
-func New(flowLogger nftypes.FlowLogger, iface nftypes.IFaceMapper) *ConnTrack {
-	return &ConnTrack{
+func New(flowLogger nftypes.FlowLogger, iface nftypes.IFaceMapper, opts ...Option) *ConnTrack {
+	ct := &ConnTrack{
 		flowLogger: flowLogger,
 		iface:      iface,
 		instanceID: uuid.New(),
-		started:    false,
+		dial:       defaultDial,
 		done:       make(chan struct{}, 1),
 	}
+	for _, opt := range opts {
+		opt(ct)
+	}
+	return ct
 }
 
 // Start begins tracking connections by listening for conntrack events. This method is idempotent.
@@ -59,8 +94,9 @@ func (c *ConnTrack) Start(enableCounters bool) error {
 		c.EnableAccounting()
 	}
 
-	conn, err := nfct.Dial(nil)
+	conn, err := c.dial()
 	if err != nil {
+		c.RestoreAccounting()
 		return fmt.Errorf("dial conntrack: %w", err)
 	}
 	c.conn = conn
@@ -76,7 +112,14 @@ func (c *ConnTrack) Start(enableCounters bool) error {
 			log.Errorf("Error closing conntrack connection: %v", err)
 		}
 		c.conn = nil
+		c.RestoreAccounting()
 		return fmt.Errorf("start conntrack listener: %w", err)
+	}
+
+	// Drain any stale stop signal from a previous cycle.
+	select {
+	case <-c.done:
+	default:
 	}
 
 	c.started = true
@@ -92,14 +135,95 @@ func (c *ConnTrack) receiverRoutine(events chan nfct.Event, errChan chan error) 
 		case event := <-events:
 			c.handleEvent(event)
 		case err := <-errChan:
-			log.Errorf("Error from conntrack event listener: %v", err)
-			if err := c.conn.Close(); err != nil {
-				log.Errorf("Error closing conntrack connection: %v", err)
+			if events, errChan = c.handleListenerError(err); events == nil {
+				return
 			}
-			return
 		case <-c.done:
 			return
 		}
+	}
+}
+
+// handleListenerError closes the failed connection and attempts to reconnect.
+// Returns new channels on success, or nil if shutdown was requested.
+func (c *ConnTrack) handleListenerError(err error) (chan nfct.Event, chan error) {
+	log.Warnf("conntrack event listener failed: %v", err)
+	c.closeConn()
+	return c.reconnect()
+}
+
+func (c *ConnTrack) closeConn() {
+	c.mux.Lock()
+	defer c.mux.Unlock()
+
+	if c.conn != nil {
+		if err := c.conn.Close(); err != nil {
+			log.Debugf("close conntrack connection: %v", err)
+		}
+		c.conn = nil
+	}
+}
+
+// reconnect attempts to re-establish the conntrack netlink listener with exponential backoff.
+// Returns new channels on success, or nil if shutdown was requested.
+func (c *ConnTrack) reconnect() (chan nfct.Event, chan error) {
+	bo := &backoff.ExponentialBackOff{
+		InitialInterval:     reconnectInitInterval,
+		RandomizationFactor: reconnectRandomization,
+		Multiplier:          backoff.DefaultMultiplier,
+		MaxInterval:         reconnectMaxInterval,
+		MaxElapsedTime:      0, // retry indefinitely
+		Clock:               backoff.SystemClock,
+	}
+	bo.Reset()
+
+	for {
+		delay := bo.NextBackOff()
+		log.Infof("reconnecting conntrack listener in %s", delay)
+
+		select {
+		case <-c.done:
+			c.mux.Lock()
+			c.started = false
+			c.mux.Unlock()
+			return nil, nil
+		case <-time.After(delay):
+		}
+
+		conn, err := c.dial()
+		if err != nil {
+			log.Warnf("reconnect conntrack dial: %v", err)
+			continue
+		}
+
+		events := make(chan nfct.Event, defaultChannelSize)
+		errChan, err := conn.Listen(events, 1, []netfilter.NetlinkGroup{
+			netfilter.GroupCTNew,
+			netfilter.GroupCTDestroy,
+		})
+		if err != nil {
+			log.Warnf("reconnect conntrack listen: %v", err)
+			if closeErr := conn.Close(); closeErr != nil {
+				log.Debugf("close conntrack connection: %v", closeErr)
+			}
+			continue
+		}
+
+		c.mux.Lock()
+		if !c.started {
+			// Stop() ran while we were reconnecting.
+			c.mux.Unlock()
+			if closeErr := conn.Close(); closeErr != nil {
+				log.Debugf("close conntrack connection: %v", closeErr)
+			}
+			return nil, nil
+		}
+		c.conn = conn
+		c.mux.Unlock()
+
+		log.Infof("conntrack listener reconnected successfully")
+
+		return events, errChan
 	}
 }
 
@@ -136,23 +260,27 @@ func (c *ConnTrack) Close() error {
 	c.mux.Lock()
 	defer c.mux.Unlock()
 
-	if c.started {
-		select {
-		case c.done <- struct{}{}:
-		default:
-		}
+	if !c.started {
+		return nil
 	}
 
+	select {
+	case c.done <- struct{}{}:
+	default:
+	}
+
+	c.started = false
+
+	var closeErr error
 	if c.conn != nil {
-		err := c.conn.Close()
+		closeErr = c.conn.Close()
 		c.conn = nil
-		c.started = false
+	}
 
-		c.RestoreAccounting()
+	c.RestoreAccounting()
 
-		if err != nil {
-			return fmt.Errorf("close conntrack: %w", err)
-		}
+	if closeErr != nil {
+		return fmt.Errorf("close conntrack: %w", closeErr)
 	}
 
 	return nil

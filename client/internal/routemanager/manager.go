@@ -168,6 +168,7 @@ func (m *DefaultManager) setupAndroidRoutes(config ManagerConfig) {
 			NetworkType: route.IPv4Network,
 		}
 		cr = append(cr, fakeIPRoute)
+		m.notifier.SetFakeIPRoute(fakeIPRoute)
 	}
 
 	m.notifier.SetInitialClientRoutes(cr, routesForComparison)

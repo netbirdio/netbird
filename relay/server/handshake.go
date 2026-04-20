@@ -1,16 +1,24 @@
 package server
 
 import (
+	"context"
 	"fmt"
-	"net"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/relay/server/listener"
 	"github.com/netbirdio/netbird/shared/relay/messages"
 	//nolint:staticcheck
 	"github.com/netbirdio/netbird/shared/relay/messages/address"
 	//nolint:staticcheck
 	authmsg "github.com/netbirdio/netbird/shared/relay/messages/auth"
+)
+
+const (
+	// handshakeTimeout bounds how long a connection may remain in the
+	// pre-authentication handshake phase before being closed.
+	handshakeTimeout = 10 * time.Second
 )
 
 type Validator interface {
@@ -58,7 +66,7 @@ func marshalResponseHelloMsg(instanceURL string) ([]byte, error) {
 }
 
 type handshake struct {
-	conn        net.Conn
+	conn        listener.Conn
 	validator   Validator
 	preparedMsg *preparedMsg
 
@@ -66,9 +74,9 @@ type handshake struct {
 	peerID              *messages.PeerID
 }
 
-func (h *handshake) handshakeReceive() (*messages.PeerID, error) {
+func (h *handshake) handshakeReceive(ctx context.Context) (*messages.PeerID, error) {
 	buf := make([]byte, messages.MaxHandshakeSize)
-	n, err := h.conn.Read(buf)
+	n, err := h.conn.Read(ctx, buf)
 	if err != nil {
 		return nil, fmt.Errorf("read from %s: %w", h.conn.RemoteAddr(), err)
 	}
@@ -103,7 +111,7 @@ func (h *handshake) handshakeReceive() (*messages.PeerID, error) {
 	return peerID, nil
 }
 
-func (h *handshake) handshakeResponse() error {
+func (h *handshake) handshakeResponse(ctx context.Context) error {
 	var responseMsg []byte
 	if h.handshakeMethodAuth {
 		responseMsg = h.preparedMsg.responseAuthMsg
@@ -111,7 +119,7 @@ func (h *handshake) handshakeResponse() error {
 		responseMsg = h.preparedMsg.responseHelloMsg
 	}
 
-	if _, err := h.conn.Write(responseMsg); err != nil {
+	if _, err := h.conn.Write(ctx, responseMsg); err != nil {
 		return fmt.Errorf("handshake response write to %s (%s): %w", h.peerID, h.conn.RemoteAddr(), err)
 	}
 

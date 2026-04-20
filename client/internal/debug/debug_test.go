@@ -1,8 +1,12 @@
 package debug
 
 import (
+	"archive/zip"
+	"bytes"
 	"encoding/json"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -10,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/anonymize"
+	"github.com/netbirdio/netbird/client/configs"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -418,6 +423,226 @@ func TestAnonymizeNetworkMap(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestIsSensitiveEnvVar(t *testing.T) {
+	tests := []struct {
+		key       string
+		sensitive bool
+	}{
+		{"NB_SETUP_KEY", true},
+		{"NB_API_TOKEN", true},
+		{"NB_CLIENT_SECRET", true},
+		{"NB_PASSWORD", true},
+		{"NB_CREDENTIAL", true},
+		{"NB_LOG_LEVEL", false},
+		{"NB_MANAGEMENT_URL", false},
+		{"NB_HOSTNAME", false},
+		{"HOME", false},
+		{"PATH", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			assert.Equal(t, tt.sensitive, isSensitiveEnvVar(tt.key))
+		})
+	}
+}
+
+func TestSanitizeServiceEnvVars(t *testing.T) {
+	tests := []struct {
+		name      string
+		anonymize bool
+		input     map[string]any
+		check     func(t *testing.T, params map[string]any)
+	}{
+		{
+			name:      "no env vars key",
+			anonymize: false,
+			input:     map[string]any{"management_url": "https://mgmt.example.com"},
+			check: func(t *testing.T, params map[string]any) {
+				t.Helper()
+				assert.Equal(t, "https://mgmt.example.com", params["management_url"], "non-env fields should be untouched")
+				_, ok := params[jsonKeyServiceEnv]
+				assert.False(t, ok, "service_env_vars should not be added")
+			},
+		},
+		{
+			name:      "non-NB vars are masked",
+			anonymize: false,
+			input: map[string]any{
+				jsonKeyServiceEnv: map[string]any{
+					"HOME":       "/root",
+					"PATH":       "/usr/bin",
+					"NB_LOG_LEVEL": "debug",
+				},
+			},
+			check: func(t *testing.T, params map[string]any) {
+				t.Helper()
+				env := params[jsonKeyServiceEnv].(map[string]any)
+				assert.Equal(t, maskedValue, env["HOME"], "non-NB_ var should be masked")
+				assert.Equal(t, maskedValue, env["PATH"], "non-NB_ var should be masked")
+				assert.Equal(t, "debug", env["NB_LOG_LEVEL"], "safe NB_ var should pass through")
+			},
+		},
+		{
+			name:      "sensitive NB vars are masked",
+			anonymize: false,
+			input: map[string]any{
+				jsonKeyServiceEnv: map[string]any{
+					"NB_SETUP_KEY":  "abc123",
+					"NB_API_TOKEN":  "tok_xyz",
+					"NB_LOG_LEVEL":  "info",
+				},
+			},
+			check: func(t *testing.T, params map[string]any) {
+				t.Helper()
+				env := params[jsonKeyServiceEnv].(map[string]any)
+				assert.Equal(t, maskedValue, env["NB_SETUP_KEY"], "sensitive NB_ var should be masked")
+				assert.Equal(t, maskedValue, env["NB_API_TOKEN"], "sensitive NB_ var should be masked")
+				assert.Equal(t, "info", env["NB_LOG_LEVEL"], "safe NB_ var should pass through")
+			},
+		},
+		{
+			name:      "safe NB vars anonymized when anonymize is true",
+			anonymize: true,
+			input: map[string]any{
+				jsonKeyServiceEnv: map[string]any{
+					"NB_MANAGEMENT_URL": "https://mgmt.example.com:443",
+					"NB_LOG_LEVEL":      "debug",
+					"NB_SETUP_KEY":      "secret",
+					"SOME_OTHER":        "val",
+				},
+			},
+			check: func(t *testing.T, params map[string]any) {
+				t.Helper()
+				env := params[jsonKeyServiceEnv].(map[string]any)
+				// Safe NB_ values should be anonymized (not the original, not masked)
+				mgmtVal := env["NB_MANAGEMENT_URL"].(string)
+				assert.NotEqual(t, "https://mgmt.example.com:443", mgmtVal, "should be anonymized")
+				assert.NotEqual(t, maskedValue, mgmtVal, "should not be masked")
+
+				logVal := env["NB_LOG_LEVEL"].(string)
+				assert.NotEqual(t, maskedValue, logVal, "safe NB_ var should not be masked")
+
+				// Sensitive and non-NB_ still masked
+				assert.Equal(t, maskedValue, env["NB_SETUP_KEY"])
+				assert.Equal(t, maskedValue, env["SOME_OTHER"])
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			anonymizer := anonymize.NewAnonymizer(anonymize.DefaultAddresses())
+			g := &BundleGenerator{
+				anonymize:  tt.anonymize,
+				anonymizer: anonymizer,
+			}
+			g.sanitizeServiceEnvVars(tt.input)
+			tt.check(t, tt.input)
+		})
+	}
+}
+
+func TestAddServiceParams(t *testing.T) {
+	t.Run("missing service.json returns nil", func(t *testing.T) {
+		g := &BundleGenerator{
+			anonymizer: anonymize.NewAnonymizer(anonymize.DefaultAddresses()),
+		}
+
+		origStateDir := configs.StateDir
+		configs.StateDir = t.TempDir()
+		t.Cleanup(func() { configs.StateDir = origStateDir })
+
+		err := g.addServiceParams()
+		assert.NoError(t, err)
+	})
+
+	t.Run("management_url anonymized when anonymize is true", func(t *testing.T) {
+		dir := t.TempDir()
+		origStateDir := configs.StateDir
+		configs.StateDir = dir
+		t.Cleanup(func() { configs.StateDir = origStateDir })
+
+		input := map[string]any{
+			jsonKeyManagementURL: "https://api.example.com:443",
+			jsonKeyServiceEnv: map[string]any{
+				"NB_LOG_LEVEL": "trace",
+			},
+		}
+		data, err := json.Marshal(input)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, serviceParamsFile), data, 0600))
+
+		var buf bytes.Buffer
+		zw := zip.NewWriter(&buf)
+
+		g := &BundleGenerator{
+			anonymize:  true,
+			anonymizer: anonymize.NewAnonymizer(anonymize.DefaultAddresses()),
+			archive:    zw,
+		}
+
+		require.NoError(t, g.addServiceParams())
+		require.NoError(t, zw.Close())
+
+		zr, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+		require.NoError(t, err)
+		require.Len(t, zr.File, 1)
+		assert.Equal(t, serviceParamsBundle, zr.File[0].Name)
+
+		rc, err := zr.File[0].Open()
+		require.NoError(t, err)
+		defer rc.Close()
+
+		var result map[string]any
+		require.NoError(t, json.NewDecoder(rc).Decode(&result))
+
+		mgmt := result[jsonKeyManagementURL].(string)
+		assert.NotEqual(t, "https://api.example.com:443", mgmt, "management_url should be anonymized")
+		assert.NotEmpty(t, mgmt)
+
+		env := result[jsonKeyServiceEnv].(map[string]any)
+		assert.NotEqual(t, maskedValue, env["NB_LOG_LEVEL"], "safe NB_ var should not be masked")
+	})
+
+	t.Run("management_url preserved when anonymize is false", func(t *testing.T) {
+		dir := t.TempDir()
+		origStateDir := configs.StateDir
+		configs.StateDir = dir
+		t.Cleanup(func() { configs.StateDir = origStateDir })
+
+		input := map[string]any{
+			jsonKeyManagementURL: "https://api.example.com:443",
+		}
+		data, err := json.Marshal(input)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, serviceParamsFile), data, 0600))
+
+		var buf bytes.Buffer
+		zw := zip.NewWriter(&buf)
+
+		g := &BundleGenerator{
+			anonymize:  false,
+			anonymizer: anonymize.NewAnonymizer(anonymize.DefaultAddresses()),
+			archive:    zw,
+		}
+
+		require.NoError(t, g.addServiceParams())
+		require.NoError(t, zw.Close())
+
+		zr, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+		require.NoError(t, err)
+
+		rc, err := zr.File[0].Open()
+		require.NoError(t, err)
+		defer rc.Close()
+
+		var result map[string]any
+		require.NoError(t, json.NewDecoder(rc).Decode(&result))
+
+		assert.Equal(t, "https://api.example.com:443", result[jsonKeyManagementURL], "management_url should be preserved")
+	})
 }
 
 // Helper function to check if IP is in CGNAT range

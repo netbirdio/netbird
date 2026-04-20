@@ -15,13 +15,15 @@ import (
 	"time"
 
 	"github.com/golang/mock/gomock"
-	"github.com/netbirdio/netbird/shared/management/status"
 	"github.com/prometheus/client_golang/prometheus/push"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/metric/noop"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
+	"github.com/netbirdio/netbird/shared/management/status"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
@@ -1815,6 +1817,13 @@ func TestAccount_Copy(t *testing.T) {
 				Targets:   []*service.Target{},
 			},
 		},
+		Domains: []*domain.Domain{
+			{
+				ID:        "domain1",
+				Domain:    "test.com",
+				AccountID: "account1",
+			},
+		},
 		NetworkMapCache: &types.NetworkMapBuilder{},
 	}
 	account.InitOnce()
@@ -3125,10 +3134,15 @@ func createManager(t testing.TB) (*DefaultAccountManager, *update_channel.PeersU
 
 	ctx := context.Background()
 
+	cacheStore, err := cache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, store)
 	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(store, peers.NewManager(store, permissionsManager)), &config.Config{})
-	manager, err := BuildManager(ctx, &config.Config{}, store, networkMapController, job.NewJobManager(nil, store, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	manager, err := BuildManager(ctx, &config.Config{}, store, networkMapController, job.NewJobManager(nil, store, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 	if err != nil {
 		return nil, nil, err
 	}

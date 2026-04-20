@@ -167,6 +167,20 @@ func (mw *Middleware) checkIPRestrictions(w http.ResponseWriter, r *http.Request
 		return true
 	}
 
+	if verdict.IsCrowdSec() {
+		if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
+			cd.SetMetadata("crowdsec_verdict", verdict.String())
+			if config.IPRestrictions.IsObserveOnly(verdict) {
+				cd.SetMetadata("crowdsec_mode", "observe")
+			}
+		}
+	}
+
+	if config.IPRestrictions.IsObserveOnly(verdict) {
+		mw.logger.Debugf("CrowdSec observe: would block %s for %s (%s)", clientIP, r.Host, verdict)
+		return true
+	}
+
 	reason := verdict.String()
 	mw.blockIPRestriction(r, reason)
 	http.Error(w, "Forbidden", http.StatusForbidden)
@@ -358,6 +372,12 @@ func (mw *Middleware) authenticateWithSchemes(w http.ResponseWriter, r *http.Req
 			cd.SetAuthMethod(attemptedMethod)
 		}
 	}
+
+	if oidcURL, ok := methods[auth.MethodOIDC.String()]; ok && len(methods) == 1 && oidcURL != "" {
+		http.Redirect(w, r, oidcURL, http.StatusFound)
+		return
+	}
+
 	web.ServeHTTP(w, r, map[string]any{"methods": methods}, http.StatusUnauthorized)
 }
 

@@ -22,6 +22,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	proxydomain "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
+	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -350,6 +352,35 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 		},
 	}
 
+	account.Services = []*rpservice.Service{
+		{
+			ID:        "service_id",
+			AccountID: account.Id,
+			Name:      "test service",
+			Domain:    "svc.example.com",
+			Enabled:   true,
+			Targets: []*rpservice.Target{
+				{
+					AccountID: account.Id,
+					ServiceID: "service_id",
+					Host:      "localhost",
+					Port:      8080,
+					Protocol:  "http",
+					Enabled:   true,
+				},
+			},
+		},
+	}
+
+	account.Domains = []*proxydomain.Domain{
+		{
+			ID:        "domain_id",
+			Domain:    "custom.example.com",
+			AccountID: account.Id,
+			Validated: true,
+		},
+	}
+
 	err = store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
@@ -411,6 +442,20 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 		require.NoError(t, err, "expecting no error after removing DeleteAccount when searching for network resources")
 		require.Len(t, resources, 0, "expecting no network resources to be found after DeleteAccount")
 	}
+
+	domains, err := store.ListCustomDomains(context.Background(), account.Id)
+	require.NoError(t, err, "expecting no error after DeleteAccount when searching for custom domains")
+	require.Len(t, domains, 0, "expecting no custom domains to be found after DeleteAccount")
+
+	var services []*rpservice.Service
+	err = store.(*SqlStore).db.Model(&rpservice.Service{}).Find(&services, "account_id = ?", account.Id).Error
+	require.NoError(t, err, "expecting no error after DeleteAccount when searching for services")
+	require.Len(t, services, 0, "expecting no services to be found after DeleteAccount")
+
+	var targets []*rpservice.Target
+	err = store.(*SqlStore).db.Model(&rpservice.Target{}).Find(&targets, "account_id = ?", account.Id).Error
+	require.NoError(t, err, "expecting no error after DeleteAccount when searching for service targets")
+	require.Len(t, targets, 0, "expecting no service targets to be found after DeleteAccount")
 }
 
 func Test_GetAccount(t *testing.T) {

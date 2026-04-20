@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"golang.org/x/exp/maps"
+	"google.golang.org/grpc/codes"
+	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/route"
@@ -26,6 +28,10 @@ type selectRoute struct {
 func (s *Server) ListNetworks(context.Context, *proto.ListNetworksRequest) (*proto.ListNetworksResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+
+	if s.networksDisabled {
+		return nil, gstatus.Errorf(codes.Unavailable, errNetworksDisabled)
+	}
 
 	if s.connectClient == nil {
 		return nil, fmt.Errorf("not connected")
@@ -118,6 +124,10 @@ func (s *Server) SelectNetworks(_ context.Context, req *proto.SelectNetworksRequ
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
+	if s.networksDisabled {
+		return nil, gstatus.Errorf(codes.Unavailable, errNetworksDisabled)
+	}
+
 	if s.connectClient == nil {
 		return nil, fmt.Errorf("not connected")
 	}
@@ -163,6 +173,10 @@ func (s *Server) SelectNetworks(_ context.Context, req *proto.SelectNetworksRequ
 func (s *Server) DeselectNetworks(_ context.Context, req *proto.SelectNetworksRequest) (*proto.SelectNetworksResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+
+	if s.networksDisabled {
+		return nil, gstatus.Errorf(codes.Unavailable, errNetworksDisabled)
+	}
 
 	if s.connectClient == nil {
 		return nil, fmt.Errorf("not connected")

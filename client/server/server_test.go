@@ -36,6 +36,7 @@ import (
 	daemonProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
@@ -103,7 +104,7 @@ func TestConnectWithRetryRuns(t *testing.T) {
 		t.Fatalf("failed to set active profile state: %v", err)
 	}
 
-	s := New(ctx, "debug", "", false, false)
+	s := New(ctx, "debug", "", false, false, false)
 
 	s.config = config
 
@@ -164,7 +165,7 @@ func TestServer_Up(t *testing.T) {
 		t.Fatalf("failed to set active profile state: %v", err)
 	}
 
-	s := New(ctx, "console", "", false, false)
+	s := New(ctx, "console", "", false, false, false)
 	err = s.Start()
 	require.NoError(t, err)
 
@@ -234,7 +235,7 @@ func TestServer_SubcribeEvents(t *testing.T) {
 		t.Fatalf("failed to set active profile state: %v", err)
 	}
 
-	s := New(ctx, "console", "", false, false)
+	s := New(ctx, "console", "", false, false, false)
 
 	err = s.Start()
 	require.NoError(t, err)
@@ -309,7 +310,12 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 
 	jobManager := job.NewJobManager(nil, store, peersManager)
 
-	ia, _ := integrations.NewIntegratedValidator(context.Background(), peersManager, settingsManagerMock, eventStore)
+	cacheStore, err := nbcache.NewStore(context.Background(), 100*time.Millisecond, 300*time.Millisecond, 100)
+	if err != nil {
+		return nil, "", err
+	}
+
+	ia, _ := integrations.NewIntegratedValidator(context.Background(), peersManager, settingsManagerMock, eventStore, cacheStore)
 
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)
@@ -320,7 +326,7 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 	requestBuffer := server.NewAccountRequestBuffer(context.Background(), store)
 	peersUpdateManager := update_channel.NewPeersUpdateManager(metrics)
 	networkMapController := controller.NewController(context.Background(), store, metrics, peersUpdateManager, requestBuffer, server.MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock(), manager.NewEphemeralManager(store, peersManager), config)
-	accountManager, err := server.BuildManager(context.Background(), config, store, networkMapController, jobManager, nil, "", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock, false)
+	accountManager, err := server.BuildManager(context.Background(), config, store, networkMapController, jobManager, nil, "", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock, false, cacheStore)
 	if err != nil {
 		return nil, "", err
 	}
