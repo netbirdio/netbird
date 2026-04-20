@@ -1157,83 +1157,122 @@ func (r *router) acceptExternalChainsRules() error {
 	}
 
 	intf := ifname(r.wgIface.Name())
-
 	for _, chain := range chains {
-		if chain.Hooknum == nil {
-			log.Debugf("skipping external chain %s/%s: hooknum is nil", chain.Table.Name, chain.Name)
-			continue
-		}
-
-		log.Debugf("adding accept rules to external %s chain: %s %s/%s",
-			hookName(chain.Hooknum), familyName(chain.Table.Family), chain.Table.Name, chain.Name)
-
-		switch *chain.Hooknum {
-		case *nftables.ChainHookForward:
-			r.insertForwardAcceptRules(chain, intf)
-		case *nftables.ChainHookInput:
-			r.insertInputAcceptRule(chain, intf)
-		}
+		r.applyExternalChainAccept(chain, intf)
 	}
 
 	if err := r.conn.Flush(); err != nil {
 		return fmt.Errorf("flush external chain rules: %w", err)
 	}
-
 	return nil
 }
 
+func (r *router) applyExternalChainAccept(chain *nftables.Chain, intf []byte) {
+	if chain.Hooknum == nil {
+		log.Debugf("skipping external chain %s/%s: hooknum is nil", chain.Table.Name, chain.Name)
+		return
+	}
+
+	log.Debugf("adding accept rules to external %s chain: %s %s/%s",
+		hookName(chain.Hooknum), familyName(chain.Table.Family), chain.Table.Name, chain.Name)
+
+	switch *chain.Hooknum {
+	case *nftables.ChainHookForward:
+		r.insertForwardAcceptRules(chain, intf)
+	case *nftables.ChainHookInput:
+		r.insertInputAcceptRule(chain, intf)
+	}
+}
+
 func (r *router) insertForwardAcceptRules(chain *nftables.Chain, intf []byte) {
-	iifRule := &nftables.Rule{
+	existing, err := r.existingNetbirdRulesInChain(chain)
+	if err != nil {
+		log.Warnf("skip forward accept rules in %s/%s: %v", chain.Table.Name, chain.Name, err)
+		return
+	}
+	r.insertForwardIifRule(chain, intf, existing)
+	r.insertForwardOifEstablishedRule(chain, intf, existing)
+}
+
+func (r *router) insertForwardIifRule(chain *nftables.Chain, intf []byte, existing map[string]bool) {
+	if existing[userDataAcceptForwardRuleIif] {
+		return
+	}
+	r.conn.InsertRule(&nftables.Rule{
 		Table: chain.Table,
 		Chain: chain,
 		Exprs: []expr.Any{
 			&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
-			&expr.Cmp{
-				Op:       expr.CmpOpEq,
-				Register: 1,
-				Data:     intf,
-			},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: intf},
 			&expr.Counter{},
 			&expr.Verdict{Kind: expr.VerdictAccept},
 		},
 		UserData: []byte(userDataAcceptForwardRuleIif),
-	}
-	r.conn.InsertRule(iifRule)
+	})
+}
 
-	oifExprs := []expr.Any{
-		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
-		&expr.Cmp{
-			Op:       expr.CmpOpEq,
-			Register: 1,
-			Data:     intf,
-		},
+func (r *router) insertForwardOifEstablishedRule(chain *nftables.Chain, intf []byte, existing map[string]bool) {
+	if existing[userDataAcceptForwardRuleOif] {
+		return
 	}
-	oifRule := &nftables.Rule{
+	exprs := []expr.Any{
+		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: intf},
+	}
+	r.conn.InsertRule(&nftables.Rule{
 		Table:    chain.Table,
 		Chain:    chain,
-		Exprs:    append(oifExprs, getEstablishedExprs(2)...),
+		Exprs:    append(exprs, getEstablishedExprs(2)...),
 		UserData: []byte(userDataAcceptForwardRuleOif),
-	}
-	r.conn.InsertRule(oifRule)
+	})
 }
 
 func (r *router) insertInputAcceptRule(chain *nftables.Chain, intf []byte) {
-	inputRule := &nftables.Rule{
+	existing, err := r.existingNetbirdRulesInChain(chain)
+	if err != nil {
+		log.Warnf("skip input accept rule in %s/%s: %v", chain.Table.Name, chain.Name, err)
+		return
+	}
+	if existing[userDataAcceptInputRule] {
+		return
+	}
+	r.conn.InsertRule(&nftables.Rule{
 		Table: chain.Table,
 		Chain: chain,
 		Exprs: []expr.Any{
 			&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
-			&expr.Cmp{
-				Op:       expr.CmpOpEq,
-				Register: 1,
-				Data:     intf,
-			},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: intf},
 			&expr.Counter{},
 			&expr.Verdict{Kind: expr.VerdictAccept},
 		},
 		UserData: []byte(userDataAcceptInputRule),
+	})
+}
+
+// existingNetbirdRulesInChain returns the set of netbird-owned UserData tags present in a chain; callers must bail on error since InsertRule is additive.
+func (r *router) existingNetbirdRulesInChain(chain *nftables.Chain) (map[string]bool, error) {
+	rules, err := r.conn.GetRules(chain.Table, chain)
+	if err != nil {
+		return nil, fmt.Errorf("list rules: %w", err)
 	}
-	r.conn.InsertRule(inputRule)
+	present := map[string]bool{}
+	for _, rule := range rules {
+		if !isNetbirdAcceptRuleTag(rule.UserData) {
+			continue
+		}
+		present[string(rule.UserData)] = true
+	}
+	return present, nil
+}
+
+func isNetbirdAcceptRuleTag(userData []byte) bool {
+	switch string(userData) {
+	case userDataAcceptForwardRuleIif,
+		userDataAcceptForwardRuleOif,
+		userDataAcceptInputRule:
+		return true
+	}
+	return false
 }
 
 func (r *router) removeAcceptFilterRules() error {

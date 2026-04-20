@@ -59,6 +59,8 @@ type Manager struct {
 
 	notrackOutputChain     *nftables.Chain
 	notrackPreroutingChain *nftables.Chain
+
+	extMonitor *externalChainMonitor
 }
 
 // Create nftables firewall manager
@@ -87,6 +89,8 @@ func Create(wgIface iFaceMapper, mtu uint16) (*Manager, error) {
 			return nil, fmt.Errorf("create IPv6 firewall: %w", err)
 		}
 	}
+
+	m.extMonitor = newExternalChainMonitor(m)
 
 	return m, nil
 }
@@ -142,7 +146,32 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 
 	m.persistState(stateManager)
 
+	// Start after initFirewall has installed the baseline external-chain
+	// accept rules. start() is idempotent across Init/Close/Init cycles.
+	m.extMonitor.start()
+
 	return nil
+}
+
+// reconcileExternalChains re-applies passthrough accept rules to external
+// filter chains for both IPv4 and IPv6 routers. Called by the monitor when
+// tables or chains appear (e.g. after firewalld reloads).
+func (m *Manager) reconcileExternalChains() error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	var merr *multierror.Error
+	if m.router != nil {
+		if err := m.router.acceptExternalChainsRules(); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("v4: %w", err))
+		}
+	}
+	if m.hasIPv6() {
+		if err := m.router6.acceptExternalChainsRules(); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("v6: %w", err))
+		}
+	}
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 func (m *Manager) initFirewall() error {
@@ -409,6 +438,8 @@ func (m *Manager) SetLegacyManagement(isLegacy bool) error {
 
 // Close closes the firewall manager
 func (m *Manager) Close(stateManager *statemanager.Manager) error {
+	m.extMonitor.stop()
+
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
