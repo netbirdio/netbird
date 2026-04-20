@@ -12,7 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
@@ -46,7 +46,7 @@ type MockAccountManager struct {
 	AddPeerFunc                           func(ctx context.Context, accountID string, setupKey string, userId string, peer *nbpeer.Peer, temporary bool) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
 	GetGroupFunc                          func(ctx context.Context, accountID, groupID, userID string) (*types.Group, error)
 	GetAllGroupsFunc                      func(ctx context.Context, accountID, userID string) ([]*types.Group, error)
-	GetGroupByNameFunc                    func(ctx context.Context, accountID, groupName string) (*types.Group, error)
+	GetGroupByNameFunc                    func(ctx context.Context, groupName, accountID, userID string) (*types.Group, error)
 	SaveGroupFunc                         func(ctx context.Context, accountID, userID string, group *types.Group, create bool) error
 	SaveGroupsFunc                        func(ctx context.Context, accountID, userID string, groups []*types.Group, create bool) error
 	DeleteGroupFunc                       func(ctx context.Context, accountID, userId, groupID string) error
@@ -148,7 +148,7 @@ type MockAccountManager struct {
 	DeleteUserInviteFunc       func(ctx context.Context, accountID, initiatorUserID, inviteID string) error
 }
 
-func (am *MockAccountManager) SetServiceManager(serviceManager reverseproxy.Manager) {
+func (am *MockAccountManager) SetServiceManager(serviceManager service.Manager) {
 	// Mock implementation - no-op
 }
 
@@ -406,9 +406,9 @@ func (am *MockAccountManager) AddPeer(
 }
 
 // GetGroupByName mock implementation of GetGroupByName from server.AccountManager interface
-func (am *MockAccountManager) GetGroupByName(ctx context.Context, accountID, groupName string) (*types.Group, error) {
-	if am.GetGroupFunc != nil {
-		return am.GetGroupByNameFunc(ctx, accountID, groupName)
+func (am *MockAccountManager) GetGroupByName(ctx context.Context, groupName, accountID, userID string) (*types.Group, error) {
+	if am.GetGroupByNameFunc != nil {
+		return am.GetGroupByNameFunc(ctx, groupName, accountID, userID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetGroupByName is not implemented")
 }

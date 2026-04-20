@@ -189,7 +189,7 @@ type indexData struct {
 	Version             string
 	Uptime              string
 	ClientCount         int
-	TotalDomains        int
+	TotalServices       int
 	CertsTotal          int
 	CertsReady          int
 	CertsPending        int
@@ -202,7 +202,7 @@ type indexData struct {
 
 type clientData struct {
 	AccountID string
-	Domains   string
+	Services  string
 	Age       string
 	Status    string
 }
@@ -211,9 +211,9 @@ func (h *Handler) handleIndex(w http.ResponseWriter, _ *http.Request, wantJSON b
 	clients := h.provider.ListClientsForDebug()
 	sortedIDs := sortedAccountIDs(clients)
 
-	totalDomains := 0
+	totalServices := 0
 	for _, info := range clients {
-		totalDomains += info.DomainCount
+		totalServices += info.ServiceCount
 	}
 
 	var certsTotal, certsReady, certsPending, certsFailed int
@@ -234,24 +234,24 @@ func (h *Handler) handleIndex(w http.ResponseWriter, _ *http.Request, wantJSON b
 		for _, id := range sortedIDs {
 			info := clients[id]
 			clientsJSON = append(clientsJSON, map[string]interface{}{
-				"account_id":   info.AccountID,
-				"domain_count": info.DomainCount,
-				"domains":      info.Domains,
-				"has_client":   info.HasClient,
-				"created_at":   info.CreatedAt,
-				"age":          time.Since(info.CreatedAt).Round(time.Second).String(),
+				"account_id":    info.AccountID,
+				"service_count": info.ServiceCount,
+				"service_keys":  info.ServiceKeys,
+				"has_client":    info.HasClient,
+				"created_at":    info.CreatedAt,
+				"age":           time.Since(info.CreatedAt).Round(time.Second).String(),
 			})
 		}
 		resp := map[string]interface{}{
-			"version":       version.NetbirdVersion(),
-			"uptime":        time.Since(h.startTime).Round(time.Second).String(),
-			"client_count":  len(clients),
-			"total_domains": totalDomains,
-			"certs_total":   certsTotal,
-			"certs_ready":   certsReady,
-			"certs_pending": certsPending,
-			"certs_failed":  certsFailed,
-			"clients":       clientsJSON,
+			"version":        version.NetbirdVersion(),
+			"uptime":         time.Since(h.startTime).Round(time.Second).String(),
+			"client_count":   len(clients),
+			"total_services": totalServices,
+			"certs_total":    certsTotal,
+			"certs_ready":    certsReady,
+			"certs_pending":  certsPending,
+			"certs_failed":   certsFailed,
+			"clients":        clientsJSON,
 		}
 		if len(certsPendingDomains) > 0 {
 			resp["certs_pending_domains"] = certsPendingDomains
@@ -278,7 +278,7 @@ func (h *Handler) handleIndex(w http.ResponseWriter, _ *http.Request, wantJSON b
 		Version:             version.NetbirdVersion(),
 		Uptime:              time.Since(h.startTime).Round(time.Second).String(),
 		ClientCount:         len(clients),
-		TotalDomains:        totalDomains,
+		TotalServices:       totalServices,
 		CertsTotal:          certsTotal,
 		CertsReady:          certsReady,
 		CertsPending:        certsPending,
@@ -291,9 +291,9 @@ func (h *Handler) handleIndex(w http.ResponseWriter, _ *http.Request, wantJSON b
 
 	for _, id := range sortedIDs {
 		info := clients[id]
-		domains := info.Domains.SafeString()
-		if domains == "" {
-			domains = "-"
+		services := strings.Join(info.ServiceKeys, ", ")
+		if services == "" {
+			services = "-"
 		}
 		status := "No client"
 		if info.HasClient {
@@ -301,7 +301,7 @@ func (h *Handler) handleIndex(w http.ResponseWriter, _ *http.Request, wantJSON b
 		}
 		data.Clients = append(data.Clients, clientData{
 			AccountID: string(info.AccountID),
-			Domains:   domains,
+			Services:  services,
 			Age:       time.Since(info.CreatedAt).Round(time.Second).String(),
 			Status:    status,
 		})
@@ -324,12 +324,12 @@ func (h *Handler) handleListClients(w http.ResponseWriter, _ *http.Request, want
 		for _, id := range sortedIDs {
 			info := clients[id]
 			clientsJSON = append(clientsJSON, map[string]interface{}{
-				"account_id":   info.AccountID,
-				"domain_count": info.DomainCount,
-				"domains":      info.Domains,
-				"has_client":   info.HasClient,
-				"created_at":   info.CreatedAt,
-				"age":          time.Since(info.CreatedAt).Round(time.Second).String(),
+				"account_id":    info.AccountID,
+				"service_count": info.ServiceCount,
+				"service_keys":  info.ServiceKeys,
+				"has_client":    info.HasClient,
+				"created_at":    info.CreatedAt,
+				"age":           time.Since(info.CreatedAt).Round(time.Second).String(),
 			})
 		}
 		h.writeJSON(w, map[string]interface{}{
@@ -347,9 +347,9 @@ func (h *Handler) handleListClients(w http.ResponseWriter, _ *http.Request, want
 
 	for _, id := range sortedIDs {
 		info := clients[id]
-		domains := info.Domains.SafeString()
-		if domains == "" {
-			domains = "-"
+		services := strings.Join(info.ServiceKeys, ", ")
+		if services == "" {
+			services = "-"
 		}
 		status := "No client"
 		if info.HasClient {
@@ -357,7 +357,7 @@ func (h *Handler) handleListClients(w http.ResponseWriter, _ *http.Request, want
 		}
 		data.Clients = append(data.Clients, clientData{
 			AccountID: string(info.AccountID),
-			Domains:   domains,
+			Services:  services,
 			Age:       time.Since(info.CreatedAt).Round(time.Second).String(),
 			Status:    status,
 		})
@@ -409,17 +409,13 @@ func (h *Handler) handleClientStatus(w http.ResponseWriter, r *http.Request, acc
 	}
 
 	pbStatus := nbstatus.ToProtoFullStatus(fullStatus)
-	overview := nbstatus.ConvertToStatusOutputOverview(
-		pbStatus,
-		false,
-		version.NetbirdVersion(),
-		statusFilter,
-		prefixNamesFilter,
-		prefixNamesFilterMap,
-		ipsFilterMap,
-		connectionTypeFilter,
-		"",
-	)
+	overview := nbstatus.ConvertToStatusOutputOverview(pbStatus, nbstatus.ConvertOptions{
+		StatusFilter:         statusFilter,
+		PrefixNamesFilter:    prefixNamesFilter,
+		PrefixNamesFilterMap: prefixNamesFilterMap,
+		IPsFilter:            ipsFilterMap,
+		ConnectionTypeFilter: connectionTypeFilter,
+	})
 
 	if wantJSON {
 		h.writeJSON(w, map[string]interface{}{

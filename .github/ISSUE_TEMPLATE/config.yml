@@ -1,0 +1,14 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Community Support
+    url: https://forum.netbird.io/
+    about: Community support forum
+  - name: Cloud Support
+    url: https://docs.netbird.io/help/report-bug-issues
+    about: Contact us for support
+  - name: Client/Connection Troubleshooting
+    url: https://docs.netbird.io/help/troubleshooting-client
+    about: See our client troubleshooting guide for help addressing common issues
+  - name: Self-host Troubleshooting
+    url: https://docs.netbird.io/selfhosted/troubleshooting
+    about: See our self-host troubleshooting guide for help addressing common issues

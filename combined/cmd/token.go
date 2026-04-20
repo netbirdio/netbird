@@ -42,6 +42,9 @@ func withTokenStore(cmd *cobra.Command, fn func(ctx context.Context, s store.Sto
 			os.Setenv("NB_STORE_ENGINE_MYSQL_DSN", dsn)
 		}
 	}
+	if file := cfg.Server.Store.File; file != "" {
+		os.Setenv("NB_STORE_ENGINE_SQLITE_FILE", file)
+	}
 
 	datadir := cfg.Management.DataDir
 	engine := types.Engine(cfg.Management.Store.Engine)

@@ -27,19 +27,19 @@
     <ul>{{range .CertsFailedDomains}}<li>{{.Domain}}: {{.Error}}</li>{{end}}</ul>
   </details>
   {{end}}
-  <h2>Clients ({{.ClientCount}}) | Domains ({{.TotalDomains}})</h2>
+  <h2>Clients ({{.ClientCount}}) | Services ({{.TotalServices}})</h2>
   {{if .Clients}}
   <table>
     <tr>
       <th>Account ID</th>
-      <th>Domains</th>
+      <th>Services</th>
       <th>Age</th>
       <th>Status</th>
     </tr>
     {{range .Clients}}
     <tr>
       <td><a href="/debug/clients/{{.AccountID}}/tools">{{.AccountID}}</a></td>
-      <td>{{.Domains}}</td>
+      <td>{{.Services}}</td>
       <td>{{.Age}}</td>
       <td>{{.Status}}</td>
     </tr>

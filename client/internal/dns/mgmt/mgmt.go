@@ -376,9 +376,9 @@ func (m *Resolver) extractDomainsFromServerDomains(serverDomains dnsconfig.Serve
 		}
 	}
 
-	if serverDomains.Flow != "" {
-		domains = append(domains, serverDomains.Flow)
-	}
+	// Flow receiver domain is intentionally excluded from caching.
+	// Cloud providers may rotate the IP behind this domain; a stale cached record
+	// causes TLS certificate verification failures on reconnect.
 
 	for _, stun := range serverDomains.Stuns {
 		if stun != "" {

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -29,6 +31,10 @@ import (
 const ConnectTimeout = 10 * time.Second
 
 const (
+	// EnvMaxRecvMsgSize overrides the default gRPC max receive message size (4 MB)
+	// for the management client connection. Value is in bytes.
+	EnvMaxRecvMsgSize = "NB_MANAGEMENT_GRPC_MAX_MSG_SIZE"
+
 	errMsgMgmtPublicKey    = "failed getting Management Service public key: %s"
 	errMsgNoMgmtConnection = "no connection to management"
 )
@@ -46,15 +52,62 @@ type GrpcClient struct {
 	conn                  *grpc.ClientConn
 	connStateCallback     ConnStateNotifier
 	connStateCallbackLock sync.RWMutex
+	serverURL             string
+}
+
+type ExposeRequest struct {
+	NamePrefix string
+	Domain     string
+	Port       uint16
+	Protocol   int
+	Pin        string
+	Password   string
+	UserGroups []string
+	ListenPort uint16
+}
+
+type ExposeResponse struct {
+	ServiceName      string
+	Domain           string
+	ServiceURL       string
+	PortAutoAssigned bool
+}
+
+// MaxRecvMsgSize returns the configured max gRPC receive message size from
+// the environment, or 0 if unset (which uses the gRPC default of 4 MB).
+func MaxRecvMsgSize() int {
+	val := os.Getenv(EnvMaxRecvMsgSize)
+	if val == "" {
+		return 0
+	}
+
+	size, err := strconv.Atoi(val)
+	if err != nil {
+		log.Warnf("invalid %s value %q, using default: %v", EnvMaxRecvMsgSize, val, err)
+		return 0
+	}
+
+	if size <= 0 {
+		log.Warnf("invalid %s value %d, must be positive, using default", EnvMaxRecvMsgSize, size)
+		return 0
+	}
+
+	return size
 }
 
 // NewClient creates a new client to Management service
 func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsEnabled bool) (*GrpcClient, error) {
 	var conn *grpc.ClientConn
 
+	var extraOpts []grpc.DialOption
+	if maxSize := MaxRecvMsgSize(); maxSize > 0 {
+		extraOpts = append(extraOpts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxSize)))
+		log.Infof("management gRPC max receive message size set to %d bytes", maxSize)
+	}
+
 	operation := func() error {
 		var err error
-		conn, err = nbgrpc.CreateConnection(ctx, addr, tlsEnabled, wsproxy.ManagementComponent)
+		conn, err = nbgrpc.CreateConnection(ctx, addr, tlsEnabled, wsproxy.ManagementComponent, extraOpts...)
 		if err != nil {
 			return fmt.Errorf("create connection: %w", err)
 		}
@@ -75,7 +128,13 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 		ctx:                   ctx,
 		conn:                  conn,
 		connStateCallbackLock: sync.RWMutex{},
+		serverURL:             addr,
 	}, nil
+}
+
+// GetServerURL returns the management server URL
+func (c *GrpcClient) GetServerURL() string {
+	return c.serverURL
 }
 
 // Close closes connection to the Management Service
@@ -143,7 +202,7 @@ func (c *GrpcClient) withMgmtStream(
 			return fmt.Errorf("connection to management is not ready and in %s state", connState)
 		}
 
-		serverPubKey, err := c.GetServerPublicKey()
+		serverPubKey, err := c.getServerPublicKey()
 		if err != nil {
 			log.Debugf(errMsgMgmtPublicKey, err)
 			return err
@@ -345,7 +404,7 @@ func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.
 
 // GetNetworkMap return with the network map
 func (c *GrpcClient) GetNetworkMap(sysInfo *system.Info) (*proto.NetworkMap, error) {
-	serverPubKey, err := c.GetServerPublicKey()
+	serverPubKey, err := c.getServerPublicKey()
 	if err != nil {
 		log.Debugf("failed getting Management Service public key: %s", err)
 		return nil, err
@@ -431,18 +490,24 @@ func (c *GrpcClient) receiveUpdatesEvents(stream proto.ManagementService_SyncCli
 	}
 }
 
-// GetServerPublicKey returns server's WireGuard public key (used later for encrypting messages sent to the server)
-func (c *GrpcClient) GetServerPublicKey() (*wgtypes.Key, error) {
+// HealthCheck actively probes the management server and returns an error if unreachable.
+// Used to validate connectivity before committing configuration changes.
+func (c *GrpcClient) HealthCheck() error {
 	if !c.ready() {
-		return nil, errors.New(errMsgNoMgmtConnection)
+		return errors.New(errMsgNoMgmtConnection)
 	}
 
+	_, err := c.getServerPublicKey()
+	return err
+}
+
+// getServerPublicKey fetches the server's WireGuard public key.
+func (c *GrpcClient) getServerPublicKey() (*wgtypes.Key, error) {
 	mgmCtx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
 	defer cancel()
 	resp, err := c.realClient.GetServerKey(mgmCtx, &proto.Empty{})
 	if err != nil {
-		log.Errorf("failed while getting Management Service public key: %v", err)
-		return nil, fmt.Errorf("failed while getting Management Service public key")
+		return nil, fmt.Errorf("failed getting Management Service public key: %w", err)
 	}
 
 	serverKey, err := wgtypes.ParseKey(resp.Key)
@@ -453,7 +518,8 @@ func (c *GrpcClient) GetServerPublicKey() (*wgtypes.Key, error) {
 	return &serverKey, nil
 }
 
-// IsHealthy probes the gRPC connection and returns false on errors
+// IsHealthy returns the current connection status without blocking.
+// Used by the engine to monitor connectivity in the background.
 func (c *GrpcClient) IsHealthy() bool {
 	switch c.conn.GetState() {
 	case connectivity.TransientFailure:
@@ -479,12 +545,17 @@ func (c *GrpcClient) IsHealthy() bool {
 	return true
 }
 
-func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*proto.LoginResponse, error) {
+func (c *GrpcClient) login(req *proto.LoginRequest) (*proto.LoginResponse, error) {
 	if !c.ready() {
 		return nil, errors.New(errMsgNoMgmtConnection)
 	}
 
-	loginReq, err := encryption.EncryptMessage(serverKey, c.key, req)
+	serverKey, err := c.getServerPublicKey()
+	if err != nil {
+		return nil, err
+	}
+
+	loginReq, err := encryption.EncryptMessage(*serverKey, c.key, req)
 	if err != nil {
 		log.Errorf("failed to encrypt message: %s", err)
 		return nil, err
@@ -518,7 +589,7 @@ func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*pro
 	}
 
 	loginResp := &proto.LoginResponse{}
-	err = encryption.DecryptMessage(serverKey, c.key, resp.Body, loginResp)
+	err = encryption.DecryptMessage(*serverKey, c.key, resp.Body, loginResp)
 	if err != nil {
 		log.Errorf("failed to decrypt login response: %s", err)
 		return nil, err
@@ -530,34 +601,40 @@ func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*pro
 // Register registers peer on Management Server. It actually calls a Login endpoint with a provided setup key
 // Takes care of encrypting and decrypting messages.
 // This method will also collect system info and send it with the request (e.g. hostname, os, etc)
-func (c *GrpcClient) Register(serverKey wgtypes.Key, setupKey string, jwtToken string, sysInfo *system.Info, pubSSHKey []byte, dnsLabels domain.List) (*proto.LoginResponse, error) {
+func (c *GrpcClient) Register(setupKey string, jwtToken string, sysInfo *system.Info, pubSSHKey []byte, dnsLabels domain.List) (*proto.LoginResponse, error) {
 	keys := &proto.PeerKeys{
 		SshPubKey: pubSSHKey,
 		WgPubKey:  []byte(c.key.PublicKey().String()),
 	}
-	return c.login(serverKey, &proto.LoginRequest{SetupKey: setupKey, Meta: infoToMetaData(sysInfo), JwtToken: jwtToken, PeerKeys: keys, DnsLabels: dnsLabels.ToPunycodeList()})
+	return c.login(&proto.LoginRequest{SetupKey: setupKey, Meta: infoToMetaData(sysInfo), JwtToken: jwtToken, PeerKeys: keys, DnsLabels: dnsLabels.ToPunycodeList()})
 }
 
 // Login attempts login to Management Server. Takes care of encrypting and decrypting messages.
-func (c *GrpcClient) Login(serverKey wgtypes.Key, sysInfo *system.Info, pubSSHKey []byte, dnsLabels domain.List) (*proto.LoginResponse, error) {
+func (c *GrpcClient) Login(sysInfo *system.Info, pubSSHKey []byte, dnsLabels domain.List) (*proto.LoginResponse, error) {
 	keys := &proto.PeerKeys{
 		SshPubKey: pubSSHKey,
 		WgPubKey:  []byte(c.key.PublicKey().String()),
 	}
-	return c.login(serverKey, &proto.LoginRequest{Meta: infoToMetaData(sysInfo), PeerKeys: keys, DnsLabels: dnsLabels.ToPunycodeList()})
+	return c.login(&proto.LoginRequest{Meta: infoToMetaData(sysInfo), PeerKeys: keys, DnsLabels: dnsLabels.ToPunycodeList()})
 }
 
 // GetDeviceAuthorizationFlow returns a device authorization flow information.
 // It also takes care of encrypting and decrypting messages.
-func (c *GrpcClient) GetDeviceAuthorizationFlow(serverKey wgtypes.Key) (*proto.DeviceAuthorizationFlow, error) {
+func (c *GrpcClient) GetDeviceAuthorizationFlow() (*proto.DeviceAuthorizationFlow, error) {
 	if !c.ready() {
 		return nil, fmt.Errorf("no connection to management in order to get device authorization flow")
 	}
+
+	serverKey, err := c.getServerPublicKey()
+	if err != nil {
+		return nil, err
+	}
+
 	mgmCtx, cancel := context.WithTimeout(c.ctx, time.Second*2)
 	defer cancel()
 
 	message := &proto.DeviceAuthorizationFlowRequest{}
-	encryptedMSG, err := encryption.EncryptMessage(serverKey, c.key, message)
+	encryptedMSG, err := encryption.EncryptMessage(*serverKey, c.key, message)
 	if err != nil {
 		return nil, err
 	}
@@ -571,7 +648,7 @@ func (c *GrpcClient) GetDeviceAuthorizationFlow(serverKey wgtypes.Key) (*proto.D
 	}
 
 	flowInfoResp := &proto.DeviceAuthorizationFlow{}
-	err = encryption.DecryptMessage(serverKey, c.key, resp.Body, flowInfoResp)
+	err = encryption.DecryptMessage(*serverKey, c.key, resp.Body, flowInfoResp)
 	if err != nil {
 		errWithMSG := fmt.Errorf("failed to decrypt device authorization flow message: %s", err)
 		log.Error(errWithMSG)
@@ -583,15 +660,21 @@ func (c *GrpcClient) GetDeviceAuthorizationFlow(serverKey wgtypes.Key) (*proto.D
 
 // GetPKCEAuthorizationFlow returns a pkce authorization flow information.
 // It also takes care of encrypting and decrypting messages.
-func (c *GrpcClient) GetPKCEAuthorizationFlow(serverKey wgtypes.Key) (*proto.PKCEAuthorizationFlow, error) {
+func (c *GrpcClient) GetPKCEAuthorizationFlow() (*proto.PKCEAuthorizationFlow, error) {
 	if !c.ready() {
 		return nil, fmt.Errorf("no connection to management in order to get pkce authorization flow")
 	}
+
+	serverKey, err := c.getServerPublicKey()
+	if err != nil {
+		return nil, err
+	}
+
 	mgmCtx, cancel := context.WithTimeout(c.ctx, time.Second*2)
 	defer cancel()
 
 	message := &proto.PKCEAuthorizationFlowRequest{}
-	encryptedMSG, err := encryption.EncryptMessage(serverKey, c.key, message)
+	encryptedMSG, err := encryption.EncryptMessage(*serverKey, c.key, message)
 	if err != nil {
 		return nil, err
 	}
@@ -605,7 +688,7 @@ func (c *GrpcClient) GetPKCEAuthorizationFlow(serverKey wgtypes.Key) (*proto.PKC
 	}
 
 	flowInfoResp := &proto.PKCEAuthorizationFlow{}
-	err = encryption.DecryptMessage(serverKey, c.key, resp.Body, flowInfoResp)
+	err = encryption.DecryptMessage(*serverKey, c.key, resp.Body, flowInfoResp)
 	if err != nil {
 		errWithMSG := fmt.Errorf("failed to decrypt pkce authorization flow message: %s", err)
 		log.Error(errWithMSG)
@@ -622,7 +705,7 @@ func (c *GrpcClient) SyncMeta(sysInfo *system.Info) error {
 		return errors.New(errMsgNoMgmtConnection)
 	}
 
-	serverPubKey, err := c.GetServerPublicKey()
+	serverPubKey, err := c.getServerPublicKey()
 	if err != nil {
 		log.Debugf(errMsgMgmtPublicKey, err)
 		return err
@@ -665,7 +748,7 @@ func (c *GrpcClient) notifyConnected() {
 }
 
 func (c *GrpcClient) Logout() error {
-	serverKey, err := c.GetServerPublicKey()
+	serverKey, err := c.getServerPublicKey()
 	if err != nil {
 		return fmt.Errorf("get server public key: %w", err)
 	}
@@ -688,6 +771,127 @@ func (c *GrpcClient) Logout() error {
 	}
 
 	return nil
+}
+
+// CreateExpose calls the management server to create a new expose service.
+func (c *GrpcClient) CreateExpose(ctx context.Context, req ExposeRequest) (*ExposeResponse, error) {
+	serverPubKey, err := c.getServerPublicKey()
+	if err != nil {
+		return nil, err
+	}
+
+	protoReq, err := toProtoExposeServiceRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	encReq, err := encryption.EncryptMessage(*serverPubKey, c.key, protoReq)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt create expose request: %w", err)
+	}
+
+	mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
+	defer cancel()
+
+	resp, err := c.realClient.CreateExpose(mgmCtx, &proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     encReq,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	exposeResp := &proto.ExposeServiceResponse{}
+	if err := encryption.DecryptMessage(*serverPubKey, c.key, resp.Body, exposeResp); err != nil {
+		return nil, fmt.Errorf("decrypt create expose response: %w", err)
+	}
+
+	return fromProtoExposeResponse(exposeResp), nil
+}
+
+// RenewExpose extends the TTL of an active expose session on the management server.
+func (c *GrpcClient) RenewExpose(ctx context.Context, domain string) error {
+	serverPubKey, err := c.getServerPublicKey()
+	if err != nil {
+		return err
+	}
+
+	req := &proto.RenewExposeRequest{Domain: domain}
+	encReq, err := encryption.EncryptMessage(*serverPubKey, c.key, req)
+	if err != nil {
+		return fmt.Errorf("encrypt renew expose request: %w", err)
+	}
+
+	mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
+	defer cancel()
+
+	_, err = c.realClient.RenewExpose(mgmCtx, &proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     encReq,
+	})
+	return err
+}
+
+// StopExpose terminates an active expose session on the management server.
+func (c *GrpcClient) StopExpose(ctx context.Context, domain string) error {
+	serverPubKey, err := c.getServerPublicKey()
+	if err != nil {
+		return err
+	}
+
+	req := &proto.StopExposeRequest{Domain: domain}
+	encReq, err := encryption.EncryptMessage(*serverPubKey, c.key, req)
+	if err != nil {
+		return fmt.Errorf("encrypt stop expose request: %w", err)
+	}
+
+	mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
+	defer cancel()
+
+	_, err = c.realClient.StopExpose(mgmCtx, &proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     encReq,
+	})
+	return err
+}
+
+func fromProtoExposeResponse(resp *proto.ExposeServiceResponse) *ExposeResponse {
+	return &ExposeResponse{
+		ServiceName:      resp.ServiceName,
+		Domain:           resp.Domain,
+		ServiceURL:       resp.ServiceUrl,
+		PortAutoAssigned: resp.PortAutoAssigned,
+	}
+}
+
+func toProtoExposeServiceRequest(req ExposeRequest) (*proto.ExposeServiceRequest, error) {
+	var protocol proto.ExposeProtocol
+
+	switch req.Protocol {
+	case int(proto.ExposeProtocol_EXPOSE_HTTP):
+		protocol = proto.ExposeProtocol_EXPOSE_HTTP
+	case int(proto.ExposeProtocol_EXPOSE_HTTPS):
+		protocol = proto.ExposeProtocol_EXPOSE_HTTPS
+	case int(proto.ExposeProtocol_EXPOSE_TCP):
+		protocol = proto.ExposeProtocol_EXPOSE_TCP
+	case int(proto.ExposeProtocol_EXPOSE_UDP):
+		protocol = proto.ExposeProtocol_EXPOSE_UDP
+	case int(proto.ExposeProtocol_EXPOSE_TLS):
+		protocol = proto.ExposeProtocol_EXPOSE_TLS
+	default:
+		return nil, fmt.Errorf("invalid expose protocol: %d", req.Protocol)
+	}
+
+	return &proto.ExposeServiceRequest{
+		NamePrefix: req.NamePrefix,
+		Domain:     req.Domain,
+		Port:       uint32(req.Port),
+		Protocol:   protocol,
+		Pin:        req.Pin,
+		Password:   req.Password,
+		UserGroups: req.UserGroups,
+		ListenPort: uint32(req.ListenPort),
+	}, nil
 }
 
 func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {

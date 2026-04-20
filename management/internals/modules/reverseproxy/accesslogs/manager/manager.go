@@ -41,6 +41,9 @@ func (m *managerImpl) SaveAccessLog(ctx context.Context, logEntry *accesslogs.Ac
 			logEntry.GeoLocation.CountryCode = location.Country.ISOCode
 			logEntry.GeoLocation.CityName = location.City.Names.En
 			logEntry.GeoLocation.GeoNameID = location.City.GeonameID
+			if len(location.Subdivisions) > 0 {
+				logEntry.SubdivisionCode = location.Subdivisions[0].ISOCode
+			}
 		}
 	}
 
@@ -103,13 +106,23 @@ func (m *managerImpl) CleanupOldAccessLogs(ctx context.Context, retentionDays in
 
 // StartPeriodicCleanup starts a background goroutine that periodically cleans up old access logs
 func (m *managerImpl) StartPeriodicCleanup(ctx context.Context, retentionDays, cleanupIntervalHours int) {
-	if retentionDays <= 0 {
-		log.WithContext(ctx).Debug("periodic access log cleanup disabled: retention days is 0 or negative")
+	if retentionDays < 0 {
+		log.WithContext(ctx).Debug("periodic access log cleanup disabled: retention days is negative")
 		return
+	}
+
+	if retentionDays == 0 {
+		retentionDays = 7
+		log.WithContext(ctx).Debugf("no retention days specified for access log cleanup, defaulting to %d days", retentionDays)
+	} else {
+		log.WithContext(ctx).Debugf("access log retention period set to %d days", retentionDays)
 	}
 
 	if cleanupIntervalHours <= 0 {
 		cleanupIntervalHours = 24
+		log.WithContext(ctx).Debugf("no cleanup interval specified for access log cleanup, defaulting to %d hours", cleanupIntervalHours)
+	} else {
+		log.WithContext(ctx).Debugf("access log cleanup interval set to %d hours", cleanupIntervalHours)
 	}
 
 	cleanupCtx, cancel := context.WithCancel(ctx)

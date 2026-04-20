@@ -22,6 +22,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	daddr "github.com/netbirdio/netbird/client/internal/daemonaddr"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
 
@@ -74,12 +75,22 @@ var (
 	mtu                     uint16
 	profilesDisabled        bool
 	updateSettingsDisabled  bool
+	networksDisabled        bool
 
 	rootCmd = &cobra.Command{
 		Use:          "netbird",
 		Short:        "",
 		Long:         "",
 		SilenceUsage: true,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			SetFlagsFromEnvVars(cmd.Root())
+
+			// Don't resolve for service commands — they create the socket, not connect to it.
+			if !isServiceCmd(cmd) {
+				daemonAddr = daddr.ResolveUnixDaemonAddr(daemonAddr)
+			}
+			return nil
+		},
 	}
 )
 
@@ -144,6 +155,7 @@ func init() {
 	rootCmd.AddCommand(forwardingRulesCmd)
 	rootCmd.AddCommand(debugCmd)
 	rootCmd.AddCommand(profileCmd)
+	rootCmd.AddCommand(exposeCmd)
 
 	networksCMD.AddCommand(routesListCmd)
 	networksCMD.AddCommand(routesSelectCmd, routesDeselectCmd)
@@ -385,7 +397,6 @@ func migrateToNetbird(oldPath, newPath string) bool {
 }
 
 func getClient(cmd *cobra.Command) (*grpc.ClientConn, error) {
-	SetFlagsFromEnvVars(rootCmd)
 	cmd.SetOut(cmd.OutOrStdout())
 
 	conn, err := DialClientGRPCServer(cmd.Context(), daemonAddr)
@@ -397,4 +408,14 @@ func getClient(cmd *cobra.Command) (*grpc.ClientConn, error) {
 	}
 
 	return conn, nil
+}
+
+// isServiceCmd returns true if cmd is the "service" command or a child of it.
+func isServiceCmd(cmd *cobra.Command) bool {
+	for c := cmd; c != nil; c = c.Parent() {
+		if c.Name() == "service" {
+			return true
+		}
+	}
+	return false
 }

@@ -352,9 +352,10 @@ func (p *Peer) FromAPITemporaryAccessRequest(a *api.PeerTemporaryAccessRequest) 
 	p.Name = a.Name
 	p.Key = a.WgPubKey
 	p.Meta = PeerSystemMeta{
-		Hostname: a.Name,
-		GoOS:     "js",
-		OS:       "js",
+		Hostname:      a.Name,
+		GoOS:          "js",
+		OS:            "js",
+		KernelVersion: "wasm",
 	}
 }
 

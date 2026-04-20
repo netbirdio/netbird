@@ -61,7 +61,7 @@ func (p *program) Start(svc service.Service) error {
 			}
 		}
 
-		serverInstance := server.New(p.ctx, util.FindFirstLogPath(logFiles), configPath, profilesDisabled, updateSettingsDisabled)
+		serverInstance := server.New(p.ctx, util.FindFirstLogPath(logFiles), configPath, profilesDisabled, updateSettingsDisabled, networksDisabled)
 		if err := serverInstance.Start(); err != nil {
 			log.Fatalf("failed to start daemon: %v", err)
 		}
@@ -103,7 +103,7 @@ func (p *program) Stop(srv service.Service) error {
 
 // Common setup for service control commands
 func setupServiceControlCommand(cmd *cobra.Command, ctx context.Context, cancel context.CancelFunc) (service.Service, error) {
-	SetFlagsFromEnvVars(rootCmd)
+	// rootCmd env vars are already applied by PersistentPreRunE.
 	SetFlagsFromEnvVars(serviceCmd)
 
 	cmd.SetOut(cmd.OutOrStdout())

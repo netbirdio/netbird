@@ -34,7 +34,6 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	protobuf "google.golang.org/protobuf/proto"
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal"
@@ -308,12 +307,14 @@ type serviceClient struct {
 	sshJWTCacheTTL             int
 
 	connected            bool
-	update               *version.Update
 	daemonVersion        string
 	updateIndicationLock sync.Mutex
 	isUpdateIconActive   bool
+	isEnforcedUpdate     bool
+	lastNotifiedVersion  string
 	settingsEnabled      bool
 	profilesEnabled      bool
+	networksEnabled      bool
 	showNetworks         bool
 	wNetworks            fyne.Window
 	wProfiles            fyne.Window
@@ -323,7 +324,8 @@ type serviceClient struct {
 
 	exitNodeMu           sync.Mutex
 	mExitNodeItems       []menuHandler
-	exitNodeStates       []exitNodeState
+	exitNodeRetryCancel  context.CancelFunc
+	mExitNodeSeparator   *systray.MenuItem
 	mExitNodeDeselectAll *systray.MenuItem
 	logFile              string
 	wLoginURL            fyne.Window
@@ -367,7 +369,7 @@ func newServiceClient(args *newServiceClientArgs) *serviceClient {
 
 		showAdvancedSettings: args.showSettings,
 		showNetworks:         args.showNetworks,
-		update:               version.NewUpdateAndStart("nb/client-ui"),
+		networksEnabled:      true,
 	}
 
 	s.eventHandler = newEventHandler(s)
@@ -828,7 +830,7 @@ func (s *serviceClient) handleSSOLogin(ctx context.Context, loginResp *proto.Log
 	return nil
 }
 
-func (s *serviceClient) menuUpClick(ctx context.Context, wannaAutoUpdate bool) error {
+func (s *serviceClient) menuUpClick(ctx context.Context) error {
 	systray.SetTemplateIcon(iconConnectingMacOS, s.icConnecting)
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
@@ -850,9 +852,7 @@ func (s *serviceClient) menuUpClick(ctx context.Context, wannaAutoUpdate bool) e
 		return nil
 	}
 
-	if _, err := s.conn.Up(s.ctx, &proto.UpRequest{
-		AutoUpdate: protobuf.Bool(wannaAutoUpdate),
-	}); err != nil {
+	if _, err := s.conn.Up(s.ctx, &proto.UpRequest{}); err != nil {
 		return fmt.Errorf("start connection: %w", err)
 	}
 
@@ -922,9 +922,11 @@ func (s *serviceClient) updateStatus() error {
 			s.mStatus.SetIcon(s.icConnectedDot)
 			s.mUp.Disable()
 			s.mDown.Enable()
-			s.mNetworks.Enable()
-			s.mExitNode.Enable()
-			go s.updateExitNodes()
+			if s.networksEnabled {
+				s.mNetworks.Enable()
+				s.mExitNode.Enable()
+			}
+			s.startExitNodeRefresh()
 			systrayIconState = true
 		case status.Status == string(internal.StatusConnecting):
 			s.setConnectingStatus()
@@ -933,13 +935,13 @@ func (s *serviceClient) updateStatus() error {
 			systrayIconState = false
 		}
 
-		// the updater struct notify by the upgrades available only, but if meanwhile the daemon has successfully
-		// updated must reset the mUpdate visibility state
+		// if the daemon version changed (e.g. after a successful update), reset the update indication
 		if s.daemonVersion != status.DaemonVersion {
-			s.mUpdate.Hide()
+			if s.daemonVersion != "" {
+				s.mUpdate.Hide()
+				s.isUpdateIconActive = false
+			}
 			s.daemonVersion = status.DaemonVersion
-
-			s.isUpdateIconActive = s.update.SetDaemonVersion(status.DaemonVersion)
 			if !s.isUpdateIconActive {
 				if systrayIconState {
 					systray.SetTemplateIcon(iconConnectedMacOS, s.icConnected)
@@ -985,6 +987,7 @@ func (s *serviceClient) setDisconnectedStatus() {
 	s.mUp.Enable()
 	s.mNetworks.Disable()
 	s.mExitNode.Disable()
+	s.cancelExitNodeRetry()
 	go s.updateExitNodes()
 }
 
@@ -1090,18 +1093,17 @@ func (s *serviceClient) onTrayReady() {
 	// update exit node menu in case service is already connected
 	go s.updateExitNodes()
 
-	s.update.SetOnUpdateListener(s.onUpdateAvailable)
 	go func() {
 		s.getSrvConfig()
 		time.Sleep(100 * time.Millisecond) // To prevent race condition caused by systray not being fully initialized and ignoring setIcon
 		for {
+			// Check features before status so menus respect disable flags before being enabled
+			s.checkAndUpdateFeatures()
+
 			err := s.updateStatus()
 			if err != nil {
 				log.Errorf("error while updating status: %v", err)
 			}
-
-			// Check features periodically to handle daemon restarts
-			s.checkAndUpdateFeatures()
 
 			time.Sleep(2 * time.Second)
 		}
@@ -1132,6 +1134,13 @@ func (s *serviceClient) onTrayReady() {
 				go s.eventHandler.runSelfCommand(subCtx, "update", "--update-version", targetVersion)
 				s.updateContextCancel = cancel
 			}
+		}
+	})
+	s.eventManager.AddHandler(func(event *proto.SystemEvent) {
+		if newVersion, ok := event.Metadata["new_version_available"]; ok {
+			_, enforced := event.Metadata["enforced"]
+			log.Infof("received new_version_available event: version=%s enforced=%v", newVersion, enforced)
+			s.onUpdateAvailable(newVersion, enforced)
 		}
 	})
 
@@ -1293,6 +1302,16 @@ func (s *serviceClient) checkAndUpdateFeatures() {
 			s.profilesEnabled = profilesEnabled
 			s.mProfile.setEnabled(profilesEnabled)
 		}
+	}
+
+	// Update networks and exit node menus based on current features
+	s.networksEnabled = features == nil || !features.DisableNetworks
+	if s.networksEnabled && s.connected {
+		s.mNetworks.Enable()
+		s.mExitNode.Enable()
+	} else {
+		s.mNetworks.Disable()
+		s.mExitNode.Disable()
 	}
 }
 
@@ -1506,9 +1525,17 @@ func protoConfigToConfig(cfg *proto.GetConfigResponse) *profilemanager.Config {
 	return &config
 }
 
-func (s *serviceClient) onUpdateAvailable() {
+func (s *serviceClient) onUpdateAvailable(newVersion string, enforced bool) {
 	s.updateIndicationLock.Lock()
 	defer s.updateIndicationLock.Unlock()
+
+	s.isEnforcedUpdate = enforced
+	if enforced {
+		s.mUpdate.SetTitle("Install version " + newVersion)
+	} else {
+		s.lastNotifiedVersion = ""
+		s.mUpdate.SetTitle("Download latest version")
+	}
 
 	s.mUpdate.Show()
 	s.isUpdateIconActive = true
@@ -1517,6 +1544,11 @@ func (s *serviceClient) onUpdateAvailable() {
 		systray.SetTemplateIcon(iconUpdateConnectedMacOS, s.icUpdateConnected)
 	} else {
 		systray.SetTemplateIcon(iconUpdateDisconnectedMacOS, s.icUpdateDisconnected)
+	}
+
+	if enforced && s.lastNotifiedVersion != newVersion {
+		s.lastNotifiedVersion = newVersion
+		s.app.SendNotification(fyne.NewNotification("Update available", "A new version "+newVersion+" is ready to install"))
 	}
 }
 

@@ -249,7 +249,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 			if err != nil {
 				newLabel = ""
 			} else {
-				_, err := transaction.GetPeerIdByLabel(ctx, store.LockingStrengthNone, accountID, update.Name)
+				_, err := transaction.GetPeerIdByLabel(ctx, store.LockingStrengthNone, accountID, newLabel)
 				if err == nil {
 					newLabel = ""
 				}
@@ -493,7 +493,7 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 	var settings *types.Settings
 	var eventsToStore []func()
 
-	serviceID, err := am.reverseProxyManager.GetServiceIDByTargetID(ctx, accountID, peerID)
+	serviceID, err := am.serviceManager.GetServiceIDByTargetID(ctx, accountID, peerID)
 	if err != nil {
 		return fmt.Errorf("failed to check if resource is used by service: %w", err)
 	}
@@ -859,7 +859,9 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		opEvent.Meta["setup_key_name"] = peerAddConfig.SetupKeyName
 	}
 
-	am.StoreEvent(ctx, opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
+	if !temporary {
+		am.StoreEvent(ctx, opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
+	}
 
 	if err := am.networkMapController.OnPeersAdded(ctx, accountID, []string{newPeer.ID}); err != nil {
 		log.WithContext(ctx).Errorf("failed to update network map cache for peer %s: %v", newPeer.ID, err)
@@ -1480,9 +1482,11 @@ func deletePeers(ctx context.Context, am *DefaultAccountManager, transaction sto
 		if err = transaction.DeletePeer(ctx, accountID, peer.ID); err != nil {
 			return nil, err
 		}
-		peerDeletedEvents = append(peerDeletedEvents, func() {
-			am.StoreEvent(ctx, userID, peer.ID, accountID, activity.PeerRemovedByUser, peer.EventMeta(dnsDomain))
-		})
+		if !(peer.ProxyMeta.Embedded || peer.Meta.KernelVersion == "wasm") {
+			peerDeletedEvents = append(peerDeletedEvents, func() {
+				am.StoreEvent(ctx, userID, peer.ID, accountID, activity.PeerRemovedByUser, peer.EventMeta(dnsDomain))
+			})
+		}
 	}
 
 	return peerDeletedEvents, nil

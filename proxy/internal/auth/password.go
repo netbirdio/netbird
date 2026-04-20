@@ -5,17 +5,19 @@ import (
 	"net/http"
 
 	"github.com/netbirdio/netbird/proxy/auth"
+	"github.com/netbirdio/netbird/proxy/internal/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
 const passwordFormId = "password"
 
 type Password struct {
-	id, accountId string
-	client        authenticator
+	id        types.ServiceID
+	accountId types.AccountID
+	client    authenticator
 }
 
-func NewPassword(client authenticator, id, accountId string) Password {
+func NewPassword(client authenticator, id types.ServiceID, accountId types.AccountID) Password {
 	return Password{
 		id:        id,
 		accountId: accountId,
@@ -41,8 +43,8 @@ func (p Password) Authenticate(r *http.Request) (string, string, error) {
 	}
 
 	res, err := p.client.Authenticate(r.Context(), &proto.AuthenticateRequest{
-		Id:        p.id,
-		AccountId: p.accountId,
+		Id:        string(p.id),
+		AccountId: string(p.accountId),
 		Request: &proto.AuthenticateRequest_Password{
 			Password: &proto.PasswordRequest{
 				Password: password,

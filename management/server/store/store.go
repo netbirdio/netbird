@@ -25,9 +25,10 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
+	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -120,7 +121,7 @@ type Store interface {
 	GetAccountGroups(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.Group, error)
 	GetResourceGroups(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) ([]*types.Group, error)
 	GetGroupByID(ctx context.Context, lockStrength LockingStrength, accountID, groupID string) (*types.Group, error)
-	GetGroupByName(ctx context.Context, lockStrength LockingStrength, groupName, accountID string) (*types.Group, error)
+	GetGroupByName(ctx context.Context, lockStrength LockingStrength, accountID, groupName string) (*types.Group, error)
 	GetGroupsByIDs(ctx context.Context, lockStrength LockingStrength, accountID string, groupIDs []string) (map[string]*types.Group, error)
 	CreateGroups(ctx context.Context, accountID string, groups []*types.Group) error
 	UpdateGroups(ctx context.Context, accountID string, groups []*types.Group) error
@@ -252,13 +253,20 @@ type Store interface {
 	MarkAllPendingJobsAsFailed(ctx context.Context, accountID, peerID, reason string) error
 	GetPeerIDByKey(ctx context.Context, lockStrength LockingStrength, key string) (string, error)
 
-	CreateService(ctx context.Context, service *reverseproxy.Service) error
-	UpdateService(ctx context.Context, service *reverseproxy.Service) error
+	CreateService(ctx context.Context, service *rpservice.Service) error
+	UpdateService(ctx context.Context, service *rpservice.Service) error
 	DeleteService(ctx context.Context, accountID, serviceID string) error
-	GetServiceByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*reverseproxy.Service, error)
-	GetServiceByDomain(ctx context.Context, accountID, domain string) (*reverseproxy.Service, error)
-	GetServices(ctx context.Context, lockStrength LockingStrength) ([]*reverseproxy.Service, error)
-	GetAccountServices(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*reverseproxy.Service, error)
+	GetServiceByID(ctx context.Context, lockStrength LockingStrength, accountID, serviceID string) (*rpservice.Service, error)
+	GetServiceByDomain(ctx context.Context, domain string) (*rpservice.Service, error)
+	GetServices(ctx context.Context, lockStrength LockingStrength) ([]*rpservice.Service, error)
+	GetAccountServices(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*rpservice.Service, error)
+
+	RenewEphemeralService(ctx context.Context, accountID, peerID, serviceID string) error
+	GetExpiredEphemeralServices(ctx context.Context, ttl time.Duration, limit int) ([]*rpservice.Service, error)
+	CountEphemeralServicesByPeer(ctx context.Context, lockStrength LockingStrength, accountID, peerID string) (int64, error)
+	EphemeralServiceExists(ctx context.Context, lockStrength LockingStrength, accountID, peerID, domain string) (bool, error)
+	GetServicesByClusterAndPort(ctx context.Context, lockStrength LockingStrength, proxyCluster string, mode string, listenPort uint16) ([]*rpservice.Service, error)
+	GetServicesByCluster(ctx context.Context, lockStrength LockingStrength, proxyCluster string) ([]*rpservice.Service, error)
 
 	GetCustomDomain(ctx context.Context, accountID string, domainID string) (*domain.Domain, error)
 	ListFreeDomains(ctx context.Context, accountID string) ([]string, error)
@@ -270,7 +278,23 @@ type Store interface {
 	CreateAccessLog(ctx context.Context, log *accesslogs.AccessLogEntry) error
 	GetAccountAccessLogs(ctx context.Context, lockStrength LockingStrength, accountID string, filter accesslogs.AccessLogFilter) ([]*accesslogs.AccessLogEntry, int64, error)
 	DeleteOldAccessLogs(ctx context.Context, olderThan time.Time) (int64, error)
-	GetServiceTargetByTargetID(ctx context.Context, lockStrength LockingStrength, accountID string, targetID string) (*reverseproxy.Target, error)
+	GetServiceTargetByTargetID(ctx context.Context, lockStrength LockingStrength, accountID string, targetID string) (*rpservice.Target, error)
+	GetTargetsByServiceID(ctx context.Context, lockStrength LockingStrength, accountID string, serviceID string) ([]*rpservice.Target, error)
+	DeleteTarget(ctx context.Context, accountID string, serviceID string, targetID uint) error
+	DeleteServiceTargets(ctx context.Context, accountID string, serviceID string) error
+
+	SaveProxy(ctx context.Context, proxy *proxy.Proxy) error
+	UpdateProxyHeartbeat(ctx context.Context, proxyID, clusterAddress, ipAddress string) error
+	GetActiveProxyClusterAddresses(ctx context.Context) ([]string, error)
+	GetActiveProxyClusters(ctx context.Context) ([]proxy.Cluster, error)
+	GetClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
+	GetClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
+	GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
+	CleanupStaleProxies(ctx context.Context, inactivityDuration time.Duration) error
+
+	GetCustomDomainsCounts(ctx context.Context) (total int64, validated int64, err error)
+
+	GetRoutingPeerNetworks(ctx context.Context, accountID, peerID string) ([]string, error)
 }
 
 const (
@@ -424,6 +448,12 @@ func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 		},
 		func(db *gorm.DB) error {
 			return migration.RemoveDuplicatePeerKeys(ctx, db)
+		},
+		func(db *gorm.DB) error {
+			return migration.CleanupOrphanedResources[rpservice.Service, types.Account](ctx, db, "account_id")
+		},
+		func(db *gorm.DB) error {
+			return migration.CleanupOrphanedResources[domain.Domain, types.Account](ctx, db, "account_id")
 		},
 	}
 }

@@ -160,8 +160,12 @@ func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
 	c.onHostDnsFn = func([]string) {}
 	cfg.WgIface = interfaceName
 
-	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder, false)
-	return c.connectClient.RunOniOS(fd, c.networkChangeListener, c.dnsManager, c.stateFile)
+	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder)
+	hostDNS := []netip.AddrPort{
+		netip.MustParseAddrPort("9.9.9.9:53"),
+		netip.MustParseAddrPort("149.112.112.112:53"),
+	}
+	return c.connectClient.RunOniOS(fd, c.networkChangeListener, c.dnsManager, hostDNS, c.stateFile)
 }
 
 // Stop the internal client and free the resources

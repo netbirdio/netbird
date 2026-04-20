@@ -19,7 +19,11 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/metric/noop"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
+	"github.com/netbirdio/netbird/shared/management/status"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
@@ -27,10 +31,13 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
-	reverseproxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/manager"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
+	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	reverseproxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/server/config"
+	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	nbAccount "github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/cache"
@@ -1802,12 +1809,19 @@ func TestAccount_Copy(t *testing.T) {
 				Address:   "172.12.6.1/24",
 			},
 		},
-		Services: []*reverseproxy.Service{
+		Services: []*service.Service{
 			{
 				ID:        "service1",
 				Name:      "test-service",
 				AccountID: "account1",
-				Targets:   []*reverseproxy.Target{},
+				Targets:   []*service.Target{},
+			},
+		},
+		Domains: []*domain.Domain{
+			{
+				ID:        "domain1",
+				Domain:    "test.com",
+				AccountID: "account1",
 			},
 		},
 		NetworkMapCache: &types.NetworkMapBuilder{},
@@ -3112,17 +3126,33 @@ func createManager(t testing.TB) (*DefaultAccountManager, *update_channel.PeersU
 	permissionsManager := permissions.NewManager(store)
 	peersManager := peers.NewManager(store, permissionsManager)
 
+	proxyManager := proxy.NewMockManager(ctrl)
+	proxyManager.EXPECT().
+		CleanupStale(gomock.Any(), gomock.Any()).
+		Return(nil).
+		AnyTimes()
+
 	ctx := context.Background()
 
-	updateManager := update_channel.NewPeersUpdateManager(metrics)
-	requestBuffer := NewAccountRequestBuffer(ctx, store)
-	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(store, peers.NewManager(store, permissionsManager)), &config.Config{})
-	manager, err := BuildManager(ctx, &config.Config{}, store, networkMapController, job.NewJobManager(nil, store, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	cacheStore, err := cache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	manager.SetServiceManager(reverseproxymanager.NewManager(store, manager, permissionsManager, nil, nil))
+	updateManager := update_channel.NewPeersUpdateManager(metrics)
+	requestBuffer := NewAccountRequestBuffer(ctx, store)
+	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(store, peers.NewManager(store, permissionsManager)), &config.Config{})
+	manager, err := BuildManager(ctx, &config.Config{}, store, networkMapController, job.NewJobManager(nil, store, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	proxyGrpcServer := nbgrpc.NewProxyServiceServer(nil, nil, nil, nbgrpc.ProxyOIDCConfig{}, peersManager, nil, proxyManager)
+	proxyController, err := proxymanager.NewGRPCController(proxyGrpcServer, noop.Meter{})
+	if err != nil {
+		return nil, nil, err
+	}
+	manager.SetServiceManager(reverseproxymanager.NewManager(store, manager, permissionsManager, proxyController, proxyManager, nil))
 
 	return manager, updateManager, nil
 }
@@ -3950,4 +3980,117 @@ func TestDefaultAccountManager_UpdateAccountSettings_NetworkRangeChange(t *testi
 	case <-time.After(10 * time.Second):
 		t.Fatal("UpdateAccountSettings deadlocked when changing NetworkRange")
 	}
+}
+
+func TestUpdateUserAuthWithSingleMode(t *testing.T) {
+	t.Run("sets defaults and overrides domain from store", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockStore := store.NewMockStore(ctrl)
+		mockStore.EXPECT().
+			GetAnyAccountID(gomock.Any()).
+			Return("account-1", nil)
+		mockStore.EXPECT().
+			GetAccountDomainAndCategory(gomock.Any(), store.LockingStrengthNone, "account-1").
+			Return("real-domain.com", "private", nil)
+
+		am := &DefaultAccountManager{
+			Store:                   mockStore,
+			singleAccountModeDomain: "fallback.com",
+		}
+
+		userAuth := &auth.UserAuth{}
+		err := am.updateUserAuthWithSingleMode(context.Background(), userAuth)
+		require.NoError(t, err)
+		assert.Equal(t, "real-domain.com", userAuth.Domain)
+		assert.Equal(t, types.PrivateCategory, userAuth.DomainCategory)
+	})
+
+	t.Run("falls back to singleAccountModeDomain when account ID is empty", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockStore := store.NewMockStore(ctrl)
+		mockStore.EXPECT().
+			GetAnyAccountID(gomock.Any()).
+			Return("", nil)
+
+		am := &DefaultAccountManager{
+			Store:                   mockStore,
+			singleAccountModeDomain: "fallback.com",
+		}
+
+		userAuth := &auth.UserAuth{}
+		err := am.updateUserAuthWithSingleMode(context.Background(), userAuth)
+		require.NoError(t, err)
+		assert.Equal(t, "fallback.com", userAuth.Domain)
+		assert.Equal(t, types.PrivateCategory, userAuth.DomainCategory)
+	})
+
+	t.Run("falls back to singleAccountModeDomain on NotFound error", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockStore := store.NewMockStore(ctrl)
+		mockStore.EXPECT().
+			GetAnyAccountID(gomock.Any()).
+			Return("", status.Errorf(status.NotFound, "no accounts"))
+
+		am := &DefaultAccountManager{
+			Store:                   mockStore,
+			singleAccountModeDomain: "fallback.com",
+		}
+
+		userAuth := &auth.UserAuth{}
+		err := am.updateUserAuthWithSingleMode(context.Background(), userAuth)
+		require.NoError(t, err)
+		assert.Equal(t, "fallback.com", userAuth.Domain)
+		assert.Equal(t, types.PrivateCategory, userAuth.DomainCategory)
+	})
+
+	t.Run("propagates non-NotFound error from GetAnyAccountID", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockStore := store.NewMockStore(ctrl)
+		mockStore.EXPECT().
+			GetAnyAccountID(gomock.Any()).
+			Return("", status.Errorf(status.Internal, "db down"))
+
+		am := &DefaultAccountManager{
+			Store:                   mockStore,
+			singleAccountModeDomain: "fallback.com",
+		}
+
+		userAuth := &auth.UserAuth{}
+		err := am.updateUserAuthWithSingleMode(context.Background(), userAuth)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "db down")
+		// Defaults should still be set before error path
+		assert.Equal(t, types.PrivateCategory, userAuth.DomainCategory)
+	})
+
+	t.Run("propagates error from GetAccountDomainAndCategory", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		t.Cleanup(ctrl.Finish)
+
+		mockStore := store.NewMockStore(ctrl)
+		mockStore.EXPECT().
+			GetAnyAccountID(gomock.Any()).
+			Return("account-1", nil)
+		mockStore.EXPECT().
+			GetAccountDomainAndCategory(gomock.Any(), store.LockingStrengthNone, "account-1").
+			Return("", "", status.Errorf(status.Internal, "query failed"))
+
+		am := &DefaultAccountManager{
+			Store:                   mockStore,
+			singleAccountModeDomain: "fallback.com",
+		}
+
+		userAuth := &auth.UserAuth{}
+		err := am.updateUserAuthWithSingleMode(context.Background(), userAuth)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "query failed")
+	})
 }

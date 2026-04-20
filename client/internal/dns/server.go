@@ -57,6 +57,8 @@ type Server interface {
 	ProbeAvailability()
 	UpdateServerConfig(domains dnsconfig.ServerDomains) error
 	PopulateManagementDomain(mgmtURL *url.URL) error
+	SetRouteChecker(func(netip.Addr) bool)
+	SetFirewall(Firewall)
 }
 
 type nsGroupsByDomain struct {
@@ -104,12 +106,17 @@ type DefaultServer struct {
 
 	statusRecorder *peer.Status
 	stateManager   *statemanager.Manager
+	routeMatch     func(netip.Addr) bool
+
+	probeMu     sync.Mutex
+	probeCancel context.CancelFunc
+	probeWg     sync.WaitGroup
 }
 
 type handlerWithStop interface {
 	dns.Handler
 	Stop()
-	ProbeAvailability()
+	ProbeAvailability(context.Context)
 	ID() types.HandlerID
 }
 
@@ -145,7 +152,7 @@ func NewDefaultServer(ctx context.Context, config DefaultServerConfig) (*Default
 	if config.WgInterface.IsUserspaceBind() {
 		dnsService = NewServiceViaMemory(config.WgInterface)
 	} else {
-		dnsService = newServiceViaListener(config.WgInterface, addrPort)
+		dnsService = newServiceViaListener(config.WgInterface, addrPort, nil)
 	}
 
 	server := newDefaultServer(ctx, config.WgInterface, dnsService, config.StatusRecorder, config.StateManager, config.DisableSys)
@@ -180,11 +187,16 @@ func NewDefaultServerIos(
 	ctx context.Context,
 	wgInterface WGIface,
 	iosDnsManager IosDnsManager,
+	hostsDnsList []netip.AddrPort,
 	statusRecorder *peer.Status,
 	disableSys bool,
 ) *DefaultServer {
+	log.Debugf("iOS host dns address list is: %v", hostsDnsList)
 	ds := newDefaultServer(ctx, wgInterface, NewServiceViaMemory(wgInterface), statusRecorder, nil, disableSys)
 	ds.iosDnsManager = iosDnsManager
+	ds.hostsDNSHolder.set(hostsDnsList)
+	ds.permanent = true
+	ds.addHostRootZone()
 	return ds
 }
 
@@ -223,6 +235,14 @@ func newDefaultServer(
 	dnsService.RegisterMux(".", handlerChain)
 
 	return defaultServer
+}
+
+// SetRouteChecker sets the function used by upstream resolvers to determine
+// whether an IP is routed through the tunnel.
+func (s *DefaultServer) SetRouteChecker(f func(netip.Addr) bool) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+	s.routeMatch = f
 }
 
 // RegisterHandler registers a handler for the given domains with the given priority.
@@ -360,9 +380,26 @@ func (s *DefaultServer) DnsIP() netip.Addr {
 	return s.service.RuntimeIP()
 }
 
+// SetFirewall sets the firewall used for DNS port DNAT rules.
+// This must be called before Initialize when using the listener-based service,
+// because the firewall is typically not available at construction time.
+func (s *DefaultServer) SetFirewall(fw Firewall) {
+	if svc, ok := s.service.(*serviceViaListener); ok {
+		svc.listenerFlagLock.Lock()
+		svc.firewall = fw
+		svc.listenerFlagLock.Unlock()
+	}
+}
+
 // Stop stops the server
 func (s *DefaultServer) Stop() {
+	s.probeMu.Lock()
+	if s.probeCancel != nil {
+		s.probeCancel()
+	}
 	s.ctxCancel()
+	s.probeMu.Unlock()
+	s.probeWg.Wait()
 	s.shutdownWg.Wait()
 
 	s.mux.Lock()
@@ -375,8 +412,12 @@ func (s *DefaultServer) Stop() {
 	maps.Clear(s.extraDomains)
 }
 
-func (s *DefaultServer) disableDNS() error {
-	defer s.service.Stop()
+func (s *DefaultServer) disableDNS() (retErr error) {
+	defer func() {
+		if err := s.service.Stop(); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("stop DNS service: %w", err))
+		}
+	}()
 
 	if s.isUsingNoopHostManager() {
 		return nil
@@ -479,7 +520,8 @@ func (s *DefaultServer) SearchDomains() []string {
 }
 
 // ProbeAvailability tests each upstream group's servers for availability
-// and deactivates the group if no server responds
+// and deactivates the group if no server responds.
+// If a previous probe is still running, it will be cancelled before starting a new one.
 func (s *DefaultServer) ProbeAvailability() {
 	if val := os.Getenv(envSkipDNSProbe); val != "" {
 		skipProbe, err := strconv.ParseBool(val)
@@ -492,15 +534,52 @@ func (s *DefaultServer) ProbeAvailability() {
 		}
 	}
 
-	var wg sync.WaitGroup
-	for _, mux := range s.dnsMuxMap {
-		wg.Add(1)
-		go func(mux handlerWithStop) {
-			defer wg.Done()
-			mux.ProbeAvailability()
-		}(mux.handler)
+	s.probeMu.Lock()
+
+	// don't start probes on a stopped server
+	if s.ctx.Err() != nil {
+		s.probeMu.Unlock()
+		return
 	}
+
+	// cancel any running probe
+	if s.probeCancel != nil {
+		s.probeCancel()
+		s.probeCancel = nil
+	}
+
+	// wait for the previous probe goroutines to finish while holding
+	// the mutex so no other caller can start a new probe concurrently
+	s.probeWg.Wait()
+
+	// start a new probe
+	probeCtx, probeCancel := context.WithCancel(s.ctx)
+	s.probeCancel = probeCancel
+
+	s.probeWg.Add(1)
+	defer s.probeWg.Done()
+
+	// Snapshot handlers under s.mux to avoid racing with updateMux/dnsMuxMap writers.
+	s.mux.Lock()
+	handlers := make([]handlerWithStop, 0, len(s.dnsMuxMap))
+	for _, mux := range s.dnsMuxMap {
+		handlers = append(handlers, mux.handler)
+	}
+	s.mux.Unlock()
+
+	var wg sync.WaitGroup
+	for _, handler := range handlers {
+		wg.Add(1)
+		go func(h handlerWithStop) {
+			defer wg.Done()
+			h.ProbeAvailability(probeCtx)
+		}(handler)
+	}
+
+	s.probeMu.Unlock()
+
 	wg.Wait()
+	probeCancel()
 }
 
 func (s *DefaultServer) UpdateServerConfig(domains dnsconfig.ServerDomains) error {
@@ -695,6 +774,7 @@ func (s *DefaultServer) registerFallback(config HostDNSConfig) {
 		log.Errorf("failed to create upstream resolver for original nameservers: %v", err)
 		return
 	}
+	handler.routeMatch = s.routeMatch
 
 	for _, ns := range originalNameservers {
 		if ns == config.ServerIP {
@@ -804,6 +884,7 @@ func (s *DefaultServer) createHandlersForDomainGroup(domainGroup nsGroupsByDomai
 		if err != nil {
 			return nil, fmt.Errorf("create upstream resolver: %v", err)
 		}
+		handler.routeMatch = s.routeMatch
 
 		for _, ns := range nsGroup.NameServers {
 			if ns.NSType != nbdns.UDPNameServerType {
@@ -988,6 +1069,7 @@ func (s *DefaultServer) addHostRootZone() {
 		log.Errorf("unable to create a new upstream resolver, error: %v", err)
 		return
 	}
+	handler.routeMatch = s.routeMatch
 
 	handler.upstreamServers = maps.Keys(hostDNSServers)
 	handler.deactivate = func(error) {}

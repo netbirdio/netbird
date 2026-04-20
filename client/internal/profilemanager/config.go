@@ -39,6 +39,18 @@ const (
 	DefaultAdminURL = "https://app.netbird.io:443"
 )
 
+// mgmProber is the subset of management client needed for URL migration probes.
+type mgmProber interface {
+	HealthCheck() error
+	Close() error
+}
+
+// newMgmProber creates a management client for probing URL reachability.
+// Overridden in tests to avoid real network calls.
+var newMgmProber = func(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled bool) (mgmProber, error) {
+	return mgm.NewClient(ctx, addr, key, tlsEnabled)
+}
+
 var DefaultInterfaceBlacklist = []string{
 	iface.WgInterfaceDefault, "wt", "utun", "tun0", "zt", "ZeroTier", "wg", "ts",
 	"Tailscale", "tailscale", "docker", "veth", "br-", "lo",
@@ -198,7 +210,7 @@ func getConfigDirForUser(username string) (string, error) {
 
 	configDir := filepath.Join(DefaultConfigPathDir, username)
 	if _, err := os.Stat(configDir); os.IsNotExist(err) {
-		if err := os.MkdirAll(configDir, 0600); err != nil {
+		if err := os.MkdirAll(configDir, 0700); err != nil {
 			return "", err
 		}
 	}
@@ -206,9 +218,15 @@ func getConfigDirForUser(username string) (string, error) {
 	return configDir, nil
 }
 
-func fileExists(path string) bool {
+func fileExists(path string) (bool, error) {
 	_, err := os.Stat(path)
-	return !os.IsNotExist(err)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
 }
 
 // createNewConfig creates a new config generating a new Wireguard key and saving to file
@@ -635,7 +653,11 @@ func isPreSharedKeyHidden(preSharedKey *string) bool {
 
 // UpdateConfig update existing configuration according to input configuration and return with the configuration
 func UpdateConfig(input ConfigInput) (*Config, error) {
-	if !fileExists(input.ConfigPath) {
+	configExists, err := fileExists(input.ConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check if config file exists: %w", err)
+	}
+	if !configExists {
 		return nil, fmt.Errorf("config file %s does not exist", input.ConfigPath)
 	}
 
@@ -644,7 +666,11 @@ func UpdateConfig(input ConfigInput) (*Config, error) {
 
 // UpdateOrCreateConfig reads existing config or generates a new one
 func UpdateOrCreateConfig(input ConfigInput) (*Config, error) {
-	if !fileExists(input.ConfigPath) {
+	configExists, err := fileExists(input.ConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check if config file exists: %w", err)
+	}
+	if !configExists {
 		log.Infof("generating new config %s", input.ConfigPath)
 		cfg, err := createNewConfig(input)
 		if err != nil {
@@ -657,7 +683,7 @@ func UpdateOrCreateConfig(input ConfigInput) (*Config, error) {
 	if isPreSharedKeyHidden(input.PreSharedKey) {
 		input.PreSharedKey = nil
 	}
-	err := util.EnforcePermission(input.ConfigPath)
+	err = util.EnforcePermission(input.ConfigPath)
 	if err != nil {
 		log.Errorf("failed to enforce permission on config dir: %v", err)
 	}
@@ -739,21 +765,19 @@ func UpdateOldManagementURL(ctx context.Context, config *Config, configPath stri
 		return config, err
 	}
 
-	client, err := mgm.NewClient(ctx, newURL.Host, key, mgmTlsEnabled)
+	client, err := newMgmProber(ctx, newURL.Host, key, mgmTlsEnabled)
 	if err != nil {
 		log.Infof("couldn't switch to the new Management %s", newURL.String())
 		return config, err
 	}
 	defer func() {
-		err = client.Close()
-		if err != nil {
+		if err := client.Close(); err != nil {
 			log.Warnf("failed to close the Management service client %v", err)
 		}
 	}()
 
 	// gRPC check
-	_, err = client.GetServerPublicKey()
-	if err != nil {
+	if err = client.HealthCheck(); err != nil {
 		log.Infof("couldn't switch to the new Management %s", newURL.String())
 		return nil, err
 	}
@@ -784,7 +808,12 @@ func ReadConfig(configPath string) (*Config, error) {
 
 // ReadConfig read config file and return with Config. If it is not exists create a new with default values
 func readConfig(configPath string, createIfMissing bool) (*Config, error) {
-	if fileExists(configPath) {
+	configExists, err := fileExists(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check if config file exists: %w", err)
+	}
+
+	if configExists {
 		err := util.EnforcePermission(configPath)
 		if err != nil {
 			log.Errorf("failed to enforce permission on config dir: %v", err)
@@ -831,7 +860,11 @@ func DirectWriteOutConfig(path string, config *Config) error {
 // DirectUpdateOrCreateConfig is like UpdateOrCreateConfig but uses direct (non-atomic) writes.
 // Use this on platforms where atomic writes are blocked (e.g., tvOS sandbox).
 func DirectUpdateOrCreateConfig(input ConfigInput) (*Config, error) {
-	if !fileExists(input.ConfigPath) {
+	configExists, err := fileExists(input.ConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check if config file exists: %w", err)
+	}
+	if !configExists {
 		log.Infof("generating new config %s", input.ConfigPath)
 		cfg, err := createNewConfig(input)
 		if err != nil {

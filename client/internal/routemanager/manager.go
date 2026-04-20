@@ -52,6 +52,7 @@ type Manager interface {
 	TriggerSelection(route.HAMap)
 	GetRouteSelector() *routeselector.RouteSelector
 	GetClientRoutes() route.HAMap
+	GetSelectedClientRoutes() route.HAMap
 	GetClientRoutesWithNetID() map[route.NetID][]*route.Route
 	SetRouteChangeListener(listener listener.NetworkChangeListener)
 	InitialRouteRange() []string
@@ -167,6 +168,7 @@ func (m *DefaultManager) setupAndroidRoutes(config ManagerConfig) {
 			NetworkType: route.IPv4Network,
 		}
 		cr = append(cr, fakeIPRoute)
+		m.notifier.SetFakeIPRoute(fakeIPRoute)
 	}
 
 	m.notifier.SetInitialClientRoutes(cr, routesForComparison)
@@ -463,6 +465,16 @@ func (m *DefaultManager) GetClientRoutes() route.HAMap {
 	defer m.mux.Unlock()
 
 	return maps.Clone(m.clientRoutes)
+}
+
+// GetSelectedClientRoutes returns only the currently selected/active client routes,
+// filtering out deselected exit nodes. Use this instead of GetClientRoutes when checking
+// if traffic should be routed through the tunnel.
+func (m *DefaultManager) GetSelectedClientRoutes() route.HAMap {
+	m.mux.Lock()
+	defer m.mux.Unlock()
+
+	return m.routeSelector.FilterSelectedExitNodes(maps.Clone(m.clientRoutes))
 }
 
 // GetClientRoutesWithNetID returns the current routes from the route map, but the keys consist of the network ID only

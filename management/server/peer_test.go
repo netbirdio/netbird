@@ -32,11 +32,13 @@ import (
 	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/internals/shared/grpc"
+	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/job"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
+	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/status"
 
 	"github.com/netbirdio/netbird/management/server/util"
@@ -1293,11 +1295,15 @@ func Test_RegisterPeerByUser(t *testing.T) {
 	peersManager := peers.NewManager(s, permissionsManager)
 
 	ctx := context.Background()
+
+	cacheStore, err := nbcache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
+	require.NoError(t, err)
+
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
 	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{})
 
-	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1379,11 +1385,15 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 	peersManager := peers.NewManager(s, permissionsManager)
 
 	ctx := context.Background()
+
+	cacheStore, err := nbcache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
+	require.NoError(t, err)
+
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
 	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{})
 
-	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1533,11 +1543,15 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 	peersManager := peers.NewManager(s, permissionsManager)
 
 	ctx := context.Background()
+
+	cacheStore, err := nbcache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
+	require.NoError(t, err)
+
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
 	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{})
 
-	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1614,11 +1628,15 @@ func Test_LoginPeer(t *testing.T) {
 	peersManager := peers.NewManager(s, permissionsManager)
 
 	ctx := context.Background()
+
+	cacheStore, err := nbcache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
+	require.NoError(t, err)
+
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
 	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{})
 
-	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -2737,4 +2755,71 @@ func TestProcessPeerAddAuth(t *testing.T) {
 		assert.False(t, config.Ephemeral)
 		assert.Empty(t, config.GroupsToAdd)
 	})
+}
+
+func TestUpdatePeer_DnsLabelCollisionWithFQDN(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
+	require.NoError(t, err, "unable to create an account")
+
+	// Add first peer with hostname that produces DNS label "netbird1"
+	key1, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+	peer1, _, _, err := manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
+		Key:  key1.PublicKey().String(),
+		Meta: nbpeer.PeerSystemMeta{Hostname: "netbird1.netbird.cloud"},
+	}, false)
+	require.NoError(t, err, "unable to add first peer")
+	assert.Equal(t, "netbird1", peer1.DNSLabel)
+
+	// Add second peer with a different hostname
+	key2, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+	peer2, _, _, err := manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
+		Key:  key2.PublicKey().String(),
+		Meta: nbpeer.PeerSystemMeta{Hostname: "ip-10-29-5-130"},
+	}, false)
+	require.NoError(t, err)
+
+	update := peer2.Copy()
+	update.Name = "netbird1.demo.netbird.cloud"
+	updated, err := manager.UpdatePeer(context.Background(), accountID, userID, update)
+	require.NoError(t, err, "renaming peer should not fail with duplicate DNS label error")
+	assert.Equal(t, "netbird1.demo.netbird.cloud", updated.Name)
+	assert.NotEqual(t, "netbird1", updated.DNSLabel, "DNS label should not collide with existing peer")
+	assert.Contains(t, updated.DNSLabel, "netbird1-", "DNS label should be IP-based fallback")
+}
+
+func TestUpdatePeer_DnsLabelUniqueName(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
+	require.NoError(t, err, "unable to create an account")
+
+	key1, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+	peer1, _, _, err := manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
+		Key:  key1.PublicKey().String(),
+		Meta: nbpeer.PeerSystemMeta{Hostname: "web-server"},
+	}, false)
+	require.NoError(t, err)
+	assert.Equal(t, "web-server", peer1.DNSLabel)
+
+	// Add second peer and rename it to a unique FQDN whose first label doesn't collide
+	key2, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+	peer2, _, _, err := manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
+		Key:  key2.PublicKey().String(),
+		Meta: nbpeer.PeerSystemMeta{Hostname: "old-name"},
+	}, false)
+	require.NoError(t, err)
+
+	update := peer2.Copy()
+	update.Name = "api-server.example.com"
+	updated, err := manager.UpdatePeer(context.Background(), accountID, userID, update)
+	require.NoError(t, err, "renaming to unique FQDN should succeed")
+	assert.Equal(t, "api-server", updated.DNSLabel, "DNS label should be first label of FQDN")
 }

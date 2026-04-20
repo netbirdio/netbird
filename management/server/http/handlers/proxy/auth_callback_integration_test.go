@@ -18,9 +18,11 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/require"
 
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
+	nbproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
+	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
@@ -190,7 +192,11 @@ func setupAuthCallbackTest(t *testing.T) *testSetup {
 
 	oidcServer := newFakeOIDCServer()
 
-	tokenStore := nbgrpc.NewOneTimeTokenStore(time.Minute)
+	cacheStore, err := nbcache.NewStore(ctx, 30*time.Minute, 10*time.Minute, 100)
+	require.NoError(t, err)
+
+	tokenStore := nbgrpc.NewOneTimeTokenStore(ctx, cacheStore)
+	pkceStore := nbgrpc.NewPKCEVerifierStore(ctx, cacheStore)
 
 	usersManager := users.NewManager(testStore)
 
@@ -205,12 +211,14 @@ func setupAuthCallbackTest(t *testing.T) *testSetup {
 	proxyService := nbgrpc.NewProxyServiceServer(
 		&testAccessLogManager{},
 		tokenStore,
+		pkceStore,
 		oidcConfig,
 		nil,
 		usersManager,
+		nil,
 	)
 
-	proxyService.SetProxyManager(&testServiceManager{store: testStore})
+	proxyService.SetServiceManager(&testServiceManager{store: testStore})
 
 	handler := NewAuthCallbackHandler(proxyService, nil)
 
@@ -239,12 +247,12 @@ func createTestReverseProxies(t *testing.T, ctx context.Context, testStore store
 	pubKey := base64.StdEncoding.EncodeToString(pub)
 	privKey := base64.StdEncoding.EncodeToString(priv)
 
-	testProxy := &reverseproxy.Service{
+	testProxy := &service.Service{
 		ID:        "testProxyId",
 		AccountID: "testAccountId",
 		Name:      "Test Proxy",
 		Domain:    "test-proxy.example.com",
-		Targets: []*reverseproxy.Target{{
+		Targets: []*service.Target{{
 			Path:       strPtr("/"),
 			Host:       "localhost",
 			Port:       8080,
@@ -254,8 +262,8 @@ func createTestReverseProxies(t *testing.T, ctx context.Context, testStore store
 			Enabled:    true,
 		}},
 		Enabled: true,
-		Auth: reverseproxy.AuthConfig{
-			BearerAuth: &reverseproxy.BearerAuthConfig{
+		Auth: service.AuthConfig{
+			BearerAuth: &service.BearerAuthConfig{
 				Enabled:            true,
 				DistributionGroups: []string{"allowedGroupId"},
 			},
@@ -265,12 +273,12 @@ func createTestReverseProxies(t *testing.T, ctx context.Context, testStore store
 	}
 	require.NoError(t, testStore.CreateService(ctx, testProxy))
 
-	restrictedProxy := &reverseproxy.Service{
+	restrictedProxy := &service.Service{
 		ID:        "restrictedProxyId",
 		AccountID: "testAccountId",
 		Name:      "Restricted Proxy",
 		Domain:    "restricted-proxy.example.com",
-		Targets: []*reverseproxy.Target{{
+		Targets: []*service.Target{{
 			Path:       strPtr("/"),
 			Host:       "localhost",
 			Port:       8080,
@@ -280,8 +288,8 @@ func createTestReverseProxies(t *testing.T, ctx context.Context, testStore store
 			Enabled:    true,
 		}},
 		Enabled: true,
-		Auth: reverseproxy.AuthConfig{
-			BearerAuth: &reverseproxy.BearerAuthConfig{
+		Auth: service.AuthConfig{
+			BearerAuth: &service.BearerAuthConfig{
 				Enabled:            true,
 				DistributionGroups: []string{"restrictedGroupId"},
 			},
@@ -291,12 +299,12 @@ func createTestReverseProxies(t *testing.T, ctx context.Context, testStore store
 	}
 	require.NoError(t, testStore.CreateService(ctx, restrictedProxy))
 
-	noAuthProxy := &reverseproxy.Service{
+	noAuthProxy := &service.Service{
 		ID:        "noAuthProxyId",
 		AccountID: "testAccountId",
 		Name:      "No Auth Proxy",
 		Domain:    "no-auth-proxy.example.com",
-		Targets: []*reverseproxy.Target{{
+		Targets: []*service.Target{{
 			Path:       strPtr("/"),
 			Host:       "localhost",
 			Port:       8080,
@@ -306,8 +314,8 @@ func createTestReverseProxies(t *testing.T, ctx context.Context, testStore store
 			Enabled:    true,
 		}},
 		Enabled: true,
-		Auth: reverseproxy.AuthConfig{
-			BearerAuth: &reverseproxy.BearerAuthConfig{
+		Auth: service.AuthConfig{
+			BearerAuth: &service.BearerAuthConfig{
 				Enabled: false,
 			},
 		},
@@ -357,19 +365,23 @@ type testServiceManager struct {
 	store store.Store
 }
 
-func (m *testServiceManager) GetAllServices(_ context.Context, _, _ string) ([]*reverseproxy.Service, error) {
+func (m *testServiceManager) DeleteAllServices(ctx context.Context, accountID, userID string) error {
+	return nil
+}
+
+func (m *testServiceManager) GetAllServices(_ context.Context, _, _ string) ([]*service.Service, error) {
 	return nil, nil
 }
 
-func (m *testServiceManager) GetService(_ context.Context, _, _, _ string) (*reverseproxy.Service, error) {
+func (m *testServiceManager) GetService(_ context.Context, _, _, _ string) (*service.Service, error) {
 	return nil, nil
 }
 
-func (m *testServiceManager) CreateService(_ context.Context, _, _ string, _ *reverseproxy.Service) (*reverseproxy.Service, error) {
+func (m *testServiceManager) CreateService(_ context.Context, _, _ string, _ *service.Service) (*service.Service, error) {
 	return nil, nil
 }
 
-func (m *testServiceManager) UpdateService(_ context.Context, _, _ string, _ *reverseproxy.Service) (*reverseproxy.Service, error) {
+func (m *testServiceManager) UpdateService(_ context.Context, _, _ string, _ *service.Service) (*service.Service, error) {
 	return nil, nil
 }
 
@@ -381,7 +393,7 @@ func (m *testServiceManager) SetCertificateIssuedAt(_ context.Context, _, _ stri
 	return nil
 }
 
-func (m *testServiceManager) SetStatus(_ context.Context, _, _ string, _ reverseproxy.ProxyStatus) error {
+func (m *testServiceManager) SetStatus(_ context.Context, _, _ string, _ service.Status) error {
 	return nil
 }
 
@@ -393,20 +405,38 @@ func (m *testServiceManager) ReloadService(_ context.Context, _, _ string) error
 	return nil
 }
 
-func (m *testServiceManager) GetGlobalServices(ctx context.Context) ([]*reverseproxy.Service, error) {
+func (m *testServiceManager) GetGlobalServices(ctx context.Context) ([]*service.Service, error) {
 	return m.store.GetServices(ctx, store.LockingStrengthNone)
 }
 
-func (m *testServiceManager) GetServiceByID(ctx context.Context, accountID, proxyID string) (*reverseproxy.Service, error) {
+func (m *testServiceManager) GetServiceByID(ctx context.Context, accountID, proxyID string) (*service.Service, error) {
 	return m.store.GetServiceByID(ctx, store.LockingStrengthNone, accountID, proxyID)
 }
 
-func (m *testServiceManager) GetAccountServices(ctx context.Context, accountID string) ([]*reverseproxy.Service, error) {
+func (m *testServiceManager) GetAccountServices(ctx context.Context, accountID string) ([]*service.Service, error) {
 	return m.store.GetAccountServices(ctx, store.LockingStrengthNone, accountID)
 }
 
 func (m *testServiceManager) GetServiceIDByTargetID(_ context.Context, _, _ string) (string, error) {
 	return "", nil
+}
+
+func (m *testServiceManager) CreateServiceFromPeer(_ context.Context, _, _ string, _ *service.ExposeServiceRequest) (*service.ExposeServiceResponse, error) {
+	return nil, nil
+}
+
+func (m *testServiceManager) RenewServiceFromPeer(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
+func (m *testServiceManager) StopServiceFromPeer(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
+func (m *testServiceManager) StartExposeReaper(_ context.Context) {}
+
+func (m *testServiceManager) GetActiveClusters(_ context.Context, _, _ string) ([]nbproxy.Cluster, error) {
+	return nil, nil
 }
 
 func createTestState(t *testing.T, ps *nbgrpc.ProxyServiceServer, redirectURL string) string {

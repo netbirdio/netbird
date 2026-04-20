@@ -15,7 +15,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/util"
-	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 )
 
 var testDispatcher = dispatcher.NewConnectionDispatcher()
@@ -53,7 +52,6 @@ func TestConn_GetKey(t *testing.T) {
 
 	sd := ServiceDependencies{
 		SrWatcher:          swWatcher,
-		Semaphore:          semaphoregroup.NewSemaphoreGroup(1),
 		PeerConnDispatcher: testDispatcher,
 	}
 	conn, err := NewConn(connConf, sd)
@@ -71,7 +69,6 @@ func TestConn_OnRemoteOffer(t *testing.T) {
 	sd := ServiceDependencies{
 		StatusRecorder:     NewRecorder("https://mgm"),
 		SrWatcher:          swWatcher,
-		Semaphore:          semaphoregroup.NewSemaphoreGroup(1),
 		PeerConnDispatcher: testDispatcher,
 	}
 	conn, err := NewConn(connConf, sd)
@@ -110,7 +107,6 @@ func TestConn_OnRemoteAnswer(t *testing.T) {
 	sd := ServiceDependencies{
 		StatusRecorder:     NewRecorder("https://mgm"),
 		SrWatcher:          swWatcher,
-		Semaphore:          semaphoregroup.NewSemaphoreGroup(1),
 		PeerConnDispatcher: testDispatcher,
 	}
 	conn, err := NewConn(connConf, sd)

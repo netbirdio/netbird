@@ -23,16 +23,16 @@ type Manager struct {
 
 	wgIface iFaceMapper
 
-	ipv4Client *iptables.IPTables
-	aclMgr     *aclManager
-	router     *router
+	ipv4Client   *iptables.IPTables
+	aclMgr       *aclManager
+	router       *router
+	rawSupported bool
 }
 
 // iFaceMapper defines subset methods of interface required for manager
 type iFaceMapper interface {
 	Name() string
 	Address() wgaddr.Address
-	IsUserspaceBind() bool
 }
 
 // Create iptables firewall manager
@@ -63,10 +63,9 @@ func Create(wgIface iFaceMapper, mtu uint16) (*Manager, error) {
 func (m *Manager) Init(stateManager *statemanager.Manager) error {
 	state := &ShutdownState{
 		InterfaceState: &InterfaceState{
-			NameStr:       m.wgIface.Name(),
-			WGAddress:     m.wgIface.Address(),
-			UserspaceBind: m.wgIface.IsUserspaceBind(),
-			MTU:           m.router.mtu,
+			NameStr:   m.wgIface.Name(),
+			WGAddress: m.wgIface.Address(),
+			MTU:       m.router.mtu,
 		},
 	}
 	stateManager.RegisterState(state)
@@ -84,7 +83,7 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 	}
 
 	if err := m.initNoTrackChain(); err != nil {
-		return fmt.Errorf("init notrack chain: %w", err)
+		log.Warnf("raw table not available, notrack rules will be disabled: %v", err)
 	}
 
 	// persist early to ensure cleanup of chains
@@ -202,12 +201,10 @@ func (m *Manager) Close(stateManager *statemanager.Manager) error {
 	return nberrors.FormatErrorOrNil(merr)
 }
 
-// AllowNetbird allows netbird interface traffic
+// AllowNetbird allows netbird interface traffic.
+// This is called when USPFilter wraps the native firewall, adding blanket accept
+// rules so that packet filtering is handled in userspace instead of by netfilter.
 func (m *Manager) AllowNetbird() error {
-	if !m.wgIface.IsUserspaceBind() {
-		return nil
-	}
-
 	_, err := m.AddPeerFiltering(
 		nil,
 		net.IP{0, 0, 0, 0},
@@ -285,6 +282,22 @@ func (m *Manager) RemoveInboundDNAT(localAddr netip.Addr, protocol firewall.Prot
 	return m.router.RemoveInboundDNAT(localAddr, protocol, sourcePort, targetPort)
 }
 
+// AddOutputDNAT adds an OUTPUT chain DNAT rule for locally-generated traffic.
+func (m *Manager) AddOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.router.AddOutputDNAT(localAddr, protocol, sourcePort, targetPort)
+}
+
+// RemoveOutputDNAT removes an OUTPUT chain DNAT rule.
+func (m *Manager) RemoveOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.router.RemoveOutputDNAT(localAddr, protocol, sourcePort, targetPort)
+}
+
 const (
 	chainNameRaw = "NETBIRD-RAW"
 	chainOUTPUT  = "OUTPUT"
@@ -317,6 +330,10 @@ const (
 func (m *Manager) SetupEBPFProxyNoTrack(proxyPort, wgPort uint16) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
+
+	if !m.rawSupported {
+		return fmt.Errorf("raw table not available")
+	}
 
 	wgPortStr := fmt.Sprintf("%d", wgPort)
 	proxyPortStr := fmt.Sprintf("%d", proxyPort)
@@ -375,12 +392,16 @@ func (m *Manager) initNoTrackChain() error {
 		return fmt.Errorf("add prerouting jump rule: %w", err)
 	}
 
+	m.rawSupported = true
 	return nil
 }
 
 func (m *Manager) cleanupNoTrackChain() error {
 	exists, err := m.ipv4Client.ChainExists(tableRaw, chainNameRaw)
 	if err != nil {
+		if !m.rawSupported {
+			return nil
+		}
 		return fmt.Errorf("check chain exists: %w", err)
 	}
 	if !exists {
@@ -401,6 +422,7 @@ func (m *Manager) cleanupNoTrackChain() error {
 		return fmt.Errorf("clear and delete chain: %w", err)
 	}
 
+	m.rawSupported = false
 	return nil
 }
 

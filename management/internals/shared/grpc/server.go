@@ -26,6 +26,7 @@ import (
 	"github.com/netbirdio/netbird/shared/management/client/common"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/job"
@@ -80,6 +81,9 @@ type Server struct {
 	syncSem        atomic.Int32
 	syncLimEnabled bool
 	syncLim        int32
+
+	reverseProxyManager rpservice.Manager
+	reverseProxyMu      sync.RWMutex
 }
 
 // NewServer creates a new Management server
@@ -326,13 +330,12 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 
 	s.secretsManager.SetupRefresh(ctx, accountID, peer.ID)
 
-	if s.appMetrics != nil {
-		s.appMetrics.GRPCMetrics().CountSyncRequestDuration(time.Since(reqStart), accountID)
-	}
-
 	unlock()
 	unlock = nil
 
+	if s.appMetrics != nil {
+		s.appMetrics.GRPCMetrics().CountSyncRequestDuration(time.Since(reqStart), accountID)
+	}
 	log.WithContext(ctx).Debugf("Sync took %s", time.Since(reqStart))
 
 	s.syncSem.Add(-1)
@@ -739,13 +742,6 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 
 	log.WithContext(ctx).Debugf("Login request from peer [%s] [%s]", req.WgPubKey, sRealIP)
 
-	defer func() {
-		if s.appMetrics != nil {
-			s.appMetrics.GRPCMetrics().CountLoginRequestDuration(time.Since(reqStart), accountID)
-		}
-		log.WithContext(ctx).Debugf("Login took %s", time.Since(reqStart))
-	}()
-
 	if loginReq.GetMeta() == nil {
 		msg := status.Errorf(codes.FailedPrecondition,
 			"peer system meta has to be provided to log in. Peer %s, remote addr %s", peerKey.String(), realIP)
@@ -794,6 +790,11 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 		log.WithContext(ctx).Warnf("failed encrypting peer %s message", peer.ID)
 		return nil, status.Errorf(codes.Internal, "failed logging in peer")
 	}
+
+	if s.appMetrics != nil {
+		s.appMetrics.GRPCMetrics().CountLoginRequestDuration(time.Since(reqStart), accountID)
+	}
+	log.WithContext(ctx).Debugf("Login took %s", time.Since(reqStart))
 
 	return &proto.EncryptedMessage{
 		WgPubKey: key.PublicKey().String(),

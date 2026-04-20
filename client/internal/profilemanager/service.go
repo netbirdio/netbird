@@ -256,7 +256,11 @@ func (s *ServiceManager) AddProfile(profileName, username string) error {
 	}
 
 	profPath := filepath.Join(configDir, profileName+".json")
-	if fileExists(profPath) {
+	profileExists, err := fileExists(profPath)
+	if err != nil {
+		return fmt.Errorf("failed to check if profile exists: %w", err)
+	}
+	if profileExists {
 		return ErrProfileAlreadyExists
 	}
 
@@ -285,7 +289,11 @@ func (s *ServiceManager) RemoveProfile(profileName, username string) error {
 		return fmt.Errorf("cannot remove profile with reserved name: %s", defaultProfileName)
 	}
 	profPath := filepath.Join(configDir, profileName+".json")
-	if !fileExists(profPath) {
+	profileExists, err := fileExists(profPath)
+	if err != nil {
+		return fmt.Errorf("failed to check if profile exists: %w", err)
+	}
+	if !profileExists {
 		return ErrProfileNotFound
 	}
 

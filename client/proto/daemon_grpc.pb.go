@@ -64,6 +64,9 @@ type DaemonServiceClient interface {
 	// Logout disconnects from the network and deletes the peer from the management server
 	Logout(ctx context.Context, in *LogoutRequest, opts ...grpc.CallOption) (*LogoutResponse, error)
 	GetFeatures(ctx context.Context, in *GetFeaturesRequest, opts ...grpc.CallOption) (*GetFeaturesResponse, error)
+	// TriggerUpdate initiates installation of the pending enforced version.
+	// Called when the user clicks the install button in the UI (Mode 2 / enforced update).
+	TriggerUpdate(ctx context.Context, in *TriggerUpdateRequest, opts ...grpc.CallOption) (*TriggerUpdateResponse, error)
 	// GetPeerSSHHostKey retrieves SSH host key for a specific peer
 	GetPeerSSHHostKey(ctx context.Context, in *GetPeerSSHHostKeyRequest, opts ...grpc.CallOption) (*GetPeerSSHHostKeyResponse, error)
 	// RequestJWTAuth initiates JWT authentication flow for SSH
@@ -76,6 +79,8 @@ type DaemonServiceClient interface {
 	StopCPUProfile(ctx context.Context, in *StopCPUProfileRequest, opts ...grpc.CallOption) (*StopCPUProfileResponse, error)
 	NotifyOSLifecycle(ctx context.Context, in *OSLifecycleRequest, opts ...grpc.CallOption) (*OSLifecycleResponse, error)
 	GetInstallerResult(ctx context.Context, in *InstallerResultRequest, opts ...grpc.CallOption) (*InstallerResultResponse, error)
+	// ExposeService exposes a local port via the NetBird reverse proxy
+	ExposeService(ctx context.Context, in *ExposeServiceRequest, opts ...grpc.CallOption) (DaemonService_ExposeServiceClient, error)
 }
 
 type daemonServiceClient struct {
@@ -361,6 +366,15 @@ func (c *daemonServiceClient) GetFeatures(ctx context.Context, in *GetFeaturesRe
 	return out, nil
 }
 
+func (c *daemonServiceClient) TriggerUpdate(ctx context.Context, in *TriggerUpdateRequest, opts ...grpc.CallOption) (*TriggerUpdateResponse, error) {
+	out := new(TriggerUpdateResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/TriggerUpdate", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *daemonServiceClient) GetPeerSSHHostKey(ctx context.Context, in *GetPeerSSHHostKeyRequest, opts ...grpc.CallOption) (*GetPeerSSHHostKeyResponse, error) {
 	out := new(GetPeerSSHHostKeyResponse)
 	err := c.cc.Invoke(ctx, "/daemon.DaemonService/GetPeerSSHHostKey", in, out, opts...)
@@ -424,6 +438,38 @@ func (c *daemonServiceClient) GetInstallerResult(ctx context.Context, in *Instal
 	return out, nil
 }
 
+func (c *daemonServiceClient) ExposeService(ctx context.Context, in *ExposeServiceRequest, opts ...grpc.CallOption) (DaemonService_ExposeServiceClient, error) {
+	stream, err := c.cc.NewStream(ctx, &DaemonService_ServiceDesc.Streams[1], "/daemon.DaemonService/ExposeService", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &daemonServiceExposeServiceClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type DaemonService_ExposeServiceClient interface {
+	Recv() (*ExposeServiceEvent, error)
+	grpc.ClientStream
+}
+
+type daemonServiceExposeServiceClient struct {
+	grpc.ClientStream
+}
+
+func (x *daemonServiceExposeServiceClient) Recv() (*ExposeServiceEvent, error) {
+	m := new(ExposeServiceEvent)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // DaemonServiceServer is the server API for DaemonService service.
 // All implementations must embed UnimplementedDaemonServiceServer
 // for forward compatibility
@@ -474,6 +520,9 @@ type DaemonServiceServer interface {
 	// Logout disconnects from the network and deletes the peer from the management server
 	Logout(context.Context, *LogoutRequest) (*LogoutResponse, error)
 	GetFeatures(context.Context, *GetFeaturesRequest) (*GetFeaturesResponse, error)
+	// TriggerUpdate initiates installation of the pending enforced version.
+	// Called when the user clicks the install button in the UI (Mode 2 / enforced update).
+	TriggerUpdate(context.Context, *TriggerUpdateRequest) (*TriggerUpdateResponse, error)
 	// GetPeerSSHHostKey retrieves SSH host key for a specific peer
 	GetPeerSSHHostKey(context.Context, *GetPeerSSHHostKeyRequest) (*GetPeerSSHHostKeyResponse, error)
 	// RequestJWTAuth initiates JWT authentication flow for SSH
@@ -486,6 +535,8 @@ type DaemonServiceServer interface {
 	StopCPUProfile(context.Context, *StopCPUProfileRequest) (*StopCPUProfileResponse, error)
 	NotifyOSLifecycle(context.Context, *OSLifecycleRequest) (*OSLifecycleResponse, error)
 	GetInstallerResult(context.Context, *InstallerResultRequest) (*InstallerResultResponse, error)
+	// ExposeService exposes a local port via the NetBird reverse proxy
+	ExposeService(*ExposeServiceRequest, DaemonService_ExposeServiceServer) error
 	mustEmbedUnimplementedDaemonServiceServer()
 }
 
@@ -577,6 +628,9 @@ func (UnimplementedDaemonServiceServer) Logout(context.Context, *LogoutRequest) 
 func (UnimplementedDaemonServiceServer) GetFeatures(context.Context, *GetFeaturesRequest) (*GetFeaturesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetFeatures not implemented")
 }
+func (UnimplementedDaemonServiceServer) TriggerUpdate(context.Context, *TriggerUpdateRequest) (*TriggerUpdateResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method TriggerUpdate not implemented")
+}
 func (UnimplementedDaemonServiceServer) GetPeerSSHHostKey(context.Context, *GetPeerSSHHostKeyRequest) (*GetPeerSSHHostKeyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetPeerSSHHostKey not implemented")
 }
@@ -597,6 +651,9 @@ func (UnimplementedDaemonServiceServer) NotifyOSLifecycle(context.Context, *OSLi
 }
 func (UnimplementedDaemonServiceServer) GetInstallerResult(context.Context, *InstallerResultRequest) (*InstallerResultResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetInstallerResult not implemented")
+}
+func (UnimplementedDaemonServiceServer) ExposeService(*ExposeServiceRequest, DaemonService_ExposeServiceServer) error {
+	return status.Errorf(codes.Unimplemented, "method ExposeService not implemented")
 }
 func (UnimplementedDaemonServiceServer) mustEmbedUnimplementedDaemonServiceServer() {}
 
@@ -1118,6 +1175,24 @@ func _DaemonService_GetFeatures_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DaemonService_TriggerUpdate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TriggerUpdateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).TriggerUpdate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/TriggerUpdate",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).TriggerUpdate(ctx, req.(*TriggerUpdateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _DaemonService_GetPeerSSHHostKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetPeerSSHHostKeyRequest)
 	if err := dec(in); err != nil {
@@ -1244,6 +1319,27 @@ func _DaemonService_GetInstallerResult_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DaemonService_ExposeService_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(ExposeServiceRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(DaemonServiceServer).ExposeService(m, &daemonServiceExposeServiceServer{stream})
+}
+
+type DaemonService_ExposeServiceServer interface {
+	Send(*ExposeServiceEvent) error
+	grpc.ServerStream
+}
+
+type daemonServiceExposeServiceServer struct {
+	grpc.ServerStream
+}
+
+func (x *daemonServiceExposeServiceServer) Send(m *ExposeServiceEvent) error {
+	return x.ServerStream.SendMsg(m)
+}
+
 // DaemonService_ServiceDesc is the grpc.ServiceDesc for DaemonService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1360,6 +1456,10 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _DaemonService_GetFeatures_Handler,
 		},
 		{
+			MethodName: "TriggerUpdate",
+			Handler:    _DaemonService_TriggerUpdate_Handler,
+		},
+		{
 			MethodName: "GetPeerSSHHostKey",
 			Handler:    _DaemonService_GetPeerSSHHostKey_Handler,
 		},
@@ -1392,6 +1492,11 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "SubscribeEvents",
 			Handler:       _DaemonService_SubscribeEvents_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "ExposeService",
+			Handler:       _DaemonService_ExposeService_Handler,
 			ServerStreams: true,
 		},
 	},

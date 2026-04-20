@@ -13,6 +13,7 @@ import (
 
 	"github.com/netbirdio/netbird/idp/dex"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	nbjwt "github.com/netbirdio/netbird/shared/auth/jwt"
 )
 
 const (
@@ -48,11 +49,13 @@ type EmbeddedIdPConfig struct {
 	// Existing local users are preserved and will be able to login again if re-enabled.
 	// Cannot be enabled if no external identity provider connectors are configured.
 	LocalAuthDisabled bool
+	// StaticConnectors are additional connectors to seed during initialization
+	StaticConnectors []dex.Connector
 }
 
 // EmbeddedStorageConfig holds storage configuration for the embedded IdP.
 type EmbeddedStorageConfig struct {
-	// Type is the storage type (currently only "sqlite3" is supported)
+	// Type is the storage type: "sqlite3" (default) or "postgres"
 	Type string
 	// Config contains type-specific configuration
 	Config EmbeddedStorageTypeConfig
@@ -62,6 +65,8 @@ type EmbeddedStorageConfig struct {
 type EmbeddedStorageTypeConfig struct {
 	// File is the path to the SQLite database file (for sqlite3 type)
 	File string
+	// DSN is the connection string for postgres
+	DSN string
 }
 
 // OwnerConfig represents the initial owner/admin user for the embedded IdP.
@@ -74,6 +79,22 @@ type OwnerConfig struct {
 	Username string
 }
 
+// buildIdpStorageConfig builds the Dex storage config map based on the storage type.
+func buildIdpStorageConfig(storageType string, cfg EmbeddedStorageTypeConfig) (map[string]interface{}, error) {
+	switch storageType {
+	case "sqlite3":
+		return map[string]interface{}{
+			"file": cfg.File,
+		}, nil
+	case "postgres":
+		return map[string]interface{}{
+			"dsn": cfg.DSN,
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported IdP storage type: %s", storageType)
+	}
+}
+
 // ToYAMLConfig converts EmbeddedIdPConfig to dex.YAMLConfig.
 func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 	if c.Issuer == "" {
@@ -84,6 +105,14 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 	}
 	if c.Storage.Type == "sqlite3" && c.Storage.Config.File == "" {
 		return nil, fmt.Errorf("storage file is required for sqlite3")
+	}
+	if c.Storage.Type == "postgres" && c.Storage.Config.DSN == "" {
+		return nil, fmt.Errorf("storage DSN is required for postgres")
+	}
+
+	storageConfig, err := buildIdpStorageConfig(c.Storage.Type, c.Storage.Config)
+	if err != nil {
+		return nil, fmt.Errorf("invalid IdP storage config: %w", err)
 	}
 
 	// Build CLI redirect URIs including the device callback (both relative and absolute)
@@ -100,10 +129,8 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 	cfg := &dex.YAMLConfig{
 		Issuer: c.Issuer,
 		Storage: dex.Storage{
-			Type: c.Storage.Type,
-			Config: map[string]interface{}{
-				"file": c.Storage.Config.File,
-			},
+			Type:   c.Storage.Type,
+			Config: storageConfig,
 		},
 		Web: dex.Web{
 			AllowedOrigins: []string{"*"},
@@ -133,6 +160,7 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 				RedirectURIs: cliRedirectURIs,
 			},
 		},
+		StaticConnectors: c.StaticConnectors,
 	}
 
 	// Add owner user if provided
@@ -169,6 +197,9 @@ type OAuthConfigProvider interface {
 	// Management server has embedded Dex and can validate tokens via localhost,
 	// avoiding external network calls and DNS resolution issues during startup.
 	GetLocalKeysLocation() string
+	// GetKeyFetcher returns a KeyFetcher that reads keys directly from the IDP storage,
+	// or nil if direct key fetching is not supported (falls back to HTTP).
+	GetKeyFetcher() nbjwt.KeyFetcher
 	GetClientIDs() []string
 	GetUserIDClaim() string
 	GetTokenEndpoint() string
@@ -567,6 +598,11 @@ func (m *EmbeddedIdPManager) GetCLIRedirectURLs() []string {
 		return []string{defaultCLIRedirectURL1, defaultCLIRedirectURL2}
 	}
 	return m.config.CLIRedirectURIs
+}
+
+// GetKeyFetcher returns a KeyFetcher that reads keys directly from Dex storage.
+func (m *EmbeddedIdPManager) GetKeyFetcher() nbjwt.KeyFetcher {
+	return m.provider.GetJWKS
 }
 
 // GetKeysLocation returns the JWKS endpoint URL for token validation.

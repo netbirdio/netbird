@@ -18,7 +18,8 @@ import (
 
 	"github.com/netbirdio/netbird/client/ssh/auth"
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy"
+	proxydomain "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -100,7 +101,8 @@ type Account struct {
 	NameServerGroupsG      []nbdns.NameServerGroup           `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	DNSSettings            DNSSettings                       `gorm:"embedded;embeddedPrefix:dns_settings_"`
 	PostureChecks          []*posture.Checks                 `gorm:"foreignKey:AccountID;references:id"`
-	Services               []*reverseproxy.Service           `gorm:"foreignKey:AccountID;references:id"`
+	Services               []*service.Service                `gorm:"foreignKey:AccountID;references:id"`
+	Domains                []*proxydomain.Domain             `gorm:"foreignKey:AccountID;references:id"`
 	// Settings is a dictionary of Account settings
 	Settings         *Settings                        `gorm:"embedded;embeddedPrefix:settings_"`
 	Networks         []*networkTypes.Network          `gorm:"foreignKey:AccountID;references:id"`
@@ -906,9 +908,14 @@ func (a *Account) Copy() *Account {
 		networkResources = append(networkResources, resource.Copy())
 	}
 
-	services := []*reverseproxy.Service{}
-	for _, service := range a.Services {
-		services = append(services, service.Copy())
+	services := []*service.Service{}
+	for _, svc := range a.Services {
+		services = append(services, svc.Copy())
+	}
+
+	domains := []*proxydomain.Domain{}
+	for _, domain := range a.Domains {
+		domains = append(domains, domain.Copy())
 	}
 
 	return &Account{
@@ -936,6 +943,7 @@ func (a *Account) Copy() *Account {
 		Onboarding:             a.Onboarding,
 		NetworkMapCache:        a.NetworkMapCache,
 		nmapInitOnce:           a.nmapInitOnce,
+		Domains:                domains,
 	}
 }
 
@@ -1605,12 +1613,12 @@ func (a *Account) GetPoliciesForNetworkResource(resourceId string) []*Policy {
 	networkResourceGroups := a.getNetworkResourceGroups(resourceId)
 
 	for _, policy := range a.Policies {
-		if !policy.Enabled {
+		if policy == nil || !policy.Enabled {
 			continue
 		}
 
 		for _, rule := range policy.Rules {
-			if !rule.Enabled {
+			if rule == nil || !rule.Enabled {
 				continue
 			}
 
@@ -1812,18 +1820,21 @@ func (a *Account) InjectProxyPolicies(ctx context.Context) {
 		}
 		a.injectServiceProxyPolicies(ctx, service, proxyPeersByCluster)
 	}
+
 }
 
-func (a *Account) injectServiceProxyPolicies(ctx context.Context, service *reverseproxy.Service, proxyPeersByCluster map[string][]*nbpeer.Peer) {
+func (a *Account) injectServiceProxyPolicies(ctx context.Context, service *service.Service, proxyPeersByCluster map[string][]*nbpeer.Peer) {
+	proxyPeers := proxyPeersByCluster[service.ProxyCluster]
 	for _, target := range service.Targets {
 		if !target.Enabled {
 			continue
 		}
-		a.injectTargetProxyPolicies(ctx, service, target, proxyPeersByCluster[service.ProxyCluster])
+		a.injectTargetProxyPolicies(ctx, service, target, proxyPeers)
 	}
+
 }
 
-func (a *Account) injectTargetProxyPolicies(ctx context.Context, service *reverseproxy.Service, target *reverseproxy.Target, proxyPeers []*nbpeer.Peer) {
+func (a *Account) injectTargetProxyPolicies(ctx context.Context, service *service.Service, target *service.Target, proxyPeers []*nbpeer.Peer) {
 	port, ok := a.resolveTargetPort(ctx, target)
 	if !ok {
 		return
@@ -1840,13 +1851,13 @@ func (a *Account) injectTargetProxyPolicies(ctx context.Context, service *revers
 	}
 }
 
-func (a *Account) resolveTargetPort(ctx context.Context, target *reverseproxy.Target) (int, bool) {
+func (a *Account) resolveTargetPort(ctx context.Context, target *service.Target) (uint16, bool) {
 	if target.Port != 0 {
 		return target.Port, true
 	}
 
 	switch target.Protocol {
-	case "https":
+	case "https", "tls":
 		return 443, true
 	case "http":
 		return 80, true
@@ -1856,17 +1867,23 @@ func (a *Account) resolveTargetPort(ctx context.Context, target *reverseproxy.Ta
 	}
 }
 
-func (a *Account) createProxyPolicy(service *reverseproxy.Service, target *reverseproxy.Target, proxyPeer *nbpeer.Peer, port int, path string) *Policy {
-	policyID := fmt.Sprintf("proxy-access-%s-%s-%s", service.ID, proxyPeer.ID, path)
+func (a *Account) createProxyPolicy(svc *service.Service, target *service.Target, proxyPeer *nbpeer.Peer, port uint16, path string) *Policy {
+	policyID := fmt.Sprintf("proxy-access-%s-%s-%s", svc.ID, proxyPeer.ID, path)
+
+	protocol := PolicyRuleProtocolTCP
+	if svc.Mode == service.ModeUDP {
+		protocol = PolicyRuleProtocolUDP
+	}
+
 	return &Policy{
 		ID:      policyID,
-		Name:    fmt.Sprintf("Proxy Access to %s", service.Name),
+		Name:    fmt.Sprintf("Proxy Access to %s", svc.Name),
 		Enabled: true,
 		Rules: []*PolicyRule{
 			{
 				ID:       policyID,
 				PolicyID: policyID,
-				Name:     fmt.Sprintf("Allow access to %s", service.Name),
+				Name:     fmt.Sprintf("Allow access to %s", svc.Name),
 				Enabled:  true,
 				SourceResource: Resource{
 					ID:   proxyPeer.ID,
@@ -1877,12 +1894,12 @@ func (a *Account) createProxyPolicy(service *reverseproxy.Service, target *rever
 					Type: ResourceType(target.TargetType),
 				},
 				Bidirectional: false,
-				Protocol:      PolicyRuleProtocolTCP,
+				Protocol:      protocol,
 				Action:        PolicyTrafficActionAccept,
 				PortRanges: []RulePortRange{
 					{
-						Start: uint16(port),
-						End:   uint16(port),
+						Start: port,
+						End:   port,
 					},
 				},
 			},

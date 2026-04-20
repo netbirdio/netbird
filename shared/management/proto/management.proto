@@ -51,6 +51,15 @@ service ManagementService {
 
   // Executes a job on a target peer (e.g., debug bundle)
   rpc Job(stream EncryptedMessage) returns (stream EncryptedMessage) {}
+
+  // CreateExpose creates a temporary reverse proxy service for a peer
+  rpc CreateExpose(EncryptedMessage) returns (EncryptedMessage) {}
+
+  // RenewExpose extends the TTL of an active expose session
+  rpc RenewExpose(EncryptedMessage) returns (EncryptedMessage) {}
+
+  // StopExpose terminates an active expose session
+  rpc StopExpose(EncryptedMessage) returns (EncryptedMessage) {}
 }
 
 message EncryptedMessage {
@@ -331,8 +340,8 @@ message PeerConfig {
 message AutoUpdateSettings {
   string version = 1;
   /*
-    alwaysUpdate = true → Updates happen automatically in the background
-    alwaysUpdate = false → Updates only happen when triggered by a peer connection
+    alwaysUpdate = true → Updates are installed automatically in the background
+    alwaysUpdate = false → Updates require user interaction from the UI
    */
   bool alwaysUpdate = 2;
 }
@@ -455,8 +464,8 @@ message PKCEAuthorizationFlow {
 message ProviderConfig {
   // An IDP application client id
   string ClientID = 1;
-  // An IDP application client secret
-  string ClientSecret = 2;
+  // Deprecated: use embedded IdP for providers that require a client secret (e.g. Google Workspace).
+  string ClientSecret = 2 [deprecated = true];
   // An IDP API domain
   // Deprecated. Use a DeviceAuthEndpoint and TokenEndpoint
   string Domain = 3;
@@ -637,3 +646,41 @@ message ForwardingRule {
   // Translated port information, where the traffic should be forwarded to
   PortInfo translatedPort = 4;
 }
+
+enum ExposeProtocol {
+  EXPOSE_HTTP = 0;
+  EXPOSE_HTTPS = 1;
+  EXPOSE_TCP = 2;
+  EXPOSE_UDP = 3;
+  EXPOSE_TLS = 4;
+}
+
+message ExposeServiceRequest {
+  uint32 port = 1;
+  ExposeProtocol protocol = 2;
+  string pin = 3;
+  string password = 4;
+  repeated string user_groups = 5;
+  string domain = 6;
+  string name_prefix = 7;
+  uint32 listen_port = 8;
+}
+
+message ExposeServiceResponse {
+  string service_name = 1;
+  string service_url = 2;
+  string domain = 3;
+  bool port_auto_assigned = 4;
+}
+
+message RenewExposeRequest {
+  string domain = 1;
+}
+
+message RenewExposeResponse {}
+
+message StopExposeRequest {
+  string domain = 1;
+}
+
+message StopExposeResponse {}

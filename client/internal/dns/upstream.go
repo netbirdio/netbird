@@ -41,9 +41,60 @@ const (
 
 	reactivatePeriod = 30 * time.Second
 	probeTimeout     = 2 * time.Second
+
+	// ipv6HeaderSize + udpHeaderSize, used to derive the maximum DNS UDP
+	// payload from the tunnel MTU.
+	ipUDPHeaderSize = 60 + 8
 )
 
 const testRecord = "com."
+
+const (
+	protoUDP = "udp"
+	protoTCP = "tcp"
+)
+
+type dnsProtocolKey struct{}
+
+// contextWithDNSProtocol stores the inbound DNS protocol ("udp" or "tcp") in context.
+func contextWithDNSProtocol(ctx context.Context, network string) context.Context {
+	return context.WithValue(ctx, dnsProtocolKey{}, network)
+}
+
+// dnsProtocolFromContext retrieves the inbound DNS protocol from context.
+func dnsProtocolFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if v, ok := ctx.Value(dnsProtocolKey{}).(string); ok {
+		return v
+	}
+	return ""
+}
+
+type upstreamProtocolKey struct{}
+
+// upstreamProtocolResult holds the protocol used for the upstream exchange.
+// Stored as a pointer in context so the exchange function can set it.
+type upstreamProtocolResult struct {
+	protocol string
+}
+
+// contextWithupstreamProtocolResult stores a mutable result holder in the context.
+func contextWithupstreamProtocolResult(ctx context.Context) (context.Context, *upstreamProtocolResult) {
+	r := &upstreamProtocolResult{}
+	return context.WithValue(ctx, upstreamProtocolKey{}, r), r
+}
+
+// setUpstreamProtocol sets the upstream protocol on the result holder in context, if present.
+func setUpstreamProtocol(ctx context.Context, protocol string) {
+	if ctx == nil {
+		return
+	}
+	if r, ok := ctx.Value(upstreamProtocolKey{}).(*upstreamProtocolResult); ok && r != nil {
+		r.protocol = protocol
+	}
+}
 
 type upstreamClient interface {
 	exchange(ctx context.Context, upstream string, r *dns.Msg) (*dns.Msg, time.Duration, error)
@@ -65,10 +116,12 @@ type upstreamResolverBase struct {
 	mutex            sync.Mutex
 	reactivatePeriod time.Duration
 	upstreamTimeout  time.Duration
+	wg               sync.WaitGroup
 
 	deactivate     func(error)
 	reactivate     func()
 	statusRecorder *peer.Status
+	routeMatch     func(netip.Addr) bool
 }
 
 type upstreamFailure struct {
@@ -115,6 +168,11 @@ func (u *upstreamResolverBase) MatchSubdomains() bool {
 func (u *upstreamResolverBase) Stop() {
 	log.Debugf("stopping serving DNS for upstreams %s", u.upstreamServers)
 	u.cancel()
+
+	u.mutex.Lock()
+	u.wg.Wait()
+	u.mutex.Unlock()
+
 }
 
 // ServeDNS handles a DNS request
@@ -131,7 +189,16 @@ func (u *upstreamResolverBase) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
-	ok, failures := u.tryUpstreamServers(w, r, logger)
+	// Propagate inbound protocol so upstream exchange can use TCP directly
+	// when the request came in over TCP.
+	ctx := u.ctx
+	if addr := w.RemoteAddr(); addr != nil {
+		network := addr.Network()
+		ctx = contextWithDNSProtocol(ctx, network)
+		resutil.SetMeta(w, "protocol", network)
+	}
+
+	ok, failures := u.tryUpstreamServers(ctx, w, r, logger)
 	if len(failures) > 0 {
 		u.logUpstreamFailures(r.Question[0].Name, failures, ok, logger)
 	}
@@ -146,7 +213,7 @@ func (u *upstreamResolverBase) prepareRequest(r *dns.Msg) {
 	}
 }
 
-func (u *upstreamResolverBase) tryUpstreamServers(w dns.ResponseWriter, r *dns.Msg, logger *log.Entry) (bool, []upstreamFailure) {
+func (u *upstreamResolverBase) tryUpstreamServers(ctx context.Context, w dns.ResponseWriter, r *dns.Msg, logger *log.Entry) (bool, []upstreamFailure) {
 	timeout := u.upstreamTimeout
 	if len(u.upstreamServers) > 1 {
 		maxTotal := 5 * time.Second
@@ -161,7 +228,7 @@ func (u *upstreamResolverBase) tryUpstreamServers(w dns.ResponseWriter, r *dns.M
 
 	var failures []upstreamFailure
 	for _, upstream := range u.upstreamServers {
-		if failure := u.queryUpstream(w, r, upstream, timeout, logger); failure != nil {
+		if failure := u.queryUpstream(ctx, w, r, upstream, timeout, logger); failure != nil {
 			failures = append(failures, *failure)
 		} else {
 			return true, failures
@@ -171,15 +238,17 @@ func (u *upstreamResolverBase) tryUpstreamServers(w dns.ResponseWriter, r *dns.M
 }
 
 // queryUpstream queries a single upstream server. Returns nil on success, or failure info to try next upstream.
-func (u *upstreamResolverBase) queryUpstream(w dns.ResponseWriter, r *dns.Msg, upstream netip.AddrPort, timeout time.Duration, logger *log.Entry) *upstreamFailure {
+func (u *upstreamResolverBase) queryUpstream(parentCtx context.Context, w dns.ResponseWriter, r *dns.Msg, upstream netip.AddrPort, timeout time.Duration, logger *log.Entry) *upstreamFailure {
 	var rm *dns.Msg
 	var t time.Duration
 	var err error
 
 	var startTime time.Time
+	var upstreamProto *upstreamProtocolResult
 	func() {
-		ctx, cancel := context.WithTimeout(u.ctx, timeout)
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
 		defer cancel()
+		ctx, upstreamProto = contextWithupstreamProtocolResult(ctx)
 		startTime = time.Now()
 		rm, t, err = u.upstreamClient.exchange(ctx, upstream.String(), r)
 	}()
@@ -196,7 +265,7 @@ func (u *upstreamResolverBase) queryUpstream(w dns.ResponseWriter, r *dns.Msg, u
 		return &upstreamFailure{upstream: upstream, reason: dns.RcodeToString[rm.Rcode]}
 	}
 
-	u.writeSuccessResponse(w, rm, upstream, r.Question[0].Name, t, logger)
+	u.writeSuccessResponse(w, rm, upstream, r.Question[0].Name, t, upstreamProto, logger)
 	return nil
 }
 
@@ -213,10 +282,13 @@ func (u *upstreamResolverBase) handleUpstreamError(err error, upstream netip.Add
 	return &upstreamFailure{upstream: upstream, reason: reason}
 }
 
-func (u *upstreamResolverBase) writeSuccessResponse(w dns.ResponseWriter, rm *dns.Msg, upstream netip.AddrPort, domain string, t time.Duration, logger *log.Entry) bool {
+func (u *upstreamResolverBase) writeSuccessResponse(w dns.ResponseWriter, rm *dns.Msg, upstream netip.AddrPort, domain string, t time.Duration, upstreamProto *upstreamProtocolResult, logger *log.Entry) bool {
 	u.successCount.Add(1)
 
 	resutil.SetMeta(w, "upstream", upstream.String())
+	if upstreamProto != nil && upstreamProto.protocol != "" {
+		resutil.SetMeta(w, "upstream_protocol", upstreamProto.protocol)
+	}
 
 	// Clear Zero bit from external responses to prevent upstream servers from
 	// manipulating our internal fallthrough signaling mechanism
@@ -260,15 +332,9 @@ func formatFailures(failures []upstreamFailure) string {
 
 // ProbeAvailability tests all upstream servers simultaneously and
 // disables the resolver if none work
-func (u *upstreamResolverBase) ProbeAvailability() {
+func (u *upstreamResolverBase) ProbeAvailability(ctx context.Context) {
 	u.mutex.Lock()
 	defer u.mutex.Unlock()
-
-	select {
-	case <-u.ctx.Done():
-		return
-	default:
-	}
 
 	// avoid probe if upstreams could resolve at least one query
 	if u.successCount.Load() > 0 {
@@ -279,31 +345,39 @@ func (u *upstreamResolverBase) ProbeAvailability() {
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
-	var errors *multierror.Error
+	var errs *multierror.Error
 	for _, upstream := range u.upstreamServers {
-		upstream := upstream
-
 		wg.Add(1)
-		go func() {
+		go func(upstream netip.AddrPort) {
 			defer wg.Done()
-			err := u.testNameserver(upstream, 500*time.Millisecond)
+			err := u.testNameserver(u.ctx, ctx, upstream, 500*time.Millisecond)
 			if err != nil {
-				errors = multierror.Append(errors, err)
+				mu.Lock()
+				errs = multierror.Append(errs, err)
+				mu.Unlock()
 				log.Warnf("probing upstream nameserver %s: %s", upstream, err)
 				return
 			}
 
 			mu.Lock()
-			defer mu.Unlock()
 			success = true
-		}()
+			mu.Unlock()
+		}(upstream)
 	}
 
 	wg.Wait()
 
+	select {
+	case <-ctx.Done():
+		return
+	case <-u.ctx.Done():
+		return
+	default:
+	}
+
 	// didn't find a working upstream server, let's disable and try later
 	if !success {
-		u.disable(errors.ErrorOrNil())
+		u.disable(errs.ErrorOrNil())
 
 		if u.statusRecorder == nil {
 			return
@@ -339,7 +413,7 @@ func (u *upstreamResolverBase) waitUntilResponse() {
 		}
 
 		for _, upstream := range u.upstreamServers {
-			if err := u.testNameserver(upstream, probeTimeout); err != nil {
+			if err := u.testNameserver(u.ctx, nil, upstream, probeTimeout); err != nil {
 				log.Tracef("upstream check for %s: %s", upstream, err)
 			} else {
 				// at least one upstream server is available, stop probing
@@ -351,16 +425,22 @@ func (u *upstreamResolverBase) waitUntilResponse() {
 		return fmt.Errorf("upstream check call error")
 	}
 
-	err := backoff.Retry(operation, exponentialBackOff)
+	err := backoff.Retry(operation, backoff.WithContext(exponentialBackOff, u.ctx))
 	if err != nil {
-		log.Warn(err)
+		if errors.Is(err, context.Canceled) {
+			log.Debugf("upstream retry loop exited for upstreams %s", u.upstreamServersString())
+		} else {
+			log.Warnf("upstream retry loop exited for upstreams %s: %v", u.upstreamServersString(), err)
+		}
 		return
 	}
 
 	log.Infof("upstreams %s are responsive again. Adding them back to system", u.upstreamServersString())
 	u.successCount.Add(1)
 	u.reactivate()
+	u.mutex.Lock()
 	u.disabled = false
+	u.mutex.Unlock()
 }
 
 // isTimeout returns true if the given error is a network timeout error.
@@ -383,7 +463,11 @@ func (u *upstreamResolverBase) disable(err error) {
 	u.successCount.Store(0)
 	u.deactivate(err)
 	u.disabled = true
-	go u.waitUntilResponse()
+	u.wg.Add(1)
+	go func() {
+		defer u.wg.Done()
+		u.waitUntilResponse()
+	}()
 }
 
 func (u *upstreamResolverBase) upstreamServersString() string {
@@ -394,23 +478,57 @@ func (u *upstreamResolverBase) upstreamServersString() string {
 	return strings.Join(servers, ", ")
 }
 
-func (u *upstreamResolverBase) testNameserver(server netip.AddrPort, timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(u.ctx, timeout)
+func (u *upstreamResolverBase) testNameserver(baseCtx context.Context, externalCtx context.Context, server netip.AddrPort, timeout time.Duration) error {
+	mergedCtx, cancel := context.WithTimeout(baseCtx, timeout)
 	defer cancel()
+
+	if externalCtx != nil {
+		stop2 := context.AfterFunc(externalCtx, cancel)
+		defer stop2()
+	}
 
 	r := new(dns.Msg).SetQuestion(testRecord, dns.TypeSOA)
 
-	_, _, err := u.upstreamClient.exchange(ctx, server.String(), r)
+	_, _, err := u.upstreamClient.exchange(mergedCtx, server.String(), r)
 	return err
+}
+
+// clientUDPMaxSize returns the maximum UDP response size the client accepts.
+func clientUDPMaxSize(r *dns.Msg) int {
+	if opt := r.IsEdns0(); opt != nil {
+		return int(opt.UDPSize())
+	}
+	return dns.MinMsgSize
 }
 
 // ExchangeWithFallback exchanges a DNS message with the upstream server.
 // It first tries to use UDP, and if it is truncated, it falls back to TCP.
+// If the inbound request came over TCP (via context), it skips the UDP attempt.
 // If the passed context is nil, this will use Exchange instead of ExchangeContext.
 func ExchangeWithFallback(ctx context.Context, client *dns.Client, r *dns.Msg, upstream string) (*dns.Msg, time.Duration, error) {
-	// MTU - ip + udp headers
-	// Note: this could be sent out on an interface that is not ours, but higher MTU settings could break truncation handling.
-	client.UDPSize = uint16(currentMTU - (60 + 8))
+	// If the request came in over TCP, go straight to TCP upstream.
+	if dnsProtocolFromContext(ctx) == protoTCP {
+		tcpClient := *client
+		tcpClient.Net = protoTCP
+		rm, t, err := tcpClient.ExchangeContext(ctx, r, upstream)
+		if err != nil {
+			return nil, t, fmt.Errorf("with tcp: %w", err)
+		}
+		setUpstreamProtocol(ctx, protoTCP)
+		return rm, t, nil
+	}
+
+	clientMaxSize := clientUDPMaxSize(r)
+
+	// Cap EDNS0 to our tunnel MTU so the upstream doesn't send a
+	// response larger than our read buffer.
+	// Note: the query could be sent out on an interface that is not ours,
+	// but higher MTU settings could break truncation handling.
+	maxUDPPayload := uint16(currentMTU - ipUDPHeaderSize)
+	client.UDPSize = maxUDPPayload
+	if opt := r.IsEdns0(); opt != nil && opt.UDPSize() > maxUDPPayload {
+		opt.SetUDPSize(maxUDPPayload)
+	}
 
 	var (
 		rm  *dns.Msg
@@ -429,25 +547,32 @@ func ExchangeWithFallback(ctx context.Context, client *dns.Client, r *dns.Msg, u
 	}
 
 	if rm == nil || !rm.MsgHdr.Truncated {
+		setUpstreamProtocol(ctx, protoUDP)
 		return rm, t, nil
 	}
 
-	log.Tracef("udp response for domain=%s type=%v class=%v is truncated, trying TCP.",
-		r.Question[0].Name, r.Question[0].Qtype, r.Question[0].Qclass)
+	// TODO: if the upstream's truncated UDP response already contains more
+	// data than the client's buffer, we could truncate locally and skip
+	// the TCP retry.
 
-	client.Net = "tcp"
+	tcpClient := *client
+	tcpClient.Net = protoTCP
 
 	if ctx == nil {
-		rm, t, err = client.Exchange(r, upstream)
+		rm, t, err = tcpClient.Exchange(r, upstream)
 	} else {
-		rm, t, err = client.ExchangeContext(ctx, r, upstream)
+		rm, t, err = tcpClient.ExchangeContext(ctx, r, upstream)
 	}
 
 	if err != nil {
 		return nil, t, fmt.Errorf("with tcp: %w", err)
 	}
 
-	// TODO: once TCP is implemented, rm.Truncate() if the request came in over UDP
+	setUpstreamProtocol(ctx, protoTCP)
+
+	if rm.Len() > clientMaxSize {
+		rm.Truncate(clientMaxSize)
+	}
 
 	return rm, t, nil
 }
@@ -455,17 +580,45 @@ func ExchangeWithFallback(ctx context.Context, client *dns.Client, r *dns.Msg, u
 // ExchangeWithNetstack performs a DNS exchange using netstack for dialing.
 // This is needed when netstack is enabled to reach peer IPs through the tunnel.
 func ExchangeWithNetstack(ctx context.Context, nsNet *netstack.Net, r *dns.Msg, upstream string) (*dns.Msg, error) {
-	reply, err := netstackExchange(ctx, nsNet, r, upstream, "udp")
+	// If request came in over TCP, go straight to TCP upstream
+	if dnsProtocolFromContext(ctx) == protoTCP {
+		rm, err := netstackExchange(ctx, nsNet, r, upstream, protoTCP)
+		if err != nil {
+			return nil, err
+		}
+		setUpstreamProtocol(ctx, protoTCP)
+		return rm, nil
+	}
+
+	clientMaxSize := clientUDPMaxSize(r)
+
+	// Cap EDNS0 to our tunnel MTU so the upstream doesn't send a
+	// response larger than what we can read over UDP.
+	maxUDPPayload := uint16(currentMTU - ipUDPHeaderSize)
+	if opt := r.IsEdns0(); opt != nil && opt.UDPSize() > maxUDPPayload {
+		opt.SetUDPSize(maxUDPPayload)
+	}
+
+	reply, err := netstackExchange(ctx, nsNet, r, upstream, protoUDP)
 	if err != nil {
 		return nil, err
 	}
 
-	// If response is truncated, retry with TCP
 	if reply != nil && reply.MsgHdr.Truncated {
-		log.Tracef("udp response for domain=%s type=%v class=%v is truncated, trying TCP",
-			r.Question[0].Name, r.Question[0].Qtype, r.Question[0].Qclass)
-		return netstackExchange(ctx, nsNet, r, upstream, "tcp")
+		rm, err := netstackExchange(ctx, nsNet, r, upstream, protoTCP)
+		if err != nil {
+			return nil, err
+		}
+
+		setUpstreamProtocol(ctx, protoTCP)
+		if rm.Len() > clientMaxSize {
+			rm.Truncate(clientMaxSize)
+		}
+
+		return rm, nil
 	}
+
+	setUpstreamProtocol(ctx, protoUDP)
 
 	return reply, nil
 }
@@ -487,7 +640,7 @@ func netstackExchange(ctx context.Context, nsNet *netstack.Net, r *dns.Msg, upst
 		}
 	}
 
-	dnsConn := &dns.Conn{Conn: conn}
+	dnsConn := &dns.Conn{Conn: conn, UDPSize: uint16(currentMTU - ipUDPHeaderSize)}
 
 	if err := dnsConn.WriteMsg(r); err != nil {
 		return nil, fmt.Errorf("write %s message: %w", network, err)
