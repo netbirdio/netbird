@@ -70,12 +70,17 @@ func networkAddresses() ([]NetworkAddress, error) {
 				continue
 			}
 
-			if ipNet.IP.IsLoopback() || ipNet.IP.IsLinkLocalUnicast() || ipNet.IP.IsLinkLocalMulticast() {
+			if ipNet.IP.IsLoopback() || ipNet.IP.IsLinkLocalUnicast() || ipNet.IP.IsMulticast() {
+				continue
+			}
+
+			prefix, err := netip.ParsePrefix(ipNet.String())
+			if err != nil {
 				continue
 			}
 
 			netAddr := NetworkAddress{
-				NetIP: netip.MustParsePrefix(ipNet.String()),
+				NetIP: prefix,
 				Mac:   iface.HardwareAddr.String(),
 			}
 

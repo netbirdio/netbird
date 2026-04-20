@@ -36,8 +36,13 @@ func networkAddresses() ([]NetworkAddress, error) {
 				continue
 			}
 
+			prefix, err := netip.ParsePrefix(ipNet.String())
+			if err != nil {
+				continue
+			}
+
 			netAddr := NetworkAddress{
-				NetIP: netip.MustParsePrefix(ipNet.String()),
+				NetIP: prefix,
 				Mac:   iface.HardwareAddr.String(),
 			}
 
