@@ -120,6 +120,7 @@ func New(ctx context.Context, logFile string, configFile string, profilesDisable
 	}
 	agent := &serverAgent{s}
 	s.sleepHandler = sleephandler.New(agent)
+	s.startSleepDetector()
 
 	return s
 }
