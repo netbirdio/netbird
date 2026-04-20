@@ -13,11 +13,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/golang/mock/gomock"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/management/internals/modules/permissions"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/modules"
+	"github.com/netbirdio/netbird/management/internals/modules/permissions/operations"
 	"github.com/netbirdio/netbird/management/server"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/mock_server"
@@ -34,8 +37,18 @@ var TestPeers = map[string]*nbpeer.Peer{
 	"B": {Key: "B", ID: "peer-B-ID", IP: net.ParseIP("200.200.200.200")},
 }
 
-func initGroupTestData(initGroups ...*types.Group) *handler {
+func initGroupTestData(t *testing.T, initGroups ...*types.Group) *handler {
+	t.Helper()
+
+	ctrl := gomock.NewController(t)
+	permissionsManagerMock := permissions.NewMockManager(ctrl)
+	permissionsManagerMock.EXPECT().
+		ValidateUserPermissions(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Eq(modules.Peers), gomock.Eq(operations.Read)).
+		Return(true, nil).
+		AnyTimes()
+
 	return &handler{
+		permissionsManager: permissionsManagerMock,
 		accountManager: &mock_server.MockAccountManager{
 			SaveGroupFunc: func(_ context.Context, accountID, userID string, group *types.Group, create bool) error {
 				if !strings.HasPrefix(group.ID, "id-") {
@@ -129,7 +142,7 @@ func TestGetGroup(t *testing.T) {
 		Name: "Group",
 	}
 
-	p := initGroupTestData(group)
+	p := initGroupTestData(t, group)
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
@@ -255,7 +268,7 @@ func TestWriteGroup(t *testing.T) {
 		},
 	}
 
-	p := initGroupTestData()
+	p := initGroupTestData(t)
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
@@ -333,7 +346,7 @@ func TestGetAllGroups(t *testing.T) {
 		},
 	}
 
-	p := initGroupTestData()
+	p := initGroupTestData(t)
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
@@ -415,7 +428,7 @@ func TestDeleteGroup(t *testing.T) {
 		},
 	}
 
-	p := initGroupTestData()
+	p := initGroupTestData(t)
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {

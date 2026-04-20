@@ -21,11 +21,12 @@ import (
 
 // handler is a handler that returns groups of the account
 type handler struct {
-	accountManager account.Manager
+	accountManager     account.Manager
+	permissionsManager permissions.Manager
 }
 
 func AddEndpoints(accountManager account.Manager, router *mux.Router, permissionsManager permissions.Manager) {
-	groupsHandler := newHandler(accountManager)
+	groupsHandler := newHandler(accountManager, permissionsManager)
 	router.HandleFunc("/groups", permissionsManager.WithPermission(modules.Groups, operations.Read, groupsHandler.getAllGroups)).Methods("GET", "OPTIONS")
 	router.HandleFunc("/groups", permissionsManager.WithPermission(modules.Groups, operations.Create, groupsHandler.createGroup)).Methods("POST", "OPTIONS")
 	router.HandleFunc("/groups/{groupId}", permissionsManager.WithPermission(modules.Groups, operations.Update, groupsHandler.updateGroup)).Methods("PUT", "OPTIONS")
@@ -34,10 +35,16 @@ func AddEndpoints(accountManager account.Manager, router *mux.Router, permission
 }
 
 // newHandler creates a new groups handler
-func newHandler(accountManager account.Manager) *handler {
+func newHandler(accountManager account.Manager, permissionsManager permissions.Manager) *handler {
 	return &handler{
-		accountManager: accountManager,
+		accountManager:     accountManager,
+		permissionsManager: permissionsManager,
 	}
+}
+
+func (h *handler) canReadPeers(r *http.Request, userAuth *auth.UserAuth) bool {
+	allowed, err := h.permissionsManager.ValidateUserPermissions(r.Context(), userAuth.AccountId, userAuth.UserId, modules.Peers, operations.Read)
+	return err == nil && allowed
 }
 
 // getAllGroups list for the account
@@ -52,7 +59,7 @@ func (h *handler) getAllGroups(w http.ResponseWriter, r *http.Request, userAuth 
 			return
 		}
 
-		accountPeers, err := h.accountManager.GetPeers(r.Context(), userAuth.AccountId, userAuth.UserId, "", "", true)
+		accountPeers, err := h.accountManager.GetPeers(r.Context(), userAuth.AccountId, userAuth.UserId, "", "", h.canReadPeers(r, userAuth))
 		if err != nil {
 			util.WriteError(r.Context(), err, w)
 			return
@@ -71,7 +78,7 @@ func (h *handler) getAllGroups(w http.ResponseWriter, r *http.Request, userAuth 
 		return
 	}
 
-	accountPeers, err := h.accountManager.GetPeers(r.Context(), userAuth.AccountId, userAuth.UserId, "", "", true)
+	accountPeers, err := h.accountManager.GetPeers(r.Context(), userAuth.AccountId, userAuth.UserId, "", "", h.canReadPeers(r, userAuth))
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -158,7 +165,7 @@ func (h *handler) updateGroup(w http.ResponseWriter, r *http.Request, userAuth *
 		return
 	}
 
-	accountPeers, err := h.accountManager.GetPeers(r.Context(), userAuth.AccountId, userAuth.UserId, "", "", true)
+	accountPeers, err := h.accountManager.GetPeers(r.Context(), userAuth.AccountId, userAuth.UserId, "", "", h.canReadPeers(r, userAuth))
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -210,7 +217,7 @@ func (h *handler) createGroup(w http.ResponseWriter, r *http.Request, userAuth *
 		return
 	}
 
-	accountPeers, err := h.accountManager.GetPeers(r.Context(), userAuth.AccountId, userAuth.UserId, "", "", true)
+	accountPeers, err := h.accountManager.GetPeers(r.Context(), userAuth.AccountId, userAuth.UserId, "", "", h.canReadPeers(r, userAuth))
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -256,7 +263,7 @@ func (h *handler) getGroup(w http.ResponseWriter, r *http.Request, userAuth *aut
 		return
 	}
 
-	accountPeers, err := h.accountManager.GetPeers(r.Context(), userAuth.AccountId, userAuth.UserId, "", "", true)
+	accountPeers, err := h.accountManager.GetPeers(r.Context(), userAuth.AccountId, userAuth.UserId, "", "", h.canReadPeers(r, userAuth))
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
