@@ -201,7 +201,7 @@ read_enable_proxy() {
 
 read_traefik_acme_email() {
   if [[ -n "${NETBIRD_LETSENCRYPT_EMAIL:-}" ]]; then
-    if [[ ! "$NETBIRD_LETSENCRYPT_EMAIL" =~ ^[^@]+@[^@]+\.[^@]+$ ]]; then
+    if [[ ! "$NETBIRD_LETSENCRYPT_EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]; then
       echo "Invalid NETBIRD_LETSENCRYPT_EMAIL value: '$NETBIRD_LETSENCRYPT_EMAIL'. Must be a valid email address." > /dev/stderr
       exit 1
     fi
