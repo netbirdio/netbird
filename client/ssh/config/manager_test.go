@@ -128,8 +128,8 @@ func TestManager_MatchHostFormat(t *testing.T) {
 	}
 
 	peers := []PeerSSHInfo{
-		{Hostname: "peer1", IP: "100.125.1.1", FQDN: "peer1.nb.internal"},
-		{Hostname: "peer2", IP: "100.125.1.2", FQDN: "peer2.nb.internal"},
+		{Hostname: "peer1", IP: netip.MustParseAddr("100.125.1.1"), FQDN: "peer1.nb.internal"},
+		{Hostname: "peer2", IP: netip.MustParseAddr("100.125.1.2"), FQDN: "peer2.nb.internal"},
 	}
 
 	err = manager.SetupSSHClientConfig(peers)
