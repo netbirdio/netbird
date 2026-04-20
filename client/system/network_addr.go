@@ -26,34 +26,34 @@ func networkAddresses() ([]NetworkAddress, error) {
 			continue
 		}
 
+		mac := iface.HardwareAddr.String()
 		for _, address := range addrs {
-			ipNet, ok := address.(*net.IPNet)
+			netAddr, ok := toNetworkAddress(address, mac)
 			if !ok {
 				continue
 			}
-
-			if ipNet.IP.IsLoopback() {
-				continue
-			}
-
-			prefix, err := netip.ParsePrefix(ipNet.String())
-			if err != nil {
-				continue
-			}
-
-			netAddr := NetworkAddress{
-				NetIP: prefix,
-				Mac:   iface.HardwareAddr.String(),
-			}
-
 			if isDuplicated(netAddresses, netAddr) {
 				continue
 			}
-
 			netAddresses = append(netAddresses, netAddr)
 		}
 	}
 	return netAddresses, nil
+}
+
+func toNetworkAddress(address net.Addr, mac string) (NetworkAddress, bool) {
+	ipNet, ok := address.(*net.IPNet)
+	if !ok {
+		return NetworkAddress{}, false
+	}
+	if ipNet.IP.IsLoopback() {
+		return NetworkAddress{}, false
+	}
+	prefix, err := netip.ParsePrefix(ipNet.String())
+	if err != nil {
+		return NetworkAddress{}, false
+	}
+	return NetworkAddress{NetIP: prefix, Mac: mac}, true
 }
 
 func isDuplicated(addresses []NetworkAddress, addr NetworkAddress) bool {
