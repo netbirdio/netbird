@@ -14,6 +14,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 
+	"github.com/netbirdio/netbird/client/firewall/firewalld"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
@@ -215,6 +216,10 @@ func (m *Manager) AllowNetbird() error {
 	}
 	if err := m.rConn.Flush(); err != nil {
 		return fmt.Errorf("flush allow input netbird rules: %w", err)
+	}
+
+	if err := firewalld.TrustInterface(m.wgIface.Name()); err != nil {
+		log.Warnf("failed to trust interface in firewalld: %v", err)
 	}
 
 	return nil
