@@ -36,6 +36,7 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 			return err
 		}
 
+		// TODO: split into separate create and update functions to avoid the isUpdate check
 		saveFunc := transaction.CreatePolicy
 		if isUpdate {
 			action = activity.PolicyUpdated

@@ -28,6 +28,7 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 			return err
 		}
 
+		// TODO: split into separate create and update functions to avoid the isUpdate check
 		if isUpdate {
 			updateAccountPeers, err = arePostureCheckChangesAffectPeers(ctx, transaction, accountID, postureChecks.ID)
 			if err != nil {
