@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"net"
 	"net/http"
 	"os"
 	"time"
@@ -46,15 +45,6 @@ func NewServer() *Server {
 func (s *Server) Start() error {
 	log.Infof("Starting upload server on %s", s.srv.Addr)
 	return s.srv.ListenAndServe()
-}
-
-// Serve runs the server on the provided listener. Intended for tests that
-// need a kernel-assigned free port (listener bound on ":0") to avoid port
-// collisions between runs.
-func (s *Server) Serve(l net.Listener) error {
-	s.srv.Addr = l.Addr().String()
-	log.Infof("Starting upload server on %s", s.srv.Addr)
-	return s.srv.Serve(l)
 }
 
 func (s *Server) Stop() error {
