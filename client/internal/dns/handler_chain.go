@@ -305,7 +305,12 @@ func (c *HandlerChain) ResolveInternal(ctx context.Context, r *dns.Msg, maxPrior
 	select {
 	case <-done:
 	case <-ctx.Done():
-		return nil, fmt.Errorf("resolve %s: %w", strings.ToLower(r.Question[0].Name), ctx.Err())
+		// Prefer a completed response if dispatch finished concurrently with cancellation.
+		select {
+		case <-done:
+		default:
+			return nil, fmt.Errorf("resolve %s: %w", strings.ToLower(r.Question[0].Name), ctx.Err())
+		}
 	}
 
 	if base.response == nil || base.response.Rcode == dns.RcodeRefused {
