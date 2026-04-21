@@ -146,7 +146,13 @@ func Relay(ctx context.Context, a, b io.ReadWriteCloser, opts Options) (aToB, bT
 // activity has been seen on either direction for idle. It exits as soon as
 // ctx is canceled so it doesn't outlive the relay.
 func watchdog(ctx context.Context, cancel context.CancelFunc, lastActivity *atomic.Int64, idleHit *atomic.Bool, idle time.Duration) {
-	tick := max(idle/2, 50*time.Millisecond)
+	// Cap the tick at 50ms so detection latency stays bounded regardless of
+	// how large idle is, and fall back to idle/2 when that is smaller so
+	// very short timeouts (mainly in tests) are still caught promptly.
+	tick := min(idle/2, 50*time.Millisecond)
+	if tick <= 0 {
+		tick = time.Millisecond
+	}
 	t := time.NewTicker(tick)
 	defer t.Stop()
 	for {
