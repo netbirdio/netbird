@@ -97,6 +97,7 @@ func getOSDNSManagerType() (osManagerType, string, error) {
 		}
 	}()
 
+	var rejected []string
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		text := scanner.Text()
@@ -104,13 +105,16 @@ func getOSDNSManagerType() (osManagerType, string, error) {
 			continue
 		}
 		if text[0] != '#' {
-			return fileManager, "no recognized header in resolv.conf", nil
+			break
 		}
 		if strings.Contains(text, fileGeneratedResolvConfContentHeader) {
 			return netbirdManager, "netbird-managed resolv.conf header detected", nil
 		}
-		if strings.Contains(text, "NetworkManager") && isDbusListenerRunning(networkManagerDest, networkManagerDbusObjectNode) && isNetworkManagerSupported() {
-			return networkManager, "NetworkManager header + supported version on dbus", nil
+		if strings.Contains(text, "NetworkManager") {
+			if isDbusListenerRunning(networkManagerDest, networkManagerDbusObjectNode) && isNetworkManagerSupported() {
+				return networkManager, "NetworkManager header + supported version on dbus", nil
+			}
+			rejected = append(rejected, "NetworkManager header (no dbus or unsupported version)")
 		}
 		if strings.Contains(text, "resolvconf") {
 			if isSystemdResolveConfMode() {
@@ -124,7 +128,11 @@ func getOSDNSManagerType() (osManagerType, string, error) {
 		return 0, "", fmt.Errorf("scan: %w", err)
 	}
 
-	return fileManager, fmt.Sprintf("no manager matched (resolved=%t, nss-resolve=%t, stub=%t)", resolved, nss, stub), nil
+	reason := fmt.Sprintf("no manager matched (resolved=%t, nss-resolve=%t, stub=%t)", resolved, nss, stub)
+	if len(rejected) > 0 {
+		reason += "; rejected: " + strings.Join(rejected, ", ")
+	}
+	return fileManager, reason, nil
 }
 
 // checkStub reports whether systemd-resolved's stub (127.0.0.53) is listed
