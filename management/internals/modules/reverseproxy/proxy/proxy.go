@@ -1,11 +1,8 @@
 package proxy
 
 import (
-	"errors"
 	"time"
 )
-
-var ErrAccountProxyAlreadyExists = errors.New("account already has a registered proxy")
 
 const (
 	StatusConnected    = "connected"
@@ -28,7 +25,7 @@ type Proxy struct {
 	ID             string    `gorm:"primaryKey;type:varchar(255)"`
 	ClusterAddress string    `gorm:"type:varchar(255);not null;index:idx_proxy_cluster_status"`
 	IPAddress      string    `gorm:"type:varchar(45)"`
-	AccountID      *string   `gorm:"type:varchar(255);uniqueIndex:idx_proxy_account_id_unique"`
+	AccountID      *string   `gorm:"type:varchar(255);index:idx_proxy_account_id"`
 	LastSeen       time.Time `gorm:"not null;index:idx_proxy_last_seen"`
 	ConnectedAt    *time.Time
 	DisconnectedAt *time.Time

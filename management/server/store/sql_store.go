@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
@@ -5476,24 +5475,9 @@ func (s *SqlStore) SaveProxy(ctx context.Context, p *proxy.Proxy) error {
 	result := s.db.WithContext(ctx).Save(p)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to save proxy: %v", result.Error)
-		if isUniqueConstraintError(result.Error) {
-			return proxy.ErrAccountProxyAlreadyExists
-		}
 		return status.Errorf(status.Internal, "failed to save proxy")
 	}
 	return nil
-}
-
-func isUniqueConstraintError(err error) bool {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-		return true
-	}
-	errStr := err.Error()
-	return strings.Contains(errStr, "UNIQUE constraint") ||
-		strings.Contains(errStr, "duplicate key") ||
-		strings.Contains(errStr, "Duplicate entry") ||
-		strings.Contains(errStr, "Error 1062")
 }
 
 func (s *SqlStore) DisconnectProxy(ctx context.Context, proxyID string) error {

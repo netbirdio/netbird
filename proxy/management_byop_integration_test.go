@@ -249,7 +249,7 @@ func TestIntegration_BYOPProxy_AccountBReceivesOnlyItsServices(t *testing.T) {
 	assert.Equal(t, setup.accountB, mappings[0].GetAccountId())
 }
 
-func TestIntegration_BYOPProxy_LimitOnePerAccount(t *testing.T) {
+func TestIntegration_BYOPProxy_MultiplePerAccount(t *testing.T) {
 	setup := setupBYOPIntegrationTest(t)
 	defer setup.cleanup()
 
@@ -269,7 +269,8 @@ func TestIntegration_BYOPProxy_LimitOnePerAccount(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_ = receiveBYOPMappings(t, stream1)
+	mappings1 := receiveBYOPMappings(t, stream1)
+	assert.Len(t, mappings1, 2, "first BYOP proxy should receive account A's 2 services")
 
 	ctx2, cancel2 := context.WithTimeout(byopContext(context.Background(), setup.accountAToken), 5*time.Second)
 	defer cancel2()
@@ -281,13 +282,11 @@ func TestIntegration_BYOPProxy_LimitOnePerAccount(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = stream2.Recv()
-	require.Error(t, err)
-
-	st, ok := grpcstatus.FromError(err)
-	require.True(t, ok)
-	assert.Equal(t, codes.ResourceExhausted, st.Code(), "second BYOP proxy should be rejected with ResourceExhausted")
-	t.Logf("expected rejection: %s", st.Message())
+	mappings2 := receiveBYOPMappings(t, stream2)
+	assert.Len(t, mappings2, 2, "second BYOP proxy from same account should also receive the 2 services")
+	for _, m := range mappings2 {
+		assert.Equal(t, setup.accountA, m.GetAccountId())
+	}
 }
 
 func TestIntegration_BYOPProxy_ClusterAddressConflict(t *testing.T) {

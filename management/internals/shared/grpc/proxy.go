@@ -194,23 +194,6 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 	if token != nil && token.AccountID != nil {
 		accountID = token.AccountID
 
-		existingProxy, err := s.proxyManager.GetAccountProxy(ctx, *accountID)
-		if err != nil {
-			if s, ok := nbstatus.FromError(err); ok && s.ErrorType == nbstatus.NotFound {
-				log.WithContext(ctx).Debugf("no existing BYOP proxy for account %s", *accountID)
-			} else {
-				return status.Errorf(codes.Internal, "failed to check existing proxy: %v", err)
-			}
-		}
-		if existingProxy != nil && existingProxy.ID != proxyID {
-			if existingProxy.Status == proxy.StatusConnected {
-				return status.Errorf(codes.ResourceExhausted, "limit of 1 self-hosted proxy per account")
-			}
-			if err := s.proxyManager.DeleteProxy(ctx, existingProxy.ID); err != nil {
-				log.WithContext(ctx).Warnf("failed to cleanup disconnected proxy %s: %v", existingProxy.ID, err)
-			}
-		}
-
 		available, err := s.proxyManager.IsClusterAddressAvailable(ctx, proxyAddress, *accountID)
 		if err != nil {
 			return status.Errorf(codes.Internal, "check cluster address: %v", err)
@@ -248,9 +231,6 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 	if err := s.proxyManager.Connect(ctx, proxyID, proxyAddress, peerInfo, accountID, caps); err != nil {
 		if accountID != nil {
 			cancel()
-			if errors.Is(err, proxy.ErrAccountProxyAlreadyExists) {
-				return status.Errorf(codes.ResourceExhausted, "limit of 1 self-hosted proxy per account")
-			}
 			return status.Errorf(codes.Internal, "failed to register BYOP proxy: %v", err)
 		}
 		log.WithContext(ctx).Warnf("Failed to register proxy %s in database: %v", proxyID, err)

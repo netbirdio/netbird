@@ -502,6 +502,9 @@ func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 		func(db *gorm.DB) error {
 			return migration.CreateIndexIfNotExists[nbpeer.Peer](ctx, db, "idx_peers_key_unique", "key")
 		},
+		func(db *gorm.DB) error {
+			return migration.DropIndex[proxy.Proxy](ctx, db, "idx_proxy_account_id_unique")
+		},
 	}
 }
 
