@@ -112,8 +112,7 @@ func (m *AuthMiddleware) Handler(h http.Handler) http.Handler {
 	})
 }
 
-// checkJWTFromRequest validates the JWT and, on success, overwrites r in place
-// with the auth-enriched request so upstream middleware observes UserAuth too.
+// CheckJWTFromRequest checks if the JWT is valid
 func (m *AuthMiddleware) checkJWTFromRequest(r *http.Request, authHeaderParts []string) error {
 	token, err := getTokenFromJWTRequest(authHeaderParts)
 
@@ -166,13 +165,12 @@ func (m *AuthMiddleware) checkJWTFromRequest(r *http.Request, authHeaderParts []
 		return err
 	}
 
-	// Mutate r in place so the ctx change propagates to upstream middleware.
+	// propagates ctx change to upstream middleware
 	*r = *nbcontext.SetUserAuthInRequest(r, userAuth)
 	return nil
 }
 
-// checkPATFromRequest validates the PAT and, on success, overwrites r in place
-// with the auth-enriched request so upstream middleware observes UserAuth too.
+// CheckPATFromRequest checks if the PAT is valid
 func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, authHeaderParts []string) error {
 	token, err := getTokenFromPATRequest(authHeaderParts)
 	if err != nil {
@@ -218,7 +216,7 @@ func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, authHeaderParts []
 		}
 	}
 
-	// Mutate r in place so the ctx change propagates to upstream middleware.
+	// propagates ctx change to upstream middleware
 	*r = *nbcontext.SetUserAuthInRequest(r, userAuth)
 	return nil
 }
