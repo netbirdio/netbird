@@ -5,6 +5,7 @@ import (
 	_ "embed"
 
 	"github.com/rs/xid"
+	"github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
@@ -56,6 +57,7 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 
 		if isUpdate {
 			if policy.Equal(existingPolicy) {
+				logrus.WithContext(ctx).Tracef("policy update skipped - policy id %s", policy.ID)
 				unchanged = true
 				return nil
 			}
