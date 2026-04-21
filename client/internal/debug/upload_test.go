@@ -3,6 +3,7 @@ package debug
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -19,12 +20,14 @@ func TestUpload(t *testing.T) {
 		t.Skip("Skipping upload test on docker ci")
 	}
 	testDir := t.TempDir()
-	testURL := "http://localhost:8080"
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	testURL := "http://" + listener.Addr().String()
 	t.Setenv("SERVER_URL", testURL)
 	t.Setenv("STORE_DIR", testDir)
 	srv := server.NewServer()
 	go func() {
-		if err := srv.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := srv.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			t.Errorf("Failed to start server: %v", err)
 		}
 	}()
@@ -36,7 +39,7 @@ func TestUpload(t *testing.T) {
 
 	file := filepath.Join(t.TempDir(), "tmpfile")
 	fileContent := []byte("test file content")
-	err := os.WriteFile(file, fileContent, 0640)
+	err = os.WriteFile(file, fileContent, 0640)
 	require.NoError(t, err)
 	key, err := UploadDebugBundle(context.Background(), testURL+types.GetURLPath, testURL, file)
 	require.NoError(t, err)
