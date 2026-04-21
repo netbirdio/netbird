@@ -59,6 +59,8 @@ type Server struct {
 	successHeader metadata.MD
 
 	sendTimeout time.Duration
+
+	sendTracker *sendRateTracker
 }
 
 // NewServer creates a new Signal server
@@ -86,7 +88,10 @@ func NewServer(ctx context.Context, meter metric.Meter, metricsPrefix ...string)
 		metrics:       appMetrics,
 		successHeader: metadata.Pairs(proto.HeaderRegistered, "1"),
 		sendTimeout:   sTimeout,
+		sendTracker:   newSendRateTracker(),
 	}
+
+	go s.sendTracker.logSendRates(ctx)
 
 	return s, nil
 }
@@ -94,6 +99,8 @@ func NewServer(ctx context.Context, meter metric.Meter, metricsPrefix ...string)
 // Send forwards a message to the signal peer
 func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
 	log.Tracef("received a new message to send from peer [%s] to peer [%s]", msg.Key, msg.RemoteKey)
+
+	s.sendTracker.increment(msg.Key)
 
 	if _, found := s.registry.Get(msg.RemoteKey); found {
 		s.forwardMessageToPeer(ctx, msg)
