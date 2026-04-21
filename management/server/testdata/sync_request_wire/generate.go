@@ -1,17 +1,15 @@
 //go:build ignore
 
-// generate.go produces the frozen SyncRequest wire-format fixtures used by
-// server_sync_legacy_wire_test.go. Run with:
+// generate.go produces the SyncRequest wire-format fixtures that the current
+// netbird client (and the android variant) put on the wire. These two files
+// are regenerated at CI time — run with:
 //
 //	go run ./management/server/testdata/sync_request_wire/generate.go
 //
-// Each fixture is the proto-serialised SyncRequest a client of the indicated
-// netbird version would put on the wire. protobuf3 is forward-compatible: an
-// old client's fields live at stable tag numbers, so marshalling a current
-// SyncRequest that sets only those fields produces bytes byte-for-byte
-// compatible with what the old client produced. The fixtures are checked in
-// so a future proto change that silently breaks the old wire format is caught
-// in CI.
+// The legacy fixtures (v0_20_0.bin, v0_40_0.bin, v0_60_0.bin) are frozen
+// snapshots of what older clients sent. They are checked in and intentionally
+// never regenerated here, so a future proto change that silently breaks the
+// old wire format is caught by CI replaying the frozen bytes.
 package main
 
 import (
@@ -32,33 +30,6 @@ func main() {
 	}
 
 	fixtures := map[string]*mgmtProto.SyncRequest{
-		// v0.20.0: message SyncRequest {} — no fields on the wire.
-		"v0_20_0.bin": {},
-
-		// v0.40.0: Meta added at tag 1. Older meta fields only.
-		"v0_40_0.bin": {
-			Meta: &mgmtProto.PeerSystemMeta{
-				Hostname:       "v40-host",
-				GoOS:           "linux",
-				OS:             "linux",
-				Platform:       "x86_64",
-				Kernel:         "4.15.0",
-				NetbirdVersion: "0.40.0",
-			},
-		},
-
-		// v0.60.0: same wire shape as v0.40.0 for SyncRequest.
-		"v0_60_0.bin": {
-			Meta: &mgmtProto.PeerSystemMeta{
-				Hostname:       "v60-host",
-				GoOS:           "linux",
-				OS:             "linux",
-				Platform:       "x86_64",
-				Kernel:         "5.15.0",
-				NetbirdVersion: "0.60.0",
-			},
-		},
-
 		// current: fully-populated meta a modern client would send.
 		"current.bin": {
 			Meta: &mgmtProto.PeerSystemMeta{

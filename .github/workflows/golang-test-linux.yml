@@ -426,8 +426,11 @@ jobs:
         if: matrix.store == 'mysql'
         run: docker pull mlsmaycon/warmed-mysql:8
 
+      - name: Generate current sync wire fixtures
+        run: go run ./management/server/testdata/sync_request_wire/generate.go
+
       - name: Test
-        run: |          
+        run: |
           CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
           NETBIRD_STORE_ENGINE=${{ matrix.store }} \
             CI=true \
