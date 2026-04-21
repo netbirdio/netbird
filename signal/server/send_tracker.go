@@ -2,9 +2,11 @@ package server
 
 import (
 	"context"
+	"math"
 	"os"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -19,10 +21,13 @@ const (
 
 // sendRateTracker tracks per-key message counts and logs the busiest peers periodically.
 type sendRateTracker struct {
-	mu         sync.Mutex
-	counts     map[string]int64
-	interval   time.Duration
-	topPercent float64
+	mu     sync.Mutex
+	counts map[string]int64
+
+	// atomic so they can be updated by the setting overrider without locking
+	intervalNs atomic.Int64
+	// topPercent stored as float64 bits for atomic access
+	topPercentBits atomic.Uint64
 }
 
 func newSendRateTracker() *sendRateTracker {
@@ -42,11 +47,28 @@ func newSendRateTracker() *sendRateTracker {
 
 	log.Debugf("send rate tracker: interval=%s, top_percent=%.2f", interval, topPercent)
 
-	return &sendRateTracker{
-		counts:     make(map[string]int64),
-		interval:   interval,
-		topPercent: topPercent,
+	t := &sendRateTracker{
+		counts: make(map[string]int64),
 	}
+	t.intervalNs.Store(int64(interval))
+	t.topPercentBits.Store(math.Float64bits(topPercent))
+	return t
+}
+
+func (t *sendRateTracker) getInterval() time.Duration {
+	return time.Duration(t.intervalNs.Load())
+}
+
+func (t *sendRateTracker) setInterval(d time.Duration) {
+	t.intervalNs.Store(int64(d))
+}
+
+func (t *sendRateTracker) getTopPercent() float64 {
+	return math.Float64frombits(t.topPercentBits.Load())
+}
+
+func (t *sendRateTracker) setTopPercent(p float64) {
+	t.topPercentBits.Store(math.Float64bits(p))
 }
 
 func (t *sendRateTracker) increment(key string) {
@@ -66,7 +88,8 @@ func (t *sendRateTracker) resetAndSnapshot() map[string]int64 {
 
 // logSendRates periodically logs peers in the top percentile of the busiest peer.
 func (t *sendRateTracker) logSendRates(ctx context.Context) {
-	ticker := time.NewTicker(t.interval)
+	currentInterval := t.getInterval()
+	ticker := time.NewTicker(currentInterval)
 	defer ticker.Stop()
 
 	for {
@@ -74,6 +97,11 @@ func (t *sendRateTracker) logSendRates(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if newInterval := t.getInterval(); newInterval != currentInterval {
+				currentInterval = newInterval
+				ticker.Reset(currentInterval)
+			}
+
 			snap := t.resetAndSnapshot()
 			if len(snap) == 0 {
 				continue
@@ -86,11 +114,12 @@ func (t *sendRateTracker) logSendRates(ctx context.Context) {
 				}
 			}
 
-			threshold := int64(float64(maxCount) * t.topPercent)
-			intervalMin := t.interval.Minutes()
+			topPercent := t.getTopPercent()
+			threshold := int64(float64(maxCount) * topPercent)
+			intervalMin := currentInterval.Minutes()
 
 			log.Debugf("send rate stats: %d unique peers in last %.0fs, max rate %.1f msg/min",
-				len(snap), t.interval.Seconds(), float64(maxCount)/intervalMin)
+				len(snap), currentInterval.Seconds(), float64(maxCount)/intervalMin)
 			logged := 0
 			for key, count := range snap {
 				if count >= threshold {

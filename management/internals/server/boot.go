@@ -19,6 +19,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	cachestore "github.com/eko/gocache/lib/v4/store"
+
 	"github.com/netbirdio/management-integrations/integrations"
 
 	"github.com/netbirdio/netbird/encryption"
@@ -33,6 +34,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/settingoverrider"
 	"github.com/netbirdio/netbird/util/crypt"
 )
 
@@ -69,6 +71,23 @@ func (s *BaseServer) CacheStore() cachestore.StoreInterface {
 			log.Fatalf("failed to create shared cache store: %v", err)
 		}
 		return cs
+	})
+}
+
+// SettingOverrider returns a shared setting overrider backed by Redis.
+// Returns a no-op overrider if no Redis address is configured.
+func (s *BaseServer) SettingOverrider() *settingoverrider.Overrider {
+	return Create(s, func() *settingoverrider.Overrider {
+		redisAddr := nbcache.GetAddrFromEnv()
+		if redisAddr == "" {
+			return settingoverrider.NewNoop()
+		}
+
+		o, err := settingoverrider.New(context.Background(), redisAddr)
+		if err != nil {
+			log.Fatalf("failed to create setting overrider: %v", err)
+		}
+		return o
 	})
 }
 
