@@ -46,12 +46,12 @@ type restoreHostManager interface {
 }
 
 func newHostManager(wgInterface string) (hostManager, error) {
-	osManager, err := getOSDNSManagerType()
+	osManager, reason, err := getOSDNSManagerType()
 	if err != nil {
 		return nil, fmt.Errorf("get os dns manager type: %w", err)
 	}
 
-	log.Infof("System DNS manager discovered: %s", osManager)
+	log.Infof("System DNS manager discovered: %s (%s)", osManager, reason)
 	mgr, err := newHostManagerFromType(wgInterface, osManager)
 	// need to explicitly return nil mgr on error to avoid returning a non-nil interface containing a nil value
 	if err != nil {
@@ -74,18 +74,22 @@ func newHostManagerFromType(wgInterface string, osManager osManagerType) (restor
 	}
 }
 
-func getOSDNSManagerType() (osManagerType, error) {
+func getOSDNSManagerType() (osManagerType, string, error) {
+	resolved := isSystemdResolvedRunning()
+	nss := isLibnssResolveUsed()
+	stub := checkStub()
+
 	// Prefer systemd-resolved whenever it owns libc resolution, regardless of
 	// who wrote /etc/resolv.conf. File-mode rewrites do not affect lookups
 	// that go through nss-resolve, and in foreign mode they can loop back
 	// through resolved as an upstream.
-	if isSystemdResolvedRunning() && (isLibnssResolveUsed() || checkStub()) {
-		return systemdManager, nil
+	if resolved && (nss || stub) {
+		return systemdManager, fmt.Sprintf("systemd-resolved active (nss-resolve=%t, stub=%t)", nss, stub), nil
 	}
 
 	file, err := os.Open(defaultResolvConfPath)
 	if err != nil {
-		return 0, fmt.Errorf("unable to open %s for checking owner, got error: %w", defaultResolvConfPath, err)
+		return 0, "", fmt.Errorf("unable to open %s for checking owner, got error: %w", defaultResolvConfPath, err)
 	}
 	defer func() {
 		if err := file.Close(); err != nil {
@@ -100,27 +104,27 @@ func getOSDNSManagerType() (osManagerType, error) {
 			continue
 		}
 		if text[0] != '#' {
-			return fileManager, nil
+			return fileManager, "no recognized header in resolv.conf", nil
 		}
 		if strings.Contains(text, fileGeneratedResolvConfContentHeader) {
-			return netbirdManager, nil
+			return netbirdManager, "netbird-managed resolv.conf header detected", nil
 		}
 		if strings.Contains(text, "NetworkManager") && isDbusListenerRunning(networkManagerDest, networkManagerDbusObjectNode) && isNetworkManagerSupported() {
-			return networkManager, nil
+			return networkManager, "NetworkManager header + supported version on dbus", nil
 		}
 		if strings.Contains(text, "resolvconf") {
 			if isSystemdResolveConfMode() {
-				return systemdManager, nil
+				return systemdManager, "resolvconf header in systemd-resolved compatibility mode", nil
 			}
 
-			return resolvConfManager, nil
+			return resolvConfManager, "resolvconf header detected", nil
 		}
 	}
 	if err := scanner.Err(); err != nil && err != io.EOF {
-		return 0, fmt.Errorf("scan: %w", err)
+		return 0, "", fmt.Errorf("scan: %w", err)
 	}
 
-	return fileManager, nil
+	return fileManager, fmt.Sprintf("no manager matched (resolved=%t, nss-resolve=%t, stub=%t)", resolved, nss, stub), nil
 }
 
 // checkStub reports whether systemd-resolved's stub (127.0.0.53) is listed
