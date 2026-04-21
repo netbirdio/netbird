@@ -226,6 +226,27 @@ func TestAPIRateLimiter_UpdateConfig_NilIgnored(t *testing.T) {
 	assert.False(t, rl.Allow("k"))
 }
 
+func TestAPIRateLimiter_UpdateConfig_NonPositiveIgnored(t *testing.T) {
+	rl := NewAPIRateLimiter(&RateLimiterConfig{
+		RequestsPerMinute: 60,
+		Burst:             1,
+		CleanupInterval:   time.Minute,
+		LimiterTTL:        time.Minute,
+	})
+	defer rl.Stop()
+
+	assert.True(t, rl.Allow("k"))
+	assert.False(t, rl.Allow("k"))
+
+	rl.UpdateConfig(&RateLimiterConfig{RequestsPerMinute: 0, Burst: 0, CleanupInterval: time.Minute, LimiterTTL: time.Minute})
+	rl.UpdateConfig(&RateLimiterConfig{RequestsPerMinute: -1, Burst: 5, CleanupInterval: time.Minute, LimiterTTL: time.Minute})
+	rl.UpdateConfig(&RateLimiterConfig{RequestsPerMinute: 60, Burst: -1, CleanupInterval: time.Minute, LimiterTTL: time.Minute})
+
+	rl.Reset("k")
+	assert.True(t, rl.Allow("k"))
+	assert.False(t, rl.Allow("k"), "burst should still be 1 — invalid UpdateConfig calls were ignored")
+}
+
 func TestAPIRateLimiter_ConcurrentAllowAndUpdate(t *testing.T) {
 	rl := NewAPIRateLimiter(&RateLimiterConfig{
 		RequestsPerMinute: 600,
@@ -299,4 +320,10 @@ func TestRateLimiterConfigFromEnv(t *testing.T) {
 	assert.False(t, enabled)
 	assert.Equal(t, float64(defaultAPIRPM), cfg.RequestsPerMinute)
 	assert.Equal(t, defaultAPIBurst, cfg.Burst)
+
+	t.Setenv(RateLimitingRPMEnv, "0")
+	t.Setenv(RateLimitingBurstEnv, "-5")
+	cfg, _ = RateLimiterConfigFromEnv()
+	assert.Equal(t, float64(defaultAPIRPM), cfg.RequestsPerMinute, "non-positive rpm must fall back to default")
+	assert.Equal(t, defaultAPIBurst, cfg.Burst, "non-positive burst must fall back to default")
 }

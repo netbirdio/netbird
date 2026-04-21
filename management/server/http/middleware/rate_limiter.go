@@ -57,6 +57,10 @@ func RateLimiterConfigFromEnv() (cfg *RateLimiterConfig, enabled bool) {
 			rpm = value
 		}
 	}
+	if rpm <= 0 {
+		log.Warnf("%s=%d is non-positive, using default %d", RateLimitingRPMEnv, rpm, defaultAPIRPM)
+		rpm = defaultAPIRPM
+	}
 
 	burst := defaultAPIBurst
 	if v := os.Getenv(RateLimitingBurstEnv); v != "" {
@@ -66,6 +70,10 @@ func RateLimiterConfigFromEnv() (cfg *RateLimiterConfig, enabled bool) {
 		} else {
 			burst = value
 		}
+	}
+	if burst <= 0 {
+		log.Warnf("%s=%d is non-positive, using default %d", RateLimitingBurstEnv, burst, defaultAPIBurst)
+		burst = defaultAPIBurst
 	}
 
 	return &RateLimiterConfig{
@@ -119,6 +127,10 @@ func (rl *APIRateLimiter) Enabled() bool {
 
 func (rl *APIRateLimiter) UpdateConfig(config *RateLimiterConfig) {
 	if config == nil {
+		return
+	}
+	if config.RequestsPerMinute <= 0 || config.Burst <= 0 {
+		log.Warnf("UpdateConfig: ignoring invalid rpm=%v burst=%d", config.RequestsPerMinute, config.Burst)
 		return
 	}
 
