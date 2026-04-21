@@ -38,6 +38,15 @@ type cfFuncs struct {
 	CFRunLoopRemoveSource func(rl, source, mode uintptr)
 }
 
+// runLoopSession bundles the handles owned by one CFRunLoop lifetime. A nil
+// session means no runloop is active and the next Register must start one.
+type runLoopSession struct {
+	rl       uintptr
+	port     uintptr
+	notifier uintptr
+	rp       uintptr
+}
+
 var (
 	ioKit         iokitFuncs
 	cf            cfFuncs
@@ -51,19 +60,11 @@ var (
 
 	serviceRegistry   = make(map[*Detector]struct{})
 	serviceRegistryMu sync.Mutex
+	session           *runLoopSession
 
-	// lifecycleMu serializes Register and Deregister so concurrent lifecycle
-	// transitions can't interleave (e.g. a new registration starting a second
-	// runloop while the previous teardown is still pending).
+	// lifecycleMu serializes Register/Deregister so a new registration can't
+	// start a second runloop while a previous teardown is still pending.
 	lifecycleMu sync.Mutex
-
-	// runtime state, protected by serviceRegistryMu
-	runLoopRef   uintptr
-	notifyPort   uintptr
-	notifierObj  uintptr
-	rootPort     uintptr
-	runLoopReady chan struct{}
-	runLoopErr   error
 )
 
 func initLibs() error {
@@ -111,10 +112,9 @@ func initLibs() error {
 	return libInitErr
 }
 
-// powerCallback is the IOServiceInterestCallback trampoline. It runs on the
-// runloop thread (the OS-locked goroutine in runRunLoop). All args are
-// word-sized so purego can forward them without conversion. A Go panic
-// crossing the purego boundary has undefined behavior, so contain it here.
+// powerCallback is the IOServiceInterestCallback trampoline, invoked on the
+// runloop thread. A Go panic crossing the purego boundary has undefined
+// behavior, so contain it here.
 func powerCallback(refcon, service, messageType, messageArgument uintptr) uintptr {
 	defer func() {
 		if r := recover(); r != nil {
@@ -123,12 +123,10 @@ func powerCallback(refcon, service, messageType, messageArgument uintptr) uintpt
 	}()
 	switch messageType {
 	case kIOMessageCanSystemSleep:
-		// Consent query that precedes idle sleep; not acknowledging
-		// forces a 30s IOKit timeout before sleep proceeds.
+		// Not acknowledging forces a 30s IOKit timeout before idle sleep.
 		allowPowerChange(messageArgument)
 	case kIOMessageSystemWillSleep:
 		dispatchEvent(EventTypeSleep)
-		// Must acknowledge so the system proceeds with sleep.
 		allowPowerChange(messageArgument)
 	case kIOMessageSystemHasPoweredOn:
 		dispatchEvent(EventTypeWakeUp)
@@ -138,7 +136,10 @@ func powerCallback(refcon, service, messageType, messageArgument uintptr) uintpt
 
 func allowPowerChange(messageArgument uintptr) {
 	serviceRegistryMu.Lock()
-	port := rootPort
+	var port uintptr
+	if session != nil {
+		port = session.rp
+	}
 	serviceRegistryMu.Unlock()
 	if port != 0 {
 		ioKit.IOAllowPowerChange(port, messageArgument)
@@ -183,52 +184,29 @@ func (d *Detector) Register(callback func(event EventType)) error {
 		serviceRegistryMu.Unlock()
 		return fmt.Errorf("detector service already registered")
 	}
-
 	d.callback = callback
 	d.done = make(chan struct{})
 	serviceRegistry[d] = struct{}{}
-
-	if len(serviceRegistry) > 1 {
-		ready := runLoopReady
-		serviceRegistryMu.Unlock()
-		if ready != nil {
-			<-ready
-		}
-		return d.rollbackIfRunLoopFailed()
-	}
-
-	runLoopReady = make(chan struct{})
-	runLoopErr = nil
-	ready := runLoopReady
+	needSetup := session == nil
 	serviceRegistryMu.Unlock()
 
-	go runRunLoop()
-	<-ready
+	if !needSetup {
+		return nil
+	}
 
-	if err := d.rollbackIfRunLoopFailed(); err != nil {
+	errCh := make(chan error, 1)
+	go runRunLoop(errCh)
+	if err := <-errCh; err != nil {
 		serviceRegistryMu.Lock()
-		runLoopReady = nil
+		delete(serviceRegistry, d)
+		close(d.done)
+		d.done = nil
 		serviceRegistryMu.Unlock()
 		return err
 	}
 
 	log.Info("sleep detection service started on macOS")
 	return nil
-}
-
-// rollbackIfRunLoopFailed removes the detector from the registry and returns
-// the runloop setup error if one occurred. Must be called after runLoopReady
-// has been closed.
-func (d *Detector) rollbackIfRunLoopFailed() error {
-	serviceRegistryMu.Lock()
-	err := runLoopErr
-	if err != nil {
-		delete(serviceRegistry, d)
-		close(d.done)
-		d.done = nil
-	}
-	serviceRegistryMu.Unlock()
-	return err
 }
 
 // Deregister removes the detector. When the last detector leaves, IOKit
@@ -242,7 +220,6 @@ func (d *Detector) Deregister() error {
 		serviceRegistryMu.Unlock()
 		return nil
 	}
-
 	close(d.done)
 	delete(serviceRegistry, d)
 
@@ -250,52 +227,34 @@ func (d *Detector) Deregister() error {
 		serviceRegistryMu.Unlock()
 		return nil
 	}
-	ready := runLoopReady
+	sess := session
+	session = nil
 	serviceRegistryMu.Unlock()
 
 	log.Info("sleep detection service stopping (deregister)")
 
-	// Wait for the runloop setup to publish its state before we read it.
-	// If setup already failed, the fields stayed zero and the checks below
-	// become no-ops.
-	if ready != nil {
-		<-ready
+	if sess == nil {
+		return nil
 	}
 
-	serviceRegistryMu.Lock()
-	rl := runLoopRef
-	port := notifyPort
-	notifier := notifierObj
-	rp := rootPort
-	serviceRegistryMu.Unlock()
-
-	// CFRunLoopStop and CFRunLoopRemoveSource are thread-safe; deregistering
-	// notifications from another thread is allowed by IOKit.
-	if rl != 0 && port != 0 {
-		source := ioKit.IONotificationPortGetRunLoopSource(port)
-		cf.CFRunLoopRemoveSource(rl, source, cfCommonModes)
+	// CFRunLoop and IOKit teardown calls are safe from a non-runloop thread.
+	if sess.rl != 0 && sess.port != 0 {
+		source := ioKit.IONotificationPortGetRunLoopSource(sess.port)
+		cf.CFRunLoopRemoveSource(sess.rl, source, cfCommonModes)
 	}
-	if notifier != 0 {
-		n := notifier
+	if sess.notifier != 0 {
+		n := sess.notifier
 		ioKit.IODeregisterForSystemPower(&n)
 	}
-	if rp != 0 {
-		ioKit.IOServiceClose(rp)
+	if sess.rp != 0 {
+		ioKit.IOServiceClose(sess.rp)
 	}
-	if port != 0 {
-		ioKit.IONotificationPortDestroy(port)
+	if sess.port != 0 {
+		ioKit.IONotificationPortDestroy(sess.port)
 	}
-	if rl != 0 {
-		cf.CFRunLoopStop(rl)
+	if sess.rl != 0 {
+		cf.CFRunLoopStop(sess.rl)
 	}
-
-	serviceRegistryMu.Lock()
-	runLoopRef = 0
-	notifyPort = 0
-	notifierObj = 0
-	rootPort = 0
-	runLoopReady = nil
-	serviceRegistryMu.Unlock()
 
 	return nil
 }
@@ -329,59 +288,49 @@ func (d *Detector) triggerCallback(event EventType) {
 	}
 }
 
-// runRunLoop registers IOKit notifications and blocks on CFRunLoopRun.
-// Must own a locked OS thread because CFRunLoop is thread-affine. Publishes
-// runloop state to the package globals, then signals runLoopReady. On setup
-// failure runLoopErr is set and the goroutine exits without entering the
-// runloop.
-func runRunLoop() {
+// runRunLoop owns the OS-locked thread that CFRunLoop is pinned to. Setup
+// result is reported on errCh so Register can surface failures synchronously.
+func runRunLoop(errCh chan<- error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	// Ensure runLoopReady is closed even on panic so Register/Deregister
-	// waiters don't hang.
+	sess, err := setupSession()
+	if err == nil {
+		serviceRegistryMu.Lock()
+		session = sess
+		serviceRegistryMu.Unlock()
+	}
+	errCh <- err
+	if err != nil {
+		return
+	}
+
 	defer func() {
 		if r := recover(); r != nil {
-			serviceRegistryMu.Lock()
-			runLoopErr = fmt.Errorf("panic during runloop setup: %v", r)
-			ready := runLoopReady
-			serviceRegistryMu.Unlock()
-			if ready != nil {
-				select {
-				case <-ready:
-					// already closed
-				default:
-					close(ready)
-				}
-			}
 			log.Errorf("panic in sleep runloop: %v", r)
 		}
 	}()
+	cf.CFRunLoopRun()
+}
 
-	var portRef uintptr
-	var notifier uintptr
+// setupSession performs the IOKit registration on the current thread.
+// Panics are converted to errors so runRunLoop never leaves errCh unsent.
+func setupSession() (s *runLoopSession, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic during runloop setup: %v", r)
+		}
+	}()
+
+	var portRef, notifier uintptr
 	rp := ioKit.IORegisterForSystemPower(0, &portRef, callbackThunk, &notifier)
 	if rp == 0 {
-		serviceRegistryMu.Lock()
-		runLoopErr = fmt.Errorf("IORegisterForSystemPower returned zero")
-		ready := runLoopReady
-		serviceRegistryMu.Unlock()
-		close(ready)
-		return
+		return nil, fmt.Errorf("IORegisterForSystemPower returned zero")
 	}
 
 	rl := cf.CFRunLoopGetCurrent()
 	source := ioKit.IONotificationPortGetRunLoopSource(portRef)
 	cf.CFRunLoopAddSource(rl, source, cfCommonModes)
 
-	serviceRegistryMu.Lock()
-	runLoopRef = rl
-	notifyPort = portRef
-	notifierObj = notifier
-	rootPort = rp
-	ready := runLoopReady
-	serviceRegistryMu.Unlock()
-	close(ready)
-
-	cf.CFRunLoopRun()
+	return &runLoopSession{rl: rl, port: portRef, notifier: notifier, rp: rp}, nil
 }
