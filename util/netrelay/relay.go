@@ -74,12 +74,17 @@ type Options struct {
 // returned because a relay always terminates on some kind of EOF/cancel.
 func Relay(ctx context.Context, a, b io.ReadWriteCloser, opts Options) (aToB, bToA int64) {
 	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	closeDone := make(chan struct{})
+	defer func() {
+		cancel()
+		<-closeDone
+	}()
 
 	go func() {
 		<-ctx.Done()
 		_ = a.Close()
 		_ = b.Close()
+		close(closeDone)
 	}()
 
 	// Both sides must support CloseWrite to propagate half-close. If either
