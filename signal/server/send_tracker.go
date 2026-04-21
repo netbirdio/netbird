@@ -2,22 +2,51 @@ package server
 
 import (
 	"context"
+	"os"
+	"strconv"
 	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 )
 
-const sendRateLogInterval = 5 * time.Minute
+const (
+	defaultSendRateLogInterval = 5 * time.Minute
+	defaultSendRateTopPercent  = 0.95
+	envSendRateLogInterval     = "NB_SIGNAL_SEND_RATE_LOG_INTERVAL"
+	envSendRateTopPercent      = "NB_SIGNAL_SEND_RATE_LOG_TOP_PERCENT"
+)
 
 // sendRateTracker tracks per-key message counts and logs the busiest peers periodically.
 type sendRateTracker struct {
-	mu     sync.Mutex
-	counts map[string]int64
+	mu         sync.Mutex
+	counts     map[string]int64
+	interval   time.Duration
+	topPercent float64
 }
 
 func newSendRateTracker() *sendRateTracker {
-	return &sendRateTracker{counts: make(map[string]int64)}
+	interval := defaultSendRateLogInterval
+	if v := os.Getenv(envSendRateLogInterval); v != "" {
+		if parsed, err := time.ParseDuration(v); err == nil && parsed > 0 {
+			interval = parsed
+		}
+	}
+
+	topPercent := defaultSendRateTopPercent
+	if v := os.Getenv(envSendRateTopPercent); v != "" {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil && parsed > 0 && parsed <= 1 {
+			topPercent = parsed
+		}
+	}
+
+	log.Debugf("send rate tracker: interval=%s, top_percent=%.2f", interval, topPercent)
+
+	return &sendRateTracker{
+		counts:     make(map[string]int64),
+		interval:   interval,
+		topPercent: topPercent,
+	}
 }
 
 func (t *sendRateTracker) increment(key string) {
@@ -35,9 +64,9 @@ func (t *sendRateTracker) resetAndSnapshot() map[string]int64 {
 	return snap
 }
 
-// logSendRates periodically logs peers that have at least half the rate of the busiest peer.
+// logSendRates periodically logs peers in the top percentile of the busiest peer.
 func (t *sendRateTracker) logSendRates(ctx context.Context) {
-	ticker := time.NewTicker(sendRateLogInterval)
+	ticker := time.NewTicker(t.interval)
 	defer ticker.Stop()
 
 	for {
@@ -57,11 +86,11 @@ func (t *sendRateTracker) logSendRates(ctx context.Context) {
 				}
 			}
 
-			threshold := int64(float64(maxCount) * 0.95)
-			intervalMin := sendRateLogInterval.Minutes()
+			threshold := int64(float64(maxCount) * t.topPercent)
+			intervalMin := t.interval.Minutes()
 
 			log.Debugf("send rate stats: %d unique peers in last %.0fs, max rate %.1f msg/min",
-				len(snap), sendRateLogInterval.Seconds(), float64(maxCount)/intervalMin)
+				len(snap), t.interval.Seconds(), float64(maxCount)/intervalMin)
 			logged := 0
 			for key, count := range snap {
 				if count >= threshold {
