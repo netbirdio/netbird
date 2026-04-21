@@ -140,6 +140,9 @@ func (s *Server) tryFastPathSync(
 	if s.peerSerialCache == nil {
 		return false, nil
 	}
+	if !s.fastPathFlag.Enabled() {
+		return false, nil
+	}
 	if strings.EqualFold(peerMeta.GoOS, "android") {
 		return false, nil
 	}
@@ -251,6 +254,9 @@ func (s *Server) recordPeerSyncEntry(peerKey string, netMap *nbtypes.NetworkMap,
 	if s.peerSerialCache == nil {
 		return
 	}
+	if !s.fastPathFlag.Enabled() {
+		return
+	}
 	if netMap == nil || netMap.Network == nil {
 		return
 	}
@@ -266,6 +272,9 @@ func (s *Server) recordPeerSyncEntry(peerKey string, netMap *nbtypes.NetworkMap,
 // so the cache stays in sync with what the peer most recently received.
 func (s *Server) recordPeerSyncEntryFromUpdate(peerKey string, update *network_map.UpdateMessage, peerMetaHash uint64) {
 	if s.peerSerialCache == nil || update == nil || update.Update == nil || update.Update.NetworkMap == nil {
+		return
+	}
+	if !s.fastPathFlag.Enabled() {
 		return
 	}
 	serial := update.Update.NetworkMap.GetSerial()

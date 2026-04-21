@@ -164,7 +164,8 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 
 		gRPCAPIHandler := grpc.NewServer(gRPCOpts...)
 		peerSerialCache := nbgrpc.NewPeerSerialCache(context.Background(), s.CacheStore(), nbgrpc.DefaultPeerSerialCacheTTL)
-		srv, err := nbgrpc.NewServer(s.Config, s.AccountManager(), s.SettingsManager(), s.JobManager(), s.SecretsManager(), s.Metrics(), s.AuthManager(), s.IntegratedValidator(), s.NetworkMapController(), s.OAuthConfigProvider(), peerSerialCache)
+		fastPathFlag := nbgrpc.RunFastPathFlagRoutine(context.Background(), nbgrpc.DefaultFastPathFlagInterval, nbgrpc.DefaultFastPathRedisKey)
+		srv, err := nbgrpc.NewServer(s.Config, s.AccountManager(), s.SettingsManager(), s.JobManager(), s.SecretsManager(), s.Metrics(), s.AuthManager(), s.IntegratedValidator(), s.NetworkMapController(), s.OAuthConfigProvider(), peerSerialCache, fastPathFlag)
 		if err != nil {
 			log.Fatalf("failed to create management server: %v", err)
 		}

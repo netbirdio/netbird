@@ -88,11 +88,17 @@ type Server struct {
 	// peerSerialCache lets Sync skip full network map computation when the peer
 	// already has the latest account serial. A nil cache disables the fast path.
 	peerSerialCache *PeerSerialCache
+
+	// fastPathFlag is the runtime kill switch for the Sync fast path. A nil
+	// flag or a flag reporting disabled forces every Sync through the full
+	// network map path.
+	fastPathFlag *FastPathFlag
 }
 
-// NewServer creates a new Management server. peerSerialCache is optional; when
-// nil the Sync fast path is disabled and every request runs the full map
-// computation, matching the pre-cache behaviour.
+// NewServer creates a new Management server. peerSerialCache and fastPathFlag
+// are both optional; when either is nil or the flag reports disabled, the
+// Sync fast path is disabled and every request runs the full map computation,
+// matching the pre-cache behaviour.
 func NewServer(
 	config *nbconfig.Config,
 	accountManager account.Manager,
@@ -105,6 +111,7 @@ func NewServer(
 	networkMapController network_map.Controller,
 	oAuthConfigProvider idp.OAuthConfigProvider,
 	peerSerialCache *PeerSerialCache,
+	fastPathFlag *FastPathFlag,
 ) (*Server, error) {
 	if appMetrics != nil {
 		// update gauge based on number of connected peers which is equal to open gRPC streams
@@ -154,6 +161,7 @@ func NewServer(
 		syncLimEnabled: syncLimEnabled,
 
 		peerSerialCache: peerSerialCache,
+		fastPathFlag:    fastPathFlag,
 	}, nil
 }
 
