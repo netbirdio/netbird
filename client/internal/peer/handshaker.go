@@ -44,6 +44,10 @@ type OfferAnswer struct {
 	SessionID *ICESessionID
 }
 
+func (o *OfferAnswer) hasICECredentials() bool {
+	return o.IceCredentials.UFrag != "" && o.IceCredentials.Pwd != ""
+}
+
 type Handshaker struct {
 	mu            sync.Mutex
 	log           *log.Entry
@@ -102,7 +106,7 @@ func (h *Handshaker) Listen(ctx context.Context) {
 	for {
 		select {
 		case remoteOfferAnswer := <-h.remoteOffersCh:
-			h.log.Infof("received offer, running version %s, remote WireGuard listen port %d, session id: %s", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString())
+			h.log.Infof("received offer, running version %s, remote WireGuard listen port %d, session id: %s, remote ICE supported: %t", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString(), remoteOfferAnswer.hasICECredentials())
 
 			// Record signaling received for reconnection attempts
 			if h.metricsStages != nil {
@@ -124,7 +128,7 @@ func (h *Handshaker) Listen(ctx context.Context) {
 				continue
 			}
 		case remoteOfferAnswer := <-h.remoteAnswerCh:
-			h.log.Infof("received answer, running version %s, remote WireGuard listen port %d, session id: %s", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString())
+			h.log.Infof("received answer, running version %s, remote WireGuard listen port %d, session id: %s, remote ICE supported: %t", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString(), remoteOfferAnswer.hasICECredentials())
 
 			// Record signaling received for reconnection attempts
 			if h.metricsStages != nil {
@@ -221,7 +225,7 @@ func (h *Handshaker) buildOfferAnswer() OfferAnswer {
 }
 
 func (h *Handshaker) updateRemoteICEState(offer *OfferAnswer) {
-	hasICE := offer.IceCredentials.UFrag != "" && offer.IceCredentials.Pwd != ""
+	hasICE := offer.hasICECredentials()
 	prev := h.remoteICESupported.Swap(hasICE)
 	if prev != hasICE {
 		if hasICE {
