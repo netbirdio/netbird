@@ -157,6 +157,9 @@ func (s *Server) tryFastPathSync(
 		return false, nil
 	}
 
+	log.WithContext(ctx).Debugf("fast path: GetAccountNetwork peer took %s", time.Since(start))
+	start = time.Now()
+
 	cached, hit := s.peerSerialCache.Get(peerKey.String())
 	if !shouldSkipNetworkMap(peerMeta.GoOS, hit, cached, network.CurrentSerial(), peerMetaHash) {
 		log.WithContext(ctx).Debugf("fast path: checking for fast path eligibility for peer took %s", time.Since(reqStart))
@@ -188,13 +191,15 @@ func (s *Server) commitFastPath(
 	expectedSerial uint64,
 ) (*nbpeer.Peer, chan *network_map.UpdateMessage, bool) {
 	start := time.Now()
-	defer log.WithContext(ctx).Debugf("fast path: commitFastPath took %s", time.Since(start))
+	cp := start
+	defer log.WithContext(ctx).Debugf("fast path: commitFastPath took %s", time.Since(cp))
 
 	if err := s.accountManager.MarkPeerConnected(ctx, peerKey.String(), true, realIP, accountID, syncStart); err != nil {
 		log.WithContext(ctx).Warnf("fast path: mark connected for peer %s: %v", peerKey.String(), err)
 	}
 
 	log.WithContext(ctx).Debugf("fast path: mark peer connected took %s", time.Since(start))
+	start = time.Now()
 
 	peer, err := s.accountManager.GetStore().GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, peerKey.String())
 	if err != nil {
@@ -203,6 +208,7 @@ func (s *Server) commitFastPath(
 	}
 
 	log.WithContext(ctx).Debugf("fast path: get peer took %s", time.Since(start))
+	start = time.Now()
 
 	updates, err := s.networkMapController.OnPeerConnected(ctx, accountID, peer.ID)
 	if err != nil {
@@ -211,6 +217,7 @@ func (s *Server) commitFastPath(
 	}
 
 	log.WithContext(ctx).Debugf("fast path: on peer connected took %s", time.Since(start))
+	start = time.Now()
 
 	network, err := s.accountManager.GetStore().GetAccountNetwork(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
