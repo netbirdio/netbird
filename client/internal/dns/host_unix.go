@@ -125,11 +125,17 @@ func getOSDNSManagerType() (osManagerType, error) {
 	return fileManager, nil
 }
 
-// checkStub checks if the stub resolver is disabled in systemd-resolved. If it is disabled, we fall back to file manager.
+// checkStub reports whether systemd-resolved's stub address (127.0.0.53) is
+// listed in /etc/resolv.conf. A true return value signals that callers should
+// prefer systemd-resolved; it does not make the final manager decision by
+// itself (non-stub systems still fall through to the header scanner).
+// On parse failure we assume the stub is present to avoid dropping into file
+// mode while resolved is active, which would re-ingest NetBird's address as
+// an upstream and form a resolution loop.
 func checkStub() bool {
 	rConf, err := parseDefaultResolvConf()
 	if err != nil {
-		log.Warnf("failed to parse resolv conf: %s", err)
+		log.Warnf("failed to parse resolv conf, assuming stub is active: %s", err)
 		return true
 	}
 
