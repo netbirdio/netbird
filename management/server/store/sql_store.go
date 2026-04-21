@@ -3449,7 +3449,7 @@ func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(stor
 		return err
 	}
 
-	log.WithContext(ctx).Tracef("transaction took %v (caller: %s)", time.Since(startTime), nbutil.GetCallerName())
+	log.WithContext(ctx).Tracef("transaction took %v", time.Since(startTime))
 	if s.metrics != nil {
 		s.metrics.StoreMetrics().CountTransactionDuration(time.Since(startTime))
 	}
