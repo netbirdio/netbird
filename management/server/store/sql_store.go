@@ -45,6 +45,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/status"
+	nbutil "github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/util/crypt"
 )
 
@@ -3448,7 +3449,7 @@ func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(stor
 		return err
 	}
 
-	log.WithContext(ctx).Tracef("transaction took %v", time.Since(startTime))
+	log.WithContext(ctx).Tracef("transaction took %v (caller: %s)", time.Since(startTime), nbutil.GetCallerName())
 	if s.metrics != nil {
 		s.metrics.StoreMetrics().CountTransactionDuration(time.Since(startTime))
 	}
