@@ -25,6 +25,7 @@ import (
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/ssh/detection"
 	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/util/netrelay"
 )
 
 const (
@@ -536,7 +537,7 @@ func (c *Client) LocalPortForward(ctx context.Context, localAddr, remoteAddr str
 				continue
 			}
 
-			go c.handleLocalForward(localConn, remoteAddr)
+			go c.handleLocalForward(ctx, localConn, remoteAddr)
 		}
 	}()
 
@@ -548,7 +549,7 @@ func (c *Client) LocalPortForward(ctx context.Context, localAddr, remoteAddr str
 }
 
 // handleLocalForward handles a single local port forwarding connection
-func (c *Client) handleLocalForward(localConn net.Conn, remoteAddr string) {
+func (c *Client) handleLocalForward(ctx context.Context, localConn net.Conn, remoteAddr string) {
 	defer func() {
 		if err := localConn.Close(); err != nil {
 			log.Debugf("local port forwarding: close local connection: %v", err)
@@ -571,7 +572,7 @@ func (c *Client) handleLocalForward(localConn net.Conn, remoteAddr string) {
 		}
 	}()
 
-	nbssh.BidirectionalCopy(log.NewEntry(log.StandardLogger()), localConn, channel)
+	netrelay.Relay(ctx, localConn, channel, netrelay.Options{Logger: log.NewEntry(log.StandardLogger())})
 }
 
 // RemotePortForward sets up remote port forwarding, binding on remote and forwarding to localAddr
@@ -653,16 +654,19 @@ func (c *Client) handleRemoteForwardChannels(ctx context.Context, localAddr stri
 		select {
 		case <-ctx.Done():
 			return
-		case newChan := <-channelRequests:
+		case newChan, ok := <-channelRequests:
+			if !ok {
+				return
+			}
 			if newChan != nil {
-				go c.handleRemoteForwardChannel(newChan, localAddr)
+				go c.handleRemoteForwardChannel(ctx, newChan, localAddr)
 			}
 		}
 	}
 }
 
 // handleRemoteForwardChannel handles a single forwarded-tcpip channel
-func (c *Client) handleRemoteForwardChannel(newChan ssh.NewChannel, localAddr string) {
+func (c *Client) handleRemoteForwardChannel(ctx context.Context, newChan ssh.NewChannel, localAddr string) {
 	channel, reqs, err := newChan.Accept()
 	if err != nil {
 		return
@@ -675,7 +679,8 @@ func (c *Client) handleRemoteForwardChannel(newChan ssh.NewChannel, localAddr st
 
 	go ssh.DiscardRequests(reqs)
 
-	localConn, err := net.Dial("tcp", localAddr)
+	var dialer net.Dialer
+	localConn, err := dialer.DialContext(ctx, "tcp", localAddr)
 	if err != nil {
 		return
 	}
@@ -685,7 +690,7 @@ func (c *Client) handleRemoteForwardChannel(newChan ssh.NewChannel, localAddr st
 		}
 	}()
 
-	nbssh.BidirectionalCopy(log.NewEntry(log.StandardLogger()), localConn, channel)
+	netrelay.Relay(ctx, localConn, channel, netrelay.Options{Logger: log.NewEntry(log.StandardLogger())})
 }
 
 // tcpipForwardMsg represents the structure for tcpip-forward requests
