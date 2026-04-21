@@ -75,6 +75,16 @@ func newHostManagerFromType(wgInterface string, osManager osManagerType) (restor
 }
 
 func getOSDNSManagerType() (osManagerType, error) {
+	// If systemd-resolved is serving on 127.0.0.53, prefer it regardless of
+	// who owns /etc/resolv.conf. NetworkManager often rewrites resolv.conf with
+	// its own header while still deferring resolution to systemd-resolved, and
+	// falling back to file mode there snapshots 127.0.0.53 as the fallback
+	// upstream. systemd-resolved in foreign mode re-reads /etc/resolv.conf and
+	// ingests our address as global DNS, which closes the loop.
+	if isSystemdResolvedRunning() && checkStub() {
+		return systemdManager, nil
+	}
+
 	file, err := os.Open(defaultResolvConfPath)
 	if err != nil {
 		return 0, fmt.Errorf("unable to open %s for checking owner, got error: %w", defaultResolvConfPath, err)
@@ -99,13 +109,6 @@ func getOSDNSManagerType() (osManagerType, error) {
 		}
 		if strings.Contains(text, "NetworkManager") && isDbusListenerRunning(networkManagerDest, networkManagerDbusObjectNode) && isNetworkManagerSupported() {
 			return networkManager, nil
-		}
-		if strings.Contains(text, "systemd-resolved") && isSystemdResolvedRunning() {
-			if checkStub() {
-				return systemdManager, nil
-			} else {
-				return fileManager, nil
-			}
 		}
 		if strings.Contains(text, "resolvconf") {
 			if isSystemdResolveConfMode() {
