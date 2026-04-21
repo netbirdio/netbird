@@ -67,6 +67,9 @@ func (f *FastPathFlag) setEnabled(v bool) {
 // flag is toggled cluster-wide by writing the key in Redis) and falls back to
 // an in-process gocache otherwise, which is enough for single-replica dev and
 // test setups.
+//
+// The routine fails closed: any store read error (other than a plain "key not
+// found" miss) disables the flag until Redis confirms it is enabled again.
 func RunFastPathFlagRoutine(ctx context.Context, cacheStore store.StoreInterface, interval time.Duration, flagKey string) *FastPathFlag {
 	flag := &FastPathFlag{}
 
@@ -92,11 +95,10 @@ func RunFastPathFlagRoutine(ctx context.Context, cacheStore store.StoreInterface
 			value, err := flagCache.Get(getCtx, flagKey)
 			if err != nil {
 				var notFound *store.NotFound
-				if errors.As(err, &notFound) {
-					flag.setEnabled(false)
-					return
+				if !errors.As(err, &notFound) {
+					log.Errorf("Sync fast-path flag refresh: %v; disabling fast path", err)
 				}
-				log.Debugf("Sync fast-path flag refresh: %v", err)
+				flag.setEnabled(false)
 				return
 			}
 			flag.setEnabled(parseFastPathFlag(value))

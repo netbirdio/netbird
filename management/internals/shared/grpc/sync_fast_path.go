@@ -158,42 +158,77 @@ func (s *Server) tryFastPathSync(
 		return false, nil
 	}
 
-	return true, s.runFastPathSync(ctx, reqStart, syncStart, accountID, peerKey, realIP, peerMetaHash, srv, unlock)
+	peer, updates, committed := s.commitFastPath(ctx, accountID, peerKey, realIP, syncStart, network.CurrentSerial())
+	if !committed {
+		return false, nil
+	}
+
+	return true, s.runFastPathSync(ctx, reqStart, syncStart, accountID, peerKey, peer, updates, peerMetaHash, srv, unlock)
 }
 
-// runFastPathSync executes the fast path: mark connected, send lean response,
-// open the update channel, kick off token refresh, release the per-peer lock,
-// then block on handleUpdates until the stream is closed.
-func (s *Server) runFastPathSync(
+// commitFastPath marks the peer connected, subscribes it to network-map
+// updates, then re-checks the account serial to close the race between the
+// eligibility check and the subscription. If the serial advanced in that
+// window the subscription is torn down and the caller falls back to the slow
+// path so the peer receives the new state. Returns committed=false on any
+// failure that should not block the slow path from running.
+func (s *Server) commitFastPath(
 	ctx context.Context,
-	reqStart, syncStart time.Time,
 	accountID string,
 	peerKey wgtypes.Key,
 	realIP net.IP,
-	peerMetaHash uint64,
-	srv proto.ManagementService_SyncServer,
-	unlock *func(),
-) error {
+	syncStart time.Time,
+	expectedSerial uint64,
+) (*nbpeer.Peer, chan *network_map.UpdateMessage, bool) {
 	if err := s.accountManager.MarkPeerConnected(ctx, peerKey.String(), true, realIP, accountID, syncStart); err != nil {
 		log.WithContext(ctx).Warnf("fast path: mark connected for peer %s: %v", peerKey.String(), err)
 	}
 
 	peer, err := s.accountManager.GetStore().GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, peerKey.String())
 	if err != nil {
-		s.syncSem.Add(-1)
-		return mapError(ctx, err)
-	}
-
-	if err := s.sendFastPathResponse(ctx, peerKey, peer, srv); err != nil {
-		log.WithContext(ctx).Debugf("fast path: send response for peer %s: %v", peerKey.String(), err)
-		s.syncSem.Add(-1)
-		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, syncStart)
-		return err
+		log.WithContext(ctx).Debugf("fast path: lookup peer %s: %v", peerKey.String(), err)
+		return nil, nil, false
 	}
 
 	updates, err := s.networkMapController.OnPeerConnected(ctx, accountID, peer.ID)
 	if err != nil {
 		log.WithContext(ctx).Debugf("fast path: notify peer connected for %s: %v", peerKey.String(), err)
+		return nil, nil, false
+	}
+
+	network, err := s.accountManager.GetStore().GetAccountNetwork(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		log.WithContext(ctx).Debugf("fast path: re-check account network: %v", err)
+		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, syncStart)
+		return nil, nil, false
+	}
+	if network.CurrentSerial() != expectedSerial {
+		log.WithContext(ctx).Debugf("fast path: serial advanced from %d to %d after subscribe, falling back to slow path for peer %s", expectedSerial, network.CurrentSerial(), peerKey.String())
+		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, syncStart)
+		return nil, nil, false
+	}
+
+	return peer, updates, true
+}
+
+// runFastPathSync executes the fast path: send the lean response, kick off
+// token refresh, release the per-peer lock, then block on handleUpdates until
+// the stream is closed. Peer lookup and subscription have already been
+// performed by commitFastPath so the race between eligibility check and
+// subscription is already closed.
+func (s *Server) runFastPathSync(
+	ctx context.Context,
+	reqStart, syncStart time.Time,
+	accountID string,
+	peerKey wgtypes.Key,
+	peer *nbpeer.Peer,
+	updates chan *network_map.UpdateMessage,
+	peerMetaHash uint64,
+	srv proto.ManagementService_SyncServer,
+	unlock *func(),
+) error {
+	if err := s.sendFastPathResponse(ctx, peerKey, peer, srv); err != nil {
+		log.WithContext(ctx).Debugf("fast path: send response for peer %s: %v", peerKey.String(), err)
 		s.syncSem.Add(-1)
 		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, syncStart)
 		return err

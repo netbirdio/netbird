@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/golang/protobuf/proto" //nolint:staticcheck // matches the generator
 	"github.com/stretchr/testify/require"
@@ -46,6 +45,7 @@ func sendWireFixture(t *testing.T, client mgmtProto.ManagementServiceClient, ser
 }
 
 func TestSync_WireFixture_LegacyClients_AlwaysReceiveFullMap(t *testing.T) {
+	skipOnWindows(t)
 	cases := []struct {
 		name    string
 		fixture string
@@ -87,12 +87,13 @@ func TestSync_WireFixture_LegacyClient_ReconnectStillGetsFullMap(t *testing.T) {
 	// readInitialSettings — they error on nil NetworkMap. Without extra opt-in
 	// signalling there is no way for the server to know this is a GetNetworkMap
 	// call rather than a main Sync, so the server's fast path would break them
-	// on reconnect. This test documents the currently accepted tradeoff: a
-	// legacy client always gets a full map on the first Sync, but a warm cache
-	// entry for the same peer key (set by a previous modern-client flow) does
-	// lead to the fast path. When a future proto opt-in lands, this test must
-	// be tightened to assert full map even on a cache hit for legacy meta.
-	mgmtServer, _, addr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", fastPathTestConfig(t))
+	// on reconnect. This test pins the currently accepted tradeoff: a legacy
+	// v0.40 client gets a full map on the first Sync but a reconnect with an
+	// unchanged metaHash hits the primed cache and goes through the fast path.
+	// When a future proto opt-in lets the server distinguish these clients,
+	// this assertion must be tightened to require.NotNil(second.NetworkMap).
+	skipOnWindows(t)
+	mgmtServer, am, addr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", fastPathTestConfig(t))
 	require.NoError(t, err)
 	defer cleanup()
 	defer mgmtServer.GracefulStop()
@@ -110,16 +111,19 @@ func TestSync_WireFixture_LegacyClient_ReconnectStillGetsFullMap(t *testing.T) {
 	require.NoError(t, err)
 
 	first, cancel1 := sendWireFixture(t, client, *serverKey, *keys[0], abs)
-	cancel1()
 	require.NotNil(t, first.NetworkMap, "first legacy sync receives full map and primes cache")
+	cancel1()
+	waitForPeerDisconnect(t, am, keys[0].PublicKey().String())
 
-	// Give server-side handleUpdates time to tear down the first stream before
-	// we reopen for the same peer.
-	time.Sleep(50 * time.Millisecond)
+	second, cancel2 := sendWireFixture(t, client, *serverKey, *keys[0], abs)
+	defer cancel2()
+	require.Nil(t, second.NetworkMap, "documented legacy-reconnect tradeoff: warm cache entry causes fast path; update when proto opt-in lands")
+	require.NotNil(t, second.NetbirdConfig, "fast path still delivers NetbirdConfig")
 }
 
 func TestSync_WireFixture_AndroidReconnect_NeverSkips(t *testing.T) {
-	mgmtServer, _, addr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", fastPathTestConfig(t))
+	skipOnWindows(t)
+	mgmtServer, am, addr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", fastPathTestConfig(t))
 	require.NoError(t, err)
 	defer cleanup()
 	defer mgmtServer.GracefulStop()
@@ -139,7 +143,7 @@ func TestSync_WireFixture_AndroidReconnect_NeverSkips(t *testing.T) {
 	first, cancel1 := sendWireFixture(t, client, *serverKey, *keys[0], abs)
 	require.NotNil(t, first.NetworkMap, "android first sync must deliver a full map")
 	cancel1()
-	waitForPeerDisconnect()
+	waitForPeerDisconnect(t, am, keys[0].PublicKey().String())
 
 	second, cancel2 := sendWireFixture(t, client, *serverKey, *keys[0], abs)
 	defer cancel2()
@@ -147,7 +151,8 @@ func TestSync_WireFixture_AndroidReconnect_NeverSkips(t *testing.T) {
 }
 
 func TestSync_WireFixture_ModernClientReconnect_TakesFastPath(t *testing.T) {
-	mgmtServer, _, addr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", fastPathTestConfig(t))
+	skipOnWindows(t)
+	mgmtServer, am, addr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", fastPathTestConfig(t))
 	require.NoError(t, err)
 	defer cleanup()
 	defer mgmtServer.GracefulStop()
@@ -167,7 +172,7 @@ func TestSync_WireFixture_ModernClientReconnect_TakesFastPath(t *testing.T) {
 	first, cancel1 := sendWireFixture(t, client, *serverKey, *keys[0], abs)
 	require.NotNil(t, first.NetworkMap, "modern first sync primes cache")
 	cancel1()
-	waitForPeerDisconnect()
+	waitForPeerDisconnect(t, am, keys[0].PublicKey().String())
 
 	second, cancel2 := sendWireFixture(t, client, *serverKey, *keys[0], abs)
 	defer cancel2()

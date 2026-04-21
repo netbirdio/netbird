@@ -2,6 +2,8 @@ package grpc
 
 import (
 	"context"
+	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -126,4 +128,49 @@ func TestRunFastPathFlagRoutine_DefaultKeyUsedWhenEmpty(t *testing.T) {
 func newFastPathTestStore(t *testing.T) store.StoreInterface {
 	t.Helper()
 	return gocache_store.NewGoCache(gocache.New(5*time.Minute, 10*time.Minute))
+}
+
+func TestRunFastPathFlagRoutine_FailsClosedOnReadError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	s := &flakyStore{
+		StoreInterface: newFastPathTestStore(t),
+	}
+	require.NoError(t, s.Set(ctx, "peerSyncFastPath", "1"), "seed flag enabled")
+
+	flag := RunFastPathFlagRoutine(ctx, s, 50*time.Millisecond, "peerSyncFastPath")
+	require.NotNil(t, flag)
+
+	assert.Eventually(t, flag.Enabled, 2*time.Second, 25*time.Millisecond, "flag should flip enabled while store reads succeed")
+
+	s.setGetError(errors.New("simulated transient store failure"))
+	assert.Eventually(t, func() bool {
+		return !flag.Enabled()
+	}, 2*time.Second, 25*time.Millisecond, "flag should flip disabled on store read error (fail-closed)")
+
+	s.setGetError(nil)
+	assert.Eventually(t, flag.Enabled, 2*time.Second, 25*time.Millisecond, "flag should recover once the store read succeeds again")
+}
+
+// flakyStore wraps a real store and lets tests inject a transient Get error
+// without affecting Set/Delete. Used to exercise fail-closed behaviour.
+type flakyStore struct {
+	store.StoreInterface
+	getErr atomic.Pointer[error]
+}
+
+func (f *flakyStore) Get(ctx context.Context, key any) (any, error) {
+	if errPtr := f.getErr.Load(); errPtr != nil && *errPtr != nil {
+		return nil, *errPtr
+	}
+	return f.StoreInterface.Get(ctx, key)
+}
+
+func (f *flakyStore) setGetError(err error) {
+	if err == nil {
+		f.getErr.Store(nil)
+		return
+	}
+	f.getErr.Store(&err)
 }

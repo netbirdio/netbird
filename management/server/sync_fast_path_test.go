@@ -12,9 +12,20 @@ import (
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/server/store"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/util"
 )
+
+// skipOnWindows skips the calling test on Windows. The in-process gRPC
+// harness uses Unix socket / path conventions that do not cleanly map to
+// Windows.
+func skipOnWindows(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping on windows; harness uses unix path conventions")
+	}
+}
 
 func fastPathTestConfig(t *testing.T) *config.Config {
 	t.Helper()
@@ -72,12 +83,21 @@ func openSync(t *testing.T, client mgmtProto.ManagementServiceClient, serverKey,
 	return resp, cancel
 }
 
-// waitForPeerDisconnect gives the server's handleUpdates goroutine a moment to
-// notice the cancelled stream and run cancelPeerRoutines before the next open.
-// Without this the new stream can race with the old one's channel close and
-// trigger a spurious disconnect.
-func waitForPeerDisconnect() {
-	time.Sleep(50 * time.Millisecond)
+// waitForPeerDisconnect polls until the account manager reports the peer as
+// disconnected (Status.Connected == false), which happens once the server's
+// handleUpdates goroutine has run cancelPeerRoutines for the cancelled
+// stream. The deadline is bounded so a stuck server fails the test rather
+// than hanging. Replaces the former fixed 50ms sleep which was CI-flaky
+// under load or with the race detector on.
+func waitForPeerDisconnect(t *testing.T, am *DefaultAccountManager, peerPubKey string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		peer, err := am.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, peerPubKey)
+		if err != nil {
+			return false
+		}
+		return !peer.Status.Connected
+	}, 2*time.Second, 10*time.Millisecond, "peer %s should be marked disconnected after stream cancel", peerPubKey)
 }
 
 func baseLinuxMeta() *mgmtProto.PeerSystemMeta {
@@ -103,9 +123,7 @@ func androidMeta() *mgmtProto.PeerSystemMeta {
 }
 
 func TestSyncFastPath_FirstSync_SendsFullMap(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("skipping on windows; harness uses unix path conventions")
-	}
+	skipOnWindows(t)
 	mgmtServer, _, addr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", fastPathTestConfig(t))
 	require.NoError(t, err)
 	defer cleanup()
@@ -128,7 +146,8 @@ func TestSyncFastPath_FirstSync_SendsFullMap(t *testing.T) {
 }
 
 func TestSyncFastPath_SecondSync_MatchingSerial_SkipsMap(t *testing.T) {
-	mgmtServer, _, addr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", fastPathTestConfig(t))
+	skipOnWindows(t)
+	mgmtServer, am, addr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", fastPathTestConfig(t))
 	require.NoError(t, err)
 	defer cleanup()
 	defer mgmtServer.GracefulStop()
@@ -145,7 +164,7 @@ func TestSyncFastPath_SecondSync_MatchingSerial_SkipsMap(t *testing.T) {
 	first, cancel1 := openSync(t, client, *serverKey, *keys[0], baseLinuxMeta())
 	require.NotNil(t, first.NetworkMap, "first sync primes cache with a full map")
 	cancel1()
-	waitForPeerDisconnect()
+	waitForPeerDisconnect(t, am, keys[0].PublicKey().String())
 
 	second, cancel2 := openSync(t, client, *serverKey, *keys[0], baseLinuxMeta())
 	defer cancel2()
@@ -158,7 +177,8 @@ func TestSyncFastPath_SecondSync_MatchingSerial_SkipsMap(t *testing.T) {
 }
 
 func TestSyncFastPath_AndroidNeverSkips(t *testing.T) {
-	mgmtServer, _, addr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", fastPathTestConfig(t))
+	skipOnWindows(t)
+	mgmtServer, am, addr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", fastPathTestConfig(t))
 	require.NoError(t, err)
 	defer cleanup()
 	defer mgmtServer.GracefulStop()
@@ -175,7 +195,7 @@ func TestSyncFastPath_AndroidNeverSkips(t *testing.T) {
 	first, cancel1 := openSync(t, client, *serverKey, *keys[0], androidMeta())
 	require.NotNil(t, first.NetworkMap, "android first sync must deliver a full map")
 	cancel1()
-	waitForPeerDisconnect()
+	waitForPeerDisconnect(t, am, keys[0].PublicKey().String())
 
 	second, cancel2 := openSync(t, client, *serverKey, *keys[0], androidMeta())
 	defer cancel2()
@@ -184,7 +204,8 @@ func TestSyncFastPath_AndroidNeverSkips(t *testing.T) {
 }
 
 func TestSyncFastPath_MetaChanged_SendsFullMap(t *testing.T) {
-	mgmtServer, _, addr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", fastPathTestConfig(t))
+	skipOnWindows(t)
+	mgmtServer, am, addr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", fastPathTestConfig(t))
 	require.NoError(t, err)
 	defer cleanup()
 	defer mgmtServer.GracefulStop()
@@ -201,7 +222,7 @@ func TestSyncFastPath_MetaChanged_SendsFullMap(t *testing.T) {
 	first, cancel1 := openSync(t, client, *serverKey, *keys[0], baseLinuxMeta())
 	require.NotNil(t, first.NetworkMap, "first sync primes cache")
 	cancel1()
-	waitForPeerDisconnect()
+	waitForPeerDisconnect(t, am, keys[0].PublicKey().String())
 
 	changed := baseLinuxMeta()
 	changed.Hostname = "linux-host-renamed"
@@ -212,7 +233,8 @@ func TestSyncFastPath_MetaChanged_SendsFullMap(t *testing.T) {
 }
 
 func TestSyncFastPath_LoginInvalidatesCache(t *testing.T) {
-	mgmtServer, _, addr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", fastPathTestConfig(t))
+	skipOnWindows(t)
+	mgmtServer, am, addr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", fastPathTestConfig(t))
 	require.NoError(t, err)
 	defer cleanup()
 	defer mgmtServer.GracefulStop()
@@ -233,7 +255,7 @@ func TestSyncFastPath_LoginInvalidatesCache(t *testing.T) {
 	first, cancel1 := openSync(t, client, *serverKey, key, baseLinuxMeta())
 	require.NotNil(t, first.NetworkMap, "first sync primes cache")
 	cancel1()
-	waitForPeerDisconnect()
+	waitForPeerDisconnect(t, am, key.PublicKey().String())
 
 	// A subsequent login (e.g. SSH key rotation, re-auth) must clear the cache.
 	_, err = loginPeerWithValidSetupKey(key, client)
@@ -245,7 +267,8 @@ func TestSyncFastPath_LoginInvalidatesCache(t *testing.T) {
 }
 
 func TestSyncFastPath_OtherPeerRegistered_ForcesFullMap(t *testing.T) {
-	mgmtServer, _, addr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", fastPathTestConfig(t))
+	skipOnWindows(t)
+	mgmtServer, am, addr, cleanup, err := startManagementForTest(t, "testdata/store_with_expired_peers.sql", fastPathTestConfig(t))
 	require.NoError(t, err)
 	defer cleanup()
 	defer mgmtServer.GracefulStop()
@@ -262,7 +285,7 @@ func TestSyncFastPath_OtherPeerRegistered_ForcesFullMap(t *testing.T) {
 	first, cancel1 := openSync(t, client, *serverKey, *keys[0], baseLinuxMeta())
 	require.NotNil(t, first.NetworkMap, "first sync primes cache at serial N")
 	cancel1()
-	waitForPeerDisconnect()
+	waitForPeerDisconnect(t, am, keys[0].PublicKey().String())
 
 	// Registering another peer bumps the account serial via IncrementNetworkSerial.
 	_, err = registerPeers(1, client)
