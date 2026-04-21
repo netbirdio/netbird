@@ -45,7 +45,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/status"
-	nbutil "github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/util/crypt"
 )
 
