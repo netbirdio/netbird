@@ -75,13 +75,11 @@ func newHostManagerFromType(wgInterface string, osManager osManagerType) (restor
 }
 
 func getOSDNSManagerType() (osManagerType, error) {
-	// If systemd-resolved is serving on 127.0.0.53, prefer it regardless of
-	// who owns /etc/resolv.conf. NetworkManager often rewrites resolv.conf with
-	// its own header while still deferring resolution to systemd-resolved, and
-	// falling back to file mode there snapshots 127.0.0.53 as the fallback
-	// upstream. systemd-resolved in foreign mode re-reads /etc/resolv.conf and
-	// ingests our address as global DNS, which closes the loop.
-	if isSystemdResolvedRunning() && checkStub() {
+	// Prefer systemd-resolved whenever it owns libc resolution, regardless of
+	// who wrote /etc/resolv.conf. File-mode rewrites do not affect lookups
+	// that go through nss-resolve, and in foreign mode they can loop back
+	// through resolved as an upstream.
+	if isSystemdResolvedRunning() && (isLibnssResolveUsed() || checkStub()) {
 		return systemdManager, nil
 	}
 
@@ -125,13 +123,9 @@ func getOSDNSManagerType() (osManagerType, error) {
 	return fileManager, nil
 }
 
-// checkStub reports whether systemd-resolved's stub address (127.0.0.53) is
-// listed in /etc/resolv.conf. A true return value signals that callers should
-// prefer systemd-resolved; it does not make the final manager decision by
-// itself (non-stub systems still fall through to the header scanner).
-// On parse failure we assume the stub is present to avoid dropping into file
-// mode while resolved is active, which would re-ingest NetBird's address as
-// an upstream and form a resolution loop.
+// checkStub reports whether systemd-resolved's stub (127.0.0.53) is listed
+// in /etc/resolv.conf. On parse failure we assume it is, to avoid dropping
+// into file mode while resolved is active.
 func checkStub() bool {
 	rConf, err := parseDefaultResolvConf()
 	if err != nil {
@@ -146,5 +140,38 @@ func checkStub() bool {
 		}
 	}
 
+	return false
+}
+
+// isLibnssResolveUsed reports whether nss-resolve is listed before dns on
+// the hosts: line of /etc/nsswitch.conf. When it is, libc lookups are
+// delegated to systemd-resolved regardless of /etc/resolv.conf.
+func isLibnssResolveUsed() bool {
+	bs, err := os.ReadFile(nsswitchConfPath)
+	if err != nil {
+		log.Debugf("read %s: %v", nsswitchConfPath, err)
+		return false
+	}
+	return parseNsswitchResolveAhead(bs)
+}
+
+func parseNsswitchResolveAhead(data []byte) bool {
+	for _, line := range strings.Split(string(data), "\n") {
+		if i := strings.IndexByte(line, '#'); i >= 0 {
+			line = line[:i]
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 || fields[0] != "hosts:" {
+			continue
+		}
+		for _, module := range fields[1:] {
+			switch module {
+			case "dns":
+				return false
+			case "resolve":
+				return true
+			}
+		}
+	}
 	return false
 }
