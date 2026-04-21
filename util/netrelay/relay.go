@@ -108,7 +108,7 @@ func Relay(ctx context.Context, a, b io.ReadWriteCloser, opts Options) (aToB, bT
 	go func() {
 		defer wg.Done()
 		aToB, errAToB = copyTracked(b, a, &lastActivity)
-		if halfCloseSupported {
+		if halfCloseSupported && isCleanEOF(errAToB) {
 			halfClose(b)
 		} else {
 			cancel()
@@ -118,7 +118,7 @@ func Relay(ctx context.Context, a, b io.ReadWriteCloser, opts Options) (aToB, bT
 	go func() {
 		defer wg.Done()
 		bToA, errBToA = copyTracked(a, b, &lastActivity)
-		if halfCloseSupported {
+		if halfCloseSupported && isCleanEOF(errBToA) {
 			halfClose(a)
 		} else {
 			cancel()
@@ -207,6 +207,14 @@ func halfClose(conn io.ReadWriteCloser) {
 	if hc, ok := conn.(halfCloser); ok {
 		_ = hc.CloseWrite()
 	}
+}
+
+// isCleanEOF reports whether a copy terminated on a graceful end-of-stream.
+// Only in that case is it correct to propagate the EOF via CloseWrite on the
+// peer; any other error means the flow is broken and both directions should
+// tear down.
+func isCleanEOF(err error) bool {
+	return err == nil || errors.Is(err, io.EOF)
 }
 
 func isExpectedCopyError(err error) bool {

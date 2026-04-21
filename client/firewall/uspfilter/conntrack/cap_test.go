@@ -64,6 +64,15 @@ func TestTCPCapPrefersTombstonedForEviction(t *testing.T) {
 	require.False(t, tombstonedStillPresent,
 		"tombstoned entry should be evicted before live entries")
 	require.LessOrEqual(t, len(tracker.connections), 3)
+
+	// Both live pre-cap entries must survive: eviction must prefer the
+	// tombstone, not just satisfy the size bound by dropping any entry.
+	require.Contains(t, tracker.connections,
+		ConnKey{SrcIP: src, DstIP: dst, SrcPort: uint16(20000), DstPort: 80},
+		"live entries must not be evicted while a tombstone exists")
+	require.Contains(t, tracker.connections,
+		ConnKey{SrcIP: src, DstIP: dst, SrcPort: uint16(20002), DstPort: 80},
+		"live entries must not be evicted while a tombstone exists")
 }
 
 func TestUDPCapEvicts(t *testing.T) {
