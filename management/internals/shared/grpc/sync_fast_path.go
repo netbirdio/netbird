@@ -140,6 +140,7 @@ func (s *Server) tryFastPathSync(
 	srv proto.ManagementService_SyncServer,
 	unlock *func(),
 ) (took bool, err error) {
+	start := time.Now()
 	if s.peerSerialCache == nil {
 		return false, nil
 	}
@@ -162,7 +163,7 @@ func (s *Server) tryFastPathSync(
 		return false, nil
 	}
 
-	log.WithContext(ctx).Debugf("fast path: checking for fast path eligibility for peer took %s", time.Since(reqStart))
+	log.WithContext(ctx).Debugf("fast path: checking for fast path eligibility for peer took %s", time.Since(start))
 
 	peer, updates, committed := s.commitFastPath(ctx, accountID, peerKey, realIP, syncStart, network.CurrentSerial())
 	if !committed {
@@ -186,13 +187,14 @@ func (s *Server) commitFastPath(
 	syncStart time.Time,
 	expectedSerial uint64,
 ) (*nbpeer.Peer, chan *network_map.UpdateMessage, bool) {
-	defer log.WithContext(ctx).Debugf("fast path: commitFastPath took %s", time.Since(syncStart))
+	start := time.Now()
+	defer log.WithContext(ctx).Debugf("fast path: commitFastPath took %s", time.Since(start))
 
 	if err := s.accountManager.MarkPeerConnected(ctx, peerKey.String(), true, realIP, accountID, syncStart); err != nil {
 		log.WithContext(ctx).Warnf("fast path: mark connected for peer %s: %v", peerKey.String(), err)
 	}
 
-	log.WithContext(ctx).Debugf("fast path: mark peer connected took %s", time.Since(syncStart))
+	log.WithContext(ctx).Debugf("fast path: mark peer connected took %s", time.Since(start))
 
 	peer, err := s.accountManager.GetStore().GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, peerKey.String())
 	if err != nil {
@@ -200,7 +202,7 @@ func (s *Server) commitFastPath(
 		return nil, nil, false
 	}
 
-	log.WithContext(ctx).Debugf("fast path: get peer took %s", time.Since(syncStart))
+	log.WithContext(ctx).Debugf("fast path: get peer took %s", time.Since(start))
 
 	updates, err := s.networkMapController.OnPeerConnected(ctx, accountID, peer.ID)
 	if err != nil {
@@ -208,7 +210,7 @@ func (s *Server) commitFastPath(
 		return nil, nil, false
 	}
 
-	log.WithContext(ctx).Debugf("fast path: on peer connected took %s", time.Since(syncStart))
+	log.WithContext(ctx).Debugf("fast path: on peer connected took %s", time.Since(start))
 
 	network, err := s.accountManager.GetStore().GetAccountNetwork(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
@@ -217,7 +219,7 @@ func (s *Server) commitFastPath(
 		return nil, nil, false
 	}
 
-	log.WithContext(ctx).Debugf("fast path: get network took %s", time.Since(syncStart))
+	log.WithContext(ctx).Debugf("fast path: get network took %s", time.Since(start))
 
 	if network.CurrentSerial() != expectedSerial {
 		log.WithContext(ctx).Debugf("fast path: serial advanced from %d to %d after subscribe, falling back to slow path for peer %s", expectedSerial, network.CurrentSerial(), peerKey.String())
@@ -244,6 +246,7 @@ func (s *Server) runFastPathSync(
 	srv proto.ManagementService_SyncServer,
 	unlock *func(),
 ) error {
+	start := time.Now()
 	if err := s.sendFastPathResponse(ctx, peerKey, peer, srv); err != nil {
 		log.WithContext(ctx).Debugf("fast path: send response for peer %s: %v", peerKey.String(), err)
 		s.syncSem.Add(-1)
@@ -251,7 +254,7 @@ func (s *Server) runFastPathSync(
 		return err
 	}
 
-	log.WithContext(ctx).Debugf("fast path: mark peer connected took %s", time.Since(syncStart))
+	log.WithContext(ctx).Debugf("fast path: mark peer connected took %s", time.Since(start))
 
 	s.secretsManager.SetupRefresh(ctx, accountID, peer.ID)
 
@@ -263,7 +266,7 @@ func (s *Server) runFastPathSync(
 	if s.appMetrics != nil {
 		s.appMetrics.GRPCMetrics().CountSyncRequestDuration(time.Since(reqStart), accountID)
 	}
-	log.WithContext(ctx).Debugf("fast path: sync took %s", time.Since(syncStart))
+	log.WithContext(ctx).Debugf("fast path: sync took %s", time.Since(start))
 	log.WithContext(ctx).Debugf("Sync (fast path) took %s", time.Since(reqStart))
 
 	s.syncSem.Add(-1)
