@@ -8,9 +8,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go"
 	testcontainersredis "github.com/testcontainers/testcontainers-go/modules/redis"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 func TestParseFastPathFlag(t *testing.T) {
@@ -130,12 +128,7 @@ func setupFastPathRedisContainer(t *testing.T) (string, *redis.Client) {
 	t.Helper()
 
 	ctx := context.Background()
-	redisContainer, err := testcontainersredis.RunContainer(ctx,
-		testcontainers.WithImage("redis:7"),
-		testcontainers.WithWaitStrategy(
-			wait.ForListeningPort("6379/tcp"),
-		),
-	)
+	redisContainer, err := testcontainersredis.Run(ctx, "redis:7")
 	require.NoError(t, err, "create redis test container")
 
 	t.Cleanup(func() {

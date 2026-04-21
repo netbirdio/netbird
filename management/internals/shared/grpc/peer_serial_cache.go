@@ -3,7 +3,6 @@ package grpc
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/eko/gocache/lib/v4/cache"
@@ -80,10 +79,4 @@ func (c *PeerSerialCache) Delete(pubKey string) {
 	if err := c.cache.Delete(c.ctx, peerSerialCacheKeyPrefix+pubKey); err != nil {
 		log.Debugf("peer serial cache: delete entry for %s: %v", pubKey, err)
 	}
-}
-
-// cacheKey exposes the namespaced key for tests that need to peek at the raw
-// storage, e.g. when asserting TTL behaviour against Redis.
-func (c *PeerSerialCache) cacheKey(pubKey string) string {
-	return fmt.Sprintf("%s%s", peerSerialCacheKeyPrefix, pubKey)
 }
