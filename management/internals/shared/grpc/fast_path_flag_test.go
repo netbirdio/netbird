@@ -5,10 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/redis/go-redis/v9"
+	"github.com/eko/gocache/lib/v4/store"
+	gocache_store "github.com/eko/gocache/store/go_cache/v4"
+	gocache "github.com/patrickmn/go-cache"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	testcontainersredis "github.com/testcontainers/testcontainers-go/modules/redis"
 )
 
 func TestParseFastPathFlag(t *testing.T) {
@@ -54,101 +55,75 @@ func TestFastPathFlag_SetEnabled(t *testing.T) {
 	assert.False(t, flag.Enabled(), "flag should report disabled after setEnabled(false)")
 }
 
-func TestFastPathRedisStore_InvalidURL(t *testing.T) {
-	_, err := getFastPathRedisStore(context.Background(), "invalid-url")
-	assert.Error(t, err, "Should fail with invalid URL")
+func TestNewFastPathFlag(t *testing.T) {
+	assert.True(t, NewFastPathFlag(true).Enabled(), "NewFastPathFlag(true) should report enabled")
+	assert.False(t, NewFastPathFlag(false).Enabled(), "NewFastPathFlag(false) should report disabled")
 }
 
-func TestFastPathRedisStore_UnreachableHost(t *testing.T) {
-	_, err := getFastPathRedisStore(context.Background(), "redis://127.0.0.1:59998")
-	assert.Error(t, err, "Should fail when Redis is unreachable")
-}
-
-func TestRunFastPathFlagRoutine_DisabledWithoutEnvVar(t *testing.T) {
-	t.Setenv(fastPathRedisURLEnv, "")
-
+func TestRunFastPathFlagRoutine_NilStoreStaysDisabled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	flag := RunFastPathFlagRoutine(ctx, 100*time.Millisecond, "any-key")
+	flag := RunFastPathFlagRoutine(ctx, nil, 50*time.Millisecond, "peerSyncFastPath")
 	require.NotNil(t, flag, "RunFastPathFlagRoutine should always return a non-nil flag")
-	assert.False(t, flag.Enabled(), "flag should stay disabled when env var is unset")
+	assert.False(t, flag.Enabled(), "flag should stay disabled when no cache store is provided")
 
-	time.Sleep(250 * time.Millisecond)
-	assert.False(t, flag.Enabled(), "flag should remain disabled even after wait when env var is unset")
+	time.Sleep(150 * time.Millisecond)
+	assert.False(t, flag.Enabled(), "flag should remain disabled after wait when no cache store is provided")
 }
 
-func TestRunFastPathFlagRoutine_ReadsFlagFromRedis(t *testing.T) {
-	redisURL, client := setupFastPathRedisContainer(t)
-
-	t.Setenv(fastPathRedisURLEnv, redisURL)
-
+func TestRunFastPathFlagRoutine_ReadsFlagFromStore(t *testing.T) {
+	cacheStore := newFastPathTestStore(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	flag := RunFastPathFlagRoutine(ctx, 100*time.Millisecond, "peerSyncFastPath")
+	flag := RunFastPathFlagRoutine(ctx, cacheStore, 50*time.Millisecond, "peerSyncFastPath")
 	require.NotNil(t, flag)
-	assert.False(t, flag.Enabled(), "flag should start disabled with no key")
+	assert.False(t, flag.Enabled(), "flag should start disabled when the key is missing")
 
-	err := client.Set(ctx, "peerSyncFastPath", "1", 0).Err()
-	require.NoError(t, err, "set redis key must succeed")
+	require.NoError(t, cacheStore.Set(ctx, "peerSyncFastPath", "1"), "seed flag=1 into shared store")
+	assert.Eventually(t, flag.Enabled, 2*time.Second, 25*time.Millisecond, "flag should flip enabled after the key is set to 1")
 
-	assert.Eventually(t, flag.Enabled, 3*time.Second, 50*time.Millisecond, "flag should flip to enabled after Redis key is set to 1")
-
-	err = client.Set(ctx, "peerSyncFastPath", "0", 0).Err()
-	require.NoError(t, err, "reset redis key must succeed")
-
+	require.NoError(t, cacheStore.Set(ctx, "peerSyncFastPath", "0"), "override flag=0 into shared store")
 	assert.Eventually(t, func() bool {
 		return !flag.Enabled()
-	}, 3*time.Second, 50*time.Millisecond, "flag should flip back to disabled after Redis key is set to 0")
+	}, 2*time.Second, 25*time.Millisecond, "flag should flip disabled after the key is set to 0")
 
-	err = client.Del(ctx, "peerSyncFastPath").Err()
-	require.NoError(t, err, "delete redis key must succeed")
+	require.NoError(t, cacheStore.Delete(ctx, "peerSyncFastPath"), "remove flag key")
+	assert.Eventually(t, func() bool {
+		return !flag.Enabled()
+	}, 2*time.Second, 25*time.Millisecond, "flag should stay disabled after the key is deleted")
 
-	err = client.Set(ctx, "peerSyncFastPath", "true", 0).Err()
-	require.NoError(t, err)
-	assert.Eventually(t, flag.Enabled, 3*time.Second, 50*time.Millisecond, "flag should accept \"true\" as enabled")
+	require.NoError(t, cacheStore.Set(ctx, "peerSyncFastPath", "true"), "enable via string true")
+	assert.Eventually(t, flag.Enabled, 2*time.Second, 25*time.Millisecond, "flag should accept \"true\" as enabled")
 }
 
 func TestRunFastPathFlagRoutine_MissingKeyKeepsDisabled(t *testing.T) {
-	redisURL, _ := setupFastPathRedisContainer(t)
-	t.Setenv(fastPathRedisURLEnv, redisURL)
-
+	cacheStore := newFastPathTestStore(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	flag := RunFastPathFlagRoutine(ctx, 100*time.Millisecond, "peerSyncFastPathAbsent")
+	flag := RunFastPathFlagRoutine(ctx, cacheStore, 50*time.Millisecond, "peerSyncFastPathAbsent")
 	require.NotNil(t, flag)
 
-	time.Sleep(400 * time.Millisecond)
-	assert.False(t, flag.Enabled(), "flag should stay disabled when the key is missing in Redis")
+	time.Sleep(200 * time.Millisecond)
+	assert.False(t, flag.Enabled(), "flag should stay disabled when the key is missing from the store")
 }
 
-func setupFastPathRedisContainer(t *testing.T) (string, *redis.Client) {
+func TestRunFastPathFlagRoutine_DefaultKeyUsedWhenEmpty(t *testing.T) {
+	cacheStore := newFastPathTestStore(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	require.NoError(t, cacheStore.Set(ctx, DefaultFastPathFlagKey, "1"), "seed default key")
+
+	flag := RunFastPathFlagRoutine(ctx, cacheStore, 50*time.Millisecond, "")
+	require.NotNil(t, flag)
+
+	assert.Eventually(t, flag.Enabled, 2*time.Second, 25*time.Millisecond, "empty flagKey should fall back to DefaultFastPathFlagKey")
+}
+
+func newFastPathTestStore(t *testing.T) store.StoreInterface {
 	t.Helper()
-
-	ctx := context.Background()
-	redisContainer, err := testcontainersredis.Run(ctx, "redis:7")
-	require.NoError(t, err, "create redis test container")
-
-	t.Cleanup(func() {
-		if err := redisContainer.Terminate(ctx); err != nil {
-			t.Logf("failed to terminate redis container: %s", err)
-		}
-	})
-
-	redisURL, err := redisContainer.ConnectionString(ctx)
-	require.NoError(t, err)
-
-	options, err := redis.ParseURL(redisURL)
-	require.NoError(t, err)
-
-	client := redis.NewClient(options)
-	t.Cleanup(func() {
-		if err := client.Close(); err != nil {
-			t.Logf("failed to close redis client: %s", err)
-		}
-	})
-
-	return redisURL, client
+	return gocache_store.NewGoCache(gocache.New(5*time.Minute, 10*time.Minute))
 }
