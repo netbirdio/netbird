@@ -87,13 +87,32 @@ func getOSDNSManagerType() (osManagerType, string, error) {
 		return systemdManager, fmt.Sprintf("systemd-resolved active (nss-resolve=%t, stub=%t)", nss, stub), nil
 	}
 
+	mgr, reason, rejected, err := scanResolvConfHeader()
+	if err != nil {
+		return 0, "", err
+	}
+	if reason != "" {
+		return mgr, reason, nil
+	}
+
+	fallback := fmt.Sprintf("no manager matched (resolved=%t, nss-resolve=%t, stub=%t)", resolved, nss, stub)
+	if len(rejected) > 0 {
+		fallback += "; rejected: " + strings.Join(rejected, ", ")
+	}
+	return fileManager, fallback, nil
+}
+
+// scanResolvConfHeader walks /etc/resolv.conf header comments and returns the
+// matching manager. If reason is empty the caller should pick file mode and
+// use rejected for diagnostics.
+func scanResolvConfHeader() (osManagerType, string, []string, error) {
 	file, err := os.Open(defaultResolvConfPath)
 	if err != nil {
-		return 0, "", fmt.Errorf("unable to open %s for checking owner, got error: %w", defaultResolvConfPath, err)
+		return 0, "", nil, fmt.Errorf("unable to open %s for checking owner, got error: %w", defaultResolvConfPath, err)
 	}
 	defer func() {
-		if err := file.Close(); err != nil {
-			log.Errorf("close file %s: %s", defaultResolvConfPath, err)
+		if cerr := file.Close(); cerr != nil {
+			log.Errorf("close file %s: %s", defaultResolvConfPath, cerr)
 		}
 	}()
 
@@ -107,32 +126,37 @@ func getOSDNSManagerType() (osManagerType, string, error) {
 		if text[0] != '#' {
 			break
 		}
-		if strings.Contains(text, fileGeneratedResolvConfContentHeader) {
-			return netbirdManager, "netbird-managed resolv.conf header detected", nil
-		}
-		if strings.Contains(text, "NetworkManager") {
-			if isDbusListenerRunning(networkManagerDest, networkManagerDbusObjectNode) && isNetworkManagerSupported() {
-				return networkManager, "NetworkManager header + supported version on dbus", nil
-			}
-			rejected = append(rejected, "NetworkManager header (no dbus or unsupported version)")
-		}
-		if strings.Contains(text, "resolvconf") {
-			if isSystemdResolveConfMode() {
-				return systemdManager, "resolvconf header in systemd-resolved compatibility mode", nil
-			}
-
-			return resolvConfManager, "resolvconf header detected", nil
+		if mgr, reason, rej := matchResolvConfHeader(text); reason != "" {
+			return mgr, reason, nil, nil
+		} else if rej != "" {
+			rejected = append(rejected, rej)
 		}
 	}
 	if err := scanner.Err(); err != nil && err != io.EOF {
-		return 0, "", fmt.Errorf("scan: %w", err)
+		return 0, "", nil, fmt.Errorf("scan: %w", err)
 	}
+	return 0, "", rejected, nil
+}
 
-	reason := fmt.Sprintf("no manager matched (resolved=%t, nss-resolve=%t, stub=%t)", resolved, nss, stub)
-	if len(rejected) > 0 {
-		reason += "; rejected: " + strings.Join(rejected, ", ")
+// matchResolvConfHeader inspects a single comment line. Returns either a
+// definitive (manager, reason) or a non-empty rejected diagnostic.
+func matchResolvConfHeader(text string) (osManagerType, string, string) {
+	if strings.Contains(text, fileGeneratedResolvConfContentHeader) {
+		return netbirdManager, "netbird-managed resolv.conf header detected", ""
 	}
-	return fileManager, reason, nil
+	if strings.Contains(text, "NetworkManager") {
+		if isDbusListenerRunning(networkManagerDest, networkManagerDbusObjectNode) && isNetworkManagerSupported() {
+			return networkManager, "NetworkManager header + supported version on dbus", ""
+		}
+		return 0, "", "NetworkManager header (no dbus or unsupported version)"
+	}
+	if strings.Contains(text, "resolvconf") {
+		if isSystemdResolveConfMode() {
+			return systemdManager, "resolvconf header in systemd-resolved compatibility mode", ""
+		}
+		return resolvConfManager, "resolvconf header detected", ""
+	}
+	return 0, "", ""
 }
 
 // checkStub reports whether systemd-resolved's stub (127.0.0.53) is listed
