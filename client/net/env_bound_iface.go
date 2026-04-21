@@ -1,4 +1,4 @@
-//go:build windows
+//go:build (darwin && !ios) || windows
 
 package net
 
@@ -24,17 +24,22 @@ func Init() {
 }
 
 func checkAdvancedRoutingSupport() bool {
-	var err error
-	var legacyRouting bool
+	legacyRouting := false
 	if val := os.Getenv(envUseLegacyRouting); val != "" {
-		legacyRouting, err = strconv.ParseBool(val)
+		parsed, err := strconv.ParseBool(val)
 		if err != nil {
-			log.Warnf("failed to parse %s: %v", envUseLegacyRouting, err)
+			log.Warnf("ignoring unparsable %s=%q: %v", envUseLegacyRouting, val, err)
+		} else {
+			legacyRouting = parsed
 		}
 	}
 
-	if legacyRouting || netstack.IsEnabled() {
-		log.Info("advanced routing has been requested to be disabled")
+	if legacyRouting {
+		log.Infof("advanced routing disabled: legacy routing requested via %s", envUseLegacyRouting)
+		return false
+	}
+	if netstack.IsEnabled() {
+		log.Info("advanced routing disabled: netstack mode is enabled")
 		return false
 	}
 

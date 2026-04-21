@@ -323,3 +323,5 @@ replace github.com/pion/ice/v4 => github.com/netbirdio/ice/v4 v4.0.0-20250908184
 replace github.com/libp2p/go-netroute => github.com/netbirdio/go-netroute v0.0.0-20240611143515-f59b0e1d3944
 
 replace github.com/dexidp/dex => github.com/netbirdio/dex v0.244.0
+
+replace github.com/mailru/easyjson => github.com/netbirdio/easyjson v0.9.0
