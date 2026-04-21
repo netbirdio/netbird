@@ -679,9 +679,14 @@ func (c *Client) handleRemoteForwardChannel(ctx context.Context, newChan ssh.New
 
 	go ssh.DiscardRequests(reqs)
 
+	// Bound the dial so a black-holed localAddr can't pin the accepted SSH
+	// channel open indefinitely; the relay itself runs under the outer ctx.
+	dialCtx, cancelDial := context.WithTimeout(ctx, 10*time.Second)
 	var dialer net.Dialer
-	localConn, err := dialer.DialContext(ctx, "tcp", localAddr)
+	localConn, err := dialer.DialContext(dialCtx, "tcp", localAddr)
+	cancelDial()
 	if err != nil {
+		log.Debugf("remote port forwarding: dial %s: %v", localAddr, err)
 		return
 	}
 	defer func() {

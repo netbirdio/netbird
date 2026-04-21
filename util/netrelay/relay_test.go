@@ -51,6 +51,12 @@ func TestRelayHalfClose(t *testing.T) {
 	defer peerA.Close()
 	defer peerB.Close()
 
+	// Bound blocking reads/writes so a broken relay fails the test instead of
+	// hanging the test process.
+	deadline := time.Now().Add(5 * time.Second)
+	require.NoError(t, peerA.SetDeadline(deadline))
+	require.NoError(t, peerB.SetDeadline(deadline))
+
 	ctx := t.Context()
 
 	done := make(chan struct{})
@@ -97,6 +103,12 @@ func TestRelayFullDuplex(t *testing.T) {
 	relayB, peerB := tcpPair(t)
 	defer peerA.Close()
 	defer peerB.Close()
+
+	// Bound blocking reads/writes so a broken relay fails the test instead of
+	// hanging the test process.
+	deadline := time.Now().Add(5 * time.Second)
+	require.NoError(t, peerA.SetDeadline(deadline))
+	require.NoError(t, peerB.SetDeadline(deadline))
 
 	ctx := t.Context()
 
@@ -186,10 +198,12 @@ func TestRelayIdleTimeout(t *testing.T) {
 
 	ctx := t.Context()
 
+	const idle = 150 * time.Millisecond
+
 	start := time.Now()
 	done := make(chan struct{})
 	go func() {
-		Relay(ctx, relayA, relayB, Options{IdleTimeout: 150 * time.Millisecond})
+		Relay(ctx, relayA, relayB, Options{IdleTimeout: idle})
 		close(done)
 	}()
 
@@ -199,5 +213,9 @@ func TestRelayIdleTimeout(t *testing.T) {
 		t.Fatal("relay did not close on idle")
 	}
 
-	require.WithinDuration(t, start.Add(150*time.Millisecond), time.Now(), 500*time.Millisecond)
+	elapsed := time.Since(start)
+	require.GreaterOrEqual(t, elapsed, idle,
+		"relay must not close before the idle timeout elapses")
+	require.Less(t, elapsed, idle+500*time.Millisecond,
+		"relay should close shortly after the idle timeout")
 }

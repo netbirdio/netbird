@@ -25,6 +25,16 @@ func TestTCPCapEvicts(t *testing.T) {
 		"TCP table must not exceed the configured cap")
 	require.Greater(t, len(tracker.connections), 0,
 		"some entries must remain after eviction")
+
+	// The most recently admitted flow must be present: eviction must make
+	// room for new entries, not silently drop them.
+	require.Contains(t, tracker.connections,
+		ConnKey{SrcIP: src, DstIP: dst, SrcPort: uint16(10009), DstPort: 80},
+		"newest TCP flow must be admitted after eviction")
+	// A pre-cap flow must have been evicted to fit the last one.
+	require.NotContains(t, tracker.connections,
+		ConnKey{SrcIP: src, DstIP: dst, SrcPort: uint16(10000), DstPort: 80},
+		"oldest TCP flow should have been evicted")
 }
 
 func TestTCPCapPrefersTombstonedForEviction(t *testing.T) {
@@ -71,6 +81,13 @@ func TestUDPCapEvicts(t *testing.T) {
 	}
 	require.LessOrEqual(t, len(tracker.connections), 5)
 	require.Greater(t, len(tracker.connections), 0)
+
+	require.Contains(t, tracker.connections,
+		ConnKey{SrcIP: src, DstIP: dst, SrcPort: uint16(30011), DstPort: 53},
+		"newest UDP flow must be admitted after eviction")
+	require.NotContains(t, tracker.connections,
+		ConnKey{SrcIP: src, DstIP: dst, SrcPort: uint16(30000), DstPort: 53},
+		"oldest UDP flow should have been evicted")
 }
 
 func TestICMPCapEvicts(t *testing.T) {
@@ -89,4 +106,11 @@ func TestICMPCapEvicts(t *testing.T) {
 	}
 	require.LessOrEqual(t, len(tracker.connections), 3)
 	require.Greater(t, len(tracker.connections), 0)
+
+	require.Contains(t, tracker.connections,
+		ICMPConnKey{SrcIP: src, DstIP: dst, ID: uint16(7)},
+		"newest ICMP flow must be admitted after eviction")
+	require.NotContains(t, tracker.connections,
+		ICMPConnKey{SrcIP: src, DstIP: dst, ID: uint16(0)},
+		"oldest ICMP flow should have been evicted")
 }
