@@ -3230,6 +3230,13 @@ func setupNetworkMapTest(t *testing.T) (*DefaultAccountManager, *update_channel.
 	return manager, updateManager, account, peer1, peer2, peer3
 }
 
+// peerUpdateTimeout bounds how long peerShouldReceiveUpdate and its outer
+// wrappers wait for an expected update message. Sized for slow CI runners
+// (MySQL, FreeBSD, loaded sqlite) where the channel publish can take
+// seconds. Only runs down on failure; passing tests return immediately
+// when the channel delivers.
+const peerUpdateTimeout = 5 * time.Second
+
 func peerShouldNotReceiveUpdate(t *testing.T, updateMessage <-chan *network_map.UpdateMessage) {
 	t.Helper()
 	select {
@@ -3248,7 +3255,7 @@ func peerShouldReceiveUpdate(t *testing.T, updateMessage <-chan *network_map.Upd
 		if msg == nil {
 			t.Errorf("Received nil update message, expected valid message")
 		}
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(peerUpdateTimeout):
 		t.Error("Timed out waiting for update message")
 	}
 }
