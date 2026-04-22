@@ -97,11 +97,13 @@ func buildFastPathResponse(
 	}
 
 	var extraSettings *nbtypes.ExtraSettings
+	extraSettingsStart := time.Now()
 	if es, err := settingsMgr.GetExtraSettings(ctx, peer.AccountID); err != nil {
 		log.WithContext(ctx).Debugf("fast path: get extra settings: %v", err)
 	} else {
 		extraSettings = es
 	}
+	log.WithContext(ctx).Debugf("fast path: GetExtraSettings took %s", time.Since(extraSettingsStart))
 
 	nbConfig := toNetbirdConfig(cfg, turnToken, relayToken, extraSettings)
 
