@@ -529,14 +529,14 @@ func (m *Resolver) extractDomainsFromServerDomains(serverDomains dnsconfig.Serve
 	return domains
 }
 
-func cacheTTL() time.Duration {
+var cacheTTL = sync.OnceValue(func() time.Duration {
 	if v := os.Getenv(envMgmtCacheTTL); v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d > 0 {
 			return d
 		}
 	}
 	return defaultTTL
-}
+})
 
 // lookupViaChain resolves via the handler chain and rewrites each RR to use
 // dnsName as owner and cacheTTL() as TTL, so CNAME-backed domains don't cache
