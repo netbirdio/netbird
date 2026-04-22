@@ -31,15 +31,6 @@ const (
 	envMgmtCacheTTL = "NB_MGMT_CACHE_TTL"
 )
 
-var cacheTTL = sync.OnceValue(func() time.Duration {
-	if v := os.Getenv(envMgmtCacheTTL); v != "" {
-		if d, err := time.ParseDuration(v); err == nil && d > 0 {
-			return d
-		}
-	}
-	return defaultTTL
-})
-
 // ChainResolver lets the cache refresh stale entries through the DNS handler
 // chain instead of net.DefaultResolver, avoiding loopback when NetBird is the
 // system resolver.
@@ -78,6 +69,8 @@ type Resolver struct {
 	// positives. The atomic bool is CAS-flipped once per refresh to
 	// throttle the warning log.
 	refreshing map[dns.Question]*atomic.Bool
+
+	cacheTTL time.Duration
 }
 
 // NewResolver creates a new management domains cache resolver.
@@ -85,6 +78,7 @@ func NewResolver() *Resolver {
 	return &Resolver{
 		records:    make(map[dns.Question]*cachedRecord),
 		refreshing: make(map[dns.Question]*atomic.Bool),
+		cacheTTL:   resolveCacheTTL(),
 	}
 }
 
@@ -125,7 +119,7 @@ func (m *Resolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	inflight := m.refreshing[question]
 	var shouldRefresh bool
 	if found {
-		stale := time.Since(cached.cachedAt) > cacheTTL()
+		stale := time.Since(cached.cachedAt) > m.cacheTTL
 		inBackoff := !cached.lastFailedRefresh.IsZero() && time.Since(cached.lastFailedRefresh) < refreshBackoff
 		shouldRefresh = stale && !inBackoff
 	}
@@ -152,7 +146,7 @@ func (m *Resolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	resp.SetReply(r)
 	resp.Authoritative = false
 	resp.RecursionAvailable = true
-	resp.Answer = cloneRecordsWithTTL(cached.records, responseTTL(cached.cachedAt))
+	resp.Answer = cloneRecordsWithTTL(cached.records, m.responseTTL(cached.cachedAt))
 
 	log.Debugf("serving %d cached records for domain=%s", len(resp.Answer), question.Name)
 
@@ -330,16 +324,16 @@ func (m *Resolver) lookupBoth(ctx context.Context, d domain.Domain, dnsName stri
 	m.mutex.RUnlock()
 
 	if chain != nil && chain.HasRootHandlerAtOrBelow(maxPriority) {
-		aRecords, errA = lookupViaChain(ctx, chain, maxPriority, dnsName, dns.TypeA)
-		aaaaRecords, errAAAA = lookupViaChain(ctx, chain, maxPriority, dnsName, dns.TypeAAAA)
+		aRecords, errA = m.lookupViaChain(ctx, chain, maxPriority, dnsName, dns.TypeA)
+		aaaaRecords, errAAAA = m.lookupViaChain(ctx, chain, maxPriority, dnsName, dns.TypeAAAA)
 		return
 	}
 
 	// TODO: drop once every supported OS registers a fallback resolver. Safe
 	// today: no root handler at priority ≤ PriorityUpstream means NetBird is
 	// not the system resolver, so net.DefaultResolver will not loop back.
-	aRecords, errA = osLookup(ctx, d, dnsName, dns.TypeA)
-	aaaaRecords, errAAAA = osLookup(ctx, d, dnsName, dns.TypeAAAA)
+	aRecords, errA = m.osLookup(ctx, d, dnsName, dns.TypeA)
+	aaaaRecords, errAAAA = m.osLookup(ctx, d, dnsName, dns.TypeAAAA)
 	return
 }
 
@@ -353,14 +347,84 @@ func (m *Resolver) lookupRecords(ctx context.Context, d domain.Domain, q dns.Que
 	m.mutex.RUnlock()
 
 	if chain != nil && chain.HasRootHandlerAtOrBelow(maxPriority) {
-		return lookupViaChain(ctx, chain, maxPriority, q.Name, q.Qtype)
+		return m.lookupViaChain(ctx, chain, maxPriority, q.Name, q.Qtype)
 	}
 
 	// TODO: drop once every supported OS registers a fallback resolver.
 	m.markRefreshing(q)
 	defer m.clearRefreshing(q)
 
-	return osLookup(ctx, d, q.Name, q.Qtype)
+	return m.osLookup(ctx, d, q.Name, q.Qtype)
+}
+
+// lookupViaChain resolves via the handler chain and rewrites each RR to use
+// dnsName as owner and m.cacheTTL as TTL, so CNAME-backed domains don't cache
+// target-owned records or upstream TTLs. NODATA returns (nil, nil).
+func (m *Resolver) lookupViaChain(ctx context.Context, chain ChainResolver, maxPriority int, dnsName string, qtype uint16) ([]dns.RR, error) {
+	msg := &dns.Msg{}
+	msg.SetQuestion(dnsName, qtype)
+	msg.RecursionDesired = true
+
+	resp, err := chain.ResolveInternal(ctx, msg, maxPriority)
+	if err != nil {
+		return nil, fmt.Errorf("chain resolve: %w", err)
+	}
+	if resp == nil {
+		return nil, fmt.Errorf("chain resolve returned nil response")
+	}
+	if resp.Rcode != dns.RcodeSuccess {
+		return nil, fmt.Errorf("chain resolve rcode=%s", dns.RcodeToString[resp.Rcode])
+	}
+
+	ttl := uint32(m.cacheTTL.Seconds())
+	owners := cnameOwners(dnsName, resp.Answer)
+	var filtered []dns.RR
+	for _, rr := range resp.Answer {
+		h := rr.Header()
+		if h.Class != dns.ClassINET || h.Rrtype != qtype {
+			continue
+		}
+		if !owners[strings.ToLower(dns.Fqdn(h.Name))] {
+			continue
+		}
+		if cp := cloneIPRecord(rr, dnsName, ttl); cp != nil {
+			filtered = append(filtered, cp)
+		}
+	}
+	return filtered, nil
+}
+
+// osLookup resolves a single family via net.DefaultResolver using resutil,
+// which disambiguates NODATA from NXDOMAIN and Unmaps v4-mapped-v6. NODATA
+// returns (nil, nil).
+func (m *Resolver) osLookup(ctx context.Context, d domain.Domain, dnsName string, qtype uint16) ([]dns.RR, error) {
+	network := resutil.NetworkForQtype(qtype)
+	if network == "" {
+		return nil, fmt.Errorf("unsupported qtype %s", dns.TypeToString[qtype])
+	}
+
+	log.Infof("looking up IP for mgmt domain=%s type=%s", d.SafeString(), dns.TypeToString[qtype])
+	defer log.Infof("done looking up IP for mgmt domain=%s type=%s", d.SafeString(), dns.TypeToString[qtype])
+
+	result := resutil.LookupIP(ctx, net.DefaultResolver, network, d.PunycodeString(), qtype)
+	if result.Rcode == dns.RcodeSuccess {
+		return resutil.IPsToRRs(dnsName, result.IPs, uint32(m.cacheTTL.Seconds())), nil
+	}
+
+	if result.Err != nil {
+		return nil, fmt.Errorf("resolve %s type=%s: %w", d.SafeString(), dns.TypeToString[qtype], result.Err)
+	}
+	return nil, fmt.Errorf("resolve %s type=%s: rcode=%s", d.SafeString(), dns.TypeToString[qtype], dns.RcodeToString[result.Rcode])
+}
+
+// responseTTL returns the remaining cache lifetime in seconds (rounded up),
+// so downstream resolvers don't cache an answer for longer than we will.
+func (m *Resolver) responseTTL(cachedAt time.Time) uint32 {
+	remaining := m.cacheTTL - time.Since(cachedAt)
+	if remaining <= 0 {
+		return 0
+	}
+	return uint32((remaining + time.Second - 1) / time.Second)
 }
 
 // PopulateFromConfig extracts and caches domains from the client configuration.
@@ -552,16 +616,6 @@ func (m *Resolver) extractDomainsFromServerDomains(serverDomains dnsconfig.Serve
 	return domains
 }
 
-// responseTTL returns the remaining cache lifetime in seconds (rounded up),
-// so downstream resolvers don't cache an answer for longer than we will.
-func responseTTL(cachedAt time.Time) uint32 {
-	remaining := cacheTTL() - time.Since(cachedAt)
-	if remaining <= 0 {
-		return 0
-	}
-	return uint32((remaining + time.Second - 1) / time.Second)
-}
-
 // cloneIPRecord returns a deep copy of rr retargeted to owner with ttl. Non
 // A/AAAA records return nil.
 func cloneIPRecord(rr dns.RR, owner string, ttl uint32) dns.RR {
@@ -594,43 +648,6 @@ func cloneRecordsWithTTL(records []dns.RR, ttl uint32) []dns.RR {
 	return out
 }
 
-// lookupViaChain resolves via the handler chain and rewrites each RR to use
-// dnsName as owner and cacheTTL() as TTL, so CNAME-backed domains don't cache
-// target-owned records or upstream TTLs. NODATA returns (nil, nil).
-func lookupViaChain(ctx context.Context, chain ChainResolver, maxPriority int, dnsName string, qtype uint16) ([]dns.RR, error) {
-	msg := &dns.Msg{}
-	msg.SetQuestion(dnsName, qtype)
-	msg.RecursionDesired = true
-
-	resp, err := chain.ResolveInternal(ctx, msg, maxPriority)
-	if err != nil {
-		return nil, fmt.Errorf("chain resolve: %w", err)
-	}
-	if resp == nil {
-		return nil, fmt.Errorf("chain resolve returned nil response")
-	}
-	if resp.Rcode != dns.RcodeSuccess {
-		return nil, fmt.Errorf("chain resolve rcode=%s", dns.RcodeToString[resp.Rcode])
-	}
-
-	ttl := uint32(cacheTTL().Seconds())
-	owners := cnameOwners(dnsName, resp.Answer)
-	var filtered []dns.RR
-	for _, rr := range resp.Answer {
-		h := rr.Header()
-		if h.Class != dns.ClassINET || h.Rrtype != qtype {
-			continue
-		}
-		if !owners[strings.ToLower(dns.Fqdn(h.Name))] {
-			continue
-		}
-		if cp := cloneIPRecord(rr, dnsName, ttl); cp != nil {
-			filtered = append(filtered, cp)
-		}
-	}
-	return filtered, nil
-}
-
 // cnameOwners returns dnsName plus every target reachable by following CNAMEs
 // in answer, iterating until fixed point so out-of-order chains resolve.
 func cnameOwners(dnsName string, answer []dns.RR) map[string]bool {
@@ -658,25 +675,13 @@ func cnameOwners(dnsName string, answer []dns.RR) map[string]bool {
 	}
 }
 
-// osLookup resolves a single family via net.DefaultResolver using resutil,
-// which disambiguates NODATA from NXDOMAIN and Unmaps v4-mapped-v6. NODATA
-// returns (nil, nil).
-func osLookup(ctx context.Context, d domain.Domain, dnsName string, qtype uint16) ([]dns.RR, error) {
-	network := resutil.NetworkForQtype(qtype)
-	if network == "" {
-		return nil, fmt.Errorf("unsupported qtype %s", dns.TypeToString[qtype])
+// resolveCacheTTL reads the cache TTL override env var; invalid or empty
+// values fall back to defaultTTL. Called once per Resolver from NewResolver.
+func resolveCacheTTL() time.Duration {
+	if v := os.Getenv(envMgmtCacheTTL); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
 	}
-
-	log.Infof("looking up IP for mgmt domain=%s type=%s", d.SafeString(), dns.TypeToString[qtype])
-	defer log.Infof("done looking up IP for mgmt domain=%s type=%s", d.SafeString(), dns.TypeToString[qtype])
-
-	result := resutil.LookupIP(ctx, net.DefaultResolver, network, d.PunycodeString(), qtype)
-	if result.Rcode == dns.RcodeSuccess {
-		return resutil.IPsToRRs(dnsName, result.IPs, uint32(cacheTTL().Seconds())), nil
-	}
-
-	if result.Err != nil {
-		return nil, fmt.Errorf("resolve %s type=%s: %w", d.SafeString(), dns.TypeToString[qtype], result.Err)
-	}
-	return nil, fmt.Errorf("resolve %s type=%s: rcode=%s", d.SafeString(), dns.TypeToString[qtype], dns.RcodeToString[result.Rcode])
+	return defaultTTL
 }

@@ -112,6 +112,55 @@ func firstA(t *testing.T, resp *dns.Msg) string {
 	return a.A.String()
 }
 
+func TestResolver_CacheTTLGatesRefresh(t *testing.T) {
+	// Same cached entry age, different cacheTTL values: the shorter TTL must
+	// trigger a background refresh, the longer one must not. Proves that the
+	// per-Resolver cacheTTL field actually drives the stale decision.
+	cachedAt := time.Now().Add(-100 * time.Millisecond)
+
+	newRec := func() *cachedRecord {
+		return &cachedRecord{
+			records: []dns.RR{&dns.A{
+				Hdr: dns.RR_Header{Name: "mgmt.example.com.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
+				A:   net.ParseIP("10.0.0.1").To4(),
+			}},
+			cachedAt: cachedAt,
+		}
+	}
+	q := dns.Question{Name: "mgmt.example.com.", Qtype: dns.TypeA, Qclass: dns.ClassINET}
+
+	t.Run("short TTL treats entry as stale and refreshes", func(t *testing.T) {
+		r := NewResolver()
+		r.cacheTTL = 10 * time.Millisecond
+		chain := newFakeChain()
+		chain.setAnswer(q.Name, dns.TypeA, "10.0.0.2")
+		r.SetChainResolver(chain, 50)
+		r.records[q] = newRec()
+
+		resp := queryA(t, r, q.Name)
+		assert.Equal(t, "10.0.0.1", firstA(t, resp), "stale entry must be served while refresh runs")
+
+		waitFor(t, time.Second, func() bool {
+			return chain.callCount(q.Name, dns.TypeA) >= 1
+		})
+	})
+
+	t.Run("long TTL keeps entry fresh and skips refresh", func(t *testing.T) {
+		r := NewResolver()
+		r.cacheTTL = time.Hour
+		chain := newFakeChain()
+		chain.setAnswer(q.Name, dns.TypeA, "10.0.0.2")
+		r.SetChainResolver(chain, 50)
+		r.records[q] = newRec()
+
+		resp := queryA(t, r, q.Name)
+		assert.Equal(t, "10.0.0.1", firstA(t, resp))
+
+		time.Sleep(50 * time.Millisecond)
+		assert.Equal(t, 0, chain.callCount(q.Name, dns.TypeA), "fresh entry must not trigger refresh")
+	})
+}
+
 func TestResolver_ServeFresh_NoRefresh(t *testing.T) {
 	r := NewResolver()
 	chain := newFakeChain()
