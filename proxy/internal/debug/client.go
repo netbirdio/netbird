@@ -272,6 +272,74 @@ func (c *Client) printLogLevelResult(data map[string]any) {
 	}
 }
 
+// WGTuneGet fetches the current WireGuard pool cap.
+func (c *Client) WGTuneGet(ctx context.Context) error {
+	return c.fetchAndPrint(ctx, "/debug/wgtune", c.printWGTuneGet)
+}
+
+// WGTuneSet updates the WireGuard pool cap on the global default and all live clients.
+func (c *Client) WGTuneSet(ctx context.Context, value uint32) error {
+	path := fmt.Sprintf("/debug/wgtune?value=%d", value)
+	return c.fetchAndPrint(ctx, path, c.printWGTuneSet)
+}
+
+func (c *Client) printWGTuneGet(data map[string]any) {
+	def, _ := data["default"].(float64)
+	batch, _ := data["batch_size"].(float64)
+	_, _ = fmt.Fprintf(c.out, "Default:    %d\n", uint32(def))
+	_, _ = fmt.Fprintf(c.out, "Batch size: %d (0 = unset)\n", uint32(batch))
+}
+
+func (c *Client) printWGTuneSet(data map[string]any) {
+	if errMsg, ok := data["error"].(string); ok && errMsg != "" {
+		c.printError(data)
+		return
+	}
+	def, _ := data["default"].(float64)
+	applied, _ := data["applied"].(float64)
+	_, _ = fmt.Fprintf(c.out, "Default set to: %d\n", uint32(def))
+	_, _ = fmt.Fprintf(c.out, "Applied to %d live clients\n", int(applied))
+	if failed, ok := data["failed"].(map[string]any); ok && len(failed) > 0 {
+		_, _ = fmt.Fprintln(c.out, "Failed:")
+		for k, v := range failed {
+			_, _ = fmt.Fprintf(c.out, "  %s: %v\n", k, v)
+		}
+	}
+}
+
+// Runtime fetches runtime stats (heap, goroutines, RSS).
+func (c *Client) Runtime(ctx context.Context) error {
+	return c.fetchAndPrint(ctx, "/debug/runtime", c.printRuntime)
+}
+
+func (c *Client) printRuntime(data map[string]any) {
+	i := func(k string) uint64 {
+		v, _ := data[k].(float64)
+		return uint64(v)
+	}
+	mb := func(n uint64) string { return fmt.Sprintf("%.1f MB", float64(n)/(1<<20)) }
+
+	_, _ = fmt.Fprintf(c.out, "Uptime:       %v\n", data["uptime"])
+	_, _ = fmt.Fprintf(c.out, "Go:           %v on %d CPU (GOMAXPROCS=%d)\n", data["go_version"], uint32(i("num_cpu")), uint32(i("gomaxprocs")))
+	_, _ = fmt.Fprintf(c.out, "Goroutines:   %d\n", i("goroutines"))
+	_, _ = fmt.Fprintf(c.out, "Live objects: %d\n", i("live_objects"))
+	_, _ = fmt.Fprintf(c.out, "GC:           %d cycles, %v pause total\n", i("num_gc"), time.Duration(i("pause_total_ns")))
+	_, _ = fmt.Fprintln(c.out, "Heap:")
+	_, _ = fmt.Fprintf(c.out, "  alloc:      %s\n", mb(i("heap_alloc")))
+	_, _ = fmt.Fprintf(c.out, "  in-use:     %s\n", mb(i("heap_inuse")))
+	_, _ = fmt.Fprintf(c.out, "  idle:       %s\n", mb(i("heap_idle")))
+	_, _ = fmt.Fprintf(c.out, "  released:   %s\n", mb(i("heap_released")))
+	_, _ = fmt.Fprintf(c.out, "  sys:        %s\n", mb(i("heap_sys")))
+	_, _ = fmt.Fprintf(c.out, "Total sys:    %s\n", mb(i("sys")))
+	if _, ok := data["vm_rss"]; ok {
+		_, _ = fmt.Fprintln(c.out, "Process:")
+		_, _ = fmt.Fprintf(c.out, "  VmRSS:      %s\n", mb(i("vm_rss")))
+		_, _ = fmt.Fprintf(c.out, "  VmSize:     %s\n", mb(i("vm_size")))
+		_, _ = fmt.Fprintf(c.out, "  VmData:     %s\n", mb(i("vm_data")))
+	}
+	_, _ = fmt.Fprintf(c.out, "Clients:      %d (%d started)\n", i("clients"), i("started"))
+}
+
 // StartClient starts a specific client.
 func (c *Client) StartClient(ctx context.Context, accountID string) error {
 	path := "/debug/clients/" + url.PathEscape(accountID) + "/start"

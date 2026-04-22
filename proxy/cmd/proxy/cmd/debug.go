@@ -99,6 +99,35 @@ var debugStopCmd = &cobra.Command{
 	SilenceUsage: true,
 }
 
+var debugWGTuneCmd = &cobra.Command{
+	Use:   "wgtune",
+	Short: "Inspect and live-tune WireGuard pool settings",
+}
+
+var debugWGTuneGetCmd = &cobra.Command{
+	Use:          "get",
+	Short:        "Show pool cap and batch size defaults",
+	Args:         cobra.NoArgs,
+	RunE:         runDebugWGTuneGet,
+	SilenceUsage: true,
+}
+
+var debugWGTuneSetCmd = &cobra.Command{
+	Use:          "set <pool-cap>",
+	Short:        "Set the pool cap (new and live clients)",
+	Args:         cobra.ExactArgs(1),
+	RunE:         runDebugWGTuneSet,
+	SilenceUsage: true,
+}
+
+var debugRuntimeCmd = &cobra.Command{
+	Use:          "runtime",
+	Short:        "Show runtime stats (heap, goroutines, RSS)",
+	Args:         cobra.NoArgs,
+	RunE:         runDebugRuntime,
+	SilenceUsage: true,
+}
+
 func init() {
 	debugCmd.PersistentFlags().StringVar(&debugAddr, "addr", envStringOrDefault("NB_PROXY_DEBUG_ADDRESS", "localhost:8444"), "Debug endpoint address")
 	debugCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output JSON instead of pretty format")
@@ -119,6 +148,10 @@ func init() {
 	debugCmd.AddCommand(debugLogCmd)
 	debugCmd.AddCommand(debugStartCmd)
 	debugCmd.AddCommand(debugStopCmd)
+	debugWGTuneCmd.AddCommand(debugWGTuneGetCmd)
+	debugWGTuneCmd.AddCommand(debugWGTuneSetCmd)
+	debugCmd.AddCommand(debugWGTuneCmd)
+	debugCmd.AddCommand(debugRuntimeCmd)
 
 	rootCmd.AddCommand(debugCmd)
 }
@@ -170,4 +203,20 @@ func runDebugStart(cmd *cobra.Command, args []string) error {
 
 func runDebugStop(cmd *cobra.Command, args []string) error {
 	return getDebugClient(cmd).StopClient(cmd.Context(), args[0])
+}
+
+func runDebugWGTuneGet(cmd *cobra.Command, _ []string) error {
+	return getDebugClient(cmd).WGTuneGet(cmd.Context())
+}
+
+func runDebugWGTuneSet(cmd *cobra.Command, args []string) error {
+	n, err := strconv.ParseUint(args[0], 10, 32)
+	if err != nil {
+		return fmt.Errorf("invalid value %q: %w", args[0], err)
+	}
+	return getDebugClient(cmd).WGTuneSet(cmd.Context(), uint32(n))
+}
+
+func runDebugRuntime(cmd *cobra.Command, _ []string) error {
+	return getDebugClient(cmd).Runtime(cmd.Context())
 }

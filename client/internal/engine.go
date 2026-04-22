@@ -1874,6 +1874,29 @@ func (e *Engine) GetClientMetrics() *metrics.ClientMetrics {
 	return e.clientMetrics
 }
 
+// WGTuning bundles runtime-adjustable WireGuard pool knobs.
+// See Engine.SetWGTuning. Nil fields are ignored.
+type WGTuning struct {
+	PreallocatedBuffersPerPool *uint32
+}
+
+// SetWGTuning applies the given tuning to this engine's live Device.
+func (e *Engine) SetWGTuning(t WGTuning) error {
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
+	if e.wgInterface == nil {
+		return fmt.Errorf("wg interface not initialized")
+	}
+	dev := e.wgInterface.GetWGDevice()
+	if dev == nil {
+		return fmt.Errorf("wg device not initialized")
+	}
+	if t.PreallocatedBuffersPerPool != nil {
+		dev.SetPreallocatedBuffersPerPool(*t.PreallocatedBuffersPerPool)
+	}
+	return nil
+}
+
 func findIPFromInterfaceName(ifaceName string) (net.IP, error) {
 	iface, err := net.InterfaceByName(ifaceName)
 	if err != nil {

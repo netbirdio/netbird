@@ -15,9 +15,20 @@ import (
 
 	"github.com/netbirdio/netbird/shared/management/domain"
 
+	"github.com/netbirdio/netbird/client/embed"
 	"github.com/netbirdio/netbird/proxy"
 	nbacme "github.com/netbirdio/netbird/proxy/internal/acme"
 	"github.com/netbirdio/netbird/util"
+)
+
+const (
+	// envWGPreallocatedBuffers caps the per-Device WireGuard buffer pool
+	// size. Zero (unset) keeps the uncapped upstream default.
+	envWGPreallocatedBuffers = "NB_WG_PREALLOCATED_BUFFERS"
+	// envWGMaxBatchSize overrides the per-Device WireGuard batch size,
+	// which controls how many buffers each receive/TUN worker eagerly
+	// allocates. Zero (unset) keeps the bind+tun default.
+	envWGMaxBatchSize = "NB_WG_MAX_BATCH_SIZE"
 )
 
 const DefaultManagementURL = "https://api.netbird.io:443"
@@ -144,6 +155,42 @@ func runServer(cmd *cobra.Command, args []string) error {
 	_ = util.InitLogger(logger, level, util.LogConsole)
 
 	logger.Infof("configured log level: %s", level)
+
+	var wgPool, wgBatch uint64
+	if raw := os.Getenv(envWGPreallocatedBuffers); raw != "" {
+		n, err := strconv.ParseUint(raw, 10, 32)
+		if err != nil {
+			return fmt.Errorf("invalid %s %q: %w", envWGPreallocatedBuffers, raw, err)
+		}
+		wgPool = n
+		embed.SetWGDefaultPreallocatedBuffersPerPool(uint32(n))
+		logger.Infof("wireguard preallocated buffers per pool: %d", n)
+	}
+	if raw := os.Getenv(envWGMaxBatchSize); raw != "" {
+		n, err := strconv.ParseUint(raw, 10, 32)
+		if err != nil {
+			return fmt.Errorf("invalid %s %q: %w", envWGMaxBatchSize, raw, err)
+		}
+		wgBatch = n
+		embed.SetWGDefaultMaxBatchSize(uint32(n))
+		logger.Infof("wireguard max batch size override: %d", n)
+	}
+	if wgPool > 0 {
+		// Each bind recv goroutine (IPv4 + IPv6 + ICE relay) plus
+		// RoutineReadFromTUN eagerly reserves `batch` message buffers for
+		// the lifetime of the Device. A pool cap below that floor blocks
+		// the receive pipeline at startup.
+		batch := wgBatch
+		if batch == 0 {
+			batch = 128
+		}
+		const recvGoroutines = 4
+		floor := batch * recvGoroutines
+		if wgPool < floor {
+			logger.Warnf("%s=%d is below the eager-allocation floor (~%d for batch=%d); startup may deadlock",
+				envWGPreallocatedBuffers, wgPool, floor, batch)
+		}
+	}
 
 	switch forwardedProto {
 	case "auto", "http", "https":

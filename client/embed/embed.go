@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
+	wgdevice "golang.zx2c4.com/wireguard/device"
 	wgnetstack "golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface"
@@ -467,6 +468,55 @@ func (c *Client) VerifySSHHostKey(peerAddress string, key []byte) error {
 	}
 
 	return sshcommon.VerifyHostKey(storedKey, key, peerAddress)
+}
+
+// WGTuning bundles runtime-adjustable WireGuard knobs exposed by the embed
+// client. Nil fields are left unchanged; set a non-nil pointer to apply.
+type WGTuning struct {
+	// PreallocatedBuffersPerPool caps each per-Device WaitPool.
+	// Zero means "unbounded" (no cap). Live-tunable only if the underlying
+	// Device was originally created with a nonzero cap.
+	PreallocatedBuffersPerPool *uint32
+}
+
+// SetWGTuning applies the given tuning to this client's live Device.
+// Startup-only knobs (batch size) must be set via the package-level
+// setters before Start.
+func (c *Client) SetWGTuning(t WGTuning) error {
+	engine, err := c.getEngine()
+	if err != nil {
+		return err
+	}
+	return engine.SetWGTuning(internal.WGTuning{
+		PreallocatedBuffersPerPool: t.PreallocatedBuffersPerPool,
+	})
+}
+
+// SetWGDefaultPreallocatedBuffersPerPool sets the default WaitPool cap
+// applied to Devices created after this call. Zero disables the cap.
+// Existing Devices are unaffected; use Client.SetWGTuning for that.
+func SetWGDefaultPreallocatedBuffersPerPool(n uint32) {
+	wgdevice.SetPreallocatedBuffersPerPool(n)
+}
+
+// WGDefaultPreallocatedBuffersPerPool returns the current default WaitPool
+// cap applied to newly-created Devices.
+func WGDefaultPreallocatedBuffersPerPool() uint32 {
+	return wgdevice.PreallocatedBuffersPerPool
+}
+
+// SetWGDefaultMaxBatchSize sets the default per-Device batch size applied
+// to Devices created after this call. Zero means "use the bind+tun default"
+// (NOT unlimited). Must be called before Start to take effect for a new
+// Client.
+func SetWGDefaultMaxBatchSize(n uint32) {
+	wgdevice.SetMaxBatchSizeOverride(n)
+}
+
+// WGDefaultMaxBatchSize returns the current default batch-size override.
+// Zero means "no override".
+func WGDefaultMaxBatchSize() uint32 {
+	return wgdevice.MaxBatchSizeOverride
 }
 
 // getEngine safely retrieves the engine from the client with proper locking.
