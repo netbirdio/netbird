@@ -4,6 +4,7 @@ includes:
   common: ./build/Taskfile.yml
   linux: ./build/linux/Taskfile.yml
   darwin: ./build/darwin/Taskfile.yml
+  windows: ./build/windows/Taskfile.yml
 
 vars:
   APP_NAME: "netbird-ui"

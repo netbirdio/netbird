@@ -1,0 +1,41 @@
+version: '3'
+
+includes:
+  common: ../Taskfile.yml
+
+tasks:
+  build:
+    summary: Cross-compiles the application for Windows from Linux using mingw-w64
+    cmds:
+      - task: build:cross
+        vars:
+          DEV: '{{.DEV}}'
+          OUTPUT: '{{.OUTPUT}}'
+
+  build:cross:
+    summary: Cross-compiles for Windows with mingw-w64
+    internal: true
+    deps:
+      - task: common:build:frontend
+        vars:
+          DEV:
+            ref: .DEV
+    preconditions:
+      - sh: command -v {{.CC}}
+        msg: "{{.CC}} not found. Install with: sudo apt-get install gcc-mingw-w64-x86-64"
+    cmds:
+      - go build {{.BUILD_FLAGS}} -o {{.OUTPUT}}
+    vars:
+      BUILD_FLAGS: '{{if eq .DEV "true"}}-buildvcs=false -gcflags=all="-l" -ldflags="-H=windowsgui"{{else}}-tags production -trimpath -buildvcs=false -ldflags="-w -s -H=windowsgui"{{end}}'
+      DEFAULT_OUTPUT: '{{.BIN_DIR}}/{{.APP_NAME}}.exe'
+      OUTPUT: '{{ .OUTPUT | default .DEFAULT_OUTPUT }}'
+      CC: '{{.CC | default "x86_64-w64-mingw32-gcc"}}'
+    env:
+      GOOS: windows
+      GOARCH: amd64
+      CGO_ENABLED: 1
+      CC: '{{.CC}}'
+
+  run:
+    cmds:
+      - '{{.BIN_DIR}}/{{.APP_NAME}}.exe'

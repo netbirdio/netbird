@@ -5,7 +5,7 @@ package main
 /*
 #cgo pkg-config: x11 gtk+-3.0
 #cgo LDFLAGS: -lX11
-#include "xembed_tray.h"
+#include "xembed_tray_linux.h"
 #include <X11/Xlib.h>
 #include <stdlib.h>
 */

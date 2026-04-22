@@ -49,6 +49,23 @@ func setupSignalHandler(ctx context.Context, window *application.WebviewWindow) 
 	go waitForWindowsEvent(ctx, eventHandle, window)
 }
 
+// sendShowWindowSignal signals the already-running instance (identified by pid,
+// unused on Windows since the event is named globally) to show its window.
+func sendShowWindowSignal(_ int32) error {
+	eventNamePtr, err := windows.UTF16PtrFromString(fancyUITriggerEventName)
+	if err != nil {
+		return err
+	}
+
+	handle, err := windows.OpenEvent(desiredAccesses, false, eventNamePtr)
+	if err != nil {
+		return err
+	}
+	defer windows.CloseHandle(handle)
+
+	return windows.SetEvent(handle)
+}
+
 func waitForWindowsEvent(ctx context.Context, eventHandle windows.Handle, window *application.WebviewWindow) {
 	defer func() {
 		if err := windows.CloseHandle(eventHandle); err != nil {

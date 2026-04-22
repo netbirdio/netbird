@@ -1,4 +1,4 @@
-#include "xembed_tray.h"
+#include "xembed_tray_linux.h"
 
 #include <X11/Xatom.h>
 #include <X11/Xutil.h>

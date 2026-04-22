@@ -124,13 +124,48 @@ func main() {
 	evtManager := event.NewManager(*daemonAddr, notify)
 	go evtManager.Start(ctx)
 
-	// TEST: fire a desktop notification shortly after startup so we can
-	// verify that the notification pipeline works end-to-end.
-	go func() {
-		time.Sleep(3 * time.Second)
-		log.Infof("--- trigger notification ---")
-		notify("NetBird Test", "If you see this, notifications are working!")
-	}()
+	// Response handler can be wired early — it's just a callback registration.
+	const testCategoryID = "netbird-test-actions"
+	notifSvc.OnNotificationResponse(func(result notifications.NotificationResult) {
+		if result.Error != nil {
+			log.Warnf("notification response error: %v", result.Error)
+			return
+		}
+		log.Infof("notification action: id=%q category=%q", result.Response.ActionIdentifier, result.Response.CategoryID)
+		if result.Response.ActionIdentifier == "open" {
+			window.Show()
+		}
+	})
+
+	// Category registration and the test notification must happen AFTER the
+	// notifications service has run its Startup (which initializes appName,
+	// appGUID, and the COM activator on Windows). ApplicationStarted fires
+	// after all services are started.
+	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		if err := notifSvc.RegisterNotificationCategory(notifications.NotificationCategory{
+			ID: testCategoryID,
+			Actions: []notifications.NotificationAction{
+				{ID: "open", Title: "Open NetBird"},
+				{ID: "dismiss", Title: "Dismiss"},
+			},
+		}); err != nil {
+			log.Warnf("register notification category: %v", err)
+			return
+		}
+
+		go func() {
+			time.Sleep(3 * time.Second)
+			log.Infof("--- trigger notification ---")
+			if err := notifSvc.SendNotificationWithActions(notifications.NotificationOptions{
+				ID:         "netbird-test",
+				Title:      "NetBird Test (with buttons)",
+				Body:       "ACTIONS TEST — you should see Open/Dismiss buttons below this text.",
+				CategoryID: testCategoryID,
+			}); err != nil {
+				log.Warnf("send notification with actions: %v", err)
+			}
+		}()
+	})
 
 	if err := app.Run(); err != nil {
 		log.Fatalf("app run: %v", err)
