@@ -192,7 +192,7 @@ func (s *Server) commitFastPath(
 ) (*nbpeer.Peer, chan *network_map.UpdateMessage, bool) {
 	start := time.Now()
 	cp := start
-	defer log.WithContext(ctx).Debugf("fast path: commitFastPath took %s", time.Since(cp))
+	defer func() { log.WithContext(ctx).Debugf("fast path: commitFastPath took %s", time.Since(cp)) }()
 
 	if err := s.accountManager.MarkPeerConnected(ctx, peerKey.String(), true, realIP, accountID, syncStart); err != nil {
 		log.WithContext(ctx).Warnf("fast path: mark connected for peer %s: %v", peerKey.String(), err)
