@@ -249,7 +249,7 @@ func (m *Resolver) refreshQuestion(question dns.Question, expected *cachedRecord
 	if err != nil {
 		fails := m.markRefreshFailed(question, expected)
 		logf := log.Warnf
-		if fails > 1 {
+		if fails == 0 || fails > 1 {
 			logf = log.Debugf
 		}
 		logf("refresh mgmt cache domain=%s type=%s: %v (consecutive failures=%d)",
@@ -456,8 +456,12 @@ func (m *Resolver) RemoveDomain(d domain.Domain) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	delete(m.records, dns.Question{Name: dnsName, Qtype: dns.TypeA, Qclass: dns.ClassINET})
-	delete(m.records, dns.Question{Name: dnsName, Qtype: dns.TypeAAAA, Qclass: dns.ClassINET})
+	qA := dns.Question{Name: dnsName, Qtype: dns.TypeA, Qclass: dns.ClassINET}
+	qAAAA := dns.Question{Name: dnsName, Qtype: dns.TypeAAAA, Qclass: dns.ClassINET}
+	delete(m.records, qA)
+	delete(m.records, qAAAA)
+	delete(m.refreshing, qA)
+	delete(m.refreshing, qAAAA)
 
 	log.Debugf("removed domain=%s from cache", d.SafeString())
 	return nil
