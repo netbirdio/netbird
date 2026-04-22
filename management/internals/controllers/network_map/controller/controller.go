@@ -132,9 +132,18 @@ func (c *Controller) OnPeerConnected(ctx context.Context, accountID string, peer
 		return nil, fmt.Errorf("failed to get peer %s: %v", peerID, err)
 	}
 
-	c.EphemeralPeersManager.OnPeerConnected(ctx, peer)
+	return c.OnPeerConnectedWithPeer(ctx, accountID, peer)
+}
 
-	return c.peersUpdateManager.CreateChannel(ctx, peerID), nil
+// OnPeerConnectedWithPeer is the peer-object variant of OnPeerConnected. It
+// skips the internal GetPeerByID and is intended for callers that already
+// hold the peer (e.g. the Sync fast path). The accountID parameter is kept
+// for symmetry with OnPeerConnected even though the peer object already
+// carries it — callers typically have it handy from the surrounding context.
+func (c *Controller) OnPeerConnectedWithPeer(ctx context.Context, accountID string, peer *nbpeer.Peer) (chan *network_map.UpdateMessage, error) {
+	_ = accountID
+	c.EphemeralPeersManager.OnPeerConnected(ctx, peer)
+	return c.peersUpdateManager.CreateChannel(ctx, peer.ID), nil
 }
 
 func (c *Controller) OnPeerDisconnected(ctx context.Context, accountID string, peerID string) {

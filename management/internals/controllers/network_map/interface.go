@@ -35,6 +35,11 @@ type Controller interface {
 	OnPeersDeleted(ctx context.Context, accountID string, peerIDs []string) error
 	DisconnectPeers(ctx context.Context, accountId string, peerIDs []string)
 	OnPeerConnected(ctx context.Context, accountID string, peerID string) (chan *UpdateMessage, error)
+	// OnPeerConnectedWithPeer is equivalent to OnPeerConnected but accepts an
+	// already-fetched peer, skipping the internal GetPeerByID lookup. Intended
+	// for callers that have already resolved the peer (e.g. the Sync fast path)
+	// so the controller does not re-read what the caller just read.
+	OnPeerConnectedWithPeer(ctx context.Context, accountID string, peer *nbpeer.Peer) (chan *UpdateMessage, error)
 	OnPeerDisconnected(ctx context.Context, accountID string, peerID string)
 
 	TrackEphemeralPeer(ctx context.Context, peer *nbpeer.Peer)
