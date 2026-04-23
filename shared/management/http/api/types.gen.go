@@ -1640,6 +1640,12 @@ type CreateResellerMSPRequest struct {
 
 	// Name The name for the MSP
 	Name string `json:"name"`
+
+	// PriceId Stripe price ID to set up managed subscription for the MSP
+	PriceId *string `json:"price_id,omitempty"`
+
+	// ResellerCustomerId Reseller's internal customer reference for this MSP
+	ResellerCustomerId *string `json:"reseller_customer_id,omitempty"`
 }
 
 // CreateScimIntegrationRequest Request payload for creating an SCIM IDP integration
@@ -3592,6 +3598,9 @@ type ResellerMSPResponse struct {
 
 	// Name The MSP name
 	Name string `json:"name"`
+
+	// ResellerCustomerId Reseller's internal customer reference for this MSP
+	ResellerCustomerId *string `json:"reseller_customer_id,omitempty"`
 }
 
 // ResellerStatusResponse defines model for ResellerStatusResponse.
@@ -4223,6 +4232,12 @@ type TenantResponse struct {
 // TenantResponseStatus The status of the tenant
 type TenantResponseStatus string
 
+// UpdateResellerMSPRequest defines model for UpdateResellerMSPRequest.
+type UpdateResellerMSPRequest struct {
+	// ResellerCustomerId Reseller's internal customer reference for this MSP
+	ResellerCustomerId *string `json:"reseller_customer_id,omitempty"`
+}
+
 // UpdateScimIntegrationRequest Request payload for updating an SCIM IDP integration
 type UpdateScimIntegrationRequest struct {
 	// Enabled Indicates whether the integration is enabled
@@ -4827,6 +4842,9 @@ type PostApiIntegrationsMspResellerJSONRequestBody PostApiIntegrationsMspReselle
 
 // PostApiIntegrationsMspResellerMspsJSONRequestBody defines body for PostApiIntegrationsMspResellerMsps for application/json ContentType.
 type PostApiIntegrationsMspResellerMspsJSONRequestBody = CreateResellerMSPRequest
+
+// PutApiIntegrationsMspResellerMspsIdJSONRequestBody defines body for PutApiIntegrationsMspResellerMspsId for application/json ContentType.
+type PutApiIntegrationsMspResellerMspsIdJSONRequestBody = UpdateResellerMSPRequest
 
 // PutApiIntegrationsMspResellerMspsIdInviteJSONRequestBody defines body for PutApiIntegrationsMspResellerMspsIdInvite for application/json ContentType.
 type PutApiIntegrationsMspResellerMspsIdInviteJSONRequestBody PutApiIntegrationsMspResellerMspsIdInviteJSONBody

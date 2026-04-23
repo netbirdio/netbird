@@ -3763,6 +3763,10 @@ components:
           type: boolean
           description: Whether the MSP is managed by a reseller
           example: true
+        reseller_customer_id:
+          type: string
+          description: Reseller's internal customer reference for this MSP
+          example: "CUST-12345"
         activated_at:
           type: string
           description: MSP activation timestamp in RFC3339 format
@@ -3791,9 +3795,24 @@ components:
           type: string
           description: The domain for the MSP
           example: "new-partner.com"
+        price_id:
+          type: string
+          description: Stripe price ID to set up managed subscription for the MSP
+          example: "price_1234"
+        reseller_customer_id:
+          type: string
+          description: Reseller's internal customer reference for this MSP
+          example: "CUST-12345"
       required:
         - name
         - domain
+    UpdateResellerMSPRequest:
+      type: object
+      properties:
+        reseller_customer_id:
+          type: string
+          description: Reseller's internal customer reference for this MSP
+          example: "CUST-12345"
     CreateTenantRequest:
       type: object
       properties:
@@ -8721,6 +8740,41 @@ paths:
         "500":
           $ref: "#/components/responses/internal_error"
   /api/integrations/msp/reseller/msps/{id}:
+    put:
+      summary: Update MSP fields managed by reseller
+      description: Update editable reseller-level fields on an MSP (e.g. reseller_customer_id)
+      tags:
+        - MSP
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The MSP account ID to update
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateResellerMSPRequest"
+      responses:
+        "200":
+          description: MSP updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResellerMSPResponse"
+        "400":
+          $ref: "#/components/responses/bad_request"
+        "401":
+          $ref: "#/components/responses/requires_authentication"
+        "403":
+          $ref: "#/components/responses/forbidden"
+        "404":
+          description: MSP not found or not managed by this reseller
+        "500":
+          $ref: "#/components/responses/internal_error"
     delete:
       summary: Unlink MSP from reseller
       tags:
