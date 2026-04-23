@@ -2777,14 +2777,16 @@ func TestSqlStore_GetAccountPeersWithExpiration(t *testing.T) {
 	require.NoError(t, err)
 
 	tests := []struct {
-		name          string
-		accountID     string
-		expectedCount int
+		name            string
+		accountID       string
+		expectedCount   int
+		expectedPeerIDs []string
 	}{
 		{
-			name:          "should retrieve peers with expiration for an existing account ID",
-			accountID:     "bf1c8084-ba50-4ce7-9439-34653001fc3b",
-			expectedCount: 1,
+			name:            "should retrieve only non-expired peers with expiration enabled",
+			accountID:       "bf1c8084-ba50-4ce7-9439-34653001fc3b",
+			expectedCount:   1,
+			expectedPeerIDs: []string{"notexpired01"},
 		},
 		{
 			name:          "should return no peers with expiration for a non-existing account ID",
@@ -2803,7 +2805,27 @@ func TestSqlStore_GetAccountPeersWithExpiration(t *testing.T) {
 			peers, err := store.GetAccountPeersWithExpiration(context.Background(), LockingStrengthNone, tt.accountID)
 			require.NoError(t, err)
 			require.Len(t, peers, tt.expectedCount)
+			for i, peer := range peers {
+				assert.Equal(t, tt.expectedPeerIDs[i], peer.ID)
+			}
 		})
+	}
+}
+
+func TestSqlStore_GetAccountPeersWithExpiration_ExcludesAlreadyExpired(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store_with_expired_peers.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	peers, err := store.GetAccountPeersWithExpiration(context.Background(), LockingStrengthNone, accountID)
+	require.NoError(t, err)
+
+	// Verify the already-expired peer (cg05lnblo1hkg2j514p0) is not returned
+	for _, peer := range peers {
+		assert.NotEqual(t, "cg05lnblo1hkg2j514p0", peer.ID, "already expired peer should not be returned")
+		assert.False(t, peer.Status.LoginExpired, "returned peers should not have LoginExpired set")
 	}
 }
 
