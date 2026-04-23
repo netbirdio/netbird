@@ -30,6 +30,8 @@ import (
 
 const ConnectTimeout = 10 * time.Second
 
+const healthCheckTimeout = 5 * time.Second
+
 const (
 	// EnvMaxRecvMsgSize overrides the default gRPC max receive message size (4 MB)
 	// for the management client connection. Value is in bytes.
@@ -532,7 +534,7 @@ func (c *GrpcClient) IsHealthy() bool {
 	case connectivity.Ready:
 	}
 
-	ctx, cancel := context.WithTimeout(c.ctx, 1*time.Second)
+	ctx, cancel := context.WithTimeout(c.ctx, healthCheckTimeout)
 	defer cancel()
 
 	_, err := c.realClient.GetServerKey(ctx, &proto.Empty{})

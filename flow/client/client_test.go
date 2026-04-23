@@ -457,6 +457,18 @@ func TestReceive_ProtocolErrorStreamReconnect(t *testing.T) {
 
 	client, err := flow.NewClient("http://"+server.addr, "test-payload", "test-signature", 1*time.Second)
 	require.NoError(t, err)
+
+	// Cleanups run LIFO: the goroutine-drain registered here runs after Close below,
+	// which is when Receive has actually returned. Without this, the Receive goroutine
+	// can outlive the test and call t.Logf after teardown, panicking.
+	receiveDone := make(chan struct{})
+	t.Cleanup(func() {
+		select {
+		case <-receiveDone:
+		case <-time.After(2 * time.Second):
+			t.Error("Receive goroutine did not exit after Close")
+		}
+	})
 	t.Cleanup(func() {
 		err := client.Close()
 		assert.NoError(t, err, "failed to close flow")
@@ -468,6 +480,7 @@ func TestReceive_ProtocolErrorStreamReconnect(t *testing.T) {
 	receivedAfterReconnect := make(chan struct{})
 
 	go func() {
+		defer close(receiveDone)
 		err := client.Receive(ctx, 1*time.Second, func(msg *proto.FlowEventAck) error {
 			if msg.IsInitiator || len(msg.EventId) == 0 {
 				return nil
