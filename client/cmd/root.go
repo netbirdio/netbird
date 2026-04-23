@@ -76,6 +76,7 @@ var (
 	profilesDisabled        bool
 	updateSettingsDisabled  bool
 	captureEnabled          bool
+	networksDisabled        bool
 
 	rootCmd = &cobra.Command{
 		Use:          "netbird",

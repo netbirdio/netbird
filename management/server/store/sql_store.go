@@ -3310,7 +3310,7 @@ func (s *SqlStore) GetAccountPeersWithExpiration(ctx context.Context, lockStreng
 
 	var peers []*nbpeer.Peer
 	result := tx.
-		Where("login_expiration_enabled = ? AND user_id IS NOT NULL AND user_id != ''", true).
+		Where("login_expiration_enabled = ? AND peer_status_login_expired != ? AND user_id IS NOT NULL AND user_id != ''", true, true).
 		Find(&peers, accountIDCondition, accountID)
 	if err := result.Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to get peers with expiration from the store: %s", result.Error)

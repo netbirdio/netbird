@@ -2311,6 +2311,29 @@ func TestAccount_GetExpiredPeers(t *testing.T) {
 	}
 }
 
+func TestGetExpiredPeers_SkipsAlreadyExpired(t *testing.T) {
+	ctx := context.Background()
+
+	testStore, cleanUp, err := store.NewTestStoreFromSQL(ctx, "testdata/store_with_expired_peers.sql", t.TempDir())
+	t.Cleanup(cleanUp)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	// Verify the already-expired peer is excluded at the store level
+	peers, err := testStore.GetAccountPeersWithExpiration(ctx, store.LockingStrengthNone, accountID)
+	require.NoError(t, err)
+
+	for _, peer := range peers {
+		assert.NotEqual(t, "cg05lnblo1hkg2j514p0", peer.ID, "already expired peer should be excluded by the store query")
+		assert.False(t, peer.Status.LoginExpired, "returned peers should not already be marked as login expired")
+	}
+
+	// Only the non-expired peer with expiration enabled should be returned
+	require.Len(t, peers, 1)
+	assert.Equal(t, "notexpired01", peers[0].ID)
+}
+
 func TestAccount_GetInactivePeers(t *testing.T) {
 	type test struct {
 		name          string
@@ -3134,10 +3157,15 @@ func createManager(t testing.TB) (*DefaultAccountManager, *update_channel.PeersU
 
 	ctx := context.Background()
 
+	cacheStore, err := cache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, store)
 	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(store, peers.NewManager(store, permissionsManager)), &config.Config{})
-	manager, err := BuildManager(ctx, &config.Config{}, store, networkMapController, job.NewJobManager(nil, store, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	manager, err := BuildManager(ctx, &config.Config{}, store, networkMapController, job.NewJobManager(nil, store, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 	if err != nil {
 		return nil, nil, err
 	}

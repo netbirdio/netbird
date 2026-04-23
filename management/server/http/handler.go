@@ -5,9 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/netip"
-	"os"
-	"strconv"
-	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/cors"
@@ -66,14 +63,11 @@ import (
 )
 
 const (
-	apiPrefix              = "/api"
-	rateLimitingEnabledKey = "NB_API_RATE_LIMITING_ENABLED"
-	rateLimitingBurstKey   = "NB_API_RATE_LIMITING_BURST"
-	rateLimitingRPMKey     = "NB_API_RATE_LIMITING_RPM"
+	apiPrefix = "/api"
 )
 
 // NewAPIHandler creates the Management service HTTP API handler registering all the available endpoints.
-func NewAPIHandler(ctx context.Context, accountManager account.Manager, networksManager nbnetworks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation, authManager auth.Manager, appMetrics telemetry.AppMetrics, integratedValidator integrated_validator.IntegratedValidator, proxyController port_forwarding.Controller, permissionsManager permissions.Manager, peersManager nbpeers.Manager, settingsManager settings.Manager, zManager zones.Manager, rManager records.Manager, networkMapController network_map.Controller, idpManager idpmanager.Manager, serviceManager service.Manager, reverseProxyDomainManager *manager.Manager, reverseProxyAccessLogsManager accesslogs.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, trustedHTTPProxies []netip.Prefix) (http.Handler, error) {
+func NewAPIHandler(ctx context.Context, accountManager account.Manager, networksManager nbnetworks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation, authManager auth.Manager, appMetrics telemetry.AppMetrics, integratedValidator integrated_validator.IntegratedValidator, proxyController port_forwarding.Controller, permissionsManager permissions.Manager, peersManager nbpeers.Manager, settingsManager settings.Manager, zManager zones.Manager, rManager records.Manager, networkMapController network_map.Controller, idpManager idpmanager.Manager, serviceManager service.Manager, reverseProxyDomainManager *manager.Manager, reverseProxyAccessLogsManager accesslogs.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, trustedHTTPProxies []netip.Prefix, rateLimiter *middleware.APIRateLimiter) (http.Handler, error) {
 
 	// Register bypass paths for unauthenticated endpoints
 	if err := bypass.AddBypassPath("/api/instance"); err != nil {
@@ -94,34 +88,10 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 		return nil, fmt.Errorf("failed to add bypass path: %w", err)
 	}
 
-	var rateLimitingConfig *middleware.RateLimiterConfig
-	if os.Getenv(rateLimitingEnabledKey) == "true" {
-		rpm := 6
-		if v := os.Getenv(rateLimitingRPMKey); v != "" {
-			value, err := strconv.Atoi(v)
-			if err != nil {
-				log.Warnf("parsing %s env var: %v, using default %d", rateLimitingRPMKey, err, rpm)
-			} else {
-				rpm = value
-			}
-		}
-
-		burst := 500
-		if v := os.Getenv(rateLimitingBurstKey); v != "" {
-			value, err := strconv.Atoi(v)
-			if err != nil {
-				log.Warnf("parsing %s env var: %v, using default %d", rateLimitingBurstKey, err, burst)
-			} else {
-				burst = value
-			}
-		}
-
-		rateLimitingConfig = &middleware.RateLimiterConfig{
-			RequestsPerMinute: float64(rpm),
-			Burst:             burst,
-			CleanupInterval:   6 * time.Hour,
-			LimiterTTL:        24 * time.Hour,
-		}
+	if rateLimiter == nil {
+		log.Warn("NewAPIHandler: nil rate limiter, rate limiting disabled")
+		rateLimiter = middleware.NewAPIRateLimiter(nil)
+		rateLimiter.SetEnabled(false)
 	}
 
 	authMiddleware := middleware.NewAuthMiddleware(
@@ -129,7 +99,7 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 		accountManager.GetAccountIDFromUserAuth,
 		accountManager.SyncUserJWTGroups,
 		accountManager.GetUserFromUserAuth,
-		rateLimitingConfig,
+		rateLimiter,
 		appMetrics.GetMeter(),
 	)
 
