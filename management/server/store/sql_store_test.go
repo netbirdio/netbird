@@ -2729,7 +2729,7 @@ func TestSqlStore_GetAccountPeers(t *testing.T) {
 		{
 			name:          "should retrieve peers for an existing account ID",
 			accountID:     "bf1c8084-ba50-4ce7-9439-34653001fc3b",
-			expectedCount: 4,
+			expectedCount: 5,
 		},
 		{
 			name:          "should return no peers for a non-existing account ID",
@@ -2751,7 +2751,7 @@ func TestSqlStore_GetAccountPeers(t *testing.T) {
 			name:          "should filter peers by partial name",
 			accountID:     "bf1c8084-ba50-4ce7-9439-34653001fc3b",
 			nameFilter:    "host",
-			expectedCount: 3,
+			expectedCount: 4,
 		},
 		{
 			name:          "should filter peers by ip",
@@ -2909,7 +2909,7 @@ func TestSqlStore_GetUserPeers(t *testing.T) {
 			name:          "should retrieve peers for another valid account ID and user ID",
 			accountID:     "bf1c8084-ba50-4ce7-9439-34653001fc3b",
 			userID:        "edafee4e-63fb-11ec-90d6-0242ac120003",
-			expectedCount: 2,
+			expectedCount: 3,
 		},
 		{
 			name:          "should return no peers for existing account ID with empty user ID",
