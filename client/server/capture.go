@@ -304,12 +304,6 @@ func (s *Server) cleanupBundleCapture() {
 	s.bundleCapture = nil
 }
 
-func (s *Server) getCaptureEngine() (*internal.Engine, error) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	return s.getCaptureEngineLocked()
-}
-
 // claimCapture reserves the engine's capture slot for sess. Returns
 // FailedPrecondition if another capture is already active.
 func (s *Server) claimCapture(sess *capture.Session) (*internal.Engine, error) {
