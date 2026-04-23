@@ -19,7 +19,6 @@ import (
 	dexapi "github.com/dexidp/dex/api/v2"
 	"github.com/dexidp/dex/server"
 	"github.com/dexidp/dex/storage"
-	"github.com/dexidp/dex/storage/sql"
 	jose "github.com/go-jose/go-jose/v4"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
@@ -74,10 +73,9 @@ func NewProvider(ctx context.Context, config *Config) (*Provider, error) {
 		return nil, fmt.Errorf("failed to create data directory: %w", err)
 	}
 
-	// Initialize SQLite storage
+	// Initialize SQLite storage (requires CGO; see sqlite_cgo.go / sqlite_nocgo.go).
 	dbPath := filepath.Join(config.DataDir, "oidc.db")
-	sqliteConfig := &sql.SQLite3{File: dbPath}
-	stor, err := sqliteConfig.Open(logger)
+	stor, err := openSQLite(dbPath, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open storage: %w", err)
 	}

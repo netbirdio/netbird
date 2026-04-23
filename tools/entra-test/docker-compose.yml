@@ -1,0 +1,66 @@
+# docker-compose for exercising the Entra device authentication feature
+# locally. Brings up a Postgres + a netbird-management compiled from this
+# branch.
+#
+# Usage:
+#   # from the repo root:
+#   docker compose -f tools/entra-test/docker-compose.yml up --build
+#
+# The management server exposes:
+#   - :33073  gRPC (normal NetBird agent login flow)
+#   - :33081  HTTP, including the admin API and /join/entra/*
+#
+# After startup, use tools/entra-test/enroll-tester to run a fake device
+# enrolment round-trip. See TESTING.md for the walkthrough.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: netbird
+      POSTGRES_USER: netbird
+      POSTGRES_PASSWORD: netbird
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U netbird -d netbird"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  management:
+    build:
+      context: ../..
+      dockerfile: management/Dockerfile.entra-test
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Point netbird-management at the local Postgres using the DSN the
+      # server reads from its config file below.
+      NETBIRD_STORE_ENGINE: postgres
+      NB_DEVEL: "true"
+    ports:
+      - "33073:33073"
+      - "33081:33081"
+    volumes:
+      - ./config:/etc/netbird:ro
+      - mgmt-data:/var/lib/netbird
+    command:
+      - "management"
+      - "--log-file"
+      - "console"
+      - "--log-level"
+      - "debug"
+      - "--port"
+      - "33073"
+      - "--mgmt-api-port"
+      - "33081"
+      - "--config"
+      - "/etc/netbird/management.json"
+      - "--datadir"
+      - "/var/lib/netbird"
+
+volumes:
+  pg-data:
+  mgmt-data:

@@ -1,0 +1,55 @@
+# syntax=docker/dockerfile:1.7
+#
+# Multi-stage Dockerfile for local testing of the Entra device authentication
+# feature. Builds netbird-mgmt from the feature branch source and produces a
+# slim runtime image.
+#
+# Usage:
+#   docker build -f management/Dockerfile.entra-test -t netbird-mgmt:entra .
+#
+# This is NOT the production build path; see management/Dockerfile for the
+# release image produced by goreleaser.
+FROM golang:1.25-bookworm AS builder
+
+# We build with CGO enabled because the Dex SQLite backend needs it. The Entra
+# feature itself works fine under CGO_ENABLED=0, but the rest of the tree
+# references Dex's SQLite3 struct which is only populated with CGO.
+ENV CGO_ENABLED=1 \
+    GOFLAGS=-buildvcs=false
+
+WORKDIR /src
+
+# Prime the module cache separately so source edits don't invalidate it.
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go mod download
+
+COPY . .
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    apt-get update && \
+    apt-get install -y --no-install-recommends gcc libc6-dev && \
+    rm -rf /var/lib/apt/lists/* && \
+    go build -trimpath -ldflags "-s -w" -o /out/netbird-mgmt ./management
+
+# ---- runtime ----
+FROM debian:bookworm-slim
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates curl && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /out/netbird-mgmt /usr/local/bin/netbird-mgmt
+
+# Listen on :33073 (gRPC) and :33081 (HTTP admin + /join/entra) by default.
+EXPOSE 33073 33081
+
+# Health check probes the challenge endpoint: if it can issue a nonce, the
+# management HTTP surface is alive.
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+  CMD curl -fsS http://localhost:33081/join/entra/challenge >/dev/null || exit 1
+
+ENTRYPOINT ["/usr/local/bin/netbird-mgmt", "management"]
+CMD ["--log-file", "console", "--log-level", "info"]

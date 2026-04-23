@@ -243,7 +243,7 @@ func (s *Storage) OpenStorage(logger *slog.Logger) (storage.Storage, error) {
 		if file == "" {
 			return nil, fmt.Errorf("sqlite3 storage requires 'file' config")
 		}
-		return (&sql.SQLite3{File: file}).Open(logger)
+		return openSQLite(file, logger)
 	case "postgres":
 		dsn, _ := s.Config["dsn"].(string)
 		if dsn == "" {

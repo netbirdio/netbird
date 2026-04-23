@@ -1,0 +1,43 @@
+{
+  "Stuns": [
+    {
+      "Proto": "udp",
+      "URI": "stun:stun.wiretrustee.com:3468"
+    }
+  ],
+  "TURNConfig": {
+    "TimeBasedCredentials": false,
+    "CredentialsTTL": "12h",
+    "Secret": "secret",
+    "Turns": [
+      {
+        "Proto": "udp",
+        "URI": "turn:turn.wiretrustee.com:3478",
+        "Username": "some_user",
+        "Password": "some_password"
+      }
+    ]
+  },
+  "Signal": {
+    "Proto": "http",
+    "URI": "signal.wiretrustee.com:10000"
+  },
+  "HttpConfig": {
+    "Address": "0.0.0.0:33081",
+    "AuthIssuer": "https://entra-test.local",
+    "AuthAudience": "entra-test",
+    "AuthKeysLocation": ""
+  },
+  "IdpManagerConfig": {
+    "ManagerType": "none"
+  },
+  "DeviceAuthorizationFlow": {
+    "Provider": "none"
+  },
+  "DataStoreEncryptionKey": "thisisatestkeyforentradeviceauthtesting00=",
+  "StoreConfig": {
+    "Engine": "postgres"
+  },
+  "PKCEAuthorizationFlow": null,
+  "Relay": null
+}
