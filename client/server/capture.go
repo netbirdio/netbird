@@ -46,11 +46,6 @@ func (bc *bundleCapture) stop() {
 	if bc.cancel != nil {
 		bc.cancel()
 	}
-	if bc.engine != nil {
-		if err := bc.engine.SetCapture(nil); err != nil {
-			log.Debugf("clear bundle capture: %v", err)
-		}
-	}
 	if bc.sess != nil {
 		bc.sess.Stop()
 	}
@@ -87,9 +82,8 @@ func (s *Server) StartCapture(req *proto.StartCaptureRequest, stream proto.Daemo
 			"packet capture is disabled; reinstall or reconfigure the service with --enable-capture")
 	}
 
-	engine, err := s.getCaptureEngine()
-	if err != nil {
-		return err
+	if d := req.GetDuration(); d != nil && d.AsDuration() < 0 {
+		return status.Error(codes.InvalidArgument, "duration must not be negative")
 	}
 
 	matcher, err := parseCaptureFilter(req)
@@ -117,7 +111,15 @@ func (s *Server) StartCapture(req *proto.StartCaptureRequest, stream proto.Daemo
 		return status.Errorf(codes.Internal, "create capture session: %v", err)
 	}
 
+	engine, err := s.claimCapture(sess)
+	if err != nil {
+		sess.Stop()
+		pw.Close()
+		return err
+	}
+
 	if err := engine.SetCapture(sess); err != nil {
+		s.releaseCapture(sess)
 		sess.Stop()
 		pw.Close()
 		return status.Errorf(codes.Internal, "set capture: %v", err)
@@ -127,9 +129,7 @@ func (s *Server) StartCapture(req *proto.StartCaptureRequest, stream proto.Daemo
 	// The client waits for this before printing the banner, so it must arrive
 	// before any packet data.
 	if err := stream.Send(&proto.CapturePacket{}); err != nil {
-		if clearErr := engine.SetCapture(nil); clearErr != nil {
-			log.Debugf("clear capture after send failure: %v", clearErr)
-		}
+		s.clearCaptureIfOwner(sess, engine)
 		sess.Stop()
 		pw.Close()
 		return status.Errorf(codes.Internal, "send initial message: %v", err)
@@ -137,16 +137,7 @@ func (s *Server) StartCapture(req *proto.StartCaptureRequest, stream proto.Daemo
 
 	ctx := stream.Context()
 	if d := req.GetDuration(); d != nil {
-		dur := d.AsDuration()
-		if dur < 0 {
-			if clearErr := engine.SetCapture(nil); clearErr != nil {
-				log.Debugf("clear capture: %v", clearErr)
-			}
-			sess.Stop()
-			pw.Close()
-			return status.Errorf(codes.InvalidArgument, "duration must not be negative")
-		}
-		if dur > 0 {
+		if dur := d.AsDuration(); dur > 0 {
 			var cancel context.CancelFunc
 			ctx, cancel = context.WithTimeout(ctx, dur)
 			defer cancel()
@@ -155,9 +146,7 @@ func (s *Server) StartCapture(req *proto.StartCaptureRequest, stream proto.Daemo
 
 	go func() {
 		<-ctx.Done()
-		if err := engine.SetCapture(nil); err != nil {
-			log.Debugf("clear capture: %v", err)
-		}
+		s.clearCaptureIfOwner(sess, engine)
 		sess.Stop()
 		pw.Close()
 	}()
@@ -202,6 +191,10 @@ func (s *Server) StartBundleCapture(_ context.Context, req *proto.StartBundleCap
 	s.stopBundleCaptureLocked()
 	s.cleanupBundleCapture()
 
+	if s.activeCapture != nil {
+		return nil, status.Error(codes.FailedPrecondition, "another capture is already running")
+	}
+
 	engine, err := s.getCaptureEngineLocked()
 	if err != nil {
 		// Not fatal: kernel mode or not connected. Log and return success
@@ -234,6 +227,7 @@ func (s *Server) StartBundleCapture(_ context.Context, req *proto.StartBundleCap
 		log.Warnf("packet capture unavailable (no filtered device), skipping: %v", err)
 		return &proto.StartBundleCaptureResponse{}, nil
 	}
+	s.activeCapture = sess
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	bc := &bundleCapture{
@@ -243,13 +237,19 @@ func (s *Server) StartBundleCapture(_ context.Context, req *proto.StartBundleCap
 		cancel: cancel,
 	}
 
+	s.bundleCapture = bc
+
 	go func() {
 		<-ctx.Done()
-		bc.stop()
+		s.mutex.Lock()
+		if s.bundleCapture == bc {
+			s.stopBundleCaptureLocked()
+		} else {
+			bc.stop()
+		}
+		s.mutex.Unlock()
 		log.Infof("bundle capture auto-stopped after timeout")
 	}()
-
-	s.bundleCapture = bc
 	log.Infof("bundle capture started (timeout=%s, file=%s)", timeout, f.Name())
 
 	return &proto.StartBundleCaptureResponse{}, nil
@@ -269,9 +269,16 @@ func (s *Server) stopBundleCaptureLocked() {
 	if s.bundleCapture == nil {
 		return
 	}
-	s.bundleCapture.stop()
+	bc := s.bundleCapture
+	if bc.engine != nil && s.activeCapture == bc.sess {
+		if err := bc.engine.SetCapture(nil); err != nil {
+			log.Debugf("clear bundle capture: %v", err)
+		}
+		s.activeCapture = nil
+	}
+	bc.stop()
 
-	stats := s.bundleCapture.sess.Stats()
+	stats := bc.sess.Stats()
 	log.Infof("bundle capture stopped: %d packets, %d bytes, %d dropped",
 		stats.Packets, stats.Bytes, stats.Dropped)
 }
@@ -301,6 +308,45 @@ func (s *Server) getCaptureEngine() (*internal.Engine, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	return s.getCaptureEngineLocked()
+}
+
+// claimCapture reserves the engine's capture slot for sess. Returns
+// FailedPrecondition if another capture is already active.
+func (s *Server) claimCapture(sess *capture.Session) (*internal.Engine, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.activeCapture != nil {
+		return nil, status.Error(codes.FailedPrecondition, "another capture is already running")
+	}
+	engine, err := s.getCaptureEngineLocked()
+	if err != nil {
+		return nil, err
+	}
+	s.activeCapture = sess
+	return engine, nil
+}
+
+// releaseCapture clears the active-capture owner if it still matches sess.
+func (s *Server) releaseCapture(sess *capture.Session) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	if s.activeCapture == sess {
+		s.activeCapture = nil
+	}
+}
+
+// clearCaptureIfOwner clears engine's capture slot only if sess still owns it.
+func (s *Server) clearCaptureIfOwner(sess *capture.Session, engine *internal.Engine) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	if s.activeCapture != sess {
+		return
+	}
+	if err := engine.SetCapture(nil); err != nil {
+		log.Debugf("clear capture: %v", err)
+	}
+	s.activeCapture = nil
 }
 
 func (s *Server) getCaptureEngineLocked() (*internal.Engine, error) {

@@ -384,11 +384,12 @@ func (m *Manager) initForwarder() error {
 		return fmt.Errorf("create forwarder: %w", err)
 	}
 
+	m.forwarder.Store(forwarder)
+
+	// Re-load after store: a concurrent SetPacketCapture may have seen forwarder as nil and only updated pendingCapture.
 	if pc := m.pendingCapture.Load(); pc != nil {
 		forwarder.SetCapture(*pc)
 	}
-
-	m.forwarder.Store(forwarder)
 
 	log.Debug("forwarder initialized")
 

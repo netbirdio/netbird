@@ -10,10 +10,12 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/hashicorp/go-multierror"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 
+	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/util/capture"
 )
@@ -87,7 +89,6 @@ func runCapture(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer cleanup()
 
 	if req.TextOutput {
 		cmd.PrintErrf("Capturing packets... Press Ctrl+C to stop.\n")
@@ -95,7 +96,12 @@ func runCapture(cmd *cobra.Command, args []string) error {
 		cmd.PrintErrf("Capturing packets (pcap)... Press Ctrl+C to stop.\n")
 	}
 
-	return streamCapture(ctx, cmd, stream, out)
+	streamErr := streamCapture(ctx, cmd, stream, out)
+	cleanupErr := cleanup()
+	if streamErr != nil {
+		return streamErr
+	}
+	return cleanupErr
 }
 
 func buildCaptureRequest(cmd *cobra.Command, args []string) (*proto.StartCaptureRequest, error) {
@@ -148,13 +154,12 @@ func streamCapture(ctx context.Context, cmd *cobra.Command, stream proto.DaemonS
 	}
 }
 
-// captureOutput returns the writer for capture data and a cleanup function.
-func captureOutput(cmd *cobra.Command) (io.Writer, func(), error) {
+// captureOutput returns the writer for capture data and a cleanup function
+// that finalizes the file. Errors from the cleanup must be propagated.
+func captureOutput(cmd *cobra.Command) (io.Writer, func() error, error) {
 	outPath, _ := cmd.Flags().GetString("output")
 	if outPath == "" {
-		return os.Stdout, func() {
-			// no cleanup needed for stdout
-		}, nil
+		return os.Stdout, func() error { return nil }, nil
 	}
 
 	f, err := os.CreateTemp(filepath.Dir(outPath), filepath.Base(outPath)+".*.tmp")
@@ -162,19 +167,24 @@ func captureOutput(cmd *cobra.Command) (io.Writer, func(), error) {
 		return nil, nil, fmt.Errorf("create output file: %w", err)
 	}
 	tmpPath := f.Name()
-	return f, func() {
+	return f, func() error {
+		var merr *multierror.Error
 		if err := f.Close(); err != nil {
-			cmd.PrintErrf("close output file: %v\n", err)
+			merr = multierror.Append(merr, fmt.Errorf("close output file: %w", err))
 		}
-		if fi, err := os.Stat(tmpPath); err == nil && fi.Size() > 0 {
-			if err := os.Rename(tmpPath, outPath); err != nil {
-				cmd.PrintErrf("rename output file: %v\n", err)
-			} else {
-				cmd.PrintErrf("Wrote %s\n", outPath)
+		fi, statErr := os.Stat(tmpPath)
+		if statErr != nil || fi.Size() == 0 {
+			if rmErr := os.Remove(tmpPath); rmErr != nil && !os.IsNotExist(rmErr) {
+				merr = multierror.Append(merr, fmt.Errorf("remove empty output file: %w", rmErr))
 			}
-		} else {
-			os.Remove(tmpPath)
+			return nberrors.FormatErrorOrNil(merr)
 		}
+		if err := os.Rename(tmpPath, outPath); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("rename output file: %w", err))
+			return nberrors.FormatErrorOrNil(merr)
+		}
+		cmd.PrintErrf("Wrote %s\n", outPath)
+		return nberrors.FormatErrorOrNil(merr)
 	}, nil
 }
 

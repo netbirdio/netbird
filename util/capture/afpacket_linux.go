@@ -54,17 +54,23 @@ func (c *AFPacketCapture) Start() error {
 	if c.sess == nil {
 		return errors.New("nil capture session")
 	}
-	if c.started.Load() {
+	if !c.started.CompareAndSwap(false, true) {
 		return errors.New("capture already started")
+	}
+	if c.closed.Load() {
+		c.started.Store(false)
+		return errors.New("cannot restart stopped capture")
 	}
 
 	iface, err := net.InterfaceByName(c.ifaceName)
 	if err != nil {
+		c.started.Store(false)
 		return fmt.Errorf("interface %s: %w", c.ifaceName, err)
 	}
 
 	fd, err := unix.Socket(unix.AF_PACKET, unix.SOCK_DGRAM|unix.SOCK_NONBLOCK|unix.SOCK_CLOEXEC, int(htons(unix.ETH_P_ALL)))
 	if err != nil {
+		c.started.Store(false)
 		return fmt.Errorf("create AF_PACKET socket: %w", err)
 	}
 
@@ -74,6 +80,7 @@ func (c *AFPacketCapture) Start() error {
 	}
 	if err := unix.Bind(fd, addr); err != nil {
 		unix.Close(fd)
+		c.started.Store(false)
 		return fmt.Errorf("bind to %s: %w", c.ifaceName, err)
 	}
 
@@ -81,7 +88,6 @@ func (c *AFPacketCapture) Start() error {
 	c.fd = fd
 	c.mu.Unlock()
 
-	c.started.Store(true)
 	go c.readLoop(fd)
 	return nil
 }
