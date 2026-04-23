@@ -958,7 +958,7 @@ func (am *DefaultAccountManager) lookupUserInCache(ctx context.Context, userID s
 	}
 
 	if user.AccountID != accountID {
-		return nil, nil
+		return nil, fmt.Errorf("user %s does not belong to account %s", userID, accountID)
 	}
 
 	key := user.IntegrationReference.CacheKey(accountID, userID)
