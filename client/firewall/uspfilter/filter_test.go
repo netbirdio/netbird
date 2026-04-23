@@ -31,10 +31,18 @@ var logger = log.NewFromLogrus(logrus.StandardLogger())
 var flowLogger = netflow.NewManager(nil, []byte{}, nil).GetLogger()
 
 type IFaceMock struct {
+	NameFunc        func() string
 	SetFilterFunc   func(device.PacketFilter) error
 	AddressFunc     func() wgaddr.Address
 	GetWGDeviceFunc func() *wgdevice.Device
 	GetDeviceFunc   func() *device.FilteredDevice
+}
+
+func (i *IFaceMock) Name() string {
+	if i.NameFunc == nil {
+		return "wgtest"
+	}
+	return i.NameFunc()
 }
 
 func (i *IFaceMock) GetWGDevice() *wgdevice.Device {

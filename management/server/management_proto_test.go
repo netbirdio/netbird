@@ -267,8 +267,8 @@ func Test_SyncProtocol(t *testing.T) {
 	}
 
 	// expired peers come separately.
-	if len(networkMap.GetOfflinePeers()) != 1 {
-		t.Fatal("expecting SyncResponse to have NetworkMap with 1 offline peer")
+	if len(networkMap.GetOfflinePeers()) != 2 {
+		t.Fatal("expecting SyncResponse to have NetworkMap with 2 offline peer")
 	}
 
 	expiredPeerPubKey := "RlSy2vzoG2HyMBTUImXOiVhCBiiBa5qD5xzMxkiFDW4="

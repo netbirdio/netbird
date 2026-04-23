@@ -66,14 +66,14 @@ func NewGoogleWorkspaceManager(ctx context.Context, config GoogleWorkspaceClient
 	}
 
 	// Create a new Admin SDK Directory service client
-	adminCredentials, err := getGoogleCredentials(ctx, config.ServiceAccountKey)
+	credentialsOption, err := getGoogleCredentialsOption(ctx, config.ServiceAccountKey)
 	if err != nil {
 		return nil, err
 	}
 
 	service, err := admin.NewService(context.Background(),
 		option.WithScopes(admin.AdminDirectoryUserReadonlyScope),
-		option.WithCredentials(adminCredentials),
+		credentialsOption,
 	)
 	if err != nil {
 		return nil, err
@@ -218,39 +218,32 @@ func (gm *GoogleWorkspaceManager) DeleteUser(_ context.Context, userID string) e
 	return nil
 }
 
-// getGoogleCredentials retrieves Google credentials based on the provided serviceAccountKey.
-// It decodes the base64-encoded serviceAccountKey and attempts to obtain credentials using it.
-// If that fails, it falls back to using the default Google credentials path.
-// It returns the retrieved credentials or an error if unsuccessful.
-func getGoogleCredentials(ctx context.Context, serviceAccountKey string) (*google.Credentials, error) {
+// getGoogleCredentialsOption returns the google.golang.org/api option carrying
+// Google credentials derived from the provided serviceAccountKey.
+// It decodes the base64-encoded serviceAccountKey and uses it as the credentials JSON.
+// If the key is empty, it falls back to the default Google credentials path.
+func getGoogleCredentialsOption(ctx context.Context, serviceAccountKey string) (option.ClientOption, error) {
 	log.WithContext(ctx).Debug("retrieving google credentials from the base64 encoded service account key")
 	decodeKey, err := base64.StdEncoding.DecodeString(serviceAccountKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode service account key: %w", err)
 	}
 
-	creds, err := google.CredentialsFromJSON(
-		context.Background(),
-		decodeKey,
-		admin.AdminDirectoryUserReadonlyScope,
-	)
-	if err == nil {
-		// No need to fallback to the default Google credentials path
-		return creds, nil
+	if len(decodeKey) > 0 {
+		return option.WithAuthCredentialsJSON(option.ServiceAccount, decodeKey), nil
 	}
 
-	log.WithContext(ctx).Debugf("failed to retrieve Google credentials from ServiceAccountKey: %v", err)
-	log.WithContext(ctx).Debug("falling back to default google credentials location")
+	log.WithContext(ctx).Debug("no service account key provided, falling back to default google credentials location")
 
-	creds, err = google.FindDefaultCredentials(
-		context.Background(),
+	creds, err := google.FindDefaultCredentials(
+		ctx,
 		admin.AdminDirectoryUserReadonlyScope,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	return creds, nil
+	return option.WithCredentials(creds), nil
 }
 
 // parseGoogleWorkspaceUser parse google user to UserData.

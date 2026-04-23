@@ -1,11 +1,15 @@
 package dns_test
 
 import (
+	"context"
+	"net"
 	"testing"
+	"time"
 
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	nbdns "github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/dns/test"
@@ -1041,4 +1045,164 @@ func TestHandlerChain_AddRemoveRoundtrip(t *testing.T) {
 			}
 		})
 	}
+}
+
+// answeringHandler writes a fixed A record to ack the query. Used to verify
+// which handler ResolveInternal dispatches to.
+type answeringHandler struct {
+	name string
+	ip   string
+}
+
+func (h *answeringHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
+	resp := &dns.Msg{}
+	resp.SetReply(r)
+	resp.Answer = []dns.RR{&dns.A{
+		Hdr: dns.RR_Header{Name: r.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
+		A:   net.ParseIP(h.ip).To4(),
+	}}
+	_ = w.WriteMsg(resp)
+}
+
+func (h *answeringHandler) String() string { return h.name }
+
+func TestHandlerChain_ResolveInternal_SkipsAboveMaxPriority(t *testing.T) {
+	chain := nbdns.NewHandlerChain()
+
+	high := &answeringHandler{name: "high", ip: "10.0.0.1"}
+	low := &answeringHandler{name: "low", ip: "10.0.0.2"}
+
+	chain.AddHandler("example.com.", high, nbdns.PriorityMgmtCache)
+	chain.AddHandler("example.com.", low, nbdns.PriorityUpstream)
+
+	r := new(dns.Msg)
+	r.SetQuestion("example.com.", dns.TypeA)
+
+	resp, err := chain.ResolveInternal(context.Background(), r, nbdns.PriorityUpstream)
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
+	assert.Equal(t, 1, len(resp.Answer))
+	a, ok := resp.Answer[0].(*dns.A)
+	assert.True(t, ok)
+	assert.Equal(t, "10.0.0.2", a.A.String(), "should skip mgmtCache handler and resolve via upstream")
+}
+
+func TestHandlerChain_ResolveInternal_ErrorWhenNoMatch(t *testing.T) {
+	chain := nbdns.NewHandlerChain()
+	high := &answeringHandler{name: "high", ip: "10.0.0.1"}
+	chain.AddHandler("example.com.", high, nbdns.PriorityMgmtCache)
+
+	r := new(dns.Msg)
+	r.SetQuestion("example.com.", dns.TypeA)
+
+	_, err := chain.ResolveInternal(context.Background(), r, nbdns.PriorityUpstream)
+	assert.Error(t, err, "no handler at or below maxPriority should error")
+}
+
+// rawWriteHandler packs a response and calls ResponseWriter.Write directly
+// (instead of WriteMsg), exercising the internalResponseWriter.Write path.
+type rawWriteHandler struct {
+	ip string
+}
+
+func (h *rawWriteHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
+	resp := &dns.Msg{}
+	resp.SetReply(r)
+	resp.Answer = []dns.RR{&dns.A{
+		Hdr: dns.RR_Header{Name: r.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
+		A:   net.ParseIP(h.ip).To4(),
+	}}
+	packed, err := resp.Pack()
+	if err != nil {
+		return
+	}
+	_, _ = w.Write(packed)
+}
+
+func TestHandlerChain_ResolveInternal_CapturesRawWrite(t *testing.T) {
+	chain := nbdns.NewHandlerChain()
+	chain.AddHandler("example.com.", &rawWriteHandler{ip: "10.0.0.3"}, nbdns.PriorityUpstream)
+
+	r := new(dns.Msg)
+	r.SetQuestion("example.com.", dns.TypeA)
+
+	resp, err := chain.ResolveInternal(context.Background(), r, nbdns.PriorityUpstream)
+	assert.NoError(t, err)
+	require.NotNil(t, resp)
+	require.Len(t, resp.Answer, 1)
+	a, ok := resp.Answer[0].(*dns.A)
+	require.True(t, ok)
+	assert.Equal(t, "10.0.0.3", a.A.String(), "handlers calling Write(packed) must still surface their answer")
+}
+
+func TestHandlerChain_ResolveInternal_EmptyQuestion(t *testing.T) {
+	chain := nbdns.NewHandlerChain()
+	_, err := chain.ResolveInternal(context.Background(), new(dns.Msg), nbdns.PriorityUpstream)
+	assert.Error(t, err)
+}
+
+// hangingHandler blocks indefinitely until closed, simulating a wedged upstream.
+type hangingHandler struct {
+	block chan struct{}
+}
+
+func (h *hangingHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
+	<-h.block
+	resp := &dns.Msg{}
+	resp.SetReply(r)
+	_ = w.WriteMsg(resp)
+}
+
+func (h *hangingHandler) String() string { return "hangingHandler" }
+
+func TestHandlerChain_ResolveInternal_HonorsContextTimeout(t *testing.T) {
+	chain := nbdns.NewHandlerChain()
+	h := &hangingHandler{block: make(chan struct{})}
+	defer close(h.block)
+
+	chain.AddHandler("example.com.", h, nbdns.PriorityUpstream)
+
+	r := new(dns.Msg)
+	r.SetQuestion("example.com.", dns.TypeA)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, err := chain.ResolveInternal(ctx, r, nbdns.PriorityUpstream)
+	elapsed := time.Since(start)
+
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Less(t, elapsed, 500*time.Millisecond, "ResolveInternal must return shortly after ctx deadline")
+}
+
+func TestHandlerChain_HasRootHandlerAtOrBelow(t *testing.T) {
+	chain := nbdns.NewHandlerChain()
+	h := &answeringHandler{name: "h", ip: "10.0.0.1"}
+
+	assert.False(t, chain.HasRootHandlerAtOrBelow(nbdns.PriorityUpstream), "empty chain")
+
+	chain.AddHandler("example.com.", h, nbdns.PriorityUpstream)
+	assert.False(t, chain.HasRootHandlerAtOrBelow(nbdns.PriorityUpstream), "non-root handler does not count")
+
+	chain.AddHandler(".", h, nbdns.PriorityMgmtCache)
+	assert.False(t, chain.HasRootHandlerAtOrBelow(nbdns.PriorityUpstream), "root handler above threshold excluded")
+
+	chain.AddHandler(".", h, nbdns.PriorityDefault)
+	assert.True(t, chain.HasRootHandlerAtOrBelow(nbdns.PriorityUpstream), "root handler at PriorityDefault included")
+
+	chain.RemoveHandler(".", nbdns.PriorityDefault)
+	assert.False(t, chain.HasRootHandlerAtOrBelow(nbdns.PriorityUpstream))
+
+	// Primary nsgroup case: root handler lands at PriorityUpstream.
+	chain.AddHandler(".", h, nbdns.PriorityUpstream)
+	assert.True(t, chain.HasRootHandlerAtOrBelow(nbdns.PriorityUpstream), "root at PriorityUpstream included")
+	chain.RemoveHandler(".", nbdns.PriorityUpstream)
+
+	// Fallback case: original /etc/resolv.conf entries land at PriorityFallback.
+	chain.AddHandler(".", h, nbdns.PriorityFallback)
+	assert.True(t, chain.HasRootHandlerAtOrBelow(nbdns.PriorityUpstream), "root at PriorityFallback included")
+	chain.RemoveHandler(".", nbdns.PriorityFallback)
+	assert.False(t, chain.HasRootHandlerAtOrBelow(nbdns.PriorityUpstream))
 }

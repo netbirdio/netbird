@@ -187,24 +187,23 @@ func (m *Manager) buildPeerConfig(allHostPatterns []string) (string, error) {
 		return "", fmt.Errorf("get NetBird executable path: %w", err)
 	}
 
-	hostLine := strings.Join(deduplicatedPatterns, " ")
-	config := fmt.Sprintf("Host %s\n", hostLine)
-	config += fmt.Sprintf("    Match exec \"%s ssh detect %%h %%p\"\n", execPath)
-	config += "        PreferredAuthentications password,publickey,keyboard-interactive\n"
-	config += "        PasswordAuthentication yes\n"
-	config += "        PubkeyAuthentication yes\n"
-	config += "        BatchMode no\n"
-	config += fmt.Sprintf("        ProxyCommand %s ssh proxy %%h %%p\n", execPath)
-	config += "        StrictHostKeyChecking no\n"
+	hostList := strings.Join(deduplicatedPatterns, ",")
+	config := fmt.Sprintf("Match host \"%s\" exec \"%s ssh detect %%h %%p\"\n", hostList, execPath)
+	config += "    PreferredAuthentications password,publickey,keyboard-interactive\n"
+	config += "    PasswordAuthentication yes\n"
+	config += "    PubkeyAuthentication yes\n"
+	config += "    BatchMode no\n"
+	config += fmt.Sprintf("    ProxyCommand %s ssh proxy %%h %%p\n", execPath)
+	config += "    StrictHostKeyChecking no\n"
 
 	if runtime.GOOS == "windows" {
-		config += "        UserKnownHostsFile NUL\n"
+		config += "    UserKnownHostsFile NUL\n"
 	} else {
-		config += "        UserKnownHostsFile /dev/null\n"
+		config += "    UserKnownHostsFile /dev/null\n"
 	}
 
-	config += "        CheckHostIP no\n"
-	config += "        LogLevel ERROR\n\n"
+	config += "    CheckHostIP no\n"
+	config += "    LogLevel ERROR\n\n"
 
 	return config, nil
 }

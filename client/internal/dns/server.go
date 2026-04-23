@@ -212,6 +212,7 @@ func newDefaultServer(
 	ctx, stop := context.WithCancel(ctx)
 
 	mgmtCacheResolver := mgmt.NewResolver()
+	mgmtCacheResolver.SetChainResolver(handlerChain, PriorityUpstream)
 
 	defaultServer := &DefaultServer{
 		ctx:               ctx,

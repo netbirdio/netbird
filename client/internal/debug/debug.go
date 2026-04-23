@@ -16,7 +16,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/pprof"
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -31,7 +30,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/updater/installer"
 	nbstatus "github.com/netbirdio/netbird/client/status"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
-	"github.com/netbirdio/netbird/util"
 )
 
 const readmeContent = `Netbird debug bundle
@@ -234,6 +232,7 @@ type BundleGenerator struct {
 	statusRecorder *peer.Status
 	syncResponse   *mgmProto.SyncResponse
 	logPath        string
+	tempDir        string
 	cpuProfile     []byte
 	refreshStatus  func() // Optional callback to refresh status before bundle generation
 	clientMetrics  MetricsExporter
@@ -256,6 +255,7 @@ type GeneratorDependencies struct {
 	StatusRecorder *peer.Status
 	SyncResponse   *mgmProto.SyncResponse
 	LogPath        string
+	TempDir        string // Directory for temporary bundle zip files. If empty, os.TempDir() is used.
 	CPUProfile     []byte
 	RefreshStatus  func() // Optional callback to refresh status before bundle generation
 	ClientMetrics  MetricsExporter
@@ -275,6 +275,7 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 		statusRecorder: deps.StatusRecorder,
 		syncResponse:   deps.SyncResponse,
 		logPath:        deps.LogPath,
+		tempDir:        deps.TempDir,
 		cpuProfile:     deps.CPUProfile,
 		refreshStatus:  deps.RefreshStatus,
 		clientMetrics:  deps.ClientMetrics,
@@ -287,7 +288,7 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 
 // Generate creates a debug bundle and returns the location.
 func (g *BundleGenerator) Generate() (resp string, err error) {
-	bundlePath, err := os.CreateTemp("", "netbird.debug.*.zip")
+	bundlePath, err := os.CreateTemp(g.tempDir, "netbird.debug.*.zip")
 	if err != nil {
 		return "", fmt.Errorf("create zip file: %w", err)
 	}
@@ -373,15 +374,8 @@ func (g *BundleGenerator) createArchive() error {
 		log.Errorf("failed to add wg show output: %v", err)
 	}
 
-	if g.logPath != "" && !slices.Contains(util.SpecialLogs, g.logPath) {
-		if err := g.addLogfile(); err != nil {
-			log.Errorf("failed to add log file to debug bundle: %v", err)
-			if err := g.trySystemdLogFallback(); err != nil {
-				log.Errorf("failed to add systemd logs as fallback: %v", err)
-			}
-		}
-	} else if err := g.trySystemdLogFallback(); err != nil {
-		log.Errorf("failed to add systemd logs: %v", err)
+	if err := g.addPlatformLog(); err != nil {
+		log.Errorf("failed to add logs to debug bundle: %v", err)
 	}
 
 	if err := g.addUpdateLogs(); err != nil {
