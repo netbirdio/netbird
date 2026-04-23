@@ -193,20 +193,12 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 			}
 		})
 
-		h.ServeHTTP(w, r.WithContext(ctx))
+		// Hold on to req so auth's in-place ctx update is visible after ServeHTTP.
+		req := r.WithContext(ctx)
+		h.ServeHTTP(w, req)
 		close(handlerDone)
 
-		userAuth, err := nbContext.GetUserAuthFromContext(r.Context())
-		if err == nil {
-			if userAuth.AccountId != "" {
-				//nolint
-				ctx = context.WithValue(ctx, nbContext.AccountIDKey, userAuth.AccountId)
-			}
-			if userAuth.UserId != "" {
-				//nolint
-				ctx = context.WithValue(ctx, nbContext.UserIDKey, userAuth.UserId)
-			}
-		}
+		ctx = req.Context()
 
 		if w.Status() > 399 {
 			log.WithContext(ctx).Errorf("HTTP response %v: %v %v status %v", reqID, r.Method, r.URL, w.Status())
