@@ -1,0 +1,50 @@
+name: issue-resolution-triage
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "If true, do not close issues"
+        required: false
+        default: "true"
+      max_issues:
+        description: "How many issues to process"
+        required: false
+        default: "100"
+  schedule:
+    - cron: "17 2 * * *"
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+  models: read
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      DRY_RUN: ${{ inputs.dry_run || 'true' }}
+      MAX_ISSUES: ${{ inputs.max_issues || '100' }}
+      REPO: ${{ github.repository }}
+      PROJECT_ID: ${{ vars.ISSUE_REVIEW_PROJECT_ID }}
+      PROJECT_STATUS_FIELD_ID: ${{ vars.PROJECT_STATUS_FIELD_ID }}
+      PROJECT_CONFIDENCE_FIELD_ID: ${{ vars.PROJECT_CONFIDENCE_FIELD_ID }}
+      PROJECT_REASON_FIELD_ID: ${{ vars.PROJECT_REASON_FIELD_ID }}
+      PROJECT_EVIDENCE_FIELD_ID: ${{ vars.PROJECT_EVIDENCE_FIELD_ID }}
+      PROJECT_LINKED_PR_FIELD_ID: ${{ vars.PROJECT_LINKED_PR_FIELD_ID }}
+      PROJECT_REPO_FIELD_ID: ${{ vars.PROJECT_REPO_FIELD_ID }}
+      PROJECT_STATUS_OPTION_NEEDS_REVIEW_ID: ${{ vars.PROJECT_STATUS_OPTION_NEEDS_REVIEW_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - run: npm ci
+      - run: node scripts/fetch-candidates.mjs
+      - run: node scripts/classify-candidates.mjs
+      - run: node scripts/apply-decisions.mjs
