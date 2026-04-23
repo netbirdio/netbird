@@ -66,7 +66,14 @@ func (u *upstreamResolverIOS) exchange(ctx context.Context, upstream string, r *
 	} else {
 		upstreamIP = upstreamIP.Unmap()
 	}
-	needsPrivate := u.lNet.Contains(upstreamIP) || u.isRouted(upstreamIP)
+	var routed bool
+	if u.selectedRoutes != nil {
+		// Only a concrete prefix match binds to the tunnel: dialing
+		// through a private client for an upstream we can't prove is
+		// routed would break public resolvers.
+		routed, _ = haMapContains(u.selectedRoutes(), upstreamIP)
+	}
+	needsPrivate := u.lNet.Contains(upstreamIP) || routed
 	if needsPrivate {
 		log.Debugf("using private client to query %s via upstream %s", r.Question[0].Name, upstream)
 		client, err = GetClientPrivate(u.lIP, u.interfaceName, timeout)
@@ -75,8 +82,7 @@ func (u *upstreamResolverIOS) exchange(ctx context.Context, upstream string, r *
 		}
 	}
 
-	// Cannot use client.ExchangeContext because it overwrites our Dialer
-	return ExchangeWithFallback(nil, client, r, upstream)
+	return ExchangeWithFallback(ctx, client, r, upstream)
 }
 
 // GetClientPrivate returns a new DNS client bound to the local IP address of the Netbird interface

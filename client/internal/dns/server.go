@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/netip"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -43,6 +44,11 @@ const (
 	// base grace window. See warningDelayFor.
 	warningDelayBonusCap = 30 * time.Second
 )
+
+// errNoUsableNameservers signals that a merged-domain group has no usable
+// upstream servers. Callers should skip the group without treating it as a
+// build failure.
+var errNoUsableNameservers = errors.New("no usable nameservers")
 
 // ReadyListener is a notification mechanism what indicate the server is ready to handle host dns address changes
 type ReadyListener interface {
@@ -315,6 +321,19 @@ func (s *DefaultServer) SetRouteSources(selected, active func() route.HAMap) {
 	defer s.mux.Unlock()
 	s.selectedRoutes = selected
 	s.activeRoutes = active
+
+	// Permanent / iOS constructors build the root handler before the
+	// engine wires route sources, so its selectedRoutes callback would
+	// otherwise remain nil and overlay upstreams would be classified
+	// as public. Propagate the new accessors to existing handlers.
+	type routeSettable interface {
+		setSelectedRoutes(func() route.HAMap)
+	}
+	for _, entry := range s.dnsMuxMap {
+		if h, ok := entry.handler.(routeSettable); ok {
+			h.setSelectedRoutes(selected)
+		}
+	}
 }
 
 // RegisterHandler registers a handler for the given domains with the given priority.
@@ -778,7 +797,7 @@ func (s *DefaultServer) registerFallback(config HostDNSConfig) {
 		s.wgInterface,
 		s.statusRecorder,
 		s.hostsDNSHolder,
-		domain.Domain(nbdns.RootZone),
+		nbdns.RootZone,
 	)
 	if err != nil {
 		log.Errorf("failed to create upstream resolver for original nameservers: %v", err)
@@ -861,11 +880,13 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 
 		update, err := s.buildMergedDomainHandler(domainGroup, priority)
 		if err != nil {
+			if errors.Is(err, errNoUsableNameservers) {
+				log.Errorf("no usable nameservers for domain=%s", domainGroup.domain)
+				continue
+			}
 			return nil, err
 		}
-		if update != nil {
-			muxUpdates = append(muxUpdates, *update)
-		}
+		muxUpdates = append(muxUpdates, *update)
 	}
 
 	return muxUpdates, nil
@@ -897,8 +918,7 @@ func (s *DefaultServer) buildMergedDomainHandler(domainGroup nsGroupsByDomain, p
 
 	if len(handler.upstreamServers) == 0 {
 		handler.Stop()
-		log.Errorf("no usable nameservers for domain=%s", domainGroup.domain)
-		return nil, nil
+		return nil, errNoUsableNameservers
 	}
 
 	log.Debugf("creating merged handler for domain=%s with %d group(s) priority=%d", domainGroup.domain, len(handler.upstreamServers), priority)
@@ -920,6 +940,27 @@ func (s *DefaultServer) filterNameServers(nameServers []nbdns.NameServer) []neti
 		}
 		if ns.IP == s.service.RuntimeIP() {
 			log.Warnf("skipping nameserver %s as it matches our DNS server IP, preventing potential loop", ns.IP)
+			continue
+		}
+		out = append(out, ns.AddrPort())
+	}
+	return out
+}
+
+// usableNameServers returns the subset of nameServers the handler would
+// actually query. Matches filterNameServers without the warning logs, so
+// it's safe to call on every health-projection tick.
+func (s *DefaultServer) usableNameServers(nameServers []nbdns.NameServer) []netip.AddrPort {
+	var runtimeIP netip.Addr
+	if s.service != nil {
+		runtimeIP = s.service.RuntimeIP()
+	}
+	var out []netip.AddrPort
+	for _, ns := range nameServers {
+		if ns.NSType != nbdns.UDPNameServerType {
+			continue
+		}
+		if runtimeIP.IsValid() && ns.IP == runtimeIP {
 			continue
 		}
 		out = append(out, ns.AddrPort())
@@ -1044,11 +1085,14 @@ func (s *DefaultServer) projectNSGroupHealth(snap nsHealthSnapshot) {
 	}
 
 	now := time.Now()
-	delay := s.warningDelay(len(snap.selected))
+	delay := s.warningDelay(haMapRouteCount(snap.selected))
 	states := make([]peer.NSGroupState, 0, len(snap.groups))
 	seen := make(map[nsGroupID]struct{}, len(snap.groups))
 	for _, group := range snap.groups {
-		servers := nameServerAddrPorts(group.NameServers)
+		servers := s.usableNameServers(group.NameServers)
+		if len(servers) == 0 {
+			continue
+		}
 		verdict, groupErr := evaluateNSGroupHealth(snap.merged, servers, now)
 		id := generateGroupKey(group)
 		seen[id] = struct{}{}
@@ -1069,7 +1113,10 @@ func (s *DefaultServer) projectNSGroupHealth(snap nsHealthSnapshot) {
 			enabled = s.projectUnhealthy(p, servers, immediate, now, delay)
 		case nsVerdictUndecided:
 			// Stay Available until evidence says otherwise, unless a
-			// warning is already active for this group.
+			// warning is already active for this group. Also clear any
+			// prior Unhealthy streak so a later Unhealthy verdict starts
+			// a fresh grace window rather than inheriting a stale one.
+			p.unhealthySince = time.Time{}
 			enabled = !p.warningActive
 			groupErr = nil
 		}
@@ -1142,6 +1189,9 @@ func (s *DefaultServer) projectUnhealthy(p *nsGroupProj, servers []netip.AddrPor
 // count. Scales gently: +1s per 100 routes, capped by
 // warningDelayBonusCap. Parallel handshakes mean handshake time grows
 // much slower than route count, so linear scaling would overcorrect.
+//
+// TODO: revisit the scaling curve with real-world data — the current
+// values are a reasonable starting point, not a measured fit.
 func (s *DefaultServer) warningDelay(routeCount int) time.Duration {
 	bonus := time.Duration(routeCount/100) * time.Second
 	if bonus > warningDelayBonusCap {
@@ -1164,11 +1214,16 @@ func (s *DefaultServer) groupHasImmediateUpstream(servers []netip.AddrPort, snap
 	for _, srv := range servers {
 		addr := srv.Addr().Unmap()
 		overlay := overlayV4.IsValid() && overlayV4.Contains(addr)
-		routed := haMapContains(snap.selected, addr)
+		selMatched, selDynamic := haMapContains(snap.selected, addr)
+		// Treat an unknown (dynamic selected route) as possibly routed:
+		// the upstream might reach through a dynamic route whose Network
+		// hasn't resolved yet, and classifying as public would bypass
+		// the startup grace window.
+		routed := selMatched || selDynamic
 		if !overlay && !routed {
 			return true
 		}
-		if haMapContains(snap.active, addr) {
+		if actMatched, _ := haMapContains(snap.active, addr); actMatched {
 			return true
 		}
 	}
@@ -1290,15 +1345,6 @@ func classifyUpstreamHealth(h UpstreamHealth, now time.Time) upstreamClassificat
 	return upstreamStale
 }
 
-// nameServerAddrPorts flattens a NameServer list to AddrPorts.
-func nameServerAddrPorts(ns []nbdns.NameServer) []netip.AddrPort {
-	out := make([]netip.AddrPort, 0, len(ns))
-	for _, n := range ns {
-		out = append(out, n.AddrPort())
-	}
-	return out
-}
-
 func joinAddrPorts(servers []netip.AddrPort) string {
 	parts := make([]string, 0, len(servers))
 	for _, s := range servers {
@@ -1307,12 +1353,18 @@ func joinAddrPorts(servers []netip.AddrPort) string {
 	return strings.Join(parts, ", ")
 }
 
+// generateGroupKey returns a stable identity for an NS group so health
+// state (everHealthy / warningActive) survives reorderings in the
+// configured nameserver or domain lists.
 func generateGroupKey(nsGroup *nbdns.NameServerGroup) nsGroupID {
-	var servers []string
+	servers := make([]string, 0, len(nsGroup.NameServers))
 	for _, ns := range nsGroup.NameServers {
 		servers = append(servers, ns.AddrPort().String())
 	}
-	return nsGroupID(fmt.Sprintf("%v_%v", servers, nsGroup.Domains))
+	slices.Sort(servers)
+	domains := slices.Clone(nsGroup.Domains)
+	slices.Sort(domains)
+	return nsGroupID(fmt.Sprintf("%v_%v", servers, domains))
 }
 
 // groupNSGroupsByDomain groups nameserver groups by their match domains

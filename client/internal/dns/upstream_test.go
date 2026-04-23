@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -132,20 +133,10 @@ func (m *mockNetstackProvider) GetInterfaceGUIDString() (string, error) {
 	return "", nil
 }
 
-type mockUpstreamResolver struct {
-	r   *dns.Msg
-	rtt time.Duration
-	err error
-}
-
-// exchange mock implementation of exchange from upstreamResolver
-func (c mockUpstreamResolver) exchange(_ context.Context, _ string, _ *dns.Msg) (*dns.Msg, time.Duration, error) {
-	return c.r, c.rtt, c.err
-}
-
 type mockUpstreamResponse struct {
-	msg *dns.Msg
-	err error
+	msg   *dns.Msg
+	err   error
+	delay time.Duration
 }
 
 type mockUpstreamResolverPerServer struct {
@@ -153,11 +144,19 @@ type mockUpstreamResolverPerServer struct {
 	rtt       time.Duration
 }
 
-func (c mockUpstreamResolverPerServer) exchange(_ context.Context, upstream string, _ *dns.Msg) (*dns.Msg, time.Duration, error) {
-	if r, ok := c.responses[upstream]; ok {
-		return r.msg, c.rtt, r.err
+func (c mockUpstreamResolverPerServer) exchange(ctx context.Context, upstream string, _ *dns.Msg) (*dns.Msg, time.Duration, error) {
+	r, ok := c.responses[upstream]
+	if !ok {
+		return nil, c.rtt, fmt.Errorf("no mock response for %s", upstream)
 	}
-	return nil, c.rtt, fmt.Errorf("no mock response for %s", upstream)
+	if r.delay > 0 {
+		select {
+		case <-time.After(r.delay):
+		case <-ctx.Done():
+			return nil, c.rtt, ctx.Err()
+		}
+	}
+	return r.msg, c.rtt, r.err
 }
 
 func TestUpstreamResolver_Failover(t *testing.T) {
@@ -400,7 +399,10 @@ func TestUpstreamResolver_RaceAcrossGroups(t *testing.T) {
 
 	mockClient := &mockUpstreamResolverPerServer{
 		responses: map[string]mockUpstreamResponse{
-			broken.String():  {err: timeoutErr},
+			// Force the broken upstream to only unblock via timeout /
+			// cancellation so the assertion below can't pass if races
+			// were run serially.
+			broken.String():  {err: timeoutErr, delay: 500 * time.Millisecond},
 			working.String(): {msg: buildMockResponse(dns.RcodeSuccess, successAnswer)},
 		},
 		rtt: time.Millisecond,
@@ -412,7 +414,7 @@ func TestUpstreamResolver_RaceAcrossGroups(t *testing.T) {
 	resolver := &upstreamResolverBase{
 		ctx:             ctx,
 		upstreamClient:  mockClient,
-		upstreamTimeout: 100 * time.Millisecond,
+		upstreamTimeout: 250 * time.Millisecond,
 	}
 	resolver.addRace([]netip.AddrPort{broken})
 	resolver.addRace([]netip.AddrPort{working})
@@ -740,10 +742,10 @@ func TestExchangeWithFallback_EDNS0Capped(t *testing.T) {
 	// Verify that a client EDNS0 larger than our MTU-derived limit gets
 	// capped in the outgoing request so the upstream doesn't send a
 	// response larger than our read buffer.
-	var receivedUDPSize uint16
+	var receivedUDPSize atomic.Uint32
 	udpHandler := dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
 		if opt := r.IsEdns0(); opt != nil {
-			receivedUDPSize = opt.UDPSize()
+			receivedUDPSize.Store(uint32(opt.UDPSize()))
 		}
 		m := new(dns.Msg)
 		m.SetReply(r)
@@ -774,7 +776,7 @@ func TestExchangeWithFallback_EDNS0Capped(t *testing.T) {
 	require.NotNil(t, rm)
 
 	expectedMax := uint16(currentMTU - ipUDPHeaderSize)
-	assert.Equal(t, expectedMax, receivedUDPSize,
+	assert.Equal(t, expectedMax, uint16(receivedUDPSize.Load()),
 		"upstream should see capped EDNS0, not the client's 4096")
 }
 

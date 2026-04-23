@@ -163,8 +163,8 @@ func dnsProtocolFromContext(ctx context.Context) string {
 	return ""
 }
 
-// contextWithupstreamProtocolResult stores a mutable result holder in the context.
-func contextWithupstreamProtocolResult(ctx context.Context) (context.Context, *upstreamProtocolResult) {
+// contextWithUpstreamProtocolResult stores a mutable result holder in the context.
+func contextWithUpstreamProtocolResult(ctx context.Context) (context.Context, *upstreamProtocolResult) {
 	r := &upstreamProtocolResult{}
 	return context.WithValue(ctx, upstreamProtocolKey{}, r), r
 }
@@ -196,16 +196,20 @@ func (u *upstreamResolverBase) String() string {
 	return fmt.Sprintf("Upstream %s", u.flatUpstreams())
 }
 
-// ID returns the unique handler ID
+// ID returns the unique handler ID. Race groupings and within-race
+// ordering are both part of the identity: [[A,B]] and [[A],[B]] query
+// the same servers but with different semantics (serial fallback vs
+// parallel race), so their handlers must not collide.
 func (u *upstreamResolverBase) ID() types.HandlerID {
-	servers := u.flatUpstreams()
-	slices.SortFunc(servers, func(a, b netip.AddrPort) int { return a.Compare(b) })
-
 	hash := sha256.New()
 	hash.Write([]byte(u.domain.PunycodeString() + ":"))
-	for _, s := range servers {
-		hash.Write([]byte(s.String()))
-		hash.Write([]byte("|"))
+	for _, race := range u.upstreamServers {
+		hash.Write([]byte("["))
+		for _, s := range race {
+			hash.Write([]byte(s.String()))
+			hash.Write([]byte("|"))
+		}
+		hash.Write([]byte("]"))
 	}
 	return types.HandlerID("upstream-" + hex.EncodeToString(hash.Sum(nil)[:8]))
 }
@@ -228,13 +232,11 @@ func (u *upstreamResolverBase) flatUpstreams() []netip.AddrPort {
 	return out
 }
 
-// isRouted reports whether ip falls inside any client route the admin
-// has selected.
-func (u *upstreamResolverBase) isRouted(ip netip.Addr) bool {
-	if u.selectedRoutes == nil {
-		return false
-	}
-	return haMapContains(u.selectedRoutes(), ip)
+// setSelectedRoutes swaps the accessor used to classify overlay-routed
+// upstreams. Called when route sources are wired after the handler was
+// built (permanent / iOS constructors).
+func (u *upstreamResolverBase) setSelectedRoutes(selected func() route.HAMap) {
+	u.selectedRoutes = selected
 }
 
 func (u *upstreamResolverBase) addRace(servers []netip.AddrPort) {
@@ -313,6 +315,8 @@ func (u *upstreamResolverBase) raceAll(ctx context.Context, w dns.ResponseWriter
 	// after the coordinator has returned.
 	results := make(chan raceResult, len(groups))
 	for _, g := range groups {
+		// tryRace clones the request per attempt, so workers never share
+		// a *dns.Msg and concurrent EDNS0 mutations can't race.
 		go func(g upstreamRace) {
 			results <- u.tryRace(raceCtx, r, g)
 		}(g)
@@ -337,7 +341,14 @@ func (u *upstreamResolverBase) raceAll(ctx context.Context, w dns.ResponseWriter
 func (u *upstreamResolverBase) tryRace(ctx context.Context, r *dns.Msg, group upstreamRace) raceResult {
 	timeout := u.upstreamTimeout
 	if len(group) > 1 {
+		// Cap the whole walk at raceMaxTotalTimeout: per-upstream timeouts
+		// still honor raceMinPerUpstreamTimeout as a floor for correctness
+		// on slow links, but the outer context ensures the combined walk
+		// cannot exceed the cap regardless of group size.
 		timeout = max(raceMaxTotalTimeout/time.Duration(len(group)), raceMinPerUpstreamTimeout)
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, raceMaxTotalTimeout)
+		defer cancel()
 	}
 
 	var failures []upstreamFailure
@@ -345,7 +356,11 @@ func (u *upstreamResolverBase) tryRace(ctx context.Context, r *dns.Msg, group up
 		if ctx.Err() != nil {
 			return raceResult{failures: failures}
 		}
-		msg, proto, failure := u.queryUpstream(ctx, r, upstream, timeout)
+		// Clone the request per attempt: the exchange path mutates EDNS0
+		// options in-place, so reusing the same *dns.Msg across sequential
+		// upstreams would carry those mutations (e.g. a reduced UDP size)
+		// into the next attempt.
+		msg, proto, failure := u.queryUpstream(ctx, r.Copy(), upstream, timeout)
 		if failure != nil {
 			failures = append(failures, *failure)
 			continue
@@ -358,12 +373,19 @@ func (u *upstreamResolverBase) tryRace(ctx context.Context, r *dns.Msg, group up
 func (u *upstreamResolverBase) queryUpstream(parentCtx context.Context, r *dns.Msg, upstream netip.AddrPort, timeout time.Duration) (*dns.Msg, string, *upstreamFailure) {
 	ctx, cancel := context.WithTimeout(parentCtx, timeout)
 	defer cancel()
-	ctx, upstreamProto := contextWithupstreamProtocolResult(ctx)
+	ctx, upstreamProto := contextWithUpstreamProtocolResult(ctx)
 
 	startTime := time.Now()
 	rm, _, err := u.upstreamClient.exchange(ctx, upstream.String(), r)
 
 	if err != nil {
+		// A parent cancellation (e.g., another race won and the coordinator
+		// cancelled the losers) is not an upstream failure. Check both the
+		// error chain and the parent context: a transport may surface the
+		// cancellation as a read/deadline error rather than context.Canceled.
+		if errors.Is(err, context.Canceled) || errors.Is(parentCtx.Err(), context.Canceled) {
+			return nil, "", &upstreamFailure{upstream: upstream, reason: "canceled"}
+		}
 		failure := u.handleUpstreamError(err, upstream, startTime)
 		u.markUpstreamFail(upstream, failure.reason)
 		return nil, "", failure
@@ -522,13 +544,10 @@ func clientUDPMaxSize(r *dns.Msg) int {
 // ExchangeWithFallback exchanges a DNS message with the upstream server.
 // It first tries to use UDP, and if it is truncated, it falls back to TCP.
 // If the inbound request came over TCP (via context), it skips the UDP attempt.
-// If the passed context is nil, this will use Exchange instead of ExchangeContext.
 func ExchangeWithFallback(ctx context.Context, client *dns.Client, r *dns.Msg, upstream string) (*dns.Msg, time.Duration, error) {
 	// If the request came in over TCP, go straight to TCP upstream.
 	if dnsProtocolFromContext(ctx) == protoTCP {
-		tcpClient := *client
-		tcpClient.Net = protoTCP
-		rm, t, err := tcpClient.ExchangeContext(ctx, r, upstream)
+		rm, t, err := toTCPClient(client).ExchangeContext(ctx, r, upstream)
 		if err != nil {
 			return nil, t, fmt.Errorf("with tcp: %w", err)
 		}
@@ -548,18 +567,7 @@ func ExchangeWithFallback(ctx context.Context, client *dns.Client, r *dns.Msg, u
 		opt.SetUDPSize(maxUDPPayload)
 	}
 
-	var (
-		rm  *dns.Msg
-		t   time.Duration
-		err error
-	)
-
-	if ctx == nil {
-		rm, t, err = client.Exchange(r, upstream)
-	} else {
-		rm, t, err = client.ExchangeContext(ctx, r, upstream)
-	}
-
+	rm, t, err := client.ExchangeContext(ctx, r, upstream)
 	if err != nil {
 		return nil, t, fmt.Errorf("with udp: %w", err)
 	}
@@ -573,15 +581,7 @@ func ExchangeWithFallback(ctx context.Context, client *dns.Client, r *dns.Msg, u
 	// data than the client's buffer, we could truncate locally and skip
 	// the TCP retry.
 
-	tcpClient := *client
-	tcpClient.Net = protoTCP
-
-	if ctx == nil {
-		rm, t, err = tcpClient.Exchange(r, upstream)
-	} else {
-		rm, t, err = tcpClient.ExchangeContext(ctx, r, upstream)
-	}
-
+	rm, t, err = toTCPClient(client).ExchangeContext(ctx, r, upstream)
 	if err != nil {
 		return nil, t, fmt.Errorf("with tcp: %w", err)
 	}
@@ -593,6 +593,25 @@ func ExchangeWithFallback(ctx context.Context, client *dns.Client, r *dns.Msg, u
 	}
 
 	return rm, t, nil
+}
+
+// toTCPClient returns a copy of c configured for TCP. If c's Dialer has a
+// *net.UDPAddr bound as LocalAddr (iOS does this to keep the source IP on
+// the tunnel interface), it is converted to the equivalent *net.TCPAddr
+// so net.Dialer doesn't reject the TCP dial with "mismatched local
+// address type".
+func toTCPClient(c *dns.Client) *dns.Client {
+	tcp := *c
+	tcp.Net = protoTCP
+	if tcp.Dialer == nil {
+		return &tcp
+	}
+	d := *tcp.Dialer
+	if ua, ok := d.LocalAddr.(*net.UDPAddr); ok {
+		d.LocalAddr = &net.TCPAddr{IP: ua.IP, Port: ua.Port, Zone: ua.Zone}
+	}
+	tcp.Dialer = &d
+	return &tcp
 }
 
 // ExchangeWithNetstack performs a DNS exchange using netstack for dialing.
@@ -736,22 +755,36 @@ func findPeerForIP(ip netip.Addr, statusRecorder *peer.Status) *peer.State {
 	return bestMatch
 }
 
-// haMapContains reports whether any route in the map contains ip.
-//
-// Gap: dynamic (domain-based) routes carry a placeholder Network that
-// never matches a real address, so an upstream reached via a dynamic
-// route is classified as "not routed" here. The DNS health path then
-// emits failure events immediately for such upstreams instead of
-// applying the startup grace window. Rare (DNS servers are usually
-// designated by IP, not by domain) but worth revisiting if DoT/DoH-style
-// upstreams or /etc/hosts-style domain routing to DNS become supported.
-func haMapContains(hm route.HAMap, ip netip.Addr) bool {
+// haMapRouteCount returns the total number of routes across all HA
+// groups in the map. route.HAMap is keyed by HAUniqueID with slices of
+// routes per key, so len(hm) is the number of HA groups, not routes.
+func haMapRouteCount(hm route.HAMap) int {
+	total := 0
+	for _, routes := range hm {
+		total += len(routes)
+	}
+	return total
+}
+
+// haMapContains checks whether ip is covered by any concrete prefix in
+// the HA map. haveDynamic is reported separately: dynamic (domain-based)
+// routes carry a placeholder Network that can't be prefix-checked, so we
+// can't know at this point whether ip is reached through one. Callers
+// decide how to interpret the unknown: health projection treats it as
+// "possibly routed" to avoid emitting false-positive warnings during
+// startup, while iOS dial selection requires a concrete match before
+// binding to the tunnel.
+func haMapContains(hm route.HAMap, ip netip.Addr) (matched, haveDynamic bool) {
 	for _, routes := range hm {
 		for _, r := range routes {
+			if r.IsDynamic() {
+				haveDynamic = true
+				continue
+			}
 			if r.Network.Contains(ip) {
-				return true
+				return true, haveDynamic
 			}
 		}
 	}
-	return false
+	return false, haveDynamic
 }
