@@ -53,7 +53,9 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/handlers/peers"
 	"github.com/netbirdio/netbird/management/server/http/handlers/policies"
 	"github.com/netbirdio/netbird/management/server/http/handlers/routes"
+	"github.com/netbirdio/netbird/management/server/http/handlers/entra_device_auth"
 	"github.com/netbirdio/netbird/management/server/http/handlers/setup_keys"
+	entra_device "github.com/netbirdio/netbird/management/server/integrations/entra_device"
 	"github.com/netbirdio/netbird/management/server/http/handlers/users"
 	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/http/middleware/bypass"
@@ -87,6 +89,15 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 		return nil, fmt.Errorf("failed to add bypass path: %w", err)
 	}
 	if err := bypass.AddBypassPath("/api/users/invites/nbi_*/accept"); err != nil {
+		return nil, fmt.Errorf("failed to add bypass path: %w", err)
+	}
+	// Entra device enrolment endpoints live on /join/entra and authenticate
+	// via the device's Entra certificate, so they must bypass the regular
+	// user-auth middleware.
+	if err := bypass.AddBypassPath("/join/entra/challenge"); err != nil {
+		return nil, fmt.Errorf("failed to add bypass path: %w", err)
+	}
+	if err := bypass.AddBypassPath("/join/entra/enroll"); err != nil {
 		return nil, fmt.Errorf("failed to add bypass path: %w", err)
 	}
 	// OAuth callback for proxy authentication
@@ -160,6 +171,8 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 	users.AddInvitesEndpoints(accountManager, router)
 	users.AddPublicInvitesEndpoints(accountManager, router)
 	setup_keys.AddEndpoints(accountManager, router)
+
+	installEntraDeviceAuth(ctx, accountManager, rootRouter, router, permissionsManager)
 	policies.AddEndpoints(accountManager, LocationManager, router)
 	policies.AddPostureCheckEndpoints(accountManager, LocationManager, router)
 	policies.AddLocationsEndpoints(accountManager, LocationManager, permissionsManager, router)
@@ -188,4 +201,39 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 	}
 
 	return rootRouter, nil
+}
+
+// installEntraDeviceAuth wires up the Entra/Intune device authentication
+// integration. It is a best-effort install: the integration is only mounted
+// if the account manager's store exposes a gorm.DB and the manager itself
+// can produce a PeerEnroller (via the unexported AsEntraDevicePeerEnroller
+// method on DefaultAccountManager).
+func installEntraDeviceAuth(
+	ctx context.Context,
+	accountManager account.Manager,
+	rootRouter *mux.Router,
+	adminRouter *mux.Router,
+	permissionsManager permissions.Manager,
+) {
+	dbProvider, ok := accountManager.GetStore().(entra_device_auth.DBProvider)
+	if !ok {
+		log.WithContext(ctx).Warnf("Entra device auth: store does not expose *gorm.DB; skipping install")
+		return
+	}
+	enrollerProvider, ok := accountManager.(interface {
+		AsEntraDevicePeerEnroller() entra_device.PeerEnroller
+	})
+	if !ok {
+		log.WithContext(ctx).Warnf("Entra device auth: account manager does not implement AsEntraDevicePeerEnroller; skipping install")
+		return
+	}
+	if _, err := entra_device_auth.Install(entra_device_auth.Wiring{
+		RootRouter:   rootRouter,
+		AdminRouter:  adminRouter,
+		DB:           dbProvider,
+		PeerEnroller: enrollerProvider.AsEntraDevicePeerEnroller(),
+		Permissions:  permissionsManager,
+	}); err != nil {
+		log.WithContext(ctx).Errorf("Entra device auth install failed: %v", err)
+	}
 }
