@@ -39,6 +39,7 @@ var usersTestAccount = &types.Account{
 	Users: map[string]*types.User{
 		existingUserID: {
 			Id:            existingUserID,
+			AccountID:     existingAccountID,
 			Role:          "admin",
 			IsServiceUser: false,
 			AutoGroups:    []string{"group_1"},
@@ -46,6 +47,7 @@ var usersTestAccount = &types.Account{
 		},
 		regularUserID: {
 			Id:            regularUserID,
+			AccountID:     existingAccountID,
 			Role:          "user",
 			IsServiceUser: false,
 			AutoGroups:    []string{"group_1"},
@@ -53,6 +55,7 @@ var usersTestAccount = &types.Account{
 		},
 		serviceUserID: {
 			Id:            serviceUserID,
+			AccountID:     existingAccountID,
 			Role:          "user",
 			IsServiceUser: true,
 			AutoGroups:    []string{"group_1"},
@@ -60,6 +63,7 @@ var usersTestAccount = &types.Account{
 		},
 		nonDeletableServiceUserID: {
 			Id:            nonDeletableServiceUserID,
+			AccountID:     existingAccountID,
 			Role:          "admin",
 			IsServiceUser: true,
 			NonDeletable:  true,
