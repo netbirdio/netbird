@@ -46,12 +46,12 @@ type restoreHostManager interface {
 }
 
 func newHostManager(wgInterface string) (hostManager, error) {
-	osManager, reason, err := getOSDNSManagerType()
+	osManager, err := getOSDNSManagerType()
 	if err != nil {
 		return nil, fmt.Errorf("get os dns manager type: %w", err)
 	}
 
-	log.Infof("System DNS manager discovered: %s (%s)", osManager, reason)
+	log.Infof("System DNS manager discovered: %s", osManager)
 	mgr, err := newHostManagerFromType(wgInterface, osManager)
 	// need to explicitly return nil mgr on error to avoid returning a non-nil interface containing a nil value
 	if err != nil {
@@ -74,49 +74,17 @@ func newHostManagerFromType(wgInterface string, osManager osManagerType) (restor
 	}
 }
 
-func getOSDNSManagerType() (osManagerType, string, error) {
-	resolved := isSystemdResolvedRunning()
-	nss := isLibnssResolveUsed()
-	stub := checkStub()
-
-	// Prefer systemd-resolved whenever it owns libc resolution, regardless of
-	// who wrote /etc/resolv.conf. File-mode rewrites do not affect lookups
-	// that go through nss-resolve, and in foreign mode they can loop back
-	// through resolved as an upstream.
-	if resolved && (nss || stub) {
-		return systemdManager, fmt.Sprintf("systemd-resolved active (nss-resolve=%t, stub=%t)", nss, stub), nil
-	}
-
-	mgr, reason, rejected, err := scanResolvConfHeader()
-	if err != nil {
-		return 0, "", err
-	}
-	if reason != "" {
-		return mgr, reason, nil
-	}
-
-	fallback := fmt.Sprintf("no manager matched (resolved=%t, nss-resolve=%t, stub=%t)", resolved, nss, stub)
-	if len(rejected) > 0 {
-		fallback += "; rejected: " + strings.Join(rejected, ", ")
-	}
-	return fileManager, fallback, nil
-}
-
-// scanResolvConfHeader walks /etc/resolv.conf header comments and returns the
-// matching manager. If reason is empty the caller should pick file mode and
-// use rejected for diagnostics.
-func scanResolvConfHeader() (osManagerType, string, []string, error) {
+func getOSDNSManagerType() (osManagerType, error) {
 	file, err := os.Open(defaultResolvConfPath)
 	if err != nil {
-		return 0, "", nil, fmt.Errorf("unable to open %s for checking owner, got error: %w", defaultResolvConfPath, err)
+		return 0, fmt.Errorf("unable to open %s for checking owner, got error: %w", defaultResolvConfPath, err)
 	}
 	defer func() {
-		if cerr := file.Close(); cerr != nil {
-			log.Errorf("close file %s: %s", defaultResolvConfPath, cerr)
+		if err := file.Close(); err != nil {
+			log.Errorf("close file %s: %s", defaultResolvConfPath, err)
 		}
 	}()
 
-	var rejected []string
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		text := scanner.Text()
@@ -124,48 +92,41 @@ func scanResolvConfHeader() (osManagerType, string, []string, error) {
 			continue
 		}
 		if text[0] != '#' {
-			break
+			return fileManager, nil
 		}
-		if mgr, reason, rej := matchResolvConfHeader(text); reason != "" {
-			return mgr, reason, nil, nil
-		} else if rej != "" {
-			rejected = append(rejected, rej)
+		if strings.Contains(text, fileGeneratedResolvConfContentHeader) {
+			return netbirdManager, nil
+		}
+		if strings.Contains(text, "NetworkManager") && isDbusListenerRunning(networkManagerDest, networkManagerDbusObjectNode) && isNetworkManagerSupported() {
+			return networkManager, nil
+		}
+		if strings.Contains(text, "systemd-resolved") && isSystemdResolvedRunning() {
+			if checkStub() {
+				return systemdManager, nil
+			} else {
+				return fileManager, nil
+			}
+		}
+		if strings.Contains(text, "resolvconf") {
+			if isSystemdResolveConfMode() {
+				return systemdManager, nil
+			}
+
+			return resolvConfManager, nil
 		}
 	}
 	if err := scanner.Err(); err != nil && err != io.EOF {
-		return 0, "", nil, fmt.Errorf("scan: %w", err)
+		return 0, fmt.Errorf("scan: %w", err)
 	}
-	return 0, "", rejected, nil
+
+	return fileManager, nil
 }
 
-// matchResolvConfHeader inspects a single comment line. Returns either a
-// definitive (manager, reason) or a non-empty rejected diagnostic.
-func matchResolvConfHeader(text string) (osManagerType, string, string) {
-	if strings.Contains(text, fileGeneratedResolvConfContentHeader) {
-		return netbirdManager, "netbird-managed resolv.conf header detected", ""
-	}
-	if strings.Contains(text, "NetworkManager") {
-		if isDbusListenerRunning(networkManagerDest, networkManagerDbusObjectNode) && isNetworkManagerSupported() {
-			return networkManager, "NetworkManager header + supported version on dbus", ""
-		}
-		return 0, "", "NetworkManager header (no dbus or unsupported version)"
-	}
-	if strings.Contains(text, "resolvconf") {
-		if isSystemdResolveConfMode() {
-			return systemdManager, "resolvconf header in systemd-resolved compatibility mode", ""
-		}
-		return resolvConfManager, "resolvconf header detected", ""
-	}
-	return 0, "", ""
-}
-
-// checkStub reports whether systemd-resolved's stub (127.0.0.53) is listed
-// in /etc/resolv.conf. On parse failure we assume it is, to avoid dropping
-// into file mode while resolved is active.
+// checkStub checks if the stub resolver is disabled in systemd-resolved. If it is disabled, we fall back to file manager.
 func checkStub() bool {
 	rConf, err := parseDefaultResolvConf()
 	if err != nil {
-		log.Warnf("failed to parse resolv conf, assuming stub is active: %s", err)
+		log.Warnf("failed to parse resolv conf: %s", err)
 		return true
 	}
 
@@ -176,38 +137,5 @@ func checkStub() bool {
 		}
 	}
 
-	return false
-}
-
-// isLibnssResolveUsed reports whether nss-resolve is listed before dns on
-// the hosts: line of /etc/nsswitch.conf. When it is, libc lookups are
-// delegated to systemd-resolved regardless of /etc/resolv.conf.
-func isLibnssResolveUsed() bool {
-	bs, err := os.ReadFile(nsswitchConfPath)
-	if err != nil {
-		log.Debugf("read %s: %v", nsswitchConfPath, err)
-		return false
-	}
-	return parseNsswitchResolveAhead(bs)
-}
-
-func parseNsswitchResolveAhead(data []byte) bool {
-	for _, line := range strings.Split(string(data), "\n") {
-		if i := strings.IndexByte(line, '#'); i >= 0 {
-			line = line[:i]
-		}
-		fields := strings.Fields(line)
-		if len(fields) < 2 || fields[0] != "hosts:" {
-			continue
-		}
-		for _, module := range fields[1:] {
-			switch module {
-			case "dns":
-				return false
-			case "resolve":
-				return true
-			}
-		}
-	}
 	return false
 }
