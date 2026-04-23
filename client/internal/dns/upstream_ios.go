@@ -15,6 +15,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 type upstreamResolverIOS struct {
@@ -29,9 +30,9 @@ func newUpstreamResolver(
 	wgIface WGIface,
 	statusRecorder *peer.Status,
 	_ *hostsDNSHolder,
-	domain string,
+	d domain.Domain,
 ) (*upstreamResolverIOS, error) {
-	upstreamResolverBase := newUpstreamResolverBase(ctx, statusRecorder, domain)
+	upstreamResolverBase := newUpstreamResolverBase(ctx, statusRecorder, d)
 
 	ios := &upstreamResolverIOS{
 		upstreamResolverBase: upstreamResolverBase,
@@ -65,8 +66,7 @@ func (u *upstreamResolverIOS) exchange(ctx context.Context, upstream string, r *
 	} else {
 		upstreamIP = upstreamIP.Unmap()
 	}
-	needsPrivate := u.lNet.Contains(upstreamIP) ||
-		(u.routeMatch != nil && u.routeMatch(upstreamIP))
+	needsPrivate := u.lNet.Contains(upstreamIP) || u.isRouted(upstreamIP)
 	if needsPrivate {
 		log.Debugf("using private client to query %s via upstream %s", r.Question[0].Name, upstream)
 		client, err = GetClientPrivate(u.lIP, u.interfaceName, timeout)

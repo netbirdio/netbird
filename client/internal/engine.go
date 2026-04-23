@@ -504,16 +504,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 
 	e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
 
-	e.dnsServer.SetRouteChecker(func(ip netip.Addr) bool {
-		for _, routes := range e.routeManager.GetSelectedClientRoutes() {
-			for _, r := range routes {
-				if r.Network.Contains(ip) {
-					return true
-				}
-			}
-		}
-		return false
-	})
+	e.dnsServer.SetRouteSources(e.routeManager.GetSelectedClientRoutes, e.routeManager.GetActiveClientRoutes)
 
 	if err = e.wgInterfaceCreate(); err != nil {
 		log.Errorf("failed creating tunnel interface %s: [%s]", e.config.WgIfaceName, err.Error())
@@ -1336,9 +1327,6 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 	e.networkSerial = serial
 
-	// Test received (upstream) servers for availability right away instead of upon usage.
-	// If no server of a server group responds this will disable the respective handler and retry later.
-	go e.dnsServer.ProbeAvailability()
 	return nil
 }
 

@@ -73,7 +73,7 @@ func TestUpstreamResolver_ServeDNS(t *testing.T) {
 					servers = append(servers, netip.AddrPortFrom(addrPort.Addr().Unmap(), addrPort.Port()))
 				}
 			}
-			resolver.upstreamServers = servers
+			resolver.addRace(servers)
 			resolver.upstreamTimeout = testCase.timeout
 			if testCase.cancelCTX {
 				cancel()
@@ -158,58 +158,6 @@ func (c mockUpstreamResolverPerServer) exchange(_ context.Context, upstream stri
 		return r.msg, c.rtt, r.err
 	}
 	return nil, c.rtt, fmt.Errorf("no mock response for %s", upstream)
-}
-
-func TestUpstreamResolver_DeactivationReactivation(t *testing.T) {
-	mockClient := &mockUpstreamResolver{
-		err: dns.ErrTime,
-		r:   new(dns.Msg),
-		rtt: time.Millisecond,
-	}
-
-	resolver := &upstreamResolverBase{
-		ctx:              context.TODO(),
-		upstreamClient:   mockClient,
-		upstreamTimeout:  UpstreamTimeout,
-		reactivatePeriod: time.Microsecond * 100,
-	}
-	addrPort, _ := netip.ParseAddrPort("0.0.0.0:1") // Use valid port for parsing, test will still fail on connection
-	resolver.upstreamServers = []netip.AddrPort{netip.AddrPortFrom(addrPort.Addr().Unmap(), addrPort.Port())}
-
-	failed := false
-	resolver.deactivate = func(error) {
-		failed = true
-		// After deactivation, make the mock client work again
-		mockClient.err = nil
-	}
-
-	reactivated := false
-	resolver.reactivate = func() {
-		reactivated = true
-	}
-
-	resolver.ProbeAvailability(context.TODO())
-
-	if !failed {
-		t.Errorf("expected that resolving was deactivated")
-		return
-	}
-
-	if !resolver.disabled {
-		t.Errorf("resolver should be Disabled")
-		return
-	}
-
-	time.Sleep(time.Millisecond * 200)
-
-	if !reactivated {
-		t.Errorf("expected that resolving was reactivated")
-		return
-	}
-
-	if resolver.disabled {
-		t.Errorf("should be enabled")
-	}
 }
 
 func TestUpstreamResolver_Failover(t *testing.T) {
@@ -339,9 +287,9 @@ func TestUpstreamResolver_Failover(t *testing.T) {
 			resolver := &upstreamResolverBase{
 				ctx:             ctx,
 				upstreamClient:  trackingClient,
-				upstreamServers: []netip.AddrPort{upstream1, upstream2},
 				upstreamTimeout: UpstreamTimeout,
 			}
+			resolver.addRace([]netip.AddrPort{upstream1, upstream2})
 
 			var responseMSG *dns.Msg
 			responseWriter := &test.MockResponseWriter{
@@ -421,9 +369,9 @@ func TestUpstreamResolver_SingleUpstreamFailure(t *testing.T) {
 	resolver := &upstreamResolverBase{
 		ctx:             ctx,
 		upstreamClient:  mockClient,
-		upstreamServers: []netip.AddrPort{upstream},
 		upstreamTimeout: UpstreamTimeout,
 	}
+	resolver.addRace([]netip.AddrPort{upstream})
 
 	var responseMSG *dns.Msg
 	responseWriter := &test.MockResponseWriter{
@@ -438,6 +386,133 @@ func TestUpstreamResolver_SingleUpstreamFailure(t *testing.T) {
 
 	require.NotNil(t, responseMSG, "should write a response")
 	assert.Equal(t, dns.RcodeServerFailure, responseMSG.Rcode, "single upstream SERVFAIL should return SERVFAIL")
+}
+
+// TestUpstreamResolver_RaceAcrossGroups covers two nameserver groups
+// configured for the same domain, with one broken group. The merge+race
+// path should answer as fast as the working group and not pay the timeout
+// of the broken one on every query.
+func TestUpstreamResolver_RaceAcrossGroups(t *testing.T) {
+	broken := netip.MustParseAddrPort("192.0.2.1:53")
+	working := netip.MustParseAddrPort("192.0.2.2:53")
+	successAnswer := "192.0.2.100"
+	timeoutErr := &net.OpError{Op: "read", Err: fmt.Errorf("i/o timeout")}
+
+	mockClient := &mockUpstreamResolverPerServer{
+		responses: map[string]mockUpstreamResponse{
+			broken.String():  {err: timeoutErr},
+			working.String(): {msg: buildMockResponse(dns.RcodeSuccess, successAnswer)},
+		},
+		rtt: time.Millisecond,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	resolver := &upstreamResolverBase{
+		ctx:             ctx,
+		upstreamClient:  mockClient,
+		upstreamTimeout: 100 * time.Millisecond,
+	}
+	resolver.addRace([]netip.AddrPort{broken})
+	resolver.addRace([]netip.AddrPort{working})
+
+	var responseMSG *dns.Msg
+	responseWriter := &test.MockResponseWriter{
+		WriteMsgFunc: func(m *dns.Msg) error {
+			responseMSG = m
+			return nil
+		},
+	}
+
+	inputMSG := new(dns.Msg).SetQuestion("example.com.", dns.TypeA)
+	start := time.Now()
+	resolver.ServeDNS(responseWriter, inputMSG)
+	elapsed := time.Since(start)
+
+	require.NotNil(t, responseMSG, "should write a response")
+	assert.Equal(t, dns.RcodeSuccess, responseMSG.Rcode)
+	require.NotEmpty(t, responseMSG.Answer)
+	assert.Contains(t, responseMSG.Answer[0].String(), successAnswer)
+	// Working group answers in a single RTT; the broken group's
+	// timeout (100ms) must not block the response.
+	assert.Less(t, elapsed, 100*time.Millisecond, "race must not wait for broken group's timeout")
+}
+
+// TestUpstreamResolver_AllGroupsFail checks that when every group fails the
+// resolver returns SERVFAIL rather than leaking a partial response.
+func TestUpstreamResolver_AllGroupsFail(t *testing.T) {
+	a := netip.MustParseAddrPort("192.0.2.1:53")
+	b := netip.MustParseAddrPort("192.0.2.2:53")
+
+	mockClient := &mockUpstreamResolverPerServer{
+		responses: map[string]mockUpstreamResponse{
+			a.String(): {msg: buildMockResponse(dns.RcodeServerFailure, "")},
+			b.String(): {msg: buildMockResponse(dns.RcodeServerFailure, "")},
+		},
+		rtt: time.Millisecond,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	resolver := &upstreamResolverBase{
+		ctx:             ctx,
+		upstreamClient:  mockClient,
+		upstreamTimeout: UpstreamTimeout,
+	}
+	resolver.addRace([]netip.AddrPort{a})
+	resolver.addRace([]netip.AddrPort{b})
+
+	var responseMSG *dns.Msg
+	responseWriter := &test.MockResponseWriter{
+		WriteMsgFunc: func(m *dns.Msg) error {
+			responseMSG = m
+			return nil
+		},
+	}
+
+	resolver.ServeDNS(responseWriter, new(dns.Msg).SetQuestion("example.com.", dns.TypeA))
+	require.NotNil(t, responseMSG)
+	assert.Equal(t, dns.RcodeServerFailure, responseMSG.Rcode)
+}
+
+// TestUpstreamResolver_HealthTracking verifies that query-path results are
+// recorded into per-upstream health, which is what projects back to
+// NSGroupState for status reporting.
+func TestUpstreamResolver_HealthTracking(t *testing.T) {
+	ok := netip.MustParseAddrPort("192.0.2.10:53")
+	bad := netip.MustParseAddrPort("192.0.2.11:53")
+
+	mockClient := &mockUpstreamResolverPerServer{
+		responses: map[string]mockUpstreamResponse{
+			ok.String():  {msg: buildMockResponse(dns.RcodeSuccess, "192.0.2.100")},
+			bad.String(): {msg: buildMockResponse(dns.RcodeServerFailure, "")},
+		},
+		rtt: time.Millisecond,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	resolver := &upstreamResolverBase{
+		ctx:             ctx,
+		upstreamClient:  mockClient,
+		upstreamTimeout: UpstreamTimeout,
+	}
+	resolver.addRace([]netip.AddrPort{ok, bad})
+
+	responseWriter := &test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { return nil }}
+	resolver.ServeDNS(responseWriter, new(dns.Msg).SetQuestion("example.com.", dns.TypeA))
+
+	health := resolver.UpstreamHealth()
+	require.Contains(t, health, ok)
+	assert.False(t, health[ok].LastOk.IsZero(), "ok upstream should have LastOk set")
+	assert.Empty(t, health[ok].LastErr)
+
+	// bad upstream was never tried because ok answered first; its health
+	// should remain unset.
+	assert.NotContains(t, health, bad, "sibling upstream should not be queried when primary answers")
 }
 
 func TestFormatFailures(t *testing.T) {
