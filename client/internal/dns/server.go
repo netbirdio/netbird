@@ -31,6 +31,28 @@ import (
 
 const envSkipDNSProbe = "NB_SKIP_DNS_PROBE"
 
+// subdomainMatchHandler is a thin wrapper used to register a handler under
+// a pool-root domain (e.g. a relay URL advertised by the mgmt) with
+// subdomain matching enabled. The underlying handler's own MatchSubdomains
+// is left untouched so that exact-match registrations keep their
+// semantics.
+type subdomainMatchHandler struct {
+	dns.Handler
+}
+
+// MatchSubdomains lets the handler chain route any instance subdomain
+// (e.g. streamline-de-fra1-0.relay.netbird.io) to the wrapped handler.
+func (subdomainMatchHandler) MatchSubdomains() bool { return true }
+
+// String returns a debug-friendly name; the chain uses fmt.Stringer for
+// its "registering handler X" logs.
+func (h subdomainMatchHandler) String() string {
+	if s, ok := h.Handler.(fmt.Stringer); ok {
+		return s.String() + "[subdomains]"
+	}
+	return "subdomainMatchHandler"
+}
+
 // ReadyListener is a notification mechanism what indicate the server is ready to handle host dns address changes
 type ReadyListener interface {
 	OnReady()
@@ -597,9 +619,32 @@ func (s *DefaultServer) UpdateServerConfig(domains dnsconfig.ServerDomains) erro
 			s.deregisterHandler(removedDomains.ToPunycodeList(), PriorityMgmtCache)
 		}
 
-		newDomains := s.mgmtCacheResolver.GetCachedDomains()
-		if len(newDomains) > 0 {
-			s.registerHandler(newDomains.ToPunycodeList(), s.mgmtCacheResolver, PriorityMgmtCache)
+		// Pool-root domains (advertised by the mgmt as Relay URLs) own
+		// their instance subdomains. Register them through a thin
+		// subdomain-matching wrapper so a query like
+		// "streamline-de-fra1-0.relay.netbird.io" routes to the mgmt
+		// cache resolver, which resolves it on demand through the bypass
+		// resolver instead of falling through to the overlay-routed
+		// upstream handler.
+		poolRoots := s.mgmtCacheResolver.GetPoolRootDomains()
+		poolRootSet := make(map[domain.Domain]struct{}, len(poolRoots))
+		for _, d := range poolRoots {
+			poolRootSet[d] = struct{}{}
+		}
+
+		if len(poolRoots) > 0 {
+			s.registerHandler(poolRoots.ToPunycodeList(), subdomainMatchHandler{Handler: s.mgmtCacheResolver}, PriorityMgmtCache)
+		}
+
+		var exactDomains domain.List
+		for _, d := range s.mgmtCacheResolver.GetCachedDomains() {
+			if _, isPool := poolRootSet[d]; isPool {
+				continue
+			}
+			exactDomains = append(exactDomains, d)
+		}
+		if len(exactDomains) > 0 {
+			s.registerHandler(exactDomains.ToPunycodeList(), s.mgmtCacheResolver, PriorityMgmtCache)
 		}
 	}
 
@@ -759,6 +804,9 @@ func (s *DefaultServer) registerFallback(config HostDNSConfig) {
 	originalNameservers := hostMgrWithNS.getOriginalNameservers()
 	if len(originalNameservers) == 0 {
 		s.deregisterHandler([]string{nbdns.RootZone}, PriorityFallback)
+		if s.mgmtCacheResolver != nil {
+			s.mgmtCacheResolver.SetBypassResolver(nil)
+		}
 		return
 	}
 
@@ -777,6 +825,7 @@ func (s *DefaultServer) registerFallback(config HostDNSConfig) {
 	}
 	handler.routeMatch = s.routeMatch
 
+	var bypassNameservers []netip.Addr
 	for _, ns := range originalNameservers {
 		if ns == config.ServerIP {
 			log.Debugf("skipping original nameserver %s as it is the same as the server IP %s", ns, config.ServerIP)
@@ -785,11 +834,22 @@ func (s *DefaultServer) registerFallback(config HostDNSConfig) {
 
 		addrPort := netip.AddrPortFrom(ns, DefaultPort)
 		handler.upstreamServers = append(handler.upstreamServers, addrPort)
+		bypassNameservers = append(bypassNameservers, ns)
 	}
 	handler.deactivate = func(error) { /* always active */ }
 	handler.reactivate = func() { /* always active */ }
 
 	s.registerHandler([]string{nbdns.RootZone}, handler, PriorityFallback)
+
+	// Wire a bypass resolver into the mgmt cache so its refresh path dials
+	// the original nameservers directly over a fwmarked socket, avoiding
+	// the ENOKEY deadlock that occurs when an exit-node default route is
+	// installed on the overlay before its peer has handshaked. Scoped to
+	// the mgmt cache only: ordinary user DNS still flows through the
+	// normal upstream path.
+	if s.mgmtCacheResolver != nil {
+		s.mgmtCacheResolver.SetBypassResolver(mgmt.NewBypassResolver(bypassNameservers))
+	}
 }
 
 func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) ([]handlerWrapper, []nbdns.CustomZone, error) {
