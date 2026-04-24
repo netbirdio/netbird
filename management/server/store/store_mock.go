@@ -165,19 +165,6 @@ func (mr *MockStoreMockRecorder) CleanupStaleProxies(ctx, inactivityDuration int
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CleanupStaleProxies", reflect.TypeOf((*MockStore)(nil).CleanupStaleProxies), ctx, inactivityDuration)
 }
 
-// GetClusterSupportsCrowdSec mocks base method.
-func (m *MockStore) GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetClusterSupportsCrowdSec", ctx, clusterAddr)
-	ret0, _ := ret[0].(*bool)
-	return ret0
-}
-
-// GetClusterSupportsCrowdSec indicates an expected call of GetClusterSupportsCrowdSec.
-func (mr *MockStoreMockRecorder) GetClusterSupportsCrowdSec(ctx, clusterAddr interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetClusterSupportsCrowdSec", reflect.TypeOf((*MockStore)(nil).GetClusterSupportsCrowdSec), ctx, clusterAddr)
-}
 // Close mocks base method.
 func (m *MockStore) Close(ctx context.Context) error {
 	m.ctrl.T.Helper()
@@ -1388,6 +1375,20 @@ func (mr *MockStoreMockRecorder) GetClusterRequireSubdomain(ctx, clusterAddr int
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetClusterRequireSubdomain", reflect.TypeOf((*MockStore)(nil).GetClusterRequireSubdomain), ctx, clusterAddr)
 }
 
+// GetClusterSupportsCrowdSec mocks base method.
+func (m *MockStore) GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetClusterSupportsCrowdSec", ctx, clusterAddr)
+	ret0, _ := ret[0].(*bool)
+	return ret0
+}
+
+// GetClusterSupportsCrowdSec indicates an expected call of GetClusterSupportsCrowdSec.
+func (mr *MockStoreMockRecorder) GetClusterSupportsCrowdSec(ctx, clusterAddr interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetClusterSupportsCrowdSec", reflect.TypeOf((*MockStore)(nil).GetClusterSupportsCrowdSec), ctx, clusterAddr)
+}
+
 // GetClusterSupportsCustomPorts mocks base method.
 func (m *MockStore) GetClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool {
 	m.ctrl.T.Helper()
@@ -1685,6 +1686,22 @@ func (m *MockStore) GetPATByID(ctx context.Context, lockStrength LockingStrength
 func (mr *MockStoreMockRecorder) GetPATByID(ctx, lockStrength, userID, patID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPATByID", reflect.TypeOf((*MockStore)(nil).GetPATByID), ctx, lockStrength, userID, patID)
+}
+
+// GetPeerAuthInfoByPubKey mocks base method.
+func (m *MockStore) GetPeerAuthInfoByPubKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (string, string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPeerAuthInfoByPubKey", ctx, lockStrength, peerKey)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(string)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetPeerAuthInfoByPubKey indicates an expected call of GetPeerAuthInfoByPubKey.
+func (mr *MockStoreMockRecorder) GetPeerAuthInfoByPubKey(ctx, lockStrength, peerKey interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPeerAuthInfoByPubKey", reflect.TypeOf((*MockStore)(nil).GetPeerAuthInfoByPubKey), ctx, lockStrength, peerKey)
 }
 
 // GetPeerByID mocks base method.

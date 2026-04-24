@@ -1084,6 +1084,20 @@ func (am *MockAccountManager) GetUserIDByPeerKey(ctx context.Context, peerKey st
 	return "something", nil
 }
 
+// GetPeerAuthInfo mocks GetPeerAuthInfo of the AccountManager interface by
+// delegating to GetUserIDByPeerKey and GetAccountIDForPeerKey.
+func (am *MockAccountManager) GetPeerAuthInfo(ctx context.Context, peerKey string) (string, string, error) {
+	userID, err := am.GetUserIDByPeerKey(ctx, peerKey)
+	if err != nil {
+		return "", "", err
+	}
+	accountID, err := am.GetAccountIDForPeerKey(ctx, peerKey)
+	if err != nil {
+		return "", "", err
+	}
+	return userID, accountID, nil
+}
+
 // GetIdentityProvider mocks GetIdentityProvider of the AccountManager interface
 func (am *MockAccountManager) GetIdentityProvider(ctx context.Context, accountID, idpID, userID string) (*types.IdentityProvider, error) {
 	if am.GetIdentityProviderFunc != nil {

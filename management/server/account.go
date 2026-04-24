@@ -2287,3 +2287,9 @@ func (am *DefaultAccountManager) savePeerIPUpdate(ctx context.Context, transacti
 func (am *DefaultAccountManager) GetUserIDByPeerKey(ctx context.Context, peerKey string) (string, error) {
 	return am.Store.GetUserIDByPeerKey(ctx, store.LockingStrengthNone, peerKey)
 }
+
+// GetPeerAuthInfo returns the userID and accountID for a peer in a single
+// store call. Used by the Sync hot path to collapse two lookups into one.
+func (am *DefaultAccountManager) GetPeerAuthInfo(ctx context.Context, peerKey string) (string, string, error) {
+	return am.Store.GetPeerAuthInfoByPubKey(ctx, store.LockingStrengthNone, peerKey)
+}

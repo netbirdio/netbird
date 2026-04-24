@@ -230,6 +230,10 @@ type Store interface {
 	// SetFieldEncrypt sets the field encryptor for encrypting sensitive user data.
 	SetFieldEncrypt(enc *crypt.FieldEncrypt)
 	GetUserIDByPeerKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (string, error)
+	// GetPeerAuthInfoByPubKey returns the userID and accountID for a peer in a
+	// single query, replacing the pattern of calling GetUserIDByPeerKey and
+	// GetAccountIDByPeerPubKey back-to-back on the Sync hot path.
+	GetPeerAuthInfoByPubKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (userID, accountID string, err error)
 
 	CreateZone(ctx context.Context, zone *zones.Zone) error
 	UpdateZone(ctx context.Context, zone *zones.Zone) error

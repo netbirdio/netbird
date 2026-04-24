@@ -29,6 +29,8 @@ type peerGroupFetcher func(ctx context.Context, accountID, peerID string) ([]str
 
 // peerSyncEntry records what the server last delivered to a peer on Sync so we
 // can decide whether the next Sync can skip the full network map computation.
+// It also carries the minimum peer/auth metadata needed to run the fast path
+// without a DB round-trip on cache hit.
 type peerSyncEntry struct {
 	// Serial is the NetworkMap.Serial the server last included in a full map
 	// delivered to this peer.
@@ -36,6 +38,68 @@ type peerSyncEntry struct {
 	// MetaHash is the metaHash() value of the peer metadata at the time of that
 	// delivery, used to detect a meta change on reconnect.
 	MetaHash uint64
+	// AccountID is the peer's account ID. Cached so the Sync hot path can skip
+	// GetPeerAuthInfo on cache hit.
+	AccountID string
+	// PeerID is the peer's internal ID, needed for network-map subscription
+	// and update-channel routing.
+	PeerID string
+	// PeerKey mirrors the cache key (peer's wireguard pubkey) so the peer
+	// snapshot carries everything required by cancelPeerRoutines without a
+	// second store lookup.
+	PeerKey string
+	// Ephemeral is the peer's ephemeral flag, used by EphemeralPeersManager
+	// on subscribe/unsubscribe.
+	Ephemeral bool
+	// HasUser is true if the peer is user-owned (peer.UserID != ""). Used in
+	// place of GetUserIDByPeerKey's result to drive the loginFilter gate on
+	// cache hit.
+	HasUser bool
+}
+
+// IsComplete reports whether the entry has every field the pure-cache fast
+// path needs. Entries written by older code (before step 2) will carry only
+// Serial and MetaHash and must fall back to the slow path so the cache is
+// repopulated with the full shape.
+func (e peerSyncEntry) IsComplete() bool {
+	return e.AccountID != "" && e.PeerID != "" && e.PeerKey != ""
+}
+
+// PeerSnapshot reconstructs the minimum *nbpeer.Peer needed by
+// OnPeerConnectedWithPeer, EphemeralPeersManager, handleUpdates,
+// cancelPeerRoutines, and buildFastPathResponse.
+func (e peerSyncEntry) PeerSnapshot() *nbpeer.Peer {
+	return &nbpeer.Peer{
+		ID:        e.PeerID,
+		Key:       e.PeerKey,
+		AccountID: e.AccountID,
+		Ephemeral: e.Ephemeral,
+	}
+}
+
+// lookupPeerAuthFromCache checks whether the peer-sync cache holds a complete
+// entry for this peer with a matching metaHash, so the Sync handler can skip
+// the pre-fast-path GetPeerAuthInfo store read. Returns hit=false whenever
+// the fast path is disabled, the peer is Android, the cache is empty, the
+// entry is from an older shape without snapshot fields, or metaHash differs.
+func (s *Server) lookupPeerAuthFromCache(peerPubKey string, incomingMetaHash uint64, goOS string) (peerSyncEntry, bool) {
+	if s.peerSerialCache == nil {
+		return peerSyncEntry{}, false
+	}
+	if !s.fastPathFlag.Enabled() {
+		return peerSyncEntry{}, false
+	}
+	if strings.EqualFold(goOS, "android") {
+		return peerSyncEntry{}, false
+	}
+	entry, hit := s.peerSerialCache.Get(peerPubKey)
+	if !hit || !entry.IsComplete() {
+		return peerSyncEntry{}, false
+	}
+	if entry.MetaHash != incomingMetaHash {
+		return peerSyncEntry{}, false
+	}
+	return entry, true
 }
 
 // shouldSkipNetworkMap reports whether a Sync request from this peer can be
@@ -169,7 +233,11 @@ func (s *Server) tryFastPathSync(
 	}
 	log.WithContext(ctx).Debugf("fast path: eligibility check (hit) took %s", time.Since(eligibilityStart))
 
-	peer, updates, committed := s.commitFastPath(ctx, accountID, peerKey, realIP, syncStart)
+	var cachedPeer *nbpeer.Peer
+	if cached.IsComplete() {
+		cachedPeer = cached.PeerSnapshot()
+	}
+	peer, updates, committed := s.commitFastPath(ctx, accountID, peerKey, realIP, syncStart, cachedPeer)
 	if !committed {
 		return false, nil
 	}
@@ -177,32 +245,43 @@ func (s *Server) tryFastPathSync(
 	return true, s.runFastPathSync(ctx, reqStart, syncStart, accountID, peerKey, peer, updates, peerMetaHash, srv, unlock)
 }
 
-// commitFastPath fetches the peer, subscribes it to network-map updates and
-// marks the peer connected. It relies on the same eventual-consistency
-// guarantee as the slow path: a concurrent writer's broadcast may race the
-// subscription, but any subsequent serial change reaches the subscribed peer
-// via its update channel, and a reconnect with a stale cached serial falls
-// through to the slow path on the next Sync. Returns committed=false on any
-// failure that should not block the slow path from running.
+// commitFastPath subscribes the peer to network-map updates and marks it
+// connected. When cachedPeer is non-nil (cache hit with a complete entry),
+// the expensive GetPeerByPeerPubKey store call is skipped and the cached
+// snapshot is used instead.
+//
+// It relies on the same eventual-consistency guarantee as the slow path: a
+// concurrent writer's broadcast may race the subscription, but any subsequent
+// serial change reaches the subscribed peer via its update channel, and a
+// reconnect with a stale cached serial falls through to the slow path on the
+// next Sync. Returns committed=false on any failure that should not block
+// the slow path from running.
 func (s *Server) commitFastPath(
 	ctx context.Context,
 	accountID string,
 	peerKey wgtypes.Key,
 	realIP net.IP,
 	syncStart time.Time,
+	cachedPeer *nbpeer.Peer,
 ) (*nbpeer.Peer, chan *network_map.UpdateMessage, bool) {
 	commitStart := time.Now()
 	defer func() {
 		log.WithContext(ctx).Debugf("fast path: commitFastPath took %s", time.Since(commitStart))
 	}()
 
-	getPeerStart := time.Now()
-	peer, err := s.accountManager.GetStore().GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, peerKey.String())
-	if err != nil {
-		log.WithContext(ctx).Debugf("fast path: lookup peer %s: %v", peerKey.String(), err)
-		return nil, nil, false
+	var peer *nbpeer.Peer
+	if cachedPeer != nil {
+		peer = cachedPeer
+	} else {
+		getPeerStart := time.Now()
+		p, err := s.accountManager.GetStore().GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, peerKey.String())
+		if err != nil {
+			log.WithContext(ctx).Debugf("fast path: lookup peer %s: %v", peerKey.String(), err)
+			return nil, nil, false
+		}
+		log.WithContext(ctx).Debugf("fast path: GetPeerByPeerPubKey took %s", time.Since(getPeerStart))
+		peer = p
 	}
-	log.WithContext(ctx).Debugf("fast path: GetPeerByPeerPubKey took %s", time.Since(getPeerStart))
 
 	onConnectedStart := time.Now()
 	updates, err := s.networkMapController.OnPeerConnectedWithPeer(ctx, accountID, peer)
@@ -297,7 +376,9 @@ func (s *Server) fetchPeerGroups(ctx context.Context, accountID, peerID string) 
 // recordPeerSyncEntry writes the serial just delivered to this peer so a
 // subsequent reconnect can take the fast path. Called after the slow path's
 // sendInitialSync has pushed a full map. A nil cache disables the fast path.
-func (s *Server) recordPeerSyncEntry(peerKey string, netMap *nbtypes.NetworkMap, peerMetaHash uint64) {
+// peer is required so the cached entry carries the snapshot fields the
+// pure-cache fast path needs (AccountID, PeerID, Key, Ephemeral, HasUser).
+func (s *Server) recordPeerSyncEntry(peerKey string, netMap *nbtypes.NetworkMap, peerMetaHash uint64, peer *nbpeer.Peer) {
 	if s.peerSerialCache == nil {
 		return
 	}
@@ -311,13 +392,13 @@ func (s *Server) recordPeerSyncEntry(peerKey string, netMap *nbtypes.NetworkMap,
 	if serial == 0 {
 		return
 	}
-	s.peerSerialCache.Set(peerKey, peerSyncEntry{Serial: serial, MetaHash: peerMetaHash})
+	s.peerSerialCache.Set(peerKey, newPeerSyncEntry(serial, peerMetaHash, peer))
 }
 
 // recordPeerSyncEntryFromUpdate is the sendUpdate equivalent of
 // recordPeerSyncEntry: it extracts the serial from a streamed NetworkMap update
 // so the cache stays in sync with what the peer most recently received.
-func (s *Server) recordPeerSyncEntryFromUpdate(peerKey string, update *network_map.UpdateMessage, peerMetaHash uint64) {
+func (s *Server) recordPeerSyncEntryFromUpdate(peerKey string, update *network_map.UpdateMessage, peerMetaHash uint64, peer *nbpeer.Peer) {
 	if s.peerSerialCache == nil || update == nil || update.Update == nil || update.Update.NetworkMap == nil {
 		return
 	}
@@ -328,7 +409,25 @@ func (s *Server) recordPeerSyncEntryFromUpdate(peerKey string, update *network_m
 	if serial == 0 {
 		return
 	}
-	s.peerSerialCache.Set(peerKey, peerSyncEntry{Serial: serial, MetaHash: peerMetaHash})
+	s.peerSerialCache.Set(peerKey, newPeerSyncEntry(serial, peerMetaHash, peer))
+}
+
+// newPeerSyncEntry builds a cache entry with every field the pure-cache
+// fast path needs. peer may be nil (very old call sites), in which case the
+// entry is written without the snapshot fields and will fail IsComplete().
+func newPeerSyncEntry(serial, metaHash uint64, peer *nbpeer.Peer) peerSyncEntry {
+	entry := peerSyncEntry{
+		Serial:   serial,
+		MetaHash: metaHash,
+	}
+	if peer != nil {
+		entry.AccountID = peer.AccountID
+		entry.PeerID = peer.ID
+		entry.PeerKey = peer.Key
+		entry.Ephemeral = peer.Ephemeral
+		entry.HasUser = peer.UserID != ""
+	}
+	return entry
 }
 
 // invalidatePeerSyncEntry is called after a successful Login so the next Sync

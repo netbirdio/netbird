@@ -134,6 +134,9 @@ type Manager interface {
 	GetOwnerInfo(ctx context.Context, accountId string) (*types.UserInfo, error)
 	GetCurrentUserInfo(ctx context.Context, userAuth auth.UserAuth) (*users.UserInfoWithPermissions, error)
 	GetUserIDByPeerKey(ctx context.Context, peerKey string) (string, error)
+	// GetPeerAuthInfo returns the userID and accountID for a peer in a single
+	// store call. Used by the Sync hot path to collapse two lookups into one.
+	GetPeerAuthInfo(ctx context.Context, peerKey string) (userID, accountID string, err error)
 	GetIdentityProvider(ctx context.Context, accountID, idpID, userID string) (*types.IdentityProvider, error)
 	GetIdentityProviders(ctx context.Context, accountID, userID string) ([]*types.IdentityProvider, error)
 	CreateIdentityProvider(ctx context.Context, accountID, userID string, idp *types.IdentityProvider) (*types.IdentityProvider, error)

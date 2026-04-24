@@ -261,19 +261,39 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	realIP := getRealIP(ctx)
 	sRealIP := realIP.String()
 	peerMeta := extractPeerMeta(ctx, syncReq.GetMeta())
-
-	getUserIDStart := time.Now()
-	userID, err := s.accountManager.GetUserIDByPeerKey(ctx, peerKey.String())
-	if err != nil {
-		s.syncSem.Add(-1)
-		if errStatus, ok := internalStatus.FromError(err); ok && errStatus.Type() == internalStatus.NotFound {
-			return status.Errorf(codes.PermissionDenied, "peer is not registered")
-		}
-		return mapError(ctx, err)
-	}
-	log.WithContext(ctx).Debugf("fast path: GetUserIDByPeerKey took %s", time.Since(getUserIDStart))
-
 	metahashed := metaHash(peerMeta, sRealIP)
+
+	// Fast path authorisation short-circuit: if the peer-sync cache has a
+	// complete entry whose metaHash still matches the incoming request, we can
+	// skip GetPeerAuthInfo entirely. The entry carries AccountID and HasUser
+	// so we have everything the loginFilter gate and the rest of the handler
+	// need. On any mismatch we fall back to the DB read below.
+	var (
+		userID    string
+		accountID string
+	)
+	cachedEntry, cachedEntryHit := s.lookupPeerAuthFromCache(peerKey.String(), metahashed, peerMeta.GoOS)
+	if cachedEntryHit {
+		accountID = cachedEntry.AccountID
+		if cachedEntry.HasUser {
+			userID = "cached"
+		}
+		log.WithContext(ctx).Debugf("fast path: GetPeerAuthInfo skipped (cache hit)")
+	} else {
+		authInfoStart := time.Now()
+		uid, aid, err := s.accountManager.GetPeerAuthInfo(ctx, peerKey.String())
+		if err != nil {
+			s.syncSem.Add(-1)
+			if errStatus, ok := internalStatus.FromError(err); ok && errStatus.Type() == internalStatus.NotFound {
+				return status.Errorf(codes.PermissionDenied, "peer is not registered")
+			}
+			return mapError(ctx, err)
+		}
+		userID = uid
+		accountID = aid
+		log.WithContext(ctx).Debugf("fast path: GetPeerAuthInfo took %s", time.Since(authInfoStart))
+	}
+
 	if userID == "" && !s.loginFilter.allowLogin(peerKey.String(), metahashed) {
 		if s.appMetrics != nil {
 			s.appMetrics.GRPCMetrics().CountSyncRequestBlocked()
@@ -293,21 +313,6 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 
 	// nolint:staticcheck
 	ctx = context.WithValue(ctx, nbContext.PeerIDKey, peerKey.String())
-
-	getAccountIDStart := time.Now()
-	accountID, err := s.accountManager.GetAccountIDForPeerKey(ctx, peerKey.String())
-	if err != nil {
-		// nolint:staticcheck
-		ctx = context.WithValue(ctx, nbContext.AccountIDKey, "UNKNOWN")
-		log.WithContext(ctx).Tracef("peer %s is not registered", peerKey.String())
-		if errStatus, ok := internalStatus.FromError(err); ok && errStatus.Type() == internalStatus.NotFound {
-			s.syncSem.Add(-1)
-			return status.Errorf(codes.PermissionDenied, "peer is not registered")
-		}
-		s.syncSem.Add(-1)
-		return err
-	}
-	log.WithContext(ctx).Debugf("fast path: GetAccountIDForPeerKey took %s", time.Since(getAccountIDStart))
 
 	// nolint:staticcheck
 	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
@@ -348,7 +353,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, syncStart)
 		return err
 	}
-	s.recordPeerSyncEntry(peerKey.String(), netMap, metahash)
+	s.recordPeerSyncEntry(peerKey.String(), netMap, metahash, peer)
 
 	updates, err := s.networkMapController.OnPeerConnected(ctx, accountID, peer.ID)
 	if err != nil {
@@ -522,7 +527,7 @@ func (s *Server) sendUpdate(ctx context.Context, accountID string, peerKey wgtyp
 		return status.Errorf(codes.Internal, "failed sending update message")
 	}
 	if update.MessageType == network_map.MessageTypeNetworkMap {
-		s.recordPeerSyncEntryFromUpdate(peerKey.String(), update, peerMetaHash)
+		s.recordPeerSyncEntryFromUpdate(peerKey.String(), update, peerMetaHash, peer)
 	}
 	log.WithContext(ctx).Debugf("sent an update to peer %s", peerKey.String())
 	return nil

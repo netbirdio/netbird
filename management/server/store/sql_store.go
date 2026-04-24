@@ -4685,6 +4685,33 @@ func (s *SqlStore) GetUserIDByPeerKey(ctx context.Context, lockStrength LockingS
 	return userID, nil
 }
 
+// GetPeerAuthInfoByPubKey returns the user_id and account_id for a peer in a
+// single SELECT. Used by the Sync hot path to replace the back-to-back
+// GetUserIDByPeerKey + GetAccountIDByPeerPubKey calls.
+func (s *SqlStore) GetPeerAuthInfoByPubKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (string, string, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var row struct {
+		UserID    string
+		AccountID string
+	}
+	result := tx.Model(&nbpeer.Peer{}).
+		Select("user_id", "account_id").
+		Take(&row, GetKeyQueryCondition(s), peerKey)
+
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return "", "", status.Errorf(status.NotFound, "peer not found: index lookup failed")
+		}
+		return "", "", status.Errorf(status.Internal, "failed to get peer auth info by peer key")
+	}
+
+	return row.UserID, row.AccountID, nil
+}
+
 func (s *SqlStore) CreateZone(ctx context.Context, zone *zones.Zone) error {
 	result := s.db.Create(zone)
 	if result.Error != nil {
