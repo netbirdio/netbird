@@ -1,6 +1,11 @@
 # Entra / Intune Device Authentication
-
-**Status**: server-side complete, client integration pending (Phase 2).
+**Status**: server + client (PFX provider) complete and live-tested against a
+real Entra tenant. Windows cert-store / TPM-backed signing is a planned
+follow-up (see "Future work" below).
+**TL;DR** — deploy a cert via Intune PKCS Certificate profile, run
+`netbird entra-enroll --management-url https://.../join/entra --entra-tenant
+YOUR-TENANT --entra-pfx <path> --entra-pfx-password-env NB_ENTRA_PFX_PASSWORD`,
+device joins NetBird automatically based on its Entra group membership.
 
 ## Overview
 
