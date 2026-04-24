@@ -315,6 +315,31 @@ Relevant Go packages:
   should be rotated to the existing encrypted-column pattern before
   production. See the "Open design decisions" in the plan document.
 
+## Live-tenant verification results
+Run on `2026-04-24` against a real Entra tenant (`5a7a81b2-…-76c26`) using the
+Docker test harness + the synthetic `enroll-tester` tool. The following
+scenarios were all executed end-to-end through Microsoft Graph:
+| Scenario                                     | Configuration                               | Input                       | Expected result          | Actual   |
+|----------------------------------------------|---------------------------------------------|-----------------------------|--------------------------|----------|
+| Happy path — wildcard mapping                | `mapping_resolution: strict_priority`       | real device, compliance off | success, peer created    | ✅       |
+| Happy path — specific Entra group mapping     | mapping scoped to real Entra group id       | same real device            | success, peer created    | ✅       |
+| Device not in mapped Entra group             | mapping scoped to non-matching group        | real device                 | `403 no_mapping_matched` | ✅       |
+| Device absent from Entra                     | wildcard mapping                            | bogus device GUID           | `403 device_disabled`    | ✅       |
+| Compliance on, compliant device              | `require_intune_compliant: true`            | compliant device id         | success, peer created    | ✅       |
+| Compliance on, non-compliant device          | `require_intune_compliant: true`            | non-compliant device id     | `403 device_not_compliant` | ✅     |
+Observations from the runs:
+- Every reject path is atomic — zero rows written to `peers` / `group_peers`
+  on any 4xx/5xx outcome.
+- Graph OAuth2 client-credentials round-trip, device lookup, transitive group
+  enumeration, and Intune compliance query all worked with a standard app
+  registration granted `Device.Read.All`, `GroupMember.Read.All`, and
+  `DeviceManagementManagedDevices.Read.All`.
+- Compliance is checked *before* mapping resolution, so a non-compliant device
+  is rejected even if it is a member of a mapped Entra group.
+- The happy-path response includes the resolved auto-groups, matched mapping
+  IDs, and a 64-hex bootstrap token valid for 5 minutes.
+The server side is considered production-quality at this point; the remaining
+work is all client-side (Phase 2) and dashboard (Phase 4).
 ## Current implementation status
 
 | Area                           | Status                                                   |
