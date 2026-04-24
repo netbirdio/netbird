@@ -632,10 +632,16 @@ func (s *DefaultServer) UpdateServerConfig(domains dnsconfig.ServerDomains) erro
 		// cache resolver, which resolves it on demand through the bypass
 		// resolver instead of falling through to the overlay-routed
 		// upstream handler.
+		// Canonicalize pool-root domains (toZone normalizes casing, IDNA,
+		// and trailing dot) so the membership check below is independent
+		// of the exact form each source hands back. GetPoolRootDomains
+		// returns whatever the extractor stored; GetCachedDomains strips
+		// the trailing dot from question names. Run both through toZone
+		// to guarantee they compare equal.
 		poolRoots := s.mgmtCacheResolver.GetPoolRootDomains()
 		poolRootSet := make(map[domain.Domain]struct{}, len(poolRoots))
 		for _, d := range poolRoots {
-			poolRootSet[d] = struct{}{}
+			poolRootSet[toZone(d)] = struct{}{}
 		}
 
 		if len(poolRoots) > 0 {
@@ -644,7 +650,7 @@ func (s *DefaultServer) UpdateServerConfig(domains dnsconfig.ServerDomains) erro
 
 		var exactDomains domain.List
 		for _, d := range s.mgmtCacheResolver.GetCachedDomains() {
-			if _, isPool := poolRootSet[d]; isPool {
+			if _, isPool := poolRootSet[toZone(d)]; isPool {
 				continue
 			}
 			exactDomains = append(exactDomains, d)
