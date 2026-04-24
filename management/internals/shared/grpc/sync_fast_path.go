@@ -242,7 +242,14 @@ func (s *Server) tryFastPathSync(
 		return false, nil
 	}
 
-	return true, s.runFastPathSync(ctx, reqStart, syncStart, accountID, peerKey, peer, updates, cached.Serial, peerMetaHash, srv, unlock)
+	// Upgrade the cache only when we had to fetch the peer from the store
+	// this Sync. In the steady state the cached snapshot lacks UserID (not
+	// part of PeerSnapshot), so rewriting from it would flip HasUser to
+	// false and corrupt the entry. A cache-served peer also means the
+	// entry is already in the full shape, so there's nothing to upgrade.
+	upgradeCache := cachedPeer == nil
+
+	return true, s.runFastPathSync(ctx, reqStart, syncStart, accountID, peerKey, peer, updates, cached.Serial, peerMetaHash, upgradeCache, srv, unlock)
 }
 
 // commitFastPath subscribes the peer to network-map updates and marks it
@@ -315,6 +322,7 @@ func (s *Server) runFastPathSync(
 	updates chan *network_map.UpdateMessage,
 	serial uint64,
 	peerMetaHash uint64,
+	upgradeCache bool,
 	srv proto.ManagementService_SyncServer,
 	unlock *func(),
 ) error {
@@ -327,12 +335,15 @@ func (s *Server) runFastPathSync(
 	}
 	log.WithContext(ctx).Debugf("fast path: sendFastPathResponse took %s", time.Since(sendStart))
 
-	// Refresh the cache entry in the new shape. For peers whose cache entry
-	// was written by pre-step-2 code (Serial + MetaHash only), this upgrades
-	// them to the full shape so the next Sync's lookupPeerAuthFromCache +
-	// commitFastPath can actually short-circuit GetPeerAuthInfo and
-	// GetPeerByPeerPubKey. Idempotent when the entry is already complete.
-	s.writePeerSyncEntry(peerKey.String(), serial, peerMetaHash, peer)
+	// Upgrade a legacy-shape cache entry (Serial + MetaHash only, pre step 2)
+	// to the full shape so the next Sync's lookupPeerAuthFromCache +
+	// commitFastPath can actually short-circuit the pre-fast-path
+	// GetPeerAuthInfo and GetPeerByPeerPubKey. Only runs when the peer was
+	// freshly fetched from the store this Sync — rewriting from a cached
+	// snapshot would lose HasUser because PeerSnapshot doesn't carry UserID.
+	if upgradeCache {
+		s.writePeerSyncEntry(peerKey.String(), serial, peerMetaHash, peer)
+	}
 
 	s.secretsManager.SetupRefresh(ctx, accountID, peer.ID)
 
