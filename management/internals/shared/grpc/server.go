@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	cachestore "github.com/eko/gocache/lib/v4/store"
 	pb "github.com/golang/protobuf/proto" // nolint
 	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
@@ -93,12 +94,26 @@ type Server struct {
 	// flag or a flag reporting disabled forces every Sync through the full
 	// network map path.
 	fastPathFlag *FastPathFlag
+
+	// Secondary TTL-based caches used by the Sync fast path to skip DB reads
+	// for the account's ExtraSettings and a peer's group membership. Both
+	// are nil-safe and disabled if the shared cache store wasn't provided.
+	extraSettingsCache *extraSettingsCache
+	peerGroupsCache    *peerGroupsCache
+
+	// inflightMarkPeerConnected dedupes the fire-and-forget MarkPeerConnected
+	// writes kicked off by the fast path. Keys are peer pubkeys; presence
+	// means a background goroutine is already writing for that peer, so
+	// concurrent fast-path Syncs for the same peer coalesce to one write.
+	inflightMarkPeerConnected sync.Map
 }
 
 // NewServer creates a new Management server. peerSerialCache and fastPathFlag
 // are both optional; when either is nil or the flag reports disabled, the
 // Sync fast path is disabled and every request runs the full map computation,
-// matching the pre-cache behaviour.
+// matching the pre-cache behaviour. cacheStore is used to back the
+// secondary fast-path caches (account serial, ExtraSettings, peer groups);
+// a nil store silently disables those caches without affecting correctness.
 func NewServer(
 	config *nbconfig.Config,
 	accountManager account.Manager,
@@ -112,6 +127,7 @@ func NewServer(
 	oAuthConfigProvider idp.OAuthConfigProvider,
 	peerSerialCache *PeerSerialCache,
 	fastPathFlag *FastPathFlag,
+	cacheStore cachestore.StoreInterface,
 ) (*Server, error) {
 	if appMetrics != nil {
 		// update gauge based on number of connected peers which is equal to open gRPC streams
@@ -162,6 +178,9 @@ func NewServer(
 
 		peerSerialCache: peerSerialCache,
 		fastPathFlag:    fastPathFlag,
+
+		extraSettingsCache: newExtraSettingsCache(context.Background(), cacheStore, DefaultExtraSettingsCacheTTL),
+		peerGroupsCache:    newPeerGroupsCache(context.Background(), cacheStore, DefaultPeerGroupsCacheTTL),
 	}, nil
 }
 

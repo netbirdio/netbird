@@ -17,7 +17,6 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
 	nbtypes "github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
@@ -129,6 +128,12 @@ func shouldSkipNetworkMap(goOS string, hit bool, cached peerSyncEntry, currentSe
 	return true
 }
 
+// extraSettingsFetcher is the dependency used by buildFastPathResponse to
+// obtain ExtraSettings for the peer's account. Matches the shape of the
+// method on settings.Manager but as a plain function so production callers
+// can wrap it with a cache and tests can inject a stub.
+type extraSettingsFetcher func(ctx context.Context, accountID string) (*nbtypes.ExtraSettings, error)
+
 // buildFastPathResponse constructs a SyncResponse containing only NetbirdConfig
 // with fresh TURN/Relay tokens, mirroring the shape used by
 // TimeBasedAuthSecretsManager when pushing token refreshes. The response omits
@@ -138,7 +143,7 @@ func buildFastPathResponse(
 	ctx context.Context,
 	cfg *nbconfig.Config,
 	secrets SecretsManager,
-	settingsMgr settings.Manager,
+	fetchExtraSettings extraSettingsFetcher,
 	fetchGroups peerGroupFetcher,
 	peer *nbpeer.Peer,
 ) *proto.SyncResponse {
@@ -161,25 +166,23 @@ func buildFastPathResponse(
 	}
 
 	var extraSettings *nbtypes.ExtraSettings
-	extraSettingsStart := time.Now()
-	if es, err := settingsMgr.GetExtraSettings(ctx, peer.AccountID); err != nil {
-		log.WithContext(ctx).Debugf("fast path: get extra settings: %v", err)
-	} else {
-		extraSettings = es
+	if fetchExtraSettings != nil {
+		if es, err := fetchExtraSettings(ctx, peer.AccountID); err != nil {
+			log.WithContext(ctx).Debugf("fast path: get extra settings: %v", err)
+		} else {
+			extraSettings = es
+		}
 	}
-	log.WithContext(ctx).Debugf("fast path: GetExtraSettings took %s", time.Since(extraSettingsStart))
 
 	nbConfig := toNetbirdConfig(cfg, turnToken, relayToken, extraSettings)
 
 	var peerGroups []string
 	if fetchGroups != nil {
-		start := time.Now()
 		if ids, err := fetchGroups(ctx, peer.AccountID, peer.ID); err != nil {
 			log.WithContext(ctx).Debugf("fast path: get peer group ids: %v", err)
 		} else {
 			peerGroups = ids
 		}
-		log.WithContext(ctx).Debugf("fast path: get peer groups took %s", time.Since(start))
 	}
 
 	extendStart := time.Now()
@@ -187,6 +190,25 @@ func buildFastPathResponse(
 	log.WithContext(ctx).Debugf("fast path: ExtendNetBirdConfig took %s", time.Since(extendStart))
 
 	return &proto.SyncResponse{NetbirdConfig: nbConfig}
+}
+
+// fetchExtraSettings returns a cached ExtraSettings when available, falling
+// back to the settings manager on miss. Populates the cache on miss so
+// subsequent fast-path Syncs hit it.
+func (s *Server) fetchExtraSettings(ctx context.Context, accountID string) (*nbtypes.ExtraSettings, error) {
+	if es, ok := s.extraSettingsCache.get(accountID); ok {
+		log.WithContext(ctx).Debugf("fast path: GetExtraSettings skipped (cache hit)")
+		return es, nil
+	}
+
+	start := time.Now()
+	es, err := s.settingsManager.GetExtraSettings(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	log.WithContext(ctx).Debugf("fast path: GetExtraSettings took %s", time.Since(start))
+	s.extraSettingsCache.set(accountID, es)
+	return es, nil
 }
 
 // tryFastPathSync decides whether the current Sync can be answered with a
@@ -299,13 +321,34 @@ func (s *Server) commitFastPath(
 	}
 	log.WithContext(ctx).Debugf("fast path: OnPeerConnectedWithPeer took %s", time.Since(onConnectedStart))
 
-	markStart := time.Now()
-	if err := s.accountManager.MarkPeerConnected(ctx, peerKey.String(), true, realIP, accountID, syncStart); err != nil {
-		log.WithContext(ctx).Warnf("fast path: mark connected for peer %s: %v", peerKey.String(), err)
-	}
-	log.WithContext(ctx).Debugf("fast path: MarkPeerConnected took %s", time.Since(markStart))
+	s.markPeerConnectedAsync(peerKey.String(), realIP, accountID, syncStart)
 
 	return peer, updates, true
+}
+
+// markPeerConnectedAsync fires MarkPeerConnected in a detached goroutine so
+// the Sync hot path does not wait on a DB write that can spike into the
+// multi-second range under contention. LastSeen becomes eventually-consistent
+// by at most one write; the peer's next Sync or the per-peer expiration
+// routines correct any drift. Concurrent fast-path Syncs for the same peer
+// coalesce to a single background write via the inflight map.
+func (s *Server) markPeerConnectedAsync(peerKey string, realIP net.IP, accountID string, syncStart time.Time) {
+	if _, loaded := s.inflightMarkPeerConnected.LoadOrStore(peerKey, struct{}{}); loaded {
+		log.Debugf("fast path: async MarkPeerConnected for %s coalesced (already in flight)", peerKey)
+		return
+	}
+	go func() {
+		defer s.inflightMarkPeerConnected.Delete(peerKey)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		start := time.Now()
+		if err := s.accountManager.MarkPeerConnected(ctx, peerKey, true, realIP, accountID, syncStart); err != nil {
+			log.Warnf("fast path: async MarkPeerConnected for %s: %v", peerKey, err)
+			return
+		}
+		log.Debugf("fast path: async MarkPeerConnected for %s took %s", peerKey, time.Since(start))
+	}()
 }
 
 // runFastPathSync executes the fast path: send the lean response, kick off
@@ -365,7 +408,7 @@ func (s *Server) runFastPathSync(
 // sendFastPathResponse builds a NetbirdConfig-only SyncResponse, encrypts it
 // with the peer's WireGuard key and pushes it over the stream.
 func (s *Server) sendFastPathResponse(ctx context.Context, peerKey wgtypes.Key, peer *nbpeer.Peer, srv proto.ManagementService_SyncServer) error {
-	resp := buildFastPathResponse(ctx, s.config, s.secretsManager, s.settingsManager, s.fetchPeerGroups, peer)
+	resp := buildFastPathResponse(ctx, s.config, s.secretsManager, s.fetchExtraSettings, s.fetchPeerGroups, peer)
 
 	key, err := s.secretsManager.GetWGKey()
 	if err != nil {
@@ -387,10 +430,23 @@ func (s *Server) sendFastPathResponse(ctx context.Context, peerKey wgtypes.Key, 
 	return nil
 }
 
-// fetchPeerGroups is the dependency injected into buildFastPathResponse in
-// production. A nil accountManager store is treated as "no groups".
+// fetchPeerGroups returns a cached list of group IDs for the peer when
+// available, falling back to the account manager's store on miss. Populates
+// the cache on miss so subsequent fast-path Syncs hit it.
 func (s *Server) fetchPeerGroups(ctx context.Context, accountID, peerID string) ([]string, error) {
-	return s.accountManager.GetStore().GetPeerGroupIDs(ctx, store.LockingStrengthNone, accountID, peerID)
+	if ids, ok := s.peerGroupsCache.get(peerID); ok {
+		log.WithContext(ctx).Debugf("fast path: GetPeerGroupIDs skipped (cache hit)")
+		return ids, nil
+	}
+
+	start := time.Now()
+	ids, err := s.accountManager.GetStore().GetPeerGroupIDs(ctx, store.LockingStrengthNone, accountID, peerID)
+	if err != nil {
+		return nil, err
+	}
+	log.WithContext(ctx).Debugf("fast path: GetPeerGroupIDs took %s", time.Since(start))
+	s.peerGroupsCache.set(peerID, ids)
+	return ids, nil
 }
 
 // recordPeerSyncEntry writes the serial just delivered to this peer so a

@@ -393,7 +393,7 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 
 	peerSerialCache := nbgrpc.NewPeerSerialCache(ctx, cacheStore, time.Minute)
 	fastPathFlag := nbgrpc.NewFastPathFlag(true)
-	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, jobManager, secretsManager, nil, nil, MockIntegratedValidator{}, networkMapController, nil, peerSerialCache, fastPathFlag)
+	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, jobManager, secretsManager, nil, nil, MockIntegratedValidator{}, networkMapController, nil, peerSerialCache, fastPathFlag, cacheStore)
 	if err != nil {
 		return nil, nil, "", cleanup, err
 	}

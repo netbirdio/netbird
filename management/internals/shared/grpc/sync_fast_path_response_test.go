@@ -68,7 +68,7 @@ func TestBuildFastPathResponse_TimeBasedTURNAndRelay_FreshTokens(t *testing.T) {
 	settingsMock := settings.NewMockManager(ctrl)
 	settingsMock.EXPECT().GetExtraSettings(gomock.Any(), "account-id").Return(&types.ExtraSettings{}, nil).AnyTimes()
 
-	resp := buildFastPathResponse(context.Background(), cfg, secrets, settingsMock, noGroupsFetcher, fastPathTestPeer())
+	resp := buildFastPathResponse(context.Background(), cfg, secrets, settingsMock.GetExtraSettings, noGroupsFetcher, fastPathTestPeer())
 
 	require.NotNil(t, resp, "response must not be nil")
 	assert.Nil(t, resp.NetworkMap, "fast path must omit NetworkMap")
@@ -116,7 +116,7 @@ func TestBuildFastPathResponse_StaticTURNCredentials(t *testing.T) {
 	settingsMock := settings.NewMockManager(ctrl)
 	settingsMock.EXPECT().GetExtraSettings(gomock.Any(), gomock.Any()).Return(&types.ExtraSettings{}, nil).AnyTimes()
 
-	resp := buildFastPathResponse(context.Background(), cfg, secrets, settingsMock, noGroupsFetcher, fastPathTestPeer())
+	resp := buildFastPathResponse(context.Background(), cfg, secrets, settingsMock.GetExtraSettings, noGroupsFetcher, fastPathTestPeer())
 
 	require.NotNil(t, resp.NetbirdConfig)
 	require.Len(t, resp.NetbirdConfig.Turns, 1, "static TURN must appear in response")
@@ -134,7 +134,7 @@ func TestBuildFastPathResponse_NoRelayConfigured_NoRelaySection(t *testing.T) {
 	settingsMock := settings.NewMockManager(ctrl)
 	settingsMock.EXPECT().GetExtraSettings(gomock.Any(), gomock.Any()).Return(&types.ExtraSettings{}, nil).AnyTimes()
 
-	resp := buildFastPathResponse(context.Background(), cfg, secrets, settingsMock, noGroupsFetcher, fastPathTestPeer())
+	resp := buildFastPathResponse(context.Background(), cfg, secrets, settingsMock.GetExtraSettings, noGroupsFetcher, fastPathTestPeer())
 	require.NotNil(t, resp.NetbirdConfig, "NetbirdConfig must be non-nil even without relay/turn")
 	assert.Nil(t, resp.NetbirdConfig.Relay, "Relay must be absent when not configured")
 	assert.Empty(t, resp.NetbirdConfig.Turns, "Turns must be empty when not configured")
@@ -149,7 +149,7 @@ func TestBuildFastPathResponse_ExtraSettingsErrorStillReturnsResponse(t *testing
 	settingsMock := settings.NewMockManager(ctrl)
 	settingsMock.EXPECT().GetExtraSettings(gomock.Any(), gomock.Any()).Return(nil, assertAnError).AnyTimes()
 
-	resp := buildFastPathResponse(context.Background(), cfg, secrets, settingsMock, noGroupsFetcher, fastPathTestPeer())
+	resp := buildFastPathResponse(context.Background(), cfg, secrets, settingsMock.GetExtraSettings, noGroupsFetcher, fastPathTestPeer())
 	require.NotNil(t, resp, "extra settings failure must degrade gracefully into an empty fast-path response")
 	assert.Nil(t, resp.NetworkMap, "NetworkMap still omitted on degraded path")
 }
