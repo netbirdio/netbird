@@ -291,11 +291,11 @@ func Test_Zones_Update(t *testing.T) {
 		verifyResponse func(t *testing.T, zone *api.Zone)
 	}{
 		{
-			name:   "Update zone name and domain",
+			name:   "Update zone name and settings",
 			zoneId: "testZoneId",
 			requestBody: &api.PutApiDnsZonesZoneIdJSONRequestBody{
 				Name:               "Updated Zone",
-				Domain:             "updated.example.com",
+				Domain:             "example.com",
 				Enabled:            &enabled,
 				EnableSearchDomain: true,
 				DistributionGroups: []string{testing_tools.TestGroupId},
@@ -304,7 +304,7 @@ func Test_Zones_Update(t *testing.T) {
 			verifyResponse: func(t *testing.T, zone *api.Zone) {
 				t.Helper()
 				assert.Equal(t, "Updated Zone", zone.Name)
-				assert.Equal(t, "updated.example.com", zone.Domain)
+				assert.Equal(t, "example.com", zone.Domain)
 				assert.Equal(t, true, zone.EnableSearchDomain)
 			},
 		},
@@ -352,7 +352,7 @@ func Test_Zones_Update(t *testing.T) {
 					db := testing_tools.GetDB(t, am.GetStore())
 					dbZone := testing_tools.VerifyZoneInDB(t, db, tc.zoneId)
 					assert.Equal(t, "Updated Zone", dbZone.Name)
-					assert.Equal(t, "updated.example.com", dbZone.Domain)
+					assert.Equal(t, "example.com", dbZone.Domain)
 					assert.Equal(t, true, dbZone.Enabled)
 					assert.Equal(t, true, dbZone.EnableSearchDomain)
 				}

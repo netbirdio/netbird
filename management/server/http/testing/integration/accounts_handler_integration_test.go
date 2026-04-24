@@ -27,7 +27,7 @@ func Test_Accounts_GetAll(t *testing.T) {
 		{"Regular user", testing_tools.TestUserId, false},
 		{"Admin user", testing_tools.TestAdminId, true},
 		{"Owner user", testing_tools.TestOwnerId, true},
-		{"Regular service user", testing_tools.TestServiceUserId, true},
+		{"Regular service user", testing_tools.TestServiceUserId, false},
 		{"Admin service user", testing_tools.TestServiceAdminId, true},
 		{"Blocked user", testing_tools.BlockedUserId, false},
 		{"Other user", testing_tools.OtherUserId, false},

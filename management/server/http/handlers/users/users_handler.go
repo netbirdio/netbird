@@ -28,7 +28,7 @@ type handler struct {
 func AddEndpoints(accountManager account.Manager, router *mux.Router, permissionsManager permissions.Manager) {
 	userHandler := newHandler(accountManager)
 	router.HandleFunc("/users", permissionsManager.WithPermission(modules.Users, operations.Read, userHandler.getAllUsers, userHandler.getOwnUser)).Methods("GET", "OPTIONS")
-	router.HandleFunc("/users/current", permissionsManager.WithPermission(modules.Users, operations.Read, userHandler.getCurrentUser)).Methods("GET", "OPTIONS")
+	router.HandleFunc("/users/current", permissionsManager.WithPermission(modules.Users, operations.Read, userHandler.getCurrentUser, userHandler.getCurrentUserFallback)).Methods("GET", "OPTIONS")
 	router.HandleFunc("/users/{userId}", permissionsManager.WithPermission(modules.Users, operations.Update, userHandler.updateUser)).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/users/{userId}", permissionsManager.WithPermission(modules.Users, operations.Delete, userHandler.deleteUser)).Methods("DELETE", "OPTIONS")
 	router.HandleFunc("/users", permissionsManager.WithPermission(modules.Users, operations.Create, userHandler.createUser)).Methods("POST", "OPTIONS")
@@ -405,9 +405,29 @@ func (h *handler) changePassword(w http.ResponseWriter, r *http.Request, userAut
 	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }
 
+func (h *handler) getCurrentUserFallback(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth, err error) bool {
+	s, ok := status.FromError(err)
+	if !ok || s.ErrorType != status.PermissionDenied {
+		return false
+	}
+
+	user, userErr := h.accountManager.GetCurrentUserInfo(r.Context(), *userAuth)
+	if userErr != nil {
+		util.WriteError(r.Context(), userErr, w)
+		return true
+	}
+
+	util.WriteJSONObject(r.Context(), w, toUserWithPermissionsResponse(user, userAuth.UserId))
+	return true
+}
+
 func (h *handler) getOwnUser(w http.ResponseWriter, r *http.Request, userAuth *auth.UserAuth, err error) bool {
 	s, ok := status.FromError(err)
 	if !ok || s.ErrorType != status.PermissionDenied {
+		return false
+	}
+
+	if r.URL.Query().Get("service_user") != "" {
 		return false
 	}
 

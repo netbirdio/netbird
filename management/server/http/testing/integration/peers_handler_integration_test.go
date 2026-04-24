@@ -45,7 +45,7 @@ func Test_Peers_GetAll(t *testing.T) {
 		{
 			name:           "Regular service user",
 			userId:         testing_tools.TestServiceUserId,
-			expectResponse: true,
+			expectResponse: false,
 		},
 		{
 			name:           "Admin service user",
@@ -123,7 +123,7 @@ func Test_Peers_GetById(t *testing.T) {
 		{
 			name:           "Regular service user",
 			userId:         testing_tools.TestServiceUserId,
-			expectResponse: true,
+			expectResponse: false,
 		},
 		{
 			name:           "Admin service user",

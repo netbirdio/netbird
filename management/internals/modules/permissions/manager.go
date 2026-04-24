@@ -122,10 +122,6 @@ func (m *managerImpl) ValidateUserPermissions(
 		return false, err
 	}
 
-	if operation == operations.Read && user.IsServiceUser {
-		return true, nil // this should be replaced by proper granular access role
-	}
-
 	role, ok := roles.RolesMap[user.Role]
 	if !ok {
 		return false, status.NewUserRoleNotFoundError(string(user.Role))
