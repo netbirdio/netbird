@@ -2917,6 +2917,10 @@ func NewPostgresqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, 
 		}
 	}
 
+	if err = copyZonesAndRecords(sqliteStore, store); err != nil {
+		return nil, err
+	}
+
 	return store, nil
 }
 
@@ -2983,7 +2987,26 @@ func NewMysqlStoreFromSqlStore(ctx context.Context, sqliteStore *SqlStore, dsn s
 		}
 	}
 
+	if err = copyZonesAndRecords(sqliteStore, store); err != nil {
+		return nil, err
+	}
+
 	return store, nil
+}
+
+func copyZonesAndRecords(src, dst *SqlStore) error {
+	var srcZones []*zones.Zone
+	if err := src.db.Preload("Records").Find(&srcZones).Error; err != nil {
+		return fmt.Errorf("failed to read zones from source store: %w", err)
+	}
+
+	for _, zone := range srcZones {
+		if err := dst.db.Create(zone).Error; err != nil {
+			return fmt.Errorf("failed to copy zone %s: %w", zone.ID, err)
+		}
+	}
+
+	return nil
 }
 
 func (s *SqlStore) GetSetupKeyBySecret(ctx context.Context, lockStrength LockingStrength, key string) (*types.SetupKey, error) {
