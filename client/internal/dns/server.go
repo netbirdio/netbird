@@ -117,6 +117,11 @@ type DefaultServer struct {
 	batchMode          bool
 
 	mgmtCacheResolver *mgmt.Resolver
+	// mgmtPoolRoots tracks pool-root domains currently contributed to
+	// extraDomains by the mgmt cache, so the next UpdateServerConfig can
+	// decrement the old set before incrementing the new one without
+	// disturbing unrelated registerHandler callers.
+	mgmtPoolRoots map[domain.Domain]struct{}
 
 	// permanent related properties
 	permanent      bool
@@ -251,6 +256,7 @@ func newDefaultServer(
 		hostsDNSHolder:    newHostsDNSHolder(),
 		hostManager:       &noopHostConfigurator{},
 		mgmtCacheResolver: mgmtCacheResolver,
+		mgmtPoolRoots:     make(map[domain.Domain]struct{}),
 		currentConfigHash: ^uint64(0), // Initialize to max uint64 to ensure first config is always applied
 	}
 
@@ -645,6 +651,39 @@ func (s *DefaultServer) UpdateServerConfig(domains dnsconfig.ServerDomains) erro
 		}
 		if len(exactDomains) > 0 {
 			s.registerHandler(exactDomains.ToPunycodeList(), s.mgmtCacheResolver, PriorityMgmtCache)
+		}
+
+		// Reconcile extraDomains with the current pool-root set. Pool
+		// roots registered here are *match* domains for the host DNS
+		// manager (systemd-resolved, NetworkManager, etc.), so that
+		// instance subdomain queries like streamline-* are delegated to
+		// the wt0 link where the daemon's DNS listener sits. Without
+		// this, systemd-resolved answers them from the host's global
+		// upstream, skipping our handler chain entirely.
+		//
+		// Use a dedicated tracking map so that increments/decrements
+		// here don't collide with RegisterHandler's refcounting.
+		newPoolRoots := make(map[domain.Domain]struct{}, len(poolRoots))
+		for _, d := range poolRoots {
+			zone := toZone(d)
+			newPoolRoots[zone] = struct{}{}
+			if _, already := s.mgmtPoolRoots[zone]; !already {
+				s.extraDomains[zone]++
+			}
+		}
+		for zone := range s.mgmtPoolRoots {
+			if _, keep := newPoolRoots[zone]; keep {
+				continue
+			}
+			s.extraDomains[zone]--
+			if s.extraDomains[zone] <= 0 {
+				delete(s.extraDomains, zone)
+			}
+		}
+		s.mgmtPoolRoots = newPoolRoots
+
+		if !s.batchMode {
+			s.applyHostConfig()
 		}
 	}
 
