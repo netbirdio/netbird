@@ -202,15 +202,24 @@ func (m *Resolver) MatchSubdomains() bool {
 // e.g. "streamline-de-fra1-0.relay.netbird.io." is under "relay.netbird.io".
 // The pool-root itself is not considered a subdomain (it matches the exact
 // cache entry populated by AddDomain instead).
+//
+// Canonicalization mirrors server.toZone — lowercase, strip trailing dot,
+// and strip a leading "*." wildcard (via canonicalizePoolDomain) — so the
+// membership check is consistent with the handler-chain registration that
+// runs the same set through toZone. toZone itself lives in the parent dns
+// package and cannot be imported from here without a cycle.
 func (m *Resolver) isUnderPoolRoot(fqdn string) bool {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 	if m.serverDomains == nil {
 		return false
 	}
-	fqdn = strings.ToLower(strings.TrimSuffix(fqdn, "."))
+	fqdn = canonicalizePoolDomain(fqdn)
+	if fqdn == "" {
+		return false
+	}
 	for _, root := range m.serverDomains.Relay {
-		r := strings.ToLower(strings.TrimSuffix(root.PunycodeString(), "."))
+		r := canonicalizePoolDomain(root.PunycodeString())
 		if r == "" || fqdn == r {
 			continue
 		}
@@ -219,6 +228,17 @@ func (m *Resolver) isUnderPoolRoot(fqdn string) bool {
 		}
 	}
 	return false
+}
+
+// canonicalizePoolDomain normalizes a domain for pool-root membership
+// comparison: lowercase, trailing dot stripped, leading "*." wildcard
+// stripped. Matches the transformation server.toZone applies on the
+// handler-registration side (modulo trailing-dot orientation, which is
+// self-consistent within this file).
+func canonicalizePoolDomain(s string) string {
+	s = strings.ToLower(strings.TrimSuffix(s, "."))
+	s = strings.TrimPrefix(s, "*.")
+	return s
 }
 
 // resolveOnDemand resolves an uncached pool-root subdomain (e.g. a relay
