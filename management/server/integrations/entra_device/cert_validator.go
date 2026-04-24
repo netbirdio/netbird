@@ -115,7 +115,11 @@ func (v *CertValidator) Validate(certChainB64 []string, nonce []byte, signatureB
 			"nonce signature did not verify against leaf public key", err)
 	}
 
-	id, _ := extractDeviceID(leaf)
+	id, ok := extractDeviceID(leaf)
+	if !ok {
+		return nil, NewError(CodeInvalidCertChain,
+			"leaf certificate subject CN is empty; cannot derive Entra device ID", nil)
+	}
 	return &DeviceIdentity{
 		EntraDeviceID:  id,
 		CertThumbprint: fingerprintSHA1(leaf),

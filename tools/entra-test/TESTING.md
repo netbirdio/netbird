@@ -34,9 +34,8 @@ This will:
 1. Start Postgres and wait for it to be healthy.
 2. Build `netbird-mgmt` from the feature branch source (multi-stage Dockerfile
    at `management/Dockerfile.entra-test`).
-3. Start the management server with:
-   - gRPC on `localhost:33073`
-   - HTTP (admin API + `/join/entra/*`) on `localhost:33081`
+3. Start the management server with gRPC **and** HTTP (admin API +
+   `/join/entra/*`) cmux-multiplexed on `localhost:33073`.
 
 On first boot the management server runs `AutoMigrate` for the two new
 tables:
@@ -81,7 +80,7 @@ either:
 Once you can hit the admin API, create the integration:
 
 ```bash path=null start=null
-curl -sS -X POST http://localhost:33081/api/integrations/entra-device-auth \
+curl -sS -X POST http://localhost:33073/api/integrations/entra-device-auth \
   -H "Authorization: Bearer $NB_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -99,7 +98,7 @@ or more NetBird auto-group IDs (look them up via the Entra portal and the
 NetBird `/api/groups` endpoint respectively):
 
 ```bash path=null start=null
-curl -sS -X POST http://localhost:33081/api/integrations/entra-device-auth/mappings \
+curl -sS -X POST http://localhost:33073/api/integrations/entra-device-auth/mappings \
   -H "Authorization: Bearer $NB_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -136,7 +135,7 @@ Run an enrolment:
 
 ```bash path=null start=null
 ./tools/entra-test/enroll-tester \
-  --url       http://localhost:33081 \
+  --url       http://localhost:33073 \
   --tenant    YOUR-TENANT-GUID \
   --device-id 11111111-2222-3333-4444-555555555555 \
   -v
@@ -206,7 +205,7 @@ Until then, use this test harness for server-side verification.
   `feature/entra-device-auth`.
 - **`docker compose build` takes forever**: the first build downloads the
   entire module graph (~1.2 GB). Subsequent builds are cached.
-- **`connection refused` on port 33081**: the management server may still be
+- **`connection refused` on port 33073**: the management server may still be
   waiting on Postgres. `docker compose logs management` to inspect.
 - **`integration_not_found` despite having created the integration**: check
   that the `tenant_id` in the `EntraDeviceAuth` row exactly matches what you

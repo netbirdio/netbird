@@ -85,6 +85,8 @@ func (f *fakeEnroller) EnrollEntraDevicePeer(_ context.Context, in ed.EnrollPeer
 	}, nil
 }
 
+func (f *fakeEnroller) DeletePeer(context.Context, string, string) error { return nil }
+
 // -------------------- tests --------------------
 
 func TestHandler_Challenge_ReturnsNonceAndExpiry(t *testing.T) {

@@ -38,9 +38,14 @@ type Wiring struct {
 	// actually create peers after resolving the mapping.
 	PeerEnroller ed.PeerEnroller
 
-	// Permissions is the existing permissions manager. Optional; if nil the
-	// admin endpoints will permit any authenticated user — unsafe in prod.
+	// Permissions is the existing permissions manager. Required unless
+	// InsecureAllowAllForTests is set.
 	Permissions permissions.Manager
+
+	// InsecureAllowAllForTests, when true, substitutes a permit-all checker
+	// for the admin CRUD surface. Meant ONLY for unit tests and the
+	// in-process demo harness — MUST NOT be set in production wiring.
+	InsecureAllowAllForTests bool
 }
 
 // Install wires both the enrolment (/join/entra) and admin (/api/integrations/entra-device-auth)
@@ -58,6 +63,9 @@ func Install(w Wiring) (*ed.Manager, error) {
 	}
 	if w.PeerEnroller == nil {
 		return nil, fmt.Errorf("entra_device_auth.Install: PeerEnroller is nil")
+	}
+	if w.Permissions == nil && !w.InsecureAllowAllForTests {
+		return nil, fmt.Errorf("entra_device_auth.Install: Permissions is nil; refusing to expose admin endpoints without authorization (set InsecureAllowAllForTests for unit tests only)")
 	}
 
 	store, err := ed.NewSQLStore(w.DB.GetDB())
@@ -78,7 +86,7 @@ func Install(w Wiring) (*ed.Manager, error) {
 	adminHandler := &Handler{
 		Store:       store,
 		ResolveAuth: resolveUserAuthFromRequest,
-		Permit:      buildPermissionChecker(w.Permissions),
+		Permit:      buildPermissionChecker(w.Permissions, w.InsecureAllowAllForTests),
 	}
 	adminHandler.Register(w.AdminRouter)
 
@@ -96,10 +104,18 @@ func resolveUserAuthFromRequest(r *http.Request) (string, string, error) {
 }
 
 // buildPermissionChecker adapts the generic permissions manager interface to
-// the handler's PermissionChecker signature. If the manager is nil, returns a
-// checker that always permits (intended for tests / initial bring-up only).
-func buildPermissionChecker(pm permissions.Manager) PermissionChecker {
+// the handler's PermissionChecker signature. The permit-all branch is only
+// reachable when InsecureAllowAllForTests is explicitly set by the caller;
+// Install() otherwise refuses to proceed when pm is nil.
+func buildPermissionChecker(pm permissions.Manager, insecureAllowAll bool) PermissionChecker {
 	if pm == nil {
+		if !insecureAllowAll {
+			// Should be unreachable because Install() guards against this,
+			// but return a fail-closed checker defensively.
+			return func(context.Context, string, string, string) (bool, error) {
+				return false, nil
+			}
+		}
 		return func(context.Context, string, string, string) (bool, error) {
 			return true, nil
 		}

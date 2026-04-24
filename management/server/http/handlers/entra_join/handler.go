@@ -6,8 +6,11 @@ package entra_join
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
+	"net"
 	"net/http"
+	"strings"
 
 	"github.com/gorilla/mux"
 
@@ -17,6 +20,13 @@ import (
 // Handler serves the /join/entra/* routes.
 type Handler struct {
 	Manager *ed.Manager
+
+	// TrustForwardedHeaders enables reading X-Forwarded-For / X-Real-IP from
+	// inbound requests. Should ONLY be enabled when the management server
+	// sits behind a known-good reverse proxy that strips client-supplied
+	// instances of these headers; otherwise callers can dictate the source
+	// IP persisted on the peer (the /join/entra path is unauthenticated).
+	TrustForwardedHeaders bool
 }
 
 // NewHandler constructs a handler using the given manager.
@@ -43,8 +53,16 @@ func (h *Handler) challenge(w http.ResponseWriter, r *http.Request) {
 
 // enroll runs the full Entra enrolment flow.
 func (h *Handler) enroll(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, 512*1024))
+	const maxBody = 512 * 1024
+	r.Body = http.MaxBytesReader(w, r.Body, maxBody)
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			writeErrorMsg(w, http.StatusRequestEntityTooLarge, "payload_too_large",
+				"request body exceeds 512 KiB")
+			return
+		}
 		writeErrorMsg(w, http.StatusBadRequest, "io_error", "could not read request body")
 		return
 	}
@@ -56,7 +74,7 @@ func (h *Handler) enroll(w http.ResponseWriter, r *http.Request) {
 	}
 	// Server-derived real IP trumps what the client claims.
 	if req.ConnectionIP == "" {
-		req.ConnectionIP = realIP(r)
+		req.ConnectionIP = h.realIP(r)
 	}
 
 	resp, err := h.Manager.Enroll(r.Context(), &req)
@@ -98,14 +116,27 @@ type errorPayload struct {
 	Message string `json:"message"`
 }
 
-// realIP returns the remote IP, preferring X-Forwarded-For if present (common
-// behind an ingress controller).
-func realIP(r *http.Request) string {
-	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-		return fwd
+// realIP returns the remote IP. X-Forwarded-For / X-Real-IP are only consulted
+// when h.TrustForwardedHeaders is set, because /join/entra is unauthenticated
+// and any caller can otherwise dictate the source IP persisted on the peer.
+// RemoteAddr is stripped of its port so the returned value is a parseable
+// IP-only string.
+func (h *Handler) realIP(r *http.Request) string {
+	if h.TrustForwardedHeaders {
+		if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+			// XFF is a comma-separated list — the left-most entry is the
+			// originally contacted client.
+			if i := strings.Index(fwd, ","); i >= 0 {
+				fwd = fwd[:i]
+			}
+			return strings.TrimSpace(fwd)
+		}
+		if rip := r.Header.Get("X-Real-IP"); rip != "" {
+			return strings.TrimSpace(rip)
+		}
 	}
-	if rip := r.Header.Get("X-Real-IP"); rip != "" {
-		return rip
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
 	}
 	return r.RemoteAddr
 }

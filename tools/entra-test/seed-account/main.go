@@ -15,6 +15,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -41,9 +42,24 @@ func main() {
 		die("open postgres: %v", err)
 	}
 
-	// Build a proper Account using netbird's type constructors so the
-	// JSON-encoded network_net / IPNet field is formatted correctly.
-	network := types.NewNetwork()
+	// Preserve the account's existing /16 when re-seeding — types.NewNetwork
+	// picks a random subnet, and overwriting it would orphan any peers
+	// already allocated from the old one.
+	var existing types.Account
+	lookupErr := db.First(&existing, "id = ?", *accountID).Error
+	var network *types.Network
+	switch {
+	case lookupErr == nil && existing.Network != nil:
+		network = existing.Network
+		fmt.Printf("  [=] account %q already exists; reusing network %s\n", *accountID, network.Net.String())
+	case lookupErr == nil:
+		// Row exists but has no Network; assign a fresh one.
+		network = types.NewNetwork()
+	case errors.Is(lookupErr, gorm.ErrRecordNotFound):
+		network = types.NewNetwork()
+	default:
+		die("lookup account %q: %v", *accountID, lookupErr)
+	}
 	acct := &types.Account{
 		Id:        *accountID,
 		CreatedAt: time.Now().UTC(),

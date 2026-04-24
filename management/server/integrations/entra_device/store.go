@@ -2,6 +2,7 @@ package entra_device
 
 import (
 	"context"
+	"sync"
 
 	"github.com/netbirdio/netbird/management/server/types"
 )
@@ -29,12 +30,14 @@ type Store interface {
 }
 
 // MemoryStore is an in-memory Store implementation used by tests and by the
-// initial admin bring-up when the SQL wiring isn't yet in place. It is goroutine-
-// safe.
+// initial admin bring-up when the SQL wiring isn't yet in place. It is
+// goroutine-safe: every receiver takes m.mu to serialise access to the
+// underlying maps.
 //
 // Production deployments MUST swap this for the SQL-backed implementation in
 // management/server/store — see the README for the wiring path.
 type MemoryStore struct {
+	mu       sync.Mutex
 	auths    map[string]*types.EntraDeviceAuth              // keyed by accountID
 	byTenant map[string]*types.EntraDeviceAuth              // keyed by tenantID
 	mappings map[string]map[string]*types.EntraDeviceAuthMapping
@@ -54,6 +57,8 @@ func NewMemoryStore() *MemoryStore {
 // --- integration ---
 
 func (m *MemoryStore) GetEntraDeviceAuth(_ context.Context, accountID string) (*types.EntraDeviceAuth, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if a, ok := m.auths[accountID]; ok {
 		return a, nil
 	}
@@ -61,6 +66,8 @@ func (m *MemoryStore) GetEntraDeviceAuth(_ context.Context, accountID string) (*
 }
 
 func (m *MemoryStore) GetEntraDeviceAuthByTenant(_ context.Context, tenantID string) (*types.EntraDeviceAuth, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if a, ok := m.byTenant[tenantID]; ok {
 		return a, nil
 	}
@@ -68,6 +75,8 @@ func (m *MemoryStore) GetEntraDeviceAuthByTenant(_ context.Context, tenantID str
 }
 
 func (m *MemoryStore) SaveEntraDeviceAuth(_ context.Context, auth *types.EntraDeviceAuth) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.auths[auth.AccountID] = auth
 	if auth.TenantID != "" {
 		m.byTenant[auth.TenantID] = auth
@@ -76,6 +85,8 @@ func (m *MemoryStore) SaveEntraDeviceAuth(_ context.Context, auth *types.EntraDe
 }
 
 func (m *MemoryStore) DeleteEntraDeviceAuth(_ context.Context, accountID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if a, ok := m.auths[accountID]; ok {
 		delete(m.byTenant, a.TenantID)
 	}
@@ -87,6 +98,8 @@ func (m *MemoryStore) DeleteEntraDeviceAuth(_ context.Context, accountID string)
 // --- mappings ---
 
 func (m *MemoryStore) ListEntraDeviceMappings(_ context.Context, accountID string) ([]*types.EntraDeviceAuthMapping, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	inner := m.mappings[accountID]
 	out := make([]*types.EntraDeviceAuthMapping, 0, len(inner))
 	for _, v := range inner {
@@ -96,6 +109,8 @@ func (m *MemoryStore) ListEntraDeviceMappings(_ context.Context, accountID strin
 }
 
 func (m *MemoryStore) GetEntraDeviceMapping(_ context.Context, accountID, mappingID string) (*types.EntraDeviceAuthMapping, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if inner, ok := m.mappings[accountID]; ok {
 		if mp, ok := inner[mappingID]; ok {
 			return mp, nil
@@ -105,6 +120,8 @@ func (m *MemoryStore) GetEntraDeviceMapping(_ context.Context, accountID, mappin
 }
 
 func (m *MemoryStore) SaveEntraDeviceMapping(_ context.Context, mapping *types.EntraDeviceAuthMapping) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	inner := m.mappings[mapping.AccountID]
 	if inner == nil {
 		inner = map[string]*types.EntraDeviceAuthMapping{}
@@ -115,6 +132,8 @@ func (m *MemoryStore) SaveEntraDeviceMapping(_ context.Context, mapping *types.E
 }
 
 func (m *MemoryStore) DeleteEntraDeviceMapping(_ context.Context, accountID, mappingID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if inner, ok := m.mappings[accountID]; ok {
 		delete(inner, mappingID)
 	}
@@ -124,11 +143,19 @@ func (m *MemoryStore) DeleteEntraDeviceMapping(_ context.Context, accountID, map
 // --- bootstrap tokens ---
 
 func (m *MemoryStore) StoreBootstrapToken(_ context.Context, peerID, token string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.tokens[peerID] = token
 	return nil
 }
 
+// ConsumeBootstrapToken honours single-use by validating + deleting atomically
+// under the mutex. The entry is ONLY deleted on a successful match so a caller
+// with a wrong token cannot DoS an in-flight enrolment by burning the real
+// client's cached token.
 func (m *MemoryStore) ConsumeBootstrapToken(_ context.Context, peerID, token string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	got, ok := m.tokens[peerID]
 	if !ok || got != token {
 		return false, nil

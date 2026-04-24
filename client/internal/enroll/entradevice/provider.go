@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"strings"
 
 	pkcs12 "software.sslmate.com/src/go-pkcs12"
 )
@@ -98,9 +99,13 @@ func (p *PFXProvider) CertChainDER() ([][]byte, error) {
 	return out, nil
 }
 
-// DeviceID implements CertProvider by returning the leaf Subject CN.
+// DeviceID implements CertProvider by returning the leaf Subject CN,
+// normalized the same way the server's extractDeviceID does (trim whitespace,
+// strip a leading "CN=" prefix) so the cross-check between the client-
+// supplied device id and the server-extracted one is consistent.
 func (p *PFXProvider) DeviceID() (string, error) {
-	cn := p.leaf.Subject.CommonName
+	cn := strings.TrimSpace(p.leaf.Subject.CommonName)
+	cn = strings.TrimPrefix(cn, "CN=")
 	if cn == "" {
 		return "", fmt.Errorf("leaf certificate has no Subject CommonName")
 	}

@@ -155,6 +155,9 @@ func (s *SQLStore) StoreBootstrapToken(_ context.Context, peerID, token string) 
 
 // ConsumeBootstrapToken returns (true, nil) on success, (false, nil) if the
 // token doesn't match or has expired. Tokens are consumed exactly once.
+//
+// Important: we validate BEFORE deleting so a caller who supplies a wrong
+// token cannot evict (DoS) the real client's still-valid entry.
 func (s *SQLStore) ConsumeBootstrapToken(_ context.Context, peerID, token string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -162,10 +165,11 @@ func (s *SQLStore) ConsumeBootstrapToken(_ context.Context, peerID, token string
 	if !ok {
 		return false, nil
 	}
-	delete(s.tokens, peerID)
 	if entry.token != token {
 		return false, nil
 	}
+	// Token matched — consume it exactly once regardless of expiry outcome.
+	delete(s.tokens, peerID)
 	if time.Now().UTC().After(entry.expiresAt) {
 		return false, nil
 	}

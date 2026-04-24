@@ -61,10 +61,12 @@ func (f *fakeGraph) IsCompliant(_ context.Context, _ string) (bool, error) {
 // received so the test can assert the mapping-resolution output was correctly
 // forwarded to the peer-registration plumbing.
 type recordingEnroller struct {
-	mu     sync.Mutex
-	calls  []EnrollPeerInput
-	err    error
-	result *EnrollPeerResult
+	mu          sync.Mutex
+	calls       []EnrollPeerInput
+	err         error
+	result      *EnrollPeerResult
+	deleteCalls int
+	deleteErr   error
 }
 
 func (r *recordingEnroller) EnrollEntraDevicePeer(_ context.Context, in EnrollPeerInput) (*EnrollPeerResult, error) {
@@ -86,6 +88,15 @@ func (r *recordingEnroller) lastCall(t *testing.T) EnrollPeerInput {
 	defer r.mu.Unlock()
 	require.Len(t, r.calls, 1, "expected exactly one EnrollEntraDevicePeer call")
 	return r.calls[0]
+}
+
+// DeletePeer is the compensation hook; tests record the call count so they can
+// assert on orphan-peer cleanup if needed.
+func (r *recordingEnroller) DeletePeer(_ context.Context, _, _ string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.deleteCalls++
+	return r.deleteErr
 }
 
 // -------------------- helpers --------------------

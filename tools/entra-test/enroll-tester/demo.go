@@ -87,3 +87,5 @@ func (demoPeerEnroller) EnrollEntraDevicePeer(_ context.Context, in ed.EnrollPee
 		},
 	}, nil
 }
+
+func (demoPeerEnroller) DeletePeer(context.Context, string, string) error { return nil }

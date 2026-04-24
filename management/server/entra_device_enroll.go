@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"strings"
 	"time"
 
 	"github.com/rs/xid"
@@ -202,6 +201,31 @@ func (e *entraDevicePeerEnroller) EnrollEntraDevicePeer(ctx context.Context, in 
 	return e.am.EnrollEntraDevicePeer(ctx, in)
 }
 
+// DeletePeer is a compensation hook invoked by the entra_device.Manager when
+// a post-peer-creation step (currently bootstrap-token issuance) fails and
+// would otherwise leave an orphan peer blocking re-enrolment. It is a no-op
+// if the peer has already been deleted.
+func (e *entraDevicePeerEnroller) DeletePeer(ctx context.Context, accountID, peerID string) error {
+	if accountID == "" || peerID == "" {
+		return nil
+	}
+	settings, err := e.am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return fmt.Errorf("get account settings for entra compensation: %w", err)
+	}
+	return e.am.Store.ExecuteInTransaction(ctx, func(tx store.Store) error {
+		peer, err := tx.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
+		if err != nil {
+			// Peer already gone is not an error; we're compensating.
+			return nil //nolint:nilerr // quiet on "already gone"
+		}
+		if _, err := deletePeers(ctx, e.am, tx, accountID, "entra-enroll-compensation", []*nbpeer.Peer{peer}, settings); err != nil {
+			return fmt.Errorf("delete orphan entra peer %s: %w", peerID, err)
+		}
+		return tx.IncrementNetworkSerial(ctx, accountID)
+	})
+}
+
 // --- helpers ---
 
 func parseIP(s string) net.IP {
@@ -211,9 +235,10 @@ func parseIP(s string) net.IP {
 	if ip := net.ParseIP(s); ip != nil {
 		return ip
 	}
-	// strip :port if the client provided a remote-addr
-	if i := strings.LastIndex(s, ":"); i > 0 {
-		return net.ParseIP(s[:i])
+	// Try host:port / [host]:port forms (the latter is what Go emits for IPv6
+	// remote addresses in r.RemoteAddr).
+	if host, _, err := net.SplitHostPort(s); err == nil {
+		return net.ParseIP(host)
 	}
 	return nil
 }

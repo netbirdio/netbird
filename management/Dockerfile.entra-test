@@ -47,10 +47,12 @@ COPY --from=builder /out/netbird-mgmt /usr/local/bin/netbird-mgmt
 # /api surface and /join/entra/* both live on :33073 alongside gRPC.
 EXPOSE 33073
 
-# Health check probes the challenge endpoint: if it can issue a nonce, the
-# management HTTP surface is alive.
+# Health check is a cheap stateless TCP probe against the cmux-multiplexed
+# management port. Using /join/entra/challenge here would either (a) return
+# 404 when no integration is configured and mark the container unhealthy, or
+# (b) burn ~2880 single-use nonces/day in the in-memory store.
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-  CMD curl -fsS http://localhost:33073/join/entra/challenge >/dev/null || exit 1
+  CMD bash -c '</dev/tcp/localhost/33073' || exit 1
 
 ENTRYPOINT ["/usr/local/bin/netbird-mgmt", "management"]
 CMD ["--log-file", "console", "--log-level", "info"]

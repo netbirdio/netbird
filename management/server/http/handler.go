@@ -91,15 +91,10 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 	if err := bypass.AddBypassPath("/api/users/invites/nbi_*/accept"); err != nil {
 		return nil, fmt.Errorf("failed to add bypass path: %w", err)
 	}
-	// Entra device enrolment endpoints live on /join/entra and authenticate
-	// via the device's Entra certificate, so they must bypass the regular
-	// user-auth middleware.
-	if err := bypass.AddBypassPath("/join/entra/challenge"); err != nil {
-		return nil, fmt.Errorf("failed to add bypass path: %w", err)
-	}
-	if err := bypass.AddBypassPath("/join/entra/enroll"); err != nil {
-		return nil, fmt.Errorf("failed to add bypass path: %w", err)
-	}
+	// Entra device enrolment endpoints live on /join/entra directly on the
+	// root router — the authMiddleware is only applied to the /api
+	// subrouter, so these paths never flow through it and do not require a
+	// bypass registration.
 	// OAuth callback for proxy authentication
 	if err := bypass.AddBypassPath(types.ProxyCallbackEndpointFull); err != nil {
 		return nil, fmt.Errorf("failed to add bypass path: %w", err)
@@ -217,14 +212,14 @@ func installEntraDeviceAuth(
 ) {
 	dbProvider, ok := accountManager.GetStore().(entra_device_auth.DBProvider)
 	if !ok {
-		log.WithContext(ctx).Warnf("Entra device auth: store does not expose *gorm.DB; skipping install")
+		log.WithContext(ctx).Errorf("Entra device auth: store %T does not implement entra_device_auth.DBProvider; admin endpoints and /join/entra will be unavailable", accountManager.GetStore())
 		return
 	}
 	enrollerProvider, ok := accountManager.(interface {
 		AsEntraDevicePeerEnroller() entra_device.PeerEnroller
 	})
 	if !ok {
-		log.WithContext(ctx).Warnf("Entra device auth: account manager does not implement AsEntraDevicePeerEnroller; skipping install")
+		log.WithContext(ctx).Errorf("Entra device auth: account manager %T does not implement AsEntraDevicePeerEnroller; admin endpoints and /join/entra will be unavailable", accountManager)
 		return
 	}
 	if _, err := entra_device_auth.Install(entra_device_auth.Wiring{

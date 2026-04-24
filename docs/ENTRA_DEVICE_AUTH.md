@@ -269,8 +269,8 @@ the race window between enrolment and first Sync.
 
 ## Architecture
 
-```
-                      ┌─────────────────────────────────────┐
+```text
+                      ┌───────────────────────────────────┐
                       │  Device (Entra-joined)              │
                       │                                     │
                       │  Entra device cert (TPM-protected)  │
@@ -321,17 +321,20 @@ Relevant Go packages:
   production. See the "Open design decisions" in the plan document.
 
 ## Live-tenant verification results
+
 Run on `2026-04-24` against a real Entra tenant (`5a7a81b2-…-76c26`) using the
 Docker test harness + the synthetic `enroll-tester` tool. The following
 scenarios were all executed end-to-end through Microsoft Graph:
-| Scenario                                     | Configuration                               | Input                       | Expected result          | Actual   |
-|----------------------------------------------|---------------------------------------------|-----------------------------|--------------------------|----------|
-| Happy path — wildcard mapping                | `mapping_resolution: strict_priority`       | real device, compliance off | success, peer created    | ✅       |
-| Happy path — specific Entra group mapping     | mapping scoped to real Entra group id       | same real device            | success, peer created    | ✅       |
-| Device not in mapped Entra group             | mapping scoped to non-matching group        | real device                 | `403 no_mapping_matched` | ✅       |
-| Device absent from Entra                     | wildcard mapping                            | bogus device GUID           | `403 device_disabled`    | ✅       |
-| Compliance on, compliant device              | `require_intune_compliant: true`            | compliant device id         | success, peer created    | ✅       |
-| Compliance on, non-compliant device          | `require_intune_compliant: true`            | non-compliant device id     | `403 device_not_compliant` | ✅     |
+
+| Scenario                                 | Configuration                         | Input                       | Expected result            | Actual |
+|------------------------------------------|---------------------------------------|-----------------------------|----------------------------|--------|
+| Happy path — wildcard mapping            | `mapping_resolution: strict_priority` | real device, compliance off | success, peer created      | ✅     |
+| Happy path — specific Entra group mapping | mapping scoped to real Entra group id | same real device            | success, peer created      | ✅     |
+| Device not in mapped Entra group         | mapping scoped to non-matching group  | real device                 | `403 no_mapping_matched`   | ✅     |
+| Device absent from Entra                 | wildcard mapping                      | bogus device GUID           | `403 device_disabled`      | ✅     |
+| Compliance on, compliant device          | `require_intune_compliant: true`      | compliant device id         | success, peer created      | ✅     |
+| Compliance on, non-compliant device      | `require_intune_compliant: true`      | non-compliant device id     | `403 device_not_compliant` | ✅     |
+
 Observations from the runs:
 - Every reject path is atomic — zero rows written to `peers` / `group_peers`
   on any 4xx/5xx outcome.
@@ -343,8 +346,32 @@ Observations from the runs:
   is rejected even if it is a member of a mapped Entra group.
 - The happy-path response includes the resolved auto-groups, matched mapping
   IDs, and a 64-hex bootstrap token valid for 5 minutes.
-The server side is considered production-quality at this point; the remaining
-work is all client-side (Phase 2) and dashboard (Phase 4).
+The server side is considered production-quality at this point modulo the
+"Known production gaps" below; the remaining work is all client-side
+(Phase 2) and dashboard (Phase 4).
+
+## Known production gaps
+
+These are tracked for follow-up and should be addressed before exposing the
+integration to a real tenant:
+
+- **`ClientSecret` is stored plaintext** in `entra_device_auth.client_secret`.
+  Rotate the column to the existing encrypted-column pattern before shipping
+  so a DB dump / backup / replica does not leak Graph app-only credentials
+  (`Device.Read.All`, `GroupMember.Read.All`,
+  `DeviceManagementManagedDevices.Read.All`).
+- **Bootstrap tokens are in-memory only.** `SQLStore` keeps them in a
+  process-local map, so (a) a restart between enrol and first gRPC Login
+  invalidates the pending bootstrap, and (b) multi-instance HA management
+  deployments will reject the Login if it lands on a different node than the
+  one that handled /enroll. Persist (hashed) into the main DB with an
+  `expires_at` column + periodic GC before multi-node use.
+- **`CertValidator.TrustRoots` is nil by default**, which makes chain
+  verification a no-op. Production wiring must set
+  `manager.Cert.TrustRoots` to the Entra device auth CA set. This is
+  currently the operator's responsibility and is NOT enforced at
+  construction time.
+
 ## Current implementation status
 
 | Area                           | Status                                                   |

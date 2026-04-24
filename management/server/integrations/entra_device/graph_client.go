@@ -159,11 +159,16 @@ func (c *HTTPGraphClient) graphGET(ctx context.Context, path string, q url.Value
 	return resp.StatusCode, nil
 }
 
+// odataEscape escapes a string literal for an OData v4 filter expression.
+// Single quotes are the only character OData requires escaping inside a
+// single-quoted string (replace ' with '').
+func odataEscape(s string) string { return strings.ReplaceAll(s, "'", "''") }
+
 // Device implements GraphClient.
 func (c *HTTPGraphClient) Device(ctx context.Context, deviceID string) (*GraphDevice, error) {
 	q := url.Values{}
 	q.Set("$select", "id,deviceId,accountEnabled,displayName,operatingSystem,trustType,approximateLastSignInDateTime")
-	q.Set("$filter", fmt.Sprintf("deviceId eq '%s'", deviceID))
+	q.Set("$filter", fmt.Sprintf("deviceId eq '%s'", odataEscape(deviceID)))
 	var wrap struct {
 		Value []GraphDevice `json:"value"`
 	}
@@ -207,8 +212,11 @@ func (c *HTTPGraphClient) TransitiveMemberOf(ctx context.Context, entraObjectID 
 			path = strings.TrimPrefix(wrap.NextLink, c.baseURL())
 			q = nil
 		} else {
-			// Non-standard next link; bail out to avoid redirecting off-graph.
-			break
+			// Fail closed: a nextLink under a different host would either
+			// silently truncate the group list (over-scoping risk) or leak
+			// our bearer to an unintended host. Return an error so the caller
+			// doesn't enroll a device with half-enumerated groups.
+			return nil, fmt.Errorf("graph pagination nextLink host does not match base URL: nextLink=%q base=%q", wrap.NextLink, c.baseURL())
 		}
 	}
 	return groupIDs, nil
@@ -218,7 +226,7 @@ func (c *HTTPGraphClient) TransitiveMemberOf(ctx context.Context, entraObjectID 
 func (c *HTTPGraphClient) IsCompliant(ctx context.Context, deviceID string) (bool, error) {
 	q := url.Values{}
 	q.Set("$select", "id,complianceState,azureADDeviceId")
-	q.Set("$filter", fmt.Sprintf("azureADDeviceId eq '%s'", deviceID))
+	q.Set("$filter", fmt.Sprintf("azureADDeviceId eq '%s'", odataEscape(deviceID)))
 	var wrap struct {
 		Value []struct {
 			ComplianceState string `json:"complianceState"`

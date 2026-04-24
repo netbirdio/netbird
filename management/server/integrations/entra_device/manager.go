@@ -18,6 +18,10 @@ import (
 // avoids a hard dependency on the main AccountManager here.
 type PeerEnroller interface {
 	EnrollEntraDevicePeer(ctx context.Context, in EnrollPeerInput) (*EnrollPeerResult, error)
+	// DeletePeer best-effort-compensates a just-enrolled peer when a
+	// downstream step (e.g. bootstrap-token issuance) fails. Implementations
+	// should be idempotent and quiet on "already gone".
+	DeletePeer(ctx context.Context, accountID, peerID string) error
 }
 
 // EnrollPeerInput is the data the PeerEnroller needs to create the peer.
@@ -122,6 +126,14 @@ func (m *Manager) Enroll(ctx context.Context, req *EnrollRequest) (*EnrollRespon
 	}
 	token, err := m.issueBootstrapToken(ctx, result.PeerID)
 	if err != nil {
+		// Best-effort compensation: the peer has been created but the
+		// bootstrap token could not be persisted. Leaving the peer behind
+		// means the device is stuck (duplicate-pubkey on retry) until an
+		// admin deletes it, so delete it now and surface the original error.
+		if delErr := m.PeerEnroller.DeletePeer(ctx, auth.AccountID, result.PeerID); delErr != nil {
+			return nil, NewError(CodeInternal,
+				fmt.Sprintf("failed to issue bootstrap token; orphan-peer compensation also failed: %v", delErr), err)
+		}
 		return nil, err
 	}
 	return &EnrollResponse{
@@ -157,7 +169,12 @@ func (m *Manager) loadEnabledIntegration(ctx context.Context, tenantID string) (
 // consumeNonce atomically marks the supplied nonce as used and returns its
 // raw bytes (what the signer signed over).
 func (m *Manager) consumeNonce(encoded string) ([]byte, error) {
-	ok, err := m.NonceStore.Consume(strings.TrimSpace(encoded))
+	// Normalise once so Consume and decodeNonceBytes see the same value —
+	// otherwise a trailing newline would be accepted by Consume (which
+	// trims) and then fail base64 decode, burning the nonce with no way to
+	// retry.
+	encoded = strings.TrimSpace(encoded)
+	ok, err := m.NonceStore.Consume(encoded)
 	if err != nil {
 		return nil, NewError(CodeInternal, "nonce store error", err)
 	}
@@ -184,6 +201,13 @@ func (m *Manager) validateCertAndDeviceID(req *EnrollRequest, nonceBytes []byte)
 	identity, verr := m.Cert.Validate(req.CertChain, nonceBytes, req.NonceSignature)
 	if verr != nil {
 		return nil, verr
+	}
+	// Fail closed: cert_validator may surface an identity with an empty
+	// EntraDeviceID if CommonName was absent; reject here rather than
+	// letting an empty id flow into Graph + audit log.
+	if identity.EntraDeviceID == "" {
+		return nil, NewError(CodeInvalidCertChain,
+			"leaf certificate does not contain an Entra device id", nil)
 	}
 	if req.EntraDeviceID != "" && !strings.EqualFold(req.EntraDeviceID, identity.EntraDeviceID) {
 		return nil, NewError(CodeInvalidCertChain,
@@ -265,7 +289,12 @@ func (m *Manager) enrollPeer(ctx context.Context, auth *types.EntraDeviceAuth, i
 		ExtraDNSLabels:      req.ExtraDNSLabels,
 		ConnectionIP:        req.ConnectionIP,
 	}
-	if len(resolved.MatchedMappingIDs) > 0 {
+	// Under strict_priority the first matched mapping is the winning one
+	// and is meaningful on its own. Under union every matched mapping
+	// contributes auto_groups, so picking "the first" is arbitrary and
+	// misleading in audit metadata — leave the field empty and rely on
+	// MatchedMappingIDs for the full set.
+	if resolved.ResolutionMode == string(types.MappingResolutionStrictPriority) && len(resolved.MatchedMappingIDs) > 0 {
 		in.EntraDeviceMapping = resolved.MatchedMappingIDs[0]
 	}
 	result, err := m.PeerEnroller.EnrollEntraDevicePeer(ctx, in)
