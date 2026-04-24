@@ -110,12 +110,14 @@ func (s *Server) lookupPeerAuthFromCache(peerPubKey string, incomingMetaHash uin
 //   - the cached meta hash matches the incoming meta hash
 //   - the cached serial is non-zero (guard against uninitialised entries)
 //
-// recordFastPathSkip emits a skip log and bumps the slow-path sync counter
-// with a reason label. Used from every early-return site in tryFastPathSync
-// so the fast-path hit-rate histogram in Grafana breaks down the misses by
-// cause.
-func (s *Server) recordFastPathSkip(ctx context.Context, reason string) {
-	log.WithContext(ctx).Debugf("fast path: skipped (reason=%s)", reason)
+// recordFastPathSkip bumps the slow-path sync counter with a reason label.
+// Used from every early-return site in tryFastPathSync so Grafana can graph
+// fast-path misses by cause. No log is emitted here — a single
+// "Sync (fast path) skipped reason=<reason>" line is written by the Sync
+// handler in server.go once tryFastPathSync returns so a grep for
+// "Sync (fast path)" finds both the success and the skip outcomes in one
+// shot.
+func (s *Server) recordFastPathSkip(_ context.Context, reason string) {
 	if s.appMetrics != nil {
 		s.appMetrics.GRPCMetrics().CountSlowPathSync(reason)
 	}
@@ -249,7 +251,9 @@ func (s *Server) fetchExtraSettings(ctx context.Context, accountID string) (*nbt
 // SetupRefresh, handleUpdates) and the returned took value is true.
 //
 // When took is true the caller must return the accompanying err. When took is
-// false the caller falls through to the existing slow path.
+// false the caller falls through to the existing slow path and should log
+// "Sync (fast path) skipped reason=<skipReason>" so a single grep on
+// "Sync (fast path)" finds both the fast-path successes and misses.
 func (s *Server) tryFastPathSync(
 	ctx context.Context,
 	reqStart, syncStart time.Time,
@@ -260,18 +264,18 @@ func (s *Server) tryFastPathSync(
 	peerMetaHash uint64,
 	srv proto.ManagementService_SyncServer,
 	unlock *func(),
-) (took bool, err error) {
+) (took bool, skipReason string, err error) {
 	if s.peerSerialCache == nil {
 		s.recordFastPathSkip(ctx, "cache_disabled")
-		return false, nil
+		return false, "cache_disabled", nil
 	}
 	if !s.fastPathFlag.Enabled() {
 		s.recordFastPathSkip(ctx, "flag_off")
-		return false, nil
+		return false, "flag_off", nil
 	}
 	if strings.EqualFold(peerMeta.GoOS, "android") {
 		s.recordFastPathSkip(ctx, "android")
-		return false, nil
+		return false, "android", nil
 	}
 
 	networkStart := time.Now()
@@ -279,7 +283,7 @@ func (s *Server) tryFastPathSync(
 	if err != nil {
 		log.WithContext(ctx).Debugf("fast path: account network serial lookup error: %v", err)
 		s.recordFastPathSkip(ctx, "account_network_error")
-		return false, nil
+		return false, "account_network_error", nil
 	}
 	log.WithContext(ctx).Debugf("fast path: initial GetAccountNetworkSerial took %s", time.Since(networkStart))
 
@@ -288,7 +292,7 @@ func (s *Server) tryFastPathSync(
 	if reason := fastPathSkipReason(hit, cached, currentSerial, peerMetaHash); reason != "" {
 		log.WithContext(ctx).Debugf("fast path: eligibility check took %s", time.Since(eligibilityStart))
 		s.recordFastPathSkip(ctx, reason)
-		return false, nil
+		return false, reason, nil
 	}
 	log.WithContext(ctx).Debugf("fast path: eligibility check (hit) took %s", time.Since(eligibilityStart))
 
@@ -299,7 +303,7 @@ func (s *Server) tryFastPathSync(
 	peer, updates, committed := s.commitFastPath(ctx, accountID, peerKey, realIP, syncStart, cachedPeer)
 	if !committed {
 		s.recordFastPathSkip(ctx, "commit_failed")
-		return false, nil
+		return false, "commit_failed", nil
 	}
 
 	// Upgrade the cache only when we had to fetch the peer from the store
@@ -309,7 +313,7 @@ func (s *Server) tryFastPathSync(
 	// entry is already in the full shape, so there's nothing to upgrade.
 	upgradeCache := cachedPeer == nil
 
-	return true, s.runFastPathSync(ctx, reqStart, syncStart, accountID, peerKey, peer, updates, cached.Serial, peerMetaHash, upgradeCache, srv, unlock)
+	return true, "", s.runFastPathSync(ctx, reqStart, syncStart, accountID, peerKey, peer, updates, cached.Serial, peerMetaHash, upgradeCache, srv, unlock)
 }
 
 // commitFastPath subscribes the peer to network-map updates and marks it

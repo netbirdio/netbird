@@ -354,9 +354,11 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	metahash := metaHash(peerMeta, realIP.String())
 	s.loginFilter.addLogin(peerKey.String(), metahash)
 
-	if took, err := s.tryFastPathSync(ctx, reqStart, syncStart, accountID, peerKey, peerMeta, realIP, metahash, srv, &unlock); took {
+	took, skipReason, err := s.tryFastPathSync(ctx, reqStart, syncStart, accountID, peerKey, peerMeta, realIP, metahash, srv, &unlock)
+	if took {
 		return err
 	}
+	log.WithContext(ctx).Debugf("Sync (fast path) skipped reason=%s", skipReason)
 
 	peer, netMap, postureChecks, dnsFwdPort, err := s.accountManager.SyncAndMarkPeer(ctx, accountID, peerKey.String(), peerMeta, realIP, syncStart)
 	if err != nil {
