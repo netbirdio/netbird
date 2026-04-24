@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -232,16 +233,26 @@ func (m *Resolver) resolveOnDemand(w dns.ResponseWriter, r *dns.Msg, question dn
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), dnsTimeout)
-	defer cancel()
-
-	records, err := m.lookupRecords(ctx, d, question)
+	// Collapse concurrent on-demand lookups for the same (name, qtype) into
+	// a single upstream query via singleflight. A burst of parallel queries
+	// for a freshly-learned pool-root subdomain (e.g. multiple peer workers
+	// dialing the same foreign relay, or A + AAAA racing each other) would
+	// otherwise each hit the bypass resolver independently. The prefix
+	// namespaces this key off scheduleRefresh's keyspace so the two paths
+	// can coexist without collisions.
+	key := "ondemand:" + question.Name + ":" + strconv.Itoa(int(question.Qtype))
+	result, err, _ := m.refreshGroup.Do(key, func() (any, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), dnsTimeout)
+		defer cancel()
+		return m.lookupRecords(ctx, d, question)
+	})
 	if err != nil {
 		log.Debugf("on-demand resolve %s type=%s: %v",
 			d.SafeString(), dns.TypeToString[question.Qtype], err)
 		m.continueToNext(w, r)
 		return
 	}
+	records, _ := result.([]dns.RR)
 	if len(records) == 0 {
 		m.continueToNext(w, r)
 		return
