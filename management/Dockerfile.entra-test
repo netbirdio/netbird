@@ -43,13 +43,14 @@ RUN apt-get update && \
 
 COPY --from=builder /out/netbird-mgmt /usr/local/bin/netbird-mgmt
 
-# Listen on :33073 (gRPC) and :33081 (HTTP admin + /join/entra) by default.
-EXPOSE 33073 33081
+# Modern NetBird multiplexes gRPC + HTTP on one port via cmux. The admin
+# /api surface and /join/entra/* both live on :33073 alongside gRPC.
+EXPOSE 33073
 
 # Health check probes the challenge endpoint: if it can issue a nonce, the
 # management HTTP surface is alive.
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-  CMD curl -fsS http://localhost:33081/join/entra/challenge >/dev/null || exit 1
+  CMD curl -fsS http://localhost:33073/join/entra/challenge >/dev/null || exit 1
 
 ENTRYPOINT ["/usr/local/bin/netbird-mgmt", "management"]
 CMD ["--log-file", "console", "--log-level", "info"]

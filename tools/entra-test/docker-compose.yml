@@ -36,13 +36,15 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      # Point netbird-management at the local Postgres using the DSN the
-      # server reads from its config file below.
-      NETBIRD_STORE_ENGINE: postgres
+      # NetBird reads the store backend from these two env vars (or the
+      # StoreConfig block in management.json).
+      NB_STORE_ENGINE: postgres
+      NB_STORE_ENGINE_POSTGRES_DSN: "host=postgres user=netbird password=netbird dbname=netbird port=5432 sslmode=disable"
       NB_DEVEL: "true"
     ports:
+      # Modern NetBird multiplexes gRPC + HTTP on the same port via cmux.
+      # /join/entra/* and /api/* are served alongside gRPC on :33073.
       - "33073:33073"
-      - "33081:33081"
     volumes:
       - ./config:/etc/netbird:ro
       - mgmt-data:/var/lib/netbird
@@ -54,12 +56,11 @@ services:
       - "debug"
       - "--port"
       - "33073"
-      - "--mgmt-api-port"
-      - "33081"
       - "--config"
       - "/etc/netbird/management.json"
       - "--datadir"
       - "/var/lib/netbird"
+      - "--disable-anonymous-metrics"
 
 volumes:
   pg-data:

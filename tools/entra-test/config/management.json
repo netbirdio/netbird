@@ -34,7 +34,7 @@
   "DeviceAuthorizationFlow": {
     "Provider": "none"
   },
-  "DataStoreEncryptionKey": "thisisatestkeyforentradeviceauthtesting00=",
+  "DataStoreEncryptionKey": "kGUH8ntbWjNmWwLj0CSG5eNY5plBBDZGMAViw4igpsE=",
   "StoreConfig": {
     "Engine": "postgres"
   },
