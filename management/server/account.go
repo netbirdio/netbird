@@ -30,6 +30,7 @@ import (
 	"github.com/netbirdio/netbird/formatter/hook"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/internals/shared/fastpathcache"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
@@ -111,6 +112,11 @@ type DefaultAccountManager struct {
 	permissionsManager permissions.Manager
 
 	disableDefaultPolicy bool
+
+	// sharedCacheStore is retained so mutation paths can invalidate the
+	// Sync fast-path caches (ExtraSettings, peer-groups) without a circular
+	// dependency on the gRPC server package that owns the read-side wrappers.
+	sharedCacheStore cacheStore.StoreInterface
 }
 
 var _ account.Manager = (*DefaultAccountManager)(nil)
@@ -250,6 +256,7 @@ func BuildManager(
 
 	am.externalCacheManager = nbcache.NewUserDataCache(sharedCacheStore)
 	am.cacheManager = nbcache.NewAccountUserDataCache(am.loadAccount, sharedCacheStore)
+	am.sharedCacheStore = sharedCacheStore
 
 	if !isNil(am.idpManager) && !IsEmbeddedIdp(am.idpManager) {
 		go func() {
@@ -367,6 +374,9 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	extraSettingsChanged, err := am.settingsManager.UpdateExtraSettings(ctx, accountID, userID, newSettings.Extra)
 	if err != nil {
 		return nil, err
+	}
+	if extraSettingsChanged {
+		fastpathcache.InvalidateExtraSettings(ctx, am.sharedCacheStore, accountID)
 	}
 
 	am.handleRoutingPeerDNSResolutionSettings(ctx, oldSettings, newSettings, userID, accountID)

@@ -9,12 +9,13 @@ import (
 	"github.com/eko/gocache/lib/v4/store"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/management/internals/shared/fastpathcache"
 	nbtypes "github.com/netbirdio/netbird/management/server/types"
 )
 
 const (
-	extraSettingsCacheKeyPrefix = "extra-settings:"
-	peerGroupsCacheKeyPrefix    = "peer-groups:"
+	extraSettingsCacheKeyPrefix = fastpathcache.ExtraSettingsKeyPrefix
+	peerGroupsCacheKeyPrefix    = fastpathcache.PeerGroupsKeyPrefix
 
 	// DefaultExtraSettingsCacheTTL bounds how long a cached ExtraSettings
 	// blob survives. Settings rarely change; a ~30s window is cheap and

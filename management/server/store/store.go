@@ -188,6 +188,10 @@ type Store interface {
 	GetTakenIPs(ctx context.Context, lockStrength LockingStrength, accountId string) ([]net.IP, error)
 	IncrementNetworkSerial(ctx context.Context, accountId string) error
 	GetAccountNetwork(ctx context.Context, lockStrength LockingStrength, accountId string) (*types.Network, error)
+	// GetAccountNetworkSerial returns only the network.serial column; used by
+	// the Sync fast path to skip the full-row GetAccountNetwork read when all
+	// we need is the serial.
+	GetAccountNetworkSerial(ctx context.Context, lockStrength LockingStrength, accountId string) (uint64, error)
 
 	GetInstallationID() string
 	SaveInstallationID(ctx context.Context, ID string) error

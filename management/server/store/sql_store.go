@@ -2658,6 +2658,30 @@ func (s *SqlStore) GetAccountNetwork(ctx context.Context, lockStrength LockingSt
 	return accountNetwork.Network, nil
 }
 
+// GetAccountNetworkSerial returns only the network.serial column for an
+// account, avoiding the overhead of materialising the full Network struct
+// (which carries a JSON-serialised CIDR and other columns). Used by the Sync
+// fast path to check whether the peer's cached serial still matches without
+// paying the full-row read cost on contended DBs.
+func (s *SqlStore) GetAccountNetworkSerial(ctx context.Context, lockStrength LockingStrength, accountID string) (uint64, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var serial uint64
+	if err := tx.Model(&types.Account{}).
+		Select("network_serial").
+		Where(idQueryCondition, accountID).
+		Take(&serial).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, status.NewAccountNotFoundError(accountID)
+		}
+		return 0, status.Errorf(status.Internal, "issue getting network serial from store: %s", err)
+	}
+	return serial, nil
+}
+
 func (s *SqlStore) GetPeerByPeerPubKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (*nbpeer.Peer, error) {
 	tx := s.db
 	if lockStrength != LockingStrengthNone {

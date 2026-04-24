@@ -1032,6 +1032,21 @@ func (mr *MockStoreMockRecorder) GetAccountNetwork(ctx, lockStrength, accountId 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccountNetwork", reflect.TypeOf((*MockStore)(nil).GetAccountNetwork), ctx, lockStrength, accountId)
 }
 
+// GetAccountNetworkSerial mocks base method.
+func (m *MockStore) GetAccountNetworkSerial(ctx context.Context, lockStrength LockingStrength, accountId string) (uint64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAccountNetworkSerial", ctx, lockStrength, accountId)
+	ret0, _ := ret[0].(uint64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAccountNetworkSerial indicates an expected call of GetAccountNetworkSerial.
+func (mr *MockStoreMockRecorder) GetAccountNetworkSerial(ctx, lockStrength, accountId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccountNetworkSerial", reflect.TypeOf((*MockStore)(nil).GetAccountNetworkSerial), ctx, lockStrength, accountId)
+}
+
 // GetAccountNetworks mocks base method.
 func (m *MockStore) GetAccountNetworks(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types1.Network, error) {
 	m.ctrl.T.Helper()

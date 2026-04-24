@@ -109,6 +109,38 @@ func (s *Server) lookupPeerAuthFromCache(peerPubKey string, incomingMetaHash uin
 //   - the cached serial matches the current account serial
 //   - the cached meta hash matches the incoming meta hash
 //   - the cached serial is non-zero (guard against uninitialised entries)
+//
+// recordFastPathSkip emits a skip log and bumps the slow-path sync counter
+// with a reason label. Used from every early-return site in tryFastPathSync
+// so the fast-path hit-rate histogram in Grafana breaks down the misses by
+// cause.
+func (s *Server) recordFastPathSkip(ctx context.Context, reason string) {
+	log.WithContext(ctx).Debugf("fast path: skipped (reason=%s)", reason)
+	if s.appMetrics != nil {
+		s.appMetrics.GRPCMetrics().CountSlowPathSync(reason)
+	}
+}
+
+// fastPathSkipReason returns a short reason tag when the eligibility check
+// fails, or "" when the fast path should run. Mirrors shouldSkipNetworkMap's
+// logic but attributes each individual failure condition so callers can log
+// a histogram of fast-path misses.
+func fastPathSkipReason(hit bool, cached peerSyncEntry, currentSerial, incomingMetaHash uint64) string {
+	if !hit {
+		return "cache_miss"
+	}
+	if cached.Serial == 0 {
+		return "cached_serial_zero"
+	}
+	if cached.Serial != currentSerial {
+		return "serial_mismatch"
+	}
+	if cached.MetaHash != incomingMetaHash {
+		return "meta_mismatch"
+	}
+	return ""
+}
+
 func shouldSkipNetworkMap(goOS string, hit bool, cached peerSyncEntry, currentSerial, incomingMetaHash uint64) bool {
 	if strings.EqualFold(goOS, "android") {
 		return false
@@ -230,27 +262,32 @@ func (s *Server) tryFastPathSync(
 	unlock *func(),
 ) (took bool, err error) {
 	if s.peerSerialCache == nil {
+		s.recordFastPathSkip(ctx, "cache_disabled")
 		return false, nil
 	}
 	if !s.fastPathFlag.Enabled() {
+		s.recordFastPathSkip(ctx, "flag_off")
 		return false, nil
 	}
 	if strings.EqualFold(peerMeta.GoOS, "android") {
+		s.recordFastPathSkip(ctx, "android")
 		return false, nil
 	}
 
 	networkStart := time.Now()
-	network, err := s.accountManager.GetStore().GetAccountNetwork(ctx, store.LockingStrengthNone, accountID)
+	currentSerial, err := s.accountManager.GetStore().GetAccountNetworkSerial(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
-		log.WithContext(ctx).Debugf("fast path: lookup account network: %v", err)
+		log.WithContext(ctx).Debugf("fast path: account network serial lookup error: %v", err)
+		s.recordFastPathSkip(ctx, "account_network_error")
 		return false, nil
 	}
-	log.WithContext(ctx).Debugf("fast path: initial GetAccountNetwork took %s", time.Since(networkStart))
+	log.WithContext(ctx).Debugf("fast path: initial GetAccountNetworkSerial took %s", time.Since(networkStart))
 
 	eligibilityStart := time.Now()
 	cached, hit := s.peerSerialCache.Get(peerKey.String())
-	if !shouldSkipNetworkMap(peerMeta.GoOS, hit, cached, network.CurrentSerial(), peerMetaHash) {
-		log.WithContext(ctx).Debugf("fast path: eligibility check (miss) took %s", time.Since(eligibilityStart))
+	if reason := fastPathSkipReason(hit, cached, currentSerial, peerMetaHash); reason != "" {
+		log.WithContext(ctx).Debugf("fast path: eligibility check took %s", time.Since(eligibilityStart))
+		s.recordFastPathSkip(ctx, reason)
 		return false, nil
 	}
 	log.WithContext(ctx).Debugf("fast path: eligibility check (hit) took %s", time.Since(eligibilityStart))
@@ -261,6 +298,7 @@ func (s *Server) tryFastPathSync(
 	}
 	peer, updates, committed := s.commitFastPath(ctx, accountID, peerKey, realIP, syncStart, cachedPeer)
 	if !committed {
+		s.recordFastPathSkip(ctx, "commit_failed")
 		return false, nil
 	}
 
@@ -397,6 +435,7 @@ func (s *Server) runFastPathSync(
 
 	if s.appMetrics != nil {
 		s.appMetrics.GRPCMetrics().CountSyncRequestDuration(time.Since(reqStart), accountID)
+		s.appMetrics.GRPCMetrics().CountFastPathSync()
 	}
 	log.WithContext(ctx).Debugf("Sync (fast path) took %s", time.Since(reqStart))
 

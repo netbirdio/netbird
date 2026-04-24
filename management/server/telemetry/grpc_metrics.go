@@ -16,6 +16,7 @@ type GRPCMetrics struct {
 	meter                            metric.Meter
 	syncRequestsCounter              metric.Int64Counter
 	syncRequestsBlockedCounter       metric.Int64Counter
+	syncPathCounter                  metric.Int64Counter
 	loginRequestsCounter             metric.Int64Counter
 	loginRequestsBlockedCounter      metric.Int64Counter
 	loginRequestHighLatencyCounter   metric.Int64Counter
@@ -46,6 +47,14 @@ func NewGRPCMetrics(ctx context.Context, meter metric.Meter) (*GRPCMetrics, erro
 	syncRequestsBlockedCounter, err := meter.Int64Counter("management.grpc.sync.request.blocked.counter",
 		metric.WithUnit("1"),
 		metric.WithDescription("Number of sync gRPC requests from blocked peers"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	syncPathCounter, err := meter.Int64Counter("management.grpc.sync.path.counter",
+		metric.WithUnit("1"),
+		metric.WithDescription("Number of sync requests by the path taken (fast vs slow). Slow-path rows carry a reason label for fast-path misses."),
 	)
 	if err != nil {
 		return nil, err
@@ -142,6 +151,7 @@ func NewGRPCMetrics(ctx context.Context, meter metric.Meter) (*GRPCMetrics, erro
 		meter:                            meter,
 		syncRequestsCounter:              syncRequestsCounter,
 		syncRequestsBlockedCounter:       syncRequestsBlockedCounter,
+		syncPathCounter:                  syncPathCounter,
 		loginRequestsCounter:             loginRequestsCounter,
 		loginRequestsBlockedCounter:      loginRequestsBlockedCounter,
 		loginRequestHighLatencyCounter:   loginRequestHighLatencyCounter,
@@ -171,6 +181,26 @@ func (grpcMetrics *GRPCMetrics) CountSyncRequest() {
 // CountSyncRequestBlocked counts the number of gRPC sync requests from blocked peers
 func (grpcMetrics *GRPCMetrics) CountSyncRequestBlocked() {
 	grpcMetrics.syncRequestsBlockedCounter.Add(grpcMetrics.ctx, 1)
+}
+
+// CountFastPathSync increments the sync-path counter for a Sync that took the
+// fast path. Used together with CountSlowPathSync to graph the fast-path hit
+// rate and, via the reason label on the slow-path counts, see where the
+// misses go (android / cache_miss / serial_mismatch / meta_mismatch / ...).
+func (grpcMetrics *GRPCMetrics) CountFastPathSync() {
+	grpcMetrics.syncPathCounter.Add(grpcMetrics.ctx, 1, metric.WithAttributes(attribute.String("path", "fast")))
+}
+
+// CountSlowPathSync increments the sync-path counter for a Sync that fell
+// through to the slow path. reason is a short tag describing why the fast
+// path was skipped; pass "" if the reason is unknown or the Sync never had
+// a chance to attempt the fast path.
+func (grpcMetrics *GRPCMetrics) CountSlowPathSync(reason string) {
+	attrs := []attribute.KeyValue{attribute.String("path", "slow")}
+	if reason != "" {
+		attrs = append(attrs, attribute.String("reason", reason))
+	}
+	grpcMetrics.syncPathCounter.Add(grpcMetrics.ctx, 1, metric.WithAttributes(attrs...))
 }
 
 // CountGetKeyRequest counts the number of gRPC get server key requests coming to the gRPC API
