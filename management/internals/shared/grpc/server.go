@@ -250,14 +250,19 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	ctx := srv.Context()
 
 	syncReq := &proto.SyncRequest{}
+	parseStart := time.Now()
 	peerKey, err := s.parseRequest(ctx, req, syncReq)
 	if err != nil {
 		s.syncSem.Add(-1)
 		return err
 	}
+	log.WithContext(ctx).Debugf("fast path: parseRequest took %s", time.Since(parseStart))
+
 	realIP := getRealIP(ctx)
 	sRealIP := realIP.String()
 	peerMeta := extractPeerMeta(ctx, syncReq.GetMeta())
+
+	getUserIDStart := time.Now()
 	userID, err := s.accountManager.GetUserIDByPeerKey(ctx, peerKey.String())
 	if err != nil {
 		s.syncSem.Add(-1)
@@ -266,6 +271,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		}
 		return mapError(ctx, err)
 	}
+	log.WithContext(ctx).Debugf("fast path: GetUserIDByPeerKey took %s", time.Since(getUserIDStart))
 
 	metahashed := metaHash(peerMeta, sRealIP)
 	if userID == "" && !s.loginFilter.allowLogin(peerKey.String(), metahashed) {
@@ -288,6 +294,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	// nolint:staticcheck
 	ctx = context.WithValue(ctx, nbContext.PeerIDKey, peerKey.String())
 
+	getAccountIDStart := time.Now()
 	accountID, err := s.accountManager.GetAccountIDForPeerKey(ctx, peerKey.String())
 	if err != nil {
 		// nolint:staticcheck
@@ -300,6 +307,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		s.syncSem.Add(-1)
 		return err
 	}
+	log.WithContext(ctx).Debugf("fast path: GetAccountIDForPeerKey took %s", time.Since(getAccountIDStart))
 
 	// nolint:staticcheck
 	ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
@@ -311,7 +319,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 			unlock()
 		}
 	}()
-	log.WithContext(ctx).Debugf("acquired peer lock for peer %s took %v", peerKey.String(), time.Since(start))
+	log.WithContext(ctx).Debugf("fast path: acquirePeerLockByUID took %s", time.Since(start))
 
 	log.WithContext(ctx).Debugf("Sync request from peer [%s] [%s]", req.WgPubKey, sRealIP)
 
