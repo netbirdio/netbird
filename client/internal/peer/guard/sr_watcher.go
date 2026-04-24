@@ -39,7 +39,7 @@ func NewSRWatcher(signalClient chNotifier, relayManager chNotifier, iFaceDiscove
 	return srw
 }
 
-func (w *SRWatcher) Start(disableICEMonitor bool) {
+func (w *SRWatcher) Start() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -50,10 +50,8 @@ func (w *SRWatcher) Start(disableICEMonitor bool) {
 	ctx, cancel := context.WithCancel(context.Background())
 	w.cancelIceMonitor = cancel
 
-	if !disableICEMonitor {
-		iceMonitor := NewICEMonitor(w.iFaceDiscover, w.iceConfig, GetICEMonitorPeriod())
-		go iceMonitor.Start(ctx, w.onICEChanged)
-	}
+	iceMonitor := NewICEMonitor(w.iFaceDiscover, w.iceConfig, GetICEMonitorPeriod())
+	go iceMonitor.Start(ctx, w.onICEChanged)
 	w.signalClient.SetOnReconnectedListener(w.onReconnected)
 	w.relayManager.SetOnReconnectedListener(w.onReconnected)
 

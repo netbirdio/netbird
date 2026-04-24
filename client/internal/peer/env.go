@@ -10,7 +10,7 @@ const (
 	EnvKeyNBForceRelay = "NB_FORCE_RELAY"
 )
 
-func IsForceRelayed() bool {
+func isForceRelayed() bool {
 	if runtime.GOOS == "js" {
 		return true
 	}
