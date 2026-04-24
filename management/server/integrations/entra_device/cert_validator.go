@@ -48,71 +48,25 @@ func NewCertValidator(roots, intermediates *x509.CertPool) *CertValidator {
 // nonce is the raw bytes the client was asked to sign. It MUST be retrieved
 // from the NonceStore before calling this.
 // signatureB64 is the base64-encoded signature bytes.
+//
+// Each numbered step is in its own helper to keep this function's cognitive
+// complexity within SonarCloud's threshold.
 func (v *CertValidator) Validate(certChainB64 []string, nonce []byte, signatureB64 string) (*DeviceIdentity, *Error) {
-	if len(certChainB64) == 0 {
-		return nil, NewError(CodeInvalidCertChain, "cert_chain is empty", nil)
-	}
-
-	// 1. Decode certs.
-	var certs []*x509.Certificate
-	for i, c := range certChainB64 {
-		der, err := base64.StdEncoding.DecodeString(c)
-		if err != nil {
-			return nil, NewError(CodeInvalidCertChain,
-				fmt.Sprintf("cert_chain[%d] is not valid base64", i), err)
-		}
-		parsed, err := x509.ParseCertificate(der)
-		if err != nil {
-			return nil, NewError(CodeInvalidCertChain,
-				fmt.Sprintf("cert_chain[%d] could not be parsed as X.509", i), err)
-		}
-		certs = append(certs, parsed)
+	certs, vErr := decodeCertChain(certChainB64)
+	if vErr != nil {
+		return nil, vErr
 	}
 	leaf := certs[0]
 
-	// 2. Time window.
 	now := v.Clock()
-	if now.Before(leaf.NotBefore) {
-		return nil, NewError(CodeInvalidCertChain,
-			"leaf certificate is not yet valid", nil)
+	if vErr := checkTimeWindow(leaf, now); vErr != nil {
+		return nil, vErr
 	}
-	if now.After(leaf.NotAfter) {
-		return nil, NewError(CodeInvalidCertChain,
-			"leaf certificate has expired", nil)
+	if vErr := v.verifyChain(certs, now); vErr != nil {
+		return nil, vErr
 	}
-
-	// 3. Chain verification — only if trust roots are configured.
-	if v.TrustRoots != nil {
-		intermediates := v.Intermediates
-		if len(certs) > 1 {
-			if intermediates == nil {
-				intermediates = x509.NewCertPool()
-			}
-			for _, c := range certs[1:] {
-				intermediates.AddCert(c)
-			}
-		}
-		opts := x509.VerifyOptions{
-			Roots:         v.TrustRoots,
-			Intermediates: intermediates,
-			CurrentTime:   now,
-			KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageAny},
-		}
-		if _, err := leaf.Verify(opts); err != nil {
-			return nil, NewError(CodeInvalidCertChain,
-				"certificate chain did not verify against configured trust roots", err)
-		}
-	}
-
-	// 4. Proof of possession.
-	sig, err := base64.StdEncoding.DecodeString(signatureB64)
-	if err != nil {
-		return nil, NewError(CodeInvalidSignature,
-			"nonce_signature is not valid base64", err)
-	}
-	if err := verifySignature(leaf, nonce, sig); err != nil {
-		return nil, NewError(CodeInvalidSignature,
-			"nonce signature did not verify against leaf public key", err)
+	if vErr := verifyProofOfPossession(leaf, nonce, signatureB64); vErr != nil {
+		return nil, vErr
 	}
 
 	id, ok := extractDeviceID(leaf)
@@ -126,6 +80,83 @@ func (v *CertValidator) Validate(certChainB64 []string, nonce []byte, signatureB
 	}, nil
 }
 
+// decodeCertChain base64-decodes and x509-parses each entry in the client-
+// supplied chain, preserving leaf-first order.
+func decodeCertChain(certChainB64 []string) ([]*x509.Certificate, *Error) {
+	if len(certChainB64) == 0 {
+		return nil, NewError(CodeInvalidCertChain, "cert_chain is empty", nil)
+	}
+	certs := make([]*x509.Certificate, 0, len(certChainB64))
+	for i, c := range certChainB64 {
+		der, err := base64.StdEncoding.DecodeString(c)
+		if err != nil {
+			return nil, NewError(CodeInvalidCertChain,
+				fmt.Sprintf("cert_chain[%d] is not valid base64", i), err)
+		}
+		parsed, err := x509.ParseCertificate(der)
+		if err != nil {
+			return nil, NewError(CodeInvalidCertChain,
+				fmt.Sprintf("cert_chain[%d] could not be parsed as X.509", i), err)
+		}
+		certs = append(certs, parsed)
+	}
+	return certs, nil
+}
+
+// checkTimeWindow rejects leaves that are not-yet-valid or already expired.
+func checkTimeWindow(leaf *x509.Certificate, now time.Time) *Error {
+	if now.Before(leaf.NotBefore) {
+		return NewError(CodeInvalidCertChain, "leaf certificate is not yet valid", nil)
+	}
+	if now.After(leaf.NotAfter) {
+		return NewError(CodeInvalidCertChain, "leaf certificate has expired", nil)
+	}
+	return nil
+}
+
+// verifyChain runs the x509 path-building + verification against the
+// configured trust roots. When TrustRoots is nil the chain step is skipped
+// (dev-only). See README "Known production gaps".
+func (v *CertValidator) verifyChain(certs []*x509.Certificate, now time.Time) *Error {
+	if v.TrustRoots == nil {
+		return nil
+	}
+	intermediates := v.Intermediates
+	if len(certs) > 1 {
+		if intermediates == nil {
+			intermediates = x509.NewCertPool()
+		}
+		for _, c := range certs[1:] {
+			intermediates.AddCert(c)
+		}
+	}
+	opts := x509.VerifyOptions{
+		Roots:         v.TrustRoots,
+		Intermediates: intermediates,
+		CurrentTime:   now,
+		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageAny},
+	}
+	if _, err := certs[0].Verify(opts); err != nil {
+		return NewError(CodeInvalidCertChain,
+			"certificate chain did not verify against configured trust roots", err)
+	}
+	return nil
+}
+
+// verifyProofOfPossession decodes the signature and verifies it against the
+// leaf public key.
+func verifyProofOfPossession(leaf *x509.Certificate, nonce []byte, signatureB64 string) *Error {
+	sig, err := base64.StdEncoding.DecodeString(signatureB64)
+	if err != nil {
+		return NewError(CodeInvalidSignature, "nonce_signature is not valid base64", err)
+	}
+	if err := verifySignature(leaf, nonce, sig); err != nil {
+		return NewError(CodeInvalidSignature,
+			"nonce signature did not verify against leaf public key", err)
+	}
+	return nil
+}
+
 // verifySignature checks sig over nonce using leaf.PublicKey. It supports
 // RSA (PKCS1v15 SHA-256) and ECDSA (ASN.1-encoded r,s SHA-256) which are the
 // common forms Windows CNG / Intune-provisioned keys produce.
@@ -134,32 +165,43 @@ func verifySignature(leaf *x509.Certificate, nonce, sig []byte) error {
 
 	switch pub := leaf.PublicKey.(type) {
 	case *rsa.PublicKey:
-		// Try PSS first, then PKCS1v15. Some signers emit either.
-		if err := rsa.VerifyPSS(pub, crypto.SHA256, digest[:], sig, nil); err == nil {
-			return nil
-		}
-		return rsa.VerifyPKCS1v15(pub, crypto.SHA256, digest[:], sig)
+		return verifyRSA(pub, digest[:], sig)
 	case *ecdsa.PublicKey:
-		type ecsig struct{ R, S *big.Int }
-		var es ecsig
-		if _, err := asn1Unmarshal(sig, &es); err != nil {
-			return fmt.Errorf("ecdsa signature: %w", err)
-		}
-		if es.R == nil || es.S == nil {
-			return fmt.Errorf("ecdsa signature missing r/s")
-		}
-		if pub.Curve == nil {
-			// Fall back to P-256, which is what Windows CNG + most Intune
-			// SCEP profiles emit.
-			pub.Curve = elliptic.P256()
-		}
-		if !ecdsa.Verify(pub, digest[:], es.R, es.S) {
-			return fmt.Errorf("ecdsa verify failed")
-		}
-		return nil
+		return verifyECDSA(pub, digest[:], sig)
 	default:
 		return fmt.Errorf("unsupported leaf key type %T", leaf.PublicKey)
 	}
+}
+
+// verifyRSA accepts both RSA-PSS and PKCS1v15 (Windows CNG / Intune can emit
+// either depending on the CSP).
+func verifyRSA(pub *rsa.PublicKey, digest, sig []byte) error {
+	if err := rsa.VerifyPSS(pub, crypto.SHA256, digest, sig, nil); err == nil {
+		return nil
+	}
+	return rsa.VerifyPKCS1v15(pub, crypto.SHA256, digest, sig)
+}
+
+// verifyECDSA decodes an ASN.1 DER {R,S} signature and verifies it against
+// the leaf public key.
+func verifyECDSA(pub *ecdsa.PublicKey, digest, sig []byte) error {
+	type ecsig struct{ R, S *big.Int }
+	var es ecsig
+	if _, err := asn1Unmarshal(sig, &es); err != nil {
+		return fmt.Errorf("ecdsa signature: %w", err)
+	}
+	if es.R == nil || es.S == nil {
+		return fmt.Errorf("ecdsa signature missing r/s")
+	}
+	if pub.Curve == nil {
+		// Fall back to P-256, which is what Windows CNG + most Intune SCEP
+		// profiles emit.
+		pub.Curve = elliptic.P256()
+	}
+	if !ecdsa.Verify(pub, digest, es.R, es.S) {
+		return fmt.Errorf("ecdsa verify failed")
+	}
+	return nil
 }
 
 // extractDeviceID pulls the Entra device object ID from the cert. Entra

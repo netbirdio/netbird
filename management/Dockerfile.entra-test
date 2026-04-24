@@ -25,7 +25,11 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     go mod download
 
-COPY . .
+# Copy the entire repo into the build stage. This is a dev-only harness
+# image; no secrets are expected to live in the source tree and there is no
+# production layer that ships this COPY — see management/Dockerfile for the
+# release build path used by goreleaser.
+COPY . . # NOSONAR
 
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
@@ -39,9 +43,14 @@ FROM debian:bookworm-slim
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates curl && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* && \
+    groupadd --system --gid 10001 netbird && \
+    useradd  --system --uid 10001 --gid netbird --home /nonexistent --shell /usr/sbin/nologin netbird
 
 COPY --from=builder /out/netbird-mgmt /usr/local/bin/netbird-mgmt
+
+# Drop privileges; the test harness does not need root at runtime.
+USER netbird:netbird
 
 # Modern NetBird multiplexes gRPC + HTTP on one port via cmux. The admin
 # /api surface and /join/entra/* both live on :33073 alongside gRPC.

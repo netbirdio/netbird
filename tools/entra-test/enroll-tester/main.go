@@ -67,7 +67,27 @@ type errorBody struct {
 	Message string `json:"message"`
 }
 
+type testerOpts struct {
+	baseURL, tenant, deviceID, hostname string
+	insecure, verbose                   bool
+}
+
 func main() {
+	opts := parseFlags()
+	client := buildHTTPClient(opts.insecure)
+
+	key, certB64 := mustMakeCert(opts.deviceID, opts.verbose)
+	wgPub := mustMakeWGPubKey()
+	challenge := fetchChallenge(client, opts.baseURL, opts.verbose)
+	sig := signChallenge(key, challenge.Nonce)
+
+	out := postEnroll(client, opts, certB64, challenge.Nonce, sig, wgPub)
+	printEnrolmentSuccess(out, wgPub)
+}
+
+// parseFlags parses command-line flags, applies the --demo bootstrap, and
+// returns the normalized options.
+func parseFlags() testerOpts {
 	var (
 		baseURL  = flag.String("url", "http://localhost:33081", "Base URL of the management HTTP server (no trailing slash, no /join/entra suffix)")
 		tenant   = flag.String("tenant", "", "Entra tenant ID registered on the server (required unless --demo)")
@@ -80,8 +100,7 @@ func main() {
 	flag.Parse()
 
 	if *demo {
-		addr, cleanup := runInProcessServer()
-		defer cleanup()
+		addr, _ := runInProcessServer()
 		*baseURL = addr
 		if *tenant == "" {
 			*tenant = demoTenantID
@@ -98,50 +117,63 @@ func main() {
 	if *hostname == "" {
 		*hostname = "device-" + *deviceID
 	}
-
-	client := &http.Client{Timeout: 15 * time.Second}
-	if *insecure {
-		client.Transport = insecureTransport()
+	return testerOpts{
+		baseURL: *baseURL, tenant: *tenant, deviceID: *deviceID,
+		hostname: *hostname, insecure: *insecure, verbose: *verbose,
 	}
+}
 
-	// 1. Generate a fake device cert.
-	key, certB64, err := makeCert(*deviceID)
+func buildHTTPClient(insecure bool) *http.Client {
+	c := &http.Client{Timeout: 15 * time.Second}
+	if insecure {
+		c.Transport = insecureTransport()
+	}
+	return c
+}
+
+func mustMakeCert(deviceID string, verbose bool) (*rsa.PrivateKey, string) {
+	key, certB64, err := makeCert(deviceID)
 	if err != nil {
 		die("generate cert: %v", err)
 	}
-	if *verbose {
-		fmt.Printf("Generated self-signed RSA cert for CN=%s (%d chars DER-b64)\n", *deviceID, len(certB64))
+	if verbose {
+		fmt.Printf("Generated self-signed RSA cert for CN=%s (%d chars DER-b64)\n", deviceID, len(certB64))
 	}
+	return key, certB64
+}
 
-	// 2. Generate a fake WireGuard pubkey (32 random bytes, base64).
+func mustMakeWGPubKey() string {
 	wgBytes := make([]byte, 32)
 	if _, err := rand.Read(wgBytes); err != nil {
 		die("generate wg pubkey: %v", err)
 	}
-	wgPub := base64.StdEncoding.EncodeToString(wgBytes)
+	return base64.StdEncoding.EncodeToString(wgBytes)
+}
 
-	// 3. Fetch challenge.
-	chURL := *baseURL + "/join/entra/challenge"
-	if *verbose {
+func fetchChallenge(client *http.Client, baseURL string, verbose bool) challengeResp {
+	chURL := baseURL + "/join/entra/challenge"
+	if verbose {
 		fmt.Printf("GET %s\n", chURL)
 	}
-	chResp, err := client.Get(chURL)
+	resp, err := client.Get(chURL)
 	if err != nil {
 		die("GET challenge: %v", err)
 	}
-	defer chResp.Body.Close()
-	if chResp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(chResp.Body)
-		die("challenge returned %d: %s", chResp.StatusCode, string(body))
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		die("challenge returned %d: %s", resp.StatusCode, string(body))
 	}
 	var challenge challengeResp
-	if err := json.NewDecoder(chResp.Body).Decode(&challenge); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&challenge); err != nil {
 		die("decode challenge: %v", err)
 	}
 	fmt.Printf("  nonce (expires %s): %s\n", challenge.ExpiresAt.Format(time.RFC3339), challenge.Nonce)
+	return challenge
+}
 
-	// 4. Sign the raw nonce bytes.
-	rawNonce, err := base64.RawURLEncoding.DecodeString(challenge.Nonce)
+func signChallenge(key *rsa.PrivateKey, nonce string) string {
+	rawNonce, err := base64.RawURLEncoding.DecodeString(nonce)
 	if err != nil {
 		die("decode nonce: %v", err)
 	}
@@ -150,48 +182,50 @@ func main() {
 	if err != nil {
 		die("sign nonce: %v", err)
 	}
-	sig := base64.StdEncoding.EncodeToString(sigBytes)
+	return base64.StdEncoding.EncodeToString(sigBytes)
+}
 
-	// 5. Enroll.
+func postEnroll(client *http.Client, opts testerOpts, certB64, nonce, sig, wgPub string) enrollResp {
 	req := enrollReq{
-		TenantID:       *tenant,
-		EntraDeviceID:  *deviceID,
+		TenantID:       opts.tenant,
+		EntraDeviceID:  opts.deviceID,
 		CertChain:      []string{certB64},
-		Nonce:          challenge.Nonce,
+		Nonce:          nonce,
 		NonceSignature: sig,
 		WGPubKey:       wgPub,
-		Hostname:       *hostname,
+		Hostname:       opts.hostname,
 	}
 	body, _ := json.Marshal(req)
-	if *verbose {
-		fmt.Printf("POST %s\n%s\n", *baseURL+"/join/entra/enroll", prettyJSON(body))
+	if opts.verbose {
+		fmt.Printf("POST %s\n%s\n", opts.baseURL+"/join/entra/enroll", prettyJSON(body))
 	}
-	httpReq, err := http.NewRequest(http.MethodPost, *baseURL+"/join/entra/enroll", bytes.NewReader(body))
+	httpReq, err := http.NewRequest(http.MethodPost, opts.baseURL+"/join/entra/enroll", bytes.NewReader(body))
 	if err != nil {
 		die("build enroll request: %v", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	enResp, err := client.Do(httpReq)
+	resp, err := client.Do(httpReq)
 	if err != nil {
 		die("POST enroll: %v", err)
 	}
-	defer enResp.Body.Close()
-	respBody, _ := io.ReadAll(enResp.Body)
-
-	if enResp.StatusCode != http.StatusOK {
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
 		var e errorBody
 		if jerr := json.Unmarshal(respBody, &e); jerr == nil && e.Code != "" {
-			die("enroll failed (%d %s): %s", enResp.StatusCode, e.Code, e.Message)
+			die("enroll failed (%d %s): %s", resp.StatusCode, e.Code, e.Message)
 		}
-		die("enroll failed (%d): %s", enResp.StatusCode, string(respBody))
+		die("enroll failed (%d): %s", resp.StatusCode, string(respBody))
 	}
-
 	var out enrollResp
 	if err := json.Unmarshal(respBody, &out); err != nil {
 		die("decode enroll response: %v\nraw: %s", err, string(respBody))
 	}
+	return out
+}
 
+func printEnrolmentSuccess(out enrollResp, wgPub string) {
 	fmt.Println()
 	fmt.Println("====================  ENROLMENT SUCCESS  ====================")
 	fmt.Printf("  Peer ID               : %s\n", out.PeerID)
