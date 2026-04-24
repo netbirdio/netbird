@@ -70,16 +70,28 @@ type errorBody struct {
 func main() {
 	var (
 		baseURL  = flag.String("url", "http://localhost:33081", "Base URL of the management HTTP server (no trailing slash, no /join/entra suffix)")
-		tenant   = flag.String("tenant", "", "Entra tenant ID registered on the server (required)")
+		tenant   = flag.String("tenant", "", "Entra tenant ID registered on the server (required unless --demo)")
 		deviceID = flag.String("device-id", "test-device-0000-0000-0000-000000000001", "Entra device ID. Used as the cert Subject CN.")
 		hostname = flag.String("hostname", "", "Hostname to present to the server. Defaults to device-<id>.")
 		insecure = flag.Bool("insecure", false, "Skip TLS certificate verification (useful for self-signed dev setups)")
 		verbose  = flag.Bool("v", false, "Print request/response bodies")
+		demo     = flag.Bool("demo", false, "Run a fully self-contained in-process demo: spins up the real HTTP handler, seeds a wildcard mapping, and enrols against itself. Requires no external server or Entra tenant.")
 	)
 	flag.Parse()
 
+	if *demo {
+		addr, cleanup := runInProcessServer()
+		defer cleanup()
+		*baseURL = addr
+		if *tenant == "" {
+			*tenant = demoTenantID
+		}
+		fmt.Printf("[demo] in-process server listening on %s\n", addr)
+		fmt.Printf("[demo] using tenant %q with wildcard mapping -> [%s]\n\n", *tenant, demoAutoGroup)
+	}
+
 	if *tenant == "" {
-		fmt.Fprintln(os.Stderr, "error: --tenant is required")
+		fmt.Fprintln(os.Stderr, "error: --tenant is required (or pass --demo for an in-process round-trip)")
 		flag.Usage()
 		os.Exit(2)
 	}
