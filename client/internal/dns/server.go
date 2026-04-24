@@ -615,85 +615,90 @@ func (s *DefaultServer) UpdateServerConfig(domains dnsconfig.ServerDomains) erro
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	if s.mgmtCacheResolver != nil {
-		removedDomains, err := s.mgmtCacheResolver.UpdateFromServerDomains(s.ctx, domains)
-		if err != nil {
-			return fmt.Errorf("update management cache resolver: %w", err)
-		}
-
-		if len(removedDomains) > 0 {
-			s.deregisterHandler(removedDomains.ToPunycodeList(), PriorityMgmtCache)
-		}
-
-		// Pool-root domains (advertised by the mgmt as Relay URLs) own
-		// their instance subdomains. Register them through a thin
-		// subdomain-matching wrapper so a query like
-		// "streamline-de-fra1-0.relay.netbird.io" routes to the mgmt
-		// cache resolver, which resolves it on demand through the bypass
-		// resolver instead of falling through to the overlay-routed
-		// upstream handler.
-		// Canonicalize pool-root domains (toZone normalizes casing, IDNA,
-		// and trailing dot) so the membership check below is independent
-		// of the exact form each source hands back. GetPoolRootDomains
-		// returns whatever the extractor stored; GetCachedDomains strips
-		// the trailing dot from question names. Run both through toZone
-		// to guarantee they compare equal.
-		poolRoots := s.mgmtCacheResolver.GetPoolRootDomains()
-		poolRootSet := make(map[domain.Domain]struct{}, len(poolRoots))
-		for _, d := range poolRoots {
-			poolRootSet[toZone(d)] = struct{}{}
-		}
-
-		if len(poolRoots) > 0 {
-			s.registerHandler(poolRoots.ToPunycodeList(), subdomainMatchHandler{Handler: s.mgmtCacheResolver}, PriorityMgmtCache)
-		}
-
-		var exactDomains domain.List
-		for _, d := range s.mgmtCacheResolver.GetCachedDomains() {
-			if _, isPool := poolRootSet[toZone(d)]; isPool {
-				continue
-			}
-			exactDomains = append(exactDomains, d)
-		}
-		if len(exactDomains) > 0 {
-			s.registerHandler(exactDomains.ToPunycodeList(), s.mgmtCacheResolver, PriorityMgmtCache)
-		}
-
-		// Reconcile extraDomains with the current pool-root set. Pool
-		// roots registered here are *match* domains for the host DNS
-		// manager (systemd-resolved, NetworkManager, etc.), so that
-		// instance subdomain queries like streamline-* are delegated to
-		// the wt0 link where the daemon's DNS listener sits. Without
-		// this, systemd-resolved answers them from the host's global
-		// upstream, skipping our handler chain entirely.
-		//
-		// Use a dedicated tracking map so that increments/decrements
-		// here don't collide with RegisterHandler's refcounting.
-		newPoolRoots := make(map[domain.Domain]struct{}, len(poolRoots))
-		for _, d := range poolRoots {
-			zone := toZone(d)
-			newPoolRoots[zone] = struct{}{}
-			if _, already := s.mgmtPoolRoots[zone]; !already {
-				s.extraDomains[zone]++
-			}
-		}
-		for zone := range s.mgmtPoolRoots {
-			if _, keep := newPoolRoots[zone]; keep {
-				continue
-			}
-			s.extraDomains[zone]--
-			if s.extraDomains[zone] <= 0 {
-				delete(s.extraDomains, zone)
-			}
-		}
-		s.mgmtPoolRoots = newPoolRoots
-
-		if !s.batchMode {
-			s.applyHostConfig()
-		}
+	if s.mgmtCacheResolver == nil {
+		return nil
 	}
 
+	removedDomains, err := s.mgmtCacheResolver.UpdateFromServerDomains(s.ctx, domains)
+	if err != nil {
+		return fmt.Errorf("update management cache resolver: %w", err)
+	}
+
+	if len(removedDomains) > 0 {
+		s.deregisterHandler(removedDomains.ToPunycodeList(), PriorityMgmtCache)
+	}
+
+	poolRoots := s.mgmtCacheResolver.GetPoolRootDomains()
+	s.registerMgmtCacheHandlers(poolRoots)
+	s.reconcileMgmtPoolRoots(poolRoots)
+
+	if !s.batchMode {
+		s.applyHostConfig()
+	}
 	return nil
+}
+
+// registerMgmtCacheHandlers wires the mgmt cache resolver into the handler
+// chain for the current set of cached domains. Pool-root domains (advertised
+// by the mgmt as Relay URLs) go through a thin subdomain-matching wrapper so
+// a query like "streamline-de-fra1-0.relay.netbird.io" routes to the mgmt
+// cache resolver, which resolves it on demand through the bypass resolver
+// instead of falling through to the overlay-routed upstream handler.
+//
+// Canonicalize with toZone on both sides of the pool-root membership check so
+// the comparison is independent of each source's canonical form:
+// GetPoolRootDomains returns what the extractor stored; GetCachedDomains
+// strips the trailing dot from question names.
+func (s *DefaultServer) registerMgmtCacheHandlers(poolRoots domain.List) {
+	poolRootSet := make(map[domain.Domain]struct{}, len(poolRoots))
+	for _, d := range poolRoots {
+		poolRootSet[toZone(d)] = struct{}{}
+	}
+
+	if len(poolRoots) > 0 {
+		s.registerHandler(poolRoots.ToPunycodeList(), subdomainMatchHandler{Handler: s.mgmtCacheResolver}, PriorityMgmtCache)
+	}
+
+	var exactDomains domain.List
+	for _, d := range s.mgmtCacheResolver.GetCachedDomains() {
+		if _, isPool := poolRootSet[toZone(d)]; isPool {
+			continue
+		}
+		exactDomains = append(exactDomains, d)
+	}
+	if len(exactDomains) > 0 {
+		s.registerHandler(exactDomains.ToPunycodeList(), s.mgmtCacheResolver, PriorityMgmtCache)
+	}
+}
+
+// reconcileMgmtPoolRoots keeps extraDomains in sync with the current mgmt
+// pool-root set. These entries show up as *match* domains for the host DNS
+// manager (systemd-resolved, NetworkManager, etc.) so instance subdomain
+// queries like streamline-* are delegated to the wt0 link where the daemon's
+// DNS listener sits. Without this, systemd-resolved answers them from the
+// host's global upstream, skipping our handler chain entirely.
+//
+// Uses s.mgmtPoolRoots as a dedicated tracking map so increments/decrements
+// here don't collide with RegisterHandler's refcounting.
+func (s *DefaultServer) reconcileMgmtPoolRoots(poolRoots domain.List) {
+	newPoolRoots := make(map[domain.Domain]struct{}, len(poolRoots))
+	for _, d := range poolRoots {
+		zone := toZone(d)
+		newPoolRoots[zone] = struct{}{}
+		if _, already := s.mgmtPoolRoots[zone]; !already {
+			s.extraDomains[zone]++
+		}
+	}
+	for zone := range s.mgmtPoolRoots {
+		if _, keep := newPoolRoots[zone]; keep {
+			continue
+		}
+		s.extraDomains[zone]--
+		if s.extraDomains[zone] <= 0 {
+			delete(s.extraDomains, zone)
+		}
+	}
+	s.mgmtPoolRoots = newPoolRoots
 }
 
 func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
