@@ -242,7 +242,7 @@ func (s *Server) tryFastPathSync(
 		return false, nil
 	}
 
-	return true, s.runFastPathSync(ctx, reqStart, syncStart, accountID, peerKey, peer, updates, peerMetaHash, srv, unlock)
+	return true, s.runFastPathSync(ctx, reqStart, syncStart, accountID, peerKey, peer, updates, cached.Serial, peerMetaHash, srv, unlock)
 }
 
 // commitFastPath subscribes the peer to network-map updates and marks it
@@ -313,6 +313,7 @@ func (s *Server) runFastPathSync(
 	peerKey wgtypes.Key,
 	peer *nbpeer.Peer,
 	updates chan *network_map.UpdateMessage,
+	serial uint64,
 	peerMetaHash uint64,
 	srv proto.ManagementService_SyncServer,
 	unlock *func(),
@@ -325,6 +326,13 @@ func (s *Server) runFastPathSync(
 		return err
 	}
 	log.WithContext(ctx).Debugf("fast path: sendFastPathResponse took %s", time.Since(sendStart))
+
+	// Refresh the cache entry in the new shape. For peers whose cache entry
+	// was written by pre-step-2 code (Serial + MetaHash only), this upgrades
+	// them to the full shape so the next Sync's lookupPeerAuthFromCache +
+	// commitFastPath can actually short-circuit GetPeerAuthInfo and
+	// GetPeerByPeerPubKey. Idempotent when the entry is already complete.
+	s.writePeerSyncEntry(peerKey.String(), serial, peerMetaHash, peer)
 
 	s.secretsManager.SetupRefresh(ctx, accountID, peer.ID)
 
@@ -380,33 +388,35 @@ func (s *Server) fetchPeerGroups(ctx context.Context, accountID, peerID string) 
 // peer is required so the cached entry carries the snapshot fields the
 // pure-cache fast path needs (AccountID, PeerID, Key, Ephemeral, HasUser).
 func (s *Server) recordPeerSyncEntry(peerKey string, netMap *nbtypes.NetworkMap, peerMetaHash uint64, peer *nbpeer.Peer) {
-	if s.peerSerialCache == nil {
-		return
-	}
-	if !s.fastPathFlag.Enabled() {
-		return
-	}
 	if netMap == nil || netMap.Network == nil {
 		return
 	}
-	serial := netMap.Network.CurrentSerial()
-	if serial == 0 {
-		return
-	}
-	s.peerSerialCache.Set(peerKey, newPeerSyncEntry(serial, peerMetaHash, peer))
+	s.writePeerSyncEntry(peerKey, netMap.Network.CurrentSerial(), peerMetaHash, peer)
 }
 
 // recordPeerSyncEntryFromUpdate is the sendUpdate equivalent of
 // recordPeerSyncEntry: it extracts the serial from a streamed NetworkMap update
 // so the cache stays in sync with what the peer most recently received.
 func (s *Server) recordPeerSyncEntryFromUpdate(peerKey string, update *network_map.UpdateMessage, peerMetaHash uint64, peer *nbpeer.Peer) {
-	if s.peerSerialCache == nil || update == nil || update.Update == nil || update.Update.NetworkMap == nil {
+	if update == nil || update.Update == nil || update.Update.NetworkMap == nil {
+		return
+	}
+	s.writePeerSyncEntry(peerKey, update.Update.NetworkMap.GetSerial(), peerMetaHash, peer)
+}
+
+// writePeerSyncEntry is the common cache write used by every path that
+// delivers state to a peer: the slow-path sendInitialSync, streamed
+// NetworkMap updates, and the fast path itself. Writing from the fast path
+// upgrades legacy-shape entries (Serial + MetaHash only, pre step 2) to the
+// full shape on the next successful Sync so subsequent cache hits can
+// actually short-circuit GetPeerAuthInfo and GetPeerByPeerPubKey.
+func (s *Server) writePeerSyncEntry(peerKey string, serial, peerMetaHash uint64, peer *nbpeer.Peer) {
+	if s.peerSerialCache == nil {
 		return
 	}
 	if !s.fastPathFlag.Enabled() {
 		return
 	}
-	serial := update.Update.NetworkMap.GetSerial()
 	if serial == 0 {
 		return
 	}
