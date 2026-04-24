@@ -20,6 +20,10 @@ services:
       POSTGRES_DB: netbird
       POSTGRES_USER: netbird
       POSTGRES_PASSWORD: netbird
+    ports:
+      # Exposed so local tooling (seed-account, psql, etc.) can reach it.
+      # Only for the test harness; don't do this in production.
+      - "5432:5432"
     volumes:
       - pg-data:/var/lib/postgresql/data
     healthcheck:
