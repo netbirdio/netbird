@@ -13,7 +13,6 @@ import (
 
 const (
 	defaultResolvConfPath = "/etc/resolv.conf"
-	nsswitchConfPath      = "/etc/nsswitch.conf"
 )
 
 type resolvConf struct {
