@@ -1641,6 +1641,9 @@ type CreateResellerMSPRequest struct {
 	// Name The name for the MSP
 	Name string `json:"name"`
 
+	// OwnerEmail Expected owner email for the MSP account
+	OwnerEmail *string `json:"owner_email,omitempty"`
+
 	// PriceId Stripe price ID to set up managed subscription for the MSP
 	PriceId *string `json:"price_id,omitempty"`
 
@@ -3599,6 +3602,9 @@ type ResellerMSPResponse struct {
 	// Name The MSP name
 	Name string `json:"name"`
 
+	// OwnerEmail Expected owner email for the MSP account (set by reseller at creation)
+	OwnerEmail *string `json:"owner_email,omitempty"`
+
 	// ResellerCustomerId Reseller's internal customer reference for this MSP
 	ResellerCustomerId *string `json:"reseller_customer_id,omitempty"`
 }
@@ -4234,6 +4240,9 @@ type TenantResponseStatus string
 
 // UpdateResellerMSPRequest defines model for UpdateResellerMSPRequest.
 type UpdateResellerMSPRequest struct {
+	// OwnerEmail Expected owner email for the MSP account
+	OwnerEmail *string `json:"owner_email,omitempty"`
+
 	// ResellerCustomerId Reseller's internal customer reference for this MSP
 	ResellerCustomerId *string `json:"reseller_customer_id,omitempty"`
 }

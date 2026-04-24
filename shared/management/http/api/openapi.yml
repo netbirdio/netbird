@@ -3767,6 +3767,10 @@ components:
           type: string
           description: Reseller's internal customer reference for this MSP
           example: "CUST-12345"
+        owner_email:
+          type: string
+          description: Expected owner email for the MSP account (set by reseller at creation)
+          example: "owner@partner-msp.com"
         activated_at:
           type: string
           description: MSP activation timestamp in RFC3339 format
@@ -3803,6 +3807,10 @@ components:
           type: string
           description: Reseller's internal customer reference for this MSP
           example: "CUST-12345"
+        owner_email:
+          type: string
+          description: Expected owner email for the MSP account
+          example: "owner@partner-msp.com"
       required:
         - name
         - domain
@@ -3813,6 +3821,10 @@ components:
           type: string
           description: Reseller's internal customer reference for this MSP
           example: "CUST-12345"
+        owner_email:
+          type: string
+          description: Expected owner email for the MSP account
+          example: "owner@partner-msp.com"
     CreateTenantRequest:
       type: object
       properties:
