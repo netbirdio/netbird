@@ -272,6 +272,7 @@ func (s *Server) commitFastPath(
 	var peer *nbpeer.Peer
 	if cachedPeer != nil {
 		peer = cachedPeer
+		log.WithContext(ctx).Debugf("fast path: GetPeerByPeerPubKey skipped (cache hit)")
 	} else {
 		getPeerStart := time.Now()
 		p, err := s.accountManager.GetStore().GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, peerKey.String())
