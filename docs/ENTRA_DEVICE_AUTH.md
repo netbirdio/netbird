@@ -1,11 +1,18 @@
 # Entra / Intune Device Authentication
-**Status**: server + client (PFX provider) complete and live-tested against a
-real Entra tenant. Windows cert-store / TPM-backed signing is a planned
-follow-up (see "Future work" below).
-**TL;DR** — deploy a cert via Intune PKCS Certificate profile, run
+**Status**: Server + client (PFX provider) are complete, unit-tested, and
+live-tested against a real Entra tenant (see [Live-tenant verification
+results](#live-tenant-verification-results)). The PFX path is the supported
+production client mechanism; Windows cert-store / TPM-backed CNG signing is a
+planned follow-up ([Future work](#future-work--windows-cert-store--tpm-backed-signing)).
+Three must-close gaps are tracked before exposing the feature to real
+tenants: see [Known production gaps](#known-production-gaps) and the
+[Production readiness checklist](#production-readiness-checklist).
+
+**TL;DR** — deploy a cert via an Intune PKCS Certificate profile, run
 `netbird entra-enroll --management-url https://.../join/entra --entra-tenant
 YOUR-TENANT --entra-pfx <path> --entra-pfx-password-env NB_ENTRA_PFX_PASSWORD`,
-device joins NetBird automatically based on its Entra group membership.
+and the device joins NetBird automatically based on its Entra group
+membership.
 
 ## Overview
 
@@ -132,6 +139,38 @@ automation can branch on them:
    - `DeviceManagementManagedDevices.Read.All` *(only if you plan to use `require_intune_compliant`)*
 5. **Grant admin consent** for the tenant.
 6. Record the **Application (client) ID** and **Directory (tenant) ID**.
+
+## Deploying device certificates via Intune (PKCS Certificate profile)
+
+The client needs a device certificate whose Subject CN is the Entra device ID.
+The supported production mechanism is an Intune PKCS Certificate profile.
+
+1. **Intune admin center → Devices → Configuration → Create → New policy**.
+2. Platform: **Windows 10 and later** (or macOS). Profile type: **Templates →
+   PKCS certificate**.
+3. **Certificate type:** Device.
+4. **Subject name format:** `CN={{AAD_Device_ID}}` — this is what ties the
+   cert to a Graph-lookupable device id.
+5. **Subject alternative name:** leave empty (not consulted by NetBird).
+6. **Certificate validity period:** 1 year is a reasonable default; shorter
+   values reduce the revocation window.
+7. **Key storage provider (KSP):** *Enroll to Trusted Platform Module (TPM) KSP
+   if present, otherwise fall back to Software KSP* — this keeps the private
+   key TPM-protected on modern hardware.
+8. **Key usage:** Digital signature (required for the nonce-signing flow).
+9. **Extended key usage:** Client authentication.
+10. **Certification authority + CA name + Root CA certificate:** point at your
+    internal PKI (AD CS or equivalent) that the NetBird management server
+    will later trust via `CertValidator.TrustRoots`.
+11. **Assignments:** target the device group(s) that should be onboarded.
+12. On target devices, Intune will enrol the cert into the user's / machine's
+    `My` certificate store. For the current PFX-based client path, export it
+    to a `.pfx` via `Export-PfxCertificate` (or use an Intune *SCEP profile*
+    + `Export-PfxCertificate` script) and drop it somewhere readable by the
+    `netbird` service account.
+
+A future client release will remove the PFX step by reading the cert directly
+from `Cert:\LocalMachine\My` via CNG — see [Future work](#future-work--windows-cert-store--tpm-backed-signing).
 
 ## REST API
 
@@ -310,15 +349,27 @@ Relevant Go packages:
 - The management HTTP surface for `/join/entra/*` bypasses the normal JWT
   middleware — that's intentional; the device certificate *is* the
   authentication.
+- OData `$filter` literals (`deviceId`, `azureADDeviceId`) are escaped
+  per OData v4 (`''`) so a pathological CN can't alter filter semantics.
 - Graph failures are handled fail-closed (`group_lookup_unavailable`) so a
   transient 429 can never silently over-scope a device.
+- Graph pagination is fail-closed on unexpected `@odata.nextLink` hosts so
+  a misconfigured base URL can't silently truncate the group enumeration.
 - Cert-vs-claimed-device-id mismatch is rejected *before* any Graph call, so
   spoofed device ids don't cost Graph quota.
+- Certs with an empty Subject CN are rejected at both the validator layer
+  and in `Manager.validateCertAndDeviceID` (belt-and-braces).
+- `X-Forwarded-For` / `X-Real-IP` are only honoured when the enrol handler's
+  `TrustForwardedHeaders` flag is set (opt-in trusted-proxy policy).
+- Enrolment request bodies are hard-capped at 512 KiB; oversized bodies
+  return a real `413 payload_too_large`.
 - Bootstrap tokens are 32 random bytes (hex-encoded), valid for 5 minutes,
-  single-use.
-- Client secrets are stored plain-text in the current schema; that column
-  should be rotated to the existing encrypted-column pattern before
-  production. See the "Open design decisions" in the plan document.
+  single-use; `ConsumeBootstrapToken` validates before deleting so a
+  guess-the-peerID caller cannot DoS an in-flight enrolment.
+- All rejection paths are atomic: zero rows are written to `peers` /
+  `group_peers` on any `4xx` / `5xx` outcome.
+- **Known production gaps** (see below) must be closed before exposing the
+  integration to a real tenant.
 
 ## Live-tenant verification results
 
@@ -374,21 +425,71 @@ integration to a real tenant:
 
 ## Current implementation status
 
-| Area                           | Status                                                   |
-|--------------------------------|----------------------------------------------------------|
-| Domain model + storage         | ✅ Done (gorm auto-migrate)                              |
-| Cert validator (RSA/ECDSA)     | ✅ Done                                                  |
-| Graph client                   | ✅ Done (not yet run against a live tenant)              |
-| Mapping resolution (both modes)| ✅ Done with unit tests                                  |
-| HTTP endpoints `/join/entra`   | ✅ Done with integration tests                           |
-| Admin CRUD                     | ✅ Done (wired but not yet OpenAPI-gen'd)                |
-| AccountManager integration     | ✅ Done (`EnrollEntraDevicePeer`)                        |
-| Activity codes / audit log     | ✅ Done                                                  |
-| Permissions                    | ✅ `modules.EntraDeviceAuth` added                       |
-| Proto `enrollmentBootstrapToken` | ❌ Not yet added (`Manager.ValidateBootstrapToken` ready) |
-| NetBird Windows client (Phase 2) | ❌ Not started                                         |
-| Dashboard UI (Phase 4)         | ❌ Not started                                           |
-| Continuous revalidation        | ❌ Not started (Phase 5)                                 |
+| Area                             | Status                                                             |
+|----------------------------------|--------------------------------------------------------------------|
+| Domain model + storage           | ✅ Done (gorm auto-migrate)                                        |
+| Cert validator (RSA/ECDSA)       | ✅ Done                                                            |
+| Graph client                     | ✅ Done (live-tested; see verification matrix above)                |
+| Mapping resolution (both modes)  | ✅ Done with unit tests                                            |
+| HTTP endpoints `/join/entra`     | ✅ Done with integration tests                                     |
+| Admin CRUD                       | ✅ Done (wired but not yet OpenAPI-gen'd)                          |
+| AccountManager integration       | ✅ Done (`EnrollEntraDevicePeer` + orphan-peer compensation)        |
+| Activity codes / audit log       | ✅ Done                                                            |
+| Permissions                      | ✅ `modules.EntraDeviceAuth` added; fail-closed on nil manager      |
+| Client PFX provider + CLI         | ✅ Done (`netbird entra-enroll`; PFX → sign → enroll → persist state) |
+| Proto `enrollmentBootstrapToken` | ❌ Not yet added (`Manager.ValidateBootstrapToken` ready)           |
+| Windows cert store / TPM signing | ❌ Planned — see [Future work](#future-work--windows-cert-store--tpm-backed-signing) |
+| Dashboard UI                     | ❌ Not started (tracked in `netbirdio/dashboard`)                   |
+| Continuous revalidation          | ❌ Not started (reserved `revalidation_interval` field on the integration) |
+| Encrypt `client_secret` at rest  | ❌ Follow-up — see [Known production gaps](#known-production-gaps)  |
+| Persist bootstrap tokens in DB   | ❌ Follow-up — required for HA / multi-instance deployments         |
+| `CertValidator.TrustRoots` plumb | ❌ Follow-up — currently operator-set; must be configured for prod  |
+
+## Troubleshooting
+
+Enrolment failures return a stable `code` and a human-readable `message`.
+Common failure modes and how to diagnose them:
+
+| Code                        | Most likely cause                                                  | Where to look                                                            |
+|-----------------------------|--------------------------------------------------------------------|--------------------------------------------------------------------------|
+| `integration_not_found`     | `tenant_id` mismatch — client sent a different tenant than was seeded | `GET /api/integrations/entra-device-auth`; compare with `--entra-tenant` |
+| `integration_disabled`      | `EntraDeviceAuth.enabled` is false                                 | Admin API; flip `enabled` back to `true`                                 |
+| `invalid_nonce`             | Clock skew, TTL expiry, or replay                                  | Check management server clock + TTL (60 s); pipe a fresh `/challenge`    |
+| `invalid_cert_chain`        | Cert expired, malformed, or (with `TrustRoots` set) does not chain to the configured root | `openssl x509 -in leaf.pem -noout -text`; verify the trust-root bundle   |
+| `invalid_signature`         | Private key mismatch with leaf cert, or wrong digest alg           | Confirm RSA-PSS / PKCS1v15 / ECDSA-DER signing; server rejects anything else |
+| `device_disabled`           | Device absent from Entra or `accountEnabled=false`                 | Entra admin center → Devices; confirm GUID matches cert CN               |
+| `device_not_compliant`      | Intune reports `complianceState != compliant`                      | Intune admin center → Devices; fix compliance or toggle `require_intune_compliant` off |
+| `no_mapping_matched`        | Device isn't in any mapped Entra group and fallback is off         | `GET /api/integrations/entra-device-auth/mappings`; add a mapping or enable tenant-only fallback |
+| `all_mappings_revoked`      | All matching mappings have `revoked=true`                          | Admin API; un-revoke one, or add a new mapping                           |
+| `all_mappings_expired`      | All matching mappings have passed their `expires_at`               | Admin API; extend or add a mapping                                       |
+| `group_lookup_unavailable`  | Graph `5xx` / throttling / token endpoint failure                  | Management server logs; Entra service health dashboard                   |
+| `already_enrolled`          | Peer with this WG pubkey already exists                            | Delete the stale peer, or regenerate the WG keypair on the client        |
+
+Client-side diagnostics:
+
+- `netbird entra-enroll` accepts the same `--log-level debug` flag as the rest of the CLI; enable it for full wire-level tracing of the challenge + enroll HTTP round-trip.
+- The enroll-tester in `tools/entra-test/enroll-tester/` is useful for isolating whether a failure is server-side or client-side — point it at the same management URL with the same PFX (minus the `.pfx` — the tester generates its own self-signed cert for the given device ID).
+
+Server-side diagnostics:
+
+- Every enrolment emits a `PeerAddedWithEntraDevice` activity event when it succeeds, and a standard log line on every rejection with the stable error code. Grep the management log for the code to find the exact request.
+- Graph calls are logged at `Debug`; switch the management server to `--log-level debug` to see the OAuth token + device lookup + transitive-group enumeration per enrolment.
+
+## Production readiness checklist
+
+Before exposing `/join/entra` to real devices, confirm all of the following:
+
+- [ ] Entra app registration created with admin-consented `Device.Read.All`, `GroupMember.Read.All`, and (if using compliance) `DeviceManagementManagedDevices.Read.All`.
+- [ ] Client secret rotated and stored via an encrypted-at-rest mechanism (see [Known production gaps](#known-production-gaps)). **Plaintext storage is the current default and MUST NOT be used for a production tenant.**
+- [ ] Intune PKCS Certificate profile deployed with `CN={{AAD_Device_ID}}` and a TPM-preferred KSP.
+- [ ] `CertValidator.TrustRoots` populated with the issuing CA(s) of the Intune certificate profile. With `TrustRoots == nil` the chain-verification step is skipped — acceptable only for dev / test.
+- [ ] `EntraDeviceAuth.mapping_resolution` explicitly set (don't rely on the default if you have overlapping group memberships).
+- [ ] At least one `EntraDeviceAuthMapping` row created — or `allow_tenant_only_fallback=true` with a meaningful `fallback_auto_groups` list.
+- [ ] `require_intune_compliant` decision made (on for zero-touch device-centric security, off for BYOD-ish deployments that only care about Entra group scope).
+- [ ] Management server is behind a reverse proxy that terminates TLS; if the proxy sets `X-Forwarded-For`, enable `Handler.TrustForwardedHeaders` in the wiring.
+- [ ] If running multi-instance management (HA / load-balanced): bootstrap-token persistence in DB is still pending (see Known production gaps). Until that follow-up lands, pin device enrolment traffic to a single management node or accept that a node restart between `/enroll` and the first gRPC `Login` invalidates the bootstrap.
+- [ ] Activity-log sink (Postgres table + any downstream SIEM) verified to capture `PeerAddedWithEntraDevice` events.
+- [ ] Monitoring / alerting on `management_log` for the 4xx/5xx enrolment error codes (especially `group_lookup_unavailable` which signals a Graph outage or throttling).
 
 ## Future work — Windows cert store + TPM-backed signing
 The PFX path is the supported production mechanism today. It works with
@@ -415,8 +516,8 @@ path remains the default / fallback so cross-platform deployments keep
 working.
 ## Further reading
 - **Local testing walkthrough**: `tools/entra-test/TESTING.md`
-- **In-process demo**:
+- **Package-level notes for server maintainers**: `management/server/integrations/entra_device/README.md`
+- **In-process demo** (zero dependencies; spins up the real handler):
   ```bash path=null start=null
   go run ./tools/entra-test/enroll-tester --demo -v
   ```
-- **Full design plan**: see the original design doc artifact (`create_plan`).
