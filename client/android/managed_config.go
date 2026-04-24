@@ -79,8 +79,12 @@ func (m *ManagedConfig) SetAdminURL(url string) {
 	m.adminURL = url
 }
 
-// SetPreSharedKey sets the WireGuard pre-shared key from MDM config
+// SetPreSharedKey sets the WireGuard pre-shared key from MDM config.
+// An empty string is treated as absent (no override).
 func (m *ManagedConfig) SetPreSharedKey(key string) {
+	if key == "" {
+		return
+	}
 	m.preSharedKey = &key
 }
 
@@ -120,11 +124,23 @@ func (m *ManagedConfig) HasConfig() bool {
 		m.disableAutoConn != nil
 }
 
+// hasPersistentConfig returns true if any config value that gets written to
+// the config file was set. The setup key is excluded because it is only used
+// for registration and is never persisted.
+func (m *ManagedConfig) hasPersistentConfig() bool {
+	return m.managementURL != "" ||
+		m.adminURL != "" ||
+		m.preSharedKey != nil ||
+		m.rosenpassEnabled != nil ||
+		m.rosenpassPerm != nil ||
+		m.disableAutoConn != nil
+}
+
 // Apply writes the MDM-managed configuration values to the config file at configPath.
 // Values provided by MDM override any existing user-set values.
 // The setup key is NOT written to the config file — it is used separately for registration.
 func (m *ManagedConfig) Apply(configPath string) error {
-	if !m.HasConfig() {
+	if !m.hasPersistentConfig() {
 		return nil
 	}
 
@@ -136,17 +152,17 @@ func (m *ManagedConfig) Apply(configPath string) error {
 
 	if m.managementURL != "" {
 		input.ManagementURL = m.managementURL
-		log.Infof("MDM: setting management URL")
+		log.Info("MDM: setting management URL")
 	}
 
 	if m.adminURL != "" {
 		input.AdminURL = m.adminURL
-		log.Infof("MDM: setting admin URL")
+		log.Info("MDM: setting admin URL")
 	}
 
 	if m.preSharedKey != nil {
 		input.PreSharedKey = m.preSharedKey
-		log.Infof("MDM: setting pre-shared key")
+		log.Info("MDM: setting pre-shared key")
 	}
 
 	if m.rosenpassEnabled != nil {

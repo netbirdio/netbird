@@ -1,6 +1,8 @@
 package android
 
 import (
+	"bytes"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -145,14 +147,49 @@ func TestManagedConfig_SetupKeyNotWrittenToConfig(t *testing.T) {
 		t.Fatalf("Apply failed: %v", err)
 	}
 
-	// The setup key should NOT be in the config file — it's only used for registration
+	// Verify via structured read that the config was written correctly
 	cfg, err := profilemanager.ReadConfig(cfgFile)
 	if err != nil {
 		t.Fatalf("ReadConfig failed: %v", err)
 	}
-	// Config has no SetupKey field, so if we got here without error, the key was correctly not written
 	if cfg.ManagementURL.String() != "https://example.com:443" {
 		t.Errorf("ManagementURL = %q, want %q", cfg.ManagementURL.String(), "https://example.com:443")
+	}
+
+	// Verify via raw file bytes that the setup key string is NOT in the config file
+	raw, err := os.ReadFile(cfgFile)
+	if err != nil {
+		t.Fatalf("ReadFile failed: %v", err)
+	}
+	if bytes.Contains(raw, []byte("secret-setup-key")) {
+		t.Error("setup key should not appear in the config file")
+	}
+}
+
+func TestManagedConfig_EmptyPreSharedKeyIgnored(t *testing.T) {
+	m := NewManagedConfig()
+	m.SetPreSharedKey("")
+	if m.preSharedKey != nil {
+		t.Error("empty pre-shared key should not be set")
+	}
+	if m.HasConfig() {
+		t.Error("HasConfig() should be false when only empty PSK was set")
+	}
+}
+
+func TestManagedConfig_SetupKeyOnlyDoesNotCreateConfig(t *testing.T) {
+	cfgFile := filepath.Join(t.TempDir(), "netbird.json")
+
+	m := NewManagedConfig()
+	m.SetSetupKey("some-key")
+	err := m.Apply(cfgFile)
+	if err != nil {
+		t.Fatalf("Apply failed: %v", err)
+	}
+
+	// Config file should NOT have been created since setup key is not persisted
+	if _, err := os.Stat(cfgFile); err == nil {
+		t.Error("config file should not be created when only setup key is set")
 	}
 }
 
