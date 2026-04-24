@@ -156,6 +156,7 @@ func init() {
 	rootCmd.AddCommand(debugCmd)
 	rootCmd.AddCommand(profileCmd)
 	rootCmd.AddCommand(exposeCmd)
+	rootCmd.AddCommand(entraEnrollCmd)
 
 	networksCMD.AddCommand(routesListCmd)
 	networksCMD.AddCommand(routesSelectCmd, routesDeselectCmd)
