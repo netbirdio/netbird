@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/netbirdio/netbird/management/server/types"
 )
 
 // PeerEnroller is the callback the Manager invokes after resolving a mapping
@@ -84,6 +86,9 @@ func (m *Manager) IssueChallenge(_ context.Context) (*ChallengeResponse, error) 
 
 // Enroll executes the full enrolment flow: nonce check, cert + signature,
 // Graph lookups, mapping resolution, peer creation, bootstrap token issuance.
+//
+// Each numbered step is extracted into its own helper to keep this function
+// at a reviewable size and bound its cognitive complexity.
 func (m *Manager) Enroll(ctx context.Context, req *EnrollRequest) (*EnrollResponse, error) {
 	if req == nil {
 		return nil, NewError(CodeInternal, "nil request", nil)
@@ -92,89 +97,141 @@ func (m *Manager) Enroll(ctx context.Context, req *EnrollRequest) (*EnrollRespon
 		return nil, NewError(CodeIntegrationNotFound, "tenant_id is required", nil)
 	}
 
-	// 1. Locate integration config by tenant.
-	auth, err := m.Store.GetEntraDeviceAuthByTenant(ctx, req.TenantID)
+	auth, err := m.loadEnabledIntegration(ctx, req.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	nonceBytes, err := m.consumeNonce(req.Nonce)
+	if err != nil {
+		return nil, err
+	}
+	identity, err := m.validateCertAndDeviceID(req, nonceBytes)
+	if err != nil {
+		return nil, err
+	}
+	if err := m.verifyWithGraph(ctx, auth, identity); err != nil {
+		return nil, err
+	}
+	resolved, err := m.resolveMappingForAccount(ctx, auth, identity)
+	if err != nil {
+		return nil, err
+	}
+	result, err := m.enrollPeer(ctx, auth, identity, resolved, req)
+	if err != nil {
+		return nil, err
+	}
+	token, err := m.issueBootstrapToken(ctx, result.PeerID)
+	if err != nil {
+		return nil, err
+	}
+	return &EnrollResponse{
+		PeerID:                   result.PeerID,
+		EnrollmentBootstrapToken: token,
+		ResolvedAutoGroups:       resolved.AutoGroups,
+		MatchedMappingIDs:        resolved.MatchedMappingIDs,
+		ResolutionMode:           resolved.ResolutionMode,
+		NetbirdConfig:            result.NetbirdConfig,
+		PeerConfig:               result.PeerConfig,
+		Checks:                   result.Checks,
+	}, nil
+}
+
+// loadEnabledIntegration fetches the EntraDeviceAuth config for a tenant
+// and verifies it is enabled.
+func (m *Manager) loadEnabledIntegration(ctx context.Context, tenantID string) (*types.EntraDeviceAuth, error) {
+	auth, err := m.Store.GetEntraDeviceAuthByTenant(ctx, tenantID)
 	if err != nil {
 		return nil, NewError(CodeInternal, "failed to load integration", err)
 	}
 	if auth == nil {
 		return nil, NewError(CodeIntegrationNotFound,
-			fmt.Sprintf("no Entra device auth integration is configured for tenant %s", req.TenantID), nil)
+			fmt.Sprintf("no Entra device auth integration is configured for tenant %s", tenantID), nil)
 	}
 	if !auth.Enabled {
 		return nil, NewError(CodeIntegrationDisabled,
 			"Entra device auth integration is disabled for this tenant", nil)
 	}
+	return auth, nil
+}
 
-	// 2. Consume nonce (single-use; this also ensures the nonce was issued by
-	//    this server instance and has not yet expired).
-	ok, err := m.NonceStore.Consume(strings.TrimSpace(req.Nonce))
+// consumeNonce atomically marks the supplied nonce as used and returns its
+// raw bytes (what the signer signed over).
+func (m *Manager) consumeNonce(encoded string) ([]byte, error) {
+	ok, err := m.NonceStore.Consume(strings.TrimSpace(encoded))
 	if err != nil {
 		return nil, NewError(CodeInternal, "nonce store error", err)
 	}
 	if !ok {
 		return nil, NewError(CodeInvalidNonce, "nonce is unknown, already consumed, or expired", nil)
 	}
-	nonceBytes, err := base64.RawURLEncoding.DecodeString(req.Nonce)
-	if err != nil {
-		// Clients sometimes use the padded URL or Std alphabets. Fall back.
-		if b, e2 := base64.StdEncoding.DecodeString(req.Nonce); e2 == nil {
-			nonceBytes = b
-		} else {
-			return nil, NewError(CodeInvalidNonce, "nonce is not base64", err)
-		}
-	}
+	return decodeNonceBytes(encoded)
+}
 
-	// 3. Cert + proof-of-possession.
+// decodeNonceBytes tolerates both RawURL and Std base64 alphabets.
+func decodeNonceBytes(encoded string) ([]byte, error) {
+	if b, err := base64.RawURLEncoding.DecodeString(encoded); err == nil {
+		return b, nil
+	}
+	if b, err := base64.StdEncoding.DecodeString(encoded); err == nil {
+		return b, nil
+	}
+	return nil, NewError(CodeInvalidNonce, "nonce is not base64", nil)
+}
+
+// validateCertAndDeviceID verifies the cert chain + signature proof and
+// cross-checks the client-supplied device id when one is present.
+func (m *Manager) validateCertAndDeviceID(req *EnrollRequest, nonceBytes []byte) (*DeviceIdentity, error) {
 	identity, verr := m.Cert.Validate(req.CertChain, nonceBytes, req.NonceSignature)
 	if verr != nil {
 		return nil, verr
 	}
-	// Optional cross-check: if client supplied EntraDeviceID it must match.
 	if req.EntraDeviceID != "" && !strings.EqualFold(req.EntraDeviceID, identity.EntraDeviceID) {
 		return nil, NewError(CodeInvalidCertChain,
 			fmt.Sprintf("device id mismatch: cert=%s, request=%s", identity.EntraDeviceID, req.EntraDeviceID), nil)
 	}
+	return identity, nil
+}
 
-	// 4. Graph: confirm device + collect groups (+ optional compliance).
+// verifyWithGraph talks to Microsoft Graph to confirm the device exists,
+// is enabled, enumerate groups, and (optionally) verify Intune compliance.
+func (m *Manager) verifyWithGraph(ctx context.Context, auth *types.EntraDeviceAuth, identity *DeviceIdentity) error {
 	graph := m.NewGraph(auth.TenantID, auth.ClientID, auth.ClientSecret)
 
-	device, gerr := graph.Device(ctx, identity.EntraDeviceID)
-	if gerr != nil {
-		return nil, NewError(CodeGroupLookupFailed,
-			"graph device lookup failed", gerr)
+	device, err := graph.Device(ctx, identity.EntraDeviceID)
+	if err != nil {
+		return NewError(CodeGroupLookupFailed, "graph device lookup failed", err)
 	}
 	if device == nil {
-		return nil, NewError(CodeDeviceDisabled,
-			"device not found in Entra; has it been deleted?", nil)
+		return NewError(CodeDeviceDisabled, "device not found in Entra; has it been deleted?", nil)
 	}
 	if !device.AccountEnabled {
-		return nil, NewError(CodeDeviceDisabled,
-			"device is disabled in Entra", nil)
+		return NewError(CodeDeviceDisabled, "device is disabled in Entra", nil)
 	}
 	identity.AccountEnabled = true
 
-	groups, gerr := graph.TransitiveMemberOf(ctx, device.ID)
-	if gerr != nil {
-		return nil, NewError(CodeGroupLookupFailed,
-			"graph transitiveMemberOf failed", gerr)
+	groups, err := graph.TransitiveMemberOf(ctx, device.ID)
+	if err != nil {
+		return NewError(CodeGroupLookupFailed, "graph transitiveMemberOf failed", err)
 	}
 	identity.GroupIDs = groups
 
-	if auth.RequireIntuneCompliant {
-		compliant, cerr := graph.IsCompliant(ctx, identity.EntraDeviceID)
-		if cerr != nil {
-			return nil, NewError(CodeGroupLookupFailed,
-				"graph Intune compliance lookup failed", cerr)
-		}
-		if !compliant {
-			return nil, NewError(CodeDeviceNotCompliant,
-				"device is not compliant in Intune", nil)
-		}
-		identity.IsCompliant = true
+	if !auth.RequireIntuneCompliant {
+		return nil
 	}
+	compliant, err := graph.IsCompliant(ctx, identity.EntraDeviceID)
+	if err != nil {
+		return NewError(CodeGroupLookupFailed, "graph Intune compliance lookup failed", err)
+	}
+	if !compliant {
+		return NewError(CodeDeviceNotCompliant, "device is not compliant in Intune", nil)
+	}
+	identity.IsCompliant = true
+	return nil
+}
 
-	// 5. Resolve the mapping.
+// resolveMappingForAccount reads the account's mapping rows and runs the
+// resolver against the device's Entra groups.
+func (m *Manager) resolveMappingForAccount(ctx context.Context, auth *types.EntraDeviceAuth, identity *DeviceIdentity) (*ResolvedMapping, error) {
 	mappings, err := m.Store.ListEntraDeviceMappings(ctx, auth.AccountID)
 	if err != nil {
 		return nil, NewError(CodeInternal, "failed to list mappings", err)
@@ -183,12 +240,16 @@ func (m *Manager) Enroll(ctx context.Context, req *EnrollRequest) (*EnrollRespon
 	if verr != nil {
 		return nil, verr
 	}
+	return resolved, nil
+}
 
-	// 6. Create the peer.
+// enrollPeer hands the resolved configuration off to the AccountManager-side
+// PeerEnroller (creates the peer, assigns auto-groups, etc).
+func (m *Manager) enrollPeer(ctx context.Context, auth *types.EntraDeviceAuth, identity *DeviceIdentity, resolved *ResolvedMapping, req *EnrollRequest) (*EnrollPeerResult, error) {
 	if m.PeerEnroller == nil {
 		return nil, NewError(CodeInternal, "server not configured to enroll peers", nil)
 	}
-	enrollIn := EnrollPeerInput{
+	in := EnrollPeerInput{
 		AccountID:           auth.AccountID,
 		EntraDeviceID:       identity.EntraDeviceID,
 		AutoGroups:          resolved.AutoGroups,
@@ -205,36 +266,31 @@ func (m *Manager) Enroll(ctx context.Context, req *EnrollRequest) (*EnrollRespon
 		ConnectionIP:        req.ConnectionIP,
 	}
 	if len(resolved.MatchedMappingIDs) > 0 {
-		enrollIn.EntraDeviceMapping = resolved.MatchedMappingIDs[0]
+		in.EntraDeviceMapping = resolved.MatchedMappingIDs[0]
 	}
-	result, err := m.PeerEnroller.EnrollEntraDevicePeer(ctx, enrollIn)
+	result, err := m.PeerEnroller.EnrollEntraDevicePeer(ctx, in)
 	if err != nil {
 		if e, ok := AsError(err); ok {
 			return nil, e
 		}
 		return nil, NewError(CodeInternal, "peer enrolment failed", err)
 	}
+	return result, nil
+}
 
-	// 7. Issue bootstrap token.
-	tokenBytes := make([]byte, 32)
-	if _, err := rand.Read(tokenBytes); err != nil {
-		return nil, NewError(CodeInternal, "failed to generate bootstrap token", err)
+// issueBootstrapToken mints and persists a one-shot token the client can
+// echo on its first gRPC Login to close the race window between enrolment
+// and the WG-pubkey-based identity check.
+func (m *Manager) issueBootstrapToken(ctx context.Context, peerID string) (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", NewError(CodeInternal, "failed to generate bootstrap token", err)
 	}
-	token := hex.EncodeToString(tokenBytes)
-	if err := m.Store.StoreBootstrapToken(ctx, result.PeerID, token); err != nil {
-		return nil, NewError(CodeInternal, "failed to persist bootstrap token", err)
+	token := hex.EncodeToString(buf)
+	if err := m.Store.StoreBootstrapToken(ctx, peerID, token); err != nil {
+		return "", NewError(CodeInternal, "failed to persist bootstrap token", err)
 	}
-
-	return &EnrollResponse{
-		PeerID:                   result.PeerID,
-		EnrollmentBootstrapToken: token,
-		ResolvedAutoGroups:       resolved.AutoGroups,
-		MatchedMappingIDs:        resolved.MatchedMappingIDs,
-		ResolutionMode:           resolved.ResolutionMode,
-		NetbirdConfig:            result.NetbirdConfig,
-		PeerConfig:               result.PeerConfig,
-		Checks:                   result.Checks,
-	}, nil
+	return token, nil
 }
 
 // ValidateBootstrapToken is called by the gRPC Login path to verify the

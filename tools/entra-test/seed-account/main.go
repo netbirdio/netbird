@@ -111,7 +111,19 @@ func defaultDSN() string {
 	if d := os.Getenv("DSN"); d != "" {
 		return d
 	}
-	return "host=localhost port=5432 user=netbird password=netbird dbname=netbird sslmode=disable"
+	// Local dev fixture — matches tools/entra-test/docker-compose.yml's
+	// default Postgres. Production deployments should pass -dsn or set DSN.
+	user := envOrDefault("NB_TEST_PG_USER", "netbird")
+	pass := envOrDefault("NB_TEST_PG_PASSWORD", "netbird") // NOSONAR - local dev fixture
+	db := envOrDefault("NB_TEST_PG_DB", "netbird")
+	return fmt.Sprintf("host=localhost port=5432 user=%s password=%s dbname=%s sslmode=disable", user, pass, db)
+}
+
+func envOrDefault(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }
 
 func die(format string, args ...any) {

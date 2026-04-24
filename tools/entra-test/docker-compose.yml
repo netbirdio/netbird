@@ -17,9 +17,11 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: netbird
-      POSTGRES_USER: netbird
-      POSTGRES_PASSWORD: netbird
+      # Local test-harness credentials. Override via a .env file next to
+      # this compose file for non-default setups. Never reused in prod.
+      POSTGRES_DB: ${NB_TEST_PG_DB:-netbird}
+      POSTGRES_USER: ${NB_TEST_PG_USER:-netbird}
+      POSTGRES_PASSWORD: ${NB_TEST_PG_PASSWORD:-netbird} # NOSONAR - local dev fixture
     ports:
       # Exposed so local tooling (seed-account, psql, etc.) can reach it.
       # Only for the test harness; don't do this in production.
@@ -43,7 +45,8 @@ services:
       # NetBird reads the store backend from these two env vars (or the
       # StoreConfig block in management.json).
       NB_STORE_ENGINE: postgres
-      NB_STORE_ENGINE_POSTGRES_DSN: "host=postgres user=netbird password=netbird dbname=netbird port=5432 sslmode=disable"
+      # Built from the same override vars so the mgmt side matches Postgres.
+      NB_STORE_ENGINE_POSTGRES_DSN: "host=postgres user=${NB_TEST_PG_USER:-netbird} password=${NB_TEST_PG_PASSWORD:-netbird} dbname=${NB_TEST_PG_DB:-netbird} port=5432 sslmode=disable" # NOSONAR - local dev fixture
       NB_DEVEL: "true"
     ports:
       # Modern NetBird multiplexes gRPC + HTTP on the same port via cmux.
