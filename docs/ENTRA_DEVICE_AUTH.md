@@ -358,8 +358,30 @@ work is all client-side (Phase 2) and dashboard (Phase 4).
 | Dashboard UI (Phase 4)         | ❌ Not started                                           |
 | Continuous revalidation        | ❌ Not started (Phase 5)                                 |
 
+## Future work — Windows cert store + TPM-backed signing
+The PFX path is the supported production mechanism today. It works with
+Intune's PKCS Certificate profile (which can deploy PFX files to both
+Windows and macOS), and the server accepts any RSA/ECDSA cert the client
+presents.
+A future enhancement will add a Windows-native cert store provider that:
+- reads the device certificate from `Cert:\LocalMachine\My` (or `CurrentUser\My`)
+- filters by Issuer CN substring (e.g. `MS-Organization-Access`)
+- signs the server nonce via CNG / `NCryptSignHash` without ever extracting
+  the private key (TPM-protected)
+This was scoped for this branch but not landed. The two viable implementation
+routes are:
+1. **CGO + `github.com/github/smimesign/certstore`** (widely deployed).
+   Requires mingw-w64 in the Windows build chain — substantial build-
+   infrastructure change.
+2. **Pure-Go syscalls via `golang.org/x/sys/windows` + a hand-rolled
+   `ncrypt.dll` wrapper.** Keeps `CGO_ENABLED=0`, ~300-400 lines of careful
+   Win32 code, needs testing against a real TPM-backed cert.
+The `CertProvider` interface in `client/internal/enroll/entradevice/provider.go`
+is deliberately shaped so either implementation drops in as a second
+provider next to `PFXProvider` without touching the enroller. The PFX
+path remains the default / fallback so cross-platform deployments keep
+working.
 ## Further reading
-
 - **Local testing walkthrough**: `tools/entra-test/TESTING.md`
 - **In-process demo**:
   ```bash path=null start=null

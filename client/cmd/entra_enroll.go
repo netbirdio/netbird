@@ -19,6 +19,11 @@ import (
 
 // Local flags for the subcommand (kept here rather than on the root so they
 // don't clutter every other netbird subcommand).
+// NOTE: Windows cert-store + TPM-backed CNG signing is the intended
+// production path (see docs/ENTRA_DEVICE_AUTH.md "Future work" section).
+// It needs either CGO + mingw-w64 in the build chain (smimesign/certstore)
+// or a hand-rolled pure-Go wrapper over ncrypt.dll. Neither is in this
+// commit; PFX is the currently-supported cert source.
 var (
 	entraPFXPath     string
 	entraPFXPassword string
@@ -191,10 +196,10 @@ Example:
 var entraForce bool
 
 func validateEntraFlags() error {
-	switch {
-	case entraPFXPath == "":
+	if entraPFXPath == "" {
 		return fmt.Errorf("--entra-pfx is required")
-	case entraTenantID == "":
+	}
+	if entraTenantID == "" {
 		return fmt.Errorf("--entra-tenant is required")
 	}
 	return nil
@@ -257,7 +262,9 @@ func filepathDir(p string) string {
 
 func init() {
 	entraEnrollCmd.Flags().StringVar(&entraPFXPath, "entra-pfx", "",
-		"Path to the PKCS#12 (.pfx) file containing the device certificate + private key")
+		"Path to the PKCS#12 (.pfx) file containing the device certificate + private key. "+
+			"Deploy this via an Intune PKCS Certificate profile (supports Windows + macOS). "+
+			"Cert-store + TPM-backed signing is a planned follow-up.")
 	entraEnrollCmd.Flags().StringVar(&entraPFXPassword, "entra-pfx-password", "",
 		"Password for the PFX file (prefer --entra-pfx-password-env to avoid leaking it via ps/history)")
 	entraEnrollCmd.Flags().StringVar(&entraPFXPassEnv, "entra-pfx-password-env", "NB_ENTRA_PFX_PASSWORD",
