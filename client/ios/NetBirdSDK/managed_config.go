@@ -115,6 +115,11 @@ func (m *ManagedConfig) GetSetupKey() string {
 	return m.setupKey
 }
 
+// GetManagementURL returns the MDM-provided management URL
+func (m *ManagedConfig) GetManagementURL() string {
+	return m.managementURL
+}
+
 // HasConfig returns true if any configuration value was set by MDM
 func (m *ManagedConfig) HasConfig() bool {
 	return m.managementURL != "" ||
