@@ -400,6 +400,7 @@ func TestDeleteIdentityProvider(t *testing.T) {
 }
 
 func TestToAPIResponse(t *testing.T) {
+	pkce := true
 	idp := &types.IdentityProvider{
 		ID:           "test-id",
 		Name:         "Test IDP",
@@ -407,6 +408,8 @@ func TestToAPIResponse(t *testing.T) {
 		Issuer:       "https://accounts.google.com",
 		ClientID:     "client-id",
 		ClientSecret: "should-not-be-returned",
+		PKCE:         pkce,
+		JWKSURL:      "https://example.com/jwks",
 	}
 
 	response := toAPIResponse(idp)
@@ -416,16 +419,22 @@ func TestToAPIResponse(t *testing.T) {
 	assert.Equal(t, api.IdentityProviderTypeGoogle, response.Type)
 	assert.Equal(t, "https://accounts.google.com", response.Issuer)
 	assert.Equal(t, "client-id", response.ClientId)
+	assert.Equal(t, pkce, *response.Pkce)
+	assert.Equal(t, "https://example.com/jwks", *response.JwksUrl)
 	// Note: ClientSecret is not included in response type by design
 }
 
 func TestFromAPIRequest(t *testing.T) {
+	pkce := true
+	jwksURL := "https://example.com/jwks"
 	req := &api.IdentityProviderRequest{
 		Name:         "New IDP",
 		Type:         api.IdentityProviderTypeOkta,
 		Issuer:       "https://dev-123456.okta.com",
 		ClientId:     "okta-client-id",
 		ClientSecret: "okta-client-secret",
+		Pkce:         &pkce,
+		JwksUrl:      &jwksURL,
 	}
 
 	idp := fromAPIRequest(req)
@@ -435,4 +444,6 @@ func TestFromAPIRequest(t *testing.T) {
 	assert.Equal(t, "https://dev-123456.okta.com", idp.Issuer)
 	assert.Equal(t, "okta-client-id", idp.ClientID)
 	assert.Equal(t, "okta-client-secret", idp.ClientSecret)
+	assert.Equal(t, pkce, idp.PKCE)
+	assert.Equal(t, jwksURL, idp.JWKSURL)
 }

@@ -2939,14 +2939,6 @@ components:
           description: OAuth2 client ID
           type: string
           example: 123456789.apps.googleusercontent.com
-        pkce:
-          description: Enables Proof Key for Code Exchange for the upstream OIDC provider
-          type: boolean
-          example: true
-        jwks_url:
-          description: URL to the JSON Web Key Set of the identity provider
-          type: string
-          example: https://accounts.google.com/o/oauth2/v1/certs
       required:
         - type
         - name
@@ -2973,14 +2965,6 @@ components:
           description: OAuth2 client secret
           type: string
           example: secret123
-        pkce:
-          description: Enables Proof Key for Code Exchange for the upstream OIDC provider
-          type: boolean
-          example: true
-        jwks_url:
-          description: URL to the JSON Web Key Set of the identity provider
-          type: string
-          example: https://accounts.google.com/o/oauth2/v1/certs
       required:
         - type
         - name
