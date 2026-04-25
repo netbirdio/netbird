@@ -59,6 +59,10 @@ jobs:
           copyback: false
           release: "15.0"
           prepare: |
+            # Refresh pkg to handle metadata format changes on FreeBSD 15.0
+            env ASSUME_ALWAYS_YES=yes pkg bootstrap -f
+            pkg update -f
+
             # Install required packages
             pkg install -y git curl portlint go
 
