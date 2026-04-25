@@ -65,7 +65,7 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	if err != nil {
 		if errors.Is(err, relayClient.ErrConnAlreadyExists) {
 			w.log.Infof("relay conn already exists, closing stale conn and retrying")
-			w.relayManager.CloseConnByPeerKey(w.config.Key)
+			w.relayManager.CloseConnByPeerKey(srv, w.config.Key)
 			relayedConn, err = w.relayManager.OpenConn(w.peerCtx, srv, w.config.Key)
 			if err != nil {
 				w.log.Errorf("failed to reopen connection via Relay after closing stale: %s", err)

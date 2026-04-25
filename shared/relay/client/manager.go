@@ -148,15 +148,29 @@ func (m *Manager) OpenConn(ctx context.Context, serverAddress, peerKey string) (
 }
 
 // CloseConnByPeerKey closes an existing relay connection for the given peer key
-// so that a subsequent OpenConn can create a fresh one.
-func (m *Manager) CloseConnByPeerKey(peerKey string) {
+// on the relay client associated with serverAddress, so that a subsequent
+// OpenConn can create a fresh one.
+func (m *Manager) CloseConnByPeerKey(serverAddress, peerKey string) {
 	m.relayClientMu.RLock()
-	defer m.relayClientMu.RUnlock()
+	homeClient := m.relayClient
+	m.relayClientMu.RUnlock()
 
-	if m.relayClient == nil {
+	if homeClient == nil {
 		return
 	}
-	m.relayClient.CloseConnByPeerKey(peerKey)
+
+	homeAddr, err := homeClient.ServerInstanceURL()
+	if err == nil && homeAddr == serverAddress {
+		homeClient.CloseConnByPeerKey(peerKey)
+		return
+	}
+
+	m.relayClientsMutex.RLock()
+	rt, ok := m.relayClients[serverAddress]
+	m.relayClientsMutex.RUnlock()
+	if ok && rt.relayClient != nil {
+		rt.relayClient.CloseConnByPeerKey(peerKey)
+	}
 }
 
 // Ready returns true if the home Relay client is connected to the relay server.
