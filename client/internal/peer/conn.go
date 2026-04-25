@@ -633,6 +633,15 @@ func (conn *Conn) onWGDisconnected() {
 			conn.workerICE.ResetSessionID()
 		}
 	case conntype.ICEP2P, conntype.ICETurn:
+		// WorkerICE.Close() sets agent=nil before pion's ICE library fires
+		// ConnectionStateClosed. By the time onConnectionStateChange runs
+		// closeAgent(), the w.agent==agent guard fails and the session ID
+		// is not rotated. Without rotation, the next offer carries the same
+		// session ID and the remote peer skips ICE agent recreation in
+		// OnNewOffer (sessionID match), reusing stale candidates from the
+		// previous network state. Rotate explicitly here so the remote peer
+		// always recreates its agent after a WG timeout on ICE.
+		conn.workerICE.ResetSessionID()
 		conn.workerICE.Close()
 	default:
 		conn.Log.Debugf("No active connection to close on WG timeout")
