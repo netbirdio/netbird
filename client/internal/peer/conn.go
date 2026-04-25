@@ -619,6 +619,15 @@ func (conn *Conn) onWGDisconnected() {
 	case conntype.Relay:
 		conn.workerRelay.CloseConn()
 		conn.handleRelayDisconnectedLocked()
+		// When running over relay, workerICE is not closed so its session ID is
+		// never rotated. The next offer would carry the same session ID, causing
+		// the remote peer to skip ICE agent recreation (it already has an agent
+		// for that session) and reuse stale candidates — preventing recovery
+		// after a NAT IP change (e.g. PPPoE reconnect). Force a new session ID
+		// so the remote peer creates a fresh ICE agent with current candidates.
+		if conn.workerICE != nil {
+			conn.workerICE.ResetSessionID()
+		}
 	case conntype.ICEP2P, conntype.ICETurn:
 		conn.workerICE.Close()
 	default:
