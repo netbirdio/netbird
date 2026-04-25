@@ -617,6 +617,10 @@ func (conn *Conn) onWGDisconnected() {
 	// Close the active connection based on current priority
 	switch conn.currentConnPriority {
 	case conntype.Relay:
+		// Mark the relay conn entry as stale so the next OnNewOffer closes
+		// and reopens it instead of reusing a dead pipe. MarkStale covers
+		// the case where CloseConn is a no-op (e.g. relayedConn already nil).
+		conn.workerRelay.MarkStale()
 		conn.workerRelay.CloseConn()
 		conn.handleRelayDisconnectedLocked()
 		// When running over relay, workerICE is not closed so its session ID is
