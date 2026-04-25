@@ -63,6 +63,11 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 
 	relayedConn, err := w.relayManager.OpenConn(w.peerCtx, srv, w.config.Key)
 	if err != nil {
+		// ErrConnAlreadyExists here means the conn map was not cleaned up after the
+		// previous session (e.g. remote NAT IP change with no relay-level close event).
+		// Guard only triggers OnNewOffer after detecting a disconnect, so the existing
+		// entry is stale by contract. Close it and open a fresh conn to match the
+		// remote peer's state.
 		if errors.Is(err, relayClient.ErrConnAlreadyExists) {
 			w.log.Infof("relay conn already exists, closing stale conn and retrying")
 			w.relayManager.CloseConnByPeerKey(srv, w.config.Key)
