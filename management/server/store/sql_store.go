@@ -119,6 +119,13 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 	log.WithContext(ctx).Infof("Set max open db connections to %d, max idle to %d, max lifetime to %v, max idle time to %v",
 		conns, conns, time.Hour, 3*time.Minute)
 
+	// Periodically log pool stats so we can see saturation in the regular
+	// management.log alongside the fast-path timing lines. Disable by setting
+	// NB_SQL_POOL_STATS_INTERVAL=0; default 30s.
+	if interval := poolStatsInterval(); interval > 0 {
+		go logSqlPoolStats(ctx, sql, string(storeEngine), interval)
+	}
+
 	if skipMigration {
 		log.WithContext(ctx).Infof("skipping migration")
 		return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1, transactionTimeout: transactionTimeout}, nil
@@ -5745,4 +5752,60 @@ func (s *SqlStore) GetRoutingPeerNetworks(_ context.Context, accountID, peerID s
 	}
 
 	return names, nil
+}
+
+// poolStatsInterval reads the polling cadence from NB_SQL_POOL_STATS_INTERVAL
+// (Go duration string, e.g. "30s"). Returns 0 to disable the loop. Default
+// is 30s — small enough to catch a saturation event in a Grafana panel
+// scraping logs, large enough to avoid log spam.
+func poolStatsInterval() time.Duration {
+	v := os.Getenv("NB_SQL_POOL_STATS_INTERVAL")
+	if v == "" {
+		return 30 * time.Second
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return 30 * time.Second
+	}
+	return d
+}
+
+// logSqlPoolStats periodically logs database/sql pool stats so saturation is
+// visible in management.log. Logs the deltas of WaitCount and WaitDuration
+// (both are cumulative counters in db.Stats) so each line is interpretable
+// without subtracting against the previous one.
+//
+// Format mirrors the existing fast-path timing lines:
+//
+//	db pool: engine=postgres open=10 in_use=8 idle=2 wait_delta=42 wait_dur_delta=1.2s max=10
+//
+// At INFO level when waits accumulate (real saturation signal), DEBUG when
+// the pool is healthy.
+func logSqlPoolStats(ctx context.Context, db *sql.DB, engine string, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	var lastWaitCount int64
+	var lastWaitDuration time.Duration
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s := db.Stats()
+			waitDelta := s.WaitCount - lastWaitCount
+			durDelta := s.WaitDuration - lastWaitDuration
+			lastWaitCount = s.WaitCount
+			lastWaitDuration = s.WaitDuration
+
+			line := fmt.Sprintf("db pool: engine=%s open=%d in_use=%d idle=%d wait_delta=%d wait_dur_delta=%s max=%d",
+				engine, s.OpenConnections, s.InUse, s.Idle, waitDelta, durDelta, s.MaxOpenConnections)
+			if waitDelta > 0 {
+				log.Warnf("%s", line)
+			} else {
+				log.Debugf("%s", line)
+			}
+		}
+	}
 }
