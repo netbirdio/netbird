@@ -25,11 +25,33 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     go mod download
 
-# Copy the entire repo into the build stage. This is a dev-only harness
-# image; no secrets are expected to live in the source tree and there is no
-# production layer that ships this COPY — see management/Dockerfile for the
-# release build path used by goreleaser.
-COPY . . # NOSONAR
+# Copy each top-level Go source directory explicitly rather than the entire
+# repository root. A bare `COPY . .` would pull in `.git/`, `.github/`,
+# `infrastructure_files/`, release artefacts, etc. — and SonarCloud's
+# docker:S6470 rule rightly flags that as a hotspot for accidentally adding
+# sensitive data. The list below is exactly what `go build ./management`
+# requires; if you add a new top-level Go module here, append it.
+COPY base62/         base62/
+COPY client/         client/
+COPY combined/       combined/
+COPY dns/            dns/
+COPY encryption/     encryption/
+COPY flow/           flow/
+COPY formatter/      formatter/
+COPY idp/            idp/
+COPY management/     management/
+COPY monotime/       monotime/
+COPY proxy/          proxy/
+COPY relay/          relay/
+COPY route/          route/
+COPY shared/         shared/
+COPY sharedsock/     sharedsock/
+COPY signal/         signal/
+COPY stun/           stun/
+COPY upload-server/  upload-server/
+COPY util/           util/
+COPY version/        version/
+COPY versioninfo.json ./
 
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \

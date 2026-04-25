@@ -74,128 +74,179 @@ const (
 	rateLimitingRPMKey     = "NB_API_RATE_LIMITING_RPM"
 )
 
+// APIHandlerOptions bundles the dependencies NewAPIHandler needs.
+//
+// Aggregating these into a single struct keeps NewAPIHandler under
+// SonarCloud's go:S107 (>7 parameters) limit and reduces the cognitive
+// complexity SonarCloud measures via go:S3776. Callers populate the struct
+// once during application bootstrap or test setup and pass it in by value.
+type APIHandlerOptions struct {
+	AccountManager                account.Manager
+	NetworksManager               nbnetworks.Manager
+	ResourceManager               resources.Manager
+	RouterManager                 routers.Manager
+	GroupsManager                 nbgroups.Manager
+	LocationManager               geolocation.Geolocation
+	AuthManager                   auth.Manager
+	AppMetrics                    telemetry.AppMetrics
+	IntegratedValidator           integrated_validator.IntegratedValidator
+	ProxyController               port_forwarding.Controller
+	PermissionsManager            permissions.Manager
+	PeersManager                  nbpeers.Manager
+	SettingsManager               settings.Manager
+	ZonesManager                  zones.Manager
+	RecordsManager                records.Manager
+	NetworkMapController          network_map.Controller
+	IdpManager                    idpmanager.Manager
+	ServiceManager                service.Manager
+	ReverseProxyDomainManager     *manager.Manager
+	ReverseProxyAccessLogsManager accesslogs.Manager
+	ProxyGRPCServer               *nbgrpc.ProxyServiceServer
+	TrustedHTTPProxies            []netip.Prefix
+}
+
 // NewAPIHandler creates the Management service HTTP API handler registering all the available endpoints.
-func NewAPIHandler(ctx context.Context, accountManager account.Manager, networksManager nbnetworks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation, authManager auth.Manager, appMetrics telemetry.AppMetrics, integratedValidator integrated_validator.IntegratedValidator, proxyController port_forwarding.Controller, permissionsManager permissions.Manager, peersManager nbpeers.Manager, settingsManager settings.Manager, zManager zones.Manager, rManager records.Manager, networkMapController network_map.Controller, idpManager idpmanager.Manager, serviceManager service.Manager, reverseProxyDomainManager *manager.Manager, reverseProxyAccessLogsManager accesslogs.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, trustedHTTPProxies []netip.Prefix) (http.Handler, error) {
-
-	// Register bypass paths for unauthenticated endpoints
-	if err := bypass.AddBypassPath("/api/instance"); err != nil {
-		return nil, fmt.Errorf("failed to add bypass path: %w", err)
-	}
-	if err := bypass.AddBypassPath("/api/setup"); err != nil {
-		return nil, fmt.Errorf("failed to add bypass path: %w", err)
-	}
-	// Public invite endpoints (tokens start with nbi_)
-	if err := bypass.AddBypassPath("/api/users/invites/nbi_*"); err != nil {
-		return nil, fmt.Errorf("failed to add bypass path: %w", err)
-	}
-	if err := bypass.AddBypassPath("/api/users/invites/nbi_*/accept"); err != nil {
-		return nil, fmt.Errorf("failed to add bypass path: %w", err)
-	}
-	// Entra device enrolment endpoints live on /join/entra directly on the
-	// root router — the authMiddleware is only applied to the /api
-	// subrouter, so these paths never flow through it and do not require a
-	// bypass registration.
-	// OAuth callback for proxy authentication
-	if err := bypass.AddBypassPath(types.ProxyCallbackEndpointFull); err != nil {
-		return nil, fmt.Errorf("failed to add bypass path: %w", err)
+func NewAPIHandler(ctx context.Context, opts APIHandlerOptions) (http.Handler, error) {
+	if err := addBypassPaths(); err != nil {
+		return nil, err
 	}
 
-	var rateLimitingConfig *middleware.RateLimiterConfig
-	if os.Getenv(rateLimitingEnabledKey) == "true" {
-		rpm := 6
-		if v := os.Getenv(rateLimitingRPMKey); v != "" {
-			value, err := strconv.Atoi(v)
-			if err != nil {
-				log.Warnf("parsing %s env var: %v, using default %d", rateLimitingRPMKey, err, rpm)
-			} else {
-				rpm = value
-			}
-		}
-
-		burst := 500
-		if v := os.Getenv(rateLimitingBurstKey); v != "" {
-			value, err := strconv.Atoi(v)
-			if err != nil {
-				log.Warnf("parsing %s env var: %v, using default %d", rateLimitingBurstKey, err, burst)
-			} else {
-				burst = value
-			}
-		}
-
-		rateLimitingConfig = &middleware.RateLimiterConfig{
-			RequestsPerMinute: float64(rpm),
-			Burst:             burst,
-			CleanupInterval:   6 * time.Hour,
-			LimiterTTL:        24 * time.Hour,
-		}
-	}
+	rateLimitingConfig := buildRateLimiterFromEnv(ctx)
 
 	authMiddleware := middleware.NewAuthMiddleware(
-		authManager,
-		accountManager.GetAccountIDFromUserAuth,
-		accountManager.SyncUserJWTGroups,
-		accountManager.GetUserFromUserAuth,
+		opts.AuthManager,
+		opts.AccountManager.GetAccountIDFromUserAuth,
+		opts.AccountManager.SyncUserJWTGroups,
+		opts.AccountManager.GetUserFromUserAuth,
 		rateLimitingConfig,
-		appMetrics.GetMeter(),
+		opts.AppMetrics.GetMeter(),
 	)
-
 	corsMiddleware := cors.AllowAll()
 
 	rootRouter := mux.NewRouter()
-	metricsMiddleware := appMetrics.HTTPMiddleware()
+	metricsMiddleware := opts.AppMetrics.HTTPMiddleware()
 
 	prefix := apiPrefix
 	router := rootRouter.PathPrefix(prefix).Subrouter()
-
 	router.Use(metricsMiddleware.Handler, corsMiddleware.Handler, authMiddleware.Handler)
 
-	if _, err := integrations.RegisterHandlers(ctx, prefix, router, accountManager, integratedValidator, appMetrics.GetMeter(), permissionsManager, peersManager, proxyController, settingsManager); err != nil {
+	if _, err := integrations.RegisterHandlers(ctx, prefix, router,
+		opts.AccountManager, opts.IntegratedValidator, opts.AppMetrics.GetMeter(),
+		opts.PermissionsManager, opts.PeersManager, opts.ProxyController, opts.SettingsManager); err != nil {
 		return nil, fmt.Errorf("register integrations endpoints: %w", err)
 	}
 
-	// Check if embedded IdP is enabled for instance manager
-	embeddedIdP, embeddedIdpEnabled := idpManager.(*idpmanager.EmbeddedIdPManager)
-	instanceManager, err := nbinstance.NewManager(ctx, accountManager.GetStore(), embeddedIdP)
+	embeddedIdP, embeddedIdpEnabled := opts.IdpManager.(*idpmanager.EmbeddedIdPManager)
+	instanceManager, err := nbinstance.NewManager(ctx, opts.AccountManager.GetStore(), embeddedIdP)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create instance manager: %w", err)
 	}
 
-	accounts.AddEndpoints(accountManager, settingsManager, router)
-	peers.AddEndpoints(accountManager, router, networkMapController, permissionsManager)
-	users.AddEndpoints(accountManager, router)
-	users.AddInvitesEndpoints(accountManager, router)
-	users.AddPublicInvitesEndpoints(accountManager, router)
-	setup_keys.AddEndpoints(accountManager, router)
+	registerCoreEndpoints(ctx, opts, rootRouter, router, instanceManager)
 
-	installEntraDeviceAuth(ctx, accountManager, rootRouter, router, permissionsManager)
-	policies.AddEndpoints(accountManager, LocationManager, router)
-	policies.AddPostureCheckEndpoints(accountManager, LocationManager, router)
-	policies.AddLocationsEndpoints(accountManager, LocationManager, permissionsManager, router)
-	groups.AddEndpoints(accountManager, router)
-	routes.AddEndpoints(accountManager, router)
-	dns.AddEndpoints(accountManager, router)
-	events.AddEndpoints(accountManager, router)
-	networks.AddEndpoints(networksManager, resourceManager, routerManager, groupsManager, accountManager, router)
-	zonesManager.RegisterEndpoints(router, zManager)
-	recordsManager.RegisterEndpoints(router, rManager)
-	idp.AddEndpoints(accountManager, router)
-	instance.AddEndpoints(instanceManager, router)
-	instance.AddVersionEndpoint(instanceManager, router)
-	if serviceManager != nil && reverseProxyDomainManager != nil {
-		reverseproxymanager.RegisterEndpoints(serviceManager, *reverseProxyDomainManager, reverseProxyAccessLogsManager, permissionsManager, router)
-	}
-	// Register OAuth callback handler for proxy authentication
-	if proxyGRPCServer != nil {
-		oauthHandler := proxy.NewAuthCallbackHandler(proxyGRPCServer, trustedHTTPProxies)
-		oauthHandler.RegisterEndpoints(router)
-	}
-
-	// Mount embedded IdP handler at /oauth2 path if configured
 	if embeddedIdpEnabled {
 		rootRouter.PathPrefix("/oauth2").Handler(corsMiddleware.Handler(embeddedIdP.Handler()))
 	}
-
 	return rootRouter, nil
+}
+
+// addBypassPaths registers all the unauthenticated routes that the auth
+// middleware on the /api subrouter must skip. Entra device enrolment
+// endpoints live on /join/entra directly on the root router and therefore
+// never flow through the /api auth middleware, so they don't need a bypass
+// registration here.
+func addBypassPaths() error {
+	paths := []string{
+		"/api/instance",
+		"/api/setup",
+		// Public invite endpoints (tokens start with nbi_).
+		"/api/users/invites/nbi_*",
+		"/api/users/invites/nbi_*/accept",
+		// OAuth callback for proxy authentication.
+		types.ProxyCallbackEndpointFull,
+	}
+	for _, p := range paths {
+		if err := bypass.AddBypassPath(p); err != nil {
+			return fmt.Errorf("failed to add bypass path %q: %w", p, err)
+		}
+	}
+	return nil
+}
+
+// buildRateLimiterFromEnv returns a non-nil RateLimiterConfig only when the
+// NB_API_RATE_LIMITING_ENABLED env var is "true". Extracted from
+// NewAPIHandler so that function stays under the project-wide cognitive
+// complexity threshold.
+func buildRateLimiterFromEnv(ctx context.Context) *middleware.RateLimiterConfig {
+	if os.Getenv(rateLimitingEnabledKey) != "true" {
+		return nil
+	}
+	return &middleware.RateLimiterConfig{
+		RequestsPerMinute: float64(parseIntEnv(ctx, rateLimitingRPMKey, 6)),
+		Burst:             parseIntEnv(ctx, rateLimitingBurstKey, 500),
+		CleanupInterval:   6 * time.Hour,
+		LimiterTTL:        24 * time.Hour,
+	}
+}
+
+// parseIntEnv returns the integer value of `name` from the environment, or
+// `fallback` if unset or unparseable. A non-empty value that fails to parse
+// is logged as a warning so operators don't silently end up with the
+// default.
+func parseIntEnv(ctx context.Context, name string, fallback int) int {
+	raw := os.Getenv(name)
+	if raw == "" {
+		return fallback
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil {
+		log.WithContext(ctx).Warnf("parsing %s env var: %v, using default %d", name, err, fallback)
+		return fallback
+	}
+	return v
+}
+
+// registerCoreEndpoints wires every per-feature HTTP endpoint group onto the
+// authenticated /api subrouter. Extracted from NewAPIHandler to keep that
+// function below SonarCloud's cognitive complexity threshold.
+func registerCoreEndpoints(
+	ctx context.Context,
+	opts APIHandlerOptions,
+	rootRouter *mux.Router,
+	router *mux.Router,
+	instanceManager nbinstance.Manager,
+) {
+	accounts.AddEndpoints(opts.AccountManager, opts.SettingsManager, router)
+	peers.AddEndpoints(opts.AccountManager, router, opts.NetworkMapController, opts.PermissionsManager)
+	users.AddEndpoints(opts.AccountManager, router)
+	users.AddInvitesEndpoints(opts.AccountManager, router)
+	users.AddPublicInvitesEndpoints(opts.AccountManager, router)
+	setup_keys.AddEndpoints(opts.AccountManager, router)
+
+	installEntraDeviceAuth(ctx, opts.AccountManager, rootRouter, router, opts.PermissionsManager)
+
+	policies.AddEndpoints(opts.AccountManager, opts.LocationManager, router)
+	policies.AddPostureCheckEndpoints(opts.AccountManager, opts.LocationManager, router)
+	policies.AddLocationsEndpoints(opts.AccountManager, opts.LocationManager, opts.PermissionsManager, router)
+	groups.AddEndpoints(opts.AccountManager, router)
+	routes.AddEndpoints(opts.AccountManager, router)
+	dns.AddEndpoints(opts.AccountManager, router)
+	events.AddEndpoints(opts.AccountManager, router)
+	networks.AddEndpoints(opts.NetworksManager, opts.ResourceManager, opts.RouterManager, opts.GroupsManager, opts.AccountManager, router)
+	zonesManager.RegisterEndpoints(router, opts.ZonesManager)
+	recordsManager.RegisterEndpoints(router, opts.RecordsManager)
+	idp.AddEndpoints(opts.AccountManager, router)
+	instance.AddEndpoints(instanceManager, router)
+	instance.AddVersionEndpoint(instanceManager, router)
+
+	if opts.ServiceManager != nil && opts.ReverseProxyDomainManager != nil {
+		reverseproxymanager.RegisterEndpoints(opts.ServiceManager, *opts.ReverseProxyDomainManager,
+			opts.ReverseProxyAccessLogsManager, opts.PermissionsManager, router)
+	}
+	if opts.ProxyGRPCServer != nil {
+		oauthHandler := proxy.NewAuthCallbackHandler(opts.ProxyGRPCServer, opts.TrustedHTTPProxies)
+		oauthHandler.RegisterEndpoints(router)
+	}
 }
 
 // installEntraDeviceAuth wires up the Entra/Intune device authentication
