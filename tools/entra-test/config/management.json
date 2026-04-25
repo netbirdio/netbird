@@ -1,0 +1,32 @@
+{
+  "_comment": "Ephemeral Entra test harness only. Do NOT reuse this config or the DataStoreEncryptionKey below in any production deployment; both are publicly visible in the repo. See tools/entra-test/TESTING.md. Stuns/Turns/Signal are intentionally empty/invalid because this harness exercises only the /join/entra enrolment flow, not peer-to-peer connectivity.",
+  "Stuns": [],
+  "TURNConfig": {
+    "TimeBasedCredentials": false,
+    "CredentialsTTL": "12h",
+    "Secret": "secret",
+    "Turns": []
+  },
+  "Signal": {
+    "Proto": "http",
+    "URI": "signal.invalid:10000"
+  },
+  "HttpConfig": {
+    "Address": "0.0.0.0:33081",
+    "AuthIssuer": "https://entra-test.local",
+    "AuthAudience": "entra-test",
+    "AuthKeysLocation": ""
+  },
+  "IdpManagerConfig": {
+    "ManagerType": "none"
+  },
+  "DeviceAuthorizationFlow": {
+    "Provider": "none"
+  },
+  "DataStoreEncryptionKey": "kGUH8ntbWjNmWwLj0CSG5eNY5plBBDZGMAViw4igpsE=",
+  "StoreConfig": {
+    "Engine": "postgres"
+  },
+  "PKCEAuthorizationFlow": null,
+  "Relay": null
+}

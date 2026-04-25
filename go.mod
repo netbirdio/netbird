@@ -128,6 +128,7 @@ require (
 	gorm.io/driver/sqlite v1.5.7
 	gorm.io/gorm v1.25.12
 	gvisor.dev/gvisor v0.0.0-20260219192049-0f2374377e89
+	software.sslmate.com/src/go-pkcs12 v0.7.1
 )
 
 require (

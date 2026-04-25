@@ -1,0 +1,67 @@
+# syntax=docker/dockerfile:1.7
+#
+# Multi-stage Dockerfile for local testing of the Entra device authentication
+# feature. Builds netbird-mgmt from the feature branch source and produces a
+# slim runtime image.
+#
+# Usage:
+#   docker build -f management/Dockerfile.entra-test -t netbird-mgmt:entra .
+#
+# This is NOT the production build path; see management/Dockerfile for the
+# release image produced by goreleaser.
+FROM golang:1.25-bookworm AS builder
+
+# We build with CGO enabled because the Dex SQLite backend needs it. The Entra
+# feature itself works fine under CGO_ENABLED=0, but the rest of the tree
+# references Dex's SQLite3 struct which is only populated with CGO.
+ENV CGO_ENABLED=1 \
+    GOFLAGS=-buildvcs=false
+
+WORKDIR /src
+
+# Prime the module cache separately so source edits don't invalidate it.
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go mod download
+
+# Copy the entire repo into the build stage. This is a dev-only harness
+# image; no secrets are expected to live in the source tree and there is no
+# production layer that ships this COPY — see management/Dockerfile for the
+# release build path used by goreleaser.
+COPY . . # NOSONAR
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    apt-get update && \
+    apt-get install -y --no-install-recommends gcc libc6-dev && \
+    rm -rf /var/lib/apt/lists/* && \
+    go build -trimpath -ldflags "-s -w" -o /out/netbird-mgmt ./management
+
+# ---- runtime ----
+FROM debian:bookworm-slim
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates curl && \
+    rm -rf /var/lib/apt/lists/* && \
+    groupadd --system --gid 10001 netbird && \
+    useradd  --system --uid 10001 --gid netbird --home /nonexistent --shell /usr/sbin/nologin netbird
+
+COPY --from=builder /out/netbird-mgmt /usr/local/bin/netbird-mgmt
+
+# Drop privileges; the test harness does not need root at runtime.
+USER netbird:netbird
+
+# Modern NetBird multiplexes gRPC + HTTP on one port via cmux. The admin
+# /api surface and /join/entra/* both live on :33073 alongside gRPC.
+EXPOSE 33073
+
+# Health check is a cheap stateless TCP probe against the cmux-multiplexed
+# management port. Using /join/entra/challenge here would either (a) return
+# 404 when no integration is configured and mark the container unhealthy, or
+# (b) burn ~2880 single-use nonces/day in the in-memory store.
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+  CMD bash -c '</dev/tcp/localhost/33073' || exit 1
+
+ENTRYPOINT ["/usr/local/bin/netbird-mgmt", "management"]
+CMD ["--log-file", "console", "--log-level", "info"]

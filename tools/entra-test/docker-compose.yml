@@ -1,0 +1,74 @@
+# docker-compose for exercising the Entra device authentication feature
+# locally. Brings up a Postgres + a netbird-management compiled from this
+# branch.
+#
+# Usage:
+#   # from the repo root:
+#   docker compose -f tools/entra-test/docker-compose.yml up --build
+#
+# The management server exposes:
+#   - :33073  gRPC (normal NetBird agent login flow)
+#   - :33081  HTTP, including the admin API and /join/entra/*
+#
+# After startup, use tools/entra-test/enroll-tester to run a fake device
+# enrolment round-trip. See TESTING.md for the walkthrough.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      # Local test-harness credentials. Override via a .env file next to
+      # this compose file for non-default setups. Never reused in prod.
+      POSTGRES_DB: ${NB_TEST_PG_DB:-netbird}
+      POSTGRES_USER: ${NB_TEST_PG_USER:-netbird}
+      POSTGRES_PASSWORD: ${NB_TEST_PG_PASSWORD:-netbird} # NOSONAR - local dev fixture
+    ports:
+      # Exposed so local tooling (seed-account, psql, etc.) can reach it.
+      # Only for the test harness; don't do this in production.
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U netbird -d netbird"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  management:
+    build:
+      context: ../..
+      dockerfile: management/Dockerfile.entra-test
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # NetBird reads the store backend from these two env vars (or the
+      # StoreConfig block in management.json).
+      NB_STORE_ENGINE: postgres
+      # Built from the same override vars so the mgmt side matches Postgres.
+      NB_STORE_ENGINE_POSTGRES_DSN: "host=postgres user=${NB_TEST_PG_USER:-netbird} password=${NB_TEST_PG_PASSWORD:-netbird} dbname=${NB_TEST_PG_DB:-netbird} port=5432 sslmode=disable" # NOSONAR - local dev fixture
+      NB_DEVEL: "true"
+    ports:
+      # Modern NetBird multiplexes gRPC + HTTP on the same port via cmux.
+      # /join/entra/* and /api/* are served alongside gRPC on :33073.
+      - "33073:33073"
+    volumes:
+      - ./config:/etc/netbird:ro
+      - mgmt-data:/var/lib/netbird
+    command:
+      - "management"
+      - "--log-file"
+      - "console"
+      - "--log-level"
+      - "debug"
+      - "--port"
+      - "33073"
+      - "--config"
+      - "/etc/netbird/management.json"
+      - "--datadir"
+      - "/var/lib/netbird"
+      - "--disable-anonymous-metrics"
+
+volumes:
+  pg-data:
+  mgmt-data:

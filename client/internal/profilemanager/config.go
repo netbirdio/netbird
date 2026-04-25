@@ -171,6 +171,13 @@ type Config struct {
 	LazyConnectionEnabled bool
 
 	MTU uint16
+
+	// EntraEnroll is populated after a successful /join/entra enrolment and
+	// persisted per profile so subsequent netbird starts skip re-enrolment
+	// and proceed directly to the normal gRPC Login (the peer is already
+	// known to the management server by its WireGuard pubkey).
+	// Nil on profiles that don't use Entra device auth.
+	EntraEnroll *EntraEnrollState `json:"EntraEnroll,omitempty"`
 }
 
 var ConfigDirOverride string
