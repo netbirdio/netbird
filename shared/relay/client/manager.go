@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"reflect"
 	"sync"
 	"time"
@@ -117,7 +118,10 @@ func (m *Manager) Serve() error {
 // OpenConn opens a connection to the given peer key. If the peer is on the same relay server, the connection will be
 // established via the relay server. If the peer is on a different relay server, the manager will establish a new
 // connection to the relay server. It returns back with a net.Conn what represent the remote peer connection.
-func (m *Manager) OpenConn(ctx context.Context, serverAddress, peerKey string) (net.Conn, error) {
+//
+// fallbackIP, when valid and serverAddress is foreign, is used as a dial-time fallback if the FQDN-based
+// dial fails. Ignored for the local home-server path. TLS verification still uses the FQDN via SNI.
+func (m *Manager) OpenConn(ctx context.Context, serverAddress, peerKey string, fallbackIP netip.Addr) (net.Conn, error) {
 	m.relayClientMu.RLock()
 	defer m.relayClientMu.RUnlock()
 
@@ -138,7 +142,7 @@ func (m *Manager) OpenConn(ctx context.Context, serverAddress, peerKey string) (
 		netConn, err = m.relayClient.OpenConn(ctx, peerKey)
 	} else {
 		log.Debugf("open peer connection via foreign server: %s", serverAddress)
-		netConn, err = m.openConnVia(ctx, serverAddress, peerKey)
+		netConn, err = m.openConnVia(ctx, serverAddress, peerKey, fallbackIP)
 	}
 	if err != nil {
 		return nil, err
@@ -202,6 +206,19 @@ func (m *Manager) RelayInstanceAddress() (string, error) {
 	return m.relayClient.ServerInstanceURL()
 }
 
+// RelayInstanceIP returns the IP address of the live home relay connection.
+// Zero value if not connected. Sent alongside RelayInstanceAddress so remote
+// peers can dial directly without their own DNS lookup.
+func (m *Manager) RelayInstanceIP() netip.Addr {
+	m.relayClientMu.RLock()
+	defer m.relayClientMu.RUnlock()
+
+	if m.relayClient == nil {
+		return netip.Addr{}
+	}
+	return m.relayClient.ConnectedIP()
+}
+
 // ServerURLs returns the addresses of the relay servers.
 func (m *Manager) ServerURLs() []string {
 	return m.serverPicker.ServerURLs.Load().([]string)
@@ -223,7 +240,7 @@ func (m *Manager) UpdateToken(token *relayAuth.Token) error {
 	return m.tokenStore.UpdateToken(token)
 }
 
-func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string) (net.Conn, error) {
+func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string, fallbackIP netip.Addr) (net.Conn, error) {
 	// check if already has a connection to the desired relay server
 	m.relayClientsMutex.RLock()
 	rt, ok := m.relayClients[serverAddress]
@@ -258,7 +275,7 @@ func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string
 	m.relayClients[serverAddress] = rt
 	m.relayClientsMutex.Unlock()
 
-	relayClient := NewClient(serverAddress, m.tokenStore, m.peerID, m.mtu)
+	relayClient := NewClient(serverAddress, fallbackIP, m.tokenStore, m.peerID, m.mtu)
 	err := relayClient.Connect(m.ctx)
 	if err != nil {
 		rt.err = err

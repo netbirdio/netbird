@@ -2384,6 +2384,8 @@ func convertToOfferAnswer(msg *sProto.Message) (*peer.OfferAnswer, error) {
 		}
 	}
 
+	relayIP := decodeRelayIP(msg.GetBody().GetRelayServerIP())
+
 	offerAnswer := peer.OfferAnswer{
 		IceCredentials: peer.IceCredentials{
 			UFrag: remoteCred.UFrag,
@@ -2394,7 +2396,23 @@ func convertToOfferAnswer(msg *sProto.Message) (*peer.OfferAnswer, error) {
 		RosenpassPubKey: rosenpassPubKey,
 		RosenpassAddr:   rosenpassAddr,
 		RelaySrvAddress: msg.GetBody().GetRelayServerAddress(),
+		RelaySrvIP:      relayIP,
 		SessionID:       sessionID,
 	}
 	return &offerAnswer, nil
+}
+
+// decodeRelayIP decodes the proto relayServerIP bytes (4 or 16) into a
+// netip.Addr. Returns the zero value for empty input and logs a warning
+// for malformed payloads.
+func decodeRelayIP(b []byte) netip.Addr {
+	if len(b) == 0 {
+		return netip.Addr{}
+	}
+	ip, ok := netip.AddrFromSlice(b)
+	if !ok {
+		log.Warnf("invalid relayServerIP in signal message (%d bytes), ignoring", len(b))
+		return netip.Addr{}
+	}
+	return ip.Unmap()
 }

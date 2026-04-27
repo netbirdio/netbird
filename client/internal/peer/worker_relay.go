@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/netip"
 	"sync"
 	"sync/atomic"
 
@@ -60,8 +61,12 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	}
 
 	srv := w.preferredRelayServer(currentRelayAddress, remoteOfferAnswer.RelaySrvAddress)
+	var fallbackIP netip.Addr
+	if srv == remoteOfferAnswer.RelaySrvAddress {
+		fallbackIP = remoteOfferAnswer.RelaySrvIP
+	}
 
-	relayedConn, err := w.relayManager.OpenConn(w.peerCtx, srv, w.config.Key)
+	relayedConn, err := w.relayManager.OpenConn(w.peerCtx, srv, w.config.Key, fallbackIP)
 	if err != nil {
 		if errors.Is(err, relayClient.ErrConnAlreadyExists) {
 			w.log.Debugf("handled offer by reusing existing relay connection")
@@ -92,6 +97,10 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 
 func (w *WorkerRelay) RelayInstanceAddress() (string, error) {
 	return w.relayManager.RelayInstanceAddress()
+}
+
+func (w *WorkerRelay) RelayInstanceIP() netip.Addr {
+	return w.relayManager.RelayInstanceIP()
 }
 
 func (w *WorkerRelay) IsRelayConnectionSupportedWithPeer() bool {
