@@ -10,16 +10,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dexidp/dex/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
 type mockIdP struct {
-	mu              sync.Mutex
-	createUserFunc  func(ctx context.Context, email, password, name string) (*idp.UserData, error)
-	users           map[string][]*idp.UserData
+	mu                sync.Mutex
+	createUserFunc    func(ctx context.Context, email, password, name string) (*idp.UserData, error)
+	deleteUserFunc    func(ctx context.Context, userID string) error
+	users             map[string][]*idp.UserData
 	getAllAccountsErr error
 }
 
@@ -28,6 +31,13 @@ func (m *mockIdP) CreateUserWithPassword(ctx context.Context, email, password, n
 		return m.createUserFunc(ctx, email, password, name)
 	}
 	return &idp.UserData{ID: "test-user-id", Email: email, Name: name}, nil
+}
+
+func (m *mockIdP) DeleteUser(ctx context.Context, userID string) error {
+	if m.deleteUserFunc != nil {
+		return m.deleteUserFunc(ctx, userID)
+	}
+	return nil
 }
 
 func (m *mockIdP) GetAllAccounts(_ context.Context) (map[string][]*idp.UserData, error) {
@@ -221,6 +231,77 @@ func TestIsSetupRequired_ReturnsFlag(t *testing.T) {
 	required, err = mgr.IsSetupRequired(context.Background())
 	require.NoError(t, err)
 	assert.False(t, required)
+}
+
+func TestRollbackSetup_UserAlreadyDeletedIsSuccess(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{
+			name: "management status not found",
+			err:  status.NewUserNotFoundError("owner-id"),
+		},
+		{
+			name: "dex storage not found",
+			err:  fmt.Errorf("failed to get user for deletion: %w", storage.ErrNotFound),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			idpMock := &mockIdP{
+				deleteUserFunc: func(_ context.Context, userID string) error {
+					assert.Equal(t, "owner-id", userID)
+					return tt.err
+				},
+			}
+			mgr := newTestManager(idpMock, &mockStore{})
+			mgr.setupRequired = false
+
+			err := mgr.RollbackSetup(context.Background(), "owner-id")
+			require.NoError(t, err)
+
+			required, err := mgr.IsSetupRequired(context.Background())
+			require.NoError(t, err)
+			assert.True(t, required, "setup should be required when no accounts or local users remain")
+		})
+	}
+}
+
+func TestRollbackSetup_RecomputesSetupStateWhenAccountStillExists(t *testing.T) {
+	idpMock := &mockIdP{
+		deleteUserFunc: func(_ context.Context, _ string) error {
+			return status.NewUserNotFoundError("owner-id")
+		},
+	}
+	mgr := newTestManager(idpMock, &mockStore{accountsCount: 1})
+	mgr.setupRequired = true
+
+	err := mgr.RollbackSetup(context.Background(), "owner-id")
+	require.NoError(t, err)
+
+	required, err := mgr.IsSetupRequired(context.Background())
+	require.NoError(t, err)
+	assert.False(t, required, "setup should not be required while an account still exists")
+}
+
+func TestRollbackSetup_ReturnsDeleteErrorButReloadsSetupState(t *testing.T) {
+	idpMock := &mockIdP{
+		deleteUserFunc: func(_ context.Context, _ string) error {
+			return errors.New("idp unavailable")
+		},
+	}
+	mgr := newTestManager(idpMock, &mockStore{})
+	mgr.setupRequired = false
+
+	err := mgr.RollbackSetup(context.Background(), "owner-id")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "idp unavailable")
+
+	required, err := mgr.IsSetupRequired(context.Background())
+	require.NoError(t, err)
+	assert.True(t, required, "setup state should be reloaded even when user deletion fails")
 }
 
 func TestDefaultManager_ValidateSetupRequest(t *testing.T) {

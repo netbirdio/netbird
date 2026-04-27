@@ -3425,6 +3425,16 @@ components:
           description: Display name for the admin user (defaults to email if not provided)
           type: string
           example: Admin User
+        create_pat:
+          description: If true and the server has setup-time PAT issuance enabled (NB_SETUP_PAT_ENABLED=true), create a Personal Access Token for the new owner user and return it in the response. Ignored when the server feature is disabled.
+          type: boolean
+          example: true
+        pat_expire_in:
+          description: Expiration of the Personal Access Token in days. Required when create_pat is true.
+          type: integer
+          minimum: 1
+          maximum: 365
+          example: 30
       required:
         - email
         - password
@@ -3441,6 +3451,10 @@ components:
           description: Email address of the created user
           type: string
           example: admin@example.com
+        personal_access_token:
+          description: Plain text Personal Access Token created during setup. Present only when create_pat was requested and the NB_SETUP_PAT_ENABLED feature was enabled on the server.
+          type: string
+          example: nbp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
       required:
         - user_id
         - email
@@ -4979,7 +4993,10 @@ paths:
   /api/setup:
     post:
       summary: Setup Instance
-      description: Creates the initial admin user for the instance. This endpoint does not require authentication but only works when setup is required (no accounts exist and embedded IDP is enabled).
+      description: |
+        Creates the initial admin user for the instance. This endpoint does not require authentication but only works when setup is required (no accounts exist and embedded IDP is enabled).
+
+        When the management server is started with `NB_SETUP_PAT_ENABLED=true` and the request includes `create_pat: true` together with `pat_expire_in`, the endpoint also provisions the NetBird account for the new owner user and returns the plain text Personal Access Token in `personal_access_token`. If any post-user step fails the Dex user is rolled back and setup remains retryable.
       tags: [ Instance ]
       security: [ ]
       requestBody:

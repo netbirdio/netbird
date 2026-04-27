@@ -4294,6 +4294,9 @@ type SetupKeyRequest struct {
 
 // SetupRequest Request to set up the initial admin user
 type SetupRequest struct {
+	// CreatePat If true and the server has setup-time PAT issuance enabled (NB_SETUP_PAT_ENABLED=true), create a Personal Access Token for the new owner user and return it in the response. Ignored when the server feature is disabled.
+	CreatePat *bool `json:"create_pat,omitempty"`
+
 	// Email Email address for the admin user
 	Email string `json:"email"`
 
@@ -4302,12 +4305,18 @@ type SetupRequest struct {
 
 	// Password Password for the admin user (minimum 8 characters)
 	Password string `json:"password"`
+
+	// PatExpireIn Expiration of the Personal Access Token in days. Required when create_pat is true.
+	PatExpireIn *int `json:"pat_expire_in,omitempty"`
 }
 
 // SetupResponse Response after successful instance setup
 type SetupResponse struct {
 	// Email Email address of the created user
 	Email string `json:"email"`
+
+	// PersonalAccessToken Plain text Personal Access Token created during setup. Present only when create_pat was requested and the NB_SETUP_PAT_ENABLED feature was enabled on the server.
+	PersonalAccessToken *string `json:"personal_access_token,omitempty"`
 
 	// UserId The ID of the created user
 	UserId string `json:"user_id"`

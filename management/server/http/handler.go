@@ -66,10 +66,11 @@ import (
 )
 
 const (
-	apiPrefix              = "/api"
-	rateLimitingEnabledKey = "NB_API_RATE_LIMITING_ENABLED"
-	rateLimitingBurstKey   = "NB_API_RATE_LIMITING_BURST"
-	rateLimitingRPMKey     = "NB_API_RATE_LIMITING_RPM"
+	apiPrefix               = "/api"
+	rateLimitingEnabledKey  = "NB_API_RATE_LIMITING_ENABLED"
+	rateLimitingBurstKey    = "NB_API_RATE_LIMITING_BURST"
+	rateLimitingRPMKey      = "NB_API_RATE_LIMITING_RPM"
+	setupCreatePATEnabledKey = "NB_SETUP_PAT_ENABLED"
 )
 
 // NewAPIHandler creates the Management service HTTP API handler registering all the available endpoints.
@@ -171,7 +172,8 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 	zonesManager.RegisterEndpoints(router, zManager)
 	recordsManager.RegisterEndpoints(router, rManager)
 	idp.AddEndpoints(accountManager, router)
-	instance.AddEndpoints(instanceManager, router)
+	setupCreatePATEnabled := os.Getenv(setupCreatePATEnabledKey) == "true"
+	instance.AddEndpoints(instanceManager, accountManager, setupCreatePATEnabled, router)
 	instance.AddVersionEndpoint(instanceManager, router)
 	if serviceManager != nil && reverseProxyDomainManager != nil {
 		reverseproxymanager.RegisterEndpoints(serviceManager, *reverseProxyDomainManager, reverseProxyAccessLogsManager, permissionsManager, router)

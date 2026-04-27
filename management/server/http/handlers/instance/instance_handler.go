@@ -7,21 +7,41 @@ import (
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/management/server/account"
 	nbinstance "github.com/netbirdio/netbird/management/server/instance"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
+	"github.com/netbirdio/netbird/shared/management/status"
+)
+
+// patMinExpireDays and patMaxExpireDays mirror the bounds enforced by
+// DefaultAccountManager.CreatePAT in management/server/user.go. They are
+// duplicated here so /api/setup can reject invalid input before it creates
+// the embedded-IdP user.
+const (
+	patMinExpireDays = 1
+	patMaxExpireDays = 365
 )
 
 // handler handles the instance setup HTTP endpoints
 type handler struct {
-	instanceManager nbinstance.Manager
+	instanceManager  nbinstance.Manager
+	setupManager     *nbinstance.SetupService
+	createPATEnabled bool
 }
 
 // AddEndpoints registers the instance setup endpoints.
 // These endpoints bypass authentication for initial setup.
-func AddEndpoints(instanceManager nbinstance.Manager, router *mux.Router) {
+//
+// createPATEnabled toggles the setup-time Personal Access Token feature
+// (NB_SETUP_PAT_ENABLED). When false, the create_pat / pat_expire_in request
+// fields are silently ignored, matching the "env-gated, opt-in" pattern used
+// by other optional features (e.g. rate limiting).
+func AddEndpoints(instanceManager nbinstance.Manager, accountManager account.Manager, createPATEnabled bool, router *mux.Router) {
 	h := &handler{
-		instanceManager: instanceManager,
+		instanceManager:  instanceManager,
+		setupManager:     nbinstance.NewSetupService(instanceManager, accountManager),
+		createPATEnabled: createPATEnabled,
 	}
 
 	router.HandleFunc("/instance", h.getInstanceStatus).Methods("GET", "OPTIONS")
@@ -55,24 +75,54 @@ func (h *handler) getInstanceStatus(w http.ResponseWriter, r *http.Request) {
 // setup creates the initial admin user for the instance.
 // This endpoint is unauthenticated but only works when setup is required.
 func (h *handler) setup(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
 	var req api.SetupRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		util.WriteErrorResponse("invalid request body", http.StatusBadRequest, w)
 		return
 	}
 
-	userData, err := h.instanceManager.CreateOwnerUser(r.Context(), req.Email, req.Password, req.Name)
+	wantPAT := h.createPATEnabled && req.CreatePat != nil && *req.CreatePat
+	if wantPAT {
+		if req.PatExpireIn == nil {
+			util.WriteError(ctx, status.Errorf(status.InvalidArgument, "pat_expire_in is required when create_pat is true"), w)
+			return
+		}
+		if *req.PatExpireIn < patMinExpireDays || *req.PatExpireIn > patMaxExpireDays {
+			util.WriteError(ctx, status.Errorf(status.InvalidArgument, "pat_expire_in must be between %d and %d", patMinExpireDays, patMaxExpireDays), w)
+			return
+		}
+	}
+
+	result, err := h.setupManager.SetupOwner(ctx, req.Email, req.Password, req.Name, nbinstance.SetupOptions{
+		CreatePAT:       wantPAT,
+		PATExpireInDays: expireInDays(req.PatExpireIn),
+	})
 	if err != nil {
-		util.WriteError(r.Context(), err, w)
+		util.WriteError(ctx, err, w)
 		return
 	}
 
-	log.WithContext(r.Context()).Infof("instance setup completed: created user %s", req.Email)
+	log.WithContext(ctx).Infof("instance setup completed: created user %s", req.Email)
 
-	util.WriteJSONObject(r.Context(), w, api.SetupResponse{
-		UserId: userData.ID,
-		Email:  userData.Email,
-	})
+	resp := api.SetupResponse{
+		UserId: result.User.ID,
+		Email:  result.User.Email,
+	}
+
+	if result.PATPlainToken != "" {
+		resp.PersonalAccessToken = &result.PATPlainToken
+	}
+
+	util.WriteJSONObject(ctx, w, resp)
+}
+
+func expireInDays(expireIn *int) int {
+	if expireIn == nil {
+		return 0
+	}
+	return *expireIn
 }
 
 // getVersionInfo returns version information for NetBird components.
