@@ -2860,6 +2860,11 @@ components:
           type: string
           description: "Protocol type: http, tcp, or udp"
           example: "http"
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+          description: "Extra context about the request (e.g. crowdsec_verdict)"
       required:
         - id
         - service_id
@@ -3258,6 +3263,14 @@ components:
             pattern: '^[a-zA-Z]{2}$'
             example: "DE"
           description: ISO 3166-1 alpha-2 country codes to block.
+        crowdsec_mode:
+          type: string
+          enum:
+            - "off"
+            - "enforce"
+            - "observe"
+          default: "off"
+          description: CrowdSec IP reputation mode. Only available when the proxy cluster supports CrowdSec.
     PasswordAuthConfig:
       type: object
       properties:
@@ -3360,6 +3373,10 @@ components:
         require_subdomain:
           type: boolean
           description: Whether a subdomain label is required in front of this domain. When true, the domain cannot be used bare.
+          example: false
+        supports_crowdsec:
+          type: boolean
+          description: Whether the proxy cluster has CrowdSec configured
           example: false
       required:
         - id

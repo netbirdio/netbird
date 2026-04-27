@@ -13,6 +13,8 @@ import (
 
 	"github.com/netbirdio/management-integrations/integrations"
 
+	nbcache "github.com/netbirdio/netbird/management/server/cache"
+
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
@@ -100,9 +102,16 @@ func startManagement(t *testing.T, config *config.Config, testFile string) (*grp
 
 	jobManager := job.NewJobManager(nil, store, peersmanager)
 
-	iv, _ := integrations.NewIntegratedValidator(context.Background(), peersmanager, settingsManagerMock, eventStore)
+	ctx := context.Background()
 
-	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
+	cacheStore, err := nbcache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	iv, _ := integrations.NewIntegratedValidator(ctx, peersmanager, settingsManagerMock, eventStore, cacheStore)
+
+	metrics, err := telemetry.NewDefaultAppMetrics(ctx)
 	require.NoError(t, err)
 
 	settingsMockManager := settings.NewMockManager(ctrl)
@@ -113,12 +122,11 @@ func startManagement(t *testing.T, config *config.Config, testFile string) (*grp
 		Return(&types.Settings{}, nil).
 		AnyTimes()
 
-	ctx := context.Background()
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := mgmt.NewAccountRequestBuffer(ctx, store)
 	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, mgmt.MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), manager.NewEphemeralManager(store, peersmanager), config)
 
-	accountManager, err := mgmt.BuildManager(context.Background(), config, store, networkMapController, jobManager, nil, "", eventStore, nil, false, iv, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock, false)
+	accountManager, err := mgmt.BuildManager(ctx, config, store, networkMapController, jobManager, nil, "", eventStore, nil, false, iv, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock, false, cacheStore)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +160,7 @@ func startClientDaemon(
 	s := grpc.NewServer()
 
 	server := client.New(ctx,
-		"", "", false, false)
+		"", "", false, false, false)
 	if err := server.Start(); err != nil {
 		t.Fatal(err)
 	}

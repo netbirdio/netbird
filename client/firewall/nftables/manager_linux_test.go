@@ -52,8 +52,6 @@ func (i *iFaceMock) Address() wgaddr.Address {
 	panic("AddressFunc is not set")
 }
 
-func (i *iFaceMock) IsUserspaceBind() bool { return false }
-
 func TestNftablesManager(t *testing.T) {
 
 	// just check on the local interface

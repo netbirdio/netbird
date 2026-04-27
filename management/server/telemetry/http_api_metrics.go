@@ -183,19 +183,22 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 
 		w := WrapResponseWriter(rw)
 
-		h.ServeHTTP(w, r.WithContext(ctx))
+		handlerDone := make(chan struct{})
+		context.AfterFunc(ctx, func() {
+			select {
+			case <-handlerDone:
+			default:
+				log.Debugf("HTTP request context canceled mid-flight: %v %v (reqID=%s, after %v, cause: %v)",
+					r.Method, r.URL.Path, reqID, time.Since(reqStart), context.Cause(ctx))
+			}
+		})
 
-		userAuth, err := nbContext.GetUserAuthFromContext(r.Context())
-		if err == nil {
-			if userAuth.AccountId != "" {
-				//nolint
-				ctx = context.WithValue(ctx, nbContext.AccountIDKey, userAuth.AccountId)
-			}
-			if userAuth.UserId != "" {
-				//nolint
-				ctx = context.WithValue(ctx, nbContext.UserIDKey, userAuth.UserId)
-			}
-		}
+		// Hold on to req so auth's in-place ctx update is visible after ServeHTTP.
+		req := r.WithContext(ctx)
+		h.ServeHTTP(w, req)
+		close(handlerDone)
+
+		ctx = req.Context()
 
 		if w.Status() > 399 {
 			log.WithContext(ctx).Errorf("HTTP response %v: %v %v status %v", reqID, r.Method, r.URL, w.Status())

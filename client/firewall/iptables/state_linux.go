@@ -9,10 +9,9 @@ import (
 )
 
 type InterfaceState struct {
-	NameStr       string         `json:"name"`
-	WGAddress     wgaddr.Address `json:"wg_address"`
-	UserspaceBind bool           `json:"userspace_bind"`
-	MTU           uint16         `json:"mtu"`
+	NameStr   string         `json:"name"`
+	WGAddress wgaddr.Address `json:"wg_address"`
+	MTU       uint16         `json:"mtu"`
 }
 
 func (i *InterfaceState) Name() string {
@@ -21,10 +20,6 @@ func (i *InterfaceState) Name() string {
 
 func (i *InterfaceState) Address() wgaddr.Address {
 	return i.WGAddress
-}
-
-func (i *InterfaceState) IsUserspaceBind() bool {
-	return i.UserspaceBind
 }
 
 type ShutdownState struct {

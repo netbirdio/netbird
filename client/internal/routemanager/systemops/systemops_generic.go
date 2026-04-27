@@ -21,6 +21,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/util"
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/client/net/hooks"
 )
 
@@ -30,8 +31,6 @@ var splitDefaultv4_1 = netip.PrefixFrom(netip.IPv4Unspecified(), 1)
 var splitDefaultv4_2 = netip.PrefixFrom(netip.AddrFrom4([4]byte{128}), 1)
 var splitDefaultv6_1 = netip.PrefixFrom(netip.IPv6Unspecified(), 1)
 var splitDefaultv6_2 = netip.PrefixFrom(netip.AddrFrom16([16]byte{0x80}), 1)
-
-var ErrRoutingIsSeparate = errors.New("routing is separate")
 
 func (r *SysOps) setupRefCounter(initAddresses []net.IP, stateManager *statemanager.Manager) error {
 	stateManager.RegisterState(&ShutdownState{})
@@ -397,12 +396,16 @@ func ipToAddr(ip net.IP, intf *net.Interface) (netip.Addr, error) {
 }
 
 // IsAddrRouted checks if the candidate address would route to the vpn, in which case it returns true and the matched prefix.
+// When advanced routing is active the WG socket is bound to the physical interface (fwmark on linux,
+// IP_UNICAST_IF on windows, IP_BOUND_IF on darwin) and bypasses the main routing table, so the check is skipped.
 func IsAddrRouted(addr netip.Addr, vpnRoutes []netip.Prefix) (bool, netip.Prefix) {
-	localRoutes, err := hasSeparateRouting()
+	if nbnet.AdvancedRouting() {
+		return false, netip.Prefix{}
+	}
+
+	localRoutes, err := GetRoutesFromTable()
 	if err != nil {
-		if !errors.Is(err, ErrRoutingIsSeparate) {
-			log.Errorf("Failed to get routes: %v", err)
-		}
+		log.Errorf("Failed to get routes: %v", err)
 		return false, netip.Prefix{}
 	}
 

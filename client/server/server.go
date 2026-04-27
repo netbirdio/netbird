@@ -53,6 +53,7 @@ const (
 	errRestoreResidualState   = "failed to restore residual state: %v"
 	errProfilesDisabled       = "profiles are disabled, you cannot use this feature without profiles enabled"
 	errUpdateSettingsDisabled = "update settings are disabled, you cannot use this feature without update settings enabled"
+	errNetworksDisabled       = "network selection is disabled by the administrator"
 )
 
 var ErrServiceNotUp = errors.New("service is not up")
@@ -88,6 +89,7 @@ type Server struct {
 	profileManager         *profilemanager.ServiceManager
 	profilesDisabled       bool
 	updateSettingsDisabled bool
+	networksDisabled       bool
 
 	sleepHandler *sleephandler.SleepHandler
 
@@ -104,7 +106,7 @@ type oauthAuthFlow struct {
 }
 
 // New server instance constructor.
-func New(ctx context.Context, logFile string, configFile string, profilesDisabled bool, updateSettingsDisabled bool) *Server {
+func New(ctx context.Context, logFile string, configFile string, profilesDisabled bool, updateSettingsDisabled bool, networksDisabled bool) *Server {
 	s := &Server{
 		rootCtx:                ctx,
 		logFile:                logFile,
@@ -113,6 +115,7 @@ func New(ctx context.Context, logFile string, configFile string, profilesDisable
 		profileManager:         profilemanager.NewServiceManager(configFile),
 		profilesDisabled:       profilesDisabled,
 		updateSettingsDisabled: updateSettingsDisabled,
+		networksDisabled:       networksDisabled,
 		jwtCache:               newJWTCache(),
 	}
 	agent := &serverAgent{s}
@@ -1628,6 +1631,7 @@ func (s *Server) GetFeatures(ctx context.Context, msg *proto.GetFeaturesRequest)
 	features := &proto.GetFeaturesResponse{
 		DisableProfiles:       s.checkProfilesDisabled(),
 		DisableUpdateSettings: s.checkUpdateSettingsDisabled(),
+		DisableNetworks:       s.networksDisabled,
 	}
 
 	return features, nil

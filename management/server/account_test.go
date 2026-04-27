@@ -15,13 +15,15 @@ import (
 	"time"
 
 	"github.com/golang/mock/gomock"
-	"github.com/netbirdio/netbird/shared/management/status"
 	"github.com/prometheus/client_golang/prometheus/push"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/metric/noop"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
+	"github.com/netbirdio/netbird/shared/management/status"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
@@ -1606,7 +1608,6 @@ func TestFileStore_GetRoutesByPrefix(t *testing.T) {
 	assert.Contains(t, routeIDs, route.ID("route-2"))
 }
 
-
 func TestAccount_Copy(t *testing.T) {
 	account := &types.Account{
 		Id:                     "account1",
@@ -1720,6 +1721,13 @@ func TestAccount_Copy(t *testing.T) {
 				Name:      "test-service",
 				AccountID: "account1",
 				Targets:   []*service.Target{},
+			},
+		},
+		Domains: []*domain.Domain{
+			{
+				ID:        "domain1",
+				Domain:    "test.com",
+				AccountID: "account1",
 			},
 		},
 	}
@@ -2205,6 +2213,29 @@ func TestAccount_GetExpiredPeers(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGetExpiredPeers_SkipsAlreadyExpired(t *testing.T) {
+	ctx := context.Background()
+
+	testStore, cleanUp, err := store.NewTestStoreFromSQL(ctx, "testdata/store_with_expired_peers.sql", t.TempDir())
+	t.Cleanup(cleanUp)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	// Verify the already-expired peer is excluded at the store level
+	peers, err := testStore.GetAccountPeersWithExpiration(ctx, store.LockingStrengthNone, accountID)
+	require.NoError(t, err)
+
+	for _, peer := range peers {
+		assert.NotEqual(t, "cg05lnblo1hkg2j514p0", peer.ID, "already expired peer should be excluded by the store query")
+		assert.False(t, peer.Status.LoginExpired, "returned peers should not already be marked as login expired")
+	}
+
+	// Only the non-expired peer with expiration enabled should be returned
+	require.Len(t, peers, 1)
+	assert.Equal(t, "notexpired01", peers[0].ID)
 }
 
 func TestAccount_GetInactivePeers(t *testing.T) {
@@ -3030,10 +3061,15 @@ func createManager(t testing.TB) (*DefaultAccountManager, *update_channel.PeersU
 
 	ctx := context.Background()
 
+	cacheStore, err := cache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, store)
 	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(store, peers.NewManager(store, permissionsManager)), &config.Config{})
-	manager, err := BuildManager(ctx, &config.Config{}, store, networkMapController, job.NewJobManager(nil, store, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	manager, err := BuildManager(ctx, &config.Config{}, store, networkMapController, job.NewJobManager(nil, store, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -3121,6 +3157,13 @@ func setupNetworkMapTest(t *testing.T) (*DefaultAccountManager, *update_channel.
 	return manager, updateManager, account, peer1, peer2, peer3
 }
 
+// peerUpdateTimeout bounds how long peerShouldReceiveUpdate and its outer
+// wrappers wait for an expected update message. Sized for slow CI runners
+// (MySQL, FreeBSD, loaded sqlite) where the channel publish can take
+// seconds. Only runs down on failure; passing tests return immediately
+// when the channel delivers.
+const peerUpdateTimeout = 5 * time.Second
+
 func peerShouldNotReceiveUpdate(t *testing.T, updateMessage <-chan *network_map.UpdateMessage) {
 	t.Helper()
 	select {
@@ -3139,7 +3182,7 @@ func peerShouldReceiveUpdate(t *testing.T, updateMessage <-chan *network_map.Upd
 		if msg == nil {
 			t.Errorf("Received nil update message, expected valid message")
 		}
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(peerUpdateTimeout):
 		t.Error("Timed out waiting for update message")
 	}
 }

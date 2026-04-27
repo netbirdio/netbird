@@ -4979,6 +4979,7 @@ type GetFeaturesResponse struct {
 	state                 protoimpl.MessageState `protogen:"open.v1"`
 	DisableProfiles       bool                   `protobuf:"varint,1,opt,name=disable_profiles,json=disableProfiles,proto3" json:"disable_profiles,omitempty"`
 	DisableUpdateSettings bool                   `protobuf:"varint,2,opt,name=disable_update_settings,json=disableUpdateSettings,proto3" json:"disable_update_settings,omitempty"`
+	DisableNetworks       bool                   `protobuf:"varint,3,opt,name=disable_networks,json=disableNetworks,proto3" json:"disable_networks,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -5023,6 +5024,13 @@ func (x *GetFeaturesResponse) GetDisableProfiles() bool {
 func (x *GetFeaturesResponse) GetDisableUpdateSettings() bool {
 	if x != nil {
 		return x.DisableUpdateSettings
+	}
+	return false
+}
+
+func (x *GetFeaturesResponse) GetDisableNetworks() bool {
+	if x != nil {
+		return x.DisableNetworks
 	}
 	return false
 }
@@ -6472,10 +6480,11 @@ const file_daemon_proto_rawDesc = "" +
 	"\f_profileNameB\v\n" +
 	"\t_username\"\x10\n" +
 	"\x0eLogoutResponse\"\x14\n" +
-	"\x12GetFeaturesRequest\"x\n" +
+	"\x12GetFeaturesRequest\"\xa3\x01\n" +
 	"\x13GetFeaturesResponse\x12)\n" +
 	"\x10disable_profiles\x18\x01 \x01(\bR\x0fdisableProfiles\x126\n" +
-	"\x17disable_update_settings\x18\x02 \x01(\bR\x15disableUpdateSettings\"\x16\n" +
+	"\x17disable_update_settings\x18\x02 \x01(\bR\x15disableUpdateSettings\x12)\n" +
+	"\x10disable_networks\x18\x03 \x01(\bR\x0fdisableNetworks\"\x16\n" +
 	"\x14TriggerUpdateRequest\"M\n" +
 	"\x15TriggerUpdateResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x1a\n" +

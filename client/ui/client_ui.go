@@ -314,6 +314,7 @@ type serviceClient struct {
 	lastNotifiedVersion  string
 	settingsEnabled      bool
 	profilesEnabled      bool
+	networksEnabled      bool
 	showNetworks         bool
 	wNetworks            fyne.Window
 	wProfiles            fyne.Window
@@ -368,6 +369,7 @@ func newServiceClient(args *newServiceClientArgs) *serviceClient {
 
 		showAdvancedSettings: args.showSettings,
 		showNetworks:         args.showNetworks,
+		networksEnabled:      true,
 	}
 
 	s.eventHandler = newEventHandler(s)
@@ -920,8 +922,10 @@ func (s *serviceClient) updateStatus() error {
 			s.mStatus.SetIcon(s.icConnectedDot)
 			s.mUp.Disable()
 			s.mDown.Enable()
-			s.mNetworks.Enable()
-			s.mExitNode.Enable()
+			if s.networksEnabled {
+				s.mNetworks.Enable()
+				s.mExitNode.Enable()
+			}
 			s.startExitNodeRefresh()
 			systrayIconState = true
 		case status.Status == string(internal.StatusConnecting):
@@ -1093,13 +1097,13 @@ func (s *serviceClient) onTrayReady() {
 		s.getSrvConfig()
 		time.Sleep(100 * time.Millisecond) // To prevent race condition caused by systray not being fully initialized and ignoring setIcon
 		for {
+			// Check features before status so menus respect disable flags before being enabled
+			s.checkAndUpdateFeatures()
+
 			err := s.updateStatus()
 			if err != nil {
 				log.Errorf("error while updating status: %v", err)
 			}
-
-			// Check features periodically to handle daemon restarts
-			s.checkAndUpdateFeatures()
 
 			time.Sleep(2 * time.Second)
 		}
@@ -1298,6 +1302,16 @@ func (s *serviceClient) checkAndUpdateFeatures() {
 			s.profilesEnabled = profilesEnabled
 			s.mProfile.setEnabled(profilesEnabled)
 		}
+	}
+
+	// Update networks and exit node menus based on current features
+	s.networksEnabled = features == nil || !features.DisableNetworks
+	if s.networksEnabled && s.connected {
+		s.mNetworks.Enable()
+		s.mExitNode.Enable()
+	} else {
+		s.mNetworks.Disable()
+		s.mExitNode.Disable()
 	}
 }
 

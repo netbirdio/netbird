@@ -1,8 +1,10 @@
 package middleware
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -155,4 +157,173 @@ func TestAPIRateLimiter_Reset(t *testing.T) {
 
 	// Should be allowed again
 	assert.True(t, rl.Allow("test-key"))
+}
+
+func TestAPIRateLimiter_SetEnabled(t *testing.T) {
+	rl := NewAPIRateLimiter(&RateLimiterConfig{
+		RequestsPerMinute: 60,
+		Burst:             1,
+		CleanupInterval:   time.Minute,
+		LimiterTTL:        time.Minute,
+	})
+	defer rl.Stop()
+
+	assert.True(t, rl.Allow("key"))
+	assert.False(t, rl.Allow("key"), "burst exhausted while enabled")
+
+	rl.SetEnabled(false)
+	assert.False(t, rl.Enabled())
+	for i := 0; i < 5; i++ {
+		assert.True(t, rl.Allow("key"), "disabled limiter must always allow")
+	}
+
+	rl.SetEnabled(true)
+	assert.True(t, rl.Enabled())
+	assert.False(t, rl.Allow("key"), "re-enabled limiter retains prior bucket state")
+}
+
+func TestAPIRateLimiter_UpdateConfig(t *testing.T) {
+	rl := NewAPIRateLimiter(&RateLimiterConfig{
+		RequestsPerMinute: 60,
+		Burst:             2,
+		CleanupInterval:   time.Minute,
+		LimiterTTL:        time.Minute,
+	})
+	defer rl.Stop()
+
+	assert.True(t, rl.Allow("k1"))
+	assert.True(t, rl.Allow("k1"))
+	assert.False(t, rl.Allow("k1"), "burst=2 exhausted")
+
+	rl.UpdateConfig(&RateLimiterConfig{
+		RequestsPerMinute: 60,
+		Burst:             10,
+		CleanupInterval:   time.Minute,
+		LimiterTTL:        time.Minute,
+	})
+
+	// New burst applies to existing keys in place; bucket refills up to new burst over time,
+	// but importantly newly-added keys use the updated config immediately.
+	assert.True(t, rl.Allow("k2"))
+	for i := 0; i < 9; i++ {
+		assert.True(t, rl.Allow("k2"))
+	}
+	assert.False(t, rl.Allow("k2"), "new burst=10 exhausted")
+}
+
+func TestAPIRateLimiter_UpdateConfig_NilIgnored(t *testing.T) {
+	rl := NewAPIRateLimiter(&RateLimiterConfig{
+		RequestsPerMinute: 60,
+		Burst:             1,
+		CleanupInterval:   time.Minute,
+		LimiterTTL:        time.Minute,
+	})
+	defer rl.Stop()
+
+	rl.UpdateConfig(nil) // must not panic or zero the config
+
+	assert.True(t, rl.Allow("k"))
+	assert.False(t, rl.Allow("k"))
+}
+
+func TestAPIRateLimiter_UpdateConfig_NonPositiveIgnored(t *testing.T) {
+	rl := NewAPIRateLimiter(&RateLimiterConfig{
+		RequestsPerMinute: 60,
+		Burst:             1,
+		CleanupInterval:   time.Minute,
+		LimiterTTL:        time.Minute,
+	})
+	defer rl.Stop()
+
+	assert.True(t, rl.Allow("k"))
+	assert.False(t, rl.Allow("k"))
+
+	rl.UpdateConfig(&RateLimiterConfig{RequestsPerMinute: 0, Burst: 0, CleanupInterval: time.Minute, LimiterTTL: time.Minute})
+	rl.UpdateConfig(&RateLimiterConfig{RequestsPerMinute: -1, Burst: 5, CleanupInterval: time.Minute, LimiterTTL: time.Minute})
+	rl.UpdateConfig(&RateLimiterConfig{RequestsPerMinute: 60, Burst: -1, CleanupInterval: time.Minute, LimiterTTL: time.Minute})
+
+	rl.Reset("k")
+	assert.True(t, rl.Allow("k"))
+	assert.False(t, rl.Allow("k"), "burst should still be 1 — invalid UpdateConfig calls were ignored")
+}
+
+func TestAPIRateLimiter_ConcurrentAllowAndUpdate(t *testing.T) {
+	rl := NewAPIRateLimiter(&RateLimiterConfig{
+		RequestsPerMinute: 600,
+		Burst:             10,
+		CleanupInterval:   time.Minute,
+		LimiterTTL:        time.Minute,
+	})
+	defer rl.Stop()
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			key := fmt.Sprintf("k%d", id)
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					rl.Allow(key)
+				}
+			}
+		}(i)
+	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 200; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+				rl.UpdateConfig(&RateLimiterConfig{
+					RequestsPerMinute: float64(30 + (i % 90)),
+					Burst:             1 + (i % 20),
+					CleanupInterval:   time.Minute,
+					LimiterTTL:        time.Minute,
+				})
+				rl.SetEnabled(i%2 == 0)
+			}
+		}
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	close(stop)
+	wg.Wait()
+}
+
+func TestRateLimiterConfigFromEnv(t *testing.T) {
+	t.Setenv(RateLimitingEnabledEnv, "true")
+	t.Setenv(RateLimitingRPMEnv, "42")
+	t.Setenv(RateLimitingBurstEnv, "7")
+
+	cfg, enabled := RateLimiterConfigFromEnv()
+	assert.True(t, enabled)
+	assert.Equal(t, float64(42), cfg.RequestsPerMinute)
+	assert.Equal(t, 7, cfg.Burst)
+
+	t.Setenv(RateLimitingEnabledEnv, "false")
+	_, enabled = RateLimiterConfigFromEnv()
+	assert.False(t, enabled)
+
+	t.Setenv(RateLimitingEnabledEnv, "")
+	t.Setenv(RateLimitingRPMEnv, "")
+	t.Setenv(RateLimitingBurstEnv, "")
+	cfg, enabled = RateLimiterConfigFromEnv()
+	assert.False(t, enabled)
+	assert.Equal(t, float64(defaultAPIRPM), cfg.RequestsPerMinute)
+	assert.Equal(t, defaultAPIBurst, cfg.Burst)
+
+	t.Setenv(RateLimitingRPMEnv, "0")
+	t.Setenv(RateLimitingBurstEnv, "-5")
+	cfg, _ = RateLimiterConfigFromEnv()
+	assert.Equal(t, float64(defaultAPIRPM), cfg.RequestsPerMinute, "non-positive rpm must fall back to default")
+	assert.Equal(t, defaultAPIBurst, cfg.Burst, "non-positive burst must fall back to default")
 }

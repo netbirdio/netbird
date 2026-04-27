@@ -22,6 +22,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	proxydomain "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
+	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -350,6 +352,35 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 		},
 	}
 
+	account.Services = []*rpservice.Service{
+		{
+			ID:        "service_id",
+			AccountID: account.Id,
+			Name:      "test service",
+			Domain:    "svc.example.com",
+			Enabled:   true,
+			Targets: []*rpservice.Target{
+				{
+					AccountID: account.Id,
+					ServiceID: "service_id",
+					Host:      "localhost",
+					Port:      8080,
+					Protocol:  "http",
+					Enabled:   true,
+				},
+			},
+		},
+	}
+
+	account.Domains = []*proxydomain.Domain{
+		{
+			ID:        "domain_id",
+			Domain:    "custom.example.com",
+			AccountID: account.Id,
+			Validated: true,
+		},
+	}
+
 	err = store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
@@ -411,6 +442,20 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 		require.NoError(t, err, "expecting no error after removing DeleteAccount when searching for network resources")
 		require.Len(t, resources, 0, "expecting no network resources to be found after DeleteAccount")
 	}
+
+	domains, err := store.ListCustomDomains(context.Background(), account.Id)
+	require.NoError(t, err, "expecting no error after DeleteAccount when searching for custom domains")
+	require.Len(t, domains, 0, "expecting no custom domains to be found after DeleteAccount")
+
+	var services []*rpservice.Service
+	err = store.(*SqlStore).db.Model(&rpservice.Service{}).Find(&services, "account_id = ?", account.Id).Error
+	require.NoError(t, err, "expecting no error after DeleteAccount when searching for services")
+	require.Len(t, services, 0, "expecting no services to be found after DeleteAccount")
+
+	var targets []*rpservice.Target
+	err = store.(*SqlStore).db.Model(&rpservice.Target{}).Find(&targets, "account_id = ?", account.Id).Error
+	require.NoError(t, err, "expecting no error after DeleteAccount when searching for service targets")
+	require.Len(t, targets, 0, "expecting no service targets to be found after DeleteAccount")
 }
 
 func Test_GetAccount(t *testing.T) {
@@ -2684,7 +2729,7 @@ func TestSqlStore_GetAccountPeers(t *testing.T) {
 		{
 			name:          "should retrieve peers for an existing account ID",
 			accountID:     "bf1c8084-ba50-4ce7-9439-34653001fc3b",
-			expectedCount: 4,
+			expectedCount: 5,
 		},
 		{
 			name:          "should return no peers for a non-existing account ID",
@@ -2706,7 +2751,7 @@ func TestSqlStore_GetAccountPeers(t *testing.T) {
 			name:          "should filter peers by partial name",
 			accountID:     "bf1c8084-ba50-4ce7-9439-34653001fc3b",
 			nameFilter:    "host",
-			expectedCount: 3,
+			expectedCount: 4,
 		},
 		{
 			name:          "should filter peers by ip",
@@ -2732,14 +2777,16 @@ func TestSqlStore_GetAccountPeersWithExpiration(t *testing.T) {
 	require.NoError(t, err)
 
 	tests := []struct {
-		name          string
-		accountID     string
-		expectedCount int
+		name            string
+		accountID       string
+		expectedCount   int
+		expectedPeerIDs []string
 	}{
 		{
-			name:          "should retrieve peers with expiration for an existing account ID",
-			accountID:     "bf1c8084-ba50-4ce7-9439-34653001fc3b",
-			expectedCount: 1,
+			name:            "should retrieve only non-expired peers with expiration enabled",
+			accountID:       "bf1c8084-ba50-4ce7-9439-34653001fc3b",
+			expectedCount:   1,
+			expectedPeerIDs: []string{"notexpired01"},
 		},
 		{
 			name:          "should return no peers with expiration for a non-existing account ID",
@@ -2758,7 +2805,27 @@ func TestSqlStore_GetAccountPeersWithExpiration(t *testing.T) {
 			peers, err := store.GetAccountPeersWithExpiration(context.Background(), LockingStrengthNone, tt.accountID)
 			require.NoError(t, err)
 			require.Len(t, peers, tt.expectedCount)
+			for i, peer := range peers {
+				assert.Equal(t, tt.expectedPeerIDs[i], peer.ID)
+			}
 		})
+	}
+}
+
+func TestSqlStore_GetAccountPeersWithExpiration_ExcludesAlreadyExpired(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store_with_expired_peers.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	peers, err := store.GetAccountPeersWithExpiration(context.Background(), LockingStrengthNone, accountID)
+	require.NoError(t, err)
+
+	// Verify the already-expired peer (cg05lnblo1hkg2j514p0) is not returned
+	for _, peer := range peers {
+		assert.NotEqual(t, "cg05lnblo1hkg2j514p0", peer.ID, "already expired peer should not be returned")
+		assert.False(t, peer.Status.LoginExpired, "returned peers should not have LoginExpired set")
 	}
 }
 
@@ -2842,7 +2909,7 @@ func TestSqlStore_GetUserPeers(t *testing.T) {
 			name:          "should retrieve peers for another valid account ID and user ID",
 			accountID:     "bf1c8084-ba50-4ce7-9439-34653001fc3b",
 			userID:        "edafee4e-63fb-11ec-90d6-0242ac120003",
-			expectedCount: 2,
+			expectedCount: 3,
 		},
 		{
 			name:          "should return no peers for existing account ID with empty user ID",
