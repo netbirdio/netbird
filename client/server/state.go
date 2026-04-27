@@ -12,7 +12,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
-	nbnet "github.com/netbirdio/netbird/client/net"
 	"github.com/netbirdio/netbird/client/proto"
 )
 
@@ -138,10 +137,8 @@ func restoreResidualState(ctx context.Context, statePath string) error {
 	}
 
 	// clean up any remaining routes independently of the state file
-	if !nbnet.AdvancedRouting() {
-		if err := systemops.New(nil, nil).FlushMarkedRoutes(); err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("flush marked routes: %w", err))
-		}
+	if err := systemops.New(nil, nil).FlushMarkedRoutes(); err != nil {
+		merr = multierror.Append(merr, fmt.Errorf("flush marked routes: %w", err))
 	}
 
 	return nberrors.FormatErrorOrNil(merr)
