@@ -33,8 +33,8 @@ import (
 
 const remoteJobsMinVer = "0.64.0"
 
-// GetPeers returns a list of peers under the given account filtering out peers that do not belong to a user if
-// the current user is not an admin.
+// GetPeers returns peers visible to the user within an account.
+// Users with "peers:read" see all peers. Otherwise, users see only their own peers, or none if restricted by account settings.
 func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 	if err != nil {
@@ -46,14 +46,8 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 		return nil, status.NewPermissionValidationError(err)
 	}
 
-	accountPeers, err := am.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, nameFilter, ipFilter)
-	if err != nil {
-		return nil, err
-	}
-
-	// @note if the user has permission to read peers it shows all account peers
 	if allowed {
-		return accountPeers, nil
+		return am.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, nameFilter, ipFilter)
 	}
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
@@ -65,41 +59,7 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 		return []*nbpeer.Peer{}, nil
 	}
 
-	// @note if it does not have permission read peers then only display it's own peers
-	peers := make([]*nbpeer.Peer, 0)
-	peersMap := make(map[string]*nbpeer.Peer)
-
-	for _, peer := range accountPeers {
-		if user.Id != peer.UserID {
-			continue
-		}
-		peers = append(peers, peer)
-		peersMap[peer.ID] = peer
-	}
-
-	return am.getUserAccessiblePeers(ctx, accountID, peersMap, peers)
-}
-
-func (am *DefaultAccountManager) getUserAccessiblePeers(ctx context.Context, accountID string, peersMap map[string]*nbpeer.Peer, peers []*nbpeer.Peer) ([]*nbpeer.Peer, error) {
-	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(ctx, accountID, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
-	if err != nil {
-		return nil, err
-	}
-
-	// fetch all the peers that have access to the user's peers
-	for _, peer := range peers {
-		aclPeers, _, _, _ := account.GetPeerConnectionResources(ctx, peer, approvedPeersMap, account.GetActiveGroupUsers())
-		for _, p := range aclPeers {
-			peersMap[p.ID] = p
-		}
-	}
-
-	return maps.Values(peersMap), nil
+	return am.Store.GetUserPeers(ctx, store.LockingStrengthNone, accountID, userID)
 }
 
 // MarkPeerConnected marks peer as connected (true) or disconnected (false)
@@ -1230,7 +1190,8 @@ func peerLoginExpired(ctx context.Context, peer *nbpeer.Peer, settings *types.Se
 	return false
 }
 
-// GetPeer for a given accountID, peerID and userID error if not found.
+// GetPeer returns a peer visible to the user within an account.
+// Users with "peers:read" permission can access any peer. Otherwise, users can access only their own peer.
 func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error) {
 	peer, err := am.Store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 	if err != nil {
@@ -1253,36 +1214,6 @@ func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID,
 	// if admin or user owns this peer, return peer
 	if user.IsAdminOrServiceUser() || peer.UserID == userID {
 		return peer, nil
-	}
-
-	return am.checkIfUserOwnsPeer(ctx, accountID, userID, peer)
-}
-
-func (am *DefaultAccountManager) checkIfUserOwnsPeer(ctx context.Context, accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error) {
-	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(ctx, accountID, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
-	if err != nil {
-		return nil, err
-	}
-
-	// it is also possible that user doesn't own the peer but some of his peers have access to it,
-	// this is a valid case, show the peer as well.
-	userPeers, err := am.Store.GetUserPeers(ctx, store.LockingStrengthNone, accountID, userID)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, p := range userPeers {
-		aclPeers, _, _, _ := account.GetPeerConnectionResources(ctx, p, approvedPeersMap, account.GetActiveGroupUsers())
-		for _, aclPeer := range aclPeers {
-			if aclPeer.ID == peer.ID {
-				return peer, nil
-			}
-		}
 	}
 
 	return nil, status.Errorf(status.Internal, "user %s has no access to peer %s under account %s", userID, peer.ID, accountID)
