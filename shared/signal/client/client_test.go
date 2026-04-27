@@ -170,7 +170,7 @@ var _ = Describe("GrpcClient", func() {
 
 func createSignalClient(addr string, key wgtypes.Key) *GrpcClient {
 	var sigTLSEnabled = false
-	client, err := NewClient(context.Background(), addr, key, sigTLSEnabled)
+	client, err := NewClient(context.Background(), addr, key, sigTLSEnabled, nil)
 	if err != nil {
 		Fail("failed creating signal client")
 	}

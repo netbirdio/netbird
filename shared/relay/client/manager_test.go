@@ -26,7 +26,7 @@ func newManagerTestServerConfig(address string) server.Config {
 func TestEmptyURL(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	mgr := NewManager(ctx, nil, "alice", iface.DefaultMTU)
+	mgr := NewManager(ctx, nil, "alice", iface.DefaultMTU, nil)
 	err := mgr.Serve()
 	if err == nil {
 		t.Errorf("expected error, got nil")
@@ -91,12 +91,12 @@ func TestForeignConn(t *testing.T) {
 
 	mCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	clientAlice := NewManager(mCtx, toURL(lstCfg1), "alice", iface.DefaultMTU)
+	clientAlice := NewManager(mCtx, toURL(lstCfg1), "alice", iface.DefaultMTU, nil)
 	if err := clientAlice.Serve(); err != nil {
 		t.Fatalf("failed to serve manager: %s", err)
 	}
 
-	clientBob := NewManager(mCtx, toURL(srvCfg2), "bob", iface.DefaultMTU)
+	clientBob := NewManager(mCtx, toURL(srvCfg2), "bob", iface.DefaultMTU, nil)
 	if err := clientBob.Serve(); err != nil {
 		t.Fatalf("failed to serve manager: %s", err)
 	}
@@ -198,12 +198,12 @@ func TestForeginConnClose(t *testing.T) {
 	mCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	mgrBob := NewManager(mCtx, toURL(srvCfg2), "bob", iface.DefaultMTU)
+	mgrBob := NewManager(mCtx, toURL(srvCfg2), "bob", iface.DefaultMTU, nil)
 	if err := mgrBob.Serve(); err != nil {
 		t.Fatalf("failed to serve manager: %s", err)
 	}
 
-	mgr := NewManager(mCtx, toURL(srvCfg1), "alice", iface.DefaultMTU)
+	mgr := NewManager(mCtx, toURL(srvCfg1), "alice", iface.DefaultMTU, nil)
 	err = mgr.Serve()
 	if err != nil {
 		t.Fatalf("failed to serve manager: %s", err)
@@ -283,7 +283,7 @@ func TestForeignAutoClose(t *testing.T) {
 	t.Log("connect to server 1.")
 	mCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	mgr := NewManager(mCtx, toURL(srvCfg1), idAlice, iface.DefaultMTU)
+	mgr := NewManager(mCtx, toURL(srvCfg1), idAlice, iface.DefaultMTU, nil)
 	err = mgr.Serve()
 	if err != nil {
 		t.Fatalf("failed to serve manager: %s", err)
@@ -354,13 +354,13 @@ func TestAutoReconnect(t *testing.T) {
 	mCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	clientBob := NewManager(mCtx, toURL(srvCfg), "bob", iface.DefaultMTU)
+	clientBob := NewManager(mCtx, toURL(srvCfg), "bob", iface.DefaultMTU, nil)
 	err = clientBob.Serve()
 	if err != nil {
 		t.Fatalf("failed to serve manager: %s", err)
 	}
 
-	clientAlice := NewManager(mCtx, toURL(srvCfg), "alice", iface.DefaultMTU)
+	clientAlice := NewManager(mCtx, toURL(srvCfg), "alice", iface.DefaultMTU, nil)
 	err = clientAlice.Serve()
 	if err != nil {
 		t.Fatalf("failed to serve manager: %s", err)
@@ -424,12 +424,12 @@ func TestNotifierDoubleAdd(t *testing.T) {
 	mCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	clientBob := NewManager(mCtx, toURL(listenerCfg1), "bob", iface.DefaultMTU)
+	clientBob := NewManager(mCtx, toURL(listenerCfg1), "bob", iface.DefaultMTU, nil)
 	if err = clientBob.Serve(); err != nil {
 		t.Fatalf("failed to serve manager: %s", err)
 	}
 
-	clientAlice := NewManager(mCtx, toURL(listenerCfg1), "alice", iface.DefaultMTU)
+	clientAlice := NewManager(mCtx, toURL(listenerCfg1), "alice", iface.DefaultMTU, nil)
 	if err = clientAlice.Serve(); err != nil {
 		t.Fatalf("failed to serve manager: %s", err)
 	}

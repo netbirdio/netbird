@@ -28,7 +28,7 @@ func Backoff(ctx context.Context) backoff.BackOff {
 
 // CreateConnection creates a gRPC client connection with the appropriate transport options.
 // The component parameter specifies the WebSocket proxy component path (e.g., "/management", "/signal").
-func CreateConnection(ctx context.Context, addr string, tlsEnabled bool, component string, extraOpts ...grpc.DialOption) (*grpc.ClientConn, error) {
+func CreateConnection(ctx context.Context, addr string, tlsEnabled bool, component string, clientCert *tls.Certificate, extraOpts ...grpc.DialOption) (*grpc.ClientConn, error) {
 	transportOption := grpc.WithTransportCredentials(insecure.NewCredentials())
 	// for js, the outer websocket layer takes care of tls
 	if tlsEnabled && runtime.GOOS != "js" {
@@ -38,9 +38,19 @@ func CreateConnection(ctx context.Context, addr string, tlsEnabled bool, compone
 			certPool = embeddedroots.Get()
 		}
 
-		transportOption = grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
+		tlsConfig := &tls.Config{
 			RootCAs: certPool,
-		}))
+		}
+
+		// Only add client certificate if provided
+		if clientCert != nil {
+			log.Tracef("Using client certificate for communication to backend component %s. mTLS enabled.", component)
+			tlsConfig.Certificates = []tls.Certificate{*clientCert}
+		} else {
+			log.Tracef("Client certificate (mTLS) not configured for %s", component)
+		}
+
+		transportOption = grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))
 	}
 
 	connCtx, cancel := context.WithTimeout(ctx, 30*time.Second)

@@ -47,8 +47,8 @@ type mgmProber interface {
 
 // newMgmProber creates a management client for probing URL reachability.
 // Overridden in tests to avoid real network calls.
-var newMgmProber = func(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled bool) (mgmProber, error) {
-	return mgm.NewClient(ctx, addr, key, tlsEnabled)
+var newMgmProber = func(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled bool, mgmtClientCert *tls.Certificate) (mgmProber, error) {
+	return mgm.NewClient(ctx, addr, key, tlsEnabled, mgmtClientCert)
 }
 
 var DefaultInterfaceBlacklist = []string{
@@ -80,8 +80,10 @@ type ConfigInput struct {
 	DisableAutoConnect            *bool
 	ExtraIFaceBlackList           []string
 	DNSRouteInterval              *time.Duration
-	ClientCertPath                string
-	ClientCertKeyPath             string
+	// IDPClientCert holds the mTLS cert/key paths for OAuth PKCE Authorization Flow with the identity provider (SSO)
+	IDPClientCert MTLSConfig
+	// MgmtClientCert holds the mTLS cert/key paths for connecting to management/signal/relay backend
+	MgmtClientCert MTLSConfig
 
 	DisableClientRoutes *bool
 	DisableServerRoutes *bool
@@ -160,13 +162,17 @@ type Config struct {
 
 	// DNSRouteInterval is the interval in which the DNS routes are updated
 	DNSRouteInterval time.Duration
-	// Path to a certificate used for mTLS authentication
-	ClientCertPath string
 
-	// Path to corresponding private key of ClientCertPath
-	ClientCertKeyPath string
+	// IDPClientCert holds the mTLS cert/key paths for OAuth PKCE Authorization Flow with the identity provider (SSO)
+	IDPClientCert MTLSConfig
 
-	ClientCertKeyPair *tls.Certificate `json:"-"`
+	// MgmtClientCert holds the mTLS cert/key paths for connecting to management/signal/relay backend
+	MgmtClientCert MTLSConfig
+
+	// Deprecated: use IDPClientCert.CertPath instead. Kept for reading legacy config files.
+	ClientCertPath string `json:",omitempty"`
+	// Deprecated: use IDPClientCert.KeyPath instead. Kept for reading legacy config files.
+	ClientCertKeyPath string `json:",omitempty"`
 
 	LazyConnectionEnabled bool
 
@@ -245,6 +251,10 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 }
 
 func (config *Config) apply(input ConfigInput) (updated bool, err error) {
+	if config.migrateLegacyClientCertFields() {
+		updated = true
+	}
+
 	if config.ManagementURL == nil {
 		log.Infof("using default Management URL %s", DefaultManagementURL)
 		config.ManagementURL, err = parseURL("Management URL", DefaultManagementURL)
@@ -559,25 +569,17 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.ClientCertKeyPath != "" {
-		config.ClientCertKeyPath = input.ClientCertKeyPath
-		updated = true
+	certUpdated, err := applyMTLSCertKeyPair(&config.IDPClientCert, input.IDPClientCert)
+	if err != nil {
+		return updated, err
 	}
+	updated = updated || certUpdated
 
-	if input.ClientCertPath != "" {
-		config.ClientCertPath = input.ClientCertPath
-		updated = true
+	mgmtUpdated, err := applyMTLSCertKeyPair(&config.MgmtClientCert, input.MgmtClientCert)
+	if err != nil {
+		return updated, err
 	}
-
-	if config.ClientCertPath != "" && config.ClientCertKeyPath != "" {
-		cert, err := tls.LoadX509KeyPair(config.ClientCertPath, config.ClientCertKeyPath)
-		if err != nil {
-			log.Error("Failed to load mTLS cert/key pair: ", err)
-		} else {
-			config.ClientCertKeyPair = &cert
-			log.Info("Loaded client mTLS cert/key pair")
-		}
-	}
+	updated = updated || mgmtUpdated
 
 	if input.DNSLabels != nil && !slices.Equal(config.DNSLabels, input.DNSLabels) {
 		log.Infof("updating DNS labels [ %s ] (old value: [ %s ])",
@@ -765,7 +767,7 @@ func UpdateOldManagementURL(ctx context.Context, config *Config, configPath stri
 		return config, err
 	}
 
-	client, err := newMgmProber(ctx, newURL.Host, key, mgmTlsEnabled)
+	client, err := newMgmProber(ctx, newURL.Host, key, mgmTlsEnabled, config.MgmtClientCert.KeyPair)
 	if err != nil {
 		log.Infof("couldn't switch to the new Management %s", newURL.String())
 		return config, err

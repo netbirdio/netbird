@@ -2,6 +2,7 @@ package profilemanager
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"os"
 	"path/filepath"
@@ -244,7 +245,7 @@ func TestWireguardPortDefaultVsExplicit(t *testing.T) {
 
 func TestUpdateOldManagementURL(t *testing.T) {
 	origProber := newMgmProber
-	newMgmProber = func(_ context.Context, _ string, _ wgtypes.Key, _ bool) (mgmProber, error) {
+	newMgmProber = func(_ context.Context, _ string, _ wgtypes.Key, _ bool, _ *tls.Certificate) (mgmProber, error) {
 		return &mockMgmProber{}, nil
 	}
 	t.Cleanup(func() { newMgmProber = origProber })

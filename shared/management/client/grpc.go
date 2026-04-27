@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -98,7 +99,7 @@ func MaxRecvMsgSize() int {
 }
 
 // NewClient creates a new client to Management service
-func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsEnabled bool) (*GrpcClient, error) {
+func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsEnabled bool, mgmtClientCert *tls.Certificate) (*GrpcClient, error) {
 	var conn *grpc.ClientConn
 
 	var extraOpts []grpc.DialOption
@@ -109,7 +110,7 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 
 	operation := func() error {
 		var err error
-		conn, err = nbgrpc.CreateConnection(ctx, addr, tlsEnabled, wsproxy.ManagementComponent, extraOpts...)
+		conn, err = nbgrpc.CreateConnection(ctx, addr, tlsEnabled, wsproxy.ManagementComponent, mgmtClientCert, extraOpts...)
 		if err != nil {
 			return fmt.Errorf("create connection: %w", err)
 		}
