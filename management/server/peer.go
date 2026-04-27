@@ -1294,6 +1294,38 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 	_ = am.networkMapController.UpdateAccountPeers(ctx, accountID)
 }
 
+// UpdateAffectedPeers updates only the specified peers that belong to an account.
+// Should be called when a change is known to affect only a subset of peers.
+func (am *DefaultAccountManager) UpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string) {
+	_ = am.networkMapController.UpdateAffectedPeers(ctx, accountID, peerIDs)
+}
+
+// resolvePeerIDs resolves a set of group IDs and direct peer IDs into a
+// deduplicated list of peer IDs suitable for UpdateAffectedPeers.
+func (am *DefaultAccountManager) resolvePeerIDs(ctx context.Context, s store.Store, accountID string, groupIDs []string, directPeerIDs []string) []string {
+	peerIDs, err := s.GetPeerIDsByGroups(ctx, accountID, groupIDs)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to resolve peer IDs by groups: %v", err)
+		return nil
+	}
+
+	if len(directPeerIDs) == 0 {
+		return peerIDs
+	}
+
+	seen := make(map[string]struct{}, len(peerIDs))
+	for _, id := range peerIDs {
+		seen[id] = struct{}{}
+	}
+	for _, id := range directPeerIDs {
+		if _, exists := seen[id]; !exists {
+			peerIDs = append(peerIDs, id)
+			seen[id] = struct{}{}
+		}
+	}
+	return peerIDs
+}
+
 func (am *DefaultAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string) {
 	_ = am.networkMapController.BufferUpdateAccountPeers(ctx, accountID)
 }

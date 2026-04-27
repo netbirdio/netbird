@@ -147,7 +147,7 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 	}
 
 	var newRoute *route.Route
-	var updateAccountPeers bool
+	var affectedPeerIDs []string
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		newRoute = &route.Route{
@@ -173,14 +173,12 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 			return err
 		}
 
-		updateAccountPeers, err = areRouteChangesAffectPeers(ctx, transaction, newRoute)
-		if err != nil {
-			return err
-		}
-
 		if err = transaction.SaveRoute(ctx, newRoute); err != nil {
 			return err
 		}
+
+		groupIDs, directPeerIDs := collectRouteAffectedGroupsAndPeers(newRoute)
+		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, groupIDs, directPeerIDs)
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
@@ -190,8 +188,8 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 
 	am.StoreEvent(ctx, userID, string(newRoute.ID), accountID, activity.RouteCreated, newRoute.EventMeta())
 
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+	if len(affectedPeerIDs) > 0 {
+		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
 	}
 
 	return newRoute, nil
@@ -208,8 +206,7 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 	}
 
 	var oldRoute *route.Route
-	var oldRouteAffectsPeers bool
-	var newRouteAffectsPeers bool
+	var affectedPeerIDs []string
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err = validateRoute(ctx, transaction, accountID, routeToSave); err != nil {
@@ -221,20 +218,14 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 			return err
 		}
 
-		oldRouteAffectsPeers, err = areRouteChangesAffectPeers(ctx, transaction, oldRoute)
-		if err != nil {
-			return err
-		}
-
-		newRouteAffectsPeers, err = areRouteChangesAffectPeers(ctx, transaction, routeToSave)
-		if err != nil {
-			return err
-		}
 		routeToSave.AccountID = accountID
 
 		if err = transaction.SaveRoute(ctx, routeToSave); err != nil {
 			return err
 		}
+
+		groupIDs, directPeerIDs := collectRouteAffectedGroupsAndPeers(routeToSave, oldRoute)
+		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, groupIDs, directPeerIDs)
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
@@ -244,8 +235,8 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 
 	am.StoreEvent(ctx, userID, string(routeToSave.ID), accountID, activity.RouteUpdated, routeToSave.EventMeta())
 
-	if oldRouteAffectsPeers || newRouteAffectsPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+	if len(affectedPeerIDs) > 0 {
+		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
 	}
 
 	return nil
@@ -261,19 +252,17 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 		return status.NewPermissionDeniedError()
 	}
 
-	var route *route.Route
-	var updateAccountPeers bool
+	var rt *route.Route
+	var affectedPeerIDs []string
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		route, err = transaction.GetRouteByID(ctx, store.LockingStrengthUpdate, accountID, string(routeID))
+		rt, err = transaction.GetRouteByID(ctx, store.LockingStrengthUpdate, accountID, string(routeID))
 		if err != nil {
 			return err
 		}
 
-		updateAccountPeers, err = areRouteChangesAffectPeers(ctx, transaction, route)
-		if err != nil {
-			return err
-		}
+		groupIDs, directPeerIDs := collectRouteAffectedGroupsAndPeers(rt)
+		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, groupIDs, directPeerIDs)
 
 		if err = transaction.DeleteRoute(ctx, accountID, string(routeID)); err != nil {
 			return err
@@ -285,10 +274,10 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 		return fmt.Errorf("failed to delete route %s: %w", routeID, err)
 	}
 
-	am.StoreEvent(ctx, userID, string(route.ID), accountID, activity.RouteRemoved, route.EventMeta())
+	am.StoreEvent(ctx, userID, string(rt.ID), accountID, activity.RouteRemoved, rt.EventMeta())
 
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+	if len(affectedPeerIDs) > 0 {
+		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
 	}
 
 	return nil
@@ -377,23 +366,20 @@ func getPlaceholderIP() netip.Prefix {
 	return netip.PrefixFrom(netip.AddrFrom4([4]byte{192, 0, 2, 0}), 32)
 }
 
-// areRouteChangesAffectPeers checks if a given route affects peers by determining
-// if it has a routing peer, distribution, or peer groups that include peers.
-func areRouteChangesAffectPeers(ctx context.Context, transaction store.Store, route *route.Route) (bool, error) {
-	if route.Peer != "" {
-		return true, nil
+// collectRouteAffectedGroupsAndPeers returns group IDs and direct peer IDs from the given routes.
+func collectRouteAffectedGroupsAndPeers(routes ...*route.Route) (groupIDs []string, directPeerIDs []string) {
+	for _, r := range routes {
+		if r == nil {
+			continue
+		}
+		groupIDs = append(groupIDs, r.Groups...)
+		groupIDs = append(groupIDs, r.PeerGroups...)
+		groupIDs = append(groupIDs, r.AccessControlGroups...)
+		if r.Peer != "" {
+			directPeerIDs = append(directPeerIDs, r.Peer)
+		}
 	}
-
-	hasPeers, err := anyGroupHasPeersOrResources(ctx, transaction, route.AccountID, route.Groups)
-	if err != nil {
-		return false, err
-	}
-
-	if hasPeers {
-		return true, nil
-	}
-
-	return anyGroupHasPeersOrResources(ctx, transaction, route.AccountID, route.PeerGroups)
+	return
 }
 
 // GetRoutesByPrefixOrDomains return list of routes by account and route prefix

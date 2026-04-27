@@ -261,6 +261,137 @@ func (c *Controller) UpdateAccountPeers(ctx context.Context, accountID string) e
 	return c.sendUpdateAccountPeers(ctx, accountID)
 }
 
+// UpdateAffectedPeers updates only the specified peers that belong to an account.
+// Should be called when a change is known to affect only a subset of peers.
+// If peerIDs is empty, this is a no-op.
+func (c *Controller) UpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string) error {
+	if len(peerIDs) == 0 {
+		return nil
+	}
+	return c.sendUpdateForAffectedPeers(ctx, accountID, peerIDs)
+}
+
+func (c *Controller) sendUpdateForAffectedPeers(ctx context.Context, accountID string, peerIDs []string) error {
+	log.WithContext(ctx).Tracef("updating %d affected peers for account %s from %s", len(peerIDs), accountID, util.GetCallerName())
+
+	affected := make(map[string]struct{}, len(peerIDs))
+	for _, id := range peerIDs {
+		affected[id] = struct{}{}
+	}
+
+	// Fast check: any of the affected peers actually connected?
+	hasConnected := false
+	for _, id := range peerIDs {
+		if c.peersUpdateManager.HasChannel(id) {
+			hasConnected = true
+			break
+		}
+	}
+	if !hasConnected {
+		return nil
+	}
+
+	account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+	if err != nil {
+		return fmt.Errorf("failed to get account: %v", err)
+	}
+
+	globalStart := time.Now()
+
+	// Collect the subset of account peers that are both affected and connected.
+	var peersToUpdate []*nbpeer.Peer
+	for _, peer := range account.Peers {
+		if _, ok := affected[peer.ID]; ok && c.peersUpdateManager.HasChannel(peer.ID) {
+			peersToUpdate = append(peersToUpdate, peer)
+		}
+	}
+
+	if len(peersToUpdate) == 0 {
+		return nil
+	}
+
+	approvedPeersMap, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
+	if err != nil {
+		return fmt.Errorf("failed to get validate peers: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	semaphore := make(chan struct{}, 10)
+
+	account.InjectProxyPolicies(ctx)
+	dnsCache := &cache.DNSConfigCache{}
+	dnsDomain := c.GetDNSDomain(account.Settings)
+	peersCustomZone := account.GetPeersCustomZone(ctx, dnsDomain)
+	resourcePolicies := account.GetResourcePoliciesMap()
+	routers := account.GetResourceRoutersMap()
+	groupIDToUserIDs := account.GetActiveGroupUsers()
+
+	proxyNetworkMaps, err := c.proxyController.GetProxyNetworkMapsAll(ctx, accountID, account.Peers)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get proxy network maps: %v", err)
+		return fmt.Errorf("failed to get proxy network maps: %v", err)
+	}
+
+	extraSetting, err := c.settingsManager.GetExtraSettings(ctx, accountID)
+	if err != nil {
+		return fmt.Errorf("failed to get flow enabled status: %v", err)
+	}
+
+	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), network_map.DnsForwarderPortMinVersion)
+
+	accountZones, err := c.repo.GetAccountZones(ctx, account.Id)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get account zones: %v", err)
+		return fmt.Errorf("failed to get account zones: %v", err)
+	}
+
+	for _, peer := range peersToUpdate {
+		wg.Add(1)
+		semaphore <- struct{}{}
+		go func(p *nbpeer.Peer) {
+			defer wg.Done()
+			defer func() { <-semaphore }()
+
+			start := time.Now()
+
+			postureChecks, err := c.getPeerPostureChecks(account, p.ID)
+			if err != nil {
+				log.WithContext(ctx).Debugf("failed to get posture checks for peer %s: %v", p.ID, err)
+				return
+			}
+
+			c.metrics.CountCalcPostureChecksDuration(time.Since(start))
+			start = time.Now()
+
+			remotePeerNetworkMap := account.GetPeerNetworkMapFromComponents(ctx, p.ID, peersCustomZone, accountZones, approvedPeersMap, resourcePolicies, routers, c.accountManagerMetrics, groupIDToUserIDs)
+
+			c.metrics.CountCalcPeerNetworkMapDuration(time.Since(start))
+
+			proxyNetworkMap, ok := proxyNetworkMaps[p.ID]
+			if ok {
+				remotePeerNetworkMap.Merge(proxyNetworkMap)
+			}
+
+			peerGroups := account.GetPeerGroups(p.ID)
+			start = time.Now()
+			update := grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, p, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, maps.Keys(peerGroups), dnsFwdPort)
+			c.metrics.CountToSyncResponseDuration(time.Since(start))
+
+			c.peersUpdateManager.SendUpdate(ctx, p.ID, &network_map.UpdateMessage{
+				Update:      update,
+				MessageType: network_map.MessageTypeNetworkMap,
+			})
+		}(peer)
+	}
+
+	wg.Wait()
+	if c.accountManagerMetrics != nil {
+		c.accountManagerMetrics.CountUpdateAccountPeersDuration(time.Since(globalStart))
+	}
+
+	return nil
+}
+
 func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, peerId string) error {
 	if !c.peersUpdateManager.HasChannel(peerId) {
 		return fmt.Errorf("peer %s doesn't have a channel, skipping network map update", peerId)

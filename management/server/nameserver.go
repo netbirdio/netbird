@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -57,21 +58,18 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 		SearchDomainsEnabled: searchDomainEnabled,
 	}
 
-	var updateAccountPeers bool
+	var affectedPeerIDs []string
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err = validateNameServerGroup(ctx, transaction, accountID, newNSGroup); err != nil {
 			return err
 		}
 
-		updateAccountPeers, err = anyGroupHasPeersOrResources(ctx, transaction, accountID, newNSGroup.Groups)
-		if err != nil {
-			return err
-		}
-
 		if err = transaction.SaveNameServerGroup(ctx, newNSGroup); err != nil {
 			return err
 		}
+
+		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, newNSGroup.Groups, nil)
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
@@ -81,8 +79,8 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 
 	am.StoreEvent(ctx, userID, newNSGroup.ID, accountID, activity.NameserverGroupCreated, newNSGroup.EventMeta())
 
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+	if len(affectedPeerIDs) > 0 {
+		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
 	}
 
 	return newNSGroup.Copy(), nil
@@ -102,7 +100,7 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 		return status.NewPermissionDeniedError()
 	}
 
-	var updateAccountPeers bool
+	var affectedPeerIDs []string
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		oldNSGroup, err := transaction.GetNameServerGroupByID(ctx, store.LockingStrengthNone, accountID, nsGroupToSave.ID)
@@ -115,14 +113,12 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 			return err
 		}
 
-		updateAccountPeers, err = areNameServerGroupChangesAffectPeers(ctx, transaction, nsGroupToSave, oldNSGroup)
-		if err != nil {
-			return err
-		}
-
 		if err = transaction.SaveNameServerGroup(ctx, nsGroupToSave); err != nil {
 			return err
 		}
+
+		allGroups := slices.Concat(nsGroupToSave.Groups, oldNSGroup.Groups)
+		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, allGroups, nil)
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
@@ -132,8 +128,8 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 
 	am.StoreEvent(ctx, userID, nsGroupToSave.ID, accountID, activity.NameserverGroupUpdated, nsGroupToSave.EventMeta())
 
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+	if len(affectedPeerIDs) > 0 {
+		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
 	}
 
 	return nil
@@ -150,7 +146,7 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 	}
 
 	var nsGroup *nbdns.NameServerGroup
-	var updateAccountPeers bool
+	var affectedPeerIDs []string
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		nsGroup, err = transaction.GetNameServerGroupByID(ctx, store.LockingStrengthUpdate, accountID, nsGroupID)
@@ -158,10 +154,7 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 			return err
 		}
 
-		updateAccountPeers, err = anyGroupHasPeersOrResources(ctx, transaction, accountID, nsGroup.Groups)
-		if err != nil {
-			return err
-		}
+		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, nsGroup.Groups, nil)
 
 		if err = transaction.DeleteNameServerGroup(ctx, accountID, nsGroupID); err != nil {
 			return err
@@ -175,8 +168,8 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 
 	am.StoreEvent(ctx, userID, nsGroup.ID, accountID, activity.NameserverGroupDeleted, nsGroup.EventMeta())
 
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+	if len(affectedPeerIDs) > 0 {
+		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
 	}
 
 	return nil
@@ -222,24 +215,6 @@ func validateNameServerGroup(ctx context.Context, transaction store.Store, accou
 	}
 
 	return validateGroups(nameserverGroup.Groups, groups)
-}
-
-// areNameServerGroupChangesAffectPeers checks if the changes in the nameserver group affect the peers.
-func areNameServerGroupChangesAffectPeers(ctx context.Context, transaction store.Store, newNSGroup, oldNSGroup *nbdns.NameServerGroup) (bool, error) {
-	if !newNSGroup.Enabled && !oldNSGroup.Enabled {
-		return false, nil
-	}
-
-	hasPeers, err := anyGroupHasPeersOrResources(ctx, transaction, newNSGroup.AccountID, newNSGroup.Groups)
-	if err != nil {
-		return false, err
-	}
-
-	if hasPeers {
-		return true, nil
-	}
-
-	return anyGroupHasPeersOrResources(ctx, transaction, oldNSGroup.AccountID, oldNSGroup.Groups)
 }
 
 func validateDomainInput(primary bool, domains []string, searchDomainsEnabled bool) error {

@@ -129,6 +129,7 @@ type MockAccountManager struct {
 
 	AllowSyncFunc                  func(string, uint64) bool
 	UpdateAccountPeersFunc         func(ctx context.Context, accountID string)
+	UpdateAffectedPeersFunc        func(ctx context.Context, accountID string, peerIDs []string)
 	BufferUpdateAccountPeersFunc   func(ctx context.Context, accountID string)
 	RecalculateNetworkMapCacheFunc func(ctx context.Context, accountId string) error
 
@@ -203,6 +204,12 @@ func (am *MockAccountManager) UpdateGroups(ctx context.Context, accountID, userI
 func (am *MockAccountManager) UpdateAccountPeers(ctx context.Context, accountID string) {
 	if am.UpdateAccountPeersFunc != nil {
 		am.UpdateAccountPeersFunc(ctx, accountID)
+	}
+}
+
+func (am *MockAccountManager) UpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string) {
+	if am.UpdateAffectedPeersFunc != nil {
+		am.UpdateAffectedPeersFunc(ctx, accountID, peerIDs)
 	}
 }
 

@@ -19,6 +19,7 @@ const (
 
 type Controller interface {
 	UpdateAccountPeers(ctx context.Context, accountID string) error
+	UpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string) error
 	UpdateAccountPeer(ctx context.Context, accountId string, peerId string) error
 	BufferUpdateAccountPeers(ctx context.Context, accountID string) error
 	GetValidatedPeerWithMap(ctx context.Context, isRequiresApproval bool, accountID string, p *nbpeer.Peer) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error)
