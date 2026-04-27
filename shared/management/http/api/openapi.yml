@@ -3430,10 +3430,11 @@ components:
           type: boolean
           example: true
         pat_expire_in:
-          description: Expiration of the Personal Access Token in days. Required when create_pat is true.
+          description: Expiration of the Personal Access Token in days. Defaults to 1 day when omitted.
           type: integer
           minimum: 1
           maximum: 365
+          default: 1
           example: 30
       required:
         - email
@@ -4996,7 +4997,7 @@ paths:
       description: |
         Creates the initial admin user for the instance. This endpoint does not require authentication but only works when setup is required (no accounts exist and embedded IDP is enabled).
 
-        When the management server is started with `NB_SETUP_PAT_ENABLED=true` and the request includes `create_pat: true` together with `pat_expire_in`, the endpoint also provisions the NetBird account for the new owner user and returns the plain text Personal Access Token in `personal_access_token`. If any post-user step fails the Dex user is rolled back and setup remains retryable.
+        When the management server is started with `NB_SETUP_PAT_ENABLED=true` and the request includes `create_pat: true`, the endpoint also provisions the NetBird account for the new owner user and returns the plain text Personal Access Token in `personal_access_token`. The optional `pat_expire_in` value defaults to 1 day when omitted. If any post-user step fails the Dex user is rolled back and setup remains retryable.
       tags: [ Instance ]
       security: [ ]
       requestBody:

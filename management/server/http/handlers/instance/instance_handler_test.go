@@ -96,12 +96,12 @@ func (m *mockInstanceManager) GetVersionInfo(ctx context.Context) (*nbinstance.V
 var _ nbinstance.Manager = (*mockInstanceManager)(nil)
 
 func setupTestRouter(manager nbinstance.Manager) *mux.Router {
-	return setupTestRouterWithPAT(manager, nil, false)
+	return setupTestRouterWithPAT(manager, nil)
 }
 
-func setupTestRouterWithPAT(manager nbinstance.Manager, accountManager account.Manager, createPATEnabled bool) *mux.Router {
+func setupTestRouterWithPAT(manager nbinstance.Manager, accountManager account.Manager) *mux.Router {
 	router := mux.NewRouter()
-	AddEndpoints(manager, accountManager, createPATEnabled, router)
+	AddEndpoints(manager, accountManager, router)
 	return router
 }
 
@@ -312,11 +312,13 @@ func TestSetup_ManagerError(t *testing.T) {
 }
 
 func TestSetup_PAT_FeatureDisabled_IgnoresCreatePAT(t *testing.T) {
-	manager := &mockInstanceManager{isSetupRequired: true}
-	// createPATEnabled=false: request fields must be silently ignored
-	router := setupTestRouterWithPAT(manager, &mock_server.MockAccountManager{}, false)
+	t.Setenv(nbinstance.SetupPATEnabledEnvKey, "false")
 
-	body := `{"email": "admin@example.com", "password": "securepassword123", "name": "Admin", "create_pat": true, "pat_expire_in": 30}`
+	manager := &mockInstanceManager{isSetupRequired: true}
+	// NB_SETUP_PAT_ENABLED=false: request fields must be silently ignored
+	router := setupTestRouterWithPAT(manager, &mock_server.MockAccountManager{})
+
+	body := `{"email": "admin@example.com", "password": "securepassword123", "name": "Admin", "create_pat": true}`
 	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBufferString(body))
 	rec := httptest.NewRecorder()
 
@@ -329,8 +331,10 @@ func TestSetup_PAT_FeatureDisabled_IgnoresCreatePAT(t *testing.T) {
 }
 
 func TestSetup_PAT_FlagOmitted_NoPAT(t *testing.T) {
+	t.Setenv(nbinstance.SetupPATEnabledEnvKey, "true")
+
 	manager := &mockInstanceManager{isSetupRequired: true}
-	router := setupTestRouterWithPAT(manager, &mock_server.MockAccountManager{}, true)
+	router := setupTestRouterWithPAT(manager, &mock_server.MockAccountManager{})
 
 	body := `{"email": "admin@example.com", "password": "securepassword123", "name": "Admin"}`
 	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBufferString(body))
@@ -344,7 +348,9 @@ func TestSetup_PAT_FlagOmitted_NoPAT(t *testing.T) {
 	assert.Nil(t, response.PersonalAccessToken)
 }
 
-func TestSetup_PAT_MissingExpireIn(t *testing.T) {
+func TestSetup_PAT_MissingExpireIn_DefaultsToOneDay(t *testing.T) {
+	t.Setenv(nbinstance.SetupPATEnabledEnvKey, "true")
+
 	createCalled := false
 	manager := &mockInstanceManager{
 		isSetupRequired: true,
@@ -353,7 +359,21 @@ func TestSetup_PAT_MissingExpireIn(t *testing.T) {
 			return &idp.UserData{ID: "u1", Email: email, Name: name}, nil
 		},
 	}
-	router := setupTestRouterWithPAT(manager, &mock_server.MockAccountManager{}, true)
+	accountMgr := &mock_server.MockAccountManager{
+		GetAccountIDByUserIdFunc: func(_ context.Context, userAuth auth.UserAuth) (string, error) {
+			assert.Equal(t, "u1", userAuth.UserId)
+			return "acc-1", nil
+		},
+		CreatePATFunc: func(_ context.Context, accountID, initiator, target, name string, expiresIn int) (*types.PersonalAccessTokenGenerated, error) {
+			assert.Equal(t, "acc-1", accountID)
+			assert.Equal(t, "u1", initiator)
+			assert.Equal(t, "u1", target)
+			assert.Equal(t, "setup-token", name)
+			assert.Equal(t, 1, expiresIn)
+			return &types.PersonalAccessTokenGenerated{PlainToken: "nbp_plain"}, nil
+		},
+	}
+	router := setupTestRouterWithPAT(manager, accountMgr)
 
 	body := `{"email": "admin@example.com", "password": "securepassword123", "name": "Admin", "create_pat": true}`
 	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBufferString(body))
@@ -361,13 +381,19 @@ func TestSetup_PAT_MissingExpireIn(t *testing.T) {
 
 	router.ServeHTTP(rec, req)
 
-	assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
-	assert.False(t, createCalled, "CreateOwnerUser must not run when input is rejected")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.True(t, createCalled)
+	var response api.SetupResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&response))
+	require.NotNil(t, response.PersonalAccessToken)
+	assert.Equal(t, "nbp_plain", *response.PersonalAccessToken)
 }
 
 func TestSetup_PAT_ExpireOutOfRange(t *testing.T) {
+	t.Setenv(nbinstance.SetupPATEnabledEnvKey, "true")
+
 	manager := &mockInstanceManager{isSetupRequired: true}
-	router := setupTestRouterWithPAT(manager, &mock_server.MockAccountManager{}, true)
+	router := setupTestRouterWithPAT(manager, &mock_server.MockAccountManager{})
 
 	body := `{"email": "admin@example.com", "password": "securepassword123", "name": "Admin", "create_pat": true, "pat_expire_in": 0}`
 	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBufferString(body))
@@ -379,6 +405,8 @@ func TestSetup_PAT_ExpireOutOfRange(t *testing.T) {
 }
 
 func TestSetup_PAT_Success(t *testing.T) {
+	t.Setenv(nbinstance.SetupPATEnabledEnvKey, "true")
+
 	manager := &mockInstanceManager{
 		isSetupRequired: true,
 		createOwnerUserFn: func(ctx context.Context, email, password, name string) (*idp.UserData, error) {
@@ -406,7 +434,7 @@ func TestSetup_PAT_Success(t *testing.T) {
 		},
 	}
 
-	router := setupTestRouterWithPAT(manager, accountMgr, true)
+	router := setupTestRouterWithPAT(manager, accountMgr)
 
 	body := `{"email": "admin@example.com", "password": "securepassword123", "name": "Admin", "create_pat": true, "pat_expire_in": 30}`
 	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBufferString(body))
@@ -424,6 +452,8 @@ func TestSetup_PAT_Success(t *testing.T) {
 }
 
 func TestSetup_PAT_AccountCreationFails_Rollback(t *testing.T) {
+	t.Setenv(nbinstance.SetupPATEnabledEnvKey, "true")
+
 	rolledBackFor := ""
 	manager := &mockInstanceManager{
 		isSetupRequired: true,
@@ -441,7 +471,7 @@ func TestSetup_PAT_AccountCreationFails_Rollback(t *testing.T) {
 		},
 	}
 
-	router := setupTestRouterWithPAT(manager, accountMgr, true)
+	router := setupTestRouterWithPAT(manager, accountMgr)
 
 	body := `{"email": "admin@example.com", "password": "securepassword123", "name": "Admin", "create_pat": true, "pat_expire_in": 30}`
 	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBufferString(body))
@@ -454,6 +484,8 @@ func TestSetup_PAT_AccountCreationFails_Rollback(t *testing.T) {
 }
 
 func TestSetup_PAT_CreatePATFails_Rollback(t *testing.T) {
+	t.Setenv(nbinstance.SetupPATEnabledEnvKey, "true")
+
 	ctrl := gomock.NewController(t)
 	accountStore := nbstore.NewMockStore(ctrl)
 	account := &types.Account{Id: "acc-1"}
@@ -483,7 +515,7 @@ func TestSetup_PAT_CreatePATFails_Rollback(t *testing.T) {
 		},
 	}
 
-	router := setupTestRouterWithPAT(manager, accountMgr, true)
+	router := setupTestRouterWithPAT(manager, accountMgr)
 
 	body := `{"email": "admin@example.com", "password": "securepassword123", "name": "Admin", "create_pat": true, "pat_expire_in": 30}`
 	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBufferString(body))

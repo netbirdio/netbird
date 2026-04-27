@@ -3,20 +3,40 @@ package instance
 import (
 	"context"
 	"fmt"
+	"os"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/shared/auth"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
 
-const setupPATTokenName = "setup-token"
+const (
+	setupPATTokenName = "setup-token"
+
+	// SetupPATEnabledEnvKey enables setup-time Personal Access Token creation.
+	SetupPATEnabledEnvKey = "NB_SETUP_PAT_ENABLED"
+
+	setupPATDefaultExpireDays = 1
+
+	// patMinExpireDays and patMaxExpireDays mirror the bounds enforced by
+	// DefaultAccountManager.CreatePAT in management/server/user.go. They are
+	// duplicated here so /api/setup can reject invalid input before it creates
+	// the embedded-IdP user.
+	patMinExpireDays = 1
+	patMaxExpireDays = 365
+)
 
 // SetupOptions controls optional work performed during initial instance setup.
 type SetupOptions struct {
-	CreatePAT       bool
-	PATExpireInDays int
+	// CreatePAT requests creation of a setup Personal Access Token. It is honored
+	// only when SetupPATEnabledEnvKey is set to "true".
+	CreatePAT bool
+	// PATExpireInDays defaults to 1 day when CreatePAT is requested and setup PAT
+	// creation is enabled.
+	PATExpireInDays *int
 }
 
 // SetupResult contains resources created during initial instance setup.
@@ -31,6 +51,7 @@ type SetupResult struct {
 type SetupService struct {
 	instanceManager Manager
 	accountManager  account.Manager
+	setupPATEnabled bool
 }
 
 // NewSetupService creates a setup use-case service.
@@ -38,13 +59,43 @@ func NewSetupService(instanceManager Manager, accountManager account.Manager) *S
 	return &SetupService{
 		instanceManager: instanceManager,
 		accountManager:  accountManager,
+		setupPATEnabled: os.Getenv(SetupPATEnabledEnvKey) == "true",
 	}
 }
 
-// SetupOwner creates the initial owner user and, optionally, provisions the
-// account and a setup Personal Access Token. If account or PAT provisioning
-// fails, created resources are rolled back so setup can be retried.
+func normalizeSetupOptions(opts SetupOptions, setupPATEnabled bool) (SetupOptions, error) {
+	if !opts.CreatePAT {
+		return opts, nil
+	}
+
+	if !setupPATEnabled {
+		opts.CreatePAT = false
+		opts.PATExpireInDays = nil
+		return opts, nil
+	}
+
+	if opts.PATExpireInDays == nil {
+		defaultExpireInDays := setupPATDefaultExpireDays
+		opts.PATExpireInDays = &defaultExpireInDays
+	}
+
+	if *opts.PATExpireInDays < patMinExpireDays || *opts.PATExpireInDays > patMaxExpireDays {
+		return opts, status.Errorf(status.InvalidArgument, "pat_expire_in must be between %d and %d", patMinExpireDays, patMaxExpireDays)
+	}
+
+	return opts, nil
+}
+
+// SetupOwner creates the initial owner user and, when requested and enabled by
+// SetupPATEnabledEnvKey, provisions the account and a setup Personal Access
+// Token. If account or PAT provisioning fails, created resources are rolled
+// back so setup can be retried.
 func (m *SetupService) SetupOwner(ctx context.Context, email, password, name string, opts SetupOptions) (*SetupResult, error) {
+	opts, err := normalizeSetupOptions(opts, m.setupPATEnabled)
+	if err != nil {
+		return nil, err
+	}
+
 	userData, err := m.instanceManager.CreateOwnerUser(ctx, email, password, name)
 	if err != nil {
 		return nil, err
@@ -74,7 +125,7 @@ func (m *SetupService) SetupOwner(ctx context.Context, email, password, name str
 		return nil, err
 	}
 
-	pat, err := m.accountManager.CreatePAT(ctx, accountID, userData.ID, userData.ID, setupPATTokenName, opts.PATExpireInDays)
+	pat, err := m.accountManager.CreatePAT(ctx, accountID, userData.ID, userData.ID, setupPATTokenName, *opts.PATExpireInDays)
 	if err != nil {
 		err = fmt.Errorf("create setup PAT: %w", err)
 		m.rollbackSetup(ctx, userData.ID, "setup PAT provisioning failed", err, accountID)

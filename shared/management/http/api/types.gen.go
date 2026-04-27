@@ -4306,7 +4306,7 @@ type SetupRequest struct {
 	// Password Password for the admin user (minimum 8 characters)
 	Password string `json:"password"`
 
-	// PatExpireIn Expiration of the Personal Access Token in days. Required when create_pat is true.
+	// PatExpireIn Expiration of the Personal Access Token in days. Defaults to 1 day when omitted.
 	PatExpireIn *int `json:"pat_expire_in,omitempty"`
 }
 

@@ -11,37 +11,20 @@ import (
 	nbinstance "github.com/netbirdio/netbird/management/server/instance"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
-	"github.com/netbirdio/netbird/shared/management/status"
-)
-
-// patMinExpireDays and patMaxExpireDays mirror the bounds enforced by
-// DefaultAccountManager.CreatePAT in management/server/user.go. They are
-// duplicated here so /api/setup can reject invalid input before it creates
-// the embedded-IdP user.
-const (
-	patMinExpireDays = 1
-	patMaxExpireDays = 365
 )
 
 // handler handles the instance setup HTTP endpoints
 type handler struct {
-	instanceManager  nbinstance.Manager
-	setupManager     *nbinstance.SetupService
-	createPATEnabled bool
+	instanceManager nbinstance.Manager
+	setupManager    *nbinstance.SetupService
 }
 
 // AddEndpoints registers the instance setup endpoints.
 // These endpoints bypass authentication for initial setup.
-//
-// createPATEnabled toggles the setup-time Personal Access Token feature
-// (NB_SETUP_PAT_ENABLED). When false, the create_pat / pat_expire_in request
-// fields are silently ignored, matching the "env-gated, opt-in" pattern used
-// by other optional features (e.g. rate limiting).
-func AddEndpoints(instanceManager nbinstance.Manager, accountManager account.Manager, createPATEnabled bool, router *mux.Router) {
+func AddEndpoints(instanceManager nbinstance.Manager, accountManager account.Manager, router *mux.Router) {
 	h := &handler{
-		instanceManager:  instanceManager,
-		setupManager:     nbinstance.NewSetupService(instanceManager, accountManager),
-		createPATEnabled: createPATEnabled,
+		instanceManager: instanceManager,
+		setupManager:    nbinstance.NewSetupService(instanceManager, accountManager),
 	}
 
 	router.HandleFunc("/instance", h.getInstanceStatus).Methods("GET", "OPTIONS")
@@ -83,21 +66,9 @@ func (h *handler) setup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	wantPAT := h.createPATEnabled && req.CreatePat != nil && *req.CreatePat
-	if wantPAT {
-		if req.PatExpireIn == nil {
-			util.WriteError(ctx, status.Errorf(status.InvalidArgument, "pat_expire_in is required when create_pat is true"), w)
-			return
-		}
-		if *req.PatExpireIn < patMinExpireDays || *req.PatExpireIn > patMaxExpireDays {
-			util.WriteError(ctx, status.Errorf(status.InvalidArgument, "pat_expire_in must be between %d and %d", patMinExpireDays, patMaxExpireDays), w)
-			return
-		}
-	}
-
 	result, err := h.setupManager.SetupOwner(ctx, req.Email, req.Password, req.Name, nbinstance.SetupOptions{
-		CreatePAT:       wantPAT,
-		PATExpireInDays: expireInDays(req.PatExpireIn),
+		CreatePAT:       req.CreatePat != nil && *req.CreatePat,
+		PATExpireInDays: req.PatExpireIn,
 	})
 	if err != nil {
 		util.WriteError(ctx, err, w)
@@ -116,13 +87,6 @@ func (h *handler) setup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	util.WriteJSONObject(ctx, w, resp)
-}
-
-func expireInDays(expireIn *int) int {
-	if expireIn == nil {
-		return 0
-	}
-	return *expireIn
 }
 
 // getVersionInfo returns version information for NetBird components.

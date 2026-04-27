@@ -46,7 +46,75 @@ func (m *setupInstanceManagerMock) GetVersionInfo(context.Context) (*VersionInfo
 
 var _ Manager = (*setupInstanceManagerMock)(nil)
 
+func intPtr(v int) *int {
+	return &v
+}
+
+func TestSetupOwner_PATFeatureDisabled_IgnoresCreatePAT(t *testing.T) {
+	t.Setenv(SetupPATEnabledEnvKey, "false")
+
+	createCalls := 0
+	setupManager := NewSetupService(
+		&setupInstanceManagerMock{
+			createOwnerUserFn: func(_ context.Context, email, _, name string) (*idp.UserData, error) {
+				createCalls++
+				return &idp.UserData{ID: "owner-id", Email: email, Name: name}, nil
+			},
+		},
+		&mock_server.MockAccountManager{},
+	)
+
+	result, err := setupManager.SetupOwner(context.Background(), "admin@example.com", "securepassword123", "Admin", SetupOptions{
+		CreatePAT: true,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "owner-id", result.User.ID)
+	assert.Empty(t, result.PATPlainToken)
+	assert.Equal(t, 1, createCalls)
+}
+
+func TestSetupOwner_PATFeatureEnabled_MissingExpireDefaultsToOneDay(t *testing.T) {
+	t.Setenv(SetupPATEnabledEnvKey, "true")
+
+	createCalled := false
+	setupManager := NewSetupService(
+		&setupInstanceManagerMock{
+			createOwnerUserFn: func(_ context.Context, email, _, name string) (*idp.UserData, error) {
+				createCalled = true
+				return &idp.UserData{ID: "owner-id", Email: email, Name: name}, nil
+			},
+		},
+		&mock_server.MockAccountManager{
+			GetAccountIDByUserIdFunc: func(_ context.Context, userAuth auth.UserAuth) (string, error) {
+				assert.Equal(t, "owner-id", userAuth.UserId)
+				return "acc-1", nil
+			},
+			CreatePATFunc: func(_ context.Context, accountID, initiatorUserID, targetUserID, tokenName string, expiresIn int) (*types.PersonalAccessTokenGenerated, error) {
+				assert.Equal(t, "acc-1", accountID)
+				assert.Equal(t, "owner-id", initiatorUserID)
+				assert.Equal(t, "owner-id", targetUserID)
+				assert.Equal(t, setupPATTokenName, tokenName)
+				assert.Equal(t, setupPATDefaultExpireDays, expiresIn)
+				return &types.PersonalAccessTokenGenerated{PlainToken: "nbp_plain"}, nil
+			},
+		},
+	)
+
+	result, err := setupManager.SetupOwner(context.Background(), "admin@example.com", "securepassword123", "Admin", SetupOptions{
+		CreatePAT: true,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, createCalled)
+	assert.Equal(t, "nbp_plain", result.PATPlainToken)
+}
+
 func TestSetupOwner_CreatePATFails_RollsBackSetupAccountAndUser(t *testing.T) {
+	t.Setenv(SetupPATEnabledEnvKey, "true")
+
 	ctrl := gomock.NewController(t)
 	accountStore := nbstore.NewMockStore(ctrl)
 	account := &types.Account{Id: "acc-1"}
@@ -83,7 +151,7 @@ func TestSetupOwner_CreatePATFails_RollsBackSetupAccountAndUser(t *testing.T) {
 
 	result, err := setupManager.SetupOwner(context.Background(), "admin@example.com", "securepassword123", "Admin", SetupOptions{
 		CreatePAT:       true,
-		PATExpireInDays: 30,
+		PATExpireInDays: intPtr(30),
 	})
 
 	require.Error(t, err)
@@ -93,6 +161,8 @@ func TestSetupOwner_CreatePATFails_RollsBackSetupAccountAndUser(t *testing.T) {
 }
 
 func TestSetupOwner_CreatePATFails_AccountAlreadyGoneStillRollsBackUser(t *testing.T) {
+	t.Setenv(SetupPATEnabledEnvKey, "true")
+
 	ctrl := gomock.NewController(t)
 	accountStore := nbstore.NewMockStore(ctrl)
 	accountStore.EXPECT().GetAccount(gomock.Any(), "acc-1").Return(nil, status.NewAccountNotFoundError("acc-1"))
@@ -120,7 +190,7 @@ func TestSetupOwner_CreatePATFails_AccountAlreadyGoneStillRollsBackUser(t *testi
 
 	result, err := setupManager.SetupOwner(context.Background(), "admin@example.com", "securepassword123", "Admin", SetupOptions{
 		CreatePAT:       true,
-		PATExpireInDays: 30,
+		PATExpireInDays: intPtr(30),
 	})
 
 	require.Error(t, err)
@@ -130,6 +200,8 @@ func TestSetupOwner_CreatePATFails_AccountAlreadyGoneStillRollsBackUser(t *testi
 }
 
 func TestSetupOwner_CreatePATFails_AccountRollbackFailureStillRollsBackUser(t *testing.T) {
+	t.Setenv(SetupPATEnabledEnvKey, "true")
+
 	ctrl := gomock.NewController(t)
 	accountStore := nbstore.NewMockStore(ctrl)
 	account := &types.Account{Id: "acc-1"}
@@ -159,7 +231,7 @@ func TestSetupOwner_CreatePATFails_AccountRollbackFailureStillRollsBackUser(t *t
 
 	result, err := setupManager.SetupOwner(context.Background(), "admin@example.com", "securepassword123", "Admin", SetupOptions{
 		CreatePAT:       true,
-		PATExpireInDays: 30,
+		PATExpireInDays: intPtr(30),
 	})
 
 	require.Error(t, err)
