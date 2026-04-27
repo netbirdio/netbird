@@ -45,6 +45,7 @@ type Controller struct {
 
 	accountUpdateLocks               sync.Map
 	sendAccountUpdateLocks           sync.Map
+	affectedPeerUpdateLocks          sync.Map
 	updateAccountPeersBufferInterval atomic.Int64
 	// dnsDomain is used for peer resolution. This is appended to the peer's name
 	dnsDomain string
@@ -61,6 +62,13 @@ type bufferUpdate struct {
 	mu     sync.Mutex
 	next   *time.Timer
 	update atomic.Bool
+}
+
+type bufferAffectedUpdate struct {
+	sendMu  sync.Mutex
+	dataMu  sync.Mutex
+	next    *time.Timer
+	peerIDs map[string]struct{}
 }
 
 var _ network_map.Controller = (*Controller)(nil)
@@ -494,6 +502,98 @@ func (c *Controller) BufferUpdateAccountPeers(ctx context.Context, accountID str
 	}()
 
 	return nil
+}
+
+// BufferUpdateAffectedPeers accumulates peer IDs across rapid successive calls
+// and flushes them in a single sendUpdateForAffectedPeers call after the buffer interval.
+func (c *Controller) BufferUpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string) error {
+	if len(peerIDs) == 0 {
+		return nil
+	}
+
+	log.WithContext(ctx).Tracef("buffer updating %d affected peers for account %s from %s", len(peerIDs), accountID, util.GetCallerName())
+
+	bufUpd, _ := c.affectedPeerUpdateLocks.LoadOrStore(accountID, &bufferAffectedUpdate{
+		peerIDs: make(map[string]struct{}),
+	})
+	b := bufUpd.(*bufferAffectedUpdate)
+
+	// Always accumulate incoming peer IDs (non-blocking).
+	b.addPeerIDs(peerIDs)
+
+	if !b.sendMu.TryLock() {
+		// Another goroutine is already sending; it will pick up our IDs on its next drain.
+		return nil
+	}
+
+	b.stopTimer()
+
+	collected := b.drainPeerIDs()
+	go func() {
+		defer b.sendMu.Unlock()
+		_ = c.sendUpdateForAffectedPeers(ctx, accountID, collected)
+
+		// Check if more peer IDs accumulated while we were sending.
+		if !b.hasPending() {
+			return
+		}
+
+		// Schedule a debounced flush for the newly accumulated IDs.
+		b.setTimer(time.Duration(c.updateAccountPeersBufferInterval.Load()), func() {
+			ids := b.drainPeerIDs()
+			if len(ids) > 0 {
+				_ = c.sendUpdateForAffectedPeers(ctx, accountID, ids)
+			}
+		})
+	}()
+
+	return nil
+}
+
+func (b *bufferAffectedUpdate) addPeerIDs(ids []string) {
+	b.dataMu.Lock()
+	for _, id := range ids {
+		b.peerIDs[id] = struct{}{}
+	}
+	b.dataMu.Unlock()
+}
+
+func (b *bufferAffectedUpdate) drainPeerIDs() []string {
+	b.dataMu.Lock()
+	defer b.dataMu.Unlock()
+	if len(b.peerIDs) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(b.peerIDs))
+	for id := range b.peerIDs {
+		ids = append(ids, id)
+	}
+	b.peerIDs = make(map[string]struct{})
+	return ids
+}
+
+func (b *bufferAffectedUpdate) hasPending() bool {
+	b.dataMu.Lock()
+	defer b.dataMu.Unlock()
+	return len(b.peerIDs) > 0
+}
+
+func (b *bufferAffectedUpdate) stopTimer() {
+	b.dataMu.Lock()
+	defer b.dataMu.Unlock()
+	if b.next != nil {
+		b.next.Stop()
+	}
+}
+
+func (b *bufferAffectedUpdate) setTimer(d time.Duration, f func()) {
+	b.dataMu.Lock()
+	defer b.dataMu.Unlock()
+	if b.next == nil {
+		b.next = time.AfterFunc(d, f)
+		return
+	}
+	b.next.Reset(d)
 }
 
 func (c *Controller) GetValidatedPeerWithMap(ctx context.Context, isRequiresApproval bool, accountID string, peer *nbpeer.Peer) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error) {

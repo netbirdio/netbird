@@ -126,6 +126,7 @@ type Manager interface {
 	DeleteSetupKey(ctx context.Context, accountID, userID, keyID string) error
 	UpdateAccountPeers(ctx context.Context, accountID string)
 	UpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string)
+	BufferUpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string)
 	BufferUpdateAccountPeers(ctx context.Context, accountID string)
 	BuildUserInfosForAccount(ctx context.Context, accountID, initiatorUserID string, accountUsers []*types.User) (map[string]*types.UserInfo, error)
 	SyncUserJWTGroups(ctx context.Context, userAuth auth.UserAuth) error

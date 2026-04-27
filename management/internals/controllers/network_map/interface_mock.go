@@ -57,6 +57,20 @@ func (mr *MockControllerMockRecorder) BufferUpdateAccountPeers(ctx, accountID an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BufferUpdateAccountPeers", reflect.TypeOf((*MockController)(nil).BufferUpdateAccountPeers), ctx, accountID)
 }
 
+// BufferUpdateAffectedPeers mocks base method.
+func (m *MockController) BufferUpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "BufferUpdateAffectedPeers", ctx, accountID, peerIDs)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// BufferUpdateAffectedPeers indicates an expected call of BufferUpdateAffectedPeers.
+func (mr *MockControllerMockRecorder) BufferUpdateAffectedPeers(ctx, accountID, peerIDs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BufferUpdateAffectedPeers", reflect.TypeOf((*MockController)(nil).BufferUpdateAffectedPeers), ctx, accountID, peerIDs)
+}
+
 // CountStreams mocks base method.
 func (m *MockController) CountStreams() int {
 	m.ctrl.T.Helper()
