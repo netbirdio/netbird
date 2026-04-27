@@ -34,6 +34,7 @@ type proxyManager interface {
 	GetActiveClusterAddressesForAccount(ctx context.Context, accountID string) ([]string, error)
 	ClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
 	ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
+	ClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
 }
 
 type Manager struct {
@@ -91,6 +92,7 @@ func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*d
 		}
 		d.SupportsCustomPorts = m.proxyManager.ClusterSupportsCustomPorts(ctx, cluster)
 		d.RequireSubdomain = m.proxyManager.ClusterRequireSubdomain(ctx, cluster)
+		d.SupportsCrowdSec = m.proxyManager.ClusterSupportsCrowdSec(ctx, cluster)
 		ret = append(ret, d)
 	}
 
@@ -106,6 +108,7 @@ func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*d
 		}
 		if d.TargetCluster != "" {
 			cd.SupportsCustomPorts = m.proxyManager.ClusterSupportsCustomPorts(ctx, d.TargetCluster)
+			cd.SupportsCrowdSec = m.proxyManager.ClusterSupportsCrowdSec(ctx, d.TargetCluster)
 		}
 		// Custom domains never require a subdomain by default since
 		// the account owns them and should be able to use the bare domain.

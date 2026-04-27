@@ -31,6 +31,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	mgmt "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/mock_server"
@@ -95,9 +96,16 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 	settingsManagerMock := settings.NewMockManager(ctrl)
 	jobManager := job.NewJobManager(nil, store, peersManger)
 
-	ia, _ := integrations.NewIntegratedValidator(context.Background(), peersManger, settingsManagerMock, eventStore)
+	ctx := context.Background()
 
-	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
+	cacheStore, err := nbcache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ia, _ := integrations.NewIntegratedValidator(ctx, peersManger, settingsManagerMock, eventStore, cacheStore)
+
+	metrics, err := telemetry.NewDefaultAppMetrics(ctx)
 	require.NoError(t, err)
 
 	settingsMockManager := settings.NewMockManager(ctrl)
@@ -116,11 +124,10 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 		Return(&types.ExtraSettings{}, nil).
 		AnyTimes()
 
-	ctx := context.Background()
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := mgmt.NewAccountRequestBuffer(ctx, store)
 	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, mgmt.MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(store, peersManger), config)
-	accountManager, err := mgmt.BuildManager(context.Background(), config, store, networkMapController, jobManager, nil, "", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock, false)
+	accountManager, err := mgmt.BuildManager(context.Background(), config, store, networkMapController, jobManager, nil, "", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock, false, cacheStore)
 	if err != nil {
 		t.Fatal(err)
 	}

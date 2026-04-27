@@ -217,7 +217,6 @@ func (w *WGIface) RemoveAllowedIP(peerKey string, allowedIP netip.Prefix) error 
 // Close closes the tunnel interface
 func (w *WGIface) Close() error {
 	w.mu.Lock()
-	defer w.mu.Unlock()
 
 	var result *multierror.Error
 
@@ -225,7 +224,15 @@ func (w *WGIface) Close() error {
 		result = multierror.Append(result, fmt.Errorf("failed to free WireGuard proxy: %w", err))
 	}
 
-	if err := w.tun.Close(); err != nil {
+	// Release w.mu before calling w.tun.Close(): the underlying
+	// wireguard-go device.Close() waits for its send/receive goroutines
+	// to drain. Some of those goroutines re-enter WGIface methods that
+	// take w.mu (e.g. the packet filter DNS hook calls GetDevice()), so
+	// holding the mutex here would deadlock the shutdown path.
+	tun := w.tun
+	w.mu.Unlock()
+
+	if err := tun.Close(); err != nil {
 		result = multierror.Append(result, fmt.Errorf("failed to close wireguard interface %s: %w", w.Name(), err))
 	}
 

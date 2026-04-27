@@ -2,6 +2,7 @@ package accesslog
 
 import (
 	"context"
+	"maps"
 	"net/netip"
 	"sync"
 	"sync/atomic"
@@ -126,6 +127,7 @@ type logEntry struct {
 	BytesUpload   int64
 	BytesDownload int64
 	Protocol      Protocol
+	Metadata      map[string]string
 }
 
 // Protocol identifies the transport protocol of an access log entry.
@@ -150,8 +152,10 @@ type L4Entry struct {
 	BytesDownload int64
 	// DenyReason, when non-empty, indicates the connection was denied.
 	// Values match the HTTP auth mechanism strings: "ip_restricted",
-	// "country_restricted", "geo_unavailable".
+	// "country_restricted", "geo_unavailable", "crowdsec_ban", etc.
 	DenyReason string
+	// Metadata carries extra context about the connection (e.g. CrowdSec verdict).
+	Metadata map[string]string
 }
 
 // LogL4 sends an access log entry for a layer-4 connection (TCP or UDP).
@@ -167,6 +171,7 @@ func (l *Logger) LogL4(entry L4Entry) {
 		DurationMs:    entry.DurationMs,
 		BytesUpload:   entry.BytesUpload,
 		BytesDownload: entry.BytesDownload,
+		Metadata:      maps.Clone(entry.Metadata),
 	}
 	if entry.DenyReason != "" {
 		if !l.allowDenyLog(entry.ServiceID, entry.DenyReason) {
@@ -258,6 +263,7 @@ func (l *Logger) log(entry logEntry) {
 				BytesUpload:   entry.BytesUpload,
 				BytesDownload: entry.BytesDownload,
 				Protocol:      string(entry.Protocol),
+				Metadata:      entry.Metadata,
 			},
 		}); err != nil {
 			l.logger.WithFields(log.Fields{

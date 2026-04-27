@@ -9,15 +9,24 @@ import (
 	"testing"
 	"time"
 
+	cachestore "github.com/eko/gocache/lib/v4/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
+	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
+
+func testCacheStore(t *testing.T) cachestore.StoreInterface {
+	t.Helper()
+	s, err := nbcache.NewStore(context.Background(), 30*time.Minute, 10*time.Minute, 100)
+	require.NoError(t, err)
+	return s
+}
 
 type testProxyController struct {
 	mu             sync.Mutex
@@ -117,11 +126,8 @@ func drainEmpty(ch chan *proto.GetMappingUpdateResponse) bool {
 
 func TestSendServiceUpdateToCluster_UniqueTokensPerProxy(t *testing.T) {
 	ctx := context.Background()
-	tokenStore, err := NewOneTimeTokenStore(ctx, time.Hour, 10*time.Minute, 100)
-	require.NoError(t, err)
-
-	pkceStore, err := NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
-	require.NoError(t, err)
+	tokenStore := NewOneTimeTokenStore(ctx, testCacheStore(t))
+	pkceStore := NewPKCEVerifierStore(ctx, testCacheStore(t))
 
 	s := &ProxyServiceServer{
 		tokenStore:        tokenStore,
@@ -177,11 +183,8 @@ func TestSendServiceUpdateToCluster_UniqueTokensPerProxy(t *testing.T) {
 
 func TestSendServiceUpdateToCluster_DeleteNoToken(t *testing.T) {
 	ctx := context.Background()
-	tokenStore, err := NewOneTimeTokenStore(ctx, time.Hour, 10*time.Minute, 100)
-	require.NoError(t, err)
-
-	pkceStore, err := NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
-	require.NoError(t, err)
+	tokenStore := NewOneTimeTokenStore(ctx, testCacheStore(t))
+	pkceStore := NewPKCEVerifierStore(ctx, testCacheStore(t))
 
 	s := &ProxyServiceServer{
 		tokenStore:        tokenStore,
@@ -214,11 +217,8 @@ func TestSendServiceUpdateToCluster_DeleteNoToken(t *testing.T) {
 
 func TestSendServiceUpdate_UniqueTokensPerProxy(t *testing.T) {
 	ctx := context.Background()
-	tokenStore, err := NewOneTimeTokenStore(ctx, time.Hour, 10*time.Minute, 100)
-	require.NoError(t, err)
-
-	pkceStore, err := NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
-	require.NoError(t, err)
+	tokenStore := NewOneTimeTokenStore(ctx, testCacheStore(t))
+	pkceStore := NewPKCEVerifierStore(ctx, testCacheStore(t))
 
 	s := &ProxyServiceServer{
 		tokenStore:        tokenStore,
@@ -270,8 +270,7 @@ func generateState(s *ProxyServiceServer, redirectURL string) string {
 
 func TestOAuthState_NeverTheSame(t *testing.T) {
 	ctx := context.Background()
-	pkceStore, err := NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
-	require.NoError(t, err)
+	pkceStore := NewPKCEVerifierStore(ctx, testCacheStore(t))
 
 	s := &ProxyServiceServer{
 		oidcConfig: ProxyOIDCConfig{
@@ -299,8 +298,7 @@ func TestOAuthState_NeverTheSame(t *testing.T) {
 
 func TestValidateState_RejectsOldTwoPartFormat(t *testing.T) {
 	ctx := context.Background()
-	pkceStore, err := NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
-	require.NoError(t, err)
+	pkceStore := NewPKCEVerifierStore(ctx, testCacheStore(t))
 
 	s := &ProxyServiceServer{
 		oidcConfig: ProxyOIDCConfig{
@@ -310,7 +308,7 @@ func TestValidateState_RejectsOldTwoPartFormat(t *testing.T) {
 	}
 
 	// Old format had only 2 parts: base64(url)|hmac
-	err = s.pkceVerifierStore.Store("base64url|hmac", "test", 10*time.Minute)
+	err := s.pkceVerifierStore.Store("base64url|hmac", "test", 10*time.Minute)
 	require.NoError(t, err)
 
 	_, _, err = s.ValidateState("base64url|hmac")
@@ -372,8 +370,7 @@ func TestEnforceAccountScope_AllowsNoTokenInContext(t *testing.T) {
 
 func TestValidateState_RejectsInvalidHMAC(t *testing.T) {
 	ctx := context.Background()
-	pkceStore, err := NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
-	require.NoError(t, err)
+	pkceStore := NewPKCEVerifierStore(ctx, testCacheStore(t))
 
 	s := &ProxyServiceServer{
 		oidcConfig: ProxyOIDCConfig{
@@ -383,7 +380,7 @@ func TestValidateState_RejectsInvalidHMAC(t *testing.T) {
 	}
 
 	// Store with tampered HMAC
-	err = s.pkceVerifierStore.Store("dGVzdA==|nonce|wrong-hmac", "test", 10*time.Minute)
+	err := s.pkceVerifierStore.Store("dGVzdA==|nonce|wrong-hmac", "test", 10*time.Minute)
 	require.NoError(t, err)
 
 	_, _, err = s.ValidateState("dGVzdA==|nonce|wrong-hmac")
@@ -392,8 +389,7 @@ func TestValidateState_RejectsInvalidHMAC(t *testing.T) {
 }
 
 func TestSendServiceUpdateToCluster_FiltersOnCapability(t *testing.T) {
-	tokenStore, err := NewOneTimeTokenStore(context.Background(), time.Hour, 10*time.Minute, 100)
-	require.NoError(t, err)
+	tokenStore := NewOneTimeTokenStore(context.Background(), testCacheStore(t))
 
 	s := &ProxyServiceServer{
 		tokenStore: tokenStore,
@@ -465,8 +461,7 @@ func TestSendServiceUpdateToCluster_FiltersOnCapability(t *testing.T) {
 }
 
 func TestSendServiceUpdateToCluster_TLSNotFiltered(t *testing.T) {
-	tokenStore, err := NewOneTimeTokenStore(context.Background(), time.Hour, 10*time.Minute, 100)
-	require.NoError(t, err)
+	tokenStore := NewOneTimeTokenStore(context.Background(), testCacheStore(t))
 
 	s := &ProxyServiceServer{
 		tokenStore: tokenStore,
@@ -497,8 +492,7 @@ func TestSendServiceUpdateToCluster_TLSNotFiltered(t *testing.T) {
 // scenario for an existing service, verifying the correct update types
 // reach the correct clusters.
 func TestServiceModifyNotifications(t *testing.T) {
-	tokenStore, err := NewOneTimeTokenStore(context.Background(), time.Hour, 10*time.Minute, 100)
-	require.NoError(t, err)
+	tokenStore := NewOneTimeTokenStore(context.Background(), testCacheStore(t))
 
 	newServer := func() (*ProxyServiceServer, map[string]chan *proto.GetMappingUpdateResponse) {
 		s := &ProxyServiceServer{

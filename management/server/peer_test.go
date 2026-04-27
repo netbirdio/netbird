@@ -32,6 +32,7 @@ import (
 	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/internals/shared/grpc"
+	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/job"
@@ -175,11 +176,6 @@ func TestPeer_SessionExpired(t *testing.T) {
 }
 
 func TestAccountManager_GetNetworkMap(t *testing.T) {
-	testGetNetworkMapGeneral(t)
-}
-
-func TestAccountManager_GetNetworkMap_Experimental(t *testing.T) {
-	t.Setenv(network_map.EnvNewNetworkMapBuilder, "true")
 	testGetNetworkMapGeneral(t)
 }
 
@@ -1015,11 +1011,6 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 	}
 }
 
-func TestUpdateAccountPeers_Experimental(t *testing.T) {
-	t.Setenv(network_map.EnvNewNetworkMapBuilder, "true")
-	testUpdateAccountPeers(t)
-}
-
 func TestUpdateAccountPeers(t *testing.T) {
 	testUpdateAccountPeers(t)
 }
@@ -1294,11 +1285,15 @@ func Test_RegisterPeerByUser(t *testing.T) {
 	peersManager := peers.NewManager(s, permissionsManager)
 
 	ctx := context.Background()
+
+	cacheStore, err := nbcache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
+	require.NoError(t, err)
+
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
 	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{})
 
-	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1380,11 +1375,15 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 	peersManager := peers.NewManager(s, permissionsManager)
 
 	ctx := context.Background()
+
+	cacheStore, err := nbcache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
+	require.NoError(t, err)
+
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
 	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{})
 
-	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1534,11 +1533,15 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 	peersManager := peers.NewManager(s, permissionsManager)
 
 	ctx := context.Background()
+
+	cacheStore, err := nbcache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
+	require.NoError(t, err)
+
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
 	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{})
 
-	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1587,7 +1590,6 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 }
 
 func Test_LoginPeer(t *testing.T) {
-	t.Setenv(network_map.EnvNewNetworkMapBuilder, "true")
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
@@ -1615,11 +1617,15 @@ func Test_LoginPeer(t *testing.T) {
 	peersManager := peers.NewManager(s, permissionsManager)
 
 	ctx := context.Background()
+
+	cacheStore, err := nbcache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
+	require.NoError(t, err)
+
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := NewAccountRequestBuffer(ctx, s)
 	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{})
 
-	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1890,7 +1896,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -1912,7 +1918,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -1977,7 +1983,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -1995,7 +2001,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -2041,7 +2047,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -2059,7 +2065,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -2096,7 +2102,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -2114,7 +2120,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})

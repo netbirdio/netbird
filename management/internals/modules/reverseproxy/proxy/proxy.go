@@ -18,6 +18,8 @@ type Capabilities struct {
 	// RequireSubdomain indicates whether a subdomain label is required in
 	// front of the cluster domain.
 	RequireSubdomain *bool
+	// SupportsCrowdsec indicates whether this proxy has CrowdSec configured.
+	SupportsCrowdsec *bool
 }
 
 // Proxy represents a reverse proxy instance

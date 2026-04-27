@@ -28,6 +28,7 @@ type serviceParams struct {
 	LogFiles              []string          `json:"log_files,omitempty"`
 	DisableProfiles       bool              `json:"disable_profiles,omitempty"`
 	DisableUpdateSettings bool              `json:"disable_update_settings,omitempty"`
+	DisableNetworks       bool              `json:"disable_networks,omitempty"`
 	ServiceEnvVars        map[string]string `json:"service_env_vars,omitempty"`
 }
 
@@ -78,11 +79,12 @@ func currentServiceParams() *serviceParams {
 		LogFiles:              logFiles,
 		DisableProfiles:       profilesDisabled,
 		DisableUpdateSettings: updateSettingsDisabled,
+		DisableNetworks:       networksDisabled,
 	}
 
 	if len(serviceEnvVars) > 0 {
 		parsed, err := parseServiceEnvVars(serviceEnvVars)
-		if err == nil && len(parsed) > 0 {
+		if err == nil {
 			params.ServiceEnvVars = parsed
 		}
 	}
@@ -142,31 +144,46 @@ func applyServiceParams(cmd *cobra.Command, params *serviceParams) {
 		updateSettingsDisabled = params.DisableUpdateSettings
 	}
 
+	if !serviceCmd.PersistentFlags().Changed("disable-networks") {
+		networksDisabled = params.DisableNetworks
+	}
+
 	applyServiceEnvParams(cmd, params)
 }
 
 // applyServiceEnvParams merges saved service environment variables.
-// If --service-env was explicitly set, explicit values win on key conflict
-// but saved keys not in the explicit set are carried over.
+// If --service-env was explicitly set with values, explicit values win on key
+// conflict but saved keys not in the explicit set are carried over.
+// If --service-env was explicitly set to empty, all saved env vars are cleared.
 // If --service-env was not set, saved env vars are used entirely.
 func applyServiceEnvParams(cmd *cobra.Command, params *serviceParams) {
-	if len(params.ServiceEnvVars) == 0 {
-		return
-	}
-
 	if !cmd.Flags().Changed("service-env") {
-		// No explicit env vars: rebuild serviceEnvVars from saved params.
-		serviceEnvVars = envMapToSlice(params.ServiceEnvVars)
+		if len(params.ServiceEnvVars) > 0 {
+			// No explicit env vars: rebuild serviceEnvVars from saved params.
+			serviceEnvVars = envMapToSlice(params.ServiceEnvVars)
+		}
 		return
 	}
 
-	// Explicit env vars were provided: merge saved values underneath.
+	// Flag was explicitly set: parse what the user provided.
 	explicit, err := parseServiceEnvVars(serviceEnvVars)
 	if err != nil {
 		cmd.PrintErrf("Warning: parse explicit service env vars for merge: %v\n", err)
 		return
 	}
 
+	// If the user passed an empty value (e.g. --service-env ""), clear all
+	// saved env vars rather than merging.
+	if len(explicit) == 0 {
+		serviceEnvVars = nil
+		return
+	}
+
+	if len(params.ServiceEnvVars) == 0 {
+		return
+	}
+
+	// Merge saved values underneath explicit ones.
 	merged := make(map[string]string, len(params.ServiceEnvVars)+len(explicit))
 	maps.Copy(merged, params.ServiceEnvVars)
 	maps.Copy(merged, explicit) // explicit wins on conflict

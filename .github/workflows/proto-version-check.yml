@@ -1,0 +1,62 @@
+name: Proto Version Check
+
+on:
+  pull_request:
+    paths:
+      - "**/*.pb.go"
+
+jobs:
+  check-proto-versions:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for proto tool version changes
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              per_page: 100,
+            });
+
+            const pbFiles = files.filter(f => f.filename.endsWith('.pb.go'));
+            const missingPatch = pbFiles.filter(f => !f.patch).map(f => f.filename);
+            if (missingPatch.length > 0) {
+              core.setFailed(
+                `Cannot inspect patch data for:\n` +
+                missingPatch.map(f => `- ${f}`).join('\n') +
+                `\nThis can happen with very large PRs. Verify proto versions manually.`
+              );
+              return;
+            }
+            const versionPattern = /^[+-]\s*\/\/\s+protoc(?:-gen-go)?\s+v[\d.]+/;
+            const violations = [];
+
+            for (const file of pbFiles) {
+              const changed = file.patch
+                .split('\n')
+                .filter(line => versionPattern.test(line));
+              if (changed.length > 0) {
+                violations.push({
+                  file: file.filename,
+                  lines: changed,
+                });
+              }
+            }
+
+            if (violations.length > 0) {
+              const details = violations.map(v =>
+                `${v.file}:\n${v.lines.map(l => '  ' + l).join('\n')}`
+              ).join('\n\n');
+
+              core.setFailed(
+                `Proto version strings changed in generated files.\n` +
+                `This usually means the wrong protoc or protoc-gen-go version was used.\n` +
+                `Regenerate with the matching tool versions.\n\n` +
+                details
+              );
+              return;
+            }
+
+            console.log('No proto version string changes detected');

@@ -22,6 +22,7 @@ import (
 	nbproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
+	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
@@ -191,11 +192,11 @@ func setupAuthCallbackTest(t *testing.T) *testSetup {
 
 	oidcServer := newFakeOIDCServer()
 
-	tokenStore, err := nbgrpc.NewOneTimeTokenStore(ctx, time.Minute, 10*time.Minute, 100)
+	cacheStore, err := nbcache.NewStore(ctx, 30*time.Minute, 10*time.Minute, 100)
 	require.NoError(t, err)
 
-	pkceStore, err := nbgrpc.NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
-	require.NoError(t, err)
+	tokenStore := nbgrpc.NewOneTimeTokenStore(ctx, cacheStore)
+	pkceStore := nbgrpc.NewPKCEVerifierStore(ctx, cacheStore)
 
 	usersManager := users.NewManager(testStore)
 

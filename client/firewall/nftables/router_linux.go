@@ -19,6 +19,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
+	"github.com/netbirdio/netbird/client/firewall/firewalld"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	nbid "github.com/netbirdio/netbird/client/internal/acl/id"
 	"github.com/netbirdio/netbird/client/internal/routemanager/ipfwdstate"
@@ -39,6 +40,8 @@ const (
 	chainNameNATOutput     = "netbird-nat-output"
 	chainNameForward       = "FORWARD"
 	chainNameMangleForward = "netbird-mangle-forward"
+
+	firewalldTableName = "firewalld"
 
 	userDataAcceptForwardRuleIif = "frwacceptiif"
 	userDataAcceptForwardRuleOif = "frwacceptoif"
@@ -131,6 +134,10 @@ func (r *router) Reset() error {
 
 	if err := r.removeAcceptFilterRules(); err != nil {
 		merr = multierror.Append(merr, fmt.Errorf("remove accept filter rules: %w", err))
+	}
+
+	if err := firewalld.UntrustInterface(r.wgIface.Name()); err != nil {
+		merr = multierror.Append(merr, err)
 	}
 
 	if err := r.removeNatPreroutingRules(); err != nil {
@@ -278,6 +285,10 @@ func (r *router) createContainers() error {
 
 	if err := r.acceptForwardRules(); err != nil {
 		log.Errorf("failed to add accept rules for the forward chain: %s", err)
+	}
+
+	if err := firewalld.TrustInterface(r.wgIface.Name()); err != nil {
+		log.Warnf("failed to trust interface in firewalld: %v", err)
 	}
 
 	if err := r.refreshRulesMap(); err != nil {
@@ -1316,6 +1327,13 @@ func (r *router) findExternalChains() []*nftables.Chain {
 
 func (r *router) isExternalChain(chain *nftables.Chain) bool {
 	if r.workTable != nil && chain.Table.Name == r.workTable.Name {
+		return false
+	}
+
+	// Skip firewalld-owned chains. Firewalld creates its chains with the
+	// NFT_CHAIN_OWNER flag, so inserting rules into them returns EPERM.
+	// We delegate acceptance to firewalld by trusting the interface instead.
+	if chain.Table.Name == firewalldTableName {
 		return false
 	}
 
