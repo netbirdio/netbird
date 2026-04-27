@@ -343,3 +343,5 @@ replace github.com/libp2p/go-netroute => github.com/netbirdio/go-netroute v0.0.0
 replace github.com/dexidp/dex => github.com/netbirdio/dex v0.244.1-0.20260415145816-a0c6b40ff9f2
 
 replace github.com/dexidp/dex/api/v2 => github.com/netbirdio/dex/api/v2 v2.0.0-20260415145816-a0c6b40ff9f2
+
+replace github.com/mailru/easyjson => github.com/netbirdio/easyjson v0.9.0

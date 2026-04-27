@@ -48,10 +48,6 @@ func EnableIPForwarding() error {
 	return nil
 }
 
-func hasSeparateRouting() ([]netip.Prefix, error) {
-	return GetRoutesFromTable()
-}
-
 // GetIPRules returns IP rules for debugging (not supported on non-Linux platforms)
 func GetIPRules() ([]IPRule, error) {
 	log.Infof("IP rules collection is not supported on %s", runtime.GOOS)

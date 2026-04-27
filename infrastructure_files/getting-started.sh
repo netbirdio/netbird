@@ -472,7 +472,7 @@ start_services_and_show_instructions() {
       if [[ "$ENABLE_CROWDSEC" == "true" ]]; then
         echo "Registering CrowdSec bouncer..."
         local cs_retries=0
-        while ! $DOCKER_COMPOSE_COMMAND exec -T crowdsec cscli capi status >/dev/null 2>&1; do
+        while ! $DOCKER_COMPOSE_COMMAND exec -T crowdsec cscli lapi status >/dev/null 2>&1; do
           cs_retries=$((cs_retries + 1))
           if [[ $cs_retries -ge 30 ]]; then
             echo "WARNING: CrowdSec did not become ready. Skipping CrowdSec setup." > /dev/stderr

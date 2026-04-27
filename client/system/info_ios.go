@@ -2,6 +2,8 @@ package system
 
 import (
 	"context"
+	"net"
+	"net/netip"
 	"runtime"
 
 	log "github.com/sirupsen/logrus"
@@ -40,6 +42,66 @@ func GetInfo(ctx context.Context) *Info {
 	gio.UIVersion = extractUserAgent(ctx)
 
 	return gio
+}
+
+// networkAddresses returns the list of network addresses on iOS.
+// On iOS, hardware (MAC) addresses are not available due to Apple's privacy
+// restrictions (iOS returns a fixed 02:00:00:00:00:00 placeholder), so we
+// leave Mac empty to match Android's behavior. We also skip the HardwareAddr
+// check that other platforms use and filter out link-local addresses as they
+// are not useful for posture checks.
+func networkAddresses() ([]NetworkAddress, error) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+
+	var netAddresses []NetworkAddress
+	for _, iface := range interfaces {
+		if iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+
+		for _, address := range addrs {
+			netAddr, ok := toNetworkAddress(address)
+			if !ok {
+				continue
+			}
+			if isDuplicated(netAddresses, netAddr) {
+				continue
+			}
+			netAddresses = append(netAddresses, netAddr)
+		}
+	}
+	return netAddresses, nil
+}
+
+func toNetworkAddress(address net.Addr) (NetworkAddress, bool) {
+	ipNet, ok := address.(*net.IPNet)
+	if !ok {
+		return NetworkAddress{}, false
+	}
+	if ipNet.IP.IsLoopback() || ipNet.IP.IsLinkLocalUnicast() || ipNet.IP.IsMulticast() {
+		return NetworkAddress{}, false
+	}
+	prefix, err := netip.ParsePrefix(ipNet.String())
+	if err != nil {
+		return NetworkAddress{}, false
+	}
+	return NetworkAddress{NetIP: prefix, Mac: ""}, true
+}
+
+func isDuplicated(addresses []NetworkAddress, addr NetworkAddress) bool {
+	for _, duplicated := range addresses {
+		if duplicated.NetIP == addr.NetIP {
+			return true
+		}
+	}
+	return false
 }
 
 // checkFileAndProcess checks if the file path exists and if a process is running at that path.
