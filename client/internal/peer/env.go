@@ -37,5 +37,8 @@ func OverrideRelayURLs() ([]string, bool) {
 			urls = append(urls, p)
 		}
 	}
+	if len(urls) == 0 {
+		return nil, false
+	}
 	return urls, true
 }
