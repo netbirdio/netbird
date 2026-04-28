@@ -4532,11 +4532,15 @@ func (s *SqlStore) GetPeerByIP(ctx context.Context, lockStrength LockingStrength
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
 
+	column := "ip"
+	if ip.To4() == nil {
+		column = "ipv6"
+	}
 	jsonValue := fmt.Sprintf(`"%s"`, ip.String())
 
 	var peer nbpeer.Peer
 	result := tx.
-		Take(&peer, "account_id = ? AND ip = ?", accountID, jsonValue)
+		Take(&peer, fmt.Sprintf("account_id = ? AND %s = ?", column), accountID, jsonValue)
 	if result.Error != nil {
 		// no logging here
 		return nil, status.Errorf(status.Internal, "failed to get peer from store")
