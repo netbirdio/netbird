@@ -46,4 +46,5 @@ type Cluster struct {
 	ID               string
 	Address          string
 	ConnectedProxies int
+	SelfHosted       bool
 }

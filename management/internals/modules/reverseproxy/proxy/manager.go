@@ -24,7 +24,7 @@ type Manager interface {
 	GetAccountProxy(ctx context.Context, accountID string) (*Proxy, error)
 	CountAccountProxies(ctx context.Context, accountID string) (int64, error)
 	IsClusterAddressAvailable(ctx context.Context, clusterAddress, accountID string) (bool, error)
-	DeleteProxy(ctx context.Context, proxyID string) error
+	DeleteAccountCluster(ctx context.Context, clusterAddress, accountID string) error
 }
 
 // OIDCValidationConfig contains the OIDC configuration needed for token validation.

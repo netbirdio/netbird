@@ -11377,21 +11377,21 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
-  /api/reverse-proxies/clusters/{clusterId}:
+  /api/reverse-proxies/clusters/{clusterAddress}:
     delete:
       summary: Delete a self-hosted proxy cluster
-      description: Removes a self-hosted (BYOP) proxy cluster and disconnects it. Only self-hosted clusters can be deleted.
+      description: Removes all self-hosted (BYOP) proxy registrations for the given cluster address owned by the account.
       tags: [ Services ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
       parameters:
         - in: path
-          name: clusterId
+          name: clusterAddress
           required: true
           schema:
             type: string
-          description: The unique identifier of the proxy cluster
+          description: The address of the proxy cluster
       responses:
         '200':
           description: Proxy cluster deleted successfully

@@ -123,6 +123,20 @@ func (m *Manager) GetActiveClusters(ctx context.Context, accountID, userID strin
 	return m.store.GetActiveProxyClusters(ctx)
 }
 
+// DeleteAccountCluster removes all proxy registrations for the given cluster address
+// owned by the account.
+func (m *Manager) DeleteAccountCluster(ctx context.Context, accountID, userID, clusterAddress string) error {
+	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Delete)
+	if err != nil {
+		return status.NewPermissionValidationError(err)
+	}
+	if !ok {
+		return status.NewPermissionDeniedError()
+	}
+
+	return m.store.DeleteAccountCluster(ctx, clusterAddress, accountID)
+}
+
 func (m *Manager) GetAllServices(ctx context.Context, accountID, userID string) ([]*service.Service, error) {
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
 	if err != nil {

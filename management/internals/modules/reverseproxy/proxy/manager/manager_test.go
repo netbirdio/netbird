@@ -24,7 +24,7 @@ type mockStore struct {
 	getProxyByAccountIDFunc                    func(ctx context.Context, accountID string) (*proxy.Proxy, error)
 	countProxiesByAccountIDFunc                func(ctx context.Context, accountID string) (int64, error)
 	isClusterAddressConflictingFunc            func(ctx context.Context, clusterAddress, accountID string) (bool, error)
-	deleteProxyFunc                            func(ctx context.Context, proxyID string) error
+	deleteAccountClusterFunc                   func(ctx context.Context, clusterAddress, accountID string) error
 }
 
 func (m *mockStore) SaveProxy(ctx context.Context, p *proxy.Proxy) error {
@@ -84,9 +84,9 @@ func (m *mockStore) IsClusterAddressConflicting(ctx context.Context, clusterAddr
 	}
 	return false, nil
 }
-func (m *mockStore) DeleteProxy(ctx context.Context, proxyID string) error {
-	if m.deleteProxyFunc != nil {
-		return m.deleteProxyFunc(ctx, proxyID)
+func (m *mockStore) DeleteAccountCluster(ctx context.Context, clusterAddress, accountID string) error {
+	if m.deleteAccountClusterFunc != nil {
+		return m.deleteAccountClusterFunc(ctx, clusterAddress, accountID)
 	}
 	return nil
 }
@@ -289,31 +289,33 @@ func TestGetAccountProxy(t *testing.T) {
 	})
 }
 
-func TestDeleteProxy(t *testing.T) {
+func TestDeleteAccountCluster(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
-		var deletedID string
+		var deletedCluster, deletedAccount string
 		s := &mockStore{
-			deleteProxyFunc: func(_ context.Context, proxyID string) error {
-				deletedID = proxyID
+			deleteAccountClusterFunc: func(_ context.Context, clusterAddress, accountID string) error {
+				deletedCluster = clusterAddress
+				deletedAccount = accountID
 				return nil
 			},
 		}
 
 		mgr := newTestManager(s)
-		err := mgr.DeleteProxy(context.Background(), "proxy-1")
+		err := mgr.DeleteAccountCluster(context.Background(), "cluster.example.com", "acc-123")
 		require.NoError(t, err)
-		assert.Equal(t, "proxy-1", deletedID)
+		assert.Equal(t, "cluster.example.com", deletedCluster)
+		assert.Equal(t, "acc-123", deletedAccount)
 	})
 
 	t.Run("store error", func(t *testing.T) {
 		s := &mockStore{
-			deleteProxyFunc: func(_ context.Context, _ string) error {
+			deleteAccountClusterFunc: func(_ context.Context, _, _ string) error {
 				return errors.New("db error")
 			},
 		}
 
 		mgr := newTestManager(s)
-		err := mgr.DeleteProxy(context.Background(), "proxy-1")
+		err := mgr.DeleteAccountCluster(context.Background(), "cluster.example.com", "acc-123")
 		assert.Error(t, err)
 	})
 }

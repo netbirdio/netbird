@@ -576,18 +576,18 @@ func (mr *MockStoreMockRecorder) DeletePostureChecks(ctx, accountID, postureChec
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePostureChecks", reflect.TypeOf((*MockStore)(nil).DeletePostureChecks), ctx, accountID, postureChecksID)
 }
 
-// DeleteProxy mocks base method.
-func (m *MockStore) DeleteProxy(ctx context.Context, proxyID string) error {
+// DeleteAccountCluster mocks base method.
+func (m *MockStore) DeleteAccountCluster(ctx context.Context, clusterAddress, accountID string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteProxy", ctx, proxyID)
+	ret := m.ctrl.Call(m, "DeleteAccountCluster", ctx, clusterAddress, accountID)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// DeleteProxy indicates an expected call of DeleteProxy.
-func (mr *MockStoreMockRecorder) DeleteProxy(ctx, proxyID interface{}) *gomock.Call {
+// DeleteAccountCluster indicates an expected call of DeleteAccountCluster.
+func (mr *MockStoreMockRecorder) DeleteAccountCluster(ctx, clusterAddress, accountID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteProxy", reflect.TypeOf((*MockStore)(nil).DeleteProxy), ctx, proxyID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAccountCluster", reflect.TypeOf((*MockStore)(nil).DeleteAccountCluster), ctx, clusterAddress, accountID)
 }
 
 // DeleteRoute mocks base method.

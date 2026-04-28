@@ -299,7 +299,7 @@ type Store interface {
 	GetProxyByAccountID(ctx context.Context, accountID string) (*proxy.Proxy, error)
 	CountProxiesByAccountID(ctx context.Context, accountID string) (int64, error)
 	IsClusterAddressConflicting(ctx context.Context, clusterAddress, accountID string) (bool, error)
-	DeleteProxy(ctx context.Context, proxyID string) error
+	DeleteAccountCluster(ctx context.Context, clusterAddress, accountID string) error
 
 	GetCustomDomainsCounts(ctx context.Context) (total int64, validated int64, err error)
 

@@ -10,6 +10,7 @@ import (
 
 type Manager interface {
 	GetActiveClusters(ctx context.Context, accountID, userID string) ([]proxy.Cluster, error)
+	DeleteAccountCluster(ctx context.Context, accountID, userID, clusterAddress string) error
 	GetAllServices(ctx context.Context, accountID, userID string) ([]*Service, error)
 	GetService(ctx context.Context, accountID, userID, serviceID string) (*Service, error)
 	CreateService(ctx context.Context, accountID, userID string, service *Service) (*Service, error)

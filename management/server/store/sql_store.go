@@ -5593,13 +5593,15 @@ func (s *SqlStore) IsClusterAddressConflicting(ctx context.Context, clusterAddre
 	return count > 0, nil
 }
 
-func (s *SqlStore) DeleteProxy(ctx context.Context, proxyID string) error {
-	result := s.db.Where(idQueryCondition, proxyID).Delete(&proxy.Proxy{})
+func (s *SqlStore) DeleteAccountCluster(ctx context.Context, clusterAddress, accountID string) error {
+	result := s.db.
+		Where("cluster_address = ? AND account_id = ?", clusterAddress, accountID).
+		Delete(&proxy.Proxy{})
 	if result.Error != nil {
-		return status.Errorf(status.Internal, "delete proxy: %v", result.Error)
+		return status.Errorf(status.Internal, "delete account cluster: %v", result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return status.Errorf(status.NotFound, "proxy not found")
+		return status.Errorf(status.NotFound, "cluster not found")
 	}
 	return nil
 }
@@ -5608,7 +5610,7 @@ func (s *SqlStore) GetActiveProxyClusters(ctx context.Context) ([]proxy.Cluster,
 	var clusters []proxy.Cluster
 
 	result := s.db.Model(&proxy.Proxy{}).
-		Select("MIN(id) as id, cluster_address as address, COUNT(*) as connected_proxies").
+		Select("MIN(id) as id, cluster_address as address, COUNT(*) as connected_proxies, COUNT(account_id) > 0 as self_hosted").
 		Where("status = ? AND last_seen > ?", proxy.StatusConnected, time.Now().Add(-proxyActiveThreshold)).
 		Group("cluster_address").
 		Scan(&clusters)

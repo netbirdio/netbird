@@ -255,7 +255,7 @@ func (m *testProxyManager) IsClusterAddressAvailable(_ context.Context, _, _ str
 	return true, nil
 }
 
-func (m *testProxyManager) DeleteProxy(_ context.Context, _ string) error {
+func (m *testProxyManager) DeleteAccountCluster(_ context.Context, _, _ string) error {
 	return nil
 }
 
@@ -309,6 +309,10 @@ func (m *storeBackedServiceManager) UpdateService(_ context.Context, _, _ string
 }
 
 func (m *storeBackedServiceManager) DeleteService(ctx context.Context, accountID, userID, serviceID string) error {
+	return nil
+}
+
+func (m *storeBackedServiceManager) DeleteAccountCluster(_ context.Context, _, _, _ string) error {
 	return nil
 }
 

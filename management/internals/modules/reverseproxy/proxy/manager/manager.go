@@ -25,7 +25,7 @@ type store interface {
 	GetProxyByAccountID(ctx context.Context, accountID string) (*proxy.Proxy, error)
 	CountProxiesByAccountID(ctx context.Context, accountID string) (int64, error)
 	IsClusterAddressConflicting(ctx context.Context, clusterAddress, accountID string) (bool, error)
-	DeleteProxy(ctx context.Context, proxyID string) error
+	DeleteAccountCluster(ctx context.Context, clusterAddress, accountID string) error
 }
 
 // Manager handles all proxy operations
@@ -178,9 +178,9 @@ func (m *Manager) IsClusterAddressAvailable(ctx context.Context, clusterAddress,
 	return !conflicting, nil
 }
 
-func (m *Manager) DeleteProxy(ctx context.Context, proxyID string) error {
-	if err := m.store.DeleteProxy(ctx, proxyID); err != nil {
-		log.WithContext(ctx).Errorf("failed to delete proxy %s: %v", proxyID, err)
+func (m *Manager) DeleteAccountCluster(ctx context.Context, clusterAddress, accountID string) error {
+	if err := m.store.DeleteAccountCluster(ctx, clusterAddress, accountID); err != nil {
+		log.WithContext(ctx).Errorf("failed to delete cluster %s for account %s: %v", clusterAddress, accountID, err)
 		return err
 	}
 	return nil
