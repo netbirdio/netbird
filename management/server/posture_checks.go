@@ -130,8 +130,7 @@ func (am *DefaultAccountManager) ListPostureChecks(ctx context.Context, accountI
 	return am.Store.GetAccountPostureChecks(ctx, store.LockingStrengthNone, accountID)
 }
 
-// collectPostureCheckAffectedGroupsAndPeers finds all policies referencing the given posture check
-// and collects their affected group IDs and direct peer IDs.
+// collectPostureCheckAffectedGroupsAndPeers returns group IDs and peer IDs from policies referencing the posture check.
 func collectPostureCheckAffectedGroupsAndPeers(ctx context.Context, transaction store.Store, accountID, postureCheckID string) (groupIDs []string, directPeerIDs []string) {
 	policies, err := transaction.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {

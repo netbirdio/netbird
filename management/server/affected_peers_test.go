@@ -20,15 +20,8 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
-// setupAffectedPeersTest creates a manager with a clean account and 5 peers, each in its own group.
-// Returns the manager, store, account ID, peer IDs, and group IDs.
-// Peer layout:
-//
-//	peer0 -> group0
-//	peer1 -> group1
-//	peer2 -> group2
-//	peer3 -> group3
-//	peer4 -> group4
+// setupAffectedPeersTest creates a manager with a clean account (default policy deleted)
+// and 5 peers, each in its own group: peer0->group0, peer1->group1, ..., peer4->group4.
 func setupAffectedPeersTest(t *testing.T) (*DefaultAccountManager, store.Store, string, []string, []string) {
 	t.Helper()
 
@@ -41,7 +34,6 @@ func setupAffectedPeersTest(t *testing.T) (*DefaultAccountManager, store.Store, 
 	ctx := context.Background()
 	accountID := account.Id
 
-	// Delete the default "All <-> All" policy so tests start with a clean slate
 	policies, err := manager.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
 	require.NoError(t, err)
 	for _, p := range policies {
@@ -76,16 +68,13 @@ func setupAffectedPeersTest(t *testing.T) (*DefaultAccountManager, store.Store, 
 func affectedGroupID(i int) string   { return fmt.Sprintf("affected-grp-%d", i) }
 func affectedGroupName(i int) string { return fmt.Sprintf("AffectedGroup%d", i) }
 
-// ---------- collectGroupChangeAffectedGroups ----------
-
 func TestCollectGroupChange_NoEntities(t *testing.T) {
 	_, s, accountID, _, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	// group0 is not referenced by any entity
 	groups, directPeers := collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[0]})
-	assert.Empty(t, groups, "no entities reference group0, should return no affected groups")
-	assert.Empty(t, directPeers, "no entities reference group0, should return no direct peers")
+	assert.Empty(t, groups)
+	assert.Empty(t, directPeers)
 }
 
 func TestCollectGroupChange_EmptyInput(t *testing.T) {
@@ -105,7 +94,6 @@ func TestCollectGroupChange_PolicyLinked(t *testing.T) {
 	manager, s, accountID, _, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	// Create policy: group0 (src) <-> group1 (dst)
 	_, err := manager.SavePolicy(ctx, accountID, userID, &types.Policy{
 		Enabled: true,
 		Rules: []*types.PolicyRule{
@@ -120,17 +108,14 @@ func TestCollectGroupChange_PolicyLinked(t *testing.T) {
 	}, true)
 	require.NoError(t, err)
 
-	// Changing group0 should include both group0 and group1 (from the policy rule)
 	groups, _ := collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[0]})
 	assert.Contains(t, groups, groupIDs[0])
 	assert.Contains(t, groups, groupIDs[1])
 
-	// Changing group1 should also include both groups
 	groups, _ = collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[1]})
 	assert.Contains(t, groups, groupIDs[0])
 	assert.Contains(t, groups, groupIDs[1])
 
-	// Changing group2 (not in policy) should return nothing
 	groups, _ = collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[2]})
 	assert.Empty(t, groups)
 }
@@ -139,7 +124,6 @@ func TestCollectGroupChange_PolicyWithDirectPeerResource(t *testing.T) {
 	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	// Create policy with direct peer resource
 	_, err := manager.SavePolicy(ctx, accountID, userID, &types.Policy{
 		Enabled: true,
 		Rules: []*types.PolicyRule{
@@ -157,46 +141,42 @@ func TestCollectGroupChange_PolicyWithDirectPeerResource(t *testing.T) {
 	groups, directPeers := collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[0]})
 	assert.Contains(t, groups, groupIDs[0])
 	assert.Contains(t, groups, groupIDs[1])
-	assert.Contains(t, directPeers, peerIDs[3], "direct peer resource should be in directPeers")
+	assert.Contains(t, directPeers, peerIDs[3])
 }
 
 func TestCollectGroupChange_RouteLinked(t *testing.T) {
 	manager, s, accountID, _, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	// Create route: PeerGroups=[group0], Groups(distribution)=[group1]
 	_, err := manager.CreateRoute(ctx, accountID,
-		netip.MustParsePrefix("10.0.0.0/24"), // network
-		route.IPv4Network,                    // type
-		nil,                                  // domains
-		"",                                   // peer
-		[]string{groupIDs[0]},                // peerGroups
-		"test route",                         // description
-		"testnet",                            // netID
-		false,                                // masquerade
-		9999,                                 // metric
-		[]string{groupIDs[1]},                // groups (distribution)
-		[]string{groupIDs[2]},                // accessControlGroups
-		true,                                 // enabled
+		netip.MustParsePrefix("10.0.0.0/24"),
+		route.IPv4Network,
+		nil,
+		"",
+		[]string{groupIDs[0]},
+		"test route",
+		"testnet",
+		false,
+		9999,
+		[]string{groupIDs[1]},
+		[]string{groupIDs[2]},
+		true,
 		userID,
-		false, // keepRoute
-		false, // skipAutoApply
+		false,
+		false,
 	)
 	require.NoError(t, err)
 
-	// Changing group0 (peerGroups) should include group0, group1, group2
 	groups, _ := collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[0]})
 	assert.Contains(t, groups, groupIDs[0])
 	assert.Contains(t, groups, groupIDs[1])
 	assert.Contains(t, groups, groupIDs[2])
 
-	// Changing group1 (distribution) should include all three
 	groups, _ = collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[1]})
 	assert.Contains(t, groups, groupIDs[0])
 	assert.Contains(t, groups, groupIDs[1])
 	assert.Contains(t, groups, groupIDs[2])
 
-	// Changing group3 (not in route) should return nothing
 	groups, _ = collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[3]})
 	assert.Empty(t, groups)
 }
@@ -205,18 +185,17 @@ func TestCollectGroupChange_RouteWithDirectPeer(t *testing.T) {
 	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	// Create route with direct peer
 	_, err := manager.CreateRoute(ctx, accountID,
 		netip.MustParsePrefix("10.1.0.0/24"),
 		route.IPv4Network,
 		nil,
-		peerIDs[4], // direct peer
-		nil,        // no peerGroups
+		peerIDs[4],
+		nil,
 		"test route peer",
 		"testnet2",
 		false,
 		9999,
-		[]string{groupIDs[1]}, // distribution groups
+		[]string{groupIDs[1]},
 		nil,
 		true,
 		userID,
@@ -225,7 +204,6 @@ func TestCollectGroupChange_RouteWithDirectPeer(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Changing group1 should include group1 and direct peer4
 	groups, directPeers := collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[1]})
 	assert.Contains(t, groups, groupIDs[1])
 	assert.Contains(t, directPeers, peerIDs[4])
@@ -235,7 +213,6 @@ func TestCollectGroupChange_NameServerGroupLinked(t *testing.T) {
 	manager, s, accountID, _, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	// Create nameserver group with group0
 	_, err := manager.CreateNameServerGroup(ctx, accountID, "ns1", "NS Group 1",
 		[]nbdns.NameServer{{
 			IP:     netip.MustParseAddr("1.1.1.1"),
@@ -247,11 +224,9 @@ func TestCollectGroupChange_NameServerGroupLinked(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Changing group0 should include group0 (the NS group references it)
 	groups, _ := collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[0]})
 	assert.Contains(t, groups, groupIDs[0])
 
-	// Changing group1 (not in NS group) should not include anything from NS
 	groups, _ = collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[1]})
 	assert.Empty(t, groups)
 }
@@ -265,11 +240,9 @@ func TestCollectGroupChange_DNSSettingsLinked(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Changing group2 should include group2 (from DNS disabled management)
 	groups, _ := collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[2]})
 	assert.Contains(t, groups, groupIDs[2])
 
-	// Changing group0 (not in DNS settings) should return nothing
 	groups, _ = collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[0]})
 	assert.Empty(t, groups)
 }
@@ -278,7 +251,6 @@ func TestCollectGroupChange_NetworkRouterLinked(t *testing.T) {
 	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	// Create network and router
 	net1 := &networkTypes.Network{
 		ID:        "net-test-1",
 		AccountID: accountID,
@@ -296,12 +268,10 @@ func TestCollectGroupChange_NetworkRouterLinked(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Changing group0 should include group0 and direct peer3
 	groups, directPeers := collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[0]})
 	assert.Contains(t, groups, groupIDs[0])
 	assert.Contains(t, directPeers, peerIDs[3])
 
-	// Changing group1 (not in router) should return nothing
 	groups, directPeers = collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[1]})
 	assert.Empty(t, groups)
 	assert.Empty(t, directPeers)
@@ -311,7 +281,6 @@ func TestCollectGroupChange_MultipleEntities(t *testing.T) {
 	manager, s, accountID, _, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	// Policy: group0 <-> group1
 	_, err := manager.SavePolicy(ctx, accountID, userID, &types.Policy{
 		Enabled: true,
 		Rules: []*types.PolicyRule{
@@ -326,7 +295,6 @@ func TestCollectGroupChange_MultipleEntities(t *testing.T) {
 	}, true)
 	require.NoError(t, err)
 
-	// Route: PeerGroups=[group2], distribution=[group3]
 	_, err = manager.CreateRoute(ctx, accountID,
 		netip.MustParsePrefix("10.2.0.0/24"),
 		route.IPv4Network,
@@ -346,24 +314,20 @@ func TestCollectGroupChange_MultipleEntities(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Changing group0 should only pick up policy groups (group0, group1), not route groups
 	groups, directPeers := collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[0]})
 	assert.Contains(t, groups, groupIDs[0])
 	assert.Contains(t, groups, groupIDs[1])
-	assert.NotContains(t, groups, groupIDs[2], "route groups should not be included for group0 change")
-	assert.NotContains(t, groups, groupIDs[3], "route groups should not be included for group0 change")
+	assert.NotContains(t, groups, groupIDs[2])
+	assert.NotContains(t, groups, groupIDs[3])
 	assert.Empty(t, directPeers)
 
-	// Changing group3 should only pick up route groups (group2, group3)
 	groups, directPeers = collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[3]})
 	assert.Contains(t, groups, groupIDs[2])
 	assert.Contains(t, groups, groupIDs[3])
-	assert.NotContains(t, groups, groupIDs[0], "policy groups should not be included for group3 change")
-	assert.NotContains(t, groups, groupIDs[1], "policy groups should not be included for group3 change")
+	assert.NotContains(t, groups, groupIDs[0])
+	assert.NotContains(t, groups, groupIDs[1])
 	assert.Empty(t, directPeers)
 }
-
-// ---------- collectPolicyAffectedGroupsAndPeers ----------
 
 func TestCollectPolicyAffectedGroups_Basic(t *testing.T) {
 	policy := &types.Policy{
@@ -412,8 +376,6 @@ func TestCollectPolicyAffectedGroups_MultipleRules(t *testing.T) {
 	assert.ElementsMatch(t, []string{"g1", "g2", "g3", "g4"}, groups)
 }
 
-// ---------- collectRouteAffectedGroupsAndPeers ----------
-
 func TestCollectRouteAffectedGroups_Basic(t *testing.T) {
 	r := &route.Route{
 		Groups:              []string{"g1"},
@@ -441,13 +403,10 @@ func TestCollectRouteAffectedGroups_NilRoute(t *testing.T) {
 	assert.Nil(t, directPeers)
 }
 
-// ---------- resolvePeerIDs ----------
-
 func TestResolvePeerIDs_GroupsOnly(t *testing.T) {
 	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	// group0 has peer0, group1 has peer1
 	result := manager.resolvePeerIDs(ctx, s, accountID, []string{groupIDs[0], groupIDs[1]}, nil)
 	assert.ElementsMatch(t, []string{peerIDs[0], peerIDs[1]}, result)
 }
@@ -456,7 +415,6 @@ func TestResolvePeerIDs_WithDirectPeers(t *testing.T) {
 	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	// group0 has peer0, plus direct peer2
 	result := manager.resolvePeerIDs(ctx, s, accountID, []string{groupIDs[0]}, []string{peerIDs[2]})
 	assert.ElementsMatch(t, []string{peerIDs[0], peerIDs[2]}, result)
 }
@@ -465,7 +423,6 @@ func TestResolvePeerIDs_Deduplication(t *testing.T) {
 	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	// peer0 is in group0 and also passed as direct peer -> should appear once
 	result := manager.resolvePeerIDs(ctx, s, accountID, []string{groupIDs[0]}, []string{peerIDs[0]})
 	assert.Len(t, result, 1)
 	assert.Equal(t, peerIDs[0], result[0])
@@ -479,22 +436,18 @@ func TestResolvePeerIDs_EmptyInputs(t *testing.T) {
 	assert.Empty(t, result)
 }
 
-// ---------- resolveAffectedPeersForPeerChanges (end-to-end) ----------
-
 func TestResolveAffectedPeers_NoPoliciesOrRoutes(t *testing.T) {
 	manager, s, accountID, peerIDs, _ := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	// No entity references any group, so changing peer0 should yield 0 affected peers
 	result := manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[0]})
-	assert.Empty(t, result, "no entities reference any group, should return no affected peers")
+	assert.Empty(t, result)
 }
 
 func TestResolveAffectedPeers_PolicyBetweenTwoGroups(t *testing.T) {
 	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	// Policy: group0 (src) <-> group1 (dst)
 	_, err := manager.SavePolicy(ctx, accountID, userID, &types.Policy{
 		Enabled: true,
 		Rules: []*types.PolicyRule{
@@ -509,15 +462,12 @@ func TestResolveAffectedPeers_PolicyBetweenTwoGroups(t *testing.T) {
 	}, true)
 	require.NoError(t, err)
 
-	// Changing peer0 (in group0) should affect peer0 + peer1
 	result := manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[0]})
 	assert.ElementsMatch(t, []string{peerIDs[0], peerIDs[1]}, result)
 
-	// Changing peer1 (in group1) should also affect peer0 + peer1
 	result = manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[1]})
 	assert.ElementsMatch(t, []string{peerIDs[0], peerIDs[1]}, result)
 
-	// Changing peer2 (in group2, not in policy) should return empty
 	result = manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[2]})
 	assert.Empty(t, result)
 }
@@ -526,7 +476,6 @@ func TestResolveAffectedPeers_PolicyThreeGroups(t *testing.T) {
 	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	// Policy with multiple sources/destinations: group0,group1 -> group2
 	_, err := manager.SavePolicy(ctx, accountID, userID, &types.Policy{
 		Enabled: true,
 		Rules: []*types.PolicyRule{
@@ -540,7 +489,6 @@ func TestResolveAffectedPeers_PolicyThreeGroups(t *testing.T) {
 	}, true)
 	require.NoError(t, err)
 
-	// Changing peer0 (in group0) should affect peer0 + peer1 + peer2
 	result := manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[0]})
 	assert.ElementsMatch(t, []string{peerIDs[0], peerIDs[1], peerIDs[2]}, result)
 }
@@ -549,7 +497,6 @@ func TestResolveAffectedPeers_RoutePeerGroups(t *testing.T) {
 	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	// Route: peerGroups=[group0], distribution=[group1]
 	_, err := manager.CreateRoute(ctx, accountID,
 		netip.MustParsePrefix("10.3.0.0/24"),
 		route.IPv4Network,
@@ -569,15 +516,12 @@ func TestResolveAffectedPeers_RoutePeerGroups(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Changing peer0 (in group0/peerGroups) should affect peer0 + peer1
 	result := manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[0]})
 	assert.ElementsMatch(t, []string{peerIDs[0], peerIDs[1]}, result)
 
-	// Changing peer1 (in group1/distribution) should also affect peer0 + peer1
 	result = manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[1]})
 	assert.ElementsMatch(t, []string{peerIDs[0], peerIDs[1]}, result)
 
-	// Changing peer2 (unrelated) should return empty
 	result = manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[2]})
 	assert.Empty(t, result)
 }
@@ -586,7 +530,6 @@ func TestResolveAffectedPeers_RouteWithDirectPeer(t *testing.T) {
 	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	// Route with direct peer: peer=peer4, distribution=[group1]
 	_, err := manager.CreateRoute(ctx, accountID,
 		netip.MustParsePrefix("10.4.0.0/24"),
 		route.IPv4Network,
@@ -606,7 +549,6 @@ func TestResolveAffectedPeers_RouteWithDirectPeer(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Changing peer1 (in distribution group1) should affect peer1 + direct peer4
 	result := manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[1]})
 	assert.ElementsMatch(t, []string{peerIDs[1], peerIDs[4]}, result)
 }
@@ -615,7 +557,6 @@ func TestResolveAffectedPeers_NetworkRouter(t *testing.T) {
 	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	// Create network + router with peerGroups=[group0], direct peer=peer3
 	net1 := &networkTypes.Network{
 		ID:        "net-test-2",
 		AccountID: accountID,
@@ -633,7 +574,6 @@ func TestResolveAffectedPeers_NetworkRouter(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Changing peer0 (in group0) should affect peer0 + peer3 (direct)
 	result := manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[0]})
 	assert.ElementsMatch(t, []string{peerIDs[0], peerIDs[3]}, result)
 }
@@ -642,7 +582,6 @@ func TestResolveAffectedPeers_NameServerGroup(t *testing.T) {
 	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	// NS group with group0
 	_, err := manager.CreateNameServerGroup(ctx, accountID, "ns-test", "NS Test",
 		[]nbdns.NameServer{{
 			IP:     netip.MustParseAddr("8.8.8.8"),
@@ -654,7 +593,6 @@ func TestResolveAffectedPeers_NameServerGroup(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Changing peer0 (in group0) should affect peer0
 	result := manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[0]})
 	assert.Contains(t, result, peerIDs[0])
 }
@@ -663,13 +601,11 @@ func TestResolveAffectedPeers_DNSSettings(t *testing.T) {
 	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	// DNS disabled management on group0
 	err := manager.SaveDNSSettings(ctx, accountID, userID, &types.DNSSettings{
 		DisabledManagementGroups: []string{groupIDs[0]},
 	})
 	require.NoError(t, err)
 
-	// Changing peer0 (in group0) should affect peer0
 	result := manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[0]})
 	assert.Contains(t, result, peerIDs[0])
 }
@@ -678,11 +614,9 @@ func TestResolveAffectedPeers_PeerInMultipleGroups(t *testing.T) {
 	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	// Add peer0 to group1 as well
 	err := manager.GroupAddPeer(ctx, accountID, groupIDs[1], peerIDs[0])
 	require.NoError(t, err)
 
-	// Policy: group0 -> group2
 	_, err = manager.SavePolicy(ctx, accountID, userID, &types.Policy{
 		Enabled: true,
 		Rules: []*types.PolicyRule{
@@ -696,7 +630,6 @@ func TestResolveAffectedPeers_PeerInMultipleGroups(t *testing.T) {
 	}, true)
 	require.NoError(t, err)
 
-	// Another policy: group1 -> group3
 	_, err = manager.SavePolicy(ctx, accountID, userID, &types.Policy{
 		Enabled: true,
 		Rules: []*types.PolicyRule{
@@ -710,10 +643,7 @@ func TestResolveAffectedPeers_PeerInMultipleGroups(t *testing.T) {
 	}, true)
 	require.NoError(t, err)
 
-	// Changing peer0 (in group0 AND group1) should affect:
-	// From policy1: group0+group2 -> peer0, peer2
-	// From policy2: group1+group3 -> peer0, peer1, peer3
-	// Total: peer0, peer1, peer2, peer3
+	// peer0 is in group0 AND group1, so both policies apply
 	result := manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[0]})
 	assert.ElementsMatch(t, []string{peerIDs[0], peerIDs[1], peerIDs[2], peerIDs[3]}, result)
 }
@@ -722,7 +652,6 @@ func TestResolveAffectedPeers_MultipleChangedPeers(t *testing.T) {
 	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	// Policy: group0 <-> group1
 	_, err := manager.SavePolicy(ctx, accountID, userID, &types.Policy{
 		Enabled: true,
 		Rules: []*types.PolicyRule{
@@ -737,7 +666,6 @@ func TestResolveAffectedPeers_MultipleChangedPeers(t *testing.T) {
 	}, true)
 	require.NoError(t, err)
 
-	// Another policy: group2 <-> group3
 	_, err = manager.SavePolicy(ctx, accountID, userID, &types.Policy{
 		Enabled: true,
 		Rules: []*types.PolicyRule{
@@ -752,10 +680,7 @@ func TestResolveAffectedPeers_MultipleChangedPeers(t *testing.T) {
 	}, true)
 	require.NoError(t, err)
 
-	// Changing peer0 AND peer2 at once
 	result := manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[0], peerIDs[2]})
-	// peer0 -> policy1 -> peer0, peer1
-	// peer2 -> policy2 -> peer2, peer3
 	assert.ElementsMatch(t, []string{peerIDs[0], peerIDs[1], peerIDs[2], peerIDs[3]}, result)
 }
 
@@ -763,7 +688,6 @@ func TestResolveAffectedPeers_SharedGroupAcrossPolicyAndRoute(t *testing.T) {
 	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	// Policy: group0 <-> group1
 	_, err := manager.SavePolicy(ctx, accountID, userID, &types.Policy{
 		Enabled: true,
 		Rules: []*types.PolicyRule{
@@ -778,7 +702,6 @@ func TestResolveAffectedPeers_SharedGroupAcrossPolicyAndRoute(t *testing.T) {
 	}, true)
 	require.NoError(t, err)
 
-	// Route: distribution=[group0], peerGroups=[group2]
 	_, err = manager.CreateRoute(ctx, accountID,
 		netip.MustParsePrefix("10.5.0.0/24"),
 		route.IPv4Network,
@@ -798,10 +721,7 @@ func TestResolveAffectedPeers_SharedGroupAcrossPolicyAndRoute(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Changing peer0 (in group0) should affect:
-	// From policy: group0+group1 -> peer0, peer1
-	// From route: group0+group2 -> peer0, peer2
-	// Total: peer0, peer1, peer2
+	// group0 is shared: policy gives peer0+peer1, route gives peer0+peer2
 	result := manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[0]})
 	assert.ElementsMatch(t, []string{peerIDs[0], peerIDs[1], peerIDs[2]}, result)
 }
@@ -817,14 +737,11 @@ func TestResolveAffectedPeers_EmptyChangedPeers(t *testing.T) {
 	assert.Empty(t, result)
 }
 
-// ---------- Integration: peer changes with full update flow ----------
-
 func TestAffectedPeers_GroupUpdateOnlyAffectsLinkedPeers(t *testing.T) {
 	manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 	ctx := context.Background()
 	accountID := account.Id
 
-	// Delete the default "All <-> All" policy so only our explicit policy matters
 	policies, err := manager.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
 	require.NoError(t, err)
 	for _, p := range policies {
@@ -832,7 +749,6 @@ func TestAffectedPeers_GroupUpdateOnlyAffectsLinkedPeers(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Create groups
 	for _, g := range []*types.Group{
 		{ID: "ap-grpA", Name: "AP-A", Peers: []string{peer1.ID}},
 		{ID: "ap-grpB", Name: "AP-B", Peers: []string{peer2.ID}},
@@ -842,7 +758,6 @@ func TestAffectedPeers_GroupUpdateOnlyAffectsLinkedPeers(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Policy: grpA <-> grpB (peer1 <-> peer2). peer3 is NOT in this policy.
 	_, err = manager.SavePolicy(ctx, accountID, userID, &types.Policy{
 		Enabled: true,
 		Rules: []*types.PolicyRule{
@@ -857,7 +772,6 @@ func TestAffectedPeers_GroupUpdateOnlyAffectsLinkedPeers(t *testing.T) {
 	}, true)
 	require.NoError(t, err)
 
-	// Open update channels for all peers
 	updMsg1 := updateManager.CreateChannel(ctx, peer1.ID)
 	updMsg2 := updateManager.CreateChannel(ctx, peer2.ID)
 	updMsg3 := updateManager.CreateChannel(ctx, peer3.ID)
@@ -867,25 +781,23 @@ func TestAffectedPeers_GroupUpdateOnlyAffectsLinkedPeers(t *testing.T) {
 		updateManager.CloseChannel(ctx, peer3.ID)
 	})
 
-	// Verify resolution: changing peer1 should only affect peer1 and peer2
 	result := manager.resolveAffectedPeersForPeerChanges(ctx, manager.Store, accountID, []string{peer1.ID})
 	assert.ElementsMatch(t, []string{peer1.ID, peer2.ID}, result)
 
-	// Updating grpA to include peer3 should update all 3 peers because after the update
-	// grpA={peer1,peer3} which is in the policy, plus grpB={peer2}
+	// Adding peer3 to grpA makes it part of the policy, so all 3 peers get updated
 	t.Run("group change updates all peers in policy groups", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			peerShouldReceiveUpdate(t, updMsg1)
 			peerShouldReceiveUpdate(t, updMsg2)
-			peerShouldReceiveUpdate(t, updMsg3) // peer3 is now in grpA which is in the policy
+			peerShouldReceiveUpdate(t, updMsg3)
 			close(done)
 		}()
 
 		err := manager.UpdateGroup(ctx, accountID, userID, &types.Group{
 			ID:    "ap-grpA",
 			Name:  "AP-A",
-			Peers: []string{peer1.ID, peer3.ID}, // add peer3 to group
+			Peers: []string{peer1.ID, peer3.ID},
 		})
 		assert.NoError(t, err)
 
@@ -905,12 +817,9 @@ func TestAffectedPeers_UnlinkedGroupChange_NoUpdates(t *testing.T) {
 	manager, s, accountID, peerIDs, _ := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	// No entities reference any group
 	result := manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[0]})
-	assert.Empty(t, result, "unlinked peer change should produce no affected peers")
+	assert.Empty(t, result)
 }
-
-// ---------- collectPostureCheckAffectedGroupsAndPeers ----------
 
 func TestCollectPostureCheckAffected_NoMatch(t *testing.T) {
 	_, s, accountID, _, _ := setupAffectedPeersTest(t)
@@ -921,13 +830,10 @@ func TestCollectPostureCheckAffected_NoMatch(t *testing.T) {
 	assert.Empty(t, directPeers)
 }
 
-// ---------- Isolation: unrelated entities don't bleed ----------
-
 func TestAffectedPeers_IsolatedPolicies(t *testing.T) {
 	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	// Policy A: group0 <-> group1
 	_, err := manager.SavePolicy(ctx, accountID, userID, &types.Policy{
 		Enabled: true,
 		Rules: []*types.PolicyRule{
@@ -942,7 +848,6 @@ func TestAffectedPeers_IsolatedPolicies(t *testing.T) {
 	}, true)
 	require.NoError(t, err)
 
-	// Policy B: group2 <-> group3
 	_, err = manager.SavePolicy(ctx, accountID, userID, &types.Policy{
 		Enabled: true,
 		Rules: []*types.PolicyRule{
@@ -957,19 +862,16 @@ func TestAffectedPeers_IsolatedPolicies(t *testing.T) {
 	}, true)
 	require.NoError(t, err)
 
-	// Changing peer0 should ONLY affect peer0, peer1 (Policy A), NOT peer2, peer3 (Policy B)
 	result := manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[0]})
 	assert.ElementsMatch(t, []string{peerIDs[0], peerIDs[1]}, result)
 	assert.NotContains(t, result, peerIDs[2])
 	assert.NotContains(t, result, peerIDs[3])
 
-	// Changing peer2 should ONLY affect peer2, peer3 (Policy B)
 	result = manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[2]})
 	assert.ElementsMatch(t, []string{peerIDs[2], peerIDs[3]}, result)
 	assert.NotContains(t, result, peerIDs[0])
 	assert.NotContains(t, result, peerIDs[1])
 
-	// Changing peer4 (not in any policy) should return empty
 	result = manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[4]})
 	assert.Empty(t, result)
 }
@@ -978,7 +880,6 @@ func TestAffectedPeers_IsolatedRouteAndPolicy(t *testing.T) {
 	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	// Policy: group0 <-> group1
 	_, err := manager.SavePolicy(ctx, accountID, userID, &types.Policy{
 		Enabled: true,
 		Rules: []*types.PolicyRule{
@@ -993,7 +894,6 @@ func TestAffectedPeers_IsolatedRouteAndPolicy(t *testing.T) {
 	}, true)
 	require.NoError(t, err)
 
-	// Route: peerGroups=[group2], distribution=[group3]
 	_, err = manager.CreateRoute(ctx, accountID,
 		netip.MustParsePrefix("10.6.0.0/24"),
 		route.IPv4Network,
@@ -1013,32 +913,26 @@ func TestAffectedPeers_IsolatedRouteAndPolicy(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Changing peer0 (policy only) -> peer0, peer1
 	result := manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[0]})
 	assert.ElementsMatch(t, []string{peerIDs[0], peerIDs[1]}, result)
 	assert.NotContains(t, result, peerIDs[2])
 	assert.NotContains(t, result, peerIDs[3])
 
-	// Changing peer2 (route only) -> peer2, peer3
 	result = manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[2]})
 	assert.ElementsMatch(t, []string{peerIDs[2], peerIDs[3]}, result)
 	assert.NotContains(t, result, peerIDs[0])
 	assert.NotContains(t, result, peerIDs[1])
 }
 
-// ---------- Helper: verify no duplicates in resolution ----------
-
 func TestResolveAffectedPeers_NoDuplicates(t *testing.T) {
 	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
 
-	// Add peer0 to multiple groups
 	err := manager.GroupAddPeer(ctx, accountID, groupIDs[1], peerIDs[0])
 	require.NoError(t, err)
 	err = manager.GroupAddPeer(ctx, accountID, groupIDs[2], peerIDs[0])
 	require.NoError(t, err)
 
-	// Policy that references all three groups
 	_, err = manager.SavePolicy(ctx, accountID, userID, &types.Policy{
 		Enabled: true,
 		Rules: []*types.PolicyRule{
@@ -1053,17 +947,14 @@ func TestResolveAffectedPeers_NoDuplicates(t *testing.T) {
 	require.NoError(t, err)
 
 	result := manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[0]})
-	// peer0 is in group0, group1, group2 - should only appear once
 	count := 0
 	for _, id := range result {
 		if id == peerIDs[0] {
 			count++
 		}
 	}
-	assert.Equal(t, 1, count, "peer0 should appear exactly once in results")
+	assert.Equal(t, 1, count, "peer0 should appear exactly once")
 }
-
-// ---------- policyReferencesGroups ----------
 
 func TestPolicyReferencesGroups(t *testing.T) {
 	policy := &types.Policy{
@@ -1141,8 +1032,6 @@ func TestRouterReferencesGroups(t *testing.T) {
 		})
 	}
 }
-
-// ---------- helpers ----------
 
 func addPeerToAccount(t *testing.T, manager *DefaultAccountManager, accountID, setupKeyKey string) *nbpeer.Peer {
 	t.Helper()

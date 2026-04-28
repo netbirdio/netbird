@@ -821,10 +821,8 @@ func areGroupChangesAffectPeers(ctx context.Context, transaction store.Store, ac
 	return false, nil
 }
 
-// collectGroupChangeAffectedGroups walks all entities that reference the changed groups
-// and collects the full set of affected group IDs and direct peer IDs.
-// This ensures that when a group changes, we update not just the peers in that group
-// but also peers in other groups that share policies, routes, DNS, or nameserver configs.
+// collectGroupChangeAffectedGroups walks policies, routes, nameservers, DNS settings,
+// and network routers to collect all group IDs and direct peer IDs affected by the changed groups.
 func collectGroupChangeAffectedGroups(ctx context.Context, transaction store.Store, accountID string, changedGroupIDs []string) (allGroupIDs []string, directPeerIDs []string) {
 	if len(changedGroupIDs) == 0 {
 		return nil, nil
@@ -841,7 +839,6 @@ func collectGroupChangeAffectedGroups(ctx context.Context, transaction store.Sto
 
 	peerSet := make(map[string]struct{})
 
-	// Policies: collect all rule groups + direct peer resources from policies that reference any changed group
 	policies, err := transaction.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get policies for group change resolution: %v", err)
@@ -867,7 +864,6 @@ func collectGroupChangeAffectedGroups(ctx context.Context, transaction store.Sto
 		}
 	}
 
-	// Routes: collect all groups + direct peer from routes that reference any changed group
 	routes, err := transaction.GetAccountRoutes(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get routes for group change resolution: %v", err)
@@ -893,7 +889,6 @@ func collectGroupChangeAffectedGroups(ctx context.Context, transaction store.Sto
 		}
 	}
 
-	// Nameserver groups: collect groups from NS groups that reference any changed group
 	nsGroups, err := transaction.GetAccountNameServerGroups(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get nameserver groups for group change resolution: %v", err)
@@ -911,7 +906,6 @@ func collectGroupChangeAffectedGroups(ctx context.Context, transaction store.Sto
 		}
 	}
 
-	// DNS settings: if any changed group is in DisabledManagementGroups, include those groups
 	dnsSettings, err := transaction.GetAccountDNSSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get DNS settings for group change resolution: %v", err)
@@ -924,7 +918,6 @@ func collectGroupChangeAffectedGroups(ctx context.Context, transaction store.Sto
 		}
 	}
 
-	// Network routers: collect peer groups + direct peer from routers that reference any changed group
 	routers, err := transaction.GetNetworkRoutersByAccountID(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get network routers for group change resolution: %v", err)

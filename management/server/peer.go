@@ -1308,14 +1308,12 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 }
 
 // UpdateAffectedPeers updates only the specified peers that belong to an account.
-// Should be called when a change is known to affect only a subset of peers.
 func (am *DefaultAccountManager) UpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string) {
 	log.WithContext(ctx).Tracef("UpdateAffectedPeers: %d peers for account %s", len(peerIDs), accountID)
 	_ = am.networkMapController.UpdateAffectedPeers(ctx, accountID, peerIDs)
 }
 
-// resolvePeerIDs resolves a set of group IDs and direct peer IDs into a
-// deduplicated list of peer IDs suitable for UpdateAffectedPeers.
+// resolvePeerIDs resolves group IDs and direct peer IDs into a deduplicated peer ID list.
 func (am *DefaultAccountManager) resolvePeerIDs(ctx context.Context, s store.Store, accountID string, groupIDs []string, directPeerIDs []string) []string {
 	peerIDs, err := s.GetPeerIDsByGroups(ctx, accountID, groupIDs)
 	if err != nil {
@@ -1343,15 +1341,12 @@ func (am *DefaultAccountManager) resolvePeerIDs(ctx context.Context, s store.Sto
 	return peerIDs
 }
 
-// BufferUpdateAffectedPeers accumulates peer IDs across rapid successive calls
-// and flushes them in a single update after the buffer interval.
+// BufferUpdateAffectedPeers accumulates peer IDs and flushes them after the buffer interval.
 func (am *DefaultAccountManager) BufferUpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string) {
 	_ = am.networkMapController.BufferUpdateAffectedPeers(ctx, accountID, peerIDs)
 }
 
-// resolveAffectedPeersForPeerChanges resolves changed peer IDs into the full set of
-// affected peers: finds groups containing the changed peers, walks all entity linkages,
-// and resolves back to peer IDs.
+// resolveAffectedPeersForPeerChanges resolves changed peer IDs into the full set of affected peer IDs.
 func (am *DefaultAccountManager) resolveAffectedPeersForPeerChanges(ctx context.Context, s store.Store, accountID string, changedPeerIDs []string) []string {
 	groupIDs, err := s.GetGroupIDsByPeerIDs(ctx, accountID, changedPeerIDs)
 	if err != nil {

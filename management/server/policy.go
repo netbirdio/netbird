@@ -150,8 +150,7 @@ func (am *DefaultAccountManager) ListPolicies(ctx context.Context, accountID, us
 	return am.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
 }
 
-// collectPolicyAffectedGroupsAndPeers returns the group IDs and direct peer IDs
-// referenced by the given policies' rules.
+// collectPolicyAffectedGroupsAndPeers returns group IDs and direct peer IDs from the given policies.
 func collectPolicyAffectedGroupsAndPeers(policies ...*types.Policy) (groupIDs []string, directPeerIDs []string) {
 	for _, policy := range policies {
 		if policy == nil {

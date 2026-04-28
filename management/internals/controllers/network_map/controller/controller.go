@@ -270,8 +270,6 @@ func (c *Controller) UpdateAccountPeers(ctx context.Context, accountID string) e
 }
 
 // UpdateAffectedPeers updates only the specified peers that belong to an account.
-// Should be called when a change is known to affect only a subset of peers.
-// If peerIDs is empty, this is a no-op.
 func (c *Controller) UpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string) error {
 	if len(peerIDs) == 0 {
 		return nil
@@ -287,7 +285,6 @@ func (c *Controller) sendUpdateForAffectedPeers(ctx context.Context, accountID s
 		affected[id] = struct{}{}
 	}
 
-	// Fast check: any of the affected peers actually connected?
 	hasConnected := false
 	for _, id := range peerIDs {
 		if c.peersUpdateManager.HasChannel(id) {
@@ -306,7 +303,6 @@ func (c *Controller) sendUpdateForAffectedPeers(ctx context.Context, accountID s
 
 	globalStart := time.Now()
 
-	// Collect the subset of account peers that are both affected and connected.
 	var peersToUpdate []*nbpeer.Peer
 	for _, peer := range account.Peers {
 		if _, ok := affected[peer.ID]; ok && c.peersUpdateManager.HasChannel(peer.ID) {
@@ -504,8 +500,7 @@ func (c *Controller) BufferUpdateAccountPeers(ctx context.Context, accountID str
 	return nil
 }
 
-// BufferUpdateAffectedPeers accumulates peer IDs across rapid successive calls
-// and flushes them in a single sendUpdateForAffectedPeers call after the buffer interval.
+// BufferUpdateAffectedPeers accumulates peer IDs and flushes them after the buffer interval.
 func (c *Controller) BufferUpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string) error {
 	if len(peerIDs) == 0 {
 		return nil
@@ -518,7 +513,6 @@ func (c *Controller) BufferUpdateAffectedPeers(ctx context.Context, accountID st
 	})
 	b := bufUpd.(*bufferAffectedUpdate)
 
-	// Always accumulate incoming peer IDs (non-blocking).
 	b.addPeerIDs(peerIDs)
 
 	if !b.sendMu.TryLock() {
