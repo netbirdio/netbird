@@ -20,6 +20,12 @@ Maintainer-authoritative roles:
 - OWNER
 - COLLABORATOR
 
+Workarounds vs. actual fixes:
+- A WORKAROUND is when a user changes their own setup to avoid the problem (editing configs, using a different setting, manual SQL fixes, switching tools). Workarounds do NOT count as resolution — the underlying issue is still present in the product.
+- An ACTUAL FIX is when a user reports the problem went away after upgrading to a specific version (e.g., "fixed after updating to v0.65.1") or after a specific PR was merged. This suggests the fix was shipped in the product itself.
+- If only workarounds exist and no maintainer has confirmed a fix, classify as KEEP_OPEN.
+- If a user reports an actual fix via a version upgrade but no maintainer confirmed it, classify as MANUAL_REVIEW (not AUTO_CLOSE).
+
 Important:
 - Later comments outweigh earlier ones.
 - A non-maintainer saying "fixed for me" is not enough for AUTO_CLOSE.
