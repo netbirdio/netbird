@@ -29,9 +29,9 @@ type Controller interface {
 	GetNetworkMap(ctx context.Context, peerID string) (*types.NetworkMap, error)
 	CountStreams() int
 
-	OnPeersUpdated(ctx context.Context, accountId string, peerIDs []string) error
-	OnPeersAdded(ctx context.Context, accountID string, peerIDs []string) error
-	OnPeersDeleted(ctx context.Context, accountID string, peerIDs []string) error
+	OnPeersUpdated(ctx context.Context, accountId string, peerIDs []string, affectedPeerIDs []string) error
+	OnPeersAdded(ctx context.Context, accountID string, peerIDs []string, affectedPeerIDs []string) error
+	OnPeersDeleted(ctx context.Context, accountID string, peerIDs []string, affectedPeerIDs []string) error
 	DisconnectPeers(ctx context.Context, accountId string, peerIDs []string)
 	OnPeerConnected(ctx context.Context, accountID string, peerID string) (chan *UpdateMessage, error)
 	OnPeerDisconnected(ctx context.Context, accountID string, peerID string)

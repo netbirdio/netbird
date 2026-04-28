@@ -4679,6 +4679,23 @@ func (s *SqlStore) GetPeerIDsByGroups(ctx context.Context, accountID string, gro
 	return peerIDs, nil
 }
 
+func (s *SqlStore) GetGroupIDsByPeerIDs(ctx context.Context, accountID string, peerIDs []string) ([]string, error) {
+	if len(peerIDs) == 0 {
+		return nil, nil
+	}
+
+	var groupIDs []string
+	result := s.db.Model(&types.GroupPeer{}).
+		Select("DISTINCT group_id").
+		Where("account_id = ? AND peer_id IN ?", accountID, peerIDs).
+		Pluck("group_id", &groupIDs)
+	if result.Error != nil {
+		return nil, status.Errorf(status.Internal, "failed to get group IDs by peers: %s", result.Error)
+	}
+
+	return groupIDs, nil
+}
+
 func (s *SqlStore) GetUserIDByPeerKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (string, error) {
 	tx := s.db
 	if lockStrength != LockingStrengthNone {

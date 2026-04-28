@@ -846,7 +846,7 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	networkMapControllerMock := network_map.NewMockController(ctrl)
 	networkMapControllerMock.EXPECT().
-		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any()).
+		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil)
 
 	permissionsManager := permissions.NewManager(store)
@@ -962,7 +962,7 @@ func TestUser_DeleteUser_RegularUsers(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	networkMapControllerMock := network_map.NewMockController(ctrl)
 	networkMapControllerMock.EXPECT().
-		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any()).
+		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil).
 		AnyTimes()
 
@@ -2022,7 +2022,7 @@ func TestUser_Operations_WithEmbeddedIDP(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	networkMapControllerMock := network_map.NewMockController(ctrl)
 	networkMapControllerMock.EXPECT().
-		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any()).
+		OnPeersDeleted(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil).
 		AnyTimes()
 

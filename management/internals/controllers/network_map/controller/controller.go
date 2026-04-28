@@ -793,21 +793,24 @@ func isPeerInPolicySourceGroups(account *types.Account, peerID string, policy *t
 	return false, nil
 }
 
-func (c *Controller) OnPeersUpdated(ctx context.Context, accountID string, peerIDs []string) error {
-	err := c.bufferSendUpdateAccountPeers(ctx, accountID)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to buffer update account peers for peer update in account %s: %v", accountID, err)
+func (c *Controller) OnPeersUpdated(ctx context.Context, accountID string, peerIDs []string, affectedPeerIDs []string) error {
+	if len(affectedPeerIDs) == 0 {
+		log.WithContext(ctx).Tracef("no affected peers for peer update in account %s, skipping", accountID)
+		return nil
 	}
-
-	return nil
+	return c.BufferUpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
 }
 
-func (c *Controller) OnPeersAdded(ctx context.Context, accountID string, peerIDs []string) error {
+func (c *Controller) OnPeersAdded(ctx context.Context, accountID string, peerIDs []string, affectedPeerIDs []string) error {
 	log.WithContext(ctx).Debugf("OnPeersAdded call to add peers: %v", peerIDs)
-	return c.bufferSendUpdateAccountPeers(ctx, accountID)
+	if len(affectedPeerIDs) == 0 {
+		log.WithContext(ctx).Tracef("no affected peers for peer add in account %s, skipping", accountID)
+		return nil
+	}
+	return c.BufferUpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
 }
 
-func (c *Controller) OnPeersDeleted(ctx context.Context, accountID string, peerIDs []string) error {
+func (c *Controller) OnPeersDeleted(ctx context.Context, accountID string, peerIDs []string, affectedPeerIDs []string) error {
 	network, err := c.repo.GetAccountNetwork(ctx, accountID)
 	if err != nil {
 		return err
@@ -840,7 +843,11 @@ func (c *Controller) OnPeersDeleted(ctx context.Context, accountID string, peerI
 		c.peersUpdateManager.CloseChannel(ctx, peerID)
 	}
 
-	return c.bufferSendUpdateAccountPeers(ctx, accountID)
+	if len(affectedPeerIDs) == 0 {
+		log.WithContext(ctx).Tracef("no affected peers for peer delete in account %s, skipping network map update", accountID)
+		return nil
+	}
+	return c.BufferUpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
 }
 
 // GetNetworkMap returns Network map for a given peer (omits original peer from the Peers result)

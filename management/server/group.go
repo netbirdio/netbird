@@ -835,11 +835,9 @@ func collectGroupChangeAffectedGroups(ctx context.Context, transaction store.Sto
 		changedSet[id] = struct{}{}
 	}
 
+	log.WithContext(ctx).Tracef("collecting affected groups for changed groups %v", changedGroupIDs)
+
 	groupSet := make(map[string]struct{})
-	// Always include the changed groups themselves
-	for _, id := range changedGroupIDs {
-		groupSet[id] = struct{}{}
-	}
 
 	peerSet := make(map[string]struct{})
 
@@ -852,14 +850,17 @@ func collectGroupChangeAffectedGroups(ctx context.Context, transaction store.Sto
 			if !policyReferencesGroups(policy, changedSet) {
 				continue
 			}
+			log.WithContext(ctx).Tracef("policy %s (%s) references changed groups, adding rule groups", policy.ID, policy.Name)
 			for _, gID := range policy.RuleGroups() {
 				groupSet[gID] = struct{}{}
 			}
 			for _, rule := range policy.Rules {
 				if rule.SourceResource.Type == types.ResourceTypePeer && rule.SourceResource.ID != "" {
+					log.WithContext(ctx).Tracef("policy %s rule %s has direct source peer %s", policy.ID, rule.ID, rule.SourceResource.ID)
 					peerSet[rule.SourceResource.ID] = struct{}{}
 				}
 				if rule.DestinationResource.Type == types.ResourceTypePeer && rule.DestinationResource.ID != "" {
+					log.WithContext(ctx).Tracef("policy %s rule %s has direct destination peer %s", policy.ID, rule.ID, rule.DestinationResource.ID)
 					peerSet[rule.DestinationResource.ID] = struct{}{}
 				}
 			}
@@ -875,6 +876,7 @@ func collectGroupChangeAffectedGroups(ctx context.Context, transaction store.Sto
 			if !routeReferencesGroups(r, changedSet) {
 				continue
 			}
+			log.WithContext(ctx).Tracef("route %s (%s) references changed groups", r.ID, r.Description)
 			for _, gID := range r.Groups {
 				groupSet[gID] = struct{}{}
 			}
@@ -885,6 +887,7 @@ func collectGroupChangeAffectedGroups(ctx context.Context, transaction store.Sto
 				groupSet[gID] = struct{}{}
 			}
 			if r.Peer != "" {
+				log.WithContext(ctx).Tracef("route %s has direct peer %s", r.ID, r.Peer)
 				peerSet[r.Peer] = struct{}{}
 			}
 		}
@@ -898,6 +901,7 @@ func collectGroupChangeAffectedGroups(ctx context.Context, transaction store.Sto
 		for _, ns := range nsGroups {
 			for _, gID := range ns.Groups {
 				if _, ok := changedSet[gID]; ok {
+					log.WithContext(ctx).Tracef("nameserver group %s (%s) references changed group %s", ns.ID, ns.Name, gID)
 					for _, g := range ns.Groups {
 						groupSet[g] = struct{}{}
 					}
@@ -914,6 +918,7 @@ func collectGroupChangeAffectedGroups(ctx context.Context, transaction store.Sto
 	} else {
 		for _, gID := range dnsSettings.DisabledManagementGroups {
 			if _, ok := changedSet[gID]; ok {
+				log.WithContext(ctx).Tracef("DNS disabled management group %s matches changed group", gID)
 				groupSet[gID] = struct{}{}
 			}
 		}
@@ -928,10 +933,12 @@ func collectGroupChangeAffectedGroups(ctx context.Context, transaction store.Sto
 			if !routerReferencesGroups(router, changedSet) {
 				continue
 			}
+			log.WithContext(ctx).Tracef("network router %s references changed groups", router.ID)
 			for _, gID := range router.PeerGroups {
 				groupSet[gID] = struct{}{}
 			}
 			if router.Peer != "" {
+				log.WithContext(ctx).Tracef("network router %s has direct peer %s", router.ID, router.Peer)
 				peerSet[router.Peer] = struct{}{}
 			}
 		}
@@ -946,6 +953,8 @@ func collectGroupChangeAffectedGroups(ctx context.Context, transaction store.Sto
 	for pID := range peerSet {
 		directPeerIDs = append(directPeerIDs, pID)
 	}
+
+	log.WithContext(ctx).Tracef("affected groups resolution: changed=%v -> affectedGroups=%v, directPeers=%v", changedGroupIDs, allGroupIDs, directPeerIDs)
 
 	return allGroupIDs, directPeerIDs
 }
