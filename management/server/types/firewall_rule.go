@@ -70,10 +70,6 @@ func generateRouteFirewallRules(ctx context.Context, route *nbroute.Route, rule 
 		sourceRanges = v6Sources
 	}
 
-	if len(sourceRanges) == 0 {
-		return rules
-	}
-
 	baseRule := RouteFirewallRule{
 		PolicyID:     rule.PolicyID,
 		RouteID:      route.ID,

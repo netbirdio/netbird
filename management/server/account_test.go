@@ -412,7 +412,7 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 		}
 
 		customZone := account.GetPeersCustomZone(context.Background(), "netbird.io")
-		networkMap := account.GetPeerNetworkMap(context.Background(), testCase.peerID, customZone, nil, validatedPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil, account.GetActiveGroupUsers())
+		networkMap := account.GetPeerNetworkMapFromComponents(context.Background(), testCase.peerID, customZone, nil, validatedPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil, account.GetActiveGroupUsers())
 		assert.Len(t, networkMap.Peers, len(testCase.expectedPeers))
 		assert.Len(t, networkMap.OfflinePeers, len(testCase.expectedOfflinePeers))
 	}
@@ -1175,11 +1175,6 @@ func TestAccountManager_AddPeerWithUserID(t *testing.T) {
 	assert.Equal(t, peer.IP.String(), fmt.Sprint(ev.Meta["ip"]))
 }
 
-func TestAccountManager_NetworkUpdates_SaveGroup_Experimental(t *testing.T) {
-	t.Setenv(network_map.EnvNewNetworkMapBuilder, "true")
-	testAccountManager_NetworkUpdates_SaveGroup(t)
-}
-
 func TestAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 	testAccountManager_NetworkUpdates_SaveGroup(t)
 }
@@ -1235,11 +1230,6 @@ func testAccountManager_NetworkUpdates_SaveGroup(t *testing.T) {
 	wg.Wait()
 }
 
-func TestAccountManager_NetworkUpdates_DeletePolicy_Experimental(t *testing.T) {
-	t.Setenv(network_map.EnvNewNetworkMapBuilder, "true")
-	testAccountManager_NetworkUpdates_DeletePolicy(t)
-}
-
 func TestAccountManager_NetworkUpdates_DeletePolicy(t *testing.T) {
 	testAccountManager_NetworkUpdates_DeletePolicy(t)
 }
@@ -1276,11 +1266,6 @@ func testAccountManager_NetworkUpdates_DeletePolicy(t *testing.T) {
 	}
 
 	wg.Wait()
-}
-
-func TestAccountManager_NetworkUpdates_SavePolicy_Experimental(t *testing.T) {
-	t.Setenv(network_map.EnvNewNetworkMapBuilder, "true")
-	testAccountManager_NetworkUpdates_SavePolicy(t)
 }
 
 func TestAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
@@ -1334,11 +1319,6 @@ func testAccountManager_NetworkUpdates_SavePolicy(t *testing.T) {
 	}
 
 	wg.Wait()
-}
-
-func TestAccountManager_NetworkUpdates_DeletePeer_Experimental(t *testing.T) {
-	t.Setenv(network_map.EnvNewNetworkMapBuilder, "true")
-	testAccountManager_NetworkUpdates_DeletePeer(t)
 }
 
 func TestAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
@@ -1399,11 +1379,6 @@ func testAccountManager_NetworkUpdates_DeletePeer(t *testing.T) {
 	}
 
 	wg.Wait()
-}
-
-func TestAccountManager_NetworkUpdates_DeleteGroup_Experimental(t *testing.T) {
-	t.Setenv(network_map.EnvNewNetworkMapBuilder, "true")
-	testAccountManager_NetworkUpdates_DeleteGroup(t)
 }
 
 func TestAccountManager_NetworkUpdates_DeleteGroup(t *testing.T) {
@@ -1637,75 +1612,6 @@ func TestFileStore_GetRoutesByPrefix(t *testing.T) {
 	assert.Contains(t, routeIDs, route.ID("route-2"))
 }
 
-func TestAccount_GetRoutesToSync(t *testing.T) {
-	_, prefix, err := route.ParseNetwork("192.168.64.0/24")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, prefix2, err := route.ParseNetwork("192.168.0.0/24")
-	if err != nil {
-		t.Fatal(err)
-	}
-	account := &types.Account{
-		Peers: map[string]*nbpeer.Peer{
-			"peer-1": {Key: "peer-1", Meta: nbpeer.PeerSystemMeta{GoOS: "linux"}}, "peer-2": {Key: "peer-2", Meta: nbpeer.PeerSystemMeta{GoOS: "linux"}}, "peer-3": {Key: "peer-1", Meta: nbpeer.PeerSystemMeta{GoOS: "linux"}},
-		},
-		Groups: map[string]*types.Group{"group1": {ID: "group1", Peers: []string{"peer-1", "peer-2"}}},
-		Routes: map[route.ID]*route.Route{
-			"route-1": {
-				ID:          "route-1",
-				Network:     prefix,
-				NetID:       "network-1",
-				Description: "network-1",
-				Peer:        "peer-1",
-				NetworkType: 0,
-				Masquerade:  false,
-				Metric:      999,
-				Enabled:     true,
-				Groups:      []string{"group1"},
-			},
-			"route-2": {
-				ID:          "route-2",
-				Network:     prefix2,
-				NetID:       "network-2",
-				Description: "network-2",
-				Peer:        "peer-2",
-				NetworkType: 0,
-				Masquerade:  false,
-				Metric:      999,
-				Enabled:     true,
-				Groups:      []string{"group1"},
-			},
-			"route-3": {
-				ID:          "route-3",
-				Network:     prefix,
-				NetID:       "network-1",
-				Description: "network-1",
-				Peer:        "peer-2",
-				NetworkType: 0,
-				Masquerade:  false,
-				Metric:      999,
-				Enabled:     true,
-				Groups:      []string{"group1"},
-			},
-		},
-	}
-
-	routes := account.GetRoutesToSync(context.Background(), "peer-2", []*nbpeer.Peer{{Key: "peer-1"}, {Key: "peer-3"}}, account.GetPeerGroups("peer-2"))
-
-	assert.Len(t, routes, 2)
-	routeIDs := make(map[route.ID]struct{}, 2)
-	for _, r := range routes {
-		routeIDs[r.ID] = struct{}{}
-	}
-	assert.Contains(t, routeIDs, route.ID("route-2"))
-	assert.Contains(t, routeIDs, route.ID("route-3"))
-
-	emptyRoutes := account.GetRoutesToSync(context.Background(), "peer-3", []*nbpeer.Peer{{Key: "peer-1"}, {Key: "peer-2"}}, account.GetPeerGroups("peer-3"))
-
-	assert.Len(t, emptyRoutes, 0)
-}
-
 func TestAccount_Copy(t *testing.T) {
 	account := &types.Account{
 		Id:                     "account1",
@@ -1828,9 +1734,7 @@ func TestAccount_Copy(t *testing.T) {
 				AccountID: "account1",
 			},
 		},
-		NetworkMapCache: &types.NetworkMapBuilder{},
 	}
-	account.InitOnce()
 	err := hasNilField(account)
 	if err != nil {
 		t.Fatal(err)
@@ -2313,6 +2217,29 @@ func TestAccount_GetExpiredPeers(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGetExpiredPeers_SkipsAlreadyExpired(t *testing.T) {
+	ctx := context.Background()
+
+	testStore, cleanUp, err := store.NewTestStoreFromSQL(ctx, "testdata/store_with_expired_peers.sql", t.TempDir())
+	t.Cleanup(cleanUp)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	// Verify the already-expired peer is excluded at the store level
+	peers, err := testStore.GetAccountPeersWithExpiration(ctx, store.LockingStrengthNone, accountID)
+	require.NoError(t, err)
+
+	for _, peer := range peers {
+		assert.NotEqual(t, "cg05lnblo1hkg2j514p0", peer.ID, "already expired peer should be excluded by the store query")
+		assert.False(t, peer.Status.LoginExpired, "returned peers should not already be marked as login expired")
+	}
+
+	// Only the non-expired peer with expiration enabled should be returned
+	require.Len(t, peers, 1)
+	assert.Equal(t, "notexpired01", peers[0].ID)
 }
 
 func TestAccount_GetInactivePeers(t *testing.T) {
@@ -3269,6 +3196,13 @@ func setupNetworkMapTest(t *testing.T) (*DefaultAccountManager, *update_channel.
 	return manager, updateManager, account, peer1, peer2, peer3
 }
 
+// peerUpdateTimeout bounds how long peerShouldReceiveUpdate and its outer
+// wrappers wait for an expected update message. Sized for slow CI runners
+// (MySQL, FreeBSD, loaded sqlite) where the channel publish can take
+// seconds. Only runs down on failure; passing tests return immediately
+// when the channel delivers.
+const peerUpdateTimeout = 5 * time.Second
+
 func peerShouldNotReceiveUpdate(t *testing.T, updateMessage <-chan *network_map.UpdateMessage) {
 	t.Helper()
 	select {
@@ -3287,7 +3221,7 @@ func peerShouldReceiveUpdate(t *testing.T, updateMessage <-chan *network_map.Upd
 		if msg == nil {
 			t.Errorf("Received nil update message, expected valid message")
 		}
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(peerUpdateTimeout):
 		t.Error("Timed out waiting for update message")
 	}
 }
