@@ -17,7 +17,7 @@ type store interface {
 	UpdateProxyHeartbeat(ctx context.Context, proxyID, clusterAddress, ipAddress string) error
 	GetActiveProxyClusterAddresses(ctx context.Context) ([]string, error)
 	GetActiveProxyClusterAddressesForAccount(ctx context.Context, accountID string) ([]string, error)
-	GetActiveProxyClusters(ctx context.Context) ([]proxy.Cluster, error)
+	GetActiveProxyClusters(ctx context.Context, accountID string) ([]proxy.Cluster, error)
 	GetClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
 	GetClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
@@ -114,16 +114,6 @@ func (m *Manager) GetActiveClusterAddresses(ctx context.Context) ([]string, erro
 		return nil, err
 	}
 	return addresses, nil
-}
-
-// GetActiveClusters returns all active proxy clusters with their connected proxy count.
-func (m Manager) GetActiveClusters(ctx context.Context) ([]proxy.Cluster, error) {
-	clusters, err := m.store.GetActiveProxyClusters(ctx)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get active proxy clusters: %v", err)
-		return nil, err
-	}
-	return clusters, nil
 }
 
 // ClusterSupportsCustomPorts returns whether any active proxy in the cluster

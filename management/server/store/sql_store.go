@@ -5526,13 +5526,15 @@ func (s *SqlStore) UpdateProxyHeartbeat(ctx context.Context, proxyID, clusterAdd
 	return nil
 }
 
-// GetActiveProxyClusterAddresses returns all unique cluster addresses for active proxies
+// GetActiveProxyClusterAddresses returns the unique cluster addresses of active
+// shared proxies (those without an account scope). BYOP cluster addresses are
+// excluded; use GetActiveProxyClusterAddressesForAccount to retrieve them.
 func (s *SqlStore) GetActiveProxyClusterAddresses(ctx context.Context) ([]string, error) {
 	var addresses []string
 
 	result := s.db.
 		Model(&proxy.Proxy{}).
-		Where("status = ? AND last_seen > ?", proxy.StatusConnected, time.Now().Add(-proxyActiveThreshold)).
+		Where("account_id IS NULL AND status = ? AND last_seen > ?", proxy.StatusConnected, time.Now().Add(-proxyActiveThreshold)).
 		Distinct("cluster_address").
 		Pluck("cluster_address", &addresses)
 
@@ -5549,7 +5551,7 @@ func (s *SqlStore) GetActiveProxyClusterAddressesForAccount(ctx context.Context,
 
 	result := s.db.
 		Model(&proxy.Proxy{}).
-		Where("account_id = ? AND status = ? AND last_seen > ?", accountID, proxy.StatusConnected, time.Now().Add(-2*time.Minute)).
+		Where("account_id = ? AND status = ? AND last_seen > ?", accountID, proxy.StatusConnected, time.Now().Add(-proxyActiveThreshold)).
 		Distinct("cluster_address").
 		Pluck("cluster_address", &addresses)
 
@@ -5606,12 +5608,13 @@ func (s *SqlStore) DeleteAccountCluster(ctx context.Context, clusterAddress, acc
 	return nil
 }
 
-func (s *SqlStore) GetActiveProxyClusters(ctx context.Context) ([]proxy.Cluster, error) {
+func (s *SqlStore) GetActiveProxyClusters(ctx context.Context, accountID string) ([]proxy.Cluster, error) {
 	var clusters []proxy.Cluster
 
 	result := s.db.Model(&proxy.Proxy{}).
 		Select("MIN(id) as id, cluster_address as address, COUNT(*) as connected_proxies, COUNT(account_id) > 0 as self_hosted").
-		Where("status = ? AND last_seen > ?", proxy.StatusConnected, time.Now().Add(-proxyActiveThreshold)).
+		Where("status = ? AND last_seen > ? AND (account_id IS NULL OR account_id = ?)",
+			proxy.StatusConnected, time.Now().Add(-proxyActiveThreshold), accountID).
 		Group("cluster_address").
 		Scan(&clusters)
 

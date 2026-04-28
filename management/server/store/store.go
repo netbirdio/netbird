@@ -291,7 +291,7 @@ type Store interface {
 	UpdateProxyHeartbeat(ctx context.Context, proxyID, clusterAddress, ipAddress string) error
 	GetActiveProxyClusterAddresses(ctx context.Context) ([]string, error)
 	GetActiveProxyClusterAddressesForAccount(ctx context.Context, accountID string) ([]string, error)
-	GetActiveProxyClusters(ctx context.Context) ([]proxy.Cluster, error)
+	GetActiveProxyClusters(ctx context.Context, accountID string) ([]proxy.Cluster, error)
 	GetClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
 	GetClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool

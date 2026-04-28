@@ -148,20 +148,6 @@ func (mr *MockManagerMockRecorder) GetActiveClusterAddressesForAccount(ctx, acco
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveClusterAddressesForAccount", reflect.TypeOf((*MockManager)(nil).GetActiveClusterAddressesForAccount), ctx, accountID)
 }
 
-func (m *MockManager) GetActiveClusters(ctx context.Context) ([]Cluster, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetActiveClusters", ctx)
-	ret0, _ := ret[0].([]Cluster)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetActiveClusters indicates an expected call of GetActiveClusters.
-func (mr *MockManagerMockRecorder) GetActiveClusters(ctx interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveClusters", reflect.TypeOf((*MockManager)(nil).GetActiveClusters), ctx)
-}
-
 // Heartbeat mocks base method.
 func (m *MockManager) Heartbeat(ctx context.Context, proxyID, clusterAddress, ipAddress string) error {
 	m.ctrl.T.Helper()

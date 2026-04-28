@@ -57,7 +57,7 @@ func (m *mockStore) GetActiveProxyClusterAddressesForAccount(ctx context.Context
 	}
 	return nil, nil
 }
-func (m *mockStore) GetActiveProxyClusters(_ context.Context) ([]proxy.Cluster, error) {
+func (m *mockStore) GetActiveProxyClusters(_ context.Context, _ string) ([]proxy.Cluster, error) {
 	return nil, nil
 }
 func (m *mockStore) CleanupStaleProxies(ctx context.Context, d time.Duration) error {

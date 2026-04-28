@@ -1346,18 +1346,18 @@ func (mr *MockStoreMockRecorder) GetActiveProxyClusterAddressesForAccount(ctx, a
 }
 
 // GetActiveProxyClusters mocks base method.
-func (m *MockStore) GetActiveProxyClusters(ctx context.Context) ([]proxy.Cluster, error) {
+func (m *MockStore) GetActiveProxyClusters(ctx context.Context, accountID string) ([]proxy.Cluster, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetActiveProxyClusters", ctx)
+	ret := m.ctrl.Call(m, "GetActiveProxyClusters", ctx, accountID)
 	ret0, _ := ret[0].([]proxy.Cluster)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetActiveProxyClusters indicates an expected call of GetActiveProxyClusters.
-func (mr *MockStoreMockRecorder) GetActiveProxyClusters(ctx interface{}) *gomock.Call {
+func (mr *MockStoreMockRecorder) GetActiveProxyClusters(ctx, accountID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveProxyClusters", reflect.TypeOf((*MockStore)(nil).GetActiveProxyClusters), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveProxyClusters", reflect.TypeOf((*MockStore)(nil).GetActiveProxyClusters), ctx, accountID)
 }
 
 // GetAllAccounts mocks base method.

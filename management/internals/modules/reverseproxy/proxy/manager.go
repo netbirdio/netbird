@@ -16,7 +16,6 @@ type Manager interface {
 	Heartbeat(ctx context.Context, proxyID, clusterAddress, ipAddress string) error
 	GetActiveClusterAddresses(ctx context.Context) ([]string, error)
 	GetActiveClusterAddressesForAccount(ctx context.Context, accountID string) ([]string, error)
-	GetActiveClusters(ctx context.Context) ([]Cluster, error)
 	ClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
 	ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	ClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool

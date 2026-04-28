@@ -120,7 +120,7 @@ func (m *Manager) GetActiveClusters(ctx context.Context, accountID, userID strin
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	return m.store.GetActiveProxyClusters(ctx)
+	return m.store.GetActiveProxyClusters(ctx, accountID)
 }
 
 // DeleteAccountCluster removes all proxy registrations for the given cluster address
