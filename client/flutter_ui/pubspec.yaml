@@ -1,0 +1,28 @@
+name: netbird_flutter_ui
+description: Experimental Flutter desktop UI for NetBird.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.8.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  fixnum: ^1.1.1
+  grpc: ^5.1.0
+  protobuf: ^6.0.0
+  tray_manager: ^0.5.0
+  window_manager: ^0.5.1
+  local_notifier: ^0.1.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/tray/
+
