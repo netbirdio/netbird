@@ -37,6 +37,7 @@
       "type": "array",
       "items": {
         "type": "object",
+        "additionalProperties": false,
         "required": ["type", "url"],
         "properties": {
           "type": {
@@ -56,6 +57,7 @@
       "type": "array",
       "items": {
         "type": "object",
+        "additionalProperties": false,
         "required": ["type", "url"],
         "properties": {
           "type": {
