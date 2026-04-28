@@ -894,13 +894,6 @@ func getAddressFamily(prefix netip.Prefix) int {
 	return netlink.FAMILY_V6
 }
 
-func hasSeparateRouting() ([]netip.Prefix, error) {
-	if !nbnet.AdvancedRouting() {
-		return GetRoutesFromTable()
-	}
-	return nil, ErrRoutingIsSeparate
-}
-
 func isOpErr(err error) bool {
 	// EAFTNOSUPPORT when ipv6 is disabled via sysctl, EOPNOTSUPP when disabled in boot options or otherwise not supported
 	if errors.Is(err, syscall.EAFNOSUPPORT) || errors.Is(err, syscall.EOPNOTSUPP) {

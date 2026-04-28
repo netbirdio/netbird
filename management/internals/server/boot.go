@@ -30,6 +30,7 @@ import (
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	nbhttp "github.com/netbirdio/netbird/management/server/http"
+	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
@@ -109,11 +110,20 @@ func (s *BaseServer) EventStore() activity.Store {
 
 func (s *BaseServer) APIHandler() http.Handler {
 	return Create(s, func() http.Handler {
-		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.IntegratedValidator(), s.ProxyController(), s.PermissionsManager(), s.PeersManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(), s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies)
+		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.IntegratedValidator(), s.ProxyController(), s.PermissionsManager(), s.PeersManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(), s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies, s.RateLimiter())
 		if err != nil {
 			log.Fatalf("failed to create API handler: %v", err)
 		}
 		return httpAPIHandler
+	})
+}
+
+func (s *BaseServer) RateLimiter() *middleware.APIRateLimiter {
+	return Create(s, func() *middleware.APIRateLimiter {
+		cfg, enabled := middleware.RateLimiterConfigFromEnv()
+		limiter := middleware.NewAPIRateLimiter(cfg)
+		limiter.SetEnabled(enabled)
+		return limiter
 	})
 }
 

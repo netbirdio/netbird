@@ -26,6 +26,7 @@ import (
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/firewall"
+	"github.com/netbirdio/netbird/client/firewall/firewalld"
 	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
@@ -140,6 +141,7 @@ type EngineConfig struct {
 	ProfileConfig *profilemanager.Config
 
 	LogPath string
+	TempDir string
 }
 
 // EngineServices holds the external service dependencies required by the Engine.
@@ -569,7 +571,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	e.connMgr.Start(e.ctx)
 
 	e.srWatcher = guard.NewSRWatcher(e.signal, e.relayManager, e.mobileDep.IFaceDiscover, iceCfg)
-	e.srWatcher.Start()
+	e.srWatcher.Start(peer.IsForceRelayed())
 
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()
@@ -602,6 +604,8 @@ func (e *Engine) createFirewall() error {
 		log.Infof("firewall is disabled")
 		return nil
 	}
+
+	firewalld.SetParentContext(e.ctx)
 
 	var err error
 	e.firewall, err = firewall.NewFirewall(e.wgInterface, e.stateManager, e.flowManager.GetLogger(), e.config.DisableServerRoutes, e.config.MTU)
@@ -940,7 +944,12 @@ func (e *Engine) handleRelayUpdate(update *mgmProto.RelayConfig) error {
 			return fmt.Errorf("update relay token: %w", err)
 		}
 
-		e.relayManager.UpdateServerURLs(update.Urls)
+		urls := update.Urls
+		if override, ok := peer.OverrideRelayURLs(); ok {
+			log.Infof("overriding relay URLs from %s: %v", peer.EnvKeyNBHomeRelayServers, override)
+			urls = override
+		}
+		e.relayManager.UpdateServerURLs(urls)
 
 		// Just in case the agent started with an MGM server where the relay was disabled but was later enabled.
 		// We can ignore all errors because the guard will manage the reconnection retries.
@@ -1095,6 +1104,7 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 		StatusRecorder: e.statusRecorder,
 		SyncResponse:   syncResponse,
 		LogPath:        e.config.LogPath,
+		TempDir:        e.config.TempDir,
 		ClientMetrics:  e.clientMetrics,
 		RefreshStatus: func() {
 			e.RunHealthProbes(true)

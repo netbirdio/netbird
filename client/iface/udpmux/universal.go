@@ -171,7 +171,7 @@ func (u *UDPConn) performFilterCheck(addr net.Addr) error {
 	}
 
 	if u.address.Network.Contains(a) {
-		log.Warnf("Address %s is part of the NetBird network %s, refusing to write", addr, u.address)
+		log.Warnf("address %s is part of the NetBird network %s, refusing to write", addr, u.address)
 		return fmt.Errorf("address %s is part of the NetBird network %s, refusing to write", addr, u.address)
 	}
 
@@ -181,7 +181,7 @@ func (u *UDPConn) performFilterCheck(addr net.Addr) error {
 		u.addrCache.Store(addr.String(), isRouted)
 		if isRouted {
 			// Extra log, as the error only shows up with ICE logging enabled
-			log.Infof("Address %s is part of routed network %s, refusing to write", addr, prefix)
+			log.Infof("address %s is part of routed network %s, refusing to write", addr, prefix)
 			return fmt.Errorf("address %s is part of routed network %s, refusing to write", addr, prefix)
 		}
 	}

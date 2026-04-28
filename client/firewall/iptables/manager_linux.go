@@ -12,6 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
+	"github.com/netbirdio/netbird/client/firewall/firewalld"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
@@ -84,6 +85,12 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 
 	if err := m.initNoTrackChain(); err != nil {
 		log.Warnf("raw table not available, notrack rules will be disabled: %v", err)
+	}
+
+	// Trust after all fatal init steps so a later failure doesn't leave the
+	// interface in firewalld's trusted zone without a corresponding Close.
+	if err := firewalld.TrustInterface(m.wgIface.Name()); err != nil {
+		log.Warnf("failed to trust interface in firewalld: %v", err)
 	}
 
 	// persist early to ensure cleanup of chains
@@ -191,6 +198,12 @@ func (m *Manager) Close(stateManager *statemanager.Manager) error {
 		merr = multierror.Append(merr, fmt.Errorf("reset router: %w", err))
 	}
 
+	// Appending to merr intentionally blocks DeleteState below so ShutdownState
+	// stays persisted and the crash-recovery path retries firewalld cleanup.
+	if err := firewalld.UntrustInterface(m.wgIface.Name()); err != nil {
+		merr = multierror.Append(merr, err)
+	}
+
 	// attempt to delete state only if all other operations succeeded
 	if merr == nil {
 		if err := stateManager.DeleteState(&ShutdownState{}); err != nil {
@@ -217,6 +230,11 @@ func (m *Manager) AllowNetbird() error {
 	if err != nil {
 		return fmt.Errorf("allow netbird interface traffic: %w", err)
 	}
+
+	if err := firewalld.TrustInterface(m.wgIface.Name()); err != nil {
+		log.Warnf("failed to trust interface in firewalld: %v", err)
+	}
+
 	return nil
 }
 

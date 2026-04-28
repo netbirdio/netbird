@@ -25,6 +25,9 @@ import (
 
 const (
 	envRouteProtoFlag = "NB_ROUTE_PROTO_FLAG"
+
+	// routeBudget bounds retries for per-prefix exclusion route programming.
+	routeBudget = 1 * time.Second
 )
 
 var routeProtoFlag int
@@ -41,26 +44,42 @@ func init() {
 }
 
 func (r *SysOps) SetupRouting(initAddresses []net.IP, stateManager *statemanager.Manager, advancedRouting bool) error {
+	if advancedRouting {
+		return r.setupAdvancedRouting()
+	}
+
+	log.Infof("Using legacy routing setup with ref counters")
 	return r.setupRefCounter(initAddresses, stateManager)
 }
 
 func (r *SysOps) CleanupRouting(stateManager *statemanager.Manager, advancedRouting bool) error {
+	if advancedRouting {
+		return r.cleanupAdvancedRouting()
+	}
+
 	return r.cleanupRefCounter(stateManager)
 }
 
 // FlushMarkedRoutes removes single IP exclusion routes marked with the configured RTF_PROTO flag.
+// On darwin it also flushes residual RTF_IFSCOPE scoped default routes so a
+// crashed prior session can't leave crud in the table.
 func (r *SysOps) FlushMarkedRoutes() error {
+	var merr *multierror.Error
+
+	if err := r.flushPlatformExtras(); err != nil {
+		merr = multierror.Append(merr, fmt.Errorf("flush platform extras: %w", err))
+	}
+
 	rib, err := retryFetchRIB()
 	if err != nil {
-		return fmt.Errorf("fetch routing table: %w", err)
+		return nberrors.FormatErrorOrNil(multierror.Append(merr, fmt.Errorf("fetch routing table: %w", err)))
 	}
 
 	msgs, err := route.ParseRIB(route.RIBTypeRoute, rib)
 	if err != nil {
-		return fmt.Errorf("parse routing table: %w", err)
+		return nberrors.FormatErrorOrNil(multierror.Append(merr, fmt.Errorf("parse routing table: %w", err)))
 	}
 
-	var merr *multierror.Error
 	flushedCount := 0
 
 	for _, msg := range msgs {
@@ -117,12 +136,12 @@ func (r *SysOps) routeSocket(action int, prefix netip.Prefix, nexthop Nexthop) e
 		return fmt.Errorf("invalid prefix: %s", prefix)
 	}
 
-	expBackOff := backoff.NewExponentialBackOff()
-	expBackOff.InitialInterval = 50 * time.Millisecond
-	expBackOff.MaxInterval = 500 * time.Millisecond
-	expBackOff.MaxElapsedTime = 1 * time.Second
+	msg, err := r.buildRouteMessage(action, prefix, nexthop)
+	if err != nil {
+		return fmt.Errorf("build route message: %w", err)
+	}
 
-	if err := backoff.Retry(r.routeOp(action, prefix, nexthop), expBackOff); err != nil {
+	if err := r.writeRouteMessage(msg, routeBudget); err != nil {
 		a := "add"
 		if action == unix.RTM_DELETE {
 			a = "remove"
@@ -132,50 +151,91 @@ func (r *SysOps) routeSocket(action int, prefix netip.Prefix, nexthop Nexthop) e
 	return nil
 }
 
-func (r *SysOps) routeOp(action int, prefix netip.Prefix, nexthop Nexthop) func() error {
-	operation := func() error {
-		fd, err := unix.Socket(syscall.AF_ROUTE, syscall.SOCK_RAW, syscall.AF_UNSPEC)
-		if err != nil {
-			return fmt.Errorf("open routing socket: %w", err)
+// writeRouteMessage sends a route message over AF_ROUTE and waits for the
+// kernel's matching reply, retrying transient failures until budget elapses.
+// Callers do not need to manage sockets or seq numbers themselves.
+func (r *SysOps) writeRouteMessage(msg *route.RouteMessage, budget time.Duration) error {
+	expBackOff := backoff.NewExponentialBackOff()
+	expBackOff.InitialInterval = 50 * time.Millisecond
+	expBackOff.MaxInterval = 500 * time.Millisecond
+	expBackOff.MaxElapsedTime = budget
+
+	return backoff.Retry(func() error { return routeMessageRoundtrip(msg) }, expBackOff)
+}
+
+func routeMessageRoundtrip(msg *route.RouteMessage) error {
+	fd, err := unix.Socket(syscall.AF_ROUTE, syscall.SOCK_RAW, syscall.AF_UNSPEC)
+	if err != nil {
+		return fmt.Errorf("open routing socket: %w", err)
+	}
+	defer func() {
+		if err := unix.Close(fd); err != nil && !errors.Is(err, unix.EBADF) {
+			log.Warnf("close routing socket: %v", err)
 		}
-		defer func() {
-			if err := unix.Close(fd); err != nil && !errors.Is(err, unix.EBADF) {
-				log.Warnf("failed to close routing socket: %v", err)
+	}()
+
+	tv := unix.Timeval{Sec: 1}
+	if err := unix.SetsockoptTimeval(fd, unix.SOL_SOCKET, unix.SO_RCVTIMEO, &tv); err != nil {
+		return backoff.Permanent(fmt.Errorf("set recv timeout: %w", err))
+	}
+
+	// AF_ROUTE is a broadcast channel: every route socket on the host sees
+	// every RTM_* event. With concurrent route programming the default
+	// per-socket queue overflows and our own reply gets dropped.
+	if err := unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_RCVBUF, 1<<20); err != nil {
+		log.Debugf("set SO_RCVBUF on route socket: %v", err)
+	}
+
+	bytes, err := msg.Marshal()
+	if err != nil {
+		return backoff.Permanent(fmt.Errorf("marshal: %w", err))
+	}
+
+	if _, err = unix.Write(fd, bytes); err != nil {
+		if errors.Is(err, unix.ENOBUFS) || errors.Is(err, unix.EAGAIN) {
+			return fmt.Errorf("write: %w", err)
+		}
+		return backoff.Permanent(fmt.Errorf("write: %w", err))
+	}
+	return readRouteResponse(fd, msg.Type, msg.Seq)
+}
+
+// readRouteResponse reads from the AF_ROUTE socket until it sees a reply
+// matching our write (same type, seq, and pid). AF_ROUTE SOCK_RAW is a
+// broadcast channel: interface up/down, third-party route changes and neighbor
+// discovery events can all land between our write and read, so we must filter.
+func readRouteResponse(fd, wantType, wantSeq int) error {
+	pid := int32(os.Getpid())
+	resp := make([]byte, 2048)
+	deadline := time.Now().Add(time.Second)
+	for {
+		if time.Now().After(deadline) {
+			// Transient: under concurrent pressure the kernel can drop our reply
+			// from the socket buffer. Let backoff.Retry re-send with a fresh seq.
+			return fmt.Errorf("read: timeout waiting for route reply type=%d seq=%d", wantType, wantSeq)
+		}
+		n, err := unix.Read(fd, resp)
+		if err != nil {
+			if errors.Is(err, unix.EAGAIN) || errors.Is(err, unix.EWOULDBLOCK) {
+				// SO_RCVTIMEO fired while waiting; loop to re-check the absolute deadline.
+				continue
 			}
-		}()
-
-		msg, err := r.buildRouteMessage(action, prefix, nexthop)
-		if err != nil {
-			return backoff.Permanent(fmt.Errorf("build route message: %w", err))
+			return backoff.Permanent(fmt.Errorf("read: %w", err))
 		}
-
-		msgBytes, err := msg.Marshal()
-		if err != nil {
-			return backoff.Permanent(fmt.Errorf("marshal route message: %w", err))
+		if n < int(unsafe.Sizeof(unix.RtMsghdr{})) {
+			continue
 		}
-
-		if _, err = unix.Write(fd, msgBytes); err != nil {
-			if errors.Is(err, unix.ENOBUFS) || errors.Is(err, unix.EAGAIN) {
-				return fmt.Errorf("write: %w", err)
-			}
-			return backoff.Permanent(fmt.Errorf("write: %w", err))
+		hdr := (*unix.RtMsghdr)(unsafe.Pointer(&resp[0]))
+		// Darwin reflects the sender's pid on replies; matching (Type, Seq, Pid)
+		// uniquely identifies our own reply among broadcast traffic.
+		if int(hdr.Type) != wantType || int(hdr.Seq) != wantSeq || hdr.Pid != pid {
+			continue
 		}
-
-		respBuf := make([]byte, 2048)
-		n, err := unix.Read(fd, respBuf)
-		if err != nil {
-			return backoff.Permanent(fmt.Errorf("read route response: %w", err))
+		if hdr.Errno != 0 {
+			return backoff.Permanent(fmt.Errorf("kernel: %w", syscall.Errno(hdr.Errno)))
 		}
-
-		if n > 0 {
-			if err := r.parseRouteResponse(respBuf[:n]); err != nil {
-				return backoff.Permanent(err)
-			}
-		}
-
 		return nil
 	}
-	return operation
 }
 
 func (r *SysOps) buildRouteMessage(action int, prefix netip.Prefix, nexthop Nexthop) (msg *route.RouteMessage, err error) {
@@ -183,6 +243,7 @@ func (r *SysOps) buildRouteMessage(action int, prefix netip.Prefix, nexthop Next
 		Type:    action,
 		Flags:   unix.RTF_UP | routeProtoFlag,
 		Version: unix.RTM_VERSION,
+		ID:      uintptr(os.Getpid()),
 		Seq:     r.getSeq(),
 	}
 
@@ -219,19 +280,6 @@ func (r *SysOps) buildRouteMessage(action int, prefix netip.Prefix, nexthop Next
 
 	msg.Addrs = addrs
 	return msg, nil
-}
-
-func (r *SysOps) parseRouteResponse(buf []byte) error {
-	if len(buf) < int(unsafe.Sizeof(unix.RtMsghdr{})) {
-		return nil
-	}
-
-	rtMsg := (*unix.RtMsghdr)(unsafe.Pointer(&buf[0]))
-	if rtMsg.Errno != 0 {
-		return fmt.Errorf("parse: %d", rtMsg.Errno)
-	}
-
-	return nil
 }
 
 // addrToRouteAddr converts a netip.Addr to the appropriate route.Addr (*route.Inet4Addr or *route.Inet6Addr).

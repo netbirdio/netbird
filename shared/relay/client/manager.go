@@ -39,6 +39,15 @@ func NewRelayTrack() *RelayTrack {
 
 type OnServerCloseListener func()
 
+// ManagerOption configures a Manager at construction time.
+type ManagerOption func(*Manager)
+
+// WithMaxBackoffInterval caps the exponential backoff between reconnect
+// attempts to the home relay. A non-positive value keeps the default.
+func WithMaxBackoffInterval(d time.Duration) ManagerOption {
+	return func(m *Manager) { m.maxBackoffInterval = d }
+}
+
 // Manager is a manager for the relay client instances. It establishes one persistent connection to the given relay URL
 // and automatically reconnect to them in case disconnection.
 // The manager also manage temporary relay connection. If a client wants to communicate with a client on a
@@ -64,12 +73,13 @@ type Manager struct {
 	onReconnectedListenerFn func()
 	listenerLock            sync.Mutex
 
-	mtu uint16
+	mtu                uint16
+	maxBackoffInterval time.Duration
 }
 
 // NewManager creates a new manager instance.
 // The serverURL address can be empty. In this case, the manager will not serve.
-func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uint16) *Manager {
+func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uint16, opts ...ManagerOption) *Manager {
 	tokenStore := &relayAuth.TokenStore{}
 
 	m := &Manager{
@@ -86,8 +96,11 @@ func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uin
 		relayClients:            make(map[string]*RelayTrack),
 		onDisconnectedListeners: make(map[string]*list.List),
 	}
+	for _, opt := range opts {
+		opt(m)
+	}
 	m.serverPicker.ServerURLs.Store(serverURLs)
-	m.reconnectGuard = NewGuard(m.serverPicker)
+	m.reconnectGuard = NewGuard(m.serverPicker, m.maxBackoffInterval)
 	return m
 }
 
@@ -290,17 +303,34 @@ func (m *Manager) onServerConnected() {
 	go m.onReconnectedListenerFn()
 }
 
-// onServerDisconnected start to reconnection for home server only
+// onServerDisconnected handles relay disconnect events. For the home server it
+// starts the reconnect guard. For foreign servers it evicts the now-dead client
+// from the cache so the next OpenConn builds a fresh one instead of reusing a
+// closed client.
 func (m *Manager) onServerDisconnected(serverAddress string) {
 	m.relayClientMu.Lock()
-	if serverAddress == m.relayClient.connectionURL {
+	isHome := m.relayClient != nil && serverAddress == m.relayClient.connectionURL
+	if isHome {
 		go func(client *Client) {
 			m.reconnectGuard.StartReconnectTrys(m.ctx, client)
 		}(m.relayClient)
 	}
 	m.relayClientMu.Unlock()
 
+	if !isHome {
+		m.evictForeignRelay(serverAddress)
+	}
+
 	m.notifyOnDisconnectListeners(serverAddress)
+}
+
+func (m *Manager) evictForeignRelay(serverAddress string) {
+	m.relayClientsMutex.Lock()
+	defer m.relayClientsMutex.Unlock()
+	if _, ok := m.relayClients[serverAddress]; ok {
+		delete(m.relayClients, serverAddress)
+		log.Debugf("evicted disconnected foreign relay client: %s", serverAddress)
+	}
 }
 
 func (m *Manager) listenGuardEvent(ctx context.Context) {
