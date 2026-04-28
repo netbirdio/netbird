@@ -9,6 +9,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
@@ -20,13 +21,6 @@ const (
 	SetupPATEnabledEnvKey = "NB_SETUP_PAT_ENABLED"
 
 	setupPATDefaultExpireDays = 1
-
-	// patMinExpireDays and patMaxExpireDays mirror the bounds enforced by
-	// DefaultAccountManager.CreatePAT in management/server/user.go. They are
-	// duplicated here so /api/setup can reject invalid input before it creates
-	// the embedded-IdP user.
-	patMinExpireDays = 1
-	patMaxExpireDays = 365
 )
 
 // SetupOptions controls optional work performed during initial instance setup.
@@ -79,8 +73,8 @@ func normalizeSetupOptions(opts SetupOptions, setupPATEnabled bool) (SetupOption
 		opts.PATExpireInDays = &defaultExpireInDays
 	}
 
-	if *opts.PATExpireInDays < patMinExpireDays || *opts.PATExpireInDays > patMaxExpireDays {
-		return opts, status.Errorf(status.InvalidArgument, "pat_expire_in must be between %d and %d", patMinExpireDays, patMaxExpireDays)
+	if *opts.PATExpireInDays < account.PATMinExpireDays || *opts.PATExpireInDays > account.PATMaxExpireDays {
+		return opts, status.Errorf(status.InvalidArgument, "pat_expire_in must be between %d and %d", account.PATMinExpireDays, account.PATMaxExpireDays)
 	}
 
 	return opts, nil
@@ -96,6 +90,10 @@ func (m *SetupService) SetupOwner(ctx context.Context, email, password, name str
 		return nil, err
 	}
 
+	if opts.CreatePAT && m.accountManager == nil {
+		return nil, fmt.Errorf("account manager is required to create setup PAT")
+	}
+
 	userData, err := m.instanceManager.CreateOwnerUser(ctx, email, password, name)
 	if err != nil {
 		return nil, err
@@ -104,12 +102,6 @@ func (m *SetupService) SetupOwner(ctx context.Context, email, password, name str
 	result := &SetupResult{User: userData}
 	if !opts.CreatePAT {
 		return result, nil
-	}
-
-	if m.accountManager == nil {
-		err := fmt.Errorf("account manager is required to create setup PAT")
-		m.rollbackSetup(ctx, userData.ID, "setup PAT requested without account manager", err, "")
-		return nil, err
 	}
 
 	userAuth := auth.UserAuth{
@@ -137,6 +129,14 @@ func (m *SetupService) SetupOwner(ctx context.Context, email, password, name str
 }
 
 func (m *SetupService) rollbackSetup(ctx context.Context, userID, reason string, origErr error, accountID string) {
+	if accountID == "" {
+		resolvedAccountID, err := m.lookupSetupAccountIDForRollback(ctx, userID)
+		if err != nil {
+			log.WithContext(ctx).Errorf("failed to resolve setup account for user %s after %s: original error: %v, rollback error: %v", userID, reason, origErr, err)
+		}
+		accountID = resolvedAccountID
+	}
+
 	if accountID != "" {
 		if err := m.rollbackSetupAccount(ctx, accountID); err != nil {
 			log.WithContext(ctx).Errorf("failed to roll back setup account %s for user %s after %s: original error: %v, rollback error: %v", accountID, userID, reason, origErr, err)
@@ -150,6 +150,27 @@ func (m *SetupService) rollbackSetup(ctx context.Context, userID, reason string,
 		return
 	}
 	log.WithContext(ctx).Warnf("rolled back setup user %s after %s: %v", userID, reason, origErr)
+}
+
+func (m *SetupService) lookupSetupAccountIDForRollback(ctx context.Context, userID string) (string, error) {
+	if m.accountManager == nil {
+		return "", fmt.Errorf("account manager is required to resolve setup account")
+	}
+
+	accountStore := m.accountManager.GetStore()
+	if accountStore == nil {
+		return "", fmt.Errorf("account store is unavailable")
+	}
+
+	accountID, err := accountStore.GetAccountIDByUserID(ctx, store.LockingStrengthNone, userID)
+	if err != nil {
+		if isNotFoundError(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("get setup account ID for rollback: %w", err)
+	}
+
+	return accountID, nil
 }
 
 // rollbackSetupAccount removes only the setup-created account data from the

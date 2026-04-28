@@ -179,6 +179,7 @@ func TestSetup_Success(t *testing.T) {
 	router.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
 
 	var response api.SetupResponse
 	err := json.NewDecoder(rec.Body).Decode(&response)
@@ -320,6 +321,7 @@ func TestSetup_PAT_FeatureDisabled_IgnoresCreatePAT(t *testing.T) {
 
 	body := `{"email": "admin@example.com", "password": "securepassword123", "name": "Admin", "create_pat": true}`
 	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -338,6 +340,7 @@ func TestSetup_PAT_FlagOmitted_NoPAT(t *testing.T) {
 
 	body := `{"email": "admin@example.com", "password": "securepassword123", "name": "Admin"}`
 	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -377,6 +380,7 @@ func TestSetup_PAT_MissingExpireIn_DefaultsToOneDay(t *testing.T) {
 
 	body := `{"email": "admin@example.com", "password": "securepassword123", "name": "Admin", "create_pat": true}`
 	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -397,6 +401,7 @@ func TestSetup_PAT_ExpireOutOfRange(t *testing.T) {
 
 	body := `{"email": "admin@example.com", "password": "securepassword123", "name": "Admin", "create_pat": true, "pat_expire_in": 0}`
 	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -438,11 +443,13 @@ func TestSetup_PAT_Success(t *testing.T) {
 
 	body := `{"email": "admin@example.com", "password": "securepassword123", "name": "Admin", "create_pat": true, "pat_expire_in": 30}`
 	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
 	var response api.SetupResponse
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&response))
 	assert.Equal(t, "owner-id", response.UserId)
@@ -453,6 +460,10 @@ func TestSetup_PAT_Success(t *testing.T) {
 
 func TestSetup_PAT_AccountCreationFails_Rollback(t *testing.T) {
 	t.Setenv(nbinstance.SetupPATEnabledEnvKey, "true")
+
+	ctrl := gomock.NewController(t)
+	accountStore := nbstore.NewMockStore(ctrl)
+	accountStore.EXPECT().GetAccountIDByUserID(gomock.Any(), nbstore.LockingStrengthNone, "owner-id").Return("", status.Errorf(status.NotFound, "account not found"))
 
 	rolledBackFor := ""
 	manager := &mockInstanceManager{
@@ -469,12 +480,16 @@ func TestSetup_PAT_AccountCreationFails_Rollback(t *testing.T) {
 		GetAccountIDByUserIdFunc: func(_ context.Context, _ auth.UserAuth) (string, error) {
 			return "", errors.New("db down")
 		},
+		GetStoreFunc: func() nbstore.Store {
+			return accountStore
+		},
 	}
 
 	router := setupTestRouterWithPAT(manager, accountMgr)
 
 	body := `{"email": "admin@example.com", "password": "securepassword123", "name": "Admin", "create_pat": true, "pat_expire_in": 30}`
 	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -519,6 +534,7 @@ func TestSetup_PAT_CreatePATFails_Rollback(t *testing.T) {
 
 	body := `{"email": "admin@example.com", "password": "securepassword123", "name": "Admin", "create_pat": true, "pat_expire_in": 30}`
 	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)

@@ -112,6 +112,76 @@ func TestSetupOwner_PATFeatureEnabled_MissingExpireDefaultsToOneDay(t *testing.T
 	assert.Equal(t, "nbp_plain", result.PATPlainToken)
 }
 
+func TestSetupOwner_PATFeatureEnabled_MissingAccountManagerFailsBeforeCreateUser(t *testing.T) {
+	t.Setenv(SetupPATEnabledEnvKey, "true")
+
+	createCalled := false
+	rollbackCalled := false
+	setupManager := NewSetupService(
+		&setupInstanceManagerMock{
+			createOwnerUserFn: func(_ context.Context, email, _, name string) (*idp.UserData, error) {
+				createCalled = true
+				return &idp.UserData{ID: "owner-id", Email: email, Name: name}, nil
+			},
+			rollbackSetupFn: func(_ context.Context, _ string) error {
+				rollbackCalled = true
+				return nil
+			},
+		},
+		nil,
+	)
+
+	result, err := setupManager.SetupOwner(context.Background(), "admin@example.com", "securepassword123", "Admin", SetupOptions{
+		CreatePAT: true,
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "account manager is required")
+	assert.False(t, createCalled)
+	assert.False(t, rollbackCalled)
+}
+
+func TestSetupOwner_AccountProvisioningFails_RollsBackSideEffectAccountAndUser(t *testing.T) {
+	t.Setenv(SetupPATEnabledEnvKey, "true")
+
+	ctrl := gomock.NewController(t)
+	accountStore := nbstore.NewMockStore(ctrl)
+	account := &types.Account{Id: "acc-1"}
+	accountStore.EXPECT().GetAccountIDByUserID(gomock.Any(), nbstore.LockingStrengthNone, "owner-id").Return("acc-1", nil)
+	accountStore.EXPECT().GetAccount(gomock.Any(), "acc-1").Return(account, nil)
+	accountStore.EXPECT().DeleteAccount(gomock.Any(), account).Return(nil)
+
+	rolledBackFor := ""
+	setupManager := NewSetupService(
+		&setupInstanceManagerMock{
+			rollbackSetupFn: func(_ context.Context, userID string) error {
+				rolledBackFor = userID
+				return nil
+			},
+		},
+		&mock_server.MockAccountManager{
+			GetAccountIDByUserIdFunc: func(_ context.Context, userAuth auth.UserAuth) (string, error) {
+				assert.Equal(t, "owner-id", userAuth.UserId)
+				return "", errors.New("metadata update failed")
+			},
+			GetStoreFunc: func() nbstore.Store {
+				return accountStore
+			},
+		},
+	)
+
+	result, err := setupManager.SetupOwner(context.Background(), "admin@example.com", "securepassword123", "Admin", SetupOptions{
+		CreatePAT:       true,
+		PATExpireInDays: intPtr(30),
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "create account for setup user")
+	assert.Equal(t, "owner-id", rolledBackFor)
+}
+
 func TestSetupOwner_CreatePATFails_RollsBackSetupAccountAndUser(t *testing.T) {
 	t.Setenv(SetupPATEnabledEnvKey, "true")
 

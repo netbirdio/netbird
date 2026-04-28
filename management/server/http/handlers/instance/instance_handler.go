@@ -86,6 +86,7 @@ func (h *handler) setup(w http.ResponseWriter, r *http.Request) {
 		resp.PersonalAccessToken = &result.PATPlainToken
 	}
 
+	w.Header().Set("Cache-Control", "no-store")
 	util.WriteJSONObject(ctx, w, resp)
 }
 
