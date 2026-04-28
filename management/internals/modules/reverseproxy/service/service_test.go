@@ -12,6 +12,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/shared/hash/argon2id"
+	api "github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -268,6 +269,33 @@ func TestToProtoMapping_NoOptionsWhenDefault(t *testing.T) {
 	pm := rp.ToProtoMapping(Create, "token", proxy.OIDCValidationConfig{})
 	require.Len(t, pm.Path, 1)
 	assert.Nil(t, pm.Path[0].Options, "options should be nil when all defaults")
+}
+
+func TestToProtoMapping_Private(t *testing.T) {
+	build := func(private bool) *Service {
+		return &Service{
+			ID:        "svc-1",
+			AccountID: "acc-1",
+			Domain:    "example.com",
+			Private:   private,
+			Targets: []*Target{
+				{TargetId: "peer-1", TargetType: TargetTypePeer, Host: "10.0.0.1", Port: 80, Protocol: "http", Enabled: true},
+			},
+		}
+	}
+
+	t.Run("private=false omits the field", func(t *testing.T) {
+		pm := build(false).ToProtoMapping(Create, "token", proxy.OIDCValidationConfig{})
+		assert.Nil(t, pm.Private, "Private pointer should be nil when service is not private")
+		assert.False(t, pm.GetPrivate(), "GetPrivate accessor should return false when pointer is nil")
+	})
+
+	t.Run("private=true emits the field", func(t *testing.T) {
+		pm := build(true).ToProtoMapping(Create, "token", proxy.OIDCValidationConfig{})
+		require.NotNil(t, pm.Private, "Private pointer should be non-nil when service is private")
+		assert.True(t, *pm.Private)
+		assert.True(t, pm.GetPrivate())
+	})
 }
 
 func TestIsDefaultPort(t *testing.T) {
@@ -1037,5 +1065,47 @@ func TestValidate_HeaderAuths(t *testing.T) {
 		err := rp.Validate()
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "exceeds maximum length")
+	})
+}
+
+func TestService_PrivateAPIRoundTrip(t *testing.T) {
+	t.Run("FromAPIRequest sets Private when pointer is non-nil", func(t *testing.T) {
+		private := true
+		req := &api.ServiceRequest{
+			Name:    "test",
+			Domain:  "example.com",
+			Enabled: true,
+			Private: &private,
+		}
+		s := &Service{}
+		require.NoError(t, s.FromAPIRequest(req, "acc-1"))
+		assert.True(t, s.Private)
+	})
+
+	t.Run("FromAPIRequest leaves Private false when pointer is nil", func(t *testing.T) {
+		req := &api.ServiceRequest{
+			Name:    "test",
+			Domain:  "example.com",
+			Enabled: true,
+		}
+		s := &Service{}
+		require.NoError(t, s.FromAPIRequest(req, "acc-1"))
+		assert.False(t, s.Private)
+	})
+
+	t.Run("ToAPIResponse always emits Private (even when false)", func(t *testing.T) {
+		rp := validProxy()
+		rp.Private = false
+		resp := rp.ToAPIResponse()
+		require.NotNil(t, resp.Private, "Private must be emitted even when false; the dashboard filter relies on it")
+		assert.False(t, *resp.Private)
+	})
+
+	t.Run("ToAPIResponse emits Private=true", func(t *testing.T) {
+		rp := validProxy()
+		rp.Private = true
+		resp := rp.ToAPIResponse()
+		require.NotNil(t, resp.Private)
+		assert.True(t, *resp.Private)
 	})
 }

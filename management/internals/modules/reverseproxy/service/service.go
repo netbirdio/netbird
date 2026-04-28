@@ -214,6 +214,11 @@ type Service struct {
 	// provider credential record. Resolved at issuance time by the
 	// proxy. Empty until per-service credential storage lands.
 	DNSCredentialsRef string
+	// Private marks the service as local-only: when true, the service
+	// is reachable only from inside the NetBird mesh. Wave 2 of Phase 2
+	// gives this field semantic effect; Wave 1 only plumbs the value
+	// through proto, DB, and the proxy log.
+	Private bool
 }
 
 // InitNewRecord generates a new unique ID and resets metadata for a newly created
@@ -309,6 +314,7 @@ func (s *Service) ToAPIResponse() *api.Service {
 		RewriteRedirects:   &s.RewriteRedirects,
 		Auth:               authConfig,
 		AccessRestrictions: restrictionsToAPI(s.Restrictions),
+		Private:            &s.Private,
 		Meta:               meta,
 		Mode:               &mode,
 		ListenPort:         &listenPort,
@@ -377,6 +383,10 @@ func (s *Service) ToProtoMapping(operation Operation, authToken string, oidcConf
 	}
 	if s.DNSCredentialsRef != "" {
 		mapping.DnsCredentialsRef = &s.DNSCredentialsRef
+	}
+	if s.Private {
+		v := true
+		mapping.Private = &v
 	}
 
 	return mapping
@@ -586,6 +596,10 @@ func (s *Service) FromAPIRequest(req *api.ServiceRequest, accountID string) erro
 			return err
 		}
 		s.Restrictions = restrictions
+	}
+
+	if req.Private != nil {
+		s.Private = *req.Private
 	}
 
 	return nil

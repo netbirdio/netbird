@@ -267,6 +267,10 @@ func (m *Manager) initializeServiceForCreate(ctx context.Context, accountID stri
 		return err
 	}
 
+	if err := validatePrivateConfig(service); err != nil {
+		return err
+	}
+
 	keyPair, err := sessionkey.GenerateKeyPair()
 	if err != nil {
 		return fmt.Errorf("generate session keys: %w", err)
@@ -609,6 +613,9 @@ func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.St
 	if err := validateACMEConfig(service); err != nil {
 		return err
 	}
+	if err := validatePrivateConfig(service); err != nil {
+		return err
+	}
 	m.preserveServiceMetadata(service, existingService)
 	m.preserveListenPort(service, existingService)
 	updateInfo.serviceEnabledChanged = existingService.Enabled != service.Enabled
@@ -740,6 +747,30 @@ func validateACMEConfig(svc *service.Service) error {
 	}
 
 	return nil
+}
+
+// validatePrivateConfig enforces constraints that apply when a service is
+// marked Private. Wave 1 only enforces challenge_type compatibility;
+// "routing peer required" is deferred to Wave 2 because it depends on
+// listener-binding semantics that have not landed.
+func validatePrivateConfig(svc *service.Service) error {
+	if !svc.Private {
+		return nil
+	}
+	switch svc.ChallengeType {
+	case "dns-01":
+		return nil
+	case "":
+		return status.Errorf(status.InvalidArgument,
+			"challenge_type is required when private is true; only \"dns-01\" is supported because private services are not publicly reachable")
+	case "http-01", "tls-alpn-01":
+		return status.Errorf(status.InvalidArgument,
+			"challenge_type %q cannot be used with a private service: that challenge requires public reachability. Use \"dns-01\" instead.",
+			svc.ChallengeType)
+	default:
+		// Unknown values are caught earlier by validateACMEConfig.
+		return nil
+	}
 }
 
 func (m *Manager) preserveServiceMetadata(service, existingService *service.Service) {

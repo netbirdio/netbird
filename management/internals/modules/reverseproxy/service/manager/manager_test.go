@@ -1424,3 +1424,70 @@ func TestValidateACMEConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestValidatePrivateConfig(t *testing.T) {
+	cases := []struct {
+		name        string
+		private     bool
+		challenge   string
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "not-private, empty challenge",
+		},
+		{
+			name:      "not-private, http-01",
+			challenge: "http-01",
+		},
+		{
+			name:      "not-private, tls-alpn-01",
+			challenge: "tls-alpn-01",
+		},
+		{
+			name:      "not-private, dns-01",
+			challenge: "dns-01",
+		},
+		{
+			name:      "private + dns-01",
+			private:   true,
+			challenge: "dns-01",
+		},
+		{
+			name:        "private + empty challenge",
+			private:     true,
+			wantErr:     true,
+			errContains: "challenge_type is required when private",
+		},
+		{
+			name:        "private + http-01",
+			private:     true,
+			challenge:   "http-01",
+			wantErr:     true,
+			errContains: "cannot be used with a private service",
+		},
+		{
+			name:        "private + tls-alpn-01",
+			private:     true,
+			challenge:   "tls-alpn-01",
+			wantErr:     true,
+			errContains: "cannot be used with a private service",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &rpservice.Service{
+				Private:       tc.private,
+				ChallengeType: tc.challenge,
+			}
+			err := validatePrivateConfig(svc)
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.errContains)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}

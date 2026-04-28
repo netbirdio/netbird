@@ -3102,6 +3102,11 @@ components:
           $ref: '#/components/schemas/ServiceAuthConfig'
         access_restrictions:
           $ref: '#/components/schemas/AccessRestrictions'
+        private:
+          type: boolean
+          description: When true, the service is local-only — reachable only from inside the NetBird mesh. Behavior change lands in Phase 2 Wave 2; this field is round-tripped today but does not yet alter routing.
+          default: false
+          example: false
         meta:
           $ref: '#/components/schemas/ServiceMeta'
       required:
@@ -3184,6 +3189,11 @@ components:
           $ref: '#/components/schemas/ServiceAuthConfig'
         access_restrictions:
           $ref: '#/components/schemas/AccessRestrictions'
+        private:
+          type: boolean
+          description: When true, the service is local-only. Requires challenge_type "dns-01"; rejects http-01 / tls-alpn-01.
+          default: false
+          example: false
       required:
         - name
         - domain

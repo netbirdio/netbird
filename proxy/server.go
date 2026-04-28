@@ -1120,6 +1120,14 @@ func (s *Server) processMappings(ctx context.Context, mappings []*proto.ProxyMap
 			"port":   mapping.GetListenPort(),
 			"id":     mapping.GetId(),
 		}).Debug("Processing mapping update")
+		if mapping.GetPrivate() {
+			s.Logger.WithFields(log.Fields{
+				"service_id": mapping.GetId(),
+				"domain":     mapping.GetDomain(),
+				"account_id": mapping.GetAccountId(),
+				"mode":       "private",
+			}).Debug("Service is marked private (no behavior change in Wave 1)")
+		}
 		switch mapping.GetType() {
 		case proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED:
 			if err := s.addMapping(ctx, mapping); err != nil {

@@ -359,6 +359,7 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 			Name:      "test service",
 			Domain:    "svc.example.com",
 			Enabled:   true,
+			Private:   true,
 			Targets: []*rpservice.Target{
 				{
 					AccountID: account.Id,
@@ -391,6 +392,12 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 	o, err := store.GetAccountOnboarding(context.Background(), account.Id)
 	require.NoError(t, err)
 	require.Equal(t, o.AccountID, account.Id)
+
+	var savedServices []*rpservice.Service
+	err = store.(*SqlStore).db.Model(&rpservice.Service{}).Find(&savedServices, "account_id = ?", account.Id).Error
+	require.NoError(t, err)
+	require.Len(t, savedServices, 1, "expecting 1 service to be persisted after SaveAccount")
+	assert.True(t, savedServices[0].Private, "Private field should round-trip through DB save+load")
 
 	err = store.DeleteAccount(context.Background(), account)
 	require.NoError(t, err)

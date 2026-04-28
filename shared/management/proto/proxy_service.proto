@@ -162,6 +162,11 @@ message ProxyMapping {
   // Opaque reference to the encrypted DNS provider credential record.
   // Resolved by the proxy when invoking the dns-01 issuer.
   optional string dns_credentials_ref = 15;
+  // When true, the service is private: it lives entirely inside the
+  // NetBird mesh, with no public listener and no public DNS record.
+  // Older proxies that don't recognize this field treat the service
+  // as public (the safe default).
+  optional bool private = 16;
 }
 
 // SendAccessLogRequest consists of one or more AccessLogs from a Proxy.
