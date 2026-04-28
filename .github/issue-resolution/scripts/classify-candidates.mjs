@@ -89,38 +89,58 @@ function buildUserMessage(candidate) {
   ].join("\n");
 }
 
+const MODEL = "gpt-4o";
+const MAX_RETRIES = 5;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function callGitHubModel(candidate) {
-  const res = await fetch("https://models.inference.ai.azure.com/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.GH_TOKEN}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: buildUserMessage(candidate) },
-      ],
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "issue_resolution",
-          strict: true,
-          schema: outputSchema,
-        },
+  const body = JSON.stringify({
+    model: MODEL,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: buildUserMessage(candidate) },
+    ],
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "issue_resolution",
+        strict: true,
+        schema: outputSchema,
       },
-      temperature: 0.1,
-    }),
+    },
+    temperature: 0.1,
   });
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`GitHub Models ${res.status}: ${text}`);
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const res = await fetch("https://models.inference.ai.azure.com/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.GH_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body,
+    });
+
+    if (res.status === 429) {
+      const retryAfter = Number(res.headers.get("retry-after")) || 30;
+      console.warn(`  [RATE LIMITED] Waiting ${retryAfter}s (attempt ${attempt + 1}/${MAX_RETRIES})...`);
+      await sleep(retryAfter * 1000);
+      continue;
+    }
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`GitHub Models ${res.status}: ${text}`);
+    }
+
+    const data = await res.json();
+    return JSON.parse(data.choices[0].message.content);
   }
 
-  const data = await res.json();
-  return JSON.parse(data.choices[0].message.content);
+  throw new Error(`GitHub Models: exceeded ${MAX_RETRIES} retries due to rate limiting`);
 }
 
 function enforcePolicy(modelOut, pre) {
@@ -160,7 +180,7 @@ function enforcePolicy(modelOut, pre) {
   return "KEEP_OPEN";
 }
 
-console.log(`Classifying ${candidates.length} candidates with gpt-4o-mini...\n`);
+console.log(`Classifying ${candidates.length} candidates with ${MODEL}...\n`);
 
 const decisions = [];
 for (const candidate of candidates) {
