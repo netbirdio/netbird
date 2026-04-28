@@ -931,7 +931,7 @@ func getPeerIPDNSLabel(ip netip.Addr, peerHostName string) (string, error) {
 // SyncPeer checks whether peer is eligible for receiving NetworkMap (authenticated) and returns its NetworkMap if eligible
 func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error) {
 	var peer *nbpeer.Peer
-	var updated, versionChanged bool
+	var updated, versionChanged, ipv6CapabilityChanged bool
 	var err error
 	var postureChecks []*posture.Checks
 	var peerGroupIDs []string
@@ -967,7 +967,9 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 			return err
 		}
 
+		oldHasIPv6Cap := peer.HasCapability(nbpeer.PeerCapabilityIPv6Overlay)
 		updated, versionChanged = peer.UpdateMetaIfNew(sync.Meta)
+		ipv6CapabilityChanged = oldHasIPv6Cap != peer.HasCapability(nbpeer.PeerCapabilityIPv6Overlay)
 		if updated {
 			am.metrics.AccountManagerMetrics().CountPeerMetUpdate()
 			log.WithContext(ctx).Tracef("peer %s metadata updated", peer.ID)
@@ -991,7 +993,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 		return nil, nil, nil, 0, err
 	}
 
-	if isStatusChanged || sync.UpdateAccountPeers || (updated && (len(postureChecks) > 0 || versionChanged)) {
+	if isStatusChanged || sync.UpdateAccountPeers || ipv6CapabilityChanged || (updated && (len(postureChecks) > 0 || versionChanged)) {
 		err = am.networkMapController.OnPeersUpdated(ctx, accountID, []string{peer.ID})
 		if err != nil {
 			return nil, nil, nil, 0, fmt.Errorf("notify network map controller of peer update: %w", err)
@@ -1041,6 +1043,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 	var peer *nbpeer.Peer
 	var updateRemotePeers bool
 	var isPeerUpdated bool
+	var ipv6CapabilityChanged bool
 	var postureChecks []*posture.Checks
 	var peerGroupIDs []string
 
@@ -1080,7 +1083,9 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 			return err
 		}
 
+		oldHasIPv6Cap := peer.HasCapability(nbpeer.PeerCapabilityIPv6Overlay)
 		isPeerUpdated, _ = peer.UpdateMetaIfNew(login.Meta)
+		ipv6CapabilityChanged = oldHasIPv6Cap != peer.HasCapability(nbpeer.PeerCapabilityIPv6Overlay)
 		if isPeerUpdated {
 			am.metrics.AccountManagerMetrics().CountPeerMetUpdate()
 			shouldStorePeer = true
@@ -1118,7 +1123,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		return nil, nil, nil, err
 	}
 
-	if updateRemotePeers || isStatusChanged || (isPeerUpdated && len(postureChecks) > 0) {
+	if updateRemotePeers || isStatusChanged || ipv6CapabilityChanged || (isPeerUpdated && len(postureChecks) > 0) {
 		err = am.networkMapController.OnPeersUpdated(ctx, accountID, []string{peer.ID})
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("notify network map controller of peer update: %w", err)

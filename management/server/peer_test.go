@@ -2790,6 +2790,53 @@ func TestPeerWillHaveIPv6(t *testing.T) {
 	assert.False(t, peerWillHaveIPv6(emptySettings, []string{"group-a"}, "all-group-id"), "no IPv6 groups means no IPv6")
 }
 
+// TestSyncPeer_IPv6CapabilityChangePropagates ensures that when a peer reports
+// a new IPv6 overlay capability via SyncPeer (e.g. after a client upgrade or
+// flipping --disable-ipv6) without bumping its WtVersion, other account peers
+// receive a fresh network map so their AAAA records for it become unstale.
+func TestSyncPeer_IPv6CapabilityChangePropagates(t *testing.T) {
+	manager, updateManager, _, peer1, peer2, _ := setupNetworkMapTest(t)
+
+	updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
+	t.Cleanup(func() {
+		updateManager.CloseChannel(context.Background(), peer1.ID)
+	})
+
+	// Drain any initial updates from setup.
+	drain := func() {
+		for {
+			select {
+			case <-updMsg:
+			case <-time.After(200 * time.Millisecond):
+				return
+			}
+		}
+	}
+	drain()
+
+	t.Run("no propagation when capabilities are unchanged", func(t *testing.T) {
+		_, _, _, _, err := manager.SyncPeer(context.Background(), types.PeerSync{
+			WireGuardPubKey: peer2.Key,
+			Meta:            peer2.Meta,
+		}, peer2.AccountID)
+		require.NoError(t, err)
+		peerShouldNotReceiveUpdate(t, updMsg)
+	})
+
+	t.Run("propagation when IPv6 capability is added", func(t *testing.T) {
+		newMeta := peer2.Meta
+		newMeta.Capabilities = append([]int32{}, peer2.Meta.Capabilities...)
+		newMeta.Capabilities = append(newMeta.Capabilities, nbpeer.PeerCapabilityIPv6Overlay)
+
+		_, _, _, _, err := manager.SyncPeer(context.Background(), types.PeerSync{
+			WireGuardPubKey: peer2.Key,
+			Meta:            newMeta,
+		}, peer2.AccountID)
+		require.NoError(t, err)
+		peerShouldReceiveUpdate(t, updMsg)
+	})
+}
+
 func TestUpdatePeer_DnsLabelCollisionWithFQDN(t *testing.T) {
 	manager, _, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")

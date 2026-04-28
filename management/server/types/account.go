@@ -293,10 +293,9 @@ func (a *Account) GetPeersCustomZone(ctx context.Context, dnsDomain string) nbdn
 		// Only advertise AAAA for peers that have a valid IPv6, whose client supports it,
 		// and that belong to an IPv6-enabled group. Old clients don't configure v6 on their
 		// WireGuard interface, so resolving their AAAA causes connections to hang.
-		// Edge case: toggling --disable-ipv6 on a peer without a version change does not
-		// propagate to other peers, so AAAA records can be stale until the next full sync.
-		// This is accepted because v4 connectivity is unaffected. Can be fixed by adding
-		// capability-change detection to the SyncPeer propagation condition.
+		// Capability changes (client upgrade/downgrade, --disable-ipv6 toggle) propagate
+		// to other peers via SyncPeer/LoginPeer regardless of version change, so AAAA
+		// records refresh when a peer first reports the IPv6 overlay capability.
 		_, peerAllowed := ipv6AllowedPeers[peer.ID]
 		hasIPv6 := peer.IPv6.IsValid() && peer.SupportsIPv6() && peerAllowed
 		if hasIPv6 {
