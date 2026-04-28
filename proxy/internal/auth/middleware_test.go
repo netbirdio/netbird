@@ -391,6 +391,15 @@ func TestProtect_SchemeAuthRedirectsWithCookie(t *testing.T) {
 	assert.Equal(t, http.SameSiteLaxMode, sessionCookie.SameSite)
 }
 
+func TestSetSessionCookieHasRootPath(t *testing.T) {
+	w := httptest.NewRecorder()
+	setSessionCookie(w, "test-token", time.Hour)
+
+	cookies := w.Result().Cookies()
+	require.Len(t, cookies, 1)
+	assert.Equal(t, "/", cookies[0].Path, "session cookie must be scoped to root so it applies to all paths")
+}
+
 func TestProtect_FailedAuthDoesNotSetCookie(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 	kp := generateTestKeyPair(t)

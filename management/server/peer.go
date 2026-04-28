@@ -1405,6 +1405,10 @@ func (am *DefaultAccountManager) getExpiredPeers(ctx context.Context, accountID 
 
 	var peers []*nbpeer.Peer
 	for _, peer := range peersWithExpiry {
+		if peer.Status.LoginExpired {
+			continue
+		}
+
 		expired, _ := peer.LoginExpired(settings.PeerLoginExpiration)
 		if expired {
 			peers = append(peers, peer)

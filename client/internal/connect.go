@@ -333,6 +333,10 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		c.statusRecorder.MarkSignalConnected()
 
 		relayURLs, token := parseRelayInfo(loginResp)
+		if override, ok := peer.OverrideRelayURLs(); ok {
+			log.Infof("overriding relay URLs from %s: %v", peer.EnvKeyNBHomeRelayServers, override)
+			relayURLs = override
+		}
 		peerConfig := loginResp.GetPeerConfig()
 
 		engineConfig, err := createEngineConfig(myPrivateKey, c.config, peerConfig, logPath)

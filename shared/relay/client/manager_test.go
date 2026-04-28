@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -360,7 +361,8 @@ func TestAutoReconnect(t *testing.T) {
 		t.Fatalf("failed to serve manager: %s", err)
 	}
 
-	clientAlice := NewManager(mCtx, toURL(srvCfg), "alice", iface.DefaultMTU)
+	clientAlice := NewManager(mCtx, toURL(srvCfg), "alice", iface.DefaultMTU,
+		WithMaxBackoffInterval(2*time.Second))
 	err = clientAlice.Serve()
 	if err != nil {
 		t.Fatalf("failed to serve manager: %s", err)
@@ -384,13 +386,30 @@ func TestAutoReconnect(t *testing.T) {
 	}
 
 	log.Infof("waiting for reconnection")
-	time.Sleep(reconnectingTimeout + 1*time.Second)
+	if err := waitForReady(ctx, clientAlice, 15*time.Second); err != nil {
+		t.Fatalf("manager did not reconnect: %s", err)
+	}
 
 	log.Infof("reopent the connection")
 	_, err = clientAlice.OpenConn(ctx, ra, "bob")
 	if err != nil {
 		t.Errorf("failed to open channel: %s", err)
 	}
+}
+
+func waitForReady(ctx context.Context, m *Manager, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if m.Ready() {
+			return nil
+		}
+		select {
+		case <-time.After(100 * time.Millisecond):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return fmt.Errorf("manager not ready within %s", timeout)
 }
 
 func TestNotifierDoubleAdd(t *testing.T) {
