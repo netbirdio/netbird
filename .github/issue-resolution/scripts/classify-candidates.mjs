@@ -101,7 +101,7 @@ function buildUserMessage(candidate) {
   return truncate(msg, MAX_USER_MESSAGE_CHARS);
 }
 
-const MODEL = "gpt-4o";
+const MODEL = "gpt-4o-mini";
 const MAX_RETRIES = 5;
 
 function sleep(ms) {
