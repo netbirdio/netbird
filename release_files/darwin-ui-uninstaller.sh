@@ -1,14 +1,19 @@
 #!/bin/sh
 
-export PATH=$PATH:/usr/local/bin
+export PATH=$PATH:/usr/local/bin:/opt/homebrew/bin
 
-# check if netbird is installed
-NB_BIN=$(which netbird)
-if [ -z "$NB_BIN" ]
-then
-  exit 0
+NB_BIN=$(command -v netbird)
+if [ -n "$NB_BIN" ]; then
+  echo "Stopping NetBird daemon"
+  "$NB_BIN" service stop 2>/dev/null || true
+  echo "Uninstalling NetBird daemon"
+  "$NB_BIN" service uninstall 2>/dev/null || true
 fi
-# start netbird daemon service
-echo "netbird daemon service still running. You can uninstall it by running: "
-echo "sudo netbird service stop"
-echo "sudo netbird service uninstall"
+
+PLIST=/Library/LaunchDaemons/netbird.plist
+if [ -f "$PLIST" ]; then
+  launchctl bootout system "$PLIST" 2>/dev/null || launchctl unload "$PLIST" 2>/dev/null || true
+  rm -f "$PLIST"
+fi
+
+exit 0
