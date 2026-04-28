@@ -168,8 +168,19 @@ func (m *Manager) CloseConnByPeerKey(serverAddress, peerKey string) {
 	m.relayClientsMutex.RLock()
 	rt, ok := m.relayClients[serverAddress]
 	m.relayClientsMutex.RUnlock()
-	if ok && rt.relayClient != nil {
-		rt.relayClient.CloseConnByPeerKey(peerKey)
+	if !ok {
+		return
+	}
+
+	// rt.relayClient is initialized in openConnVia under rt.Lock(); take rt.RLock()
+	// to read it safely, then release before calling CloseConnByPeerKey to avoid
+	// holding the track lock across a potentially blocking call.
+	rt.RLock()
+	relayClient := rt.relayClient
+	rt.RUnlock()
+
+	if relayClient != nil {
+		relayClient.CloseConnByPeerKey(peerKey)
 	}
 }
 
