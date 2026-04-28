@@ -1804,18 +1804,32 @@ type Credential struct {
 	ProviderType string `json:"provider_type"`
 }
 
-// CredentialRequest Credential to store. The plaintext secret is sent in the request
-// body and immediately encrypted at rest in the management database.
-// It is never returned on subsequent reads.
+// CredentialRequest Credential to store. The plaintext secret(s) are sent in the
+// request body and immediately encrypted at rest in the management
+// database. They are never returned on subsequent reads.
+//
+// Use `secret_fields` for multi-field providers (Route 53, RFC 2136).
+// For single-token providers (Cloudflare, DigitalOcean), either
+// `secret_fields` (preferred) or the legacy `secret` (single string)
+// is accepted. Exactly one of `secret` and `secret_fields` should be
+// set.
 type CredentialRequest struct {
 	// Name User-friendly label.
 	Name string `json:"name"`
 
-	// ProviderType Identifier of the consumer (e.g., "cloudflare", "route53").
+	// ProviderType Identifier of the consumer (e.g., "cloudflare", "route53", "digitalocean", "rfc2136").
 	ProviderType string `json:"provider_type"`
 
-	// Secret The plaintext secret to store. Write-only; never returned on reads.
-	Secret string `json:"secret"`
+	// Secret Legacy single-string secret. Convenient for single-token providers
+	// (Cloudflare, DigitalOcean) where only one value is required.
+	// Internally wrapped as the provider's primary key (e.g.,
+	// "auth_token") at write time.
+	Secret *string `json:"secret,omitempty"`
+
+	// SecretFields Per-field secret values for multi-field providers (Route 53:
+	// access_key_id + secret_access_key + optional region/hosted_zone_id;
+	// RFC 2136: nameserver + tsig_algorithm + tsig_key + tsig_secret).
+	SecretFields *map[string]string `json:"secret_fields,omitempty"`
 }
 
 // DNSChallengeResponse defines model for DNSChallengeResponse.

@@ -13,7 +13,7 @@ import (
 // CreateCredential stores a new encrypted credential record for an account.
 // The plaintext secret is encrypted before persistence; the response carries
 // metadata only.
-func (am *DefaultAccountManager) CreateCredential(ctx context.Context, accountID, userID, providerType, name, plaintextSecret string) (*credentials.Credential, error) {
+func (am *DefaultAccountManager) CreateCredential(ctx context.Context, accountID, userID, providerType, name string, secretFields map[string]string) (*credentials.Credential, error) {
 	ok, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Credentials, operations.Create)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
@@ -24,7 +24,7 @@ func (am *DefaultAccountManager) CreateCredential(ctx context.Context, accountID
 	if am.credentialsManager == nil {
 		return nil, status.Errorf(status.Internal, "credential storage is not configured (missing data store encryption key)")
 	}
-	rec, err := am.credentialsManager.Create(ctx, accountID, userID, providerType, name, plaintextSecret)
+	rec, err := am.credentialsManager.Create(ctx, accountID, userID, providerType, name, secretFields)
 	if err != nil {
 		return nil, fmt.Errorf("create credential: %w", err)
 	}
@@ -64,7 +64,7 @@ func (am *DefaultAccountManager) ListCredentials(ctx context.Context, accountID,
 
 // UpdateCredential overwrites the encrypted secret (and optionally the
 // provider type and name) for an existing credential. The ref is stable.
-func (am *DefaultAccountManager) UpdateCredential(ctx context.Context, accountID, userID, ref, providerType, name, plaintextSecret string) (*credentials.Credential, error) {
+func (am *DefaultAccountManager) UpdateCredential(ctx context.Context, accountID, userID, ref, providerType, name string, secretFields map[string]string) (*credentials.Credential, error) {
 	ok, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Credentials, operations.Update)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
@@ -75,7 +75,7 @@ func (am *DefaultAccountManager) UpdateCredential(ctx context.Context, accountID
 	if am.credentialsManager == nil {
 		return nil, status.Errorf(status.Internal, "credential storage is not configured (missing data store encryption key)")
 	}
-	rec, err := am.credentialsManager.Update(ctx, accountID, userID, ref, providerType, name, plaintextSecret)
+	rec, err := am.credentialsManager.Update(ctx, accountID, userID, ref, providerType, name, secretFields)
 	if err != nil {
 		return nil, fmt.Errorf("update credential: %w", err)
 	}

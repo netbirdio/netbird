@@ -11,6 +11,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/netbirdio/netbird/management/internals/modules/credentials"
+	"github.com/netbirdio/netbird/management/internals/modules/credentials/providertypes"
+	"github.com/netbirdio/netbird/management/internals/modules/credentials/secretpayload"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/util/crypt"
 )
@@ -55,24 +57,31 @@ func New(store CredentialStore, c *crypt.FieldEncrypt, events EventRecorder) (*M
 	return &Manager{store: store, crypt: c, events: events}, nil
 }
 
-// Create stores a new credential. The plaintext secret is encrypted
-// before persistence and the response carries metadata only — the
-// caller never gets the plaintext back.
-func (m *Manager) Create(ctx context.Context, accountID, userID, providerType, name, plaintextSecret string) (*credentials.Credential, error) {
+// Create stores a new credential. The multi-field secret is JSON-encoded
+// and then encrypted before persistence; the response carries metadata
+// only — the caller never gets the plaintext back.
+//
+// Wave 4 closed-set provider types are validated here. Adapters on the
+// proxy side re-validate at issuance time as defense-in-depth.
+func (m *Manager) Create(ctx context.Context, accountID, userID, providerType, name string, secretFields map[string]string) (*credentials.Credential, error) {
 	if accountID == "" {
 		return nil, fmt.Errorf("accountID is required")
 	}
-	if providerType == "" {
-		return nil, fmt.Errorf("provider_type is required")
+	if !providertypes.IsValid(providerType) {
+		return nil, fmt.Errorf("provider_type %q is not one of %v", providerType, providertypes.All())
 	}
 	if name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
-	if plaintextSecret == "" {
-		return nil, fmt.Errorf("secret is required")
+	if len(secretFields) == 0 {
+		return nil, fmt.Errorf("secret_fields is required")
 	}
 
-	encrypted, err := m.crypt.Encrypt(plaintextSecret)
+	payload, err := secretpayload.Encode(secretFields)
+	if err != nil {
+		return nil, fmt.Errorf("encode secret payload: %w", err)
+	}
+	encrypted, err := m.crypt.Encrypt(payload)
 	if err != nil {
 		return nil, fmt.Errorf("encrypt credential: %w", err)
 	}
@@ -153,18 +162,18 @@ func (m *Manager) List(ctx context.Context, accountID, _ /* userID */, providerT
 // type and name) for an existing credential. Audit-logs the update.
 // The ref is stable — services that reference this credential pick up
 // the new secret on their next renewal.
-func (m *Manager) Update(ctx context.Context, accountID, userID, ref, providerType, name, plaintextSecret string) (*credentials.Credential, error) {
+func (m *Manager) Update(ctx context.Context, accountID, userID, ref, providerType, name string, secretFields map[string]string) (*credentials.Credential, error) {
 	if accountID == "" || ref == "" {
 		return nil, fmt.Errorf("accountID and ref are required")
 	}
-	if providerType == "" {
-		return nil, fmt.Errorf("provider_type is required")
+	if !providertypes.IsValid(providerType) {
+		return nil, fmt.Errorf("provider_type %q is not one of %v", providerType, providertypes.All())
 	}
 	if name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
-	if plaintextSecret == "" {
-		return nil, fmt.Errorf("secret is required")
+	if len(secretFields) == 0 {
+		return nil, fmt.Errorf("secret_fields is required")
 	}
 
 	// Fetch existing record to confirm ownership before encrypting the
@@ -175,7 +184,11 @@ func (m *Manager) Update(ctx context.Context, accountID, userID, ref, providerTy
 		return nil, err
 	}
 
-	encrypted, err := m.crypt.Encrypt(plaintextSecret)
+	payload, err := secretpayload.Encode(secretFields)
+	if err != nil {
+		return nil, fmt.Errorf("encode secret payload: %w", err)
+	}
+	encrypted, err := m.crypt.Encrypt(payload)
 	if err != nil {
 		return nil, fmt.Errorf("encrypt credential: %w", err)
 	}

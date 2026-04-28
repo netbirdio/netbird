@@ -135,10 +135,10 @@ type Manager interface {
 	GetOwnerInfo(ctx context.Context, accountId string) (*types.UserInfo, error)
 	GetCurrentUserInfo(ctx context.Context, userAuth auth.UserAuth) (*users.UserInfoWithPermissions, error)
 	GetUserIDByPeerKey(ctx context.Context, peerKey string) (string, error)
-	CreateCredential(ctx context.Context, accountID, userID, providerType, name, plaintextSecret string) (*credentials.Credential, error)
+	CreateCredential(ctx context.Context, accountID, userID, providerType, name string, secretFields map[string]string) (*credentials.Credential, error)
 	GetCredentialMetadata(ctx context.Context, accountID, userID, ref string) (*credentials.Credential, error)
 	ListCredentials(ctx context.Context, accountID, userID, providerTypeFilter string) ([]*credentials.Credential, error)
-	UpdateCredential(ctx context.Context, accountID, userID, ref, providerType, name, plaintextSecret string) (*credentials.Credential, error)
+	UpdateCredential(ctx context.Context, accountID, userID, ref, providerType, name string, secretFields map[string]string) (*credentials.Credential, error)
 	DeleteCredential(ctx context.Context, accountID, userID, ref string) error
 	GetIdentityProvider(ctx context.Context, accountID, idpID, userID string) (*types.IdentityProvider, error)
 	GetIdentityProviders(ctx context.Context, accountID, userID string) ([]*types.IdentityProvider, error)

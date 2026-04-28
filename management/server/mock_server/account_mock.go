@@ -148,10 +148,10 @@ type MockAccountManager struct {
 	ListUserInvitesFunc        func(ctx context.Context, accountID, initiatorUserID string) ([]*types.UserInvite, error)
 	DeleteUserInviteFunc       func(ctx context.Context, accountID, initiatorUserID, inviteID string) error
 
-	CreateCredentialFunc      func(ctx context.Context, accountID, userID, providerType, name, plaintextSecret string) (*credentials.Credential, error)
+	CreateCredentialFunc      func(ctx context.Context, accountID, userID, providerType, name string, secretFields map[string]string) (*credentials.Credential, error)
 	GetCredentialMetadataFunc func(ctx context.Context, accountID, userID, ref string) (*credentials.Credential, error)
 	ListCredentialsFunc       func(ctx context.Context, accountID, userID, providerTypeFilter string) ([]*credentials.Credential, error)
-	UpdateCredentialFunc      func(ctx context.Context, accountID, userID, ref, providerType, name, plaintextSecret string) (*credentials.Credential, error)
+	UpdateCredentialFunc      func(ctx context.Context, accountID, userID, ref, providerType, name string, secretFields map[string]string) (*credentials.Credential, error)
 	DeleteCredentialFunc      func(ctx context.Context, accountID, userID, ref string) error
 }
 
@@ -1132,9 +1132,9 @@ func (am *MockAccountManager) DeleteIdentityProvider(ctx context.Context, accoun
 }
 
 // CreateCredential mocks CreateCredential of the AccountManager interface
-func (am *MockAccountManager) CreateCredential(ctx context.Context, accountID, userID, providerType, name, plaintextSecret string) (*credentials.Credential, error) {
+func (am *MockAccountManager) CreateCredential(ctx context.Context, accountID, userID, providerType, name string, secretFields map[string]string) (*credentials.Credential, error) {
 	if am.CreateCredentialFunc != nil {
-		return am.CreateCredentialFunc(ctx, accountID, userID, providerType, name, plaintextSecret)
+		return am.CreateCredentialFunc(ctx, accountID, userID, providerType, name, secretFields)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method CreateCredential is not implemented")
 }
@@ -1164,9 +1164,9 @@ func (am *MockAccountManager) DeleteCredential(ctx context.Context, accountID, u
 }
 
 // UpdateCredential mocks UpdateCredential of the AccountManager interface
-func (am *MockAccountManager) UpdateCredential(ctx context.Context, accountID, userID, ref, providerType, name, plaintextSecret string) (*credentials.Credential, error) {
+func (am *MockAccountManager) UpdateCredential(ctx context.Context, accountID, userID, ref, providerType, name string, secretFields map[string]string) (*credentials.Credential, error) {
 	if am.UpdateCredentialFunc != nil {
-		return am.UpdateCredentialFunc(ctx, accountID, userID, ref, providerType, name, plaintextSecret)
+		return am.UpdateCredentialFunc(ctx, accountID, userID, ref, providerType, name, secretFields)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateCredential is not implemented")
 }

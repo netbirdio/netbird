@@ -21,11 +21,11 @@ import (
 
 	"github.com/go-acme/lego/v4/certcrypto"
 	"github.com/go-acme/lego/v4/certificate"
-	"github.com/go-acme/lego/v4/challenge"
 	"github.com/go-acme/lego/v4/lego"
-	"github.com/go-acme/lego/v4/providers/dns/cloudflare"
 	"github.com/go-acme/lego/v4/registration"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/management/internals/modules/credentials/secretpayload"
 )
 
 // Config configures a Client.
@@ -100,7 +100,11 @@ func New(cfg Config) (*Client, error) {
 		return nil, fmt.Errorf("build lego client: %w", err)
 	}
 
-	provider, err := buildDNSProvider(cfg.DNSProvider, cfg.DNSCredentials)
+	secretFields, err := secretpayload.Decode(cfg.DNSCredentials)
+	if err != nil {
+		return nil, fmt.Errorf("decode DNS credential payload: %w", err)
+	}
+	provider, err := BuildProvider(cfg.DNSProvider, secretFields)
 	if err != nil {
 		return nil, err
 	}
@@ -160,26 +164,6 @@ func (c *Client) IssueCertificate(_ context.Context, fqdn string) error {
 	}
 	c.logger.Infof("[legoclient] cert obtained for %s", fqdn)
 	return nil
-}
-
-// buildDNSProvider returns a Lego DNS-01 provider for the named
-// provider configured with the given credential string. Adding a new
-// provider is one case in this switch plus the Lego import. Wave 4
-// will replace this with a registry-backed factory (provider.go in
-// p1-plan task 4.5).
-func buildDNSProvider(name, credentials string) (challenge.Provider, error) {
-	switch name {
-	case "cloudflare":
-		cfg := cloudflare.NewDefaultConfig()
-		cfg.AuthToken = credentials
-		provider, err := cloudflare.NewDNSProviderConfig(cfg)
-		if err != nil {
-			return nil, fmt.Errorf("build cloudflare provider: %w", err)
-		}
-		return provider, nil
-	default:
-		return nil, fmt.Errorf("unknown DNS provider %q", name)
-	}
 }
 
 // --- ACME user (implements registration.User) ----------------------------

@@ -1360,13 +1360,19 @@ components:
     CredentialRequest:
       type: object
       description: |
-        Credential to store. The plaintext secret is sent in the request
-        body and immediately encrypted at rest in the management database.
-        It is never returned on subsequent reads.
+        Credential to store. The plaintext secret(s) are sent in the
+        request body and immediately encrypted at rest in the management
+        database. They are never returned on subsequent reads.
+
+        Use `secret_fields` for multi-field providers (Route 53, RFC 2136).
+        For single-token providers (Cloudflare, DigitalOcean), either
+        `secret_fields` (preferred) or the legacy `secret` (single string)
+        is accepted. Exactly one of `secret` and `secret_fields` should be
+        set.
       properties:
         provider_type:
           type: string
-          description: Identifier of the consumer (e.g., "cloudflare", "route53").
+          description: Identifier of the consumer (e.g., "cloudflare", "route53", "digitalocean", "rfc2136").
           example: cloudflare
         name:
           type: string
@@ -1374,12 +1380,27 @@ components:
           example: Cloudflare DNS edit
         secret:
           type: string
-          description: The plaintext secret to store. Write-only; never returned on reads.
+          description: |
+            Legacy single-string secret. Convenient for single-token providers
+            (Cloudflare, DigitalOcean) where only one value is required.
+            Internally wrapped as the provider's primary key (e.g.,
+            "auth_token") at write time.
           example: cf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+        secret_fields:
+          type: object
+          additionalProperties:
+            type: string
+          description: |
+            Per-field secret values for multi-field providers (Route 53:
+            access_key_id + secret_access_key + optional region/hosted_zone_id;
+            RFC 2136: nameserver + tsig_algorithm + tsig_key + tsig_secret).
+          example:
+            access_key_id: AKIAEXAMPLE
+            secret_access_key: shhhhh
+            region: us-east-1
       required:
         - provider_type
         - name
-        - secret
     Credential:
       type: object
       description: Credential metadata. The secret value is never included on responses.

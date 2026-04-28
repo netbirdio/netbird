@@ -47,12 +47,12 @@ func TestCreateCredential_HappyPath(t *testing.T) {
 		accountID, userID, providerType, name, secret string
 	}
 	h := newTestHandler(&mock_server.MockAccountManager{
-		CreateCredentialFunc: func(_ context.Context, accountID, userID, providerType, name, plaintextSecret string) (*credentialsmodel.Credential, error) {
+		CreateCredentialFunc: func(_ context.Context, accountID, userID, providerType, name string, secretFields map[string]string) (*credentialsmodel.Credential, error) {
 			captured.accountID = accountID
 			captured.userID = userID
 			captured.providerType = providerType
 			captured.name = name
-			captured.secret = plaintextSecret
+			captured.secret = secretFields["auth_token"]
 			return &credentialsmodel.Credential{
 				ID:           "cred-1",
 				AccountID:    accountID,
@@ -63,10 +63,11 @@ func TestCreateCredential_HappyPath(t *testing.T) {
 		},
 	})
 
+	tok := "cf_xxx"
 	body, err := json.Marshal(api.CredentialRequest{
 		ProviderType: "cloudflare",
 		Name:         "primary",
-		Secret:       "cf_xxx",
+		Secret:       &tok,
 	})
 	require.NoError(t, err)
 	req := authedRequest(t, http.MethodPost, "/api/credentials", bytes.NewReader(body))
@@ -177,11 +178,11 @@ func TestUpdateCredential_HappyPath(t *testing.T) {
 		ref, providerType, name, secret string
 	}
 	h := newTestHandler(&mock_server.MockAccountManager{
-		UpdateCredentialFunc: func(_ context.Context, accountID, userID, ref, providerType, name, plaintextSecret string) (*credentialsmodel.Credential, error) {
+		UpdateCredentialFunc: func(_ context.Context, accountID, userID, ref, providerType, name string, secretFields map[string]string) (*credentialsmodel.Credential, error) {
 			captured.ref = ref
 			captured.providerType = providerType
 			captured.name = name
-			captured.secret = plaintextSecret
+			captured.secret = secretFields["auth_token"]
 			return &credentialsmodel.Credential{
 				ID:           ref,
 				AccountID:    accountID,
@@ -192,10 +193,11 @@ func TestUpdateCredential_HappyPath(t *testing.T) {
 		},
 	})
 
+	tok := "cf_rotated_token"
 	body, err := json.Marshal(api.CredentialRequest{
 		ProviderType: "cloudflare",
 		Name:         "rotated",
-		Secret:       "cf_rotated_token",
+		Secret:       &tok,
 	})
 	require.NoError(t, err)
 	req := authedRequest(t, http.MethodPut, "/api/credentials/cred-1", bytes.NewReader(body))

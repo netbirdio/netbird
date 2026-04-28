@@ -139,18 +139,18 @@ func (mr *MockManagerMockRecorder) BuildUserInfosForAccount(ctx, accountID, init
 }
 
 // CreateCredential mocks base method.
-func (m *MockManager) CreateCredential(ctx context.Context, accountID, userID, providerType, name, plaintextSecret string) (*credentials.Credential, error) {
+func (m *MockManager) CreateCredential(ctx context.Context, accountID, userID, providerType, name string, secretFields map[string]string) (*credentials.Credential, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateCredential", ctx, accountID, userID, providerType, name, plaintextSecret)
+	ret := m.ctrl.Call(m, "CreateCredential", ctx, accountID, userID, providerType, name, secretFields)
 	ret0, _ := ret[0].(*credentials.Credential)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // CreateCredential indicates an expected call of CreateCredential.
-func (mr *MockManagerMockRecorder) CreateCredential(ctx, accountID, userID, providerType, name, plaintextSecret interface{}) *gomock.Call {
+func (mr *MockManagerMockRecorder) CreateCredential(ctx, accountID, userID, providerType, name, secretFields interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateCredential", reflect.TypeOf((*MockManager)(nil).CreateCredential), ctx, accountID, userID, providerType, name, plaintextSecret)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateCredential", reflect.TypeOf((*MockManager)(nil).CreateCredential), ctx, accountID, userID, providerType, name, secretFields)
 }
 
 // CreateGroup mocks base method.
@@ -1684,18 +1684,18 @@ func (mr *MockManagerMockRecorder) UpdateAccountSettings(ctx, accountID, userID,
 }
 
 // UpdateCredential mocks base method.
-func (m *MockManager) UpdateCredential(ctx context.Context, accountID, userID, ref, providerType, name, plaintextSecret string) (*credentials.Credential, error) {
+func (m *MockManager) UpdateCredential(ctx context.Context, accountID, userID, ref, providerType, name string, secretFields map[string]string) (*credentials.Credential, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateCredential", ctx, accountID, userID, ref, providerType, name, plaintextSecret)
+	ret := m.ctrl.Call(m, "UpdateCredential", ctx, accountID, userID, ref, providerType, name, secretFields)
 	ret0, _ := ret[0].(*credentials.Credential)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // UpdateCredential indicates an expected call of UpdateCredential.
-func (mr *MockManagerMockRecorder) UpdateCredential(ctx, accountID, userID, ref, providerType, name, plaintextSecret interface{}) *gomock.Call {
+func (mr *MockManagerMockRecorder) UpdateCredential(ctx, accountID, userID, ref, providerType, name, secretFields interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCredential", reflect.TypeOf((*MockManager)(nil).UpdateCredential), ctx, accountID, userID, ref, providerType, name, plaintextSecret)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCredential", reflect.TypeOf((*MockManager)(nil).UpdateCredential), ctx, accountID, userID, ref, providerType, name, secretFields)
 }
 
 // UpdateGroup mocks base method.

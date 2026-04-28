@@ -73,12 +73,41 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rec, err := h.accountManager.CreateCredential(r.Context(), accountID, userID, req.ProviderType, req.Name, req.Secret)
+	secretFields, err := requestToSecretFields(req)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	rec, err := h.accountManager.CreateCredential(r.Context(), accountID, userID, req.ProviderType, req.Name, secretFields)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
 	}
 	util.WriteJSONObject(r.Context(), w, toAPI(rec))
+}
+
+// requestToSecretFields normalizes the two accepted request shapes
+// (legacy `secret` string, modern `secret_fields` map) into a single
+// map suitable for Manager.Create / Manager.Update.
+//
+// - If `secret_fields` is non-empty, it wins; `secret` is ignored.
+// - If `secret_fields` is empty and `secret` is set, wrap as
+//   {"auth_token": secret} (the canonical key for single-token
+//   providers Cloudflare and DigitalOcean).
+// - If both are empty, return InvalidArgument.
+func requestToSecretFields(req api.CredentialRequest) (map[string]string, error) {
+	if req.SecretFields != nil && len(*req.SecretFields) > 0 {
+		out := make(map[string]string, len(*req.SecretFields))
+		for k, v := range *req.SecretFields {
+			out[k] = v
+		}
+		return out, nil
+	}
+	if req.Secret != nil && *req.Secret != "" {
+		return map[string]string{"auth_token": *req.Secret}, nil
+	}
+	return nil, status.Errorf(status.InvalidArgument, "either secret or secret_fields must be set")
 }
 
 // get returns metadata for a single credential.
@@ -126,7 +155,13 @@ func (h *handler) update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rec, err := h.accountManager.UpdateCredential(r.Context(), accountID, userID, ref, req.ProviderType, req.Name, req.Secret)
+	secretFields, err := requestToSecretFields(req)
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	rec, err := h.accountManager.UpdateCredential(r.Context(), accountID, userID, ref, req.ProviderType, req.Name, secretFields)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
