@@ -463,7 +463,7 @@ jobs:
     permissions:
       contents: read
       issues: write
-      pull-requests: read
+      pull-requests: write
     steps:
       - name: Create or update PR comment
         uses: actions/github-script@v7
