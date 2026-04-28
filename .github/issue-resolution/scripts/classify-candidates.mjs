@@ -198,10 +198,21 @@ function enforcePolicy(modelOut, pre) {
 
 console.log(`Classifying ${candidates.length} candidates with ${MODEL}...\n`);
 
+// 15 req/min limit → 1 request every 4s. Use 4.5s for safety margin.
+const PACE_MS = 4500;
+let lastRequestTime = 0;
+
+async function paced(fn) {
+  const elapsed = Date.now() - lastRequestTime;
+  if (elapsed < PACE_MS) await sleep(PACE_MS - elapsed);
+  lastRequestTime = Date.now();
+  return fn();
+}
+
 const decisions = [];
 for (const candidate of candidates) {
   const pre = preScore(candidate);
-  const modelOut = await callGitHubModel(candidate);
+  const modelOut = await paced(() => callGitHubModel(candidate));
   const finalDecision = enforcePolicy(modelOut, pre);
 
   decisions.push({
