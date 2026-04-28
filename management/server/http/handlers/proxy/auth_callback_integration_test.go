@@ -390,6 +390,10 @@ func (m *testServiceManager) DeleteService(_ context.Context, _, _, _ string) er
 	return nil
 }
 
+func (m *testServiceManager) DeleteAccountCluster(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
 func (m *testServiceManager) SetCertificateIssuedAt(_ context.Context, _, _ string) error {
 	return nil
 }
