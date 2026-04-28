@@ -29,7 +29,7 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       DRY_RUN: "true"
-      MAX_ISSUES: "10"
+      MAX_ISSUES: "100"
       REPO: ${{ github.repository }}
       PROJECT_ID: "PVT_kwDOBfz4Jc4BVeWR"
       PROJECT_STATUS_FIELD_ID: "PVTSSF_lADOBfz4Jc4BVeWRzhQ56sU"
