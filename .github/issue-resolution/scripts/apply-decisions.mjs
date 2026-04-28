@@ -106,19 +106,12 @@ async function setTextField(itemId, fieldId, value) {
 for (const d of decisions) {
   const [owner, repo] = d.repository.split("/");
 
-  if (d.final_decision === "AUTO_CLOSE") {
-    if (dryRun) {
-        await addLabel(owner, repo, d.issue_number, ["resolution-candidate"]);
-        const issueNodeId = await getIssueNodeId(owner, repo, d.issue_number);
-        const itemId = await addToProject(issueNodeId);
-        if (itemId) {
-          await setTextField(itemId, process.env.PROJECT_REASON_FIELD_ID, `DRY_RUN:${d.model.reason_code}`);
-          await setTextField(itemId, process.env.PROJECT_CONFIDENCE_FIELD_ID, String(d.model.confidence));
-        }
-        console.log(`[DRY RUN] Would auto-close #${d.issue_number}`);
-        continue;
-    }
+  if (dryRun) {
+    console.log(`[DRY RUN] #${d.issue_number} → ${d.final_decision} (confidence: ${d.model.confidence}, reason: ${d.model.reason_code})`);
+    continue;
+  }
 
+  if (d.final_decision === "AUTO_CLOSE") {
     await addLabel(owner, repo, d.issue_number, ["auto-closed-resolved"]);
     await addComment(owner, repo, d.issue_number, d.model.close_comment);
     await closeIssue(owner, repo, d.issue_number);
