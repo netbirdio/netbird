@@ -69,12 +69,16 @@ async function addToProject(issueNodeId) {
     }
   `;
 
-  const data = await graphql(mutation, {
-    projectId: process.env.PROJECT_ID,
-    contentId: issueNodeId
-  });
-
-  return data.addProjectV2ItemById.item.id;
+  try {
+    const data = await graphql(mutation, {
+      projectId: process.env.PROJECT_ID,
+      contentId: issueNodeId
+    });
+    return data.addProjectV2ItemById.item.id;
+  } catch (err) {
+    console.warn(`[WARN] Could not add to project (needs PAT with project scope): ${err.message}`);
+    return null;
+  }
 }
 
 async function setTextField(itemId, fieldId, value) {
@@ -107,8 +111,10 @@ for (const d of decisions) {
         await addLabel(owner, repo, d.issue_number, ["resolution-candidate"]);
         const issueNodeId = await getIssueNodeId(owner, repo, d.issue_number);
         const itemId = await addToProject(issueNodeId);
-        await setTextField(itemId, process.env.PROJECT_REASON_FIELD_ID, `DRY_RUN:${d.model.reason_code}`);
-        await setTextField(itemId, process.env.PROJECT_CONFIDENCE_FIELD_ID, String(d.model.confidence));
+        if (itemId) {
+          await setTextField(itemId, process.env.PROJECT_REASON_FIELD_ID, `DRY_RUN:${d.model.reason_code}`);
+          await setTextField(itemId, process.env.PROJECT_CONFIDENCE_FIELD_ID, String(d.model.confidence));
+        }
         console.log(`[DRY RUN] Would auto-close #${d.issue_number}`);
         continue;
     }
@@ -124,23 +130,25 @@ for (const d of decisions) {
     const issueNodeId = await getIssueNodeId(owner, repo, d.issue_number);
     const itemId = await addToProject(issueNodeId);
 
-    if (process.env.PROJECT_CONFIDENCE_FIELD_ID) {
-      await setTextField(itemId, process.env.PROJECT_CONFIDENCE_FIELD_ID, String(d.model.confidence));
-    }
-    if (process.env.PROJECT_REASON_FIELD_ID) {
-      await setTextField(itemId, process.env.PROJECT_REASON_FIELD_ID, d.model.reason_code);
-    }
-    if (process.env.PROJECT_EVIDENCE_FIELD_ID) {
-      await setTextField(itemId, process.env.PROJECT_EVIDENCE_FIELD_ID, d.issue_url);
-    }
-    if (process.env.PROJECT_LINKED_PR_FIELD_ID) {
-      const linked = (d.model.hard_signals || []).map(x => x.url).join(", ");
-      if (linked) {
-        await setTextField(itemId, process.env.PROJECT_LINKED_PR_FIELD_ID, linked);
+    if (itemId) {
+      if (process.env.PROJECT_CONFIDENCE_FIELD_ID) {
+        await setTextField(itemId, process.env.PROJECT_CONFIDENCE_FIELD_ID, String(d.model.confidence));
       }
-    }
-    if (process.env.PROJECT_REPO_FIELD_ID) {
-      await setTextField(itemId, process.env.PROJECT_REPO_FIELD_ID, d.repository);
+      if (process.env.PROJECT_REASON_FIELD_ID) {
+        await setTextField(itemId, process.env.PROJECT_REASON_FIELD_ID, d.model.reason_code);
+      }
+      if (process.env.PROJECT_EVIDENCE_FIELD_ID) {
+        await setTextField(itemId, process.env.PROJECT_EVIDENCE_FIELD_ID, d.issue_url);
+      }
+      if (process.env.PROJECT_LINKED_PR_FIELD_ID) {
+        const linked = (d.model.hard_signals || []).map(x => x.url).join(", ");
+        if (linked) {
+          await setTextField(itemId, process.env.PROJECT_LINKED_PR_FIELD_ID, linked);
+        }
+      }
+      if (process.env.PROJECT_REPO_FIELD_ID) {
+        await setTextField(itemId, process.env.PROJECT_REPO_FIELD_ID, d.repository);
+      }
     }
 
     await addComment(
