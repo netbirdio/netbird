@@ -1,6 +1,8 @@
 name: issue-resolution-triage
 
 on:
+  push:
+    branches: [github-issue-resolver]
   workflow_dispatch:
     inputs:
       dry_run:
