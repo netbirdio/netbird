@@ -41,7 +41,7 @@ func (m *setupInstanceManagerMock) RollbackSetup(ctx context.Context, userID str
 }
 
 func (m *setupInstanceManagerMock) GetVersionInfo(context.Context) (*VersionInfo, error) {
-	return nil, nil
+	return &VersionInfo{}, nil
 }
 
 var _ Manager = (*setupInstanceManagerMock)(nil)
