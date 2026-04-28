@@ -40,6 +40,10 @@ jobs:
       PROJECT_REPO_FIELD_ID: "PVTF_lADOBfz4Jc4BVeWRzhQ56sk"
       PROJECT_STATUS_OPTION_NEEDS_REVIEW_ID: "a55a2be9"
 
+    defaults:
+      run:
+        working-directory: .github/issue-resolution
+
     steps:
       - uses: actions/checkout@v4
 
@@ -47,7 +51,6 @@ jobs:
         with:
           node-version: "20"
 
-      - run: npm ci
       - run: node scripts/fetch-candidates.mjs
       - run: node scripts/classify-candidates.mjs
       - run: node scripts/apply-decisions.mjs
