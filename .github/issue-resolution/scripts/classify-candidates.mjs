@@ -138,6 +138,10 @@ async function callGitHubModel(candidate) {
 
     if (res.status === 429) {
       const retryAfter = Number(res.headers.get("retry-after")) || 30;
+      if (retryAfter > 120) {
+        console.warn(`  [QUOTA EXHAUSTED] API wants ${retryAfter}s wait — skipping remaining issues.`);
+        return null;
+      }
       console.warn(`  [RATE LIMITED] Waiting ${retryAfter}s (attempt ${attempt + 1}/${MAX_RETRIES})...`);
       await sleep(retryAfter * 1000);
       continue;
@@ -213,6 +217,12 @@ const decisions = [];
 for (const candidate of candidates) {
   const pre = preScore(candidate);
   const modelOut = await paced(() => callGitHubModel(candidate));
+
+  if (modelOut === null) {
+    console.warn(`\nQuota exhausted after ${decisions.length} issues. Writing partial results.`);
+    break;
+  }
+
   const finalDecision = enforcePolicy(modelOut, pre);
 
   decisions.push({
