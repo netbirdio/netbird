@@ -4343,6 +4343,7 @@ func TestSqlStore_CreateDNSRecord(t *testing.T) {
 	require.NoError(t, err)
 
 	record := records.NewRecord(accountID, zone.ID, "www.example.com", records.RecordTypeA, "192.168.1.1", 300)
+	record.ManagedByServiceID = "svc-abc123"
 
 	err = store.CreateDNSRecord(context.Background(), record)
 	require.NoError(t, err)
@@ -4356,6 +4357,7 @@ func TestSqlStore_CreateDNSRecord(t *testing.T) {
 	assert.Equal(t, record.Content, savedRecord.Content)
 	assert.Equal(t, record.TTL, savedRecord.TTL)
 	assert.Equal(t, zone.ID, savedRecord.ZoneID)
+	assert.Equal(t, "svc-abc123", savedRecord.ManagedByServiceID, "ManagedByServiceID should round-trip through DB save+load")
 }
 
 func TestSqlStore_GetDNSRecordByID(t *testing.T) {

@@ -1480,6 +1480,7 @@ func TestValidatePrivateConfig(t *testing.T) {
 			svc := &rpservice.Service{
 				Private:       tc.private,
 				ChallengeType: tc.challenge,
+				Domain:        "svc.example.com",
 			}
 			err := validatePrivateConfig(svc)
 			if tc.wantErr {
@@ -1490,4 +1491,69 @@ func TestValidatePrivateConfig(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("private + dns-01 + empty domain", func(t *testing.T) {
+		svc := &rpservice.Service{
+			Private:       true,
+			ChallengeType: "dns-01",
+			Domain:        "",
+		}
+		err := validatePrivateConfig(svc)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "domain is required")
+	})
+}
+
+func TestGetRoutingPeerIP(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns embedded peer in cluster", func(t *testing.T) {
+		mgr, testStore := setupIntegrationTest(t)
+		require.NoError(t, testStore.AddPeerToAccount(ctx, &nbpeer.Peer{
+			ID:        "proxy-peer-1",
+			AccountID: testAccountID,
+			Key:       "proxy-key",
+			DNSLabel:  "proxy-1",
+			IP:        net.ParseIP("100.64.0.10"),
+			Status:    &nbpeer.PeerStatus{LastSeen: time.Now()},
+			Meta:      nbpeer.PeerSystemMeta{Hostname: "proxy-1"},
+			ProxyMeta: nbpeer.ProxyMeta{Embedded: true, Cluster: "test.netbird.io"},
+		}))
+
+		ip, err := mgr.getRoutingPeerIP(ctx, testStore, testAccountID, "test.netbird.io")
+		require.NoError(t, err)
+		assert.Equal(t, "100.64.0.10", ip.String())
+	})
+
+	t.Run("rejects empty cluster", func(t *testing.T) {
+		mgr, testStore := setupIntegrationTest(t)
+		_, err := mgr.getRoutingPeerIP(ctx, testStore, testAccountID, "")
+		require.Error(t, err)
+		s, ok := status.FromError(err)
+		assert.True(t, ok)
+		assert.Equal(t, status.InvalidArgument, s.Type())
+	})
+
+	t.Run("errors when no embedded peer in cluster", func(t *testing.T) {
+		mgr, testStore := setupIntegrationTest(t)
+		_, err := mgr.getRoutingPeerIP(ctx, testStore, testAccountID, "missing.cluster")
+		require.Error(t, err)
+		s, ok := status.FromError(err)
+		assert.True(t, ok)
+		assert.Equal(t, status.PreconditionFailed, s.Type())
+	})
+
+	t.Run("returns deterministic peer when multiple match", func(t *testing.T) {
+		mgr, testStore := setupIntegrationTest(t)
+		peers := []*nbpeer.Peer{
+			{ID: "proxy-peer-z", AccountID: testAccountID, Key: "k1", DNSLabel: "p-z", IP: net.ParseIP("100.64.0.30"), Status: &nbpeer.PeerStatus{LastSeen: time.Now()}, Meta: nbpeer.PeerSystemMeta{Hostname: "z"}, ProxyMeta: nbpeer.ProxyMeta{Embedded: true, Cluster: "test.netbird.io"}},
+			{ID: "proxy-peer-a", AccountID: testAccountID, Key: "k2", DNSLabel: "p-a", IP: net.ParseIP("100.64.0.20"), Status: &nbpeer.PeerStatus{LastSeen: time.Now()}, Meta: nbpeer.PeerSystemMeta{Hostname: "a"}, ProxyMeta: nbpeer.ProxyMeta{Embedded: true, Cluster: "test.netbird.io"}},
+		}
+		for _, p := range peers {
+			require.NoError(t, testStore.AddPeerToAccount(ctx, p))
+		}
+		ip, err := mgr.getRoutingPeerIP(ctx, testStore, testAccountID, "test.netbird.io")
+		require.NoError(t, err)
+		assert.Equal(t, "100.64.0.20", ip.String(), "should sort by ID and pick proxy-peer-a")
+	})
 }

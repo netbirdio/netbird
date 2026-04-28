@@ -571,3 +571,50 @@ func TestManagerImpl_DeleteRecord(t *testing.T) {
 		require.Error(t, err)
 	})
 }
+
+func TestManagerImpl_BlockManagedRecordWrites(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("UpdateRecord rejects managed record", func(t *testing.T) {
+		manager, testStore, zone, _, mockPermissionsManager, ctrl, cleanup := setupTest(t)
+		defer cleanup()
+		defer ctrl.Finish()
+
+		managed := records.NewRecord(testAccountID, zone.ID, "svc.example.com", records.RecordTypeA, "10.0.0.1", 300)
+		managed.ManagedByServiceID = "svc-owner"
+		require.NoError(t, testStore.CreateDNSRecord(ctx, managed))
+
+		mockPermissionsManager.EXPECT().
+			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Update).
+			Return(true, nil)
+
+		updated := &records.Record{ID: managed.ID, Name: managed.Name, Type: records.RecordTypeA, Content: "10.0.0.99", TTL: 60}
+		_, err := manager.UpdateRecord(ctx, testAccountID, testUserID, zone.ID, updated)
+		require.Error(t, err)
+		s, ok := status.FromError(err)
+		assert.True(t, ok)
+		assert.Equal(t, status.PermissionDenied, s.Type())
+		assert.Contains(t, err.Error(), "svc-owner")
+	})
+
+	t.Run("DeleteRecord rejects managed record", func(t *testing.T) {
+		manager, testStore, zone, _, mockPermissionsManager, ctrl, cleanup := setupTest(t)
+		defer cleanup()
+		defer ctrl.Finish()
+
+		managed := records.NewRecord(testAccountID, zone.ID, "svc.example.com", records.RecordTypeA, "10.0.0.1", 300)
+		managed.ManagedByServiceID = "svc-owner"
+		require.NoError(t, testStore.CreateDNSRecord(ctx, managed))
+
+		mockPermissionsManager.EXPECT().
+			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Delete).
+			Return(true, nil)
+
+		err := manager.DeleteRecord(ctx, testAccountID, testUserID, zone.ID, managed.ID)
+		require.Error(t, err)
+		s, ok := status.FromError(err)
+		assert.True(t, ok)
+		assert.Equal(t, status.PermissionDenied, s.Type())
+		assert.Contains(t, err.Error(), "svc-owner")
+	})
+}

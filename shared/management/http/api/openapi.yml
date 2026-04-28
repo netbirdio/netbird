@@ -2325,6 +2325,12 @@ components:
               description: DNS record ID
               type: string
               example: ch8i4ug6lnn4g9hqv7m0
+            managed_by_service_id:
+              description: |
+                ID of the reverse-proxy service that owns this record's lifecycle.
+                When non-empty, the record is auto-managed and read-only via this API.
+              type: string
+              example: chq21j46lnn5g9hqv7m0
           required:
             - id
         - $ref: '#/components/schemas/DNSRecordRequest'

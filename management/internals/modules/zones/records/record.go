@@ -26,6 +26,11 @@ type Record struct {
 	Type      RecordType
 	Content   string
 	TTL       int
+	// ManagedByServiceID, when non-empty, marks this record as auto-managed
+	// by the reverse-proxy service with the given ID. User-created records
+	// leave this empty. The lifecycle of records with a non-empty value is
+	// owned by the service manager, not the records API.
+	ManagedByServiceID string `gorm:"index"`
 }
 
 func NewRecord(accountID, zoneID, name string, recordType RecordType, content string, ttl int) *Record {
@@ -42,13 +47,18 @@ func NewRecord(accountID, zoneID, name string, recordType RecordType, content st
 
 func (r *Record) ToAPIResponse() *api.DNSRecord {
 	recordType := api.DNSRecordType(r.Type)
-	return &api.DNSRecord{
+	resp := &api.DNSRecord{
 		Id:      r.ID,
 		Name:    r.Name,
 		Type:    recordType,
 		Content: r.Content,
 		Ttl:     r.TTL,
 	}
+	if r.ManagedByServiceID != "" {
+		ref := r.ManagedByServiceID
+		resp.ManagedByServiceId = &ref
+	}
+	return resp
 }
 
 func (r *Record) FromAPIRequest(req *api.DNSRecordRequest) {

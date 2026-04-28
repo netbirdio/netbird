@@ -123,6 +123,12 @@ func (m *managerImpl) UpdateRecord(ctx context.Context, accountID, userID, zoneI
 			return fmt.Errorf("failed to get record: %w", err)
 		}
 
+		if record.ManagedByServiceID != "" {
+			return status.Errorf(status.PermissionDenied,
+				"record is managed by service %s; modify the service instead",
+				record.ManagedByServiceID)
+		}
+
 		hasChanges := record.Name != updatedRecord.Name || record.Type != updatedRecord.Type || record.Content != updatedRecord.Content
 
 		record.Name = updatedRecord.Name
@@ -180,6 +186,12 @@ func (m *managerImpl) DeleteRecord(ctx context.Context, accountID, userID, zoneI
 		record, err = transaction.GetDNSRecordByID(ctx, store.LockingStrengthUpdate, accountID, zoneID, recordID)
 		if err != nil {
 			return fmt.Errorf("failed to get record: %w", err)
+		}
+
+		if record.ManagedByServiceID != "" {
+			return status.Errorf(status.PermissionDenied,
+				"record is managed by service %s; delete the service instead",
+				record.ManagedByServiceID)
 		}
 
 		err = transaction.DeleteDNSRecord(ctx, accountID, zoneID, recordID)
