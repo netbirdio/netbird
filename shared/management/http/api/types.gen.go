@@ -3823,6 +3823,15 @@ type ResourceType string
 
 // ReverseProxyDomain defines model for ReverseProxyDomain.
 type ReverseProxyDomain struct {
+	// AutoConfigured Whether NetBird wrote the wildcard CNAME automatically via a stored DNS provider credential. False means the user added the record manually.
+	AutoConfigured *bool `json:"auto_configured,omitempty"`
+
+	// AutoConfiguredCredentialId Reference to the stored credential that was used when auto_configured is true. May refer to a credential that has since been deleted.
+	AutoConfiguredCredentialId *string `json:"auto_configured_credential_id,omitempty"`
+
+	// AutoConfiguredProvider DNS provider type used when auto_configured is true. Denormalized from the credential at write time so it survives credential deletion.
+	AutoConfiguredProvider *string `json:"auto_configured_provider,omitempty"`
+
 	// Domain Domain name
 	Domain string `json:"domain"`
 
@@ -3850,11 +3859,33 @@ type ReverseProxyDomain struct {
 
 // ReverseProxyDomainRequest defines model for ReverseProxyDomainRequest.
 type ReverseProxyDomainRequest struct {
+	// AutoConfigure Optional. When present, NetBird uses the referenced DNS provider credential to automatically write the wildcard CNAME for this domain. Omit to use the manual-CNAME flow.
+	AutoConfigure *AutoConfigureRequest `json:"auto_configure,omitempty"`
+
 	// Domain Domain name
 	Domain string `json:"domain"`
 
 	// TargetCluster The proxy cluster this domain should be validated against
 	TargetCluster string `json:"target_cluster"`
+}
+
+// AutoConfigureRequestProvider defines the enum for AutoConfigureRequest.Provider.
+type AutoConfigureRequestProvider string
+
+const (
+	AutoConfigureRequestProviderCloudflare   AutoConfigureRequestProvider = "cloudflare"
+	AutoConfigureRequestProviderDigitalocean AutoConfigureRequestProvider = "digitalocean"
+	AutoConfigureRequestProviderRfc2136      AutoConfigureRequestProvider = "rfc2136"
+	AutoConfigureRequestProviderRoute53      AutoConfigureRequestProvider = "route53"
+)
+
+// AutoConfigureRequest defines model for AutoConfigureRequest.
+type AutoConfigureRequest struct {
+	// CredentialId Reference to a stored DNS provider credential
+	CredentialId string `json:"credential_id"`
+
+	// Provider DNS provider type. Must match the credential's provider type — the server validates this and rejects mismatches.
+	Provider AutoConfigureRequestProvider `json:"provider"`
 }
 
 // ReverseProxyDomainType Type of Reverse Proxy Domain

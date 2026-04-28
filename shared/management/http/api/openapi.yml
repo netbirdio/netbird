@@ -3447,6 +3447,18 @@ components:
           type: boolean
           description: Whether the proxy cluster has CrowdSec configured
           example: false
+        auto_configured:
+          type: boolean
+          description: Whether NetBird wrote the wildcard CNAME automatically via a stored DNS provider credential. False means the user added the record manually.
+          example: false
+        auto_configured_provider:
+          type: string
+          description: DNS provider type used when auto_configured is true. Denormalized from the credential at write time so it survives credential deletion.
+          example: "cloudflare"
+        auto_configured_credential_id:
+          type: string
+          description: Reference to the stored credential that was used when auto_configured is true. May refer to a credential that has since been deleted.
+          example: "cred_01HXYZ"
       required:
         - id
         - domain
@@ -3463,9 +3475,34 @@ components:
           type: string
           description: The proxy cluster this domain should be validated against
           example: "eu.proxy.netbird.io"
+        auto_configure:
+          $ref: '#/components/schemas/AutoConfigureRequest'
       required:
         - domain
         - target_cluster
+    AutoConfigureRequest:
+      type: object
+      description: |
+        Optional. When present, NetBird uses the referenced DNS provider
+        credential to automatically write the wildcard CNAME for this
+        domain. Omit this field to use the default manual-CNAME flow.
+      properties:
+        credential_id:
+          type: string
+          description: Reference to a stored DNS provider credential
+          example: "cred_01HXYZ"
+        provider:
+          type: string
+          description: DNS provider type. Must match the credential's provider type — the server validates this and rejects mismatches.
+          enum:
+            - cloudflare
+            - route53
+            - digitalocean
+            - rfc2136
+          example: "cloudflare"
+      required:
+        - credential_id
+        - provider
     InstanceStatus:
       type: object
       description: Instance status information

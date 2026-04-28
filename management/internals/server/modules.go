@@ -8,6 +8,7 @@ import (
 
 	"github.com/netbirdio/management-integrations/integrations"
 
+	"github.com/netbirdio/netbird/management/internals/modules/credentials/secretpayload"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
@@ -213,7 +214,36 @@ func (s *BaseServer) ProxyManager() proxy.Manager {
 
 func (s *BaseServer) ReverseProxyDomainManager() *manager.Manager {
 	return Create(s, func() *manager.Manager {
-		m := manager.NewManager(s.Store(), s.ProxyManager(), s.PermissionsManager(), s.AccountManager())
+		m := manager.NewManager(s.Store(), s.ProxyManager(), s.PermissionsManager(), s.AccountManager(), s.credentialResolverForAutoConfigure())
 		return &m
 	})
+}
+
+// credentialResolverForAutoConfigure builds the closure the domain
+// manager uses to fetch decoded credential secrets when handling an
+// auto-configure custom-domain request.
+//
+// Returns nil if the AccountManager doesn't expose ResolveCredentialSecret
+// (e.g., a deploy without credential storage configured) — the manager
+// then rejects auto-configure requests with status.Internal, which keeps
+// the manual-CNAME flow working.
+//
+// The closure decodes the encrypted credential payload using
+// secretpayload.Decode so the manager never sees the encryption key.
+func (s *BaseServer) credentialResolverForAutoConfigure() manager.CredentialResolver {
+	resolver, ok := s.AccountManager().(*server.DefaultAccountManager)
+	if !ok {
+		return nil
+	}
+	return func(ctx context.Context, accountID, credentialID string) (map[string]string, string, error) {
+		plaintext, providerType, err := resolver.ResolveCredentialSecret(ctx, accountID, credentialID)
+		if err != nil {
+			return nil, "", err
+		}
+		secret, err := secretpayload.Decode(plaintext)
+		if err != nil {
+			return nil, "", err
+		}
+		return secret, providerType, nil
+	}
 }

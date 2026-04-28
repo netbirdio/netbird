@@ -53,6 +53,18 @@ func domainToApi(d *domain.Domain) api.ReverseProxyDomain {
 	if d.TargetCluster != "" {
 		resp.TargetCluster = &d.TargetCluster
 	}
+	if d.AutoConfigured {
+		auto := true
+		resp.AutoConfigured = &auto
+		if d.AutoConfiguredProvider != "" {
+			p := d.AutoConfiguredProvider
+			resp.AutoConfiguredProvider = &p
+		}
+		if d.AutoConfiguredCredentialID != "" {
+			c := d.AutoConfiguredCredentialID
+			resp.AutoConfiguredCredentialId = &c
+		}
+	}
 	return resp
 }
 
@@ -90,8 +102,24 @@ func (h *handler) createCustomDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	domain, err := h.manager.CreateDomain(r.Context(), userAuth.AccountId, userAuth.UserId, req.Domain, req.TargetCluster)
+	var autoConfig *AutoConfigureRequest
+	if req.AutoConfigure != nil {
+		autoConfig = &AutoConfigureRequest{
+			CredentialID: req.AutoConfigure.CredentialId,
+			Provider:     string(req.AutoConfigure.Provider),
+		}
+	}
+
+	domain, err := h.manager.CreateDomain(r.Context(), userAuth.AccountId, userAuth.UserId, req.Domain, req.TargetCluster, autoConfig)
 	if err != nil {
+		// Auto-configure errors go through a structured-response path
+		// with error_code + provider + fqdn so the dashboard can render
+		// targeted messaging without parsing strings. Other errors
+		// flow through the standard util.WriteError mapping.
+		if rwe, ok := AsRecordWriterError(err); ok {
+			WriteRecordWriterError(w, rwe)
+			return
+		}
 		util.WriteError(r.Context(), err, w)
 		return
 	}

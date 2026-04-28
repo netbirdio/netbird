@@ -8,6 +8,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/management/internals/modules/credentials/recordwriter"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -24,9 +25,31 @@ type store interface {
 	GetCustomDomain(ctx context.Context, accountID string, domainID string) (*domain.Domain, error)
 	ListFreeDomains(ctx context.Context, accountID string) ([]string, error)
 	ListCustomDomains(ctx context.Context, accountID string) ([]*domain.Domain, error)
-	CreateCustomDomain(ctx context.Context, accountID string, domainName string, targetCluster string, validated bool) (*domain.Domain, error)
+	CreateCustomDomain(ctx context.Context, accountID string, domainName string, targetCluster string, validated bool, autoConfig *domain.AutoConfigureRecord) (*domain.Domain, error)
 	UpdateCustomDomain(ctx context.Context, accountID string, d *domain.Domain) (*domain.Domain, error)
 	DeleteCustomDomain(ctx context.Context, accountID string, domainID string) error
+}
+
+// CredentialResolver looks up a stored credential by account+ID and
+// returns its decoded secret fields and provider type. The manager calls
+// this when handling auto-configure to fetch the writer credentials
+// without ever touching the encryption key directly.
+//
+// Wired from the app composition root (server.go) as a closure over
+// am.ResolveCredentialSecret + secretpayload.Decode. Kept as a closure
+// rather than an interface to avoid the manager package having to know
+// about the credentials package.
+type CredentialResolver func(ctx context.Context, accountID, credentialID string) (
+	secret map[string]string, providerType string, err error,
+)
+
+// AutoConfigureRequest is the manager-layer input describing what
+// credential should write the wildcard CNAME for a new custom domain.
+// Mirrors the API-layer api.AutoConfigureRequest but keeps the manager
+// independent of the OpenAPI types.
+type AutoConfigureRequest struct {
+	CredentialID string
+	Provider     string
 }
 
 type proxyManager interface {
@@ -42,15 +65,26 @@ type Manager struct {
 	proxyManager       proxyManager
 	permissionsManager permissions.Manager
 	accountManager     account.Manager
+
+	// credentialResolver is set when the management server wires up the
+	// auto-configure path. nil means auto-configure requests will be
+	// rejected with status.Internal — useful for older deploys that
+	// haven't enabled the feature.
+	credentialResolver CredentialResolver
+	// fqdnMutex serializes auto-configure operations per FQDN to avoid
+	// double-write races on providers that don't dedupe server-side.
+	fqdnMutex *fqdnMutexMap
 }
 
-func NewManager(store store, proxyMgr proxyManager, permissionsManager permissions.Manager, accountManager account.Manager) Manager {
+func NewManager(store store, proxyMgr proxyManager, permissionsManager permissions.Manager, accountManager account.Manager, credentialResolver CredentialResolver) Manager {
 	return Manager{
 		store:              store,
 		proxyManager:       proxyMgr,
 		validator:          domain.Validator{Resolver: net.DefaultResolver},
 		permissionsManager: permissionsManager,
 		accountManager:     accountManager,
+		credentialResolver: credentialResolver,
+		fqdnMutex:          newFQDNMutexMap(),
 	}
 }
 
@@ -117,7 +151,7 @@ func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*d
 	return ret, nil
 }
 
-func (m Manager) CreateDomain(ctx context.Context, accountID, userID, domainName, targetCluster string) (*domain.Domain, error) {
+func (m Manager) CreateDomain(ctx context.Context, accountID, userID, domainName, targetCluster string, autoConfig *AutoConfigureRequest) (*domain.Domain, error) {
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Create)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
@@ -142,13 +176,29 @@ func (m Manager) CreateDomain(ctx context.Context, accountID, userID, domainName
 		return nil, fmt.Errorf("target cluster %s is not available", targetCluster)
 	}
 
-	// Attempt an initial validation against the specified cluster only
+	// Auto-configure pre-step: if the request includes credentials,
+	// write the wildcard CNAME for the user before persisting the
+	// domain. On any writer failure we bail out without persisting —
+	// otherwise the user would have a stuck `validated:false` row they
+	// can't recover.
+	var autoRecord *domain.AutoConfigureRecord
+	if autoConfig != nil {
+		var err error
+		autoRecord, err = m.runAutoConfigure(ctx, accountID, userID, domainName, targetCluster, autoConfig)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Attempt an initial validation against the specified cluster only.
+	// For auto-configure this typically misses on first call (DNS
+	// propagation lag) — the dashboard polls /validate after this returns.
 	var validated bool
 	if m.validator.IsValid(ctx, domainName, []string{targetCluster}) {
 		validated = true
 	}
 
-	d, err := m.store.CreateCustomDomain(ctx, accountID, domainName, targetCluster, validated)
+	d, err := m.store.CreateCustomDomain(ctx, accountID, domainName, targetCluster, validated, autoRecord)
 	if err != nil {
 		return d, fmt.Errorf("create domain in store: %w", err)
 	}
@@ -156,6 +206,59 @@ func (m Manager) CreateDomain(ctx context.Context, accountID, userID, domainName
 	m.accountManager.StoreEvent(ctx, userID, d.ID, accountID, activity.DomainAdded, d.EventMeta())
 
 	return d, nil
+}
+
+// runAutoConfigure fetches the credential, builds the writer, writes
+// the wildcard CNAME, and audit-logs the write. Returns the metadata
+// to persist on the new domain row.
+func (m Manager) runAutoConfigure(ctx context.Context, accountID, userID, domainName, targetCluster string, autoConfig *AutoConfigureRequest) (*domain.AutoConfigureRecord, error) {
+	if m.credentialResolver == nil {
+		return nil, status.Errorf(status.Internal, "auto-configure is not enabled on this management server")
+	}
+	if m.fqdnMutex == nil {
+		// Defensive — NewManager always sets this. A nil here means a
+		// caller built a Manager{} literal directly, which is a bug.
+		return nil, status.Errorf(status.Internal, "manager not properly initialized: missing fqdnMutex")
+	}
+
+	fqdn := "*." + domainName
+	unlock := m.fqdnMutex.Lock(fqdn)
+	defer unlock()
+
+	secret, providerType, err := m.credentialResolver(ctx, accountID, autoConfig.CredentialID)
+	if err != nil {
+		return nil, mapCredentialResolveError(err)
+	}
+	if providerType != autoConfig.Provider {
+		return nil, status.Errorf(status.InvalidArgument,
+			"provider mismatch: credential is %s, request says %s", providerType, autoConfig.Provider)
+	}
+
+	writer, err := recordwriter.BuildRecordWriter(providerType, secret)
+	if err != nil {
+		return nil, status.Errorf(status.InvalidArgument,
+			"auto-configure not supported for provider %s", providerType)
+	}
+
+	if err := writer.WriteCNAME(ctx, fqdn, targetCluster, 300); err != nil {
+		return nil, mapRecordWriterError(err, providerType, fqdn)
+	}
+
+	// Audit-log the CNAME write. Distinct from DomainAdded so the audit
+	// log can separately answer "did NetBird write DNS on this user's
+	// behalf?" — required for security review sign-off.
+	m.accountManager.StoreEvent(ctx, userID, "", accountID, activity.DomainCNAMEWritten, map[string]any{
+		"domain":        domainName,
+		"provider":      providerType,
+		"credential_id": autoConfig.CredentialID,
+		"fqdn":          fqdn,
+		"target":        targetCluster,
+	})
+
+	return &domain.AutoConfigureRecord{
+		CredentialID: autoConfig.CredentialID,
+		Provider:     providerType,
+	}, nil
 }
 
 func (m Manager) DeleteDomain(ctx context.Context, accountID, userID, domainID string) error {

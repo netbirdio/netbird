@@ -239,6 +239,11 @@ const (
 	CredentialDeleted Activity = 123
 	// CredentialUpdated indicates that a user updated (rotated) a stored credential
 	CredentialUpdated Activity = 124
+	// DomainCNAMEWritten indicates that the management server used a stored
+	// DNS provider credential to write the wildcard CNAME for a custom domain
+	// (the auto-configure flow). Distinct from DomainAdded so the audit log
+	// can separate "user added a domain" from "we wrote DNS on their behalf."
+	DomainCNAMEWritten Activity = 125
 
 	AccountDeleted Activity = 99999
 )
@@ -387,9 +392,10 @@ var activityMap = map[Activity]Code{
 	AccountPeerExposeEnabled:  {"Account peer expose enabled", "account.setting.peer.expose.enable"},
 	AccountPeerExposeDisabled: {"Account peer expose disabled", "account.setting.peer.expose.disable"},
 
-	DomainAdded:     {"Domain added", "domain.add"},
-	DomainDeleted:   {"Domain deleted", "domain.delete"},
-	DomainValidated: {"Domain validated", "domain.validate"},
+	DomainAdded:        {"Domain added", "domain.add"},
+	DomainDeleted:      {"Domain deleted", "domain.delete"},
+	DomainValidated:    {"Domain validated", "domain.validate"},
+	DomainCNAMEWritten: {"Domain CNAME written via auto-configure", "domain.cname.write"},
 
 	CredentialCreated: {"Credential created", "credential.create"},
 	CredentialRead:    {"Credential read", "credential.read"},

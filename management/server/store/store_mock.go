@@ -253,18 +253,18 @@ func (mr *MockStoreMockRecorder) CreateCredential(ctx, c interface{}) *gomock.Ca
 }
 
 // CreateCustomDomain mocks base method.
-func (m *MockStore) CreateCustomDomain(ctx context.Context, accountID, domainName, targetCluster string, validated bool) (*domain.Domain, error) {
+func (m *MockStore) CreateCustomDomain(ctx context.Context, accountID, domainName, targetCluster string, validated bool, autoConfig *domain.AutoConfigureRecord) (*domain.Domain, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateCustomDomain", ctx, accountID, domainName, targetCluster, validated)
+	ret := m.ctrl.Call(m, "CreateCustomDomain", ctx, accountID, domainName, targetCluster, validated, autoConfig)
 	ret0, _ := ret[0].(*domain.Domain)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // CreateCustomDomain indicates an expected call of CreateCustomDomain.
-func (mr *MockStoreMockRecorder) CreateCustomDomain(ctx, accountID, domainName, targetCluster, validated interface{}) *gomock.Call {
+func (mr *MockStoreMockRecorder) CreateCustomDomain(ctx, accountID, domainName, targetCluster, validated, autoConfig interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateCustomDomain", reflect.TypeOf((*MockStore)(nil).CreateCustomDomain), ctx, accountID, domainName, targetCluster, validated)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateCustomDomain", reflect.TypeOf((*MockStore)(nil).CreateCustomDomain), ctx, accountID, domainName, targetCluster, validated, autoConfig)
 }
 
 // CreateDNSRecord mocks base method.
