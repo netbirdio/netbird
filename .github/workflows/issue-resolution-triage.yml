@@ -22,7 +22,7 @@ permissions:
   pull-requests: read
   models: read
 
-# todo: remove hardcoded values
+#  todo: remove hardcoded values
 jobs:
   triage:
     runs-on: ubuntu-latest
