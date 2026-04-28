@@ -5,9 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/asn1"
-	"encoding/base64"
 	"encoding/binary"
-	"encoding/pem"
 	"fmt"
 	"math/rand/v2"
 	"net"
@@ -19,8 +17,6 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/crypto/acme"
-	"golang.org/x/crypto/acme/autocert"
 
 	"github.com/netbirdio/netbird/proxy/internal/certwatch"
 	"github.com/netbirdio/netbird/proxy/internal/types"
@@ -61,31 +57,28 @@ type wildcardEntry struct {
 	watcher *certwatch.Watcher
 }
 
-// ManagerConfig holds the configuration values for the ACME certificate manager.
+// ManagerConfig holds the orchestration configuration for the ACME
+// certificate manager. Backend-specific configuration (ACME URL, EAB
+// credentials, etc.) lives on the corresponding backend's config struct.
 type ManagerConfig struct {
-	// CertDir is the directory used for caching ACME certificates.
+	// CertDir is the directory used for distributed lock files. Backends
+	// that persist certs to disk typically use the same directory.
 	CertDir string
-	// ACMEURL is the ACME directory URL (e.g. Let's Encrypt).
-	ACMEURL string
-	// EABKID and EABHMACKey are optional External Account Binding credentials
-	// required by some CAs (e.g. ZeroSSL). EABHMACKey is the base64
-	// URL-encoded string provided by the CA.
-	EABKID     string
-	EABHMACKey string
 	// LockMethod controls the cross-replica coordination strategy.
 	LockMethod CertLockMethod
 	// WildcardDir is an optional path to a directory containing wildcard
 	// certificate pairs (<name>.crt / <name>.key). Wildcard patterns are
 	// extracted from the certificates' SAN lists. Domains matching a
-	// wildcard are served from disk; all others go through ACME.
+	// wildcard are served from disk; all others go through the backend.
 	WildcardDir string
 }
 
-// Manager wraps autocert.Manager with domain tracking and cross-replica
-// coordination via a pluggable locking strategy. The locker prevents
-// duplicate ACME requests when multiple replicas share a certificate cache.
+// Manager orchestrates certificate issuance and serving on top of a
+// pluggable CertBackend. It owns domain registration, distributed locking,
+// wildcard pre-filtering, and lifecycle notifications. The backend handles
+// the actual ACME interaction and on-disk cache.
 type Manager struct {
-	*autocert.Manager
+	backend CertBackend
 
 	certDir string
 	locker  certLocker
@@ -100,12 +93,19 @@ type Manager struct {
 	metrics      metricsRecorder
 }
 
-// NewManager creates a new ACME certificate manager.
-func NewManager(cfg ManagerConfig, notifier certificateNotifier, logger *log.Logger, metrics metricsRecorder) (*Manager, error) {
+// NewManager creates a new ACME certificate manager around the given
+// backend. If the backend implements HostPolicySetter, the manager
+// installs its domain-registration check on the backend so issuance is
+// gated by AddDomain.
+func NewManager(cfg ManagerConfig, backend CertBackend, notifier certificateNotifier, logger *log.Logger, metrics metricsRecorder) (*Manager, error) {
+	if backend == nil {
+		return nil, fmt.Errorf("backend is required")
+	}
 	if logger == nil {
 		logger = log.StandardLogger()
 	}
 	mgr := &Manager{
+		backend:      backend,
 		certDir:      cfg.CertDir,
 		locker:       newCertLocker(cfg.LockMethod, cfg.CertDir, logger),
 		domains:      make(map[domain.Domain]*domainInfo),
@@ -122,29 +122,10 @@ func NewManager(cfg ManagerConfig, notifier certificateNotifier, logger *log.Log
 		mgr.wildcards = entries
 	}
 
-	var eab *acme.ExternalAccountBinding
-	if cfg.EABKID != "" && cfg.EABHMACKey != "" {
-		decodedKey, err := base64.RawURLEncoding.DecodeString(cfg.EABHMACKey)
-		if err != nil {
-			logger.Errorf("failed to decode EAB HMAC key: %v", err)
-		} else {
-			eab = &acme.ExternalAccountBinding{
-				KID: cfg.EABKID,
-				Key: decodedKey,
-			}
-			logger.Infof("configured External Account Binding with KID: %s", cfg.EABKID)
-		}
+	if setter, ok := backend.(HostPolicySetter); ok {
+		setter.SetHostPolicy(mgr.hostPolicy)
 	}
 
-	mgr.Manager = &autocert.Manager{
-		Prompt:                 autocert.AcceptTOS,
-		HostPolicy:             mgr.hostPolicy,
-		Cache:                  autocert.DirCache(cfg.CertDir),
-		ExternalAccountBinding: eab,
-		Client: &acme.Client{
-			DirectoryURL: cfg.ACMEURL,
-		},
-	}
 	return mgr, nil
 }
 
@@ -285,13 +266,13 @@ func (mgr *Manager) hostPolicy(_ context.Context, host string) error {
 
 // GetCertificate returns the TLS certificate for the given ClientHello.
 // If the requested domain matches a loaded wildcard, the static wildcard
-// certificate is returned. Otherwise, the ACME autocert manager handles
-// the request.
+// certificate is returned. Otherwise, the request is delegated to the
+// configured backend.
 func (mgr *Manager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 	if e := mgr.findWildcardEntry(hello.ServerName); e != nil {
 		return e.watcher.GetCertificate(hello)
 	}
-	return mgr.Manager.GetCertificate(hello)
+	return mgr.backend.GetCertificate(hello)
 }
 
 // AddDomain registers a domain for certificate management. Domains that
@@ -353,7 +334,7 @@ func (mgr *Manager) prefetchCertificate(d domain.Domain) {
 		defer unlock()
 	}
 
-	if cert, err := mgr.readCertFromDisk(ctx, name); err == nil {
+	if cert, err := mgr.backend.ReadCertFromDisk(ctx, name); err == nil {
 		mgr.logger.Infof("certificate for domain %q already on disk, skipping ACME", name)
 		mgr.recordAndNotify(ctx, d, name, cert, 0)
 		return
@@ -389,7 +370,7 @@ func (mgr *Manager) prefetchCertificate(d domain.Domain) {
 			return
 
 		case <-diskTicker.C:
-			cert, err := mgr.readCertFromDisk(context.Background(), name)
+			cert, err := mgr.backend.ReadCertFromDisk(context.Background(), name)
 			if err != nil {
 				continue
 			}
@@ -411,38 +392,6 @@ func (mgr *Manager) prefetchCertificate(d domain.Domain) {
 			return
 		}
 	}
-}
-
-// readCertFromDisk reads and parses a certificate directly from the autocert
-// DirCache, bypassing autocert's internal certState mutex. Safe to call
-// concurrently with an in-flight ACME request for the same domain.
-func (mgr *Manager) readCertFromDisk(ctx context.Context, name string) (*tls.Certificate, error) {
-	if mgr.Cache == nil {
-		return nil, fmt.Errorf("no cache configured")
-	}
-	data, err := mgr.Cache.Get(ctx, name)
-	if err != nil {
-		return nil, err
-	}
-	privBlock, certsPEM := pem.Decode(data)
-	if privBlock == nil || !strings.Contains(privBlock.Type, "PRIVATE") {
-		return nil, fmt.Errorf("no private key in cache for %q", name)
-	}
-	cert, err := tls.X509KeyPair(certsPEM, pem.EncodeToMemory(privBlock))
-	if err != nil {
-		return nil, fmt.Errorf("parse cached certificate for %q: %w", name, err)
-	}
-	if len(cert.Certificate) > 0 {
-		leaf, err := x509.ParseCertificate(cert.Certificate[0])
-		if err != nil {
-			return nil, fmt.Errorf("parse leaf for %q: %w", name, err)
-		}
-		if time.Now().After(leaf.NotAfter) {
-			return nil, fmt.Errorf("cached certificate for %q expired at %s", name, leaf.NotAfter)
-		}
-		cert.Leaf = leaf
-	}
-	return &cert, nil
 }
 
 // recordAndNotify records metrics, marks the domain ready, logs cert details,

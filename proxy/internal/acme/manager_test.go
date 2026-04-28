@@ -9,9 +9,11 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -21,8 +23,23 @@ import (
 	"github.com/netbirdio/netbird/proxy/internal/types"
 )
 
+// newTestManager builds a Manager backed by an autocert backend pointed at a
+// fake ACME directory URL. Used in tests to verify behavior without real
+// cert issuance — issuance attempts fail predictably against the fake URL.
+func newTestManager(t *testing.T, cfg ManagerConfig, acmeURL string) (*Manager, error) {
+	t.Helper()
+	backend, err := NewAutocertBackend(AutocertBackendConfig{
+		CertDir: cfg.CertDir,
+		ACMEURL: acmeURL,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return NewManager(cfg, backend, nil, nil, nil)
+}
+
 func TestHostPolicy(t *testing.T) {
-	mgr, err := NewManager(ManagerConfig{CertDir: t.TempDir(), ACMEURL: "https://acme.example.com/directory"}, nil, nil, nil)
+	mgr, err := newTestManager(t, ManagerConfig{CertDir: t.TempDir()}, "https://acme.example.com/directory")
 	require.NoError(t, err)
 	mgr.AddDomain("example.com", types.AccountID("acc1"), types.ServiceID("rp1"))
 
@@ -83,7 +100,7 @@ func TestHostPolicy(t *testing.T) {
 }
 
 func TestDomainStates(t *testing.T) {
-	mgr, err := NewManager(ManagerConfig{CertDir: t.TempDir(), ACMEURL: "https://acme.example.com/directory"}, nil, nil, nil)
+	mgr, err := newTestManager(t, ManagerConfig{CertDir: t.TempDir()}, "https://acme.example.com/directory")
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, mgr.PendingCerts(), "initially zero")
@@ -146,7 +163,7 @@ func TestMatchesWildcard(t *testing.T) {
 	generateSelfSignedCert(t, wcDir, "example", "*.example.com")
 
 	acmeDir := t.TempDir()
-	mgr, err := NewManager(ManagerConfig{CertDir: acmeDir, ACMEURL: "https://acme.example.com/directory", WildcardDir: wcDir}, nil, nil, nil)
+	mgr, err := newTestManager(t, ManagerConfig{CertDir: acmeDir, WildcardDir: wcDir}, "https://acme.example.com/directory")
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -207,7 +224,7 @@ func TestWildcardAddDomainSkipsACME(t *testing.T) {
 	generateSelfSignedCert(t, wcDir, "example", "*.example.com")
 
 	acmeDir := t.TempDir()
-	mgr, err := NewManager(ManagerConfig{CertDir: acmeDir, ACMEURL: "https://acme.example.com/directory", WildcardDir: wcDir}, nil, nil, nil)
+	mgr, err := newTestManager(t, ManagerConfig{CertDir: acmeDir, WildcardDir: wcDir}, "https://acme.example.com/directory")
 	require.NoError(t, err)
 
 	// Add a wildcard-matching domain — should be immediately ready.
@@ -233,7 +250,7 @@ func TestWildcardGetCertificate(t *testing.T) {
 	generateSelfSignedCert(t, wcDir, "example", "*.example.com")
 
 	acmeDir := t.TempDir()
-	mgr, err := NewManager(ManagerConfig{CertDir: acmeDir, ACMEURL: "https://acme.example.com/directory", WildcardDir: wcDir}, nil, nil, nil)
+	mgr, err := newTestManager(t, ManagerConfig{CertDir: acmeDir, WildcardDir: wcDir}, "https://acme.example.com/directory")
 	require.NoError(t, err)
 
 	mgr.AddDomain("foo.example.com", types.AccountID("acc1"), types.ServiceID("svc1"))
@@ -251,7 +268,7 @@ func TestMultipleWildcards(t *testing.T) {
 	generateSelfSignedCert(t, wcDir, "other", "*.other.org")
 
 	acmeDir := t.TempDir()
-	mgr, err := NewManager(ManagerConfig{CertDir: acmeDir, ACMEURL: "https://acme.example.com/directory", WildcardDir: wcDir}, nil, nil, nil)
+	mgr, err := newTestManager(t, ManagerConfig{CertDir: acmeDir, WildcardDir: wcDir}, "https://acme.example.com/directory")
 	require.NoError(t, err)
 
 	assert.ElementsMatch(t, []string{"*.example.com", "*.other.org"}, mgr.WildcardPatterns())
@@ -283,7 +300,7 @@ func TestMultipleWildcards(t *testing.T) {
 func TestWildcardDirEmpty(t *testing.T) {
 	wcDir := t.TempDir()
 	// Empty directory — no .crt files.
-	_, err := NewManager(ManagerConfig{CertDir: t.TempDir(), ACMEURL: "https://acme.example.com/directory", WildcardDir: wcDir}, nil, nil, nil)
+	_, err := newTestManager(t, ManagerConfig{CertDir: t.TempDir(), WildcardDir: wcDir}, "https://acme.example.com/directory")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no .crt files found")
 }
@@ -293,14 +310,93 @@ func TestWildcardDirNonWildcardCert(t *testing.T) {
 	// Certificate without a wildcard SAN.
 	generateSelfSignedCert(t, wcDir, "plain", "plain.example.com")
 
-	_, err := NewManager(ManagerConfig{CertDir: t.TempDir(), ACMEURL: "https://acme.example.com/directory", WildcardDir: wcDir}, nil, nil, nil)
+	_, err := newTestManager(t, ManagerConfig{CertDir: t.TempDir(), WildcardDir: wcDir}, "https://acme.example.com/directory")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no wildcard SANs")
 }
 
 func TestNoWildcardDir(t *testing.T) {
 	// Empty string means no wildcard dir — pure ACME mode.
-	mgr, err := NewManager(ManagerConfig{CertDir: t.TempDir(), ACMEURL: "https://acme.example.com/directory"}, nil, nil, nil)
+	mgr, err := newTestManager(t, ManagerConfig{CertDir: t.TempDir()}, "https://acme.example.com/directory")
 	require.NoError(t, err)
 	assert.Empty(t, mgr.WildcardPatterns())
+}
+
+// countingBackend is a CertBackend test double. It counts GetCertificate
+// invocations and remembers each issued cert so subsequent ReadCertFromDisk
+// calls return them — modeling the cross-replica disk-cache short circuit
+// that lets a second goroutine skip re-issuance.
+type countingBackend struct {
+	mu          sync.Mutex
+	issuedCount int
+	issued      map[string]*tls.Certificate
+	issueDelay  time.Duration
+}
+
+func newCountingBackend(issueDelay time.Duration) *countingBackend {
+	return &countingBackend{
+		issued:     make(map[string]*tls.Certificate),
+		issueDelay: issueDelay,
+	}
+}
+
+func (b *countingBackend) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+	if b.issueDelay > 0 {
+		time.Sleep(b.issueDelay)
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.issuedCount++
+	cert := &tls.Certificate{}
+	b.issued[hello.ServerName] = cert
+	return cert, nil
+}
+
+func (b *countingBackend) ReadCertFromDisk(_ context.Context, name string) (*tls.Certificate, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if cert, ok := b.issued[name]; ok {
+		return cert, nil
+	}
+	return nil, errors.New("not issued yet")
+}
+
+func (b *countingBackend) IssuedCount() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.issuedCount
+}
+
+// TestPrefetchSerializesIssuance verifies that two concurrent AddDomain
+// calls for the same domain result in only one backend issuance: the
+// distributed lock serializes the prefetch goroutines, and the second one
+// finds the cert via ReadCertFromDisk after the first one writes it. This
+// is the core cross-replica safety property the orchestrator owes to its
+// backend — Wave 2's LegoBackend will rely on the same contract.
+func TestPrefetchSerializesIssuance(t *testing.T) {
+	backend := newCountingBackend(50 * time.Millisecond)
+
+	mgr, err := NewManager(ManagerConfig{CertDir: t.TempDir()}, backend, nil, nil, nil)
+	require.NoError(t, err)
+
+	const dom = "example.com"
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		mgr.AddDomain(dom, types.AccountID("a"), types.ServiceID("s1"))
+	}()
+	go func() {
+		defer wg.Done()
+		mgr.AddDomain(dom, types.AccountID("a"), types.ServiceID("s2"))
+	}()
+	wg.Wait()
+
+	require.Eventually(t, func() bool {
+		return mgr.PendingCerts() == 0
+	}, 10*time.Second, 50*time.Millisecond, "prefetch goroutines should drain")
+
+	assert.Equal(t, 1, backend.IssuedCount(),
+		"two AddDomain calls for the same domain should result in only one backend issuance via the locker + ReadCertFromDisk short circuit")
+	assert.Contains(t, mgr.ReadyDomains(), dom)
 }

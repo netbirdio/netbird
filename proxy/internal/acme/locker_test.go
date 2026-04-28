@@ -4,7 +4,9 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -62,4 +64,83 @@ func TestNewCertLockerK8sFallsBackToFlock(t *testing.T) {
 
 	_, ok := locker.(*flockLocker)
 	assert.True(t, ok, "k8s-lease without SA should fall back to flockLocker")
+}
+
+// TestFlockLockerSerializesSameDomain verifies that two goroutines
+// requesting a lock on the same domain serialize: the second blocks until
+// the first releases. This is the cross-replica contract the orchestrator
+// depends on to avoid duplicate ACME issuance.
+func TestFlockLockerSerializesSameDomain(t *testing.T) {
+	dir := t.TempDir()
+	locker := newFlockLocker(dir, nil)
+
+	const holdFor = 200 * time.Millisecond
+	const minBlocked = 150 * time.Millisecond
+
+	unlock1, err := locker.Lock(context.Background(), "example.com")
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	start := time.Now()
+	var elapsed time.Duration
+
+	go func() {
+		defer wg.Done()
+		unlock2, err := locker.Lock(context.Background(), "example.com")
+		elapsed = time.Since(start)
+		assert.NoError(t, err)
+		if unlock2 != nil {
+			unlock2()
+		}
+	}()
+
+	time.Sleep(holdFor)
+	unlock1()
+
+	wg.Wait()
+	assert.GreaterOrEqual(t, elapsed, minBlocked,
+		"second Lock on same domain should have blocked for ~holdFor")
+}
+
+// TestFlockLockerDifferentDomainsParallel verifies that the locker does
+// not serialize across distinct domains. Two goroutines locking different
+// domains both proceed without contention.
+func TestFlockLockerDifferentDomainsParallel(t *testing.T) {
+	dir := t.TempDir()
+	locker := newFlockLocker(dir, nil)
+
+	const maxParallel = 100 * time.Millisecond
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	start := time.Now()
+	var elapsedA, elapsedB time.Duration
+
+	go func() {
+		defer wg.Done()
+		unlock, err := locker.Lock(context.Background(), "a.example.com")
+		elapsedA = time.Since(start)
+		assert.NoError(t, err)
+		if unlock != nil {
+			unlock()
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		unlock, err := locker.Lock(context.Background(), "b.example.com")
+		elapsedB = time.Since(start)
+		assert.NoError(t, err)
+		if unlock != nil {
+			unlock()
+		}
+	}()
+
+	wg.Wait()
+	assert.Less(t, elapsedA, maxParallel,
+		"locking distinct domains should not serialize (a)")
+	assert.Less(t, elapsedB, maxParallel,
+		"locking distinct domains should not serialize (b)")
 }

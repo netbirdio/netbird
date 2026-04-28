@@ -1341,3 +1341,86 @@ func TestValidateSubdomainRequirement(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateACMEConfig(t *testing.T) {
+	cases := []struct {
+		name        string
+		challenge   string
+		provider    string
+		credsRef    string
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "all empty (legacy default)",
+		},
+		{
+			name:      "tls-alpn-01 alone",
+			challenge: "tls-alpn-01",
+		},
+		{
+			name:      "http-01 alone",
+			challenge: "http-01",
+		},
+		{
+			name:      "dns-01 with provider",
+			challenge: "dns-01",
+			provider:  "cloudflare",
+		},
+		{
+			name:      "dns-01 with provider and creds ref",
+			challenge: "dns-01",
+			provider:  "cloudflare",
+			credsRef:  "cred_abc123",
+		},
+		{
+			name:        "unknown challenge type",
+			challenge:   "magic-01",
+			wantErr:     true,
+			errContains: "challenge_type",
+		},
+		{
+			name:        "dns-01 missing provider",
+			challenge:   "dns-01",
+			wantErr:     true,
+			errContains: "dns_provider is required",
+		},
+		{
+			name:        "provider without dns-01",
+			challenge:   "tls-alpn-01",
+			provider:    "cloudflare",
+			wantErr:     true,
+			errContains: "dns_provider may only be set",
+		},
+		{
+			name:        "provider without challenge type",
+			provider:    "cloudflare",
+			wantErr:     true,
+			errContains: "dns_provider may only be set",
+		},
+		{
+			name:        "creds ref without dns-01",
+			challenge:   "http-01",
+			credsRef:    "cred_abc123",
+			wantErr:     true,
+			errContains: "dns_credentials_ref may only be set",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &rpservice.Service{
+				ChallengeType:     tc.challenge,
+				DNSProvider:       tc.provider,
+				DNSCredentialsRef: tc.credsRef,
+			}
+			err := validateACMEConfig(svc)
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.errContains)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}

@@ -263,6 +263,10 @@ func (m *Manager) initializeServiceForCreate(ctx context.Context, accountID stri
 		}
 	}
 
+	if err := validateACMEConfig(service); err != nil {
+		return err
+	}
+
 	keyPair, err := sessionkey.GenerateKeyPair()
 	if err != nil {
 		return fmt.Errorf("generate session keys: %w", err)
@@ -602,6 +606,9 @@ func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.St
 	if err := validateHeaderAuthValues(service.Auth.HeaderAuths); err != nil {
 		return err
 	}
+	if err := validateACMEConfig(service); err != nil {
+		return err
+	}
 	m.preserveServiceMetadata(service, existingService)
 	m.preserveListenPort(service, existingService)
 	updateInfo.serviceEnabledChanged = existingService.Enabled != service.Enabled
@@ -700,6 +707,38 @@ func validateHeaderAuthValues(headers []*service.HeaderAuthConfig) error {
 			return status.Errorf(status.InvalidArgument, "header_auths[%d]: value is required", i)
 		}
 	}
+	return nil
+}
+
+// validateACMEConfig checks that the per-service ACME challenge fields are
+// internally consistent. Empty ChallengeType means "use the proxy's
+// configured default" and is always valid. DNSProvider is only meaningful
+// when ChallengeType is "dns-01".
+func validateACMEConfig(svc *service.Service) error {
+	switch svc.ChallengeType {
+	case "", "tls-alpn-01", "http-01", "dns-01":
+		// allowed
+	default:
+		return status.Errorf(status.InvalidArgument,
+			"challenge_type %q is not one of \"\", \"tls-alpn-01\", \"http-01\", \"dns-01\"",
+			svc.ChallengeType)
+	}
+
+	if svc.ChallengeType == "dns-01" && svc.DNSProvider == "" {
+		return status.Errorf(status.InvalidArgument,
+			"dns_provider is required when challenge_type is \"dns-01\"")
+	}
+
+	if svc.DNSProvider != "" && svc.ChallengeType != "dns-01" {
+		return status.Errorf(status.InvalidArgument,
+			"dns_provider may only be set when challenge_type is \"dns-01\"")
+	}
+
+	if svc.DNSCredentialsRef != "" && svc.ChallengeType != "dns-01" {
+		return status.Errorf(status.InvalidArgument,
+			"dns_credentials_ref may only be set when challenge_type is \"dns-01\"")
+	}
+
 	return nil
 }
 

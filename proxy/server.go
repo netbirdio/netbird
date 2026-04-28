@@ -70,10 +70,11 @@ type portRouter struct {
 }
 
 type Server struct {
-	mgmtClient    proto.ProxyServiceClient
-	proxy         *proxy.ReverseProxy
-	netbird       *roundtrip.NetBird
-	acme          *acme.Manager
+	mgmtClient      proto.ProxyServiceClient
+	proxy           *proxy.ReverseProxy
+	netbird         *roundtrip.NetBird
+	acme            *acme.Manager
+	autocertBackend *acme.AutocertBackend
 	auth          *auth.Middleware
 	http          *http.Server
 	https         *http.Server
@@ -591,15 +592,35 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 		"acme_server":    s.ACMEDirectory,
 		"challenge_type": s.ACMEChallengeType,
 	}).Debug("ACME certificates enabled, configuring certificate manager")
-	var err error
+
+	var (
+		err     error
+		backend acme.CertBackend
+	)
+	switch s.ACMEChallengeType {
+	case "tls-alpn-01", "http-01":
+		s.autocertBackend, err = acme.NewAutocertBackend(acme.AutocertBackendConfig{
+			CertDir:    s.CertificateDirectory,
+			ACMEURL:    s.ACMEDirectory,
+			EABKID:     s.ACMEEABKID,
+			EABHMACKey: s.ACMEEABHMACKey,
+			Logger:     s.Logger,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("create autocert backend: %w", err)
+		}
+		backend = s.autocertBackend
+	case "dns-01":
+		return nil, fmt.Errorf("dns-01 challenge type is not yet supported (Phase 1 Wave 2)")
+	default:
+		return nil, fmt.Errorf("unknown ACME challenge type %q", s.ACMEChallengeType)
+	}
+
 	s.acme, err = acme.NewManager(acme.ManagerConfig{
 		CertDir:     s.CertificateDirectory,
-		ACMEURL:     s.ACMEDirectory,
-		EABKID:      s.ACMEEABKID,
-		EABHMACKey:  s.ACMEEABHMACKey,
 		LockMethod:  s.CertLockMethod,
 		WildcardDir: s.WildcardCertDir,
-	}, s, s.Logger, s.meter)
+	}, backend, s, s.Logger, s.meter)
 	if err != nil {
 		return nil, fmt.Errorf("create ACME manager: %w", err)
 	}
@@ -609,7 +630,7 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 	if s.ACMEChallengeType == "http-01" {
 		s.http = &http.Server{
 			Addr:     s.ACMEChallengeAddress,
-			Handler:  s.acme.HTTPHandler(nil),
+			Handler:  s.autocertBackend.HTTPHandler(nil),
 			ErrorLog: newHTTPServerLogger(s.Logger, logtagValueACME),
 		}
 		go func() {
@@ -618,7 +639,7 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 			}
 		}()
 	}
-	tlsConfig = s.acme.TLSConfig()
+	tlsConfig = s.autocertBackend.TLSConfig()
 
 	// autocert.Manager.TLSConfig() wires its own GetCertificate, which
 	// bypasses our override that checks wildcards first.

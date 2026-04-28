@@ -129,6 +129,16 @@ message ProxyMapping {
   // For L4/TLS: the port the proxy listens on.
   int32 listen_port = 11;
   AccessRestrictions access_restrictions = 12;
+  // ACME challenge type for cert issuance: "" (use server default),
+  // "tls-alpn-01", "http-01", or "dns-01".
+  optional string challenge_type = 13;
+  // DNS provider name for dns-01 issuance (e.g., "cloudflare",
+  // "route53", "rfc2136"). Required when challenge_type is "dns-01";
+  // must be empty otherwise.
+  optional string dns_provider = 14;
+  // Opaque reference to the encrypted DNS provider credential record.
+  // Resolved by the proxy when invoking the dns-01 issuer.
+  optional string dns_credentials_ref = 15;
 }
 
 // SendAccessLogRequest consists of one or more AccessLogs from a Proxy.
