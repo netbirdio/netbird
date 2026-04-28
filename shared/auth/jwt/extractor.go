@@ -146,10 +146,11 @@ func (c *ClaimsExtractor) ToGroups(token *jwt.Token, claimName string) []string 
 	userJWTGroups := make([]string, 0)
 
 	if claim, ok := claims[claimName]; ok {
-		if group, ok := claim.(string); ok {
+		switch claimGroups := claim.(type) {
+		case string:
 			// Some IdPs emit a single group claim as a string instead of an array.
-			userJWTGroups = append(userJWTGroups, group)
-		} else if claimGroups, ok := claim.([]interface{}); ok {
+			userJWTGroups = append(userJWTGroups, claimGroups)
+		case []any:
 			for _, g := range claimGroups {
 				if group, ok := g.(string); ok {
 					userJWTGroups = append(userJWTGroups, group)
@@ -157,7 +158,7 @@ func (c *ClaimsExtractor) ToGroups(token *jwt.Token, claimName string) []string 
 					log.Debugf("JWT claim %q contains a non-string group (type: %T): %v", claimName, g, g)
 				}
 			}
-		} else {
+		default:
 			log.Debugf("JWT claim %q is not a string or string array (type: %T): %v", claimName, claim, claim)
 		}
 	} else {
