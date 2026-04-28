@@ -55,6 +55,16 @@ function preScore(candidate) {
   return { score, hardSignals, contradictions };
 }
 
+// GitHub Models gpt-4o has an 8000 token input limit.
+// Reserve ~2000 tokens for system prompt + response overhead.
+// 1 token ~= 4 chars, so cap user message at ~24000 chars.
+const MAX_USER_MESSAGE_CHARS = 24000;
+
+function truncate(text, maxChars) {
+  if (text.length <= maxChars) return text;
+  return text.slice(0, maxChars) + "\n\n[... truncated due to length]";
+}
+
 function buildUserMessage(candidate) {
   const { issue, comments, timeline } = candidate;
 
@@ -72,14 +82,14 @@ function buildUserMessage(candidate) {
     })
     .join("\n");
 
-  return [
+  const msg = [
     `## Issue #${issue.number}: ${issue.title}`,
     `URL: ${issue.html_url}`,
     `Created: ${issue.created_at} | Updated: ${issue.updated_at}`,
     `Labels: ${issue.labels.join(", ") || "none"}`,
     "",
     "### Body",
-    issue.body || "(empty)",
+    truncate(issue.body || "(empty)", 4000),
     "",
     "### Comments",
     commentBlock || "(none)",
@@ -87,6 +97,8 @@ function buildUserMessage(candidate) {
     "### Timeline events",
     timelineBlock || "(none)",
   ].join("\n");
+
+  return truncate(msg, MAX_USER_MESSAGE_CHARS);
 }
 
 const MODEL = "gpt-4o";
@@ -169,9 +181,13 @@ function enforcePolicy(modelOut, pre) {
     return "AUTO_CLOSE";
   }
 
+  if (modelOut.decision === "KEEP_OPEN" && pre.score < 25) {
+    return "KEEP_OPEN";
+  }
+
   if (
     modelOut.decision === "MANUAL_REVIEW" ||
-    modelOut.confidence >= 0.60 ||
+    modelOut.decision === "AUTO_CLOSE" ||
     pre.score >= 25
   ) {
     return "MANUAL_REVIEW";
