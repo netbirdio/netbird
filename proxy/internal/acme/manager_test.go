@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/proxy/internal/types"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 // newTestManager builds a Manager backed by an autocert backend pointed at a
@@ -35,13 +36,27 @@ func newTestManager(t *testing.T, cfg ManagerConfig, acmeURL string) (*Manager, 
 	if err != nil {
 		return nil, err
 	}
-	return NewManager(cfg, backend, nil, nil, nil)
+	backends := map[string]CertBackend{
+		"tls-alpn-01": backend,
+		"http-01":     backend,
+	}
+	return NewManager(cfg, backends, "tls-alpn-01", nil, nil, nil)
+}
+
+// addTestDomain calls AddDomain with empty options and asserts no error,
+// matching the pre-Slice-B test ergonomics. Tests that need to verify
+// the per-service options or error path call AddDomain directly.
+func addTestDomain(t *testing.T, mgr *Manager, d domain.Domain, accountID types.AccountID, serviceID types.ServiceID) bool {
+	t.Helper()
+	wildcardHit, err := mgr.AddDomain(d, accountID, serviceID, AddDomainOptions{})
+	require.NoError(t, err)
+	return wildcardHit
 }
 
 func TestHostPolicy(t *testing.T) {
 	mgr, err := newTestManager(t, ManagerConfig{CertDir: t.TempDir()}, "https://acme.example.com/directory")
 	require.NoError(t, err)
-	mgr.AddDomain("example.com", types.AccountID("acc1"), types.ServiceID("rp1"))
+	addTestDomain(t, mgr, "example.com", types.AccountID("acc1"), types.ServiceID("rp1"))
 
 	// Wait for the background prefetch goroutine to finish so the temp dir
 	// can be cleaned up without a race.
@@ -111,8 +126,8 @@ func TestDomainStates(t *testing.T) {
 
 	// AddDomain starts as pending, then the prefetch goroutine will fail
 	// (no real ACME server) and transition to failed.
-	mgr.AddDomain("a.example.com", types.AccountID("acc1"), types.ServiceID("rp1"))
-	mgr.AddDomain("b.example.com", types.AccountID("acc1"), types.ServiceID("rp1"))
+	addTestDomain(t, mgr, "a.example.com", types.AccountID("acc1"), types.ServiceID("rp1"))
+	addTestDomain(t, mgr, "b.example.com", types.AccountID("acc1"), types.ServiceID("rp1"))
 
 	assert.Equal(t, 2, mgr.TotalDomains(), "two domains registered")
 
@@ -228,12 +243,12 @@ func TestWildcardAddDomainSkipsACME(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add a wildcard-matching domain — should be immediately ready.
-	mgr.AddDomain("foo.example.com", types.AccountID("acc1"), types.ServiceID("svc1"))
+	addTestDomain(t, mgr, "foo.example.com", types.AccountID("acc1"), types.ServiceID("svc1"))
 	assert.Equal(t, 0, mgr.PendingCerts(), "wildcard domain should not be pending")
 	assert.Equal(t, []string{"foo.example.com"}, mgr.ReadyDomains())
 
 	// Add a non-wildcard domain — should go through ACME (pending then failed).
-	mgr.AddDomain("other.net", types.AccountID("acc2"), types.ServiceID("svc2"))
+	addTestDomain(t, mgr, "other.net", types.AccountID("acc2"), types.ServiceID("svc2"))
 	assert.Equal(t, 2, mgr.TotalDomains())
 
 	// Wait for the ACME prefetch to fail.
@@ -253,7 +268,7 @@ func TestWildcardGetCertificate(t *testing.T) {
 	mgr, err := newTestManager(t, ManagerConfig{CertDir: acmeDir, WildcardDir: wcDir}, "https://acme.example.com/directory")
 	require.NoError(t, err)
 
-	mgr.AddDomain("foo.example.com", types.AccountID("acc1"), types.ServiceID("svc1"))
+	addTestDomain(t, mgr, "foo.example.com", types.AccountID("acc1"), types.ServiceID("svc1"))
 
 	// GetCertificate for a wildcard-matching domain should return the static cert.
 	cert, err := mgr.GetCertificate(&tls.ClientHelloInfo{ServerName: "foo.example.com"})
@@ -274,8 +289,8 @@ func TestMultipleWildcards(t *testing.T) {
 	assert.ElementsMatch(t, []string{"*.example.com", "*.other.org"}, mgr.WildcardPatterns())
 
 	// Both wildcards should resolve.
-	mgr.AddDomain("foo.example.com", types.AccountID("acc1"), types.ServiceID("svc1"))
-	mgr.AddDomain("bar.other.org", types.AccountID("acc2"), types.ServiceID("svc2"))
+	addTestDomain(t, mgr, "foo.example.com", types.AccountID("acc1"), types.ServiceID("svc1"))
+	addTestDomain(t, mgr, "bar.other.org", types.AccountID("acc2"), types.ServiceID("svc2"))
 
 	assert.Equal(t, 0, mgr.PendingCerts())
 	assert.ElementsMatch(t, []string{"foo.example.com", "bar.other.org"}, mgr.ReadyDomains())
@@ -290,7 +305,7 @@ func TestMultipleWildcards(t *testing.T) {
 	assert.Contains(t, cert2.Leaf.DNSNames, "*.other.org")
 
 	// Non-matching domain falls through to ACME.
-	mgr.AddDomain("custom.net", types.AccountID("acc3"), types.ServiceID("svc3"))
+	addTestDomain(t, mgr, "custom.net", types.AccountID("acc3"), types.ServiceID("svc3"))
 	assert.Eventually(t, func() bool {
 		return mgr.PendingCerts() == 0
 	}, 30*time.Second, 100*time.Millisecond)
@@ -327,10 +342,12 @@ func TestNoWildcardDir(t *testing.T) {
 // calls return them — modeling the cross-replica disk-cache short circuit
 // that lets a second goroutine skip re-issuance.
 type countingBackend struct {
-	mu          sync.Mutex
-	issuedCount int
-	issued      map[string]*tls.Certificate
-	issueDelay  time.Duration
+	mu           sync.Mutex
+	issuedCount  int
+	deletedCount int
+	issued       map[string]*tls.Certificate
+	deleted      []string
+	issueDelay   time.Duration
 }
 
 func newCountingBackend(issueDelay time.Duration) *countingBackend {
@@ -361,10 +378,33 @@ func (b *countingBackend) ReadCertFromDisk(_ context.Context, name string) (*tls
 	return nil, errors.New("not issued yet")
 }
 
+func (b *countingBackend) DeleteCert(_ context.Context, name string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.deletedCount++
+	b.deleted = append(b.deleted, name)
+	delete(b.issued, name)
+	return nil
+}
+
 func (b *countingBackend) IssuedCount() int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.issuedCount
+}
+
+func (b *countingBackend) DeletedCount() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.deletedCount
+}
+
+func (b *countingBackend) DeletedNames() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	out := make([]string, len(b.deleted))
+	copy(out, b.deleted)
+	return out
 }
 
 // TestPrefetchSerializesIssuance verifies that two concurrent AddDomain
@@ -376,7 +416,8 @@ func (b *countingBackend) IssuedCount() int {
 func TestPrefetchSerializesIssuance(t *testing.T) {
 	backend := newCountingBackend(50 * time.Millisecond)
 
-	mgr, err := NewManager(ManagerConfig{CertDir: t.TempDir()}, backend, nil, nil, nil)
+	backends := map[string]CertBackend{"tls-alpn-01": backend}
+	mgr, err := NewManager(ManagerConfig{CertDir: t.TempDir()}, backends, "tls-alpn-01", nil, nil, nil)
 	require.NoError(t, err)
 
 	const dom = "example.com"
@@ -384,11 +425,11 @@ func TestPrefetchSerializesIssuance(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		mgr.AddDomain(dom, types.AccountID("a"), types.ServiceID("s1"))
+		_, _ = mgr.AddDomain(dom, types.AccountID("a"), types.ServiceID("s1"), AddDomainOptions{})
 	}()
 	go func() {
 		defer wg.Done()
-		mgr.AddDomain(dom, types.AccountID("a"), types.ServiceID("s2"))
+		_, _ = mgr.AddDomain(dom, types.AccountID("a"), types.ServiceID("s2"), AddDomainOptions{})
 	}()
 	wg.Wait()
 
@@ -399,4 +440,122 @@ func TestPrefetchSerializesIssuance(t *testing.T) {
 	assert.Equal(t, 1, backend.IssuedCount(),
 		"two AddDomain calls for the same domain should result in only one backend issuance via the locker + ReadCertFromDisk short circuit")
 	assert.Contains(t, mgr.ReadyDomains(), dom)
+}
+
+// drainPrefetch waits until all prefetch goroutines have finished. Tests
+// that exercise AddDomain need this so backend counters stabilize before
+// assertions run.
+func drainPrefetch(t *testing.T, mgr *Manager) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		return mgr.PendingCerts() == 0
+	}, 10*time.Second, 50*time.Millisecond, "prefetch goroutines should drain")
+}
+
+// TestPerServiceBackendRouting verifies that AddDomain with different
+// per-service ChallengeType values routes each domain to the matching
+// backend.
+func TestPerServiceBackendRouting(t *testing.T) {
+	tlsBackend := newCountingBackend(0)
+	dnsBackend := newCountingBackend(0)
+	backends := map[string]CertBackend{
+		"tls-alpn-01": tlsBackend,
+		"dns-01":      dnsBackend,
+	}
+	mgr, err := NewManager(ManagerConfig{CertDir: t.TempDir()}, backends, "tls-alpn-01", nil, nil, nil)
+	require.NoError(t, err)
+
+	_, err = mgr.AddDomain("public.example.com", types.AccountID("acc"), types.ServiceID("svc1"), AddDomainOptions{ChallengeType: "tls-alpn-01"})
+	require.NoError(t, err)
+	_, err = mgr.AddDomain("private.example.com", types.AccountID("acc"), types.ServiceID("svc2"), AddDomainOptions{ChallengeType: "dns-01"})
+	require.NoError(t, err)
+	drainPrefetch(t, mgr)
+
+	assert.Equal(t, 1, tlsBackend.IssuedCount(), "public service should issue via tls-alpn-01 backend")
+	assert.Equal(t, 1, dnsBackend.IssuedCount(), "private service should issue via dns-01 backend")
+}
+
+// TestAddDomainEmptyChallengeTypeUsesDefault confirms backwards compat:
+// a service with no per-service ChallengeType falls back to the manager's
+// default backend.
+func TestAddDomainEmptyChallengeTypeUsesDefault(t *testing.T) {
+	tlsBackend := newCountingBackend(0)
+	dnsBackend := newCountingBackend(0)
+	backends := map[string]CertBackend{
+		"tls-alpn-01": tlsBackend,
+		"dns-01":      dnsBackend,
+	}
+	mgr, err := NewManager(ManagerConfig{CertDir: t.TempDir()}, backends, "tls-alpn-01", nil, nil, nil)
+	require.NoError(t, err)
+
+	_, err = mgr.AddDomain("legacy.example.com", types.AccountID("acc"), types.ServiceID("svc"), AddDomainOptions{})
+	require.NoError(t, err)
+	drainPrefetch(t, mgr)
+
+	assert.Equal(t, 1, tlsBackend.IssuedCount(), "empty ChallengeType should use default backend")
+	assert.Equal(t, 0, dnsBackend.IssuedCount(), "non-default backend should not have been touched")
+}
+
+// TestAddDomainUnknownChallengeTypeErrors verifies that requesting a
+// challenge type with no registered backend produces a clear error.
+func TestAddDomainUnknownChallengeTypeErrors(t *testing.T) {
+	backend := newCountingBackend(0)
+	backends := map[string]CertBackend{"tls-alpn-01": backend}
+	mgr, err := NewManager(ManagerConfig{CertDir: t.TempDir()}, backends, "tls-alpn-01", nil, nil, nil)
+	require.NoError(t, err)
+
+	_, err = mgr.AddDomain("anywhere.example.com", types.AccountID("acc"), types.ServiceID("svc"), AddDomainOptions{ChallengeType: "dns-01"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no backend registered for challenge type")
+	assert.Equal(t, 0, backend.IssuedCount(), "no backend should have been invoked")
+}
+
+// TestConversionDeletesOldCert verifies that flipping a service's
+// ChallengeType (e.g., http-01 → dns-01) deletes the old backend's cert
+// before the new backend takes over.
+func TestConversionDeletesOldCert(t *testing.T) {
+	autocertBackend := newCountingBackend(0)
+	dnsBackend := newCountingBackend(0)
+	backends := map[string]CertBackend{
+		"tls-alpn-01": autocertBackend,
+		"http-01":     autocertBackend,
+		"dns-01":      dnsBackend,
+	}
+	mgr, err := NewManager(ManagerConfig{CertDir: t.TempDir()}, backends, "tls-alpn-01", nil, nil, nil)
+	require.NoError(t, err)
+
+	const dom = "convert.example.com"
+	_, err = mgr.AddDomain(dom, types.AccountID("acc"), types.ServiceID("svc"), AddDomainOptions{ChallengeType: "http-01"})
+	require.NoError(t, err)
+	drainPrefetch(t, mgr)
+	require.Equal(t, 1, autocertBackend.IssuedCount(), "first AddDomain should issue via the http-01 backend")
+
+	// Convert: same service, new ChallengeType.
+	_, err = mgr.AddDomain(dom, types.AccountID("acc"), types.ServiceID("svc"), AddDomainOptions{ChallengeType: "dns-01"})
+	require.NoError(t, err)
+	drainPrefetch(t, mgr)
+
+	assert.Equal(t, 1, autocertBackend.DeletedCount(),
+		"conversion should delete the old backend's cert")
+	assert.Equal(t, []string{dom}, autocertBackend.DeletedNames())
+	assert.Equal(t, 1, dnsBackend.IssuedCount(),
+		"new backend should issue once after conversion")
+}
+
+// TestRemoveDomainDeletesCert verifies that RemoveDomain cleans up the
+// cert from the backend that owned the domain.
+func TestRemoveDomainDeletesCert(t *testing.T) {
+	backend := newCountingBackend(0)
+	backends := map[string]CertBackend{"tls-alpn-01": backend}
+	mgr, err := NewManager(ManagerConfig{CertDir: t.TempDir()}, backends, "tls-alpn-01", nil, nil, nil)
+	require.NoError(t, err)
+
+	const dom = "ephemeral.example.com"
+	_, err = mgr.AddDomain(dom, types.AccountID("acc"), types.ServiceID("svc"), AddDomainOptions{})
+	require.NoError(t, err)
+	drainPrefetch(t, mgr)
+
+	mgr.RemoveDomain(dom)
+	assert.Equal(t, 1, backend.DeletedCount(), "RemoveDomain should delete the cached cert")
+	assert.Equal(t, []string{dom}, backend.DeletedNames())
 }

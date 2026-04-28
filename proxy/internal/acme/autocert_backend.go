@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -119,6 +120,18 @@ func (b *AutocertBackend) ReadCertFromDisk(ctx context.Context, name string) (*t
 // a domain-registration check that runs before issuance.
 func (b *AutocertBackend) SetHostPolicy(fn func(ctx context.Context, host string) error) {
 	b.manager.HostPolicy = autocert.HostPolicy(fn)
+}
+
+// DeleteCert satisfies CertBackend by removing the cached certificate
+// from autocert's DirCache. Idempotent: missing entries are not an error.
+func (b *AutocertBackend) DeleteCert(ctx context.Context, name string) error {
+	if b.manager.Cache == nil {
+		return nil
+	}
+	if err := b.manager.Cache.Delete(ctx, name); err != nil && !errors.Is(err, autocert.ErrCacheMiss) {
+		return fmt.Errorf("delete autocert cert %q: %w", name, err)
+	}
+	return nil
 }
 
 // HTTPHandler returns the http-01 challenge handler. Used by the proxy

@@ -34,6 +34,13 @@ type CertBackend interface {
 	// written the certificate, allowing the local issuance attempt to
 	// short-circuit. Returns an error if no valid certificate is on disk.
 	ReadCertFromDisk(ctx context.Context, name string) (*tls.Certificate, error)
+
+	// DeleteCert removes an issued certificate (and any associated key
+	// material) from the backend's on-disk cache. Used by the
+	// orchestrator when a domain is removed or its challenge type
+	// changes, to avoid leaving an orphan cert behind. Idempotent:
+	// a missing certificate is not an error.
+	DeleteCert(ctx context.Context, name string) error
 }
 
 // HostPolicySetter is an optional interface that backends with a host-level

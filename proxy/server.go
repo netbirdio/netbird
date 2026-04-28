@@ -131,9 +131,19 @@ type Server struct {
 	ACMEEABKID string
 	// ACMEEABHMACKey is the External Account Binding HMAC key (base64 URL-encoded) for CAs that require EAB.
 	ACMEEABHMACKey string
-	// ACMEChallengeType specifies the ACME challenge type: "http-01" or "tls-alpn-01".
-	// Defaults to "tls-alpn-01" if not specified.
+	// ACMEChallengeType specifies the ACME challenge type: "tls-alpn-01",
+	// "http-01", or "dns-01". Defaults to "tls-alpn-01" if not specified.
 	ACMEChallengeType string
+	// ACMEAccountEmail is the email used to register the ACME account.
+	// Required when ACMEChallengeType is "dns-01"; not used by autocert.
+	ACMEAccountEmail string
+	// ACMEDNSProvider names the DNS-01 provider (e.g., "cloudflare").
+	// Required when ACMEChallengeType is "dns-01".
+	ACMEDNSProvider string
+	// ACMEDNSCredentials is a provider-specific credential string for
+	// the DNS-01 provider. For "cloudflare", this is a scoped API token.
+	// Required when ACMEChallengeType is "dns-01".
+	ACMEDNSCredentials string
 	// CertLockMethod controls how ACME certificate locks are coordinated
 	// across replicas. Default: CertLockAuto (detect environment).
 	CertLockMethod acme.CertLockMethod
@@ -593,34 +603,55 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 		"challenge_type": s.ACMEChallengeType,
 	}).Debug("ACME certificates enabled, configuring certificate manager")
 
-	var (
-		err     error
-		backend acme.CertBackend
-	)
 	switch s.ACMEChallengeType {
-	case "tls-alpn-01", "http-01":
-		s.autocertBackend, err = acme.NewAutocertBackend(acme.AutocertBackendConfig{
-			CertDir:    s.CertificateDirectory,
-			ACMEURL:    s.ACMEDirectory,
-			EABKID:     s.ACMEEABKID,
-			EABHMACKey: s.ACMEEABHMACKey,
-			Logger:     s.Logger,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("create autocert backend: %w", err)
-		}
-		backend = s.autocertBackend
-	case "dns-01":
-		return nil, fmt.Errorf("dns-01 challenge type is not yet supported (Phase 1 Wave 2)")
+	case "tls-alpn-01", "http-01", "dns-01":
+		// supported
 	default:
 		return nil, fmt.Errorf("unknown ACME challenge type %q", s.ACMEChallengeType)
+	}
+
+	// Build a multi-backend map so per-service ChallengeType selection
+	// can route to the appropriate backend. Construct any backend whose
+	// configuration is present, regardless of the global default — that
+	// way a service can opt into a non-default challenge type.
+	backends := make(map[string]acme.CertBackend, 3)
+
+	autocertBackend, err := acme.NewAutocertBackend(acme.AutocertBackendConfig{
+		CertDir:    s.CertificateDirectory,
+		ACMEURL:    s.ACMEDirectory,
+		EABKID:     s.ACMEEABKID,
+		EABHMACKey: s.ACMEEABHMACKey,
+		Logger:     s.Logger,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create autocert backend: %w", err)
+	}
+	s.autocertBackend = autocertBackend
+	backends["tls-alpn-01"] = autocertBackend
+	backends["http-01"] = autocertBackend
+
+	if s.ACMEDNSProvider != "" && s.ACMEDNSCredentials != "" && s.ACMEAccountEmail != "" {
+		legoBackend, err := acme.NewLegoBackend(acme.LegoBackendConfig{
+			CertDir:          s.CertificateDirectory,
+			ACMEDirectoryURL: s.ACMEDirectory,
+			AccountEmail:     s.ACMEAccountEmail,
+			DNSProvider:      s.ACMEDNSProvider,
+			DNSCredentials:   s.ACMEDNSCredentials,
+			Logger:           s.Logger,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("create lego backend: %w", err)
+		}
+		backends["dns-01"] = legoBackend
+	} else if s.ACMEChallengeType == "dns-01" {
+		return nil, fmt.Errorf("acme-challenge-type=dns-01 requires acme-account-email, acme-dns-provider, and acme-dns-credentials")
 	}
 
 	s.acme, err = acme.NewManager(acme.ManagerConfig{
 		CertDir:     s.CertificateDirectory,
 		LockMethod:  s.CertLockMethod,
 		WildcardDir: s.WildcardCertDir,
-	}, backend, s, s.Logger, s.meter)
+	}, backends, s.ACMEChallengeType, s, s.Logger, s.meter)
 	if err != nil {
 		return nil, fmt.Errorf("create ACME manager: %w", err)
 	}
@@ -639,10 +670,17 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 			}
 		}()
 	}
-	tlsConfig = s.autocertBackend.TLSConfig()
 
-	// autocert.Manager.TLSConfig() wires its own GetCertificate, which
-	// bypasses our override that checks wildcards first.
+	if s.autocertBackend != nil {
+		// autocert.Manager.TLSConfig() pre-fills NextProtos for the
+		// tls-alpn-01 challenge; use it as the base. We override
+		// GetCertificate below to install the wildcard-aware path.
+		tlsConfig = s.autocertBackend.TLSConfig()
+	} else {
+		// dns-01: vanilla TLS config; the manager handles GetCertificate.
+		tlsConfig = &tls.Config{}
+	}
+
 	tlsConfig.GetCertificate = s.acme.GetCertificate
 
 	// ServerName needs to be set to allow for ACME to work correctly
@@ -1155,7 +1193,15 @@ func (s *Server) setupHTTPMapping(ctx context.Context, mapping *proto.ProxyMappi
 
 	var wildcardHit bool
 	if s.acme != nil {
-		wildcardHit = s.acme.AddDomain(d, accountID, svcID)
+		var err error
+		wildcardHit, err = s.acme.AddDomain(d, accountID, svcID, acme.AddDomainOptions{
+			ChallengeType:     mapping.GetChallengeType(),
+			DNSProvider:       mapping.GetDnsProvider(),
+			DNSCredentialsRef: mapping.GetDnsCredentialsRef(),
+		})
+		if err != nil {
+			return fmt.Errorf("register domain for ACME: %w", err)
+		}
 	}
 	s.mainRouter.AddRoute(nbtcp.SNIHost(mapping.GetDomain()), nbtcp.Route{
 		Type:      nbtcp.RouteHTTP,

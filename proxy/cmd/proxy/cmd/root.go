@@ -49,6 +49,9 @@ var (
 	acmeEABKID            string
 	acmeEABHMACKey        string
 	acmeChallengeType     string
+	acmeAccountEmail      string
+	acmeDNSProvider       string
+	acmeDNSCredentials    string
 	debugEndpoint         bool
 	debugEndpointAddr     string
 	healthAddr            string
@@ -90,7 +93,10 @@ func init() {
 	rootCmd.Flags().StringVar(&acmeDir, "acme-dir", envStringOrDefault("NB_PROXY_ACME_DIRECTORY", acme.LetsEncryptURL), "URL of ACME challenge directory")
 	rootCmd.Flags().StringVar(&acmeEABKID, "acme-eab-kid", envStringOrDefault("NB_PROXY_ACME_EAB_KID", ""), "ACME EAB KID for account registration")
 	rootCmd.Flags().StringVar(&acmeEABHMACKey, "acme-eab-hmac-key", envStringOrDefault("NB_PROXY_ACME_EAB_HMAC_KEY", ""), "ACME EAB HMAC key for account registration")
-	rootCmd.Flags().StringVar(&acmeChallengeType, "acme-challenge-type", envStringOrDefault("NB_PROXY_ACME_CHALLENGE_TYPE", "tls-alpn-01"), "ACME challenge type: tls-alpn-01 (default, port 443 only) or http-01 (requires port 80)")
+	rootCmd.Flags().StringVar(&acmeChallengeType, "acme-challenge-type", envStringOrDefault("NB_PROXY_ACME_CHALLENGE_TYPE", "tls-alpn-01"), "ACME challenge type: tls-alpn-01 (default, port 443 only), http-01 (requires port 80), or dns-01 (requires acme-dns-provider + acme-dns-credentials)")
+	rootCmd.Flags().StringVar(&acmeAccountEmail, "acme-account-email", envStringOrDefault("NB_PROXY_ACME_ACCOUNT_EMAIL", ""), "ACME account email (required for dns-01)")
+	rootCmd.Flags().StringVar(&acmeDNSProvider, "acme-dns-provider", envStringOrDefault("NB_PROXY_ACME_DNS_PROVIDER", ""), "DNS provider for dns-01 (currently supported: cloudflare). Required when acme-challenge-type=dns-01")
+	rootCmd.Flags().StringVar(&acmeDNSCredentials, "acme-dns-credentials", envStringOrDefault("NB_PROXY_ACME_DNS_CREDENTIALS", ""), "Provider-specific credentials for dns-01 (Cloudflare: scoped API token with Zone:DNS:Edit). Required when acme-challenge-type=dns-01")
 	rootCmd.Flags().BoolVar(&debugEndpoint, "debug-endpoint", envBoolOrDefault("NB_PROXY_DEBUG_ENDPOINT", false), "Enable debug HTTP endpoint")
 	rootCmd.Flags().StringVar(&debugEndpointAddr, "debug-endpoint-addr", envStringOrDefault("NB_PROXY_DEBUG_ENDPOINT_ADDRESS", "localhost:8444"), "Address for the debug HTTP endpoint")
 	rootCmd.Flags().StringVar(&healthAddr, "health-addr", envStringOrDefault("NB_PROXY_HEALTH_ADDRESS", "localhost:8080"), "Address for the health probe endpoint (liveness/readiness/startup)")
@@ -176,6 +182,9 @@ func runServer(cmd *cobra.Command, args []string) error {
 		ACMEEABKID:               acmeEABKID,
 		ACMEEABHMACKey:           acmeEABHMACKey,
 		ACMEChallengeType:        acmeChallengeType,
+		ACMEAccountEmail:         acmeAccountEmail,
+		ACMEDNSProvider:          acmeDNSProvider,
+		ACMEDNSCredentials:       acmeDNSCredentials,
 		DebugEndpointEnabled:     debugEndpoint,
 		DebugEndpointAddress:     debugEndpointAddr,
 		HealthAddress:            healthAddr,
