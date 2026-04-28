@@ -103,16 +103,18 @@ for (const d of decisions) {
   const [owner, repo] = d.repository.split("/");
 
   if (d.final_decision === "AUTO_CLOSE") {
-    if (dryRun) continue;
+    if (dryRun) {
+        await addLabel(owner, repo, d.issue_number, ["resolution-candidate"]);
+        const issueNodeId = await getIssueNodeId(owner, repo, d.issue_number);
+        const itemId = await addToProject(issueNodeId);
+        await setTextField(itemId, process.env.PROJECT_REASON_FIELD_ID, `DRY_RUN:${d.model.reason_code}`);
+        await setTextField(itemId, process.env.PROJECT_CONFIDENCE_FIELD_ID, String(d.model.confidence));
+        console.log(`[DRY RUN] Would auto-close #${d.issue_number}`);
+        continue;
+    }
 
     await addLabel(owner, repo, d.issue_number, ["auto-closed-resolved"]);
-    await addComment(
-      owner,
-      repo,
-      d.issue_number,
-      d.model.close_comment ||
-        "This appears resolved based on linked evidence, so we’re closing it automatically. Reply if this still reproduces and we’ll reopen."
-    );
+    await addComment(owner, repo, d.issue_number, d.model.close_comment);
     await closeIssue(owner, repo, d.issue_number);
   }
 

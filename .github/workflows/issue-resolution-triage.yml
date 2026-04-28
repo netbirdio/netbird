@@ -20,22 +20,23 @@ permissions:
   pull-requests: read
   models: read
 
+# todo: remove hardcoded values
 jobs:
   triage:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      DRY_RUN: ${{ inputs.dry_run || 'true' }}
-      MAX_ISSUES: ${{ inputs.max_issues || '100' }}
+      DRY_RUN: "true""
+      MAX_ISSUES: "10"
       REPO: ${{ github.repository }}
-      PROJECT_ID: ${{ vars.ISSUE_REVIEW_PROJECT_ID }}
-      PROJECT_STATUS_FIELD_ID: ${{ vars.PROJECT_STATUS_FIELD_ID }}
-      PROJECT_CONFIDENCE_FIELD_ID: ${{ vars.PROJECT_CONFIDENCE_FIELD_ID }}
-      PROJECT_REASON_FIELD_ID: ${{ vars.PROJECT_REASON_FIELD_ID }}
-      PROJECT_EVIDENCE_FIELD_ID: ${{ vars.PROJECT_EVIDENCE_FIELD_ID }}
-      PROJECT_LINKED_PR_FIELD_ID: ${{ vars.PROJECT_LINKED_PR_FIELD_ID }}
-      PROJECT_REPO_FIELD_ID: ${{ vars.PROJECT_REPO_FIELD_ID }}
-      PROJECT_STATUS_OPTION_NEEDS_REVIEW_ID: ${{ vars.PROJECT_STATUS_OPTION_NEEDS_REVIEW_ID }}
+      PROJECT_ID: "PVT_kwDOBfz4Jc4BVeWR"
+      PROJECT_STATUS_FIELD_ID: "PVTSSF_lADOBfz4Jc4BVeWRzhQ56sU"
+      PROJECT_CONFIDENCE_FIELD_ID: "PVTF_lADOBfz4Jc4BVeWRzhQ57x4"
+      PROJECT_REASON_FIELD_ID: "PVTF_lADOBfz4Jc4BVeWRzhQ5-Lg""
+      PROJECT_EVIDENCE_FIELD_ID: "PVTF_lADOBfz4Jc4BVeWRzhQ5-Pw"
+      PROJECT_LINKED_PR_FIELD_ID: "PVTF_lADOBfz4Jc4BVeWRzhQ56sc"
+      PROJECT_REPO_FIELD_ID: "PVTF_lADOBfz4Jc4BVeWRzhQ56sk"
+      PROJECT_STATUS_OPTION_NEEDS_REVIEW_ID: "a55a2be9"
 
     steps:
       - uses: actions/checkout@v4
