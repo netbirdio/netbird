@@ -630,27 +630,48 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 	backends["tls-alpn-01"] = autocertBackend
 	backends["http-01"] = autocertBackend
 
-	if s.ACMEDNSProvider != "" && s.ACMEDNSCredentials != "" && s.ACMEAccountEmail != "" {
-		legoBackend, err := acme.NewLegoBackend(acme.LegoBackendConfig{
-			CertDir:          s.CertificateDirectory,
-			ACMEDirectoryURL: s.ACMEDirectory,
-			AccountEmail:     s.ACMEAccountEmail,
-			DNSProvider:      s.ACMEDNSProvider,
-			DNSCredentials:   s.ACMEDNSCredentials,
-			Logger:           s.Logger,
+	// Always construct a LegoBackend if we have a cert directory, so
+	// per-service dns-01 credentials (resolved from the encrypted store
+	// via the management RPC) can be used regardless of the global
+	// ACMEChallengeType. The legacy env-var fields (account email,
+	// provider, credentials) feed the manager-level fallback used when
+	// a service has no dns_credentials_ref.
+	legoBackend, err := acme.NewLegoBackend(acme.LegoBackendConfig{
+		CertDir: s.CertificateDirectory,
+		Logger:  s.Logger,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create lego backend: %w", err)
+	}
+	backends["dns-01"] = legoBackend
+
+	if s.ACMEChallengeType == "dns-01" && s.ACMEAccountEmail == "" {
+		return nil, fmt.Errorf("acme-challenge-type=dns-01 requires acme-account-email")
+	}
+
+	credResolver := func(ctx context.Context, accountID, ref string) (string, string, error) {
+		if s.mgmtClient == nil {
+			return "", "", fmt.Errorf("management client is not configured")
+		}
+		resp, err := s.mgmtClient.ResolveCredential(ctx, &proto.ResolveCredentialRequest{
+			AccountId:     accountID,
+			CredentialRef: ref,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("create lego backend: %w", err)
+			return "", "", err
 		}
-		backends["dns-01"] = legoBackend
-	} else if s.ACMEChallengeType == "dns-01" {
-		return nil, fmt.Errorf("acme-challenge-type=dns-01 requires acme-account-email, acme-dns-provider, and acme-dns-credentials")
+		return resp.GetSecret(), resp.GetProviderType(), nil
 	}
 
 	s.acme, err = acme.NewManager(acme.ManagerConfig{
-		CertDir:     s.CertificateDirectory,
-		LockMethod:  s.CertLockMethod,
-		WildcardDir: s.WildcardCertDir,
+		CertDir:                  s.CertificateDirectory,
+		LockMethod:               s.CertLockMethod,
+		WildcardDir:              s.WildcardCertDir,
+		ResolveCredential:        credResolver,
+		FallbackDNSCredentials:   s.ACMEDNSCredentials,
+		FallbackDNSProvider:      s.ACMEDNSProvider,
+		FallbackACMEAccountEmail: s.ACMEAccountEmail,
+		FallbackACMEDirectoryURL: s.ACMEDirectory,
 	}, backends, s.ACMEChallengeType, s, s.Logger, s.meter)
 	if err != nil {
 		return nil, fmt.Errorf("create ACME manager: %w", err)

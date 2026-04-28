@@ -231,6 +231,14 @@ const (
 	DomainDeleted Activity = 119
 	// DomainValidated indicates that a custom domain was validated
 	DomainValidated Activity = 120
+	// CredentialCreated indicates that a user stored a new DNS provider credential
+	CredentialCreated Activity = 121
+	// CredentialRead indicates that the management server decrypted a stored credential
+	CredentialRead Activity = 122
+	// CredentialDeleted indicates that a user deleted a stored credential
+	CredentialDeleted Activity = 123
+	// CredentialUpdated indicates that a user updated (rotated) a stored credential
+	CredentialUpdated Activity = 124
 
 	AccountDeleted Activity = 99999
 )
@@ -382,6 +390,11 @@ var activityMap = map[Activity]Code{
 	DomainAdded:     {"Domain added", "domain.add"},
 	DomainDeleted:   {"Domain deleted", "domain.delete"},
 	DomainValidated: {"Domain validated", "domain.validate"},
+
+	CredentialCreated: {"Credential created", "credential.create"},
+	CredentialRead:    {"Credential read", "credential.read"},
+	CredentialDeleted: {"Credential deleted", "credential.delete"},
+	CredentialUpdated: {"Credential updated", "credential.update"},
 }
 
 // StringCode returns a string code of the activity

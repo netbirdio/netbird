@@ -15,28 +15,30 @@ import (
 )
 
 // LegoBackendConfig configures a LegoBackend.
+//
+// Per-issuance fields (DNS provider, account email, plaintext credentials)
+// are NOT in this struct; they are passed to Issue per call. This lets
+// the manager resolve credentials from the encrypted store at issuance
+// time and apply rotation without restarting the proxy.
 type LegoBackendConfig struct {
 	// CertDir is the parent directory for cert storage. The backend
 	// uses a `<CertDir>/lego` subdir to keep its files separate from
 	// autocert's DirCache layout, allowing the two backends to coexist
 	// during the autocert→Lego transition.
 	CertDir string
-	// ACMEDirectoryURL is the ACME directory URL.
-	ACMEDirectoryURL string
-	// AccountEmail is the ACME account email (Lego requires one).
-	AccountEmail string
-	// DNSProvider names the DNS-01 provider (e.g., "cloudflare").
-	DNSProvider string
-	// DNSCredentials is the provider-specific credential string.
-	DNSCredentials string
 	// Logger is optional; defaults to logrus.StandardLogger().
 	Logger *log.Logger
 }
 
 // LegoBackend implements CertBackend using go-acme/lego with a DNS-01
-// challenge solver. Issuance is lazy: GetCertificate loads from the
-// on-disk cache when present, otherwise calls Lego to obtain a fresh
-// cert and persists it before returning.
+// challenge solver.
+//
+// Issuance is eager-via-prefetch: the orchestrator (Manager) calls Issue
+// with the resolved credentials. GetCertificate then serves the cached
+// certificate. Unlike AutocertBackend, GetCertificate does NOT lazy-issue
+// on cache miss — it returns an error so the TLS handshake fails fast.
+// The asymmetry vs. autocert is deliberate: dns-01 issuance requires
+// per-service credentials that aren't available in a TLS handshake.
 type LegoBackend struct {
 	cfg     LegoBackendConfig
 	storage string
@@ -44,24 +46,10 @@ type LegoBackend struct {
 }
 
 // NewLegoBackend constructs a LegoBackend, validating its configuration
-// and creating the storage subdir. It does NOT register an ACME account
-// or invoke Lego eagerly — both happen lazily on the first
-// GetCertificate call for a domain not already cached on disk.
+// and creating the storage subdir.
 func NewLegoBackend(cfg LegoBackendConfig) (*LegoBackend, error) {
 	if cfg.CertDir == "" {
 		return nil, fmt.Errorf("cert dir is required")
-	}
-	if cfg.ACMEDirectoryURL == "" {
-		return nil, fmt.Errorf("ACME directory URL is required")
-	}
-	if cfg.AccountEmail == "" {
-		return nil, fmt.Errorf("account email is required")
-	}
-	if cfg.DNSProvider == "" {
-		return nil, fmt.Errorf("DNS provider is required")
-	}
-	if cfg.DNSCredentials == "" {
-		return nil, fmt.Errorf("DNS credentials are required")
 	}
 	logger := cfg.Logger
 	if logger == nil {
@@ -74,45 +62,67 @@ func NewLegoBackend(cfg LegoBackendConfig) (*LegoBackend, error) {
 	return &LegoBackend{cfg: cfg, storage: storage, logger: logger}, nil
 }
 
-// GetCertificate returns the TLS certificate for hello.ServerName,
-// loading from the on-disk cache if present or issuing fresh via Lego
-// if not. The orchestrator (Manager) wraps calls in its distributed
-// lock to prevent duplicate issuance across replicas.
+// Issue obtains a fresh certificate via Lego DNS-01 with the given
+// per-issuance credentials, persisting the cert and key under the
+// backend's storage directory. Idempotent: if a valid cert already
+// exists on disk, returns nil without re-issuing.
+//
+// A fresh legoclient.Client is constructed per call. ACME account state
+// (account.key + account.json) is cached on disk in the storage dir,
+// so re-registration is a no-op after the first call.
+func (b *LegoBackend) Issue(ctx context.Context, domain, providerName, accountEmail, acmeDirectoryURL, plaintextSecret string) error {
+	if domain == "" {
+		return fmt.Errorf("domain is required")
+	}
+	if providerName == "" {
+		return fmt.Errorf("provider name is required")
+	}
+	if accountEmail == "" {
+		return fmt.Errorf("account email is required")
+	}
+	if acmeDirectoryURL == "" {
+		return fmt.Errorf("ACME directory URL is required")
+	}
+	if plaintextSecret == "" {
+		return fmt.Errorf("plaintext secret is required")
+	}
+
+	cli, err := legoclient.New(legoclient.Config{
+		StorageDir:       b.storage,
+		ACMEDirectoryURL: acmeDirectoryURL,
+		AccountEmail:     accountEmail,
+		DNSProvider:      providerName,
+		DNSCredentials:   plaintextSecret,
+		Logger:           b.logger,
+	})
+	if err != nil {
+		return fmt.Errorf("build lego client: %w", err)
+	}
+	if err := cli.IssueCertificate(ctx, domain); err != nil {
+		return fmt.Errorf("issue cert for %q: %w", domain, err)
+	}
+	return nil
+}
+
+// GetCertificate returns the cached certificate for hello.ServerName.
+// Returns an error if no valid cert is on disk; this method does NOT
+// trigger fresh issuance. Issuance flows exclusively through Issue
+// (called by the manager's prefetch path with resolved credentials).
 func (b *LegoBackend) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 	host := hello.ServerName
 	if host == "" {
 		return nil, fmt.Errorf("missing SNI server name")
 	}
-	if cert, err := b.loadCert(host); err == nil {
-		return cert, nil
-	}
-
-	b.logger.Infof("[lego-backend] no cached cert for %q, issuing via DNS-01", host)
-	cli, err := legoclient.New(legoclient.Config{
-		StorageDir:       b.storage,
-		ACMEDirectoryURL: b.cfg.ACMEDirectoryURL,
-		AccountEmail:     b.cfg.AccountEmail,
-		DNSProvider:      b.cfg.DNSProvider,
-		DNSCredentials:   b.cfg.DNSCredentials,
-		Logger:           b.logger,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("build lego client: %w", err)
-	}
-	if err := cli.IssueCertificate(context.Background(), host); err != nil {
-		return nil, fmt.Errorf("issue cert for %q: %w", host, err)
-	}
 	cert, err := b.loadCert(host)
 	if err != nil {
-		return nil, fmt.Errorf("reload cert from disk after issuance: %w", err)
+		return nil, fmt.Errorf("no cached lego cert for %q (prefetch must run first): %w", host, err)
 	}
 	return cert, nil
 }
 
 // ReadCertFromDisk satisfies CertBackend by loading an already-issued
-// cert from the on-disk cache without invoking Lego. Used by the
-// orchestrator's prefetch loop to detect when another replica has
-// written the cert.
+// cert from the on-disk cache. Used by the orchestrator's prefetch
+// loop to detect when another replica has written the cert.
 func (b *LegoBackend) ReadCertFromDisk(_ context.Context, name string) (*tls.Certificate, error) {
 	return b.loadCert(name)
 }

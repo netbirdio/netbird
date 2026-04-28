@@ -25,6 +25,29 @@ service ProxyService {
   // ValidateSession validates a session token and checks user access permissions.
   // Called by the proxy after receiving a session token from OIDC callback.
   rpc ValidateSession(ValidateSessionRequest) returns (ValidateSessionResponse);
+
+  // ResolveCredential returns the decrypted DNS provider credential for
+  // the given account + reference. Called by the proxy at issuance time
+  // for services configured with challenge_type=dns-01 + dns_credentials_ref.
+  // The management server audit-logs every resolve.
+  rpc ResolveCredential(ResolveCredentialRequest) returns (ResolveCredentialResponse);
+}
+
+message ResolveCredentialRequest {
+  // AccountID owning the credential.
+  string account_id = 1;
+  // CredentialRef matches the dns_credentials_ref field on a ProxyMapping.
+  string credential_ref = 2;
+}
+
+message ResolveCredentialResponse {
+  // Secret is the decrypted credential value to feed to the DNS provider
+  // (e.g., a Cloudflare API token).
+  string secret = 1;
+  // ProviderType is the credential's stored provider name (e.g.,
+  // "cloudflare"). The proxy validates this matches the service's
+  // dns_provider field.
+  string provider_type = 2;
 }
 
 // ProxyCapabilities describes what a proxy can handle.

@@ -1357,6 +1357,54 @@ components:
           required:
             - peers
             - resources
+    CredentialRequest:
+      type: object
+      description: |
+        Credential to store. The plaintext secret is sent in the request
+        body and immediately encrypted at rest in the management database.
+        It is never returned on subsequent reads.
+      properties:
+        provider_type:
+          type: string
+          description: Identifier of the consumer (e.g., "cloudflare", "route53").
+          example: cloudflare
+        name:
+          type: string
+          description: User-friendly label.
+          example: Cloudflare DNS edit
+        secret:
+          type: string
+          description: The plaintext secret to store. Write-only; never returned on reads.
+          example: cf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+      required:
+        - provider_type
+        - name
+        - secret
+    Credential:
+      type: object
+      description: Credential metadata. The secret value is never included on responses.
+      properties:
+        id:
+          type: string
+          description: Opaque server-generated reference for the credential.
+          example: 0c7b4a1e-7e9b-4f6e-8d2a-b3a3a85b1c45
+        provider_type:
+          type: string
+          description: Identifier of the consumer.
+          example: cloudflare
+        name:
+          type: string
+          description: User-friendly label.
+          example: Cloudflare DNS edit
+        created_at:
+          type: string
+          format: date-time
+          description: Creation timestamp.
+      required:
+        - id
+        - provider_type
+        - name
+        - created_at
     PolicyRuleMinimum:
       type: object
       properties:
@@ -11742,6 +11790,157 @@ paths:
                 example: { }
         '400':
           "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/credentials:
+    get:
+      tags: [ Credentials ]
+      summary: List credentials
+      description: Returns metadata for all credentials owned by the calling account. Optionally filtered by provider_type. Secrets are never included in the response.
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: query
+          name: provider_type
+          required: false
+          schema:
+            type: string
+          description: Filter by provider_type (exact match).
+          example: cloudflare
+      responses:
+        '200':
+          description: A JSON array of Credential metadata records.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Credential'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      tags: [ Credentials ]
+      summary: Create a credential
+      description: Stores a new credential. The plaintext secret is encrypted at rest. The response contains metadata only.
+      operationId: createCredential
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CredentialRequest'
+      responses:
+        '200':
+          description: Credential created. Response contains metadata only.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Credential'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/credentials/{credentialId}:
+    parameters:
+      - in: path
+        name: credentialId
+        required: true
+        schema:
+          type: string
+        description: Credential reference.
+    get:
+      tags: [ Credentials ]
+      summary: Get credential metadata
+      description: Returns metadata for a single credential. Secret is never included.
+      operationId: getCredential
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: Credential metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Credential'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    put:
+      tags: [ Credentials ]
+      summary: Update (rotate) a credential
+      description: |
+        Overwrites the encrypted secret (and optionally provider type and
+        name) for an existing credential. The ref is stable: services that
+        reference this credential pick up the new secret on their next
+        renewal. Response carries metadata only — the new secret is never
+        echoed back.
+      operationId: updateCredential
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CredentialRequest'
+      responses:
+        '200':
+          description: Credential updated. Response contains metadata only.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Credential'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      tags: [ Credentials ]
+      summary: Delete a credential
+      description: Removes a credential record. Idempotent.
+      operationId: deleteCredential
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: Credential deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                example: { }
         '401':
           "$ref": "#/components/responses/requires_authentication"
         '403':

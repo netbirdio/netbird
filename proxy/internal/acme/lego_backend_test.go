@@ -5,9 +5,9 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"crypto/tls"
 	"encoding/pem"
 	"math/big"
 	"os"
@@ -24,35 +24,15 @@ import (
 func validLegoCfg(t *testing.T) LegoBackendConfig {
 	t.Helper()
 	return LegoBackendConfig{
-		CertDir:          t.TempDir(),
-		ACMEDirectoryURL: "https://acme-staging-v02.api.letsencrypt.org/directory",
-		AccountEmail:     "ops@example.com",
-		DNSProvider:      "cloudflare",
-		DNSCredentials:   "fake-token-not-used-because-cache-hit",
+		CertDir: t.TempDir(),
 	}
 }
 
 func TestNewLegoBackendValidation(t *testing.T) {
-	cases := []struct {
-		name        string
-		mutate      func(*LegoBackendConfig)
-		errContains string
-	}{
-		{"empty CertDir", func(c *LegoBackendConfig) { c.CertDir = "" }, "cert dir"},
-		{"empty ACMEDirectoryURL", func(c *LegoBackendConfig) { c.ACMEDirectoryURL = "" }, "ACME directory URL"},
-		{"empty AccountEmail", func(c *LegoBackendConfig) { c.AccountEmail = "" }, "account email"},
-		{"empty DNSProvider", func(c *LegoBackendConfig) { c.DNSProvider = "" }, "DNS provider"},
-		{"empty DNSCredentials", func(c *LegoBackendConfig) { c.DNSCredentials = "" }, "DNS credentials"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			cfg := validLegoCfg(t)
-			tc.mutate(&cfg)
-			_, err := NewLegoBackend(cfg)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), tc.errContains)
-		})
-	}
+	cfg := LegoBackendConfig{} // empty CertDir
+	_, err := NewLegoBackend(cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cert dir")
 }
 
 func TestNewLegoBackendCreatesStorageDir(t *testing.T) {
@@ -75,14 +55,23 @@ func TestLegoBackendGetCertificateCacheHit(t *testing.T) {
 	storage := filepath.Join(cfg.CertDir, "lego")
 	writeTestCertPair(t, storage, host)
 
-	// GetCertificate must hit the cache and return the cert without
-	// invoking Lego (which would fail because the token is fake and the
-	// ACME URL points at staging — neither is reachable from this test).
+	// GetCertificate must hit the cache and return the cert. After
+	// Slice B, GetCertificate never invokes Lego — issuance is
+	// exclusively via Issue() called from the manager's prefetch path.
 	cert, err := backend.GetCertificate(&tls.ClientHelloInfo{ServerName: host})
 	require.NoError(t, err)
 	require.NotNil(t, cert)
 	require.NotNil(t, cert.Leaf)
 	assert.Contains(t, cert.Leaf.DNSNames, host)
+}
+
+func TestLegoBackendGetCertificateMissReturnsError(t *testing.T) {
+	backend, err := NewLegoBackend(validLegoCfg(t))
+	require.NoError(t, err)
+
+	_, err = backend.GetCertificate(&tls.ClientHelloInfo{ServerName: "uncached.example.com"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no cached lego cert")
 }
 
 func TestLegoBackendGetCertificateMissingSNI(t *testing.T) {
@@ -127,7 +116,6 @@ func TestLegoBackendDeleteCert(t *testing.T) {
 	storage := filepath.Join(cfg.CertDir, "lego")
 	writeTestCertPair(t, storage, host)
 
-	// Pre-deletion: files exist.
 	require.FileExists(t, filepath.Join(storage, host+".crt"))
 	require.FileExists(t, filepath.Join(storage, host+".key"))
 
@@ -135,8 +123,31 @@ func TestLegoBackendDeleteCert(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(storage, host+".crt"))
 	assert.NoFileExists(t, filepath.Join(storage, host+".key"))
 
-	// Idempotent: deleting again is not an error.
+	// Idempotent.
 	assert.NoError(t, backend.DeleteCert(context.Background(), host))
+}
+
+func TestLegoBackendIssueValidation(t *testing.T) {
+	backend, err := NewLegoBackend(validLegoCfg(t))
+	require.NoError(t, err)
+
+	cases := []struct {
+		name                                                   string
+		domain, provider, email, acmeURL, secret, errSubstring string
+	}{
+		{"empty domain", "", "cloudflare", "ops@example.com", "https://acme.example/dir", "tok", "domain is required"},
+		{"empty provider", "x.example.com", "", "ops@example.com", "https://acme.example/dir", "tok", "provider name is required"},
+		{"empty email", "x.example.com", "cloudflare", "", "https://acme.example/dir", "tok", "account email is required"},
+		{"empty acme URL", "x.example.com", "cloudflare", "ops@example.com", "", "tok", "ACME directory URL is required"},
+		{"empty secret", "x.example.com", "cloudflare", "ops@example.com", "https://acme.example/dir", "", "plaintext secret is required"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := backend.Issue(context.Background(), tc.domain, tc.provider, tc.email, tc.acmeURL, tc.secret)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.errSubstring)
+		})
+	}
 }
 
 // writeTestCertPair writes a self-signed leaf certificate plus its

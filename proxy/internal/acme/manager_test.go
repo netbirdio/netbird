@@ -559,3 +559,129 @@ func TestRemoveDomainDeletesCert(t *testing.T) {
 	assert.Equal(t, 1, backend.DeletedCount(), "RemoveDomain should delete the cached cert")
 	assert.Equal(t, []string{dom}, backend.DeletedNames())
 }
+
+// TestIssueViaLegoUsesResolver — when a service has a dns_credentials_ref
+// and the manager has a resolver, issueViaLego must call the resolver
+// and pass the secret + provider into LegoBackend.Issue. We exercise
+// the helper directly with a real *LegoBackend whose storage dir we
+// pre-populate, so the whole prefetch loop doesn't need to run end-to-end.
+func TestIssueViaLegoUsesResolver(t *testing.T) {
+	tlsBackend := newCountingBackend(0)
+	legoBackend, err := NewLegoBackend(LegoBackendConfig{CertDir: t.TempDir()})
+	require.NoError(t, err)
+
+	var (
+		gotAccountID, gotRef string
+	)
+	resolver := func(_ context.Context, accountID, ref string) (string, string, error) {
+		gotAccountID = accountID
+		gotRef = ref
+		return "resolved-secret", "cloudflare", nil
+	}
+
+	cfg := ManagerConfig{
+		CertDir:           t.TempDir(),
+		ResolveCredential: resolver,
+	}
+	backends := map[string]CertBackend{
+		"tls-alpn-01": tlsBackend,
+		"dns-01":      legoBackend,
+	}
+	mgr, err := NewManager(cfg, backends, "tls-alpn-01", nil, nil, nil)
+	require.NoError(t, err)
+
+	// Register a domain whose AddDomainOptions captures the cred ref.
+	mgr.mu.Lock()
+	mgr.domains[domain.Domain("test.example.com")] = &domainInfo{
+		accountID:         types.AccountID("acc"),
+		serviceID:         types.ServiceID("svc"),
+		state:             domainPending,
+		challengeType:     "dns-01",
+		dnsProvider:       "cloudflare",
+		dnsCredentialsRef: "cred-abc",
+		backend:           legoBackend,
+	}
+	mgr.mu.Unlock()
+
+	// issueViaLego will call legoBackend.Issue(...) which constructs a
+	// real legoclient and tries to talk to ACME — it'll fail because the
+	// ACME URL is fake, but the validation/resolution path runs first
+	// and that's what we're verifying here.
+	_ = mgr.issueViaLego(context.Background(), "test.example.com", "test.example.com", legoBackend)
+
+	assert.Equal(t, "acc", gotAccountID, "resolver must be called with the registered account ID")
+	assert.Equal(t, "cred-abc", gotRef, "resolver must be called with the registered ref")
+}
+
+// TestIssueViaLegoFallbackToEnvVar — when a service has no
+// dns_credentials_ref, the manager must use its env-var fallback creds.
+func TestIssueViaLegoFallbackToEnvVar(t *testing.T) {
+	tlsBackend := newCountingBackend(0)
+	legoBackend, err := NewLegoBackend(LegoBackendConfig{CertDir: t.TempDir()})
+	require.NoError(t, err)
+
+	resolverCalled := false
+	resolver := func(_ context.Context, _, _ string) (string, string, error) {
+		resolverCalled = true
+		return "should-not-be-used", "", nil
+	}
+
+	cfg := ManagerConfig{
+		CertDir:                  t.TempDir(),
+		ResolveCredential:        resolver,
+		FallbackDNSCredentials:   "env-secret",
+		FallbackDNSProvider:      "cloudflare",
+		FallbackACMEAccountEmail: "ops@example.com",
+		FallbackACMEDirectoryURL: "https://acme.example/dir",
+	}
+	backends := map[string]CertBackend{
+		"tls-alpn-01": tlsBackend,
+		"dns-01":      legoBackend,
+	}
+	mgr, err := NewManager(cfg, backends, "tls-alpn-01", nil, nil, nil)
+	require.NoError(t, err)
+
+	mgr.mu.Lock()
+	mgr.domains[domain.Domain("legacy.example.com")] = &domainInfo{
+		accountID:     types.AccountID("acc"),
+		serviceID:     types.ServiceID("svc"),
+		state:         domainPending,
+		challengeType: "dns-01",
+		// No dns_credentials_ref → fallback path
+		backend: legoBackend,
+	}
+	mgr.mu.Unlock()
+
+	_ = mgr.issueViaLego(context.Background(), "legacy.example.com", "legacy.example.com", legoBackend)
+	assert.False(t, resolverCalled, "resolver must not be called when no dns_credentials_ref is set")
+}
+
+// TestIssueViaLegoErrorsWhenNoCredsAvailable — service has dns-01 but
+// neither a ref nor env-var fallback is configured.
+func TestIssueViaLegoErrorsWhenNoCredsAvailable(t *testing.T) {
+	tlsBackend := newCountingBackend(0)
+	legoBackend, err := NewLegoBackend(LegoBackendConfig{CertDir: t.TempDir()})
+	require.NoError(t, err)
+
+	cfg := ManagerConfig{CertDir: t.TempDir()}
+	backends := map[string]CertBackend{
+		"tls-alpn-01": tlsBackend,
+		"dns-01":      legoBackend,
+	}
+	mgr, err := NewManager(cfg, backends, "tls-alpn-01", nil, nil, nil)
+	require.NoError(t, err)
+
+	mgr.mu.Lock()
+	mgr.domains[domain.Domain("orphan.example.com")] = &domainInfo{
+		accountID:     types.AccountID("acc"),
+		serviceID:     types.ServiceID("svc"),
+		state:         domainPending,
+		challengeType: "dns-01",
+		backend:       legoBackend,
+	}
+	mgr.mu.Unlock()
+
+	err = mgr.issueViaLego(context.Background(), "orphan.example.com", "orphan.example.com", legoBackend)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no DNS-01 credentials available")
+}

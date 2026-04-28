@@ -1789,6 +1789,35 @@ type CreateTenantRequest struct {
 	Name string `json:"name"`
 }
 
+// Credential Credential metadata. The secret value is never included on responses.
+type Credential struct {
+	// CreatedAt Creation timestamp.
+	CreatedAt time.Time `json:"created_at"`
+
+	// Id Opaque server-generated reference for the credential.
+	Id string `json:"id"`
+
+	// Name User-friendly label.
+	Name string `json:"name"`
+
+	// ProviderType Identifier of the consumer.
+	ProviderType string `json:"provider_type"`
+}
+
+// CredentialRequest Credential to store. The plaintext secret is sent in the request
+// body and immediately encrypted at rest in the management database.
+// It is never returned on subsequent reads.
+type CredentialRequest struct {
+	// Name User-friendly label.
+	Name string `json:"name"`
+
+	// ProviderType Identifier of the consumer (e.g., "cloudflare", "route53").
+	ProviderType string `json:"provider_type"`
+
+	// Secret The plaintext secret to store. Write-only; never returned on reads.
+	Secret string `json:"secret"`
+}
+
 // DNSChallengeResponse defines model for DNSChallengeResponse.
 type DNSChallengeResponse struct {
 	// DnsChallenge The DNS challenge to set in a TXT record
@@ -4749,6 +4778,12 @@ type ZoneRequest struct {
 // Conflict Standard error response. Note: The exact structure of this error response is inferred from `util.WriteErrorResponse` and `util.WriteError` usage in the provided Go code, as a specific Go struct for errors was not provided.
 type Conflict = ErrorResponse
 
+// GetApiCredentialsParams defines parameters for GetApiCredentials.
+type GetApiCredentialsParams struct {
+	// ProviderType Filter by provider_type (exact match).
+	ProviderType *string `form:"provider_type,omitempty" json:"provider_type,omitempty"`
+}
+
 // GetApiEventsNetworkTrafficParams defines parameters for GetApiEventsNetworkTraffic.
 type GetApiEventsNetworkTrafficParams struct {
 	// Page Page number
@@ -4946,6 +4981,12 @@ type GetApiUsersParams struct {
 
 // PutApiAccountsAccountIdJSONRequestBody defines body for PutApiAccountsAccountId for application/json ContentType.
 type PutApiAccountsAccountIdJSONRequestBody = AccountRequest
+
+// CreateCredentialJSONRequestBody defines body for CreateCredential for application/json ContentType.
+type CreateCredentialJSONRequestBody = CredentialRequest
+
+// UpdateCredentialJSONRequestBody defines body for UpdateCredential for application/json ContentType.
+type UpdateCredentialJSONRequestBody = CredentialRequest
 
 // PostApiDnsNameserversJSONRequestBody defines body for PostApiDnsNameservers for application/json ContentType.
 type PostApiDnsNameserversJSONRequestBody = NameserverGroupRequest

@@ -15,9 +15,11 @@ import (
 	"sync"
 	"time"
 
+	credmgr "github.com/netbirdio/netbird/management/internals/modules/credentials/manager"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/job"
 	"github.com/netbirdio/netbird/shared/auth"
+	"github.com/netbirdio/netbird/util/crypt"
 
 	cacheStore "github.com/eko/gocache/lib/v4/store"
 	"github.com/eko/gocache/store/redis/v4"
@@ -109,6 +111,8 @@ type DefaultAccountManager struct {
 	metrics telemetry.AppMetrics
 
 	permissionsManager permissions.Manager
+
+	credentialsManager *credmgr.Manager
 
 	disableDefaultPolicy bool
 }
@@ -250,6 +254,18 @@ func BuildManager(
 
 	am.externalCacheManager = nbcache.NewUserDataCache(sharedCacheStore)
 	am.cacheManager = nbcache.NewAccountUserDataCache(am.loadAccount, sharedCacheStore)
+
+	if config.DataStoreEncryptionKey != "" {
+		fieldEncrypt, err := crypt.NewFieldEncrypt(config.DataStoreEncryptionKey)
+		if err != nil {
+			return nil, fmt.Errorf("create field encryptor for credentials: %w", err)
+		}
+		credMgr, err := credmgr.New(am.Store, fieldEncrypt, am)
+		if err != nil {
+			return nil, fmt.Errorf("create credentials manager: %w", err)
+		}
+		am.credentialsManager = credMgr
+	}
 
 	if !isNil(am.idpManager) && !IsEmbeddedIdp(am.idpManager) {
 		go func() {

@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/credentials"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -146,6 +147,12 @@ type MockAccountManager struct {
 	GetUserInviteInfoFunc      func(ctx context.Context, token string) (*types.UserInviteInfo, error)
 	ListUserInvitesFunc        func(ctx context.Context, accountID, initiatorUserID string) ([]*types.UserInvite, error)
 	DeleteUserInviteFunc       func(ctx context.Context, accountID, initiatorUserID, inviteID string) error
+
+	CreateCredentialFunc      func(ctx context.Context, accountID, userID, providerType, name, plaintextSecret string) (*credentials.Credential, error)
+	GetCredentialMetadataFunc func(ctx context.Context, accountID, userID, ref string) (*credentials.Credential, error)
+	ListCredentialsFunc       func(ctx context.Context, accountID, userID, providerTypeFilter string) ([]*credentials.Credential, error)
+	UpdateCredentialFunc      func(ctx context.Context, accountID, userID, ref, providerType, name, plaintextSecret string) (*credentials.Credential, error)
+	DeleteCredentialFunc      func(ctx context.Context, accountID, userID, ref string) error
 }
 
 func (am *MockAccountManager) SetServiceManager(serviceManager service.Manager) {
@@ -1122,4 +1129,44 @@ func (am *MockAccountManager) DeleteIdentityProvider(ctx context.Context, accoun
 		return am.DeleteIdentityProviderFunc(ctx, accountID, idpID, userID)
 	}
 	return status.Errorf(codes.Unimplemented, "method DeleteIdentityProvider is not implemented")
+}
+
+// CreateCredential mocks CreateCredential of the AccountManager interface
+func (am *MockAccountManager) CreateCredential(ctx context.Context, accountID, userID, providerType, name, plaintextSecret string) (*credentials.Credential, error) {
+	if am.CreateCredentialFunc != nil {
+		return am.CreateCredentialFunc(ctx, accountID, userID, providerType, name, plaintextSecret)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method CreateCredential is not implemented")
+}
+
+// GetCredentialMetadata mocks GetCredentialMetadata of the AccountManager interface
+func (am *MockAccountManager) GetCredentialMetadata(ctx context.Context, accountID, userID, ref string) (*credentials.Credential, error) {
+	if am.GetCredentialMetadataFunc != nil {
+		return am.GetCredentialMetadataFunc(ctx, accountID, userID, ref)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetCredentialMetadata is not implemented")
+}
+
+// ListCredentials mocks ListCredentials of the AccountManager interface
+func (am *MockAccountManager) ListCredentials(ctx context.Context, accountID, userID, providerTypeFilter string) ([]*credentials.Credential, error) {
+	if am.ListCredentialsFunc != nil {
+		return am.ListCredentialsFunc(ctx, accountID, userID, providerTypeFilter)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method ListCredentials is not implemented")
+}
+
+// DeleteCredential mocks DeleteCredential of the AccountManager interface
+func (am *MockAccountManager) DeleteCredential(ctx context.Context, accountID, userID, ref string) error {
+	if am.DeleteCredentialFunc != nil {
+		return am.DeleteCredentialFunc(ctx, accountID, userID, ref)
+	}
+	return status.Errorf(codes.Unimplemented, "method DeleteCredential is not implemented")
+}
+
+// UpdateCredential mocks UpdateCredential of the AccountManager interface
+func (am *MockAccountManager) UpdateCredential(ctx context.Context, accountID, userID, ref, providerType, name, plaintextSecret string) (*credentials.Credential, error) {
+	if am.UpdateCredentialFunc != nil {
+		return am.UpdateCredentialFunc(ctx, accountID, userID, ref, providerType, name, plaintextSecret)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateCredential is not implemented")
 }

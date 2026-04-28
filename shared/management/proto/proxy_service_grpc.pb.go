@@ -27,6 +27,11 @@ type ProxyServiceClient interface {
 	// ValidateSession validates a session token and checks user access permissions.
 	// Called by the proxy after receiving a session token from OIDC callback.
 	ValidateSession(ctx context.Context, in *ValidateSessionRequest, opts ...grpc.CallOption) (*ValidateSessionResponse, error)
+	// ResolveCredential returns the decrypted DNS provider credential for
+	// the given account + reference. Called by the proxy at issuance time
+	// for services configured with challenge_type=dns-01 + dns_credentials_ref.
+	// The management server audit-logs every resolve.
+	ResolveCredential(ctx context.Context, in *ResolveCredentialRequest, opts ...grpc.CallOption) (*ResolveCredentialResponse, error)
 }
 
 type proxyServiceClient struct {
@@ -123,6 +128,15 @@ func (c *proxyServiceClient) ValidateSession(ctx context.Context, in *ValidateSe
 	return out, nil
 }
 
+func (c *proxyServiceClient) ResolveCredential(ctx context.Context, in *ResolveCredentialRequest, opts ...grpc.CallOption) (*ResolveCredentialResponse, error) {
+	out := new(ResolveCredentialResponse)
+	err := c.cc.Invoke(ctx, "/management.ProxyService/ResolveCredential", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ProxyServiceServer is the server API for ProxyService service.
 // All implementations must embed UnimplementedProxyServiceServer
 // for forward compatibility
@@ -136,6 +150,11 @@ type ProxyServiceServer interface {
 	// ValidateSession validates a session token and checks user access permissions.
 	// Called by the proxy after receiving a session token from OIDC callback.
 	ValidateSession(context.Context, *ValidateSessionRequest) (*ValidateSessionResponse, error)
+	// ResolveCredential returns the decrypted DNS provider credential for
+	// the given account + reference. Called by the proxy at issuance time
+	// for services configured with challenge_type=dns-01 + dns_credentials_ref.
+	// The management server audit-logs every resolve.
+	ResolveCredential(context.Context, *ResolveCredentialRequest) (*ResolveCredentialResponse, error)
 	mustEmbedUnimplementedProxyServiceServer()
 }
 
@@ -163,6 +182,9 @@ func (UnimplementedProxyServiceServer) GetOIDCURL(context.Context, *GetOIDCURLRe
 }
 func (UnimplementedProxyServiceServer) ValidateSession(context.Context, *ValidateSessionRequest) (*ValidateSessionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ValidateSession not implemented")
+}
+func (UnimplementedProxyServiceServer) ResolveCredential(context.Context, *ResolveCredentialRequest) (*ResolveCredentialResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ResolveCredential not implemented")
 }
 func (UnimplementedProxyServiceServer) mustEmbedUnimplementedProxyServiceServer() {}
 
@@ -306,6 +328,24 @@ func _ProxyService_ValidateSession_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ProxyService_ResolveCredential_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResolveCredentialRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProxyServiceServer).ResolveCredential(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/management.ProxyService/ResolveCredential",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProxyServiceServer).ResolveCredential(ctx, req.(*ResolveCredentialRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ProxyService_ServiceDesc is the grpc.ServiceDesc for ProxyService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -336,6 +376,10 @@ var ProxyService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ValidateSession",
 			Handler:    _ProxyService_ValidateSession_Handler,
+		},
+		{
+			MethodName: "ResolveCredential",
+			Handler:    _ProxyService_ResolveCredential_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

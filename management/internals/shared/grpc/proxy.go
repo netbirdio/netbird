@@ -81,7 +81,18 @@ type ProxyServiceServer struct {
 	// Store for PKCE verifiers
 	pkceVerifierStore *PKCEVerifierStore
 
+	// credentialResolver resolves stored DNS provider credentials at
+	// proxy issuance time. Optional: nil means dns-01 with stored
+	// credentials is unavailable (proxies must use the env-var fallback).
+	credentialResolver CredentialResolver
+
 	cancel context.CancelFunc
+}
+
+// CredentialResolver returns the decrypted DNS provider credential for
+// a given (account, ref) pair. Implemented by the account manager.
+type CredentialResolver interface {
+	ResolveCredentialSecret(ctx context.Context, accountID, ref string) (secret, providerType string, err error)
 }
 
 const pkceVerifierTTL = 10 * time.Minute
@@ -147,6 +158,15 @@ func (s *ProxyServiceServer) SetProxyController(proxyController proxy.Controller
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.proxyController = proxyController
+}
+
+// SetCredentialResolver wires the credential resolver used by the
+// ResolveCredential RPC. Must be called before serving if dns-01 with
+// stored credentials is to be supported.
+func (s *ProxyServiceServer) SetCredentialResolver(resolver CredentialResolver) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.credentialResolver = resolver
 }
 
 // GetMappingUpdate handles the control stream with proxy clients
@@ -714,6 +734,45 @@ func (s *ProxyServiceServer) SendStatusUpdate(ctx context.Context, req *proto.Se
 	}).Info("Service status updated")
 
 	return &proto.SendStatusUpdateResponse{}, nil
+}
+
+// ResolveCredential returns the decrypted DNS provider credential for
+// the given account + ref. Called by the proxy at issuance time when a
+// service is configured with challenge_type=dns-01 and a
+// dns_credentials_ref.
+//
+// Trust model: the calling proxy is already authenticated via the
+// gRPC interceptor chain (NB_PROXY_TOKEN). This handler trusts the
+// proxy's claimed account_id, matching how ProxyMapping push works.
+// Per-proxy account-list pinning is a Wave 6 hardening item.
+func (s *ProxyServiceServer) ResolveCredential(ctx context.Context, req *proto.ResolveCredentialRequest) (*proto.ResolveCredentialResponse, error) {
+	accountID := req.GetAccountId()
+	ref := req.GetCredentialRef()
+	if accountID == "" || ref == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "account_id and credential_ref are required")
+	}
+
+	s.mu.RLock()
+	resolver := s.credentialResolver
+	s.mu.RUnlock()
+	if resolver == nil {
+		return nil, status.Errorf(codes.FailedPrecondition, "credential resolver is not configured on this management server")
+	}
+
+	secret, providerType, err := resolver.ResolveCredentialSecret(ctx, accountID, ref)
+	if err != nil {
+		sErr, isNbErr := nbstatus.FromError(err)
+		if isNbErr && sErr.Type() == nbstatus.NotFound {
+			return nil, status.Errorf(codes.NotFound, "credential %s not found", ref)
+		}
+		log.WithContext(ctx).WithError(err).Error("failed to resolve credential")
+		return nil, status.Errorf(codes.Internal, "resolve credential: %v", err)
+	}
+
+	return &proto.ResolveCredentialResponse{
+		Secret:       secret,
+		ProviderType: providerType,
+	}, nil
 }
 
 // protoStatusToInternal maps proto status to internal service status.

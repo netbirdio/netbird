@@ -12,6 +12,7 @@ import (
 
 	gomock "github.com/golang/mock/gomock"
 	dns "github.com/netbirdio/netbird/dns"
+	credentials "github.com/netbirdio/netbird/management/internals/modules/credentials"
 	accesslogs "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	domain "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	proxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
@@ -165,19 +166,6 @@ func (mr *MockStoreMockRecorder) CleanupStaleProxies(ctx, inactivityDuration int
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CleanupStaleProxies", reflect.TypeOf((*MockStore)(nil).CleanupStaleProxies), ctx, inactivityDuration)
 }
 
-// GetClusterSupportsCrowdSec mocks base method.
-func (m *MockStore) GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetClusterSupportsCrowdSec", ctx, clusterAddr)
-	ret0, _ := ret[0].(*bool)
-	return ret0
-}
-
-// GetClusterSupportsCrowdSec indicates an expected call of GetClusterSupportsCrowdSec.
-func (mr *MockStoreMockRecorder) GetClusterSupportsCrowdSec(ctx, clusterAddr interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetClusterSupportsCrowdSec", reflect.TypeOf((*MockStore)(nil).GetClusterSupportsCrowdSec), ctx, clusterAddr)
-}
 // Close mocks base method.
 func (m *MockStore) Close(ctx context.Context) error {
 	m.ctrl.T.Helper()
@@ -248,6 +236,20 @@ func (m *MockStore) CreateAccessLog(ctx context.Context, log *accesslogs.AccessL
 func (mr *MockStoreMockRecorder) CreateAccessLog(ctx, log interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAccessLog", reflect.TypeOf((*MockStore)(nil).CreateAccessLog), ctx, log)
+}
+
+// CreateCredential mocks base method.
+func (m *MockStore) CreateCredential(ctx context.Context, c *credentials.Credential) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateCredential", ctx, c)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateCredential indicates an expected call of CreateCredential.
+func (mr *MockStoreMockRecorder) CreateCredential(ctx, c interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateCredential", reflect.TypeOf((*MockStore)(nil).CreateCredential), ctx, c)
 }
 
 // CreateCustomDomain mocks base method.
@@ -375,6 +377,20 @@ func (m *MockStore) DeleteAccount(ctx context.Context, account *types2.Account) 
 func (mr *MockStoreMockRecorder) DeleteAccount(ctx, account interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAccount", reflect.TypeOf((*MockStore)(nil).DeleteAccount), ctx, account)
+}
+
+// DeleteCredential mocks base method.
+func (m *MockStore) DeleteCredential(ctx context.Context, accountID, ref string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteCredential", ctx, accountID, ref)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteCredential indicates an expected call of DeleteCredential.
+func (mr *MockStoreMockRecorder) DeleteCredential(ctx, accountID, ref interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteCredential", reflect.TypeOf((*MockStore)(nil).DeleteCredential), ctx, accountID, ref)
 }
 
 // DeleteCustomDomain mocks base method.
@@ -1388,6 +1404,20 @@ func (mr *MockStoreMockRecorder) GetClusterRequireSubdomain(ctx, clusterAddr int
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetClusterRequireSubdomain", reflect.TypeOf((*MockStore)(nil).GetClusterRequireSubdomain), ctx, clusterAddr)
 }
 
+// GetClusterSupportsCrowdSec mocks base method.
+func (m *MockStore) GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetClusterSupportsCrowdSec", ctx, clusterAddr)
+	ret0, _ := ret[0].(*bool)
+	return ret0
+}
+
+// GetClusterSupportsCrowdSec indicates an expected call of GetClusterSupportsCrowdSec.
+func (mr *MockStoreMockRecorder) GetClusterSupportsCrowdSec(ctx, clusterAddr interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetClusterSupportsCrowdSec", reflect.TypeOf((*MockStore)(nil).GetClusterSupportsCrowdSec), ctx, clusterAddr)
+}
+
 // GetClusterSupportsCustomPorts mocks base method.
 func (m *MockStore) GetClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool {
 	m.ctrl.T.Helper()
@@ -1400,6 +1430,21 @@ func (m *MockStore) GetClusterSupportsCustomPorts(ctx context.Context, clusterAd
 func (mr *MockStoreMockRecorder) GetClusterSupportsCustomPorts(ctx, clusterAddr interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetClusterSupportsCustomPorts", reflect.TypeOf((*MockStore)(nil).GetClusterSupportsCustomPorts), ctx, clusterAddr)
+}
+
+// GetCredentialByRef mocks base method.
+func (m *MockStore) GetCredentialByRef(ctx context.Context, accountID, ref string) (*credentials.Credential, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCredentialByRef", ctx, accountID, ref)
+	ret0, _ := ret[0].(*credentials.Credential)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetCredentialByRef indicates an expected call of GetCredentialByRef.
+func (mr *MockStoreMockRecorder) GetCredentialByRef(ctx, accountID, ref interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCredentialByRef", reflect.TypeOf((*MockStore)(nil).GetCredentialByRef), ctx, accountID, ref)
 }
 
 // GetCustomDomain mocks base method.
@@ -2405,6 +2450,21 @@ func (mr *MockStoreMockRecorder) IsPrimaryAccount(ctx, accountID interface{}) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsPrimaryAccount", reflect.TypeOf((*MockStore)(nil).IsPrimaryAccount), ctx, accountID)
 }
 
+// ListCredentialsByAccount mocks base method.
+func (m *MockStore) ListCredentialsByAccount(ctx context.Context, accountID, providerTypeFilter string) ([]*credentials.Credential, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListCredentialsByAccount", ctx, accountID, providerTypeFilter)
+	ret0, _ := ret[0].([]*credentials.Credential)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListCredentialsByAccount indicates an expected call of ListCredentialsByAccount.
+func (mr *MockStoreMockRecorder) ListCredentialsByAccount(ctx, accountID, providerTypeFilter interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCredentialsByAccount", reflect.TypeOf((*MockStore)(nil).ListCredentialsByAccount), ctx, accountID, providerTypeFilter)
+}
+
 // ListCustomDomains mocks base method.
 func (m *MockStore) ListCustomDomains(ctx context.Context, accountID string) ([]*domain.Domain, error) {
 	m.ctrl.T.Helper()
@@ -2935,6 +2995,20 @@ func (m *MockStore) UpdateAccountNetwork(ctx context.Context, accountID string, 
 func (mr *MockStoreMockRecorder) UpdateAccountNetwork(ctx, accountID, ipNet interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAccountNetwork", reflect.TypeOf((*MockStore)(nil).UpdateAccountNetwork), ctx, accountID, ipNet)
+}
+
+// UpdateCredential mocks base method.
+func (m *MockStore) UpdateCredential(ctx context.Context, c *credentials.Credential) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateCredential", ctx, c)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateCredential indicates an expected call of UpdateCredential.
+func (mr *MockStoreMockRecorder) UpdateCredential(ctx, c interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCredential", reflect.TypeOf((*MockStore)(nil).UpdateCredential), ctx, c)
 }
 
 // UpdateCustomDomain mocks base method.

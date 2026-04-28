@@ -39,12 +39,14 @@ const (
 )
 
 type domainInfo struct {
-	accountID     types.AccountID
-	serviceID     types.ServiceID
-	state         domainState
-	err           string
-	challengeType string
-	backend       CertBackend
+	accountID         types.AccountID
+	serviceID         types.ServiceID
+	state             domainState
+	err               string
+	challengeType     string
+	dnsProvider       string
+	dnsCredentialsRef string
+	backend           CertBackend
 }
 
 type metricsRecorder interface {
@@ -59,9 +61,17 @@ type wildcardEntry struct {
 	watcher *certwatch.Watcher
 }
 
+// CredentialResolver returns the decrypted DNS-01 credential for a given
+// account + reference. Implemented at the proxy layer as a closure over
+// the management gRPC client. Optional: when nil, the manager falls back
+// to env-var credentials (FallbackDNSCredentials) for dns-01 issuance.
+type CredentialResolver func(ctx context.Context, accountID, ref string) (secret, providerType string, err error)
+
 // ManagerConfig holds the orchestration configuration for the ACME
 // certificate manager. Backend-specific configuration (ACME URL, EAB
-// credentials, etc.) lives on the corresponding backend's config struct.
+// credentials, etc.) lives on the corresponding backend's config struct,
+// EXCEPT for dns-01 fallback / per-issuance values, which the manager
+// itself owns because they are passed per-call to LegoBackend.Issue.
 type ManagerConfig struct {
 	// CertDir is the directory used for distributed lock files. Backends
 	// that persist certs to disk typically use the same directory.
@@ -73,6 +83,22 @@ type ManagerConfig struct {
 	// extracted from the certificates' SAN lists. Domains matching a
 	// wildcard are served from disk; all others go through the backend.
 	WildcardDir string
+
+	// ResolveCredential is called at issuance time to fetch the
+	// decrypted DNS-01 credential for a service that has a
+	// dns_credentials_ref. If nil, only the env-var fallback is
+	// available.
+	ResolveCredential CredentialResolver
+
+	// FallbackDNSCredentials, FallbackDNSProvider, FallbackACMEAccountEmail
+	// and FallbackACMEDirectoryURL provide the values used when a service
+	// has challenge_type=dns-01 but no dns_credentials_ref (legacy /
+	// env-var-driven deployments). All four must be non-empty for the
+	// fallback to apply.
+	FallbackDNSCredentials    string
+	FallbackDNSProvider       string
+	FallbackACMEAccountEmail  string
+	FallbackACMEDirectoryURL  string
 }
 
 // Manager orchestrates certificate issuance and serving on top of one or
@@ -88,6 +114,14 @@ type Manager struct {
 	// defaultChallengeType is the fallback used when AddDomain is called
 	// without an explicit ChallengeType. Must exist as a key in backends.
 	defaultChallengeType string
+
+	// resolveCredential and the fallback* fields supply DNS-01 issuance
+	// credentials at prefetch time. See ManagerConfig for semantics.
+	resolveCredential        CredentialResolver
+	fallbackDNSCredentials   string
+	fallbackDNSProvider      string
+	fallbackACMEAccountEmail string
+	fallbackACMEDirectoryURL string
 
 	certDir string
 	locker  certLocker
@@ -121,14 +155,19 @@ func NewManager(cfg ManagerConfig, backends map[string]CertBackend, defaultChall
 		logger = log.StandardLogger()
 	}
 	mgr := &Manager{
-		backends:             backends,
-		defaultChallengeType: defaultChallengeType,
-		certDir:              cfg.CertDir,
-		locker:               newCertLocker(cfg.LockMethod, cfg.CertDir, logger),
-		domains:              make(map[domain.Domain]*domainInfo),
-		certNotifier:         notifier,
-		logger:               logger,
-		metrics:              metrics,
+		backends:                 backends,
+		defaultChallengeType:     defaultChallengeType,
+		resolveCredential:        cfg.ResolveCredential,
+		fallbackDNSCredentials:   cfg.FallbackDNSCredentials,
+		fallbackDNSProvider:      cfg.FallbackDNSProvider,
+		fallbackACMEAccountEmail: cfg.FallbackACMEAccountEmail,
+		fallbackACMEDirectoryURL: cfg.FallbackACMEDirectoryURL,
+		certDir:                  cfg.CertDir,
+		locker:                   newCertLocker(cfg.LockMethod, cfg.CertDir, logger),
+		domains:                  make(map[domain.Domain]*domainInfo),
+		certNotifier:             notifier,
+		logger:                   logger,
+		metrics:                  metrics,
 	}
 
 	if cfg.WildcardDir != "" {
@@ -334,21 +373,9 @@ func (mgr *Manager) resolveBackend(opts AddDomainOptions) (CertBackend, string, 
 	if !ok {
 		return nil, "", fmt.Errorf("no backend registered for challenge type %q", ct)
 	}
-	if opts.DNSProvider != "" {
-		// Slice B is single-provider per Lego backend. If the per-service
-		// DNSProvider is set, it must match the backend's configured
-		// provider. Multi-provider routing arrives in Wave 4.
-		if lb, isLego := backend.(*LegoBackend); isLego {
-			if lb.cfg.DNSProvider != opts.DNSProvider {
-				return nil, "", fmt.Errorf("requested DNS provider %q does not match configured provider %q", opts.DNSProvider, lb.cfg.DNSProvider)
-			}
-		}
-	}
-	if opts.DNSCredentialsRef != "" {
-		// Reserved for Wave 3 (encrypted credential storage). Log once
-		// and proceed with the global credentials.
-		mgr.logger.Debugf("dns_credentials_ref %q is set but not yet consumed (Wave 3)", opts.DNSCredentialsRef)
-	}
+	// Per-service DNSProvider/DNSCredentialsRef validation against the
+	// resolver response is performed at issuance time in prefetchCertificate;
+	// multi-provider routing is Wave 4 territory.
 	return backend, ct, nil
 }
 
@@ -404,11 +431,13 @@ func (mgr *Manager) AddDomain(d domain.Domain, accountID types.AccountID, servic
 	mgr.mu.Lock()
 	prev := mgr.domains[d]
 	mgr.domains[d] = &domainInfo{
-		accountID:     accountID,
-		serviceID:     serviceID,
-		state:         domainPending,
-		challengeType: ct,
-		backend:       backend,
+		accountID:         accountID,
+		serviceID:         serviceID,
+		state:             domainPending,
+		challengeType:     ct,
+		dnsProvider:       opts.DNSProvider,
+		dnsCredentialsRef: opts.DNSCredentialsRef,
+		backend:           backend,
 	}
 	mgr.mu.Unlock()
 
@@ -455,6 +484,27 @@ func (mgr *Manager) prefetchCertificate(d domain.Domain) {
 	if cert, err := backend.ReadCertFromDisk(ctx, name); err == nil {
 		mgr.logger.Infof("certificate for domain %q already on disk, skipping ACME", name)
 		mgr.recordAndNotify(ctx, d, name, cert, 0)
+		return
+	}
+
+	// dns-01 path: LegoBackend requires per-issuance credentials, which
+	// the manager fetches from the encrypted store via ResolveCredential
+	// (or, for legacy deployments, the env-var fallback). Issuance is
+	// synchronous — there is no race with disk reads because this path
+	// owns the cert file.
+	if legoBackend, ok := backend.(*LegoBackend); ok {
+		if err := mgr.issueViaLego(ctx, d, name, legoBackend); err != nil {
+			mgr.logger.Warnf("dns-01 issuance for domain %q failed: %v", name, err)
+			mgr.setDomainState(d, domainFailed, err.Error())
+			return
+		}
+		cert, err := legoBackend.ReadCertFromDisk(ctx, name)
+		if err != nil {
+			mgr.logger.Warnf("reload cert for domain %q after Lego issuance: %v", name, err)
+			mgr.setDomainState(d, domainFailed, err.Error())
+			return
+		}
+		mgr.recordAndNotify(ctx, d, name, cert, time.Since(lockStart))
 		return
 	}
 
@@ -514,6 +564,60 @@ func (mgr *Manager) prefetchCertificate(d domain.Domain) {
 
 // recordAndNotify records metrics, marks the domain ready, logs cert details,
 // and notifies the cert notifier.
+// issueViaLego performs DNS-01 issuance for the given domain via the
+// LegoBackend. Resolves credentials per-call from the encrypted store
+// (via mgr.resolveCredential) when the service has a dns_credentials_ref;
+// otherwise falls back to the env-var-driven values stored on the
+// manager. Returns an error if neither path can produce credentials.
+func (mgr *Manager) issueViaLego(ctx context.Context, d domain.Domain, name string, legoBackend *LegoBackend) error {
+	mgr.mu.RLock()
+	info := mgr.domains[d]
+	mgr.mu.RUnlock()
+	if info == nil {
+		return fmt.Errorf("no tracked info for domain %q", name)
+	}
+
+	var (
+		secret       string
+		providerName string
+	)
+	switch {
+	case info.dnsCredentialsRef != "" && mgr.resolveCredential != nil:
+		var resolvedProvider string
+		var err error
+		secret, resolvedProvider, err = mgr.resolveCredential(ctx, string(info.accountID), info.dnsCredentialsRef)
+		if err != nil {
+			return fmt.Errorf("resolve credential ref %q: %w", info.dnsCredentialsRef, err)
+		}
+		providerName = info.dnsProvider
+		if providerName == "" {
+			providerName = resolvedProvider
+		}
+		if info.dnsProvider != "" && resolvedProvider != "" && info.dnsProvider != resolvedProvider {
+			return fmt.Errorf("service requested DNS provider %q but credential is for %q", info.dnsProvider, resolvedProvider)
+		}
+	case mgr.fallbackDNSCredentials != "" && mgr.fallbackDNSProvider != "":
+		secret = mgr.fallbackDNSCredentials
+		providerName = mgr.fallbackDNSProvider
+		if info.dnsProvider != "" && info.dnsProvider != providerName {
+			return fmt.Errorf("service requested DNS provider %q but proxy fallback is configured for %q", info.dnsProvider, providerName)
+		}
+	default:
+		return fmt.Errorf("no DNS-01 credentials available for domain %q (set dns_credentials_ref on the service or configure NB_PROXY_ACME_DNS_* env vars)", name)
+	}
+
+	accountEmail := mgr.fallbackACMEAccountEmail
+	acmeURL := mgr.fallbackACMEDirectoryURL
+	if accountEmail == "" {
+		return fmt.Errorf("ACME account email is not configured (set NB_PROXY_ACME_ACCOUNT_EMAIL)")
+	}
+	if acmeURL == "" {
+		return fmt.Errorf("ACME directory URL is not configured")
+	}
+
+	return legoBackend.Issue(ctx, name, providerName, accountEmail, acmeURL, secret)
+}
+
 func (mgr *Manager) recordAndNotify(ctx context.Context, d domain.Domain, name string, cert *tls.Certificate, elapsed time.Duration) {
 	if elapsed > 0 && mgr.metrics != nil {
 		mgr.metrics.RecordCertificateIssuance(elapsed)

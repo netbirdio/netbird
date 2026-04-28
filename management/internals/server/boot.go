@@ -197,6 +197,9 @@ func (s *BaseServer) ReverseProxyGRPCServer() *nbgrpc.ProxyServiceServer {
 		s.AfterInit(func(s *BaseServer) {
 			proxyService.SetServiceManager(s.ServiceManager())
 			proxyService.SetProxyController(s.ServiceProxyController())
+			if resolver, ok := s.AccountManager().(nbgrpc.CredentialResolver); ok {
+				proxyService.SetCredentialResolver(resolver)
+			}
 		})
 		return proxyService
 	})
