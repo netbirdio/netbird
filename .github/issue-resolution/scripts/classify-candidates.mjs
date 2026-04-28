@@ -1,6 +1,8 @@
 import fs from "node:fs/promises";
 
 const candidates = JSON.parse(await fs.readFile("candidates.json", "utf8"));
+const systemPrompt = await fs.readFile("prompts/issue-resolution-system.txt", "utf8");
+const outputSchema = JSON.parse(await fs.readFile("schemas/issue-resolution-output.json", "utf8"));
 
 function isMaintainerRole(role) {
   return ["MEMBER", "OWNER", "COLLABORATOR"].includes(role || "");
@@ -53,19 +55,72 @@ function preScore(candidate) {
   return { score, hardSignals, contradictions };
 }
 
-async function callGitHubModel(issuePacket) {
-  // Replace this stub with the GitHub Models inference call used by your org.
-  // The workflow already has models: read permission.
-  return {
-    decision: "MANUAL_REVIEW",
-    reason_code: "likely_fixed_but_unconfirmed",
-    confidence: 0.74,
-    hard_signals: [],
-    contradictions: [],
-    summary: "Potential resolution candidate; evidence is not strong enough to close automatically.",
-    close_comment: "This appears resolved, so we’re closing it automatically. Reply if this is still reproducible.",
-    manual_review_note: "Potential resolution candidate. Please review evidence before closing."
-  };
+function buildUserMessage(candidate) {
+  const { issue, comments, timeline } = candidate;
+
+  const commentBlock = comments
+    .map((c) => `[${c.author_association}] ${c.user} (${c.created_at}):\n${c.body}`)
+    .join("\n---\n");
+
+  const timelineBlock = timeline
+    .filter((t) => ["cross-referenced", "referenced", "connected", "closed", "reopened"].includes(t.event))
+    .map((t) => {
+      let line = `${t.event} (${t.created_at})`;
+      if (t.source?.issue?.html_url) line += ` — ${t.source.issue.html_url}`;
+      if (t.source?.issue?.pull_request?.html_url) line += ` (PR: ${t.source.issue.pull_request.html_url})`;
+      return line;
+    })
+    .join("\n");
+
+  return [
+    `## Issue #${issue.number}: ${issue.title}`,
+    `URL: ${issue.html_url}`,
+    `Created: ${issue.created_at} | Updated: ${issue.updated_at}`,
+    `Labels: ${issue.labels.join(", ") || "none"}`,
+    "",
+    "### Body",
+    issue.body || "(empty)",
+    "",
+    "### Comments",
+    commentBlock || "(none)",
+    "",
+    "### Timeline events",
+    timelineBlock || "(none)",
+  ].join("\n");
+}
+
+async function callGitHubModel(candidate) {
+  const res = await fetch("https://models.inference.ai.azure.com/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.GH_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: buildUserMessage(candidate) },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "issue_resolution",
+          strict: true,
+          schema: outputSchema,
+        },
+      },
+      temperature: 0.1,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`GitHub Models ${res.status}: ${text}`);
+  }
+
+  const data = await res.json();
+  return JSON.parse(data.choices[0].message.content);
 }
 
 function enforcePolicy(modelOut, pre) {
@@ -105,6 +160,8 @@ function enforcePolicy(modelOut, pre) {
   return "KEEP_OPEN";
 }
 
+console.log(`Classifying ${candidates.length} candidates with gpt-4o-mini...\n`);
+
 const decisions = [];
 for (const candidate of candidates) {
   const pre = preScore(candidate);
@@ -120,6 +177,11 @@ for (const candidate of candidates) {
     final_decision: finalDecision,
     model: modelOut
   });
+
+  console.log(
+    `#${candidate.issue.number} | pre_score: ${pre.score} | model: ${modelOut.decision} @ ${modelOut.confidence} | final: ${finalDecision} | ${modelOut.reason_code}`
+  );
 }
 
 await fs.writeFile("decisions.json", JSON.stringify(decisions, null, 2));
+console.log(`\nWrote ${decisions.length} decisions to decisions.json`);

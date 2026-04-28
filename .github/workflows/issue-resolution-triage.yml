@@ -54,3 +54,11 @@ jobs:
       - run: node scripts/fetch-candidates.mjs
       - run: node scripts/classify-candidates.mjs
       - run: node scripts/apply-decisions.mjs
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: triage-results
+          path: |
+            .github/issue-resolution/candidates.json
+            .github/issue-resolution/decisions.json
