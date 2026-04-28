@@ -200,6 +200,7 @@ Pop $0
 !macroend
 
 Function .onInit
+SetRegView 64
 StrCpy $INSTDIR "${INSTALL_DIR}"
 ReadRegStr $R0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$(^NAME)" "UninstallString"
 ${If} $R0 != ""
@@ -213,6 +214,10 @@ ${If} $R0 != ""
     done:
 
 ${EndIf}
+FunctionEnd
+
+Function un.onInit
+SetRegView 64
 FunctionEnd
 ######################################################################
 Section -MainProgram
@@ -248,10 +253,12 @@ WriteRegStr ${REG_ROOT} "${UI_REG_APP_PATH}" "" "$INSTDIR\${UI_APP_EXE}"
 ; Create autostart registry entry based on checkbox
 DetailPrint "Autostart enabled: $AutostartEnabled"
 ${If} $AutostartEnabled == "1"
-    WriteRegStr HKLM "${AUTOSTART_REG_KEY}" "${APP_NAME}" "$INSTDIR\${UI_APP_EXE}.exe"
+    WriteRegStr HKLM "${AUTOSTART_REG_KEY}" "${APP_NAME}" '"$INSTDIR\${UI_APP_EXE}.exe"'
     DetailPrint "Added autostart registry entry: $INSTDIR\${UI_APP_EXE}.exe"
 ${Else}
     DeleteRegValue HKLM "${AUTOSTART_REG_KEY}" "${APP_NAME}"
+    ; Legacy: pre-HKLM installs wrote to HKCU; clean that up too.
+    DeleteRegValue HKCU "${AUTOSTART_REG_KEY}" "${APP_NAME}"
     DetailPrint "Autostart not enabled by user"
 ${EndIf}
 

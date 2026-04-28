@@ -49,14 +49,23 @@
 
 					<Environment Id="UpdatePath" Name="PATH" Value="[NetbirdInstallDir]" Part="last" Action="set" System="yes" />
 
-					<RegistryKey Root="HKCU" Key="Software\Classes\AppUserModelId\NetBird" ForceDeleteOnUninstall="yes" />
-
 				</Component>
 			</Directory>
 		</StandardDirectory>
 
+		<!-- Per-user component: HKCU keypath (auto GUID via "*"), separate from
+		     the per-machine NetbirdFiles component to satisfy ICE57. -->
+		<StandardDirectory Id="ProgramMenuFolder">
+			<Component Id="NetbirdAumidRegistry" Guid="*">
+				<RegistryKey Root="HKCU" Key="Software\Classes\AppUserModelId\NetBird" ForceDeleteOnUninstall="yes">
+					<RegistryValue Name="InstalledByMSI" Type="integer" Value="1" KeyPath="yes" />
+				</RegistryKey>
+			</Component>
+		</StandardDirectory>
+
 		<ComponentGroup Id="NetbirdFilesComponent">
 			<ComponentRef Id="NetbirdFiles" />
+			<ComponentRef Id="NetbirdAumidRegistry" />
 		</ComponentGroup>
 
 		<util:CloseApplication Id="CloseNetBird" CloseMessage="no" Target="netbird.exe" RebootPrompt="no" />
