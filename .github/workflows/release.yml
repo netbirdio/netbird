@@ -6,7 +6,6 @@ on:
       - "v*"
     branches:
       - main
-      - fix-msi-generation
   pull_request:
 
 env:
