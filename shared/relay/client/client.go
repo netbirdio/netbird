@@ -181,7 +181,8 @@ func NewClient(serverURL string, authTokenStore *auth.TokenStore, peerID string,
 }
 
 // NewClientWithServerIP creates a new client for the relay server with a known server IP. serverIP, when valid, is
-// used as a dial target if the FQDN-based dial fails. TLS verification still uses the FQDN from serverURL via SNI.
+// dialed directly first; the FQDN is only attempted if the IP-based dial fails. TLS verification still uses the
+// FQDN from serverURL via SNI.
 func NewClientWithServerIP(serverURL string, serverIP netip.Addr, authTokenStore *auth.TokenStore, peerID string, mtu uint16) *Client {
 	hashedID := messages.HashID(peerID)
 	relayLog := log.WithFields(log.Fields{"relay": serverURL})
@@ -380,14 +381,15 @@ func (c *Client) Close() error {
 func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
 	dialers := c.getDialers()
 
-	rd := dialer.NewRaceDial(c.log, dialer.DefaultConnectionTimeout, c.connectionURL, dialers...)
-	conn, err := rd.Dial(ctx)
+	conn, err := c.dialDirect(ctx, dialers)
 	if err != nil {
-		directConn, dErr := c.dialDirect(ctx, dialers)
-		if dErr != nil {
-			return nil, fmt.Errorf("dial via FQDN: %w; dial via server IP: %w", err, dErr)
+		c.log.Debugf("dial via server IP unavailable, dialing via FQDN: %v", err)
+		rd := dialer.NewRaceDial(c.log, dialer.DefaultConnectionTimeout, c.connectionURL, dialers...)
+		fqdnConn, fErr := rd.Dial(ctx)
+		if fErr != nil {
+			return nil, fmt.Errorf("dial via server IP: %w; dial via FQDN: %w", err, fErr)
 		}
-		conn = directConn
+		conn = fqdnConn
 	}
 	c.relayConn = conn
 
@@ -403,8 +405,8 @@ func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
 	return instanceURL, nil
 }
 
-// dialDirect retries the dial against c.serverIP, preserving the original FQDN as the TLS ServerName for SNI.
-// Returns an error if no usable server IP is configured or if the substituted URL is malformed.
+// dialDirect dials c.serverIP, preserving the original FQDN as the TLS ServerName for SNI. Returns an error if no
+// usable server IP is configured or if the substituted URL is malformed.
 func (c *Client) dialDirect(ctx context.Context, dialers []dialer.DialeFn) (net.Conn, error) {
 	if !c.serverIP.IsValid() || c.serverIP.IsUnspecified() {
 		return nil, errors.New("no usable server IP configured")
@@ -415,7 +417,7 @@ func (c *Client) dialDirect(ctx context.Context, dialers []dialer.DialeFn) (net.
 		return nil, fmt.Errorf("substitute host: %w", err)
 	}
 
-	c.log.Infof("FQDN dial failed, retrying via server IP %s (SNI=%s)", c.serverIP, serverName)
+	c.log.Infof("dialing via server IP %s (SNI=%s)", c.serverIP, serverName)
 
 	rd := dialer.NewRaceDial(c.log, dialer.DefaultConnectionTimeout, directURL, dialers...).
 		WithServerName(serverName)
