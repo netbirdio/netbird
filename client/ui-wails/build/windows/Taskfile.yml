@@ -28,6 +28,50 @@ tasks:
     vars:
       CGO_ENABLED: '{{.CGO_ENABLED | default "0"}}'
 
+  build:console:
+    summary: Builds a console-attached Windows binary so logs go to the terminal.
+    desc: |
+      Same as `windows:build` but links against the console PE subsystem
+      instead of windowsgui, so stdout/stderr (logrus, panics) print to the
+      terminal that launched the .exe. Useful for chasing tray, event-stream,
+      or daemon-RPC bugs that have no other feedback channel on Windows.
+
+      Output is bin/netbird-ui-console.exe — kept distinct so the production
+      binary built by `windows:build` isn't shadowed.
+
+      Cross-compile from Linux works the same way:
+        CGO_ENABLED=1 task windows:build:console
+    deps:
+      - task: common:go:mod:tidy
+      - task: common:build:frontend
+        vars:
+          BUILD_FLAGS:
+            ref: .BUILD_FLAGS
+          DEV:
+            ref: .DEV
+      - task: common:generate:icons
+    preconditions:
+      - sh: '[ "{{OS}}" = "windows" ] || [ "{{.CGO_ENABLED}}" != "1" ] || command -v {{.CC}}'
+        msg: "{{.CC}} not found. Install with: sudo apt-get install gcc-mingw-w64-x86-64 (Debian/Ubuntu) / sudo dnf install mingw64-gcc (Fedora)"
+    cmds:
+      - task: generate:syso
+      - go build {{.BUILD_FLAGS}} -o "{{.BIN_DIR}}/{{.APP_NAME}}-console.exe"
+      - cmd: powershell Remove-item *.syso
+        platforms: [windows]
+      - cmd: rm -f *.syso
+        platforms: [linux, darwin]
+    vars:
+      # Identical to build:native's flags except no -H windowsgui, so the
+      # binary attaches to the launching console.
+      BUILD_FLAGS: '-tags production{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -buildvcs=false -ldflags="-w -s"'
+      CGO_ENABLED: '{{.CGO_ENABLED | default "0"}}'
+      CC: '{{.CC | default "x86_64-w64-mingw32-gcc"}}'
+    env:
+      GOOS: windows
+      CGO_ENABLED: '{{.CGO_ENABLED}}'
+      GOARCH: '{{.ARCH | default ARCH}}'
+      CC: '{{.CC}}'
+
   build:native:
     summary: Builds for Windows natively, or cross-compiles from Linux/macOS via mingw-w64.
     internal: true

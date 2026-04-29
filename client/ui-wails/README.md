@@ -62,6 +62,21 @@ CGO_ENABLED=1 task windows:build
 Produces `bin/netbird-ui.exe`. macOS cross-compile from Linux is not
 supported (signing and notarization need a real Mac).
 
+### Windows console build (logs in the terminal)
+
+Default `windows:build` links the binary as a Windows GUI app, which
+detaches from the launching console — `logrus` output, `fmt.Println`,
+and panics go nowhere visible. To debug tray/event/daemon issues:
+
+```bash
+CGO_ENABLED=1 task windows:build:console
+```
+
+Produces `bin/netbird-ui-console.exe`. Run it from `cmd.exe` /
+PowerShell / Windows Terminal and stdout/stderr land in that
+terminal. Same flag works on a native Windows build (drop the
+`CGO_ENABLED=1` if your toolchain already has it set).
+
 ## Regenerating bindings
 
 When a Go service signature changes:
