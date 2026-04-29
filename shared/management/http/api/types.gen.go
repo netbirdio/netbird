@@ -38,6 +38,30 @@ func (e AccessRestrictionsCrowdsecMode) Valid() bool {
 	}
 }
 
+// Defines values for AutoConfigureRequestProvider.
+const (
+	AutoConfigureRequestProviderCloudflare   AutoConfigureRequestProvider = "cloudflare"
+	AutoConfigureRequestProviderDigitalocean AutoConfigureRequestProvider = "digitalocean"
+	AutoConfigureRequestProviderRfc2136      AutoConfigureRequestProvider = "rfc2136"
+	AutoConfigureRequestProviderRoute53      AutoConfigureRequestProvider = "route53"
+)
+
+// Valid indicates whether the value is a known member of the AutoConfigureRequestProvider enum.
+func (e AutoConfigureRequestProvider) Valid() bool {
+	switch e {
+	case AutoConfigureRequestProviderCloudflare:
+		return true
+	case AutoConfigureRequestProviderDigitalocean:
+		return true
+	case AutoConfigureRequestProviderRfc2136:
+		return true
+	case AutoConfigureRequestProviderRoute53:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateAzureIntegrationRequestHost.
 const (
 	CreateAzureIntegrationRequestHostMicrosoftCom CreateAzureIntegrationRequestHost = "microsoft.com"
@@ -1505,6 +1529,20 @@ type AccountSettings struct {
 	RoutingPeerDnsResolutionEnabled *bool `json:"routing_peer_dns_resolution_enabled,omitempty"`
 }
 
+// AutoConfigureRequest Optional. When present, NetBird uses the referenced DNS provider
+// credential to automatically write the wildcard CNAME for this
+// domain. Omit this field to use the default manual-CNAME flow.
+type AutoConfigureRequest struct {
+	// CredentialId Reference to a stored DNS provider credential
+	CredentialId string `json:"credential_id"`
+
+	// Provider DNS provider type. Must match the credential's provider type — the server validates this and rejects mismatches.
+	Provider AutoConfigureRequestProvider `json:"provider"`
+}
+
+// AutoConfigureRequestProvider DNS provider type. Must match the credential's provider type — the server validates this and rejects mismatches.
+type AutoConfigureRequestProvider string
+
 // AvailablePorts defines model for AvailablePorts.
 type AvailablePorts struct {
 	// Tcp Number of available TCP  ports left on the ingress peer
@@ -1845,6 +1883,10 @@ type DNSRecord struct {
 
 	// Id DNS record ID
 	Id string `json:"id"`
+
+	// ManagedByServiceId ID of the reverse-proxy service that owns this record's lifecycle.
+	// When non-empty, the record is auto-managed and read-only via this API.
+	ManagedByServiceId *string `json:"managed_by_service_id,omitempty"`
 
 	// Name FQDN for the DNS record. Must be a subdomain within or match the zone's domain.
 	Name string `json:"name"`
@@ -3859,7 +3901,9 @@ type ReverseProxyDomain struct {
 
 // ReverseProxyDomainRequest defines model for ReverseProxyDomainRequest.
 type ReverseProxyDomainRequest struct {
-	// AutoConfigure Optional. When present, NetBird uses the referenced DNS provider credential to automatically write the wildcard CNAME for this domain. Omit to use the manual-CNAME flow.
+	// AutoConfigure Optional. When present, NetBird uses the referenced DNS provider
+	// credential to automatically write the wildcard CNAME for this
+	// domain. Omit this field to use the default manual-CNAME flow.
 	AutoConfigure *AutoConfigureRequest `json:"auto_configure,omitempty"`
 
 	// Domain Domain name
@@ -3867,25 +3911,6 @@ type ReverseProxyDomainRequest struct {
 
 	// TargetCluster The proxy cluster this domain should be validated against
 	TargetCluster string `json:"target_cluster"`
-}
-
-// AutoConfigureRequestProvider defines the enum for AutoConfigureRequest.Provider.
-type AutoConfigureRequestProvider string
-
-const (
-	AutoConfigureRequestProviderCloudflare   AutoConfigureRequestProvider = "cloudflare"
-	AutoConfigureRequestProviderDigitalocean AutoConfigureRequestProvider = "digitalocean"
-	AutoConfigureRequestProviderRfc2136      AutoConfigureRequestProvider = "rfc2136"
-	AutoConfigureRequestProviderRoute53      AutoConfigureRequestProvider = "route53"
-)
-
-// AutoConfigureRequest defines model for AutoConfigureRequest.
-type AutoConfigureRequest struct {
-	// CredentialId Reference to a stored DNS provider credential
-	CredentialId string `json:"credential_id"`
-
-	// Provider DNS provider type. Must match the credential's provider type — the server validates this and rejects mismatches.
-	Provider AutoConfigureRequestProvider `json:"provider"`
 }
 
 // ReverseProxyDomainType Type of Reverse Proxy Domain
@@ -4087,6 +4112,9 @@ type Service struct {
 	// PortAutoAssigned Whether the listen port was auto-assigned
 	PortAutoAssigned *bool `json:"port_auto_assigned,omitempty"`
 
+	// Private When true, the service is local-only — reachable only from inside the NetBird mesh. The management server auto-creates an internal DNS record and the proxy listener rejects non-mesh connections.
+	Private *bool `json:"private,omitempty"`
+
 	// ProxyCluster The proxy cluster handling this service (derived from domain)
 	ProxyCluster *string `json:"proxy_cluster,omitempty"`
 
@@ -4150,6 +4178,9 @@ type ServiceRequest struct {
 
 	// PassHostHeader When true, the original client Host header is passed through to the backend instead of being rewritten to the backend's address
 	PassHostHeader *bool `json:"pass_host_header,omitempty"`
+
+	// Private When true, the service is local-only. Requires challenge_type "dns-01"; rejects http-01 / tls-alpn-01.
+	Private *bool `json:"private,omitempty"`
 
 	// RewriteRedirects When true, Location headers in backend responses are rewritten to replace the backend address with the public-facing domain
 	RewriteRedirects *bool `json:"rewrite_redirects,omitempty"`

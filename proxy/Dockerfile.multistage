@@ -4,11 +4,14 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 
+COPY base62 ./base62
 COPY client ./client
 COPY dns ./dns
 COPY encryption ./encryption
 COPY flow ./flow
 COPY formatter ./formatter
+COPY idp ./idp
+COPY management ./management
 COPY monotime ./monotime
 COPY proxy ./proxy
 COPY route ./route
