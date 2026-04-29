@@ -3108,9 +3108,23 @@ components:
           $ref: '#/components/schemas/ServiceAuthConfig'
         access_restrictions:
           $ref: '#/components/schemas/AccessRestrictions'
+        challenge_type:
+          type: string
+          description: ACME challenge type for cert issuance. Empty means use the proxy's globally-configured default.
+          enum: [tls-alpn-01, http-01, dns-01]
+          example: "dns-01"
+        dns_provider:
+          type: string
+          description: DNS provider for dns-01 issuance. Required when challenge_type is "dns-01"; must be empty otherwise.
+          enum: [cloudflare, route53, digitalocean, rfc2136]
+          example: "cloudflare"
+        dns_credentials_ref:
+          type: string
+          description: Opaque reference to the encrypted credential record for dns-01 issuance.
+          example: "ch8i4ug6lnn4g9hqv7m0"
         private:
           type: boolean
-          description: When true, the service is local-only — reachable only from inside the NetBird mesh. The management server auto-creates an internal DNS record and the proxy listener rejects non-mesh connections.
+          description: When true, the service is local-only, reachable only from inside the NetBird mesh. The management server auto-creates an internal DNS record and the proxy listener rejects non-mesh connections.
           default: false
           example: false
         meta:
@@ -3195,9 +3209,23 @@ components:
           $ref: '#/components/schemas/ServiceAuthConfig'
         access_restrictions:
           $ref: '#/components/schemas/AccessRestrictions'
+        challenge_type:
+          type: string
+          description: ACME challenge type for cert issuance. Empty means use the proxy's globally-configured default.
+          enum: [tls-alpn-01, http-01, dns-01]
+          example: "dns-01"
+        dns_provider:
+          type: string
+          description: DNS provider for dns-01 issuance. Required when challenge_type is "dns-01"; must be empty otherwise.
+          enum: [cloudflare, route53, digitalocean, rfc2136]
+          example: "cloudflare"
+        dns_credentials_ref:
+          type: string
+          description: Opaque reference to the encrypted credential record for dns-01 issuance.
+          example: "ch8i4ug6lnn4g9hqv7m0"
         private:
           type: boolean
-          description: When true, the service is local-only. Requires challenge_type "dns-01"; rejects http-01 / tls-alpn-01.
+          description: When true, the service is local-only. Requires challenge_type "dns-01".
           default: false
           example: false
       required:

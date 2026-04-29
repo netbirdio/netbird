@@ -962,6 +962,51 @@ func (e SentinelOneMatchAttributesNetworkStatus) Valid() bool {
 	}
 }
 
+// Defines values for ServiceChallengeType.
+const (
+	ServiceChallengeTypeDns01     ServiceChallengeType = "dns-01"
+	ServiceChallengeTypeHttp01    ServiceChallengeType = "http-01"
+	ServiceChallengeTypeTlsAlpn01 ServiceChallengeType = "tls-alpn-01"
+)
+
+// Valid indicates whether the value is a known member of the ServiceChallengeType enum.
+func (e ServiceChallengeType) Valid() bool {
+	switch e {
+	case ServiceChallengeTypeDns01:
+		return true
+	case ServiceChallengeTypeHttp01:
+		return true
+	case ServiceChallengeTypeTlsAlpn01:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ServiceDnsProvider.
+const (
+	ServiceDnsProviderCloudflare   ServiceDnsProvider = "cloudflare"
+	ServiceDnsProviderDigitalocean ServiceDnsProvider = "digitalocean"
+	ServiceDnsProviderRfc2136      ServiceDnsProvider = "rfc2136"
+	ServiceDnsProviderRoute53      ServiceDnsProvider = "route53"
+)
+
+// Valid indicates whether the value is a known member of the ServiceDnsProvider enum.
+func (e ServiceDnsProvider) Valid() bool {
+	switch e {
+	case ServiceDnsProviderCloudflare:
+		return true
+	case ServiceDnsProviderDigitalocean:
+		return true
+	case ServiceDnsProviderRfc2136:
+		return true
+	case ServiceDnsProviderRoute53:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ServiceMode.
 const (
 	ServiceModeHttp ServiceMode = "http"
@@ -1010,6 +1055,51 @@ func (e ServiceMetaStatus) Valid() bool {
 	case ServiceMetaStatusPending:
 		return true
 	case ServiceMetaStatusTunnelNotCreated:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ServiceRequestChallengeType.
+const (
+	ServiceRequestChallengeTypeDns01     ServiceRequestChallengeType = "dns-01"
+	ServiceRequestChallengeTypeHttp01    ServiceRequestChallengeType = "http-01"
+	ServiceRequestChallengeTypeTlsAlpn01 ServiceRequestChallengeType = "tls-alpn-01"
+)
+
+// Valid indicates whether the value is a known member of the ServiceRequestChallengeType enum.
+func (e ServiceRequestChallengeType) Valid() bool {
+	switch e {
+	case ServiceRequestChallengeTypeDns01:
+		return true
+	case ServiceRequestChallengeTypeHttp01:
+		return true
+	case ServiceRequestChallengeTypeTlsAlpn01:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ServiceRequestDnsProvider.
+const (
+	ServiceRequestDnsProviderCloudflare   ServiceRequestDnsProvider = "cloudflare"
+	ServiceRequestDnsProviderDigitalocean ServiceRequestDnsProvider = "digitalocean"
+	ServiceRequestDnsProviderRfc2136      ServiceRequestDnsProvider = "rfc2136"
+	ServiceRequestDnsProviderRoute53      ServiceRequestDnsProvider = "route53"
+)
+
+// Valid indicates whether the value is a known member of the ServiceRequestDnsProvider enum.
+func (e ServiceRequestDnsProvider) Valid() bool {
+	switch e {
+	case ServiceRequestDnsProviderCloudflare:
+		return true
+	case ServiceRequestDnsProviderDigitalocean:
+		return true
+	case ServiceRequestDnsProviderRfc2136:
+		return true
+	case ServiceRequestDnsProviderRoute53:
 		return true
 	default:
 		return false
@@ -4087,6 +4177,15 @@ type Service struct {
 	AccessRestrictions *AccessRestrictions `json:"access_restrictions,omitempty"`
 	Auth               ServiceAuthConfig   `json:"auth"`
 
+	// ChallengeType ACME challenge type for cert issuance. Empty means use the proxy's globally-configured default.
+	ChallengeType *ServiceChallengeType `json:"challenge_type,omitempty"`
+
+	// DnsCredentialsRef Opaque reference to the encrypted credential record for dns-01 issuance.
+	DnsCredentialsRef *string `json:"dns_credentials_ref,omitempty"`
+
+	// DnsProvider DNS provider for dns-01 issuance. Required when challenge_type is "dns-01"; must be empty otherwise.
+	DnsProvider *ServiceDnsProvider `json:"dns_provider,omitempty"`
+
 	// Domain Domain for the service
 	Domain string `json:"domain"`
 
@@ -4112,7 +4211,7 @@ type Service struct {
 	// PortAutoAssigned Whether the listen port was auto-assigned
 	PortAutoAssigned *bool `json:"port_auto_assigned,omitempty"`
 
-	// Private When true, the service is local-only — reachable only from inside the NetBird mesh. The management server auto-creates an internal DNS record and the proxy listener rejects non-mesh connections.
+	// Private When true, the service is local-only, reachable only from inside the NetBird mesh. The management server auto-creates an internal DNS record and the proxy listener rejects non-mesh connections.
 	Private *bool `json:"private,omitempty"`
 
 	// ProxyCluster The proxy cluster handling this service (derived from domain)
@@ -4127,6 +4226,12 @@ type Service struct {
 	// Terminated Whether the service has been terminated. Terminated services cannot be updated. Services that violate the Terms of Service will be terminated.
 	Terminated *bool `json:"terminated,omitempty"`
 }
+
+// ServiceChallengeType ACME challenge type for cert issuance. Empty means use the proxy's globally-configured default.
+type ServiceChallengeType string
+
+// ServiceDnsProvider DNS provider for dns-01 issuance. Required when challenge_type is "dns-01"; must be empty otherwise.
+type ServiceDnsProvider string
 
 // ServiceMode Service mode. "http" for L7 reverse proxy, "tcp"/"udp"/"tls" for L4 passthrough.
 type ServiceMode string
@@ -4161,6 +4266,15 @@ type ServiceRequest struct {
 	AccessRestrictions *AccessRestrictions `json:"access_restrictions,omitempty"`
 	Auth               *ServiceAuthConfig  `json:"auth,omitempty"`
 
+	// ChallengeType ACME challenge type for cert issuance. Empty means use the proxy's globally-configured default.
+	ChallengeType *ServiceRequestChallengeType `json:"challenge_type,omitempty"`
+
+	// DnsCredentialsRef Opaque reference to the encrypted credential record for dns-01 issuance.
+	DnsCredentialsRef *string `json:"dns_credentials_ref,omitempty"`
+
+	// DnsProvider DNS provider for dns-01 issuance. Required when challenge_type is "dns-01"; must be empty otherwise.
+	DnsProvider *ServiceRequestDnsProvider `json:"dns_provider,omitempty"`
+
 	// Domain Domain for the service
 	Domain string `json:"domain"`
 
@@ -4179,7 +4293,7 @@ type ServiceRequest struct {
 	// PassHostHeader When true, the original client Host header is passed through to the backend instead of being rewritten to the backend's address
 	PassHostHeader *bool `json:"pass_host_header,omitempty"`
 
-	// Private When true, the service is local-only. Requires challenge_type "dns-01"; rejects http-01 / tls-alpn-01.
+	// Private When true, the service is local-only. Requires challenge_type "dns-01".
 	Private *bool `json:"private,omitempty"`
 
 	// RewriteRedirects When true, Location headers in backend responses are rewritten to replace the backend address with the public-facing domain
@@ -4188,6 +4302,12 @@ type ServiceRequest struct {
 	// Targets List of target backends for this service
 	Targets *[]ServiceTarget `json:"targets,omitempty"`
 }
+
+// ServiceRequestChallengeType ACME challenge type for cert issuance. Empty means use the proxy's globally-configured default.
+type ServiceRequestChallengeType string
+
+// ServiceRequestDnsProvider DNS provider for dns-01 issuance. Required when challenge_type is "dns-01"; must be empty otherwise.
+type ServiceRequestDnsProvider string
 
 // ServiceRequestMode Service mode. "http" for L7 reverse proxy, "tcp"/"udp"/"tls" for L4 passthrough.
 type ServiceRequestMode string

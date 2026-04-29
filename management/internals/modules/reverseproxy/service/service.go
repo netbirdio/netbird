@@ -325,6 +325,18 @@ func (s *Service) ToAPIResponse() *api.Service {
 		resp.ProxyCluster = &s.ProxyCluster
 	}
 
+	if s.ChallengeType != "" {
+		ct := api.ServiceChallengeType(s.ChallengeType)
+		resp.ChallengeType = &ct
+	}
+	if s.DNSProvider != "" {
+		dp := api.ServiceDnsProvider(s.DNSProvider)
+		resp.DnsProvider = &dp
+	}
+	if s.DNSCredentialsRef != "" {
+		resp.DnsCredentialsRef = &s.DNSCredentialsRef
+	}
+
 	return resp
 }
 
@@ -596,6 +608,16 @@ func (s *Service) FromAPIRequest(req *api.ServiceRequest, accountID string) erro
 			return err
 		}
 		s.Restrictions = restrictions
+	}
+
+	if req.ChallengeType != nil {
+		s.ChallengeType = string(*req.ChallengeType)
+	}
+	if req.DnsProvider != nil {
+		s.DNSProvider = string(*req.DnsProvider)
+	}
+	if req.DnsCredentialsRef != nil {
+		s.DNSCredentialsRef = *req.DnsCredentialsRef
 	}
 
 	if req.Private != nil {
