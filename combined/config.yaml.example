@@ -90,6 +90,9 @@ server:
     # mfaSessionMaxLifetime: "24h"  # Max duration for an MFA session from creation
     # mfaSessionIdleTimeout: "1h"   # MFA session expires after this idle period
     # mfaSessionRememberMe: false   # Pre-check "remember me" on login so the MFA session persists across tabs/restarts
+    # Optional AES key for encrypting embedded IdP session cookies. Can also be set via NB_IDP_SESSION_COOKIE_ENCRYPTION_KEY.
+    # Must be 16/24/32 raw bytes or base64-encoded to one of those lengths (for example: openssl rand -hex 16).
+    # sessionCookieEncryptionKey: ""
     # OAuth2 redirect URIs for dashboard
     dashboardRedirectURIs:
       - "https://app.example.com/nb-auth"

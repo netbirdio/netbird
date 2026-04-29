@@ -139,6 +139,7 @@ type AuthConfig struct {
 	MfaSessionMaxLifetime           string            `yaml:"mfaSessionMaxLifetime"`
 	MfaSessionIdleTimeout           string            `yaml:"mfaSessionIdleTimeout"`
 	MfaSessionRememberMe            bool              `yaml:"mfaSessionRememberMe"`
+	SessionCookieEncryptionKey      string            `yaml:"sessionCookieEncryptionKey"`
 	Storage                         AuthStorageConfig `yaml:"storage"`
 	DashboardRedirectURIs           []string          `yaml:"dashboardRedirectURIs"`
 	CLIRedirectURIs                 []string          `yaml:"cliRedirectURIs"`
@@ -585,13 +586,14 @@ func (c *CombinedConfig) buildEmbeddedIdPConfig(mgmt ManagementConfig) (*idp.Emb
 	}
 
 	cfg := &idp.EmbeddedIdPConfig{
-		Enabled:               true,
-		Issuer:                mgmt.Auth.Issuer,
-		LocalAuthDisabled:     mgmt.Auth.LocalAuthDisabled,
-		SignKeyRefreshEnabled: mgmt.Auth.SignKeyRefreshEnabled,
-		MfaSessionMaxLifetime: mgmt.Auth.MfaSessionMaxLifetime,
-		MfaSessionIdleTimeout: mgmt.Auth.MfaSessionIdleTimeout,
-		MfaSessionRememberMe:  mgmt.Auth.MfaSessionRememberMe,
+		Enabled:                    true,
+		Issuer:                     mgmt.Auth.Issuer,
+		LocalAuthDisabled:          mgmt.Auth.LocalAuthDisabled,
+		SignKeyRefreshEnabled:      mgmt.Auth.SignKeyRefreshEnabled,
+		MfaSessionMaxLifetime:      mgmt.Auth.MfaSessionMaxLifetime,
+		MfaSessionIdleTimeout:      mgmt.Auth.MfaSessionIdleTimeout,
+		MfaSessionRememberMe:       mgmt.Auth.MfaSessionRememberMe,
+		SessionCookieEncryptionKey: mgmt.Auth.SessionCookieEncryptionKey,
 		Storage: idp.EmbeddedStorageConfig{
 			Type: authStorageType,
 			Config: idp.EmbeddedStorageTypeConfig{

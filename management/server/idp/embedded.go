@@ -2,6 +2,7 @@ package idp
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -18,12 +19,13 @@ import (
 )
 
 const (
-	staticClientDashboard  = "netbird-dashboard"
-	staticClientCLI        = "netbird-cli"
-	defaultCLIRedirectURL1 = "http://localhost:53000/"
-	defaultCLIRedirectURL2 = "http://localhost:54000/"
-	defaultScopes          = "openid profile email groups"
-	defaultUserIDClaim     = "sub"
+	staticClientDashboard         = "netbird-dashboard"
+	staticClientCLI               = "netbird-cli"
+	defaultCLIRedirectURL1        = "http://localhost:53000/"
+	defaultCLIRedirectURL2        = "http://localhost:54000/"
+	defaultScopes                 = "openid profile email groups"
+	defaultUserIDClaim            = "sub"
+	sessionCookieEncryptionKeyEnv = "NB_IDP_SESSION_COOKIE_ENCRYPTION_KEY"
 )
 
 // EmbeddedIdPConfig contains configuration for the embedded Dex OIDC identity provider
@@ -60,6 +62,10 @@ type EmbeddedIdPConfig struct {
 	// login screen. When true, the session cookie persists across browser tabs/restarts so
 	// MFA is not re-prompted until the session expires. Defaults to false.
 	MfaSessionRememberMe bool
+	// SessionCookieEncryptionKey is the optional AES key used to encrypt embedded IdP session cookies.
+	// It can also be set with NB_IDP_SESSION_COOKIE_ENCRYPTION_KEY. The value must be 16, 24, or 32
+	// bytes when provided as a raw string, or base64-encoded to one of those lengths.
+	SessionCookieEncryptionKey string
 	// Dashboard Post logout redirect URIs, these are required to tell
 	// Dex what to allow when an RP-Initiated logout is started by the frontend
 	// at least one of these must match the dashboard base URL or the dashboard
@@ -188,7 +194,7 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 
 	// Always initialize MFA providers and sessions so TOTP can be toggled at runtime.
 	// MFAChain on clients is NOT set here — it's synced from the DB setting on startup.
-	if err := configureMFA(cfg, c.MfaSessionMaxLifetime, c.MfaSessionIdleTimeout, c.MfaSessionRememberMe); err != nil {
+	if err := configureMFA(cfg, c.MfaSessionMaxLifetime, c.MfaSessionIdleTimeout, c.MfaSessionRememberMe, c.SessionCookieEncryptionKey); err != nil {
 		return nil, err
 	}
 
@@ -229,7 +235,7 @@ func sanitizePostLogoutRedirectURIs(uris []string) []string {
 	return result
 }
 
-func configureMFA(cfg *dex.YAMLConfig, sessionMaxLifetime, sessionIdleTimeout string, rememberMe bool) error {
+func configureMFA(cfg *dex.YAMLConfig, sessionMaxLifetime, sessionIdleTimeout string, rememberMe bool, sessionCookieEncryptionKey string) error {
 	cfg.MFA.Authenticators = []dex.MFAAuthenticator{{
 		ID: "default-totp",
 		// Has to be caps otherwise it will fail
@@ -247,13 +253,18 @@ func configureMFA(cfg *dex.YAMLConfig, sessionMaxLifetime, sessionIdleTimeout st
 		sessionIdleTimeout = "1h"
 	}
 
+	cookieEncryptionKey, err := resolveSessionCookieEncryptionKey(sessionCookieEncryptionKey)
+	if err != nil {
+		return err
+	}
+
 	cfg.Sessions = &dex.Sessions{
 		CookieName:                 "netbird-session",
 		AbsoluteLifetime:           sessionMaxLifetime,
 		ValidIfNotUsedFor:          sessionIdleTimeout,
 		RememberMeCheckedByDefault: &rememberMe,
 		SSOSharedWithDefault:       "all",
-		CookieEncryptionKey:        "32",
+		CookieEncryptionKey:        cookieEncryptionKey,
 	}
 	// Absolutely required, otherwise the dex server will omit the MFA configuration entirely
 	os.Setenv("DEX_SESSIONS_ENABLED", "true")
@@ -261,6 +272,43 @@ func configureMFA(cfg *dex.YAMLConfig, sessionMaxLifetime, sessionIdleTimeout st
 	// Note: MFAChain on clients is NOT set here.
 	// It is toggled at runtime via SetMFAEnabled() based on the account settings DB value.
 	return nil
+}
+
+func resolveSessionCookieEncryptionKey(configuredKey string) (string, error) {
+	key := strings.TrimSpace(configuredKey)
+	if key == "" {
+		key = strings.TrimSpace(os.Getenv(sessionCookieEncryptionKeyEnv))
+	}
+	if key == "" {
+		return "", nil
+	}
+
+	if validSessionCookieEncryptionKeyLength(len([]byte(key))) {
+		return key, nil
+	}
+
+	for _, encoding := range []*base64.Encoding{
+		base64.StdEncoding,
+		base64.RawStdEncoding,
+		base64.URLEncoding,
+		base64.RawURLEncoding,
+	} {
+		decoded, err := encoding.DecodeString(key)
+		if err == nil && validSessionCookieEncryptionKeyLength(len(decoded)) {
+			return string(decoded), nil
+		}
+	}
+
+	return "", fmt.Errorf("invalid embedded IdP session cookie encryption key: %s (or sessionCookieEncryptionKey) must be 16, 24, or 32 bytes as a raw string or base64-encoded to one of those lengths; got %d raw bytes", sessionCookieEncryptionKeyEnv, len([]byte(key)))
+}
+
+func validSessionCookieEncryptionKeyLength(length int) bool {
+	switch length {
+	case 16, 24, 32:
+		return true
+	default:
+		return false
+	}
 }
 
 // Compile-time check that EmbeddedIdPManager implements Manager interface
