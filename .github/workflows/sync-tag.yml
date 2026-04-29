@@ -21,3 +21,29 @@ jobs:
           repo: ${{ secrets.UPSTREAM_REPO }}
           token: ${{ secrets.NC_GITHUB_TOKEN }}
           inputs: '{ "tag": "${{ github.ref_name }}" }'
+
+  trigger_android_bump:
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
+    steps:
+      - name: Trigger android-client submodule bump
+        uses: benc-uk/workflow-dispatch@v1
+        with:
+          workflow: bump-netbird.yml
+          ref: main
+          repo: netbirdio/android-client
+          token: ${{ secrets.NC_GITHUB_TOKEN }}
+          inputs: '{ "tag": "${{ github.ref_name }}" }'
+
+  trigger_ios_bump:
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
+    steps:
+      - name: Trigger ios-client submodule bump
+        uses: benc-uk/workflow-dispatch@v1
+        with:
+          workflow: bump-netbird.yml
+          ref: main
+          repo: netbirdio/ios-client
+          token: ${{ secrets.NC_GITHUB_TOKEN }}
+          inputs: '{ "tag": "${{ github.ref_name }}" }'
