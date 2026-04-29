@@ -102,6 +102,12 @@ func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *t
 
 		router.ID = xid.New().String()
 
+		seq, err := transaction.AllocateAccountSeqID(ctx, router.AccountID, serverTypes.AccountSeqEntityNetworkRouter)
+		if err != nil {
+			return fmt.Errorf("failed to allocate network router seq id: %w", err)
+		}
+		router.AccountSeqID = seq
+
 		err = transaction.SaveNetworkRouter(ctx, router)
 		if err != nil {
 			return fmt.Errorf("failed to create network router: %w", err)
@@ -165,6 +171,12 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 		if network.ID != router.NetworkID {
 			return status.NewRouterNotPartOfNetworkError(router.ID, router.NetworkID)
 		}
+
+		oldRouter, err := transaction.GetNetworkRouterByID(ctx, store.LockingStrengthNone, router.AccountID, router.ID)
+		if err != nil {
+			return fmt.Errorf("failed to get existing network router: %w", err)
+		}
+		router.AccountSeqID = oldRouter.AccountSeqID
 
 		err = transaction.SaveNetworkRouter(ctx, router)
 		if err != nil {

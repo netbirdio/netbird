@@ -195,6 +195,7 @@ func Test_UpdateRouterSuccessfully(t *testing.T) {
 	if err != nil {
 		require.NoError(t, err)
 	}
+	router.ID = "testRouterId"
 
 	s, cleanUp, err := store.NewTestStoreFromSQL(context.Background(), "../../testdata/networks.sql", t.TempDir())
 	if err != nil {
