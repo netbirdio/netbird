@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/netip"
 	"sync/atomic"
 	"time"
 
@@ -70,7 +69,7 @@ func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
 
 func (sp *ServerPicker) startConnection(ctx context.Context, resultChan chan connResult, url string) {
 	log.Infof("try to connecting to relay server: %s", url)
-	relayClient := NewClient(url, netip.Addr{}, sp.TokenStore, sp.PeerID, sp.MTU)
+	relayClient := NewClient(url, sp.TokenStore, sp.PeerID, sp.MTU)
 	err := relayClient.Connect(ctx)
 	resultChan <- connResult{
 		RelayClient: relayClient,

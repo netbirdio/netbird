@@ -15,10 +15,10 @@ import (
 	"github.com/netbirdio/netbird/shared/relay/auth/allow"
 )
 
-// TestClient_FallbackIPRecoversFromUnresolvableFQDN verifies that when the
+// TestClient_ServerIPRecoversFromUnresolvableFQDN verifies that when the
 // primary FQDN-based dial fails (unresolvable .invalid host), Connect
-// recovers via the fallback IP and SNI still uses the FQDN.
-func TestClient_FallbackIPRecoversFromUnresolvableFQDN(t *testing.T) {
+// recovers via the server IP and SNI still uses the FQDN.
+func TestClient_ServerIPRecoversFromUnresolvableFQDN(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
@@ -49,19 +49,19 @@ func TestClient_FallbackIPRecoversFromUnresolvableFQDN(t *testing.T) {
 		t.Fatalf("server failed to start: %s", err)
 	}
 
-	t.Run("no fallback IP, primary fails", func(t *testing.T) {
-		c := NewClient(srvCfg.ExposedAddress, netip.Addr{}, hmacTokenStore, "alice-nofallback", iface.DefaultMTU)
+	t.Run("no server IP, primary fails", func(t *testing.T) {
+		c := NewClient(srvCfg.ExposedAddress, hmacTokenStore, "alice-noip", iface.DefaultMTU)
 		err := c.Connect(ctx)
 		if err == nil {
 			_ = c.Close()
-			t.Fatalf("expected connect to fail without fallback IP, got nil")
+			t.Fatalf("expected connect to fail without server IP, got nil")
 		}
 	})
 
-	t.Run("fallback IP recovers", func(t *testing.T) {
-		c := NewClient(srvCfg.ExposedAddress, netip.MustParseAddr("127.0.0.1"), hmacTokenStore, "alice-fallback", iface.DefaultMTU)
+	t.Run("server IP recovers", func(t *testing.T) {
+		c := NewClientWithServerIP(srvCfg.ExposedAddress, netip.MustParseAddr("127.0.0.1"), hmacTokenStore, "alice-with-ip", iface.DefaultMTU)
 		if err := c.Connect(ctx); err != nil {
-			t.Fatalf("connect with fallback IP: %s", err)
+			t.Fatalf("connect with server IP: %s", err)
 		}
 		t.Cleanup(func() { _ = c.Close() })
 
@@ -77,7 +77,7 @@ func TestClient_FallbackIPRecoversFromUnresolvableFQDN(t *testing.T) {
 // TestClient_ConnectedIPAfterFQDNDial verifies ConnectedIP returns the
 // resolved IP after a successful FQDN-based dial. The underlying socket's
 // RemoteAddr must be exposed through the dialer wrappers; if it returns
-// the dial-time URL instead, ConnectedIP returns empty and the fallback
+// the dial-time URL instead, ConnectedIP returns empty and the dial
 // IP we advertise to peers is empty too.
 func TestClient_ConnectedIPAfterFQDNDial(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -105,7 +105,7 @@ func TestClient_ConnectedIPAfterFQDNDial(t *testing.T) {
 		t.Fatalf("server failed to start: %s", err)
 	}
 
-	c := NewClient(srvCfg.ExposedAddress, netip.Addr{}, hmacTokenStore, "alice-fqdn", iface.DefaultMTU)
+	c := NewClient(srvCfg.ExposedAddress, hmacTokenStore, "alice-fqdn", iface.DefaultMTU)
 	if err := c.Connect(ctx); err != nil {
 		t.Fatalf("connect: %s", err)
 	}
@@ -141,7 +141,7 @@ func TestSubstituteHost(t *testing.T) {
 			wantServerName: "relay.example.com",
 		},
 		{
-			name:           "ipv6 fallback bracketed",
+			name:           "ipv6 server IP bracketed",
 			serverURL:      "rels://relay.example.com:443",
 			ip:             "2001:db8::1",
 			wantURL:        "rels://[2001:db8::1]:443",
@@ -169,7 +169,7 @@ func TestSubstituteHost(t *testing.T) {
 			wantServerName: "",
 		},
 		{
-			name:           "ipv6 fallback no port",
+			name:           "ipv6 server IP no port",
 			serverURL:      "rels://relay.example.com",
 			ip:             "2001:db8::1",
 			wantURL:        "rels://[2001:db8::1]",
@@ -215,7 +215,7 @@ func TestSubstituteHost(t *testing.T) {
 }
 
 func TestClient_ConnectedIPEmptyWhenNotConnected(t *testing.T) {
-	c := NewClient("rel://example.invalid:80", netip.Addr{}, hmacTokenStore, "x", iface.DefaultMTU)
+	c := NewClient("rel://example.invalid:80", hmacTokenStore, "x", iface.DefaultMTU)
 	if got := c.ConnectedIP(); got.IsValid() {
 		t.Fatalf("ConnectedIP on disconnected client = %q, want zero", got)
 	}

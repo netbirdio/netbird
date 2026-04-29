@@ -54,19 +54,19 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	w.relaySupportedOnRemotePeer.Store(true)
 
 	// the relayManager will return with error in case if the connection has lost with relay server
-	currentRelayAddress, err := w.relayManager.RelayInstanceAddress()
+	currentRelayAddress, _, err := w.relayManager.RelayInstanceAddress()
 	if err != nil {
 		w.log.Errorf("failed to handle new offer: %s", err)
 		return
 	}
 
 	srv := w.preferredRelayServer(currentRelayAddress, remoteOfferAnswer.RelaySrvAddress)
-	var fallbackIP netip.Addr
+	var serverIP netip.Addr
 	if srv == remoteOfferAnswer.RelaySrvAddress {
-		fallbackIP = remoteOfferAnswer.RelaySrvIP
+		serverIP = remoteOfferAnswer.RelaySrvIP
 	}
 
-	relayedConn, err := w.relayManager.OpenConn(w.peerCtx, srv, w.config.Key, fallbackIP)
+	relayedConn, err := w.relayManager.OpenConn(w.peerCtx, srv, w.config.Key, serverIP)
 	if err != nil {
 		if errors.Is(err, relayClient.ErrConnAlreadyExists) {
 			w.log.Debugf("handled offer by reusing existing relay connection")
@@ -95,12 +95,8 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	})
 }
 
-func (w *WorkerRelay) RelayInstanceAddress() (string, error) {
+func (w *WorkerRelay) RelayInstanceAddress() (string, netip.Addr, error) {
 	return w.relayManager.RelayInstanceAddress()
-}
-
-func (w *WorkerRelay) RelayInstanceIP() netip.Addr {
-	return w.relayManager.RelayInstanceIP()
 }
 
 func (w *WorkerRelay) IsRelayConnectionSupportedWithPeer() bool {

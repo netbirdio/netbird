@@ -2,8 +2,8 @@ package client
 
 import (
 	"context"
-	"net/netip"
 	"fmt"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -102,7 +102,7 @@ func TestForeignConn(t *testing.T) {
 	if err := clientBob.Serve(); err != nil {
 		t.Fatalf("failed to serve manager: %s", err)
 	}
-	bobsSrvAddr, err := clientBob.RelayInstanceAddress()
+	bobsSrvAddr, _, err := clientBob.RelayInstanceAddress()
 	if err != nil {
 		t.Fatalf("failed to get relay address: %s", err)
 	}
@@ -368,7 +368,7 @@ func TestAutoReconnect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to serve manager: %s", err)
 	}
-	ra, err := clientAlice.RelayInstanceAddress()
+	ra, _, err := clientAlice.RelayInstanceAddress()
 	if err != nil {
 		t.Errorf("failed to get relay address: %s", err)
 	}

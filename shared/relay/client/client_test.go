@@ -3,7 +3,6 @@ package client
 import (
 	"context"
 	"net"
-	"net/netip"
 	"os"
 	"testing"
 	"time"
@@ -69,7 +68,7 @@ func TestClient(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 	t.Log("alice connecting to server")
-	clientAlice := NewClient(serverCfg.ExposedAddress, netip.Addr{}, hmacTokenStore, "alice", iface.DefaultMTU)
+	clientAlice := NewClient(serverCfg.ExposedAddress, hmacTokenStore, "alice", iface.DefaultMTU)
 	err = clientAlice.Connect(ctx)
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
@@ -77,7 +76,7 @@ func TestClient(t *testing.T) {
 	defer clientAlice.Close()
 
 	t.Log("placeholder connecting to server")
-	clientPlaceHolder := NewClient(serverCfg.ExposedAddress, netip.Addr{}, hmacTokenStore, "clientPlaceHolder", iface.DefaultMTU)
+	clientPlaceHolder := NewClient(serverCfg.ExposedAddress, hmacTokenStore, "clientPlaceHolder", iface.DefaultMTU)
 	err = clientPlaceHolder.Connect(ctx)
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
@@ -85,7 +84,7 @@ func TestClient(t *testing.T) {
 	defer clientPlaceHolder.Close()
 
 	t.Log("Bob connecting to server")
-	clientBob := NewClient(serverCfg.ExposedAddress, netip.Addr{}, hmacTokenStore, "bob", iface.DefaultMTU)
+	clientBob := NewClient(serverCfg.ExposedAddress, hmacTokenStore, "bob", iface.DefaultMTU)
 	err = clientBob.Connect(ctx)
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
@@ -145,7 +144,7 @@ func TestRegistration(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 
-	clientAlice := NewClient(serverCfg.ExposedAddress, netip.Addr{}, hmacTokenStore, "alice", iface.DefaultMTU)
+	clientAlice := NewClient(serverCfg.ExposedAddress, hmacTokenStore, "alice", iface.DefaultMTU)
 	err = clientAlice.Connect(ctx)
 	if err != nil {
 		_ = srv.Shutdown(ctx)
@@ -185,7 +184,7 @@ func TestRegistrationTimeout(t *testing.T) {
 		_ = fakeTCPListener.Close()
 	}(fakeTCPListener)
 
-	clientAlice := NewClient("127.0.0.1:50201", netip.Addr{}, hmacTokenStore, "alice", iface.DefaultMTU)
+	clientAlice := NewClient("127.0.0.1:50201", hmacTokenStore, "alice", iface.DefaultMTU)
 	err = clientAlice.Connect(ctx)
 	if err == nil {
 		t.Errorf("failed to connect to server: %s", err)
@@ -228,7 +227,7 @@ func TestEcho(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 
-	clientAlice := NewClient(serverCfg.ExposedAddress, netip.Addr{}, hmacTokenStore, idAlice, iface.DefaultMTU)
+	clientAlice := NewClient(serverCfg.ExposedAddress, hmacTokenStore, idAlice, iface.DefaultMTU)
 	err = clientAlice.Connect(ctx)
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
@@ -240,7 +239,7 @@ func TestEcho(t *testing.T) {
 		}
 	}()
 
-	clientBob := NewClient(serverCfg.ExposedAddress, netip.Addr{}, hmacTokenStore, idBob, iface.DefaultMTU)
+	clientBob := NewClient(serverCfg.ExposedAddress, hmacTokenStore, idBob, iface.DefaultMTU)
 	err = clientBob.Connect(ctx)
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
@@ -320,7 +319,7 @@ func TestBindToUnavailabePeer(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 
-	clientAlice := NewClient(serverCfg.ExposedAddress, netip.Addr{}, hmacTokenStore, "alice", iface.DefaultMTU)
+	clientAlice := NewClient(serverCfg.ExposedAddress, hmacTokenStore, "alice", iface.DefaultMTU)
 	err = clientAlice.Connect(ctx)
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
@@ -368,13 +367,13 @@ func TestBindReconnect(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 
-	clientAlice := NewClient(serverCfg.ExposedAddress, netip.Addr{}, hmacTokenStore, "alice", iface.DefaultMTU)
+	clientAlice := NewClient(serverCfg.ExposedAddress, hmacTokenStore, "alice", iface.DefaultMTU)
 	err = clientAlice.Connect(ctx)
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
 	}
 
-	clientBob := NewClient(serverCfg.ExposedAddress, netip.Addr{}, hmacTokenStore, "bob", iface.DefaultMTU)
+	clientBob := NewClient(serverCfg.ExposedAddress, hmacTokenStore, "bob", iface.DefaultMTU)
 	err = clientBob.Connect(ctx)
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
@@ -396,7 +395,7 @@ func TestBindReconnect(t *testing.T) {
 		t.Errorf("failed to close client: %s", err)
 	}
 
-	clientAlice = NewClient(serverCfg.ExposedAddress, netip.Addr{}, hmacTokenStore, "alice", iface.DefaultMTU)
+	clientAlice = NewClient(serverCfg.ExposedAddress, hmacTokenStore, "alice", iface.DefaultMTU)
 	err = clientAlice.Connect(ctx)
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
@@ -471,13 +470,13 @@ func TestCloseConn(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 
-	bob := NewClient(serverCfg.ExposedAddress, netip.Addr{}, hmacTokenStore, "bob", iface.DefaultMTU)
+	bob := NewClient(serverCfg.ExposedAddress, hmacTokenStore, "bob", iface.DefaultMTU)
 	err = bob.Connect(ctx)
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
 	}
 
-	clientAlice := NewClient(serverCfg.ExposedAddress, netip.Addr{}, hmacTokenStore, "alice", iface.DefaultMTU)
+	clientAlice := NewClient(serverCfg.ExposedAddress, hmacTokenStore, "alice", iface.DefaultMTU)
 	err = clientAlice.Connect(ctx)
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
@@ -535,13 +534,13 @@ func TestCloseRelayConn(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 
-	bob := NewClient(serverCfg.ExposedAddress, netip.Addr{}, hmacTokenStore, "bob", iface.DefaultMTU)
+	bob := NewClient(serverCfg.ExposedAddress, hmacTokenStore, "bob", iface.DefaultMTU)
 	err = bob.Connect(ctx)
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
 	}
 
-	clientAlice := NewClient(serverCfg.ExposedAddress, netip.Addr{}, hmacTokenStore, "alice", iface.DefaultMTU)
+	clientAlice := NewClient(serverCfg.ExposedAddress, hmacTokenStore, "alice", iface.DefaultMTU)
 	err = clientAlice.Connect(ctx)
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
@@ -591,7 +590,7 @@ func TestCloseByServer(t *testing.T) {
 
 	idAlice := "alice"
 	log.Debugf("connect by alice")
-	relayClient := NewClient(serverCfg.ExposedAddress, netip.Addr{}, hmacTokenStore, idAlice, iface.DefaultMTU)
+	relayClient := NewClient(serverCfg.ExposedAddress, hmacTokenStore, idAlice, iface.DefaultMTU)
 	if err = relayClient.Connect(ctx); err != nil {
 		log.Fatalf("failed to connect to server: %s", err)
 	}
@@ -649,7 +648,7 @@ func TestCloseByClient(t *testing.T) {
 
 	idAlice := "alice"
 	log.Debugf("connect by alice")
-	relayClient := NewClient(serverCfg.ExposedAddress, netip.Addr{}, hmacTokenStore, idAlice, iface.DefaultMTU)
+	relayClient := NewClient(serverCfg.ExposedAddress, hmacTokenStore, idAlice, iface.DefaultMTU)
 	err = relayClient.Connect(ctx)
 	if err != nil {
 		log.Fatalf("failed to connect to server: %s", err)
@@ -702,7 +701,7 @@ func TestCloseNotDrainedChannel(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 
-	clientAlice := NewClient(serverCfg.ExposedAddress, netip.Addr{}, hmacTokenStore, idAlice, iface.DefaultMTU)
+	clientAlice := NewClient(serverCfg.ExposedAddress, hmacTokenStore, idAlice, iface.DefaultMTU)
 	err = clientAlice.Connect(ctx)
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
@@ -714,7 +713,7 @@ func TestCloseNotDrainedChannel(t *testing.T) {
 		}
 	}()
 
-	clientBob := NewClient(serverCfg.ExposedAddress, netip.Addr{}, hmacTokenStore, idBob, iface.DefaultMTU)
+	clientBob := NewClient(serverCfg.ExposedAddress, hmacTokenStore, idBob, iface.DefaultMTU)
 	err = clientBob.Connect(ctx)
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)

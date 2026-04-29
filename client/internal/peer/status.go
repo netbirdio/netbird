@@ -919,7 +919,7 @@ func (d *Status) GetRelayStates() []relay.ProbeResult {
 
 	// if the server connection is not established then we will use the general address
 	// in case of connection we will use the instance specific address
-	instanceAddr, err := d.relayMgr.RelayInstanceAddress()
+	instanceAddr, _, err := d.relayMgr.RelayInstanceAddress()
 	if err != nil {
 		// TODO add their status
 		for _, r := range d.relayMgr.ServerURLs() {

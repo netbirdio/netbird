@@ -72,25 +72,26 @@ func UnMarshalCredential(msg *proto.Message) (*Credential, error) {
 
 // MarshalCredential marshal a Credential instance and returns a Message object
 func MarshalCredential(myKey wgtypes.Key, remoteKey string, p CredentialPayload) (*proto.Message, error) {
-	var relayIPBytes []byte
+	body := &proto.Body{
+		Type:           p.Type,
+		Payload:        fmt.Sprintf("%s:%s", p.Credential.UFrag, p.Credential.Pwd),
+		WgListenPort:   uint32(p.WgListenPort),
+		NetBirdVersion: version.NetbirdVersion(),
+		RosenpassConfig: &proto.RosenpassConfig{
+			RosenpassPubKey:     p.RosenpassPubKey,
+			RosenpassServerAddr: p.RosenpassAddr,
+		},
+		SessionId: p.SessionID,
+	}
+	if p.RelaySrvAddress != "" {
+		body.RelayServerAddress = &p.RelaySrvAddress
+	}
 	if p.RelaySrvIP.IsValid() {
-		relayIPBytes = p.RelaySrvIP.Unmap().AsSlice()
+		body.RelayServerIP = p.RelaySrvIP.Unmap().AsSlice()
 	}
 	return &proto.Message{
 		Key:       myKey.PublicKey().String(),
 		RemoteKey: remoteKey,
-		Body: &proto.Body{
-			Type:           p.Type,
-			Payload:        fmt.Sprintf("%s:%s", p.Credential.UFrag, p.Credential.Pwd),
-			WgListenPort:   uint32(p.WgListenPort),
-			NetBirdVersion: version.NetbirdVersion(),
-			RosenpassConfig: &proto.RosenpassConfig{
-				RosenpassPubKey:     p.RosenpassPubKey,
-				RosenpassServerAddr: p.RosenpassAddr,
-			},
-			RelayServerAddress: p.RelaySrvAddress,
-			RelayServerIP:      relayIPBytes,
-			SessionId:          p.SessionID,
-		},
+		Body:      body,
 	}, nil
 }

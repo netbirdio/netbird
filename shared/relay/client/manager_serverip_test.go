@@ -10,12 +10,12 @@ import (
 	"github.com/netbirdio/netbird/relay/server"
 )
 
-// TestManager_ForeignRelayFallbackIP exercises the foreign-relay path
+// TestManager_ForeignRelayServerIP exercises the foreign-relay path
 // end-to-end through Manager.OpenConn. Alice and Bob register on different
 // relay servers; Alice dials Bob's foreign relay using an unresolvable
-// FQDN. Without a fallback IP the dial fails; with Bob's advertised IP it
+// FQDN. Without a server IP the dial fails; with Bob's advertised IP it
 // recovers and a payload round-trips between the peers.
-func TestManager_ForeignRelayFallbackIP(t *testing.T) {
+func TestManager_ForeignRelayServerIP(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
@@ -66,14 +66,11 @@ func TestManager_ForeignRelayFallbackIP(t *testing.T) {
 		t.Fatalf("bob manager serve: %s", err)
 	}
 
-	// Bob's real relay URL (what mgrBob.RelayInstanceAddress returns).
-	bobRealAddr, err := mgrBob.RelayInstanceAddress()
+	// Bob's real relay URL and the IP that would ride along in signal as relayServerIP.
+	bobRealAddr, bobAdvertisedIP, err := mgrBob.RelayInstanceAddress()
 	if err != nil {
 		t.Fatalf("bob relay address: %s", err)
 	}
-	// What Bob's RelayInstanceIP() reports — this is the field that
-	// would ride along in signal as relayServerIP.
-	bobAdvertisedIP := mgrBob.RelayInstanceIP()
 	if !bobAdvertisedIP.IsValid() {
 		t.Fatalf("expected valid RelayInstanceIP for bob, got zero")
 	}
@@ -84,16 +81,16 @@ func TestManager_ForeignRelayFallbackIP(t *testing.T) {
 		t.Fatalf("broken FQDN must differ from bob's real address (%s)", bobRealAddr)
 	}
 
-	t.Run("no fallback IP, dial fails", func(t *testing.T) {
+	t.Run("no server IP, dial fails", func(t *testing.T) {
 		dialCtx, dialCancel := context.WithTimeout(ctx, 5*time.Second)
 		defer dialCancel()
 		_, err := mgrAlice.OpenConn(dialCtx, brokenFQDN, "bob", netip.Addr{})
 		if err == nil {
-			t.Fatalf("expected OpenConn to fail without fallback IP, got success")
+			t.Fatalf("expected OpenConn to fail without server IP, got success")
 		}
 	})
 
-	t.Run("fallback IP recovers", func(t *testing.T) {
+	t.Run("server IP recovers", func(t *testing.T) {
 		// Bob waits for Alice's incoming peer connection on his side.
 		bobSideCh := make(chan error, 1)
 		go func() {
@@ -117,7 +114,7 @@ func TestManager_ForeignRelayFallbackIP(t *testing.T) {
 
 		aliceConn, err := mgrAlice.OpenConn(ctx, brokenFQDN, "bob", bobAdvertisedIP)
 		if err != nil {
-			t.Fatalf("alice OpenConn with fallback IP: %s", err)
+			t.Fatalf("alice OpenConn with server IP: %s", err)
 		}
 		t.Cleanup(func() { _ = aliceConn.Close() })
 

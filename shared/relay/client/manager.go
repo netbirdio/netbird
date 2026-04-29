@@ -132,9 +132,9 @@ func (m *Manager) Serve() error {
 // established via the relay server. If the peer is on a different relay server, the manager will establish a new
 // connection to the relay server. It returns back with a net.Conn what represent the remote peer connection.
 //
-// fallbackIP, when valid and serverAddress is foreign, is used as a dial-time fallback if the FQDN-based
-// dial fails. Ignored for the local home-server path. TLS verification still uses the FQDN via SNI.
-func (m *Manager) OpenConn(ctx context.Context, serverAddress, peerKey string, fallbackIP netip.Addr) (net.Conn, error) {
+// serverIP, when valid and serverAddress is foreign, is used as a dial target if the FQDN-based dial fails.
+// Ignored for the local home-server path. TLS verification still uses the FQDN via SNI.
+func (m *Manager) OpenConn(ctx context.Context, serverAddress, peerKey string, serverIP netip.Addr) (net.Conn, error) {
 	m.relayClientMu.RLock()
 	defer m.relayClientMu.RUnlock()
 
@@ -155,7 +155,7 @@ func (m *Manager) OpenConn(ctx context.Context, serverAddress, peerKey string, f
 		netConn, err = m.relayClient.OpenConn(ctx, peerKey)
 	} else {
 		log.Debugf("open peer connection via foreign server: %s", serverAddress)
-		netConn, err = m.openConnVia(ctx, serverAddress, peerKey, fallbackIP)
+		netConn, err = m.openConnVia(ctx, serverAddress, peerKey, serverIP)
 	}
 	if err != nil {
 		return nil, err
@@ -207,29 +207,22 @@ func (m *Manager) AddCloseListener(serverAddress string, onClosedListener OnServ
 	return nil
 }
 
-// RelayInstanceAddress returns the address of the permanent relay server. It could change if the network connection is
-// lost. This address will be sent to the target peer to choose the common relay server for the communication.
-func (m *Manager) RelayInstanceAddress() (string, error) {
+// RelayInstanceAddress returns the address and resolved IP of the permanent relay server. It could change if the
+// network connection is lost. The address is sent to the target peer to choose the common relay server for the
+// communication; the IP is sent alongside so remote peers can dial directly without their own DNS lookup. Both
+// values are read under the same lock so they cannot diverge across a reconnection.
+func (m *Manager) RelayInstanceAddress() (string, netip.Addr, error) {
 	m.relayClientMu.RLock()
 	defer m.relayClientMu.RUnlock()
 
 	if m.relayClient == nil {
-		return "", ErrRelayClientNotConnected
+		return "", netip.Addr{}, ErrRelayClientNotConnected
 	}
-	return m.relayClient.ServerInstanceURL()
-}
-
-// RelayInstanceIP returns the IP address of the live home relay connection.
-// Zero value if not connected. Sent alongside RelayInstanceAddress so remote
-// peers can dial directly without their own DNS lookup.
-func (m *Manager) RelayInstanceIP() netip.Addr {
-	m.relayClientMu.RLock()
-	defer m.relayClientMu.RUnlock()
-
-	if m.relayClient == nil {
-		return netip.Addr{}
+	addr, err := m.relayClient.ServerInstanceURL()
+	if err != nil {
+		return "", netip.Addr{}, err
 	}
-	return m.relayClient.ConnectedIP()
+	return addr, m.relayClient.ConnectedIP(), nil
 }
 
 // ServerURLs returns the addresses of the relay servers.
@@ -253,7 +246,7 @@ func (m *Manager) UpdateToken(token *relayAuth.Token) error {
 	return m.tokenStore.UpdateToken(token)
 }
 
-func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string, fallbackIP netip.Addr) (net.Conn, error) {
+func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string, serverIP netip.Addr) (net.Conn, error) {
 	// check if already has a connection to the desired relay server
 	m.relayClientsMutex.RLock()
 	rt, ok := m.relayClients[serverAddress]
@@ -288,7 +281,7 @@ func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string
 	m.relayClients[serverAddress] = rt
 	m.relayClientsMutex.Unlock()
 
-	relayClient := NewClient(serverAddress, fallbackIP, m.tokenStore, m.peerID, m.mtu)
+	relayClient := NewClientWithServerIP(serverAddress, serverIP, m.tokenStore, m.peerID, m.mtu)
 	err := relayClient.Connect(m.ctx)
 	if err != nil {
 		rt.err = err

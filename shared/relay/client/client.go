@@ -150,7 +150,7 @@ func (cc *connContainer) close() {
 type Client struct {
 	log            *log.Entry
 	connectionURL  string
-	fallbackIP     netip.Addr
+	serverIP       netip.Addr
 	authTokenStore *auth.TokenStore
 	hashedID       messages.PeerID
 
@@ -175,16 +175,21 @@ type Client struct {
 }
 
 // NewClient creates a new client for the relay server. The client is not connected to the server until the Connect
-// is called. fallbackIP, when valid, is used as a dial-time fallback if the FQDN-based dial fails. TLS
-// verification still uses the FQDN from serverURL via SNI.
-func NewClient(serverURL string, fallbackIP netip.Addr, authTokenStore *auth.TokenStore, peerID string, mtu uint16) *Client {
+// is called.
+func NewClient(serverURL string, authTokenStore *auth.TokenStore, peerID string, mtu uint16) *Client {
+	return NewClientWithServerIP(serverURL, netip.Addr{}, authTokenStore, peerID, mtu)
+}
+
+// NewClientWithServerIP creates a new client for the relay server with a known server IP. serverIP, when valid, is
+// used as a dial target if the FQDN-based dial fails. TLS verification still uses the FQDN from serverURL via SNI.
+func NewClientWithServerIP(serverURL string, serverIP netip.Addr, authTokenStore *auth.TokenStore, peerID string, mtu uint16) *Client {
 	hashedID := messages.HashID(peerID)
 	relayLog := log.WithFields(log.Fields{"relay": serverURL})
 
 	c := &Client{
 		log:            relayLog,
 		connectionURL:  serverURL,
-		fallbackIP:     fallbackIP,
+		serverIP:       serverIP,
 		authTokenStore: authTokenStore,
 		hashedID:       hashedID,
 		mtu:            mtu,
@@ -378,11 +383,11 @@ func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
 	rd := dialer.NewRaceDial(c.log, dialer.DefaultConnectionTimeout, c.connectionURL, dialers...)
 	conn, err := rd.Dial(ctx)
 	if err != nil {
-		fallbackConn, fbErr := c.dialFallback(ctx, dialers)
-		if fbErr != nil {
-			return nil, fmt.Errorf("primary dial: %w; fallback dial: %w", err, fbErr)
+		directConn, dErr := c.dialDirect(ctx, dialers)
+		if dErr != nil {
+			return nil, fmt.Errorf("dial via FQDN: %w; dial via server IP: %w", err, dErr)
 		}
-		conn = fallbackConn
+		conn = directConn
 	}
 	c.relayConn = conn
 
@@ -398,22 +403,21 @@ func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
 	return instanceURL, nil
 }
 
-// dialFallback retries the dial against c.fallbackIP, preserving the
-// original FQDN as the TLS ServerName for SNI. Returns an error if no
-// fallback IP is configured or if the substituted URL is malformed.
-func (c *Client) dialFallback(ctx context.Context, dialers []dialer.DialeFn) (net.Conn, error) {
-	if !c.fallbackIP.IsValid() || c.fallbackIP.IsUnspecified() {
-		return nil, errors.New("no usable fallback IP configured")
+// dialDirect retries the dial against c.serverIP, preserving the original FQDN as the TLS ServerName for SNI.
+// Returns an error if no usable server IP is configured or if the substituted URL is malformed.
+func (c *Client) dialDirect(ctx context.Context, dialers []dialer.DialeFn) (net.Conn, error) {
+	if !c.serverIP.IsValid() || c.serverIP.IsUnspecified() {
+		return nil, errors.New("no usable server IP configured")
 	}
 
-	fallbackURL, serverName, err := substituteHost(c.connectionURL, c.fallbackIP)
+	directURL, serverName, err := substituteHost(c.connectionURL, c.serverIP)
 	if err != nil {
 		return nil, fmt.Errorf("substitute host: %w", err)
 	}
 
-	c.log.Infof("primary dial failed, retrying via fallback IP %s (SNI=%s)", c.fallbackIP, serverName)
+	c.log.Infof("FQDN dial failed, retrying via server IP %s (SNI=%s)", c.serverIP, serverName)
 
-	rd := dialer.NewRaceDial(c.log, dialer.DefaultConnectionTimeout, fallbackURL, dialers...).
+	rd := dialer.NewRaceDial(c.log, dialer.DefaultConnectionTimeout, directURL, dialers...).
 		WithServerName(serverName)
 	return rd.Dial(ctx)
 }
@@ -431,7 +435,7 @@ func substituteHost(serverURL string, ip netip.Addr) (string, string, error) {
 		return "", "", fmt.Errorf("invalid relay URL %q", serverURL)
 	}
 	if !ip.IsValid() {
-		return "", "", errors.New("invalid fallback IP")
+		return "", "", errors.New("invalid server IP")
 	}
 	origHost := u.Hostname()
 	if _, err := netip.ParseAddr(origHost); err == nil {
