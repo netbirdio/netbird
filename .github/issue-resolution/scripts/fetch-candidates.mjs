@@ -16,6 +16,12 @@ async function rest(url) {
   return res.json();
 }
 
+async function restSafe(url) {
+  const res = await fetch(url, { headers });
+  if (!res.ok) return null;
+  return res.json();
+}
+
 async function paginate(url, max) {
   const items = [];
   let page = 1;
@@ -80,9 +86,37 @@ for (const issue of realIssues) {
           }
         : undefined,
     })),
+    linked_prs: [],
   });
 
-  console.log(`  #${issue.number} — ${comments.length} comments, ${timeline.length} timeline events`);
+  // Fetch merge status for cross-referenced PRs
+  const prUrls = new Set();
+  for (const t of timeline) {
+    const prHtml = t.source?.issue?.pull_request?.html_url;
+    if (t.event === "cross-referenced" && prHtml) {
+      prUrls.add(prHtml);
+    }
+  }
+
+  const candidate = candidates[candidates.length - 1];
+  for (const prHtml of prUrls) {
+    // Extract owner/repo and PR number from URL like https://github.com/owner/repo/pull/123
+    const match = prHtml.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/);
+    if (!match) continue;
+    const [, prRepo, prNum] = match;
+    const pr = await restSafe(`https://api.github.com/repos/${prRepo}/pulls/${prNum}`);
+    if (!pr) continue;
+    candidate.linked_prs.push({
+      number: pr.number,
+      title: pr.title,
+      url: prHtml,
+      state: pr.state,
+      merged: pr.merged || false,
+      merged_at: pr.merged_at,
+    });
+  }
+
+  console.log(`  #${issue.number} — ${comments.length} comments, ${timeline.length} timeline events, ${candidate.linked_prs.length} linked PRs`);
 }
 
 await fs.writeFile("candidates.json", JSON.stringify(candidates, null, 2));

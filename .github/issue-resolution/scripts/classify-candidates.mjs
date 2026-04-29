@@ -65,7 +65,7 @@ function truncate(text, maxChars) {
   return text.slice(0, maxChars) + "\n\n[... truncated due to length]";
 }
 
-function buildUserMessage(candidate) {
+function buildUserMessage(candidate, pre) {
   const { issue, comments, timeline } = candidate;
 
   const commentBlock = comments
@@ -82,7 +82,7 @@ function buildUserMessage(candidate) {
     })
     .join("\n");
 
-  const msg = [
+  const sections = [
     `## Issue #${issue.number}: ${issue.title}`,
     `URL: ${issue.html_url}`,
     `Created: ${issue.created_at} | Updated: ${issue.updated_at}`,
@@ -96,9 +96,29 @@ function buildUserMessage(candidate) {
     "",
     "### Timeline events",
     timelineBlock || "(none)",
-  ].join("\n");
+  ];
 
-  return truncate(msg, MAX_USER_MESSAGE_CHARS);
+  if (candidate.linked_prs?.length) {
+    sections.push("");
+    sections.push("### Linked PRs (verified state)");
+    for (const pr of candidate.linked_prs) {
+      const status = pr.merged ? `MERGED (${pr.merged_at})` : pr.state.toUpperCase();
+      sections.push(`- PR #${pr.number}: ${pr.title} — ${status} — ${pr.url}`);
+    }
+  }
+
+  if (pre.hardSignals.length || pre.contradictions.length) {
+    sections.push("");
+    sections.push("### Automated evidence scan");
+    for (const s of pre.hardSignals) {
+      sections.push(`- SIGNAL: ${s.type} — ${s.url}`);
+    }
+    for (const c of pre.contradictions) {
+      sections.push(`- CONTRADICTION: ${c.type} — ${c.url}`);
+    }
+  }
+
+  return truncate(sections.join("\n"), MAX_USER_MESSAGE_CHARS);
 }
 
 const MODEL = "gpt-4o-mini";
@@ -108,12 +128,12 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function callGitHubModel(candidate) {
+async function callGitHubModel(candidate, pre) {
   const body = JSON.stringify({
     model: MODEL,
     messages: [
       { role: "system", content: systemPrompt },
-      { role: "user", content: buildUserMessage(candidate) },
+      { role: "user", content: buildUserMessage(candidate, pre) },
     ],
     response_format: {
       type: "json_schema",
@@ -175,6 +195,7 @@ function enforcePolicy(modelOut, pre) {
   const hasContradiction =
     (modelOut.contradictions || []).length > 0 || pre.contradictions.length > 0;
 
+  // Only auto-close with very strict criteria
   if (
     modelOut.decision === "AUTO_CLOSE" &&
     modelOut.confidence >= 0.97 &&
@@ -185,19 +206,13 @@ function enforcePolicy(modelOut, pre) {
     return "AUTO_CLOSE";
   }
 
-  if (modelOut.decision === "KEEP_OPEN" && pre.score < 25) {
-    return "KEEP_OPEN";
-  }
-
-  if (
-    modelOut.decision === "MANUAL_REVIEW" ||
-    modelOut.decision === "AUTO_CLOSE" ||
-    pre.score >= 25
-  ) {
+  // Downgrade AUTO_CLOSE that didn't pass the gate
+  if (modelOut.decision === "AUTO_CLOSE") {
     return "MANUAL_REVIEW";
   }
 
-  return "KEEP_OPEN";
+  // Otherwise trust the model
+  return modelOut.decision;
 }
 
 console.log(`Classifying ${candidates.length} candidates with ${MODEL}...\n`);
@@ -216,7 +231,7 @@ async function paced(fn) {
 const decisions = [];
 for (const candidate of candidates) {
   const pre = preScore(candidate);
-  const modelOut = await paced(() => callGitHubModel(candidate));
+  const modelOut = await paced(() => callGitHubModel(candidate, pre));
 
   if (modelOut === null) {
     console.warn(`\nQuota exhausted after ${decisions.length} issues. Writing partial results.`);
