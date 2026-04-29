@@ -107,6 +107,7 @@ get_release() {
 }
 
 download_binary() {
+    local dest_dir="${1:-$INSTALL_DIR}"
     local version
     version=$(get_release "$NETBIRD_RELEASE")
 
@@ -116,7 +117,8 @@ download_binary() {
 
     local version_num="${version#v}"
     local tarball="${BINARY}_${version_num}_linux_${ARCH}.tar.gz"
-    local url="https://github.com/${OWNER}/${REPO}/releases/download/${version}/${tarball}"
+    local checksums="${BINARY}_${version_num}_checksums.txt"
+    local base_url="https://github.com/${OWNER}/${REPO}/releases/download/${version}"
 
     info "Downloading NetBird ${version} for ${ARCH}..."
 
@@ -124,19 +126,37 @@ download_binary() {
     tmp_dir=$(mktemp -d)
     trap "rm -rf '$tmp_dir'" EXIT
 
+    local auth_header=""
     if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-        curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" -o "${tmp_dir}/${tarball}" "$url"
-    else
-        curl -fsSL -o "${tmp_dir}/${tarball}" "$url"
+        auth_header="Authorization: token ${GITHUB_TOKEN}"
     fi
+
+    # Download tarball and checksums
+    curl -fsSL ${auth_header:+-H "$auth_header"} -o "${tmp_dir}/${tarball}" "${base_url}/${tarball}"
+    curl -fsSL ${auth_header:+-H "$auth_header"} -o "${tmp_dir}/${checksums}" "${base_url}/${checksums}"
+
+    # Verify checksum
+    info "Verifying checksum..."
+    local expected
+    expected=$(grep "  ${tarball}$" "${tmp_dir}/${checksums}" | awk '{print $1}')
+    if [[ -z "$expected" ]]; then
+        error "Checksum for ${tarball} not found in ${checksums}"
+    fi
+
+    local actual
+    actual=$(sha256sum "${tmp_dir}/${tarball}" | awk '{print $1}')
+    if [[ "$expected" != "$actual" ]]; then
+        error "Checksum mismatch for ${tarball}: expected ${expected}, got ${actual}"
+    fi
+    info "Checksum verified"
 
     tar -xzf "${tmp_dir}/${tarball}" -C "$tmp_dir" "$BINARY"
 
-    mkdir -p "$INSTALL_DIR"
-    mv "${tmp_dir}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
-    chmod 755 "${INSTALL_DIR}/${BINARY}"
+    mkdir -p "$dest_dir"
+    mv "${tmp_dir}/${BINARY}" "${dest_dir}/${BINARY}"
+    chmod 755 "${dest_dir}/${BINARY}"
 
-    info "Installed ${INSTALL_DIR}/${BINARY} (${version})"
+    info "Installed ${dest_dir}/${BINARY} (${version})"
 }
 
 # --- Systemd user service ---
@@ -261,13 +281,24 @@ do_update() {
 
     info "Updating ${installed_version} -> ${latest_version}"
 
-    systemctl --user stop "${SERVICE_NAME}.service" 2>/dev/null || true
-
     check_arch
-    download_binary
+
+    # Download and verify new binary to a staging directory before touching the running service
+    local staging_dir
+    staging_dir=$(mktemp -d)
+    trap "rm -rf '$staging_dir'" RETURN
+
+    download_binary "$staging_dir"
 
     # Regenerate the unit file in case paths or env vars changed
     write_service_unit
+
+    # Only stop the service after the new binary is ready
+    systemctl --user stop "${SERVICE_NAME}.service" 2>/dev/null || true
+
+    # Atomic swap: move staged binary into place
+    mv "${staging_dir}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
+    chmod 755 "${INSTALL_DIR}/${BINARY}"
 
     systemctl --user daemon-reload
     systemctl --user start "${SERVICE_NAME}.service"
