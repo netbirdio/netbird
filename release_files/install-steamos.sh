@@ -41,14 +41,14 @@ error() { printf '\033[1;31m[netbird]\033[0m %s\n' "$*" >&2; exit 1; }
 # --- Validation ---
 
 check_steamos() {
-    if [ ! -f /etc/os-release ]; then
+    if [[ ! -f /etc/os-release ]]; then
         error "Cannot detect OS: /etc/os-release not found"
     fi
 
     . /etc/os-release
 
     # Accept steamos, or allow --force for other immutable Linux distros
-    if [ "${ID:-}" != "steamos" ] && [ "${FORCE:-}" != "true" ]; then
+    if [[ "${ID:-}" != "steamos" ]] && [[ "${FORCE:-}" != "true" ]]; then
         warn "This script is designed for SteamOS (detected: ${ID:-unknown})"
         warn "Set FORCE=true to install anyway on immutable Linux distros"
         exit 1
@@ -75,7 +75,7 @@ check_dependencies() {
         fi
     done
 
-    if [ -n "$missing" ]; then
+    if [[ -n "$missing" ]]; then
         error "Missing required commands:$missing"
     fi
 
@@ -89,14 +89,14 @@ check_dependencies() {
 
 get_release() {
     local release="$1"
-    if [ "$release" = "latest" ]; then
+    if [[ "$release" == "latest" ]]; then
         local url="https://pkgs.netbird.io/releases/latest"
     else
         local url="https://api.github.com/repos/${OWNER}/${REPO}/releases/tags/${release}"
     fi
 
     local output=""
-    if [ -n "${GITHUB_TOKEN:-}" ]; then
+    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
         output=$(curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" "$url")
     else
         output=$(curl -fsSL "$url")
@@ -110,7 +110,7 @@ download_binary() {
     local version
     version=$(get_release "$NETBIRD_RELEASE")
 
-    if [ -z "$version" ]; then
+    if [[ -z "$version" ]]; then
         error "Failed to determine NetBird version"
     fi
 
@@ -124,7 +124,7 @@ download_binary() {
     tmp_dir=$(mktemp -d)
     trap "rm -rf '$tmp_dir'" EXIT
 
-    if [ -n "${GITHUB_TOKEN:-}" ]; then
+    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
         curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" -o "${tmp_dir}/${tarball}" "$url"
     else
         curl -fsSL -o "${tmp_dir}/${tarball}" "$url"
@@ -197,7 +197,7 @@ do_install() {
     check_dependencies
 
     # Check for existing installation
-    if [ -x "${INSTALL_DIR}/${BINARY}" ]; then
+    if [[ -x "${INSTALL_DIR}/${BINARY}" ]]; then
         warn "NetBird is already installed at ${INSTALL_DIR}/${BINARY}"
         warn "Use --update to update or --uninstall to remove first"
         exit 1
@@ -220,7 +220,7 @@ do_install() {
     info "The daemon is running. To connect:"
     info ""
 
-    if [ -n "${NB_SETUP_KEY:-}" ]; then
+    if [[ -n "${NB_SETUP_KEY:-}" ]]; then
         info "  Connecting with provided setup key..."
         "${INSTALL_DIR}/${BINARY}" up --setup-key "$NB_SETUP_KEY" \
             ${NB_MANAGEMENT_URL:+--management-url "$NB_MANAGEMENT_URL"} \
@@ -243,7 +243,7 @@ do_install() {
 # --- Update ---
 
 do_update() {
-    if [ ! -x "${INSTALL_DIR}/${BINARY}" ]; then
+    if [[ ! -x "${INSTALL_DIR}/${BINARY}" ]]; then
         error "NetBird is not installed. Run without --update to install."
     fi
 
@@ -254,7 +254,7 @@ do_update() {
     latest_version=$(get_release "latest")
     latest_version="${latest_version#v}"
 
-    if [ "$installed_version" = "$latest_version" ]; then
+    if [[ "$installed_version" == "$latest_version" ]]; then
         info "Already on latest version (${installed_version})"
         exit 0
     fi
@@ -293,11 +293,11 @@ do_uninstall() {
     info "Removed binary and service"
 
     # Ask about config/state
-    if [ -d "$CONFIG_DIR" ] || [ -d "$STATE_DIR" ]; then
+    if [[ -d "$CONFIG_DIR" ]] || [[ -d "$STATE_DIR" ]]; then
         info ""
         info "Config and state directories still exist:"
-        [ -d "$CONFIG_DIR" ] && info "  ${CONFIG_DIR}"
-        [ -d "$STATE_DIR" ] && info "  ${STATE_DIR}"
+        [[ -d "$CONFIG_DIR" ]] && info "  ${CONFIG_DIR}"
+        [[ -d "$STATE_DIR" ]] && info "  ${STATE_DIR}"
         info ""
         info "To remove them (this deletes auth tokens and config):"
         info "  rm -rf ${CONFIG_DIR} ${STATE_DIR}"
@@ -309,7 +309,8 @@ do_uninstall() {
 # --- Main ---
 
 main() {
-    case "${1:-}" in
+    local action="${1:-}"
+    case "$action" in
         --update)
             do_update
         ;;
@@ -344,7 +345,7 @@ USAGE
             do_install
         ;;
         *)
-            error "Unknown option: $1 (use --help for usage)"
+            error "Unknown option: $action (use --help for usage)"
         ;;
     esac
 }
