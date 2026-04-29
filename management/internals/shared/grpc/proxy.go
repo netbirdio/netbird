@@ -744,7 +744,7 @@ func (s *ProxyServiceServer) SendStatusUpdate(ctx context.Context, req *proto.Se
 // Trust model: the calling proxy is already authenticated via the
 // gRPC interceptor chain (NB_PROXY_TOKEN). This handler trusts the
 // proxy's claimed account_id, matching how ProxyMapping push works.
-// Per-proxy account-list pinning is a Wave 6 hardening item.
+// Per-proxy account-list pinning is a future hardening item.
 func (s *ProxyServiceServer) ResolveCredential(ctx context.Context, req *proto.ResolveCredentialRequest) (*proto.ResolveCredentialResponse, error) {
 	accountID := req.GetAccountId()
 	ref := req.GetCredentialRef()

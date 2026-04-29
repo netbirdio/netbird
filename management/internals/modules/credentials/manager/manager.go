@@ -61,8 +61,9 @@ func New(store CredentialStore, c *crypt.FieldEncrypt, events EventRecorder) (*M
 // and then encrypted before persistence; the response carries metadata
 // only — the caller never gets the plaintext back.
 //
-// Wave 4 closed-set provider types are validated here. Adapters on the
-// proxy side re-validate at issuance time as defense-in-depth.
+// Provider types are validated here against the closed-set registry.
+// Adapters on the proxy side re-validate at issuance time as
+// defense-in-depth.
 func (m *Manager) Create(ctx context.Context, accountID, userID, providerType, name string, secretFields map[string]string) (*credentials.Credential, error) {
 	if accountID == "" {
 		return nil, fmt.Errorf("accountID is required")

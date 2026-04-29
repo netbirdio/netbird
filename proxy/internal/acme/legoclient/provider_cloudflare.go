@@ -11,8 +11,8 @@ import (
 // DNS-01 provider. Required field: "auth_token" (a scoped Cloudflare
 // API token with Zone:DNS:Edit on the target zone).
 //
-// Slice A stored Cloudflare tokens as plain strings; the legacy fallback
-// (secretpayload.LegacyKey) accepts those without a migration.
+// Legacy credentials stored Cloudflare tokens as plain strings; the
+// fallback (secretpayload.LegacyKey) accepts those without a migration.
 func buildCloudflare(secret map[string]string) (challenge.Provider, error) {
 	token := secret["auth_token"]
 	if token == "" {

@@ -3110,7 +3110,7 @@ components:
           $ref: '#/components/schemas/AccessRestrictions'
         private:
           type: boolean
-          description: When true, the service is local-only — reachable only from inside the NetBird mesh. Behavior change lands in Phase 2 Wave 2; this field is round-tripped today but does not yet alter routing.
+          description: When true, the service is local-only — reachable only from inside the NetBird mesh. The management server auto-creates an internal DNS record and the proxy listener rejects non-mesh connections.
           default: false
           example: false
         meta:

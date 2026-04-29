@@ -1133,9 +1133,19 @@ func (s *Server) processMappings(ctx context.Context, mappings []*proto.ProxyMap
 				"service_id": mapping.GetId(),
 				"domain":     mapping.GetDomain(),
 				"account_id": mapping.GetAccountId(),
-			}).Error("private mapping rejected: NB_PROXY_NETBIRD_IP is not configured")
+				"action":     "private_mapping_rejected",
+			}).Error("private mapping rejected: NB_PROXY_NETBIRD_IP is not configured; configure --netbird-ip or NB_PROXY_NETBIRD_IP and restart the proxy")
 			s.notifyError(ctx, mapping, err)
 			continue
+		}
+		if mapping.GetPrivate() && mapping.GetType() == proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED {
+			s.Logger.WithFields(log.Fields{
+				"service_id": mapping.GetId(),
+				"domain":     mapping.GetDomain(),
+				"account_id": mapping.GetAccountId(),
+				"netbird_ip": s.NetBirdIP.String(),
+				"action":     "private_mapping_registered",
+			}).Info("registered private service: connections accepted only via NetBird interface")
 		}
 		switch mapping.GetType() {
 		case proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED:

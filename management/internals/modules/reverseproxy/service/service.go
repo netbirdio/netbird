@@ -215,9 +215,9 @@ type Service struct {
 	// proxy. Empty until per-service credential storage lands.
 	DNSCredentialsRef string
 	// Private marks the service as local-only: when true, the service
-	// is reachable only from inside the NetBird mesh. Wave 2 of Phase 2
-	// gives this field semantic effect; Wave 1 only plumbs the value
-	// through proto, DB, and the proxy log.
+	// is reachable only from inside the NetBird mesh. The management
+	// server auto-creates an internal DNS record, the proxy listener
+	// rejects non-mesh connections, and DNS-01 cert issuance is required.
 	Private bool
 }
 

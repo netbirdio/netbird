@@ -6,6 +6,8 @@ import (
 	"net"
 	"strings"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -21,8 +23,7 @@ import (
 //   - Locates the matching zone in the account by longest-suffix match on
 //     fqdn against zone.Domain. Returns InvalidArgument if none found.
 //   - Refuses to create if any record at the same name exists with a
-//     ManagedByServiceID different from serviceID, or with no manager at
-//     all (Wave 2A task 2.4 conflict rule).
+//     ManagedByServiceID different from serviceID, or with no manager at all.
 //   - Issues IncrementNetworkSerial after the create so the network map
 //     update propagates to peers. The caller is responsible for the
 //     post-commit UpdateAccountPeers broadcast.
@@ -60,6 +61,14 @@ func AutoCreateForService(
 	if err := tx.IncrementNetworkSerial(ctx, accountID); err != nil {
 		return nil, fmt.Errorf("increment network serial: %w", err)
 	}
+	log.WithContext(ctx).WithFields(log.Fields{
+		"account_id": accountID,
+		"service_id": serviceID,
+		"domain":     fqdn,
+		"record_id":  rec.ID,
+		"zone_id":    rec.ZoneID,
+		"action":     "auto_dns_create",
+	}).Info("auto-created managed DNS record for private service")
 	return rec, nil
 }
 
@@ -96,7 +105,7 @@ func AutoDeleteForService(
 		return fmt.Errorf("get account zones: %w", err)
 	}
 
-	deleted := false
+	deleted := 0
 	for _, z := range zs {
 		for _, r := range z.Records {
 			if r.ManagedByServiceID != serviceID {
@@ -105,14 +114,20 @@ func AutoDeleteForService(
 			if err := tx.DeleteDNSRecord(ctx, accountID, z.ID, r.ID); err != nil {
 				return fmt.Errorf("delete auto dns record %s: %w", r.ID, err)
 			}
-			deleted = true
+			deleted++
 		}
 	}
 
-	if deleted {
+	if deleted > 0 {
 		if err := tx.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return fmt.Errorf("increment network serial: %w", err)
 		}
+		log.WithContext(ctx).WithFields(log.Fields{
+			"account_id": accountID,
+			"service_id": serviceID,
+			"deleted":    deleted,
+			"action":     "auto_dns_delete",
+		}).Info("removed managed DNS records for private service")
 	}
 	return nil
 }
@@ -135,17 +150,17 @@ func findZoneForFQDN(ctx context.Context, tx store.Store, accountID, fqdn string
 	}
 	if best == nil {
 		return nil, status.Errorf(status.InvalidArgument,
-			"no DNS zone configured for parent of %q in your account; create a zone first",
+			"no DNS zone configured for parent of %q in your account; create a zone for the parent domain in the DNS Zones page before enabling Private mode",
 			fqdn)
 	}
 	return best, nil
 }
 
-// validateAutoConflicts enforces Wave 2A task 2.4: an auto-managed record
-// may only be created at an FQDN that has no existing record other than
-// (optionally) one already owned by the same service. User-managed records
-// at the same name produce a clear error pointing the user to remove their
-// manual record before enabling Private mode.
+// validateAutoConflicts enforces that an auto-managed record may only be
+// created at an FQDN that has no existing record other than (optionally)
+// one already owned by the same service. User-managed records at the same
+// name produce a clear error pointing the user to remove their manual
+// record before enabling Private mode.
 func validateAutoConflicts(ctx context.Context, tx store.Store, zone *zones.Zone, rec *records.Record, serviceID string) error {
 	if rec.Name != zone.Domain && !strings.HasSuffix(rec.Name, "."+zone.Domain) {
 		return status.Errorf(status.InvalidArgument,

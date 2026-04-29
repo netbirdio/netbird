@@ -205,11 +205,10 @@ type AddDomainOptions struct {
 	// "http-01", "dns-01".
 	ChallengeType string
 	// DNSProvider, when set, must match the configured Lego provider.
-	// Mismatch produces an error. Wave 4 will introduce per-provider
-	// routing; for now this is validation only.
+	// Mismatch produces an error.
 	DNSProvider string
-	// DNSCredentialsRef is reserved for Wave 3 (encrypted credential
-	// storage). Set values are accepted but not used to switch credentials.
+	// DNSCredentialsRef is the opaque reference into the encrypted
+	// credential store, resolved at issuance time.
 	DNSCredentialsRef string
 }
 
@@ -374,8 +373,7 @@ func (mgr *Manager) resolveBackend(opts AddDomainOptions) (CertBackend, string, 
 		return nil, "", fmt.Errorf("no backend registered for challenge type %q", ct)
 	}
 	// Per-service DNSProvider/DNSCredentialsRef validation against the
-	// resolver response is performed at issuance time in prefetchCertificate;
-	// multi-provider routing is Wave 4 territory.
+	// resolver response is performed at issuance time in prefetchCertificate.
 	return backend, ct, nil
 }
 

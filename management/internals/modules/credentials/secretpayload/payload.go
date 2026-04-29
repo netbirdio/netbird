@@ -4,8 +4,8 @@
 // this layer marshals the per-provider field map into that string and
 // back.
 //
-// A backward-compatibility fallback decodes Slice A's plain-string
-// Cloudflare credentials by treating any non-JSON payload as
+// A backward-compatibility fallback decodes legacy plain-string
+// credentials by treating any non-JSON payload as
 // {"_legacy": <whole string>} so that adapters can opt into a
 // legacy-fallback read path.
 package secretpayload
@@ -15,11 +15,10 @@ import (
 	"fmt"
 )
 
-// LegacyKey is the key under which Slice A's plain-string secrets are
-// surfaced after Decode. Provider adapters that pre-existed Wave 4
-// (only Cloudflare today) read this key as a fallback when their
-// modern keys are absent, so credentials stored before Wave 4 keep
-// working without a migration.
+// LegacyKey is the key under which legacy plain-string secrets are
+// surfaced after Decode. Provider adapters (Cloudflare today) read this
+// key as a fallback when their modern keys are absent, so older
+// credentials keep working without a migration.
 const LegacyKey = "_legacy"
 
 // Encode marshals fields into a JSON string. Returns an error if fields

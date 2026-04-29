@@ -7,7 +7,7 @@ package credentials
 
 import "time"
 
-// Credential is an account-scoped encrypted secret. Slice A scope: DNS
+// Credential is an account-scoped encrypted secret holding DNS
 // provider tokens consumed by the proxy's Lego-based dns-01 path.
 //
 // Invariants:
@@ -24,8 +24,8 @@ type Credential struct {
 	// access is never permitted.
 	AccountID string `gorm:"index"`
 	// ProviderType identifies the consumer (e.g., "cloudflare",
-	// "route53"). Wave 4 introduces a registry; Slice A treats this as
-	// an opaque non-empty string.
+	// "route53"). Validated against the closed-set registry in the
+	// credentials manager.
 	ProviderType string `gorm:"index"`
 	// Name is a user-friendly label.
 	Name string

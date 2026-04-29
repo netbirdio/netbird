@@ -188,13 +188,12 @@ func (m *Manager) replaceHostByLookup(ctx context.Context, accountID string, s *
 }
 
 // getRoutingPeerIP returns the NetBird IP of the first embedded peer in
-// the given proxy cluster. Used by the Wave 2A DNS auto-record flow to
-// point a private service's auto A record at the cluster's routing peer.
+// the given proxy cluster. Used by the auto-DNS flow to point a private
+// service's A record at the cluster's routing peer.
 //
 // Limitation: returns a single peer's IP. A future change can emit one
-// record per cluster peer for round-robin DNS resolution and HA. The
-// roadmap explicitly tracks "routing peer offline = service unreachable"
-// as a known limitation of this wave.
+// record per cluster peer for round-robin DNS resolution and HA. Today
+// "routing peer offline = service unreachable" is a known constraint.
 func (m *Manager) getRoutingPeerIP(ctx context.Context, tx store.Store, accountID, proxyCluster string) (net.IP, error) {
 	if proxyCluster == "" {
 		return nil, status.Errorf(status.InvalidArgument,
@@ -212,7 +211,8 @@ func (m *Manager) getRoutingPeerIP(ctx context.Context, tx store.Store, accountI
 	}
 	if len(matches) == 0 {
 		return nil, status.Errorf(status.PreconditionFailed,
-			"no embedded proxy peer found for cluster %q", proxyCluster)
+			"no embedded proxy peer found for cluster %q; check that at least one proxy in this cluster is connected and registered",
+			proxyCluster)
 	}
 	sort.Slice(matches, func(i, j int) bool { return matches[i].ID < matches[j].ID })
 	return matches[0].IP, nil
@@ -840,9 +840,9 @@ func validateACMEConfig(svc *service.Service) error {
 }
 
 // validatePrivateConfig enforces constraints that apply when a service is
-// marked Private. Wave 1 only enforces challenge_type compatibility;
-// "routing peer required" is deferred to Wave 2 because it depends on
-// listener-binding semantics that have not landed.
+// marked Private. Currently checks domain is set and challenge_type is
+// "dns-01" (other challenge types can't reach a service with no public
+// listener).
 func validatePrivateConfig(svc *service.Service) error {
 	if !svc.Private {
 		return nil
