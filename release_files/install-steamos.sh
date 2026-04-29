@@ -1,0 +1,352 @@
+#!/bin/bash
+# NetBird installer for SteamOS (Steam Deck)
+#
+# Installs NetBird as a rootless, user-level service running entirely from /home.
+# Uses netstack mode (userspace WireGuard) — no root, no sysext, no TUN device needed.
+# Survives all SteamOS updates without intervention.
+#
+# Usage:
+#   curl -fsSL https://raw.githubusercontent.com/netbirdio/netbird/main/release_files/install-steamos.sh | bash
+#   bash install-steamos.sh --update
+#   bash install-steamos.sh --uninstall
+#
+# Environment variables:
+#   NETBIRD_RELEASE   - Version to install (default: "latest")
+#   GITHUB_TOKEN      - GitHub token for rate-limited API calls
+#   NB_MANAGEMENT_URL - Custom management server URL
+#   NB_ADMIN_URL      - Custom admin dashboard URL
+#   NB_SETUP_KEY      - Setup key for automatic authentication
+
+set -euo pipefail
+
+OWNER="netbirdio"
+REPO="netbird"
+BINARY="netbird"
+
+INSTALL_DIR="${HOME}/.local/bin"
+CONFIG_DIR="${HOME}/.config/netbird"
+STATE_DIR="${HOME}/.local/share/netbird"
+SYSTEMD_DIR="${HOME}/.config/systemd/user"
+SERVICE_NAME="netbird"
+
+NETBIRD_RELEASE="${NETBIRD_RELEASE:-latest}"
+TAG_NAME=""
+
+# --- Logging ---
+
+info() { printf '\033[1;32m[netbird]\033[0m %s\n' "$*"; }
+warn() { printf '\033[1;33m[netbird]\033[0m %s\n' "$*" >&2; }
+error() { printf '\033[1;31m[netbird]\033[0m %s\n' "$*" >&2; exit 1; }
+
+# --- Validation ---
+
+check_steamos() {
+    if [ ! -f /etc/os-release ]; then
+        error "Cannot detect OS: /etc/os-release not found"
+    fi
+
+    . /etc/os-release
+
+    # Accept steamos, or allow --force for other immutable Linux distros
+    if [ "${ID:-}" != "steamos" ] && [ "${FORCE:-}" != "true" ]; then
+        warn "This script is designed for SteamOS (detected: ${ID:-unknown})"
+        warn "Set FORCE=true to install anyway on immutable Linux distros"
+        exit 1
+    fi
+
+    info "Detected ${PRETTY_NAME:-SteamOS}"
+}
+
+check_arch() {
+    case "$(uname -m)" in
+        x86_64|amd64) ARCH="amd64" ;;
+        aarch64|arm64) ARCH="arm64" ;;
+        *)
+            error "Unsupported architecture: $(uname -m)"
+        ;;
+    esac
+}
+
+check_dependencies() {
+    local missing=""
+    for cmd in curl tar systemctl; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            missing="$missing $cmd"
+        fi
+    done
+
+    if [ -n "$missing" ]; then
+        error "Missing required commands:$missing"
+    fi
+
+    # Verify user-level systemd is functional
+    if ! systemctl --user status >/dev/null 2>&1; then
+        error "systemctl --user is not functional. Is systemd user session running?"
+    fi
+}
+
+# --- Release fetching (adapted from install.sh) ---
+
+get_release() {
+    local release="$1"
+    if [ "$release" = "latest" ]; then
+        local url="https://pkgs.netbird.io/releases/latest"
+    else
+        local url="https://api.github.com/repos/${OWNER}/${REPO}/releases/tags/${release}"
+    fi
+
+    local output=""
+    if [ -n "${GITHUB_TOKEN:-}" ]; then
+        output=$(curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" "$url")
+    else
+        output=$(curl -fsSL "$url")
+    fi
+
+    TAG_NAME=$(echo "$output" | grep -Eo '"tag_name":\s*"v([0-9]+\.){2}[0-9]+"' | tail -n 1)
+    echo "$TAG_NAME" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+'
+}
+
+download_binary() {
+    local version
+    version=$(get_release "$NETBIRD_RELEASE")
+
+    if [ -z "$version" ]; then
+        error "Failed to determine NetBird version"
+    fi
+
+    local version_num="${version#v}"
+    local tarball="${BINARY}_${version_num}_linux_${ARCH}.tar.gz"
+    local url="https://github.com/${OWNER}/${REPO}/releases/download/${version}/${tarball}"
+
+    info "Downloading NetBird ${version} for ${ARCH}..."
+
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+    trap "rm -rf '$tmp_dir'" EXIT
+
+    if [ -n "${GITHUB_TOKEN:-}" ]; then
+        curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" -o "${tmp_dir}/${tarball}" "$url"
+    else
+        curl -fsSL -o "${tmp_dir}/${tarball}" "$url"
+    fi
+
+    tar -xzf "${tmp_dir}/${tarball}" -C "$tmp_dir" "$BINARY"
+
+    mkdir -p "$INSTALL_DIR"
+    mv "${tmp_dir}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
+    chmod 755 "${INSTALL_DIR}/${BINARY}"
+
+    info "Installed ${INSTALL_DIR}/${BINARY} (${version})"
+}
+
+# --- Systemd user service ---
+
+write_service_unit() {
+    mkdir -p "$SYSTEMD_DIR"
+    mkdir -p "$CONFIG_DIR"
+    mkdir -p "$STATE_DIR"
+
+    cat > "${SYSTEMD_DIR}/${SERVICE_NAME}.service" <<EOF
+[Unit]
+Description=NetBird Client (SteamOS)
+Documentation=https://netbird.io/docs
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=NB_USE_NETSTACK_MODE=true
+Environment=NB_ENABLE_NETSTACK_LOCAL_FORWARDING=true
+Environment=NB_CONFIG=${CONFIG_DIR}/config.json
+Environment=NB_STATE_DIR=${STATE_DIR}
+Environment=NB_DAEMON_ADDR=unix://${STATE_DIR}/netbird.sock
+Environment=NB_LOG_FILE=${STATE_DIR}/client.log
+Environment=NB_DISABLE_DNS=true
+ExecStart=${INSTALL_DIR}/${BINARY} service run
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+
+[Install]
+WantedBy=default.target
+EOF
+
+    info "Created systemd user service"
+}
+
+enable_service() {
+    systemctl --user daemon-reload
+    systemctl --user enable "${SERVICE_NAME}.service"
+    systemctl --user start "${SERVICE_NAME}.service"
+
+    # Enable lingering so the service runs even when not logged into a desktop session
+    # This requires loginctl which may or may not work without root on SteamOS
+    if command -v loginctl >/dev/null 2>&1; then
+        loginctl enable-linger "$(whoami)" 2>/dev/null || \
+            warn "Could not enable linger. Service will only run while logged in."
+    fi
+
+    info "Service enabled and started"
+}
+
+# --- Install ---
+
+do_install() {
+    check_steamos
+    check_arch
+    check_dependencies
+
+    # Check for existing installation
+    if [ -x "${INSTALL_DIR}/${BINARY}" ]; then
+        warn "NetBird is already installed at ${INSTALL_DIR}/${BINARY}"
+        warn "Use --update to update or --uninstall to remove first"
+        exit 1
+    fi
+
+    download_binary
+    write_service_unit
+    enable_service
+
+    # Ensure ~/.local/bin is on PATH
+    if ! echo "$PATH" | grep -q "${INSTALL_DIR}"; then
+        warn "${INSTALL_DIR} is not in your PATH"
+        warn "Add to your ~/.bashrc or ~/.zshrc:"
+        warn "  export PATH=\"${INSTALL_DIR}:\$PATH\""
+    fi
+
+    info ""
+    info "NetBird installed successfully!"
+    info ""
+    info "The daemon is running. To connect:"
+    info ""
+
+    if [ -n "${NB_SETUP_KEY:-}" ]; then
+        info "  Connecting with provided setup key..."
+        "${INSTALL_DIR}/${BINARY}" up --setup-key "$NB_SETUP_KEY" \
+            ${NB_MANAGEMENT_URL:+--management-url "$NB_MANAGEMENT_URL"} \
+            ${NB_ADMIN_URL:+--admin-url "$NB_ADMIN_URL"} || \
+            warn "Auto-connect failed. Run 'netbird up --setup-key <KEY>' manually."
+    else
+        info "  With a setup key (recommended for Steam Deck):"
+        info "    netbird up --setup-key <YOUR-SETUP-KEY>"
+        info ""
+        info "  With SSO (device flow):"
+        info "    netbird up"
+        info "    Then open the printed URL on your phone or PC."
+    fi
+
+    info ""
+    info "Check status:  netbird status"
+    info "View logs:     journalctl --user -u ${SERVICE_NAME} -f"
+}
+
+# --- Update ---
+
+do_update() {
+    if [ ! -x "${INSTALL_DIR}/${BINARY}" ]; then
+        error "NetBird is not installed. Run without --update to install."
+    fi
+
+    local installed_version
+    installed_version=$("${INSTALL_DIR}/${BINARY}" version 2>/dev/null || echo "unknown")
+
+    local latest_version
+    latest_version=$(get_release "latest")
+    latest_version="${latest_version#v}"
+
+    if [ "$installed_version" = "$latest_version" ]; then
+        info "Already on latest version (${installed_version})"
+        exit 0
+    fi
+
+    info "Updating ${installed_version} -> ${latest_version}"
+
+    systemctl --user stop "${SERVICE_NAME}.service" 2>/dev/null || true
+
+    check_arch
+    download_binary
+
+    # Regenerate the unit file in case paths or env vars changed
+    write_service_unit
+
+    systemctl --user daemon-reload
+    systemctl --user start "${SERVICE_NAME}.service"
+
+    info "Updated to ${latest_version}"
+}
+
+# --- Uninstall ---
+
+do_uninstall() {
+    info "Uninstalling NetBird..."
+
+    # Stop and disable service
+    systemctl --user stop "${SERVICE_NAME}.service" 2>/dev/null || true
+    systemctl --user disable "${SERVICE_NAME}.service" 2>/dev/null || true
+
+    # Remove files
+    rm -f "${SYSTEMD_DIR}/${SERVICE_NAME}.service"
+    rm -f "${INSTALL_DIR}/${BINARY}"
+
+    systemctl --user daemon-reload
+
+    info "Removed binary and service"
+
+    # Ask about config/state
+    if [ -d "$CONFIG_DIR" ] || [ -d "$STATE_DIR" ]; then
+        info ""
+        info "Config and state directories still exist:"
+        [ -d "$CONFIG_DIR" ] && info "  ${CONFIG_DIR}"
+        [ -d "$STATE_DIR" ] && info "  ${STATE_DIR}"
+        info ""
+        info "To remove them (this deletes auth tokens and config):"
+        info "  rm -rf ${CONFIG_DIR} ${STATE_DIR}"
+    fi
+
+    info "NetBird uninstalled"
+}
+
+# --- Main ---
+
+main() {
+    case "${1:-}" in
+        --update)
+            do_update
+        ;;
+        --uninstall)
+            do_uninstall
+        ;;
+        --help|-h)
+            cat <<USAGE
+NetBird installer for SteamOS (Steam Deck)
+
+Usage:
+  install-steamos.sh              Install NetBird
+  install-steamos.sh --update     Update to latest version
+  install-steamos.sh --uninstall  Remove NetBird
+
+Environment variables:
+  NETBIRD_RELEASE     Version to install (default: latest)
+  GITHUB_TOKEN        GitHub token for API rate limits
+  NB_SETUP_KEY        Setup key for automatic authentication
+  NB_MANAGEMENT_URL   Custom management server URL
+  NB_ADMIN_URL        Custom admin dashboard URL
+  FORCE               Set to "true" to install on non-SteamOS systems
+
+Files:
+  ${INSTALL_DIR}/${BINARY}                    Binary
+  ${CONFIG_DIR}/config.json            Config
+  ${STATE_DIR}/                        State, socket, logs
+  ${SYSTEMD_DIR}/${SERVICE_NAME}.service  Systemd unit
+USAGE
+        ;;
+        "")
+            do_install
+        ;;
+        *)
+            error "Unknown option: $1 (use --help for usage)"
+        ;;
+    esac
+}
+
+main "$@"
