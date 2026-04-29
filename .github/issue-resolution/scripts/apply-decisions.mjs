@@ -110,13 +110,35 @@ async function setTextField(itemId, fieldId, value) {
   });
 }
 
+async function setNumberField(itemId, fieldId, value) {
+  const mutation = `
+    mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: Float!) {
+      updateProjectV2ItemFieldValue(input: {
+        projectId: $projectId,
+        itemId: $itemId,
+        fieldId: $fieldId,
+        value: { number: $value }
+      }) {
+        projectV2Item { id }
+      }
+    }
+  `;
+
+  return graphql(mutation, {
+    projectId: process.env.PROJECT_ID,
+    itemId,
+    fieldId,
+    value
+  });
+}
+
 async function addToProjectWithFields(owner, repo, d) {
   const issueNodeId = await getIssueNodeId(owner, repo, d.issue_number);
   const itemId = await addToProject(issueNodeId);
 
   if (itemId) {
     if (process.env.PROJECT_CONFIDENCE_FIELD_ID) {
-      await setTextField(itemId, process.env.PROJECT_CONFIDENCE_FIELD_ID, String(d.model.confidence));
+      await setNumberField(itemId, process.env.PROJECT_CONFIDENCE_FIELD_ID, d.model.confidence);
     }
     if (process.env.PROJECT_REASON_FIELD_ID) {
       await setTextField(itemId, process.env.PROJECT_REASON_FIELD_ID, d.model.reason_code);
