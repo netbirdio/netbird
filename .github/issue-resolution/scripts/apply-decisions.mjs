@@ -146,12 +146,8 @@ async function addToProjectWithFields(owner, repo, d) {
     if (process.env.PROJECT_EVIDENCE_FIELD_ID) {
       await setTextField(itemId, process.env.PROJECT_EVIDENCE_FIELD_ID, d.issue_url);
     }
-    if (process.env.PROJECT_LINKED_PR_FIELD_ID) {
-      const linked = (d.model.hard_signals || []).map(x => x.url).join(", ");
-      if (linked) {
-        await setTextField(itemId, process.env.PROJECT_LINKED_PR_FIELD_ID, linked);
-      }
-    }
+    // Linked pull requests field is a built-in type that can't be set via API
+    // GitHub auto-populates it from issue cross-references
     if (process.env.PROJECT_REPO_FIELD_ID) {
       await setTextField(itemId, process.env.PROJECT_REPO_FIELD_ID, d.repository);
     }
