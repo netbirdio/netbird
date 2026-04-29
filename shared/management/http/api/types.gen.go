@@ -1641,8 +1641,8 @@ type CreateResellerMSPRequest struct {
 	// Name The name for the MSP
 	Name string `json:"name"`
 
-	// PriceId Stripe price ID to set up managed subscription for the MSP
-	PriceId *string `json:"price_id,omitempty"`
+	// PriceID Stripe price ID to set up managed subscription for the MSP
+	PriceID *string `json:"priceID,omitempty"`
 
 	// ResellerCustomerId Reseller's internal customer reference for this MSP
 	ResellerCustomerId *string `json:"reseller_customer_id,omitempty"`
@@ -4681,12 +4681,6 @@ type PostApiIntegrationsMspJSONBody struct {
 	Invite string `json:"invite"`
 }
 
-// PostApiIntegrationsMspResellerJSONBody defines parameters for PostApiIntegrationsMspReseller.
-type PostApiIntegrationsMspResellerJSONBody struct {
-	// Invite The invite code
-	Invite string `json:"invite"`
-}
-
 // PutApiIntegrationsMspResellerMspsIdInviteJSONBody defines parameters for PutApiIntegrationsMspResellerMspsIdInvite.
 type PutApiIntegrationsMspResellerMspsIdInviteJSONBody struct {
 	// Value Accept or decline the invitation
@@ -4698,14 +4692,14 @@ type PutApiIntegrationsMspResellerMspsIdInviteJSONBodyValue string
 
 // PostApiIntegrationsMspResellerMspsIdSubscriptionJSONBody defines parameters for PostApiIntegrationsMspResellerMspsIdSubscription.
 type PostApiIntegrationsMspResellerMspsIdSubscriptionJSONBody struct {
-	// PriceId The Stripe price ID for the plan
-	PriceId string `json:"price_id"`
+	// PriceID The Stripe price ID for the plan
+	PriceID string `json:"priceID"`
 }
 
 // PutApiIntegrationsMspResellerMspsIdSubscriptionJSONBody defines parameters for PutApiIntegrationsMspResellerMspsIdSubscription.
 type PutApiIntegrationsMspResellerMspsIdSubscriptionJSONBody struct {
-	// PriceId The new Stripe price ID
-	PriceId string `json:"price_id"`
+	// PriceID The new Stripe price ID
+	PriceID string `json:"priceID"`
 }
 
 // PutApiIntegrationsMspTenantsIdInviteJSONBody defines parameters for PutApiIntegrationsMspTenantsIdInvite.
@@ -4836,9 +4830,6 @@ type UpdateSentinelOneEDRIntegrationJSONRequestBody = EDRSentinelOneRequest
 
 // PostApiIntegrationsMspJSONRequestBody defines body for PostApiIntegrationsMsp for application/json ContentType.
 type PostApiIntegrationsMspJSONRequestBody PostApiIntegrationsMspJSONBody
-
-// PostApiIntegrationsMspResellerJSONRequestBody defines body for PostApiIntegrationsMspReseller for application/json ContentType.
-type PostApiIntegrationsMspResellerJSONRequestBody PostApiIntegrationsMspResellerJSONBody
 
 // PostApiIntegrationsMspResellerMspsJSONRequestBody defines body for PostApiIntegrationsMspResellerMsps for application/json ContentType.
 type PostApiIntegrationsMspResellerMspsJSONRequestBody = CreateResellerMSPRequest

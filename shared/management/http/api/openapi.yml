@@ -3795,7 +3795,7 @@ components:
           type: string
           description: The domain for the MSP
           example: "new-partner.com"
-        price_id:
+        priceID:
           type: string
           description: Stripe price ID to set up managed subscription for the MSP
           example: "price_1234"
@@ -8662,37 +8662,6 @@ paths:
           $ref: "#/components/responses/requires_authentication"
         "500":
           $ref: "#/components/responses/internal_error"
-    post:
-      summary: Activate Reseller account
-      description: Activates the authenticated account as a reseller
-      tags:
-        - MSP
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                invite:
-                  type: string
-                  description: The invite code
-                  example: "705860a1-27a3-4976-bf63-c5cd2fc1582b"
-              required:
-                - invite
-      responses:
-        "200":
-          description: Reseller account activated or already exists
-        "400":
-          $ref: "#/components/responses/bad_request"
-        "401":
-          $ref: "#/components/responses/requires_authentication"
-        "403":
-          $ref: "#/components/responses/forbidden"
-        "412":
-          description: Reseller account requirements not met
-        "500":
-          $ref: "#/components/responses/internal_error"
   /api/integrations/msp/reseller/msps:
     get:
       summary: List MSPs under reseller
@@ -9120,11 +9089,11 @@ paths:
             schema:
               type: object
               properties:
-                price_id:
+                priceID:
                   type: string
                   description: The Stripe price ID for the plan
               required:
-                - price_id
+                - priceID
       responses:
         "200":
           description: Subscription created successfully
@@ -9159,11 +9128,11 @@ paths:
             schema:
               type: object
               properties:
-                price_id:
+                priceID:
                   type: string
                   description: The new Stripe price ID
               required:
-                - price_id
+                - priceID
       responses:
         "200":
           description: Subscription updated successfully
