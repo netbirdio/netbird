@@ -4,14 +4,12 @@ import (
 	"errors"
 	"net"
 	"net/netip"
-	"runtime"
 	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
-	"github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	peerid "github.com/netbirdio/netbird/client/internal/peer/id"
@@ -72,16 +70,6 @@ func (m *Manager) MonitorPeerActivity(peerCfg lazyconn.PeerConfig) error {
 
 func (m *Manager) createListener(peerCfg lazyconn.PeerConfig) (listener, error) {
 	if !m.wgIface.IsUserspaceBind() {
-		return NewUDPListener(m.wgIface, peerCfg)
-	}
-
-	// BindListener is used on Windows, JS, and netstack platforms:
-	// - JS: Cannot listen to UDP sockets
-	// - Windows: IP_UNICAST_IF socket option forces packets out the interface the default
-	//   gateway points to, preventing them from reaching the loopback interface.
-	// - Netstack: Allows multiple instances on the same host without port conflicts.
-	// BindListener bypasses these issues by passing data directly through the bind.
-	if runtime.GOOS != "windows" && runtime.GOOS != "js" && !netstack.IsEnabled() {
 		return NewUDPListener(m.wgIface, peerCfg)
 	}
 
