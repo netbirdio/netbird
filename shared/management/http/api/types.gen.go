@@ -518,6 +518,7 @@ const (
 	IdentityProviderTypeOkta      IdentityProviderType = "okta"
 	IdentityProviderTypePocketid  IdentityProviderType = "pocketid"
 	IdentityProviderTypeZitadel   IdentityProviderType = "zitadel"
+	IdentityProviderTypeAdfs      IdentityProviderType = "adfs"
 )
 
 // Valid indicates whether the value is a known member of the IdentityProviderType enum.
@@ -536,6 +537,8 @@ func (e IdentityProviderType) Valid() bool {
 	case IdentityProviderTypePocketid:
 		return true
 	case IdentityProviderTypeZitadel:
+		return true
+	case IdentityProviderTypeAdfs:
 		return true
 	default:
 		return false
