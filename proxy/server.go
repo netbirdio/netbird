@@ -202,6 +202,11 @@ type Server struct {
 	// Zero means no cap (the proxy honors whatever management sends).
 	// Set via NB_PROXY_MAX_SESSION_IDLE_TIMEOUT for shared deployments.
 	MaxSessionIdleTimeout time.Duration
+	// NetBirdIP is the proxy's NetBird (WireGuard) interface IP. Required
+	// for serving private services. When nil, private mappings are
+	// rejected at processMappings time and public services keep working.
+	// Set via --netbird-ip / NB_PROXY_NETBIRD_IP.
+	NetBirdIP net.IP
 }
 
 // clampIdleTimeout returns d capped to MaxSessionIdleTimeout when configured.
@@ -368,6 +373,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	s.mainRouter = nbtcp.NewRouter(s.Logger, s.resolveDialFunc, ln.Addr())
 	s.mainRouter.SetObserver(s.meter)
 	s.mainRouter.SetAccessLogger(s.accessLog)
+	s.mainRouter.SetNetBirdIP(s.NetBirdIP)
 	close(s.routerReady)
 
 	// The HTTP server uses the chanListener fed by the SNI router.
@@ -956,6 +962,7 @@ func (s *Server) getOrCreatePortRouter(ctx context.Context, port uint16) (*nbtcp
 	router := nbtcp.NewPortRouter(s.Logger, s.resolveDialFunc)
 	router.SetObserver(s.meter)
 	router.SetAccessLogger(s.accessLog)
+	router.SetNetBirdIP(s.NetBirdIP)
 	portCtx, cancel := context.WithCancel(ctx)
 
 	s.portRouters[port] = &portRouter{
@@ -1120,13 +1127,15 @@ func (s *Server) processMappings(ctx context.Context, mappings []*proto.ProxyMap
 			"port":   mapping.GetListenPort(),
 			"id":     mapping.GetId(),
 		}).Debug("Processing mapping update")
-		if mapping.GetPrivate() {
+		if mapping.GetPrivate() && s.NetBirdIP == nil {
+			err := fmt.Errorf("proxy is missing NB_PROXY_NETBIRD_IP — cannot serve private services")
 			s.Logger.WithFields(log.Fields{
 				"service_id": mapping.GetId(),
 				"domain":     mapping.GetDomain(),
 				"account_id": mapping.GetAccountId(),
-				"mode":       "private",
-			}).Debug("Service is marked private (no behavior change in Wave 1)")
+			}).Error("private mapping rejected: NB_PROXY_NETBIRD_IP is not configured")
+			s.notifyError(ctx, mapping, err)
+			continue
 		}
 		switch mapping.GetType() {
 		case proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED:
@@ -1237,6 +1246,7 @@ func (s *Server) setupHTTPMapping(ctx context.Context, mapping *proto.ProxyMappi
 		AccountID: accountID,
 		ServiceID: svcID,
 		Domain:    mapping.GetDomain(),
+		Private:   mapping.GetPrivate(),
 	})
 	if err := s.updateMapping(ctx, mapping); err != nil {
 		return fmt.Errorf("update mapping for domain %q: %w", d, err)
@@ -1289,6 +1299,7 @@ func (s *Server) setupTCPMapping(ctx context.Context, mapping *proto.ProxyMappin
 		DialTimeout:        s.l4DialTimeout(mapping),
 		SessionIdleTimeout: s.clampIdleTimeout(l4SessionIdleTimeout(mapping)),
 		Filter:             s.parseRestrictions(mapping),
+		Private:            mapping.GetPrivate(),
 	})
 
 	s.portMu.Lock()
@@ -1364,6 +1375,7 @@ func (s *Server) setupTLSMapping(ctx context.Context, mapping *proto.ProxyMappin
 		DialTimeout:        s.l4DialTimeout(mapping),
 		SessionIdleTimeout: s.clampIdleTimeout(l4SessionIdleTimeout(mapping)),
 		Filter:             s.parseRestrictions(mapping),
+		Private:            mapping.GetPrivate(),
 	})
 
 	if tlsPort != s.mainPort {
@@ -1525,6 +1537,12 @@ func (s *Server) addUDPRelay(ctx context.Context, mapping *proto.ProxyMapping, t
 	s.removeUDPRelay(svcID)
 
 	listenAddr := fmt.Sprintf(":%d", listenPort)
+	if mapping.GetPrivate() {
+		if s.NetBirdIP == nil {
+			return fmt.Errorf("private UDP service %s requires NB_PROXY_NETBIRD_IP", svcID)
+		}
+		listenAddr = fmt.Sprintf("%s:%d", s.NetBirdIP.String(), listenPort)
+	}
 
 	listener, err := net.ListenPacket("udp", listenAddr)
 	if err != nil {

@@ -55,9 +55,9 @@ func buildCloudflareWriter(secret map[string]string) (RecordWriter, error) {
 // We capture both success and error data so we can map response statuses
 // to sentinel errors precisely.
 type cloudflareEnvelope struct {
-	Success bool                `json:"success"`
-	Errors  []cloudflareAPIErr  `json:"errors"`
-	Result  json.RawMessage     `json:"result"`
+	Success bool               `json:"success"`
+	Errors  []cloudflareAPIErr `json:"errors"`
+	Result  json.RawMessage    `json:"result"`
 }
 
 type cloudflareAPIErr struct {

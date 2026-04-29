@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
 	"strconv"
@@ -69,6 +70,7 @@ var (
 	geoDataDir            string
 	crowdsecAPIURL        string
 	crowdsecAPIKey        string
+	netbirdIP             string
 )
 
 var rootCmd = &cobra.Command{
@@ -116,6 +118,7 @@ func init() {
 	rootCmd.Flags().StringVar(&geoDataDir, "geo-data-dir", envStringOrDefault("NB_PROXY_GEO_DATA_DIR", "/var/lib/netbird/geolocation"), "Directory for the GeoLite2 MMDB file (auto-downloaded if missing)")
 	rootCmd.Flags().StringVar(&crowdsecAPIURL, "crowdsec-api-url", envStringOrDefault("NB_PROXY_CROWDSEC_API_URL", ""), "CrowdSec LAPI URL for IP reputation checks")
 	rootCmd.Flags().StringVar(&crowdsecAPIKey, "crowdsec-api-key", envStringOrDefault("NB_PROXY_CROWDSEC_API_KEY", ""), "CrowdSec bouncer API key")
+	rootCmd.Flags().StringVar(&netbirdIP, "netbird-ip", envStringOrDefault("NB_PROXY_NETBIRD_IP", ""), "Proxy's NetBird (WireGuard) interface IP. Required for private services. When unset, private mappings are rejected with a clear error and public services keep working.")
 }
 
 // Execute runs the root command.
@@ -202,6 +205,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 		GeoDataDir:               geoDataDir,
 		CrowdSecAPIURL:           crowdsecAPIURL,
 		CrowdSecAPIKey:           crowdsecAPIKey,
+		NetBirdIP:                parseNetBirdIP(netbirdIP, logger),
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
@@ -255,4 +259,17 @@ func envDurationOrDefault(key string, def time.Duration) time.Duration {
 		return def
 	}
 	return parsed
+}
+
+func parseNetBirdIP(raw string, logger *log.Logger) net.IP {
+	if raw == "" {
+		return nil
+	}
+	ip := net.ParseIP(raw)
+	if ip == nil {
+		logger.Warnf("invalid --netbird-ip %q; private services will be rejected", raw)
+		return nil
+	}
+	logger.Infof("private services will bind to NetBird IP %s", ip)
+	return ip
 }

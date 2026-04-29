@@ -27,8 +27,8 @@ type rfc2136TestServer struct {
 }
 
 const (
-	testKeyName    = "auto-config."           // FQDN form
-	testAlgorithm  = "hmac-sha256."           // FQDN form
+	testKeyName    = "auto-config."             // FQDN form
+	testAlgorithm  = "hmac-sha256."             // FQDN form
 	testTSIGSecret = "Kzqq+jE3+1xX8b5Yk5Rqfg==" // base64, arbitrary 16-byte sample
 )
 

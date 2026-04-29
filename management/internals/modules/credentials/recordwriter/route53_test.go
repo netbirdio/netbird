@@ -46,13 +46,6 @@ func r53Resp(status int, body string) *http.Response {
 // XML envelope fragments. Real Route 53 envelopes include xmlns; the SDK
 // doesn't validate the namespace, so we omit it for brevity.
 const (
-	xmlListHostedZonesEmpty = `<ListHostedZonesResponse>
-  <HostedZones></HostedZones>
-  <IsTruncated>false</IsTruncated>
-  <MaxItems>100</MaxItems>
-  <Marker></Marker>
-</ListHostedZonesResponse>`
-
 	xmlChangeRRSetsOK = `<ChangeResourceRecordSetsResponse>
   <ChangeInfo>
     <Id>/change/C123</Id>

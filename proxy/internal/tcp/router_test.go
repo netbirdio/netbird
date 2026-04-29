@@ -1693,6 +1693,79 @@ func TestCheckRestrictions_UnparseableAddress(t *testing.T) {
 	assert.NotEqual(t, restrict.Allow, router.checkRestrictions(conn, route), "unparsable address must be denied")
 }
 
+// privateConn mocks a net.Conn for testing the private-route filter. It
+// exposes controllable LocalAddr/RemoteAddr and tracks whether Close was
+// called.
+type privateConn struct {
+	net.Conn
+	local  net.Addr
+	remote net.Addr
+	closed bool
+}
+
+func (p *privateConn) LocalAddr() net.Addr  { return p.local }
+func (p *privateConn) RemoteAddr() net.Addr { return p.remote }
+func (p *privateConn) Close() error         { p.closed = true; return nil }
+
+func TestRejectIfPrivateMismatch_PublicRouteUnaffected(t *testing.T) {
+	router := NewPortRouter(log.StandardLogger(), nil)
+	router.SetNetBirdIP(net.ParseIP("100.64.0.1"))
+	conn := &privateConn{
+		local:  &net.TCPAddr{IP: net.ParseIP("1.2.3.4"), Port: 443},
+		remote: &net.TCPAddr{IP: net.ParseIP("5.6.7.8"), Port: 12345},
+	}
+	rejected := router.rejectIfPrivateMismatch(conn, Route{Private: false})
+	assert.False(t, rejected, "public routes should never be rejected")
+	assert.False(t, conn.closed, "connection should not be closed")
+}
+
+func TestRejectIfPrivateMismatch_PrivateRouteRejectsPublicLocalAddr(t *testing.T) {
+	router := NewPortRouter(log.StandardLogger(), nil)
+	router.SetNetBirdIP(net.ParseIP("100.64.0.1"))
+	conn := &privateConn{
+		local:  &net.TCPAddr{IP: net.ParseIP("1.2.3.4"), Port: 443},
+		remote: &net.TCPAddr{IP: net.ParseIP("5.6.7.8"), Port: 12345},
+	}
+	rejected := router.rejectIfPrivateMismatch(conn, Route{Private: true, ServiceID: "svc-1", Domain: "private.test"})
+	assert.True(t, rejected, "private route + public LocalAddr must be rejected")
+	assert.True(t, conn.closed, "connection should be closed")
+}
+
+func TestRejectIfPrivateMismatch_PrivateRouteAcceptsNetBirdLocalAddr(t *testing.T) {
+	router := NewPortRouter(log.StandardLogger(), nil)
+	router.SetNetBirdIP(net.ParseIP("100.64.0.1"))
+	conn := &privateConn{
+		local:  &net.TCPAddr{IP: net.ParseIP("100.64.0.1"), Port: 443},
+		remote: &net.TCPAddr{IP: net.ParseIP("100.64.0.42"), Port: 12345},
+	}
+	rejected := router.rejectIfPrivateMismatch(conn, Route{Private: true})
+	assert.False(t, rejected, "private route + NetBird LocalAddr must be accepted")
+	assert.False(t, conn.closed, "connection should not be closed")
+}
+
+func TestRejectIfPrivateMismatch_PrivateRouteWithoutNetBirdIPFailsClosed(t *testing.T) {
+	router := NewPortRouter(log.StandardLogger(), nil)
+	// No SetNetBirdIP called — router.netBirdIP is nil.
+	conn := &privateConn{
+		local:  &net.TCPAddr{IP: net.ParseIP("100.64.0.1"), Port: 443},
+		remote: &net.TCPAddr{IP: net.ParseIP("100.64.0.42"), Port: 12345},
+	}
+	rejected := router.rejectIfPrivateMismatch(conn, Route{Private: true})
+	assert.True(t, rejected, "private route must be rejected when NetBirdIP is unset (fail-closed)")
+	assert.True(t, conn.closed)
+}
+
+func TestMatchesNetBirdAddr_UDPAddr(t *testing.T) {
+	router := NewPortRouter(log.StandardLogger(), nil)
+	router.SetNetBirdIP(net.ParseIP("100.64.0.1"))
+
+	udpMatch := &net.UDPAddr{IP: net.ParseIP("100.64.0.1"), Port: 9001}
+	assert.True(t, router.matchesNetBirdAddr(udpMatch))
+
+	udpMiss := &net.UDPAddr{IP: net.ParseIP("1.2.3.4"), Port: 9001}
+	assert.False(t, router.matchesNetBirdAddr(udpMiss))
+}
+
 func TestCheckRestrictions_NilRemoteAddr(t *testing.T) {
 	router := NewPortRouter(log.StandardLogger(), nil)
 	filter := restrict.ParseFilter(restrict.FilterConfig{AllowedCIDRs: []string{"10.0.0.0/8"}})

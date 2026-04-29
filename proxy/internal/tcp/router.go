@@ -75,6 +75,10 @@ type Route struct {
 	SessionIdleTimeout time.Duration
 	// Filter holds connection-level IP/geo restrictions. Nil means no restrictions.
 	Filter *restrict.Filter
+	// Private marks the service as local-only: when true, the router accepts
+	// the connection only if conn.LocalAddr() matches the proxy's NetBird IP.
+	// Public connections to a private service are closed without dispatch.
+	Private bool
 }
 
 // l4Logger sends layer-4 access log entries to the management server.
@@ -115,6 +119,10 @@ type Router struct {
 	// service derive from its context; canceling it kills them immediately.
 	svcCtxs    map[types.ServiceID]context.Context
 	svcCancels map[types.ServiceID]context.CancelFunc
+	// netBirdIP is the proxy's NetBird (WireGuard) interface IP. Set via
+	// SetNetBirdIP at server startup. When nil, all routes flagged
+	// Private are rejected (fail-closed).
+	netBirdIP net.IP
 }
 
 // NewRouter creates a new SNI-based connection router.
@@ -317,6 +325,10 @@ func (r *Router) handleConn(ctx context.Context, conn net.Conn) {
 		return
 	}
 
+	if r.rejectIfPrivateMismatch(wrapped, route) {
+		return
+	}
+
 	if route.Type == RouteHTTP {
 		r.sendToHTTP(wrapped)
 		return
@@ -332,6 +344,27 @@ func (r *Router) handleConn(ctx context.Context, conn net.Conn) {
 		}
 		_ = wrapped.Close()
 	}
+}
+
+// rejectIfPrivateMismatch closes the connection and returns true when route
+// is private but the connection's local address is not the proxy's NetBird
+// IP (or the proxy has no NetBird IP configured — fail-closed). Returns
+// false when no rejection is needed and dispatch can proceed.
+func (r *Router) rejectIfPrivateMismatch(conn net.Conn, route Route) bool {
+	if !route.Private {
+		return false
+	}
+	if r.matchesNetBirdAddr(conn.LocalAddr()) {
+		return false
+	}
+	r.logger.WithFields(log.Fields{
+		"service_id": route.ServiceID,
+		"domain":     route.Domain,
+		"remote":     conn.RemoteAddr().String(),
+		"local":      conn.LocalAddr().String(),
+	}).Debug("rejecting non-mesh connection to private service")
+	_ = conn.Close()
+	return true
 }
 
 // isFallbackOnly returns true when the router has no SNI routes and no HTTP
@@ -352,6 +385,9 @@ func (r *Router) handleUnmatched(ctx context.Context, conn net.Conn) {
 	r.mu.RUnlock()
 
 	if fb != nil {
+		if r.rejectIfPrivateMismatch(conn, *fb) {
+			return
+		}
 		if err := r.relayTCP(ctx, conn, SNIHost("fallback"), *fb); err != nil {
 			if !errors.Is(err, errAccessRestricted) {
 				r.logger.WithFields(log.Fields{
@@ -451,6 +487,34 @@ func (r *Router) SetGeo(geo restrict.GeoResolver) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.geo = geo
+}
+
+// SetNetBirdIP sets the proxy's NetBird (WireGuard) interface IP, used to
+// gate connections to private services. When unset (nil), all private
+// routes are rejected by handleConn / handleUnmatched.
+func (r *Router) SetNetBirdIP(ip net.IP) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.netBirdIP = ip
+}
+
+// matchesNetBirdAddr reports whether the local-side address of an accepted
+// connection matches the configured NetBird IP. Returns false (fail-closed)
+// when the router has no NetBird IP set or when the address has no IP component.
+func (r *Router) matchesNetBirdAddr(addr net.Addr) bool {
+	r.mu.RLock()
+	netBirdIP := r.netBirdIP
+	r.mu.RUnlock()
+	if netBirdIP == nil {
+		return false
+	}
+	switch a := addr.(type) {
+	case *net.TCPAddr:
+		return a.IP.Equal(netBirdIP)
+	case *net.UDPAddr:
+		return a.IP.Equal(netBirdIP)
+	}
+	return false
 }
 
 // checkRestrictions evaluates the route's access filter against the
