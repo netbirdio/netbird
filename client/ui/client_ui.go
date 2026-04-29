@@ -42,6 +42,7 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ui/desktop"
 	"github.com/netbirdio/netbird/client/ui/event"
+	"github.com/netbirdio/netbird/client/ui/notifier"
 	"github.com/netbirdio/netbird/client/ui/process"
 	"github.com/netbirdio/netbird/util"
 
@@ -260,6 +261,7 @@ type serviceClient struct {
 
 	// application with main windows.
 	app                  fyne.App
+	notifier             notifier.Notifier
 	wSettings            fyne.Window
 	showAdvancedSettings bool
 	sendNotification     bool
@@ -364,6 +366,7 @@ func newServiceClient(args *newServiceClientArgs) *serviceClient {
 		cancel:           cancel,
 		addr:             args.addr,
 		app:              args.app,
+		notifier:         notifier.New(args.app),
 		logFile:          args.logFile,
 		sendNotification: false,
 
@@ -892,7 +895,7 @@ func (s *serviceClient) updateStatus() error {
 		if err != nil {
 			log.Errorf("get service status: %v", err)
 			if s.connected {
-				s.app.SendNotification(fyne.NewNotification("Error", "Connection to service lost"))
+				s.notifier.Send("Error", "Connection to service lost")
 			}
 			s.setDisconnectedStatus()
 			return err
@@ -1109,7 +1112,7 @@ func (s *serviceClient) onTrayReady() {
 		}
 	}()
 
-	s.eventManager = event.NewManager(s.app, s.addr)
+	s.eventManager = event.NewManager(s.notifier, s.addr)
 	s.eventManager.SetNotificationsEnabled(s.mNotifications.Checked())
 	s.eventManager.AddHandler(func(event *proto.SystemEvent) {
 		if event.Category == proto.SystemEvent_SYSTEM {
@@ -1548,7 +1551,7 @@ func (s *serviceClient) onUpdateAvailable(newVersion string, enforced bool) {
 
 	if enforced && s.lastNotifiedVersion != newVersion {
 		s.lastNotifiedVersion = newVersion
-		s.app.SendNotification(fyne.NewNotification("Update available", "A new version "+newVersion+" is ready to install"))
+		s.notifier.Send("Update available", "A new version "+newVersion+" is ready to install")
 	}
 }
 

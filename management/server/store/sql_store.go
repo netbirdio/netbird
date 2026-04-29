@@ -1196,7 +1196,6 @@ func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types
 		account.NameServerGroups[ns.ID] = &ns
 	}
 	account.NameServerGroupsG = nil
-	account.InitOnce()
 	return &account, nil
 }
 
@@ -1635,7 +1634,6 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 	if sExtraIntegratedValidatorGroups.Valid {
 		_ = json.Unmarshal([]byte(sExtraIntegratedValidatorGroups.String), &account.Settings.Extra.IntegratedValidatorGroups)
 	}
-	account.InitOnce()
 	return &account, nil
 }
 

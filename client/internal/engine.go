@@ -944,7 +944,12 @@ func (e *Engine) handleRelayUpdate(update *mgmProto.RelayConfig) error {
 			return fmt.Errorf("update relay token: %w", err)
 		}
 
-		e.relayManager.UpdateServerURLs(update.Urls)
+		urls := update.Urls
+		if override, ok := peer.OverrideRelayURLs(); ok {
+			log.Infof("overriding relay URLs from %s: %v", peer.EnvKeyNBHomeRelayServers, override)
+			urls = override
+		}
+		e.relayManager.UpdateServerURLs(urls)
 
 		// Just in case the agent started with an MGM server where the relay was disabled but was later enabled.
 		// We can ignore all errors because the guard will manage the reconnection retries.
