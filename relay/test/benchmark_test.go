@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"fmt"
 	"net"
-	"net/netip"
 	"os"
 	"sync"
 	"testing"

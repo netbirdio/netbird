@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"io"
 	"net/netip"
 	"testing"
 	"time"
@@ -124,7 +125,7 @@ func TestManager_ForeignRelayServerIP(t *testing.T) {
 		}
 
 		buf := make([]byte, len(payload))
-		if _, err := aliceConn.Read(buf); err != nil {
+		if _, err := io.ReadFull(aliceConn, buf); err != nil {
 			t.Fatalf("alice read echo: %s", err)
 		}
 		if string(buf) != string(payload) {
