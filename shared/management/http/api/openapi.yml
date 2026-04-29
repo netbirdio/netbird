@@ -2921,6 +2921,7 @@ components:
         - okta
         - pocketid
         - microsoft
+        - adfs
       example: oidc
     IdentityProvider:
       type: object

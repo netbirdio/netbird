@@ -18,10 +18,17 @@
 				<Component Id="NetbirdFiles" Guid="db3165de-cc6e-4922-8396-9d892950e23e" Bitness="always64">
 					<File ProcessorArchitecture="$(var.ProcessorArchitecture)" Source=".\dist\netbird_windows_$(var.ArchSuffix)\netbird.exe" KeyPath="yes" />
 					<File ProcessorArchitecture="$(var.ProcessorArchitecture)" Source=".\dist\netbird_windows_$(var.ArchSuffix)\netbird-ui.exe">
-						<Shortcut Id="NetbirdDesktopShortcut" Directory="DesktopFolder" Name="NetBird" WorkingDirectory="NetbirdInstallDir" Icon="NetbirdIcon" />
-						<Shortcut Id="NetbirdStartMenuShortcut" Directory="StartMenuFolder" Name="NetBird" WorkingDirectory="NetbirdInstallDir" Icon="NetbirdIcon" />
+						<Shortcut Id="NetbirdDesktopShortcut" Directory="DesktopFolder" Name="NetBird" WorkingDirectory="NetbirdInstallDir" Icon="NetbirdIcon">
+							<ShortcutProperty Key="System.AppUserModel.ID" Value="NetBird" />
+							<ShortcutProperty Key="System.AppUserModel.ToastActivatorCLSID" Value="{0E1B4DE7-E148-432B-9814-544F941826EC}" />
+						</Shortcut>
+						<Shortcut Id="NetbirdStartMenuShortcut" Directory="StartMenuFolder" Name="NetBird" WorkingDirectory="NetbirdInstallDir" Icon="NetbirdIcon">
+							<ShortcutProperty Key="System.AppUserModel.ID" Value="NetBird" />
+							<ShortcutProperty Key="System.AppUserModel.ToastActivatorCLSID" Value="{0E1B4DE7-E148-432B-9814-544F941826EC}" />
+						</Shortcut>
 					</File>
 					<File ProcessorArchitecture="$(var.ProcessorArchitecture)" Source=".\dist\netbird_windows_$(var.ArchSuffix)\wintun.dll" />
+					<File Id="NetbirdToastIcon" Name="netbird.png" Source=".\client\ui\assets\netbird.png" />
 					<?if $(var.ArchSuffix) = "amd64" ?>
 					<File ProcessorArchitecture="$(var.ProcessorArchitecture)" Source=".\dist\netbird_windows_$(var.ArchSuffix)\opengl32.dll" />
 					<?endif ?>
@@ -46,8 +53,19 @@
 			</Directory>
 		</StandardDirectory>
 
+		<!-- Per-user component: HKCU keypath (auto GUID via "*"), separate from
+		     the per-machine NetbirdFiles component to satisfy ICE57. -->
+		<StandardDirectory Id="ProgramMenuFolder">
+			<Component Id="NetbirdAumidRegistry" Guid="*">
+				<RegistryKey Root="HKCU" Key="Software\Classes\AppUserModelId\NetBird" ForceDeleteOnUninstall="yes">
+					<RegistryValue Name="InstalledByMSI" Type="integer" Value="1" KeyPath="yes" />
+				</RegistryKey>
+			</Component>
+		</StandardDirectory>
+
 		<ComponentGroup Id="NetbirdFilesComponent">
 			<ComponentRef Id="NetbirdFiles" />
+			<ComponentRef Id="NetbirdAumidRegistry" />
 		</ComponentGroup>
 
 		<util:CloseApplication Id="CloseNetBird" CloseMessage="no" Target="netbird.exe" RebootPrompt="no" />

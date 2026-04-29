@@ -104,28 +104,12 @@ service DaemonService {
   // StopCPUProfile stops CPU profiling in the daemon
   rpc StopCPUProfile(StopCPUProfileRequest) returns (StopCPUProfileResponse) {}
 
-  rpc NotifyOSLifecycle(OSLifecycleRequest) returns(OSLifecycleResponse) {}
-
   rpc GetInstallerResult(InstallerResultRequest) returns (InstallerResultResponse) {}
 
   // ExposeService exposes a local port via the NetBird reverse proxy
   rpc ExposeService(ExposeServiceRequest) returns (stream ExposeServiceEvent) {}
 }
 
-
-
-message OSLifecycleRequest {
-  // avoid collision with loglevel enum
-  enum CycleType {
-    UNKNOWN = 0;
-    SLEEP = 1;
-    WAKEUP = 2;
-  }
-
-  CycleType type = 1;
-}
-
-message OSLifecycleResponse {}
 
 
 message LoginRequest {
