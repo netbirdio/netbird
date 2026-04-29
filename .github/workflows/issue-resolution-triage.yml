@@ -28,6 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PROJECT_PAT: ${{ secrets.PROJECT_PAT }}
       DRY_RUN: "true"
       MAX_ISSUES: "100"
       REPO: ${{ github.repository }}

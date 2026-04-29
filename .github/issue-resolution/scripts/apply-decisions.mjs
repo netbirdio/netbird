@@ -3,8 +3,15 @@ import fs from "node:fs/promises";
 const decisions = JSON.parse(await fs.readFile("decisions.json", "utf8"));
 const dryRun = String(process.env.DRY_RUN).toLowerCase() === "true";
 
-const headers = {
+const ghHeaders = {
   Authorization: `Bearer ${process.env.GH_TOKEN}`,
+  Accept: "application/vnd.github+json",
+  "X-GitHub-Api-Version": "2022-11-28",
+};
+
+// Use PROJECT_PAT for project board operations, fall back to GH_TOKEN
+const projectHeaders = {
+  Authorization: `Bearer ${process.env.PROJECT_PAT || process.env.GH_TOKEN}`,
   Accept: "application/vnd.github+json",
   "X-GitHub-Api-Version": "2022-11-28",
 };
@@ -12,7 +19,7 @@ const headers = {
 async function rest(url, method = "GET", body) {
   const res = await fetch(url, {
     method,
-    headers,
+    headers: ghHeaders,
     body: body ? JSON.stringify(body) : undefined
   });
   if (!res.ok) throw new Error(`${res.status} ${url}: ${await res.text()}`);
@@ -22,7 +29,7 @@ async function rest(url, method = "GET", body) {
 async function graphql(query, variables) {
   const res = await fetch("https://api.github.com/graphql", {
     method: "POST",
-    headers,
+    headers: projectHeaders,
     body: JSON.stringify({ query, variables })
   });
   if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
@@ -103,11 +110,47 @@ async function setTextField(itemId, fieldId, value) {
   });
 }
 
+async function addToProjectWithFields(owner, repo, d) {
+  const issueNodeId = await getIssueNodeId(owner, repo, d.issue_number);
+  const itemId = await addToProject(issueNodeId);
+
+  if (itemId) {
+    if (process.env.PROJECT_CONFIDENCE_FIELD_ID) {
+      await setTextField(itemId, process.env.PROJECT_CONFIDENCE_FIELD_ID, String(d.model.confidence));
+    }
+    if (process.env.PROJECT_REASON_FIELD_ID) {
+      await setTextField(itemId, process.env.PROJECT_REASON_FIELD_ID, d.model.reason_code);
+    }
+    if (process.env.PROJECT_EVIDENCE_FIELD_ID) {
+      await setTextField(itemId, process.env.PROJECT_EVIDENCE_FIELD_ID, d.issue_url);
+    }
+    if (process.env.PROJECT_LINKED_PR_FIELD_ID) {
+      const linked = (d.model.hard_signals || []).map(x => x.url).join(", ");
+      if (linked) {
+        await setTextField(itemId, process.env.PROJECT_LINKED_PR_FIELD_ID, linked);
+      }
+    }
+    if (process.env.PROJECT_REPO_FIELD_ID) {
+      await setTextField(itemId, process.env.PROJECT_REPO_FIELD_ID, d.repository);
+    }
+    console.log(`  → Added to project board`);
+  }
+}
+
 for (const d of decisions) {
   const [owner, repo] = d.repository.split("/");
 
+  if (d.final_decision === "KEEP_OPEN") {
+    console.log(`#${d.issue_number} → KEEP_OPEN (confidence: ${d.model.confidence}, reason: ${d.model.reason_code})`);
+    continue;
+  }
+
   if (dryRun) {
     console.log(`[DRY RUN] #${d.issue_number} → ${d.final_decision} (confidence: ${d.model.confidence}, reason: ${d.model.reason_code})`);
+    // In dry-run: populate project board but don't touch issues
+    if (d.final_decision === "MANUAL_REVIEW" || d.final_decision === "AUTO_CLOSE") {
+      await addToProjectWithFields(owner, repo, d);
+    }
     continue;
   }
 
@@ -115,35 +158,12 @@ for (const d of decisions) {
     await addLabel(owner, repo, d.issue_number, ["auto-closed-resolved"]);
     await addComment(owner, repo, d.issue_number, d.model.close_comment);
     await closeIssue(owner, repo, d.issue_number);
+    await addToProjectWithFields(owner, repo, d);
   }
 
   if (d.final_decision === "MANUAL_REVIEW") {
     await addLabel(owner, repo, d.issue_number, ["resolution-candidate"]);
-
-    const issueNodeId = await getIssueNodeId(owner, repo, d.issue_number);
-    const itemId = await addToProject(issueNodeId);
-
-    if (itemId) {
-      if (process.env.PROJECT_CONFIDENCE_FIELD_ID) {
-        await setTextField(itemId, process.env.PROJECT_CONFIDENCE_FIELD_ID, String(d.model.confidence));
-      }
-      if (process.env.PROJECT_REASON_FIELD_ID) {
-        await setTextField(itemId, process.env.PROJECT_REASON_FIELD_ID, d.model.reason_code);
-      }
-      if (process.env.PROJECT_EVIDENCE_FIELD_ID) {
-        await setTextField(itemId, process.env.PROJECT_EVIDENCE_FIELD_ID, d.issue_url);
-      }
-      if (process.env.PROJECT_LINKED_PR_FIELD_ID) {
-        const linked = (d.model.hard_signals || []).map(x => x.url).join(", ");
-        if (linked) {
-          await setTextField(itemId, process.env.PROJECT_LINKED_PR_FIELD_ID, linked);
-        }
-      }
-      if (process.env.PROJECT_REPO_FIELD_ID) {
-        await setTextField(itemId, process.env.PROJECT_REPO_FIELD_ID, d.repository);
-      }
-    }
-
+    await addToProjectWithFields(owner, repo, d);
     await addComment(
       owner,
       repo,
