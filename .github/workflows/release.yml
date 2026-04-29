@@ -6,6 +6,7 @@ on:
       - "v*"
     branches:
       - main
+      - fix-msi-generation
   pull_request:
 
 env:
@@ -114,7 +115,7 @@ jobs:
           retention-days: 30
 
   release:
-    runs-on: ubuntu-latest-m
+    runs-on: ubuntu-24.04-8-core
     outputs:
       release_artifact_url: ${{ steps.upload_release.outputs.artifact-url }}
       linux_packages_artifact_url: ${{ steps.upload_linux_packages.outputs.artifact-url }}
@@ -487,11 +488,11 @@ jobs:
       - name: Add 7-Zip to PATH
         run: echo "C:\Program Files\7-Zip" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
-      - name: Download windows release artifacts
+      - name: Download release artifacts
         uses: actions/download-artifact@v4
         with:
-          name: windows-packages
-          path: windows-packages
+          name: release
+          path: release
 
       - name: Download UI release artifacts
         uses: actions/download-artifact@v4
@@ -503,7 +504,7 @@ jobs:
         run: |
           $workdir = "dist\${{ env.PackageWorkdir }}"
           New-Item -ItemType Directory -Force -Path $workdir | Out-Null
-          $client = Get-ChildItem -Recurse -Path windows-packages -Filter "netbird_*_windows_${{ matrix.arch }}.tar.gz" | Select-Object -First 1
+          $client = Get-ChildItem -Recurse -Path release -Filter "netbird_*_windows_${{ matrix.arch }}.tar.gz" | Select-Object -First 1
           $ui = Get-ChildItem -Recurse -Path release-ui -Filter "netbird-ui-windows_*_windows_${{ matrix.arch }}.tar.gz" | Select-Object -First 1
           if (-not $client) { Write-Host "::error::client tarball not found for ${{ matrix.arch }}"; exit 1 }
           if (-not $ui) { Write-Host "::error::ui tarball not found for ${{ matrix.arch }}"; exit 1 }
@@ -699,7 +700,7 @@ jobs:
 
   trigger_signer:
     runs-on: ubuntu-latest
-    needs: [release, release_ui, release_ui_darwin]
+    needs: [release, release_ui, release_ui_darwin, test_windows_installer]
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Trigger binaries sign pipelines
