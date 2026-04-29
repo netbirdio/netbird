@@ -383,7 +383,9 @@ func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
 
 	conn, err := c.dialDirect(ctx, dialers)
 	if err != nil {
-		c.log.Debugf("dial via server IP unavailable, dialing via FQDN: %v", err)
+		if c.serverIP.IsValid() {
+			c.log.Infof("dial via server IP %s failed, falling back to FQDN: %v", c.serverIP, err)
+		}
 		rd := dialer.NewRaceDial(c.log, dialer.DefaultConnectionTimeout, c.connectionURL, dialers...)
 		fqdnConn, fErr := rd.Dial(ctx)
 		if fErr != nil {
@@ -417,7 +419,7 @@ func (c *Client) dialDirect(ctx context.Context, dialers []dialer.DialeFn) (net.
 		return nil, fmt.Errorf("substitute host: %w", err)
 	}
 
-	c.log.Infof("dialing via server IP %s (SNI=%s)", c.serverIP, serverName)
+	c.log.Debugf("dialing via server IP %s (SNI=%s)", c.serverIP, serverName)
 
 	rd := dialer.NewRaceDial(c.log, dialer.DefaultConnectionTimeout, directURL, dialers...).
 		WithServerName(serverName)
