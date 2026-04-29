@@ -201,6 +201,8 @@ Pop $0
 
 Function .onInit
 StrCpy $INSTDIR "${INSTALL_DIR}"
+; Default autostart to enabled so silent installs (/S) match the interactive default
+StrCpy $AutostartEnabled "1"
 
 ; Pre-0.70.1 installers ran without SetRegView, so their uninstall keys live
 ; in the 32-bit view. Fall back to it so upgrades still find them.
