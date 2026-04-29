@@ -76,6 +76,9 @@ type Manager struct {
 
 	mtu                uint16
 	maxBackoffInterval time.Duration
+
+	cleanupInterval      time.Duration
+	keepUnusedServerTime time.Duration
 }
 
 // NewManager creates a new manager instance.
@@ -96,6 +99,8 @@ func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uin
 		},
 		relayClients:            make(map[string]*RelayTrack),
 		onDisconnectedListeners: make(map[string]*list.List),
+		cleanupInterval:         relayCleanupInterval,
+		keepUnusedServerTime:    keepUnusedServerTime,
 	}
 	for _, opt := range opts {
 		opt(m)
@@ -374,7 +379,7 @@ func (m *Manager) isForeignServer(address string) (bool, error) {
 }
 
 func (m *Manager) startCleanupLoop() {
-	ticker := time.NewTicker(relayCleanupInterval)
+	ticker := time.NewTicker(m.cleanupInterval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -399,7 +404,7 @@ func (m *Manager) cleanUpUnusedRelays() {
 			continue
 		}
 
-		if time.Since(rt.created) <= keepUnusedServerTime {
+		if time.Since(rt.created) <= m.keepUnusedServerTime {
 			rt.Unlock()
 			continue
 		}
