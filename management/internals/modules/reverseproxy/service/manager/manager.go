@@ -965,10 +965,8 @@ func (m *Manager) DeleteService(ctx context.Context, accountID, userID, serviceI
 			return err
 		}
 
-		if s.Private {
-			if err := recordsmgr.AutoDeleteForService(ctx, transaction, accountID, serviceID); err != nil {
-				return fmt.Errorf("auto-delete dns record: %w", err)
-			}
+		if err := recordsmgr.AutoDeleteForService(ctx, transaction, accountID, serviceID); err != nil {
+			return fmt.Errorf("auto-delete dns record: %w", err)
 		}
 
 		if err = transaction.DeleteServiceTargets(ctx, accountID, serviceID); err != nil {
@@ -1012,6 +1010,12 @@ func (m *Manager) DeleteAllServices(ctx context.Context, accountID, userID strin
 		}
 
 		for _, svc := range services {
+			if err := recordsmgr.AutoDeleteForService(ctx, transaction, accountID, svc.ID); err != nil {
+				return fmt.Errorf("auto-delete dns record: %w", err)
+			}
+			if err := transaction.DeleteServiceTargets(ctx, accountID, svc.ID); err != nil {
+				return fmt.Errorf("failed to delete targets: %w", err)
+			}
 			if err = transaction.DeleteService(ctx, accountID, svc.ID); err != nil {
 				return fmt.Errorf("failed to delete service: %w", err)
 			}

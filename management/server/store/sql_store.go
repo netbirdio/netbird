@@ -398,6 +398,14 @@ func (s *SqlStore) DeleteAccount(ctx context.Context, account *types.Account) er
 			return result.Error
 		}
 
+		// Clean up auto-managed DNS records for the account before
+		// cascading services. User-managed records (managed_by_service_id
+		// == "") are untouched.
+		result = tx.Where("account_id = ? AND managed_by_service_id <> ?", account.Id, "").Delete(&records.Record{})
+		if result.Error != nil {
+			return result.Error
+		}
+
 		result = tx.Select(clause.Associations).Delete(account.Services, "account_id = ?", account.Id)
 		if result.Error != nil {
 			return result.Error

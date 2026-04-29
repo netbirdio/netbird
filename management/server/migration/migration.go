@@ -585,6 +585,89 @@ func CleanupOrphanedResources[T any, R any](ctx context.Context, db *gorm.DB, fk
 	return nil
 }
 
+// CleanupOrphanedManagedRecords removes DNS records whose
+// ManagedByServiceID references a service that no longer exists. Records
+// with an empty ManagedByServiceID (user-managed) are preserved.
+//
+// T is the records model type, R the services model type, A the accounts
+// model type. The accounts table is needed to bump network_serial for any
+// account whose records were touched, so peers refetch the network map.
+func CleanupOrphanedManagedRecords[T any, R any, A any](ctx context.Context, db *gorm.DB) error {
+	var recModel T
+	var svcModel R
+	var acctModel A
+
+	if !db.Migrator().HasTable(&recModel) ||
+		!db.Migrator().HasTable(&svcModel) ||
+		!db.Migrator().HasTable(&acctModel) {
+		return nil
+	}
+	if !db.Migrator().HasColumn(&recModel, "managed_by_service_id") {
+		return nil
+	}
+
+	recTable, err := tableName(db, &recModel)
+	if err != nil {
+		return fmt.Errorf("parse records model: %w", err)
+	}
+	svcTable, err := tableName(db, &svcModel)
+	if err != nil {
+		return fmt.Errorf("parse services model: %w", err)
+	}
+	acctTable, err := tableName(db, &acctModel)
+	if err != nil {
+		return fmt.Errorf("parse accounts model: %w", err)
+	}
+
+	// Capture affected account IDs before deletion so network_serial can
+	// be bumped after.
+	var accountIDs []string
+	collectQuery := fmt.Sprintf(
+		"SELECT DISTINCT account_id FROM %s "+
+			"WHERE managed_by_service_id <> '' "+
+			"AND managed_by_service_id NOT IN (SELECT id FROM %s)",
+		recTable, svcTable,
+	)
+	if err := db.Raw(collectQuery).Scan(&accountIDs).Error; err != nil {
+		return fmt.Errorf("collect orphan account ids: %w", err)
+	}
+	if len(accountIDs) == 0 {
+		return nil
+	}
+
+	deleteQuery := fmt.Sprintf(
+		"DELETE FROM %s "+
+			"WHERE managed_by_service_id <> '' "+
+			"AND managed_by_service_id NOT IN (SELECT id FROM %s)",
+		recTable, svcTable,
+	)
+	result := db.Exec(deleteQuery)
+	if result.Error != nil {
+		return fmt.Errorf("delete orphan managed records: %w", result.Error)
+	}
+
+	bumpQuery := fmt.Sprintf(
+		"UPDATE %s SET network_serial = network_serial + 1 WHERE id IN ?",
+		acctTable,
+	)
+	if err := db.Exec(bumpQuery, accountIDs).Error; err != nil {
+		return fmt.Errorf("bump network serial for affected accounts: %w", err)
+	}
+
+	log.WithContext(ctx).Infof("cleaned up %d orphaned auto-managed DNS records across %d account(s)",
+		result.RowsAffected, len(accountIDs))
+	return nil
+}
+
+// tableName resolves the SQL table name for a GORM model.
+func tableName(db *gorm.DB, model any) (string, error) {
+	stmt := &gorm.Statement{DB: db}
+	if err := stmt.Parse(model); err != nil {
+		return "", err
+	}
+	return stmt.Schema.Table, nil
+}
+
 func RemoveDuplicatePeerKeys(ctx context.Context, db *gorm.DB) error {
 	if !db.Migrator().HasTable("peers") {
 		log.WithContext(ctx).Debug("peers table does not exist, skipping duplicate key cleanup")

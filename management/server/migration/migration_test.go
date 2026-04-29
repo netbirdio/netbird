@@ -635,3 +635,101 @@ func TestCleanupOrphanedResources_SkipsWhenForeignKeyExists(t *testing.T) {
 	db.Model(&testChildWithFK{}).Count(&count)
 	assert.Equal(t, int64(2), count, "Both rows should survive — migration must skip when FK constraint exists")
 }
+
+// testManagedRecord, testRecordService, testRecordAccount are synthetic
+// fixtures for CleanupOrphanedManagedRecords. They mirror the shape of
+// the real records.Record, rpservice.Service, and types.Account models
+// without dragging in their dependencies.
+type testManagedRecord struct {
+	ID                 string `gorm:"primaryKey"`
+	AccountID          string `gorm:"index"`
+	ManagedByServiceID string `gorm:"index"`
+}
+
+type testRecordService struct {
+	ID string `gorm:"primaryKey"`
+}
+
+type testRecordAccount struct {
+	ID            string `gorm:"primaryKey"`
+	NetworkSerial uint64
+}
+
+func TestCleanupOrphanedManagedRecords_RemovesOrphansAndPreservesUserManaged(t *testing.T) {
+	db := setupOrphanTestDB(t, &testManagedRecord{}, &testRecordService{}, &testRecordAccount{})
+
+	require.NoError(t, db.Create(&testRecordAccount{ID: "acc-1", NetworkSerial: 0}).Error)
+	require.NoError(t, db.Create(&testRecordAccount{ID: "acc-2", NetworkSerial: 5}).Error)
+	require.NoError(t, db.Create(&testRecordService{ID: "svc-existing"}).Error)
+
+	require.NoError(t, db.Create(&testManagedRecord{ID: "rec-A", AccountID: "acc-1", ManagedByServiceID: "svc-existing"}).Error)
+	require.NoError(t, db.Create(&testManagedRecord{ID: "rec-B", AccountID: "acc-1", ManagedByServiceID: "svc-gone"}).Error)
+	require.NoError(t, db.Create(&testManagedRecord{ID: "rec-C", AccountID: "acc-2", ManagedByServiceID: ""}).Error)
+	require.NoError(t, db.Create(&testManagedRecord{ID: "rec-D", AccountID: "acc-2", ManagedByServiceID: "svc-also-gone"}).Error)
+
+	err := migration.CleanupOrphanedManagedRecords[testManagedRecord, testRecordService, testRecordAccount](context.Background(), db)
+	require.NoError(t, err)
+
+	var remaining []testManagedRecord
+	require.NoError(t, db.Order("id").Find(&remaining).Error)
+	require.Len(t, remaining, 2)
+	assert.Equal(t, "rec-A", remaining[0].ID, "record pointing to existing service should be preserved")
+	assert.Equal(t, "rec-C", remaining[1].ID, "user-managed record (empty managed_by_service_id) should be preserved")
+
+	var acc1, acc2 testRecordAccount
+	require.NoError(t, db.First(&acc1, "id = ?", "acc-1").Error)
+	require.NoError(t, db.First(&acc2, "id = ?", "acc-2").Error)
+	assert.Equal(t, uint64(1), acc1.NetworkSerial, "acc-1 had an orphan deleted; serial should be bumped")
+	assert.Equal(t, uint64(6), acc2.NetworkSerial, "acc-2 had an orphan deleted; serial should be bumped")
+}
+
+func TestCleanupOrphanedManagedRecords_NoOrphans(t *testing.T) {
+	db := setupOrphanTestDB(t, &testManagedRecord{}, &testRecordService{}, &testRecordAccount{})
+
+	require.NoError(t, db.Create(&testRecordAccount{ID: "acc-1", NetworkSerial: 7}).Error)
+	require.NoError(t, db.Create(&testRecordService{ID: "svc-1"}).Error)
+	require.NoError(t, db.Create(&testManagedRecord{ID: "rec-A", AccountID: "acc-1", ManagedByServiceID: "svc-1"}).Error)
+	require.NoError(t, db.Create(&testManagedRecord{ID: "rec-B", AccountID: "acc-1", ManagedByServiceID: ""}).Error)
+
+	err := migration.CleanupOrphanedManagedRecords[testManagedRecord, testRecordService, testRecordAccount](context.Background(), db)
+	require.NoError(t, err)
+
+	var count int64
+	db.Model(&testManagedRecord{}).Count(&count)
+	assert.Equal(t, int64(2), count)
+
+	var acc testRecordAccount
+	require.NoError(t, db.First(&acc, "id = ?", "acc-1").Error)
+	assert.Equal(t, uint64(7), acc.NetworkSerial, "no orphans found; serial should not be bumped")
+}
+
+func TestCleanupOrphanedManagedRecords_NoTables(t *testing.T) {
+	db := setupDatabase(t)
+	_ = db.Migrator().DropTable(&testManagedRecord{}, &testRecordService{}, &testRecordAccount{})
+
+	err := migration.CleanupOrphanedManagedRecords[testManagedRecord, testRecordService, testRecordAccount](context.Background(), db)
+	require.NoError(t, err, "missing tables should be a no-op, not an error")
+}
+
+func TestCleanupOrphanedManagedRecords_Idempotent(t *testing.T) {
+	db := setupOrphanTestDB(t, &testManagedRecord{}, &testRecordService{}, &testRecordAccount{})
+
+	require.NoError(t, db.Create(&testRecordAccount{ID: "acc-1", NetworkSerial: 0}).Error)
+	require.NoError(t, db.Create(&testManagedRecord{ID: "rec-orphan", AccountID: "acc-1", ManagedByServiceID: "svc-gone"}).Error)
+
+	ctx := context.Background()
+	require.NoError(t, migration.CleanupOrphanedManagedRecords[testManagedRecord, testRecordService, testRecordAccount](ctx, db))
+
+	var count int64
+	db.Model(&testManagedRecord{}).Count(&count)
+	assert.Equal(t, int64(0), count)
+
+	require.NoError(t, migration.CleanupOrphanedManagedRecords[testManagedRecord, testRecordService, testRecordAccount](ctx, db))
+
+	db.Model(&testManagedRecord{}).Count(&count)
+	assert.Equal(t, int64(0), count, "second run should be a no-op")
+
+	var acc testRecordAccount
+	require.NoError(t, db.First(&acc, "id = ?", "acc-1").Error)
+	assert.Equal(t, uint64(1), acc.NetworkSerial, "second run should not re-bump the serial")
+}

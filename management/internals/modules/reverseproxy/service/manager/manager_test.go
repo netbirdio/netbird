@@ -17,6 +17,8 @@ import (
 	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
+	"github.com/netbirdio/netbird/management/internals/modules/zones"
+	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
@@ -1556,4 +1558,63 @@ func TestGetRoutingPeerIP(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "100.64.0.20", ip.String(), "should sort by ID and pick proxy-peer-a")
 	})
+}
+
+func TestDeleteService_AlwaysCallsAutoDelete(t *testing.T) {
+	ctx := context.Background()
+	accountID := "test-account"
+	userID := "test-user"
+
+	sqlStore, err := store.NewStore(ctx, types.SqliteStoreEngine, t.TempDir(), nil, false)
+	require.NoError(t, err)
+
+	require.NoError(t, sqlStore.SaveAccount(ctx, &types.Account{Id: accountID, CreatedBy: userID}))
+
+	zone := zones.NewZone(accountID, "Test Zone", "example.com", true, false, nil)
+	require.NoError(t, sqlStore.CreateZone(ctx, zone))
+
+	svc := &rpservice.Service{
+		ID:           "svc-public-with-orphan-managed-record",
+		AccountID:    accountID,
+		Domain:       "leftover.example.com",
+		ProxyCluster: "cluster1",
+		Enabled:      true,
+		Private:      false,
+	}
+	require.NoError(t, sqlStore.CreateService(ctx, svc))
+
+	leftover := records.NewRecord(accountID, zone.ID, "leftover.example.com", records.RecordTypeA, "10.0.0.42", 300)
+	leftover.ManagedByServiceID = svc.ID
+	require.NoError(t, sqlStore.CreateDNSRecord(ctx, leftover))
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockPerms := permissions.NewMockManager(ctrl)
+	mockAcct := account.NewMockManager(ctrl)
+	tokenStore := nbgrpc.NewOneTimeTokenStore(ctx, testCacheStore(t))
+	pkceStore := nbgrpc.NewPKCEVerifierStore(ctx, testCacheStore(t))
+	proxySrv := nbgrpc.NewProxyServiceServer(nil, tokenStore, pkceStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil)
+	proxyController, err := proxymanager.NewGRPCController(proxySrv, noop.NewMeterProvider().Meter(""))
+	require.NoError(t, err)
+
+	mgr := &Manager{
+		store:              sqlStore,
+		permissionsManager: mockPerms,
+		accountManager:     mockAcct,
+		proxyController:    proxyController,
+	}
+
+	mockPerms.EXPECT().
+		ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Delete).
+		Return(true, nil)
+	mockAcct.EXPECT().StoreEvent(ctx, userID, svc.ID, accountID, activity.ServiceDeleted, gomock.Any())
+	mockAcct.EXPECT().UpdateAccountPeers(ctx, accountID)
+
+	require.NoError(t, mgr.DeleteService(ctx, accountID, userID, svc.ID))
+
+	_, err = sqlStore.GetDNSRecordByID(ctx, store.LockingStrengthNone, accountID, zone.ID, leftover.ID)
+	require.Error(t, err, "managed record must be cleaned up even when Service.Private is false")
+	s, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, status.NotFound, s.Type())
 }

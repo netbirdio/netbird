@@ -462,6 +462,9 @@ func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 		func(db *gorm.DB) error {
 			return migration.CleanupOrphanedResources[domain.Domain, types.Account](ctx, db, "account_id")
 		},
+		func(db *gorm.DB) error {
+			return migration.CleanupOrphanedManagedRecords[records.Record, rpservice.Service, types.Account](ctx, db)
+		},
 	}
 }
 
