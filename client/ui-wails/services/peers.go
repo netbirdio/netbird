@@ -178,12 +178,17 @@ func (s *Peers) pollLoop(ctx context.Context) {
 	ticker := time.NewTicker(PollInterval)
 	defer ticker.Stop()
 
+	first := true
 	for {
 		st, err := s.Get(ctx)
 		if err == nil {
+			if first {
+				log.Infof("peers pollLoop: first status ok status=%q peers=%d", st.Status, len(st.Peers))
+				first = false
+			}
 			s.emitter.Emit(EventStatus, st)
 		} else if ctx.Err() == nil {
-			log.Debugf("status poll: %v", err)
+			log.Warnf("peers pollLoop: status poll error: %v", err)
 		}
 
 		select {

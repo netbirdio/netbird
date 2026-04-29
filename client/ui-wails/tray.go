@@ -299,8 +299,10 @@ func (t *Tray) onSystemEvent(ev *application.CustomEvent) {
 func (t *Tray) onUpdateAvailable(ev *application.CustomEvent) {
 	upd, ok := ev.Data.(services.UpdateAvailable)
 	if !ok {
+		log.Warnf("update event payload not UpdateAvailable: %T", ev.Data)
 		return
 	}
+	log.Infof("tray onUpdateAvailable: version=%s enforced=%v", upd.Version, upd.Enforced)
 	t.mu.Lock()
 	t.hasUpdate = true
 	t.mu.Unlock()
@@ -383,15 +385,14 @@ func (t *Tray) rebuildExitNodes(nodes []string) {
 }
 
 func (t *Tray) applyIcon() {
-	if runtime.GOOS == "windows" {
-		t.mu.Lock()
-		ico := trayIcon(t.connected, t.hasUpdate, t.lastStatus)
-		t.mu.Unlock()
-		if ico != nil {
-			t.tray.SetIcon(ico)
-		}
-		return
-	}
+	t.mu.Lock()
+	connected := t.connected
+	hasUpdate := t.hasUpdate
+	statusLabel := t.lastStatus
+	t.mu.Unlock()
+
+	log.Infof("tray applyIcon: connected=%v hasUpdate=%v status=%q goos=%s",
+		connected, hasUpdate, statusLabel, runtime.GOOS)
 
 	icon, dark := t.iconForState()
 	if runtime.GOOS == "darwin" {
@@ -563,3 +564,4 @@ func titleCase(s string) string {
 	}
 	return strings.ToUpper(s[:1]) + strings.ToLower(s[1:])
 }
+

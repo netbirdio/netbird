@@ -4,10 +4,12 @@ package main
 
 import _ "embed"
 
-// Tray icons embedded from the legacy Fyne UI's asset set so the rewrite has
-// something to render until Stage 3 produces SVG sources. Each pair is a
-// light-mode PNG and its dark-mode variant; macOS template variants live
-// alongside for menubar use.
+// Tray icons embedded from the legacy Fyne UI's asset set. Each pair is a
+// light-mode PNG and its dark-mode variant; macOS template variants
+// (*-macos.png) live alongside for menubar use. Windows uses the same
+// PNGs — multi-resolution .ico files looked promising on disk but
+// Wails3's Shell_NotifyIcon NIM_MODIFY never redrew them on the running
+// tray; PNG single-frame works.
 
 //go:embed assets/netbird-systemtray-connected.png
 var iconConnected []byte

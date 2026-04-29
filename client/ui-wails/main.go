@@ -7,16 +7,40 @@ import (
 	"embed"
 	"flag"
 	"log"
+	"strings"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 
 	"github.com/netbirdio/netbird/client/ui-wails/services"
+	"github.com/netbirdio/netbird/util"
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
+
+// stringList is a flag.Value that collects repeated string flags. The first
+// time the user passes -log-file the seeded default ("console") is dropped;
+// subsequent passes append. Lets the user replace or extend the log target
+// list without a separate "reset" flag.
+type stringList struct {
+	values  []string
+	userSet bool
+}
+
+func (s *stringList) String() string {
+	return strings.Join(s.values, ",")
+}
+
+func (s *stringList) Set(v string) error {
+	if !s.userSet {
+		s.values = nil
+		s.userSet = true
+	}
+	s.values = append(s.values, v)
+	return nil
+}
 
 func init() {
 	application.RegisterEvent[services.Status](services.EventStatus)
@@ -27,7 +51,14 @@ func init() {
 
 func main() {
 	daemonAddr := flag.String("daemon-addr", DaemonAddr(), "Daemon gRPC address: unix:///path or tcp://host:port")
+	logFiles := &stringList{values: []string{"console"}}
+	flag.Var(logFiles, "log-file", "Log destination. Repeat to log to multiple targets at once, e.g. `--log-file console --log-file Y:/netbird-ui.log`. Each value is one of: console, syslog, or a file path. File destinations are rotated by lumberjack (same as the daemon). Defaults to console.")
+	logLevel := flag.String("log-level", "info", "Log level: trace|debug|info|warn|error.")
 	flag.Parse()
+
+	if err := util.InitLog(*logLevel, logFiles.values...); err != nil {
+		log.Fatalf("init log: %v", err)
+	}
 
 	conn := NewConn(*daemonAddr)
 

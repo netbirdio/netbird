@@ -110,22 +110,31 @@ tasks:
       - wails3 generate icons -input appicon.png -macfilename darwin/icons.icns -windowsfilename windows/icon.ico -iconcomposerinput appicon.icon -macassetdir darwin
 
   generate:tray:icons:
-    summary: Rasterize the SVG tray sources to PNG/ICO embedded by the Go side.
+    summary: Rebuild Windows multi-res .ico files from the per-state PNGs.
     desc: |
-      Reads assets/svg/*.svg and writes assets/<state>.png (Linux/macOS
-      tray) plus assets/<state>.ico (Windows tray). The .ico packs 16/24/32/48
-      px frames so Shell_NotifyIcon picks the size matching the user's DPI
-      instead of poorly downscaling a single large PNG.
-      Run after editing any SVG; CI runs this before build.
+      The colored tray PNGs (assets/netbird-systemtray-<state>.png) and the
+      macOS template variants are committed to the repo as the canonical
+      source. This task only regenerates the Windows multi-resolution .ico
+      files from those PNGs by downscaling each to 16/24/32/48 px and
+      packing them with icotool, so Shell_NotifyIcon picks the frame
+      matching the user's DPI instead of downscaling a single large PNG.
+
+      Run after replacing any of the colored PNGs (e.g. when copying a new
+      version of the icons from client/ui/assets). The SVG sources in
+      assets/svg/ are kept for reference but are not built by default.
     dir: assets
     sources:
-      - "svg/*.svg"
+      - "netbird-systemtray-connected.png"
+      - "netbird-systemtray-disconnected.png"
+      - "netbird-systemtray-connecting.png"
+      - "netbird-systemtray-error.png"
+      - "netbird-systemtray-update-connected.png"
+      - "netbird-systemtray-update-disconnected.png"
     generates:
-      - "netbird-systemtray-*.png"
       - "netbird-systemtray-*.ico"
     preconditions:
-      - sh: command -v inkscape >/dev/null 2>&1
-        msg: "inkscape is required to rasterize tray SVGs (apt install inkscape)"
+      - sh: command -v magick >/dev/null 2>&1 || command -v convert >/dev/null 2>&1
+        msg: "ImageMagick is required to downscale PNGs (apt install imagemagick)"
       - sh: command -v icotool >/dev/null 2>&1
         msg: "icotool is required to pack tray .ico files (apt install icoutils)"
     cmds:
@@ -133,19 +142,14 @@ tasks:
         set -euo pipefail
         tmp=$(mktemp -d)
         trap 'rm -rf "$tmp"' EXIT
+        resize=$(command -v magick || echo convert)
         for state in connected disconnected connecting error update-connected update-disconnected; do
-          # 64px PNG for Linux tray + macOS-template PNG (per-state)
-          inkscape --export-type=png --export-width=64 --export-filename="netbird-systemtray-$state.png" "svg/$state.svg" >/dev/null
-          inkscape --export-type=png --export-width=64 --export-filename="netbird-systemtray-$state-macos.png" "svg/$state-macos.svg" >/dev/null
-          # multi-resolution .ico for Windows tray
           for sz in 16 24 32 48; do
-            inkscape --export-type=png --export-width=$sz --export-filename="$tmp/$state-$sz.png" "svg/$state.svg" >/dev/null
+            "$resize" "netbird-systemtray-$state.png" -resize ${sz}x${sz} "$tmp/$state-$sz.png"
           done
           icotool -c -o "netbird-systemtray-$state.ico" \
             "$tmp/$state-16.png" "$tmp/$state-24.png" "$tmp/$state-32.png" "$tmp/$state-48.png"
         done
-        # Linux dark-mode variant currently shares the connected artwork.
-        inkscape --export-type=png --export-width=64 --export-filename="netbird-systemtray-connected-dark.png" "svg/connected.svg" >/dev/null
 
   dev:frontend:
     summary: Runs the frontend in development mode
