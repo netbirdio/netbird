@@ -16,9 +16,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: "go.mod"
       - name: Setup Android SDK
@@ -26,13 +26,13 @@ jobs:
         with:
           cmdline-tools-version: 8512546
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: "11"
           distribution: "adopt"
       - name: NDK Cache
         id: ndk-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: /usr/local/lib/android/sdk/ndk
           key: ndk-cache-23.1.7779620
@@ -52,9 +52,9 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: "go.mod"
       - name: install gomobile

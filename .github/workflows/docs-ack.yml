@@ -83,7 +83,7 @@ jobs:
 
       - name: Verify docs PR exists (and is open or merged)
         if: steps.validate.outputs.mode == 'added'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         id: verify
         with:
           pr_number: ${{ steps.extract.outputs.pr_number }}
