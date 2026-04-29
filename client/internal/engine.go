@@ -2168,6 +2168,21 @@ func (e *Engine) Address() (netip.Addr, error) {
 	return e.wgInterface.Address().IP, nil
 }
 
+// FlushDNSCache clears all cached DNS entries in the DNS forwarder.
+// syncMsgMux is held for the entire operation to prevent concurrent
+// stopDNSForwarder calls from invalidating the manager pointer mid-flush.
+func (e *Engine) FlushDNSCache() {
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
+
+	if e.dnsForwardMgr == nil {
+		log.Info("DNS forwarder not active, nothing to flush")
+		return
+	}
+
+	e.dnsForwardMgr.FlushCache()
+}
+
 func (e *Engine) updateForwardRules(rules []*mgmProto.ForwardingRule) ([]firewallManager.ForwardRule, error) {
 	if e.firewall == nil {
 		log.Warn("firewall is disabled, not updating forwarding rules")

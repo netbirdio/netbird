@@ -156,6 +156,8 @@ func init() {
 	rootCmd.AddCommand(debugCmd)
 	rootCmd.AddCommand(profileCmd)
 	rootCmd.AddCommand(exposeCmd)
+	rootCmd.AddCommand(dnsCmd)
+	dnsCmd.AddCommand(dnsFlushCacheCmd)
 
 	networksCMD.AddCommand(routesListCmd)
 	networksCMD.AddCommand(routesSelectCmd, routesDeselectCmd)

@@ -117,6 +117,14 @@ func (m *Manager) UpdateDomains(entries []*ForwarderEntry) {
 	m.dnsForwarder.UpdateDomains(entries)
 }
 
+// FlushCache clears all cached DNS entries in the forwarder.
+func (m *Manager) FlushCache() {
+	if m.dnsForwarder == nil {
+		return
+	}
+	m.dnsForwarder.FlushCache()
+}
+
 func (m *Manager) Stop(ctx context.Context) error {
 	if m.dnsForwarder == nil {
 		return nil

@@ -931,3 +931,25 @@ func TestDNSForwarder_EmptyQuery(t *testing.T) {
 
 	assert.Nil(t, mockWriter.GetLastResponse(), "Should not write response for empty query")
 }
+
+func TestDNSForwarder_FlushCache(t *testing.T) {
+	forwarder := NewDNSForwarder(netip.MustParseAddrPort("127.0.0.1:0"), 60, nil, &peer.Status{}, nil)
+
+	// Populate the cache directly
+	forwarder.cache.set("peer.example.com", dns.TypeA, []netip.Addr{netip.MustParseAddr("100.64.0.1")})
+	forwarder.cache.set("peer.example.com", dns.TypeAAAA, []netip.Addr{netip.MustParseAddr("fd00::1")})
+
+	// Verify entries are present before flush
+	_, okBefore := forwarder.cache.get("peer.example.com", dns.TypeA)
+	assert.True(t, okBefore, "expected A record in cache before flush")
+
+	forwarder.FlushCache()
+
+	// All entries should be gone after flush
+	_, okAfter := forwarder.cache.get("peer.example.com", dns.TypeA)
+	assert.False(t, okAfter, "expected A record to be absent after flush")
+
+	_, okAfter6 := forwarder.cache.get("peer.example.com", dns.TypeAAAA)
+	assert.False(t, okAfter6, "expected AAAA record to be absent after flush")
+}
+

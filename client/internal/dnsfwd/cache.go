@@ -70,6 +70,13 @@ func (c *cache) unset(domain string) {
 	delete(c.records, normalizeDomain(domain))
 }
 
+// flush removes all entries from the cache.
+func (c *cache) flush() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.records = make(map[string]*cacheEntry)
+}
+
 // normalizeDomain converts an input domain into a canonical form used as cache key:
 // lowercase and fully-qualified (with trailing dot).
 func normalizeDomain(domain string) string {

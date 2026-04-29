@@ -173,6 +173,15 @@ func (f *DNSForwarder) removeStaleCacheEntries(oldEntries, newEntries []*Forward
 	}
 }
 
+// FlushCache removes all cached DNS entries from the forwarder.
+func (f *DNSForwarder) FlushCache() {
+	if f.cache == nil {
+		return
+	}
+	f.cache.flush()
+	log.Info("DNS forwarder cache flushed")
+}
+
 func (f *DNSForwarder) Close(ctx context.Context) error {
 	var result *multierror.Error
 

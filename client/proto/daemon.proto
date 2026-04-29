@@ -110,6 +110,9 @@ service DaemonService {
 
   // ExposeService exposes a local port via the NetBird reverse proxy
   rpc ExposeService(ExposeServiceRequest) returns (stream ExposeServiceEvent) {}
+
+  // FlushDNSCache flushes the DNS forwarder cache in the daemon.
+  rpc FlushDNSCache(FlushDNSCacheRequest) returns (FlushDNSCacheResponse) {}
 }
 
 
@@ -848,3 +851,7 @@ message ExposeServiceReady {
   string domain = 3;
   bool port_auto_assigned = 4;
 }
+
+message FlushDNSCacheRequest {}
+
+message FlushDNSCacheResponse {}
