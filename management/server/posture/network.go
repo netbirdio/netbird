@@ -18,7 +18,18 @@ type PeerNetworkRangeCheck struct {
 var _ Check = (*PeerNetworkRangeCheck)(nil)
 
 func (p *PeerNetworkRangeCheck) Check(ctx context.Context, peer nbpeer.Peer) (bool, error) {
-	if len(peer.Meta.NetworkAddresses) == 0 {
+	peerMaskedPrefixes := make([]netip.Prefix, 0, len(peer.Meta.NetworkAddresses)+1)
+	for _, peerNetAddr := range peer.Meta.NetworkAddresses {
+		peerMaskedPrefixes = append(peerMaskedPrefixes, peerNetAddr.NetIP.Masked())
+	}
+	if connIP := peer.Location.ConnectionIP; len(connIP) > 0 {
+		if addr, ok := netip.AddrFromSlice(connIP); ok {
+			addr = addr.Unmap()
+			peerMaskedPrefixes = append(peerMaskedPrefixes, netip.PrefixFrom(addr, addr.BitLen()))
+		}
+	}
+
+	if len(peerMaskedPrefixes) == 0 {
 		return false, fmt.Errorf("peer's does not contain peer network range addresses")
 	}
 
@@ -27,8 +38,7 @@ func (p *PeerNetworkRangeCheck) Check(ctx context.Context, peer nbpeer.Peer) (bo
 		maskedPrefixes = append(maskedPrefixes, prefix.Masked())
 	}
 
-	for _, peerNetAddr := range peer.Meta.NetworkAddresses {
-		peerMaskedPrefix := peerNetAddr.NetIP.Masked()
+	for _, peerMaskedPrefix := range peerMaskedPrefixes {
 		if slices.Contains(maskedPrefixes, peerMaskedPrefix) {
 			switch p.Action {
 			case CheckActionDeny:

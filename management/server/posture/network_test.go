@@ -2,6 +2,7 @@ package posture
 
 import (
 	"context"
+	"net"
 	"net/netip"
 	"testing"
 
@@ -128,6 +129,84 @@ func TestPeerNetworkRangeCheck_Check(t *testing.T) {
 				Ranges: []netip.Prefix{
 					netip.MustParsePrefix("192.168.0.0/16"),
 					netip.MustParsePrefix("10.0.0.0/8"),
+				},
+			},
+			peer:    nbpeer.Peer{},
+			wantErr: true,
+			isValid: false,
+		},
+		{
+			name: "Peer connection IP matches the denied /32",
+			check: PeerNetworkRangeCheck{
+				Action: CheckActionDeny,
+				Ranges: []netip.Prefix{
+					netip.MustParsePrefix("109.41.115.194/32"),
+				},
+			},
+			peer: nbpeer.Peer{
+				Meta: nbpeer.PeerSystemMeta{
+					NetworkAddresses: []nbpeer.NetworkAddress{
+						{NetIP: netip.MustParsePrefix("192.168.0.123/24")},
+					},
+				},
+				Location: nbpeer.Location{ConnectionIP: net.ParseIP("109.41.115.194")},
+			},
+			wantErr: false,
+			isValid: false,
+		},
+		{
+			name: "Peer connection IP does not match the denied /32",
+			check: PeerNetworkRangeCheck{
+				Action: CheckActionDeny,
+				Ranges: []netip.Prefix{
+					netip.MustParsePrefix("109.41.115.194/32"),
+				},
+			},
+			peer: nbpeer.Peer{
+				Meta: nbpeer.PeerSystemMeta{
+					NetworkAddresses: []nbpeer.NetworkAddress{
+						{NetIP: netip.MustParsePrefix("192.168.0.123/24")},
+					},
+				},
+				Location: nbpeer.Location{ConnectionIP: net.ParseIP("8.8.8.8")},
+			},
+			wantErr: false,
+			isValid: true,
+		},
+		{
+			name: "Peer connection IP matches the allowed /32 with no NetworkAddresses",
+			check: PeerNetworkRangeCheck{
+				Action: CheckActionAllow,
+				Ranges: []netip.Prefix{
+					netip.MustParsePrefix("109.41.115.194/32"),
+				},
+			},
+			peer: nbpeer.Peer{
+				Location: nbpeer.Location{ConnectionIP: net.ParseIP("109.41.115.194")},
+			},
+			wantErr: false,
+			isValid: true,
+		},
+		{
+			name: "IPv4-mapped IPv6 connection IP matches IPv4 /32",
+			check: PeerNetworkRangeCheck{
+				Action: CheckActionDeny,
+				Ranges: []netip.Prefix{
+					netip.MustParsePrefix("109.41.115.194/32"),
+				},
+			},
+			peer: nbpeer.Peer{
+				Location: nbpeer.Location{ConnectionIP: net.ParseIP("::ffff:109.41.115.194")},
+			},
+			wantErr: false,
+			isValid: false,
+		},
+		{
+			name: "Empty NetworkAddresses and empty ConnectionIP still errors",
+			check: PeerNetworkRangeCheck{
+				Action: CheckActionDeny,
+				Ranges: []netip.Prefix{
+					netip.MustParsePrefix("109.41.115.194/32"),
 				},
 			},
 			peer:    nbpeer.Peer{},
