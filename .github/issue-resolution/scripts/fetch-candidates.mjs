@@ -39,7 +39,7 @@ async function paginate(url, max) {
 console.log(`Fetching up to ${maxIssues} open issues from ${repo}...`);
 
 const issues = await paginate(
-  `https://api.github.com/repos/${repo}/issues?state=open&sort=updated&direction=desc`,
+  `https://api.github.com/repos/${repo}/issues?state=open&sort=updated&direction=asc`,
   maxIssues
 );
 
