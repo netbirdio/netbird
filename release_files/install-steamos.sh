@@ -1,8 +1,10 @@
 #!/bin/bash
 # NetBird installer for SteamOS (Steam Deck)
 #
-# Installs NetBird as a rootless, user-level service running entirely from /home.
-# Uses netstack mode (userspace WireGuard) — no root, no sysext, no TUN device needed.
+# Installs NetBird as a user-level service running entirely from /home.
+# Uses userspace WireGuard with a real kernel TUN interface for proper
+# network performance (important for game streaming via Moonlight/Sunshine).
+# Requires sudo once at install (and per update) to grant file capabilities.
 # Survives all SteamOS updates without intervention.
 #
 # Usage:
@@ -69,7 +71,7 @@ check_arch() {
 
 check_dependencies() {
     local missing=""
-    for cmd in curl tar systemctl; do
+    for cmd in curl tar systemctl sudo; do
         if ! command -v "$cmd" >/dev/null 2>&1; then
             missing="$missing $cmd"
         fi
@@ -159,6 +161,37 @@ download_binary() {
     info "Installed ${dest_dir}/${BINARY} (${version})"
 }
 
+# --- Network capabilities ---
+
+apply_capabilities() {
+    local binary_path="${1:-${INSTALL_DIR}/${BINARY}}"
+
+    info "Granting network capabilities (sudo required)..."
+    if ! sudo setcap cap_net_admin,cap_net_raw+eip "$binary_path"; then
+        error "Failed to set capabilities. Is sudo available?"
+    fi
+    info "Capabilities set on ${binary_path}"
+}
+
+verify_capabilities() {
+    local binary_path="${1:-${INSTALL_DIR}/${BINARY}}"
+
+    if ! command -v getcap >/dev/null 2>&1; then
+        warn "getcap not found, skipping capability verification"
+        return 0
+    fi
+
+    local caps
+    caps=$(getcap "$binary_path" 2>/dev/null || true)
+    if [[ "$caps" == *"cap_net_admin"* ]] && [[ "$caps" == *"cap_net_raw"* ]]; then
+        info "Verified: ${caps}"
+        return 0
+    else
+        warn "Capabilities not set correctly: ${caps}"
+        return 1
+    fi
+}
+
 # --- Systemd user service ---
 
 write_service_unit() {
@@ -175,12 +208,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-Environment=NB_USE_NETSTACK_MODE=true
 Environment=NB_CONFIG=${CONFIG_DIR}/config.json
 Environment=NB_STATE_DIR=${STATE_DIR}
 Environment=NB_DAEMON_ADDR=unix://${STATE_DIR}/netbird.sock
 Environment=NB_LOG_FILE=${STATE_DIR}/client.log
-Environment=NB_DISABLE_DNS=true
 ExecStart=${INSTALL_DIR}/${BINARY} service run
 Restart=on-failure
 RestartSec=5
@@ -199,7 +230,6 @@ enable_service() {
     systemctl --user start "${SERVICE_NAME}.service"
 
     # Enable lingering so the service runs even when not logged into a desktop session
-    # This requires loginctl which may or may not work without root on SteamOS
     if command -v loginctl >/dev/null 2>&1; then
         loginctl enable-linger "$(whoami)" 2>/dev/null || \
             warn "Could not enable linger. Service will only run while logged in."
@@ -208,25 +238,9 @@ enable_service() {
     info "Service enabled and started"
 }
 
-# --- Install ---
+# --- Shell environment ---
 
-do_install() {
-    check_steamos
-    check_arch
-    check_dependencies
-
-    # Check for existing installation
-    if [[ -x "${INSTALL_DIR}/${BINARY}" ]]; then
-        warn "NetBird is already installed at ${INSTALL_DIR}/${BINARY}"
-        warn "Use --update to update or --uninstall to remove first"
-        exit 1
-    fi
-
-    download_binary
-    write_service_unit
-    enable_service
-
-    # Configure shell environment so the CLI finds the daemon socket and binary
+configure_shell_env() {
     local shell_rc="${HOME}/.bashrc"
     if [[ -f "${HOME}/.zshrc" ]]; then
         shell_rc="${HOME}/.zshrc"
@@ -249,6 +263,28 @@ SHELLRC
     export PATH="${INSTALL_DIR}:${PATH}"
     export NB_DAEMON_ADDR="${daemon_addr}"
     export NB_CONFIG="${CONFIG_DIR}/config.json"
+}
+
+# --- Install ---
+
+do_install() {
+    check_steamos
+    check_arch
+    check_dependencies
+
+    # Check for existing installation
+    if [[ -x "${INSTALL_DIR}/${BINARY}" ]]; then
+        warn "NetBird is already installed at ${INSTALL_DIR}/${BINARY}"
+        warn "Use --update to update or --uninstall to remove first"
+        exit 1
+    fi
+
+    download_binary
+    apply_capabilities
+    verify_capabilities
+    write_service_unit
+    enable_service
+    configure_shell_env
 
     info ""
     info "NetBird installed successfully!"
@@ -305,6 +341,9 @@ do_update() {
     trap "rm -rf '$staging_dir'" RETURN
 
     download_binary "$staging_dir"
+
+    # Apply capabilities to the new binary before swapping
+    apply_capabilities "${staging_dir}/${BINARY}"
 
     # Regenerate the unit file in case paths or env vars changed
     write_service_unit
