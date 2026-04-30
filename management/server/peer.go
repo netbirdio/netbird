@@ -1221,12 +1221,12 @@ func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID,
 
 // UpdateAccountPeers updates all peers that belong to an account.
 // Should be called when changes have to be synced to peers.
-func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, accountID string) {
-	_ = am.networkMapController.UpdateAccountPeers(ctx, accountID)
+func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) {
+	_ = am.networkMapController.UpdateAccountPeers(ctx, accountID, reason)
 }
 
-func (am *DefaultAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string) {
-	_ = am.networkMapController.BufferUpdateAccountPeers(ctx, accountID)
+func (am *DefaultAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) {
+	_ = am.networkMapController.BufferUpdateAccountPeers(ctx, accountID, reason)
 }
 
 // UpdateAccountPeer updates a single peer that belongs to an account.

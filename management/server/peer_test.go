@@ -975,7 +975,7 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 			start := time.Now()
 
 			for i := 0; i < b.N; i++ {
-				manager.UpdateAccountPeers(ctx, account.Id)
+				manager.UpdateAccountPeers(ctx, account.Id, types.UpdateReason{})
 			}
 
 			duration := time.Since(start)
@@ -1033,7 +1033,7 @@ func testUpdateAccountPeers(t *testing.T) {
 				peerChannels[peerID] = updateManager.CreateChannel(ctx, peerID)
 			}
 
-			manager.UpdateAccountPeers(ctx, account.Id)
+			manager.UpdateAccountPeers(ctx, account.Id, types.UpdateReason{})
 
 			for _, channel := range peerChannels {
 				update := <-channel

@@ -675,7 +675,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		if err = am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return nil, fmt.Errorf("failed to increment network serial: %w", err)
 		}
-		am.UpdateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceUser, Operation: types.UpdateOperationUpdate})
 	}
 
 	return updatedUsersInfo, globalErr
