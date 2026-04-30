@@ -132,11 +132,36 @@ async function setNumberField(itemId, fieldId, value) {
   });
 }
 
+async function setSingleSelectField(itemId, fieldId, optionId) {
+  const mutation = `
+    mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+      updateProjectV2ItemFieldValue(input: {
+        projectId: $projectId,
+        itemId: $itemId,
+        fieldId: $fieldId,
+        value: { singleSelectOptionId: $optionId }
+      }) {
+        projectV2Item { id }
+      }
+    }
+  `;
+
+  return graphql(mutation, {
+    projectId: process.env.PROJECT_ID,
+    itemId,
+    fieldId,
+    optionId
+  });
+}
+
 async function addToProjectWithFields(owner, repo, d) {
   const issueNodeId = await getIssueNodeId(owner, repo, d.issue_number);
   const itemId = await addToProject(issueNodeId);
 
   if (itemId) {
+    if (process.env.PROJECT_STATUS_FIELD_ID && process.env.PROJECT_STATUS_OPTION_NEEDS_REVIEW_ID) {
+      await setSingleSelectField(itemId, process.env.PROJECT_STATUS_FIELD_ID, process.env.PROJECT_STATUS_OPTION_NEEDS_REVIEW_ID);
+    }
     if (process.env.PROJECT_CONFIDENCE_FIELD_ID) {
       await setNumberField(itemId, process.env.PROJECT_CONFIDENCE_FIELD_ID, d.model.confidence);
     }
@@ -146,12 +171,7 @@ async function addToProjectWithFields(owner, repo, d) {
     if (process.env.PROJECT_EVIDENCE_FIELD_ID) {
       await setTextField(itemId, process.env.PROJECT_EVIDENCE_FIELD_ID, d.issue_url);
     }
-    // Linked pull requests field is a built-in type that can't be set via API
-    // GitHub auto-populates it from issue cross-references
-    if (process.env.PROJECT_REPO_FIELD_ID) {
-      await setTextField(itemId, process.env.PROJECT_REPO_FIELD_ID, d.repository);
-    }
-    console.log(`  → Added to project board`);
+    console.log(`  → Added to project board (Status: Needs Review)`);
   }
 }
 
