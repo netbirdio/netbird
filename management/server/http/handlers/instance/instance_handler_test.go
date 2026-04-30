@@ -10,6 +10,7 @@ import (
 	"net/mail"
 	"testing"
 
+	"github.com/golang/mock/gomock"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,6 +19,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbinstance "github.com/netbirdio/netbird/management/server/instance"
 	"github.com/netbirdio/netbird/management/server/mock_server"
+	nbstore "github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -384,6 +386,7 @@ func TestSetup_PAT_MissingExpireIn_DefaultsToOneDay(t *testing.T) {
 	router.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
 	assert.True(t, createCalled)
 	var response api.SetupResponse
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&response))
@@ -454,10 +457,15 @@ func TestSetup_PAT_Success(t *testing.T) {
 	require.NotNil(t, response.PersonalAccessToken)
 	assert.Equal(t, "nbp_plain", *response.PersonalAccessToken)
 	assert.Equal(t, "owner-id", gotAccountArgs.userID)
+	assert.Equal(t, "admin@example.com", gotAccountArgs.email)
 }
 
 func TestSetup_PAT_AccountCreationFails_Rollback(t *testing.T) {
 	t.Setenv(nbinstance.SetupPATEnabledEnvKey, "true")
+
+	ctrl := gomock.NewController(t)
+	accountStore := nbstore.NewMockStore(ctrl)
+	accountStore.EXPECT().GetAccountIDByUserID(gomock.Any(), nbstore.LockingStrengthNone, "owner-id").Return("", status.NewAccountNotFoundError("owner-id"))
 
 	rolledBackFor := ""
 	manager := &mockInstanceManager{
@@ -473,6 +481,9 @@ func TestSetup_PAT_AccountCreationFails_Rollback(t *testing.T) {
 	accountMgr := &mock_server.MockAccountManager{
 		GetAccountIDByUserIdFunc: func(_ context.Context, _ auth.UserAuth) (string, error) {
 			return "", errors.New("db down")
+		},
+		GetStoreFunc: func() nbstore.Store {
+			return accountStore
 		},
 	}
 
@@ -492,6 +503,12 @@ func TestSetup_PAT_AccountCreationFails_Rollback(t *testing.T) {
 func TestSetup_PAT_CreatePATFails_Rollback(t *testing.T) {
 	t.Setenv(nbinstance.SetupPATEnabledEnvKey, "true")
 
+	ctrl := gomock.NewController(t)
+	accountStore := nbstore.NewMockStore(ctrl)
+	account := &types.Account{Id: "acc-1"}
+	accountStore.EXPECT().GetAccount(gomock.Any(), "acc-1").Return(account, nil)
+	accountStore.EXPECT().DeleteAccount(gomock.Any(), account).Return(nil)
+
 	rolledBackFor := ""
 	manager := &mockInstanceManager{
 		isSetupRequired: true,
@@ -509,6 +526,9 @@ func TestSetup_PAT_CreatePATFails_Rollback(t *testing.T) {
 		},
 		CreatePATFunc: func(_ context.Context, _, _, _, _ string, _ int) (*types.PersonalAccessTokenGenerated, error) {
 			return nil, status.Errorf(status.Internal, "token store unavailable")
+		},
+		GetStoreFunc: func() nbstore.Store {
+			return accountStore
 		},
 	}
 

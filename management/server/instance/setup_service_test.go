@@ -153,9 +153,11 @@ func TestSetupOwner_AccountProvisioningFails_RollsBackSideEffectAccountAndUser(t
 	accountStore.EXPECT().DeleteAccount(gomock.Any(), account).Return(nil)
 
 	rolledBackFor := ""
+	rollbackCalls := 0
 	setupManager := NewSetupService(
 		&setupInstanceManagerMock{
 			rollbackSetupFn: func(_ context.Context, userID string) error {
+				rollbackCalls++
 				rolledBackFor = userID
 				return nil
 			},
@@ -180,6 +182,7 @@ func TestSetupOwner_AccountProvisioningFails_RollsBackSideEffectAccountAndUser(t
 	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "create account for setup user")
 	assert.Equal(t, "owner-id", rolledBackFor)
+	assert.Equal(t, 1, rollbackCalls)
 }
 
 func TestSetupOwner_CreatePATFails_RollsBackSetupAccountAndUser(t *testing.T) {
@@ -238,9 +241,11 @@ func TestSetupOwner_CreatePATFails_AccountAlreadyGoneStillRollsBackUser(t *testi
 	accountStore.EXPECT().GetAccount(gomock.Any(), "acc-1").Return(nil, status.NewAccountNotFoundError("acc-1"))
 
 	rolledBackFor := ""
+	rollbackCalls := 0
 	setupManager := NewSetupService(
 		&setupInstanceManagerMock{
 			rollbackSetupFn: func(_ context.Context, userID string) error {
+				rollbackCalls++
 				rolledBackFor = userID
 				return nil
 			},
@@ -267,9 +272,10 @@ func TestSetupOwner_CreatePATFails_AccountAlreadyGoneStillRollsBackUser(t *testi
 	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "create setup PAT")
 	assert.Equal(t, "owner-id", rolledBackFor)
+	assert.Equal(t, 1, rollbackCalls)
 }
 
-func TestSetupOwner_CreatePATFails_AccountRollbackFailureStillRollsBackUser(t *testing.T) {
+func TestSetupOwner_CreatePATFails_AccountRollbackFailureStopsBeforeUserRollback(t *testing.T) {
 	t.Setenv(SetupPATEnabledEnvKey, "true")
 
 	ctrl := gomock.NewController(t)
@@ -278,11 +284,11 @@ func TestSetupOwner_CreatePATFails_AccountRollbackFailureStillRollsBackUser(t *t
 	accountStore.EXPECT().GetAccount(gomock.Any(), "acc-1").Return(account, nil)
 	accountStore.EXPECT().DeleteAccount(gomock.Any(), account).Return(errors.New("delete failed"))
 
-	rolledBackFor := ""
+	rollbackCalls := 0
 	setupManager := NewSetupService(
 		&setupInstanceManagerMock{
 			rollbackSetupFn: func(_ context.Context, userID string) error {
-				rolledBackFor = userID
+				rollbackCalls++
 				return nil
 			},
 		},
@@ -307,5 +313,6 @@ func TestSetupOwner_CreatePATFails_AccountRollbackFailureStillRollsBackUser(t *t
 	require.Error(t, err)
 	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "create setup PAT")
-	assert.Equal(t, "owner-id", rolledBackFor)
+	assert.Contains(t, err.Error(), "failed to roll back setup resources")
+	assert.Equal(t, 0, rollbackCalls)
 }

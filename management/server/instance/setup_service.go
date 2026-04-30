@@ -83,7 +83,8 @@ func normalizeSetupOptions(opts SetupOptions, setupPATEnabled bool) (SetupOption
 // SetupOwner creates the initial owner user and, when requested and enabled by
 // SetupPATEnabledEnvKey, provisions the account and a setup Personal Access
 // Token. If account or PAT provisioning fails, created resources are rolled
-// back so setup can be retried.
+// back so setup can be retried. If account rollback fails, user rollback is
+// skipped to avoid leaving an account without its owner user.
 func (m *SetupService) SetupOwner(ctx context.Context, email, password, name string, opts SetupOptions) (*SetupResult, error) {
 	opts, err := normalizeSetupOptions(opts, m.setupPATEnabled)
 	if err != nil {
@@ -113,14 +114,18 @@ func (m *SetupService) SetupOwner(ctx context.Context, email, password, name str
 	accountID, err := m.accountManager.GetAccountIDByUserID(ctx, userAuth)
 	if err != nil {
 		err = fmt.Errorf("create account for setup user: %w", err)
-		m.rollbackSetup(ctx, userData.ID, "account provisioning failed", err, "")
+		if rollbackErr := m.rollbackSetup(ctx, userData.ID, "account provisioning failed", err, ""); rollbackErr != nil {
+			return nil, fmt.Errorf("%w; failed to roll back setup resources: %v", err, rollbackErr)
+		}
 		return nil, err
 	}
 
 	pat, err := m.accountManager.CreatePAT(ctx, accountID, userData.ID, userData.ID, setupPATTokenName, *opts.PATExpireInDays)
 	if err != nil {
 		err = fmt.Errorf("create setup PAT: %w", err)
-		m.rollbackSetup(ctx, userData.ID, "setup PAT provisioning failed", err, accountID)
+		if rollbackErr := m.rollbackSetup(ctx, userData.ID, "setup PAT provisioning failed", err, accountID); rollbackErr != nil {
+			return nil, fmt.Errorf("%w; failed to roll back setup resources: %v", err, rollbackErr)
+		}
 		return nil, err
 	}
 
@@ -128,28 +133,33 @@ func (m *SetupService) SetupOwner(ctx context.Context, email, password, name str
 	return result, nil
 }
 
-func (m *SetupService) rollbackSetup(ctx context.Context, userID, reason string, origErr error, accountID string) {
+func (m *SetupService) rollbackSetup(ctx context.Context, userID, reason string, origErr error, accountID string) error {
 	if accountID == "" {
 		resolvedAccountID, err := m.lookupSetupAccountIDForRollback(ctx, userID)
 		if err != nil {
-			log.WithContext(ctx).Errorf("failed to resolve setup account for user %s after %s: original error: %v, rollback error: %v", userID, reason, origErr, err)
+			rollbackErr := fmt.Errorf("resolve setup account for rollback: %w", err)
+			log.WithContext(ctx).Errorf("failed to resolve setup account for user %s after %s: original error: %v, rollback error: %v", userID, reason, origErr, rollbackErr)
+			return rollbackErr
 		}
 		accountID = resolvedAccountID
 	}
 
 	if accountID != "" {
 		if err := m.rollbackSetupAccount(ctx, accountID); err != nil {
-			log.WithContext(ctx).Errorf("failed to roll back setup account %s for user %s after %s: original error: %v, rollback error: %v", accountID, userID, reason, origErr, err)
-		} else {
-			log.WithContext(ctx).Warnf("rolled back setup account %s for user %s after %s: %v", accountID, userID, reason, origErr)
+			rollbackErr := fmt.Errorf("roll back setup account %s: %w", accountID, err)
+			log.WithContext(ctx).Errorf("failed to roll back setup account %s for user %s after %s: original error: %v, rollback error: %v", accountID, userID, reason, origErr, rollbackErr)
+			return rollbackErr
 		}
+		log.WithContext(ctx).Warnf("rolled back setup account %s for user %s after %s: %v", accountID, userID, reason, origErr)
 	}
 
 	if err := m.instanceManager.RollbackSetup(ctx, userID); err != nil {
-		log.WithContext(ctx).Errorf("failed to roll back setup user %s after %s: original error: %v, rollback error: %v", userID, reason, origErr, err)
-		return
+		rollbackErr := fmt.Errorf("roll back setup user %s: %w", userID, err)
+		log.WithContext(ctx).Errorf("failed to roll back setup user %s after %s: original error: %v, rollback error: %v", userID, reason, origErr, rollbackErr)
+		return rollbackErr
 	}
 	log.WithContext(ctx).Warnf("rolled back setup user %s after %s: %v", userID, reason, origErr)
+	return nil
 }
 
 func (m *SetupService) lookupSetupAccountIDForRollback(ctx context.Context, userID string) (string, error) {
