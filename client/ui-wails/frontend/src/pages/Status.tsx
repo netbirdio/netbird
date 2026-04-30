@@ -5,6 +5,7 @@ import type { SystemEvent } from "../../bindings/github.com/netbirdio/netbird/cl
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { cn } from "../lib/cn";
+import { NetBirdConnectToggle, ConnectionState } from "../components/NetBirdConnectToggle";
 
 export default function Status() {
   const { status, error } = useStatus();
@@ -13,8 +14,14 @@ export default function Status() {
   const connected = connState === "Connected";
   const connecting = connState === "Connecting";
 
+  const toggleState: ConnectionState =
+    connected ? ConnectionState.Connected
+    : connecting ? ConnectionState.Connecting
+    : ConnectionState.Disconnected;
+
   const connect = () => Connection.Up({ profileName: "", username: "" }).catch(console.error);
   const disconnect = () => Connection.Down().catch(console.error);
+  const toggleConnection = () => (connected ? disconnect() : connect());
 
   return (
     <div className="space-y-4 p-6">
@@ -77,6 +84,10 @@ export default function Status() {
           );
         })()}
       </Card>
+
+        <div className="flex justify-center bg-nb-gray p-10">
+            <NetBirdConnectToggle state={toggleState} onClick={toggleConnection} />
+        </div>
     </div>
   );
 }
