@@ -17,35 +17,32 @@ type PeerNetworkRangeCheck struct {
 
 var _ Check = (*PeerNetworkRangeCheck)(nil)
 
-// Check evaluates configured ranges against the peer's local network interfaces and its
-// public connection IP (as a /32 or /128). Including the connection IP lets operators
-// match peers by their NAT'd public address — local NICs alone never expose that.
+// Check evaluates configured ranges against the peer's local network interface IPs and
+// its public connection IP. A configured range matches when it contains any of those
+// addresses, so operators can target both NAT'd egress (e.g. 1.0.0.0/24) and exact hosts
+// (e.g. 2.2.2.2/32). Including the connection IP is what lets a public-range posture
+// check work — peer.Meta.NetworkAddresses only carries local NIC addresses.
 func (p *PeerNetworkRangeCheck) Check(ctx context.Context, peer nbpeer.Peer) (bool, error) {
-	peerMaskedPrefixes := make([]netip.Prefix, 0, len(peer.Meta.NetworkAddresses)+1)
+	peerAddrs := make([]netip.Addr, 0, len(peer.Meta.NetworkAddresses)+1)
 	for _, peerNetAddr := range peer.Meta.NetworkAddresses {
-		peerMaskedPrefixes = append(peerMaskedPrefixes, peerNetAddr.NetIP.Masked())
+		peerAddrs = append(peerAddrs, peerNetAddr.NetIP.Addr())
 	}
-	// Include the peer's public connection IP as a host prefix (/32 or /128) so operators
-	// can match on the NAT'd egress IP — peer.Meta.NetworkAddresses only carries local NICs.
-	// Unmap collapses 4-in-6 forms (::ffff:a.b.c.d) so an IPv4 prefix matches.
+	// Unmap collapses 4-in-6 forms (::ffff:a.b.c.d) so an IPv4 range matches.
 	if connIP := peer.Location.ConnectionIP; len(connIP) > 0 {
 		if addr, ok := netip.AddrFromSlice(connIP); ok {
-			addr = addr.Unmap()
-			peerMaskedPrefixes = append(peerMaskedPrefixes, netip.PrefixFrom(addr, addr.BitLen()))
+			peerAddrs = append(peerAddrs, addr.Unmap())
 		}
 	}
 
-	if len(peerMaskedPrefixes) == 0 {
+	if len(peerAddrs) == 0 {
 		return false, fmt.Errorf("peer's does not contain peer network range addresses")
 	}
 
-	maskedPrefixes := make([]netip.Prefix, 0, len(p.Ranges))
-	for _, prefix := range p.Ranges {
-		maskedPrefixes = append(maskedPrefixes, prefix.Masked())
-	}
-
-	for _, peerMaskedPrefix := range peerMaskedPrefixes {
-		if slices.Contains(maskedPrefixes, peerMaskedPrefix) {
+	for _, peerAddr := range peerAddrs {
+		for _, prefix := range p.Ranges {
+			if !prefix.Contains(peerAddr) {
+				continue
+			}
 			switch p.Action {
 			case CheckActionDeny:
 				return false, nil

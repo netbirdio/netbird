@@ -230,6 +230,81 @@ func TestPeerNetworkRangeCheck_Check(t *testing.T) {
 			isValid: false,
 		},
 		{
+			name: "Connection IP falls inside an allowed /24 range",
+			check: PeerNetworkRangeCheck{
+				Action: CheckActionAllow,
+				Ranges: []netip.Prefix{
+					netip.MustParsePrefix("1.0.0.0/24"),
+					netip.MustParsePrefix("2.2.2.2/32"),
+				},
+			},
+			peer: nbpeer.Peer{
+				Location: nbpeer.Location{ConnectionIP: net.ParseIP("1.0.0.55")},
+			},
+			wantErr: false,
+			isValid: true,
+		},
+		{
+			name: "Connection IP falls inside an allowed /23 range",
+			check: PeerNetworkRangeCheck{
+				Action: CheckActionAllow,
+				Ranges: []netip.Prefix{
+					netip.MustParsePrefix("3.0.0.0/23"),
+				},
+			},
+			peer: nbpeer.Peer{
+				Location: nbpeer.Location{ConnectionIP: net.ParseIP("3.0.1.200")},
+			},
+			wantErr: false,
+			isValid: true,
+		},
+		{
+			name: "Connection IP outside the allowed /24 range",
+			check: PeerNetworkRangeCheck{
+				Action: CheckActionAllow,
+				Ranges: []netip.Prefix{
+					netip.MustParsePrefix("1.0.0.0/24"),
+				},
+			},
+			peer: nbpeer.Peer{
+				Location: nbpeer.Location{ConnectionIP: net.ParseIP("1.0.1.5")},
+			},
+			wantErr: false,
+			isValid: false,
+		},
+		{
+			name: "Connection IP inside a denied /24 range",
+			check: PeerNetworkRangeCheck{
+				Action: CheckActionDeny,
+				Ranges: []netip.Prefix{
+					netip.MustParsePrefix("1.0.0.0/24"),
+				},
+			},
+			peer: nbpeer.Peer{
+				Location: nbpeer.Location{ConnectionIP: net.ParseIP("1.0.0.7")},
+			},
+			wantErr: false,
+			isValid: false,
+		},
+		{
+			name: "Local NIC address inside an allowed /16 range",
+			check: PeerNetworkRangeCheck{
+				Action: CheckActionAllow,
+				Ranges: []netip.Prefix{
+					netip.MustParsePrefix("192.168.0.0/16"),
+				},
+			},
+			peer: nbpeer.Peer{
+				Meta: nbpeer.PeerSystemMeta{
+					NetworkAddresses: []nbpeer.NetworkAddress{
+						{NetIP: netip.MustParsePrefix("192.168.5.7/24")},
+					},
+				},
+			},
+			wantErr: false,
+			isValid: true,
+		},
+		{
 			name: "Empty NetworkAddresses and empty ConnectionIP still errors",
 			check: PeerNetworkRangeCheck{
 				Action: CheckActionDeny,
