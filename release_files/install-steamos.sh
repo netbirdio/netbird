@@ -227,24 +227,29 @@ do_install() {
     write_service_unit
     enable_service
 
-    # Ensure ~/.local/bin is on PATH for future shells
-    if ! echo "$PATH" | grep -q "${INSTALL_DIR}"; then
-        local shell_rc="${HOME}/.bashrc"
-        if [[ -f "${HOME}/.zshrc" ]]; then
-            shell_rc="${HOME}/.zshrc"
-        fi
-
-        local path_line="export PATH=\"${INSTALL_DIR}:\$PATH\""
-        if ! grep -qF "${INSTALL_DIR}" "$shell_rc" 2>/dev/null; then
-            echo "" >> "$shell_rc"
-            echo "# Added by NetBird installer" >> "$shell_rc"
-            echo "$path_line" >> "$shell_rc"
-            info "Added ${INSTALL_DIR} to PATH in ${shell_rc}"
-        fi
-
-        # Also export for the current script so auto-connect and instructions work
-        export PATH="${INSTALL_DIR}:${PATH}"
+    # Configure shell environment so the CLI finds the daemon socket and binary
+    local shell_rc="${HOME}/.bashrc"
+    if [[ -f "${HOME}/.zshrc" ]]; then
+        shell_rc="${HOME}/.zshrc"
     fi
+
+    local daemon_addr="unix://${STATE_DIR}/netbird.sock"
+
+    if ! grep -qF "# Added by NetBird installer" "$shell_rc" 2>/dev/null; then
+        cat >> "$shell_rc" <<SHELLRC
+
+# Added by NetBird installer
+export PATH="${INSTALL_DIR}:\$PATH"
+export NB_DAEMON_ADDR="${daemon_addr}"
+export NB_CONFIG="${CONFIG_DIR}/config.json"
+SHELLRC
+        info "Added NetBird environment to ${shell_rc}"
+    fi
+
+    # Also export for the current script so auto-connect works
+    export PATH="${INSTALL_DIR}:${PATH}"
+    export NB_DAEMON_ADDR="${daemon_addr}"
+    export NB_CONFIG="${CONFIG_DIR}/config.json"
 
     info ""
     info "NetBird installed successfully!"
