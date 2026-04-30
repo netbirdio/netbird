@@ -20,11 +20,20 @@ Maintainer-authoritative roles:
 - OWNER
 - COLLABORATOR
 
+Partial fixes and multi-item issues:
+- A merged PR that only addresses SOME items in a multi-item request does NOT resolve the issue. If the issue lists 5 feature requests and a PR fixes 1, the issue is still open.
+- If a PR description or comment says "partially addresses", "partial fix", or similar, the issue is NOT resolved. Classify as KEEP_OPEN.
+- If a merged PR addresses the core ask but a later comment objects or reports a regression, classify as MANUAL_REVIEW (not resolved).
+
 Workarounds vs. actual fixes:
-- A WORKAROUND is when a user changes their own setup to avoid the problem (editing configs, using a different setting, manual SQL fixes, switching tools). Workarounds do NOT count as resolution — the underlying issue is still present in the product.
+- A WORKAROUND is when a user changes their own setup to avoid the problem (editing configs, using a different setting, manual SQL fixes, switching tools, scripts). Workarounds do NOT count as resolution — the underlying issue is still present in the product.
 - An ACTUAL FIX is when a user reports the problem went away after upgrading to a specific version (e.g., "fixed after updating to v0.65.1") or after a specific PR was merged. This suggests the fix was shipped in the product itself.
+- A maintainer pointing to an existing alternative feature is NOT the same as fixing the issue. If the reporter never confirmed the alternative works for them, classify as KEEP_OPEN.
 - If only workarounds exist and no maintainer has confirmed a fix, classify as KEEP_OPEN.
 - If a user reports an actual fix via a version upgrade but no maintainer confirmed it, classify as MANUAL_REVIEW (not AUTO_CLOSE).
+
+Stale issues:
+- An issue with no activity for over 12 months, where a maintainer offered an alternative or asked for more info and the reporter never responded, is a candidate for MANUAL_REVIEW — not necessarily KEEP_OPEN.
 
 Important:
 - Later comments outweigh earlier ones.
