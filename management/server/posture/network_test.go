@@ -188,6 +188,34 @@ func TestPeerNetworkRangeCheck_Check(t *testing.T) {
 			isValid: true,
 		},
 		{
+			name: "IPv6 connection IP matches the denied /128",
+			check: PeerNetworkRangeCheck{
+				Action: CheckActionDeny,
+				Ranges: []netip.Prefix{
+					netip.MustParsePrefix("2001:db8::1/128"),
+				},
+			},
+			peer: nbpeer.Peer{
+				Location: nbpeer.Location{ConnectionIP: net.ParseIP("2001:db8::1")},
+			},
+			wantErr: false,
+			isValid: false,
+		},
+		{
+			name: "IPv6 connection IP does not match the denied /128",
+			check: PeerNetworkRangeCheck{
+				Action: CheckActionDeny,
+				Ranges: []netip.Prefix{
+					netip.MustParsePrefix("2001:db8::1/128"),
+				},
+			},
+			peer: nbpeer.Peer{
+				Location: nbpeer.Location{ConnectionIP: net.ParseIP("2001:db8::2")},
+			},
+			wantErr: false,
+			isValid: true,
+		},
+		{
 			name: "IPv4-mapped IPv6 connection IP matches IPv4 /32",
 			check: PeerNetworkRangeCheck{
 				Action: CheckActionDeny,
