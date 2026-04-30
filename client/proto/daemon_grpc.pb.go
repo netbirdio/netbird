@@ -27,6 +27,11 @@ type DaemonServiceClient interface {
 	Up(ctx context.Context, in *UpRequest, opts ...grpc.CallOption) (*UpResponse, error)
 	// Status of the service.
 	Status(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (*StatusResponse, error)
+	// SubscribeStatus pushes a fresh StatusResponse on connection state
+	// changes (Connected / Disconnected / Connecting / address change /
+	// peers list change). The first message on the stream is the current
+	// snapshot, so a freshly-subscribed UI doesn't need to also call Status.
+	SubscribeStatus(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (DaemonService_SubscribeStatusClient, error)
 	// Down stops engine work in the daemon.
 	Down(ctx context.Context, in *DownRequest, opts ...grpc.CallOption) (*DownResponse, error)
 	// GetConfig of the daemon.
@@ -125,6 +130,38 @@ func (c *daemonServiceClient) Status(ctx context.Context, in *StatusRequest, opt
 		return nil, err
 	}
 	return out, nil
+}
+
+func (c *daemonServiceClient) SubscribeStatus(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (DaemonService_SubscribeStatusClient, error) {
+	stream, err := c.cc.NewStream(ctx, &DaemonService_ServiceDesc.Streams[0], "/daemon.DaemonService/SubscribeStatus", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &daemonServiceSubscribeStatusClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type DaemonService_SubscribeStatusClient interface {
+	Recv() (*StatusResponse, error)
+	grpc.ClientStream
+}
+
+type daemonServiceSubscribeStatusClient struct {
+	grpc.ClientStream
+}
+
+func (x *daemonServiceSubscribeStatusClient) Recv() (*StatusResponse, error) {
+	m := new(StatusResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
 }
 
 func (c *daemonServiceClient) Down(ctx context.Context, in *DownRequest, opts ...grpc.CallOption) (*DownResponse, error) {
@@ -254,7 +291,7 @@ func (c *daemonServiceClient) TracePacket(ctx context.Context, in *TracePacketRe
 }
 
 func (c *daemonServiceClient) SubscribeEvents(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (DaemonService_SubscribeEventsClient, error) {
-	stream, err := c.cc.NewStream(ctx, &DaemonService_ServiceDesc.Streams[0], "/daemon.DaemonService/SubscribeEvents", opts...)
+	stream, err := c.cc.NewStream(ctx, &DaemonService_ServiceDesc.Streams[1], "/daemon.DaemonService/SubscribeEvents", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -439,7 +476,7 @@ func (c *daemonServiceClient) GetInstallerResult(ctx context.Context, in *Instal
 }
 
 func (c *daemonServiceClient) ExposeService(ctx context.Context, in *ExposeServiceRequest, opts ...grpc.CallOption) (DaemonService_ExposeServiceClient, error) {
-	stream, err := c.cc.NewStream(ctx, &DaemonService_ServiceDesc.Streams[1], "/daemon.DaemonService/ExposeService", opts...)
+	stream, err := c.cc.NewStream(ctx, &DaemonService_ServiceDesc.Streams[2], "/daemon.DaemonService/ExposeService", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -483,6 +520,11 @@ type DaemonServiceServer interface {
 	Up(context.Context, *UpRequest) (*UpResponse, error)
 	// Status of the service.
 	Status(context.Context, *StatusRequest) (*StatusResponse, error)
+	// SubscribeStatus pushes a fresh StatusResponse on connection state
+	// changes (Connected / Disconnected / Connecting / address change /
+	// peers list change). The first message on the stream is the current
+	// snapshot, so a freshly-subscribed UI doesn't need to also call Status.
+	SubscribeStatus(*StatusRequest, DaemonService_SubscribeStatusServer) error
 	// Down stops engine work in the daemon.
 	Down(context.Context, *DownRequest) (*DownResponse, error)
 	// GetConfig of the daemon.
@@ -555,6 +597,9 @@ func (UnimplementedDaemonServiceServer) Up(context.Context, *UpRequest) (*UpResp
 }
 func (UnimplementedDaemonServiceServer) Status(context.Context, *StatusRequest) (*StatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Status not implemented")
+}
+func (UnimplementedDaemonServiceServer) SubscribeStatus(*StatusRequest, DaemonService_SubscribeStatusServer) error {
+	return status.Errorf(codes.Unimplemented, "method SubscribeStatus not implemented")
 }
 func (UnimplementedDaemonServiceServer) Down(context.Context, *DownRequest) (*DownResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Down not implemented")
@@ -738,6 +783,27 @@ func _DaemonService_Status_Handler(srv interface{}, ctx context.Context, dec fun
 		return srv.(DaemonServiceServer).Status(ctx, req.(*StatusRequest))
 	}
 	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_SubscribeStatus_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(StatusRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(DaemonServiceServer).SubscribeStatus(m, &daemonServiceSubscribeStatusServer{stream})
+}
+
+type DaemonService_SubscribeStatusServer interface {
+	Send(*StatusResponse) error
+	grpc.ServerStream
+}
+
+type daemonServiceSubscribeStatusServer struct {
+	grpc.ServerStream
+}
+
+func (x *daemonServiceSubscribeStatusServer) Send(m *StatusResponse) error {
+	return x.ServerStream.SendMsg(m)
 }
 
 func _DaemonService_Down_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -1489,6 +1555,11 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "SubscribeStatus",
+			Handler:       _DaemonService_SubscribeStatus_Handler,
+			ServerStreams: true,
+		},
 		{
 			StreamName:    "SubscribeEvents",
 			Handler:       _DaemonService_SubscribeEvents_Handler,
