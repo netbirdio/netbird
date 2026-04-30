@@ -287,6 +287,24 @@ func TestPeerNetworkRangeCheck_Check(t *testing.T) {
 			isValid: false,
 		},
 		{
+			name: "Local NIC /24 does not match a /32 rule even if host bit lines up",
+			check: PeerNetworkRangeCheck{
+				Action: CheckActionAllow,
+				Ranges: []netip.Prefix{
+					netip.MustParsePrefix("192.168.0.5/32"),
+				},
+			},
+			peer: nbpeer.Peer{
+				Meta: nbpeer.PeerSystemMeta{
+					NetworkAddresses: []nbpeer.NetworkAddress{
+						{NetIP: netip.MustParsePrefix("192.168.0.5/24")},
+					},
+				},
+			},
+			wantErr: false,
+			isValid: false,
+		},
+		{
 			name: "Local NIC address inside an allowed /16 range",
 			check: PeerNetworkRangeCheck{
 				Action: CheckActionAllow,
