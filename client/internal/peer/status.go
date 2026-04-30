@@ -215,6 +215,14 @@ type Status struct {
 	eventStreams map[string]chan *proto.SystemEvent
 	eventQueue   *EventQueue
 
+	// stateChangeStreams fan-out connection-state changes (connected /
+	// disconnected / connecting / address change / peers list change) to
+	// every active SubscribeStatus gRPC stream. Each subscriber gets a
+	// buffered chan; the notifier non-blockingly pings them so a slow
+	// consumer can never stall the daemon.
+	stateChangeMux     sync.Mutex
+	stateChangeStreams map[string]chan struct{}
+
 	ingressGwMgr *ingressgw.Manager
 
 	routeIDLookup routeIDLookup
@@ -228,6 +236,7 @@ func NewRecorder(mgmAddress string) *Status {
 		changeNotify:          make(map[string]map[string]*StatusChangeSubscription),
 		eventStreams:          make(map[string]chan *proto.SystemEvent),
 		eventQueue:            NewEventQueue(eventQueueSize),
+		stateChangeStreams:    make(map[string]chan struct{}),
 		offlinePeers:          make([]State, 0),
 		notifier:              newNotifier(),
 		mgmAddress:            mgmAddress,
@@ -990,16 +999,19 @@ func (d *Status) GetFullStatus() FullStatus {
 // ClientStart will notify all listeners about the new service state
 func (d *Status) ClientStart() {
 	d.notifier.clientStart()
+	d.notifyStateChange()
 }
 
 // ClientStop will notify all listeners about the new service state
 func (d *Status) ClientStop() {
 	d.notifier.clientStop()
+	d.notifyStateChange()
 }
 
 // ClientTeardown will notify all listeners about the service is under teardown
 func (d *Status) ClientTeardown() {
 	d.notifier.clientTearDown()
+	d.notifyStateChange()
 }
 
 // SetConnectionListener set a listener to the notifier
@@ -1014,6 +1026,7 @@ func (d *Status) RemoveConnectionListener() {
 
 func (d *Status) onConnectionChanged() {
 	d.notifier.updateServerStates(d.managementState, d.signalState)
+	d.notifyStateChange()
 }
 
 // notifyPeerStateChangeListeners notifies route manager about the change in peer state
@@ -1049,10 +1062,12 @@ func (d *Status) notifyPeerStateChangeListeners(peerID string) {
 
 func (d *Status) notifyPeerListChanged() {
 	d.notifier.peerListChanged(d.numOfPeers())
+	d.notifyStateChange()
 }
 
 func (d *Status) notifyAddressChanged() {
 	d.notifier.localAddressChanged(d.localPeer.FQDN, d.localPeer.IP)
+	d.notifyStateChange()
 }
 
 func (d *Status) numOfPeers() int {
@@ -1126,6 +1141,50 @@ func (d *Status) UnsubscribeFromEvents(sub *EventSubscription) {
 // GetEventHistory returns all events in the queue
 func (d *Status) GetEventHistory() []*proto.SystemEvent {
 	return d.eventQueue.GetAll()
+}
+
+// SubscribeToStateChanges hands back a channel that receives a tick on
+// every connection-state change (connected / disconnected / connecting /
+// address change / peers-list change). The channel is buffered to one
+// pending tick so a coalesced burst still wakes the consumer exactly
+// once. Pass the returned id to UnsubscribeFromStateChanges to detach.
+func (d *Status) SubscribeToStateChanges() (string, <-chan struct{}) {
+	d.stateChangeMux.Lock()
+	defer d.stateChangeMux.Unlock()
+
+	id := uuid.New().String()
+	ch := make(chan struct{}, 1)
+	d.stateChangeStreams[id] = ch
+	return id, ch
+}
+
+// UnsubscribeFromStateChanges releases a SubscribeToStateChanges channel
+// and closes it so any consumer goroutine selecting on the channel
+// unblocks cleanly.
+func (d *Status) UnsubscribeFromStateChanges(id string) {
+	d.stateChangeMux.Lock()
+	defer d.stateChangeMux.Unlock()
+
+	if ch, ok := d.stateChangeStreams[id]; ok {
+		close(ch)
+		delete(d.stateChangeStreams, id)
+	}
+}
+
+// notifyStateChange wakes every SubscribeToStateChanges subscriber. Drops
+// the tick if a subscriber's buffer is full — by definition the consumer
+// is already going to fetch the latest snapshot, so multiple pending ticks
+// would be redundant.
+func (d *Status) notifyStateChange() {
+	d.stateChangeMux.Lock()
+	defer d.stateChangeMux.Unlock()
+
+	for _, ch := range d.stateChangeStreams {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
 }
 
 func (d *Status) SetWgIface(wgInterface WGIfaceStatus) {

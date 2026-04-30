@@ -1101,6 +1101,13 @@ func (s *Server) Status(
 		}
 	}
 
+	return s.buildStatusResponse(msg)
+}
+
+// buildStatusResponse composes a StatusResponse from the current daemon
+// state. Shared between the unary Status RPC and the SubscribeStatus
+// stream so both paths return identical snapshots.
+func (s *Server) buildStatusResponse(msg *proto.StatusRequest) (*proto.StatusResponse, error) {
 	status, err := internal.CtxGetState(s.rootCtx).Status()
 	if err != nil {
 		return nil, err

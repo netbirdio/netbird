@@ -24,6 +24,12 @@ service DaemonService {
   // Status of the service.
   rpc Status(StatusRequest) returns (StatusResponse) {}
 
+  // SubscribeStatus pushes a fresh StatusResponse on connection state
+  // changes (Connected / Disconnected / Connecting / address change /
+  // peers list change). The first message on the stream is the current
+  // snapshot, so a freshly-subscribed UI doesn't need to also call Status.
+  rpc SubscribeStatus(StatusRequest) returns (stream StatusResponse) {}
+
   // Down stops engine work in the daemon.
   rpc Down(DownRequest) returns (DownResponse) {}
 

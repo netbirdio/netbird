@@ -343,9 +343,14 @@ func (t *Tray) onUpdateProgress(ev *application.CustomEvent) {
 
 // applyStatus updates the tray icon, status label, exit-node submenu, and
 // connect/disconnect enablement based on the latest daemon snapshot.
+// Skips the icon refresh when none of the icon-relevant inputs
+// (connected, hasUpdate, status label) changed — the daemon emits
+// rapid SubscribeStatus bursts during health probes that would
+// otherwise spam Shell_NotifyIcon and the log.
 func (t *Tray) applyStatus(st services.Status) {
 	t.mu.Lock()
 	connected := strings.EqualFold(st.Status, "Connected")
+	iconChanged := connected != t.connected || st.Status != t.lastStatus
 	t.connected = connected
 	t.lastStatus = st.Status
 
@@ -354,15 +359,17 @@ func (t *Tray) applyStatus(st services.Status) {
 	t.exitNodes = exitNodes
 	t.mu.Unlock()
 
-	t.applyIcon()
-	if t.statusItem != nil {
-		t.statusItem.SetLabel(st.Status)
-	}
-	if t.upItem != nil {
-		t.upItem.SetEnabled(!connected)
-	}
-	if t.downItem != nil {
-		t.downItem.SetEnabled(connected)
+	if iconChanged {
+		t.applyIcon()
+		if t.statusItem != nil {
+			t.statusItem.SetLabel(st.Status)
+		}
+		if t.upItem != nil {
+			t.upItem.SetEnabled(!connected)
+		}
+		if t.downItem != nil {
+			t.downItem.SetEnabled(connected)
+		}
 	}
 	if exitNodesChanged {
 		t.rebuildExitNodes(exitNodes)
