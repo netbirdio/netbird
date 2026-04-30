@@ -1626,7 +1626,7 @@ type Checks struct {
 	// OsVersionCheck Posture check for the version of operating system
 	OsVersionCheck *OSVersionCheck `json:"os_version_check,omitempty"`
 
-	// PeerNetworkRangeCheck Posture check for allow or deny access based on peer local network addresses
+	// PeerNetworkRangeCheck Posture check for allow or deny access based on the peer's IP addresses. A range matches when it contains any of the peer's local network interface IPs or its public connection (NAT egress) IP, so ranges may target private subnets, public CIDRs, or single hosts via a /32 or /128.
 	PeerNetworkRangeCheck *PeerNetworkRangeCheck `json:"peer_network_range_check,omitempty"`
 
 	// ProcessCheck Posture Check for binaries exist and are running in the peer’s system
@@ -3312,12 +3312,12 @@ type PeerMinimum struct {
 	Name string `json:"name"`
 }
 
-// PeerNetworkRangeCheck Posture check for allow or deny access based on peer local network addresses
+// PeerNetworkRangeCheck Posture check for allow or deny access based on the peer's IP addresses. A range matches when it contains any of the peer's local network interface IPs or its public connection (NAT egress) IP, so ranges may target private subnets, public CIDRs, or single hosts via a /32 or /128.
 type PeerNetworkRangeCheck struct {
 	// Action Action to take upon policy match
 	Action PeerNetworkRangeCheckAction `json:"action"`
 
-	// Ranges List of peer network ranges in CIDR notation
+	// Ranges List of network ranges in CIDR notation, matched against the peer's local interface IPs and its public connection IP
 	Ranges []string `json:"ranges"`
 }
 
