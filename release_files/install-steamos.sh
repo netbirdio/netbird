@@ -71,7 +71,7 @@ check_arch() {
 
 check_dependencies() {
     local missing=""
-    for cmd in curl tar systemctl sudo; do
+    for cmd in curl tar systemctl sudo sha256sum; do
         if ! command -v "$cmd" >/dev/null 2>&1; then
             missing="$missing $cmd"
         fi
@@ -334,6 +334,7 @@ do_update() {
     info "Updating ${installed_version} -> ${latest_version}"
 
     check_arch
+    check_dependencies
 
     # Download and verify new binary to a staging directory before touching the running service
     local staging_dir
