@@ -176,7 +176,6 @@ Wants=network-online.target
 [Service]
 Type=simple
 Environment=NB_USE_NETSTACK_MODE=true
-Environment=NB_ENABLE_NETSTACK_LOCAL_FORWARDING=true
 Environment=NB_CONFIG=${CONFIG_DIR}/config.json
 Environment=NB_STATE_DIR=${STATE_DIR}
 Environment=NB_DAEMON_ADDR=unix://${STATE_DIR}/netbird.sock
