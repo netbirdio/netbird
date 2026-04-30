@@ -227,11 +227,23 @@ do_install() {
     write_service_unit
     enable_service
 
-    # Ensure ~/.local/bin is on PATH
+    # Ensure ~/.local/bin is on PATH for future shells
     if ! echo "$PATH" | grep -q "${INSTALL_DIR}"; then
-        warn "${INSTALL_DIR} is not in your PATH"
-        warn "Add to your ~/.bashrc or ~/.zshrc:"
-        warn "  export PATH=\"${INSTALL_DIR}:\$PATH\""
+        local shell_rc="${HOME}/.bashrc"
+        if [[ -f "${HOME}/.zshrc" ]]; then
+            shell_rc="${HOME}/.zshrc"
+        fi
+
+        local path_line="export PATH=\"${INSTALL_DIR}:\$PATH\""
+        if ! grep -qF "${INSTALL_DIR}" "$shell_rc" 2>/dev/null; then
+            echo "" >> "$shell_rc"
+            echo "# Added by NetBird installer" >> "$shell_rc"
+            echo "$path_line" >> "$shell_rc"
+            info "Added ${INSTALL_DIR} to PATH in ${shell_rc}"
+        fi
+
+        # Also export for the current script so auto-connect and instructions work
+        export PATH="${INSTALL_DIR}:${PATH}"
     fi
 
     info ""
