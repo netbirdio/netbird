@@ -354,6 +354,16 @@ message PeerConfig {
   // Effective in p2p-lazy and p2p-dynamic modes. Backwards-compat alias for
   // NB_LAZY_CONN_INACTIVITY_THRESHOLD. Added in Phase 1 (#5989).
   uint32 RelayTimeoutSeconds = 13;
+
+  // P2pRetryMaxSeconds is the maximum interval between P2P retry attempts
+  // after consecutive ICE failures, in seconds. Effective only in
+  // p2p-dynamic mode (added in Phase 3 of #5989).
+  //
+  // Wire-format semantics:
+  //   0    -> "not set"; daemon uses built-in default (15 min)
+  //   max  -> "user explicitly disabled backoff"; daemon disables backoff
+  //   else -> seconds, capped at this value in the cenkalti/backoff schedule
+  uint32 P2pRetryMaxSeconds = 14;
 }
 
 // ConnectionMode controls how a peer establishes connections to other peers.
