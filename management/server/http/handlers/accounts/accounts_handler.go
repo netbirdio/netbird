@@ -230,6 +230,10 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 		v := uint32(*req.Settings.P2pTimeoutSeconds)
 		returnSettings.P2pTimeoutSeconds = &v
 	}
+	if req.Settings.P2pRetryMaxSeconds != nil {
+		v := uint32(*req.Settings.P2pRetryMaxSeconds)
+		returnSettings.P2pRetryMaxSeconds = &v
+	}
 	if req.Settings.RelayTimeoutSeconds != nil {
 		v := uint32(*req.Settings.RelayTimeoutSeconds)
 		returnSettings.RelayTimeoutSeconds = &v
@@ -380,6 +384,13 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 				return nil
 			}
 			v := int64(*settings.P2pTimeoutSeconds)
+			return &v
+		}(),
+		P2pRetryMaxSeconds: func() *int64 {
+			if settings.P2pRetryMaxSeconds == nil {
+				return nil
+			}
+			v := int64(*settings.P2pRetryMaxSeconds)
 			return &v
 		}(),
 		RelayTimeoutSeconds: func() *int64 {
