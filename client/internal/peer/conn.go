@@ -208,7 +208,16 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 	conn.handshaker = NewHandshaker(conn.Log, conn.config, conn.signaler, conn.workerICE, conn.workerRelay, conn.metricsStages)
 
 	conn.handshaker.AddRelayListener(conn.workerRelay.OnNewOffer)
-	if !skipICE {
+
+	// ICE-listener registration depends on mode:
+	// - ModeRelayForced: skipICE=true, no workerICE, no listener.
+	// - ModeP2P, ModeP2PLazy: workerICE constructed, listener registered eagerly.
+	//   P2PLazy's whole-tunnel deferral happens at the conn_mgr level, not here.
+	// - ModeP2PDynamic: workerICE constructed eagerly so it's ready, but the
+	//   listener registration is deferred. The inactivity manager calls
+	//   Conn.AttachICE() once activity is observed on the relay tunnel.
+	deferICEListener := conn.config.Mode == connectionmode.ModeP2PDynamic
+	if !skipICE && !deferICEListener {
 		conn.handshaker.AddICEListener(conn.workerICE.OnNewOffer)
 	}
 
