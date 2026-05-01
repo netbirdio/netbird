@@ -23,6 +23,11 @@ import (
 	"github.com/netbirdio/netbird/shared/sshauth"
 )
 
+// p2pRetryMaxDisabledSentinel is the wire-format value that signals
+// "user-explicit disable backoff" (uint32-max). The 0 wire-value is
+// reserved for "not set, use daemon default". Phase 3 of #5989.
+const p2pRetryMaxDisabledSentinel = ^uint32(0)
+
 func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken *Token, extraSettings *types.ExtraSettings) *proto.NetbirdConfig {
 	if config == nil {
 		return nil
@@ -121,6 +126,14 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 	if settings.P2pTimeoutSeconds != nil {
 		p2pTO = *settings.P2pTimeoutSeconds
 	}
+	p2pRetryMax := uint32(0)
+	if settings.P2pRetryMaxSeconds != nil {
+		if *settings.P2pRetryMaxSeconds == 0 {
+			p2pRetryMax = p2pRetryMaxDisabledSentinel
+		} else {
+			p2pRetryMax = *settings.P2pRetryMaxSeconds
+		}
+	}
 
 	return &proto.PeerConfig{
 		Address:                         fmt.Sprintf("%s/%d", peer.IP.String(), netmask),
@@ -134,6 +147,7 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 		LazyConnectionEnabled: resolvedMode.ToLazyConnectionEnabled(),
 		ConnectionMode:        resolvedMode.ToProto(),
 		P2PTimeoutSeconds:     p2pTO,
+		P2PRetryMaxSeconds:    p2pRetryMax,
 		RelayTimeoutSeconds:   relayTO,
 		AutoUpdate: &proto.AutoUpdateSettings{
 			Version:      settings.AutoUpdateVersion,

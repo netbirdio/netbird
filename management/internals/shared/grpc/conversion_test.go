@@ -129,8 +129,55 @@ func TestToPeerConfig_ConnectionModeResolution(t *testing.T) {
 	}
 }
 
-func strPtrTest(s string) *string  { return &s }
-func u32PtrTest(v uint32) *uint32  { return &v }
+func strPtrTest(s string) *string { return &s }
+func u32PtrTest(v uint32) *uint32 { return &v }
+
+// toPeerConfigForTest is a minimal helper that calls toPeerConfig with a
+// fixed peer and network fixture, forwarding only the settings argument.
+// Used by the P2pRetryMaxSeconds sentinel tests (Phase 3 / #5989).
+func toPeerConfigForTest(settings *types.Settings) *mgmProto.PeerConfig {
+	_, ipnet, _ := net.ParseCIDR("10.0.0.0/16")
+	network := &types.Network{Net: *ipnet}
+	peer := &nbpeer.Peer{
+		ID:       "p1",
+		Name:     "test-peer",
+		DNSLabel: "test-peer",
+		IP:       net.IPv4(10, 0, 0, 5),
+	}
+	return toPeerConfig(peer, network, "example.local", settings, nil, nil, false)
+}
+
+func TestToPeerConfig_P2pRetryMax_NullDB(t *testing.T) {
+	settings := &types.Settings{
+		P2pRetryMaxSeconds: nil, // DB has NULL
+	}
+	pc := toPeerConfigForTest(settings)
+	if pc.P2PRetryMaxSeconds != 0 {
+		t.Errorf("NULL in DB should produce 0 on the wire (= use daemon default), got %d", pc.P2PRetryMaxSeconds)
+	}
+}
+
+func TestToPeerConfig_P2pRetryMax_ExplicitDisable(t *testing.T) {
+	zero := uint32(0)
+	settings := &types.Settings{
+		P2pRetryMaxSeconds: &zero, // user explicitly set 0
+	}
+	pc := toPeerConfigForTest(settings)
+	if pc.P2PRetryMaxSeconds != ^uint32(0) {
+		t.Errorf("explicit 0 should map to uint32-max sentinel on the wire, got %d", pc.P2PRetryMaxSeconds)
+	}
+}
+
+func TestToPeerConfig_P2pRetryMax_NormalValue(t *testing.T) {
+	v := uint32(600)
+	settings := &types.Settings{
+		P2pRetryMaxSeconds: &v,
+	}
+	pc := toPeerConfigForTest(settings)
+	if pc.P2PRetryMaxSeconds != 600 {
+		t.Errorf("expected 600 on the wire, got %d", pc.P2PRetryMaxSeconds)
+	}
+}
 
 func TestToProtocolDNSConfigWithCache(t *testing.T) {
 	var cache cache.DNSConfigCache
