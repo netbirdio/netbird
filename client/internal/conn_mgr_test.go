@@ -3,6 +3,7 @@ package internal
 import (
 	"testing"
 
+	"github.com/netbirdio/netbird/client/internal/peerstore"
 	"github.com/netbirdio/netbird/shared/connectionmode"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 )
@@ -95,6 +96,43 @@ func TestResolveConnectionMode(t *testing.T) {
 			}
 			if gotRelay != c.wantRelay {
 				t.Errorf("relay-timeout = %v, want %v", gotRelay, c.wantRelay)
+			}
+		})
+	}
+}
+
+// TestConnMgr_DetachICEForPeer_NotFound verifies that detaching ICE
+// for a peer not in the store is a no-op (no error). The lookup miss
+// can happen if a peer is removed concurrently with a GO_IDLE signal
+// or an inactivity-manager fire.
+func TestConnMgr_DetachICEForPeer_NotFound(t *testing.T) {
+	mgr := &ConnMgr{peerStore: peerstore.NewConnStore()}
+
+	if err := mgr.DetachICEForPeer("unknown-peer-key"); err != nil {
+		t.Fatalf("DetachICEForPeer for unknown peer should be no-op, got %v", err)
+	}
+}
+
+// TestConnMgr_deactivatePeerAction verifies the per-mode dispatch rule:
+// p2p-dynamic detaches ICE, p2p-lazy delegates to the lazy manager,
+// eager modes (p2p, relay-forced) are silent no-ops. This is the core
+// fix for the lazy/eager mismatch (Phase 2 #5989).
+func TestConnMgr_deactivatePeerAction(t *testing.T) {
+	cases := []struct {
+		mode connectionmode.Mode
+		want deactivateAction
+	}{
+		{connectionmode.ModeP2P, deactivateNoop},
+		{connectionmode.ModeRelayForced, deactivateNoop},
+		{connectionmode.ModeUnspecified, deactivateNoop},
+		{connectionmode.ModeP2PLazy, deactivateLazy},
+		{connectionmode.ModeP2PDynamic, deactivateICE},
+	}
+	for _, c := range cases {
+		t.Run(c.mode.String(), func(t *testing.T) {
+			mgr := &ConnMgr{mode: c.mode}
+			if got := mgr.deactivatePeerAction(); got != c.want {
+				t.Errorf("mode=%v action=%v want=%v", c.mode, got, c.want)
 			}
 		})
 	}

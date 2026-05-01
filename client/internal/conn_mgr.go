@@ -312,15 +312,71 @@ func (e *ConnMgr) ActivatePeer(ctx context.Context, conn *peer.Conn) {
 	}
 }
 
-// DeactivatePeer deactivates a peer connection in the lazy connection manager.
-// If locally the lazy connection is disabled, we force the peer connection open.
+// deactivateAction selects what DeactivatePeer should do when the remote
+// peer signals GO_IDLE. The dispatch is a pure function of the locally
+// resolved connection mode.
+type deactivateAction int
+
+const (
+	deactivateNoop deactivateAction = iota
+	deactivateLazy
+	deactivateICE
+)
+
+// deactivatePeerAction returns the per-mode deactivation rule. Eager
+// modes (p2p, relay-forced, unspecified) ignore GO_IDLE because they
+// are meant to keep tunnels always-on. p2p-lazy delegates to the lazy
+// connection manager so the whole tunnel is torn down. p2p-dynamic
+// detaches only the ICE worker so the relay tunnel stays up.
+func (e *ConnMgr) deactivatePeerAction() deactivateAction {
+	switch e.mode {
+	case connectionmode.ModeP2PLazy:
+		return deactivateLazy
+	case connectionmode.ModeP2PDynamic:
+		return deactivateICE
+	default:
+		return deactivateNoop
+	}
+}
+
+// DeactivatePeer is invoked when the remote peer signals GO_IDLE. The
+// behavior is per-mode (see deactivatePeerAction). Phase 2 fix for the
+// lazy/eager mismatch in #5989: previously this method silently no-op'd
+// whenever the local manager was not in lazy mode, so a remote lazy
+// peer's GO_IDLE was effectively dropped and the eager local end kept
+// the peer awake.
 func (e *ConnMgr) DeactivatePeer(conn *peer.Conn) {
-	if !e.isStartedWithLazyMgr() {
+	switch e.deactivatePeerAction() {
+	case deactivateLazy:
+		if !e.isStartedWithLazyMgr() {
+			return
+		}
+		conn.Log.Infof("closing peer connection: remote peer initiated inactive, idle lazy state and sent GOAWAY")
+		e.lazyConnMgr.DeactivatePeer(conn.ConnID())
+	case deactivateICE:
+		conn.Log.Infof("detaching ICE worker: remote peer signaled GO_IDLE (p2p-dynamic)")
+		if err := e.DetachICEForPeer(conn.GetKey()); err != nil {
+			conn.Log.Warnf("DetachICEForPeer failed: %v", err)
+		}
+	case deactivateNoop:
+		// Eager modes keep the tunnel up unconditionally.
 		return
 	}
+}
 
-	conn.Log.Infof("closing peer connection: remote peer initiated inactive, idle lazy state and sent GOAWAY")
-	e.lazyConnMgr.DeactivatePeer(conn.ConnID())
+// DetachICEForPeer looks up the Conn for peerKey and tears down its
+// ICE worker without touching the relay tunnel. Used by:
+//   - DeactivatePeer when the remote peer sends GO_IDLE (p2p-dynamic)
+//   - the inactivity manager when the iceTimeout elapses (wired in
+//     engine.go runDynamicInactivityLoop)
+//
+// Missing peers are not an error; they may have been removed concurrently.
+func (e *ConnMgr) DetachICEForPeer(peerKey string) error {
+	conn, ok := e.peerStore.PeerConn(peerKey)
+	if !ok {
+		return nil
+	}
+	return conn.DetachICE()
 }
 
 func (e *ConnMgr) Close() {
