@@ -12,8 +12,10 @@ import (
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	"github.com/netbirdio/netbird/client/internal/lazyconn/manager"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/peer/connectionmode"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
 	"github.com/netbirdio/netbird/route"
+	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 )
 
 // ConnMgr coordinates both lazy connections (established on-demand) and permanent peer connections.
@@ -28,8 +30,18 @@ type ConnMgr struct {
 	peerStore        *peerstore.Store
 	statusRecorder   *peer.Status
 	iface            lazyconn.WGIface
-	enabledLocally   bool
 	rosenpassEnabled bool
+
+	// Resolved values used to drive lifecycle decisions. Updated when
+	// the management server pushes a new PeerConfig.
+	mode             connectionmode.Mode
+	relayTimeoutSecs uint32
+
+	// Raw inputs kept so we can re-resolve when server-pushed value changes.
+	envMode         connectionmode.Mode
+	envRelayTimeout uint32
+	cfgMode         connectionmode.Mode
+	cfgRelayTimeout uint32
 
 	lazyConnMgr *manager.Manager
 
@@ -39,72 +51,140 @@ type ConnMgr struct {
 }
 
 func NewConnMgr(engineConfig *EngineConfig, statusRecorder *peer.Status, peerStore *peerstore.Store, iface lazyconn.WGIface) *ConnMgr {
-	e := &ConnMgr{
+	envMode, envRelayTimeout := peer.ResolveModeFromEnv()
+
+	// First-pass resolution without server input -- updated later when
+	// the first NetworkMap arrives via UpdatedRemotePeerConfig.
+	mode, relayTimeout := resolveConnectionMode(
+		envMode, envRelayTimeout,
+		engineConfig.ConnectionMode, engineConfig.RelayTimeoutSeconds,
+		nil,
+	)
+
+	return &ConnMgr{
 		peerStore:        peerStore,
 		statusRecorder:   statusRecorder,
 		iface:            iface,
 		rosenpassEnabled: engineConfig.RosenpassEnabled,
+		mode:             mode,
+		relayTimeoutSecs: relayTimeout,
+		envMode:          envMode,
+		envRelayTimeout:  envRelayTimeout,
+		cfgMode:          engineConfig.ConnectionMode,
+		cfgRelayTimeout:  engineConfig.RelayTimeoutSeconds,
 	}
-	if engineConfig.LazyConnectionEnabled || lazyconn.IsLazyConnEnabledByEnv() {
-		e.enabledLocally = true
-	}
-	return e
 }
 
-// Start initializes the connection manager and starts the lazy connection manager if enabled by env var or cmd line option.
+// resolveConnectionMode applies the spec-section-4.1 precedence chain:
+//  1. client env (already resolved by caller via peer.ResolveModeFromEnv)
+//  2. client config (from profile, including the FollowServer sentinel)
+//  3. server-pushed PeerConfig.ConnectionMode (with UNSPECIFIED ->
+//     legacy LazyConnectionEnabled fallback)
+//
+// Returns the resolved Mode and the resolved relay-timeout in seconds
+// (0 = use built-in default at the call site).
+func resolveConnectionMode(
+	envMode connectionmode.Mode,
+	envRelayTimeout uint32,
+	cfgMode connectionmode.Mode,
+	cfgRelayTimeout uint32,
+	serverPC *mgmProto.PeerConfig,
+) (connectionmode.Mode, uint32) {
+	mode := envMode
+	if mode == connectionmode.ModeUnspecified {
+		if cfgMode != connectionmode.ModeUnspecified && cfgMode != connectionmode.ModeFollowServer {
+			mode = cfgMode
+		}
+	}
+	if mode == connectionmode.ModeUnspecified {
+		if serverPC != nil {
+			serverMode := connectionmode.FromProto(serverPC.GetConnectionMode())
+			if serverMode != connectionmode.ModeUnspecified {
+				mode = serverMode
+			} else {
+				mode = connectionmode.ResolveLegacyLazyBool(serverPC.GetLazyConnectionEnabled())
+			}
+		} else {
+			mode = connectionmode.ModeP2P // safe default when nothing at all is known
+		}
+	}
+
+	// Relay-timeout precedence (analog).
+	relay := envRelayTimeout
+	if relay == 0 {
+		relay = cfgRelayTimeout
+	}
+	if relay == 0 && serverPC != nil {
+		relay = serverPC.GetRelayTimeoutSeconds()
+	}
+
+	return mode, relay
+}
+
+// Start initializes the connection manager. If the resolved Mode at
+// daemon startup is ModeP2PLazy, the lazy connection manager is brought
+// up immediately; otherwise it stays dormant until UpdatedRemotePeerConfig
+// transitions into lazy mode.
 func (e *ConnMgr) Start(ctx context.Context) {
 	if e.lazyConnMgr != nil {
 		log.Errorf("lazy connection manager is already started")
 		return
 	}
-
-	if !e.enabledLocally {
-		log.Infof("lazy connection manager is disabled")
+	if e.mode != connectionmode.ModeP2PLazy {
+		log.Infof("lazy connection manager is disabled (mode=%s)", e.mode)
 		return
 	}
-
 	if e.rosenpassEnabled {
-		log.Warnf("rosenpass connection manager is enabled, lazy connection manager will not be started")
+		log.Warnf("rosenpass enabled, lazy connection manager will not be started")
 		return
 	}
-
 	e.initLazyManager(ctx)
 	e.statusRecorder.UpdateLazyConnection(true)
 }
 
-// UpdatedRemoteFeatureFlag is called when the remote feature flag is updated.
-// If enabled, it initializes the lazy connection manager and start it. Do not need to call Start() again.
-// If disabled, then it closes the lazy connection manager and open the connections to all peers.
-func (e *ConnMgr) UpdatedRemoteFeatureFlag(ctx context.Context, enabled bool) error {
-	// do not disable lazy connection manager if it was enabled by env var
-	if e.enabledLocally {
+// UpdatedRemotePeerConfig is called when the management server pushes a
+// new PeerConfig. Re-resolves the effective mode through the precedence
+// chain and starts/stops the lazy manager accordingly.
+func (e *ConnMgr) UpdatedRemotePeerConfig(ctx context.Context, pc *mgmProto.PeerConfig) error {
+	newMode, newRelay := resolveConnectionMode(e.envMode, e.envRelayTimeout, e.cfgMode, e.cfgRelayTimeout, pc)
+
+	if newMode == e.mode && newRelay == e.relayTimeoutSecs {
 		return nil
 	}
+	prev := e.mode
+	e.mode = newMode
+	e.relayTimeoutSecs = newRelay
 
-	if enabled {
-		// if the lazy connection manager is already started, do not start it again
-		if e.lazyConnMgr != nil {
-			return nil
-		}
-
+	wasLazy := prev == connectionmode.ModeP2PLazy
+	isLazy := newMode == connectionmode.ModeP2PLazy
+	switch {
+	case !wasLazy && isLazy:
 		if e.rosenpassEnabled {
-			log.Infof("rosenpass connection manager is enabled, lazy connection manager will not be started")
+			log.Warnf("rosenpass enabled, ignoring lazy mode push")
 			return nil
 		}
-
-		log.Warnf("lazy connection manager is enabled by management feature flag")
-		e.initLazyManager(ctx)
+		if e.lazyConnMgr == nil {
+			log.Infof("lazy connection manager enabled by management push (mode=%s)", newMode)
+			e.initLazyManager(ctx)
+		}
 		e.statusRecorder.UpdateLazyConnection(true)
 		return e.addPeersToLazyConnManager()
-	} else {
-		if e.lazyConnMgr == nil {
-			return nil
-		}
-		log.Infof("lazy connection manager is disabled by management feature flag")
+	case wasLazy && !isLazy:
+		log.Infof("lazy connection manager disabled by management push (mode=%s)", newMode)
 		e.closeManager(ctx)
 		e.statusRecorder.UpdateLazyConnection(false)
-		return nil
 	}
+	return nil
+}
+
+// UpdatedRemoteFeatureFlag is the legacy entry point that only knows the
+// boolean LazyConnectionEnabled field. Kept as a thin shim that builds a
+// synthetic PeerConfig and delegates to UpdatedRemotePeerConfig.
+//
+// Deprecated: callers should switch to UpdatedRemotePeerConfig and pass
+// the real PeerConfig so the new ConnectionMode + timeouts propagate.
+func (e *ConnMgr) UpdatedRemoteFeatureFlag(ctx context.Context, enabled bool) error {
+	return e.UpdatedRemotePeerConfig(ctx, &mgmProto.PeerConfig{LazyConnectionEnabled: enabled})
 }
 
 // UpdateRouteHAMap updates the route HA mappings in the lazy connection manager
@@ -307,6 +387,18 @@ func (e *ConnMgr) closeManager(ctx context.Context) {
 
 func (e *ConnMgr) isStartedWithLazyMgr() bool {
 	return e.lazyConnMgr != nil && e.lazyCtxCancel != nil
+}
+
+// Mode returns the currently resolved connection mode. Used by the engine
+// when constructing per-peer connections (Phase 1 forwards it into
+// peer.ConnConfig in a follow-up commit).
+func (e *ConnMgr) Mode() connectionmode.Mode {
+	return e.mode
+}
+
+// RelayTimeout returns the resolved relay-worker idle timeout in seconds.
+func (e *ConnMgr) RelayTimeout() uint32 {
+	return e.relayTimeoutSecs
 }
 
 func inactivityThresholdEnv() *time.Duration {
