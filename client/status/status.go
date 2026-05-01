@@ -789,8 +789,12 @@ func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 			peerState.Latency.String(),
 		)
 
-		// Phase 3 (#5989): append ICE-backoff line only when suspended.
-		if peerState.IceBackoffSuspended {
+		// Phase 3 (#5989): append ICE-backoff line only when suspended AND
+		// the suspension has not yet expired by wall-clock. The PeerState
+		// snapshot is only refreshed on ICE state-change events, so the
+		// suspended-flag stays true even after nextRetry has passed; the
+		// time-check here suppresses the noise for already-expired windows.
+		if peerState.IceBackoffSuspended && time.Now().Before(peerState.IceBackoffNextRetry) {
 			remaining := time.Until(peerState.IceBackoffNextRetry).Round(time.Second)
 			peerString += fmt.Sprintf(
 				"  ICE backoff: suspended for %s (failure #%d, retry at %s)\n",
