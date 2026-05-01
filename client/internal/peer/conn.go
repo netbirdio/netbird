@@ -1075,3 +1075,37 @@ func (conn *Conn) DetachICE() error {
 	conn.Log.Debugf("ICE listener detached (p2p-dynamic teardown)")
 	return nil
 }
+
+// onICEFailed is invoked when pion's ICE agent reports
+// ConnectionStateFailed. Increments the backoff counter and tears
+// down the ICE worker. Phase 3 of #5989.
+func (conn *Conn) onICEFailed() {
+	if conn.iceBackoff == nil {
+		return
+	}
+	delay := conn.iceBackoff.markFailure()
+	if delay > 0 {
+		snap := conn.iceBackoff.Snapshot()
+		conn.Log.Infof("ICE failure #%d, suspending for %s, next retry at %s",
+			snap.Failures,
+			delay.Round(time.Second),
+			snap.NextRetry.Format("15:04:05"))
+	}
+	// Tear down ICE. Idempotent. Conn stays on relay.
+	if err := conn.DetachICE(); err != nil {
+		conn.Log.Warnf("DetachICE after onICEFailed: %v", err)
+	}
+}
+
+// onICEConnected is invoked when pion's ICE agent reports
+// ConnectionStateConnected. Resets the backoff. Phase 3 of #5989.
+func (conn *Conn) onICEConnected() {
+	if conn.iceBackoff == nil {
+		return
+	}
+	if conn.iceBackoff.Snapshot().Failures > 0 {
+		conn.Log.Infof("ICE success, resetting backoff (was %d failures)",
+			conn.iceBackoff.Snapshot().Failures)
+	}
+	conn.iceBackoff.markSuccess()
+}

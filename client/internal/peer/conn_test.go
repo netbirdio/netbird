@@ -383,6 +383,37 @@ func TestConn_AttachICE_AfterBackoffExpiry(t *testing.T) {
 	}
 }
 
+func TestConn_OnICEFailed_MarksBackoffFailure(t *testing.T) {
+	c := &Conn{
+		Log:        log.WithField("peer", "test"),
+		iceBackoff: newIceBackoff(15 * time.Minute),
+	}
+	if c.iceBackoff.IsSuspended() {
+		t.Fatal("precondition: not suspended")
+	}
+	c.onICEFailed()
+	if !c.iceBackoff.IsSuspended() {
+		t.Fatal("after onICEFailed, must be suspended")
+	}
+	if c.iceBackoff.Snapshot().Failures != 1 {
+		t.Fatalf("failures must be 1, got %d", c.iceBackoff.Snapshot().Failures)
+	}
+}
+
+func TestConn_OnICEConnected_ResetsBackoff(t *testing.T) {
+	c := &Conn{
+		Log:        log.WithField("peer", "test"),
+		iceBackoff: newIceBackoff(15 * time.Minute),
+	}
+	c.iceBackoff.markFailure()
+	c.iceBackoff.markFailure()
+	c.onICEConnected()
+	snap := c.iceBackoff.Snapshot()
+	if snap.Failures != 0 || snap.Suspended {
+		t.Fatalf("after onICEConnected: %+v", snap)
+	}
+}
+
 func TestConn_presharedKey_RosenpassManaged(t *testing.T) {
 	conn := Conn{
 		config: ConnConfig{

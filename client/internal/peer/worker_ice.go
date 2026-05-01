@@ -520,6 +520,8 @@ func (w *WorkerICE) onConnectionStateChange(agent *icemaker.ThreadSafeAgent, dia
 		case ice.ConnectionStateConnected:
 			w.lastKnownState = ice.ConnectionStateConnected
 			w.logSuccessfulPaths(agent)
+			// Phase 3 of #5989: reset backoff on ICE success.
+			w.conn.onICEConnected()
 			return
 		case ice.ConnectionStateFailed, ice.ConnectionStateDisconnected, ice.ConnectionStateClosed:
 			// ice.ConnectionStateClosed happens when we recreate the agent. For the P2P to TURN switch important to
@@ -530,6 +532,13 @@ func (w *WorkerICE) onConnectionStateChange(agent *icemaker.ThreadSafeAgent, dia
 			if w.lastKnownState == ice.ConnectionStateConnected {
 				w.lastKnownState = ice.ConnectionStateDisconnected
 				w.conn.onICEStateDisconnected(sessionChanged)
+			}
+
+			// Phase 3 of #5989: record failure in backoff only for true
+			// ICE failure (not for the synthetic Closed event that occurs
+			// when we recreate the agent on reconnect).
+			if state == ice.ConnectionStateFailed {
+				w.conn.onICEFailed()
 			}
 		default:
 			return
