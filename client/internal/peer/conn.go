@@ -1026,6 +1026,14 @@ func (conn *Conn) AttachICE() error {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
+	if conn.iceBackoff != nil && conn.iceBackoff.IsSuspended() {
+		snap := conn.iceBackoff.Snapshot()
+		conn.Log.Debugf("ICE backoff active (failure #%d, retry at %s), staying on relay",
+			snap.Failures,
+			snap.NextRetry.Format("15:04:05"))
+		return nil
+	}
+
 	if conn.handshaker == nil {
 		return fmt.Errorf("AttachICE: handshaker not initialized (Open not called)")
 	}

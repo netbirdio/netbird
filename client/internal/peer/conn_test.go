@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -337,6 +338,48 @@ func TestConn_DetachICE_ClearsListener(t *testing.T) {
 	// Idempotent: second call is a no-op.
 	if err := c.DetachICE(); err != nil {
 		t.Fatalf("DetachICE second call should be no-op, got: %v", err)
+	}
+}
+
+func TestConn_AttachICE_NoOpWhenSuspended(t *testing.T) {
+	c := &Conn{
+		Log:        log.WithField("peer", "test"),
+		handshaker: &Handshaker{},
+		iceBackoff: newIceBackoff(15 * time.Minute),
+	}
+	c.iceBackoff.markFailure() // suspend it
+
+	// AttachICE should return nil but not actually attach
+	err := c.AttachICE()
+	if err != nil {
+		t.Fatalf("expected nil error during backoff, got %v", err)
+	}
+	if c.handshaker.readICEListener() != nil {
+		t.Fatal("AttachICE during backoff must NOT register a listener")
+	}
+}
+
+func TestConn_AttachICE_AfterBackoffExpiry(t *testing.T) {
+	c := &Conn{
+		Log:        log.WithField("peer", "test"),
+		handshaker: &Handshaker{},
+		iceBackoff: newIceBackoff(15 * time.Minute),
+	}
+	c.iceBackoff.markFailure()
+	// Force nextRetry into the past
+	c.iceBackoff.mu.Lock()
+	c.iceBackoff.nextRetry = time.Now().Add(-1 * time.Second)
+	c.iceBackoff.mu.Unlock()
+
+	// Without workerICE, AttachICE returns the "nil workerICE" error
+	// -- but we only care that the backoff gate is NOT engaged anymore.
+	err := c.AttachICE()
+	if err == nil {
+		t.Fatal("expected the relay-forced error path (nil workerICE)")
+	}
+	// The error should be about workerICE, not "suspended":
+	if errMsg := err.Error(); !strings.Contains(errMsg, "workerICE") {
+		t.Fatalf("after backoff expiry, error should be about workerICE not suspend; got %q", errMsg)
 	}
 }
 
