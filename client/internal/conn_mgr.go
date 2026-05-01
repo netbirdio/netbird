@@ -402,6 +402,15 @@ func (e *ConnMgr) ActivatePeer(ctx context.Context, conn *peer.Conn) {
 		if err := conn.Open(ctx); err != nil {
 			conn.Log.Errorf("failed to open connection: %v", err)
 		}
+		// In p2p-dynamic mode the ICE listener was deferred at Open()
+		// time; attach it now that activity has been observed. The relay
+		// tunnel is already up (Open is idempotent), AttachICE only
+		// registers the OnNewOffer dispatch and emits a fresh offer.
+		if e.mode == connectionmode.ModeP2PDynamic {
+			if err := conn.AttachICE(); err != nil {
+				conn.Log.Warnf("AttachICE on activity: %v", err)
+			}
+		}
 	}
 }
 
