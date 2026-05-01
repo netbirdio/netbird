@@ -92,11 +92,19 @@ type ConnConfig struct {
 	// from the engine, which got it from the conn_mgr precedence chain).
 	// Phase 1 uses it to pick the skip-ICE branch when ModeRelayForced.
 	Mode connectionmode.Mode
+
+	// P2pRetryMaxSeconds is the cap for the ICE-failure backoff schedule
+	// in p2p-dynamic mode. 0 = use built-in default (DefaultP2PRetryMax).
+	// Wire-format sentinel uint32-max (= ^uint32(0)) means "user-explicit
+	// disable", which the resolver translates to time.Duration(0) at
+	// engine.go before passing it here. Phase 3 of #5989.
+	P2pRetryMaxSeconds uint32
 }
 
 type Conn struct {
 	Log                *log.Entry
 	mu                 sync.Mutex
+	iceBackoff         *iceBackoffState
 	ctx                context.Context
 	ctxCancel          context.CancelFunc
 	config             ConnConfig
@@ -190,6 +198,18 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 	conn.ctx, conn.ctxCancel = context.WithCancel(engineCtx)
 
 	conn.workerRelay = NewWorkerRelay(conn.ctx, conn.Log, isController(conn.config), conn.config, conn, conn.relayManager)
+
+	// Phase 3: initialize per-peer ICE-failure backoff. The cap comes
+	// from the resolved P2pRetryMaxSeconds. 0 means "use built-in default".
+	backoffCap := time.Duration(conn.config.P2pRetryMaxSeconds) * time.Second
+	if backoffCap == 0 {
+		backoffCap = DefaultP2PRetryMax
+	}
+	if conn.iceBackoff == nil {
+		conn.iceBackoff = newIceBackoff(backoffCap)
+	} else {
+		conn.iceBackoff.SetMaxBackoff(backoffCap)
+	}
 
 	// Mode-driven branching. ModeRelayForced skips ICE entirely; all
 	// other modes (P2P, P2PLazy, P2PDynamic) construct workerICE
