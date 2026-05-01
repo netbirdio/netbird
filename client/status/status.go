@@ -73,6 +73,10 @@ type PeerStateDetailOutput struct {
 	Latency                time.Duration    `json:"latency" yaml:"latency"`
 	RosenpassEnabled       bool             `json:"quantumResistance" yaml:"quantumResistance"`
 	Networks               []string         `json:"networks" yaml:"networks"`
+	// Phase 3 (#5989): ICE-backoff state for p2p-dynamic mode.
+	IceBackoffFailures  int       `json:"iceBackoffFailures" yaml:"iceBackoffFailures"`
+	IceBackoffNextRetry time.Time `json:"iceBackoffNextRetry" yaml:"iceBackoffNextRetry"`
+	IceBackoffSuspended bool      `json:"iceBackoffSuspended" yaml:"iceBackoffSuspended"`
 }
 
 type PeersStateOutput struct {
@@ -337,6 +341,9 @@ func mapPeers(
 			Latency:                pbPeerState.GetLatency().AsDuration(),
 			RosenpassEnabled:       pbPeerState.GetRosenpassEnabled(),
 			Networks:               pbPeerState.GetNetworks(),
+			IceBackoffFailures:     int(pbPeerState.GetIceBackoffFailures()),
+			IceBackoffNextRetry:    iceBackoffNextRetry(pbPeerState),
+			IceBackoffSuspended:    pbPeerState.GetIceBackoffSuspended(),
 		}
 
 		peersStateDetail = append(peersStateDetail, peerState)
@@ -645,6 +652,9 @@ func ToProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 			Networks:                   maps.Keys(peerState.GetRoutes()),
 			Latency:                    durationpb.New(peerState.Latency),
 			SshHostKey:                 peerState.SSHHostKey,
+			IceBackoffFailures:         int32(peerState.IceBackoffFailures),
+			IceBackoffNextRetry:        timestamppb.New(peerState.IceBackoffNextRetry),
+			IceBackoffSuspended:        peerState.IceBackoffSuspended,
 		}
 		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)
 	}
@@ -681,6 +691,17 @@ func ToProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 	}
 
 	return &pbFullStatus
+}
+
+// iceBackoffNextRetry returns the ICE backoff next-retry time from a proto
+// PeerState. If the timestamp field is unset (nil), it returns Go's zero
+// time to match the daemon's zero-valued State.IceBackoffNextRetry.
+func iceBackoffNextRetry(pbPeerState *proto.PeerState) time.Time {
+	ts := pbPeerState.GetIceBackoffNextRetry()
+	if ts == nil {
+		return time.Time{}
+	}
+	return ts.AsTime().Local()
 }
 
 func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive bool) string {
@@ -767,6 +788,17 @@ func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 			networks,
 			peerState.Latency.String(),
 		)
+
+		// Phase 3 (#5989): append ICE-backoff line only when suspended.
+		if peerState.IceBackoffSuspended {
+			remaining := time.Until(peerState.IceBackoffNextRetry).Round(time.Second)
+			peerString += fmt.Sprintf(
+				"  ICE backoff: suspended for %s (failure #%d, retry at %s)\n",
+				remaining,
+				peerState.IceBackoffFailures,
+				peerState.IceBackoffNextRetry.Format("15:04:05"),
+			)
+		}
 
 		peersString += peerString
 	}

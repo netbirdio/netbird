@@ -345,6 +345,10 @@ message PeerState {
   google.protobuf.Duration latency = 17;
   string relayAddress = 18;
   bytes sshHostKey = 19;
+  // Phase 3 (#5989): ICE-backoff state for p2p-dynamic mode.
+  int32  iceBackoffFailures  = 20;
+  google.protobuf.Timestamp iceBackoffNextRetry = 21;
+  bool   iceBackoffSuspended = 22;
 }
 
 // LocalPeerState contains the latest state of the local peer

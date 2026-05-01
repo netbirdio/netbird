@@ -1084,12 +1084,15 @@ func (conn *Conn) onICEFailed() {
 		return
 	}
 	delay := conn.iceBackoff.markFailure()
+	snap := conn.iceBackoff.Snapshot()
 	if delay > 0 {
-		snap := conn.iceBackoff.Snapshot()
 		conn.Log.Infof("ICE failure #%d, suspending for %s, next retry at %s",
 			snap.Failures,
 			delay.Round(time.Second),
 			snap.NextRetry.Format("15:04:05"))
+	}
+	if conn.statusRecorder != nil {
+		conn.statusRecorder.UpdatePeerIceBackoff(conn.config.Key, snap)
 	}
 	// Tear down ICE. Idempotent. Conn stays on relay.
 	if err := conn.DetachICE(); err != nil {
@@ -1108,6 +1111,9 @@ func (conn *Conn) onICEConnected() {
 			conn.iceBackoff.Snapshot().Failures)
 	}
 	conn.iceBackoff.markSuccess()
+	if conn.statusRecorder != nil {
+		conn.statusRecorder.UpdatePeerIceBackoff(conn.config.Key, conn.iceBackoff.Snapshot())
+	}
 }
 
 // SetIceBackoffMax updates the per-peer backoff cap. Called by ConnMgr
