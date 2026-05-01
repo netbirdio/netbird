@@ -58,6 +58,20 @@ type Settings struct {
 	// LazyConnectionEnabled indicates if the experimental feature is enabled or disabled
 	LazyConnectionEnabled bool `gorm:"default:false"`
 
+	// ConnectionMode is the account-wide default connection mode (Phase 1
+	// of issue #5989). Nullable: NULL means "fall back to LazyConnectionEnabled".
+	// Stored as the canonical lower-kebab-case string (e.g. "p2p-lazy").
+	ConnectionMode *string `gorm:"type:varchar(32);default:null"`
+
+	// RelayTimeoutSeconds, when non-NULL, overrides the built-in default
+	// (5 min). 0 = "never tear down". Nullable to distinguish "use default"
+	// from "explicit 0".
+	RelayTimeoutSeconds *uint32 `gorm:"default:null"`
+
+	// P2pTimeoutSeconds is reserved for Phase 2; same nullable semantics.
+	// Built-in default in Phase 1: 180 min, but not yet effective.
+	P2pTimeoutSeconds *uint32 `gorm:"default:null"`
+
 	// AutoUpdateVersion client auto-update version
 	AutoUpdateVersion string `gorm:"default:'disabled'"`
 
@@ -92,6 +106,9 @@ func (s *Settings) Copy() *Settings {
 		PeerExposeEnabled:               s.PeerExposeEnabled,
 		PeerExposeGroups:                slices.Clone(s.PeerExposeGroups),
 		LazyConnectionEnabled:           s.LazyConnectionEnabled,
+		ConnectionMode:                  cloneStringPtr(s.ConnectionMode),
+		RelayTimeoutSeconds:             cloneUint32Ptr(s.RelayTimeoutSeconds),
+		P2pTimeoutSeconds:               cloneUint32Ptr(s.P2pTimeoutSeconds),
 		DNSDomain:                       s.DNSDomain,
 		NetworkRange:                    s.NetworkRange,
 		AutoUpdateVersion:               s.AutoUpdateVersion,
@@ -137,4 +154,24 @@ func (e *ExtraSettings) Copy() *ExtraSettings {
 		FlowENCollectionEnabled:   e.FlowENCollectionEnabled,
 		FlowDnsCollectionEnabled:  e.FlowDnsCollectionEnabled,
 	}
+}
+
+// cloneStringPtr returns a deep copy of a *string (nil-safe). Used by
+// Settings.Copy for the new nullable ConnectionMode field.
+func cloneStringPtr(p *string) *string {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
+}
+
+// cloneUint32Ptr returns a deep copy of a *uint32 (nil-safe). Used by
+// Settings.Copy for the new nullable timeout fields.
+func cloneUint32Ptr(p *uint32) *uint32 {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
 }
