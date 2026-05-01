@@ -1583,6 +1583,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 		},
 		ICEConfig: e.createICEConfig(),
 		Mode:      e.connMgr.Mode(),
+		P2pRetryMaxSeconds: e.connMgr.P2pRetryMax(),
 	}
 
 	serviceDependencies := peer.ServiceDependencies{
