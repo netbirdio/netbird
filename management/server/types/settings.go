@@ -72,6 +72,13 @@ type Settings struct {
 	// Built-in default in Phase 1: 180 min, but not yet effective.
 	P2pTimeoutSeconds *uint32 `gorm:"default:null"`
 
+	// P2pRetryMaxSeconds is reserved for Phase 3 (#5989). Caps the ICE-
+	// failure backoff sequence in p2p-dynamic mode. NULL = use daemon's
+	// built-in default (900s = 15 min). 0 = disable backoff (treated
+	// internally as "user-explicit-disable" via uint32-max sentinel on
+	// the wire).
+	P2pRetryMaxSeconds *uint32 `gorm:"default:null"`
+
 	// AutoUpdateVersion client auto-update version
 	AutoUpdateVersion string `gorm:"default:'disabled'"`
 
@@ -109,6 +116,7 @@ func (s *Settings) Copy() *Settings {
 		ConnectionMode:                  cloneStringPtr(s.ConnectionMode),
 		RelayTimeoutSeconds:             cloneUint32Ptr(s.RelayTimeoutSeconds),
 		P2pTimeoutSeconds:               cloneUint32Ptr(s.P2pTimeoutSeconds),
+		P2pRetryMaxSeconds:              cloneUint32Ptr(s.P2pRetryMaxSeconds),
 		DNSDomain:                       s.DNSDomain,
 		NetworkRange:                    s.NetworkRange,
 		AutoUpdateVersion:               s.AutoUpdateVersion,
