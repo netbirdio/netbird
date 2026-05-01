@@ -39,6 +39,9 @@ const (
 	extraIFaceBlackListFlag  = "extra-iface-blacklist"
 	dnsRouteIntervalFlag     = "dns-router-interval"
 	enableLazyConnectionFlag = "enable-lazy-connection"
+	connectionModeFlag       = "connection-mode"
+	relayTimeoutFlag         = "relay-timeout"
+	p2pTimeoutFlag           = "p2p-timeout"
 	mtuFlag                  = "mtu"
 )
 
@@ -72,6 +75,9 @@ var (
 	anonymizeFlag           bool
 	dnsRouteInterval        time.Duration
 	lazyConnEnabled         bool
+	connectionMode          string
+	relayTimeoutSecs        uint32
+	p2pTimeoutSecs          uint32
 	mtu                     uint16
 	profilesDisabled        bool
 	updateSettingsDisabled  bool
@@ -192,6 +198,13 @@ func init() {
 	upCmd.PersistentFlags().BoolVar(&rosenpassPermissive, rosenpassPermissiveFlag, false, "[Experimental] Enable Rosenpass in permissive mode to allow this peer to accept WireGuard connections without requiring Rosenpass functionality from peers that do not have Rosenpass enabled.")
 	upCmd.PersistentFlags().BoolVar(&autoConnectDisabled, disableAutoConnectFlag, false, "Disables auto-connect feature. If enabled, then the client won't connect automatically when the service starts.")
 	upCmd.PersistentFlags().BoolVar(&lazyConnEnabled, enableLazyConnectionFlag, false, "[Experimental] Enable the lazy connection feature. If enabled, the client will establish connections on-demand. Note: this setting may be overridden by management configuration.")
+	upCmd.PersistentFlags().StringVar(&connectionMode, connectionModeFlag, "",
+		"[Experimental] Peer connection mode: relay-forced, p2p, p2p-lazy, p2p-dynamic, or follow-server. "+
+			"Overrides the server-pushed value when set. Use follow-server to clear a previously-set local override.")
+	upCmd.PersistentFlags().Uint32Var(&relayTimeoutSecs, relayTimeoutFlag, 0,
+		"[Experimental] Relay-worker idle timeout in seconds. 0 = use server-pushed value (or built-in default).")
+	upCmd.PersistentFlags().Uint32Var(&p2pTimeoutSecs, p2pTimeoutFlag, 0,
+		"[Experimental] ICE-worker idle timeout in seconds. 0 = use server-pushed value (or built-in default). Only effective in p2p-dynamic mode (Phase 2).")
 
 }
 

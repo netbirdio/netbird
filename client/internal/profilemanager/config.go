@@ -96,6 +96,10 @@ type ConfigInput struct {
 
 	LazyConnectionEnabled *bool
 
+	ConnectionMode      *string
+	RelayTimeoutSeconds *uint32
+	P2pTimeoutSeconds   *uint32
+
 	MTU *uint16
 }
 
@@ -169,6 +173,10 @@ type Config struct {
 	ClientCertKeyPair *tls.Certificate `json:"-"`
 
 	LazyConnectionEnabled bool
+
+	ConnectionMode      string `json:",omitempty"`
+	RelayTimeoutSeconds uint32 `json:",omitempty"`
+	P2pTimeoutSeconds   uint32 `json:",omitempty"`
 
 	MTU uint16
 }
@@ -590,6 +598,22 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 	if input.LazyConnectionEnabled != nil && *input.LazyConnectionEnabled != config.LazyConnectionEnabled {
 		log.Infof("switching lazy connection to %t", *input.LazyConnectionEnabled)
 		config.LazyConnectionEnabled = *input.LazyConnectionEnabled
+		updated = true
+	}
+
+	if input.ConnectionMode != nil && *input.ConnectionMode != config.ConnectionMode {
+		log.Infof("switching connection mode to %s", *input.ConnectionMode)
+		config.ConnectionMode = *input.ConnectionMode
+		updated = true
+	}
+	if input.RelayTimeoutSeconds != nil && *input.RelayTimeoutSeconds != config.RelayTimeoutSeconds {
+		log.Infof("switching relay timeout to %d seconds", *input.RelayTimeoutSeconds)
+		config.RelayTimeoutSeconds = *input.RelayTimeoutSeconds
+		updated = true
+	}
+	if input.P2pTimeoutSeconds != nil && *input.P2pTimeoutSeconds != config.P2pTimeoutSeconds {
+		log.Infof("switching p2p timeout to %d seconds", *input.P2pTimeoutSeconds)
+		config.P2pTimeoutSeconds = *input.P2pTimeoutSeconds
 		updated = true
 	}
 

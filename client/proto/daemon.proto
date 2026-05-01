@@ -204,6 +204,14 @@ message LoginRequest {
   optional bool enableSSHRemotePortForwarding = 37;
   optional bool disableSSHAuth = 38;
   optional int32 sshJWTCacheTTL = 39;
+
+  // Phase 1 (#5989): peer-connection mode and idle timeouts.
+  // connection_mode is a string (relay-forced, p2p, p2p-lazy, p2p-dynamic,
+  // follow-server, or empty); parsed via connectionmode.ParseString at the
+  // daemon side. Empty means "no client-side override, use server value".
+  optional string connection_mode = 40;
+  optional uint32 p2p_timeout_seconds = 41;
+  optional uint32 relay_timeout_seconds = 42;
 }
 
 message LoginResponse {
@@ -672,6 +680,14 @@ message SetConfigRequest {
   optional bool enableSSHRemotePortForwarding = 32;
   optional bool disableSSHAuth = 33;
   optional int32 sshJWTCacheTTL = 34;
+
+  // Phase 1 (#5989): peer-connection mode and idle timeouts.
+  // connection_mode is a string (relay-forced, p2p, p2p-lazy, p2p-dynamic,
+  // follow-server, or empty); parsed via connectionmode.ParseString at the
+  // daemon side. Empty means "no client-side override, use server value".
+  optional string connection_mode = 40;
+  optional uint32 p2p_timeout_seconds = 41;
+  optional uint32 relay_timeout_seconds = 42;
 }
 
 message SetConfigResponse{}
