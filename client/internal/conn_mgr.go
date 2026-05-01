@@ -36,6 +36,10 @@ type ConnMgr struct {
 	// the management server pushes a new PeerConfig.
 	mode             connectionmode.Mode
 	relayTimeoutSecs uint32
+	// Phase 2 (#5989): ICE-only inactivity timeout (seconds). Used in
+	// ModeP2PDynamic to teardown the ICE worker without affecting the
+	// relay tunnel. 0 = ICE never times out.
+	p2pTimeoutSecs uint32
 
 	// Raw inputs kept so we can re-resolve when server-pushed value changes.
 	envMode         connectionmode.Mode
@@ -68,6 +72,7 @@ func NewConnMgr(engineConfig *EngineConfig, statusRecorder *peer.Status, peerSto
 		rosenpassEnabled: engineConfig.RosenpassEnabled,
 		mode:             mode,
 		relayTimeoutSecs: relayTimeout,
+		p2pTimeoutSecs:   engineConfig.P2pTimeoutSeconds,
 		envMode:          envMode,
 		envRelayTimeout:  envRelayTimeout,
 		cfgMode:          engineConfig.ConnectionMode,
@@ -121,25 +126,90 @@ func resolveConnectionMode(
 	return mode, relay
 }
 
-// Start initializes the connection manager. If the resolved Mode at
-// daemon startup is ModeP2PLazy, the lazy connection manager is brought
-// up immediately; otherwise it stays dormant until UpdatedRemotePeerConfig
-// transitions into lazy mode.
+// Start initializes the connection manager. The lazy/dynamic connection
+// manager is brought up immediately when the resolved Mode is P2PLazy
+// or P2PDynamic. Other modes keep the manager dormant; it can still be
+// activated later via UpdatedRemotePeerConfig.
 func (e *ConnMgr) Start(ctx context.Context) {
 	if e.lazyConnMgr != nil {
-		log.Errorf("lazy connection manager is already started")
+		log.Errorf("lazy/dynamic connection manager is already started")
 		return
 	}
-	if e.mode != connectionmode.ModeP2PLazy {
-		log.Infof("lazy connection manager is disabled (mode=%s)", e.mode)
+	if !modeUsesLazyMgr(e.mode) {
+		log.Infof("lazy/dynamic connection manager is disabled (mode=%s)", e.mode)
 		return
 	}
 	if e.rosenpassEnabled {
-		log.Warnf("rosenpass enabled, lazy connection manager will not be started")
+		log.Warnf("rosenpass enabled, lazy/dynamic connection manager will not be started")
 		return
 	}
 	e.initLazyManager(ctx)
-	e.statusRecorder.UpdateLazyConnection(true)
+	e.startModeSideEffects()
+}
+
+// modeUsesLazyMgr is true for the modes whose lifecycle is driven by the
+// lazyconn.Manager (which now hosts the two-timer inactivity manager
+// since Phase 2). Eager modes (p2p, relay-forced) do not need it.
+func modeUsesLazyMgr(m connectionmode.Mode) bool {
+	return m == connectionmode.ModeP2PLazy || m == connectionmode.ModeP2PDynamic
+}
+
+// startModeSideEffects flips the per-mode goroutines and status flags
+// that need to follow a successful initLazyManager. Called by Start()
+// and by the management-push transition path.
+func (e *ConnMgr) startModeSideEffects() {
+	if e.mode == connectionmode.ModeP2PLazy {
+		e.statusRecorder.UpdateLazyConnection(true)
+	}
+	if e.mode == connectionmode.ModeP2PDynamic {
+		e.wg.Add(1)
+		go func() {
+			defer e.wg.Done()
+			e.runDynamicInactivityLoop(e.lazyCtx)
+		}()
+	}
+}
+
+// runDynamicInactivityLoop reads from the two-timer inactivity channels
+// exposed by the inactivity.Manager and dispatches per-peer teardown.
+//
+// ICEInactiveChan: detach the ICE worker for each listed peer; the
+// relay tunnel is left running so traffic still flows.
+//
+// RelayInactiveChan: close the whole connection. The activity-detector
+// will reopen it when the next outbound packet arrives.
+//
+// Only meaningful in p2p-dynamic mode; in p2p-lazy the iceTimeout is 0
+// and ICEInactiveChan never fires, so the loop is a passthrough.
+func (e *ConnMgr) runDynamicInactivityLoop(ctx context.Context) {
+	if e.lazyConnMgr == nil {
+		return
+	}
+	im := e.lazyConnMgr.InactivityManager()
+	if im == nil {
+		return
+	}
+	log.Infof("p2p-dynamic inactivity loop started (iceTimeout=%ds, relayTimeout=%ds)", e.p2pTimeoutSecs, e.relayTimeoutSecs)
+	defer log.Infof("p2p-dynamic inactivity loop stopped")
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case peers := <-im.ICEInactiveChan():
+			for peerKey := range peers {
+				if err := e.DetachICEForPeer(peerKey); err != nil {
+					log.Warnf("DetachICEForPeer(%s): %v", peerKey, err)
+				}
+			}
+		case peers := <-im.RelayInactiveChan():
+			for peerKey := range peers {
+				if conn, ok := e.peerStore.PeerConn(peerKey); ok {
+					conn.Log.Infof("relay-inactivity timeout, closing peer connection")
+					conn.Close(false)
+				}
+			}
+		}
+	}
 }
 
 // UpdatedRemotePeerConfig is called when the management server pushes a
@@ -155,24 +225,34 @@ func (e *ConnMgr) UpdatedRemotePeerConfig(ctx context.Context, pc *mgmProto.Peer
 	e.mode = newMode
 	e.relayTimeoutSecs = newRelay
 
-	wasLazy := prev == connectionmode.ModeP2PLazy
-	isLazy := newMode == connectionmode.ModeP2PLazy
-	switch {
-	case !wasLazy && isLazy:
-		if e.rosenpassEnabled {
-			log.Warnf("rosenpass enabled, ignoring lazy mode push")
-			return nil
-		}
-		if e.lazyConnMgr == nil {
-			log.Infof("lazy connection manager enabled by management push (mode=%s)", newMode)
-			e.initLazyManager(ctx)
-		}
-		e.statusRecorder.UpdateLazyConnection(true)
-		return e.addPeersToLazyConnManager()
-	case wasLazy && !isLazy:
-		log.Infof("lazy connection manager disabled by management push (mode=%s)", newMode)
+	wasManaged := modeUsesLazyMgr(prev)
+	isManaged := modeUsesLazyMgr(newMode)
+	modeChanged := prev != newMode
+
+	if modeChanged && wasManaged && !isManaged {
+		log.Infof("lazy/dynamic connection manager disabled by management push (mode=%s)", newMode)
 		e.closeManager(ctx)
 		e.statusRecorder.UpdateLazyConnection(false)
+		return nil
+	}
+
+	if modeChanged && wasManaged && isManaged {
+		// Switching between lazy and dynamic at runtime: tear down the
+		// existing manager so initLazyManager picks up the new timeouts.
+		log.Infof("lazy/dynamic mode change %s -> %s, restarting manager", prev, newMode)
+		e.closeManager(ctx)
+		e.statusRecorder.UpdateLazyConnection(false)
+	}
+
+	if isManaged && e.lazyConnMgr == nil {
+		if e.rosenpassEnabled {
+			log.Warnf("rosenpass enabled, ignoring lazy/dynamic mode push")
+			return nil
+		}
+		log.Infof("lazy/dynamic connection manager enabled by management push (mode=%s)", newMode)
+		e.initLazyManager(ctx)
+		e.startModeSideEffects()
+		return e.addPeersToLazyConnManager()
 	}
 	return nil
 }
@@ -392,6 +472,12 @@ func (e *ConnMgr) Close() {
 func (e *ConnMgr) initLazyManager(engineCtx context.Context) {
 	cfg := manager.Config{
 		InactivityThreshold: inactivityThresholdEnv(),
+	}
+	if e.relayTimeoutSecs > 0 {
+		cfg.RelayInactivityThreshold = time.Duration(e.relayTimeoutSecs) * time.Second
+	}
+	if e.mode == connectionmode.ModeP2PDynamic && e.p2pTimeoutSecs > 0 {
+		cfg.ICEInactivityThreshold = time.Duration(e.p2pTimeoutSecs) * time.Second
 	}
 	e.lazyConnMgr = manager.NewManager(cfg, engineCtx, e.peerStore, e.iface)
 
