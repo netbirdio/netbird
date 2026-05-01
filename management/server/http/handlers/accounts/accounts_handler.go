@@ -215,6 +215,25 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 	if req.Settings.LazyConnectionEnabled != nil {
 		returnSettings.LazyConnectionEnabled = *req.Settings.LazyConnectionEnabled
 	}
+	if req.Settings.ConnectionMode != nil {
+		modeStr := string(*req.Settings.ConnectionMode)
+		if !req.Settings.ConnectionMode.Valid() {
+			return nil, fmt.Errorf("invalid connection_mode %q", modeStr)
+		}
+		// Persist as the canonical string. Clients clear an override by
+		// sending JSON null (which lands here as a nil pointer and skips
+		// this whole block, leaving the existing value untouched).
+		s := modeStr
+		returnSettings.ConnectionMode = &s
+	}
+	if req.Settings.P2pTimeoutSeconds != nil {
+		v := uint32(*req.Settings.P2pTimeoutSeconds)
+		returnSettings.P2pTimeoutSeconds = &v
+	}
+	if req.Settings.RelayTimeoutSeconds != nil {
+		v := uint32(*req.Settings.RelayTimeoutSeconds)
+		returnSettings.RelayTimeoutSeconds = &v
+	}
 	if req.Settings.AutoUpdateVersion != nil {
 		_, err := goversion.NewSemver(*req.Settings.AutoUpdateVersion)
 		if *req.Settings.AutoUpdateVersion == autoUpdateLatestVersion ||
@@ -349,6 +368,27 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		PeerExposeEnabled:               settings.PeerExposeEnabled,
 		PeerExposeGroups:                settings.PeerExposeGroups,
 		LazyConnectionEnabled:           &settings.LazyConnectionEnabled,
+		ConnectionMode: func() *api.AccountSettingsConnectionMode {
+			if settings.ConnectionMode == nil {
+				return nil
+			}
+			v := api.AccountSettingsConnectionMode(*settings.ConnectionMode)
+			return &v
+		}(),
+		P2pTimeoutSeconds: func() *int64 {
+			if settings.P2pTimeoutSeconds == nil {
+				return nil
+			}
+			v := int64(*settings.P2pTimeoutSeconds)
+			return &v
+		}(),
+		RelayTimeoutSeconds: func() *int64 {
+			if settings.RelayTimeoutSeconds == nil {
+				return nil
+			}
+			v := int64(*settings.RelayTimeoutSeconds)
+			return &v
+		}(),
 		DnsDomain:                       &settings.DNSDomain,
 		AutoUpdateVersion:               &settings.AutoUpdateVersion,
 		AutoUpdateAlways:                &settings.AutoUpdateAlways,
