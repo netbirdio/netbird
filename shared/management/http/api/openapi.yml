@@ -380,6 +380,18 @@ components:
             Default ICE-worker idle timeout in seconds. 0 = never tear down.
             Effective only in p2p-dynamic mode (added in Phase 2).
             NULL means "use built-in default" (180 minutes).
+        p2p_retry_max_seconds:
+          x-experimental: true
+          type: integer
+          format: int64
+          minimum: 0
+          nullable: true
+          description: |
+            Maximum interval between P2P retry attempts after consecutive
+            ICE failures, in seconds. Default 900 (= 15 min). Set to 0 to
+            disable backoff (always retry immediately, Phase-2 behavior).
+            Effective only in p2p-dynamic mode (added in Phase 3).
+          example: 900
         relay_timeout_seconds:
           x-experimental: true
           type: integer
