@@ -38,6 +38,30 @@ func (e AccessRestrictionsCrowdsecMode) Valid() bool {
 	}
 }
 
+// Defines values for AccountSettingsConnectionMode.
+const (
+	AccountSettingsConnectionModeP2p         AccountSettingsConnectionMode = "p2p"
+	AccountSettingsConnectionModeP2pDynamic  AccountSettingsConnectionMode = "p2p-dynamic"
+	AccountSettingsConnectionModeP2pLazy     AccountSettingsConnectionMode = "p2p-lazy"
+	AccountSettingsConnectionModeRelayForced AccountSettingsConnectionMode = "relay-forced"
+)
+
+// Valid indicates whether the value is a known member of the AccountSettingsConnectionMode enum.
+func (e AccountSettingsConnectionMode) Valid() bool {
+	switch e {
+	case AccountSettingsConnectionModeP2p:
+		return true
+	case AccountSettingsConnectionModeP2pDynamic:
+		return true
+	case AccountSettingsConnectionModeP2pLazy:
+		return true
+	case AccountSettingsConnectionModeRelayForced:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateAzureIntegrationRequestHost.
 const (
 	CreateAzureIntegrationRequestHostMicrosoftCom CreateAzureIntegrationRequestHost = "microsoft.com"
@@ -511,6 +535,7 @@ func (e GroupMinimumIssued) Valid() bool {
 
 // Defines values for IdentityProviderType.
 const (
+	IdentityProviderTypeAdfs      IdentityProviderType = "adfs"
 	IdentityProviderTypeEntra     IdentityProviderType = "entra"
 	IdentityProviderTypeGoogle    IdentityProviderType = "google"
 	IdentityProviderTypeMicrosoft IdentityProviderType = "microsoft"
@@ -518,12 +543,13 @@ const (
 	IdentityProviderTypeOkta      IdentityProviderType = "okta"
 	IdentityProviderTypePocketid  IdentityProviderType = "pocketid"
 	IdentityProviderTypeZitadel   IdentityProviderType = "zitadel"
-	IdentityProviderTypeAdfs      IdentityProviderType = "adfs"
 )
 
 // Valid indicates whether the value is a known member of the IdentityProviderType enum.
 func (e IdentityProviderType) Valid() bool {
 	switch e {
+	case IdentityProviderTypeAdfs:
+		return true
 	case IdentityProviderTypeEntra:
 		return true
 	case IdentityProviderTypeGoogle:
@@ -537,8 +563,6 @@ func (e IdentityProviderType) Valid() bool {
 	case IdentityProviderTypePocketid:
 		return true
 	case IdentityProviderTypeZitadel:
-		return true
-	case IdentityProviderTypeAdfs:
 		return true
 	default:
 		return false
@@ -1455,6 +1479,13 @@ type AccountSettings struct {
 	// AutoUpdateVersion Set Clients auto-update version. "latest", "disabled", or a specific version (e.g "0.50.1")
 	AutoUpdateVersion *string `json:"auto_update_version,omitempty"`
 
+	// ConnectionMode Account-wide default peer-connection mode. NULL means
+	// "fall back to lazy_connection_enabled" for backwards compatibility.
+	// Phase 1 of issue #5989: relay-forced, p2p, and p2p-lazy are
+	// functional. p2p-dynamic is reserved (passes through as p2p in
+	// Phase 1; will become functional in Phase 2).
+	ConnectionMode *AccountSettingsConnectionMode `json:"connection_mode,omitempty"`
+
 	// DnsDomain Allows to define a custom dns domain for the account
 	DnsDomain *string `json:"dns_domain,omitempty"`
 
@@ -1483,6 +1514,11 @@ type AccountSettings struct {
 	// NetworkRange Allows to define a custom network range for the account in CIDR format
 	NetworkRange *string `json:"network_range,omitempty"`
 
+	// P2pTimeoutSeconds Default ICE-worker idle timeout in seconds. 0 = never tear down.
+	// Effective only in p2p-dynamic mode (added in Phase 2).
+	// NULL means "use built-in default" (180 minutes).
+	P2pTimeoutSeconds *int64 `json:"p2p_timeout_seconds,omitempty"`
+
 	// PeerExposeEnabled Enables or disables peer expose. If enabled, peers can expose local services through the reverse proxy using the CLI.
 	PeerExposeEnabled bool `json:"peer_expose_enabled"`
 
@@ -1504,9 +1540,22 @@ type AccountSettings struct {
 	// RegularUsersViewBlocked Allows blocking regular users from viewing parts of the system.
 	RegularUsersViewBlocked bool `json:"regular_users_view_blocked"`
 
+	// RelayTimeoutSeconds Default relay-worker idle timeout in seconds. 0 = never tear
+	// down. Effective in p2p-lazy and p2p-dynamic modes. Backwards-
+	// compat alias for NB_LAZY_CONN_INACTIVITY_THRESHOLD on the
+	// client. NULL means "use built-in default" (5 minutes).
+	RelayTimeoutSeconds *int64 `json:"relay_timeout_seconds,omitempty"`
+
 	// RoutingPeerDnsResolutionEnabled Enables or disables DNS resolution on the routing peers
 	RoutingPeerDnsResolutionEnabled *bool `json:"routing_peer_dns_resolution_enabled,omitempty"`
 }
+
+// AccountSettingsConnectionMode Account-wide default peer-connection mode. NULL means
+// "fall back to lazy_connection_enabled" for backwards compatibility.
+// Phase 1 of issue #5989: relay-forced, p2p, and p2p-lazy are
+// functional. p2p-dynamic is reserved (passes through as p2p in
+// Phase 1; will become functional in Phase 2).
+type AccountSettingsConnectionMode string
 
 // AvailablePorts defines model for AvailablePorts.
 type AvailablePorts struct {
@@ -1626,7 +1675,9 @@ type Checks struct {
 	// OsVersionCheck Posture check for the version of operating system
 	OsVersionCheck *OSVersionCheck `json:"os_version_check,omitempty"`
 
-	// PeerNetworkRangeCheck Posture check for allow or deny access based on the peer's IP addresses. A range matches when it contains any of the peer's local network interface IPs or its public connection (NAT egress) IP, so ranges may target private subnets, public CIDRs, or single hosts via a /32 or /128.
+	// PeerNetworkRangeCheck Posture check for allow or deny access based on the peer's IP addresses. A range matches when it
+	// contains any of the peer's local network interface IPs or its public connection (NAT egress) IP,
+	// so ranges may target private subnets, public CIDRs, or single hosts via a /32 or /128.
 	PeerNetworkRangeCheck *PeerNetworkRangeCheck `json:"peer_network_range_check,omitempty"`
 
 	// ProcessCheck Posture Check for binaries exist and are running in the peer’s system
@@ -3312,7 +3363,9 @@ type PeerMinimum struct {
 	Name string `json:"name"`
 }
 
-// PeerNetworkRangeCheck Posture check for allow or deny access based on the peer's IP addresses. A range matches when it contains any of the peer's local network interface IPs or its public connection (NAT egress) IP, so ranges may target private subnets, public CIDRs, or single hosts via a /32 or /128.
+// PeerNetworkRangeCheck Posture check for allow or deny access based on the peer's IP addresses. A range matches when it
+// contains any of the peer's local network interface IPs or its public connection (NAT egress) IP,
+// so ranges may target private subnets, public CIDRs, or single hosts via a /32 or /128.
 type PeerNetworkRangeCheck struct {
 	// Action Action to take upon policy match
 	Action PeerNetworkRangeCheckAction `json:"action"`

@@ -359,6 +359,38 @@ components:
           description: Enables or disables experimental lazy connection
           type: boolean
           example: true
+        connection_mode:
+          x-experimental: true
+          type: string
+          enum: [relay-forced, p2p, p2p-lazy, p2p-dynamic]
+          nullable: true
+          description: |
+            Account-wide default peer-connection mode. NULL means
+            "fall back to lazy_connection_enabled" for backwards compatibility.
+            Phase 1 of issue #5989: relay-forced, p2p, and p2p-lazy are
+            functional. p2p-dynamic is reserved (passes through as p2p in
+            Phase 1; will become functional in Phase 2).
+        p2p_timeout_seconds:
+          x-experimental: true
+          type: integer
+          format: int64
+          minimum: 0
+          nullable: true
+          description: |
+            Default ICE-worker idle timeout in seconds. 0 = never tear down.
+            Effective only in p2p-dynamic mode (added in Phase 2).
+            NULL means "use built-in default" (180 minutes).
+        relay_timeout_seconds:
+          x-experimental: true
+          type: integer
+          format: int64
+          minimum: 0
+          nullable: true
+          description: |
+            Default relay-worker idle timeout in seconds. 0 = never tear
+            down. Effective in p2p-lazy and p2p-dynamic modes. Backwards-
+            compat alias for NB_LAZY_CONN_INACTIVITY_THRESHOLD on the
+            client. NULL means "use built-in default" (5 minutes).
         auto_update_version:
           description: Set Clients auto-update version. "latest", "disabled", or a specific version (e.g "0.50.1")
           type: string
