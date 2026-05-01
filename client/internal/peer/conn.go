@@ -16,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 	"github.com/netbirdio/netbird/client/internal/metrics"
+	"github.com/netbirdio/netbird/client/internal/peer/connectionmode"
 	"github.com/netbirdio/netbird/client/internal/peer/conntype"
 	"github.com/netbirdio/netbird/client/internal/peer/dispatcher"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
@@ -86,6 +87,11 @@ type ConnConfig struct {
 
 	// ICEConfig ICE protocol configuration
 	ICEConfig icemaker.Config
+
+	// Mode is the resolved connection mode for this peer (forwarded
+	// from the engine, which got it from the conn_mgr precedence chain).
+	// Phase 1 uses it to pick the skip-ICE branch when ModeRelayForced.
+	Mode connectionmode.Mode
 }
 
 type Conn struct {
@@ -185,8 +191,12 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 
 	conn.workerRelay = NewWorkerRelay(conn.ctx, conn.Log, isController(conn.config), conn.config, conn, conn.relayManager)
 
-	forceRelay := IsForceRelayed()
-	if !forceRelay {
+	// Mode-driven branching. ModeRelayForced skips ICE entirely; all
+	// other modes (P2P, P2PLazy, P2PDynamic) construct workerICE
+	// eagerly in Phase 1. Phase 2 will branch P2PDynamic separately
+	// to defer the OnNewOffer registration.
+	skipICE := conn.config.Mode == connectionmode.ModeRelayForced
+	if !skipICE {
 		relayIsSupportedLocally := conn.workerRelay.RelayIsSupportedLocally()
 		workerICE, err := NewWorkerICE(conn.ctx, conn.Log, conn.config, conn, conn.signaler, conn.iFaceDiscover, conn.statusRecorder, relayIsSupportedLocally)
 		if err != nil {
@@ -198,7 +208,7 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 	conn.handshaker = NewHandshaker(conn.Log, conn.config, conn.signaler, conn.workerICE, conn.workerRelay, conn.metricsStages)
 
 	conn.handshaker.AddRelayListener(conn.workerRelay.OnNewOffer)
-	if !forceRelay {
+	if !skipICE {
 		conn.handshaker.AddICEListener(conn.workerICE.OnNewOffer)
 	}
 
@@ -740,7 +750,7 @@ func (conn *Conn) isConnectedOnAllWay() (status guard.ConnStatus) {
 	}
 
 	return evalConnStatus(connStatusInputs{
-		forceRelay:          IsForceRelayed(),
+		forceRelay:          conn.config.Mode == connectionmode.ModeRelayForced,
 		peerUsesRelay:       conn.workerRelay.IsRelayConnectionSupportedWithPeer(),
 		relayConnected:      conn.statusRelay.Get() == worker.StatusConnected,
 		remoteSupportsICE:   conn.handshaker.RemoteICESupported(),
