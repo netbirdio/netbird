@@ -335,6 +335,38 @@ message PeerConfig {
 
   // Auto-update config
   AutoUpdateSettings autoUpdate = 8;
+
+  // Tags 9 and 10 are intentionally left unused so that future small
+  // additions can land without re-numbering the new connection-mode
+  // fields. Reserved here to make the gap explicit for any reviewer.
+  reserved 9, 10;
+
+  // Connection-mode resolved by the management server. UNSPECIFIED = use
+  // legacy LazyConnectionEnabled fallback. Added in Phase 1 (#5989).
+  ConnectionMode ConnectionMode = 11;
+
+  // Idle timeout for the ICE worker in seconds. 0 = never tear down.
+  // Effective in p2p-dynamic mode (added in Phase 2). Sent unconditionally
+  // for forward-compat. Added in Phase 1 (#5989).
+  uint32 P2pTimeoutSeconds = 12;
+
+  // Idle timeout for the relay worker in seconds. 0 = never tear down.
+  // Effective in p2p-lazy and p2p-dynamic modes. Backwards-compat alias for
+  // NB_LAZY_CONN_INACTIVITY_THRESHOLD. Added in Phase 1 (#5989).
+  uint32 RelayTimeoutSeconds = 13;
+}
+
+// ConnectionMode controls how a peer establishes connections to other peers.
+// Added in Phase 1 of the connection-mode consolidation (see issue #5989).
+// CONNECTION_MODE_UNSPECIFIED is the proto default and means "fall back to
+// the legacy LazyConnectionEnabled boolean field" -- required for backwards
+// compatibility with old management servers that don't set this field.
+enum ConnectionMode {
+  CONNECTION_MODE_UNSPECIFIED = 0;
+  CONNECTION_MODE_RELAY_FORCED = 1;
+  CONNECTION_MODE_P2P = 2;
+  CONNECTION_MODE_P2P_LAZY = 3;
+  CONNECTION_MODE_P2P_DYNAMIC = 4;
 }
 
 message AutoUpdateSettings {
