@@ -153,6 +153,11 @@ type EngineConfig struct {
 	// effect in Phase 1.
 	P2pTimeoutSeconds uint32
 
+	// P2pRetryMaxSeconds, when > 0, overrides the server-pushed
+	// p2p_retry_max_seconds. 0 = use server-pushed value (or built-in
+	// default 15 min). Phase 3 of #5989.
+	P2pRetryMaxSeconds uint32
+
 	MTU uint16
 
 	// for debug bundle generation

@@ -99,6 +99,7 @@ type ConfigInput struct {
 	ConnectionMode      *string
 	RelayTimeoutSeconds *uint32
 	P2pTimeoutSeconds   *uint32
+	P2pRetryMaxSeconds  *uint32
 
 	MTU *uint16
 }
@@ -177,6 +178,9 @@ type Config struct {
 	ConnectionMode      string `json:",omitempty"`
 	RelayTimeoutSeconds uint32 `json:",omitempty"`
 	P2pTimeoutSeconds   uint32 `json:",omitempty"`
+	// P2pRetryMaxSeconds caps the ICE-failure backoff schedule. 0 = use
+	// management-server value. Phase 3 of #5989.
+	P2pRetryMaxSeconds uint32 `json:"p2p_retry_max_seconds,omitempty"`
 
 	MTU uint16
 }
@@ -614,6 +618,11 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 	if input.P2pTimeoutSeconds != nil && *input.P2pTimeoutSeconds != config.P2pTimeoutSeconds {
 		log.Infof("switching p2p timeout to %d seconds", *input.P2pTimeoutSeconds)
 		config.P2pTimeoutSeconds = *input.P2pTimeoutSeconds
+		updated = true
+	}
+	if input.P2pRetryMaxSeconds != nil && *input.P2pRetryMaxSeconds != config.P2pRetryMaxSeconds {
+		log.Infof("switching p2p retry max to %d seconds", *input.P2pRetryMaxSeconds)
+		config.P2pRetryMaxSeconds = *input.P2pRetryMaxSeconds
 		updated = true
 	}
 

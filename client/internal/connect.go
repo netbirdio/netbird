@@ -570,6 +570,7 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 		ConnectionMode:      parseConnectionMode(config.ConnectionMode),
 		RelayTimeoutSeconds: config.RelayTimeoutSeconds,
 		P2pTimeoutSeconds:   config.P2pTimeoutSeconds,
+		P2pRetryMaxSeconds:  config.P2pRetryMaxSeconds,
 
 		MTU:     selectMTU(config.MTU, peerConfig.Mtu),
 		LogPath: logPath,

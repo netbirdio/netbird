@@ -349,8 +349,11 @@ type LoginRequest struct {
 	ConnectionMode      *string `protobuf:"bytes,40,opt,name=connection_mode,json=connectionMode,proto3,oneof" json:"connection_mode,omitempty"`
 	P2PTimeoutSeconds   *uint32 `protobuf:"varint,41,opt,name=p2p_timeout_seconds,json=p2pTimeoutSeconds,proto3,oneof" json:"p2p_timeout_seconds,omitempty"`
 	RelayTimeoutSeconds *uint32 `protobuf:"varint,42,opt,name=relay_timeout_seconds,json=relayTimeoutSeconds,proto3,oneof" json:"relay_timeout_seconds,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Phase 3 (#5989): cap on the ICE-failure backoff schedule. 0 = use
+	// server-pushed value (or built-in default 15 min).
+	P2PRetryMaxSeconds *uint32 `protobuf:"varint,43,opt,name=p2p_retry_max_seconds,json=p2pRetryMaxSeconds,proto3,oneof" json:"p2p_retry_max_seconds,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *LoginRequest) Reset() {
@@ -674,6 +677,13 @@ func (x *LoginRequest) GetP2PTimeoutSeconds() uint32 {
 func (x *LoginRequest) GetRelayTimeoutSeconds() uint32 {
 	if x != nil && x.RelayTimeoutSeconds != nil {
 		return *x.RelayTimeoutSeconds
+	}
+	return 0
+}
+
+func (x *LoginRequest) GetP2PRetryMaxSeconds() uint32 {
+	if x != nil && x.P2PRetryMaxSeconds != nil {
+		return *x.P2PRetryMaxSeconds
 	}
 	return 0
 }
@@ -4044,8 +4054,11 @@ type SetConfigRequest struct {
 	ConnectionMode      *string `protobuf:"bytes,40,opt,name=connection_mode,json=connectionMode,proto3,oneof" json:"connection_mode,omitempty"`
 	P2PTimeoutSeconds   *uint32 `protobuf:"varint,41,opt,name=p2p_timeout_seconds,json=p2pTimeoutSeconds,proto3,oneof" json:"p2p_timeout_seconds,omitempty"`
 	RelayTimeoutSeconds *uint32 `protobuf:"varint,42,opt,name=relay_timeout_seconds,json=relayTimeoutSeconds,proto3,oneof" json:"relay_timeout_seconds,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Phase 3 (#5989): cap on the ICE-failure backoff schedule. 0 = use
+	// server-pushed value (or built-in default 15 min).
+	P2PRetryMaxSeconds *uint32 `protobuf:"varint,43,opt,name=p2p_retry_max_seconds,json=p2pRetryMaxSeconds,proto3,oneof" json:"p2p_retry_max_seconds,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *SetConfigRequest) Reset() {
@@ -4333,6 +4346,13 @@ func (x *SetConfigRequest) GetP2PTimeoutSeconds() uint32 {
 func (x *SetConfigRequest) GetRelayTimeoutSeconds() uint32 {
 	if x != nil && x.RelayTimeoutSeconds != nil {
 		return *x.RelayTimeoutSeconds
+	}
+	return 0
+}
+
+func (x *SetConfigRequest) GetP2PRetryMaxSeconds() uint32 {
+	if x != nil && x.P2PRetryMaxSeconds != nil {
+		return *x.P2PRetryMaxSeconds
 	}
 	return 0
 }
@@ -6242,7 +6262,7 @@ var File_daemon_proto protoreflect.FileDescriptor
 const file_daemon_proto_rawDesc = "" +
 	"\n" +
 	"\fdaemon.proto\x12\x06daemon\x1a google/protobuf/descriptor.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/duration.proto\"\x0e\n" +
-	"\fEmptyRequest\"\x98\x14\n" +
+	"\fEmptyRequest\"\xea\x14\n" +
 	"\fLoginRequest\x12\x1a\n" +
 	"\bsetupKey\x18\x01 \x01(\tR\bsetupKey\x12&\n" +
 	"\fpreSharedKey\x18\x02 \x01(\tB\x02\x18\x01R\fpreSharedKey\x12$\n" +
@@ -6289,7 +6309,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x0esshJWTCacheTTL\x18' \x01(\x05H\x1aR\x0esshJWTCacheTTL\x88\x01\x01\x12,\n" +
 	"\x0fconnection_mode\x18( \x01(\tH\x1bR\x0econnectionMode\x88\x01\x01\x123\n" +
 	"\x13p2p_timeout_seconds\x18) \x01(\rH\x1cR\x11p2pTimeoutSeconds\x88\x01\x01\x127\n" +
-	"\x15relay_timeout_seconds\x18* \x01(\rH\x1dR\x13relayTimeoutSeconds\x88\x01\x01B\x13\n" +
+	"\x15relay_timeout_seconds\x18* \x01(\rH\x1dR\x13relayTimeoutSeconds\x88\x01\x01\x126\n" +
+	"\x15p2p_retry_max_seconds\x18+ \x01(\rH\x1eR\x12p2pRetryMaxSeconds\x88\x01\x01B\x13\n" +
 	"\x11_rosenpassEnabledB\x10\n" +
 	"\x0e_interfaceNameB\x10\n" +
 	"\x0e_wireguardPortB\x17\n" +
@@ -6319,7 +6340,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x0f_sshJWTCacheTTLB\x12\n" +
 	"\x10_connection_modeB\x16\n" +
 	"\x14_p2p_timeout_secondsB\x18\n" +
-	"\x16_relay_timeout_seconds\"\xb5\x01\n" +
+	"\x16_relay_timeout_secondsB\x18\n" +
+	"\x16_p2p_retry_max_seconds\"\xb5\x01\n" +
 	"\rLoginResponse\x12$\n" +
 	"\rneedsSSOLogin\x18\x01 \x01(\bR\rneedsSSOLogin\x12\x1a\n" +
 	"\buserCode\x18\x02 \x01(\tR\buserCode\x12(\n" +
@@ -6596,7 +6618,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\busername\x18\x02 \x01(\tH\x01R\busername\x88\x01\x01B\x0e\n" +
 	"\f_profileNameB\v\n" +
 	"\t_username\"\x17\n" +
-	"\x15SwitchProfileResponse\"\xc1\x12\n" +
+	"\x15SwitchProfileResponse\"\x93\x13\n" +
 	"\x10SetConfigRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12 \n" +
 	"\vprofileName\x18\x02 \x01(\tR\vprofileName\x12$\n" +
@@ -6638,7 +6660,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x0esshJWTCacheTTL\x18\" \x01(\x05H\x17R\x0esshJWTCacheTTL\x88\x01\x01\x12,\n" +
 	"\x0fconnection_mode\x18( \x01(\tH\x18R\x0econnectionMode\x88\x01\x01\x123\n" +
 	"\x13p2p_timeout_seconds\x18) \x01(\rH\x19R\x11p2pTimeoutSeconds\x88\x01\x01\x127\n" +
-	"\x15relay_timeout_seconds\x18* \x01(\rH\x1aR\x13relayTimeoutSeconds\x88\x01\x01B\x13\n" +
+	"\x15relay_timeout_seconds\x18* \x01(\rH\x1aR\x13relayTimeoutSeconds\x88\x01\x01\x126\n" +
+	"\x15p2p_retry_max_seconds\x18+ \x01(\rH\x1bR\x12p2pRetryMaxSeconds\x88\x01\x01B\x13\n" +
 	"\x11_rosenpassEnabledB\x10\n" +
 	"\x0e_interfaceNameB\x10\n" +
 	"\x0e_wireguardPortB\x17\n" +
@@ -6665,7 +6688,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x0f_sshJWTCacheTTLB\x12\n" +
 	"\x10_connection_modeB\x16\n" +
 	"\x14_p2p_timeout_secondsB\x18\n" +
-	"\x16_relay_timeout_seconds\"\x13\n" +
+	"\x16_relay_timeout_secondsB\x18\n" +
+	"\x16_p2p_retry_max_seconds\"\x13\n" +
 	"\x11SetConfigResponse\"Q\n" +
 	"\x11AddProfileRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12 \n" +

@@ -68,7 +68,7 @@ func NewConnMgr(engineConfig *EngineConfig, statusRecorder *peer.Status, peerSto
 		envMode, envRelayTimeout,
 		engineConfig.ConnectionMode, engineConfig.RelayTimeoutSeconds,
 		engineConfig.P2pTimeoutSeconds,
-		0, // cfgP2pRetryMax: filled in by Task D3 once EngineConfig.P2pRetryMaxSeconds exists
+		engineConfig.P2pRetryMaxSeconds,
 		nil,
 	)
 
@@ -86,7 +86,7 @@ func NewConnMgr(engineConfig *EngineConfig, statusRecorder *peer.Status, peerSto
 		cfgMode:          engineConfig.ConnectionMode,
 		cfgRelayTimeout:  engineConfig.RelayTimeoutSeconds,
 		cfgP2pTimeout:    engineConfig.P2pTimeoutSeconds,
-		cfgP2pRetryMax:   0, // filled in by Task D3
+		cfgP2pRetryMax:   engineConfig.P2pRetryMaxSeconds,
 	}
 }
 

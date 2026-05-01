@@ -42,6 +42,7 @@ const (
 	connectionModeFlag       = "connection-mode"
 	relayTimeoutFlag         = "relay-timeout"
 	p2pTimeoutFlag           = "p2p-timeout"
+	p2pRetryMaxFlag          = "p2p-retry-max"
 	mtuFlag                  = "mtu"
 )
 
@@ -78,6 +79,7 @@ var (
 	connectionMode          string
 	relayTimeoutSecs        uint32
 	p2pTimeoutSecs          uint32
+	p2pRetryMaxSecs         uint32
 	mtu                     uint16
 	profilesDisabled        bool
 	updateSettingsDisabled  bool
@@ -205,6 +207,8 @@ func init() {
 		"[Experimental] Relay-worker idle timeout in seconds. 0 = use server-pushed value (or built-in default).")
 	upCmd.PersistentFlags().Uint32Var(&p2pTimeoutSecs, p2pTimeoutFlag, 0,
 		"[Experimental] ICE-worker idle timeout in seconds. 0 = use server-pushed value (or built-in default). Only effective in p2p-dynamic mode (Phase 2).")
+	upCmd.PersistentFlags().Uint32Var(&p2pRetryMaxSecs, p2pRetryMaxFlag, 0,
+		"[Experimental] Maximum ICE-failure-backoff interval in seconds. 0 = use server-pushed value (or built-in default 15 min). Effective in p2p-dynamic mode (Phase 3 of #5989).")
 
 }
 

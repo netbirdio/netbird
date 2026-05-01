@@ -212,6 +212,10 @@ message LoginRequest {
   optional string connection_mode = 40;
   optional uint32 p2p_timeout_seconds = 41;
   optional uint32 relay_timeout_seconds = 42;
+
+  // Phase 3 (#5989): cap on the ICE-failure backoff schedule. 0 = use
+  // server-pushed value (or built-in default 15 min).
+  optional uint32 p2p_retry_max_seconds = 43;
 }
 
 message LoginResponse {
@@ -688,6 +692,10 @@ message SetConfigRequest {
   optional string connection_mode = 40;
   optional uint32 p2p_timeout_seconds = 41;
   optional uint32 relay_timeout_seconds = 42;
+
+  // Phase 3 (#5989): cap on the ICE-failure backoff schedule. 0 = use
+  // server-pushed value (or built-in default 15 min).
+  optional uint32 p2p_retry_max_seconds = 43;
 }
 
 message SetConfigResponse{}
