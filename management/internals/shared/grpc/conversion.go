@@ -9,6 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
+	"github.com/netbirdio/netbird/shared/connectionmode"
 	"github.com/netbirdio/netbird/client/ssh/auth"
 
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -100,12 +101,40 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 		sshConfig.JwtConfig = buildJWTConfig(httpConfig, deviceFlowConfig)
 	}
 
+	// Resolve the effective ConnectionMode for this peer.
+	// Phase 1: account-wide settings only (per-peer / per-group resolution
+	// follows in Phase 3 / issue #5990). The new ConnectionMode field wins
+	// over the legacy LazyConnectionEnabled boolean. UNSPECIFIED in Settings
+	// (i.e. ConnectionMode == nil) falls back to the legacy bool.
+	resolvedMode := connectionmode.ResolveLegacyLazyBool(settings.LazyConnectionEnabled)
+	if settings.ConnectionMode != nil {
+		if m, err := connectionmode.ParseString(*settings.ConnectionMode); err == nil && m != connectionmode.ModeUnspecified {
+			resolvedMode = m
+		}
+	}
+
+	relayTO := uint32(0)
+	if settings.RelayTimeoutSeconds != nil {
+		relayTO = *settings.RelayTimeoutSeconds
+	}
+	p2pTO := uint32(0)
+	if settings.P2pTimeoutSeconds != nil {
+		p2pTO = *settings.P2pTimeoutSeconds
+	}
+
 	return &proto.PeerConfig{
 		Address:                         fmt.Sprintf("%s/%d", peer.IP.String(), netmask),
 		SshConfig:                       sshConfig,
 		Fqdn:                            fqdn,
 		RoutingPeerDnsResolutionEnabled: settings.RoutingPeerDNSResolutionEnabled,
-		LazyConnectionEnabled:           settings.LazyConnectionEnabled,
+		// Send BOTH the new enum (for new clients) and the legacy boolean
+		// (for old clients). New clients prefer the explicit enum and
+		// ignore the bool; old clients ignore the unknown enum field
+		// (proto3 default behaviour) and fall back to the bool.
+		LazyConnectionEnabled: resolvedMode.ToLazyConnectionEnabled(),
+		ConnectionMode:        resolvedMode.ToProto(),
+		P2PTimeoutSeconds:     p2pTO,
+		RelayTimeoutSeconds:   relayTO,
 		AutoUpdate: &proto.AutoUpdateSettings{
 			Version:      settings.AutoUpdateVersion,
 			AlwaysUpdate: settings.AutoUpdateAlways,

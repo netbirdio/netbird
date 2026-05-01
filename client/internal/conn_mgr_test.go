@@ -3,7 +3,7 @@ package internal
 import (
 	"testing"
 
-	"github.com/netbirdio/netbird/client/internal/peer/connectionmode"
+	"github.com/netbirdio/netbird/shared/connectionmode"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 )
 

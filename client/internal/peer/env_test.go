@@ -3,7 +3,7 @@ package peer
 import (
 	"testing"
 
-	"github.com/netbirdio/netbird/client/internal/peer/connectionmode"
+	"github.com/netbirdio/netbird/shared/connectionmode"
 )
 
 func TestResolveModeFromEnv(t *testing.T) {
