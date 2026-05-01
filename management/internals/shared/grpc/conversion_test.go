@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"fmt"
+	"net"
 	"net/netip"
 	"reflect"
 	"testing"
@@ -12,7 +13,124 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/types"
+	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 )
+
+// TestToPeerConfig_ConnectionModeResolution covers Phase 1 of issue #5989:
+// the management server resolves the effective ConnectionMode from
+// Settings (with the new ConnectionMode field winning over the legacy
+// LazyConnectionEnabled boolean), then writes BOTH wire fields so old
+// clients (boolean only) and new clients (enum only) see consistent
+// behaviour.
+func TestToPeerConfig_ConnectionModeResolution(t *testing.T) {
+	cases := []struct {
+		name             string
+		settingsMode     *string
+		settingsLazyBool bool
+		settingsRelayTO  *uint32
+		settingsP2pTO    *uint32
+		wantPCMode       mgmProto.ConnectionMode
+		wantPCLazyBool   bool
+		wantPCRelayTO    uint32
+		wantPCP2pTO      uint32
+	}{
+		{
+			name:           "no settings -> P2P + lazy=false",
+			wantPCMode:     mgmProto.ConnectionMode_CONNECTION_MODE_P2P,
+			wantPCLazyBool: false,
+		},
+		{
+			name:             "only legacy lazy=true -> P2P_LAZY + lazy=true",
+			settingsLazyBool: true,
+			wantPCMode:       mgmProto.ConnectionMode_CONNECTION_MODE_P2P_LAZY,
+			wantPCLazyBool:   true,
+		},
+		{
+			name:           "ConnectionMode=p2p-lazy explicit -> P2P_LAZY + lazy=true",
+			settingsMode:   strPtrTest("p2p-lazy"),
+			wantPCMode:     mgmProto.ConnectionMode_CONNECTION_MODE_P2P_LAZY,
+			wantPCLazyBool: true,
+		},
+		{
+			name:           "ConnectionMode=p2p explicit -> P2P + lazy=false",
+			settingsMode:   strPtrTest("p2p"),
+			wantPCMode:     mgmProto.ConnectionMode_CONNECTION_MODE_P2P,
+			wantPCLazyBool: false,
+		},
+		{
+			name:           "ConnectionMode=relay-forced -> RELAY_FORCED + lazy=false (structural compat gap)",
+			settingsMode:   strPtrTest("relay-forced"),
+			wantPCMode:     mgmProto.ConnectionMode_CONNECTION_MODE_RELAY_FORCED,
+			wantPCLazyBool: false,
+		},
+		{
+			name:             "ConnectionMode wins over conflicting legacy bool",
+			settingsMode:     strPtrTest("relay-forced"),
+			settingsLazyBool: true, // ignored
+			wantPCMode:       mgmProto.ConnectionMode_CONNECTION_MODE_RELAY_FORCED,
+			wantPCLazyBool:   false,
+		},
+		{
+			name:            "RelayTimeout propagates",
+			settingsMode:    strPtrTest("p2p-lazy"),
+			settingsRelayTO: u32PtrTest(42),
+			wantPCMode:      mgmProto.ConnectionMode_CONNECTION_MODE_P2P_LAZY,
+			wantPCLazyBool:  true,
+			wantPCRelayTO:   42,
+		},
+		{
+			name:           "P2pTimeout propagates",
+			settingsMode:   strPtrTest("p2p-dynamic"),
+			settingsP2pTO:  u32PtrTest(180),
+			wantPCMode:     mgmProto.ConnectionMode_CONNECTION_MODE_P2P_DYNAMIC,
+			wantPCLazyBool: false, // p2p-dynamic maps to lazy=false (best-match for old clients)
+			wantPCP2pTO:    180,
+		},
+		{
+			name:           "Garbage in ConnectionMode falls back to legacy bool",
+			settingsMode:   strPtrTest("not-a-mode"),
+			settingsLazyBool: true,
+			wantPCMode:     mgmProto.ConnectionMode_CONNECTION_MODE_P2P_LAZY,
+			wantPCLazyBool: true,
+		},
+	}
+
+	// Minimal Network and Peer fixtures shared across cases.
+	_, ipnet, _ := net.ParseCIDR("10.0.0.0/16")
+	network := &types.Network{Net: *ipnet}
+	peer := &nbpeer.Peer{
+		ID:       "p1",
+		Name:     "test-peer",
+		DNSLabel: "test-peer",
+		IP:       net.IPv4(10, 0, 0, 5),
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			settings := &types.Settings{
+				LazyConnectionEnabled: c.settingsLazyBool,
+				ConnectionMode:        c.settingsMode,
+				RelayTimeoutSeconds:   c.settingsRelayTO,
+				P2pTimeoutSeconds:     c.settingsP2pTO,
+			}
+			pc := toPeerConfig(peer, network, "example.local", settings, nil, nil, false)
+
+			assert.Equal(t, c.wantPCMode, pc.GetConnectionMode(),
+				"ConnectionMode wire field")
+			assert.Equal(t, c.wantPCLazyBool, pc.GetLazyConnectionEnabled(),
+				"LazyConnectionEnabled wire field (backwards-compat)")
+			assert.Equal(t, c.wantPCRelayTO, pc.GetRelayTimeoutSeconds(),
+				"RelayTimeoutSeconds wire field")
+			assert.Equal(t, c.wantPCP2pTO, pc.GetP2PTimeoutSeconds(),
+				"P2PTimeoutSeconds wire field")
+		})
+	}
+}
+
+func strPtrTest(s string) *string  { return &s }
+func u32PtrTest(v uint32) *uint32  { return &v }
 
 func TestToProtocolDNSConfigWithCache(t *testing.T) {
 	var cache cache.DNSConfigCache
