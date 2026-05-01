@@ -480,6 +480,12 @@ func (am *DefaultAccountManager) handleConnectionModeSettings(ctx context.Contex
 			"new": derefUint32Ptr(newSettings.P2pTimeoutSeconds),
 		})
 	}
+	if !equalUint32Ptr(oldSettings.P2pRetryMaxSeconds, newSettings.P2pRetryMaxSeconds) {
+		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountP2pRetryMaxChanged, map[string]any{
+			"old": derefUint32Ptr(oldSettings.P2pRetryMaxSeconds),
+			"new": derefUint32Ptr(newSettings.P2pRetryMaxSeconds),
+		})
+	}
 }
 
 func equalStringPtr(a, b *string) bool {
