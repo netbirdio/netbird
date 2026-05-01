@@ -46,6 +46,7 @@ type ConnMgr struct {
 	envRelayTimeout uint32
 	cfgMode         connectionmode.Mode
 	cfgRelayTimeout uint32
+	cfgP2pTimeout   uint32
 
 	lazyConnMgr *manager.Manager
 
@@ -59,9 +60,10 @@ func NewConnMgr(engineConfig *EngineConfig, statusRecorder *peer.Status, peerSto
 
 	// First-pass resolution without server input -- updated later when
 	// the first NetworkMap arrives via UpdatedRemotePeerConfig.
-	mode, relayTimeout := resolveConnectionMode(
+	mode, relayTimeout, p2pTimeout := resolveConnectionMode(
 		envMode, envRelayTimeout,
 		engineConfig.ConnectionMode, engineConfig.RelayTimeoutSeconds,
+		engineConfig.P2pTimeoutSeconds,
 		nil,
 	)
 
@@ -72,11 +74,12 @@ func NewConnMgr(engineConfig *EngineConfig, statusRecorder *peer.Status, peerSto
 		rosenpassEnabled: engineConfig.RosenpassEnabled,
 		mode:             mode,
 		relayTimeoutSecs: relayTimeout,
-		p2pTimeoutSecs:   engineConfig.P2pTimeoutSeconds,
+		p2pTimeoutSecs:   p2pTimeout,
 		envMode:          envMode,
 		envRelayTimeout:  envRelayTimeout,
 		cfgMode:          engineConfig.ConnectionMode,
-		cfgRelayTimeout:  engineConfig.RelayTimeoutSeconds,
+		cfgRelayTimeout: engineConfig.RelayTimeoutSeconds,
+		cfgP2pTimeout:   engineConfig.P2pTimeoutSeconds,
 	}
 }
 
@@ -86,15 +89,17 @@ func NewConnMgr(engineConfig *EngineConfig, statusRecorder *peer.Status, peerSto
 //  3. server-pushed PeerConfig.ConnectionMode (with UNSPECIFIED ->
 //     legacy LazyConnectionEnabled fallback)
 //
-// Returns the resolved Mode and the resolved relay-timeout in seconds
-// (0 = use built-in default at the call site).
+// Returns the resolved Mode, the resolved relay-timeout in seconds, and
+// the resolved p2p-timeout in seconds. 0 for either timeout means the
+// caller should use its built-in default.
 func resolveConnectionMode(
 	envMode connectionmode.Mode,
 	envRelayTimeout uint32,
 	cfgMode connectionmode.Mode,
 	cfgRelayTimeout uint32,
+	cfgP2pTimeout uint32,
 	serverPC *mgmProto.PeerConfig,
-) (connectionmode.Mode, uint32) {
+) (connectionmode.Mode, uint32, uint32) {
 	mode := envMode
 	if mode == connectionmode.ModeUnspecified {
 		if cfgMode != connectionmode.ModeUnspecified && cfgMode != connectionmode.ModeFollowServer {
@@ -123,7 +128,14 @@ func resolveConnectionMode(
 		relay = serverPC.GetRelayTimeoutSeconds()
 	}
 
-	return mode, relay
+	// P2P-timeout precedence: client config wins over server push. No env
+	// var in Phase 2; reserved for Phase 3.
+	p2p := cfgP2pTimeout
+	if p2p == 0 && serverPC != nil {
+		p2p = serverPC.GetP2PTimeoutSeconds()
+	}
+
+	return mode, relay, p2p
 }
 
 // Start initializes the connection manager. The lazy/dynamic connection
@@ -216,14 +228,15 @@ func (e *ConnMgr) runDynamicInactivityLoop(ctx context.Context) {
 // new PeerConfig. Re-resolves the effective mode through the precedence
 // chain and starts/stops the lazy manager accordingly.
 func (e *ConnMgr) UpdatedRemotePeerConfig(ctx context.Context, pc *mgmProto.PeerConfig) error {
-	newMode, newRelay := resolveConnectionMode(e.envMode, e.envRelayTimeout, e.cfgMode, e.cfgRelayTimeout, pc)
+	newMode, newRelay, newP2P := resolveConnectionMode(e.envMode, e.envRelayTimeout, e.cfgMode, e.cfgRelayTimeout, e.cfgP2pTimeout, pc)
 
-	if newMode == e.mode && newRelay == e.relayTimeoutSecs {
+	if newMode == e.mode && newRelay == e.relayTimeoutSecs && newP2P == e.p2pTimeoutSecs {
 		return nil
 	}
 	prev := e.mode
 	e.mode = newMode
 	e.relayTimeoutSecs = newRelay
+	e.p2pTimeoutSecs = newP2P
 
 	wasManaged := modeUsesLazyMgr(prev)
 	isManaged := modeUsesLazyMgr(newMode)

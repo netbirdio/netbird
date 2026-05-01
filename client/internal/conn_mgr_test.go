@@ -15,9 +15,11 @@ func TestResolveConnectionMode(t *testing.T) {
 		envTimeout      uint32
 		cfgMode         connectionmode.Mode
 		cfgRelayTimeout uint32
+		cfgP2pTimeout   uint32
 		serverPC        *mgmProto.PeerConfig
 		wantMode        connectionmode.Mode
 		wantRelay       uint32
+		wantP2P         uint32
 	}{
 		{
 			name:     "all unspecified, server says legacy false -> P2P",
@@ -87,15 +89,29 @@ func TestResolveConnectionMode(t *testing.T) {
 			serverPC: nil,
 			wantMode: connectionmode.ModeP2P,
 		},
+		{
+			name:     "p2p-dynamic with server-pushed timeouts",
+			serverPC: &mgmProto.PeerConfig{ConnectionMode: mgmProto.ConnectionMode_CONNECTION_MODE_P2P_DYNAMIC, P2PTimeoutSeconds: 10800, RelayTimeoutSeconds: 86400},
+			wantMode: connectionmode.ModeP2PDynamic, wantRelay: 86400, wantP2P: 10800,
+		},
+		{
+			name:          "client config p2p-timeout beats server",
+			cfgP2pTimeout: 555,
+			serverPC:      &mgmProto.PeerConfig{ConnectionMode: mgmProto.ConnectionMode_CONNECTION_MODE_P2P_DYNAMIC, P2PTimeoutSeconds: 9999},
+			wantMode:      connectionmode.ModeP2PDynamic, wantP2P: 555,
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			gotMode, gotRelay := resolveConnectionMode(c.envMode, c.envTimeout, c.cfgMode, c.cfgRelayTimeout, c.serverPC)
+			gotMode, gotRelay, gotP2P := resolveConnectionMode(c.envMode, c.envTimeout, c.cfgMode, c.cfgRelayTimeout, c.cfgP2pTimeout, c.serverPC)
 			if gotMode != c.wantMode {
 				t.Errorf("mode = %v, want %v", gotMode, c.wantMode)
 			}
 			if gotRelay != c.wantRelay {
 				t.Errorf("relay-timeout = %v, want %v", gotRelay, c.wantRelay)
+			}
+			if gotP2P != c.wantP2P {
+				t.Errorf("p2p-timeout = %v, want %v", gotP2P, c.wantP2P)
 			}
 		})
 	}
