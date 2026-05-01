@@ -1,8 +1,14 @@
 package service
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"math/big"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +29,28 @@ func validProxy() *Service {
 			{TargetId: "peer-1", TargetType: TargetTypePeer, Host: "10.0.0.1", Port: 80, Protocol: "http", Enabled: true},
 		},
 	}
+}
+
+func testCertificatePEM(t *testing.T) string {
+	t.Helper()
+
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{CommonName: "Test CA"},
+		NotBefore: time.Now().Add(-time.Hour),
+		NotAfter:  time.Now().Add(time.Hour),
+		IsCA:      true,
+		KeyUsage:  x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+	}
+
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
+	require.NoError(t, err)
+
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
 }
 
 func TestValidate_Valid(t *testing.T) {
@@ -576,6 +604,13 @@ func TestAuthConfig_ClearSecrets(t *testing.T) {
 			Enabled: true,
 			Pin:     "hashedPin",
 		},
+		HeaderAuths: []*HeaderAuthConfig{
+			{Enabled: true, Header: "X-Test", Value: "hashedHeader"},
+		},
+		MTLSAuth: &MTLSAuthConfig{
+			Enabled:   true,
+			CACertPEM: "ca-pem",
+		},
 	}
 
 	config.ClearSecrets()
@@ -586,6 +621,106 @@ func TestAuthConfig_ClearSecrets(t *testing.T) {
 	if config.PinAuth.Pin != "" {
 		t.Errorf("PIN not cleared, got: %s", config.PinAuth.Pin)
 	}
+	require.Len(t, config.HeaderAuths, 1)
+	if config.HeaderAuths[0].Value != "" {
+		t.Errorf("Header auth value not cleared, got: %s", config.HeaderAuths[0].Value)
+	}
+	require.NotNil(t, config.MTLSAuth)
+	if config.MTLSAuth.CACertPEM != "" {
+		t.Errorf("mTLS CA PEM not cleared, got: %s", config.MTLSAuth.CACertPEM)
+	}
+}
+
+func TestValidateMTLSAuth(t *testing.T) {
+	validPEM := testCertificatePEM(t)
+
+	t.Run("disabled allows empty pem", func(t *testing.T) {
+		require.NoError(t, validateMTLSAuth(&MTLSAuthConfig{Enabled: false}))
+	})
+
+	t.Run("enabled requires pem", func(t *testing.T) {
+		err := validateMTLSAuth(&MTLSAuthConfig{Enabled: true})
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "ca_cert_pem is required")
+	})
+
+	t.Run("enabled accepts valid pem", func(t *testing.T) {
+		require.NoError(t, validateMTLSAuth(&MTLSAuthConfig{Enabled: true, CACertPEM: validPEM}))
+	})
+
+	t.Run("enabled rejects malformed pem", func(t *testing.T) {
+		err := validateMTLSAuth(&MTLSAuthConfig{Enabled: true, CACertPEM: "not a pem"})
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "contains invalid PEM data")
+	})
+}
+
+func TestServiceValidate_MTLSAuth(t *testing.T) {
+	validPEM := testCertificatePEM(t)
+
+	t.Run("enabled mtls requires pem", func(t *testing.T) {
+		rp := validProxy()
+		rp.Auth.MTLSAuth = &MTLSAuthConfig{Enabled: true}
+		err := rp.Validate()
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "mtls_auth: ca_cert_pem is required")
+	})
+
+	t.Run("enabled mtls accepts valid pem", func(t *testing.T) {
+		rp := validProxy()
+		rp.Auth.MTLSAuth = &MTLSAuthConfig{Enabled: true, CACertPEM: validPEM}
+		require.NoError(t, rp.Validate())
+	})
+
+	t.Run("disabled mtls ignores pem", func(t *testing.T) {
+		rp := validProxy()
+		rp.Auth.MTLSAuth = &MTLSAuthConfig{Enabled: false}
+		require.NoError(t, rp.Validate())
+	})
+}
+
+func TestService_ToAPIResponse_RedactsMTLSPEM(t *testing.T) {
+	rp := validProxy()
+	rp.ID = "svc-1"
+	rp.Auth.MTLSAuth = &MTLSAuthConfig{
+		Enabled:   true,
+		CACertPEM: testCertificatePEM(t),
+	}
+
+	resp := rp.ToAPIResponse()
+	require.NotNil(t, resp.Auth.MtlsAuth)
+	assert.True(t, resp.Auth.MtlsAuth.Enabled)
+	assert.Empty(t, resp.Auth.MtlsAuth.CaCertPem)
+}
+
+func TestService_ToProtoMapping_IncludesMTLSAuth(t *testing.T) {
+	caPEM := testCertificatePEM(t)
+	rp := validProxy()
+	rp.ID = "svc-1"
+	rp.AccountID = "acc-1"
+	rp.Auth.MTLSAuth = &MTLSAuthConfig{
+		Enabled:   true,
+		CACertPEM: caPEM,
+	}
+
+	mapping := rp.ToProtoMapping(Create, "token", proxy.OIDCValidationConfig{})
+	require.NotNil(t, mapping.Auth)
+	require.NotNil(t, mapping.Auth.MtlsAuth)
+	assert.Equal(t, caPEM, mapping.Auth.MtlsAuth.CaCertPem)
+}
+
+func TestService_IsAuthEnabled_MTLAware(t *testing.T) {
+	t.Run("mtls enabled counts as auth", func(t *testing.T) {
+		rp := validProxy()
+		rp.Auth.MTLSAuth = &MTLSAuthConfig{Enabled: true, CACertPEM: testCertificatePEM(t)}
+		assert.True(t, rp.isAuthEnabled())
+	})
+
+	t.Run("mtls disabled does not count as auth", func(t *testing.T) {
+		rp := validProxy()
+		rp.Auth.MTLSAuth = &MTLSAuthConfig{Enabled: false}
+		assert.False(t, rp.isAuthEnabled())
+	})
 }
 
 func TestGenerateExposeName(t *testing.T) {

@@ -4,8 +4,14 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/pem"
 	"errors"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -57,12 +63,75 @@ func newPassthroughHandler() http.Handler {
 	})
 }
 
+type testCertAuthority struct {
+	certPEM string
+	cert    *x509.Certificate
+	key     *rsa.PrivateKey
+}
+
+func newTestCertAuthority(t *testing.T, commonName string) *testCertAuthority {
+	t.Helper()
+
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(time.Now().UnixNano()),
+		Subject:               pkix.Name{CommonName: commonName},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		IsCA:                  true,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+	}
+
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	require.NoError(t, err)
+
+	cert, err := x509.ParseCertificate(der)
+	require.NoError(t, err)
+
+	return &testCertAuthority{
+		certPEM: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})),
+		cert:    cert,
+		key:     key,
+	}
+}
+
+func issueClientCertificate(t *testing.T, ca *testCertAuthority, commonName string) tls.Certificate {
+	t.Helper()
+
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(time.Now().UnixNano()),
+		Subject:               pkix.Name{CommonName: commonName},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		BasicConstraintsValid: true,
+	}
+
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca.cert, &key.PublicKey, ca.key)
+	require.NoError(t, err)
+
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
+	require.NoError(t, err)
+	cert.Leaf, err = x509.ParseCertificate(der)
+	require.NoError(t, err)
+	return cert
+}
+
 func TestAddDomain_ValidKey(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 	kp := generateTestKeyPair(t)
 
 	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
-	err := mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil)
+	err := mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, nil)
 	require.NoError(t, err)
 
 	mw.domainsMux.RLock()
@@ -79,7 +148,7 @@ func TestAddDomain_EmptyKey(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 
 	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
-	err := mw.AddDomain("example.com", []Scheme{scheme}, "", time.Hour, "", "", nil)
+	err := mw.AddDomain("example.com", []Scheme{scheme}, "", time.Hour, "", "", nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid session public key size")
 
@@ -93,7 +162,7 @@ func TestAddDomain_InvalidBase64(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 
 	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
-	err := mw.AddDomain("example.com", []Scheme{scheme}, "not-valid-base64!!!", time.Hour, "", "", nil)
+	err := mw.AddDomain("example.com", []Scheme{scheme}, "not-valid-base64!!!", time.Hour, "", "", nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "decode session public key")
 
@@ -108,7 +177,7 @@ func TestAddDomain_WrongKeySize(t *testing.T) {
 
 	shortKey := base64.StdEncoding.EncodeToString([]byte("tooshort"))
 	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
-	err := mw.AddDomain("example.com", []Scheme{scheme}, shortKey, time.Hour, "", "", nil)
+	err := mw.AddDomain("example.com", []Scheme{scheme}, shortKey, time.Hour, "", "", nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid session public key size")
 
@@ -121,7 +190,7 @@ func TestAddDomain_WrongKeySize(t *testing.T) {
 func TestAddDomain_NoSchemes_NoKeyRequired(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 
-	err := mw.AddDomain("example.com", nil, "", time.Hour, "", "", nil)
+	err := mw.AddDomain("example.com", nil, "", time.Hour, "", "", nil, nil)
 	require.NoError(t, err, "domains with no auth schemes should not require a key")
 
 	mw.domainsMux.RLock()
@@ -137,8 +206,8 @@ func TestAddDomain_OverwritesPreviousConfig(t *testing.T) {
 
 	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
 
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp1.PublicKey, time.Hour, "", "", nil))
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp2.PublicKey, 2*time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp1.PublicKey, time.Hour, "", "", nil, nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp2.PublicKey, 2*time.Hour, "", "", nil, nil))
 
 	mw.domainsMux.RLock()
 	config := mw.domains["example.com"]
@@ -154,7 +223,7 @@ func TestRemoveDomain(t *testing.T) {
 	kp := generateTestKeyPair(t)
 
 	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, nil))
 
 	mw.RemoveDomain("example.com")
 
@@ -178,7 +247,7 @@ func TestProtect_UnknownDomainPassesThrough(t *testing.T) {
 
 func TestProtect_DomainWithNoSchemesPassesThrough(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
-	require.NoError(t, mw.AddDomain("example.com", nil, "", time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", nil, "", time.Hour, "", "", nil, nil))
 
 	handler := mw.Protect(newPassthroughHandler())
 
@@ -195,7 +264,7 @@ func TestProtect_UnauthenticatedRequestIsBlocked(t *testing.T) {
 	kp := generateTestKeyPair(t)
 
 	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, nil))
 
 	var backendCalled bool
 	backend := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -216,7 +285,7 @@ func TestProtect_HostWithPortIsMatched(t *testing.T) {
 	kp := generateTestKeyPair(t)
 
 	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, nil))
 
 	var backendCalled bool
 	backend := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -237,7 +306,7 @@ func TestProtect_ValidSessionCookiePassesThrough(t *testing.T) {
 	kp := generateTestKeyPair(t)
 
 	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, nil))
 
 	token, err := sessionkey.SignToken(kp.PrivateKey, "test-user", "example.com", auth.MethodPIN, time.Hour)
 	require.NoError(t, err)
@@ -267,7 +336,7 @@ func TestProtect_ExpiredSessionCookieIsRejected(t *testing.T) {
 	kp := generateTestKeyPair(t)
 
 	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, nil))
 
 	// Sign a token that expired 1 second ago.
 	token, err := sessionkey.SignToken(kp.PrivateKey, "test-user", "example.com", auth.MethodPIN, -time.Second)
@@ -293,7 +362,7 @@ func TestProtect_WrongDomainCookieIsRejected(t *testing.T) {
 	kp := generateTestKeyPair(t)
 
 	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, nil))
 
 	// Token signed for a different domain audience.
 	token, err := sessionkey.SignToken(kp.PrivateKey, "test-user", "other.com", auth.MethodPIN, time.Hour)
@@ -320,7 +389,7 @@ func TestProtect_WrongKeyCookieIsRejected(t *testing.T) {
 	kp2 := generateTestKeyPair(t)
 
 	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp1.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp1.PublicKey, time.Hour, "", "", nil, nil))
 
 	// Token signed with a different private key.
 	token, err := sessionkey.SignToken(kp2.PrivateKey, "test-user", "example.com", auth.MethodPIN, time.Hour)
@@ -357,7 +426,7 @@ func TestProtect_SchemeAuthRedirectsWithCookie(t *testing.T) {
 			return "", "pin", nil
 		},
 	}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, nil))
 
 	var backendCalled bool
 	backend := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -410,7 +479,7 @@ func TestProtect_FailedAuthDoesNotSetCookie(t *testing.T) {
 			return "", "pin", nil
 		},
 	}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, nil))
 
 	handler := mw.Protect(newPassthroughHandler())
 
@@ -446,7 +515,7 @@ func TestProtect_MultipleSchemes(t *testing.T) {
 			return "", "password", nil
 		},
 	}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{pinScheme, passwordScheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{pinScheme, passwordScheme}, kp.PublicKey, time.Hour, "", "", nil, nil))
 
 	var backendCalled bool
 	backend := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -476,7 +545,7 @@ func TestProtect_InvalidTokenFromSchemeReturns400(t *testing.T) {
 			return "invalid-jwt-token", "", nil
 		},
 	}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, nil))
 
 	handler := mw.Protect(newPassthroughHandler())
 
@@ -500,7 +569,7 @@ func TestAddDomain_RandomBytes32NotEd25519(t *testing.T) {
 	key := base64.StdEncoding.EncodeToString(randomBytes)
 	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
 
-	err = mw.AddDomain("example.com", []Scheme{scheme}, key, time.Hour, "", "", nil)
+	err = mw.AddDomain("example.com", []Scheme{scheme}, key, time.Hour, "", "", nil, nil)
 	require.NoError(t, err, "any 32-byte key should be accepted at registration time")
 }
 
@@ -509,10 +578,10 @@ func TestAddDomain_InvalidKeyDoesNotCorruptExistingConfig(t *testing.T) {
 	kp := generateTestKeyPair(t)
 
 	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, nil))
 
 	// Attempt to overwrite with an invalid key.
-	err := mw.AddDomain("example.com", []Scheme{scheme}, "bad", time.Hour, "", "", nil)
+	err := mw.AddDomain("example.com", []Scheme{scheme}, "bad", time.Hour, "", "", nil, nil)
 	require.Error(t, err)
 
 	// The original valid config should still be intact.
@@ -536,7 +605,7 @@ func TestProtect_FailedPinAuthCapturesAuthMethod(t *testing.T) {
 			return "", "pin", nil
 		},
 	}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, nil))
 
 	capturedData := proxy.NewCapturedData("")
 	handler := mw.Protect(newPassthroughHandler())
@@ -563,7 +632,7 @@ func TestProtect_FailedPasswordAuthCapturesAuthMethod(t *testing.T) {
 			return "", "password", nil
 		},
 	}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, nil))
 
 	capturedData := proxy.NewCapturedData("")
 	handler := mw.Protect(newPassthroughHandler())
@@ -590,7 +659,7 @@ func TestProtect_NoCredentialsDoesNotCaptureAuthMethod(t *testing.T) {
 			return "", "pin", nil
 		},
 	}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, nil))
 
 	capturedData := proxy.NewCapturedData("")
 	handler := mw.Protect(newPassthroughHandler())
@@ -678,7 +747,7 @@ func TestCheckIPRestrictions_UnparseableAddress(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 
 	err := mw.AddDomain("example.com", nil, "", 0, "acc1", "svc1",
-		restrict.ParseFilter(restrict.FilterConfig{AllowedCIDRs: []string{"10.0.0.0/8"}}))
+		restrict.ParseFilter(restrict.FilterConfig{AllowedCIDRs: []string{"10.0.0.0/8"}}), nil)
 	require.NoError(t, err)
 
 	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -714,7 +783,7 @@ func TestCheckIPRestrictions_UsesCapturedDataClientIP(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 
 	err := mw.AddDomain("example.com", nil, "", 0, "acc1", "svc1",
-		restrict.ParseFilter(restrict.FilterConfig{AllowedCIDRs: []string{"203.0.113.0/24"}}))
+		restrict.ParseFilter(restrict.FilterConfig{AllowedCIDRs: []string{"203.0.113.0/24"}}), nil)
 	require.NoError(t, err)
 
 	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -755,7 +824,7 @@ func TestCheckIPRestrictions_NilGeoWithCountryRules(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 
 	err := mw.AddDomain("example.com", nil, "", 0, "acc1", "svc1",
-		restrict.ParseFilter(restrict.FilterConfig{AllowedCountries: []string{"US"}}))
+		restrict.ParseFilter(restrict.FilterConfig{AllowedCountries: []string{"US"}}), nil)
 	require.NoError(t, err)
 
 	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -781,7 +850,7 @@ func TestProtect_OIDCOnlyRedirectsDirectly(t *testing.T) {
 			return "", oidcURL, nil
 		},
 	}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, nil))
 
 	handler := mw.Protect(newPassthroughHandler())
 
@@ -809,7 +878,7 @@ func TestProtect_OIDCWithOtherMethodShowsLoginPage(t *testing.T) {
 			return "", "pin", nil
 		},
 	}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{oidcScheme, pinScheme}, kp.PublicKey, time.Hour, "", "", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{oidcScheme, pinScheme}, kp.PublicKey, time.Hour, "", "", nil, nil))
 
 	handler := mw.Protect(newPassthroughHandler())
 
@@ -818,6 +887,87 @@ func TestProtect_OIDCWithOtherMethodShowsLoginPage(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusUnauthorized, rec.Code, "should show login page when multiple methods exist")
+}
+
+func TestProtect_MTLSHostWithoutCertDenied(t *testing.T) {
+	mw := NewMiddleware(log.StandardLogger(), nil, nil)
+	ca := newTestCertAuthority(t, "mtls-root")
+	mtlsConfig, err := NewMTLSConfig(true, ca.certPEM)
+	require.NoError(t, err)
+	require.NoError(t, mw.AddDomain("example.com", nil, "", 0, "acc1", "svc1", nil, mtlsConfig))
+
+	capturedData := proxy.NewCapturedData("")
+	handler := mw.Protect(newPassthroughHandler())
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req = req.WithContext(proxy.WithCapturedData(req.Context(), capturedData))
+	req.TLS = &tls.ConnectionState{}
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	assert.Equal(t, auth.MethodMTLS.String(), capturedData.GetAuthMethod())
+}
+
+func TestProtect_MTLSHostWithMatchingCertAllowed(t *testing.T) {
+	mw := NewMiddleware(log.StandardLogger(), nil, nil)
+	ca := newTestCertAuthority(t, "mtls-root")
+	clientCert := issueClientCertificate(t, ca, "client")
+	mtlsConfig, err := NewMTLSConfig(true, ca.certPEM)
+	require.NoError(t, err)
+	require.NoError(t, mw.AddDomain("example.com", nil, "", 0, "acc1", "svc1", nil, mtlsConfig))
+
+	capturedData := proxy.NewCapturedData("")
+	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cd := proxy.CapturedDataFromContext(r.Context())
+		require.NotNil(t, cd)
+		assert.Equal(t, auth.MethodMTLS.String(), cd.GetAuthMethod())
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req = req.WithContext(proxy.WithCapturedData(req.Context(), capturedData))
+	req.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{clientCert.Leaf}}
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, auth.MethodMTLS.String(), capturedData.GetAuthMethod())
+}
+
+func TestProtect_MTLSHostWithNonMatchingCertDenied(t *testing.T) {
+	mw := NewMiddleware(log.StandardLogger(), nil, nil)
+	trustedCA := newTestCertAuthority(t, "trusted-root")
+	otherCA := newTestCertAuthority(t, "other-root")
+	clientCert := issueClientCertificate(t, otherCA, "client")
+	mtlsConfig, err := NewMTLSConfig(true, trustedCA.certPEM)
+	require.NoError(t, err)
+	require.NoError(t, mw.AddDomain("example.com", nil, "", 0, "acc1", "svc1", nil, mtlsConfig))
+
+	capturedData := proxy.NewCapturedData("")
+	handler := mw.Protect(newPassthroughHandler())
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req = req.WithContext(proxy.WithCapturedData(req.Context(), capturedData))
+	req.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{clientCert.Leaf}}
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	assert.Equal(t, auth.MethodMTLS.String(), capturedData.GetAuthMethod())
+}
+
+func TestProtect_NonMTLSHostUnchangedWithoutCert(t *testing.T) {
+	mw := NewMiddleware(log.StandardLogger(), nil, nil)
+	require.NoError(t, mw.AddDomain("example.com", nil, "", 0, "acc1", "svc1", nil, nil))
+
+	handler := mw.Protect(newPassthroughHandler())
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req.TLS = &tls.ConnectionState{}
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
 // mockAuthenticator is a minimal mock for the authenticator gRPC interface
@@ -852,7 +1002,7 @@ func TestProtect_HeaderAuth_ForwardsOnSuccess(t *testing.T) {
 	kp := generateTestKeyPair(t)
 
 	hdr := newHeaderSchemeWithToken(t, kp, "X-API-Key", "secret-key")
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr}, kp.PublicKey, time.Hour, "acc1", "svc1", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr}, kp.PublicKey, time.Hour, "acc1", "svc1", nil, nil))
 
 	var backendCalled bool
 	capturedData := proxy.NewCapturedData("")
@@ -895,7 +1045,7 @@ func TestProtect_HeaderAuth_MissingHeaderFallsThrough(t *testing.T) {
 	hdr := newHeaderSchemeWithToken(t, kp, "X-API-Key", "secret-key")
 	// Also add a PIN scheme so we can verify fallthrough behavior.
 	pinScheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr, pinScheme}, kp.PublicKey, time.Hour, "acc1", "svc1", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr, pinScheme}, kp.PublicKey, time.Hour, "acc1", "svc1", nil, nil))
 
 	handler := mw.Protect(newPassthroughHandler())
 
@@ -915,7 +1065,7 @@ func TestProtect_HeaderAuth_WrongValueReturns401(t *testing.T) {
 		return &proto.AuthenticateResponse{Success: false}, nil
 	}}
 	hdr := NewHeader(mock, "svc1", "acc1", "X-API-Key")
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr}, kp.PublicKey, time.Hour, "acc1", "svc1", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr}, kp.PublicKey, time.Hour, "acc1", "svc1", nil, nil))
 
 	capturedData := proxy.NewCapturedData("")
 	handler := mw.Protect(newPassthroughHandler())
@@ -938,7 +1088,7 @@ func TestProtect_HeaderAuth_InfraErrorReturns502(t *testing.T) {
 		return nil, errors.New("gRPC unavailable")
 	}}
 	hdr := NewHeader(mock, "svc1", "acc1", "X-API-Key")
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr}, kp.PublicKey, time.Hour, "acc1", "svc1", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr}, kp.PublicKey, time.Hour, "acc1", "svc1", nil, nil))
 
 	handler := mw.Protect(newPassthroughHandler())
 
@@ -955,7 +1105,7 @@ func TestProtect_HeaderAuth_SubsequentRequestUsesSessionCookie(t *testing.T) {
 	kp := generateTestKeyPair(t)
 
 	hdr := newHeaderSchemeWithToken(t, kp, "X-API-Key", "secret-key")
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr}, kp.PublicKey, time.Hour, "acc1", "svc1", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr}, kp.PublicKey, time.Hour, "acc1", "svc1", nil, nil))
 
 	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -1015,7 +1165,7 @@ func TestProtect_HeaderAuth_MultipleValuesSameHeader(t *testing.T) {
 
 	// Single Header scheme (as if one entry existed), but the mock checks both values.
 	hdr := NewHeader(mock, "svc1", "acc1", "Authorization")
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr}, kp.PublicKey, time.Hour, "acc1", "svc1", nil))
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{hdr}, kp.PublicKey, time.Hour, "acc1", "svc1", nil, nil))
 
 	var backendCalled bool
 	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

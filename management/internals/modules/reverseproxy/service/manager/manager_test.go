@@ -370,6 +370,30 @@ func TestPreserveExistingAuthSecrets(t *testing.T) {
 		assert.Equal(t, "new-password", updated.Auth.PasswordAuth.Password)
 		assert.NotEqual(t, existing.Auth.PasswordAuth, updated.Auth.PasswordAuth)
 	})
+
+	t.Run("preserve mtls ca pem when empty", func(t *testing.T) {
+		existing := &rpservice.Service{
+			Auth: rpservice.AuthConfig{
+				MTLSAuth: &rpservice.MTLSAuthConfig{
+					Enabled:   true,
+					CACertPEM: "existing-ca",
+				},
+			},
+		}
+
+		updated := &rpservice.Service{
+			Auth: rpservice.AuthConfig{
+				MTLSAuth: &rpservice.MTLSAuthConfig{
+					Enabled:   true,
+					CACertPEM: "",
+				},
+			},
+		}
+
+		mgr.preserveExistingAuthSecrets(updated, existing)
+
+		assert.Equal(t, "existing-ca", updated.Auth.MTLSAuth.CACertPEM)
+	})
 }
 
 func TestPreserveServiceMetadata(t *testing.T) {

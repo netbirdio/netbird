@@ -581,6 +581,7 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 		}
 		go certWatcher.Watch(ctx)
 		tlsConfig.GetCertificate = certWatcher.GetCertificate
+		tlsConfig.ClientAuth = tls.RequestClientCert
 		return tlsConfig, nil
 	}
 
@@ -623,6 +624,7 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 	// autocert.Manager.TLSConfig() wires its own GetCertificate, which
 	// bypasses our override that checks wildcards first.
 	tlsConfig.GetCertificate = s.acme.GetCertificate
+	tlsConfig.ClientAuth = tls.RequestClientCert
 
 	// ServerName needs to be set to allow for ACME to work correctly
 	// when using CNAME URLs to access the proxy.
@@ -1500,8 +1502,13 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 	ipRestrictions := s.parseRestrictions(mapping)
 	s.warnIfGeoUnavailable(mapping.GetDomain(), mapping.GetAccessRestrictions())
 
+	mtlsConfig, err := auth.NewMTLSConfig(mapping.GetAuth().GetMtlsAuth() != nil, mapping.GetAuth().GetMtlsAuth().GetCaCertPem())
+	if err != nil {
+		return fmt.Errorf("mTLS setup for domain %s: %w", mapping.GetDomain(), err)
+	}
+
 	maxSessionAge := time.Duration(mapping.GetAuth().GetMaxSessionAgeSeconds()) * time.Second
-	if err := s.auth.AddDomain(mapping.GetDomain(), schemes, mapping.GetAuth().GetSessionKey(), maxSessionAge, accountID, svcID, ipRestrictions); err != nil {
+	if err := s.auth.AddDomain(mapping.GetDomain(), schemes, mapping.GetAuth().GetSessionKey(), maxSessionAge, accountID, svcID, ipRestrictions, mtlsConfig); err != nil {
 		return fmt.Errorf("auth setup for domain %s: %w", mapping.GetDomain(), err)
 	}
 	m := s.protoToMapping(ctx, mapping)
