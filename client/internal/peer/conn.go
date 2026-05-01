@@ -1109,3 +1109,28 @@ func (conn *Conn) onICEConnected() {
 	}
 	conn.iceBackoff.markSuccess()
 }
+
+// SetIceBackoffMax updates the per-peer backoff cap. Called by ConnMgr
+// when the server pushes a new p2p_retry_max_seconds value. If the
+// iceBackoff is not yet initialized (Conn not opened yet), the value
+// is stored in config so Open() picks it up. Phase 3 of #5989.
+func (conn *Conn) SetIceBackoffMax(d time.Duration) {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	conn.config.P2pRetryMaxSeconds = uint32(d / time.Second)
+	if conn.iceBackoff != nil {
+		conn.iceBackoff.SetMaxBackoff(d)
+	}
+}
+
+// IceBackoffSnapshot exposes the read-only backoff state for the
+// status output (Task E1). Returns zero-value snapshot if no backoff
+// is active. Phase 3 of #5989.
+func (conn *Conn) IceBackoffSnapshot() BackoffSnapshot {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	if conn.iceBackoff == nil {
+		return BackoffSnapshot{}
+	}
+	return conn.iceBackoff.Snapshot()
+}

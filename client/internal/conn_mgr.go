@@ -257,6 +257,7 @@ func (e *ConnMgr) UpdatedRemotePeerConfig(ctx context.Context, pc *mgmProto.Peer
 	e.relayTimeoutSecs = newRelay
 	e.p2pTimeoutSecs = newP2P
 	e.p2pRetryMaxSecs = newP2pRetry
+	e.propagateP2pRetryMaxToConns()
 
 	wasManaged := modeUsesLazyMgr(prev)
 	isManaged := modeUsesLazyMgr(newMode)
@@ -532,6 +533,28 @@ func (e *ConnMgr) initLazyManager(engineCtx context.Context) {
 	}()
 }
 
+// propagateP2pRetryMaxToConns iterates all active Conn instances and
+// updates their iceBackoff.SetMaxBackoff. Called when the server pushes
+// a new value via UpdatedRemotePeerConfig. Phase 3 of #5989.
+func (e *ConnMgr) propagateP2pRetryMaxToConns() {
+	const sentinelDisabled = ^uint32(0)
+	v := e.p2pRetryMaxSecs
+	var d time.Duration
+	switch {
+	case v == sentinelDisabled:
+		d = 0 // user-explicit disable
+	case v == 0:
+		d = peer.DefaultP2PRetryMax // server NULL -> use daemon default
+	default:
+		d = time.Duration(v) * time.Second
+	}
+	for _, peerKey := range e.peerStore.PeersPubKey() {
+		if conn, ok := e.peerStore.PeerConn(peerKey); ok {
+			conn.SetIceBackoffMax(d)
+		}
+	}
+}
+
 func (e *ConnMgr) addPeersToLazyConnManager() error {
 	peers := e.peerStore.PeersPubKey()
 	lazyPeerCfgs := make([]lazyconn.PeerConfig, 0, len(peers))
@@ -583,6 +606,13 @@ func (e *ConnMgr) Mode() connectionmode.Mode {
 // RelayTimeout returns the resolved relay-worker idle timeout in seconds.
 func (e *ConnMgr) RelayTimeout() uint32 {
 	return e.relayTimeoutSecs
+}
+
+// P2pRetryMax returns the resolved cap in seconds for the ICE-failure
+// backoff schedule. Wire-format sentinel uint32-max means "user-explicit
+// disable"; callers must translate that to 0. Phase 3 of #5989.
+func (e *ConnMgr) P2pRetryMax() uint32 {
+	return e.p2pRetryMaxSecs
 }
 
 func inactivityThresholdEnv() *time.Duration {
