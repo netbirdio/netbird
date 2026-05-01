@@ -371,6 +371,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 
 	am.handleRoutingPeerDNSResolutionSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handleLazyConnectionSettings(ctx, oldSettings, newSettings, userID, accountID)
+	am.handleConnectionModeSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handlePeerLoginExpirationSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handleGroupsPropagationSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handleAutoUpdateVersionSettings(ctx, oldSettings, newSettings, userID, accountID)
@@ -453,6 +454,66 @@ func (am *DefaultAccountManager) handleLazyConnectionSettings(ctx context.Contex
 			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountLazyConnectionDisabled, nil)
 		}
 	}
+}
+
+// handleConnectionModeSettings emits one audit event per changed Phase-1
+// connection-mode setting (mode, relay timeout, p2p timeout). Each event
+// carries old/new values in the meta payload so administrators can audit
+// the full transition. NULL transitions show as empty string / 0 in the
+// meta — chosen over a sentinel so the frontend can render uniformly.
+func (am *DefaultAccountManager) handleConnectionModeSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) {
+	if !equalStringPtr(oldSettings.ConnectionMode, newSettings.ConnectionMode) {
+		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountConnectionModeChanged, map[string]any{
+			"old": derefStringPtr(oldSettings.ConnectionMode),
+			"new": derefStringPtr(newSettings.ConnectionMode),
+		})
+	}
+	if !equalUint32Ptr(oldSettings.RelayTimeoutSeconds, newSettings.RelayTimeoutSeconds) {
+		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountRelayTimeoutChanged, map[string]any{
+			"old": derefUint32Ptr(oldSettings.RelayTimeoutSeconds),
+			"new": derefUint32Ptr(newSettings.RelayTimeoutSeconds),
+		})
+	}
+	if !equalUint32Ptr(oldSettings.P2pTimeoutSeconds, newSettings.P2pTimeoutSeconds) {
+		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountP2pTimeoutChanged, map[string]any{
+			"old": derefUint32Ptr(oldSettings.P2pTimeoutSeconds),
+			"new": derefUint32Ptr(newSettings.P2pTimeoutSeconds),
+		})
+	}
+}
+
+func equalStringPtr(a, b *string) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+func equalUint32Ptr(a, b *uint32) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+func derefStringPtr(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+func derefUint32Ptr(p *uint32) uint32 {
+	if p == nil {
+		return 0
+	}
+	return *p
 }
 
 func (am *DefaultAccountManager) handlePeerLoginExpirationSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) {
