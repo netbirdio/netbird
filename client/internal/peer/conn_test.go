@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/client/iface"
@@ -278,6 +279,64 @@ func TestConn_presharedKey(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestConn_AttachICE_NilHandshaker verifies AttachICE errors when called
+// before Open() has wired up the handshaker.
+func TestConn_AttachICE_NilHandshaker(t *testing.T) {
+	c := &Conn{Log: log.WithField("peer", "test")}
+	if err := c.AttachICE(); err == nil {
+		t.Fatal("AttachICE on Conn with nil handshaker should return error")
+	}
+}
+
+// TestConn_AttachICE_NilWorkerICE verifies AttachICE errors when the conn
+// is in relay-forced mode (workerICE was never created).
+func TestConn_AttachICE_NilWorkerICE(t *testing.T) {
+	c := &Conn{
+		Log:        log.WithField("peer", "test"),
+		handshaker: &Handshaker{},
+	}
+	if err := c.AttachICE(); err == nil {
+		t.Fatal("AttachICE with nil workerICE should return error (relay-forced mode)")
+	}
+}
+
+// TestConn_DetachICE_NoHandshaker is a no-op idempotency check: calling
+// DetachICE before Open() must not panic and must not error.
+func TestConn_DetachICE_NoHandshaker(t *testing.T) {
+	c := &Conn{Log: log.WithField("peer", "test")}
+	if err := c.DetachICE(); err != nil {
+		t.Fatalf("DetachICE with nil handshaker should be no-op, got error: %v", err)
+	}
+}
+
+// TestConn_DetachICE_ClearsListener verifies DetachICE removes the ICE
+// listener from the handshaker. workerICE is left nil so Close() is skipped.
+func TestConn_DetachICE_ClearsListener(t *testing.T) {
+	h := &Handshaker{}
+	h.AddICEListener(func(o *OfferAnswer) {})
+	c := &Conn{
+		Log:        log.WithField("peer", "test"),
+		handshaker: h,
+	}
+
+	if h.readICEListener() == nil {
+		t.Fatal("precondition: handshaker should have a listener")
+	}
+
+	if err := c.DetachICE(); err != nil {
+		t.Fatalf("DetachICE returned error: %v", err)
+	}
+
+	if h.readICEListener() != nil {
+		t.Fatal("DetachICE should clear the ICE listener")
+	}
+
+	// Idempotent: second call is a no-op.
+	if err := c.DetachICE(); err != nil {
+		t.Fatalf("DetachICE second call should be no-op, got: %v", err)
 	}
 }
 

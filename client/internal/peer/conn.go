@@ -985,3 +985,56 @@ func boolToConnStatus(connected bool) guard.ConnStatus {
 	}
 	return guard.ConnStatusDisconnected
 }
+
+// AttachICE registers the ICE-offer listener on the handshaker after the
+// activity-detector observes traffic on the relay tunnel. Idempotent: if
+// the listener is already attached, it is a no-op. Triggers a fresh offer
+// so the remote side learns we are now ICE-capable.
+//
+// Used by p2p-dynamic mode: workerICE is created in Open() but the
+// handshaker dispatch is deferred until traffic activity is seen.
+func (conn *Conn) AttachICE() error {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+
+	if conn.handshaker == nil {
+		return fmt.Errorf("AttachICE: handshaker not initialized (Open not called)")
+	}
+	if conn.workerICE == nil {
+		return fmt.Errorf("AttachICE: workerICE is nil (relay-forced mode)")
+	}
+	if conn.handshaker.readICEListener() != nil {
+		return nil
+	}
+
+	conn.handshaker.AddICEListener(conn.workerICE.OnNewOffer)
+	conn.Log.Debugf("ICE listener attached (p2p-dynamic activity-trigger)")
+
+	if err := conn.handshaker.SendOffer(); err != nil {
+		conn.Log.Warnf("AttachICE: SendOffer failed: %v", err)
+	}
+	return nil
+}
+
+// DetachICE removes the ICE-offer listener and tears down the ICE worker.
+// Idempotent: if no listener is attached, it is a no-op. Used by
+// p2p-dynamic mode when the inactivity manager fires the iceTimeout but
+// the relay tunnel should stay up.
+func (conn *Conn) DetachICE() error {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+
+	if conn.handshaker == nil {
+		return nil
+	}
+	if conn.handshaker.readICEListener() == nil {
+		return nil
+	}
+
+	conn.handshaker.RemoveICEListener()
+	if conn.workerICE != nil {
+		conn.workerICE.Close()
+	}
+	conn.Log.Debugf("ICE listener detached (p2p-dynamic teardown)")
+	return nil
+}
