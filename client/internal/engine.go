@@ -1577,6 +1577,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 			PermissiveMode: e.config.RosenpassPermissive,
 		},
 		ICEConfig: e.createICEConfig(),
+		Mode:      e.connMgr.Mode(),
 	}
 
 	serviceDependencies := peer.ServiceDependencies{
