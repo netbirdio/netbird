@@ -103,7 +103,7 @@ func TestResolveConnectionMode(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			gotMode, gotRelay, gotP2P := resolveConnectionMode(c.envMode, c.envTimeout, c.cfgMode, c.cfgRelayTimeout, c.cfgP2pTimeout, c.serverPC)
+			gotMode, gotRelay, gotP2P, _ := resolveConnectionMode(c.envMode, c.envTimeout, c.cfgMode, c.cfgRelayTimeout, c.cfgP2pTimeout, 0, c.serverPC)
 			if gotMode != c.wantMode {
 				t.Errorf("mode = %v, want %v", gotMode, c.wantMode)
 			}
@@ -114,6 +114,55 @@ func TestResolveConnectionMode(t *testing.T) {
 				t.Errorf("p2p-timeout = %v, want %v", gotP2P, c.wantP2P)
 			}
 		})
+	}
+}
+
+func TestResolveConnectionMode_P2pRetryMax_NotSet(t *testing.T) {
+	// serverPC has 0 (= "not set") -> result is 0, daemon will use default
+	mode, _, _, retryMax := resolveConnectionMode(
+		connectionmode.ModeUnspecified, 0,
+		connectionmode.ModeUnspecified, 0, 0, 0,
+		&mgmProto.PeerConfig{
+			ConnectionMode:     mgmProto.ConnectionMode_CONNECTION_MODE_P2P_DYNAMIC,
+			P2PRetryMaxSeconds: 0,
+		},
+	)
+	if mode != connectionmode.ModeP2PDynamic {
+		t.Errorf("expected p2p-dynamic, got %v", mode)
+	}
+	if retryMax != 0 {
+		t.Errorf("server-pushed 0 should pass through as 0, got %d", retryMax)
+	}
+}
+
+func TestResolveConnectionMode_P2pRetryMax_ServerSet(t *testing.T) {
+	mode, _, _, retryMax := resolveConnectionMode(
+		connectionmode.ModeUnspecified, 0,
+		connectionmode.ModeUnspecified, 0, 0, 0,
+		&mgmProto.PeerConfig{
+			ConnectionMode:     mgmProto.ConnectionMode_CONNECTION_MODE_P2P_DYNAMIC,
+			P2PRetryMaxSeconds: 600,
+		},
+	)
+	if mode != connectionmode.ModeP2PDynamic {
+		t.Fatalf("expected p2p-dynamic, got %v", mode)
+	}
+	if retryMax != 600 {
+		t.Errorf("server-pushed 600 should win, got %d", retryMax)
+	}
+}
+
+func TestResolveConnectionMode_P2pRetryMax_ClientCfgWins(t *testing.T) {
+	_, _, _, retryMax := resolveConnectionMode(
+		connectionmode.ModeUnspecified, 0,
+		connectionmode.ModeUnspecified, 0, 0,
+		300, // cfgP2pRetryMax (client-side override)
+		&mgmProto.PeerConfig{
+			P2PRetryMaxSeconds: 600,
+		},
+	)
+	if retryMax != 300 {
+		t.Errorf("client cfg should override server push, got %d", retryMax)
 	}
 }
 

@@ -40,6 +40,9 @@ type ConnMgr struct {
 	// ModeP2PDynamic to teardown the ICE worker without affecting the
 	// relay tunnel. 0 = ICE never times out.
 	p2pTimeoutSecs uint32
+	// Phase 3 (#5989): maximum seconds between P2P retry attempts.
+	// 0 means the daemon uses its built-in default.
+	p2pRetryMaxSecs uint32
 
 	// Raw inputs kept so we can re-resolve when server-pushed value changes.
 	envMode         connectionmode.Mode
@@ -47,6 +50,7 @@ type ConnMgr struct {
 	cfgMode         connectionmode.Mode
 	cfgRelayTimeout uint32
 	cfgP2pTimeout   uint32
+	cfgP2pRetryMax  uint32
 
 	lazyConnMgr *manager.Manager
 
@@ -60,10 +64,11 @@ func NewConnMgr(engineConfig *EngineConfig, statusRecorder *peer.Status, peerSto
 
 	// First-pass resolution without server input -- updated later when
 	// the first NetworkMap arrives via UpdatedRemotePeerConfig.
-	mode, relayTimeout, p2pTimeout := resolveConnectionMode(
+	mode, relayTimeout, p2pTimeout, p2pRetryMax := resolveConnectionMode(
 		envMode, envRelayTimeout,
 		engineConfig.ConnectionMode, engineConfig.RelayTimeoutSeconds,
 		engineConfig.P2pTimeoutSeconds,
+		0, // cfgP2pRetryMax: filled in by Task D3 once EngineConfig.P2pRetryMaxSeconds exists
 		nil,
 	)
 
@@ -75,11 +80,13 @@ func NewConnMgr(engineConfig *EngineConfig, statusRecorder *peer.Status, peerSto
 		mode:             mode,
 		relayTimeoutSecs: relayTimeout,
 		p2pTimeoutSecs:   p2pTimeout,
+		p2pRetryMaxSecs:  p2pRetryMax,
 		envMode:          envMode,
 		envRelayTimeout:  envRelayTimeout,
 		cfgMode:          engineConfig.ConnectionMode,
-		cfgRelayTimeout: engineConfig.RelayTimeoutSeconds,
-		cfgP2pTimeout:   engineConfig.P2pTimeoutSeconds,
+		cfgRelayTimeout:  engineConfig.RelayTimeoutSeconds,
+		cfgP2pTimeout:    engineConfig.P2pTimeoutSeconds,
+		cfgP2pRetryMax:   0, // filled in by Task D3
 	}
 }
 
@@ -98,8 +105,9 @@ func resolveConnectionMode(
 	cfgMode connectionmode.Mode,
 	cfgRelayTimeout uint32,
 	cfgP2pTimeout uint32,
+	cfgP2pRetryMax uint32,
 	serverPC *mgmProto.PeerConfig,
-) (connectionmode.Mode, uint32, uint32) {
+) (connectionmode.Mode, uint32, uint32, uint32) {
 	mode := envMode
 	if mode == connectionmode.ModeUnspecified {
 		if cfgMode != connectionmode.ModeUnspecified && cfgMode != connectionmode.ModeFollowServer {
@@ -135,7 +143,14 @@ func resolveConnectionMode(
 		p2p = serverPC.GetP2PTimeoutSeconds()
 	}
 
-	return mode, relay, p2p
+	// P2pRetryMax resolution (analogous to p2p timeout):
+	// client-config wins over server-pushed value (0 = not set).
+	p2pRetryMax := cfgP2pRetryMax
+	if p2pRetryMax == 0 && serverPC != nil {
+		p2pRetryMax = serverPC.GetP2PRetryMaxSeconds()
+	}
+
+	return mode, relay, p2p, p2pRetryMax
 }
 
 // Start initializes the connection manager. The lazy/dynamic connection
@@ -228,15 +243,20 @@ func (e *ConnMgr) runDynamicInactivityLoop(ctx context.Context) {
 // new PeerConfig. Re-resolves the effective mode through the precedence
 // chain and starts/stops the lazy manager accordingly.
 func (e *ConnMgr) UpdatedRemotePeerConfig(ctx context.Context, pc *mgmProto.PeerConfig) error {
-	newMode, newRelay, newP2P := resolveConnectionMode(e.envMode, e.envRelayTimeout, e.cfgMode, e.cfgRelayTimeout, e.cfgP2pTimeout, pc)
+	newMode, newRelay, newP2P, newP2pRetry := resolveConnectionMode(
+		e.envMode, e.envRelayTimeout, e.cfgMode, e.cfgRelayTimeout,
+		e.cfgP2pTimeout, e.cfgP2pRetryMax, pc,
+	)
 
-	if newMode == e.mode && newRelay == e.relayTimeoutSecs && newP2P == e.p2pTimeoutSecs {
+	if newMode == e.mode && newRelay == e.relayTimeoutSecs &&
+		newP2P == e.p2pTimeoutSecs && newP2pRetry == e.p2pRetryMaxSecs {
 		return nil
 	}
 	prev := e.mode
 	e.mode = newMode
 	e.relayTimeoutSecs = newRelay
 	e.p2pTimeoutSecs = newP2P
+	e.p2pRetryMaxSecs = newP2pRetry
 
 	wasManaged := modeUsesLazyMgr(prev)
 	isManaged := modeUsesLazyMgr(newMode)
