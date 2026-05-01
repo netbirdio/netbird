@@ -28,7 +28,31 @@ type managedPeer struct {
 }
 
 type Config struct {
+	// Phase-1 single-timer field. Deprecated: use ICEInactivityThreshold
+	// and RelayInactivityThreshold instead. Kept so existing callers
+	// (engine.go) compile during the Phase-2 transition; internally
+	// treated as RelayInactivityThreshold when the new fields are zero.
 	InactivityThreshold *time.Duration
+
+	// ICEInactivityThreshold is the per-peer ICE-worker idle timeout
+	// (Phase 2 / #5989). 0 = ICE always-on (= p2p-lazy semantics, where
+	// the whole tunnel goes idle but ICE is never torn down separately).
+	ICEInactivityThreshold time.Duration
+
+	// RelayInactivityThreshold is the per-peer relay-worker idle timeout
+	// (Phase 2). 0 = relay always-on.
+	RelayInactivityThreshold time.Duration
+}
+
+// resolvedTimeouts returns the effective (ICE, Relay) timeouts. If only
+// the deprecated InactivityThreshold field is set, it maps onto the
+// relay timeout for Phase-1 p2p-lazy semantics.
+func (c Config) resolvedTimeouts() (iceTimeout, relayTimeout time.Duration) {
+	relay := c.RelayInactivityThreshold
+	if relay == 0 && c.InactivityThreshold != nil {
+		relay = *c.InactivityThreshold
+	}
+	return c.ICEInactivityThreshold, relay
 }
 
 // Manager manages lazy connections
@@ -76,12 +100,30 @@ func NewManager(config Config, engineCtx context.Context, peerStore *peerstore.S
 	}
 
 	if wgIface.IsUserspaceBind() {
-		m.inactivityManager = inactivity.NewManager(wgIface, config.InactivityThreshold)
+		iceTO, relayTO := config.resolvedTimeouts()
+		if iceTO == 0 && relayTO == 0 {
+			// Phase 1 / single-timer fallback when caller hasn't migrated.
+			m.inactivityManager = inactivity.NewManager(wgIface, config.InactivityThreshold)
+		} else {
+			m.inactivityManager = inactivity.NewManagerWithTwoTimers(wgIface, iceTO, relayTO)
+		}
 	} else {
 		log.Warnf("inactivity manager not supported for kernel mode, wait for remote peer to close the connection")
 	}
 
 	return m
+}
+
+// InactivityManager exposes the underlying inactivity.Manager so the
+// engine / conn_mgr can subscribe to ICEInactiveChan / RelayInactiveChan
+// in the p2p-dynamic mode lifecycle. Returns nil if the manager runs in
+// kernel-bind mode (no inactivity tracking) or if the manager itself is
+// nil (defensive).
+func (m *Manager) InactivityManager() *inactivity.Manager {
+	if m == nil {
+		return nil
+	}
+	return m.inactivityManager
 }
 
 // UpdateRouteHAMap updates the HA group mappings for routes
