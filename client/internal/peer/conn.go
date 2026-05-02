@@ -1177,39 +1177,29 @@ func (conn *Conn) onNetworkChange() {
 		}
 	}
 
-	// Recreate workerICE so the next AttachICE has a fresh pion-agent.
-	// If workerICE is nil here the mode must be relay-forced; caller
-	// already guards against that by not setting the callback.
-	if conn.workerICE == nil {
-		return
+	// We deliberately do NOT replace the workerICE wrapper here. Replacing
+	// it leaks underlying socket/iface bindings between the old and new
+	// instance, which empirically causes ICE to fail with a 13s pair-check
+	// timeout instead of converging in <1s like a fresh daemon-start does.
+	//
+	// Instead: close the current pion agent (sets w.agent = nil) and ask
+	// the handshaker to send a fresh offer. The remote side responds with
+	// a new sessionID, which routes through the still-attached listener
+	// (= the existing workerICE.OnNewOffer). That goes through the well-
+	// tested in-place "tear-down + reCreateAgent" branch in worker_ice.go,
+	// avoiding the state-leak that wrapper-replacement caused.
+	//
+	// In ModeRelayForced workerICE is nil; nothing to close. The SendOffer
+	// is still issued so the relay path also gets refreshed.
+	if conn.workerICE != nil {
+		conn.workerICE.Close()
 	}
 
-	conn.workerICE.Close()
-
-	relayIsSupportedLocally := conn.workerRelay.RelayIsSupportedLocally()
-	newWorker, err := NewWorkerICE(conn.ctx, conn.Log, conn.config, conn,
-		conn.signaler, conn.iFaceDiscover, conn.statusRecorder, relayIsSupportedLocally)
-	if err != nil {
-		conn.Log.Warnf("recreate workerICE failed after network change: %v", err)
-		conn.workerICE = nil
-		return
-	}
-	conn.workerICE = newWorker
-
-	// If the handshaker already has an ICE listener attached (the connection
-	// was in an active ICE or p2p-dynamic-attached state), swap it to the
-	// new worker so the next offer reaches the fresh agent. Then trigger a
-	// fresh SendOffer so the remote side responds and our pion-agent gets
-	// reCreateAgent'd via OnNewOffer. Without the SendOffer the new worker
-	// stays in "ICE Agent is not initialized yet" forever until the next
-	// peer-initiated offer arrives.
-	if conn.handshaker != nil && conn.handshaker.readICEListener() != nil {
-		conn.handshaker.RemoveICEListener()
-		conn.handshaker.AddICEListener(conn.workerICE.OnNewOffer)
+	if conn.handshaker != nil {
 		if err := conn.handshaker.SendOffer(); err != nil {
-			conn.Log.Warnf("SendOffer after workerICE recreate failed: %v", err)
+			conn.Log.Warnf("SendOffer after network change: %v", err)
 		}
 	}
 
-	conn.Log.Debugf("workerICE recreated after network change")
+	conn.Log.Debugf("ICE state reset on network change (agent closed, fresh offer sent)")
 }
