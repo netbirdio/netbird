@@ -423,14 +423,21 @@ func (e *ConnMgr) ActivatePeer(ctx context.Context, conn *peer.Conn) {
 		if err := conn.Open(ctx); err != nil {
 			conn.Log.Errorf("failed to open connection: %v", err)
 		}
-		// In p2p-dynamic mode the ICE listener was deferred at Open()
-		// time; attach it now that activity has been observed. The relay
-		// tunnel is already up (Open is idempotent), AttachICE only
-		// registers the OnNewOffer dispatch and emits a fresh offer.
-		if e.mode == connectionmode.ModeP2PDynamic {
-			if err := conn.AttachICE(); err != nil {
-				conn.Log.Warnf("AttachICE on activity: %v", err)
-			}
+	}
+
+	// p2p-dynamic: re-attach ICE on EVERY signal trigger, not only on
+	// the lazy-manager's first activity edge. The runDynamicInactivityLoop
+	// path (DetachICEForPeer when iceTimeout fires) leaves the peer in an
+	// "inactivity-with-ICE-detached" sub-state that the lazy manager does
+	// not represent. Without this re-arm, subsequent remote OFFERs would
+	// reach handshaker.Listen() with iceListener==nil and be silently
+	// dropped, leaving the peer stuck on relay even though both sides
+	// are signaling normally. AttachICE is idempotent (no-op if listener
+	// already attached) and honors iceBackoff.IsSuspended() so the
+	// failure-backoff is not bypassed.
+	if e.mode == connectionmode.ModeP2PDynamic {
+		if err := conn.AttachICE(); err != nil {
+			conn.Log.Warnf("AttachICE on signal activity: %v", err)
 		}
 	}
 }

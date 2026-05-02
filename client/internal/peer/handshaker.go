@@ -147,6 +147,9 @@ func (h *Handshaker) Listen(ctx context.Context) {
 
 			if iceListener := h.readICEListener(); iceListener != nil && h.RemoteICESupported() {
 				iceListener(&remoteOfferAnswer)
+			} else if h.RemoteICESupported() {
+				h.log.Debugf("remote OFFER (session %s) without local ICE listener (relay-forced mode or peer in ICE backoff)",
+					remoteOfferAnswer.SessionIDString())
 			}
 
 			if err := h.sendAnswer(); err != nil {
@@ -169,6 +172,9 @@ func (h *Handshaker) Listen(ctx context.Context) {
 
 			if iceListener := h.readICEListener(); iceListener != nil && h.RemoteICESupported() {
 				iceListener(&remoteOfferAnswer)
+			} else if h.RemoteICESupported() {
+				h.log.Debugf("remote ANSWER (session %s) without local ICE listener (relay-forced mode or peer in ICE backoff)",
+					remoteOfferAnswer.SessionIDString())
 			}
 		case <-ctx.Done():
 			h.log.Infof("stop listening for remote offers and answers")
