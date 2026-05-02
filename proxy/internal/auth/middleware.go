@@ -489,23 +489,33 @@ func wasCredentialSubmitted(r *http.Request, method auth.Method) bool {
 	return false
 }
 
+type AddDomainOptions struct {
+	Schemes             []Scheme
+	SessionPublicKeyB64 string
+	SessionExpiration   time.Duration
+	AccountID           types.AccountID
+	ServiceID           types.ServiceID
+	IPRestrictions      *restrict.Filter
+	MTLS                *MTLSConfig
+}
+
 // AddDomain registers authentication schemes for the given domain.
 // If schemes are provided, a valid session public key is required to sign/verify
 // session JWTs. Returns an error if the key is missing or invalid.
 // Callers must not serve the domain if this returns an error, to avoid
 // exposing an unauthenticated service.
-func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 string, expiration time.Duration, accountID types.AccountID, serviceID types.ServiceID, ipRestrictions *restrict.Filter, mtlsConfig *MTLSConfig) error {
+func (mw *Middleware) AddDomain(domain string, opts AddDomainOptions) error {
 	config := DomainConfig{
-		Schemes:           schemes,
-		SessionExpiration: expiration,
-		AccountID:         accountID,
-		ServiceID:         serviceID,
-		IPRestrictions:    ipRestrictions,
-		MTLS:              mtlsConfig,
+		Schemes:           opts.Schemes,
+		SessionExpiration: opts.SessionExpiration,
+		AccountID:         opts.AccountID,
+		ServiceID:         opts.ServiceID,
+		IPRestrictions:    opts.IPRestrictions,
+		MTLS:              opts.MTLS,
 	}
 
-	if len(schemes) > 0 {
-		pubKeyBytes, err := base64.StdEncoding.DecodeString(publicKeyB64)
+	if len(opts.Schemes) > 0 {
+		pubKeyBytes, err := base64.StdEncoding.DecodeString(opts.SessionPublicKeyB64)
 		if err != nil {
 			return fmt.Errorf("decode session public key for domain %s: %w", domain, err)
 		}

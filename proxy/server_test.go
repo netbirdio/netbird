@@ -70,7 +70,15 @@ func TestConfigureTLS_ConfiguresClientCAsPerDomain(t *testing.T) {
 	caPEM := writeTestCA(t)
 	mtlsConfig, err := internalauth.NewMTLSConfig(true, caPEM)
 	require.NoError(t, err)
-	require.NoError(t, mw.AddDomain("example.com", nil, "", 0, "acc1", "svc1", nil, mtlsConfig))
+	require.NoError(t, mw.AddDomain("example.com", internalauth.AddDomainOptions{
+		Schemes:             nil,
+		SessionPublicKeyB64: "",
+		SessionExpiration:   0,
+		AccountID:           "acc1",
+		ServiceID:           "svc1",
+		IPRestrictions:      nil,
+		MTLS:                mtlsConfig,
+	}))
 
 	s := &Server{
 		CertificateDirectory: dir,
