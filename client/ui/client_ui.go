@@ -287,6 +287,18 @@ type serviceClient struct {
 	sDisableSSHAuth             *widget.Check
 	iSSHJWTCacheTTL             *widget.Entry
 
+	// Phase 1+ ConnectionMode selector + per-mode timeout overrides.
+	// Defaulting to "Follow server" leaves the local override empty so
+	// the daemon uses whatever the management server pushes.
+	sConnectionMode  *widget.Select
+	iRelayTimeout    *widget.Entry
+	iP2pTimeout      *widget.Entry
+	iP2pRetryMax     *widget.Entry
+	connectionMode   string
+	relayTimeoutSecs uint32
+	p2pTimeoutSecs   uint32
+	p2pRetryMaxSecs  uint32
+
 	// observable settings over corresponding iMngURL and iPreSharedKey values.
 	managementURL string
 	preSharedKey  string
@@ -476,6 +488,19 @@ func (s *serviceClient) showSettingsUI() {
 	s.sDisableSSHAuth = widget.NewCheck("Disable SSH Authentication", nil)
 	s.iSSHJWTCacheTTL = widget.NewEntry()
 
+	// Connection-mode override + per-mode timeout fields.
+	// Order matches the Android spinner so behaviour is consistent.
+	s.sConnectionMode = widget.NewSelect(
+		[]string{"Follow server", "relay-forced", "p2p", "p2p-lazy", "p2p-dynamic"},
+		func(string) { s.updateTimeoutEntriesEnabled() },
+	)
+	s.iRelayTimeout = widget.NewEntry()
+	s.iRelayTimeout.SetPlaceHolder("seconds (empty = use server default)")
+	s.iP2pTimeout = widget.NewEntry()
+	s.iP2pTimeout.SetPlaceHolder("seconds (empty = use server default)")
+	s.iP2pRetryMax = widget.NewEntry()
+	s.iP2pRetryMax.SetPlaceHolder("seconds (empty = use server default)")
+
 	s.wSettings.SetContent(s.getSettingsForm())
 	s.wSettings.Resize(fyne.NewSize(600, 400))
 	s.wSettings.SetFixedSize(true)
@@ -586,7 +611,48 @@ func (s *serviceClient) hasSettingsChanged(iMngURL string, port, mtu int64) bool
 		s.disableClientRoutes != s.sDisableClientRoutes.Checked ||
 		s.disableServerRoutes != s.sDisableServerRoutes.Checked ||
 		s.blockLANAccess != s.sBlockLANAccess.Checked ||
+		s.hasConnectionModeChanges() ||
 		s.hasSSHChanges()
+}
+
+// hasConnectionModeChanges reports whether the user touched the
+// Connection Mode dropdown or any of the timeout entries on the
+// Network tab. Empty / non-numeric timeout entries map to 0
+// (= no override).
+func (s *serviceClient) hasConnectionModeChanges() bool {
+	if s.sConnectionMode == nil {
+		return false
+	}
+	desired := s.selectedConnectionMode()
+	if s.connectionMode != desired {
+		return true
+	}
+	return s.relayTimeoutSecs != parseUint32Field(s.iRelayTimeout.Text) ||
+		s.p2pTimeoutSecs != parseUint32Field(s.iP2pTimeout.Text) ||
+		s.p2pRetryMaxSecs != parseUint32Field(s.iP2pRetryMax.Text)
+}
+
+// selectedConnectionMode returns the canonical mode string for the
+// current dropdown selection. "Follow server" maps to empty (clears
+// any local override).
+func (s *serviceClient) selectedConnectionMode() string {
+	v := s.sConnectionMode.Selected
+	if v == "Follow server" {
+		return ""
+	}
+	return v
+}
+
+func parseUint32Field(text string) uint32 {
+	t := strings.TrimSpace(text)
+	if t == "" {
+		return 0
+	}
+	v, err := strconv.ParseUint(t, 10, 32)
+	if err != nil {
+		return 0
+	}
+	return uint32(v)
 }
 
 func (s *serviceClient) applySettingsChanges(iMngURL string, port, mtu int64) error {
@@ -662,6 +728,17 @@ func (s *serviceClient) buildSetConfigRequest(iMngURL string, port, mtu int64) (
 		req.OptionalPreSharedKey = &s.iPreSharedKey.Text
 	}
 
+	// Connection-mode override + per-mode timeouts. Empty connection_mode
+	// clears any local override (= "Follow server").
+	connMode := s.selectedConnectionMode()
+	req.ConnectionMode = &connMode
+	relaySecs := parseUint32Field(s.iRelayTimeout.Text)
+	p2pSecs := parseUint32Field(s.iP2pTimeout.Text)
+	retrySecs := parseUint32Field(s.iP2pRetryMax.Text)
+	req.RelayTimeoutSeconds = &relaySecs
+	req.P2PTimeoutSeconds = &p2pSecs
+	req.P2PRetryMaxSeconds = &retrySecs
+
 	return req, nil
 }
 
@@ -731,7 +808,35 @@ func (s *serviceClient) getNetworkForm() *widget.Form {
 			{Text: "Disable Client Routes", Widget: s.sDisableClientRoutes},
 			{Text: "Disable Server Routes", Widget: s.sDisableServerRoutes},
 			{Text: "Disable LAN Access", Widget: s.sBlockLANAccess},
+			{Text: "Connection Mode", Widget: s.sConnectionMode},
+			{Text: "Relay Timeout (s)", Widget: s.iRelayTimeout},
+			{Text: "P2P Timeout (s)", Widget: s.iP2pTimeout},
+			{Text: "P2P Retry-Max (s)", Widget: s.iP2pRetryMax},
 		},
+	}
+}
+
+// updateTimeoutEntriesEnabled enables only the timeout fields that are
+// meaningful for the currently-selected connection mode. The lazy
+// connection manager (and therefore inactivity teardown) only runs in
+// p2p-lazy + p2p-dynamic, so other modes get all three fields disabled.
+func (s *serviceClient) updateTimeoutEntriesEnabled() {
+	if s.iRelayTimeout == nil {
+		return
+	}
+	switch s.sConnectionMode.Selected {
+	case "p2p-lazy":
+		s.iRelayTimeout.Enable()
+		s.iP2pTimeout.Disable()
+		s.iP2pRetryMax.Disable()
+	case "p2p-dynamic":
+		s.iRelayTimeout.Enable()
+		s.iP2pTimeout.Enable()
+		s.iP2pRetryMax.Enable()
+	default:
+		s.iRelayTimeout.Disable()
+		s.iP2pTimeout.Disable()
+		s.iP2pRetryMax.Disable()
 	}
 }
 
@@ -1348,6 +1453,11 @@ func (s *serviceClient) getSrvConfig() {
 		s.sshJWTCacheTTL = *cfg.SSHJWTCacheTTL
 	}
 
+	s.connectionMode = cfg.ConnectionMode
+	s.relayTimeoutSecs = cfg.RelayTimeoutSeconds
+	s.p2pTimeoutSecs = cfg.P2pTimeoutSeconds
+	s.p2pRetryMaxSecs = cfg.P2pRetryMaxSeconds
+
 	if s.showAdvancedSettings {
 		s.iMngURL.SetText(s.managementURL)
 		s.iPreSharedKey.SetText(cfg.PreSharedKey)
@@ -1386,6 +1496,30 @@ func (s *serviceClient) getSrvConfig() {
 		if cfg.SSHJWTCacheTTL != nil {
 			s.iSSHJWTCacheTTL.SetText(strconv.Itoa(*cfg.SSHJWTCacheTTL))
 		}
+
+		// Connection-mode dropdown + timeout entries.
+		switch cfg.ConnectionMode {
+		case "relay-forced", "p2p", "p2p-lazy", "p2p-dynamic":
+			s.sConnectionMode.SetSelected(cfg.ConnectionMode)
+		default:
+			s.sConnectionMode.SetSelected("Follow server")
+		}
+		if cfg.RelayTimeoutSeconds == 0 {
+			s.iRelayTimeout.SetText("")
+		} else {
+			s.iRelayTimeout.SetText(strconv.FormatUint(uint64(cfg.RelayTimeoutSeconds), 10))
+		}
+		if cfg.P2pTimeoutSeconds == 0 {
+			s.iP2pTimeout.SetText("")
+		} else {
+			s.iP2pTimeout.SetText(strconv.FormatUint(uint64(cfg.P2pTimeoutSeconds), 10))
+		}
+		if cfg.P2pRetryMaxSeconds == 0 {
+			s.iP2pRetryMax.SetText("")
+		} else {
+			s.iP2pRetryMax.SetText(strconv.FormatUint(uint64(cfg.P2pRetryMaxSeconds), 10))
+		}
+		s.updateTimeoutEntriesEnabled()
 	}
 
 	if s.mNotifications == nil {
@@ -1464,6 +1598,12 @@ func protoConfigToConfig(cfg *proto.GetConfigResponse) *profilemanager.Config {
 
 	ttl := int(cfg.SshJWTCacheTTL)
 	config.SSHJWTCacheTTL = &ttl
+
+	// Phase 1+ ConnectionMode override + per-mode timeouts.
+	config.ConnectionMode = cfg.ConnectionMode
+	config.RelayTimeoutSeconds = cfg.RelayTimeoutSeconds
+	config.P2pTimeoutSeconds = cfg.P2PTimeoutSeconds
+	config.P2pRetryMaxSeconds = cfg.P2PRetryMaxSeconds
 
 	return &config
 }

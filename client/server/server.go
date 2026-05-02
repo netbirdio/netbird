@@ -1540,6 +1540,10 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		EnableSSHRemotePortForwarding: enableSSHRemotePortForwarding,
 		DisableSSHAuth:                disableSSHAuth,
 		SshJWTCacheTTL:                sshJWTCacheTTL,
+		ConnectionMode:                cfg.ConnectionMode,
+		P2PTimeoutSeconds:             cfg.P2pTimeoutSeconds,
+		RelayTimeoutSeconds:           cfg.RelayTimeoutSeconds,
+		P2PRetryMaxSeconds:            cfg.P2pRetryMaxSeconds,
 	}, nil
 }
 

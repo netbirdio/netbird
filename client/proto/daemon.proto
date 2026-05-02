@@ -323,6 +323,18 @@ message GetConfigResponse {
   bool disableSSHAuth = 25;
 
   int32 sshJWTCacheTTL = 26;
+
+  // Phase 1 (#5989): peer-connection mode and idle timeouts.
+  // connection_mode is the canonical lower-kebab-case name
+  // (relay-forced, p2p, p2p-lazy, p2p-dynamic, follow-server) or
+  // empty string when no local override is set.
+  string connection_mode = 27;
+  uint32 p2p_timeout_seconds = 28;
+  uint32 relay_timeout_seconds = 29;
+  // Phase 3 (#5989): cap on the ICE-failure backoff schedule. 0 = no
+  // local override (daemon falls back to server-pushed value or built-in
+  // 15-min default).
+  uint32 p2p_retry_max_seconds = 30;
 }
 
 // PeerState contains the latest state of a peer
