@@ -57,14 +57,6 @@ type WorkerICE struct {
 	remoteSessionChanged bool
 	muxAgent             sync.Mutex
 
-	// pendingCandidates buffers remote ICE candidates that arrive before
-	// the local agent has been (re)created via reCreateAgent. Without this
-	// buffer, every candidate that races ahead of OnNewOffer is silently
-	// dropped, often preventing P2P establishment after a network change.
-	// Drained immediately after the agent is set in OnNewOffer.
-	// Phase 3.6 (#5989).
-	pendingCandidates []ice.Candidate
-
 	localUfrag string
 	localPwd   string
 
@@ -160,19 +152,6 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 		w.remoteSessionID = ""
 	}
 
-	// Phase 3.6 (#5989): drain any remote candidates that arrived before
-	// the agent was ready. Common after network-change-triggered recreate
-	// where the remote peer's candidates outrun our offer-processing.
-	if len(w.pendingCandidates) > 0 {
-		w.log.Debugf("draining %d pending remote candidates into fresh agent", len(w.pendingCandidates))
-		for _, c := range w.pendingCandidates {
-			if err := agent.AddRemoteCandidate(c); err != nil {
-				w.log.Warnf("failed to add buffered candidate to agent: %v", err)
-			}
-		}
-		w.pendingCandidates = nil
-	}
-
 	go w.connect(dialerCtx, agent, remoteOfferAnswer)
 }
 
@@ -182,18 +161,7 @@ func (w *WorkerICE) OnRemoteCandidate(candidate ice.Candidate, haRoutes route.HA
 	defer w.muxAgent.Unlock()
 	w.log.Debugf("OnRemoteCandidate from peer %s -> %s", w.config.Key, candidate.String())
 	if w.agent == nil {
-		// Phase 3.6 (#5989): buffer the candidate instead of dropping it.
-		// Common race after recreate: candidates arrive before the new
-		// OnNewOffer kicks off reCreateAgent. The buffer is drained
-		// inside OnNewOffer once the fresh agent is set.
-		// Cap the buffer to prevent unbounded growth on misbehaving peers.
-		const maxPending = 64
-		if len(w.pendingCandidates) >= maxPending {
-			w.log.Warnf("pending-candidate buffer full (%d), dropping new candidate", maxPending)
-			return
-		}
-		w.pendingCandidates = append(w.pendingCandidates, candidate)
-		w.log.Debugf("ICE Agent not ready, buffered candidate (queue size %d)", len(w.pendingCandidates))
+		w.log.Warnf("ICE Agent is not initialized yet")
 		return
 	}
 
