@@ -117,7 +117,7 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 			return
 		}
 
-		// Domains with no authentication schemes pass through after IP checks.
+		// Domains with no authentication schemes pass through after IP and mTLS checks.
 		if len(config.Schemes) == 0 {
 			next.ServeHTTP(w, r)
 			return
