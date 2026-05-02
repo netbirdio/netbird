@@ -37,6 +37,10 @@ type Guard struct {
 	srWatcher               *SRWatcher
 	relayedConnDisconnected chan struct{}
 	iCEConnDisconnected     chan struct{}
+	// onNetworkChange is called when signal/relay reconnects after a
+	// network change (e.g. LTE-modem replug, WiFi roaming). Set once
+	// before Start() is called; no lock needed. Phase 3.5 of #5989.
+	onNetworkChange func()
 }
 
 func NewGuard(log *log.Entry, isConnectedFn connStatusFunc, timeout time.Duration, srWatcher *SRWatcher) *Guard {
@@ -48,6 +52,13 @@ func NewGuard(log *log.Entry, isConnectedFn connStatusFunc, timeout time.Duratio
 		relayedConnDisconnected: make(chan struct{}, 1),
 		iCEConnDisconnected:     make(chan struct{}, 1),
 	}
+}
+
+// SetOnNetworkChange registers a callback that fires whenever the
+// signal/relay layer reconnects after a network change. Must be called
+// before Start(). Phase 3.5 of #5989.
+func (g *Guard) SetOnNetworkChange(cb func()) {
+	g.onNetworkChange = cb
 }
 
 func (g *Guard) Start(ctx context.Context, eventCallback func()) {
@@ -130,6 +141,10 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context, callback func()) {
 			ticker = g.newReconnectTicker(ctx)
 			tickerChannel = ticker.C
 			iceState.reset()
+			// Phase 3.5 (#5989): notify Conn to reset iceBackoff + recreate workerICE
+			if g.onNetworkChange != nil {
+				g.onNetworkChange()
+			}
 
 		case <-ctx.Done():
 			g.log.Debugf("context is done, stop reconnect loop")

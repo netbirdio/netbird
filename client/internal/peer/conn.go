@@ -242,6 +242,11 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 	}
 
 	conn.guard = guard.NewGuard(conn.Log, conn.isConnectedOnAllWay, conn.config.Timeout, conn.srWatcher)
+	// Phase 3.5 (#5989): reset ICE backoff + recreate workerICE on network change.
+	// Set before Start() is called so the goroutine sees it without races.
+	if !skipICE {
+		conn.guard.SetOnNetworkChange(conn.onNetworkChange)
+	}
 
 	conn.wg.Add(1)
 	go func() {
@@ -1139,4 +1144,65 @@ func (conn *Conn) IceBackoffSnapshot() BackoffSnapshot {
 		return BackoffSnapshot{}
 	}
 	return conn.iceBackoff.Snapshot()
+}
+
+// onNetworkChange is invoked by Guard when the signal/relay layer
+// reconnects after a network change (LTE-modem replug, WiFi roaming, etc.).
+// Phase 3.5 of #5989.
+//
+// Resets the per-peer ICE-failure backoff (because the NAT topology may
+// have changed -- previous failures do not predict future ones) AND
+// recreates the workerICE wrapper so the next AttachICE/offer has a
+// fresh pion-agent rather than one closed by a previous DetachICE call.
+//
+// Called from Guard's goroutine; acquires conn.mu, so it must not be
+// invoked from a path that already holds conn.mu.
+func (conn *Conn) onNetworkChange() {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+
+	if conn.ctx.Err() != nil {
+		return
+	}
+
+	if conn.iceBackoff != nil {
+		snap := conn.iceBackoff.Snapshot()
+		if snap.Failures > 0 {
+			conn.Log.Infof("network change detected, resetting ICE backoff (was %d failures)",
+				snap.Failures)
+		}
+		conn.iceBackoff.Reset()
+		if conn.statusRecorder != nil {
+			conn.statusRecorder.UpdatePeerIceBackoff(conn.config.Key, conn.iceBackoff.Snapshot())
+		}
+	}
+
+	// Recreate workerICE so the next AttachICE has a fresh pion-agent.
+	// If workerICE is nil here the mode must be relay-forced; caller
+	// already guards against that by not setting the callback.
+	if conn.workerICE == nil {
+		return
+	}
+
+	conn.workerICE.Close()
+
+	relayIsSupportedLocally := conn.workerRelay.RelayIsSupportedLocally()
+	newWorker, err := NewWorkerICE(conn.ctx, conn.Log, conn.config, conn,
+		conn.signaler, conn.iFaceDiscover, conn.statusRecorder, relayIsSupportedLocally)
+	if err != nil {
+		conn.Log.Warnf("recreate workerICE failed after network change: %v", err)
+		conn.workerICE = nil
+		return
+	}
+	conn.workerICE = newWorker
+
+	// If the handshaker already has an ICE listener attached (the connection
+	// was in an active ICE or p2p-dynamic-attached state), swap it to the
+	// new worker so the next offer reaches the fresh agent.
+	if conn.handshaker != nil && conn.handshaker.readICEListener() != nil {
+		conn.handshaker.RemoveICEListener()
+		conn.handshaker.AddICEListener(conn.workerICE.OnNewOffer)
+	}
+
+	conn.Log.Debugf("workerICE recreated after network change")
 }
