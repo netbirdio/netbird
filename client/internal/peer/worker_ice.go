@@ -101,6 +101,20 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	defer w.muxAgent.Unlock()
 
 	if w.agent != nil || w.agentConnecting {
+		// Phase 3.7c (#5989) re-introduces the Guard-Loop Fix from PR #5805.
+		// While the local ICE agent is mid-connection, ignore any incoming
+		// offer regardless of sessionID. Both sides' Guards fire fresh
+		// offers every ~800ms-30s (driven by their own iceRetryState +
+		// srReconnect events). If we tear down on every sessionID-change,
+		// the in-flight ICE pair-checks (~5-10s) never complete -- the
+		// remote's freshly-recreated agent generates yet another sessionID,
+		// loops back, infinite recreate cycle. Empirically observed on
+		// badmitterndorf during LTE-carrier instability: 5 different
+		// sessionIDs received from the remote in 2min, no P2P convergence.
+		if w.agentConnecting {
+			w.log.Debugf("agent connecting, skipping new offer (sessionID %s) to let pair-checks finish", remoteOfferAnswer.SessionIDString())
+			return
+		}
 		// backward compatibility with old clients that do not send session ID
 		if remoteOfferAnswer.SessionID == nil {
 			w.log.Debugf("agent already exists, skipping the offer")
