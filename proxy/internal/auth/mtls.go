@@ -17,7 +17,7 @@ type MTLSConfig struct {
 
 func NewMTLSConfig(enabled bool, caCertPEM string) (*MTLSConfig, error) {
 	if !enabled {
-		return nil, nil
+		return &MTLSConfig{}, nil
 	}
 	if strings.TrimSpace(caCertPEM) == "" {
 		return nil, errors.New("mtls_auth: ca_cert_pem is required when enabled")

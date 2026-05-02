@@ -571,18 +571,19 @@ func (s *Server) dialManagement() (*grpc.ClientConn, error) {
 func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 	tlsConfig := &tls.Config{}
 	configureClientCAs := func(base *tls.Config) {
+		fallback := base.Clone()
+		fallback.GetConfigForClient = nil
 		base.GetConfigForClient = func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
 			if hello == nil || hello.ServerName == "" {
-				return nil, nil
+				return fallback, nil
 			}
 
 			caPool, ok := s.auth.GetClientCAPool(hello.ServerName)
 			if !ok {
-				return nil, nil
+				return fallback, nil
 			}
 
-			cfg := base.Clone()
-			cfg.GetConfigForClient = nil
+			cfg := fallback.Clone()
 			cfg.ClientAuth = tls.RequestClientCert
 			cfg.ClientCAs = caPool
 			return cfg, nil
@@ -599,7 +600,6 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 		}
 		go certWatcher.Watch(ctx)
 		tlsConfig.GetCertificate = certWatcher.GetCertificate
-		tlsConfig.ClientAuth = tls.RequestClientCert
 		configureClientCAs(tlsConfig)
 		return tlsConfig, nil
 	}
@@ -643,7 +643,6 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 	// autocert.Manager.TLSConfig() wires its own GetCertificate, which
 	// bypasses our override that checks wildcards first.
 	tlsConfig.GetCertificate = s.acme.GetCertificate
-	tlsConfig.ClientAuth = tls.RequestClientCert
 	configureClientCAs(tlsConfig)
 
 	// ServerName needs to be set to allow for ACME to work correctly

@@ -91,16 +91,20 @@ func TestConfigureTLS_ConfiguresClientCAsPerDomain(t *testing.T) {
 	tlsConfig, err := s.configureTLS(context.Background())
 	require.NoError(t, err)
 	require.NotNil(t, tlsConfig.GetConfigForClient)
+	assert.Equal(t, tls.NoClientCert, tlsConfig.ClientAuth)
+	assert.Nil(t, tlsConfig.ClientCAs)
 
 	cfg, err := tlsConfig.GetConfigForClient(&tls.ClientHelloInfo{ServerName: "example.com"})
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 	assert.Equal(t, tls.RequestClientCert, cfg.ClientAuth)
-	assert.Equal(t, mtlsConfig.CAPool.Subjects(), cfg.ClientCAs.Subjects())
+	assert.Same(t, mtlsConfig.CAPool, cfg.ClientCAs)
 
 	cfg, err = tlsConfig.GetConfigForClient(&tls.ClientHelloInfo{ServerName: "other.example.com"})
 	require.NoError(t, err)
-	assert.Nil(t, cfg)
+	require.NotNil(t, cfg)
+	assert.Equal(t, tls.NoClientCert, cfg.ClientAuth)
+	assert.Nil(t, cfg.ClientCAs)
 }
 
 func writeTestTLSCertificate(t *testing.T, dir string) (string, string) {

@@ -489,6 +489,7 @@ func wasCredentialSubmitted(r *http.Request, method auth.Method) bool {
 	return false
 }
 
+// AddDomainOptions groups the authentication and restriction settings for a domain.
 type AddDomainOptions struct {
 	Schemes             []Scheme
 	SessionPublicKeyB64 string
