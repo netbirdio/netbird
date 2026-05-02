@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/x509"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -143,6 +144,15 @@ func (mw *Middleware) getDomainConfig(host string) (DomainConfig, bool) {
 	defer mw.domainsMux.RUnlock()
 	config, exists := mw.domains[host]
 	return config, exists
+}
+
+// GetClientCAPool returns the configured mTLS client CA pool for the given host.
+func (mw *Middleware) GetClientCAPool(host string) (*x509.CertPool, bool) {
+	config, exists := mw.getDomainConfig(host)
+	if !exists || config.MTLS == nil || !config.MTLS.Enabled || config.MTLS.CAPool == nil {
+		return nil, false
+	}
+	return config.MTLS.CAPool, true
 }
 
 func setCapturedIDs(r *http.Request, config DomainConfig) {

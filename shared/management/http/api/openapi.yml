@@ -3336,6 +3336,14 @@ components:
             -----END CERTIFICATE-----
       required:
         - enabled
+      allOf:
+        - if:
+            properties:
+              enabled:
+                const: true
+          then:
+            required:
+              - ca_cert_pem
     LinkAuthConfig:
       type: object
       properties:
