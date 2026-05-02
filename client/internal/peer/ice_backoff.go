@@ -26,11 +26,20 @@ const (
 	// Falling back to the normal 1-minute initial backoff after that
 	// single failure leaves the peer on relay for far longer than the
 	// underlying connectivity actually warrants. A short fixed delay
-	// inside the grace window lets the second attempt run while the new
+	// inside the grace window lets follow-up attempts run while the new
 	// LTE/Wi-Fi mapping is still fresh; outside the window the normal
 	// exponential schedule applies as before.
-	networkChangeGracePeriod = 30 * time.Second
-	networkChangeRetryDelay  = 5 * time.Second
+	//
+	// Phase 3.7h widened the window from 30 s to 60 s and reduced the
+	// retry delay from 5 s to 2 s after observing real-world LTE-bounce
+	// behaviour: cold NAT mappings often need 3-4 ICE attempts to prime,
+	// and the previous 30 s window only fit ~2 attempts (each pair-check
+	// is ~12-15 s) before the schedule jumped to a 1-minute exponential
+	// suspend. The wider window plus shorter delay typically fits ~4-5
+	// attempts and recovers within ~50 s for peers behind a single NAT
+	// instead of 2-3 minutes.
+	networkChangeGracePeriod = 60 * time.Second
+	networkChangeRetryDelay  = 2 * time.Second
 )
 
 // iceBackoffState tracks per-peer ICE-failure backoff in p2p-dynamic
