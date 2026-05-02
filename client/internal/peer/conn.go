@@ -1038,24 +1038,52 @@ func (conn *Conn) AttachICE() error {
 			snap.NextRetry.Format("15:04:05"))
 		return nil
 	}
-
 	if conn.handshaker == nil {
 		return fmt.Errorf("AttachICE: handshaker not initialized (Open not called)")
 	}
 	if conn.workerICE == nil {
 		return fmt.Errorf("AttachICE: workerICE is nil (relay-forced mode)")
 	}
-	if conn.handshaker.readICEListener() != nil {
+
+	if !conn.attachICEListenerLocked() {
 		return nil
 	}
-
-	conn.handshaker.AddICEListener(conn.workerICE.OnNewOffer)
-	conn.Log.Debugf("ICE listener attached (p2p-dynamic activity-trigger)")
 
 	if err := conn.handshaker.SendOffer(); err != nil {
 		conn.Log.Warnf("AttachICE: SendOffer failed: %v", err)
 	}
 	return nil
+}
+
+// attachICEListenerLocked attaches the ICE listener to the handshaker if it
+// is not already attached. Returns true when a new attachment was made,
+// false when the call was a no-op (already attached, ICE backoff suspended,
+// handshaker not initialised, or workerICE not present).
+//
+// Caller MUST hold conn.mu. Used by:
+//   - AttachICE (signal-trigger path), which then issues SendOffer.
+//   - onNetworkChange (Phase 3.7e, #5989), which deliberately does NOT call
+//     SendOffer because the Guard reconnect-loop handles that.
+//
+// Honours iceBackoff.IsSuspended() so the failure-backoff is not bypassed.
+func (conn *Conn) attachICEListenerLocked() bool {
+	if conn.iceBackoff != nil && conn.iceBackoff.IsSuspended() {
+		snap := conn.iceBackoff.Snapshot()
+		conn.Log.Debugf("ICE backoff active (failure #%d, retry at %s), staying on relay",
+			snap.Failures,
+			snap.NextRetry.Format("15:04:05"))
+		return false
+	}
+	if conn.handshaker == nil || conn.workerICE == nil {
+		return false
+	}
+	if conn.handshaker.readICEListener() != nil {
+		return false
+	}
+
+	conn.handshaker.AddICEListener(conn.workerICE.OnNewOffer)
+	conn.Log.Debugf("ICE listener attached (locked path)")
+	return true
 }
 
 // DetachICE removes the ICE-offer listener and tears down the ICE worker.
@@ -1204,5 +1232,23 @@ func (conn *Conn) onNetworkChange() {
 		conn.workerICE.Close()
 	}
 
-	conn.Log.Debugf("ICE state reset on network change (agent closed; Guard will resend offer)")
+	// Phase 3.7e (#5989): force the ICE listener back on after a network
+	// change. Empirically, after an LTE-modem replug the iceListener can
+	// end up detached for some peers (paths via onICEFailed → DetachICE
+	// after a Failed transition that we did not log because of timing,
+	// or via concurrent state changes during the bounce). Re-attaching
+	// on every signal in ConnMgr.ActivatePeer (Phase 3.7d) is necessary
+	// but not sufficient: by the time the next signal arrives, several
+	// remote OFFERs and the Guard's first sendOffer may already have
+	// been silently dropped at handshaker.Listen() because no listener
+	// was present. Re-attaching here closes that window deterministically.
+	//
+	// We do NOT call SendOffer from this path. The Guard's natural
+	// reconnect-ticker (newReconnectTicker, 800 ms initial) issues the
+	// next offer right after the same srReconnect event that drove this
+	// callback; sending an extra one creates the offer-storm that
+	// Phase 3.7b removed.
+	conn.attachICEListenerLocked()
+
+	conn.Log.Debugf("ICE state reset on network change (agent closed; listener re-armed; Guard will resend offer)")
 }
