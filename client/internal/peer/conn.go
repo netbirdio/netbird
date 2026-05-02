@@ -1198,10 +1198,17 @@ func (conn *Conn) onNetworkChange() {
 
 	// If the handshaker already has an ICE listener attached (the connection
 	// was in an active ICE or p2p-dynamic-attached state), swap it to the
-	// new worker so the next offer reaches the fresh agent.
+	// new worker so the next offer reaches the fresh agent. Then trigger a
+	// fresh SendOffer so the remote side responds and our pion-agent gets
+	// reCreateAgent'd via OnNewOffer. Without the SendOffer the new worker
+	// stays in "ICE Agent is not initialized yet" forever until the next
+	// peer-initiated offer arrives.
 	if conn.handshaker != nil && conn.handshaker.readICEListener() != nil {
 		conn.handshaker.RemoveICEListener()
 		conn.handshaker.AddICEListener(conn.workerICE.OnNewOffer)
+		if err := conn.handshaker.SendOffer(); err != nil {
+			conn.Log.Warnf("SendOffer after workerICE recreate failed: %v", err)
+		}
 	}
 
 	conn.Log.Debugf("workerICE recreated after network change")
