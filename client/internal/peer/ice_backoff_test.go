@@ -121,6 +121,48 @@ func TestIceBackoff_MaxBackoffZero_Disabled(t *testing.T) {
 	}
 }
 
+func TestIceBackoff_GracePeriodAfterReset_ShortDelay(t *testing.T) {
+	s := newIceBackoff(15 * time.Minute)
+	s.Reset() // simulate srReconnect / network-change
+
+	delay := s.markFailure()
+	if delay != networkChangeRetryDelay {
+		t.Fatalf("within grace window: expected %v, got %v", networkChangeRetryDelay, delay)
+	}
+
+	// A second failure inside the grace window also uses the short delay
+	// (long-term exponential schedule is NOT advanced).
+	delay2 := s.markFailure()
+	if delay2 != networkChangeRetryDelay {
+		t.Fatalf("second failure inside grace: expected %v, got %v", networkChangeRetryDelay, delay2)
+	}
+}
+
+func TestIceBackoff_GraceExpired_NormalExponential(t *testing.T) {
+	s := newIceBackoff(15 * time.Minute)
+	s.Reset()
+
+	// Force lastResetAt into the past so the grace window has expired.
+	s.mu.Lock()
+	s.lastResetAt = time.Now().Add(-2 * networkChangeGracePeriod)
+	s.mu.Unlock()
+
+	delay := s.markFailure()
+	if delay < 50*time.Second || delay > 70*time.Second {
+		t.Fatalf("outside grace: expected ~1m exponential delay, got %v", delay)
+	}
+}
+
+func TestIceBackoff_NoGraceWithoutReset(t *testing.T) {
+	// Fresh state without an explicit Reset must use the normal exponential
+	// schedule (lastResetAt is zero so the grace path does not apply).
+	s := newIceBackoff(15 * time.Minute)
+	delay := s.markFailure()
+	if delay < 50*time.Second {
+		t.Fatalf("fresh state without Reset: expected ~1m delay, got %v", delay)
+	}
+}
+
 func TestIceBackoff_FirstFailure(t *testing.T) {
 	s := newIceBackoff(15 * time.Minute)
 	delay := s.markFailure()
