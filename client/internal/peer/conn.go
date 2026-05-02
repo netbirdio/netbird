@@ -1182,24 +1182,27 @@ func (conn *Conn) onNetworkChange() {
 	// instance, which empirically causes ICE to fail with a 13s pair-check
 	// timeout instead of converging in <1s like a fresh daemon-start does.
 	//
-	// Instead: close the current pion agent (sets w.agent = nil) and ask
-	// the handshaker to send a fresh offer. The remote side responds with
-	// a new sessionID, which routes through the still-attached listener
-	// (= the existing workerICE.OnNewOffer). That goes through the well-
-	// tested in-place "tear-down + reCreateAgent" branch in worker_ice.go,
-	// avoiding the state-leak that wrapper-replacement caused.
+	// We also deliberately do NOT call handshaker.SendOffer() here even
+	// though that was an earlier attempt. The Guard's reconnect-loop
+	// already issues sendOffer via its newReconnectTicker (800ms initial,
+	// up to ~4 retries in the first ~6s) right after the same srReconnect
+	// event that fires this callback. Adding our own SendOffer just creates
+	// a sending-offer storm: 5 offers per peer in 6 seconds, which on the
+	// remote side triggers repeated tear-down + reCreateAgent cycles in
+	// quick succession (each new sessionID forces it). That prevents ICE
+	// from ever completing its pair-checks.
 	//
-	// In ModeRelayForced workerICE is nil; nothing to close. The SendOffer
-	// is still issued so the relay path also gets refreshed.
+	// All we do here: close the current pion agent (sets w.agent = nil).
+	// The Guard's natural reconnect-loop then drives the next sendOffer,
+	// the remote responds with a fresh offer, and our existing OnNewOffer
+	// path (still attached to the unchanged workerICE wrapper) goes
+	// through the well-tested "agent==nil + new offer -> reCreateAgent"
+	// branch in worker_ice.go.
+	//
+	// In ModeRelayForced workerICE is nil; nothing to close.
 	if conn.workerICE != nil {
 		conn.workerICE.Close()
 	}
 
-	if conn.handshaker != nil {
-		if err := conn.handshaker.SendOffer(); err != nil {
-			conn.Log.Warnf("SendOffer after network change: %v", err)
-		}
-	}
-
-	conn.Log.Debugf("ICE state reset on network change (agent closed, fresh offer sent)")
+	conn.Log.Debugf("ICE state reset on network change (agent closed; Guard will resend offer)")
 }
