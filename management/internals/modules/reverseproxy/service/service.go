@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
@@ -1053,12 +1054,14 @@ func parseClientCAPEM(caCertPEM string) (*x509.CertPool, error) {
 	foundCertificate := false
 
 	for len(remaining) > 0 {
+		remaining = trimPEMCommentsAndWhitespace(remaining)
+		if len(remaining) == 0 {
+			break
+		}
+
 		var block *pem.Block
 		block, remaining = pem.Decode(remaining)
 		if block == nil {
-			if strings.TrimSpace(string(remaining)) == "" {
-				break
-			}
 			return nil, errors.New("ca_cert_pem contains invalid PEM data")
 		}
 		if block.Type != "CERTIFICATE" {
@@ -1077,6 +1080,21 @@ func parseClientCAPEM(caCertPEM string) (*x509.CertPool, error) {
 	}
 
 	return pool, nil
+}
+
+func trimPEMCommentsAndWhitespace(data []byte) []byte {
+	for len(data) > 0 {
+		data = bytes.TrimLeft(data, " \t\r\n")
+		if len(data) == 0 || data[0] != '#' {
+			return data
+		}
+		if i := bytes.IndexByte(data, '\n'); i >= 0 {
+			data = data[i+1:]
+			continue
+		}
+		return nil
+	}
+	return data
 }
 
 const (

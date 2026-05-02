@@ -38,12 +38,12 @@ func testCertificatePEM(t *testing.T) string {
 	require.NoError(t, err)
 
 	tmpl := &x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject: pkix.Name{CommonName: "Test CA"},
-		NotBefore: time.Now().Add(-time.Hour),
-		NotAfter:  time.Now().Add(time.Hour),
-		IsCA:      true,
-		KeyUsage:  x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "Test CA"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		IsCA:                  true,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 		BasicConstraintsValid: true,
 	}
 
@@ -669,6 +669,15 @@ func TestServiceValidate_MTLSAuth(t *testing.T) {
 	t.Run("enabled mtls accepts valid pem", func(t *testing.T) {
 		rp := validProxy()
 		rp.Auth.MTLSAuth = &MTLSAuthConfig{Enabled: true, CACertPEM: validPEM}
+		require.NoError(t, rp.Validate())
+	})
+
+	t.Run("enabled mtls accepts pem bundle with hash comments", func(t *testing.T) {
+		rp := validProxy()
+		rp.Auth.MTLSAuth = &MTLSAuthConfig{
+			Enabled:   true,
+			CACertPEM: "# exported by test tool\n\n" + validPEM + "\n# intermediate follows\n" + testCertificatePEM(t),
+		}
 		require.NoError(t, rp.Validate())
 	})
 

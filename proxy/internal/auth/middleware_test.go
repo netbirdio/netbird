@@ -1188,6 +1188,36 @@ func TestProtect_MTLSHostWithMatchingCertAllowed(t *testing.T) {
 	assert.Equal(t, auth.MethodMTLS.String(), capturedData.GetAuthMethod())
 }
 
+func TestProtect_MTLSHostWithCommentedPEMBundleAllowed(t *testing.T) {
+	mw := NewMiddleware(log.StandardLogger(), nil, nil)
+	ca := newTestCertAuthority(t, "mtls-root")
+	intermediate := newTestCertAuthority(t, "mtls-intermediate")
+	clientCert := issueClientCertificate(t, ca, "client")
+	pemBundle := "# root CA\n\n" + ca.certPEM + "\n# extra trusted cert\n" + intermediate.certPEM
+	mtlsConfig, err := NewMTLSConfig(true, pemBundle)
+	require.NoError(t, err)
+	require.NoError(t, mw.AddDomain("example.com", AddDomainOptions{
+		Schemes:             nil,
+		SessionPublicKeyB64: "",
+		SessionExpiration:   0,
+		AccountID:           "acc1",
+		ServiceID:           "svc1",
+		IPRestrictions:      nil,
+		MTLS:                mtlsConfig,
+	}))
+
+	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{clientCert.Leaf}}
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
 func TestProtect_MTLSHostWithNonMatchingCertDenied(t *testing.T) {
 	mw := NewMiddleware(log.StandardLogger(), nil, nil)
 	trustedCA := newTestCertAuthority(t, "trusted-root")
