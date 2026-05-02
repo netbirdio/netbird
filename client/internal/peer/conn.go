@@ -1227,9 +1227,24 @@ func (conn *Conn) onNetworkChange() {
 	// through the well-tested "agent==nil + new offer -> reCreateAgent"
 	// branch in worker_ice.go.
 	//
+	// Phase 3.7g (#5989): only tear down the workerICE agent when ICE is
+	// actually broken. If pion's lastKnownState is still Connected the
+	// peer-to-peer UDP path is alive end-to-end (typical for a brief
+	// signal-server outage where WG keepalives between peers continued
+	// to flow); closing the agent here would force a 15-25 s ICE
+	// renegotiation cycle plus a Relay→ICE handover gap that the user
+	// would observe as a ping dropout for no good reason.
+	//
+	// If ICE actually went Disconnected/Failed during the network event,
+	// pion has already cleared w.agent via onConnectionStateChange and
+	// the Close call below is a no-op anyway. Either way, a fresh remote
+	// OFFER will recreate the agent through the existing OnNewOffer path.
+	//
 	// In ModeRelayForced workerICE is nil; nothing to close.
-	if conn.workerICE != nil {
+	if conn.workerICE != nil && !conn.workerICE.IsConnected() {
 		conn.workerICE.Close()
+	} else if conn.workerICE != nil {
+		conn.Log.Debugf("network change: skipping workerICE.Close (ICE still Connected, soft-fallback)")
 	}
 
 	// Phase 3.7e (#5989): force the ICE listener back on after a network

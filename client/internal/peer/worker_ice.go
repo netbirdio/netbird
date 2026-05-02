@@ -215,6 +215,21 @@ func (w *WorkerICE) InProgress() bool {
 	return w.agentConnecting
 }
 
+// IsConnected returns true when pion's ICE agent reports Connected and
+// has not yet transitioned to Disconnected/Failed/Closed. Used by
+// Conn.onNetworkChange (Phase 3.7g of #5989) to skip a needless
+// workerICE.Close when an srReconnect/network-change event arrives but
+// the existing P2P session is still alive end-to-end (typical for a
+// brief signal-server outage while peer-to-peer UDP keeps flowing).
+// Closing the agent in that case forces a 15-25 s renegotiation cycle
+// and a Relay→ICE handover gap that the user would observe as a ping
+// dropout, even though no real peer-to-peer connectivity loss occurred.
+func (w *WorkerICE) IsConnected() bool {
+	w.muxAgent.Lock()
+	defer w.muxAgent.Unlock()
+	return w.agent != nil && w.lastKnownState == ice.ConnectionStateConnected
+}
+
 func (w *WorkerICE) Close() {
 	w.muxAgent.Lock()
 	defer w.muxAgent.Unlock()
