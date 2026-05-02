@@ -57,6 +57,24 @@ func init() {
 	installCmd.Flags().StringSliceVar(&serviceEnvVars, "service-env", nil, serviceEnvDesc)
 	reconfigureCmd.Flags().StringSliceVar(&serviceEnvVars, "service-env", nil, serviceEnvDesc)
 
+	// Profile-level connection-mode + timeout flags. Same semantics as on
+	// `netbird up` but writeable at install time so server/headless
+	// installs can pre-seed the active profile before the daemon starts.
+	// Same package-level vars are shared with upCmd; on `up` they take
+	// effect through setupConfig(), here we apply them once before
+	// installing the service so the daemon picks them up on first run.
+	for _, c := range []*cobra.Command{installCmd, reconfigureCmd} {
+		c.Flags().StringVar(&connectionMode, connectionModeFlag, "",
+			"[Experimental] Peer connection mode: relay-forced, p2p, p2p-lazy, p2p-dynamic, or follow-server. "+
+				"Overrides the server-pushed value when set. Use follow-server to clear a previously-set local override.")
+		c.Flags().Uint32Var(&relayTimeoutSecs, relayTimeoutFlag, 0,
+			"[Experimental] Relay-worker idle timeout in seconds. 0 = use server-pushed value (or built-in default).")
+		c.Flags().Uint32Var(&p2pTimeoutSecs, p2pTimeoutFlag, 0,
+			"[Experimental] ICE-worker idle timeout in seconds. 0 = use server-pushed value. Only effective in p2p-dynamic mode.")
+		c.Flags().Uint32Var(&p2pRetryMaxSecs, p2pRetryMaxFlag, 0,
+			"[Experimental] Maximum ICE-failure-backoff interval in seconds. 0 = use server-pushed value (or built-in default 15 min).")
+	}
+
 	rootCmd.AddCommand(serviceCmd)
 }
 
