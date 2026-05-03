@@ -280,7 +280,11 @@ func orDashStr(s string) string {
 }
 
 func peerLatencyStr(p *proto.PeerState) string {
-	d := p.GetLatency().AsDuration()
+	lat := p.GetLatency()
+	if lat == nil {
+		return "-"
+	}
+	d := lat.AsDuration()
 	if d == 0 {
 		return "-"
 	}

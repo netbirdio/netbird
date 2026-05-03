@@ -442,10 +442,11 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 		ep = directEp
 	}
 
-	if conn.wgProxyRelay != nil {
-		conn.wgProxyRelay.Pause()
-	}
-
+	// Bring the new ICE proxy up FIRST so the destination is ready to
+	// receive packets. Then update WG to use it. Only after WG has
+	// committed to the new endpoint do we pause the relay -- otherwise
+	// there is a 1-2 s window where relay is suspended but WG still
+	// points at it, dropping every packet in that window.
 	if wgProxy != nil {
 		wgProxy.Work()
 	}
@@ -464,6 +465,10 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 	if conn.wgProxyRelay != nil {
 		conn.Log.Debugf("redirect packets from relayed conn to WireGuard")
 		conn.wgProxyRelay.RedirectAs(ep)
+		// Pause AFTER the redirect is wired up so any in-flight packet
+		// from the relay end has a forwarding path while WG converges
+		// onto the direct endpoint.
+		conn.wgProxyRelay.Pause()
 	}
 
 	conn.currentConnPriority = priority
@@ -508,9 +513,14 @@ func (conn *Conn) onICEStateDisconnected(sessionChanged bool) {
 	} else {
 		conn.Log.Infof("ICE disconnected, do not switch to Relay. Reset priority to: %s", conntype.None.String())
 		conn.currentConnPriority = conntype.None
-		if err := conn.config.WgConfig.WgInterface.RemoveEndpointAddress(conn.config.WgConfig.RemoteKey); err != nil {
-			conn.Log.Errorf("failed to remove wg endpoint: %v", err)
-		}
+		// Intentionally NOT calling RemoveEndpointAddress here: a brief
+		// ICE flap (NAT rebind, signal hiccup) is followed within 1-2 s
+		// by a fresh ICE-connected callback that re-configures the WG
+		// endpoint. Actively removing the endpoint creates a no-endpoint
+		// window in which WG drops every packet rather than queuing on
+		// a slightly-stale address that the next ConfigureWGEndpoint
+		// will replace anyway. If the disconnect is permanent, WG's own
+		// keepalive timeout will surface the dead peer.
 	}
 
 	changed := conn.statusICE.Get() != worker.StatusDisconnected
