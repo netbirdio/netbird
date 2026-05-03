@@ -1486,9 +1486,22 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		e.updateSSHServerAuth(networkMap.GetSshAuth())
 
 		// Phase 3.7i (#5989): mirror RemotePeerConfig fields into peer.Status
-		// so daemon-RPC StatusResponse exposes them for UIs.
+		// so daemon-RPC StatusResponse exposes them for UIs. Also detect
+		// LiveOnline true->false transitions so we can proactively close
+		// the local conn under p2p-dynamic instead of letting its guard
+		// spam reconnect-offers for ~relay_timeout minutes after the peer
+		// disappeared.
 		for _, rp := range remotePeers {
-			if err := e.statusRecorder.UpdatePeerRemoteMeta(rp.GetWgPubKey(), peer.RemoteMeta{
+			pubKey := rp.GetWgPubKey()
+			liveOnline := rp.GetLiveOnline()
+			livenessKnown := rp.GetServerLivenessKnown()
+			var prevLiveOnline bool
+			var prevLivenessKnown bool
+			if prev, err := e.statusRecorder.GetPeer(pubKey); err == nil {
+				prevLiveOnline = prev.RemoteLiveOnline
+				prevLivenessKnown = prev.RemoteServerLivenessKnown
+			}
+			if err := e.statusRecorder.UpdatePeerRemoteMeta(pubKey, peer.RemoteMeta{
 				EffectiveConnectionMode:    rp.GetEffectiveConnectionMode(),
 				EffectiveRelayTimeoutSecs:  rp.GetEffectiveRelayTimeoutSecs(),
 				EffectiveP2PTimeoutSecs:    rp.GetEffectiveP2PTimeoutSecs(),
@@ -1499,10 +1512,23 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 				ConfiguredP2PRetryMaxSecs:  rp.GetConfiguredP2PRetryMaxSecs(),
 				Groups:                     rp.GetGroups(),
 				LastSeenAtServer:           peer.TimestampOrZero(rp.GetLastSeenAtServer()),
-				LiveOnline:                 rp.GetLiveOnline(),
-				ServerLivenessKnown:        rp.GetServerLivenessKnown(),
+				LiveOnline:                 liveOnline,
+				ServerLivenessKnown:        livenessKnown,
 			}); err != nil {
-				log.Debugf("UpdatePeerRemoteMeta(%s): %v", rp.GetWgPubKey(), err)
+				log.Debugf("UpdatePeerRemoteMeta(%s): %v", pubKey, err)
+			}
+			// Transition true->false (under a phase-3.7i+ mgmt that
+			// authoritatively knows liveness) and we run p2p-dynamic ->
+			// stop the conn so the lazy mgr re-registers it as Idle.
+			// This prevents the guard's offer-spam loop and avoids the
+			// "remote reconnects -> our offer wakes their lazy mgr ->
+			// instant P2P even without local traffic" symptom.
+			if livenessKnown && prevLivenessKnown && prevLiveOnline && !liveOnline &&
+				e.connMgr != nil && e.connMgr.Mode() == connectionmode.ModeP2PDynamic {
+				if conn, ok := e.peerStore.PeerConn(pubKey); ok {
+					log.Infof("[peer: %s] remote went offline, closing local conn (p2p-dynamic)", pubKey)
+					conn.Close(false)
+				}
 			}
 		}
 	}
