@@ -71,13 +71,53 @@ func TestMemoryStore_DeltaMerges(t *testing.T) {
 	}
 }
 
-func TestMemoryStore_OutOfOrderDropped(t *testing.T) {
+func TestMemoryStore_OutOfOrderDeltaDropped(t *testing.T) {
 	s, _ := newStoreWithClock(time.Hour)
-	s.Put("peerA", &mgmProto.PeerConnectionMap{Seq: 5, FullSnapshot: true})
-	s.Put("peerA", &mgmProto.PeerConnectionMap{Seq: 3, FullSnapshot: true})
+	s.Put("peerA", &mgmProto.PeerConnectionMap{Seq: 5, FullSnapshot: true,
+		Entries: []*mgmProto.PeerConnectionEntry{{RemotePubkey: "peerB", LatencyMs: 99}}})
+	// Stale delta with lower seq must be dropped (in-order seq guarantee
+	// applies to deltas within a single stream).
+	s.Put("peerA", &mgmProto.PeerConnectionMap{Seq: 3, FullSnapshot: false,
+		Entries: []*mgmProto.PeerConnectionEntry{{RemotePubkey: "peerB", LatencyMs: 11}}})
 	got, _ := s.Get("peerA")
 	if got.GetSeq() != 5 {
 		t.Errorf("want seq 5, got %d", got.GetSeq())
+	}
+	if got.GetEntries()[0].GetLatencyMs() != 99 {
+		t.Errorf("want latency 99 (stale delta dropped), got %d", got.GetEntries()[0].GetLatencyMs())
+	}
+}
+
+// TestMemoryStore_FullSnapshotResetsEpoch covers Codex finding 2: the
+// pusher resets seq to 1 on every daemon-/stream-restart, so a fresh
+// full snapshot may carry seq=1 against a cached prev.seq=50 from the
+// previous session. Without the full-snapshot epoch escape, the
+// dashboard would stay stale until TTL expiry.
+func TestMemoryStore_FullSnapshotResetsEpoch(t *testing.T) {
+	s, _ := newStoreWithClock(time.Hour)
+	// Old session: pusher reached seq=50 with one peer.
+	s.Put("peerA", &mgmProto.PeerConnectionMap{Seq: 50, FullSnapshot: true,
+		Entries: []*mgmProto.PeerConnectionEntry{{RemotePubkey: "oldPeer", LatencyMs: 100}}})
+	// Daemon restart: new session starts fresh at seq=1 with a different
+	// peer set. Must replace, NOT be dropped.
+	s.Put("peerA", &mgmProto.PeerConnectionMap{Seq: 1, FullSnapshot: true,
+		Entries: []*mgmProto.PeerConnectionEntry{{RemotePubkey: "newPeer", LatencyMs: 7}}})
+	got, ok := s.Get("peerA")
+	if !ok {
+		t.Fatal("expected entry after restart full-snapshot")
+	}
+	if got.GetSeq() != 1 {
+		t.Errorf("want seq 1 (post-restart epoch), got %d", got.GetSeq())
+	}
+	if len(got.GetEntries()) != 1 || got.GetEntries()[0].GetRemotePubkey() != "newPeer" {
+		t.Errorf("want only newPeer in entries, got %+v", got.GetEntries())
+	}
+	// Subsequent in-order delta (seq=2) from new session must merge.
+	s.Put("peerA", &mgmProto.PeerConnectionMap{Seq: 2, FullSnapshot: false,
+		Entries: []*mgmProto.PeerConnectionEntry{{RemotePubkey: "newPeer", LatencyMs: 9}}})
+	got, _ = s.Get("peerA")
+	if got.GetEntries()[0].GetLatencyMs() != 9 {
+		t.Errorf("want latency 9 (delta from new session), got %d", got.GetEntries()[0].GetLatencyMs())
 	}
 }
 
