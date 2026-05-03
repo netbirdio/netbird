@@ -35,6 +35,12 @@ type PeerInfo struct {
 	Groups                        string // comma-separated
 	AgentVersion                  string
 	OsVersion                     string
+	// Phase 3.7i hybrid display: daemon-derived UI label.
+	// Values: "", "P2P", "Relayed", "Relayed (negotiating P2P)".
+	// UIs should prefer this over (Relayed bool) when non-empty so the
+	// transient post-wakeup negotiation window renders identically
+	// across Android / Windows / Dashboard.
+	ConnectionTypeExtended string
 }
 
 func (p *PeerInfo) GetPeerRoutes() *PeerRoutes {

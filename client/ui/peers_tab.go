@@ -181,6 +181,17 @@ func peerGroup(p *proto.PeerState) int {
 }
 
 func peerGlyph(p *proto.PeerState) string {
+	// Phase 3.7i hybrid display: prefer the daemon-derived
+	// ConnectionTypeExtended when set so all UIs render the brief
+	// "Relayed (negotiating P2P)" wakeup window consistently.
+	switch p.GetConnectionTypeExtended() {
+	case "P2P":
+		return "[P2P]"
+	case "Relayed":
+		return "[Relay]"
+	case "Relayed (negotiating P2P)":
+		return "[Relay→P2P]"
+	}
 	switch peerGroup(p) {
 	case 0:
 		return "[P2P]"
@@ -221,7 +232,11 @@ func buildPeerDetailText(p *proto.PeerState, full bool) string {
 	fmt.Fprintf(&sb, "IP:                %s\n", p.GetIP())
 	fmt.Fprintf(&sb, "FQDN:              %s\n", p.GetFqdn())
 	connType := p.GetConnStatus()
-	if p.GetRelayed() {
+	// Phase 3.7i: prefer the daemon-derived hybrid label so the
+	// transient "Relayed (negotiating P2P)" wakeup window is visible.
+	if ext := p.GetConnectionTypeExtended(); ext != "" {
+		connType = ext
+	} else if p.GetRelayed() {
 		connType += " (relayed)"
 	}
 	fmt.Fprintf(&sb, "Connection type:   %s\n", connType)
