@@ -87,11 +87,17 @@ func (s *serviceClient) buildPeersTabContent(ctx context.Context) fyne.CanvasObj
 		}
 	}()
 
+	// Wrap the scroll in a Stack (max layout) so it expands to fill the
+	// center area regardless of the Accordion's natural content height.
+	// Otherwise the VScroll collapses to the Accordion's intrinsic size
+	// (often tiny when only one item is expanded) instead of taking the
+	// full available space.
+	scroll := container.NewVScroll(peerList)
 	return container.NewBorder(
 		container.NewVBox(summary, breakdown),
 		container.NewHBox(showFull, refreshBtn),
 		nil, nil,
-		container.NewVScroll(peerList),
+		container.NewStack(scroll),
 	)
 }
 

@@ -1239,7 +1239,7 @@ func (s *serviceClient) onTrayReady() {
 	s.mExitNode.Disable()
 	s.exitNodeMu.Unlock()
 
-	s.mNetworks = systray.AddMenuItem("Networks", networksMenuDescr)
+	s.mNetworks = systray.AddMenuItem("Peers und Netzwerke", networksMenuDescr)
 	s.mNetworks.Disable()
 	systray.AddSeparator()
 

@@ -45,10 +45,10 @@ func (s *serviceClient) showNetworksUI() {
 	routeCheckContainer := container.NewVBox()
 	peersContent := s.buildPeersTabContent(s.ctx)
 	tabs := container.NewAppTabs(
+		container.NewTabItem(peersText, peersContent),
 		container.NewTabItem(allNetworksText, allGrid),
 		container.NewTabItem(overlappingNetworksText, overlappingGrid),
 		container.NewTabItem(exitNodeNetworksText, exitNodeGrid),
-		container.NewTabItem(peersText, peersContent),
 	)
 	tabs.OnSelected = func(item *container.TabItem) {
 		s.updateNetworksBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
