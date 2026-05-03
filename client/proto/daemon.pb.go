@@ -1549,8 +1549,21 @@ type PeerState struct {
 	ConfiguredRelayTimeoutSecs uint32                 `protobuf:"varint,38,opt,name=configured_relay_timeout_secs,json=configuredRelayTimeoutSecs,proto3" json:"configured_relay_timeout_secs,omitempty"`
 	ConfiguredP2PTimeoutSecs   uint32                 `protobuf:"varint,39,opt,name=configured_p2p_timeout_secs,json=configuredP2pTimeoutSecs,proto3" json:"configured_p2p_timeout_secs,omitempty"`
 	ConfiguredP2PRetryMaxSecs  uint32                 `protobuf:"varint,40,opt,name=configured_p2p_retry_max_secs,json=configuredP2pRetryMaxSecs,proto3" json:"configured_p2p_retry_max_secs,omitempty"`
-	unknownFields              protoimpl.UnknownFields
-	sizeCache                  protoimpl.SizeCache
+	// Phase 3.7i (#5989): UI-friendly transient connection-type label.
+	// Values:
+	//
+	//	""                              -- not connected (Idle/Connecting)
+	//	"P2P"                           -- direct ICE path active
+	//	"Relayed"                       -- relay path active, ICE failed/backoff
+	//	"Relayed (negotiating P2P)"     -- relay path active, ICE still trying
+	//	                                   (transient ~1-2s window after wakeup)
+	//
+	// UIs should display this verbatim instead of computing from
+	// (relayed, ice_*) themselves -- keeps the transition window
+	// visualization consistent across all clients.
+	ConnectionTypeExtended string `protobuf:"bytes,41,opt,name=connection_type_extended,json=connectionTypeExtended,proto3" json:"connection_type_extended,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *PeerState) Reset() {
@@ -1805,6 +1818,13 @@ func (x *PeerState) GetConfiguredP2PRetryMaxSecs() uint32 {
 		return x.ConfiguredP2PRetryMaxSecs
 	}
 	return 0
+}
+
+func (x *PeerState) GetConnectionTypeExtended() string {
+	if x != nil {
+		return x.ConnectionTypeExtended
+	}
+	return ""
 }
 
 // LocalPeerState contains the latest state of the local peer
@@ -6370,7 +6390,7 @@ const file_client_proto_daemon_proto_rawDesc = "" +
 	"\x1dserver_pushed_connection_mode\x18\x1f \x01(\tR\x1aserverPushedConnectionMode\x12L\n" +
 	"#server_pushed_relay_timeout_seconds\x18  \x01(\rR\x1fserverPushedRelayTimeoutSeconds\x12H\n" +
 	"!server_pushed_p2p_timeout_seconds\x18! \x01(\rR\x1dserverPushedP2pTimeoutSeconds\x12K\n" +
-	"#server_pushed_p2p_retry_max_seconds\x18\" \x01(\rR\x1eserverPushedP2pRetryMaxSeconds\"\xb2\f\n" +
+	"#server_pushed_p2p_retry_max_seconds\x18\" \x01(\rR\x1eserverPushedP2pRetryMaxSeconds\"\xec\f\n" +
 	"\tPeerState\x12\x0e\n" +
 	"\x02IP\x18\x01 \x01(\tR\x02IP\x12\x16\n" +
 	"\x06pubKey\x18\x02 \x01(\tR\x06pubKey\x12\x1e\n" +
@@ -6408,7 +6428,8 @@ const file_client_proto_daemon_proto_rawDesc = "" +
 	"\x1ceffective_p2p_retry_max_secs\x18% \x01(\rR\x18effectiveP2pRetryMaxSecs\x12A\n" +
 	"\x1dconfigured_relay_timeout_secs\x18& \x01(\rR\x1aconfiguredRelayTimeoutSecs\x12=\n" +
 	"\x1bconfigured_p2p_timeout_secs\x18' \x01(\rR\x18configuredP2pTimeoutSecs\x12@\n" +
-	"\x1dconfigured_p2p_retry_max_secs\x18( \x01(\rR\x19configuredP2pRetryMaxSecs\"\xf0\x01\n" +
+	"\x1dconfigured_p2p_retry_max_secs\x18( \x01(\rR\x19configuredP2pRetryMaxSecs\x128\n" +
+	"\x18connection_type_extended\x18) \x01(\tR\x16connectionTypeExtended\"\xf0\x01\n" +
 	"\x0eLocalPeerState\x12\x0e\n" +
 	"\x02IP\x18\x01 \x01(\tR\x02IP\x12\x16\n" +
 	"\x06pubKey\x18\x02 \x01(\tR\x06pubKey\x12(\n" +

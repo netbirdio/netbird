@@ -74,6 +74,12 @@ type State struct {
 	IceBackoffFailures  int
 	IceBackoffNextRetry time.Time
 	IceBackoffSuspended bool
+	// Phase 3.7i (#5989): timestamp of the last Idle→Connected
+	// transition that came up via the relay path. Used by the UI-
+	// label deriver to detect the brief "Relayed but ICE still
+	// trying" window after a wakeup so UIs can render that as
+	// "Relayed (negotiating P2P)" instead of plain "Relayed".
+	RelayActivatedAt time.Time
 	// Phase 3.7i (#5989): true = peer is in d.peers; false = in d.offlinePeers.
 	ServerOnline                     bool
 	RemoteEffectiveConnectionMode    string
@@ -693,12 +699,27 @@ func (d *Status) updatePeerRelayedStateLocked(receivedState State) (func(), erro
 
 	oldSnapshot := peerState
 	oldStatus := peerState.ConnStatus
+	oldRelayed := peerState.Relayed
+	wasIdle := oldStatus == StatusIdle
 
 	peerState.ConnStatus = receivedState.ConnStatus
 	peerState.ConnStatusUpdate = receivedState.ConnStatusUpdate
 	peerState.Relayed = receivedState.Relayed
 	peerState.RelayServerAddress = receivedState.RelayServerAddress
 	peerState.RosenpassEnabled = receivedState.RosenpassEnabled
+
+	// Phase 3.7i: track the moment we transitioned from Idle to
+	// Connected-via-Relay so the UI-label deriver can detect the brief
+	// window where ICE is still trying to upgrade us to P2P. The
+	// transition fires on Idle->Connected when relayed=true (the
+	// typical wakeup path: relay opens fast, ICE follows). Plain
+	// not-relayed->relayed (e.g. ICE failure mid-session) also stamps
+	// so the label can show the negotiation attempt for those too.
+	relayedNow := receivedState.Relayed && receivedState.ConnStatus == StatusConnected
+	relayedBefore := oldRelayed && oldStatus == StatusConnected
+	if relayedNow && (wasIdle || !relayedBefore) {
+		peerState.RelayActivatedAt = time.Now()
+	}
 
 	d.peers[receivedState.PubKey] = peerState
 
@@ -1720,6 +1741,7 @@ func (fs FullStatus) ToProto() *proto.FullStatus {
 			ConfiguredRelayTimeoutSecs: peerState.RemoteConfiguredRelayTimeoutSecs,
 			ConfiguredP2PTimeoutSecs:   peerState.RemoteConfiguredP2PTimeoutSecs,
 			ConfiguredP2PRetryMaxSecs:  peerState.RemoteConfiguredP2PRetryMaxSecs,
+			ConnectionTypeExtended:     DeriveConnectionTypeExtended(peerState),
 		}
 		if !peerState.RemoteLastSeenAtServer.IsZero() {
 			pbPeerState.LastSeenAtServer = timestamppb.New(peerState.RemoteLastSeenAtServer)
@@ -1761,4 +1783,38 @@ func (fs FullStatus) ToProto() *proto.FullStatus {
 	pbFullStatus.Events = fs.Events
 
 	return &pbFullStatus
+}
+
+// negotiationWindow is how long after Idle->Connected-via-Relay we
+// continue to label the connection as "Relayed (negotiating P2P)".
+// After this window, if ICE has not succeeded, the label settles to
+// plain "Relayed". 5 s comfortably covers typical pion-ICE handshake
+// times (gather candidates -> connectivity check -> pair selected) on
+// LAN and most cellular setups.
+const negotiationWindow = 5 * time.Second
+
+// DeriveConnectionTypeExtended produces the UI-friendly connection-
+// type string that all clients render verbatim. See the proto field
+// docstring for the full value list. Centralizing the derivation in
+// the daemon keeps Android/Windows/Dashboard consistent without each
+// client re-implementing the (relayed && ice-still-trying) heuristic.
+func DeriveConnectionTypeExtended(s State) string {
+	if s.ConnStatus != StatusConnected {
+		return ""
+	}
+	if !s.Relayed {
+		return "P2P"
+	}
+	// Relayed=true. Either ICE is still negotiating (transient) or it
+	// has given up (permanent for this session). IceBackoffSuspended
+	// means iceBackoff has scheduled a future retry — i.e. ICE failed
+	// at least once and is in cool-down, so we should NOT label this
+	// as "negotiating".
+	if s.IceBackoffSuspended || s.IceBackoffFailures > 0 {
+		return "Relayed"
+	}
+	if !s.RelayActivatedAt.IsZero() && time.Since(s.RelayActivatedAt) < negotiationWindow {
+		return "Relayed (negotiating P2P)"
+	}
+	return "Relayed"
 }

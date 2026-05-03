@@ -337,6 +337,7 @@ func (c *Client) PeersList() *PeerInfoArray {
 		if len(p.RemoteGroups) > 0 {
 			pi.Groups = strings.Join(p.RemoteGroups, ",")
 		}
+		pi.ConnectionTypeExtended = peer.DeriveConnectionTypeExtended(p)
 		// AgentVersion / OsVersion: peer.State does not expose these fields;
 		// left empty until daemon surfaces them (future phase).
 

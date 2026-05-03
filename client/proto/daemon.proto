@@ -383,6 +383,17 @@ message PeerState {
   uint32 configured_relay_timeout_secs                  = 38;
   uint32 configured_p2p_timeout_secs                    = 39;
   uint32 configured_p2p_retry_max_secs                  = 40;
+  // Phase 3.7i (#5989): UI-friendly transient connection-type label.
+  // Values:
+  //   ""                              -- not connected (Idle/Connecting)
+  //   "P2P"                           -- direct ICE path active
+  //   "Relayed"                       -- relay path active, ICE failed/backoff
+  //   "Relayed (negotiating P2P)"     -- relay path active, ICE still trying
+  //                                      (transient ~1-2s window after wakeup)
+  // UIs should display this verbatim instead of computing from
+  // (relayed, ice_*) themselves -- keeps the transition window
+  // visualization consistent across all clients.
+  string connection_type_extended                       = 41;
 }
 
 // LocalPeerState contains the latest state of the local peer
