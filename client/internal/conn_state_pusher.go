@@ -157,22 +157,25 @@ func (p *connStatePusher) loop() {
 	case <-p.stop:
 		return
 	}
-	// Codex#4: drain any per-peer events that landed in p.events
-	// BEFORE initialReady fired. Those events reflect state that the
-	// upcoming flushFull (which calls SnapshotAllRemotePeers) will
-	// already cover; replaying them as later deltas would make the
-	// management server see them out of order (an old delta arriving
-	// AFTER a snapshot at higher seq).
-drainLoop:
-	for {
-		select {
-		case <-p.events:
-			// discard
-		default:
-			break drainLoop
-		}
-	}
 	if p.source != nil {
+		// Codex#4: drain any per-peer events that landed in p.events
+		// BEFORE initialReady fired. Those events reflect state that
+		// the upcoming flushFull (which calls SnapshotAllRemotePeers)
+		// will already cover; replaying them as later deltas would
+		// make the management server see them out of order (an old
+		// delta arriving AFTER a snapshot at higher seq).
+		// Only drain when we ARE going to send a snapshot — otherwise
+		// pre-init events are still valid state changes that need to
+		// flow through the normal delta path.
+	drainLoop:
+		for {
+			select {
+			case <-p.events:
+				// discard
+			default:
+				break drainLoop
+			}
+		}
 		p.flushFull(p.source.SnapshotAllRemotePeers(), 0)
 	}
 	interval := p.tuning.baseInterval

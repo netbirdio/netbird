@@ -889,6 +889,13 @@ func (e *Engine) removeAllPeers() error {
 func (e *Engine) removePeer(peerKey string) error {
 	log.Debugf("removing peer from engine %s", peerKey)
 
+	// Phase 3.7i hardening: cancel any pending offline-debounce timer
+	// for this peer BEFORE the conn is closed. The timer's callback
+	// already nil-guards against a missing peerStore entry, but
+	// cancelling explicitly avoids a wasted goroutine wakeup +
+	// log-noise once the peer is gone for good.
+	e.cancelRemoteOfflineClose(peerKey)
+
 	e.connMgr.RemovePeerConn(peerKey)
 
 	err := e.statusRecorder.RemovePeer(peerKey)
@@ -1323,6 +1330,16 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 	if err := e.connMgr.UpdatedRemotePeerConfig(e.ctx, networkMap.GetPeerConfig()); err != nil {
 		log.Errorf("failed to update connection mode from PeerConfig: %v", err)
+	}
+
+	// Phase 3.7i hardening: if the management push moved us out of
+	// p2p-dynamic mode, cancel any pending offline-debounce timers
+	// they would have closed connections that are no longer
+	// dynamically managed. The timer-callback re-validation also
+	// covers this race, but explicit cancellation drops dead timer
+	// goroutines faster and keeps the timer-map empty for inspection.
+	if e.connMgr != nil && e.connMgr.Mode() != connectionmode.ModeP2PDynamic {
+		e.cancelAllRemoteOfflineCloses()
 	}
 
 	// Phase 3.7i (#5989): record + push effective values.
