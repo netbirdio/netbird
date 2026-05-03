@@ -298,6 +298,11 @@ func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer,
 			}
 			cfg.LiveOnline = rPeer.Status.Connected
 		}
+		// New servers always know per-peer liveness; signal that to new
+		// clients so they can trust LiveOnline directly instead of
+		// guessing from the LastSeenAtServer-zero heuristic. Old servers
+		// leave this field at default (false) and clients fall back.
+		cfg.ServerLivenessKnown = true
 		dst = append(dst, cfg)
 	}
 	return dst

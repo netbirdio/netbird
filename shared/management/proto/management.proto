@@ -508,6 +508,13 @@ message RemotePeerConfig {
   // in (hardware/network down) but its login is still valid (otherwise
   // it would be in OfflinePeers, not RemotePeers).
   bool live_online                              = 16;
+
+  // Server-knowledge marker: true when the management server is new
+  // enough to populate live_online authoritatively. Old servers leave
+  // this field at false (default), and new clients then fall back to
+  // legacy heuristics (assume online when live_online is false but
+  // last_seen_at_server is also unset, i.e. nothing is known).
+  bool server_liveness_known                    = 17;
 }
 
 // SSHConfig represents SSH configurations of a peer.

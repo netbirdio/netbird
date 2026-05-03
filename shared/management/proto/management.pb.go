@@ -2748,9 +2748,15 @@ type RemotePeerConfig struct {
 	// True = peer is currently heartbeating. False = peer hasn't checked
 	// in (hardware/network down) but its login is still valid (otherwise
 	// it would be in OfflinePeers, not RemotePeers).
-	LiveOnline    bool `protobuf:"varint,16,opt,name=live_online,json=liveOnline,proto3" json:"live_online,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	LiveOnline bool `protobuf:"varint,16,opt,name=live_online,json=liveOnline,proto3" json:"live_online,omitempty"`
+	// Server-knowledge marker: true when the management server is new
+	// enough to populate live_online authoritatively. Old servers leave
+	// this field at false (default), and new clients then fall back to
+	// legacy heuristics (assume online when live_online is false but
+	// last_seen_at_server is also unset, i.e. nothing is known).
+	ServerLivenessKnown bool `protobuf:"varint,17,opt,name=server_liveness_known,json=serverLivenessKnown,proto3" json:"server_liveness_known,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *RemotePeerConfig) Reset() {
@@ -2891,6 +2897,13 @@ func (x *RemotePeerConfig) GetGroups() []string {
 func (x *RemotePeerConfig) GetLiveOnline() bool {
 	if x != nil {
 		return x.LiveOnline
+	}
+	return false
+}
+
+func (x *RemotePeerConfig) GetServerLivenessKnown() bool {
+	if x != nil {
+		return x.ServerLivenessKnown
 	}
 	return false
 }
@@ -5022,7 +5035,7 @@ const file_shared_management_proto_management_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x124\n" +
 	"\x05value\x18\x02 \x01(\v2\x1e.management.MachineUserIndexesR\x05value:\x028\x01\".\n" +
 	"\x12MachineUserIndexes\x12\x18\n" +
-	"\aindexes\x18\x01 \x03(\rR\aindexes\"\xbb\x06\n" +
+	"\aindexes\x18\x01 \x03(\rR\aindexes\"\xef\x06\n" +
 	"\x10RemotePeerConfig\x12\x1a\n" +
 	"\bwgPubKey\x18\x01 \x01(\tR\bwgPubKey\x12\x1e\n" +
 	"\n" +
@@ -5043,7 +5056,8 @@ const file_shared_management_proto_management_proto_rawDesc = "" +
 	"\x13last_seen_at_server\x18\x0e \x01(\v2\x1a.google.protobuf.TimestampR\x10lastSeenAtServer\x12\x16\n" +
 	"\x06groups\x18\x0f \x03(\tR\x06groups\x12\x1f\n" +
 	"\vlive_online\x18\x10 \x01(\bR\n" +
-	"liveOnline\"~\n" +
+	"liveOnline\x122\n" +
+	"\x15server_liveness_known\x18\x11 \x01(\bR\x13serverLivenessKnown\"~\n" +
 	"\tSSHConfig\x12\x1e\n" +
 	"\n" +
 	"sshEnabled\x18\x01 \x01(\bR\n" +
