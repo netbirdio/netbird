@@ -31,6 +31,7 @@ import (
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/job"
+	"github.com/netbirdio/netbird/management/server/peer_connections"
 
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -86,6 +87,10 @@ type Server struct {
 
 	reverseProxyManager rpservice.Manager
 	reverseProxyMu      sync.RWMutex
+
+	// Phase 3.7i of #5989: shared peer-connection-map state
+	peerConnections peer_connections.Store
+	snapshotRouter  *peer_connections.SnapshotRouter
 }
 
 // NewServer creates a new Management server
@@ -101,6 +106,8 @@ func NewServer(
 	networkMapController network_map.Controller,
 	oAuthConfigProvider idp.OAuthConfigProvider,
 	sessionStore *auth.SessionStore,
+	peerConnStore peer_connections.Store,
+	peerConnRouter *peer_connections.SnapshotRouter,
 ) (*Server, error) {
 	if appMetrics != nil {
 		// update gauge based on number of connected peers which is equal to open gRPC streams
@@ -149,6 +156,9 @@ func NewServer(
 
 		syncLim:        syncLim,
 		syncLimEnabled: syncLimEnabled,
+
+		peerConnections: peerConnStore,
+		snapshotRouter:  peerConnRouter,
 	}, nil
 }
 
@@ -1135,6 +1145,22 @@ func (s *Server) SyncMeta(ctx context.Context, req *proto.EncryptedMessage) (*pr
 		return nil, mapError(ctx, err)
 	}
 
+	return &proto.Empty{}, nil
+}
+
+// SyncPeerConnections receives a per-peer connection map from a peer.
+// Phase 3.7i of #5989. Mirrors SyncMeta's parseRequest pattern:
+// decrypts the EncryptedMessage envelope, authenticates the peer pubkey,
+// stores the decoded PeerConnectionMap under that pubkey.
+func (s *Server) SyncPeerConnections(ctx context.Context, req *proto.EncryptedMessage) (*proto.Empty, error) {
+	pcm := &proto.PeerConnectionMap{}
+	peerKey, err := s.parseRequest(ctx, req, pcm)
+	if err != nil {
+		return nil, err
+	}
+	if s.peerConnections != nil {
+		s.peerConnections.Put(peerKey.String(), pcm)
+	}
 	return &proto.Empty{}, nil
 }
 

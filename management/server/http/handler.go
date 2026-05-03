@@ -20,6 +20,7 @@ import (
 
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	idpmanager "github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/management/server/peer_connections"
 
 	"github.com/netbirdio/management-integrations/integrations"
 
@@ -64,8 +65,19 @@ import (
 
 const apiPrefix = "/api"
 
+// APIHandler wraps the HTTP router and holds shared state for all HTTP handlers.
+// The peerConnections and snapshotRouter fields are constructed once in boot.go
+// and shared with the gRPC server so both sides see the same in-memory state.
+// Phase 3.7i of #5989; HTTP routes that consume these are registered in Task 4.2.
+type APIHandler struct {
+	http.Handler
+
+	peerConnections peer_connections.Store
+	snapshotRouter  *peer_connections.SnapshotRouter
+}
+
 // NewAPIHandler creates the Management service HTTP API handler registering all the available endpoints.
-func NewAPIHandler(ctx context.Context, accountManager account.Manager, networksManager nbnetworks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation, authManager auth.Manager, appMetrics telemetry.AppMetrics, integratedValidator integrated_validator.IntegratedValidator, proxyController port_forwarding.Controller, permissionsManager permissions.Manager, peersManager nbpeers.Manager, settingsManager settings.Manager, zManager zones.Manager, rManager records.Manager, networkMapController network_map.Controller, idpManager idpmanager.Manager, serviceManager service.Manager, reverseProxyDomainManager *manager.Manager, reverseProxyAccessLogsManager accesslogs.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, trustedHTTPProxies []netip.Prefix, rateLimiter *middleware.APIRateLimiter) (http.Handler, error) {
+func NewAPIHandler(ctx context.Context, accountManager account.Manager, networksManager nbnetworks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation, authManager auth.Manager, appMetrics telemetry.AppMetrics, integratedValidator integrated_validator.IntegratedValidator, proxyController port_forwarding.Controller, permissionsManager permissions.Manager, peersManager nbpeers.Manager, settingsManager settings.Manager, zManager zones.Manager, rManager records.Manager, networkMapController network_map.Controller, idpManager idpmanager.Manager, serviceManager service.Manager, reverseProxyDomainManager *manager.Manager, reverseProxyAccessLogsManager accesslogs.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, trustedHTTPProxies []netip.Prefix, rateLimiter *middleware.APIRateLimiter, peerConnStore peer_connections.Store, peerConnRouter *peer_connections.SnapshotRouter) (*APIHandler, error) {
 
 	// Register bypass paths for unauthenticated endpoints
 	if err := bypass.AddBypassPath("/api/instance"); err != nil {
@@ -155,5 +167,9 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 		rootRouter.PathPrefix("/oauth2").Handler(corsMiddleware.Handler(embeddedIdP.Handler()))
 	}
 
-	return rootRouter, nil
+	return &APIHandler{
+		Handler:         rootRouter,
+		peerConnections: peerConnStore,
+		snapshotRouter:  peerConnRouter,
+	}, nil
 }

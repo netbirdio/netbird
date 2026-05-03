@@ -5,7 +5,6 @@ package server
 import (
 	"context"
 	"crypto/tls"
-	"net/http"
 	"net/netip"
 	"slices"
 	"time"
@@ -30,6 +29,7 @@ import (
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	nbhttp "github.com/netbirdio/netbird/management/server/http"
+	"github.com/netbirdio/netbird/management/server/peer_connections"
 	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -108,9 +108,25 @@ func (s *BaseServer) EventStore() activity.Store {
 	})
 }
 
-func (s *BaseServer) APIHandler() http.Handler {
-	return Create(s, func() http.Handler {
-		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.IntegratedValidator(), s.ProxyController(), s.PermissionsManager(), s.PeersManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(), s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies, s.RateLimiter())
+// PeerConnStore returns the shared in-memory peer-connection-map store.
+// Phase 3.7i of #5989: constructed once, shared between gRPC and HTTP servers.
+func (s *BaseServer) PeerConnStore() peer_connections.Store {
+	return Create(s, func() peer_connections.Store {
+		return peer_connections.NewMemoryStore(1 * time.Hour)
+	})
+}
+
+// PeerConnRouter returns the shared SnapshotRouter.
+// Phase 3.7i of #5989: constructed once, shared between gRPC and HTTP servers.
+func (s *BaseServer) PeerConnRouter() *peer_connections.SnapshotRouter {
+	return Create(s, func() *peer_connections.SnapshotRouter {
+		return peer_connections.NewSnapshotRouter()
+	})
+}
+
+func (s *BaseServer) APIHandler() *nbhttp.APIHandler {
+	return Create(s, func() *nbhttp.APIHandler {
+		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.IntegratedValidator(), s.ProxyController(), s.PermissionsManager(), s.PeersManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(), s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies, s.RateLimiter(), s.PeerConnStore(), s.PeerConnRouter())
 		if err != nil {
 			log.Fatalf("failed to create API handler: %v", err)
 		}
@@ -173,7 +189,7 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 		}
 
 		gRPCAPIHandler := grpc.NewServer(gRPCOpts...)
-		srv, err := nbgrpc.NewServer(s.Config, s.AccountManager(), s.SettingsManager(), s.JobManager(), s.SecretsManager(), s.Metrics(), s.AuthManager(), s.IntegratedValidator(), s.NetworkMapController(), s.OAuthConfigProvider(), s.SessionStore())
+		srv, err := nbgrpc.NewServer(s.Config, s.AccountManager(), s.SettingsManager(), s.JobManager(), s.SecretsManager(), s.Metrics(), s.AuthManager(), s.IntegratedValidator(), s.NetworkMapController(), s.OAuthConfigProvider(), s.SessionStore(), s.PeerConnStore(), s.PeerConnRouter())
 		if err != nil {
 			log.Fatalf("failed to create management server: %v", err)
 		}
