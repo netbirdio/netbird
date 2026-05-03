@@ -157,6 +157,21 @@ func (p *connStatePusher) loop() {
 	case <-p.stop:
 		return
 	}
+	// Codex#4: drain any per-peer events that landed in p.events
+	// BEFORE initialReady fired. Those events reflect state that the
+	// upcoming flushFull (which calls SnapshotAllRemotePeers) will
+	// already cover; replaying them as later deltas would make the
+	// management server see them out of order (an old delta arriving
+	// AFTER a snapshot at higher seq).
+drainLoop:
+	for {
+		select {
+		case <-p.events:
+			// discard
+		default:
+			break drainLoop
+		}
+	}
 	if p.source != nil {
 		p.flushFull(p.source.SnapshotAllRemotePeers(), 0)
 	}
