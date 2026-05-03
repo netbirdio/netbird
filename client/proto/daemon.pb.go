@@ -1537,8 +1537,20 @@ type PeerState struct {
 	IceBackoffFailures  int32                  `protobuf:"varint,20,opt,name=iceBackoffFailures,proto3" json:"iceBackoffFailures,omitempty"`
 	IceBackoffNextRetry *timestamppb.Timestamp `protobuf:"bytes,21,opt,name=iceBackoffNextRetry,proto3" json:"iceBackoffNextRetry,omitempty"`
 	IceBackoffSuspended bool                   `protobuf:"varint,22,opt,name=iceBackoffSuspended,proto3" json:"iceBackoffSuspended,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Phase 3.7i (#5989): per-peer enrichment from RemotePeerConfig.
+	ServerOnline               bool                   `protobuf:"varint,30,opt,name=server_online,json=serverOnline,proto3" json:"server_online,omitempty"`
+	LastSeenAtServer           *timestamppb.Timestamp `protobuf:"bytes,31,opt,name=last_seen_at_server,json=lastSeenAtServer,proto3" json:"last_seen_at_server,omitempty"`
+	Groups                     []string               `protobuf:"bytes,32,rep,name=groups,proto3" json:"groups,omitempty"`
+	EffectiveConnectionMode    string                 `protobuf:"bytes,33,opt,name=effective_connection_mode,json=effectiveConnectionMode,proto3" json:"effective_connection_mode,omitempty"`
+	ConfiguredConnectionMode   string                 `protobuf:"bytes,34,opt,name=configured_connection_mode,json=configuredConnectionMode,proto3" json:"configured_connection_mode,omitempty"`
+	EffectiveRelayTimeoutSecs  uint32                 `protobuf:"varint,35,opt,name=effective_relay_timeout_secs,json=effectiveRelayTimeoutSecs,proto3" json:"effective_relay_timeout_secs,omitempty"`
+	EffectiveP2PTimeoutSecs    uint32                 `protobuf:"varint,36,opt,name=effective_p2p_timeout_secs,json=effectiveP2pTimeoutSecs,proto3" json:"effective_p2p_timeout_secs,omitempty"`
+	EffectiveP2PRetryMaxSecs   uint32                 `protobuf:"varint,37,opt,name=effective_p2p_retry_max_secs,json=effectiveP2pRetryMaxSecs,proto3" json:"effective_p2p_retry_max_secs,omitempty"`
+	ConfiguredRelayTimeoutSecs uint32                 `protobuf:"varint,38,opt,name=configured_relay_timeout_secs,json=configuredRelayTimeoutSecs,proto3" json:"configured_relay_timeout_secs,omitempty"`
+	ConfiguredP2PTimeoutSecs   uint32                 `protobuf:"varint,39,opt,name=configured_p2p_timeout_secs,json=configuredP2pTimeoutSecs,proto3" json:"configured_p2p_timeout_secs,omitempty"`
+	ConfiguredP2PRetryMaxSecs  uint32                 `protobuf:"varint,40,opt,name=configured_p2p_retry_max_secs,json=configuredP2pRetryMaxSecs,proto3" json:"configured_p2p_retry_max_secs,omitempty"`
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
 }
 
 func (x *PeerState) Reset() {
@@ -1716,6 +1728,83 @@ func (x *PeerState) GetIceBackoffSuspended() bool {
 		return x.IceBackoffSuspended
 	}
 	return false
+}
+
+func (x *PeerState) GetServerOnline() bool {
+	if x != nil {
+		return x.ServerOnline
+	}
+	return false
+}
+
+func (x *PeerState) GetLastSeenAtServer() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastSeenAtServer
+	}
+	return nil
+}
+
+func (x *PeerState) GetGroups() []string {
+	if x != nil {
+		return x.Groups
+	}
+	return nil
+}
+
+func (x *PeerState) GetEffectiveConnectionMode() string {
+	if x != nil {
+		return x.EffectiveConnectionMode
+	}
+	return ""
+}
+
+func (x *PeerState) GetConfiguredConnectionMode() string {
+	if x != nil {
+		return x.ConfiguredConnectionMode
+	}
+	return ""
+}
+
+func (x *PeerState) GetEffectiveRelayTimeoutSecs() uint32 {
+	if x != nil {
+		return x.EffectiveRelayTimeoutSecs
+	}
+	return 0
+}
+
+func (x *PeerState) GetEffectiveP2PTimeoutSecs() uint32 {
+	if x != nil {
+		return x.EffectiveP2PTimeoutSecs
+	}
+	return 0
+}
+
+func (x *PeerState) GetEffectiveP2PRetryMaxSecs() uint32 {
+	if x != nil {
+		return x.EffectiveP2PRetryMaxSecs
+	}
+	return 0
+}
+
+func (x *PeerState) GetConfiguredRelayTimeoutSecs() uint32 {
+	if x != nil {
+		return x.ConfiguredRelayTimeoutSecs
+	}
+	return 0
+}
+
+func (x *PeerState) GetConfiguredP2PTimeoutSecs() uint32 {
+	if x != nil {
+		return x.ConfiguredP2PTimeoutSecs
+	}
+	return 0
+}
+
+func (x *PeerState) GetConfiguredP2PRetryMaxSecs() uint32 {
+	if x != nil {
+		return x.ConfiguredP2PRetryMaxSecs
+	}
+	return 0
 }
 
 // LocalPeerState contains the latest state of the local peer
@@ -2205,8 +2294,15 @@ type FullStatus struct {
 	Events                  []*SystemEvent         `protobuf:"bytes,7,rep,name=events,proto3" json:"events,omitempty"`
 	LazyConnectionEnabled   bool                   `protobuf:"varint,9,opt,name=lazyConnectionEnabled,proto3" json:"lazyConnectionEnabled,omitempty"`
 	SshServerState          *SSHServerState        `protobuf:"bytes,10,opt,name=sshServerState,proto3" json:"sshServerState,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	// Phase 3.7i (#5989): aggregate counters so UIs don't re-derive them.
+	ConfiguredPeersTotal  uint32 `protobuf:"varint,50,opt,name=configured_peers_total,json=configuredPeersTotal,proto3" json:"configured_peers_total,omitempty"`
+	ServerOnlinePeers     uint32 `protobuf:"varint,51,opt,name=server_online_peers,json=serverOnlinePeers,proto3" json:"server_online_peers,omitempty"`
+	P2PConnectedPeers     uint32 `protobuf:"varint,52,opt,name=p2p_connected_peers,json=p2pConnectedPeers,proto3" json:"p2p_connected_peers,omitempty"`
+	RelayedConnectedPeers uint32 `protobuf:"varint,53,opt,name=relayed_connected_peers,json=relayedConnectedPeers,proto3" json:"relayed_connected_peers,omitempty"`
+	IdleOnlinePeers       uint32 `protobuf:"varint,54,opt,name=idle_online_peers,json=idleOnlinePeers,proto3" json:"idle_online_peers,omitempty"`
+	ServerOfflinePeers    uint32 `protobuf:"varint,55,opt,name=server_offline_peers,json=serverOfflinePeers,proto3" json:"server_offline_peers,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *FullStatus) Reset() {
@@ -2307,6 +2403,48 @@ func (x *FullStatus) GetSshServerState() *SSHServerState {
 		return x.SshServerState
 	}
 	return nil
+}
+
+func (x *FullStatus) GetConfiguredPeersTotal() uint32 {
+	if x != nil {
+		return x.ConfiguredPeersTotal
+	}
+	return 0
+}
+
+func (x *FullStatus) GetServerOnlinePeers() uint32 {
+	if x != nil {
+		return x.ServerOnlinePeers
+	}
+	return 0
+}
+
+func (x *FullStatus) GetP2PConnectedPeers() uint32 {
+	if x != nil {
+		return x.P2PConnectedPeers
+	}
+	return 0
+}
+
+func (x *FullStatus) GetRelayedConnectedPeers() uint32 {
+	if x != nil {
+		return x.RelayedConnectedPeers
+	}
+	return 0
+}
+
+func (x *FullStatus) GetIdleOnlinePeers() uint32 {
+	if x != nil {
+		return x.IdleOnlinePeers
+	}
+	return 0
+}
+
+func (x *FullStatus) GetServerOfflinePeers() uint32 {
+	if x != nil {
+		return x.ServerOfflinePeers
+	}
+	return 0
 }
 
 // Networks
@@ -6232,7 +6370,7 @@ const file_client_proto_daemon_proto_rawDesc = "" +
 	"\x1dserver_pushed_connection_mode\x18\x1f \x01(\tR\x1aserverPushedConnectionMode\x12L\n" +
 	"#server_pushed_relay_timeout_seconds\x18  \x01(\rR\x1fserverPushedRelayTimeoutSeconds\x12H\n" +
 	"!server_pushed_p2p_timeout_seconds\x18! \x01(\rR\x1dserverPushedP2pTimeoutSeconds\x12K\n" +
-	"#server_pushed_p2p_retry_max_seconds\x18\" \x01(\rR\x1eserverPushedP2pRetryMaxSeconds\"\xae\a\n" +
+	"#server_pushed_p2p_retry_max_seconds\x18\" \x01(\rR\x1eserverPushedP2pRetryMaxSeconds\"\xb2\f\n" +
 	"\tPeerState\x12\x0e\n" +
 	"\x02IP\x18\x01 \x01(\tR\x02IP\x12\x16\n" +
 	"\x06pubKey\x18\x02 \x01(\tR\x06pubKey\x12\x1e\n" +
@@ -6259,7 +6397,18 @@ const file_client_proto_daemon_proto_rawDesc = "" +
 	"sshHostKey\x12.\n" +
 	"\x12iceBackoffFailures\x18\x14 \x01(\x05R\x12iceBackoffFailures\x12L\n" +
 	"\x13iceBackoffNextRetry\x18\x15 \x01(\v2\x1a.google.protobuf.TimestampR\x13iceBackoffNextRetry\x120\n" +
-	"\x13iceBackoffSuspended\x18\x16 \x01(\bR\x13iceBackoffSuspended\"\xf0\x01\n" +
+	"\x13iceBackoffSuspended\x18\x16 \x01(\bR\x13iceBackoffSuspended\x12#\n" +
+	"\rserver_online\x18\x1e \x01(\bR\fserverOnline\x12I\n" +
+	"\x13last_seen_at_server\x18\x1f \x01(\v2\x1a.google.protobuf.TimestampR\x10lastSeenAtServer\x12\x16\n" +
+	"\x06groups\x18  \x03(\tR\x06groups\x12:\n" +
+	"\x19effective_connection_mode\x18! \x01(\tR\x17effectiveConnectionMode\x12<\n" +
+	"\x1aconfigured_connection_mode\x18\" \x01(\tR\x18configuredConnectionMode\x12?\n" +
+	"\x1ceffective_relay_timeout_secs\x18# \x01(\rR\x19effectiveRelayTimeoutSecs\x12;\n" +
+	"\x1aeffective_p2p_timeout_secs\x18$ \x01(\rR\x17effectiveP2pTimeoutSecs\x12>\n" +
+	"\x1ceffective_p2p_retry_max_secs\x18% \x01(\rR\x18effectiveP2pRetryMaxSecs\x12A\n" +
+	"\x1dconfigured_relay_timeout_secs\x18& \x01(\rR\x1aconfiguredRelayTimeoutSecs\x12=\n" +
+	"\x1bconfigured_p2p_timeout_secs\x18' \x01(\rR\x18configuredP2pTimeoutSecs\x12@\n" +
+	"\x1dconfigured_p2p_retry_max_secs\x18( \x01(\rR\x19configuredP2pRetryMaxSecs\"\xf0\x01\n" +
 	"\x0eLocalPeerState\x12\x0e\n" +
 	"\x02IP\x18\x01 \x01(\tR\x02IP\x12\x16\n" +
 	"\x06pubKey\x18\x02 \x01(\tR\x06pubKey\x12(\n" +
@@ -6294,7 +6443,7 @@ const file_client_proto_daemon_proto_rawDesc = "" +
 	"\fportForwards\x18\x05 \x03(\tR\fportForwards\"^\n" +
 	"\x0eSSHServerState\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x122\n" +
-	"\bsessions\x18\x02 \x03(\v2\x16.daemon.SSHSessionInfoR\bsessions\"\xaf\x04\n" +
+	"\bsessions\x18\x02 \x03(\v2\x16.daemon.SSHSessionInfoR\bsessions\"\xdb\x06\n" +
 	"\n" +
 	"FullStatus\x12A\n" +
 	"\x0fmanagementState\x18\x01 \x01(\v2\x17.daemon.ManagementStateR\x0fmanagementState\x125\n" +
@@ -6308,7 +6457,13 @@ const file_client_proto_daemon_proto_rawDesc = "" +
 	"\x06events\x18\a \x03(\v2\x13.daemon.SystemEventR\x06events\x124\n" +
 	"\x15lazyConnectionEnabled\x18\t \x01(\bR\x15lazyConnectionEnabled\x12>\n" +
 	"\x0esshServerState\x18\n" +
-	" \x01(\v2\x16.daemon.SSHServerStateR\x0esshServerState\"\x15\n" +
+	" \x01(\v2\x16.daemon.SSHServerStateR\x0esshServerState\x124\n" +
+	"\x16configured_peers_total\x182 \x01(\rR\x14configuredPeersTotal\x12.\n" +
+	"\x13server_online_peers\x183 \x01(\rR\x11serverOnlinePeers\x12.\n" +
+	"\x13p2p_connected_peers\x184 \x01(\rR\x11p2pConnectedPeers\x126\n" +
+	"\x17relayed_connected_peers\x185 \x01(\rR\x15relayedConnectedPeers\x12*\n" +
+	"\x11idle_online_peers\x186 \x01(\rR\x0fidleOnlinePeers\x120\n" +
+	"\x14server_offline_peers\x187 \x01(\rR\x12serverOfflinePeers\"\x15\n" +
 	"\x13ListNetworksRequest\"?\n" +
 	"\x14ListNetworksResponse\x12'\n" +
 	"\x06routes\x18\x01 \x03(\v2\x0f.daemon.NetworkR\x06routes\"a\n" +
@@ -6794,113 +6949,114 @@ var file_client_proto_daemon_proto_depIdxs = []int32{
 	96, // 3: daemon.PeerState.lastWireguardHandshake:type_name -> google.protobuf.Timestamp
 	95, // 4: daemon.PeerState.latency:type_name -> google.protobuf.Duration
 	96, // 5: daemon.PeerState.iceBackoffNextRetry:type_name -> google.protobuf.Timestamp
-	23, // 6: daemon.SSHServerState.sessions:type_name -> daemon.SSHSessionInfo
-	20, // 7: daemon.FullStatus.managementState:type_name -> daemon.ManagementState
-	19, // 8: daemon.FullStatus.signalState:type_name -> daemon.SignalState
-	18, // 9: daemon.FullStatus.localPeerState:type_name -> daemon.LocalPeerState
-	17, // 10: daemon.FullStatus.peers:type_name -> daemon.PeerState
-	21, // 11: daemon.FullStatus.relays:type_name -> daemon.RelayState
-	22, // 12: daemon.FullStatus.dns_servers:type_name -> daemon.NSGroupState
-	55, // 13: daemon.FullStatus.events:type_name -> daemon.SystemEvent
-	24, // 14: daemon.FullStatus.sshServerState:type_name -> daemon.SSHServerState
-	31, // 15: daemon.ListNetworksResponse.routes:type_name -> daemon.Network
-	92, // 16: daemon.Network.resolvedIPs:type_name -> daemon.Network.ResolvedIPsEntry
-	93, // 17: daemon.PortInfo.range:type_name -> daemon.PortInfo.Range
-	32, // 18: daemon.ForwardingRule.destinationPort:type_name -> daemon.PortInfo
-	32, // 19: daemon.ForwardingRule.translatedPort:type_name -> daemon.PortInfo
-	33, // 20: daemon.ForwardingRulesResponse.rules:type_name -> daemon.ForwardingRule
-	0,  // 21: daemon.GetLogLevelResponse.level:type_name -> daemon.LogLevel
-	0,  // 22: daemon.SetLogLevelRequest.level:type_name -> daemon.LogLevel
-	41, // 23: daemon.ListStatesResponse.states:type_name -> daemon.State
-	50, // 24: daemon.TracePacketRequest.tcp_flags:type_name -> daemon.TCPFlags
-	52, // 25: daemon.TracePacketResponse.stages:type_name -> daemon.TraceStage
-	2,  // 26: daemon.SystemEvent.severity:type_name -> daemon.SystemEvent.Severity
-	3,  // 27: daemon.SystemEvent.category:type_name -> daemon.SystemEvent.Category
-	96, // 28: daemon.SystemEvent.timestamp:type_name -> google.protobuf.Timestamp
-	94, // 29: daemon.SystemEvent.metadata:type_name -> daemon.SystemEvent.MetadataEntry
-	55, // 30: daemon.GetEventsResponse.events:type_name -> daemon.SystemEvent
-	95, // 31: daemon.SetConfigRequest.dnsRouteInterval:type_name -> google.protobuf.Duration
-	68, // 32: daemon.ListProfilesResponse.profiles:type_name -> daemon.Profile
-	1,  // 33: daemon.ExposeServiceRequest.protocol:type_name -> daemon.ExposeProtocol
-	91, // 34: daemon.ExposeServiceEvent.ready:type_name -> daemon.ExposeServiceReady
-	30, // 35: daemon.Network.ResolvedIPsEntry.value:type_name -> daemon.IPList
-	5,  // 36: daemon.DaemonService.Login:input_type -> daemon.LoginRequest
-	7,  // 37: daemon.DaemonService.WaitSSOLogin:input_type -> daemon.WaitSSOLoginRequest
-	9,  // 38: daemon.DaemonService.Up:input_type -> daemon.UpRequest
-	11, // 39: daemon.DaemonService.Status:input_type -> daemon.StatusRequest
-	13, // 40: daemon.DaemonService.Down:input_type -> daemon.DownRequest
-	15, // 41: daemon.DaemonService.GetConfig:input_type -> daemon.GetConfigRequest
-	26, // 42: daemon.DaemonService.ListNetworks:input_type -> daemon.ListNetworksRequest
-	28, // 43: daemon.DaemonService.SelectNetworks:input_type -> daemon.SelectNetworksRequest
-	28, // 44: daemon.DaemonService.DeselectNetworks:input_type -> daemon.SelectNetworksRequest
-	4,  // 45: daemon.DaemonService.ForwardingRules:input_type -> daemon.EmptyRequest
-	35, // 46: daemon.DaemonService.DebugBundle:input_type -> daemon.DebugBundleRequest
-	37, // 47: daemon.DaemonService.GetLogLevel:input_type -> daemon.GetLogLevelRequest
-	39, // 48: daemon.DaemonService.SetLogLevel:input_type -> daemon.SetLogLevelRequest
-	42, // 49: daemon.DaemonService.ListStates:input_type -> daemon.ListStatesRequest
-	44, // 50: daemon.DaemonService.CleanState:input_type -> daemon.CleanStateRequest
-	46, // 51: daemon.DaemonService.DeleteState:input_type -> daemon.DeleteStateRequest
-	48, // 52: daemon.DaemonService.SetSyncResponsePersistence:input_type -> daemon.SetSyncResponsePersistenceRequest
-	51, // 53: daemon.DaemonService.TracePacket:input_type -> daemon.TracePacketRequest
-	54, // 54: daemon.DaemonService.SubscribeEvents:input_type -> daemon.SubscribeRequest
-	56, // 55: daemon.DaemonService.GetEvents:input_type -> daemon.GetEventsRequest
-	58, // 56: daemon.DaemonService.SwitchProfile:input_type -> daemon.SwitchProfileRequest
-	60, // 57: daemon.DaemonService.SetConfig:input_type -> daemon.SetConfigRequest
-	62, // 58: daemon.DaemonService.AddProfile:input_type -> daemon.AddProfileRequest
-	64, // 59: daemon.DaemonService.RemoveProfile:input_type -> daemon.RemoveProfileRequest
-	66, // 60: daemon.DaemonService.ListProfiles:input_type -> daemon.ListProfilesRequest
-	69, // 61: daemon.DaemonService.GetActiveProfile:input_type -> daemon.GetActiveProfileRequest
-	71, // 62: daemon.DaemonService.Logout:input_type -> daemon.LogoutRequest
-	73, // 63: daemon.DaemonService.GetFeatures:input_type -> daemon.GetFeaturesRequest
-	75, // 64: daemon.DaemonService.TriggerUpdate:input_type -> daemon.TriggerUpdateRequest
-	77, // 65: daemon.DaemonService.GetPeerSSHHostKey:input_type -> daemon.GetPeerSSHHostKeyRequest
-	79, // 66: daemon.DaemonService.RequestJWTAuth:input_type -> daemon.RequestJWTAuthRequest
-	81, // 67: daemon.DaemonService.WaitJWTToken:input_type -> daemon.WaitJWTTokenRequest
-	83, // 68: daemon.DaemonService.StartCPUProfile:input_type -> daemon.StartCPUProfileRequest
-	85, // 69: daemon.DaemonService.StopCPUProfile:input_type -> daemon.StopCPUProfileRequest
-	87, // 70: daemon.DaemonService.GetInstallerResult:input_type -> daemon.InstallerResultRequest
-	89, // 71: daemon.DaemonService.ExposeService:input_type -> daemon.ExposeServiceRequest
-	6,  // 72: daemon.DaemonService.Login:output_type -> daemon.LoginResponse
-	8,  // 73: daemon.DaemonService.WaitSSOLogin:output_type -> daemon.WaitSSOLoginResponse
-	10, // 74: daemon.DaemonService.Up:output_type -> daemon.UpResponse
-	12, // 75: daemon.DaemonService.Status:output_type -> daemon.StatusResponse
-	14, // 76: daemon.DaemonService.Down:output_type -> daemon.DownResponse
-	16, // 77: daemon.DaemonService.GetConfig:output_type -> daemon.GetConfigResponse
-	27, // 78: daemon.DaemonService.ListNetworks:output_type -> daemon.ListNetworksResponse
-	29, // 79: daemon.DaemonService.SelectNetworks:output_type -> daemon.SelectNetworksResponse
-	29, // 80: daemon.DaemonService.DeselectNetworks:output_type -> daemon.SelectNetworksResponse
-	34, // 81: daemon.DaemonService.ForwardingRules:output_type -> daemon.ForwardingRulesResponse
-	36, // 82: daemon.DaemonService.DebugBundle:output_type -> daemon.DebugBundleResponse
-	38, // 83: daemon.DaemonService.GetLogLevel:output_type -> daemon.GetLogLevelResponse
-	40, // 84: daemon.DaemonService.SetLogLevel:output_type -> daemon.SetLogLevelResponse
-	43, // 85: daemon.DaemonService.ListStates:output_type -> daemon.ListStatesResponse
-	45, // 86: daemon.DaemonService.CleanState:output_type -> daemon.CleanStateResponse
-	47, // 87: daemon.DaemonService.DeleteState:output_type -> daemon.DeleteStateResponse
-	49, // 88: daemon.DaemonService.SetSyncResponsePersistence:output_type -> daemon.SetSyncResponsePersistenceResponse
-	53, // 89: daemon.DaemonService.TracePacket:output_type -> daemon.TracePacketResponse
-	55, // 90: daemon.DaemonService.SubscribeEvents:output_type -> daemon.SystemEvent
-	57, // 91: daemon.DaemonService.GetEvents:output_type -> daemon.GetEventsResponse
-	59, // 92: daemon.DaemonService.SwitchProfile:output_type -> daemon.SwitchProfileResponse
-	61, // 93: daemon.DaemonService.SetConfig:output_type -> daemon.SetConfigResponse
-	63, // 94: daemon.DaemonService.AddProfile:output_type -> daemon.AddProfileResponse
-	65, // 95: daemon.DaemonService.RemoveProfile:output_type -> daemon.RemoveProfileResponse
-	67, // 96: daemon.DaemonService.ListProfiles:output_type -> daemon.ListProfilesResponse
-	70, // 97: daemon.DaemonService.GetActiveProfile:output_type -> daemon.GetActiveProfileResponse
-	72, // 98: daemon.DaemonService.Logout:output_type -> daemon.LogoutResponse
-	74, // 99: daemon.DaemonService.GetFeatures:output_type -> daemon.GetFeaturesResponse
-	76, // 100: daemon.DaemonService.TriggerUpdate:output_type -> daemon.TriggerUpdateResponse
-	78, // 101: daemon.DaemonService.GetPeerSSHHostKey:output_type -> daemon.GetPeerSSHHostKeyResponse
-	80, // 102: daemon.DaemonService.RequestJWTAuth:output_type -> daemon.RequestJWTAuthResponse
-	82, // 103: daemon.DaemonService.WaitJWTToken:output_type -> daemon.WaitJWTTokenResponse
-	84, // 104: daemon.DaemonService.StartCPUProfile:output_type -> daemon.StartCPUProfileResponse
-	86, // 105: daemon.DaemonService.StopCPUProfile:output_type -> daemon.StopCPUProfileResponse
-	88, // 106: daemon.DaemonService.GetInstallerResult:output_type -> daemon.InstallerResultResponse
-	90, // 107: daemon.DaemonService.ExposeService:output_type -> daemon.ExposeServiceEvent
-	72, // [72:108] is the sub-list for method output_type
-	36, // [36:72] is the sub-list for method input_type
-	36, // [36:36] is the sub-list for extension type_name
-	36, // [36:36] is the sub-list for extension extendee
-	0,  // [0:36] is the sub-list for field type_name
+	96, // 6: daemon.PeerState.last_seen_at_server:type_name -> google.protobuf.Timestamp
+	23, // 7: daemon.SSHServerState.sessions:type_name -> daemon.SSHSessionInfo
+	20, // 8: daemon.FullStatus.managementState:type_name -> daemon.ManagementState
+	19, // 9: daemon.FullStatus.signalState:type_name -> daemon.SignalState
+	18, // 10: daemon.FullStatus.localPeerState:type_name -> daemon.LocalPeerState
+	17, // 11: daemon.FullStatus.peers:type_name -> daemon.PeerState
+	21, // 12: daemon.FullStatus.relays:type_name -> daemon.RelayState
+	22, // 13: daemon.FullStatus.dns_servers:type_name -> daemon.NSGroupState
+	55, // 14: daemon.FullStatus.events:type_name -> daemon.SystemEvent
+	24, // 15: daemon.FullStatus.sshServerState:type_name -> daemon.SSHServerState
+	31, // 16: daemon.ListNetworksResponse.routes:type_name -> daemon.Network
+	92, // 17: daemon.Network.resolvedIPs:type_name -> daemon.Network.ResolvedIPsEntry
+	93, // 18: daemon.PortInfo.range:type_name -> daemon.PortInfo.Range
+	32, // 19: daemon.ForwardingRule.destinationPort:type_name -> daemon.PortInfo
+	32, // 20: daemon.ForwardingRule.translatedPort:type_name -> daemon.PortInfo
+	33, // 21: daemon.ForwardingRulesResponse.rules:type_name -> daemon.ForwardingRule
+	0,  // 22: daemon.GetLogLevelResponse.level:type_name -> daemon.LogLevel
+	0,  // 23: daemon.SetLogLevelRequest.level:type_name -> daemon.LogLevel
+	41, // 24: daemon.ListStatesResponse.states:type_name -> daemon.State
+	50, // 25: daemon.TracePacketRequest.tcp_flags:type_name -> daemon.TCPFlags
+	52, // 26: daemon.TracePacketResponse.stages:type_name -> daemon.TraceStage
+	2,  // 27: daemon.SystemEvent.severity:type_name -> daemon.SystemEvent.Severity
+	3,  // 28: daemon.SystemEvent.category:type_name -> daemon.SystemEvent.Category
+	96, // 29: daemon.SystemEvent.timestamp:type_name -> google.protobuf.Timestamp
+	94, // 30: daemon.SystemEvent.metadata:type_name -> daemon.SystemEvent.MetadataEntry
+	55, // 31: daemon.GetEventsResponse.events:type_name -> daemon.SystemEvent
+	95, // 32: daemon.SetConfigRequest.dnsRouteInterval:type_name -> google.protobuf.Duration
+	68, // 33: daemon.ListProfilesResponse.profiles:type_name -> daemon.Profile
+	1,  // 34: daemon.ExposeServiceRequest.protocol:type_name -> daemon.ExposeProtocol
+	91, // 35: daemon.ExposeServiceEvent.ready:type_name -> daemon.ExposeServiceReady
+	30, // 36: daemon.Network.ResolvedIPsEntry.value:type_name -> daemon.IPList
+	5,  // 37: daemon.DaemonService.Login:input_type -> daemon.LoginRequest
+	7,  // 38: daemon.DaemonService.WaitSSOLogin:input_type -> daemon.WaitSSOLoginRequest
+	9,  // 39: daemon.DaemonService.Up:input_type -> daemon.UpRequest
+	11, // 40: daemon.DaemonService.Status:input_type -> daemon.StatusRequest
+	13, // 41: daemon.DaemonService.Down:input_type -> daemon.DownRequest
+	15, // 42: daemon.DaemonService.GetConfig:input_type -> daemon.GetConfigRequest
+	26, // 43: daemon.DaemonService.ListNetworks:input_type -> daemon.ListNetworksRequest
+	28, // 44: daemon.DaemonService.SelectNetworks:input_type -> daemon.SelectNetworksRequest
+	28, // 45: daemon.DaemonService.DeselectNetworks:input_type -> daemon.SelectNetworksRequest
+	4,  // 46: daemon.DaemonService.ForwardingRules:input_type -> daemon.EmptyRequest
+	35, // 47: daemon.DaemonService.DebugBundle:input_type -> daemon.DebugBundleRequest
+	37, // 48: daemon.DaemonService.GetLogLevel:input_type -> daemon.GetLogLevelRequest
+	39, // 49: daemon.DaemonService.SetLogLevel:input_type -> daemon.SetLogLevelRequest
+	42, // 50: daemon.DaemonService.ListStates:input_type -> daemon.ListStatesRequest
+	44, // 51: daemon.DaemonService.CleanState:input_type -> daemon.CleanStateRequest
+	46, // 52: daemon.DaemonService.DeleteState:input_type -> daemon.DeleteStateRequest
+	48, // 53: daemon.DaemonService.SetSyncResponsePersistence:input_type -> daemon.SetSyncResponsePersistenceRequest
+	51, // 54: daemon.DaemonService.TracePacket:input_type -> daemon.TracePacketRequest
+	54, // 55: daemon.DaemonService.SubscribeEvents:input_type -> daemon.SubscribeRequest
+	56, // 56: daemon.DaemonService.GetEvents:input_type -> daemon.GetEventsRequest
+	58, // 57: daemon.DaemonService.SwitchProfile:input_type -> daemon.SwitchProfileRequest
+	60, // 58: daemon.DaemonService.SetConfig:input_type -> daemon.SetConfigRequest
+	62, // 59: daemon.DaemonService.AddProfile:input_type -> daemon.AddProfileRequest
+	64, // 60: daemon.DaemonService.RemoveProfile:input_type -> daemon.RemoveProfileRequest
+	66, // 61: daemon.DaemonService.ListProfiles:input_type -> daemon.ListProfilesRequest
+	69, // 62: daemon.DaemonService.GetActiveProfile:input_type -> daemon.GetActiveProfileRequest
+	71, // 63: daemon.DaemonService.Logout:input_type -> daemon.LogoutRequest
+	73, // 64: daemon.DaemonService.GetFeatures:input_type -> daemon.GetFeaturesRequest
+	75, // 65: daemon.DaemonService.TriggerUpdate:input_type -> daemon.TriggerUpdateRequest
+	77, // 66: daemon.DaemonService.GetPeerSSHHostKey:input_type -> daemon.GetPeerSSHHostKeyRequest
+	79, // 67: daemon.DaemonService.RequestJWTAuth:input_type -> daemon.RequestJWTAuthRequest
+	81, // 68: daemon.DaemonService.WaitJWTToken:input_type -> daemon.WaitJWTTokenRequest
+	83, // 69: daemon.DaemonService.StartCPUProfile:input_type -> daemon.StartCPUProfileRequest
+	85, // 70: daemon.DaemonService.StopCPUProfile:input_type -> daemon.StopCPUProfileRequest
+	87, // 71: daemon.DaemonService.GetInstallerResult:input_type -> daemon.InstallerResultRequest
+	89, // 72: daemon.DaemonService.ExposeService:input_type -> daemon.ExposeServiceRequest
+	6,  // 73: daemon.DaemonService.Login:output_type -> daemon.LoginResponse
+	8,  // 74: daemon.DaemonService.WaitSSOLogin:output_type -> daemon.WaitSSOLoginResponse
+	10, // 75: daemon.DaemonService.Up:output_type -> daemon.UpResponse
+	12, // 76: daemon.DaemonService.Status:output_type -> daemon.StatusResponse
+	14, // 77: daemon.DaemonService.Down:output_type -> daemon.DownResponse
+	16, // 78: daemon.DaemonService.GetConfig:output_type -> daemon.GetConfigResponse
+	27, // 79: daemon.DaemonService.ListNetworks:output_type -> daemon.ListNetworksResponse
+	29, // 80: daemon.DaemonService.SelectNetworks:output_type -> daemon.SelectNetworksResponse
+	29, // 81: daemon.DaemonService.DeselectNetworks:output_type -> daemon.SelectNetworksResponse
+	34, // 82: daemon.DaemonService.ForwardingRules:output_type -> daemon.ForwardingRulesResponse
+	36, // 83: daemon.DaemonService.DebugBundle:output_type -> daemon.DebugBundleResponse
+	38, // 84: daemon.DaemonService.GetLogLevel:output_type -> daemon.GetLogLevelResponse
+	40, // 85: daemon.DaemonService.SetLogLevel:output_type -> daemon.SetLogLevelResponse
+	43, // 86: daemon.DaemonService.ListStates:output_type -> daemon.ListStatesResponse
+	45, // 87: daemon.DaemonService.CleanState:output_type -> daemon.CleanStateResponse
+	47, // 88: daemon.DaemonService.DeleteState:output_type -> daemon.DeleteStateResponse
+	49, // 89: daemon.DaemonService.SetSyncResponsePersistence:output_type -> daemon.SetSyncResponsePersistenceResponse
+	53, // 90: daemon.DaemonService.TracePacket:output_type -> daemon.TracePacketResponse
+	55, // 91: daemon.DaemonService.SubscribeEvents:output_type -> daemon.SystemEvent
+	57, // 92: daemon.DaemonService.GetEvents:output_type -> daemon.GetEventsResponse
+	59, // 93: daemon.DaemonService.SwitchProfile:output_type -> daemon.SwitchProfileResponse
+	61, // 94: daemon.DaemonService.SetConfig:output_type -> daemon.SetConfigResponse
+	63, // 95: daemon.DaemonService.AddProfile:output_type -> daemon.AddProfileResponse
+	65, // 96: daemon.DaemonService.RemoveProfile:output_type -> daemon.RemoveProfileResponse
+	67, // 97: daemon.DaemonService.ListProfiles:output_type -> daemon.ListProfilesResponse
+	70, // 98: daemon.DaemonService.GetActiveProfile:output_type -> daemon.GetActiveProfileResponse
+	72, // 99: daemon.DaemonService.Logout:output_type -> daemon.LogoutResponse
+	74, // 100: daemon.DaemonService.GetFeatures:output_type -> daemon.GetFeaturesResponse
+	76, // 101: daemon.DaemonService.TriggerUpdate:output_type -> daemon.TriggerUpdateResponse
+	78, // 102: daemon.DaemonService.GetPeerSSHHostKey:output_type -> daemon.GetPeerSSHHostKeyResponse
+	80, // 103: daemon.DaemonService.RequestJWTAuth:output_type -> daemon.RequestJWTAuthResponse
+	82, // 104: daemon.DaemonService.WaitJWTToken:output_type -> daemon.WaitJWTTokenResponse
+	84, // 105: daemon.DaemonService.StartCPUProfile:output_type -> daemon.StartCPUProfileResponse
+	86, // 106: daemon.DaemonService.StopCPUProfile:output_type -> daemon.StopCPUProfileResponse
+	88, // 107: daemon.DaemonService.GetInstallerResult:output_type -> daemon.InstallerResultResponse
+	90, // 108: daemon.DaemonService.ExposeService:output_type -> daemon.ExposeServiceEvent
+	73, // [73:109] is the sub-list for method output_type
+	37, // [37:73] is the sub-list for method input_type
+	37, // [37:37] is the sub-list for extension type_name
+	37, // [37:37] is the sub-list for extension extendee
+	0,  // [0:37] is the sub-list for field type_name
 }
 
 func init() { file_client_proto_daemon_proto_init() }
