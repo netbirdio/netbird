@@ -244,6 +244,10 @@ func TestGetFullStatus(t *testing.T) {
 
 	fullStatus := status.GetFullStatus()
 
+	// GetFullStatus sets ServerOnline=true for peers in d.peers.
+	peerState1.ServerOnline = true
+	peerState2.ServerOnline = true
+
 	assert.Equal(t, managementState, fullStatus.ManagementState, "management status should be equal")
 	assert.Equal(t, signalState, fullStatus.SignalState, "signal status should be equal")
 	assert.ElementsMatch(t, []State{peerState1, peerState2}, fullStatus.Peers, "peers states should match")
@@ -287,5 +291,73 @@ func TestStatus_ConnStateListener_CalledAfterUnlock(t *testing.T) {
 	}
 	if listenerObservedLockHeld.Load() {
 		t.Error("listener called while mux still held — Extract-Method refactor incomplete")
+	}
+}
+
+// TestStatus_UpdatePeerRemoteMeta_PreservesConnStatus verifies that
+// UpdatePeerRemoteMeta sets Remote* fields without touching ConnStatus.
+// Phase 3.7i of #5989.
+func TestStatus_UpdatePeerRemoteMeta_PreservesConnStatus(t *testing.T) {
+	d := NewRecorder("")
+	// Add a peer first so it exists in d.peers (the map).
+	if err := d.AddPeer("peerA", "fqdnA", "100.64.0.2"); err != nil {
+		t.Fatal(err)
+	}
+	// Set its ConnStatus to Connected so we can verify it is preserved.
+	if err := d.UpdatePeerState(State{
+		PubKey:     "peerA",
+		ConnStatus: StatusConnected,
+		Relayed:    false,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := d.UpdatePeerRemoteMeta("peerA", RemoteMeta{
+		EffectiveConnectionMode: "p2p-dynamic",
+		Groups:                  []string{"router"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	d.mux.Lock()
+	got := d.peers["peerA"]
+	d.mux.Unlock()
+	if got.ConnStatus != StatusConnected {
+		t.Errorf("ConnStatus changed: %v", got.ConnStatus)
+	}
+	if got.RemoteEffectiveConnectionMode != "p2p-dynamic" {
+		t.Errorf("EffectiveMode not set: %s", got.RemoteEffectiveConnectionMode)
+	}
+	if len(got.RemoteGroups) != 1 || got.RemoteGroups[0] != "router" {
+		t.Errorf("Groups not set: %v", got.RemoteGroups)
+	}
+}
+
+// TestStatus_GetFullStatus_SetsServerOnlineAndCounters verifies aggregate
+// counters and ServerOnline flag set in GetFullStatus. Phase 3.7i of #5989.
+func TestStatus_GetFullStatus_SetsServerOnlineAndCounters(t *testing.T) {
+	d := NewRecorder("")
+	d.mux.Lock()
+	d.peers["a"] = State{PubKey: "a", ConnStatus: StatusConnected, Relayed: false}
+	d.peers["b"] = State{PubKey: "b", ConnStatus: StatusConnected, Relayed: true}
+	d.peers["c"] = State{PubKey: "c", ConnStatus: StatusIdle}
+	d.offlinePeers = []State{{PubKey: "d"}}
+	d.mux.Unlock()
+
+	fs := d.GetFullStatus()
+	if fs.P2PConnectedPeers != 1 || fs.RelayedConnectedPeers != 1 ||
+		fs.IdleOnlinePeers != 1 || fs.ServerOfflinePeers != 1 ||
+		fs.ConfiguredPeersTotal != 4 {
+		t.Errorf("counters wrong: P2P=%d Relayed=%d Idle=%d Offline=%d Total=%d",
+			fs.P2PConnectedPeers, fs.RelayedConnectedPeers,
+			fs.IdleOnlinePeers, fs.ServerOfflinePeers, fs.ConfiguredPeersTotal)
+	}
+	for _, st := range fs.Peers {
+		if st.PubKey == "d" && st.ServerOnline {
+			t.Error("offline peer must have ServerOnline=false")
+		}
+		if st.PubKey != "d" && !st.ServerOnline {
+			t.Errorf("online peer %s must have ServerOnline=true", st.PubKey)
+		}
 	}
 }

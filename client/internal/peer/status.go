@@ -74,6 +74,18 @@ type State struct {
 	IceBackoffFailures  int
 	IceBackoffNextRetry time.Time
 	IceBackoffSuspended bool
+	// Phase 3.7i (#5989): true = peer is in d.peers; false = in d.offlinePeers.
+	ServerOnline                     bool
+	RemoteEffectiveConnectionMode    string
+	RemoteConfiguredConnectionMode   string
+	RemoteEffectiveRelayTimeoutSecs  uint32
+	RemoteEffectiveP2PTimeoutSecs    uint32
+	RemoteEffectiveP2PRetryMaxSecs   uint32
+	RemoteConfiguredRelayTimeoutSecs uint32
+	RemoteConfiguredP2PTimeoutSecs   uint32
+	RemoteConfiguredP2PRetryMaxSecs  uint32
+	RemoteGroups                     []string
+	RemoteLastSeenAtServer           time.Time
 }
 
 // AddRoute add a single route to routes map
@@ -164,6 +176,13 @@ type FullStatus struct {
 	NumOfForwardingRules  int
 	LazyConnectionEnabled bool
 	Events                []*proto.SystemEvent
+	// Phase 3.7i (#5989): aggregate counters.
+	ConfiguredPeersTotal  uint32
+	ServerOnlinePeers     uint32
+	P2PConnectedPeers     uint32
+	RelayedConnectedPeers uint32
+	IdleOnlinePeers       uint32
+	ServerOfflinePeers    uint32
 }
 
 type StatusChangeSubscription struct {
@@ -421,6 +440,73 @@ func (d *Status) UpdatePeerIceBackoff(pubKey string, snap BackoffSnapshot) {
 	peerState.IceBackoffNextRetry = snap.NextRetry
 	peerState.IceBackoffSuspended = snap.Suspended
 	d.peers[pubKey] = peerState
+}
+
+// RemoteMeta is the slice of per-peer fields RemotePeerConfig populates.
+// Phase 3.7i of #5989.
+type RemoteMeta struct {
+	EffectiveConnectionMode    string
+	EffectiveRelayTimeoutSecs  uint32
+	EffectiveP2PTimeoutSecs    uint32
+	EffectiveP2PRetryMaxSecs   uint32
+	ConfiguredConnectionMode   string
+	ConfiguredRelayTimeoutSecs uint32
+	ConfiguredP2PTimeoutSecs   uint32
+	ConfiguredP2PRetryMaxSecs  uint32
+	Groups                     []string
+	LastSeenAtServer           time.Time
+}
+
+// UpdatePeerRemoteMeta sets the RemotePeerConfig-derived fields on the
+// peer's State without touching ConnStatus or transport stats. Looks up
+// the peer in both online (d.peers) and offline (d.offlinePeers) maps.
+// Phase 3.7i of #5989.
+func (d *Status) UpdatePeerRemoteMeta(pubKey string, meta RemoteMeta) error {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	st, online := d.peers[pubKey]
+	if online {
+		st.RemoteEffectiveConnectionMode = meta.EffectiveConnectionMode
+		st.RemoteConfiguredConnectionMode = meta.ConfiguredConnectionMode
+		st.RemoteEffectiveRelayTimeoutSecs = meta.EffectiveRelayTimeoutSecs
+		st.RemoteEffectiveP2PTimeoutSecs = meta.EffectiveP2PTimeoutSecs
+		st.RemoteEffectiveP2PRetryMaxSecs = meta.EffectiveP2PRetryMaxSecs
+		st.RemoteConfiguredRelayTimeoutSecs = meta.ConfiguredRelayTimeoutSecs
+		st.RemoteConfiguredP2PTimeoutSecs = meta.ConfiguredP2PTimeoutSecs
+		st.RemoteConfiguredP2PRetryMaxSecs = meta.ConfiguredP2PRetryMaxSecs
+		st.RemoteGroups = meta.Groups
+		st.RemoteLastSeenAtServer = meta.LastSeenAtServer
+		d.peers[pubKey] = st
+		return nil
+	}
+	for i := range d.offlinePeers {
+		if d.offlinePeers[i].PubKey == pubKey {
+			d.offlinePeers[i].RemoteEffectiveConnectionMode = meta.EffectiveConnectionMode
+			d.offlinePeers[i].RemoteConfiguredConnectionMode = meta.ConfiguredConnectionMode
+			d.offlinePeers[i].RemoteEffectiveRelayTimeoutSecs = meta.EffectiveRelayTimeoutSecs
+			d.offlinePeers[i].RemoteEffectiveP2PTimeoutSecs = meta.EffectiveP2PTimeoutSecs
+			d.offlinePeers[i].RemoteEffectiveP2PRetryMaxSecs = meta.EffectiveP2PRetryMaxSecs
+			d.offlinePeers[i].RemoteConfiguredRelayTimeoutSecs = meta.ConfiguredRelayTimeoutSecs
+			d.offlinePeers[i].RemoteConfiguredP2PTimeoutSecs = meta.ConfiguredP2PTimeoutSecs
+			d.offlinePeers[i].RemoteConfiguredP2PRetryMaxSecs = meta.ConfiguredP2PRetryMaxSecs
+			d.offlinePeers[i].RemoteGroups = meta.Groups
+			d.offlinePeers[i].RemoteLastSeenAtServer = meta.LastSeenAtServer
+			return nil
+		}
+	}
+	return fmt.Errorf("peer %s not found in either map", pubKey)
+}
+
+// timestampOrZero converts a *timestamppb.Timestamp to time.Time,
+// returning zero-time when the proto pointer is nil. Used by engine.go
+// (Task 3.3) when populating RemoteMeta from RemotePeerConfig where
+// last_seen_at_server may be unset for peers that pre-date Phase 3.7i.
+// Phase 3.7i of #5989.
+func timestampOrZero(t *timestamppb.Timestamp) time.Time {
+	if t == nil {
+		return time.Time{}
+	}
+	return t.AsTime()
 }
 
 func (d *Status) AddPeerStateRoute(peer string, route string, resourceId route.ResID) error {
@@ -1157,11 +1243,33 @@ func (d *Status) GetFullStatus() FullStatus {
 
 	fullStatus.LocalPeerState = d.localPeer
 
+	var p2p, relayed, idle, offline uint32
+
 	for _, status := range d.peers {
+		status.ServerOnline = true
+		switch {
+		case status.ConnStatus == StatusConnected && !status.Relayed:
+			p2p++
+		case status.ConnStatus == StatusConnected && status.Relayed:
+			relayed++
+		default:
+			idle++
+		}
+		fullStatus.Peers = append(fullStatus.Peers, status)
+	}
+	for _, status := range d.offlinePeers {
+		status.ServerOnline = false
+		offline++
 		fullStatus.Peers = append(fullStatus.Peers, status)
 	}
 
-	fullStatus.Peers = append(fullStatus.Peers, d.offlinePeers...)
+	fullStatus.P2PConnectedPeers = p2p
+	fullStatus.RelayedConnectedPeers = relayed
+	fullStatus.IdleOnlinePeers = idle
+	fullStatus.ServerOfflinePeers = offline
+	fullStatus.ServerOnlinePeers = p2p + relayed + idle
+	fullStatus.ConfiguredPeersTotal = fullStatus.ServerOnlinePeers + offline
+
 	fullStatus.Events = d.GetEventHistory()
 	return fullStatus
 }
@@ -1439,6 +1547,14 @@ func (fs FullStatus) ToProto() *proto.FullStatus {
 	pbFullStatus.NumberOfForwardingRules = int32(fs.NumOfForwardingRules)
 	pbFullStatus.LazyConnectionEnabled = fs.LazyConnectionEnabled
 
+	// Phase 3.7i (#5989): aggregate counters.
+	pbFullStatus.ConfiguredPeersTotal = fs.ConfiguredPeersTotal
+	pbFullStatus.ServerOnlinePeers = fs.ServerOnlinePeers
+	pbFullStatus.P2PConnectedPeers = fs.P2PConnectedPeers
+	pbFullStatus.RelayedConnectedPeers = fs.RelayedConnectedPeers
+	pbFullStatus.IdleOnlinePeers = fs.IdleOnlinePeers
+	pbFullStatus.ServerOfflinePeers = fs.ServerOfflinePeers
+
 	pbFullStatus.LocalPeerState.Networks = maps.Keys(fs.LocalPeerState.Routes)
 
 	for _, peerState := range fs.Peers {
@@ -1466,6 +1582,20 @@ func (fs FullStatus) ToProto() *proto.FullStatus {
 			IceBackoffFailures:         int32(peerState.IceBackoffFailures),
 			IceBackoffNextRetry:        timestamppb.New(peerState.IceBackoffNextRetry),
 			IceBackoffSuspended:        peerState.IceBackoffSuspended,
+			// Phase 3.7i (#5989): per-peer remote meta fields.
+			ServerOnline:               peerState.ServerOnline,
+			Groups:                     peerState.RemoteGroups,
+			EffectiveConnectionMode:    peerState.RemoteEffectiveConnectionMode,
+			ConfiguredConnectionMode:   peerState.RemoteConfiguredConnectionMode,
+			EffectiveRelayTimeoutSecs:  peerState.RemoteEffectiveRelayTimeoutSecs,
+			EffectiveP2PTimeoutSecs:    peerState.RemoteEffectiveP2PTimeoutSecs,
+			EffectiveP2PRetryMaxSecs:   peerState.RemoteEffectiveP2PRetryMaxSecs,
+			ConfiguredRelayTimeoutSecs: peerState.RemoteConfiguredRelayTimeoutSecs,
+			ConfiguredP2PTimeoutSecs:   peerState.RemoteConfiguredP2PTimeoutSecs,
+			ConfiguredP2PRetryMaxSecs:  peerState.RemoteConfiguredP2PRetryMaxSecs,
+		}
+		if !peerState.RemoteLastSeenAtServer.IsZero() {
+			pbPeerState.LastSeenAtServer = timestamppb.New(peerState.RemoteLastSeenAtServer)
 		}
 		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)
 	}
