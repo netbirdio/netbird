@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/netip"
 	"time"
@@ -227,15 +228,24 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 		returnSettings.ConnectionMode = &s
 	}
 	if req.Settings.P2pTimeoutSeconds != nil {
-		v := uint32(*req.Settings.P2pTimeoutSeconds)
+		v, err := validateUint32Timeout("p2p_timeout_seconds", *req.Settings.P2pTimeoutSeconds)
+		if err != nil {
+			return nil, err
+		}
 		returnSettings.P2pTimeoutSeconds = &v
 	}
 	if req.Settings.P2pRetryMaxSeconds != nil {
-		v := uint32(*req.Settings.P2pRetryMaxSeconds)
+		v, err := validateUint32Timeout("p2p_retry_max_seconds", *req.Settings.P2pRetryMaxSeconds)
+		if err != nil {
+			return nil, err
+		}
 		returnSettings.P2pRetryMaxSeconds = &v
 	}
 	if req.Settings.RelayTimeoutSeconds != nil {
-		v := uint32(*req.Settings.RelayTimeoutSeconds)
+		v, err := validateUint32Timeout("relay_timeout_seconds", *req.Settings.RelayTimeoutSeconds)
+		if err != nil {
+			return nil, err
+		}
 		returnSettings.RelayTimeoutSeconds = &v
 	}
 	if req.Settings.AutoUpdateVersion != nil {
@@ -436,4 +446,20 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		DomainCategory: meta.DomainCategory,
 		Onboarding:     apiOnboarding,
 	}
+}
+
+// validateUint32Timeout converts the int64 value coming from the API
+// JSON body into a uint32 suitable for the daemon-internal timeout
+// fields. Negative values and values larger than MaxUint32 are
+// rejected (Codex review): a raw uint32 cast would silently wrap a
+// negative input around to a large positive number, producing a
+// timeout the operator never intended to set.
+func validateUint32Timeout(name string, v int64) (uint32, error) {
+	if v < 0 {
+		return 0, fmt.Errorf("invalid %s: %d (must be >= 0)", name, v)
+	}
+	if v > int64(math.MaxUint32) {
+		return 0, fmt.Errorf("invalid %s: %d (exceeds %d)", name, v, math.MaxUint32)
+	}
+	return uint32(v), nil
 }
