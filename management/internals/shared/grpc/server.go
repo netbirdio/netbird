@@ -681,7 +681,11 @@ func extractPeerMeta(ctx context.Context, meta *proto.PeerSystemMeta) nbpeer.Pee
 			BlockInbound:          meta.GetFlags().GetBlockInbound(),
 			LazyConnectionEnabled: meta.GetFlags().GetLazyConnectionEnabled(),
 		},
-		Files: files,
+		Files:                      files,
+		EffectiveConnectionMode:    meta.GetEffectiveConnectionMode(),
+		EffectiveRelayTimeoutSecs:  meta.GetEffectiveRelayTimeoutSecs(),
+		EffectiveP2PTimeoutSecs:    meta.GetEffectiveP2PTimeoutSecs(),
+		EffectiveP2PRetryMaxSecs:   meta.GetEffectiveP2PRetryMaxSecs(),
 	}
 }
 

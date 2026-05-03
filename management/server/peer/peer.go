@@ -138,6 +138,13 @@ type PeerSystemMeta struct { //nolint:revive
 	Environment        Environment `gorm:"serializer:json"`
 	Flags              Flags       `gorm:"serializer:json"`
 	Files              []File      `gorm:"serializer:json"`
+
+	// Phase 3.7i (#5989): peer-self-reported runtime mode/timeouts. Stored
+	// alongside Hostname/Kernel/etc as meta. Empty when peer pre-dates 3.7i.
+	EffectiveConnectionMode   string `json:"effective_connection_mode,omitempty"`
+	EffectiveRelayTimeoutSecs uint32 `json:"effective_relay_timeout_secs,omitempty"`
+	EffectiveP2PTimeoutSecs   uint32 `json:"effective_p2p_timeout_secs,omitempty"`
+	EffectiveP2PRetryMaxSecs  uint32 `json:"effective_p2p_retry_max_secs,omitempty"`
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
@@ -182,6 +189,10 @@ func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
 		p.SystemManufacturer == other.SystemManufacturer &&
 		p.Environment.Cloud == other.Environment.Cloud &&
 		p.Environment.Platform == other.Environment.Platform &&
+		p.EffectiveConnectionMode == other.EffectiveConnectionMode &&
+		p.EffectiveRelayTimeoutSecs == other.EffectiveRelayTimeoutSecs &&
+		p.EffectiveP2PTimeoutSecs == other.EffectiveP2PTimeoutSecs &&
+		p.EffectiveP2PRetryMaxSecs == other.EffectiveP2PRetryMaxSecs &&
 		p.Flags.isEqual(other.Flags)
 }
 
