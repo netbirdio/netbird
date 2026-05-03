@@ -394,6 +394,66 @@ func (c *Client) RemoveConnectionListener() {
 	c.recorder.RemoveConnectionListener()
 }
 
+// GetServerPushedConnectionMode returns the canonical name of the
+// connection mode the management server most recently pushed via
+// PeerConfig (independent of any local profile/env override). Returns
+// an empty string when the engine has not connected yet or the server
+// has not pushed a value -- the Android UI then knows to display
+// just "Follow server" without the (currently: ...) suffix.
+func (c *Client) GetServerPushedConnectionMode() string {
+	cm := c.connMgrSafe()
+	if cm == nil {
+		return ""
+	}
+	return cm.ServerPushedMode().String()
+}
+
+// GetServerPushedRelayTimeoutSecs returns the relay timeout in seconds
+// most recently pushed by the management server, or 0 when no value
+// has been received. Used by the Android UI as a hint.
+func (c *Client) GetServerPushedRelayTimeoutSecs() int64 {
+	cm := c.connMgrSafe()
+	if cm == nil {
+		return 0
+	}
+	return int64(cm.ServerPushedRelayTimeoutSecs())
+}
+
+// GetServerPushedP2pTimeoutSecs returns the ICE-only timeout (seconds)
+// most recently pushed by the management server.
+func (c *Client) GetServerPushedP2pTimeoutSecs() int64 {
+	cm := c.connMgrSafe()
+	if cm == nil {
+		return 0
+	}
+	return int64(cm.ServerPushedP2pTimeoutSecs())
+}
+
+// GetServerPushedP2pRetryMaxSecs returns the ICE-backoff cap (seconds)
+// most recently pushed by the management server.
+func (c *Client) GetServerPushedP2pRetryMaxSecs() int64 {
+	cm := c.connMgrSafe()
+	if cm == nil {
+		return 0
+	}
+	return int64(cm.ServerPushedP2pRetryMaxSecs())
+}
+
+// connMgrSafe is a small helper that walks the Client -> ConnectClient
+// -> Engine -> ConnMgr chain and returns nil at the first nil pointer.
+// Each accessor that surfaces engine state to the Android UI uses it.
+func (c *Client) connMgrSafe() *internal.ConnMgr {
+	cc := c.getConnectClient()
+	if cc == nil {
+		return nil
+	}
+	engine := cc.Engine()
+	if engine == nil {
+		return nil
+	}
+	return engine.ConnMgr()
+}
+
 func (c *Client) toggleRoute(command routeCommand) error {
 	return command.toggleRoute()
 }

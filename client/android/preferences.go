@@ -307,6 +307,91 @@ func (p *Preferences) SetBlockInbound(block bool) {
 	p.configInput.BlockInbound = &block
 }
 
+// GetConnectionMode returns the locally configured connection-mode override
+// (canonical lower-kebab-case: "relay-forced", "p2p", "p2p-lazy",
+// "p2p-dynamic", "follow-server"), or empty string if no local override
+// is configured -- the daemon will then follow the server-pushed value.
+func (p *Preferences) GetConnectionMode() (string, error) {
+	if p.configInput.ConnectionMode != nil {
+		return *p.configInput.ConnectionMode, nil
+	}
+	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	if err != nil {
+		return "", err
+	}
+	return cfg.ConnectionMode, nil
+}
+
+// SetConnectionMode stores a local override for the connection mode.
+// Pass an empty string to clear the override (revert to following the
+// server-pushed value).
+func (p *Preferences) SetConnectionMode(mode string) {
+	m := mode
+	p.configInput.ConnectionMode = &m
+}
+
+// GetRelayTimeoutSeconds returns the locally configured relay-worker
+// inactivity timeout in seconds, or 0 if no override is set (follow
+// server-pushed value, or built-in default if the server has none).
+func (p *Preferences) GetRelayTimeoutSeconds() (int64, error) {
+	if p.configInput.RelayTimeoutSeconds != nil {
+		return int64(*p.configInput.RelayTimeoutSeconds), nil
+	}
+	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	if err != nil {
+		return 0, err
+	}
+	return int64(cfg.RelayTimeoutSeconds), nil
+}
+
+// SetRelayTimeoutSeconds stores a local override for the relay timeout.
+// Pass 0 to clear the override.
+func (p *Preferences) SetRelayTimeoutSeconds(secs int64) {
+	v := uint32(secs)
+	p.configInput.RelayTimeoutSeconds = &v
+}
+
+// GetP2pTimeoutSeconds returns the locally configured ICE-worker
+// inactivity timeout in seconds (only effective in p2p-dynamic mode),
+// or 0 if no override is set.
+func (p *Preferences) GetP2pTimeoutSeconds() (int64, error) {
+	if p.configInput.P2pTimeoutSeconds != nil {
+		return int64(*p.configInput.P2pTimeoutSeconds), nil
+	}
+	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	if err != nil {
+		return 0, err
+	}
+	return int64(cfg.P2pTimeoutSeconds), nil
+}
+
+// SetP2pTimeoutSeconds stores a local override for the p2p timeout.
+// Pass 0 to clear the override.
+func (p *Preferences) SetP2pTimeoutSeconds(secs int64) {
+	v := uint32(secs)
+	p.configInput.P2pTimeoutSeconds = &v
+}
+
+// GetP2pRetryMaxSeconds returns the locally configured cap on the
+// per-peer ICE-failure backoff schedule, or 0 if no override is set.
+func (p *Preferences) GetP2pRetryMaxSeconds() (int64, error) {
+	if p.configInput.P2pRetryMaxSeconds != nil {
+		return int64(*p.configInput.P2pRetryMaxSeconds), nil
+	}
+	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	if err != nil {
+		return 0, err
+	}
+	return int64(cfg.P2pRetryMaxSeconds), nil
+}
+
+// SetP2pRetryMaxSeconds stores a local override for the backoff cap.
+// Pass 0 to clear the override.
+func (p *Preferences) SetP2pRetryMaxSeconds(secs int64) {
+	v := uint32(secs)
+	p.configInput.P2pRetryMaxSeconds = &v
+}
+
 // Commit writes out the changes to the config file
 func (p *Preferences) Commit() error {
 	_, err := profilemanager.UpdateOrCreateConfig(p.configInput)
