@@ -365,6 +365,11 @@ func (e *Engine) Stop() error {
 		e.connStatePusher = nil
 	}
 
+	// Phase 3.7i: cancel all pending offline-close debounce timers so
+	// none fires after Stop() has begun. Safe to call even if no timers
+	// were armed.
+	e.cancelAllRemoteOfflineCloses()
+
 	// stopping network monitor first to avoid starting the engine again
 	if e.networkMonitor != nil {
 		e.networkMonitor.Stop()
@@ -2721,6 +2726,29 @@ func (e *Engine) scheduleRemoteOfflineClose(pubKey string) {
 		e.peerOfflineDebounceMu.Lock()
 		delete(e.peerOfflineDebounce, pubKey)
 		e.peerOfflineDebounceMu.Unlock()
+		// Codex review: re-validate on fire. Several preconditions
+		// must still hold:
+		//   1. engine context not cancelled (Stop() in flight)
+		//   2. connMgr still in p2p-dynamic mode (mode-switch racing)
+		//   3. peer still has a peerConn AND status recorder still
+		//      reports the peer as remote-offline (the live state
+		//      could have flipped back without us cancelling — e.g.
+		//      mgmt push for a different peer landed before this fire)
+		// Without these checks the debounce fires blindly and can
+		// tear down a perfectly good conn in any of those races.
+		if e.ctx == nil || e.ctx.Err() != nil {
+			return
+		}
+		if e.connMgr == nil || e.connMgr.Mode() != connectionmode.ModeP2PDynamic {
+			return
+		}
+		if state, err := e.statusRecorder.GetPeer(pubKey); err == nil {
+			if !state.RemoteServerLivenessKnown || state.RemoteLiveOnline {
+				return
+			}
+		} else {
+			return
+		}
 		conn, ok := e.peerStore.PeerConn(pubKey)
 		if !ok {
 			return
@@ -2740,5 +2768,18 @@ func (e *Engine) cancelRemoteOfflineClose(pubKey string) {
 	if t, ok := e.peerOfflineDebounce[pubKey]; ok {
 		t.Stop()
 		delete(e.peerOfflineDebounce, pubKey)
+	}
+}
+
+// cancelAllRemoteOfflineCloses stops every pending offline-close
+// timer. Called by Engine.Stop() (and on any future mode-switch out of
+// p2p-dynamic) so a still-pending timer can't fire after the engine
+// has begun shutdown.
+func (e *Engine) cancelAllRemoteOfflineCloses() {
+	e.peerOfflineDebounceMu.Lock()
+	defer e.peerOfflineDebounceMu.Unlock()
+	for k, t := range e.peerOfflineDebounce {
+		t.Stop()
+		delete(e.peerOfflineDebounce, k)
 	}
 }

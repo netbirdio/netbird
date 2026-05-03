@@ -345,9 +345,12 @@ func (p *Preferences) GetRelayTimeoutSeconds() (int64, error) {
 }
 
 // SetRelayTimeoutSeconds stores a local override for the relay timeout.
-// Pass 0 to clear the override.
+// Pass 0 to clear the override. Negative values are clamped to 0;
+// values larger than MaxUint32 are clamped to MaxUint32. The Android
+// AdvancedFragment UI already clamps negatives but a Java caller using
+// the bare gomobile API directly would otherwise wrap silently.
 func (p *Preferences) SetRelayTimeoutSeconds(secs int64) {
-	v := uint32(secs)
+	v := clampUint32Seconds(secs)
 	p.configInput.RelayTimeoutSeconds = &v
 }
 
@@ -366,9 +369,9 @@ func (p *Preferences) GetP2pTimeoutSeconds() (int64, error) {
 }
 
 // SetP2pTimeoutSeconds stores a local override for the p2p timeout.
-// Pass 0 to clear the override.
+// Pass 0 to clear the override. See SetRelayTimeoutSeconds for clamping.
 func (p *Preferences) SetP2pTimeoutSeconds(secs int64) {
-	v := uint32(secs)
+	v := clampUint32Seconds(secs)
 	p.configInput.P2pTimeoutSeconds = &v
 }
 
@@ -386,10 +389,23 @@ func (p *Preferences) GetP2pRetryMaxSeconds() (int64, error) {
 }
 
 // SetP2pRetryMaxSeconds stores a local override for the backoff cap.
-// Pass 0 to clear the override.
+// Pass 0 to clear the override. See SetRelayTimeoutSeconds for clamping.
 func (p *Preferences) SetP2pRetryMaxSeconds(secs int64) {
-	v := uint32(secs)
+	v := clampUint32Seconds(secs)
 	p.configInput.P2pRetryMaxSeconds = &v
+}
+
+// clampUint32Seconds maps an int64 seconds value into the uint32 range
+// the daemon stores internally. Negative -> 0. >MaxUint32 -> MaxUint32.
+// Defensive against Java callers that bypass UI validation.
+func clampUint32Seconds(secs int64) uint32 {
+	if secs <= 0 {
+		return 0
+	}
+	if secs > int64(^uint32(0)) {
+		return ^uint32(0)
+	}
+	return uint32(secs)
 }
 
 // Commit writes out the changes to the config file

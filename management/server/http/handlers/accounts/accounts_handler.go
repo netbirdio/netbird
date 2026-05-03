@@ -221,9 +221,15 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 		if !req.Settings.ConnectionMode.Valid() {
 			return nil, fmt.Errorf("invalid connection_mode %q", modeStr)
 		}
-		// Persist as the canonical string. Clients clear an override by
-		// sending JSON null (which lands here as a nil pointer and skips
-		// this whole block, leaving the existing value untouched).
+		// Persist as the canonical string. Important: returnSettings
+		// is a fresh struct built from scratch by this handler -- if
+		// the request body omits connection_mode (or sets JSON null,
+		// which deserializes to a nil pointer), this whole block is
+		// skipped AND returnSettings.ConnectionMode stays nil, which
+		// the storage layer interprets as "clear the override". To
+		// preserve the existing value the caller must include the
+		// current value explicitly in the PUT body. This is also true
+		// for the four timeout fields below.
 		s := modeStr
 		returnSettings.ConnectionMode = &s
 	}
