@@ -52,6 +52,39 @@ func TestConn_HandoverOrder_OnICEConnected(t *testing.T) {
 	}
 }
 
+// Codex follow-up regression: onGuardEvent's "skip offer for ICE
+// detached due to inactivity" branch must be gated on everConnected
+// being true. Without that gate, the guard skips the FIRST bootstrap
+// offer for a brand-new peer (its ICE listener is also nil before
+// initial setup), and the peer gets stuck in Connecting forever.
+// This was caught during the 6-host hardware test on 4998e5a58 —
+// dk20 saw 3 BM routers stuck in Connecting after ping wakeup
+// because the bootstrap offer was being suppressed.
+func TestConn_OnGuardEvent_SkipOfferGatedOnEverConnected(t *testing.T) {
+	src, err := os.ReadFile("conn.go")
+	if err != nil {
+		t.Fatalf("read conn.go: %v", err)
+	}
+	body := extractFunctionBody(t, string(src), "onGuardEvent")
+	// The skip-offer branch must reference everConnected.Load() in its
+	// guard. If a future refactor splits the conditions, the landmark
+	// "everConnected.Load()" should still appear ABOVE the
+	// "skip offer (ICE detached for inactivity" trace log to gate it.
+	const everCheck = "everConnected.Load()"
+	const skipTrace = "skip offer (ICE detached for inactivity"
+	idxEver := strings.Index(body, everCheck)
+	idxSkip := strings.Index(body, skipTrace)
+	if idxEver < 0 {
+		t.Fatalf("onGuardEvent missing everConnected.Load() guard — bootstrap offers will be suppressed for brand-new peers")
+	}
+	if idxSkip < 0 {
+		t.Fatalf("skip-offer trace landmark missing from onGuardEvent")
+	}
+	if idxEver > idxSkip {
+		t.Errorf("everConnected.Load() must appear BEFORE the skip-offer branch (got %d > %d)", idxEver, idxSkip)
+	}
+}
+
 // Codex hardening regression: onICEStateDisconnected must NOT call
 // RemoveEndpointAddress in the no-Relay-fallback branch. A stale
 // endpoint is less disruptive than a guaranteed no-endpoint gap; the
