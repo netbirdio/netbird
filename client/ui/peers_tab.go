@@ -5,16 +5,30 @@ package main
 import (
 	"context"
 	"fmt"
+	"image/color"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/netbirdio/netbird/client/proto"
+)
+
+// Phase 3.7i color palette for peer-row status swatch.
+//   P2P     -> bright green (best path active)
+//   Relayed -> dark green (working but suboptimal)
+//   Idle    -> grey (no active connection, waiting for traffic)
+//   Offline -> red (peer can't be reached at all on the server)
+var (
+	colorPeerP2P     = color.NRGBA{R: 0x2e, G: 0xc8, B: 0x6b, A: 0xff} // #2EC86B
+	colorPeerRelayed = color.NRGBA{R: 0x1e, G: 0x6b, B: 0x3a, A: 0xff} // #1E6B3A
+	colorPeerIdle    = color.NRGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xff} // #888888
+	colorPeerOffline = color.NRGBA{R: 0xd2, G: 0x3b, B: 0x3b, A: 0xff} // #D23B3B
 )
 
 // peersTabBundle is what buildPeersTabContent returns: the tab content
@@ -129,7 +143,12 @@ func newPeerRow(p *proto.PeerState, showFull bool, mu *sync.Mutex, expanded map[
 	header.Alignment = widget.ButtonAlignLeading
 	header.Importance = widget.LowImportance
 
-	box := container.NewVBox(header)
+	// Phase 3.7i colored status swatch on the left of every row.
+	swatch := canvas.NewRectangle(peerSwatchColor(p))
+	swatch.SetMinSize(fyne.NewSize(6, 1)) // 6px-wide vertical bar
+
+	row := container.NewBorder(nil, nil, swatch, nil, header)
+	box := container.NewVBox(row)
 	var detail *widget.Label
 
 	addDetail := func() {
@@ -178,6 +197,32 @@ func peerGroup(p *proto.PeerState) int {
 		return 1
 	}
 	return 2
+}
+
+// peerSwatchColor returns the color of the leading status swatch on a
+// peer row. Mirrors the peerGroup buckets but uses the extended hybrid
+// label when present so the negotiating window also gets a sensible
+// color (dark green like Relayed).
+func peerSwatchColor(p *proto.PeerState) color.Color {
+	if !p.GetServerOnline() {
+		return colorPeerOffline
+	}
+	switch p.GetConnectionTypeExtended() {
+	case "P2P":
+		return colorPeerP2P
+	case "Relayed", "Relayed (negotiating P2P)":
+		return colorPeerRelayed
+	}
+	switch peerGroup(p) {
+	case 0:
+		return colorPeerP2P
+	case 1:
+		return colorPeerRelayed
+	case 2:
+		return colorPeerIdle
+	default:
+		return colorPeerOffline
+	}
 }
 
 func peerGlyph(p *proto.PeerState) string {
