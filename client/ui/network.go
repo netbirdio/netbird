@@ -43,21 +43,64 @@ func (s *serviceClient) showNetworksUI() {
 	overlappingGrid := container.New(layout.NewGridLayout(3))
 	exitNodeGrid := container.New(layout.NewGridLayout(3))
 	routeCheckContainer := container.NewVBox()
-	peersContent := s.buildPeersTabContent(s.ctx)
+	peersBundle := s.buildPeersTabContent(s.ctx)
 	// Wrap the Peers tab content in a Stack so it fills the full tab
 	// area (NewBorder alone collapses when child MinSizes are small).
 	tabs := container.NewAppTabs(
-		container.NewTabItem(peersText, container.NewStack(peersContent)),
+		container.NewTabItem(peersText, container.NewStack(peersBundle.Content)),
 		container.NewTabItem(allNetworksText, allGrid),
 		container.NewTabItem(overlappingNetworksText, overlappingGrid),
 		container.NewTabItem(exitNodeNetworksText, exitNodeGrid),
 	)
-	tabs.OnSelected = func(item *container.TabItem) {
+
+	// Phase 3.7i (#5989): the outer footer adapts to the active tab so
+	// the user has a single place for actions. On the Peers tab we show
+	// only Show-Full + Refresh; on a Networks tab we show the legacy
+	// Refresh + Select-all + Deselect-All.
+	selectAllBtn := widget.NewButton("Select all", func() {
+		_, f := getGridAndFilterFromTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
+		s.selectAllFilteredNetworks(f)
 		s.updateNetworksBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
+	})
+	deselectAllBtn := widget.NewButton("Deselect All", func() {
+		_, f := getGridAndFilterFromTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
+		s.deselectAllFilteredNetworks(f)
+		s.updateNetworksBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
+	})
+	refreshBtn := widget.NewButton("Refresh", func() {
+		if tabs.Selected() != nil && tabs.Selected().Text == peersText {
+			peersBundle.Refresh()
+		} else {
+			s.updateNetworksBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
+		}
+	})
+
+	updateFooter := func() {
+		onPeers := tabs.Selected() != nil && tabs.Selected().Text == peersText
+		if onPeers {
+			peersBundle.ShowFull.Show()
+			selectAllBtn.Hide()
+			deselectAllBtn.Hide()
+		} else {
+			peersBundle.ShowFull.Hide()
+			selectAllBtn.Show()
+			deselectAllBtn.Show()
+		}
+	}
+
+	tabs.OnSelected = func(item *container.TabItem) {
+		updateFooter()
+		if item != nil && item.Text != peersText {
+			s.updateNetworksBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
+		}
 	}
 	tabs.OnUnselected = func(item *container.TabItem) {
-		grid, _ := getGridAndFilterFromTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
-		grid.Objects = nil
+		// Only reset network grids when leaving a network tab; the
+		// peers VBox manages its own state.
+		if item != nil && item.Text != peersText {
+			grid, _ := getGridAndFilterFromTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
+			grid.Objects = nil
+		}
 	}
 
 	routeCheckContainer.Add(tabs)
@@ -66,21 +109,13 @@ func (s *serviceClient) showNetworksUI() {
 
 	buttonBox := container.NewHBox(
 		layout.NewSpacer(),
-		widget.NewButton("Refresh", func() {
-			s.updateNetworksBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
-		}),
-		widget.NewButton("Select all", func() {
-			_, f := getGridAndFilterFromTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
-			s.selectAllFilteredNetworks(f)
-			s.updateNetworksBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
-		}),
-		widget.NewButton("Deselect All", func() {
-			_, f := getGridAndFilterFromTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
-			s.deselectAllFilteredNetworks(f)
-			s.updateNetworksBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
-		}),
+		peersBundle.ShowFull,
+		refreshBtn,
+		selectAllBtn,
+		deselectAllBtn,
 		layout.NewSpacer(),
 	)
+	updateFooter() // initial state matches the first tab (Peers)
 
 	content := container.NewBorder(nil, buttonBox, nil, nil, scrollContainer)
 

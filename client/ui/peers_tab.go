@@ -16,15 +16,25 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 )
 
-// buildPeersTabContent constructs the "Peers" tab in the Networks
-// window: counter widget on top, sorted accordion list below,
-// Show-Full checkbox + Refresh button at the bottom. Phase 3.7i of #5989.
-func (s *serviceClient) buildPeersTabContent(ctx context.Context) fyne.CanvasObject {
+// peersTabBundle is what buildPeersTabContent returns: the tab content
+// that lives inside AppTabs PLUS the Show-Full checkbox + the refresh
+// callback that the OUTER window footer needs (so the user has a single
+// footer for both showFull-toggle and Refresh-trigger). Phase 3.7i.
+type peersTabBundle struct {
+	Content  fyne.CanvasObject
+	ShowFull *widget.Check
+	Refresh  func()
+}
+
+// buildPeersTabContent constructs the "Peers" tab content (counter +
+// list of expandable peer rows). Show-Full + Refresh live in the outer
+// window footer (returned via peersTabBundle so network.go can place
+// them). Phase 3.7i of #5989.
+func (s *serviceClient) buildPeersTabContent(ctx context.Context) peersTabBundle {
 	summary := widget.NewLabel("")
 	breakdown := widget.NewLabel("")
-	peerList := widget.NewAccordion()
+	listVBox := container.NewVBox()
 	showFull := widget.NewCheck("Show full peer details", nil)
-	refreshBtn := widget.NewButton("Refresh", nil)
 
 	render := func() {
 		conn, err := s.getSrvClient(failFastTimeout)
@@ -42,13 +52,13 @@ func (s *serviceClient) buildPeersTabContent(ctx context.Context) fyne.CanvasObj
 		fs := st.GetFullStatus()
 
 		fyne.Do(func() {
-			summary.SetText(fmt.Sprintf("%d of %d peers online",
+			summary.SetText(fmt.Sprintf("%d of %d peers online (server)",
 				fs.GetServerOnlinePeers(), fs.GetConfiguredPeersTotal()))
-			breakdown.SetText(fmt.Sprintf("P2P: %d   Relayed: %d   Idle: %d   Offline: %d",
+			breakdown.SetText(fmt.Sprintf("%d P2P | %d relayed | %d idle | %d offline",
 				fs.GetP2PConnectedPeers(), fs.GetRelayedConnectedPeers(),
 				fs.GetIdleOnlinePeers(), fs.GetServerOfflinePeers()))
 
-			peerList.Items = nil
+			listVBox.Objects = nil
 			peers := fs.GetPeers()
 			sort.SliceStable(peers, func(i, j int) bool {
 				gi, gj := peerGroup(peers[i]), peerGroup(peers[j])
@@ -58,16 +68,12 @@ func (s *serviceClient) buildPeersTabContent(ctx context.Context) fyne.CanvasObj
 				return strings.ToLower(peers[i].GetFqdn()) < strings.ToLower(peers[j].GetFqdn())
 			})
 			for _, p := range peers {
-				title := fmt.Sprintf("%s   %s   %s", peerGlyph(p), peerHostnameShort(p), peerModeTag(p))
-				detail := widget.NewLabel(buildPeerDetailText(p, showFull.Checked))
-				detail.Wrapping = fyne.TextWrapWord
-				peerList.Append(widget.NewAccordionItem(title, detail))
+				listVBox.Add(newPeerRow(p, showFull.Checked))
 			}
-			peerList.Refresh()
+			listVBox.Refresh()
 		})
 	}
 
-	refreshBtn.OnTapped = render
 	showFull.OnChanged = func(_ bool) { render() }
 
 	// Lifecycle-safe periodic refresh: ctx-respecting, exits when the
@@ -87,18 +93,45 @@ func (s *serviceClient) buildPeersTabContent(ctx context.Context) fyne.CanvasObj
 		}
 	}()
 
-	// Force the scroll/accordion to take the available center space.
-	// VScroll has SetMinSize so we set a generous floor; the parent
-	// Border + outer Tab + Window will let it grow beyond that, but
-	// also won't shrink below.
-	scroll := container.NewVScroll(peerList)
-	scroll.SetMinSize(fyne.NewSize(400, 500))
-	return container.NewBorder(
+	// VScroll wraps the VBox so long lists scroll naturally. VBox packs
+	// children tightly (each peer row sizes to its content). Multiple
+	// rows can be expanded simultaneously since each row is independent.
+	scroll := container.NewVScroll(listVBox)
+	content := container.NewBorder(
 		container.NewVBox(summary, breakdown),
-		container.NewHBox(showFull, refreshBtn),
-		nil, nil,
+		nil, nil, nil,
 		scroll,
 	)
+	return peersTabBundle{Content: content, ShowFull: showFull, Refresh: render}
+}
+
+// newPeerRow returns a single expandable row: a clickable header + a
+// hidden detail block that toggles visibility on tap. Sizes itself to
+// content (no wasted vertical space). Phase 3.7i.
+func newPeerRow(p *proto.PeerState, showFull bool) *fyne.Container {
+	titleCollapsed := fmt.Sprintf("▶  %s   %s   %s", peerGlyph(p), peerHostnameShort(p), peerModeTag(p))
+	titleExpanded := fmt.Sprintf("▼  %s   %s   %s", peerGlyph(p), peerHostnameShort(p), peerModeTag(p))
+
+	header := widget.NewButton(titleCollapsed, nil)
+	header.Alignment = widget.ButtonAlignLeading
+	header.Importance = widget.LowImportance
+
+	detail := widget.NewLabel(buildPeerDetailText(p, showFull))
+	detail.Wrapping = fyne.TextWrapWord
+	detail.TextStyle = fyne.TextStyle{Monospace: true}
+	detail.Hide()
+
+	row := container.NewVBox(header, detail)
+	header.OnTapped = func() {
+		if detail.Visible() {
+			detail.Hide()
+			header.SetText(titleCollapsed)
+		} else {
+			detail.Show()
+			header.SetText(titleExpanded)
+		}
+	}
+	return row
 }
 
 func peerGroup(p *proto.PeerState) int {
