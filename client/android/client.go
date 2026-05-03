@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -301,11 +302,35 @@ func (c *Client) PeersList() *PeerInfoArray {
 	peerInfos := make([]PeerInfo, len(fullStatus.Peers))
 	for n, p := range fullStatus.Peers {
 		pi := PeerInfo{
-			p.IP,
-			p.FQDN,
-			int(p.ConnStatus),
-			PeerRoutes{routes: maps.Keys(p.GetRoutes())},
+			IP:         p.IP,
+			FQDN:       p.FQDN,
+			ConnStatus: int(p.ConnStatus),
+			Routes:     PeerRoutes{routes: maps.Keys(p.GetRoutes())},
 		}
+
+		// Phase 3.7i (#5989): enrichment fields.
+		pi.Relayed = p.Relayed
+		pi.ServerOnline = p.ServerOnline
+		pi.LocalIceCandidateEndpoint = p.LocalIceCandidateEndpoint
+		pi.RemoteIceCandidateEndpoint = p.RemoteIceCandidateEndpoint
+		pi.RelayServerAddress = p.RelayServerAddress
+		if !p.LastWireguardHandshake.IsZero() {
+			pi.LastWireguardHandshake = p.LastWireguardHandshake.Format(time.RFC3339)
+		}
+		if !p.RemoteLastSeenAtServer.IsZero() {
+			pi.LastSeenAtServer = p.RemoteLastSeenAtServer.Format(time.RFC3339)
+		}
+		pi.LatencyMs = p.Latency.Milliseconds()
+		pi.BytesRx = p.BytesRx
+		pi.BytesTx = p.BytesTx
+		pi.EffectiveConnectionMode = p.RemoteEffectiveConnectionMode
+		pi.ConfiguredConnectionMode = p.RemoteConfiguredConnectionMode
+		if len(p.RemoteGroups) > 0 {
+			pi.Groups = strings.Join(p.RemoteGroups, ",")
+		}
+		// AgentVersion / OsVersion: peer.State does not expose these fields;
+		// left empty until daemon surfaces them (future phase).
+
 		peerInfos[n] = pi
 	}
 	return &PeerInfoArray{items: peerInfos}
