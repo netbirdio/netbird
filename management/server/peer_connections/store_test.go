@@ -121,6 +121,124 @@ func TestMemoryStore_FullSnapshotResetsEpoch(t *testing.T) {
 	}
 }
 
+// TestMemoryStore_StaleDeltaFromOldSessionDropped covers the Codex
+// follow-up to TestMemoryStore_FullSnapshotResetsEpoch: even with the
+// full-snapshot epoch escape, SyncPeerConnections is a UNARY RPC so a
+// retried stale delta from the previous daemon process can race past
+// the new process's full snapshot. Without the session_id check the
+// stale delta's seq beats the new process's seq and merges old data
+// into the fresh map. With session_id, mgmt drops it.
+func TestMemoryStore_StaleDeltaFromOldSessionDropped(t *testing.T) {
+	s, _ := newStoreWithClock(time.Hour)
+	const sessionA uint64 = 0xAAAA1111
+	const sessionB uint64 = 0xBBBB2222
+
+	// Old session A reached seq=50, mgmt cached seq=50.
+	s.Put("peerA", &mgmProto.PeerConnectionMap{
+		Seq: 50, FullSnapshot: true, SessionId: sessionA,
+		Entries: []*mgmProto.PeerConnectionEntry{
+			{RemotePubkey: "oldPeer", LatencyMs: 100},
+		},
+	})
+	// Daemon restart: process B sends fresh full snapshot at seq=1.
+	s.Put("peerA", &mgmProto.PeerConnectionMap{
+		Seq: 1, FullSnapshot: true, SessionId: sessionB,
+		Entries: []*mgmProto.PeerConnectionEntry{
+			{RemotePubkey: "newPeer", LatencyMs: 7},
+		},
+	})
+	got, _ := s.Get("peerA")
+	if got.GetSessionId() != sessionB {
+		t.Fatalf("want session B after restart, got %x", got.GetSessionId())
+	}
+
+	// Stale in-flight delta from process A retries and arrives now.
+	// seq=51 > current seq=1, but session mismatch must drop it.
+	s.Put("peerA", &mgmProto.PeerConnectionMap{
+		Seq: 51, FullSnapshot: false, SessionId: sessionA,
+		Entries: []*mgmProto.PeerConnectionEntry{
+			{RemotePubkey: "oldPeer", LatencyMs: 999},
+			{RemotePubkey: "newPeer", LatencyMs: 999},
+		},
+	})
+	got, _ = s.Get("peerA")
+	if got.GetSeq() != 1 {
+		t.Errorf("stale delta from session A leaked: seq advanced to %d", got.GetSeq())
+	}
+	if len(got.GetEntries()) != 1 || got.GetEntries()[0].GetRemotePubkey() != "newPeer" {
+		t.Errorf("stale delta from session A merged into newPeer map: %+v", got.GetEntries())
+	}
+	if got.GetEntries()[0].GetLatencyMs() != 7 {
+		t.Errorf("stale delta from session A overwrote newPeer.latency: %d", got.GetEntries()[0].GetLatencyMs())
+	}
+
+	// In-order delta from session B (matching session) merges normally.
+	s.Put("peerA", &mgmProto.PeerConnectionMap{
+		Seq: 2, FullSnapshot: false, SessionId: sessionB,
+		Entries: []*mgmProto.PeerConnectionEntry{
+			{RemotePubkey: "newPeer", LatencyMs: 9},
+		},
+	})
+	got, _ = s.Get("peerA")
+	if got.GetEntries()[0].GetLatencyMs() != 9 {
+		t.Errorf("in-session delta dropped: latency %d != 9", got.GetEntries()[0].GetLatencyMs())
+	}
+}
+
+// Backwards-compat: legacy clients (Phase 3.7i shipped without
+// session_id) send 0. Mgmt must keep accepting their deltas under the
+// pre-Codex-follow-up seq-only rules so a partial fleet upgrade
+// doesn't silently drop pushes.
+func TestMemoryStore_LegacyZeroSessionFallsBackToSeqOnly(t *testing.T) {
+	s, _ := newStoreWithClock(time.Hour)
+
+	// Legacy full snapshot, session_id=0.
+	s.Put("peerA", &mgmProto.PeerConnectionMap{
+		Seq: 5, FullSnapshot: true, SessionId: 0,
+		Entries: []*mgmProto.PeerConnectionEntry{{RemotePubkey: "peerB", LatencyMs: 10}},
+	})
+	// Legacy in-order delta, session_id=0 still.
+	s.Put("peerA", &mgmProto.PeerConnectionMap{
+		Seq: 6, FullSnapshot: false, SessionId: 0,
+		Entries: []*mgmProto.PeerConnectionEntry{{RemotePubkey: "peerB", LatencyMs: 14}},
+	})
+	got, _ := s.Get("peerA")
+	if got.GetEntries()[0].GetLatencyMs() != 14 {
+		t.Errorf("legacy delta dropped under session-id check: latency %d != 14", got.GetEntries()[0].GetLatencyMs())
+	}
+
+	// Legacy out-of-order delta still dropped (seq <= prev.seq).
+	s.Put("peerA", &mgmProto.PeerConnectionMap{
+		Seq: 4, FullSnapshot: false, SessionId: 0,
+		Entries: []*mgmProto.PeerConnectionEntry{{RemotePubkey: "peerB", LatencyMs: 99}},
+	})
+	got, _ = s.Get("peerA")
+	if got.GetEntries()[0].GetLatencyMs() != 14 {
+		t.Errorf("legacy seq-only protection broken: latency %d != 14", got.GetEntries()[0].GetLatencyMs())
+	}
+}
+
+// Mixed-version edge: a legacy delta (session_id=0) arriving against a
+// session-tagged cached state must NOT be dropped (would be a fleet
+// upgrade hazard). Falls back to seq-only.
+func TestMemoryStore_MixedSessionAcceptsLegacyDelta(t *testing.T) {
+	s, _ := newStoreWithClock(time.Hour)
+	const sessionA uint64 = 0x12345
+	s.Put("peerA", &mgmProto.PeerConnectionMap{
+		Seq: 5, FullSnapshot: true, SessionId: sessionA,
+		Entries: []*mgmProto.PeerConnectionEntry{{RemotePubkey: "peerB", LatencyMs: 10}},
+	})
+	// Legacy delta (session_id=0). Must be accepted under the seq check.
+	s.Put("peerA", &mgmProto.PeerConnectionMap{
+		Seq: 6, FullSnapshot: false, SessionId: 0,
+		Entries: []*mgmProto.PeerConnectionEntry{{RemotePubkey: "peerB", LatencyMs: 22}},
+	})
+	got, _ := s.Get("peerA")
+	if got.GetEntries()[0].GetLatencyMs() != 22 {
+		t.Errorf("mixed-session legacy delta dropped: latency %d != 22", got.GetEntries()[0].GetLatencyMs())
+	}
+}
+
 func TestMemoryStore_TTLExpires(t *testing.T) {
 	s, clk := newStoreWithClock(50 * time.Millisecond)
 	s.Put("peerA", &mgmProto.PeerConnectionMap{Seq: 1, FullSnapshot: true})
