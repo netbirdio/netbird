@@ -34,6 +34,10 @@ type Client interface {
 	// timeouts to report in subsequent Sync/Login/SyncMeta PeerSystemMeta.
 	// Phase 3.7i of #5989.
 	SetEffectiveConnConfig(eff EffectiveConnConfig)
+	// SetSnapshotRequestHandler registers a callback invoked when the
+	// management server sends a SnapshotRequest over the Sync server-stream.
+	// Phase 3.7i of #5989.
+	SetSnapshotRequestHandler(fn func(nonce uint64))
 	Logout() error
 	CreateExpose(ctx context.Context, req ExposeRequest) (*ExposeResponse, error)
 	RenewExpose(ctx context.Context, domain string) error

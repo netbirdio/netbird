@@ -223,6 +223,11 @@ type Status struct {
 
 	routeIDLookup routeIDLookup
 	wgIface       WGIfaceStatus
+
+	// Phase 3.7i (#5989): per-peer state-change subscription. Set by
+	// Engine; nil-checked everywhere. Fired AFTER releasing d.mux to
+	// avoid holding the lock through user code.
+	connStateListener func(pubkey string, st State)
 }
 
 // NewRecorder returns a new Status instance
@@ -237,6 +242,30 @@ func NewRecorder(mgmAddress string) *Status {
 		mgmAddress:            mgmAddress,
 		resolvedDomainsStates: map[domain.Domain]ResolvedDomainInfo{},
 	}
+}
+
+// SetConnStateListener registers a callback that is called after each
+// meaningful per-peer connection-state transition. The callback is
+// invoked AFTER d.mux is released (Extract-Method pattern). Safe to
+// call concurrently; may be set to nil to unregister.
+// Phase 3.7i of #5989.
+func (d *Status) SetConnStateListener(fn func(pubkey string, st State)) {
+	d.mux.Lock()
+	d.connStateListener = fn
+	d.mux.Unlock()
+}
+
+// notifyConnStateChange returns a closure the caller invokes AFTER
+// unlocking d.mux to deliver the state to the listener without holding
+// the lock through user code. Caller must hold d.mux when calling this.
+// Returns a no-op closure when no listener is registered.
+func (d *Status) notifyConnStateChange(peerPubKey string, peerState State) func() {
+	listener := d.connStateListener
+	if listener == nil {
+		return func() {}
+	}
+	stateCopy := peerState
+	return func() { listener(peerPubKey, stateCopy) }
 }
 
 func (d *Status) SetRelayMgr(manager *relayClient.Manager) {
@@ -323,12 +352,21 @@ func (d *Status) RemovePeer(peerPubKey string) error {
 
 // UpdatePeerState updates peer status
 func (d *Status) UpdatePeerState(receivedState State) error {
+	notifyFn, err := d.updatePeerStateLocked(receivedState)
+	if err != nil {
+		return err
+	}
+	notifyFn()
+	return nil
+}
+
+func (d *Status) updatePeerStateLocked(receivedState State) (func(), error) {
 	d.mux.Lock()
 
 	peerState, ok := d.peers[receivedState.PubKey]
 	if !ok {
 		d.mux.Unlock()
-		return errors.New("peer doesn't exist")
+		return func() {}, errors.New("peer doesn't exist")
 	}
 
 	oldState := peerState.ConnStatus
@@ -361,7 +399,11 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 	if notifyRouter {
 		d.dispatchRouterPeers(receivedState.PubKey, routerSnapshot)
 	}
-	return nil
+
+	if hasConnStatusChanged(oldState, receivedState.ConnStatus) {
+		return d.notifyConnStateChange(receivedState.PubKey, peerState), nil
+	}
+	return func() {}, nil
 }
 
 // UpdatePeerIceBackoff updates the ICE-backoff snapshot for a peer.
@@ -442,12 +484,21 @@ func (d *Status) CheckRoutes(ip netip.Addr) ([]byte, bool) {
 }
 
 func (d *Status) UpdatePeerICEState(receivedState State) error {
+	notifyFn, err := d.updatePeerICEStateLocked(receivedState)
+	if err != nil {
+		return err
+	}
+	notifyFn()
+	return nil
+}
+
+func (d *Status) updatePeerICEStateLocked(receivedState State) (func(), error) {
 	d.mux.Lock()
 
 	peerState, ok := d.peers[receivedState.PubKey]
 	if !ok {
 		d.mux.Unlock()
-		return errors.New("peer doesn't exist")
+		return func() {}, errors.New("peer doesn't exist")
 	}
 
 	oldState := peerState.ConnStatus
@@ -477,16 +528,29 @@ func (d *Status) UpdatePeerICEState(receivedState State) error {
 	if notifyRouter {
 		d.dispatchRouterPeers(receivedState.PubKey, routerSnapshot)
 	}
-	return nil
+
+	if hasStatusOrRelayedChange(oldState, receivedState.ConnStatus, oldIsRelayed, receivedState.Relayed) {
+		return d.notifyConnStateChange(receivedState.PubKey, peerState), nil
+	}
+	return func() {}, nil
 }
 
 func (d *Status) UpdatePeerRelayedState(receivedState State) error {
+	notifyFn, err := d.updatePeerRelayedStateLocked(receivedState)
+	if err != nil {
+		return err
+	}
+	notifyFn()
+	return nil
+}
+
+func (d *Status) updatePeerRelayedStateLocked(receivedState State) (func(), error) {
 	d.mux.Lock()
 
 	peerState, ok := d.peers[receivedState.PubKey]
 	if !ok {
 		d.mux.Unlock()
-		return errors.New("peer doesn't exist")
+		return func() {}, errors.New("peer doesn't exist")
 	}
 
 	oldState := peerState.ConnStatus
@@ -513,16 +577,29 @@ func (d *Status) UpdatePeerRelayedState(receivedState State) error {
 	if notifyRouter {
 		d.dispatchRouterPeers(receivedState.PubKey, routerSnapshot)
 	}
-	return nil
+
+	if hasStatusOrRelayedChange(oldState, receivedState.ConnStatus, oldIsRelayed, receivedState.Relayed) {
+		return d.notifyConnStateChange(receivedState.PubKey, peerState), nil
+	}
+	return func() {}, nil
 }
 
 func (d *Status) UpdatePeerRelayedStateToDisconnected(receivedState State) error {
+	notifyFn, err := d.updatePeerRelayedStateToDisconnectedLocked(receivedState)
+	if err != nil {
+		return err
+	}
+	notifyFn()
+	return nil
+}
+
+func (d *Status) updatePeerRelayedStateToDisconnectedLocked(receivedState State) (func(), error) {
 	d.mux.Lock()
 
 	peerState, ok := d.peers[receivedState.PubKey]
 	if !ok {
 		d.mux.Unlock()
-		return errors.New("peer doesn't exist")
+		return func() {}, errors.New("peer doesn't exist")
 	}
 
 	oldState := peerState.ConnStatus
@@ -548,16 +625,29 @@ func (d *Status) UpdatePeerRelayedStateToDisconnected(receivedState State) error
 	if notifyRouter {
 		d.dispatchRouterPeers(receivedState.PubKey, routerSnapshot)
 	}
-	return nil
+
+	if hasStatusOrRelayedChange(oldState, receivedState.ConnStatus, oldIsRelayed, receivedState.Relayed) {
+		return d.notifyConnStateChange(receivedState.PubKey, peerState), nil
+	}
+	return func() {}, nil
 }
 
 func (d *Status) UpdatePeerICEStateToDisconnected(receivedState State) error {
+	notifyFn, err := d.updatePeerICEStateToDisconnectedLocked(receivedState)
+	if err != nil {
+		return err
+	}
+	notifyFn()
+	return nil
+}
+
+func (d *Status) updatePeerICEStateToDisconnectedLocked(receivedState State) (func(), error) {
 	d.mux.Lock()
 
 	peerState, ok := d.peers[receivedState.PubKey]
 	if !ok {
 		d.mux.Unlock()
-		return errors.New("peer doesn't exist")
+		return func() {}, errors.New("peer doesn't exist")
 	}
 
 	oldState := peerState.ConnStatus
@@ -586,7 +676,11 @@ func (d *Status) UpdatePeerICEStateToDisconnected(receivedState State) error {
 	if notifyRouter {
 		d.dispatchRouterPeers(receivedState.PubKey, routerSnapshot)
 	}
-	return nil
+
+	if hasStatusOrRelayedChange(oldState, receivedState.ConnStatus, oldIsRelayed, receivedState.Relayed) {
+		return d.notifyConnStateChange(receivedState.PubKey, peerState), nil
+	}
+	return func() {}, nil
 }
 
 // UpdateWireGuardPeerState updates the WireGuard bits of the peer state

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -246,4 +247,45 @@ func TestGetFullStatus(t *testing.T) {
 	assert.Equal(t, managementState, fullStatus.ManagementState, "management status should be equal")
 	assert.Equal(t, signalState, fullStatus.SignalState, "signal status should be equal")
 	assert.ElementsMatch(t, []State{peerState1, peerState2}, fullStatus.Peers, "peers states should match")
+}
+
+// TestStatus_ConnStateListener_CalledAfterUnlock verifies that the
+// connStateListener registered via SetConnStateListener is invoked AFTER
+// d.mux is released (Extract-Method guarantee). Phase 3.7i of #5989.
+func TestStatus_ConnStateListener_CalledAfterUnlock(t *testing.T) {
+	d := NewRecorder("")
+	var listenerCalled atomic.Bool
+	var listenerObservedLockHeld atomic.Bool
+
+	d.SetConnStateListener(func(_ string, _ State) {
+		// Try TryLock — if the locked body still holds mux this returns
+		// false. We record the result so the assertion below can report it.
+		if d.mux.TryLock() {
+			listenerObservedLockHeld.Store(false)
+			d.mux.Unlock()
+		} else {
+			listenerObservedLockHeld.Store(true)
+		}
+		listenerCalled.Store(true)
+	})
+
+	if err := d.AddPeer("peerA", "fqdn-A", "100.64.0.1"); err != nil {
+		t.Fatal(err)
+	}
+	// Trigger a ConnStatus transition (Idle -> Connected) which must fire
+	// the listener through updatePeerStateLocked.
+	if err := d.UpdatePeerState(State{
+		PubKey:           "peerA",
+		ConnStatus:       StatusConnected,
+		ConnStatusUpdate: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if !listenerCalled.Load() {
+		t.Error("listener not invoked")
+	}
+	if listenerObservedLockHeld.Load() {
+		t.Error("listener called while mux still held — Extract-Method refactor incomplete")
+	}
 }

@@ -58,6 +58,10 @@ type GrpcClient struct {
 
 	effMu     sync.RWMutex
 	effective EffectiveConnConfig
+
+	// Phase 3.7i (#5989): handler for server-pushed SnapshotRequests.
+	snapMu            sync.Mutex
+	onSnapshotRequest func(nonce uint64)
 }
 
 type ExposeRequest struct {
@@ -474,6 +478,15 @@ func (c *GrpcClient) receiveUpdatesEvents(stream proto.ManagementService_SyncCli
 		if err != nil {
 			log.Errorf("failed decrypting update message from Management Service: %s", err)
 			return err
+		}
+
+		if req := decryptedResp.GetSnapshotRequest(); req != nil {
+			c.snapMu.Lock()
+			cb := c.onSnapshotRequest
+			c.snapMu.Unlock()
+			if cb != nil {
+				cb(req.GetNonce())
+			}
 		}
 
 		if err := msgHandler(decryptedResp); err != nil {
@@ -941,6 +954,15 @@ func (c *GrpcClient) SetEffectiveConnConfig(eff EffectiveConnConfig) {
 	c.effMu.Lock()
 	defer c.effMu.Unlock()
 	c.effective = eff
+}
+
+// SetSnapshotRequestHandler registers a callback invoked when the
+// management server sends a SnapshotRequest over the Sync server-stream.
+// Phase 3.7i of #5989.
+func (c *GrpcClient) SetSnapshotRequestHandler(fn func(nonce uint64)) {
+	c.snapMu.Lock()
+	c.onSnapshotRequest = fn
+	c.snapMu.Unlock()
 }
 
 func infoToMetaData(info *system.Info, eff EffectiveConnConfig) *proto.PeerSystemMeta {
