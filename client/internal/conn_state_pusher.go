@@ -57,10 +57,11 @@ type connStatePusher struct {
 	lastPushed map[string]PeerStateChangeEvent
 	seq        uint64
 
-	events      chan PeerStateChangeEvent
-	snapshotReq chan uint64
-	stop        chan struct{}
-	wg          sync.WaitGroup
+	events       chan PeerStateChangeEvent
+	snapshotReq  chan uint64
+	initialReady chan struct{} // closed by TriggerInitialSnapshot
+	stop         chan struct{}
+	wg           sync.WaitGroup
 }
 
 func newConnStatePusher(sink PushSink, source PeerStateSource) *connStatePusher {
@@ -72,10 +73,11 @@ func newConnStatePusherForTest(sink PushSink, source PeerStateSource, t pusherTu
 		sink:        sink,
 		source:      source,
 		tuning:      t,
-		lastPushed:  make(map[string]PeerStateChangeEvent),
-		events:      make(chan PeerStateChangeEvent, 64),
-		snapshotReq: make(chan uint64, 4),
-		stop:        make(chan struct{}),
+		lastPushed:   make(map[string]PeerStateChangeEvent),
+		events:       make(chan PeerStateChangeEvent, 64),
+		snapshotReq:  make(chan uint64, 4),
+		initialReady: make(chan struct{}),
+		stop:         make(chan struct{}),
 	}
 	p.wg.Add(1)
 	go p.loop()
@@ -109,8 +111,39 @@ func (p *connStatePusher) OnSnapshotRequest(nonce uint64) {
 	}
 }
 
+// TriggerInitialSnapshot signals the loop that the engine has populated
+// the peer-state source for the first time and the loop may now send
+// its initial full snapshot to management. Idempotent — subsequent
+// calls are no-ops.
+//
+// Without this, newConnStatePusher's loop would race with the engine's
+// peer-population path: starting in engine.Start (before addNewPeers
+// has run for the first NetworkMap), it would emit an empty snapshot,
+// and management would not see real peers until either a state change
+// or the 60 s heartbeat tick.
+func (p *connStatePusher) TriggerInitialSnapshot() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	select {
+	case <-p.initialReady:
+		// already triggered
+	default:
+		close(p.initialReady)
+	}
+}
+
 func (p *connStatePusher) loop() {
 	defer p.wg.Done()
+	// Wait until the engine signals that the first NetworkMap has been
+	// applied (peers populated). Sending an initial full snapshot before
+	// peers exist would publish an empty map to management, which would
+	// only get repaired on the next per-peer state change or after the
+	// 60 s heartbeat. Bail out cleanly if Stop is called first.
+	select {
+	case <-p.initialReady:
+	case <-p.stop:
+		return
+	}
 	if p.source != nil {
 		p.flushFull(p.source.SnapshotAllRemotePeers(), 0)
 	}
@@ -173,39 +206,56 @@ func (p *connStatePusher) flushDelta(events []PeerStateChangeEvent) {
 	p.mu.Lock()
 	p.seq++
 	seq := p.seq
-	for _, ev := range events {
-		p.lastPushed[ev.Pubkey] = ev
-	}
 	p.mu.Unlock()
 	entries := make([]*mgmProto.PeerConnectionEntry, 0, len(events))
 	for _, ev := range events {
 		entries = append(entries, eventToEntry(ev))
 	}
-	_ = p.sink.Push(context.Background(), &mgmProto.PeerConnectionMap{
+	if err := p.sink.Push(context.Background(), &mgmProto.PeerConnectionMap{
 		Seq:          seq,
 		FullSnapshot: false,
 		Entries:      entries,
-	})
+	}); err != nil {
+		// Push failed (mgmt reconnect, transient gRPC error, etc.).
+		// Do NOT mark these events as lastPushed -- on the next tick
+		// the dirty-state computation will re-include them so the
+		// management server eventually catches up. Without this, a
+		// peer that flipped state during a brief mgmt outage would
+		// stay stale until its next state change or the 60 s heartbeat.
+		return
+	}
+	p.mu.Lock()
+	for _, ev := range events {
+		p.lastPushed[ev.Pubkey] = ev
+	}
+	p.mu.Unlock()
 }
 
 func (p *connStatePusher) flushFull(events []PeerStateChangeEvent, inResponseToNonce uint64) {
 	p.mu.Lock()
 	p.seq++
 	seq := p.seq
-	for _, ev := range events {
-		p.lastPushed[ev.Pubkey] = ev
-	}
 	p.mu.Unlock()
 	entries := make([]*mgmProto.PeerConnectionEntry, 0, len(events))
 	for _, ev := range events {
 		entries = append(entries, eventToEntry(ev))
 	}
-	_ = p.sink.Push(context.Background(), &mgmProto.PeerConnectionMap{
+	if err := p.sink.Push(context.Background(), &mgmProto.PeerConnectionMap{
 		Seq:               seq,
 		FullSnapshot:      true,
 		Entries:           entries,
 		InResponseToNonce: inResponseToNonce,
-	})
+	}); err != nil {
+		// Same dirty-retain semantics as flushDelta. A failed full
+		// snapshot leaves lastPushed unchanged so the next push (or
+		// the next snapshot request) will see every peer as dirty.
+		return
+	}
+	p.mu.Lock()
+	for _, ev := range events {
+		p.lastPushed[ev.Pubkey] = ev
+	}
+	p.mu.Unlock()
 }
 
 func (p *connStatePusher) computeDeltaFromSource() []PeerStateChangeEvent {

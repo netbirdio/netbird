@@ -68,6 +68,9 @@ func TestConnStatePusher_StateChangeIsPushedImmediately(t *testing.T) {
 	sink := newStubSink()
 	p := newConnStatePusher(sink, nil)
 	defer p.Stop()
+	// Engine normally does this after the first NetworkMap is applied;
+	// in unit tests we trigger immediately so the loop unblocks.
+	p.TriggerInitialSnapshot()
 
 	p.OnPeerStateChange(PeerStateChangeEvent{
 		Pubkey: "peerA", ConnType: mgmProto.ConnType_CONN_TYPE_P2P,
@@ -90,6 +93,7 @@ func TestConnStatePusher_NoExtraPushesWhenSnapshotUnchanged(t *testing.T) {
 	p := newConnStatePusherForTest(sink, src,
 		pusherTuning{baseInterval: 30 * time.Millisecond, maxInterval: 200 * time.Millisecond, doubleAfter: 2})
 	defer p.Stop()
+	p.TriggerInitialSnapshot()
 
 	sink.waitForPush(t, 500*time.Millisecond)
 	deadline := time.After(200 * time.Millisecond)
@@ -116,6 +120,7 @@ func TestConnStatePusher_OnSnapshotRequestSendsFullWithNonceEcho(t *testing.T) {
 	p := newConnStatePusherForTest(sink, src,
 		pusherTuning{baseInterval: time.Hour, maxInterval: time.Hour, doubleAfter: 999})
 	defer p.Stop()
+	p.TriggerInitialSnapshot()
 	sink.waitForPush(t, 500*time.Millisecond) // initial snapshot
 	sink.mu.Lock()
 	sink.pushes = nil

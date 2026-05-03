@@ -1414,6 +1414,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 			Groups:                     op.GetGroups(),
 			LastSeenAtServer:           peer.TimestampOrZero(op.GetLastSeenAtServer()),
 			LiveOnline:                 op.GetLiveOnline(),
+			ServerLivenessKnown:        op.GetServerLivenessKnown(),
 		}); err != nil {
 			log.Debugf("UpdatePeerRemoteMeta(offline %s): %v", op.GetWgPubKey(), err)
 		}
@@ -1432,6 +1433,9 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	if networkMap.GetRemotePeersIsEmpty() {
 		err := e.removeAllPeers()
 		e.statusRecorder.FinishPeerListModifications()
+		if e.connStatePusher != nil {
+			e.connStatePusher.TriggerInitialSnapshot()
+		}
 		if err != nil {
 			return err
 		}
@@ -1452,6 +1456,12 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		}
 
 		e.statusRecorder.FinishPeerListModifications()
+		// Phase 3.7i: peers are populated for the first time; release
+		// the conn-state pusher so its initial full snapshot reflects
+		// the actual peer set instead of an empty map.
+		if e.connStatePusher != nil {
+			e.connStatePusher.TriggerInitialSnapshot()
+		}
 
 		e.updatePeerSSHHostKeys(remotePeers)
 
@@ -1476,6 +1486,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 				Groups:                     rp.GetGroups(),
 				LastSeenAtServer:           peer.TimestampOrZero(rp.GetLastSeenAtServer()),
 				LiveOnline:                 rp.GetLiveOnline(),
+				ServerLivenessKnown:        rp.GetServerLivenessKnown(),
 			}); err != nil {
 				log.Debugf("UpdatePeerRemoteMeta(%s): %v", rp.GetWgPubKey(), err)
 			}
