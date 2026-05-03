@@ -48,6 +48,11 @@ type ManagementServiceClient interface {
 	// sync meta will evaluate the checks and update the peer meta with the result.
 	// EncryptedMessage of the request has a body of Empty.
 	SyncMeta(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*Empty, error)
+	// Phase 3.7i (#5989): per-peer connection-state push from peer to
+	// mgmt. Body decrypts to PeerConnectionMap. Unary because the
+	// existing Sync is server-streaming (client cannot inject extra
+	// frames).
+	SyncPeerConnections(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*Empty, error)
 	// Logout logs out the peer and removes it from the management server
 	Logout(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*Empty, error)
 	// Executes a job on a target peer (e.g., debug bundle)
@@ -148,6 +153,15 @@ func (c *managementServiceClient) GetPKCEAuthorizationFlow(ctx context.Context, 
 func (c *managementServiceClient) SyncMeta(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*Empty, error) {
 	out := new(Empty)
 	err := c.cc.Invoke(ctx, "/management.ManagementService/SyncMeta", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *managementServiceClient) SyncPeerConnections(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*Empty, error) {
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, "/management.ManagementService/SyncPeerConnections", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -255,6 +269,11 @@ type ManagementServiceServer interface {
 	// sync meta will evaluate the checks and update the peer meta with the result.
 	// EncryptedMessage of the request has a body of Empty.
 	SyncMeta(context.Context, *EncryptedMessage) (*Empty, error)
+	// Phase 3.7i (#5989): per-peer connection-state push from peer to
+	// mgmt. Body decrypts to PeerConnectionMap. Unary because the
+	// existing Sync is server-streaming (client cannot inject extra
+	// frames).
+	SyncPeerConnections(context.Context, *EncryptedMessage) (*Empty, error)
 	// Logout logs out the peer and removes it from the management server
 	Logout(context.Context, *EncryptedMessage) (*Empty, error)
 	// Executes a job on a target peer (e.g., debug bundle)
@@ -292,6 +311,9 @@ func (UnimplementedManagementServiceServer) GetPKCEAuthorizationFlow(context.Con
 }
 func (UnimplementedManagementServiceServer) SyncMeta(context.Context, *EncryptedMessage) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SyncMeta not implemented")
+}
+func (UnimplementedManagementServiceServer) SyncPeerConnections(context.Context, *EncryptedMessage) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SyncPeerConnections not implemented")
 }
 func (UnimplementedManagementServiceServer) Logout(context.Context, *EncryptedMessage) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Logout not implemented")
@@ -450,6 +472,24 @@ func _ManagementService_SyncMeta_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ManagementService_SyncPeerConnections_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EncryptedMessage)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ManagementServiceServer).SyncPeerConnections(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/management.ManagementService/SyncPeerConnections",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ManagementServiceServer).SyncPeerConnections(ctx, req.(*EncryptedMessage))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ManagementService_Logout_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(EncryptedMessage)
 	if err := dec(in); err != nil {
@@ -578,6 +618,10 @@ var ManagementService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SyncMeta",
 			Handler:    _ManagementService_SyncMeta_Handler,
+		},
+		{
+			MethodName: "SyncPeerConnections",
+			Handler:    _ManagementService_SyncPeerConnections_Handler,
 		},
 		{
 			MethodName: "Logout",

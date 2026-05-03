@@ -46,6 +46,12 @@ service ManagementService {
   // EncryptedMessage of the request has a body of Empty.
   rpc  SyncMeta(EncryptedMessage) returns (Empty) {}
 
+  // Phase 3.7i (#5989): per-peer connection-state push from peer to
+  // mgmt. Body decrypts to PeerConnectionMap. Unary because the
+  // existing Sync is server-streaming (client cannot inject extra
+  // frames).
+  rpc SyncPeerConnections(EncryptedMessage) returns (Empty) {}
+
   // Logout logs out the peer and removes it from the management server
   rpc Logout(EncryptedMessage) returns (Empty) {}
 
@@ -133,6 +139,11 @@ message SyncResponse {
 
   // Posture checks to be evaluated by client
   repeated Checks Checks = 6;
+
+  // Phase 3.7i (#5989): on-demand refresh request for the peer's
+  // connection map. Peer responds via SyncPeerConnections RPC with
+  // in_response_to_nonce echoing this nonce.
+  PeerSnapshotRequest snapshot_request = 7;
 }
 
 message  SyncMetaRequest {
@@ -755,3 +766,35 @@ message StopExposeRequest {
 }
 
 message StopExposeResponse {}
+
+// Phase 3.7i (#5989): per-peer connection-state push payload (encrypted
+// body of SyncPeerConnections request).
+message PeerConnectionMap {
+  uint64 seq = 1;
+  bool full_snapshot = 2;
+  repeated PeerConnectionEntry entries = 3;
+  uint64 in_response_to_nonce = 4;
+}
+
+message PeerConnectionEntry {
+  string remote_pubkey                       = 1;
+  ConnType conn_type                         = 2;
+  google.protobuf.Timestamp last_handshake   = 3;
+  uint32 latency_ms                          = 4;
+  string endpoint                            = 5;
+  string relay_server                        = 6;
+  uint64 rx_bytes                            = 7;
+  uint64 tx_bytes                            = 8;
+}
+
+enum ConnType {
+  CONN_TYPE_UNSPECIFIED = 0;
+  CONN_TYPE_IDLE        = 1;
+  CONN_TYPE_CONNECTING  = 2;
+  CONN_TYPE_P2P         = 3;
+  CONN_TYPE_RELAYED     = 4;
+}
+
+message PeerSnapshotRequest {
+  uint64 nonce = 1;
+}

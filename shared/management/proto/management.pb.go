@@ -337,6 +337,61 @@ func (ExposeProtocol) EnumDescriptor() ([]byte, []int) {
 	return file_shared_management_proto_management_proto_rawDescGZIP(), []int{5}
 }
 
+type ConnType int32
+
+const (
+	ConnType_CONN_TYPE_UNSPECIFIED ConnType = 0
+	ConnType_CONN_TYPE_IDLE        ConnType = 1
+	ConnType_CONN_TYPE_CONNECTING  ConnType = 2
+	ConnType_CONN_TYPE_P2P         ConnType = 3
+	ConnType_CONN_TYPE_RELAYED     ConnType = 4
+)
+
+// Enum value maps for ConnType.
+var (
+	ConnType_name = map[int32]string{
+		0: "CONN_TYPE_UNSPECIFIED",
+		1: "CONN_TYPE_IDLE",
+		2: "CONN_TYPE_CONNECTING",
+		3: "CONN_TYPE_P2P",
+		4: "CONN_TYPE_RELAYED",
+	}
+	ConnType_value = map[string]int32{
+		"CONN_TYPE_UNSPECIFIED": 0,
+		"CONN_TYPE_IDLE":        1,
+		"CONN_TYPE_CONNECTING":  2,
+		"CONN_TYPE_P2P":         3,
+		"CONN_TYPE_RELAYED":     4,
+	}
+)
+
+func (x ConnType) Enum() *ConnType {
+	p := new(ConnType)
+	*p = x
+	return p
+}
+
+func (x ConnType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ConnType) Descriptor() protoreflect.EnumDescriptor {
+	return file_shared_management_proto_management_proto_enumTypes[6].Descriptor()
+}
+
+func (ConnType) Type() protoreflect.EnumType {
+	return &file_shared_management_proto_management_proto_enumTypes[6]
+}
+
+func (x ConnType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ConnType.Descriptor instead.
+func (ConnType) EnumDescriptor() ([]byte, []int) {
+	return file_shared_management_proto_management_proto_rawDescGZIP(), []int{6}
+}
+
 type HostConfig_Protocol int32
 
 const (
@@ -376,11 +431,11 @@ func (x HostConfig_Protocol) String() string {
 }
 
 func (HostConfig_Protocol) Descriptor() protoreflect.EnumDescriptor {
-	return file_shared_management_proto_management_proto_enumTypes[6].Descriptor()
+	return file_shared_management_proto_management_proto_enumTypes[7].Descriptor()
 }
 
 func (HostConfig_Protocol) Type() protoreflect.EnumType {
-	return &file_shared_management_proto_management_proto_enumTypes[6]
+	return &file_shared_management_proto_management_proto_enumTypes[7]
 }
 
 func (x HostConfig_Protocol) Number() protoreflect.EnumNumber {
@@ -419,11 +474,11 @@ func (x DeviceAuthorizationFlowProvider) String() string {
 }
 
 func (DeviceAuthorizationFlowProvider) Descriptor() protoreflect.EnumDescriptor {
-	return file_shared_management_proto_management_proto_enumTypes[7].Descriptor()
+	return file_shared_management_proto_management_proto_enumTypes[8].Descriptor()
 }
 
 func (DeviceAuthorizationFlowProvider) Type() protoreflect.EnumType {
-	return &file_shared_management_proto_management_proto_enumTypes[7]
+	return &file_shared_management_proto_management_proto_enumTypes[8]
 }
 
 func (x DeviceAuthorizationFlowProvider) Number() protoreflect.EnumNumber {
@@ -833,9 +888,13 @@ type SyncResponse struct {
 	RemotePeersIsEmpty bool        `protobuf:"varint,4,opt,name=remotePeersIsEmpty,proto3" json:"remotePeersIsEmpty,omitempty"`
 	NetworkMap         *NetworkMap `protobuf:"bytes,5,opt,name=NetworkMap,proto3" json:"NetworkMap,omitempty"`
 	// Posture checks to be evaluated by client
-	Checks        []*Checks `protobuf:"bytes,6,rep,name=Checks,proto3" json:"Checks,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Checks []*Checks `protobuf:"bytes,6,rep,name=Checks,proto3" json:"Checks,omitempty"`
+	// Phase 3.7i (#5989): on-demand refresh request for the peer's
+	// connection map. Peer responds via SyncPeerConnections RPC with
+	// in_response_to_nonce echoing this nonce.
+	SnapshotRequest *PeerSnapshotRequest `protobuf:"bytes,7,opt,name=snapshot_request,json=snapshotRequest,proto3" json:"snapshot_request,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *SyncResponse) Reset() {
@@ -906,6 +965,13 @@ func (x *SyncResponse) GetNetworkMap() *NetworkMap {
 func (x *SyncResponse) GetChecks() []*Checks {
 	if x != nil {
 		return x.Checks
+	}
+	return nil
+}
+
+func (x *SyncResponse) GetSnapshotRequest() *PeerSnapshotRequest {
+	if x != nil {
+		return x.SnapshotRequest
 	}
 	return nil
 }
@@ -4472,6 +4538,220 @@ func (*StopExposeResponse) Descriptor() ([]byte, []int) {
 	return file_shared_management_proto_management_proto_rawDescGZIP(), []int{52}
 }
 
+// Phase 3.7i (#5989): per-peer connection-state push payload (encrypted
+// body of SyncPeerConnections request).
+type PeerConnectionMap struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Seq               uint64                 `protobuf:"varint,1,opt,name=seq,proto3" json:"seq,omitempty"`
+	FullSnapshot      bool                   `protobuf:"varint,2,opt,name=full_snapshot,json=fullSnapshot,proto3" json:"full_snapshot,omitempty"`
+	Entries           []*PeerConnectionEntry `protobuf:"bytes,3,rep,name=entries,proto3" json:"entries,omitempty"`
+	InResponseToNonce uint64                 `protobuf:"varint,4,opt,name=in_response_to_nonce,json=inResponseToNonce,proto3" json:"in_response_to_nonce,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *PeerConnectionMap) Reset() {
+	*x = PeerConnectionMap{}
+	mi := &file_shared_management_proto_management_proto_msgTypes[53]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PeerConnectionMap) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PeerConnectionMap) ProtoMessage() {}
+
+func (x *PeerConnectionMap) ProtoReflect() protoreflect.Message {
+	mi := &file_shared_management_proto_management_proto_msgTypes[53]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PeerConnectionMap.ProtoReflect.Descriptor instead.
+func (*PeerConnectionMap) Descriptor() ([]byte, []int) {
+	return file_shared_management_proto_management_proto_rawDescGZIP(), []int{53}
+}
+
+func (x *PeerConnectionMap) GetSeq() uint64 {
+	if x != nil {
+		return x.Seq
+	}
+	return 0
+}
+
+func (x *PeerConnectionMap) GetFullSnapshot() bool {
+	if x != nil {
+		return x.FullSnapshot
+	}
+	return false
+}
+
+func (x *PeerConnectionMap) GetEntries() []*PeerConnectionEntry {
+	if x != nil {
+		return x.Entries
+	}
+	return nil
+}
+
+func (x *PeerConnectionMap) GetInResponseToNonce() uint64 {
+	if x != nil {
+		return x.InResponseToNonce
+	}
+	return 0
+}
+
+type PeerConnectionEntry struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RemotePubkey  string                 `protobuf:"bytes,1,opt,name=remote_pubkey,json=remotePubkey,proto3" json:"remote_pubkey,omitempty"`
+	ConnType      ConnType               `protobuf:"varint,2,opt,name=conn_type,json=connType,proto3,enum=management.ConnType" json:"conn_type,omitempty"`
+	LastHandshake *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=last_handshake,json=lastHandshake,proto3" json:"last_handshake,omitempty"`
+	LatencyMs     uint32                 `protobuf:"varint,4,opt,name=latency_ms,json=latencyMs,proto3" json:"latency_ms,omitempty"`
+	Endpoint      string                 `protobuf:"bytes,5,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
+	RelayServer   string                 `protobuf:"bytes,6,opt,name=relay_server,json=relayServer,proto3" json:"relay_server,omitempty"`
+	RxBytes       uint64                 `protobuf:"varint,7,opt,name=rx_bytes,json=rxBytes,proto3" json:"rx_bytes,omitempty"`
+	TxBytes       uint64                 `protobuf:"varint,8,opt,name=tx_bytes,json=txBytes,proto3" json:"tx_bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PeerConnectionEntry) Reset() {
+	*x = PeerConnectionEntry{}
+	mi := &file_shared_management_proto_management_proto_msgTypes[54]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PeerConnectionEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PeerConnectionEntry) ProtoMessage() {}
+
+func (x *PeerConnectionEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_shared_management_proto_management_proto_msgTypes[54]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PeerConnectionEntry.ProtoReflect.Descriptor instead.
+func (*PeerConnectionEntry) Descriptor() ([]byte, []int) {
+	return file_shared_management_proto_management_proto_rawDescGZIP(), []int{54}
+}
+
+func (x *PeerConnectionEntry) GetRemotePubkey() string {
+	if x != nil {
+		return x.RemotePubkey
+	}
+	return ""
+}
+
+func (x *PeerConnectionEntry) GetConnType() ConnType {
+	if x != nil {
+		return x.ConnType
+	}
+	return ConnType_CONN_TYPE_UNSPECIFIED
+}
+
+func (x *PeerConnectionEntry) GetLastHandshake() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastHandshake
+	}
+	return nil
+}
+
+func (x *PeerConnectionEntry) GetLatencyMs() uint32 {
+	if x != nil {
+		return x.LatencyMs
+	}
+	return 0
+}
+
+func (x *PeerConnectionEntry) GetEndpoint() string {
+	if x != nil {
+		return x.Endpoint
+	}
+	return ""
+}
+
+func (x *PeerConnectionEntry) GetRelayServer() string {
+	if x != nil {
+		return x.RelayServer
+	}
+	return ""
+}
+
+func (x *PeerConnectionEntry) GetRxBytes() uint64 {
+	if x != nil {
+		return x.RxBytes
+	}
+	return 0
+}
+
+func (x *PeerConnectionEntry) GetTxBytes() uint64 {
+	if x != nil {
+		return x.TxBytes
+	}
+	return 0
+}
+
+type PeerSnapshotRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Nonce         uint64                 `protobuf:"varint,1,opt,name=nonce,proto3" json:"nonce,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PeerSnapshotRequest) Reset() {
+	*x = PeerSnapshotRequest{}
+	mi := &file_shared_management_proto_management_proto_msgTypes[55]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PeerSnapshotRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PeerSnapshotRequest) ProtoMessage() {}
+
+func (x *PeerSnapshotRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_shared_management_proto_management_proto_msgTypes[55]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PeerSnapshotRequest.ProtoReflect.Descriptor instead.
+func (*PeerSnapshotRequest) Descriptor() ([]byte, []int) {
+	return file_shared_management_proto_management_proto_rawDescGZIP(), []int{55}
+}
+
+func (x *PeerSnapshotRequest) GetNonce() uint64 {
+	if x != nil {
+		return x.Nonce
+	}
+	return 0
+}
+
 type PortInfo_Range struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Start         uint32                 `protobuf:"varint,1,opt,name=start,proto3" json:"start,omitempty"`
@@ -4482,7 +4762,7 @@ type PortInfo_Range struct {
 
 func (x *PortInfo_Range) Reset() {
 	*x = PortInfo_Range{}
-	mi := &file_shared_management_proto_management_proto_msgTypes[54]
+	mi := &file_shared_management_proto_management_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4494,7 +4774,7 @@ func (x *PortInfo_Range) String() string {
 func (*PortInfo_Range) ProtoMessage() {}
 
 func (x *PortInfo_Range) ProtoReflect() protoreflect.Message {
-	mi := &file_shared_management_proto_management_proto_msgTypes[54]
+	mi := &file_shared_management_proto_management_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4557,7 +4837,7 @@ const file_shared_management_proto_management_proto_rawDesc = "" +
 	"\n" +
 	"upload_key\x18\x01 \x01(\tR\tuploadKey\"=\n" +
 	"\vSyncRequest\x12.\n" +
-	"\x04meta\x18\x01 \x01(\v2\x1a.management.PeerSystemMetaR\x04meta\"\xdb\x02\n" +
+	"\x04meta\x18\x01 \x01(\v2\x1a.management.PeerSystemMetaR\x04meta\"\xa7\x03\n" +
 	"\fSyncResponse\x12?\n" +
 	"\rnetbirdConfig\x18\x01 \x01(\v2\x19.management.NetbirdConfigR\rnetbirdConfig\x126\n" +
 	"\n" +
@@ -4568,7 +4848,8 @@ const file_shared_management_proto_management_proto_rawDesc = "" +
 	"\n" +
 	"NetworkMap\x18\x05 \x01(\v2\x16.management.NetworkMapR\n" +
 	"NetworkMap\x12*\n" +
-	"\x06Checks\x18\x06 \x03(\v2\x12.management.ChecksR\x06Checks\"A\n" +
+	"\x06Checks\x18\x06 \x03(\v2\x12.management.ChecksR\x06Checks\x12J\n" +
+	"\x10snapshot_request\x18\a \x01(\v2\x1f.management.PeerSnapshotRequestR\x0fsnapshotRequest\"A\n" +
 	"\x0fSyncMetaRequest\x12.\n" +
 	"\x04meta\x18\x01 \x01(\v2\x1a.management.PeerSystemMetaR\x04meta\"\xc6\x01\n" +
 	"\fLoginRequest\x12\x1a\n" +
@@ -4882,7 +5163,24 @@ const file_shared_management_proto_management_proto_rawDesc = "" +
 	"\x13RenewExposeResponse\"+\n" +
 	"\x11StopExposeRequest\x12\x16\n" +
 	"\x06domain\x18\x01 \x01(\tR\x06domain\"\x14\n" +
-	"\x12StopExposeResponse*:\n" +
+	"\x12StopExposeResponse\"\xb6\x01\n" +
+	"\x11PeerConnectionMap\x12\x10\n" +
+	"\x03seq\x18\x01 \x01(\x04R\x03seq\x12#\n" +
+	"\rfull_snapshot\x18\x02 \x01(\bR\ffullSnapshot\x129\n" +
+	"\aentries\x18\x03 \x03(\v2\x1f.management.PeerConnectionEntryR\aentries\x12/\n" +
+	"\x14in_response_to_nonce\x18\x04 \x01(\x04R\x11inResponseToNonce\"\xc4\x02\n" +
+	"\x13PeerConnectionEntry\x12#\n" +
+	"\rremote_pubkey\x18\x01 \x01(\tR\fremotePubkey\x121\n" +
+	"\tconn_type\x18\x02 \x01(\x0e2\x14.management.ConnTypeR\bconnType\x12A\n" +
+	"\x0elast_handshake\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\rlastHandshake\x12\x1d\n" +
+	"\n" +
+	"latency_ms\x18\x04 \x01(\rR\tlatencyMs\x12\x1a\n" +
+	"\bendpoint\x18\x05 \x01(\tR\bendpoint\x12!\n" +
+	"\frelay_server\x18\x06 \x01(\tR\vrelayServer\x12\x19\n" +
+	"\brx_bytes\x18\a \x01(\x04R\arxBytes\x12\x19\n" +
+	"\btx_bytes\x18\b \x01(\x04R\atxBytes\"+\n" +
+	"\x13PeerSnapshotRequest\x12\x14\n" +
+	"\x05nonce\x18\x01 \x01(\x04R\x05nonce*:\n" +
 	"\tJobStatus\x12\x12\n" +
 	"\x0eunknown_status\x10\x00\x12\r\n" +
 	"\tsucceeded\x10\x01\x12\n" +
@@ -4918,7 +5216,13 @@ const file_shared_management_proto_management_proto_rawDesc = "" +
 	"\n" +
 	"EXPOSE_UDP\x10\x03\x12\x0e\n" +
 	"\n" +
-	"EXPOSE_TLS\x10\x042\xfd\x06\n" +
+	"EXPOSE_TLS\x10\x04*}\n" +
+	"\bConnType\x12\x19\n" +
+	"\x15CONN_TYPE_UNSPECIFIED\x10\x00\x12\x12\n" +
+	"\x0eCONN_TYPE_IDLE\x10\x01\x12\x18\n" +
+	"\x14CONN_TYPE_CONNECTING\x10\x02\x12\x11\n" +
+	"\rCONN_TYPE_P2P\x10\x03\x12\x15\n" +
+	"\x11CONN_TYPE_RELAYED\x10\x042\xc7\a\n" +
 	"\x11ManagementService\x12E\n" +
 	"\x05Login\x12\x1c.management.EncryptedMessage\x1a\x1c.management.EncryptedMessage\"\x00\x12F\n" +
 	"\x04Sync\x12\x1c.management.EncryptedMessage\x1a\x1c.management.EncryptedMessage\"\x000\x01\x12B\n" +
@@ -4926,7 +5230,8 @@ const file_shared_management_proto_management_proto_rawDesc = "" +
 	"\tisHealthy\x12\x11.management.Empty\x1a\x11.management.Empty\"\x00\x12Z\n" +
 	"\x1aGetDeviceAuthorizationFlow\x12\x1c.management.EncryptedMessage\x1a\x1c.management.EncryptedMessage\"\x00\x12X\n" +
 	"\x18GetPKCEAuthorizationFlow\x12\x1c.management.EncryptedMessage\x1a\x1c.management.EncryptedMessage\"\x00\x12=\n" +
-	"\bSyncMeta\x12\x1c.management.EncryptedMessage\x1a\x11.management.Empty\"\x00\x12;\n" +
+	"\bSyncMeta\x12\x1c.management.EncryptedMessage\x1a\x11.management.Empty\"\x00\x12H\n" +
+	"\x13SyncPeerConnections\x12\x1c.management.EncryptedMessage\x1a\x11.management.Empty\"\x00\x12;\n" +
 	"\x06Logout\x12\x1c.management.EncryptedMessage\x1a\x11.management.Empty\"\x00\x12G\n" +
 	"\x03Job\x12\x1c.management.EncryptedMessage\x1a\x1c.management.EncryptedMessage\"\x00(\x010\x01\x12L\n" +
 	"\fCreateExpose\x12\x1c.management.EncryptedMessage\x1a\x1c.management.EncryptedMessage\"\x00\x12K\n" +
@@ -4946,8 +5251,8 @@ func file_shared_management_proto_management_proto_rawDescGZIP() []byte {
 	return file_shared_management_proto_management_proto_rawDescData
 }
 
-var file_shared_management_proto_management_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
-var file_shared_management_proto_management_proto_msgTypes = make([]protoimpl.MessageInfo, 55)
+var file_shared_management_proto_management_proto_enumTypes = make([]protoimpl.EnumInfo, 9)
+var file_shared_management_proto_management_proto_msgTypes = make([]protoimpl.MessageInfo, 58)
 var file_shared_management_proto_management_proto_goTypes = []any{
 	(JobStatus)(0),                         // 0: management.JobStatus
 	(ConnectionMode)(0),                    // 1: management.ConnectionMode
@@ -4955,160 +5260,170 @@ var file_shared_management_proto_management_proto_goTypes = []any{
 	(RuleDirection)(0),                     // 3: management.RuleDirection
 	(RuleAction)(0),                        // 4: management.RuleAction
 	(ExposeProtocol)(0),                    // 5: management.ExposeProtocol
-	(HostConfig_Protocol)(0),               // 6: management.HostConfig.Protocol
-	(DeviceAuthorizationFlowProvider)(0),   // 7: management.DeviceAuthorizationFlow.provider
-	(*EncryptedMessage)(nil),               // 8: management.EncryptedMessage
-	(*JobRequest)(nil),                     // 9: management.JobRequest
-	(*JobResponse)(nil),                    // 10: management.JobResponse
-	(*BundleParameters)(nil),               // 11: management.BundleParameters
-	(*BundleResult)(nil),                   // 12: management.BundleResult
-	(*SyncRequest)(nil),                    // 13: management.SyncRequest
-	(*SyncResponse)(nil),                   // 14: management.SyncResponse
-	(*SyncMetaRequest)(nil),                // 15: management.SyncMetaRequest
-	(*LoginRequest)(nil),                   // 16: management.LoginRequest
-	(*PeerKeys)(nil),                       // 17: management.PeerKeys
-	(*Environment)(nil),                    // 18: management.Environment
-	(*File)(nil),                           // 19: management.File
-	(*Flags)(nil),                          // 20: management.Flags
-	(*PeerSystemMeta)(nil),                 // 21: management.PeerSystemMeta
-	(*LoginResponse)(nil),                  // 22: management.LoginResponse
-	(*ServerKeyResponse)(nil),              // 23: management.ServerKeyResponse
-	(*Empty)(nil),                          // 24: management.Empty
-	(*NetbirdConfig)(nil),                  // 25: management.NetbirdConfig
-	(*HostConfig)(nil),                     // 26: management.HostConfig
-	(*RelayConfig)(nil),                    // 27: management.RelayConfig
-	(*FlowConfig)(nil),                     // 28: management.FlowConfig
-	(*JWTConfig)(nil),                      // 29: management.JWTConfig
-	(*ProtectedHostConfig)(nil),            // 30: management.ProtectedHostConfig
-	(*PeerConfig)(nil),                     // 31: management.PeerConfig
-	(*AutoUpdateSettings)(nil),             // 32: management.AutoUpdateSettings
-	(*NetworkMap)(nil),                     // 33: management.NetworkMap
-	(*SSHAuth)(nil),                        // 34: management.SSHAuth
-	(*MachineUserIndexes)(nil),             // 35: management.MachineUserIndexes
-	(*RemotePeerConfig)(nil),               // 36: management.RemotePeerConfig
-	(*SSHConfig)(nil),                      // 37: management.SSHConfig
-	(*DeviceAuthorizationFlowRequest)(nil), // 38: management.DeviceAuthorizationFlowRequest
-	(*DeviceAuthorizationFlow)(nil),        // 39: management.DeviceAuthorizationFlow
-	(*PKCEAuthorizationFlowRequest)(nil),   // 40: management.PKCEAuthorizationFlowRequest
-	(*PKCEAuthorizationFlow)(nil),          // 41: management.PKCEAuthorizationFlow
-	(*ProviderConfig)(nil),                 // 42: management.ProviderConfig
-	(*Route)(nil),                          // 43: management.Route
-	(*DNSConfig)(nil),                      // 44: management.DNSConfig
-	(*CustomZone)(nil),                     // 45: management.CustomZone
-	(*SimpleRecord)(nil),                   // 46: management.SimpleRecord
-	(*NameServerGroup)(nil),                // 47: management.NameServerGroup
-	(*NameServer)(nil),                     // 48: management.NameServer
-	(*FirewallRule)(nil),                   // 49: management.FirewallRule
-	(*NetworkAddress)(nil),                 // 50: management.NetworkAddress
-	(*Checks)(nil),                         // 51: management.Checks
-	(*PortInfo)(nil),                       // 52: management.PortInfo
-	(*RouteFirewallRule)(nil),              // 53: management.RouteFirewallRule
-	(*ForwardingRule)(nil),                 // 54: management.ForwardingRule
-	(*ExposeServiceRequest)(nil),           // 55: management.ExposeServiceRequest
-	(*ExposeServiceResponse)(nil),          // 56: management.ExposeServiceResponse
-	(*RenewExposeRequest)(nil),             // 57: management.RenewExposeRequest
-	(*RenewExposeResponse)(nil),            // 58: management.RenewExposeResponse
-	(*StopExposeRequest)(nil),              // 59: management.StopExposeRequest
-	(*StopExposeResponse)(nil),             // 60: management.StopExposeResponse
-	nil,                                    // 61: management.SSHAuth.MachineUsersEntry
-	(*PortInfo_Range)(nil),                 // 62: management.PortInfo.Range
-	(*timestamppb.Timestamp)(nil),          // 63: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),            // 64: google.protobuf.Duration
+	(ConnType)(0),                          // 6: management.ConnType
+	(HostConfig_Protocol)(0),               // 7: management.HostConfig.Protocol
+	(DeviceAuthorizationFlowProvider)(0),   // 8: management.DeviceAuthorizationFlow.provider
+	(*EncryptedMessage)(nil),               // 9: management.EncryptedMessage
+	(*JobRequest)(nil),                     // 10: management.JobRequest
+	(*JobResponse)(nil),                    // 11: management.JobResponse
+	(*BundleParameters)(nil),               // 12: management.BundleParameters
+	(*BundleResult)(nil),                   // 13: management.BundleResult
+	(*SyncRequest)(nil),                    // 14: management.SyncRequest
+	(*SyncResponse)(nil),                   // 15: management.SyncResponse
+	(*SyncMetaRequest)(nil),                // 16: management.SyncMetaRequest
+	(*LoginRequest)(nil),                   // 17: management.LoginRequest
+	(*PeerKeys)(nil),                       // 18: management.PeerKeys
+	(*Environment)(nil),                    // 19: management.Environment
+	(*File)(nil),                           // 20: management.File
+	(*Flags)(nil),                          // 21: management.Flags
+	(*PeerSystemMeta)(nil),                 // 22: management.PeerSystemMeta
+	(*LoginResponse)(nil),                  // 23: management.LoginResponse
+	(*ServerKeyResponse)(nil),              // 24: management.ServerKeyResponse
+	(*Empty)(nil),                          // 25: management.Empty
+	(*NetbirdConfig)(nil),                  // 26: management.NetbirdConfig
+	(*HostConfig)(nil),                     // 27: management.HostConfig
+	(*RelayConfig)(nil),                    // 28: management.RelayConfig
+	(*FlowConfig)(nil),                     // 29: management.FlowConfig
+	(*JWTConfig)(nil),                      // 30: management.JWTConfig
+	(*ProtectedHostConfig)(nil),            // 31: management.ProtectedHostConfig
+	(*PeerConfig)(nil),                     // 32: management.PeerConfig
+	(*AutoUpdateSettings)(nil),             // 33: management.AutoUpdateSettings
+	(*NetworkMap)(nil),                     // 34: management.NetworkMap
+	(*SSHAuth)(nil),                        // 35: management.SSHAuth
+	(*MachineUserIndexes)(nil),             // 36: management.MachineUserIndexes
+	(*RemotePeerConfig)(nil),               // 37: management.RemotePeerConfig
+	(*SSHConfig)(nil),                      // 38: management.SSHConfig
+	(*DeviceAuthorizationFlowRequest)(nil), // 39: management.DeviceAuthorizationFlowRequest
+	(*DeviceAuthorizationFlow)(nil),        // 40: management.DeviceAuthorizationFlow
+	(*PKCEAuthorizationFlowRequest)(nil),   // 41: management.PKCEAuthorizationFlowRequest
+	(*PKCEAuthorizationFlow)(nil),          // 42: management.PKCEAuthorizationFlow
+	(*ProviderConfig)(nil),                 // 43: management.ProviderConfig
+	(*Route)(nil),                          // 44: management.Route
+	(*DNSConfig)(nil),                      // 45: management.DNSConfig
+	(*CustomZone)(nil),                     // 46: management.CustomZone
+	(*SimpleRecord)(nil),                   // 47: management.SimpleRecord
+	(*NameServerGroup)(nil),                // 48: management.NameServerGroup
+	(*NameServer)(nil),                     // 49: management.NameServer
+	(*FirewallRule)(nil),                   // 50: management.FirewallRule
+	(*NetworkAddress)(nil),                 // 51: management.NetworkAddress
+	(*Checks)(nil),                         // 52: management.Checks
+	(*PortInfo)(nil),                       // 53: management.PortInfo
+	(*RouteFirewallRule)(nil),              // 54: management.RouteFirewallRule
+	(*ForwardingRule)(nil),                 // 55: management.ForwardingRule
+	(*ExposeServiceRequest)(nil),           // 56: management.ExposeServiceRequest
+	(*ExposeServiceResponse)(nil),          // 57: management.ExposeServiceResponse
+	(*RenewExposeRequest)(nil),             // 58: management.RenewExposeRequest
+	(*RenewExposeResponse)(nil),            // 59: management.RenewExposeResponse
+	(*StopExposeRequest)(nil),              // 60: management.StopExposeRequest
+	(*StopExposeResponse)(nil),             // 61: management.StopExposeResponse
+	(*PeerConnectionMap)(nil),              // 62: management.PeerConnectionMap
+	(*PeerConnectionEntry)(nil),            // 63: management.PeerConnectionEntry
+	(*PeerSnapshotRequest)(nil),            // 64: management.PeerSnapshotRequest
+	nil,                                    // 65: management.SSHAuth.MachineUsersEntry
+	(*PortInfo_Range)(nil),                 // 66: management.PortInfo.Range
+	(*timestamppb.Timestamp)(nil),          // 67: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),            // 68: google.protobuf.Duration
 }
 var file_shared_management_proto_management_proto_depIdxs = []int32{
-	11, // 0: management.JobRequest.bundle:type_name -> management.BundleParameters
+	12, // 0: management.JobRequest.bundle:type_name -> management.BundleParameters
 	0,  // 1: management.JobResponse.status:type_name -> management.JobStatus
-	12, // 2: management.JobResponse.bundle:type_name -> management.BundleResult
-	21, // 3: management.SyncRequest.meta:type_name -> management.PeerSystemMeta
-	25, // 4: management.SyncResponse.netbirdConfig:type_name -> management.NetbirdConfig
-	31, // 5: management.SyncResponse.peerConfig:type_name -> management.PeerConfig
-	36, // 6: management.SyncResponse.remotePeers:type_name -> management.RemotePeerConfig
-	33, // 7: management.SyncResponse.NetworkMap:type_name -> management.NetworkMap
-	51, // 8: management.SyncResponse.Checks:type_name -> management.Checks
-	21, // 9: management.SyncMetaRequest.meta:type_name -> management.PeerSystemMeta
-	21, // 10: management.LoginRequest.meta:type_name -> management.PeerSystemMeta
-	17, // 11: management.LoginRequest.peerKeys:type_name -> management.PeerKeys
-	50, // 12: management.PeerSystemMeta.networkAddresses:type_name -> management.NetworkAddress
-	18, // 13: management.PeerSystemMeta.environment:type_name -> management.Environment
-	19, // 14: management.PeerSystemMeta.files:type_name -> management.File
-	20, // 15: management.PeerSystemMeta.flags:type_name -> management.Flags
-	25, // 16: management.LoginResponse.netbirdConfig:type_name -> management.NetbirdConfig
-	31, // 17: management.LoginResponse.peerConfig:type_name -> management.PeerConfig
-	51, // 18: management.LoginResponse.Checks:type_name -> management.Checks
-	63, // 19: management.ServerKeyResponse.expiresAt:type_name -> google.protobuf.Timestamp
-	26, // 20: management.NetbirdConfig.stuns:type_name -> management.HostConfig
-	30, // 21: management.NetbirdConfig.turns:type_name -> management.ProtectedHostConfig
-	26, // 22: management.NetbirdConfig.signal:type_name -> management.HostConfig
-	27, // 23: management.NetbirdConfig.relay:type_name -> management.RelayConfig
-	28, // 24: management.NetbirdConfig.flow:type_name -> management.FlowConfig
-	6,  // 25: management.HostConfig.protocol:type_name -> management.HostConfig.Protocol
-	64, // 26: management.FlowConfig.interval:type_name -> google.protobuf.Duration
-	26, // 27: management.ProtectedHostConfig.hostConfig:type_name -> management.HostConfig
-	37, // 28: management.PeerConfig.sshConfig:type_name -> management.SSHConfig
-	32, // 29: management.PeerConfig.autoUpdate:type_name -> management.AutoUpdateSettings
-	1,  // 30: management.PeerConfig.ConnectionMode:type_name -> management.ConnectionMode
-	31, // 31: management.NetworkMap.peerConfig:type_name -> management.PeerConfig
-	36, // 32: management.NetworkMap.remotePeers:type_name -> management.RemotePeerConfig
-	43, // 33: management.NetworkMap.Routes:type_name -> management.Route
-	44, // 34: management.NetworkMap.DNSConfig:type_name -> management.DNSConfig
-	36, // 35: management.NetworkMap.offlinePeers:type_name -> management.RemotePeerConfig
-	49, // 36: management.NetworkMap.FirewallRules:type_name -> management.FirewallRule
-	53, // 37: management.NetworkMap.routesFirewallRules:type_name -> management.RouteFirewallRule
-	54, // 38: management.NetworkMap.forwardingRules:type_name -> management.ForwardingRule
-	34, // 39: management.NetworkMap.sshAuth:type_name -> management.SSHAuth
-	61, // 40: management.SSHAuth.machine_users:type_name -> management.SSHAuth.MachineUsersEntry
-	37, // 41: management.RemotePeerConfig.sshConfig:type_name -> management.SSHConfig
-	63, // 42: management.RemotePeerConfig.last_seen_at_server:type_name -> google.protobuf.Timestamp
-	29, // 43: management.SSHConfig.jwtConfig:type_name -> management.JWTConfig
-	7,  // 44: management.DeviceAuthorizationFlow.Provider:type_name -> management.DeviceAuthorizationFlow.provider
-	42, // 45: management.DeviceAuthorizationFlow.ProviderConfig:type_name -> management.ProviderConfig
-	42, // 46: management.PKCEAuthorizationFlow.ProviderConfig:type_name -> management.ProviderConfig
-	47, // 47: management.DNSConfig.NameServerGroups:type_name -> management.NameServerGroup
-	45, // 48: management.DNSConfig.CustomZones:type_name -> management.CustomZone
-	46, // 49: management.CustomZone.Records:type_name -> management.SimpleRecord
-	48, // 50: management.NameServerGroup.NameServers:type_name -> management.NameServer
-	3,  // 51: management.FirewallRule.Direction:type_name -> management.RuleDirection
-	4,  // 52: management.FirewallRule.Action:type_name -> management.RuleAction
-	2,  // 53: management.FirewallRule.Protocol:type_name -> management.RuleProtocol
-	52, // 54: management.FirewallRule.PortInfo:type_name -> management.PortInfo
-	62, // 55: management.PortInfo.range:type_name -> management.PortInfo.Range
-	4,  // 56: management.RouteFirewallRule.action:type_name -> management.RuleAction
-	2,  // 57: management.RouteFirewallRule.protocol:type_name -> management.RuleProtocol
-	52, // 58: management.RouteFirewallRule.portInfo:type_name -> management.PortInfo
-	2,  // 59: management.ForwardingRule.protocol:type_name -> management.RuleProtocol
-	52, // 60: management.ForwardingRule.destinationPort:type_name -> management.PortInfo
-	52, // 61: management.ForwardingRule.translatedPort:type_name -> management.PortInfo
-	5,  // 62: management.ExposeServiceRequest.protocol:type_name -> management.ExposeProtocol
-	35, // 63: management.SSHAuth.MachineUsersEntry.value:type_name -> management.MachineUserIndexes
-	8,  // 64: management.ManagementService.Login:input_type -> management.EncryptedMessage
-	8,  // 65: management.ManagementService.Sync:input_type -> management.EncryptedMessage
-	24, // 66: management.ManagementService.GetServerKey:input_type -> management.Empty
-	24, // 67: management.ManagementService.isHealthy:input_type -> management.Empty
-	8,  // 68: management.ManagementService.GetDeviceAuthorizationFlow:input_type -> management.EncryptedMessage
-	8,  // 69: management.ManagementService.GetPKCEAuthorizationFlow:input_type -> management.EncryptedMessage
-	8,  // 70: management.ManagementService.SyncMeta:input_type -> management.EncryptedMessage
-	8,  // 71: management.ManagementService.Logout:input_type -> management.EncryptedMessage
-	8,  // 72: management.ManagementService.Job:input_type -> management.EncryptedMessage
-	8,  // 73: management.ManagementService.CreateExpose:input_type -> management.EncryptedMessage
-	8,  // 74: management.ManagementService.RenewExpose:input_type -> management.EncryptedMessage
-	8,  // 75: management.ManagementService.StopExpose:input_type -> management.EncryptedMessage
-	8,  // 76: management.ManagementService.Login:output_type -> management.EncryptedMessage
-	8,  // 77: management.ManagementService.Sync:output_type -> management.EncryptedMessage
-	23, // 78: management.ManagementService.GetServerKey:output_type -> management.ServerKeyResponse
-	24, // 79: management.ManagementService.isHealthy:output_type -> management.Empty
-	8,  // 80: management.ManagementService.GetDeviceAuthorizationFlow:output_type -> management.EncryptedMessage
-	8,  // 81: management.ManagementService.GetPKCEAuthorizationFlow:output_type -> management.EncryptedMessage
-	24, // 82: management.ManagementService.SyncMeta:output_type -> management.Empty
-	24, // 83: management.ManagementService.Logout:output_type -> management.Empty
-	8,  // 84: management.ManagementService.Job:output_type -> management.EncryptedMessage
-	8,  // 85: management.ManagementService.CreateExpose:output_type -> management.EncryptedMessage
-	8,  // 86: management.ManagementService.RenewExpose:output_type -> management.EncryptedMessage
-	8,  // 87: management.ManagementService.StopExpose:output_type -> management.EncryptedMessage
-	76, // [76:88] is the sub-list for method output_type
-	64, // [64:76] is the sub-list for method input_type
-	64, // [64:64] is the sub-list for extension type_name
-	64, // [64:64] is the sub-list for extension extendee
-	0,  // [0:64] is the sub-list for field type_name
+	13, // 2: management.JobResponse.bundle:type_name -> management.BundleResult
+	22, // 3: management.SyncRequest.meta:type_name -> management.PeerSystemMeta
+	26, // 4: management.SyncResponse.netbirdConfig:type_name -> management.NetbirdConfig
+	32, // 5: management.SyncResponse.peerConfig:type_name -> management.PeerConfig
+	37, // 6: management.SyncResponse.remotePeers:type_name -> management.RemotePeerConfig
+	34, // 7: management.SyncResponse.NetworkMap:type_name -> management.NetworkMap
+	52, // 8: management.SyncResponse.Checks:type_name -> management.Checks
+	64, // 9: management.SyncResponse.snapshot_request:type_name -> management.PeerSnapshotRequest
+	22, // 10: management.SyncMetaRequest.meta:type_name -> management.PeerSystemMeta
+	22, // 11: management.LoginRequest.meta:type_name -> management.PeerSystemMeta
+	18, // 12: management.LoginRequest.peerKeys:type_name -> management.PeerKeys
+	51, // 13: management.PeerSystemMeta.networkAddresses:type_name -> management.NetworkAddress
+	19, // 14: management.PeerSystemMeta.environment:type_name -> management.Environment
+	20, // 15: management.PeerSystemMeta.files:type_name -> management.File
+	21, // 16: management.PeerSystemMeta.flags:type_name -> management.Flags
+	26, // 17: management.LoginResponse.netbirdConfig:type_name -> management.NetbirdConfig
+	32, // 18: management.LoginResponse.peerConfig:type_name -> management.PeerConfig
+	52, // 19: management.LoginResponse.Checks:type_name -> management.Checks
+	67, // 20: management.ServerKeyResponse.expiresAt:type_name -> google.protobuf.Timestamp
+	27, // 21: management.NetbirdConfig.stuns:type_name -> management.HostConfig
+	31, // 22: management.NetbirdConfig.turns:type_name -> management.ProtectedHostConfig
+	27, // 23: management.NetbirdConfig.signal:type_name -> management.HostConfig
+	28, // 24: management.NetbirdConfig.relay:type_name -> management.RelayConfig
+	29, // 25: management.NetbirdConfig.flow:type_name -> management.FlowConfig
+	7,  // 26: management.HostConfig.protocol:type_name -> management.HostConfig.Protocol
+	68, // 27: management.FlowConfig.interval:type_name -> google.protobuf.Duration
+	27, // 28: management.ProtectedHostConfig.hostConfig:type_name -> management.HostConfig
+	38, // 29: management.PeerConfig.sshConfig:type_name -> management.SSHConfig
+	33, // 30: management.PeerConfig.autoUpdate:type_name -> management.AutoUpdateSettings
+	1,  // 31: management.PeerConfig.ConnectionMode:type_name -> management.ConnectionMode
+	32, // 32: management.NetworkMap.peerConfig:type_name -> management.PeerConfig
+	37, // 33: management.NetworkMap.remotePeers:type_name -> management.RemotePeerConfig
+	44, // 34: management.NetworkMap.Routes:type_name -> management.Route
+	45, // 35: management.NetworkMap.DNSConfig:type_name -> management.DNSConfig
+	37, // 36: management.NetworkMap.offlinePeers:type_name -> management.RemotePeerConfig
+	50, // 37: management.NetworkMap.FirewallRules:type_name -> management.FirewallRule
+	54, // 38: management.NetworkMap.routesFirewallRules:type_name -> management.RouteFirewallRule
+	55, // 39: management.NetworkMap.forwardingRules:type_name -> management.ForwardingRule
+	35, // 40: management.NetworkMap.sshAuth:type_name -> management.SSHAuth
+	65, // 41: management.SSHAuth.machine_users:type_name -> management.SSHAuth.MachineUsersEntry
+	38, // 42: management.RemotePeerConfig.sshConfig:type_name -> management.SSHConfig
+	67, // 43: management.RemotePeerConfig.last_seen_at_server:type_name -> google.protobuf.Timestamp
+	30, // 44: management.SSHConfig.jwtConfig:type_name -> management.JWTConfig
+	8,  // 45: management.DeviceAuthorizationFlow.Provider:type_name -> management.DeviceAuthorizationFlow.provider
+	43, // 46: management.DeviceAuthorizationFlow.ProviderConfig:type_name -> management.ProviderConfig
+	43, // 47: management.PKCEAuthorizationFlow.ProviderConfig:type_name -> management.ProviderConfig
+	48, // 48: management.DNSConfig.NameServerGroups:type_name -> management.NameServerGroup
+	46, // 49: management.DNSConfig.CustomZones:type_name -> management.CustomZone
+	47, // 50: management.CustomZone.Records:type_name -> management.SimpleRecord
+	49, // 51: management.NameServerGroup.NameServers:type_name -> management.NameServer
+	3,  // 52: management.FirewallRule.Direction:type_name -> management.RuleDirection
+	4,  // 53: management.FirewallRule.Action:type_name -> management.RuleAction
+	2,  // 54: management.FirewallRule.Protocol:type_name -> management.RuleProtocol
+	53, // 55: management.FirewallRule.PortInfo:type_name -> management.PortInfo
+	66, // 56: management.PortInfo.range:type_name -> management.PortInfo.Range
+	4,  // 57: management.RouteFirewallRule.action:type_name -> management.RuleAction
+	2,  // 58: management.RouteFirewallRule.protocol:type_name -> management.RuleProtocol
+	53, // 59: management.RouteFirewallRule.portInfo:type_name -> management.PortInfo
+	2,  // 60: management.ForwardingRule.protocol:type_name -> management.RuleProtocol
+	53, // 61: management.ForwardingRule.destinationPort:type_name -> management.PortInfo
+	53, // 62: management.ForwardingRule.translatedPort:type_name -> management.PortInfo
+	5,  // 63: management.ExposeServiceRequest.protocol:type_name -> management.ExposeProtocol
+	63, // 64: management.PeerConnectionMap.entries:type_name -> management.PeerConnectionEntry
+	6,  // 65: management.PeerConnectionEntry.conn_type:type_name -> management.ConnType
+	67, // 66: management.PeerConnectionEntry.last_handshake:type_name -> google.protobuf.Timestamp
+	36, // 67: management.SSHAuth.MachineUsersEntry.value:type_name -> management.MachineUserIndexes
+	9,  // 68: management.ManagementService.Login:input_type -> management.EncryptedMessage
+	9,  // 69: management.ManagementService.Sync:input_type -> management.EncryptedMessage
+	25, // 70: management.ManagementService.GetServerKey:input_type -> management.Empty
+	25, // 71: management.ManagementService.isHealthy:input_type -> management.Empty
+	9,  // 72: management.ManagementService.GetDeviceAuthorizationFlow:input_type -> management.EncryptedMessage
+	9,  // 73: management.ManagementService.GetPKCEAuthorizationFlow:input_type -> management.EncryptedMessage
+	9,  // 74: management.ManagementService.SyncMeta:input_type -> management.EncryptedMessage
+	9,  // 75: management.ManagementService.SyncPeerConnections:input_type -> management.EncryptedMessage
+	9,  // 76: management.ManagementService.Logout:input_type -> management.EncryptedMessage
+	9,  // 77: management.ManagementService.Job:input_type -> management.EncryptedMessage
+	9,  // 78: management.ManagementService.CreateExpose:input_type -> management.EncryptedMessage
+	9,  // 79: management.ManagementService.RenewExpose:input_type -> management.EncryptedMessage
+	9,  // 80: management.ManagementService.StopExpose:input_type -> management.EncryptedMessage
+	9,  // 81: management.ManagementService.Login:output_type -> management.EncryptedMessage
+	9,  // 82: management.ManagementService.Sync:output_type -> management.EncryptedMessage
+	24, // 83: management.ManagementService.GetServerKey:output_type -> management.ServerKeyResponse
+	25, // 84: management.ManagementService.isHealthy:output_type -> management.Empty
+	9,  // 85: management.ManagementService.GetDeviceAuthorizationFlow:output_type -> management.EncryptedMessage
+	9,  // 86: management.ManagementService.GetPKCEAuthorizationFlow:output_type -> management.EncryptedMessage
+	25, // 87: management.ManagementService.SyncMeta:output_type -> management.Empty
+	25, // 88: management.ManagementService.SyncPeerConnections:output_type -> management.Empty
+	25, // 89: management.ManagementService.Logout:output_type -> management.Empty
+	9,  // 90: management.ManagementService.Job:output_type -> management.EncryptedMessage
+	9,  // 91: management.ManagementService.CreateExpose:output_type -> management.EncryptedMessage
+	9,  // 92: management.ManagementService.RenewExpose:output_type -> management.EncryptedMessage
+	9,  // 93: management.ManagementService.StopExpose:output_type -> management.EncryptedMessage
+	81, // [81:94] is the sub-list for method output_type
+	68, // [68:81] is the sub-list for method input_type
+	68, // [68:68] is the sub-list for extension type_name
+	68, // [68:68] is the sub-list for extension extendee
+	0,  // [0:68] is the sub-list for field type_name
 }
 
 func init() { file_shared_management_proto_management_proto_init() }
@@ -5131,8 +5446,8 @@ func file_shared_management_proto_management_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_shared_management_proto_management_proto_rawDesc), len(file_shared_management_proto_management_proto_rawDesc)),
-			NumEnums:      8,
-			NumMessages:   55,
+			NumEnums:      9,
+			NumMessages:   58,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
