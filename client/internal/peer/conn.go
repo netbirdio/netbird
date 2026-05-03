@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pion/ice/v4"
@@ -123,6 +124,15 @@ type Conn struct {
 	statusICE           *worker.AtomicWorkerStatus
 	currentConnPriority conntype.ConnPriority
 	opened              bool // this flag is used to prevent close in case of not opened connection
+	// everConnected is set to true the first time configureConnection
+	// or relay-only setup transitions this peer into a non-None
+	// priority. Codex follow-up: distinguishes the "ICE detached for
+	// inactivity" case (skip guard offer to avoid spam) from the
+	// "never connected yet" case (must send the bootstrap offer).
+	// Without this, the guard's first fire after lazy-mgr activity
+	// would incorrectly skip the initial offer because no ICE
+	// listener is attached YET.
+	everConnected atomic.Bool
 
 	workerICE   *WorkerICE
 	workerRelay *WorkerRelay
@@ -472,6 +482,7 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 	}
 
 	conn.currentConnPriority = priority
+	conn.everConnected.Store(true)
 	conn.statusICE.SetConnected()
 	conn.updateIceState(iceConnInfo, updateTime)
 	conn.doOnConnected(iceConnInfo.RosenpassPubKey, iceConnInfo.RosenpassAddr, updateTime)
@@ -601,6 +612,7 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 
 	conn.rosenpassRemoteKey = rci.rosenpassPubKey
 	conn.currentConnPriority = conntype.Relay
+	conn.everConnected.Store(true)
 	conn.statusRelay.SetConnected()
 	conn.setRelayedProxy(wgProxy)
 	conn.updateRelayStatus(rci.relayedConn.RemoteAddr().String(), rci.rosenpassPubKey, updateTime)
@@ -685,12 +697,18 @@ func (conn *Conn) onGuardEvent() {
 		// through ConnMgr.ActivatePeer -> conn.AttachICE which DOES
 		// respect iceBackoff and is the correct path to re-engage ICE.
 		//
-		// Detection: ICE worker exists but is detached (locked path
-		// has no listener) AND no recorded ICE-failure-backoff. If
-		// backoff IS active, the guard's existing 3-tries-then-hourly
-		// retry policy is already handling the situation correctly,
-		// so we let it through.
-		if conn.handshaker != nil && conn.handshaker.readICEListener() == nil {
+		// Detection requires THREE conditions:
+		//   1. ICE worker exists but is detached (no listener),
+		//   2. no recorded ICE-failure-backoff (else the existing
+		//      3-tries-then-hourly retry policy handles it),
+		//   3. this Conn has been connected at least ONCE before (the
+		//      everConnected flag). Without #3 we'd skip the very
+		//      first bootstrap offer for a brand-new peer because
+		//      its ICE listener is also nil before initial setup —
+		//      regression caught during 6-host hardware test on
+		//      4998e5a58.
+		if conn.everConnected.Load() &&
+			conn.handshaker != nil && conn.handshaker.readICEListener() == nil {
 			if state, err := conn.statusRecorder.GetPeer(conn.config.Key); err == nil {
 				if !state.IceBackoffSuspended && state.IceBackoffFailures == 0 {
 					conn.Log.Tracef("guard: skip offer (ICE detached for inactivity, p2p-dynamic; will re-attach on real traffic)")
