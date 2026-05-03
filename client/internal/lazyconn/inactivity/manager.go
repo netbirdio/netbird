@@ -14,7 +14,14 @@ import (
 const (
 	checkInterval = 1 * time.Minute
 
-	DefaultInactivityThreshold = 15 * time.Minute
+	// DefaultInactivityThreshold is the relay-tunnel idle-teardown
+	// fallback when neither client config nor server-pushed value sets
+	// it. Bumped 2026-05-03 from 15 min to 24 h: a 15-min window
+	// triggered tear-down for peers that exchange traffic only
+	// occasionally (e.g. NAT-keepalive only), forcing a full re-
+	// handshake on every wake. 24 h matches the dashboard placeholder
+	// and the production value most users actually want.
+	DefaultInactivityThreshold = 24 * time.Hour
 	MinimumInactivityThreshold = 1 * time.Minute
 )
 

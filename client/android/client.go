@@ -296,6 +296,15 @@ func (c *Client) SetInfoLogLevel() {
 
 // PeersList return with the list of the PeerInfos
 func (c *Client) PeersList() *PeerInfoArray {
+	// Refresh WireGuard counters (BytesRx/Tx + LastWireguardHandshake)
+	// from the kernel/uapi interface before snapshotting. Without this
+	// the Android UI sees the stale values that were last written when
+	// the peer was opened/closed (typically 0), because the desktop
+	// CLI's Status RPC is what normally drives RefreshWireGuardStats.
+	// Phase 3.7i.
+	if err := c.recorder.RefreshWireGuardStats(); err != nil {
+		log.Debugf("PeersList: refresh wg stats: %v", err)
+	}
 
 	fullStatus := c.recorder.GetFullStatus()
 

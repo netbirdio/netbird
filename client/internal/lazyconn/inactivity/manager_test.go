@@ -23,9 +23,11 @@ func (m *mockWgInterface) LastActivities() map[string]monotime.Time {
 func TestPeerTriggersInactivity(t *testing.T) {
 	peerID := "peer1"
 
+	// Past activity must exceed DefaultInactivityThreshold (24 h after
+	// the Phase-3.7i tuning) — pick 25 h for safety margin.
 	wgMock := &mockWgInterface{
 		lastActivities: map[string]monotime.Time{
-			peerID: monotime.Time(int64(monotime.Now()) - int64(20*time.Minute)),
+			peerID: monotime.Time(int64(monotime.Now()) - int64(25*time.Hour)),
 		},
 	}
 
@@ -332,9 +334,12 @@ func TestTwoTimers_BothDisabled(t *testing.T) {
 func TestPhase1_LazyEquivalence(t *testing.T) {
 	peerID := "peer1"
 
+	// DefaultInactivityThreshold is 24 h (Phase-3.7i tuning); use 25 h
+	// of past activity so the test is robust to that constant changing
+	// in either direction.
 	wgMock := &mockWgInterface{
 		lastActivities: map[string]monotime.Time{
-			peerID: pastActivity(20 * time.Minute),
+			peerID: pastActivity(25 * time.Hour),
 		},
 	}
 
@@ -343,7 +348,7 @@ func TestPhase1_LazyEquivalence(t *testing.T) {
 		return &fakeTickerMock{CChan: fakeTick}
 	}
 
-	// Phase-1 entry point with default threshold (15m).
+	// Phase-1 entry point with default threshold.
 	manager := NewManager(wgMock, nil)
 	manager.AddPeer(makePeerCfg(peerID))
 
