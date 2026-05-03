@@ -434,7 +434,7 @@ func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wg
 
 	// Phase 3.7i (#5989): register for SnapshotRequest dispatch.
 	snapshotCh := s.snapshotRouter.Register(peerKey.String())
-	defer s.snapshotRouter.Unregister(peerKey.String())
+	defer s.snapshotRouter.Unregister(peerKey.String(), snapshotCh)
 
 	for {
 		select {

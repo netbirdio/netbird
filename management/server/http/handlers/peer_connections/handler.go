@@ -64,6 +64,12 @@ type apiResponse struct {
 type refreshResponse struct {
 	RefreshToken uint64       `json:"refresh_token"`
 	CachedMap    *apiResponse `json:"cached_map,omitempty"`
+	// Dispatched is true when the snapshot request was actually delivered
+	// to an active Sync stream for this peer. False means the peer has
+	// no live stream (offline / between connections / older daemon
+	// without snapshot-request support) and the caller can decide whether
+	// to retry or fall back to the cached map.
+	Dispatched bool `json:"dispatched"`
 }
 
 // GetPeerConnections handles GET /api/peers/{peerId}/connections.
@@ -136,12 +142,13 @@ func (h *Handler) PostRefresh(w http.ResponseWriter, r *http.Request) {
 
 	pubkey := peer.Key
 	nonce := h.nonce.Add(1)
+	dispatched := false
 	if h.router != nil {
-		_ = h.router.Request(pubkey, nonce)
+		dispatched = h.router.Request(pubkey, nonce)
 	}
 
 	dnsDomain := h.account.GetDNSDomain(r.Context(), userAuth.AccountId)
-	resp := refreshResponse{RefreshToken: nonce}
+	resp := refreshResponse{RefreshToken: nonce, Dispatched: dispatched}
 	if cached, ok := h.store.Get(pubkey); ok {
 		ar := h.buildResponse(r.Context(), userAuth.AccountId, dnsDomain, pubkey, cached)
 		resp.CachedMap = &ar

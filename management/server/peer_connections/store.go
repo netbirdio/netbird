@@ -75,7 +75,14 @@ func (s *MemoryStore) Put(peerPubKey string, m *mgmProto.PeerConnectionMap) {
 		merged := proto.Clone(prev.m).(*mgmProto.PeerConnectionMap)
 		merged.Seq = m.GetSeq()
 		merged.FullSnapshot = false
-		merged.InResponseToNonce = m.GetInResponseToNonce()
+		// Keep the latest non-zero refresh-nonce. A snapshot pushed in
+		// response to nonce N must remain reachable via GET ?since=N
+		// even when a regular delta with InResponseToNonce=0 arrives
+		// shortly after; otherwise the refresh polling client gives up
+		// and falls back to the next sync interval (~60 s gap).
+		if m.GetInResponseToNonce() > merged.GetInResponseToNonce() {
+			merged.InResponseToNonce = m.GetInResponseToNonce()
+		}
 		byKey := make(map[string]int, len(merged.Entries))
 		for i, e := range merged.Entries {
 			byKey[e.GetRemotePubkey()] = i

@@ -16,25 +16,42 @@ func NewSnapshotRouter() *SnapshotRouter {
 }
 
 // Register returns a buffered channel the stream owner reads from to
-// receive snapshot-request nonces. Caller must call Unregister when the
-// stream closes.
+// receive snapshot-request nonces. The returned channel is the token
+// the caller must pass to Unregister so a stale stream cannot tear
+// down a fresh stream's channel after a quick reconnect.
 func (r *SnapshotRouter) Register(peerPubKey string) <-chan uint64 {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	ch := make(chan uint64, 4)
+	if old, ok := r.channels[peerPubKey]; ok {
+		// A second concurrent stream for the same peer (e.g. fast
+		// reconnect) — close the previous channel so its goroutine
+		// exits cleanly, then install the new one.
+		close(old)
+	}
 	r.channels[peerPubKey] = ch
 	return ch
 }
 
-// Unregister closes the channel returned by Register and removes the
-// peer from the router. Idempotent.
-func (r *SnapshotRouter) Unregister(peerPubKey string) {
+// Unregister closes the given channel (token returned from Register)
+// and removes the peer from the router only if that channel is still
+// the live one. A stale stream calling Unregister after a fresh stream
+// has registered must not tear down the new stream's channel.
+// Idempotent.
+func (r *SnapshotRouter) Unregister(peerPubKey string, token <-chan uint64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if ch, ok := r.channels[peerPubKey]; ok {
-		close(ch)
-		delete(r.channels, peerPubKey)
+	current, ok := r.channels[peerPubKey]
+	if !ok {
+		return
 	}
+	if (<-chan uint64)(current) != token {
+		// A newer Register replaced our channel; that newer Register
+		// already closed our old channel, so nothing to do here.
+		return
+	}
+	close(current)
+	delete(r.channels, peerPubKey)
 }
 
 // Request enqueues a nonce for the given peer's snapshot channel.
