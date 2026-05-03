@@ -609,5 +609,5 @@ var ManagementService_ServiceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 	},
-	Metadata: "management.proto",
+	Metadata: "shared/management/proto/management.proto",
 }

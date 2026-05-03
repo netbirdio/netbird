@@ -221,6 +221,13 @@ message PeerSystemMeta {
   Environment environment = 15;
   repeated File files = 16;
   Flags flags = 17;
+
+  // Phase 3.7i (#5989): connection mode/timeouts this peer is actually
+  // running with. Mgmt copies into RemotePeerConfig of every other peer.
+  string effective_connection_mode    = 50;
+  uint32 effective_relay_timeout_secs = 51;
+  uint32 effective_p2p_timeout_secs   = 52;
+  uint32 effective_p2p_retry_max_secs = 53;
 }
 
 message LoginResponse {
@@ -463,6 +470,28 @@ message RemotePeerConfig {
   string fqdn = 4;
 
   string agentVersion = 5;
+
+  // Phase 3.7i (#5989): connection mode/timeouts the remote peer is
+  // actually running with (after env > local-cfg > server-pushed > legacy
+  // resolution), as reported by that peer in its PeerSystemMeta. Empty
+  // when remote peer pre-dates Phase 3.7i.
+  string effective_connection_mode    = 6;
+  uint32 effective_relay_timeout_secs = 7;
+  uint32 effective_p2p_timeout_secs   = 8;
+  uint32 effective_p2p_retry_max_secs = 9;
+
+  // Connection mode/timeouts the management server has configured for
+  // that peer via dashboard policy/group. UI compares effective vs
+  // configured to spot local overrides (≠ → ⚠).
+  string configured_connection_mode    = 10;
+  uint32 configured_relay_timeout_secs = 11;
+  uint32 configured_p2p_timeout_secs   = 12;
+  uint32 configured_p2p_retry_max_secs = 13;
+
+  // Phase 3.7i: server-knowledge fields surfaced to UIs without an
+  // extra Mgmt API call (already in the NetworkMap stream context).
+  google.protobuf.Timestamp last_seen_at_server = 14;
+  repeated string groups                        = 15;
 }
 
 // SSHConfig represents SSH configurations of a peer.
