@@ -15,6 +15,15 @@ func IsSupported(agentVersion string) bool {
 		return true
 	}
 
+	// Custom dev/CI builds tagged like "dev-089a95a" or "ci-abcdef" by
+	// build-android-lib.sh / scripts/build_*.sh come from the same source
+	// tree as the "development" build above; assume they support lazy.
+	// Only the random short-hash form (e.g. "a6c5960") lacks any prefix
+	// signal -- those still get rejected below.
+	if strings.HasPrefix(agentVersion, "dev-") || strings.HasPrefix(agentVersion, "ci-") {
+		return true
+	}
+
 	// filter out versions like this: a6c5960, a7d5c522, d47be154
 	if !strings.Contains(agentVersion, ".") {
 		return false

@@ -201,7 +201,11 @@ func modeUsesLazyMgr(m connectionmode.Mode) bool {
 // that need to follow a successful initLazyManager. Called by Start()
 // and by the management-push transition path.
 func (e *ConnMgr) startModeSideEffects() {
-	if e.mode == connectionmode.ModeP2PLazy {
+	// Both lazy AND dynamic are "lazy" from the status-recorder's
+	// perspective (peers are not eagerly opened; they wait for activity).
+	// The "Lazy connection: true/false" line in `netbird status` reflects
+	// this user-visible distinction, not the internal flavor.
+	if e.mode == connectionmode.ModeP2PLazy || e.mode == connectionmode.ModeP2PDynamic {
 		e.statusRecorder.UpdateLazyConnection(true)
 	}
 	if e.mode == connectionmode.ModeP2PDynamic {
@@ -317,7 +321,16 @@ func (e *ConnMgr) UpdatedRemotePeerConfig(ctx context.Context, pc *mgmProto.Peer
 		log.Infof("lazy/dynamic connection manager enabled by management push (mode=%s)", newMode)
 		e.initLazyManager(ctx)
 		e.startModeSideEffects()
-		return e.addPeersToLazyConnManager()
+		// Phase 3.7i: when management activates lazy/dynamic mode at
+		// runtime we must reset all existing peer connections through
+		// the lazy/idle entry. The previous AddActivePeers path kept
+		// every already-open WireGuard tunnel running and only started
+		// the inactivity timers from "now" -- callers expected the new
+		// mode to apply immediately ("Idle until traffic"), not "stay
+		// open until 3 hours from now". Brief packet loss (~1-2 s per
+		// peer while the tunnel is rebuilt) is acceptable; mode changes
+		// are rare and almost always intentional.
+		return e.resetPeersToLazyIdle(ctx)
 	}
 	return nil
 }
@@ -614,6 +627,65 @@ func (e *ConnMgr) addPeersToLazyConnManager() error {
 	}
 
 	return e.lazyConnMgr.AddActivePeers(lazyPeerCfgs)
+}
+
+// resetPeersToLazyIdle closes every currently-open peer connection and
+// re-registers it via the standard AddPeer (idle) entry of the lazy
+// manager. Used when management activates lazy/dynamic mode at runtime:
+// without this, AddActivePeers would keep all existing tunnels running
+// until their inactivity timers fired, contradicting the user-visible
+// promise of lazy/dynamic ("idle until traffic").
+//
+// Peers with daemon versions that don't support lazy connection, peers
+// on the exclude list, and any AddPeer error fall back to eager Open()
+// to preserve current behaviour for those edge cases. Net effect for
+// the common case: every supported peer flips from Connected -> Idle
+// and waits for the next outbound payload packet.
+func (e *ConnMgr) resetPeersToLazyIdle(ctx context.Context) error {
+	for _, peerID := range e.peerStore.PeersPubKey() {
+		peerConn, ok := e.peerStore.PeerConn(peerID)
+		if !ok {
+			log.Warnf("failed to find peer conn for peerID: %s", peerID)
+			continue
+		}
+
+		// Tear the tunnel down. signalToRemote=true so the remote peer
+		// also drops its half (otherwise it would keep the tunnel half-
+		// open until its own ICE backoff fired).
+		peerConn.Close(true)
+
+		if !lazyconn.IsSupported(peerConn.AgentVersionString()) {
+			peerConn.Log.Warnf("peer does not support lazy connection (%s), opening permanent connection after mode reset", peerConn.AgentVersionString())
+			if err := peerConn.Open(ctx); err != nil {
+				peerConn.Log.Errorf("failed to re-open connection after mode reset: %v", err)
+			}
+			continue
+		}
+
+		lazyPeerCfg := lazyconn.PeerConfig{
+			PublicKey:  peerID,
+			AllowedIPs: peerConn.WgConfig().AllowedIps,
+			PeerConnID: peerConn.ConnID(),
+			Log:        peerConn.Log,
+		}
+		excluded, err := e.lazyConnMgr.AddPeer(lazyPeerCfg)
+		if err != nil {
+			peerConn.Log.Errorf("failed to add peer to lazy conn manager during mode reset: %v", err)
+			if err := peerConn.Open(ctx); err != nil {
+				peerConn.Log.Errorf("failed to re-open connection after AddPeer error: %v", err)
+			}
+			continue
+		}
+		if excluded {
+			peerConn.Log.Infof("peer is on lazy conn manager exclude list, opening connection after mode reset")
+			if err := peerConn.Open(ctx); err != nil {
+				peerConn.Log.Errorf("failed to re-open excluded peer after mode reset: %v", err)
+			}
+			continue
+		}
+		peerConn.Log.Infof("peer reset to idle by lazy/dynamic mode change")
+	}
+	return nil
 }
 
 func (e *ConnMgr) closeManager(ctx context.Context) {
