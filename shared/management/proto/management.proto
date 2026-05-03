@@ -786,6 +786,14 @@ message PeerConnectionMap {
   bool full_snapshot = 2;
   repeated PeerConnectionEntry entries = 3;
   uint64 in_response_to_nonce = 4;
+  // Phase 3.7i lifecycle hardening (Codex follow-up): random uint64
+  // generated once per daemon process. Lets mgmt detect a daemon
+  // restart even if a stale unary RPC from the previous process
+  // arrives AFTER the new process's full snapshot. Mgmt drops any
+  // delta whose session_id doesn't match the cached entry's.
+  // Legacy clients send 0 (Phase 3.7i shipped without this field);
+  // mgmt falls back to seq-only behaviour for those.
+  uint64 session_id = 5;
 }
 
 message PeerConnectionEntry {

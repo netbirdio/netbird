@@ -59,23 +59,34 @@ func newMemoryStoreWithClock(ttl time.Duration, clk Clock) *MemoryStore {
 
 // Put stores or merges a connection-map for peerPubKey.
 //   - full_snapshot=true -> ALWAYS replace, regardless of seq. The
-//     pusher resets seq to 1 on every daemon-/stream-restart, so a
-//     fresh full snapshot may carry seq=1 against a cached
-//     prev.seq=50 from the previous session. Without the
-//     full-snapshot epoch escape, the dashboard would stay stale
-//     until TTL expiry. Stale in-flight deltas from the old session
-//     cannot physically arrive after this snapshot because the old
-//     gRPC stream is closed (the push transport itself is gone).
+//     pusher resets seq to 1 on every daemon-restart, so a fresh full
+//     snapshot may carry seq=1 against a cached prev.seq=50.
 //   - delta + no prior entry -> store as-is.
-//   - delta + prior entry, out-of-order seq -> drop silently.
-//   - delta + prior entry, in-order seq -> merge per remote_pubkey.
+//   - delta + prior entry, mismatched session_id -> drop. Codex
+//     follow-up: SyncPeerConnections is a unary RPC, so a stale
+//     in-flight retry from the previous daemon process can arrive
+//     AFTER the new process's full snapshot. Without the session_id
+//     check, the stale delta's seq (e.g. 51) would beat the new
+//     process's seq (e.g. 2) and merge old data into the fresh map.
+//     session_id=0 means a legacy client and falls back to seq-only.
+//   - delta + prior entry, matching session, out-of-order seq -> drop.
+//   - delta + prior entry, matching session, in-order seq -> merge.
 func (s *MemoryStore) Put(peerPubKey string, m *mgmProto.PeerConnectionMap) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	prev := s.maps[peerPubKey]
-	if !m.GetFullSnapshot() && prev != nil && m.GetSeq() > 0 && m.GetSeq() <= prev.m.GetSeq() {
-		return
+	if !m.GetFullSnapshot() && prev != nil {
+		// Drop deltas from a different daemon session than the cached
+		// state. Both sides must advertise a session_id for the check
+		// to apply; if either is 0 we fall back to the seq-only path.
+		if m.GetSessionId() != 0 && prev.m.GetSessionId() != 0 &&
+			m.GetSessionId() != prev.m.GetSessionId() {
+			return
+		}
+		if m.GetSeq() > 0 && m.GetSeq() <= prev.m.GetSeq() {
+			return
+		}
 	}
 
 	stored := proto.Clone(m).(*mgmProto.PeerConnectionMap)

@@ -2,6 +2,8 @@ package internal
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/binary"
 	"sync"
 	"time"
 
@@ -53,6 +55,12 @@ type connStatePusher struct {
 	source PeerStateSource
 	tuning pusherTuning
 
+	// sessionID is generated once per process; mgmt uses it to detect a
+	// daemon restart even if a stale unary RPC from the previous process
+	// arrives AFTER the new process's full snapshot. Codex follow-up to
+	// PR review of Phase 3.7i.
+	sessionID uint64
+
 	mu         sync.Mutex
 	lastPushed map[string]PeerStateChangeEvent
 	seq        uint64
@@ -73,6 +81,7 @@ func newConnStatePusherForTest(sink PushSink, source PeerStateSource, t pusherTu
 		sink:        sink,
 		source:      source,
 		tuning:      t,
+		sessionID:   newSessionID(),
 		lastPushed:   make(map[string]PeerStateChangeEvent),
 		events:       make(chan PeerStateChangeEvent, 64),
 		snapshotReq:  make(chan uint64, 4),
@@ -82,6 +91,20 @@ func newConnStatePusherForTest(sink PushSink, source PeerStateSource, t pusherTu
 	p.wg.Add(1)
 	go p.loop()
 	return p
+}
+
+// newSessionID returns a random non-zero uint64. Zero is reserved as
+// the "legacy / unset" sentinel mgmt falls back to seq-only behaviour
+// for, so we re-roll on the (cryptographically negligible) chance of
+// drawing it.
+func newSessionID() uint64 {
+	var b [8]byte
+	for {
+		_, _ = rand.Read(b[:])
+		if id := binary.BigEndian.Uint64(b[:]); id != 0 {
+			return id
+		}
+	}
 }
 
 // Stop cancels the loop goroutine and blocks until it exits. Idempotent
@@ -246,6 +269,7 @@ func (p *connStatePusher) flushDelta(events []PeerStateChangeEvent) {
 		Seq:          seq,
 		FullSnapshot: false,
 		Entries:      entries,
+		SessionId:    p.sessionID,
 	}); err != nil {
 		// Push failed (mgmt reconnect, transient gRPC error, etc.).
 		// Do NOT mark these events as lastPushed -- on the next tick
@@ -276,6 +300,7 @@ func (p *connStatePusher) flushFull(events []PeerStateChangeEvent, inResponseToN
 		FullSnapshot:      true,
 		Entries:           entries,
 		InResponseToNonce: inResponseToNonce,
+		SessionId:         p.sessionID,
 	}); err != nil {
 		// Same dirty-retain semantics as flushDelta. A failed full
 		// snapshot leaves lastPushed unchanged so the next push (or
