@@ -27,6 +27,9 @@ type Client interface {
 	// Used to validate connectivity before committing configuration changes.
 	HealthCheck() error
 	SyncMeta(sysInfo *system.Info) error
+	// SyncPeerConnections sends the peer's current per-peer connection map
+	// to the management server as a unary RPC. Phase 3.7i of #5989.
+	SyncPeerConnections(ctx context.Context, m *proto.PeerConnectionMap) error
 	// SetEffectiveConnConfig records the engine-resolved connection mode/
 	// timeouts to report in subsequent Sync/Login/SyncMeta PeerSystemMeta.
 	// Phase 3.7i of #5989.

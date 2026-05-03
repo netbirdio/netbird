@@ -719,6 +719,36 @@ func (c *GrpcClient) SyncMeta(sysInfo *system.Info) error {
 	return err
 }
 
+// SyncPeerConnections is the GrpcClient implementation. Phase 3.7i of
+// #5989. Mirrors SyncMeta: fetches server pubkey, encrypts the
+// PeerConnectionMap with the peer's wg key, calls the new unary RPC.
+func (c *GrpcClient) SyncPeerConnections(ctx context.Context, m *proto.PeerConnectionMap) error {
+	if !c.ready() {
+		return errors.New(errMsgNoMgmtConnection)
+	}
+
+	serverPubKey, err := c.getServerPublicKey()
+	if err != nil {
+		log.Debugf(errMsgMgmtPublicKey, err)
+		return err
+	}
+
+	encrypted, err := encryption.EncryptMessage(*serverPubKey, c.key, m)
+	if err != nil {
+		log.Errorf("encrypt PeerConnectionMap: %s", err)
+		return err
+	}
+
+	mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
+	defer cancel()
+
+	_, err = c.realClient.SyncPeerConnections(mgmCtx, &proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     encrypted,
+	})
+	return err
+}
+
 func (c *GrpcClient) notifyDisconnected(err error) {
 	c.connStateCallbackLock.RLock()
 	defer c.connStateCallbackLock.RUnlock()
