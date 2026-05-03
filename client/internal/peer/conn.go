@@ -674,6 +674,30 @@ func (conn *Conn) onGuardEvent() {
 				return
 			}
 		}
+		// Codex hardening audit: also skip when the guard is firing
+		// for "PartiallyConnected" (relay up, ICE detached) AND the
+		// detach was due to ICE-inactivity (the dynamic inactivity
+		// manager called DetachICEForPeer because no payload traffic
+		// for iceTimeout). Re-firing offers in that state wastes
+		// signal traffic and can wake the remote's lazy manager just
+		// to re-attach ICE that we'll detach again on the next idle
+		// cycle. The next REAL outbound packet on this peer will go
+		// through ConnMgr.ActivatePeer -> conn.AttachICE which DOES
+		// respect iceBackoff and is the correct path to re-engage ICE.
+		//
+		// Detection: ICE worker exists but is detached (locked path
+		// has no listener) AND no recorded ICE-failure-backoff. If
+		// backoff IS active, the guard's existing 3-tries-then-hourly
+		// retry policy is already handling the situation correctly,
+		// so we let it through.
+		if conn.handshaker != nil && conn.handshaker.readICEListener() == nil {
+			if state, err := conn.statusRecorder.GetPeer(conn.config.Key); err == nil {
+				if !state.IceBackoffSuspended && state.IceBackoffFailures == 0 {
+					conn.Log.Tracef("guard: skip offer (ICE detached for inactivity, p2p-dynamic; will re-attach on real traffic)")
+					return
+				}
+			}
+		}
 	}
 	conn.dumpState.SendOffer()
 	if err := conn.handshaker.SendOffer(); err != nil {

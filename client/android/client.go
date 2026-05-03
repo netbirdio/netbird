@@ -338,6 +338,11 @@ func (c *Client) PeersList() *PeerInfoArray {
 			pi.Groups = strings.Join(p.RemoteGroups, ",")
 		}
 		pi.ConnectionTypeExtended = peer.DeriveConnectionTypeExtended(p)
+		pi.IceBackoffFailures = int32(p.IceBackoffFailures)
+		if !p.IceBackoffNextRetry.IsZero() {
+			pi.IceBackoffNextRetry = p.IceBackoffNextRetry.Format(time.RFC3339)
+		}
+		pi.IceBackoffSuspended = p.IceBackoffSuspended
 		// AgentVersion / OsVersion: peer.State does not expose these fields;
 		// left empty until daemon surfaces them (future phase).
 

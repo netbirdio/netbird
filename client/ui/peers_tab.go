@@ -20,10 +20,11 @@ import (
 )
 
 // Phase 3.7i color palette for peer-row status swatch.
-//   P2P     -> bright green (best path active)
-//   Relayed -> dark green (working but suboptimal)
-//   Idle    -> grey (no active connection, waiting for traffic)
-//   Offline -> red (peer can't be reached at all on the server)
+//
+//	P2P     -> bright green (best path active)
+//	Relayed -> dark green (working but suboptimal)
+//	Idle    -> grey (no active connection, waiting for traffic)
+//	Offline -> red (peer can't be reached at all on the server)
 var (
 	colorPeerP2P     = color.NRGBA{R: 0x2e, G: 0xc8, B: 0x6b, A: 0xff} // #2EC86B
 	colorPeerRelayed = color.NRGBA{R: 0x1e, G: 0x6b, B: 0x3a, A: 0xff} // #1E6B3A
@@ -327,6 +328,17 @@ func buildPeerDetailText(p *proto.PeerState, full bool) string {
 		}
 		if iceFails := p.GetIceBackoffFailures(); iceFails > 0 {
 			fmt.Fprintf(&sb, "ICE backoff fails: %d\n", iceFails)
+		}
+		if p.GetIceBackoffSuspended() {
+			sb.WriteString("ICE backoff:       SUSPENDED (no retries until next mode-event)\n")
+		} else if nr := p.GetIceBackoffNextRetry(); nr != nil && nr.IsValid() {
+			next := nr.AsTime()
+			if d := time.Until(next); d > 0 {
+				fmt.Fprintf(&sb, "ICE next retry:    %s (in %s)\n",
+					next.Format(time.RFC3339), d.Round(time.Second))
+			} else {
+				fmt.Fprintf(&sb, "ICE next retry:    %s (due)\n", next.Format(time.RFC3339))
+			}
 		}
 	}
 	return sb.String()

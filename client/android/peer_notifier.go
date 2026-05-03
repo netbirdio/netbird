@@ -41,6 +41,13 @@ type PeerInfo struct {
 	// transient post-wakeup negotiation window renders identically
 	// across Android / Windows / Dashboard.
 	ConnectionTypeExtended string
+
+	// Phase 3.7i lifecycle hardening: ICE-backoff snapshot. Lets the UI
+	// explain why a peer is staying on Relayed when failures pile up
+	// (gomobile-friendly: no time.Time exported — RFC3339 string).
+	IceBackoffFailures  int32
+	IceBackoffNextRetry string // RFC3339; "" if zero
+	IceBackoffSuspended bool
 }
 
 func (p *PeerInfo) GetPeerRoutes() *PeerRoutes {
