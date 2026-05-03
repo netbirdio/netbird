@@ -85,6 +85,35 @@ func TestConn_OnGuardEvent_SkipOfferGatedOnEverConnected(t *testing.T) {
 	}
 }
 
+// Codex follow-up regression: onWGDisconnected MUST invoke
+// onWGTimeoutRecover after closing the active worker — without it,
+// the peer is stuck in "Connecting" forever because lazy mgr keeps
+// it in active set with no activity listener (caught during the
+// 6-host hardware test on c9a47ed90: dk20 saw 572a2/5731A frozen
+// in Connecting after WG handshake timeout, 0/10 ping responses,
+// no log activity for ~10min).
+func TestConn_OnWGDisconnected_InvokesRecoverCallback(t *testing.T) {
+	src, err := os.ReadFile("conn.go")
+	if err != nil {
+		t.Fatalf("read conn.go: %v", err)
+	}
+	body := extractFunctionBody(t, string(src), "onWGDisconnected")
+	const cbField = "onWGTimeoutRecover"
+	if !strings.Contains(body, cbField) {
+		t.Fatalf("onWGDisconnected missing reference to %q — WG-timeout recovery is broken", cbField)
+	}
+	// The callback must be invoked AFTER the conn close switch (otherwise
+	// lazy mgr would be re-armed before the active workers are torn down).
+	idxClose := strings.Index(body, "workerRelay.CloseConn()")
+	idxCb := strings.Index(body, cbField)
+	if idxClose < 0 {
+		t.Fatalf("workerRelay.CloseConn() landmark missing")
+	}
+	if idxCb < idxClose {
+		t.Errorf("recover callback (idx %d) must come AFTER worker close (idx %d)", idxCb, idxClose)
+	}
+}
+
 // Codex hardening regression: onICEStateDisconnected must NOT call
 // RemoveEndpointAddress in the no-Relay-fallback branch. A stale
 // endpoint is less disruptive than a guaranteed no-endpoint gap; the

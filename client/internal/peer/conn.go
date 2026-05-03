@@ -119,6 +119,16 @@ type Conn struct {
 	onConnected                               func(remoteWireGuardKey string, remoteRosenpassPubKey []byte, wireGuardIP string, remoteRosenpassAddr string)
 	onDisconnected                            func(remotePeer string)
 	rosenpassInitializedPresharedKeyValidator func(peerKey string) bool
+	// onWGTimeoutRecover, when set, is invoked from onWGDisconnected
+	// after the active worker has been closed. The handler should put
+	// this peer back into the lazy manager's idle/activity-listening
+	// state so the next outbound packet re-triggers the lazy mgr (and
+	// re-attaches ICE/relay). Without this hook the peer was stuck in
+	// "Connecting" forever after a WireGuard handshake timeout — the
+	// lazy mgr kept the peer in its "active" set with no activity
+	// listener, so local traffic was silently dropped. Codex follow-up
+	// to the 6-host hardware test on c9a47ed90.
+	onWGTimeoutRecover                        func()
 
 	statusRelay         *worker.AtomicWorkerStatus
 	statusICE           *worker.AtomicWorkerStatus
@@ -366,6 +376,14 @@ func (conn *Conn) SetOnConnected(handler func(remoteWireGuardKey string, remoteR
 // SetOnDisconnected sets a handler function to be triggered by Conn when a connection to a remote disconnected
 func (conn *Conn) SetOnDisconnected(handler func(remotePeer string)) {
 	conn.onDisconnected = handler
+}
+
+// SetOnWGTimeoutRecover wires the lazy-mgr recovery callback. ConnMgr
+// installs this so that a WG-handshake-timeout pushes the peer back
+// into the activity-listening idle state. See onWGTimeoutRecover docs
+// on the Conn struct for the full rationale.
+func (conn *Conn) SetOnWGTimeoutRecover(handler func()) {
+	conn.onWGTimeoutRecover = handler
 }
 
 // SetRosenpassInitializedPresharedKeyValidator sets a function to check if Rosenpass has taken over
@@ -725,9 +743,9 @@ func (conn *Conn) onGuardEvent() {
 
 func (conn *Conn) onWGDisconnected() {
 	conn.mu.Lock()
-	defer conn.mu.Unlock()
 
 	if conn.ctx.Err() != nil {
+		conn.mu.Unlock()
 		return
 	}
 
@@ -742,6 +760,18 @@ func (conn *Conn) onWGDisconnected() {
 		conn.workerICE.Close()
 	default:
 		conn.Log.Debugf("No active connection to close on WG timeout")
+	}
+
+	// Capture the callback before releasing the lock; we invoke it in a
+	// goroutine because it routes back into ConnMgr -> lazyConnMgr ->
+	// peerStore.PeerConnClose -> Conn.Close, which needs conn.mu (we
+	// hold it). Spawning a goroutine is fine — onWGDisconnected is itself
+	// fired from the WG-watcher goroutine, no caller waits on the result.
+	cb := conn.onWGTimeoutRecover
+	conn.mu.Unlock()
+
+	if cb != nil {
+		go cb()
 	}
 }
 
