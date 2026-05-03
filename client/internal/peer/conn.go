@@ -659,6 +659,22 @@ func (conn *Conn) handleRelayDisconnectedLocked() {
 }
 
 func (conn *Conn) onGuardEvent() {
+	// Suppress reconnect-offers under p2p-dynamic when the management
+	// server reports the remote peer as offline (live_online=false). The
+	// guard otherwise spams an offer every 5-30 s for up to relay_timeout
+	// minutes after the remote disappeared, and each offer that survives
+	// (when the remote reconnects) immediately wakes the lazy manager on
+	// the remote side -- defeating the user-visible "idle until traffic"
+	// promise of p2p-dynamic. Eager modes (p2p, relay-forced) keep the
+	// always-on behaviour because that's what those modes are for.
+	if conn.config.Mode == connectionmode.ModeP2PDynamic {
+		if state, err := conn.statusRecorder.GetPeer(conn.config.Key); err == nil {
+			if state.RemoteServerLivenessKnown && !state.RemoteLiveOnline {
+				conn.Log.Tracef("guard: skip offer (remote peer offline, p2p-dynamic)")
+				return
+			}
+		}
+	}
 	conn.dumpState.SendOffer()
 	if err := conn.handshaker.SendOffer(); err != nil {
 		conn.Log.Errorf("failed to send offer: %v", err)
