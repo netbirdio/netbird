@@ -202,3 +202,20 @@ func TestConnMgr_deactivatePeerAction(t *testing.T) {
 		})
 	}
 }
+
+func TestConnMgr_ServerPushedFieldsAreRaceSafe(t *testing.T) {
+	cm := &ConnMgr{}
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < 1000; i++ {
+			cm.spMu.Lock()
+			cm.serverPushedRelayTimeoutSecs = uint32(i)
+			cm.spMu.Unlock()
+		}
+		close(done)
+	}()
+	for i := 0; i < 1000; i++ {
+		_ = cm.ServerPushedRelayTimeoutSecs()
+	}
+	<-done
+}

@@ -335,6 +335,16 @@ message GetConfigResponse {
   // local override (daemon falls back to server-pushed value or built-in
   // 15-min default).
   uint32 p2p_retry_max_seconds = 30;
+
+  // Phase 3.7h: values most recently pushed by the management server's
+  // PeerConfig (independent of any local override). The UI surfaces
+  // these so users can see what "Follow server" would inherit and which
+  // numeric defaults the empty-entry overrides fall back to. All four
+  // are 0/empty when the engine has not received PeerConfig yet.
+  string server_pushed_connection_mode = 31;
+  uint32 server_pushed_relay_timeout_seconds = 32;
+  uint32 server_pushed_p2p_timeout_seconds = 33;
+  uint32 server_pushed_p2p_retry_max_seconds = 34;
 }
 
 // PeerState contains the latest state of a peer

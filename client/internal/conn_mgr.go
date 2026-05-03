@@ -12,9 +12,9 @@ import (
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	"github.com/netbirdio/netbird/client/internal/lazyconn/manager"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/shared/connectionmode"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/connectionmode"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -51,6 +51,22 @@ type ConnMgr struct {
 	cfgRelayTimeout uint32
 	cfgP2pTimeout   uint32
 	cfgP2pRetryMax  uint32
+
+	// spMu protects all serverPushed* fields below. Written in
+	// UpdatedRemotePeerConfig (NetworkMap goroutine), read by
+	// ServerPushed*() accessors (daemon-RPC GetConfig goroutine).
+	spMu sync.RWMutex
+
+	// serverPushedMode is the ConnectionMode value that was last received
+	// from the management server's PeerConfig (independent of any local
+	// env/cfg override). Updated in UpdatedRemotePeerConfig. Used by the
+	// Android UI to display "Follow server (currently: <mode>)" in the
+	// connection-mode override dropdown so users can see what they would
+	// inherit if they leave the override on "Follow server".
+	serverPushedMode             connectionmode.Mode
+	serverPushedRelayTimeoutSecs uint32
+	serverPushedP2pTimeoutSecs   uint32
+	serverPushedP2pRetryMaxSecs  uint32
 
 	lazyConnMgr *manager.Manager
 
@@ -243,6 +259,21 @@ func (e *ConnMgr) runDynamicInactivityLoop(ctx context.Context) {
 // new PeerConfig. Re-resolves the effective mode through the precedence
 // chain and starts/stops the lazy manager accordingly.
 func (e *ConnMgr) UpdatedRemotePeerConfig(ctx context.Context, pc *mgmProto.PeerConfig) error {
+	// Capture the raw server-pushed values before resolution so the UI
+	// can surface them independently of any local override.
+	if pc != nil {
+		serverMode := connectionmode.FromProto(pc.GetConnectionMode())
+		if serverMode == connectionmode.ModeUnspecified {
+			serverMode = connectionmode.ResolveLegacyLazyBool(pc.GetLazyConnectionEnabled())
+		}
+		e.spMu.Lock()
+		e.serverPushedMode = serverMode
+		e.serverPushedRelayTimeoutSecs = pc.GetRelayTimeoutSeconds()
+		e.serverPushedP2pTimeoutSecs = pc.GetP2PTimeoutSeconds()
+		e.serverPushedP2pRetryMaxSecs = pc.GetP2PRetryMaxSeconds()
+		e.spMu.Unlock()
+	}
+
 	newMode, newRelay, newP2P, newP2pRetry := resolveConnectionMode(
 		e.envMode, e.envRelayTimeout, e.cfgMode, e.cfgRelayTimeout,
 		e.cfgP2pTimeout, e.cfgP2pRetryMax, pc,
@@ -620,6 +651,52 @@ func (e *ConnMgr) RelayTimeout() uint32 {
 // disable"; callers must translate that to 0. Phase 3 of #5989.
 func (e *ConnMgr) P2pRetryMax() uint32 {
 	return e.p2pRetryMaxSecs
+}
+
+// ServerPushedMode returns the connection mode the management server
+// most recently pushed via PeerConfig (independent of any local env
+// or config override). Returns ModeUnspecified if no PeerConfig has
+// been received yet. Used by the Android UI to display "Follow server
+// (currently: <mode>)" in the override dropdown.
+func (e *ConnMgr) ServerPushedMode() connectionmode.Mode {
+	e.spMu.RLock()
+	defer e.spMu.RUnlock()
+	return e.serverPushedMode
+}
+
+// ServerPushedRelayTimeoutSecs returns the relay-worker idle-timeout
+// (seconds) most recently pushed by the management server, or 0 if no
+// PeerConfig has been received. Used by the Android UI as a hint in
+// the override field.
+func (e *ConnMgr) ServerPushedRelayTimeoutSecs() uint32 {
+	e.spMu.RLock()
+	defer e.spMu.RUnlock()
+	return e.serverPushedRelayTimeoutSecs
+}
+
+// ServerPushedP2pTimeoutSecs returns the ICE-only inactivity timeout
+// (seconds) most recently pushed by the management server. Only
+// meaningful in p2p-dynamic mode.
+func (e *ConnMgr) ServerPushedP2pTimeoutSecs() uint32 {
+	e.spMu.RLock()
+	defer e.spMu.RUnlock()
+	return e.serverPushedP2pTimeoutSecs
+}
+
+// ServerPushedP2pRetryMaxSecs returns the ICE-failure backoff cap
+// (seconds) most recently pushed by the management server. When the
+// server has not pushed a value (Phase 1 management servers do not
+// know about this field yet) the built-in DefaultP2PRetryMax is
+// returned so the Android UI hint shows what value the daemon is
+// actually using as fallback.
+func (e *ConnMgr) ServerPushedP2pRetryMaxSecs() uint32 {
+	e.spMu.RLock()
+	v := e.serverPushedP2pRetryMaxSecs
+	e.spMu.RUnlock()
+	if v > 0 {
+		return v
+	}
+	return uint32(peer.DefaultP2PRetryMax / time.Second)
 }
 
 func inactivityThresholdEnv() *time.Duration {

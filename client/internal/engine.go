@@ -45,7 +45,6 @@ import (
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/networkmonitor"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/shared/connectionmode"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
@@ -62,6 +61,7 @@ import (
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/connectionmode"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
@@ -313,6 +313,17 @@ func NewEngine(
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
 	return engine
+}
+
+// ConnMgr returns the engine's ConnMgr or nil if the engine has not been
+// started yet (or has already shut down). Used by the Android UI to query
+// the server-pushed connection mode for the dropdown's "Follow server"
+// label.
+func (e *Engine) ConnMgr() *ConnMgr {
+	if e == nil {
+		return nil
+	}
+	return e.connMgr
 }
 
 func (e *Engine) Stop() error {
@@ -1581,8 +1592,8 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 			Addr:           e.getRosenpassAddr(),
 			PermissiveMode: e.config.RosenpassPermissive,
 		},
-		ICEConfig: e.createICEConfig(),
-		Mode:      e.connMgr.Mode(),
+		ICEConfig:          e.createICEConfig(),
+		Mode:               e.connMgr.Mode(),
 		P2pRetryMaxSeconds: e.connMgr.P2pRetryMax(),
 	}
 

@@ -1515,35 +1515,61 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		sshJWTCacheTTL = int32(*cfg.SSHJWTCacheTTL)
 	}
 
+	// Surface what the management server most recently pushed via
+	// PeerConfig so the UI can show "Follow server (currently: <mode>)"
+	// and use the numeric defaults as placeholders in the override
+	// fields. All zero/empty when the engine has not received PeerConfig
+	// yet -- the UI handles that gracefully.
+	var (
+		spMode        string
+		spRelayTOSecs uint32
+		spP2pTOSecs   uint32
+		spP2pRetMax   uint32
+	)
+	if s.connectClient != nil {
+		if eng := s.connectClient.Engine(); eng != nil {
+			if cm := eng.ConnMgr(); cm != nil {
+				spMode = cm.ServerPushedMode().String()
+				spRelayTOSecs = cm.ServerPushedRelayTimeoutSecs()
+				spP2pTOSecs = cm.ServerPushedP2pTimeoutSecs()
+				spP2pRetMax = cm.ServerPushedP2pRetryMaxSecs()
+			}
+		}
+	}
+
 	return &proto.GetConfigResponse{
-		ManagementUrl:                 managementURL.String(),
-		PreSharedKey:                  preSharedKey,
-		AdminURL:                      adminURL.String(),
-		InterfaceName:                 cfg.WgIface,
-		WireguardPort:                 int64(cfg.WgPort),
-		Mtu:                           int64(cfg.MTU),
-		DisableAutoConnect:            cfg.DisableAutoConnect,
-		ServerSSHAllowed:              *cfg.ServerSSHAllowed,
-		RosenpassEnabled:              cfg.RosenpassEnabled,
-		RosenpassPermissive:           cfg.RosenpassPermissive,
-		LazyConnectionEnabled:         cfg.LazyConnectionEnabled,
-		BlockInbound:                  cfg.BlockInbound,
-		DisableNotifications:          disableNotifications,
-		NetworkMonitor:                networkMonitor,
-		DisableDns:                    disableDNS,
-		DisableClientRoutes:           disableClientRoutes,
-		DisableServerRoutes:           disableServerRoutes,
-		BlockLanAccess:                blockLANAccess,
-		EnableSSHRoot:                 enableSSHRoot,
-		EnableSSHSFTP:                 enableSSHSFTP,
-		EnableSSHLocalPortForwarding:  enableSSHLocalPortForwarding,
-		EnableSSHRemotePortForwarding: enableSSHRemotePortForwarding,
-		DisableSSHAuth:                disableSSHAuth,
-		SshJWTCacheTTL:                sshJWTCacheTTL,
-		ConnectionMode:                cfg.ConnectionMode,
-		P2PTimeoutSeconds:             cfg.P2pTimeoutSeconds,
-		RelayTimeoutSeconds:           cfg.RelayTimeoutSeconds,
-		P2PRetryMaxSeconds:            cfg.P2pRetryMaxSeconds,
+		ManagementUrl:                   managementURL.String(),
+		PreSharedKey:                    preSharedKey,
+		AdminURL:                        adminURL.String(),
+		InterfaceName:                   cfg.WgIface,
+		WireguardPort:                   int64(cfg.WgPort),
+		Mtu:                             int64(cfg.MTU),
+		DisableAutoConnect:              cfg.DisableAutoConnect,
+		ServerSSHAllowed:                *cfg.ServerSSHAllowed,
+		RosenpassEnabled:                cfg.RosenpassEnabled,
+		RosenpassPermissive:             cfg.RosenpassPermissive,
+		LazyConnectionEnabled:           cfg.LazyConnectionEnabled,
+		BlockInbound:                    cfg.BlockInbound,
+		DisableNotifications:            disableNotifications,
+		NetworkMonitor:                  networkMonitor,
+		DisableDns:                      disableDNS,
+		DisableClientRoutes:             disableClientRoutes,
+		DisableServerRoutes:             disableServerRoutes,
+		BlockLanAccess:                  blockLANAccess,
+		EnableSSHRoot:                   enableSSHRoot,
+		EnableSSHSFTP:                   enableSSHSFTP,
+		EnableSSHLocalPortForwarding:    enableSSHLocalPortForwarding,
+		EnableSSHRemotePortForwarding:   enableSSHRemotePortForwarding,
+		DisableSSHAuth:                  disableSSHAuth,
+		SshJWTCacheTTL:                  sshJWTCacheTTL,
+		ConnectionMode:                  cfg.ConnectionMode,
+		P2PTimeoutSeconds:               cfg.P2pTimeoutSeconds,
+		RelayTimeoutSeconds:             cfg.RelayTimeoutSeconds,
+		P2PRetryMaxSeconds:              cfg.P2pRetryMaxSeconds,
+		ServerPushedConnectionMode:      spMode,
+		ServerPushedRelayTimeoutSeconds: spRelayTOSecs,
+		ServerPushedP2PTimeoutSeconds:   spP2pTOSecs,
+		ServerPushedP2PRetryMaxSeconds:  spP2pRetMax,
 	}, nil
 }
 
