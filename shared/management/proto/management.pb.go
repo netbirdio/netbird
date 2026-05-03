@@ -2744,8 +2744,13 @@ type RemotePeerConfig struct {
 	// extra Mgmt API call (already in the NetworkMap stream context).
 	LastSeenAtServer *timestamppb.Timestamp `protobuf:"bytes,14,opt,name=last_seen_at_server,json=lastSeenAtServer,proto3" json:"last_seen_at_server,omitempty"`
 	Groups           []string               `protobuf:"bytes,15,rep,name=groups,proto3" json:"groups,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Live online flag: peer.Status.Connected on the management server.
+	// True = peer is currently heartbeating. False = peer hasn't checked
+	// in (hardware/network down) but its login is still valid (otherwise
+	// it would be in OfflinePeers, not RemotePeers).
+	LiveOnline    bool `protobuf:"varint,16,opt,name=live_online,json=liveOnline,proto3" json:"live_online,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RemotePeerConfig) Reset() {
@@ -2881,6 +2886,13 @@ func (x *RemotePeerConfig) GetGroups() []string {
 		return x.Groups
 	}
 	return nil
+}
+
+func (x *RemotePeerConfig) GetLiveOnline() bool {
+	if x != nil {
+		return x.LiveOnline
+	}
+	return false
 }
 
 // SSHConfig represents SSH configurations of a peer.
@@ -5010,7 +5022,7 @@ const file_shared_management_proto_management_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x124\n" +
 	"\x05value\x18\x02 \x01(\v2\x1e.management.MachineUserIndexesR\x05value:\x028\x01\".\n" +
 	"\x12MachineUserIndexes\x12\x18\n" +
-	"\aindexes\x18\x01 \x03(\rR\aindexes\"\x9a\x06\n" +
+	"\aindexes\x18\x01 \x03(\rR\aindexes\"\xbb\x06\n" +
 	"\x10RemotePeerConfig\x12\x1a\n" +
 	"\bwgPubKey\x18\x01 \x01(\tR\bwgPubKey\x12\x1e\n" +
 	"\n" +
@@ -5029,7 +5041,9 @@ const file_shared_management_proto_management_proto_rawDesc = "" +
 	"\x1bconfigured_p2p_timeout_secs\x18\f \x01(\rR\x18configuredP2pTimeoutSecs\x12@\n" +
 	"\x1dconfigured_p2p_retry_max_secs\x18\r \x01(\rR\x19configuredP2pRetryMaxSecs\x12I\n" +
 	"\x13last_seen_at_server\x18\x0e \x01(\v2\x1a.google.protobuf.TimestampR\x10lastSeenAtServer\x12\x16\n" +
-	"\x06groups\x18\x0f \x03(\tR\x06groups\"~\n" +
+	"\x06groups\x18\x0f \x03(\tR\x06groups\x12\x1f\n" +
+	"\vlive_online\x18\x10 \x01(\bR\n" +
+	"liveOnline\"~\n" +
 	"\tSSHConfig\x12\x1e\n" +
 	"\n" +
 	"sshEnabled\x18\x01 \x01(\bR\n" +

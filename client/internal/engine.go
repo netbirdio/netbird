@@ -1413,6 +1413,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 			ConfiguredP2PRetryMaxSecs:  op.GetConfiguredP2PRetryMaxSecs(),
 			Groups:                     op.GetGroups(),
 			LastSeenAtServer:           peer.TimestampOrZero(op.GetLastSeenAtServer()),
+			LiveOnline:                 op.GetLiveOnline(),
 		}); err != nil {
 			log.Debugf("UpdatePeerRemoteMeta(offline %s): %v", op.GetWgPubKey(), err)
 		}
@@ -1474,6 +1475,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 				ConfiguredP2PRetryMaxSecs:  rp.GetConfiguredP2PRetryMaxSecs(),
 				Groups:                     rp.GetGroups(),
 				LastSeenAtServer:           peer.TimestampOrZero(rp.GetLastSeenAtServer()),
+				LiveOnline:                 rp.GetLiveOnline(),
 			}); err != nil {
 				log.Debugf("UpdatePeerRemoteMeta(%s): %v", rp.GetWgPubKey(), err)
 			}

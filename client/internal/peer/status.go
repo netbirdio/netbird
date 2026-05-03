@@ -86,6 +86,13 @@ type State struct {
 	RemoteConfiguredP2PRetryMaxSecs  uint32
 	RemoteGroups                     []string
 	RemoteLastSeenAtServer           time.Time
+	// Phase 3.7i (#5989): live mgmt-server-tracked liveness flag from
+	// RemotePeerConfig.LiveOnline (= peer.Status.Connected on the server).
+	// True = peer is currently heartbeating to mgmt; false = configured
+	// but currently unreachable (hardware/network down). Used by the
+	// counter widget to distinguish "online" from "offline" in the
+	// user-intuitive sense, independent of the login-expiration split.
+	RemoteLiveOnline bool
 }
 
 // AddRoute add a single route to routes map
@@ -455,6 +462,7 @@ type RemoteMeta struct {
 	ConfiguredP2PRetryMaxSecs  uint32
 	Groups                     []string
 	LastSeenAtServer           time.Time
+	LiveOnline                 bool
 }
 
 // UpdatePeerRemoteMeta sets the RemotePeerConfig-derived fields on the
@@ -476,6 +484,7 @@ func (d *Status) UpdatePeerRemoteMeta(pubKey string, meta RemoteMeta) error {
 		st.RemoteConfiguredP2PRetryMaxSecs = meta.ConfiguredP2PRetryMaxSecs
 		st.RemoteGroups = meta.Groups
 		st.RemoteLastSeenAtServer = meta.LastSeenAtServer
+		st.RemoteLiveOnline = meta.LiveOnline
 		d.peers[pubKey] = st
 		return nil
 	}
@@ -491,6 +500,7 @@ func (d *Status) UpdatePeerRemoteMeta(pubKey string, meta RemoteMeta) error {
 			d.offlinePeers[i].RemoteConfiguredP2PRetryMaxSecs = meta.ConfiguredP2PRetryMaxSecs
 			d.offlinePeers[i].RemoteGroups = meta.Groups
 			d.offlinePeers[i].RemoteLastSeenAtServer = meta.LastSeenAtServer
+			d.offlinePeers[i].RemoteLiveOnline = meta.LiveOnline
 			return nil
 		}
 	}
@@ -1245,19 +1255,43 @@ func (d *Status) GetFullStatus() FullStatus {
 
 	var p2p, relayed, idle, offline uint32
 
+	// Phase 3.7i (#5989) counter semantics:
+	//   ServerOnline := peer.Status.Connected on the management server
+	//                   (RemotePeerConfig.live_online → State.RemoteLiveOnline)
+	//   Offline      := configured but NOT live (heartbeat is stale OR
+	//                   login expired). For login-expired peers, the
+	//                   daemon already places them in d.offlinePeers via
+	//                   updateOfflinePeers; the rest live in d.peers
+	//                   regardless of their live status, so we additionally
+	//                   check RemoteLiveOnline.
+	//
+	// Backward-compat fallback: if the management server pre-dates
+	// Phase 3.7i, RemoteLastSeenAtServer is zero AND RemoteLiveOnline is
+	// false (zero values for the never-populated proto fields). In that
+	// case we cannot tell live vs not — fall back to legacy behaviour
+	// (assume online). Only treat a peer as offline when LastSeen IS set
+	// AND LiveOnline is explicitly false.
 	for _, status := range d.peers {
-		status.ServerOnline = true
-		switch {
-		case status.ConnStatus == StatusConnected && !status.Relayed:
-			p2p++
-		case status.ConnStatus == StatusConnected && status.Relayed:
-			relayed++
-		default:
-			idle++
+		mgmtKnowsLiveness := !status.RemoteLastSeenAtServer.IsZero()
+		isLive := status.RemoteLiveOnline || !mgmtKnowsLiveness
+		if isLive {
+			status.ServerOnline = true
+			switch {
+			case status.ConnStatus == StatusConnected && !status.Relayed:
+				p2p++
+			case status.ConnStatus == StatusConnected && status.Relayed:
+				relayed++
+			default:
+				idle++
+			}
+		} else {
+			status.ServerOnline = false
+			offline++
 		}
 		fullStatus.Peers = append(fullStatus.Peers, status)
 	}
 	for _, status := range d.offlinePeers {
+		// Login-expired peers are always offline.
 		status.ServerOnline = false
 		offline++
 		fullStatus.Peers = append(fullStatus.Peers, status)

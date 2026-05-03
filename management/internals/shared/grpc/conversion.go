@@ -292,8 +292,11 @@ func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer,
 			Groups: c.GroupNamesByPeerID[rPeer.ID],
 		}
 		// nbpeer.Peer.Status is *PeerStatus; nil-guard before accessing.
-		if rPeer.Status != nil && !rPeer.Status.LastSeen.IsZero() {
-			cfg.LastSeenAtServer = timestamppb.New(rPeer.Status.LastSeen)
+		if rPeer.Status != nil {
+			if !rPeer.Status.LastSeen.IsZero() {
+				cfg.LastSeenAtServer = timestamppb.New(rPeer.Status.LastSeen)
+			}
+			cfg.LiveOnline = rPeer.Status.Connected
 		}
 		dst = append(dst, cfg)
 	}

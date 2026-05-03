@@ -503,6 +503,11 @@ message RemotePeerConfig {
   // extra Mgmt API call (already in the NetworkMap stream context).
   google.protobuf.Timestamp last_seen_at_server = 14;
   repeated string groups                        = 15;
+  // Live online flag: peer.Status.Connected on the management server.
+  // True = peer is currently heartbeating. False = peer hasn't checked
+  // in (hardware/network down) but its login is still valid (otherwise
+  // it would be in OfflinePeers, not RemotePeers).
+  bool live_online                              = 16;
 }
 
 // SSHConfig represents SSH configurations of a peer.
