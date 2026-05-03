@@ -653,6 +653,14 @@ func (e *ConnMgr) P2pRetryMax() uint32 {
 	return e.p2pRetryMaxSecs
 }
 
+// P2pTimeout returns the resolved ICE-only inactivity timeout in
+// seconds. Phase 2 of #5989. 0 = ICE never times out (for non-dynamic
+// modes). Phase 3.7i adds this accessor so the engine can include it
+// in PeerSystemMeta.
+func (e *ConnMgr) P2pTimeout() uint32 {
+	return e.p2pTimeoutSecs
+}
+
 // ServerPushedMode returns the connection mode the management server
 // most recently pushed via PeerConfig (independent of any local env
 // or config override). Returns ModeUnspecified if no PeerConfig has

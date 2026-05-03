@@ -19,6 +19,7 @@ type MockClient struct {
 	GetServerURLFunc               func() string
 	HealthCheckFunc                func() error
 	SyncMetaFunc                   func(sysInfo *system.Info) error
+	SetEffectiveConnConfigFunc     func(eff EffectiveConnConfig)
 	LogoutFunc                     func() error
 	JobFunc                        func(ctx context.Context, msgHandler func(msg *proto.JobRequest) *proto.JobResponse) error
 	CreateExposeFunc               func(ctx context.Context, req ExposeRequest) (*ExposeResponse, error)
@@ -104,6 +105,12 @@ func (m *MockClient) SyncMeta(sysInfo *system.Info) error {
 		return nil
 	}
 	return m.SyncMetaFunc(sysInfo)
+}
+
+func (m *MockClient) SetEffectiveConnConfig(eff EffectiveConnConfig) {
+	if m.SetEffectiveConnConfigFunc != nil {
+		m.SetEffectiveConnConfigFunc(eff)
+	}
 }
 
 func (m *MockClient) Logout() error {

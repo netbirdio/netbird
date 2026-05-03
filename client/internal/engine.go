@@ -34,6 +34,7 @@ import (
 	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/internal/acl"
+	"github.com/netbirdio/netbird/client/internal/debouncer"
 	"github.com/netbirdio/netbird/client/internal/debug"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
@@ -267,6 +268,10 @@ type Engine struct {
 	jobExecutorWG sync.WaitGroup
 
 	exposeManager *expose.Manager
+
+	// Phase 3.7i (#5989): track last-pushed effective config to detect changes.
+	lastPushedEff     mgm.EffectiveConnConfig
+	syncMetaDebouncer *debouncer.Debouncer
 }
 
 // Peer is an instance of the Connection Peer
@@ -309,6 +314,7 @@ func NewEngine(
 		jobExecutor:        jobexec.NewExecutor(),
 		clientMetrics:      services.ClientMetrics,
 		updateManager:      services.UpdateManager,
+		syncMetaDebouncer:  debouncer.New(5 * time.Second),
 	}
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
@@ -333,6 +339,10 @@ func (e *Engine) Stop() error {
 		return nil
 	}
 	e.syncMsgMux.Lock()
+
+	if e.syncMetaDebouncer != nil {
+		e.syncMetaDebouncer.Stop()
+	}
 
 	if e.connMgr != nil {
 		e.connMgr.Close()
@@ -1265,6 +1275,47 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 	if err := e.connMgr.UpdatedRemotePeerConfig(e.ctx, networkMap.GetPeerConfig()); err != nil {
 		log.Errorf("failed to update connection mode from PeerConfig: %v", err)
+	}
+
+	// Phase 3.7i (#5989): record + push effective values.
+	newEff := mgm.EffectiveConnConfig{
+		Mode:             e.connMgr.Mode().String(),
+		RelayTimeoutSecs: e.connMgr.RelayTimeout(),
+		P2PTimeoutSecs:   e.connMgr.P2pTimeout(),
+		P2PRetryMaxSecs:  e.connMgr.P2pRetryMax(),
+	}
+	e.mgmClient.SetEffectiveConnConfig(newEff)
+	if e.lastPushedEff != newEff {
+		e.lastPushedEff = newEff
+		// Debounce SyncMeta so a burst of NetworkMap updates doesn't
+		// generate a burst of SyncMeta calls.
+		e.syncMetaDebouncer.Trigger(func() {
+			info, err := system.GetInfoWithChecks(e.ctx, e.checks)
+			if err != nil {
+				log.Warnf("failed to get system info for SyncMeta: %v", err)
+				info = system.GetInfo(e.ctx)
+			}
+			info.SetFlags(
+				e.config.RosenpassEnabled,
+				e.config.RosenpassPermissive,
+				&e.config.ServerSSHAllowed,
+				e.config.DisableClientRoutes,
+				e.config.DisableServerRoutes,
+				e.config.DisableDNS,
+				e.config.DisableFirewall,
+				e.config.BlockLANAccess,
+				e.config.BlockInbound,
+				e.config.LazyConnectionEnabled,
+				e.config.EnableSSHRoot,
+				e.config.EnableSSHSFTP,
+				e.config.EnableSSHLocalPortForwarding,
+				e.config.EnableSSHRemotePortForwarding,
+				e.config.DisableSSHAuth,
+			)
+			if err := e.mgmClient.SyncMeta(info); err != nil {
+				log.Warnf("SyncMeta after effective-mode change: %v", err)
+			}
+		})
 	}
 
 	if e.firewall != nil {

@@ -27,6 +27,10 @@ type Client interface {
 	// Used to validate connectivity before committing configuration changes.
 	HealthCheck() error
 	SyncMeta(sysInfo *system.Info) error
+	// SetEffectiveConnConfig records the engine-resolved connection mode/
+	// timeouts to report in subsequent Sync/Login/SyncMeta PeerSystemMeta.
+	// Phase 3.7i of #5989.
+	SetEffectiveConnConfig(eff EffectiveConnConfig)
 	Logout() error
 	CreateExpose(ctx context.Context, req ExposeRequest) (*ExposeResponse, error)
 	RenewExpose(ctx context.Context, domain string) error
