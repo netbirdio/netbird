@@ -58,15 +58,23 @@ func newMemoryStoreWithClock(ttl time.Duration, clk Clock) *MemoryStore {
 }
 
 // Put stores or merges a connection-map for peerPubKey.
-//   - Out-of-order seq -> drop silently.
-//   - full_snapshot=true OR no prior entry -> replace (deep-copied).
-//   - full_snapshot=false with prior entry -> delta-merge per remote_pubkey.
+//   - full_snapshot=true -> ALWAYS replace, regardless of seq. The
+//     pusher resets seq to 1 on every daemon-/stream-restart, so a
+//     fresh full snapshot may carry seq=1 against a cached
+//     prev.seq=50 from the previous session. Without the
+//     full-snapshot epoch escape, the dashboard would stay stale
+//     until TTL expiry. Stale in-flight deltas from the old session
+//     cannot physically arrive after this snapshot because the old
+//     gRPC stream is closed (the push transport itself is gone).
+//   - delta + no prior entry -> store as-is.
+//   - delta + prior entry, out-of-order seq -> drop silently.
+//   - delta + prior entry, in-order seq -> merge per remote_pubkey.
 func (s *MemoryStore) Put(peerPubKey string, m *mgmProto.PeerConnectionMap) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	prev := s.maps[peerPubKey]
-	if prev != nil && m.GetSeq() > 0 && m.GetSeq() <= prev.m.GetSeq() {
+	if !m.GetFullSnapshot() && prev != nil && m.GetSeq() > 0 && m.GetSeq() <= prev.m.GetSeq() {
 		return
 	}
 

@@ -510,12 +510,22 @@ type RemoteMeta struct {
 // UpdatePeerRemoteMeta sets the RemotePeerConfig-derived fields on the
 // peer's State without touching ConnStatus or transport stats. Looks up
 // the peer in both online (d.peers) and offline (d.offlinePeers) maps.
-// Phase 3.7i of #5989.
+//
+// Phase 3.7i (Codex finding 3): when a UI-relevant field flips
+// (LiveOnline, ServerLivenessKnown, EffectiveConnectionMode) we fire
+// notifyPeerListChanged so the Android home/peers fragments — which
+// only refresh on OnPeersListChanged — pick up the change immediately.
+// Otherwise the user sees the change at most ~30 s later when the
+// daemon-RPC poller next runs.
 func (d *Status) UpdatePeerRemoteMeta(pubKey string, meta RemoteMeta) error {
 	d.mux.Lock()
 	defer d.mux.Unlock()
+	notify := false
 	st, online := d.peers[pubKey]
 	if online {
+		notify = st.RemoteLiveOnline != meta.LiveOnline ||
+			st.RemoteServerLivenessKnown != meta.ServerLivenessKnown ||
+			st.RemoteEffectiveConnectionMode != meta.EffectiveConnectionMode
 		st.RemoteEffectiveConnectionMode = meta.EffectiveConnectionMode
 		st.RemoteConfiguredConnectionMode = meta.ConfiguredConnectionMode
 		st.RemoteEffectiveRelayTimeoutSecs = meta.EffectiveRelayTimeoutSecs
@@ -529,10 +539,17 @@ func (d *Status) UpdatePeerRemoteMeta(pubKey string, meta RemoteMeta) error {
 		st.RemoteLiveOnline = meta.LiveOnline
 		st.RemoteServerLivenessKnown = meta.ServerLivenessKnown
 		d.peers[pubKey] = st
+		if notify {
+			d.notifyPeerListChanged()
+			d.notifyPeerStateChangeListeners(pubKey)
+		}
 		return nil
 	}
 	for i := range d.offlinePeers {
 		if d.offlinePeers[i].PubKey == pubKey {
+			notify = d.offlinePeers[i].RemoteLiveOnline != meta.LiveOnline ||
+				d.offlinePeers[i].RemoteServerLivenessKnown != meta.ServerLivenessKnown ||
+				d.offlinePeers[i].RemoteEffectiveConnectionMode != meta.EffectiveConnectionMode
 			d.offlinePeers[i].RemoteEffectiveConnectionMode = meta.EffectiveConnectionMode
 			d.offlinePeers[i].RemoteConfiguredConnectionMode = meta.ConfiguredConnectionMode
 			d.offlinePeers[i].RemoteEffectiveRelayTimeoutSecs = meta.EffectiveRelayTimeoutSecs
@@ -545,6 +562,9 @@ func (d *Status) UpdatePeerRemoteMeta(pubKey string, meta RemoteMeta) error {
 			d.offlinePeers[i].RemoteLastSeenAtServer = meta.LastSeenAtServer
 			d.offlinePeers[i].RemoteLiveOnline = meta.LiveOnline
 			d.offlinePeers[i].RemoteServerLivenessKnown = meta.ServerLivenessKnown
+			if notify {
+				d.notifyPeerListChanged()
+			}
 			return nil
 		}
 	}

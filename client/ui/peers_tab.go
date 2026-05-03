@@ -329,15 +329,22 @@ func buildPeerDetailText(p *proto.PeerState, full bool) string {
 		if iceFails := p.GetIceBackoffFailures(); iceFails > 0 {
 			fmt.Fprintf(&sb, "ICE backoff fails: %d\n", iceFails)
 		}
-		if p.GetIceBackoffSuspended() {
-			sb.WriteString("ICE backoff:       SUSPENDED (no retries until next mode-event)\n")
-		} else if nr := p.GetIceBackoffNextRetry(); nr != nil && nr.IsValid() {
+		// Codex finding 4: the daemon snapshot only refreshes on ICE
+		// state-change events, so IceBackoffSuspended stays true even
+		// after nextRetry has passed by wall-clock. Mirror the CLI's
+		// (status.go:797) wall-clock check so we don't display a stale
+		// "SUSPENDED" hours after the cool-down actually expired.
+		if nr := p.GetIceBackoffNextRetry(); nr != nil && nr.IsValid() {
 			next := nr.AsTime()
-			if d := time.Until(next); d > 0 {
+			d := time.Until(next)
+			switch {
+			case p.GetIceBackoffSuspended() && d > 0:
+				fmt.Fprintf(&sb, "ICE backoff:       suspended for %s (retry at %s)\n",
+					d.Round(time.Second), next.Format(time.RFC3339))
+			case d > 0:
 				fmt.Fprintf(&sb, "ICE next retry:    %s (in %s)\n",
 					next.Format(time.RFC3339), d.Round(time.Second))
-			} else {
-				fmt.Fprintf(&sb, "ICE next retry:    %s (due)\n", next.Format(time.RFC3339))
+				// d <= 0 (cool-down expired by wall-clock): suppress entirely.
 			}
 		}
 	}
