@@ -432,6 +432,10 @@ func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wg
 	debouncer := NewUpdateDebouncer(1000 * time.Millisecond)
 	defer debouncer.Stop()
 
+	// Phase 3.7i (#5989): register for SnapshotRequest dispatch.
+	snapshotCh := s.snapshotRouter.Register(peerKey.String())
+	defer s.snapshotRouter.Unregister(peerKey.String())
+
 	for {
 		select {
 		// condition when there are some updates
@@ -476,6 +480,22 @@ func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wg
 			log.WithContext(ctx).Debugf("stream of peer %s has been closed", peerKey.String())
 			s.cancelPeerRoutines(ctx, accountID, peer, streamStartTime)
 			return srv.Context().Err()
+
+		// Phase 3.7i (#5989): NEW case — on-demand snapshot request.
+		// Bypasses the debouncer because dashboard refresh has a
+		// <3 s end-to-end latency budget. Direct sendUpdate.
+		case nonce, ok := <-snapshotCh:
+			if !ok {
+				continue
+			}
+			snapMsg := &network_map.UpdateMessage{
+				Update: &proto.SyncResponse{
+					SnapshotRequest: &proto.PeerSnapshotRequest{Nonce: nonce},
+				},
+			}
+			if err := s.sendUpdate(ctx, accountID, peerKey, peer, snapMsg, srv, streamStartTime); err != nil {
+				log.WithContext(ctx).Warnf("send snapshot request to %s: %v", peerKey.String(), err)
+			}
 		}
 	}
 }
