@@ -35,7 +35,7 @@ const (
 type filter string
 
 func (s *serviceClient) showNetworksUI() {
-	s.wNetworks = s.app.NewWindow("Networks")
+	s.wNetworks = s.app.NewWindow("Peers and Networks")
 	s.wNetworks.SetOnClosed(s.cancel)
 
 	allGrid := container.New(layout.NewGridLayout(3))
@@ -44,8 +44,10 @@ func (s *serviceClient) showNetworksUI() {
 	exitNodeGrid := container.New(layout.NewGridLayout(3))
 	routeCheckContainer := container.NewVBox()
 	peersContent := s.buildPeersTabContent(s.ctx)
+	// Wrap the Peers tab content in a Stack so it fills the full tab
+	// area (NewBorder alone collapses when child MinSizes are small).
 	tabs := container.NewAppTabs(
-		container.NewTabItem(peersText, peersContent),
+		container.NewTabItem(peersText, container.NewStack(peersContent)),
 		container.NewTabItem(allNetworksText, allGrid),
 		container.NewTabItem(overlappingNetworksText, overlappingGrid),
 		container.NewTabItem(exitNodeNetworksText, exitNodeGrid),
