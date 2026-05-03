@@ -93,10 +93,13 @@ func (s *serviceClient) buildPeersTabContent(ctx context.Context) peersTabBundle
 		}
 	}()
 
-	// VScroll wraps the VBox so long lists scroll naturally. VBox packs
-	// children tightly (each peer row sizes to its content). Multiple
-	// rows can be expanded simultaneously since each row is independent.
+	// VScroll wraps the VBox so long lists scroll naturally. We give the
+	// scroll a generous MinSize so it occupies most of the window even
+	// when only a few peers are present (otherwise the Border center
+	// shrinks to the VBox's tight packing and looks cramped). The
+	// SetMinSize is a floor; the parent containers can still grow it.
 	scroll := container.NewVScroll(listVBox)
+	scroll.SetMinSize(fyne.NewSize(400, 600))
 	content := container.NewBorder(
 		container.NewVBox(summary, breakdown),
 		nil, nil, nil,
@@ -105,9 +108,12 @@ func (s *serviceClient) buildPeersTabContent(ctx context.Context) peersTabBundle
 	return peersTabBundle{Content: content, ShowFull: showFull, Refresh: render}
 }
 
-// newPeerRow returns a single expandable row: a clickable header + a
-// hidden detail block that toggles visibility on tap. Sizes itself to
-// content (no wasted vertical space). Phase 3.7i.
+// newPeerRow returns a single expandable row: a clickable header that
+// dynamically adds/removes a detail label below it on tap. Using
+// dynamic add/remove (instead of Show/Hide) guarantees collapsed rows
+// take ZERO extra vertical space — important so a list of mostly-
+// collapsed peers packs tightly. Multiple rows can be expanded
+// simultaneously (each row owns its own state). Phase 3.7i of #5989.
 func newPeerRow(p *proto.PeerState, showFull bool) *fyne.Container {
 	titleCollapsed := fmt.Sprintf("▶  %s   %s   %s", peerGlyph(p), peerHostnameShort(p), peerModeTag(p))
 	titleExpanded := fmt.Sprintf("▼  %s   %s   %s", peerGlyph(p), peerHostnameShort(p), peerModeTag(p))
@@ -116,22 +122,24 @@ func newPeerRow(p *proto.PeerState, showFull bool) *fyne.Container {
 	header.Alignment = widget.ButtonAlignLeading
 	header.Importance = widget.LowImportance
 
-	detail := widget.NewLabel(buildPeerDetailText(p, showFull))
-	detail.Wrapping = fyne.TextWrapWord
-	detail.TextStyle = fyne.TextStyle{Monospace: true}
-	detail.Hide()
+	var detail *widget.Label
+	box := container.NewVBox(header)
 
-	row := container.NewVBox(header, detail)
 	header.OnTapped = func() {
-		if detail.Visible() {
-			detail.Hide()
-			header.SetText(titleCollapsed)
-		} else {
-			detail.Show()
+		if detail == nil {
+			detail = widget.NewLabel(buildPeerDetailText(p, showFull))
+			detail.Wrapping = fyne.TextWrapWord
+			detail.TextStyle = fyne.TextStyle{Monospace: true}
+			box.Add(detail)
 			header.SetText(titleExpanded)
+		} else {
+			box.Remove(detail)
+			detail = nil
+			header.SetText(titleCollapsed)
 		}
+		box.Refresh()
 	}
-	return row
+	return box
 }
 
 func peerGroup(p *proto.PeerState) int {
