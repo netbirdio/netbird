@@ -497,12 +497,12 @@ func (d *Status) UpdatePeerRemoteMeta(pubKey string, meta RemoteMeta) error {
 	return fmt.Errorf("peer %s not found in either map", pubKey)
 }
 
-// timestampOrZero converts a *timestamppb.Timestamp to time.Time,
+// TimestampOrZero converts a *timestamppb.Timestamp to time.Time,
 // returning zero-time when the proto pointer is nil. Used by engine.go
 // (Task 3.3) when populating RemoteMeta from RemotePeerConfig where
 // last_seen_at_server may be unset for peers that pre-date Phase 3.7i.
 // Phase 3.7i of #5989.
-func timestampOrZero(t *timestamppb.Timestamp) time.Time {
+func TimestampOrZero(t *timestamppb.Timestamp) time.Time {
 	if t == nil {
 		return time.Time{}
 	}

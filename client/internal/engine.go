@@ -1399,6 +1399,25 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 	e.updateOfflinePeers(networkMap.GetOfflinePeers())
 
+	// Phase 3.7i (#5989): populate RemoteMeta for offline peers so the
+	// daemon-RPC StatusResponse can show them with their groups + last_seen.
+	for _, op := range networkMap.GetOfflinePeers() {
+		if err := e.statusRecorder.UpdatePeerRemoteMeta(op.GetWgPubKey(), peer.RemoteMeta{
+			EffectiveConnectionMode:    op.GetEffectiveConnectionMode(),
+			EffectiveRelayTimeoutSecs:  op.GetEffectiveRelayTimeoutSecs(),
+			EffectiveP2PTimeoutSecs:    op.GetEffectiveP2PTimeoutSecs(),
+			EffectiveP2PRetryMaxSecs:   op.GetEffectiveP2PRetryMaxSecs(),
+			ConfiguredConnectionMode:   op.GetConfiguredConnectionMode(),
+			ConfiguredRelayTimeoutSecs: op.GetConfiguredRelayTimeoutSecs(),
+			ConfiguredP2PTimeoutSecs:   op.GetConfiguredP2PTimeoutSecs(),
+			ConfiguredP2PRetryMaxSecs:  op.GetConfiguredP2PRetryMaxSecs(),
+			Groups:                     op.GetGroups(),
+			LastSeenAtServer:           peer.TimestampOrZero(op.GetLastSeenAtServer()),
+		}); err != nil {
+			log.Debugf("UpdatePeerRemoteMeta(offline %s): %v", op.GetWgPubKey(), err)
+		}
+	}
+
 	// Filter out own peer from the remote peers list
 	localPubKey := e.config.WgPrivateKey.PublicKey().String()
 	remotePeers := make([]*mgmProto.RemotePeerConfig, 0, len(networkMap.GetRemotePeers()))
@@ -1440,6 +1459,25 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		}
 
 		e.updateSSHServerAuth(networkMap.GetSshAuth())
+
+		// Phase 3.7i (#5989): mirror RemotePeerConfig fields into peer.Status
+		// so daemon-RPC StatusResponse exposes them for UIs.
+		for _, rp := range remotePeers {
+			if err := e.statusRecorder.UpdatePeerRemoteMeta(rp.GetWgPubKey(), peer.RemoteMeta{
+				EffectiveConnectionMode:    rp.GetEffectiveConnectionMode(),
+				EffectiveRelayTimeoutSecs:  rp.GetEffectiveRelayTimeoutSecs(),
+				EffectiveP2PTimeoutSecs:    rp.GetEffectiveP2PTimeoutSecs(),
+				EffectiveP2PRetryMaxSecs:   rp.GetEffectiveP2PRetryMaxSecs(),
+				ConfiguredConnectionMode:   rp.GetConfiguredConnectionMode(),
+				ConfiguredRelayTimeoutSecs: rp.GetConfiguredRelayTimeoutSecs(),
+				ConfiguredP2PTimeoutSecs:   rp.GetConfiguredP2PTimeoutSecs(),
+				ConfiguredP2PRetryMaxSecs:  rp.GetConfiguredP2PRetryMaxSecs(),
+				Groups:                     rp.GetGroups(),
+				LastSeenAtServer:           peer.TimestampOrZero(rp.GetLastSeenAtServer()),
+			}); err != nil {
+				log.Debugf("UpdatePeerRemoteMeta(%s): %v", rp.GetWgPubKey(), err)
+			}
+		}
 	}
 
 	// must set the exclude list after the peers are added. Without it the manager can not figure out the peers parameters from the store
