@@ -94,6 +94,7 @@ type MockAccountManager struct {
 	GetDNSSettingsFunc                    func(ctx context.Context, accountID, userID string) (*types.DNSSettings, error)
 	SaveDNSSettingsFunc                   func(ctx context.Context, accountID, userID string, dnsSettingsToSave *types.DNSSettings) error
 	GetPeerFunc                           func(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error)
+	GetPeerByPubKeyFunc                   func(ctx context.Context, accountID, pubKey string) (*nbpeer.Peer, error)
 	UpdateAccountSettingsFunc             func(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Settings, error)
 	LoginPeerFunc                         func(ctx context.Context, login types.PeerLogin) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
 	SyncPeerFunc                          func(ctx context.Context, sync types.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error)
@@ -818,6 +819,15 @@ func (am *MockAccountManager) GetPeer(ctx context.Context, accountID, peerID, us
 		return am.GetPeerFunc(ctx, accountID, peerID, userID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetPeer is not implemented")
+}
+
+// GetPeerByPubKey mocks GetPeerByPubKey of the AccountManager interface.
+// Phase 3.7i of #5989.
+func (am *MockAccountManager) GetPeerByPubKey(ctx context.Context, accountID, pubKey string) (*nbpeer.Peer, error) {
+	if am.GetPeerByPubKeyFunc != nil {
+		return am.GetPeerByPubKeyFunc(ctx, accountID, pubKey)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetPeerByPubKey is not implemented")
 }
 
 // UpdateAccountSettings mocks UpdateAccountSettings of the AccountManager interface

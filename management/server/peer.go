@@ -1222,6 +1222,20 @@ func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID,
 	return nil, status.Errorf(status.Internal, "user %s has no access to peer %s under account %s", userID, peer.ID, accountID)
 }
 
+// GetPeerByPubKey returns the peer with the given WireGuard public key from
+// the given account. Phase 3.7i of #5989 — used by REST handlers to enrich
+// PeerConnectionMap entries with FQDNs.
+func (am *DefaultAccountManager) GetPeerByPubKey(ctx context.Context, accountID, pubKey string) (*nbpeer.Peer, error) {
+	p, err := am.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, pubKey)
+	if err != nil {
+		return nil, err
+	}
+	if p.AccountID != accountID {
+		return nil, fmt.Errorf("peer with pubkey %s not in account %s", pubKey, accountID)
+	}
+	return p, nil
+}
+
 // UpdateAccountPeers updates all peers that belong to an account.
 // Should be called when changes have to be synced to peers.
 func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) {
