@@ -251,7 +251,6 @@ type serviceClient struct {
 	mAllowSSH          *systray.MenuItem
 	mAutoConnect       *systray.MenuItem
 	mEnableRosenpass   *systray.MenuItem
-	mLazyConnEnabled   *systray.MenuItem
 	mBlockInbound      *systray.MenuItem
 	mNotifications     *systray.MenuItem
 	mAdvancedSettings  *systray.MenuItem
@@ -298,6 +297,15 @@ type serviceClient struct {
 	relayTimeoutSecs uint32
 	p2pTimeoutSecs   uint32
 	p2pRetryMaxSecs  uint32
+
+	// Phase 3.7h: latest values pushed by the management server, captured
+	// from GetConfigResponse.ServerPushed*. Used to render the
+	// "Follow server (currently: <mode>)" entry in the dropdown and the
+	// "use server default (Ns)" hints in the timeout entries.
+	serverPushedMode             string
+	serverPushedRelayTimeoutSecs uint32
+	serverPushedP2pTimeoutSecs   uint32
+	serverPushedP2pRetryMaxSecs  uint32
 
 	// observable settings over corresponding iMngURL and iPreSharedKey values.
 	managementURL string
@@ -633,11 +641,13 @@ func (s *serviceClient) hasConnectionModeChanges() bool {
 }
 
 // selectedConnectionMode returns the canonical mode string for the
-// current dropdown selection. "Follow server" maps to empty (clears
-// any local override).
+// current dropdown selection. The "Follow server" entry maps to empty
+// (clears any local override). It may carry a "(currently: <mode>)"
+// suffix when the engine has received a PeerConfig, so we match by
+// prefix.
 func (s *serviceClient) selectedConnectionMode() string {
 	v := s.sConnectionMode.Selected
-	if v == "Follow server" {
+	if v == "" || strings.HasPrefix(v, "Follow server") {
 		return ""
 	}
 	return v
@@ -813,6 +823,62 @@ func (s *serviceClient) getNetworkForm() *widget.Form {
 			{Text: "P2P Timeout (s)", Widget: s.iP2pTimeout},
 			{Text: "P2P Retry-Max (s)", Widget: s.iP2pRetryMax},
 		},
+	}
+}
+
+// followServerLabel returns the dropdown text for the "Follow server"
+// option. When the engine has received a PeerConfig and the server has
+// pushed a mode, we suffix it with "(currently: <mode>)" so users see
+// what they would inherit by leaving the override on Follow server.
+func (s *serviceClient) followServerLabel() string {
+	if s.serverPushedMode == "" {
+		return "Follow server"
+	}
+	return "Follow server (currently: " + s.serverPushedMode + ")"
+}
+
+// formatTimeoutHint renders the placeholder text for an empty override
+// entry, including the actual server-pushed default in seconds when
+// available.
+func formatTimeoutHint(secs uint32) string {
+	if secs == 0 {
+		return "seconds (empty = use server default)"
+	}
+	return "seconds (empty = use server default, " + strconv.FormatUint(uint64(secs), 10) + "s)"
+}
+
+// refreshConnectionModeWidgets re-renders the Connection Mode dropdown
+// and the timeout entries' placeholder text based on the latest
+// server-pushed values. Safe to call multiple times. Preserves the
+// current selection by canonical-mode string (so "(currently: ...)"
+// suffix changes do not lose the user's choice).
+func (s *serviceClient) refreshConnectionModeWidgets() {
+	if s.sConnectionMode == nil {
+		return
+	}
+	prev := s.selectedConnectionMode()
+	s.sConnectionMode.Options = []string{
+		s.followServerLabel(),
+		"relay-forced",
+		"p2p",
+		"p2p-lazy",
+		"p2p-dynamic",
+	}
+	if prev == "" {
+		s.sConnectionMode.SetSelected(s.followServerLabel())
+	} else {
+		s.sConnectionMode.SetSelected(prev)
+	}
+	s.sConnectionMode.Refresh()
+
+	if s.iRelayTimeout != nil {
+		s.iRelayTimeout.SetPlaceHolder(formatTimeoutHint(s.serverPushedRelayTimeoutSecs))
+	}
+	if s.iP2pTimeout != nil {
+		s.iP2pTimeout.SetPlaceHolder(formatTimeoutHint(s.serverPushedP2pTimeoutSecs))
+	}
+	if s.iP2pRetryMax != nil {
+		s.iP2pRetryMax.SetPlaceHolder(formatTimeoutHint(s.serverPushedP2pRetryMaxSecs))
 	}
 }
 
@@ -1147,7 +1213,6 @@ func (s *serviceClient) onTrayReady() {
 	s.mAllowSSH = s.mSettings.AddSubMenuItemCheckbox("Allow SSH", allowSSHMenuDescr, false)
 	s.mAutoConnect = s.mSettings.AddSubMenuItemCheckbox("Connect on Startup", autoConnectMenuDescr, false)
 	s.mEnableRosenpass = s.mSettings.AddSubMenuItemCheckbox("Enable Quantum-Resistance", quantumResistanceMenuDescr, false)
-	s.mLazyConnEnabled = s.mSettings.AddSubMenuItemCheckbox("Enable Lazy Connections", lazyConnMenuDescr, false)
 	s.mBlockInbound = s.mSettings.AddSubMenuItemCheckbox("Block Inbound Connections", blockInboundMenuDescr, false)
 	s.mNotifications = s.mSettings.AddSubMenuItemCheckbox("Notifications", notificationsMenuDescr, false)
 	s.mSettings.AddSeparator()
@@ -1419,6 +1484,14 @@ func (s *serviceClient) getSrvConfig() {
 
 	cfg = protoConfigToConfig(srvCfg)
 
+	// Capture the raw server-pushed values so the UI can show
+	// "Follow server (currently: <mode>)" and the numeric default-hints
+	// in the override entries.
+	s.serverPushedMode = srvCfg.GetServerPushedConnectionMode()
+	s.serverPushedRelayTimeoutSecs = srvCfg.GetServerPushedRelayTimeoutSeconds()
+	s.serverPushedP2pTimeoutSecs = srvCfg.GetServerPushedP2PTimeoutSeconds()
+	s.serverPushedP2pRetryMaxSecs = srvCfg.GetServerPushedP2PRetryMaxSeconds()
+
 	if cfg.ManagementURL.String() != "" {
 		s.managementURL = cfg.ManagementURL.String()
 	}
@@ -1497,12 +1570,15 @@ func (s *serviceClient) getSrvConfig() {
 			s.iSSHJWTCacheTTL.SetText(strconv.Itoa(*cfg.SSHJWTCacheTTL))
 		}
 
-		// Connection-mode dropdown + timeout entries.
+		// Connection-mode dropdown + timeout entries. Refresh first so
+		// the "Follow server (currently: ...)" suffix and the numeric
+		// default-hints reflect what GetConfigResponse just delivered.
+		s.refreshConnectionModeWidgets()
 		switch cfg.ConnectionMode {
 		case "relay-forced", "p2p", "p2p-lazy", "p2p-dynamic":
 			s.sConnectionMode.SetSelected(cfg.ConnectionMode)
 		default:
-			s.sConnectionMode.SetSelected("Follow server")
+			s.sConnectionMode.SetSelected(s.followServerLabel())
 		}
 		if cfg.RelayTimeoutSeconds == 0 {
 			s.iRelayTimeout.SetText("")
@@ -1691,12 +1767,6 @@ func (s *serviceClient) loadSettings() {
 		s.mEnableRosenpass.Uncheck()
 	}
 
-	if cfg.LazyConnectionEnabled {
-		s.mLazyConnEnabled.Check()
-	} else {
-		s.mLazyConnEnabled.Uncheck()
-	}
-
 	if cfg.BlockInbound {
 		s.mBlockInbound.Check()
 	} else {
@@ -1719,7 +1789,6 @@ func (s *serviceClient) updateConfig() error {
 	disableAutoStart := !s.mAutoConnect.Checked()
 	sshAllowed := s.mAllowSSH.Checked()
 	rosenpassEnabled := s.mEnableRosenpass.Checked()
-	lazyConnectionEnabled := s.mLazyConnEnabled.Checked()
 	blockInbound := s.mBlockInbound.Checked()
 	notificationsDisabled := !s.mNotifications.Checked()
 
@@ -1742,14 +1811,13 @@ func (s *serviceClient) updateConfig() error {
 	}
 
 	req := proto.SetConfigRequest{
-		ProfileName:           activeProf.Name,
-		Username:              currUser.Username,
-		DisableAutoConnect:    &disableAutoStart,
-		ServerSSHAllowed:      &sshAllowed,
-		RosenpassEnabled:      &rosenpassEnabled,
-		LazyConnectionEnabled: &lazyConnectionEnabled,
-		BlockInbound:          &blockInbound,
-		DisableNotifications:  &notificationsDisabled,
+		ProfileName:          activeProf.Name,
+		Username:             currUser.Username,
+		DisableAutoConnect:   &disableAutoStart,
+		ServerSSHAllowed:     &sshAllowed,
+		RosenpassEnabled:     &rosenpassEnabled,
+		BlockInbound:         &blockInbound,
+		DisableNotifications: &notificationsDisabled,
 	}
 
 	if _, err := conn.SetConfig(s.ctx, &req); err != nil {
