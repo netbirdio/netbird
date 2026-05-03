@@ -439,6 +439,42 @@ func (c *Client) GetServerPushedP2pRetryMaxSecs() int64 {
 	return int64(cm.ServerPushedP2pRetryMaxSecs())
 }
 
+// GetConfiguredPeersTotal returns the total number of configured peers
+// (server-online + server-offline). Phase 3.7i (#5989).
+func (c *Client) GetConfiguredPeersTotal() int64 {
+	return int64(c.recorder.GetFullStatus().ConfiguredPeersTotal)
+}
+
+// GetServerOnlinePeers returns the number of peers that are reachable via
+// the server (P2P + Relayed + Idle). Phase 3.7i (#5989).
+func (c *Client) GetServerOnlinePeers() int64 {
+	return int64(c.recorder.GetFullStatus().ServerOnlinePeers)
+}
+
+// GetP2PConnectedPeers returns the number of peers connected via direct
+// P2P (ICE). Phase 3.7i (#5989).
+func (c *Client) GetP2PConnectedPeers() int64 {
+	return int64(c.recorder.GetFullStatus().P2PConnectedPeers)
+}
+
+// GetRelayedConnectedPeers returns the number of peers connected via relay.
+// Phase 3.7i (#5989).
+func (c *Client) GetRelayedConnectedPeers() int64 {
+	return int64(c.recorder.GetFullStatus().RelayedConnectedPeers)
+}
+
+// GetIdleOnlinePeers returns the number of peers that are online on the
+// server but have no active connection yet. Phase 3.7i (#5989).
+func (c *Client) GetIdleOnlinePeers() int64 {
+	return int64(c.recorder.GetFullStatus().IdleOnlinePeers)
+}
+
+// GetServerOfflinePeers returns the number of peers that are not reachable
+// via the server. Phase 3.7i (#5989).
+func (c *Client) GetServerOfflinePeers() int64 {
+	return int64(c.recorder.GetFullStatus().ServerOfflinePeers)
+}
+
 // connMgrSafe is a small helper that walks the Client -> ConnectClient
 // -> Engine -> ConnMgr chain and returns nil at the first nil pointer.
 // Each accessor that surfaces engine state to the Android UI uses it.
