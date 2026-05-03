@@ -25,6 +25,7 @@ const (
 	allNetworksText                = "All networks"
 	overlappingNetworksText        = "Overlapping networks"
 	exitNodeNetworksText           = "Exit-node networks"
+	peersText                      = "Peers"
 	allNetworks             filter = "all"
 	overlappingNetworks     filter = "overlapping"
 	exitNodeNetworks        filter = "exit-node"
@@ -42,10 +43,12 @@ func (s *serviceClient) showNetworksUI() {
 	overlappingGrid := container.New(layout.NewGridLayout(3))
 	exitNodeGrid := container.New(layout.NewGridLayout(3))
 	routeCheckContainer := container.NewVBox()
+	peersContent := s.buildPeersTabContent(s.ctx)
 	tabs := container.NewAppTabs(
 		container.NewTabItem(allNetworksText, allGrid),
 		container.NewTabItem(overlappingNetworksText, overlappingGrid),
 		container.NewTabItem(exitNodeNetworksText, exitNodeGrid),
+		container.NewTabItem(peersText, peersContent),
 	)
 	tabs.OnSelected = func(item *container.TabItem) {
 		s.updateNetworksBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
