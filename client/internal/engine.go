@@ -629,11 +629,25 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		&enginePushSink{engine: e},
 		&enginePeerStateSource{engine: e},
 	)
+	// nil-guard the closures: Engine.Stop() sets e.connStatePusher = nil
+	// BEFORE removeAllPeers() runs, and removeAllPeers triggers
+	// notifyConnStateChange callbacks for every peer being torn down.
+	// Without the guard, every disconnect crashed the daemon with a
+	// nil-pointer deref. The same applies to the snapshot handler in
+	// case mgmt sends a request during shutdown.
 	e.statusRecorder.SetConnStateListener(func(pubkey string, st peer.State) {
-		e.connStatePusher.OnPeerStateChange(peerStateToEvent(pubkey, st))
+		pusher := e.connStatePusher
+		if pusher == nil {
+			return
+		}
+		pusher.OnPeerStateChange(peerStateToEvent(pubkey, st))
 	})
 	e.mgmClient.SetSnapshotRequestHandler(func(nonce uint64) {
-		e.connStatePusher.OnSnapshotRequest(nonce)
+		pusher := e.connStatePusher
+		if pusher == nil {
+			return
+		}
+		pusher.OnSnapshotRequest(nonce)
 	})
 
 	e.srWatcher = guard.NewSRWatcher(e.signal, e.relayManager, e.mobileDep.IFaceDiscover, iceCfg)
