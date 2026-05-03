@@ -371,6 +371,18 @@ message PeerState {
   int32  iceBackoffFailures  = 20;
   google.protobuf.Timestamp iceBackoffNextRetry = 21;
   bool   iceBackoffSuspended = 22;
+  // Phase 3.7i (#5989): per-peer enrichment from RemotePeerConfig.
+  bool   server_online                                  = 30;
+  google.protobuf.Timestamp last_seen_at_server         = 31;
+  repeated string groups                                = 32;
+  string effective_connection_mode                      = 33;
+  string configured_connection_mode                     = 34;
+  uint32 effective_relay_timeout_secs                   = 35;
+  uint32 effective_p2p_timeout_secs                     = 36;
+  uint32 effective_p2p_retry_max_secs                   = 37;
+  uint32 configured_relay_timeout_secs                  = 38;
+  uint32 configured_p2p_timeout_secs                    = 39;
+  uint32 configured_p2p_retry_max_secs                  = 40;
 }
 
 // LocalPeerState contains the latest state of the local peer
@@ -441,6 +453,13 @@ message FullStatus {
 
   bool lazyConnectionEnabled = 9;
   SSHServerState sshServerState = 10;
+  // Phase 3.7i (#5989): aggregate counters so UIs don't re-derive them.
+  uint32 configured_peers_total      = 50;
+  uint32 server_online_peers         = 51;
+  uint32 p2p_connected_peers         = 52;
+  uint32 relayed_connected_peers     = 53;
+  uint32 idle_online_peers           = 54;
+  uint32 server_offline_peers        = 55;
 }
 
 // Networks
