@@ -401,6 +401,11 @@ func (e *ConnMgr) AddPeerConn(ctx context.Context, peerKey string, conn *peer.Co
 		return true
 	}
 
+	// Wire WG-timeout recovery so the peer is pushed back to lazy-idle
+	// (activity listener restarted) when WireGuard handshakes time out.
+	// Closes over peerKey so the callback is independent of conn state.
+	conn.SetOnWGTimeoutRecover(func() { e.RecoverPeerToIdle(peerKey) })
+
 	if !e.isStartedWithLazyMgr() {
 		if err := conn.Open(ctx); err != nil {
 			conn.Log.Errorf("failed to open connection: %v", err)
@@ -536,6 +541,28 @@ func (e *ConnMgr) DeactivatePeer(conn *peer.Conn) {
 		// Eager modes keep the tunnel up unconditionally.
 		return
 	}
+}
+
+// RecoverPeerToIdle pushes a peer back into the lazy manager's
+// activity-listening idle state after the local WireGuard handshake
+// has timed out. Without this, the peer stays stuck in "Connecting"
+// forever (lazy mgr keeps it in active set with no activity listener,
+// so subsequent local traffic is silently dropped). Codex follow-up.
+//
+// Safe to call when the lazy mgr is disabled or the peer is unknown:
+// both cases short-circuit silently. The lazy mgr's DeactivatePeer
+// also ignores peers that are not in the active state, so duplicate
+// invocations (e.g. WG timeout twice) are no-ops.
+func (e *ConnMgr) RecoverPeerToIdle(peerKey string) {
+	if !e.isStartedWithLazyMgr() {
+		return
+	}
+	conn, ok := e.peerStore.PeerConn(peerKey)
+	if !ok {
+		return
+	}
+	conn.Log.Infof("WG timeout recovery: pushing peer back to lazy-idle (activity listener will rearm)")
+	e.lazyConnMgr.DeactivatePeer(conn.ConnID())
 }
 
 // DetachICEForPeer looks up the Conn for peerKey and tears down its
