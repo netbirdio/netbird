@@ -301,6 +301,14 @@ func isMaterialChange(prev, cur PeerStateChangeEvent) bool {
 	if prev.Endpoint != cur.Endpoint {
 		return true
 	}
+	// Codex review: relay-server flips MUST surface immediately. The
+	// daemon does ship this field in eventToEntry; without including
+	// it here we'd only push it on a parallel material change, leaving
+	// dashboards stuck on the old relay-server URL whenever a peer
+	// migrates between relays.
+	if prev.RelayServer != cur.RelayServer {
+		return true
+	}
 	const latencyThresholdMS = 5
 	d := int32(cur.LatencyMS) - int32(prev.LatencyMS)
 	if d < 0 {

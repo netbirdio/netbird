@@ -183,3 +183,28 @@ func cloneUint32Ptr(p *uint32) *uint32 {
 	v := *p
 	return &v
 }
+
+// StringPtrEqual nil-safe equality for *string. Used to detect changes
+// in nullable settings fields when deciding whether to push updated
+// PeerConfig to live clients (account.updateAccountPeers).
+func StringPtrEqual(a, b *string) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+// Uint32PtrEqual nil-safe equality for *uint32. Same purpose as
+// StringPtrEqual for the new timeout fields.
+func Uint32PtrEqual(a, b *uint32) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}

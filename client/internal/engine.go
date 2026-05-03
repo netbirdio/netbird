@@ -220,6 +220,14 @@ type Engine struct {
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
 
+	// Phase 3.7i (Codex review): debounce remote-offline-transitions
+	// to absorb brief mgmt-reconnect blips. peerOfflineDebounce holds
+	// pending close-after-grace-period timers keyed by peer pubkey.
+	// Cancelled when the same peer flips back online before the timer
+	// fires. Protected by peerOfflineDebounceMu.
+	peerOfflineDebounce   map[string]*time.Timer
+	peerOfflineDebounceMu sync.Mutex
+
 	networkMonitor *networkmonitor.NetworkMonitor
 
 	sshServer sshServer
@@ -309,6 +317,7 @@ func NewEngine(
 		STUNs:              []*stun.URI{},
 		TURNs:              []*stun.URI{},
 		networkSerial:      0,
+		peerOfflineDebounce: make(map[string]*time.Timer),
 		statusRecorder:     services.StatusRecorder,
 		stateManager:       services.StateManager,
 		portForwardManager: portforward.NewManager(),
@@ -1523,12 +1532,21 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 			// This prevents the guard's offer-spam loop and avoids the
 			// "remote reconnects -> our offer wakes their lazy mgr ->
 			// instant P2P even without local traffic" symptom.
+			//
+			// Codex review: debounce by 5 s. A brief mgmt-reconnect on
+			// the local end (cellular handover, Doze wakeup) can flip
+			// liveness false then back to true within the same network-
+			// map round-trip. Without the grace period we'd tear down
+			// every peer in those moments. The timer is cancelled in
+			// the true->true branch below.
 			if livenessKnown && prevLivenessKnown && prevLiveOnline && !liveOnline &&
 				e.connMgr != nil && e.connMgr.Mode() == connectionmode.ModeP2PDynamic {
-				if conn, ok := e.peerStore.PeerConn(pubKey); ok {
-					log.Infof("[peer: %s] remote went offline, closing local conn (p2p-dynamic)", pubKey)
-					conn.Close(false)
-				}
+				e.scheduleRemoteOfflineClose(pubKey)
+			}
+			// Transition false->true (or first sighting as online) ->
+			// cancel any pending offline-close timer for this peer.
+			if liveOnline && livenessKnown {
+				e.cancelRemoteOfflineClose(pubKey)
 			}
 		}
 	}
@@ -2681,4 +2699,46 @@ func decodeRelayIP(b []byte) netip.Addr {
 		return netip.Addr{}
 	}
 	return ip.Unmap()
+}
+
+// remoteOfflineGracePeriod is how long we wait after a peer flips
+// from live_online=true to live_online=false before tearing the local
+// peer connection down. Absorbs short mgmt-reconnect blips on either
+// end (cellular handover, Doze wakeup, brief NAT-rebind).
+const remoteOfflineGracePeriod = 5 * time.Second
+
+// scheduleRemoteOfflineClose arms a timer that will close the local
+// peer connection for pubKey after remoteOfflineGracePeriod. If a
+// timer is already armed for this peer the call is a no-op (the
+// existing one fires on schedule). Idempotent.
+func (e *Engine) scheduleRemoteOfflineClose(pubKey string) {
+	e.peerOfflineDebounceMu.Lock()
+	defer e.peerOfflineDebounceMu.Unlock()
+	if _, exists := e.peerOfflineDebounce[pubKey]; exists {
+		return
+	}
+	t := time.AfterFunc(remoteOfflineGracePeriod, func() {
+		e.peerOfflineDebounceMu.Lock()
+		delete(e.peerOfflineDebounce, pubKey)
+		e.peerOfflineDebounceMu.Unlock()
+		conn, ok := e.peerStore.PeerConn(pubKey)
+		if !ok {
+			return
+		}
+		log.Infof("[peer: %s] remote went offline (debounced %s), closing local conn (p2p-dynamic)", pubKey, remoteOfflineGracePeriod)
+		conn.Close(false)
+	})
+	e.peerOfflineDebounce[pubKey] = t
+}
+
+// cancelRemoteOfflineClose stops a pending offline-close timer for
+// pubKey if one is armed. Called when the peer flips back to
+// live_online=true within the grace window.
+func (e *Engine) cancelRemoteOfflineClose(pubKey string) {
+	e.peerOfflineDebounceMu.Lock()
+	defer e.peerOfflineDebounceMu.Unlock()
+	if t, ok := e.peerOfflineDebounce[pubKey]; ok {
+		t.Stop()
+		delete(e.peerOfflineDebounce, pubKey)
+	}
 }
