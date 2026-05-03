@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
 	"github.com/netbirdio/netbird/shared/connectionmode"
@@ -156,7 +158,7 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 	}
 }
 
-func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *cache.DNSConfigCache, settings *types.Settings, extraSettings *types.ExtraSettings, peerGroups []string, dnsFwdPort int64) *proto.SyncResponse {
+func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *cache.DNSConfigCache, settings *types.Settings, extraSettings *types.ExtraSettings, peerGroups []string, dnsFwdPort int64, groupNamesByPeerID map[string][]string) *proto.SyncResponse {
 	response := &proto.SyncResponse{
 		PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig, networkMap.EnableSSH),
 		NetworkMap: &proto.NetworkMap{
@@ -174,14 +176,20 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 
 	response.NetworkMap.PeerConfig = response.PeerConfig
 
+	appendCtx := AppendRemotePeerConfigContext{
+		DNSDomain:          dnsName,
+		Cfg:                settings,
+		GroupNamesByPeerID: groupNamesByPeerID,
+	}
+
 	remotePeers := make([]*proto.RemotePeerConfig, 0, len(networkMap.Peers)+len(networkMap.OfflinePeers))
-	remotePeers = appendRemotePeerConfig(remotePeers, networkMap.Peers, dnsName)
+	remotePeers = appendRemotePeerConfig(remotePeers, networkMap.Peers, appendCtx)
 	response.RemotePeers = remotePeers
 	response.NetworkMap.RemotePeers = remotePeers
 	response.RemotePeersIsEmpty = len(remotePeers) == 0
 	response.NetworkMap.RemotePeersIsEmpty = response.RemotePeersIsEmpty
 
-	response.NetworkMap.OfflinePeers = appendRemotePeerConfig(nil, networkMap.OfflinePeers, dnsName)
+	response.NetworkMap.OfflinePeers = appendRemotePeerConfig(nil, networkMap.OfflinePeers, appendCtx)
 
 	firewallRules := toProtocolFirewallRules(networkMap.FirewallRules)
 	response.NetworkMap.FirewallRules = firewallRules
@@ -238,17 +246,95 @@ func buildAuthorizedUsersProto(ctx context.Context, authorizedUsers map[string]m
 	return hashedUsers, machineUsers
 }
 
-func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer, dnsName string) []*proto.RemotePeerConfig {
+// AppendRemotePeerConfigContext bundles per-account settings + per-peer
+// group lookups so appendRemotePeerConfig stays free of DB calls.
+// Callers (in conversion.go) materialise this once per NetworkMap build.
+type AppendRemotePeerConfigContext struct {
+	DNSDomain string
+	// Cfg is the account-wide configured mode/timeouts. Nil when unavailable.
+	Cfg *types.Settings
+	// GroupNamesByPeerID maps a peer ID to its sorted group-name list.
+	GroupNamesByPeerID map[string][]string
+}
+
+func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer, c AppendRemotePeerConfigContext) []*proto.RemotePeerConfig {
+	var cfgConnMode string
+	var cfgRelayTO, cfgP2pTO, cfgP2pRetryMax uint32
+	if c.Cfg != nil {
+		cfgConnMode = derefStringOrEmpty(c.Cfg.ConnectionMode)
+		cfgRelayTO = derefUint32OrZero(c.Cfg.RelayTimeoutSeconds)
+		cfgP2pTO = derefUint32OrZero(c.Cfg.P2pTimeoutSeconds)
+		cfgP2pRetryMax = derefUint32OrZero(c.Cfg.P2pRetryMaxSeconds)
+	}
+
 	for _, rPeer := range peers {
-		dst = append(dst, &proto.RemotePeerConfig{
-			WgPubKey:     rPeer.Key,
-			AllowedIps:   []string{rPeer.IP.String() + "/32"},
-			SshConfig:    &proto.SSHConfig{SshPubKey: []byte(rPeer.SSHKey)},
-			Fqdn:         rPeer.FQDN(dnsName),
+		cfg := &proto.RemotePeerConfig{
+			WgPubKey:   rPeer.Key,
+			AllowedIps: []string{rPeer.IP.String() + "/32"},
+			SshConfig:  &proto.SSHConfig{SshPubKey: []byte(rPeer.SSHKey)},
+			Fqdn:       rPeer.FQDN(c.DNSDomain),
+
 			AgentVersion: rPeer.Meta.WtVersion,
-		})
+
+			// Phase 3.7i: effective values from the peer's last self-report.
+			EffectiveConnectionMode:   rPeer.Meta.EffectiveConnectionMode,
+			EffectiveRelayTimeoutSecs: rPeer.Meta.EffectiveRelayTimeoutSecs,
+			EffectiveP2PTimeoutSecs:   rPeer.Meta.EffectiveP2PTimeoutSecs,
+			EffectiveP2PRetryMaxSecs:  rPeer.Meta.EffectiveP2PRetryMaxSecs,
+
+			// Phase 3.7i: account-wide configured values from Settings.
+			ConfiguredConnectionMode:   cfgConnMode,
+			ConfiguredRelayTimeoutSecs: cfgRelayTO,
+			ConfiguredP2PTimeoutSecs:   cfgP2pTO,
+			ConfiguredP2PRetryMaxSecs:  cfgP2pRetryMax,
+
+			// Phase 3.7i: server-knowledge fields surfaced to UIs.
+			Groups: c.GroupNamesByPeerID[rPeer.ID],
+		}
+		// nbpeer.Peer.Status is *PeerStatus; nil-guard before accessing.
+		if rPeer.Status != nil && !rPeer.Status.LastSeen.IsZero() {
+			cfg.LastSeenAtServer = timestamppb.New(rPeer.Status.LastSeen)
+		}
+		dst = append(dst, cfg)
 	}
 	return dst
+}
+
+// derefStringOrEmpty returns the pointed-to string or "" for nil.
+// Used for *string Settings fields where "" means "account hasn't
+// configured a mode; UI shows it as unset".
+func derefStringOrEmpty(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+// derefUint32OrZero returns the pointed-to uint32 or 0 for nil.
+// Used for *uint32 Settings fields where 0 means "account hasn't set
+// an override; daemon falls back to its built-in default".
+func derefUint32OrZero(u *uint32) uint32 {
+	if u == nil {
+		return 0
+	}
+	return *u
+}
+
+// BuildGroupNamesByPeerID constructs a peerID → sorted-group-names map
+// from the account's Groups in a single pass. Callers pass this to
+// ToSyncResponse so that appendRemotePeerConfig can annotate each
+// RemotePeerConfig.Groups without any additional DB calls.
+func BuildGroupNamesByPeerID(groups map[string]*types.Group) map[string][]string {
+	result := make(map[string][]string, len(groups))
+	for _, g := range groups {
+		for _, peerID := range g.Peers {
+			result[peerID] = append(result[peerID], g.Name)
+		}
+	}
+	for peerID := range result {
+		sort.Strings(result[peerID])
+	}
+	return result
 }
 
 // toProtocolDNSConfig converts nbdns.Config to proto.DNSConfig using the cache

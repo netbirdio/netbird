@@ -925,7 +925,19 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 		return status.Errorf(codes.Internal, "failed to get peer groups %s", err)
 	}
 
-	plainResp := ToSyncResponse(ctx, s.config, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, peer, turnToken, relayToken, networkMap, s.networkMapController.GetDNSDomain(settings), postureChecks, nil, settings, settings.Extra, peerGroups, dnsFwdPort)
+	// Phase 3.7i: build group-names map for RemotePeerConfig annotations.
+	accountGroups, err := s.accountManager.GetStore().GetAccountGroups(ctx, store.LockingStrengthNone, peer.AccountID)
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed to get account groups for peer %s: %v", peer.ID, err)
+		accountGroups = nil
+	}
+	groupsMap := make(map[string]*types.Group, len(accountGroups))
+	for _, g := range accountGroups {
+		groupsMap[g.ID] = g
+	}
+	groupNamesByPeerID := BuildGroupNamesByPeerID(groupsMap)
+
+	plainResp := ToSyncResponse(ctx, s.config, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, peer, turnToken, relayToken, networkMap, s.networkMapController.GetDNSDomain(settings), postureChecks, nil, settings, settings.Extra, peerGroups, dnsFwdPort, groupNamesByPeerID)
 
 	key, err := s.secretsManager.GetWGKey()
 	if err != nil {

@@ -169,6 +169,9 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 		return fmt.Errorf("failed to get account zones: %v", err)
 	}
 
+	// Phase 3.7i: build once, share read-only across goroutines.
+	groupNamesByPeerID := grpc.BuildGroupNamesByPeerID(account.Groups)
+
 	for _, peer := range account.Peers {
 		if !c.peersUpdateManager.HasChannel(peer.ID) {
 			log.WithContext(ctx).Tracef("peer %s doesn't have a channel, skipping network map update", peer.ID)
@@ -203,7 +206,7 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 
 			peerGroups := account.GetPeerGroups(p.ID)
 			start = time.Now()
-			update := grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, p, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, maps.Keys(peerGroups), dnsFwdPort)
+			update := grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, p, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSetting, maps.Keys(peerGroups), dnsFwdPort, groupNamesByPeerID)
 			c.metrics.CountToSyncResponseDuration(time.Since(start))
 
 			c.peersUpdateManager.SendUpdate(ctx, p.ID, &network_map.UpdateMessage{
@@ -324,8 +327,10 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 
 	peerGroups := account.GetPeerGroups(peerId)
 	dnsFwdPort := computeForwarderPort(maps.Values(account.Peers), network_map.DnsForwarderPortMinVersion)
+	// Phase 3.7i: build group names map for remote-peer annotations.
+	groupNamesByPeerID := grpc.BuildGroupNamesByPeerID(account.Groups)
 
-	update := grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, peer, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSettings, maps.Keys(peerGroups), dnsFwdPort)
+	update := grpc.ToSyncResponse(ctx, nil, c.config.HttpConfig, c.config.DeviceAuthorizationFlow, peer, nil, nil, remotePeerNetworkMap, dnsDomain, postureChecks, dnsCache, account.Settings, extraSettings, maps.Keys(peerGroups), dnsFwdPort, groupNamesByPeerID)
 	c.peersUpdateManager.SendUpdate(ctx, peer.ID, &network_map.UpdateMessage{
 		Update:      update,
 		MessageType: network_map.MessageTypeNetworkMap,
