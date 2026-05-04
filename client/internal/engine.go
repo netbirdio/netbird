@@ -1901,7 +1901,9 @@ func (e *Engine) wgInterfaceCreate() (err error) {
 		err = e.wgInterface.CreateOnAndroid(e.routeManager.InitialRouteRange(), e.dnsServer.DnsIP().String(), e.dnsServer.SearchDomains())
 	case "ios":
 		e.mobileDep.NetworkChangeListener.SetInterfaceIP(e.config.WgAddr.String())
-		e.mobileDep.NetworkChangeListener.SetInterfaceIPv6(e.config.WgAddr.IPv6String())
+		if e.config.WgAddr.HasIPv6() {
+			e.mobileDep.NetworkChangeListener.SetInterfaceIPv6(e.config.WgAddr.IPv6String())
+		}
 		err = e.wgInterface.Create()
 	default:
 		err = e.wgInterface.Create()
