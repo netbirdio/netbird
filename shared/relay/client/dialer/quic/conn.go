@@ -30,11 +30,11 @@ func (a Addr) String() string {
 }
 
 type Conn struct {
-	session quic.Connection
+	session *quic.Conn
 	ctx     context.Context
 }
 
-func NewConn(session quic.Connection) net.Conn {
+func NewConn(session *quic.Conn) net.Conn {
 	return &Conn{
 		session: session,
 		ctx:     context.Background(),

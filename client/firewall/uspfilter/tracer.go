@@ -379,9 +379,9 @@ func (m *Manager) handleNativeRouter(trace *PacketTrace) *PacketTrace {
 }
 
 func (m *Manager) handleRouteACLs(trace *PacketTrace, d *decoder, srcIP, dstIP netip.Addr) *PacketTrace {
-	proto, _ := getProtocolFromPacket(d)
+	protoLayer := d.decoded[1]
 	srcPort, dstPort := getPortsFromPacket(d)
-	id, allowed := m.routeACLsPass(srcIP, dstIP, proto, srcPort, dstPort)
+	id, allowed := m.routeACLsPass(srcIP, dstIP, protoLayer, srcPort, dstPort)
 
 	strId := string(id)
 	if id == nil {

@@ -16,7 +16,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/pprof"
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -25,11 +24,12 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/netbirdio/netbird/client/anonymize"
+	"github.com/netbirdio/netbird/client/configs"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
-	"github.com/netbirdio/netbird/client/internal/updatemanager/installer"
+	"github.com/netbirdio/netbird/client/internal/updater/installer"
+	nbstatus "github.com/netbirdio/netbird/client/status"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
-	"github.com/netbirdio/netbird/util"
 )
 
 const readmeContent = `Netbird debug bundle
@@ -51,13 +51,17 @@ resolved_domains.txt: Anonymized resolved domain IP addresses from the status re
 config.txt: Anonymized configuration information of the NetBird client.
 network_map.json: Anonymized sync response containing peer configurations, routes, DNS settings, and firewall rules.
 state.json: Anonymized client state dump containing netbird states for the active profile.
+service_params.json: Sanitized service install parameters (service.json). Sensitive environment variable values are masked. Only present when service.json exists.
+metrics.txt: Buffered client metrics in InfluxDB line protocol format. Only present when metrics collection is enabled. Peer identifiers are anonymized.
 mutex.prof: Mutex profiling information.
 goroutine.prof: Goroutine profiling information.
 block.prof: Block profiling information.
 heap.prof: Heap profiling information (snapshot of memory allocations).
 allocs.prof: Allocations profiling information.
 threadcreate.prof: Thread creation profiling information.
+cpu.prof: CPU profiling information.
 stack_trace.txt: Complete stack traces of all goroutines at the time of bundle creation.
+capture.pcap: Packet capture in pcap format. Only present when capture was running during bundle collection. Omitted from anonymized bundles because it contains raw decrypted packet data.
 
 
 Anonymization Process
@@ -216,6 +220,11 @@ const (
 	darwinStdoutLogPath = "/var/log/netbird.err.log"
 )
 
+// MetricsExporter is an interface for exporting metrics
+type MetricsExporter interface {
+	Export(w io.Writer) error
+}
+
 type BundleGenerator struct {
 	anonymizer *anonymize.Anonymizer
 
@@ -223,10 +232,14 @@ type BundleGenerator struct {
 	internalConfig *profilemanager.Config
 	statusRecorder *peer.Status
 	syncResponse   *mgmProto.SyncResponse
-	logFile        string
+	logPath        string
+	tempDir        string
+	cpuProfile     []byte
+	capturePath    string
+	refreshStatus  func() // Optional callback to refresh status before bundle generation
+	clientMetrics  MetricsExporter
 
 	anonymize         bool
-	clientStatus      string
 	includeSystemInfo bool
 	logFileCount      uint32
 
@@ -235,7 +248,6 @@ type BundleGenerator struct {
 
 type BundleConfig struct {
 	Anonymize         bool
-	ClientStatus      string
 	IncludeSystemInfo bool
 	LogFileCount      uint32
 }
@@ -244,7 +256,12 @@ type GeneratorDependencies struct {
 	InternalConfig *profilemanager.Config
 	StatusRecorder *peer.Status
 	SyncResponse   *mgmProto.SyncResponse
-	LogFile        string
+	LogPath        string
+	TempDir        string // Directory for temporary bundle zip files. If empty, os.TempDir() is used.
+	CPUProfile     []byte
+	CapturePath    string
+	RefreshStatus  func()
+	ClientMetrics  MetricsExporter
 }
 
 func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGenerator {
@@ -260,10 +277,14 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 		internalConfig: deps.InternalConfig,
 		statusRecorder: deps.StatusRecorder,
 		syncResponse:   deps.SyncResponse,
-		logFile:        deps.LogFile,
+		logPath:        deps.LogPath,
+		tempDir:        deps.TempDir,
+		cpuProfile:     deps.CPUProfile,
+		capturePath:    deps.CapturePath,
+		refreshStatus:  deps.RefreshStatus,
+		clientMetrics:  deps.ClientMetrics,
 
 		anonymize:         cfg.Anonymize,
-		clientStatus:      cfg.ClientStatus,
 		includeSystemInfo: cfg.IncludeSystemInfo,
 		logFileCount:      logFileCount,
 	}
@@ -271,7 +292,7 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 
 // Generate creates a debug bundle and returns the location.
 func (g *BundleGenerator) Generate() (resp string, err error) {
-	bundlePath, err := os.CreateTemp("", "netbird.debug.*.zip")
+	bundlePath, err := os.CreateTemp(g.tempDir, "netbird.debug.*.zip")
 	if err != nil {
 		return "", fmt.Errorf("create zip file: %w", err)
 	}
@@ -309,13 +330,6 @@ func (g *BundleGenerator) createArchive() error {
 		return fmt.Errorf("add status: %w", err)
 	}
 
-	if g.statusRecorder != nil {
-		status := g.statusRecorder.GetFullStatus()
-		seedFromStatus(g.anonymizer, &status)
-	} else {
-		log.Debugf("no status recorder available for seeding")
-	}
-
 	if err := g.addConfig(); err != nil {
 		log.Errorf("failed to add config to debug bundle: %v", err)
 	}
@@ -330,6 +344,14 @@ func (g *BundleGenerator) createArchive() error {
 
 	if err := g.addProf(); err != nil {
 		log.Errorf("failed to add profiles to debug bundle: %v", err)
+	}
+
+	if err := g.addCPUProfile(); err != nil {
+		log.Errorf("failed to add CPU profile to debug bundle: %v", err)
+	}
+
+	if err := g.addCaptureFile(); err != nil {
+		log.Errorf("failed to add capture file to debug bundle: %v", err)
 	}
 
 	if err := g.addStackTrace(); err != nil {
@@ -348,19 +370,20 @@ func (g *BundleGenerator) createArchive() error {
 		log.Errorf("failed to add corrupted state files to debug bundle: %v", err)
 	}
 
+	if err := g.addServiceParams(); err != nil {
+		log.Errorf("failed to add service params to debug bundle: %v", err)
+	}
+
+	if err := g.addMetrics(); err != nil {
+		log.Errorf("failed to add metrics to debug bundle: %v", err)
+	}
+
 	if err := g.addWgShow(); err != nil {
 		log.Errorf("failed to add wg show output: %v", err)
 	}
 
-	if g.logFile != "" && !slices.Contains(util.SpecialLogs, g.logFile) {
-		if err := g.addLogfile(); err != nil {
-			log.Errorf("failed to add log file to debug bundle: %v", err)
-			if err := g.trySystemdLogFallback(); err != nil {
-				log.Errorf("failed to add systemd logs as fallback: %v", err)
-			}
-		}
-	} else if err := g.trySystemdLogFallback(); err != nil {
-		log.Errorf("failed to add systemd logs: %v", err)
+	if err := g.addPlatformLog(); err != nil {
+		log.Errorf("failed to add logs to debug bundle: %v", err)
 	}
 
 	if err := g.addUpdateLogs(); err != nil {
@@ -401,11 +424,33 @@ func (g *BundleGenerator) addReadme() error {
 }
 
 func (g *BundleGenerator) addStatus() error {
-	if status := g.clientStatus; status != "" {
-		statusReader := strings.NewReader(status)
+	if g.statusRecorder != nil {
+		pm := profilemanager.NewProfileManager()
+		var profName string
+		if activeProf, err := pm.GetActiveProfile(); err == nil {
+			profName = activeProf.Name
+		}
+
+		if g.refreshStatus != nil {
+			g.refreshStatus()
+		}
+
+		fullStatus := g.statusRecorder.GetFullStatus()
+		protoFullStatus := nbstatus.ToProtoFullStatus(fullStatus)
+		protoFullStatus.Events = g.statusRecorder.GetEventHistory()
+		overview := nbstatus.ConvertToStatusOutputOverview(protoFullStatus, nbstatus.ConvertOptions{
+			Anonymize:   g.anonymize,
+			ProfileName: profName,
+		})
+		statusOutput := overview.FullDetailSummary()
+
+		statusReader := strings.NewReader(statusOutput)
 		if err := g.addFileToZip(statusReader, "status.txt"); err != nil {
 			return fmt.Errorf("add status file to zip: %w", err)
 		}
+		seedFromStatus(g.anonymizer, &fullStatus)
+	} else {
+		log.Debugf("no status recorder available for seeding")
 	}
 	return nil
 }
@@ -449,6 +494,90 @@ func (g *BundleGenerator) addConfig() error {
 	}
 
 	return nil
+}
+
+const (
+	serviceParamsFile    = "service.json"
+	serviceParamsBundle  = "service_params.json"
+	maskedValue          = "***"
+	envVarPrefix         = "NB_"
+	jsonKeyManagementURL = "management_url"
+	jsonKeyServiceEnv    = "service_env_vars"
+)
+
+var sensitiveEnvSubstrings = []string{"key", "token", "secret", "password", "credential"}
+
+// addServiceParams reads the service.json file and adds a sanitized version to the bundle.
+// Non-NB_ env vars and vars with sensitive names are masked. Other NB_ values are anonymized.
+func (g *BundleGenerator) addServiceParams() error {
+	path := filepath.Join(configs.StateDir, serviceParamsFile)
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read service params: %w", err)
+	}
+
+	var params map[string]any
+	if err := json.Unmarshal(data, &params); err != nil {
+		return fmt.Errorf("parse service params: %w", err)
+	}
+
+	if g.anonymize {
+		if mgmtURL, ok := params[jsonKeyManagementURL].(string); ok && mgmtURL != "" {
+			params[jsonKeyManagementURL] = g.anonymizer.AnonymizeURI(mgmtURL)
+		}
+	}
+
+	g.sanitizeServiceEnvVars(params)
+
+	sanitizedData, err := json.MarshalIndent(params, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal sanitized service params: %w", err)
+	}
+
+	if err := g.addFileToZip(bytes.NewReader(sanitizedData), serviceParamsBundle); err != nil {
+		return fmt.Errorf("add service params to zip: %w", err)
+	}
+
+	return nil
+}
+
+// sanitizeServiceEnvVars masks or anonymizes env var values in service params.
+// Non-NB_ vars and vars with sensitive names (key, token, etc.) are fully masked.
+// Other NB_ var values are passed through the anonymizer when anonymization is enabled.
+func (g *BundleGenerator) sanitizeServiceEnvVars(params map[string]any) {
+	envVars, ok := params[jsonKeyServiceEnv].(map[string]any)
+	if !ok {
+		return
+	}
+
+	sanitized := make(map[string]any, len(envVars))
+	for k, v := range envVars {
+		val, _ := v.(string)
+		switch {
+		case !strings.HasPrefix(k, envVarPrefix) || isSensitiveEnvVar(k):
+			sanitized[k] = maskedValue
+		case g.anonymize:
+			sanitized[k] = g.anonymizer.AnonymizeString(val)
+		default:
+			sanitized[k] = val
+		}
+	}
+	params[jsonKeyServiceEnv] = sanitized
+}
+
+// isSensitiveEnvVar returns true for env var names that may contain secrets.
+func isSensitiveEnvVar(key string) bool {
+	lower := strings.ToLower(key)
+	for _, s := range sensitiveEnvSubstrings {
+		if strings.Contains(lower, s) {
+			return true
+		}
+	}
+	return false
 }
 
 func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) {
@@ -532,6 +661,42 @@ func (g *BundleGenerator) addProf() (err error) {
 			return fmt.Errorf("add %s file to zip: %w", profile, err)
 		}
 	}
+	return nil
+}
+
+func (g *BundleGenerator) addCPUProfile() error {
+	if len(g.cpuProfile) == 0 {
+		return nil
+	}
+
+	reader := bytes.NewReader(g.cpuProfile)
+	if err := g.addFileToZip(reader, "cpu.prof"); err != nil {
+		return fmt.Errorf("add CPU profile to zip: %w", err)
+	}
+
+	return nil
+}
+
+func (g *BundleGenerator) addCaptureFile() error {
+	if g.capturePath == "" {
+		return nil
+	}
+
+	if g.anonymize {
+		log.Info("skipping capture file in anonymized bundle (contains raw packet data)")
+		return nil
+	}
+
+	f, err := os.Open(g.capturePath)
+	if err != nil {
+		return fmt.Errorf("open capture file: %w", err)
+	}
+	defer f.Close()
+
+	if err := g.addFileToZip(f, "capture.pcap"); err != nil {
+		return fmt.Errorf("add capture file to zip: %w", err)
+	}
+
 	return nil
 }
 
@@ -709,15 +874,39 @@ func (g *BundleGenerator) addCorruptedStateFiles() error {
 	return nil
 }
 
+func (g *BundleGenerator) addMetrics() error {
+	if g.clientMetrics == nil {
+		log.Debugf("skipping metrics in debug bundle: no metrics collector")
+		return nil
+	}
+
+	var buf bytes.Buffer
+	if err := g.clientMetrics.Export(&buf); err != nil {
+		return fmt.Errorf("export metrics: %w", err)
+	}
+
+	if buf.Len() == 0 {
+		log.Debugf("skipping metrics.txt in debug bundle: no metrics data")
+		return nil
+	}
+
+	if err := g.addFileToZip(&buf, "metrics.txt"); err != nil {
+		return fmt.Errorf("add metrics file to zip: %w", err)
+	}
+
+	log.Debugf("added metrics to debug bundle")
+	return nil
+}
+
 func (g *BundleGenerator) addLogfile() error {
-	if g.logFile == "" {
+	if g.logPath == "" {
 		log.Debugf("skipping empty log file in debug bundle")
 		return nil
 	}
 
-	logDir := filepath.Dir(g.logFile)
+	logDir := filepath.Dir(g.logPath)
 
-	if err := g.addSingleLogfile(g.logFile, clientLogFile); err != nil {
+	if err := g.addSingleLogfile(g.logPath, clientLogFile); err != nil {
 		return fmt.Errorf("add client log file to zip: %w", err)
 	}
 

@@ -176,6 +176,7 @@ var overview = OutputOverview{
 	Events:        []SystemEventOutput{},
 	CliVersion:    version.NetbirdVersion(),
 	DaemonVersion: "0.14.1",
+	DaemonStatus:  DaemonStatusConnected,
 	ManagementState: ManagementStateOutput{
 		URL:       "my-awesome-management.com:443",
 		Connected: true,
@@ -238,7 +239,10 @@ var overview = OutputOverview{
 }
 
 func TestConversionFromFullStatusToOutputOverview(t *testing.T) {
-	convertedResult := ConvertToStatusOutputOverview(resp, false, "", nil, nil, nil, "", "")
+	convertedResult := ConvertToStatusOutputOverview(resp.GetFullStatus(), ConvertOptions{
+		DaemonVersion: resp.GetDaemonVersion(),
+		DaemonStatus:  ParseDaemonStatus(resp.GetStatus()),
+	})
 
 	assert.Equal(t, overview, convertedResult)
 }
@@ -268,7 +272,7 @@ func TestSortingOfPeers(t *testing.T) {
 }
 
 func TestParsingToJSON(t *testing.T) {
-	jsonString, _ := ParseToJSON(overview)
+	jsonString, _ := overview.JSON()
 
 	//@formatter:off
 	expectedJSONString := `
@@ -329,6 +333,7 @@ func TestParsingToJSON(t *testing.T) {
           },
           "cliVersion": "development",
           "daemonVersion": "0.14.1",
+          "daemonStatus": "Connected",
           "management": {
             "url": "my-awesome-management.com:443",
             "connected": true,
@@ -404,7 +409,7 @@ func TestParsingToJSON(t *testing.T) {
 }
 
 func TestParsingToYAML(t *testing.T) {
-	yaml, _ := ParseToYAML(overview)
+	yaml, _ := overview.YAML()
 
 	expectedYAML :=
 		`peers:
@@ -452,6 +457,7 @@ func TestParsingToYAML(t *testing.T) {
           networks: []
 cliVersion: development
 daemonVersion: 0.14.1
+daemonStatus: Connected
 management:
     url: my-awesome-management.com:443
     connected: true
@@ -511,7 +517,7 @@ func TestParsingToDetail(t *testing.T) {
 	lastConnectionUpdate2 := timeAgo(overview.Peers.Details[1].LastStatusUpdate)
 	lastHandshake2 := timeAgo(overview.Peers.Details[1].LastWireguardHandshake)
 
-	detail := ParseToFullDetailSummary(overview)
+	detail := overview.FullDetailSummary()
 
 	expectedDetail := fmt.Sprintf(
 		`Peers detail:
@@ -567,7 +573,6 @@ Quantum resistance: false
 Lazy connection: false
 SSH Server: Disabled
 Networks: 10.10.0.0/24
-Forwarding rules: 0
 Peers count: 2/2 Connected
 `, lastConnectionUpdate1, lastHandshake1, lastConnectionUpdate2, lastHandshake2, runtime.GOOS, runtime.GOARCH, overview.CliVersion)
 
@@ -575,7 +580,7 @@ Peers count: 2/2 Connected
 }
 
 func TestParsingToShortVersion(t *testing.T) {
-	shortVersion := ParseGeneralSummary(overview, false, false, false, false)
+	shortVersion := overview.GeneralSummary(false, false, false, false)
 
 	expectedString := fmt.Sprintf("OS: %s/%s", runtime.GOOS, runtime.GOARCH) + `
 Daemon version: 0.14.1
@@ -592,7 +597,6 @@ Quantum resistance: false
 Lazy connection: false
 SSH Server: Disabled
 Networks: 10.10.0.0/24
-Forwarding rules: 0
 Peers count: 2/2 Connected
 `
 

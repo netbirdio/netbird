@@ -18,7 +18,7 @@ CREATE TABLE `network_resources` (`id` text,`network_id` text,`account_id` text,
 CREATE TABLE  `networks` (`id` text,`account_id` text,`name` text,`description` text,PRIMARY KEY (`id`),CONSTRAINT `fk_accounts_networks` FOREIGN KEY (`account_id`) REFERENCES `accounts`(`id`));
 CREATE INDEX `idx_accounts_domain` ON `accounts`(`domain`);
 CREATE INDEX `idx_setup_keys_account_id` ON `setup_keys`(`account_id`);
-CREATE INDEX `idx_peers_key` ON `peers`(`key`);
+CREATE UNIQUE INDEX `idx_peers_key_unique` ON `peers`(`key`);
 CREATE INDEX `idx_peers_account_id` ON `peers`(`account_id`);
 CREATE INDEX `idx_peers_account_id_ip` ON `peers`(`account_id`,`ip`);
 CREATE INDEX `idx_users_account_id` ON `users`(`account_id`);
@@ -54,4 +54,4 @@ INSERT INTO policy_rules VALUES('cs387mkv2d4bgq41b6n0','cs1tnh0hhcjnqoiuebf0','D
 INSERT INTO network_routers VALUES('ctc20ji7qv9ck2sebc80','ct286bi7qv930dsrrug0','bf1c8084-ba50-4ce7-9439-34653001fc3b','cs1tnh0hhcjnqoiuebeg',NULL,0,0);
 INSERT INTO network_resources VALUES ('ctc4nci7qv9061u6ilfg','ct286bi7qv930dsrrug0','bf1c8084-ba50-4ce7-9439-34653001fc3b','Host','192.168.1.1');
 INSERT INTO networks VALUES('ct286bi7qv930dsrrug0','bf1c8084-ba50-4ce7-9439-34653001fc3b','Test Network','Test Network');
-INSERT INTO peers VALUES('ct286bi7qv930dsrrug0','bf1c8084-ba50-4ce7-9439-34653001fc3b','','','"192.168.0.0"','','','','','','','','','','','','','','','','','test','test','2023-01-01 00:00:00+00:00',0,0,0,'a23efe53-63fb-11ec-90d6-0242ac120003','',0,0,'2023-01-01 00:00:00+00:00','2023-01-01 00:00:00+00:00',0,'','','',0);
+INSERT INTO peers VALUES('ct286bi7qv930dsrrug0','bf1c8084-ba50-4ce7-9439-34653001fc3b','6kjbmVq1hmucVzvBXo5OucY5OYv+jSsB1jUTLq291Do=','','"192.168.0.0"','','','','','','','','','','','','','','','','','test','test','2023-01-01 00:00:00+00:00',0,0,0,'a23efe53-63fb-11ec-90d6-0242ac120003','',0,0,'2023-01-01 00:00:00+00:00','2023-01-01 00:00:00+00:00',0,'','','',0);

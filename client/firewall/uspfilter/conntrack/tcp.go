@@ -115,6 +115,17 @@ func (t *TCPConnTrack) IsTombstone() bool {
 	return t.tombstone.Load()
 }
 
+// IsSupersededBy returns true if this connection should be replaced by a new one
+// carrying the given flags. Tombstoned connections are always superseded; TIME-WAIT
+// connections are superseded by a pure SYN (a new connection attempt for the same
+// four-tuple, as contemplated by RFC 1122 §4.2.2.13 and RFC 6191).
+func (t *TCPConnTrack) IsSupersededBy(flags uint8) bool {
+	if t.tombstone.Load() {
+		return true
+	}
+	return flags&TCPSyn != 0 && flags&TCPAck == 0 && TCPState(t.state.Load()) == TCPStateTimeWait
+}
+
 // SetTombstone safely marks the connection for deletion
 func (t *TCPConnTrack) SetTombstone() {
 	t.tombstone.Store(true)
@@ -169,7 +180,7 @@ func (t *TCPTracker) updateIfExists(srcIP, dstIP netip.Addr, srcPort, dstPort ui
 	conn, exists := t.connections[key]
 	t.mutex.RUnlock()
 
-	if exists {
+	if exists && !conn.IsSupersededBy(flags) {
 		t.updateState(key, conn, flags, direction, size)
 		return key, uint16(conn.DNATOrigPort.Load()), true
 	}
@@ -241,7 +252,7 @@ func (t *TCPTracker) IsValidInbound(srcIP, dstIP netip.Addr, srcPort, dstPort ui
 	conn, exists := t.connections[key]
 	t.mutex.RUnlock()
 
-	if !exists || conn.IsTombstone() {
+	if !exists || conn.IsSupersededBy(flags) {
 		return false
 	}
 

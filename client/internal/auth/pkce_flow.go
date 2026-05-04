@@ -20,7 +20,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 
-	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/templates"
 	"github.com/netbirdio/netbird/shared/management/client/common"
 )
@@ -35,17 +34,67 @@ const (
 	defaultPKCETimeoutSeconds = 300
 )
 
+// PKCEAuthProviderConfig has all attributes needed to initiate PKCE authorization flow
+type PKCEAuthProviderConfig struct {
+	// ClientID An IDP application client id
+	ClientID string
+	// ClientSecret An IDP application client secret
+	ClientSecret string
+	// Audience An Audience for to authorization validation
+	Audience string
+	// TokenEndpoint is the endpoint of an IDP manager where clients can obtain access token
+	TokenEndpoint string
+	// AuthorizationEndpoint is the endpoint of an IDP manager where clients can obtain authorization code
+	AuthorizationEndpoint string
+	// Scopes provides the scopes to be included in the token request
+	Scope string
+	// RedirectURL handles authorization code from IDP manager
+	RedirectURLs []string
+	// UseIDToken indicates if the id token should be used for authentication
+	UseIDToken bool
+	// ClientCertPair is used for mTLS authentication to the IDP
+	ClientCertPair *tls.Certificate
+	// DisablePromptLogin makes the PKCE flow to not prompt the user for login
+	DisablePromptLogin bool
+	// LoginFlag is used to configure the PKCE flow login behavior
+	LoginFlag common.LoginFlag
+	// LoginHint is used to pre-fill the email/username field during authentication
+	LoginHint string
+}
+
+// validatePKCEConfig validates PKCE provider configuration
+func validatePKCEConfig(config *PKCEAuthProviderConfig) error {
+	errorMsgFormat := "invalid provider configuration received from management: %s value is empty. Contact your NetBird administrator"
+
+	if config.ClientID == "" {
+		return fmt.Errorf(errorMsgFormat, "Client ID")
+	}
+	if config.TokenEndpoint == "" {
+		return fmt.Errorf(errorMsgFormat, "Token Endpoint")
+	}
+	if config.AuthorizationEndpoint == "" {
+		return fmt.Errorf(errorMsgFormat, "Authorization Auth Endpoint")
+	}
+	if config.Scope == "" {
+		return fmt.Errorf(errorMsgFormat, "PKCE Auth Scopes")
+	}
+	if config.RedirectURLs == nil {
+		return fmt.Errorf(errorMsgFormat, "PKCE Redirect URLs")
+	}
+	return nil
+}
+
 // PKCEAuthorizationFlow implements the OAuthFlow interface for
 // the Authorization Code Flow with PKCE.
 type PKCEAuthorizationFlow struct {
-	providerConfig internal.PKCEAuthProviderConfig
+	providerConfig PKCEAuthProviderConfig
 	state          string
 	codeVerifier   string
 	oAuthConfig    *oauth2.Config
 }
 
 // NewPKCEAuthorizationFlow returns new PKCE authorization code flow.
-func NewPKCEAuthorizationFlow(config internal.PKCEAuthProviderConfig) (*PKCEAuthorizationFlow, error) {
+func NewPKCEAuthorizationFlow(config PKCEAuthProviderConfig) (*PKCEAuthorizationFlow, error) {
 	var availableRedirectURL string
 
 	excludedRanges := getSystemExcludedPortRanges()
@@ -124,10 +173,21 @@ func (p *PKCEAuthorizationFlow) RequestAuthInfo(ctx context.Context) (AuthFlowIn
 	}, nil
 }
 
+// SetLoginHint sets the login hint for the PKCE authorization flow
+func (p *PKCEAuthorizationFlow) SetLoginHint(hint string) {
+	p.providerConfig.LoginHint = hint
+}
+
 // WaitToken waits for the OAuth token in the PKCE Authorization Flow.
 // It starts an HTTP server to receive the OAuth token callback and waits for the token or an error.
 // Once the token is received, it is converted to TokenInfo and validated before returning.
-func (p *PKCEAuthorizationFlow) WaitToken(ctx context.Context, _ AuthFlowInfo) (TokenInfo, error) {
+// The method creates a timeout context internally based on info.ExpiresIn.
+func (p *PKCEAuthorizationFlow) WaitToken(ctx context.Context, info AuthFlowInfo) (TokenInfo, error) {
+	// Create timeout context based on flow expiration
+	timeout := time.Duration(info.ExpiresIn) * time.Second
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	tokenChan := make(chan *oauth2.Token, 1)
 	errChan := make(chan error, 1)
 
@@ -138,7 +198,7 @@ func (p *PKCEAuthorizationFlow) WaitToken(ctx context.Context, _ AuthFlowInfo) (
 
 	server := &http.Server{Addr: fmt.Sprintf(":%s", parsedURL.Port())}
 	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
 		if err := server.Shutdown(shutdownCtx); err != nil {
@@ -149,8 +209,8 @@ func (p *PKCEAuthorizationFlow) WaitToken(ctx context.Context, _ AuthFlowInfo) (
 	go p.startServer(server, tokenChan, errChan)
 
 	select {
-	case <-ctx.Done():
-		return TokenInfo{}, ctx.Err()
+	case <-waitCtx.Done():
+		return TokenInfo{}, waitCtx.Err()
 	case token := <-tokenChan:
 		return p.parseOAuthToken(token)
 	case err := <-errChan:

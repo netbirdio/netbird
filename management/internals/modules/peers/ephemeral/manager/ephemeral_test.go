@@ -62,7 +62,7 @@ func (a *MockAccountManager) GetDeletePeerCalls() int {
 	return a.deletePeerCalls
 }
 
-func (a *MockAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string) {
+func (a *MockAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.bufferUpdateCalls == nil {
@@ -248,7 +248,7 @@ func TestCleanupSchedulingBehaviorIsBatched(t *testing.T) {
 					return err
 				}
 			}
-			mockAM.BufferUpdateAccountPeers(ctx, accountID)
+			mockAM.BufferUpdateAccountPeers(ctx, accountID, types.UpdateReason{})
 			return nil
 		}).
 		Times(1)
@@ -309,7 +309,7 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain string, dis
 	setupKeys := map[string]*types.SetupKey{}
 	nameServersGroups := make(map[string]*nbdns.NameServerGroup)
 
-	owner := types.NewOwnerUser(userID)
+	owner := types.NewOwnerUser(userID, "", "")
 	owner.AccountID = accountID
 	users[userID] = owner
 

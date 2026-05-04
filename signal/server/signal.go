@@ -62,8 +62,8 @@ type Server struct {
 }
 
 // NewServer creates a new Signal server
-func NewServer(ctx context.Context, meter metric.Meter) (*Server, error) {
-	appMetrics, err := metrics.NewAppMetrics(meter)
+func NewServer(ctx context.Context, meter metric.Meter, metricsPrefix ...string) (*Server, error) {
+	appMetrics, err := metrics.NewAppMetrics(meter, metricsPrefix...)
 	if err != nil {
 		return nil, fmt.Errorf("creating app metrics: %v", err)
 	}

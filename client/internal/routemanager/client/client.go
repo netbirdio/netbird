@@ -3,7 +3,9 @@ package client
 import (
 	"context"
 	"fmt"
+	"net"
 	"reflect"
+	"strconv"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -263,8 +265,14 @@ func (w *Watcher) watchPeerStatusChanges(ctx context.Context, peerKey string, pe
 		case <-closer:
 			return
 		case routerStates := <-subscription.Events():
-			peerStateUpdate <- routerStates
-			log.Debugf("triggered route state update for Peer: %s", peerKey)
+			select {
+			case peerStateUpdate <- routerStates:
+				log.Debugf("triggered route state update for Peer: %s", peerKey)
+			case <-ctx.Done():
+				return
+			case <-closer:
+				return
+			}
 		}
 	}
 }
@@ -558,7 +566,7 @@ func HandlerFromRoute(params common.HandlerParams) RouteHandler {
 		return dnsinterceptor.New(params)
 	case handlerTypeDynamic:
 		dns := nbdns.NewServiceViaMemory(params.WgInterface)
-		dnsAddr := fmt.Sprintf("%s:%d", dns.RuntimeIP(), dns.RuntimePort())
+		dnsAddr := net.JoinHostPort(dns.RuntimeIP().String(), strconv.Itoa(dns.RuntimePort()))
 		return dynamic.NewRoute(params, dnsAddr)
 	default:
 		return static.NewRoute(params)

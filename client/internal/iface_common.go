@@ -28,6 +28,7 @@ type wgIfaceBase interface {
 	Up() (*udpmux.UniversalUDPMuxDefault, error)
 	UpdateAddr(newAddr string) error
 	GetProxy() wgproxy.Proxy
+	GetProxyPort() uint16
 	UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
 	RemoveEndpointAddress(key string) error
 	RemovePeer(peerKey string) error
@@ -42,4 +43,5 @@ type wgIfaceBase interface {
 	GetNet() *netstack.Net
 	FullStats() (*configurer.Stats, error)
 	LastActivities() map[string]monotime.Time
+	SetPresharedKey(peerKey string, psk wgtypes.Key, updateOnly bool) error
 }

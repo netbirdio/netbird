@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net"
 	"net/netip"
-	"runtime"
 	"sync"
 	"time"
 
@@ -71,15 +70,6 @@ func (m *Manager) MonitorPeerActivity(peerCfg lazyconn.PeerConfig) error {
 
 func (m *Manager) createListener(peerCfg lazyconn.PeerConfig) (listener, error) {
 	if !m.wgIface.IsUserspaceBind() {
-		return NewUDPListener(m.wgIface, peerCfg)
-	}
-
-	// BindListener is only used on Windows and JS platforms:
-	// - JS: Cannot listen to UDP sockets
-	// - Windows: IP_UNICAST_IF socket option forces packets out the interface the default
-	//   gateway points to, preventing them from reaching the loopback interface.
-	//   BindListener bypasses this by passing data directly through the bind.
-	if runtime.GOOS != "windows" && runtime.GOOS != "js" {
 		return NewUDPListener(m.wgIface, peerCfg)
 	}
 

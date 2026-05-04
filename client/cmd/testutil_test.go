@@ -13,11 +13,14 @@ import (
 
 	"github.com/netbirdio/management-integrations/integrations"
 
+	nbcache "github.com/netbirdio/netbird/management/server/cache"
+
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
 	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
+	"github.com/netbirdio/netbird/management/server/job"
 
 	clientProto "github.com/netbirdio/netbird/client/proto"
 	client "github.com/netbirdio/netbird/client/server"
@@ -89,9 +92,6 @@ func startManagement(t *testing.T, config *config.Config, testFile string) (*grp
 	t.Cleanup(cleanUp)
 
 	eventStore := &activity.InMemoryEventStore{}
-	if err != nil {
-		return nil, nil
-	}
 
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
@@ -100,9 +100,18 @@ func startManagement(t *testing.T, config *config.Config, testFile string) (*grp
 	peersmanager := peers.NewManager(store, permissionsManagerMock)
 	settingsManagerMock := settings.NewMockManager(ctrl)
 
-	iv, _ := integrations.NewIntegratedValidator(context.Background(), peersmanager, settingsManagerMock, eventStore)
+	jobManager := job.NewJobManager(nil, store, peersmanager)
 
-	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
+	ctx := context.Background()
+
+	cacheStore, err := nbcache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	iv, _ := integrations.NewIntegratedValidator(ctx, peersmanager, settingsManagerMock, eventStore, cacheStore)
+
+	metrics, err := telemetry.NewDefaultAppMetrics(ctx)
 	require.NoError(t, err)
 
 	settingsMockManager := settings.NewMockManager(ctrl)
@@ -113,12 +122,11 @@ func startManagement(t *testing.T, config *config.Config, testFile string) (*grp
 		Return(&types.Settings{}, nil).
 		AnyTimes()
 
-	ctx := context.Background()
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := mgmt.NewAccountRequestBuffer(ctx, store)
 	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, mgmt.MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), manager.NewEphemeralManager(store, peersmanager), config)
 
-	accountManager, err := mgmt.BuildManager(context.Background(), config, store, networkMapController, nil, "", eventStore, nil, false, iv, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock, false)
+	accountManager, err := mgmt.BuildManager(ctx, config, store, networkMapController, jobManager, nil, "", eventStore, nil, false, iv, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManagerMock, false, cacheStore)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +135,7 @@ func startManagement(t *testing.T, config *config.Config, testFile string) (*grp
 	if err != nil {
 		t.Fatal(err)
 	}
-	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, secretsManager, nil, nil, &mgmt.MockIntegratedValidator{}, networkMapController)
+	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, jobManager, secretsManager, nil, nil, &mgmt.MockIntegratedValidator{}, networkMapController, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +160,7 @@ func startClientDaemon(
 	s := grpc.NewServer()
 
 	server := client.New(ctx,
-		"", "", false, false)
+		"", "", false, false, false, false)
 	if err := server.Start(); err != nil {
 		t.Fatal(err)
 	}

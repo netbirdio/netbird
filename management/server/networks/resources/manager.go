@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 
+	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/groups"
@@ -34,17 +37,19 @@ type managerImpl struct {
 	permissionsManager permissions.Manager
 	groupsManager      groups.Manager
 	accountManager     account.Manager
+	serviceManager     service.Manager
 }
 
 type mockManager struct {
 }
 
-func NewManager(store store.Store, permissionsManager permissions.Manager, groupsManager groups.Manager, accountManager account.Manager) Manager {
+func NewManager(store store.Store, permissionsManager permissions.Manager, groupsManager groups.Manager, accountManager account.Manager, reverseproxyManager service.Manager) Manager {
 	return &managerImpl{
 		store:              store,
 		permissionsManager: permissionsManager,
 		groupsManager:      groupsManager,
 		accountManager:     accountManager,
+		serviceManager:     reverseproxyManager,
 	}
 }
 
@@ -157,7 +162,7 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 		event()
 	}
 
-	go m.accountManager.UpdateAccountPeers(ctx, resource.AccountID)
+	go m.accountManager.UpdateAccountPeers(ctx, resource.AccountID, nbtypes.UpdateReason{Resource: nbtypes.UpdateResourceNetworkResource, Operation: nbtypes.UpdateOperationCreate})
 
 	return resource, nil
 }
@@ -257,7 +262,15 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 		event()
 	}
 
-	go m.accountManager.UpdateAccountPeers(ctx, resource.AccountID)
+	// TODO: optimize to only reload reverse proxies that are affected by the resource update instead of all of them
+	go func() {
+		err := m.serviceManager.ReloadAllServicesForAccount(ctx, resource.AccountID)
+		if err != nil {
+			log.WithContext(ctx).Warnf("failed to reload all proxies for account: %v", err)
+		}
+	}()
+
+	go m.accountManager.UpdateAccountPeers(ctx, resource.AccountID, nbtypes.UpdateReason{Resource: nbtypes.UpdateResourceNetworkResource, Operation: nbtypes.UpdateOperationUpdate})
 
 	return resource, nil
 }
@@ -309,6 +322,14 @@ func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, net
 		return status.NewPermissionDeniedError()
 	}
 
+	serviceID, err := m.serviceManager.GetServiceIDByTargetID(ctx, accountID, resourceID)
+	if err != nil {
+		return fmt.Errorf("failed to check if resource is used by service: %w", err)
+	}
+	if serviceID != "" {
+		return status.NewResourceInUseError(resourceID, serviceID)
+	}
+
 	var events []func()
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		events, err = m.DeleteResourceInTransaction(ctx, transaction, accountID, userID, networkID, resourceID)
@@ -331,7 +352,7 @@ func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, net
 		event()
 	}
 
-	go m.accountManager.UpdateAccountPeers(ctx, accountID)
+	go m.accountManager.UpdateAccountPeers(ctx, accountID, nbtypes.UpdateReason{Resource: nbtypes.UpdateResourceNetworkResource, Operation: nbtypes.UpdateOperationDelete})
 
 	return nil
 }

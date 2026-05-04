@@ -9,6 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/debug"
@@ -16,7 +17,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/server"
-	nbstatus "github.com/netbirdio/netbird/client/status"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/upload-server/types"
 )
@@ -98,7 +98,6 @@ func debugBundle(cmd *cobra.Command, _ []string) error {
 	client := proto.NewDaemonServiceClient(conn)
 	request := &proto.DebugBundleRequest{
 		Anonymize:    anonymizeFlag,
-		Status:       getStatusOutput(cmd, anonymizeFlag),
 		SystemInfo:   systemInfoFlag,
 		LogFileCount: logFileCount,
 	}
@@ -136,6 +135,7 @@ func setLogLevel(cmd *cobra.Command, args []string) error {
 	client := proto.NewDaemonServiceClient(conn)
 	level := server.ParseLogLevel(args[0])
 	if level == proto.LogLevel_UNKNOWN {
+		//nolint
 		return fmt.Errorf("unknown log level: %s. Available levels are: panic, fatal, error, warn, info, debug, trace\n", args[0])
 	}
 
@@ -182,10 +182,11 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 
 	if stateWasDown {
 		if _, err := client.Up(cmd.Context(), &proto.UpRequest{}); err != nil {
-			return fmt.Errorf("failed to up: %v", status.Convert(err).Message())
+			cmd.PrintErrf("Failed to bring service up: %v\n", status.Convert(err).Message())
+		} else {
+			cmd.Println("netbird up")
+			time.Sleep(time.Second * 10)
 		}
-		cmd.Println("netbird up")
-		time.Sleep(time.Second * 10)
 	}
 
 	initialLevelTrace := initialLogLevel.GetLevel() >= proto.LogLevel_TRACE
@@ -199,10 +200,13 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 		cmd.Println("Log level set to trace.")
 	}
 
+	needsRestoreUp := false
 	if _, err := client.Down(cmd.Context(), &proto.DownRequest{}); err != nil {
-		return fmt.Errorf("failed to down: %v", status.Convert(err).Message())
+		cmd.PrintErrf("Failed to bring service down: %v\n", status.Convert(err).Message())
+	} else {
+		needsRestoreUp = !stateWasDown
+		cmd.Println("netbird down")
 	}
-	cmd.Println("netbird down")
 
 	time.Sleep(1 * time.Second)
 
@@ -210,31 +214,88 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	if _, err := client.SetSyncResponsePersistence(cmd.Context(), &proto.SetSyncResponsePersistenceRequest{
 		Enabled: true,
 	}); err != nil {
-		return fmt.Errorf("failed to enable sync response persistence: %v", status.Convert(err).Message())
+		cmd.PrintErrf("Failed to enable sync response persistence: %v\n", status.Convert(err).Message())
 	}
 
 	if _, err := client.Up(cmd.Context(), &proto.UpRequest{}); err != nil {
-		return fmt.Errorf("failed to up: %v", status.Convert(err).Message())
+		cmd.PrintErrf("Failed to bring service up: %v\n", status.Convert(err).Message())
+	} else {
+		needsRestoreUp = false
+		cmd.Println("netbird up")
 	}
-	cmd.Println("netbird up")
 
 	time.Sleep(3 * time.Second)
 
-	headerPostUp := fmt.Sprintf("----- NetBird post-up - Timestamp: %s", time.Now().Format(time.RFC3339))
-	statusOutput := fmt.Sprintf("%s\n%s", headerPostUp, getStatusOutput(cmd, anonymizeFlag))
+	cpuProfilingStarted := false
+	if _, err := client.StartCPUProfile(cmd.Context(), &proto.StartCPUProfileRequest{}); err != nil {
+		cmd.PrintErrf("Failed to start CPU profiling: %v\n", err)
+	} else {
+		cpuProfilingStarted = true
+		defer func() {
+			if cpuProfilingStarted {
+				if _, err := client.StopCPUProfile(cmd.Context(), &proto.StopCPUProfileRequest{}); err != nil {
+					cmd.PrintErrf("Failed to stop CPU profiling: %v\n", err)
+				}
+			}
+		}()
+	}
+
+	captureStarted := false
+	if wantCapture, _ := cmd.Flags().GetBool("capture"); wantCapture {
+		captureTimeout := duration + 30*time.Second
+		const maxBundleCapture = 10 * time.Minute
+		if captureTimeout > maxBundleCapture {
+			captureTimeout = maxBundleCapture
+		}
+		_, err := client.StartBundleCapture(cmd.Context(), &proto.StartBundleCaptureRequest{
+			Timeout: durationpb.New(captureTimeout),
+		})
+		if err != nil {
+			cmd.PrintErrf("Failed to start packet capture: %v\n", status.Convert(err).Message())
+		} else {
+			captureStarted = true
+			cmd.Println("Packet capture started.")
+			// Safety: always stop on exit, even if the normal stop below runs too.
+			defer func() {
+				if captureStarted {
+					stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					if _, err := client.StopBundleCapture(stopCtx, &proto.StopBundleCaptureRequest{}); err != nil {
+						cmd.PrintErrf("Failed to stop packet capture: %v\n", err)
+					}
+				}
+			}()
+		}
+	}
 
 	if waitErr := waitForDurationOrCancel(cmd.Context(), duration, cmd); waitErr != nil {
 		return waitErr
 	}
 	cmd.Println("\nDuration completed")
 
+	if captureStarted {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if _, err := client.StopBundleCapture(stopCtx, &proto.StopBundleCaptureRequest{}); err != nil {
+			cmd.PrintErrf("Failed to stop packet capture: %v\n", err)
+		} else {
+			captureStarted = false
+			cmd.Println("Packet capture stopped.")
+		}
+	}
+
+	if cpuProfilingStarted {
+		if _, err := client.StopCPUProfile(cmd.Context(), &proto.StopCPUProfileRequest{}); err != nil {
+			cmd.PrintErrf("Failed to stop CPU profiling: %v\n", err)
+		} else {
+			cpuProfilingStarted = false
+		}
+	}
+
 	cmd.Println("Creating debug bundle...")
 
-	headerPreDown := fmt.Sprintf("----- NetBird pre-down - Timestamp: %s - Duration: %s", time.Now().Format(time.RFC3339), duration)
-	statusOutput = fmt.Sprintf("%s\n%s\n%s", statusOutput, headerPreDown, getStatusOutput(cmd, anonymizeFlag))
 	request := &proto.DebugBundleRequest{
 		Anonymize:    anonymizeFlag,
-		Status:       statusOutput,
 		SystemInfo:   systemInfoFlag,
 		LogFileCount: logFileCount,
 	}
@@ -246,18 +307,28 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to bundle debug: %v", status.Convert(err).Message())
 	}
 
+	if needsRestoreUp {
+		if _, err := client.Up(cmd.Context(), &proto.UpRequest{}); err != nil {
+			cmd.PrintErrf("Failed to restore service up state: %v\n", status.Convert(err).Message())
+		} else {
+			cmd.Println("netbird up (restored)")
+		}
+	}
+
 	if stateWasDown {
 		if _, err := client.Down(cmd.Context(), &proto.DownRequest{}); err != nil {
-			return fmt.Errorf("failed to down: %v", status.Convert(err).Message())
+			cmd.PrintErrf("Failed to restore service down state: %v\n", status.Convert(err).Message())
+		} else {
+			cmd.Println("netbird down")
 		}
-		cmd.Println("netbird down")
 	}
 
 	if !initialLevelTrace {
 		if _, err := client.SetLogLevel(cmd.Context(), &proto.SetLogLevelRequest{Level: initialLogLevel.GetLevel()}); err != nil {
-			return fmt.Errorf("failed to restore log level: %v", status.Convert(err).Message())
+			cmd.PrintErrf("Failed to restore log level: %v\n", status.Convert(err).Message())
+		} else {
+			cmd.Println("Log level restored to", initialLogLevel.GetLevel())
 		}
-		cmd.Println("Log level restored to", initialLogLevel.GetLevel())
 	}
 
 	cmd.Printf("Local file:\n%s\n", resp.GetPath())
@@ -299,25 +370,6 @@ func setSyncResponsePersistence(cmd *cobra.Command, args []string) error {
 
 	cmd.Printf("Sync response persistence set to: %s\n", persistence)
 	return nil
-}
-
-func getStatusOutput(cmd *cobra.Command, anon bool) string {
-	var statusOutputString string
-	statusResp, err := getStatus(cmd.Context(), true)
-	if err != nil {
-		cmd.PrintErrf("Failed to get status: %v\n", err)
-	} else {
-		pm := profilemanager.NewProfileManager()
-		var profName string
-		if activeProf, err := pm.GetActiveProfile(); err == nil {
-			profName = activeProf.Name
-		}
-
-		statusOutputString = nbstatus.ParseToFullDetailSummary(
-			nbstatus.ConvertToStatusOutputOverview(statusResp, anon, "", nil, nil, nil, "", profName),
-		)
-	}
-	return statusOutputString
 }
 
 func waitForDurationOrCancel(ctx context.Context, duration time.Duration, cmd *cobra.Command) error {
@@ -378,7 +430,8 @@ func generateDebugBundle(config *profilemanager.Config, recorder *peer.Status, c
 			InternalConfig: config,
 			StatusRecorder: recorder,
 			SyncResponse:   syncResponse,
-			LogFile:        logFilePath,
+			LogPath:        logFilePath,
+			CPUProfile:     nil,
 		},
 		debug.BundleConfig{
 			IncludeSystemInfo: true,
@@ -403,4 +456,5 @@ func init() {
 	forCmd.Flags().BoolVarP(&systemInfoFlag, "system-info", "S", true, "Adds system information to the debug bundle")
 	forCmd.Flags().BoolVarP(&uploadBundleFlag, "upload-bundle", "U", false, "Uploads the debug bundle to a server")
 	forCmd.Flags().StringVar(&uploadBundleURLFlag, "upload-bundle-url", types.DefaultBundleURL, "Service URL to get an URL to upload the debug bundle")
+	forCmd.Flags().Bool("capture", false, "Capture packets during the debug duration and include in bundle")
 }

@@ -66,7 +66,7 @@ func (t *NetStackTun) Create() (tun.Device, *netstack.Net, error) {
 		}
 	}()
 
-	return nsTunDev, tunNet, nil
+	return t.tundev, tunNet, nil
 }
 
 func (t *NetStackTun) Close() error {

@@ -114,19 +114,19 @@ func (p *ProxyBind) Pause() {
 }
 
 func (p *ProxyBind) RedirectAs(endpoint *net.UDPAddr) {
+	ep, err := addrToEndpoint(endpoint)
+	if err != nil {
+		log.Errorf("failed to start package redirection: %v", err)
+		return
+	}
+
 	p.pausedCond.L.Lock()
 	p.paused = false
 
-	p.wgCurrentUsed = addrToEndpoint(endpoint)
+	p.wgCurrentUsed = ep
 
 	p.pausedCond.Signal()
 	p.pausedCond.L.Unlock()
-}
-
-func addrToEndpoint(addr *net.UDPAddr) *bind.Endpoint {
-	ip, _ := netip.AddrFromSlice(addr.IP.To4())
-	addrPort := netip.AddrPortFrom(ip, uint16(addr.Port))
-	return &bind.Endpoint{AddrPort: addrPort}
 }
 
 func (p *ProxyBind) CloseConn() error {
@@ -211,4 +211,17 @@ func fakeAddress(peerAddress *net.UDPAddr) (*netip.AddrPort, error) {
 
 	netipAddr := netip.AddrPortFrom(fakeIP, uint16(peerAddress.Port))
 	return &netipAddr, nil
+}
+
+func addrToEndpoint(addr *net.UDPAddr) (*bind.Endpoint, error) {
+	if addr == nil {
+		return nil, fmt.Errorf("invalid address")
+	}
+	ip, ok := netip.AddrFromSlice(addr.IP)
+	if !ok {
+		return nil, fmt.Errorf("convert %s to netip.Addr", addr)
+	}
+
+	addrPort := netip.AddrPortFrom(ip.Unmap(), uint16(addr.Port))
+	return &bind.Endpoint{AddrPort: addrPort}, nil
 }

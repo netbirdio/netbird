@@ -7,10 +7,10 @@ import (
 	"os/user"
 	"runtime"
 	"strings"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
@@ -24,6 +24,7 @@ import (
 
 func init() {
 	loginCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
+	loginCmd.PersistentFlags().BoolVar(&showQR, showQRFlag, false, showQRDesc)
 	loginCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
 	loginCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "(DEPRECATED) Netbird config file location")
 }
@@ -81,6 +82,7 @@ var loginCmd = &cobra.Command{
 func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey string, activeProf *profilemanager.Profile, username string, pm *profilemanager.ProfileManager) error {
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
+		//nolint
 		return fmt.Errorf("failed to connect to daemon error: %v\n"+
 			"If the daemon is not running please run: "+
 			"\nnetbird service install \nnetbird service start\n", err)
@@ -224,6 +226,7 @@ func switchProfileOnDaemon(ctx context.Context, pm *profilemanager.ProfileManage
 func switchProfile(ctx context.Context, profileName string, username string) error {
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
+		//nolint
 		return fmt.Errorf("failed to connect to daemon error: %v\n"+
 			"If the daemon is not running please run: "+
 			"\nnetbird service install \nnetbird service start\n", err)
@@ -273,7 +276,7 @@ func doForegroundLogin(ctx context.Context, cmd *cobra.Command, setupKey string,
 }
 
 func handleSSOLogin(ctx context.Context, cmd *cobra.Command, loginResp *proto.LoginResponse, client proto.DaemonServiceClient, pm *profilemanager.ProfileManager) error {
-	openURL(cmd, loginResp.VerificationURIComplete, loginResp.UserCode, noBrowser)
+	openURL(cmd, loginResp.VerificationURIComplete, loginResp.UserCode, noBrowser, showQR)
 
 	resp, err := client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode, Hostname: hostName})
 	if err != nil {
@@ -293,18 +296,15 @@ func handleSSOLogin(ctx context.Context, cmd *cobra.Command, loginResp *proto.Lo
 }
 
 func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *profilemanager.Config, setupKey, profileName string) error {
-	needsLogin := false
-
-	err := WithBackOff(func() error {
-		err := internal.Login(ctx, config, "", "")
-		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
-			needsLogin = true
-			return nil
-		}
-		return err
-	})
+	authClient, err := auth.NewAuth(ctx, config.PrivateKey, config.ManagementURL, config)
 	if err != nil {
-		return fmt.Errorf("backoff cycle failed: %v", err)
+		return fmt.Errorf("failed to create auth client: %v", err)
+	}
+	defer authClient.Close()
+
+	needsLogin, err := authClient.IsLoginRequired(ctx)
+	if err != nil {
+		return fmt.Errorf("check login required: %v", err)
 	}
 
 	jwtToken := ""
@@ -316,23 +316,9 @@ func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *profileman
 		jwtToken = tokenInfo.GetTokenToUse()
 	}
 
-	var lastError error
-
-	err = WithBackOff(func() error {
-		err := internal.Login(ctx, config, setupKey, jwtToken)
-		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
-			lastError = err
-			return nil
-		}
-		return err
-	})
-
-	if lastError != nil {
-		return fmt.Errorf("login failed: %v", lastError)
-	}
-
+	err, _ = authClient.Login(ctx, setupKey, jwtToken)
 	if err != nil {
-		return fmt.Errorf("backoff cycle failed: %v", err)
+		return fmt.Errorf("login failed: %v", err)
 	}
 
 	return nil
@@ -358,13 +344,9 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *pro
 		return nil, fmt.Errorf("getting a request OAuth flow info failed: %v", err)
 	}
 
-	openURL(cmd, flowInfo.VerificationURIComplete, flowInfo.UserCode, noBrowser)
+	openURL(cmd, flowInfo.VerificationURIComplete, flowInfo.UserCode, noBrowser, showQR)
 
-	waitTimeout := time.Duration(flowInfo.ExpiresIn) * time.Second
-	waitCTX, c := context.WithTimeout(context.TODO(), waitTimeout)
-	defer c()
-
-	tokenInfo, err := oAuthFlow.WaitToken(waitCTX, flowInfo)
+	tokenInfo, err := oAuthFlow.WaitToken(context.TODO(), flowInfo)
 	if err != nil {
 		return nil, fmt.Errorf("waiting for browser login failed: %v", err)
 	}
@@ -372,7 +354,7 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *pro
 	return &tokenInfo, nil
 }
 
-func openURL(cmd *cobra.Command, verificationURIComplete, userCode string, noBrowser bool) {
+func openURL(cmd *cobra.Command, verificationURIComplete, userCode string, noBrowser, showQR bool) {
 	var codeMsg string
 	if userCode != "" && !strings.Contains(verificationURIComplete, userCode) {
 		codeMsg = fmt.Sprintf("and enter the code %s to authenticate.", userCode)
@@ -384,6 +366,12 @@ func openURL(cmd *cobra.Command, verificationURIComplete, userCode string, noBro
 		cmd.Println("Please do the SSO login in your browser. \n" +
 			"If your browser didn't open automatically, use this URL to log in:\n\n" +
 			verificationURIComplete + " " + codeMsg)
+	}
+
+	if showQR {
+		if f, ok := cmd.OutOrStdout().(*os.File); ok && term.IsTerminal(int(f.Fd())) {
+			printQRCode(f, verificationURIComplete)
+		}
 	}
 
 	cmd.Println("")

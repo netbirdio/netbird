@@ -18,14 +18,26 @@ func (s *Server) SetAllowSFTP(allow bool) {
 
 // sftpSubsystemHandler handles SFTP subsystem requests
 func (s *Server) sftpSubsystemHandler(sess ssh.Session) {
+	sessionKey := s.registerSession(sess, cmdSFTP)
+	defer s.unregisterSession(sessionKey)
+
+	jwtUsername := s.associateJWTUsername(sess, sessionKey)
+
+	logger := log.WithField("session", sessionKey)
+	if jwtUsername != "" {
+		logger = logger.WithField("jwt_user", jwtUsername)
+	}
+	logger.Info("SFTP session started")
+	defer logger.Info("SFTP session closed")
+
 	s.mu.RLock()
 	allowSFTP := s.allowSFTP
 	s.mu.RUnlock()
 
 	if !allowSFTP {
-		log.Debugf("SFTP subsystem request denied: SFTP disabled")
+		logger.Debug("SFTP subsystem request denied: SFTP disabled")
 		if err := sess.Exit(1); err != nil {
-			log.Debugf("SFTP session exit failed: %v", err)
+			logger.Debugf("SFTP session exit: %v", err)
 		}
 		return
 	}
@@ -37,31 +49,27 @@ func (s *Server) sftpSubsystemHandler(sess ssh.Session) {
 	})
 
 	if !result.Allowed {
-		log.Warnf("SFTP access denied for user %s from %s: %v", sess.User(), sess.RemoteAddr(), result.Error)
+		logger.Warnf("SFTP access denied: %v", result.Error)
 		if err := sess.Exit(1); err != nil {
-			log.Debugf("exit SFTP session: %v", err)
+			logger.Debugf("exit SFTP session: %v", err)
 		}
 		return
 	}
 
-	log.Debugf("SFTP subsystem request from user %s (effective user %s)", sess.User(), result.User.Username)
-
 	if !result.RequiresUserSwitching {
 		if err := s.executeSftpDirect(sess); err != nil {
-			log.Errorf("SFTP direct execution: %v", err)
+			logger.Errorf("SFTP direct execution: %v", err)
 		}
 		return
 	}
 
 	if err := s.executeSftpWithPrivilegeDrop(sess, result.User); err != nil {
-		log.Errorf("SFTP privilege drop execution: %v", err)
+		logger.Errorf("SFTP privilege drop execution: %v", err)
 	}
 }
 
 // executeSftpDirect executes SFTP directly without privilege dropping
 func (s *Server) executeSftpDirect(sess ssh.Session) error {
-	log.Debugf("starting SFTP session for user %s (no privilege dropping)", sess.User())
-
 	sftpServer, err := sftp.NewServer(sess)
 	if err != nil {
 		return fmt.Errorf("SFTP server creation: %w", err)

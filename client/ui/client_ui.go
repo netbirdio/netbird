@@ -34,15 +34,14 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	protobuf "google.golang.org/protobuf/proto"
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
-	"github.com/netbirdio/netbird/client/internal/sleep"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ui/desktop"
 	"github.com/netbirdio/netbird/client/ui/event"
+	"github.com/netbirdio/netbird/client/ui/notifier"
 	"github.com/netbirdio/netbird/client/ui/process"
 	"github.com/netbirdio/netbird/util"
 
@@ -261,6 +260,7 @@ type serviceClient struct {
 
 	// application with main windows.
 	app                  fyne.App
+	notifier             notifier.Notifier
 	wSettings            fyne.Window
 	showAdvancedSettings bool
 	sendNotification     bool
@@ -308,12 +308,14 @@ type serviceClient struct {
 	sshJWTCacheTTL             int
 
 	connected            bool
-	update               *version.Update
 	daemonVersion        string
 	updateIndicationLock sync.Mutex
 	isUpdateIconActive   bool
+	isEnforcedUpdate     bool
+	lastNotifiedVersion  string
 	settingsEnabled      bool
 	profilesEnabled      bool
+	networksEnabled      bool
 	showNetworks         bool
 	wNetworks            fyne.Window
 	wProfiles            fyne.Window
@@ -323,7 +325,8 @@ type serviceClient struct {
 
 	exitNodeMu           sync.Mutex
 	mExitNodeItems       []menuHandler
-	exitNodeStates       []exitNodeState
+	exitNodeRetryCancel  context.CancelFunc
+	mExitNodeSeparator   *systray.MenuItem
 	mExitNodeDeselectAll *systray.MenuItem
 	logFile              string
 	wLoginURL            fyne.Window
@@ -362,12 +365,13 @@ func newServiceClient(args *newServiceClientArgs) *serviceClient {
 		cancel:           cancel,
 		addr:             args.addr,
 		app:              args.app,
+		notifier:         notifier.New(args.app),
 		logFile:          args.logFile,
 		sendNotification: false,
 
 		showAdvancedSettings: args.showSettings,
 		showNetworks:         args.showNetworks,
-		update:               version.NewUpdateAndStart("nb/client-ui"),
+		networksEnabled:      true,
 	}
 
 	s.eventHandler = newEventHandler(s)
@@ -510,7 +514,7 @@ func (s *serviceClient) saveSettings() {
 		// Continue with default behavior if features can't be retrieved
 	} else if features != nil && features.DisableUpdateSettings {
 		log.Warn("Configuration updates are disabled by daemon")
-		dialog.ShowError(fmt.Errorf("Configuration updates are disabled by daemon"), s.wSettings)
+		dialog.ShowError(fmt.Errorf("configuration updates are disabled by daemon"), s.wSettings)
 		return
 	}
 
@@ -540,7 +544,7 @@ func (s *serviceClient) saveSettings() {
 func (s *serviceClient) validateSettings() error {
 	if s.iPreSharedKey.Text != "" && s.iPreSharedKey.Text != censoredPreSharedKey {
 		if _, err := wgtypes.ParseKey(s.iPreSharedKey.Text); err != nil {
-			return fmt.Errorf("Invalid Pre-shared Key Value")
+			return fmt.Errorf("invalid pre-shared key value")
 		}
 	}
 	return nil
@@ -549,10 +553,10 @@ func (s *serviceClient) validateSettings() error {
 func (s *serviceClient) parseNumericSettings() (int64, int64, error) {
 	port, err := strconv.ParseInt(s.iInterfacePort.Text, 10, 64)
 	if err != nil {
-		return 0, 0, errors.New("Invalid interface port")
+		return 0, 0, errors.New("invalid interface port")
 	}
 	if port < 1 || port > 65535 {
-		return 0, 0, errors.New("Invalid interface port: out of range 1-65535")
+		return 0, 0, errors.New("invalid interface port: out of range 1-65535")
 	}
 
 	var mtu int64
@@ -560,7 +564,7 @@ func (s *serviceClient) parseNumericSettings() (int64, int64, error) {
 	if mtuText != "" {
 		mtu, err = strconv.ParseInt(mtuText, 10, 64)
 		if err != nil {
-			return 0, 0, errors.New("Invalid MTU value")
+			return 0, 0, errors.New("invalid MTU value")
 		}
 		if mtu < iface.MinMTU || mtu > iface.MaxMTU {
 			return 0, 0, fmt.Errorf("MTU must be between %d and %d bytes", iface.MinMTU, iface.MaxMTU)
@@ -645,7 +649,7 @@ func (s *serviceClient) buildSetConfigRequest(iMngURL string, port, mtu int64) (
 	if sshJWTCacheTTLText != "" {
 		sshJWTCacheTTL, err := strconv.ParseInt(sshJWTCacheTTLText, 10, 32)
 		if err != nil {
-			return nil, errors.New("Invalid SSH JWT Cache TTL value")
+			return nil, errors.New("invalid SSH JWT Cache TTL value")
 		}
 		if sshJWTCacheTTL < 0 || sshJWTCacheTTL > maxSSHJWTCacheTTL {
 			return nil, fmt.Errorf("SSH JWT Cache TTL must be between 0 and %d seconds", maxSSHJWTCacheTTL)
@@ -828,7 +832,7 @@ func (s *serviceClient) handleSSOLogin(ctx context.Context, loginResp *proto.Log
 	return nil
 }
 
-func (s *serviceClient) menuUpClick(ctx context.Context, wannaAutoUpdate bool) error {
+func (s *serviceClient) menuUpClick(ctx context.Context) error {
 	systray.SetTemplateIcon(iconConnectingMacOS, s.icConnecting)
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
@@ -850,9 +854,7 @@ func (s *serviceClient) menuUpClick(ctx context.Context, wannaAutoUpdate bool) e
 		return nil
 	}
 
-	if _, err := s.conn.Up(s.ctx, &proto.UpRequest{
-		AutoUpdate: protobuf.Bool(wannaAutoUpdate),
-	}); err != nil {
+	if _, err := s.conn.Up(s.ctx, &proto.UpRequest{}); err != nil {
 		return fmt.Errorf("start connection: %w", err)
 	}
 
@@ -892,7 +894,7 @@ func (s *serviceClient) updateStatus() error {
 		if err != nil {
 			log.Errorf("get service status: %v", err)
 			if s.connected {
-				s.app.SendNotification(fyne.NewNotification("Error", "Connection to service lost"))
+				s.notifier.Send("Error", "Connection to service lost")
 			}
 			s.setDisconnectedStatus()
 			return err
@@ -909,7 +911,7 @@ func (s *serviceClient) updateStatus() error {
 		var systrayIconState bool
 
 		switch {
-		case status.Status == string(internal.StatusConnected) && !s.mUp.Disabled():
+		case status.Status == string(internal.StatusConnected) && !s.connected:
 			s.connected = true
 			s.sendNotification = true
 			if s.isUpdateIconActive {
@@ -922,9 +924,11 @@ func (s *serviceClient) updateStatus() error {
 			s.mStatus.SetIcon(s.icConnectedDot)
 			s.mUp.Disable()
 			s.mDown.Enable()
-			s.mNetworks.Enable()
-			s.mExitNode.Enable()
-			go s.updateExitNodes()
+			if s.networksEnabled {
+				s.mNetworks.Enable()
+				s.mExitNode.Enable()
+			}
+			s.startExitNodeRefresh()
 			systrayIconState = true
 		case status.Status == string(internal.StatusConnecting):
 			s.setConnectingStatus()
@@ -933,13 +937,13 @@ func (s *serviceClient) updateStatus() error {
 			systrayIconState = false
 		}
 
-		// the updater struct notify by the upgrades available only, but if meanwhile the daemon has successfully
-		// updated must reset the mUpdate visibility state
+		// if the daemon version changed (e.g. after a successful update), reset the update indication
 		if s.daemonVersion != status.DaemonVersion {
-			s.mUpdate.Hide()
+			if s.daemonVersion != "" {
+				s.mUpdate.Hide()
+				s.isUpdateIconActive = false
+			}
 			s.daemonVersion = status.DaemonVersion
-
-			s.isUpdateIconActive = s.update.SetDaemonVersion(status.DaemonVersion)
 			if !s.isUpdateIconActive {
 				if systrayIconState {
 					systray.SetTemplateIcon(iconConnectedMacOS, s.icConnected)
@@ -985,6 +989,7 @@ func (s *serviceClient) setDisconnectedStatus() {
 	s.mUp.Enable()
 	s.mNetworks.Disable()
 	s.mExitNode.Disable()
+	s.cancelExitNodeRetry()
 	go s.updateExitNodes()
 }
 
@@ -1033,7 +1038,7 @@ func (s *serviceClient) onTrayReady() {
 	s.mDown.Disable()
 	systray.AddSeparator()
 
-	s.mSettings = systray.AddMenuItem("Settings", settingsMenuDescr)
+	s.mSettings = systray.AddMenuItem("Settings", disabledMenuDescr)
 	s.mAllowSSH = s.mSettings.AddSubMenuItemCheckbox("Allow SSH", allowSSHMenuDescr, false)
 	s.mAutoConnect = s.mSettings.AddSubMenuItemCheckbox("Connect on Startup", autoConnectMenuDescr, false)
 	s.mEnableRosenpass = s.mSettings.AddSubMenuItemCheckbox("Enable Quantum-Resistance", quantumResistanceMenuDescr, false)
@@ -1060,7 +1065,7 @@ func (s *serviceClient) onTrayReady() {
 	}
 
 	s.exitNodeMu.Lock()
-	s.mExitNode = systray.AddMenuItem("Exit Node", exitNodeMenuDescr)
+	s.mExitNode = systray.AddMenuItem("Exit Node", disabledMenuDescr)
 	s.mExitNode.Disable()
 	s.exitNodeMu.Unlock()
 
@@ -1090,24 +1095,23 @@ func (s *serviceClient) onTrayReady() {
 	// update exit node menu in case service is already connected
 	go s.updateExitNodes()
 
-	s.update.SetOnUpdateListener(s.onUpdateAvailable)
 	go func() {
 		s.getSrvConfig()
 		time.Sleep(100 * time.Millisecond) // To prevent race condition caused by systray not being fully initialized and ignoring setIcon
 		for {
+			// Check features before status so menus respect disable flags before being enabled
+			s.checkAndUpdateFeatures()
+
 			err := s.updateStatus()
 			if err != nil {
 				log.Errorf("error while updating status: %v", err)
 			}
 
-			// Check features periodically to handle daemon restarts
-			s.checkAndUpdateFeatures()
-
 			time.Sleep(2 * time.Second)
 		}
 	}()
 
-	s.eventManager = event.NewManager(s.app, s.addr)
+	s.eventManager = event.NewManager(s.notifier, s.addr)
 	s.eventManager.SetNotificationsEnabled(s.mNotifications.Checked())
 	s.eventManager.AddHandler(func(event *proto.SystemEvent) {
 		if event.Category == proto.SystemEvent_SYSTEM {
@@ -1134,12 +1138,16 @@ func (s *serviceClient) onTrayReady() {
 			}
 		}
 	})
+	s.eventManager.AddHandler(func(event *proto.SystemEvent) {
+		if newVersion, ok := event.Metadata["new_version_available"]; ok {
+			_, enforced := event.Metadata["enforced"]
+			log.Infof("received new_version_available event: version=%s enforced=%v", newVersion, enforced)
+			s.onUpdateAvailable(newVersion, enforced)
+		}
+	})
 
 	go s.eventManager.Start(s.ctx)
 	go s.eventHandler.listen(s.ctx)
-
-	// Start sleep detection listener
-	go s.startSleepListener()
 }
 
 func (s *serviceClient) attachOutput(cmd *exec.Cmd) *os.File {
@@ -1200,68 +1208,11 @@ func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonService
 	return s.conn, nil
 }
 
-// startSleepListener initializes the sleep detection service and listens for sleep events
-func (s *serviceClient) startSleepListener() {
-	sleepService, err := sleep.New()
-	if err != nil {
-		log.Warnf("%v", err)
-		return
-	}
-
-	if err := sleepService.Register(s.handleSleepEvents); err != nil {
-		log.Errorf("failed to start sleep detection: %v", err)
-		return
-	}
-
-	log.Info("sleep detection service initialized")
-
-	// Cleanup on context cancellation
-	go func() {
-		<-s.ctx.Done()
-		log.Info("stopping sleep event listener")
-		if err := sleepService.Deregister(); err != nil {
-			log.Errorf("failed to deregister sleep detection: %v", err)
-		}
-	}()
-}
-
-// handleSleepEvents sends a sleep notification to the daemon via gRPC
-func (s *serviceClient) handleSleepEvents(event sleep.EventType) {
-	conn, err := s.getSrvClient(0)
-	if err != nil {
-		log.Errorf("failed to get daemon client for sleep notification: %v", err)
-		return
-	}
-
-	req := &proto.OSLifecycleRequest{}
-
-	switch event {
-	case sleep.EventTypeWakeUp:
-		log.Infof("handle wakeup event: %v", event)
-		req.Type = proto.OSLifecycleRequest_WAKEUP
-	case sleep.EventTypeSleep:
-		log.Infof("handle sleep event: %v", event)
-		req.Type = proto.OSLifecycleRequest_SLEEP
-	default:
-		log.Infof("unknown event: %v", event)
-		return
-	}
-
-	_, err = conn.NotifyOSLifecycle(s.ctx, req)
-	if err != nil {
-		log.Errorf("failed to notify daemon about os lifecycle notification: %v", err)
-		return
-	}
-
-	log.Info("successfully notified daemon about os lifecycle")
-}
-
 // setSettingsEnabled enables or disables the settings menu based on the provided state
 func (s *serviceClient) setSettingsEnabled(enabled bool) {
 	if s.mSettings != nil {
 		if enabled {
 			s.mSettings.Enable()
-			s.mSettings.SetTooltip(settingsMenuDescr)
 		} else {
 			s.mSettings.Hide()
 			s.mSettings.SetTooltip("Settings are disabled by daemon")
@@ -1294,6 +1245,16 @@ func (s *serviceClient) checkAndUpdateFeatures() {
 			s.profilesEnabled = profilesEnabled
 			s.mProfile.setEnabled(profilesEnabled)
 		}
+	}
+
+	// Update networks and exit node menus based on current features
+	s.networksEnabled = features == nil || !features.DisableNetworks
+	if s.networksEnabled && s.connected {
+		s.mNetworks.Enable()
+		s.mExitNode.Enable()
+	} else {
+		s.mNetworks.Disable()
+		s.mExitNode.Disable()
 	}
 }
 
@@ -1507,9 +1468,17 @@ func protoConfigToConfig(cfg *proto.GetConfigResponse) *profilemanager.Config {
 	return &config
 }
 
-func (s *serviceClient) onUpdateAvailable() {
+func (s *serviceClient) onUpdateAvailable(newVersion string, enforced bool) {
 	s.updateIndicationLock.Lock()
 	defer s.updateIndicationLock.Unlock()
+
+	s.isEnforcedUpdate = enforced
+	if enforced {
+		s.mUpdate.SetTitle("Install version " + newVersion)
+	} else {
+		s.lastNotifiedVersion = ""
+		s.mUpdate.SetTitle("Download latest version")
+	}
 
 	s.mUpdate.Show()
 	s.isUpdateIconActive = true
@@ -1518,6 +1487,11 @@ func (s *serviceClient) onUpdateAvailable() {
 		systray.SetTemplateIcon(iconUpdateConnectedMacOS, s.icUpdateConnected)
 	} else {
 		systray.SetTemplateIcon(iconUpdateDisconnectedMacOS, s.icUpdateDisconnected)
+	}
+
+	if enforced && s.lastNotifiedVersion != newVersion {
+		s.lastNotifiedVersion = newVersion
+		s.notifier.Send("Update available", "A new version "+newVersion+" is ready to install")
 	}
 }
 

@@ -196,6 +196,8 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 		GetPATInfoFunc:                  mockGetAccountInfoFromPAT,
 	}
 
+	disabledLimiter := NewAPIRateLimiter(nil)
+	disabledLimiter.SetEnabled(false)
 	authMiddleware := NewAuthMiddleware(
 		mockAuth,
 		func(ctx context.Context, userAuth nbauth.UserAuth) (string, string, error) {
@@ -207,7 +209,7 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 		func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 			return &types.User{}, nil
 		},
-		nil,
+		disabledLimiter,
 		nil,
 	)
 
@@ -266,7 +268,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
-			rateLimitConfig,
+			NewAPIRateLimiter(rateLimitConfig),
 			nil,
 		)
 
@@ -318,7 +320,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
-			rateLimitConfig,
+			NewAPIRateLimiter(rateLimitConfig),
 			nil,
 		)
 
@@ -361,7 +363,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
-			rateLimitConfig,
+			NewAPIRateLimiter(rateLimitConfig),
 			nil,
 		)
 
@@ -405,7 +407,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
-			rateLimitConfig,
+			NewAPIRateLimiter(rateLimitConfig),
 			nil,
 		)
 
@@ -469,7 +471,7 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 				return &types.User{}, nil
 			},
-			rateLimitConfig,
+			NewAPIRateLimiter(rateLimitConfig),
 			nil,
 		)
 
@@ -508,6 +510,103 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 		handler.ServeHTTP(rec, req)
 		assert.Equal(t, http.StatusTooManyRequests, rec.Code, "Second request after cleanup should be rate limited again")
 	})
+
+	t.Run("Terraform User Agent Not Rate Limited", func(t *testing.T) {
+		rateLimitConfig := &RateLimiterConfig{
+			RequestsPerMinute: 1,
+			Burst:             1,
+			CleanupInterval:   5 * time.Minute,
+			LimiterTTL:        10 * time.Minute,
+		}
+
+		authMiddleware := NewAuthMiddleware(
+			mockAuth,
+			func(ctx context.Context, userAuth nbauth.UserAuth) (string, string, error) {
+				return userAuth.AccountId, userAuth.UserId, nil
+			},
+			func(ctx context.Context, userAuth nbauth.UserAuth) error {
+				return nil
+			},
+			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
+				return &types.User{}, nil
+			},
+			NewAPIRateLimiter(rateLimitConfig),
+			nil,
+		)
+
+		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+
+		// Test various Terraform user agent formats
+		terraformUserAgents := []string{
+			"Terraform/1.5.0",
+			"terraform/1.0.0",
+			"Terraform-Provider/2.0.0",
+			"Mozilla/5.0 (compatible; Terraform/1.3.0)",
+		}
+
+		for _, userAgent := range terraformUserAgents {
+			t.Run("UserAgent: "+userAgent, func(t *testing.T) {
+				successCount := 0
+				for i := 0; i < 10; i++ {
+					req := httptest.NewRequest("GET", "http://testing/test", nil)
+					req.Header.Set("Authorization", "Token "+PAT)
+					req.Header.Set("User-Agent", userAgent)
+					rec := httptest.NewRecorder()
+
+					handler.ServeHTTP(rec, req)
+					if rec.Code == http.StatusOK {
+						successCount++
+					}
+				}
+
+				assert.Equal(t, 10, successCount, "All Terraform user agent requests should succeed (not rate limited)")
+			})
+		}
+	})
+
+	t.Run("Non-Terraform User Agent With PAT Is Rate Limited", func(t *testing.T) {
+		rateLimitConfig := &RateLimiterConfig{
+			RequestsPerMinute: 1,
+			Burst:             1,
+			CleanupInterval:   5 * time.Minute,
+			LimiterTTL:        10 * time.Minute,
+		}
+
+		authMiddleware := NewAuthMiddleware(
+			mockAuth,
+			func(ctx context.Context, userAuth nbauth.UserAuth) (string, string, error) {
+				return userAuth.AccountId, userAuth.UserId, nil
+			},
+			func(ctx context.Context, userAuth nbauth.UserAuth) error {
+				return nil
+			},
+			func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
+				return &types.User{}, nil
+			},
+			NewAPIRateLimiter(rateLimitConfig),
+			nil,
+		)
+
+		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+
+		req := httptest.NewRequest("GET", "http://testing/test", nil)
+		req.Header.Set("Authorization", "Token "+PAT)
+		req.Header.Set("User-Agent", "curl/7.68.0")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusOK, rec.Code, "First request should succeed")
+
+		req = httptest.NewRequest("GET", "http://testing/test", nil)
+		req.Header.Set("Authorization", "Token "+PAT)
+		req.Header.Set("User-Agent", "curl/7.68.0")
+		rec = httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusTooManyRequests, rec.Code, "Second request should be rate limited")
+	})
 }
 
 func TestAuthMiddleware_Handler_Child(t *testing.T) {
@@ -530,15 +629,14 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 			},
 		},
 		{
-			name:       "Valid PAT Token accesses child",
+			name:       "PAT Token with account param ignored in public version",
 			path:       "/test?account=xyz",
 			authHeader: "Token " + PAT,
 			expectedUserAuth: &nbauth.UserAuth{
-				AccountId:      "xyz",
+				AccountId:      accountID,
 				UserId:         userID,
 				Domain:         testAccount.Domain,
 				DomainCategory: testAccount.DomainCategory,
-				IsChild:        true,
 				IsPAT:          true,
 			},
 		},
@@ -555,15 +653,14 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 		},
 
 		{
-			name:       "Valid JWT Token with child",
+			name:       "JWT Token with account param ignored in public version",
 			path:       "/test?account=xyz",
 			authHeader: "Bearer " + JWT,
 			expectedUserAuth: &nbauth.UserAuth{
-				AccountId:      "xyz",
+				AccountId:      accountID,
 				UserId:         userID,
 				Domain:         testAccount.Domain,
 				DomainCategory: testAccount.DomainCategory,
-				IsChild:        true,
 			},
 		},
 	}
@@ -575,6 +672,8 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 		GetPATInfoFunc:                  mockGetAccountInfoFromPAT,
 	}
 
+	disabledLimiter := NewAPIRateLimiter(nil)
+	disabledLimiter.SetEnabled(false)
 	authMiddleware := NewAuthMiddleware(
 		mockAuth,
 		func(ctx context.Context, userAuth nbauth.UserAuth) (string, string, error) {
@@ -586,7 +685,7 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 		func(ctx context.Context, userAuth nbauth.UserAuth) (*types.User, error) {
 			return &types.User{}, nil
 		},
-		nil,
+		disabledLimiter,
 		nil,
 	)
 

@@ -15,6 +15,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	"github.com/netbirdio/netbird/management/server/job"
 	"github.com/netbirdio/netbird/shared/auth"
 
 	cacheStore "github.com/eko/gocache/lib/v4/store"
@@ -47,6 +49,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
 	"github.com/netbirdio/netbird/route"
+	nbdomain "github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -70,6 +73,7 @@ type DefaultAccountManager struct {
 	// cacheLoading keeps the accountIDs that are currently reloading. The accountID has to be removed once cache has been reloaded
 	cacheLoading         map[string]chan struct{}
 	networkMapController network_map.Controller
+	jobManager           *job.Manager
 	idpManager           idp.Manager
 	cacheManager         *nbcache.AccountUserDataCache
 	externalCacheManager nbcache.UserDataCache
@@ -81,6 +85,7 @@ type DefaultAccountManager struct {
 
 	proxyController port_forwarding.Controller
 	settingsManager settings.Manager
+	serviceManager  service.Manager
 
 	// config contains the management server configuration
 	config *nbconfig.Config
@@ -109,6 +114,10 @@ type DefaultAccountManager struct {
 }
 
 var _ account.Manager = (*DefaultAccountManager)(nil)
+
+func (am *DefaultAccountManager) SetServiceManager(serviceManager service.Manager) {
+	am.serviceManager = serviceManager
+}
 
 func isUniqueConstraintError(err error) bool {
 	switch {
@@ -172,12 +181,13 @@ func (am *DefaultAccountManager) getJWTGroupsChanges(user *types.User, groups []
 	return modified, newUserAutoGroups, newGroupsToCreate, nil
 }
 
-// BuildManager creates a new DefaultAccountManager with a provided Store
+// BuildManager creates a new DefaultAccountManager with all dependencies.
 func BuildManager(
 	ctx context.Context,
 	config *nbconfig.Config,
 	store store.Store,
 	networkMapController network_map.Controller,
+	jobManager *job.Manager,
 	idpManager idp.Manager,
 	singleAccountModeDomain string,
 	eventStore activity.Store,
@@ -189,6 +199,7 @@ func BuildManager(
 	settingsManager settings.Manager,
 	permissionsManager permissions.Manager,
 	disableDefaultPolicy bool,
+	sharedCacheStore cacheStore.StoreInterface,
 ) (*DefaultAccountManager, error) {
 	start := time.Now()
 	defer func() {
@@ -200,6 +211,7 @@ func BuildManager(
 		config:                   config,
 		geo:                      geo,
 		networkMapController:     networkMapController,
+		jobManager:               jobManager,
 		idpManager:               idpManager,
 		ctx:                      context.Background(),
 		cacheMux:                 sync.Mutex{},
@@ -227,7 +239,7 @@ func BuildManager(
 	// enable single account mode only if configured by user and number of existing accounts is not grater than 1
 	am.singleAccountMode = singleAccountModeDomain != "" && accountsCounter <= 1
 	if am.singleAccountMode {
-		if !isDomainValid(singleAccountModeDomain) {
+		if !nbdomain.IsValidDomainNoWildcard(singleAccountModeDomain) {
 			return nil, status.Errorf(status.InvalidArgument, "invalid domain \"%s\" provided for a single account mode. Please review your input for --single-account-mode-domain", singleAccountModeDomain)
 		}
 		am.singleAccountModeDomain = singleAccountModeDomain
@@ -236,16 +248,12 @@ func BuildManager(
 		log.WithContext(ctx).Infof("single account mode disabled, accounts number %d", accountsCounter)
 	}
 
-	cacheStore, err := nbcache.NewStore(ctx, nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval, nbcache.DefaultIDPCacheOpenConn)
-	if err != nil {
-		return nil, fmt.Errorf("getting cache store: %s", err)
-	}
-	am.externalCacheManager = nbcache.NewUserDataCache(cacheStore)
-	am.cacheManager = nbcache.NewAccountUserDataCache(am.loadAccount, cacheStore)
+	am.externalCacheManager = nbcache.NewUserDataCache(sharedCacheStore)
+	am.cacheManager = nbcache.NewAccountUserDataCache(am.loadAccount, sharedCacheStore)
 
-	if !isNil(am.idpManager) {
+	if !isNil(am.idpManager) && !IsEmbeddedIdp(am.idpManager) {
 		go func() {
-			err := am.warmupIDPCache(ctx, cacheStore)
+			err := am.warmupIDPCache(ctx, sharedCacheStore)
 			if err != nil {
 				log.WithContext(ctx).Warnf("failed warming up cache due to error: %v", err)
 				// todo retry?
@@ -286,6 +294,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	var oldSettings *types.Settings
 	var updateAccountPeers bool
 	var groupChangesAffectPeers bool
+	var reloadReverseProxy bool
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		var groupsUpdated bool
@@ -295,7 +304,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			return err
 		}
 
-		if err = am.validateSettingsUpdate(ctx, newSettings, oldSettings, userID, accountID); err != nil {
+		if err = am.validateSettingsUpdate(ctx, transaction, newSettings, oldSettings, userID, accountID); err != nil {
 			return err
 		}
 
@@ -316,13 +325,15 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			if err = am.reallocateAccountPeerIPs(ctx, transaction, accountID, newSettings.NetworkRange); err != nil {
 				return err
 			}
+			reloadReverseProxy = true
 			updateAccountPeers = true
 		}
 
 		if oldSettings.RoutingPeerDNSResolutionEnabled != newSettings.RoutingPeerDNSResolutionEnabled ||
 			oldSettings.LazyConnectionEnabled != newSettings.LazyConnectionEnabled ||
 			oldSettings.DNSDomain != newSettings.DNSDomain ||
-			oldSettings.AutoUpdateVersion != newSettings.AutoUpdateVersion {
+			oldSettings.AutoUpdateVersion != newSettings.AutoUpdateVersion ||
+			oldSettings.AutoUpdateAlways != newSettings.AutoUpdateAlways {
 			updateAccountPeers = true
 		}
 
@@ -333,8 +344,9 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			}
 		}
 
-		newSettings.Extra.IntegratedValidatorGroups = oldSettings.Extra.IntegratedValidatorGroups
-		newSettings.Extra.IntegratedValidator = oldSettings.Extra.IntegratedValidator
+		if newSettings.Extra == nil {
+			newSettings.Extra = oldSettings.Extra
+		}
 
 		if err = transaction.SaveAccountSettings(ctx, accountID, newSettings); err != nil {
 			return err
@@ -362,6 +374,8 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	am.handlePeerLoginExpirationSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handleGroupsPropagationSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handleAutoUpdateVersionSettings(ctx, oldSettings, newSettings, userID, accountID)
+	am.handleAutoUpdateAlwaysSettings(ctx, oldSettings, newSettings, userID, accountID)
+	am.handlePeerExposeSettings(ctx, oldSettings, newSettings, userID, accountID)
 	if err = am.handleInactivityExpirationSettings(ctx, oldSettings, newSettings, userID, accountID); err != nil {
 		return nil, err
 	}
@@ -379,15 +393,20 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		}
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountNetworkRangeUpdated, eventMeta)
 	}
+	if reloadReverseProxy {
+		if err = am.serviceManager.ReloadAllServicesForAccount(ctx, accountID); err != nil {
+			log.WithContext(ctx).Warnf("failed to reload all services for account %s: %v", accountID, err)
+		}
+	}
 
 	if updateAccountPeers || extraSettingsChanged || groupChangesAffectPeers {
-		go am.UpdateAccountPeers(ctx, accountID)
+		go am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceAccountSettings, Operation: types.UpdateOperationUpdate})
 	}
 
 	return newSettings, nil
 }
 
-func (am *DefaultAccountManager) validateSettingsUpdate(ctx context.Context, newSettings, oldSettings *types.Settings, userID, accountID string) error {
+func (am *DefaultAccountManager) validateSettingsUpdate(ctx context.Context, transaction store.Store, newSettings, oldSettings *types.Settings, userID, accountID string) error {
 	halfYearLimit := 180 * 24 * time.Hour
 	if newSettings.PeerLoginExpiration > halfYearLimit {
 		return status.Errorf(status.InvalidArgument, "peer login expiration can't be larger than 180 days")
@@ -397,8 +416,20 @@ func (am *DefaultAccountManager) validateSettingsUpdate(ctx context.Context, new
 		return status.Errorf(status.InvalidArgument, "peer login expiration can't be smaller than one hour")
 	}
 
-	if newSettings.DNSDomain != "" && !isDomainValid(newSettings.DNSDomain) {
+	if newSettings.DNSDomain != "" && !nbdomain.IsValidDomainNoWildcard(newSettings.DNSDomain) {
 		return status.Errorf(status.InvalidArgument, "invalid domain \"%s\" provided for DNS domain", newSettings.DNSDomain)
+	}
+
+	if newSettings.DNSDomain != oldSettings.DNSDomain && newSettings.DNSDomain != "" {
+		existingZone, err := transaction.GetZoneByDomain(ctx, accountID, newSettings.DNSDomain)
+		if err != nil {
+			if sErr, ok := status.FromError(err); !ok || sErr.Type() != status.NotFound {
+				return fmt.Errorf("failed to check existing zone: %w", err)
+			}
+		}
+		if existingZone != nil {
+			return status.Errorf(status.InvalidArgument, "peer DNS domain %s conflicts with existing custom DNS zone", newSettings.DNSDomain)
+		}
 	}
 
 	return am.integratedPeerValidator.ValidateExtraSettings(ctx, newSettings.Extra, oldSettings.Extra, userID, accountID)
@@ -459,6 +490,31 @@ func (am *DefaultAccountManager) handleAutoUpdateVersionSettings(ctx context.Con
 			"version": newSettings.AutoUpdateVersion,
 		})
 	}
+}
+
+func (am *DefaultAccountManager) handleAutoUpdateAlwaysSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) {
+	if oldSettings.AutoUpdateAlways != newSettings.AutoUpdateAlways {
+		if newSettings.AutoUpdateAlways {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountAutoUpdateAlwaysEnabled, nil)
+		} else {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountAutoUpdateAlwaysDisabled, nil)
+		}
+	}
+}
+
+func (am *DefaultAccountManager) handlePeerExposeSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) {
+	oldEnabled := oldSettings.PeerExposeEnabled
+	newEnabled := newSettings.PeerExposeEnabled
+
+	if oldEnabled == newEnabled {
+		return
+	}
+
+	event := activity.AccountPeerExposeEnabled
+	if !newEnabled {
+		event = activity.AccountPeerExposeDisabled
+	}
+	am.StoreEvent(ctx, userID, accountID, accountID, event, nil)
 }
 
 func (am *DefaultAccountManager) handleInactivityExpirationSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) error {
@@ -556,7 +612,7 @@ func (am *DefaultAccountManager) checkAndSchedulePeerInactivityExpiration(ctx co
 
 // newAccount creates a new Account with a generated ID and generated default setup keys.
 // If ID is already in use (due to collision) we try one more time before returning error
-func (am *DefaultAccountManager) newAccount(ctx context.Context, userID, domain string) (*types.Account, error) {
+func (am *DefaultAccountManager) newAccount(ctx context.Context, userID, domain, email, name string) (*types.Account, error) {
 	for i := 0; i < 2; i++ {
 		accountId := xid.New().String()
 
@@ -567,7 +623,7 @@ func (am *DefaultAccountManager) newAccount(ctx context.Context, userID, domain 
 			log.WithContext(ctx).Warnf("an account with ID already exists, retrying...")
 			continue
 		case statusErr.Type() == status.NotFound:
-			newAccount := newAccountWithId(ctx, accountId, userID, domain, am.disableDefaultPolicy)
+			newAccount := newAccountWithId(ctx, accountId, userID, domain, email, name, am.disableDefaultPolicy)
 			am.StoreEvent(ctx, userID, newAccount.Id, accountId, activity.AccountCreated, nil)
 			return newAccount, nil
 		default:
@@ -740,23 +796,23 @@ func (am *DefaultAccountManager) AccountExists(ctx context.Context, accountID st
 // If user does have an account, it returns the user's account ID.
 // If the user doesn't have an account, it creates one using the provided domain.
 // Returns the account ID or an error if none is found or created.
-func (am *DefaultAccountManager) GetAccountIDByUserID(ctx context.Context, userID, domain string) (string, error) {
-	if userID == "" {
+func (am *DefaultAccountManager) GetAccountIDByUserID(ctx context.Context, userAuth auth.UserAuth) (string, error) {
+	if userAuth.UserId == "" {
 		return "", status.Errorf(status.NotFound, "no valid userID provided")
 	}
 
-	accountID, err := am.Store.GetAccountIDByUserID(ctx, store.LockingStrengthNone, userID)
+	accountID, err := am.Store.GetAccountIDByUserID(ctx, store.LockingStrengthNone, userAuth.UserId)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
-			account, err := am.GetOrCreateAccountByUser(ctx, userID, domain)
+			acc, err := am.GetOrCreateAccountByUser(ctx, userAuth)
 			if err != nil {
-				return "", status.Errorf(status.NotFound, "account not found or created for user id: %s", userID)
+				return "", status.Errorf(status.NotFound, "account not found or created for user id: %s", userAuth.UserId)
 			}
 
-			if err = am.addAccountIDToIDPAppMeta(ctx, userID, account.Id); err != nil {
+			if err = am.addAccountIDToIDPAppMeta(ctx, userAuth.UserId, acc.Id); err != nil {
 				return "", err
 			}
-			return account.Id, nil
+			return acc.Id, nil
 		}
 		return "", err
 	}
@@ -767,9 +823,32 @@ func isNil(i idp.Manager) bool {
 	return i == nil || reflect.ValueOf(i).IsNil()
 }
 
+// IsEmbeddedIdp checks if the IDP manager is an embedded IDP (data stored locally in DB).
+// When true, user cache should be skipped and data fetched directly from the IDP manager.
+func IsEmbeddedIdp(i idp.Manager) bool {
+	if isNil(i) {
+		return false
+	}
+	_, ok := i.(*idp.EmbeddedIdPManager)
+	return ok
+}
+
+// IsLocalAuthDisabled checks if local (email/password) authentication is disabled.
+// Returns true only when using embedded IDP with local auth disabled in config.
+func IsLocalAuthDisabled(ctx context.Context, i idp.Manager) bool {
+	if isNil(i) {
+		return false
+	}
+	embeddedIdp, ok := i.(*idp.EmbeddedIdPManager)
+	if !ok {
+		return false
+	}
+	return embeddedIdp.IsLocalAuthDisabled()
+}
+
 // addAccountIDToIDPAppMeta update user's  app metadata in idp manager
 func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(ctx context.Context, userID string, accountID string) error {
-	if !isNil(am.idpManager) {
+	if !isNil(am.idpManager) && !IsEmbeddedIdp(am.idpManager) {
 		// user can be nil if it wasn't found (e.g., just created)
 		user, err := am.lookupUserInCache(ctx, userID, accountID)
 		if err != nil {
@@ -995,7 +1074,7 @@ func (am *DefaultAccountManager) isCacheFresh(ctx context.Context, accountUsers 
 	for user, loggedInOnce := range accountUsers {
 		if datum, ok := userDataMap[user]; ok {
 			// check if the matching user data has a pending invite and if the user has logged in once, forcing the cache to be refreshed
-			if datum.AppMetadata.WTPendingInvite != nil && *datum.AppMetadata.WTPendingInvite && loggedInOnce == true { //nolint:gosimple
+			if datum.AppMetadata.WTPendingInvite != nil && *datum.AppMetadata.WTPendingInvite && loggedInOnce == true { //nolint
 				log.WithContext(ctx).Infof("user %s has a pending invite and has logged in once, cache invalid", user)
 				return false
 			}
@@ -1015,6 +1094,9 @@ func (am *DefaultAccountManager) isCacheFresh(ctx context.Context, accountUsers 
 }
 
 func (am *DefaultAccountManager) removeUserFromCache(ctx context.Context, accountID, userID string) error {
+	if IsEmbeddedIdp(am.idpManager) {
+		return nil
+	}
 	data, err := am.getAccountFromCache(ctx, accountID, false)
 	if err != nil {
 		return err
@@ -1106,7 +1188,7 @@ func (am *DefaultAccountManager) addNewPrivateAccount(ctx context.Context, domai
 
 	lowerDomain := strings.ToLower(userAuth.Domain)
 
-	newAccount, err := am.newAccount(ctx, userAuth.UserId, lowerDomain)
+	newAccount, err := am.newAccount(ctx, userAuth.UserId, lowerDomain, userAuth.Email, userAuth.Name)
 	if err != nil {
 		return "", err
 	}
@@ -1131,7 +1213,7 @@ func (am *DefaultAccountManager) addNewPrivateAccount(ctx context.Context, domai
 }
 
 func (am *DefaultAccountManager) addNewUserToDomainAccount(ctx context.Context, domainAccountID string, userAuth auth.UserAuth) (string, error) {
-	newUser := types.NewRegularUser(userAuth.UserId)
+	newUser := types.NewRegularUser(userAuth.UserId, userAuth.Email, userAuth.Name)
 	newUser.AccountID = domainAccountID
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, domainAccountID)
@@ -1301,9 +1383,10 @@ func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, u
 	if am.singleAccountMode && am.singleAccountModeDomain != "" {
 		// This section is mostly related to self-hosted installations.
 		// We override incoming domain claims to group users under a single account.
-		userAuth.Domain = am.singleAccountModeDomain
-		userAuth.DomainCategory = types.PrivateCategory
-		log.WithContext(ctx).Debugf("overriding JWT Domain and DomainCategory claims since single account mode is enabled")
+		err := am.updateUserAuthWithSingleMode(ctx, &userAuth)
+		if err != nil {
+			return "", "", err
+		}
 	}
 
 	accountID, err := am.getAccountIDWithAuthorizationClaims(ctx, userAuth)
@@ -1314,6 +1397,7 @@ func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, u
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userAuth.UserId)
 	if err != nil {
 		// this is not really possible because we got an account by user ID
+		log.Errorf("failed to get user by ID %s: %v", userAuth.UserId, err)
 		return "", "", status.Errorf(status.NotFound, "user %s not found", userAuth.UserId)
 	}
 
@@ -1333,6 +1417,35 @@ func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, u
 	}
 
 	return accountID, user.Id, nil
+}
+
+// updateUserAuthWithSingleMode modifies the userAuth with the single account domain, or if there is an existing account, with the domain of that account
+func (am *DefaultAccountManager) updateUserAuthWithSingleMode(ctx context.Context, userAuth *auth.UserAuth) error {
+	userAuth.DomainCategory = types.PrivateCategory
+	userAuth.Domain = am.singleAccountModeDomain
+
+	accountID, err := am.Store.GetAnyAccountID(ctx)
+	if err != nil {
+		if e, ok := status.FromError(err); !ok || e.Type() != status.NotFound {
+			return err
+		}
+		log.WithContext(ctx).Debugf("using singleAccountModeDomain to override JWT Domain and DomainCategory claims in single account mode")
+		return nil
+	}
+
+	if accountID == "" {
+		log.WithContext(ctx).Debugf("using singleAccountModeDomain to override JWT Domain and DomainCategory claims in single account mode")
+		return nil
+	}
+
+	domain, _, err := am.Store.GetAccountDomainAndCategory(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return err
+	}
+	userAuth.Domain = domain
+
+	log.WithContext(ctx).Debugf("overriding JWT Domain and DomainCategory claims since single account mode is enabled")
+	return nil
 }
 
 // syncJWTGroups processes the JWT groups for a user, updates the account based on the groups,
@@ -1468,7 +1581,7 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 
 	if removedGroupAffectsPeers || newGroupsAffectsPeers {
 		log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", userAuth.UserId)
-		am.BufferUpdateAccountPeers(ctx, userAuth.AccountId)
+		am.BufferUpdateAccountPeers(ctx, userAuth.AccountId, types.UpdateReason{Resource: types.UpdateResourceUser, Operation: types.UpdateOperationUpdate})
 	}
 
 	return nil
@@ -1511,7 +1624,7 @@ func (am *DefaultAccountManager) getAccountIDWithAuthorizationClaims(ctx context
 	}
 
 	if userAuth.DomainCategory != types.PrivateCategory || !isDomainValid(userAuth.Domain) {
-		return am.GetAccountIDByUserID(ctx, userAuth.UserId, userAuth.Domain)
+		return am.GetAccountIDByUserID(ctx, userAuth)
 	}
 
 	if userAuth.AccountId != "" {
@@ -1625,13 +1738,13 @@ func domainIsUpToDate(domain string, domainCategory string, userAuth auth.UserAu
 	return domainCategory == types.PrivateCategory || userAuth.DomainCategory != types.PrivateCategory || domain != userAuth.Domain
 }
 
-func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error) {
+func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP, syncTime time.Time) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error) {
 	peer, netMap, postureChecks, dnsfwdPort, err := am.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peerPubKey, Meta: meta}, accountID)
 	if err != nil {
 		return nil, nil, nil, 0, fmt.Errorf("error syncing peer: %w", err)
 	}
 
-	err = am.MarkPeerConnected(ctx, peerPubKey, true, realIP, accountID)
+	err = am.MarkPeerConnected(ctx, peerPubKey, true, realIP, accountID, syncTime)
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed marking peer as connected %s %v", peerPubKey, err)
 	}
@@ -1639,8 +1752,20 @@ func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID 
 	return peer, netMap, postureChecks, dnsfwdPort, nil
 }
 
-func (am *DefaultAccountManager) OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string) error {
-	err := am.MarkPeerConnected(ctx, peerPubKey, false, nil, accountID)
+func (am *DefaultAccountManager) OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string, streamStartTime time.Time) error {
+	peer, err := am.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, peerPubKey)
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed to get peer %s for disconnect check: %v", peerPubKey, err)
+		return nil
+	}
+
+	if peer.Status.LastSeen.After(streamStartTime) {
+		log.WithContext(ctx).Tracef("peer %s has newer activity (lastSeen=%s > streamStart=%s), skipping disconnect",
+			peerPubKey, peer.Status.LastSeen.Format(time.RFC3339), streamStartTime.Format(time.RFC3339))
+		return nil
+	}
+
+	err = am.MarkPeerConnected(ctx, peerPubKey, false, nil, accountID, time.Now().UTC())
 	if err != nil {
 		log.WithContext(ctx).Warnf("failed marking peer as disconnected %s %v", peerPubKey, err)
 	}
@@ -1660,10 +1785,12 @@ func (am *DefaultAccountManager) SyncPeerMeta(ctx context.Context, peerPubKey st
 	return nil
 }
 
-var invalidDomainRegexp = regexp.MustCompile(`^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$`)
+// isDomainValid validates public/IDP domains using stricter rules than internal DNS domains.
+// Requires at least 2-char alphabetic TLD and no single-label domains.
+var publicDomainRegexp = regexp.MustCompile(`^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$`)
 
 func isDomainValid(domain string) bool {
-	return invalidDomainRegexp.MatchString(domain)
+	return publicDomainRegexp.MatchString(domain)
 }
 
 func (am *DefaultAccountManager) onPeersInvalidated(ctx context.Context, accountID string, peerIDs []string) {
@@ -1733,7 +1860,7 @@ func (am *DefaultAccountManager) GetAccountSettings(ctx context.Context, account
 }
 
 // newAccountWithId creates a new Account with a default SetupKey (doesn't store in a Store) and provided id
-func newAccountWithId(ctx context.Context, accountID, userID, domain string, disableDefaultPolicy bool) *types.Account {
+func newAccountWithId(ctx context.Context, accountID, userID, domain, email, name string, disableDefaultPolicy bool) *types.Account {
 	log.WithContext(ctx).Debugf("creating new account")
 
 	network := types.NewNetwork()
@@ -1743,7 +1870,7 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain string, dis
 	setupKeys := map[string]*types.SetupKey{}
 	nameServersGroups := make(map[string]*nbdns.NameServerGroup)
 
-	owner := types.NewOwnerUser(userID)
+	owner := types.NewOwnerUser(userID, email, name)
 	owner.AccountID = accountID
 	users[userID] = owner
 
@@ -2155,4 +2282,8 @@ func (am *DefaultAccountManager) savePeerIPUpdate(ctx context.Context, transacti
 	am.StoreEvent(ctx, userID, peer.ID, accountID, activity.PeerIPUpdated, eventMeta)
 
 	return nil
+}
+
+func (am *DefaultAccountManager) GetUserIDByPeerKey(ctx context.Context, peerKey string) (string, error) {
+	return am.Store.GetUserIDByPeerKey(ctx, store.LockingStrengthNone, peerKey)
 }

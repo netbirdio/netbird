@@ -49,10 +49,14 @@ func getWindowsUserShell() string {
 	return `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`
 }
 
-// getUnixUserShell returns the shell for Unix-like systems
+// getUnixUserShell returns the shell for Unix-like systems.
+// Tries /etc/passwd first (fast, no subprocess), falls back to getent for NSS users.
 func getUnixUserShell(userID string) string {
-	shell := getShellFromPasswd(userID)
-	if shell != "" {
+	if shell := getShellFromPasswd(userID); shell != "" {
+		return shell
+	}
+
+	if shell := getShellFromGetent(userID); shell != "" {
 		return shell
 	}
 

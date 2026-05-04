@@ -12,18 +12,15 @@ import (
 )
 
 const (
-	EnvNewNetworkMapBuilder  = "NB_EXPERIMENT_NETWORK_MAP"
-	EnvNewNetworkMapAccounts = "NB_EXPERIMENT_NETWORK_MAP_ACCOUNTS"
-
 	DnsForwarderPort           = nbdns.ForwarderServerPort
 	OldForwarderPort           = nbdns.ForwarderClientPort
 	DnsForwarderPortMinVersion = "v0.59.0"
 )
 
 type Controller interface {
-	UpdateAccountPeers(ctx context.Context, accountID string) error
+	UpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) error
 	UpdateAccountPeer(ctx context.Context, accountId string, peerId string) error
-	BufferUpdateAccountPeers(ctx context.Context, accountID string) error
+	BufferUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) error
 	GetValidatedPeerWithMap(ctx context.Context, isRequiresApproval bool, accountID string, p *nbpeer.Peer) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error)
 	GetDNSDomain(settings *types.Settings) string
 	StartWarmup(context.Context)
@@ -36,4 +33,6 @@ type Controller interface {
 	DisconnectPeers(ctx context.Context, accountId string, peerIDs []string)
 	OnPeerConnected(ctx context.Context, accountID string, peerID string) (chan *UpdateMessage, error)
 	OnPeerDisconnected(ctx context.Context, accountID string, peerID string)
+
+	TrackEphemeralPeer(ctx context.Context, peer *nbpeer.Peer)
 }

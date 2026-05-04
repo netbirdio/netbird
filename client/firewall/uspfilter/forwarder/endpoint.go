@@ -2,6 +2,7 @@ package forwarder
 
 import (
 	"fmt"
+	"sync/atomic"
 
 	wgdevice "golang.zx2c4.com/wireguard/device"
 	"gvisor.dev/gvisor/pkg/tcpip"
@@ -11,12 +12,19 @@ import (
 	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 )
 
+// PacketCapture captures raw packets for debugging. Implementations must be
+// safe for concurrent use and must not block.
+type PacketCapture interface {
+	Offer(data []byte, outbound bool)
+}
+
 // endpoint implements stack.LinkEndpoint and handles integration with the wireguard device
 type endpoint struct {
 	logger     *nblog.Logger
 	dispatcher stack.NetworkDispatcher
 	device     *wgdevice.Device
-	mtu        uint32
+	mtu        atomic.Uint32
+	capture    atomic.Pointer[PacketCapture]
 }
 
 func (e *endpoint) Attach(dispatcher stack.NetworkDispatcher) {
@@ -28,7 +36,7 @@ func (e *endpoint) IsAttached() bool {
 }
 
 func (e *endpoint) MTU() uint32 {
-	return e.mtu
+	return e.mtu.Load()
 }
 
 func (e *endpoint) Capabilities() stack.LinkEndpointCapabilities {
@@ -53,12 +61,16 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 			continue
 		}
 
-		// Send the packet through WireGuard
+		pktBytes := data.AsSlice()
+
 		address := netHeader.DestinationAddress()
-		err := e.device.CreateOutboundPacket(data.AsSlice(), address.AsSlice())
-		if err != nil {
+		if err := e.device.CreateOutboundPacket(pktBytes, address.AsSlice()); err != nil {
 			e.logger.Error1("CreateOutboundPacket: %v", err)
 			continue
+		}
+
+		if pc := e.capture.Load(); pc != nil {
+			(*pc).Offer(pktBytes, true)
 		}
 		written++
 	}
@@ -80,6 +92,22 @@ func (e *endpoint) AddHeader(*stack.PacketBuffer) {
 
 func (e *endpoint) ParseHeader(*stack.PacketBuffer) bool {
 	return true
+}
+
+func (e *endpoint) Close() {
+	// Endpoint cleanup - nothing to do as device is managed externally
+}
+
+func (e *endpoint) SetLinkAddress(tcpip.LinkAddress) {
+	// Link address is not used for this endpoint type
+}
+
+func (e *endpoint) SetMTU(mtu uint32) {
+	e.mtu.Store(mtu)
+}
+
+func (e *endpoint) SetOnCloseAction(func()) {
+	// No action needed on close
 }
 
 type epID stack.TransportEndpointID

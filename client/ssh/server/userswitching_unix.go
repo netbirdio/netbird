@@ -146,32 +146,30 @@ func (s *Server) parseUserCredentials(localUser *user.User) (uint32, uint32, []u
 	}
 	gid := uint32(gid64)
 
-	groups, err := s.getSupplementaryGroups(localUser.Username)
-	if err != nil {
-		log.Warnf("failed to get supplementary groups for user %s: %v", localUser.Username, err)
+	groups, err := s.getSupplementaryGroups(localUser)
+	if err != nil || len(groups) == 0 {
+		if err != nil {
+			log.Warnf("failed to get supplementary groups for user %s: %v", localUser.Username, err)
+		}
 		groups = []uint32{gid}
 	}
 
 	return uid, gid, groups, nil
 }
 
-// getSupplementaryGroups retrieves supplementary group IDs for a user
-func (s *Server) getSupplementaryGroups(username string) ([]uint32, error) {
-	u, err := user.Lookup(username)
+// getSupplementaryGroups retrieves supplementary group IDs for a user.
+// Uses id/getent fallback for NSS users in CGO_ENABLED=0 builds.
+func (s *Server) getSupplementaryGroups(u *user.User) ([]uint32, error) {
+	groupIDStrings, err := groupIdsWithFallback(u)
 	if err != nil {
-		return nil, fmt.Errorf("lookup user %s: %w", username, err)
-	}
-
-	groupIDStrings, err := u.GroupIds()
-	if err != nil {
-		return nil, fmt.Errorf("get group IDs for user %s: %w", username, err)
+		return nil, fmt.Errorf("get group IDs for user %s: %w", u.Username, err)
 	}
 
 	groups := make([]uint32, len(groupIDStrings))
 	for i, gidStr := range groupIDStrings {
 		gid64, err := strconv.ParseUint(gidStr, 10, 32)
 		if err != nil {
-			return nil, fmt.Errorf("invalid group ID %s for user %s: %w", gidStr, username, err)
+			return nil, fmt.Errorf("invalid group ID %s for user %s: %w", gidStr, u.Username, err)
 		}
 		groups[i] = uint32(gid64)
 	}
@@ -181,8 +179,8 @@ func (s *Server) getSupplementaryGroups(username string) ([]uint32, error) {
 
 // createExecutorCommand creates a command that spawns netbird ssh exec for privilege dropping.
 // Returns the command and a cleanup function (no-op on Unix).
-func (s *Server) createExecutorCommand(session ssh.Session, localUser *user.User, hasPty bool) (*exec.Cmd, func(), error) {
-	log.Debugf("creating executor command for user %s (Pty: %v)", localUser.Username, hasPty)
+func (s *Server) createExecutorCommand(logger *log.Entry, session ssh.Session, localUser *user.User, hasPty bool) (*exec.Cmd, func(), error) {
+	logger.Debugf("creating executor command for user %s (Pty: %v)", localUser.Username, hasPty)
 
 	if err := validateUsername(localUser.Username); err != nil {
 		return nil, nil, fmt.Errorf("invalid username %q: %w", localUser.Username, err)
@@ -192,7 +190,7 @@ func (s *Server) createExecutorCommand(session ssh.Session, localUser *user.User
 	if err != nil {
 		return nil, nil, fmt.Errorf("parse user credentials: %w", err)
 	}
-	privilegeDropper := NewPrivilegeDropper()
+	privilegeDropper := NewPrivilegeDropper(WithLogger(logger))
 	config := ExecutorConfig{
 		UID:        uid,
 		GID:        gid,
@@ -233,7 +231,7 @@ func (s *Server) createDirectPtyCommand(session ssh.Session, localUser *user.Use
 	shell := getUserShell(localUser.Uid)
 	args := s.getShellCommandArgs(shell, session.RawCommand())
 
-	cmd := exec.CommandContext(session.Context(), args[0], args[1:]...)
+	cmd := s.createShellCommand(session.Context(), shell, args)
 	cmd.Dir = localUser.HomeDir
 	cmd.Env = s.preparePtyEnv(localUser, ptyReq, session)
 

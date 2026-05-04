@@ -98,19 +98,17 @@ func (a *Authorizer) Update(config *Config) {
 		len(config.AuthorizedUsers), len(machineUsers))
 }
 
-// Authorize validates if a user is authorized to login as the specified OS user
-// Returns nil if authorized, or an error describing why authorization failed
-func (a *Authorizer) Authorize(jwtUserID, osUsername string) error {
+// Authorize validates if a user is authorized to login as the specified OS user.
+// Returns a success message describing how authorization was granted, or an error.
+func (a *Authorizer) Authorize(jwtUserID, osUsername string) (string, error) {
 	if jwtUserID == "" {
-		log.Warnf("SSH auth denied: JWT user ID is empty for OS user '%s'", osUsername)
-		return ErrEmptyUserID
+		return "", fmt.Errorf("JWT user ID is empty for OS user %q: %w", osUsername, ErrEmptyUserID)
 	}
 
 	// Hash the JWT user ID for comparison
 	hashedUserID, err := sshuserhash.HashUserID(jwtUserID)
 	if err != nil {
-		log.Errorf("SSH auth denied: failed to hash user ID '%s' for OS user '%s': %v", jwtUserID, osUsername, err)
-		return fmt.Errorf("failed to hash user ID: %w", err)
+		return "", fmt.Errorf("hash user ID %q for OS user %q: %w", jwtUserID, osUsername, err)
 	}
 
 	a.mu.RLock()
@@ -119,8 +117,7 @@ func (a *Authorizer) Authorize(jwtUserID, osUsername string) error {
 	// Find the index of this user in the authorized list
 	userIndex, found := a.findUserIndex(hashedUserID)
 	if !found {
-		log.Warnf("SSH auth denied: user '%s' (hash: %s) not in authorized list for OS user '%s'", jwtUserID, hashedUserID, osUsername)
-		return ErrUserNotAuthorized
+		return "", fmt.Errorf("user %q (hash: %s) not in authorized list for OS user %q: %w", jwtUserID, hashedUserID, osUsername, ErrUserNotAuthorized)
 	}
 
 	return a.checkMachineUserMapping(jwtUserID, osUsername, userIndex)
@@ -128,12 +125,11 @@ func (a *Authorizer) Authorize(jwtUserID, osUsername string) error {
 
 // checkMachineUserMapping validates if a user's index is authorized for the specified OS user
 // Checks wildcard mapping first, then specific OS user mappings
-func (a *Authorizer) checkMachineUserMapping(jwtUserID, osUsername string, userIndex int) error {
+func (a *Authorizer) checkMachineUserMapping(jwtUserID, osUsername string, userIndex int) (string, error) {
 	// If wildcard exists and user's index is in the wildcard list, allow access to any OS user
 	if wildcardIndexes, hasWildcard := a.machineUsers[Wildcard]; hasWildcard {
 		if a.isIndexInList(uint32(userIndex), wildcardIndexes) {
-			log.Infof("SSH auth granted: user '%s' authorized for OS user '%s' via wildcard (index: %d)", jwtUserID, osUsername, userIndex)
-			return nil
+			return fmt.Sprintf("granted via wildcard (index: %d)", userIndex), nil
 		}
 	}
 
@@ -141,18 +137,15 @@ func (a *Authorizer) checkMachineUserMapping(jwtUserID, osUsername string, userI
 	allowedIndexes, hasMachineUserMapping := a.machineUsers[osUsername]
 	if !hasMachineUserMapping {
 		// No mapping for this OS user - deny by default (fail closed)
-		log.Warnf("SSH auth denied: no machine user mapping for OS user '%s' (JWT user: %s)", osUsername, jwtUserID)
-		return ErrNoMachineUserMapping
+		return "", fmt.Errorf("no machine user mapping for OS user %q (JWT user: %s): %w", osUsername, jwtUserID, ErrNoMachineUserMapping)
 	}
 
 	// Check if user's index is in the allowed indexes for this specific OS user
 	if !a.isIndexInList(uint32(userIndex), allowedIndexes) {
-		log.Warnf("SSH auth denied: user '%s' not mapped to OS user '%s' (user index: %d)", jwtUserID, osUsername, userIndex)
-		return ErrUserNotMappedToOSUser
+		return "", fmt.Errorf("user %q not mapped to OS user %q (index: %d): %w", jwtUserID, osUsername, userIndex, ErrUserNotMappedToOSUser)
 	}
 
-	log.Infof("SSH auth granted: user '%s' authorized for OS user '%s' (index: %d)", jwtUserID, osUsername, userIndex)
-	return nil
+	return fmt.Sprintf("granted (index: %d)", userIndex), nil
 }
 
 // GetUserIDClaim returns the JWT claim name used to extract user IDs

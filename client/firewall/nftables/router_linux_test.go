@@ -18,6 +18,7 @@ import (
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/test"
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/internal/acl/id"
 )
 
 const (
@@ -718,4 +719,138 @@ func deleteWorkTable() {
 			sConn.DelTable(t)
 		}
 	}
+}
+
+func TestRouter_RefreshRulesMap_RemovesStaleEntries(t *testing.T) {
+	if check() != NFTABLES {
+		t.Skip("nftables not supported on this system")
+	}
+
+	workTable, err := createWorkTable()
+	require.NoError(t, err)
+	defer deleteWorkTable()
+
+	r, err := newRouter(workTable, ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err)
+	require.NoError(t, r.init(workTable))
+	defer func() { require.NoError(t, r.Reset()) }()
+
+	// Add a real rule to the kernel
+	ruleKey, err := r.AddRouteFiltering(
+		nil,
+		[]netip.Prefix{netip.MustParsePrefix("192.168.1.0/24")},
+		firewall.Network{Prefix: netip.MustParsePrefix("10.0.0.0/24")},
+		firewall.ProtocolTCP,
+		nil,
+		&firewall.Port{Values: []uint16{80}},
+		firewall.ActionAccept,
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, r.DeleteRouteRule(ruleKey))
+	})
+
+	// Inject a stale entry with Handle=0 (simulates store-before-flush failure)
+	staleKey := "stale-rule-that-does-not-exist"
+	r.rules[staleKey] = &nftables.Rule{
+		Table:    r.workTable,
+		Chain:    r.chains[chainNameRoutingFw],
+		Handle:   0,
+		UserData: []byte(staleKey),
+	}
+
+	require.Contains(t, r.rules, staleKey, "stale entry should be in map before refresh")
+
+	err = r.refreshRulesMap()
+	require.NoError(t, err)
+
+	assert.NotContains(t, r.rules, staleKey, "stale entry should be removed after refresh")
+
+	realRule, ok := r.rules[ruleKey.ID()]
+	assert.True(t, ok, "real rule should still exist after refresh")
+	assert.NotZero(t, realRule.Handle, "real rule should have a valid handle")
+}
+
+func TestRouter_DeleteRouteRule_StaleHandle(t *testing.T) {
+	if check() != NFTABLES {
+		t.Skip("nftables not supported on this system")
+	}
+
+	workTable, err := createWorkTable()
+	require.NoError(t, err)
+	defer deleteWorkTable()
+
+	r, err := newRouter(workTable, ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err)
+	require.NoError(t, r.init(workTable))
+	defer func() { require.NoError(t, r.Reset()) }()
+
+	// Inject a stale entry with Handle=0
+	staleKey := "stale-route-rule"
+	r.rules[staleKey] = &nftables.Rule{
+		Table:    r.workTable,
+		Chain:    r.chains[chainNameRoutingFw],
+		Handle:   0,
+		UserData: []byte(staleKey),
+	}
+
+	// DeleteRouteRule should not return an error for stale handles
+	err = r.DeleteRouteRule(id.RuleID(staleKey))
+	assert.NoError(t, err, "deleting a stale rule should not error")
+	assert.NotContains(t, r.rules, staleKey, "stale entry should be cleaned up")
+}
+
+func TestRouter_AddNatRule_WithStaleEntry(t *testing.T) {
+	if check() != NFTABLES {
+		t.Skip("nftables not supported on this system")
+	}
+
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
+	t.Cleanup(func() {
+		require.NoError(t, manager.Close(nil))
+	})
+
+	pair := firewall.RouterPair{
+		ID:          "staletest",
+		Source:      firewall.Network{Prefix: netip.MustParsePrefix("100.100.100.1/32")},
+		Destination: firewall.Network{Prefix: netip.MustParsePrefix("100.100.200.0/24")},
+		Masquerade:  true,
+	}
+
+	rtr := manager.router
+
+	// First add succeeds
+	err = rtr.AddNatRule(pair)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, rtr.RemoveNatRule(pair))
+	})
+
+	// Corrupt the handle to simulate stale state
+	natRuleKey := firewall.GenKey(firewall.PreroutingFormat, pair)
+	if rule, exists := rtr.rules[natRuleKey]; exists {
+		rule.Handle = 0
+	}
+	inverseKey := firewall.GenKey(firewall.PreroutingFormat, firewall.GetInversePair(pair))
+	if rule, exists := rtr.rules[inverseKey]; exists {
+		rule.Handle = 0
+	}
+
+	// Adding the same rule again should succeed despite stale handles
+	err = rtr.AddNatRule(pair)
+	assert.NoError(t, err, "AddNatRule should succeed even with stale entries")
+
+	// Verify rules exist in kernel
+	rules, err := rtr.conn.GetRules(rtr.workTable, rtr.chains[chainNameManglePrerouting])
+	require.NoError(t, err)
+
+	found := 0
+	for _, rule := range rules {
+		if len(rule.UserData) > 0 && string(rule.UserData) == natRuleKey {
+			found++
+		}
+	}
+	assert.Equal(t, 1, found, "NAT rule should exist in kernel")
 }

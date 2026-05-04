@@ -1,0 +1,17 @@
+FROM golang:1.25-bookworm AS builder
+WORKDIR /app
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y gcc libc6-dev && rm -rf /var/lib/apt/lists/*
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o netbird-mgmt ./management
+
+FROM ubuntu:24.04
+RUN apt update && apt install -y ca-certificates && rm -fr /var/cache/apt
+ENTRYPOINT [ "/go/bin/netbird-mgmt","management"]
+CMD ["--log-file", "console"]
+COPY --from=builder /app/netbird-mgmt /go/bin/netbird-mgmt

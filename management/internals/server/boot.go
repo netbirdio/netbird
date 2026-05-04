@@ -18,17 +18,23 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 
+	cachestore "github.com/eko/gocache/lib/v4/store"
 	"github.com/netbirdio/management-integrations/integrations"
+
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/formatter/hook"
-	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
+	accesslogsmanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs/manager"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	nbhttp "github.com/netbirdio/netbird/management/server/http"
+	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/util/crypt"
 )
 
 var (
@@ -55,11 +61,31 @@ func (s *BaseServer) Metrics() telemetry.AppMetrics {
 	})
 }
 
+// CacheStore returns a shared cache store backed by Redis or in-memory depending on the environment.
+// All consumers should reuse this store to avoid creating multiple Redis connections.
+func (s *BaseServer) CacheStore() cachestore.StoreInterface {
+	return Create(s, func() cachestore.StoreInterface {
+		cs, err := nbcache.NewStore(context.Background(), nbcache.DefaultStoreMaxTimeout, nbcache.DefaultStoreCleanupInterval, nbcache.DefaultStoreMaxConn)
+		if err != nil {
+			log.Fatalf("failed to create shared cache store: %v", err)
+		}
+		return cs
+	})
+}
+
 func (s *BaseServer) Store() store.Store {
 	return Create(s, func() store.Store {
 		store, err := store.NewStore(context.Background(), s.Config.StoreConfig.Engine, s.Config.Datadir, s.Metrics(), false)
 		if err != nil {
 			log.Fatalf("failed to create store: %v", err)
+		}
+
+		if s.Config.DataStoreEncryptionKey != "" {
+			fieldEncrypt, err := crypt.NewFieldEncrypt(s.Config.DataStoreEncryptionKey)
+			if err != nil {
+				log.Fatalf("failed to create field encryptor: %v", err)
+			}
+			store.SetFieldEncrypt(fieldEncrypt)
 		}
 
 		return store
@@ -73,18 +99,9 @@ func (s *BaseServer) EventStore() activity.Store {
 			log.Fatalf("failed to initialize integration metrics: %v", err)
 		}
 
-		eventStore, key, err := integrations.InitEventStore(context.Background(), s.Config.Datadir, s.Config.DataStoreEncryptionKey, integrationMetrics)
+		eventStore, _, err := integrations.InitEventStore(context.Background(), s.Config.Datadir, s.Config.DataStoreEncryptionKey, integrationMetrics)
 		if err != nil {
 			log.Fatalf("failed to initialize event store: %v", err)
-		}
-
-		if s.Config.DataStoreEncryptionKey != key {
-			log.WithContext(context.Background()).Infof("update Config with activity store key")
-			s.Config.DataStoreEncryptionKey = key
-			err := updateMgmtConfig(context.Background(), nbconfig.MgmtConfigPath, s.Config)
-			if err != nil {
-				log.Fatalf("failed to update Config with activity store: %v", err)
-			}
 		}
 
 		return eventStore
@@ -93,11 +110,20 @@ func (s *BaseServer) EventStore() activity.Store {
 
 func (s *BaseServer) APIHandler() http.Handler {
 	return Create(s, func() http.Handler {
-		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.IntegratedValidator(), s.ProxyController(), s.PermissionsManager(), s.PeersManager(), s.SettingsManager(), s.NetworkMapController())
+		httpAPIHandler, err := nbhttp.NewAPIHandler(context.Background(), s.AccountManager(), s.NetworksManager(), s.ResourcesManager(), s.RoutesManager(), s.GroupsManager(), s.GeoLocationManager(), s.AuthManager(), s.Metrics(), s.IntegratedValidator(), s.ProxyController(), s.PermissionsManager(), s.PeersManager(), s.SettingsManager(), s.ZonesManager(), s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(), s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies, s.RateLimiter())
 		if err != nil {
 			log.Fatalf("failed to create API handler: %v", err)
 		}
 		return httpAPIHandler
+	})
+}
+
+func (s *BaseServer) RateLimiter() *middleware.APIRateLimiter {
+	return Create(s, func() *middleware.APIRateLimiter {
+		cfg, enabled := middleware.RateLimiterConfigFromEnv()
+		limiter := middleware.NewAPIRateLimiter(cfg)
+		limiter.SetEnabled(enabled)
+		return limiter
 	})
 }
 
@@ -121,17 +147,19 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 			realip.WithTrustedProxiesCount(trustedProxiesCount),
 			realip.WithHeaders([]string{realip.XForwardedFor, realip.XRealIp}),
 		}
+		proxyUnary, proxyStream, proxyAuthClose := nbgrpc.NewProxyAuthInterceptors(s.Store())
+		s.proxyAuthClose = proxyAuthClose
 		gRPCOpts := []grpc.ServerOption{
 			grpc.KeepaliveEnforcementPolicy(kaep),
 			grpc.KeepaliveParams(kasp),
-			grpc.ChainUnaryInterceptor(realip.UnaryServerInterceptorOpts(realipOpts...), unaryInterceptor),
-			grpc.ChainStreamInterceptor(realip.StreamServerInterceptorOpts(realipOpts...), streamInterceptor),
+			grpc.ChainUnaryInterceptor(realip.UnaryServerInterceptorOpts(realipOpts...), unaryInterceptor, proxyUnary),
+			grpc.ChainStreamInterceptor(realip.StreamServerInterceptorOpts(realipOpts...), streamInterceptor, proxyStream),
 		}
 
 		if s.Config.HttpConfig.LetsEncryptDomain != "" {
 			certManager, err := encryption.CreateCertManager(s.Config.Datadir, s.Config.HttpConfig.LetsEncryptDomain)
 			if err != nil {
-				log.Fatalf("failed to create certificate manager: %v", err)
+				log.Fatalf("failed to create certificate service: %v", err)
 			}
 			transportCredentials := credentials.NewTLS(certManager.TLSConfig())
 			gRPCOpts = append(gRPCOpts, grpc.Creds(transportCredentials))
@@ -145,13 +173,73 @@ func (s *BaseServer) GRPCServer() *grpc.Server {
 		}
 
 		gRPCAPIHandler := grpc.NewServer(gRPCOpts...)
-		srv, err := nbgrpc.NewServer(s.Config, s.AccountManager(), s.SettingsManager(), s.SecretsManager(), s.Metrics(), s.AuthManager(), s.IntegratedValidator(), s.NetworkMapController())
+		srv, err := nbgrpc.NewServer(s.Config, s.AccountManager(), s.SettingsManager(), s.JobManager(), s.SecretsManager(), s.Metrics(), s.AuthManager(), s.IntegratedValidator(), s.NetworkMapController(), s.OAuthConfigProvider(), s.SessionStore())
 		if err != nil {
 			log.Fatalf("failed to create management server: %v", err)
 		}
+		serviceMgr := s.ServiceManager()
+		srv.SetReverseProxyManager(serviceMgr)
+		if serviceMgr != nil {
+			serviceMgr.StartExposeReaper(context.Background())
+		}
 		mgmtProto.RegisterManagementServiceServer(gRPCAPIHandler, srv)
 
+		mgmtProto.RegisterProxyServiceServer(gRPCAPIHandler, s.ReverseProxyGRPCServer())
+		log.Info("ProxyService registered on gRPC server")
+
 		return gRPCAPIHandler
+	})
+}
+
+func (s *BaseServer) ReverseProxyGRPCServer() *nbgrpc.ProxyServiceServer {
+	return Create(s, func() *nbgrpc.ProxyServiceServer {
+		proxyService := nbgrpc.NewProxyServiceServer(s.AccessLogsManager(), s.ProxyTokenStore(), s.PKCEVerifierStore(), s.proxyOIDCConfig(), s.PeersManager(), s.UsersManager(), s.ProxyManager())
+		s.AfterInit(func(s *BaseServer) {
+			proxyService.SetServiceManager(s.ServiceManager())
+			proxyService.SetProxyController(s.ServiceProxyController())
+		})
+		return proxyService
+	})
+}
+
+func (s *BaseServer) proxyOIDCConfig() nbgrpc.ProxyOIDCConfig {
+	return Create(s, func() nbgrpc.ProxyOIDCConfig {
+		return nbgrpc.ProxyOIDCConfig{
+			Issuer: s.Config.HttpConfig.AuthIssuer,
+			// todo: double check auth clientID value
+			ClientID:     s.Config.HttpConfig.AuthClientID, // Reuse dashboard client
+			Scopes:       []string{"openid", "profile", "email"},
+			CallbackURL:  s.Config.HttpConfig.AuthCallbackURL,
+			HMACKey:      []byte(s.Config.DataStoreEncryptionKey), // Use the datastore encryption key for OIDC state HMACs, this should ensure all management instances are using the same key.
+			Audience:     s.Config.HttpConfig.AuthAudience,
+			KeysLocation: s.Config.HttpConfig.AuthKeysLocation,
+		}
+	})
+}
+
+func (s *BaseServer) ProxyTokenStore() *nbgrpc.OneTimeTokenStore {
+	return Create(s, func() *nbgrpc.OneTimeTokenStore {
+		tokenStore := nbgrpc.NewOneTimeTokenStore(context.Background(), s.CacheStore())
+		log.Info("One-time token store initialized for proxy authentication")
+		return tokenStore
+	})
+}
+
+func (s *BaseServer) PKCEVerifierStore() *nbgrpc.PKCEVerifierStore {
+	return Create(s, func() *nbgrpc.PKCEVerifierStore {
+		return nbgrpc.NewPKCEVerifierStore(context.Background(), s.CacheStore())
+	})
+}
+
+func (s *BaseServer) AccessLogsManager() accesslogs.Manager {
+	return Create(s, func() accesslogs.Manager {
+		accessLogManager := accesslogsmanager.NewManager(s.Store(), s.PermissionsManager(), s.GeoLocationManager())
+		accessLogManager.StartPeriodicCleanup(
+			context.Background(),
+			s.Config.ReverseProxy.AccessLogRetentionDays,
+			s.Config.ReverseProxy.AccessLogCleanupIntervalHours,
+		)
+		return accessLogManager
 	})
 }
 

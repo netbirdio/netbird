@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 
-	"fyne.io/fyne/v2"
 	"fyne.io/systray"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
@@ -63,6 +62,8 @@ func (h *eventHandler) listen(ctx context.Context) {
 			h.handleNetworksClick()
 		case <-h.client.mNotifications.ClickedCh:
 			h.handleNotificationsClick()
+		case <-systray.TrayOpenedCh:
+			h.client.updateExitNodes()
 		}
 	}
 }
@@ -80,12 +81,12 @@ func (h *eventHandler) handleConnectClick() {
 	go func() {
 		defer connectCancel()
 
-		if err := h.client.menuUpClick(connectCtx, true); err != nil {
+		if err := h.client.menuUpClick(connectCtx); err != nil {
 			st, ok := status.FromError(err)
 			if errors.Is(err, context.Canceled) || (ok && st.Code() == codes.Canceled) {
 				log.Debugf("connect operation cancelled by user")
 			} else {
-				h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to connect"))
+				h.client.notifier.Send("Error", "Failed to connect")
 				log.Errorf("connect failed: %v", err)
 			}
 		}
@@ -98,6 +99,7 @@ func (h *eventHandler) handleConnectClick() {
 
 func (h *eventHandler) handleDisconnectClick() {
 	h.client.mDown.Disable()
+	h.client.cancelExitNodeRetry()
 
 	if h.client.connectCancel != nil {
 		log.Debugf("cancelling ongoing connect operation")
@@ -109,7 +111,7 @@ func (h *eventHandler) handleDisconnectClick() {
 		if err := h.client.menuDownClick(); err != nil {
 			st, ok := status.FromError(err)
 			if !errors.Is(err, context.Canceled) && !(ok && st.Code() == codes.Canceled) {
-				h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to disconnect"))
+				h.client.notifier.Send("Error", "Failed to disconnect")
 				log.Errorf("disconnect failed: %v", err)
 			} else {
 				log.Debugf("disconnect cancelled or already disconnecting")
@@ -127,7 +129,7 @@ func (h *eventHandler) handleAllowSSHClick() {
 	if err := h.updateConfigWithErr(); err != nil {
 		h.toggleCheckbox(h.client.mAllowSSH) // revert checkbox state on error
 		log.Errorf("failed to update config: %v", err)
-		h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to update SSH settings"))
+		h.client.notifier.Send("Error", "Failed to update SSH settings")
 	}
 
 }
@@ -137,7 +139,7 @@ func (h *eventHandler) handleAutoConnectClick() {
 	if err := h.updateConfigWithErr(); err != nil {
 		h.toggleCheckbox(h.client.mAutoConnect) // revert checkbox state on error
 		log.Errorf("failed to update config: %v", err)
-		h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to update auto-connect settings"))
+		h.client.notifier.Send("Error", "Failed to update auto-connect settings")
 	}
 }
 
@@ -146,7 +148,7 @@ func (h *eventHandler) handleRosenpassClick() {
 	if err := h.updateConfigWithErr(); err != nil {
 		h.toggleCheckbox(h.client.mEnableRosenpass) // revert checkbox state on error
 		log.Errorf("failed to update config: %v", err)
-		h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to update Rosenpass settings"))
+		h.client.notifier.Send("Error", "Failed to update Rosenpass settings")
 	}
 }
 
@@ -155,7 +157,7 @@ func (h *eventHandler) handleLazyConnectionClick() {
 	if err := h.updateConfigWithErr(); err != nil {
 		h.toggleCheckbox(h.client.mLazyConnEnabled) // revert checkbox state on error
 		log.Errorf("failed to update config: %v", err)
-		h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to update lazy connection settings"))
+		h.client.notifier.Send("Error", "Failed to update lazy connection settings")
 	}
 }
 
@@ -164,7 +166,7 @@ func (h *eventHandler) handleBlockInboundClick() {
 	if err := h.updateConfigWithErr(); err != nil {
 		h.toggleCheckbox(h.client.mBlockInbound) // revert checkbox state on error
 		log.Errorf("failed to update config: %v", err)
-		h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to update block inbound settings"))
+		h.client.notifier.Send("Error", "Failed to update block inbound settings")
 	}
 }
 
@@ -173,7 +175,7 @@ func (h *eventHandler) handleNotificationsClick() {
 	if err := h.updateConfigWithErr(); err != nil {
 		h.toggleCheckbox(h.client.mNotifications) // revert checkbox state on error
 		log.Errorf("failed to update config: %v", err)
-		h.client.app.SendNotification(fyne.NewNotification("Error", "Failed to update notifications settings"))
+		h.client.notifier.Send("Error", "Failed to update notifications settings")
 	} else if h.client.eventManager != nil {
 		h.client.eventManager.SetNotificationsEnabled(h.client.mNotifications.Checked())
 	}
@@ -208,9 +210,42 @@ func (h *eventHandler) handleGitHubClick() {
 }
 
 func (h *eventHandler) handleUpdateClick() {
-	if err := openURL(version.DownloadUrl()); err != nil {
-		log.Errorf("failed to open download URL: %v", err)
+	h.client.updateIndicationLock.Lock()
+	enforced := h.client.isEnforcedUpdate
+	h.client.updateIndicationLock.Unlock()
+
+	if !enforced {
+		if err := openURL(version.DownloadUrl()); err != nil {
+			log.Errorf("failed to open download URL: %v", err)
+		}
+		return
 	}
+
+	// prevent blocking against a busy server
+	h.client.mUpdate.Disable()
+	go func() {
+		defer h.client.mUpdate.Enable()
+		conn, err := h.client.getSrvClient(defaultFailTimeout)
+		if err != nil {
+			log.Errorf("failed to get service client for update: %v", err)
+			_ = openURL(version.DownloadUrl())
+			return
+		}
+
+		resp, err := conn.TriggerUpdate(h.client.ctx, &proto.TriggerUpdateRequest{})
+		if err != nil {
+			log.Errorf("TriggerUpdate failed: %v", err)
+			_ = openURL(version.DownloadUrl())
+			return
+		}
+		if !resp.Success {
+			log.Errorf("TriggerUpdate failed: %s", resp.ErrorMsg)
+			_ = openURL(version.DownloadUrl())
+			return
+		}
+
+		log.Infof("update triggered via daemon")
+	}()
 }
 
 func (h *eventHandler) handleNetworksClick() {

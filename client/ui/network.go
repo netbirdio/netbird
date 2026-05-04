@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"runtime"
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -33,11 +32,6 @@ const (
 )
 
 type filter string
-
-type exitNodeState struct {
-	id       string
-	selected bool
-}
 
 func (s *serviceClient) showNetworksUI() {
 	s.wNetworks = s.app.NewWindow("Networks")
@@ -335,17 +329,75 @@ func (s *serviceClient) updateNetworksBasedOnDisplayTab(tabs *container.AppTabs,
 	s.updateNetworks(grid, f)
 }
 
-func (s *serviceClient) updateExitNodes() {
+// startExitNodeRefresh initiates exit node menu refresh after connecting.
+// On Windows, TrayOpenedCh is not supported by the systray library, so we use
+// a background poller to keep exit nodes in sync while connected.
+// On macOS/Linux, TrayOpenedCh handles refreshes on each tray open.
+func (s *serviceClient) startExitNodeRefresh() {
+	s.cancelExitNodeRetry()
+
+	if runtime.GOOS == "windows" {
+		ctx, cancel := context.WithCancel(s.ctx)
+		s.exitNodeMu.Lock()
+		s.exitNodeRetryCancel = cancel
+		s.exitNodeMu.Unlock()
+
+		go s.pollExitNodes(ctx)
+	} else {
+		go s.updateExitNodes()
+	}
+}
+
+func (s *serviceClient) cancelExitNodeRetry() {
+	s.exitNodeMu.Lock()
+	if s.exitNodeRetryCancel != nil {
+		s.exitNodeRetryCancel()
+		s.exitNodeRetryCancel = nil
+	}
+	s.exitNodeMu.Unlock()
+}
+
+// pollExitNodes periodically refreshes exit nodes while connected.
+// Uses a short initial interval to catch routes from the management sync,
+// then switches to a longer interval for ongoing updates.
+func (s *serviceClient) pollExitNodes(ctx context.Context) {
+	// Initial fast polling to catch routes as they appear after connect.
+	for i := 0; i < 5; i++ {
+		if s.updateExitNodes() {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(2 * time.Second):
+		}
+	}
+
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.updateExitNodes()
+		}
+	}
+}
+
+// updateExitNodes fetches exit nodes from the daemon and recreates the menu.
+// Returns true if exit nodes were found.
+func (s *serviceClient) updateExitNodes() bool {
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
 		log.Errorf("get client: %v", err)
-		return
+		return false
 	}
-
 	exitNodes, err := s.getExitNodes(conn)
 	if err != nil {
 		log.Errorf("get exit nodes: %v", err)
-		return
+		return false
 	}
 
 	s.exitNodeMu.Lock()
@@ -355,34 +407,24 @@ func (s *serviceClient) updateExitNodes() {
 
 	if len(s.mExitNodeItems) > 0 {
 		s.mExitNode.Enable()
-	} else {
-		s.mExitNode.Disable()
+		return true
 	}
+
+	s.mExitNode.Disable()
+	return false
 }
 
 func (s *serviceClient) recreateExitNodeMenu(exitNodes []*proto.Network) {
-	var exitNodeIDs []exitNodeState
-	for _, node := range exitNodes {
-		exitNodeIDs = append(exitNodeIDs, exitNodeState{
-			id:       node.ID,
-			selected: node.Selected,
-		})
-	}
-
-	sort.Slice(exitNodeIDs, func(i, j int) bool {
-		return exitNodeIDs[i].id < exitNodeIDs[j].id
-	})
-	if slices.Equal(s.exitNodeStates, exitNodeIDs) {
-		log.Debug("Exit node menu already up to date")
-		return
-	}
-
 	for _, node := range s.mExitNodeItems {
 		node.cancel()
 		node.Hide()
 		node.Remove()
 	}
 	s.mExitNodeItems = nil
+	if s.mExitNodeSeparator != nil {
+		s.mExitNodeSeparator.Remove()
+		s.mExitNodeSeparator = nil
+	}
 	if s.mExitNodeDeselectAll != nil {
 		s.mExitNodeDeselectAll.Remove()
 		s.mExitNodeDeselectAll = nil
@@ -390,7 +432,7 @@ func (s *serviceClient) recreateExitNodeMenu(exitNodes []*proto.Network) {
 
 	if runtime.GOOS == "linux" || runtime.GOOS == "freebsd" {
 		s.mExitNode.Remove()
-		s.mExitNode = systray.AddMenuItem("Exit Node", exitNodeMenuDescr)
+		s.mExitNode = systray.AddMenuItem("Exit Node", disabledMenuDescr)
 	}
 
 	var showDeselectAll bool
@@ -414,32 +456,36 @@ func (s *serviceClient) recreateExitNodeMenu(exitNodes []*proto.Network) {
 		go s.handleChecked(ctx, node.ID, menuItem)
 	}
 
-	s.exitNodeStates = exitNodeIDs
-
 	if showDeselectAll {
-		s.mExitNode.AddSeparator()
-		deselectAllItem := s.mExitNode.AddSubMenuItem("Deselect All", "Deselect All")
-		s.mExitNodeDeselectAll = deselectAllItem
-		go func() {
-			for {
-				_, ok := <-deselectAllItem.ClickedCh
-				if !ok {
-					// channel closed: exit the goroutine
-					return
-				}
-				exitNodes, err := s.handleExitNodeMenuDeselectAll()
-				if err != nil {
-					log.Warnf("failed to handle deselect all exit nodes: %v", err)
-				} else {
-					s.exitNodeMu.Lock()
-					s.recreateExitNodeMenu(exitNodes)
-					s.exitNodeMu.Unlock()
-				}
-			}
-
-		}()
+		s.addExitNodeDeselectAll()
 	}
 
+}
+
+func (s *serviceClient) addExitNodeDeselectAll() {
+	sep := s.mExitNode.AddSubMenuItem("───────────────", "")
+	sep.Disable()
+	s.mExitNodeSeparator = sep
+
+	deselectAllItem := s.mExitNode.AddSubMenuItem("Deselect All", "Deselect All")
+	s.mExitNodeDeselectAll = deselectAllItem
+
+	go func() {
+		for {
+			_, ok := <-deselectAllItem.ClickedCh
+			if !ok {
+				return
+			}
+			exitNodes, err := s.handleExitNodeMenuDeselectAll()
+			if err != nil {
+				log.Warnf("failed to handle deselect all exit nodes: %v", err)
+			} else {
+				s.exitNodeMu.Lock()
+				s.recreateExitNodeMenu(exitNodes)
+				s.exitNodeMu.Unlock()
+			}
+		}
+	}()
 }
 
 func (s *serviceClient) getExitNodes(conn proto.DaemonServiceClient) ([]*proto.Network, error) {

@@ -7,7 +7,17 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/management-integrations/integrations"
+
 	"github.com/netbirdio/netbird/management/internals/modules/peers"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain/manager"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
+	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	nbreverseproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service/manager"
+	"github.com/netbirdio/netbird/management/internals/modules/zones"
+	zonesManager "github.com/netbirdio/netbird/management/internals/modules/zones/manager"
+	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
+	recordsManager "github.com/netbirdio/netbird/management/internals/modules/zones/records/manager"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/geolocation"
@@ -65,7 +75,14 @@ func (s *BaseServer) UsersManager() users.Manager {
 func (s *BaseServer) SettingsManager() settings.Manager {
 	return Create(s, func() settings.Manager {
 		extraSettingsManager := integrations.NewManager(s.EventStore())
-		return settings.NewManager(s.Store(), s.UsersManager(), extraSettingsManager, s.PermissionsManager())
+
+		idpConfig := settings.IdpConfig{}
+		if s.Config.EmbeddedIdP != nil && s.Config.EmbeddedIdP.Enabled {
+			idpConfig.EmbeddedIdpEnabled = true
+			idpConfig.LocalAuthDisabled = s.Config.EmbeddedIdP.LocalAuthDisabled
+		}
+
+		return settings.NewManager(s.Store(), s.UsersManager(), extraSettingsManager, s.PermissionsManager(), idpConfig)
 	})
 }
 
@@ -83,10 +100,15 @@ func (s *BaseServer) PeersManager() peers.Manager {
 
 func (s *BaseServer) AccountManager() account.Manager {
 	return Create(s, func() account.Manager {
-		accountManager, err := server.BuildManager(context.Background(), s.Config, s.Store(), s.NetworkMapController(), s.IdpManager(), s.mgmtSingleAccModeDomain, s.EventStore(), s.GeoLocationManager(), s.userDeleteFromIDPEnabled, s.IntegratedValidator(), s.Metrics(), s.ProxyController(), s.SettingsManager(), s.PermissionsManager(), s.Config.DisableDefaultPolicy)
+		accountManager, err := server.BuildManager(context.Background(), s.Config, s.Store(), s.NetworkMapController(), s.JobManager(), s.IdpManager(), s.mgmtSingleAccModeDomain, s.EventStore(), s.GeoLocationManager(), s.userDeleteFromIDPEnabled, s.IntegratedValidator(), s.Metrics(), s.ProxyController(), s.SettingsManager(), s.PermissionsManager(), s.Config.DisableDefaultPolicy, s.CacheStore())
 		if err != nil {
-			log.Fatalf("failed to create account manager: %v", err)
+			log.Fatalf("failed to create account service: %v", err)
 		}
+
+		s.AfterInit(func(s *BaseServer) {
+			accountManager.SetServiceManager(s.ServiceManager())
+		})
+
 		return accountManager
 	})
 }
@@ -95,14 +117,46 @@ func (s *BaseServer) IdpManager() idp.Manager {
 	return Create(s, func() idp.Manager {
 		var idpManager idp.Manager
 		var err error
+
+		// Use embedded IdP service if embedded Dex is configured and enabled.
+		// Legacy IdpManager won't be used anymore even if configured.
+		embeddedEnabled := s.Config.EmbeddedIdP != nil && s.Config.EmbeddedIdP.Enabled
+		if embeddedEnabled {
+			idpManager, err = idp.NewEmbeddedIdPManager(context.Background(), s.Config.EmbeddedIdP, s.Metrics())
+			if err != nil {
+				log.Fatalf("failed to create embedded IDP service: %v", err)
+			}
+			return idpManager
+		}
+
+		// Fall back to external IdP service
 		if s.Config.IdpManagerConfig != nil {
 			idpManager, err = idp.NewManager(context.Background(), *s.Config.IdpManagerConfig, s.Metrics())
 			if err != nil {
-				log.Fatalf("failed to create IDP manager: %v", err)
+				log.Fatalf("failed to create IDP service: %v", err)
 			}
 		}
 		return idpManager
 	})
+}
+
+// OAuthConfigProvider is only relevant when we have an embedded IdP service. Otherwise must be nil
+func (s *BaseServer) OAuthConfigProvider() idp.OAuthConfigProvider {
+	if s.Config.EmbeddedIdP == nil || !s.Config.EmbeddedIdP.Enabled {
+		return nil
+	}
+
+	idpManager := s.IdpManager()
+	if idpManager == nil {
+		return nil
+	}
+
+	// Reuse the EmbeddedIdPManager instance from IdpManager
+	// EmbeddedIdPManager implements both idp.Manager and idp.OAuthConfigProvider
+	if provider, ok := idpManager.(idp.OAuthConfigProvider); ok {
+		return provider
+	}
+	return nil
 }
 
 func (s *BaseServer) GroupsManager() groups.Manager {
@@ -113,7 +167,7 @@ func (s *BaseServer) GroupsManager() groups.Manager {
 
 func (s *BaseServer) ResourcesManager() resources.Manager {
 	return Create(s, func() resources.Manager {
-		return resources.NewManager(s.Store(), s.PermissionsManager(), s.GroupsManager(), s.AccountManager())
+		return resources.NewManager(s.Store(), s.PermissionsManager(), s.GroupsManager(), s.AccountManager(), s.ServiceManager())
 	})
 }
 
@@ -126,5 +180,40 @@ func (s *BaseServer) RoutesManager() routers.Manager {
 func (s *BaseServer) NetworksManager() networks.Manager {
 	return Create(s, func() networks.Manager {
 		return networks.NewManager(s.Store(), s.PermissionsManager(), s.ResourcesManager(), s.RoutesManager(), s.AccountManager())
+	})
+}
+
+func (s *BaseServer) ZonesManager() zones.Manager {
+	return Create(s, func() zones.Manager {
+		return zonesManager.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager(), s.DNSDomain())
+	})
+}
+
+func (s *BaseServer) RecordsManager() records.Manager {
+	return Create(s, func() records.Manager {
+		return recordsManager.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager())
+	})
+}
+
+func (s *BaseServer) ServiceManager() service.Manager {
+	return Create(s, func() service.Manager {
+		return nbreverseproxy.NewManager(s.Store(), s.AccountManager(), s.PermissionsManager(), s.ServiceProxyController(), s.ProxyManager(), s.ReverseProxyDomainManager())
+	})
+}
+
+func (s *BaseServer) ProxyManager() proxy.Manager {
+	return Create(s, func() proxy.Manager {
+		manager, err := proxymanager.NewManager(s.Store(), s.Metrics().GetMeter())
+		if err != nil {
+			log.Fatalf("failed to create proxy manager: %v", err)
+		}
+		return manager
+	})
+}
+
+func (s *BaseServer) ReverseProxyDomainManager() *manager.Manager {
+	return Create(s, func() *manager.Manager {
+		m := manager.NewManager(s.Store(), s.ProxyManager(), s.PermissionsManager(), s.AccountManager())
+		return &m
 	})
 }

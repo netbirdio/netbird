@@ -358,9 +358,9 @@ func incrementalUpdate(oldChecksum uint16, oldBytes, newBytes []byte) uint16 {
 	// Fast path for IPv4 addresses (4 bytes) - most common case
 	if len(oldBytes) == 4 && len(newBytes) == 4 {
 		sum += uint32(^binary.BigEndian.Uint16(oldBytes[0:2]))
-		sum += uint32(^binary.BigEndian.Uint16(oldBytes[2:4]))
+		sum += uint32(^binary.BigEndian.Uint16(oldBytes[2:4])) //nolint:gosec // length checked above
 		sum += uint32(binary.BigEndian.Uint16(newBytes[0:2]))
-		sum += uint32(binary.BigEndian.Uint16(newBytes[2:4]))
+		sum += uint32(binary.BigEndian.Uint16(newBytes[2:4])) //nolint:gosec // length checked above
 	} else {
 		// Fallback for other lengths
 		for i := 0; i < len(oldBytes)-1; i += 2 {
@@ -421,6 +421,7 @@ func (m *Manager) addPortRedirection(targetIP netip.Addr, protocol gopacket.Laye
 }
 
 // AddInboundDNAT adds an inbound DNAT rule redirecting traffic from NetBird peers to local services.
+// TODO: also delegate to nativeFirewall when available for kernel WG mode
 func (m *Manager) AddInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
 	var layerType gopacket.LayerType
 	switch protocol {
@@ -464,6 +465,22 @@ func (m *Manager) RemoveInboundDNAT(localAddr netip.Addr, protocol firewall.Prot
 	}
 
 	return m.removePortRedirection(localAddr, layerType, sourcePort, targetPort)
+}
+
+// AddOutputDNAT delegates to the native firewall if available.
+func (m *Manager) AddOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+	if m.nativeFirewall == nil {
+		return fmt.Errorf("output DNAT not supported without native firewall")
+	}
+	return m.nativeFirewall.AddOutputDNAT(localAddr, protocol, sourcePort, targetPort)
+}
+
+// RemoveOutputDNAT delegates to the native firewall if available.
+func (m *Manager) RemoveOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+	if m.nativeFirewall == nil {
+		return nil
+	}
+	return m.nativeFirewall.RemoveOutputDNAT(localAddr, protocol, sourcePort, targetPort)
 }
 
 // translateInboundPortDNAT applies port-specific DNAT translation to inbound packets.

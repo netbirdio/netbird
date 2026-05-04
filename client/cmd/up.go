@@ -39,6 +39,9 @@ const (
 	noBrowserFlag = "no-browser"
 	noBrowserDesc = "do not open the browser for SSO login"
 
+	showQRFlag = "qr"
+	showQRDesc = "show QR code for the SSO login URL (useful for headless machines without browser access)"
+
 	profileNameFlag = "profile"
 	profileNameDesc = "profile name to use for the login. If not specified, the last used profile will be used."
 )
@@ -48,6 +51,7 @@ var (
 	dnsLabels          []string
 	dnsLabelsValidated domain.List
 	noBrowser          bool
+	showQR             bool
 	profileName        string
 	configPath         string
 
@@ -80,6 +84,7 @@ func init() {
 	)
 
 	upCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
+	upCmd.PersistentFlags().BoolVar(&showQR, showQRFlag, false, showQRDesc)
 	upCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
 	upCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "(DEPRECATED) NetBird config file location. ")
 
@@ -197,10 +202,10 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 	r := peer.NewRecorder(config.ManagementURL.String())
 	r.GetFullStatus()
 
-	connectClient := internal.NewConnectClient(ctx, config, r, false)
+	connectClient := internal.NewConnectClient(ctx, config, r)
 	SetupDebugHandler(ctx, config, r, connectClient, "")
 
-	return connectClient.Run(nil)
+	return connectClient.Run(nil, util.FindFirstLogPath(logFiles))
 }
 
 func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager.ProfileManager, activeProf *profilemanager.Profile, profileSwitched bool) error {
@@ -216,6 +221,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
+		//nolint
 		return fmt.Errorf("failed to connect to daemon error: %v\n"+
 			"If the daemon is not running please run: "+
 			"\nnetbird service install \nnetbird service start\n", err)

@@ -15,7 +15,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/util"
-	semaphoregroup "github.com/netbirdio/netbird/util/semaphore-group"
 )
 
 var testDispatcher = dispatcher.NewConnectionDispatcher()
@@ -53,7 +52,6 @@ func TestConn_GetKey(t *testing.T) {
 
 	sd := ServiceDependencies{
 		SrWatcher:          swWatcher,
-		Semaphore:          semaphoregroup.NewSemaphoreGroup(1),
 		PeerConnDispatcher: testDispatcher,
 	}
 	conn, err := NewConn(connConf, sd)
@@ -71,7 +69,6 @@ func TestConn_OnRemoteOffer(t *testing.T) {
 	sd := ServiceDependencies{
 		StatusRecorder:     NewRecorder("https://mgm"),
 		SrWatcher:          swWatcher,
-		Semaphore:          semaphoregroup.NewSemaphoreGroup(1),
 		PeerConnDispatcher: testDispatcher,
 	}
 	conn, err := NewConn(connConf, sd)
@@ -110,7 +107,6 @@ func TestConn_OnRemoteAnswer(t *testing.T) {
 	sd := ServiceDependencies{
 		StatusRecorder:     NewRecorder("https://mgm"),
 		SrWatcher:          swWatcher,
-		Semaphore:          semaphoregroup.NewSemaphoreGroup(1),
 		PeerConnDispatcher: testDispatcher,
 	}
 	conn, err := NewConn(connConf, sd)
@@ -282,5 +278,29 @@ func TestConn_presharedKey(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestConn_presharedKey_RosenpassManaged(t *testing.T) {
+	conn := Conn{
+		config: ConnConfig{
+			Key:             "LLHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
+			LocalKey:        "RRHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
+			RosenpassConfig: RosenpassConfig{PubKey: []byte("dummykey")},
+		},
+	}
+
+	// When Rosenpass has already initialized the PSK for this peer,
+	// presharedKey must return nil to avoid UpdatePeer overwriting it.
+	conn.rosenpassInitializedPresharedKeyValidator = func(peerKey string) bool { return true }
+	if k := conn.presharedKey([]byte("remote")); k != nil {
+		t.Fatalf("expected nil presharedKey when Rosenpass manages PSK, got %v", k)
+	}
+
+	// When Rosenpass hasn't taken over yet, presharedKey should provide
+	// a non-nil initial key (deterministic or from NetBird PSK).
+	conn.rosenpassInitializedPresharedKeyValidator = func(peerKey string) bool { return false }
+	if k := conn.presharedKey([]byte("remote")); k == nil {
+		t.Fatalf("expected non-nil presharedKey before Rosenpass manages PSK")
 	}
 }

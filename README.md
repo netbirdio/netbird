@@ -38,6 +38,11 @@
  
 </strong>
 <br>
+<strong>
+  🚀 <a href="https://careers.netbird.io">We are hiring! Join us at careers.netbird.io</a>
+</strong>
+<br>
+<br>
 <a href="https://registry.terraform.io/providers/netbirdio/netbird/latest">
     New: NetBird terraform provider
   </a> 
@@ -55,8 +60,8 @@
 
 https://github.com/user-attachments/assets/10cec749-bb56-4ab3-97af-4e38850108d2
 
-### NetBird on Lawrence Systems (Video)
-[![Watch the video](https://img.youtube.com/vi/Kwrff6h0rEw/0.jpg)](https://www.youtube.com/watch?v=Kwrff6h0rEw)
+### Self-Host NetBird (Video)
+[![Watch the video](https://img.youtube.com/vi/bZAgpT6nzaQ/0.jpg)](https://youtu.be/bZAgpT6nzaQ)
 
 ### Key features
 
@@ -85,7 +90,7 @@ Follow the [Advanced guide with a custom identity provider](https://docs.netbird
 
 **Infrastructure requirements:**
 - A Linux VM with at least **1CPU** and **2GB** of memory.
-- The VM should be publicly accessible on TCP ports **80** and **443** and UDP ports: **3478**, **49152-65535**.
+- The VM should be publicly accessible on TCP ports **80** and **443** and UDP port: **3478**.
 - **Public domain** name pointing to the VM.
 
 **Software requirements:**
@@ -98,7 +103,7 @@ Follow the [Advanced guide with a custom identity provider](https://docs.netbird
 **Steps**
 - Download and run the installation script:
 ```bash
-export NETBIRD_DOMAIN=netbird.example.com; curl -fsSL https://github.com/netbirdio/netbird/releases/latest/download/getting-started-with-zitadel.sh | bash
+export NETBIRD_DOMAIN=netbird.example.com; curl -fsSL https://github.com/netbirdio/netbird/releases/latest/download/getting-started.sh | bash
 ```
 - Once finished, you can manage the resources via `docker-compose`
 
@@ -121,6 +126,7 @@ See a complete [architecture overview](https://docs.netbird.io/about-netbird/how
 ### Community projects
 -  [NetBird installer script](https://github.com/physk/netbird-installer)
 -  [NetBird ansible collection by Dominion Solutions](https://galaxy.ansible.com/ui/repo/published/dominion_solutions/netbird/)
+-  [netbird-tui](https://github.com/n0pashkov/netbird-tui) — terminal UI for managing NetBird peers, routes, and settings
 
 **Note**: The `main` branch may be in an *unstable or even broken state* during development.
 For stable versions, see [releases](https://github.com/netbirdio/netbird/releases).

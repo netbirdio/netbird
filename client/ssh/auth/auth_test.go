@@ -24,7 +24,7 @@ func TestAuthorizer_Authorize_UserNotInList(t *testing.T) {
 	authorizer.Update(config)
 
 	// Try to authorize a different user
-	err = authorizer.Authorize("unauthorized-user", "root")
+	_, err = authorizer.Authorize("unauthorized-user", "root")
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, ErrUserNotAuthorized)
 }
@@ -45,15 +45,15 @@ func TestAuthorizer_Authorize_UserInList_NoMachineUserRestrictions(t *testing.T)
 	authorizer.Update(config)
 
 	// All attempts should fail when no machine user mappings exist (fail closed)
-	err = authorizer.Authorize("user1", "root")
+	_, err = authorizer.Authorize("user1", "root")
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, ErrNoMachineUserMapping)
 
-	err = authorizer.Authorize("user2", "admin")
+	_, err = authorizer.Authorize("user2", "admin")
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, ErrNoMachineUserMapping)
 
-	err = authorizer.Authorize("user1", "postgres")
+	_, err = authorizer.Authorize("user1", "postgres")
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, ErrNoMachineUserMapping)
 }
@@ -80,21 +80,21 @@ func TestAuthorizer_Authorize_UserInList_WithMachineUserMapping_Allowed(t *testi
 	authorizer.Update(config)
 
 	// user1 (index 0) should access root and admin
-	err = authorizer.Authorize("user1", "root")
+	_, err = authorizer.Authorize("user1", "root")
 	assert.NoError(t, err)
 
-	err = authorizer.Authorize("user1", "admin")
+	_, err = authorizer.Authorize("user1", "admin")
 	assert.NoError(t, err)
 
 	// user2 (index 1) should access root and postgres
-	err = authorizer.Authorize("user2", "root")
+	_, err = authorizer.Authorize("user2", "root")
 	assert.NoError(t, err)
 
-	err = authorizer.Authorize("user2", "postgres")
+	_, err = authorizer.Authorize("user2", "postgres")
 	assert.NoError(t, err)
 
 	// user3 (index 2) should access postgres
-	err = authorizer.Authorize("user3", "postgres")
+	_, err = authorizer.Authorize("user3", "postgres")
 	assert.NoError(t, err)
 }
 
@@ -121,22 +121,22 @@ func TestAuthorizer_Authorize_UserInList_WithMachineUserMapping_Denied(t *testin
 	authorizer.Update(config)
 
 	// user1 (index 0) should NOT access postgres
-	err = authorizer.Authorize("user1", "postgres")
+	_, err = authorizer.Authorize("user1", "postgres")
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, ErrUserNotMappedToOSUser)
 
 	// user2 (index 1) should NOT access admin
-	err = authorizer.Authorize("user2", "admin")
+	_, err = authorizer.Authorize("user2", "admin")
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, ErrUserNotMappedToOSUser)
 
 	// user3 (index 2) should NOT access root
-	err = authorizer.Authorize("user3", "root")
+	_, err = authorizer.Authorize("user3", "root")
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, ErrUserNotMappedToOSUser)
 
 	// user3 (index 2) should NOT access admin
-	err = authorizer.Authorize("user3", "admin")
+	_, err = authorizer.Authorize("user3", "admin")
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, ErrUserNotMappedToOSUser)
 }
@@ -158,7 +158,7 @@ func TestAuthorizer_Authorize_UserInList_OSUserNotInMapping(t *testing.T) {
 	authorizer.Update(config)
 
 	// user1 should NOT access an unmapped OS user (fail closed)
-	err = authorizer.Authorize("user1", "postgres")
+	_, err = authorizer.Authorize("user1", "postgres")
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, ErrNoMachineUserMapping)
 }
@@ -178,7 +178,7 @@ func TestAuthorizer_Authorize_EmptyJWTUserID(t *testing.T) {
 	authorizer.Update(config)
 
 	// Empty user ID should fail
-	err = authorizer.Authorize("", "root")
+	_, err = authorizer.Authorize("", "root")
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, ErrEmptyUserID)
 }
@@ -211,12 +211,12 @@ func TestAuthorizer_Authorize_MultipleUsersInList(t *testing.T) {
 
 	// All users should be authorized for root
 	for i := 0; i < 10; i++ {
-		err := authorizer.Authorize("user"+string(rune('0'+i)), "root")
+		_, err := authorizer.Authorize("user"+string(rune('0'+i)), "root")
 		assert.NoError(t, err, "user%d should be authorized", i)
 	}
 
 	// User not in list should fail
-	err := authorizer.Authorize("unknown-user", "root")
+	_, err := authorizer.Authorize("unknown-user", "root")
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, ErrUserNotAuthorized)
 }
@@ -236,14 +236,14 @@ func TestAuthorizer_Update_ClearsConfiguration(t *testing.T) {
 	authorizer.Update(config)
 
 	// user1 should be authorized
-	err = authorizer.Authorize("user1", "root")
+	_, err = authorizer.Authorize("user1", "root")
 	assert.NoError(t, err)
 
 	// Clear configuration
 	authorizer.Update(nil)
 
 	// user1 should no longer be authorized
-	err = authorizer.Authorize("user1", "root")
+	_, err = authorizer.Authorize("user1", "root")
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, ErrUserNotAuthorized)
 }
@@ -267,16 +267,16 @@ func TestAuthorizer_Update_EmptyMachineUsersListEntries(t *testing.T) {
 	authorizer.Update(config)
 
 	// root should work
-	err = authorizer.Authorize("user1", "root")
+	_, err = authorizer.Authorize("user1", "root")
 	assert.NoError(t, err)
 
 	// postgres should fail (no mapping)
-	err = authorizer.Authorize("user1", "postgres")
+	_, err = authorizer.Authorize("user1", "postgres")
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, ErrNoMachineUserMapping)
 
 	// admin should fail (no mapping)
-	err = authorizer.Authorize("user1", "admin")
+	_, err = authorizer.Authorize("user1", "admin")
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, ErrNoMachineUserMapping)
 }
@@ -301,7 +301,7 @@ func TestAuthorizer_CustomUserIDClaim(t *testing.T) {
 	assert.Equal(t, "email", authorizer.GetUserIDClaim())
 
 	// Authorize with email as user ID
-	err = authorizer.Authorize("user@example.com", "root")
+	_, err = authorizer.Authorize("user@example.com", "root")
 	assert.NoError(t, err)
 }
 
@@ -349,19 +349,19 @@ func TestAuthorizer_MachineUserMapping_LargeIndexes(t *testing.T) {
 	authorizer.Update(config)
 
 	// First user should have access
-	err := authorizer.Authorize("user"+string(rune(0)), "root")
+	_, err := authorizer.Authorize("user"+string(rune(0)), "root")
 	assert.NoError(t, err)
 
 	// Middle user should have access
-	err = authorizer.Authorize("user"+string(rune(500)), "root")
+	_, err = authorizer.Authorize("user"+string(rune(500)), "root")
 	assert.NoError(t, err)
 
 	// Last user should have access
-	err = authorizer.Authorize("user"+string(rune(999)), "root")
+	_, err = authorizer.Authorize("user"+string(rune(999)), "root")
 	assert.NoError(t, err)
 
 	// User not in mapping should NOT have access
-	err = authorizer.Authorize("user"+string(rune(100)), "root")
+	_, err = authorizer.Authorize("user"+string(rune(100)), "root")
 	assert.Error(t, err)
 }
 
@@ -393,7 +393,7 @@ func TestAuthorizer_ConcurrentAuthorization(t *testing.T) {
 			if idx%2 == 0 {
 				user = "user2"
 			}
-			err := authorizer.Authorize(user, "root")
+			_, err := authorizer.Authorize(user, "root")
 			errChan <- err
 		}(i)
 	}
@@ -426,22 +426,22 @@ func TestAuthorizer_Wildcard_AllowsAllAuthorizedUsers(t *testing.T) {
 	authorizer.Update(config)
 
 	// All authorized users should be able to access any OS user
-	err = authorizer.Authorize("user1", "root")
+	_, err = authorizer.Authorize("user1", "root")
 	assert.NoError(t, err)
 
-	err = authorizer.Authorize("user2", "postgres")
+	_, err = authorizer.Authorize("user2", "postgres")
 	assert.NoError(t, err)
 
-	err = authorizer.Authorize("user3", "admin")
+	_, err = authorizer.Authorize("user3", "admin")
 	assert.NoError(t, err)
 
-	err = authorizer.Authorize("user1", "ubuntu")
+	_, err = authorizer.Authorize("user1", "ubuntu")
 	assert.NoError(t, err)
 
-	err = authorizer.Authorize("user2", "nginx")
+	_, err = authorizer.Authorize("user2", "nginx")
 	assert.NoError(t, err)
 
-	err = authorizer.Authorize("user3", "docker")
+	_, err = authorizer.Authorize("user3", "docker")
 	assert.NoError(t, err)
 }
 
@@ -462,11 +462,11 @@ func TestAuthorizer_Wildcard_UnauthorizedUserStillDenied(t *testing.T) {
 	authorizer.Update(config)
 
 	// user1 should have access
-	err = authorizer.Authorize("user1", "root")
+	_, err = authorizer.Authorize("user1", "root")
 	assert.NoError(t, err)
 
 	// Unauthorized user should still be denied even with wildcard
-	err = authorizer.Authorize("unauthorized-user", "root")
+	_, err = authorizer.Authorize("unauthorized-user", "root")
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, ErrUserNotAuthorized)
 }
@@ -492,17 +492,17 @@ func TestAuthorizer_Wildcard_TakesPrecedenceOverSpecificMappings(t *testing.T) {
 	authorizer.Update(config)
 
 	// Both users should be able to access root via wildcard (takes precedence over specific mapping)
-	err = authorizer.Authorize("user1", "root")
+	_, err = authorizer.Authorize("user1", "root")
 	assert.NoError(t, err)
 
-	err = authorizer.Authorize("user2", "root")
+	_, err = authorizer.Authorize("user2", "root")
 	assert.NoError(t, err)
 
 	// Both users should be able to access any other OS user via wildcard
-	err = authorizer.Authorize("user1", "postgres")
+	_, err = authorizer.Authorize("user1", "postgres")
 	assert.NoError(t, err)
 
-	err = authorizer.Authorize("user2", "admin")
+	_, err = authorizer.Authorize("user2", "admin")
 	assert.NoError(t, err)
 }
 
@@ -526,29 +526,29 @@ func TestAuthorizer_NoWildcard_SpecificMappingsOnly(t *testing.T) {
 	authorizer.Update(config)
 
 	// user1 can access root
-	err = authorizer.Authorize("user1", "root")
+	_, err = authorizer.Authorize("user1", "root")
 	assert.NoError(t, err)
 
 	// user2 can access postgres
-	err = authorizer.Authorize("user2", "postgres")
+	_, err = authorizer.Authorize("user2", "postgres")
 	assert.NoError(t, err)
 
 	// user1 cannot access postgres
-	err = authorizer.Authorize("user1", "postgres")
+	_, err = authorizer.Authorize("user1", "postgres")
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, ErrUserNotMappedToOSUser)
 
 	// user2 cannot access root
-	err = authorizer.Authorize("user2", "root")
+	_, err = authorizer.Authorize("user2", "root")
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, ErrUserNotMappedToOSUser)
 
 	// Neither can access unmapped OS users
-	err = authorizer.Authorize("user1", "admin")
+	_, err = authorizer.Authorize("user1", "admin")
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, ErrNoMachineUserMapping)
 
-	err = authorizer.Authorize("user2", "admin")
+	_, err = authorizer.Authorize("user2", "admin")
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, ErrNoMachineUserMapping)
 }
@@ -578,35 +578,35 @@ func TestAuthorizer_Wildcard_WithPartialIndexes_AllowsAllUsers(t *testing.T) {
 	authorizer.Update(config)
 
 	// wasm (index 0) should access any OS user via wildcard
-	err = authorizer.Authorize("wasm", "root")
+	_, err = authorizer.Authorize("wasm", "root")
 	assert.NoError(t, err, "wasm should access root via wildcard")
 
-	err = authorizer.Authorize("wasm", "alice")
+	_, err = authorizer.Authorize("wasm", "alice")
 	assert.NoError(t, err, "wasm should access alice via wildcard")
 
-	err = authorizer.Authorize("wasm", "bob")
+	_, err = authorizer.Authorize("wasm", "bob")
 	assert.NoError(t, err, "wasm should access bob via wildcard")
 
-	err = authorizer.Authorize("wasm", "postgres")
+	_, err = authorizer.Authorize("wasm", "postgres")
 	assert.NoError(t, err, "wasm should access postgres via wildcard")
 
 	// user2 (index 1) should only access alice and bob (explicitly mapped), NOT root or postgres
-	err = authorizer.Authorize("user2", "alice")
+	_, err = authorizer.Authorize("user2", "alice")
 	assert.NoError(t, err, "user2 should access alice via explicit mapping")
 
-	err = authorizer.Authorize("user2", "bob")
+	_, err = authorizer.Authorize("user2", "bob")
 	assert.NoError(t, err, "user2 should access bob via explicit mapping")
 
-	err = authorizer.Authorize("user2", "root")
+	_, err = authorizer.Authorize("user2", "root")
 	assert.Error(t, err, "user2 should NOT access root (not in wildcard indexes)")
 	assert.ErrorIs(t, err, ErrNoMachineUserMapping)
 
-	err = authorizer.Authorize("user2", "postgres")
+	_, err = authorizer.Authorize("user2", "postgres")
 	assert.Error(t, err, "user2 should NOT access postgres (not explicitly mapped)")
 	assert.ErrorIs(t, err, ErrNoMachineUserMapping)
 
 	// Unauthorized user should still be denied
-	err = authorizer.Authorize("user3", "root")
+	_, err = authorizer.Authorize("user3", "root")
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, ErrUserNotAuthorized, "unauthorized user should be denied")
 }

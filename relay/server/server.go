@@ -30,7 +30,7 @@ type ListenerConfig struct {
 // In a new HTTP connection, the server will accept the connection and pass it to the Relay server via the Accept method.
 type Server struct {
 	relay       *Relay
-	listeners   []listener.Listener
+	listeners   []Listener
 	listenerMux sync.Mutex
 }
 
@@ -55,7 +55,7 @@ func NewServer(config Config) (*Server, error) {
 	}
 	return &Server{
 		relay:     relay,
-		listeners: make([]listener.Listener, 0, 2),
+		listeners: make([]Listener, 0, 2),
 	}, nil
 }
 
@@ -85,7 +85,7 @@ func (r *Server) Listen(cfg ListenerConfig) error {
 	wg := sync.WaitGroup{}
 	for _, l := range r.listeners {
 		wg.Add(1)
-		go func(listener listener.Listener) {
+		go func(listener Listener) {
 			defer wg.Done()
 			errChan <- listener.Listen(r.relay.Accept)
 		}(l)
@@ -133,4 +133,11 @@ func (r *Server) ListenerProtocols() []protocol.Protocol {
 
 func (r *Server) InstanceURL() url.URL {
 	return r.relay.InstanceURL()
+}
+
+// RelayAccept returns the relay's Accept function for handling incoming connections.
+// This allows external HTTP handlers to route connections to the relay without
+// starting the relay's own listeners.
+func (r *Server) RelayAccept() func(conn listener.Conn) {
+	return r.relay.Accept
 }

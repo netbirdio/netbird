@@ -52,6 +52,7 @@ type Manager interface {
 	TriggerSelection(route.HAMap)
 	GetRouteSelector() *routeselector.RouteSelector
 	GetClientRoutes() route.HAMap
+	GetSelectedClientRoutes() route.HAMap
 	GetClientRoutesWithNetID() map[route.NetID][]*route.Route
 	SetRouteChangeListener(listener listener.NetworkChangeListener)
 	InitialRouteRange() []string
@@ -167,18 +168,28 @@ func (m *DefaultManager) setupAndroidRoutes(config ManagerConfig) {
 			NetworkType: route.IPv4Network,
 		}
 		cr = append(cr, fakeIPRoute)
+		m.notifier.SetFakeIPRoute(fakeIPRoute)
 	}
 
 	m.notifier.SetInitialClientRoutes(cr, routesForComparison)
 }
 
 func (m *DefaultManager) setupRefCounters(useNoop bool) {
+	var once sync.Once
+	var wgIface *net.Interface
+	toInterface := func() *net.Interface {
+		once.Do(func() {
+			wgIface = m.wgInterface.ToInterface()
+		})
+		return wgIface
+	}
+
 	m.routeRefCounter = refcounter.New(
 		func(prefix netip.Prefix, _ struct{}) (struct{}, error) {
-			return struct{}{}, m.sysOps.AddVPNRoute(prefix, m.wgInterface.ToInterface())
+			return struct{}{}, m.sysOps.AddVPNRoute(prefix, toInterface())
 		},
 		func(prefix netip.Prefix, _ struct{}) error {
-			return m.sysOps.RemoveVPNRoute(prefix, m.wgInterface.ToInterface())
+			return m.sysOps.RemoveVPNRoute(prefix, toInterface())
 		},
 	)
 
@@ -337,6 +348,23 @@ func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 	}
 
 	var merr *multierror.Error
+
+	// Begin batch mode to avoid calling applyHostConfig() after each DNS handler operation
+	batchStarted := false
+	if m.dnsServer != nil {
+		m.dnsServer.BeginBatch()
+		batchStarted = true
+		defer func() {
+			if merr != nil {
+				// On error, cancel batch to discard partial DNS state
+				m.dnsServer.CancelBatch()
+			} else {
+				// On success, apply accumulated DNS changes
+				m.dnsServer.EndBatch()
+			}
+		}()
+	}
+
 	for id, handler := range toRemove {
 		if err := handler.RemoveRoute(); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("remove route %s: %w", handler.String(), err))
@@ -367,6 +395,7 @@ func (m *DefaultManager) updateSystemRoutes(newRoutes route.HAMap) error {
 		m.activeRoutes[id] = handler
 	}
 
+	_ = batchStarted // Mark as used
 	return nberrors.FormatErrorOrNil(merr)
 }
 
@@ -436,6 +465,16 @@ func (m *DefaultManager) GetClientRoutes() route.HAMap {
 	defer m.mux.Unlock()
 
 	return maps.Clone(m.clientRoutes)
+}
+
+// GetSelectedClientRoutes returns only the currently selected/active client routes,
+// filtering out deselected exit nodes. Use this instead of GetClientRoutes when checking
+// if traffic should be routed through the tunnel.
+func (m *DefaultManager) GetSelectedClientRoutes() route.HAMap {
+	m.mux.Lock()
+	defer m.mux.Unlock()
+
+	return m.routeSelector.FilterSelectedExitNodes(maps.Clone(m.clientRoutes))
 }
 
 // GetClientRoutesWithNetID returns the current routes from the route map, but the keys consist of the network ID only

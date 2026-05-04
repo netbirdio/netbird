@@ -12,7 +12,9 @@ import (
 	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/sys/unix"
 
+	"github.com/netbirdio/netbird/client/firewall/firewalld"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
@@ -39,7 +41,6 @@ func getTableName() string {
 type iFaceMapper interface {
 	Name() string
 	Address() wgaddr.Address
-	IsUserspaceBind() bool
 }
 
 // Manager of iptables firewall
@@ -48,8 +49,10 @@ type Manager struct {
 	rConn   *nftables.Conn
 	wgIface iFaceMapper
 
-	router     *router
-	aclManager *AclManager
+	router                 *router
+	aclManager             *AclManager
+	notrackOutputChain     *nftables.Chain
+	notrackPreroutingChain *nftables.Chain
 }
 
 // Create nftables firewall manager
@@ -91,6 +94,10 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 		return fmt.Errorf("acl manager init: %w", err)
 	}
 
+	if err := m.initNoTrackChains(workTable); err != nil {
+		log.Warnf("raw priority chains not available, notrack rules will be disabled: %v", err)
+	}
+
 	stateManager.RegisterState(&ShutdownState{})
 
 	// We only need to record minimal interface state for potential recreation.
@@ -99,10 +106,9 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 	// cleanup using Close() without needing to store specific rules.
 	if err := stateManager.UpdateState(&ShutdownState{
 		InterfaceState: &InterfaceState{
-			NameStr:       m.wgIface.Name(),
-			WGAddress:     m.wgIface.Address(),
-			UserspaceBind: m.wgIface.IsUserspaceBind(),
-			MTU:           m.router.mtu,
+			NameStr:   m.wgIface.Name(),
+			WGAddress: m.wgIface.Address(),
+			MTU:       m.router.mtu,
 		},
 	}); err != nil {
 		log.Errorf("failed to update state: %v", err)
@@ -198,12 +204,10 @@ func (m *Manager) RemoveNatRule(pair firewall.RouterPair) error {
 	return m.router.RemoveNatRule(pair)
 }
 
-// AllowNetbird allows netbird interface traffic
+// AllowNetbird allows netbird interface traffic.
+// This is called when USPFilter wraps the native firewall, adding blanket accept
+// rules so that packet filtering is handled in userspace instead of by netfilter.
 func (m *Manager) AllowNetbird() error {
-	if !m.wgIface.IsUserspaceBind() {
-		return nil
-	}
-
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -212,6 +216,10 @@ func (m *Manager) AllowNetbird() error {
 	}
 	if err := m.rConn.Flush(); err != nil {
 		return fmt.Errorf("flush allow input netbird rules: %w", err)
+	}
+
+	if err := firewalld.TrustInterface(m.wgIface.Name()); err != nil {
+		log.Warnf("failed to trust interface in firewalld: %v", err)
 	}
 
 	return nil
@@ -288,7 +296,15 @@ func (m *Manager) Flush() error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	return m.aclManager.Flush()
+	if err := m.aclManager.Flush(); err != nil {
+		return err
+	}
+
+	if err := m.refreshNoTrackChains(); err != nil {
+		log.Errorf("failed to refresh notrack chains: %v", err)
+	}
+
+	return nil
 }
 
 // AddDNATRule adds a DNAT rule
@@ -329,6 +345,192 @@ func (m *Manager) RemoveInboundDNAT(localAddr netip.Addr, protocol firewall.Prot
 	defer m.mutex.Unlock()
 
 	return m.router.RemoveInboundDNAT(localAddr, protocol, sourcePort, targetPort)
+}
+
+// AddOutputDNAT adds an OUTPUT chain DNAT rule for locally-generated traffic.
+func (m *Manager) AddOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.router.AddOutputDNAT(localAddr, protocol, sourcePort, targetPort)
+}
+
+// RemoveOutputDNAT removes an OUTPUT chain DNAT rule.
+func (m *Manager) RemoveOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.router.RemoveOutputDNAT(localAddr, protocol, sourcePort, targetPort)
+}
+
+const (
+	chainNameRawOutput     = "netbird-raw-out"
+	chainNameRawPrerouting = "netbird-raw-pre"
+)
+
+// SetupEBPFProxyNoTrack creates notrack rules for eBPF proxy loopback traffic.
+// This prevents conntrack from tracking WireGuard proxy traffic on loopback, which
+// can interfere with MASQUERADE rules (e.g., from container runtimes like Podman/netavark).
+//
+// Traffic flows that need NOTRACK:
+//
+//  1. Egress: WireGuard -> fake endpoint (before eBPF rewrite)
+//     src=127.0.0.1:wgPort -> dst=127.0.0.1:fakePort
+//     Matched by: sport=wgPort
+//
+//  2. Egress: Proxy -> WireGuard (via raw socket)
+//     src=127.0.0.1:fakePort -> dst=127.0.0.1:wgPort
+//     Matched by: dport=wgPort
+//
+//  3. Ingress: Packets to WireGuard
+//     dst=127.0.0.1:wgPort
+//     Matched by: dport=wgPort
+//
+//  4. Ingress: Packets to proxy (after eBPF rewrite)
+//     dst=127.0.0.1:proxyPort
+//     Matched by: dport=proxyPort
+//
+// Rules are cleaned up when the firewall manager is closed.
+func (m *Manager) SetupEBPFProxyNoTrack(proxyPort, wgPort uint16) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	if m.notrackOutputChain == nil || m.notrackPreroutingChain == nil {
+		return fmt.Errorf("notrack chains not initialized")
+	}
+
+	proxyPortBytes := binaryutil.BigEndian.PutUint16(proxyPort)
+	wgPortBytes := binaryutil.BigEndian.PutUint16(wgPort)
+	loopback := []byte{127, 0, 0, 1}
+
+	// Egress rules: match outgoing loopback UDP packets
+	m.rConn.AddRule(&nftables.Rule{
+		Table: m.notrackOutputChain.Table,
+		Chain: m.notrackOutputChain,
+		Exprs: []expr.Any{
+			&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: ifname("lo")},
+			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 12, Len: 4}, // saddr
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: loopback},
+			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 16, Len: 4}, // daddr
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: loopback},
+			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{unix.IPPROTO_UDP}},
+			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseTransportHeader, Offset: 0, Len: 2},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: wgPortBytes}, // sport=wgPort
+			&expr.Counter{},
+			&expr.Notrack{},
+		},
+	})
+	m.rConn.AddRule(&nftables.Rule{
+		Table: m.notrackOutputChain.Table,
+		Chain: m.notrackOutputChain,
+		Exprs: []expr.Any{
+			&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: ifname("lo")},
+			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 12, Len: 4}, // saddr
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: loopback},
+			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 16, Len: 4}, // daddr
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: loopback},
+			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{unix.IPPROTO_UDP}},
+			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseTransportHeader, Offset: 2, Len: 2},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: wgPortBytes}, // dport=wgPort
+			&expr.Counter{},
+			&expr.Notrack{},
+		},
+	})
+
+	// Ingress rules: match incoming loopback UDP packets
+	m.rConn.AddRule(&nftables.Rule{
+		Table: m.notrackPreroutingChain.Table,
+		Chain: m.notrackPreroutingChain,
+		Exprs: []expr.Any{
+			&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: ifname("lo")},
+			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 12, Len: 4}, // saddr
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: loopback},
+			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 16, Len: 4}, // daddr
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: loopback},
+			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{unix.IPPROTO_UDP}},
+			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseTransportHeader, Offset: 2, Len: 2},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: wgPortBytes}, // dport=wgPort
+			&expr.Counter{},
+			&expr.Notrack{},
+		},
+	})
+	m.rConn.AddRule(&nftables.Rule{
+		Table: m.notrackPreroutingChain.Table,
+		Chain: m.notrackPreroutingChain,
+		Exprs: []expr.Any{
+			&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: ifname("lo")},
+			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 12, Len: 4}, // saddr
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: loopback},
+			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: 16, Len: 4}, // daddr
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: loopback},
+			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{unix.IPPROTO_UDP}},
+			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseTransportHeader, Offset: 2, Len: 2},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: proxyPortBytes}, // dport=proxyPort
+			&expr.Counter{},
+			&expr.Notrack{},
+		},
+	})
+
+	if err := m.rConn.Flush(); err != nil {
+		return fmt.Errorf("flush notrack rules: %w", err)
+	}
+
+	log.Debugf("set up ebpf proxy notrack rules for ports %d,%d", proxyPort, wgPort)
+	return nil
+}
+
+func (m *Manager) initNoTrackChains(table *nftables.Table) error {
+	m.notrackOutputChain = m.rConn.AddChain(&nftables.Chain{
+		Name:     chainNameRawOutput,
+		Table:    table,
+		Type:     nftables.ChainTypeFilter,
+		Hooknum:  nftables.ChainHookOutput,
+		Priority: nftables.ChainPriorityRaw,
+	})
+
+	m.notrackPreroutingChain = m.rConn.AddChain(&nftables.Chain{
+		Name:     chainNameRawPrerouting,
+		Table:    table,
+		Type:     nftables.ChainTypeFilter,
+		Hooknum:  nftables.ChainHookPrerouting,
+		Priority: nftables.ChainPriorityRaw,
+	})
+
+	if err := m.rConn.Flush(); err != nil {
+		return fmt.Errorf("flush chain creation: %w", err)
+	}
+
+	return nil
+}
+
+func (m *Manager) refreshNoTrackChains() error {
+	chains, err := m.rConn.ListChainsOfTableFamily(nftables.TableFamilyIPv4)
+	if err != nil {
+		return fmt.Errorf("list chains: %w", err)
+	}
+
+	tableName := getTableName()
+	for _, c := range chains {
+		if c.Table.Name != tableName {
+			continue
+		}
+		switch c.Name {
+		case chainNameRawOutput:
+			m.notrackOutputChain = c
+		case chainNameRawPrerouting:
+			m.notrackPreroutingChain = c
+		}
+	}
+
+	return nil
 }
 
 func (m *Manager) createWorkTable() (*nftables.Table, error) {

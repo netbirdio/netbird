@@ -61,7 +61,10 @@ func (am *DefaultAccountManager) GetAllGroups(ctx context.Context, accountID, us
 }
 
 // GetGroupByName filters all groups in an account by name and returns the one with the most peers
-func (am *DefaultAccountManager) GetGroupByName(ctx context.Context, groupName, accountID string) (*types.Group, error) {
+func (am *DefaultAccountManager) GetGroupByName(ctx context.Context, groupName, accountID, userID string) (*types.Group, error) {
+	if err := am.CheckGroupPermissions(ctx, accountID, userID); err != nil {
+		return nil, err
+	}
 	return am.Store.GetGroupByName(ctx, store.LockingStrengthNone, accountID, groupName)
 }
 
@@ -114,7 +117,7 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 	}
 
 	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationCreate})
 	}
 
 	return nil
@@ -182,7 +185,7 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 	}
 
 	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
 	}
 
 	return nil
@@ -250,7 +253,7 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 	}
 
 	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationCreate})
 	}
 
 	return globalErr
@@ -318,7 +321,7 @@ func (am *DefaultAccountManager) UpdateGroups(ctx context.Context, accountID, us
 	}
 
 	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
 	}
 
 	return globalErr
@@ -425,21 +428,30 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 	var groupIDsToDelete []string
 	var deletedGroups []*types.Group
 
+	extraSettings, err := am.settingsManager.GetExtraSettings(ctx, accountID)
+	if err != nil {
+		return err
+	}
+
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		for _, groupID := range groupIDs {
-			group, err := transaction.GetGroupByID(ctx, store.LockingStrengthUpdate, accountID, groupID)
+			group, err := transaction.GetGroupByID(ctx, store.LockingStrengthNone, accountID, groupID)
 			if err != nil {
 				allErrors = errors.Join(allErrors, err)
 				continue
 			}
 
-			if err := validateDeleteGroup(ctx, transaction, group, userID); err != nil {
+			if err = validateDeleteGroup(ctx, transaction, group, userID, extraSettings.FlowGroups); err != nil {
 				allErrors = errors.Join(allErrors, err)
 				continue
 			}
 
 			groupIDsToDelete = append(groupIDsToDelete, groupID)
 			deletedGroups = append(deletedGroups, group)
+		}
+
+		if len(groupIDsToDelete) == 0 {
+			return allErrors
 		}
 
 		if err = transaction.DeleteGroups(ctx, accountID, groupIDsToDelete); err != nil {
@@ -481,7 +493,7 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 	}
 
 	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
 	}
 
 	return nil
@@ -519,7 +531,7 @@ func (am *DefaultAccountManager) GroupAddResource(ctx context.Context, accountID
 	}
 
 	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
 	}
 
 	return nil
@@ -547,7 +559,7 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 	}
 
 	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
 	}
 
 	return nil
@@ -585,7 +597,7 @@ func (am *DefaultAccountManager) GroupDeleteResource(ctx context.Context, accoun
 	}
 
 	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
 	}
 
 	return nil
@@ -617,7 +629,7 @@ func validateNewGroup(ctx context.Context, transaction store.Store, accountID st
 	return nil
 }
 
-func validateDeleteGroup(ctx context.Context, transaction store.Store, group *types.Group, userID string) error {
+func validateDeleteGroup(ctx context.Context, transaction store.Store, group *types.Group, userID string, flowGroups []string) error {
 	// disable a deleting integration group if the initiator is not an admin service user
 	if group.Issued == types.GroupIssuedIntegration {
 		executingUser, err := transaction.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
@@ -635,6 +647,10 @@ func validateDeleteGroup(ctx context.Context, transaction store.Store, group *ty
 
 	if len(group.Resources) > 0 {
 		return &GroupLinkError{"network resource", group.Resources[0].ID}
+	}
+
+	if slices.Contains(flowGroups, group.ID) {
+		return &GroupLinkError{"settings", "traffic event logging"}
 	}
 
 	if isLinked, linkedRoute := isGroupLinkedToRoute(ctx, transaction, group.AccountID, group.ID); isLinked {

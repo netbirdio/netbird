@@ -955,7 +955,7 @@ func BenchmarkRouteACLs(b *testing.B) {
 		for _, tc := range cases {
 			srcIP := netip.MustParseAddr(tc.srcIP)
 			dstIP := netip.MustParseAddr(tc.dstIP)
-			manager.routeACLsPass(srcIP, dstIP, tc.proto, 0, tc.dstPort)
+			manager.routeACLsPass(srcIP, dstIP, protoToLayer(tc.proto, layers.LayerTypeIPv4), 0, tc.dstPort)
 		}
 	}
 }

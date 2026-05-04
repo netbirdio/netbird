@@ -19,6 +19,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
+	"github.com/netbirdio/netbird/client/firewall/firewalld"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	nbid "github.com/netbirdio/netbird/client/internal/acl/id"
 	"github.com/netbirdio/netbird/client/internal/routemanager/ipfwdstate"
@@ -36,8 +37,11 @@ const (
 	chainNameRoutingFw     = "netbird-rt-fwd"
 	chainNameRoutingNat    = "netbird-rt-postrouting"
 	chainNameRoutingRdr    = "netbird-rt-redirect"
+	chainNameNATOutput     = "netbird-nat-output"
 	chainNameForward       = "FORWARD"
 	chainNameMangleForward = "netbird-mangle-forward"
+
+	firewalldTableName = "firewalld"
 
 	userDataAcceptForwardRuleIif = "frwacceptiif"
 	userDataAcceptForwardRuleOif = "frwacceptoif"
@@ -48,9 +52,11 @@ const (
 
 	// ipTCPHeaderMinSize represents minimum IP (20) + TCP (20) header size for MSS calculation
 	ipTCPHeaderMinSize = 40
-)
 
-const refreshRulesMapError = "refresh rules map: %w"
+	// maxPrefixesSet 1638 prefixes start to fail, taking some margin
+	maxPrefixesSet       = 1500
+	refreshRulesMapError = "refresh rules map: %w"
+)
 
 var (
 	errFilterTableNotFound = fmt.Errorf("'filter' table not found")
@@ -128,6 +134,10 @@ func (r *router) Reset() error {
 
 	if err := r.removeAcceptFilterRules(); err != nil {
 		merr = multierror.Append(merr, fmt.Errorf("remove accept filter rules: %w", err))
+	}
+
+	if err := firewalld.UntrustInterface(r.wgIface.Name()); err != nil {
+		merr = multierror.Append(merr, err)
 	}
 
 	if err := r.removeNatPreroutingRules(); err != nil {
@@ -275,6 +285,10 @@ func (r *router) createContainers() error {
 
 	if err := r.acceptForwardRules(); err != nil {
 		log.Errorf("failed to add accept rules for the forward chain: %s", err)
+	}
+
+	if err := firewalld.TrustInterface(r.wgIface.Name()); err != nil {
+		log.Warnf("failed to trust interface in firewalld: %v", err)
 	}
 
 	if err := r.refreshRulesMap(); err != nil {
@@ -481,7 +495,12 @@ func (r *router) DeleteRouteRule(rule firewall.Rule) error {
 	}
 
 	if nftRule.Handle == 0 {
-		return fmt.Errorf("route rule %s has no handle", ruleKey)
+		log.Warnf("route rule %s has no handle, removing stale entry", ruleKey)
+		if err := r.decrementSetCounter(nftRule); err != nil {
+			log.Warnf("decrement set counter for stale rule %s: %v", ruleKey, err)
+		}
+		delete(r.rules, ruleKey)
+		return nil
 	}
 
 	if err := r.deleteNftRule(nftRule, ruleKey); err != nil {
@@ -513,16 +532,35 @@ func (r *router) createIpSet(setName string, input setInput) (*nftables.Set, err
 	}
 
 	elements := convertPrefixesToSet(prefixes)
-	if err := r.conn.AddSet(nfset, elements); err != nil {
-		return nil, fmt.Errorf("error adding elements to set %s: %w", setName, err)
-	}
+	nElements := len(elements)
 
+	maxElements := maxPrefixesSet * 2
+	initialElements := elements[:min(maxElements, nElements)]
+
+	if err := r.conn.AddSet(nfset, initialElements); err != nil {
+		return nil, fmt.Errorf("error adding set %s: %w", setName, err)
+	}
 	if err := r.conn.Flush(); err != nil {
 		return nil, fmt.Errorf("flush error: %w", err)
 	}
+	log.Debugf("Created new ipset: %s with %d initial prefixes (total prefixes %d)", setName, len(initialElements)/2, len(prefixes))
 
-	log.Printf("Created new ipset: %s with %d elements", setName, len(elements)/2)
+	var subEnd int
+	for subStart := maxElements; subStart < nElements; subStart += maxElements {
+		subEnd = min(subStart+maxElements, nElements)
+		subElement := elements[subStart:subEnd]
+		nSubPrefixes := len(subElement) / 2
+		log.Tracef("Adding new prefixes (%d) in ipset: %s", nSubPrefixes, setName)
+		if err := r.conn.SetAddElements(nfset, subElement); err != nil {
+			return nil, fmt.Errorf("error adding prefixes (%d) to set %s: %w", nSubPrefixes, setName, err)
+		}
+		if err := r.conn.Flush(); err != nil {
+			return nil, fmt.Errorf("flush error: %w", err)
+		}
+		log.Debugf("Added new prefixes (%d) in ipset: %s", nSubPrefixes, setName)
+	}
 
+	log.Infof("Created new ipset: %s with %d prefixes", setName, len(prefixes))
 	return nfset, nil
 }
 
@@ -639,11 +677,30 @@ func (r *router) AddNatRule(pair firewall.RouterPair) error {
 	}
 
 	if err := r.conn.Flush(); err != nil {
-		// TODO: rollback ipset counter
-		return fmt.Errorf("insert rules for %s: %v", pair.Destination, err)
+		r.rollbackRules(pair)
+		return fmt.Errorf("insert rules for %s: %w", pair.Destination, err)
 	}
 
 	return nil
+}
+
+// rollbackRules cleans up unflushed rules and their set counters after a flush failure.
+func (r *router) rollbackRules(pair firewall.RouterPair) {
+	keys := []string{
+		firewall.GenKey(firewall.ForwardingFormat, pair),
+		firewall.GenKey(firewall.PreroutingFormat, pair),
+		firewall.GenKey(firewall.PreroutingFormat, firewall.GetInversePair(pair)),
+	}
+	for _, key := range keys {
+		rule, ok := r.rules[key]
+		if !ok {
+			continue
+		}
+		if err := r.decrementSetCounter(rule); err != nil {
+			log.Warnf("rollback set counter for %s: %v", key, err)
+		}
+		delete(r.rules, key)
+	}
 }
 
 // addNatRule inserts a nftables rule to the conn client flush queue
@@ -907,18 +964,30 @@ func (r *router) addLegacyRouteRule(pair firewall.RouterPair) error {
 func (r *router) removeLegacyRouteRule(pair firewall.RouterPair) error {
 	ruleKey := firewall.GenKey(firewall.ForwardingFormat, pair)
 
-	if rule, exists := r.rules[ruleKey]; exists {
-		if err := r.conn.DelRule(rule); err != nil {
-			return fmt.Errorf("remove legacy forwarding rule %s -> %s: %v", pair.Source, pair.Destination, err)
-		}
+	rule, exists := r.rules[ruleKey]
+	if !exists {
+		return nil
+	}
 
-		log.Debugf("removed legacy forwarding rule %s -> %s", pair.Source, pair.Destination)
-
-		delete(r.rules, ruleKey)
-
+	if rule.Handle == 0 {
+		log.Warnf("legacy forwarding rule %s has no handle, removing stale entry", ruleKey)
 		if err := r.decrementSetCounter(rule); err != nil {
-			return fmt.Errorf("decrement set counter: %w", err)
+			log.Warnf("decrement set counter for stale rule %s: %v", ruleKey, err)
 		}
+		delete(r.rules, ruleKey)
+		return nil
+	}
+
+	if err := r.conn.DelRule(rule); err != nil {
+		return fmt.Errorf("remove legacy forwarding rule %s -> %s: %w", pair.Source, pair.Destination, err)
+	}
+
+	log.Debugf("removed legacy forwarding rule %s -> %s", pair.Source, pair.Destination)
+
+	delete(r.rules, ruleKey)
+
+	if err := r.decrementSetCounter(rule); err != nil {
+		return fmt.Errorf("decrement set counter: %w", err)
 	}
 
 	return nil
@@ -1261,6 +1330,13 @@ func (r *router) isExternalChain(chain *nftables.Chain) bool {
 		return false
 	}
 
+	// Skip firewalld-owned chains. Firewalld creates its chains with the
+	// NFT_CHAIN_OWNER flag, so inserting rules into them returns EPERM.
+	// We delegate acceptance to firewalld by trusting the interface instead.
+	if chain.Table.Name == firewalldTableName {
+		return false
+	}
+
 	// Skip all iptables-managed tables in the ip family
 	if chain.Table.Family == nftables.TableFamilyIPv4 && isIptablesTable(chain.Table.Name) {
 		return false
@@ -1308,65 +1384,89 @@ func (r *router) RemoveNatRule(pair firewall.RouterPair) error {
 		return fmt.Errorf(refreshRulesMapError, err)
 	}
 
+	var merr *multierror.Error
+
 	if pair.Masquerade {
 		if err := r.removeNatRule(pair); err != nil {
-			return fmt.Errorf("remove prerouting rule: %w", err)
+			merr = multierror.Append(merr, fmt.Errorf("remove prerouting rule: %w", err))
 		}
 
 		if err := r.removeNatRule(firewall.GetInversePair(pair)); err != nil {
-			return fmt.Errorf("remove inverse prerouting rule: %w", err)
+			merr = multierror.Append(merr, fmt.Errorf("remove inverse prerouting rule: %w", err))
 		}
 	}
 
 	if err := r.removeLegacyRouteRule(pair); err != nil {
-		return fmt.Errorf("remove legacy routing rule: %w", err)
+		merr = multierror.Append(merr, fmt.Errorf("remove legacy routing rule: %w", err))
 	}
 
+	// Set counters are decremented in the sub-methods above before flush. If flush fails,
+	// counters will be off until the next successful removal or refresh cycle.
 	if err := r.conn.Flush(); err != nil {
-		// TODO: rollback set counter
-		return fmt.Errorf("remove nat rules rule %s: %v", pair.Destination, err)
+		merr = multierror.Append(merr, fmt.Errorf("flush remove nat rules %s: %w", pair.Destination, err))
 	}
 
-	return nil
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 func (r *router) removeNatRule(pair firewall.RouterPair) error {
 	ruleKey := firewall.GenKey(firewall.PreroutingFormat, pair)
 
-	if rule, exists := r.rules[ruleKey]; exists {
-		if err := r.conn.DelRule(rule); err != nil {
-			return fmt.Errorf("remove prerouting rule %s -> %s: %v", pair.Source, pair.Destination, err)
-		}
-
-		log.Debugf("removed prerouting rule %s -> %s", pair.Source, pair.Destination)
-
-		delete(r.rules, ruleKey)
-
-		if err := r.decrementSetCounter(rule); err != nil {
-			return fmt.Errorf("decrement set counter: %w", err)
-		}
-	} else {
+	rule, exists := r.rules[ruleKey]
+	if !exists {
 		log.Debugf("prerouting rule %s not found", ruleKey)
+		return nil
+	}
+
+	if rule.Handle == 0 {
+		log.Warnf("prerouting rule %s has no handle, removing stale entry", ruleKey)
+		if err := r.decrementSetCounter(rule); err != nil {
+			log.Warnf("decrement set counter for stale rule %s: %v", ruleKey, err)
+		}
+		delete(r.rules, ruleKey)
+		return nil
+	}
+
+	if err := r.conn.DelRule(rule); err != nil {
+		return fmt.Errorf("remove prerouting rule %s -> %s: %w", pair.Source, pair.Destination, err)
+	}
+
+	log.Debugf("removed prerouting rule %s -> %s", pair.Source, pair.Destination)
+
+	delete(r.rules, ruleKey)
+
+	if err := r.decrementSetCounter(rule); err != nil {
+		return fmt.Errorf("decrement set counter: %w", err)
 	}
 
 	return nil
 }
 
-// refreshRulesMap refreshes the rule map with the latest rules. this is useful to avoid
-// duplicates and to get missing attributes that we don't have when adding new rules
+// refreshRulesMap rebuilds the rule map from the kernel. This removes stale entries
+// (e.g. from failed flushes) and updates handles for all existing rules.
 func (r *router) refreshRulesMap() error {
+	var merr *multierror.Error
+	newRules := make(map[string]*nftables.Rule)
 	for _, chain := range r.chains {
 		rules, err := r.conn.GetRules(chain.Table, chain)
 		if err != nil {
-			return fmt.Errorf("list rules: %w", err)
+			merr = multierror.Append(merr, fmt.Errorf("list rules for chain %s: %w", chain.Name, err))
+			// preserve existing entries for this chain since we can't verify their state
+			for k, v := range r.rules {
+				if v.Chain != nil && v.Chain.Name == chain.Name {
+					newRules[k] = v
+				}
+			}
+			continue
 		}
 		for _, rule := range rules {
 			if len(rule.UserData) > 0 {
-				r.rules[string(rule.UserData)] = rule
+				newRules[string(rule.UserData)] = rule
 			}
 		}
 	}
-	return nil
+	r.rules = newRules
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 func (r *router) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
@@ -1608,20 +1708,34 @@ func (r *router) DeleteDNATRule(rule firewall.Rule) error {
 	}
 
 	var merr *multierror.Error
+	var needsFlush bool
+
 	if dnatRule, exists := r.rules[ruleKey+dnatSuffix]; exists {
-		if err := r.conn.DelRule(dnatRule); err != nil {
+		if dnatRule.Handle == 0 {
+			log.Warnf("dnat rule %s has no handle, removing stale entry", ruleKey+dnatSuffix)
+			delete(r.rules, ruleKey+dnatSuffix)
+		} else if err := r.conn.DelRule(dnatRule); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("delete dnat rule: %w", err))
+		} else {
+			needsFlush = true
 		}
 	}
 
 	if masqRule, exists := r.rules[ruleKey+snatSuffix]; exists {
-		if err := r.conn.DelRule(masqRule); err != nil {
+		if masqRule.Handle == 0 {
+			log.Warnf("snat rule %s has no handle, removing stale entry", ruleKey+snatSuffix)
+			delete(r.rules, ruleKey+snatSuffix)
+		} else if err := r.conn.DelRule(masqRule); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("delete snat rule: %w", err))
+		} else {
+			needsFlush = true
 		}
 	}
 
-	if err := r.conn.Flush(); err != nil {
-		merr = multierror.Append(merr, fmt.Errorf(flushError, err))
+	if needsFlush {
+		if err := r.conn.Flush(); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf(flushError, err))
+		}
 	}
 
 	if merr == nil {
@@ -1736,15 +1850,148 @@ func (r *router) RemoveInboundDNAT(localAddr netip.Addr, protocol firewall.Proto
 
 	ruleID := fmt.Sprintf("inbound-dnat-%s-%s-%d-%d", localAddr.String(), protocol, sourcePort, targetPort)
 
-	if rule, exists := r.rules[ruleID]; exists {
-		if err := r.conn.DelRule(rule); err != nil {
-			return fmt.Errorf("delete inbound DNAT rule %s: %w", ruleID, err)
-		}
-		if err := r.conn.Flush(); err != nil {
-			return fmt.Errorf("flush delete inbound DNAT rule: %w", err)
-		}
-		delete(r.rules, ruleID)
+	rule, exists := r.rules[ruleID]
+	if !exists {
+		return nil
 	}
+
+	if rule.Handle == 0 {
+		log.Warnf("inbound DNAT rule %s has no handle, removing stale entry", ruleID)
+		delete(r.rules, ruleID)
+		return nil
+	}
+
+	if err := r.conn.DelRule(rule); err != nil {
+		return fmt.Errorf("delete inbound DNAT rule %s: %w", ruleID, err)
+	}
+	if err := r.conn.Flush(); err != nil {
+		return fmt.Errorf("flush delete inbound DNAT rule: %w", err)
+	}
+	delete(r.rules, ruleID)
+
+	return nil
+}
+
+// ensureNATOutputChain lazily creates the OUTPUT NAT chain on first use.
+func (r *router) ensureNATOutputChain() error {
+	if _, exists := r.chains[chainNameNATOutput]; exists {
+		return nil
+	}
+
+	r.chains[chainNameNATOutput] = r.conn.AddChain(&nftables.Chain{
+		Name:     chainNameNATOutput,
+		Table:    r.workTable,
+		Hooknum:  nftables.ChainHookOutput,
+		Priority: nftables.ChainPriorityNATDest,
+		Type:     nftables.ChainTypeNAT,
+	})
+
+	if err := r.conn.Flush(); err != nil {
+		delete(r.chains, chainNameNATOutput)
+		return fmt.Errorf("create NAT output chain: %w", err)
+	}
+	return nil
+}
+
+// AddOutputDNAT adds an OUTPUT chain DNAT rule for locally-generated traffic.
+func (r *router) AddOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+	ruleID := fmt.Sprintf("output-dnat-%s-%s-%d-%d", localAddr.String(), protocol, sourcePort, targetPort)
+
+	if _, exists := r.rules[ruleID]; exists {
+		return nil
+	}
+
+	if err := r.ensureNATOutputChain(); err != nil {
+		return err
+	}
+
+	protoNum, err := protoToInt(protocol)
+	if err != nil {
+		return fmt.Errorf("convert protocol to number: %w", err)
+	}
+
+	exprs := []expr.Any{
+		&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     []byte{protoNum},
+		},
+		&expr.Payload{
+			DestRegister: 2,
+			Base:         expr.PayloadBaseTransportHeader,
+			Offset:       2,
+			Len:          2,
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 2,
+			Data:     binaryutil.BigEndian.PutUint16(sourcePort),
+		},
+	}
+
+	exprs = append(exprs, applyPrefix(netip.PrefixFrom(localAddr, 32), false)...)
+
+	exprs = append(exprs,
+		&expr.Immediate{
+			Register: 1,
+			Data:     localAddr.AsSlice(),
+		},
+		&expr.Immediate{
+			Register: 2,
+			Data:     binaryutil.BigEndian.PutUint16(targetPort),
+		},
+		&expr.NAT{
+			Type:        expr.NATTypeDestNAT,
+			Family:      uint32(nftables.TableFamilyIPv4),
+			RegAddrMin:  1,
+			RegProtoMin: 2,
+		},
+	)
+
+	dnatRule := &nftables.Rule{
+		Table:    r.workTable,
+		Chain:    r.chains[chainNameNATOutput],
+		Exprs:    exprs,
+		UserData: []byte(ruleID),
+	}
+	r.conn.AddRule(dnatRule)
+
+	if err := r.conn.Flush(); err != nil {
+		return fmt.Errorf("add output DNAT rule: %w", err)
+	}
+
+	r.rules[ruleID] = dnatRule
+
+	return nil
+}
+
+// RemoveOutputDNAT removes an OUTPUT chain DNAT rule.
+func (r *router) RemoveOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+	if err := r.refreshRulesMap(); err != nil {
+		return fmt.Errorf(refreshRulesMapError, err)
+	}
+
+	ruleID := fmt.Sprintf("output-dnat-%s-%s-%d-%d", localAddr.String(), protocol, sourcePort, targetPort)
+
+	rule, exists := r.rules[ruleID]
+	if !exists {
+		return nil
+	}
+
+	if rule.Handle == 0 {
+		log.Warnf("output DNAT rule %s has no handle, removing stale entry", ruleID)
+		delete(r.rules, ruleID)
+		return nil
+	}
+
+	if err := r.conn.DelRule(rule); err != nil {
+		return fmt.Errorf("delete output DNAT rule %s: %w", ruleID, err)
+	}
+	if err := r.conn.Flush(); err != nil {
+		return fmt.Errorf("flush delete output DNAT rule: %w", err)
+	}
+	delete(r.rules, ruleID)
 
 	return nil
 }

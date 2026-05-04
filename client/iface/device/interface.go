@@ -17,6 +17,7 @@ type WGConfigurer interface {
 	RemovePeer(peerKey string) error
 	AddAllowedIP(peerKey string, allowedIP netip.Prefix) error
 	RemoveAllowedIP(peerKey string, allowedIP netip.Prefix) error
+	SetPresharedKey(peerKey string, psk wgtypes.Key, updateOnly bool) error
 	Close()
 	GetStats() (map[string]configurer.WGStats, error)
 	FullStats() (*configurer.Stats, error)
