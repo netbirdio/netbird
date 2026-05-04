@@ -9,6 +9,7 @@ import (
 const (
 	// HTTP server type identifiers for logging
 	logtagFieldHTTPServer = "http-server"
+	logtagValueHTTP       = "http"
 	logtagValueHTTPS      = "https"
 	logtagValueACME       = "acme"
 	logtagValueDebug      = "debug"
