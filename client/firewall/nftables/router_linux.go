@@ -875,6 +875,10 @@ func (r *router) addMSSClampingRules() error {
 	if r.af.tableFamily == nftables.TableFamilyIPv6 {
 		overhead = ipv6TCPHeaderSize
 	}
+	if r.mtu <= overhead {
+		log.Debugf("MTU %d too small for MSS clamping (overhead %d), skipping", r.mtu, overhead)
+		return nil
+	}
 	mss := r.mtu - overhead
 
 	exprsOut := []expr.Any{
