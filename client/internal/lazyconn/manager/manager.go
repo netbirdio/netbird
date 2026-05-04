@@ -579,6 +579,28 @@ func (m *Manager) onPeerActivity(peerConnID peerid.ConnID) {
 	m.activateHAGroupPeers(mp.peerCfg)
 
 	m.peerStore.PeerConnOpen(m.engineCtx, mp.peerCfg.PublicKey)
+
+	// Phase 3.7i (#5989): the signal-trigger and activity-trigger paths
+	// must be symmetric. Signal-trigger goes through
+	// ConnMgr.ActivatePeer which calls conn.AttachICE for p2p-dynamic.
+	// Activity-trigger here previously went through PeerConnOpen only
+	// — Open() recreates workerICE but does NOT register the ICE
+	// listener on the handshaker (deferICEListener=true for
+	// p2p-dynamic). Without AttachICE the guard's onGuardEvent then
+	// sees readICEListener()==nil + everConnected==true and skips
+	// every offer with "will re-attach on real traffic" — but the
+	// only re-attach path is here, so we'd loop forever.
+	//
+	// AttachICE is mode-safe: a no-op for ModeP2P / ModeP2PLazy
+	// (listener already attached via Open) and an error for
+	// ModeRelayForced (workerICE nil) which we ignore. It honours the
+	// iceBackoff so failure cycles still get the existing 3-tries-
+	// then-hourly retry policy.
+	if conn, ok := m.peerStore.PeerConn(mp.peerCfg.PublicKey); ok {
+		if err := conn.AttachICE(); err != nil {
+			mp.peerCfg.Log.Warnf("AttachICE on activity wake: %v", err)
+		}
+	}
 }
 
 func (m *Manager) onPeerInactivityTimedOut(peerIDs map[string]struct{}) {
