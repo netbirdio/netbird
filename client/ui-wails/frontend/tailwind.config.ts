@@ -4,6 +4,10 @@ const config: Config = {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   darkMode: "class",
   theme: {
+    fontFamily: {
+      sans: ['"Inter Variable"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+      mono: ['"JetBrains Mono Variable"', 'ui-monospace', 'monospace'],
+    },
     extend: {
       colors: {
         "nb-gray": {

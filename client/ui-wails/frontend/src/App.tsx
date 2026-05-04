@@ -1,32 +1,35 @@
+import React from "react";
+import ReactDOM from "react-dom/client";
+import "./globals.css";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
-import Layout from "./Layout";
-import Status from "./pages/Status";
-import Settings from "./pages/Settings";
-import Networks from "./pages/Networks";
-import Peers from "./pages/Peers";
-import Profiles from "./pages/Profiles";
-import Debug from "./pages/Debug";
-import Update from "./pages/Update";
-import QuickActions from "./pages/QuickActions";
-import LoginUrl from "./pages/LoginUrl";
+import QuickActions from "@/screens/QuickActions.tsx";
+import LoginUrl from "@/screens/LoginUrl.tsx";
+import Update from "@/screens/Update.tsx";
+import Layout from "@/layout.tsx";
+import Peers from "@/screens/Peers.tsx";
+import Networks from "@/screens/Networks.tsx";
+import Profiles from "@/screens/Profiles.tsx";
+import Settings from "@/screens/Settings.tsx";
+import Debug from "@/screens/Debug.tsx";
+import {Main} from "@/screens/Main.tsx";
 
-export default function App() {
-  return (
-    <HashRouter>
-      <Routes>
-        <Route path="/quick" element={<QuickActions />} />
-        <Route path="/login" element={<LoginUrl />} />
-        <Route path="/update" element={<Update />} />
-        <Route element={<Layout />}>
-          <Route index element={<Status />} />
-          <Route path="peers" element={<Peers />} />
-          <Route path="networks" element={<Networks />} />
-          <Route path="profiles" element={<Profiles />} />
-          <Route path="settings" element={<Settings />} />
-          <Route path="debug" element={<Debug />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Route>
-      </Routes>
-    </HashRouter>
-  );
-}
+ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+  <React.StrictMode>
+      <HashRouter>
+          <Routes>
+              <Route path="/quick" element={<QuickActions />} />
+              <Route path="/login" element={<LoginUrl />} />
+              <Route path="/update" element={<Update />} />
+              <Route element={<Layout />}>
+                  <Route index element={<Main />} />
+                  <Route path="peers" element={<Peers />} />
+                  <Route path="networks" element={<Networks />} />
+                  <Route path="profiles" element={<Profiles />} />
+                  <Route path="settings" element={<Settings />} />
+                  <Route path="debug" element={<Debug />} />
+                  <Route path="*" element={<Navigate to="/" replace />} />
+              </Route>
+          </Routes>
+      </HashRouter>
+  </React.StrictMode>,
+);
