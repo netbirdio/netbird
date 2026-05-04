@@ -38,7 +38,7 @@ func (r *Router) UpdateRoutes(routesMap map[route.ID]*route.Route, useNewDNSRout
 	r.mux.Lock()
 	defer r.mux.Unlock()
 
-	r.useNewDNSRoute = useNewDNSRoute
+	prevUseNewDNSRoute := r.useNewDNSRoute
 
 	serverRoutesToRemove := make([]route.ID, 0)
 
@@ -51,13 +51,15 @@ func (r *Router) UpdateRoutes(routesMap map[route.ID]*route.Route, useNewDNSRout
 
 	for _, routeID := range serverRoutesToRemove {
 		oldRoute := r.routes[routeID]
-		err := r.removeFromServerNetwork(oldRoute)
+		err := r.removeFromServerNetworkWithMode(oldRoute, prevUseNewDNSRoute)
 		if err != nil {
 			log.Errorf("Unable to remove route id: %s, network %s, from server, got: %v",
 				oldRoute.ID, oldRoute.Network, err)
 		}
 		delete(r.routes, routeID)
 	}
+
+	r.useNewDNSRoute = useNewDNSRoute
 
 	// If routing is to be disabled, do it after routes have been removed
 	// If routing is to be enabled, do it before adding new routes; addToServerNetwork needs routing to be enabled
@@ -89,12 +91,16 @@ func (r *Router) UpdateRoutes(routesMap map[route.ID]*route.Route, useNewDNSRout
 }
 
 func (r *Router) removeFromServerNetwork(route *route.Route) error {
+	return r.removeFromServerNetworkWithMode(route, r.useNewDNSRoute)
+}
+
+func (r *Router) removeFromServerNetworkWithMode(route *route.Route, useNewDNSRoute bool) error {
 	if r.ctx.Err() != nil {
 		log.Infof("Not removing from server network because context is done")
 		return r.ctx.Err()
 	}
 
-	routerPair := routeToRouterPair(route, r.useNewDNSRoute)
+	routerPair := routeToRouterPair(route, useNewDNSRoute)
 	if err := r.firewall.RemoveNatRule(routerPair); err != nil {
 		return fmt.Errorf("remove routing rules: %w", err)
 	}
