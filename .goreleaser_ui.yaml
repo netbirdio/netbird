@@ -105,7 +105,7 @@ nfpms:
       - netbird
       - gtk3
       - webkit2gtk4.1
-      - libayatana-appindicator3
+      - libayatana-appindicator-gtk3
     rpm:
       signature:
         key_file: '{{ if index .Env "GPG_RPM_KEY_FILE" }}{{ .Env.GPG_RPM_KEY_FILE }}{{ end }}'
