@@ -76,7 +76,7 @@ type Server struct {
 	acme          *acme.Manager
 	auth          *auth.Middleware
 	http          *http.Server
-	https         *http.Server
+	httpAcme      *http.Server
 	debug         *http.Server
 	healthServer  *health.Server
 	healthChecker *health.Checker
@@ -360,7 +360,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	close(s.routerReady)
 
 	// The HTTP server uses the chanListener fed by the SNI router.
-	s.https = &http.Server{
+	s.http = &http.Server{
 		Addr:              addr,
 		Handler:           handler,
 		TLSConfig:         tlsConfig,
@@ -371,10 +371,10 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 
 	startupOK = true
 
-	httpsErr := make(chan error, 1)
+	httpErr := make(chan error, 1)
 	go func() {
 		s.Logger.Debug("starting HTTPS server on SNI router HTTP channel")
-		httpsErr <- s.https.ServeTLS(s.mainRouter.HTTPListener(), "", "")
+		httpErr <- s.http.ServeTLS(s.mainRouter.HTTPListener(), "", "")
 	}()
 
 	routerErr := make(chan error, 1)
@@ -384,7 +384,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	}()
 
 	select {
-	case err := <-httpsErr:
+	case err := <-httpErr:
 		s.shutdownServices()
 		if !errors.Is(err, http.ErrServerClosed) {
 			return fmt.Errorf("https server: %w", err)
@@ -607,13 +607,13 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 	go s.acme.WatchWildcards(ctx)
 
 	if s.ACMEChallengeType == "http-01" {
-		s.http = &http.Server{
+		s.httpAcme = &http.Server{
 			Addr:     s.ACMEChallengeAddress,
 			Handler:  s.acme.HTTPHandler(nil),
 			ErrorLog: newHTTPServerLogger(s.Logger, logtagValueACME),
 		}
 		go func() {
-			if err := s.http.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			if err := s.httpAcme.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				s.Logger.WithError(err).Error("ACME HTTP-01 challenge server failed")
 			}
 		}()
@@ -658,7 +658,7 @@ func (s *Server) gracefulShutdown() {
 	defer drainCancel()
 
 	s.Logger.Info("draining in-flight connections")
-	if err := s.https.Shutdown(drainCtx); err != nil {
+	if err := s.http.Shutdown(drainCtx); err != nil {
 		s.Logger.Warnf("https server drain: %v", err)
 	}
 
@@ -726,8 +726,8 @@ func (s *Server) shutdownServices() {
 	if s.debug != nil {
 		shutdownHTTP("debug endpoint", s.debug.Shutdown)
 	}
-	if s.http != nil {
-		shutdownHTTP("acme http", s.http.Shutdown)
+	if s.httpAcme != nil {
+		shutdownHTTP("acme http", s.httpAcme.Shutdown)
 	}
 
 	if s.netbird != nil {
