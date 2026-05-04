@@ -15,6 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/idp/dex"
+	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -395,8 +396,8 @@ func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string
 		return nil, status.Errorf(status.InvalidArgument, "token name can't be empty")
 	}
 
-	if expiresIn < 1 || expiresIn > 365 {
-		return nil, status.Errorf(status.InvalidArgument, "expiration has to be between 1 and 365")
+	if expiresIn < account.PATMinExpireDays || expiresIn > account.PATMaxExpireDays {
+		return nil, status.Errorf(status.InvalidArgument, "expiration has to be between %d and %d", account.PATMinExpireDays, account.PATMaxExpireDays)
 	}
 
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Pats, operations.Create)
@@ -415,6 +416,10 @@ func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string
 	targetUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, targetUserID)
 	if err != nil {
 		return nil, err
+	}
+
+	if targetUser.AccountID != accountID {
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	// @note this is essential to prevent non admin users with Pats create permission frpm creating one for a service user
@@ -457,6 +462,10 @@ func (am *DefaultAccountManager) DeletePAT(ctx context.Context, accountID string
 		return err
 	}
 
+	if targetUser.AccountID != accountID {
+		return status.NewPermissionDeniedError()
+	}
+
 	if initiatorUserID != targetUserID && !(initiatorUser.HasAdminPower() && targetUser.IsServiceUser) {
 		return status.NewAdminPermissionError()
 	}
@@ -496,6 +505,10 @@ func (am *DefaultAccountManager) GetPAT(ctx context.Context, accountID string, i
 		return nil, err
 	}
 
+	if targetUser.AccountID != accountID {
+		return nil, status.NewPermissionDeniedError()
+	}
+
 	if initiatorUserID != targetUserID && !(initiatorUser.HasAdminPower() && targetUser.IsServiceUser) {
 		return nil, status.NewAdminPermissionError()
 	}
@@ -521,6 +534,10 @@ func (am *DefaultAccountManager) GetAllPATs(ctx context.Context, accountID strin
 	targetUser, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, targetUserID)
 	if err != nil {
 		return nil, err
+	}
+
+	if targetUser.AccountID != accountID {
+		return nil, status.NewPermissionDeniedError()
 	}
 
 	if initiatorUserID != targetUserID && !(initiatorUser.HasAdminPower() && targetUser.IsServiceUser) {
@@ -659,7 +676,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		if err = am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return nil, fmt.Errorf("failed to increment network serial: %w", err)
 		}
-		am.UpdateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceUser, Operation: types.UpdateOperationUpdate})
 	}
 
 	return updatedUsersInfo, globalErr
@@ -764,9 +781,15 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 	updatedUser.Role = update.Role
 	updatedUser.Blocked = update.Blocked
 	updatedUser.AutoGroups = update.AutoGroups
-	// these two fields can't be set via API, only via direct call to the method
+	// these fields can't be set via API, only via direct call to the method
 	updatedUser.Issued = update.Issued
 	updatedUser.IntegrationReference = update.IntegrationReference
+	if update.Name != "" {
+		updatedUser.Name = update.Name
+	}
+	if update.Email != "" {
+		updatedUser.Email = update.Email
+	}
 
 	var transferredOwnerRole bool
 	result, err := handleOwnerRoleTransfer(ctx, transaction, initiatorUser, update)

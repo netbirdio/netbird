@@ -181,7 +181,7 @@ func (am *DefaultAccountManager) getJWTGroupsChanges(user *types.User, groups []
 	return modified, newUserAutoGroups, newGroupsToCreate, nil
 }
 
-// BuildManager creates a new DefaultAccountManager with a provided Store
+// BuildManager creates a new DefaultAccountManager with all dependencies.
 func BuildManager(
 	ctx context.Context,
 	config *nbconfig.Config,
@@ -199,6 +199,7 @@ func BuildManager(
 	settingsManager settings.Manager,
 	permissionsManager permissions.Manager,
 	disableDefaultPolicy bool,
+	sharedCacheStore cacheStore.StoreInterface,
 ) (*DefaultAccountManager, error) {
 	start := time.Now()
 	defer func() {
@@ -247,16 +248,12 @@ func BuildManager(
 		log.WithContext(ctx).Infof("single account mode disabled, accounts number %d", accountsCounter)
 	}
 
-	cacheStore, err := nbcache.NewStore(ctx, nbcache.DefaultIDPCacheExpirationMax, nbcache.DefaultIDPCacheCleanupInterval, nbcache.DefaultIDPCacheOpenConn)
-	if err != nil {
-		return nil, fmt.Errorf("getting cache store: %s", err)
-	}
-	am.externalCacheManager = nbcache.NewUserDataCache(cacheStore)
-	am.cacheManager = nbcache.NewAccountUserDataCache(am.loadAccount, cacheStore)
+	am.externalCacheManager = nbcache.NewUserDataCache(sharedCacheStore)
+	am.cacheManager = nbcache.NewAccountUserDataCache(am.loadAccount, sharedCacheStore)
 
 	if !isNil(am.idpManager) && !IsEmbeddedIdp(am.idpManager) {
 		go func() {
-			err := am.warmupIDPCache(ctx, cacheStore)
+			err := am.warmupIDPCache(ctx, sharedCacheStore)
 			if err != nil {
 				log.WithContext(ctx).Warnf("failed warming up cache due to error: %v", err)
 				// todo retry?
@@ -403,7 +400,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	}
 
 	if updateAccountPeers || extraSettingsChanged || groupChangesAffectPeers {
-		go am.UpdateAccountPeers(ctx, accountID)
+		go am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceAccountSettings, Operation: types.UpdateOperationUpdate})
 	}
 
 	return newSettings, nil
@@ -740,11 +737,6 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 	userInfosMap, err := am.BuildUserInfosForAccount(ctx, accountID, userID, maps.Values(account.Users))
 	if err != nil {
 		return status.Errorf(status.Internal, "failed to build user infos for account %s: %v", accountID, err)
-	}
-
-	err = am.serviceManager.DeleteAllServices(ctx, accountID, userID)
-	if err != nil {
-		return status.Errorf(status.Internal, "failed to delete service %s: %v", accountID, err)
 	}
 
 	for _, otherUser := range account.Users {
@@ -1589,7 +1581,7 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 
 	if removedGroupAffectsPeers || newGroupsAffectsPeers {
 		log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", userAuth.UserId)
-		am.BufferUpdateAccountPeers(ctx, userAuth.AccountId)
+		am.BufferUpdateAccountPeers(ctx, userAuth.AccountId, types.UpdateReason{Resource: types.UpdateResourceUser, Operation: types.UpdateOperationUpdate})
 	}
 
 	return nil

@@ -9,6 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/debug"
@@ -199,9 +200,11 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 		cmd.Println("Log level set to trace.")
 	}
 
+	needsRestoreUp := false
 	if _, err := client.Down(cmd.Context(), &proto.DownRequest{}); err != nil {
 		cmd.PrintErrf("Failed to bring service down: %v\n", status.Convert(err).Message())
 	} else {
+		needsRestoreUp = !stateWasDown
 		cmd.Println("netbird down")
 	}
 
@@ -217,6 +220,7 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	if _, err := client.Up(cmd.Context(), &proto.UpRequest{}); err != nil {
 		cmd.PrintErrf("Failed to bring service up: %v\n", status.Convert(err).Message())
 	} else {
+		needsRestoreUp = false
 		cmd.Println("netbird up")
 	}
 
@@ -236,10 +240,49 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 		}()
 	}
 
+	captureStarted := false
+	if wantCapture, _ := cmd.Flags().GetBool("capture"); wantCapture {
+		captureTimeout := duration + 30*time.Second
+		const maxBundleCapture = 10 * time.Minute
+		if captureTimeout > maxBundleCapture {
+			captureTimeout = maxBundleCapture
+		}
+		_, err := client.StartBundleCapture(cmd.Context(), &proto.StartBundleCaptureRequest{
+			Timeout: durationpb.New(captureTimeout),
+		})
+		if err != nil {
+			cmd.PrintErrf("Failed to start packet capture: %v\n", status.Convert(err).Message())
+		} else {
+			captureStarted = true
+			cmd.Println("Packet capture started.")
+			// Safety: always stop on exit, even if the normal stop below runs too.
+			defer func() {
+				if captureStarted {
+					stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					if _, err := client.StopBundleCapture(stopCtx, &proto.StopBundleCaptureRequest{}); err != nil {
+						cmd.PrintErrf("Failed to stop packet capture: %v\n", err)
+					}
+				}
+			}()
+		}
+	}
+
 	if waitErr := waitForDurationOrCancel(cmd.Context(), duration, cmd); waitErr != nil {
 		return waitErr
 	}
 	cmd.Println("\nDuration completed")
+
+	if captureStarted {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if _, err := client.StopBundleCapture(stopCtx, &proto.StopBundleCaptureRequest{}); err != nil {
+			cmd.PrintErrf("Failed to stop packet capture: %v\n", err)
+		} else {
+			captureStarted = false
+			cmd.Println("Packet capture stopped.")
+		}
+	}
 
 	if cpuProfilingStarted {
 		if _, err := client.StopCPUProfile(cmd.Context(), &proto.StopCPUProfileRequest{}); err != nil {
@@ -262,6 +305,14 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 	resp, err := client.DebugBundle(cmd.Context(), request)
 	if err != nil {
 		return fmt.Errorf("failed to bundle debug: %v", status.Convert(err).Message())
+	}
+
+	if needsRestoreUp {
+		if _, err := client.Up(cmd.Context(), &proto.UpRequest{}); err != nil {
+			cmd.PrintErrf("Failed to restore service up state: %v\n", status.Convert(err).Message())
+		} else {
+			cmd.Println("netbird up (restored)")
+		}
 	}
 
 	if stateWasDown {
@@ -405,4 +456,5 @@ func init() {
 	forCmd.Flags().BoolVarP(&systemInfoFlag, "system-info", "S", true, "Adds system information to the debug bundle")
 	forCmd.Flags().BoolVarP(&uploadBundleFlag, "upload-bundle", "U", false, "Uploads the debug bundle to a server")
 	forCmd.Flags().StringVar(&uploadBundleURLFlag, "upload-bundle-url", types.DefaultBundleURL, "Service URL to get an URL to upload the debug bundle")
+	forCmd.Flags().Bool("capture", false, "Capture packets during the debug duration and include in bundle")
 }

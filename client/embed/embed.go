@@ -24,6 +24,7 @@ import (
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/util/capture"
 )
 
 var (
@@ -33,13 +34,13 @@ var (
 	ErrConfigNotInitialized = errors.New("config not initialized")
 )
 
-// PeerConnStatus is a peer's connection status.
-type PeerConnStatus = peer.ConnStatus
-
 const (
 	// PeerStatusConnected indicates the peer is in connected state.
 	PeerStatusConnected = peer.StatusConnected
 )
+
+// PeerConnStatus is a peer's connection status.
+type PeerConnStatus = peer.ConnStatus
 
 // Client manages a netbird embedded client instance.
 type Client struct {
@@ -65,7 +66,7 @@ type Options struct {
 	PrivateKey string
 	// ManagementURL overrides the default management server URL
 	ManagementURL string
-	// PreSharedKey is the pre-shared key for the WireGuard interface
+	// PreSharedKey is the pre-shared key for the tunnel interface
 	PreSharedKey string
 	// LogOutput is the output destination for logs (defaults to os.Stderr if nil)
 	LogOutput io.Writer
@@ -81,9 +82,9 @@ type Options struct {
 	DisableClientRoutes bool
 	// BlockInbound blocks all inbound connections from peers
 	BlockInbound bool
-	// WireguardPort is the port for the WireGuard interface. Use 0 for a random port.
+	// WireguardPort is the port for the tunnel interface. Use 0 for a random port.
 	WireguardPort *int
-	// MTU is the MTU for the WireGuard interface.
+	// MTU is the MTU for the tunnel interface.
 	// Valid values are in the range 576..8192 bytes.
 	// If non-nil, this value overrides any value stored in the config file.
 	// If nil, the existing config MTU (if non-zero) is preserved; otherwise it defaults to 1280.
@@ -375,6 +376,32 @@ func (c *Client) NewHTTPClient() *http.Client {
 	}
 }
 
+// Expose exposes a local service via the NetBird reverse proxy, making it accessible through a public URL.
+// It returns an ExposeSession. Call Wait on the session to keep it alive.
+func (c *Client) Expose(ctx context.Context, req ExposeRequest) (*ExposeSession, error) {
+	engine, err := c.getEngine()
+	if err != nil {
+		return nil, err
+	}
+
+	mgr := engine.GetExposeManager()
+	if mgr == nil {
+		return nil, fmt.Errorf("expose manager not available")
+	}
+
+	resp, err := mgr.Expose(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("expose: %w", err)
+	}
+
+	return &ExposeSession{
+		Domain:      resp.Domain,
+		ServiceName: resp.ServiceName,
+		ServiceURL:  resp.ServiceURL,
+		mgr:         mgr,
+	}, nil
+}
+
 // Status returns the current status of the client.
 func (c *Client) Status() (peer.FullStatus, error) {
 	c.mu.Lock()
@@ -441,6 +468,52 @@ func (c *Client) VerifySSHHostKey(peerAddress string, key []byte) error {
 	}
 
 	return sshcommon.VerifyHostKey(storedKey, key, peerAddress)
+}
+
+// StartCapture begins capturing packets on this client's tunnel device.
+// Only one capture can be active at a time; starting a new one stops the previous.
+// Call StopCapture (or CaptureSession.Stop) to end it.
+func (c *Client) StartCapture(opts CaptureOptions) (*CaptureSession, error) {
+	engine, err := c.getEngine()
+	if err != nil {
+		return nil, err
+	}
+
+	var matcher capture.Matcher
+	if opts.Filter != "" {
+		m, err := capture.ParseFilter(opts.Filter)
+		if err != nil {
+			return nil, fmt.Errorf("parse filter: %w", err)
+		}
+		matcher = m
+	}
+
+	sess, err := capture.NewSession(capture.Options{
+		Output:     opts.Output,
+		TextOutput: opts.TextOutput,
+		Matcher:    matcher,
+		Verbose:    opts.Verbose,
+		ASCII:      opts.ASCII,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create capture session: %w", err)
+	}
+
+	if err := engine.SetCapture(sess); err != nil {
+		sess.Stop()
+		return nil, fmt.Errorf("set capture: %w", err)
+	}
+
+	return &CaptureSession{sess: sess, engine: engine}, nil
+}
+
+// StopCapture stops the active capture session if one is running.
+func (c *Client) StopCapture() error {
+	engine, err := c.getEngine()
+	if err != nil {
+		return err
+	}
+	return engine.SetCapture(nil)
 }
 
 // getEngine safely retrieves the engine from the client with proper locking.

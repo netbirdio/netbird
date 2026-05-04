@@ -8,8 +8,6 @@ import (
 	"github.com/eko/gocache/lib/v4/cache"
 	"github.com/eko/gocache/lib/v4/store"
 	log "github.com/sirupsen/logrus"
-
-	nbcache "github.com/netbirdio/netbird/management/server/cache"
 )
 
 // PKCEVerifierStore manages PKCE verifiers for OAuth flows.
@@ -19,17 +17,12 @@ type PKCEVerifierStore struct {
 	ctx   context.Context
 }
 
-// NewPKCEVerifierStore creates a PKCE verifier store with automatic backend selection
-func NewPKCEVerifierStore(ctx context.Context, maxTimeout, cleanupInterval time.Duration, maxConn int) (*PKCEVerifierStore, error) {
-	cacheStore, err := nbcache.NewStore(ctx, maxTimeout, cleanupInterval, maxConn)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create cache store: %w", err)
-	}
-
+// NewPKCEVerifierStore creates a PKCE verifier store using the provided shared cache store.
+func NewPKCEVerifierStore(ctx context.Context, cacheStore store.StoreInterface) *PKCEVerifierStore {
 	return &PKCEVerifierStore{
 		cache: cache.New[string](cacheStore),
 		ctx:   ctx,
-	}, nil
+	}
 }
 
 // Store saves a PKCE verifier associated with an OAuth state parameter.

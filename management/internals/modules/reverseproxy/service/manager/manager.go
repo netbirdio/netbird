@@ -25,6 +25,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -75,22 +76,30 @@ type ClusterDeriver interface {
 	GetClusterDomains() []string
 }
 
+// CapabilityProvider queries proxy cluster capabilities from the database.
+type CapabilityProvider interface {
+	ClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
+	ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
+}
+
 type Manager struct {
 	store              store.Store
 	accountManager     account.Manager
 	permissionsManager permissions.Manager
 	proxyController    proxy.Controller
+	capabilities       CapabilityProvider
 	clusterDeriver     ClusterDeriver
 	exposeReaper       *exposeReaper
 }
 
 // NewManager creates a new service manager.
-func NewManager(store store.Store, accountManager account.Manager, permissionsManager permissions.Manager, proxyController proxy.Controller, clusterDeriver ClusterDeriver) *Manager {
+func NewManager(store store.Store, accountManager account.Manager, permissionsManager permissions.Manager, proxyController proxy.Controller, capabilities CapabilityProvider, clusterDeriver ClusterDeriver) *Manager {
 	mgr := &Manager{
 		store:              store,
 		accountManager:     accountManager,
 		permissionsManager: permissionsManager,
 		proxyController:    proxyController,
+		capabilities:       capabilities,
 		clusterDeriver:     clusterDeriver,
 	}
 	mgr.exposeReaper = &exposeReaper{manager: mgr}
@@ -223,7 +232,7 @@ func (m *Manager) CreateService(ctx context.Context, accountID, userID string, s
 
 	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Create, "", m.proxyController.GetOIDCValidationConfig()), s.ProxyCluster)
 
-	m.accountManager.UpdateAccountPeers(ctx, accountID)
+	m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceService, Operation: types.UpdateOperationCreate})
 
 	return s, nil
 }
@@ -237,7 +246,7 @@ func (m *Manager) initializeServiceForCreate(ctx context.Context, accountID stri
 		}
 		service.ProxyCluster = proxyCluster
 
-		if err := m.validateSubdomainRequirement(service.Domain, proxyCluster); err != nil {
+		if err := m.validateSubdomainRequirement(ctx, service.Domain, proxyCluster); err != nil {
 			return err
 		}
 	}
@@ -268,11 +277,11 @@ func (m *Manager) initializeServiceForCreate(ctx context.Context, accountID stri
 // validateSubdomainRequirement checks whether the domain can be used bare
 // (without a subdomain label) on the given cluster. If the cluster reports
 // require_subdomain=true and the domain equals the cluster domain, it rejects.
-func (m *Manager) validateSubdomainRequirement(domain, cluster string) error {
+func (m *Manager) validateSubdomainRequirement(ctx context.Context, domain, cluster string) error {
 	if domain != cluster {
 		return nil
 	}
-	requireSub := m.proxyController.ClusterRequireSubdomain(cluster)
+	requireSub := m.capabilities.ClusterRequireSubdomain(ctx, cluster)
 	if requireSub != nil && *requireSub {
 		return status.Errorf(status.InvalidArgument, "domain %s requires a subdomain label", domain)
 	}
@@ -280,6 +289,8 @@ func (m *Manager) validateSubdomainRequirement(domain, cluster string) error {
 }
 
 func (m *Manager) persistNewService(ctx context.Context, accountID string, svc *service.Service) error {
+	customPorts := m.clusterCustomPorts(ctx, svc)
+
 	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if svc.Domain != "" {
 			if err := m.checkDomainAvailable(ctx, transaction, svc.Domain, ""); err != nil {
@@ -287,7 +298,7 @@ func (m *Manager) persistNewService(ctx context.Context, accountID string, svc *
 			}
 		}
 
-		if err := m.ensureL4Port(ctx, transaction, svc); err != nil {
+		if err := m.ensureL4Port(ctx, transaction, svc, customPorts); err != nil {
 			return err
 		}
 
@@ -307,12 +318,23 @@ func (m *Manager) persistNewService(ctx context.Context, accountID string, svc *
 	})
 }
 
-// ensureL4Port auto-assigns a listen port when needed and validates cluster support.
-func (m *Manager) ensureL4Port(ctx context.Context, tx store.Store, svc *service.Service) error {
+// clusterCustomPorts queries whether the cluster supports custom ports.
+// Must be called before entering a transaction: the underlying query uses
+// the main DB handle, which deadlocks when called inside a transaction
+// that already holds the connection.
+func (m *Manager) clusterCustomPorts(ctx context.Context, svc *service.Service) *bool {
 	if !service.IsL4Protocol(svc.Mode) {
 		return nil
 	}
-	customPorts := m.proxyController.ClusterSupportsCustomPorts(svc.ProxyCluster)
+	return m.capabilities.ClusterSupportsCustomPorts(ctx, svc.ProxyCluster)
+}
+
+// ensureL4Port auto-assigns a listen port when needed and validates cluster support.
+// customPorts must be pre-computed via clusterCustomPorts before entering a transaction.
+func (m *Manager) ensureL4Port(ctx context.Context, tx store.Store, svc *service.Service, customPorts *bool) error {
+	if !service.IsL4Protocol(svc.Mode) {
+		return nil
+	}
 	if service.IsPortBasedProtocol(svc.Mode) && svc.ListenPort > 0 && (customPorts == nil || !*customPorts) {
 		if svc.Source != service.SourceEphemeral {
 			return status.Errorf(status.InvalidArgument, "custom ports not supported on cluster %s", svc.ProxyCluster)
@@ -396,12 +418,14 @@ func (m *Manager) assignPort(ctx context.Context, tx store.Store, cluster string
 // The count and exists queries use FOR UPDATE locking to serialize concurrent creates
 // for the same peer, preventing the per-peer limit from being bypassed.
 func (m *Manager) persistNewEphemeralService(ctx context.Context, accountID, peerID string, svc *service.Service) error {
+	customPorts := m.clusterCustomPorts(ctx, svc)
+
 	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err := m.validateEphemeralPreconditions(ctx, transaction, accountID, peerID, svc); err != nil {
 			return err
 		}
 
-		if err := m.ensureL4Port(ctx, transaction, svc); err != nil {
+		if err := m.ensureL4Port(ctx, transaction, svc, customPorts); err != nil {
 			return err
 		}
 
@@ -492,7 +516,7 @@ func (m *Manager) UpdateService(ctx context.Context, accountID, userID string, s
 	}
 
 	m.sendServiceUpdateNotifications(ctx, accountID, service, updateInfo)
-	m.accountManager.UpdateAccountPeers(ctx, accountID)
+	m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceService, Operation: types.UpdateOperationUpdate})
 
 	return service, nil
 }
@@ -504,28 +528,61 @@ type serviceUpdateInfo struct {
 }
 
 func (m *Manager) persistServiceUpdate(ctx context.Context, accountID string, service *service.Service) (*serviceUpdateInfo, error) {
+	effectiveCluster, err := m.resolveEffectiveCluster(ctx, accountID, service)
+	if err != nil {
+		return nil, err
+	}
+
+	svcForCaps := *service
+	svcForCaps.ProxyCluster = effectiveCluster
+	customPorts := m.clusterCustomPorts(ctx, &svcForCaps)
+
 	var updateInfo serviceUpdateInfo
 
-	err := m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		return m.executeServiceUpdate(ctx, transaction, accountID, service, &updateInfo)
+	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		return m.executeServiceUpdate(ctx, transaction, accountID, service, &updateInfo, customPorts)
 	})
 
 	return &updateInfo, err
 }
 
-func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.Store, accountID string, service *service.Service, updateInfo *serviceUpdateInfo) error {
+// resolveEffectiveCluster determines the cluster that will be used after the update.
+// It reads the existing service without locking and derives the new cluster if the domain changed.
+func (m *Manager) resolveEffectiveCluster(ctx context.Context, accountID string, svc *service.Service) (string, error) {
+	existing, err := m.store.GetServiceByID(ctx, store.LockingStrengthNone, accountID, svc.ID)
+	if err != nil {
+		return "", err
+	}
+
+	if existing.Domain == svc.Domain {
+		return existing.ProxyCluster, nil
+	}
+
+	if m.clusterDeriver != nil {
+		derived, err := m.clusterDeriver.DeriveClusterFromDomain(ctx, accountID, svc.Domain)
+		if err != nil {
+			log.WithError(err).Warnf("could not derive cluster from domain %s", svc.Domain)
+		} else {
+			return derived, nil
+		}
+	}
+
+	return existing.ProxyCluster, nil
+}
+
+func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.Store, accountID string, service *service.Service, updateInfo *serviceUpdateInfo, customPorts *bool) error {
 	existingService, err := transaction.GetServiceByID(ctx, store.LockingStrengthUpdate, accountID, service.ID)
 	if err != nil {
 		return err
 	}
 
 	if existingService.Terminated {
-			return status.Errorf(status.PermissionDenied, "service is terminated and cannot be updated")
-		}
+		return status.Errorf(status.PermissionDenied, "service is terminated and cannot be updated")
+	}
 
-		if err := validateProtocolChange(existingService.Mode, service.Mode); err != nil {
-			return err
-		}
+	if err := validateProtocolChange(existingService.Mode, service.Mode); err != nil {
+		return err
+	}
 
 	updateInfo.oldCluster = existingService.ProxyCluster
 	updateInfo.domainChanged = existingService.Domain != service.Domain
@@ -538,7 +595,7 @@ func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.St
 		service.ProxyCluster = existingService.ProxyCluster
 	}
 
-	if err := m.validateSubdomainRequirement(service.Domain, service.ProxyCluster); err != nil {
+	if err := m.validateSubdomainRequirement(ctx, service.Domain, service.ProxyCluster); err != nil {
 		return err
 	}
 
@@ -550,7 +607,7 @@ func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.St
 	m.preserveListenPort(service, existingService)
 	updateInfo.serviceEnabledChanged = existingService.Enabled != service.Enabled
 
-	if err := m.ensureL4Port(ctx, transaction, service); err != nil {
+	if err := m.ensureL4Port(ctx, transaction, service, customPorts); err != nil {
 		return err
 	}
 	if err := m.checkPortConflict(ctx, transaction, service); err != nil {
@@ -763,7 +820,7 @@ func (m *Manager) DeleteService(ctx context.Context, accountID, userID, serviceI
 
 	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Delete, "", m.proxyController.GetOIDCValidationConfig()), s.ProxyCluster)
 
-	m.accountManager.UpdateAccountPeers(ctx, accountID)
+	m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceService, Operation: types.UpdateOperationDelete})
 
 	return nil
 }
@@ -804,7 +861,7 @@ func (m *Manager) DeleteAllServices(ctx context.Context, accountID, userID strin
 		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, svc.ToProtoMapping(service.Delete, "", oidcCfg), svc.ProxyCluster)
 	}
 
-	m.accountManager.UpdateAccountPeers(ctx, accountID)
+	m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceService, Operation: types.UpdateOperationDelete})
 
 	return nil
 }
@@ -860,7 +917,7 @@ func (m *Manager) ReloadService(ctx context.Context, accountID, serviceID string
 
 	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Update, "", m.proxyController.GetOIDCValidationConfig()), s.ProxyCluster)
 
-	m.accountManager.UpdateAccountPeers(ctx, accountID)
+	m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceService, Operation: types.UpdateOperationUpdate})
 
 	return nil
 }
@@ -1042,7 +1099,7 @@ func (m *Manager) CreateServiceFromPeer(ctx context.Context, accountID, peerID s
 	}
 
 	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, svc.ToProtoMapping(service.Create, "", m.proxyController.GetOIDCValidationConfig()), svc.ProxyCluster)
-	m.accountManager.UpdateAccountPeers(ctx, accountID)
+	m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceService, Operation: types.UpdateOperationCreate})
 
 	serviceURL := "https://" + svc.Domain
 	if service.IsL4Protocol(svc.Mode) {
@@ -1063,7 +1120,7 @@ func (m *Manager) getGroupIDsFromNames(ctx context.Context, accountID string, gr
 	}
 	groupIDs := make([]string, 0, len(groupNames))
 	for _, groupName := range groupNames {
-		g, err := m.accountManager.GetGroupByName(ctx, groupName, accountID)
+		g, err := m.accountManager.GetGroupByName(ctx, groupName, accountID, activity.SystemInitiator)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get group by name %s: %w", groupName, err)
 		}
@@ -1154,7 +1211,7 @@ func (m *Manager) deletePeerService(ctx context.Context, accountID, peerID, serv
 
 	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, svc.ToProtoMapping(service.Delete, "", m.proxyController.GetOIDCValidationConfig()), svc.ProxyCluster)
 
-	m.accountManager.UpdateAccountPeers(ctx, accountID)
+	m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceService, Operation: types.UpdateOperationDelete})
 
 	return nil
 }
@@ -1205,7 +1262,7 @@ func (m *Manager) deleteExpiredPeerService(ctx context.Context, accountID, peerI
 	meta := addPeerInfoToEventMeta(svc.EventMeta(), peer)
 	m.accountManager.StoreEvent(ctx, peerID, serviceID, accountID, activity.PeerServiceExposeExpired, meta)
 	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, svc.ToProtoMapping(service.Delete, "", m.proxyController.GetOIDCValidationConfig()), svc.ProxyCluster)
-	m.accountManager.UpdateAccountPeers(ctx, accountID)
+	m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceService, Operation: types.UpdateOperationDelete})
 
 	return nil
 }

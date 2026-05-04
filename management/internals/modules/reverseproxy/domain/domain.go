@@ -20,6 +20,9 @@ type Domain struct {
 	// RequireSubdomain is populated at query time. When true, the domain
 	// cannot be used bare and a subdomain label must be prepended. Not persisted.
 	RequireSubdomain *bool `gorm:"-"`
+	// SupportsCrowdSec is populated at query time from proxy cluster capabilities.
+	// Not persisted.
+	SupportsCrowdSec *bool `gorm:"-"`
 }
 
 // EventMeta returns activity event metadata for a domain
@@ -29,4 +32,9 @@ func (d *Domain) EventMeta() map[string]any {
 		"target_cluster": d.TargetCluster,
 		"validated":      d.Validated,
 	}
+}
+
+func (d *Domain) Copy() *Domain {
+	dCopy := *d
+	return &dCopy
 }

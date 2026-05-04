@@ -9,12 +9,21 @@ import (
 	"testing"
 	"time"
 
+	cachestore "github.com/eko/gocache/lib/v4/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
+	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
+
+func testCacheStore(t *testing.T) cachestore.StoreInterface {
+	t.Helper()
+	s, err := nbcache.NewStore(context.Background(), 30*time.Minute, 10*time.Minute, 100)
+	require.NoError(t, err)
+	return s
+}
 
 type testProxyController struct {
 	mu             sync.Mutex
@@ -50,14 +59,6 @@ func (c *testProxyController) UnregisterProxyFromCluster(_ context.Context, clus
 	if proxies, ok := c.clusterProxies[clusterAddr]; ok {
 		delete(proxies, proxyID)
 	}
-	return nil
-}
-
-func (c *testProxyController) ClusterSupportsCustomPorts(_ string) *bool {
-	return ptr(true)
-}
-
-func (c *testProxyController) ClusterRequireSubdomain(_ string) *bool {
 	return nil
 }
 
@@ -122,11 +123,8 @@ func drainEmpty(ch chan *proto.GetMappingUpdateResponse) bool {
 
 func TestSendServiceUpdateToCluster_UniqueTokensPerProxy(t *testing.T) {
 	ctx := context.Background()
-	tokenStore, err := NewOneTimeTokenStore(ctx, time.Hour, 10*time.Minute, 100)
-	require.NoError(t, err)
-
-	pkceStore, err := NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
-	require.NoError(t, err)
+	tokenStore := NewOneTimeTokenStore(ctx, testCacheStore(t))
+	pkceStore := NewPKCEVerifierStore(ctx, testCacheStore(t))
 
 	s := &ProxyServiceServer{
 		tokenStore:        tokenStore,
@@ -182,11 +180,8 @@ func TestSendServiceUpdateToCluster_UniqueTokensPerProxy(t *testing.T) {
 
 func TestSendServiceUpdateToCluster_DeleteNoToken(t *testing.T) {
 	ctx := context.Background()
-	tokenStore, err := NewOneTimeTokenStore(ctx, time.Hour, 10*time.Minute, 100)
-	require.NoError(t, err)
-
-	pkceStore, err := NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
-	require.NoError(t, err)
+	tokenStore := NewOneTimeTokenStore(ctx, testCacheStore(t))
+	pkceStore := NewPKCEVerifierStore(ctx, testCacheStore(t))
 
 	s := &ProxyServiceServer{
 		tokenStore:        tokenStore,
@@ -219,11 +214,8 @@ func TestSendServiceUpdateToCluster_DeleteNoToken(t *testing.T) {
 
 func TestSendServiceUpdate_UniqueTokensPerProxy(t *testing.T) {
 	ctx := context.Background()
-	tokenStore, err := NewOneTimeTokenStore(ctx, time.Hour, 10*time.Minute, 100)
-	require.NoError(t, err)
-
-	pkceStore, err := NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
-	require.NoError(t, err)
+	tokenStore := NewOneTimeTokenStore(ctx, testCacheStore(t))
+	pkceStore := NewPKCEVerifierStore(ctx, testCacheStore(t))
 
 	s := &ProxyServiceServer{
 		tokenStore:        tokenStore,
@@ -275,8 +267,7 @@ func generateState(s *ProxyServiceServer, redirectURL string) string {
 
 func TestOAuthState_NeverTheSame(t *testing.T) {
 	ctx := context.Background()
-	pkceStore, err := NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
-	require.NoError(t, err)
+	pkceStore := NewPKCEVerifierStore(ctx, testCacheStore(t))
 
 	s := &ProxyServiceServer{
 		oidcConfig: ProxyOIDCConfig{
@@ -304,8 +295,7 @@ func TestOAuthState_NeverTheSame(t *testing.T) {
 
 func TestValidateState_RejectsOldTwoPartFormat(t *testing.T) {
 	ctx := context.Background()
-	pkceStore, err := NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
-	require.NoError(t, err)
+	pkceStore := NewPKCEVerifierStore(ctx, testCacheStore(t))
 
 	s := &ProxyServiceServer{
 		oidcConfig: ProxyOIDCConfig{
@@ -315,7 +305,7 @@ func TestValidateState_RejectsOldTwoPartFormat(t *testing.T) {
 	}
 
 	// Old format had only 2 parts: base64(url)|hmac
-	err = s.pkceVerifierStore.Store("base64url|hmac", "test", 10*time.Minute)
+	err := s.pkceVerifierStore.Store("base64url|hmac", "test", 10*time.Minute)
 	require.NoError(t, err)
 
 	_, _, err = s.ValidateState("base64url|hmac")
@@ -325,8 +315,7 @@ func TestValidateState_RejectsOldTwoPartFormat(t *testing.T) {
 
 func TestValidateState_RejectsInvalidHMAC(t *testing.T) {
 	ctx := context.Background()
-	pkceStore, err := NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
-	require.NoError(t, err)
+	pkceStore := NewPKCEVerifierStore(ctx, testCacheStore(t))
 
 	s := &ProxyServiceServer{
 		oidcConfig: ProxyOIDCConfig{
@@ -336,7 +325,7 @@ func TestValidateState_RejectsInvalidHMAC(t *testing.T) {
 	}
 
 	// Store with tampered HMAC
-	err = s.pkceVerifierStore.Store("dGVzdA==|nonce|wrong-hmac", "test", 10*time.Minute)
+	err := s.pkceVerifierStore.Store("dGVzdA==|nonce|wrong-hmac", "test", 10*time.Minute)
 	require.NoError(t, err)
 
 	_, _, err = s.ValidateState("dGVzdA==|nonce|wrong-hmac")
@@ -345,8 +334,7 @@ func TestValidateState_RejectsInvalidHMAC(t *testing.T) {
 }
 
 func TestSendServiceUpdateToCluster_FiltersOnCapability(t *testing.T) {
-	tokenStore, err := NewOneTimeTokenStore(context.Background(), time.Hour, 10*time.Minute, 100)
-	require.NoError(t, err)
+	tokenStore := NewOneTimeTokenStore(context.Background(), testCacheStore(t))
 
 	s := &ProxyServiceServer{
 		tokenStore: tokenStore,
@@ -355,14 +343,14 @@ func TestSendServiceUpdateToCluster_FiltersOnCapability(t *testing.T) {
 
 	const cluster = "proxy.example.com"
 
-	// Proxy A supports custom ports.
-	chA := registerFakeProxyWithCaps(s, "proxy-a", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: ptr(true)})
-	// Proxy B does NOT support custom ports (shared cloud proxy).
-	chB := registerFakeProxyWithCaps(s, "proxy-b", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: ptr(false)})
+	// Modern proxy reports capabilities.
+	chModern := registerFakeProxyWithCaps(s, "proxy-modern", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: ptr(true)})
+	// Legacy proxy never reported capabilities (nil).
+	chLegacy := registerFakeProxy(s, "proxy-legacy", cluster)
 
 	ctx := context.Background()
 
-	// TLS passthrough works on all proxies regardless of custom port support.
+	// TLS passthrough with custom port: all proxies receive it (SNI routing).
 	tlsMapping := &proto.ProxyMapping{
 		Type:       proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED,
 		Id:         "service-tls",
@@ -375,12 +363,26 @@ func TestSendServiceUpdateToCluster_FiltersOnCapability(t *testing.T) {
 
 	s.SendServiceUpdateToCluster(ctx, tlsMapping, cluster)
 
-	msgA := drainMapping(chA)
-	msgB := drainMapping(chB)
-	assert.NotNil(t, msgA, "proxy-a should receive TLS mapping")
-	assert.NotNil(t, msgB, "proxy-b should receive TLS mapping (passthrough works on all proxies)")
+	assert.NotNil(t, drainMapping(chModern), "modern proxy should receive TLS mapping")
+	assert.NotNil(t, drainMapping(chLegacy), "legacy proxy should receive TLS mapping (SNI works on all)")
 
-	// Send an HTTP mapping: both should receive it.
+	// TCP mapping with custom port: only modern proxy receives it.
+	tcpMapping := &proto.ProxyMapping{
+		Type:       proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED,
+		Id:         "service-tcp",
+		AccountId:  "account-1",
+		Domain:     "db.example.com",
+		Mode:       "tcp",
+		ListenPort: 5432,
+		Path:       []*proto.PathMapping{{Target: "10.0.0.5:5432"}},
+	}
+
+	s.SendServiceUpdateToCluster(ctx, tcpMapping, cluster)
+
+	assert.NotNil(t, drainMapping(chModern), "modern proxy should receive TCP custom-port mapping")
+	assert.Nil(t, drainMapping(chLegacy), "legacy proxy should NOT receive TCP custom-port mapping")
+
+	// HTTP mapping (no listen port): both receive it.
 	httpMapping := &proto.ProxyMapping{
 		Type:      proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED,
 		Id:        "service-http",
@@ -391,15 +393,20 @@ func TestSendServiceUpdateToCluster_FiltersOnCapability(t *testing.T) {
 
 	s.SendServiceUpdateToCluster(ctx, httpMapping, cluster)
 
-	msgA = drainMapping(chA)
-	msgB = drainMapping(chB)
-	assert.NotNil(t, msgA, "proxy-a should receive HTTP mapping")
-	assert.NotNil(t, msgB, "proxy-b should receive HTTP mapping")
+	assert.NotNil(t, drainMapping(chModern), "modern proxy should receive HTTP mapping")
+	assert.NotNil(t, drainMapping(chLegacy), "legacy proxy should receive HTTP mapping")
+
+	// Proxy that reports SupportsCustomPorts=false still receives custom-port
+	// mappings because it understands the protocol (it's new enough).
+	chNewNoCustom := registerFakeProxyWithCaps(s, "proxy-new-no-custom", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: ptr(false)})
+
+	s.SendServiceUpdateToCluster(ctx, tcpMapping, cluster)
+
+	assert.NotNil(t, drainMapping(chNewNoCustom), "new proxy with SupportsCustomPorts=false should still receive mapping")
 }
 
 func TestSendServiceUpdateToCluster_TLSNotFiltered(t *testing.T) {
-	tokenStore, err := NewOneTimeTokenStore(context.Background(), time.Hour, 10*time.Minute, 100)
-	require.NoError(t, err)
+	tokenStore := NewOneTimeTokenStore(context.Background(), testCacheStore(t))
 
 	s := &ProxyServiceServer{
 		tokenStore: tokenStore,
@@ -408,7 +415,8 @@ func TestSendServiceUpdateToCluster_TLSNotFiltered(t *testing.T) {
 
 	const cluster = "proxy.example.com"
 
-	chShared := registerFakeProxyWithCaps(s, "proxy-shared", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: ptr(false)})
+	// Legacy proxy (no capabilities) still receives TLS since it uses SNI.
+	chLegacy := registerFakeProxy(s, "proxy-legacy", cluster)
 
 	tlsMapping := &proto.ProxyMapping{
 		Type:      proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED,
@@ -421,16 +429,15 @@ func TestSendServiceUpdateToCluster_TLSNotFiltered(t *testing.T) {
 
 	s.SendServiceUpdateToCluster(context.Background(), tlsMapping, cluster)
 
-	msg := drainMapping(chShared)
-	assert.NotNil(t, msg, "shared proxy should receive TLS mapping even without custom port support")
+	msg := drainMapping(chLegacy)
+	assert.NotNil(t, msg, "legacy proxy should receive TLS mapping (SNI works without custom port support)")
 }
 
 // TestServiceModifyNotifications exercises every possible modification
 // scenario for an existing service, verifying the correct update types
 // reach the correct clusters.
 func TestServiceModifyNotifications(t *testing.T) {
-	tokenStore, err := NewOneTimeTokenStore(context.Background(), time.Hour, 10*time.Minute, 100)
-	require.NoError(t, err)
+	tokenStore := NewOneTimeTokenStore(context.Background(), testCacheStore(t))
 
 	newServer := func() (*ProxyServiceServer, map[string]chan *proto.GetMappingUpdateResponse) {
 		s := &ProxyServiceServer{
@@ -589,7 +596,7 @@ func TestServiceModifyNotifications(t *testing.T) {
 		s.SetProxyController(newTestProxyController())
 		const cluster = "proxy.example.com"
 		chModern := registerFakeProxyWithCaps(s, "modern", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: ptr(true)})
-		chLegacy := registerFakeProxyWithCaps(s, "legacy", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: ptr(false)})
+		chLegacy := registerFakeProxy(s, "legacy", cluster)
 
 		// TLS passthrough works on all proxies regardless of custom port support
 		s.SendServiceUpdateToCluster(ctx, tlsOnlyMapping(proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED), cluster)
@@ -608,7 +615,7 @@ func TestServiceModifyNotifications(t *testing.T) {
 		}
 		s.SetProxyController(newTestProxyController())
 		const cluster = "proxy.example.com"
-		chLegacy := registerFakeProxyWithCaps(s, "legacy", cluster, &proto.ProxyCapabilities{SupportsCustomPorts: ptr(false)})
+		chLegacy := registerFakeProxy(s, "legacy", cluster)
 
 		mapping := tlsOnlyMapping(proto.ProxyMappingUpdateType_UPDATE_TYPE_MODIFIED)
 		mapping.ListenPort = 0 // default port

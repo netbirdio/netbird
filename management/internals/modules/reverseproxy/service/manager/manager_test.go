@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	cachestore "github.com/eko/gocache/lib/v4/store"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,6 +19,7 @@ import (
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
+	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	resourcetypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -28,6 +30,13 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
+
+func testCacheStore(t *testing.T) cachestore.StoreInterface {
+	t.Helper()
+	s, err := nbcache.NewStore(context.Background(), 30*time.Minute, 10*time.Minute, 100)
+	require.NoError(t, err)
+	return s
+}
 
 func TestInitializeServiceForCreate(t *testing.T) {
 	ctx := context.Background()
@@ -422,10 +431,8 @@ func TestDeletePeerService_SourcePeerValidation(t *testing.T) {
 
 	newProxyServer := func(t *testing.T) *nbgrpc.ProxyServiceServer {
 		t.Helper()
-		tokenStore, err := nbgrpc.NewOneTimeTokenStore(context.Background(), 1*time.Hour, 10*time.Minute, 100)
-		require.NoError(t, err)
-		pkceStore, err := nbgrpc.NewPKCEVerifierStore(context.Background(), 10*time.Minute, 10*time.Minute, 100)
-		require.NoError(t, err)
+		tokenStore := nbgrpc.NewOneTimeTokenStore(context.Background(), testCacheStore(t))
+		pkceStore := nbgrpc.NewPKCEVerifierStore(context.Background(), testCacheStore(t))
 		srv := nbgrpc.NewProxyServiceServer(nil, tokenStore, pkceStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil)
 		return srv
 	}
@@ -440,7 +447,7 @@ func TestDeletePeerService_SourcePeerValidation(t *testing.T) {
 			StoreEventFunc: func(_ context.Context, _, _, _ string, activityID activity.ActivityDescriber, _ map[string]any) {
 				storedActivity = activityID.(activity.Activity)
 			},
-			UpdateAccountPeersFunc: func(_ context.Context, _ string) {},
+			UpdateAccountPeersFunc: func(_ context.Context, _ string, _ types.UpdateReason) {},
 		}
 
 		mockStore.EXPECT().
@@ -542,7 +549,7 @@ func TestDeletePeerService_SourcePeerValidation(t *testing.T) {
 			StoreEventFunc: func(_ context.Context, _, _, _ string, activityID activity.ActivityDescriber, _ map[string]any) {
 				storedActivity = activityID.(activity.Activity)
 			},
-			UpdateAccountPeersFunc: func(_ context.Context, _ string) {},
+			UpdateAccountPeersFunc: func(_ context.Context, _ string, _ types.UpdateReason) {},
 		}
 
 		mockStore.EXPECT().
@@ -586,7 +593,7 @@ func TestDeletePeerService_SourcePeerValidation(t *testing.T) {
 			StoreEventFunc: func(_ context.Context, _, _, _ string, _ activity.ActivityDescriber, meta map[string]any) {
 				storedMeta = meta
 			},
-			UpdateAccountPeersFunc: func(_ context.Context, _ string) {},
+			UpdateAccountPeersFunc: func(_ context.Context, _ string, _ types.UpdateReason) {},
 		}
 
 		mockStore.EXPECT().
@@ -697,16 +704,14 @@ func setupIntegrationTest(t *testing.T) (*Manager, store.Store) {
 
 	accountMgr := &mock_server.MockAccountManager{
 		StoreEventFunc:         func(_ context.Context, _, _, _ string, _ activity.ActivityDescriber, _ map[string]any) {},
-		UpdateAccountPeersFunc: func(_ context.Context, _ string) {},
-		GetGroupByNameFunc: func(ctx context.Context, accountID, groupName string) (*types.Group, error) {
-			return testStore.GetGroupByName(ctx, store.LockingStrengthNone, groupName, accountID)
+		UpdateAccountPeersFunc: func(_ context.Context, _ string, _ types.UpdateReason) {},
+		GetGroupByNameFunc: func(ctx context.Context, groupName, accountID, userID string) (*types.Group, error) {
+			return testStore.GetGroupByName(ctx, store.LockingStrengthNone, accountID, groupName)
 		},
 	}
 
-	tokenStore, err := nbgrpc.NewOneTimeTokenStore(ctx, 1*time.Hour, 10*time.Minute, 100)
-	require.NoError(t, err)
-	pkceStore, err := nbgrpc.NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
-	require.NoError(t, err)
+	tokenStore := nbgrpc.NewOneTimeTokenStore(ctx, testCacheStore(t))
+	pkceStore := nbgrpc.NewPKCEVerifierStore(ctx, testCacheStore(t))
 	proxySrv := nbgrpc.NewProxyServiceServer(nil, tokenStore, pkceStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil)
 
 	proxyController, err := proxymanager.NewGRPCController(proxySrv, noop.NewMeterProvider().Meter(""))
@@ -1128,10 +1133,8 @@ func TestDeleteService_DeletesTargets(t *testing.T) {
 	mockPerms := permissions.NewMockManager(ctrl)
 	mockAcct := account.NewMockManager(ctrl)
 
-	tokenStore, err := nbgrpc.NewOneTimeTokenStore(ctx, 1*time.Hour, 10*time.Minute, 100)
-	require.NoError(t, err)
-	pkceStore, err := nbgrpc.NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
-	require.NoError(t, err)
+	tokenStore := nbgrpc.NewOneTimeTokenStore(ctx, testCacheStore(t))
+	pkceStore := nbgrpc.NewPKCEVerifierStore(ctx, testCacheStore(t))
 	proxySrv := nbgrpc.NewProxyServiceServer(nil, tokenStore, pkceStore, nbgrpc.ProxyOIDCConfig{}, nil, nil, nil)
 
 	proxyController, err := proxymanager.NewGRPCController(proxySrv, noop.NewMeterProvider().Meter(""))
@@ -1170,7 +1173,7 @@ func TestDeleteService_DeletesTargets(t *testing.T) {
 	mockAcct.EXPECT().
 		StoreEvent(ctx, userID, service.ID, accountID, activity.ServiceDeleted, gomock.Any())
 	mockAcct.EXPECT().
-		UpdateAccountPeers(ctx, accountID)
+		UpdateAccountPeers(ctx, accountID, gomock.Any())
 
 	err = mgr.DeleteService(ctx, accountID, userID, service.ID)
 	require.NoError(t, err)
@@ -1324,11 +1327,11 @@ func TestValidateSubdomainRequirement(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 
-			mockCtrl := proxy.NewMockController(ctrl)
-			mockCtrl.EXPECT().ClusterRequireSubdomain(tc.cluster).Return(tc.requireSubdomain).AnyTimes()
+			mockCaps := proxy.NewMockManager(ctrl)
+			mockCaps.EXPECT().ClusterRequireSubdomain(gomock.Any(), tc.cluster).Return(tc.requireSubdomain).AnyTimes()
 
-			mgr := &Manager{proxyController: mockCtrl}
-			err := mgr.validateSubdomainRequirement(tc.domain, tc.cluster)
+			mgr := &Manager{capabilities: mockCaps}
+			err := mgr.validateSubdomainRequirement(context.Background(), tc.domain, tc.cluster)
 			if tc.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "requires a subdomain label")

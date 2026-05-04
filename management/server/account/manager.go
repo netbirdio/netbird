@@ -75,7 +75,7 @@ type Manager interface {
 	GetUsersFromAccount(ctx context.Context, accountID, userID string) (map[string]*types.UserInfo, error)
 	GetGroup(ctx context.Context, accountId, groupID, userID string) (*types.Group, error)
 	GetAllGroups(ctx context.Context, accountID, userID string) ([]*types.Group, error)
-	GetGroupByName(ctx context.Context, groupName, accountID string) (*types.Group, error)
+	GetGroupByName(ctx context.Context, groupName, accountID, userID string) (*types.Group, error)
 	CreateGroup(ctx context.Context, accountID, userID string, group *types.Group) error
 	UpdateGroup(ctx context.Context, accountID, userID string, group *types.Group) error
 	CreateGroups(ctx context.Context, accountID, userID string, newGroups []*types.Group) error
@@ -124,8 +124,8 @@ type Manager interface {
 	GetAccountIDForPeerKey(ctx context.Context, peerKey string) (string, error)
 	GetAccountSettings(ctx context.Context, accountID string, userID string) (*types.Settings, error)
 	DeleteSetupKey(ctx context.Context, accountID, userID, keyID string) error
-	UpdateAccountPeers(ctx context.Context, accountID string)
-	BufferUpdateAccountPeers(ctx context.Context, accountID string)
+	UpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason)
+	BufferUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason)
 	BuildUserInfosForAccount(ctx context.Context, accountID, initiatorUserID string, accountUsers []*types.User) (map[string]*types.UserInfo, error)
 	SyncUserJWTGroups(ctx context.Context, userAuth auth.UserAuth) error
 	GetStore() store.Store

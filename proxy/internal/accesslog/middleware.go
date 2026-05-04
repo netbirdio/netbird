@@ -82,6 +82,7 @@ func (l *Logger) Middleware(next http.Handler) http.Handler {
 			BytesUpload:   bytesUpload,
 			BytesDownload: bytesDownload,
 			Protocol:      ProtocolHTTP,
+			Metadata:      capturedData.GetMetadata(),
 		}
 		l.logger.Debugf("response: request_id=%s method=%s host=%s path=%s status=%d duration=%dms source=%s origin=%s service=%s account=%s",
 			requestID, r.Method, host, r.URL.Path, sw.status, duration.Milliseconds(), sourceIp, capturedData.GetOrigin(), capturedData.GetServiceID(), capturedData.GetAccountID())

@@ -44,6 +44,10 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
+// androidRunOverride is set on Android to inject mobile dependencies
+// when using embed.Client (which calls Run() with empty MobileDependency).
+var androidRunOverride func(c *ConnectClient, runningChan chan struct{}, logPath string) error
+
 type ConnectClient struct {
 	ctx            context.Context
 	config         *profilemanager.Config
@@ -76,6 +80,9 @@ func (c *ConnectClient) SetUpdateManager(um *updater.Manager) {
 
 // Run with main logic.
 func (c *ConnectClient) Run(runningChan chan struct{}, logPath string) error {
+	if androidRunOverride != nil {
+		return androidRunOverride(c, runningChan, logPath)
+	}
 	return c.run(MobileDependency{}, runningChan, logPath)
 }
 
@@ -87,6 +94,7 @@ func (c *ConnectClient) RunOnAndroid(
 	dnsAddresses []netip.AddrPort,
 	dnsReadyListener dns.ReadyListener,
 	stateFilePath string,
+	cacheDir string,
 ) error {
 	// in case of non Android os these variables will be nil
 	mobileDependency := MobileDependency{
@@ -96,6 +104,7 @@ func (c *ConnectClient) RunOnAndroid(
 		HostDNSAddresses:      dnsAddresses,
 		DnsReadyListener:      dnsReadyListener,
 		StateFilePath:         stateFilePath,
+		TempDir:               cacheDir,
 	}
 	return c.run(mobileDependency, nil, "")
 }
@@ -104,6 +113,7 @@ func (c *ConnectClient) RunOniOS(
 	fileDescriptor int32,
 	networkChangeListener listener.NetworkChangeListener,
 	dnsManager dns.IosDnsManager,
+	dnsAddresses []netip.AddrPort,
 	stateFilePath string,
 ) error {
 	// Set GC percent to 5% to reduce memory usage as iOS only allows 50MB of memory for the extension.
@@ -113,6 +123,7 @@ func (c *ConnectClient) RunOniOS(
 		FileDescriptor:        fileDescriptor,
 		NetworkChangeListener: networkChangeListener,
 		DnsManager:            dnsManager,
+		HostDNSAddresses:      dnsAddresses,
 		StateFilePath:         stateFilePath,
 	}
 	return c.run(mobileDependency, nil, "")
@@ -322,6 +333,10 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		c.statusRecorder.MarkSignalConnected()
 
 		relayURLs, token := parseRelayInfo(loginResp)
+		if override, ok := peer.OverrideRelayURLs(); ok {
+			log.Infof("overriding relay URLs from %s: %v", peer.EnvKeyNBHomeRelayServers, override)
+			relayURLs = override
+		}
 		peerConfig := loginResp.GetPeerConfig()
 
 		engineConfig, err := createEngineConfig(myPrivateKey, c.config, peerConfig, logPath)
@@ -329,6 +344,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			log.Error(err)
 			return wrapErr(err)
 		}
+		engineConfig.TempDir = mobileDependency.TempDir
 
 		relayManager := relayClient.NewManager(engineCtx, relayURLs, myPrivateKey.PublicKey().String(), engineConfig.MTU)
 		c.statusRecorder.SetRelayMgr(relayManager)
@@ -610,12 +626,6 @@ func connectToSignal(ctx context.Context, wtConfig *mgmProto.NetbirdConfig, ourP
 
 // loginToManagement creates Management ServiceDependencies client, establishes a connection, logs-in and gets a global Netbird config (signal, turn, stun hosts, etc)
 func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte, config *profilemanager.Config) (*mgmProto.LoginResponse, error) {
-
-	serverPublicKey, err := client.GetServerPublicKey()
-	if err != nil {
-		return nil, gstatus.Errorf(codes.FailedPrecondition, "failed while getting Management Service public key: %s", err)
-	}
-
 	sysInfo := system.GetInfo(ctx)
 	sysInfo.SetFlags(
 		config.RosenpassEnabled,
@@ -634,12 +644,7 @@ func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte,
 		config.EnableSSHRemotePortForwarding,
 		config.DisableSSHAuth,
 	)
-	loginResp, err := client.Login(*serverPublicKey, sysInfo, pubSSHKey, config.DNSLabels)
-	if err != nil {
-		return nil, err
-	}
-
-	return loginResp, nil
+	return client.Login(sysInfo, pubSSHKey, config.DNSLabels)
 }
 
 func statusRecorderToMgmConnStateNotifier(statusRecorder *peer.Status) mgm.ConnStateNotifier {

@@ -33,6 +33,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/internal/updater"
 	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/util/capture"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -53,6 +54,7 @@ const (
 	errRestoreResidualState   = "failed to restore residual state: %v"
 	errProfilesDisabled       = "profiles are disabled, you cannot use this feature without profiles enabled"
 	errUpdateSettingsDisabled = "update settings are disabled, you cannot use this feature without update settings enabled"
+	errNetworksDisabled       = "network selection is disabled by the administrator"
 )
 
 var ErrServiceNotUp = errors.New("service is not up")
@@ -88,6 +90,11 @@ type Server struct {
 	profileManager         *profilemanager.ServiceManager
 	profilesDisabled       bool
 	updateSettingsDisabled bool
+	captureEnabled         bool
+	bundleCapture          *bundleCapture
+	// activeCapture is the session currently installed on the engine; guarded by s.mutex.
+	activeCapture    *capture.Session
+	networksDisabled bool
 
 	sleepHandler *sleephandler.SleepHandler
 
@@ -104,7 +111,7 @@ type oauthAuthFlow struct {
 }
 
 // New server instance constructor.
-func New(ctx context.Context, logFile string, configFile string, profilesDisabled bool, updateSettingsDisabled bool) *Server {
+func New(ctx context.Context, logFile string, configFile string, profilesDisabled bool, updateSettingsDisabled bool, captureEnabled bool, networksDisabled bool) *Server {
 	s := &Server{
 		rootCtx:                ctx,
 		logFile:                logFile,
@@ -113,10 +120,13 @@ func New(ctx context.Context, logFile string, configFile string, profilesDisable
 		profileManager:         profilemanager.NewServiceManager(configFile),
 		profilesDisabled:       profilesDisabled,
 		updateSettingsDisabled: updateSettingsDisabled,
+		captureEnabled:         captureEnabled,
+		networksDisabled:       networksDisabled,
 		jwtCache:               newJWTCache(),
 	}
 	agent := &serverAgent{s}
 	s.sleepHandler = sleephandler.New(agent)
+	s.startSleepDetector()
 
 	return s
 }
@@ -1359,6 +1369,10 @@ func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.Daemon
 		return gstatus.Errorf(codes.FailedPrecondition, "engine not initialized")
 	}
 
+	if engine.IsBlockInbound() {
+		return gstatus.Errorf(codes.FailedPrecondition, "expose requires inbound connections but 'block inbound' is enabled, disable it first")
+	}
+
 	mgr := engine.GetExposeManager()
 	if mgr == nil {
 		return gstatus.Errorf(codes.Internal, "expose manager not available")
@@ -1624,6 +1638,7 @@ func (s *Server) GetFeatures(ctx context.Context, msg *proto.GetFeaturesRequest)
 	features := &proto.GetFeaturesResponse{
 		DisableProfiles:       s.checkProfilesDisabled(),
 		DisableUpdateSettings: s.checkUpdateSettingsDisabled(),
+		DisableNetworks:       s.networksDisabled,
 	}
 
 	return features, nil

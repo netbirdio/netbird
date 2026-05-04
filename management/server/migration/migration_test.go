@@ -441,3 +441,197 @@ func TestRemoveDuplicatePeerKeys_NoTable(t *testing.T) {
 	err := migration.RemoveDuplicatePeerKeys(context.Background(), db)
 	require.NoError(t, err, "Should not fail when table does not exist")
 }
+
+type testParent struct {
+	ID string `gorm:"primaryKey"`
+}
+
+func (testParent) TableName() string {
+	return "test_parents"
+}
+
+type testChild struct {
+	ID       string `gorm:"primaryKey"`
+	ParentID string
+}
+
+func (testChild) TableName() string {
+	return "test_children"
+}
+
+type testChildWithFK struct {
+	ID       string      `gorm:"primaryKey"`
+	ParentID string      `gorm:"index"`
+	Parent   *testParent `gorm:"foreignKey:ParentID"`
+}
+
+func (testChildWithFK) TableName() string {
+	return "test_children"
+}
+
+func setupOrphanTestDB(t *testing.T, models ...any) *gorm.DB {
+	t.Helper()
+	db := setupDatabase(t)
+	for _, m := range models {
+		_ = db.Migrator().DropTable(m)
+	}
+	err := db.AutoMigrate(models...)
+	require.NoError(t, err, "Failed to auto-migrate tables")
+	return db
+}
+
+func TestCleanupOrphanedResources_NoChildTable(t *testing.T) {
+	db := setupDatabase(t)
+	_ = db.Migrator().DropTable(&testChild{})
+	_ = db.Migrator().DropTable(&testParent{})
+
+	err := migration.CleanupOrphanedResources[testChild, testParent](context.Background(), db, "parent_id")
+	require.NoError(t, err, "Should not fail when child table does not exist")
+}
+
+func TestCleanupOrphanedResources_NoParentTable(t *testing.T) {
+	db := setupDatabase(t)
+	_ = db.Migrator().DropTable(&testParent{})
+	_ = db.Migrator().DropTable(&testChild{})
+
+	err := db.AutoMigrate(&testChild{})
+	require.NoError(t, err)
+
+	err = migration.CleanupOrphanedResources[testChild, testParent](context.Background(), db, "parent_id")
+	require.NoError(t, err, "Should not fail when parent table does not exist")
+}
+
+func TestCleanupOrphanedResources_EmptyTables(t *testing.T) {
+	db := setupOrphanTestDB(t, &testParent{}, &testChild{})
+
+	err := migration.CleanupOrphanedResources[testChild, testParent](context.Background(), db, "parent_id")
+	require.NoError(t, err, "Should not fail on empty tables")
+
+	var count int64
+	db.Model(&testChild{}).Count(&count)
+	assert.Equal(t, int64(0), count)
+}
+
+func TestCleanupOrphanedResources_NoOrphans(t *testing.T) {
+	db := setupOrphanTestDB(t, &testParent{}, &testChild{})
+
+	require.NoError(t, db.Create(&testParent{ID: "p1"}).Error)
+	require.NoError(t, db.Create(&testParent{ID: "p2"}).Error)
+	require.NoError(t, db.Create(&testChild{ID: "c1", ParentID: "p1"}).Error)
+	require.NoError(t, db.Create(&testChild{ID: "c2", ParentID: "p2"}).Error)
+
+	err := migration.CleanupOrphanedResources[testChild, testParent](context.Background(), db, "parent_id")
+	require.NoError(t, err)
+
+	var count int64
+	db.Model(&testChild{}).Count(&count)
+	assert.Equal(t, int64(2), count, "All children should remain when no orphans")
+}
+
+func TestCleanupOrphanedResources_AllOrphans(t *testing.T) {
+	db := setupOrphanTestDB(t, &testParent{}, &testChild{})
+
+	require.NoError(t, db.Exec("INSERT INTO test_children (id, parent_id) VALUES (?, ?)", "c1", "gone1").Error)
+	require.NoError(t, db.Exec("INSERT INTO test_children (id, parent_id) VALUES (?, ?)", "c2", "gone2").Error)
+	require.NoError(t, db.Exec("INSERT INTO test_children (id, parent_id) VALUES (?, ?)", "c3", "gone3").Error)
+
+	err := migration.CleanupOrphanedResources[testChild, testParent](context.Background(), db, "parent_id")
+	require.NoError(t, err)
+
+	var count int64
+	db.Model(&testChild{}).Count(&count)
+	assert.Equal(t, int64(0), count, "All orphaned children should be deleted")
+}
+
+func TestCleanupOrphanedResources_MixedValidAndOrphaned(t *testing.T) {
+	db := setupOrphanTestDB(t, &testParent{}, &testChild{})
+
+	require.NoError(t, db.Create(&testParent{ID: "p1"}).Error)
+	require.NoError(t, db.Create(&testParent{ID: "p2"}).Error)
+
+	require.NoError(t, db.Create(&testChild{ID: "c1", ParentID: "p1"}).Error)
+	require.NoError(t, db.Create(&testChild{ID: "c2", ParentID: "p2"}).Error)
+	require.NoError(t, db.Create(&testChild{ID: "c3", ParentID: "p1"}).Error)
+
+	require.NoError(t, db.Exec("INSERT INTO test_children (id, parent_id) VALUES (?, ?)", "c4", "gone1").Error)
+	require.NoError(t, db.Exec("INSERT INTO test_children (id, parent_id) VALUES (?, ?)", "c5", "gone2").Error)
+
+	err := migration.CleanupOrphanedResources[testChild, testParent](context.Background(), db, "parent_id")
+	require.NoError(t, err)
+
+	var remaining []testChild
+	require.NoError(t, db.Order("id").Find(&remaining).Error)
+
+	assert.Len(t, remaining, 3, "Only valid children should remain")
+	assert.Equal(t, "c1", remaining[0].ID)
+	assert.Equal(t, "c2", remaining[1].ID)
+	assert.Equal(t, "c3", remaining[2].ID)
+}
+
+func TestCleanupOrphanedResources_Idempotent(t *testing.T) {
+	db := setupOrphanTestDB(t, &testParent{}, &testChild{})
+
+	require.NoError(t, db.Create(&testParent{ID: "p1"}).Error)
+	require.NoError(t, db.Create(&testChild{ID: "c1", ParentID: "p1"}).Error)
+	require.NoError(t, db.Exec("INSERT INTO test_children (id, parent_id) VALUES (?, ?)", "c2", "gone").Error)
+
+	ctx := context.Background()
+
+	err := migration.CleanupOrphanedResources[testChild, testParent](ctx, db, "parent_id")
+	require.NoError(t, err)
+
+	var count int64
+	db.Model(&testChild{}).Count(&count)
+	assert.Equal(t, int64(1), count)
+
+	err = migration.CleanupOrphanedResources[testChild, testParent](ctx, db, "parent_id")
+	require.NoError(t, err)
+
+	db.Model(&testChild{}).Count(&count)
+	assert.Equal(t, int64(1), count, "Count should remain the same after second run")
+}
+
+func TestCleanupOrphanedResources_SkipsWhenForeignKeyExists(t *testing.T) {
+	engine := os.Getenv("NETBIRD_STORE_ENGINE")
+	if engine != "postgres" && engine != "mysql" {
+		t.Skip("FK constraint early-exit test requires postgres or mysql")
+	}
+
+	db := setupDatabase(t)
+	_ = db.Migrator().DropTable(&testChildWithFK{})
+	_ = db.Migrator().DropTable(&testParent{})
+
+	err := db.AutoMigrate(&testParent{}, &testChildWithFK{})
+	require.NoError(t, err)
+
+	require.NoError(t, db.Create(&testParent{ID: "p1"}).Error)
+	require.NoError(t, db.Create(&testParent{ID: "p2"}).Error)
+	require.NoError(t, db.Create(&testChildWithFK{ID: "c1", ParentID: "p1"}).Error)
+	require.NoError(t, db.Create(&testChildWithFK{ID: "c2", ParentID: "p2"}).Error)
+
+	switch engine {
+	case "postgres":
+		require.NoError(t, db.Exec("ALTER TABLE test_children DROP CONSTRAINT fk_test_children_parent").Error)
+		require.NoError(t, db.Exec("DELETE FROM test_parents WHERE id = ?", "p2").Error)
+		require.NoError(t, db.Exec(
+			"ALTER TABLE test_children ADD CONSTRAINT fk_test_children_parent "+
+				"FOREIGN KEY (parent_id) REFERENCES test_parents(id) NOT VALID",
+		).Error)
+	case "mysql":
+		require.NoError(t, db.Exec("SET FOREIGN_KEY_CHECKS = 0").Error)
+		require.NoError(t, db.Exec("ALTER TABLE test_children DROP FOREIGN KEY fk_test_children_parent").Error)
+		require.NoError(t, db.Exec("DELETE FROM test_parents WHERE id = ?", "p2").Error)
+		require.NoError(t, db.Exec(
+			"ALTER TABLE test_children ADD CONSTRAINT fk_test_children_parent "+
+				"FOREIGN KEY (parent_id) REFERENCES test_parents(id)",
+		).Error)
+		require.NoError(t, db.Exec("SET FOREIGN_KEY_CHECKS = 1").Error)
+	}
+
+	err = migration.CleanupOrphanedResources[testChildWithFK, testParent](context.Background(), db, "parent_id")
+	require.NoError(t, err)
+
+	var count int64
+	db.Model(&testChildWithFK{}).Count(&count)
+	assert.Equal(t, int64(2), count, "Both rows should survive — migration must skip when FK constraint exists")
+}

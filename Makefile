@@ -5,7 +5,7 @@ GOLANGCI_LINT := $(shell pwd)/bin/golangci-lint
 $(GOLANGCI_LINT):
 	@echo "Installing golangci-lint..."
 	@mkdir -p ./bin
-	@GOBIN=$(shell pwd)/bin go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	@GOBIN=$(shell pwd)/bin go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 
 # Lint only changed files (fast, for pre-push)
 lint: $(GOLANGCI_LINT)

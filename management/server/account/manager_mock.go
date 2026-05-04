@@ -111,15 +111,15 @@ func (mr *MockManagerMockRecorder) ApproveUser(ctx, accountID, initiatorUserID, 
 }
 
 // BufferUpdateAccountPeers mocks base method.
-func (m *MockManager) BufferUpdateAccountPeers(ctx context.Context, accountID string) {
+func (m *MockManager) BufferUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "BufferUpdateAccountPeers", ctx, accountID)
+	m.ctrl.Call(m, "BufferUpdateAccountPeers", ctx, accountID, reason)
 }
 
 // BufferUpdateAccountPeers indicates an expected call of BufferUpdateAccountPeers.
-func (mr *MockManagerMockRecorder) BufferUpdateAccountPeers(ctx, accountID interface{}) *gomock.Call {
+func (mr *MockManagerMockRecorder) BufferUpdateAccountPeers(ctx, accountID, reason interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BufferUpdateAccountPeers", reflect.TypeOf((*MockManager)(nil).BufferUpdateAccountPeers), ctx, accountID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BufferUpdateAccountPeers", reflect.TypeOf((*MockManager)(nil).BufferUpdateAccountPeers), ctx, accountID, reason)
 }
 
 // BuildUserInfosForAccount mocks base method.
@@ -736,18 +736,18 @@ func (mr *MockManagerMockRecorder) GetGroup(ctx, accountId, groupID, userID inte
 }
 
 // GetGroupByName mocks base method.
-func (m *MockManager) GetGroupByName(ctx context.Context, groupName, accountID string) (*types.Group, error) {
+func (m *MockManager) GetGroupByName(ctx context.Context, groupName, accountID, userID string) (*types.Group, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetGroupByName", ctx, groupName, accountID)
+	ret := m.ctrl.Call(m, "GetGroupByName", ctx, groupName, accountID, userID)
 	ret0, _ := ret[0].(*types.Group)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetGroupByName indicates an expected call of GetGroupByName.
-func (mr *MockManagerMockRecorder) GetGroupByName(ctx, groupName, accountID interface{}) *gomock.Call {
+func (mr *MockManagerMockRecorder) GetGroupByName(ctx, groupName, accountID, userID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGroupByName", reflect.TypeOf((*MockManager)(nil).GetGroupByName), ctx, groupName, accountID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGroupByName", reflect.TypeOf((*MockManager)(nil).GetGroupByName), ctx, groupName, accountID, userID)
 }
 
 // GetIdentityProvider mocks base method.
@@ -1597,15 +1597,15 @@ func (mr *MockManagerMockRecorder) UpdateAccountOnboarding(ctx, accountID, userI
 }
 
 // UpdateAccountPeers mocks base method.
-func (m *MockManager) UpdateAccountPeers(ctx context.Context, accountID string) {
+func (m *MockManager) UpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "UpdateAccountPeers", ctx, accountID)
+	m.ctrl.Call(m, "UpdateAccountPeers", ctx, accountID, reason)
 }
 
 // UpdateAccountPeers indicates an expected call of UpdateAccountPeers.
-func (mr *MockManagerMockRecorder) UpdateAccountPeers(ctx, accountID interface{}) *gomock.Call {
+func (mr *MockManagerMockRecorder) UpdateAccountPeers(ctx, accountID, reason interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAccountPeers", reflect.TypeOf((*MockManager)(nil).UpdateAccountPeers), ctx, accountID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAccountPeers", reflect.TypeOf((*MockManager)(nil).UpdateAccountPeers), ctx, accountID, reason)
 }
 
 // UpdateAccountSettings mocks base method.

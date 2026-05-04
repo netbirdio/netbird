@@ -1686,7 +1686,7 @@ func (f *fakeConn) RemoteAddr() net.Addr { return f.remote }
 
 func TestCheckRestrictions_UnparseableAddress(t *testing.T) {
 	router := NewPortRouter(log.StandardLogger(), nil)
-	filter := restrict.ParseFilter([]string{"10.0.0.0/8"}, nil, nil, nil)
+	filter := restrict.ParseFilter(restrict.FilterConfig{AllowedCIDRs: []string{"10.0.0.0/8"}})
 	route := Route{Filter: filter}
 
 	conn := &fakeConn{remote: fakeAddr("not-an-ip")}
@@ -1695,7 +1695,7 @@ func TestCheckRestrictions_UnparseableAddress(t *testing.T) {
 
 func TestCheckRestrictions_NilRemoteAddr(t *testing.T) {
 	router := NewPortRouter(log.StandardLogger(), nil)
-	filter := restrict.ParseFilter([]string{"10.0.0.0/8"}, nil, nil, nil)
+	filter := restrict.ParseFilter(restrict.FilterConfig{AllowedCIDRs: []string{"10.0.0.0/8"}})
 	route := Route{Filter: filter}
 
 	conn := &fakeConn{remote: nil}
@@ -1704,7 +1704,7 @@ func TestCheckRestrictions_NilRemoteAddr(t *testing.T) {
 
 func TestCheckRestrictions_AllowedAndDenied(t *testing.T) {
 	router := NewPortRouter(log.StandardLogger(), nil)
-	filter := restrict.ParseFilter([]string{"10.0.0.0/8"}, nil, nil, nil)
+	filter := restrict.ParseFilter(restrict.FilterConfig{AllowedCIDRs: []string{"10.0.0.0/8"}})
 	route := Route{Filter: filter}
 
 	allowed := &fakeConn{remote: &net.TCPAddr{IP: net.IPv4(10, 1, 2, 3), Port: 1234}}
@@ -1724,7 +1724,7 @@ func TestCheckRestrictions_NilFilter(t *testing.T) {
 
 func TestCheckRestrictions_IPv4MappedIPv6(t *testing.T) {
 	router := NewPortRouter(log.StandardLogger(), nil)
-	filter := restrict.ParseFilter([]string{"10.0.0.0/8"}, nil, nil, nil)
+	filter := restrict.ParseFilter(restrict.FilterConfig{AllowedCIDRs: []string{"10.0.0.0/8"}})
 	route := Route{Filter: filter}
 
 	// net.IPv4() returns a 16-byte v4-in-v6 representation internally.

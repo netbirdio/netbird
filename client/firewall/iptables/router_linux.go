@@ -36,6 +36,7 @@ const (
 	chainRTFWDOUT           = "NETBIRD-RT-FWD-OUT"
 	chainRTPRE              = "NETBIRD-RT-PRE"
 	chainRTRDR              = "NETBIRD-RT-RDR"
+	chainNATOutput          = "NETBIRD-NAT-OUTPUT"
 	chainRTMSSCLAMP         = "NETBIRD-RT-MSSCLAMP"
 	routingFinalForwardJump = "ACCEPT"
 	routingFinalNatJump     = "MASQUERADE"
@@ -43,6 +44,7 @@ const (
 	jumpManglePre  = "jump-mangle-pre"
 	jumpNatPre     = "jump-nat-pre"
 	jumpNatPost    = "jump-nat-post"
+	jumpNatOutput  = "jump-nat-output"
 	jumpMSSClamp   = "jump-mss-clamp"
 	markManglePre  = "mark-mangle-pre"
 	markManglePost = "mark-mangle-post"
@@ -387,6 +389,14 @@ func (r *router) cleanUpDefaultForwardRules() error {
 	}
 
 	log.Debug("flushing routing related tables")
+
+	// Remove jump rules from built-in chains before deleting custom chains,
+	// otherwise the chain deletion fails with "device or resource busy".
+	jumpRule := []string{"-j", chainNATOutput}
+	if err := r.iptablesClient.Delete(tableNat, "OUTPUT", jumpRule...); err != nil {
+		log.Debugf("clean OUTPUT jump rule: %v", err)
+	}
+
 	for _, chainInfo := range []struct {
 		chain string
 		table string
@@ -396,6 +406,7 @@ func (r *router) cleanUpDefaultForwardRules() error {
 		{chainRTPRE, tableMangle},
 		{chainRTNAT, tableNat},
 		{chainRTRDR, tableNat},
+		{chainNATOutput, tableNat},
 		{chainRTMSSCLAMP, tableMangle},
 	} {
 		ok, err := r.iptablesClient.ChainExists(chainInfo.table, chainInfo.chain)
@@ -962,6 +973,81 @@ func (r *router) RemoveInboundDNAT(localAddr netip.Addr, protocol firewall.Proto
 	if dnatRule, exists := r.rules[ruleID]; exists {
 		if err := r.iptablesClient.Delete(tableNat, chainRTRDR, dnatRule...); err != nil {
 			return fmt.Errorf("delete inbound DNAT rule: %w", err)
+		}
+		delete(r.rules, ruleID)
+	}
+
+	r.updateState()
+	return nil
+}
+
+// ensureNATOutputChain lazily creates the OUTPUT NAT chain and jump rule on first use.
+func (r *router) ensureNATOutputChain() error {
+	if _, exists := r.rules[jumpNatOutput]; exists {
+		return nil
+	}
+
+	chainExists, err := r.iptablesClient.ChainExists(tableNat, chainNATOutput)
+	if err != nil {
+		return fmt.Errorf("check chain %s: %w", chainNATOutput, err)
+	}
+	if !chainExists {
+		if err := r.iptablesClient.NewChain(tableNat, chainNATOutput); err != nil {
+			return fmt.Errorf("create chain %s: %w", chainNATOutput, err)
+		}
+	}
+
+	jumpRule := []string{"-j", chainNATOutput}
+	if err := r.iptablesClient.Insert(tableNat, "OUTPUT", 1, jumpRule...); err != nil {
+		if !chainExists {
+			if delErr := r.iptablesClient.ClearAndDeleteChain(tableNat, chainNATOutput); delErr != nil {
+				log.Warnf("failed to rollback chain %s: %v", chainNATOutput, delErr)
+			}
+		}
+		return fmt.Errorf("add OUTPUT jump rule: %w", err)
+	}
+	r.rules[jumpNatOutput] = jumpRule
+
+	r.updateState()
+	return nil
+}
+
+// AddOutputDNAT adds an OUTPUT chain DNAT rule for locally-generated traffic.
+func (r *router) AddOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+	ruleID := fmt.Sprintf("output-dnat-%s-%s-%d-%d", localAddr.String(), protocol, sourcePort, targetPort)
+
+	if _, exists := r.rules[ruleID]; exists {
+		return nil
+	}
+
+	if err := r.ensureNATOutputChain(); err != nil {
+		return err
+	}
+
+	dnatRule := []string{
+		"-p", strings.ToLower(string(protocol)),
+		"--dport", strconv.Itoa(int(sourcePort)),
+		"-d", localAddr.String(),
+		"-j", "DNAT",
+		"--to-destination", ":" + strconv.Itoa(int(targetPort)),
+	}
+
+	if err := r.iptablesClient.Append(tableNat, chainNATOutput, dnatRule...); err != nil {
+		return fmt.Errorf("add output DNAT rule: %w", err)
+	}
+	r.rules[ruleID] = dnatRule
+
+	r.updateState()
+	return nil
+}
+
+// RemoveOutputDNAT removes an OUTPUT chain DNAT rule.
+func (r *router) RemoveOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+	ruleID := fmt.Sprintf("output-dnat-%s-%s-%d-%d", localAddr.String(), protocol, sourcePort, targetPort)
+
+	if dnatRule, exists := r.rules[ruleID]; exists {
+		if err := r.iptablesClient.Delete(tableNat, chainNATOutput, dnatRule...); err != nil {
+			return fmt.Errorf("delete output DNAT rule: %w", err)
 		}
 		delete(r.rules, ruleID)
 	}
