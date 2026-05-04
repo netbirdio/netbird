@@ -177,7 +177,9 @@ func getDefaultGateway() (gateway net.IP, localIP net.IP, err error) {
 		return nil, nil, err
 	}
 
-	_, gateway, localIP, err = router.Route(net.IPv4zero)
+	// go-netroute v0.4.0 rejects unspecified destinations. Use the lowest
+	// non-unspecified address so the lookup falls through to the default route.
+	_, gateway, localIP, err = router.Route(net.IPv4(0, 0, 0, 1))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -196,7 +198,9 @@ func getDefaultGateway6() (gateway net.IP, localIP net.IP, err error) {
 		return nil, nil, err
 	}
 
-	_, gateway, localIP, err = router.Route(net.IPv6zero)
+	// go-netroute v0.4.0 rejects unspecified destinations. Use the lowest
+	// non-loopback IPv6 address so the lookup falls through to the default route.
+	_, gateway, localIP, err = router.Route(net.IP{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2})
 	if err != nil {
 		return nil, nil, err
 	}
