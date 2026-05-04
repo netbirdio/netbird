@@ -559,10 +559,34 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 	}
 	assert.NotNil(t, peer)
 
-	// the user can NOT see peer2 because it is not owned by them.
-	// Regular users only see peers they directly own.
+	// Restored pre-PR-#6006 behaviour: the user can ALSO see peer2 because
+	// the default account policy (All -> All) lets peer1 reach peer2 via
+	// ACL. Regular users see their own peers PLUS peers reachable from
+	// their own peers via the account's access policies. See the
+	// docs/bugs/2026-05-04-user-peer-visibility-regression.md analysis
+	// for the rationale.
+	peer, err = manager.GetPeer(context.Background(), accountID, peer2.ID, someUser)
+	if err != nil {
+		t.Fatalf("regular user should see policy-reachable peer2: %v", err)
+		return
+	}
+	assert.NotNil(t, peer)
+
+	// Now strip the default policies so peer1 has NO policy reaching peer2.
+	// In that case the regular user must NOT be able to read peer2 -- this
+	// is the "policy denies" half of the contract restored by the fix.
+	account, err = manager.Store.GetAccount(context.Background(), accountID)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+	account.Policies = []*types.Policy{}
+	if err := manager.Store.SaveAccount(context.Background(), account); err != nil {
+		t.Fatal(err)
+		return
+	}
 	_, err = manager.GetPeer(context.Background(), accountID, peer2.ID, someUser)
-	assert.Error(t, err)
+	assert.Error(t, err, "regular user must NOT see peer2 once no policy reaches it from peer1")
 
 	// admin users can always access all the peers
 	peer, err = manager.GetPeer(context.Background(), accountID, peer1.ID, adminUser)
@@ -727,6 +751,37 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 
 		})
 	}
+}
+
+func TestFilterPeersByNameAndIP(t *testing.T) {
+	peers := []*nbpeer.Peer{
+		{ID: "1", Name: "alpha", IP: net.ParseIP("10.0.0.1")},
+		{ID: "2", Name: "beta", IP: net.ParseIP("10.0.0.2")},
+		{ID: "3", Name: "alpha-2", IP: net.ParseIP("10.0.1.5")},
+		{ID: "4", Name: "gamma", IP: net.ParseIP("192.168.1.1")},
+	}
+
+	t.Run("no filters", func(t *testing.T) {
+		got := filterPeersByNameAndIP(peers, "", "")
+		assert.Len(t, got, 4)
+	})
+	t.Run("name substring", func(t *testing.T) {
+		got := filterPeersByNameAndIP(peers, "alpha", "")
+		assert.Len(t, got, 2)
+	})
+	t.Run("ip substring", func(t *testing.T) {
+		got := filterPeersByNameAndIP(peers, "", "10.0.0.")
+		assert.Len(t, got, 2)
+	})
+	t.Run("name AND ip both required", func(t *testing.T) {
+		got := filterPeersByNameAndIP(peers, "alpha", "10.0.1.")
+		assert.Len(t, got, 1)
+		assert.Equal(t, "3", got[0].ID)
+	})
+	t.Run("no matches", func(t *testing.T) {
+		got := filterPeersByNameAndIP(peers, "zeta", "")
+		assert.Empty(t, got)
+	})
 }
 
 func setupTestAccountManager(b testing.TB, peers int, groups int) (*DefaultAccountManager, *update_channel.PeersUpdateManager, string, string, error) {
