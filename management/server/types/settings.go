@@ -87,6 +87,11 @@ type Settings struct {
 	// Set to false to send the raw p2p-dynamic config to all clients
 	// (advanced; only useful when you know the entire fleet is upgraded).
 	// No effect outside p2p-dynamic mode.
+	//
+	// Use ApplyLegacyLazyFallbackDefaults to seed the field correctly
+	// in places that build a fresh Settings from scratch (PUT handler,
+	// account creation, in-memory FileStore migration). The GORM
+	// `default:true` only fires for SQL inserts.
 	LegacyLazyFallbackEnabled bool `gorm:"default:true"`
 
 	// LegacyLazyFallbackTimeoutSeconds (Phase 3.7i, #5989) is the relay
@@ -227,4 +232,39 @@ func Uint32PtrEqual(a, b *uint32) bool {
 		return false
 	}
 	return *a == *b
+}
+
+// Phase 3.7i (#5989): canonical defaults for the LegacyLazyFallback*
+// fields. Centralised so every code path that builds a Settings from
+// scratch lands on the same numbers. The GORM `default:` tags only
+// apply at INSERT time, so callers that mutate Settings in memory
+// (PUT handler, account creation, FileStore migration) must call
+// ApplyLegacyLazyFallbackDefaults explicitly.
+const (
+	DefaultLegacyLazyFallbackEnabled        = true
+	DefaultLegacyLazyFallbackTimeoutSeconds = uint32(3600)
+)
+
+// ApplyLegacyLazyFallbackDefaults seeds the two LegacyLazyFallback*
+// fields if they are at the Go zero value. Idempotent — calling it on
+// an already-populated Settings is a no-op. The "is at zero value"
+// detection is intentionally simple: there is no semantic difference
+// between "user explicitly turned the toggle off / set timeout to 0"
+// and "field uninitialised", because we forbid 0 timeouts at the API
+// layer (range [60, 86400]) and the false toggle case is preserved
+// only when the field was already true and got copied verbatim. New
+// codepaths that need to remember "user opted out" should use the API
+// handler's path (which only ever sees the wire field).
+func (s *Settings) ApplyLegacyLazyFallbackDefaults() {
+	if s == nil {
+		return
+	}
+	// timeout==0 is never valid, so we always rewrite. Toggle: only
+	// reset to default true when the timeout was also zero (= field
+	// freshly built, never touched), otherwise honour the explicit
+	// false the caller put there.
+	if s.LegacyLazyFallbackTimeoutSeconds == 0 {
+		s.LegacyLazyFallbackEnabled = DefaultLegacyLazyFallbackEnabled
+		s.LegacyLazyFallbackTimeoutSeconds = DefaultLegacyLazyFallbackTimeoutSeconds
+	}
 }

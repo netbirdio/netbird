@@ -1986,6 +1986,14 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain, email, nam
 			PeerInactivityExpirationEnabled: false,
 			PeerInactivityExpiration:        types.DefaultPeerInactivityExpiration,
 			RoutingPeerDNSResolutionEnabled: true,
+			// Phase 3.7i (#5989): legacy-fallback defaults must travel
+			// with newly-created accounts. The GORM `default:` only
+			// applies on SQL INSERT and would leave in-memory copies
+			// at false/0, which the conversion layer then interprets
+			// as "fallback disabled, timeout 0" -- the exact bug
+			// Codex flagged.
+			LegacyLazyFallbackEnabled:        types.DefaultLegacyLazyFallbackEnabled,
+			LegacyLazyFallbackTimeoutSeconds: types.DefaultLegacyLazyFallbackTimeoutSeconds,
 			Extra: &types.ExtraSettings{
 				UserApprovalRequired: true,
 			},
@@ -2095,6 +2103,10 @@ func (am *DefaultAccountManager) GetOrCreateAccountByPrivateDomain(ctx context.C
 				PeerInactivityExpirationEnabled: false,
 				PeerInactivityExpiration:        types.DefaultPeerInactivityExpiration,
 				RoutingPeerDNSResolutionEnabled: true,
+				// Phase 3.7i (#5989): same defaults as the primary
+				// NewAccount path -- see comment there for rationale.
+				LegacyLazyFallbackEnabled:        types.DefaultLegacyLazyFallbackEnabled,
+				LegacyLazyFallbackTimeoutSeconds: types.DefaultLegacyLazyFallbackTimeoutSeconds,
 				Extra: &types.ExtraSettings{
 					UserApprovalRequired: true,
 				},
