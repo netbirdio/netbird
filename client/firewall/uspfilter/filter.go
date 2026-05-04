@@ -1308,6 +1308,9 @@ func (m *Manager) isValidPacket(d *decoder, packetData []byte) (bool, bool) {
 		case layers.LayerTypeIPv6:
 			// IPv6 uses Fragment extension header (NextHeader=44). If gopacket
 			// only decoded the IPv6 layer, the transport is in a fragment.
+			// TODO: handle non-Fragment extension headers (HopByHop, Routing,
+			// DestOpts) by walking the chain. gopacket's parser does not
+			// support them as DecodingLayers; today we drop such packets.
 			if d.ip6.NextHeader == layers.IPProtocolIPv6Fragment {
 				return true, true
 			}

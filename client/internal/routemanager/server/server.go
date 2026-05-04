@@ -51,7 +51,7 @@ func (r *Router) UpdateRoutes(routesMap map[route.ID]*route.Route, useNewDNSRout
 
 	for _, routeID := range serverRoutesToRemove {
 		oldRoute := r.routes[routeID]
-		err := r.removeFromServerNetworkWithMode(oldRoute, prevUseNewDNSRoute)
+		err := r.removeFromServerNetwork(oldRoute, prevUseNewDNSRoute)
 		if err != nil {
 			log.Errorf("Unable to remove route id: %s, network %s, from server, got: %v",
 				oldRoute.ID, oldRoute.Network, err)
@@ -90,11 +90,7 @@ func (r *Router) UpdateRoutes(routesMap map[route.ID]*route.Route, useNewDNSRout
 	return nil
 }
 
-func (r *Router) removeFromServerNetwork(route *route.Route) error {
-	return r.removeFromServerNetworkWithMode(route, r.useNewDNSRoute)
-}
-
-func (r *Router) removeFromServerNetworkWithMode(route *route.Route, useNewDNSRoute bool) error {
+func (r *Router) removeFromServerNetwork(route *route.Route, useNewDNSRoute bool) error {
 	if r.ctx.Err() != nil {
 		log.Infof("Not removing from server network because context is done")
 		return r.ctx.Err()
