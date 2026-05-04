@@ -3746,40 +3746,56 @@ components:
           example: "john@reseller.com"
     ResellerMSPResponse:
       type: object
+      description: An MSP account managed (or invited) by a reseller.
       properties:
         id:
           type: string
-          description: The MSP account ID
+          description: The MSP account ID.
           example: ch8i4ug6lnn4g9hqv7m0
         name:
           type: string
-          description: The MSP name
+          description: Display name of the MSP.
           example: "Partner MSP"
         domain:
           type: string
-          description: The MSP domain
+          description: The MSP account domain.
           example: "partner-msp.com"
-        has_reseller:
-          type: boolean
-          description: Whether the MSP is managed by a reseller
-          example: true
+        status:
+          type: string
+          description: |
+            Lifecycle status of the reseller↔MSP relationship.
+            * `existing` — MSP exists in the system but has not yet been invited.
+            * `invited` — Reseller has invited the MSP; MSP user has not accepted.
+            * `active` — MSP user accepted; reseller manages the account.
+          enum:
+            - existing
+            - invited
+            - active
+          example: "active"
+        tenant_number:
+          type: integer
+          description: Number of manageable (active or pending) tenants under this MSP.
+          example: 12
         reseller_customer_id:
           type: string
-          description: Reseller's internal customer reference for this MSP
+          description: Reseller's internal customer reference for this MSP.
           example: "CUST-12345"
         activated_at:
           type: string
-          description: MSP activation timestamp in RFC3339 format
-          example: "2024-01-01T00:00:00Z"
+          format: date-time
+          description: When the MSP account was activated.
+          example: "2026-04-01T12:00:00Z"
         invited_at:
           type: string
-          description: MSP invitation timestamp in RFC3339 format
-          example: "2024-01-01T00:00:00Z"
+          format: date-time
+          description: When the reseller invited the MSP (set only if invited).
+          example: "2026-04-15T09:30:00Z"
       required:
         - id
         - name
         - domain
-        - has_reseller
+        - status
+        - tenant_number
     GetResellerMSPsResponse:
       type: array
       items:
@@ -3808,11 +3824,16 @@ components:
         - domain
     UpdateResellerMSPRequest:
       type: object
+      description: Mutable fields the reseller can update on a managed MSP.
       properties:
+        name:
+          type: string
+          description: New display name for the MSP. Whitespace is trimmed; empty/whitespace-only values are rejected.
+          example: "Renamed MSP"
         reseller_customer_id:
           type: string
-          description: Reseller's internal customer reference for this MSP
-          example: "CUST-12345"
+          description: New reseller customer reference. Pass empty string to clear.
+          example: "CUST-67890"
     CreateTenantRequest:
       type: object
       properties:
