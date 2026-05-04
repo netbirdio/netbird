@@ -175,25 +175,29 @@ func (m *Manager) reconcileExternalChains() error {
 	return nberrors.FormatErrorOrNil(merr)
 }
 
-func (m *Manager) initFirewall() error {
+func (m *Manager) initFirewall() (err error) {
 	workTable, err := m.createWorkTable()
 	if err != nil {
 		return fmt.Errorf("create work table: %w", err)
 	}
+
+	defer func() {
+		if err != nil {
+			m.rollbackInit()
+		}
+	}()
 
 	if err := m.router.init(workTable); err != nil {
 		return fmt.Errorf("router init: %w", err)
 	}
 
 	if err := m.aclManager.init(workTable); err != nil {
-		m.rollbackInit()
 		return fmt.Errorf("acl manager init: %w", err)
 	}
 
 	if m.hasIPv6() {
 		if err := m.initIPv6(); err != nil {
 			// Peer has a v6 address: v6 firewall MUST work or we risk fail-open.
-			m.rollbackInit()
 			return fmt.Errorf("init IPv6 firewall (required because peer has IPv6 address): %w", err)
 		}
 	}
