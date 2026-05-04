@@ -18,3 +18,22 @@ func TestSettings_Copy_P2pRetryMaxSeconds(t *testing.T) {
 		t.Fatal("Copy did not deep-clone P2pRetryMaxSeconds")
 	}
 }
+
+// Phase 3.7i (#5989): make sure Settings.Copy carries the new
+// LegacyLazyFallback* fields. Forgetting either would silently reset
+// the toggle / timeout to zero values whenever Copy is called (e.g.
+// in the equality check on UpdateAccountSettings).
+func TestSettings_Copy_LegacyLazyFallback(t *testing.T) {
+	src := &Settings{
+		LegacyLazyFallbackEnabled:        true,
+		LegacyLazyFallbackTimeoutSeconds: 1800,
+	}
+	dst := src.Copy()
+	if !dst.LegacyLazyFallbackEnabled {
+		t.Fatal("Copy lost LegacyLazyFallbackEnabled (got false, want true)")
+	}
+	if dst.LegacyLazyFallbackTimeoutSeconds != 1800 {
+		t.Fatalf("Copy lost LegacyLazyFallbackTimeoutSeconds: got %d, want 1800",
+			dst.LegacyLazyFallbackTimeoutSeconds)
+	}
+}
