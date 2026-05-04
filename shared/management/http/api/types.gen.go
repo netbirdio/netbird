@@ -1508,6 +1508,23 @@ type AccountSettings struct {
 	// LazyConnectionEnabled Enables or disables experimental lazy connection
 	LazyConnectionEnabled *bool `json:"lazy_connection_enabled,omitempty"`
 
+	// LegacyLazyFallbackEnabled Phase 3.7i (#5989) - Legacy compatibility for older clients.
+	// When the account ConnectionMode is p2p-dynamic and a client
+	// does NOT advertise the "p2p_dynamic" capability via
+	// PeerSystemMeta.SupportedFeatures, the management server
+	// transparently downgrades that client's PeerConfig to p2p-lazy
+	// with the timeout below. Has no effect on clients that support
+	// p2p-dynamic. Default true. Disable only if you are certain the
+	// entire fleet is on a 3.7i+ daemon.
+	LegacyLazyFallbackEnabled *bool `json:"legacy_lazy_fallback_enabled,omitempty"`
+
+	// LegacyLazyFallbackTimeoutSeconds Phase 3.7i (#5989) - Inactivity timeout sent to legacy
+	// clients via the lazy-fallback branch. Range 60-86400 (1 min
+	// to 24 h); default 3600 (= 60 min). Long enough to not hammer
+	// connection setup on flaky LTE links, short enough to actually
+	// release idle peers.
+	LegacyLazyFallbackTimeoutSeconds *int64 `json:"legacy_lazy_fallback_timeout_seconds,omitempty"`
+
 	// LocalAuthDisabled Indicates whether local (email/password) authentication is disabled. When true, users can only authenticate via external identity providers. This is a read-only field.
 	LocalAuthDisabled *bool `json:"local_auth_disabled,omitempty"`
 

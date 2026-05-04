@@ -337,7 +337,9 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			!types.StringPtrEqual(oldSettings.ConnectionMode, newSettings.ConnectionMode) ||
 			!types.Uint32PtrEqual(oldSettings.RelayTimeoutSeconds, newSettings.RelayTimeoutSeconds) ||
 			!types.Uint32PtrEqual(oldSettings.P2pTimeoutSeconds, newSettings.P2pTimeoutSeconds) ||
-			!types.Uint32PtrEqual(oldSettings.P2pRetryMaxSeconds, newSettings.P2pRetryMaxSeconds) {
+			!types.Uint32PtrEqual(oldSettings.P2pRetryMaxSeconds, newSettings.P2pRetryMaxSeconds) ||
+			oldSettings.LegacyLazyFallbackEnabled != newSettings.LegacyLazyFallbackEnabled ||
+			oldSettings.LegacyLazyFallbackTimeoutSeconds != newSettings.LegacyLazyFallbackTimeoutSeconds {
 			updateAccountPeers = true
 		}
 
@@ -488,6 +490,19 @@ func (am *DefaultAccountManager) handleConnectionModeSettings(ctx context.Contex
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountP2pRetryMaxChanged, map[string]any{
 			"old": derefUint32Ptr(oldSettings.P2pRetryMaxSeconds),
 			"new": derefUint32Ptr(newSettings.P2pRetryMaxSeconds),
+		})
+	}
+	// Phase 3.7i (#5989): legacy-client lazy-fallback settings.
+	if oldSettings.LegacyLazyFallbackEnabled != newSettings.LegacyLazyFallbackEnabled {
+		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountLegacyLazyFallbackEnabledChanged, map[string]any{
+			"old": oldSettings.LegacyLazyFallbackEnabled,
+			"new": newSettings.LegacyLazyFallbackEnabled,
+		})
+	}
+	if oldSettings.LegacyLazyFallbackTimeoutSeconds != newSettings.LegacyLazyFallbackTimeoutSeconds {
+		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountLegacyLazyFallbackTimeoutChanged, map[string]any{
+			"old": oldSettings.LegacyLazyFallbackTimeoutSeconds,
+			"new": newSettings.LegacyLazyFallbackTimeoutSeconds,
 		})
 	}
 }

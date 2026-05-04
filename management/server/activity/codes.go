@@ -244,6 +244,12 @@ const (
 	// AccountP2pRetryMaxChanged indicates the account-wide P2pRetryMaxSeconds
 	// setting was modified (Phase 3 of #5989).
 	AccountP2pRetryMaxChanged Activity = 124
+	// AccountLegacyLazyFallbackEnabledChanged indicates the account-wide
+	// LegacyLazyFallbackEnabled toggle was changed (Phase 3.7i of #5989).
+	AccountLegacyLazyFallbackEnabledChanged Activity = 125
+	// AccountLegacyLazyFallbackTimeoutChanged indicates the account-wide
+	// LegacyLazyFallbackTimeoutSeconds setting was changed (Phase 3.7i).
+	AccountLegacyLazyFallbackTimeoutChanged Activity = 126
 
 	AccountDeleted Activity = 99999
 )
@@ -348,10 +354,12 @@ var activityMap = map[Activity]Code{
 	AccountLazyConnectionEnabled:  {"Account lazy connection enabled", "account.setting.lazy.connection.enable"},
 	AccountLazyConnectionDisabled: {"Account lazy connection disabled", "account.setting.lazy.connection.disable"},
 
-	AccountConnectionModeChanged: {"Account connection mode changed", "account.setting.connection_mode.change"},
-	AccountRelayTimeoutChanged:   {"Account relay timeout changed", "account.setting.relay_timeout.change"},
-	AccountP2pTimeoutChanged:     {"Account p2p timeout changed", "account.setting.p2p_timeout.change"},
-	AccountP2pRetryMaxChanged:    {"Account p2p retry max changed", "account.setting.p2p_retry_max.change"},
+	AccountConnectionModeChanged:            {"Account connection mode changed", "account.setting.connection_mode.change"},
+	AccountRelayTimeoutChanged:              {"Account relay timeout changed", "account.setting.relay_timeout.change"},
+	AccountP2pTimeoutChanged:                {"Account p2p timeout changed", "account.setting.p2p_timeout.change"},
+	AccountP2pRetryMaxChanged:               {"Account p2p retry max changed", "account.setting.p2p_retry_max.change"},
+	AccountLegacyLazyFallbackEnabledChanged: {"Account legacy lazy-fallback toggle changed", "account.setting.legacy_lazy_fallback.toggle.change"},
+	AccountLegacyLazyFallbackTimeoutChanged: {"Account legacy lazy-fallback timeout changed", "account.setting.legacy_lazy_fallback.timeout.change"},
 
 	AccountNetworkRangeUpdated: {"Account network range updated", "account.network.range.update"},
 

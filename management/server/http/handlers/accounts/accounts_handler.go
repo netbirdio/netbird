@@ -254,6 +254,21 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 		}
 		returnSettings.RelayTimeoutSeconds = &v
 	}
+	if req.Settings.LegacyLazyFallbackEnabled != nil {
+		returnSettings.LegacyLazyFallbackEnabled = *req.Settings.LegacyLazyFallbackEnabled
+	}
+	if req.Settings.LegacyLazyFallbackTimeoutSeconds != nil {
+		// Phase 3.7i (#5989): legacy fallback timeout. Range chosen to
+		// match the range an admin would plausibly set on a metered LTE
+		// fleet: 60s lower bound (anything shorter just hammers
+		// signaling), 86400s upper bound (24h - longer than that and the
+		// fallback is effectively "never tear down").
+		v := *req.Settings.LegacyLazyFallbackTimeoutSeconds
+		if v < 60 || v > 86400 {
+			return nil, fmt.Errorf("invalid legacy_lazy_fallback_timeout_seconds %d (must be between 60 and 86400)", v)
+		}
+		returnSettings.LegacyLazyFallbackTimeoutSeconds = uint32(v)
+	}
 	if req.Settings.AutoUpdateVersion != nil {
 		_, err := goversion.NewSemver(*req.Settings.AutoUpdateVersion)
 		if *req.Settings.AutoUpdateVersion == autoUpdateLatestVersion ||
@@ -414,6 +429,14 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 				return nil
 			}
 			v := int64(*settings.RelayTimeoutSeconds)
+			return &v
+		}(),
+		LegacyLazyFallbackEnabled: func() *bool {
+			v := settings.LegacyLazyFallbackEnabled
+			return &v
+		}(),
+		LegacyLazyFallbackTimeoutSeconds: func() *int64 {
+			v := int64(settings.LegacyLazyFallbackTimeoutSeconds)
 			return &v
 		}(),
 		DnsDomain:                       &settings.DNSDomain,
