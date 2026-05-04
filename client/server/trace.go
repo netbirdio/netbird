@@ -116,20 +116,34 @@ func (s *Server) resolveTraceAddresses(src, dst string, engine *internal.Engine)
 	}
 
 	if srcSelf {
-		srcAddr = selfAddr(engine, peer)
+		if srcAddr, err = selfAddr(engine, peer); err != nil {
+			return netip.Addr{}, netip.Addr{}, err
+		}
 	}
 	if dstSelf {
-		dstAddr = selfAddr(engine, peer)
+		if dstAddr, err = selfAddr(engine, peer); err != nil {
+			return netip.Addr{}, netip.Addr{}, err
+		}
 	}
 
 	return srcAddr, dstAddr, nil
 }
 
-func selfAddr(engine *internal.Engine, peer netip.Addr) netip.Addr {
+func selfAddr(engine *internal.Engine, peer netip.Addr) (netip.Addr, error) {
+	var addr netip.Addr
 	if peer.Is6() {
-		return engine.GetWgV6Addr()
+		addr = engine.GetWgV6Addr()
+	} else {
+		addr = engine.GetWgAddr()
 	}
-	return engine.GetWgAddr()
+	if !addr.IsValid() {
+		family := "IPv4"
+		if peer.Is6() {
+			family = "IPv6"
+		}
+		return netip.Addr{}, fmt.Errorf("no local %s overlay address configured", family)
+	}
+	return addr, nil
 }
 
 func parseAddr(addr string) (netip.Addr, error) {
