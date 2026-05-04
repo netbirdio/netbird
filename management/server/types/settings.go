@@ -79,6 +79,24 @@ type Settings struct {
 	// the wire).
 	P2pRetryMaxSeconds *uint32 `gorm:"default:null"`
 
+	// LegacyLazyFallbackEnabled (Phase 3.7i, #5989) controls whether the
+	// management server downgrades clients that do NOT advertise the
+	// "p2p_dynamic" capability to p2p-lazy when the account is in
+	// p2p-dynamic mode. Defaults to true so that pre-3.7i clients keep
+	// behaving sanely after an admin flips ConnectionMode to p2p-dynamic.
+	// Set to false to send the raw p2p-dynamic config to all clients
+	// (advanced; only useful when you know the entire fleet is upgraded).
+	// No effect outside p2p-dynamic mode.
+	LegacyLazyFallbackEnabled bool `gorm:"default:true"`
+
+	// LegacyLazyFallbackTimeoutSeconds (Phase 3.7i, #5989) is the relay
+	// inactivity timeout sent to legacy clients via the lazy-fallback
+	// branch. Default 3600s (60 min) - long enough to not hammer
+	// connection setup on flaky LTE links, short enough to actually
+	// release idle peers. Must be in [60, 86400]; validated by the
+	// HTTP API handler.
+	LegacyLazyFallbackTimeoutSeconds uint32 `gorm:"default:3600"`
+
 	// AutoUpdateVersion client auto-update version
 	AutoUpdateVersion string `gorm:"default:'disabled'"`
 
@@ -112,11 +130,13 @@ func (s *Settings) Copy() *Settings {
 		RoutingPeerDNSResolutionEnabled: s.RoutingPeerDNSResolutionEnabled,
 		PeerExposeEnabled:               s.PeerExposeEnabled,
 		PeerExposeGroups:                slices.Clone(s.PeerExposeGroups),
-		LazyConnectionEnabled:           s.LazyConnectionEnabled,
-		ConnectionMode:                  cloneStringPtr(s.ConnectionMode),
-		RelayTimeoutSeconds:             cloneUint32Ptr(s.RelayTimeoutSeconds),
-		P2pTimeoutSeconds:               cloneUint32Ptr(s.P2pTimeoutSeconds),
-		P2pRetryMaxSeconds:              cloneUint32Ptr(s.P2pRetryMaxSeconds),
+		LazyConnectionEnabled:            s.LazyConnectionEnabled,
+		ConnectionMode:                   cloneStringPtr(s.ConnectionMode),
+		RelayTimeoutSeconds:              cloneUint32Ptr(s.RelayTimeoutSeconds),
+		P2pTimeoutSeconds:                cloneUint32Ptr(s.P2pTimeoutSeconds),
+		P2pRetryMaxSeconds:               cloneUint32Ptr(s.P2pRetryMaxSeconds),
+		LegacyLazyFallbackEnabled:        s.LegacyLazyFallbackEnabled,
+		LegacyLazyFallbackTimeoutSeconds: s.LegacyLazyFallbackTimeoutSeconds,
 		DNSDomain:                       s.DNSDomain,
 		NetworkRange:                    s.NetworkRange,
 		AutoUpdateVersion:               s.AutoUpdateVersion,
