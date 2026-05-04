@@ -35,7 +35,7 @@ func (d Dialer) Dial(ctx context.Context, address, serverName string) (net.Conn,
 	switch {
 	case serverName != "" && net.ParseIP(serverName) == nil:
 		tlsClientConfig.ServerName = serverName
-	case serverName == "":
+	default:
 		host, _, splitErr := net.SplitHostPort(quicURL)
 		if splitErr == nil && net.ParseIP(host) == nil {
 			tlsClientConfig.ServerName = host

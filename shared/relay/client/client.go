@@ -335,24 +335,6 @@ func (c *Client) ConnectedIP() netip.Addr {
 	return extractIPLiteral(addr.String())
 }
 
-// extractIPLiteral returns the IP from address forms produced by the relay
-// dialers (URL or host:port). Zero value if the host is not an IP.
-func extractIPLiteral(s string) netip.Addr {
-	if u, err := url.Parse(s); err == nil && u.Host != "" {
-		s = u.Host
-	}
-	host, _, err := net.SplitHostPort(s)
-	if err != nil {
-		host = s
-	}
-	host = strings.Trim(host, "[]")
-	ip, err := netip.ParseAddr(host)
-	if err != nil {
-		return netip.Addr{}
-	}
-	return ip.Unmap()
-}
-
 // SetOnDisconnectListener sets a function that will be called when the connection to the relay server is closed.
 func (c *Client) SetOnDisconnectListener(fn func(string)) {
 	c.listenerMutex.Lock()
@@ -381,17 +363,23 @@ func (c *Client) Close() error {
 func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
 	dialers := c.getDialers()
 
-	conn, err := c.dialDirect(ctx, dialers)
-	if err != nil {
-		if c.serverIP.IsValid() {
+	var conn net.Conn
+	if c.serverIP.IsValid() {
+		var err error
+		conn, err = c.dialRaceDirect(ctx, dialers)
+		if err != nil {
 			c.log.Infof("dial via server IP %s failed, falling back to FQDN: %v", c.serverIP, err)
+			conn = nil
 		}
+	}
+
+	if conn == nil {
 		rd := dialer.NewRaceDial(c.log, dialer.DefaultConnectionTimeout, c.connectionURL, dialers...)
-		fqdnConn, fErr := rd.Dial(ctx)
-		if fErr != nil {
-			return nil, fmt.Errorf("dial via server IP: %w; dial via FQDN: %w", err, fErr)
+		var err error
+		conn, err = rd.Dial(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("dial via FQDN: %w", err)
 		}
-		conn = fqdnConn
 	}
 	c.relayConn = conn
 
@@ -407,13 +395,8 @@ func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
 	return instanceURL, nil
 }
 
-// dialDirect dials c.serverIP, preserving the original FQDN as the TLS ServerName for SNI. Returns an error if no
-// usable server IP is configured or if the substituted URL is malformed.
-func (c *Client) dialDirect(ctx context.Context, dialers []dialer.DialeFn) (net.Conn, error) {
-	if !c.serverIP.IsValid() || c.serverIP.IsUnspecified() {
-		return nil, errors.New("no usable server IP configured")
-	}
-
+// dialRaceDirect dials c.serverIP, preserving the original FQDN as the TLS ServerName for SNI.
+func (c *Client) dialRaceDirect(ctx context.Context, dialers []dialer.DialeFn) (net.Conn, error) {
 	directURL, serverName, err := substituteHost(c.connectionURL, c.serverIP)
 	if err != nil {
 		return nil, fmt.Errorf("substitute host: %w", err)
@@ -822,4 +805,22 @@ func (c *Client) handlePeersWentOfflineMsg(buf []byte) {
 		return
 	}
 	c.stateSubscription.OnPeersWentOffline(peersID)
+}
+
+// extractIPLiteral returns the IP from address forms produced by the relay
+// dialers (URL or host:port). Zero value if the host is not an IP.
+func extractIPLiteral(s string) netip.Addr {
+	if u, err := url.Parse(s); err == nil && u.Host != "" {
+		s = u.Host
+	}
+	host, _, err := net.SplitHostPort(s)
+	if err != nil {
+		host = s
+	}
+	host = strings.Trim(host, "[]")
+	ip, err := netip.ParseAddr(host)
+	if err != nil {
+		return netip.Addr{}
+	}
+	return ip.Unmap()
 }
