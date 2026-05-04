@@ -177,6 +177,8 @@ func toAPIResponse(idp *types.IdentityProvider) api.IdentityProvider {
 		Name:     idp.Name,
 		Issuer:   idp.Issuer,
 		ClientId: idp.ClientID,
+		Pkce:     &idp.PKCE,
+		JwksUrl:  &idp.JWKSURL,
 	}
 	if idp.ID != "" {
 		resp.Id = &idp.ID
@@ -186,11 +188,18 @@ func toAPIResponse(idp *types.IdentityProvider) api.IdentityProvider {
 }
 
 func fromAPIRequest(req *api.IdentityProviderRequest) *types.IdentityProvider {
-	return &types.IdentityProvider{
+	idp := &types.IdentityProvider{
 		Type:         types.IdentityProviderType(req.Type),
 		Name:         req.Name,
 		Issuer:       req.Issuer,
 		ClientID:     req.ClientId,
 		ClientSecret: req.ClientSecret,
 	}
+	if req.Pkce != nil {
+		idp.PKCE = *req.Pkce
+	}
+	if req.JwksUrl != nil {
+		idp.JWKSURL = *req.JwksUrl
+	}
+	return idp
 }
