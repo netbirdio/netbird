@@ -403,6 +403,32 @@ components:
             down. Effective in p2p-lazy and p2p-dynamic modes. Backwards-
             compat alias for NB_LAZY_CONN_INACTIVITY_THRESHOLD on the
             client. NULL means "use built-in default" (5 minutes).
+        legacy_lazy_fallback_enabled:
+          x-experimental: true
+          type: boolean
+          description: |
+            Phase 3.7i (#5989) - Legacy compatibility for older clients.
+            When the account ConnectionMode is p2p-dynamic and a client
+            does NOT advertise the "p2p_dynamic" capability via
+            PeerSystemMeta.SupportedFeatures, the management server
+            transparently downgrades that client's PeerConfig to
+            p2p-lazy with the timeout below. Has no effect on clients
+            that support p2p-dynamic. Default true. Disable only if you
+            are certain the entire fleet is on a 3.7i+ daemon.
+          example: true
+        legacy_lazy_fallback_timeout_seconds:
+          x-experimental: true
+          type: integer
+          format: int64
+          minimum: 60
+          maximum: 86400
+          description: |
+            Phase 3.7i (#5989) - Inactivity timeout sent to legacy
+            clients via the lazy-fallback branch. Range 60-86400 (1 min
+            to 24 h); default 3600 (= 60 min). Long enough to not hammer
+            connection setup on flaky LTE links, short enough to
+            actually release idle peers.
+          example: 3600
         auto_update_version:
           description: Set Clients auto-update version. "latest", "disabled", or a specific version (e.g "0.50.1")
           type: string
