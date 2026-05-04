@@ -126,6 +126,17 @@ func (s *serviceClient) showNetworksUI() {
 }
 
 func (s *serviceClient) updateNetworks(grid *fyne.Container, f filter) {
+	s.updateNetworksWithMode(grid, f, false)
+}
+
+// updateNetworksSilent is the auto-refresh entry point: it never pops up an
+// error dialog, only logs. The user still gets the popup if they hit the
+// Refresh button manually (which calls updateNetworks).
+func (s *serviceClient) updateNetworksSilent(grid *fyne.Container, f filter) {
+	s.updateNetworksWithMode(grid, f, true)
+}
+
+func (s *serviceClient) updateNetworksWithMode(grid *fyne.Container, f filter, silent bool) {
 	grid.Objects = nil
 	grid.Refresh()
 	idHeader := widget.NewLabelWithStyle("      ID", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
@@ -136,7 +147,7 @@ func (s *serviceClient) updateNetworks(grid *fyne.Container, f filter) {
 	grid.Add(networkHeader)
 	grid.Add(resolvedIPsHeader)
 
-	filteredRoutes, err := s.getFilteredNetworks(f)
+	filteredRoutes, err := s.getFilteredNetworksWithMode(f, silent)
 	if err != nil {
 		return
 	}
@@ -194,10 +205,20 @@ func (s *serviceClient) updateNetworks(grid *fyne.Container, f filter) {
 }
 
 func (s *serviceClient) getFilteredNetworks(f filter) ([]*proto.Network, error) {
+	return s.getFilteredNetworksWithMode(f, false)
+}
+
+func (s *serviceClient) getFilteredNetworksWithMode(f filter, silent bool) ([]*proto.Network, error) {
 	routes, err := s.fetchNetworks()
 	if err != nil {
 		log.Errorf(getClientFMT, err)
-		s.showError(fmt.Errorf(getClientFMT, err))
+		// Auto-refresh ticker fires every 10s; if the daemon IPC is down
+		// (e.g. user toggled VPN off, daemon restart, network drop) we
+		// must NOT spam a modal dialog every tick. Manual Refresh still
+		// shows the popup because the user expects feedback.
+		if !silent {
+			s.showError(fmt.Errorf(getClientFMT, err))
+		}
 		return nil, err
 	}
 	switch f {
@@ -353,7 +374,12 @@ func (s *serviceClient) startAutoRefresh(interval time.Duration, tabs *container
 	ticker := time.NewTicker(interval)
 	go func() {
 		for range ticker.C {
-			s.updateNetworksBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodesGrid)
+			// Silent mode: auto-refresh never pops up modal "not
+			// connected" dialogs. The Refresh button still does, since
+			// the user expects feedback when they trigger it.
+			grid, f := getGridAndFilterFromTab(tabs, allGrid, overlappingGrid, exitNodesGrid)
+			s.wNetworks.Content().Refresh()
+			s.updateNetworksSilent(grid, f)
 		}
 	}()
 
