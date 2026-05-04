@@ -143,3 +143,83 @@ func TestConnStatePusher_OnSnapshotRequestSendsFullWithNonceEcho(t *testing.T) {
 		t.Errorf("want 2 entries, got %d", len(got[0].GetEntries()))
 	}
 }
+
+// Phase 3.7i: stubUnimplementedSink fails every Push with the gRPC
+// codes.Unimplemented status. Used to verify the pusher detects and
+// latches into the disabled state when talking to a pre-3.7i mgmt
+// server. Codex review of Phase 3.7i.
+type stubUnimplementedSink struct {
+	mu        sync.Mutex
+	callCount int
+	notif     chan struct{}
+}
+
+func newStubUnimplementedSink() *stubUnimplementedSink {
+	return &stubUnimplementedSink{notif: make(chan struct{}, 16)}
+}
+
+func (s *stubUnimplementedSink) Push(_ context.Context, _ *mgmProto.PeerConnectionMap) error {
+	s.mu.Lock()
+	s.callCount++
+	s.mu.Unlock()
+	select {
+	case s.notif <- struct{}{}:
+	default:
+	}
+	return grpcStatusUnimplemented()
+}
+
+func (s *stubUnimplementedSink) calls() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.callCount
+}
+
+// grpcStatusUnimplemented is a thin wrapper so tests don't have to import
+// grpc/codes themselves.
+func grpcStatusUnimplemented() error {
+	return grpcCodes_unimplementedError()
+}
+
+// Phase 3.7i / Codex review: when the mgmt server returns Unimplemented
+// from SyncPeerConnections, the pusher should latch into "disabled" and
+// stop trying to push. Subsequent state changes still flow through the
+// normal lazy-state path but no further RPC calls are issued.
+func TestConnStatePusher_UnimplementedFromMgmt_LatchesDisabled(t *testing.T) {
+	sink := newStubUnimplementedSink()
+	source := &stubPeerStateSource{}
+	source.set([]PeerStateChangeEvent{
+		{Pubkey: "peerA", ConnType: mgmProto.ConnType_CONN_TYPE_P2P},
+	})
+	p := newConnStatePusherForTest(sink, source,
+		pusherTuning{baseInterval: 50 * time.Millisecond, maxInterval: 200 * time.Millisecond, doubleAfter: 2})
+	defer p.Stop()
+	p.TriggerInitialSnapshot()
+
+	// Wait for the very first push (initial snapshot), which gets the
+	// Unimplemented error back and latches `disabled`.
+	select {
+	case <-sink.notif:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out waiting for first push attempt")
+	}
+
+	// Drive several state changes and ticks. None of them must produce
+	// further pushes — disabled is sticky for the lifetime of this pusher.
+	for i := 0; i < 8; i++ {
+		p.OnPeerStateChange(PeerStateChangeEvent{
+			Pubkey: "peerA", ConnType: mgmProto.ConnType_CONN_TYPE_RELAYED,
+		})
+		time.Sleep(30 * time.Millisecond)
+	}
+	// Generous quiescence window: 4× baseInterval so any retry would
+	// have surfaced.
+	time.Sleep(250 * time.Millisecond)
+
+	if got := sink.calls(); got != 1 {
+		t.Errorf("after Unimplemented, expected exactly 1 push attempt for the lifetime of the pusher, got %d", got)
+	}
+	if !p.disabled.Load() {
+		t.Error("pusher should have latched disabled=true after Unimplemented")
+	}
+}
