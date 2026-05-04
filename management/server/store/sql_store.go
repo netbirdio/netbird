@@ -1521,6 +1521,9 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 			settings_relay_timeout_seconds,
 			settings_p2p_timeout_seconds,
 			settings_p2p_retry_max_seconds,
+			-- Phase-3.7i (#5989) legacy-client compatibility settings.
+			settings_legacy_lazy_fallback_enabled,
+			settings_legacy_lazy_fallback_timeout_seconds,
 			-- Embedded ExtraSettings
 			settings_extra_peer_approval_enabled, settings_extra_user_approval_required,
 			settings_extra_integrated_validator, settings_extra_integrated_validator_groups
@@ -1544,6 +1547,8 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		sRelayTimeoutSeconds             sql.NullInt64
 		sP2pTimeoutSeconds               sql.NullInt64
 		sP2pRetryMaxSeconds              sql.NullInt64
+		sLegacyLazyFallbackEnabled       sql.NullBool
+		sLegacyLazyFallbackTimeoutSecs   sql.NullInt64
 		sExtraPeerApprovalEnabled        sql.NullBool
 		sExtraUserApprovalRequired       sql.NullBool
 		sExtraIntegratedValidator        sql.NullString
@@ -1566,6 +1571,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		&sRoutingPeerDNSResolutionEnabled, &sDNSDomain, &sNetworkRange,
 		&sLazyConnectionEnabled,
 		&sConnectionMode, &sRelayTimeoutSeconds, &sP2pTimeoutSeconds, &sP2pRetryMaxSeconds,
+		&sLegacyLazyFallbackEnabled, &sLegacyLazyFallbackTimeoutSecs,
 		&sExtraPeerApprovalEnabled, &sExtraUserApprovalRequired,
 		&sExtraIntegratedValidator, &sExtraIntegratedValidatorGroups,
 	)
@@ -1643,6 +1649,17 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 	if sP2pRetryMaxSeconds.Valid {
 		v := uint32(sP2pRetryMaxSeconds.Int64)
 		account.Settings.P2pRetryMaxSeconds = &v
+	}
+	if sLegacyLazyFallbackEnabled.Valid {
+		account.Settings.LegacyLazyFallbackEnabled = sLegacyLazyFallbackEnabled.Bool
+	} else {
+		// Pre-3.7i row in DB - default to enabled (matches GORM default).
+		account.Settings.LegacyLazyFallbackEnabled = true
+	}
+	if sLegacyLazyFallbackTimeoutSecs.Valid {
+		account.Settings.LegacyLazyFallbackTimeoutSeconds = uint32(sLegacyLazyFallbackTimeoutSecs.Int64)
+	} else {
+		account.Settings.LegacyLazyFallbackTimeoutSeconds = 3600
 	}
 	if sJWTAllowGroups.Valid {
 		_ = json.Unmarshal([]byte(sJWTAllowGroups.String), &account.Settings.JWTAllowGroups)
