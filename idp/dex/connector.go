@@ -168,7 +168,7 @@ func (p *Provider) buildStorageConnector(cfg *ConnectorConfig) (storage.Connecto
 	var err error
 
 	switch cfg.Type {
-	case "oidc", "zitadel", "entra", "okta", "pocketid", "authentik", "keycloak":
+	case "oidc", "zitadel", "entra", "okta", "pocketid", "authentik", "keycloak", "adfs":
 		dexType = "oidc"
 		configData, err = buildOIDCConnectorConfig(cfg, redirectURI)
 	case "google":
@@ -220,6 +220,8 @@ func buildOIDCConnectorConfig(cfg *ConnectorConfig, redirectURI string) ([]byte,
 		oidcConfig["scopes"] = []string{"openid", "profile", "email", "groups"}
 	case "pocketid":
 		oidcConfig["scopes"] = []string{"openid", "profile", "email", "groups"}
+	case "adfs":
+		oidcConfig["scopes"] = []string{"openid", "profile", "email", "allatclaims"}
 	}
 	return encodeConnectorConfig(oidcConfig)
 }
@@ -283,7 +285,7 @@ func inferIdentityProviderType(dexType, connectorID string, _ map[string]interfa
 // inferOIDCProviderType infers the specific OIDC provider from connector ID
 func inferOIDCProviderType(connectorID string) string {
 	connectorIDLower := strings.ToLower(connectorID)
-	for _, provider := range []string{"pocketid", "zitadel", "entra", "okta", "authentik", "keycloak"} {
+	for _, provider := range []string{"pocketid", "zitadel", "entra", "okta", "authentik", "keycloak", "adfs"} {
 		if strings.Contains(connectorIDLower, provider) {
 			return provider
 		}

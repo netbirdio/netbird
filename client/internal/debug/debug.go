@@ -61,6 +61,7 @@ allocs.prof: Allocations profiling information.
 threadcreate.prof: Thread creation profiling information.
 cpu.prof: CPU profiling information.
 stack_trace.txt: Complete stack traces of all goroutines at the time of bundle creation.
+capture.pcap: Packet capture in pcap format. Only present when capture was running during bundle collection. Omitted from anonymized bundles because it contains raw decrypted packet data.
 
 
 Anonymization Process
@@ -234,6 +235,7 @@ type BundleGenerator struct {
 	logPath        string
 	tempDir        string
 	cpuProfile     []byte
+	capturePath    string
 	refreshStatus  func() // Optional callback to refresh status before bundle generation
 	clientMetrics  MetricsExporter
 
@@ -257,7 +259,8 @@ type GeneratorDependencies struct {
 	LogPath        string
 	TempDir        string // Directory for temporary bundle zip files. If empty, os.TempDir() is used.
 	CPUProfile     []byte
-	RefreshStatus  func() // Optional callback to refresh status before bundle generation
+	CapturePath    string
+	RefreshStatus  func()
 	ClientMetrics  MetricsExporter
 }
 
@@ -277,6 +280,7 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 		logPath:        deps.LogPath,
 		tempDir:        deps.TempDir,
 		cpuProfile:     deps.CPUProfile,
+		capturePath:    deps.CapturePath,
 		refreshStatus:  deps.RefreshStatus,
 		clientMetrics:  deps.ClientMetrics,
 
@@ -344,6 +348,10 @@ func (g *BundleGenerator) createArchive() error {
 
 	if err := g.addCPUProfile(); err != nil {
 		log.Errorf("failed to add CPU profile to debug bundle: %v", err)
+	}
+
+	if err := g.addCaptureFile(); err != nil {
+		log.Errorf("failed to add capture file to debug bundle: %v", err)
 	}
 
 	if err := g.addStackTrace(); err != nil {
@@ -664,6 +672,29 @@ func (g *BundleGenerator) addCPUProfile() error {
 	reader := bytes.NewReader(g.cpuProfile)
 	if err := g.addFileToZip(reader, "cpu.prof"); err != nil {
 		return fmt.Errorf("add CPU profile to zip: %w", err)
+	}
+
+	return nil
+}
+
+func (g *BundleGenerator) addCaptureFile() error {
+	if g.capturePath == "" {
+		return nil
+	}
+
+	if g.anonymize {
+		log.Info("skipping capture file in anonymized bundle (contains raw packet data)")
+		return nil
+	}
+
+	f, err := os.Open(g.capturePath)
+	if err != nil {
+		return fmt.Errorf("open capture file: %w", err)
+	}
+	defer f.Close()
+
+	if err := g.addFileToZip(f, "capture.pcap"); err != nil {
+		return fmt.Errorf("add capture file to zip: %w", err)
 	}
 
 	return nil

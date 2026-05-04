@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/hashicorp/go-multierror"
-	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/route"
@@ -44,8 +43,8 @@ func (rs *RouteSelector) SelectRoutes(routes []route.NetID, appendRoute bool, al
 		if rs.selectedRoutes == nil {
 			rs.selectedRoutes = map[route.NetID]struct{}{}
 		}
-		maps.Clear(rs.deselectedRoutes)
-		maps.Clear(rs.selectedRoutes)
+		clear(rs.deselectedRoutes)
+		clear(rs.selectedRoutes)
 		for _, r := range allRoutes {
 			rs.deselectedRoutes[r] = struct{}{}
 		}
@@ -78,8 +77,8 @@ func (rs *RouteSelector) SelectAllRoutes() {
 	if rs.selectedRoutes == nil {
 		rs.selectedRoutes = map[route.NetID]struct{}{}
 	}
-	maps.Clear(rs.deselectedRoutes)
-	maps.Clear(rs.selectedRoutes)
+	clear(rs.deselectedRoutes)
+	clear(rs.selectedRoutes)
 }
 
 // DeselectRoutes removes specific routes from the selection.
@@ -116,8 +115,8 @@ func (rs *RouteSelector) DeselectAllRoutes() {
 	if rs.selectedRoutes == nil {
 		rs.selectedRoutes = map[route.NetID]struct{}{}
 	}
-	maps.Clear(rs.deselectedRoutes)
-	maps.Clear(rs.selectedRoutes)
+	clear(rs.deselectedRoutes)
+	clear(rs.selectedRoutes)
 }
 
 // IsSelected checks if a specific route is selected.

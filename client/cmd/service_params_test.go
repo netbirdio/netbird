@@ -535,6 +535,7 @@ func fieldToGlobalVar(field string) string {
 		"LogFiles":              "logFiles",
 		"DisableProfiles":       "profilesDisabled",
 		"DisableUpdateSettings": "updateSettingsDisabled",
+		"EnableCapture":         "captureEnabled",
 		"DisableNetworks":       "networksDisabled",
 		"ServiceEnvVars":        "serviceEnvVars",
 	}

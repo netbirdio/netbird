@@ -30,6 +30,8 @@ import (
 
 const ConnectTimeout = 10 * time.Second
 
+const healthCheckTimeout = 5 * time.Second
+
 const (
 	// EnvMaxRecvMsgSize overrides the default gRPC max receive message size (4 MB)
 	// for the management client connection. Value is in bytes.
@@ -250,21 +252,19 @@ func (c *GrpcClient) handleJobStream(
 					c.notifyDisconnected(err)
 					return backoff.Permanent(err) // unrecoverable error, propagate to the upper layer
 				case codes.Canceled:
-					log.Debugf("management connection context has been canceled, this usually indicates shutdown")
+					log.Debugf("job stream context has been canceled, this usually indicates shutdown")
 					return err
 				case codes.Unimplemented:
 					log.Warn("Job feature is not supported by the current management server version. " +
 						"Please update the management service to use this feature.")
 					return nil
 				default:
-					c.notifyDisconnected(err)
-					log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
+					log.Warnf("job stream disconnected, will retry silently. Reason: %v", err)
 					return err
 				}
 			} else {
 				// non-gRPC error
-				c.notifyDisconnected(err)
-				log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
+				log.Warnf("job stream disconnected, will retry silently. Reason: %v", err)
 				return err
 			}
 		}
@@ -532,7 +532,7 @@ func (c *GrpcClient) IsHealthy() bool {
 	case connectivity.Ready:
 	}
 
-	ctx, cancel := context.WithTimeout(c.ctx, 1*time.Second)
+	ctx, cancel := context.WithTimeout(c.ctx, healthCheckTimeout)
 	defer cancel()
 
 	_, err := c.realClient.GetServerKey(ctx, &proto.Empty{})

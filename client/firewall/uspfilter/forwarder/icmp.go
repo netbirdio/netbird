@@ -270,5 +270,9 @@ func (f *Forwarder) injectICMPReply(id stack.TransportEndpointID, icmpPayload []
 		return 0
 	}
 
+	if pc := f.endpoint.capture.Load(); pc != nil {
+		(*pc).Offer(fullPacket, true)
+	}
+
 	return len(fullPacket)
 }

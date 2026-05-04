@@ -33,6 +33,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/internal/updater"
 	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/util/capture"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -89,7 +90,11 @@ type Server struct {
 	profileManager         *profilemanager.ServiceManager
 	profilesDisabled       bool
 	updateSettingsDisabled bool
-	networksDisabled       bool
+	captureEnabled         bool
+	bundleCapture          *bundleCapture
+	// activeCapture is the session currently installed on the engine; guarded by s.mutex.
+	activeCapture    *capture.Session
+	networksDisabled bool
 
 	sleepHandler *sleephandler.SleepHandler
 
@@ -106,7 +111,7 @@ type oauthAuthFlow struct {
 }
 
 // New server instance constructor.
-func New(ctx context.Context, logFile string, configFile string, profilesDisabled bool, updateSettingsDisabled bool, networksDisabled bool) *Server {
+func New(ctx context.Context, logFile string, configFile string, profilesDisabled bool, updateSettingsDisabled bool, captureEnabled bool, networksDisabled bool) *Server {
 	s := &Server{
 		rootCtx:                ctx,
 		logFile:                logFile,
@@ -115,11 +120,13 @@ func New(ctx context.Context, logFile string, configFile string, profilesDisable
 		profileManager:         profilemanager.NewServiceManager(configFile),
 		profilesDisabled:       profilesDisabled,
 		updateSettingsDisabled: updateSettingsDisabled,
+		captureEnabled:         captureEnabled,
 		networksDisabled:       networksDisabled,
 		jwtCache:               newJWTCache(),
 	}
 	agent := &serverAgent{s}
 	s.sleepHandler = sleephandler.New(agent)
+	s.startSleepDetector()
 
 	return s
 }

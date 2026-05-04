@@ -23,6 +23,8 @@ import (
 	"github.com/netbirdio/netbird/util/wsproxy"
 )
 
+const healthCheckTimeout = 5 * time.Second
+
 // ConnStateNotifier is a wrapper interface of the status recorder
 type ConnStateNotifier interface {
 	MarkSignalDisconnected(error)
@@ -263,7 +265,7 @@ func (c *GrpcClient) IsHealthy() bool {
 	case connectivity.Ready:
 	}
 
-	ctx, cancel := context.WithTimeout(c.ctx, 1*time.Second)
+	ctx, cancel := context.WithTimeout(c.ctx, healthCheckTimeout)
 	defer cancel()
 	_, err := c.realClient.Send(ctx, &proto.EncryptedMessage{
 		Key:       c.key.PublicKey().String(),

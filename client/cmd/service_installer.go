@@ -59,6 +59,10 @@ func buildServiceArguments() []string {
 		args = append(args, "--disable-update-settings")
 	}
 
+	if captureEnabled {
+		args = append(args, "--enable-capture")
+	}
+
 	if networksDisabled {
 		args = append(args, "--disable-networks")
 	}
