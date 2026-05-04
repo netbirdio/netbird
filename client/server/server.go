@@ -489,6 +489,10 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 
 	s.mutex.Unlock()
 
+	if err := persistLoginOverrides(activeProf, msg.ManagementUrl, msg.OptionalPreSharedKey); err != nil {
+		return nil, err
+	}
+
 	config, _, err := s.getConfig(activeProf)
 	if err != nil {
 		log.Errorf("failed to get active profile config: %v", err)
@@ -963,7 +967,33 @@ func (s *Server) handleActiveProfileLogout(ctx context.Context) (*proto.LogoutRe
 	return &proto.LogoutResponse{}, nil
 }
 
-// GetConfig reads config file and returns Config and whether the config file already existed. Errors out if it does not exist
+// persistLoginOverrides writes management URL and pre-shared key from a LoginRequest to the
+// active profile config so that subsequent reads pick them up. Empty/nil values are ignored.
+func persistLoginOverrides(activeProf *profilemanager.ActiveProfileState, managementURL string, preSharedKey *string) error {
+	if preSharedKey != nil && *preSharedKey == "" {
+		preSharedKey = nil
+	}
+	if managementURL == "" && preSharedKey == nil {
+		return nil
+	}
+
+	cfgPath, err := activeProf.FilePath()
+	if err != nil {
+		return fmt.Errorf("get active profile file path: %w", err)
+	}
+
+	input := profilemanager.ConfigInput{
+		ConfigPath:    cfgPath,
+		ManagementURL: managementURL,
+		PreSharedKey:  preSharedKey,
+	}
+	if _, err := profilemanager.UpdateOrCreateConfig(input); err != nil {
+		return fmt.Errorf("persist login overrides: %w", err)
+	}
+	return nil
+}
+
+// getConfig reads config file and returns Config and whether the config file already existed. Errors out if it does not exist
 func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*profilemanager.Config, bool, error) {
 	cfgPath, err := activeProf.FilePath()
 	if err != nil {
