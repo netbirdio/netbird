@@ -2,6 +2,8 @@ package types_test
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"testing"
 
@@ -40,6 +42,20 @@ func populateAccountSeqIDs(account *types.Account) {
 	}
 }
 
+// assignValidWgKeys overwrites every peer's Key with a valid base64-encoded
+// 32-byte string. The default scalableTestAccount uses unparseable strings
+// like "key-peer-0", which makes the components encoder emit a nil WgPubKey
+// and the legacy encoder ship 10-char placeholders — both shrink the wire
+// size in unrealistic ways. Production peers always have valid 44-char base64
+// keys, so any benchmark/breakdown that wants honest numbers must call this.
+func assignValidWgKeys(account *types.Account) {
+	for _, p := range account.Peers {
+		var raw [32]byte
+		_, _ = rand.Read(raw[:])
+		p.Key = base64.StdEncoding.EncodeToString(raw[:])
+	}
+}
+
 // BenchmarkNetworkMapWireEncode reports per-call ns and the marshaled wire
 // size for both encoding paths. Run with:
 //
@@ -50,6 +66,7 @@ func BenchmarkNetworkMapWireEncode(b *testing.B) {
 	for _, scale := range wireBenchScales {
 		account, validatedPeers := scalableTestAccount(scale.peers, scale.groups)
 		populateAccountSeqIDs(account)
+		assignValidWgKeys(account)
 
 		ctx := context.Background()
 		resourcePolicies := account.GetResourcePoliciesMap()
@@ -120,6 +137,7 @@ func BenchmarkNetworkMapWireSize(b *testing.B) {
 	for _, scale := range wireBenchScales {
 		account, validatedPeers := scalableTestAccount(scale.peers, scale.groups)
 		populateAccountSeqIDs(account)
+		assignValidWgKeys(account)
 
 		ctx := context.Background()
 		resourcePolicies := account.GetResourcePoliciesMap()
