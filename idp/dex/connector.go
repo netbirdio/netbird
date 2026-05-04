@@ -89,21 +89,29 @@ func (p *Provider) ListConnectors(ctx context.Context) ([]*ConnectorConfig, erro
 }
 
 // UpdateConnector updates an existing connector in Dex storage.
-// It merges incoming updates with existing values to prevent data loss on partial updates.
+// It overlays user-mutable config fields (issuer, clientID, clientSecret,
+// redirectURI) onto the stored connector config, and updates the connector name
+// when cfg.Name is set. Empty fields on cfg leave stored values unchanged, so
+// partial updates preserve create-time defaults such as scopes, claimMapping,
+// and userIDKey.
 func (p *Provider) UpdateConnector(ctx context.Context, cfg *ConnectorConfig) error {
 	if err := p.storage.UpdateConnector(ctx, cfg.ID, func(old storage.Connector) (storage.Connector, error) {
-		oldCfg, err := p.parseStorageConnector(old)
+		configData, err := overlayConnectorConfig(old.Config, cfg)
 		if err != nil {
-			return storage.Connector{}, fmt.Errorf("failed to parse existing connector: %w", err)
+			return storage.Connector{}, fmt.Errorf("failed to overlay connector config: %w", err)
 		}
 
-		mergeConnectorConfig(cfg, oldCfg)
-
-		storageConn, err := p.buildStorageConnector(cfg)
-		if err != nil {
-			return storage.Connector{}, fmt.Errorf("failed to build connector: %w", err)
+		name := cfg.Name
+		if name == "" {
+			name = old.Name
 		}
-		return storageConn, nil
+
+		return storage.Connector{
+			ID:     cfg.ID,
+			Type:   old.Type,
+			Name:   name,
+			Config: configData,
+		}, nil
 	}); err != nil {
 		return fmt.Errorf("failed to update connector: %w", err)
 	}
@@ -112,23 +120,27 @@ func (p *Provider) UpdateConnector(ctx context.Context, cfg *ConnectorConfig) er
 	return nil
 }
 
-// mergeConnectorConfig preserves existing values for empty fields in the update.
-func mergeConnectorConfig(cfg, oldCfg *ConnectorConfig) {
-	if cfg.ClientSecret == "" {
-		cfg.ClientSecret = oldCfg.ClientSecret
+// overlayConnectorConfig writes only the user-mutable fields onto the existing
+// stored config, preserving every other field (scopes, claimMapping, userIDKey,
+// insecure flags, etc.). Empty fields on cfg leave the existing value alone.
+func overlayConnectorConfig(oldConfig []byte, cfg *ConnectorConfig) ([]byte, error) {
+	var m map[string]any
+	if err := decodeConnectorConfig(oldConfig, &m); err != nil {
+		return nil, err
 	}
-	if cfg.RedirectURI == "" {
-		cfg.RedirectURI = oldCfg.RedirectURI
+	if cfg.Issuer != "" {
+		m["issuer"] = cfg.Issuer
 	}
-	if cfg.Issuer == "" && cfg.Type == oldCfg.Type {
-		cfg.Issuer = oldCfg.Issuer
+	if cfg.ClientID != "" {
+		m["clientID"] = cfg.ClientID
 	}
-	if cfg.ClientID == "" {
-		cfg.ClientID = oldCfg.ClientID
+	if cfg.ClientSecret != "" {
+		m["clientSecret"] = cfg.ClientSecret
 	}
-	if cfg.Name == "" {
-		cfg.Name = oldCfg.Name
+	if cfg.RedirectURI != "" {
+		m["redirectURI"] = cfg.RedirectURI
 	}
+	return encodeConnectorConfig(m)
 }
 
 // DeleteConnector removes a connector from Dex storage.
