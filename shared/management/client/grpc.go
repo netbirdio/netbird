@@ -1027,5 +1027,11 @@ func infoToMetaData(info *system.Info, eff EffectiveConnConfig) *proto.PeerSyste
 		EffectiveRelayTimeoutSecs: eff.RelayTimeoutSecs,
 		EffectiveP2PTimeoutSecs:   eff.P2PTimeoutSecs,
 		EffectiveP2PRetryMaxSecs:  eff.P2PRetryMaxSecs,
+
+		// Phase 3.7i (#5989): advertise capabilities so mgmt can decide
+		// whether legacy-compat fallbacks (e.g. p2p-dynamic -> p2p-lazy)
+		// need to apply for this client. Source of truth:
+		// client/system/features.go.
+		SupportedFeatures: system.SupportedFeatures(),
 	}
 }

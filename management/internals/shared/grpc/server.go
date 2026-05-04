@@ -726,6 +726,7 @@ func extractPeerMeta(ctx context.Context, meta *proto.PeerSystemMeta) nbpeer.Pee
 		EffectiveRelayTimeoutSecs:  meta.GetEffectiveRelayTimeoutSecs(),
 		EffectiveP2PTimeoutSecs:    meta.GetEffectiveP2PTimeoutSecs(),
 		EffectiveP2PRetryMaxSecs:   meta.GetEffectiveP2PRetryMaxSecs(),
+		SupportedFeatures:          meta.GetSupportedFeatures(),
 	}
 }
 

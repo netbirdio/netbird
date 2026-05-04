@@ -239,6 +239,16 @@ message PeerSystemMeta {
   uint32 effective_relay_timeout_secs = 51;
   uint32 effective_p2p_timeout_secs   = 52;
   uint32 effective_p2p_retry_max_secs = 53;
+
+  // Phase 3.7i (#5989): list of capability keywords this client build
+  // supports. Old clients leave this empty (proto3 default for repeated
+  // fields). The management server uses this list to decide whether to
+  // fall back to legacy settings for clients that do not yet implement a
+  // feature - e.g. when ConnectionMode is p2p-dynamic and the client does
+  // not advertise "p2p_dynamic", mgmt downgrades it to p2p-lazy with the
+  // admin-configured legacy timeout. See client/system/features.go for
+  // the source of truth on which keywords this client build advertises.
+  repeated string supported_features = 60;
 }
 
 message LoginResponse {
