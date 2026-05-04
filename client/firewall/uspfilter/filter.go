@@ -19,7 +19,6 @@ import (
 	"github.com/google/gopacket/layers"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/exp/maps"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/common"
@@ -612,10 +611,10 @@ func (m *Manager) Flush() error { return nil }
 // resetState clears all firewall rules and closes connection trackers.
 // Must be called with m.mutex held.
 func (m *Manager) resetState() {
-	maps.Clear(m.outgoingRules)
-	maps.Clear(m.incomingDenyRules)
-	maps.Clear(m.incomingRules)
-	maps.Clear(m.routeRulesMap)
+	clear(m.outgoingRules)
+	clear(m.incomingDenyRules)
+	clear(m.incomingRules)
+	clear(m.routeRulesMap)
 	m.routeRules = m.routeRules[:0]
 	m.udpHookOut.Store(nil)
 	m.tcpHookOut.Store(nil)
