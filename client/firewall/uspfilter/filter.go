@@ -275,8 +275,12 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 
 	if !disableMSSClamping {
 		m.mssClampEnabled = true
-		m.mssClampValueIPv4 = mtu - ipv4TCPHeaderMinSize
-		m.mssClampValueIPv6 = mtu - ipv6TCPHeaderMinSize
+		if mtu > ipv4TCPHeaderMinSize {
+			m.mssClampValueIPv4 = mtu - ipv4TCPHeaderMinSize
+		}
+		if mtu > ipv6TCPHeaderMinSize {
+			m.mssClampValueIPv6 = mtu - ipv6TCPHeaderMinSize
+		}
 	}
 	if err := m.localipmanager.UpdateLocalIPs(iface); err != nil {
 		return nil, fmt.Errorf("update local IPs: %w", err)
@@ -859,6 +863,10 @@ func (m *Manager) clampTCPMSS(packetData []byte, d *decoder) bool {
 		mssClampValue = m.mssClampValueIPv6
 		ipHeaderSize = 40
 	default:
+		return false
+	}
+
+	if mssClampValue == 0 {
 		return false
 	}
 
