@@ -26,6 +26,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -232,7 +233,7 @@ func (m *Manager) CreateService(ctx context.Context, accountID, userID string, s
 
 	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Create, "", m.proxyController.GetOIDCValidationConfig()), s.ProxyCluster)
 
-	m.accountManager.UpdateAccountPeers(ctx, accountID)
+	m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceService, Operation: types.UpdateOperationCreate})
 
 	return s, nil
 }
@@ -516,7 +517,7 @@ func (m *Manager) UpdateService(ctx context.Context, accountID, userID string, s
 	}
 
 	m.sendServiceUpdateNotifications(ctx, accountID, service, updateInfo)
-	m.accountManager.UpdateAccountPeers(ctx, accountID)
+	m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceService, Operation: types.UpdateOperationUpdate})
 
 	return service, nil
 }
@@ -820,7 +821,7 @@ func (m *Manager) DeleteService(ctx context.Context, accountID, userID, serviceI
 
 	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Delete, "", m.proxyController.GetOIDCValidationConfig()), s.ProxyCluster)
 
-	m.accountManager.UpdateAccountPeers(ctx, accountID)
+	m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceService, Operation: types.UpdateOperationDelete})
 
 	return nil
 }
@@ -861,7 +862,7 @@ func (m *Manager) DeleteAllServices(ctx context.Context, accountID, userID strin
 		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, svc.ToProtoMapping(service.Delete, "", oidcCfg), svc.ProxyCluster)
 	}
 
-	m.accountManager.UpdateAccountPeers(ctx, accountID)
+	m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceService, Operation: types.UpdateOperationDelete})
 
 	return nil
 }
@@ -917,7 +918,7 @@ func (m *Manager) ReloadService(ctx context.Context, accountID, serviceID string
 
 	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Update, "", m.proxyController.GetOIDCValidationConfig()), s.ProxyCluster)
 
-	m.accountManager.UpdateAccountPeers(ctx, accountID)
+	m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceService, Operation: types.UpdateOperationUpdate})
 
 	return nil
 }
@@ -1099,7 +1100,7 @@ func (m *Manager) CreateServiceFromPeer(ctx context.Context, accountID, peerID s
 	}
 
 	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, svc.ToProtoMapping(service.Create, "", m.proxyController.GetOIDCValidationConfig()), svc.ProxyCluster)
-	m.accountManager.UpdateAccountPeers(ctx, accountID)
+	m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceService, Operation: types.UpdateOperationCreate})
 
 	serviceURL := "https://" + svc.Domain
 	if service.IsL4Protocol(svc.Mode) {
@@ -1211,7 +1212,7 @@ func (m *Manager) deletePeerService(ctx context.Context, accountID, peerID, serv
 
 	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, svc.ToProtoMapping(service.Delete, "", m.proxyController.GetOIDCValidationConfig()), svc.ProxyCluster)
 
-	m.accountManager.UpdateAccountPeers(ctx, accountID)
+	m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceService, Operation: types.UpdateOperationDelete})
 
 	return nil
 }
@@ -1262,7 +1263,7 @@ func (m *Manager) deleteExpiredPeerService(ctx context.Context, accountID, peerI
 	meta := addPeerInfoToEventMeta(svc.EventMeta(), peer)
 	m.accountManager.StoreEvent(ctx, peerID, serviceID, accountID, activity.PeerServiceExposeExpired, meta)
 	m.proxyController.SendServiceUpdateToCluster(ctx, accountID, svc.ToProtoMapping(service.Delete, "", m.proxyController.GetOIDCValidationConfig()), svc.ProxyCluster)
-	m.accountManager.UpdateAccountPeers(ctx, accountID)
+	m.accountManager.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceService, Operation: types.UpdateOperationDelete})
 
 	return nil
 }

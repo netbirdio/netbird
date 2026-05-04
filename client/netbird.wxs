@@ -13,6 +13,9 @@
 
 		<MajorUpgrade AllowSameVersionUpgrades='yes' DowngradeErrorMessage="A newer version of [ProductName] is already installed. Setup will now exit."/>
 
+		<!-- Autostart: enabled by default, disable with AUTOSTART=0 on the msiexec command line -->
+		<Property Id="AUTOSTART" Value="1" />
+
 		<StandardDirectory Id="ProgramFiles64Folder">
 			<Directory Id="NetbirdInstallDir" Name="Netbird">
 				<Component Id="NetbirdFiles" Guid="db3165de-cc6e-4922-8396-9d892950e23e" Bitness="always64">
@@ -63,9 +66,20 @@
 			</Component>
 		</StandardDirectory>
 
+		<StandardDirectory Id="CommonAppDataFolder">
+			<Directory Id="NetbirdAutoStartDir" Name="Netbird">
+				<Component Id="NetbirdAutoStart" Guid="b199eaca-b0dd-4032-af19-679cfad48eb3" Bitness="always64" Condition='AUTOSTART = "1"'>
+					<RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Run"
+						Name="Netbird" Value="&quot;[NetbirdInstallDir]netbird-ui.exe&quot;"
+						Type="string" KeyPath="yes" />
+				</Component>
+			</Directory>
+		</StandardDirectory>
+
 		<ComponentGroup Id="NetbirdFilesComponent">
 			<ComponentRef Id="NetbirdFiles" />
 			<ComponentRef Id="NetbirdAumidRegistry" />
+			<ComponentRef Id="NetbirdAutoStart" />
 		</ComponentGroup>
 
 		<util:CloseApplication Id="CloseNetBird" CloseMessage="no" Target="netbird.exe" RebootPrompt="no" />

@@ -114,7 +114,13 @@ jobs:
           retention-days: 30
 
   release:
-    runs-on: ubuntu-latest-m
+    runs-on: ubuntu-24.04-8-core
+    outputs:
+      release_artifact_url: ${{ steps.upload_release.outputs.artifact-url }}
+      linux_packages_artifact_url: ${{ steps.upload_linux_packages.outputs.artifact-url }}
+      windows_packages_artifact_url: ${{ steps.upload_windows_packages.outputs.artifact-url }}
+      macos_packages_artifact_url: ${{ steps.upload_macos_packages.outputs.artifact-url }}
+      ghcr_images: ${{ steps.tag_and_push_images.outputs.images_markdown }}
     env:
       flags: ""
     steps:
@@ -213,10 +219,13 @@ jobs:
         if: always()
         run: rm -f /tmp/gpg-rpm-signing-key.asc
       - name: Tag and push images (amd64 only)
+        id: tag_and_push_images
         if: |
           (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
           (github.event_name == 'push' && github.ref == 'refs/heads/main')
         run: |
+          set -euo pipefail
+
           resolve_tags() {
             if [[ "${{ github.event_name }}" == "pull_request" ]]; then
               echo "pr-${{ github.event.pull_request.number }}"
@@ -224,6 +233,17 @@ jobs:
               echo "main sha-$(git rev-parse --short HEAD)"
             fi
           }
+
+          ghcr_package_url() {
+            local image="$1" package encoded_package
+            package="${image#ghcr.io/}"
+            package="${package#*/}"
+            package="${package%%:*}"
+            encoded_package="${package//\//%2F}"
+            echo "https://github.com/orgs/netbirdio/packages/container/package/${encoded_package}"
+          }
+
+          image_refs=()
 
           tag_and_push() {
             local src="$1" img_name tag dst
@@ -233,35 +253,56 @@ jobs:
               echo "Tagging ${src} -> ${dst}"
               docker tag "$src" "$dst"
               docker push "$dst"
+              image_refs+=("$dst")
             done
           }
 
-          export -f tag_and_push resolve_tags
+          cat > /tmp/goreleaser-artifacts.json <<'JSON'
+          ${{ steps.goreleaser.outputs.artifacts }}
+          JSON
 
-          echo '${{ steps.goreleaser.outputs.artifacts }}' | \
-            jq -r '.[] | select(.type == "Docker Image") | select(.goarch == "amd64") | .name' | \
-            grep '^ghcr.io/' | while read -r SRC; do
-              tag_and_push "$SRC"
-            done
+          mapfile -t src_images < <(
+            jq -r '.[] | select(.type == "Docker Image") | select(.goarch == "amd64") | .name | select(startswith("ghcr.io/"))' /tmp/goreleaser-artifacts.json
+          )
+
+          for src in "${src_images[@]}"; do
+            tag_and_push "$src"
+          done
+
+          {
+            echo "images_markdown<<EOF"
+            if [[ ${#image_refs[@]} -eq 0 ]]; then
+              echo "_No GHCR images were pushed._"
+            else
+              printf '%s\n' "${image_refs[@]}" | sort -u | while read -r image; do
+                printf -- '- [`%s`](%s)\n' "$image" "$(ghcr_package_url "$image")"
+              done
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
       - name: upload non tags for debug purposes
+        id: upload_release
         uses: actions/upload-artifact@v4
         with:
           name: release
           path: dist/
           retention-days: 7
       - name: upload linux packages
+        id: upload_linux_packages
         uses: actions/upload-artifact@v4
         with:
           name: linux-packages
           path: dist/netbird_linux**
           retention-days: 7
       - name: upload windows packages
+        id: upload_windows_packages
         uses: actions/upload-artifact@v4
         with:
           name: windows-packages
           path: dist/netbird_windows**
           retention-days: 7
       - name: upload macos packages
+        id: upload_macos_packages
         uses: actions/upload-artifact@v4
         with:
           name: macos-packages
@@ -270,6 +311,8 @@ jobs:
 
   release_ui:
     runs-on: ubuntu-latest
+    outputs:
+      release_ui_artifact_url: ${{ steps.upload_release_ui.outputs.artifact-url }}
     steps:
       - name: Parse semver string
         id: semver_parser
@@ -360,6 +403,7 @@ jobs:
         if: always()
         run: rm -f /tmp/gpg-rpm-signing-key.asc
       - name: upload non tags for debug purposes
+        id: upload_release_ui
         uses: actions/upload-artifact@v4
         with:
           name: release-ui
@@ -368,6 +412,8 @@ jobs:
 
   release_ui_darwin:
     runs-on: macos-latest
+    outputs:
+      release_ui_darwin_artifact_url: ${{ steps.upload_release_ui_darwin.outputs.artifact-url }}
     steps:
       - if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         run: echo "flags=--snapshot" >> $GITHUB_ENV
@@ -402,15 +448,258 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: upload non tags for debug purposes
+        id: upload_release_ui_darwin
         uses: actions/upload-artifact@v4
         with:
           name: release-ui-darwin
           path: dist/
           retention-days: 3
 
-  trigger_signer:
+  test_windows_installer:
+    name: "Windows Installer / Build Test"
+    runs-on: windows-2022
+    needs: [release, release_ui]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            wintun_arch: amd64
+          - arch: arm64
+            wintun_arch: arm64
+    defaults:
+      run:
+        shell: powershell
+    env:
+      PackageWorkdir: netbird_windows_${{ matrix.arch }}
+      downloadPath: '${{ github.workspace }}\temp'
+    steps:
+      - name: Parse semver string
+        id: semver_parser
+        uses: booxmedialtd/ws-action-parse-semver@v1
+        with:
+          input_string: ${{ (startsWith(github.ref, 'refs/tags/v') && github.ref) || 'refs/tags/v0.0.0' }}
+          version_extractor_regex: '\/v(.*)$'
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Add 7-Zip to PATH
+        run: echo "C:\Program Files\7-Zip" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: release
+
+      - name: Download UI release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-ui
+          path: release-ui
+
+      - name: Stage binaries into dist
+        run: |
+          $workdir = "dist\${{ env.PackageWorkdir }}"
+          New-Item -ItemType Directory -Force -Path $workdir | Out-Null
+          $client = Get-ChildItem -Recurse -Path release -Filter "netbird_*_windows_${{ matrix.arch }}.tar.gz" | Select-Object -First 1
+          $ui = Get-ChildItem -Recurse -Path release-ui -Filter "netbird-ui-windows_*_windows_${{ matrix.arch }}.tar.gz" | Select-Object -First 1
+          if (-not $client) { Write-Host "::error::client tarball not found for ${{ matrix.arch }}"; exit 1 }
+          if (-not $ui) { Write-Host "::error::ui tarball not found for ${{ matrix.arch }}"; exit 1 }
+          Write-Host "Client: $($client.FullName)"
+          Write-Host "UI:     $($ui.FullName)"
+          tar -zvxf $client.FullName -C $workdir
+          tar -zvxf $ui.FullName -C $workdir
+          Get-ChildItem $workdir
+
+      - name: Download wintun
+        uses: carlosperate/download-file-action@v2
+        id: download-wintun
+        with:
+          file-url: https://pkgs.netbird.io/wintun/wintun-0.14.1.zip
+          file-name: wintun.zip
+          location: ${{ env.downloadPath }}
+          sha256: '07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51'
+
+      - name: Decompress wintun files
+        run: tar -zvxf "${{ steps.download-wintun.outputs.file-path }}" -C ${{ env.downloadPath }}
+
+      - name: Move wintun.dll into dist
+        run: mv ${{ env.downloadPath }}\wintun\bin\${{ matrix.wintun_arch }}\wintun.dll ${{ github.workspace }}\dist\${{ env.PackageWorkdir }}\
+
+      - name: Download Mesa3D (amd64 only)
+        uses: carlosperate/download-file-action@v2
+        id: download-mesa3d
+        if: matrix.arch == 'amd64'
+        with:
+          file-url: https://downloads.fdossena.com/Projects/Mesa3D/Builds/MesaForWindows-x64-20.1.8.7z
+          file-name: mesa3d.7z
+          location: ${{ env.downloadPath }}
+          sha256: '71c7cb64ec229a1d6b8d62fa08e1889ed2bd17c0eeede8689daf0f25cb31d6b9'
+
+      - name: Extract Mesa3D driver (amd64 only)
+        if: matrix.arch == 'amd64'
+        run: 7z x -o"${{ env.downloadPath }}" "${{ env.downloadPath }}/mesa3d.7z"
+
+      - name: Move opengl32.dll into dist (amd64 only)
+        if: matrix.arch == 'amd64'
+        run: mv ${{ env.downloadPath }}\opengl32.dll ${{ github.workspace }}\dist\${{ env.PackageWorkdir }}\
+
+      - name: Download EnVar plugin for NSIS
+        uses: carlosperate/download-file-action@v2
+        with:
+          file-url: https://nsis.sourceforge.io/mediawiki/images/7/7f/EnVar_plugin.zip
+          file-name: envar_plugin.zip
+          location: ${{ github.workspace }}
+
+      - name: Extract EnVar plugin
+        run: 7z x -o"${{ github.workspace }}/NSIS_Plugins" "${{ github.workspace }}/envar_plugin.zip"
+
+      - name: Download ShellExecAsUser plugin for NSIS (amd64 only)
+        uses: carlosperate/download-file-action@v2
+        if: matrix.arch == 'amd64'
+        with:
+          file-url: https://nsis.sourceforge.io/mediawiki/images/6/68/ShellExecAsUser_amd64-Unicode.7z
+          file-name: ShellExecAsUser_amd64-Unicode.7z
+          location: ${{ github.workspace }}
+
+      - name: Extract ShellExecAsUser plugin (amd64 only)
+        if: matrix.arch == 'amd64'
+        run: 7z x -o"${{ github.workspace }}/NSIS_Plugins" "${{ github.workspace }}/ShellExecAsUser_amd64-Unicode.7z"
+
+      - name: Build NSIS installer
+        uses: joncloud/makensis-action@v3.3
+        with:
+          additional-plugin-paths: ${{ github.workspace }}/NSIS_Plugins/Plugins
+          script-file: client/installer.nsis
+          arguments: "/V4 /DARCH=${{ matrix.arch }}"
+        env:
+          APPVER: ${{ steps.semver_parser.outputs.major }}.${{ steps.semver_parser.outputs.minor }}.${{ steps.semver_parser.outputs.patch }}.${{ github.run_id }}
+
+      - name: Rename NSIS installer
+        run: mv netbird-installer.exe netbird_installer_test_windows_${{ matrix.arch }}.exe
+
+      - name: Install WiX
+        run: |
+          dotnet tool install --global wix --version 6.0.2
+          wix extension add WixToolset.Util.wixext/6.0.2
+
+      - name: Build MSI installer
+        env:
+          NETBIRD_VERSION: "${{ steps.semver_parser.outputs.fullversion }}"
+        run: wix build -arch ${{ matrix.arch == 'amd64' && 'x64' || 'arm64' }} -ext WixToolset.Util.wixext -o netbird_installer_test_windows_${{ matrix.arch }}.msi .\client\netbird.wxs -d ProcessorArchitecture=${{ matrix.arch == 'amd64' && 'x64' || 'arm64' }} -d ArchSuffix=${{ matrix.arch }}
+
+      - name: Upload installer artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-test-${{ matrix.arch }}
+          path: |
+            netbird_installer_test_windows_${{ matrix.arch }}.exe
+            netbird_installer_test_windows_${{ matrix.arch }}.msi
+          retention-days: 3
+
+  comment_release_artifacts:
+    name: Comment release artifacts
     runs-on: ubuntu-latest
     needs: [release, release_ui, release_ui_darwin]
+    if: ${{ always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Create or update PR comment
+        uses: actions/github-script@v7
+        env:
+          RELEASE_RESULT: ${{ needs.release.result }}
+          RELEASE_UI_RESULT: ${{ needs.release_ui.result }}
+          RELEASE_UI_DARWIN_RESULT: ${{ needs.release_ui_darwin.result }}
+          RELEASE_ARTIFACT_URL: ${{ needs.release.outputs.release_artifact_url }}
+          LINUX_PACKAGES_ARTIFACT_URL: ${{ needs.release.outputs.linux_packages_artifact_url }}
+          WINDOWS_PACKAGES_ARTIFACT_URL: ${{ needs.release.outputs.windows_packages_artifact_url }}
+          MACOS_PACKAGES_ARTIFACT_URL: ${{ needs.release.outputs.macos_packages_artifact_url }}
+          RELEASE_UI_ARTIFACT_URL: ${{ needs.release_ui.outputs.release_ui_artifact_url }}
+          RELEASE_UI_DARWIN_ARTIFACT_URL: ${{ needs.release_ui_darwin.outputs.release_ui_darwin_artifact_url }}
+          GHCR_IMAGES_MARKDOWN: ${{ needs.release.outputs.ghcr_images }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const marker = '<!-- netbird-release-artifacts -->';
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const shortSha = context.payload.pull_request.head.sha.slice(0, 7);
+
+            const artifactCell = (url, result) => {
+              if (url) return `[Download](${url})`;
+              return result && result !== 'success' ? `_Not available (${result})_` : '_Not available_';
+            };
+
+            const artifacts = [
+              ['All release artifacts', process.env.RELEASE_ARTIFACT_URL, process.env.RELEASE_RESULT],
+              ['Linux packages', process.env.LINUX_PACKAGES_ARTIFACT_URL, process.env.RELEASE_RESULT],
+              ['Windows packages', process.env.WINDOWS_PACKAGES_ARTIFACT_URL, process.env.RELEASE_RESULT],
+              ['macOS packages', process.env.MACOS_PACKAGES_ARTIFACT_URL, process.env.RELEASE_RESULT],
+              ['UI artifacts', process.env.RELEASE_UI_ARTIFACT_URL, process.env.RELEASE_UI_RESULT],
+              ['UI macOS artifacts', process.env.RELEASE_UI_DARWIN_ARTIFACT_URL, process.env.RELEASE_UI_DARWIN_RESULT],
+            ];
+
+            const artifactRows = artifacts
+              .map(([name, url, result]) => `| ${name} | ${artifactCell(url, result)} |`)
+              .join('\n');
+
+            const ghcrImages = (process.env.GHCR_IMAGES_MARKDOWN || '').trim() || '_No GHCR images were pushed._';
+
+            const body = [
+              marker,
+              '## Release artifacts',
+              '',
+              `Built for PR head \`${shortSha}\` in [workflow run #${process.env.GITHUB_RUN_NUMBER}](${runUrl}).`,
+              '',
+              '| Artifact | Link |',
+              '| --- | --- |',
+              artifactRows,
+              '',
+              '### GHCR images (amd64)',
+              ghcrImages,
+              '',
+              '_This comment is updated by the Release workflow. Artifact links expire according to the workflow retention policy._',
+            ].join('\n');
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number,
+              per_page: 100,
+            });
+
+            const previous = comments.find(comment =>
+              comment.user?.type === 'Bot' && comment.body?.includes(marker)
+            );
+
+            if (previous) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: previous.id,
+                body,
+              });
+              core.info(`Updated release artifacts comment ${previous.id}`);
+            } else {
+              const { data } = await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body,
+              });
+              core.info(`Created release artifacts comment ${data.id}`);
+            }
+
+  trigger_signer:
+    runs-on: ubuntu-latest
+    needs: [release, release_ui, release_ui_darwin, test_windows_installer]
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Trigger binaries sign pipelines

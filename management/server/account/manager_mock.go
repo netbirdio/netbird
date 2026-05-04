@@ -111,15 +111,15 @@ func (mr *MockManagerMockRecorder) ApproveUser(ctx, accountID, initiatorUserID, 
 }
 
 // BufferUpdateAccountPeers mocks base method.
-func (m *MockManager) BufferUpdateAccountPeers(ctx context.Context, accountID string) {
+func (m *MockManager) BufferUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "BufferUpdateAccountPeers", ctx, accountID)
+	m.ctrl.Call(m, "BufferUpdateAccountPeers", ctx, accountID, reason)
 }
 
 // BufferUpdateAccountPeers indicates an expected call of BufferUpdateAccountPeers.
-func (mr *MockManagerMockRecorder) BufferUpdateAccountPeers(ctx, accountID interface{}) *gomock.Call {
+func (mr *MockManagerMockRecorder) BufferUpdateAccountPeers(ctx, accountID, reason interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BufferUpdateAccountPeers", reflect.TypeOf((*MockManager)(nil).BufferUpdateAccountPeers), ctx, accountID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BufferUpdateAccountPeers", reflect.TypeOf((*MockManager)(nil).BufferUpdateAccountPeers), ctx, accountID, reason)
 }
 
 // BuildUserInfosForAccount mocks base method.
@@ -1597,15 +1597,15 @@ func (mr *MockManagerMockRecorder) UpdateAccountOnboarding(ctx, accountID, userI
 }
 
 // UpdateAccountPeers mocks base method.
-func (m *MockManager) UpdateAccountPeers(ctx context.Context, accountID string) {
+func (m *MockManager) UpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "UpdateAccountPeers", ctx, accountID)
+	m.ctrl.Call(m, "UpdateAccountPeers", ctx, accountID, reason)
 }
 
 // UpdateAccountPeers indicates an expected call of UpdateAccountPeers.
-func (mr *MockManagerMockRecorder) UpdateAccountPeers(ctx, accountID interface{}) *gomock.Call {
+func (mr *MockManagerMockRecorder) UpdateAccountPeers(ctx, accountID, reason interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAccountPeers", reflect.TypeOf((*MockManager)(nil).UpdateAccountPeers), ctx, accountID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAccountPeers", reflect.TypeOf((*MockManager)(nil).UpdateAccountPeers), ctx, accountID, reason)
 }
 
 // UpdateAccountSettings mocks base method.

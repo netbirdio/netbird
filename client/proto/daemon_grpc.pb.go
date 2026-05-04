@@ -37,6 +37,9 @@ const (
 	DaemonService_DeleteState_FullMethodName                = "/daemon.DaemonService/DeleteState"
 	DaemonService_SetSyncResponsePersistence_FullMethodName = "/daemon.DaemonService/SetSyncResponsePersistence"
 	DaemonService_TracePacket_FullMethodName                = "/daemon.DaemonService/TracePacket"
+	DaemonService_StartCapture_FullMethodName               = "/daemon.DaemonService/StartCapture"
+	DaemonService_StartBundleCapture_FullMethodName         = "/daemon.DaemonService/StartBundleCapture"
+	DaemonService_StopBundleCapture_FullMethodName          = "/daemon.DaemonService/StopBundleCapture"
 	DaemonService_SubscribeEvents_FullMethodName            = "/daemon.DaemonService/SubscribeEvents"
 	DaemonService_GetEvents_FullMethodName                  = "/daemon.DaemonService/GetEvents"
 	DaemonService_SwitchProfile_FullMethodName              = "/daemon.DaemonService/SwitchProfile"
@@ -96,6 +99,14 @@ type DaemonServiceClient interface {
 	// SetSyncResponsePersistence enables or disables sync response persistence
 	SetSyncResponsePersistence(ctx context.Context, in *SetSyncResponsePersistenceRequest, opts ...grpc.CallOption) (*SetSyncResponsePersistenceResponse, error)
 	TracePacket(ctx context.Context, in *TracePacketRequest, opts ...grpc.CallOption) (*TracePacketResponse, error)
+	// StartCapture begins streaming packet capture on the WireGuard interface.
+	// Requires --enable-capture set at service install/reconfigure time.
+	StartCapture(ctx context.Context, in *StartCaptureRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[CapturePacket], error)
+	// StartBundleCapture begins capturing packets to a server-side temp file
+	// for inclusion in the next debug bundle. Auto-stops after the given timeout.
+	StartBundleCapture(ctx context.Context, in *StartBundleCaptureRequest, opts ...grpc.CallOption) (*StartBundleCaptureResponse, error)
+	// StopBundleCapture stops the running bundle capture. Idempotent.
+	StopBundleCapture(ctx context.Context, in *StopBundleCaptureRequest, opts ...grpc.CallOption) (*StopBundleCaptureResponse, error)
 	SubscribeEvents(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SystemEvent], error)
 	GetEvents(ctx context.Context, in *GetEventsRequest, opts ...grpc.CallOption) (*GetEventsResponse, error)
 	SwitchProfile(ctx context.Context, in *SwitchProfileRequest, opts ...grpc.CallOption) (*SwitchProfileResponse, error)
@@ -313,9 +324,48 @@ func (c *daemonServiceClient) TracePacket(ctx context.Context, in *TracePacketRe
 	return out, nil
 }
 
+func (c *daemonServiceClient) StartCapture(ctx context.Context, in *StartCaptureRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[CapturePacket], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &DaemonService_ServiceDesc.Streams[0], DaemonService_StartCapture_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[StartCaptureRequest, CapturePacket]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type DaemonService_StartCaptureClient = grpc.ServerStreamingClient[CapturePacket]
+
+func (c *daemonServiceClient) StartBundleCapture(ctx context.Context, in *StartBundleCaptureRequest, opts ...grpc.CallOption) (*StartBundleCaptureResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StartBundleCaptureResponse)
+	err := c.cc.Invoke(ctx, DaemonService_StartBundleCapture_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) StopBundleCapture(ctx context.Context, in *StopBundleCaptureRequest, opts ...grpc.CallOption) (*StopBundleCaptureResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StopBundleCaptureResponse)
+	err := c.cc.Invoke(ctx, DaemonService_StopBundleCapture_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *daemonServiceClient) SubscribeEvents(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SystemEvent], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &DaemonService_ServiceDesc.Streams[0], DaemonService_SubscribeEvents_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &DaemonService_ServiceDesc.Streams[1], DaemonService_SubscribeEvents_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -494,7 +544,7 @@ func (c *daemonServiceClient) GetInstallerResult(ctx context.Context, in *Instal
 
 func (c *daemonServiceClient) ExposeService(ctx context.Context, in *ExposeServiceRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ExposeServiceEvent], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &DaemonService_ServiceDesc.Streams[1], DaemonService_ExposeService_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &DaemonService_ServiceDesc.Streams[2], DaemonService_ExposeService_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -550,6 +600,14 @@ type DaemonServiceServer interface {
 	// SetSyncResponsePersistence enables or disables sync response persistence
 	SetSyncResponsePersistence(context.Context, *SetSyncResponsePersistenceRequest) (*SetSyncResponsePersistenceResponse, error)
 	TracePacket(context.Context, *TracePacketRequest) (*TracePacketResponse, error)
+	// StartCapture begins streaming packet capture on the WireGuard interface.
+	// Requires --enable-capture set at service install/reconfigure time.
+	StartCapture(*StartCaptureRequest, grpc.ServerStreamingServer[CapturePacket]) error
+	// StartBundleCapture begins capturing packets to a server-side temp file
+	// for inclusion in the next debug bundle. Auto-stops after the given timeout.
+	StartBundleCapture(context.Context, *StartBundleCaptureRequest) (*StartBundleCaptureResponse, error)
+	// StopBundleCapture stops the running bundle capture. Idempotent.
+	StopBundleCapture(context.Context, *StopBundleCaptureRequest) (*StopBundleCaptureResponse, error)
 	SubscribeEvents(*SubscribeRequest, grpc.ServerStreamingServer[SystemEvent]) error
 	GetEvents(context.Context, *GetEventsRequest) (*GetEventsResponse, error)
 	SwitchProfile(context.Context, *SwitchProfileRequest) (*SwitchProfileResponse, error)
@@ -640,6 +698,15 @@ func (UnimplementedDaemonServiceServer) SetSyncResponsePersistence(context.Conte
 }
 func (UnimplementedDaemonServiceServer) TracePacket(context.Context, *TracePacketRequest) (*TracePacketResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method TracePacket not implemented")
+}
+func (UnimplementedDaemonServiceServer) StartCapture(*StartCaptureRequest, grpc.ServerStreamingServer[CapturePacket]) error {
+	return status.Error(codes.Unimplemented, "method StartCapture not implemented")
+}
+func (UnimplementedDaemonServiceServer) StartBundleCapture(context.Context, *StartBundleCaptureRequest) (*StartBundleCaptureResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method StartBundleCapture not implemented")
+}
+func (UnimplementedDaemonServiceServer) StopBundleCapture(context.Context, *StopBundleCaptureRequest) (*StopBundleCaptureResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method StopBundleCapture not implemented")
 }
 func (UnimplementedDaemonServiceServer) SubscribeEvents(*SubscribeRequest, grpc.ServerStreamingServer[SystemEvent]) error {
 	return status.Error(codes.Unimplemented, "method SubscribeEvents not implemented")
@@ -1040,6 +1107,53 @@ func _DaemonService_TracePacket_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DaemonService_StartCapture_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(StartCaptureRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(DaemonServiceServer).StartCapture(m, &grpc.GenericServerStream[StartCaptureRequest, CapturePacket]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type DaemonService_StartCaptureServer = grpc.ServerStreamingServer[CapturePacket]
+
+func _DaemonService_StartBundleCapture_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StartBundleCaptureRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).StartBundleCapture(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_StartBundleCapture_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).StartBundleCapture(ctx, req.(*StartBundleCaptureRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_StopBundleCapture_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StopBundleCaptureRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).StopBundleCapture(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_StopBundleCapture_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).StopBundleCapture(ctx, req.(*StopBundleCaptureRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _DaemonService_SubscribeEvents_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(SubscribeRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -1430,6 +1544,14 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _DaemonService_TracePacket_Handler,
 		},
 		{
+			MethodName: "StartBundleCapture",
+			Handler:    _DaemonService_StartBundleCapture_Handler,
+		},
+		{
+			MethodName: "StopBundleCapture",
+			Handler:    _DaemonService_StopBundleCapture_Handler,
+		},
+		{
 			MethodName: "GetEvents",
 			Handler:    _DaemonService_GetEvents_Handler,
 		},
@@ -1495,6 +1617,11 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "StartCapture",
+			Handler:       _DaemonService_StartCapture_Handler,
+			ServerStreams: true,
+		},
 		{
 			StreamName:    "SubscribeEvents",
 			Handler:       _DaemonService_SubscribeEvents_Handler,

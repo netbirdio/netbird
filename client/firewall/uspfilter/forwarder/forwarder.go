@@ -169,6 +169,16 @@ func New(iface common.IFaceMapper, logger *nblog.Logger, flowLogger nftypes.Flow
 	return f, nil
 }
 
+// SetCapture sets or clears the packet capture on the forwarder endpoint.
+// This captures outbound packets that bypass the FilteredDevice (netstack forwarding).
+func (f *Forwarder) SetCapture(pc PacketCapture) {
+	if pc == nil {
+		f.endpoint.capture.Store(nil)
+		return
+	}
+	f.endpoint.capture.Store(&pc)
+}
+
 func (f *Forwarder) InjectIncomingPacket(payload []byte) error {
 	if len(payload) == 0 {
 		return fmt.Errorf("empty packet")
