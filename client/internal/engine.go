@@ -1092,7 +1092,7 @@ func (e *Engine) hasIPv6Changed(conf *mgmProto.PeerConfig) bool {
 
 	prefix, err := netiputil.DecodePrefix(raw)
 	if err != nil {
-		log.Warnf("decode v6 overlay address: %v", err)
+		log.Errorf("decode v6 overlay address: %v", err)
 		return false
 	}
 
