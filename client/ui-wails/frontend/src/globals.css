@@ -1,0 +1,20 @@
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-weight: 100 900;
+  src: url("./assets/fonts/InterVariable.ttf") format("truetype");
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-nb-gray font-sans text-nb-gray-200 antialiased;
+}
