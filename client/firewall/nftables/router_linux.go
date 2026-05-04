@@ -1715,14 +1715,15 @@ func (r *router) addXTablesRedirect(dnatExprs []expr.Any, ruleKey string, rule f
 		},
 	)
 
+	natTable := &nftables.Table{
+		Name:   tableNat,
+		Family: r.af.tableFamily,
+	}
 	dnatRule := &nftables.Rule{
-		Table: &nftables.Table{
-			Name:   tableNat,
-			Family: r.af.tableFamily,
-		},
+		Table: natTable,
 		Chain: &nftables.Chain{
 			Name:     chainNameNatPrerouting,
-			Table:    r.filterTable,
+			Table:    natTable,
 			Type:     nftables.ChainTypeNAT,
 			Hooknum:  nftables.ChainHookPrerouting,
 			Priority: nftables.ChainPriorityNATDest,
