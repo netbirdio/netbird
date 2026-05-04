@@ -234,14 +234,14 @@ func (m *Manager) writeSSHConfig(sshConfig string) error {
 		return fmt.Errorf("create temp SSH config: %w", err)
 	}
 	tmpPath := tmp.Name()
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close temp SSH config %s: %w", tmpPath, err)
-	}
 	defer func() {
 		if err := os.Remove(tmpPath); err != nil && !os.IsNotExist(err) {
 			log.Debugf("remove temp SSH config %s: %v", tmpPath, err)
 		}
 	}()
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temp SSH config %s: %w", tmpPath, err)
+	}
 
 	if err := writeFileWithTimeout(tmpPath, []byte(sshConfig), 0644); err != nil {
 		return fmt.Errorf("write SSH config file %s: %w", tmpPath, err)
