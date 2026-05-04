@@ -1,9 +1,14 @@
 version: 2
 
 project_name: netbird-ui
+
+before:
+  hooks:
+    - sh -c 'cd client/ui-wails/frontend && pnpm install --frozen-lockfile && pnpm build'
+
 builds:
   - id: netbird-ui-darwin
-    dir: client/ui
+    dir: client/ui-wails
     binary: netbird-ui
     env:
       - CGO_ENABLED=1
@@ -20,8 +25,6 @@ builds:
     ldflags:
       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: "{{ .CommitTimestamp }}"
-    tags:
-      - load_wgnt_from_rsrc
 
 universal_binaries:
   - id: netbird-ui-darwin

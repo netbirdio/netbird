@@ -1,9 +1,14 @@
 version: 2
 
 project_name: netbird-ui
+
+before:
+  hooks:
+    - sh -c 'cd client/ui-wails/frontend && pnpm install --frozen-lockfile && pnpm build'
+
 builds:
   - id: netbird-ui
-    dir: client/ui
+    dir: client/ui-wails
     binary: netbird-ui
     env:
       - CGO_ENABLED=1
@@ -16,7 +21,7 @@ builds:
     mod_timestamp: "{{ .CommitTimestamp }}"
 
   - id: netbird-ui-windows-amd64
-    dir: client/ui
+    dir: client/ui-wails
     binary: netbird-ui
     env:
       - CGO_ENABLED=1
@@ -31,7 +36,7 @@ builds:
     mod_timestamp: "{{ .CommitTimestamp }}"
 
   - id: netbird-ui-windows-arm64
-    dir: client/ui
+    dir: client/ui-wails
     binary: netbird-ui
     env:
       - CGO_ENABLED=1
@@ -70,12 +75,15 @@ nfpms:
     scripts:
       postinstall: "release_files/ui-post-install.sh"
     contents:
-      - src: client/ui/build/netbird.desktop
+      - src: client/ui-wails/build/linux/netbird.desktop
         dst: /usr/share/applications/netbird.desktop
-      - src: client/ui/assets/netbird.png
+      - src: client/ui-wails/build/appicon.png
         dst: /usr/share/pixmaps/netbird.png
     dependencies:
       - netbird
+      - libgtk-3-0
+      - libwebkit2gtk-4.1-0
+      - libayatana-appindicator3-1
 
   - maintainer: Netbird <dev@netbird.io>
     description: Netbird client UI.
@@ -89,12 +97,15 @@ nfpms:
     scripts:
       postinstall: "release_files/ui-post-install.sh"
     contents:
-      - src: client/ui/build/netbird.desktop
+      - src: client/ui-wails/build/linux/netbird.desktop
         dst: /usr/share/applications/netbird.desktop
-      - src: client/ui/assets/netbird.png
+      - src: client/ui-wails/build/appicon.png
         dst: /usr/share/pixmaps/netbird.png
     dependencies:
       - netbird
+      - gtk3
+      - webkit2gtk4.1
+      - libayatana-appindicator3
     rpm:
       signature:
         key_file: '{{ if index .Env "GPG_RPM_KEY_FILE" }}{{ .Env.GPG_RPM_KEY_FILE }}{{ end }}'

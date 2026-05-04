@@ -2,6 +2,5 @@
 bin
 frontend/dist
 frontend/node_modules
-frontend/bindings
 build/linux/appimage/build
 build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
