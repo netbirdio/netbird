@@ -1747,13 +1747,29 @@ func (s *SqlStore) getSetupKeys(ctx context.Context, accountID string) ([]types.
 }
 
 func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Peer, error) {
+	// Phase-3.7i (#5989): the pgx fast-path MUST select meta_supported_features
+	// and meta_effective_* alongside the other meta_* columns. Forgetting them
+	// here causes every loaded peer to come back with Meta.SupportedFeatures =
+	// nil, which makes toPeerConfig's legacy-fallback check
+	//   slices.Contains(peer.Meta.SupportedFeatures, "p2p_dynamic")
+	// return false for EVERY 3.7i+ client. The server then silently downgrades
+	// p2p-dynamic -> p2p-lazy on the second NetworkMap push (~5s after the
+	// initial Login response, which uses the in-memory peer with fresh meta).
+	// Symptom: "lazy/dynamic mode change p2p-dynamic -> p2p-lazy" 5s after
+	// every Login, observed on uray-mic-d4 and ctb50-d.
+	// The same trap is documented for settings_connection_mode 30 lines above
+	// in getAccount(); applies analogously here.
 	const query = `SELECT id, account_id, key, ip, name, dns_label, user_id, ssh_key, ssh_enabled, login_expiration_enabled,
-	inactivity_expiration_enabled, last_login, created_at, ephemeral, extra_dns_labels, allow_extra_dns_labels, meta_hostname, 
-	meta_go_os, meta_kernel, meta_core, meta_platform, meta_os, meta_os_version, meta_wt_version, meta_ui_version, 
+	inactivity_expiration_enabled, last_login, created_at, ephemeral, extra_dns_labels, allow_extra_dns_labels, meta_hostname,
+	meta_go_os, meta_kernel, meta_core, meta_platform, meta_os, meta_os_version, meta_wt_version, meta_ui_version,
 	meta_kernel_version, meta_network_addresses, meta_system_serial_number, meta_system_product_name, meta_system_manufacturer,
-	meta_environment, meta_flags, meta_files, peer_status_last_seen, peer_status_connected, peer_status_login_expired, 
-	peer_status_requires_approval, location_connection_ip, location_country_code, location_city_name, 
-	location_geo_name_id, proxy_meta_embedded, proxy_meta_cluster FROM peers WHERE account_id = $1`
+	meta_environment, meta_flags, meta_files, peer_status_last_seen, peer_status_connected, peer_status_login_expired,
+	peer_status_requires_approval, location_connection_ip, location_country_code, location_city_name,
+	location_geo_name_id, proxy_meta_embedded, proxy_meta_cluster,
+	meta_effective_connection_mode, meta_effective_relay_timeout_secs,
+	meta_effective_p2_p_timeout_secs, meta_effective_p2_p_retry_max_secs,
+	meta_supported_features
+	FROM peers WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -1773,6 +1789,10 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			metaSystemSerialNumber, metaSystemProductName, metaSystemManufacturer                           sql.NullString
 			locationCountryCode, locationCityName, proxyCluster                                             sql.NullString
 			locationGeoNameID                                                                               sql.NullInt64
+			// Phase-3.7i (#5989) connection-mode + capability columns.
+			metaEffectiveConnectionMode                                                                     sql.NullString
+			metaEffectiveRelayTimeoutSecs, metaEffectiveP2PTimeoutSecs, metaEffectiveP2PRetryMaxSecs        sql.NullInt64
+			metaSupportedFeatures                                                                           []byte
 		)
 
 		err := row.Scan(&p.ID, &p.AccountID, &p.Key, &ip, &p.Name, &p.DNSLabel, &p.UserID, &p.SSHKey, &sshEnabled,
@@ -1781,7 +1801,10 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			&metaOS, &metaOSVersion, &metaWtVersion, &metaUIVersion, &metaKernelVersion, &netAddr,
 			&metaSystemSerialNumber, &metaSystemProductName, &metaSystemManufacturer, &env, &flags, &files,
 			&peerStatusLastSeen, &peerStatusConnected, &peerStatusLoginExpired, &peerStatusRequiresApproval, &connIP,
-			&locationCountryCode, &locationCityName, &locationGeoNameID, &proxyEmbedded, &proxyCluster)
+			&locationCountryCode, &locationCityName, &locationGeoNameID, &proxyEmbedded, &proxyCluster,
+			&metaEffectiveConnectionMode, &metaEffectiveRelayTimeoutSecs,
+			&metaEffectiveP2PTimeoutSecs, &metaEffectiveP2PRetryMaxSecs,
+			&metaSupportedFeatures)
 
 		if err == nil {
 			if lastLogin.Valid {
@@ -1891,6 +1914,22 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			}
 			if connIP != nil {
 				_ = json.Unmarshal(connIP, &p.Location.ConnectionIP)
+			}
+			// Phase-3.7i (#5989) effective-mode + capabilities.
+			if metaEffectiveConnectionMode.Valid {
+				p.Meta.EffectiveConnectionMode = metaEffectiveConnectionMode.String
+			}
+			if metaEffectiveRelayTimeoutSecs.Valid {
+				p.Meta.EffectiveRelayTimeoutSecs = uint32(metaEffectiveRelayTimeoutSecs.Int64)
+			}
+			if metaEffectiveP2PTimeoutSecs.Valid {
+				p.Meta.EffectiveP2PTimeoutSecs = uint32(metaEffectiveP2PTimeoutSecs.Int64)
+			}
+			if metaEffectiveP2PRetryMaxSecs.Valid {
+				p.Meta.EffectiveP2PRetryMaxSecs = uint32(metaEffectiveP2PRetryMaxSecs.Int64)
+			}
+			if metaSupportedFeatures != nil {
+				_ = json.Unmarshal(metaSupportedFeatures, &p.Meta.SupportedFeatures)
 			}
 		}
 		return p, err
