@@ -1285,10 +1285,18 @@ func anonymizePeerConfig(config *mgmProto.PeerConfig, anonymizer *anonymize.Anon
 		config.Address = anonymizer.AnonymizeIP(addr).String()
 	}
 
-	if v6Prefix, err := netiputil.DecodePrefix(config.GetAddressV6()); err == nil {
-		anonV6 := anonymizer.AnonymizeIP(v6Prefix.Addr())
-		if b, err := netiputil.EncodePrefix(netip.PrefixFrom(anonV6, v6Prefix.Bits())); err == nil {
-			config.AddressV6 = b
+	if len(config.GetAddressV6()) > 0 {
+		v6Prefix, err := netiputil.DecodePrefix(config.GetAddressV6())
+		if err != nil {
+			config.AddressV6 = nil
+		} else {
+			anonV6 := anonymizer.AnonymizeIP(v6Prefix.Addr())
+			b, err := netiputil.EncodePrefix(netip.PrefixFrom(anonV6, v6Prefix.Bits()))
+			if err != nil {
+				config.AddressV6 = nil
+			} else {
+				config.AddressV6 = b
+			}
 		}
 	}
 
