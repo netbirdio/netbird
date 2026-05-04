@@ -45,6 +45,14 @@ type GroupPeer struct {
 	PeerID    string `gorm:"primaryKey"`
 }
 
+// HasSeqID reports whether the group has been persisted long enough to have a
+// per-account sequence id allocated. Wire encoders that key off AccountSeqID
+// must skip groups that return false here — otherwise multiple unpersisted
+// groups would collide on id 0.
+func (g *Group) HasSeqID() bool {
+	return g != nil && g.AccountSeqID != 0
+}
+
 func (g *Group) LoadGroupPeers() {
 	g.Peers = make([]string, len(g.GroupPeers))
 	for i, peer := range g.GroupPeers {

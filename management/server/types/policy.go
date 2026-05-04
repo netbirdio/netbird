@@ -79,6 +79,13 @@ type Policy struct {
 	SourcePostureChecks []string `gorm:"serializer:json"`
 }
 
+// HasSeqID reports whether the policy has been persisted long enough to have
+// a per-account sequence id allocated. Wire encoders that key off
+// AccountSeqID must skip policies that return false here.
+func (p *Policy) HasSeqID() bool {
+	return p != nil && p.AccountSeqID != 0
+}
+
 // Copy returns a copy of the policy.
 func (p *Policy) Copy() *Policy {
 	c := &Policy{
