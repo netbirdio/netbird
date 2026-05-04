@@ -659,9 +659,7 @@ func TestIntegration_ProxyConnection_MultipleProxiesReceiveUpdates(t *testing.T)
 
 // TestIntegration_ProxyConnection_FastReconnectDoesNotLoseState verifies that
 // when a proxy reconnects before the old stream's cleanup runs, the new
-// connection is NOT removed by the stale defer. On main (without the fix) the
-// old defer calls connectedProxies.Delete and the proxy disappears; with the
-// fix CompareAndDelete detects the superseded connection and skips cleanup.
+// connection is NOT removed by the stale defer.
 func TestIntegration_ProxyConnection_FastReconnectDoesNotLoseState(t *testing.T) {
 	setup := setupIntegrationTest(t)
 	defer setup.cleanup()
@@ -675,7 +673,6 @@ func TestIntegration_ProxyConnection_FastReconnectDoesNotLoseState(t *testing.T)
 
 	client := proto.NewProxyServiceClient(conn)
 
-	// 1. First connection — receive snapshot, keep stream open.
 	ctx1, cancel1 := context.WithCancel(context.Background())
 	stream1, err := client.GetMappingUpdate(ctx1, &proto.GetMappingUpdateRequest{
 		ProxyId: proxyID,
@@ -684,17 +681,14 @@ func TestIntegration_ProxyConnection_FastReconnectDoesNotLoseState(t *testing.T)
 	})
 	require.NoError(t, err)
 
-	// Drain the snapshot (2 mappings sent individually).
 	for i := 0; i < 2; i++ {
 		_, err := stream1.Recv()
 		require.NoError(t, err)
 	}
 
-	// Proxy should be registered.
 	require.Contains(t, setup.proxyService.GetConnectedProxies(), proxyID,
 		"proxy should be registered after first connection")
 
-	// 2. Second connection (fast reconnect) — old stream is still alive.
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel2()
 
@@ -705,23 +699,18 @@ func TestIntegration_ProxyConnection_FastReconnectDoesNotLoseState(t *testing.T)
 	})
 	require.NoError(t, err)
 
-	// Drain the snapshot on the new stream.
 	for i := 0; i < 2; i++ {
 		_, err := stream2.Recv()
 		require.NoError(t, err)
 	}
 
-	// 3. Cancel the old stream — triggers its deferred cleanup.
 	cancel1()
 
-	// Give the old goroutine time to run its defer.
 	time.Sleep(200 * time.Millisecond)
 
-	// 4. The proxy must still be registered (new connection must survive).
 	assert.Contains(t, setup.proxyService.GetConnectedProxies(), proxyID,
 		"proxy should still be registered after old connection cleanup — old defer must not remove new connection")
 
-	// 5. Verify the new stream can still receive updates.
 	setup.proxyService.SendServiceUpdate(&proto.GetMappingUpdateResponse{
 		Mapping: []*proto.ProxyMapping{{
 			Type:      proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED,

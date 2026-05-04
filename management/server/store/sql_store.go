@@ -5460,8 +5460,6 @@ func (s *SqlStore) DisconnectProxy(ctx context.Context, proxyID, sessionID strin
 }
 
 // UpdateProxyHeartbeat updates the last_seen timestamp for the proxy's current session.
-// It matches on both ID and session_id so a heartbeat from a superseded connection
-// cannot resurrect a row that has been replaced by a newer session.
 func (s *SqlStore) UpdateProxyHeartbeat(ctx context.Context, p *proxy.Proxy) error {
 	now := time.Now()
 
