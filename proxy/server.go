@@ -42,6 +42,7 @@ import (
 	"github.com/netbirdio/netbird/proxy/internal/auth"
 	"github.com/netbirdio/netbird/proxy/internal/certwatch"
 	"github.com/netbirdio/netbird/proxy/internal/conntrack"
+	"github.com/netbirdio/netbird/proxy/internal/crowdsec"
 	"github.com/netbirdio/netbird/proxy/internal/debug"
 	"github.com/netbirdio/netbird/proxy/internal/geolocation"
 	proxygrpc "github.com/netbirdio/netbird/proxy/internal/grpc"
@@ -99,6 +100,13 @@ type Server struct {
 	// geo resolves IP addresses to country/city for access restrictions and access logs.
 	geo    restrict.GeoResolver
 	geoRaw *geolocation.Lookup
+
+	// crowdsecRegistry manages the shared CrowdSec bouncer lifecycle.
+	crowdsecRegistry *crowdsec.Registry
+	// crowdsecServices tracks which services have CrowdSec enabled for
+	// proper acquire/release lifecycle management.
+	crowdsecMu       sync.Mutex
+	crowdsecServices map[types.ServiceID]bool
 
 	// routerReady is closed once mainRouter is fully initialized.
 	// The mapping worker waits on this before processing updates.
@@ -175,6 +183,10 @@ type Server struct {
 	// GeoDataDir is the directory containing GeoLite2 MMDB files for
 	// country-based access restrictions. Empty disables geo lookups.
 	GeoDataDir string
+	// CrowdSecAPIURL is the CrowdSec LAPI URL. Empty disables CrowdSec.
+	CrowdSecAPIURL string
+	// CrowdSecAPIKey is the CrowdSec bouncer API key. Empty disables CrowdSec.
+	CrowdSecAPIKey string
 	// MaxSessionIdleTimeout caps the per-service session idle timeout.
 	// Zero means no cap (the proxy honors whatever management sends).
 	// Set via NB_PROXY_MAX_SESSION_IDLE_TIMEOUT for shared deployments.
@@ -274,6 +286,9 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	// Create health checker before the mapping worker so it can track
 	// management connectivity from the first stream connection.
 	s.healthChecker = health.NewChecker(s.Logger, s.netbird)
+
+	s.crowdsecRegistry = crowdsec.NewRegistry(s.CrowdSecAPIURL, s.CrowdSecAPIKey, log.NewEntry(s.Logger))
+	s.crowdsecServices = make(map[types.ServiceID]bool)
 
 	go s.newManagementMappingWorker(runCtx, s.mgmtClient)
 
@@ -763,6 +778,22 @@ func (s *Server) shutdownServices() {
 			s.Logger.Debugf("close geolocation: %v", err)
 		}
 	}
+
+	s.shutdownCrowdSec()
+}
+
+func (s *Server) shutdownCrowdSec() {
+	if s.crowdsecRegistry == nil {
+		return
+	}
+	s.crowdsecMu.Lock()
+	services := maps.Clone(s.crowdsecServices)
+	maps.Clear(s.crowdsecServices)
+	s.crowdsecMu.Unlock()
+
+	for svcID := range services {
+		s.crowdsecRegistry.Release(svcID)
+	}
 }
 
 // resolveDialFunc returns a DialContextFunc that dials through the
@@ -916,6 +947,7 @@ func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.Pr
 			s.healthChecker.SetManagementConnected(false)
 		}
 
+		supportsCrowdSec := s.crowdsecRegistry.Available()
 		mappingClient, err := client.GetMappingUpdate(ctx, &proto.GetMappingUpdateRequest{
 			ProxyId:   s.ID,
 			Version:   s.Version,
@@ -924,6 +956,7 @@ func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.Pr
 			Capabilities: &proto.ProxyCapabilities{
 				SupportsCustomPorts: &s.SupportsCustomPorts,
 				RequireSubdomain:    &s.RequireSubdomain,
+				SupportsCrowdsec:    &supportsCrowdSec,
 			},
 		})
 		if err != nil {
@@ -1159,7 +1192,7 @@ func (s *Server) setupTCPMapping(ctx context.Context, mapping *proto.ProxyMappin
 		ProxyProtocol:      s.l4ProxyProtocol(mapping),
 		DialTimeout:        s.l4DialTimeout(mapping),
 		SessionIdleTimeout: s.clampIdleTimeout(l4SessionIdleTimeout(mapping)),
-		Filter:             parseRestrictions(mapping),
+		Filter:             s.parseRestrictions(mapping),
 	})
 
 	s.portMu.Lock()
@@ -1234,7 +1267,7 @@ func (s *Server) setupTLSMapping(ctx context.Context, mapping *proto.ProxyMappin
 		ProxyProtocol:      s.l4ProxyProtocol(mapping),
 		DialTimeout:        s.l4DialTimeout(mapping),
 		SessionIdleTimeout: s.clampIdleTimeout(l4SessionIdleTimeout(mapping)),
-		Filter:             parseRestrictions(mapping),
+		Filter:             s.parseRestrictions(mapping),
 	})
 
 	if tlsPort != s.mainPort {
@@ -1268,12 +1301,51 @@ func (s *Server) serviceKeyForMapping(mapping *proto.ProxyMapping) roundtrip.Ser
 
 // parseRestrictions converts a proto mapping's access restrictions into
 // a restrict.Filter. Returns nil if the mapping has no restrictions.
-func parseRestrictions(mapping *proto.ProxyMapping) *restrict.Filter {
+func (s *Server) parseRestrictions(mapping *proto.ProxyMapping) *restrict.Filter {
 	r := mapping.GetAccessRestrictions()
 	if r == nil {
 		return nil
 	}
-	return restrict.ParseFilter(r.GetAllowedCidrs(), r.GetBlockedCidrs(), r.GetAllowedCountries(), r.GetBlockedCountries())
+
+	svcID := types.ServiceID(mapping.GetId())
+	csMode := restrict.CrowdSecMode(r.GetCrowdsecMode())
+
+	var checker restrict.CrowdSecChecker
+	if csMode == restrict.CrowdSecEnforce || csMode == restrict.CrowdSecObserve {
+		if b := s.crowdsecRegistry.Acquire(svcID); b != nil {
+			checker = b
+			s.crowdsecMu.Lock()
+			s.crowdsecServices[svcID] = true
+			s.crowdsecMu.Unlock()
+		} else {
+			s.Logger.Warnf("service %s requests CrowdSec mode %q but proxy has no CrowdSec configured", svcID, csMode)
+			// Keep the mode: restrict.Filter will fail-closed for enforce (DenyCrowdSecUnavailable)
+			// and allow for observe.
+		}
+	}
+
+	return restrict.ParseFilter(restrict.FilterConfig{
+		AllowedCIDRs:     r.GetAllowedCidrs(),
+		BlockedCIDRs:     r.GetBlockedCidrs(),
+		AllowedCountries: r.GetAllowedCountries(),
+		BlockedCountries: r.GetBlockedCountries(),
+		CrowdSec:         checker,
+		CrowdSecMode:     csMode,
+		Logger:           log.NewEntry(s.Logger),
+	})
+}
+
+// releaseCrowdSec releases the CrowdSec bouncer reference for the given
+// service if it had one.
+func (s *Server) releaseCrowdSec(svcID types.ServiceID) {
+	s.crowdsecMu.Lock()
+	had := s.crowdsecServices[svcID]
+	delete(s.crowdsecServices, svcID)
+	s.crowdsecMu.Unlock()
+
+	if had {
+		s.crowdsecRegistry.Release(svcID)
+	}
 }
 
 // warnIfGeoUnavailable logs a warning if the mapping has country restrictions
@@ -1388,7 +1460,7 @@ func (s *Server) addUDPRelay(ctx context.Context, mapping *proto.ProxyMapping, t
 		DialTimeout: s.l4DialTimeout(mapping),
 		SessionTTL:  s.clampIdleTimeout(l4SessionIdleTimeout(mapping)),
 		AccessLog:   s.accessLog,
-		Filter:      parseRestrictions(mapping),
+		Filter:      s.parseRestrictions(mapping),
 		Geo:         s.geo,
 	})
 	relay.SetObserver(s.meter)
@@ -1425,7 +1497,7 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 		schemes = append(schemes, auth.NewHeader(s.mgmtClient, svcID, accountID, ha.GetHeader()))
 	}
 
-	ipRestrictions := parseRestrictions(mapping)
+	ipRestrictions := s.parseRestrictions(mapping)
 	s.warnIfGeoUnavailable(mapping.GetDomain(), mapping.GetAccessRestrictions())
 
 	maxSessionAge := time.Duration(mapping.GetAuth().GetMaxSessionAgeSeconds()) * time.Second
@@ -1507,6 +1579,9 @@ func (s *Server) cleanupMappingRoutes(mapping *proto.ProxyMapping) {
 	// UDP relay cleanup (idempotent).
 	s.removeUDPRelay(svcID)
 
+	// Release CrowdSec after all routes are removed so the shared bouncer
+	// isn't stopped while stale filters can still be reached by in-flight requests.
+	s.releaseCrowdSec(svcID)
 }
 
 // removeUDPRelay stops and removes a UDP relay by service ID.

@@ -12,6 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
+	"github.com/netbirdio/netbird/client/firewall/firewalld"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
@@ -33,7 +34,6 @@ type Manager struct {
 type iFaceMapper interface {
 	Name() string
 	Address() wgaddr.Address
-	IsUserspaceBind() bool
 }
 
 // Create iptables firewall manager
@@ -64,10 +64,9 @@ func Create(wgIface iFaceMapper, mtu uint16) (*Manager, error) {
 func (m *Manager) Init(stateManager *statemanager.Manager) error {
 	state := &ShutdownState{
 		InterfaceState: &InterfaceState{
-			NameStr:       m.wgIface.Name(),
-			WGAddress:     m.wgIface.Address(),
-			UserspaceBind: m.wgIface.IsUserspaceBind(),
-			MTU:           m.router.mtu,
+			NameStr:   m.wgIface.Name(),
+			WGAddress: m.wgIface.Address(),
+			MTU:       m.router.mtu,
 		},
 	}
 	stateManager.RegisterState(state)
@@ -86,6 +85,12 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 
 	if err := m.initNoTrackChain(); err != nil {
 		log.Warnf("raw table not available, notrack rules will be disabled: %v", err)
+	}
+
+	// Trust after all fatal init steps so a later failure doesn't leave the
+	// interface in firewalld's trusted zone without a corresponding Close.
+	if err := firewalld.TrustInterface(m.wgIface.Name()); err != nil {
+		log.Warnf("failed to trust interface in firewalld: %v", err)
 	}
 
 	// persist early to ensure cleanup of chains
@@ -193,6 +198,12 @@ func (m *Manager) Close(stateManager *statemanager.Manager) error {
 		merr = multierror.Append(merr, fmt.Errorf("reset router: %w", err))
 	}
 
+	// Appending to merr intentionally blocks DeleteState below so ShutdownState
+	// stays persisted and the crash-recovery path retries firewalld cleanup.
+	if err := firewalld.UntrustInterface(m.wgIface.Name()); err != nil {
+		merr = multierror.Append(merr, err)
+	}
+
 	// attempt to delete state only if all other operations succeeded
 	if merr == nil {
 		if err := stateManager.DeleteState(&ShutdownState{}); err != nil {
@@ -203,12 +214,10 @@ func (m *Manager) Close(stateManager *statemanager.Manager) error {
 	return nberrors.FormatErrorOrNil(merr)
 }
 
-// AllowNetbird allows netbird interface traffic
+// AllowNetbird allows netbird interface traffic.
+// This is called when USPFilter wraps the native firewall, adding blanket accept
+// rules so that packet filtering is handled in userspace instead of by netfilter.
 func (m *Manager) AllowNetbird() error {
-	if !m.wgIface.IsUserspaceBind() {
-		return nil
-	}
-
 	_, err := m.AddPeerFiltering(
 		nil,
 		net.IP{0, 0, 0, 0},
@@ -221,6 +230,11 @@ func (m *Manager) AllowNetbird() error {
 	if err != nil {
 		return fmt.Errorf("allow netbird interface traffic: %w", err)
 	}
+
+	if err := firewalld.TrustInterface(m.wgIface.Name()); err != nil {
+		log.Warnf("failed to trust interface in firewalld: %v", err)
+	}
+
 	return nil
 }
 
@@ -284,6 +298,22 @@ func (m *Manager) RemoveInboundDNAT(localAddr netip.Addr, protocol firewall.Prot
 	defer m.mutex.Unlock()
 
 	return m.router.RemoveInboundDNAT(localAddr, protocol, sourcePort, targetPort)
+}
+
+// AddOutputDNAT adds an OUTPUT chain DNAT rule for locally-generated traffic.
+func (m *Manager) AddOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.router.AddOutputDNAT(localAddr, protocol, sourcePort, targetPort)
+}
+
+// RemoveOutputDNAT removes an OUTPUT chain DNAT rule.
+func (m *Manager) RemoveOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	return m.router.RemoveOutputDNAT(localAddr, protocol, sourcePort, targetPort)
 }
 
 const (

@@ -47,8 +47,6 @@ func (i *iFaceMock) Address() wgaddr.Address {
 	panic("AddressFunc is not set")
 }
 
-func (i *iFaceMock) IsUserspaceBind() bool { return false }
-
 func TestIptablesManager(t *testing.T) {
 	ipv4Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	require.NoError(t, err)

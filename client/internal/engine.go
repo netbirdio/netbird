@@ -26,7 +26,9 @@ import (
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/firewall"
+	"github.com/netbirdio/netbird/client/firewall/firewalld"
 	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/firewall/uspfilter/forwarder"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
 	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
@@ -46,6 +48,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
+	"github.com/netbirdio/netbird/client/internal/portforward"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/relay"
 	"github.com/netbirdio/netbird/client/internal/rosenpass"
@@ -66,6 +69,7 @@ import (
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 	sProto "github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/util/capture"
 )
 
 // PeerConnectionTimeoutMax is a timeout of an initial connection attempt to a remote peer.
@@ -139,6 +143,7 @@ type EngineConfig struct {
 	ProfileConfig *profilemanager.Config
 
 	LogPath string
+	TempDir string
 }
 
 // EngineServices holds the external service dependencies required by the Engine.
@@ -210,9 +215,12 @@ type Engine struct {
 	// checks are the client-applied posture checks that need to be evaluated on the client
 	checks []*mgmProto.Checks
 
-	relayManager *relayClient.Manager
-	stateManager *statemanager.Manager
-	srWatcher    *guard.SRWatcher
+	relayManager       *relayClient.Manager
+	stateManager       *statemanager.Manager
+	portForwardManager *portforward.Manager
+	srWatcher          *guard.SRWatcher
+
+	afpacketCapture *capture.AFPacketCapture
 
 	// Sync response persistence (protected by syncRespMux)
 	syncRespMux         sync.RWMutex
@@ -259,26 +267,27 @@ func NewEngine(
 	mobileDep MobileDependency,
 ) *Engine {
 	engine := &Engine{
-		clientCtx:      clientCtx,
-		clientCancel:   clientCancel,
-		signal:         services.SignalClient,
-		signaler:       peer.NewSignaler(services.SignalClient, config.WgPrivateKey),
-		mgmClient:      services.MgmClient,
-		relayManager:   services.RelayManager,
-		peerStore:      peerstore.NewConnStore(),
-		syncMsgMux:     &sync.Mutex{},
-		config:         config,
-		mobileDep:      mobileDep,
-		STUNs:          []*stun.URI{},
-		TURNs:          []*stun.URI{},
-		networkSerial:  0,
-		statusRecorder: services.StatusRecorder,
-		stateManager:   services.StateManager,
-		checks:         services.Checks,
-		probeStunTurn:  relay.NewStunTurnProbe(relay.DefaultCacheTTL),
-		jobExecutor:    jobexec.NewExecutor(),
-		clientMetrics:  services.ClientMetrics,
-		updateManager:  services.UpdateManager,
+		clientCtx:          clientCtx,
+		clientCancel:       clientCancel,
+		signal:             services.SignalClient,
+		signaler:           peer.NewSignaler(services.SignalClient, config.WgPrivateKey),
+		mgmClient:          services.MgmClient,
+		relayManager:       services.RelayManager,
+		peerStore:          peerstore.NewConnStore(),
+		syncMsgMux:         &sync.Mutex{},
+		config:             config,
+		mobileDep:          mobileDep,
+		STUNs:              []*stun.URI{},
+		TURNs:              []*stun.URI{},
+		networkSerial:      0,
+		statusRecorder:     services.StatusRecorder,
+		stateManager:       services.StateManager,
+		portForwardManager: portforward.NewManager(),
+		checks:             services.Checks,
+		probeStunTurn:      relay.NewStunTurnProbe(relay.DefaultCacheTTL),
+		jobExecutor:        jobexec.NewExecutor(),
+		clientMetrics:      services.ClientMetrics,
+		updateManager:      services.UpdateManager,
 	}
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
@@ -521,6 +530,11 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 		return err
 	}
 
+	// Inject firewall into DNS server now that it's available.
+	// The DNS server is created before the firewall because the route manager
+	// depends on the DNS server, and the firewall depends on the wg interface.
+	e.dnsServer.SetFirewall(e.firewall)
+
 	e.udpMux, err = e.wgInterface.Up()
 	if err != nil {
 		log.Errorf("failed to pull up wgInterface [%s]: %s", e.wgInterface.Name(), err.Error())
@@ -531,6 +545,13 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	// Set up notrack rules immediately after proxy is listening to prevent
 	// conntrack entries from being created before the rules are in place
 	e.setupWGProxyNoTrack()
+
+	// Start after interface is up since port may have been resolved from 0 or changed if occupied
+	e.shutdownWg.Add(1)
+	go func() {
+		defer e.shutdownWg.Done()
+		e.portForwardManager.Start(e.ctx, uint16(e.config.WgPort))
+	}()
 
 	// Set the WireGuard interface for rosenpass after interface is up
 	if e.rpManager != nil {
@@ -554,7 +575,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	e.connMgr.Start(e.ctx)
 
 	e.srWatcher = guard.NewSRWatcher(e.signal, e.relayManager, e.mobileDep.IFaceDiscover, iceCfg)
-	e.srWatcher.Start()
+	e.srWatcher.Start(peer.IsForceRelayed())
 
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()
@@ -587,6 +608,8 @@ func (e *Engine) createFirewall() error {
 		log.Infof("firewall is disabled")
 		return nil
 	}
+
+	firewalld.SetParentContext(e.ctx)
 
 	var err error
 	e.firewall, err = firewall.NewFirewall(e.wgInterface, e.stateManager, e.flowManager.GetLogger(), e.config.DisableServerRoutes, e.config.MTU)
@@ -925,7 +948,12 @@ func (e *Engine) handleRelayUpdate(update *mgmProto.RelayConfig) error {
 			return fmt.Errorf("update relay token: %w", err)
 		}
 
-		e.relayManager.UpdateServerURLs(update.Urls)
+		urls := update.Urls
+		if override, ok := peer.OverrideRelayURLs(); ok {
+			log.Infof("overriding relay URLs from %s: %v", peer.EnvKeyNBHomeRelayServers, override)
+			urls = override
+		}
+		e.relayManager.UpdateServerURLs(urls)
 
 		// Just in case the agent started with an MGM server where the relay was disabled but was later enabled.
 		// We can ignore all errors because the guard will manage the reconnection retries.
@@ -1080,6 +1108,7 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 		StatusRecorder: e.statusRecorder,
 		SyncResponse:   syncResponse,
 		LogPath:        e.config.LogPath,
+		TempDir:        e.config.TempDir,
 		ClientMetrics:  e.clientMetrics,
 		RefreshStatus: func() {
 			e.RunHealthProbes(true)
@@ -1535,12 +1564,13 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 	}
 
 	serviceDependencies := peer.ServiceDependencies{
-		StatusRecorder:  e.statusRecorder,
-		Signaler:        e.signaler,
-		IFaceDiscover:   e.mobileDep.IFaceDiscover,
-		RelayManager:    e.relayManager,
-		SrWatcher:       e.srWatcher,
-		MetricsRecorder: e.clientMetrics,
+		StatusRecorder:     e.statusRecorder,
+		Signaler:           e.signaler,
+		IFaceDiscover:      e.mobileDep.IFaceDiscover,
+		RelayManager:       e.relayManager,
+		SrWatcher:          e.srWatcher,
+		PortForwardManager: e.portForwardManager,
+		MetricsRecorder:    e.clientMetrics,
 	}
 	peerConn, err := peer.NewConn(config, serviceDependencies)
 	if err != nil {
@@ -1677,6 +1707,11 @@ func (e *Engine) parseNATExternalIPMappings() []string {
 }
 
 func (e *Engine) close() {
+	if e.afpacketCapture != nil {
+		e.afpacketCapture.Stop()
+		e.afpacketCapture = nil
+	}
+
 	log.Debugf("removing Netbird interface %s", e.config.WgIfaceName)
 
 	if e.wgInterface != nil {
@@ -1696,6 +1731,12 @@ func (e *Engine) close() {
 
 	if e.rpManager != nil {
 		_ = e.rpManager.Close()
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := e.portForwardManager.GracefullyStop(ctx); err != nil {
+		log.Warnf("failed to gracefully stop port forwarding manager: %s", err)
 	}
 }
 
@@ -1800,7 +1841,7 @@ func (e *Engine) newDnsServer(dnsConfig *nbdns.Config) (dns.Server, error) {
 		return dnsServer, nil
 
 	case "ios":
-		dnsServer := dns.NewDefaultServerIos(e.ctx, e.wgInterface, e.mobileDep.DnsManager, e.statusRecorder, e.config.DisableDNS)
+		dnsServer := dns.NewDefaultServerIos(e.ctx, e.wgInterface, e.mobileDep.DnsManager, e.mobileDep.HostDNSAddresses, e.statusRecorder, e.config.DisableDNS)
 		return dnsServer, nil
 
 	default:
@@ -1835,6 +1876,11 @@ func (e *Engine) GetExposeManager() *expose.Manager {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 	return e.exposeManager
+}
+
+// IsBlockInbound returns whether inbound connections are blocked.
+func (e *Engine) IsBlockInbound() bool {
+	return e.config.BlockInbound
 }
 
 // GetClientMetrics returns the client metrics
@@ -2131,6 +2177,62 @@ func (e *Engine) Address() (netip.Addr, error) {
 	return e.wgInterface.Address().IP, nil
 }
 
+// SetCapture sets or clears packet capture on the WireGuard device.
+// On userspace WireGuard, it taps the FilteredDevice directly.
+// On kernel WireGuard (Linux), it falls back to AF_PACKET raw socket capture.
+// Pass nil to disable capture.
+func (e *Engine) SetCapture(pc device.PacketCapture) error {
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
+
+	intf := e.wgInterface
+	if intf == nil {
+		return errors.New("wireguard interface not initialized")
+	}
+
+	if e.afpacketCapture != nil {
+		e.afpacketCapture.Stop()
+		e.afpacketCapture = nil
+	}
+
+	dev := intf.GetDevice()
+	if dev != nil {
+		dev.SetCapture(pc)
+		e.setForwarderCapture(pc)
+		return nil
+	}
+
+	// Kernel mode: no FilteredDevice. Use AF_PACKET on Linux.
+	if pc == nil {
+		return nil
+	}
+	sess, ok := pc.(*capture.Session)
+	if !ok {
+		return errors.New("filtered device not available and AF_PACKET requires *capture.Session")
+	}
+
+	afc := capture.NewAFPacketCapture(intf.Name(), sess)
+	if err := afc.Start(); err != nil {
+		return fmt.Errorf("start AF_PACKET capture on %s: %w", intf.Name(), err)
+	}
+	e.afpacketCapture = afc
+	return nil
+}
+
+// setForwarderCapture propagates capture to the USP filter's forwarder endpoint.
+// This captures outbound response packets that bypass the FilteredDevice in netstack mode.
+func (e *Engine) setForwarderCapture(pc device.PacketCapture) {
+	if e.firewall == nil {
+		return
+	}
+	type forwarderCapturer interface {
+		SetPacketCapture(pc forwarder.PacketCapture)
+	}
+	if fc, ok := e.firewall.(forwarderCapturer); ok {
+		fc.SetPacketCapture(pc)
+	}
+}
+
 func (e *Engine) updateForwardRules(rules []*mgmProto.ForwardingRule) ([]firewallManager.ForwardRule, error) {
 	if e.firewall == nil {
 		log.Warn("firewall is disabled, not updating forwarding rules")
@@ -2352,6 +2454,8 @@ func convertToOfferAnswer(msg *sProto.Message) (*peer.OfferAnswer, error) {
 		}
 	}
 
+	relayIP := decodeRelayIP(msg.GetBody().GetRelayServerIP())
+
 	offerAnswer := peer.OfferAnswer{
 		IceCredentials: peer.IceCredentials{
 			UFrag: remoteCred.UFrag,
@@ -2362,7 +2466,23 @@ func convertToOfferAnswer(msg *sProto.Message) (*peer.OfferAnswer, error) {
 		RosenpassPubKey: rosenpassPubKey,
 		RosenpassAddr:   rosenpassAddr,
 		RelaySrvAddress: msg.GetBody().GetRelayServerAddress(),
+		RelaySrvIP:      relayIP,
 		SessionID:       sessionID,
 	}
 	return &offerAnswer, nil
+}
+
+// decodeRelayIP decodes the proto relayServerIP bytes (4 or 16) into a
+// netip.Addr. Returns the zero value for empty input and logs a warning
+// for malformed payloads.
+func decodeRelayIP(b []byte) netip.Addr {
+	if len(b) == 0 {
+		return netip.Addr{}
+	}
+	ip, ok := netip.AddrFromSlice(b)
+	if !ok {
+		log.Warnf("invalid relayServerIP in signal message (%d bytes), ignoring", len(b))
+		return netip.Addr{}
+	}
+	return ip.Unmap()
 }

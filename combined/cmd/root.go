@@ -29,6 +29,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/relay/healthcheck"
 	relayServer "github.com/netbirdio/netbird/relay/server"
+	"github.com/netbirdio/netbird/relay/server/listener"
 	"github.com/netbirdio/netbird/relay/server/listener/ws"
 	sharedMetrics "github.com/netbirdio/netbird/shared/metrics"
 	"github.com/netbirdio/netbird/shared/relay/auth"
@@ -523,7 +524,7 @@ func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config) (*
 func createCombinedHandler(grpcServer *grpc.Server, httpHandler http.Handler, relaySrv *relayServer.Server, meter metric.Meter, cfg *CombinedConfig) http.Handler {
 	wsProxy := wsproxyserver.New(grpcServer, wsproxyserver.WithOTelMeter(meter))
 
-	var relayAcceptFn func(conn net.Conn)
+	var relayAcceptFn func(conn listener.Conn)
 	if relaySrv != nil {
 		relayAcceptFn = relaySrv.RelayAccept()
 	}
@@ -563,7 +564,7 @@ func createCombinedHandler(grpcServer *grpc.Server, httpHandler http.Handler, re
 }
 
 // handleRelayWebSocket handles incoming WebSocket connections for the relay service
-func handleRelayWebSocket(w http.ResponseWriter, r *http.Request, acceptFn func(conn net.Conn), cfg *CombinedConfig) {
+func handleRelayWebSocket(w http.ResponseWriter, r *http.Request, acceptFn func(conn listener.Conn), cfg *CombinedConfig) {
 	acceptOptions := &websocket.AcceptOptions{
 		OriginPatterns: []string{"*"},
 	}
@@ -585,15 +586,9 @@ func handleRelayWebSocket(w http.ResponseWriter, r *http.Request, acceptFn func(
 		return
 	}
 
-	lAddr, err := net.ResolveTCPAddr("tcp", cfg.Server.ListenAddress)
-	if err != nil {
-		_ = wsConn.Close(websocket.StatusInternalError, "internal error")
-		return
-	}
-
 	log.Debugf("Relay WS client connected from: %s", rAddr)
 
-	conn := ws.NewConn(wsConn, lAddr, rAddr)
+	conn := ws.NewConn(wsConn, rAddr)
 	acceptFn(conn)
 }
 

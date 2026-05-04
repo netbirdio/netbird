@@ -46,7 +46,7 @@ type MockAccountManager struct {
 	AddPeerFunc                           func(ctx context.Context, accountID string, setupKey string, userId string, peer *nbpeer.Peer, temporary bool) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
 	GetGroupFunc                          func(ctx context.Context, accountID, groupID, userID string) (*types.Group, error)
 	GetAllGroupsFunc                      func(ctx context.Context, accountID, userID string) ([]*types.Group, error)
-	GetGroupByNameFunc                    func(ctx context.Context, accountID, groupName string) (*types.Group, error)
+	GetGroupByNameFunc                    func(ctx context.Context, groupName, accountID, userID string) (*types.Group, error)
 	SaveGroupFunc                         func(ctx context.Context, accountID, userID string, group *types.Group, create bool) error
 	SaveGroupsFunc                        func(ctx context.Context, accountID, userID string, groups []*types.Group, create bool) error
 	DeleteGroupFunc                       func(ctx context.Context, accountID, userId, groupID string) error
@@ -128,8 +128,8 @@ type MockAccountManager struct {
 	GetOrCreateAccountByPrivateDomainFunc func(ctx context.Context, initiatorId, domain string) (*types.Account, bool, error)
 
 	AllowSyncFunc                  func(string, uint64) bool
-	UpdateAccountPeersFunc         func(ctx context.Context, accountID string)
-	BufferUpdateAccountPeersFunc   func(ctx context.Context, accountID string)
+	UpdateAccountPeersFunc         func(ctx context.Context, accountID string, reason types.UpdateReason)
+	BufferUpdateAccountPeersFunc   func(ctx context.Context, accountID string, reason types.UpdateReason)
 	RecalculateNetworkMapCacheFunc func(ctx context.Context, accountId string) error
 
 	GetIdentityProviderFunc    func(ctx context.Context, accountID, idpID, userID string) (*types.IdentityProvider, error)
@@ -200,15 +200,15 @@ func (am *MockAccountManager) UpdateGroups(ctx context.Context, accountID, userI
 	return status.Errorf(codes.Unimplemented, "method UpdateGroups is not implemented")
 }
 
-func (am *MockAccountManager) UpdateAccountPeers(ctx context.Context, accountID string) {
+func (am *MockAccountManager) UpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) {
 	if am.UpdateAccountPeersFunc != nil {
-		am.UpdateAccountPeersFunc(ctx, accountID)
+		am.UpdateAccountPeersFunc(ctx, accountID, reason)
 	}
 }
 
-func (am *MockAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string) {
+func (am *MockAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) {
 	if am.BufferUpdateAccountPeersFunc != nil {
-		am.BufferUpdateAccountPeersFunc(ctx, accountID)
+		am.BufferUpdateAccountPeersFunc(ctx, accountID, reason)
 	}
 }
 
@@ -406,9 +406,9 @@ func (am *MockAccountManager) AddPeer(
 }
 
 // GetGroupByName mock implementation of GetGroupByName from server.AccountManager interface
-func (am *MockAccountManager) GetGroupByName(ctx context.Context, accountID, groupName string) (*types.Group, error) {
+func (am *MockAccountManager) GetGroupByName(ctx context.Context, groupName, accountID, userID string) (*types.Group, error) {
 	if am.GetGroupByNameFunc != nil {
-		return am.GetGroupByNameFunc(ctx, accountID, groupName)
+		return am.GetGroupByNameFunc(ctx, groupName, accountID, userID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetGroupByName is not implemented")
 }

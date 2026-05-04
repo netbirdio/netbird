@@ -19,6 +19,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
+	"github.com/netbirdio/netbird/client/firewall/firewalld"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	nbid "github.com/netbirdio/netbird/client/internal/acl/id"
 	"github.com/netbirdio/netbird/client/internal/routemanager/ipfwdstate"
@@ -36,8 +37,11 @@ const (
 	chainNameRoutingFw     = "netbird-rt-fwd"
 	chainNameRoutingNat    = "netbird-rt-postrouting"
 	chainNameRoutingRdr    = "netbird-rt-redirect"
+	chainNameNATOutput     = "netbird-nat-output"
 	chainNameForward       = "FORWARD"
 	chainNameMangleForward = "netbird-mangle-forward"
+
+	firewalldTableName = "firewalld"
 
 	userDataAcceptForwardRuleIif = "frwacceptiif"
 	userDataAcceptForwardRuleOif = "frwacceptoif"
@@ -130,6 +134,10 @@ func (r *router) Reset() error {
 
 	if err := r.removeAcceptFilterRules(); err != nil {
 		merr = multierror.Append(merr, fmt.Errorf("remove accept filter rules: %w", err))
+	}
+
+	if err := firewalld.UntrustInterface(r.wgIface.Name()); err != nil {
+		merr = multierror.Append(merr, err)
 	}
 
 	if err := r.removeNatPreroutingRules(); err != nil {
@@ -277,6 +285,10 @@ func (r *router) createContainers() error {
 
 	if err := r.acceptForwardRules(); err != nil {
 		log.Errorf("failed to add accept rules for the forward chain: %s", err)
+	}
+
+	if err := firewalld.TrustInterface(r.wgIface.Name()); err != nil {
+		log.Warnf("failed to trust interface in firewalld: %v", err)
 	}
 
 	if err := r.refreshRulesMap(); err != nil {
@@ -1318,6 +1330,13 @@ func (r *router) isExternalChain(chain *nftables.Chain) bool {
 		return false
 	}
 
+	// Skip firewalld-owned chains. Firewalld creates its chains with the
+	// NFT_CHAIN_OWNER flag, so inserting rules into them returns EPERM.
+	// We delegate acceptance to firewalld by trusting the interface instead.
+	if chain.Table.Name == firewalldTableName {
+		return false
+	}
+
 	// Skip all iptables-managed tables in the ip family
 	if chain.Table.Family == nftables.TableFamilyIPv4 && isIptablesTable(chain.Table.Name) {
 		return false
@@ -1847,6 +1866,130 @@ func (r *router) RemoveInboundDNAT(localAddr netip.Addr, protocol firewall.Proto
 	}
 	if err := r.conn.Flush(); err != nil {
 		return fmt.Errorf("flush delete inbound DNAT rule: %w", err)
+	}
+	delete(r.rules, ruleID)
+
+	return nil
+}
+
+// ensureNATOutputChain lazily creates the OUTPUT NAT chain on first use.
+func (r *router) ensureNATOutputChain() error {
+	if _, exists := r.chains[chainNameNATOutput]; exists {
+		return nil
+	}
+
+	r.chains[chainNameNATOutput] = r.conn.AddChain(&nftables.Chain{
+		Name:     chainNameNATOutput,
+		Table:    r.workTable,
+		Hooknum:  nftables.ChainHookOutput,
+		Priority: nftables.ChainPriorityNATDest,
+		Type:     nftables.ChainTypeNAT,
+	})
+
+	if err := r.conn.Flush(); err != nil {
+		delete(r.chains, chainNameNATOutput)
+		return fmt.Errorf("create NAT output chain: %w", err)
+	}
+	return nil
+}
+
+// AddOutputDNAT adds an OUTPUT chain DNAT rule for locally-generated traffic.
+func (r *router) AddOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+	ruleID := fmt.Sprintf("output-dnat-%s-%s-%d-%d", localAddr.String(), protocol, sourcePort, targetPort)
+
+	if _, exists := r.rules[ruleID]; exists {
+		return nil
+	}
+
+	if err := r.ensureNATOutputChain(); err != nil {
+		return err
+	}
+
+	protoNum, err := protoToInt(protocol)
+	if err != nil {
+		return fmt.Errorf("convert protocol to number: %w", err)
+	}
+
+	exprs := []expr.Any{
+		&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     []byte{protoNum},
+		},
+		&expr.Payload{
+			DestRegister: 2,
+			Base:         expr.PayloadBaseTransportHeader,
+			Offset:       2,
+			Len:          2,
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 2,
+			Data:     binaryutil.BigEndian.PutUint16(sourcePort),
+		},
+	}
+
+	exprs = append(exprs, applyPrefix(netip.PrefixFrom(localAddr, 32), false)...)
+
+	exprs = append(exprs,
+		&expr.Immediate{
+			Register: 1,
+			Data:     localAddr.AsSlice(),
+		},
+		&expr.Immediate{
+			Register: 2,
+			Data:     binaryutil.BigEndian.PutUint16(targetPort),
+		},
+		&expr.NAT{
+			Type:        expr.NATTypeDestNAT,
+			Family:      uint32(nftables.TableFamilyIPv4),
+			RegAddrMin:  1,
+			RegProtoMin: 2,
+		},
+	)
+
+	dnatRule := &nftables.Rule{
+		Table:    r.workTable,
+		Chain:    r.chains[chainNameNATOutput],
+		Exprs:    exprs,
+		UserData: []byte(ruleID),
+	}
+	r.conn.AddRule(dnatRule)
+
+	if err := r.conn.Flush(); err != nil {
+		return fmt.Errorf("add output DNAT rule: %w", err)
+	}
+
+	r.rules[ruleID] = dnatRule
+
+	return nil
+}
+
+// RemoveOutputDNAT removes an OUTPUT chain DNAT rule.
+func (r *router) RemoveOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, sourcePort, targetPort uint16) error {
+	if err := r.refreshRulesMap(); err != nil {
+		return fmt.Errorf(refreshRulesMapError, err)
+	}
+
+	ruleID := fmt.Sprintf("output-dnat-%s-%s-%d-%d", localAddr.String(), protocol, sourcePort, targetPort)
+
+	rule, exists := r.rules[ruleID]
+	if !exists {
+		return nil
+	}
+
+	if rule.Handle == 0 {
+		log.Warnf("output DNAT rule %s has no handle, removing stale entry", ruleID)
+		delete(r.rules, ruleID)
+		return nil
+	}
+
+	if err := r.conn.DelRule(rule); err != nil {
+		return fmt.Errorf("delete output DNAT rule %s: %w", ruleID, err)
+	}
+	if err := r.conn.Flush(); err != nil {
+		return fmt.Errorf("flush delete output DNAT rule: %w", err)
 	}
 	delete(r.rules, ruleID)
 

@@ -6,6 +6,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/management-integrations/integrations"
+
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
 
@@ -41,7 +42,8 @@ func (s *BaseServer) IntegratedValidator() integrated_validator.IntegratedValida
 			context.Background(),
 			s.PeersManager(),
 			s.SettingsManager(),
-			s.EventStore())
+			s.EventStore(),
+			s.CacheStore())
 		if err != nil {
 			log.Errorf("failed to create integrated peer validator: %v", err)
 		}
@@ -62,6 +64,12 @@ func (s *BaseServer) SecretsManager() grpc.SecretsManager {
 			log.Fatalf("failed to create secrets manager: %v", err)
 		}
 		return secretsManager
+	})
+}
+
+func (s *BaseServer) SessionStore() *auth.SessionStore {
+	return Create(s, func() *auth.SessionStore {
+		return auth.NewSessionStore(s.CacheStore())
 	})
 }
 

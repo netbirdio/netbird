@@ -201,7 +201,18 @@ Pop $0
 
 Function .onInit
 StrCpy $INSTDIR "${INSTALL_DIR}"
+; Default autostart to enabled so silent installs (/S) match the interactive default
+StrCpy $AutostartEnabled "1"
+
+; Pre-0.70.1 installers ran without SetRegView, so their uninstall keys live
+; in the 32-bit view. Fall back to it so upgrades still find them.
+SetRegView 64
 ReadRegStr $R0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$(^NAME)" "UninstallString"
+${If} $R0 == ""
+    SetRegView 32
+    ReadRegStr $R0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$(^NAME)" "UninstallString"
+    SetRegView 64
+${EndIf}
 ${If} $R0 != ""
     # if silent install jump to uninstall step
     IfSilent uninstall
@@ -213,6 +224,10 @@ ${If} $R0 != ""
     done:
 
 ${EndIf}
+FunctionEnd
+
+Function un.onInit
+SetRegView 64
 FunctionEnd
 ######################################################################
 Section -MainProgram
@@ -228,6 +243,7 @@ Section -MainProgram
     !else
         File /r "..\\dist\\netbird_windows_amd64\\"
     !endif
+    File "..\\client\\ui\\assets\\netbird.png"
 SectionEnd
 ######################################################################
 
@@ -247,9 +263,11 @@ WriteRegStr ${REG_ROOT} "${UI_REG_APP_PATH}" "" "$INSTDIR\${UI_APP_EXE}"
 ; Create autostart registry entry based on checkbox
 DetailPrint "Autostart enabled: $AutostartEnabled"
 ${If} $AutostartEnabled == "1"
-    WriteRegStr HKCU "${AUTOSTART_REG_KEY}" "${APP_NAME}" "$INSTDIR\${UI_APP_EXE}.exe"
+    WriteRegStr HKLM "${AUTOSTART_REG_KEY}" "${APP_NAME}" '"$INSTDIR\${UI_APP_EXE}.exe"'
     DetailPrint "Added autostart registry entry: $INSTDIR\${UI_APP_EXE}.exe"
 ${Else}
+    DeleteRegValue HKLM "${AUTOSTART_REG_KEY}" "${APP_NAME}"
+    ; Legacy: pre-HKLM installs wrote to HKCU; clean that up too.
     DeleteRegValue HKCU "${AUTOSTART_REG_KEY}" "${APP_NAME}"
     DetailPrint "Autostart not enabled by user"
 ${EndIf}
@@ -283,6 +301,8 @@ ExecWait `taskkill /im ${UI_APP_EXE}.exe /f`
 
 ; Remove autostart registry entry
 DetailPrint "Removing autostart registry entry if exists..."
+DeleteRegValue HKLM "${AUTOSTART_REG_KEY}" "${APP_NAME}"
+; Legacy: pre-HKLM installs wrote to HKCU; clean that up too.
 DeleteRegValue HKCU "${AUTOSTART_REG_KEY}" "${APP_NAME}"
 
 ; Handle data deletion based on checkbox
@@ -321,6 +341,7 @@ DetailPrint "Removing registry keys..."
 DeleteRegKey ${REG_ROOT} "${REG_APP_PATH}"
 DeleteRegKey ${REG_ROOT} "${UNINSTALL_PATH}"
 DeleteRegKey ${REG_ROOT} "${UI_REG_APP_PATH}"
+DeleteRegKey HKCU "Software\Classes\AppUserModelId\${APP_NAME}"
 
 DetailPrint "Removing application directory from PATH..."
 EnVar::SetHKLM

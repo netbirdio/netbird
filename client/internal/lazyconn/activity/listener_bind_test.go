@@ -3,7 +3,6 @@ package activity
 import (
 	"net"
 	"net/netip"
-	"runtime"
 	"testing"
 	"time"
 
@@ -17,10 +16,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	peerid "github.com/netbirdio/netbird/client/internal/peer/id"
 )
-
-func isBindListenerPlatform() bool {
-	return runtime.GOOS == "windows" || runtime.GOOS == "js"
-}
 
 // mockEndpointManager implements device.EndpointManager for testing
 type mockEndpointManager struct {
@@ -181,10 +176,6 @@ func TestBindListener_Close(t *testing.T) {
 }
 
 func TestManager_BindMode(t *testing.T) {
-	if !isBindListenerPlatform() {
-		t.Skip("BindListener only used on Windows/JS platforms")
-	}
-
 	mockEndpointMgr := newMockEndpointManager()
 	mockIface := &MockWGIfaceBind{endpointMgr: mockEndpointMgr}
 
@@ -226,10 +217,6 @@ func TestManager_BindMode(t *testing.T) {
 }
 
 func TestManager_BindMode_MultiplePeers(t *testing.T) {
-	if !isBindListenerPlatform() {
-		t.Skip("BindListener only used on Windows/JS platforms")
-	}
-
 	mockEndpointMgr := newMockEndpointManager()
 	mockIface := &MockWGIfaceBind{endpointMgr: mockEndpointMgr}
 

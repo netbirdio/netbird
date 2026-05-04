@@ -22,6 +22,7 @@ import (
 	nbproxy "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
+	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/users"
@@ -113,11 +114,11 @@ func setupIntegrationTest(t *testing.T) *integrationTestSetup {
 	}
 
 	// Create real token store
-	tokenStore, err := nbgrpc.NewOneTimeTokenStore(ctx, 5*time.Minute, 10*time.Minute, 100)
+	cacheStore, err := nbcache.NewStore(ctx, 30*time.Minute, 10*time.Minute, 100)
 	require.NoError(t, err)
 
-	pkceStore, err := nbgrpc.NewPKCEVerifierStore(ctx, 10*time.Minute, 10*time.Minute, 100)
-	require.NoError(t, err)
+	tokenStore := nbgrpc.NewOneTimeTokenStore(ctx, cacheStore)
+	pkceStore := nbgrpc.NewPKCEVerifierStore(ctx, cacheStore)
 
 	// Create real users manager
 	usersManager := users.NewManager(testStore)
@@ -225,6 +226,10 @@ func (m *testProxyManager) ClusterSupportsCustomPorts(_ context.Context, _ strin
 }
 
 func (m *testProxyManager) ClusterRequireSubdomain(_ context.Context, _ string) *bool {
+	return nil
+}
+
+func (m *testProxyManager) ClusterSupportsCrowdSec(_ context.Context, _ string) *bool {
 	return nil
 }
 

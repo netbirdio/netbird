@@ -18,9 +18,7 @@ type PeerRule struct {
 	protoLayer gopacket.LayerType
 	sPort      *firewall.Port
 	dPort      *firewall.Port
-	drop       bool
-
-	udpHook func([]byte) bool
+	drop bool
 }
 
 // ID returns the rule id

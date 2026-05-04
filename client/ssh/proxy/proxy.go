@@ -141,7 +141,7 @@ func (p *SSHProxy) runProxySSHServer(jwtToken string) error {
 
 func (p *SSHProxy) handleSSHSession(session ssh.Session) {
 	ptyReq, winCh, isPty := session.Pty()
-	hasCommand := len(session.Command()) > 0
+	hasCommand := session.RawCommand() != ""
 
 	sshClient, err := p.getOrCreateBackendClient(session.Context(), session.User())
 	if err != nil {
@@ -180,7 +180,7 @@ func (p *SSHProxy) handleSSHSession(session ssh.Session) {
 	}
 
 	if hasCommand {
-		if err := serverSession.Run(strings.Join(session.Command(), " ")); err != nil {
+		if err := serverSession.Run(session.RawCommand()); err != nil {
 			log.Debugf("run command: %v", err)
 			p.handleProxyExitCode(session, err)
 		}

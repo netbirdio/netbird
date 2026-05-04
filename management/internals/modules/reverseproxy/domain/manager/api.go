@@ -48,6 +48,7 @@ func domainToApi(d *domain.Domain) api.ReverseProxyDomain {
 		Validated:           d.Validated,
 		SupportsCustomPorts: d.SupportsCustomPorts,
 		RequireSubdomain:    d.RequireSubdomain,
+		SupportsCrowdsec:    d.SupportsCrowdSec,
 	}
 	if d.TargetCluster != "" {
 		resp.TargetCluster = &d.TargetCluster

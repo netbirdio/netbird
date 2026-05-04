@@ -155,7 +155,7 @@ func (a *Auth) IsLoginRequired(ctx context.Context) (bool, error) {
 	var needsLogin bool
 
 	err = a.withRetry(ctx, func(client *mgm.GrpcClient) error {
-		_, _, err := a.doMgmLogin(client, ctx, pubSSHKey)
+		err := a.doMgmLogin(client, ctx, pubSSHKey)
 		if isLoginNeeded(err) {
 			needsLogin = true
 			return nil
@@ -179,8 +179,8 @@ func (a *Auth) Login(ctx context.Context, setupKey string, jwtToken string) (err
 	var isAuthError bool
 
 	err = a.withRetry(ctx, func(client *mgm.GrpcClient) error {
-		serverKey, _, err := a.doMgmLogin(client, ctx, pubSSHKey)
-		if serverKey != nil && isRegistrationNeeded(err) {
+		err := a.doMgmLogin(client, ctx, pubSSHKey)
+		if isRegistrationNeeded(err) {
 			log.Debugf("peer registration required")
 			_, err = a.registerPeer(client, ctx, setupKey, jwtToken, pubSSHKey)
 			if err != nil {
@@ -201,13 +201,7 @@ func (a *Auth) Login(ctx context.Context, setupKey string, jwtToken string) (err
 
 // getPKCEFlow retrieves PKCE authorization flow configuration and creates a flow instance
 func (a *Auth) getPKCEFlow(client *mgm.GrpcClient) (*PKCEAuthorizationFlow, error) {
-	serverKey, err := client.GetServerPublicKey()
-	if err != nil {
-		log.Errorf("failed while getting Management Service public key: %v", err)
-		return nil, err
-	}
-
-	protoFlow, err := client.GetPKCEAuthorizationFlow(*serverKey)
+	protoFlow, err := client.GetPKCEAuthorizationFlow()
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
 			log.Warnf("server couldn't find pkce flow, contact admin: %v", err)
@@ -246,13 +240,7 @@ func (a *Auth) getPKCEFlow(client *mgm.GrpcClient) (*PKCEAuthorizationFlow, erro
 
 // getDeviceFlow retrieves device authorization flow configuration and creates a flow instance
 func (a *Auth) getDeviceFlow(client *mgm.GrpcClient) (*DeviceAuthorizationFlow, error) {
-	serverKey, err := client.GetServerPublicKey()
-	if err != nil {
-		log.Errorf("failed while getting Management Service public key: %v", err)
-		return nil, err
-	}
-
-	protoFlow, err := client.GetDeviceAuthorizationFlow(*serverKey)
+	protoFlow, err := client.GetDeviceAuthorizationFlow()
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
 			log.Warnf("server couldn't find device flow, contact admin: %v", err)
@@ -292,28 +280,16 @@ func (a *Auth) getDeviceFlow(client *mgm.GrpcClient) (*DeviceAuthorizationFlow, 
 }
 
 // doMgmLogin performs the actual login operation with the management service
-func (a *Auth) doMgmLogin(client *mgm.GrpcClient, ctx context.Context, pubSSHKey []byte) (*wgtypes.Key, *mgmProto.LoginResponse, error) {
-	serverKey, err := client.GetServerPublicKey()
-	if err != nil {
-		log.Errorf("failed while getting Management Service public key: %v", err)
-		return nil, nil, err
-	}
-
+func (a *Auth) doMgmLogin(client *mgm.GrpcClient, ctx context.Context, pubSSHKey []byte) error {
 	sysInfo := system.GetInfo(ctx)
 	a.setSystemInfoFlags(sysInfo)
-	loginResp, err := client.Login(*serverKey, sysInfo, pubSSHKey, a.config.DNSLabels)
-	return serverKey, loginResp, err
+	_, err := client.Login(sysInfo, pubSSHKey, a.config.DNSLabels)
+	return err
 }
 
 // registerPeer checks whether setupKey was provided via cmd line and if not then it prompts user to enter a key.
 // Otherwise tries to register with the provided setupKey via command line.
 func (a *Auth) registerPeer(client *mgm.GrpcClient, ctx context.Context, setupKey string, jwtToken string, pubSSHKey []byte) (*mgmProto.LoginResponse, error) {
-	serverPublicKey, err := client.GetServerPublicKey()
-	if err != nil {
-		log.Errorf("failed while getting Management Service public key: %v", err)
-		return nil, err
-	}
-
 	validSetupKey, err := uuid.Parse(setupKey)
 	if err != nil && jwtToken == "" {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid setup-key or no sso information provided, err: %v", err)
@@ -322,7 +298,7 @@ func (a *Auth) registerPeer(client *mgm.GrpcClient, ctx context.Context, setupKe
 	log.Debugf("sending peer registration request to Management Service")
 	info := system.GetInfo(ctx)
 	a.setSystemInfoFlags(info)
-	loginResp, err := client.Register(*serverPublicKey, validSetupKey.String(), jwtToken, info, pubSSHKey, a.config.DNSLabels)
+	loginResp, err := client.Register(validSetupKey.String(), jwtToken, info, pubSSHKey, a.config.DNSLabels)
 	if err != nil {
 		log.Errorf("failed registering peer %v", err)
 		return nil, err

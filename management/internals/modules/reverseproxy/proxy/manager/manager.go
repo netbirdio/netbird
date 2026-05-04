@@ -18,6 +18,7 @@ type store interface {
 	GetActiveProxyClusters(ctx context.Context) ([]proxy.Cluster, error)
 	GetClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
 	GetClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
+	GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
 	CleanupStaleProxies(ctx context.Context, inactivityDuration time.Duration) error
 }
 
@@ -136,6 +137,12 @@ func (m Manager) ClusterSupportsCustomPorts(ctx context.Context, clusterAddr str
 // requires a subdomain. Returns nil when no proxy has reported capabilities.
 func (m Manager) ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool {
 	return m.store.GetClusterRequireSubdomain(ctx, clusterAddr)
+}
+
+// ClusterSupportsCrowdSec returns whether all active proxies in the cluster
+// have CrowdSec configured (unanimous). Returns nil when no proxy has reported capabilities.
+func (m Manager) ClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool {
+	return m.store.GetClusterSupportsCrowdSec(ctx, clusterAddr)
 }
 
 // CleanupStale removes proxies that haven't sent heartbeat in the specified duration
