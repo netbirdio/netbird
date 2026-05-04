@@ -1374,7 +1374,8 @@ func (m *Manager) isSpecialICMP(d *decoder) bool {
 		icmpType := d.icmp6.TypeCode.Type()
 		return icmpType == layers.ICMPv6TypeDestinationUnreachable ||
 			icmpType == layers.ICMPv6TypePacketTooBig ||
-			icmpType == layers.ICMPv6TypeTimeExceeded
+			icmpType == layers.ICMPv6TypeTimeExceeded ||
+			icmpType == layers.ICMPv6TypeParameterProblem
 	}
 	return false
 }
