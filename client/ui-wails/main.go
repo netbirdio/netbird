@@ -69,11 +69,15 @@ func main() {
 	app := application.New(application.Options{
 		Name:        "netbird-ui",
 		Description: "NetBird desktop client",
+		Icon:        iconWindow,
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
 		},
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: false,
+		},
+		Linux: application.LinuxOptions{
+			ProgramName: "netbird",
 		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID: "io.netbird.ui",
@@ -111,6 +115,9 @@ func main() {
 			InvisibleTitleBarHeight: 38,
 			Backdrop:                application.MacBackdropTranslucent,
 			TitleBar:                application.MacTitleBarHiddenInset,
+		},
+		Linux: application.LinuxWindow{
+			Icon: iconWindow,
 		},
 	})
 

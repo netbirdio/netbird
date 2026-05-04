@@ -49,3 +49,6 @@ var iconUpdateConnectedMacOS []byte
 
 //go:embed assets/netbird-systemtray-update-disconnected-macos.png
 var iconUpdateDisconnectedMacOS []byte
+
+//go:embed assets/netbird.png
+var iconWindow []byte
