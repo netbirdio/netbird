@@ -1762,7 +1762,11 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 	}
 
 	if exists := e.connMgr.AddPeerConn(e.ctx, peerKey, conn); exists {
-		conn.Close(false)
+		// Cleanup of a freshly-created Conn that lost the AddPeerConn
+		// race -- the OTHER Conn for this peer is now the live one in
+		// peerStore. The WG peer entry (if any) belongs to that other
+		// Conn, so this Close must NOT touch it. keepWgPeer=true.
+		conn.Close(false, true)
 		return fmt.Errorf("peer already exists: %s", peerKey)
 	}
 
@@ -2771,7 +2775,11 @@ func (e *Engine) scheduleRemoteOfflineClose(pubKey string) {
 			return
 		}
 		log.Infof("[peer: %s] remote went offline (debounced %s), closing local conn (p2p-dynamic)", pubKey, remoteOfflineGracePeriod)
-		conn.Close(false)
+		// Remote-offline close: keep the WG peer entry so that if the
+		// remote comes back online and traffic flows, the route-mgr-
+		// applied AllowedIPs are still in place. The lazy-mgr will
+		// reactivate the peer through the activity listener.
+		conn.Close(false, true)
 	})
 	e.peerOfflineDebounce[pubKey] = t
 }

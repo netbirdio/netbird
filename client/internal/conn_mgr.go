@@ -252,7 +252,13 @@ func (e *ConnMgr) runDynamicInactivityLoop(ctx context.Context) {
 			for peerKey := range peers {
 				if conn, ok := e.peerStore.PeerConn(peerKey); ok {
 					conn.Log.Infof("relay-inactivity timeout, closing peer connection")
-					conn.Close(false)
+					// Lazy-suspend: keep the WG peer entry so routed-
+					// subnet AllowedIPs (e.g. 192.168.91.0/24 via this
+					// routing peer) survive the wake/sleep cycle.
+					// Otherwise routed traffic to the prefix would not
+					// match any peer and silently drop until the next
+					// reconcile (see docs/bugs/2026-05-04-...md).
+					conn.Close(false, true)
 				}
 			}
 		}
@@ -453,7 +459,9 @@ func (e *ConnMgr) RemovePeerConn(peerKey string) {
 	if !ok {
 		return
 	}
-	defer conn.Close(false)
+	// Permanent removal: drop the WG peer entry too. If we kept it the
+	// stale entry would linger in WG until the next full reconcile.
+	defer conn.Close(false, false)
 
 	if !e.isStartedWithLazyMgr() {
 		return
@@ -684,8 +692,11 @@ func (e *ConnMgr) resetPeersToLazyIdle(ctx context.Context) error {
 
 		// Tear the tunnel down. signalToRemote=true so the remote peer
 		// also drops its half (otherwise it would keep the tunnel half-
-		// open until its own ICE backoff fired).
-		peerConn.Close(true)
+		// open until its own ICE backoff fired). keepWgPeer=false: this
+		// is a mode-change full reopen, not a lazy-suspend; the peer
+		// will be re-Opened (or re-AddPeerConn'd) right below with a
+		// fresh AllowedIP set from the new mode's PeerConfig.
+		peerConn.Close(true, false)
 
 		if !lazyconn.IsSupported(peerConn.AgentVersionString()) {
 			peerConn.Log.Warnf("peer does not support lazy connection (%s), opening permanent connection after mode reset", peerConn.AgentVersionString())
