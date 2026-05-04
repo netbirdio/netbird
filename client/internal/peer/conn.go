@@ -294,8 +294,22 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 	return nil
 }
 
-// Close closes this peer Conn issuing a close event to the Conn closeCh
-func (conn *Conn) Close(signalToRemote bool) {
+// Close closes this peer Conn issuing a close event to the Conn closeCh.
+//
+// keepWgPeer controls whether the WireGuard peer entry is removed at
+// the iface layer. Pass true on the lazy-suspend path
+// (lazy-mgr deactivate, WG-timeout-recover) so that routed-subnet
+// AllowedIPs the route-manager appended remain intact -- otherwise the
+// peer goes Idle, comes back via the activity listener, and routed
+// traffic to the peer's advertised subnets is silently dropped until
+// the next mgmt-side reconcile re-attaches them. Pass false on the
+// permanent-removal path (engine.removePeer, mode-change tear-down)
+// where the peer should disappear from the WG iface entirely.
+//
+// See docs/bugs/2026-05-04-lazy-wake-on-routed-subnet.md for the full
+// mechanism analysis. Regression tests live in
+// conn_lazy_keepwgpeer_test.go.
+func (conn *Conn) Close(signalToRemote bool, keepWgPeer bool) {
 	conn.mu.Lock()
 	defer conn.wgWatcherWg.Wait()
 	defer conn.mu.Unlock()
@@ -311,7 +325,7 @@ func (conn *Conn) Close(signalToRemote bool) {
 		}
 	}
 
-	conn.Log.Infof("close peer connection")
+	conn.Log.Infof("close peer connection (keepWgPeer=%v)", keepWgPeer)
 	conn.ctxCancel()
 
 	if conn.wgWatcherCancel != nil {
@@ -338,8 +352,17 @@ func (conn *Conn) Close(signalToRemote bool) {
 		conn.wgProxyICE = nil
 	}
 
-	if err := conn.endpointUpdater.RemoveWgPeer(); err != nil {
-		conn.Log.Errorf("failed to remove wg endpoint: %v", err)
+	if !keepWgPeer {
+		if err := conn.endpointUpdater.RemoveWgPeer(); err != nil {
+			conn.Log.Errorf("failed to remove wg endpoint: %v", err)
+		}
+	} else {
+		// Lazy-suspend: keep the WG peer entry so route-manager-applied
+		// AllowedIPs (advertised subnets) survive the wake/sleep cycle.
+		// The lazy listener that runs next will UpdatePeer in-place to
+		// switch the endpoint to its fake 127.2.x.y target -- the
+		// AllowedIPs (peer-IP /32 + routed prefixes) stay intact.
+		conn.Log.Debugf("keeping WG peer entry across lazy-suspend so routed-subnet AllowedIPs survive")
 	}
 
 	if conn.evalStatus() == StatusConnected && conn.onDisconnected != nil {
