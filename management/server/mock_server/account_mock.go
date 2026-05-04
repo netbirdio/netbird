@@ -128,10 +128,10 @@ type MockAccountManager struct {
 	GetOrCreateAccountByPrivateDomainFunc func(ctx context.Context, initiatorId, domain string) (*types.Account, bool, error)
 
 	AllowSyncFunc                  func(string, uint64) bool
-	UpdateAccountPeersFunc         func(ctx context.Context, accountID string)
+	UpdateAccountPeersFunc         func(ctx context.Context, accountID string, reason types.UpdateReason)
 	UpdateAffectedPeersFunc        func(ctx context.Context, accountID string, peerIDs []string)
 	BufferUpdateAffectedPeersFunc  func(ctx context.Context, accountID string, peerIDs []string)
-	BufferUpdateAccountPeersFunc   func(ctx context.Context, accountID string)
+	BufferUpdateAccountPeersFunc   func(ctx context.Context, accountID string, reason types.UpdateReason)
 	RecalculateNetworkMapCacheFunc func(ctx context.Context, accountId string) error
 
 	GetIdentityProviderFunc    func(ctx context.Context, accountID, idpID, userID string) (*types.IdentityProvider, error)
@@ -202,9 +202,9 @@ func (am *MockAccountManager) UpdateGroups(ctx context.Context, accountID, userI
 	return status.Errorf(codes.Unimplemented, "method UpdateGroups is not implemented")
 }
 
-func (am *MockAccountManager) UpdateAccountPeers(ctx context.Context, accountID string) {
+func (am *MockAccountManager) UpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) {
 	if am.UpdateAccountPeersFunc != nil {
-		am.UpdateAccountPeersFunc(ctx, accountID)
+		am.UpdateAccountPeersFunc(ctx, accountID, reason)
 	}
 }
 
@@ -220,9 +220,9 @@ func (am *MockAccountManager) BufferUpdateAffectedPeers(ctx context.Context, acc
 	}
 }
 
-func (am *MockAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string) {
+func (am *MockAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) {
 	if am.BufferUpdateAccountPeersFunc != nil {
-		am.BufferUpdateAccountPeersFunc(ctx, accountID)
+		am.BufferUpdateAccountPeersFunc(ctx, accountID, reason)
 	}
 }
 

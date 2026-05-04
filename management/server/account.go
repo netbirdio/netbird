@@ -400,7 +400,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	}
 
 	if updateAccountPeers || extraSettingsChanged || groupChangesAffectPeers {
-		go am.UpdateAccountPeers(ctx, accountID)
+		go am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceAccountSettings, Operation: types.UpdateOperationUpdate})
 	}
 
 	return newSettings, nil
@@ -1581,7 +1581,7 @@ func (am *DefaultAccountManager) SyncUserJWTGroups(ctx context.Context, userAuth
 
 	if removedGroupAffectsPeers || newGroupsAffectsPeers {
 		log.WithContext(ctx).Tracef("user %s: JWT group membership changed, updating account peers", userAuth.UserId)
-		am.BufferUpdateAccountPeers(ctx, userAuth.AccountId)
+		am.BufferUpdateAccountPeers(ctx, userAuth.AccountId, types.UpdateReason{Resource: types.UpdateResourceUser, Operation: types.UpdateOperationUpdate})
 	}
 
 	return nil

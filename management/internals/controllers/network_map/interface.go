@@ -18,11 +18,11 @@ const (
 )
 
 type Controller interface {
-	UpdateAccountPeers(ctx context.Context, accountID string) error
+	UpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) error
 	UpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string) error
 	BufferUpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string) error
 	UpdateAccountPeer(ctx context.Context, accountId string, peerId string) error
-	BufferUpdateAccountPeers(ctx context.Context, accountID string) error
+	BufferUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) error
 	GetValidatedPeerWithMap(ctx context.Context, isRequiresApproval bool, accountID string, p *nbpeer.Peer) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error)
 	GetDNSDomain(settings *types.Settings) string
 	StartWarmup(context.Context)

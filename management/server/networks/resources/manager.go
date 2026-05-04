@@ -559,7 +559,7 @@ func (m *managerImpl) resolveResourceAffectedPeers(ctx context.Context, accountI
 		}
 	}
 
-	return peerIDs, nil
+	return peerIDs
 }
 
 func NewManagerMock() Manager {
