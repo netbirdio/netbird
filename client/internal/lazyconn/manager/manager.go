@@ -6,7 +6,6 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	"github.com/netbirdio/netbird/client/internal/lazyconn/activity"
@@ -91,8 +90,8 @@ func (m *Manager) UpdateRouteHAMap(haMap route.HAMap) {
 	m.routesMu.Lock()
 	defer m.routesMu.Unlock()
 
-	maps.Clear(m.peerToHAGroups)
-	maps.Clear(m.haGroupToPeers)
+	clear(m.peerToHAGroups)
+	clear(m.haGroupToPeers)
 
 	for haUniqueID, routes := range haMap {
 		var peers []string
