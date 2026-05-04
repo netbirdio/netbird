@@ -490,7 +490,8 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	s.mutex.Unlock()
 
 	if err := persistLoginOverrides(activeProf, msg.ManagementUrl, msg.OptionalPreSharedKey); err != nil {
-		return nil, err
+		log.Errorf("failed to persist login overrides: %v", err)
+		return nil, fmt.Errorf("persist login overrides: %w", err)
 	}
 
 	config, _, err := s.getConfig(activeProf)
@@ -979,7 +980,7 @@ func persistLoginOverrides(activeProf *profilemanager.ActiveProfileState, manage
 
 	cfgPath, err := activeProf.FilePath()
 	if err != nil {
-		return fmt.Errorf("get active profile file path: %w", err)
+		return fmt.Errorf("active profile file path: %w", err)
 	}
 
 	input := profilemanager.ConfigInput{
@@ -988,7 +989,7 @@ func persistLoginOverrides(activeProf *profilemanager.ActiveProfileState, manage
 		PreSharedKey:  preSharedKey,
 	}
 	if _, err := profilemanager.UpdateOrCreateConfig(input); err != nil {
-		return fmt.Errorf("persist login overrides: %w", err)
+		return fmt.Errorf("update config: %w", err)
 	}
 	return nil
 }
