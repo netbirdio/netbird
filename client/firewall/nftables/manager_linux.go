@@ -391,12 +391,12 @@ func (m *Manager) AddNatRule(pair firewall.RouterPair) error {
 	// Dynamic routes need NAT in both tables since resolved IPs can be
 	// either v4 or v6. This covers both DomainSet (modern) and the legacy
 	// wildcard 0.0.0.0/0 destination where the client resolves DNS.
+	// On v6 failure we keep the v4 NAT rule rather than rolling back: half
+	// connectivity is better than none, and RemoveNatRule is content-keyed
+	// so the eventual cleanup still works.
 	if m.hasIPv6() && pair.Dynamic {
 		v6Pair := firewall.ToV6NatPair(pair)
 		if err := m.router6.AddNatRule(v6Pair); err != nil {
-			if rbErr := m.router.RemoveNatRule(pair); rbErr != nil {
-				return fmt.Errorf("add v6 NAT rule: %w (rollback v4: %v)", err, rbErr)
-			}
 			return fmt.Errorf("add v6 NAT rule: %w", err)
 		}
 	}
