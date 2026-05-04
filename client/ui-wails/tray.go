@@ -75,8 +75,32 @@ func NewTray(
 	t.applyIcon()
 	t.tray.SetTooltip("NetBird")
 	t.tray.SetMenu(t.buildMenu())
-	t.tray.AttachWindow(window)
-	t.tray.OnClick(func() { t.toggleWindow() })
+	// Tray click handling is platform-specific by design:
+	//
+	// On Windows and macOS the OS-level tray protocol cleanly separates left
+	// and right click. AttachWindow plus an explicit OnClick gives the
+	// expected "click the icon to toggle the window, right-click to open the
+	// menu" UX, and the platform never delivers both events at once.
+	//
+	// On Linux the tray rides on the org.kde.StatusNotifierItem D-Bus protocol
+	// (libayatana-appindicator). The SNI Activate signal *is* left-click, but
+	// several environments — GNOME Shell with the AppIndicator extension is
+	// the loudest offender — also pop the attached menu on left-click,
+	// regardless of the ItemIsMenu property the spec defines for that purpose.
+	// Worse, AttachWindow on its own is enough to trigger this: Wails3's
+	// SystemTray.applySmartDefaults installs ToggleWindow as the default
+	// click handler whenever a window is attached, so even without an
+	// explicit OnClick the window pops up alongside the menu. The result
+	// looks like a bug to users.
+	//
+	// Mirror the legacy Fyne client's behaviour on Linux: skip both
+	// AttachWindow and OnClick so left-click only opens the menu, and expose
+	// the window through an explicit "Open NetBird" item. Right-click still
+	// opens the menu through Wails' default rightClickHandler fallback.
+	if runtime.GOOS != "linux" {
+		t.tray.AttachWindow(window)
+		t.tray.OnClick(func() { t.toggleWindow() })
+	}
 
 	app.Event.On(services.EventStatus, t.onStatusEvent)
 	app.Event.On(services.EventSystem, t.onSystemEvent)
@@ -101,6 +125,13 @@ func (t *Tray) buildMenu() *application.Menu {
 	t.statusItem = menu.Add("Disconnected").SetEnabled(false)
 
 	menu.AddSeparator()
+	// On Linux the tray icon's left-click handler is intentionally unbound
+	// (see NewTray for the rationale), so expose the window through an
+	// explicit menu entry. Windows and macOS get the window via left-click.
+	if runtime.GOOS == "linux" {
+		menu.Add("Open NetBird").OnClick(func(*application.Context) { t.ShowWindow() })
+		menu.AddSeparator()
+	}
 	t.upItem = menu.Add("Connect").OnClick(func(*application.Context) { t.handleConnect() })
 	t.downItem = menu.Add("Disconnect").OnClick(func(*application.Context) { t.handleDisconnect() })
 	t.downItem.SetEnabled(false)
