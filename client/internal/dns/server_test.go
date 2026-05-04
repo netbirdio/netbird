@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"runtime"
 	"testing"
 	"time"
 
@@ -657,6 +658,7 @@ func TestDNSServerStartStop(t *testing.T) {
 }
 
 func TestDNSPermanent_updateHostDNS_emptyUpstream(t *testing.T) {
+	skipUnlessAndroid(t)
 	wgIFace, err := createWgInterfaceWithBind(t)
 	if err != nil {
 		t.Fatal("failed to initialize wg interface")
@@ -684,6 +686,7 @@ func TestDNSPermanent_updateHostDNS_emptyUpstream(t *testing.T) {
 }
 
 func TestDNSPermanent_updateUpstream(t *testing.T) {
+	skipUnlessAndroid(t)
 	wgIFace, err := createWgInterfaceWithBind(t)
 	if err != nil {
 		t.Fatal("failed to initialize wg interface")
@@ -777,6 +780,7 @@ func TestDNSPermanent_updateUpstream(t *testing.T) {
 }
 
 func TestDNSPermanent_matchOnly(t *testing.T) {
+	skipUnlessAndroid(t)
 	wgIFace, err := createWgInterfaceWithBind(t)
 	if err != nil {
 		t.Fatal("failed to initialize wg interface")
@@ -846,6 +850,18 @@ func TestDNSPermanent_matchOnly(t *testing.T) {
 	_, err = resolver.LookupHost(context.Background(), "google.com")
 	if err != nil {
 		t.Errorf("failed to resolve: %s", err)
+	}
+}
+
+// skipUnlessAndroid marks tests that exercise the mobile-permanent DNS path,
+// which only matches a real production setup on android (NewDefaultServerPermanentUpstream
+// + androidHostManager). On non-android the desktop host manager replaces it
+// during Initialize and the assertion stops making sense. Skipped here until we
+// have an android CI runner.
+func skipUnlessAndroid(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "android" {
+		t.Skip("requires android runner; mobile-permanent path doesn't match production on this OS")
 	}
 }
 

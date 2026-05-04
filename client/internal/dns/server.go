@@ -125,12 +125,6 @@ const (
 	nsVerdictUnhealthy
 )
 
-// hostManagerWithOriginalNS extends the basic hostManager interface
-type hostManagerWithOriginalNS interface {
-	hostManager
-	getOriginalNameservers() []netip.Addr
-}
-
 // DefaultServer dns server object
 type DefaultServer struct {
 	ctx        context.Context
@@ -158,6 +152,11 @@ type DefaultServer struct {
 	// permanent related properties
 	permanent      bool
 	hostsDNSHolder *hostsDNSHolder
+
+	// fallbackHandler is the upstream resolver currently registered at
+	// PriorityFallback. Tracked so registerFallback can Stop() the previous
+	// instance instead of leaking its context.
+	fallbackHandler handlerWithStop
 
 	// make sense on mobile only
 	searchDomainNotifier *notifier
@@ -248,7 +247,6 @@ func NewDefaultServerPermanentUpstream(
 
 	ds.hostsDNSHolder.set(hostsDnsList)
 	ds.permanent = true
-	ds.addHostRootZone()
 	ds.currentConfig = dnsConfigToHostDNSConfig(config, ds.service.RuntimeIP(), ds.service.RuntimePort())
 	ds.searchDomainNotifier = newNotifier(ds.SearchDomains())
 	ds.searchDomainNotifier.setListener(listener)
@@ -256,21 +254,17 @@ func NewDefaultServerPermanentUpstream(
 	return ds
 }
 
-// NewDefaultServerIos returns a new dns server. It optimized for ios
+// NewDefaultServerIos returns a new dns server. It optimized for ios.
 func NewDefaultServerIos(
 	ctx context.Context,
 	wgInterface WGIface,
 	iosDnsManager IosDnsManager,
-	hostsDnsList []netip.AddrPort,
 	statusRecorder *peer.Status,
 	disableSys bool,
 ) *DefaultServer {
-	log.Debugf("iOS host dns address list is: %v", hostsDnsList)
 	ds := newDefaultServer(ctx, wgInterface, NewServiceViaMemory(wgInterface), statusRecorder, nil, disableSys)
 	ds.iosDnsManager = iosDnsManager
-	ds.hostsDNSHolder.set(hostsDnsList)
 	ds.permanent = true
-	ds.addHostRootZone()
 	return ds
 }
 
@@ -461,6 +455,13 @@ func (s *DefaultServer) Initialize() (err error) {
 		return fmt.Errorf("initialize: %w", err)
 	}
 	s.hostManager = hostManager
+	// On mobile-permanent setups the seeded host DNS list is the only
+	// source until the first network-map arrives; register it now so DNS
+	// works in that window. Desktop host managers register fallback when
+	// applyConfiguration runs.
+	if s.permanent {
+		s.registerFallback()
+	}
 	return nil
 }
 
@@ -516,10 +517,9 @@ func (s *DefaultServer) disableDNS() (retErr error) {
 		return nil
 	}
 
-	// Deregister original nameservers if they were registered as fallback
-	if srvs, ok := s.hostManager.(hostManagerWithOriginalNS); ok && len(srvs.getOriginalNameservers()) > 0 {
-		log.Debugf("deregistering original nameservers as fallback handlers")
-		s.deregisterHandler([]string{nbdns.RootZone}, PriorityFallback)
+	if s.fallbackHandler != nil {
+		log.Debugf("deregistering fallback handlers")
+		s.clearFallback()
 	}
 
 	if err := s.hostManager.restoreHostDNS(); err != nil {
@@ -533,26 +533,16 @@ func (s *DefaultServer) disableDNS() (retErr error) {
 	return nil
 }
 
-// OnUpdatedHostDNSServer update the DNS servers addresses for root zones
-// It will be applied if the mgm server do not enforce DNS settings for root zone
+// OnUpdatedHostDNSServer updates the fallback DNS upstreams. Called by Android
+// outside the engine's sync mux when the OS reports a network change, so it
+// takes s.mux to serialize against host manager swaps in Initialize/enableDNS.
 func (s *DefaultServer) OnUpdatedHostDNSServer(hostsDnsList []netip.AddrPort) {
 	s.hostsDNSHolder.set(hostsDnsList)
-
-	var hasRootHandler bool
-	for _, handler := range s.dnsMuxMap {
-		if handler.domain == nbdns.RootZone {
-			hasRootHandler = true
-			break
-		}
-	}
-
-	if hasRootHandler {
-		log.Debugf("on new host DNS config but skip to apply it")
-		return
-	}
-
 	log.Debugf("update host DNS settings: %+v", hostsDnsList)
-	s.addHostRootZone()
+
+	s.mux.Lock()
+	defer s.mux.Unlock()
+	s.registerFallback()
 }
 
 // UpdateDNSServer processes an update received from the management service
@@ -774,19 +764,17 @@ func (s *DefaultServer) applyHostConfig() {
 		s.currentConfigHash = hash
 	}
 
-	s.registerFallback(config)
+	s.registerFallback()
 }
 
 // registerFallback registers original nameservers as low-priority fallback handlers.
-func (s *DefaultServer) registerFallback(config HostDNSConfig) {
-	hostMgrWithNS, ok := s.hostManager.(hostManagerWithOriginalNS)
-	if !ok {
-		return
-	}
-
-	originalNameservers := hostMgrWithNS.getOriginalNameservers()
+// Replaces and Stop()s the previously-registered fallback handler so its
+// context is released rather than leaked until GC.
+func (s *DefaultServer) registerFallback() {
+	originalNameservers := s.hostManager.getOriginalNameservers()
 	if len(originalNameservers) == 0 {
-		s.deregisterHandler([]string{nbdns.RootZone}, PriorityFallback)
+		log.Debugf("no fallback upstreams to register; clearing PriorityFallback handler")
+		s.clearFallback()
 		return
 	}
 
@@ -807,15 +795,24 @@ func (s *DefaultServer) registerFallback(config HostDNSConfig) {
 
 	var servers []netip.AddrPort
 	for _, ns := range originalNameservers {
-		if ns == config.ServerIP {
-			log.Debugf("skipping original nameserver %s as it is the same as the server IP %s", ns, config.ServerIP)
-			continue
-		}
 		servers = append(servers, netip.AddrPortFrom(ns, DefaultPort))
 	}
 	handler.addRace(servers)
 
+	prev := s.fallbackHandler
+	s.fallbackHandler = handler
 	s.registerHandler([]string{nbdns.RootZone}, handler, PriorityFallback)
+	if prev != nil {
+		prev.Stop()
+	}
+}
+
+func (s *DefaultServer) clearFallback() {
+	s.deregisterHandler([]string{nbdns.RootZone}, PriorityFallback)
+	if s.fallbackHandler != nil {
+		s.fallbackHandler.Stop()
+		s.fallbackHandler = nil
+	}
 }
 
 func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) ([]handlerWrapper, []nbdns.CustomZone, error) {
@@ -976,52 +973,13 @@ func (s *DefaultServer) updateMux(muxUpdates []handlerWrapper) {
 	}
 
 	muxUpdateMap := make(registeredHandlerMap)
-	var containsRootUpdate bool
 
 	for _, update := range muxUpdates {
-		if update.domain == nbdns.RootZone {
-			containsRootUpdate = true
-		}
 		s.registerHandler([]string{update.domain}, update.handler, update.priority)
 		muxUpdateMap[update.handler.ID()] = update
 	}
 
-	// If there's no root update and we had a root handler, restore it
-	if !containsRootUpdate {
-		for _, existing := range s.dnsMuxMap {
-			if existing.domain == nbdns.RootZone {
-				s.addHostRootZone()
-				break
-			}
-		}
-	}
-
 	s.dnsMuxMap = muxUpdateMap
-}
-
-func (s *DefaultServer) addHostRootZone() {
-	hostDNSServers := s.hostsDNSHolder.get()
-	if len(hostDNSServers) == 0 {
-		log.Debug("no host DNS servers available, skipping root zone handler creation")
-		return
-	}
-
-	handler, err := newUpstreamResolver(
-		s.ctx,
-		s.wgInterface,
-		s.statusRecorder,
-		s.hostsDNSHolder,
-		nbdns.RootZone,
-	)
-	if err != nil {
-		log.Errorf("unable to create a new upstream resolver, error: %v", err)
-		return
-	}
-	handler.selectedRoutes = s.selectedRoutes
-
-	handler.addRace(maps.Keys(hostDNSServers))
-
-	s.registerHandler([]string{nbdns.RootZone}, handler, PriorityDefault)
 }
 
 // updateNSGroupStates records the new group set and pokes the refresher.
