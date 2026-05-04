@@ -1552,16 +1552,6 @@ func (m *Manager) DisableRouting() error {
 	m.routingEnabled.Store(false)
 	m.nativeRouter.Store(false)
 
-	// don't stop forwarder if in use by netstack
-	if m.netstack && m.localForwarding {
-		return nil
-	}
-
-	fwder.Stop()
-	m.forwarder.Store(nil)
-
-	log.Debug("forwarder stopped")
-
 	var merr *multierror.Error
 	for _, rule := range m.blockRules {
 		if err := m.deleteRouteRule(rule); err != nil {
@@ -1569,6 +1559,15 @@ func (m *Manager) DisableRouting() error {
 		}
 	}
 	m.blockRules = nil
+
+	if m.netstack && m.localForwarding {
+		return nberrors.FormatErrorOrNil(merr)
+	}
+
+	fwder.Stop()
+	m.forwarder.Store(nil)
+
+	log.Debug("forwarder stopped")
 
 	return nberrors.FormatErrorOrNil(merr)
 }
