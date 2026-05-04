@@ -1049,7 +1049,7 @@ func (r *router) AddOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol,
 	}
 
 	dnatRule := []string{
-		"-p", strings.ToLower(string(protocol)),
+		"-p", strings.ToLower(protoForFamily(protocol, localAddr.Is6())),
 		"--dport", strconv.Itoa(int(originalPort)),
 		"-d", localAddr.String(),
 		"-j", "DNAT",
