@@ -203,6 +203,9 @@ func fakeAddress(peerAddress *net.UDPAddr) (*netip.AddrPort, error) {
 	if peerAddress == nil {
 		return nil, fmt.Errorf("nil peer address")
 	}
+	if peerAddress.Port < 0 || peerAddress.Port > 65535 {
+		return nil, fmt.Errorf("invalid UDP port: %d", peerAddress.Port)
+	}
 
 	addr, ok := netip.AddrFromSlice(peerAddress.IP)
 	if !ok {
