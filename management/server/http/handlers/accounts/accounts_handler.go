@@ -183,6 +183,18 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 
 		PeerExposeEnabled: req.Settings.PeerExposeEnabled,
 		PeerExposeGroups:  req.Settings.PeerExposeGroups,
+
+		// Phase 3.7i (#5989): seed the legacy-fallback fields with their
+		// semantic defaults BEFORE the per-field if-blocks below run.
+		// This handler always rebuilds Settings from scratch, so an
+		// API client (or older Dashboard) that omits the new fields
+		// would otherwise downgrade the account to false / 0 -- which
+		// the conversion layer interprets as "fallback disabled,
+		// timeout 0", the exact regression Codex flagged. The
+		// per-field if-blocks below override these defaults when the
+		// request explicitly sets a value (including false / explicit 0).
+		LegacyLazyFallbackEnabled:        types.DefaultLegacyLazyFallbackEnabled,
+		LegacyLazyFallbackTimeoutSeconds: types.DefaultLegacyLazyFallbackTimeoutSeconds,
 	}
 
 	if req.Settings.Extra != nil {
@@ -431,12 +443,25 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 			v := int64(*settings.RelayTimeoutSeconds)
 			return &v
 		}(),
+		// Phase 3.7i (#5989): expose the legacy-fallback fields with their
+		// semantic defaults filled in for accounts that pre-date the
+		// fields (zero-valued in DB). The conversion layer falls back
+		// to the same defaults at peer-config time, so reporting them
+		// here keeps API responses honest for the Dashboard and any
+		// other API consumer.
 		LegacyLazyFallbackEnabled: func() *bool {
 			v := settings.LegacyLazyFallbackEnabled
+			if !v && settings.LegacyLazyFallbackTimeoutSeconds == 0 {
+				v = types.DefaultLegacyLazyFallbackEnabled
+			}
 			return &v
 		}(),
 		LegacyLazyFallbackTimeoutSeconds: func() *int64 {
-			v := int64(settings.LegacyLazyFallbackTimeoutSeconds)
+			to := settings.LegacyLazyFallbackTimeoutSeconds
+			if to == 0 {
+				to = types.DefaultLegacyLazyFallbackTimeoutSeconds
+			}
+			v := int64(to)
 			return &v
 		}(),
 		DnsDomain:                       &settings.DNSDomain,
