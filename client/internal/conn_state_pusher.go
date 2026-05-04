@@ -5,8 +5,12 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
@@ -60,6 +64,17 @@ type connStatePusher struct {
 	// arrives AFTER the new process's full snapshot. Codex follow-up to
 	// PR review of Phase 3.7i.
 	sessionID uint64
+
+	// disabled is set true once the management server has rejected the
+	// SyncPeerConnections RPC with codes.Unimplemented. Old mgmt servers
+	// don't ship the new RPC at all; without this latch the pusher would
+	// keep retrying every heartbeat (60 s) and on every state change,
+	// burning wakeups and gRPC retries against a server that will never
+	// accept the call. Detected on the first push, then no further pushes
+	// are attempted for the lifetime of this pusher (i.e. until the next
+	// daemon restart, which gets a fresh detection cycle). Codex review
+	// of Phase 3.7i.
+	disabled atomic.Bool
 
 	mu         sync.Mutex
 	lastPushed map[string]PeerStateChangeEvent
@@ -257,6 +272,14 @@ func (p *connStatePusher) flushDelta(events []PeerStateChangeEvent) {
 	if len(events) == 0 {
 		return
 	}
+	if p.disabled.Load() {
+		// Mgmt server is pre-3.7i and rejected SyncPeerConnections with
+		// Unimplemented earlier in this session. Mark events as pushed so
+		// the dirty-state computation doesn't keep re-flagging them and
+		// retrying every tick.
+		p.markPushed(events)
+		return
+	}
 	p.mu.Lock()
 	p.seq++
 	seq := p.seq
@@ -271,6 +294,11 @@ func (p *connStatePusher) flushDelta(events []PeerStateChangeEvent) {
 		Entries:      entries,
 		SessionId:    p.sessionID,
 	}); err != nil {
+		if p.handleUnimplemented(err) {
+			// Old server: mark these as pushed so we don't keep retrying.
+			p.markPushed(events)
+			return
+		}
 		// Push failed (mgmt reconnect, transient gRPC error, etc.).
 		// Do NOT mark these events as lastPushed -- on the next tick
 		// the dirty-state computation will re-include them so the
@@ -279,6 +307,12 @@ func (p *connStatePusher) flushDelta(events []PeerStateChangeEvent) {
 		// stay stale until its next state change or the 60 s heartbeat.
 		return
 	}
+	p.markPushed(events)
+}
+
+// markPushed records the events as the latest known mgmt-side state.
+// Pulled out so the disabled and success paths share the same locking.
+func (p *connStatePusher) markPushed(events []PeerStateChangeEvent) {
 	p.mu.Lock()
 	for _, ev := range events {
 		p.lastPushed[ev.Pubkey] = ev
@@ -286,7 +320,36 @@ func (p *connStatePusher) flushDelta(events []PeerStateChangeEvent) {
 	p.mu.Unlock()
 }
 
+// handleUnimplemented inspects an error from the sink and, if it looks
+// like the mgmt server doesn't implement SyncPeerConnections, latches
+// the pusher into the disabled state and logs once. Returns true if the
+// error was Unimplemented (caller should treat as "don't retry"); false
+// otherwise (caller should keep dirty so the next tick retries).
+func (p *connStatePusher) handleUnimplemented(err error) bool {
+	if err == nil {
+		return false
+	}
+	st, ok := status.FromError(err)
+	if !ok || st.Code() != codes.Unimplemented {
+		return false
+	}
+	// CompareAndSwap so the log line and the warn-once message only fire
+	// the first time we hit Unimplemented in this pusher's lifetime.
+	if p.disabled.CompareAndSwap(false, true) {
+		log.Warnf("management server does not implement SyncPeerConnections (Phase 3.7i feature); peer-connection-state push disabled for this session — peer state UI on other clients may be less detailed but the daemon is unaffected")
+	}
+	return true
+}
+
 func (p *connStatePusher) flushFull(events []PeerStateChangeEvent, inResponseToNonce uint64) {
+	if p.disabled.Load() {
+		// Mgmt is pre-3.7i; mark seen so we don't retry on every snapshot
+		// request. The mgmt-side store will not have any of our entries,
+		// but other clients' UIs will fall back to their pre-3.7i
+		// heuristics for our peer (legacy ConnStatus path on PeerState).
+		p.markPushed(events)
+		return
+	}
 	p.mu.Lock()
 	p.seq++
 	seq := p.seq
@@ -302,16 +365,16 @@ func (p *connStatePusher) flushFull(events []PeerStateChangeEvent, inResponseToN
 		InResponseToNonce: inResponseToNonce,
 		SessionId:         p.sessionID,
 	}); err != nil {
+		if p.handleUnimplemented(err) {
+			p.markPushed(events)
+			return
+		}
 		// Same dirty-retain semantics as flushDelta. A failed full
 		// snapshot leaves lastPushed unchanged so the next push (or
 		// the next snapshot request) will see every peer as dirty.
 		return
 	}
-	p.mu.Lock()
-	for _, ev := range events {
-		p.lastPushed[ev.Pubkey] = ev
-	}
-	p.mu.Unlock()
+	p.markPushed(events)
 }
 
 func (p *connStatePusher) computeDeltaFromSource() []PeerStateChangeEvent {
