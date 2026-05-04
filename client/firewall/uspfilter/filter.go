@@ -18,9 +18,11 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/uuid"
+	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
 
+	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/common"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"
@@ -125,7 +127,7 @@ type Manager struct {
 	logger         *nblog.Logger
 	flowLogger     nftypes.FlowLogger
 
-	blockRule firewall.Rule
+	blockRules []firewall.Rule
 
 	// Internal 1:1 DNAT
 	dnatEnabled  atomic.Bool
@@ -303,16 +305,23 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 	return m, nil
 }
 
-func (m *Manager) blockInvalidRouted(iface common.IFaceMapper) (firewall.Rule, error) {
+// blockInvalidRouted installs drop rules for traffic to the wg overlay that
+// arrives via the routing path. v4 and v6 are independent: a v6 install
+// failure leaves v4 protection in place (and vice versa) so the returned
+// slice always contains whatever was successfully installed, even on error.
+// Callers must persist the slice so DisableRouting can clean partial state.
+func (m *Manager) blockInvalidRouted(iface common.IFaceMapper) ([]firewall.Rule, error) {
 	wgPrefix := iface.Address().Network
 	log.Debugf("blocking invalid routed traffic for %s", wgPrefix)
 
 	sources := []netip.Prefix{netip.PrefixFrom(netip.IPv4Unspecified(), 0)}
-	if v6 := iface.Address().IPv6Net; v6.IsValid() {
+	v6Net := iface.Address().IPv6Net
+	if v6Net.IsValid() {
 		sources = append(sources, netip.PrefixFrom(netip.IPv6Unspecified(), 0))
 	}
 
-	rule, err := m.addRouteFiltering(
+	var rules []firewall.Rule
+	v4Rule, err := m.addRouteFiltering(
 		nil,
 		sources,
 		firewall.Network{Prefix: wgPrefix},
@@ -322,12 +331,13 @@ func (m *Manager) blockInvalidRouted(iface common.IFaceMapper) (firewall.Rule, e
 		firewall.ActionDrop,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("block wg v4 net: %w", err)
+		return rules, fmt.Errorf("block wg v4 net: %w", err)
 	}
+	rules = append(rules, v4Rule)
 
-	if v6Net := iface.Address().IPv6Net; v6Net.IsValid() {
+	if v6Net.IsValid() {
 		log.Debugf("blocking invalid routed traffic for %s", v6Net)
-		if _, err := m.addRouteFiltering(
+		v6Rule, err := m.addRouteFiltering(
 			nil,
 			sources,
 			firewall.Network{Prefix: v6Net},
@@ -335,14 +345,16 @@ func (m *Manager) blockInvalidRouted(iface common.IFaceMapper) (firewall.Rule, e
 			nil,
 			nil,
 			firewall.ActionDrop,
-		); err != nil {
-			return nil, fmt.Errorf("block wg v6 net: %w", err)
+		)
+		if err != nil {
+			return rules, fmt.Errorf("block wg v6 net: %w", err)
 		}
+		rules = append(rules, v6Rule)
 	}
 
 	// TODO: Block networks that we're a client of
 
-	return rule, nil
+	return rules, nil
 }
 
 func (m *Manager) determineRouting() error {
@@ -1517,12 +1529,13 @@ func (m *Manager) EnableRouting() error {
 		return nil
 	}
 
-	rule, err := m.blockInvalidRouted(m.wgIface)
+	rules, err := m.blockInvalidRouted(m.wgIface)
+	// Persist whatever was installed even on partial failure, so DisableRouting
+	// can clean it up later.
+	m.blockRules = rules
 	if err != nil {
 		return fmt.Errorf("block invalid routed: %w", err)
 	}
-
-	m.blockRule = rule
 
 	return nil
 }
@@ -1549,14 +1562,15 @@ func (m *Manager) DisableRouting() error {
 
 	log.Debug("forwarder stopped")
 
-	if m.blockRule != nil {
-		if err := m.deleteRouteRule(m.blockRule); err != nil {
-			return fmt.Errorf("delete block rule: %w", err)
+	var merr *multierror.Error
+	for _, rule := range m.blockRules {
+		if err := m.deleteRouteRule(rule); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("delete block rule: %w", err))
 		}
-		m.blockRule = nil
 	}
+	m.blockRules = nil
 
-	return nil
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 // RegisterNetstackService registers a service as listening on the netstack for the given protocol and port
