@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 
@@ -134,6 +135,26 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 			p2pRetryMax = p2pRetryMaxDisabledSentinel
 		} else {
 			p2pRetryMax = *settings.P2pRetryMaxSeconds
+		}
+	}
+
+	// Phase 3.7i (#5989): legacy-client compatibility for p2p-dynamic mode.
+	// Clients that do NOT advertise the "p2p_dynamic" capability cannot
+	// honour the new ConnectionMode enum (proto3 default behaviour: they
+	// just ignore the unknown enum value). To give them deterministic and
+	// network-friendly behaviour, downgrade the per-peer config to
+	// p2p-lazy with the admin-configured fallback timeout. The toggle
+	// defaults to ON; admins who know their entire fleet is on a 3.7i+
+	// build can disable it to send raw p2p-dynamic to everyone.
+	if resolvedMode == connectionmode.ModeP2PDynamic && settings.LegacyLazyFallbackEnabled {
+		if !slices.Contains(peer.Meta.SupportedFeatures, "p2p_dynamic") {
+			resolvedMode = connectionmode.ModeP2PLazy
+			relayTO = settings.LegacyLazyFallbackTimeoutSeconds
+			// p2pTO and p2pRetryMax stay as configured -- p2p-lazy mode
+			// doesn't drive ICE-worker tear-down, so they are inert for
+			// legacy clients. Leaving them populated keeps the wire
+			// payload identical for every peer (cache-friendly) and
+			// avoids surprising future modes that might consume them.
 		}
 	}
 
