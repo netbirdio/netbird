@@ -503,12 +503,16 @@ func runIp6tablesSave(t *testing.T) (string, string) {
 
 func verifyIp6tablesOutput(t *testing.T, stdout, stderr string) {
 	t.Helper()
-	require.NotContains(t, stdout, "Table `nat' is incompatible",
-		"ip6tables-save: nat table incompatible. Full output: %s", stdout)
-	require.NotContains(t, stdout, "Table `mangle' is incompatible",
-		"ip6tables-save: mangle table incompatible. Full output: %s", stdout)
-	require.NotContains(t, stdout, "Table `filter' is incompatible",
-		"ip6tables-save: filter table incompatible. Full output: %s", stdout)
+	for _, msg := range []string{
+		"Table `nat' is incompatible",
+		"Table `mangle' is incompatible",
+		"Table `filter' is incompatible",
+	} {
+		require.NotContains(t, stdout, msg,
+			"ip6tables-save stdout reports incompatibility: %s", stdout)
+		require.NotContains(t, stderr, msg,
+			"ip6tables-save stderr reports incompatibility: %s", stderr)
+	}
 }
 
 func TestNftablesManagerCompatibilityWithIptablesFor6kPrefixes(t *testing.T) {
