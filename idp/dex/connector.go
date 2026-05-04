@@ -216,6 +216,7 @@ func buildOIDCConnectorConfig(cfg *ConnectorConfig, redirectURI string) ([]byte,
 		oidcConfig["getUserInfo"] = true
 	case "entra":
 		oidcConfig["claimMapping"] = map[string]string{"email": "preferred_username"}
+		oidcConfig["userIDKey"] = "oid"
 	case "okta":
 		oidcConfig["scopes"] = []string{"openid", "profile", "email", "groups"}
 	case "pocketid":
