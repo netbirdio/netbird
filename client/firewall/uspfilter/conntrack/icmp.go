@@ -26,6 +26,10 @@ const (
 	// IPv4: 20-byte header + 8-byte transport = 28 bytes.
 	// IPv6: 40-byte header + 8-byte transport = 48 bytes.
 	MaxICMPPayloadLength = 48
+	// minICMPPayloadIPv4 is the minimum embedded packet length for IPv4 ICMP errors.
+	minICMPPayloadIPv4 = 28
+	// minICMPPayloadIPv6 is the minimum embedded packet length for IPv6 ICMP errors.
+	minICMPPayloadIPv6 = 48
 )
 
 // ICMPConnKey uniquely identifies an ICMP connection
@@ -67,7 +71,7 @@ type ICMPInfo struct {
 
 // String implements fmt.Stringer for lazy evaluation in log messages
 func (info ICMPInfo) String() string {
-	if info.isErrorMessage() && info.PayloadLen >= MaxICMPPayloadLength {
+	if info.isErrorMessage() && info.PayloadLen >= minICMPPayloadIPv4 {
 		if origInfo := info.parseOriginalPacket(); origInfo != "" {
 			return fmt.Sprintf("%s (original: %s)", info.TypeCode, origInfo)
 		}
@@ -112,8 +116,7 @@ func (info ICMPInfo) parseOriginalPacket() string {
 
 	switch version {
 	case 4:
-		// 20-byte IPv4 header + 8-byte transport minimum
-		if info.PayloadLen < 28 {
+		if info.PayloadLen < minICMPPayloadIPv4 {
 			return ""
 		}
 		protocol = info.PayloadData[9]
@@ -121,8 +124,7 @@ func (info ICMPInfo) parseOriginalPacket() string {
 		dstIP = net.IP(info.PayloadData[16:20])
 		transportData = info.PayloadData[20:]
 	case 6:
-		// 40-byte IPv6 header + 8-byte transport minimum
-		if info.PayloadLen < 48 {
+		if info.PayloadLen < minICMPPayloadIPv6 {
 			return ""
 		}
 		// Next Header field in IPv6 header
