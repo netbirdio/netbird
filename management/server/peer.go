@@ -766,9 +766,10 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 			if !peer.ProxyMeta.Embedded {
 				allGroup, err := am.Store.GetGroupByName(ctx, store.LockingStrengthNone, accountID, "All")
 				if err != nil {
-					return nil, nil, nil, fmt.Errorf("get All group: %w", err)
+					log.WithContext(ctx).Debugf("get All group for IPv6 allocation: %v", err)
+				} else {
+					allGroupID = allGroup.ID
 				}
-				allGroupID = allGroup.ID
 			}
 			if peerWillHaveIPv6(settings, peerAddConfig.GroupsToAdd, allGroupID) {
 				v6Prefix, err := netip.ParsePrefix(network.NetV6.String())
