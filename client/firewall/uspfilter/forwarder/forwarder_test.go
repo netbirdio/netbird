@@ -67,7 +67,8 @@ func TestParseICMPv6_SingleExtension(t *testing.T) {
 	src := netip.MustParseAddr("fd00::1")
 	dst := netip.MustParseAddr("fd00::2")
 	hbh := extHdr(t, uint8(header.ICMPv6ProtocolNumber), 8)
-	payload := append(hbh, echoRequest()...)
+	payload := append([]byte{}, hbh...)
+	payload = append(payload, echoRequest()...)
 	pkt := makeIPv6(t, src, dst, uint8(header.IPv6HopByHopOptionsExtHdrIdentifier), payload)
 
 	off, icmpLen, _, _, ok := parseICMPv6(pkt)

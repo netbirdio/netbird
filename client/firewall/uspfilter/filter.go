@@ -20,7 +20,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-multierror"
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/exp/maps"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
@@ -675,10 +674,10 @@ func (m *Manager) Flush() error { return nil }
 // resetState clears all firewall rules and closes connection trackers.
 // Must be called with m.mutex held.
 func (m *Manager) resetState() {
-	maps.Clear(m.outgoingRules)
-	maps.Clear(m.incomingDenyRules)
-	maps.Clear(m.incomingRules)
-	maps.Clear(m.routeRulesMap)
+	clear(m.outgoingRules)
+	clear(m.incomingDenyRules)
+	clear(m.incomingRules)
+	clear(m.routeRulesMap)
 	m.routeRules = m.routeRules[:0]
 	m.udpHookOut.Store(nil)
 	m.tcpHookOut.Store(nil)
