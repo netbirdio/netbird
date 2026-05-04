@@ -325,17 +325,44 @@ func isIPv6RouteRule(sources []netip.Prefix, destination firewall.Network) bool 
 	return len(sources) > 0 && sources[0].Addr().Is6()
 }
 
-// DeleteRouteRule deletes a routing rule.
-// Route rules are keyed by content hash, so the rule exists in exactly one
-// router. We check v4 first; if the key isn't there, try v6.
+// DeleteRouteRule deletes a routing rule. Route rules live in exactly one
+// router; the cached maps are normally authoritative, so the kernel is only
+// consulted when neither map knows about the rule.
 func (m *Manager) DeleteRouteRule(rule firewall.Rule) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	if m.hasIPv6() && !m.router.hasRule(rule.ID()) {
-		return m.router6.DeleteRouteRule(rule)
+	id := rule.ID()
+	r, err := m.routerForRuleID(id, (*router).hasRule)
+	if err != nil {
+		return err
 	}
-	return m.router.DeleteRouteRule(rule)
+	return r.DeleteRouteRule(rule)
+}
+
+// routerForRuleID picks the router holding the rule with the given id, using
+// the supplied lookup. If the cached maps disagree (or both miss), it refreshes
+// from the kernel once and re-checks before falling back to the v4 router.
+func (m *Manager) routerForRuleID(id string, has func(*router, string) bool) (*router, error) {
+	if has(m.router, id) {
+		return m.router, nil
+	}
+	if m.hasIPv6() && has(m.router6, id) {
+		return m.router6, nil
+	}
+	if !m.hasIPv6() {
+		return m.router, nil
+	}
+	if err := m.router.refreshRulesMap(); err != nil {
+		return nil, fmt.Errorf("refresh v4 rules: %w", err)
+	}
+	if err := m.router6.refreshRulesMap(); err != nil {
+		return nil, fmt.Errorf("refresh v6 rules: %w", err)
+	}
+	if has(m.router6, id) && !has(m.router, id) {
+		return m.router6, nil
+	}
+	return m.router, nil
 }
 
 func (m *Manager) IsServerRouteSupported() bool {
@@ -560,10 +587,11 @@ func (m *Manager) DeleteDNATRule(rule firewall.Rule) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	if m.hasIPv6() && !m.router.hasDNATRule(rule.ID()) {
-		return m.router6.DeleteDNATRule(rule)
+	r, err := m.routerForRuleID(rule.ID(), (*router).hasDNATRule)
+	if err != nil {
+		return err
 	}
-	return m.router.DeleteDNATRule(rule)
+	return r.DeleteDNATRule(rule)
 }
 
 // UpdateSet updates the set with the given prefixes
