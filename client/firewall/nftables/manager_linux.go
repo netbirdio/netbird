@@ -363,6 +363,9 @@ func (m *Manager) AddNatRule(pair firewall.RouterPair) error {
 	if m.hasIPv6() && pair.Dynamic {
 		v6Pair := firewall.ToV6NatPair(pair)
 		if err := m.router6.AddNatRule(v6Pair); err != nil {
+			if rbErr := m.router.RemoveNatRule(pair); rbErr != nil {
+				return fmt.Errorf("add v6 NAT rule: %w (rollback v4: %v)", err, rbErr)
+			}
 			return fmt.Errorf("add v6 NAT rule: %w", err)
 		}
 	}
