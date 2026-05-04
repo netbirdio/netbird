@@ -42,6 +42,16 @@ func TestPrepareURL(t *testing.T) {
 			want:  "ws://relay.example.com:45678/relay",
 		},
 		{
+			name:  "rel scheme with IPv6 and port",
+			input: "rel://[2001:db8::1]:45678",
+			want:  "ws://[2001:db8::1]:45678/relay",
+		},
+		{
+			name:  "rels scheme with IPv6 loopback and port",
+			input: "rels://[::1]:45678",
+			want:  "wss://[::1]:45678/relay",
+		},
+		{
 			name:    "unsupported scheme",
 			input:   "http://test-domain-2:45678",
 			wantErr: true,
