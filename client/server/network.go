@@ -72,9 +72,8 @@ func (s *Server) ListNetworks(context.Context, *proto.ListNetworksRequest) (*pro
 
 		// Merge paired v6 exit node prefix into this entry.
 		v6ID := route.NetID(string(id) + route.V6ExitSuffix)
-		if _, ok := v6ExitMerged[v6ID]; ok {
-			v6Prefix := routesMap[v6ID][0].Network
-			r.extraNetworks = []netip.Prefix{v6Prefix}
+		if _, ok := v6ExitMerged[v6ID]; ok && len(routesMap[v6ID]) > 0 {
+			r.extraNetworks = []netip.Prefix{routesMap[v6ID][0].Network}
 		}
 
 		routes = append(routes, r)
