@@ -244,7 +244,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -273,7 +273,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -292,7 +292,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -395,7 +395,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -438,7 +438,7 @@ func TestPostureCheckAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})

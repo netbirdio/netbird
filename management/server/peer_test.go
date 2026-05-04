@@ -179,11 +179,6 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 	testGetNetworkMapGeneral(t)
 }
 
-func TestAccountManager_GetNetworkMap_Experimental(t *testing.T) {
-	t.Setenv(network_map.EnvNewNetworkMapBuilder, "true")
-	testGetNetworkMapGeneral(t)
-}
-
 func testGetNetworkMapGeneral(t *testing.T) {
 	manager, _, err := createManager(t)
 	if err != nil {
@@ -564,25 +559,9 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 	}
 	assert.NotNil(t, peer)
 
-	// the user can see peer2 because peer1 of the user has access to peer2 due to the All group and the default rule 0 all-to-all access
-	peer, err = manager.GetPeer(context.Background(), accountID, peer2.ID, someUser)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-	assert.NotNil(t, peer)
-
-	// delete the all-to-all policy so that user's peer1 has no access to peer2
-	for _, policy := range account.Policies {
-		err = manager.DeletePolicy(context.Background(), accountID, policy.ID, adminUser)
-		if err != nil {
-			t.Fatal(err)
-			return
-		}
-	}
-
-	// at this point the user can't see the details of peer2
-	peer, err = manager.GetPeer(context.Background(), accountID, peer2.ID, someUser) //nolint
+	// the user can NOT see peer2 because it is not owned by them.
+	// Regular users only see peers they directly own.
+	_, err = manager.GetPeer(context.Background(), accountID, peer2.ID, someUser)
 	assert.Error(t, err)
 
 	// admin users can always access all the peers
@@ -996,7 +975,7 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 			start := time.Now()
 
 			for i := 0; i < b.N; i++ {
-				manager.UpdateAccountPeers(ctx, account.Id)
+				manager.UpdateAccountPeers(ctx, account.Id, types.UpdateReason{})
 			}
 
 			duration := time.Since(start)
@@ -1014,11 +993,6 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 			}
 		})
 	}
-}
-
-func TestUpdateAccountPeers_Experimental(t *testing.T) {
-	t.Setenv(network_map.EnvNewNetworkMapBuilder, "true")
-	testUpdateAccountPeers(t)
 }
 
 func TestUpdateAccountPeers(t *testing.T) {
@@ -1059,7 +1033,7 @@ func testUpdateAccountPeers(t *testing.T) {
 				peerChannels[peerID] = updateManager.CreateChannel(ctx, peerID)
 			}
 
-			manager.UpdateAccountPeers(ctx, account.Id)
+			manager.UpdateAccountPeers(ctx, account.Id, types.UpdateReason{})
 
 			for _, channel := range peerChannels {
 				update := <-channel
@@ -1600,7 +1574,6 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 }
 
 func Test_LoginPeer(t *testing.T) {
-	t.Setenv(network_map.EnvNewNetworkMapBuilder, "true")
 	if runtime.GOOS == "windows" {
 		t.Skip("The SQLite store is not properly supported by Windows yet")
 	}
@@ -1907,7 +1880,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -1929,7 +1902,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -1994,7 +1967,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -2012,7 +1985,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -2058,7 +2031,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -2076,7 +2049,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -2113,7 +2086,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -2131,7 +2104,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})

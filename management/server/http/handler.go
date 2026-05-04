@@ -62,9 +62,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
-const (
-	apiPrefix = "/api"
-)
+const apiPrefix = "/api"
 
 // NewAPIHandler creates the Management service HTTP API handler registering all the available endpoints.
 func NewAPIHandler(ctx context.Context, accountManager account.Manager, networksManager nbnetworks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation, authManager auth.Manager, appMetrics telemetry.AppMetrics, integratedValidator integrated_validator.IntegratedValidator, proxyController port_forwarding.Controller, permissionsManager permissions.Manager, peersManager nbpeers.Manager, settingsManager settings.Manager, zManager zones.Manager, rManager records.Manager, networkMapController network_map.Controller, idpManager idpmanager.Manager, serviceManager service.Manager, reverseProxyDomainManager *manager.Manager, reverseProxyAccessLogsManager accesslogs.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, trustedHTTPProxies []netip.Prefix, rateLimiter *middleware.APIRateLimiter) (http.Handler, error) {
@@ -141,7 +139,7 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 	zonesManager.RegisterEndpoints(router, zManager)
 	recordsManager.RegisterEndpoints(router, rManager)
 	idp.AddEndpoints(accountManager, router)
-	instance.AddEndpoints(instanceManager, router)
+	instance.AddEndpoints(instanceManager, accountManager, router)
 	instance.AddVersionEndpoint(instanceManager, router)
 	if serviceManager != nil && reverseProxyDomainManager != nil {
 		reverseproxymanager.RegisterEndpoints(serviceManager, *reverseProxyDomainManager, reverseProxyAccessLogsManager, permissionsManager, router)

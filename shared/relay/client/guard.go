@@ -8,10 +8,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const (
-	// TODO: make it configurable, the manager should validate all configurable parameters
-	reconnectingTimeout = 60 * time.Second
-)
+const defaultMaxBackoffInterval = 60 * time.Second
 
 // Guard manage the reconnection tries to the Relay server in case of disconnection event.
 type Guard struct {
@@ -19,14 +16,23 @@ type Guard struct {
 	OnNewRelayClient chan *Client
 	OnReconnected    chan struct{}
 	serverPicker     *ServerPicker
+
+	// maxBackoffInterval caps the exponential backoff between reconnect
+	// attempts.
+	maxBackoffInterval time.Duration
 }
 
-// NewGuard creates a new guard for the relay client.
-func NewGuard(sp *ServerPicker) *Guard {
+// NewGuard creates a new guard for the relay client. A non-positive
+// maxBackoffInterval falls back to defaultMaxBackoffInterval.
+func NewGuard(sp *ServerPicker, maxBackoffInterval time.Duration) *Guard {
+	if maxBackoffInterval <= 0 {
+		maxBackoffInterval = defaultMaxBackoffInterval
+	}
 	g := &Guard{
-		OnNewRelayClient: make(chan *Client, 1),
-		OnReconnected:    make(chan struct{}, 1),
-		serverPicker:     sp,
+		OnNewRelayClient:   make(chan *Client, 1),
+		OnReconnected:      make(chan struct{}, 1),
+		serverPicker:       sp,
+		maxBackoffInterval: maxBackoffInterval,
 	}
 	return g
 }
@@ -49,7 +55,7 @@ func (g *Guard) StartReconnectTrys(ctx context.Context, relayClient *Client) {
 	}
 
 	// start a ticker to pick a new server
-	ticker := exponentTicker(ctx)
+	ticker := g.exponentTicker(ctx)
 	defer ticker.Stop()
 
 	for {
@@ -125,11 +131,11 @@ func (g *Guard) notifyReconnected() {
 	}
 }
 
-func exponentTicker(ctx context.Context) *backoff.Ticker {
+func (g *Guard) exponentTicker(ctx context.Context) *backoff.Ticker {
 	bo := backoff.WithContext(&backoff.ExponentialBackOff{
 		InitialInterval: 2 * time.Second,
 		Multiplier:      2,
-		MaxInterval:     reconnectingTimeout,
+		MaxInterval:     g.maxBackoffInterval,
 		Clock:           backoff.SystemClock,
 	}, ctx)
 
