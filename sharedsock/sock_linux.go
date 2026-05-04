@@ -19,6 +19,7 @@ import (
 	"github.com/libp2p/go-netroute"
 	"github.com/mdlayher/socket"
 	log "github.com/sirupsen/logrus"
+	"github.com/vishvananda/netlink"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
 
@@ -315,7 +316,13 @@ func (s *SharedSocket) WriteTo(buf []byte, rAddr net.Addr) (n int, err error) {
 
 	_, _, src, err := s.router.Route(rUDPAddr.IP)
 	if err != nil {
-		return 0, fmt.Errorf("got an error while checking route, err: %w", err)
+		// Fallback to netlink.RouteGet() which respects policy routing tables.
+		// go-netroute only reads the main table, but devices like UniFi gateways
+		// keep the default route in a separate policy routing table.
+		src, err = routeGetSource(rUDPAddr.IP)
+		if err != nil {
+			return 0, fmt.Errorf("got an error while checking route, err: %w", err)
+		}
 	}
 
 	rSockAddr, conn, nwLayer := s.getWriterObjects(src, rUDPAddr.IP)
@@ -331,6 +338,24 @@ func (s *SharedSocket) WriteTo(buf []byte, rAddr net.Addr) (n int, err error) {
 	bufser := buffer.Bytes()
 
 	return 0, conn.Sendto(context.TODO(), bufser, 0, rSockAddr)
+}
+
+// routeGetSource uses netlink.RouteGet to determine the preferred source IP for a destination.
+// This respects policy routing tables (ip rule), unlike go-netroute which only reads the main table.
+func routeGetSource(dst net.IP) (net.IP, error) {
+	routes, err := netlink.RouteGet(dst)
+	if err != nil {
+		return nil, fmt.Errorf("netlink.RouteGet(%s): %w", dst, err)
+	}
+	if len(routes) == 0 {
+		return nil, fmt.Errorf("no route to %s", dst)
+	}
+	src := routes[0].Src
+	if src == nil {
+		return nil, fmt.Errorf("no source address for route to %s", dst)
+	}
+	log.Debugf("Policy routing fallback: route to %s via src %s (table %d, iface idx %d)", dst, src, routes[0].Table, routes[0].LinkIndex)
+	return src, nil
 }
 
 // getWriterObjects returns the specific IP version objects that are used to build a packet and send it using the raw socket
