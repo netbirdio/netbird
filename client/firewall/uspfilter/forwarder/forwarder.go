@@ -278,25 +278,40 @@ func parseICMPv6(payload []byte) (ipHdrLen, icmpLen int, src, dst tcpip.Address,
 func skipIPv6ExtensionsToICMPv6(payload []byte, next uint8, hdrEnd int) (int, bool) {
 	off := header.IPv6MinimumSize
 	for {
-		switch next {
-		case uint8(header.ICMPv6ProtocolNumber):
+		if next == uint8(header.ICMPv6ProtocolNumber) {
 			return off, true
-		case uint8(header.IPv6HopByHopOptionsExtHdrIdentifier),
-			uint8(header.IPv6RoutingExtHdrIdentifier),
-			uint8(header.IPv6DestinationOptionsExtHdrIdentifier):
-			if off+8 > hdrEnd {
-				return 0, false
-			}
-			extLen := (int(payload[off+1]) + 1) * 8
-			if off+extLen > hdrEnd {
-				return 0, false
-			}
-			next = payload[off]
-			off += extLen
-		default:
+		}
+		if !isWalkableIPv6ExtHdr(next) {
 			return 0, false
 		}
+		newOff, newNext, ok := advanceIPv6ExtHdr(payload, off, hdrEnd)
+		if !ok {
+			return 0, false
+		}
+		off = newOff
+		next = newNext
 	}
+}
+
+func isWalkableIPv6ExtHdr(id uint8) bool {
+	switch id {
+	case uint8(header.IPv6HopByHopOptionsExtHdrIdentifier),
+		uint8(header.IPv6RoutingExtHdrIdentifier),
+		uint8(header.IPv6DestinationOptionsExtHdrIdentifier):
+		return true
+	}
+	return false
+}
+
+func advanceIPv6ExtHdr(payload []byte, off, hdrEnd int) (int, uint8, bool) {
+	if off+8 > hdrEnd {
+		return 0, 0, false
+	}
+	extLen := (int(payload[off+1]) + 1) * 8
+	if off+extLen > hdrEnd {
+		return 0, 0, false
+	}
+	return off + extLen, payload[off], true
 }
 
 func (f *Forwarder) handleICMPDirect(payload []byte) bool {
