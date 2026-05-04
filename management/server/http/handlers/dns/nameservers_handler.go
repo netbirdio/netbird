@@ -204,7 +204,11 @@ func (h *nameserversHandler) getNameserverGroup(w http.ResponseWriter, r *http.R
 func toServerNSList(apiNSList []api.Nameserver) ([]nbdns.NameServer, error) {
 	var nsList []nbdns.NameServer
 	for _, apiNS := range apiNSList {
-		parsed, err := nbdns.ParseNameServerURL(fmt.Sprintf("%s://%s", apiNS.NsType, net.JoinHostPort(strings.Trim(apiNS.Ip, "[]"), strconv.Itoa(apiNS.Port))))
+		host, err := unwrapBracketedHost(apiNS.Ip)
+		if err != nil {
+			return nil, err
+		}
+		parsed, err := nbdns.ParseNameServerURL(fmt.Sprintf("%s://%s", apiNS.NsType, net.JoinHostPort(host, strconv.Itoa(apiNS.Port))))
 		if err != nil {
 			return nil, err
 		}
@@ -212,6 +216,18 @@ func toServerNSList(apiNSList []api.Nameserver) ([]nbdns.NameServer, error) {
 	}
 
 	return nsList, nil
+}
+
+// unwrapBracketedHost returns ip with surrounding brackets stripped, rejecting
+// inputs with mismatched brackets.
+func unwrapBracketedHost(ip string) (string, error) {
+	if !strings.ContainsAny(ip, "[]") {
+		return ip, nil
+	}
+	if !strings.HasPrefix(ip, "[") || !strings.HasSuffix(ip, "]") {
+		return "", fmt.Errorf("malformed bracketed address: %s", ip)
+	}
+	return ip[1 : len(ip)-1], nil
 }
 
 func toNameserverGroupResponse(serverNSGroup *nbdns.NameServerGroup) *api.NameserverGroup {
