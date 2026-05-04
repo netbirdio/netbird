@@ -104,6 +104,12 @@ func restore(ctx context.Context, file string) (*FileStore, error) {
 				RoutingPeerDNSResolutionEnabled: true,
 			}
 		}
+		// Phase 3.7i (#5989): the FileStore is the legacy on-disk JSON
+		// backend. Existing JSON files predate the LegacyLazyFallback*
+		// fields entirely (they unmarshal as the Go zero value:
+		// false / 0). Apply the defaults on every load so a JSON
+		// account doesn't silently disable the fallback after upgrade.
+		account.Settings.ApplyLegacyLazyFallbackDefaults()
 
 		for setupKeyId := range account.SetupKeys {
 			store.SetupKeyID2AccountID[strings.ToUpper(setupKeyId)] = accountID

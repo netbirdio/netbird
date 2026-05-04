@@ -78,6 +78,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 
 	sr := func(v string) *string { return &v }
 	br := func(v bool) *bool { return &v }
+	ir := func(v int64) *int64 { return &v }
 
 	handler := initAccountsTestData(t, &types.Account{
 		Id:      accountID,
@@ -120,6 +121,8 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RegularUsersViewBlocked:         true,
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
+				LegacyLazyFallbackEnabled:      br(true),
+				LegacyLazyFallbackTimeoutSeconds: ir(3600),
 				DnsDomain:                       sr(""),
 				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
@@ -146,6 +149,8 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RegularUsersViewBlocked:         false,
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
+				LegacyLazyFallbackEnabled:      br(true),
+				LegacyLazyFallbackTimeoutSeconds: ir(3600),
 				DnsDomain:                       sr(""),
 				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
@@ -172,6 +177,8 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RegularUsersViewBlocked:         false,
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
+				LegacyLazyFallbackEnabled:      br(true),
+				LegacyLazyFallbackTimeoutSeconds: ir(3600),
 				DnsDomain:                       sr(""),
 				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr("latest"),
@@ -198,6 +205,8 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RegularUsersViewBlocked:         true,
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
+				LegacyLazyFallbackEnabled:      br(true),
+				LegacyLazyFallbackTimeoutSeconds: ir(3600),
 				DnsDomain:                       sr(""),
 				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
@@ -224,6 +233,8 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RegularUsersViewBlocked:         true,
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
+				LegacyLazyFallbackEnabled:      br(true),
+				LegacyLazyFallbackTimeoutSeconds: ir(3600),
 				DnsDomain:                       sr(""),
 				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
@@ -250,6 +261,8 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RegularUsersViewBlocked:         true,
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
+				LegacyLazyFallbackEnabled:      br(true),
+				LegacyLazyFallbackTimeoutSeconds: ir(3600),
 				DnsDomain:                       sr(""),
 				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
@@ -402,6 +415,8 @@ func TestAccountsHandler_PutSettings_P2pRetryMax(t *testing.T) {
 		RegularUsersViewBlocked:         false,
 		RoutingPeerDnsResolutionEnabled: br(false),
 		LazyConnectionEnabled:           br(false),
+				LegacyLazyFallbackEnabled:      br(true),
+				LegacyLazyFallbackTimeoutSeconds: ir(3600),
 		DnsDomain:                       sr(""),
 		AutoUpdateAlways:                br(false),
 		AutoUpdateVersion:               sr(""),
