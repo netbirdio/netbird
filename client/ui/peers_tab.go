@@ -156,6 +156,10 @@ func newPeerRow(p *proto.PeerState, showFull bool, mu *sync.Mutex, expanded map[
 		detail = widget.NewLabel(buildPeerDetailText(p, showFull))
 		detail.Wrapping = fyne.TextWrapWord
 		detail.TextStyle = fyne.TextStyle{Monospace: true}
+		// Phase 3.7i: let the user mark + copy peer-detail text with the
+		// mouse (e.g. to paste an FQDN or IP into another tool). Fyne
+		// 2.6+ Label supports the Selectable flag for this.
+		detail.Selectable = true
 		box.Add(detail)
 		header.SetText(titleExpanded)
 	}

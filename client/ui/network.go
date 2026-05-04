@@ -169,7 +169,9 @@ func (s *serviceClient) updateNetworksWithMode(grid *fyne.Container, f filter, s
 		domains := r.GetDomains()
 
 		if len(domains) == 0 {
-			grid.Add(widget.NewLabel(network))
+			rangeLabel := widget.NewLabel(network)
+			rangeLabel.Selectable = true
+			grid.Add(rangeLabel)
 			grid.Add(widget.NewLabel(""))
 			continue
 		}
