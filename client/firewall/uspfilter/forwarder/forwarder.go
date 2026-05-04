@@ -253,15 +253,50 @@ func parseICMPv6(payload []byte) (ipHdrLen, icmpLen int, src, dst tcpip.Address,
 		return 0, 0, src, dst, false
 	}
 	ip := header.IPv6(payload)
-	if ip.NextHeader() != uint8(header.ICMPv6ProtocolNumber) {
+	declaredLen := int(ip.PayloadLength())
+	hdrEnd := header.IPv6MinimumSize + declaredLen
+	if hdrEnd > len(payload) {
 		return 0, 0, src, dst, false
 	}
-	ipHdrLen = header.IPv6MinimumSize
-	icmpLen = int(ip.PayloadLength())
-	if icmpLen < header.ICMPv6MinimumSize || ipHdrLen+icmpLen > len(payload) {
+	icmpStart, ok := skipIPv6ExtensionsToICMPv6(payload, ip.NextHeader(), hdrEnd)
+	if !ok {
 		return 0, 0, src, dst, false
 	}
-	return ipHdrLen, icmpLen, ip.SourceAddress(), ip.DestinationAddress(), true
+	icmpLen = hdrEnd - icmpStart
+	if icmpLen < header.ICMPv6MinimumSize {
+		return 0, 0, src, dst, false
+	}
+	return icmpStart, icmpLen, ip.SourceAddress(), ip.DestinationAddress(), true
+}
+
+// skipIPv6ExtensionsToICMPv6 walks the IPv6 extension-header chain starting
+// after the fixed header. It advances past Hop-by-Hop, Routing, and
+// Destination Options headers (which share the NextHeader+ExtLen+6+ExtLen*8
+// layout) and returns the offset of the ICMPv6 payload. Fragment, ESP, AH,
+// and unknown identifiers are reported as not handleable so the caller can
+// defer to gVisor.
+func skipIPv6ExtensionsToICMPv6(payload []byte, next uint8, hdrEnd int) (int, bool) {
+	off := header.IPv6MinimumSize
+	for {
+		switch next {
+		case uint8(header.ICMPv6ProtocolNumber):
+			return off, true
+		case uint8(header.IPv6HopByHopOptionsExtHdrIdentifier),
+			uint8(header.IPv6RoutingExtHdrIdentifier),
+			uint8(header.IPv6DestinationOptionsExtHdrIdentifier):
+			if off+8 > hdrEnd {
+				return 0, false
+			}
+			extLen := (int(payload[off+1]) + 1) * 8
+			if off+extLen > hdrEnd {
+				return 0, false
+			}
+			next = payload[off]
+			off += extLen
+		default:
+			return 0, false
+		}
+	}
 }
 
 func (f *Forwarder) handleICMPDirect(payload []byte) bool {
