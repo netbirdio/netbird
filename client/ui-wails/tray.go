@@ -70,16 +70,24 @@ const (
 // Tray builds and updates the systray menu. It mirrors the layout of the Fyne
 // systray 1:1 and routes clicks back to the gRPC services. Dynamic state
 // (status icon, exit-node submenu) is driven by the netbird:status event.
+// TrayServices bundles the daemon-RPC and notification services the tray
+// menu needs. Grouped into a single struct so NewTray stays under the
+// linter's parameter-count threshold and so adding another service later
+// is a one-line struct change instead of a NewTray signature break.
+type TrayServices struct {
+	Connection *services.Connection
+	Settings   *services.Settings
+	Profiles   *services.Profiles
+	Peers      *services.Peers
+	Notifier   *notifications.NotificationService
+	Update     *services.Update
+}
+
 type Tray struct {
-	app        *application.App
-	tray       *application.SystemTray
-	window     *application.WebviewWindow
-	connection *services.Connection
-	settings   *services.Settings
-	profiles   *services.Profiles
-	peers      *services.Peers
-	notifier   *notifications.NotificationService
-	update     *services.Update
+	app    *application.App
+	tray   *application.SystemTray
+	window *application.WebviewWindow
+	svc    TrayServices
 
 	statusItem   *application.MenuItem
 	upItem       *application.MenuItem
@@ -100,25 +108,11 @@ type Tray struct {
 	activeUsername       string
 }
 
-func NewTray(
-	app *application.App,
-	window *application.WebviewWindow,
-	connection *services.Connection,
-	settings *services.Settings,
-	profiles *services.Profiles,
-	peers *services.Peers,
-	notifier *notifications.NotificationService,
-	update *services.Update,
-) *Tray {
+func NewTray(app *application.App, window *application.WebviewWindow, svc TrayServices) *Tray {
 	t := &Tray{
 		app:                  app,
 		window:               window,
-		connection:           connection,
-		settings:             settings,
-		profiles:             profiles,
-		peers:                peers,
-		notifier:             notifier,
-		update:               update,
+		svc:                  svc,
 		notificationsEnabled: true,
 	}
 	t.tray = app.SystemTray.New()
@@ -244,7 +238,7 @@ func (t *Tray) handleConnect() {
 	go func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		if err := t.connection.Up(ctx, services.UpParams{}); err != nil {
+		if err := t.svc.Connection.Up(ctx, services.UpParams{}); err != nil {
 			log.Errorf("connect: %v", err)
 			t.notifyError(notifyErrorConnect)
 			t.upItem.SetEnabled(true)
@@ -257,7 +251,7 @@ func (t *Tray) handleDisconnect() {
 	go func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		if err := t.connection.Down(ctx); err != nil {
+		if err := t.svc.Connection.Down(ctx); err != nil {
 			log.Errorf("disconnect: %v", err)
 			t.notifyError(notifyErrorDisconnect)
 			t.downItem.SetEnabled(true)
@@ -336,7 +330,7 @@ func (t *Tray) onUpdateAvailable(ev *application.CustomEvent) {
 	if upd.Enforced {
 		body += notifyUpdateEnforcedSuffix
 	}
-	if err := t.notifier.SendNotification(notifications.NotificationOptions{
+	if err := t.svc.Notifier.SendNotification(notifications.NotificationOptions{
 		ID:    notifyIDUpdatePrefix + upd.Version,
 		Title: notifyUpdateTitle,
 		Body:  body,
@@ -375,7 +369,7 @@ func (t *Tray) handleUpdate() {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		if _, err := t.update.Trigger(ctx); err != nil {
+		if _, err := t.svc.Update.Trigger(ctx); err != nil {
 			log.Errorf("trigger update: %v", err)
 		}
 	}()
@@ -528,12 +522,12 @@ func (t *Tray) loadConfig() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	active, err := t.profiles.GetActive(ctx)
+	active, err := t.svc.Profiles.GetActive(ctx)
 	if err != nil {
 		log.Debugf("get active profile: %v", err)
 		return
 	}
-	cfg, err := t.settings.GetConfig(ctx, services.ConfigParams(active))
+	cfg, err := t.svc.Settings.GetConfig(ctx, services.ConfigParams(active))
 	if err != nil {
 		log.Debugf("get config: %v", err)
 		return
@@ -549,10 +543,10 @@ func (t *Tray) loadConfig() {
 // notify wraps the Wails notification service with the tray's standard
 // id-prefix scheme and swallows errors (notifications are best-effort).
 func (t *Tray) notify(title, body, id string) {
-	if t.notifier == nil {
+	if t.svc.Notifier == nil {
 		return
 	}
-	if err := t.notifier.SendNotification(notifications.NotificationOptions{
+	if err := t.svc.Notifier.SendNotification(notifications.NotificationOptions{
 		ID:    id,
 		Title: title,
 		Body:  body,

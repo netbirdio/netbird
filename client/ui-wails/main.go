@@ -130,7 +130,14 @@ func main() {
 		window.Hide()
 	})
 
-	tray = NewTray(app, window, connection, settings, profiles, peers, notifier, update)
+	tray = NewTray(app, window, TrayServices{
+		Connection: connection,
+		Settings:   settings,
+		Profiles:   profiles,
+		Peers:      peers,
+		Notifier:   notifier,
+		Update:     update,
+	})
 	listenForShowSignal(context.Background(), tray)
 
 	peers.Watch(context.Background())
