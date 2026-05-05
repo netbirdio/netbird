@@ -1609,5 +1609,5 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "client/proto/daemon.proto",
+	Metadata: "daemon.proto",
 }
