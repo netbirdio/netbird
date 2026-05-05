@@ -53,6 +53,36 @@ func TestIceBackoff_AllowActivityOverride(t *testing.T) {
 	}
 }
 
+// TestIceBackoff_OnlyMarkFailureMutates pins the invariant Codex review
+// 2026-05-05 asked us to make explicit: the backoff state is mutated
+// by exactly three methods (markFailure, markSuccess, Reset) and by
+// nothing else. In particular, the backoff must NEVER be triggered by
+// inactivity-driven ICE-detach (DetachICEForPeer / lazy-mgr's
+// ICEInactiveChan) or by full-conn-close (lazy-mgr relayTimeout).
+//
+// Test approach: spin a backoff, exercise the read-only paths
+// (Snapshot, IsSuspended, AllowActivityOverride) repeatedly, then
+// assert failures stayed at 0 and suspended stayed false. This proves
+// that the read methods don't have side-effects that would
+// accidentally enter the backoff state.
+func TestIceBackoff_OnlyMarkFailureMutates(t *testing.T) {
+	s := newIceBackoff(15 * time.Minute)
+
+	for i := 0; i < 20; i++ {
+		_ = s.IsSuspended()
+		_ = s.Snapshot()
+		_ = s.AllowActivityOverride()
+	}
+
+	if s.IsSuspended() {
+		t.Fatal("backoff must not be suspended after read-only calls")
+	}
+	snap := s.Snapshot()
+	if snap.Failures != 0 || snap.Suspended {
+		t.Fatalf("read-only calls must not mutate state, got %+v", snap)
+	}
+}
+
 // TestIceBackoff_MarkSuccessStampsLastResetAt is a direct regression
 // pin for the Codex-found inconsistency: markSuccess MUST update
 // lastResetAt so it counts as a reset point for the

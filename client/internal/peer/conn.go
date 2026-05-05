@@ -1151,17 +1151,21 @@ func boolToConnStatus(connected bool) guard.ConnStatus {
 //   2. conn must be open (not yet closed by relay-timeout)
 //   3. currentConnPriority must be Relay (we're using the relay tunnel)
 //   4. handshaker.iceListener must be nil (ICE actually detached)
-//   5. iceBackoff must NOT be suspended (respect failure backoff)
+//   5. iceBackoff: by default skipped while suspended, BUT a rate-
+//      limited override applies (iceBackoff.AllowActivityOverride —
+//      one bypass per activityOverrideMinInterval=5min per peer).
+//      Codex review 2026-05-05 point 5: real user activity is the
+//      strongest "I want this peer back" signal, so a single override
+//      per 5min trades a bounded extra offer/answer pair for unsticking
+//      legitimately working peers that hit a transient ICE drop.
 //   6. everConnected must be true (we had P2P at least once -- avoids
 //      pointless retries for peers we never reached P2P with)
 //
 // Returns true when AttachICE was actually called (caller can rate-
-// limit further). Does NOT reset the backoff (deliberate -- the
-// activity-recorder fires on every payload packet, resetting blindly
-// would defeat the failure backoff). The lazy-mgr.onPeerActivity
-// path keeps using ResetIceBackoff because there the trigger is
-// "user clearly wants the peer back" (after full Idle), so the
-// stronger signal warrants the reset.
+// limit further). The lazy-mgr.onPeerActivity path uses
+// ResetIceBackoff (unconditional reset) because there the trigger is
+// "user wants the peer back after full Idle" — that signal is even
+// stronger than relay-state activity, so the stronger reset is OK.
 //
 // Phase 3.7i (#5989), Codex review 2026-05-05.
 func (conn *Conn) AttachICEOnRelayActivity() (attempted bool) {
@@ -1328,15 +1332,37 @@ func (conn *Conn) DetachICE() error {
 // onICEFailed is invoked when pion's ICE agent reports
 // ConnectionStateFailed. Increments the backoff counter and tears
 // down the ICE worker. Phase 3 of #5989.
+//
+// Backoff sources are intentionally narrow (Codex review 2026-05-05):
+// only Pion's ConnectionStateFailed counts as a "failure" worth
+// pushing the exponential schedule forward. Inactivity-driven detach
+// (DetachICEForPeer via ICEInactiveChan) and full-conn close (lazy-mgr
+// relayTimeout) bypass markFailure entirely. So the backoff exclusively
+// measures "ICE pair-checks broke after a real attempt", never
+// "no traffic flowed for a while".
 func (conn *Conn) onICEFailed() {
 	if conn.iceBackoff == nil {
 		return
 	}
+	// Distinguish failure types in the log so future debugging can
+	// tell apart "first-attempt couldn't pair" from "established P2P
+	// silently dropped" from "re-attach after detach failed". The
+	// classification is best-effort -- pion only tells us "Failed";
+	// we infer from local state.
+	failType := "first-attempt"
+	switch {
+	case conn.everConnected.Load():
+		failType = "post-success-drop"
+	case conn.handshaker != nil && conn.handshaker.readICEListener() != nil:
+		failType = "re-attach"
+	}
+
 	delay := conn.iceBackoff.markFailure()
 	snap := conn.iceBackoff.Snapshot()
 	if delay > 0 {
-		conn.Log.Infof("ICE failure #%d, suspending for %s, next retry at %s",
+		conn.Log.Infof("ICE failure #%d (%s), suspending for %s, next retry at %s",
 			snap.Failures,
+			failType,
 			delay.Round(time.Second),
 			snap.NextRetry.Format("15:04:05"))
 	}
