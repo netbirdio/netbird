@@ -292,6 +292,55 @@ export class Features {
 }
 
 /**
+ * ForwardingRule is one entry from the daemon's reverse-proxy table —
+ * what we ship to the frontend's "exposed services" view.
+ */
+export class ForwardingRule {
+    "protocol": string;
+    "destinationPort": PortInfo;
+    "translatedAddress": string;
+    "translatedHostname": string;
+    "translatedPort": PortInfo;
+
+    /** Creates a new ForwardingRule instance. */
+    constructor($$source: Partial<ForwardingRule> = {}) {
+        if (!("protocol" in $$source)) {
+            this["protocol"] = "";
+        }
+        if (!("destinationPort" in $$source)) {
+            this["destinationPort"] = (new PortInfo());
+        }
+        if (!("translatedAddress" in $$source)) {
+            this["translatedAddress"] = "";
+        }
+        if (!("translatedHostname" in $$source)) {
+            this["translatedHostname"] = "";
+        }
+        if (!("translatedPort" in $$source)) {
+            this["translatedPort"] = (new PortInfo());
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ForwardingRule instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ForwardingRule {
+        const $$createField1_0 = $$createType0;
+        const $$createField4_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("destinationPort" in $$parsedSource) {
+            $$parsedSource["destinationPort"] = $$createField1_0($$parsedSource["destinationPort"]);
+        }
+        if ("translatedPort" in $$parsedSource) {
+            $$parsedSource["translatedPort"] = $$createField4_0($$parsedSource["translatedPort"]);
+        }
+        return new ForwardingRule($$parsedSource as Partial<ForwardingRule>);
+    }
+}
+
+/**
  * LocalPeer mirrors LocalPeerState — what this client looks like on the mesh.
  */
 export class LocalPeer {
@@ -322,7 +371,7 @@ export class LocalPeer {
      * Creates a new LocalPeer instance from a string or object.
      */
     static createFrom($$source: any = {}): LocalPeer {
-        const $$createField3_0 = $$createType0;
+        const $$createField3_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("networks" in $$parsedSource) {
             $$parsedSource["networks"] = $$createField3_0($$parsedSource["networks"]);
@@ -503,8 +552,8 @@ export class Network {
      * Creates a new Network instance from a string or object.
      */
     static createFrom($$source: any = {}): Network {
-        const $$createField3_0 = $$createType0;
-        const $$createField4_0 = $$createType1;
+        const $$createField3_0 = $$createType1;
+        const $$createField4_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("domains" in $$parsedSource) {
             $$parsedSource["domains"] = $$createField3_0($$parsedSource["domains"]);
@@ -631,12 +680,67 @@ export class PeerStatus {
      * Creates a new PeerStatus instance from a string or object.
      */
     static createFrom($$source: any = {}): PeerStatus {
-        const $$createField16_0 = $$createType0;
+        const $$createField16_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("networks" in $$parsedSource) {
             $$parsedSource["networks"] = $$createField16_0($$parsedSource["networks"]);
         }
         return new PeerStatus($$parsedSource as Partial<PeerStatus>);
+    }
+}
+
+/**
+ * PortInfo carries the destination or translated port for a forwarding rule.
+ * Exactly one of Port or Range is populated, mirroring the daemon's oneof.
+ */
+export class PortInfo {
+    "port"?: number | null;
+    "range"?: PortRange | null;
+
+    /** Creates a new PortInfo instance. */
+    constructor($$source: Partial<PortInfo> = {}) {
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PortInfo instance from a string or object.
+     */
+    static createFrom($$source: any = {}): PortInfo {
+        const $$createField1_0 = $$createType4;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("range" in $$parsedSource) {
+            $$parsedSource["range"] = $$createField1_0($$parsedSource["range"]);
+        }
+        return new PortInfo($$parsedSource as Partial<PortInfo>);
+    }
+}
+
+/**
+ * PortRange describes a contiguous port range. Both ends are inclusive.
+ */
+export class PortRange {
+    "start": number;
+    "end": number;
+
+    /** Creates a new PortRange instance. */
+    constructor($$source: Partial<PortRange> = {}) {
+        if (!("start" in $$source)) {
+            this["start"] = 0;
+        }
+        if (!("end" in $$source)) {
+            this["end"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PortRange instance from a string or object.
+     */
+    static createFrom($$source: any = {}): PortRange {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new PortRange($$parsedSource as Partial<PortRange>);
     }
 }
 
@@ -725,7 +829,7 @@ export class SelectNetworksParams {
      * Creates a new SelectNetworksParams instance from a string or object.
      */
     static createFrom($$source: any = {}): SelectNetworksParams {
-        const $$createField0_0 = $$createType0;
+        const $$createField0_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("networkIds" in $$parsedSource) {
             $$parsedSource["networkIds"] = $$createField0_0($$parsedSource["networkIds"]);
@@ -837,11 +941,11 @@ export class Status {
      * Creates a new Status instance from a string or object.
      */
     static createFrom($$source: any = {}): Status {
-        const $$createField2_0 = $$createType2;
-        const $$createField3_0 = $$createType2;
-        const $$createField4_0 = $$createType3;
-        const $$createField5_0 = $$createType5;
-        const $$createField6_0 = $$createType7;
+        const $$createField2_0 = $$createType5;
+        const $$createField3_0 = $$createType5;
+        const $$createField4_0 = $$createType6;
+        const $$createField5_0 = $$createType8;
+        const $$createField6_0 = $$createType10;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("management" in $$parsedSource) {
             $$parsedSource["management"] = $$createField2_0($$parsedSource["management"]);
@@ -905,7 +1009,7 @@ export class SystemEvent {
      * Creates a new SystemEvent instance from a string or object.
      */
     static createFrom($$source: any = {}): SystemEvent {
-        const $$createField6_0 = $$createType8;
+        const $$createField6_0 = $$createType11;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("metadata" in $$parsedSource) {
             $$parsedSource["metadata"] = $$createField6_0($$parsedSource["metadata"]);
@@ -1056,12 +1160,15 @@ export class WaitSSOParams {
 }
 
 // Private type creation functions
-const $$createType0 = $Create.Array($Create.Any);
-const $$createType1 = $Create.Map($Create.Any, $$createType0);
-const $$createType2 = PeerLink.createFrom;
-const $$createType3 = LocalPeer.createFrom;
-const $$createType4 = PeerStatus.createFrom;
-const $$createType5 = $Create.Array($$createType4);
-const $$createType6 = SystemEvent.createFrom;
-const $$createType7 = $Create.Array($$createType6);
-const $$createType8 = $Create.Map($Create.Any, $Create.Any);
+const $$createType0 = PortInfo.createFrom;
+const $$createType1 = $Create.Array($Create.Any);
+const $$createType2 = $Create.Map($Create.Any, $$createType1);
+const $$createType3 = PortRange.createFrom;
+const $$createType4 = $Create.Nullable($$createType3);
+const $$createType5 = PeerLink.createFrom;
+const $$createType6 = LocalPeer.createFrom;
+const $$createType7 = PeerStatus.createFrom;
+const $$createType8 = $Create.Array($$createType7);
+const $$createType9 = SystemEvent.createFrom;
+const $$createType10 = $Create.Array($$createType9);
+const $$createType11 = $Create.Map($Create.Any, $Create.Any);

@@ -25,9 +25,16 @@ export function Get(): $CancellablePromise<$models.Status> {
 }
 
 /**
- * Watch starts the background loops that feed the frontend: a status
- * stream (push-driven on connection-state change) and an event stream
- * (DNS / network / auth / connectivity / update notifications).
+ * Watch starts the background loops that feed the frontend:
+ *   - statusStreamLoop: push-driven snapshots on connection-state change
+ *     (Connected/Disconnected/Connecting, peer list, address). Drives the
+ *     tray icon, Status page, and Peers page.
+ *   - toastStreamLoop:   DNS / network / auth / connectivity / update
+ *     SystemEvent stream. Drives OS notifications, the Recent Events
+ *     list, and the update-overlay flag. The daemon-side RPC is named
+ *     SubscribeEvents — only the loop's local alias differs to keep the
+ *     two streams distinguishable in this file.
+ * 
  * Safe to call once at boot; both loops self-restart on stream errors
  * via exponential backoff.
  */

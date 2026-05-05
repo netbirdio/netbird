@@ -3,6 +3,7 @@
 
 import * as Connection from "./connection.js";
 import * as Debug from "./debug.js";
+import * as Forwarding from "./forwarding.js";
 import * as Networks from "./networks.js";
 import * as Peers from "./peers.js";
 import * as Profiles from "./profiles.js";
@@ -11,6 +12,7 @@ import * as Update from "./update.js";
 export {
     Connection,
     Debug,
+    Forwarding,
     Networks,
     Peers,
     Profiles,
@@ -25,6 +27,7 @@ export {
     DebugBundleParams,
     DebugBundleResult,
     Features,
+    ForwardingRule,
     LocalPeer,
     LogLevel,
     LoginParams,
@@ -33,6 +36,8 @@ export {
     Network,
     PeerLink,
     PeerStatus,
+    PortInfo,
+    PortRange,
     Profile,
     ProfileRef,
     SelectNetworksParams,

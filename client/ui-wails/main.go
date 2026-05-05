@@ -99,6 +99,7 @@ func main() {
 	app.RegisterService(application.NewService(connection))
 	app.RegisterService(application.NewService(settings))
 	app.RegisterService(application.NewService(services.NewNetworks(conn)))
+	app.RegisterService(application.NewService(services.NewForwarding(conn)))
 	app.RegisterService(application.NewService(profiles))
 	app.RegisterService(application.NewService(services.NewDebug(conn)))
 	app.RegisterService(application.NewService(update))
