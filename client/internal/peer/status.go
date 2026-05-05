@@ -300,6 +300,33 @@ func (d *Status) notifyConnStateChange(peerPubKey string, peerState State) func(
 	return func() { listener(peerPubKey, stateCopy) }
 }
 
+// notifyPeerListChanged fires a peer-list-changed notification using the
+// current peer count. Phase 3.7i: thin wrapper around the notifier so
+// callers in UpdatePeerRemoteMeta and similar paths don't need to know
+// about d.numOfPeers() and d.notifier internals.
+//
+// Caller must hold d.mux (this method reads d.peers/d.offlinePeers via
+// numOfPeers and assumes consistent state).
+func (d *Status) notifyPeerListChanged() {
+	d.notifier.peerListChanged(d.numOfPeers())
+}
+
+// notifyPeerStateChangeListeners snapshots the per-peer router-state for
+// peerID under the lock and dispatches it to registered subscribers in
+// a goroutine, so the dispatch itself does not block on d.mux. Called
+// when a peer's UI-relevant fields (LiveOnline, EffectiveConnectionMode,
+// material ICE/Relay change) flip and subscribers need an immediate
+// push instead of waiting for the next periodic poll. Phase 3.7i.
+//
+// Caller must hold d.mux when calling this.
+func (d *Status) notifyPeerStateChangeListeners(peerID string) {
+	snapshot := d.snapshotRouterPeersLocked(peerID, true)
+	if snapshot == nil {
+		return
+	}
+	go d.dispatchRouterPeers(peerID, snapshot)
+}
+
 func (d *Status) SetRelayMgr(manager *relayClient.Manager) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
