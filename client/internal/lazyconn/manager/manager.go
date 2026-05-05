@@ -612,6 +612,16 @@ func (m *Manager) onPeerActivity(peerConnID peerid.ConnID) {
 		if err := conn.AttachICE(); err != nil {
 			mp.peerCfg.Log.Warnf("AttachICE on activity wake: %v", err)
 		}
+		// Phase 3.7i (#5989), Codex review 2026-05-05: also reset the
+		// guard's per-cycle ICE retry budget. After C->A Idle wake the
+		// Conn (and its guard) is freshly created, but the 3-retries-
+		// then-hourly counter is shared across the whole reconnect
+		// cycle. For peers with non-LAN candidates a single fresh
+		// pair-check cycle often needs all 3 tries (cold srflx
+		// mappings), and without an activity-driven reset the next
+		// real user packet would already find the guard in hourly
+		// mode -- defeating p2p-dynamic's "fast P2P recovery" promise.
+		conn.NotifyGuardActivity()
 	}
 }
 
