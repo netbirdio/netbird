@@ -593,10 +593,20 @@ func (m *Manager) onPeerActivity(peerConnID peerid.ConnID) {
 	//
 	// AttachICE is mode-safe: a no-op for ModeP2P / ModeP2PLazy
 	// (listener already attached via Open) and an error for
-	// ModeRelayForced (workerICE nil) which we ignore. It honours the
-	// iceBackoff so failure cycles still get the existing 3-tries-
-	// then-hourly retry policy.
+	// ModeRelayForced (workerICE nil) which we ignore.
+	//
+	// We also reset iceBackoff first (Codex review point 4): without
+	// the reset, AttachICE early-returns when backoff is suspended.
+	// On a transient ICE failure (e.g. concurrent wake-up race) the
+	// peer enters "ICE retries exhausted (3/3), switching to hourly
+	// retry" mode and stays Relayed for an HOUR even after the user
+	// pings repeatedly. Verified on D95820 ↔ w11-test1 hop (Hetzendorf
+	// LAN ↔ Graz LAN, both behind A1 NAT): pre-fix ICE permanently on
+	// hourly retry; post-restart srflx/srflx hole-punch succeeds in
+	// ~50s. So a transient fail must not poison subsequent legitimate
+	// activity.
 	if conn, ok := m.peerStore.PeerConn(mp.peerCfg.PublicKey); ok {
+		conn.ResetIceBackoff()
 		if err := conn.AttachICE(); err != nil {
 			mp.peerCfg.Log.Warnf("AttachICE on activity wake: %v", err)
 		}
