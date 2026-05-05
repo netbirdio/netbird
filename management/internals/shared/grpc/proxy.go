@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -86,12 +88,27 @@ type ProxyServiceServer struct {
 	// authentication. Defaults to defaultProxyTokenTTL when zero.
 	tokenTTL time.Duration
 
+	// snapshotBatchSize is the number of mappings per gRPC message during
+	// initial snapshot delivery. Configurable via NB_PROXY_SNAPSHOT_BATCH_SIZE.
+	snapshotBatchSize int
+
 	cancel context.CancelFunc
 }
 
 const pkceVerifierTTL = 10 * time.Minute
 
 const defaultProxyTokenTTL = 5 * time.Minute
+
+const defaultSnapshotBatchSize = 500
+
+func snapshotBatchSizeFromEnv() int {
+	if v := os.Getenv("NB_PROXY_SNAPSHOT_BATCH_SIZE"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return defaultSnapshotBatchSize
+}
 
 // proxyTokenTTL returns the configured token TTL or the default when unset.
 func (s *ProxyServiceServer) proxyTokenTTL() time.Duration {
@@ -124,6 +141,7 @@ func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeT
 		peersManager:      peersManager,
 		usersManager:      usersManager,
 		proxyManager:      proxyMgr,
+		snapshotBatchSize: snapshotBatchSizeFromEnv(),
 		cancel:            cancel,
 	}
 	go s.cleanupStaleProxies(ctx)
@@ -311,10 +329,8 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 
 	// Send mappings in batches to reduce per-message gRPC overhead while
 	// staying well within the default 4 MB message size limit.
-	const snapshotBatchSize = 500
-
-	for i := 0; i < len(mappings); i += snapshotBatchSize {
-		end := i + snapshotBatchSize
+	for i := 0; i < len(mappings); i += s.snapshotBatchSize {
+		end := i + s.snapshotBatchSize
 		if end > len(mappings) {
 			end = len(mappings)
 		}
