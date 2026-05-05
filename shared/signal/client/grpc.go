@@ -167,7 +167,7 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 		// start receiving messages from the Signal stream (from other peers through signal)
 		err = c.receive(stream)
 		if err != nil {
-			if s, ok := status.FromError(err); ok && s.Code() == codes.Canceled {
+			if ctx.Err() != nil {
 				log.Debugf("signal connection context has been canceled, this usually indicates shutdown")
 				return nil
 			}

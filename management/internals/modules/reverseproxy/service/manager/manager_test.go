@@ -447,7 +447,7 @@ func TestDeletePeerService_SourcePeerValidation(t *testing.T) {
 			StoreEventFunc: func(_ context.Context, _, _, _ string, activityID activity.ActivityDescriber, _ map[string]any) {
 				storedActivity = activityID.(activity.Activity)
 			},
-			UpdateAccountPeersFunc: func(_ context.Context, _ string) {},
+			UpdateAccountPeersFunc: func(_ context.Context, _ string, _ types.UpdateReason) {},
 		}
 
 		mockStore.EXPECT().
@@ -549,7 +549,7 @@ func TestDeletePeerService_SourcePeerValidation(t *testing.T) {
 			StoreEventFunc: func(_ context.Context, _, _, _ string, activityID activity.ActivityDescriber, _ map[string]any) {
 				storedActivity = activityID.(activity.Activity)
 			},
-			UpdateAccountPeersFunc: func(_ context.Context, _ string) {},
+			UpdateAccountPeersFunc: func(_ context.Context, _ string, _ types.UpdateReason) {},
 		}
 
 		mockStore.EXPECT().
@@ -593,7 +593,7 @@ func TestDeletePeerService_SourcePeerValidation(t *testing.T) {
 			StoreEventFunc: func(_ context.Context, _, _, _ string, _ activity.ActivityDescriber, meta map[string]any) {
 				storedMeta = meta
 			},
-			UpdateAccountPeersFunc: func(_ context.Context, _ string) {},
+			UpdateAccountPeersFunc: func(_ context.Context, _ string, _ types.UpdateReason) {},
 		}
 
 		mockStore.EXPECT().
@@ -704,7 +704,7 @@ func setupIntegrationTest(t *testing.T) (*Manager, store.Store) {
 
 	accountMgr := &mock_server.MockAccountManager{
 		StoreEventFunc:         func(_ context.Context, _, _, _ string, _ activity.ActivityDescriber, _ map[string]any) {},
-		UpdateAccountPeersFunc: func(_ context.Context, _ string) {},
+		UpdateAccountPeersFunc: func(_ context.Context, _ string, _ types.UpdateReason) {},
 		GetGroupByNameFunc: func(ctx context.Context, groupName, accountID, userID string) (*types.Group, error) {
 			return testStore.GetGroupByName(ctx, store.LockingStrengthNone, accountID, groupName)
 		},
@@ -1173,7 +1173,7 @@ func TestDeleteService_DeletesTargets(t *testing.T) {
 	mockAcct.EXPECT().
 		StoreEvent(ctx, userID, service.ID, accountID, activity.ServiceDeleted, gomock.Any())
 	mockAcct.EXPECT().
-		UpdateAccountPeers(ctx, accountID)
+		UpdateAccountPeers(ctx, accountID, gomock.Any())
 
 	err = mgr.DeleteService(ctx, accountID, userID, service.ID)
 	require.NoError(t, err)

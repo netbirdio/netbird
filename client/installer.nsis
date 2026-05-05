@@ -200,9 +200,19 @@ Pop $0
 !macroend
 
 Function .onInit
-SetRegView 64
 StrCpy $INSTDIR "${INSTALL_DIR}"
+; Default autostart to enabled so silent installs (/S) match the interactive default
+StrCpy $AutostartEnabled "1"
+
+; Pre-0.70.1 installers ran without SetRegView, so their uninstall keys live
+; in the 32-bit view. Fall back to it so upgrades still find them.
+SetRegView 64
 ReadRegStr $R0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$(^NAME)" "UninstallString"
+${If} $R0 == ""
+    SetRegView 32
+    ReadRegStr $R0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$(^NAME)" "UninstallString"
+    SetRegView 64
+${EndIf}
 ${If} $R0 != ""
     # if silent install jump to uninstall step
     IfSilent uninstall

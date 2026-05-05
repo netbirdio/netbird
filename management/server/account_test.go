@@ -1761,7 +1761,7 @@ func hasNilField(x interface{}) error {
 		if f := rv.Field(i); f.IsValid() {
 			k := f.Kind()
 			switch k {
-			case reflect.Ptr:
+			case reflect.Pointer:
 				if f.IsNil() {
 					return fmt.Errorf("field %s is nil", f.String())
 				}

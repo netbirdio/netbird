@@ -58,6 +58,14 @@ type DaemonServiceClient interface {
 	// SetSyncResponsePersistence enables or disables sync response persistence
 	SetSyncResponsePersistence(ctx context.Context, in *SetSyncResponsePersistenceRequest, opts ...grpc.CallOption) (*SetSyncResponsePersistenceResponse, error)
 	TracePacket(ctx context.Context, in *TracePacketRequest, opts ...grpc.CallOption) (*TracePacketResponse, error)
+	// StartCapture begins streaming packet capture on the WireGuard interface.
+	// Requires --enable-capture set at service install/reconfigure time.
+	StartCapture(ctx context.Context, in *StartCaptureRequest, opts ...grpc.CallOption) (DaemonService_StartCaptureClient, error)
+	// StartBundleCapture begins capturing packets to a server-side temp file
+	// for inclusion in the next debug bundle. Auto-stops after the given timeout.
+	StartBundleCapture(ctx context.Context, in *StartBundleCaptureRequest, opts ...grpc.CallOption) (*StartBundleCaptureResponse, error)
+	// StopBundleCapture stops the running bundle capture. Idempotent.
+	StopBundleCapture(ctx context.Context, in *StopBundleCaptureRequest, opts ...grpc.CallOption) (*StopBundleCaptureResponse, error)
 	SubscribeEvents(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (DaemonService_SubscribeEventsClient, error)
 	GetEvents(ctx context.Context, in *GetEventsRequest, opts ...grpc.CallOption) (*GetEventsResponse, error)
 	SwitchProfile(ctx context.Context, in *SwitchProfileRequest, opts ...grpc.CallOption) (*SwitchProfileResponse, error)
@@ -82,7 +90,6 @@ type DaemonServiceClient interface {
 	StartCPUProfile(ctx context.Context, in *StartCPUProfileRequest, opts ...grpc.CallOption) (*StartCPUProfileResponse, error)
 	// StopCPUProfile stops CPU profiling in the daemon
 	StopCPUProfile(ctx context.Context, in *StopCPUProfileRequest, opts ...grpc.CallOption) (*StopCPUProfileResponse, error)
-	NotifyOSLifecycle(ctx context.Context, in *OSLifecycleRequest, opts ...grpc.CallOption) (*OSLifecycleResponse, error)
 	GetInstallerResult(ctx context.Context, in *InstallerResultRequest, opts ...grpc.CallOption) (*InstallerResultResponse, error)
 	// ExposeService exposes a local port via the NetBird reverse proxy
 	ExposeService(ctx context.Context, in *ExposeServiceRequest, opts ...grpc.CallOption) (DaemonService_ExposeServiceClient, error)
@@ -290,8 +297,58 @@ func (c *daemonServiceClient) TracePacket(ctx context.Context, in *TracePacketRe
 	return out, nil
 }
 
+func (c *daemonServiceClient) StartCapture(ctx context.Context, in *StartCaptureRequest, opts ...grpc.CallOption) (DaemonService_StartCaptureClient, error) {
+	stream, err := c.cc.NewStream(ctx, &DaemonService_ServiceDesc.Streams[1], "/daemon.DaemonService/StartCapture", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &daemonServiceStartCaptureClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type DaemonService_StartCaptureClient interface {
+	Recv() (*CapturePacket, error)
+	grpc.ClientStream
+}
+
+type daemonServiceStartCaptureClient struct {
+	grpc.ClientStream
+}
+
+func (x *daemonServiceStartCaptureClient) Recv() (*CapturePacket, error) {
+	m := new(CapturePacket)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (c *daemonServiceClient) StartBundleCapture(ctx context.Context, in *StartBundleCaptureRequest, opts ...grpc.CallOption) (*StartBundleCaptureResponse, error) {
+	out := new(StartBundleCaptureResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/StartBundleCapture", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) StopBundleCapture(ctx context.Context, in *StopBundleCaptureRequest, opts ...grpc.CallOption) (*StopBundleCaptureResponse, error) {
+	out := new(StopBundleCaptureResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/StopBundleCapture", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *daemonServiceClient) SubscribeEvents(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (DaemonService_SubscribeEventsClient, error) {
-	stream, err := c.cc.NewStream(ctx, &DaemonService_ServiceDesc.Streams[1], "/daemon.DaemonService/SubscribeEvents", opts...)
+	stream, err := c.cc.NewStream(ctx, &DaemonService_ServiceDesc.Streams[2], "/daemon.DaemonService/SubscribeEvents", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -457,15 +514,6 @@ func (c *daemonServiceClient) StopCPUProfile(ctx context.Context, in *StopCPUPro
 	return out, nil
 }
 
-func (c *daemonServiceClient) NotifyOSLifecycle(ctx context.Context, in *OSLifecycleRequest, opts ...grpc.CallOption) (*OSLifecycleResponse, error) {
-	out := new(OSLifecycleResponse)
-	err := c.cc.Invoke(ctx, "/daemon.DaemonService/NotifyOSLifecycle", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *daemonServiceClient) GetInstallerResult(ctx context.Context, in *InstallerResultRequest, opts ...grpc.CallOption) (*InstallerResultResponse, error) {
 	out := new(InstallerResultResponse)
 	err := c.cc.Invoke(ctx, "/daemon.DaemonService/GetInstallerResult", in, out, opts...)
@@ -476,7 +524,7 @@ func (c *daemonServiceClient) GetInstallerResult(ctx context.Context, in *Instal
 }
 
 func (c *daemonServiceClient) ExposeService(ctx context.Context, in *ExposeServiceRequest, opts ...grpc.CallOption) (DaemonService_ExposeServiceClient, error) {
-	stream, err := c.cc.NewStream(ctx, &DaemonService_ServiceDesc.Streams[2], "/daemon.DaemonService/ExposeService", opts...)
+	stream, err := c.cc.NewStream(ctx, &DaemonService_ServiceDesc.Streams[3], "/daemon.DaemonService/ExposeService", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -551,6 +599,14 @@ type DaemonServiceServer interface {
 	// SetSyncResponsePersistence enables or disables sync response persistence
 	SetSyncResponsePersistence(context.Context, *SetSyncResponsePersistenceRequest) (*SetSyncResponsePersistenceResponse, error)
 	TracePacket(context.Context, *TracePacketRequest) (*TracePacketResponse, error)
+	// StartCapture begins streaming packet capture on the WireGuard interface.
+	// Requires --enable-capture set at service install/reconfigure time.
+	StartCapture(*StartCaptureRequest, DaemonService_StartCaptureServer) error
+	// StartBundleCapture begins capturing packets to a server-side temp file
+	// for inclusion in the next debug bundle. Auto-stops after the given timeout.
+	StartBundleCapture(context.Context, *StartBundleCaptureRequest) (*StartBundleCaptureResponse, error)
+	// StopBundleCapture stops the running bundle capture. Idempotent.
+	StopBundleCapture(context.Context, *StopBundleCaptureRequest) (*StopBundleCaptureResponse, error)
 	SubscribeEvents(*SubscribeRequest, DaemonService_SubscribeEventsServer) error
 	GetEvents(context.Context, *GetEventsRequest) (*GetEventsResponse, error)
 	SwitchProfile(context.Context, *SwitchProfileRequest) (*SwitchProfileResponse, error)
@@ -575,7 +631,6 @@ type DaemonServiceServer interface {
 	StartCPUProfile(context.Context, *StartCPUProfileRequest) (*StartCPUProfileResponse, error)
 	// StopCPUProfile stops CPU profiling in the daemon
 	StopCPUProfile(context.Context, *StopCPUProfileRequest) (*StopCPUProfileResponse, error)
-	NotifyOSLifecycle(context.Context, *OSLifecycleRequest) (*OSLifecycleResponse, error)
 	GetInstallerResult(context.Context, *InstallerResultRequest) (*InstallerResultResponse, error)
 	// ExposeService exposes a local port via the NetBird reverse proxy
 	ExposeService(*ExposeServiceRequest, DaemonService_ExposeServiceServer) error
@@ -643,6 +698,15 @@ func (UnimplementedDaemonServiceServer) SetSyncResponsePersistence(context.Conte
 func (UnimplementedDaemonServiceServer) TracePacket(context.Context, *TracePacketRequest) (*TracePacketResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method TracePacket not implemented")
 }
+func (UnimplementedDaemonServiceServer) StartCapture(*StartCaptureRequest, DaemonService_StartCaptureServer) error {
+	return status.Errorf(codes.Unimplemented, "method StartCapture not implemented")
+}
+func (UnimplementedDaemonServiceServer) StartBundleCapture(context.Context, *StartBundleCaptureRequest) (*StartBundleCaptureResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StartBundleCapture not implemented")
+}
+func (UnimplementedDaemonServiceServer) StopBundleCapture(context.Context, *StopBundleCaptureRequest) (*StopBundleCaptureResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StopBundleCapture not implemented")
+}
 func (UnimplementedDaemonServiceServer) SubscribeEvents(*SubscribeRequest, DaemonService_SubscribeEventsServer) error {
 	return status.Errorf(codes.Unimplemented, "method SubscribeEvents not implemented")
 }
@@ -690,9 +754,6 @@ func (UnimplementedDaemonServiceServer) StartCPUProfile(context.Context, *StartC
 }
 func (UnimplementedDaemonServiceServer) StopCPUProfile(context.Context, *StopCPUProfileRequest) (*StopCPUProfileResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method StopCPUProfile not implemented")
-}
-func (UnimplementedDaemonServiceServer) NotifyOSLifecycle(context.Context, *OSLifecycleRequest) (*OSLifecycleResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method NotifyOSLifecycle not implemented")
 }
 func (UnimplementedDaemonServiceServer) GetInstallerResult(context.Context, *InstallerResultRequest) (*InstallerResultResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetInstallerResult not implemented")
@@ -1058,6 +1119,63 @@ func _DaemonService_TracePacket_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DaemonService_StartCapture_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(StartCaptureRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(DaemonServiceServer).StartCapture(m, &daemonServiceStartCaptureServer{stream})
+}
+
+type DaemonService_StartCaptureServer interface {
+	Send(*CapturePacket) error
+	grpc.ServerStream
+}
+
+type daemonServiceStartCaptureServer struct {
+	grpc.ServerStream
+}
+
+func (x *daemonServiceStartCaptureServer) Send(m *CapturePacket) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func _DaemonService_StartBundleCapture_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StartBundleCaptureRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).StartBundleCapture(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/StartBundleCapture",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).StartBundleCapture(ctx, req.(*StartBundleCaptureRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_StopBundleCapture_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StopBundleCaptureRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).StopBundleCapture(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/StopBundleCapture",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).StopBundleCapture(ctx, req.(*StopBundleCaptureRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _DaemonService_SubscribeEvents_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(SubscribeRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -1349,24 +1467,6 @@ func _DaemonService_StopCPUProfile_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
-func _DaemonService_NotifyOSLifecycle_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(OSLifecycleRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(DaemonServiceServer).NotifyOSLifecycle(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/daemon.DaemonService/NotifyOSLifecycle",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DaemonServiceServer).NotifyOSLifecycle(ctx, req.(*OSLifecycleRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _DaemonService_GetInstallerResult_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(InstallerResultRequest)
 	if err := dec(in); err != nil {
@@ -1486,6 +1586,14 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _DaemonService_TracePacket_Handler,
 		},
 		{
+			MethodName: "StartBundleCapture",
+			Handler:    _DaemonService_StartBundleCapture_Handler,
+		},
+		{
+			MethodName: "StopBundleCapture",
+			Handler:    _DaemonService_StopBundleCapture_Handler,
+		},
+		{
 			MethodName: "GetEvents",
 			Handler:    _DaemonService_GetEvents_Handler,
 		},
@@ -1546,10 +1654,6 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _DaemonService_StopCPUProfile_Handler,
 		},
 		{
-			MethodName: "NotifyOSLifecycle",
-			Handler:    _DaemonService_NotifyOSLifecycle_Handler,
-		},
-		{
 			MethodName: "GetInstallerResult",
 			Handler:    _DaemonService_GetInstallerResult_Handler,
 		},
@@ -1558,6 +1662,11 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "SubscribeStatus",
 			Handler:       _DaemonService_SubscribeStatus_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "StartCapture",
+			Handler:       _DaemonService_StartCapture_Handler,
 			ServerStreams: true,
 		},
 		{

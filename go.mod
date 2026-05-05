@@ -47,6 +47,7 @@ require (
 	github.com/crowdsecurity/go-cs-bouncer v0.0.21
 	github.com/dexidp/dex v0.0.0-00010101000000-000000000000
 	github.com/dexidp/dex/api/v2 v2.4.0
+	github.com/ebitengine/purego v0.9.1
 	github.com/eko/gocache/lib/v4 v4.2.0
 	github.com/eko/gocache/store/go_cache/v4 v4.2.2
 	github.com/eko/gocache/store/redis/v4 v4.2.2
@@ -70,6 +71,7 @@ require (
 	github.com/libp2p/go-netroute v0.2.1
 	github.com/lrh3321/ipset-go v0.0.0-20250619021614-54a0a98ace81
 	github.com/mdlayher/socket v0.5.1
+	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/miekg/dns v1.1.59
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/netbirdio/management-integrations/integrations v0.0.0-20260416123949-2355d972be42
@@ -184,7 +186,6 @@ require (
 	github.com/docker/docker v28.0.1+incompatible // indirect
 	github.com/docker/go-connections v0.6.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
-	github.com/ebitengine/purego v0.9.1 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fredbi/uri v1.1.1 // indirect
@@ -335,6 +336,7 @@ require (
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
+	rsc.io/qr v0.2.0 // indirect
 )
 
 replace github.com/kardianos/service => github.com/netbirdio/service v0.0.0-20240911161631-f62744f42502

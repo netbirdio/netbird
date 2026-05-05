@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/netip"
 	"strings"
 
 	"github.com/netbirdio/netbird/shared/signal/proto"
@@ -14,16 +15,16 @@ import (
 
 // A set of tools to exchange connection details (Wireguard endpoints) with the remote peer.
 
-// Status is the status of the client
-type Status string
-
-const StreamConnected Status = "Connected"
-const StreamDisconnected Status = "Disconnected"
-
 const (
+	StreamConnected    Status = "Connected"
+	StreamDisconnected Status = "Disconnected"
+
 	// DirectCheck indicates support to direct mode checks
 	DirectCheck uint32 = 1
 )
+
+// Status is the status of the client
+type Status string
 
 type Client interface {
 	io.Closer
@@ -36,6 +37,24 @@ type Client interface {
 	SendToStream(msg *proto.EncryptedMessage) error
 	Send(msg *proto.Message) error
 	SetOnReconnectedListener(func())
+}
+
+// Credential is an instance of a GrpcClient's Credential
+type Credential struct {
+	UFrag string
+	Pwd   string
+}
+
+// CredentialPayload bundles the fields of a signal Body for MarshalCredential.
+type CredentialPayload struct {
+	Type            proto.Body_Type
+	WgListenPort    int
+	Credential      *Credential
+	RosenpassPubKey []byte
+	RosenpassAddr   string
+	RelaySrvAddress string
+	RelaySrvIP      netip.Addr
+	SessionID       []byte
 }
 
 // UnMarshalCredential parses the credentials from the message and returns a Credential instance
@@ -52,27 +71,27 @@ func UnMarshalCredential(msg *proto.Message) (*Credential, error) {
 }
 
 // MarshalCredential marshal a Credential instance and returns a Message object
-func MarshalCredential(myKey wgtypes.Key, myPort int, remoteKey string, credential *Credential, t proto.Body_Type, rosenpassPubKey []byte, rosenpassAddr string, relaySrvAddress string, sessionID []byte) (*proto.Message, error) {
+func MarshalCredential(myKey wgtypes.Key, remoteKey string, p CredentialPayload) (*proto.Message, error) {
+	body := &proto.Body{
+		Type:           p.Type,
+		Payload:        fmt.Sprintf("%s:%s", p.Credential.UFrag, p.Credential.Pwd),
+		WgListenPort:   uint32(p.WgListenPort),
+		NetBirdVersion: version.NetbirdVersion(),
+		RosenpassConfig: &proto.RosenpassConfig{
+			RosenpassPubKey:     p.RosenpassPubKey,
+			RosenpassServerAddr: p.RosenpassAddr,
+		},
+		SessionId: p.SessionID,
+	}
+	if p.RelaySrvAddress != "" {
+		body.RelayServerAddress = &p.RelaySrvAddress
+	}
+	if p.RelaySrvIP.IsValid() {
+		body.RelayServerIP = p.RelaySrvIP.Unmap().AsSlice()
+	}
 	return &proto.Message{
 		Key:       myKey.PublicKey().String(),
 		RemoteKey: remoteKey,
-		Body: &proto.Body{
-			Type:           t,
-			Payload:        fmt.Sprintf("%s:%s", credential.UFrag, credential.Pwd),
-			WgListenPort:   uint32(myPort),
-			NetBirdVersion: version.NetbirdVersion(),
-			RosenpassConfig: &proto.RosenpassConfig{
-				RosenpassPubKey:     rosenpassPubKey,
-				RosenpassServerAddr: rosenpassAddr,
-			},
-			RelayServerAddress: relaySrvAddress,
-			SessionId:          sessionID,
-		},
+		Body:      body,
 	}, nil
-}
-
-// Credential is an instance of a GrpcClient's Credential
-type Credential struct {
-	UFrag string
-	Pwd   string
 }
