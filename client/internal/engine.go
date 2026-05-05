@@ -638,6 +638,25 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	e.connMgr = NewConnMgr(e.config, e.statusRecorder, e.peerStore, wgIface)
 	e.connMgr.Start(e.ctx)
 
+	// Phase 3.7i (#5989), Codex review 2026-05-05: wire the
+	// ActivityRecorder OnActivity callback to the relay-state ICE-
+	// upgrade fast-path. Fires at most once per saveFrequency=5s per
+	// peer when a >32-byte type-4 WG transport packet is observed in
+	// the receive path. Conn.AttachICEOnRelayActivity gates on:
+	//   mode==p2p-dynamic, conn open, currentConnPriority==Relay,
+	//   no ICE listener, no active backoff, everConnected==true.
+	// Closes the gap that left peers stuck on relay forever after
+	// iceTimeout fired (D95820 ↔ w11-test1 hop reproduced 2026-05-05).
+	if bind := wgIface.GetBind(); bind != nil {
+		if rec := bind.ActivityRecorder(); rec != nil {
+			rec.SetOnActivity(func(pubKey string) {
+				if conn, ok := e.peerStore.PeerConn(pubKey); ok {
+					conn.AttachICEOnRelayActivity()
+				}
+			})
+		}
+	}
+
 	// Phase 3.7i (#5989): start the per-peer connection-state pusher.
 	e.connStatePusher = newConnStatePusher(
 		&enginePushSink{engine: e},

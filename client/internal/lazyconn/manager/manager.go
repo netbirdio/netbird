@@ -595,16 +595,18 @@ func (m *Manager) onPeerActivity(peerConnID peerid.ConnID) {
 	// (listener already attached via Open) and an error for
 	// ModeRelayForced (workerICE nil) which we ignore.
 	//
-	// We also reset iceBackoff first (Codex review point 4): without
-	// the reset, AttachICE early-returns when backoff is suspended.
-	// On a transient ICE failure (e.g. concurrent wake-up race) the
-	// peer enters "ICE retries exhausted (3/3), switching to hourly
-	// retry" mode and stays Relayed for an HOUR even after the user
-	// pings repeatedly. Verified on D95820 ↔ w11-test1 hop (Hetzendorf
-	// LAN ↔ Graz LAN, both behind A1 NAT): pre-fix ICE permanently on
-	// hourly retry; post-restart srflx/srflx hole-punch succeeds in
-	// ~50s. So a transient fail must not poison subsequent legitimate
-	// activity.
+	// Reset iceBackoff first (Codex review 2026-05-05): the lazy-mgr
+	// activity-listener fires on a >32-byte type-4 outbound packet to
+	// a peer that's been fully Idle (Open=false, conn closed by relay-
+	// timeout). That's the strongest possible "user wants to talk to
+	// this peer" signal -- much stronger than the existing 3-tries-then-
+	// hourly retry policy. Without the reset, a previous transient
+	// ICE failure would keep the conn relay-only for an hour even
+	// after explicit user activity. We reset ONLY here in the lazy-mgr
+	// activity path; the relay-state activity path (engine wires
+	// ActivityRecorder.OnActivity -> Conn.AttachICEOnRelayActivity) does
+	// NOT reset, deliberately respecting the failure backoff because
+	// every relay payload packet would otherwise reset it.
 	if conn, ok := m.peerStore.PeerConn(mp.peerCfg.PublicKey); ok {
 		conn.ResetIceBackoff()
 		if err := conn.AttachICE(); err != nil {
