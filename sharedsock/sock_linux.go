@@ -302,6 +302,9 @@ func (s *SharedSocket) WriteTo(buf []byte, rAddr net.Addr) (n int, err error) {
 	}
 
 	rSockAddr, conn, nwLayer := s.getWriterObjects(src, rUDPAddr.IP)
+	if conn == nil {
+		return 0, fmt.Errorf("no raw socket for %s", rUDPAddr.IP)
+	}
 
 	if err := udp.SetNetworkLayerForChecksum(nwLayer); err != nil {
 		return -1, fmt.Errorf("failed to set network layer for checksum: %w", err)
