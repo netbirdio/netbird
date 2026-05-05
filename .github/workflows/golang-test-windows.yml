@@ -68,8 +68,11 @@ jobs:
         # which fails to compile until the frontend has been built. The Wails UI
         # has no Go-side unit tests, and its release pipeline runs `pnpm build`
         # before goreleaser.
+        # `go list -e` lets the listing succeed even though the embed fails to
+        # resolve; the Where-Object pipeline then drops the broken package by
+        # path. Without -e, go list aborts with empty stdout.
         run: |
-          $packages = go list ./... | Where-Object { $_ -notmatch '/management' } | Where-Object { $_ -notmatch '/relay' } | Where-Object { $_ -notmatch '/signal' } | Where-Object { $_ -notmatch '/proxy' } | Where-Object { $_ -notmatch '/combined' } | Where-Object { $_ -notmatch '/client/ui-wails' }
+          $packages = go list -e ./... | Where-Object { $_ -notmatch '/management' } | Where-Object { $_ -notmatch '/relay' } | Where-Object { $_ -notmatch '/signal' } | Where-Object { $_ -notmatch '/proxy' } | Where-Object { $_ -notmatch '/combined' } | Where-Object { $_ -notmatch '/client/ui-wails' }
           $goExe = "C:\hostedtoolcache\windows\go\${{ steps.go.outputs.go-version }}\x64\bin\go.exe"
           $cmd = "$goExe test -tags=devcert -timeout 10m -p 1 $($packages -join ' ') > test-out.txt 2>&1"
           Set-Content -Path "${{ github.workspace }}\run-tests.cmd" -Value $cmd

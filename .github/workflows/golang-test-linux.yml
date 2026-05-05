@@ -158,7 +158,11 @@ jobs:
         # which fails to compile until the frontend has been built. The Wails UI
         # has no Go-side unit tests, and its release pipeline runs `pnpm build`
         # before goreleaser.
-        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} CI=true go test -tags devcert -exec 'sudo' -timeout 10m -p 1 $(go list ./... | grep -v -e /management -e /signal -e /relay -e /proxy -e /combined -e /client/ui-wails)
+        # `go list -e` lets the listing succeed even though the embed fails to
+        # resolve; the grep then drops the broken package by path. Without -e,
+        # go list aborts with empty stdout and `go test` falls back to the repo
+        # root, which has no Go files.
+        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} CI=true go test -tags devcert -exec 'sudo' -timeout 10m -p 1 $(go list -e ./... | grep -v -e /management -e /signal -e /relay -e /proxy -e /combined -e /client/ui-wails)
 
   test_client_on_docker:
     name: "Client (Docker) / Unit"
@@ -218,7 +222,7 @@ jobs:
             sh -c ' \
               apk update; apk add --no-cache \
                 ca-certificates iptables ip6tables dbus dbus-dev libpcap-dev build-base; \
-              go test -buildvcs=false -tags devcert -v -timeout 10m -p 1 $(go list -buildvcs=false ./... | grep -v -e /management -e /signal -e /relay -e /proxy -e /combined -e /client/ui -e /upload-server)
+              go test -buildvcs=false -tags devcert -v -timeout 10m -p 1 $(go list -e -buildvcs=false ./... | grep -v -e /management -e /signal -e /relay -e /proxy -e /combined -e /client/ui -e /upload-server)
             '
 
   test_relay:
