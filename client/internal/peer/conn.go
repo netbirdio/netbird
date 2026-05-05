@@ -1141,6 +1141,25 @@ func boolToConnStatus(connected bool) guard.ConnStatus {
 	return guard.ConnStatusDisconnected
 }
 
+// ResetIceBackoff hard-resets the per-peer ICE-failure backoff state
+// (failure counter back to 0, suspended -> false, exponential schedule
+// back to its initial interval, lastResetAt stamped). Intended for the
+// lazy-mgr activity-trigger path: a transient ICE failure (e.g.
+// concurrent wake-up race) otherwise enters "3 retries exhausted ->
+// hourly retry" mode (guard/ice_retry_state.go:52) and the next
+// legitimate activity sees AttachICE early-return on
+// iceBackoff.IsSuspended() -> peer permanently stuck on relay. Called
+// from lazyconn manager.onPeerActivity before AttachICE so real user
+// traffic always gets a fresh ICE attempt. The signal-trigger path
+// does NOT reset (it deliberately respects the failure backoff).
+func (conn *Conn) ResetIceBackoff() {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	if conn.iceBackoff != nil {
+		conn.iceBackoff.Reset()
+	}
+}
+
 // AttachICE registers the ICE-offer listener on the handshaker after the
 // activity-detector observes traffic on the relay tunnel. Idempotent: if
 // the listener is already attached, it is a no-op. Triggers a fresh offer
