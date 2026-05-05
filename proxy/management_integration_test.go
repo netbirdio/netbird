@@ -201,15 +201,15 @@ func (m *testAccessLogManager) GetAllAccessLogs(_ context.Context, _, _ string, 
 // testProxyManager is a mock implementation of proxy.Manager for testing.
 type testProxyManager struct{}
 
-func (m *testProxyManager) Connect(_ context.Context, _, _, _ string, _ *nbproxy.Capabilities) error {
+func (m *testProxyManager) Connect(_ context.Context, proxyID, sessionID, _, _ string, _ *nbproxy.Capabilities) (*nbproxy.Proxy, error) {
+	return &nbproxy.Proxy{ID: proxyID, SessionID: sessionID, Status: "connected"}, nil
+}
+
+func (m *testProxyManager) Disconnect(_ context.Context, _, _ string) error {
 	return nil
 }
 
-func (m *testProxyManager) Disconnect(_ context.Context, _ string) error {
-	return nil
-}
-
-func (m *testProxyManager) Heartbeat(_ context.Context, _, _, _ string) error {
+func (m *testProxyManager) Heartbeat(_ context.Context, _ *nbproxy.Proxy) error {
 	return nil
 }
 
@@ -655,4 +655,73 @@ func TestIntegration_ProxyConnection_MultipleProxiesReceiveUpdates(t *testing.T)
 	for proxyID, count := range receivedByProxy {
 		assert.Equal(t, 2, count, "Proxy %s should receive 2 mappings", proxyID)
 	}
+}
+
+// TestIntegration_ProxyConnection_FastReconnectDoesNotLoseState verifies that
+// when a proxy reconnects before the old stream's cleanup runs, the new
+// connection is NOT removed by the stale defer.
+func TestIntegration_ProxyConnection_FastReconnectDoesNotLoseState(t *testing.T) {
+	setup := setupIntegrationTest(t)
+	defer setup.cleanup()
+
+	clusterAddress := "test.proxy.io"
+	proxyID := "test-proxy-race"
+
+	conn, err := grpc.NewClient(setup.grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer conn.Close()
+
+	client := proto.NewProxyServiceClient(conn)
+
+	ctx1, cancel1 := context.WithCancel(context.Background())
+	stream1, err := client.GetMappingUpdate(ctx1, &proto.GetMappingUpdateRequest{
+		ProxyId: proxyID,
+		Version: "test-v1",
+		Address: clusterAddress,
+	})
+	require.NoError(t, err)
+
+	for i := 0; i < 2; i++ {
+		_, err := stream1.Recv()
+		require.NoError(t, err)
+	}
+
+	require.Contains(t, setup.proxyService.GetConnectedProxies(), proxyID,
+		"proxy should be registered after first connection")
+
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel2()
+
+	stream2, err := client.GetMappingUpdate(ctx2, &proto.GetMappingUpdateRequest{
+		ProxyId: proxyID,
+		Version: "test-v1",
+		Address: clusterAddress,
+	})
+	require.NoError(t, err)
+
+	for i := 0; i < 2; i++ {
+		_, err := stream2.Recv()
+		require.NoError(t, err)
+	}
+
+	cancel1()
+
+	time.Sleep(200 * time.Millisecond)
+
+	assert.Contains(t, setup.proxyService.GetConnectedProxies(), proxyID,
+		"proxy should still be registered after old connection cleanup — old defer must not remove new connection")
+
+	setup.proxyService.SendServiceUpdate(&proto.GetMappingUpdateResponse{
+		Mapping: []*proto.ProxyMapping{{
+			Type:      proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED,
+			Id:        "rp-1",
+			AccountId: "test-account-1",
+			Domain:    "app1.test.proxy.io",
+		}},
+	})
+
+	msg, err := stream2.Recv()
+	require.NoError(t, err, "new stream should still receive updates")
+	require.NotEmpty(t, msg.GetMapping(), "update should contain the mapping")
+	assert.Equal(t, "rp-1", msg.GetMapping()[0].GetId())
 }

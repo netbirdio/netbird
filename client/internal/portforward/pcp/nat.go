@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"runtime"
 	"sync"
 	"time"
 
@@ -177,9 +178,12 @@ func getDefaultGateway() (gateway net.IP, localIP net.IP, err error) {
 		return nil, nil, err
 	}
 
-	// go-netroute v0.4.0 rejects unspecified destinations. Use the lowest
-	// non-unspecified address so the lookup falls through to the default route.
-	_, gateway, localIP, err = router.Route(net.IPv4(0, 0, 0, 1))
+	dst := net.IPv4zero
+	if runtime.GOOS == "linux" {
+		// go-netroute v0.4.0 rejects unspecified destinations client-side on Linux.
+		dst = net.IPv4(0, 0, 0, 1)
+	}
+	_, gateway, localIP, err = router.Route(dst)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -198,9 +202,11 @@ func getDefaultGateway6() (gateway net.IP, localIP net.IP, err error) {
 		return nil, nil, err
 	}
 
-	// go-netroute v0.4.0 rejects unspecified destinations. Use the lowest
-	// non-loopback IPv6 address so the lookup falls through to the default route.
-	_, gateway, localIP, err = router.Route(net.IP{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2})
+	dst := net.IPv6zero
+	if runtime.GOOS == "linux" {
+		dst = net.IP{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2}
+	}
+	_, gateway, localIP, err = router.Route(dst)
 	if err != nil {
 		return nil, nil, err
 	}

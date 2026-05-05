@@ -343,18 +343,19 @@ func GetNextHop(ip netip.Addr) (Nexthop, error) {
 		return Nexthop{}, fmt.Errorf("new netroute: %w", err)
 	}
 
-	// go-netroute v0.4.0 rejects unspecified destinations. Substitute the lowest
-	// non-unspecified address so the lookup falls through to the default route.
-	queryIP := ip
-	if queryIP.IsUnspecified() {
-		if queryIP.Is6() {
-			queryIP = netip.AddrFrom16([16]byte{15: 2})
+	// go-netroute v0.4.0 rejects unspecified destinations on Linux with a hard
+	// client-side check. Substitute the lowest non-unspecified address so the
+	// lookup falls through to the default route. BSD/Windows pass the query
+	// straight to the kernel, so we leave the destination untouched there.
+	if runtime.GOOS == "linux" && ip.IsUnspecified() {
+		if ip.Is6() {
+			ip = netip.AddrFrom16([16]byte{15: 2})
 		} else {
-			queryIP = netip.AddrFrom4([4]byte{0, 0, 0, 1})
+			ip = netip.AddrFrom4([4]byte{0, 0, 0, 1})
 		}
 	}
 
-	intf, gateway, preferredSrc, err := r.Route(queryIP.AsSlice())
+	intf, gateway, preferredSrc, err := r.Route(ip.AsSlice())
 	if err != nil {
 		log.Debugf("Failed to get route for %s: %v", ip, err)
 		return Nexthop{}, vars.ErrRouteNotFound

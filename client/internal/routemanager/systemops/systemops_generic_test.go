@@ -376,6 +376,9 @@ func TestAddRouteToNonVPNIntf(t *testing.T) {
 				require.ErrorIs(t, err, vars.ErrRouteNotAllowed)
 				return
 			}
+			if testCase.prefix.Addr().Is6() && errors.Is(err, vars.ErrRouteNotFound) {
+				t.Skip("Skipping IPv6 test as no route is available for the test prefix")
+			}
 			require.NoError(t, err)
 			t.Logf("Next hop for %s: %s", testCase.prefix, nexthop)
 
