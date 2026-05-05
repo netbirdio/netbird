@@ -1021,6 +1021,7 @@ func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.Pr
 			s.Logger.Debug("Processing mapping update completed")
 
 			if !*initialSyncDone && msg.GetInitialSyncComplete() {
+				s.reconcileSnapshot(ctx, msg.GetMapping())
 				if s.healthChecker != nil {
 					s.healthChecker.SetInitialSyncComplete()
 				}
@@ -1028,6 +1029,32 @@ func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.Pr
 				s.Logger.Info("Initial mapping sync complete")
 			}
 		}
+	}
+}
+
+// reconcileSnapshot removes local mappings that are absent from the snapshot.
+// This ensures services deleted while the proxy was disconnected get cleaned up.
+func (s *Server) reconcileSnapshot(ctx context.Context, snapshotMappings []*proto.ProxyMapping) {
+	snapshotIDs := make(map[types.ServiceID]struct{}, len(snapshotMappings))
+	for _, m := range snapshotMappings {
+		snapshotIDs[types.ServiceID(m.GetId())] = struct{}{}
+	}
+
+	s.portMu.RLock()
+	var stale []*proto.ProxyMapping
+	for svcID, mapping := range s.lastMappings {
+		if _, ok := snapshotIDs[svcID]; !ok {
+			stale = append(stale, mapping)
+		}
+	}
+	s.portMu.RUnlock()
+
+	for _, mapping := range stale {
+		s.Logger.WithFields(log.Fields{
+			"service_id": mapping.GetId(),
+			"domain":     mapping.GetDomain(),
+		}).Info("Removing stale mapping absent from snapshot")
+		s.removeMapping(ctx, mapping)
 	}
 }
 
