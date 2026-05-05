@@ -134,12 +134,22 @@ func (s *iceBackoffState) Snapshot() BackoffSnapshot {
 
 // markSuccess clears the failure counter and resets the internal backoff
 // to its initial interval. Called when pion reports ConnectionStateConnected.
+//
+// Also stamps lastResetAt: a successful ICE connect is semantically the
+// strongest "the path works" signal we have, so the post-network-change
+// grace period (markFailure) and the activity-override rate limit
+// (AllowActivityOverride) both honour it as a fresh reset point. Codex
+// review 2026-05-05 caught the previous miss: without this stamp,
+// Reset() and markSuccess() were inconsistent and AllowActivityOverride
+// would have allowed an override immediately after a fresh successful
+// connect, defeating its rate-limit intent.
 func (s *iceBackoffState) markSuccess() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.failures = 0
 	s.suspended = false
 	s.bo.Reset()
+	s.lastResetAt = time.Now()
 }
 
 // Reset is the hard reset triggered by interface-change or mode-push.

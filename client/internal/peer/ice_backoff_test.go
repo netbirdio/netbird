@@ -5,6 +5,76 @@ import (
 	"time"
 )
 
+// TestIceBackoff_AllowActivityOverride pins down the rate-limited
+// "user-activity-overrides-hourly-backoff" semantic added 2026-05-05.
+// Codex review caught that markSuccess() previously did NOT stamp
+// lastResetAt, so this test specifically also covers the post-success
+// path -- without the markSuccess fix the rate-limit window would have
+// effectively never engaged after a brief successful connect cycle.
+func TestIceBackoff_AllowActivityOverride(t *testing.T) {
+	s := newIceBackoff(15 * time.Minute)
+
+	// Not suspended -> no override needed
+	if s.AllowActivityOverride() {
+		t.Fatal("not suspended: must NOT allow override")
+	}
+
+	// Suspended via markFailure
+	for i := 0; i < 3; i++ {
+		s.markFailure()
+	}
+	if !s.IsSuspended() {
+		t.Fatal("after 3 failures: must be suspended")
+	}
+
+	// Recently reset (Reset just happened in newIceBackoff bo, but
+	// lastResetAt is zero — falls back to time.Since(zero) = forever
+	// which IS > 5min, so override IS allowed). To make the test
+	// deterministic, hard-Reset to stamp lastResetAt = now, then
+	// re-fail 3x to suspend.
+	s.Reset()
+	for i := 0; i < 3; i++ {
+		s.markFailure()
+	}
+	if !s.IsSuspended() {
+		t.Fatal("after Reset+3 failures: must be suspended")
+	}
+	// Now lastResetAt is fresh (within 5min) -> override DENIED
+	if s.AllowActivityOverride() {
+		t.Fatal("recently reset: must NOT allow override (rate-limit)")
+	}
+
+	// Simulate >5min since last reset by stamping lastResetAt back
+	s.mu.Lock()
+	s.lastResetAt = time.Now().Add(-6 * time.Minute)
+	s.mu.Unlock()
+	if !s.AllowActivityOverride() {
+		t.Fatal("suspended + last reset >5min ago: MUST allow override")
+	}
+}
+
+// TestIceBackoff_MarkSuccessStampsLastResetAt is a direct regression
+// pin for the Codex-found inconsistency: markSuccess MUST update
+// lastResetAt so it counts as a reset point for the
+// activity-override rate limit (and the markFailure grace period).
+func TestIceBackoff_MarkSuccessStampsLastResetAt(t *testing.T) {
+	s := newIceBackoff(15 * time.Minute)
+	// Force lastResetAt into the past
+	s.mu.Lock()
+	s.lastResetAt = time.Now().Add(-30 * time.Minute)
+	s.mu.Unlock()
+
+	s.markSuccess()
+
+	s.mu.Lock()
+	stamped := s.lastResetAt
+	s.mu.Unlock()
+	if time.Since(stamped) > time.Second {
+		t.Fatalf("markSuccess must stamp lastResetAt to ~now, got %v ago", time.Since(stamped))
+	}
+}
+
+
 func TestIceBackoff_InitialState(t *testing.T) {
 	s := newIceBackoff(15 * time.Minute)
 	if s.IsSuspended() {
