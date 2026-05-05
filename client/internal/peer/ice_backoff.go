@@ -155,6 +155,37 @@ func (s *iceBackoffState) Reset() {
 	s.lastResetAt = time.Now()
 }
 
+// activityOverrideMinInterval bounds how often relay-state activity
+// can override an active ICE-failure backoff. The backoff exists to
+// protect signal-server load against truly broken paths; user activity
+// however is the strongest "I want this peer back" signal we have, so
+// we allow ONE override per this window per peer. 5 min lines up with
+// the relayTimeout default -- after one override window the conn would
+// have cycled to Idle anyway, freeing the backoff via the C->A wake
+// path which already does ResetIceBackoff.
+const activityOverrideMinInterval = 5 * time.Minute
+
+// AllowActivityOverride returns true if a relay-state activity event
+// is permitted to bypass an active backoff suspension. The caller is
+// expected to call Reset() afterwards if true is returned. Guards
+// against signal-storm by enforcing activityOverrideMinInterval since
+// the last (success-, network-change-, or override-driven) reset.
+//
+// Phase 3.7i (#5989), Codex review 2026-05-05 point 5: "Optional
+// maximal ein sehr bewusstes 'user activity retry override' mit harter
+// Rate-Limitierung". This is that override, gated to once per 5min.
+func (s *iceBackoffState) AllowActivityOverride() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.suspended {
+		return false // not in backoff, nothing to override
+	}
+	if time.Since(s.lastResetAt) < activityOverrideMinInterval {
+		return false // too soon since last reset, respect rate limit
+	}
+	return true
+}
+
 // SetMaxBackoff updates the cap. Called from ConnMgr.UpdatedRemotePeerConfig
 // when the server pushes a new value. Rebuilds the internal backoff with
 // the new schedule but preserves the failure counter.
