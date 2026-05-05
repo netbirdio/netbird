@@ -25,12 +25,6 @@ const (
 // processes: 53 (plain DNS) and 853 (DNS-over-TLS).
 var defaultBlockedPorts = []uint16{53, 853}
 
-// strictMode reports whether strict mode is enabled via env.
-func strictMode() bool {
-	v, _ := strconv.ParseBool(os.Getenv(EnvStrict))
-	return v
-}
-
 // blockedPorts returns the effective port list, honoring env overrides.
 // A nil return means the firewall should not be installed.
 func blockedPorts() []uint16 {

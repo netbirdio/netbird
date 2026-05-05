@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
+	"strconv"
 	"sync"
 	"unsafe"
 
@@ -111,6 +112,12 @@ func (m *windowsManager) failOrLog(strict bool, err error) error {
 // New returns a Windows DNS firewall manager backed by WFP.
 func New() Manager {
 	return &windowsManager{}
+}
+
+// strictMode reports whether strict mode is enabled via env.
+func strictMode() bool {
+	v, _ := strconv.ParseBool(os.Getenv(EnvStrict))
+	return v
 }
 
 // luidFromGUID converts a Windows interface GUID string to its LUID.
