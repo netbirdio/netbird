@@ -214,7 +214,7 @@ func blockDNSPort(session uintptr, base *baseObjects, port uint16, weight uint8)
 		action:              wtFwpmAction0{_type: cFWP_ACTION_BLOCK},
 	}
 
-	return addOutboundFilters(session, &filter, "Block DNS port")
+	return addOutboundFilters(session, &filter, fmt.Sprintf("Block DNS port %d", port))
 }
 
 // addOutboundFilters installs the same filter on the v4 and v6 outbound ALE

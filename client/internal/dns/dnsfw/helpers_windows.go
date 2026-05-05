@@ -8,6 +8,7 @@
 package dnsfw
 
 import (
+	"errors"
 	"fmt"
 	"runtime"
 	"syscall"
@@ -40,7 +41,8 @@ func filterWeight(weight uint8) wtFwpValue0 {
 }
 
 func wrapErr(err error) error {
-	if _, ok := err.(syscall.Errno); !ok {
+	var errno syscall.Errno
+	if !errors.As(err, &errno) {
 		return err
 	}
 	_, file, line, ok := runtime.Caller(1)

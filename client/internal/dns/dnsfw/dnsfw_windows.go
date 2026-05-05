@@ -91,10 +91,11 @@ func (m *windowsManager) disableLocked() error {
 	if m.session == 0 {
 		return nil
 	}
-	if err := closeSession(m.session); err != nil {
+	session := m.session
+	m.session = 0
+	if err := closeSession(session); err != nil {
 		return fmt.Errorf("close wfp session: %w", err)
 	}
-	m.session = 0
 	log.Info("dns firewall removed")
 	return nil
 }

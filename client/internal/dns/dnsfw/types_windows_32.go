@@ -3,6 +3,8 @@
 /* SPDX-License-Identifier: MIT
  *
  * Copyright (C) 2019-2021 WireGuard LLC. All Rights Reserved.
+ *
+ * Adapted from wireguard-windows tunnel/firewall/types_windows_32.go.
  */
 
 package dnsfw

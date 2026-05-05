@@ -52,7 +52,7 @@ func blockedPorts() []uint16 {
 		ports = append(ports, uint16(port))
 	}
 	if len(ports) == 0 {
-		log.Infof("dns firewall disabled via empty %s", EnvPorts)
+		log.Infof("dns firewall disabled: %s yielded no valid ports", EnvPorts)
 		return nil
 	}
 	return ports
