@@ -1257,8 +1257,16 @@ func (conn *Conn) NotifyGuardActivity() {
 func (conn *Conn) ResetIceBackoff() {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
-	if conn.iceBackoff != nil {
-		conn.iceBackoff.Reset()
+	if conn.iceBackoff == nil {
+		return
+	}
+	conn.iceBackoff.Reset()
+	if conn.statusRecorder != nil {
+		// Codex review 2026-05-05 follow-up: keep status output (CLI
+		// `netbird status -d`, daemon RPC) in sync with the cleared
+		// backoff state so it doesn't continue to advertise a stale
+		// "suspended" / "Failures=N" snapshot after the reset.
+		conn.statusRecorder.UpdatePeerIceBackoff(conn.config.Key, conn.iceBackoff.Snapshot())
 	}
 }
 

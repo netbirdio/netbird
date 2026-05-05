@@ -22,6 +22,7 @@ infrastructure_files/**/docker-compose.yml.bkp.**
 infrastructure_files/**/openid-configuration.json.bkp.**
 infrastructure_files/**/turnserver.conf.bkp.**
 management/management
+management/netbird-mgmt
 client/client
 client/client.exe
 *.syso
