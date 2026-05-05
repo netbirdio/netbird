@@ -20,6 +20,7 @@ func TestBlockedPorts(t *testing.T) {
 		{name: "override multi", ports: "53, 853 ,5353", setPorts: true, want: []uint16{53, 853, 5353}},
 		{name: "override empty disables", ports: "", setPorts: true, want: nil},
 		{name: "override invalid skipped", ports: "53,not-a-port,853", setPorts: true, want: []uint16{53, 853}},
+		{name: "override zero skipped", ports: "53,0,853", setPorts: true, want: []uint16{53, 853}},
 		{name: "override only invalid disables", ports: "abc", setPorts: true, want: nil},
 	}
 

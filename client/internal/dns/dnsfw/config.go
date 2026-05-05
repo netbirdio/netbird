@@ -49,6 +49,10 @@ func blockedPorts() []uint16 {
 			log.Warnf("dns firewall: ignoring invalid port %q in %s: %v", raw, EnvPorts, err)
 			continue
 		}
+		if port == 0 {
+			log.Warnf("dns firewall: ignoring port 0 in %s", EnvPorts)
+			continue
+		}
 		ports = append(ports, uint16(port))
 	}
 	if len(ports) == 0 {

@@ -221,7 +221,11 @@ func (r *registryConfigurator) applyRouteAll(config HostDNSConfig) error {
 			return fmt.Errorf("dns firewall: %w", err)
 		}
 		if err := r.addDNSSetupForAll(config.ServerIP); err != nil {
-			return fmt.Errorf("add dns setup: %w", err)
+			merr := multierror.Append(nil, fmt.Errorf("add dns setup: %w", err))
+			if dErr := r.dnsFirewall.Disable(); dErr != nil {
+				merr = multierror.Append(merr, fmt.Errorf("rollback dns firewall: %w", dErr))
+			}
+			return nberrors.FormatErrorOrNil(merr)
 		}
 		return nil
 	}
