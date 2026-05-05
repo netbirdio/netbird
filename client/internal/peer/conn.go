@@ -1141,6 +1141,66 @@ func boolToConnStatus(connected bool) guard.ConnStatus {
 	return guard.ConnStatusDisconnected
 }
 
+// AttachICEOnRelayActivity is the relay-state fast-path triggered by
+// ActivityRecorder when transport activity (>32-byte type-4 WG packet)
+// is observed for a peer that's currently sitting in Relayed state
+// (ICE worker detached on iceTimeout). Encapsulates Codex review-point-
+// 4 gating so the engine doesn't have to peek into Conn internals:
+//
+//   1. mode must be p2p-dynamic (other modes have no detached state)
+//   2. conn must be open (not yet closed by relay-timeout)
+//   3. currentConnPriority must be Relay (we're using the relay tunnel)
+//   4. handshaker.iceListener must be nil (ICE actually detached)
+//   5. iceBackoff must NOT be suspended (respect failure backoff)
+//   6. everConnected must be true (we had P2P at least once -- avoids
+//      pointless retries for peers we never reached P2P with)
+//
+// Returns true when AttachICE was actually called (caller can rate-
+// limit further). Does NOT reset the backoff (deliberate -- the
+// activity-recorder fires on every payload packet, resetting blindly
+// would defeat the failure backoff). The lazy-mgr.onPeerActivity
+// path keeps using ResetIceBackoff because there the trigger is
+// "user clearly wants the peer back" (after full Idle), so the
+// stronger signal warrants the reset.
+//
+// Phase 3.7i (#5989), Codex review 2026-05-05.
+func (conn *Conn) AttachICEOnRelayActivity() (attempted bool) {
+	conn.mu.Lock()
+	if conn.config.Mode != connectionmode.ModeP2PDynamic {
+		conn.mu.Unlock()
+		return false
+	}
+	if !conn.opened {
+		conn.mu.Unlock()
+		return false
+	}
+	if conn.currentConnPriority != conntype.Relay {
+		conn.mu.Unlock()
+		return false
+	}
+	if conn.handshaker == nil || conn.handshaker.readICEListener() != nil {
+		conn.mu.Unlock()
+		return false
+	}
+	if conn.iceBackoff != nil && conn.iceBackoff.IsSuspended() {
+		conn.mu.Unlock()
+		return false
+	}
+	if !conn.everConnected.Load() {
+		conn.mu.Unlock()
+		return false
+	}
+	// All gates passed; release the lock before calling AttachICE
+	// because AttachICE re-acquires it.
+	conn.mu.Unlock()
+	if err := conn.AttachICE(); err != nil {
+		conn.Log.Warnf("AttachICE on relay-activity: %v", err)
+		return false
+	}
+	conn.Log.Debugf("ICE re-attached on relay-activity (relay -> P2P upgrade attempt)")
+	return true
+}
+
 // ResetIceBackoff hard-resets the per-peer ICE-failure backoff state
 // (failure counter back to 0, suspended -> false, exponential schedule
 // back to its initial interval, lastResetAt stamped). Intended for the
