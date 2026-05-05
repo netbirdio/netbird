@@ -20,7 +20,7 @@ jobs:
         uses: codespell-project/actions-codespell@v2
         with:
           ignore_words_list: erro,clienta,hastable,iif,groupd,testin,groupe,cros,ans,deriver,te,userA
-          skip: go.mod,go.sum,**/proxy/web/**
+          skip: go.mod,go.sum,**/proxy/web/**,**/pnpm-lock.yaml,**/package-lock.json
   golangci:
     strategy:
       fail-fast: false
