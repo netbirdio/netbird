@@ -232,6 +232,9 @@ func buildOIDCConnectorConfig(cfg *ConnectorConfig, redirectURI string) ([]byte,
 		oidcConfig["getUserInfo"] = true
 	case "entra":
 		oidcConfig["claimMapping"] = map[string]string{"email": "preferred_username"}
+		// Use the Entra Object ID (oid) instead of the default OIDC sub claim.
+		// Entra issues sub as a per-app pairwise identifier that does not match
+		// the stable Object ID.
 		oidcConfig["userIDKey"] = "oid"
 	case "okta":
 		oidcConfig["scopes"] = []string{"openid", "profile", "email", "groups"}
