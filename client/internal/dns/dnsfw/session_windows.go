@@ -66,7 +66,7 @@ func installFilters(cfg installConfig) (session uintptr, err error) {
 
 	base, err := registerBaseObjects(session)
 	if err != nil {
-		fwpmEngineClose0(session)
+		_ = fwpmEngineClose0(session)
 		return 0, fmt.Errorf("register base objects: %w", err)
 	}
 
