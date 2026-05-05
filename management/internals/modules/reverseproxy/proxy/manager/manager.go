@@ -13,7 +13,8 @@ import (
 // store defines the interface for proxy persistence operations
 type store interface {
 	SaveProxy(ctx context.Context, p *proxy.Proxy) error
-	UpdateProxyHeartbeat(ctx context.Context, proxyID, clusterAddress, ipAddress string) error
+	DisconnectProxy(ctx context.Context, proxyID, sessionID string) error
+	UpdateProxyHeartbeat(ctx context.Context, p *proxy.Proxy) error
 	GetActiveProxyClusterAddresses(ctx context.Context) ([]string, error)
 	GetActiveProxyClusters(ctx context.Context) ([]proxy.Cluster, error)
 	GetClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
@@ -43,7 +44,7 @@ func NewManager(store store, meter metric.Meter) (*Manager, error) {
 
 // Connect registers a new proxy connection in the database.
 // capabilities may be nil for old proxies that do not report them.
-func (m Manager) Connect(ctx context.Context, proxyID, clusterAddress, ipAddress string, capabilities *proxy.Capabilities) error {
+func (m Manager) Connect(ctx context.Context, proxyID, sessionID, clusterAddress, ipAddress string, capabilities *proxy.Capabilities) (*proxy.Proxy, error) {
 	now := time.Now()
 	var caps proxy.Capabilities
 	if capabilities != nil {
@@ -51,6 +52,7 @@ func (m Manager) Connect(ctx context.Context, proxyID, clusterAddress, ipAddress
 	}
 	p := &proxy.Proxy{
 		ID:             proxyID,
+		SessionID:      sessionID,
 		ClusterAddress: clusterAddress,
 		IPAddress:      ipAddress,
 		LastSeen:       now,
@@ -61,48 +63,42 @@ func (m Manager) Connect(ctx context.Context, proxyID, clusterAddress, ipAddress
 
 	if err := m.store.SaveProxy(ctx, p); err != nil {
 		log.WithContext(ctx).Errorf("failed to register proxy %s: %v", proxyID, err)
-		return err
+		return nil, err
 	}
 
 	log.WithContext(ctx).WithFields(log.Fields{
 		"proxyID":        proxyID,
+		"sessionID":      sessionID,
 		"clusterAddress": clusterAddress,
 		"ipAddress":      ipAddress,
 	}).Info("proxy connected")
 
-	return nil
+	return p, nil
 }
 
-// Disconnect marks a proxy as disconnected in the database
-func (m Manager) Disconnect(ctx context.Context, proxyID string) error {
-	now := time.Now()
-	p := &proxy.Proxy{
-		ID:             proxyID,
-		Status:         "disconnected",
-		DisconnectedAt: &now,
-		LastSeen:       now,
-	}
-
-	if err := m.store.SaveProxy(ctx, p); err != nil {
-		log.WithContext(ctx).Errorf("failed to disconnect proxy %s: %v", proxyID, err)
+// Disconnect marks a proxy as disconnected in the database.
+func (m Manager) Disconnect(ctx context.Context, proxyID, sessionID string) error {
+	if err := m.store.DisconnectProxy(ctx, proxyID, sessionID); err != nil {
+		log.WithContext(ctx).Errorf("failed to disconnect proxy %s session %s: %v", proxyID, sessionID, err)
 		return err
 	}
 
 	log.WithContext(ctx).WithFields(log.Fields{
-		"proxyID": proxyID,
+		"proxyID":   proxyID,
+		"sessionID": sessionID,
 	}).Info("proxy disconnected")
 
 	return nil
 }
 
-// Heartbeat updates the proxy's last seen timestamp
-func (m Manager) Heartbeat(ctx context.Context, proxyID, clusterAddress, ipAddress string) error {
-	if err := m.store.UpdateProxyHeartbeat(ctx, proxyID, clusterAddress, ipAddress); err != nil {
-		log.WithContext(ctx).Debugf("failed to update proxy %s heartbeat: %v", proxyID, err)
+// Heartbeat updates the proxy's last seen timestamp.
+func (m Manager) Heartbeat(ctx context.Context, p *proxy.Proxy) error {
+	if err := m.store.UpdateProxyHeartbeat(ctx, p); err != nil {
+		log.WithContext(ctx).Debugf("failed to update proxy %s heartbeat: %v", p.ID, err)
 		return err
 	}
 
-	log.WithContext(ctx).Tracef("updated heartbeat for proxy %s", proxyID)
+	log.WithContext(ctx).Tracef("updated heartbeat for proxy %s session %s", p.ID, p.SessionID)
 	m.metrics.IncrementProxyHeartbeatCount()
 	return nil
 }

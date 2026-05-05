@@ -39,6 +39,9 @@ const (
 	noBrowserFlag = "no-browser"
 	noBrowserDesc = "do not open the browser for SSO login"
 
+	showQRFlag = "qr"
+	showQRDesc = "show QR code for the SSO login URL (useful for headless machines without browser access)"
+
 	profileNameFlag = "profile"
 	profileNameDesc = "profile name to use for the login. If not specified, the last used profile will be used."
 )
@@ -48,6 +51,7 @@ var (
 	dnsLabels          []string
 	dnsLabelsValidated domain.List
 	noBrowser          bool
+	showQR             bool
 	profileName        string
 	configPath         string
 
@@ -80,6 +84,7 @@ func init() {
 	)
 
 	upCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
+	upCmd.PersistentFlags().BoolVar(&showQR, showQRFlag, false, showQRDesc)
 	upCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
 	upCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "(DEPRECATED) NetBird config file location. ")
 
