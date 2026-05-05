@@ -118,6 +118,12 @@ linters:
       - third_party$
       - builtin$
       - examples$
+      # client/ui-wails/main.go uses //go:embed all:frontend/dist; that
+      # directory is populated by `pnpm build` in the release pipeline
+      # and is missing at lint time, so the typecheck phase fails before
+      # any rule runs. Skip just main.go — the rest of the package
+      # (services/, tray.go, grpc.go, ...) still gets linted.
+      - client/ui-wails/main\.go$
 issues:
   max-same-issues: 5
 formatters:
