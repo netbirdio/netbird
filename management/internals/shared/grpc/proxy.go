@@ -222,7 +222,16 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 		return status.Errorf(codes.Internal, "register proxy in database: %v", err)
 	}
 
+	s.connectedProxies.Store(proxyID, conn)
+	if err := s.proxyController.RegisterProxyToCluster(ctx, conn.address, proxyID); err != nil {
+		log.WithContext(ctx).Warnf("Failed to register proxy %s in cluster: %v", proxyID, err)
+	}
+
 	if err := s.sendSnapshot(ctx, conn); err != nil {
+		s.connectedProxies.CompareAndDelete(proxyID, conn)
+		if unregErr := s.proxyController.UnregisterProxyFromCluster(context.Background(), conn.address, proxyID); unregErr != nil {
+			log.WithContext(ctx).Debugf("cleanup after snapshot failure for proxy %s: %v", proxyID, unregErr)
+		}
 		cancel()
 		if disconnErr := s.proxyManager.Disconnect(context.Background(), proxyID, sessionID); disconnErr != nil {
 			log.WithContext(ctx).Debugf("cleanup after snapshot failure for proxy %s: %v", proxyID, disconnErr)
@@ -232,11 +241,6 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 
 	errChan := make(chan error, 2)
 	go s.sender(conn, errChan)
-
-	s.connectedProxies.Store(proxyID, conn)
-	if err := s.proxyController.RegisterProxyToCluster(ctx, conn.address, proxyID); err != nil {
-		log.WithContext(ctx).Warnf("Failed to register proxy %s in cluster: %v", proxyID, err)
-	}
 
 	log.WithFields(log.Fields{
 		"proxy_id":      proxyID,
@@ -305,11 +309,29 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 		return err
 	}
 
-	if err := conn.stream.Send(&proto.GetMappingUpdateResponse{
-		Mapping:             mappings,
-		InitialSyncComplete: true,
-	}); err != nil {
-		return fmt.Errorf("send snapshot: %w", err)
+	// Send mappings in batches to reduce per-message gRPC overhead while
+	// staying well within the default 4 MB message size limit.
+	const snapshotBatchSize = 500
+
+	for i := 0; i < len(mappings); i += snapshotBatchSize {
+		end := i + snapshotBatchSize
+		if end > len(mappings) {
+			end = len(mappings)
+		}
+		if err := conn.stream.Send(&proto.GetMappingUpdateResponse{
+			Mapping:             mappings[i:end],
+			InitialSyncComplete: end == len(mappings),
+		}); err != nil {
+			return fmt.Errorf("send snapshot batch: %w", err)
+		}
+	}
+
+	if len(mappings) == 0 {
+		if err := conn.stream.Send(&proto.GetMappingUpdateResponse{
+			InitialSyncComplete: true,
+		}); err != nil {
+			return fmt.Errorf("send snapshot completion: %w", err)
+		}
 	}
 
 	return nil

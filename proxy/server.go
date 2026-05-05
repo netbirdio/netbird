@@ -1000,6 +1000,11 @@ func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.Pr
 		return ctx.Err()
 	}
 
+	var snapshotIDs map[types.ServiceID]struct{}
+	if !*initialSyncDone {
+		snapshotIDs = make(map[types.ServiceID]struct{})
+	}
+
 	for {
 		// Check for context completion to gracefully shutdown.
 		select {
@@ -1020,13 +1025,19 @@ func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.Pr
 			s.processMappings(ctx, msg.GetMapping())
 			s.Logger.Debug("Processing mapping update completed")
 
-			if !*initialSyncDone && msg.GetInitialSyncComplete() {
-				s.reconcileSnapshot(ctx, msg.GetMapping())
-				if s.healthChecker != nil {
-					s.healthChecker.SetInitialSyncComplete()
+			if !*initialSyncDone {
+				for _, m := range msg.GetMapping() {
+					snapshotIDs[types.ServiceID(m.GetId())] = struct{}{}
 				}
-				*initialSyncDone = true
-				s.Logger.Info("Initial mapping sync complete")
+				if msg.GetInitialSyncComplete() {
+					s.reconcileSnapshot(ctx, snapshotIDs)
+					snapshotIDs = nil
+					if s.healthChecker != nil {
+						s.healthChecker.SetInitialSyncComplete()
+					}
+					*initialSyncDone = true
+					s.Logger.Info("Initial mapping sync complete")
+				}
 			}
 		}
 	}
@@ -1034,12 +1045,7 @@ func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.Pr
 
 // reconcileSnapshot removes local mappings that are absent from the snapshot.
 // This ensures services deleted while the proxy was disconnected get cleaned up.
-func (s *Server) reconcileSnapshot(ctx context.Context, snapshotMappings []*proto.ProxyMapping) {
-	snapshotIDs := make(map[types.ServiceID]struct{}, len(snapshotMappings))
-	for _, m := range snapshotMappings {
-		snapshotIDs[types.ServiceID(m.GetId())] = struct{}{}
-	}
-
+func (s *Server) reconcileSnapshot(ctx context.Context, snapshotIDs map[types.ServiceID]struct{}) {
 	s.portMu.RLock()
 	var stale []*proto.ProxyMapping
 	for svcID, mapping := range s.lastMappings {
