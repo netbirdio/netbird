@@ -344,13 +344,16 @@ func GetNextHop(ip netip.Addr) (Nexthop, error) {
 	}
 
 	// go-netroute v0.4.0 rejects unspecified destinations on Linux with a hard
-	// client-side check. Substitute the lowest non-unspecified address so the
-	// lookup falls through to the default route. BSD/Windows pass the query
-	// straight to the kernel, so we leave the destination untouched there.
+	// client-side check. Substitute the lowest non-loopback address so the
+	// lookup falls through to the default route (::1 / 127.0.0.1 would match
+	// loopback, ::/0.0.0.0 are unspec). BSD/Windows pass the query straight to
+	// the kernel and need no substitution.
 	if runtime.GOOS == "linux" && ip.IsUnspecified() {
 		if ip.Is6() {
+			// ::2
 			ip = netip.AddrFrom16([16]byte{15: 2})
 		} else {
+			// 0.0.0.1
 			ip = netip.AddrFrom4([4]byte{0, 0, 0, 1})
 		}
 	}

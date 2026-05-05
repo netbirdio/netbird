@@ -204,6 +204,7 @@ func getDefaultGateway6() (gateway net.IP, localIP net.IP, err error) {
 
 	dst := net.IPv6zero
 	if runtime.GOOS == "linux" {
+		// ::2
 		dst = net.IP{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2}
 	}
 	_, gateway, localIP, err = router.Route(dst)
