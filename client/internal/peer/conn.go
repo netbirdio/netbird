@@ -1183,8 +1183,24 @@ func (conn *Conn) AttachICEOnRelayActivity() (attempted bool) {
 		return false
 	}
 	if conn.iceBackoff != nil && conn.iceBackoff.IsSuspended() {
-		conn.mu.Unlock()
-		return false
+		// Phase 3.7i (#5989), Codex review point 5 follow-up: activity-
+		// driven override of an active failure backoff. Rate-limited
+		// inside iceBackoff.AllowActivityOverride to one override per
+		// 5min per peer, so we never spam the signal server. Without
+		// this, a transient ICE drop on a flaky link (e.g. LTE NAT
+		// mapping recovery > 12s while the Guard's 3-fast-retries
+		// timer fires) leaves the peer permanently relay-only for an
+		// hour even when the user actively pings.
+		if conn.iceBackoff.AllowActivityOverride() {
+			conn.iceBackoff.Reset()
+			if conn.statusRecorder != nil {
+				conn.statusRecorder.UpdatePeerIceBackoff(conn.config.Key, conn.iceBackoff.Snapshot())
+			}
+			conn.Log.Infof("ICE backoff override on relay-activity (1x per %s rate limit)", "5min")
+		} else {
+			conn.mu.Unlock()
+			return false
+		}
 	}
 	if !conn.everConnected.Load() {
 		conn.mu.Unlock()
