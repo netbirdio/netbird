@@ -33,15 +33,11 @@ const (
 	menuNetworks           = "Networks"
 	menuQuit               = "Quit"
 
-	// Settings submenu.
+	// Settings + diagnostics. The settings page replaces the Fyne tray's
+	// Settings submenu (per-toggle checkboxes for SSH, auto-connect,
+	// Rosenpass, lazy connections, block-inbound, notifications); those
+	// live in the in-window Settings page now.
 	menuSettings          = "Settings"
-	menuAllowSSH          = "Allow SSH"
-	menuConnectOnStartup  = "Connect on Startup"
-	menuQuantumResistance = "Enable Quantum-Resistance"
-	menuLazyConnections   = "Enable Lazy Connections"
-	menuBlockInbound      = "Block Inbound Connections"
-	menuNotifications     = "Notifications"
-	menuAdvancedSettings  = "Advanced Settings"
 	menuCreateDebugBundle = "Create Debug Bundle"
 
 	// About submenu and update flow.
@@ -60,7 +56,6 @@ const (
 	notifyErrorTitle           = "Error"
 	notifyErrorConnect         = "Failed to connect"
 	notifyErrorDisconnect      = "Failed to disconnect"
-	notifyErrorSettingsFmt     = "Failed to update %s settings"
 
 	// Notification IDs (used to coalesce duplicate toasts).
 	notifyIDUpdatePrefix = "netbird-update-"
@@ -86,18 +81,12 @@ type Tray struct {
 	notifier   *notifications.NotificationService
 	update     *services.Update
 
-	statusItem    *application.MenuItem
-	upItem        *application.MenuItem
-	downItem      *application.MenuItem
-	exitNodeItem  *application.MenuItem
-	networksItem  *application.MenuItem
-	allowSSHItem  *application.MenuItem
-	autoConnItem  *application.MenuItem
-	rosenpassItem *application.MenuItem
-	lazyConnItem  *application.MenuItem
-	blockInItem   *application.MenuItem
-	notifyItem    *application.MenuItem
-	updateItem    *application.MenuItem
+	statusItem   *application.MenuItem
+	upItem       *application.MenuItem
+	downItem     *application.MenuItem
+	exitNodeItem *application.MenuItem
+	networksItem *application.MenuItem
+	updateItem   *application.MenuItem
 
 	mu                   sync.Mutex
 	connected            bool
@@ -199,32 +188,17 @@ func (t *Tray) buildMenu() *application.Menu {
 
 	menu.AddSeparator()
 
-	settingsSub := menu.AddSubmenu(menuSettings)
-	t.allowSSHItem = settingsSub.AddCheckbox(menuAllowSSH, false).OnClick(func(*application.Context) {
-		t.flipFlag("ssh", t.allowSSHItem.Checked())
-	})
-	t.autoConnItem = settingsSub.AddCheckbox(menuConnectOnStartup, false).OnClick(func(*application.Context) {
-		t.flipFlag("auto", t.autoConnItem.Checked())
-	})
-	t.rosenpassItem = settingsSub.AddCheckbox(menuQuantumResistance, false).OnClick(func(*application.Context) {
-		t.flipFlag("rosenpass", t.rosenpassItem.Checked())
-	})
-	t.lazyConnItem = settingsSub.AddCheckbox(menuLazyConnections, false).OnClick(func(*application.Context) {
-		t.flipFlag("lazy", t.lazyConnItem.Checked())
-	})
-	t.blockInItem = settingsSub.AddCheckbox(menuBlockInbound, false).OnClick(func(*application.Context) {
-		t.flipFlag("blockin", t.blockInItem.Checked())
-	})
-	t.notifyItem = settingsSub.AddCheckbox(menuNotifications, true).OnClick(func(*application.Context) {
-		t.flipFlag("notify", t.notifyItem.Checked())
-	})
-	settingsSub.AddSeparator()
-	settingsSub.Add(menuAdvancedSettings).OnClick(func(*application.Context) { t.openRoute("/settings") })
-	settingsSub.Add(menuCreateDebugBundle).OnClick(func(*application.Context) { t.openRoute("/debug") })
-
 	t.exitNodeItem = menu.Add(menuExitNode).SetEnabled(false)
-
 	t.networksItem = menu.Add(menuNetworks).OnClick(func(*application.Context) { t.openRoute("/networks") })
+
+	menu.AddSeparator()
+
+	// Settings, runtime toggles (SSH, Quantum-Resistance, lazy connection,
+	// block-inbound, auto-connect, notifications) and profile switching
+	// all live in the in-window Settings page now. The tray menu only
+	// surfaces the day-to-day actions.
+	menu.Add(menuSettings).OnClick(func(*application.Context) { t.openRoute("/settings") })
+	menu.Add(menuCreateDebugBundle).OnClick(func(*application.Context) { t.openRoute("/debug") })
 
 	menu.AddSeparator()
 
@@ -290,69 +264,6 @@ func (t *Tray) handleDisconnect() {
 		}
 	}()
 }
-
-// flipFlag pushes a partial SetConfig for one tray-toggled boolean. On
-// failure the tray checkbox is reverted to keep it in sync with the daemon
-// and an error notification is fired so the user knows the change didn't
-// stick. The "notify" flag also updates the in-process gate that decides
-// whether daemon SystemEvents become OS notifications.
-func (t *Tray) flipFlag(name string, checked bool) {
-	go func() {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		t.mu.Lock()
-		profile, username := t.activeProfile, t.activeUsername
-		t.mu.Unlock()
-
-		req := services.SetConfigParams{ProfileName: profile, Username: username}
-		var (
-			label string
-			item  *application.MenuItem
-		)
-		switch name {
-		case "ssh":
-			req.ServerSSHAllowed = ptrBool(checked)
-			label, item = "SSH", t.allowSSHItem
-		case "auto":
-			// "Connect on Startup" is the inverse of disableAutoConnect.
-			req.DisableAutoConnect = ptrBool(!checked)
-			label, item = "auto-connect", t.autoConnItem
-		case "rosenpass":
-			req.RosenpassEnabled = ptrBool(checked)
-			label, item = "Rosenpass", t.rosenpassItem
-		case "lazy":
-			req.LazyConnectionEnabled = ptrBool(checked)
-			label, item = "lazy connection", t.lazyConnItem
-		case "blockin":
-			req.BlockInbound = ptrBool(checked)
-			label, item = "block inbound", t.blockInItem
-		case "notify":
-			req.DisableNotifications = ptrBool(!checked)
-			label, item = "notifications", t.notifyItem
-		default:
-			log.Debugf("tray flipFlag: unknown flag %q", name)
-			return
-		}
-
-		if err := t.settings.SetConfig(ctx, req); err != nil {
-			log.Errorf("set %s: %v", label, err)
-			t.notifyError(fmt.Sprintf(notifyErrorSettingsFmt, label))
-			if item != nil {
-				item.SetChecked(!checked) // revert
-			}
-			return
-		}
-
-		if name == "notify" {
-			t.mu.Lock()
-			t.notificationsEnabled = checked
-			t.mu.Unlock()
-		}
-	}()
-}
-
-func ptrBool(b bool) *bool { return &b }
 
 func (t *Tray) onStatusEvent(ev *application.CustomEvent) {
 	st, ok := ev.Data.(services.Status)
@@ -604,9 +515,15 @@ func (t *Tray) iconForState() (icon, dark []byte) {
 	}
 }
 
-// loadConfig syncs the tray-submenu checkboxes with the daemon's stored
-// config and seeds the notifications gate. Called once at startup from a
-// goroutine so a slow or unreachable daemon does not block menu construction.
+// loadConfig seeds the in-process notifications gate from the daemon's
+// stored config and caches the active-profile identity for any future
+// SetConfig calls. Called once at startup from a goroutine so a slow or
+// unreachable daemon does not block menu construction.
+//
+// The Settings page in the main window is the source of truth for every
+// other knob (SSH, auto-connect, Rosenpass, lazy connections, block-inbound,
+// notifications); we only mirror the notifications flag because the tray
+// itself uses it to gate OS toasts in onSystemEvent.
 func (t *Tray) loadConfig() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -627,25 +544,6 @@ func (t *Tray) loadConfig() {
 	t.activeUsername = active.Username
 	t.notificationsEnabled = !cfg.DisableNotifications
 	t.mu.Unlock()
-
-	if t.allowSSHItem != nil {
-		t.allowSSHItem.SetChecked(cfg.ServerSSHAllowed)
-	}
-	if t.autoConnItem != nil {
-		t.autoConnItem.SetChecked(!cfg.DisableAutoConnect)
-	}
-	if t.rosenpassItem != nil {
-		t.rosenpassItem.SetChecked(cfg.RosenpassEnabled)
-	}
-	if t.lazyConnItem != nil {
-		t.lazyConnItem.SetChecked(cfg.LazyConnectionEnabled)
-	}
-	if t.blockInItem != nil {
-		t.blockInItem.SetChecked(cfg.BlockInbound)
-	}
-	if t.notifyItem != nil {
-		t.notifyItem.SetChecked(!cfg.DisableNotifications)
-	}
 }
 
 // notify wraps the Wails notification service with the tray's standard
