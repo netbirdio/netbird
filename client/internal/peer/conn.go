@@ -1217,8 +1217,30 @@ func (conn *Conn) AttachICEOnRelayActivity() (attempted bool) {
 		conn.Log.Warnf("AttachICE on relay-activity: %v", err)
 		return false
 	}
+	// Phase 3.7i (#5989), Codex review 2026-05-05: also reset the
+	// guard's per-cycle ICE retry budget so the new pair-check cycle
+	// is not immediately throttled into hourly mode by 3 stale
+	// failures. The iceBackoff override above only handles the
+	// failure-suspension side; the guard runs a parallel 3-tries-then-
+	// hourly counter that is independent of iceBackoff.
+	if conn.guard != nil {
+		conn.guard.NotifyPeerActivity()
+	}
 	conn.Log.Debugf("ICE re-attached on relay-activity (relay -> P2P upgrade attempt)")
 	return true
+}
+
+// NotifyGuardActivity forwards a peer-activity event to the underlying
+// guard so it resets its per-cycle ICE retry budget and ticker. Safe
+// to call even when the guard hasn't been created yet (returns
+// silently). Phase 3.7i (#5989), Codex review 2026-05-05.
+func (conn *Conn) NotifyGuardActivity() {
+	conn.mu.Lock()
+	g := conn.guard
+	conn.mu.Unlock()
+	if g != nil {
+		g.NotifyPeerActivity()
+	}
 }
 
 // ResetIceBackoff hard-resets the per-peer ICE-failure backoff state
