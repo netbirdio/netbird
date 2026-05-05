@@ -96,6 +96,10 @@ func (p *Provider) ListConnectors(ctx context.Context) ([]*ConnectorConfig, erro
 // and userIDKey.
 func (p *Provider) UpdateConnector(ctx context.Context, cfg *ConnectorConfig) error {
 	if err := p.storage.UpdateConnector(ctx, cfg.ID, func(old storage.Connector) (storage.Connector, error) {
+		if cfg.Type != "" && cfg.Type != inferIdentityProviderType(old.Type, cfg.ID, nil) {
+			return storage.Connector{}, errors.New("connector type change not allowed")
+		}
+
 		configData, err := overlayConnectorConfig(old.Config, cfg)
 		if err != nil {
 			return storage.Connector{}, fmt.Errorf("failed to overlay connector config: %w", err)
