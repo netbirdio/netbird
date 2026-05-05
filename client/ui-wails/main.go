@@ -93,6 +93,7 @@ func main() {
 	settings := services.NewSettings(conn)
 	profiles := services.NewProfiles(conn)
 	peers := services.NewPeers(conn, app.Event)
+	update := services.NewUpdate(conn)
 	notifier := notifications.New()
 
 	app.RegisterService(application.NewService(connection))
@@ -100,7 +101,7 @@ func main() {
 	app.RegisterService(application.NewService(services.NewNetworks(conn)))
 	app.RegisterService(application.NewService(profiles))
 	app.RegisterService(application.NewService(services.NewDebug(conn)))
-	app.RegisterService(application.NewService(services.NewUpdate(conn)))
+	app.RegisterService(application.NewService(update))
 	app.RegisterService(application.NewService(peers))
 	app.RegisterService(application.NewService(notifier))
 
@@ -128,7 +129,7 @@ func main() {
 		window.Hide()
 	})
 
-	tray = NewTray(app, window, connection, settings, profiles, peers, notifier)
+	tray = NewTray(app, window, connection, settings, profiles, peers, notifier, update)
 	listenForShowSignal(context.Background(), tray)
 
 	peers.Watch(context.Background())

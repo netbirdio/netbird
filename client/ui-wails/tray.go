@@ -9,12 +9,67 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 
 	"github.com/netbirdio/netbird/client/ui-wails/services"
+)
+
+// User-facing strings exposed in the tray, OS notifications and the
+// browser-opened URLs. Centralised here so future copy edits and (one
+// day) localisation have a single source of truth.
+const (
+	trayTooltip = "NetBird"
+
+	// Top-level menu entries.
+	menuStatusDisconnected = "Disconnected"
+	menuOpenNetBird        = "Open NetBird"
+	menuConnect            = "Connect"
+	menuDisconnect         = "Disconnect"
+	menuExitNode           = "Exit Node"
+	menuNetworks           = "Networks"
+	menuQuit               = "Quit"
+
+	// Settings submenu.
+	menuSettings          = "Settings"
+	menuAllowSSH          = "Allow SSH"
+	menuConnectOnStartup  = "Connect on Startup"
+	menuQuantumResistance = "Enable Quantum-Resistance"
+	menuLazyConnections   = "Enable Lazy Connections"
+	menuBlockInbound      = "Block Inbound Connections"
+	menuNotifications     = "Notifications"
+	menuAdvancedSettings  = "Advanced Settings"
+	menuCreateDebugBundle = "Create Debug Bundle"
+
+	// About submenu and update flow.
+	menuAbout                 = "About"
+	menuGitHub                = "GitHub"
+	menuDocumentation         = "Documentation"
+	menuDownloadLatestVersion = "Download latest version"
+	// menuInstallVersionPrefix is rewritten with the target version when
+	// the management server enforces the update.
+	menuInstallVersionPrefix = "Install version "
+
+	// OS notifications.
+	notifyUpdateTitle          = "NetBird update available"
+	notifyUpdateBodyFmt        = "NetBird %s is available."
+	notifyUpdateEnforcedSuffix = " Your administrator requires this update."
+	notifyErrorTitle           = "Error"
+	notifyErrorConnect         = "Failed to connect"
+	notifyErrorDisconnect      = "Failed to disconnect"
+	notifyErrorSettingsFmt     = "Failed to update %s settings"
+
+	// Notification IDs (used to coalesce duplicate toasts).
+	notifyIDUpdatePrefix = "netbird-update-"
+	notifyIDEvent        = "netbird-event-"
+	notifyIDTrayError    = "netbird-tray-error"
+
+	// External URLs.
+	urlGitHubRepo     = "https://github.com/netbirdio/netbird"
+	urlGitHubReleases = "https://github.com/netbirdio/netbird/releases/latest"
 )
 
 // Tray builds and updates the systray menu. It mirrors the layout of the Fyne
@@ -29,6 +84,7 @@ type Tray struct {
 	profiles   *services.Profiles
 	peers      *services.Peers
 	notifier   *notifications.NotificationService
+	update     *services.Update
 
 	statusItem    *application.MenuItem
 	upItem        *application.MenuItem
@@ -41,10 +97,13 @@ type Tray struct {
 	lazyConnItem  *application.MenuItem
 	blockInItem   *application.MenuItem
 	notifyItem    *application.MenuItem
+	updateItem    *application.MenuItem
 
 	mu                   sync.Mutex
 	connected            bool
 	hasUpdate            bool
+	updateVersion        string
+	updateEnforced       bool
 	exitNodes            []string
 	lastStatus           string
 	notificationsEnabled bool
@@ -60,6 +119,7 @@ func NewTray(
 	profiles *services.Profiles,
 	peers *services.Peers,
 	notifier *notifications.NotificationService,
+	update *services.Update,
 ) *Tray {
 	t := &Tray{
 		app:                  app,
@@ -69,11 +129,12 @@ func NewTray(
 		profiles:             profiles,
 		peers:                peers,
 		notifier:             notifier,
+		update:               update,
 		notificationsEnabled: true,
 	}
 	t.tray = app.SystemTray.New()
 	t.applyIcon()
-	t.tray.SetTooltip("NetBird")
+	t.tray.SetTooltip(trayTooltip)
 	t.tray.SetMenu(t.buildMenu())
 	// Tray click handling is platform-specific by design:
 	//
@@ -122,59 +183,65 @@ func (t *Tray) ShowWindow() {
 func (t *Tray) buildMenu() *application.Menu {
 	menu := application.NewMenu()
 
-	t.statusItem = menu.Add("Disconnected").SetEnabled(false)
+	t.statusItem = menu.Add(menuStatusDisconnected).SetEnabled(false)
 
 	menu.AddSeparator()
 	// On Linux the tray icon's left-click handler is intentionally unbound
 	// (see NewTray for the rationale), so expose the window through an
 	// explicit menu entry. Windows and macOS get the window via left-click.
 	if runtime.GOOS == "linux" {
-		menu.Add("Open NetBird").OnClick(func(*application.Context) { t.ShowWindow() })
+		menu.Add(menuOpenNetBird).OnClick(func(*application.Context) { t.ShowWindow() })
 		menu.AddSeparator()
 	}
-	t.upItem = menu.Add("Connect").OnClick(func(*application.Context) { t.handleConnect() })
-	t.downItem = menu.Add("Disconnect").OnClick(func(*application.Context) { t.handleDisconnect() })
+	t.upItem = menu.Add(menuConnect).OnClick(func(*application.Context) { t.handleConnect() })
+	t.downItem = menu.Add(menuDisconnect).OnClick(func(*application.Context) { t.handleDisconnect() })
 	t.downItem.SetEnabled(false)
 
 	menu.AddSeparator()
 
-	settingsSub := menu.AddSubmenu("Settings")
-	t.allowSSHItem = settingsSub.AddCheckbox("Allow SSH", false).OnClick(func(*application.Context) {
+	settingsSub := menu.AddSubmenu(menuSettings)
+	t.allowSSHItem = settingsSub.AddCheckbox(menuAllowSSH, false).OnClick(func(*application.Context) {
 		t.flipFlag("ssh", t.allowSSHItem.Checked())
 	})
-	t.autoConnItem = settingsSub.AddCheckbox("Connect on Startup", false).OnClick(func(*application.Context) {
+	t.autoConnItem = settingsSub.AddCheckbox(menuConnectOnStartup, false).OnClick(func(*application.Context) {
 		t.flipFlag("auto", t.autoConnItem.Checked())
 	})
-	t.rosenpassItem = settingsSub.AddCheckbox("Enable Quantum-Resistance", false).OnClick(func(*application.Context) {
+	t.rosenpassItem = settingsSub.AddCheckbox(menuQuantumResistance, false).OnClick(func(*application.Context) {
 		t.flipFlag("rosenpass", t.rosenpassItem.Checked())
 	})
-	t.lazyConnItem = settingsSub.AddCheckbox("Enable Lazy Connections", false).OnClick(func(*application.Context) {
+	t.lazyConnItem = settingsSub.AddCheckbox(menuLazyConnections, false).OnClick(func(*application.Context) {
 		t.flipFlag("lazy", t.lazyConnItem.Checked())
 	})
-	t.blockInItem = settingsSub.AddCheckbox("Block Inbound Connections", false).OnClick(func(*application.Context) {
+	t.blockInItem = settingsSub.AddCheckbox(menuBlockInbound, false).OnClick(func(*application.Context) {
 		t.flipFlag("blockin", t.blockInItem.Checked())
 	})
-	t.notifyItem = settingsSub.AddCheckbox("Notifications", true).OnClick(func(*application.Context) {
+	t.notifyItem = settingsSub.AddCheckbox(menuNotifications, true).OnClick(func(*application.Context) {
 		t.flipFlag("notify", t.notifyItem.Checked())
 	})
 	settingsSub.AddSeparator()
-	settingsSub.Add("Advanced Settings").OnClick(func(*application.Context) { t.openRoute("/settings") })
-	settingsSub.Add("Create Debug Bundle").OnClick(func(*application.Context) { t.openRoute("/debug") })
+	settingsSub.Add(menuAdvancedSettings).OnClick(func(*application.Context) { t.openRoute("/settings") })
+	settingsSub.Add(menuCreateDebugBundle).OnClick(func(*application.Context) { t.openRoute("/debug") })
 
-	t.exitNodeItem = menu.Add("Exit Node").SetEnabled(false)
+	t.exitNodeItem = menu.Add(menuExitNode).SetEnabled(false)
 
-	t.networksItem = menu.Add("Networks").OnClick(func(*application.Context) { t.openRoute("/networks") })
+	t.networksItem = menu.Add(menuNetworks).OnClick(func(*application.Context) { t.openRoute("/networks") })
 
 	menu.AddSeparator()
 
-	about := menu.AddSubmenu("About")
-	about.Add("GitHub").OnClick(func(*application.Context) {
-		_ = t.app.Browser.OpenURL("https://github.com/netbirdio/netbird")
+	about := menu.AddSubmenu(menuAbout)
+	about.Add(menuGitHub).OnClick(func(*application.Context) {
+		_ = t.app.Browser.OpenURL(urlGitHubRepo)
 	})
-	about.Add("Documentation").SetEnabled(false)
+	about.Add(menuDocumentation).SetEnabled(false)
+	// Hidden until the daemon emits EventUpdateAvailable. The label is
+	// rewritten in onUpdateAvailable to match the legacy Fyne UI:
+	// menuDownloadLatestVersion for opt-in, menuInstallVersionPrefix+version
+	// when the management server enforces the update.
+	t.updateItem = about.Add(menuDownloadLatestVersion).OnClick(func(*application.Context) { t.handleUpdate() })
+	t.updateItem.SetHidden(true)
 
 	menu.AddSeparator()
-	menu.Add("Quit").OnClick(func(*application.Context) { t.app.Quit() })
+	menu.Add(menuQuit).OnClick(func(*application.Context) { t.app.Quit() })
 
 	return menu
 }
@@ -205,7 +272,7 @@ func (t *Tray) handleConnect() {
 		defer cancel()
 		if err := t.connection.Up(ctx, services.UpParams{}); err != nil {
 			log.Errorf("connect: %v", err)
-			t.notifyError("Failed to connect")
+			t.notifyError(notifyErrorConnect)
 			t.upItem.SetEnabled(true)
 		}
 	}()
@@ -218,7 +285,7 @@ func (t *Tray) handleDisconnect() {
 		defer cancel()
 		if err := t.connection.Down(ctx); err != nil {
 			log.Errorf("disconnect: %v", err)
-			t.notifyError("Failed to disconnect")
+			t.notifyError(notifyErrorDisconnect)
 			t.downItem.SetEnabled(true)
 		}
 	}()
@@ -270,7 +337,7 @@ func (t *Tray) flipFlag(name string, checked bool) {
 
 		if err := t.settings.SetConfig(ctx, req); err != nil {
 			log.Errorf("set %s: %v", label, err)
-			t.notifyError("Failed to update " + label + " settings")
+			t.notifyError(fmt.Sprintf(notifyErrorSettingsFmt, label))
 			if item != nil {
 				item.SetChecked(!checked) // revert
 			}
@@ -321,11 +388,12 @@ func (t *Tray) onSystemEvent(ev *application.CustomEvent) {
 	if id := se.Metadata["id"]; id != "" {
 		body += fmt.Sprintf(" ID: %s", id)
 	}
-	t.notify(eventTitle(se), body, "netbird-event-"+se.ID)
+	t.notify(eventTitle(se), body, notifyIDEvent+se.ID)
 }
 
 // onUpdateAvailable runs when the daemon reports a new netbird version. It
-// flips the tray's hasUpdate flag (icon swap) and posts an OS notification.
+// flips the tray's hasUpdate flag (icon swap), reveals the update menu
+// item with the right label, and posts an OS notification.
 // The notification is what the legacy Fyne UI used to alert the user.
 func (t *Tray) onUpdateAvailable(ev *application.CustomEvent) {
 	upd, ok := ev.Data.(services.UpdateAvailable)
@@ -336,20 +404,70 @@ func (t *Tray) onUpdateAvailable(ev *application.CustomEvent) {
 	log.Infof("tray onUpdateAvailable: version=%s enforced=%v", upd.Version, upd.Enforced)
 	t.mu.Lock()
 	t.hasUpdate = true
+	t.updateVersion = upd.Version
+	t.updateEnforced = upd.Enforced
 	t.mu.Unlock()
 	t.applyIcon()
 
-	body := fmt.Sprintf("NetBird %s is available.", upd.Version)
+	if t.updateItem != nil {
+		// Match the Fyne wording: enforced updates name the version
+		// because the install starts on click; opt-in updates just
+		// route the user to the latest release.
+		if upd.Enforced {
+			t.updateItem.SetLabel(menuInstallVersionPrefix + upd.Version)
+		} else {
+			t.updateItem.SetLabel(menuDownloadLatestVersion)
+		}
+		t.updateItem.SetHidden(false)
+	}
+
+	body := fmt.Sprintf(notifyUpdateBodyFmt, upd.Version)
 	if upd.Enforced {
-		body += " Your administrator requires this update."
+		body += notifyUpdateEnforcedSuffix
 	}
 	if err := t.notifier.SendNotification(notifications.NotificationOptions{
-		ID:    "netbird-update-" + upd.Version,
-		Title: "NetBird update available",
+		ID:    notifyIDUpdatePrefix + upd.Version,
+		Title: notifyUpdateTitle,
 		Body:  body,
 	}); err != nil {
 		log.Debugf("send update notification: %v", err)
 	}
+}
+
+// handleUpdate runs when the user clicks the "Download latest version" /
+// "Install version X" menu item. Enforced updates trigger the daemon's
+// installer flow and surface the in-window /update progress page;
+// opt-in updates just open the GitHub releases page in the browser.
+func (t *Tray) handleUpdate() {
+	t.mu.Lock()
+	enforced := t.updateEnforced
+	version := t.updateVersion
+	t.mu.Unlock()
+
+	if !enforced {
+		_ = t.app.Browser.OpenURL(urlGitHubReleases)
+		return
+	}
+
+	// Surface the progress page first so the user sees the install
+	// kick off; the daemon then drives the rest via the InstallerResult
+	// RPC the /update page is polling.
+	if t.window != nil {
+		url := "/#/update"
+		if version != "" {
+			url += "?version=" + version
+		}
+		t.window.SetURL(url)
+		t.window.Show()
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if _, err := t.update.Trigger(ctx); err != nil {
+			log.Errorf("trigger update: %v", err)
+		}
+	}()
 }
 
 // onUpdateProgress runs when the daemon enters the install phase of an
@@ -549,7 +667,7 @@ func (t *Tray) notify(title, body, id string) {
 // failures. Each tray click site already logs the underlying error; this
 // adds the user-visible toast.
 func (t *Tray) notifyError(message string) {
-	t.notify("Error", message, "netbird-tray-error")
+	t.notify(notifyErrorTitle, message, notifyIDTrayError)
 }
 
 func exitNodesFromStatus(st services.Status) []string {
@@ -602,4 +720,3 @@ func titleCase(s string) string {
 	}
 	return strings.ToUpper(s[:1]) + strings.ToLower(s[1:])
 }
-
