@@ -23,6 +23,8 @@
             <string>10.15.0</string>
         <key>NSHighResolutionCapable</key>
             <string>true</string>
+        <key>LSUIElement</key>
+            <string>1</string>
         <key>NSHumanReadableCopyright</key>
             <string>© 2026, My Company</string>
         <key>NSAppTransportSecurity</key>

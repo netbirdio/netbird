@@ -23,6 +23,11 @@
             <string>10.15.0</string>
         <key>NSHighResolutionCapable</key>
             <string>true</string>
+        <!-- Accessory mode: tray-only app, no Dock entry, no Cmd-Tab
+             presence. Matches the legacy Fyne client and the sign-pipelines
+             Info.plist used in signed .pkg releases. -->
+        <key>LSUIElement</key>
+            <string>1</string>
         <key>NSHumanReadableCopyright</key>
             <string>© 2026, My Company</string>
     </dict>
