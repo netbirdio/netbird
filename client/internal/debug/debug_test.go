@@ -5,16 +5,21 @@ import (
 	"bytes"
 	"encoding/json"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/anonymize"
 	"github.com/netbirdio/netbird/client/configs"
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/shared/management/domain"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -471,8 +476,8 @@ func TestSanitizeServiceEnvVars(t *testing.T) {
 			anonymize: false,
 			input: map[string]any{
 				jsonKeyServiceEnv: map[string]any{
-					"HOME":       "/root",
-					"PATH":       "/usr/bin",
+					"HOME":         "/root",
+					"PATH":         "/usr/bin",
 					"NB_LOG_LEVEL": "debug",
 				},
 			},
@@ -489,9 +494,9 @@ func TestSanitizeServiceEnvVars(t *testing.T) {
 			anonymize: false,
 			input: map[string]any{
 				jsonKeyServiceEnv: map[string]any{
-					"NB_SETUP_KEY":  "abc123",
-					"NB_API_TOKEN":  "tok_xyz",
-					"NB_LOG_LEVEL":  "info",
+					"NB_SETUP_KEY": "abc123",
+					"NB_API_TOKEN": "tok_xyz",
+					"NB_LOG_LEVEL": "info",
 				},
 			},
 			check: func(t *testing.T, params map[string]any) {
@@ -765,4 +770,128 @@ Chain OUTPUT (policy ACCEPT 0 packets, 0 bytes)
 	assert.Contains(t, anonNftables, "table inet filter {")
 	assert.Contains(t, anonNftables, "chain input {")
 	assert.Contains(t, anonNftables, "type filter hook input priority filter; policy accept;")
+}
+
+// TestAddConfig_AllFieldsCovered uses reflection to ensure every field in
+// profilemanager.Config is either rendered in the debug bundle or explicitly
+// excluded. When a new field is added to Config, this test fails until the
+// developer either dumps it in addConfig/addCommonConfigFields or adds it to
+// the excluded set with a justification.
+func TestAddConfig_AllFieldsCovered(t *testing.T) {
+	excluded := map[string]string{
+		"PrivateKey":        "sensitive: WireGuard private key",
+		"PreSharedKey":      "sensitive: WireGuard pre-shared key",
+		"SSHKey":            "sensitive: SSH private key",
+		"ClientCertKeyPair": "non-config: parsed cert pair, not serialized",
+	}
+
+	mURL, _ := url.Parse("https://api.example.com:443")
+	aURL, _ := url.Parse("https://admin.example.com:443")
+	bTrue := true
+	iVal := 42
+	cfg := &profilemanager.Config{
+		PrivateKey:                    "priv",
+		PreSharedKey:                  "psk",
+		ManagementURL:                 mURL,
+		AdminURL:                      aURL,
+		WgIface:                       "wt0",
+		WgPort:                        51820,
+		NetworkMonitor:                &bTrue,
+		IFaceBlackList:                []string{"eth0"},
+		DisableIPv6Discovery:          true,
+		RosenpassEnabled:              true,
+		RosenpassPermissive:           true,
+		ServerSSHAllowed:              &bTrue,
+		EnableSSHRoot:                 &bTrue,
+		EnableSSHSFTP:                 &bTrue,
+		EnableSSHLocalPortForwarding:  &bTrue,
+		EnableSSHRemotePortForwarding: &bTrue,
+		DisableSSHAuth:                &bTrue,
+		SSHJWTCacheTTL:                &iVal,
+		DisableClientRoutes:           true,
+		DisableServerRoutes:           true,
+		DisableDNS:                    true,
+		DisableFirewall:               true,
+		BlockLANAccess:                true,
+		BlockInbound:                  true,
+		DisableNotifications:          &bTrue,
+		DNSLabels:                     domain.List{},
+		SSHKey:                        "sshkey",
+		NATExternalIPs:                []string{"1.2.3.4"},
+		CustomDNSAddress:              "1.1.1.1:53",
+		DisableAutoConnect:            true,
+		DNSRouteInterval:              5 * time.Second,
+		ClientCertPath:                "/tmp/cert",
+		ClientCertKeyPath:             "/tmp/key",
+		LazyConnectionEnabled:         true,
+		MTU:                           1280,
+	}
+
+	for _, anonymize := range []bool{false, true} {
+		t.Run("anonymize="+map[bool]string{true: "true", false: "false"}[anonymize], func(t *testing.T) {
+			g := &BundleGenerator{
+				anonymizer:     newAnonymizerForTest(),
+				internalConfig: cfg,
+				anonymize:      anonymize,
+			}
+
+			var sb strings.Builder
+			g.addCommonConfigFields(&sb)
+			rendered := sb.String() + renderAddConfigSpecific(g)
+
+			val := reflect.ValueOf(cfg).Elem()
+			typ := val.Type()
+			var missing []string
+			for i := 0; i < typ.NumField(); i++ {
+				name := typ.Field(i).Name
+				if _, ok := excluded[name]; ok {
+					continue
+				}
+				if !strings.Contains(rendered, name+":") {
+					missing = append(missing, name)
+				}
+			}
+			if len(missing) > 0 {
+				t.Fatalf("Config field(s) not present in debug bundle output: %v\n"+
+					"Either render the field in addCommonConfigFields/addConfig, "+
+					"or add it to the excluded map with a justification.", missing)
+			}
+		})
+	}
+}
+
+// renderAddConfigSpecific renders the fields handled by the anonymize/non-anonymize
+// branches in addConfig (ManagementURL, AdminURL, NATExternalIPs, CustomDNSAddress).
+// addCommonConfigFields covers the rest. Keeping this in the test mirrors the
+// production shape without needing to write an actual zip.
+func renderAddConfigSpecific(g *BundleGenerator) string {
+	var sb strings.Builder
+	if g.anonymize {
+		if g.internalConfig.ManagementURL != nil {
+			sb.WriteString("ManagementURL: " + g.anonymizer.AnonymizeURI(g.internalConfig.ManagementURL.String()) + "\n")
+		}
+		if g.internalConfig.AdminURL != nil {
+			sb.WriteString("AdminURL: " + g.anonymizer.AnonymizeURI(g.internalConfig.AdminURL.String()) + "\n")
+		}
+		sb.WriteString("NATExternalIPs: x\n")
+		if g.internalConfig.CustomDNSAddress != "" {
+			sb.WriteString("CustomDNSAddress: " + g.anonymizer.AnonymizeString(g.internalConfig.CustomDNSAddress) + "\n")
+		}
+	} else {
+		if g.internalConfig.ManagementURL != nil {
+			sb.WriteString("ManagementURL: " + g.internalConfig.ManagementURL.String() + "\n")
+		}
+		if g.internalConfig.AdminURL != nil {
+			sb.WriteString("AdminURL: " + g.internalConfig.AdminURL.String() + "\n")
+		}
+		sb.WriteString("NATExternalIPs: x\n")
+		if g.internalConfig.CustomDNSAddress != "" {
+			sb.WriteString("CustomDNSAddress: " + g.internalConfig.CustomDNSAddress + "\n")
+		}
+	}
+	return sb.String()
+}
+
+func newAnonymizerForTest() *anonymize.Anonymizer {
+	return anonymize.NewAnonymizer(anonymize.DefaultAddresses())
 }
