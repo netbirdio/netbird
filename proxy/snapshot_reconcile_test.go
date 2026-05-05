@@ -145,27 +145,30 @@ func TestHandleMappingStream_BatchedSnapshotSyncComplete(t *testing.T) {
 }
 
 // TestHandleMappingStream_PostSyncDoesNotReconcile verifies that messages
-// arriving after InitialSyncComplete do not trigger reconciliation again.
+// arriving after InitialSyncComplete do not trigger a second reconciliation.
 func TestHandleMappingStream_PostSyncDoesNotReconcile(t *testing.T) {
-	checker := health.NewChecker(nil, nil)
 	s := &Server{
-		Logger:        log.StandardLogger(),
-		healthChecker: checker,
-		routerReady:   closedChan(),
-		lastMappings:  make(map[types.ServiceID]*proto.ProxyMapping),
+		Logger:       log.StandardLogger(),
+		routerReady:  closedChan(),
+		lastMappings: make(map[types.ServiceID]*proto.ProxyMapping),
 	}
+
+	// Simulate state left over from a previous sync.
+	s.lastMappings["svc-1"] = &proto.ProxyMapping{Id: "svc-1", AccountId: "acct-1"}
+	s.lastMappings["svc-2"] = &proto.ProxyMapping{Id: "svc-2", AccountId: "acct-1"}
 
 	stream := &mockMappingStream{
 		messages: []*proto.GetMappingUpdateResponse{
-			{InitialSyncComplete: true},
-			{}, // post-sync message
+			{}, // post-sync empty message — must not reconcile
 		},
 	}
 
-	syncDone := false
+	syncDone := true // sync already completed in a previous stream
 	err := s.handleMappingStream(context.Background(), stream, &syncDone)
 	require.NoError(t, err)
-	assert.True(t, syncDone)
+
+	assert.Len(t, s.lastMappings, 2,
+		"post-sync messages must not trigger reconciliation — all entries should survive")
 }
 
 // TestHandleMappingStream_ImmediateEOF_NoReconciliation verifies that if the
