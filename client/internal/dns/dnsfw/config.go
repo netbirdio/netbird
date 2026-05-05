@@ -21,15 +21,15 @@ const (
 	EnvStrict = "NB_DNS_FIREWALL_STRICT"
 )
 
+// defaultBlockedPorts are the well-known DNS ports we block for non-netbird
+// processes: 53 (plain DNS) and 853 (DNS-over-TLS).
+var defaultBlockedPorts = []uint16{53, 853}
+
 // strictMode reports whether strict mode is enabled via env.
 func strictMode() bool {
 	v, _ := strconv.ParseBool(os.Getenv(EnvStrict))
 	return v
 }
-
-// defaultBlockedPorts are the well-known DNS ports we block for non-netbird
-// processes: 53 (plain DNS) and 853 (DNS-over-TLS).
-var defaultBlockedPorts = []uint16{53, 853}
 
 // blockedPorts returns the effective port list, honoring env overrides.
 // A nil return means the firewall should not be installed.

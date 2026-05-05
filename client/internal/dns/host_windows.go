@@ -172,24 +172,8 @@ func (r *registryConfigurator) disableWINSForInterface() error {
 }
 
 func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
-	if config.RouteAll {
-		if err := r.dnsFirewall.Enable(r.guid, config.ServerIP); err != nil {
-			return fmt.Errorf("dns firewall: %w", err)
-		}
-		if err := r.addDNSSetupForAll(config.ServerIP); err != nil {
-			return fmt.Errorf("add dns setup: %w", err)
-		}
-	} else {
-		if err := r.dnsFirewall.Disable(); err != nil {
-			log.Errorf("disable dns firewall: %v", err)
-		}
-		if r.routingAll {
-			if err := r.deleteInterfaceRegistryKeyProperty(interfaceConfigNameServerKey); err != nil {
-				return fmt.Errorf("delete interface registry key property: %w", err)
-			}
-			r.routingAll = false
-			log.Infof("removed %s as main DNS forwarder for this peer", config.ServerIP)
-		}
+	if err := r.applyRouteAll(config); err != nil {
+		return err
 	}
 
 	r.updateState(stateManager)
@@ -228,6 +212,31 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 
 	go r.flushDNSCache()
 
+	return nil
+}
+
+func (r *registryConfigurator) applyRouteAll(config HostDNSConfig) error {
+	if config.RouteAll {
+		if err := r.dnsFirewall.Enable(r.guid, config.ServerIP); err != nil {
+			return fmt.Errorf("dns firewall: %w", err)
+		}
+		if err := r.addDNSSetupForAll(config.ServerIP); err != nil {
+			return fmt.Errorf("add dns setup: %w", err)
+		}
+		return nil
+	}
+
+	if err := r.dnsFirewall.Disable(); err != nil {
+		log.Errorf("disable dns firewall: %v", err)
+	}
+	if !r.routingAll {
+		return nil
+	}
+	if err := r.deleteInterfaceRegistryKeyProperty(interfaceConfigNameServerKey); err != nil {
+		return fmt.Errorf("delete interface registry key property: %w", err)
+	}
+	r.routingAll = false
+	log.Infof("removed %s as main DNS forwarder for this peer", config.ServerIP)
 	return nil
 }
 

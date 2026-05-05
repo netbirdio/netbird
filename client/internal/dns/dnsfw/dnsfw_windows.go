@@ -13,10 +13,10 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// New returns a Windows DNS firewall manager backed by WFP.
-func New() Manager {
-	return &windowsManager{}
-}
+var (
+	modIphlpapi                    = windows.NewLazyDLL("iphlpapi.dll")
+	procConvertInterfaceGuidToLuid = modIphlpapi.NewProc("ConvertInterfaceGuidToLuid")
+)
 
 type windowsManager struct {
 	mu sync.Mutex
@@ -80,6 +80,24 @@ func (m *windowsManager) Enable(ifaceGUID string, virtualDNSIP netip.Addr) error
 	return nil
 }
 
+func (m *windowsManager) Disable() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.disableLocked()
+}
+
+func (m *windowsManager) disableLocked() error {
+	if m.session == 0 {
+		return nil
+	}
+	if err := closeSession(m.session); err != nil {
+		return fmt.Errorf("close wfp session: %w", err)
+	}
+	m.session = 0
+	log.Info("dns firewall removed")
+	return nil
+}
+
 // failOrLog returns err unchanged in strict mode. In non-strict mode the
 // error is logged and nil is returned.
 func (m *windowsManager) failOrLog(strict bool, err error) error {
@@ -88,6 +106,11 @@ func (m *windowsManager) failOrLog(strict bool, err error) error {
 	}
 	log.Errorf("dns firewall: %v", err)
 	return nil
+}
+
+// New returns a Windows DNS firewall manager backed by WFP.
+func New() Manager {
+	return &windowsManager{}
 }
 
 // luidFromGUID converts a Windows interface GUID string to its LUID.
@@ -110,27 +133,4 @@ func luidFromGUID(ifaceGUID string) (luid uint64, err error) {
 		return 0, fmt.Errorf("ConvertInterfaceGuidToLuid returned %d", rc)
 	}
 	return luid, nil
-}
-
-var (
-	modIphlpapi                    = windows.NewLazyDLL("iphlpapi.dll")
-	procConvertInterfaceGuidToLuid = modIphlpapi.NewProc("ConvertInterfaceGuidToLuid")
-)
-
-func (m *windowsManager) Disable() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.disableLocked()
-}
-
-func (m *windowsManager) disableLocked() error {
-	if m.session == 0 {
-		return nil
-	}
-	if err := closeSession(m.session); err != nil {
-		return fmt.Errorf("close wfp session: %w", err)
-	}
-	m.session = 0
-	log.Info("dns firewall removed")
-	return nil
 }
