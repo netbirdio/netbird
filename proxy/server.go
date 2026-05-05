@@ -943,6 +943,8 @@ func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.Pr
 	operation := func() error {
 		s.Logger.Debug("connecting to management mapping stream")
 
+		initialSyncDone = false
+
 		if s.healthChecker != nil {
 			s.healthChecker.SetManagementConnected(false)
 		}
