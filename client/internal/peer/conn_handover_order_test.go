@@ -159,10 +159,11 @@ func extractFunctionBody(t *testing.T, src, name string) string {
 		body.WriteString(line)
 		body.WriteByte('\n')
 		for _, ch := range line {
-			if ch == '{' {
+			switch ch {
+			case '{':
 				depth++
 				openSeen = true
-			} else if ch == '}' {
+			case '}':
 				depth--
 				if openSeen && depth == 0 {
 					return body.String()
