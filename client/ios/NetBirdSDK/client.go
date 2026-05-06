@@ -420,11 +420,9 @@ func prepareRouteSelectionDetails(routes []*selectRoute, resolvedDomains map[dom
 			}
 
 			if info, exists := resolvedDomains[d]; exists {
-				var ipStrings []string
 				for _, prefix := range info.Prefixes {
-					ipStrings = append(ipStrings, prefix.Addr().String())
+					domainResp.AddResolvedIP(prefix.Addr().String())
 				}
-				domainResp.ResolvedIPs = strings.Join(ipStrings, ", ")
 			}
 			domainList = append(domainList, domainResp)
 		}
