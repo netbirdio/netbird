@@ -4,6 +4,11 @@ package services
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"os/user"
+	"runtime"
 
 	"github.com/netbirdio/netbird/client/proto"
 )
@@ -59,16 +64,38 @@ func (s *Connection) Login(ctx context.Context, p LoginParams) (LoginResult, err
 	if err != nil {
 		return LoginResult{}, err
 	}
+
+	// Mirror the Fyne client's defaulting: when the frontend doesn't supply
+	// profile / username, fall back to the daemon's active profile and the
+	// current OS user. The flag matches the Fyne ui's IsUnixDesktopClient
+	// condition so the daemon knows we can render an SSO browser flow.
+	profileName := p.ProfileName
+	username := p.Username
+	if profileName == "" {
+		if active, aerr := cli.GetActiveProfile(ctx, &proto.GetActiveProfileRequest{}); aerr == nil {
+			profileName = active.GetProfileName()
+			if username == "" {
+				username = active.GetUsername()
+			}
+		}
+	}
+	if username == "" {
+		if u, uerr := user.Current(); uerr == nil {
+			username = u.Username
+		}
+	}
+
 	req := &proto.LoginRequest{
-		ManagementUrl: p.ManagementURL,
-		SetupKey:      p.SetupKey,
-		Hostname:      p.Hostname,
+		ManagementUrl:       p.ManagementURL,
+		SetupKey:            p.SetupKey,
+		Hostname:            p.Hostname,
+		IsUnixDesktopClient: runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
 	}
-	if p.ProfileName != "" {
-		req.ProfileName = ptrStr(p.ProfileName)
+	if profileName != "" {
+		req.ProfileName = ptrStr(profileName)
 	}
-	if p.Username != "" {
-		req.Username = ptrStr(p.Username)
+	if username != "" {
+		req.Username = ptrStr(username)
 	}
 	if p.PreSharedKey != "" {
 		req.OptionalPreSharedKey = ptrStr(p.PreSharedKey)
@@ -127,6 +154,27 @@ func (s *Connection) Down(ctx context.Context) error {
 	}
 	_, err = cli.Down(ctx, &proto.DownRequest{})
 	return err
+}
+
+// OpenURL launches the user's preferred browser to display url. Mirrors the
+// Fyne client's openURL helper so the SSO flow can pop the verification page
+// the same way as the legacy UI — WebKitGTK's window.open is blocked by the
+// embedded webview, and asking the user to copy/paste defeats the point of
+// SSO. Honors $BROWSER first, then falls back to the platform default.
+func (s *Connection) OpenURL(url string) error {
+	if browser := os.Getenv("BROWSER"); browser != "" {
+		return exec.Command(browser, url).Start()
+	}
+	switch runtime.GOOS {
+	case "windows":
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	case "darwin":
+		return exec.Command("open", url).Start()
+	case "linux", "freebsd":
+		return exec.Command("xdg-open", url).Start()
+	default:
+		return fmt.Errorf("unsupported platform")
+	}
 }
 
 func (s *Connection) Logout(ctx context.Context, p LogoutParams) error {

@@ -1,4 +1,5 @@
-import { CheckCircle2, Circle, Loader2, AlertTriangle, Power } from "lucide-react";
+import { CheckCircle2, Circle, Loader2, AlertTriangle, Power, LogIn } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { useStatus } from "../hooks/useStatus";
 import { Connection } from "../../bindings/github.com/netbirdio/netbird/client/ui-wails/services";
 import type { SystemEvent } from "../../bindings/github.com/netbirdio/netbird/client/ui-wails/services/models.js";
@@ -8,11 +9,17 @@ import { cn } from "../lib/cn";
 
 export default function Status() {
   const { status, error } = useStatus();
+  const navigate = useNavigate();
 
   const connState = status?.status ?? "Disconnected";
   const connected = connState === "Connected";
   const connecting = connState === "Connecting";
+  // The daemon reports "NeedsLogin" on a fresh install or after a session
+  // expires. Show a Login button instead of the plain Connect button — Connect
+  // (Up) without a valid session would fail anyway.
+  const needsLogin = connState === "NeedsLogin" || connState === "SessionExpired";
 
+  const login = () => navigate("/login");
   const connect = () => Connection.Up({ profileName: "", username: "" }).catch(console.error);
   const disconnect = () => Connection.Down().catch(console.error);
 
@@ -29,9 +36,15 @@ export default function Status() {
           </div>
         </div>
         <div className="flex gap-2">
-          <Button onClick={connect} disabled={connected || connecting}>
-            <Power className="h-4 w-4" strokeWidth={1.5} /> Connect
-          </Button>
+          {needsLogin ? (
+            <Button onClick={login}>
+              <LogIn className="h-4 w-4" strokeWidth={1.5} /> Login
+            </Button>
+          ) : (
+            <Button onClick={connect} disabled={connected || connecting}>
+              <Power className="h-4 w-4" strokeWidth={1.5} /> Connect
+            </Button>
+          )}
           <Button onClick={disconnect} variant="secondary" disabled={!connected}>
             Disconnect
           </Button>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ExternalLink } from "lucide-react";
+import { Connection } from "../../bindings/github.com/netbirdio/netbird/client/ui-wails/services";
 import { Button } from "../components/Button";
 
 export default function LoginUrl() {
@@ -24,7 +25,7 @@ export default function LoginUrl() {
       <p className="max-w-sm text-sm text-nb-gray-500">
         Open the following URL to finish signing in.
       </p>
-      <Button onClick={() => window.open(url, "_blank")}>
+      <Button onClick={() => Connection.OpenURL(url).catch(console.error)}>
         <ExternalLink className="h-4 w-4" strokeWidth={1.5} />
         Open URL
       </Button>

@@ -9,13 +9,15 @@ import Debug from "./pages/Debug";
 import Update from "./pages/Update";
 import QuickActions from "./pages/QuickActions";
 import LoginUrl from "./pages/LoginUrl";
+import Login from "./pages/Login";
 
 export default function App() {
   return (
     <HashRouter>
       <Routes>
         <Route path="/quick" element={<QuickActions />} />
-        <Route path="/login" element={<LoginUrl />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/login-url" element={<LoginUrl />} />
         <Route path="/update" element={<Update />} />
         <Route element={<Layout />}>
           <Route index element={<Status />} />

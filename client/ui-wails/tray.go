@@ -75,6 +75,10 @@ const (
 	// Daemon status string for an SSO session that has expired and needs
 	// re-authentication. Mirrors internal.StatusSessionExpired.
 	statusSessionExpired = "SessionExpired"
+	// statusNeedsLogin is what the daemon publishes before the user has
+	// completed an SSO authentication on this profile. Mirrors
+	// internal.StatusNeedsLogin.
+	statusNeedsLogin = "NeedsLogin"
 
 	// External URLs.
 	urlGitHubRepo     = "https://github.com/netbirdio/netbird"
@@ -182,7 +186,13 @@ func (t *Tray) ShowWindow() {
 func (t *Tray) buildMenu() *application.Menu {
 	menu := application.NewMenu()
 
-	t.statusItem = menu.Add(menuStatusDisconnected).SetEnabled(false)
+	// statusItem doubles as the "Login" entry once the daemon reports
+	// NeedsLogin/SessionExpired — applyStatus toggles its enabled state and
+	// label. The click handler is harmless while disabled, so we wire it
+	// up unconditionally rather than swapping items at runtime.
+	t.statusItem = menu.Add(menuStatusDisconnected).
+		OnClick(func(*application.Context) { t.openRoute("/login") }).
+		SetEnabled(false)
 
 	menu.AddSeparator()
 	// On Linux the tray icon's left-click handler is intentionally unbound
@@ -447,11 +457,16 @@ func (t *Tray) applyStatus(st services.Status) {
 
 	if iconChanged {
 		t.applyIcon()
+		needsLogin := strings.EqualFold(st.Status, statusNeedsLogin) ||
+			strings.EqualFold(st.Status, statusSessionExpired)
 		if t.statusItem != nil {
+			// When the daemon needs re-authentication the status row turns
+			// into the actionable Login entry — Connect would only fail.
 			t.statusItem.SetLabel(st.Status)
+			t.statusItem.SetEnabled(needsLogin)
 		}
 		if t.upItem != nil {
-			t.upItem.SetEnabled(!connected)
+			t.upItem.SetEnabled(!connected && !needsLogin)
 		}
 		if t.downItem != nil {
 			t.downItem.SetEnabled(connected)

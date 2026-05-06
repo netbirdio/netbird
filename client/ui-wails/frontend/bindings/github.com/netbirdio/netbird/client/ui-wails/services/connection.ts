@@ -28,6 +28,17 @@ export function Logout(p: $models.LogoutParams): $CancellablePromise<void> {
     return $Call.ByID(4028053230, p);
 }
 
+/**
+ * OpenURL launches the user's preferred browser to display url. Mirrors the
+ * Fyne client's openURL helper so the SSO flow can pop the verification page
+ * the same way as the legacy UI — WebKitGTK's window.open is blocked by the
+ * embedded webview, and asking the user to copy/paste defeats the point of
+ * SSO. Honors $BROWSER first, then falls back to the platform default.
+ */
+export function OpenURL(url: string): $CancellablePromise<void> {
+    return $Call.ByID(4267001345, url);
+}
+
 export function Up(p: $models.UpParams): $CancellablePromise<void> {
     return $Call.ByID(1178388469, p);
 }
