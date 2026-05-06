@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=netbird-ui
-Exec=netbird-ui
+Exec=env WEBKIT_DISABLE_DMABUF_RENDERER=1 netbird-ui
 Icon=netbird-ui
 Categories=Development;
 Terminal=false

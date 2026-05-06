@@ -130,6 +130,13 @@ func main() {
 		window.Hide()
 	})
 
+	// Register an in-process StatusNotifierWatcher so the tray works on
+	// minimal WMs (Fluxbox, OpenBox, i3, dwm, vanilla GNOME without the
+	// AppIndicator extension) that don't ship one themselves. No-op on
+	// non-Linux platforms. Must run before NewTray so the Wails systray's
+	// RegisterStatusNotifierItem call hits a watcher we control.
+	startStatusNotifierWatcher()
+
 	tray = NewTray(app, window, TrayServices{
 		Connection: connection,
 		Settings:   settings,
