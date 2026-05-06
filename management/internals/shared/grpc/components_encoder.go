@@ -23,9 +23,14 @@ const wgKeyRawLen = 32
 // computed alongside the components in the network_map controller and reused
 // from the legacy proto path) and the dns_domain string.
 type ComponentsEnvelopeInput struct {
-	Components *types.NetworkMapComponents
-	PeerConfig *proto.PeerConfig
-	DNSDomain  string
+	Components       *types.NetworkMapComponents
+	PeerConfig       *proto.PeerConfig
+	DNSDomain        string
+	DNSForwarderPort int64
+	// ProxyPatch carries pre-expanded NetworkMap fragments injected by
+	// external controllers (BYOP/port-forwarding). Nil when no proxy data
+	// is present; encoder skips the field in that case.
+	ProxyPatch *proto.ProxyPatch
 }
 
 // EncodeNetworkMapEnvelope converts NetworkMapComponents into the component
@@ -42,6 +47,29 @@ type ComponentsEnvelopeInput struct {
 // use a different shape for the same reason.
 func EncodeNetworkMapEnvelope(in ComponentsEnvelopeInput) *proto.NetworkMapEnvelope {
 	c := in.Components
+
+	// Graceful degrade when components is nil — matches the legacy path's
+	// account_components.go:43 behaviour for missing/unvalidated peers
+	// (return a NetworkMap with only Network populated). The receiver gets
+	// an envelope it can decode without crashing; AccountSettings stays
+	// non-nil so client-side dereferences are safe.
+	if c == nil {
+		// Match legacy missing-peer minimum: a NetworkMap with only Network
+		// populated (account_components.go:43). The receiver gets enough to
+		// bootstrap (Network identifier, dns_domain, account_settings) and
+		// nothing else.
+		return &proto.NetworkMapEnvelope{
+			Payload: &proto.NetworkMapEnvelope_Full{
+				Full: &proto.NetworkMapComponentsFull{
+					PeerConfig:       in.PeerConfig,
+					DnsDomain:        in.DNSDomain,
+					DnsForwarderPort: in.DNSForwarderPort,
+					AccountSettings:  &proto.AccountSettingsCompact{},
+					ProxyPatch:       in.ProxyPatch,
+				},
+			},
+		}
+	}
 
 	// Phase 1: build dedup tables. Every routing peer (in c.RouterPeers) and
 	// every regular peer (in c.Peers) must be indexed before any encoder
@@ -66,6 +94,8 @@ func EncodeNetworkMapEnvelope(in ComponentsEnvelopeInput) *proto.NetworkMapEnvel
 		PeerConfig:          in.PeerConfig,
 		Network:             toAccountNetwork(c.Network),
 		AccountSettings:     toAccountSettingsCompact(c.AccountSettings),
+		DnsForwarderPort:    in.DNSForwarderPort,
+		ProxyPatch:          in.ProxyPatch,
 		DnsSettings:         enc.encodeDNSSettings(c.DNSSettings),
 		DnsDomain:           in.DNSDomain,
 		CustomZoneDomain:    c.CustomZoneDomain,

@@ -779,6 +779,83 @@ func TestEncodeNetworkMapEnvelope_GroupIDToUserIDs(t *testing.T) {
 	assert.ElementsMatch(t, []string{"user-1", "user-2"}, full.GroupIdToUserIds[1].UserIds)
 }
 
+func TestToProxyPatch_EmptyInputReturnsNil(t *testing.T) {
+	assert.Nil(t, toProxyPatch(nil, "netbird.cloud", false, false))
+	assert.Nil(t, toProxyPatch(&types.NetworkMap{}, "netbird.cloud", false, false),
+		"empty NetworkMap (no peers, rules, routes etc) → nil patch so proto3 omits the field")
+}
+
+func TestToProxyPatch_PopulatesAllFields(t *testing.T) {
+	nm := &types.NetworkMap{
+		Peers: []*nbpeer.Peer{{
+			ID: "ext-peer", Key: testWgKeyA, IP: netip.AddrFrom4([4]byte{100, 64, 0, 9}),
+			DNSLabel: "extpeer", Meta: nbpeer.PeerSystemMeta{WtVersion: "0.40.0"},
+		}},
+		FirewallRules: []*types.FirewallRule{{
+			PeerIP: "100.64.0.9", Action: "accept", Direction: 0, Protocol: "tcp",
+		}},
+	}
+
+	patch := toProxyPatch(nm, "netbird.cloud", false, false)
+
+	require.NotNil(t, patch)
+	assert.Len(t, patch.Peers, 1)
+	assert.Len(t, patch.FirewallRules, 1)
+}
+
+// TestEncodeNetworkMapEnvelope_ProxyPatchPropagated covers the ProxyPatch
+// pass-through in both encoder branches (normal path + nil-Components
+// graceful-degrade). Without this test a regression that drops `ProxyPatch:`
+// from one of the struct literals in components_encoder.go would slip past CI.
+func TestEncodeNetworkMapEnvelope_ProxyPatchPropagated(t *testing.T) {
+	patch := &proto.ProxyPatch{
+		ForwardingRules: []*proto.ForwardingRule{{
+			Protocol:          proto.RuleProtocol_TCP,
+			DestinationPort:   &proto.PortInfo{PortSelection: &proto.PortInfo_Port{Port: 80}},
+			TranslatedAddress: net.IPv4(10, 0, 0, 1).To4(),
+			TranslatedPort:    &proto.PortInfo{PortSelection: &proto.PortInfo_Port{Port: 8080}},
+		}},
+	}
+
+	t.Run("normal_path", func(t *testing.T) {
+		c := newTestComponents()
+		full := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{
+			Components: c,
+			ProxyPatch: patch,
+		}).GetFull()
+
+		require.NotNil(t, full.ProxyPatch, "ProxyPatch must propagate through the normal encode path")
+		assert.Len(t, full.ProxyPatch.ForwardingRules, 1)
+	})
+
+	t.Run("nil_components_graceful_degrade", func(t *testing.T) {
+		full := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{
+			Components: nil,
+			ProxyPatch: patch,
+		}).GetFull()
+
+		require.NotNil(t, full.ProxyPatch, "ProxyPatch must propagate through the nil-Components branch too")
+		assert.Len(t, full.ProxyPatch.ForwardingRules, 1)
+	})
+}
+
+func TestEncodeNetworkMapEnvelope_NilComponentsGracefulDegrade(t *testing.T) {
+	// nil Components → minimal envelope, no crash. Matches the legacy
+	// account_components.go:43 behaviour for missing/unvalidated peers.
+	env := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{
+		Components: nil,
+		DNSDomain:  "netbird.cloud",
+	})
+
+	require.NotNil(t, env)
+	full := env.GetFull()
+	require.NotNil(t, full)
+	require.NotNil(t, full.AccountSettings, "AccountSettings must always be non-nil")
+	assert.Equal(t, "netbird.cloud", full.DnsDomain)
+	assert.Empty(t, full.Peers)
+	assert.Empty(t, full.Policies)
+}
+
 func TestEncodeNetworkMapEnvelope_AccountSettingsAlwaysEmitted(t *testing.T) {
 	c := &types.NetworkMapComponents{
 		Network: &types.Network{Identifier: "x", Net: net.IPNet{IP: net.IP{100, 64, 0, 0}, Mask: net.CIDRMask(10, 32)}},

@@ -820,9 +820,35 @@ message NetworkMapComponentsFull {
   // the check. Server-side evaluation result; clients do not re-evaluate.
   map<string, PeerIndexSet> posture_failed_peers = 22;
 
+  // Account-level DNS forwarder port (mirrors the legacy
+  // proto.DNSConfig.ForwarderPort). Computed by the controller from peer
+  // versions; clients fold it into their Calculate() DNS output.
+  int64 dns_forwarder_port = 23;
+
+  // Pre-expanded NetworkMap fragments injected post-Calculate by external
+  // controllers (BYOP / port-forwarding proxies). The receiving client
+  // merges these into its locally-computed NetworkMap the same way the
+  // legacy server does via NetworkMap.Merge — so downstream consumers see
+  // a unified merged result regardless of source.
+  ProxyPatch proxy_patch = 24;
+
   // Reserved for future component additions (incremental_serial, parent_seq,
   // etc.) without forcing a renumber.
-  reserved 23 to 50;
+  reserved 25 to 50;
+}
+
+// ProxyPatch carries NetworkMap fragments that don't fit the component-graph
+// model — they're pre-expanded by external controllers (BYOP /
+// port-forwarding proxies) and injected post-Calculate. Fields use the
+// legacy wire types because the proxy delivers them pre-formed; there is
+// no raw component shape to convert from. Empty when no proxy is active.
+message ProxyPatch {
+  repeated RemotePeerConfig peers = 1;
+  repeated RemotePeerConfig offline_peers = 2;
+  repeated FirewallRule firewall_rules = 3;
+  repeated Route routes = 4;
+  repeated RouteFirewallRule route_firewall_rules = 5;
+  repeated ForwardingRule forwarding_rules = 6;
 }
 
 // AccountSettingsCompact carries the account-level settings the client needs

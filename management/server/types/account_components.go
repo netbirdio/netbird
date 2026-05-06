@@ -16,6 +16,49 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
+// GetPeerNetworkMapResult dispatches to either the legacy-NetworkMap path or
+// the components path based on the peer's capability and the kill switch.
+// Capable peers (PeerCapabilityComponentNetworkMap) get the raw components
+// shape — the server skips Calculate() entirely for them, saving CPU
+// proportional to the number of capable peers in the account. Legacy peers
+// (or any peer when componentsDisabled is true) get the fully-expanded
+// NetworkMap as before.
+func (a *Account) GetPeerNetworkMapResult(
+	ctx context.Context,
+	peerID string,
+	componentsDisabled bool,
+	peersCustomZone nbdns.CustomZone,
+	accountZones []*zones.Zone,
+	validatedPeersMap map[string]struct{},
+	resourcePolicies map[string][]*Policy,
+	routers map[string]map[string]*routerTypes.NetworkRouter,
+	metrics *telemetry.AccountManagerMetrics,
+	groupIDToUserIDs map[string][]string,
+) PeerNetworkMapResult {
+	peer := a.Peers[peerID]
+	if !componentsDisabled && peer != nil && peer.SupportsComponentNetworkMap() {
+		components := a.GetPeerNetworkMapComponents(
+			ctx, peerID, peersCustomZone, accountZones, validatedPeersMap, resourcePolicies, routers, groupIDToUserIDs,
+		)
+		// Mirror legacy graceful-degrade: GetPeerNetworkMapFromComponents
+		// returns &NetworkMap{Network: a.Network.Copy()} when components is
+		// nil. Match that floor so the receiving client always sees the
+		// account Network identifier, not a fully-empty envelope.
+		if components == nil {
+			components = &NetworkMapComponents{
+				PeerID:  peerID,
+				Network: a.Network.Copy(),
+			}
+		}
+		return PeerNetworkMapResult{Components: components}
+	}
+	return PeerNetworkMapResult{
+		NetworkMap: a.GetPeerNetworkMapFromComponents(
+			ctx, peerID, peersCustomZone, accountZones, validatedPeersMap, resourcePolicies, routers, metrics, groupIDToUserIDs,
+		),
+	}
+}
+
 func (a *Account) GetPeerNetworkMapFromComponents(
 	ctx context.Context,
 	peerID string,
