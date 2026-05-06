@@ -243,6 +243,13 @@ func (u *upstreamResolverBase) queryUpstream(parentCtx context.Context, w dns.Re
 	var t time.Duration
 	var err error
 
+	// Advertise EDNS0 so the upstream may include Extended DNS Errors
+	// (RFC 8914) in failure responses; we use those to short-circuit
+	// failover for definitive answers like DNSSEC validation failures.
+	if r.IsEdns0() == nil {
+		r.SetEdns0(currentMTU-ipUDPHeaderSize, false)
+	}
+
 	var startTime time.Time
 	var upstreamProto *upstreamProtocolResult
 	func() {
@@ -262,6 +269,11 @@ func (u *upstreamResolverBase) queryUpstream(parentCtx context.Context, w dns.Re
 	}
 
 	if rm.Rcode == dns.RcodeServerFailure || rm.Rcode == dns.RcodeRefused {
+		if code, ok := nonRetryableEDE(rm); ok {
+			resutil.SetMeta(w, "ede", edeName(code))
+			u.writeSuccessResponse(w, rm, upstream, r.Question[0].Name, t, upstreamProto, logger)
+			return nil
+		}
 		return &upstreamFailure{upstream: upstream, reason: dns.RcodeToString[rm.Rcode]}
 	}
 
@@ -328,6 +340,51 @@ func formatFailures(failures []upstreamFailure) string {
 		parts = append(parts, fmt.Sprintf("%s=%s", f.upstream, f.reason))
 	}
 	return strings.Join(parts, ", ")
+}
+
+// nonRetryableEDE reports whether the response carries an Extended DNS Error
+// (RFC 8914) indicating the answer is definitive and trying another upstream
+// would yield the same result. DNSSEC validation failures and policy-based
+// blocks fall into this category; transient errors (network, cached, not
+// ready) do not.
+func nonRetryableEDE(rm *dns.Msg) (uint16, bool) {
+	opt := rm.IsEdns0()
+	if opt == nil {
+		return 0, false
+	}
+	for _, o := range opt.Option {
+		ede, ok := o.(*dns.EDNS0_EDE)
+		if !ok {
+			continue
+		}
+		switch ede.InfoCode {
+		case dns.ExtendedErrorCodeUnsupportedDNSKEYAlgorithm,
+			dns.ExtendedErrorCodeUnsupportedDSDigestType,
+			dns.ExtendedErrorCodeDNSSECIndeterminate,
+			dns.ExtendedErrorCodeDNSBogus,
+			dns.ExtendedErrorCodeSignatureExpired,
+			dns.ExtendedErrorCodeSignatureNotYetValid,
+			dns.ExtendedErrorCodeDNSKEYMissing,
+			dns.ExtendedErrorCodeRRSIGsMissing,
+			dns.ExtendedErrorCodeNoZoneKeyBitSet,
+			dns.ExtendedErrorCodeNSECMissing,
+			dns.ExtendedErrorCodeBlocked,
+			dns.ExtendedErrorCodeCensored,
+			dns.ExtendedErrorCodeFiltered,
+			dns.ExtendedErrorCodeProhibited:
+			return ede.InfoCode, true
+		}
+	}
+	return 0, false
+}
+
+// edeName returns a human-readable name for an EDE code, falling back to
+// the numeric code when unknown.
+func edeName(code uint16) string {
+	if name, ok := dns.ExtendedErrorCodeToString[code]; ok {
+		return name
+	}
+	return fmt.Sprintf("EDE %d", code)
 }
 
 // ProbeAvailability tests all upstream servers simultaneously and
