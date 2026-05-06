@@ -24,17 +24,17 @@ func (r *recordingListener) OnPeersListChanged(int) {
 	r.peersChangedCount.Add(1)
 }
 
-func waitForCount(t *testing.T, l *recordingListener, atLeast int32, label string) {
+func waitForCount(t *testing.T, l *recordingListener, minCount int32, label string) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if l.peersChangedCount.Load() >= atLeast {
+		if l.peersChangedCount.Load() >= minCount {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("%s: timed out waiting for OnPeersListChanged count >= %d (got %d)",
-		label, atLeast, l.peersChangedCount.Load())
+		label, minCount, l.peersChangedCount.Load())
 }
 
 // Codex finding 3: UpdatePeerRemoteMeta must fire OnPeersListChanged
