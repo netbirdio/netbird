@@ -15,9 +15,13 @@ export default function Status() {
   const connected = connState === "Connected";
   const connecting = connState === "Connecting";
   // The daemon reports "NeedsLogin" on a fresh install or after a session
-  // expires. Show a Login button instead of the plain Connect button — Connect
-  // (Up) without a valid session would fail anyway.
+  // expires; "SessionExpired" once a previously good session lapses. In both
+  // cases Connect would fail without a fresh SSO login.
   const needsLogin = connState === "NeedsLogin" || connState === "SessionExpired";
+  // Always offer Login while we aren't Connected — including Connecting,
+  // because a stuck Login on the daemon leaves us in Connecting forever and
+  // the user has no other way out. Disconnect is the manual unstick path.
+  const showLogin = !connected;
 
   const login = () => navigate("/login");
   const connect = () => Connection.Up({ profileName: "", username: "" }).catch(console.error);
@@ -43,6 +47,11 @@ export default function Status() {
           ) : (
             <Button onClick={connect} disabled={connected || connecting}>
               <Power className="h-4 w-4" strokeWidth={1.5} /> Connect
+            </Button>
+          )}
+          {showLogin && !needsLogin && (
+            <Button onClick={login} variant="secondary">
+              <LogIn className="h-4 w-4" strokeWidth={1.5} /> Login
             </Button>
           )}
           <Button onClick={disconnect} variant="secondary" disabled={!connected}>

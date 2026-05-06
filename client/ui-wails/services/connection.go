@@ -65,6 +65,17 @@ func (s *Connection) Login(ctx context.Context, p LoginParams) (LoginResult, err
 		return LoginResult{}, err
 	}
 
+	// Reset the daemon's connection loop before kicking off a new login.
+	// If a previous Login left a WaitSSOLogin pending (user closed the
+	// browser without completing the flow), the daemon stays parked on the
+	// old UserCode and replies with "invalid setup-key or no sso information
+	// provided" to a fresh Login. Calling Down first dislodges that state;
+	// we ignore the error since Down on an already-idle daemon is a no-op.
+	if _, derr := cli.Down(ctx, &proto.DownRequest{}); derr != nil {
+		// Down failed — likely because the daemon is already idle. Continue.
+		_ = derr
+	}
+
 	// Mirror the Fyne client's defaulting: when the frontend doesn't supply
 	// profile / username, fall back to the daemon's active profile and the
 	// current OS user. The flag matches the Fyne ui's IsUnixDesktopClient
