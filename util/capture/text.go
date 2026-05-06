@@ -593,20 +593,20 @@ func formatDNSResponse(d *layers.DNS, rd string, plen int) string {
 	anCount := d.ANCount
 	nsCount := d.NSCount
 	arCount := d.ARCount
+	ede := formatEDE(d)
 
 	if d.ResponseCode != layers.DNSResponseCodeNoErr {
-		ede := formatEDE(d)
 		return fmt.Sprintf("%04x %d/%d/%d %s%s (%d)", d.ID, anCount, nsCount, arCount, d.ResponseCode, ede, plen)
 	}
 
 	if anCount > 0 && len(d.Answers) > 0 {
 		rr := d.Answers[0]
 		if rdata := shortRData(&rr); rdata != "" {
-			return fmt.Sprintf("%04x %d/%d/%d %s %s (%d)", d.ID, anCount, nsCount, arCount, rr.Type, rdata, plen)
+			return fmt.Sprintf("%04x %d/%d/%d %s %s%s (%d)", d.ID, anCount, nsCount, arCount, rr.Type, rdata, ede, plen)
 		}
 	}
 
-	return fmt.Sprintf("%04x %d/%d/%d (%d)", d.ID, anCount, nsCount, arCount, plen)
+	return fmt.Sprintf("%04x %d/%d/%d%s (%d)", d.ID, anCount, nsCount, arCount, ede, plen)
 }
 
 // dnsOPTCodeEDE is the EDNS0 option code for Extended DNS Errors (RFC 8914).
