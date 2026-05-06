@@ -14,6 +14,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 
+	"github.com/netbirdio/netbird/idp/dex"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/util"
@@ -140,6 +141,7 @@ type AuthConfig struct {
 	DashboardRedirectURIs []string          `yaml:"dashboardRedirectURIs"`
 	CLIRedirectURIs       []string          `yaml:"cliRedirectURIs"`
 	Owner                 *AuthOwnerConfig  `yaml:"owner,omitempty"`
+	StaticConnectors      []dex.Connector   `yaml:"staticConnectors,omitempty"`
 }
 
 // AuthStorageConfig contains auth storage settings
@@ -594,6 +596,7 @@ func (c *CombinedConfig) buildEmbeddedIdPConfig(mgmt ManagementConfig) (*idp.Emb
 		},
 		DashboardRedirectURIs: mgmt.Auth.DashboardRedirectURIs,
 		CLIRedirectURIs:       mgmt.Auth.CLIRedirectURIs,
+		StaticConnectors:      mgmt.Auth.StaticConnectors,
 	}
 
 	if mgmt.Auth.Owner != nil && mgmt.Auth.Owner.Email != "" {

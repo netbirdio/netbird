@@ -163,10 +163,10 @@ func (p *Password) UnmarshalYAML(node *yaml.Node) error {
 
 // Connector is a connector configuration that can unmarshal YAML dynamically.
 type Connector struct {
-	Type   string                 `yaml:"type" json:"type"`
-	Name   string                 `yaml:"name" json:"name"`
-	ID     string                 `yaml:"id" json:"id"`
-	Config map[string]interface{} `yaml:"config" json:"config"`
+	Type   string         `yaml:"type" json:"type"`
+	Name   string         `yaml:"name" json:"name"`
+	ID     string         `yaml:"id" json:"id"`
+	Config map[string]any `yaml:"config" json:"config"`
 }
 
 // ToStorageConnector converts a Connector to storage.Connector type.
