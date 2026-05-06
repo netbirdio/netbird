@@ -22,7 +22,7 @@ func TestResolveModeFromEnv(t *testing.T) {
 		{"lazy alone", "", "", "true", "", connectionmode.ModeP2PLazy, 0},
 		{"force_relay AND lazy: force_relay wins", "", "true", "true", "", connectionmode.ModeRelayForced, 0},
 		{"only inactivity threshold", "", "", "", "30m", connectionmode.ModeUnspecified, 1800},
-		{"connection_mode unparseable falls through to legacy", "garbage", "true", "", "", connectionmode.ModeRelayForced, 0},
+		{"connection_mode unparsable falls through to legacy", "garbage", "true", "", "", connectionmode.ModeRelayForced, 0},
 		{"connection_mode parses p2p-lazy", "p2p-lazy", "", "", "", connectionmode.ModeP2PLazy, 0},
 		{"force-relay value is true (case-insensitive)", "", "TRUE", "", "", connectionmode.ModeRelayForced, 0},
 	}
