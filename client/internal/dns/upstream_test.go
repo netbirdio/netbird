@@ -848,3 +848,54 @@ func TestStripOPT(t *testing.T) {
 	_, isOPT := rm.Extra[0].(*dns.OPT)
 	assert.False(t, isOPT, "remaining record must not be OPT")
 }
+
+func TestUpstreamResolver_NonRetryableEDEShortCircuits(t *testing.T) {
+	upstream1 := netip.MustParseAddrPort("192.0.2.1:53")
+	upstream2 := netip.MustParseAddrPort("192.0.2.2:53")
+
+	servfailWithEDE := msgWithEDE(dns.RcodeServerFailure, dns.ExtendedErrorCodeDNSBogus)
+	successResp := buildMockResponse(dns.RcodeSuccess, "192.0.2.100")
+
+	var queried []string
+	tracking := &trackingMockClient{
+		inner: &mockUpstreamResolverPerServer{
+			responses: map[string]mockUpstreamResponse{
+				upstream1.String(): {msg: servfailWithEDE},
+				upstream2.String(): {msg: successResp},
+			},
+			rtt: time.Millisecond,
+		},
+		queriedUpstreams: &queried,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	resolver := &upstreamResolverBase{
+		ctx:             ctx,
+		upstreamClient:  tracking,
+		upstreamServers: []netip.AddrPort{upstream1, upstream2},
+		upstreamTimeout: UpstreamTimeout,
+	}
+
+	var written *dns.Msg
+	w := &test.MockResponseWriter{
+		WriteMsgFunc: func(m *dns.Msg) error {
+			written = m
+			return nil
+		},
+	}
+
+	// Client query without EDNS0 must not see an OPT in the response.
+	q := new(dns.Msg).SetQuestion("example.com.", dns.TypeA)
+	resolver.ServeDNS(w, q)
+
+	require.NotNil(t, written, "response must be written")
+	assert.Equal(t, dns.RcodeServerFailure, written.Rcode, "SERVFAIL must propagate")
+	assert.Len(t, queried, 1, "only first upstream should be queried")
+	assert.Equal(t, upstream1.String(), queried[0])
+	for _, rr := range written.Extra {
+		_, isOPT := rr.(*dns.OPT)
+		assert.False(t, isOPT, "synthetic OPT must not leak to a non-EDNS0 client")
+	}
+}
