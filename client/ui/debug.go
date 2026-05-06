@@ -16,6 +16,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 	log "github.com/sirupsen/logrus"
 	"github.com/skratchdot/open-golang/open"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/proto"
@@ -38,6 +39,7 @@ type debugCollectionParams struct {
 	upload            bool
 	uploadURL         string
 	enablePersistence bool
+	capture           bool
 }
 
 // UI components for progress tracking
@@ -51,25 +53,58 @@ type progressUI struct {
 func (s *serviceClient) showDebugUI() {
 	w := s.app.NewWindow("NetBird Debug")
 	w.SetOnClosed(s.cancel)
-
 	w.Resize(fyne.NewSize(600, 500))
 	w.SetFixedSize(true)
 
 	anonymizeCheck := widget.NewCheck("Anonymize sensitive information (public IPs, domains, ...)", nil)
 	systemInfoCheck := widget.NewCheck("Include system information (routes, interfaces, ...)", nil)
 	systemInfoCheck.SetChecked(true)
+	captureCheck := widget.NewCheck("Include packet capture", nil)
 	uploadCheck := widget.NewCheck("Upload bundle automatically after creation", nil)
 	uploadCheck.SetChecked(true)
 
-	uploadURLLabel := widget.NewLabel("Debug upload URL:")
+	uploadURLContainer, uploadURL := s.buildUploadSection(uploadCheck)
+
+	debugModeContainer, runForDurationCheck, durationInput, noteLabel := s.buildDurationSection()
+
+	statusLabel := widget.NewLabel("")
+	statusLabel.Hide()
+	progressBar := widget.NewProgressBar()
+	progressBar.Hide()
+	createButton := widget.NewButton("Create Debug Bundle", nil)
+
+	uiControls := []fyne.Disableable{
+		anonymizeCheck, systemInfoCheck, captureCheck,
+		uploadCheck, uploadURL, runForDurationCheck, durationInput, createButton,
+	}
+
+	createButton.OnTapped = s.getCreateHandler(
+		statusLabel, progressBar, uploadCheck, uploadURL,
+		anonymizeCheck, systemInfoCheck, captureCheck,
+		runForDurationCheck, durationInput, uiControls, w,
+	)
+
+	content := container.NewVBox(
+		widget.NewLabel("Create a debug bundle to help troubleshoot issues with NetBird"),
+		widget.NewLabel(""),
+		anonymizeCheck, systemInfoCheck, captureCheck,
+		uploadCheck, uploadURLContainer,
+		widget.NewLabel(""),
+		debugModeContainer, noteLabel,
+		widget.NewLabel(""),
+		statusLabel, progressBar, createButton,
+	)
+
+	w.SetContent(container.NewPadded(content))
+	w.Show()
+}
+
+func (s *serviceClient) buildUploadSection(uploadCheck *widget.Check) (*fyne.Container, *widget.Entry) {
 	uploadURL := widget.NewEntry()
 	uploadURL.SetText(uptypes.DefaultBundleURL)
 	uploadURL.SetPlaceHolder("Enter upload URL")
 
-	uploadURLContainer := container.NewVBox(
-		uploadURLLabel,
-		uploadURL,
-	)
+	uploadURLContainer := container.NewVBox(widget.NewLabel("Debug upload URL:"), uploadURL)
 
 	uploadCheck.OnChanged = func(checked bool) {
 		if checked {
@@ -78,13 +113,14 @@ func (s *serviceClient) showDebugUI() {
 			uploadURLContainer.Hide()
 		}
 	}
+	return uploadURLContainer, uploadURL
+}
 
-	debugModeContainer := container.NewHBox()
+func (s *serviceClient) buildDurationSection() (*fyne.Container, *widget.Check, *widget.Entry, *widget.Label) {
 	runForDurationCheck := widget.NewCheck("Run with trace logs before creating bundle", nil)
 	runForDurationCheck.SetChecked(true)
 
 	forLabel := widget.NewLabel("for")
-
 	durationInput := widget.NewEntry()
 	durationInput.SetText("1")
 	minutesLabel := widget.NewLabel("minute")
@@ -108,63 +144,8 @@ func (s *serviceClient) showDebugUI() {
 		}
 	}
 
-	debugModeContainer.Add(runForDurationCheck)
-	debugModeContainer.Add(forLabel)
-	debugModeContainer.Add(durationInput)
-	debugModeContainer.Add(minutesLabel)
-
-	statusLabel := widget.NewLabel("")
-	statusLabel.Hide()
-
-	progressBar := widget.NewProgressBar()
-	progressBar.Hide()
-
-	createButton := widget.NewButton("Create Debug Bundle", nil)
-
-	// UI controls that should be disabled during debug collection
-	uiControls := []fyne.Disableable{
-		anonymizeCheck,
-		systemInfoCheck,
-		uploadCheck,
-		uploadURL,
-		runForDurationCheck,
-		durationInput,
-		createButton,
-	}
-
-	createButton.OnTapped = s.getCreateHandler(
-		statusLabel,
-		progressBar,
-		uploadCheck,
-		uploadURL,
-		anonymizeCheck,
-		systemInfoCheck,
-		runForDurationCheck,
-		durationInput,
-		uiControls,
-		w,
-	)
-
-	content := container.NewVBox(
-		widget.NewLabel("Create a debug bundle to help troubleshoot issues with NetBird"),
-		widget.NewLabel(""),
-		anonymizeCheck,
-		systemInfoCheck,
-		uploadCheck,
-		uploadURLContainer,
-		widget.NewLabel(""),
-		debugModeContainer,
-		noteLabel,
-		widget.NewLabel(""),
-		statusLabel,
-		progressBar,
-		createButton,
-	)
-
-	paddedContent := container.NewPadded(content)
-	w.SetContent(paddedContent)
-
-	w.Show()
+	modeContainer := container.NewHBox(runForDurationCheck, forLabel, durationInput, minutesLabel)
+	return modeContainer, runForDurationCheck, durationInput, noteLabel
 }
 
 func validateMinute(s string, minutesLabel *widget.Label) error {
@@ -200,6 +181,7 @@ func (s *serviceClient) getCreateHandler(
 	uploadURL *widget.Entry,
 	anonymizeCheck *widget.Check,
 	systemInfoCheck *widget.Check,
+	captureCheck *widget.Check,
 	runForDurationCheck *widget.Check,
 	duration *widget.Entry,
 	uiControls []fyne.Disableable,
@@ -222,6 +204,7 @@ func (s *serviceClient) getCreateHandler(
 		params := &debugCollectionParams{
 			anonymize:         anonymizeCheck.Checked,
 			systemInfo:        systemInfoCheck.Checked,
+			capture:           captureCheck.Checked,
 			upload:            uploadCheck.Checked,
 			uploadURL:         url,
 			enablePersistence: true,
@@ -253,10 +236,7 @@ func (s *serviceClient) getCreateHandler(
 
 		statusLabel.SetText("Creating debug bundle...")
 		go s.handleDebugCreation(
-			anonymizeCheck.Checked,
-			systemInfoCheck.Checked,
-			uploadCheck.Checked,
-			url,
+			params,
 			statusLabel,
 			uiControls,
 			w,
@@ -371,7 +351,7 @@ func startProgressTracker(ctx context.Context, wg *sync.WaitGroup, duration time
 func (s *serviceClient) configureServiceForDebug(
 	conn proto.DaemonServiceClient,
 	state *debugInitialState,
-	enablePersistence bool,
+	params *debugCollectionParams,
 ) {
 	if state.wasDown {
 		if _, err := conn.Up(s.ctx, &proto.UpRequest{}); err != nil {
@@ -397,7 +377,7 @@ func (s *serviceClient) configureServiceForDebug(
 		time.Sleep(time.Second)
 	}
 
-	if enablePersistence {
+	if params.enablePersistence {
 		if _, err := conn.SetSyncResponsePersistence(s.ctx, &proto.SetSyncResponsePersistenceRequest{
 			Enabled: true,
 		}); err != nil {
@@ -417,6 +397,26 @@ func (s *serviceClient) configureServiceForDebug(
 	if _, err := conn.StartCPUProfile(s.ctx, &proto.StartCPUProfileRequest{}); err != nil {
 		log.Warnf("failed to start CPU profiling: %v", err)
 	}
+
+	s.startBundleCaptureIfEnabled(conn, params)
+}
+
+func (s *serviceClient) startBundleCaptureIfEnabled(conn proto.DaemonServiceClient, params *debugCollectionParams) {
+	if !params.capture {
+		return
+	}
+
+	const maxCapture = 10 * time.Minute
+	timeout := params.duration + 30*time.Second
+	if timeout > maxCapture {
+		timeout = maxCapture
+		log.Warnf("packet capture clamped to %s (server maximum)", maxCapture)
+	}
+	if _, err := conn.StartBundleCapture(s.ctx, &proto.StartBundleCaptureRequest{
+		Timeout: durationpb.New(timeout),
+	}); err != nil {
+		log.Warnf("failed to start bundle capture: %v", err)
+	}
 }
 
 func (s *serviceClient) collectDebugData(
@@ -430,7 +430,7 @@ func (s *serviceClient) collectDebugData(
 	var wg sync.WaitGroup
 	startProgressTracker(ctx, &wg, params.duration, progress)
 
-	s.configureServiceForDebug(conn, state, params.enablePersistence)
+	s.configureServiceForDebug(conn, state, params)
 
 	wg.Wait()
 	progress.progressBar.Hide()
@@ -438,6 +438,14 @@ func (s *serviceClient) collectDebugData(
 
 	if _, err := conn.StopCPUProfile(s.ctx, &proto.StopCPUProfileRequest{}); err != nil {
 		log.Warnf("failed to stop CPU profiling: %v", err)
+	}
+
+	if params.capture {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if _, err := conn.StopBundleCapture(stopCtx, &proto.StopBundleCaptureRequest{}); err != nil {
+			log.Warnf("failed to stop bundle capture: %v", err)
+		}
 	}
 
 	return nil
@@ -520,18 +528,37 @@ func handleError(progress *progressUI, errMsg string) {
 }
 
 func (s *serviceClient) handleDebugCreation(
-	anonymize bool,
-	systemInfo bool,
-	upload bool,
-	uploadURL string,
+	params *debugCollectionParams,
 	statusLabel *widget.Label,
 	uiControls []fyne.Disableable,
 	w fyne.Window,
 ) {
-	log.Infof("Creating debug bundle (Anonymized: %v, System Info: %v, Upload Attempt: %v)...",
-		anonymize, systemInfo, upload)
+	conn, err := s.getSrvClient(failFastTimeout)
+	if err != nil {
+		log.Errorf("Failed to get client for debug: %v", err)
+		statusLabel.SetText(fmt.Sprintf("Error: %v", err))
+		enableUIControls(uiControls)
+		return
+	}
 
-	resp, err := s.createDebugBundle(anonymize, systemInfo, uploadURL)
+	if params.capture {
+		if _, err := conn.StartBundleCapture(s.ctx, &proto.StartBundleCaptureRequest{
+			Timeout: durationpb.New(30 * time.Second),
+		}); err != nil {
+			log.Warnf("failed to start bundle capture: %v", err)
+		} else {
+			defer func() {
+				stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				if _, err := conn.StopBundleCapture(stopCtx, &proto.StopBundleCaptureRequest{}); err != nil {
+					log.Warnf("failed to stop bundle capture: %v", err)
+				}
+			}()
+			time.Sleep(2 * time.Second)
+		}
+	}
+
+	resp, err := s.createDebugBundle(params.anonymize, params.systemInfo, params.uploadURL)
 	if err != nil {
 		log.Errorf("Failed to create debug bundle: %v", err)
 		statusLabel.SetText(fmt.Sprintf("Error creating bundle: %v", err))
@@ -543,7 +570,7 @@ func (s *serviceClient) handleDebugCreation(
 	uploadFailureReason := resp.GetUploadFailureReason()
 	uploadedKey := resp.GetUploadedKey()
 
-	if upload {
+	if params.upload {
 		if uploadFailureReason != "" {
 			showUploadFailedDialog(w, localPath, uploadFailureReason)
 		} else {

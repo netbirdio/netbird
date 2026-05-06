@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"sync"
 	"syscall/js"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	netbird "github.com/netbirdio/netbird/client/embed"
 	sshdetection "github.com/netbirdio/netbird/client/ssh/detection"
 	nbstatus "github.com/netbirdio/netbird/client/status"
+	wasmcapture "github.com/netbirdio/netbird/client/wasm/internal/capture"
 	"github.com/netbirdio/netbird/client/wasm/internal/http"
 	"github.com/netbirdio/netbird/client/wasm/internal/rdp"
 	"github.com/netbirdio/netbird/client/wasm/internal/ssh"
@@ -459,6 +461,95 @@ func createSetLogLevelMethod(client *netbird.Client) js.Func {
 	})
 }
 
+// createStartCaptureMethod creates the programmable packet capture method.
+// Returns a JS interface with onpacket callback and stop() method.
+//
+// Usage from JavaScript:
+//
+//	const cap = await client.startCapture({ filter: "tcp port 443", verbose: true })
+//	cap.onpacket = (line) => console.log(line)
+//	const stats = cap.stop()
+func createStartCaptureMethod(client *netbird.Client) js.Func {
+	return js.FuncOf(func(_ js.Value, args []js.Value) any {
+		var opts js.Value
+		if len(args) > 0 {
+			opts = args[0]
+		}
+
+		return createPromise(func(resolve, reject js.Value) {
+			iface, err := wasmcapture.Start(client, opts)
+			if err != nil {
+				reject.Invoke(js.ValueOf(fmt.Sprintf("start capture: %v", err)))
+				return
+			}
+			resolve.Invoke(iface)
+		})
+	})
+}
+
+// captureMethods returns capture() and stopCapture() that share state for
+// the console-log shortcut. capture() logs packets to the browser console
+// and stopCapture() ends it, like Ctrl+C on the CLI.
+//
+// Usage from browser devtools console:
+//
+//	await client.capture()              // capture all packets
+//	await client.capture("tcp")         // capture with filter
+//	await client.capture({filter: "host 10.0.0.1", verbose: true})
+//	client.stopCapture()                // stop and print stats
+func captureMethods(client *netbird.Client) (startFn, stopFn js.Func) {
+	var mu sync.Mutex
+	var active *wasmcapture.Handle
+
+	startFn = js.FuncOf(func(_ js.Value, args []js.Value) any {
+		var opts js.Value
+		if len(args) > 0 {
+			opts = args[0]
+		}
+
+		return createPromise(func(resolve, reject js.Value) {
+			mu.Lock()
+			defer mu.Unlock()
+
+			if active != nil {
+				active.Stop()
+				active = nil
+			}
+
+			h, err := wasmcapture.StartConsole(client, opts)
+			if err != nil {
+				reject.Invoke(js.ValueOf(fmt.Sprintf("start capture: %v", err)))
+				return
+			}
+			active = h
+
+			console := js.Global().Get("console")
+			console.Call("log", "[capture] started, call client.stopCapture() to stop")
+			resolve.Invoke(js.Undefined())
+		})
+	})
+
+	stopFn = js.FuncOf(func(_ js.Value, _ []js.Value) any {
+		mu.Lock()
+		defer mu.Unlock()
+
+		if active == nil {
+			js.Global().Get("console").Call("log", "[capture] no active capture")
+			return js.Undefined()
+		}
+
+		stats := active.Stop()
+		active = nil
+
+		console := js.Global().Get("console")
+		console.Call("log", fmt.Sprintf("[capture] stopped: %d packets, %d bytes, %d dropped",
+			stats.Packets, stats.Bytes, stats.Dropped))
+		return js.Undefined()
+	})
+
+	return startFn, stopFn
+}
+
 // createPromise is a helper to create JavaScript promises
 func createPromise(handler func(resolve, reject js.Value)) js.Value {
 	return js.Global().Get("Promise").New(js.FuncOf(func(_ js.Value, promiseArgs []js.Value) any {
@@ -521,6 +612,11 @@ func createClientObject(client *netbird.Client) js.Value {
 	obj["statusDetail"] = createStatusDetailMethod(client)
 	obj["getSyncResponse"] = createGetSyncResponseMethod(client)
 	obj["setLogLevel"] = createSetLogLevelMethod(client)
+	obj["startCapture"] = createStartCaptureMethod(client)
+
+	capStart, capStop := captureMethods(client)
+	obj["capture"] = capStart
+	obj["stopCapture"] = capStop
 
 	return js.ValueOf(obj)
 }

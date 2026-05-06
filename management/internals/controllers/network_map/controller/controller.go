@@ -257,7 +257,10 @@ func (c *Controller) bufferSendUpdateAccountPeers(ctx context.Context, accountID
 
 // UpdatePeers updates all peers that belong to an account.
 // Should be called when changes have to be synced to peers.
-func (c *Controller) UpdateAccountPeers(ctx context.Context, accountID string) error {
+func (c *Controller) UpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) error {
+	if c.accountManagerMetrics != nil {
+		c.accountManagerMetrics.CountUpdateAccountPeersTriggered(string(reason.Resource), string(reason.Operation))
+	}
 	return c.sendUpdateAccountPeers(ctx, accountID)
 }
 
@@ -331,8 +334,12 @@ func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, pe
 	return nil
 }
 
-func (c *Controller) BufferUpdateAccountPeers(ctx context.Context, accountID string) error {
+func (c *Controller) BufferUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) error {
 	log.WithContext(ctx).Tracef("buffer updating peers for account %s from %s", accountID, util.GetCallerName())
+
+	if c.accountManagerMetrics != nil {
+		c.accountManagerMetrics.CountUpdateAccountPeersTriggered(string(reason.Resource), string(reason.Operation))
+	}
 
 	bufUpd, _ := c.accountUpdateLocks.LoadOrStore(accountID, &bufferUpdate{})
 	b := bufUpd.(*bufferUpdate)
@@ -348,14 +355,14 @@ func (c *Controller) BufferUpdateAccountPeers(ctx context.Context, accountID str
 
 	go func() {
 		defer b.mu.Unlock()
-		_ = c.UpdateAccountPeers(ctx, accountID)
+		_ = c.sendUpdateAccountPeers(ctx, accountID)
 		if !b.update.Load() {
 			return
 		}
 		b.update.Store(false)
 		if b.next == nil {
 			b.next = time.AfterFunc(time.Duration(c.updateAccountPeersBufferInterval.Load()), func() {
-				_ = c.UpdateAccountPeers(ctx, accountID)
+				_ = c.sendUpdateAccountPeers(ctx, accountID)
 			})
 			return
 		}

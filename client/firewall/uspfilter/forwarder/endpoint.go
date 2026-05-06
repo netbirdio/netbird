@@ -12,12 +12,19 @@ import (
 	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 )
 
+// PacketCapture captures raw packets for debugging. Implementations must be
+// safe for concurrent use and must not block.
+type PacketCapture interface {
+	Offer(data []byte, outbound bool)
+}
+
 // endpoint implements stack.LinkEndpoint and handles integration with the wireguard device
 type endpoint struct {
 	logger     *nblog.Logger
 	dispatcher stack.NetworkDispatcher
 	device     *wgdevice.Device
 	mtu        atomic.Uint32
+	capture    atomic.Pointer[PacketCapture]
 }
 
 func (e *endpoint) Attach(dispatcher stack.NetworkDispatcher) {
@@ -54,12 +61,16 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 			continue
 		}
 
-		// Send the packet through WireGuard
+		pktBytes := data.AsSlice()
+
 		address := netHeader.DestinationAddress()
-		err := e.device.CreateOutboundPacket(data.AsSlice(), address.AsSlice())
-		if err != nil {
+		if err := e.device.CreateOutboundPacket(pktBytes, address.AsSlice()); err != nil {
 			e.logger.Error1("CreateOutboundPacket: %v", err)
 			continue
+		}
+
+		if pc := e.capture.Load(); pc != nil {
+			(*pc).Offer(pktBytes, true)
 		}
 		written++
 	}

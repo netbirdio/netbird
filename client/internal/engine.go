@@ -28,6 +28,7 @@ import (
 	"github.com/netbirdio/netbird/client/firewall"
 	"github.com/netbirdio/netbird/client/firewall/firewalld"
 	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/firewall/uspfilter/forwarder"
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/device"
 	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
@@ -68,6 +69,7 @@ import (
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 	sProto "github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/util/capture"
 )
 
 // PeerConnectionTimeoutMax is a timeout of an initial connection attempt to a remote peer.
@@ -217,6 +219,8 @@ type Engine struct {
 	stateManager       *statemanager.Manager
 	portForwardManager *portforward.Manager
 	srWatcher          *guard.SRWatcher
+
+	afpacketCapture *capture.AFPacketCapture
 
 	// Sync response persistence (protected by syncRespMux)
 	syncRespMux         sync.RWMutex
@@ -1703,6 +1707,11 @@ func (e *Engine) parseNATExternalIPMappings() []string {
 }
 
 func (e *Engine) close() {
+	if e.afpacketCapture != nil {
+		e.afpacketCapture.Stop()
+		e.afpacketCapture = nil
+	}
+
 	log.Debugf("removing Netbird interface %s", e.config.WgIfaceName)
 
 	if e.wgInterface != nil {
@@ -2168,6 +2177,62 @@ func (e *Engine) Address() (netip.Addr, error) {
 	return e.wgInterface.Address().IP, nil
 }
 
+// SetCapture sets or clears packet capture on the WireGuard device.
+// On userspace WireGuard, it taps the FilteredDevice directly.
+// On kernel WireGuard (Linux), it falls back to AF_PACKET raw socket capture.
+// Pass nil to disable capture.
+func (e *Engine) SetCapture(pc device.PacketCapture) error {
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
+
+	intf := e.wgInterface
+	if intf == nil {
+		return errors.New("wireguard interface not initialized")
+	}
+
+	if e.afpacketCapture != nil {
+		e.afpacketCapture.Stop()
+		e.afpacketCapture = nil
+	}
+
+	dev := intf.GetDevice()
+	if dev != nil {
+		dev.SetCapture(pc)
+		e.setForwarderCapture(pc)
+		return nil
+	}
+
+	// Kernel mode: no FilteredDevice. Use AF_PACKET on Linux.
+	if pc == nil {
+		return nil
+	}
+	sess, ok := pc.(*capture.Session)
+	if !ok {
+		return errors.New("filtered device not available and AF_PACKET requires *capture.Session")
+	}
+
+	afc := capture.NewAFPacketCapture(intf.Name(), sess)
+	if err := afc.Start(); err != nil {
+		return fmt.Errorf("start AF_PACKET capture on %s: %w", intf.Name(), err)
+	}
+	e.afpacketCapture = afc
+	return nil
+}
+
+// setForwarderCapture propagates capture to the USP filter's forwarder endpoint.
+// This captures outbound response packets that bypass the FilteredDevice in netstack mode.
+func (e *Engine) setForwarderCapture(pc device.PacketCapture) {
+	if e.firewall == nil {
+		return
+	}
+	type forwarderCapturer interface {
+		SetPacketCapture(pc forwarder.PacketCapture)
+	}
+	if fc, ok := e.firewall.(forwarderCapturer); ok {
+		fc.SetPacketCapture(pc)
+	}
+}
+
 func (e *Engine) updateForwardRules(rules []*mgmProto.ForwardingRule) ([]firewallManager.ForwardRule, error) {
 	if e.firewall == nil {
 		log.Warn("firewall is disabled, not updating forwarding rules")
@@ -2389,6 +2454,8 @@ func convertToOfferAnswer(msg *sProto.Message) (*peer.OfferAnswer, error) {
 		}
 	}
 
+	relayIP := decodeRelayIP(msg.GetBody().GetRelayServerIP())
+
 	offerAnswer := peer.OfferAnswer{
 		IceCredentials: peer.IceCredentials{
 			UFrag: remoteCred.UFrag,
@@ -2399,7 +2466,23 @@ func convertToOfferAnswer(msg *sProto.Message) (*peer.OfferAnswer, error) {
 		RosenpassPubKey: rosenpassPubKey,
 		RosenpassAddr:   rosenpassAddr,
 		RelaySrvAddress: msg.GetBody().GetRelayServerAddress(),
+		RelaySrvIP:      relayIP,
 		SessionID:       sessionID,
 	}
 	return &offerAnswer, nil
+}
+
+// decodeRelayIP decodes the proto relayServerIP bytes (4 or 16) into a
+// netip.Addr. Returns the zero value for empty input and logs a warning
+// for malformed payloads.
+func decodeRelayIP(b []byte) netip.Addr {
+	if len(b) == 0 {
+		return netip.Addr{}
+	}
+	ip, ok := netip.AddrFromSlice(b)
+	if !ok {
+		log.Warnf("invalid relayServerIP in signal message (%d bytes), ignoring", len(b))
+		return netip.Addr{}
+	}
+	return ip.Unmap()
 }

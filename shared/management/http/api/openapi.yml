@@ -1691,15 +1691,18 @@ components:
         - locations
         - action
     PeerNetworkRangeCheck:
-      description: Posture check for allow or deny access based on peer local network addresses
+      description: |
+        Posture check for allow or deny access based on the peer's IP addresses. A range matches when it
+        contains any of the peer's local network interface IPs or its public connection (NAT egress) IP,
+        so ranges may target private subnets, public CIDRs, or single hosts via a /32 or /128.
       type: object
       properties:
         ranges:
-          description: List of peer network ranges in CIDR notation
+          description: List of network ranges in CIDR notation, matched against the peer's local interface IPs and its public connection IP
           type: array
           items:
             type: string
-          example: [ "192.168.1.0/24", "10.0.0.0/8", "2001:db8:1234:1a00::/56" ]
+          example: [ "192.168.1.0/24", "10.0.0.0/8", "1.0.0.0/24", "2.2.2.2/32", "2001:db8:1234:1a00::/56" ]
         action:
           description: Action to take upon policy match
           type: string
@@ -3430,6 +3433,17 @@ components:
           description: Display name for the admin user (defaults to email if not provided)
           type: string
           example: Admin User
+        create_pat:
+          description: If true and the server has setup-time PAT issuance enabled (NB_SETUP_PAT_ENABLED=true), create a Personal Access Token for the new owner user and return it in the response. Ignored when the server feature is disabled.
+          type: boolean
+          example: true
+        pat_expire_in:
+          description: Expiration of the Personal Access Token in days. Applies only when create_pat is true and the server feature is enabled. Defaults to 1 day when omitted.
+          type: integer
+          minimum: 1
+          maximum: 365
+          default: 1
+          example: 30
       required:
         - email
         - password
@@ -3446,6 +3460,12 @@ components:
           description: Email address of the created user
           type: string
           example: admin@example.com
+        personal_access_token:
+          description: Plain text Personal Access Token created during setup. Present only when create_pat was requested and the NB_SETUP_PAT_ENABLED feature was enabled on the server.
+          type: string
+          format: password
+          readOnly: true
+          example: nbp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
       required:
         - user_id
         - email
@@ -4984,7 +5004,10 @@ paths:
   /api/setup:
     post:
       summary: Setup Instance
-      description: Creates the initial admin user for the instance. This endpoint does not require authentication but only works when setup is required (no accounts exist and embedded IDP is enabled).
+      description: |
+        Creates the initial admin user for the instance. This endpoint does not require authentication but only works when setup is required (no accounts exist and embedded IDP is enabled).
+
+        When the management server is started with `NB_SETUP_PAT_ENABLED=true` and the request includes `create_pat: true`, the endpoint also provisions the NetBird account for the new owner user and returns the plain text Personal Access Token in `personal_access_token`. The optional `pat_expire_in` value applies only when `create_pat` is true and defaults to 1 day when omitted. If a post-user step fails, setup-created resources are rolled back when safe; if account cleanup fails, the owner user is left in place to avoid leaving an account without its admin user.
       tags: [ Instance ]
       security: [ ]
       requestBody:
@@ -4997,6 +5020,12 @@ paths:
       responses:
         '200':
           description: Setup completed successfully
+          headers:
+            Cache-Control:
+              description: Always set to no-store because the response may contain a one-time plain text Personal Access Token.
+              schema:
+                type: string
+                example: no-store
           content:
             application/json:
               schema:

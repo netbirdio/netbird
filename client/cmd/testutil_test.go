@@ -135,7 +135,7 @@ func startManagement(t *testing.T, config *config.Config, testFile string) (*grp
 	if err != nil {
 		t.Fatal(err)
 	}
-	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, jobManager, secretsManager, nil, nil, &mgmt.MockIntegratedValidator{}, networkMapController, nil)
+	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, jobManager, secretsManager, nil, nil, &mgmt.MockIntegratedValidator{}, networkMapController, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func startClientDaemon(
 	s := grpc.NewServer()
 
 	server := client.New(ctx,
-		"", "", false, false, false)
+		"", "", false, false, false, false)
 	if err := server.Start(); err != nil {
 		t.Fatal(err)
 	}

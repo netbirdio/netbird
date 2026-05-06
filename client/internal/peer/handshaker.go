@@ -3,6 +3,7 @@ package peer
 import (
 	"context"
 	"errors"
+	"net/netip"
 	"sync"
 	"sync/atomic"
 
@@ -40,6 +41,10 @@ type OfferAnswer struct {
 
 	// relay server address
 	RelaySrvAddress string
+	// RelaySrvIP is the IP the remote peer is connected to on its
+	// relay server. Used as a dial target if DNS for RelaySrvAddress
+	// fails. Zero value if the peer did not advertise an IP.
+	RelaySrvIP netip.Addr
 	// SessionID is the unique identifier of the session, used to discard old messages
 	SessionID *ICESessionID
 }
@@ -217,8 +222,9 @@ func (h *Handshaker) buildOfferAnswer() OfferAnswer {
 		answer.SessionID = &sid
 	}
 
-	if addr, err := h.relay.RelayInstanceAddress(); err == nil {
+	if addr, ip, err := h.relay.RelayInstanceAddress(); err == nil {
 		answer.RelaySrvAddress = addr
+		answer.RelaySrvIP = ip
 	}
 
 	return answer

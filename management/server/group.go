@@ -117,7 +117,7 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 	}
 
 	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationCreate})
 	}
 
 	return nil
@@ -185,7 +185,7 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 	}
 
 	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
 	}
 
 	return nil
@@ -253,7 +253,7 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 	}
 
 	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationCreate})
 	}
 
 	return globalErr
@@ -321,7 +321,7 @@ func (am *DefaultAccountManager) UpdateGroups(ctx context.Context, accountID, us
 	}
 
 	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
 	}
 
 	return globalErr
@@ -493,7 +493,7 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 	}
 
 	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
 	}
 
 	return nil
@@ -531,7 +531,7 @@ func (am *DefaultAccountManager) GroupAddResource(ctx context.Context, accountID
 	}
 
 	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
 	}
 
 	return nil
@@ -559,7 +559,7 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 	}
 
 	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
 	}
 
 	return nil
@@ -597,7 +597,7 @@ func (am *DefaultAccountManager) GroupDeleteResource(ctx context.Context, accoun
 	}
 
 	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
 	}
 
 	return nil

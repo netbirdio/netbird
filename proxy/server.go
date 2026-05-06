@@ -943,6 +943,8 @@ func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.Pr
 	operation := func() error {
 		s.Logger.Debug("connecting to management mapping stream")
 
+		initialSyncDone = false
+
 		if s.healthChecker != nil {
 			s.healthChecker.SetManagementConnected(false)
 		}
@@ -1000,6 +1002,11 @@ func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.Pr
 		return ctx.Err()
 	}
 
+	var snapshotIDs map[types.ServiceID]struct{}
+	if !*initialSyncDone {
+		snapshotIDs = make(map[types.ServiceID]struct{})
+	}
+
 	for {
 		// Check for context completion to gracefully shutdown.
 		select {
@@ -1020,14 +1027,42 @@ func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.Pr
 			s.processMappings(ctx, msg.GetMapping())
 			s.Logger.Debug("Processing mapping update completed")
 
-			if !*initialSyncDone && msg.GetInitialSyncComplete() {
-				if s.healthChecker != nil {
-					s.healthChecker.SetInitialSyncComplete()
+			if !*initialSyncDone {
+				for _, m := range msg.GetMapping() {
+					snapshotIDs[types.ServiceID(m.GetId())] = struct{}{}
 				}
-				*initialSyncDone = true
-				s.Logger.Info("Initial mapping sync complete")
+				if msg.GetInitialSyncComplete() {
+					s.reconcileSnapshot(ctx, snapshotIDs)
+					snapshotIDs = nil
+					if s.healthChecker != nil {
+						s.healthChecker.SetInitialSyncComplete()
+					}
+					*initialSyncDone = true
+					s.Logger.Info("Initial mapping sync complete")
+				}
 			}
 		}
+	}
+}
+
+// reconcileSnapshot removes local mappings that are absent from the snapshot.
+// This ensures services deleted while the proxy was disconnected get cleaned up.
+func (s *Server) reconcileSnapshot(ctx context.Context, snapshotIDs map[types.ServiceID]struct{}) {
+	s.portMu.RLock()
+	var stale []*proto.ProxyMapping
+	for svcID, mapping := range s.lastMappings {
+		if _, ok := snapshotIDs[svcID]; !ok {
+			stale = append(stale, mapping)
+		}
+	}
+	s.portMu.RUnlock()
+
+	for _, mapping := range stale {
+		s.Logger.WithFields(log.Fields{
+			"service_id": mapping.GetId(),
+			"domain":     mapping.GetDomain(),
+		}).Info("Removing stale mapping absent from snapshot")
+		s.removeMapping(ctx, mapping)
 	}
 }
 

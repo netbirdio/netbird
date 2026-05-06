@@ -28,7 +28,7 @@ type MockDialer struct {
 	protocolStr string
 }
 
-func (m *MockDialer) Dial(ctx context.Context, address string) (net.Conn, error) {
+func (m *MockDialer) Dial(ctx context.Context, address, _ string) (net.Conn, error) {
 	return m.dialFunc(ctx, address)
 }
 

@@ -43,7 +43,9 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 		}()
 	}
 
-	// Prepare refresh callback for health probes
+	capturePath := s.bundleCapturePath()
+	defer s.cleanupBundleCapture()
+
 	var refreshStatus func()
 	if s.connectClient != nil {
 		engine := s.connectClient.Engine()
@@ -62,6 +64,7 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 			SyncResponse:   syncResponse,
 			LogPath:        s.logFile,
 			CPUProfile:     cpuProfileData,
+			CapturePath:    capturePath,
 			RefreshStatus:  refreshStatus,
 			ClientMetrics:  clientMetrics,
 		},

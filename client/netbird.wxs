@@ -68,8 +68,7 @@
 
 		<StandardDirectory Id="CommonAppDataFolder">
 			<Directory Id="NetbirdAutoStartDir" Name="Netbird">
-				<Component Id="NetbirdAutoStart" Guid="b199eaca-b0dd-4032-af19-679cfad48eb3" Bitness="always64">
-					<Condition>AUTOSTART = "1"</Condition>
+				<Component Id="NetbirdAutoStart" Guid="b199eaca-b0dd-4032-af19-679cfad48eb3" Bitness="always64" Condition='AUTOSTART = "1"'>
 					<RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Run"
 						Name="Netbird" Value="&quot;[NetbirdInstallDir]netbird-ui.exe&quot;"
 						Type="string" KeyPath="yes" />

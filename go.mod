@@ -68,9 +68,10 @@ require (
 	github.com/jackc/pgx/v5 v5.5.5
 	github.com/libdns/route53 v1.5.0
 	github.com/libp2p/go-nat v0.2.0
-	github.com/libp2p/go-netroute v0.2.1
+	github.com/libp2p/go-netroute v0.4.0
 	github.com/lrh3321/ipset-go v0.0.0-20250619021614-54a0a98ace81
 	github.com/mdlayher/socket v0.5.1
+	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/miekg/dns v1.1.59
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/netbirdio/management-integrations/integrations v0.0.0-20260416123949-2355d972be42
@@ -327,6 +328,7 @@ require (
 	gopkg.in/square/go-jose.v2 v2.6.0 // indirect
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
+	rsc.io/qr v0.2.0 // indirect
 )
 
 replace github.com/kardianos/service => github.com/netbirdio/service v0.0.0-20240911161631-f62744f42502
@@ -338,8 +340,6 @@ replace golang.zx2c4.com/wireguard => github.com/netbirdio/wireguard-go v0.0.0-2
 replace github.com/cloudflare/circl => codeberg.org/cunicu/circl v0.0.0-20230801113412-fec58fc7b5f6
 
 replace github.com/pion/ice/v4 => github.com/netbirdio/ice/v4 v4.0.0-20250908184934-6202be846b51
-
-replace github.com/libp2p/go-netroute => github.com/netbirdio/go-netroute v0.0.0-20240611143515-f59b0e1d3944
 
 replace github.com/dexidp/dex => github.com/netbirdio/dex v0.244.1-0.20260415145816-a0c6b40ff9f2
 

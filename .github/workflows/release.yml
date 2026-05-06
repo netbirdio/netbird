@@ -114,7 +114,7 @@ jobs:
           retention-days: 30
 
   release:
-    runs-on: ubuntu-latest-m
+    runs-on: ubuntu-24.04-8-core
     outputs:
       release_artifact_url: ${{ steps.upload_release.outputs.artifact-url }}
       linux_packages_artifact_url: ${{ steps.upload_linux_packages.outputs.artifact-url }}
@@ -455,6 +455,151 @@ jobs:
           path: dist/
           retention-days: 3
 
+  test_windows_installer:
+    name: "Windows Installer / Build Test"
+    runs-on: windows-2022
+    needs: [release, release_ui]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            wintun_arch: amd64
+          - arch: arm64
+            wintun_arch: arm64
+    defaults:
+      run:
+        shell: powershell
+    env:
+      PackageWorkdir: netbird_windows_${{ matrix.arch }}
+      downloadPath: '${{ github.workspace }}\temp'
+    steps:
+      - name: Parse semver string
+        id: semver_parser
+        uses: booxmedialtd/ws-action-parse-semver@v1
+        with:
+          input_string: ${{ (startsWith(github.ref, 'refs/tags/v') && github.ref) || 'refs/tags/v0.0.0' }}
+          version_extractor_regex: '\/v(.*)$'
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Add 7-Zip to PATH
+        run: echo "C:\Program Files\7-Zip" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: release
+
+      - name: Download UI release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-ui
+          path: release-ui
+
+      - name: Stage binaries into dist
+        run: |
+          $workdir = "dist\${{ env.PackageWorkdir }}"
+          New-Item -ItemType Directory -Force -Path $workdir | Out-Null
+          $client = Get-ChildItem -Recurse -Path release -Filter "netbird_*_windows_${{ matrix.arch }}.tar.gz" | Select-Object -First 1
+          $ui = Get-ChildItem -Recurse -Path release-ui -Filter "netbird-ui-windows_*_windows_${{ matrix.arch }}.tar.gz" | Select-Object -First 1
+          if (-not $client) { Write-Host "::error::client tarball not found for ${{ matrix.arch }}"; exit 1 }
+          if (-not $ui) { Write-Host "::error::ui tarball not found for ${{ matrix.arch }}"; exit 1 }
+          Write-Host "Client: $($client.FullName)"
+          Write-Host "UI:     $($ui.FullName)"
+          tar -zvxf $client.FullName -C $workdir
+          tar -zvxf $ui.FullName -C $workdir
+          Get-ChildItem $workdir
+
+      - name: Download wintun
+        uses: carlosperate/download-file-action@v2
+        id: download-wintun
+        with:
+          file-url: https://pkgs.netbird.io/wintun/wintun-0.14.1.zip
+          file-name: wintun.zip
+          location: ${{ env.downloadPath }}
+          sha256: '07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51'
+
+      - name: Decompress wintun files
+        run: tar -zvxf "${{ steps.download-wintun.outputs.file-path }}" -C ${{ env.downloadPath }}
+
+      - name: Move wintun.dll into dist
+        run: mv ${{ env.downloadPath }}\wintun\bin\${{ matrix.wintun_arch }}\wintun.dll ${{ github.workspace }}\dist\${{ env.PackageWorkdir }}\
+
+      - name: Download Mesa3D (amd64 only)
+        uses: carlosperate/download-file-action@v2
+        id: download-mesa3d
+        if: matrix.arch == 'amd64'
+        with:
+          file-url: https://downloads.fdossena.com/Projects/Mesa3D/Builds/MesaForWindows-x64-20.1.8.7z
+          file-name: mesa3d.7z
+          location: ${{ env.downloadPath }}
+          sha256: '71c7cb64ec229a1d6b8d62fa08e1889ed2bd17c0eeede8689daf0f25cb31d6b9'
+
+      - name: Extract Mesa3D driver (amd64 only)
+        if: matrix.arch == 'amd64'
+        run: 7z x -o"${{ env.downloadPath }}" "${{ env.downloadPath }}/mesa3d.7z"
+
+      - name: Move opengl32.dll into dist (amd64 only)
+        if: matrix.arch == 'amd64'
+        run: mv ${{ env.downloadPath }}\opengl32.dll ${{ github.workspace }}\dist\${{ env.PackageWorkdir }}\
+
+      - name: Download EnVar plugin for NSIS
+        uses: carlosperate/download-file-action@v2
+        with:
+          file-url: https://nsis.sourceforge.io/mediawiki/images/7/7f/EnVar_plugin.zip
+          file-name: envar_plugin.zip
+          location: ${{ github.workspace }}
+
+      - name: Extract EnVar plugin
+        run: 7z x -o"${{ github.workspace }}/NSIS_Plugins" "${{ github.workspace }}/envar_plugin.zip"
+
+      - name: Download ShellExecAsUser plugin for NSIS (amd64 only)
+        uses: carlosperate/download-file-action@v2
+        if: matrix.arch == 'amd64'
+        with:
+          file-url: https://nsis.sourceforge.io/mediawiki/images/6/68/ShellExecAsUser_amd64-Unicode.7z
+          file-name: ShellExecAsUser_amd64-Unicode.7z
+          location: ${{ github.workspace }}
+
+      - name: Extract ShellExecAsUser plugin (amd64 only)
+        if: matrix.arch == 'amd64'
+        run: 7z x -o"${{ github.workspace }}/NSIS_Plugins" "${{ github.workspace }}/ShellExecAsUser_amd64-Unicode.7z"
+
+      - name: Build NSIS installer
+        uses: joncloud/makensis-action@v3.3
+        with:
+          additional-plugin-paths: ${{ github.workspace }}/NSIS_Plugins/Plugins
+          script-file: client/installer.nsis
+          arguments: "/V4 /DARCH=${{ matrix.arch }}"
+        env:
+          APPVER: ${{ steps.semver_parser.outputs.major }}.${{ steps.semver_parser.outputs.minor }}.${{ steps.semver_parser.outputs.patch }}.${{ github.run_id }}
+
+      - name: Rename NSIS installer
+        run: mv netbird-installer.exe netbird_installer_test_windows_${{ matrix.arch }}.exe
+
+      - name: Install WiX
+        run: |
+          dotnet tool install --global wix --version 6.0.2
+          wix extension add WixToolset.Util.wixext/6.0.2
+
+      - name: Build MSI installer
+        env:
+          NETBIRD_VERSION: "${{ steps.semver_parser.outputs.fullversion }}"
+        run: wix build -arch ${{ matrix.arch == 'amd64' && 'x64' || 'arm64' }} -ext WixToolset.Util.wixext -o netbird_installer_test_windows_${{ matrix.arch }}.msi .\client\netbird.wxs -d ProcessorArchitecture=${{ matrix.arch == 'amd64' && 'x64' || 'arm64' }} -d ArchSuffix=${{ matrix.arch }}
+
+      - name: Upload installer artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-test-${{ matrix.arch }}
+          path: |
+            netbird_installer_test_windows_${{ matrix.arch }}.exe
+            netbird_installer_test_windows_${{ matrix.arch }}.msi
+          retention-days: 3
+
   comment_release_artifacts:
     name: Comment release artifacts
     runs-on: ubuntu-latest
@@ -554,7 +699,7 @@ jobs:
 
   trigger_signer:
     runs-on: ubuntu-latest
-    needs: [release, release_ui, release_ui_darwin]
+    needs: [release, release_ui, release_ui_darwin, test_windows_installer]
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Trigger binaries sign pipelines
