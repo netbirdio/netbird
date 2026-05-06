@@ -540,10 +540,10 @@ func (e *ConnMgr) propagateP2pRetryMaxToConns() {
 	const sentinelDisabled = ^uint32(0)
 	v := e.p2pRetryMaxSecs
 	var d time.Duration
-	switch {
-	case v == sentinelDisabled:
+	switch v {
+	case sentinelDisabled:
 		d = 0 // user-explicit disable
-	case v == 0:
+	case 0:
 		d = peer.DefaultP2PRetryMax // server NULL -> use daemon default
 	default:
 		d = time.Duration(v) * time.Second

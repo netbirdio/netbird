@@ -103,7 +103,7 @@ func NewManager(config Config, engineCtx context.Context, peerStore *peerstore.S
 		iceTO, relayTO := config.resolvedTimeouts()
 		if iceTO == 0 && relayTO == 0 {
 			// Phase 1 / single-timer fallback when caller hasn't migrated.
-			m.inactivityManager = inactivity.NewManager(wgIface, config.InactivityThreshold)
+			m.inactivityManager = inactivity.NewManager(wgIface, config.InactivityThreshold) //nolint:staticcheck // intentional Phase-1 single-timer fallback
 		} else {
 			m.inactivityManager = inactivity.NewManagerWithTwoTimers(wgIface, iceTO, relayTO)
 		}
