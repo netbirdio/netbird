@@ -19,3 +19,11 @@ body,
 body {
   @apply bg-nb-gray font-sans text-nb-gray-200 antialiased;
 }
+
+.wails-draggable {
+  --wails-draggable: drag;
+}
+
+.wails-no-draggable {
+  --wails-draggable: no-drag;
+}

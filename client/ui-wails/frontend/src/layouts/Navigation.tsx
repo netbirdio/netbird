@@ -5,14 +5,20 @@ import {
     SquareArrowUpRight,
 } from "lucide-react";
 
-export const Navigation = () => {
+type Props = {
+    peersActive?: boolean;
+    onPeersClick?: () => void;
+};
+
+export const Navigation = ({ peersActive = false, onPeersClick }: Props) => {
     return (
         <nav className={"w-full flex flex-col gap-1 mt-8"}>
             <NavItem
                 icon={MonitorSmartphoneIcon}
                 title={"Peers"}
                 description={"13 of 16 Online"}
-                active
+                active={peersActive}
+                onClick={onPeersClick}
             />
             <NavItem
                 icon={Layers3Icon}

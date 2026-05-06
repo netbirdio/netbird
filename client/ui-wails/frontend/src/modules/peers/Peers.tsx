@@ -8,7 +8,7 @@ import { PeersList } from "./PeersList";
 
 const isOnline = (status: string) => status === "connected";
 
-export const PeersModule = () => {
+export const Peers = () => {
     const [search, setSearch] = useState("");
     const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 

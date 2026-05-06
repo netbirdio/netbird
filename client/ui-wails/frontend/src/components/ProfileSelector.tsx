@@ -120,7 +120,7 @@ export const ProfileSelector = ({ email = "" }: Props) => {
                 <button
                     type="button"
                     className={
-                        "h-11 rounded-md text-nb-gray-300 flex items-center gap-1 text-xs hover:bg-nb-gray-930 data-[state=open]:bg-nb-gray-930 px-2 -mx-2 outline-none cursor-default transition-colors duration-150"
+                        "h-11 rounded-md text-nb-gray-300 flex items-center gap-1 text-xs hover:bg-nb-gray-930 data-[state=open]:bg-nb-gray-930 px-2 -mx-1 outline-none cursor-default transition-colors duration-150"
                     }
                 >
                     <div
