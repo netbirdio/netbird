@@ -818,6 +818,9 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 	if !addedByUser {
 		opEvent.Meta["setup_key_name"] = peerAddConfig.SetupKeyName
 	}
+	if newPeer.Status != nil && newPeer.Status.RequiresApproval {
+		opEvent.Meta["pending_approval"] = true
+	}
 
 	if !temporary {
 		am.StoreEvent(ctx, opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)

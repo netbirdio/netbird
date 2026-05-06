@@ -85,11 +85,14 @@ func registerFakeProxy(s *ProxyServiceServer, proxyID, clusterAddr string) chan 
 // registerFakeProxyWithCaps adds a fake proxy connection with explicit capabilities.
 func registerFakeProxyWithCaps(s *ProxyServiceServer, proxyID, clusterAddr string, caps *proto.ProxyCapabilities) chan *proto.GetMappingUpdateResponse {
 	ch := make(chan *proto.GetMappingUpdateResponse, 10)
+	ctx, cancel := context.WithCancel(context.Background())
 	conn := &proxyConnection{
 		proxyID:      proxyID,
 		address:      clusterAddr,
 		capabilities: caps,
 		sendChan:     ch,
+		ctx:          ctx,
+		cancel:       cancel,
 	}
 	s.connectedProxies.Store(proxyID, conn)
 

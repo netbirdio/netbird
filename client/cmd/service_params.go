@@ -28,6 +28,7 @@ type serviceParams struct {
 	LogFiles              []string          `json:"log_files,omitempty"`
 	DisableProfiles       bool              `json:"disable_profiles,omitempty"`
 	DisableUpdateSettings bool              `json:"disable_update_settings,omitempty"`
+	EnableCapture         bool              `json:"enable_capture,omitempty"`
 	DisableNetworks       bool              `json:"disable_networks,omitempty"`
 	ServiceEnvVars        map[string]string `json:"service_env_vars,omitempty"`
 }
@@ -79,6 +80,7 @@ func currentServiceParams() *serviceParams {
 		LogFiles:              logFiles,
 		DisableProfiles:       profilesDisabled,
 		DisableUpdateSettings: updateSettingsDisabled,
+		EnableCapture:         captureEnabled,
 		DisableNetworks:       networksDisabled,
 	}
 
@@ -142,6 +144,10 @@ func applyServiceParams(cmd *cobra.Command, params *serviceParams) {
 
 	if !serviceCmd.PersistentFlags().Changed("disable-update-settings") {
 		updateSettingsDisabled = params.DisableUpdateSettings
+	}
+
+	if !serviceCmd.PersistentFlags().Changed("enable-capture") {
+		captureEnabled = params.EnableCapture
 	}
 
 	if !serviceCmd.PersistentFlags().Changed("disable-networks") {
