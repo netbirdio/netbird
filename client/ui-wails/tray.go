@@ -56,11 +56,18 @@ const (
 	notifyErrorTitle           = "Error"
 	notifyErrorConnect         = "Failed to connect"
 	notifyErrorDisconnect      = "Failed to disconnect"
+	notifySessionExpiredTitle  = "NetBird session expired"
+	notifySessionExpiredBody   = "Your NetBird session has expired. Please log in again."
 
 	// Notification IDs (used to coalesce duplicate toasts).
-	notifyIDUpdatePrefix = "netbird-update-"
-	notifyIDEvent        = "netbird-event-"
-	notifyIDTrayError    = "netbird-tray-error"
+	notifyIDUpdatePrefix    = "netbird-update-"
+	notifyIDEvent           = "netbird-event-"
+	notifyIDTrayError       = "netbird-tray-error"
+	notifyIDSessionExpired  = "netbird-session-expired"
+
+	// Daemon status string for an SSO session that has expired and needs
+	// re-authentication. Mirrors internal.StatusSessionExpired.
+	statusSessionExpired = "SessionExpired"
 
 	// External URLs.
 	urlGitHubRepo     = "https://github.com/netbirdio/netbird"
@@ -405,6 +412,13 @@ func (t *Tray) applyStatus(st services.Status) {
 	t.mu.Lock()
 	connected := strings.EqualFold(st.Status, "Connected")
 	iconChanged := connected != t.connected || st.Status != t.lastStatus
+	// Detect the transition into SessionExpired: the daemon emits the
+	// state on every Status snapshot for as long as the session stays
+	// expired, so without this guard we would re-fire the notification
+	// on every push. Mirrors the legacy Fyne client's sendNotification
+	// flag in onSessionExpire.
+	sessionExpiredEnter := strings.EqualFold(st.Status, statusSessionExpired) &&
+		!strings.EqualFold(t.lastStatus, statusSessionExpired)
 	t.connected = connected
 	t.lastStatus = st.Status
 
@@ -427,6 +441,24 @@ func (t *Tray) applyStatus(st services.Status) {
 	}
 	if exitNodesChanged {
 		t.rebuildExitNodes(exitNodes)
+	}
+	if sessionExpiredEnter {
+		t.handleSessionExpired()
+	}
+}
+
+// handleSessionExpired surfaces the SSO re-authentication path when the
+// daemon reports StatusSessionExpired. Posts a single OS notification
+// (the applyStatus guard ensures it fires only on the transition, not
+// on every status snapshot) and brings the main window forward so the
+// frontend's /login route can drive the renewed SSO flow. Mirrors the
+// Fyne client's onSessionExpire, which used a runSelfCommand to spawn
+// the login-url helper; here the window is already in-process.
+func (t *Tray) handleSessionExpired() {
+	t.notify(notifySessionExpiredTitle, notifySessionExpiredBody, notifyIDSessionExpired)
+	if t.window != nil {
+		t.window.SetURL("/#/login")
+		t.window.Show()
 	}
 }
 
