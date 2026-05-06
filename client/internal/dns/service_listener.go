@@ -220,7 +220,7 @@ func (s *serviceViaListener) evalListenAddress() (netip.Addr, uint16, error) {
 func (s *serviceViaListener) testFreePort(port int) (netip.Addr, bool) {
 	var ips []netip.Addr
 	if runtime.GOOS != "darwin" {
-		ips = []netip.Addr{s.wgInterface.Address().IP, defaultIP, customIP}
+		ips = []netip.Addr{defaultIP, customIP, s.wgInterface.Address().IP}
 	} else {
 		ips = []netip.Addr{defaultIP, customIP}
 	}
