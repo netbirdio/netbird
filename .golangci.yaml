@@ -58,6 +58,11 @@ linters:
     govet:
       enable:
         - nilness
+      disable:
+        # The inline analyzer flags x/exp/maps Clone/Clear with //go:fix inline
+        # directives but cannot perform the rewrite due to generic type
+        # parameter inference limitations in the Go inliner.
+        - inline
       enable-all: false
     revive:
       rules:

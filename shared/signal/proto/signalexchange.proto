@@ -63,9 +63,17 @@ message Body {
   RosenpassConfig rosenpassConfig = 7;
 
   // relayServerAddress is url of the relay server
-  string relayServerAddress = 8;
+  optional string relayServerAddress = 8;
+
+  reserved 9;
 
   optional bytes sessionId = 10;
+
+  // relayServerIP is the IP the sender is connected to on its relay server,
+  // encoded as 4 bytes (IPv4) or 16 bytes (IPv6). Receivers may use it as a
+  // fallback dial target when DNS resolution of relayServerAddress fails.
+  // SNI/TLS verification still uses relayServerAddress.
+  optional bytes relayServerIP = 11;
 }
 
 // Mode indicates a connection mode

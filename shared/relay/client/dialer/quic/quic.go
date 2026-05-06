@@ -23,7 +23,7 @@ func (d Dialer) Protocol() string {
 	return Network
 }
 
-func (d Dialer) Dial(ctx context.Context, address string) (net.Conn, error) {
+func (d Dialer) Dial(ctx context.Context, address, serverName string) (net.Conn, error) {
 	quicURL, err := prepareURL(address)
 	if err != nil {
 		return nil, err
@@ -32,11 +32,14 @@ func (d Dialer) Dial(ctx context.Context, address string) (net.Conn, error) {
 	// Get the base TLS config
 	tlsClientConfig := quictls.ClientQUICTLSConfig()
 
-	// Set ServerName to hostname if not an IP address
-	host, _, splitErr := net.SplitHostPort(quicURL)
-	if splitErr == nil && net.ParseIP(host) == nil {
-		// It's a hostname, not an IP - modify directly
-		tlsClientConfig.ServerName = host
+	switch {
+	case serverName != "" && net.ParseIP(serverName) == nil:
+		tlsClientConfig.ServerName = serverName
+	default:
+		host, _, splitErr := net.SplitHostPort(quicURL)
+		if splitErr == nil && net.ParseIP(host) == nil {
+			tlsClientConfig.ServerName = host
+		}
 	}
 
 	quicConfig := &quic.Config{
