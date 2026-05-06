@@ -303,16 +303,34 @@ static void on_check_toggled(GtkToggleButton *btn, gpointer user_data) {
     goMenuItemClicked(id);
 }
 
+/* When any popup loses focus we want to close the entire popup tree —
+   unless focus moved to another window we own (e.g. opening a submenu).
+   focus-out fires before the corresponding focus-in on the new window,
+   so we defer the check to an idle callback: by then any sibling popup
+   has had a chance to grab focus. If none of our windows still has
+   toplevel focus, the user clicked outside the menu tree → tear down. */
+static gboolean any_popup_has_focus(void) {
+    if (popup_win && gtk_window_has_toplevel_focus(GTK_WINDOW(popup_win)))
+        return TRUE;
+    for (GList *l = submenu_popups; l; l = l->next) {
+        if (gtk_window_has_toplevel_focus(GTK_WINDOW(l->data)))
+            return TRUE;
+    }
+    return FALSE;
+}
+
+static gboolean focus_out_recheck(gpointer user_data) {
+    (void)user_data;
+    if (!any_popup_has_focus()) {
+        close_all_popups();
+    }
+    return G_SOURCE_REMOVE;
+}
+
 static gboolean on_popup_focus_out(GtkWidget *widget, GdkEvent *event,
                                     gpointer user_data) {
     (void)widget; (void)event; (void)user_data;
-    /* Don't tear the menu down when the top-level loses focus to one of
-       its own submenu popups. close_all_popups() would destroy the
-       submenu we just opened. The submenu's own focus-out handler will
-       close it (and us) when focus leaves the popup tree. */
-    if (submenu_popups != NULL)
-        return FALSE;
-    close_all_popups();
+    g_idle_add(focus_out_recheck, NULL);
     return FALSE;
 }
 
@@ -324,16 +342,6 @@ typedef struct {
     int               count;
     GtkWidget        *anchor;  /* the submenu button — used to position the popup */
 } submenu_open_data;
-
-/* Tear-down companion for submenu_open_data: detach from submenu_popups
-   and destroy. Used when the focus-out handler fires on a submenu. */
-static gboolean on_submenu_focus_out(GtkWidget *widget, GdkEvent *event,
-                                      gpointer user_data) {
-    (void)event; (void)user_data;
-    submenu_popups = g_list_remove(submenu_popups, widget);
-    gtk_widget_destroy(widget);
-    return FALSE;
-}
 
 static void on_submenu_button_clicked(GtkButton *btn, gpointer user_data) {
     submenu_open_data *sd = (submenu_open_data *)user_data;
@@ -347,7 +355,7 @@ static void on_submenu_button_clicked(GtkButton *btn, gpointer user_data) {
     gtk_window_set_keep_above(GTK_WINDOW(win), TRUE);
 
     g_signal_connect(win, "focus-out-event",
-                     G_CALLBACK(on_submenu_focus_out), NULL);
+                     G_CALLBACK(on_popup_focus_out), NULL);
 
     GtkWidget *vbox = build_menu_box(sd->items, sd->count);
     gtk_container_add(GTK_CONTAINER(win), vbox);
