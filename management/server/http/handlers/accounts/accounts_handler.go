@@ -513,7 +513,7 @@ func validateUint32Timeout(name string, v int64) (uint32, error) {
 		return 0, fmt.Errorf("invalid %s: %d (must be >= 0)", name, v)
 	}
 	if v > int64(math.MaxUint32) {
-		return 0, fmt.Errorf("invalid %s: %d (exceeds %d)", name, v, math.MaxUint32)
+		return 0, fmt.Errorf("invalid %s: %d (exceeds %d)", name, v, uint64(math.MaxUint32))
 	}
 	return uint32(v), nil
 }
