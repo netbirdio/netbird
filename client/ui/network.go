@@ -25,6 +25,7 @@ const (
 	allNetworksText                = "All networks"
 	overlappingNetworksText        = "Overlapping networks"
 	exitNodeNetworksText           = "Exit-node networks"
+	peersText                      = "Peers"
 	allNetworks             filter = "all"
 	overlappingNetworks     filter = "overlapping"
 	exitNodeNetworks        filter = "exit-node"
@@ -34,7 +35,7 @@ const (
 type filter string
 
 func (s *serviceClient) showNetworksUI() {
-	s.wNetworks = s.app.NewWindow("Networks")
+	s.wNetworks = s.app.NewWindow("Peers and Networks")
 	s.wNetworks.SetOnClosed(s.cancel)
 
 	allGrid := container.New(layout.NewGridLayout(3))
@@ -42,17 +43,64 @@ func (s *serviceClient) showNetworksUI() {
 	overlappingGrid := container.New(layout.NewGridLayout(3))
 	exitNodeGrid := container.New(layout.NewGridLayout(3))
 	routeCheckContainer := container.NewVBox()
+	peersBundle := s.buildPeersTabContent(s.ctx)
+	// Wrap the Peers tab content in a Stack so it fills the full tab
+	// area (NewBorder alone collapses when child MinSizes are small).
 	tabs := container.NewAppTabs(
+		container.NewTabItem(peersText, container.NewStack(peersBundle.Content)),
 		container.NewTabItem(allNetworksText, allGrid),
 		container.NewTabItem(overlappingNetworksText, overlappingGrid),
 		container.NewTabItem(exitNodeNetworksText, exitNodeGrid),
 	)
-	tabs.OnSelected = func(item *container.TabItem) {
+
+	// Phase 3.7i (#5989): the outer footer adapts to the active tab so
+	// the user has a single place for actions. On the Peers tab we show
+	// only Show-Full + Refresh; on a Networks tab we show the legacy
+	// Refresh + Select-all + Deselect-All.
+	selectAllBtn := widget.NewButton("Select all", func() {
+		_, f := getGridAndFilterFromTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
+		s.selectAllFilteredNetworks(f)
 		s.updateNetworksBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
+	})
+	deselectAllBtn := widget.NewButton("Deselect All", func() {
+		_, f := getGridAndFilterFromTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
+		s.deselectAllFilteredNetworks(f)
+		s.updateNetworksBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
+	})
+	refreshBtn := widget.NewButton("Refresh", func() {
+		if tabs.Selected() != nil && tabs.Selected().Text == peersText {
+			peersBundle.Refresh()
+		} else {
+			s.updateNetworksBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
+		}
+	})
+
+	updateFooter := func() {
+		onPeers := tabs.Selected() != nil && tabs.Selected().Text == peersText
+		if onPeers {
+			peersBundle.ShowFull.Show()
+			selectAllBtn.Hide()
+			deselectAllBtn.Hide()
+		} else {
+			peersBundle.ShowFull.Hide()
+			selectAllBtn.Show()
+			deselectAllBtn.Show()
+		}
+	}
+
+	tabs.OnSelected = func(item *container.TabItem) {
+		updateFooter()
+		if item != nil && item.Text != peersText {
+			s.updateNetworksBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
+		}
 	}
 	tabs.OnUnselected = func(item *container.TabItem) {
-		grid, _ := getGridAndFilterFromTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
-		grid.Objects = nil
+		// Only reset network grids when leaving a network tab; the
+		// peers VBox manages its own state.
+		if item != nil && item.Text != peersText {
+			grid, _ := getGridAndFilterFromTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
+			grid.Objects = nil
+		}
 	}
 
 	routeCheckContainer.Add(tabs)
@@ -61,21 +109,13 @@ func (s *serviceClient) showNetworksUI() {
 
 	buttonBox := container.NewHBox(
 		layout.NewSpacer(),
-		widget.NewButton("Refresh", func() {
-			s.updateNetworksBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
-		}),
-		widget.NewButton("Select all", func() {
-			_, f := getGridAndFilterFromTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
-			s.selectAllFilteredNetworks(f)
-			s.updateNetworksBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
-		}),
-		widget.NewButton("Deselect All", func() {
-			_, f := getGridAndFilterFromTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
-			s.deselectAllFilteredNetworks(f)
-			s.updateNetworksBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodeGrid)
-		}),
+		peersBundle.ShowFull,
+		refreshBtn,
+		selectAllBtn,
+		deselectAllBtn,
 		layout.NewSpacer(),
 	)
+	updateFooter() // initial state matches the first tab (Peers)
 
 	content := container.NewBorder(nil, buttonBox, nil, nil, scrollContainer)
 
@@ -86,6 +126,17 @@ func (s *serviceClient) showNetworksUI() {
 }
 
 func (s *serviceClient) updateNetworks(grid *fyne.Container, f filter) {
+	s.updateNetworksWithMode(grid, f, false)
+}
+
+// updateNetworksSilent is the auto-refresh entry point: it never pops up an
+// error dialog, only logs. The user still gets the popup if they hit the
+// Refresh button manually (which calls updateNetworks).
+func (s *serviceClient) updateNetworksSilent(grid *fyne.Container, f filter) {
+	s.updateNetworksWithMode(grid, f, true)
+}
+
+func (s *serviceClient) updateNetworksWithMode(grid *fyne.Container, f filter, silent bool) {
 	grid.Objects = nil
 	grid.Refresh()
 	idHeader := widget.NewLabelWithStyle("      ID", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
@@ -96,7 +147,7 @@ func (s *serviceClient) updateNetworks(grid *fyne.Container, f filter) {
 	grid.Add(networkHeader)
 	grid.Add(resolvedIPsHeader)
 
-	filteredRoutes, err := s.getFilteredNetworks(f)
+	filteredRoutes, err := s.getFilteredNetworksWithMode(f, silent)
 	if err != nil {
 		return
 	}
@@ -118,7 +169,9 @@ func (s *serviceClient) updateNetworks(grid *fyne.Container, f filter) {
 		domains := r.GetDomains()
 
 		if len(domains) == 0 {
-			grid.Add(widget.NewLabel(network))
+			rangeLabel := widget.NewLabel(network)
+			rangeLabel.Selectable = true
+			grid.Add(rangeLabel)
 			grid.Add(widget.NewLabel(""))
 			continue
 		}
@@ -154,10 +207,20 @@ func (s *serviceClient) updateNetworks(grid *fyne.Container, f filter) {
 }
 
 func (s *serviceClient) getFilteredNetworks(f filter) ([]*proto.Network, error) {
+	return s.getFilteredNetworksWithMode(f, false)
+}
+
+func (s *serviceClient) getFilteredNetworksWithMode(f filter, silent bool) ([]*proto.Network, error) {
 	routes, err := s.fetchNetworks()
 	if err != nil {
 		log.Errorf(getClientFMT, err)
-		s.showError(fmt.Errorf(getClientFMT, err))
+		// Auto-refresh ticker fires every 10s; if the daemon IPC is down
+		// (e.g. user toggled VPN off, daemon restart, network drop) we
+		// must NOT spam a modal dialog every tick. Manual Refresh still
+		// shows the popup because the user expects feedback.
+		if !silent {
+			s.showError(fmt.Errorf(getClientFMT, err))
+		}
 		return nil, err
 	}
 	switch f {
@@ -313,7 +376,12 @@ func (s *serviceClient) startAutoRefresh(interval time.Duration, tabs *container
 	ticker := time.NewTicker(interval)
 	go func() {
 		for range ticker.C {
-			s.updateNetworksBasedOnDisplayTab(tabs, allGrid, overlappingGrid, exitNodesGrid)
+			// Silent mode: auto-refresh never pops up modal "not
+			// connected" dialogs. The Refresh button still does, since
+			// the user expects feedback when they trigger it.
+			grid, f := getGridAndFilterFromTab(tabs, allGrid, overlappingGrid, exitNodesGrid)
+			s.wNetworks.Content().Refresh()
+			s.updateNetworksSilent(grid, f)
 		}
 	}()
 

@@ -37,6 +37,19 @@ type Guard struct {
 	srWatcher               *SRWatcher
 	relayedConnDisconnected chan struct{}
 	iCEConnDisconnected     chan struct{}
+	// peerActivity is signalled by NotifyPeerActivity. Phase 3.7i
+	// (#5989), Codex review 2026-05-05: real user/transport activity
+	// must reset the per-cycle ICE retry budget so that a fresh ICE
+	// pair-check cycle runs instead of skipping straight into the
+	// hourly retry mode after 3 quick failures. Without this an Idle
+	// -> Wake to a peer with non-LAN candidates (srflx/relay-only)
+	// stays on Relay for up to an hour after the user explicitly
+	// pings, defeating p2p-dynamic's "fast P2P recovery" promise.
+	peerActivity chan struct{}
+	// onNetworkChange is called when signal/relay reconnects after a
+	// network change (e.g. LTE-modem replug, WiFi roaming). Set once
+	// before Start() is called; no lock needed. Phase 3.5 of #5989.
+	onNetworkChange func()
 }
 
 func NewGuard(log *log.Entry, isConnectedFn connStatusFunc, timeout time.Duration, srWatcher *SRWatcher) *Guard {
@@ -47,7 +60,15 @@ func NewGuard(log *log.Entry, isConnectedFn connStatusFunc, timeout time.Duratio
 		srWatcher:               srWatcher,
 		relayedConnDisconnected: make(chan struct{}, 1),
 		iCEConnDisconnected:     make(chan struct{}, 1),
+		peerActivity:            make(chan struct{}, 1),
 	}
+}
+
+// SetOnNetworkChange registers a callback that fires whenever the
+// signal/relay layer reconnects after a network change. Must be called
+// before Start(). Phase 3.5 of #5989.
+func (g *Guard) SetOnNetworkChange(cb func()) {
+	g.onNetworkChange = cb
 }
 
 func (g *Guard) Start(ctx context.Context, eventCallback func()) {
@@ -65,6 +86,25 @@ func (g *Guard) SetRelayedConnDisconnected() {
 func (g *Guard) SetICEConnDisconnected() {
 	select {
 	case g.iCEConnDisconnected <- struct{}{}:
+	default:
+	}
+}
+
+// NotifyPeerActivity signals that real user or transport activity for
+// this peer has been observed. The reconnect loop resets its per-cycle
+// ICE retry budget and (if currently in hourly mode) leaves hourly
+// mode, so the next tick re-runs an ICE pair-check at the normal short
+// cadence. Non-blocking: a buffered channel coalesces bursts.
+//
+// Callers: Conn.AttachICEOnRelayActivity (B->A relay-state activity)
+// and lazyconn manager.onPeerActivity (C->A Idle wake). Phase 3.7i
+// (#5989), Codex review 2026-05-05.
+func (g *Guard) NotifyPeerActivity() {
+	if g == nil {
+		return
+	}
+	select {
+	case g.peerActivity <- struct{}{}:
 	default:
 	}
 }
@@ -124,12 +164,23 @@ func (g *Guard) reconnectLoopWithRetry(ctx context.Context, callback func()) {
 			tickerChannel = ticker.C
 			iceState.reset()
 
+		case <-g.peerActivity:
+			g.log.Debugf("peer activity, reset ICE retry budget and reconnection ticker")
+			ticker.Stop()
+			ticker = g.newReconnectTicker(ctx)
+			tickerChannel = ticker.C
+			iceState.reset()
+
 		case <-srReconnectedChan:
 			g.log.Debugf("has network changes, reset reconnection ticker")
 			ticker.Stop()
 			ticker = g.newReconnectTicker(ctx)
 			tickerChannel = ticker.C
 			iceState.reset()
+			// Phase 3.5 (#5989): notify Conn to reset iceBackoff + recreate workerICE
+			if g.onNetworkChange != nil {
+				g.onNetworkChange()
+			}
 
 		case <-ctx.Done():
 			g.log.Debugf("context is done, stop reconnect loop")

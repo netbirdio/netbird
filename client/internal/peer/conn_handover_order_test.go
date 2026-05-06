@@ -1,0 +1,176 @@
+package peer
+
+import (
+	"os"
+	"strings"
+	"testing"
+)
+
+// Codex hardening regression: the Relay->ICE/P2P handover in
+// conn.go's onICEConnected must call methods in this exact order to
+// avoid a window where Relay is paused but WG still points at it
+// (1-2 s of dropped packets):
+//
+//   1. wgProxy.Work()                            (new ICE proxy ready)
+//   2. endpointUpdater.ConfigureWGEndpoint(...)  (WG points at new EP)
+//   3. wgProxyRelay.RedirectAs(ep)               (drain in-flight relay)
+//   4. wgProxyRelay.Pause()                      (stop relay last)
+//
+// The test below is a static-text check: it reads conn.go and asserts
+// the FIRST occurrence of each landmark in onICEConnected appears in
+// the expected order. A heavier behavioural test would need fake
+// wgProxy/endpointUpdater plumbing; this version catches accidental
+// reorders cheaply and points at the exact line numbers if the
+// invariant is broken.
+func TestConn_HandoverOrder_OnICEConnected(t *testing.T) {
+	src, err := os.ReadFile("conn.go")
+	if err != nil {
+		t.Fatalf("read conn.go: %v", err)
+	}
+	body := extractFunctionBody(t, string(src), "onICEConnectionIsReady")
+
+	// Landmarks in expected order. Each entry is a substring; the test
+	// records the first index where it appears in the function body
+	// and asserts the indices increase monotonically.
+	landmarks := []string{
+		"wgProxy.Work()",
+		"endpointUpdater.ConfigureWGEndpoint(",
+		"wgProxyRelay.RedirectAs(",
+		"wgProxyRelay.Pause()",
+	}
+	prev := -1
+	for _, lm := range landmarks {
+		idx := strings.Index(body, lm)
+		if idx < 0 {
+			t.Errorf("landmark %q missing from onICEConnected — was the handover sequence refactored?", lm)
+			continue
+		}
+		if idx <= prev {
+			t.Errorf("landmark %q appears at index %d, must come AFTER previous landmark at %d", lm, idx, prev)
+		}
+		prev = idx
+	}
+}
+
+// Codex follow-up regression: onGuardEvent's "skip offer for ICE
+// detached due to inactivity" branch must be gated on everConnected
+// being true. Without that gate, the guard skips the FIRST bootstrap
+// offer for a brand-new peer (its ICE listener is also nil before
+// initial setup), and the peer gets stuck in Connecting forever.
+// This was caught during the 6-host hardware test on 4998e5a58 —
+// dk20 saw 3 BM routers stuck in Connecting after ping wakeup
+// because the bootstrap offer was being suppressed.
+func TestConn_OnGuardEvent_SkipOfferGatedOnEverConnected(t *testing.T) {
+	src, err := os.ReadFile("conn.go")
+	if err != nil {
+		t.Fatalf("read conn.go: %v", err)
+	}
+	body := extractFunctionBody(t, string(src), "onGuardEvent")
+	// The skip-offer branch must reference everConnected.Load() in its
+	// guard. If a future refactor splits the conditions, the landmark
+	// "everConnected.Load()" should still appear ABOVE the
+	// "skip offer (ICE detached for inactivity" trace log to gate it.
+	const everCheck = "everConnected.Load()"
+	const skipTrace = "skip offer (ICE detached for inactivity"
+	idxEver := strings.Index(body, everCheck)
+	idxSkip := strings.Index(body, skipTrace)
+	if idxEver < 0 {
+		t.Fatalf("onGuardEvent missing everConnected.Load() guard — bootstrap offers will be suppressed for brand-new peers")
+	}
+	if idxSkip < 0 {
+		t.Fatalf("skip-offer trace landmark missing from onGuardEvent")
+	}
+	if idxEver > idxSkip {
+		t.Errorf("everConnected.Load() must appear BEFORE the skip-offer branch (got %d > %d)", idxEver, idxSkip)
+	}
+}
+
+// Codex follow-up regression: onWGDisconnected MUST invoke
+// onWGTimeoutRecover after closing the active worker — without it,
+// the peer is stuck in "Connecting" forever because lazy mgr keeps
+// it in active set with no activity listener (caught during the
+// 6-host hardware test on c9a47ed90: dk20 saw 572a2/5731A frozen
+// in Connecting after WG handshake timeout, 0/10 ping responses,
+// no log activity for ~10min).
+func TestConn_OnWGDisconnected_InvokesRecoverCallback(t *testing.T) {
+	src, err := os.ReadFile("conn.go")
+	if err != nil {
+		t.Fatalf("read conn.go: %v", err)
+	}
+	body := extractFunctionBody(t, string(src), "onWGDisconnected")
+	const cbField = "onWGTimeoutRecover"
+	if !strings.Contains(body, cbField) {
+		t.Fatalf("onWGDisconnected missing reference to %q — WG-timeout recovery is broken", cbField)
+	}
+	// The callback must be invoked AFTER the conn close switch (otherwise
+	// lazy mgr would be re-armed before the active workers are torn down).
+	idxClose := strings.Index(body, "workerRelay.CloseConn()")
+	idxCb := strings.Index(body, cbField)
+	if idxClose < 0 {
+		t.Fatalf("workerRelay.CloseConn() landmark missing")
+	}
+	if idxCb < idxClose {
+		t.Errorf("recover callback (idx %d) must come AFTER worker close (idx %d)", idxCb, idxClose)
+	}
+}
+
+// Codex hardening regression: onICEStateDisconnected must NOT call
+// RemoveEndpointAddress in the no-Relay-fallback branch. A stale
+// endpoint is less disruptive than a guaranteed no-endpoint gap; the
+// next successful path update replaces it.
+func TestConn_HandoverOrder_OnICEDisconnected_NoRemoveEndpointAddress(t *testing.T) {
+	src, err := os.ReadFile("conn.go")
+	if err != nil {
+		t.Fatalf("read conn.go: %v", err)
+	}
+	body := extractFunctionBody(t, string(src), "onICEStateDisconnected")
+	// The whole function body must NOT contain a call to
+	// RemoveEndpointAddress. (Used to be there in the no-fallback
+	// branch; removed in Codex#8b 2026-05-03.)
+	if strings.Contains(body, "RemoveEndpointAddress(") {
+		t.Error("onICEStateDisconnected must NOT call RemoveEndpointAddress — it creates a no-endpoint gap during ICE flaps; see conn.go comment for rationale")
+	}
+}
+
+// extractFunctionBody returns the source text between `func name(` and
+// the closing brace at column 0 that follows. Crude but sufficient for
+// these landmark checks.
+func extractFunctionBody(t *testing.T, src, name string) string {
+	t.Helper()
+	marker := "func (conn *Conn) " + name + "("
+	start := strings.Index(src, marker)
+	if start < 0 {
+		// Plain func form (no receiver) fallback.
+		marker = "func " + name + "("
+		start = strings.Index(src, marker)
+	}
+	if start < 0 {
+		t.Fatalf("function %q not found in source", name)
+	}
+	// Find the closing brace at column 0 starting at the next newline
+	// after the opening line. Functions in NetBird's style are always
+	// indented with leading-tab and the closing } is at column 0.
+	rest := src[start:]
+	lines := strings.Split(rest, "\n")
+	var body strings.Builder
+	depth := 0
+	openSeen := false
+	for _, line := range lines {
+		body.WriteString(line)
+		body.WriteByte('\n')
+		for _, ch := range line {
+			switch ch {
+			case '{':
+				depth++
+				openSeen = true
+			case '}':
+				depth--
+				if openSeen && depth == 0 {
+					return body.String()
+				}
+			}
+		}
+	}
+	t.Fatalf("function %q has unbalanced braces", name)
+	return ""
+}

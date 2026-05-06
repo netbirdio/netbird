@@ -20,6 +20,7 @@ import (
 
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	idpmanager "github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/management/server/peer_connections"
 
 	"github.com/netbirdio/management-integrations/integrations"
 
@@ -47,6 +48,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/handlers/idp"
 	"github.com/netbirdio/netbird/management/server/http/handlers/instance"
 	"github.com/netbirdio/netbird/management/server/http/handlers/networks"
+	peer_connections_http "github.com/netbirdio/netbird/management/server/http/handlers/peer_connections"
 	"github.com/netbirdio/netbird/management/server/http/handlers/peers"
 	"github.com/netbirdio/netbird/management/server/http/handlers/policies"
 	"github.com/netbirdio/netbird/management/server/http/handlers/routes"
@@ -59,13 +61,25 @@ import (
 	nbnetworks "github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
 const apiPrefix = "/api"
 
+// APIHandler wraps the HTTP router and holds shared state for all HTTP handlers.
+// The peerConnections and snapshotRouter fields are constructed once in boot.go
+// and shared with the gRPC server so both sides see the same in-memory state.
+// Phase 3.7i of #5989; HTTP routes that consume these are registered in Task 4.2.
+type APIHandler struct {
+	http.Handler
+
+	peerConnections peer_connections.Store
+	snapshotRouter  *peer_connections.SnapshotRouter
+}
+
 // NewAPIHandler creates the Management service HTTP API handler registering all the available endpoints.
-func NewAPIHandler(ctx context.Context, accountManager account.Manager, networksManager nbnetworks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation, authManager auth.Manager, appMetrics telemetry.AppMetrics, integratedValidator integrated_validator.IntegratedValidator, proxyController port_forwarding.Controller, permissionsManager permissions.Manager, peersManager nbpeers.Manager, settingsManager settings.Manager, zManager zones.Manager, rManager records.Manager, networkMapController network_map.Controller, idpManager idpmanager.Manager, serviceManager service.Manager, reverseProxyDomainManager *manager.Manager, reverseProxyAccessLogsManager accesslogs.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, trustedHTTPProxies []netip.Prefix, rateLimiter *middleware.APIRateLimiter) (http.Handler, error) {
+func NewAPIHandler(ctx context.Context, accountManager account.Manager, networksManager nbnetworks.Manager, resourceManager resources.Manager, routerManager routers.Manager, groupsManager nbgroups.Manager, LocationManager geolocation.Geolocation, authManager auth.Manager, appMetrics telemetry.AppMetrics, integratedValidator integrated_validator.IntegratedValidator, proxyController port_forwarding.Controller, permissionsManager permissions.Manager, peersManager nbpeers.Manager, settingsManager settings.Manager, zManager zones.Manager, rManager records.Manager, networkMapController network_map.Controller, idpManager idpmanager.Manager, serviceManager service.Manager, reverseProxyDomainManager *manager.Manager, reverseProxyAccessLogsManager accesslogs.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer, trustedHTTPProxies []netip.Prefix, rateLimiter *middleware.APIRateLimiter, peerConnStore peer_connections.Store, peerConnRouter *peer_connections.SnapshotRouter) (*APIHandler, error) {
 
 	// Register bypass paths for unauthenticated endpoints
 	if err := bypass.AddBypassPath("/api/instance"); err != nil {
@@ -124,6 +138,16 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 
 	accounts.AddEndpoints(accountManager, settingsManager, router)
 	peers.AddEndpoints(accountManager, router, networkMapController, permissionsManager)
+
+	// Phase 3.7i of #5989: peer connection-map REST routes.
+	peerConnHandler := peer_connections_http.NewHandler(
+		peerConnStore,
+		&pcAccountManagerAdapter{am: accountManager, nmc: networkMapController},
+		peerConnRouter,
+	)
+	router.HandleFunc("/peers/{peerId}/connections", peerConnHandler.GetPeerConnections).Methods("GET", "OPTIONS")
+	router.HandleFunc("/peers/{peerId}/connections/refresh", peerConnHandler.PostRefresh).Methods("POST", "OPTIONS")
+
 	users.AddEndpoints(accountManager, router)
 	users.AddInvitesEndpoints(accountManager, router)
 	users.AddPublicInvitesEndpoints(accountManager, router)
@@ -155,5 +179,42 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 		rootRouter.PathPrefix("/oauth2").Handler(corsMiddleware.Handler(embeddedIdP.Handler()))
 	}
 
-	return rootRouter, nil
+	return &APIHandler{
+		Handler:         rootRouter,
+		peerConnections: peerConnStore,
+		snapshotRouter:  peerConnRouter,
+	}, nil
+}
+
+// pcAccountManagerAdapter bridges the real account.Manager into the small
+// interface peer_connections.Handler uses. Phase 3.7i of #5989.
+type pcAccountManagerAdapter struct {
+	am  account.Manager
+	nmc network_map.Controller
+}
+
+func (a *pcAccountManagerAdapter) GetPeer(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error) {
+	return a.am.GetPeer(ctx, accountID, peerID, userID)
+}
+
+func (a *pcAccountManagerAdapter) GetPeerByPubKey(ctx context.Context, accountID, pubKey string) (*nbpeer.Peer, error) {
+	return a.am.GetPeerByPubKey(ctx, accountID, pubKey)
+}
+
+// GetDNSDomain resolves the configured DNS domain for the account.
+// It reads the account settings and delegates to the networkMapController
+// which applies the global default when the account has no custom domain.
+// Falls back to "" on error — FQDN enrichment in the handler is best-effort.
+func (a *pcAccountManagerAdapter) GetDNSDomain(ctx context.Context, accountID string) string {
+	settings, err := a.am.GetAccountSettings(ctx, accountID, "internal")
+	if err != nil {
+		return ""
+	}
+	if a.nmc == nil {
+		if settings != nil {
+			return settings.DNSDomain
+		}
+		return ""
+	}
+	return a.nmc.GetDNSDomain(settings)
 }

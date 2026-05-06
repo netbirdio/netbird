@@ -104,6 +104,10 @@ type Manager interface {
 	GetDNSSettings(ctx context.Context, accountID string, userID string) (*types.DNSSettings, error)
 	SaveDNSSettings(ctx context.Context, accountID string, userID string, dnsSettingsToSave *types.DNSSettings) error
 	GetPeer(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error)
+	// GetPeerByPubKey returns the peer with the given WireGuard public key from
+	// the given account. Phase 3.7i of #5989 — used by REST handlers to enrich
+	// PeerConnectionMap entries with FQDNs.
+	GetPeerByPubKey(ctx context.Context, accountID, pubKey string) (*nbpeer.Peer, error)
 	UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Settings, error)
 	UpdateAccountOnboarding(ctx context.Context, accountID, userID string, newOnboarding *types.AccountOnboarding) (*types.AccountOnboarding, error)
 	LoginPeer(ctx context.Context, login types.PeerLogin) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)                       // used by peer gRPC API

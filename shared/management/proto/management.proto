@@ -46,6 +46,12 @@ service ManagementService {
   // EncryptedMessage of the request has a body of Empty.
   rpc  SyncMeta(EncryptedMessage) returns (Empty) {}
 
+  // Phase 3.7i (#5989): per-peer connection-state push from peer to
+  // mgmt. Body decrypts to PeerConnectionMap. Unary because the
+  // existing Sync is server-streaming (client cannot inject extra
+  // frames).
+  rpc SyncPeerConnections(EncryptedMessage) returns (Empty) {}
+
   // Logout logs out the peer and removes it from the management server
   rpc Logout(EncryptedMessage) returns (Empty) {}
 
@@ -133,6 +139,11 @@ message SyncResponse {
 
   // Posture checks to be evaluated by client
   repeated Checks Checks = 6;
+
+  // Phase 3.7i (#5989): on-demand refresh request for the peer's
+  // connection map. Peer responds via SyncPeerConnections RPC with
+  // in_response_to_nonce echoing this nonce.
+  PeerSnapshotRequest snapshot_request = 7;
 }
 
 message  SyncMetaRequest {
@@ -221,6 +232,23 @@ message PeerSystemMeta {
   Environment environment = 15;
   repeated File files = 16;
   Flags flags = 17;
+
+  // Phase 3.7i (#5989): connection mode/timeouts this peer is actually
+  // running with. Mgmt copies into RemotePeerConfig of every other peer.
+  string effective_connection_mode    = 50;
+  uint32 effective_relay_timeout_secs = 51;
+  uint32 effective_p2p_timeout_secs   = 52;
+  uint32 effective_p2p_retry_max_secs = 53;
+
+  // Phase 3.7i (#5989): list of capability keywords this client build
+  // supports. Old clients leave this empty (proto3 default for repeated
+  // fields). The management server uses this list to decide whether to
+  // fall back to legacy settings for clients that do not yet implement a
+  // feature - e.g. when ConnectionMode is p2p-dynamic and the client does
+  // not advertise "p2p_dynamic", mgmt downgrades it to p2p-lazy with the
+  // admin-configured legacy timeout. See client/system/features.go for
+  // the source of truth on which keywords this client build advertises.
+  repeated string supported_features = 60;
 }
 
 message LoginResponse {
@@ -335,6 +363,48 @@ message PeerConfig {
 
   // Auto-update config
   AutoUpdateSettings autoUpdate = 8;
+
+  // Tags 9 and 10 are intentionally left unused so that future small
+  // additions can land without re-numbering the new connection-mode
+  // fields. Reserved here to make the gap explicit for any reviewer.
+  reserved 9, 10;
+
+  // Connection-mode resolved by the management server. UNSPECIFIED = use
+  // legacy LazyConnectionEnabled fallback. Added in Phase 1 (#5989).
+  ConnectionMode ConnectionMode = 11;
+
+  // Idle timeout for the ICE worker in seconds. 0 = never tear down.
+  // Effective in p2p-dynamic mode (added in Phase 2). Sent unconditionally
+  // for forward-compat. Added in Phase 1 (#5989).
+  uint32 P2pTimeoutSeconds = 12;
+
+  // Idle timeout for the relay worker in seconds. 0 = never tear down.
+  // Effective in p2p-lazy and p2p-dynamic modes. Backwards-compat alias for
+  // NB_LAZY_CONN_INACTIVITY_THRESHOLD. Added in Phase 1 (#5989).
+  uint32 RelayTimeoutSeconds = 13;
+
+  // P2pRetryMaxSeconds is the maximum interval between P2P retry attempts
+  // after consecutive ICE failures, in seconds. Effective only in
+  // p2p-dynamic mode (added in Phase 3 of #5989).
+  //
+  // Wire-format semantics:
+  //   0    -> "not set"; daemon uses built-in default (15 min)
+  //   max  -> "user explicitly disabled backoff"; daemon disables backoff
+  //   else -> seconds, capped at this value in the cenkalti/backoff schedule
+  uint32 P2pRetryMaxSeconds = 14;
+}
+
+// ConnectionMode controls how a peer establishes connections to other peers.
+// Added in Phase 1 of the connection-mode consolidation (see issue #5989).
+// CONNECTION_MODE_UNSPECIFIED is the proto default and means "fall back to
+// the legacy LazyConnectionEnabled boolean field" -- required for backwards
+// compatibility with old management servers that don't set this field.
+enum ConnectionMode {
+  CONNECTION_MODE_UNSPECIFIED = 0;
+  CONNECTION_MODE_RELAY_FORCED = 1;
+  CONNECTION_MODE_P2P = 2;
+  CONNECTION_MODE_P2P_LAZY = 3;
+  CONNECTION_MODE_P2P_DYNAMIC = 4;
 }
 
 message AutoUpdateSettings {
@@ -421,6 +491,40 @@ message RemotePeerConfig {
   string fqdn = 4;
 
   string agentVersion = 5;
+
+  // Phase 3.7i (#5989): connection mode/timeouts the remote peer is
+  // actually running with (after env > local-cfg > server-pushed > legacy
+  // resolution), as reported by that peer in its PeerSystemMeta. Empty
+  // when remote peer pre-dates Phase 3.7i.
+  string effective_connection_mode    = 6;
+  uint32 effective_relay_timeout_secs = 7;
+  uint32 effective_p2p_timeout_secs   = 8;
+  uint32 effective_p2p_retry_max_secs = 9;
+
+  // Connection mode/timeouts the management server has configured for
+  // that peer via dashboard policy/group. UI compares effective vs
+  // configured to spot local overrides (≠ → ⚠).
+  string configured_connection_mode    = 10;
+  uint32 configured_relay_timeout_secs = 11;
+  uint32 configured_p2p_timeout_secs   = 12;
+  uint32 configured_p2p_retry_max_secs = 13;
+
+  // Phase 3.7i: server-knowledge fields surfaced to UIs without an
+  // extra Mgmt API call (already in the NetworkMap stream context).
+  google.protobuf.Timestamp last_seen_at_server = 14;
+  repeated string groups                        = 15;
+  // Live online flag: peer.Status.Connected on the management server.
+  // True = peer is currently heartbeating. False = peer hasn't checked
+  // in (hardware/network down) but its login is still valid (otherwise
+  // it would be in OfflinePeers, not RemotePeers).
+  bool live_online                              = 16;
+
+  // Server-knowledge marker: true when the management server is new
+  // enough to populate live_online authoritatively. Old servers leave
+  // this field at false (default), and new clients then fall back to
+  // legacy heuristics (assume online when live_online is false but
+  // last_seen_at_server is also unset, i.e. nothing is known).
+  bool server_liveness_known                    = 17;
 }
 
 // SSHConfig represents SSH configurations of a peer.
@@ -684,3 +788,43 @@ message StopExposeRequest {
 }
 
 message StopExposeResponse {}
+
+// Phase 3.7i (#5989): per-peer connection-state push payload (encrypted
+// body of SyncPeerConnections request).
+message PeerConnectionMap {
+  uint64 seq = 1;
+  bool full_snapshot = 2;
+  repeated PeerConnectionEntry entries = 3;
+  uint64 in_response_to_nonce = 4;
+  // Phase 3.7i lifecycle hardening (Codex follow-up): random uint64
+  // generated once per daemon process. Lets mgmt detect a daemon
+  // restart even if a stale unary RPC from the previous process
+  // arrives AFTER the new process's full snapshot. Mgmt drops any
+  // delta whose session_id doesn't match the cached entry's.
+  // Legacy clients send 0 (Phase 3.7i shipped without this field);
+  // mgmt falls back to seq-only behaviour for those.
+  uint64 session_id = 5;
+}
+
+message PeerConnectionEntry {
+  string remote_pubkey                       = 1;
+  ConnType conn_type                         = 2;
+  google.protobuf.Timestamp last_handshake   = 3;
+  uint32 latency_ms                          = 4;
+  string endpoint                            = 5;
+  string relay_server                        = 6;
+  uint64 rx_bytes                            = 7;
+  uint64 tx_bytes                            = 8;
+}
+
+enum ConnType {
+  CONN_TYPE_UNSPECIFIED = 0;
+  CONN_TYPE_IDLE        = 1;
+  CONN_TYPE_CONNECTING  = 2;
+  CONN_TYPE_P2P         = 3;
+  CONN_TYPE_RELAYED     = 4;
+}
+
+message PeerSnapshotRequest {
+  uint64 nonce = 1;
+}

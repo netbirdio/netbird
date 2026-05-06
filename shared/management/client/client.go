@@ -27,6 +27,17 @@ type Client interface {
 	// Used to validate connectivity before committing configuration changes.
 	HealthCheck() error
 	SyncMeta(sysInfo *system.Info) error
+	// SyncPeerConnections sends the peer's current per-peer connection map
+	// to the management server as a unary RPC. Phase 3.7i of #5989.
+	SyncPeerConnections(ctx context.Context, m *proto.PeerConnectionMap) error
+	// SetEffectiveConnConfig records the engine-resolved connection mode/
+	// timeouts to report in subsequent Sync/Login/SyncMeta PeerSystemMeta.
+	// Phase 3.7i of #5989.
+	SetEffectiveConnConfig(eff EffectiveConnConfig)
+	// SetSnapshotRequestHandler registers a callback invoked when the
+	// management server sends a SnapshotRequest over the Sync server-stream.
+	// Phase 3.7i of #5989.
+	SetSnapshotRequestHandler(fn func(nonce uint64))
 	Logout() error
 	CreateExpose(ctx context.Context, req ExposeRequest) (*ExposeResponse, error)
 	RenewExpose(ctx context.Context, domain string) error

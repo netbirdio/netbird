@@ -104,7 +104,28 @@ func (h *Handshaker) AddRelayListener(offer func(remoteOfferAnswer *OfferAnswer)
 }
 
 func (h *Handshaker) AddICEListener(offer func(remoteOfferAnswer *OfferAnswer)) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.iceListener = offer
+}
+
+// RemoveICEListener clears the ICE-offer listener so subsequent remote
+// offers no longer dispatch to workerICE. Idempotent; calling it when
+// no listener was set is a no-op. Used by Conn.DetachICE in p2p-dynamic
+// mode to deactivate ICE without tearing down the relay path.
+func (h *Handshaker) RemoveICEListener() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.iceListener = nil
+}
+
+// readICEListener returns the current ICE listener under mutex protection.
+// Used by Listen() so a concurrent RemoveICEListener cannot race with the
+// dispatch loop.
+func (h *Handshaker) readICEListener() func(*OfferAnswer) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.iceListener
 }
 
 func (h *Handshaker) Listen(ctx context.Context) {
@@ -124,8 +145,11 @@ func (h *Handshaker) Listen(ctx context.Context) {
 				h.relayListener.Notify(&remoteOfferAnswer)
 			}
 
-			if h.iceListener != nil && h.RemoteICESupported() {
-				h.iceListener(&remoteOfferAnswer)
+			if iceListener := h.readICEListener(); iceListener != nil && h.RemoteICESupported() {
+				iceListener(&remoteOfferAnswer)
+			} else if h.RemoteICESupported() {
+				h.log.Debugf("remote OFFER (session %s) without local ICE listener (relay-forced mode or peer in ICE backoff)",
+					remoteOfferAnswer.SessionIDString())
 			}
 
 			if err := h.sendAnswer(); err != nil {
@@ -146,8 +170,11 @@ func (h *Handshaker) Listen(ctx context.Context) {
 				h.relayListener.Notify(&remoteOfferAnswer)
 			}
 
-			if h.iceListener != nil && h.RemoteICESupported() {
-				h.iceListener(&remoteOfferAnswer)
+			if iceListener := h.readICEListener(); iceListener != nil && h.RemoteICESupported() {
+				iceListener(&remoteOfferAnswer)
+			} else if h.RemoteICESupported() {
+				h.log.Debugf("remote ANSWER (session %s) without local ICE listener (relay-forced mode or peer in ICE backoff)",
+					remoteOfferAnswer.SessionIDString())
 			}
 		case <-ctx.Done():
 			h.log.Infof("stop listening for remote offers and answers")

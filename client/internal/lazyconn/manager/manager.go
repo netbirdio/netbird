@@ -28,7 +28,31 @@ type managedPeer struct {
 }
 
 type Config struct {
+	// Phase-1 single-timer field. Deprecated: use ICEInactivityThreshold
+	// and RelayInactivityThreshold instead. Kept so existing callers
+	// (engine.go) compile during the Phase-2 transition; internally
+	// treated as RelayInactivityThreshold when the new fields are zero.
 	InactivityThreshold *time.Duration
+
+	// ICEInactivityThreshold is the per-peer ICE-worker idle timeout
+	// (Phase 2 / #5989). 0 = ICE always-on (= p2p-lazy semantics, where
+	// the whole tunnel goes idle but ICE is never torn down separately).
+	ICEInactivityThreshold time.Duration
+
+	// RelayInactivityThreshold is the per-peer relay-worker idle timeout
+	// (Phase 2). 0 = relay always-on.
+	RelayInactivityThreshold time.Duration
+}
+
+// resolvedTimeouts returns the effective (ICE, Relay) timeouts. If only
+// the deprecated InactivityThreshold field is set, it maps onto the
+// relay timeout for Phase-1 p2p-lazy semantics.
+func (c Config) resolvedTimeouts() (iceTimeout, relayTimeout time.Duration) {
+	relay := c.RelayInactivityThreshold
+	if relay == 0 && c.InactivityThreshold != nil {
+		relay = *c.InactivityThreshold
+	}
+	return c.ICEInactivityThreshold, relay
 }
 
 // Manager manages lazy connections
@@ -76,12 +100,30 @@ func NewManager(config Config, engineCtx context.Context, peerStore *peerstore.S
 	}
 
 	if wgIface.IsUserspaceBind() {
-		m.inactivityManager = inactivity.NewManager(wgIface, config.InactivityThreshold)
+		iceTO, relayTO := config.resolvedTimeouts()
+		if iceTO == 0 && relayTO == 0 {
+			// Phase 1 / single-timer fallback when caller hasn't migrated.
+			m.inactivityManager = inactivity.NewManager(wgIface, config.InactivityThreshold) //nolint:staticcheck // intentional Phase-1 single-timer fallback
+		} else {
+			m.inactivityManager = inactivity.NewManagerWithTwoTimers(wgIface, iceTO, relayTO)
+		}
 	} else {
 		log.Warnf("inactivity manager not supported for kernel mode, wait for remote peer to close the connection")
 	}
 
 	return m
+}
+
+// InactivityManager exposes the underlying inactivity.Manager so the
+// engine / conn_mgr can subscribe to ICEInactiveChan / RelayInactiveChan
+// in the p2p-dynamic mode lifecycle. Returns nil if the manager runs in
+// kernel-bind mode (no inactivity tracking) or if the manager itself is
+// nil (defensive).
+func (m *Manager) InactivityManager() *inactivity.Manager {
+	if m == nil {
+		return nil
+	}
+	return m.inactivityManager
 }
 
 // UpdateRouteHAMap updates the HA group mappings for routes
@@ -537,6 +579,50 @@ func (m *Manager) onPeerActivity(peerConnID peerid.ConnID) {
 	m.activateHAGroupPeers(mp.peerCfg)
 
 	m.peerStore.PeerConnOpen(m.engineCtx, mp.peerCfg.PublicKey)
+
+	// Phase 3.7i (#5989): the signal-trigger and activity-trigger paths
+	// must be symmetric. Signal-trigger goes through
+	// ConnMgr.ActivatePeer which calls conn.AttachICE for p2p-dynamic.
+	// Activity-trigger here previously went through PeerConnOpen only
+	// — Open() recreates workerICE but does NOT register the ICE
+	// listener on the handshaker (deferICEListener=true for
+	// p2p-dynamic). Without AttachICE the guard's onGuardEvent then
+	// sees readICEListener()==nil + everConnected==true and skips
+	// every offer with "will re-attach on real traffic" — but the
+	// only re-attach path is here, so we'd loop forever.
+	//
+	// AttachICE is mode-safe: a no-op for ModeP2P / ModeP2PLazy
+	// (listener already attached via Open) and an error for
+	// ModeRelayForced (workerICE nil) which we ignore.
+	//
+	// Reset iceBackoff first (Codex review 2026-05-05): the lazy-mgr
+	// activity-listener fires on a >32-byte type-4 outbound packet to
+	// a peer that's been fully Idle (Open=false, conn closed by relay-
+	// timeout). That's the strongest possible "user wants to talk to
+	// this peer" signal -- much stronger than the existing 3-tries-then-
+	// hourly retry policy. Without the reset, a previous transient
+	// ICE failure would keep the conn relay-only for an hour even
+	// after explicit user activity. We reset ONLY here in the lazy-mgr
+	// activity path; the relay-state activity path (engine wires
+	// ActivityRecorder.OnActivity -> Conn.AttachICEOnRelayActivity) does
+	// NOT reset, deliberately respecting the failure backoff because
+	// every relay payload packet would otherwise reset it.
+	if conn, ok := m.peerStore.PeerConn(mp.peerCfg.PublicKey); ok {
+		conn.ResetIceBackoff()
+		if err := conn.AttachICE(); err != nil {
+			mp.peerCfg.Log.Warnf("AttachICE on activity wake: %v", err)
+		}
+		// Phase 3.7i (#5989), Codex review 2026-05-05: also reset the
+		// guard's per-cycle ICE retry budget. After C->A Idle wake the
+		// Conn (and its guard) is freshly created, but the 3-retries-
+		// then-hourly counter is shared across the whole reconnect
+		// cycle. For peers with non-LAN candidates a single fresh
+		// pair-check cycle often needs all 3 tries (cold srflx
+		// mappings), and without an activity-driven reset the next
+		// real user packet would already find the guard in hourly
+		// mode -- defeating p2p-dynamic's "fast P2P recovery" promise.
+		conn.NotifyGuardActivity()
+	}
 }
 
 func (m *Manager) onPeerInactivityTimedOut(peerIDs map[string]struct{}) {

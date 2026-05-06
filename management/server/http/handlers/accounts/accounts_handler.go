@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/netip"
 	"time"
@@ -182,6 +183,18 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 
 		PeerExposeEnabled: req.Settings.PeerExposeEnabled,
 		PeerExposeGroups:  req.Settings.PeerExposeGroups,
+
+		// Phase 3.7i (#5989): seed the legacy-fallback fields with their
+		// semantic defaults BEFORE the per-field if-blocks below run.
+		// This handler always rebuilds Settings from scratch, so an
+		// API client (or older Dashboard) that omits the new fields
+		// would otherwise downgrade the account to false / 0 -- which
+		// the conversion layer interprets as "fallback disabled,
+		// timeout 0", the exact regression Codex flagged. The
+		// per-field if-blocks below override these defaults when the
+		// request explicitly sets a value (including false / explicit 0).
+		LegacyLazyFallbackEnabled:        types.DefaultLegacyLazyFallbackEnabled,
+		LegacyLazyFallbackTimeoutSeconds: types.DefaultLegacyLazyFallbackTimeoutSeconds,
 	}
 
 	if req.Settings.Extra != nil {
@@ -214,6 +227,59 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 	}
 	if req.Settings.LazyConnectionEnabled != nil {
 		returnSettings.LazyConnectionEnabled = *req.Settings.LazyConnectionEnabled
+	}
+	if req.Settings.ConnectionMode != nil {
+		modeStr := string(*req.Settings.ConnectionMode)
+		if !req.Settings.ConnectionMode.Valid() {
+			return nil, fmt.Errorf("invalid connection_mode %q", modeStr)
+		}
+		// Persist as the canonical string. Important: returnSettings
+		// is a fresh struct built from scratch by this handler -- if
+		// the request body omits connection_mode (or sets JSON null,
+		// which deserializes to a nil pointer), this whole block is
+		// skipped AND returnSettings.ConnectionMode stays nil, which
+		// the storage layer interprets as "clear the override". To
+		// preserve the existing value the caller must include the
+		// current value explicitly in the PUT body. This is also true
+		// for the four timeout fields below.
+		s := modeStr
+		returnSettings.ConnectionMode = &s
+	}
+	if req.Settings.P2pTimeoutSeconds != nil {
+		v, err := validateUint32Timeout("p2p_timeout_seconds", *req.Settings.P2pTimeoutSeconds)
+		if err != nil {
+			return nil, err
+		}
+		returnSettings.P2pTimeoutSeconds = &v
+	}
+	if req.Settings.P2pRetryMaxSeconds != nil {
+		v, err := validateUint32Timeout("p2p_retry_max_seconds", *req.Settings.P2pRetryMaxSeconds)
+		if err != nil {
+			return nil, err
+		}
+		returnSettings.P2pRetryMaxSeconds = &v
+	}
+	if req.Settings.RelayTimeoutSeconds != nil {
+		v, err := validateUint32Timeout("relay_timeout_seconds", *req.Settings.RelayTimeoutSeconds)
+		if err != nil {
+			return nil, err
+		}
+		returnSettings.RelayTimeoutSeconds = &v
+	}
+	if req.Settings.LegacyLazyFallbackEnabled != nil {
+		returnSettings.LegacyLazyFallbackEnabled = *req.Settings.LegacyLazyFallbackEnabled
+	}
+	if req.Settings.LegacyLazyFallbackTimeoutSeconds != nil {
+		// Phase 3.7i (#5989): legacy fallback timeout. Range chosen to
+		// match the range an admin would plausibly set on a metered LTE
+		// fleet: 60s lower bound (anything shorter just hammers
+		// signaling), 86400s upper bound (24h - longer than that and the
+		// fallback is effectively "never tear down").
+		v := *req.Settings.LegacyLazyFallbackTimeoutSeconds
+		if v < 60 || v > 86400 {
+			return nil, fmt.Errorf("invalid legacy_lazy_fallback_timeout_seconds %d (must be between 60 and 86400)", v)
+		}
+		returnSettings.LegacyLazyFallbackTimeoutSeconds = uint32(v)
 	}
 	if req.Settings.AutoUpdateVersion != nil {
 		_, err := goversion.NewSemver(*req.Settings.AutoUpdateVersion)
@@ -349,6 +415,55 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		PeerExposeEnabled:               settings.PeerExposeEnabled,
 		PeerExposeGroups:                settings.PeerExposeGroups,
 		LazyConnectionEnabled:           &settings.LazyConnectionEnabled,
+		ConnectionMode: func() *api.AccountSettingsConnectionMode {
+			if settings.ConnectionMode == nil {
+				return nil
+			}
+			v := api.AccountSettingsConnectionMode(*settings.ConnectionMode)
+			return &v
+		}(),
+		P2pTimeoutSeconds: func() *int64 {
+			if settings.P2pTimeoutSeconds == nil {
+				return nil
+			}
+			v := int64(*settings.P2pTimeoutSeconds)
+			return &v
+		}(),
+		P2pRetryMaxSeconds: func() *int64 {
+			if settings.P2pRetryMaxSeconds == nil {
+				return nil
+			}
+			v := int64(*settings.P2pRetryMaxSeconds)
+			return &v
+		}(),
+		RelayTimeoutSeconds: func() *int64 {
+			if settings.RelayTimeoutSeconds == nil {
+				return nil
+			}
+			v := int64(*settings.RelayTimeoutSeconds)
+			return &v
+		}(),
+		// Phase 3.7i (#5989): expose the legacy-fallback fields with their
+		// semantic defaults filled in for accounts that pre-date the
+		// fields (zero-valued in DB). The conversion layer falls back
+		// to the same defaults at peer-config time, so reporting them
+		// here keeps API responses honest for the Dashboard and any
+		// other API consumer.
+		LegacyLazyFallbackEnabled: func() *bool {
+			v := settings.LegacyLazyFallbackEnabled
+			if !v && settings.LegacyLazyFallbackTimeoutSeconds == 0 {
+				v = types.DefaultLegacyLazyFallbackEnabled
+			}
+			return &v
+		}(),
+		LegacyLazyFallbackTimeoutSeconds: func() *int64 {
+			to := settings.LegacyLazyFallbackTimeoutSeconds
+			if to == 0 {
+				to = types.DefaultLegacyLazyFallbackTimeoutSeconds
+			}
+			v := int64(to)
+			return &v
+		}(),
 		DnsDomain:                       &settings.DNSDomain,
 		AutoUpdateVersion:               &settings.AutoUpdateVersion,
 		AutoUpdateAlways:                &settings.AutoUpdateAlways,
@@ -385,4 +500,20 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		DomainCategory: meta.DomainCategory,
 		Onboarding:     apiOnboarding,
 	}
+}
+
+// validateUint32Timeout converts the int64 value coming from the API
+// JSON body into a uint32 suitable for the daemon-internal timeout
+// fields. Negative values and values larger than MaxUint32 are
+// rejected (Codex review): a raw uint32 cast would silently wrap a
+// negative input around to a large positive number, producing a
+// timeout the operator never intended to set.
+func validateUint32Timeout(name string, v int64) (uint32, error) {
+	if v < 0 {
+		return 0, fmt.Errorf("invalid %s: %d (must be >= 0)", name, v)
+	}
+	if v > int64(math.MaxUint32) {
+		return 0, fmt.Errorf("invalid %s: %d (exceeds %d)", name, v, uint64(math.MaxUint32))
+	}
+	return uint32(v), nil
 }

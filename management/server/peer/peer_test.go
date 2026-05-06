@@ -141,3 +141,12 @@ func TestFlags_IsEqual(t *testing.T) {
 		})
 	}
 }
+
+func TestPeerSystemMeta_isEqual_ChecksEffectiveFields(t *testing.T) {
+	base := PeerSystemMeta{Hostname: "h", EffectiveConnectionMode: "p2p-dynamic"}
+	other := base
+	other.EffectiveConnectionMode = "p2p"
+	if base.isEqual(other) {
+		t.Error("isEqual should return false when EffectiveConnectionMode differs")
+	}
+}

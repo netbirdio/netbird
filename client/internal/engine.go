@@ -34,6 +34,7 @@ import (
 	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/internal/acl"
+	"github.com/netbirdio/netbird/client/internal/debouncer"
 	"github.com/netbirdio/netbird/client/internal/debug"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
@@ -61,6 +62,7 @@ import (
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/connectionmode"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
@@ -137,6 +139,26 @@ type EngineConfig struct {
 
 	LazyConnectionEnabled bool
 
+	// ConnectionMode is the resolved peer-connection mode for this daemon
+	// session. ModeUnspecified means "fall back to LazyConnectionEnabled".
+	// Set by the caller of NewEngine; usually populated from
+	// profilemanager.Config.ConnectionMode in connect.go.
+	ConnectionMode connectionmode.Mode
+
+	// RelayTimeoutSeconds, when > 0, overrides the server-pushed relay
+	// timeout. 0 means "follow server-pushed value".
+	RelayTimeoutSeconds uint32
+
+	// P2pTimeoutSeconds, when > 0, overrides the server-pushed p2p timeout.
+	// 0 means "follow server-pushed value". Reserved for Phase 2 -- has no
+	// effect in Phase 1.
+	P2pTimeoutSeconds uint32
+
+	// P2pRetryMaxSeconds, when > 0, overrides the server-pushed
+	// p2p_retry_max_seconds. 0 = use server-pushed value (or built-in
+	// default 15 min). Phase 3 of #5989.
+	P2pRetryMaxSeconds uint32
+
 	MTU uint16
 
 	// for debug bundle generation
@@ -198,6 +220,14 @@ type Engine struct {
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
 
+	// Phase 3.7i (Codex review): debounce remote-offline-transitions
+	// to absorb brief mgmt-reconnect blips. peerOfflineDebounce holds
+	// pending close-after-grace-period timers keyed by peer pubkey.
+	// Cancelled when the same peer flips back online before the timer
+	// fires. Protected by peerOfflineDebounceMu.
+	peerOfflineDebounce   map[string]*time.Timer
+	peerOfflineDebounceMu sync.Mutex
+
 	networkMonitor *networkmonitor.NetworkMonitor
 
 	sshServer sshServer
@@ -246,6 +276,13 @@ type Engine struct {
 	jobExecutorWG sync.WaitGroup
 
 	exposeManager *expose.Manager
+
+	// Phase 3.7i (#5989): track last-pushed effective config to detect changes.
+	lastPushedEff     mgm.EffectiveConnConfig
+	syncMetaDebouncer *debouncer.Debouncer
+
+	// Phase 3.7i (#5989): per-peer connection-state pusher.
+	connStatePusher *connStatePusher
 }
 
 // Peer is an instance of the Connection Peer
@@ -280,6 +317,7 @@ func NewEngine(
 		STUNs:              []*stun.URI{},
 		TURNs:              []*stun.URI{},
 		networkSerial:      0,
+		peerOfflineDebounce: make(map[string]*time.Timer),
 		statusRecorder:     services.StatusRecorder,
 		stateManager:       services.StateManager,
 		portForwardManager: portforward.NewManager(),
@@ -288,10 +326,22 @@ func NewEngine(
 		jobExecutor:        jobexec.NewExecutor(),
 		clientMetrics:      services.ClientMetrics,
 		updateManager:      services.UpdateManager,
+		syncMetaDebouncer:  debouncer.New(5 * time.Second),
 	}
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
 	return engine
+}
+
+// ConnMgr returns the engine's ConnMgr or nil if the engine has not been
+// started yet (or has already shut down). Used by the Android UI to query
+// the server-pushed connection mode for the dropdown's "Follow server"
+// label.
+func (e *Engine) ConnMgr() *ConnMgr {
+	if e == nil {
+		return nil
+	}
+	return e.connMgr
 }
 
 func (e *Engine) Stop() error {
@@ -302,9 +352,23 @@ func (e *Engine) Stop() error {
 	}
 	e.syncMsgMux.Lock()
 
+	if e.syncMetaDebouncer != nil {
+		e.syncMetaDebouncer.Stop()
+	}
+
 	if e.connMgr != nil {
 		e.connMgr.Close()
 	}
+
+	if e.connStatePusher != nil {
+		e.connStatePusher.Stop()
+		e.connStatePusher = nil
+	}
+
+	// Phase 3.7i: cancel all pending offline-close debounce timers so
+	// none fires after Stop() has begun. Safe to call even if no timers
+	// were armed.
+	e.cancelAllRemoteOfflineCloses()
 
 	// stopping network monitor first to avoid starting the engine again
 	if e.networkMonitor != nil {
@@ -574,8 +638,53 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	e.connMgr = NewConnMgr(e.config, e.statusRecorder, e.peerStore, wgIface)
 	e.connMgr.Start(e.ctx)
 
+	// Phase 3.7i (#5989), Codex review 2026-05-05: wire the
+	// ActivityRecorder OnActivity callback to the relay-state ICE-
+	// upgrade fast-path. Fires at most once per saveFrequency=5s per
+	// peer when a >32-byte type-4 WG transport packet is observed in
+	// the receive path. Conn.AttachICEOnRelayActivity gates on:
+	//   mode==p2p-dynamic, conn open, currentConnPriority==Relay,
+	//   no ICE listener, no active backoff, everConnected==true.
+	// Closes the gap that left peers stuck on relay forever after
+	// iceTimeout fired (D95820 ↔ w11-test1 hop reproduced 2026-05-05).
+	if bind := wgIface.GetBind(); bind != nil {
+		if rec := bind.ActivityRecorder(); rec != nil {
+			rec.SetOnActivity(func(pubKey string) {
+				if conn, ok := e.peerStore.PeerConn(pubKey); ok {
+					conn.AttachICEOnRelayActivity()
+				}
+			})
+		}
+	}
+
+	// Phase 3.7i (#5989): start the per-peer connection-state pusher.
+	e.connStatePusher = newConnStatePusher(
+		&enginePushSink{engine: e},
+		&enginePeerStateSource{engine: e},
+	)
+	// nil-guard the closures: Engine.Stop() sets e.connStatePusher = nil
+	// BEFORE removeAllPeers() runs, and removeAllPeers triggers
+	// notifyConnStateChange callbacks for every peer being torn down.
+	// Without the guard, every disconnect crashed the daemon with a
+	// nil-pointer deref. The same applies to the snapshot handler in
+	// case mgmt sends a request during shutdown.
+	e.statusRecorder.SetConnStateListener(func(pubkey string, st peer.State) {
+		pusher := e.connStatePusher
+		if pusher == nil {
+			return
+		}
+		pusher.OnPeerStateChange(peerStateToEvent(pubkey, st))
+	})
+	e.mgmClient.SetSnapshotRequestHandler(func(nonce uint64) {
+		pusher := e.connStatePusher
+		if pusher == nil {
+			return
+		}
+		pusher.OnSnapshotRequest(nonce)
+	})
+
 	e.srWatcher = guard.NewSRWatcher(e.signal, e.relayManager, e.mobileDep.IFaceDiscover, iceCfg)
-	e.srWatcher.Start(peer.IsForceRelayed())
+	e.srWatcher.Start(peer.IsForceRelayed()) //nolint:staticcheck // intentionally retained for Phase-1 backwards compat
 
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()
@@ -798,6 +907,13 @@ func (e *Engine) removeAllPeers() error {
 // removePeer closes an existing peer connection and removes a peer
 func (e *Engine) removePeer(peerKey string) error {
 	log.Debugf("removing peer from engine %s", peerKey)
+
+	// Phase 3.7i hardening: cancel any pending offline-debounce timer
+	// for this peer BEFORE the conn is closed. The timer's callback
+	// already nil-guards against a missing peerStore entry, but
+	// cancelling explicitly avoids a wasted goroutine wakeup +
+	// log-noise once the peer is gone for good.
+	e.cancelRemoteOfflineClose(peerKey)
 
 	e.connMgr.RemovePeerConn(peerKey)
 
@@ -1231,8 +1347,59 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		return nil
 	}
 
-	if err := e.connMgr.UpdatedRemoteFeatureFlag(e.ctx, networkMap.GetPeerConfig().GetLazyConnectionEnabled()); err != nil {
-		log.Errorf("failed to update lazy connection feature flag: %v", err)
+	if err := e.connMgr.UpdatedRemotePeerConfig(e.ctx, networkMap.GetPeerConfig()); err != nil {
+		log.Errorf("failed to update connection mode from PeerConfig: %v", err)
+	}
+
+	// Phase 3.7i hardening: if the management push moved us out of
+	// p2p-dynamic mode, cancel any pending offline-debounce timers
+	// they would have closed connections that are no longer
+	// dynamically managed. The timer-callback re-validation also
+	// covers this race, but explicit cancellation drops dead timer
+	// goroutines faster and keeps the timer-map empty for inspection.
+	if e.connMgr != nil && e.connMgr.Mode() != connectionmode.ModeP2PDynamic {
+		e.cancelAllRemoteOfflineCloses()
+	}
+
+	// Phase 3.7i (#5989): record + push effective values.
+	newEff := mgm.EffectiveConnConfig{
+		Mode:             e.connMgr.Mode().String(),
+		RelayTimeoutSecs: e.connMgr.RelayTimeout(),
+		P2PTimeoutSecs:   e.connMgr.P2pTimeout(),
+		P2PRetryMaxSecs:  e.connMgr.P2pRetryMax(),
+	}
+	e.mgmClient.SetEffectiveConnConfig(newEff)
+	if e.lastPushedEff != newEff {
+		e.lastPushedEff = newEff
+		// Debounce SyncMeta so a burst of NetworkMap updates doesn't
+		// generate a burst of SyncMeta calls.
+		e.syncMetaDebouncer.Trigger(func() {
+			info, err := system.GetInfoWithChecks(e.ctx, e.checks)
+			if err != nil {
+				log.Warnf("failed to get system info for SyncMeta: %v", err)
+				info = system.GetInfo(e.ctx)
+			}
+			info.SetFlags(
+				e.config.RosenpassEnabled,
+				e.config.RosenpassPermissive,
+				&e.config.ServerSSHAllowed,
+				e.config.DisableClientRoutes,
+				e.config.DisableServerRoutes,
+				e.config.DisableDNS,
+				e.config.DisableFirewall,
+				e.config.BlockLANAccess,
+				e.config.BlockInbound,
+				e.config.LazyConnectionEnabled,
+				e.config.EnableSSHRoot,
+				e.config.EnableSSHSFTP,
+				e.config.EnableSSHLocalPortForwarding,
+				e.config.EnableSSHRemotePortForwarding,
+				e.config.DisableSSHAuth,
+			)
+			if err := e.mgmClient.SyncMeta(info); err != nil {
+				log.Warnf("SyncMeta after effective-mode change: %v", err)
+			}
+		})
 	}
 
 	if e.firewall != nil {
@@ -1296,6 +1463,27 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 	e.updateOfflinePeers(networkMap.GetOfflinePeers())
 
+	// Phase 3.7i (#5989): populate RemoteMeta for offline peers so the
+	// daemon-RPC StatusResponse can show them with their groups + last_seen.
+	for _, op := range networkMap.GetOfflinePeers() {
+		if err := e.statusRecorder.UpdatePeerRemoteMeta(op.GetWgPubKey(), peer.RemoteMeta{
+			EffectiveConnectionMode:    op.GetEffectiveConnectionMode(),
+			EffectiveRelayTimeoutSecs:  op.GetEffectiveRelayTimeoutSecs(),
+			EffectiveP2PTimeoutSecs:    op.GetEffectiveP2PTimeoutSecs(),
+			EffectiveP2PRetryMaxSecs:   op.GetEffectiveP2PRetryMaxSecs(),
+			ConfiguredConnectionMode:   op.GetConfiguredConnectionMode(),
+			ConfiguredRelayTimeoutSecs: op.GetConfiguredRelayTimeoutSecs(),
+			ConfiguredP2PTimeoutSecs:   op.GetConfiguredP2PTimeoutSecs(),
+			ConfiguredP2PRetryMaxSecs:  op.GetConfiguredP2PRetryMaxSecs(),
+			Groups:                     op.GetGroups(),
+			LastSeenAtServer:           peer.TimestampOrZero(op.GetLastSeenAtServer()),
+			LiveOnline:                 op.GetLiveOnline(),
+			ServerLivenessKnown:        op.GetServerLivenessKnown(),
+		}); err != nil {
+			log.Debugf("UpdatePeerRemoteMeta(offline %s): %v", op.GetWgPubKey(), err)
+		}
+	}
+
 	// Filter out own peer from the remote peers list
 	localPubKey := e.config.WgPrivateKey.PublicKey().String()
 	remotePeers := make([]*mgmProto.RemotePeerConfig, 0, len(networkMap.GetRemotePeers()))
@@ -1309,6 +1497,9 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	if networkMap.GetRemotePeersIsEmpty() {
 		err := e.removeAllPeers()
 		e.statusRecorder.FinishPeerListModifications()
+		if e.connStatePusher != nil {
+			e.connStatePusher.TriggerInitialSnapshot()
+		}
 		if err != nil {
 			return err
 		}
@@ -1329,6 +1520,12 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		}
 
 		e.statusRecorder.FinishPeerListModifications()
+		// Phase 3.7i: peers are populated for the first time; release
+		// the conn-state pusher so its initial full snapshot reflects
+		// the actual peer set instead of an empty map.
+		if e.connStatePusher != nil {
+			e.connStatePusher.TriggerInitialSnapshot()
+		}
 
 		e.updatePeerSSHHostKeys(remotePeers)
 
@@ -1337,6 +1534,62 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		}
 
 		e.updateSSHServerAuth(networkMap.GetSshAuth())
+
+		// Phase 3.7i (#5989): mirror RemotePeerConfig fields into peer.Status
+		// so daemon-RPC StatusResponse exposes them for UIs. Also detect
+		// LiveOnline true->false transitions so we can proactively close
+		// the local conn under p2p-dynamic instead of letting its guard
+		// spam reconnect-offers for ~relay_timeout minutes after the peer
+		// disappeared.
+		for _, rp := range remotePeers {
+			pubKey := rp.GetWgPubKey()
+			liveOnline := rp.GetLiveOnline()
+			livenessKnown := rp.GetServerLivenessKnown()
+			var prevLiveOnline bool
+			var prevLivenessKnown bool
+			if prev, err := e.statusRecorder.GetPeer(pubKey); err == nil {
+				prevLiveOnline = prev.RemoteLiveOnline
+				prevLivenessKnown = prev.RemoteServerLivenessKnown
+			}
+			if err := e.statusRecorder.UpdatePeerRemoteMeta(pubKey, peer.RemoteMeta{
+				EffectiveConnectionMode:    rp.GetEffectiveConnectionMode(),
+				EffectiveRelayTimeoutSecs:  rp.GetEffectiveRelayTimeoutSecs(),
+				EffectiveP2PTimeoutSecs:    rp.GetEffectiveP2PTimeoutSecs(),
+				EffectiveP2PRetryMaxSecs:   rp.GetEffectiveP2PRetryMaxSecs(),
+				ConfiguredConnectionMode:   rp.GetConfiguredConnectionMode(),
+				ConfiguredRelayTimeoutSecs: rp.GetConfiguredRelayTimeoutSecs(),
+				ConfiguredP2PTimeoutSecs:   rp.GetConfiguredP2PTimeoutSecs(),
+				ConfiguredP2PRetryMaxSecs:  rp.GetConfiguredP2PRetryMaxSecs(),
+				Groups:                     rp.GetGroups(),
+				LastSeenAtServer:           peer.TimestampOrZero(rp.GetLastSeenAtServer()),
+				LiveOnline:                 liveOnline,
+				ServerLivenessKnown:        livenessKnown,
+			}); err != nil {
+				log.Debugf("UpdatePeerRemoteMeta(%s): %v", pubKey, err)
+			}
+			// Transition true->false (under a phase-3.7i+ mgmt that
+			// authoritatively knows liveness) and we run p2p-dynamic ->
+			// stop the conn so the lazy mgr re-registers it as Idle.
+			// This prevents the guard's offer-spam loop and avoids the
+			// "remote reconnects -> our offer wakes their lazy mgr ->
+			// instant P2P even without local traffic" symptom.
+			//
+			// Codex review: debounce by 5 s. A brief mgmt-reconnect on
+			// the local end (cellular handover, Doze wakeup) can flip
+			// liveness false then back to true within the same network-
+			// map round-trip. Without the grace period we'd tear down
+			// every peer in those moments. The timer is cancelled in
+			// the true->true branch below.
+			if livenessKnown && prevLivenessKnown && prevLiveOnline && !liveOnline &&
+				e.connMgr != nil && e.connMgr.Mode() == connectionmode.ModeP2PDynamic {
+				e.scheduleRemoteOfflineClose(pubKey)
+			}
+			// Transition false->true (or first sighting as online) ->
+			// cancel any pending offline-close timer for this peer.
+			if liveOnline && livenessKnown {
+				e.cancelRemoteOfflineClose(pubKey)
+			}
+		}
 	}
 
 	// must set the exclude list after the peers are added. Without it the manager can not figure out the peers parameters from the store
@@ -1528,7 +1781,11 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 	}
 
 	if exists := e.connMgr.AddPeerConn(e.ctx, peerKey, conn); exists {
-		conn.Close(false)
+		// Cleanup of a freshly-created Conn that lost the AddPeerConn
+		// race -- the OTHER Conn for this peer is now the live one in
+		// peerStore. The WG peer entry (if any) belongs to that other
+		// Conn, so this Close must NOT touch it. keepWgPeer=true.
+		conn.Close(false, true)
 		return fmt.Errorf("peer already exists: %s", peerKey)
 	}
 
@@ -1560,7 +1817,9 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 			Addr:           e.getRosenpassAddr(),
 			PermissiveMode: e.config.RosenpassPermissive,
 		},
-		ICEConfig: e.createICEConfig(),
+		ICEConfig:          e.createICEConfig(),
+		Mode:               e.connMgr.Mode(),
+		P2pRetryMaxSeconds: e.connMgr.P2pRetryMax(),
 	}
 
 	serviceDependencies := peer.ServiceDependencies{
@@ -2485,4 +2744,86 @@ func decodeRelayIP(b []byte) netip.Addr {
 		return netip.Addr{}
 	}
 	return ip.Unmap()
+}
+
+// remoteOfflineGracePeriod is how long we wait after a peer flips
+// from live_online=true to live_online=false before tearing the local
+// peer connection down. Absorbs short mgmt-reconnect blips on either
+// end (cellular handover, Doze wakeup, brief NAT-rebind).
+const remoteOfflineGracePeriod = 5 * time.Second
+
+// scheduleRemoteOfflineClose arms a timer that will close the local
+// peer connection for pubKey after remoteOfflineGracePeriod. If a
+// timer is already armed for this peer the call is a no-op (the
+// existing one fires on schedule). Idempotent.
+func (e *Engine) scheduleRemoteOfflineClose(pubKey string) {
+	e.peerOfflineDebounceMu.Lock()
+	defer e.peerOfflineDebounceMu.Unlock()
+	if _, exists := e.peerOfflineDebounce[pubKey]; exists {
+		return
+	}
+	t := time.AfterFunc(remoteOfflineGracePeriod, func() {
+		e.peerOfflineDebounceMu.Lock()
+		delete(e.peerOfflineDebounce, pubKey)
+		e.peerOfflineDebounceMu.Unlock()
+		// Codex review: re-validate on fire. Several preconditions
+		// must still hold:
+		//   1. engine context not cancelled (Stop() in flight)
+		//   2. connMgr still in p2p-dynamic mode (mode-switch racing)
+		//   3. peer still has a peerConn AND status recorder still
+		//      reports the peer as remote-offline (the live state
+		//      could have flipped back without us cancelling — e.g.
+		//      mgmt push for a different peer landed before this fire)
+		// Without these checks the debounce fires blindly and can
+		// tear down a perfectly good conn in any of those races.
+		if e.ctx == nil || e.ctx.Err() != nil {
+			return
+		}
+		if e.connMgr == nil || e.connMgr.Mode() != connectionmode.ModeP2PDynamic {
+			return
+		}
+		if state, err := e.statusRecorder.GetPeer(pubKey); err == nil {
+			if !state.RemoteServerLivenessKnown || state.RemoteLiveOnline {
+				return
+			}
+		} else {
+			return
+		}
+		conn, ok := e.peerStore.PeerConn(pubKey)
+		if !ok {
+			return
+		}
+		log.Infof("[peer: %s] remote went offline (debounced %s), closing local conn (p2p-dynamic)", pubKey, remoteOfflineGracePeriod)
+		// Remote-offline close: keep the WG peer entry so that if the
+		// remote comes back online and traffic flows, the route-mgr-
+		// applied AllowedIPs are still in place. The lazy-mgr will
+		// reactivate the peer through the activity listener.
+		conn.Close(false, true)
+	})
+	e.peerOfflineDebounce[pubKey] = t
+}
+
+// cancelRemoteOfflineClose stops a pending offline-close timer for
+// pubKey if one is armed. Called when the peer flips back to
+// live_online=true within the grace window.
+func (e *Engine) cancelRemoteOfflineClose(pubKey string) {
+	e.peerOfflineDebounceMu.Lock()
+	defer e.peerOfflineDebounceMu.Unlock()
+	if t, ok := e.peerOfflineDebounce[pubKey]; ok {
+		t.Stop()
+		delete(e.peerOfflineDebounce, pubKey)
+	}
+}
+
+// cancelAllRemoteOfflineCloses stops every pending offline-close
+// timer. Called by Engine.Stop() (and on any future mode-switch out of
+// p2p-dynamic) so a still-pending timer can't fire after the engine
+// has begun shutdown.
+func (e *Engine) cancelAllRemoteOfflineCloses() {
+	e.peerOfflineDebounceMu.Lock()
+	defer e.peerOfflineDebounceMu.Unlock()
+	for k, t := range e.peerOfflineDebounce {
+		t.Stop()
+		delete(e.peerOfflineDebounce, k)
+	}
 }

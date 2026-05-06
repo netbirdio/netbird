@@ -96,6 +96,11 @@ type ConfigInput struct {
 
 	LazyConnectionEnabled *bool
 
+	ConnectionMode      *string
+	RelayTimeoutSeconds *uint32
+	P2pTimeoutSeconds   *uint32
+	P2pRetryMaxSeconds  *uint32
+
 	MTU *uint16
 }
 
@@ -169,6 +174,32 @@ type Config struct {
 	ClientCertKeyPair *tls.Certificate `json:"-"`
 
 	LazyConnectionEnabled bool
+
+	ConnectionMode string `json:",omitempty"`
+
+	// RelayTimeoutSeconds, P2pTimeoutSeconds and P2pRetryMaxSeconds
+	// are the local profile-config overrides for the Phase-3.7i
+	// connection-mode timeouts. The non-pointer uint32 representation
+	// means we cannot encode "explicit 0 (= disable)" locally:
+	//
+	//   value > 0  -> use this value (overrides any server-pushed value)
+	//   value == 0 -> "no local override" -> fall through to the
+	//                 server-pushed value, then to the daemon's
+	//                 built-in default if the server has none either.
+	//                 NOT the same as the server-side "0 = disable"
+	//                 sentinel (see types.Settings.P2pRetryMaxSeconds
+	//                 docstring); for backoff specifically, 0 always
+	//                 means "follow server" when configured locally.
+	//
+	// If you need to explicitly disable backoff on a single peer
+	// regardless of server settings, set it via the dashboard at the
+	// account level instead. The (*uint32) ConfigInput variant DOES
+	// distinguish nil from 0, but ApplyInput collapses both back to
+	// uint32(0) here -- a structural fix would require changing every
+	// caller of cfg.XxxSeconds across the codebase.
+	RelayTimeoutSeconds uint32 `json:",omitempty"`
+	P2pTimeoutSeconds   uint32 `json:",omitempty"`
+	P2pRetryMaxSeconds  uint32 `json:"p2p_retry_max_seconds,omitempty"`
 
 	MTU uint16
 }
@@ -590,6 +621,27 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 	if input.LazyConnectionEnabled != nil && *input.LazyConnectionEnabled != config.LazyConnectionEnabled {
 		log.Infof("switching lazy connection to %t", *input.LazyConnectionEnabled)
 		config.LazyConnectionEnabled = *input.LazyConnectionEnabled
+		updated = true
+	}
+
+	if input.ConnectionMode != nil && *input.ConnectionMode != config.ConnectionMode {
+		log.Infof("switching connection mode to %s", *input.ConnectionMode)
+		config.ConnectionMode = *input.ConnectionMode
+		updated = true
+	}
+	if input.RelayTimeoutSeconds != nil && *input.RelayTimeoutSeconds != config.RelayTimeoutSeconds {
+		log.Infof("switching relay timeout to %d seconds", *input.RelayTimeoutSeconds)
+		config.RelayTimeoutSeconds = *input.RelayTimeoutSeconds
+		updated = true
+	}
+	if input.P2pTimeoutSeconds != nil && *input.P2pTimeoutSeconds != config.P2pTimeoutSeconds {
+		log.Infof("switching p2p timeout to %d seconds", *input.P2pTimeoutSeconds)
+		config.P2pTimeoutSeconds = *input.P2pTimeoutSeconds
+		updated = true
+	}
+	if input.P2pRetryMaxSeconds != nil && *input.P2pRetryMaxSeconds != config.P2pRetryMaxSeconds {
+		log.Infof("switching p2p retry max to %d seconds", *input.P2pRetryMaxSeconds)
+		config.P2pRetryMaxSeconds = *input.P2pRetryMaxSeconds
 		updated = true
 	}
 

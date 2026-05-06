@@ -644,6 +644,12 @@ func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) 
 
 	configContent.WriteString(fmt.Sprintf("LazyConnectionEnabled: %v\n", g.internalConfig.LazyConnectionEnabled))
 	configContent.WriteString(fmt.Sprintf("MTU: %d\n", g.internalConfig.MTU))
+
+	// Phase 1+2+3 (#5989) connection-mode resolution + lifecycle timers.
+	configContent.WriteString(fmt.Sprintf("ConnectionMode: %s\n", g.internalConfig.ConnectionMode))
+	configContent.WriteString(fmt.Sprintf("RelayTimeoutSeconds: %d\n", g.internalConfig.RelayTimeoutSeconds))
+	configContent.WriteString(fmt.Sprintf("P2pTimeoutSeconds: %d\n", g.internalConfig.P2pTimeoutSeconds))
+	configContent.WriteString(fmt.Sprintf("P2pRetryMaxSeconds: %d\n", g.internalConfig.P2pRetryMaxSeconds))
 }
 
 func (g *BundleGenerator) addProf() (err error) {

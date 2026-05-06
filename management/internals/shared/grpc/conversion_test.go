@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"fmt"
+	"net"
 	"net/netip"
 	"reflect"
 	"testing"
@@ -12,7 +13,269 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/types"
+	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 )
+
+// TestToPeerConfig_ConnectionModeResolution covers Phase 1 of issue #5989:
+// the management server resolves the effective ConnectionMode from
+// Settings (with the new ConnectionMode field winning over the legacy
+// LazyConnectionEnabled boolean), then writes BOTH wire fields so old
+// clients (boolean only) and new clients (enum only) see consistent
+// behaviour.
+func TestToPeerConfig_ConnectionModeResolution(t *testing.T) {
+	cases := []struct {
+		name             string
+		settingsMode     *string
+		settingsLazyBool bool
+		settingsRelayTO  *uint32
+		settingsP2pTO    *uint32
+		wantPCMode       mgmProto.ConnectionMode
+		wantPCLazyBool   bool
+		wantPCRelayTO    uint32
+		wantPCP2pTO      uint32
+	}{
+		{
+			name:           "no settings -> P2P + lazy=false",
+			wantPCMode:     mgmProto.ConnectionMode_CONNECTION_MODE_P2P,
+			wantPCLazyBool: false,
+		},
+		{
+			name:             "only legacy lazy=true -> P2P_LAZY + lazy=true",
+			settingsLazyBool: true,
+			wantPCMode:       mgmProto.ConnectionMode_CONNECTION_MODE_P2P_LAZY,
+			wantPCLazyBool:   true,
+		},
+		{
+			name:           "ConnectionMode=p2p-lazy explicit -> P2P_LAZY + lazy=true",
+			settingsMode:   strPtrTest("p2p-lazy"),
+			wantPCMode:     mgmProto.ConnectionMode_CONNECTION_MODE_P2P_LAZY,
+			wantPCLazyBool: true,
+		},
+		{
+			name:           "ConnectionMode=p2p explicit -> P2P + lazy=false",
+			settingsMode:   strPtrTest("p2p"),
+			wantPCMode:     mgmProto.ConnectionMode_CONNECTION_MODE_P2P,
+			wantPCLazyBool: false,
+		},
+		{
+			name:           "ConnectionMode=relay-forced -> RELAY_FORCED + lazy=false (structural compat gap)",
+			settingsMode:   strPtrTest("relay-forced"),
+			wantPCMode:     mgmProto.ConnectionMode_CONNECTION_MODE_RELAY_FORCED,
+			wantPCLazyBool: false,
+		},
+		{
+			name:             "ConnectionMode wins over conflicting legacy bool",
+			settingsMode:     strPtrTest("relay-forced"),
+			settingsLazyBool: true, // ignored
+			wantPCMode:       mgmProto.ConnectionMode_CONNECTION_MODE_RELAY_FORCED,
+			wantPCLazyBool:   false,
+		},
+		{
+			name:            "RelayTimeout propagates",
+			settingsMode:    strPtrTest("p2p-lazy"),
+			settingsRelayTO: u32PtrTest(42),
+			wantPCMode:      mgmProto.ConnectionMode_CONNECTION_MODE_P2P_LAZY,
+			wantPCLazyBool:  true,
+			wantPCRelayTO:   42,
+		},
+		{
+			name:           "P2pTimeout propagates",
+			settingsMode:   strPtrTest("p2p-dynamic"),
+			settingsP2pTO:  u32PtrTest(180),
+			wantPCMode:     mgmProto.ConnectionMode_CONNECTION_MODE_P2P_DYNAMIC,
+			wantPCLazyBool: false, // p2p-dynamic maps to lazy=false (best-match for old clients)
+			wantPCP2pTO:    180,
+		},
+		{
+			name:           "Garbage in ConnectionMode falls back to legacy bool",
+			settingsMode:   strPtrTest("not-a-mode"),
+			settingsLazyBool: true,
+			wantPCMode:     mgmProto.ConnectionMode_CONNECTION_MODE_P2P_LAZY,
+			wantPCLazyBool: true,
+		},
+	}
+
+	// Minimal Network and Peer fixtures shared across cases.
+	_, ipnet, _ := net.ParseCIDR("10.0.0.0/16")
+	network := &types.Network{Net: *ipnet}
+	peer := &nbpeer.Peer{
+		ID:       "p1",
+		Name:     "test-peer",
+		DNSLabel: "test-peer",
+		IP:       net.IPv4(10, 0, 0, 5),
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			settings := &types.Settings{
+				LazyConnectionEnabled: c.settingsLazyBool,
+				ConnectionMode:        c.settingsMode,
+				RelayTimeoutSeconds:   c.settingsRelayTO,
+				P2pTimeoutSeconds:     c.settingsP2pTO,
+			}
+			pc := toPeerConfig(peer, network, "example.local", settings, nil, nil, false)
+
+			assert.Equal(t, c.wantPCMode, pc.GetConnectionMode(),
+				"ConnectionMode wire field")
+			assert.Equal(t, c.wantPCLazyBool, pc.GetLazyConnectionEnabled(),
+				"LazyConnectionEnabled wire field (backwards-compat)")
+			assert.Equal(t, c.wantPCRelayTO, pc.GetRelayTimeoutSeconds(),
+				"RelayTimeoutSeconds wire field")
+			assert.Equal(t, c.wantPCP2pTO, pc.GetP2PTimeoutSeconds(),
+				"P2PTimeoutSeconds wire field")
+		})
+	}
+}
+
+func strPtrTest(s string) *string { return &s }
+func u32PtrTest(v uint32) *uint32 { return &v }
+
+// toPeerConfigForTest is a minimal helper that calls toPeerConfig with a
+// fixed peer and network fixture, forwarding only the settings argument.
+// Used by the P2pRetryMaxSeconds sentinel tests (Phase 3 / #5989).
+func toPeerConfigForTest(settings *types.Settings) *mgmProto.PeerConfig {
+	_, ipnet, _ := net.ParseCIDR("10.0.0.0/16")
+	network := &types.Network{Net: *ipnet}
+	peer := &nbpeer.Peer{
+		ID:       "p1",
+		Name:     "test-peer",
+		DNSLabel: "test-peer",
+		IP:       net.IPv4(10, 0, 0, 5),
+	}
+	return toPeerConfig(peer, network, "example.local", settings, nil, nil, false)
+}
+
+func TestToPeerConfig_P2pRetryMax_NullDB(t *testing.T) {
+	settings := &types.Settings{
+		P2pRetryMaxSeconds: nil, // DB has NULL
+	}
+	pc := toPeerConfigForTest(settings)
+	if pc.P2PRetryMaxSeconds != 0 {
+		t.Errorf("NULL in DB should produce 0 on the wire (= use daemon default), got %d", pc.P2PRetryMaxSeconds)
+	}
+}
+
+func TestToPeerConfig_P2pRetryMax_ExplicitDisable(t *testing.T) {
+	zero := uint32(0)
+	settings := &types.Settings{
+		P2pRetryMaxSeconds: &zero, // user explicitly set 0
+	}
+	pc := toPeerConfigForTest(settings)
+	if pc.P2PRetryMaxSeconds != ^uint32(0) {
+		t.Errorf("explicit 0 should map to uint32-max sentinel on the wire, got %d", pc.P2PRetryMaxSeconds)
+	}
+}
+
+func TestToPeerConfig_P2pRetryMax_NormalValue(t *testing.T) {
+	v := uint32(600)
+	settings := &types.Settings{
+		P2pRetryMaxSeconds: &v,
+	}
+	pc := toPeerConfigForTest(settings)
+	if pc.P2PRetryMaxSeconds != 600 {
+		t.Errorf("expected 600 on the wire, got %d", pc.P2PRetryMaxSeconds)
+	}
+}
+
+// Phase 3.7i (#5989): legacy-client capability fallback. Clients that do
+// not advertise the "p2p_dynamic" capability in PeerSystemMeta must be
+// downgraded to p2p-lazy when the account ConnectionMode is p2p-dynamic
+// and the LegacyLazyFallbackEnabled toggle is on. Clients that DO
+// advertise the capability must pass through unchanged.
+
+// toPeerConfigWithFeatures builds a peer with the given supported_features
+// list and returns the resolved PeerConfig with the supplied settings.
+func toPeerConfigWithFeatures(settings *types.Settings, features []string) *mgmProto.PeerConfig {
+	_, ipnet, _ := net.ParseCIDR("10.0.0.0/16")
+	network := &types.Network{Net: *ipnet}
+	peer := &nbpeer.Peer{
+		ID:       "p1",
+		Name:     "test-peer",
+		DNSLabel: "test-peer",
+		IP:       net.IPv4(10, 0, 0, 5),
+		Meta: nbpeer.PeerSystemMeta{
+			SupportedFeatures: features,
+		},
+	}
+	return toPeerConfig(peer, network, "example.local", settings, nil, nil, false)
+}
+
+func TestToPeerConfig_LegacyFallback_LegacyClient_GetsLazyDowngrade(t *testing.T) {
+	rt := uint32(300)
+	settings := &types.Settings{
+		ConnectionMode:                   strPtrTest("p2p-dynamic"),
+		RelayTimeoutSeconds:              &rt,
+		LegacyLazyFallbackEnabled:        true,
+		LegacyLazyFallbackTimeoutSeconds: 3600,
+	}
+	pc := toPeerConfigWithFeatures(settings, nil) // legacy: no capability advertised
+
+	if pc.GetConnectionMode() != mgmProto.ConnectionMode_CONNECTION_MODE_P2P_LAZY {
+		t.Errorf("legacy client should get P2P_LAZY, got %v", pc.GetConnectionMode())
+	}
+	if !pc.GetLazyConnectionEnabled() {
+		t.Error("legacy client should have LazyConnectionEnabled=true")
+	}
+	if pc.GetRelayTimeoutSeconds() != 3600 {
+		t.Errorf("legacy client should get LegacyLazyFallbackTimeoutSeconds=3600, got %d", pc.GetRelayTimeoutSeconds())
+	}
+}
+
+func TestToPeerConfig_LegacyFallback_NewClient_PassesThrough(t *testing.T) {
+	rt := uint32(300)
+	settings := &types.Settings{
+		ConnectionMode:                   strPtrTest("p2p-dynamic"),
+		RelayTimeoutSeconds:              &rt,
+		LegacyLazyFallbackEnabled:        true,
+		LegacyLazyFallbackTimeoutSeconds: 3600,
+	}
+	pc := toPeerConfigWithFeatures(settings, []string{"p2p_dynamic"})
+
+	if pc.GetConnectionMode() != mgmProto.ConnectionMode_CONNECTION_MODE_P2P_DYNAMIC {
+		t.Errorf("new client should keep P2P_DYNAMIC, got %v", pc.GetConnectionMode())
+	}
+	if pc.GetRelayTimeoutSeconds() != 300 {
+		t.Errorf("new client should get account RelayTimeoutSeconds=300, got %d", pc.GetRelayTimeoutSeconds())
+	}
+}
+
+func TestToPeerConfig_LegacyFallback_DisabledToggle_LegacyClientGetsRawDynamic(t *testing.T) {
+	rt := uint32(300)
+	settings := &types.Settings{
+		ConnectionMode:                   strPtrTest("p2p-dynamic"),
+		RelayTimeoutSeconds:              &rt,
+		LegacyLazyFallbackEnabled:        false, // admin opted out
+		LegacyLazyFallbackTimeoutSeconds: 3600,  // unused
+	}
+	pc := toPeerConfigWithFeatures(settings, nil) // legacy
+
+	if pc.GetConnectionMode() != mgmProto.ConnectionMode_CONNECTION_MODE_P2P_DYNAMIC {
+		t.Errorf("with toggle OFF, legacy client should still get raw P2P_DYNAMIC (admin choice), got %v", pc.GetConnectionMode())
+	}
+	if pc.GetRelayTimeoutSeconds() != 300 {
+		t.Errorf("toggle OFF: should keep account RelayTimeoutSeconds=300, got %d", pc.GetRelayTimeoutSeconds())
+	}
+}
+
+func TestToPeerConfig_LegacyFallback_NonDynamicMode_NoOverride(t *testing.T) {
+	rt := uint32(300)
+	settings := &types.Settings{
+		ConnectionMode:                   strPtrTest("p2p-lazy"), // not p2p-dynamic
+		RelayTimeoutSeconds:              &rt,
+		LegacyLazyFallbackEnabled:        true,
+		LegacyLazyFallbackTimeoutSeconds: 3600,
+	}
+	pc := toPeerConfigWithFeatures(settings, nil) // legacy client
+
+	if pc.GetConnectionMode() != mgmProto.ConnectionMode_CONNECTION_MODE_P2P_LAZY {
+		t.Errorf("legacy client in p2p-lazy mode should pass through (no override), got %v", pc.GetConnectionMode())
+	}
+	if pc.GetRelayTimeoutSeconds() != 300 {
+		t.Errorf("non-dynamic mode: should use account RelayTimeoutSeconds=300, got %d", pc.GetRelayTimeoutSeconds())
+	}
+}
 
 func TestToProtocolDNSConfigWithCache(t *testing.T) {
 	var cache cache.DNSConfigCache

@@ -4,11 +4,15 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"slices"
+	"sort"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
+	"github.com/netbirdio/netbird/shared/connectionmode"
 	"github.com/netbirdio/netbird/client/ssh/auth"
 
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -21,6 +25,11 @@ import (
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/sshauth"
 )
+
+// p2pRetryMaxDisabledSentinel is the wire-format value that signals
+// "user-explicit disable backoff" (uint32-max). The 0 wire-value is
+// reserved for "not set, use daemon default". Phase 3 of #5989.
+const p2pRetryMaxDisabledSentinel = ^uint32(0)
 
 func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken *Token, extraSettings *types.ExtraSettings) *proto.NetbirdConfig {
 	if config == nil {
@@ -100,12 +109,69 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 		sshConfig.JwtConfig = buildJWTConfig(httpConfig, deviceFlowConfig)
 	}
 
+	// Resolve the effective ConnectionMode for this peer.
+	// Phase 1: account-wide settings only (per-peer / per-group resolution
+	// follows in Phase 3 / issue #5990). The new ConnectionMode field wins
+	// over the legacy LazyConnectionEnabled boolean. UNSPECIFIED in Settings
+	// (i.e. ConnectionMode == nil) falls back to the legacy bool.
+	resolvedMode := connectionmode.ResolveLegacyLazyBool(settings.LazyConnectionEnabled)
+	if settings.ConnectionMode != nil {
+		if m, err := connectionmode.ParseString(*settings.ConnectionMode); err == nil && m != connectionmode.ModeUnspecified {
+			resolvedMode = m
+		}
+	}
+
+	relayTO := uint32(0)
+	if settings.RelayTimeoutSeconds != nil {
+		relayTO = *settings.RelayTimeoutSeconds
+	}
+	p2pTO := uint32(0)
+	if settings.P2pTimeoutSeconds != nil {
+		p2pTO = *settings.P2pTimeoutSeconds
+	}
+	p2pRetryMax := uint32(0)
+	if settings.P2pRetryMaxSeconds != nil {
+		if *settings.P2pRetryMaxSeconds == 0 {
+			p2pRetryMax = p2pRetryMaxDisabledSentinel
+		} else {
+			p2pRetryMax = *settings.P2pRetryMaxSeconds
+		}
+	}
+
+	// Phase 3.7i (#5989): legacy-client compatibility for p2p-dynamic mode.
+	// Clients that do NOT advertise the "p2p_dynamic" capability cannot
+	// honour the new ConnectionMode enum (proto3 default behaviour: they
+	// just ignore the unknown enum value). To give them deterministic and
+	// network-friendly behaviour, downgrade the per-peer config to
+	// p2p-lazy with the admin-configured fallback timeout. The toggle
+	// defaults to ON; admins who know their entire fleet is on a 3.7i+
+	// build can disable it to send raw p2p-dynamic to everyone.
+	if resolvedMode == connectionmode.ModeP2PDynamic && settings.LegacyLazyFallbackEnabled {
+		if !slices.Contains(peer.Meta.SupportedFeatures, "p2p_dynamic") {
+			resolvedMode = connectionmode.ModeP2PLazy
+			relayTO = settings.LegacyLazyFallbackTimeoutSeconds
+			// p2pTO and p2pRetryMax stay as configured -- p2p-lazy mode
+			// doesn't drive ICE-worker tear-down, so they are inert for
+			// legacy clients. Leaving them populated keeps the wire
+			// payload identical for every peer (cache-friendly) and
+			// avoids surprising future modes that might consume them.
+		}
+	}
+
 	return &proto.PeerConfig{
 		Address:                         fmt.Sprintf("%s/%d", peer.IP.String(), netmask),
 		SshConfig:                       sshConfig,
 		Fqdn:                            fqdn,
 		RoutingPeerDnsResolutionEnabled: settings.RoutingPeerDNSResolutionEnabled,
-		LazyConnectionEnabled:           settings.LazyConnectionEnabled,
+		// Send BOTH the new enum (for new clients) and the legacy boolean
+		// (for old clients). New clients prefer the explicit enum and
+		// ignore the bool; old clients ignore the unknown enum field
+		// (proto3 default behaviour) and fall back to the bool.
+		LazyConnectionEnabled: resolvedMode.ToLazyConnectionEnabled(),
+		ConnectionMode:        resolvedMode.ToProto(),
+		P2PTimeoutSeconds:     p2pTO,
+		P2PRetryMaxSeconds:    p2pRetryMax,
+		RelayTimeoutSeconds:   relayTO,
 		AutoUpdate: &proto.AutoUpdateSettings{
 			Version:      settings.AutoUpdateVersion,
 			AlwaysUpdate: settings.AutoUpdateAlways,
@@ -113,7 +179,7 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 	}
 }
 
-func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *cache.DNSConfigCache, settings *types.Settings, extraSettings *types.ExtraSettings, peerGroups []string, dnsFwdPort int64) *proto.SyncResponse {
+func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *cache.DNSConfigCache, settings *types.Settings, extraSettings *types.ExtraSettings, peerGroups []string, dnsFwdPort int64, groupNamesByPeerID map[string][]string) *proto.SyncResponse {
 	response := &proto.SyncResponse{
 		PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig, networkMap.EnableSSH),
 		NetworkMap: &proto.NetworkMap{
@@ -131,14 +197,20 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 
 	response.NetworkMap.PeerConfig = response.PeerConfig
 
+	appendCtx := AppendRemotePeerConfigContext{
+		DNSDomain:          dnsName,
+		Cfg:                settings,
+		GroupNamesByPeerID: groupNamesByPeerID,
+	}
+
 	remotePeers := make([]*proto.RemotePeerConfig, 0, len(networkMap.Peers)+len(networkMap.OfflinePeers))
-	remotePeers = appendRemotePeerConfig(remotePeers, networkMap.Peers, dnsName)
+	remotePeers = appendRemotePeerConfig(remotePeers, networkMap.Peers, appendCtx)
 	response.RemotePeers = remotePeers
 	response.NetworkMap.RemotePeers = remotePeers
 	response.RemotePeersIsEmpty = len(remotePeers) == 0
 	response.NetworkMap.RemotePeersIsEmpty = response.RemotePeersIsEmpty
 
-	response.NetworkMap.OfflinePeers = appendRemotePeerConfig(nil, networkMap.OfflinePeers, dnsName)
+	response.NetworkMap.OfflinePeers = appendRemotePeerConfig(nil, networkMap.OfflinePeers, appendCtx)
 
 	firewallRules := toProtocolFirewallRules(networkMap.FirewallRules)
 	response.NetworkMap.FirewallRules = firewallRules
@@ -195,17 +267,103 @@ func buildAuthorizedUsersProto(ctx context.Context, authorizedUsers map[string]m
 	return hashedUsers, machineUsers
 }
 
-func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer, dnsName string) []*proto.RemotePeerConfig {
+// AppendRemotePeerConfigContext bundles per-account settings + per-peer
+// group lookups so appendRemotePeerConfig stays free of DB calls.
+// Callers (in conversion.go) materialise this once per NetworkMap build.
+type AppendRemotePeerConfigContext struct {
+	DNSDomain string
+	// Cfg is the account-wide configured mode/timeouts. Nil when unavailable.
+	Cfg *types.Settings
+	// GroupNamesByPeerID maps a peer ID to its sorted group-name list.
+	GroupNamesByPeerID map[string][]string
+}
+
+func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer, c AppendRemotePeerConfigContext) []*proto.RemotePeerConfig {
+	var cfgConnMode string
+	var cfgRelayTO, cfgP2pTO, cfgP2pRetryMax uint32
+	if c.Cfg != nil {
+		cfgConnMode = derefStringOrEmpty(c.Cfg.ConnectionMode)
+		cfgRelayTO = derefUint32OrZero(c.Cfg.RelayTimeoutSeconds)
+		cfgP2pTO = derefUint32OrZero(c.Cfg.P2pTimeoutSeconds)
+		cfgP2pRetryMax = derefUint32OrZero(c.Cfg.P2pRetryMaxSeconds)
+	}
+
 	for _, rPeer := range peers {
-		dst = append(dst, &proto.RemotePeerConfig{
-			WgPubKey:     rPeer.Key,
-			AllowedIps:   []string{rPeer.IP.String() + "/32"},
-			SshConfig:    &proto.SSHConfig{SshPubKey: []byte(rPeer.SSHKey)},
-			Fqdn:         rPeer.FQDN(dnsName),
+		cfg := &proto.RemotePeerConfig{
+			WgPubKey:   rPeer.Key,
+			AllowedIps: []string{rPeer.IP.String() + "/32"},
+			SshConfig:  &proto.SSHConfig{SshPubKey: []byte(rPeer.SSHKey)},
+			Fqdn:       rPeer.FQDN(c.DNSDomain),
+
 			AgentVersion: rPeer.Meta.WtVersion,
-		})
+
+			// Phase 3.7i: effective values from the peer's last self-report.
+			EffectiveConnectionMode:   rPeer.Meta.EffectiveConnectionMode,
+			EffectiveRelayTimeoutSecs: rPeer.Meta.EffectiveRelayTimeoutSecs,
+			EffectiveP2PTimeoutSecs:   rPeer.Meta.EffectiveP2PTimeoutSecs,
+			EffectiveP2PRetryMaxSecs:  rPeer.Meta.EffectiveP2PRetryMaxSecs,
+
+			// Phase 3.7i: account-wide configured values from Settings.
+			ConfiguredConnectionMode:   cfgConnMode,
+			ConfiguredRelayTimeoutSecs: cfgRelayTO,
+			ConfiguredP2PTimeoutSecs:   cfgP2pTO,
+			ConfiguredP2PRetryMaxSecs:  cfgP2pRetryMax,
+
+			// Phase 3.7i: server-knowledge fields surfaced to UIs.
+			Groups: c.GroupNamesByPeerID[rPeer.ID],
+		}
+		// nbpeer.Peer.Status is *PeerStatus; nil-guard before accessing.
+		if rPeer.Status != nil {
+			if !rPeer.Status.LastSeen.IsZero() {
+				cfg.LastSeenAtServer = timestamppb.New(rPeer.Status.LastSeen)
+			}
+			cfg.LiveOnline = rPeer.Status.Connected
+		}
+		// New servers always know per-peer liveness; signal that to new
+		// clients so they can trust LiveOnline directly instead of
+		// guessing from the LastSeenAtServer-zero heuristic. Old servers
+		// leave this field at default (false) and clients fall back.
+		cfg.ServerLivenessKnown = true
+		dst = append(dst, cfg)
 	}
 	return dst
+}
+
+// derefStringOrEmpty returns the pointed-to string or "" for nil.
+// Used for *string Settings fields where "" means "account hasn't
+// configured a mode; UI shows it as unset".
+func derefStringOrEmpty(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+// derefUint32OrZero returns the pointed-to uint32 or 0 for nil.
+// Used for *uint32 Settings fields where 0 means "account hasn't set
+// an override; daemon falls back to its built-in default".
+func derefUint32OrZero(u *uint32) uint32 {
+	if u == nil {
+		return 0
+	}
+	return *u
+}
+
+// BuildGroupNamesByPeerID constructs a peerID → sorted-group-names map
+// from the account's Groups in a single pass. Callers pass this to
+// ToSyncResponse so that appendRemotePeerConfig can annotate each
+// RemotePeerConfig.Groups without any additional DB calls.
+func BuildGroupNamesByPeerID(groups map[string]*types.Group) map[string][]string {
+	result := make(map[string][]string, len(groups))
+	for _, g := range groups {
+		for _, peerID := range g.Peers {
+			result[peerID] = append(result[peerID], g.Name)
+		}
+	}
+	for peerID := range result {
+		sort.Strings(result[peerID])
+	}
+	return result
 }
 
 // toProtocolDNSConfig converts nbdns.Config to proto.DNSConfig using the cache

@@ -204,6 +204,18 @@ message LoginRequest {
   optional bool enableSSHRemotePortForwarding = 37;
   optional bool disableSSHAuth = 38;
   optional int32 sshJWTCacheTTL = 39;
+
+  // Phase 1 (#5989): peer-connection mode and idle timeouts.
+  // connection_mode is a string (relay-forced, p2p, p2p-lazy, p2p-dynamic,
+  // follow-server, or empty); parsed via connectionmode.ParseString at the
+  // daemon side. Empty means "no client-side override, use server value".
+  optional string connection_mode = 40;
+  optional uint32 p2p_timeout_seconds = 41;
+  optional uint32 relay_timeout_seconds = 42;
+
+  // Phase 3 (#5989): cap on the ICE-failure backoff schedule. 0 = use
+  // server-pushed value (or built-in default 15 min).
+  optional uint32 p2p_retry_max_seconds = 43;
 }
 
 message LoginResponse {
@@ -311,6 +323,28 @@ message GetConfigResponse {
   bool disableSSHAuth = 25;
 
   int32 sshJWTCacheTTL = 26;
+
+  // Phase 1 (#5989): peer-connection mode and idle timeouts.
+  // connection_mode is the canonical lower-kebab-case name
+  // (relay-forced, p2p, p2p-lazy, p2p-dynamic, follow-server) or
+  // empty string when no local override is set.
+  string connection_mode = 27;
+  uint32 p2p_timeout_seconds = 28;
+  uint32 relay_timeout_seconds = 29;
+  // Phase 3 (#5989): cap on the ICE-failure backoff schedule. 0 = no
+  // local override (daemon falls back to server-pushed value or built-in
+  // 15-min default).
+  uint32 p2p_retry_max_seconds = 30;
+
+  // Phase 3.7h: values most recently pushed by the management server's
+  // PeerConfig (independent of any local override). The UI surfaces
+  // these so users can see what "Follow server" would inherit and which
+  // numeric defaults the empty-entry overrides fall back to. All four
+  // are 0/empty when the engine has not received PeerConfig yet.
+  string server_pushed_connection_mode = 31;
+  uint32 server_pushed_relay_timeout_seconds = 32;
+  uint32 server_pushed_p2p_timeout_seconds = 33;
+  uint32 server_pushed_p2p_retry_max_seconds = 34;
 }
 
 // PeerState contains the latest state of a peer
@@ -333,6 +367,33 @@ message PeerState {
   google.protobuf.Duration latency = 17;
   string relayAddress = 18;
   bytes sshHostKey = 19;
+  // Phase 3 (#5989): ICE-backoff state for p2p-dynamic mode.
+  int32  iceBackoffFailures  = 20;
+  google.protobuf.Timestamp iceBackoffNextRetry = 21;
+  bool   iceBackoffSuspended = 22;
+  // Phase 3.7i (#5989): per-peer enrichment from RemotePeerConfig.
+  bool   server_online                                  = 30;
+  google.protobuf.Timestamp last_seen_at_server         = 31;
+  repeated string groups                                = 32;
+  string effective_connection_mode                      = 33;
+  string configured_connection_mode                     = 34;
+  uint32 effective_relay_timeout_secs                   = 35;
+  uint32 effective_p2p_timeout_secs                     = 36;
+  uint32 effective_p2p_retry_max_secs                   = 37;
+  uint32 configured_relay_timeout_secs                  = 38;
+  uint32 configured_p2p_timeout_secs                    = 39;
+  uint32 configured_p2p_retry_max_secs                  = 40;
+  // Phase 3.7i (#5989): UI-friendly transient connection-type label.
+  // Values:
+  //   ""                              -- not connected (Idle/Connecting)
+  //   "P2P"                           -- direct ICE path active
+  //   "Relayed"                       -- relay path active, ICE failed/backoff
+  //   "Relayed (negotiating P2P)"     -- relay path active, ICE still trying
+  //                                      (transient ~1-2s window after wakeup)
+  // UIs should display this verbatim instead of computing from
+  // (relayed, ice_*) themselves -- keeps the transition window
+  // visualization consistent across all clients.
+  string connection_type_extended                       = 41;
 }
 
 // LocalPeerState contains the latest state of the local peer
@@ -403,6 +464,13 @@ message FullStatus {
 
   bool lazyConnectionEnabled = 9;
   SSHServerState sshServerState = 10;
+  // Phase 3.7i (#5989): aggregate counters so UIs don't re-derive them.
+  uint32 configured_peers_total      = 50;
+  uint32 server_online_peers         = 51;
+  uint32 p2p_connected_peers         = 52;
+  uint32 relayed_connected_peers     = 53;
+  uint32 idle_online_peers           = 54;
+  uint32 server_offline_peers        = 55;
 }
 
 // Networks
@@ -672,6 +740,18 @@ message SetConfigRequest {
   optional bool enableSSHRemotePortForwarding = 32;
   optional bool disableSSHAuth = 33;
   optional int32 sshJWTCacheTTL = 34;
+
+  // Phase 1 (#5989): peer-connection mode and idle timeouts.
+  // connection_mode is a string (relay-forced, p2p, p2p-lazy, p2p-dynamic,
+  // follow-server, or empty); parsed via connectionmode.ParseString at the
+  // daemon side. Empty means "no client-side override, use server value".
+  optional string connection_mode = 40;
+  optional uint32 p2p_timeout_seconds = 41;
+  optional uint32 relay_timeout_seconds = 42;
+
+  // Phase 3 (#5989): cap on the ICE-failure backoff schedule. 0 = use
+  // server-pushed value (or built-in default 15 min).
+  optional uint32 p2p_retry_max_seconds = 43;
 }
 
 message SetConfigResponse{}

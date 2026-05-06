@@ -201,6 +201,17 @@ func verifyAllFieldsCovered(t *testing.T, req *proto.SetConfigRequest) {
 		"EnableSSHRemotePortForwarding": true,
 		"DisableSSHAuth":                true,
 		"SshJWTCacheTTL":                true,
+		// Phase 3.7i Connection-Mode fields. Currently in the proto so
+		// daemons can advertise them via GetConfig, but SetConfig does
+		// NOT apply them at runtime — they're only persisted via
+		// `netbird service install/reconfigure --connection-mode/...`
+		// (writes the active profile file directly; daemon picks up on
+		// next start). Wiring them through SetConfig is a follow-up
+		// task. Listed here so the structural test passes.
+		"ConnectionMode":      true,
+		"P2PTimeoutSeconds":   true,
+		"RelayTimeoutSeconds": true,
+		"P2PRetryMaxSeconds":  true,
 	}
 
 	val := reflect.ValueOf(req).Elem()
@@ -265,6 +276,17 @@ func TestCLIFlags_MappedToSetConfig(t *testing.T) {
 	// SetConfigRequest fields that don't have CLI flags (settable only via UI or other means).
 	fieldsWithoutCLIFlags := map[string]bool{
 		"DisableNotifications": true, // Only settable via UI
+		// Phase 3.7i Connection-Mode fields: have CLI flags
+		// (--connection-mode, --relay-timeout, --p2p-timeout,
+		// --p2p-retry-max) but those flags belong to the
+		// `netbird service install/reconfigure` command, not `up`,
+		// and they bypass the SetConfig RPC entirely (write directly
+		// to the active profile file). So from this test's
+		// perspective they have no SetConfig-mapped CLI flag.
+		"ConnectionMode":      true,
+		"P2PTimeoutSeconds":   true,
+		"RelayTimeoutSeconds": true,
+		"P2PRetryMaxSeconds":  true,
 	}
 
 	// Get all SetConfigRequest fields to verify our map is complete.

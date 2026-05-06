@@ -78,6 +78,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 
 	sr := func(v string) *string { return &v }
 	br := func(v bool) *bool { return &v }
+	ir := func(v int64) *int64 { return &v }
 
 	handler := initAccountsTestData(t, &types.Account{
 		Id:      accountID,
@@ -120,6 +121,8 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RegularUsersViewBlocked:         true,
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
+				LegacyLazyFallbackEnabled:      br(true),
+				LegacyLazyFallbackTimeoutSeconds: ir(3600),
 				DnsDomain:                       sr(""),
 				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
@@ -146,6 +149,8 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RegularUsersViewBlocked:         false,
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
+				LegacyLazyFallbackEnabled:      br(true),
+				LegacyLazyFallbackTimeoutSeconds: ir(3600),
 				DnsDomain:                       sr(""),
 				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
@@ -172,6 +177,8 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RegularUsersViewBlocked:         false,
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
+				LegacyLazyFallbackEnabled:      br(true),
+				LegacyLazyFallbackTimeoutSeconds: ir(3600),
 				DnsDomain:                       sr(""),
 				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr("latest"),
@@ -198,6 +205,8 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RegularUsersViewBlocked:         true,
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
+				LegacyLazyFallbackEnabled:      br(true),
+				LegacyLazyFallbackTimeoutSeconds: ir(3600),
 				DnsDomain:                       sr(""),
 				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
@@ -224,6 +233,8 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RegularUsersViewBlocked:         true,
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
+				LegacyLazyFallbackEnabled:      br(true),
+				LegacyLazyFallbackTimeoutSeconds: ir(3600),
 				DnsDomain:                       sr(""),
 				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
@@ -250,6 +261,8 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 				RegularUsersViewBlocked:         true,
 				RoutingPeerDnsResolutionEnabled: br(false),
 				LazyConnectionEnabled:           br(false),
+				LegacyLazyFallbackEnabled:      br(true),
+				LegacyLazyFallbackTimeoutSeconds: ir(3600),
 				DnsDomain:                       sr(""),
 				AutoUpdateAlways:                br(false),
 				AutoUpdateVersion:               sr(""),
@@ -335,4 +348,82 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			assert.Equal(t, tc.expectedSettings, actual.Settings)
 		})
 	}
+}
+
+func TestAccountsHandler_PutSettings_P2pRetryMax(t *testing.T) {
+	accountID := "test_account"
+	adminUser := types.NewAdminUser("test_user")
+
+	sr := func(v string) *string { return &v }
+	br := func(v bool) *bool { return &v }
+	ir := func(v int64) *int64 { return &v }
+
+	handler := initAccountsTestData(t, &types.Account{
+		Id:      accountID,
+		Domain:  "hotmail.com",
+		Network: types.NewNetwork(),
+		Users: map[string]*types.User{
+			adminUser.Id: adminUser,
+		},
+		Settings: &types.Settings{
+			PeerLoginExpirationEnabled: false,
+			PeerLoginExpiration:        time.Hour,
+			RegularUsersViewBlocked:    false,
+		},
+	})
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/api/accounts/"+accountID,
+		bytes.NewBufferString(`{"settings": {"peer_login_expiration": 3600, "peer_login_expiration_enabled": false, "p2p_retry_max_seconds": 600}, "onboarding": {"onboarding_flow_pending": true, "signup_form_pending": true}}`),
+	)
+	req = nbcontext.SetUserAuthInRequest(req, auth.UserAuth{
+		UserId:    adminUser.Id,
+		AccountId: accountID,
+		Domain:    "hotmail.com",
+	})
+
+	router := mux.NewRouter()
+	router.HandleFunc("/api/accounts/{accountId}", handler.updateAccount).Methods("PUT")
+	router.ServeHTTP(recorder, req)
+
+	res := recorder.Result()
+	defer res.Body.Close()
+
+	if status := recorder.Code; status != http.StatusOK {
+		t.Fatalf("handler returned wrong status code: got %v want %v", status, http.StatusOK)
+	}
+
+	content, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatalf("could not read response body: %v", err)
+	}
+
+	var actual api.Account
+	if err = json.Unmarshal(content, &actual); err != nil {
+		t.Fatalf("response is not valid JSON: %v", err)
+	}
+
+	expectedSettings := api.AccountSettings{
+		PeerLoginExpiration:             3600,
+		PeerLoginExpirationEnabled:      false,
+		GroupsPropagationEnabled:        br(false),
+		JwtGroupsClaimName:              sr(""),
+		JwtGroupsEnabled:                br(false),
+		JwtAllowGroups:                  &[]string{},
+		RegularUsersViewBlocked:         false,
+		RoutingPeerDnsResolutionEnabled: br(false),
+		LazyConnectionEnabled:           br(false),
+				LegacyLazyFallbackEnabled:      br(true),
+				LegacyLazyFallbackTimeoutSeconds: ir(3600),
+		DnsDomain:                       sr(""),
+		AutoUpdateAlways:                br(false),
+		AutoUpdateVersion:               sr(""),
+		EmbeddedIdpEnabled:              br(false),
+		LocalAuthDisabled:               br(false),
+		P2pRetryMaxSeconds:              ir(600),
+	}
+
+	assert.Equal(t, expectedSettings, actual.Settings)
 }

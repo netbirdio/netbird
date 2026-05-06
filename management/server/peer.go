@@ -34,7 +34,29 @@ import (
 const remoteJobsMinVer = "0.64.0"
 
 // GetPeers returns peers visible to the user within an account.
-// Users with "peers:read" see all peers. Otherwise, users see only their own peers, or none if restricted by account settings.
+//
+// Visibility precedence (matches the pre-PR-#6006 behaviour that
+// upstream regressed in commit db44848e2 on 2026-04-28):
+//
+//  1. Users with peers:read permission (admin / owner / auditor /
+//     network_admin) see ALL account peers.
+//  2. Restrictable users with RegularUsersViewBlocked=true see NOTHING.
+//  3. Other users (the default "user" role) see THEIR OWN peers PLUS
+//     any peers reachable from their own peers via the account's
+//     access policies (Gegenstellen / counterparts -- typically the
+//     routing peers and other clients in the same access groups).
+//
+// The "policy-reachable peers" branch was dropped upstream in PR
+// #6006 ("Drop netmap calculation on peer read") because the call to
+// account.GetPeerConnectionResources() was expensive on large
+// accounts. We re-add it under the same /api/peers GET path because
+// without it the dashboard becomes useless for a regular user --
+// they can no longer see the routing peers their policies allow them
+// to communicate with. The expense is one GetAccountWithBackpressure
+// call + one GetPeerConnectionResources iteration per OWN peer, only
+// for users who hit this branch (typically <10 own peers per user).
+//
+// Tracked in docs/bugs/2026-05-04-user-peer-visibility-regression.md.
 func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 	if err != nil {
@@ -59,7 +81,71 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 		return []*nbpeer.Peer{}, nil
 	}
 
-	return am.Store.GetUserPeers(ctx, store.LockingStrengthNone, accountID, userID)
+	ownPeers, err := am.Store.GetUserPeers(ctx, store.LockingStrengthNone, accountID, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	visible, err := am.getUserAccessiblePeers(ctx, accountID, ownPeers)
+	if err != nil {
+		return nil, err
+	}
+
+	return filterPeersByNameAndIP(visible, nameFilter, ipFilter), nil
+}
+
+// filterPeersByNameAndIP applies the same substring matching the SQL store
+// applies for the admin path (sql_store.go: WHERE name LIKE %f% AND ip LIKE %f%).
+// Empty filters disable that dimension.
+func filterPeersByNameAndIP(peers []*nbpeer.Peer, nameFilter, ipFilter string) []*nbpeer.Peer {
+	if nameFilter == "" && ipFilter == "" {
+		return peers
+	}
+	out := make([]*nbpeer.Peer, 0, len(peers))
+	for _, p := range peers {
+		if nameFilter != "" && !strings.Contains(p.Name, nameFilter) {
+			continue
+		}
+		if ipFilter != "" && !strings.Contains(p.IP.String(), ipFilter) {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// getUserAccessiblePeers expands the user's own-peer list with every
+// peer that any of those peers can reach through the account's
+// access policies. The original implementation lived in this file
+// before upstream PR #6006 deleted it; restored verbatim modulo the
+// nameFilter/ipFilter handling which is enforced upstream by the
+// caller filter loop.
+func (am *DefaultAccountManager) getUserAccessiblePeers(ctx context.Context, accountID string, ownPeers []*nbpeer.Peer) ([]*nbpeer.Peer, error) {
+	peersMap := make(map[string]*nbpeer.Peer, len(ownPeers))
+	for _, p := range ownPeers {
+		peersMap[p.ID] = p
+	}
+
+	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(ctx, accountID, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
+	if err != nil {
+		return nil, err
+	}
+
+	groupIDToUserIDs := account.GetActiveGroupUsers()
+
+	for _, peer := range ownPeers {
+		aclPeers, _, _, _ := account.GetPeerConnectionResources(ctx, peer, approvedPeersMap, groupIDToUserIDs)
+		for _, p := range aclPeers {
+			peersMap[p.ID] = p
+		}
+	}
+
+	return maps.Values(peersMap), nil
 }
 
 // MarkPeerConnected marks peer as connected (true) or disconnected (false)
@@ -1194,7 +1280,20 @@ func peerLoginExpired(ctx context.Context, peer *nbpeer.Peer, settings *types.Se
 }
 
 // GetPeer returns a peer visible to the user within an account.
-// Users with "peers:read" permission can access any peer. Otherwise, users can access only their own peer.
+//
+// Visibility precedence mirrors GetPeers (the list endpoint):
+//
+//  1. Users with peers:read permission can access any peer.
+//  2. Admins/service users + the peer owner can access it directly.
+//  3. Other users can access the peer iff at least one of THEIR own
+//     peers is policy-connected to it (the peer is a Gegenstelle /
+//     counterpart -- typically a routing peer their access policy
+//     reaches).
+//
+// Branch 3 was dropped upstream in PR #6006 (commit db44848e2); we
+// restore it here so the dashboard can still load the per-peer detail
+// page when the user clicks on one of the policy-reachable peers
+// returned by GetPeers above.
 func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error) {
 	peer, err := am.Store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 	if err != nil {
@@ -1214,12 +1313,60 @@ func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID,
 		return nil, err
 	}
 
-	// if admin or user owns this peer, return peer
+	// admin/service-user, or the peer owner -- direct access.
 	if user.IsAdminOrServiceUser() || peer.UserID == userID {
 		return peer, nil
 	}
 
+	// Otherwise: check whether any of this user's own peers can reach
+	// the requested peer through the account access policies.
+	return am.checkIfUserOwnsPeer(ctx, accountID, userID, peer)
+}
+
+// checkIfUserOwnsPeer permits a user to access `peer` if at least one
+// of their own peers has a policy-allowed connection to it. Restored
+// from the pre-PR-#6006 implementation; see GetPeer for context.
+func (am *DefaultAccountManager) checkIfUserOwnsPeer(ctx context.Context, accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error) {
+	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(ctx, accountID, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
+	if err != nil {
+		return nil, err
+	}
+
+	userPeers, err := am.Store.GetUserPeers(ctx, store.LockingStrengthNone, accountID, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	groupIDToUserIDs := account.GetActiveGroupUsers()
+	for _, p := range userPeers {
+		aclPeers, _, _, _ := account.GetPeerConnectionResources(ctx, p, approvedPeersMap, groupIDToUserIDs)
+		for _, aclPeer := range aclPeers {
+			if aclPeer.ID == peer.ID {
+				return peer, nil
+			}
+		}
+	}
+
 	return nil, status.Errorf(status.Internal, "user %s has no access to peer %s under account %s", userID, peer.ID, accountID)
+}
+
+// GetPeerByPubKey returns the peer with the given WireGuard public key from
+// the given account. Phase 3.7i of #5989 — used by REST handlers to enrich
+// PeerConnectionMap entries with FQDNs.
+func (am *DefaultAccountManager) GetPeerByPubKey(ctx context.Context, accountID, pubKey string) (*nbpeer.Peer, error) {
+	p, err := am.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, pubKey)
+	if err != nil {
+		return nil, err
+	}
+	if p.AccountID != accountID {
+		return nil, fmt.Errorf("peer with pubkey %s not in account %s", pubKey, accountID)
+	}
+	return p, nil
 }
 
 // UpdateAccountPeers updates all peers that belong to an account.

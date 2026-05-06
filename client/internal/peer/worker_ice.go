@@ -101,6 +101,20 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	defer w.muxAgent.Unlock()
 
 	if w.agent != nil || w.agentConnecting {
+		// Phase 3.7c (#5989) re-introduces the Guard-Loop Fix from PR #5805.
+		// While the local ICE agent is mid-connection, ignore any incoming
+		// offer regardless of sessionID. Both sides' Guards fire fresh
+		// offers every ~800ms-30s (driven by their own iceRetryState +
+		// srReconnect events). If we tear down on every sessionID-change,
+		// the in-flight ICE pair-checks (~5-10s) never complete -- the
+		// remote's freshly-recreated agent generates yet another sessionID,
+		// loops back, infinite recreate cycle. Empirically observed on
+		// badmitterndorf during LTE-carrier instability: 5 different
+		// sessionIDs received from the remote in 2min, no P2P convergence.
+		if w.agentConnecting {
+			w.log.Debugf("agent connecting, skipping new offer (sessionID %s) to let pair-checks finish", remoteOfferAnswer.SessionIDString())
+			return
+		}
 		// backward compatibility with old clients that do not send session ID
 		if remoteOfferAnswer.SessionID == nil {
 			w.log.Debugf("agent already exists, skipping the offer")
@@ -199,6 +213,21 @@ func (w *WorkerICE) InProgress() bool {
 	defer w.muxAgent.Unlock()
 
 	return w.agentConnecting
+}
+
+// IsConnected returns true when pion's ICE agent reports Connected and
+// has not yet transitioned to Disconnected/Failed/Closed. Used by
+// Conn.onNetworkChange (Phase 3.7g of #5989) to skip a needless
+// workerICE.Close when an srReconnect/network-change event arrives but
+// the existing P2P session is still alive end-to-end (typical for a
+// brief signal-server outage while peer-to-peer UDP keeps flowing).
+// Closing the agent in that case forces a 15-25 s renegotiation cycle
+// and a Relay→ICE handover gap that the user would observe as a ping
+// dropout, even though no real peer-to-peer connectivity loss occurred.
+func (w *WorkerICE) IsConnected() bool {
+	w.muxAgent.Lock()
+	defer w.muxAgent.Unlock()
+	return w.agent != nil && w.lastKnownState == ice.ConnectionStateConnected
 }
 
 func (w *WorkerICE) Close() {
@@ -520,6 +549,8 @@ func (w *WorkerICE) onConnectionStateChange(agent *icemaker.ThreadSafeAgent, dia
 		case ice.ConnectionStateConnected:
 			w.lastKnownState = ice.ConnectionStateConnected
 			w.logSuccessfulPaths(agent)
+			// Phase 3 of #5989: reset backoff on ICE success.
+			w.conn.onICEConnected()
 			return
 		case ice.ConnectionStateFailed, ice.ConnectionStateDisconnected, ice.ConnectionStateClosed:
 			// ice.ConnectionStateClosed happens when we recreate the agent. For the P2P to TURN switch important to
@@ -530,6 +561,13 @@ func (w *WorkerICE) onConnectionStateChange(agent *icemaker.ThreadSafeAgent, dia
 			if w.lastKnownState == ice.ConnectionStateConnected {
 				w.lastKnownState = ice.ConnectionStateDisconnected
 				w.conn.onICEStateDisconnected(sessionChanged)
+			}
+
+			// Phase 3 of #5989: record failure in backoff only for true
+			// ICE failure (not for the synthetic Closed event that occurs
+			// when we recreate the agent on reconnect).
+			if state == ice.ConnectionStateFailed {
+				w.conn.onICEFailed()
 			}
 		default:
 			return

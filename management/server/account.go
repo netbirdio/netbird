@@ -333,7 +333,13 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			oldSettings.LazyConnectionEnabled != newSettings.LazyConnectionEnabled ||
 			oldSettings.DNSDomain != newSettings.DNSDomain ||
 			oldSettings.AutoUpdateVersion != newSettings.AutoUpdateVersion ||
-			oldSettings.AutoUpdateAlways != newSettings.AutoUpdateAlways {
+			oldSettings.AutoUpdateAlways != newSettings.AutoUpdateAlways ||
+			!types.StringPtrEqual(oldSettings.ConnectionMode, newSettings.ConnectionMode) ||
+			!types.Uint32PtrEqual(oldSettings.RelayTimeoutSeconds, newSettings.RelayTimeoutSeconds) ||
+			!types.Uint32PtrEqual(oldSettings.P2pTimeoutSeconds, newSettings.P2pTimeoutSeconds) ||
+			!types.Uint32PtrEqual(oldSettings.P2pRetryMaxSeconds, newSettings.P2pRetryMaxSeconds) ||
+			oldSettings.LegacyLazyFallbackEnabled != newSettings.LegacyLazyFallbackEnabled ||
+			oldSettings.LegacyLazyFallbackTimeoutSeconds != newSettings.LegacyLazyFallbackTimeoutSeconds {
 			updateAccountPeers = true
 		}
 
@@ -371,6 +377,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 
 	am.handleRoutingPeerDNSResolutionSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handleLazyConnectionSettings(ctx, oldSettings, newSettings, userID, accountID)
+	am.handleConnectionModeSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handlePeerLoginExpirationSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handleGroupsPropagationSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handleAutoUpdateVersionSettings(ctx, oldSettings, newSettings, userID, accountID)
@@ -453,6 +460,85 @@ func (am *DefaultAccountManager) handleLazyConnectionSettings(ctx context.Contex
 			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountLazyConnectionDisabled, nil)
 		}
 	}
+}
+
+// handleConnectionModeSettings emits one audit event per changed Phase-1
+// connection-mode setting (mode, relay timeout, p2p timeout). Each event
+// carries old/new values in the meta payload so administrators can audit
+// the full transition. NULL transitions show as empty string / 0 in the
+// meta — chosen over a sentinel so the frontend can render uniformly.
+func (am *DefaultAccountManager) handleConnectionModeSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) {
+	if !equalStringPtr(oldSettings.ConnectionMode, newSettings.ConnectionMode) {
+		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountConnectionModeChanged, map[string]any{
+			"old": derefStringPtr(oldSettings.ConnectionMode),
+			"new": derefStringPtr(newSettings.ConnectionMode),
+		})
+	}
+	if !equalUint32Ptr(oldSettings.RelayTimeoutSeconds, newSettings.RelayTimeoutSeconds) {
+		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountRelayTimeoutChanged, map[string]any{
+			"old": derefUint32Ptr(oldSettings.RelayTimeoutSeconds),
+			"new": derefUint32Ptr(newSettings.RelayTimeoutSeconds),
+		})
+	}
+	if !equalUint32Ptr(oldSettings.P2pTimeoutSeconds, newSettings.P2pTimeoutSeconds) {
+		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountP2pTimeoutChanged, map[string]any{
+			"old": derefUint32Ptr(oldSettings.P2pTimeoutSeconds),
+			"new": derefUint32Ptr(newSettings.P2pTimeoutSeconds),
+		})
+	}
+	if !equalUint32Ptr(oldSettings.P2pRetryMaxSeconds, newSettings.P2pRetryMaxSeconds) {
+		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountP2pRetryMaxChanged, map[string]any{
+			"old": derefUint32Ptr(oldSettings.P2pRetryMaxSeconds),
+			"new": derefUint32Ptr(newSettings.P2pRetryMaxSeconds),
+		})
+	}
+	// Phase 3.7i (#5989): legacy-client lazy-fallback settings.
+	if oldSettings.LegacyLazyFallbackEnabled != newSettings.LegacyLazyFallbackEnabled {
+		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountLegacyLazyFallbackEnabledChanged, map[string]any{
+			"old": oldSettings.LegacyLazyFallbackEnabled,
+			"new": newSettings.LegacyLazyFallbackEnabled,
+		})
+	}
+	if oldSettings.LegacyLazyFallbackTimeoutSeconds != newSettings.LegacyLazyFallbackTimeoutSeconds {
+		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountLegacyLazyFallbackTimeoutChanged, map[string]any{
+			"old": oldSettings.LegacyLazyFallbackTimeoutSeconds,
+			"new": newSettings.LegacyLazyFallbackTimeoutSeconds,
+		})
+	}
+}
+
+func equalStringPtr(a, b *string) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+func equalUint32Ptr(a, b *uint32) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+func derefStringPtr(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+func derefUint32Ptr(p *uint32) uint32 {
+	if p == nil {
+		return 0
+	}
+	return *p
 }
 
 func (am *DefaultAccountManager) handlePeerLoginExpirationSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) {
@@ -1900,6 +1986,14 @@ func newAccountWithId(ctx context.Context, accountID, userID, domain, email, nam
 			PeerInactivityExpirationEnabled: false,
 			PeerInactivityExpiration:        types.DefaultPeerInactivityExpiration,
 			RoutingPeerDNSResolutionEnabled: true,
+			// Phase 3.7i (#5989): legacy-fallback defaults must travel
+			// with newly-created accounts. The GORM `default:` only
+			// applies on SQL INSERT and would leave in-memory copies
+			// at false/0, which the conversion layer then interprets
+			// as "fallback disabled, timeout 0" -- the exact bug
+			// Codex flagged.
+			LegacyLazyFallbackEnabled:        types.DefaultLegacyLazyFallbackEnabled,
+			LegacyLazyFallbackTimeoutSeconds: types.DefaultLegacyLazyFallbackTimeoutSeconds,
 			Extra: &types.ExtraSettings{
 				UserApprovalRequired: true,
 			},
@@ -2009,6 +2103,10 @@ func (am *DefaultAccountManager) GetOrCreateAccountByPrivateDomain(ctx context.C
 				PeerInactivityExpirationEnabled: false,
 				PeerInactivityExpiration:        types.DefaultPeerInactivityExpiration,
 				RoutingPeerDNSResolutionEnabled: true,
+				// Phase 3.7i (#5989): same defaults as the primary
+				// NewAccount path -- see comment there for rationale.
+				LegacyLazyFallbackEnabled:        types.DefaultLegacyLazyFallbackEnabled,
+				LegacyLazyFallbackTimeoutSeconds: types.DefaultLegacyLazyFallbackTimeoutSeconds,
 				Extra: &types.ExtraSettings{
 					UserApprovalRequired: true,
 				},

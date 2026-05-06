@@ -439,6 +439,19 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 		req.LazyConnectionEnabled = &lazyConnEnabled
 	}
 
+	if cmd.Flag(connectionModeFlag).Changed {
+		req.ConnectionMode = &connectionMode
+	}
+	if cmd.Flag(relayTimeoutFlag).Changed {
+		req.RelayTimeoutSeconds = &relayTimeoutSecs
+	}
+	if cmd.Flag(p2pTimeoutFlag).Changed {
+		req.P2PTimeoutSeconds = &p2pTimeoutSecs
+	}
+	if cmd.Flag(p2pRetryMaxFlag).Changed {
+		req.P2PRetryMaxSeconds = &p2pRetryMaxSecs
+	}
+
 	return &req
 }
 
@@ -555,6 +568,19 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 	if cmd.Flag(enableLazyConnectionFlag).Changed {
 		ic.LazyConnectionEnabled = &lazyConnEnabled
 	}
+
+	if cmd.Flag(connectionModeFlag).Changed {
+		ic.ConnectionMode = &connectionMode
+	}
+	if cmd.Flag(relayTimeoutFlag).Changed {
+		ic.RelayTimeoutSeconds = &relayTimeoutSecs
+	}
+	if cmd.Flag(p2pTimeoutFlag).Changed {
+		ic.P2pTimeoutSeconds = &p2pTimeoutSecs
+	}
+	if cmd.Flag(p2pRetryMaxFlag).Changed {
+		ic.P2pRetryMaxSeconds = &p2pRetryMaxSecs
+	}
 	return &ic, nil
 }
 
@@ -668,6 +694,19 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 
 	if cmd.Flag(enableLazyConnectionFlag).Changed {
 		loginRequest.LazyConnectionEnabled = &lazyConnEnabled
+	}
+
+	if cmd.Flag(connectionModeFlag).Changed {
+		loginRequest.ConnectionMode = &connectionMode
+	}
+	if cmd.Flag(relayTimeoutFlag).Changed {
+		loginRequest.RelayTimeoutSeconds = &relayTimeoutSecs
+	}
+	if cmd.Flag(p2pTimeoutFlag).Changed {
+		loginRequest.P2PTimeoutSeconds = &p2pTimeoutSecs
+	}
+	if cmd.Flag(p2pRetryMaxFlag).Changed {
+		loginRequest.P2PRetryMaxSeconds = &p2pRetryMaxSecs
 	}
 	return &loginRequest, nil
 }

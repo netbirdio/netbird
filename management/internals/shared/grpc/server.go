@@ -31,6 +31,7 @@ import (
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/job"
+	"github.com/netbirdio/netbird/management/server/peer_connections"
 
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -86,6 +87,10 @@ type Server struct {
 
 	reverseProxyManager rpservice.Manager
 	reverseProxyMu      sync.RWMutex
+
+	// Phase 3.7i of #5989: shared peer-connection-map state
+	peerConnections peer_connections.Store
+	snapshotRouter  *peer_connections.SnapshotRouter
 }
 
 // NewServer creates a new Management server
@@ -101,7 +106,19 @@ func NewServer(
 	networkMapController network_map.Controller,
 	oAuthConfigProvider idp.OAuthConfigProvider,
 	sessionStore *auth.SessionStore,
+	peerConnStore peer_connections.Store,
+	peerConnRouter *peer_connections.SnapshotRouter,
 ) (*Server, error) {
+	// Defensive defaults for Phase 3.7i wiring: production callers pass
+	// non-nil values built by the BaseServer; some test fixtures pass
+	// nil. Without these the Sync handler nil-derefs in Register().
+	if peerConnStore == nil {
+		peerConnStore = peer_connections.NewMemoryStore(5 * time.Minute)
+	}
+	if peerConnRouter == nil {
+		peerConnRouter = peer_connections.NewSnapshotRouter()
+	}
+
 	if appMetrics != nil {
 		// update gauge based on number of connected peers which is equal to open gRPC streams
 		err := appMetrics.GRPCMetrics().RegisterConnectedStreams(func() int64 {
@@ -149,6 +166,9 @@ func NewServer(
 
 		syncLim:        syncLim,
 		syncLimEnabled: syncLimEnabled,
+
+		peerConnections: peerConnStore,
+		snapshotRouter:  peerConnRouter,
 	}, nil
 }
 
@@ -422,6 +442,10 @@ func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wg
 	debouncer := NewUpdateDebouncer(1000 * time.Millisecond)
 	defer debouncer.Stop()
 
+	// Phase 3.7i (#5989): register for SnapshotRequest dispatch.
+	snapshotCh := s.snapshotRouter.Register(peerKey.String())
+	defer s.snapshotRouter.Unregister(peerKey.String(), snapshotCh)
+
 	for {
 		select {
 		// condition when there are some updates
@@ -466,6 +490,22 @@ func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wg
 			log.WithContext(ctx).Debugf("stream of peer %s has been closed", peerKey.String())
 			s.cancelPeerRoutines(ctx, accountID, peer, streamStartTime)
 			return srv.Context().Err()
+
+		// Phase 3.7i (#5989): NEW case — on-demand snapshot request.
+		// Bypasses the debouncer because dashboard refresh has a
+		// <3 s end-to-end latency budget. Direct sendUpdate.
+		case nonce, ok := <-snapshotCh:
+			if !ok {
+				continue
+			}
+			snapMsg := &network_map.UpdateMessage{
+				Update: &proto.SyncResponse{
+					SnapshotRequest: &proto.PeerSnapshotRequest{Nonce: nonce},
+				},
+			}
+			if err := s.sendUpdate(ctx, accountID, peerKey, peer, snapMsg, srv, streamStartTime); err != nil {
+				log.WithContext(ctx).Warnf("send snapshot request to %s: %v", peerKey.String(), err)
+			}
 		}
 	}
 }
@@ -681,7 +721,12 @@ func extractPeerMeta(ctx context.Context, meta *proto.PeerSystemMeta) nbpeer.Pee
 			BlockInbound:          meta.GetFlags().GetBlockInbound(),
 			LazyConnectionEnabled: meta.GetFlags().GetLazyConnectionEnabled(),
 		},
-		Files: files,
+		Files:                      files,
+		EffectiveConnectionMode:    meta.GetEffectiveConnectionMode(),
+		EffectiveRelayTimeoutSecs:  meta.GetEffectiveRelayTimeoutSecs(),
+		EffectiveP2PTimeoutSecs:    meta.GetEffectiveP2PTimeoutSecs(),
+		EffectiveP2PRetryMaxSecs:   meta.GetEffectiveP2PRetryMaxSecs(),
+		SupportedFeatures:          meta.GetSupportedFeatures(),
 	}
 }
 
@@ -921,7 +966,19 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 		return status.Errorf(codes.Internal, "failed to get peer groups %s", err)
 	}
 
-	plainResp := ToSyncResponse(ctx, s.config, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, peer, turnToken, relayToken, networkMap, s.networkMapController.GetDNSDomain(settings), postureChecks, nil, settings, settings.Extra, peerGroups, dnsFwdPort)
+	// Phase 3.7i: build group-names map for RemotePeerConfig annotations.
+	accountGroups, err := s.accountManager.GetStore().GetAccountGroups(ctx, store.LockingStrengthNone, peer.AccountID)
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed to get account groups for peer %s: %v", peer.ID, err)
+		accountGroups = nil
+	}
+	groupsMap := make(map[string]*types.Group, len(accountGroups))
+	for _, g := range accountGroups {
+		groupsMap[g.ID] = g
+	}
+	groupNamesByPeerID := BuildGroupNamesByPeerID(groupsMap)
+
+	plainResp := ToSyncResponse(ctx, s.config, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, peer, turnToken, relayToken, networkMap, s.networkMapController.GetDNSDomain(settings), postureChecks, nil, settings, settings.Extra, peerGroups, dnsFwdPort, groupNamesByPeerID)
 
 	key, err := s.secretsManager.GetWGKey()
 	if err != nil {
@@ -1119,6 +1176,22 @@ func (s *Server) SyncMeta(ctx context.Context, req *proto.EncryptedMessage) (*pr
 		return nil, mapError(ctx, err)
 	}
 
+	return &proto.Empty{}, nil
+}
+
+// SyncPeerConnections receives a per-peer connection map from a peer.
+// Phase 3.7i of #5989. Mirrors SyncMeta's parseRequest pattern:
+// decrypts the EncryptedMessage envelope, authenticates the peer pubkey,
+// stores the decoded PeerConnectionMap under that pubkey.
+func (s *Server) SyncPeerConnections(ctx context.Context, req *proto.EncryptedMessage) (*proto.Empty, error) {
+	pcm := &proto.PeerConnectionMap{}
+	peerKey, err := s.parseRequest(ctx, req, pcm)
+	if err != nil {
+		return nil, err
+	}
+	if s.peerConnections != nil {
+		s.peerConnections.Put(peerKey.String(), pcm)
+	}
 	return &proto.Empty{}, nil
 }
 

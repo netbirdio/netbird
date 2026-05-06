@@ -17,6 +17,37 @@ type PeerInfo struct {
 	FQDN       string
 	ConnStatus int
 	Routes     PeerRoutes
+
+	// Phase 3.7i (#5989): per-peer enrichment fields. Strings for
+	// gomobile-friendliness (no time.Time / no []string).
+	Relayed                       bool
+	ServerOnline                  bool
+	LocalIceCandidateEndpoint     string
+	RemoteIceCandidateEndpoint    string
+	RelayServerAddress            string
+	LastWireguardHandshake        string // RFC3339; "" if zero
+	LastSeenAtServer              string // RFC3339; "" if zero
+	LatencyMs                     int64
+	BytesRx                       int64
+	BytesTx                       int64
+	EffectiveConnectionMode       string
+	ConfiguredConnectionMode      string
+	Groups                        string // comma-separated
+	AgentVersion                  string
+	OsVersion                     string
+	// Phase 3.7i hybrid display: daemon-derived UI label.
+	// Values: "", "P2P", "Relayed", "Relayed (negotiating P2P)".
+	// UIs should prefer this over (Relayed bool) when non-empty so the
+	// transient post-wakeup negotiation window renders identically
+	// across Android / Windows / Dashboard.
+	ConnectionTypeExtended string
+
+	// Phase 3.7i lifecycle hardening: ICE-backoff snapshot. Lets the UI
+	// explain why a peer is staying on Relayed when failures pile up
+	// (gomobile-friendly: no time.Time exported — RFC3339 string).
+	IceBackoffFailures  int32
+	IceBackoffNextRetry string // RFC3339; "" if zero
+	IceBackoffSuspended bool
 }
 
 func (p *PeerInfo) GetPeerRoutes() *PeerRoutes {

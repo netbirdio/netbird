@@ -101,3 +101,35 @@ func TestICERetryState_ResetIsIdempotent(t *testing.T) {
 		t.Fatalf("hourlyC non-nil after double reset")
 	}
 }
+
+// TestICERetryState_ResetClearsHourlyAndBudget covers the Phase 3.7i
+// scenario (Codex review 2026-05-05): a peer is in hourly mode after
+// 3 cold srflx pair-check failures; an activity-driven reset must
+// both clear the hourly ticker AND restore the full budget so the
+// next pair-check cycle gets 3 fresh attempts at the short cadence
+// before re-entering hourly. Without this property, a peer stays on
+// relay for up to an hour after the user explicitly pings.
+func TestICERetryState_ResetClearsHourlyAndBudget(t *testing.T) {
+	s := newTestRetryState()
+	for i := 0; i < maxICERetries+1; i++ {
+		_ = s.shouldRetry()
+	}
+	s.enterHourlyMode()
+	if s.hourlyC() == nil {
+		t.Fatalf("precondition: expected hourly mode armed")
+	}
+
+	s.reset()
+
+	if s.hourly != nil {
+		t.Fatalf("after activity-reset: hourly ticker must be cleared")
+	}
+	if s.retries != 0 {
+		t.Fatalf("after activity-reset: retries=%d, want 0", s.retries)
+	}
+	for i := 1; i <= maxICERetries; i++ {
+		if !s.shouldRetry() {
+			t.Fatalf("attempt %d after activity-reset returned false; full budget must be restored", i)
+		}
+	}
+}
