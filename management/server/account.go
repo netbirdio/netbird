@@ -333,7 +333,8 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			oldSettings.LazyConnectionEnabled != newSettings.LazyConnectionEnabled ||
 			oldSettings.DNSDomain != newSettings.DNSDomain ||
 			oldSettings.AutoUpdateVersion != newSettings.AutoUpdateVersion ||
-			oldSettings.AutoUpdateAlways != newSettings.AutoUpdateAlways {
+			oldSettings.AutoUpdateAlways != newSettings.AutoUpdateAlways ||
+			oldSettings.MetricsPushEnabled != newSettings.MetricsPushEnabled {
 			updateAccountPeers = true
 		}
 
@@ -376,6 +377,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	am.handleAutoUpdateVersionSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handleAutoUpdateAlwaysSettings(ctx, oldSettings, newSettings, userID, accountID)
 	am.handlePeerExposeSettings(ctx, oldSettings, newSettings, userID, accountID)
+	am.handleMetricsPushSettings(ctx, oldSettings, newSettings, userID, accountID)
 	if err = am.handleInactivityExpirationSettings(ctx, oldSettings, newSettings, userID, accountID); err != nil {
 		return nil, err
 	}
@@ -451,6 +453,16 @@ func (am *DefaultAccountManager) handleLazyConnectionSettings(ctx context.Contex
 			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountLazyConnectionEnabled, nil)
 		} else {
 			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountLazyConnectionDisabled, nil)
+		}
+	}
+}
+
+func (am *DefaultAccountManager) handleMetricsPushSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) {
+	if oldSettings.MetricsPushEnabled != newSettings.MetricsPushEnabled {
+		if newSettings.MetricsPushEnabled {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountMetricsPushEnabled, nil)
+		} else {
+			am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountMetricsPushDisabled, nil)
 		}
 	}
 }

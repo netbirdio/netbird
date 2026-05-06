@@ -228,6 +228,9 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 	if req.Settings.AutoUpdateAlways != nil {
 		returnSettings.AutoUpdateAlways = *req.Settings.AutoUpdateAlways
 	}
+	if req.Settings.MetricsPushEnabled != nil {
+		returnSettings.MetricsPushEnabled = *req.Settings.MetricsPushEnabled
+	}
 
 	return returnSettings, nil
 }
@@ -352,6 +355,7 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		DnsDomain:                       &settings.DNSDomain,
 		AutoUpdateVersion:               &settings.AutoUpdateVersion,
 		AutoUpdateAlways:                &settings.AutoUpdateAlways,
+		MetricsPushEnabled:              &settings.MetricsPushEnabled,
 		EmbeddedIdpEnabled:              &settings.EmbeddedIdpEnabled,
 		LocalAuthDisabled:               &settings.LocalAuthDisabled,
 	}

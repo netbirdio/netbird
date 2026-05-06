@@ -1480,6 +1480,9 @@ type AccountSettings struct {
 	// LocalAuthDisabled Indicates whether local (email/password) authentication is disabled. When true, users can only authenticate via external identity providers. This is a read-only field.
 	LocalAuthDisabled *bool `json:"local_auth_disabled,omitempty"`
 
+	// MetricsPushEnabled Enables or disables client metrics push for all peers in the account
+	MetricsPushEnabled *bool `json:"metrics_push_enabled,omitempty"`
+
 	// NetworkRange Allows to define a custom network range for the account in CIDR format
 	NetworkRange *string `json:"network_range,omitempty"`
 
