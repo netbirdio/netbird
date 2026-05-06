@@ -21,6 +21,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/netbirdio/netbird/client/anonymize"
@@ -583,6 +584,9 @@ func isSensitiveEnvVar(key string) bool {
 func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) {
 	configContent.WriteString("NetBird Client Configuration:\n\n")
 
+	if key, err := wgtypes.ParseKey(g.internalConfig.PrivateKey); err == nil {
+		configContent.WriteString(fmt.Sprintf("PublicKey: %s\n", key.PublicKey().String()))
+	}
 	configContent.WriteString(fmt.Sprintf("WgIface: %s\n", g.internalConfig.WgIface))
 	configContent.WriteString(fmt.Sprintf("WgPort: %d\n", g.internalConfig.WgPort))
 	if g.internalConfig.NetworkMonitor != nil {
