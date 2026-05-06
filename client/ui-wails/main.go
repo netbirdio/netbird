@@ -102,8 +102,10 @@ func main() {
 
 	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:            "NetBird",
-		Width:            960,
-		Height:           640,
+		Width:            880,
+		Height:           620,
+		MinWidth:         880,
+		MinHeight:        620,
 		Hidden:           false,
 		BackgroundColour: application.NewRGB(24, 26, 29),
 		URL:              "/",

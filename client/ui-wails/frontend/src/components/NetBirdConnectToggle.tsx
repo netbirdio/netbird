@@ -46,7 +46,7 @@ export const NetBirdConnectToggle = ({ state, size = 140, onClick }: NetBirdConn
     return (
         <div>
             <motion.button
-                className="rounded-full relative overflow-visible cursor-pointer outline-none border-none bg-transparent"
+                className="rounded-full relative overflow-visible cursor-default outline-none border-none bg-transparent"
                 style={{ padding }}
                 onClick={handleClick}
                 whileTap={{ scale: 0.98 }}
