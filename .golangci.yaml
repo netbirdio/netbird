@@ -114,16 +114,20 @@ linters:
       - linters:
           - staticcheck
         text: "QF1012"
+      # client/ui-wails/main.go uses //go:embed all:frontend/dist; the
+      # directory is populated by `pnpm build` in the release pipeline
+      # and missing at lint time, so the embed parses to "no matching
+      # files found" — surfaced by golangci-lint's typecheck pre-pass.
+      # Suppress just that one diagnostic; the rest of the package
+      # (services/, tray.go, grpc.go, ...) still gets linted normally.
+      - linters:
+          - typecheck
+        path: client/ui-wails/main\.go
+        text: "pattern all:frontend/dist"
     paths:
       - third_party$
       - builtin$
       - examples$
-      # client/ui-wails/main.go uses //go:embed all:frontend/dist; that
-      # directory is populated by `pnpm build` in the release pipeline
-      # and is missing at lint time, so the typecheck phase fails before
-      # any rule runs. Skip just main.go — the rest of the package
-      # (services/, tray.go, grpc.go, ...) still gets linted.
-      - client/ui-wails/main\.go$
 issues:
   max-same-issues: 5
 formatters:
