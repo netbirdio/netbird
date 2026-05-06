@@ -12,6 +12,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestTestFreePort_PrefersLoopback verifies that testFreePort returns a loopback
+// address rather than the WireGuard interface IP when both are available.
+// Before the fix, the WireGuard IP was tried first; binding there caused DNS
+// queries to be silently dropped by the WireGuard kernel module.
+func TestTestFreePort_PrefersLoopback(t *testing.T) {
+	// Find a free port by letting the OS pick one, then releasing it.
+	udpLn, err := net.ListenUDP("udp", net.UDPAddrFromAddrPort(netip.MustParseAddrPort("0.0.0.0:0")))
+	require.NoError(t, err)
+	port := uint16(udpLn.LocalAddr().(*net.UDPAddr).Port)
+	require.NoError(t, udpLn.Close())
+
+	svc := newServiceViaListener(&mocWGIface{}, nil, nil)
+	ip, ok := svc.testFreePort(int(port))
+	require.True(t, ok, "expected to find a free port on loopback")
+	assert.True(t, ip.IsLoopback(), "expected loopback address, got %s — WireGuard IP must not be preferred", ip)
+}
+
 func TestServiceViaListener_TCPAndUDP(t *testing.T) {
 	handler := dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
 		m := new(dns.Msg)

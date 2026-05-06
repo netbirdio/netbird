@@ -188,11 +188,10 @@ func (s *serviceViaListener) RuntimeIP() netip.Addr {
 	return s.listenIP
 }
 
-
-// evalListenAddress figure out the listen address for the DNS server
-// first check the 53 port availability on lo or WG interface, if not success
-// pick a random port on WG interface for eBPF, if not success
-// check the 5053 port availability on lo or WG interface without eBPF usage,
+// evalListenAddress figure out the listen address for the DNS server.
+// First tries port 53 on loopback (127.0.0.1, then 127.0.0.153), then the WireGuard IP.
+// If port 53 is unavailable everywhere, tries eBPF on a random port bound to the WireGuard IP.
+// As a final fallback, retries port 5053 in the same loopback-first order.
 func (s *serviceViaListener) evalListenAddress() (netip.Addr, uint16, error) {
 	if s.customAddr != nil {
 		return s.customAddr.Addr(), s.customAddr.Port(), nil
