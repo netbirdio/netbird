@@ -554,3 +554,14 @@ func (c *Client) getNet() (*wgnetstack.Net, netip.Addr, error) {
 
 	return nsnet, addr, nil
 }
+
+// GetDNSAddrPort returns the address of the NetBird DNS resolver for this client.
+// Returns the zero AddrPort and false if the client is not started or the DNS
+// server is not yet initialized.
+func (c *Client) GetDNSAddrPort() (netip.AddrPort, bool) {
+	engine, err := c.getEngine()
+	if err != nil {
+		return netip.AddrPort{}, false
+	}
+	return engine.GetDNSAddrPort()
+}

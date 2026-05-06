@@ -2089,6 +2089,22 @@ func (e *Engine) GetWgAddr() netip.Addr {
 	return e.wgInterface.Address().IP
 }
 
+// GetDNSAddrPort returns the DNS server address (IP + port) used by this engine.
+// Returns the zero AddrPort and false if the DNS server is not yet initialized.
+func (e *Engine) GetDNSAddrPort() (netip.AddrPort, bool) {
+	e.syncMsgMux.Lock()
+	dnsServer := e.dnsServer
+	e.syncMsgMux.Unlock()
+	if dnsServer == nil {
+		return netip.AddrPort{}, false
+	}
+	addr := dnsServer.DnsAddrPort()
+	if !addr.IsValid() {
+		return netip.AddrPort{}, false
+	}
+	return addr, true
+}
+
 func (e *Engine) RenewTun(fd int) error {
 	e.syncMsgMux.Lock()
 	wgInterface := e.wgInterface
