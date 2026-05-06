@@ -190,9 +190,9 @@ func (s *serviceViaListener) RuntimeIP() netip.Addr {
 
 
 // evalListenAddress figure out the listen address for the DNS server
-// first check the 53 port availability on WG interface or lo, if not success
+// first check the 53 port availability on lo or WG interface, if not success
 // pick a random port on WG interface for eBPF, if not success
-// check the 5053 port availability on WG interface or lo without eBPF usage,
+// check the 5053 port availability on lo or WG interface without eBPF usage,
 func (s *serviceViaListener) evalListenAddress() (netip.Addr, uint16, error) {
 	if s.customAddr != nil {
 		return s.customAddr.Addr(), s.customAddr.Port(), nil
