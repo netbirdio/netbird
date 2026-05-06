@@ -94,7 +94,16 @@ func (p *connStatePusher) Stop() {
 
 // OnPeerStateChange enqueues a state-change event. Non-blocking — drops
 // if the buffer is full (the next bulk tick will catch up via delta).
+//
+// Safe on a nil receiver: Engine.Stop nils e.connStatePusher before
+// removeAllPeers runs, but the status-recorder listener registered in
+// Engine.Start is still wired and may fire a few more events during
+// peer cleanup. A nil-receiver no-op makes the cleanup path cheap and
+// avoids a panic on the engine shutdown race.
 func (p *connStatePusher) OnPeerStateChange(ev PeerStateChangeEvent) {
+	if p == nil {
+		return
+	}
 	select {
 	case p.events <- ev:
 	default:
@@ -103,8 +112,12 @@ func (p *connStatePusher) OnPeerStateChange(ev PeerStateChangeEvent) {
 
 // OnSnapshotRequest enqueues a snapshot-request nonce. Non-blocking,
 // coalescing — multiple requests in flight result in a single full
-// snapshot with the latest nonce echoed.
+// snapshot with the latest nonce echoed. Nil-receiver safe for the
+// same shutdown-race reason as OnPeerStateChange.
 func (p *connStatePusher) OnSnapshotRequest(nonce uint64) {
+	if p == nil {
+		return
+	}
 	select {
 	case p.snapshotReq <- nonce:
 	default:
