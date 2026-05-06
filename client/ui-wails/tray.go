@@ -16,6 +16,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 
 	"github.com/netbirdio/netbird/client/ui-wails/services"
+	"github.com/netbirdio/netbird/version"
 )
 
 // User-facing strings exposed in the tray, OS notifications and the
@@ -48,6 +49,12 @@ const (
 	// menuInstallVersionPrefix is rewritten with the target version when
 	// the management server enforces the update.
 	menuInstallVersionPrefix = "Install version "
+	// menuGUIVersionFmt and menuDaemonVersionFmt drive the disabled
+	// version-info entries under About. The daemon line is "—" until the
+	// first Status snapshot reports the daemon's version.
+	menuGUIVersionFmt    = "GUI: %s"
+	menuDaemonVersionFmt = "Daemon: %s"
+	menuVersionUnknown   = "—"
 
 	// OS notifications.
 	notifyUpdateTitle          = "NetBird update available"
@@ -96,12 +103,13 @@ type Tray struct {
 	window *application.WebviewWindow
 	svc    TrayServices
 
-	statusItem   *application.MenuItem
-	upItem       *application.MenuItem
-	downItem     *application.MenuItem
-	exitNodeItem *application.MenuItem
-	networksItem *application.MenuItem
-	updateItem   *application.MenuItem
+	statusItem        *application.MenuItem
+	upItem            *application.MenuItem
+	downItem          *application.MenuItem
+	exitNodeItem      *application.MenuItem
+	networksItem      *application.MenuItem
+	updateItem        *application.MenuItem
+	daemonVersionItem *application.MenuItem
 
 	mu                   sync.Mutex
 	connected            bool
@@ -110,6 +118,7 @@ type Tray struct {
 	updateEnforced       bool
 	exitNodes            []string
 	lastStatus           string
+	lastDaemonVersion    string
 	notificationsEnabled bool
 	activeProfile        string
 	activeUsername       string
@@ -208,6 +217,11 @@ func (t *Tray) buildMenu() *application.Menu {
 		_ = t.app.Browser.OpenURL(urlGitHubRepo)
 	})
 	about.Add(menuDocumentation).SetEnabled(false)
+	// Disabled informational entries: the GUI version is baked in at
+	// build time via -ldflags, the daemon version comes from the first
+	// Status snapshot and is updated in applyStatus.
+	about.Add(fmt.Sprintf(menuGUIVersionFmt, version.NetbirdVersion())).SetEnabled(false)
+	t.daemonVersionItem = about.Add(fmt.Sprintf(menuDaemonVersionFmt, menuVersionUnknown)).SetEnabled(false)
 	// Hidden until the daemon emits EventUpdateAvailable. The label is
 	// rewritten in onUpdateAvailable to match the legacy Fyne UI:
 	// menuDownloadLatestVersion for opt-in, menuInstallVersionPrefix+version
@@ -353,7 +367,7 @@ func (t *Tray) onUpdateAvailable(ev *application.CustomEvent) {
 func (t *Tray) handleUpdate() {
 	t.mu.Lock()
 	enforced := t.updateEnforced
-	version := t.updateVersion
+	updateVersion := t.updateVersion
 	t.mu.Unlock()
 
 	if !enforced {
@@ -366,8 +380,8 @@ func (t *Tray) handleUpdate() {
 	// RPC the /update page is polling.
 	if t.window != nil {
 		url := "/#/update"
-		if version != "" {
-			url += "?version=" + version
+		if updateVersion != "" {
+			url += "?version=" + updateVersion
 		}
 		t.window.SetURL(url)
 		t.window.Show()
@@ -419,8 +433,12 @@ func (t *Tray) applyStatus(st services.Status) {
 	// flag in onSessionExpire.
 	sessionExpiredEnter := strings.EqualFold(st.Status, statusSessionExpired) &&
 		!strings.EqualFold(t.lastStatus, statusSessionExpired)
+	daemonVersionChanged := st.DaemonVersion != "" && st.DaemonVersion != t.lastDaemonVersion
 	t.connected = connected
 	t.lastStatus = st.Status
+	if daemonVersionChanged {
+		t.lastDaemonVersion = st.DaemonVersion
+	}
 
 	exitNodes := exitNodesFromStatus(st)
 	exitNodesChanged := !equalStrings(exitNodes, t.exitNodes)
@@ -441,6 +459,9 @@ func (t *Tray) applyStatus(st services.Status) {
 	}
 	if exitNodesChanged {
 		t.rebuildExitNodes(exitNodes)
+	}
+	if daemonVersionChanged && t.daemonVersionItem != nil {
+		t.daemonVersionItem.SetLabel(fmt.Sprintf(menuDaemonVersionFmt, st.DaemonVersion))
 	}
 	if sessionExpiredEnter {
 		t.handleSessionExpired()
