@@ -109,6 +109,16 @@ func NewServer(
 	peerConnStore peer_connections.Store,
 	peerConnRouter *peer_connections.SnapshotRouter,
 ) (*Server, error) {
+	// Defensive defaults for Phase 3.7i wiring: production callers pass
+	// non-nil values built by the BaseServer; some test fixtures pass
+	// nil. Without these the Sync handler nil-derefs in Register().
+	if peerConnStore == nil {
+		peerConnStore = peer_connections.NewMemoryStore(5 * time.Minute)
+	}
+	if peerConnRouter == nil {
+		peerConnRouter = peer_connections.NewSnapshotRouter()
+	}
+
 	if appMetrics != nil {
 		// update gauge based on number of connected peers which is equal to open gRPC streams
 		err := appMetrics.GRPCMetrics().RegisterConnectedStreams(func() int64 {
