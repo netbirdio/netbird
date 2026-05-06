@@ -8,6 +8,7 @@ package main
 #include "xembed_tray_linux.h"
 #include <X11/Xlib.h>
 #include <stdlib.h>
+#include <string.h>
 */
 import "C"
 
@@ -28,16 +29,29 @@ var (
 	activeMenuHostMu sync.Mutex
 )
 
-//export goMenuItemClicked
-func goMenuItemClicked(id C.int) {
-	activeMenuHostMu.Lock()
-	h := activeMenuHost
-	activeMenuHostMu.Unlock()
-
-	if h != nil {
-		go h.sendMenuEvent(int32(id))
-	}
+// menuItemInfo is the Go-side representation of one popup menu entry,
+// flattened from a dbusMenuLayout tree before it is handed to the C
+// popup builder. Submenus populate children; leaves leave it nil.
+type menuItemInfo struct {
+	id          int32
+	label       string
+	enabled     bool
+	isCheck     bool
+	checked     bool
+	isSeparator bool
+	children    []menuItemInfo
 }
+
+// dbusMenuLayout mirrors the (ia{sv}av) result returned by
+// com.canonical.dbusmenu.GetLayout. The Children variants each wrap a
+// nested dbusMenuLayout; we decode them lazily in flattenMenu.
+type dbusMenuLayout struct {
+	ID         int32
+	Properties map[string]dbus.Variant
+	Children   []dbus.Variant
+}
+
+
 
 // xembedHost manages one XEmbed tray icon for an SNI item.
 type xembedHost struct {
@@ -56,6 +70,23 @@ type xembedHost struct {
 	iconH    int
 
 	stopCh chan struct{}
+}
+
+// goMenuItemClicked is the C callback invoked from the GTK main thread
+// when the user activates a popup-menu entry. C callbacks cannot carry
+// Go pointers, so the active xembedHost is looked up through the
+// activeMenuHost global instead. //export makes this symbol visible to
+// the C side; the function must therefore live in package main.
+//
+//export goMenuItemClicked
+func goMenuItemClicked(id C.int) {
+	activeMenuHostMu.Lock()
+	h := activeMenuHost
+	activeMenuHostMu.Unlock()
+
+	if h != nil {
+		go h.sendMenuEvent(int32(id))
+	}
 }
 
 // newXembedHost creates an XEmbed tray icon for the given SNI item.
@@ -253,25 +284,16 @@ func (h *xembedHost) contextMenu(x, y int32) {
 		return
 	}
 
-	// Build C menu item array.
-	cItems := make([]C.xembed_menu_item, len(items))
-	cLabels := make([]*C.char, len(items)) // track for freeing
-	for i, mi := range items {
-		cItems[i].id = C.int(mi.id)
-		cItems[i].enabled = boolToInt(mi.enabled)
-		cItems[i].is_check = boolToInt(mi.isCheck)
-		cItems[i].checked = boolToInt(mi.checked)
-		cItems[i].is_separator = boolToInt(mi.isSeparator)
-		if mi.label != "" {
-			cLabels[i] = C.CString(mi.label)
-			cItems[i].label = cLabels[i]
-		}
-	}
+	// Build a C-allocated tree from the Go menu. xembed_show_popup_menu
+	// deep-copies into its own buffer (so it can outlive this stack
+	// frame), but it expects valid C strings + pointers in the caller's
+	// array — we still have to walk the items on the Go side and build
+	// matching C.xembed_menu_item nodes recursively.
+	var allocs []unsafe.Pointer
+	cItems := buildCItems(items, &allocs)
 	defer func() {
-		for _, p := range cLabels {
-			if p != nil {
-				C.free(unsafe.Pointer(p))
-			}
+		for _, p := range allocs {
+			C.free(p)
 		}
 	}()
 
@@ -280,24 +302,8 @@ func (h *xembedHost) contextMenu(x, y int32) {
 	activeMenuHost = h
 	activeMenuHostMu.Unlock()
 
-	C.xembed_show_popup_menu(&cItems[0], C.int(len(cItems)),
+	C.xembed_show_popup_menu(cItems, C.int(len(items)),
 		nil, C.int(x), C.int(y))
-}
-
-// dbusMenuLayout represents a com.canonical.dbusmenu layout item.
-type dbusMenuLayout struct {
-	ID         int32
-	Properties map[string]dbus.Variant
-	Children   []dbus.Variant
-}
-
-type menuItemInfo struct {
-	id          int32
-	label       string
-	enabled     bool
-	isCheck     bool
-	checked     bool
-	isSeparator bool
 }
 
 func (h *xembedHost) flattenMenu(layout dbusMenuLayout) []menuItemInfo {
@@ -352,6 +358,16 @@ func (h *xembedHost) flattenMenu(layout dbusMenuLayout) []menuItemInfo {
 			}
 		}
 
+		// Recurse into nested submenus. The dbusmenu spec marks a folder
+		// item with children-display=="submenu"; the children are already
+		// in child.Children because GetLayout was called with
+		// recursionDepth=-1 (all levels).
+		if v, ok := child.Properties["children-display"]; ok {
+			if s, ok := v.Value().(string); ok && s == "submenu" {
+				mi.children = h.flattenMenu(child)
+			}
+		}
+
 		items = append(items, mi)
 	}
 
@@ -369,13 +385,6 @@ func (h *xembedHost) sendMenuEvent(id int32) {
 	}
 }
 
-func boolToInt(b bool) C.int {
-	if b {
-		return 1
-	}
-	return 0
-}
-
 func (h *xembedHost) stop() {
 	select {
 	case <-h.stopCh:
@@ -386,4 +395,50 @@ func (h *xembedHost) stop() {
 
 	C.xembed_destroy_icon(h.dpy, h.iconWin)
 	C.XCloseDisplay(h.dpy)
+}
+
+// buildCItems recursively translates Go menuItemInfo slices into a
+// C-allocated array of xembed_menu_item suitable for passing across the
+// Cgo boundary. The C side deep-copies the structure when it stages
+// the popup, so any transient labels/children we allocate here can be
+// released as soon as xembed_show_popup_menu returns. Every malloc is
+// recorded in *allocs so the caller can free it via a single deferred
+// loop. Returns nil for empty slices.
+func buildCItems(items []menuItemInfo, allocs *[]unsafe.Pointer) *C.xembed_menu_item {
+	if len(items) == 0 {
+		return nil
+	}
+	size := C.size_t(len(items)) * C.size_t(unsafe.Sizeof(C.xembed_menu_item{}))
+	arr := C.malloc(size)
+	*allocs = append(*allocs, arr)
+	C.memset(arr, 0, size)
+
+	slice := (*[1 << 16]C.xembed_menu_item)(arr)[:len(items):len(items)]
+	for i, mi := range items {
+		slice[i].id = C.int(mi.id)
+		slice[i].enabled = boolToInt(mi.enabled)
+		slice[i].is_check = boolToInt(mi.isCheck)
+		slice[i].checked = boolToInt(mi.checked)
+		slice[i].is_separator = boolToInt(mi.isSeparator)
+		if mi.label != "" {
+			cstr := C.CString(mi.label)
+			*allocs = append(*allocs, unsafe.Pointer(cstr))
+			slice[i].label = cstr
+		}
+		if len(mi.children) > 0 {
+			slice[i].children = buildCItems(mi.children, allocs)
+			slice[i].child_count = C.int(len(mi.children))
+		}
+	}
+
+	return (*C.xembed_menu_item)(arr)
+}
+
+// boolToInt converts a Go bool to the C int the dbusmenu C API uses
+// for boolean flags.
+func boolToInt(b bool) C.int {
+	if b {
+		return 1
+	}
+	return 0
 }

@@ -55,13 +55,17 @@ typedef void (*xembed_menu_click_cb)(int id);
 // x, y are root coordinates for positioning the popup.
 // This must be called from the GTK main thread (use g_idle_add).
 
-typedef struct {
+typedef struct xembed_menu_item {
     int    id;          // dbusmenu item ID
     const char *label;  // display label (NULL for separator)
     int    enabled;     // whether the item is clickable
     int    is_check;    // whether this is a checkbox item
     int    checked;     // checkbox state (0 or 1)
     int    is_separator;// 1 if this is a separator
+    // children + child_count populate when this item is a submenu folder
+    // (dbusmenu's children-display=="submenu"). NULL/0 means leaf item.
+    struct xembed_menu_item *children;
+    int child_count;
 } xembed_menu_item;
 
 // Schedule a GTK popup menu on the main thread.
