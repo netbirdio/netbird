@@ -57,7 +57,7 @@ func TestUint32PtrEqual(t *testing.T) {
 
 // Real-world scenario lifted from the bug Codex caught: dashboard
 // switches an account from p2p-lazy to p2p-dynamic while leaving
-// every other setting alone. Settings.Copy must produce a new object
+// every other setting alone. Settings.Copy must produce a updated object
 // that compares unequal on ConnectionMode (the trigger for the
 // updateAccountPeers push) and equal on everything else.
 func TestSettings_PushTriggerOnConnectionModeFlip(t *testing.T) {
@@ -68,12 +68,12 @@ func TestSettings_PushTriggerOnConnectionModeFlip(t *testing.T) {
 		ConnectionMode:      &lazy,
 		RelayTimeoutSeconds: &relayTO,
 	}
-	new := old.Copy()
-	new.ConnectionMode = &dynamic
-	if StringPtrEqual(old.ConnectionMode, new.ConnectionMode) {
+	updated := old.Copy()
+	updated.ConnectionMode = &dynamic
+	if StringPtrEqual(old.ConnectionMode, updated.ConnectionMode) {
 		t.Fatal("ConnectionMode flip must NOT be equal (otherwise updateAccountPeers won't fire)")
 	}
-	if !Uint32PtrEqual(old.RelayTimeoutSeconds, new.RelayTimeoutSeconds) {
+	if !Uint32PtrEqual(old.RelayTimeoutSeconds, updated.RelayTimeoutSeconds) {
 		t.Fatal("RelayTimeoutSeconds unchanged must remain equal across Copy()")
 	}
 }

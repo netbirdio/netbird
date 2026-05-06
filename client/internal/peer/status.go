@@ -520,7 +520,7 @@ type RemoteMeta struct {
 func (d *Status) UpdatePeerRemoteMeta(pubKey string, meta RemoteMeta) error {
 	d.mux.Lock()
 	defer d.mux.Unlock()
-	notify := false
+	var notify bool
 	st, online := d.peers[pubKey]
 	if online {
 		notify = st.RemoteLiveOnline != meta.LiveOnline ||

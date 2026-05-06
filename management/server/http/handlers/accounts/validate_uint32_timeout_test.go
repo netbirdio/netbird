@@ -78,7 +78,7 @@ func TestValidateUint32Timeout_ErrorMessageFormat(t *testing.T) {
 // wrappers); the caller wraps them. Document that contract here.
 func TestValidateUint32Timeout_PlainError(t *testing.T) {
 	_, err := validateUint32Timeout("x", -1)
-	var unwrapped error = err
+	unwrapped := err
 	if errors.Unwrap(err) != nil {
 		// fmt.Errorf without %w gives a plain error; if someone changes
 		// it to %w later this assertion catches the API change.
