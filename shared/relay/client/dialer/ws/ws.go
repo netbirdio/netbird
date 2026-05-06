@@ -66,6 +66,9 @@ func prepareURL(address string) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported scheme: %s", parsed.Scheme)
 	}
+	if parsed.Host == "" {
+		return "", fmt.Errorf("missing host in relay address %q", address)
+	}
 	parsed.Path = relay.WebSocketURLPath
 	return parsed.String(), nil
 }
