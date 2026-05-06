@@ -606,6 +606,12 @@ func (e *ConnMgr) propagateP2pRetryMaxToConns() {
 	}
 }
 
+// addPeersToLazyConnManager is currently unused (callers were migrated
+// to per-peer activation in Phase 2 of #5989). Kept for reference and
+// for the eventual full-batch wakeup path; revisit when the lazyconn
+// manager grows a snapshot-import API.
+//
+//nolint:unused // see comment above
 func (e *ConnMgr) addPeersToLazyConnManager() error {
 	peers := e.peerStore.PeersPubKey()
 	lazyPeerCfgs := make([]lazyconn.PeerConfig, 0, len(peers))

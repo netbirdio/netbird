@@ -119,9 +119,7 @@ func (s *BaseServer) PeerConnStore() peer_connections.Store {
 // PeerConnRouter returns the shared SnapshotRouter.
 // Phase 3.7i of #5989: constructed once, shared between gRPC and HTTP servers.
 func (s *BaseServer) PeerConnRouter() *peer_connections.SnapshotRouter {
-	return Create(s, func() *peer_connections.SnapshotRouter {
-		return peer_connections.NewSnapshotRouter()
-	})
+	return Create(s, peer_connections.NewSnapshotRouter)
 }
 
 func (s *BaseServer) APIHandler() *nbhttp.APIHandler {

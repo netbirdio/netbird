@@ -307,6 +307,8 @@ func (d *Status) notifyConnStateChange(peerPubKey string, peerState State) func(
 //
 // Caller must hold d.mux (this method reads d.peers/d.offlinePeers via
 // numOfPeers and assumes consistent state).
+//
+//nolint:unused // wired up in a follow-up commit (UpdatePeerRemoteMeta path)
 func (d *Status) notifyPeerListChanged() {
 	d.notifier.peerListChanged(d.numOfPeers())
 }
