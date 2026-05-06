@@ -16,8 +16,8 @@ import (
 
 type mockStore struct {
 	saveProxyFunc                              func(ctx context.Context, p *proxy.Proxy) error
-	disconnectProxyFunc                        func(ctx context.Context, proxyID string) error
-	updateProxyHeartbeatFunc                   func(ctx context.Context, proxyID, clusterAddress, ipAddress string) error
+	disconnectProxyFunc                        func(ctx context.Context, proxyID, sessionID string) error
+	updateProxyHeartbeatFunc                   func(ctx context.Context, p *proxy.Proxy) error
 	getActiveProxyClusterAddressesFunc         func(ctx context.Context) ([]string, error)
 	getActiveProxyClusterAddressesForAccFunc   func(ctx context.Context, accountID string) ([]string, error)
 	cleanupStaleProxiesFunc                    func(ctx context.Context, d time.Duration) error
@@ -33,15 +33,15 @@ func (m *mockStore) SaveProxy(ctx context.Context, p *proxy.Proxy) error {
 	}
 	return nil
 }
-func (m *mockStore) DisconnectProxy(ctx context.Context, proxyID string) error {
+func (m *mockStore) DisconnectProxy(ctx context.Context, proxyID, sessionID string) error {
 	if m.disconnectProxyFunc != nil {
-		return m.disconnectProxyFunc(ctx, proxyID)
+		return m.disconnectProxyFunc(ctx, proxyID, sessionID)
 	}
 	return nil
 }
-func (m *mockStore) UpdateProxyHeartbeat(ctx context.Context, proxyID, clusterAddress, ipAddress string) error {
+func (m *mockStore) UpdateProxyHeartbeat(ctx context.Context, p *proxy.Proxy) error {
 	if m.updateProxyHeartbeatFunc != nil {
-		return m.updateProxyHeartbeatFunc(ctx, proxyID, clusterAddress, ipAddress)
+		return m.updateProxyHeartbeatFunc(ctx, p)
 	}
 	return nil
 }
@@ -121,11 +121,12 @@ func TestConnect_WithAccountID(t *testing.T) {
 	}
 
 	mgr := newTestManager(s)
-	err := mgr.Connect(context.Background(), "proxy-1", "cluster.example.com", "10.0.0.1", &accountID, nil)
+	_, err := mgr.Connect(context.Background(), "proxy-1", "session-1", "cluster.example.com", "10.0.0.1", &accountID, nil)
 	require.NoError(t, err)
 
 	require.NotNil(t, savedProxy)
 	assert.Equal(t, "proxy-1", savedProxy.ID)
+	assert.Equal(t, "session-1", savedProxy.SessionID)
 	assert.Equal(t, "cluster.example.com", savedProxy.ClusterAddress)
 	assert.Equal(t, "10.0.0.1", savedProxy.IPAddress)
 	assert.Equal(t, &accountID, savedProxy.AccountID)
@@ -143,7 +144,7 @@ func TestConnect_WithoutAccountID(t *testing.T) {
 	}
 
 	mgr := newTestManager(s)
-	err := mgr.Connect(context.Background(), "proxy-1", "eu.proxy.netbird.io", "10.0.0.1", nil, nil)
+	_, err := mgr.Connect(context.Background(), "proxy-1", "session-1", "eu.proxy.netbird.io", "10.0.0.1", nil, nil)
 	require.NoError(t, err)
 
 	require.NotNil(t, savedProxy)
@@ -159,7 +160,7 @@ func TestConnect_StoreError(t *testing.T) {
 	}
 
 	mgr := newTestManager(s)
-	err := mgr.Connect(context.Background(), "proxy-1", "cluster.example.com", "10.0.0.1", nil, nil)
+	_, err := mgr.Connect(context.Background(), "proxy-1", "session-1", "cluster.example.com", "10.0.0.1", nil, nil)
 	assert.Error(t, err)
 }
 

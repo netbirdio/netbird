@@ -413,25 +413,40 @@ func (c *Client) GetRoutesSelectionDetails() (*RoutesSelectionDetails, error) {
 func prepareRouteSelectionDetails(routes []*selectRoute, resolvedDomains map[domain.Domain]peer.ResolvedDomainInfo) *RoutesSelectionDetails {
 	var routeSelection []RoutesSelectionInfo
 	for _, r := range routes {
-		domainList := make([]DomainInfo, 0)
+		// resolvedDomains is keyed by the resolved domain (e.g. api.ipify.org),
+		// not the configured pattern (e.g. *.ipify.org). Group entries whose
+		// ParentDomain belongs to this route, mirroring the daemon logic in
+		// client/server/network.go.
+		domainList := make([]DomainInfo, 0, len(r.Domains))
+		domainIndex := make(map[domain.Domain]int, len(r.Domains))
 		for _, d := range r.Domains {
-			domainResp := DomainInfo{
-				Domain: d.SafeString(),
-			}
-
-			if info, exists := resolvedDomains[d]; exists {
-				var ipStrings []string
-				for _, prefix := range info.Prefixes {
-					ipStrings = append(ipStrings, prefix.Addr().String())
-				}
-				domainResp.ResolvedIPs = strings.Join(ipStrings, ", ")
-			}
-			domainList = append(domainList, domainResp)
+			domainIndex[d] = len(domainList)
+			domainList = append(domainList, DomainInfo{Domain: d.SafeString()})
 		}
+
+		for _, info := range resolvedDomains {
+			idx, ok := domainIndex[info.ParentDomain]
+			if !ok {
+				continue
+			}
+			for _, prefix := range info.Prefixes {
+				domainList[idx].AddResolvedIP(prefix.Addr().String())
+			}
+		}
+
 		domainDetails := DomainDetails{items: domainList}
+
+		// For dynamic (DNS) routes, expose the joined domain pattern as the
+		// Network value so it matches the peer.routes entries on the Swift
+		// side (mirroring the Android bridge in client/android/client.go).
+		netStr := r.Network.String()
+		if len(r.Domains) > 0 {
+			netStr = r.Domains.SafeString()
+		}
+
 		routeSelection = append(routeSelection, RoutesSelectionInfo{
 			ID:       r.NetID,
-			Network:  r.Network.String(),
+			Network:  netStr,
 			Domains:  &domainDetails,
 			Selected: r.Selected,
 		})

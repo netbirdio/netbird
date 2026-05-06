@@ -5478,29 +5478,35 @@ func (s *SqlStore) SaveProxy(ctx context.Context, p *proxy.Proxy) error {
 	return nil
 }
 
-func (s *SqlStore) DisconnectProxy(ctx context.Context, proxyID string) error {
+// DisconnectProxy marks a proxy as disconnected only if the session ID matches.
+// This prevents a slow-to-close old session from overwriting a newer reconnection.
+func (s *SqlStore) DisconnectProxy(ctx context.Context, proxyID, sessionID string) error {
 	now := time.Now()
 	result := s.db.
 		Model(&proxy.Proxy{}).
-		Where("id = ?", proxyID).
-		Updates(map[string]interface{}{
+		Where("id = ? AND session_id = ?", proxyID, sessionID).
+		Updates(map[string]any{
 			"status":          proxy.StatusDisconnected,
 			"disconnected_at": now,
 			"last_seen":       now,
 		})
 	if result.Error != nil {
-		log.WithContext(ctx).Errorf("failed to disconnect proxy: %v", result.Error)
+		log.WithContext(ctx).Errorf("failed to disconnect proxy %s session %s: %v", proxyID, sessionID, result.Error)
 		return status.Errorf(status.Internal, "failed to disconnect proxy")
+	}
+	if result.RowsAffected == 0 {
+		log.WithContext(ctx).Debugf("proxy %s session %s: no row updated (superseded by newer session)", proxyID, sessionID)
 	}
 	return nil
 }
 
-func (s *SqlStore) UpdateProxyHeartbeat(ctx context.Context, proxyID, clusterAddress, ipAddress string) error {
+// UpdateProxyHeartbeat updates the last_seen timestamp for the proxy's current session.
+func (s *SqlStore) UpdateProxyHeartbeat(ctx context.Context, p *proxy.Proxy) error {
 	now := time.Now()
 
 	result := s.db.
 		Model(&proxy.Proxy{}).
-		Where("id = ? AND status = ?", proxyID, proxy.StatusConnected).
+		Where("id = ? AND session_id = ?", p.ID, p.SessionID).
 		Update("last_seen", now)
 
 	if result.Error != nil {
@@ -5509,17 +5515,11 @@ func (s *SqlStore) UpdateProxyHeartbeat(ctx context.Context, proxyID, clusterAdd
 	}
 
 	if result.RowsAffected == 0 {
-		p := &proxy.Proxy{
-			ID:             proxyID,
-			ClusterAddress: clusterAddress,
-			IPAddress:      ipAddress,
-			LastSeen:       now,
-			ConnectedAt:    &now,
-			Status:         "connected",
-		}
-		if err := s.db.Save(p).Error; err != nil {
-			log.WithContext(ctx).Errorf("failed to create proxy on heartbeat: %v", err)
-			return status.Errorf(status.Internal, "failed to create proxy on heartbeat")
+		p.LastSeen = now
+		p.ConnectedAt = &now
+		p.Status = proxy.StatusConnected
+		if err := s.db.Create(p).Error; err != nil {
+			log.WithContext(ctx).Debugf("proxy %s session %s: heartbeat fallback insert skipped: %v", p.ID, p.SessionID, err)
 		}
 	}
 
