@@ -24,7 +24,7 @@ func TestStatus_DuringOfflineDebounce_LocalConnStateUnchanged(t *testing.T) {
 	}
 
 	// Simulate: peer is connected via P2P, mgmt told us peer is live.
-	rec.UpdatePeerICEState(State{
+	_ = rec.UpdatePeerICEState(State{
 		PubKey:                     key,
 		ConnStatus:                 StatusConnected,
 		ConnStatusUpdate:           time.Now(),
@@ -34,7 +34,7 @@ func TestStatus_DuringOfflineDebounce_LocalConnStateUnchanged(t *testing.T) {
 		LocalIceCandidateEndpoint:  "192.168.91.154:51820",
 		RemoteIceCandidateEndpoint: "192.168.91.103:51820",
 	})
-	rec.UpdatePeerRemoteMeta(key, RemoteMeta{
+	_ = rec.UpdatePeerRemoteMeta(key, RemoteMeta{
 		LiveOnline:          true,
 		ServerLivenessKnown: true,
 	})
@@ -50,7 +50,7 @@ func TestStatus_DuringOfflineDebounce_LocalConnStateUnchanged(t *testing.T) {
 	// debounce timer is what closes the conn (after 5 s grace),
 	// not the StatusRecorder. Until conn.Close fires, the daemon
 	// should answer status queries with the still-live transport.
-	rec.UpdatePeerRemoteMeta(key, RemoteMeta{
+	_ = rec.UpdatePeerRemoteMeta(key, RemoteMeta{
 		LiveOnline:          false,
 		ServerLivenessKnown: true,
 	})
@@ -77,7 +77,7 @@ func TestStatus_AfterDebouncedClose_StatusReflectsLocalIdle(t *testing.T) {
 	}
 
 	// Connected state.
-	rec.UpdatePeerICEState(State{
+	_ = rec.UpdatePeerICEState(State{
 		PubKey:           key,
 		ConnStatus:       StatusConnected,
 		ConnStatusUpdate: time.Now(),
@@ -85,7 +85,7 @@ func TestStatus_AfterDebouncedClose_StatusReflectsLocalIdle(t *testing.T) {
 	})
 
 	// Engine: debounce expired, conn.Close fired, status flips Idle.
-	rec.UpdatePeerState(State{
+	_ = rec.UpdatePeerState(State{
 		PubKey:           key,
 		ConnStatus:       StatusIdle,
 		ConnStatusUpdate: time.Now(),
@@ -126,13 +126,13 @@ func TestStatus_GetFullStatus_PreservesEffectiveAndBackoffFields(t *testing.T) {
 	rec := NewRecorder("https://mgm")
 	_ = rec.AddPeer(key, "p1.example", "10.10.10.10")
 
-	rec.UpdatePeerICEState(State{
+	_ = rec.UpdatePeerICEState(State{
 		PubKey:           key,
 		ConnStatus:       StatusConnected,
 		ConnStatusUpdate: time.Now(),
 		Relayed:          true,
 	})
-	rec.UpdatePeerRemoteMeta(key, RemoteMeta{
+	_ = rec.UpdatePeerRemoteMeta(key, RemoteMeta{
 		EffectiveConnectionMode:   "p2p-dynamic",
 		EffectiveRelayTimeoutSecs: 86400,
 		EffectiveP2PTimeoutSecs:   10800,
