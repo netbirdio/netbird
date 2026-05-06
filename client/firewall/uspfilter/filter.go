@@ -115,12 +115,13 @@ type Manager struct {
 
 	localipmanager *localIPManager
 
-	udpTracker  *conntrack.UDPTracker
-	icmpTracker *conntrack.ICMPTracker
-	tcpTracker  *conntrack.TCPTracker
-	forwarder   atomic.Pointer[forwarder.Forwarder]
-	logger      *nblog.Logger
-	flowLogger  nftypes.FlowLogger
+	udpTracker     *conntrack.UDPTracker
+	icmpTracker    *conntrack.ICMPTracker
+	tcpTracker     *conntrack.TCPTracker
+	forwarder      atomic.Pointer[forwarder.Forwarder]
+	pendingCapture atomic.Pointer[forwarder.PacketCapture]
+	logger         *nblog.Logger
+	flowLogger     nftypes.FlowLogger
 
 	blockRule firewall.Rule
 
@@ -351,6 +352,19 @@ func (m *Manager) determineRouting() error {
 	return nil
 }
 
+// SetPacketCapture sets or clears packet capture on the forwarder endpoint.
+// This captures outbound response packets that bypass the FilteredDevice in netstack mode.
+func (m *Manager) SetPacketCapture(pc forwarder.PacketCapture) {
+	if pc == nil {
+		m.pendingCapture.Store(nil)
+	} else {
+		m.pendingCapture.Store(&pc)
+	}
+	if fwder := m.forwarder.Load(); fwder != nil {
+		fwder.SetCapture(pc)
+	}
+}
+
 // initForwarder initializes the forwarder, it disables routing on errors
 func (m *Manager) initForwarder() error {
 	if m.forwarder.Load() != nil {
@@ -371,6 +385,11 @@ func (m *Manager) initForwarder() error {
 	}
 
 	m.forwarder.Store(forwarder)
+
+	// Re-load after store: a concurrent SetPacketCapture may have seen forwarder as nil and only updated pendingCapture.
+	if pc := m.pendingCapture.Load(); pc != nil {
+		forwarder.SetCapture(*pc)
+	}
 
 	log.Debug("forwarder initialized")
 
@@ -614,6 +633,7 @@ func (m *Manager) resetState() {
 	}
 
 	if fwder := m.forwarder.Load(); fwder != nil {
+		fwder.SetCapture(nil)
 		fwder.Stop()
 	}
 

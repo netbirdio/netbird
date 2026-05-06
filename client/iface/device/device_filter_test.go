@@ -158,7 +158,7 @@ func TestDeviceWrapperRead(t *testing.T) {
 			t.Errorf("unexpected error: %v", err)
 			return
 		}
-		if n != 0 {
+		if n != 1 {
 			t.Errorf("expected n=1, got %d", n)
 			return
 		}

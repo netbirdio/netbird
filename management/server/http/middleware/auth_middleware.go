@@ -43,14 +43,9 @@ func NewAuthMiddleware(
 	ensureAccount EnsureAccountFunc,
 	syncUserJWTGroups SyncUserJWTGroupsFunc,
 	getUserFromUserAuth GetUserFromUserAuthFunc,
-	rateLimiterConfig *RateLimiterConfig,
+	rateLimiter *APIRateLimiter,
 	meter metric.Meter,
 ) *AuthMiddleware {
-	var rateLimiter *APIRateLimiter
-	if rateLimiterConfig != nil {
-		rateLimiter = NewAPIRateLimiter(rateLimiterConfig)
-	}
-
 	var patUsageTracker *PATUsageTracker
 	if meter != nil {
 		var err error
@@ -181,10 +176,8 @@ func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, authHeaderParts []
 		m.patUsageTracker.IncrementUsage(token)
 	}
 
-	if m.rateLimiter != nil && !isTerraformRequest(r) {
-		if !m.rateLimiter.Allow(token) {
-			return status.Errorf(status.TooManyRequests, "too many requests")
-		}
+	if !isTerraformRequest(r) && !m.rateLimiter.Allow(token) {
+		return status.Errorf(status.TooManyRequests, "too many requests")
 	}
 
 	ctx := r.Context()

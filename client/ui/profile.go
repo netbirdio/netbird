@@ -548,7 +548,7 @@ func (p *profileMenu) refresh() {
 					if err != nil {
 						log.Errorf("failed to switch profile: %v", err)
 						// show  notification dialog
-						p.app.SendNotification(fyne.NewNotification("Error", "Failed to switch profile"))
+						p.serviceClient.notifier.Send("Error", "Failed to switch profile")
 						return
 					}
 
@@ -628,9 +628,9 @@ func (p *profileMenu) refresh() {
 				}
 				if err := p.eventHandler.logout(p.ctx); err != nil {
 					log.Errorf("logout failed: %v", err)
-					p.app.SendNotification(fyne.NewNotification("Error", "Failed to deregister"))
+					p.serviceClient.notifier.Send("Error", "Failed to deregister")
 				} else {
-					p.app.SendNotification(fyne.NewNotification("Success", "Deregistered successfully"))
+					p.serviceClient.notifier.Send("Success", "Deregistered successfully")
 				}
 			}
 		}

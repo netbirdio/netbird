@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"fyne.io/fyne/v2"
 	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -18,11 +17,17 @@ import (
 	"github.com/netbirdio/netbird/client/ui/desktop"
 )
 
+// Notifier sends desktop notifications. Defined here so the event package
+// does not depend on fyne or the platform-specific notifier implementation.
+type Notifier interface {
+	Send(title, body string)
+}
+
 type Handler func(*proto.SystemEvent)
 
 type Manager struct {
-	app  fyne.App
-	addr string
+	notifier Notifier
+	addr     string
 
 	mu       sync.Mutex
 	ctx      context.Context
@@ -31,10 +36,10 @@ type Manager struct {
 	handlers []Handler
 }
 
-func NewManager(app fyne.App, addr string) *Manager {
+func NewManager(notifier Notifier, addr string) *Manager {
 	return &Manager{
-		app:  app,
-		addr: addr,
+		notifier: notifier,
+		addr:     addr,
 	}
 }
 
@@ -114,7 +119,7 @@ func (e *Manager) handleEvent(event *proto.SystemEvent) {
 		if id != "" {
 			body += fmt.Sprintf(" ID: %s", id)
 		}
-		e.app.SendNotification(fyne.NewNotification(title, body))
+		e.notifier.Send(title, body)
 	}
 
 	for _, handler := range handlers {
