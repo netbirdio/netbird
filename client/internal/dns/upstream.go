@@ -29,6 +29,27 @@ import (
 
 var currentMTU uint16 = iface.DefaultMTU
 
+// nonRetryableEDECodes lists EDE info codes (RFC 8914) for which a SERVFAIL
+// from one upstream means another upstream would return the same answer:
+// DNSSEC validation outcomes and policy-based blocks. Transient errors
+// (network, cached, not ready) are not included.
+var nonRetryableEDECodes = map[uint16]struct{}{
+	dns.ExtendedErrorCodeUnsupportedDNSKEYAlgorithm: {},
+	dns.ExtendedErrorCodeUnsupportedDSDigestType:    {},
+	dns.ExtendedErrorCodeDNSSECIndeterminate:        {},
+	dns.ExtendedErrorCodeDNSBogus:                   {},
+	dns.ExtendedErrorCodeSignatureExpired:           {},
+	dns.ExtendedErrorCodeSignatureNotYetValid:       {},
+	dns.ExtendedErrorCodeDNSKEYMissing:              {},
+	dns.ExtendedErrorCodeRRSIGsMissing:              {},
+	dns.ExtendedErrorCodeNoZoneKeyBitSet:            {},
+	dns.ExtendedErrorCodeNSECMissing:                {},
+	dns.ExtendedErrorCodeBlocked:                    {},
+	dns.ExtendedErrorCodeCensored:                   {},
+	dns.ExtendedErrorCodeFiltered:                   {},
+	dns.ExtendedErrorCodeProhibited:                 {},
+}
+
 func SetCurrentMTU(mtu uint16) {
 	currentMTU = mtu
 }
@@ -342,11 +363,8 @@ func formatFailures(failures []upstreamFailure) string {
 	return strings.Join(parts, ", ")
 }
 
-// nonRetryableEDE reports whether the response carries an Extended DNS Error
-// (RFC 8914) indicating the answer is definitive and trying another upstream
-// would yield the same result. DNSSEC validation failures and policy-based
-// blocks fall into this category; transient errors (network, cached, not
-// ready) do not.
+// nonRetryableEDE returns the first non-retryable EDE code carried in the
+// response, if any.
 func nonRetryableEDE(rm *dns.Msg) (uint16, bool) {
 	opt := rm.IsEdns0()
 	if opt == nil {
@@ -357,21 +375,7 @@ func nonRetryableEDE(rm *dns.Msg) (uint16, bool) {
 		if !ok {
 			continue
 		}
-		switch ede.InfoCode {
-		case dns.ExtendedErrorCodeUnsupportedDNSKEYAlgorithm,
-			dns.ExtendedErrorCodeUnsupportedDSDigestType,
-			dns.ExtendedErrorCodeDNSSECIndeterminate,
-			dns.ExtendedErrorCodeDNSBogus,
-			dns.ExtendedErrorCodeSignatureExpired,
-			dns.ExtendedErrorCodeSignatureNotYetValid,
-			dns.ExtendedErrorCodeDNSKEYMissing,
-			dns.ExtendedErrorCodeRRSIGsMissing,
-			dns.ExtendedErrorCodeNoZoneKeyBitSet,
-			dns.ExtendedErrorCodeNSECMissing,
-			dns.ExtendedErrorCodeBlocked,
-			dns.ExtendedErrorCodeCensored,
-			dns.ExtendedErrorCodeFiltered,
-			dns.ExtendedErrorCodeProhibited:
+		if _, ok := nonRetryableEDECodes[ede.InfoCode]; ok {
 			return ede.InfoCode, true
 		}
 	}
