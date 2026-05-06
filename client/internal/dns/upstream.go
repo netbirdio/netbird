@@ -267,8 +267,13 @@ func (u *upstreamResolverBase) queryUpstream(parentCtx context.Context, w dns.Re
 	// Advertise EDNS0 so the upstream may include Extended DNS Errors
 	// (RFC 8914) in failure responses; we use those to short-circuit
 	// failover for definitive answers like DNSSEC validation failures.
-	if r.IsEdns0() == nil {
-		r.SetEdns0(currentMTU-ipUDPHeaderSize, false)
+	// Operate on a copy so the inbound request is unchanged: a client that
+	// did not advertise EDNS0 must not see an OPT in the response.
+	hadEdns := r.IsEdns0() != nil
+	reqUp := r
+	if !hadEdns {
+		reqUp = r.Copy()
+		reqUp.SetEdns0(upstreamUDPSize(), false)
 	}
 
 	var startTime time.Time
@@ -278,7 +283,7 @@ func (u *upstreamResolverBase) queryUpstream(parentCtx context.Context, w dns.Re
 		defer cancel()
 		ctx, upstreamProto = contextWithupstreamProtocolResult(ctx)
 		startTime = time.Now()
-		rm, t, err = u.upstreamClient.exchange(ctx, upstream.String(), r)
+		rm, t, err = u.upstreamClient.exchange(ctx, upstream.String(), reqUp)
 	}()
 
 	if err != nil {
@@ -292,14 +297,45 @@ func (u *upstreamResolverBase) queryUpstream(parentCtx context.Context, w dns.Re
 	if rm.Rcode == dns.RcodeServerFailure || rm.Rcode == dns.RcodeRefused {
 		if code, ok := nonRetryableEDE(rm); ok {
 			resutil.SetMeta(w, "ede", edeName(code))
+			if !hadEdns {
+				stripOPT(rm)
+			}
 			u.writeSuccessResponse(w, rm, upstream, r.Question[0].Name, t, upstreamProto, logger)
 			return nil
 		}
 		return &upstreamFailure{upstream: upstream, reason: dns.RcodeToString[rm.Rcode]}
 	}
 
+	if !hadEdns {
+		stripOPT(rm)
+	}
 	u.writeSuccessResponse(w, rm, upstream, r.Question[0].Name, t, upstreamProto, logger)
 	return nil
+}
+
+// upstreamUDPSize returns the EDNS0 UDP buffer size we advertise to upstreams,
+// derived from the tunnel MTU and bounded against underflow.
+func upstreamUDPSize() uint16 {
+	if currentMTU > ipUDPHeaderSize {
+		return currentMTU - ipUDPHeaderSize
+	}
+	return dns.MinMsgSize
+}
+
+// stripOPT removes any OPT pseudo-RRs from the response's Extra section so
+// the response complies with RFC 6891 when the client did not advertise EDNS0.
+func stripOPT(rm *dns.Msg) {
+	if len(rm.Extra) == 0 {
+		return
+	}
+	out := rm.Extra[:0]
+	for _, rr := range rm.Extra {
+		if _, ok := rr.(*dns.OPT); ok {
+			continue
+		}
+		out = append(out, rr)
+	}
+	rm.Extra = out
 }
 
 func (u *upstreamResolverBase) handleUpstreamError(err error, upstream netip.AddrPort, startTime time.Time) *upstreamFailure {

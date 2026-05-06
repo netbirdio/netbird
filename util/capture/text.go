@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
+	"github.com/miekg/dns"
 )
 
 // TextWriter writes human-readable one-line-per-packet summaries.
@@ -594,7 +595,8 @@ func formatDNSResponse(d *layers.DNS, rd string, plen int) string {
 	arCount := d.ARCount
 
 	if d.ResponseCode != layers.DNSResponseCodeNoErr {
-		return fmt.Sprintf("%04x %d/%d/%d %s (%d)", d.ID, anCount, nsCount, arCount, d.ResponseCode, plen)
+		ede := formatEDE(d)
+		return fmt.Sprintf("%04x %d/%d/%d %s%s (%d)", d.ID, anCount, nsCount, arCount, d.ResponseCode, ede, plen)
 	}
 
 	if anCount > 0 && len(d.Answers) > 0 {
@@ -605,6 +607,31 @@ func formatDNSResponse(d *layers.DNS, rd string, plen int) string {
 	}
 
 	return fmt.Sprintf("%04x %d/%d/%d (%d)", d.ID, anCount, nsCount, arCount, plen)
+}
+
+// dnsOPTCodeEDE is the EDNS0 option code for Extended DNS Errors (RFC 8914).
+const dnsOPTCodeEDE layers.DNSOptionCode = layers.DNSOptionCode(dns.EDNS0EDE)
+
+// formatEDE returns " EDE=Name" for the first Extended DNS Error option
+// found in the response, or empty string if none is present.
+func formatEDE(d *layers.DNS) string {
+	for _, rr := range d.Additionals {
+		if rr.Type != layers.DNSTypeOPT {
+			continue
+		}
+		for _, opt := range rr.OPT {
+			if opt.Code != dnsOPTCodeEDE || len(opt.Data) < 2 {
+				continue
+			}
+			info := binary.BigEndian.Uint16(opt.Data[:2])
+			name, ok := dns.ExtendedErrorCodeToString[info]
+			if !ok {
+				name = fmt.Sprintf("%d", info)
+			}
+			return " EDE=" + name
+		}
+	}
+	return ""
 }
 
 func shortRData(rr *layers.DNSResourceRecord) string {
