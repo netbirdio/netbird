@@ -70,6 +70,35 @@ type State struct {
 	RosenpassEnabled           bool
 	SSHHostKey                 []byte
 	routes                     map[string]struct{}
+	// Phase 3 (#5989): ICE-backoff state for p2p-dynamic mode.
+	IceBackoffFailures  int
+	IceBackoffNextRetry time.Time
+	IceBackoffSuspended bool
+	// Phase 3.7i (#5989): true = peer is in d.peers; false = in d.offlinePeers.
+	ServerOnline                     bool
+	RemoteEffectiveConnectionMode    string
+	RemoteConfiguredConnectionMode   string
+	RemoteEffectiveRelayTimeoutSecs  uint32
+	RemoteEffectiveP2PTimeoutSecs    uint32
+	RemoteEffectiveP2PRetryMaxSecs   uint32
+	RemoteConfiguredRelayTimeoutSecs uint32
+	RemoteConfiguredP2PTimeoutSecs   uint32
+	RemoteConfiguredP2PRetryMaxSecs  uint32
+	RemoteGroups                     []string
+	RemoteLastSeenAtServer           time.Time
+	// Phase 3.7i (#5989): live mgmt-server-tracked liveness flag from
+	// RemotePeerConfig.LiveOnline (= peer.Status.Connected on the server).
+	// True = peer is currently heartbeating to mgmt; false = configured
+	// but currently unreachable (hardware/network down). Used by the
+	// counter widget to distinguish "online" from "offline" in the
+	// user-intuitive sense, independent of the login-expiration split.
+	RemoteLiveOnline bool
+	// RemoteServerLivenessKnown is the explicit "I authoritatively know
+	// this peer's liveness" marker from a phase-3.7i+ management server.
+	// Old servers leave this false and the counter falls back to its
+	// LastSeenAtServer-zero heuristic; new servers set it true so the
+	// counter trusts RemoteLiveOnline directly.
+	RemoteServerLivenessKnown bool
 }
 
 // AddRoute add a single route to routes map
@@ -160,6 +189,13 @@ type FullStatus struct {
 	NumOfForwardingRules  int
 	LazyConnectionEnabled bool
 	Events                []*proto.SystemEvent
+	// Phase 3.7i (#5989): aggregate counters.
+	ConfiguredPeersTotal  uint32
+	ServerOnlinePeers     uint32
+	P2PConnectedPeers     uint32
+	RelayedConnectedPeers uint32
+	IdleOnlinePeers       uint32
+	ServerOfflinePeers    uint32
 }
 
 type StatusChangeSubscription struct {
@@ -219,6 +255,11 @@ type Status struct {
 
 	routeIDLookup routeIDLookup
 	wgIface       WGIfaceStatus
+
+	// Phase 3.7i (#5989): per-peer state-change subscription. Set by
+	// Engine; nil-checked everywhere. Fired AFTER releasing d.mux to
+	// avoid holding the lock through user code.
+	connStateListener func(pubkey string, st State)
 }
 
 // NewRecorder returns a new Status instance
@@ -233,6 +274,59 @@ func NewRecorder(mgmAddress string) *Status {
 		mgmAddress:            mgmAddress,
 		resolvedDomainsStates: map[domain.Domain]ResolvedDomainInfo{},
 	}
+}
+
+// SetConnStateListener registers a callback that is called after each
+// meaningful per-peer connection-state transition. The callback is
+// invoked AFTER d.mux is released (Extract-Method pattern). Safe to
+// call concurrently; may be set to nil to unregister.
+// Phase 3.7i of #5989.
+func (d *Status) SetConnStateListener(fn func(pubkey string, st State)) {
+	d.mux.Lock()
+	d.connStateListener = fn
+	d.mux.Unlock()
+}
+
+// notifyConnStateChange returns a closure the caller invokes AFTER
+// unlocking d.mux to deliver the state to the listener without holding
+// the lock through user code. Caller must hold d.mux when calling this.
+// Returns a no-op closure when no listener is registered.
+func (d *Status) notifyConnStateChange(peerPubKey string, peerState State) func() {
+	listener := d.connStateListener
+	if listener == nil {
+		return func() {}
+	}
+	stateCopy := peerState
+	return func() { listener(peerPubKey, stateCopy) }
+}
+
+// notifyPeerListChanged fires a peer-list-changed notification using the
+// current peer count. Phase 3.7i: thin wrapper around the notifier so
+// callers in UpdatePeerRemoteMeta and similar paths don't need to know
+// about d.numOfPeers() and d.notifier internals.
+//
+// Caller must hold d.mux (this method reads d.peers/d.offlinePeers via
+// numOfPeers and assumes consistent state).
+//
+//nolint:unused // wired up in a follow-up commit (UpdatePeerRemoteMeta path)
+func (d *Status) notifyPeerListChanged() {
+	d.notifier.peerListChanged(d.numOfPeers())
+}
+
+// notifyPeerStateChangeListeners snapshots the per-peer router-state for
+// peerID under the lock and dispatches it to registered subscribers in
+// a goroutine, so the dispatch itself does not block on d.mux. Called
+// when a peer's UI-relevant fields (LiveOnline, EffectiveConnectionMode,
+// material ICE/Relay change) flip and subscribers need an immediate
+// push instead of waiting for the next periodic poll. Phase 3.7i.
+//
+// Caller must hold d.mux when calling this.
+func (d *Status) notifyPeerStateChangeListeners(peerID string) {
+	snapshot := d.snapshotRouterPeersLocked(peerID, true)
+	if snapshot == nil {
+		return
+	}
+	go d.dispatchRouterPeers(peerID, snapshot)
 }
 
 func (d *Status) SetRelayMgr(manager *relayClient.Manager) {
@@ -319,12 +413,21 @@ func (d *Status) RemovePeer(peerPubKey string) error {
 
 // UpdatePeerState updates peer status
 func (d *Status) UpdatePeerState(receivedState State) error {
+	notifyFn, err := d.updatePeerStateLocked(receivedState)
+	if err != nil {
+		return err
+	}
+	notifyFn()
+	return nil
+}
+
+func (d *Status) updatePeerStateLocked(receivedState State) (func(), error) {
 	d.mux.Lock()
 
 	peerState, ok := d.peers[receivedState.PubKey]
 	if !ok {
 		d.mux.Unlock()
-		return errors.New("peer doesn't exist")
+		return func() {}, errors.New("peer doesn't exist")
 	}
 
 	oldState := peerState.ConnStatus
@@ -357,7 +460,101 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 	if notifyRouter {
 		d.dispatchRouterPeers(receivedState.PubKey, routerSnapshot)
 	}
-	return nil
+
+	if hasConnStatusChanged(oldState, receivedState.ConnStatus) {
+		return d.notifyConnStateChange(receivedState.PubKey, peerState), nil
+	}
+	return func() {}, nil
+}
+
+// UpdatePeerIceBackoff updates the ICE-backoff snapshot for a peer.
+// Called by Conn.onICEFailed / onICEConnected so that the daemon
+// status reflects current backoff state. Phase 3 of #5989.
+func (d *Status) UpdatePeerIceBackoff(pubKey string, snap BackoffSnapshot) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	peerState, ok := d.peers[pubKey]
+	if !ok {
+		return
+	}
+	peerState.IceBackoffFailures = snap.Failures
+	peerState.IceBackoffNextRetry = snap.NextRetry
+	peerState.IceBackoffSuspended = snap.Suspended
+	d.peers[pubKey] = peerState
+}
+
+// RemoteMeta is the slice of per-peer fields RemotePeerConfig populates.
+// Phase 3.7i of #5989.
+type RemoteMeta struct {
+	EffectiveConnectionMode    string
+	EffectiveRelayTimeoutSecs  uint32
+	EffectiveP2PTimeoutSecs    uint32
+	EffectiveP2PRetryMaxSecs   uint32
+	ConfiguredConnectionMode   string
+	ConfiguredRelayTimeoutSecs uint32
+	ConfiguredP2PTimeoutSecs   uint32
+	ConfiguredP2PRetryMaxSecs  uint32
+	Groups                     []string
+	LastSeenAtServer           time.Time
+	LiveOnline                 bool
+	ServerLivenessKnown        bool
+}
+
+// UpdatePeerRemoteMeta sets the RemotePeerConfig-derived fields on the
+// peer's State without touching ConnStatus or transport stats. Looks up
+// the peer in both online (d.peers) and offline (d.offlinePeers) maps.
+// Phase 3.7i of #5989.
+func (d *Status) UpdatePeerRemoteMeta(pubKey string, meta RemoteMeta) error {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	st, online := d.peers[pubKey]
+	if online {
+		st.RemoteEffectiveConnectionMode = meta.EffectiveConnectionMode
+		st.RemoteConfiguredConnectionMode = meta.ConfiguredConnectionMode
+		st.RemoteEffectiveRelayTimeoutSecs = meta.EffectiveRelayTimeoutSecs
+		st.RemoteEffectiveP2PTimeoutSecs = meta.EffectiveP2PTimeoutSecs
+		st.RemoteEffectiveP2PRetryMaxSecs = meta.EffectiveP2PRetryMaxSecs
+		st.RemoteConfiguredRelayTimeoutSecs = meta.ConfiguredRelayTimeoutSecs
+		st.RemoteConfiguredP2PTimeoutSecs = meta.ConfiguredP2PTimeoutSecs
+		st.RemoteConfiguredP2PRetryMaxSecs = meta.ConfiguredP2PRetryMaxSecs
+		st.RemoteGroups = meta.Groups
+		st.RemoteLastSeenAtServer = meta.LastSeenAtServer
+		st.RemoteLiveOnline = meta.LiveOnline
+		st.RemoteServerLivenessKnown = meta.ServerLivenessKnown
+		d.peers[pubKey] = st
+		return nil
+	}
+	for i := range d.offlinePeers {
+		if d.offlinePeers[i].PubKey == pubKey {
+			d.offlinePeers[i].RemoteEffectiveConnectionMode = meta.EffectiveConnectionMode
+			d.offlinePeers[i].RemoteConfiguredConnectionMode = meta.ConfiguredConnectionMode
+			d.offlinePeers[i].RemoteEffectiveRelayTimeoutSecs = meta.EffectiveRelayTimeoutSecs
+			d.offlinePeers[i].RemoteEffectiveP2PTimeoutSecs = meta.EffectiveP2PTimeoutSecs
+			d.offlinePeers[i].RemoteEffectiveP2PRetryMaxSecs = meta.EffectiveP2PRetryMaxSecs
+			d.offlinePeers[i].RemoteConfiguredRelayTimeoutSecs = meta.ConfiguredRelayTimeoutSecs
+			d.offlinePeers[i].RemoteConfiguredP2PTimeoutSecs = meta.ConfiguredP2PTimeoutSecs
+			d.offlinePeers[i].RemoteConfiguredP2PRetryMaxSecs = meta.ConfiguredP2PRetryMaxSecs
+			d.offlinePeers[i].RemoteGroups = meta.Groups
+			d.offlinePeers[i].RemoteLastSeenAtServer = meta.LastSeenAtServer
+			d.offlinePeers[i].RemoteLiveOnline = meta.LiveOnline
+			d.offlinePeers[i].RemoteServerLivenessKnown = meta.ServerLivenessKnown
+			return nil
+		}
+	}
+	return fmt.Errorf("peer %s not found in either map", pubKey)
+}
+
+// TimestampOrZero converts a *timestamppb.Timestamp to time.Time,
+// returning zero-time when the proto pointer is nil. Used by engine.go
+// (Task 3.3) when populating RemoteMeta from RemotePeerConfig where
+// last_seen_at_server may be unset for peers that pre-date Phase 3.7i.
+// Phase 3.7i of #5989.
+func TimestampOrZero(t *timestamppb.Timestamp) time.Time {
+	if t == nil {
+		return time.Time{}
+	}
+	return t.AsTime()
 }
 
 func (d *Status) AddPeerStateRoute(peer string, route string, resourceId route.ResID) error {
@@ -421,16 +618,25 @@ func (d *Status) CheckRoutes(ip netip.Addr) ([]byte, bool) {
 }
 
 func (d *Status) UpdatePeerICEState(receivedState State) error {
+	notifyFn, err := d.updatePeerICEStateLocked(receivedState)
+	if err != nil {
+		return err
+	}
+	notifyFn()
+	return nil
+}
+
+func (d *Status) updatePeerICEStateLocked(receivedState State) (func(), error) {
 	d.mux.Lock()
 
 	peerState, ok := d.peers[receivedState.PubKey]
 	if !ok {
 		d.mux.Unlock()
-		return errors.New("peer doesn't exist")
+		return func() {}, errors.New("peer doesn't exist")
 	}
 
-	oldState := peerState.ConnStatus
-	oldIsRelayed := peerState.Relayed
+	oldSnapshot := peerState
+	oldStatus := peerState.ConnStatus
 
 	peerState.ConnStatus = receivedState.ConnStatus
 	peerState.ConnStatusUpdate = receivedState.ConnStatusUpdate
@@ -443,10 +649,11 @@ func (d *Status) UpdatePeerICEState(receivedState State) error {
 
 	d.peers[receivedState.PubKey] = peerState
 
-	notifyList := hasConnStatusChanged(oldState, receivedState.ConnStatus)
-	notifyRouter := hasStatusOrRelayedChange(oldState, receivedState.ConnStatus, oldIsRelayed, receivedState.Relayed)
+	notifyList := hasConnStatusChanged(oldStatus, receivedState.ConnStatus)
+	notifyRouter := hasStatusOrRelayedChange(oldStatus, receivedState.ConnStatus, oldSnapshot.Relayed, receivedState.Relayed)
 	routerSnapshot := d.snapshotRouterPeersLocked(receivedState.PubKey, notifyRouter)
 	numPeers := d.numOfPeers()
+	materialICE := hasMaterialICEChange(oldSnapshot, peerState)
 
 	d.mux.Unlock()
 
@@ -456,20 +663,36 @@ func (d *Status) UpdatePeerICEState(receivedState State) error {
 	if notifyRouter {
 		d.dispatchRouterPeers(receivedState.PubKey, routerSnapshot)
 	}
-	return nil
+	if materialICE {
+		d.notifyPeerStateChangeListeners(receivedState.PubKey)
+	}
+
+	if hasStatusOrRelayedChange(oldStatus, receivedState.ConnStatus, oldSnapshot.Relayed, receivedState.Relayed) {
+		return d.notifyConnStateChange(receivedState.PubKey, peerState), nil
+	}
+	return func() {}, nil
 }
 
 func (d *Status) UpdatePeerRelayedState(receivedState State) error {
+	notifyFn, err := d.updatePeerRelayedStateLocked(receivedState)
+	if err != nil {
+		return err
+	}
+	notifyFn()
+	return nil
+}
+
+func (d *Status) updatePeerRelayedStateLocked(receivedState State) (func(), error) {
 	d.mux.Lock()
 
 	peerState, ok := d.peers[receivedState.PubKey]
 	if !ok {
 		d.mux.Unlock()
-		return errors.New("peer doesn't exist")
+		return func() {}, errors.New("peer doesn't exist")
 	}
 
-	oldState := peerState.ConnStatus
-	oldIsRelayed := peerState.Relayed
+	oldSnapshot := peerState
+	oldStatus := peerState.ConnStatus
 
 	peerState.ConnStatus = receivedState.ConnStatus
 	peerState.ConnStatusUpdate = receivedState.ConnStatusUpdate
@@ -479,10 +702,11 @@ func (d *Status) UpdatePeerRelayedState(receivedState State) error {
 
 	d.peers[receivedState.PubKey] = peerState
 
-	notifyList := hasConnStatusChanged(oldState, receivedState.ConnStatus)
-	notifyRouter := hasStatusOrRelayedChange(oldState, receivedState.ConnStatus, oldIsRelayed, receivedState.Relayed)
+	notifyList := hasConnStatusChanged(oldStatus, receivedState.ConnStatus)
+	notifyRouter := hasStatusOrRelayedChange(oldStatus, receivedState.ConnStatus, oldSnapshot.Relayed, receivedState.Relayed)
 	routerSnapshot := d.snapshotRouterPeersLocked(receivedState.PubKey, notifyRouter)
 	numPeers := d.numOfPeers()
+	materialRelay := hasMaterialRelayChange(oldSnapshot, peerState)
 
 	d.mux.Unlock()
 
@@ -492,16 +716,32 @@ func (d *Status) UpdatePeerRelayedState(receivedState State) error {
 	if notifyRouter {
 		d.dispatchRouterPeers(receivedState.PubKey, routerSnapshot)
 	}
-	return nil
+	if materialRelay {
+		d.notifyPeerStateChangeListeners(receivedState.PubKey)
+	}
+
+	if hasStatusOrRelayedChange(oldStatus, receivedState.ConnStatus, oldSnapshot.Relayed, receivedState.Relayed) {
+		return d.notifyConnStateChange(receivedState.PubKey, peerState), nil
+	}
+	return func() {}, nil
 }
 
 func (d *Status) UpdatePeerRelayedStateToDisconnected(receivedState State) error {
+	notifyFn, err := d.updatePeerRelayedStateToDisconnectedLocked(receivedState)
+	if err != nil {
+		return err
+	}
+	notifyFn()
+	return nil
+}
+
+func (d *Status) updatePeerRelayedStateToDisconnectedLocked(receivedState State) (func(), error) {
 	d.mux.Lock()
 
 	peerState, ok := d.peers[receivedState.PubKey]
 	if !ok {
 		d.mux.Unlock()
-		return errors.New("peer doesn't exist")
+		return func() {}, errors.New("peer doesn't exist")
 	}
 
 	oldState := peerState.ConnStatus
@@ -527,16 +767,29 @@ func (d *Status) UpdatePeerRelayedStateToDisconnected(receivedState State) error
 	if notifyRouter {
 		d.dispatchRouterPeers(receivedState.PubKey, routerSnapshot)
 	}
-	return nil
+
+	if hasStatusOrRelayedChange(oldState, receivedState.ConnStatus, oldIsRelayed, receivedState.Relayed) {
+		return d.notifyConnStateChange(receivedState.PubKey, peerState), nil
+	}
+	return func() {}, nil
 }
 
 func (d *Status) UpdatePeerICEStateToDisconnected(receivedState State) error {
+	notifyFn, err := d.updatePeerICEStateToDisconnectedLocked(receivedState)
+	if err != nil {
+		return err
+	}
+	notifyFn()
+	return nil
+}
+
+func (d *Status) updatePeerICEStateToDisconnectedLocked(receivedState State) (func(), error) {
 	d.mux.Lock()
 
 	peerState, ok := d.peers[receivedState.PubKey]
 	if !ok {
 		d.mux.Unlock()
-		return errors.New("peer doesn't exist")
+		return func() {}, errors.New("peer doesn't exist")
 	}
 
 	oldState := peerState.ConnStatus
@@ -565,7 +818,11 @@ func (d *Status) UpdatePeerICEStateToDisconnected(receivedState State) error {
 	if notifyRouter {
 		d.dispatchRouterPeers(receivedState.PubKey, routerSnapshot)
 	}
-	return nil
+
+	if hasStatusOrRelayedChange(oldState, receivedState.ConnStatus, oldIsRelayed, receivedState.Relayed) {
+		return d.notifyConnStateChange(receivedState.PubKey, peerState), nil
+	}
+	return func() {}, nil
 }
 
 // UpdateWireGuardPeerState updates the WireGuard bits of the peer state
@@ -593,6 +850,47 @@ func hasStatusOrRelayedChange(oldConnStatus, newConnStatus ConnStatus, oldRelaye
 
 func hasConnStatusChanged(oldStatus, newStatus ConnStatus) bool {
 	return newStatus != oldStatus
+}
+
+// hasMaterialICEChange returns true when any field that the management
+// server's "endpoint flips immediate" UX promise depends on has moved.
+// Beyond the status/relayed flip already covered by hasStatusOrRelayedChange,
+// this catches:
+//   - Local/remote ICE candidate endpoint changes (NAT-traversal roaming)
+//   - Local/remote ICE candidate type changes (host -> srflx -> relay)
+//
+// Without this an in-place endpoint flip would only surface to the
+// dashboard at the next 60 s heartbeat tick.
+func hasMaterialICEChange(oldState, newState State) bool {
+	if hasStatusOrRelayedChange(oldState.ConnStatus, newState.ConnStatus, oldState.Relayed, newState.Relayed) {
+		return true
+	}
+	if oldState.LocalIceCandidateEndpoint != newState.LocalIceCandidateEndpoint {
+		return true
+	}
+	if oldState.RemoteIceCandidateEndpoint != newState.RemoteIceCandidateEndpoint {
+		return true
+	}
+	if oldState.LocalIceCandidateType != newState.LocalIceCandidateType {
+		return true
+	}
+	if oldState.RemoteIceCandidateType != newState.RemoteIceCandidateType {
+		return true
+	}
+	return false
+}
+
+// hasMaterialRelayChange returns true when relayed-state material fields
+// have changed. Beyond status/relayed, this catches relay-server flips
+// (a peer being moved to a different relay endpoint).
+func hasMaterialRelayChange(oldState, newState State) bool {
+	if hasStatusOrRelayedChange(oldState.ConnStatus, newState.ConnStatus, oldState.Relayed, newState.Relayed) {
+		return true
+	}
+	if oldState.RelayServerAddress != newState.RelayServerAddress {
+		return true
+	}
+	return false
 }
 
 // UpdatePeerFQDN update peer's state fqdn only
@@ -1042,11 +1340,63 @@ func (d *Status) GetFullStatus() FullStatus {
 
 	fullStatus.LocalPeerState = d.localPeer
 
+	var p2p, relayed, idle, offline uint32
+
+	// Phase 3.7i (#5989) counter semantics:
+	//   ServerOnline := peer.Status.Connected on the management server
+	//                   (RemotePeerConfig.live_online → State.RemoteLiveOnline)
+	//   Offline      := configured but NOT live (heartbeat is stale OR
+	//                   login expired). For login-expired peers, the
+	//                   daemon already places them in d.offlinePeers via
+	//                   updateOfflinePeers; the rest live in d.peers
+	//                   regardless of their live status, so we additionally
+	//                   check RemoteLiveOnline.
+	//
+	// Backward-compat fallback: if the management server pre-dates
+	// Phase 3.7i, RemoteServerLivenessKnown is false (zero value of the
+	// never-populated proto field). In that case we cannot trust
+	// LiveOnline so we fall back to the legacy heuristic: assume online
+	// unless LastSeenAtServer is set AND LiveOnline is explicitly false.
+	// Phase-3.7i+ servers set ServerLivenessKnown=true and we then trust
+	// LiveOnline directly — both for "yes online" and "no offline".
 	for _, status := range d.peers {
+		var isLive bool
+		if status.RemoteServerLivenessKnown {
+			isLive = status.RemoteLiveOnline
+		} else {
+			mgmtKnowsLiveness := !status.RemoteLastSeenAtServer.IsZero()
+			isLive = status.RemoteLiveOnline || !mgmtKnowsLiveness
+		}
+		if isLive {
+			status.ServerOnline = true
+			switch {
+			case status.ConnStatus == StatusConnected && !status.Relayed:
+				p2p++
+			case status.ConnStatus == StatusConnected && status.Relayed:
+				relayed++
+			default:
+				idle++
+			}
+		} else {
+			status.ServerOnline = false
+			offline++
+		}
+		fullStatus.Peers = append(fullStatus.Peers, status)
+	}
+	for _, status := range d.offlinePeers {
+		// Login-expired peers are always offline.
+		status.ServerOnline = false
+		offline++
 		fullStatus.Peers = append(fullStatus.Peers, status)
 	}
 
-	fullStatus.Peers = append(fullStatus.Peers, d.offlinePeers...)
+	fullStatus.P2PConnectedPeers = p2p
+	fullStatus.RelayedConnectedPeers = relayed
+	fullStatus.IdleOnlinePeers = idle
+	fullStatus.ServerOfflinePeers = offline
+	fullStatus.ServerOnlinePeers = p2p + relayed + idle
+	fullStatus.ConfiguredPeersTotal = fullStatus.ServerOnlinePeers + offline
+
 	fullStatus.Events = d.GetEventHistory()
 	return fullStatus
 }
@@ -1324,6 +1674,14 @@ func (fs FullStatus) ToProto() *proto.FullStatus {
 	pbFullStatus.NumberOfForwardingRules = int32(fs.NumOfForwardingRules)
 	pbFullStatus.LazyConnectionEnabled = fs.LazyConnectionEnabled
 
+	// Phase 3.7i (#5989): aggregate counters.
+	pbFullStatus.ConfiguredPeersTotal = fs.ConfiguredPeersTotal
+	pbFullStatus.ServerOnlinePeers = fs.ServerOnlinePeers
+	pbFullStatus.P2PConnectedPeers = fs.P2PConnectedPeers
+	pbFullStatus.RelayedConnectedPeers = fs.RelayedConnectedPeers
+	pbFullStatus.IdleOnlinePeers = fs.IdleOnlinePeers
+	pbFullStatus.ServerOfflinePeers = fs.ServerOfflinePeers
+
 	pbFullStatus.LocalPeerState.Networks = maps.Keys(fs.LocalPeerState.Routes)
 
 	for _, peerState := range fs.Peers {
@@ -1348,6 +1706,23 @@ func (fs FullStatus) ToProto() *proto.FullStatus {
 			Networks:                   networks,
 			Latency:                    durationpb.New(peerState.Latency),
 			SshHostKey:                 peerState.SSHHostKey,
+			IceBackoffFailures:         int32(peerState.IceBackoffFailures),
+			IceBackoffNextRetry:        timestamppb.New(peerState.IceBackoffNextRetry),
+			IceBackoffSuspended:        peerState.IceBackoffSuspended,
+			// Phase 3.7i (#5989): per-peer remote meta fields.
+			ServerOnline:               peerState.ServerOnline,
+			Groups:                     peerState.RemoteGroups,
+			EffectiveConnectionMode:    peerState.RemoteEffectiveConnectionMode,
+			ConfiguredConnectionMode:   peerState.RemoteConfiguredConnectionMode,
+			EffectiveRelayTimeoutSecs:  peerState.RemoteEffectiveRelayTimeoutSecs,
+			EffectiveP2PTimeoutSecs:    peerState.RemoteEffectiveP2PTimeoutSecs,
+			EffectiveP2PRetryMaxSecs:   peerState.RemoteEffectiveP2PRetryMaxSecs,
+			ConfiguredRelayTimeoutSecs: peerState.RemoteConfiguredRelayTimeoutSecs,
+			ConfiguredP2PTimeoutSecs:   peerState.RemoteConfiguredP2PTimeoutSecs,
+			ConfiguredP2PRetryMaxSecs:  peerState.RemoteConfiguredP2PRetryMaxSecs,
+		}
+		if !peerState.RemoteLastSeenAtServer.IsZero() {
+			pbPeerState.LastSeenAtServer = timestamppb.New(peerState.RemoteLastSeenAtServer)
 		}
 		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)
 	}

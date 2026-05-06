@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -295,17 +296,50 @@ func (c *Client) SetInfoLogLevel() {
 
 // PeersList return with the list of the PeerInfos
 func (c *Client) PeersList() *PeerInfoArray {
+	// Refresh WireGuard counters (BytesRx/Tx + LastWireguardHandshake)
+	// from the kernel/uapi interface before snapshotting. Without this
+	// the Android UI sees the stale values that were last written when
+	// the peer was opened/closed (typically 0), because the desktop
+	// CLI's Status RPC is what normally drives RefreshWireGuardStats.
+	// Phase 3.7i.
+	if err := c.recorder.RefreshWireGuardStats(); err != nil {
+		log.Debugf("PeersList: refresh wg stats: %v", err)
+	}
 
 	fullStatus := c.recorder.GetFullStatus()
 
 	peerInfos := make([]PeerInfo, len(fullStatus.Peers))
 	for n, p := range fullStatus.Peers {
 		pi := PeerInfo{
-			p.IP,
-			p.FQDN,
-			int(p.ConnStatus),
-			PeerRoutes{routes: maps.Keys(p.GetRoutes())},
+			IP:         p.IP,
+			FQDN:       p.FQDN,
+			ConnStatus: int(p.ConnStatus),
+			Routes:     PeerRoutes{routes: maps.Keys(p.GetRoutes())},
 		}
+
+		// Phase 3.7i (#5989): enrichment fields.
+		pi.Relayed = p.Relayed
+		pi.ServerOnline = p.ServerOnline
+		pi.LocalIceCandidateEndpoint = p.LocalIceCandidateEndpoint
+		pi.RemoteIceCandidateEndpoint = p.RemoteIceCandidateEndpoint
+		pi.RelayServerAddress = p.RelayServerAddress
+		if !p.LastWireguardHandshake.IsZero() {
+			pi.LastWireguardHandshake = p.LastWireguardHandshake.Format(time.RFC3339)
+		}
+		if !p.RemoteLastSeenAtServer.IsZero() {
+			pi.LastSeenAtServer = p.RemoteLastSeenAtServer.Format(time.RFC3339)
+		}
+		pi.LatencyMs = p.Latency.Milliseconds()
+		pi.BytesRx = p.BytesRx
+		pi.BytesTx = p.BytesTx
+		pi.EffectiveConnectionMode = p.RemoteEffectiveConnectionMode
+		pi.ConfiguredConnectionMode = p.RemoteConfiguredConnectionMode
+		if len(p.RemoteGroups) > 0 {
+			pi.Groups = strings.Join(p.RemoteGroups, ",")
+		}
+		// AgentVersion / OsVersion: peer.State does not expose these fields;
+		// left empty until daemon surfaces them (future phase).
+
 		peerInfos[n] = pi
 	}
 	return &PeerInfoArray{items: peerInfos}
@@ -392,6 +426,102 @@ func (c *Client) SetConnectionListener(listener ConnectionListener) {
 // RemoveConnectionListener remove connection listener
 func (c *Client) RemoveConnectionListener() {
 	c.recorder.RemoveConnectionListener()
+}
+
+// GetServerPushedConnectionMode returns the canonical name of the
+// connection mode the management server most recently pushed via
+// PeerConfig (independent of any local profile/env override). Returns
+// an empty string when the engine has not connected yet or the server
+// has not pushed a value -- the Android UI then knows to display
+// just "Follow server" without the (currently: ...) suffix.
+func (c *Client) GetServerPushedConnectionMode() string {
+	cm := c.connMgrSafe()
+	if cm == nil {
+		return ""
+	}
+	return cm.ServerPushedMode().String()
+}
+
+// GetServerPushedRelayTimeoutSecs returns the relay timeout in seconds
+// most recently pushed by the management server, or 0 when no value
+// has been received. Used by the Android UI as a hint.
+func (c *Client) GetServerPushedRelayTimeoutSecs() int64 {
+	cm := c.connMgrSafe()
+	if cm == nil {
+		return 0
+	}
+	return int64(cm.ServerPushedRelayTimeoutSecs())
+}
+
+// GetServerPushedP2pTimeoutSecs returns the ICE-only timeout (seconds)
+// most recently pushed by the management server.
+func (c *Client) GetServerPushedP2pTimeoutSecs() int64 {
+	cm := c.connMgrSafe()
+	if cm == nil {
+		return 0
+	}
+	return int64(cm.ServerPushedP2pTimeoutSecs())
+}
+
+// GetServerPushedP2pRetryMaxSecs returns the ICE-backoff cap (seconds)
+// most recently pushed by the management server.
+func (c *Client) GetServerPushedP2pRetryMaxSecs() int64 {
+	cm := c.connMgrSafe()
+	if cm == nil {
+		return 0
+	}
+	return int64(cm.ServerPushedP2pRetryMaxSecs())
+}
+
+// GetConfiguredPeersTotal returns the total number of configured peers
+// (server-online + server-offline). Phase 3.7i (#5989).
+func (c *Client) GetConfiguredPeersTotal() int64 {
+	return int64(c.recorder.GetFullStatus().ConfiguredPeersTotal)
+}
+
+// GetServerOnlinePeers returns the number of peers that are reachable via
+// the server (P2P + Relayed + Idle). Phase 3.7i (#5989).
+func (c *Client) GetServerOnlinePeers() int64 {
+	return int64(c.recorder.GetFullStatus().ServerOnlinePeers)
+}
+
+// GetP2PConnectedPeers returns the number of peers connected via direct
+// P2P (ICE). Phase 3.7i (#5989).
+func (c *Client) GetP2PConnectedPeers() int64 {
+	return int64(c.recorder.GetFullStatus().P2PConnectedPeers)
+}
+
+// GetRelayedConnectedPeers returns the number of peers connected via relay.
+// Phase 3.7i (#5989).
+func (c *Client) GetRelayedConnectedPeers() int64 {
+	return int64(c.recorder.GetFullStatus().RelayedConnectedPeers)
+}
+
+// GetIdleOnlinePeers returns the number of peers that are online on the
+// server but have no active connection yet. Phase 3.7i (#5989).
+func (c *Client) GetIdleOnlinePeers() int64 {
+	return int64(c.recorder.GetFullStatus().IdleOnlinePeers)
+}
+
+// GetServerOfflinePeers returns the number of peers that are not reachable
+// via the server. Phase 3.7i (#5989).
+func (c *Client) GetServerOfflinePeers() int64 {
+	return int64(c.recorder.GetFullStatus().ServerOfflinePeers)
+}
+
+// connMgrSafe is a small helper that walks the Client -> ConnectClient
+// -> Engine -> ConnMgr chain and returns nil at the first nil pointer.
+// Each accessor that surfaces engine state to the Android UI uses it.
+func (c *Client) connMgrSafe() *internal.ConnMgr {
+	cc := c.getConnectClient()
+	if cc == nil {
+		return nil
+	}
+	engine := cc.Engine()
+	if engine == nil {
+		return nil
+	}
+	return engine.ConnMgr()
 }
 
 func (c *Client) toggleRoute(command routeCommand) error {

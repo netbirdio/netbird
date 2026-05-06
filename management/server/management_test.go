@@ -257,6 +257,8 @@ func startServer(
 		networkMapController,
 		nil,
 		nil,
+		nil,
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("failed creating management server: %v", err)

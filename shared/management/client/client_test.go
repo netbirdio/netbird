@@ -17,6 +17,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/netbirdio/netbird/management/server/peer_connections"
 	"github.com/netbirdio/management-integrations/integrations"
 	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
 
@@ -138,7 +139,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, jobManager, secretsManager, nil, nil, mgmt.MockIntegratedValidator{}, networkMapController, nil, nil)
+	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, jobManager, secretsManager, nil, nil, mgmt.MockIntegratedValidator{}, networkMapController, nil, nil, peer_connections.NewMemoryStore(time.Hour), peer_connections.NewSnapshotRouter())
 	if err != nil {
 		t.Fatal(err)
 	}

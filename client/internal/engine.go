@@ -34,6 +34,7 @@ import (
 	nbnetstack "github.com/netbirdio/netbird/client/iface/netstack"
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/internal/acl"
+	"github.com/netbirdio/netbird/client/internal/debouncer"
 	"github.com/netbirdio/netbird/client/internal/debug"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
@@ -61,6 +62,7 @@ import (
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/connectionmode"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
@@ -136,6 +138,26 @@ type EngineConfig struct {
 	BlockInbound        bool
 
 	LazyConnectionEnabled bool
+
+	// ConnectionMode is the resolved peer-connection mode for this daemon
+	// session. ModeUnspecified means "fall back to LazyConnectionEnabled".
+	// Set by the caller of NewEngine; usually populated from
+	// profilemanager.Config.ConnectionMode in connect.go.
+	ConnectionMode connectionmode.Mode
+
+	// RelayTimeoutSeconds, when > 0, overrides the server-pushed relay
+	// timeout. 0 means "follow server-pushed value".
+	RelayTimeoutSeconds uint32
+
+	// P2pTimeoutSeconds, when > 0, overrides the server-pushed p2p timeout.
+	// 0 means "follow server-pushed value". Reserved for Phase 2 -- has no
+	// effect in Phase 1.
+	P2pTimeoutSeconds uint32
+
+	// P2pRetryMaxSeconds, when > 0, overrides the server-pushed
+	// p2p_retry_max_seconds. 0 = use server-pushed value (or built-in
+	// default 15 min). Phase 3 of #5989.
+	P2pRetryMaxSeconds uint32
 
 	MTU uint16
 
@@ -246,6 +268,13 @@ type Engine struct {
 	jobExecutorWG sync.WaitGroup
 
 	exposeManager *expose.Manager
+
+	// Phase 3.7i (#5989): track last-pushed effective config to detect changes.
+	lastPushedEff     mgm.EffectiveConnConfig
+	syncMetaDebouncer *debouncer.Debouncer
+
+	// Phase 3.7i (#5989): per-peer connection-state pusher.
+	connStatePusher *connStatePusher
 }
 
 // Peer is an instance of the Connection Peer
@@ -288,10 +317,22 @@ func NewEngine(
 		jobExecutor:        jobexec.NewExecutor(),
 		clientMetrics:      services.ClientMetrics,
 		updateManager:      services.UpdateManager,
+		syncMetaDebouncer:  debouncer.New(5 * time.Second),
 	}
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
 	return engine
+}
+
+// ConnMgr returns the engine's ConnMgr or nil if the engine has not been
+// started yet (or has already shut down). Used by the Android UI to query
+// the server-pushed connection mode for the dropdown's "Follow server"
+// label.
+func (e *Engine) ConnMgr() *ConnMgr {
+	if e == nil {
+		return nil
+	}
+	return e.connMgr
 }
 
 func (e *Engine) Stop() error {
@@ -302,8 +343,17 @@ func (e *Engine) Stop() error {
 	}
 	e.syncMsgMux.Lock()
 
+	if e.syncMetaDebouncer != nil {
+		e.syncMetaDebouncer.Stop()
+	}
+
 	if e.connMgr != nil {
 		e.connMgr.Close()
+	}
+
+	if e.connStatePusher != nil {
+		e.connStatePusher.Stop()
+		e.connStatePusher = nil
 	}
 
 	// stopping network monitor first to avoid starting the engine again
@@ -574,8 +624,20 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	e.connMgr = NewConnMgr(e.config, e.statusRecorder, e.peerStore, wgIface)
 	e.connMgr.Start(e.ctx)
 
+	// Phase 3.7i (#5989): start the per-peer connection-state pusher.
+	e.connStatePusher = newConnStatePusher(
+		&enginePushSink{engine: e},
+		&enginePeerStateSource{engine: e},
+	)
+	e.statusRecorder.SetConnStateListener(func(pubkey string, st peer.State) {
+		e.connStatePusher.OnPeerStateChange(peerStateToEvent(pubkey, st))
+	})
+	e.mgmClient.SetSnapshotRequestHandler(func(nonce uint64) {
+		e.connStatePusher.OnSnapshotRequest(nonce)
+	})
+
 	e.srWatcher = guard.NewSRWatcher(e.signal, e.relayManager, e.mobileDep.IFaceDiscover, iceCfg)
-	e.srWatcher.Start(peer.IsForceRelayed())
+	e.srWatcher.Start(peer.IsForceRelayed()) //nolint:staticcheck // intentionally retained for Phase-1 backwards compat
 
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()
@@ -1231,8 +1293,49 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		return nil
 	}
 
-	if err := e.connMgr.UpdatedRemoteFeatureFlag(e.ctx, networkMap.GetPeerConfig().GetLazyConnectionEnabled()); err != nil {
-		log.Errorf("failed to update lazy connection feature flag: %v", err)
+	if err := e.connMgr.UpdatedRemotePeerConfig(e.ctx, networkMap.GetPeerConfig()); err != nil {
+		log.Errorf("failed to update connection mode from PeerConfig: %v", err)
+	}
+
+	// Phase 3.7i (#5989): record + push effective values.
+	newEff := mgm.EffectiveConnConfig{
+		Mode:             e.connMgr.Mode().String(),
+		RelayTimeoutSecs: e.connMgr.RelayTimeout(),
+		P2PTimeoutSecs:   e.connMgr.P2pTimeout(),
+		P2PRetryMaxSecs:  e.connMgr.P2pRetryMax(),
+	}
+	e.mgmClient.SetEffectiveConnConfig(newEff)
+	if e.lastPushedEff != newEff {
+		e.lastPushedEff = newEff
+		// Debounce SyncMeta so a burst of NetworkMap updates doesn't
+		// generate a burst of SyncMeta calls.
+		e.syncMetaDebouncer.Trigger(func() {
+			info, err := system.GetInfoWithChecks(e.ctx, e.checks)
+			if err != nil {
+				log.Warnf("failed to get system info for SyncMeta: %v", err)
+				info = system.GetInfo(e.ctx)
+			}
+			info.SetFlags(
+				e.config.RosenpassEnabled,
+				e.config.RosenpassPermissive,
+				&e.config.ServerSSHAllowed,
+				e.config.DisableClientRoutes,
+				e.config.DisableServerRoutes,
+				e.config.DisableDNS,
+				e.config.DisableFirewall,
+				e.config.BlockLANAccess,
+				e.config.BlockInbound,
+				e.config.LazyConnectionEnabled,
+				e.config.EnableSSHRoot,
+				e.config.EnableSSHSFTP,
+				e.config.EnableSSHLocalPortForwarding,
+				e.config.EnableSSHRemotePortForwarding,
+				e.config.DisableSSHAuth,
+			)
+			if err := e.mgmClient.SyncMeta(info); err != nil {
+				log.Warnf("SyncMeta after effective-mode change: %v", err)
+			}
+		})
 	}
 
 	if e.firewall != nil {
@@ -1296,6 +1399,27 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 	e.updateOfflinePeers(networkMap.GetOfflinePeers())
 
+	// Phase 3.7i (#5989): populate RemoteMeta for offline peers so the
+	// daemon-RPC StatusResponse can show them with their groups + last_seen.
+	for _, op := range networkMap.GetOfflinePeers() {
+		if err := e.statusRecorder.UpdatePeerRemoteMeta(op.GetWgPubKey(), peer.RemoteMeta{
+			EffectiveConnectionMode:    op.GetEffectiveConnectionMode(),
+			EffectiveRelayTimeoutSecs:  op.GetEffectiveRelayTimeoutSecs(),
+			EffectiveP2PTimeoutSecs:    op.GetEffectiveP2PTimeoutSecs(),
+			EffectiveP2PRetryMaxSecs:   op.GetEffectiveP2PRetryMaxSecs(),
+			ConfiguredConnectionMode:   op.GetConfiguredConnectionMode(),
+			ConfiguredRelayTimeoutSecs: op.GetConfiguredRelayTimeoutSecs(),
+			ConfiguredP2PTimeoutSecs:   op.GetConfiguredP2PTimeoutSecs(),
+			ConfiguredP2PRetryMaxSecs:  op.GetConfiguredP2PRetryMaxSecs(),
+			Groups:                     op.GetGroups(),
+			LastSeenAtServer:           peer.TimestampOrZero(op.GetLastSeenAtServer()),
+			LiveOnline:                 op.GetLiveOnline(),
+			ServerLivenessKnown:        op.GetServerLivenessKnown(),
+		}); err != nil {
+			log.Debugf("UpdatePeerRemoteMeta(offline %s): %v", op.GetWgPubKey(), err)
+		}
+	}
+
 	// Filter out own peer from the remote peers list
 	localPubKey := e.config.WgPrivateKey.PublicKey().String()
 	remotePeers := make([]*mgmProto.RemotePeerConfig, 0, len(networkMap.GetRemotePeers()))
@@ -1309,6 +1433,9 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	if networkMap.GetRemotePeersIsEmpty() {
 		err := e.removeAllPeers()
 		e.statusRecorder.FinishPeerListModifications()
+		if e.connStatePusher != nil {
+			e.connStatePusher.TriggerInitialSnapshot()
+		}
 		if err != nil {
 			return err
 		}
@@ -1329,6 +1456,12 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		}
 
 		e.statusRecorder.FinishPeerListModifications()
+		// Phase 3.7i: peers are populated for the first time; release
+		// the conn-state pusher so its initial full snapshot reflects
+		// the actual peer set instead of an empty map.
+		if e.connStatePusher != nil {
+			e.connStatePusher.TriggerInitialSnapshot()
+		}
 
 		e.updatePeerSSHHostKeys(remotePeers)
 
@@ -1337,6 +1470,27 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		}
 
 		e.updateSSHServerAuth(networkMap.GetSshAuth())
+
+		// Phase 3.7i (#5989): mirror RemotePeerConfig fields into peer.Status
+		// so daemon-RPC StatusResponse exposes them for UIs.
+		for _, rp := range remotePeers {
+			if err := e.statusRecorder.UpdatePeerRemoteMeta(rp.GetWgPubKey(), peer.RemoteMeta{
+				EffectiveConnectionMode:    rp.GetEffectiveConnectionMode(),
+				EffectiveRelayTimeoutSecs:  rp.GetEffectiveRelayTimeoutSecs(),
+				EffectiveP2PTimeoutSecs:    rp.GetEffectiveP2PTimeoutSecs(),
+				EffectiveP2PRetryMaxSecs:   rp.GetEffectiveP2PRetryMaxSecs(),
+				ConfiguredConnectionMode:   rp.GetConfiguredConnectionMode(),
+				ConfiguredRelayTimeoutSecs: rp.GetConfiguredRelayTimeoutSecs(),
+				ConfiguredP2PTimeoutSecs:   rp.GetConfiguredP2PTimeoutSecs(),
+				ConfiguredP2PRetryMaxSecs:  rp.GetConfiguredP2PRetryMaxSecs(),
+				Groups:                     rp.GetGroups(),
+				LastSeenAtServer:           peer.TimestampOrZero(rp.GetLastSeenAtServer()),
+				LiveOnline:                 rp.GetLiveOnline(),
+				ServerLivenessKnown:        rp.GetServerLivenessKnown(),
+			}); err != nil {
+				log.Debugf("UpdatePeerRemoteMeta(%s): %v", rp.GetWgPubKey(), err)
+			}
+		}
 	}
 
 	// must set the exclude list after the peers are added. Without it the manager can not figure out the peers parameters from the store
@@ -1560,7 +1714,9 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 			Addr:           e.getRosenpassAddr(),
 			PermissiveMode: e.config.RosenpassPermissive,
 		},
-		ICEConfig: e.createICEConfig(),
+		ICEConfig:          e.createICEConfig(),
+		Mode:               e.connMgr.Mode(),
+		P2pRetryMaxSeconds: e.connMgr.P2pRetryMax(),
 	}
 
 	serviceDependencies := peer.ServiceDependencies{

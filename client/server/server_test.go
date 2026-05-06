@@ -21,6 +21,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/job"
+	"github.com/netbirdio/netbird/management/server/peer_connections"
 
 	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/groups"
@@ -335,7 +336,7 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 	if err != nil {
 		return nil, "", err
 	}
-	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, jobManager, secretsManager, nil, nil, &server.MockIntegratedValidator{}, networkMapController, nil, nil)
+	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, jobManager, secretsManager, nil, nil, &server.MockIntegratedValidator{}, networkMapController, nil, nil, peer_connections.NewMemoryStore(5*time.Minute), peer_connections.NewSnapshotRouter())
 	if err != nil {
 		return nil, "", err
 	}

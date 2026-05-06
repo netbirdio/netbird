@@ -17,6 +17,24 @@ type PeerInfo struct {
 	FQDN       string
 	ConnStatus int
 	Routes     PeerRoutes
+
+	// Phase 3.7i (#5989): per-peer enrichment fields. Strings for
+	// gomobile-friendliness (no time.Time / no []string).
+	Relayed                       bool
+	ServerOnline                  bool
+	LocalIceCandidateEndpoint     string
+	RemoteIceCandidateEndpoint    string
+	RelayServerAddress            string
+	LastWireguardHandshake        string // RFC3339; "" if zero
+	LastSeenAtServer              string // RFC3339; "" if zero
+	LatencyMs                     int64
+	BytesRx                       int64
+	BytesTx                       int64
+	EffectiveConnectionMode       string
+	ConfiguredConnectionMode      string
+	Groups                        string // comma-separated
+	AgentVersion                  string
+	OsVersion                     string
 }
 
 func (p *PeerInfo) GetPeerRoutes() *PeerRoutes {

@@ -15,6 +15,7 @@ import (
 	"github.com/kardianos/service"
 	"github.com/spf13/cobra"
 
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -131,6 +132,12 @@ var installCmd = &cobra.Command{
 			cmd.PrintErrf("Warning: failed to load saved service params: %v\n", err)
 		}
 
+		// Persist any profile-level connection-mode/timeout flags that
+		// were explicitly set so the daemon picks them up on first start.
+		if err := applyConnectionModeFlagsToProfile(cmd); err != nil {
+			cmd.PrintErrf("Warning: failed to persist connection-mode flags: %v\n", err)
+		}
+
 		svcConfig, err := createServiceConfigForInstall()
 		if err != nil {
 			return err
@@ -155,6 +162,52 @@ var installCmd = &cobra.Command{
 		cmd.Println("NetBird service has been installed")
 		return nil
 	},
+}
+
+// applyConnectionModeFlagsToProfile writes the connection-mode +
+// timeout flags into the active profile's config file so the daemon
+// will use them on its next startup. Only fields whose flag was
+// explicitly set are touched; missing flags leave the existing
+// profile values intact. Used by install + reconfigure so headless
+// deployments can pre-seed everything in a single command.
+func applyConnectionModeFlagsToProfile(cmd *cobra.Command) error {
+	anyChanged := false
+	for _, name := range []string{connectionModeFlag, relayTimeoutFlag, p2pTimeoutFlag, p2pRetryMaxFlag} {
+		if f := cmd.Flag(name); f != nil && f.Changed {
+			anyChanged = true
+			break
+		}
+	}
+	if !anyChanged {
+		return nil
+	}
+
+	cfgPath := profilemanager.DefaultConfigPath
+	if configPath != "" {
+		cfgPath = configPath
+	}
+	if cfgPath == "" {
+		return fmt.Errorf("default config path is not set on this platform; pass --config")
+	}
+
+	ic := profilemanager.ConfigInput{ConfigPath: cfgPath}
+	if cmd.Flag(connectionModeFlag).Changed {
+		ic.ConnectionMode = &connectionMode
+	}
+	if cmd.Flag(relayTimeoutFlag).Changed {
+		ic.RelayTimeoutSeconds = &relayTimeoutSecs
+	}
+	if cmd.Flag(p2pTimeoutFlag).Changed {
+		ic.P2pTimeoutSeconds = &p2pTimeoutSecs
+	}
+	if cmd.Flag(p2pRetryMaxFlag).Changed {
+		ic.P2pRetryMaxSeconds = &p2pRetryMaxSecs
+	}
+	if _, err := profilemanager.UpdateOrCreateConfig(ic); err != nil {
+		return fmt.Errorf("write profile %s: %w", cfgPath, err)
+	}
+	cmd.Println("connection-mode/timeout flags persisted to profile:", cfgPath)
+	return nil
 }
 
 var uninstallCmd = &cobra.Command{
@@ -205,6 +258,10 @@ This command will temporarily stop the service, update its configuration, and re
 
 		if err := loadAndApplyServiceParams(cmd); err != nil {
 			cmd.PrintErrf("Warning: failed to load saved service params: %v\n", err)
+		}
+
+		if err := applyConnectionModeFlagsToProfile(cmd); err != nil {
+			cmd.PrintErrf("Warning: failed to persist connection-mode flags: %v\n", err)
 		}
 
 		wasRunning, err := isServiceRunning()

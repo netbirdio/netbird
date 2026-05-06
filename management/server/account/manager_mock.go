@@ -900,6 +900,21 @@ func (mr *MockManagerMockRecorder) GetPeer(ctx, accountID, peerID, userID interf
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPeer", reflect.TypeOf((*MockManager)(nil).GetPeer), ctx, accountID, peerID, userID)
 }
 
+// GetPeerByPubKey mocks base method. Phase 3.7i of #5989.
+func (m *MockManager) GetPeerByPubKey(ctx context.Context, accountID, pubKey string) (*peer.Peer, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPeerByPubKey", ctx, accountID, pubKey)
+	ret0, _ := ret[0].(*peer.Peer)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPeerByPubKey indicates an expected call of GetPeerByPubKey.
+func (mr *MockManagerMockRecorder) GetPeerByPubKey(ctx, accountID, pubKey interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPeerByPubKey", reflect.TypeOf((*MockManager)(nil).GetPeerByPubKey), ctx, accountID, pubKey)
+}
+
 // GetPeerGroups mocks base method.
 func (m *MockManager) GetPeerGroups(ctx context.Context, accountID, peerID string) ([]*types.Group, error) {
 	m.ctrl.T.Helper()

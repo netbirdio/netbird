@@ -55,6 +55,13 @@ type GrpcClient struct {
 	connStateCallback     ConnStateNotifier
 	connStateCallbackLock sync.RWMutex
 	serverURL             string
+
+	effMu     sync.RWMutex
+	effective EffectiveConnConfig
+
+	// Phase 3.7i (#5989): handler for server-pushed SnapshotRequests.
+	snapMu            sync.Mutex
+	onSnapshotRequest func(nonce uint64)
 }
 
 type ExposeRequest struct {
@@ -435,7 +442,7 @@ func (c *GrpcClient) GetNetworkMap(sysInfo *system.Info) (*proto.NetworkMap, err
 }
 
 func (c *GrpcClient) connectToSyncStream(ctx context.Context, serverPubKey wgtypes.Key, sysInfo *system.Info) (proto.ManagementService_SyncClient, error) {
-	req := &proto.SyncRequest{Meta: infoToMetaData(sysInfo)}
+	req := &proto.SyncRequest{Meta: infoToMetaData(sysInfo, c.effectiveConnConfig())}
 
 	myPrivateKey := c.key
 	myPublicKey := myPrivateKey.PublicKey()
@@ -471,6 +478,15 @@ func (c *GrpcClient) receiveUpdatesEvents(stream proto.ManagementService_SyncCli
 		if err != nil {
 			log.Errorf("failed decrypting update message from Management Service: %s", err)
 			return err
+		}
+
+		if req := decryptedResp.GetSnapshotRequest(); req != nil {
+			c.snapMu.Lock()
+			cb := c.onSnapshotRequest
+			c.snapMu.Unlock()
+			if cb != nil {
+				cb(req.GetNonce())
+			}
 		}
 
 		if err := msgHandler(decryptedResp); err != nil {
@@ -595,7 +611,7 @@ func (c *GrpcClient) Register(setupKey string, jwtToken string, sysInfo *system.
 		SshPubKey: pubSSHKey,
 		WgPubKey:  []byte(c.key.PublicKey().String()),
 	}
-	return c.login(&proto.LoginRequest{SetupKey: setupKey, Meta: infoToMetaData(sysInfo), JwtToken: jwtToken, PeerKeys: keys, DnsLabels: dnsLabels.ToPunycodeList()})
+	return c.login(&proto.LoginRequest{SetupKey: setupKey, Meta: infoToMetaData(sysInfo, c.effectiveConnConfig()), JwtToken: jwtToken, PeerKeys: keys, DnsLabels: dnsLabels.ToPunycodeList()})
 }
 
 // Login attempts login to Management Server. Takes care of encrypting and decrypting messages.
@@ -604,7 +620,7 @@ func (c *GrpcClient) Login(sysInfo *system.Info, pubSSHKey []byte, dnsLabels dom
 		SshPubKey: pubSSHKey,
 		WgPubKey:  []byte(c.key.PublicKey().String()),
 	}
-	return c.login(&proto.LoginRequest{Meta: infoToMetaData(sysInfo), PeerKeys: keys, DnsLabels: dnsLabels.ToPunycodeList()})
+	return c.login(&proto.LoginRequest{Meta: infoToMetaData(sysInfo, c.effectiveConnConfig()), PeerKeys: keys, DnsLabels: dnsLabels.ToPunycodeList()})
 }
 
 // GetDeviceAuthorizationFlow returns a device authorization flow information.
@@ -700,7 +716,7 @@ func (c *GrpcClient) SyncMeta(sysInfo *system.Info) error {
 		return err
 	}
 
-	syncMetaReq, err := encryption.EncryptMessage(*serverPubKey, c.key, &proto.SyncMetaRequest{Meta: infoToMetaData(sysInfo)})
+	syncMetaReq, err := encryption.EncryptMessage(*serverPubKey, c.key, &proto.SyncMetaRequest{Meta: infoToMetaData(sysInfo, c.effectiveConnConfig())})
 	if err != nil {
 		log.Errorf("failed to encrypt message: %s", err)
 		return err
@@ -712,6 +728,36 @@ func (c *GrpcClient) SyncMeta(sysInfo *system.Info) error {
 	_, err = c.realClient.SyncMeta(mgmCtx, &proto.EncryptedMessage{
 		WgPubKey: c.key.PublicKey().String(),
 		Body:     syncMetaReq,
+	})
+	return err
+}
+
+// SyncPeerConnections is the GrpcClient implementation. Phase 3.7i of
+// #5989. Mirrors SyncMeta: fetches server pubkey, encrypts the
+// PeerConnectionMap with the peer's wg key, calls the new unary RPC.
+func (c *GrpcClient) SyncPeerConnections(ctx context.Context, m *proto.PeerConnectionMap) error {
+	if !c.ready() {
+		return errors.New(errMsgNoMgmtConnection)
+	}
+
+	serverPubKey, err := c.getServerPublicKey()
+	if err != nil {
+		log.Debugf(errMsgMgmtPublicKey, err)
+		return err
+	}
+
+	encrypted, err := encryption.EncryptMessage(*serverPubKey, c.key, m)
+	if err != nil {
+		log.Errorf("encrypt PeerConnectionMap: %s", err)
+		return err
+	}
+
+	mgmCtx, cancel := context.WithTimeout(ctx, ConnectTimeout)
+	defer cancel()
+
+	_, err = c.realClient.SyncPeerConnections(mgmCtx, &proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     encrypted,
 	})
 	return err
 }
@@ -883,7 +929,43 @@ func toProtoExposeServiceRequest(req ExposeRequest) (*proto.ExposeServiceRequest
 	}, nil
 }
 
-func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
+// EffectiveConnConfig captures the peer-engine-resolved connection mode
+// + timeouts that should be reported to mgmt alongside system info.
+// Phase 3.7i of #5989.
+type EffectiveConnConfig struct {
+	Mode             string
+	RelayTimeoutSecs uint32
+	P2PTimeoutSecs   uint32
+	P2PRetryMaxSecs  uint32
+}
+
+// effectiveConnConfig pulls the engine-resolved connection mode/timeouts
+// to report in PeerSystemMeta. Empty when the engine has not registered
+// itself with the client (early startup / standalone mock). Phase 3.7i.
+func (c *GrpcClient) effectiveConnConfig() EffectiveConnConfig {
+	c.effMu.RLock()
+	defer c.effMu.RUnlock()
+	return c.effective
+}
+
+// SetEffectiveConnConfig is called by the engine each time the resolved
+// mode changes (typically once per NetworkMap update). Phase 3.7i.
+func (c *GrpcClient) SetEffectiveConnConfig(eff EffectiveConnConfig) {
+	c.effMu.Lock()
+	defer c.effMu.Unlock()
+	c.effective = eff
+}
+
+// SetSnapshotRequestHandler registers a callback invoked when the
+// management server sends a SnapshotRequest over the Sync server-stream.
+// Phase 3.7i of #5989.
+func (c *GrpcClient) SetSnapshotRequestHandler(fn func(nonce uint64)) {
+	c.snapMu.Lock()
+	c.onSnapshotRequest = fn
+	c.snapMu.Unlock()
+}
+
+func infoToMetaData(info *system.Info, eff EffectiveConnConfig) *proto.PeerSystemMeta {
 	if info == nil {
 		return nil
 	}
@@ -940,5 +1022,10 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 
 			LazyConnectionEnabled: info.LazyConnectionEnabled,
 		},
+
+		EffectiveConnectionMode:   eff.Mode,
+		EffectiveRelayTimeoutSecs: eff.RelayTimeoutSecs,
+		EffectiveP2PTimeoutSecs:   eff.P2PTimeoutSecs,
+		EffectiveP2PRetryMaxSecs:  eff.P2PRetryMaxSecs,
 	}
 }

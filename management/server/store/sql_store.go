@@ -1513,6 +1513,14 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 			settings_jwt_groups_enabled, settings_jwt_groups_claim_name, settings_jwt_allow_groups,
 			settings_routing_peer_dns_resolution_enabled, settings_dns_domain, settings_network_range,
 			settings_lazy_connection_enabled,
+			-- Phase-3.7i (#5989) connection-mode columns. The pgx fast
+			-- path must SELECT these or new modes silently regress to the
+			-- legacy LazyConnectionEnabled bool, which clients then
+			-- interpret as ModeP2P (eager) -- defeating the picker.
+			settings_connection_mode,
+			settings_relay_timeout_seconds,
+			settings_p2p_timeout_seconds,
+			settings_p2p_retry_max_seconds,
 			-- Embedded ExtraSettings
 			settings_extra_peer_approval_enabled, settings_extra_user_approval_required,
 			settings_extra_integrated_validator, settings_extra_integrated_validator_groups
@@ -1532,6 +1540,10 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		sDNSDomain                       sql.NullString
 		sNetworkRange                    sql.NullString
 		sLazyConnectionEnabled           sql.NullBool
+		sConnectionMode                  sql.NullString
+		sRelayTimeoutSeconds             sql.NullInt64
+		sP2pTimeoutSeconds               sql.NullInt64
+		sP2pRetryMaxSeconds              sql.NullInt64
 		sExtraPeerApprovalEnabled        sql.NullBool
 		sExtraUserApprovalRequired       sql.NullBool
 		sExtraIntegratedValidator        sql.NullString
@@ -1553,6 +1565,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		&sJWTGroupsEnabled, &sJWTGroupsClaimName, &sJWTAllowGroups,
 		&sRoutingPeerDNSResolutionEnabled, &sDNSDomain, &sNetworkRange,
 		&sLazyConnectionEnabled,
+		&sConnectionMode, &sRelayTimeoutSeconds, &sP2pTimeoutSeconds, &sP2pRetryMaxSeconds,
 		&sExtraPeerApprovalEnabled, &sExtraUserApprovalRequired,
 		&sExtraIntegratedValidator, &sExtraIntegratedValidatorGroups,
 	)
@@ -1614,6 +1627,22 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 	}
 	if sLazyConnectionEnabled.Valid {
 		account.Settings.LazyConnectionEnabled = sLazyConnectionEnabled.Bool
+	}
+	if sConnectionMode.Valid {
+		v := sConnectionMode.String
+		account.Settings.ConnectionMode = &v
+	}
+	if sRelayTimeoutSeconds.Valid {
+		v := uint32(sRelayTimeoutSeconds.Int64)
+		account.Settings.RelayTimeoutSeconds = &v
+	}
+	if sP2pTimeoutSeconds.Valid {
+		v := uint32(sP2pTimeoutSeconds.Int64)
+		account.Settings.P2pTimeoutSeconds = &v
+	}
+	if sP2pRetryMaxSeconds.Valid {
+		v := uint32(sP2pRetryMaxSeconds.Int64)
+		account.Settings.P2pRetryMaxSeconds = &v
 	}
 	if sJWTAllowGroups.Valid {
 		_ = json.Unmarshal([]byte(sJWTAllowGroups.String), &account.Settings.JWTAllowGroups)
