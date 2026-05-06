@@ -100,7 +100,7 @@ func (s *Connection) Login(ctx context.Context, p LoginParams) (LoginResult, err
 		ManagementUrl:       p.ManagementURL,
 		SetupKey:            p.SetupKey,
 		Hostname:            p.Hostname,
-		IsUnixDesktopClient: runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
+		IsUnixDesktopClient: runtime.GOOS == "linux",
 	}
 	if profileName != "" {
 		req.ProfileName = ptrStr(profileName)
@@ -181,7 +181,7 @@ func (s *Connection) OpenURL(url string) error {
 		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
 	case "darwin":
 		return exec.Command("open", url).Start()
-	case "linux", "freebsd":
+	case "linux":
 		return exec.Command("xdg-open", url).Start()
 	default:
 		return fmt.Errorf("unsupported platform")
