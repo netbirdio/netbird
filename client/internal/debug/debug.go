@@ -21,6 +21,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/netbirdio/netbird/client/anonymize"
@@ -584,6 +585,9 @@ func isSensitiveEnvVar(key string) bool {
 func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) {
 	configContent.WriteString("NetBird Client Configuration:\n\n")
 
+	if key, err := wgtypes.ParseKey(g.internalConfig.PrivateKey); err == nil {
+		configContent.WriteString(fmt.Sprintf("PublicKey: %s\n", key.PublicKey().String()))
+	}
 	configContent.WriteString(fmt.Sprintf("WgIface: %s\n", g.internalConfig.WgIface))
 	configContent.WriteString(fmt.Sprintf("WgPort: %d\n", g.internalConfig.WgPort))
 	if g.internalConfig.NetworkMonitor != nil {
@@ -607,6 +611,12 @@ func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) 
 	}
 	if g.internalConfig.EnableSSHRemotePortForwarding != nil {
 		configContent.WriteString(fmt.Sprintf("EnableSSHRemotePortForwarding: %v\n", *g.internalConfig.EnableSSHRemotePortForwarding))
+	}
+	if g.internalConfig.DisableSSHAuth != nil {
+		configContent.WriteString(fmt.Sprintf("DisableSSHAuth: %v\n", *g.internalConfig.DisableSSHAuth))
+	}
+	if g.internalConfig.SSHJWTCacheTTL != nil {
+		configContent.WriteString(fmt.Sprintf("SSHJWTCacheTTL: %d\n", *g.internalConfig.SSHJWTCacheTTL))
 	}
 
 	configContent.WriteString(fmt.Sprintf("DisableClientRoutes: %v\n", g.internalConfig.DisableClientRoutes))
@@ -635,6 +645,7 @@ func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) 
 	}
 
 	configContent.WriteString(fmt.Sprintf("LazyConnectionEnabled: %v\n", g.internalConfig.LazyConnectionEnabled))
+	configContent.WriteString(fmt.Sprintf("MTU: %d\n", g.internalConfig.MTU))
 }
 
 func (g *BundleGenerator) addProf() (err error) {
