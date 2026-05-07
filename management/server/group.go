@@ -894,8 +894,9 @@ func collectGroupChangeAffectedGroups(ctx context.Context, transaction store.Sto
 			if !policyReferencesGroups(policy, changedSet) {
 				continue
 			}
-			log.WithContext(ctx).Tracef("policy %s (%s) references changed groups, adding rule groups", policy.ID, policy.Name)
-			for _, gID := range policy.RuleGroups() {
+			ruleGroups := policy.RuleGroups()
+			log.WithContext(ctx).Tracef("policy %s (%s) references changed groups, adding rule groups %v", policy.ID, policy.Name, ruleGroups)
+			for _, gID := range ruleGroups {
 				groupSet[gID] = struct{}{}
 			}
 			for _, rule := range policy.Rules {
