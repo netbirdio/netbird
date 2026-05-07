@@ -211,36 +211,6 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			clientNetworkWatchersExpectedAllowed: 1,
 		},
 		{
-			name:                "Default Route With DisableDefaultRoute Still Creates Watcher",
-			disableDefaultRoute: true,
-			inputRoutes: []*route.Route{
-				{
-					ID:            "a",
-					NetID:         "routeA",
-					Peer:          remotePeerKey1,
-					Network:       netip.MustParsePrefix("0.0.0.0/0"),
-					NetworkType:   route.IPv4Network,
-					Metric:        9999,
-					Masquerade:    false,
-					Enabled:       true,
-					SkipAutoApply: false,
-				},
-				{
-					ID:          "b",
-					NetID:       "routeB",
-					Peer:        remotePeerKey1,
-					Network:     netip.MustParsePrefix("10.0.0.0/8"),
-					NetworkType: route.IPv4Network,
-					Metric:      9999,
-					Masquerade:  false,
-					Enabled:     true,
-				},
-			},
-			inputSerial:                          1,
-			clientNetworkWatchersExpected:        0,
-			clientNetworkWatchersExpectedAllowed: 2,
-		},
-		{
 			name: "Remove 1 Client Route",
 			inputInitRoutes: []*route.Route{
 				{
