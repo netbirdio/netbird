@@ -67,6 +67,7 @@ import (
 	mgmt "github.com/netbirdio/netbird/shared/management/client"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
+	"github.com/netbirdio/netbird/shared/netiputil"
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 	"github.com/netbirdio/netbird/shared/signal/proto"
 	signalServer "github.com/netbirdio/netbird/signal/server"
@@ -95,7 +96,7 @@ type MockWGIface struct {
 	AddressFunc                func() wgaddr.Address
 	ToInterfaceFunc            func() *net.Interface
 	UpFunc                     func() (*udpmux.UniversalUDPMuxDefault, error)
-	UpdateAddrFunc             func(newAddr string) error
+	UpdateAddrFunc             func(newAddr wgaddr.Address) error
 	UpdatePeerFunc             func(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
 	RemovePeerFunc             func(peerKey string) error
 	AddAllowedIPFunc           func(peerKey string, allowedIP netip.Prefix) error
@@ -157,7 +158,7 @@ func (m *MockWGIface) Up() (*udpmux.UniversalUDPMuxDefault, error) {
 	return m.UpFunc()
 }
 
-func (m *MockWGIface) UpdateAddr(newAddr string) error {
+func (m *MockWGIface) UpdateAddr(newAddr wgaddr.Address) error {
 	return m.UpdateAddrFunc(newAddr)
 }
 
@@ -254,7 +255,7 @@ func TestEngine_SSH(t *testing.T) {
 		ctx, cancel,
 		&EngineConfig{
 			WgIfaceName:      "utun101",
-			WgAddr:           "100.64.0.1/24",
+			WgAddr:           wgaddr.MustParseWGAddress("100.64.0.1/24"),
 			WgPrivateKey:     key,
 			WgPort:           33100,
 			ServerSSHAllowed: true,
@@ -431,7 +432,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
 	engine := NewEngine(ctx, cancel, &EngineConfig{
 		WgIfaceName:  "utun102",
-		WgAddr:       "100.64.0.1/24",
+		WgAddr:       wgaddr.MustParseWGAddress("100.64.0.1/24"),
 		WgPrivateKey: key,
 		WgPort:       33100,
 		MTU:          iface.DefaultMTU,
@@ -655,7 +656,7 @@ func TestEngine_Sync(t *testing.T) {
 	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
 	engine := NewEngine(ctx, cancel, &EngineConfig{
 		WgIfaceName:  "utun103",
-		WgAddr:       "100.64.0.1/24",
+		WgAddr:       wgaddr.MustParseWGAddress("100.64.0.1/24"),
 		WgPrivateKey: key,
 		WgPort:       33100,
 		MTU:          iface.DefaultMTU,
@@ -825,7 +826,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 			relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
 			engine := NewEngine(ctx, cancel, &EngineConfig{
 				WgIfaceName:  wgIfaceName,
-				WgAddr:       wgAddr,
+				WgAddr:       wgaddr.MustParseWGAddress(wgAddr),
 				WgPrivateKey: key,
 				WgPort:       33100,
 				MTU:          iface.DefaultMTU,
@@ -843,7 +844,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 
 			opts := iface.WGIFaceOpts{
 				IFaceName:    wgIfaceName,
-				Address:      wgAddr,
+				Address:      wgaddr.MustParseWGAddress(wgAddr),
 				WGPort:       engine.config.WgPort,
 				WGPrivKey:    key.String(),
 				MTU:          iface.DefaultMTU,
@@ -1032,7 +1033,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
 			engine := NewEngine(ctx, cancel, &EngineConfig{
 				WgIfaceName:  wgIfaceName,
-				WgAddr:       wgAddr,
+				WgAddr:       wgaddr.MustParseWGAddress(wgAddr),
 				WgPrivateKey: key,
 				WgPort:       33100,
 				MTU:          iface.DefaultMTU,
@@ -1050,7 +1051,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			}
 			opts := iface.WGIFaceOpts{
 				IFaceName:    wgIfaceName,
-				Address:      wgAddr,
+				Address:      wgaddr.MustParseWGAddress(wgAddr),
 				WGPort:       33100,
 				WGPrivKey:    key.String(),
 				MTU:          iface.DefaultMTU,
@@ -1555,7 +1556,7 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 	wgPort := 33100 + i
 	conf := &EngineConfig{
 		WgIfaceName:  ifaceName,
-		WgAddr:       resp.PeerConfig.Address,
+		WgAddr:       wgaddr.MustParseWGAddress(resp.PeerConfig.Address),
 		WgPrivateKey: key,
 		WgPort:       wgPort,
 		MTU:          iface.DefaultMTU,
@@ -1704,4 +1705,225 @@ func getPeers(e *Engine) int {
 	defer e.syncMsgMux.Unlock()
 
 	return len(e.peerStore.PeersPubKey())
+}
+
+func mustEncodePrefix(t *testing.T, p netip.Prefix) []byte {
+	t.Helper()
+	b, err := netiputil.EncodePrefix(p)
+	require.NoError(t, err)
+	return b
+}
+
+func TestEngine_hasIPv6Changed(t *testing.T) {
+	v4Only := wgaddr.MustParseWGAddress("100.64.0.1/16")
+
+	v4v6 := wgaddr.MustParseWGAddress("100.64.0.1/16")
+	v4v6.IPv6 = netip.MustParseAddr("fd00::1")
+	v4v6.IPv6Net = netip.MustParsePrefix("fd00::1/64").Masked()
+
+	tests := []struct {
+		name     string
+		current  wgaddr.Address
+		confV6   []byte
+		expected bool
+	}{
+		{
+			name:     "no v6 before, no v6 now",
+			current:  v4Only,
+			confV6:   nil,
+			expected: false,
+		},
+		{
+			name:     "no v6 before, v6 added",
+			current:  v4Only,
+			confV6:   mustEncodePrefix(t, netip.MustParsePrefix("fd00::1/64")),
+			expected: true,
+		},
+		{
+			name:     "had v6, now removed",
+			current:  v4v6,
+			confV6:   nil,
+			expected: true,
+		},
+		{
+			name:     "had v6, same v6",
+			current:  v4v6,
+			confV6:   mustEncodePrefix(t, netip.MustParsePrefix("fd00::1/64")),
+			expected: false,
+		},
+		{
+			name:     "had v6, different v6",
+			current:  v4v6,
+			confV6:   mustEncodePrefix(t, netip.MustParsePrefix("fd00::2/64")),
+			expected: true,
+		},
+		{
+			name:     "same v6 addr, different prefix length",
+			current:  v4v6,
+			confV6:   mustEncodePrefix(t, netip.MustParsePrefix("fd00::1/80")),
+			expected: true,
+		},
+		{
+			name:     "decode error keeps status quo",
+			current:  v4Only,
+			confV6:   []byte{1, 2, 3},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			engine := &Engine{
+				config: &EngineConfig{WgAddr: tt.current},
+			}
+			conf := &mgmtProto.PeerConfig{
+				AddressV6: tt.confV6,
+			}
+			assert.Equal(t, tt.expected, engine.hasIPv6Changed(conf))
+		})
+	}
+}
+
+func TestFilterAllowedIPs(t *testing.T) {
+	v4v6Addr := wgaddr.MustParseWGAddress("100.64.0.1/16")
+	v4v6Addr.IPv6 = netip.MustParseAddr("fd00::1")
+	v4v6Addr.IPv6Net = netip.MustParsePrefix("fd00::1/64").Masked()
+
+	v4OnlyAddr := wgaddr.MustParseWGAddress("100.64.0.1/16")
+
+	tests := []struct {
+		name     string
+		addr     wgaddr.Address
+		input    []string
+		expected []string
+	}{
+		{
+			name:     "interface has v6, keep all",
+			addr:     v4v6Addr,
+			input:    []string{"100.64.0.1/32", "fd00::1/128"},
+			expected: []string{"100.64.0.1/32", "fd00::1/128"},
+		},
+		{
+			name:     "no v6, strip v6",
+			addr:     v4OnlyAddr,
+			input:    []string{"100.64.0.1/32", "fd00::1/128"},
+			expected: []string{"100.64.0.1/32"},
+		},
+		{
+			name:     "no v6, only v4",
+			addr:     v4OnlyAddr,
+			input:    []string{"100.64.0.1/32", "10.0.0.0/8"},
+			expected: []string{"100.64.0.1/32", "10.0.0.0/8"},
+		},
+		{
+			name:     "no v6, only v6 input",
+			addr:     v4OnlyAddr,
+			input:    []string{"fd00::1/128", "::/0"},
+			expected: []string{},
+		},
+		{
+			name:     "no v6, invalid prefix preserved",
+			addr:     v4OnlyAddr,
+			input:    []string{"100.64.0.1/32", "garbage"},
+			expected: []string{"100.64.0.1/32", "garbage"},
+		},
+		{
+			name:     "no v6, empty input",
+			addr:     v4OnlyAddr,
+			input:    []string{},
+			expected: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			addr := tt.addr
+			engine := &Engine{
+				config: &EngineConfig{},
+				wgInterface: &MockWGIface{
+					AddressFunc: func() wgaddr.Address { return addr },
+				},
+			}
+			result := engine.filterAllowedIPs(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestOverlayAddrsFromAllowedIPs(t *testing.T) {
+	ourV6Net := netip.MustParsePrefix("fd00:1234:5678:abcd::/64")
+
+	tests := []struct {
+		name       string
+		allowedIPs []string
+		ourV6Net   netip.Prefix
+		wantV4     string
+		wantV6     string
+	}{
+		{
+			name:       "v4 only",
+			allowedIPs: []string{"100.64.0.1/32"},
+			ourV6Net:   ourV6Net,
+			wantV4:     "100.64.0.1",
+			wantV6:     "",
+		},
+		{
+			name:       "v4 and v6 overlay",
+			allowedIPs: []string{"100.64.0.1/32", "fd00:1234:5678:abcd::1/128"},
+			ourV6Net:   ourV6Net,
+			wantV4:     "100.64.0.1",
+			wantV6:     "fd00:1234:5678:abcd::1",
+		},
+		{
+			name:       "v4, routed v6, overlay v6",
+			allowedIPs: []string{"100.64.0.1/32", "2001:db8::1/128", "fd00:1234:5678:abcd::1/128"},
+			ourV6Net:   ourV6Net,
+			wantV4:     "100.64.0.1",
+			wantV6:     "fd00:1234:5678:abcd::1",
+		},
+		{
+			name:       "routed v6 /128 outside our subnet is ignored",
+			allowedIPs: []string{"100.64.0.1/32", "2001:db8::1/128"},
+			ourV6Net:   ourV6Net,
+			wantV4:     "100.64.0.1",
+			wantV6:     "",
+		},
+		{
+			name:       "routed v6 prefix is ignored",
+			allowedIPs: []string{"100.64.0.1/32", "fd00:1234:5678:abcd::/64"},
+			ourV6Net:   ourV6Net,
+			wantV4:     "100.64.0.1",
+			wantV6:     "",
+		},
+		{
+			name:       "no v6 subnet configured",
+			allowedIPs: []string{"100.64.0.1/32", "fd00:1234:5678:abcd::1/128"},
+			ourV6Net:   netip.Prefix{},
+			wantV4:     "100.64.0.1",
+			wantV6:     "",
+		},
+		{
+			name:       "v4 /24 route is ignored",
+			allowedIPs: []string{"100.64.0.0/24", "100.64.0.1/32"},
+			ourV6Net:   ourV6Net,
+			wantV4:     "100.64.0.1",
+			wantV6:     "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v4, v6 := overlayAddrsFromAllowedIPs(tt.allowedIPs, tt.ourV6Net)
+			if tt.wantV4 == "" {
+				assert.False(t, v4.IsValid(), "expected no v4")
+			} else {
+				assert.Equal(t, tt.wantV4, v4.String(), "v4")
+			}
+			if tt.wantV6 == "" {
+				assert.False(t, v6.IsValid(), "expected no v6")
+			} else {
+				assert.Equal(t, tt.wantV6, v6.String(), "v6")
+			}
+		})
+	}
 }

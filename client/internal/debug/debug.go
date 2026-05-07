@@ -21,6 +21,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/netbirdio/netbird/client/anonymize"
@@ -30,6 +31,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/updater/installer"
 	nbstatus "github.com/netbirdio/netbird/client/status"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/netiputil"
 )
 
 const readmeContent = `Netbird debug bundle
@@ -583,6 +585,9 @@ func isSensitiveEnvVar(key string) bool {
 func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) {
 	configContent.WriteString("NetBird Client Configuration:\n\n")
 
+	if key, err := wgtypes.ParseKey(g.internalConfig.PrivateKey); err == nil {
+		configContent.WriteString(fmt.Sprintf("PublicKey: %s\n", key.PublicKey().String()))
+	}
 	configContent.WriteString(fmt.Sprintf("WgIface: %s\n", g.internalConfig.WgIface))
 	configContent.WriteString(fmt.Sprintf("WgPort: %d\n", g.internalConfig.WgPort))
 	if g.internalConfig.NetworkMonitor != nil {
@@ -607,6 +612,12 @@ func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) 
 	if g.internalConfig.EnableSSHRemotePortForwarding != nil {
 		configContent.WriteString(fmt.Sprintf("EnableSSHRemotePortForwarding: %v\n", *g.internalConfig.EnableSSHRemotePortForwarding))
 	}
+	if g.internalConfig.DisableSSHAuth != nil {
+		configContent.WriteString(fmt.Sprintf("DisableSSHAuth: %v\n", *g.internalConfig.DisableSSHAuth))
+	}
+	if g.internalConfig.SSHJWTCacheTTL != nil {
+		configContent.WriteString(fmt.Sprintf("SSHJWTCacheTTL: %d\n", *g.internalConfig.SSHJWTCacheTTL))
+	}
 
 	configContent.WriteString(fmt.Sprintf("DisableClientRoutes: %v\n", g.internalConfig.DisableClientRoutes))
 	configContent.WriteString(fmt.Sprintf("DisableServerRoutes: %v\n", g.internalConfig.DisableServerRoutes))
@@ -614,6 +625,7 @@ func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) 
 	configContent.WriteString(fmt.Sprintf("DisableFirewall: %v\n", g.internalConfig.DisableFirewall))
 	configContent.WriteString(fmt.Sprintf("BlockLANAccess: %v\n", g.internalConfig.BlockLANAccess))
 	configContent.WriteString(fmt.Sprintf("BlockInbound: %v\n", g.internalConfig.BlockInbound))
+	configContent.WriteString(fmt.Sprintf("DisableIPv6: %v\n", g.internalConfig.DisableIPv6))
 
 	if g.internalConfig.DisableNotifications != nil {
 		configContent.WriteString(fmt.Sprintf("DisableNotifications: %v\n", *g.internalConfig.DisableNotifications))
@@ -633,6 +645,7 @@ func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) 
 	}
 
 	configContent.WriteString(fmt.Sprintf("LazyConnectionEnabled: %v\n", g.internalConfig.LazyConnectionEnabled))
+	configContent.WriteString(fmt.Sprintf("MTU: %d\n", g.internalConfig.MTU))
 }
 
 func (g *BundleGenerator) addProf() (err error) {
@@ -1283,6 +1296,21 @@ func anonymizePeerConfig(config *mgmProto.PeerConfig, anonymizer *anonymize.Anon
 		config.Address = anonymizer.AnonymizeIP(addr).String()
 	}
 
+	if len(config.GetAddressV6()) > 0 {
+		v6Prefix, err := netiputil.DecodePrefix(config.GetAddressV6())
+		if err != nil {
+			config.AddressV6 = nil
+		} else {
+			anonV6 := anonymizer.AnonymizeIP(v6Prefix.Addr())
+			b, err := netiputil.EncodePrefix(netip.PrefixFrom(anonV6, v6Prefix.Bits()))
+			if err != nil {
+				config.AddressV6 = nil
+			} else {
+				config.AddressV6 = b
+			}
+		}
+	}
+
 	anonymizeSSHConfig(config.SshConfig)
 
 	config.Dns = anonymizer.AnonymizeString(config.Dns)
@@ -1385,8 +1413,20 @@ func anonymizeFirewallRule(rule *mgmProto.FirewallRule, anonymizer *anonymize.An
 		return
 	}
 
+	//nolint:staticcheck // PeerIP used for backward compatibility
 	if addr, err := netip.ParseAddr(rule.PeerIP); err == nil {
-		rule.PeerIP = anonymizer.AnonymizeIP(addr).String()
+		rule.PeerIP = anonymizer.AnonymizeIP(addr).String() //nolint:staticcheck
+	}
+
+	for i, raw := range rule.GetSourcePrefixes() {
+		p, err := netiputil.DecodePrefix(raw)
+		if err != nil {
+			continue
+		}
+		anonAddr := anonymizer.AnonymizeIP(p.Addr())
+		if b, err := netiputil.EncodePrefix(netip.PrefixFrom(anonAddr, p.Bits())); err == nil {
+			rule.SourcePrefixes[i] = b
+		}
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"sync"
 	"time"
 
@@ -45,9 +46,10 @@ func NewClient(nbClient *netbird.Client) *Client {
 	}
 }
 
-// Connect establishes an SSH connection through NetBird network
-func (c *Client) Connect(host string, port int, username, jwtToken string) error {
-	addr := fmt.Sprintf("%s:%d", host, port)
+// Connect establishes an SSH connection through NetBird network.
+// ipVersion may be 4, 6, or 0 for automatic selection.
+func (c *Client) Connect(host string, port int, username, jwtToken string, ipVersion int) error {
+	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	logrus.Infof("SSH: Connecting to %s as %s", addr, username)
 
 	authMethods, err := c.getAuthMethods(jwtToken)
@@ -62,10 +64,18 @@ func (c *Client) Connect(host string, port int, username, jwtToken string) error
 		Timeout:         sshDialTimeout,
 	}
 
+	network := "tcp"
+	switch ipVersion {
+	case 4:
+		network = "tcp4"
+	case 6:
+		network = "tcp6"
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), sshDialTimeout)
 	defer cancel()
 
-	conn, err := c.nbClient.Dial(ctx, "tcp", addr)
+	conn, err := c.nbClient.Dial(ctx, network, addr)
 	if err != nil {
 		return fmt.Errorf("dial %s: %w", addr, err)
 	}

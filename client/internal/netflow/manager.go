@@ -35,11 +35,12 @@ type Manager struct {
 
 // NewManager creates a new netflow manager
 func NewManager(iface nftypes.IFaceMapper, publicKey []byte, statusRecorder *peer.Status) *Manager {
-	var prefix netip.Prefix
+	var prefix, prefixV6 netip.Prefix
 	if iface != nil {
 		prefix = iface.Address().Network
+		prefixV6 = iface.Address().IPv6Net
 	}
-	flowLogger := logger.New(statusRecorder, prefix)
+	flowLogger := logger.New(statusRecorder, prefix, prefixV6)
 
 	var ct nftypes.ConnTracker
 	if runtime.GOOS == "linux" && iface != nil && !iface.IsUserspaceBind() {
@@ -269,7 +270,7 @@ func toProtoEvent(publicKey []byte, event *nftypes.Event) *proto.FlowEvent {
 		},
 	}
 
-	if event.Protocol == nftypes.ICMP {
+	if event.Protocol == nftypes.ICMP || event.Protocol == nftypes.ICMPv6 {
 		protoEvent.FlowFields.ConnectionInfo = &proto.FlowFields_IcmpInfo{
 			IcmpInfo: &proto.ICMPInfo{
 				IcmpType: uint32(event.ICMPType),

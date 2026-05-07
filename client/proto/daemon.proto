@@ -204,6 +204,7 @@ message LoginRequest {
   optional bool enableSSHRemotePortForwarding = 37;
   optional bool disableSSHAuth = 38;
   optional int32 sshJWTCacheTTL = 39;
+  optional bool disable_ipv6 = 40;
 }
 
 message LoginResponse {
@@ -311,6 +312,8 @@ message GetConfigResponse {
   bool disableSSHAuth = 25;
 
   int32 sshJWTCacheTTL = 26;
+
+  bool disable_ipv6 = 27;
 }
 
 // PeerState contains the latest state of a peer
@@ -333,6 +336,7 @@ message PeerState {
   google.protobuf.Duration latency = 17;
   string relayAddress = 18;
   bytes sshHostKey = 19;
+  string ipv6 = 20;
 }
 
 // LocalPeerState contains the latest state of the local peer
@@ -344,6 +348,7 @@ message LocalPeerState {
   bool rosenpassEnabled = 5;
   bool rosenpassPermissive = 6;
   repeated string networks = 7;
+  string ipv6 = 8;
 }
 
 // SignalState contains the latest state of a signal connection
@@ -672,6 +677,7 @@ message SetConfigRequest {
   optional bool enableSSHRemotePortForwarding = 32;
   optional bool disableSSHAuth = 33;
   optional int32 sshJWTCacheTTL = 34;
+  optional bool disable_ipv6 = 35;
 }
 
 message SetConfigResponse{}

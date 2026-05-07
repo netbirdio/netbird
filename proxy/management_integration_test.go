@@ -364,13 +364,15 @@ func TestIntegration_ProxyConnection_HappyPath(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Receive all mappings from the snapshot - server sends each mapping individually
 	mappingsByID := make(map[string]*proto.ProxyMapping)
-	for i := 0; i < 2; i++ {
+	for {
 		msg, err := stream.Recv()
 		require.NoError(t, err)
 		for _, m := range msg.GetMapping() {
 			mappingsByID[m.GetId()] = m
+		}
+		if msg.GetInitialSyncComplete() {
+			break
 		}
 	}
 
@@ -411,12 +413,14 @@ func TestIntegration_ProxyConnection_SendsClusterAddress(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Receive all mappings - server sends each mapping individually
 	mappings := make([]*proto.ProxyMapping, 0)
-	for i := 0; i < 2; i++ {
+	for {
 		msg, err := stream.Recv()
 		require.NoError(t, err)
 		mappings = append(mappings, msg.GetMapping()...)
+		if msg.GetInitialSyncComplete() {
+			break
+		}
 	}
 
 	// Should receive the 2 mappings matching the cluster
@@ -440,13 +444,15 @@ func TestIntegration_ProxyConnection_Reconnect_ReceivesSameConfig(t *testing.T) 
 	clusterAddress := "test.proxy.io"
 	proxyID := "test-proxy-reconnect"
 
-	// Helper to receive all mappings from a stream
-	receiveMappings := func(stream proto.ProxyService_GetMappingUpdateClient, count int) []*proto.ProxyMapping {
+	receiveMappings := func(stream proto.ProxyService_GetMappingUpdateClient) []*proto.ProxyMapping {
 		var mappings []*proto.ProxyMapping
-		for i := 0; i < count; i++ {
+		for {
 			msg, err := stream.Recv()
 			require.NoError(t, err)
 			mappings = append(mappings, msg.GetMapping()...)
+			if msg.GetInitialSyncComplete() {
+				break
+			}
 		}
 		return mappings
 	}
@@ -460,7 +466,7 @@ func TestIntegration_ProxyConnection_Reconnect_ReceivesSameConfig(t *testing.T) 
 	})
 	require.NoError(t, err)
 
-	firstMappings := receiveMappings(stream1, 2)
+	firstMappings := receiveMappings(stream1)
 	cancel1()
 
 	time.Sleep(100 * time.Millisecond)
@@ -476,7 +482,7 @@ func TestIntegration_ProxyConnection_Reconnect_ReceivesSameConfig(t *testing.T) 
 	})
 	require.NoError(t, err)
 
-	secondMappings := receiveMappings(stream2, 2)
+	secondMappings := receiveMappings(stream2)
 
 	// Should receive the same mappings
 	assert.Equal(t, len(firstMappings), len(secondMappings),
@@ -542,12 +548,14 @@ func TestIntegration_ProxyConnection_ReconnectDoesNotDuplicateState(t *testing.T
 		}
 	}
 
-	// Helper to receive and apply all mappings
 	receiveAndApply := func(stream proto.ProxyService_GetMappingUpdateClient) {
-		for i := 0; i < 2; i++ {
+		for {
 			msg, err := stream.Recv()
 			require.NoError(t, err)
 			applyMappings(msg.GetMapping())
+			if msg.GetInitialSyncComplete() {
+				break
+			}
 		}
 	}
 
@@ -636,12 +644,14 @@ func TestIntegration_ProxyConnection_MultipleProxiesReceiveUpdates(t *testing.T)
 			})
 			require.NoError(t, err)
 
-			// Receive all mappings - server sends each mapping individually
 			count := 0
-			for i := 0; i < 2; i++ {
+			for {
 				msg, err := stream.Recv()
 				require.NoError(t, err)
 				count += len(msg.GetMapping())
+				if msg.GetInitialSyncComplete() {
+					break
+				}
 			}
 
 			mu.Lock()
@@ -681,9 +691,12 @@ func TestIntegration_ProxyConnection_FastReconnectDoesNotLoseState(t *testing.T)
 	})
 	require.NoError(t, err)
 
-	for i := 0; i < 2; i++ {
-		_, err := stream1.Recv()
+	for {
+		msg, err := stream1.Recv()
 		require.NoError(t, err)
+		if msg.GetInitialSyncComplete() {
+			break
+		}
 	}
 
 	require.Contains(t, setup.proxyService.GetConnectedProxies(), proxyID,
@@ -699,9 +712,12 @@ func TestIntegration_ProxyConnection_FastReconnectDoesNotLoseState(t *testing.T)
 	})
 	require.NoError(t, err)
 
-	for i := 0; i < 2; i++ {
-		_, err := stream2.Recv()
+	for {
+		msg, err := stream2.Recv()
 		require.NoError(t, err)
+		if msg.GetInitialSyncComplete() {
+			break
+		}
 	}
 
 	cancel1()

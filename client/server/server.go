@@ -385,6 +385,7 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 	config.DisableNotifications = msg.DisableNotifications
 	config.LazyConnectionEnabled = msg.LazyConnectionEnabled
 	config.BlockInbound = msg.BlockInbound
+	config.DisableIPv6 = msg.DisableIpv6
 	config.EnableSSHRoot = msg.EnableSSHRoot
 	config.EnableSSHSFTP = msg.EnableSSHSFTP
 	config.EnableSSHLocalPortForwarding = msg.EnableSSHLocalPortForwarding
@@ -1483,6 +1484,7 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 	disableDNS := cfg.DisableDNS
 	disableClientRoutes := cfg.DisableClientRoutes
 	disableServerRoutes := cfg.DisableServerRoutes
+	disableIPv6 := cfg.DisableIPv6
 	blockLANAccess := cfg.BlockLANAccess
 
 	enableSSHRoot := false
@@ -1533,6 +1535,7 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		DisableDns:                    disableDNS,
 		DisableClientRoutes:           disableClientRoutes,
 		DisableServerRoutes:           disableServerRoutes,
+		DisableIpv6:                   disableIPv6,
 		BlockLanAccess:                blockLANAccess,
 		EnableSSHRoot:                 enableSSHRoot,
 		EnableSSHSFTP:                 enableSSHSFTP,
