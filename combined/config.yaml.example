@@ -93,10 +93,12 @@ server:
     # OAuth2 redirect URIs for CLI
     cliRedirectURIs:
       - "http://localhost:53000/"
-    # Optional initial admin user
+    # Optional initial admin user (password should be hashed)
+    # To generate a hash: echo "Your-Password123" | htpasswd -BinC 10 admin | cut -d: -f2
     # owner:
     #   email: "admin@example.com"
-    #   password: "initial-password"
+    #   password: "$2y$10$gKprbg9gHeWonzRQRdLVUORQ8Dn88IW.EbAsfQfRtpL8rJ4L48sXO"
+
 
   # Store configuration
   store:
