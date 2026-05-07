@@ -240,6 +240,14 @@ type BundleGenerator struct {
 	refreshStatus  func() // Optional callback to refresh status before bundle generation
 	clientMetrics  MetricsExporter
 
+	// Phase 3.7h (#5989): server-pushed connection-mode and timer values, captured
+	// at bundle-generation time so config.txt records both the effective and the
+	// configured values. Zero/empty when no PeerConfig has been received yet.
+	serverPushedConnectionMode  string
+	serverPushedRelayTimeoutSec uint32
+	serverPushedP2pTimeoutSec   uint32
+	serverPushedP2pRetryMaxSec  uint32
+
 	anonymize         bool
 	includeSystemInfo bool
 	logFileCount      uint32
@@ -263,6 +271,14 @@ type GeneratorDependencies struct {
 	CapturePath    string
 	RefreshStatus  func()
 	ClientMetrics  MetricsExporter
+
+	// Phase 3.7h (#5989): server-pushed connection-mode + timer values from
+	// ConnMgr.ServerPushed*(). Recorded in config.txt next to the effective
+	// values so debug bundles show both. Zero/empty if not provided.
+	ServerPushedConnectionMode  string
+	ServerPushedRelayTimeoutSec uint32
+	ServerPushedP2pTimeoutSec   uint32
+	ServerPushedP2pRetryMaxSec  uint32
 }
 
 func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGenerator {
@@ -284,6 +300,11 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 		capturePath:    deps.CapturePath,
 		refreshStatus:  deps.RefreshStatus,
 		clientMetrics:  deps.ClientMetrics,
+
+		serverPushedConnectionMode:  deps.ServerPushedConnectionMode,
+		serverPushedRelayTimeoutSec: deps.ServerPushedRelayTimeoutSec,
+		serverPushedP2pTimeoutSec:   deps.ServerPushedP2pTimeoutSec,
+		serverPushedP2pRetryMaxSec:  deps.ServerPushedP2pRetryMaxSec,
 
 		anonymize:         cfg.Anonymize,
 		includeSystemInfo: cfg.IncludeSystemInfo,
@@ -646,10 +667,20 @@ func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) 
 	configContent.WriteString(fmt.Sprintf("MTU: %d\n", g.internalConfig.MTU))
 
 	// Phase 1+2+3 (#5989) connection-mode resolution + lifecycle timers.
+	// Effective values (after env > local-config > server-push resolution):
 	configContent.WriteString(fmt.Sprintf("ConnectionMode: %s\n", g.internalConfig.ConnectionMode))
 	configContent.WriteString(fmt.Sprintf("RelayTimeoutSeconds: %d\n", g.internalConfig.RelayTimeoutSeconds))
 	configContent.WriteString(fmt.Sprintf("P2pTimeoutSeconds: %d\n", g.internalConfig.P2pTimeoutSeconds))
 	configContent.WriteString(fmt.Sprintf("P2pRetryMaxSeconds: %d\n", g.internalConfig.P2pRetryMaxSeconds))
+
+	// Server-pushed values from the most recent PeerConfig, captured at bundle
+	// generation time. Empty/zero indicates no PeerConfig received yet (e.g.
+	// daemon not yet connected to management). Allows operators to see what
+	// would apply if all local overrides were cleared.
+	configContent.WriteString(fmt.Sprintf("ServerPushedConnectionMode: %s\n", g.serverPushedConnectionMode))
+	configContent.WriteString(fmt.Sprintf("ServerPushedRelayTimeoutSeconds: %d\n", g.serverPushedRelayTimeoutSec))
+	configContent.WriteString(fmt.Sprintf("ServerPushedP2pTimeoutSeconds: %d\n", g.serverPushedP2pTimeoutSec))
+	configContent.WriteString(fmt.Sprintf("ServerPushedP2pRetryMaxSeconds: %d\n", g.serverPushedP2pRetryMaxSec))
 }
 
 func (g *BundleGenerator) addProf() (err error) {

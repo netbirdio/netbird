@@ -404,7 +404,15 @@ func TestParsingToJSON(t *testing.T) {
 		  "sshServer":{
 		    "enabled":false,
 			"sessions":[]
-		  }
+		  },
+		  "connectionMode":"",
+		  "relayTimeoutSeconds":0,
+		  "p2pTimeoutSeconds":0,
+		  "p2pRetryMaxSeconds":0,
+		  "serverPushedConnectionMode":"",
+		  "serverPushedRelayTimeoutSeconds":0,
+		  "serverPushedP2pTimeoutSeconds":0,
+		  "serverPushedP2pRetryMaxSeconds":0
         }`
 	// @formatter:on
 
@@ -517,6 +525,14 @@ profileName: ""
 sshServer:
     enabled: false
     sessions: []
+connectionMode: ""
+relayTimeoutSeconds: 0
+p2pTimeoutSeconds: 0
+p2pRetryMaxSeconds: 0
+serverPushedConnectionMode: ""
+serverPushedRelayTimeoutSeconds: 0
+serverPushedP2pTimeoutSeconds: 0
+serverPushedP2pRetryMaxSeconds: 0
 `
 
 	assert.Equal(t, expectedYAML, yaml)

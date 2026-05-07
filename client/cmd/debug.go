@@ -425,14 +425,28 @@ func generateDebugBundle(config *profilemanager.Config, recorder *peer.Status, c
 		}
 	}
 
+	deps := debug.GeneratorDependencies{
+		InternalConfig: config,
+		StatusRecorder: recorder,
+		SyncResponse:   syncResponse,
+		LogPath:        logFilePath,
+		CPUProfile:     nil,
+	}
+
+	// Phase 3.7h (#5989): record server-pushed mode + timers in config.txt.
+	if connectClient != nil {
+		if eng := connectClient.Engine(); eng != nil {
+			if cm := eng.ConnMgr(); cm != nil {
+				deps.ServerPushedConnectionMode = cm.ServerPushedMode().String()
+				deps.ServerPushedRelayTimeoutSec = cm.ServerPushedRelayTimeoutSecs()
+				deps.ServerPushedP2pTimeoutSec = cm.ServerPushedP2pTimeoutSecs()
+				deps.ServerPushedP2pRetryMaxSec = cm.ServerPushedP2pRetryMaxSecs()
+			}
+		}
+	}
+
 	bundleGenerator := debug.NewBundleGenerator(
-		debug.GeneratorDependencies{
-			InternalConfig: config,
-			StatusRecorder: recorder,
-			SyncResponse:   syncResponse,
-			LogPath:        logFilePath,
-			CPUProfile:     nil,
-		},
+		deps,
 		debug.BundleConfig{
 			IncludeSystemInfo: true,
 		},

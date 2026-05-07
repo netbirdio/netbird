@@ -251,6 +251,13 @@ func (c *Client) DebugBundle(platformFiles PlatformFiles, anonymize bool) (strin
 			if cm := e.GetClientMetrics(); cm != nil {
 				deps.ClientMetrics = cm
 			}
+			// Phase 3.7h (#5989): record server-pushed mode + timers in config.txt.
+			if cm := e.ConnMgr(); cm != nil {
+				deps.ServerPushedConnectionMode = cm.ServerPushedMode().String()
+				deps.ServerPushedRelayTimeoutSec = cm.ServerPushedRelayTimeoutSecs()
+				deps.ServerPushedP2pTimeoutSec = cm.ServerPushedP2pTimeoutSecs()
+				deps.ServerPushedP2pRetryMaxSec = cm.ServerPushedP2pRetryMaxSecs()
+			}
 		}
 	}
 

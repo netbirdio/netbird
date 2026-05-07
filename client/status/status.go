@@ -55,6 +55,20 @@ type ConvertOptions struct {
 	IPsFilter            map[string]struct{}
 	ConnectionTypeFilter string
 	ProfileName          string
+
+	// Phase 1+2+3 (#5989) connection-mode + lifecycle timers — effective
+	// resolved values from GetConfig RPC. Empty/zero ok if RPC unavailable.
+	ConnectionMode      string
+	RelayTimeoutSeconds uint32
+	P2pTimeoutSeconds   uint32
+	P2pRetryMaxSeconds  uint32
+
+	// Phase 3.7h (#5989) values most recently pushed by the management
+	// server via PeerConfig, independent of any local override.
+	ServerPushedConnectionMode      string
+	ServerPushedRelayTimeoutSeconds uint32
+	ServerPushedP2pTimeoutSeconds   uint32
+	ServerPushedP2pRetryMaxSeconds  uint32
 }
 
 type PeerStateDetailOutput struct {
@@ -155,6 +169,21 @@ type OutputOverview struct {
 	LazyConnectionEnabled   bool                       `json:"lazyConnectionEnabled" yaml:"lazyConnectionEnabled"`
 	ProfileName             string                     `json:"profileName" yaml:"profileName"`
 	SSHServerState          SSHServerStateOutput       `json:"sshServer" yaml:"sshServer"`
+
+	// Phase 1+2+3 (#5989) connection-mode + lifecycle timers. Effective values
+	// (after env > local-config > server-push resolution).
+	ConnectionMode      string `json:"connectionMode" yaml:"connectionMode"`
+	RelayTimeoutSeconds uint32 `json:"relayTimeoutSeconds" yaml:"relayTimeoutSeconds"`
+	P2pTimeoutSeconds   uint32 `json:"p2pTimeoutSeconds" yaml:"p2pTimeoutSeconds"`
+	P2pRetryMaxSeconds  uint32 `json:"p2pRetryMaxSeconds" yaml:"p2pRetryMaxSeconds"`
+
+	// Phase 3.7h (#5989) values most recently pushed by the management server
+	// via PeerConfig, independent of any local override. Empty/zero when no
+	// PeerConfig has been received yet.
+	ServerPushedConnectionMode      string `json:"serverPushedConnectionMode" yaml:"serverPushedConnectionMode"`
+	ServerPushedRelayTimeoutSeconds uint32 `json:"serverPushedRelayTimeoutSeconds" yaml:"serverPushedRelayTimeoutSeconds"`
+	ServerPushedP2pTimeoutSeconds   uint32 `json:"serverPushedP2pTimeoutSeconds" yaml:"serverPushedP2pTimeoutSeconds"`
+	ServerPushedP2pRetryMaxSeconds  uint32 `json:"serverPushedP2pRetryMaxSeconds" yaml:"serverPushedP2pRetryMaxSeconds"`
 }
 
 // ConvertToStatusOutputOverview converts protobuf status to the output overview.
@@ -198,6 +227,15 @@ func ConvertToStatusOutputOverview(pbFullStatus *proto.FullStatus, opts ConvertO
 		LazyConnectionEnabled:   pbFullStatus.GetLazyConnectionEnabled(),
 		ProfileName:             opts.ProfileName,
 		SSHServerState:          sshServerOverview,
+
+		ConnectionMode:                  opts.ConnectionMode,
+		RelayTimeoutSeconds:             opts.RelayTimeoutSeconds,
+		P2pTimeoutSeconds:               opts.P2pTimeoutSeconds,
+		P2pRetryMaxSeconds:              opts.P2pRetryMaxSeconds,
+		ServerPushedConnectionMode:      opts.ServerPushedConnectionMode,
+		ServerPushedRelayTimeoutSeconds: opts.ServerPushedRelayTimeoutSeconds,
+		ServerPushedP2pTimeoutSeconds:   opts.ServerPushedP2pTimeoutSeconds,
+		ServerPushedP2pRetryMaxSeconds:  opts.ServerPushedP2pRetryMaxSeconds,
 	}
 
 	if opts.Anonymize {
@@ -545,6 +583,8 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		goarm = fmt.Sprintf(" (ARMv%s)", os.Getenv("GOARM"))
 	}
 
+	connectionModeBlock := formatConnectionModeBlock(o)
+
 	summary := fmt.Sprintf(
 		"OS: %s\n"+
 			"Daemon version: %s\n"+
@@ -559,6 +599,7 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 			"Interface type: %s\n"+
 			"Quantum resistance: %s\n"+
 			"Lazy connection: %s\n"+
+			"%s"+
 			"SSH Server: %s\n"+
 			"Networks: %s\n"+
 			"%s"+
@@ -576,12 +617,45 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		interfaceTypeString,
 		rosenpassEnabledStatus,
 		lazyConnectionEnabledStatus,
+		connectionModeBlock,
 		sshServerStatus,
 		networks,
 		forwardingRulesString,
 		peersCountString,
 	)
 	return summary
+}
+
+// formatConnectionModeBlock renders the Phase-3.7h connection-mode + timer
+// values, showing both the effective and the server-pushed values so operators
+// can tell at a glance which side of the resolution applies to a given peer.
+// Returns an empty string if no values are present (e.g., older daemon that
+// doesn't populate ConvertOptions). Otherwise returns a multi-line block ending
+// in '\n' for direct insertion into the summary template.
+func formatConnectionModeBlock(o *OutputOverview) string {
+	allEmpty := o.ConnectionMode == "" &&
+		o.RelayTimeoutSeconds == 0 && o.P2pTimeoutSeconds == 0 && o.P2pRetryMaxSeconds == 0 &&
+		o.ServerPushedConnectionMode == "" &&
+		o.ServerPushedRelayTimeoutSeconds == 0 && o.ServerPushedP2pTimeoutSeconds == 0 && o.ServerPushedP2pRetryMaxSeconds == 0
+	if allEmpty {
+		return ""
+	}
+	effective := o.ConnectionMode
+	if effective == "" {
+		effective = "(default)"
+	}
+	pushed := o.ServerPushedConnectionMode
+	if pushed == "" {
+		pushed = "(none received)"
+	}
+	return fmt.Sprintf(
+		"Connection mode (effective): %s\n"+
+			"  Relay timeout: %ds, P2P timeout: %ds, P2P retry max: %ds\n"+
+			"Connection mode (server-pushed): %s\n"+
+			"  Relay timeout: %ds, P2P timeout: %ds, P2P retry max: %ds\n",
+		effective, o.RelayTimeoutSeconds, o.P2pTimeoutSeconds, o.P2pRetryMaxSeconds,
+		pushed, o.ServerPushedRelayTimeoutSeconds, o.ServerPushedP2pTimeoutSeconds, o.ServerPushedP2pRetryMaxSeconds,
+	)
 }
 
 // FullDetailSummary returns a full detailed summary with peer details and events.

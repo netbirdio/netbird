@@ -79,6 +79,15 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Phase 3.7h (#5989): also fetch GetConfig so the status output can show
+	// the effective connection-mode + lifecycle timers and the values most
+	// recently pushed by management. Failure is non-fatal — the rest of the
+	// status output is still useful even if these fields end up zero.
+	cfgResp, cfgErr := getDaemonConfig(ctx)
+	if cfgErr != nil {
+		cfgResp = &proto.GetConfigResponse{}
+	}
+
 	status := resp.GetStatus()
 
 	needsAuth := status == string(internal.StatusNeedsLogin) || status == string(internal.StatusLoginFailed) ||
@@ -117,6 +126,15 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 		IPsFilter:            ipsFilterMap,
 		ConnectionTypeFilter: connectionTypeFilter,
 		ProfileName:          profName,
+
+		ConnectionMode:                  cfgResp.GetConnectionMode(),
+		RelayTimeoutSeconds:             cfgResp.GetRelayTimeoutSeconds(),
+		P2pTimeoutSeconds:               cfgResp.GetP2PTimeoutSeconds(),
+		P2pRetryMaxSeconds:              cfgResp.GetP2PRetryMaxSeconds(),
+		ServerPushedConnectionMode:      cfgResp.GetServerPushedConnectionMode(),
+		ServerPushedRelayTimeoutSeconds: cfgResp.GetServerPushedRelayTimeoutSeconds(),
+		ServerPushedP2pTimeoutSeconds:   cfgResp.GetServerPushedP2PTimeoutSeconds(),
+		ServerPushedP2pRetryMaxSeconds:  cfgResp.GetServerPushedP2PRetryMaxSeconds(),
 	})
 	var statusOutputString string
 	switch {
@@ -154,6 +172,22 @@ func getStatus(ctx context.Context, fullPeerStatus bool, shouldRunProbes bool) (
 		return nil, fmt.Errorf("status failed: %v", status.Convert(err).Message())
 	}
 
+	return resp, nil
+}
+
+// getDaemonConfig fetches the daemon's effective and server-pushed config so
+// the status command can render Phase-3.7h connection-mode + timer values.
+func getDaemonConfig(ctx context.Context) (*proto.GetConfigResponse, error) {
+	conn, err := DialClientGRPCServer(ctx, daemonAddr)
+	if err != nil {
+		return nil, fmt.Errorf("dial daemon: %w", err)
+	}
+	defer conn.Close()
+
+	resp, err := proto.NewDaemonServiceClient(conn).GetConfig(ctx, &proto.GetConfigRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("getConfig: %w", err)
+	}
 	return resp, nil
 }
 

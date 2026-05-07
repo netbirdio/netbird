@@ -1231,6 +1231,15 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 		},
 	}
 
+	// Phase 3.7h (#5989): record server-pushed mode + timers in config.txt so
+	// debug bundles capture both effective and configured values.
+	if e.connMgr != nil {
+		bundleDeps.ServerPushedConnectionMode = e.connMgr.ServerPushedMode().String()
+		bundleDeps.ServerPushedRelayTimeoutSec = e.connMgr.ServerPushedRelayTimeoutSecs()
+		bundleDeps.ServerPushedP2pTimeoutSec = e.connMgr.ServerPushedP2pTimeoutSecs()
+		bundleDeps.ServerPushedP2pRetryMaxSec = e.connMgr.ServerPushedP2pRetryMaxSecs()
+	}
+
 	bundleJobParams := debug.BundleConfig{
 		Anonymize:         params.Anonymize,
 		IncludeSystemInfo: true,

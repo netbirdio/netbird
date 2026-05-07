@@ -57,16 +57,40 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 		}
 	}
 
+	// Phase 3.7h (#5989): capture server-pushed mode + timers from ConnMgr so
+	// the debug bundle's config.txt records both effective and configured
+	// values. Empty/zero if engine or ConnMgr aren't available yet.
+	var (
+		spMode       string
+		spRelayTOSec uint32
+		spP2pTOSec   uint32
+		spP2pRetMax  uint32
+	)
+	if s.connectClient != nil {
+		if eng := s.connectClient.Engine(); eng != nil {
+			if cm := eng.ConnMgr(); cm != nil {
+				spMode = cm.ServerPushedMode().String()
+				spRelayTOSec = cm.ServerPushedRelayTimeoutSecs()
+				spP2pTOSec = cm.ServerPushedP2pTimeoutSecs()
+				spP2pRetMax = cm.ServerPushedP2pRetryMaxSecs()
+			}
+		}
+	}
+
 	bundleGenerator := debug.NewBundleGenerator(
 		debug.GeneratorDependencies{
-			InternalConfig: s.config,
-			StatusRecorder: s.statusRecorder,
-			SyncResponse:   syncResponse,
-			LogPath:        s.logFile,
-			CPUProfile:     cpuProfileData,
-			CapturePath:    capturePath,
-			RefreshStatus:  refreshStatus,
-			ClientMetrics:  clientMetrics,
+			InternalConfig:              s.config,
+			StatusRecorder:              s.statusRecorder,
+			SyncResponse:                syncResponse,
+			LogPath:                     s.logFile,
+			CPUProfile:                  cpuProfileData,
+			CapturePath:                 capturePath,
+			RefreshStatus:               refreshStatus,
+			ClientMetrics:               clientMetrics,
+			ServerPushedConnectionMode:  spMode,
+			ServerPushedRelayTimeoutSec: spRelayTOSec,
+			ServerPushedP2pTimeoutSec:   spP2pTOSec,
+			ServerPushedP2pRetryMaxSec:  spP2pRetMax,
 		},
 		debug.BundleConfig{
 			Anonymize:         req.GetAnonymize(),
