@@ -4,23 +4,24 @@ import { useSettings } from "@/modules/settings/SettingsContext.tsx";
 
 export function SettingsNetwork() {
     const { config, setField } = useSettings();
+
     return (
         <>
             <SectionGroup title={"Connectivity"}>
                 <FancyToggleSwitch
                     value={config.lazyConnectionEnabled}
                     onChange={(v) => setField("lazyConnectionEnabled", v)}
-                    label={"Lazy connections"}
+                    label={"Lazy Connections"}
                     helpText={
-                        "Only establish peer tunnels on first traffic instead of eagerly at startup."
+                        "Instead of maintaining always-on connections, NetBird activates them on-demand based on activity or signaling."
                     }
                 />
                 <FancyToggleSwitch
                     value={config.networkMonitor}
                     onChange={(v) => setField("networkMonitor", v)}
-                    label={"Network monitor"}
+                    label={"Reconnect on Network Change"}
                     helpText={
-                        "Reconnect automatically when the host network changes (Wi-Fi switch, VPN, sleep/wake)."
+                        "Monitor the network and automatically reconnect on changes such as Wi-Fi switching, Ethernet changes, or resume from sleep."
                     }
                 />
             </SectionGroup>
@@ -30,25 +31,19 @@ export function SettingsNetwork() {
                     value={!config.disableDns}
                     onChange={(v) => setField("disableDns", !v)}
                     label={"Enable DNS"}
-                    helpText={
-                        "Apply NetBird-managed DNS settings to the host resolver."
-                    }
+                    helpText={"Apply NetBird-managed DNS settings to the host resolver."}
                 />
                 <FancyToggleSwitch
                     value={!config.disableClientRoutes}
                     onChange={(v) => setField("disableClientRoutes", !v)}
-                    label={"Enable client routes"}
-                    helpText={
-                        "Accept routes advertised by other peers so this client can reach their networks."
-                    }
+                    label={"Enable Client Routes"}
+                    helpText={"Accept routes from other peers to reach their networks."}
                 />
                 <FancyToggleSwitch
                     value={!config.disableServerRoutes}
                     onChange={(v) => setField("disableServerRoutes", !v)}
-                    label={"Enable server routes"}
-                    helpText={
-                        "Advertise this host's local routes to other peers."
-                    }
+                    label={"Enable Server Routes"}
+                    helpText={"Advertise this host's local routes to other peers."}
                 />
             </SectionGroup>
         </>
