@@ -9,6 +9,7 @@ type Props = HTMLMotionProps<"button"> & {
     description?: string;
     active?: boolean;
     iconSize?: number;
+    iconBackground?: boolean;
 };
 
 export const NavItem = forwardRef<HTMLButtonElement, Props>(
@@ -19,6 +20,7 @@ export const NavItem = forwardRef<HTMLButtonElement, Props>(
             description,
             active = false,
             iconSize = 15,
+            iconBackground = true,
             className,
             type = "button",
             ...props
@@ -40,21 +42,33 @@ export const NavItem = forwardRef<HTMLButtonElement, Props>(
                 )}
                 {...props}
             >
-                <div
-                    className={cn(
-                        "h-9 w-9 rounded-md flex items-center justify-center shrink-0",
-                        "transition-colors duration-150",
-                        active ? "bg-nb-gray-800" : "bg-nb-gray-920",
-                    )}
-                >
+                {iconBackground ? (
+                    <div
+                        className={cn(
+                            "h-9 w-9 rounded-md flex items-center justify-center shrink-0",
+                            "transition-colors duration-150",
+                            active ? "bg-nb-gray-800" : "bg-nb-gray-920",
+                        )}
+                    >
+                        <Icon
+                            size={iconSize}
+                            className={cn(
+                                "transition-colors duration-150",
+                                active
+                                    ? "text-nb-gray-200"
+                                    : "text-nb-gray-400",
+                            )}
+                        />
+                    </div>
+                ) : (
                     <Icon
                         size={iconSize}
                         className={cn(
-                            "transition-colors duration-150",
+                            "shrink-0 ml-2 transition-colors duration-150",
                             active ? "text-nb-gray-200" : "text-nb-gray-400",
                         )}
                     />
-                </div>
+                )}
                 <div className={"min-w-0"}>
                     <h2
                         className={cn(

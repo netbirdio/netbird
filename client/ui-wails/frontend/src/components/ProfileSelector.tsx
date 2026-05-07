@@ -124,9 +124,10 @@ export const ProfileSelector = ({ email = "" }: Props) => {
                     }
                 >
                     <div
-                        className={
-                            "h-7 w-7 flex items-center justify-center bg-nb-gray-900 rounded-md text-xs font-semibold"
-                        }
+                        className={cn(
+                            "flex items-center justify-center bg-nb-gray-900 rounded-md text-xs font-semibold",
+                            email ? "h-7 w-7" : "h-6 w-6",
+                        )}
                         style={{ color: initialColor }}
                     >
                         {initial}

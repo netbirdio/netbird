@@ -5,7 +5,7 @@ import {
 
 export const ConnectionStatus = () => {
     return (
-        <div className={"flex flex-col items-center"}>
+        <div className={"flex flex-col h-full items-center justify-center"}>
             <NetBirdConnectToggle state={ConnectionState.Connected} />
             <h1
                 className={

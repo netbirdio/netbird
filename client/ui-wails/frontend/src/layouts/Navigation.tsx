@@ -12,7 +12,7 @@ type Props = {
 
 export const Navigation = ({ peersActive = false, onPeersClick }: Props) => {
     return (
-        <nav className={"w-full flex flex-col gap-1 mt-8"}>
+        <nav className={"w-full flex flex-col gap-1 mt-auto"}>
             <NavItem
                 icon={MonitorSmartphoneIcon}
                 title={"Peers"}

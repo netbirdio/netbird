@@ -113,6 +113,7 @@ func main() {
 			InvisibleTitleBarHeight: 38,
 			Backdrop:                application.MacBackdropTranslucent,
 			TitleBar:                application.MacTitleBarHiddenInset,
+			CollectionBehavior:      application.MacWindowCollectionBehaviorFullScreenNone,
 		},
 	})
 

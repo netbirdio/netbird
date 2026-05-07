@@ -1,69 +1,129 @@
-1. General
+# Settings — Tabs & Controls
 
-The "old tray" toggles + notifications. This is what 90% of users come to Settings for.
+Each row has a title and short description. Booleans default to **toggle switch**; pick another control only when noted.
 
-- Connect on startup — disableAutoConnect (inverted)
-- Allow SSH — serverSshAllowed (master switch; the SSH tab is the detail)
-- Quantum-resistance — rosenpassEnabled
-    - Nested when on: Permissive mode — rosenpassPermissive
-- Lazy connections — lazyConnectionEnabled
-- Block inbound — blockInbound
-- Show notifications — disableNotifications (inverted)
+Tab order: **General · Network · SSH · Troubleshooting · About**.
 
-▎ Note: blockInbound is technically a firewall behavior, but Stage 1 explicitly groups it with the tray-replacement toggles. Keep it here.
+---
 
-2. Connection
+## 1. General
 
-Identity + how the wire is established. The "what server am I talking to and how" tab.
+App behavior + how the client connects.
 
-- Management URL — managementUrl
-- Pre-shared key — preSharedKey (password input, toggle reveal)
-- Advanced (collapsed by default)
-    - Admin URL — adminUrl
-    - Interface name — interfaceName
-    - WireGuard port — wireguardPort
-    - MTU — mtu
+### Startup
 
-3. Network
+- **Connect on startup** — `disableAutoConnect` (inverted) · *toggle switch*
+  - Automatically connect to NetBird when the app launches.
+- **Show notifications** — `disableNotifications` (inverted) · *toggle switch*
+  - Show desktop notifications for connection events and updates.
 
-Routing / DNS / LAN behavior — i.e. what the daemon does to the host network.
+### Connection
 
-- Network monitor — networkMonitor
-- Disable DNS — disableDns
-- Disable client routes — disableClientRoutes
-- Disable server routes — disableServerRoutes
-- Block LAN access — blockLanAccess
+- **Management URL** — `managementUrl` · *text input*
+  - The NetBird management server this client connects to.
+- **Admin URL** — `adminUrl` · *text input*
+  - Web dashboard URL used by "Open Admin Panel".
+- **Pre-shared key** — `preSharedKey` · *password input with reveal toggle*
+  - Optional WireGuard pre-shared key for an extra layer of symmetric encryption.
 
-4. SSH
+### Interface
 
-Detailed SSH server config. Greyed out with an inline notice ("Enable Allow SSH in General to configure") when serverSshAllowed is off.
+- **Interface name** — `interfaceName` · *text input*
+  - Name of the WireGuard network interface created on this host.
+- **WireGuard port** — `wireguardPort` · *number input*
+  - Local UDP port the WireGuard interface listens on.
+- **MTU** — `mtu` · *number input*
+  - Maximum transmission unit for the WireGuard interface.
 
-- SSH root login — enableSshRoot
-- SFTP — enableSshSftp
-- Local port forwarding — enableSshLocalPortForwarding
-- Remote port forwarding — enableSshRemotePortForwarding
-- Advanced (collapsed)
-    - Disable SSH auth — disableSshAuth
-    - JWT cache TTL — sshJwtCacheTtl
+---
 
-5. Diagnostics
+## 2. Network
 
-Everything you reach for when something is wrong. Mixes config (log level) with actions (bundle creation) deliberately — they're used together.
+Routing, DNS, firewall, and encryption — everything the daemon does on the wire and to the host network.
 
-- Log level — Debug / Info / Warn / Error (dropdown)
-- Log file path — read-only, with Copy + Reveal in Finder/Explorer buttons (configFile / logFile from daemon)
-- Config file path — same pattern
-- Debug bundle (own section)
-    - Anonymize toggle
-    - Include system info toggle
-    - Upload on create toggle → reveals URL field when on
-    - Create Bundle button → progress indicator → resulting path or upload URL displayed below
+### Routing & DNS
 
-6. About
+- **Lazy connections** — `lazyConnectionEnabled` · *toggle switch*
+  - Only establish peer tunnels on first traffic instead of eagerly at startup.
+- **Network monitor** — `networkMonitor` · *toggle switch*
+  - Reconnect automatically when the host network changes (Wi-Fi switch, VPN, sleep/wake).
+- **Enable DNS** — `disableDns` (inverted) · *toggle switch*
+  - Apply NetBird-managed DNS settings to the host resolver.
+- **Enable client routes** — `disableClientRoutes` (inverted) · *toggle switch*
+  - Accept routes advertised by other peers so this client can reach their networks.
+- **Enable server routes** — `disableServerRoutes` (inverted) · *toggle switch*
+  - Advertise this host's local routes to other peers.
 
-Version + update flow + identity reference.
+### Firewall
+
+- **Block inbound traffic** — `blockInbound` · *toggle switch*
+  - Drop all unsolicited inbound traffic on the NetBird interface.
+- **Block LAN access** — `blockLanAccess` · *toggle switch*
+  - Prevent peers from reaching this host's local network.
+
+### Encryption
+
+- **Quantum-resistant encryption** — `rosenpassEnabled` · *toggle switch*
+  - Add a post-quantum key exchange (Rosenpass) on top of WireGuard.
+  - **Permissive mode** — `rosenpassPermissive` · *toggle switch* (nested, only when above is on)
+    - Allow connections to peers without quantum-resistance support.
+
+---
+
+## 3. SSH
+
+NetBird SSH server config. Master switch at the top; sub-toggles greyed out with an inline notice ("Enable Allow SSH to configure") when the master is off.
+
+### Server
+
+- **Allow SSH** — `serverSshAllowed` · *toggle switch* (master)
+  - Run the NetBird SSH server on this host so other peers can connect to it.
+- **Allow root login** — `enableSshRoot` · *toggle switch*
+  - Permit incoming SSH sessions to authenticate as `root`.
+- **Enable SFTP** — `enableSshSftp` · *toggle switch*
+  - Allow file transfers over the NetBird SSH server.
+- **Local port forwarding** — `enableSshLocalPortForwarding` · *toggle switch*
+  - Allow clients to forward local ports through this host.
+- **Remote port forwarding** — `enableSshRemotePortForwarding` · *toggle switch*
+  - Allow clients to expose remote ports back through this host.
+
+### Authentication
+
+- **Disable SSH auth** — `disableSshAuth` · *toggle switch*
+  - Skip JWT authentication for incoming SSH sessions. **Insecure — diagnostics only.**
+- **JWT cache TTL** — `sshJwtCacheTtl` · *number input (seconds)*
+  - How long verified JWTs are cached before re-validation.
+
+---
+
+## 4. Troubleshooting
+
+Everything you reach for when something is wrong. Config + actions deliberately mixed — they're used together.
+
+### Logging
+
+- **Log level** — *dropdown: Debug / Info / Warn / Error*
+  - Verbosity of the daemon log. Raise to Debug when reproducing an issue.
+- **Log file path** — *read-only text + Copy + Reveal in Finder/Explorer*
+- **Config file path** — *read-only text + Copy + Reveal in Finder/Explorer*
+
+### Debug bundle
+
+- **Anonymize** — *toggle switch*
+  - Strip IPs, hostnames, and peer names from the bundle before saving.
+- **Include system info** — *toggle switch*
+  - Add OS, kernel, and network interface details to the bundle.
+- **Upload on create** — *toggle switch*
+  - When on, reveals an upload URL field and uploads the bundle after creation.
+- **Create Bundle** — *button* → progress indicator → resulting path or upload URL.
+
+---
+
+## 5. About
+
+Version, update flow, and identity reference.
 
 - App version, daemon version
-- Check for Updates button → drives the auto-update flow (15-min timeout, success/error states)
-- Local peer info quick-reference (FQDN, IP) — same data the connection-state view shows
+- **Check for Updates** — *button* (drives auto-update flow; 15-min timeout, success/error states)
+- Local peer info quick-reference (FQDN, IP) — same data shown in the connection-state view
 - Links: docs, GitHub repo, license

@@ -1,7 +1,19 @@
+import { useState } from "react";
+import { MainRightSide } from "@/layouts/MainRightSide.tsx";
+import {
+    SettingsNavigation,
+    SettingsSection,
+} from "@/modules/settings/SettingsNavigation.tsx";
+
 export const Settings = () => {
+    const [active, setActive] = useState<SettingsSection>("general");
+
     return (
-        <div className={"flex flex-col w-full h-full min-h-0 pt-4 px-4"}>
-            <h2 className={"text-sm font-medium text-nb-gray-200"}>Settings</h2>
+        <div className={"wails-draggable flex flex-1 min-h-0 p-4 gap-4"}>
+            <div className={"flex flex-col w-52 shrink-0 items-center"}>
+                <SettingsNavigation active={active} onChange={setActive} />
+            </div>
+            <MainRightSide>{null}</MainRightSide>
         </div>
     );
 };
