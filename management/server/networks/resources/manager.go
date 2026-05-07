@@ -461,7 +461,7 @@ type resourceAffectedPeersData struct {
 // loadResourceAffectedPeersData loads the data needed to determine affected peers within a transaction.
 func loadResourceAffectedPeersData(ctx context.Context, transaction store.Store, accountID, networkID string, resourceGroupIDs []string) (*resourceAffectedPeersData, error) {
 	if len(resourceGroupIDs) == 0 {
-		return nil, nil
+		return &resourceAffectedPeersData{}, nil
 	}
 
 	policies, err := transaction.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)

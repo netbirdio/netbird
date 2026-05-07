@@ -481,12 +481,12 @@ func TestCollectPolicyAffectedGroups_MultiplePolicies(t *testing.T) {
 			{Sources: []string{"g1"}, Destinations: []string{"g2"}},
 		},
 	}
-	new := &types.Policy{
+	updated := &types.Policy{
 		Rules: []*types.PolicyRule{
 			{Sources: []string{"g3"}, Destinations: []string{"g4"}},
 		},
 	}
-	groups, _ := collectPolicyAffectedGroupsAndPeers(context.Background(), new, old)
+	groups, _ := collectPolicyAffectedGroupsAndPeers(context.Background(), updated, old)
 	assert.ElementsMatch(t, []string{"g1", "g2", "g3", "g4"}, groups)
 }
 
@@ -548,11 +548,11 @@ func TestCollectRouteAffectedGroups_MultipleRoutes(t *testing.T) {
 		Groups: []string{"g1"},
 		Peer:   "p1",
 	}
-	new := &route.Route{
+	updated := &route.Route{
 		Groups:     []string{"g2"},
 		PeerGroups: []string{"g3"},
 	}
-	groups, directPeers := collectRouteAffectedGroupsAndPeers(context.Background(), new, old)
+	groups, directPeers := collectRouteAffectedGroupsAndPeers(context.Background(), updated, old)
 	assert.ElementsMatch(t, []string{"g1", "g2", "g3"}, groups)
 	assert.ElementsMatch(t, []string{"p1"}, directPeers)
 }

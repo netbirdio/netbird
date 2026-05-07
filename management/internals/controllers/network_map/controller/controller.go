@@ -44,7 +44,6 @@ type Controller struct {
 	EphemeralPeersManager ephemeral.Manager
 
 	accountUpdateLocks               sync.Map
-	sendAccountUpdateLocks           sync.Map
 	affectedPeerUpdateLocks          sync.Map
 	updateAccountPeersBufferInterval atomic.Int64
 	// dnsDomain is used for peer resolution. This is appended to the peer's name
@@ -225,44 +224,6 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 	if c.accountManagerMetrics != nil {
 		c.accountManagerMetrics.CountUpdateAccountPeersDuration(time.Since(globalStart))
 	}
-
-	return nil
-}
-
-func (c *Controller) bufferSendUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) error {
-	log.WithContext(ctx).Tracef("buffer sending update peers for account %s from %s", accountID, util.GetCallerName())
-
-	if c.accountManagerMetrics != nil {
-		c.accountManagerMetrics.CountUpdateAccountPeersTriggered(string(reason.Resource), string(reason.Operation))
-	}
-
-	bufUpd, _ := c.sendAccountUpdateLocks.LoadOrStore(accountID, &bufferUpdate{})
-	b := bufUpd.(*bufferUpdate)
-
-	if !b.mu.TryLock() {
-		b.update.Store(true)
-		return nil
-	}
-
-	if b.next != nil {
-		b.next.Stop()
-	}
-
-	go func() {
-		defer b.mu.Unlock()
-		_ = c.sendUpdateAccountPeers(ctx, accountID)
-		if !b.update.Load() {
-			return
-		}
-		b.update.Store(false)
-		if b.next == nil {
-			b.next = time.AfterFunc(time.Duration(c.updateAccountPeersBufferInterval.Load()), func() {
-				_ = c.sendUpdateAccountPeers(ctx, accountID)
-			})
-			return
-		}
-		b.next.Reset(time.Duration(c.updateAccountPeersBufferInterval.Load()))
-	}()
 
 	return nil
 }

@@ -321,7 +321,7 @@ func loadRouterAffectedPeersData(ctx context.Context, transaction store.Store, a
 	}
 
 	if len(routerPeerGroups) == 0 && len(directPeerIDs) == 0 {
-		return nil, nil
+		return &routerAffectedPeersData{}, nil
 	}
 
 	resources, err := transaction.GetNetworkResourcesByNetID(ctx, store.LockingStrengthNone, accountID, networkID)
