@@ -177,7 +177,10 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 		}
 
 		allPeerGroups := router.PeerGroups
-		directPeers := []string{router.Peer}
+		var directPeers []string
+		if router.Peer != "" {
+			directPeers = append(directPeers, router.Peer)
+		}
 		oldRouter, err := transaction.GetNetworkRouterByID(ctx, store.LockingStrengthNone, router.AccountID, router.ID)
 		if err == nil {
 			allPeerGroups = append(allPeerGroups, oldRouter.PeerGroups...)

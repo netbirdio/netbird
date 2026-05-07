@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
@@ -134,6 +135,7 @@ func (am *DefaultAccountManager) ListPostureChecks(ctx context.Context, accountI
 func collectPostureCheckAffectedGroupsAndPeers(ctx context.Context, transaction store.Store, accountID, postureCheckID string) (groupIDs []string, directPeerIDs []string) {
 	policies, err := transaction.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get policies for posture check affected peers resolution: %v", err)
 		return nil, nil
 	}
 
