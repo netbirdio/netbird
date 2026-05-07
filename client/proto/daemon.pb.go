@@ -342,7 +342,6 @@ type LoginRequest struct {
 	EnableSSHRemotePortForwarding *bool   `protobuf:"varint,37,opt,name=enableSSHRemotePortForwarding,proto3,oneof" json:"enableSSHRemotePortForwarding,omitempty"`
 	DisableSSHAuth                *bool   `protobuf:"varint,38,opt,name=disableSSHAuth,proto3,oneof" json:"disableSSHAuth,omitempty"`
 	SshJWTCacheTTL                *int32  `protobuf:"varint,39,opt,name=sshJWTCacheTTL,proto3,oneof" json:"sshJWTCacheTTL,omitempty"`
-	DisableDefaultRoute           *bool   `protobuf:"varint,40,opt,name=disable_default_route,json=disableDefaultRoute,proto3,oneof" json:"disable_default_route,omitempty"`
 	unknownFields                 protoimpl.UnknownFields
 	sizeCache                     protoimpl.SizeCache
 }
@@ -649,13 +648,6 @@ func (x *LoginRequest) GetSshJWTCacheTTL() int32 {
 		return *x.SshJWTCacheTTL
 	}
 	return 0
-}
-
-func (x *LoginRequest) GetDisableDefaultRoute() bool {
-	if x != nil && x.DisableDefaultRoute != nil {
-		return *x.DisableDefaultRoute
-	}
-	return false
 }
 
 type LoginResponse struct {
@@ -6210,7 +6202,7 @@ var File_daemon_proto protoreflect.FileDescriptor
 const file_daemon_proto_rawDesc = "" +
 	"\n" +
 	"\fdaemon.proto\x12\x06daemon\x1a google/protobuf/descriptor.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/duration.proto\"\x0e\n" +
-	"\fEmptyRequest\"\x89\x13\n" +
+	"\fEmptyRequest\"\xb6\x12\n" +
 	"\fLoginRequest\x12\x1a\n" +
 	"\bsetupKey\x18\x01 \x01(\tR\bsetupKey\x12&\n" +
 	"\fpreSharedKey\x18\x02 \x01(\tB\x02\x18\x01R\fpreSharedKey\x12$\n" +
@@ -6254,8 +6246,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\x1cenableSSHLocalPortForwarding\x18$ \x01(\bH\x17R\x1cenableSSHLocalPortForwarding\x88\x01\x01\x12I\n" +
 	"\x1denableSSHRemotePortForwarding\x18% \x01(\bH\x18R\x1denableSSHRemotePortForwarding\x88\x01\x01\x12+\n" +
 	"\x0edisableSSHAuth\x18& \x01(\bH\x19R\x0edisableSSHAuth\x88\x01\x01\x12+\n" +
-	"\x0esshJWTCacheTTL\x18' \x01(\x05H\x1aR\x0esshJWTCacheTTL\x88\x01\x01\x127\n" +
-	"\x15disable_default_route\x18( \x01(\bH\x1bR\x13disableDefaultRoute\x88\x01\x01B\x13\n" +
+	"\x0esshJWTCacheTTL\x18' \x01(\x05H\x1aR\x0esshJWTCacheTTL\x88\x01\x01B\x13\n" +
 	"\x11_rosenpassEnabledB\x10\n" +
 	"\x0e_interfaceNameB\x10\n" +
 	"\x0e_wireguardPortB\x17\n" +
@@ -6282,8 +6273,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\x1d_enableSSHLocalPortForwardingB \n" +
 	"\x1e_enableSSHRemotePortForwardingB\x11\n" +
 	"\x0f_disableSSHAuthB\x11\n" +
-	"\x0f_sshJWTCacheTTLB\x18\n" +
-	"\x16_disable_default_route\"\xb5\x01\n" +
+	"\x0f_sshJWTCacheTTL\"\xb5\x01\n" +
 	"\rLoginResponse\x12$\n" +
 	"\rneedsSSOLogin\x18\x01 \x01(\bR\rneedsSSOLogin\x12\x1a\n" +
 	"\buserCode\x18\x02 \x01(\tR\buserCode\x12(\n" +

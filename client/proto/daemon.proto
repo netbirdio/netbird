@@ -206,7 +206,6 @@ message LoginRequest {
   optional int32 sshJWTCacheTTL = 39;
   optional bool disable_ipv6 = 40;
 
-  optional bool disable_default_route = 41;
 }
 
 message LoginResponse {
