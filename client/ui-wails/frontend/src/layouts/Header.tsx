@@ -7,7 +7,7 @@ import { cn } from "@/lib/cn";
 export const Header = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const settingsActive = location.pathname.startsWith("/settings");
+    const isSettingsPage = location.pathname.startsWith("/settings");
 
     return (
         <div
@@ -20,10 +20,10 @@ export const Header = () => {
             </div>
             <IconButton
                 icon={SettingsIcon}
-                onClick={() => navigate(settingsActive ? "/" : "/settings")}
+                onClick={() => navigate(isSettingsPage ? "/" : "/settings")}
                 className={cn(
-                    settingsActive &&
-                        "bg-nb-gray-930 text-nb-gray-200 hover:text-nb-gray-200",
+                    isSettingsPage &&
+                        "bg-nb-gray-910 hover:bg-nb-gray-910 text-nb-gray-200 hover:text-nb-gray-200",
                 )}
             />
         </div>

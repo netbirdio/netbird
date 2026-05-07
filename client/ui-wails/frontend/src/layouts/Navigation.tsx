@@ -1,4 +1,4 @@
-import { NavItem } from "@/components/NavItem.tsx";
+import { CardNavItem } from "@/components/CardNavItem.tsx";
 import {
     Layers3Icon,
     MonitorSmartphoneIcon,
@@ -13,20 +13,20 @@ type Props = {
 export const Navigation = ({ peersActive = false, onPeersClick }: Props) => {
     return (
         <nav className={"w-full flex flex-col gap-1 mt-auto"}>
-            <NavItem
+            <CardNavItem
                 icon={MonitorSmartphoneIcon}
                 title={"Peers"}
                 description={"13 of 16 Online"}
                 active={peersActive}
                 onClick={onPeersClick}
             />
-            <NavItem
+            <CardNavItem
                 icon={Layers3Icon}
                 title={"Resources"}
                 description={"13 of 16 Active"}
                 iconSize={14}
             />
-            <NavItem
+            <CardNavItem
                 icon={SquareArrowUpRight}
                 title={"Exit Node Berlin"}
                 description={"192.168..."}

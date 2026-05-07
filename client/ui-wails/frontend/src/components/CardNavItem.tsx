@@ -9,18 +9,16 @@ type Props = HTMLMotionProps<"button"> & {
     description?: string;
     active?: boolean;
     iconSize?: number;
-    iconBackground?: boolean;
 };
 
-export const NavItem = forwardRef<HTMLButtonElement, Props>(
-    function NavItem(
+export const CardNavItem = forwardRef<HTMLButtonElement, Props>(
+    function CardNavItem(
         {
             icon: Icon,
             title,
             description,
             active = false,
             iconSize = 15,
-            iconBackground = true,
             className,
             type = "button",
             ...props
@@ -35,40 +33,26 @@ export const NavItem = forwardRef<HTMLButtonElement, Props>(
                 className={cn(
                     "w-full flex items-center gap-3 p-1.5 rounded-lg cursor-default outline-none text-left",
                     "transition-colors duration-150",
-                    active
-                        ? "bg-nb-gray-930"
-                        : "hover:bg-nb-gray-940",
+                    active ? "bg-nb-gray-930" : "hover:bg-nb-gray-940",
                     className,
                 )}
                 {...props}
             >
-                {iconBackground ? (
-                    <div
-                        className={cn(
-                            "h-9 w-9 rounded-md flex items-center justify-center shrink-0",
-                            "transition-colors duration-150",
-                            active ? "bg-nb-gray-800" : "bg-nb-gray-920",
-                        )}
-                    >
-                        <Icon
-                            size={iconSize}
-                            className={cn(
-                                "transition-colors duration-150",
-                                active
-                                    ? "text-nb-gray-200"
-                                    : "text-nb-gray-400",
-                            )}
-                        />
-                    </div>
-                ) : (
+                <div
+                    className={cn(
+                        "h-9 w-9 rounded-md flex items-center justify-center shrink-0",
+                        "transition-colors duration-150",
+                        active ? "bg-nb-gray-800" : "bg-nb-gray-920",
+                    )}
+                >
                     <Icon
                         size={iconSize}
                         className={cn(
-                            "shrink-0 ml-2 transition-colors duration-150",
+                            "transition-colors duration-150",
                             active ? "text-nb-gray-200" : "text-nb-gray-400",
                         )}
                     />
-                )}
+                </div>
                 <div className={"min-w-0"}>
                     <h2
                         className={cn(

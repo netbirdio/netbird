@@ -121,13 +121,32 @@ Everything you reach for when something is wrong.
 
 ### Debug bundle
 
-- **Anonymize** — *toggle switch*
-  - Strip IPs, hostnames, and peer names from the bundle before saving.
-- **Include system info** — *toggle switch*
-  - Add OS, kernel, and network interface details to the bundle.
-- **Upload on create** — *toggle switch*
-  - When on, reveals an upload URL field and uploads the bundle after creation.
-- **Create Bundle** — *button* → progress indicator → resulting path or upload URL.
+Friendly intro line on top: *"A debug bundle helps NetBird support investigate connection problems. It's a zip file with logs and system details from this device."*
+
+Toggle rows:
+
+- **Anonymize personal data** — `anonymize` · *toggle switch* · default **on**
+  - Replace IPs, hostnames, and peer names before saving.
+- **Include system info** — `systemInfo` · *toggle switch* · default **on**
+  - Include OS, kernel, network interfaces, and routing tables.
+- **Send to NetBird support** — *toggle switch* · default **off**
+  - Uploads the bundle to a hardcoded NetBird endpoint (`NETBIRD_UPLOAD_URL` constant). On success the user gets a short upload key to share with support. Local copy is always kept too.
+- **Capture detailed (trace) logs** — *toggle switch* · default **off**
+  - Nested *Capture for [N] minutes* number input (1–30, suffix "min", default 3).
+  - When enabled, the daemon's log level is switched to trace, NetBird is brought down and back up, the UI captures for the configured duration, the original log level is restored, then the bundle is created with `logFileCount: 5` (vs 1 in plain mode).
+  - User-facing warning baked into the help text: "NetBird will briefly disconnect."
+
+**Create bundle** — primary button. Disabled while running. Shows "Creating bundle…" label.
+
+### Status / result block
+
+Renders below the button while running and after completion.
+
+- **Running** — bordered card with spinner + stage text. Stages: *Switching to trace logging…* → *Reconnecting NetBird…* → *Capturing logs — m:ss / m:ss* (countdown) → *Restoring previous log level…* → *Building bundle…* → *Uploading to NetBird…* (last only when upload toggle on; trace stages skipped when trace off).
+- **Done — uploaded**: bordered card with the upload key in a copyable code block + "Share this key with NetBird support so they can find your bundle.". Below, a smaller card with the local path + Copy + Reveal (file://) buttons + admin-privilege note.
+- **Done — local only**: single card with "Bundle saved to:" + path + Copy + Reveal + admin note.
+- **Partial — upload failed**: red banner ("Upload failed: <reason>. The bundle is still saved locally.") above the local path card.
+- **Error** (no bundle produced): red banner with the error message + a **Try again** button next to Create.
 
 ---
 
