@@ -32,7 +32,7 @@ func init() {
 		"Disable server routes. If enabled, the client won't act as a router for server routes received from the management service.")
 
 	upCmd.PersistentFlags().BoolVar(&disableDefaultRoute, disableDefaultRouteFlag, false,
-		"Disable adding default route (0.0.0.0/0) to the system routing table while keeping it in WireGuard allowed IPs.")
+		"Disable adding default routes (0.0.0.0/0, ::/0) to the system routing table while keeping them in WireGuard allowed IPs.")
 
 	upCmd.PersistentFlags().BoolVar(&disableDNS, disableDNSFlag, false,
 		"Disable DNS. If enabled, the client won't configure DNS settings.")
