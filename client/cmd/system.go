@@ -2,14 +2,14 @@ package cmd
 
 // Flag constants for system configuration
 const (
-	disableClientRoutesFlag  = "disable-client-routes"
-	disableServerRoutesFlag  = "disable-server-routes"
-	disableDefaultRouteFlag  = "disable-default-route"
-	disableDNSFlag           = "disable-dns"
-	disableFirewallFlag      = "disable-firewall"
-	blockLANAccessFlag       = "block-lan-access"
-	blockInboundFlag         = "block-inbound"
-	disableIPv6Flag          = "disable-ipv6"
+	disableClientRoutesFlag = "disable-client-routes"
+	disableServerRoutesFlag = "disable-server-routes"
+	disableDefaultRouteFlag = "disable-default-route"
+	disableDNSFlag          = "disable-dns"
+	disableFirewallFlag     = "disable-firewall"
+	blockLANAccessFlag      = "block-lan-access"
+	blockInboundFlag        = "block-inbound"
+	disableIPv6Flag         = "disable-ipv6"
 )
 
 var (

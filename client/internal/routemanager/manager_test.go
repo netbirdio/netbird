@@ -459,7 +459,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			ctx := context.TODO()
 			routeManager := NewManager(ManagerConfig{
 				Context:             ctx,
-				PublicKey:            localPeerKey,
+				PublicKey:           localPeerKey,
 				WGInterface:         wgInterface,
 				StatusRecorder:      statusRecorder,
 				DisableDefaultRoute: testCase.disableDefaultRoute,
@@ -520,7 +520,7 @@ func TestDisableDefaultRouteSkipsSystemRoute(t *testing.T) {
 
 	mgr := NewManager(ManagerConfig{
 		Context:             context.TODO(),
-		PublicKey:            localPeerKey,
+		PublicKey:           localPeerKey,
 		WGInterface:         wgInterface,
 		StatusRecorder:      statusRecorder,
 		DisableDefaultRoute: true,
