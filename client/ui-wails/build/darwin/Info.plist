@@ -5,6 +5,8 @@
             <string>APPL</string>
         <key>CFBundleName</key>
             <string>NetBird</string>
+        <key>CFBundleDisplayName</key>
+            <string>NetBird</string>
         <key>CFBundleExecutable</key>
             <string>netbird-ui</string>
         <key>CFBundleIdentifier</key>
