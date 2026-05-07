@@ -7,9 +7,7 @@ type SwitchItemGroupContextValue = {
     layoutId: string;
 };
 
-const SwitchItemGroupContext = createContext<SwitchItemGroupContextValue | null>(
-    null,
-);
+const SwitchItemGroupContext = createContext<SwitchItemGroupContextValue | null>(null);
 
 export const useSwitchItemGroup = () => {
     const ctx = useContext(SwitchItemGroupContext);
@@ -35,7 +33,7 @@ export const SwitchItemGroup = ({ value, onChange, children, className }: Props)
                 value={value}
                 onValueChange={onChange}
                 className={cn(
-                    "flex shrink-0 rounded-lg border border-nb-gray-850 bg-nb-gray-920 p-1",
+                    "flex shrink-0 rounded-lg border border-nb-gray-850 bg-nb-gray-910 p-1",
                     className,
                 )}
             >

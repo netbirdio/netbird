@@ -27,13 +27,11 @@ export const SwitchItem = ({ value, children }: Props) => {
             {active && (
                 <motion.span
                     layoutId={layoutId}
-                    className={"absolute inset-0 rounded-md bg-nb-gray-800"}
+                    className={"absolute inset-0 rounded-md bg-nb-gray-700"}
                     transition={{ type: "spring", stiffness: 500, damping: 35 }}
                 />
             )}
-            <span
-                className={"relative inline-flex items-center justify-center gap-1"}
-            >
+            <span className={"relative inline-flex items-center justify-center gap-1"}>
                 {children}
             </span>
         </RadioGroup.Item>
