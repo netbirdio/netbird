@@ -16,12 +16,13 @@ const (
 
 	// DefaultInactivityThreshold is the relay-tunnel idle-teardown
 	// fallback when neither client config nor server-pushed value sets
-	// it. Bumped 2026-05-03 from 15 min to 24 h: a 15-min window
-	// triggered tear-down for peers that exchange traffic only
-	// occasionally (e.g. NAT-keepalive only), forcing a full re-
-	// handshake on every wake. 24 h matches the dashboard placeholder
-	// and the production value most users actually want.
-	DefaultInactivityThreshold = 24 * time.Hour
+	// it. Reverted 2026-05-07 to the original 15 min value (was bumped
+	// to 24 h locally during 2026-05-03 testing, but that change is not
+	// in scope for this PR — keeping existing p2p-lazy semantics intact
+	// is required so p2p-dynamic is the only mode whose lifecycle
+	// changes. p2p-dynamic users that want a longer warm window can
+	// override via per-peer relay_timeout_seconds.
+	DefaultInactivityThreshold = 15 * time.Minute
 	MinimumInactivityThreshold = 1 * time.Minute
 )
 
