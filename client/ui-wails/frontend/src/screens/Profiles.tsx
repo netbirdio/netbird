@@ -3,23 +3,23 @@ import { Plus, RefreshCw } from "lucide-react";
 import {
   Profiles as ProfilesSvc,
   Connection,
-} from "../../bindings/github.com/netbirdio/netbird/client/ui-wails/services";
-import type { Profile } from "../../bindings/github.com/netbirdio/netbird/client/ui-wails/services/models.js";
+} from "@bindings/services";
+import type { Profile } from "@bindings/services/models.js";
 import { Button } from "../components/Button";
 import { Input } from "../components/Input";
 import { Card } from "../components/Card";
+import { useProfile } from "@/modules/profile/ProfileContext.tsx";
 
 export default function Profiles() {
-  const [username, setUsername] = useState("");
+  const { username, loaded, refresh: refreshProfile, switchProfile } = useProfile();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
   const refresh = useCallback(async () => {
+    if (!username) return;
     try {
-      const u = username || (await ProfilesSvc.Username());
-      if (!username) setUsername(u);
-      const list = await ProfilesSvc.List(u);
+      const list = await ProfilesSvc.List(username);
       setProfiles(list);
       setError(null);
     } catch (e) {
@@ -28,12 +28,12 @@ export default function Profiles() {
   }, [username]);
 
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    if (loaded) refresh();
+  }, [loaded, refresh]);
 
   const select = async (name: string) => {
     try {
-      await ProfilesSvc.Switch({ profileName: name, username });
+      await switchProfile(name);
       await Connection.Up({ profileName: name, username });
       await refresh();
     } catch (e) {
@@ -54,6 +54,7 @@ export default function Profiles() {
     if (name === "default") return;
     try {
       await ProfilesSvc.Remove({ profileName: name, username });
+      await refreshProfile();
       await refresh();
     } catch (e) {
       setError(String(e));

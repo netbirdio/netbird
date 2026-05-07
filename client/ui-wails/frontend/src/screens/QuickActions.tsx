@@ -1,6 +1,6 @@
 import { CheckCircle2, Circle, Loader2, Power } from "lucide-react";
 import { useStatus } from "../hooks/useStatus";
-import { Connection } from "../../bindings/github.com/netbirdio/netbird/client/ui-wails/services";
+import { Connection } from "@bindings/services";
 import { Button } from "../components/Button";
 import { cn } from "../lib/cn";
 

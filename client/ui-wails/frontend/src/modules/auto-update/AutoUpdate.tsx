@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/Button";
 import { useStatus } from "@/hooks/useStatus";
-import { Update as UpdateSvc } from "../../../bindings/github.com/netbirdio/netbird/client/ui-wails/services";
+import { Update as UpdateSvc } from "@bindings/services";
 
 export const AutoUpdate = () => {
     const { status } = useStatus();

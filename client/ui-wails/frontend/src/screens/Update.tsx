@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
-import { Update as UpdateSvc } from "../../bindings/github.com/netbirdio/netbird/client/ui-wails/services";
+import { Update as UpdateSvc } from "@bindings/services";
 
 const TIMEOUT_MS = 15 * 60 * 1000;
 

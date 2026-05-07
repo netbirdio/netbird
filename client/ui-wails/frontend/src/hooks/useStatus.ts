@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Events } from "@wailsio/runtime";
-import { Peers } from "../../bindings/github.com/netbirdio/netbird/client/ui-wails/services";
-import type { Status } from "../../bindings/github.com/netbirdio/netbird/client/ui-wails/services/models.js";
+import { Peers } from "@bindings/services";
+import type { Status } from "@bindings/services/models.js";
 
 const EVENT_STATUS = "netbird:status";
 

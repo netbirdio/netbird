@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
-import { Networks as NetworksSvc } from "../../bindings/github.com/netbirdio/netbird/client/ui-wails/services";
-import type { Network } from "../../bindings/github.com/netbirdio/netbird/client/ui-wails/services/models.js";
+import { Networks as NetworksSvc } from "@bindings/services";
+import type { Network } from "@bindings/services/models.js";
 import { Button } from "../components/Button";
 import { Tabs } from "../components/Tabs";
 

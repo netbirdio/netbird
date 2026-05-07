@@ -22,7 +22,8 @@
     "noFallthroughCasesInSwitch": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@bindings/*": ["bindings/github.com/netbirdio/netbird/client/ui-wails/*"]
     }
   },
   "include": ["src", "bindings"],

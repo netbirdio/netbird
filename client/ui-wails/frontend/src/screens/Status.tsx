@@ -1,7 +1,7 @@
 import { CheckCircle2, Circle, Loader2, AlertTriangle, Power } from "lucide-react";
 import { useStatus } from "../hooks/useStatus";
-import { Connection } from "../../bindings/github.com/netbirdio/netbird/client/ui-wails/services";
-import type { SystemEvent } from "../../bindings/github.com/netbirdio/netbird/client/ui-wails/services/models.js";
+import { Connection } from "@bindings/services";
+import type { SystemEvent } from "@bindings/services/models.js";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { cn } from "../lib/cn";
