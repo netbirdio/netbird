@@ -7,6 +7,7 @@ package store
 import (
 	context "context"
 	net "net"
+	netip "net/netip"
 	reflect "reflect"
 	time "time"
 
@@ -2168,10 +2169,10 @@ func (mr *MockStoreMockRecorder) GetStoreEngine() *gomock.Call {
 }
 
 // GetTakenIPs mocks base method.
-func (m *MockStore) GetTakenIPs(ctx context.Context, lockStrength LockingStrength, accountId string) ([]net.IP, error) {
+func (m *MockStore) GetTakenIPs(ctx context.Context, lockStrength LockingStrength, accountId string) ([]netip.Addr, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetTakenIPs", ctx, lockStrength, accountId)
-	ret0, _ := ret[0].([]net.IP)
+	ret0, _ := ret[0].([]netip.Addr)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -2830,6 +2831,20 @@ func (mr *MockStoreMockRecorder) SaveProxy(ctx, proxy interface{}) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveProxy", reflect.TypeOf((*MockStore)(nil).SaveProxy), ctx, proxy)
 }
 
+// DisconnectProxy mocks base method.
+func (m *MockStore) DisconnectProxy(ctx context.Context, proxyID, sessionID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DisconnectProxy", ctx, proxyID, sessionID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DisconnectProxy indicates an expected call of DisconnectProxy.
+func (mr *MockStoreMockRecorder) DisconnectProxy(ctx, proxyID, sessionID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DisconnectProxy", reflect.TypeOf((*MockStore)(nil).DisconnectProxy), ctx, proxyID, sessionID)
+}
+
 // SaveProxyAccessToken mocks base method.
 func (m *MockStore) SaveProxyAccessToken(ctx context.Context, token *types2.ProxyAccessToken) error {
 	m.ctrl.T.Helper()
@@ -2968,6 +2983,20 @@ func (mr *MockStoreMockRecorder) UpdateAccountNetwork(ctx, accountID, ipNet inte
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAccountNetwork", reflect.TypeOf((*MockStore)(nil).UpdateAccountNetwork), ctx, accountID, ipNet)
 }
 
+// UpdateAccountNetworkV6 mocks base method.
+func (m *MockStore) UpdateAccountNetworkV6(ctx context.Context, accountID string, ipNet net.IPNet) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateAccountNetworkV6", ctx, accountID, ipNet)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateAccountNetworkV6 indicates an expected call of UpdateAccountNetworkV6.
+func (mr *MockStoreMockRecorder) UpdateAccountNetworkV6(ctx, accountID, ipNet interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAccountNetworkV6", reflect.TypeOf((*MockStore)(nil).UpdateAccountNetworkV6), ctx, accountID, ipNet)
+}
+
 // UpdateCustomDomain mocks base method.
 func (m *MockStore) UpdateCustomDomain(ctx context.Context, accountID string, d *domain.Domain) (*domain.Domain, error) {
 	m.ctrl.T.Helper()
@@ -3026,17 +3055,17 @@ func (mr *MockStoreMockRecorder) UpdateGroups(ctx, accountID, groups interface{}
 }
 
 // UpdateProxyHeartbeat mocks base method.
-func (m *MockStore) UpdateProxyHeartbeat(ctx context.Context, proxyID, clusterAddress, ipAddress string) error {
+func (m *MockStore) UpdateProxyHeartbeat(ctx context.Context, p *proxy.Proxy) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateProxyHeartbeat", ctx, proxyID, clusterAddress, ipAddress)
+	ret := m.ctrl.Call(m, "UpdateProxyHeartbeat", ctx, p)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // UpdateProxyHeartbeat indicates an expected call of UpdateProxyHeartbeat.
-func (mr *MockStoreMockRecorder) UpdateProxyHeartbeat(ctx, proxyID, clusterAddress, ipAddress interface{}) *gomock.Call {
+func (mr *MockStoreMockRecorder) UpdateProxyHeartbeat(ctx, p interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateProxyHeartbeat", reflect.TypeOf((*MockStore)(nil).UpdateProxyHeartbeat), ctx, proxyID, clusterAddress, ipAddress)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateProxyHeartbeat", reflect.TypeOf((*MockStore)(nil).UpdateProxyHeartbeat), ctx, p)
 }
 
 // UpdateService mocks base method.

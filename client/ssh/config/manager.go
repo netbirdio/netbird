@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -91,7 +92,8 @@ type Manager struct {
 // PeerSSHInfo represents a peer's SSH configuration information
 type PeerSSHInfo struct {
 	Hostname string
-	IP       string
+	IP       netip.Addr
+	IPv6     netip.Addr
 	FQDN     string
 }
 
@@ -210,8 +212,11 @@ func (m *Manager) buildPeerConfig(allHostPatterns []string) (string, error) {
 
 func (m *Manager) buildHostPatterns(peer PeerSSHInfo) []string {
 	var hostPatterns []string
-	if peer.IP != "" {
-		hostPatterns = append(hostPatterns, peer.IP)
+	if peer.IP.IsValid() {
+		hostPatterns = append(hostPatterns, peer.IP.String())
+	}
+	if peer.IPv6.IsValid() {
+		hostPatterns = append(hostPatterns, peer.IPv6.String())
 	}
 	if peer.FQDN != "" {
 		hostPatterns = append(hostPatterns, peer.FQDN)
@@ -224,13 +229,18 @@ func (m *Manager) buildHostPatterns(peer PeerSSHInfo) []string {
 
 func (m *Manager) writeSSHConfig(sshConfig string) error {
 	sshConfigPath := filepath.Join(m.sshConfigDir, m.sshConfigFile)
+	sshConfigPathTmp := sshConfigPath + ".tmp"
 
 	if err := os.MkdirAll(m.sshConfigDir, 0755); err != nil {
 		return fmt.Errorf("create SSH config directory %s: %w", m.sshConfigDir, err)
 	}
 
-	if err := writeFileWithTimeout(sshConfigPath, []byte(sshConfig), 0644); err != nil {
+	if err := writeFileWithTimeout(sshConfigPathTmp, []byte(sshConfig), 0644); err != nil {
 		return fmt.Errorf("write SSH config file %s: %w", sshConfigPath, err)
+	}
+
+	if err := os.Rename(sshConfigPathTmp, sshConfigPath); err != nil {
+		return fmt.Errorf("rename ssh config %s -> %s: %w", sshConfigPathTmp, sshConfigPath, err)
 	}
 
 	log.Infof("Created NetBird SSH client config: %s", sshConfigPath)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strconv"
 	"sync"
 	"time"
 
@@ -21,9 +22,14 @@ const (
 	// ICMPCleanupInterval is how often we check for stale ICMP connections
 	ICMPCleanupInterval = 15 * time.Second
 
-	// MaxICMPPayloadLength is the maximum length of ICMP payload we consider for original packet info,
-	// which includes the IP header (20 bytes) and transport header (8 bytes)
-	MaxICMPPayloadLength = 28
+	// MaxICMPPayloadLength is the maximum length of ICMP payload we consider for original packet info.
+	// IPv4: 20-byte header + 8-byte transport = 28 bytes.
+	// IPv6: 40-byte header + 8-byte transport = 48 bytes.
+	MaxICMPPayloadLength = 48
+	// minICMPPayloadIPv4 is the minimum embedded packet length for IPv4 ICMP errors.
+	minICMPPayloadIPv4 = 28
+	// minICMPPayloadIPv6 is the minimum embedded packet length for IPv6 ICMP errors.
+	minICMPPayloadIPv6 = 48
 )
 
 // ICMPConnKey uniquely identifies an ICMP connection
@@ -65,7 +71,7 @@ type ICMPInfo struct {
 
 // String implements fmt.Stringer for lazy evaluation in log messages
 func (info ICMPInfo) String() string {
-	if info.isErrorMessage() && info.PayloadLen >= MaxICMPPayloadLength {
+	if info.isErrorMessage() && info.PayloadLen >= minICMPPayloadIPv4 {
 		if origInfo := info.parseOriginalPacket(); origInfo != "" {
 			return fmt.Sprintf("%s (original: %s)", info.TypeCode, origInfo)
 		}
@@ -74,42 +80,72 @@ func (info ICMPInfo) String() string {
 	return info.TypeCode.String()
 }
 
-// isErrorMessage returns true if this ICMP type carries original packet info
+// isErrorMessage returns true if this ICMP type carries original packet info.
+// Covers both ICMPv4 and ICMPv6 error types. Without a family field we match
+// both sets; type 3 overlaps (v4 DestUnreachable / v6 TimeExceeded) so it's
+// kept as a literal.
 func (info ICMPInfo) isErrorMessage() bool {
 	typ := info.TypeCode.Type()
-	return typ == 3 || // Destination Unreachable
-		typ == 5 || // Redirect
-		typ == 11 || // Time Exceeded
-		typ == 12 // Parameter Problem
+	// ICMPv4 error types
+	if typ == layers.ICMPv4TypeDestinationUnreachable ||
+		typ == layers.ICMPv4TypeRedirect ||
+		typ == layers.ICMPv4TypeTimeExceeded ||
+		typ == layers.ICMPv4TypeParameterProblem {
+		return true
+	}
+	// ICMPv6 error types (type 3 already matched above as v4 DestUnreachable)
+	if typ == layers.ICMPv6TypeDestinationUnreachable ||
+		typ == layers.ICMPv6TypePacketTooBig ||
+		typ == layers.ICMPv6TypeParameterProblem {
+		return true
+	}
+	return false
 }
 
 // parseOriginalPacket extracts info about the original packet from ICMP payload
 func (info ICMPInfo) parseOriginalPacket() string {
-	if info.PayloadLen < MaxICMPPayloadLength {
+	if info.PayloadLen == 0 {
 		return ""
 	}
 
-	// TODO: handle IPv6
-	if version := (info.PayloadData[0] >> 4) & 0xF; version != 4 {
+	version := (info.PayloadData[0] >> 4) & 0xF
+
+	var protocol uint8
+	var srcIP, dstIP net.IP
+	var transportData []byte
+
+	switch version {
+	case 4:
+		if info.PayloadLen < minICMPPayloadIPv4 {
+			return ""
+		}
+		protocol = info.PayloadData[9]
+		srcIP = net.IP(info.PayloadData[12:16])
+		dstIP = net.IP(info.PayloadData[16:20])
+		transportData = info.PayloadData[20:]
+	case 6:
+		if info.PayloadLen < minICMPPayloadIPv6 {
+			return ""
+		}
+		// Next Header field in IPv6 header
+		protocol = info.PayloadData[6]
+		srcIP = net.IP(info.PayloadData[8:24])
+		dstIP = net.IP(info.PayloadData[24:40])
+		transportData = info.PayloadData[40:]
+	default:
 		return ""
 	}
-
-	protocol := info.PayloadData[9]
-	srcIP := net.IP(info.PayloadData[12:16])
-	dstIP := net.IP(info.PayloadData[16:20])
-
-	transportData := info.PayloadData[20:]
 
 	switch nftypes.Protocol(protocol) {
 	case nftypes.TCP:
 		srcPort := uint16(transportData[0])<<8 | uint16(transportData[1])
 		dstPort := uint16(transportData[2])<<8 | uint16(transportData[3])
-		return fmt.Sprintf("TCP %s:%d → %s:%d", srcIP, srcPort, dstIP, dstPort)
+		return "TCP " + net.JoinHostPort(srcIP.String(), strconv.Itoa(int(srcPort))) + " → " + net.JoinHostPort(dstIP.String(), strconv.Itoa(int(dstPort)))
 
 	case nftypes.UDP:
 		srcPort := uint16(transportData[0])<<8 | uint16(transportData[1])
 		dstPort := uint16(transportData[2])<<8 | uint16(transportData[3])
-		return fmt.Sprintf("UDP %s:%d → %s:%d", srcIP, srcPort, dstIP, dstPort)
+		return "UDP " + net.JoinHostPort(srcIP.String(), strconv.Itoa(int(srcPort))) + " → " + net.JoinHostPort(dstIP.String(), strconv.Itoa(int(dstPort)))
 
 	case nftypes.ICMP:
 		icmpType := transportData[0]
@@ -247,9 +283,10 @@ func (t *ICMPTracker) track(
 	t.sendEvent(nftypes.TypeStart, conn, ruleId)
 }
 
-// IsValidInbound checks if an inbound ICMP Echo Reply matches a tracked request
+// IsValidInbound checks if an inbound ICMP Echo Reply matches a tracked request.
+// Accepts both ICMPv4 (type 0) and ICMPv6 (type 129) echo replies.
 func (t *ICMPTracker) IsValidInbound(srcIP netip.Addr, dstIP netip.Addr, id uint16, icmpType uint8, size int) bool {
-	if icmpType != uint8(layers.ICMPv4TypeEchoReply) {
+	if icmpType != uint8(layers.ICMPv4TypeEchoReply) && icmpType != uint8(layers.ICMPv6TypeEchoReply) {
 		return false
 	}
 
@@ -301,6 +338,13 @@ func (t *ICMPTracker) cleanup() {
 	}
 }
 
+func icmpProtocolForAddr(ip netip.Addr) nftypes.Protocol {
+	if ip.Is6() {
+		return nftypes.ICMPv6
+	}
+	return nftypes.ICMP
+}
+
 // Close stops the cleanup routine and releases resources
 func (t *ICMPTracker) Close() {
 	t.tickerCancel()
@@ -316,7 +360,7 @@ func (t *ICMPTracker) sendEvent(typ nftypes.Type, conn *ICMPConnTrack, ruleID []
 		Type:      typ,
 		RuleID:    ruleID,
 		Direction: conn.Direction,
-		Protocol:  nftypes.ICMP, // TODO: adjust for IPv6/icmpv6
+		Protocol:  icmpProtocolForAddr(conn.SourceIP),
 		SourceIP:  conn.SourceIP,
 		DestIP:    conn.DestIP,
 		ICMPType:  conn.ICMPType,
@@ -334,7 +378,7 @@ func (t *ICMPTracker) sendStartEvent(direction nftypes.Direction, srcIP netip.Ad
 		Type:      nftypes.TypeStart,
 		RuleID:    ruleID,
 		Direction: direction,
-		Protocol:  nftypes.ICMP,
+		Protocol:  icmpProtocolForAddr(srcIP),
 		SourceIP:  srcIP,
 		DestIP:    dstIP,
 		ICMPType:  typ,

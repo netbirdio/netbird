@@ -1,8 +1,9 @@
 package conntrack
 
 import (
-	"fmt"
+	"net"
 	"net/netip"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -64,5 +65,7 @@ type ConnKey struct {
 }
 
 func (c ConnKey) String() string {
-	return fmt.Sprintf("%s:%d → %s:%d", c.SrcIP.Unmap(), c.SrcPort, c.DstIP.Unmap(), c.DstPort)
+	return net.JoinHostPort(c.SrcIP.Unmap().String(), strconv.Itoa(int(c.SrcPort))) +
+		" → " +
+		net.JoinHostPort(c.DstIP.Unmap().String(), strconv.Itoa(int(c.DstPort)))
 }

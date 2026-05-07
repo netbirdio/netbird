@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -824,6 +825,11 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 					return false, nil, nil, nil, fmt.Errorf("failed to add peer %s to group %s: %w", peer.ID, groupID, err)
 				}
 			}
+		}
+
+		allGroupChanges := slices.Concat(removedGroups, addedGroups)
+		if err := am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, allGroupChanges); err != nil {
+			return false, nil, nil, nil, fmt.Errorf("reconcile IPv6 for group changes: %w", err)
 		}
 	}
 

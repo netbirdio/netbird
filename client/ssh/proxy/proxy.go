@@ -321,7 +321,7 @@ func (p *SSHProxy) directTCPIPHandler(_ *ssh.Server, _ *cryptossh.ServerConn, ne
 		return
 	}
 
-	dest := fmt.Sprintf("%s:%d", payload.DestAddr, payload.DestPort)
+	dest := net.JoinHostPort(payload.DestAddr, strconv.Itoa(int(payload.DestPort)))
 	log.Debugf("local port forwarding: %s", dest)
 
 	backendClient, err := p.getOrCreateBackendClient(sshCtx, sshCtx.User())

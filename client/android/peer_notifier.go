@@ -14,6 +14,7 @@ const (
 // PeerInfo describe information about the peers. It designed for the UI usage
 type PeerInfo struct {
 	IP         string
+	IPv6       string
 	FQDN       string
 	ConnStatus int
 	Routes     PeerRoutes

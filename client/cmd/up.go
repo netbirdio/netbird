@@ -39,6 +39,9 @@ const (
 	noBrowserFlag = "no-browser"
 	noBrowserDesc = "do not open the browser for SSO login"
 
+	showQRFlag = "qr"
+	showQRDesc = "show QR code for the SSO login URL (useful for headless machines without browser access)"
+
 	profileNameFlag = "profile"
 	profileNameDesc = "profile name to use for the login. If not specified, the last used profile will be used."
 )
@@ -48,6 +51,7 @@ var (
 	dnsLabels          []string
 	dnsLabelsValidated domain.List
 	noBrowser          bool
+	showQR             bool
 	profileName        string
 	configPath         string
 
@@ -80,6 +84,7 @@ func init() {
 	)
 
 	upCmd.PersistentFlags().BoolVar(&noBrowser, noBrowserFlag, false, noBrowserDesc)
+	upCmd.PersistentFlags().BoolVar(&showQR, showQRFlag, false, showQRDesc)
 	upCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
 	upCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "(DEPRECATED) NetBird config file location. ")
 
@@ -430,6 +435,10 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 		req.BlockInbound = &blockInbound
 	}
 
+	if cmd.Flag(disableIPv6Flag).Changed {
+		req.DisableIpv6 = &disableIPv6
+	}
+
 	if cmd.Flag(enableLazyConnectionFlag).Changed {
 		req.LazyConnectionEnabled = &lazyConnEnabled
 	}
@@ -547,6 +556,10 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 		ic.BlockInbound = &blockInbound
 	}
 
+	if cmd.Flag(disableIPv6Flag).Changed {
+		ic.DisableIPv6 = &disableIPv6
+	}
+
 	if cmd.Flag(enableLazyConnectionFlag).Changed {
 		ic.LazyConnectionEnabled = &lazyConnEnabled
 	}
@@ -659,6 +672,10 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 
 	if cmd.Flag(blockInboundFlag).Changed {
 		loginRequest.BlockInbound = &blockInbound
+	}
+
+	if cmd.Flag(disableIPv6Flag).Changed {
+		loginRequest.DisableIpv6 = &disableIPv6
 	}
 
 	if cmd.Flag(enableLazyConnectionFlag).Changed {
