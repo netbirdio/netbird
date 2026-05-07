@@ -67,7 +67,15 @@ func main() {
 	var tray *Tray
 
 	app := application.New(application.Options{
-		Name:        "netbird-ui",
+		// Windows uses Name as the AppUserModelID for toast notifications
+		// (see notifications_windows.go: cfg.Name -> wn.appName -> AppID)
+		// and as the registry path under HKCU\Software\Classes\AppUserModelId\.
+		// Must match the System.AppUserModel.ID value the MSI sets on the
+		// Start Menu shortcut (client/netbird.wxs) and the AppUserModelId
+		// key the installer pre-populates with the toast activator CLSID;
+		// otherwise toasts show under a different identity and the MSI's
+		// CustomActivator registry value is orphaned.
+		Name:        "NetBird",
 		Description: "NetBird desktop client",
 		Icon:        iconWindow,
 		Assets: application.AssetOptions{
