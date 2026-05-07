@@ -2,6 +2,7 @@ package routemanager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/netip"
 	"testing"
@@ -529,38 +530,43 @@ func TestDisableDefaultRouteSkipsSystemRoute(t *testing.T) {
 	require.NoError(t, mgr.Init())
 	defer mgr.Stop(nil)
 
-	// Replace the route ref counter with a test double that uses the same
-	// disableDefaultRoute filtering but a noop AddVPNRoute so that assertions
-	// are not affected by missing network interfaces in CI.
-	mgr.routeRefCounter = refcounter.New(
-		func(prefix netip.Prefix, _ struct{}) (struct{}, error) {
-			if prefix == vars.Defaultv4 || prefix == vars.Defaultv6 {
-				return struct{}{}, refcounter.ErrIgnore
-			}
-			return struct{}{}, nil
-		},
-		func(netip.Prefix, struct{}) error {
-			return nil
-		},
-	)
+	// Use the REAL routeRefCounter created by setupRefCounters — do not replace it.
+	// This exercises the production wiring in manager.go lines that check disableDefaultRoute.
+	// If those lines were removed, the default routes would reach sysOps.AddVPNRoute instead
+	// of returning ErrIgnore, and the refcounter would store them (or return a non-ignored error),
+	// causing the assertions below to fail.
 
-	// Increment the route ref counter for the default v4 prefix.
-	// With DisableDefaultRoute=true, this should be ignored (ErrIgnore path).
+	// --- IPv4 default route ---
+	// With DisableDefaultRoute=true the add function must return ErrIgnore.
+	// ErrIgnore causes Increment to return (zeroRef, nil) without storing the key.
 	_, err = mgr.routeRefCounter.Increment(vars.Defaultv4, struct{}{})
-	require.NoError(t, err, "increment should not return error for ignored default route")
+	require.NoError(t, err, "Increment for IPv4 default route should return no error (ErrIgnore is swallowed)")
 
-	// The key should NOT be tracked in the ref counter because ErrIgnore skips it.
 	_, ok := mgr.routeRefCounter.Get(vars.Defaultv4)
-	require.False(t, ok, "default v4 route should not be in route ref counter when DisableDefaultRoute is true")
+	require.False(t, ok, "IPv4 default route must NOT be stored in refcounter when DisableDefaultRoute=true")
 
-	// A non-default prefix must be tracked — the ref counter must not ignore it.
-	// This assertion is unconditional: if Get returns false, the route was incorrectly
-	// filtered and the test must fail.
+	// --- IPv6 default route ---
+	_, err = mgr.routeRefCounter.Increment(vars.Defaultv6, struct{}{})
+	require.NoError(t, err, "Increment for IPv6 default route should return no error (ErrIgnore is swallowed)")
+
+	_, ok = mgr.routeRefCounter.Get(vars.Defaultv6)
+	require.False(t, ok, "IPv6 default route must NOT be stored in refcounter when DisableDefaultRoute=true")
+
+	// --- Normal (non-default) prefix ---
+	// The add function must NOT return ErrIgnore for a normal prefix; it must reach
+	// sysOps.AddVPNRoute. That call may succeed or fail (no real routing table in tests),
+	// but the error must not be ErrIgnore.
 	normalPrefix := netip.MustParsePrefix("10.0.0.0/8")
-	_, err = mgr.routeRefCounter.Increment(normalPrefix, struct{}{})
-	require.NoError(t, err, "increment should succeed for non-default route")
+	_, normalErr := mgr.routeRefCounter.Increment(normalPrefix, struct{}{})
 
-	ref, ok := mgr.routeRefCounter.Get(normalPrefix)
-	require.True(t, ok, "non-default route must be tracked in route ref counter")
-	require.Equal(t, 1, ref.Count, "non-default route should have ref count 1")
+	// The error — if any — must be a real sysOps error, not the silent ErrIgnore path.
+	if normalErr != nil {
+		require.False(t, errors.Is(normalErr, refcounter.ErrIgnore),
+			"non-default route must not be silently ignored: got error %v", normalErr)
+	} else {
+		// AddVPNRoute succeeded: the prefix must be stored with count=1.
+		ref, stored := mgr.routeRefCounter.Get(normalPrefix)
+		require.True(t, stored, "non-default route must be stored in refcounter when AddVPNRoute succeeds")
+		require.Equal(t, 1, ref.Count, "non-default route ref count must be 1")
+	}
 }
