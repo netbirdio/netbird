@@ -302,6 +302,37 @@ func TestBooleanConfigFieldPersistence(t *testing.T) {
 	}
 }
 
+func TestDisableDefaultRouteRoundTrip(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	tr := true
+	fa := false
+
+	cfg, err := UpdateOrCreateConfig(ConfigInput{ConfigPath: configPath, DisableDefaultRoute: &tr})
+	require.NoError(t, err)
+	require.True(t, cfg.DisableDefaultRoute)
+
+	cfg, err = UpdateOrCreateConfig(ConfigInput{ConfigPath: configPath, DisableDefaultRoute: &fa})
+	require.NoError(t, err)
+	require.False(t, cfg.DisableDefaultRoute)
+
+	onDisk, err := GetConfig(configPath)
+	require.NoError(t, err)
+	require.False(t, onDisk.DisableDefaultRoute, "false must persist to disk")
+}
+
+func TestDisableDefaultRouteNilPreserves(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	tr := true
+
+	cfg, err := UpdateOrCreateConfig(ConfigInput{ConfigPath: configPath, DisableDefaultRoute: &tr})
+	require.NoError(t, err)
+	require.True(t, cfg.DisableDefaultRoute)
+
+	cfg, err = UpdateOrCreateConfig(ConfigInput{ConfigPath: configPath})
+	require.NoError(t, err)
+	require.True(t, cfg.DisableDefaultRoute, "nil must not overwrite existing value")
+}
+
 func TestUpdateOldManagementURL(t *testing.T) {
 	origProber := newMgmProber
 	newMgmProber = func(_ context.Context, _ string, _ wgtypes.Key, _ bool) (mgmProber, error) {
