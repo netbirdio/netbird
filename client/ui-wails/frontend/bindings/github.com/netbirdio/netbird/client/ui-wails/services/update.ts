@@ -20,6 +20,17 @@ export function GetInstallerResult(): $CancellablePromise<$models.UpdateResult> 
     });
 }
 
+/**
+ * Quit asks the host application to exit. The /update page calls this once
+ * the daemon-side installer has reported success, mirroring the legacy
+ * Fyne UI's app.Quit() in showInstallerResult. Schedules the actual exit
+ * off the calling goroutine so the JS-side caller's response can return
+ * before the runtime tears down.
+ */
+export function Quit(): $CancellablePromise<void> {
+    return $Call.ByID(27817640);
+}
+
 export function Trigger(): $CancellablePromise<$models.UpdateResult> {
     return $Call.ByID(2415339649).then(($result: any) => {
         return $$createType0($result);
