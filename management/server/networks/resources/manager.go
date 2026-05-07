@@ -169,7 +169,10 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 	}
 
 	if affectedPeerIDs := m.resolveResourceAffectedPeers(ctx, resource.AccountID, affectedData); len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("CreateResource %s: updating %d affected peers: %v", resource.ID, len(affectedPeerIDs), affectedPeerIDs)
 		go m.accountManager.UpdateAffectedPeers(ctx, resource.AccountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("CreateResource %s: no affected peers", resource.ID)
 	}
 
 	return resource, nil
@@ -294,7 +297,10 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 	}()
 
 	if affectedPeerIDs := m.resolveResourceAffectedPeers(ctx, resource.AccountID, affectedData); len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("UpdateResource %s: updating %d affected peers: %v", resource.ID, len(affectedPeerIDs), affectedPeerIDs)
 		go m.accountManager.UpdateAffectedPeers(ctx, resource.AccountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("UpdateResource %s: no affected peers", resource.ID)
 	}
 
 	return resource, nil
@@ -393,7 +399,10 @@ func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, net
 	}
 
 	if affectedPeerIDs := m.resolveResourceAffectedPeers(ctx, accountID, affectedData); len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("DeleteResource %s: updating %d affected peers: %v", resourceID, len(affectedPeerIDs), affectedPeerIDs)
 		go m.accountManager.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("DeleteResource %s: no affected peers", resourceID)
 	}
 
 	return nil
@@ -491,6 +500,8 @@ func (m *managerImpl) resolveResourceAffectedPeers(ctx context.Context, accountI
 		return nil
 	}
 
+	log.WithContext(ctx).Tracef("resolveResourceAffectedPeers: resourceGroupIDs=%v, routerPeerGroups=%v, routerDirectPeers=%v, policies=%d",
+		data.resourceGroupIDs, data.routerPeerGroups, data.routerDirectPeers, len(data.policies))
 	groupSet := make(map[string]struct{})
 	var directPeerIDs []string
 
@@ -559,6 +570,7 @@ func (m *managerImpl) resolveResourceAffectedPeers(ctx context.Context, accountI
 		}
 	}
 
+	log.WithContext(ctx).Tracef("resolveResourceAffectedPeers: result %d peers: %v", len(peerIDs), peerIDs)
 	return peerIDs
 }
 

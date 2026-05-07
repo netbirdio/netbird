@@ -285,7 +285,7 @@ func (c *Controller) UpdateAffectedPeers(ctx context.Context, accountID string, 
 }
 
 func (c *Controller) sendUpdateForAffectedPeers(ctx context.Context, accountID string, peerIDs []string) error {
-	log.WithContext(ctx).Tracef("updating %d affected peers for account %s from %s", len(peerIDs), accountID, util.GetCallerName())
+	log.WithContext(ctx).Tracef("sendUpdateForAffectedPeers: account %s, %d affected peers: %v (caller: %s)", accountID, len(peerIDs), peerIDs, util.GetCallerName())
 
 	affected := make(map[string]struct{}, len(peerIDs))
 	for _, id := range peerIDs {
@@ -300,6 +300,7 @@ func (c *Controller) sendUpdateForAffectedPeers(ctx context.Context, accountID s
 		}
 	}
 	if !hasConnected {
+		log.WithContext(ctx).Tracef("sendUpdateForAffectedPeers: no connected peers among %v, skipping", peerIDs)
 		return nil
 	}
 
@@ -318,8 +319,11 @@ func (c *Controller) sendUpdateForAffectedPeers(ctx context.Context, accountID s
 	}
 
 	if len(peersToUpdate) == 0 {
+		log.WithContext(ctx).Tracef("sendUpdateForAffectedPeers: no peers to update (affected peers not found in account or no channels)")
 		return nil
 	}
+
+	log.WithContext(ctx).Tracef("sendUpdateForAffectedPeers: sending network map to %d connected peers", len(peersToUpdate))
 
 	approvedPeersMap, err := c.integratedPeerValidator.GetValidatedPeers(ctx, account.Id, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
 	if err != nil {

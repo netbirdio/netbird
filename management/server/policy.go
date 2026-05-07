@@ -5,7 +5,7 @@ import (
 	_ "embed"
 
 	"github.com/rs/xid"
-	"github.com/sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
@@ -58,7 +58,7 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 
 		if isUpdate {
 			if policy.Equal(existingPolicy) {
-				logrus.WithContext(ctx).Tracef("policy update skipped because equal to stored one - policy id %s", policy.ID)
+				log.WithContext(ctx).Tracef("policy update skipped because equal to stored one - policy id %s", policy.ID)
 				unchanged = true
 				return nil
 			}
@@ -74,7 +74,7 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 			}
 		}
 
-		groupIDs, directPeerIDs := collectPolicyAffectedGroupsAndPeers(policy, existingPolicy)
+		groupIDs, directPeerIDs := collectPolicyAffectedGroupsAndPeers(ctx, policy, existingPolicy)
 		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, groupIDs, directPeerIDs)
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
@@ -90,7 +90,10 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 	am.StoreEvent(ctx, userID, policy.ID, accountID, action, policy.EventMeta())
 
 	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Tracef("SavePolicy %s: updating %d affected peers: %v", policy.ID, len(affectedPeerIDs), affectedPeerIDs)
 		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("SavePolicy %s: no affected peers", policy.ID)
 	}
 
 	return policy, nil
@@ -115,7 +118,7 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 			return err
 		}
 
-		groupIDs, directPeerIDs := collectPolicyAffectedGroupsAndPeers(policy)
+		groupIDs, directPeerIDs := collectPolicyAffectedGroupsAndPeers(ctx, policy)
 		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, groupIDs, directPeerIDs)
 
 		if err = transaction.DeletePolicy(ctx, accountID, policyID); err != nil {
@@ -131,7 +134,10 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 	am.StoreEvent(ctx, userID, policyID, accountID, activity.PolicyRemoved, policy.EventMeta())
 
 	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("DeletePolicy %s: updating %d affected peers: %v", policyID, len(affectedPeerIDs), affectedPeerIDs)
 		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("DeletePolicy %s: no affected peers", policyID)
 	}
 
 	return nil
@@ -151,21 +157,26 @@ func (am *DefaultAccountManager) ListPolicies(ctx context.Context, accountID, us
 }
 
 // collectPolicyAffectedGroupsAndPeers returns group IDs and direct peer IDs from the given policies.
-func collectPolicyAffectedGroupsAndPeers(policies ...*types.Policy) (groupIDs []string, directPeerIDs []string) {
+func collectPolicyAffectedGroupsAndPeers(ctx context.Context, policies ...*types.Policy) (groupIDs []string, directPeerIDs []string) {
 	for _, policy := range policies {
 		if policy == nil {
 			continue
 		}
-		groupIDs = append(groupIDs, policy.RuleGroups()...)
+		ruleGroups := policy.RuleGroups()
+		log.WithContext(ctx).Tracef("collectPolicyAffectedGroupsAndPeers: policy %s (%s) ruleGroups=%v", policy.ID, policy.Name, ruleGroups)
+		groupIDs = append(groupIDs, ruleGroups...)
 		for _, rule := range policy.Rules {
 			if rule.SourceResource.Type == types.ResourceTypePeer && rule.SourceResource.ID != "" {
+				log.WithContext(ctx).Tracef("collectPolicyAffectedGroupsAndPeers: policy %s rule %s direct source peer %s", policy.ID, rule.ID, rule.SourceResource.ID)
 				directPeerIDs = append(directPeerIDs, rule.SourceResource.ID)
 			}
 			if rule.DestinationResource.Type == types.ResourceTypePeer && rule.DestinationResource.ID != "" {
+				log.WithContext(ctx).Tracef("collectPolicyAffectedGroupsAndPeers: policy %s rule %s direct destination peer %s", policy.ID, rule.ID, rule.DestinationResource.ID)
 				directPeerIDs = append(directPeerIDs, rule.DestinationResource.ID)
 			}
 		}
 	}
+	log.WithContext(ctx).Tracef("collectPolicyAffectedGroupsAndPeers: result groupIDs=%v, directPeerIDs=%v", groupIDs, directPeerIDs)
 	return
 }
 

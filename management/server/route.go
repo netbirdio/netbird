@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
@@ -177,7 +178,7 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 			return err
 		}
 
-		groupIDs, directPeerIDs := collectRouteAffectedGroupsAndPeers(newRoute)
+		groupIDs, directPeerIDs := collectRouteAffectedGroupsAndPeers(ctx, newRoute)
 		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, groupIDs, directPeerIDs)
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
@@ -189,7 +190,10 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 	am.StoreEvent(ctx, userID, string(newRoute.ID), accountID, activity.RouteCreated, newRoute.EventMeta())
 
 	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("CreateRoute %s: updating %d affected peers: %v", newRoute.ID, len(affectedPeerIDs), affectedPeerIDs)
 		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("CreateRoute %s: no affected peers", newRoute.ID)
 	}
 
 	return newRoute, nil
@@ -224,7 +228,7 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 			return err
 		}
 
-		groupIDs, directPeerIDs := collectRouteAffectedGroupsAndPeers(routeToSave, oldRoute)
+		groupIDs, directPeerIDs := collectRouteAffectedGroupsAndPeers(ctx, routeToSave, oldRoute)
 		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, groupIDs, directPeerIDs)
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
@@ -236,7 +240,10 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 	am.StoreEvent(ctx, userID, string(routeToSave.ID), accountID, activity.RouteUpdated, routeToSave.EventMeta())
 
 	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("SaveRoute %s: updating %d affected peers: %v", routeToSave.ID, len(affectedPeerIDs), affectedPeerIDs)
 		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("SaveRoute %s: no affected peers", routeToSave.ID)
 	}
 
 	return nil
@@ -261,7 +268,7 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 			return err
 		}
 
-		groupIDs, directPeerIDs := collectRouteAffectedGroupsAndPeers(rt)
+		groupIDs, directPeerIDs := collectRouteAffectedGroupsAndPeers(ctx, rt)
 		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, groupIDs, directPeerIDs)
 
 		if err = transaction.DeleteRoute(ctx, accountID, string(routeID)); err != nil {
@@ -277,7 +284,10 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 	am.StoreEvent(ctx, userID, string(rt.ID), accountID, activity.RouteRemoved, rt.EventMeta())
 
 	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("DeleteRoute %s: updating %d affected peers: %v", routeID, len(affectedPeerIDs), affectedPeerIDs)
 		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("DeleteRoute %s: no affected peers", routeID)
 	}
 
 	return nil
@@ -367,11 +377,13 @@ func getPlaceholderIP() netip.Prefix {
 }
 
 // collectRouteAffectedGroupsAndPeers returns group IDs and direct peer IDs from the given routes.
-func collectRouteAffectedGroupsAndPeers(routes ...*route.Route) (groupIDs []string, directPeerIDs []string) {
+func collectRouteAffectedGroupsAndPeers(ctx context.Context, routes ...*route.Route) (groupIDs []string, directPeerIDs []string) {
 	for _, r := range routes {
 		if r == nil {
 			continue
 		}
+		log.WithContext(ctx).Tracef("collectRouteAffectedGroupsAndPeers: route %s groups=%v peerGroups=%v accessControlGroups=%v peer=%q",
+			r.ID, r.Groups, r.PeerGroups, r.AccessControlGroups, r.Peer)
 		groupIDs = append(groupIDs, r.Groups...)
 		groupIDs = append(groupIDs, r.PeerGroups...)
 		groupIDs = append(groupIDs, r.AccessControlGroups...)
@@ -379,6 +391,7 @@ func collectRouteAffectedGroupsAndPeers(routes ...*route.Route) (groupIDs []stri
 			directPeerIDs = append(directPeerIDs, r.Peer)
 		}
 	}
+	log.WithContext(ctx).Tracef("collectRouteAffectedGroupsAndPeers: result groupIDs=%v, directPeerIDs=%v", groupIDs, directPeerIDs)
 	return
 }
 

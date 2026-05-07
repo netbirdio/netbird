@@ -128,7 +128,10 @@ func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *t
 	m.accountManager.StoreEvent(ctx, userID, router.ID, router.AccountID, activity.NetworkRouterCreated, router.EventMeta(network))
 
 	if affectedPeerIDs := m.resolveRouterAffectedPeers(ctx, router.AccountID, affectedData); len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("CreateRouter %s: updating %d affected peers: %v", router.ID, len(affectedPeerIDs), affectedPeerIDs)
 		go m.accountManager.UpdateAffectedPeers(ctx, router.AccountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("CreateRouter %s: no affected peers", router.ID)
 	}
 
 	return router, nil
@@ -213,7 +216,10 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 	m.accountManager.StoreEvent(ctx, userID, router.ID, router.AccountID, activity.NetworkRouterUpdated, router.EventMeta(network))
 
 	if affectedPeerIDs := m.resolveRouterAffectedPeers(ctx, router.AccountID, affectedData); len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("UpdateRouter %s: updating %d affected peers: %v", router.ID, len(affectedPeerIDs), affectedPeerIDs)
 		go m.accountManager.UpdateAffectedPeers(ctx, router.AccountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("UpdateRouter %s: no affected peers", router.ID)
 	}
 
 	return router, nil
@@ -261,7 +267,10 @@ func (m *managerImpl) DeleteRouter(ctx context.Context, accountID, userID, netwo
 	event()
 
 	if affectedPeerIDs := m.resolveRouterAffectedPeers(ctx, accountID, affectedData); len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("DeleteRouter %s: updating %d affected peers: %v", routerID, len(affectedPeerIDs), affectedPeerIDs)
 		go m.accountManager.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("DeleteRouter %s: no affected peers", routerID)
 	}
 
 	return nil
@@ -356,6 +365,8 @@ func (m *managerImpl) resolveRouterAffectedPeers(ctx context.Context, accountID 
 		return nil
 	}
 
+	log.WithContext(ctx).Tracef("resolveRouterAffectedPeers: routerPeerGroups=%v, directPeerIDs=%v, resourceGroupIDs=%v, policies=%d",
+		data.routerPeerGroups, data.directPeerIDs, data.resourceGroupIDs, len(data.policies))
 	groupSet := make(map[string]struct{})
 
 	for _, gID := range data.routerPeerGroups {
@@ -421,6 +432,7 @@ func (m *managerImpl) resolveRouterAffectedPeers(ctx context.Context, accountID 
 		}
 	}
 
+	log.WithContext(ctx).Tracef("resolveRouterAffectedPeers: result %d peers: %v", len(peerIDs), peerIDs)
 	return peerIDs
 }
 

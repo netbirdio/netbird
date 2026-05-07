@@ -224,7 +224,10 @@ func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, netw
 	if affectedData != nil {
 		affectedPeerIDs := resolveNetworkAffectedPeers(ctx, m.store, accountID, affectedData)
 		if len(affectedPeerIDs) > 0 {
+			log.WithContext(ctx).Debugf("DeleteNetwork %s: updating %d affected peers: %v", networkID, len(affectedPeerIDs), affectedPeerIDs)
 			go m.accountManager.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+		} else {
+			log.WithContext(ctx).Tracef("DeleteNetwork %s: no affected peers", networkID)
 		}
 	}
 
@@ -233,6 +236,8 @@ func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, netw
 
 // resolveNetworkAffectedPeers computes affected peer IDs from preloaded data outside the transaction.
 func resolveNetworkAffectedPeers(ctx context.Context, s store.Store, accountID string, data *networkAffectedPeersData) []string {
+	log.WithContext(ctx).Tracef("resolveNetworkAffectedPeers: routerPeerGroups=%v, resourceGroupIDs=%v, directPeerIDs=%v, policies=%d",
+		data.routerPeerGroups, data.resourceGroupIDs, data.directPeerIDs, len(data.policies))
 	groupSet := make(map[string]struct{})
 
 	for _, gID := range data.routerPeerGroups {
@@ -275,6 +280,7 @@ func resolveNetworkAffectedPeers(ctx context.Context, s store.Store, accountID s
 		groupIDs = append(groupIDs, gID)
 	}
 
+	log.WithContext(ctx).Tracef("resolveNetworkAffectedPeers: resolved groupIDs=%v", groupIDs)
 	peerIDs, err := s.GetPeerIDsByGroups(ctx, accountID, groupIDs)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to resolve peer IDs: %v", err)
@@ -294,6 +300,7 @@ func resolveNetworkAffectedPeers(ctx context.Context, s store.Store, accountID s
 		}
 	}
 
+	log.WithContext(ctx).Tracef("resolveNetworkAffectedPeers: result %d peers: %v", len(peerIDs), peerIDs)
 	return peerIDs
 }
 

@@ -75,7 +75,10 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 	am.StoreEvent(ctx, userID, postureChecks.ID, accountID, action, postureChecks.EventMeta())
 
 	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("SavePostureChecks %s: updating %d affected peers: %v", postureChecks.ID, len(affectedPeerIDs), affectedPeerIDs)
 		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("SavePostureChecks %s: no affected peers", postureChecks.ID)
 	}
 
 	return postureChecks, nil
@@ -141,12 +144,14 @@ func collectPostureCheckAffectedGroupsAndPeers(ctx context.Context, transaction 
 
 	for _, policy := range policies {
 		if slices.Contains(policy.SourcePostureChecks, postureCheckID) {
-			gIDs, pIDs := collectPolicyAffectedGroupsAndPeers(policy)
+			log.WithContext(ctx).Tracef("collectPostureCheckAffectedGroupsAndPeers: posture check %s referenced by policy %s (%s)", postureCheckID, policy.ID, policy.Name)
+			gIDs, pIDs := collectPolicyAffectedGroupsAndPeers(ctx, policy)
 			groupIDs = append(groupIDs, gIDs...)
 			directPeerIDs = append(directPeerIDs, pIDs...)
 		}
 	}
 
+	log.WithContext(ctx).Tracef("collectPostureCheckAffectedGroupsAndPeers: postureCheck=%s -> groupIDs=%v, directPeerIDs=%v", postureCheckID, groupIDs, directPeerIDs)
 	return groupIDs, directPeerIDs
 }
 

@@ -115,7 +115,10 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 	}
 
 	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("CreateGroup %s: updating %d affected peers: %v", newGroup.ID, len(affectedPeerIDs), affectedPeerIDs)
 		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("CreateGroup %s: no affected peers", newGroup.ID)
 	}
 
 	return nil
@@ -185,7 +188,10 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 	}
 
 	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("UpdateGroup %s: updating %d affected peers: %v", newGroup.ID, len(affectedPeerIDs), affectedPeerIDs)
 		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("UpdateGroup %s: no affected peers", newGroup.ID)
 	}
 
 	return nil
@@ -249,7 +255,10 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 	allGroupIDs, directPeerIDs := collectGroupChangeAffectedGroups(ctx, am.Store, accountID, groupIDs)
 	affectedPeerIDs := am.resolvePeerIDs(ctx, am.Store, accountID, allGroupIDs, directPeerIDs)
 	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("CreateGroups %v: updating %d affected peers: %v", groupIDs, len(affectedPeerIDs), affectedPeerIDs)
 		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("CreateGroups %v: no affected peers", groupIDs)
 	}
 
 	return globalErr
@@ -293,7 +302,10 @@ func (am *DefaultAccountManager) UpdateGroups(ctx context.Context, accountID, us
 	allGroupIDs, directPeerIDs := collectGroupChangeAffectedGroups(ctx, am.Store, accountID, groupIDs)
 	affectedPeerIDs := am.resolvePeerIDs(ctx, am.Store, accountID, allGroupIDs, directPeerIDs)
 	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("UpdateGroups %v: updating %d affected peers: %v", groupIDs, len(affectedPeerIDs), affectedPeerIDs)
 		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("UpdateGroups %v: no affected peers", groupIDs)
 	}
 
 	return globalErr
@@ -498,7 +510,10 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 	}
 
 	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("GroupAddPeer group=%s peer=%s: updating %d affected peers: %v", groupID, peerID, len(affectedPeerIDs), affectedPeerIDs)
 		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("GroupAddPeer group=%s peer=%s: no affected peers", groupID, peerID)
 	}
 
 	return nil
@@ -534,7 +549,10 @@ func (am *DefaultAccountManager) GroupAddResource(ctx context.Context, accountID
 	}
 
 	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("GroupAddResource group=%s resource=%s: updating %d affected peers: %v", groupID, resource.ID, len(affectedPeerIDs), affectedPeerIDs)
 		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("GroupAddResource group=%s resource=%s: no affected peers", groupID, resource.ID)
 	}
 
 	return nil
@@ -565,7 +583,10 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 	}
 
 	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("GroupDeletePeer group=%s peer=%s: updating %d affected peers: %v", groupID, peerID, len(affectedPeerIDs), affectedPeerIDs)
 		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("GroupDeletePeer group=%s peer=%s: no affected peers", groupID, peerID)
 	}
 
 	return nil
@@ -601,7 +622,10 @@ func (am *DefaultAccountManager) GroupDeleteResource(ctx context.Context, accoun
 	}
 
 	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("GroupDeleteResource group=%s resource=%s: updating %d affected peers: %v", groupID, resource.ID, len(affectedPeerIDs), affectedPeerIDs)
 		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("GroupDeleteResource group=%s resource=%s: no affected peers", groupID, resource.ID)
 	}
 
 	return nil

@@ -1308,7 +1308,7 @@ func (am *DefaultAccountManager) resolvePeerIDs(ctx context.Context, s store.Sto
 	}
 
 	if len(directPeerIDs) == 0 {
-		log.WithContext(ctx).Tracef("resolvePeerIDs: groups=%v -> %d peers", groupIDs, len(peerIDs))
+		log.WithContext(ctx).Tracef("resolvePeerIDs: groups=%v -> %d peers: %v", groupIDs, len(peerIDs), peerIDs)
 		return peerIDs
 	}
 
@@ -1323,7 +1323,7 @@ func (am *DefaultAccountManager) resolvePeerIDs(ctx context.Context, s store.Sto
 		}
 	}
 
-	log.WithContext(ctx).Tracef("resolvePeerIDs: groups=%v + directPeers=%v -> %d peers", groupIDs, directPeerIDs, len(peerIDs))
+	log.WithContext(ctx).Tracef("resolvePeerIDs: groups=%v + directPeers=%v -> %d peers: %v", groupIDs, directPeerIDs, len(peerIDs), peerIDs)
 	return peerIDs
 }
 

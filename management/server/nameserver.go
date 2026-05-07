@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -80,7 +81,10 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 	am.StoreEvent(ctx, userID, newNSGroup.ID, accountID, activity.NameserverGroupCreated, newNSGroup.EventMeta())
 
 	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("CreateNameServerGroup %s: updating %d affected peers: %v", newNSGroup.ID, len(affectedPeerIDs), affectedPeerIDs)
 		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("CreateNameServerGroup %s: no affected peers", newNSGroup.ID)
 	}
 
 	return newNSGroup.Copy(), nil
@@ -129,7 +133,10 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 	am.StoreEvent(ctx, userID, nsGroupToSave.ID, accountID, activity.NameserverGroupUpdated, nsGroupToSave.EventMeta())
 
 	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("SaveNameServerGroup %s: updating %d affected peers: %v", nsGroupToSave.ID, len(affectedPeerIDs), affectedPeerIDs)
 		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("SaveNameServerGroup %s: no affected peers", nsGroupToSave.ID)
 	}
 
 	return nil
@@ -169,7 +176,10 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 	am.StoreEvent(ctx, userID, nsGroup.ID, accountID, activity.NameserverGroupDeleted, nsGroup.EventMeta())
 
 	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("DeleteNameServerGroup %s: updating %d affected peers: %v", nsGroupID, len(affectedPeerIDs), affectedPeerIDs)
 		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("DeleteNameServerGroup %s: no affected peers", nsGroupID)
 	}
 
 	return nil

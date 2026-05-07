@@ -84,7 +84,10 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 	}
 
 	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("SaveDNSSettings: updating %d affected peers: %v", len(affectedPeerIDs), affectedPeerIDs)
 		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("SaveDNSSettings: no affected peers")
 	}
 
 	return nil

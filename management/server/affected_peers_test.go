@@ -437,7 +437,7 @@ func TestCollectPolicyAffectedGroups_Basic(t *testing.T) {
 			},
 		},
 	}
-	groups, directPeers := collectPolicyAffectedGroupsAndPeers(policy)
+	groups, directPeers := collectPolicyAffectedGroupsAndPeers(context.Background(), policy)
 	assert.ElementsMatch(t, []string{"g1", "g2", "g3"}, groups)
 	assert.Empty(t, directPeers)
 }
@@ -453,13 +453,13 @@ func TestCollectPolicyAffectedGroups_WithPeerResources(t *testing.T) {
 			},
 		},
 	}
-	groups, directPeers := collectPolicyAffectedGroupsAndPeers(policy)
+	groups, directPeers := collectPolicyAffectedGroupsAndPeers(context.Background(), policy)
 	assert.ElementsMatch(t, []string{"g1", "g2"}, groups)
 	assert.ElementsMatch(t, []string{"p1", "p2"}, directPeers)
 }
 
 func TestCollectPolicyAffectedGroups_NilPolicy(t *testing.T) {
-	groups, directPeers := collectPolicyAffectedGroupsAndPeers(nil)
+	groups, directPeers := collectPolicyAffectedGroupsAndPeers(context.Background(), nil)
 	assert.Nil(t, groups)
 	assert.Nil(t, directPeers)
 }
@@ -471,7 +471,7 @@ func TestCollectPolicyAffectedGroups_MultipleRules(t *testing.T) {
 			{Sources: []string{"g3"}, Destinations: []string{"g4"}},
 		},
 	}
-	groups, _ := collectPolicyAffectedGroupsAndPeers(policy)
+	groups, _ := collectPolicyAffectedGroupsAndPeers(context.Background(), policy)
 	assert.ElementsMatch(t, []string{"g1", "g2", "g3", "g4"}, groups)
 }
 
@@ -486,13 +486,13 @@ func TestCollectPolicyAffectedGroups_MultiplePolicies(t *testing.T) {
 			{Sources: []string{"g3"}, Destinations: []string{"g4"}},
 		},
 	}
-	groups, _ := collectPolicyAffectedGroupsAndPeers(new, old)
+	groups, _ := collectPolicyAffectedGroupsAndPeers(context.Background(), new, old)
 	assert.ElementsMatch(t, []string{"g1", "g2", "g3", "g4"}, groups)
 }
 
 func TestCollectPolicyAffectedGroups_EmptyRules(t *testing.T) {
 	policy := &types.Policy{Rules: []*types.PolicyRule{}}
-	groups, directPeers := collectPolicyAffectedGroupsAndPeers(policy)
+	groups, directPeers := collectPolicyAffectedGroupsAndPeers(context.Background(), policy)
 	assert.Empty(t, groups)
 	assert.Empty(t, directPeers)
 }
@@ -507,7 +507,7 @@ func TestCollectPolicyAffectedGroups_NonPeerResource(t *testing.T) {
 			},
 		},
 	}
-	groups, directPeers := collectPolicyAffectedGroupsAndPeers(policy)
+	groups, directPeers := collectPolicyAffectedGroupsAndPeers(context.Background(), policy)
 	assert.ElementsMatch(t, []string{"g1", "g2"}, groups)
 	assert.Empty(t, directPeers, "domain resource type should not produce direct peer IDs")
 }
@@ -522,7 +522,7 @@ func TestCollectRouteAffectedGroups_Basic(t *testing.T) {
 		PeerGroups:          []string{"g2"},
 		AccessControlGroups: []string{"g3"},
 	}
-	groups, directPeers := collectRouteAffectedGroupsAndPeers(r)
+	groups, directPeers := collectRouteAffectedGroupsAndPeers(context.Background(), r)
 	assert.ElementsMatch(t, []string{"g1", "g2", "g3"}, groups)
 	assert.Empty(t, directPeers)
 }
@@ -532,13 +532,13 @@ func TestCollectRouteAffectedGroups_WithDirectPeer(t *testing.T) {
 		Groups: []string{"g1"},
 		Peer:   "p1",
 	}
-	groups, directPeers := collectRouteAffectedGroupsAndPeers(r)
+	groups, directPeers := collectRouteAffectedGroupsAndPeers(context.Background(), r)
 	assert.ElementsMatch(t, []string{"g1"}, groups)
 	assert.ElementsMatch(t, []string{"p1"}, directPeers)
 }
 
 func TestCollectRouteAffectedGroups_NilRoute(t *testing.T) {
-	groups, directPeers := collectRouteAffectedGroupsAndPeers(nil)
+	groups, directPeers := collectRouteAffectedGroupsAndPeers(context.Background(), nil)
 	assert.Nil(t, groups)
 	assert.Nil(t, directPeers)
 }
@@ -552,7 +552,7 @@ func TestCollectRouteAffectedGroups_MultipleRoutes(t *testing.T) {
 		Groups:     []string{"g2"},
 		PeerGroups: []string{"g3"},
 	}
-	groups, directPeers := collectRouteAffectedGroupsAndPeers(new, old)
+	groups, directPeers := collectRouteAffectedGroupsAndPeers(context.Background(), new, old)
 	assert.ElementsMatch(t, []string{"g1", "g2", "g3"}, groups)
 	assert.ElementsMatch(t, []string{"p1"}, directPeers)
 }
