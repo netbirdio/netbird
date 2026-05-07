@@ -204,9 +204,6 @@ func (m *DefaultManager) setupRefCounters(useNoop bool) {
 			return struct{}{}, m.sysOps.AddVPNRoute(prefix, toInterface())
 		},
 		func(prefix netip.Prefix, _ struct{}) error {
-			if m.disableDefaultRoute && (prefix == vars.Defaultv4 || prefix == vars.Defaultv6) {
-				return nil
-			}
 			return m.sysOps.RemoveVPNRoute(prefix, toInterface())
 		},
 	)
