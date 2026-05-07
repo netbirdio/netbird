@@ -1328,8 +1328,8 @@ func (am *DefaultAccountManager) resolvePeerIDs(ctx context.Context, s store.Sto
 }
 
 // BufferUpdateAffectedPeers accumulates peer IDs and flushes them after the buffer interval.
-func (am *DefaultAccountManager) BufferUpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string) {
-	_ = am.networkMapController.BufferUpdateAffectedPeers(ctx, accountID, peerIDs)
+func (am *DefaultAccountManager) BufferUpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string, reason types.UpdateReason) {
+	_ = am.networkMapController.BufferUpdateAffectedPeers(ctx, accountID, peerIDs, reason)
 }
 
 // resolveAffectedPeersForPeerChanges resolves changed peer IDs into the full set of affected peer IDs.

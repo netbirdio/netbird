@@ -512,9 +512,13 @@ func (c *Controller) BufferUpdateAccountPeers(ctx context.Context, accountID str
 }
 
 // BufferUpdateAffectedPeers accumulates peer IDs and flushes them after the buffer interval.
-func (c *Controller) BufferUpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string) error {
+func (c *Controller) BufferUpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string, reason types.UpdateReason) error {
 	if len(peerIDs) == 0 {
 		return nil
+	}
+
+	if c.accountManagerMetrics != nil {
+		c.accountManagerMetrics.CountUpdateAccountPeersTriggered(string(reason.Resource), string(reason.Operation))
 	}
 
 	log.WithContext(ctx).Tracef("buffer updating %d affected peers for account %s from %s", len(peerIDs), accountID, util.GetCallerName())

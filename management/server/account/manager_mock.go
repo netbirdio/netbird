@@ -123,15 +123,15 @@ func (mr *MockManagerMockRecorder) BufferUpdateAccountPeers(ctx, accountID, reas
 }
 
 // BufferUpdateAffectedPeers mocks base method.
-func (m *MockManager) BufferUpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string) {
+func (m *MockManager) BufferUpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string, reason types.UpdateReason) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "BufferUpdateAffectedPeers", ctx, accountID, peerIDs)
+	m.ctrl.Call(m, "BufferUpdateAffectedPeers", ctx, accountID, peerIDs, reason)
 }
 
 // BufferUpdateAffectedPeers indicates an expected call of BufferUpdateAffectedPeers.
-func (mr *MockManagerMockRecorder) BufferUpdateAffectedPeers(ctx, accountID, peerIDs interface{}) *gomock.Call {
+func (mr *MockManagerMockRecorder) BufferUpdateAffectedPeers(ctx, accountID, peerIDs, reason interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BufferUpdateAffectedPeers", reflect.TypeOf((*MockManager)(nil).BufferUpdateAffectedPeers), ctx, accountID, peerIDs)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BufferUpdateAffectedPeers", reflect.TypeOf((*MockManager)(nil).BufferUpdateAffectedPeers), ctx, accountID, peerIDs, reason)
 }
 
 // BuildUserInfosForAccount mocks base method.

@@ -2589,7 +2589,9 @@ func (am *DefaultAccountManager) UpdatePeerIPv6(ctx context.Context, accountID, 
 	}
 
 	if updateNetworkMap {
-		if err := am.networkMapController.OnPeersUpdated(ctx, accountID, []string{peerID}); err != nil {
+		changedPeerIDs := []string{peerID}
+		affectedPeerIDs := am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, changedPeerIDs)
+		if err := am.networkMapController.OnPeersUpdated(ctx, accountID, changedPeerIDs, affectedPeerIDs); err != nil {
 			return fmt.Errorf("notify network map controller: %w", err)
 		}
 	}
