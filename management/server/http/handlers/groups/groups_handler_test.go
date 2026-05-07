@@ -7,8 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
+	"net/netip"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -29,8 +29,8 @@ import (
 )
 
 var TestPeers = map[string]*nbpeer.Peer{
-	"A": {Key: "A", ID: "peer-A-ID", IP: net.ParseIP("100.100.100.100")},
-	"B": {Key: "B", ID: "peer-B-ID", IP: net.ParseIP("200.200.200.200")},
+	"A": {Key: "A", ID: "peer-A-ID", IP: netip.MustParseAddr("100.100.100.100")},
+	"B": {Key: "B", ID: "peer-B-ID", IP: netip.MustParseAddr("200.200.200.200")},
 }
 
 func initGroupTestData(initGroups ...*types.Group) *handler {

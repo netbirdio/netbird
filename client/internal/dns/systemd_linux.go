@@ -90,8 +90,12 @@ func (s *systemdDbusConfigurator) supportCustomPort() bool {
 }
 
 func (s *systemdDbusConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
+	family := int32(unix.AF_INET)
+	if config.ServerIP.Is6() {
+		family = unix.AF_INET6
+	}
 	defaultLinkInput := systemdDbusDNSInput{
-		Family:  unix.AF_INET,
+		Family:  family,
 		Address: config.ServerIP.AsSlice(),
 	}
 	if err := s.callLinkMethod(systemdDbusSetDNSMethodSuffix, []systemdDbusDNSInput{defaultLinkInput}); err != nil {

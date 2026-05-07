@@ -380,7 +380,7 @@ func (c *CombinedConfig) autoConfigureClientSettings(exposedProto, exposedHost, 
 		// Auto-configure local STUN servers for all ports
 		for _, port := range c.Server.StunPorts {
 			c.Management.Stuns = append(c.Management.Stuns, HostConfig{
-				URI: fmt.Sprintf("stun:%s:%d", exposedHost, port),
+				URI: "stun:" + net.JoinHostPort(strings.Trim(exposedHost, "[]"), fmt.Sprintf("%d", port)),
 			})
 		}
 	}

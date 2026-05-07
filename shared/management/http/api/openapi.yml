@@ -341,7 +341,11 @@ components:
           description: Allows to define a custom network range for the account in CIDR format
           type: string
           format: cidr
-          example: 100.64.0.0/16
+        network_range_v6:
+          description: Allows to define a custom IPv6 network range for the account in CIDR format.
+          type: string
+          format: cidr
+          example: fd00:1234:5678::/64
         peer_expose_enabled:
           description: Enables or disables peer expose. If enabled, peers can expose local services through the reverse proxy using the CLI.
           type: boolean
@@ -377,6 +381,12 @@ components:
           type: boolean
           readOnly: true
           example: false
+        ipv6_enabled_groups:
+          description: List of group IDs whose peers receive IPv6 overlay addresses. Peers not in any of these groups will not be allocated an IPv6 address. New accounts default to the All group.
+          type: array
+          items:
+            type: string
+          example: ["ch8i4ug6lnn4g9hqv7m0"]
       required:
         - peer_login_expiration_enabled
         - peer_login_expiration
@@ -776,6 +786,11 @@ components:
           type: string
           format: ipv4
           example: 100.64.0.15
+        ipv6:
+          description: Peer's IPv6 overlay address. Omitted if IPv6 is not enabled for the account.
+          type: string
+          format: ipv6
+          example: "fd00:4e42:ab12::1"
       required:
         - name
         - ssh_enabled
@@ -795,6 +810,11 @@ components:
               description: Peer's IP address
               type: string
               example: 10.64.0.1
+            ipv6:
+              description: Peer's IPv6 overlay address
+              type: string
+              format: ipv6
+              example: "fd00:4e42:ab12::1"
             connection_ip:
               description: Peer's public connection IP address
               type: string
@@ -1013,6 +1033,10 @@ components:
               description: Peer's IP address
               type: string
               example: 10.64.0.1
+            ipv6:
+              description: Peer's IPv6 overlay address
+              type: string
+              example: "fd00:4e42:ab12::1"
             dns_label:
               description: Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
               type: string

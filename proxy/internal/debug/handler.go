@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"html/template"
 	"maps"
+	"net"
 	"net/http"
 	"os"
 	"runtime"
@@ -534,13 +535,18 @@ func (h *Handler) handlePingTCP(w http.ResponseWriter, r *http.Request, accountI
 		}
 	}
 
+	network := "tcp"
+	if v := r.URL.Query().Get("ip_version"); v == "4" || v == "6" {
+		network += v
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 
-	address := fmt.Sprintf("%s:%d", host, port)
+	address := net.JoinHostPort(host, strconv.Itoa(port))
 	start := time.Now()
 
-	conn, err := client.Dial(ctx, "tcp", address)
+	conn, err := client.Dial(ctx, network, address)
 	if err != nil {
 		h.writeJSON(w, map[string]any{
 			"success": false,
@@ -550,6 +556,8 @@ func (h *Handler) handlePingTCP(w http.ResponseWriter, r *http.Request, accountI
 		})
 		return
 	}
+
+	remote := conn.RemoteAddr().String()
 	if err := conn.Close(); err != nil {
 		h.logger.Debugf("close tcp ping connection: %v", err)
 	}
@@ -559,6 +567,7 @@ func (h *Handler) handlePingTCP(w http.ResponseWriter, r *http.Request, accountI
 		"success":    true,
 		"host":       host,
 		"port":       port,
+		"remote":     remote,
 		"latency_ms": latency.Milliseconds(),
 		"latency":    formatDuration(latency),
 	})

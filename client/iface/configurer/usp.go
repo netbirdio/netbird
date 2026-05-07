@@ -119,7 +119,7 @@ func (c *WGUSPConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, 
 		if err != nil {
 			return fmt.Errorf("failed to parse endpoint address: %w", err)
 		}
-		addrPort := netip.AddrPortFrom(addr, uint16(endpoint.Port))
+		addrPort := netip.AddrPortFrom(addr.Unmap(), uint16(endpoint.Port))
 		c.activityRecorder.UpsertAddress(peerKey, addrPort)
 	}
 	return nil
