@@ -160,6 +160,62 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	verifyAllFieldsCovered(t, req)
 }
 
+// TestGetConfig_DisableDefaultRoute_RoundTrip verifies that DisableDefaultRoute set via SetConfig
+// is correctly returned by GetConfig.
+func TestGetConfig_DisableDefaultRoute_RoundTrip(t *testing.T) {
+	tempDir := t.TempDir()
+	origDefaultProfileDir := profilemanager.DefaultConfigPathDir
+	origDefaultConfigPath := profilemanager.DefaultConfigPath
+	origActiveProfileStatePath := profilemanager.ActiveProfileStatePath
+	profilemanager.ConfigDirOverride = tempDir
+	profilemanager.DefaultConfigPathDir = tempDir
+	profilemanager.ActiveProfileStatePath = tempDir + "/active_profile.json"
+	profilemanager.DefaultConfigPath = filepath.Join(tempDir, "default.json")
+	t.Cleanup(func() {
+		profilemanager.DefaultConfigPathDir = origDefaultProfileDir
+		profilemanager.ActiveProfileStatePath = origActiveProfileStatePath
+		profilemanager.DefaultConfigPath = origDefaultConfigPath
+		profilemanager.ConfigDirOverride = ""
+	})
+
+	currUser, err := user.Current()
+	require.NoError(t, err)
+
+	profName := "test-profile"
+
+	ic := profilemanager.ConfigInput{
+		ConfigPath:    filepath.Join(tempDir, profName+".json"),
+		ManagementURL: "https://api.netbird.io:443",
+	}
+	_, err = profilemanager.UpdateOrCreateConfig(ic)
+	require.NoError(t, err)
+
+	pm := profilemanager.ServiceManager{}
+	err = pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
+		Name:     profName,
+		Username: currUser.Username,
+	})
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	s := New(ctx, "console", "", false, false, false, false)
+
+	disableDefaultRoute := true
+	_, err = s.SetConfig(ctx, &proto.SetConfigRequest{
+		ProfileName:         profName,
+		Username:            currUser.Username,
+		DisableDefaultRoute: &disableDefaultRoute,
+	})
+	require.NoError(t, err)
+
+	resp, err := s.GetConfig(ctx, &proto.GetConfigRequest{
+		ProfileName: profName,
+		Username:    currUser.Username,
+	})
+	require.NoError(t, err)
+	require.True(t, resp.DisableDefaultRoute, "GetConfig should return DisableDefaultRoute=true after SetConfig set it")
+}
+
 // verifyAllFieldsCovered uses reflection to ensure we're testing all fields in SetConfigRequest.
 // If a new field is added to SetConfigRequest, this function will fail the test,
 // forcing the developer to update both the SetConfig handler and this test.
