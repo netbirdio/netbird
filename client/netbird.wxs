@@ -59,6 +59,14 @@
 			<Component Id="NetbirdAumidRegistry" Guid="*">
 				<RegistryKey Root="HKCU" Key="Software\Classes\AppUserModelId\NetBird" ForceDeleteOnUninstall="yes">
 					<RegistryValue Name="InstalledByMSI" Type="integer" Value="1" KeyPath="yes" />
+					<!-- Pre-seed the CLSID the Wails notifications service reads on
+					     first startup (notifications_windows.go:getGUID looks for
+					     the CustomActivator value under this key). Without this
+					     the service generates a fresh per-install UUID, which
+					     diverges from the ToastActivatorCLSID set on the Start
+					     Menu / Desktop shortcuts above and the COM activator
+					     never fires when a toast is clicked. -->
+					<RegistryValue Name="CustomActivator" Type="string" Value="{0E1B4DE7-E148-432B-9814-544F941826EC}" />
 				</RegistryKey>
 			</Component>
 		</StandardDirectory>
