@@ -216,6 +216,72 @@ func TestGetConfig_DisableDefaultRoute_RoundTrip(t *testing.T) {
 	require.True(t, resp.DisableDefaultRoute, "GetConfig should return DisableDefaultRoute=true after SetConfig set it")
 }
 
+// TestSetConfig_DisableDefaultRoute_NilPreservesExistingTrue verifies that calling SetConfig
+// without setting DisableDefaultRoute (nil) does not reset a previously set true value.
+func TestSetConfig_DisableDefaultRoute_NilPreservesExistingTrue(t *testing.T) {
+	tempDir := t.TempDir()
+	origDefaultProfileDir := profilemanager.DefaultConfigPathDir
+	origDefaultConfigPath := profilemanager.DefaultConfigPath
+	origActiveProfileStatePath := profilemanager.ActiveProfileStatePath
+	profilemanager.ConfigDirOverride = tempDir
+	profilemanager.DefaultConfigPathDir = tempDir
+	profilemanager.ActiveProfileStatePath = tempDir + "/active_profile.json"
+	profilemanager.DefaultConfigPath = filepath.Join(tempDir, "default.json")
+	t.Cleanup(func() {
+		profilemanager.DefaultConfigPathDir = origDefaultProfileDir
+		profilemanager.ActiveProfileStatePath = origActiveProfileStatePath
+		profilemanager.DefaultConfigPath = origDefaultConfigPath
+		profilemanager.ConfigDirOverride = ""
+	})
+
+	currUser, err := user.Current()
+	require.NoError(t, err)
+
+	profName := "test-profile"
+
+	ic := profilemanager.ConfigInput{
+		ConfigPath:    filepath.Join(tempDir, profName+".json"),
+		ManagementURL: "https://api.netbird.io:443",
+	}
+	_, err = profilemanager.UpdateOrCreateConfig(ic)
+	require.NoError(t, err)
+
+	pm := profilemanager.ServiceManager{}
+	err = pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
+		Name:     profName,
+		Username: currUser.Username,
+	})
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	s := New(ctx, "console", "", false, false, false, false)
+
+	// Step 1: set DisableDefaultRoute=true.
+	disableDefaultRoute := true
+	_, err = s.SetConfig(ctx, &proto.SetConfigRequest{
+		ProfileName:         profName,
+		Username:            currUser.Username,
+		DisableDefaultRoute: &disableDefaultRoute,
+	})
+	require.NoError(t, err)
+
+	// Step 2: call SetConfig again WITHOUT setting DisableDefaultRoute (nil).
+	_, err = s.SetConfig(ctx, &proto.SetConfigRequest{
+		ProfileName: profName,
+		Username:    currUser.Username,
+		// DisableDefaultRoute intentionally omitted (nil)
+	})
+	require.NoError(t, err)
+
+	// Step 3: GetConfig must still return DisableDefaultRoute=true.
+	resp, err := s.GetConfig(ctx, &proto.GetConfigRequest{
+		ProfileName: profName,
+		Username:    currUser.Username,
+	})
+	require.NoError(t, err)
+	require.True(t, resp.DisableDefaultRoute, "DisableDefaultRoute should remain true after SetConfig with nil field")
+}
+
 // verifyAllFieldsCovered uses reflection to ensure we're testing all fields in SetConfigRequest.
 // If a new field is added to SetConfigRequest, this function will fail the test,
 // forcing the developer to update both the SetConfig handler and this test.
