@@ -3203,6 +3203,16 @@ func setupNetworkMapTest(t *testing.T) (*DefaultAccountManager, *update_channel.
 // when the channel delivers.
 const peerUpdateTimeout = 5 * time.Second
 
+func drainPeerUpdates(ch <-chan *network_map.UpdateMessage) {
+	for {
+		select {
+		case <-ch:
+		case <-time.After(200 * time.Millisecond):
+			return
+		}
+	}
+}
+
 func peerShouldNotReceiveUpdate(t *testing.T, updateMessage <-chan *network_map.UpdateMessage) {
 	t.Helper()
 	select {

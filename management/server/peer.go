@@ -299,6 +299,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 
 	changedPeerIDs := []string{peer.ID}
 	affectedPeerIDs := am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, changedPeerIDs)
+	affectedPeerIDs = append(affectedPeerIDs, peer.ID)
 	err = am.networkMapController.OnPeersUpdated(ctx, accountID, changedPeerIDs, affectedPeerIDs)
 	if err != nil {
 		return nil, fmt.Errorf("notify network map controller of peer update: %w", err)
