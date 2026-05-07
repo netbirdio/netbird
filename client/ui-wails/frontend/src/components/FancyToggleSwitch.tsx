@@ -50,7 +50,7 @@ export default function FancyToggleSwitch({
       role={"switch"}
       aria-checked={value}
       className={cn(
-        "cursor-pointer transition-all duration-300 relative z-[1]",
+        "cursor-default transition-all duration-300 relative z-[1]",
         "inline-block text-left w-full",
         disabled && "opacity-50 pointer-events-none",
         className,

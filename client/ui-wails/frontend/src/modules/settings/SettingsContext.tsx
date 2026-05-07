@@ -16,6 +16,7 @@ const SAVE_DEBOUNCE_MS = 400;
 type SettingsContextValue = {
     config: Config;
     setField: <K extends keyof Config>(k: K, v: Config[K]) => void;
+    saveField: <K extends keyof Config>(k: K, v: Config[K]) => Promise<void>;
     saveNow: () => Promise<void>;
 };
 
@@ -98,27 +99,37 @@ const useSettingsState = () => {
         await save(config);
     }, [config, save]);
 
-    return { config, error, setField, saveNow };
+    const saveField = useCallback(
+        async <K extends keyof Config>(k: K, v: Config[K]) => {
+            if (!config) return;
+            if (saveTimer.current) {
+                clearTimeout(saveTimer.current);
+                saveTimer.current = null;
+            }
+            const next = { ...config, [k]: v };
+            setConfig(next);
+            await save(next);
+        },
+        [config, save],
+    );
+
+    return { config, error, setField, saveField, saveNow };
 };
 
 export const SettingsProvider = ({ children }: { children: ReactNode }) => {
-    const { config, error, setField, saveNow } = useSettingsState();
+    const { config, error, setField, saveField, saveNow } = useSettingsState();
 
     return (
         <>
-            {error && (
-                <p className={"px-6 py-2 text-sm text-red-500"}>{error}</p>
-            )}
+            {error && <p className={"pb-6 text-sm text-red-500"}>{error}</p>}
             <div className={"flex-1 min-h-0 overflow-y-auto"}>
                 {!config ? (
-                    <div className={"p-6 text-sm text-nb-gray-500"}>
-                        Loading…
-                    </div>
+                    <div className={"p-6 text-sm text-nb-gray-500"}>Loading…</div>
                 ) : (
                     <SettingsContext.Provider
-                        value={{ config, setField, saveNow }}
+                        value={{ config, setField, saveField, saveNow }}
                     >
-                        <div className={"px-6 py-5"}>{children}</div>
+                        {children}
                     </SettingsContext.Provider>
                 )}
             </div>

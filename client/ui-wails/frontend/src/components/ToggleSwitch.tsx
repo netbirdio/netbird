@@ -16,15 +16,21 @@ const switchVariants = cva("", {
     variant: {
       default: [
         "dark:data-[state=checked]:bg-netbird dark:data-[state=unchecked]:bg-nb-gray-700",
+        "dark:data-[state=checked]:hover:bg-netbird-500 dark:data-[state=unchecked]:hover:bg-nb-gray-600",
         "data-[state=checked]:bg-neutral-900 data-[state=unchecked]:bg-neutral-200",
+        "data-[state=checked]:hover:bg-neutral-800 data-[state=unchecked]:hover:bg-neutral-300",
       ],
       "red-green": [
         "dark:data-[state=checked]:bg-red-600 dark:data-[state=unchecked]:bg-nb-gray-700",
+        "dark:data-[state=checked]:hover:bg-red-500 dark:data-[state=unchecked]:hover:bg-nb-gray-600",
         "data-[state=checked]:bg-red-500 data-[state=unchecked]:bg-red-200",
+        "data-[state=checked]:hover:bg-red-400 data-[state=unchecked]:hover:bg-red-300",
       ],
       red: [
         "dark:data-[state=checked]:bg-red-600 dark:data-[state=unchecked]:bg-nb-gray-700",
+        "dark:data-[state=checked]:hover:bg-red-500 dark:data-[state=unchecked]:hover:bg-nb-gray-600",
         "data-[state=checked]:bg-red-500 data-[state=unchecked]:bg-red-200",
+        "data-[state=checked]:hover:bg-red-400 data-[state=unchecked]:hover:bg-red-300",
       ],
     },
     "thumb-size": {
@@ -45,7 +51,7 @@ const ToggleSwitch = React.forwardRef<
   ) => (
     <SwitchPrimitives.Root
       className={cn(
-        "peer inline-flex shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-950 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:cursor-not-allowed disabled:opacity-50 dark:focus-visible:ring-neutral-300 dark:focus-visible:ring-offset-neutral-950",
+        "peer inline-flex shrink-0 cursor-default items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-950 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:cursor-not-allowed disabled:opacity-50 dark:focus-visible:ring-neutral-300 dark:focus-visible:ring-offset-neutral-950",
         className,
         switchVariants({ size, variant }),
       )}

@@ -1,5 +1,5 @@
 import { cva, VariantProps } from "class-variance-authority";
-import { AlertCircle, Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
 import {
     forwardRef,
     InputHTMLAttributes,
@@ -93,9 +93,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
     const suffix = passwordToggle || customSuffix;
 
     return (
-        <div className="flex flex-col">
+        <div className="flex flex-col w-full min-w-0">
             {label && <Label htmlFor={inputId}>{label}</Label>}
-            <div className={cn("flex relative h-[42px]", maxWidthClass)}>
+            <div className={cn("flex relative h-[40px] w-full", maxWidthClass)}>
                 {customPrefix && (
                     <div
                         className={cn(
@@ -104,7 +104,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
                                     ? "error"
                                     : "default",
                             }),
-                            "flex h-[42px] w-auto rounded-l-md bg-white px-3 py-2 text-sm",
+                            "flex h-[40px] w-auto rounded-l-md bg-white px-3 py-2 text-sm",
                             "border items-center whitespace-nowrap",
                             props.disabled && "opacity-40",
                             prefixClassName,
@@ -134,7 +134,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
                         inputVariants({
                             variant: error ? "error" : variant,
                         }),
-                        "flex h-[42px] w-full rounded-md bg-white px-3 py-2 text-sm",
+                        "flex h-[40px] w-full rounded-md bg-white px-3 py-2 text-sm",
                         "file:bg-transparent file:text-sm file:font-medium file:border-0",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
                         "disabled:cursor-not-allowed disabled:opacity-40",
@@ -161,7 +161,6 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
             </div>
             {error && (
                 <span className="text-xs text-red-500 mt-2 inline-flex items-center gap-1">
-                    <AlertCircle size={13} />
                     {error}
                 </span>
             )}

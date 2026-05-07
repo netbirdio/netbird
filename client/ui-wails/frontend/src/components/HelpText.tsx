@@ -10,7 +10,7 @@ type Props = {
 export const HelpText = ({ children, margin = true, className }: Props) => (
     <span
         className={cn(
-            "text-[.8rem] dark:text-nb-gray-300 block font-light tracking-wide",
+            "text-[.81rem] dark:text-nb-gray-300 block font-light tracking-wide",
             margin && "mb-2",
             className,
         )}

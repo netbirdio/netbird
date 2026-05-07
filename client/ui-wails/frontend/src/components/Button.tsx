@@ -4,9 +4,7 @@ import { ButtonHTMLAttributes, forwardRef } from "react";
 
 export type ButtonVariants = VariantProps<typeof buttonVariants>;
 
-export interface ButtonProps
-    extends ButtonHTMLAttributes<HTMLButtonElement>,
-        ButtonVariants {
+export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>, ButtonVariants {
     disabled?: boolean;
     stopPropagation?: boolean;
 }
@@ -26,7 +24,7 @@ export const buttonVariants = cva(
                     "dark:focus:ring-zinc-800/50 dark:bg-nb-gray dark:text-gray-400 dark:border-gray-700/30 dark:hover:text-white dark:hover:bg-zinc-800/50",
                 ],
                 primary: [
-                    "dark:focus:ring-netbird-600/50 dark:ring-offset-neutral-950/50 enabled:dark:bg-netbird disabled:dark:bg-nb-gray-910 dark:text-gray-100 enabled:dark:hover:text-white enabled:dark:hover:bg-netbird-500/80",
+                    "dark:focus:ring-netbird-600/50 dark:ring-offset-neutral-950/50 enabled:dark:bg-netbird disabled:dark:bg-nb-gray-900 dark:text-gray-100 enabled:dark:hover:text-white enabled:dark:hover:bg-netbird-500/80",
                     "enabled:bg-netbird enabled:text-white enabled:focus:ring-netbird-400/50 enabled:hover:bg-netbird-500",
                 ],
                 secondary: [
@@ -88,9 +86,9 @@ export const buttonVariants = cva(
             size: {
                 xs: "text-xs py-2 px-4",
                 xs2: "text-[0.78rem] py-2 px-4",
-                sm: "text-sm py-2.5 px-4",
-                md: "text-md py-2.5 px-4",
-                lg: "text-lg py-2.5 px-4",
+                sm: "text-sm py-[9px] px-4",
+                md: "text-md py-[9px] px-4",
+                lg: "text-lg py-[9px] px-4",
             },
             rounded: {
                 true: "rounded-md",
@@ -105,47 +103,45 @@ export const buttonVariants = cva(
     },
 );
 
-export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-    function Button(
-        {
-            variant = "default",
-            rounded = true,
-            border = 1,
-            size = "md",
-            stopPropagation = true,
-            type = "button",
-            children,
-            className,
-            onClick,
-            disabled,
-            ...props
-        },
-        ref,
-    ) {
-        return (
-            <button
-                ref={ref}
-                type={type}
-                disabled={disabled}
-                className={classNames(
-                    buttonVariants({
-                        variant,
-                        rounded,
-                        border: border ? 1 : 0,
-                        size,
-                    }),
-                    className,
-                )}
-                onClick={(e) => {
-                    if (stopPropagation) e.stopPropagation();
-                    onClick?.(e);
-                }}
-                {...props}
-            >
-                {children}
-            </button>
-        );
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
+    {
+        variant = "default",
+        rounded = true,
+        border = 1,
+        size = "md",
+        stopPropagation = true,
+        type = "button",
+        children,
+        className,
+        onClick,
+        disabled,
+        ...props
     },
-);
+    ref,
+) {
+    return (
+        <button
+            ref={ref}
+            type={type}
+            disabled={disabled}
+            className={classNames(
+                buttonVariants({
+                    variant,
+                    rounded,
+                    border: border ? 1 : 0,
+                    size,
+                }),
+                className,
+            )}
+            onClick={(e) => {
+                if (stopPropagation) e.stopPropagation();
+                onClick?.(e);
+            }}
+            {...props}
+        >
+            {children}
+        </button>
+    );
+});
 
 export default Button;

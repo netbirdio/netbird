@@ -15,36 +15,34 @@ export const Settings = () => {
     const [active, setActive] = useState("general");
 
     return (
-        <VerticalTabs
-            value={active}
-            onValueChange={setActive}
-            className={"wails-draggable p-4"}
-        >
+        <VerticalTabs value={active} onValueChange={setActive} className={"p-4"}>
             <SettingsNavigationTriggers />
             <MainRightSide>
-                <SettingsProvider>
-                    <VerticalTabs.Content value={"general"}>
-                        <SettingsGeneral />
-                    </VerticalTabs.Content>
-                    <VerticalTabs.Content value={"network"}>
-                        <SettingsNetwork />
-                    </VerticalTabs.Content>
-                    <VerticalTabs.Content value={"security"}>
-                        <SettingsSecurity />
-                    </VerticalTabs.Content>
-                    <VerticalTabs.Content value={"ssh"}>
-                        <SettingsSSH />
-                    </VerticalTabs.Content>
-                    <VerticalTabs.Content value={"advanced"}>
-                        <SettingsAdvanced />
-                    </VerticalTabs.Content>
-                    <VerticalTabs.Content value={"troubleshooting"}>
-                        <SettingsTroubleshooting />
-                    </VerticalTabs.Content>
-                    <VerticalTabs.Content value={"about"}>
-                        <SettingsAbout />
-                    </VerticalTabs.Content>
-                </SettingsProvider>
+                <div className={"py-8 px-7"}>
+                    <SettingsProvider>
+                        <VerticalTabs.Content value={"general"}>
+                            <SettingsGeneral />
+                        </VerticalTabs.Content>
+                        <VerticalTabs.Content value={"network"}>
+                            <SettingsNetwork />
+                        </VerticalTabs.Content>
+                        <VerticalTabs.Content value={"security"}>
+                            <SettingsSecurity />
+                        </VerticalTabs.Content>
+                        <VerticalTabs.Content value={"ssh"}>
+                            <SettingsSSH />
+                        </VerticalTabs.Content>
+                        <VerticalTabs.Content value={"advanced"}>
+                            <SettingsAdvanced />
+                        </VerticalTabs.Content>
+                        <VerticalTabs.Content value={"troubleshooting"}>
+                            <SettingsTroubleshooting />
+                        </VerticalTabs.Content>
+                        <VerticalTabs.Content value={"about"}>
+                            <SettingsAbout />
+                        </VerticalTabs.Content>
+                    </SettingsProvider>
+                </div>
             </MainRightSide>
         </VerticalTabs>
     );

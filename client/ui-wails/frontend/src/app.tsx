@@ -10,6 +10,9 @@ import { Main } from "@/layouts/Main.tsx";
 import { Settings } from "@/modules/settings/Settings.tsx";
 import { SkeletonTheme } from "react-loading-skeleton";
 import "react-loading-skeleton/dist/skeleton.css";
+import { welcome } from "@/lib/welcome";
+
+welcome();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
