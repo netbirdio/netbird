@@ -20,47 +20,106 @@ import (
 )
 
 func (config *Config) apply(input ConfigInput) (updated bool, err error) {
-	if config.ManagementURL == nil {
-		log.Infof("using default Management URL %s", DefaultManagementURL)
-		config.ManagementURL, err = parseURL("Management URL", DefaultManagementURL)
-		if err != nil {
-			return false, err
-		}
-	}
-	if input.ManagementURL != "" && input.ManagementURL != config.ManagementURL.String() {
-		log.Infof("new Management URL provided, updated to %#v (old value %#v)",
-			input.ManagementURL, config.ManagementURL.String())
-		URL, err := parseURL("Management URL", input.ManagementURL)
-		if err != nil {
-			return false, err
-		}
-		config.ManagementURL = URL
-		updated = true
-	} else if config.ManagementURL == nil {
-		log.Infof("using default Management URL %s", DefaultManagementURL)
-		config.ManagementURL, err = parseURL("Management URL", DefaultManagementURL)
-		if err != nil {
-			return false, err
-		}
+	if err = config.applyURLDefaults(); err != nil {
+		return false, err
 	}
 
-	if config.AdminURL == nil {
-		log.Infof("using default Admin URL %s", DefaultAdminURL)
-		config.AdminURL, err = parseURL("Admin URL", DefaultAdminURL)
-		if err != nil {
-			return false, err
-		}
+	if u, err := config.applyManagementURL(input); err != nil {
+		return false, err
+	} else {
+		updated = updated || u
 	}
-	if input.AdminURL != "" && input.AdminURL != config.AdminURL.String() {
-		log.Infof("new Admin Panel URL provided, updated to %#v (old value %#v)",
-			input.AdminURL, config.AdminURL.String())
-		newURL, err := parseURL("Admin Panel URL", input.AdminURL)
-		if err != nil {
-			return updated, err
-		}
-		config.AdminURL = newURL
+
+	if u, err := config.applyAdminURL(input); err != nil {
+		return false, err
+	} else {
+		updated = updated || u
+	}
+
+	if u, err := config.applyCredentials(input); err != nil {
+		return false, err
+	} else {
+		updated = updated || u
+	}
+
+	updated = config.applyInterfaceSettings(input) || updated
+	updated = config.applyNetworkSettings(input) || updated
+	updated = config.applyServerSettings(input) || updated
+	updated = config.applySSHSettings(input) || updated
+	updated = config.applyRouteSettings(input) || updated
+	updated = config.applyDNSSettings(input) || updated
+	updated = config.applyNotificationSettings(input) || updated
+	updated = config.applyMTUSettings(input) || updated
+
+	if u, err := config.applyClientCert(input); err != nil {
+		return false, err
+	} else {
+		updated = updated || u
+	}
+
+	if input.LazyConnectionEnabled != nil && *input.LazyConnectionEnabled != config.LazyConnectionEnabled {
+		log.Infof("switching lazy connection to %t", *input.LazyConnectionEnabled)
+		config.LazyConnectionEnabled = *input.LazyConnectionEnabled
 		updated = true
 	}
+
+	return updated, nil
+}
+
+// applyURLDefaults ensures ManagementURL and AdminURL are non-nil with defaults.
+func (config *Config) applyURLDefaults() error {
+	if config.ManagementURL == nil {
+		log.Infof("using default Management URL %s", DefaultManagementURL)
+		u, err := parseURL("Management URL", DefaultManagementURL)
+		if err != nil {
+			return err
+		}
+		config.ManagementURL = u
+	}
+	if config.AdminURL == nil {
+		log.Infof("using default Admin URL %s", DefaultAdminURL)
+		u, err := parseURL("Admin URL", DefaultAdminURL)
+		if err != nil {
+			return err
+		}
+		config.AdminURL = u
+	}
+	return nil
+}
+
+// applyManagementURL updates ManagementURL when input provides a new value.
+func (config *Config) applyManagementURL(input ConfigInput) (bool, error) {
+	if input.ManagementURL == "" || input.ManagementURL == config.ManagementURL.String() {
+		return false, nil
+	}
+	log.Infof("new Management URL provided, updated to %#v (old value %#v)",
+		input.ManagementURL, config.ManagementURL.String())
+	u, err := parseURL("Management URL", input.ManagementURL)
+	if err != nil {
+		return false, err
+	}
+	config.ManagementURL = u
+	return true, nil
+}
+
+// applyAdminURL updates AdminURL when input provides a new value.
+func (config *Config) applyAdminURL(input ConfigInput) (bool, error) {
+	if input.AdminURL == "" || input.AdminURL == config.AdminURL.String() {
+		return false, nil
+	}
+	log.Infof("new Admin Panel URL provided, updated to %#v (old value %#v)",
+		input.AdminURL, config.AdminURL.String())
+	u, err := parseURL("Admin Panel URL", input.AdminURL)
+	if err != nil {
+		return false, err
+	}
+	config.AdminURL = u
+	return true, nil
+}
+
+// applyCredentials generates missing private/SSH keys and updates the pre-shared key.
+func (config *Config) applyCredentials(input ConfigInput) (bool, error) {
+	updated := false
 
 	if config.PrivateKey == "" {
 		log.Infof("generated new Wireguard key")
@@ -77,6 +136,19 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		config.SSHKey = string(pem)
 		updated = true
 	}
+
+	if input.PreSharedKey != nil && *input.PreSharedKey != config.PreSharedKey {
+		log.Infof("new pre-shared key provided, replacing old key")
+		config.PreSharedKey = *input.PreSharedKey
+		updated = true
+	}
+
+	return updated, nil
+}
+
+// applyInterfaceSettings handles WireGuard port, interface name, NAT IPs, and the extra blocklist.
+func (config *Config) applyInterfaceSettings(input ConfigInput) bool {
+	updated := false
 
 	if input.WireguardPort != nil && *input.WireguardPort != config.WgPort {
 		log.Infof("updating Wireguard port %d (old value %d)",
@@ -104,11 +176,27 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
-	if input.PreSharedKey != nil && *input.PreSharedKey != config.PreSharedKey {
-		log.Infof("new pre-shared key provided, replacing old key")
-		config.PreSharedKey = *input.PreSharedKey
+	if len(config.IFaceBlackList) == 0 {
+		log.Infof("filling in interface blacklist with defaults: [ %s ]",
+			strings.Join(DefaultInterfaceBlacklist, " "))
+		config.IFaceBlackList = append(config.IFaceBlackList, DefaultInterfaceBlacklist...)
 		updated = true
 	}
+
+	if len(input.ExtraIFaceBlackList) > 0 {
+		for _, iFace := range util.SliceDiff(input.ExtraIFaceBlackList, config.IFaceBlackList) {
+			log.Infof("adding new entry to interface blacklist: %s", iFace)
+			config.IFaceBlackList = append(config.IFaceBlackList, iFace)
+			updated = true
+		}
+	}
+
+	return updated
+}
+
+// applyNetworkSettings handles the network monitor and Rosenpass settings.
+func (config *Config) applyNetworkSettings(input ConfigInput) bool {
+	updated := false
 
 	if input.RosenpassEnabled != nil && *input.RosenpassEnabled != config.RosenpassEnabled {
 		log.Infof("switching Rosenpass to %t", *input.RosenpassEnabled)
@@ -137,27 +225,12 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		}
 	}
 
-	if input.CustomDNSAddress != nil && string(input.CustomDNSAddress) != config.CustomDNSAddress {
-		log.Infof("updating custom DNS address %#v (old value %#v)",
-			string(input.CustomDNSAddress), config.CustomDNSAddress)
-		config.CustomDNSAddress = string(input.CustomDNSAddress)
-		updated = true
-	}
+	return updated
+}
 
-	if len(config.IFaceBlackList) == 0 {
-		log.Infof("filling in interface blacklist with defaults: [ %s ]",
-			strings.Join(DefaultInterfaceBlacklist, " "))
-		config.IFaceBlackList = append(config.IFaceBlackList, DefaultInterfaceBlacklist...)
-		updated = true
-	}
-
-	if len(input.ExtraIFaceBlackList) > 0 {
-		for _, iFace := range util.SliceDiff(input.ExtraIFaceBlackList, config.IFaceBlackList) {
-			log.Infof("adding new entry to interface blacklist: %s", iFace)
-			config.IFaceBlackList = append(config.IFaceBlackList, iFace)
-			updated = true
-		}
-	}
+// applyServerSettings handles auto-connect and server-side SSH toggle.
+func (config *Config) applyServerSettings(input ConfigInput) bool {
+	updated := false
 
 	if input.DisableAutoConnect != nil && *input.DisableAutoConnect != config.DisableAutoConnect {
 		if *input.DisableAutoConnect {
@@ -189,6 +262,13 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		}
 		updated = true
 	}
+
+	return updated
+}
+
+// applySSHSettings handles granular SSH feature flags.
+func (config *Config) applySSHSettings(input ConfigInput) bool {
+	updated := false
 
 	if input.EnableSSHRoot != nil && input.EnableSSHRoot != config.EnableSSHRoot {
 		if *input.EnableSSHRoot {
@@ -245,6 +325,13 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		config.SSHJWTCacheTTL = input.SSHJWTCacheTTL
 		updated = true
 	}
+
+	return updated
+}
+
+// applyRouteSettings handles client/server/default-route, DNS, firewall, LAN, inbound, and IPv6 toggles.
+func (config *Config) applyRouteSettings(input ConfigInput) bool {
+	updated := false
 
 	if input.DNSRouteInterval != nil && *input.DNSRouteInterval != config.DNSRouteInterval {
 		log.Infof("updating DNS route interval to %s (old value %s)",
@@ -333,6 +420,35 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
+	return updated
+}
+
+// applyDNSSettings handles custom DNS address and DNS labels.
+func (config *Config) applyDNSSettings(input ConfigInput) bool {
+	updated := false
+
+	if input.CustomDNSAddress != nil && string(input.CustomDNSAddress) != config.CustomDNSAddress {
+		log.Infof("updating custom DNS address %#v (old value %#v)",
+			string(input.CustomDNSAddress), config.CustomDNSAddress)
+		config.CustomDNSAddress = string(input.CustomDNSAddress)
+		updated = true
+	}
+
+	if input.DNSLabels != nil && !slices.Equal(config.DNSLabels, input.DNSLabels) {
+		log.Infof("updating DNS labels [ %s ] (old value: [ %s ])",
+			input.DNSLabels.SafeString(),
+			config.DNSLabels.SafeString())
+		config.DNSLabels = input.DNSLabels
+		updated = true
+	}
+
+	return updated
+}
+
+// applyNotificationSettings handles the DisableNotifications flag and its default.
+func (config *Config) applyNotificationSettings(input ConfigInput) bool {
+	updated := false
+
 	if input.DisableNotifications != nil && input.DisableNotifications != config.DisableNotifications {
 		if *input.DisableNotifications {
 			log.Infof("disabling notifications")
@@ -349,6 +465,28 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		log.Infof("setting notifications to disabled by default")
 		updated = true
 	}
+
+	return updated
+}
+
+// applyMTUSettings updates MTU or sets the default when it is zero.
+func (config *Config) applyMTUSettings(input ConfigInput) bool {
+	if input.MTU != nil && *input.MTU != config.MTU {
+		log.Infof("updating MTU to %d (old value %d)", *input.MTU, config.MTU)
+		config.MTU = *input.MTU
+		return true
+	}
+	if config.MTU == 0 {
+		config.MTU = iface.DefaultMTU
+		log.Infof("using default MTU %d", config.MTU)
+		return true
+	}
+	return false
+}
+
+// applyClientCert loads the mTLS key pair when paths are provided or already set.
+func (config *Config) applyClientCert(input ConfigInput) (bool, error) {
+	updated := false
 
 	if input.ClientCertKeyPath != "" {
 		config.ClientCertKeyPath = input.ClientCertKeyPath
@@ -368,30 +506,6 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			config.ClientCertKeyPair = &cert
 			log.Info("Loaded client mTLS cert/key pair")
 		}
-	}
-
-	if input.DNSLabels != nil && !slices.Equal(config.DNSLabels, input.DNSLabels) {
-		log.Infof("updating DNS labels [ %s ] (old value: [ %s ])",
-			input.DNSLabels.SafeString(),
-			config.DNSLabels.SafeString())
-		config.DNSLabels = input.DNSLabels
-		updated = true
-	}
-
-	if input.LazyConnectionEnabled != nil && *input.LazyConnectionEnabled != config.LazyConnectionEnabled {
-		log.Infof("switching lazy connection to %t", *input.LazyConnectionEnabled)
-		config.LazyConnectionEnabled = *input.LazyConnectionEnabled
-		updated = true
-	}
-
-	if input.MTU != nil && *input.MTU != config.MTU {
-		log.Infof("updating MTU to %d (old value %d)", *input.MTU, config.MTU)
-		config.MTU = *input.MTU
-		updated = true
-	} else if config.MTU == 0 {
-		config.MTU = iface.DefaultMTU
-		log.Infof("using default MTU %d", config.MTU)
-		updated = true
 	}
 
 	return updated, nil
