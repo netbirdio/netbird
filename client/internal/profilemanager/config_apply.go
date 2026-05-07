@@ -24,6 +24,26 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		return false, err
 	}
 
+	updated, err = config.applyFallibleSettings(input, updated)
+	if err != nil {
+		return false, err
+	}
+
+	updated = config.applyInterfaceSettings(input) || updated
+	updated = config.applyNetworkSettings(input) || updated
+	updated = config.applyServerSettings(input) || updated
+	updated = config.applySSHSettings(input) || updated
+	updated = config.applyRouteSettings(input) || updated
+	updated = config.applyDNSSettings(input) || updated
+	updated = config.applyNotificationSettings(input) || updated
+	updated = config.applyMTUSettings(input) || updated
+	updated = applyBoolField("lazy connection", input.LazyConnectionEnabled, &config.LazyConnectionEnabled) || updated
+
+	return updated, nil
+}
+
+// applyFallibleSettings applies the settings that may return an error.
+func (config *Config) applyFallibleSettings(input ConfigInput, updated bool) (bool, error) {
 	if u, err := config.applyManagementURL(input); err != nil {
 		return false, err
 	} else {
@@ -42,28 +62,41 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = updated || u
 	}
 
-	updated = config.applyInterfaceSettings(input) || updated
-	updated = config.applyNetworkSettings(input) || updated
-	updated = config.applyServerSettings(input) || updated
-	updated = config.applySSHSettings(input) || updated
-	updated = config.applyRouteSettings(input) || updated
-	updated = config.applyDNSSettings(input) || updated
-	updated = config.applyNotificationSettings(input) || updated
-	updated = config.applyMTUSettings(input) || updated
-
 	if u, err := config.applyClientCert(input); err != nil {
 		return false, err
 	} else {
 		updated = updated || u
 	}
 
-	if input.LazyConnectionEnabled != nil && *input.LazyConnectionEnabled != config.LazyConnectionEnabled {
-		log.Infof("switching lazy connection to %t", *input.LazyConnectionEnabled)
-		config.LazyConnectionEnabled = *input.LazyConnectionEnabled
-		updated = true
-	}
-
 	return updated, nil
+}
+
+// applyBoolField updates a bool config field when input differs. Returns true if updated.
+func applyBoolField(name string, input *bool, target *bool) bool {
+	if input == nil || *input == *target {
+		return false
+	}
+	if *input {
+		log.Infof("enabling %s", name)
+	} else {
+		log.Infof("disabling %s", name)
+	}
+	*target = *input
+	return true
+}
+
+// applyBoolPtrField updates a *bool config field (pointer-to-pointer) when input differs. Returns true if updated.
+func applyBoolPtrField(name string, input *bool, target **bool) bool {
+	if input == nil || ((*target) != nil && input == *target) {
+		return false
+	}
+	if *input {
+		log.Infof("enabling %s", name)
+	} else {
+		log.Infof("disabling %s", name)
+	}
+	*target = input
+	return true
 }
 
 // applyURLDefaults ensures ManagementURL and AdminURL are non-nil with defaults.
@@ -268,57 +301,11 @@ func (config *Config) applyServerSettings(input ConfigInput) bool {
 
 // applySSHSettings handles granular SSH feature flags.
 func (config *Config) applySSHSettings(input ConfigInput) bool {
-	updated := false
-
-	if input.EnableSSHRoot != nil && input.EnableSSHRoot != config.EnableSSHRoot {
-		if *input.EnableSSHRoot {
-			log.Infof("enabling SSH root login")
-		} else {
-			log.Infof("disabling SSH root login")
-		}
-		config.EnableSSHRoot = input.EnableSSHRoot
-		updated = true
-	}
-
-	if input.EnableSSHSFTP != nil && input.EnableSSHSFTP != config.EnableSSHSFTP {
-		if *input.EnableSSHSFTP {
-			log.Infof("enabling SSH SFTP subsystem")
-		} else {
-			log.Infof("disabling SSH SFTP subsystem")
-		}
-		config.EnableSSHSFTP = input.EnableSSHSFTP
-		updated = true
-	}
-
-	if input.EnableSSHLocalPortForwarding != nil && input.EnableSSHLocalPortForwarding != config.EnableSSHLocalPortForwarding {
-		if *input.EnableSSHLocalPortForwarding {
-			log.Infof("enabling SSH local port forwarding")
-		} else {
-			log.Infof("disabling SSH local port forwarding")
-		}
-		config.EnableSSHLocalPortForwarding = input.EnableSSHLocalPortForwarding
-		updated = true
-	}
-
-	if input.EnableSSHRemotePortForwarding != nil && input.EnableSSHRemotePortForwarding != config.EnableSSHRemotePortForwarding {
-		if *input.EnableSSHRemotePortForwarding {
-			log.Infof("enabling SSH remote port forwarding")
-		} else {
-			log.Infof("disabling SSH remote port forwarding")
-		}
-		config.EnableSSHRemotePortForwarding = input.EnableSSHRemotePortForwarding
-		updated = true
-	}
-
-	if input.DisableSSHAuth != nil && input.DisableSSHAuth != config.DisableSSHAuth {
-		if *input.DisableSSHAuth {
-			log.Infof("disabling SSH authentication")
-		} else {
-			log.Infof("enabling SSH authentication")
-		}
-		config.DisableSSHAuth = input.DisableSSHAuth
-		updated = true
-	}
+	updated := applyBoolPtrField("SSH root login", input.EnableSSHRoot, &config.EnableSSHRoot)
+	updated = applyBoolPtrField("SSH SFTP subsystem", input.EnableSSHSFTP, &config.EnableSSHSFTP) || updated
+	updated = applyBoolPtrField("SSH local port forwarding", input.EnableSSHLocalPortForwarding, &config.EnableSSHLocalPortForwarding) || updated
+	updated = applyBoolPtrField("SSH remote port forwarding", input.EnableSSHRemotePortForwarding, &config.EnableSSHRemotePortForwarding) || updated
+	updated = applyBoolPtrField("SSH authentication", input.DisableSSHAuth, &config.DisableSSHAuth) || updated
 
 	if input.SSHJWTCacheTTL != nil && input.SSHJWTCacheTTL != config.SSHJWTCacheTTL {
 		log.Infof("updating SSH JWT cache TTL to %d seconds", *input.SSHJWTCacheTTL)
@@ -331,88 +318,14 @@ func (config *Config) applySSHSettings(input ConfigInput) bool {
 
 // applyRouteSettings handles client/server/default-route, DNS, firewall, LAN, inbound, and IPv6 toggles.
 func (config *Config) applyRouteSettings(input ConfigInput) bool {
-	updated := false
-
-	if input.DNSRouteInterval != nil && *input.DNSRouteInterval != config.DNSRouteInterval {
-		log.Infof("updating DNS route interval to %s (old value %s)",
-			input.DNSRouteInterval.String(), config.DNSRouteInterval.String())
-		config.DNSRouteInterval = *input.DNSRouteInterval
-		updated = true
-	} else if config.DNSRouteInterval == 0 {
-		config.DNSRouteInterval = dynamic.DefaultInterval
-		log.Infof("using default DNS route interval %s", config.DNSRouteInterval)
-		updated = true
-	}
-
-	if input.DisableClientRoutes != nil && *input.DisableClientRoutes != config.DisableClientRoutes {
-		if *input.DisableClientRoutes {
-			log.Infof("disabling client routes")
-		} else {
-			log.Infof("enabling client routes")
-		}
-		config.DisableClientRoutes = *input.DisableClientRoutes
-		updated = true
-	}
-
-	if input.DisableServerRoutes != nil && *input.DisableServerRoutes != config.DisableServerRoutes {
-		if *input.DisableServerRoutes {
-			log.Infof("disabling server routes")
-		} else {
-			log.Infof("enabling server routes")
-		}
-		config.DisableServerRoutes = *input.DisableServerRoutes
-		updated = true
-	}
-
-	if input.DisableDefaultRoute != nil && *input.DisableDefaultRoute != config.DisableDefaultRoute {
-		if *input.DisableDefaultRoute {
-			log.Infof("disabling default route")
-		} else {
-			log.Infof("enabling default route")
-		}
-		config.DisableDefaultRoute = *input.DisableDefaultRoute
-		updated = true
-	}
-
-	if input.DisableDNS != nil && *input.DisableDNS != config.DisableDNS {
-		if *input.DisableDNS {
-			log.Infof("disabling DNS configuration")
-		} else {
-			log.Infof("enabling DNS configuration")
-		}
-		config.DisableDNS = *input.DisableDNS
-		updated = true
-	}
-
-	if input.DisableFirewall != nil && *input.DisableFirewall != config.DisableFirewall {
-		if *input.DisableFirewall {
-			log.Infof("disabling firewall configuration")
-		} else {
-			log.Infof("enabling firewall configuration")
-		}
-		config.DisableFirewall = *input.DisableFirewall
-		updated = true
-	}
-
-	if input.BlockLANAccess != nil && *input.BlockLANAccess != config.BlockLANAccess {
-		if *input.BlockLANAccess {
-			log.Infof("blocking LAN access")
-		} else {
-			log.Infof("allowing LAN access")
-		}
-		config.BlockLANAccess = *input.BlockLANAccess
-		updated = true
-	}
-
-	if input.BlockInbound != nil && *input.BlockInbound != config.BlockInbound {
-		if *input.BlockInbound {
-			log.Infof("blocking inbound connections")
-		} else {
-			log.Infof("allowing inbound connections")
-		}
-		config.BlockInbound = *input.BlockInbound
-		updated = true
-	}
+	updated := config.applyDNSRouteInterval(input)
+	updated = applyBoolField("client routes", input.DisableClientRoutes, &config.DisableClientRoutes) || updated
+	updated = applyBoolField("server routes", input.DisableServerRoutes, &config.DisableServerRoutes) || updated
+	updated = applyBoolField("default route", input.DisableDefaultRoute, &config.DisableDefaultRoute) || updated
+	updated = applyBoolField("DNS configuration", input.DisableDNS, &config.DisableDNS) || updated
+	updated = applyBoolField("firewall configuration", input.DisableFirewall, &config.DisableFirewall) || updated
+	updated = applyBoolField("LAN access", input.BlockLANAccess, &config.BlockLANAccess) || updated
+	updated = applyBoolField("inbound connections", input.BlockInbound, &config.BlockInbound) || updated
 
 	if input.DisableIPv6 != nil && *input.DisableIPv6 != config.DisableIPv6 {
 		log.Infof("setting IPv6 overlay disabled=%v", *input.DisableIPv6)
@@ -421,6 +334,22 @@ func (config *Config) applyRouteSettings(input ConfigInput) bool {
 	}
 
 	return updated
+}
+
+// applyDNSRouteInterval updates the DNS route interval or applies the default.
+func (config *Config) applyDNSRouteInterval(input ConfigInput) bool {
+	if input.DNSRouteInterval != nil && *input.DNSRouteInterval != config.DNSRouteInterval {
+		log.Infof("updating DNS route interval to %s (old value %s)",
+			input.DNSRouteInterval.String(), config.DNSRouteInterval.String())
+		config.DNSRouteInterval = *input.DNSRouteInterval
+		return true
+	}
+	if config.DNSRouteInterval == 0 {
+		config.DNSRouteInterval = dynamic.DefaultInterval
+		log.Infof("using default DNS route interval %s", config.DNSRouteInterval)
+		return true
+	}
+	return false
 }
 
 // applyDNSSettings handles custom DNS address and DNS labels.
