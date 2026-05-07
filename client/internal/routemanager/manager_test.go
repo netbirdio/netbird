@@ -237,7 +237,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 				},
 			},
 			inputSerial:                          1,
-			clientNetworkWatchersExpected:        1,
+			clientNetworkWatchersExpected:        0,
 			clientNetworkWatchersExpectedAllowed: 2,
 		},
 		{

@@ -372,6 +372,7 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 		config.DNSRouteInterval = &interval
 	}
 
+	// *bool fields: nil means "not set by caller" — apply() treats nil as no-op and keeps the existing value.
 	config.RosenpassEnabled = msg.RosenpassEnabled
 	config.RosenpassPermissive = msg.RosenpassPermissive
 	config.DisableAutoConnect = msg.DisableAutoConnect
