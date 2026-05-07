@@ -681,22 +681,22 @@ func TestNetworkMapComponents_RouterExcludesOtherNetworkRoutes(t *testing.T) {
 func createComponentTestAccount() *types.Account {
 	peers := map[string]*nbpeer.Peer{
 		"peer-src-1": {
-			ID: "peer-src-1", IP: net.IP{100, 64, 0, 1}, Key: "key-src-1", DNSLabel: "src1",
+			ID: "peer-src-1", IP: netip.AddrFrom4([4]byte{100, 64, 0, 1}), Key: "key-src-1", DNSLabel: "src1",
 			Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now()}, UserID: "user-1",
 			Meta: nbpeer.PeerSystemMeta{WtVersion: "0.35.0", GoOS: "linux"},
 		},
 		"peer-src-2": {
-			ID: "peer-src-2", IP: net.IP{100, 64, 0, 2}, Key: "key-src-2", DNSLabel: "src2",
+			ID: "peer-src-2", IP: netip.AddrFrom4([4]byte{100, 64, 0, 2}), Key: "key-src-2", DNSLabel: "src2",
 			Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now()}, UserID: "user-1",
 			Meta: nbpeer.PeerSystemMeta{WtVersion: "0.35.0", GoOS: "linux"},
 		},
 		"peer-dst-1": {
-			ID: "peer-dst-1", IP: net.IP{100, 64, 0, 3}, Key: "key-dst-1", DNSLabel: "dst1",
+			ID: "peer-dst-1", IP: netip.AddrFrom4([4]byte{100, 64, 0, 3}), Key: "key-dst-1", DNSLabel: "dst1",
 			Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now()}, UserID: "user-2",
 			Meta: nbpeer.PeerSystemMeta{WtVersion: "0.35.0", GoOS: "linux"},
 		},
 		"peer-router-1": {
-			ID: "peer-router-1", IP: net.IP{100, 64, 0, 10}, Key: "key-router-1", DNSLabel: "router1",
+			ID: "peer-router-1", IP: netip.AddrFrom4([4]byte{100, 64, 0, 10}), Key: "key-router-1", DNSLabel: "router1",
 			Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now()}, UserID: "user-1",
 			Meta: nbpeer.PeerSystemMeta{WtVersion: "0.35.0", GoOS: "linux"},
 		},

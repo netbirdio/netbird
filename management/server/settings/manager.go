@@ -5,6 +5,7 @@ package settings
 import (
 	"context"
 	"fmt"
+	"net/netip"
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/integrations/extra_settings"
@@ -22,6 +23,9 @@ type Manager interface {
 	GetSettings(ctx context.Context, accountID string, userID string) (*types.Settings, error)
 	GetExtraSettings(ctx context.Context, accountID string) (*types.ExtraSettings, error)
 	UpdateExtraSettings(ctx context.Context, accountID, userID string, extraSettings *types.ExtraSettings) (bool, error)
+	// GetEffectiveNetworkRanges returns the actual allocated network ranges (v4 and v6).
+	// This includes auto-allocated ranges even when no custom override was set.
+	GetEffectiveNetworkRanges(ctx context.Context, accountID string) (v4, v6 netip.Prefix, err error)
 }
 
 // IdpConfig holds IdP-related configuration that is set at runtime
@@ -114,4 +118,29 @@ func (m *managerImpl) GetExtraSettings(ctx context.Context, accountID string) (*
 
 func (m *managerImpl) UpdateExtraSettings(ctx context.Context, accountID, userID string, extraSettings *types.ExtraSettings) (bool, error) {
 	return m.extraSettingsManager.UpdateExtraSettings(ctx, accountID, userID, extraSettings)
+}
+
+// GetEffectiveNetworkRanges returns the actual allocated network ranges from the account's network object.
+func (m *managerImpl) GetEffectiveNetworkRanges(ctx context.Context, accountID string) (netip.Prefix, netip.Prefix, error) {
+	network, err := m.store.GetAccountNetwork(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return netip.Prefix{}, netip.Prefix{}, fmt.Errorf("get account network: %w", err)
+	}
+
+	var v4, v6 netip.Prefix
+	if network.Net.IP != nil {
+		addr, ok := netip.AddrFromSlice(network.Net.IP)
+		if ok {
+			ones, _ := network.Net.Mask.Size()
+			v4 = netip.PrefixFrom(addr.Unmap(), ones)
+		}
+	}
+	if network.NetV6.IP != nil {
+		addr, ok := netip.AddrFromSlice(network.NetV6.IP)
+		if ok {
+			ones, _ := network.NetV6.Mask.Size()
+			v6 = netip.PrefixFrom(addr.Unmap(), ones)
+		}
+	}
+	return v4, v6, nil
 }

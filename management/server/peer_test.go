@@ -754,7 +754,8 @@ func setupTestAccountManager(b testing.TB, peers int, groups int) (*DefaultAccou
 			ID:       fmt.Sprintf("peer-%d", i),
 			DNSLabel: fmt.Sprintf("peer-%d", i),
 			Key:      peerKey.PublicKey().String(),
-			IP:       net.ParseIP(fmt.Sprintf("100.64.%d.%d", i/256, i%256)),
+			IP:       netip.MustParseAddr(fmt.Sprintf("100.64.%d.%d", i/256, i%256)),
+			IPv6:     netip.MustParseAddr(fmt.Sprintf("fd00::%d", i+1)),
 			Status:   &nbpeer.PeerStatus{LastSeen: time.Now().UTC(), Connected: true},
 			UserID:   regularUser,
 		}
@@ -783,7 +784,15 @@ func setupTestAccountManager(b testing.TB, peers int, groups int) (*DefaultAccou
 		account.Networks = append(account.Networks, network)
 
 		ips := account.GetTakenIPs()
-		peerIP, err := types.AllocatePeerIP(account.Network.Net, ips)
+		peerIP, err := types.AllocatePeerIP(netip.MustParsePrefix(account.Network.Net.String()), ips)
+		if err != nil {
+			return nil, nil, "", "", err
+		}
+		v6Prefix, err := netip.ParsePrefix(account.Network.NetV6.String())
+		if err != nil {
+			return nil, nil, "", "", err
+		}
+		peerIPv6, err := types.AllocateRandomPeerIPv6(v6Prefix)
 		if err != nil {
 			return nil, nil, "", "", err
 		}
@@ -794,6 +803,7 @@ func setupTestAccountManager(b testing.TB, peers int, groups int) (*DefaultAccou
 			DNSLabel: fmt.Sprintf("peer-nr-%d", len(account.Peers)+1),
 			Key:      peerKey.PublicKey().String(),
 			IP:       peerIP,
+			IPv6:     peerIPv6,
 			Status:   &nbpeer.PeerStatus{LastSeen: time.Now().UTC(), Connected: true},
 			UserID:   regularUser,
 			Meta: nbpeer.PeerSystemMeta{
@@ -1068,7 +1078,8 @@ func TestToSyncResponse(t *testing.T) {
 		},
 	}
 	peer := &nbpeer.Peer{
-		IP:         net.ParseIP("192.168.1.1"),
+		IP:         netip.MustParseAddr("192.168.1.1"),
+		IPv6:       netip.MustParseAddr("fd00::1"),
 		SSHEnabled: true,
 		Key:        "peer-key",
 		DNSLabel:   "peer1",
@@ -1079,9 +1090,21 @@ func TestToSyncResponse(t *testing.T) {
 		Signature: "turn-pass",
 	}
 	networkMap := &types.NetworkMap{
-		Network:      &types.Network{Net: *ipnet, Serial: 1000},
-		Peers:        []*nbpeer.Peer{{IP: net.ParseIP("192.168.1.2"), Key: "peer2-key", DNSLabel: "peer2", SSHEnabled: true, SSHKey: "peer2-ssh-key"}},
-		OfflinePeers: []*nbpeer.Peer{{IP: net.ParseIP("192.168.1.3"), Key: "peer3-key", DNSLabel: "peer3", SSHEnabled: true, SSHKey: "peer3-ssh-key"}},
+		Network: &types.Network{Net: *ipnet, Serial: 1000},
+		Peers: []*nbpeer.Peer{{
+			IP:         netip.MustParseAddr("192.168.1.2"),
+			IPv6:       netip.MustParseAddr("fd00::2"),
+			Key:        "peer2-key",
+			DNSLabel:   "peer2",
+			SSHEnabled: true,
+			SSHKey:     "peer2-ssh-key"}},
+		OfflinePeers: []*nbpeer.Peer{{
+			IP:         netip.MustParseAddr("192.168.1.3"),
+			IPv6:       netip.MustParseAddr("fd00::3"),
+			Key:        "peer3-key",
+			DNSLabel:   "peer3",
+			SSHEnabled: true,
+			SSHKey:     "peer3-ssh-key"}},
 		Routes: []*nbroute.Route{
 			{
 				ID:          "route1",
@@ -1228,6 +1251,7 @@ func TestToSyncResponse(t *testing.T) {
 	assert.Equal(t, int64(53), response.NetworkMap.DNSConfig.NameServerGroups[0].NameServers[0].GetPort())
 	// assert network map Firewall
 	assert.Equal(t, 1, len(response.NetworkMap.FirewallRules))
+	//nolint:staticcheck // testing backward-compatible field
 	assert.Equal(t, "192.168.1.2", response.NetworkMap.FirewallRules[0].PeerIP)
 	assert.Equal(t, proto.RuleDirection_IN, response.NetworkMap.FirewallRules[0].Direction)
 	assert.Equal(t, proto.RuleAction_ACCEPT, response.NetworkMap.FirewallRules[0].Action)
@@ -1290,7 +1314,8 @@ func Test_RegisterPeerByUser(t *testing.T) {
 		ID:        xid.New().String(),
 		AccountID: existingAccountID,
 		Key:       "newPeerKey",
-		IP:        net.IP{123, 123, 123, 123},
+		IP:        netip.AddrFrom4([4]byte{123, 123, 123, 123}),
+		IPv6:      netip.MustParseAddr("fd00::7b:7b:7b:7b"),
 		Meta: nbpeer.PeerSystemMeta{
 			Hostname: "newPeer",
 			GoOS:     "linux",
@@ -1378,7 +1403,8 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 	newPeerTemplate := &nbpeer.Peer{
 		AccountID: existingAccountID,
 		UserID:    "",
-		IP:        net.IP{123, 123, 123, 123},
+		IP:        netip.AddrFrom4([4]byte{123, 123, 123, 123}),
+		IPv6:      netip.MustParseAddr("fd00::7b:7b:7b:7b"),
 		Meta: nbpeer.PeerSystemMeta{
 			Hostname: "newPeer",
 			GoOS:     "linux",
@@ -1539,7 +1565,8 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 		AccountID: existingAccountID,
 		Key:       "newPeerKey",
 		UserID:    "",
-		IP:        net.IP{123, 123, 123, 123},
+		IP:        netip.AddrFrom4([4]byte{123, 123, 123, 123}),
+		IPv6:      netip.MustParseAddr("fd00::7b:7b:7b:7b"),
 		Meta: nbpeer.PeerSystemMeta{
 			Hostname: "newPeer",
 			GoOS:     "linux",
@@ -1624,7 +1651,8 @@ func Test_LoginPeer(t *testing.T) {
 	newPeerTemplate := &nbpeer.Peer{
 		AccountID: existingAccountID,
 		UserID:    "",
-		IP:        net.IP{123, 123, 123, 123},
+		IP:        netip.AddrFrom4([4]byte{123, 123, 123, 123}),
+		IPv6:      netip.MustParseAddr("fd00::7b:7b:7b:7b"),
 		Meta: nbpeer.PeerSystemMeta{
 			Hostname: "newPeer",
 			GoOS:     "linux",
@@ -2126,14 +2154,16 @@ func Test_DeletePeer(t *testing.T) {
 			ID:        "peer1",
 			AccountID: accountID,
 			Key:       "key1",
-			IP:        net.IP{1, 1, 1, 1},
+			IP:        netip.AddrFrom4([4]byte{1, 1, 1, 1}),
+			IPv6:      netip.MustParseAddr("fd00::1"),
 			DNSLabel:  "peer1.test",
 		},
 		"peer2": {
 			ID:        "peer2",
 			AccountID: accountID,
 			Key:       "key2",
-			IP:        net.IP{2, 2, 2, 2},
+			IP:        netip.AddrFrom4([4]byte{2, 2, 2, 2}),
+			IPv6:      netip.MustParseAddr("fd00::2"),
 			DNSLabel:  "peer2.test",
 		},
 	}
@@ -2727,6 +2757,67 @@ func TestProcessPeerAddAuth(t *testing.T) {
 		assert.Equal(t, account.Id, config.AccountID)
 		assert.False(t, config.Ephemeral)
 		assert.Empty(t, config.GroupsToAdd)
+	})
+}
+
+func TestPeerWillHaveIPv6(t *testing.T) {
+	settings := &types.Settings{
+		IPv6EnabledGroups: []string{"all-group-id", "group-a"},
+	}
+
+	assert.True(t, peerWillHaveIPv6(settings, nil, "all-group-id"), "peer in All group should get IPv6")
+	assert.True(t, peerWillHaveIPv6(settings, []string{"group-a"}, ""), "peer with matching auto-group should get IPv6")
+	assert.False(t, peerWillHaveIPv6(settings, []string{"group-b"}, "other-all"), "peer with no matching groups should not get IPv6")
+	assert.False(t, peerWillHaveIPv6(settings, nil, ""), "embedded peer with no groups should not get IPv6")
+
+	emptySettings := &types.Settings{IPv6EnabledGroups: []string{}}
+	assert.False(t, peerWillHaveIPv6(emptySettings, []string{"group-a"}, "all-group-id"), "no IPv6 groups means no IPv6")
+}
+
+// TestSyncPeer_IPv6CapabilityChangePropagates ensures that when a peer reports
+// a new IPv6 overlay capability via SyncPeer (e.g. after a client upgrade or
+// flipping --disable-ipv6) without bumping its WtVersion, other account peers
+// receive a fresh network map so their AAAA records for it become unstale.
+func TestSyncPeer_IPv6CapabilityChangePropagates(t *testing.T) {
+	manager, updateManager, _, peer1, peer2, _ := setupNetworkMapTest(t)
+
+	updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
+	t.Cleanup(func() {
+		updateManager.CloseChannel(context.Background(), peer1.ID)
+	})
+
+	// Drain any initial updates from setup.
+	drain := func() {
+		for {
+			select {
+			case <-updMsg:
+			case <-time.After(200 * time.Millisecond):
+				return
+			}
+		}
+	}
+	drain()
+
+	t.Run("no propagation when capabilities are unchanged", func(t *testing.T) {
+		_, _, _, _, err := manager.SyncPeer(context.Background(), types.PeerSync{
+			WireGuardPubKey: peer2.Key,
+			Meta:            peer2.Meta,
+		}, peer2.AccountID)
+		require.NoError(t, err)
+		peerShouldNotReceiveUpdate(t, updMsg)
+	})
+
+	t.Run("propagation when IPv6 capability is added", func(t *testing.T) {
+		newMeta := peer2.Meta
+		newMeta.Capabilities = append([]int32{}, peer2.Meta.Capabilities...)
+		newMeta.Capabilities = append(newMeta.Capabilities, nbpeer.PeerCapabilityIPv6Overlay)
+
+		_, _, _, _, err := manager.SyncPeer(context.Background(), types.PeerSync{
+			WireGuardPubKey: peer2.Key,
+			Meta:            newMeta,
+		}, peer2.AccountID)
+		require.NoError(t, err)
+		peerShouldReceiveUpdate(t, updMsg)
 	})
 }
 

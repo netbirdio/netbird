@@ -582,7 +582,7 @@ func (d *DnsInterceptor) queryUpstreamDNS(ctx context.Context, w dns.ResponseWri
 	if nsNet != nil {
 		reply, err = nbdns.ExchangeWithNetstack(ctx, nsNet, r, upstream)
 	} else {
-		client, clientErr := nbdns.GetClientPrivate(d.wgInterface.Address().IP, d.wgInterface.Name(), dnsTimeout)
+		client, clientErr := nbdns.GetClientPrivate(d.wgInterface, upstreamIP, dnsTimeout)
 		if clientErr != nil {
 			d.writeDNSError(w, r, logger, fmt.Sprintf("create DNS client: %v", clientErr))
 			return nil

@@ -11,6 +11,12 @@ import (
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
+// Peer capability constants mirror the proto enum values.
+const (
+	PeerCapabilitySourcePrefixes int32 = 1
+	PeerCapabilityIPv6Overlay    int32 = 2
+)
+
 // Peer represents a machine connected to the network.
 // The Peer is a WireGuard peer identified by a public key
 type Peer struct {
@@ -21,7 +27,9 @@ type Peer struct {
 	// WireGuard public key
 	Key string // uniqueness index (check migrations)
 	// IP address of the Peer
-	IP net.IP `gorm:"serializer:json"` // uniqueness index per accountID (check migrations)
+	IP netip.Addr `gorm:"serializer:json"` // uniqueness index per accountID (check migrations)
+	// IPv6 overlay address of the Peer, zero value if IPv6 is not enabled for the account.
+	IPv6 netip.Addr `gorm:"serializer:json"`
 	// Meta is a Peer system meta data
 	Meta PeerSystemMeta `gorm:"embedded;embeddedPrefix:meta_"`
 	// ProxyMeta is metadata related to proxy peers
@@ -115,6 +123,7 @@ type Flags struct {
 	DisableFirewall     bool
 	BlockLANAccess      bool
 	BlockInbound        bool
+	DisableIPv6         bool
 
 	LazyConnectionEnabled bool
 }
@@ -138,6 +147,7 @@ type PeerSystemMeta struct { //nolint:revive
 	Environment        Environment `gorm:"serializer:json"`
 	Flags              Flags       `gorm:"serializer:json"`
 	Files              []File      `gorm:"serializer:json"`
+	Capabilities       []int32     `gorm:"serializer:json"`
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
@@ -182,7 +192,8 @@ func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
 		p.SystemManufacturer == other.SystemManufacturer &&
 		p.Environment.Cloud == other.Environment.Cloud &&
 		p.Environment.Platform == other.Environment.Platform &&
-		p.Flags.isEqual(other.Flags)
+		p.Flags.isEqual(other.Flags) &&
+		capabilitiesEqual(p.Capabilities, other.Capabilities)
 }
 
 func (p PeerSystemMeta) isEmpty() bool {
@@ -210,6 +221,37 @@ func (p *Peer) AddedWithSSOLogin() bool {
 	return p.UserID != ""
 }
 
+// HasCapability reports whether the peer has the given capability.
+func (p *Peer) HasCapability(capability int32) bool {
+	return slices.Contains(p.Meta.Capabilities, capability)
+}
+
+// SupportsIPv6 reports whether the peer supports IPv6 overlay.
+func (p *Peer) SupportsIPv6() bool {
+	return !p.Meta.Flags.DisableIPv6 && p.HasCapability(PeerCapabilityIPv6Overlay)
+}
+
+// SupportsSourcePrefixes reports whether the peer reads SourcePrefixes.
+func (p *Peer) SupportsSourcePrefixes() bool {
+	return p.HasCapability(PeerCapabilitySourcePrefixes)
+}
+
+func capabilitiesEqual(a, b []int32) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	set := make(map[int32]struct{}, len(a))
+	for _, c := range a {
+		set[c] = struct{}{}
+	}
+	for _, c := range b {
+		if _, ok := set[c]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
 // Copy copies Peer object
 func (p *Peer) Copy() *Peer {
 	peerStatus := p.Status
@@ -221,6 +263,7 @@ func (p *Peer) Copy() *Peer {
 		AccountID:                   p.AccountID,
 		Key:                         p.Key,
 		IP:                          p.IP,
+		IPv6:                        p.IPv6,
 		Meta:                        p.Meta,
 		Name:                        p.Name,
 		DNSLabel:                    p.DNSLabel,
@@ -323,9 +366,13 @@ func (p *Peer) FQDN(dnsDomain string) string {
 
 // EventMeta returns activity event meta related to the peer
 func (p *Peer) EventMeta(dnsDomain string) map[string]any {
-	return map[string]any{"name": p.Name, "fqdn": p.FQDN(dnsDomain), "ip": p.IP, "created_at": p.CreatedAt,
+	meta := map[string]any{"name": p.Name, "fqdn": p.FQDN(dnsDomain), "ip": p.IP, "created_at": p.CreatedAt,
 		"location_city_name": p.Location.CityName, "location_country_code": p.Location.CountryCode,
 		"location_geo_name_id": p.Location.GeoNameID, "location_connection_ip": p.Location.ConnectionIP}
+	if p.IPv6.IsValid() {
+		meta["ipv6"] = p.IPv6.String()
+	}
+	return meta
 }
 
 // Copy PeerStatus
@@ -369,5 +416,6 @@ func (f Flags) isEqual(other Flags) bool {
 		f.DisableFirewall == other.DisableFirewall &&
 		f.BlockLANAccess == other.BlockLANAccess &&
 		f.BlockInbound == other.BlockInbound &&
-		f.LazyConnectionEnabled == other.LazyConnectionEnabled
+		f.LazyConnectionEnabled == other.LazyConnectionEnabled &&
+		f.DisableIPv6 == other.DisableIPv6
 }

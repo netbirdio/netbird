@@ -19,6 +19,7 @@ const (
 	ICMP            = Protocol(1)
 	TCP             = Protocol(6)
 	UDP             = Protocol(17)
+	ICMPv6          = Protocol(58)
 	SCTP            = Protocol(132)
 )
 
@@ -30,6 +31,8 @@ func (p Protocol) String() string {
 		return "TCP"
 	case 17:
 		return "UDP"
+	case 58:
+		return "ICMPv6"
 	case 132:
 		return "SCTP"
 	default:

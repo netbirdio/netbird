@@ -496,7 +496,7 @@ func (s *DefaultServer) Stop() {
 		log.Errorf("failed to disable DNS: %v", err)
 	}
 
-	maps.Clear(s.extraDomains)
+	clear(s.extraDomains)
 
 	// Clear health projection state so a subsequent Start doesn't
 	// inherit sticky flags (notably everHealthy) that would bypass
