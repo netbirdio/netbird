@@ -500,6 +500,8 @@ func TestManagerUpdateRoutes(t *testing.T) {
 func TestDisableDefaultRouteSkipsSystemRoute(t *testing.T) {
 	// Track which prefixes had AddVPNRoute called (spy).
 	addedRoutes := make(map[netip.Prefix]bool)
+	// Spy: track whether RemoveVPNRoute was called for any prefix.
+	removeCalled := false
 
 	// Build a refcounter with the same closure pattern as setupRefCounters when
 	// disableDefaultRoute=true, but using the spy instead of real sysOps. This
@@ -513,6 +515,7 @@ func TestDisableDefaultRouteSkipsSystemRoute(t *testing.T) {
 			return struct{}{}, nil
 		},
 		func(prefix netip.Prefix, _ struct{}) error {
+			removeCalled = true
 			delete(addedRoutes, prefix)
 			return nil
 		},
@@ -541,4 +544,16 @@ func TestDisableDefaultRouteSkipsSystemRoute(t *testing.T) {
 	require.True(t, addedRoutes[normalPrefix], "AddVPNRoute should be called for normal route")
 	require.False(t, addedRoutes[vars.Defaultv4], "AddVPNRoute should NOT be called for IPv4 default route")
 	require.False(t, addedRoutes[vars.Defaultv6], "AddVPNRoute should NOT be called for IPv6 default route")
+
+	// --- Decrement on ErrIgnore-d default routes must be safe (no RemoveVPNRoute call) ---
+	// Reset the spy before the Decrement calls so any prior state doesn't interfere.
+	removeCalled = false
+
+	_, err = counter.Decrement(vars.Defaultv4)
+	require.NoError(t, err, "Decrement for IPv4 default route should return no error")
+
+	_, err = counter.Decrement(vars.Defaultv6)
+	require.NoError(t, err, "Decrement for IPv6 default route should return no error")
+
+	require.False(t, removeCalled, "RemoveVPNRoute must NOT be called when Decrementing an ErrIgnore-d default route")
 }
