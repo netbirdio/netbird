@@ -3,14 +3,18 @@ import {
     InfoIcon,
     LifeBuoyIcon,
     NetworkIcon,
+    ShieldIcon,
     SlidersHorizontalIcon,
     TerminalIcon,
+    WrenchIcon,
 } from "lucide-react";
 
 export type SettingsSection =
     | "general"
     | "network"
+    | "security"
     | "ssh"
+    | "advanced"
     | "troubleshooting"
     | "about";
 
@@ -26,7 +30,9 @@ const ITEMS: {
 }[] = [
     { id: "general", icon: SlidersHorizontalIcon, title: "General" },
     { id: "network", icon: NetworkIcon, title: "Network" },
+    { id: "security", icon: ShieldIcon, title: "Security" },
     { id: "ssh", icon: TerminalIcon, title: "SSH" },
+    { id: "advanced", icon: WrenchIcon, title: "Advanced" },
     { id: "troubleshooting", icon: LifeBuoyIcon, title: "Troubleshooting" },
     { id: "about", icon: InfoIcon, title: "About" },
 ];

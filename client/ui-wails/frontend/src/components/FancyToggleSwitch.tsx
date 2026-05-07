@@ -27,7 +27,7 @@ export default function FancyToggleSwitch({
   dataCy,
   className,
   labelClassName,
-  textWrapperClassName = "max-w-sm",
+  textWrapperClassName = "max-w-md",
 }: Readonly<Props>) {
   const handleToggle = () => {
     if (disabled) return;
