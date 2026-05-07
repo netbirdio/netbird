@@ -186,28 +186,6 @@ func (m *DefaultManager) setupAndroidRoutes(config ManagerConfig) {
 }
 
 func (m *DefaultManager) setupRefCounters(useNoop bool) {
-	var once sync.Once
-	var wgIface *net.Interface
-	toInterface := func() *net.Interface {
-		once.Do(func() {
-			wgIface = m.wgInterface.ToInterface()
-		})
-		return wgIface
-	}
-
-	m.routeRefCounter = refcounter.New(
-		func(prefix netip.Prefix, _ struct{}) (struct{}, error) {
-			if m.disableDefaultRoute && (prefix == vars.Defaultv4 || prefix == vars.Defaultv6) {
-				log.Infof("Default route %s is disabled by user, skipping system route", prefix)
-				return struct{}{}, refcounter.ErrIgnore
-			}
-			return struct{}{}, m.sysOps.AddVPNRoute(prefix, toInterface())
-		},
-		func(prefix netip.Prefix, _ struct{}) error {
-			return m.sysOps.RemoveVPNRoute(prefix, toInterface())
-		},
-	)
-
 	if useNoop {
 		m.routeRefCounter = refcounter.New(
 			func(netip.Prefix, struct{}) (struct{}, error) {
@@ -215,6 +193,28 @@ func (m *DefaultManager) setupRefCounters(useNoop bool) {
 			},
 			func(netip.Prefix, struct{}) error {
 				return nil
+			},
+		)
+	} else {
+		var once sync.Once
+		var wgIface *net.Interface
+		toInterface := func() *net.Interface {
+			once.Do(func() {
+				wgIface = m.wgInterface.ToInterface()
+			})
+			return wgIface
+		}
+
+		m.routeRefCounter = refcounter.New(
+			func(prefix netip.Prefix, _ struct{}) (struct{}, error) {
+				if m.disableDefaultRoute && (prefix == vars.Defaultv4 || prefix == vars.Defaultv6) {
+					log.Infof("Default route %s is disabled by user, skipping system route", prefix)
+					return struct{}{}, refcounter.ErrIgnore
+				}
+				return struct{}{}, m.sysOps.AddVPNRoute(prefix, toInterface())
+			},
+			func(prefix netip.Prefix, _ struct{}) error {
+				return m.sysOps.RemoveVPNRoute(prefix, toInterface())
 			},
 		)
 	}
