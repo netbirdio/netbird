@@ -185,7 +185,7 @@ type Store interface {
 	SaveNameServerGroup(ctx context.Context, nameServerGroup *dns.NameServerGroup) error
 	DeleteNameServerGroup(ctx context.Context, accountID, nameServerGroupID string) error
 
-	GetTakenIPs(ctx context.Context, lockStrength LockingStrength, accountId string) ([]net.IP, error)
+	GetTakenIPs(ctx context.Context, lockStrength LockingStrength, accountId string) ([]netip.Addr, error)
 	IncrementNetworkSerial(ctx context.Context, accountId string) error
 	GetAccountNetwork(ctx context.Context, lockStrength LockingStrength, accountId string) (*types.Network, error)
 
@@ -225,6 +225,7 @@ type Store interface {
 	IsPrimaryAccount(ctx context.Context, accountID string) (bool, string, error)
 	MarkAccountPrimary(ctx context.Context, accountID string) error
 	UpdateAccountNetwork(ctx context.Context, accountID string, ipNet net.IPNet) error
+	UpdateAccountNetworkV6(ctx context.Context, accountID string, ipNet net.IPNet) error
 	GetPolicyRulesByResourceID(ctx context.Context, lockStrength LockingStrength, accountID string, peerID string) ([]*types.PolicyRule, error)
 
 	// SetFieldEncrypt sets the field encryptor for encrypting sensitive user data.
@@ -284,7 +285,8 @@ type Store interface {
 	DeleteServiceTargets(ctx context.Context, accountID string, serviceID string) error
 
 	SaveProxy(ctx context.Context, proxy *proxy.Proxy) error
-	UpdateProxyHeartbeat(ctx context.Context, proxyID, clusterAddress, ipAddress string) error
+	DisconnectProxy(ctx context.Context, proxyID, sessionID string) error
+	UpdateProxyHeartbeat(ctx context.Context, p *proxy.Proxy) error
 	GetActiveProxyClusterAddresses(ctx context.Context) ([]string, error)
 	GetActiveProxyClusters(ctx context.Context) ([]proxy.Cluster, error)
 	GetClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool

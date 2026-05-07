@@ -5,6 +5,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
+	"strconv"
+	"sync"
 	"syscall/js"
 	"time"
 
@@ -14,6 +17,7 @@ import (
 	netbird "github.com/netbirdio/netbird/client/embed"
 	sshdetection "github.com/netbirdio/netbird/client/ssh/detection"
 	nbstatus "github.com/netbirdio/netbird/client/status"
+	wasmcapture "github.com/netbirdio/netbird/client/wasm/internal/capture"
 	"github.com/netbirdio/netbird/client/wasm/internal/http"
 	"github.com/netbirdio/netbird/client/wasm/internal/rdp"
 	"github.com/netbirdio/netbird/client/wasm/internal/ssh"
@@ -79,6 +83,10 @@ func parseClientOptions(jsOptions js.Value) (netbird.Options, error) {
 
 	if deviceName := jsOptions.Get("deviceName"); !deviceName.IsNull() && !deviceName.IsUndefined() {
 		options.DeviceName = deviceName.String()
+	}
+
+	if disableIPv6 := jsOptions.Get("disableIPv6"); !disableIPv6.IsNull() && !disableIPv6.IsUndefined() {
+		options.DisableIPv6 = disableIPv6.Bool()
 	}
 
 	return options, nil
@@ -161,39 +169,58 @@ func createSSHMethod(client *netbird.Client) js.Func {
 			})
 		}
 
-		var jwtToken string
-		if len(args) > 3 && !args[3].IsNull() && !args[3].IsUndefined() {
-			jwtToken = args[3].String()
-		}
+		jwtToken, ipVersion := parseSSHOptions(args)
 
 		return createPromise(func(resolve, reject js.Value) {
-			sshClient := ssh.NewClient(client)
-
-			if err := sshClient.Connect(host, port, username, jwtToken); err != nil {
+			jsInterface, err := connectSSH(client, host, port, username, jwtToken, ipVersion)
+			if err != nil {
 				reject.Invoke(err.Error())
 				return
 			}
-
-			if err := sshClient.StartSession(80, 24); err != nil {
-				if closeErr := sshClient.Close(); closeErr != nil {
-					log.Errorf("Error closing SSH client: %v", closeErr)
-				}
-				reject.Invoke(err.Error())
-				return
-			}
-
-			jsInterface := ssh.CreateJSInterface(sshClient)
 			resolve.Invoke(jsInterface)
 		})
 	})
 }
 
-func performPing(client *netbird.Client, hostname string) {
+func parseSSHOptions(args []js.Value) (jwtToken string, ipVersion int) {
+	if len(args) > 3 && !args[3].IsNull() && !args[3].IsUndefined() {
+		jwtToken = args[3].String()
+	}
+	if len(args) > 4 {
+		ipVersion = jsIPVersion(args[4])
+	}
+	return
+}
+
+func connectSSH(client *netbird.Client, host string, port int, username, jwtToken string, ipVersion int) (js.Value, error) {
+	sshClient := ssh.NewClient(client)
+
+	if err := sshClient.Connect(host, port, username, jwtToken, ipVersion); err != nil {
+		return js.Undefined(), err
+	}
+
+	if err := sshClient.StartSession(80, 24); err != nil {
+		if closeErr := sshClient.Close(); closeErr != nil {
+			log.Errorf("Error closing SSH client: %v", closeErr)
+		}
+		return js.Undefined(), err
+	}
+
+	return ssh.CreateJSInterface(sshClient), nil
+}
+
+func performPing(client *netbird.Client, hostname string, ipVersion int) {
 	ctx, cancel := context.WithTimeout(context.Background(), pingTimeout)
 	defer cancel()
 
+	// Default to ping4 to avoid dual-stack ICMP endpoint issues in wireguard-go netstack.
+	network := "ping4"
+	if ipVersion == 6 {
+		network = "ping6"
+	}
+
 	start := time.Now()
-	conn, err := client.Dial(ctx, "ping", hostname)
+	conn, err := client.Dial(ctx, network, hostname)
 	if err != nil {
 		js.Global().Get("console").Call("log", fmt.Sprintf("Ping to %s failed: %v", hostname, err))
 		return
@@ -220,27 +247,39 @@ func performPing(client *netbird.Client, hostname string) {
 	}
 
 	latency := time.Since(start)
-	js.Global().Get("console").Call("log", fmt.Sprintf("Ping to %s: %dms", hostname, latency.Milliseconds()))
+	remote := conn.RemoteAddr().String()
+	msg := fmt.Sprintf("Ping to %s: %dms", hostname, latency.Milliseconds())
+	if remote != hostname {
+		msg += fmt.Sprintf(" (via %s)", remote)
+	}
+	js.Global().Get("console").Call("log", msg)
 }
 
-func performPingTCP(client *netbird.Client, hostname string, port int) {
+func performPingTCP(client *netbird.Client, hostname string, port, ipVersion int) {
 	ctx, cancel := context.WithTimeout(context.Background(), pingTimeout)
 	defer cancel()
 
-	address := fmt.Sprintf("%s:%d", hostname, port)
+	network := ipVersionNetwork("tcp", ipVersion)
+
+	address := net.JoinHostPort(hostname, fmt.Sprintf("%d", port))
 	start := time.Now()
-	conn, err := client.Dial(ctx, "tcp", address)
+	conn, err := client.Dial(ctx, network, address)
 	if err != nil {
 		js.Global().Get("console").Call("log", fmt.Sprintf("TCP ping to %s failed: %v", address, err))
 		return
 	}
 	latency := time.Since(start)
 
+	remote := conn.RemoteAddr().String()
 	if err := conn.Close(); err != nil {
 		log.Debugf("failed to close TCP connection: %v", err)
 	}
 
-	js.Global().Get("console").Call("log", fmt.Sprintf("TCP ping to %s succeeded: %dms", address, latency.Milliseconds()))
+	msg := fmt.Sprintf("TCP ping to %s succeeded: %dms", address, latency.Milliseconds())
+	if remote != address {
+		msg += fmt.Sprintf(" (via %s)", remote)
+	}
+	js.Global().Get("console").Call("log", msg)
 }
 
 // createPingMethod creates the ping method
@@ -257,8 +296,12 @@ func createPingMethod(client *netbird.Client) js.Func {
 		}
 
 		hostname := args[0].String()
+		var ipVersion int
+		if len(args) > 1 {
+			ipVersion = jsIPVersion(args[1])
+		}
 		return createPromise(func(resolve, reject js.Value) {
-			performPing(client, hostname)
+			performPing(client, hostname, ipVersion)
 			resolve.Invoke(js.Undefined())
 		})
 	})
@@ -285,8 +328,12 @@ func createPingTCPMethod(client *netbird.Client) js.Func {
 
 		hostname := args[0].String()
 		port := args[1].Int()
+		var ipVersion int
+		if len(args) > 2 {
+			ipVersion = jsIPVersion(args[2])
+		}
 		return createPromise(func(resolve, reject js.Value) {
-			performPingTCP(client, hostname, port)
+			performPingTCP(client, hostname, port, ipVersion)
 			resolve.Invoke(js.Undefined())
 		})
 	})
@@ -459,6 +506,120 @@ func createSetLogLevelMethod(client *netbird.Client) js.Func {
 	})
 }
 
+// ipVersionNetwork appends "4" or "6" to a base network string (e.g. "tcp" -> "tcp4").
+func ipVersionNetwork(base string, ipVersion int) string {
+	switch ipVersion {
+	case 4:
+		return base + "4"
+	case 6:
+		return base + "6"
+	default:
+		return base
+	}
+}
+
+// jsIPVersion extracts an IP version (4 or 6) from a JS string or number.
+func jsIPVersion(v js.Value) int {
+	switch v.Type() {
+	case js.TypeNumber:
+		return v.Int()
+	case js.TypeString:
+		n, _ := strconv.Atoi(v.String())
+		return n
+	default:
+		return 0
+	}
+}
+
+// createStartCaptureMethod creates the programmable packet capture method.
+// Returns a JS interface with onpacket callback and stop() method.
+//
+// Usage from JavaScript:
+//
+//	const cap = await client.startCapture({ filter: "tcp port 443", verbose: true })
+//	cap.onpacket = (line) => console.log(line)
+//	const stats = cap.stop()
+func createStartCaptureMethod(client *netbird.Client) js.Func {
+	return js.FuncOf(func(_ js.Value, args []js.Value) any {
+		var opts js.Value
+		if len(args) > 0 {
+			opts = args[0]
+		}
+
+		return createPromise(func(resolve, reject js.Value) {
+			iface, err := wasmcapture.Start(client, opts)
+			if err != nil {
+				reject.Invoke(js.ValueOf(fmt.Sprintf("start capture: %v", err)))
+				return
+			}
+			resolve.Invoke(iface)
+		})
+	})
+}
+
+// captureMethods returns capture() and stopCapture() that share state for
+// the console-log shortcut. capture() logs packets to the browser console
+// and stopCapture() ends it, like Ctrl+C on the CLI.
+//
+// Usage from browser devtools console:
+//
+//	await client.capture()              // capture all packets
+//	await client.capture("tcp")         // capture with filter
+//	await client.capture({filter: "host 10.0.0.1", verbose: true})
+//	client.stopCapture()                // stop and print stats
+func captureMethods(client *netbird.Client) (startFn, stopFn js.Func) {
+	var mu sync.Mutex
+	var active *wasmcapture.Handle
+
+	startFn = js.FuncOf(func(_ js.Value, args []js.Value) any {
+		var opts js.Value
+		if len(args) > 0 {
+			opts = args[0]
+		}
+
+		return createPromise(func(resolve, reject js.Value) {
+			mu.Lock()
+			defer mu.Unlock()
+
+			if active != nil {
+				active.Stop()
+				active = nil
+			}
+
+			h, err := wasmcapture.StartConsole(client, opts)
+			if err != nil {
+				reject.Invoke(js.ValueOf(fmt.Sprintf("start capture: %v", err)))
+				return
+			}
+			active = h
+
+			console := js.Global().Get("console")
+			console.Call("log", "[capture] started, call client.stopCapture() to stop")
+			resolve.Invoke(js.Undefined())
+		})
+	})
+
+	stopFn = js.FuncOf(func(_ js.Value, _ []js.Value) any {
+		mu.Lock()
+		defer mu.Unlock()
+
+		if active == nil {
+			js.Global().Get("console").Call("log", "[capture] no active capture")
+			return js.Undefined()
+		}
+
+		stats := active.Stop()
+		active = nil
+
+		console := js.Global().Get("console")
+		console.Call("log", fmt.Sprintf("[capture] stopped: %d packets, %d bytes, %d dropped",
+			stats.Packets, stats.Bytes, stats.Dropped))
+		return js.Undefined()
+	})
+
+	return startFn, stopFn
+}
+
 // createPromise is a helper to create JavaScript promises
 func createPromise(handler func(resolve, reject js.Value)) js.Value {
 	return js.Global().Get("Promise").New(js.FuncOf(func(_ js.Value, promiseArgs []js.Value) any {
@@ -521,6 +682,11 @@ func createClientObject(client *netbird.Client) js.Value {
 	obj["statusDetail"] = createStatusDetailMethod(client)
 	obj["getSyncResponse"] = createGetSyncResponseMethod(client)
 	obj["setLogLevel"] = createSetLogLevelMethod(client)
+	obj["startCapture"] = createStartCaptureMethod(client)
+
+	capStart, capStop := captureMethods(client)
+	obj["capture"] = capStart
+	obj["stopCapture"] = capStop
 
 	return js.ValueOf(obj)
 }

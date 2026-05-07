@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dexidp/dex/storage"
 	goversion "github.com/hashicorp/go-version"
 	log "github.com/sirupsen/logrus"
 
@@ -60,6 +61,13 @@ type Manager interface {
 	// This should only be called when IsSetupRequired returns true.
 	CreateOwnerUser(ctx context.Context, email, password, name string) (*idp.UserData, error)
 
+	// RollbackSetup reverses a successful CreateOwnerUser by deleting the user
+	// from the embedded IDP and reloading setupRequired from persistent state, so
+	// /api/setup can be retried only when no accounts or local users remain. Used
+	// when post-user steps (account or PAT creation) fail and the caller wants a
+	// clean slate.
+	RollbackSetup(ctx context.Context, userID string) error
+
 	// GetVersionInfo returns version information for NetBird components.
 	GetVersionInfo(ctx context.Context) (*VersionInfo, error)
 }
@@ -70,6 +78,7 @@ type instanceStore interface {
 
 type embeddedIdP interface {
 	CreateUserWithPassword(ctx context.Context, email, password, name string) (*idp.UserData, error)
+	DeleteUser(ctx context.Context, userID string) error
 	GetAllAccounts(ctx context.Context) (map[string][]*idp.UserData, error)
 }
 
@@ -185,6 +194,51 @@ func (m *DefaultManager) CreateOwnerUser(ctx context.Context, email, password, n
 	log.WithContext(ctx).Infof("created owner user %s in embedded IdP", email)
 
 	return userData, nil
+}
+
+// RollbackSetup undoes a successful CreateOwnerUser: deletes the user from the
+// embedded IDP and reloads setupRequired from persistent state.
+func (m *DefaultManager) RollbackSetup(ctx context.Context, userID string) error {
+	if m.embeddedIdpManager == nil {
+		return errors.New("embedded IDP is not enabled")
+	}
+
+	var deleteErr error
+	if err := m.embeddedIdpManager.DeleteUser(ctx, userID); err != nil {
+		if isNotFoundError(err) {
+			log.WithContext(ctx).Debugf("setup rollback user %s already deleted", userID)
+		} else {
+			deleteErr = fmt.Errorf("failed to delete user from embedded IdP: %w", err)
+		}
+	}
+
+	if err := m.loadSetupRequired(ctx); err != nil {
+		reloadErr := fmt.Errorf("failed to reload setup state after rollback: %w", err)
+		if deleteErr != nil {
+			return errors.Join(deleteErr, reloadErr)
+		}
+		return reloadErr
+	}
+
+	if deleteErr != nil {
+		return deleteErr
+	}
+
+	log.WithContext(ctx).Infof("rolled back setup for user %s", userID)
+	return nil
+}
+
+func isNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, storage.ErrNotFound) {
+		return true
+	}
+	if s, ok := status.FromError(err); ok {
+		return s.Type() == status.NotFound
+	}
+	return false
 }
 
 func (m *DefaultManager) checkSetupRequiredFromDB(ctx context.Context) error {

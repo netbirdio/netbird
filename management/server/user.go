@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -15,6 +16,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/idp/dex"
+	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -395,8 +397,8 @@ func (am *DefaultAccountManager) CreatePAT(ctx context.Context, accountID string
 		return nil, status.Errorf(status.InvalidArgument, "token name can't be empty")
 	}
 
-	if expiresIn < 1 || expiresIn > 365 {
-		return nil, status.Errorf(status.InvalidArgument, "expiration has to be between 1 and 365")
+	if expiresIn < account.PATMinExpireDays || expiresIn > account.PATMaxExpireDays {
+		return nil, status.Errorf(status.InvalidArgument, "expiration has to be between %d and %d", account.PATMinExpireDays, account.PATMaxExpireDays)
 	}
 
 	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, initiatorUserID, modules.Pats, operations.Create)
@@ -675,7 +677,7 @@ func (am *DefaultAccountManager) SaveOrAddUsers(ctx context.Context, accountID, 
 		if err = am.Store.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return nil, fmt.Errorf("failed to increment network serial: %w", err)
 		}
-		am.UpdateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceUser, Operation: types.UpdateOperationUpdate})
 	}
 
 	return updatedUsersInfo, globalErr
@@ -823,6 +825,11 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 					return false, nil, nil, nil, fmt.Errorf("failed to add peer %s to group %s: %w", peer.ID, groupID, err)
 				}
 			}
+		}
+
+		allGroupChanges := slices.Concat(removedGroups, addedGroups)
+		if err := am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, allGroupChanges); err != nil {
+			return false, nil, nil, nil, fmt.Errorf("reconcile IPv6 for group changes: %w", err)
 		}
 	}
 

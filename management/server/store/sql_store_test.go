@@ -94,11 +94,12 @@ func runLargeTest(t *testing.T, store Store) {
 	for n := 0; n < numPerAccount; n++ {
 		netIP := randomIPv4()
 		peerID := fmt.Sprintf("%s-peer-%d", account.Id, n)
+		addr, _ := netip.AddrFromSlice(netIP)
 
 		peer := &nbpeer.Peer{
 			ID:         peerID,
 			Key:        peerID,
-			IP:         netIP,
+			IP:         addr.Unmap(),
 			Name:       peerID,
 			DNSLabel:   peerID,
 			UserID:     "testuser",
@@ -235,7 +236,8 @@ func Test_SaveAccount(t *testing.T) {
 		account.SetupKeys[setupKey.Key] = setupKey
 		account.Peers["testpeer"] = &nbpeer.Peer{
 			Key:    "peerkey",
-			IP:     net.IP{127, 0, 0, 1},
+			IP:     netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+			IPv6:   netip.MustParseAddr("fd00::1"),
 			Meta:   nbpeer.PeerSystemMeta{},
 			Name:   "peer name",
 			Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
@@ -249,7 +251,8 @@ func Test_SaveAccount(t *testing.T) {
 		account2.SetupKeys[setupKey.Key] = setupKey
 		account2.Peers["testpeer2"] = &nbpeer.Peer{
 			Key:    "peerkey2",
-			IP:     net.IP{127, 0, 0, 2},
+			IP:     netip.AddrFrom4([4]byte{127, 0, 0, 2}),
+			IPv6:   netip.MustParseAddr("fd00::2"),
 			Meta:   nbpeer.PeerSystemMeta{},
 			Name:   "peer name 2",
 			Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
@@ -316,7 +319,8 @@ func TestSqlite_DeleteAccount(t *testing.T) {
 	account.SetupKeys[setupKey.Key] = setupKey
 	account.Peers["testpeer"] = &nbpeer.Peer{
 		Key:    "peerkey",
-		IP:     net.IP{127, 0, 0, 1},
+		IP:     netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+		IPv6:   netip.MustParseAddr("fd00::1"),
 		Meta:   nbpeer.PeerSystemMeta{},
 		Name:   "peer name",
 		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
@@ -499,7 +503,8 @@ func TestSqlStore_SavePeer(t *testing.T) {
 	peer := &nbpeer.Peer{
 		Key:       "peerkey",
 		ID:        "testpeer",
-		IP:        net.IP{127, 0, 0, 1},
+		IP:        netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+		IPv6:      netip.MustParseAddr("fd00::1"),
 		Meta:      nbpeer.PeerSystemMeta{Hostname: "testingpeer"},
 		Name:      "peer name",
 		Status:    &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
@@ -556,7 +561,8 @@ func TestSqlStore_SavePeerStatus(t *testing.T) {
 	account.Peers["testpeer"] = &nbpeer.Peer{
 		Key:    "peerkey",
 		ID:     "testpeer",
-		IP:     net.IP{127, 0, 0, 1},
+		IP:     netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+		IPv6:   netip.MustParseAddr("fd00::1"),
 		Meta:   nbpeer.PeerSystemMeta{},
 		Name:   "peer name",
 		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
@@ -784,7 +790,8 @@ func newAccount(store Store, id int) error {
 	account.SetupKeys[setupKey.Key] = setupKey
 	account.Peers["p"+str] = &nbpeer.Peer{
 		Key:    "peerkey" + str,
-		IP:     net.IP{127, 0, 0, 1},
+		IP:     netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+		IPv6:   netip.MustParseAddr("fd00::1"),
 		Meta:   nbpeer.PeerSystemMeta{},
 		Name:   "peer name",
 		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
@@ -823,7 +830,8 @@ func TestPostgresql_SaveAccount(t *testing.T) {
 	account.SetupKeys[setupKey.Key] = setupKey
 	account.Peers["testpeer"] = &nbpeer.Peer{
 		Key:    "peerkey",
-		IP:     net.IP{127, 0, 0, 1},
+		IP:     netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+		IPv6:   netip.MustParseAddr("fd00::1"),
 		Meta:   nbpeer.PeerSystemMeta{},
 		Name:   "peer name",
 		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
@@ -837,7 +845,8 @@ func TestPostgresql_SaveAccount(t *testing.T) {
 	account2.SetupKeys[setupKey.Key] = setupKey
 	account2.Peers["testpeer2"] = &nbpeer.Peer{
 		Key:    "peerkey2",
-		IP:     net.IP{127, 0, 0, 2},
+		IP:     netip.AddrFrom4([4]byte{127, 0, 0, 2}),
+		IPv6:   netip.MustParseAddr("fd00::2"),
 		Meta:   nbpeer.PeerSystemMeta{},
 		Name:   "peer name 2",
 		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
@@ -903,7 +912,8 @@ func TestPostgresql_DeleteAccount(t *testing.T) {
 	account.SetupKeys[setupKey.Key] = setupKey
 	account.Peers["testpeer"] = &nbpeer.Peer{
 		Key:    "peerkey",
-		IP:     net.IP{127, 0, 0, 1},
+		IP:     netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+		IPv6:   netip.MustParseAddr("fd00::1"),
 		Meta:   nbpeer.PeerSystemMeta{},
 		Name:   "peer name",
 		Status: &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
@@ -1010,37 +1020,39 @@ func TestSqlite_GetTakenIPs(t *testing.T) {
 
 	takenIPs, err := store.GetTakenIPs(context.Background(), LockingStrengthNone, existingAccountID)
 	require.NoError(t, err)
-	assert.Equal(t, []net.IP{}, takenIPs)
+	assert.Equal(t, []netip.Addr{}, takenIPs)
 
 	peer1 := &nbpeer.Peer{
 		ID:        "peer1",
 		AccountID: existingAccountID,
 		Key:       "key1",
 		DNSLabel:  "peer1",
-		IP:        net.IP{1, 1, 1, 1},
+		IP:        netip.AddrFrom4([4]byte{1, 1, 1, 1}),
+		IPv6:      netip.MustParseAddr("fd00::1:1:1:1"),
 	}
 	err = store.AddPeerToAccount(context.Background(), peer1)
 	require.NoError(t, err)
 
 	takenIPs, err = store.GetTakenIPs(context.Background(), LockingStrengthNone, existingAccountID)
 	require.NoError(t, err)
-	ip1 := net.IP{1, 1, 1, 1}.To16()
-	assert.Equal(t, []net.IP{ip1}, takenIPs)
+	ip1 := netip.AddrFrom4([4]byte{1, 1, 1, 1})
+	assert.Equal(t, []netip.Addr{ip1}, takenIPs)
 
 	peer2 := &nbpeer.Peer{
 		ID:        "peer1second",
 		AccountID: existingAccountID,
 		Key:       "key2",
 		DNSLabel:  "peer1-1",
-		IP:        net.IP{2, 2, 2, 2},
+		IP:        netip.AddrFrom4([4]byte{2, 2, 2, 2}),
+		IPv6:      netip.MustParseAddr("fd00::2:2:2:2"),
 	}
 	err = store.AddPeerToAccount(context.Background(), peer2)
 	require.NoError(t, err)
 
 	takenIPs, err = store.GetTakenIPs(context.Background(), LockingStrengthNone, existingAccountID)
 	require.NoError(t, err)
-	ip2 := net.IP{2, 2, 2, 2}.To16()
-	assert.Equal(t, []net.IP{ip1, ip2}, takenIPs)
+	ip2 := netip.AddrFrom4([4]byte{2, 2, 2, 2})
+	assert.Equal(t, []netip.Addr{ip1, ip2}, takenIPs)
 }
 
 func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
@@ -1060,7 +1072,8 @@ func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 			AccountID: existingAccountID,
 			Key:       "key1",
 			DNSLabel:  "peer1",
-			IP:        net.IP{1, 1, 1, 1},
+			IP:        netip.AddrFrom4([4]byte{1, 1, 1, 1}),
+			IPv6:      netip.MustParseAddr("fd00::1:1:1:1"),
 		}
 		err = store.AddPeerToAccount(context.Background(), peer1)
 		require.NoError(t, err)
@@ -1074,7 +1087,8 @@ func TestSqlite_GetPeerLabelsInAccount(t *testing.T) {
 			AccountID: existingAccountID,
 			Key:       "key2",
 			DNSLabel:  "peer1-1",
-			IP:        net.IP{2, 2, 2, 2},
+			IP:        netip.AddrFrom4([4]byte{2, 2, 2, 2}),
+			IPv6:      netip.MustParseAddr("fd00::2:2:2:2"),
 		}
 		err = store.AddPeerToAccount(context.Background(), peer2)
 		require.NoError(t, err)
@@ -1127,7 +1141,8 @@ func Test_AddPeerWithSameIP(t *testing.T) {
 			ID:        "peer1",
 			AccountID: existingAccountID,
 			Key:       "key1",
-			IP:        net.IP{1, 1, 1, 1},
+			IP:        netip.AddrFrom4([4]byte{1, 1, 1, 1}),
+			IPv6:      netip.MustParseAddr("fd00::1:1:1:1"),
 		}
 		err = store.AddPeerToAccount(context.Background(), peer1)
 		require.NoError(t, err)
@@ -1136,7 +1151,8 @@ func Test_AddPeerWithSameIP(t *testing.T) {
 			ID:        "peer1second",
 			AccountID: existingAccountID,
 			Key:       "key2",
-			IP:        net.IP{1, 1, 1, 1},
+			IP:        netip.AddrFrom4([4]byte{1, 1, 1, 1}),
+			IPv6:      netip.MustParseAddr("fd00::2:2:2:2"),
 		}
 		err = store.AddPeerToAccount(context.Background(), peer2)
 		require.Error(t, err)
@@ -2640,7 +2656,8 @@ func TestSqlStore_AddPeerToAccount(t *testing.T) {
 		ID:        "peer1",
 		AccountID: accountID,
 		Key:       "key",
-		IP:        net.IP{1, 1, 1, 1},
+		IP:        netip.AddrFrom4([4]byte{1, 1, 1, 1}),
+		IPv6:      netip.MustParseAddr("fd00::1:1:1:1"),
 		Meta: nbpeer.PeerSystemMeta{
 			Hostname:  "hostname",
 			GoOS:      "linux",
@@ -2729,7 +2746,7 @@ func TestSqlStore_GetAccountPeers(t *testing.T) {
 		{
 			name:          "should retrieve peers for an existing account ID",
 			accountID:     "bf1c8084-ba50-4ce7-9439-34653001fc3b",
-			expectedCount: 4,
+			expectedCount: 5,
 		},
 		{
 			name:          "should return no peers for a non-existing account ID",
@@ -2751,7 +2768,7 @@ func TestSqlStore_GetAccountPeers(t *testing.T) {
 			name:          "should filter peers by partial name",
 			accountID:     "bf1c8084-ba50-4ce7-9439-34653001fc3b",
 			nameFilter:    "host",
-			expectedCount: 3,
+			expectedCount: 4,
 		},
 		{
 			name:          "should filter peers by ip",
@@ -2777,14 +2794,16 @@ func TestSqlStore_GetAccountPeersWithExpiration(t *testing.T) {
 	require.NoError(t, err)
 
 	tests := []struct {
-		name          string
-		accountID     string
-		expectedCount int
+		name            string
+		accountID       string
+		expectedCount   int
+		expectedPeerIDs []string
 	}{
 		{
-			name:          "should retrieve peers with expiration for an existing account ID",
-			accountID:     "bf1c8084-ba50-4ce7-9439-34653001fc3b",
-			expectedCount: 1,
+			name:            "should retrieve only non-expired peers with expiration enabled",
+			accountID:       "bf1c8084-ba50-4ce7-9439-34653001fc3b",
+			expectedCount:   1,
+			expectedPeerIDs: []string{"notexpired01"},
 		},
 		{
 			name:          "should return no peers with expiration for a non-existing account ID",
@@ -2803,7 +2822,27 @@ func TestSqlStore_GetAccountPeersWithExpiration(t *testing.T) {
 			peers, err := store.GetAccountPeersWithExpiration(context.Background(), LockingStrengthNone, tt.accountID)
 			require.NoError(t, err)
 			require.Len(t, peers, tt.expectedCount)
+			for i, peer := range peers {
+				assert.Equal(t, tt.expectedPeerIDs[i], peer.ID)
+			}
 		})
+	}
+}
+
+func TestSqlStore_GetAccountPeersWithExpiration_ExcludesAlreadyExpired(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store_with_expired_peers.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+	peers, err := store.GetAccountPeersWithExpiration(context.Background(), LockingStrengthNone, accountID)
+	require.NoError(t, err)
+
+	// Verify the already-expired peer (cg05lnblo1hkg2j514p0) is not returned
+	for _, peer := range peers {
+		assert.NotEqual(t, "cg05lnblo1hkg2j514p0", peer.ID, "already expired peer should not be returned")
+		assert.False(t, peer.Status.LoginExpired, "returned peers should not have LoginExpired set")
 	}
 }
 
@@ -2887,7 +2926,7 @@ func TestSqlStore_GetUserPeers(t *testing.T) {
 			name:          "should retrieve peers for another valid account ID and user ID",
 			accountID:     "bf1c8084-ba50-4ce7-9439-34653001fc3b",
 			userID:        "edafee4e-63fb-11ec-90d6-0242ac120003",
-			expectedCount: 2,
+			expectedCount: 3,
 		},
 		{
 			name:          "should return no peers for existing account ID with empty user ID",
@@ -3793,10 +3832,10 @@ func BenchmarkGetAccountPeers(b *testing.B) {
 	}
 }
 
-func intToIPv4(n uint32) net.IP {
-	ip := make(net.IP, 4)
-	binary.BigEndian.PutUint32(ip, n)
-	return ip
+func intToIPv4(n uint32) netip.Addr {
+	var b [4]byte
+	binary.BigEndian.PutUint32(b[:], n)
+	return netip.AddrFrom4(b)
 }
 
 func TestSqlStore_GetPeersByGroupIDs(t *testing.T) {
@@ -3923,7 +3962,8 @@ func TestSqlStore_GetUserIDByPeerKey(t *testing.T) {
 		Key:       peerKey,
 		AccountID: existingAccountID,
 		UserID:    userID,
-		IP:        net.IP{10, 0, 0, 1},
+		IP:        netip.AddrFrom4([4]byte{10, 0, 0, 1}),
+		IPv6:      netip.MustParseAddr("fd00::a00:1"),
 		DNSLabel:  "test-peer-1",
 	}
 
@@ -3960,7 +4000,8 @@ func TestSqlStore_GetUserIDByPeerKey_NoUserID(t *testing.T) {
 		Key:       peerKey,
 		AccountID: existingAccountID,
 		UserID:    "",
-		IP:        net.IP{10, 0, 0, 1},
+		IP:        netip.AddrFrom4([4]byte{10, 0, 0, 1}),
+		IPv6:      netip.MustParseAddr("fd00::a00:1"),
 		DNSLabel:  "test-peer-1",
 	}
 
@@ -3987,7 +4028,8 @@ func TestSqlStore_ApproveAccountPeers(t *testing.T) {
 				AccountID: accountID,
 				DNSLabel:  "peer1.netbird.cloud",
 				Key:       "peer1-key",
-				IP:        net.ParseIP("100.64.0.1"),
+				IP:        netip.MustParseAddr("100.64.0.1"),
+				IPv6:      netip.MustParseAddr("fd00::1"),
 				Status: &nbpeer.PeerStatus{
 					RequiresApproval: true,
 					LastSeen:         time.Now().UTC(),
@@ -3998,7 +4040,8 @@ func TestSqlStore_ApproveAccountPeers(t *testing.T) {
 				AccountID: accountID,
 				DNSLabel:  "peer2.netbird.cloud",
 				Key:       "peer2-key",
-				IP:        net.ParseIP("100.64.0.2"),
+				IP:        netip.MustParseAddr("100.64.0.2"),
+				IPv6:      netip.MustParseAddr("fd00::2"),
 				Status: &nbpeer.PeerStatus{
 					RequiresApproval: true,
 					LastSeen:         time.Now().UTC(),
@@ -4009,7 +4052,8 @@ func TestSqlStore_ApproveAccountPeers(t *testing.T) {
 				AccountID: accountID,
 				DNSLabel:  "peer3.netbird.cloud",
 				Key:       "peer3-key",
-				IP:        net.ParseIP("100.64.0.3"),
+				IP:        netip.MustParseAddr("100.64.0.3"),
+				IPv6:      netip.MustParseAddr("fd00::3"),
 				Status: &nbpeer.PeerStatus{
 					RequiresApproval: false,
 					LastSeen:         time.Now().UTC(),

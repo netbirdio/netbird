@@ -1,7 +1,10 @@
 package dns
 
 import (
+	"context"
 	"fmt"
+	"math"
+	"net"
 	"slices"
 	"strconv"
 	"strings"
@@ -192,6 +195,12 @@ func (c *HandlerChain) logHandlers() {
 }
 
 func (c *HandlerChain) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
+	c.dispatch(w, r, math.MaxInt)
+}
+
+// dispatch routes a DNS request through the chain, skipping handlers with
+// priority > maxPriority. Shared by ServeDNS and ResolveInternal.
+func (c *HandlerChain) dispatch(w dns.ResponseWriter, r *dns.Msg, maxPriority int) {
 	if len(r.Question) == 0 {
 		return
 	}
@@ -216,6 +225,9 @@ func (c *HandlerChain) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 	// Try handlers in priority order
 	for _, entry := range handlers {
+		if entry.Priority > maxPriority {
+			continue
+		}
 		if !c.isHandlerMatch(qname, entry) {
 			continue
 		}
@@ -273,6 +285,55 @@ func (c *HandlerChain) logResponse(logger *log.Entry, cw *ResponseWriterChain, q
 		cw.response.Len(), meta, time.Since(startTime))
 }
 
+// ResolveInternal runs an in-process DNS query against the chain, skipping any
+// handler with priority > maxPriority. Used by internal callers (e.g. the mgmt
+// cache refresher) that must bypass themselves to avoid loops. Honors ctx
+// cancellation; on ctx.Done the dispatch goroutine is left to drain on its own
+// (bounded by the invoked handler's internal timeout).
+func (c *HandlerChain) ResolveInternal(ctx context.Context, r *dns.Msg, maxPriority int) (*dns.Msg, error) {
+	if len(r.Question) == 0 {
+		return nil, fmt.Errorf("empty question")
+	}
+
+	base := &internalResponseWriter{}
+	done := make(chan struct{})
+	go func() {
+		c.dispatch(base, r, maxPriority)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+		// Prefer a completed response if dispatch finished concurrently with cancellation.
+		select {
+		case <-done:
+		default:
+			return nil, fmt.Errorf("resolve %s: %w", strings.ToLower(r.Question[0].Name), ctx.Err())
+		}
+	}
+
+	if base.response == nil || base.response.Rcode == dns.RcodeRefused {
+		return nil, fmt.Errorf("no handler resolved %s at priority ≤ %d",
+			strings.ToLower(r.Question[0].Name), maxPriority)
+	}
+	return base.response, nil
+}
+
+// HasRootHandlerAtOrBelow reports whether any "." handler is registered at
+// priority ≤ maxPriority.
+func (c *HandlerChain) HasRootHandlerAtOrBelow(maxPriority int) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	for _, h := range c.handlers {
+		if h.Pattern == "." && h.Priority <= maxPriority {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *HandlerChain) isHandlerMatch(qname string, entry HandlerEntry) bool {
 	switch {
 	case entry.Pattern == ".":
@@ -290,4 +351,37 @@ func (c *HandlerChain) isHandlerMatch(qname string, entry HandlerEntry) bool {
 			return strings.EqualFold(qname, entry.Pattern)
 		}
 	}
+}
+
+// internalResponseWriter captures a dns.Msg for in-process chain queries.
+type internalResponseWriter struct {
+	response *dns.Msg
+}
+
+func (w *internalResponseWriter) WriteMsg(m *dns.Msg) error { w.response = m; return nil }
+func (w *internalResponseWriter) LocalAddr() net.Addr       { return nil }
+func (w *internalResponseWriter) RemoteAddr() net.Addr      { return nil }
+
+// Write unpacks raw DNS bytes so handlers that call Write instead of WriteMsg
+// still surface their answer to ResolveInternal.
+func (w *internalResponseWriter) Write(p []byte) (int, error) {
+	msg := new(dns.Msg)
+	if err := msg.Unpack(p); err != nil {
+		return 0, err
+	}
+	w.response = msg
+	return len(p), nil
+}
+
+func (w *internalResponseWriter) Close() error      { return nil }
+func (w *internalResponseWriter) TsigStatus() error { return nil }
+
+// TsigTimersOnly is part of dns.ResponseWriter.
+func (w *internalResponseWriter) TsigTimersOnly(bool) {
+	// no-op: in-process queries carry no TSIG state.
+}
+
+// Hijack is part of dns.ResponseWriter.
+func (w *internalResponseWriter) Hijack() {
+	// no-op: in-process queries have no underlying connection to hand off.
 }

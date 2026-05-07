@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"net"
 	"net/netip"
 	"strconv"
 	"sync"
@@ -620,7 +619,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -638,7 +637,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -656,7 +655,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -689,7 +688,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -730,7 +729,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -757,7 +756,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -804,7 +803,7 @@ func TestGroupAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -999,10 +998,10 @@ func Test_AddPeerAndAddToAll(t *testing.T) {
 	assert.Equal(t, totalPeers, len(account.Peers), "Expected %d peers in account %s, got %d", totalPeers, accountID, len(account.Peers))
 }
 
-func uint32ToIP(n uint32) net.IP {
-	ip := make(net.IP, 4)
-	binary.BigEndian.PutUint32(ip, n)
-	return ip
+func uint32ToIP(n uint32) netip.Addr {
+	var b [4]byte
+	binary.BigEndian.PutUint32(b[:], n)
+	return netip.AddrFrom4(b)
 }
 
 func Test_IncrementNetworkSerial(t *testing.T) {

@@ -93,31 +93,32 @@ func (mr *MockManagerMockRecorder) ClusterSupportsCrowdSec(ctx, clusterAddr inte
 }
 
 // Connect mocks base method.
-func (m *MockManager) Connect(ctx context.Context, proxyID, clusterAddress, ipAddress string, capabilities *Capabilities) error {
+func (m *MockManager) Connect(ctx context.Context, proxyID, sessionID, clusterAddress, ipAddress string, capabilities *Capabilities) (*Proxy, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Connect", ctx, proxyID, clusterAddress, ipAddress, capabilities)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret := m.ctrl.Call(m, "Connect", ctx, proxyID, sessionID, clusterAddress, ipAddress, capabilities)
+	ret0, _ := ret[0].(*Proxy)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // Connect indicates an expected call of Connect.
-func (mr *MockManagerMockRecorder) Connect(ctx, proxyID, clusterAddress, ipAddress, capabilities interface{}) *gomock.Call {
+func (mr *MockManagerMockRecorder) Connect(ctx, proxyID, sessionID, clusterAddress, ipAddress, capabilities interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Connect", reflect.TypeOf((*MockManager)(nil).Connect), ctx, proxyID, clusterAddress, ipAddress, capabilities)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Connect", reflect.TypeOf((*MockManager)(nil).Connect), ctx, proxyID, sessionID, clusterAddress, ipAddress, capabilities)
 }
 
 // Disconnect mocks base method.
-func (m *MockManager) Disconnect(ctx context.Context, proxyID string) error {
+func (m *MockManager) Disconnect(ctx context.Context, proxyID, sessionID string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Disconnect", ctx, proxyID)
+	ret := m.ctrl.Call(m, "Disconnect", ctx, proxyID, sessionID)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Disconnect indicates an expected call of Disconnect.
-func (mr *MockManagerMockRecorder) Disconnect(ctx, proxyID interface{}) *gomock.Call {
+func (mr *MockManagerMockRecorder) Disconnect(ctx, proxyID, sessionID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Disconnect", reflect.TypeOf((*MockManager)(nil).Disconnect), ctx, proxyID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Disconnect", reflect.TypeOf((*MockManager)(nil).Disconnect), ctx, proxyID, sessionID)
 }
 
 // GetActiveClusterAddresses mocks base method.
@@ -151,17 +152,17 @@ func (mr *MockManagerMockRecorder) GetActiveClusters(ctx interface{}) *gomock.Ca
 }
 
 // Heartbeat mocks base method.
-func (m *MockManager) Heartbeat(ctx context.Context, proxyID, clusterAddress, ipAddress string) error {
+func (m *MockManager) Heartbeat(ctx context.Context, p *Proxy) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Heartbeat", ctx, proxyID, clusterAddress, ipAddress)
+	ret := m.ctrl.Call(m, "Heartbeat", ctx, p)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Heartbeat indicates an expected call of Heartbeat.
-func (mr *MockManagerMockRecorder) Heartbeat(ctx, proxyID, clusterAddress, ipAddress interface{}) *gomock.Call {
+func (mr *MockManagerMockRecorder) Heartbeat(ctx, p interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Heartbeat", reflect.TypeOf((*MockManager)(nil).Heartbeat), ctx, proxyID, clusterAddress, ipAddress)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Heartbeat", reflect.TypeOf((*MockManager)(nil).Heartbeat), ctx, p)
 }
 
 // MockController is a mock of Controller interface.

@@ -17,8 +17,8 @@ require (
 	github.com/spf13/cobra v1.10.1
 	github.com/spf13/pflag v1.0.9
 	github.com/vishvananda/netlink v1.3.1
-	golang.org/x/crypto v0.49.0
-	golang.org/x/sys v0.42.0
+	golang.org/x/crypto v0.50.0
+	golang.org/x/sys v0.43.0
 	golang.zx2c4.com/wireguard v0.0.0-20230704135630-469159ecf7d1
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20230429144221-925a1e7659e6
 	golang.zx2c4.com/wireguard/windows v0.5.3
@@ -30,6 +30,7 @@ require (
 require (
 	fyne.io/fyne/v2 v2.7.0
 	fyne.io/systray v1.12.1-0.20260116214250-81f8e1a496f9
+	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3
 	github.com/awnumar/memguard v0.23.0
 	github.com/aws/aws-sdk-go-v2 v1.38.3
 	github.com/aws/aws-sdk-go-v2/config v1.31.6
@@ -46,6 +47,7 @@ require (
 	github.com/crowdsecurity/go-cs-bouncer v0.0.21
 	github.com/dexidp/dex v0.0.0-00010101000000-000000000000
 	github.com/dexidp/dex/api/v2 v2.4.0
+	github.com/ebitengine/purego v0.8.4
 	github.com/eko/gocache/lib/v4 v4.2.0
 	github.com/eko/gocache/store/go_cache/v4 v4.2.2
 	github.com/eko/gocache/store/redis/v4 v4.2.2
@@ -66,9 +68,10 @@ require (
 	github.com/jackc/pgx/v5 v5.5.5
 	github.com/libdns/route53 v1.5.0
 	github.com/libp2p/go-nat v0.2.0
-	github.com/libp2p/go-netroute v0.2.1
+	github.com/libp2p/go-netroute v0.4.0
 	github.com/lrh3321/ipset-go v0.0.0-20250619021614-54a0a98ace81
 	github.com/mdlayher/socket v0.5.1
+	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/miekg/dns v1.1.59
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/netbirdio/management-integrations/integrations v0.0.0-20260416123949-2355d972be42
@@ -115,11 +118,11 @@ require (
 	goauthentik.io/api/v3 v3.2023051.3
 	golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b
 	golang.org/x/mobile v0.0.0-20251113184115-a159579294ab
-	golang.org/x/mod v0.33.0
-	golang.org/x/net v0.52.0
+	golang.org/x/mod v0.34.0
+	golang.org/x/net v0.53.0
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sync v0.20.0
-	golang.org/x/term v0.41.0
+	golang.org/x/term v0.42.0
 	golang.org/x/time v0.15.0
 	google.golang.org/api v0.276.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -178,7 +181,6 @@ require (
 	github.com/docker/docker v28.0.1+incompatible // indirect
 	github.com/docker/go-connections v0.6.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
-	github.com/ebitengine/purego v0.8.4 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fredbi/uri v1.1.1 // indirect
 	github.com/fyne-io/gl-js v0.2.0 // indirect
@@ -301,13 +303,14 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	golang.org/x/image v0.33.0 // indirect
-	golang.org/x/text v0.35.0 // indirect
-	golang.org/x/tools v0.42.0 // indirect
+	golang.org/x/text v0.36.0 // indirect
+	golang.org/x/tools v0.43.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260401024825-9d38bb4040a9 // indirect
 	gopkg.in/square/go-jose.v2 v2.6.0 // indirect
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
+	rsc.io/qr v0.2.0 // indirect
 )
 
 replace github.com/kardianos/service => github.com/netbirdio/service v0.0.0-20240911161631-f62744f42502
@@ -320,6 +323,6 @@ replace github.com/cloudflare/circl => github.com/cunicu/circl v0.0.0-2023080111
 
 replace github.com/pion/ice/v4 => github.com/netbirdio/ice/v4 v4.0.0-20250908184934-6202be846b51
 
-replace github.com/libp2p/go-netroute => github.com/netbirdio/go-netroute v0.0.0-20240611143515-f59b0e1d3944
-
 replace github.com/dexidp/dex => github.com/netbirdio/dex v0.244.0
+
+replace github.com/mailru/easyjson => github.com/netbirdio/easyjson v0.9.0

@@ -65,6 +65,7 @@ type Manager interface {
 	DeletePeer(ctx context.Context, accountID, peerID, userID string) error
 	UpdatePeer(ctx context.Context, accountID, userID string, p *nbpeer.Peer) (*nbpeer.Peer, error)
 	UpdatePeerIP(ctx context.Context, accountID, userID, peerID string, newIP netip.Addr) error
+	UpdatePeerIPv6(ctx context.Context, accountID, userID, peerID string, newIPv6 netip.Addr) error
 	GetNetworkMap(ctx context.Context, peerID string) (*types.NetworkMap, error)
 	GetPeerNetwork(ctx context.Context, peerID string) (*types.Network, error)
 	AddPeer(ctx context.Context, accountID, setupKey, userID string, p *nbpeer.Peer, temporary bool) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
@@ -124,8 +125,8 @@ type Manager interface {
 	GetAccountIDForPeerKey(ctx context.Context, peerKey string) (string, error)
 	GetAccountSettings(ctx context.Context, accountID string, userID string) (*types.Settings, error)
 	DeleteSetupKey(ctx context.Context, accountID, userID, keyID string) error
-	UpdateAccountPeers(ctx context.Context, accountID string)
-	BufferUpdateAccountPeers(ctx context.Context, accountID string)
+	UpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason)
+	BufferUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason)
 	BuildUserInfosForAccount(ctx context.Context, accountID, initiatorUserID string, accountUsers []*types.User) (map[string]*types.UserInfo, error)
 	SyncUserJWTGroups(ctx context.Context, userAuth auth.UserAuth) error
 	GetStore() store.Store

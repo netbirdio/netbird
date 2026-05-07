@@ -107,8 +107,16 @@ func (r *SysOps) validateRoute(prefix netip.Prefix) error {
 		addr.IsInterfaceLocalMulticast(),
 		addr.IsMulticast(),
 		addr.IsUnspecified() && prefix.Bits() != 0,
-		r.wgInterface.Address().Network.Contains(addr):
+		r.isOwnAddress(addr):
 		return vars.ErrRouteNotAllowed
 	}
 	return nil
+}
+
+func (r *SysOps) isOwnAddress(addr netip.Addr) bool {
+	if r.wgInterface == nil {
+		return false
+	}
+	wgAddr := r.wgInterface.Address()
+	return wgAddr.Network.Contains(addr) || (wgAddr.IPv6Net.IsValid() && wgAddr.IPv6Net.Contains(addr))
 }

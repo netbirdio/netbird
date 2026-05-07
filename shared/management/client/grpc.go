@@ -30,6 +30,8 @@ import (
 
 const ConnectTimeout = 10 * time.Second
 
+const healthCheckTimeout = 5 * time.Second
+
 const (
 	// EnvMaxRecvMsgSize overrides the default gRPC max receive message size (4 MB)
 	// for the management client connection. Value is in bytes.
@@ -244,29 +246,23 @@ func (c *GrpcClient) handleJobStream(
 	for {
 		jobReq, err := c.receiveJobRequest(ctx, stream, serverPubKey)
 		if err != nil {
+			if ctx.Err() != nil {
+				log.Debugf("job stream context has been canceled, this usually indicates shutdown")
+				return nil
+			}
 			if s, ok := gstatus.FromError(err); ok {
 				switch s.Code() {
 				case codes.PermissionDenied:
 					c.notifyDisconnected(err)
 					return backoff.Permanent(err) // unrecoverable error, propagate to the upper layer
-				case codes.Canceled:
-					log.Debugf("management connection context has been canceled, this usually indicates shutdown")
-					return err
 				case codes.Unimplemented:
 					log.Warn("Job feature is not supported by the current management server version. " +
 						"Please update the management service to use this feature.")
 					return nil
-				default:
-					c.notifyDisconnected(err)
-					log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
-					return err
 				}
-			} else {
-				// non-gRPC error
-				c.notifyDisconnected(err)
-				log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
-				return err
 			}
+			log.Warnf("job stream disconnected, will retry silently. Reason: %v", err)
+			return err
 		}
 
 		if jobReq == nil || len(jobReq.ID) == 0 {
@@ -381,22 +377,15 @@ func (c *GrpcClient) handleSyncStream(ctx context.Context, serverPubKey wgtypes.
 	err = c.receiveUpdatesEvents(stream, serverPubKey, msgHandler)
 	if err != nil {
 		c.notifyDisconnected(err)
-		if s, ok := gstatus.FromError(err); ok {
-			switch s.Code() {
-			case codes.PermissionDenied:
-				return backoff.Permanent(err) // unrecoverable error, propagate to the upper layer
-			case codes.Canceled:
-				log.Debugf("management connection context has been canceled, this usually indicates shutdown")
-				return nil
-			default:
-				log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
-				return err
-			}
-		} else {
-			// non-gRPC error
-			log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
-			return err
+		if ctx.Err() != nil {
+			log.Debugf("management connection context has been canceled, this usually indicates shutdown")
+			return nil
 		}
+		if s, ok := gstatus.FromError(err); ok && s.Code() == codes.PermissionDenied {
+			return backoff.Permanent(err) // unrecoverable error, propagate to the upper layer
+		}
+		log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
+		return err
 	}
 
 	return nil
@@ -532,7 +521,7 @@ func (c *GrpcClient) IsHealthy() bool {
 	case connectivity.Ready:
 	}
 
-	ctx, cancel := context.WithTimeout(c.ctx, 1*time.Second)
+	ctx, cancel := context.WithTimeout(c.ctx, healthCheckTimeout)
 	defer cancel()
 
 	_, err := c.realClient.GetServerKey(ctx, &proto.Empty{})
@@ -948,8 +937,22 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 			DisableFirewall:     info.DisableFirewall,
 			BlockLANAccess:      info.BlockLANAccess,
 			BlockInbound:        info.BlockInbound,
+			DisableIPv6:         info.DisableIPv6,
 
 			LazyConnectionEnabled: info.LazyConnectionEnabled,
 		},
+
+		Capabilities: peerCapabilities(*info),
 	}
+}
+
+// peerCapabilities returns the capabilities this client supports.
+func peerCapabilities(info system.Info) []proto.PeerCapability {
+	caps := []proto.PeerCapability{
+		proto.PeerCapability_PeerCapabilitySourcePrefixes,
+	}
+	if !info.DisableIPv6 {
+		caps = append(caps, proto.PeerCapability_PeerCapabilityIPv6Overlay)
+	}
+	return caps
 }

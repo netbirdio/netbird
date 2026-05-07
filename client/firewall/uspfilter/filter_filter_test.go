@@ -539,8 +539,169 @@ func TestPeerACLFiltering(t *testing.T) {
 	}
 }
 
+func TestPeerACLFilteringIPv6(t *testing.T) {
+	localIP := netip.MustParseAddr("100.10.0.100")
+	localIPv6 := netip.MustParseAddr("fd00::100")
+	wgNet := netip.MustParsePrefix("100.10.0.0/16")
+	wgNetV6 := netip.MustParsePrefix("fd00::/64")
+
+	ifaceMock := &IFaceMock{
+		SetFilterFunc: func(device.PacketFilter) error { return nil },
+		AddressFunc: func() wgaddr.Address {
+			return wgaddr.Address{
+				IP:      localIP,
+				Network: wgNet,
+				IPv6:    localIPv6,
+				IPv6Net: wgNetV6,
+			}
+		},
+	}
+
+	manager, err := Create(ifaceMock, false, flowLogger, iface.DefaultMTU)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, manager.Close(nil)) })
+
+	err = manager.UpdateLocalIPs()
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name            string
+		srcIP           string
+		dstIP           string
+		proto           fw.Protocol
+		srcPort         uint16
+		dstPort         uint16
+		ruleIP          string
+		ruleProto       fw.Protocol
+		ruleDstPort     *fw.Port
+		ruleAction      fw.Action
+		shouldBeBlocked bool
+	}{
+		{
+			name:            "IPv6: allow TCP from peer",
+			srcIP:           "fd00::1",
+			dstIP:           "fd00::100",
+			proto:           fw.ProtocolTCP,
+			srcPort:         12345,
+			dstPort:         443,
+			ruleIP:          "fd00::1",
+			ruleProto:       fw.ProtocolTCP,
+			ruleDstPort:     &fw.Port{Values: []uint16{443}},
+			ruleAction:      fw.ActionAccept,
+			shouldBeBlocked: false,
+		},
+		{
+			name:            "IPv6: allow UDP from peer",
+			srcIP:           "fd00::1",
+			dstIP:           "fd00::100",
+			proto:           fw.ProtocolUDP,
+			srcPort:         12345,
+			dstPort:         53,
+			ruleIP:          "fd00::1",
+			ruleProto:       fw.ProtocolUDP,
+			ruleDstPort:     &fw.Port{Values: []uint16{53}},
+			ruleAction:      fw.ActionAccept,
+			shouldBeBlocked: false,
+		},
+		{
+			name:            "IPv6: allow ICMPv6 from peer",
+			srcIP:           "fd00::1",
+			dstIP:           "fd00::100",
+			proto:           fw.ProtocolICMP,
+			ruleIP:          "fd00::1",
+			ruleProto:       fw.ProtocolICMP,
+			ruleAction:      fw.ActionAccept,
+			shouldBeBlocked: false,
+		},
+		{
+			name:            "IPv6: block TCP without rule",
+			srcIP:           "fd00::2",
+			dstIP:           "fd00::100",
+			proto:           fw.ProtocolTCP,
+			srcPort:         12345,
+			dstPort:         443,
+			ruleIP:          "fd00::1",
+			ruleProto:       fw.ProtocolTCP,
+			ruleDstPort:     &fw.Port{Values: []uint16{443}},
+			ruleAction:      fw.ActionAccept,
+			shouldBeBlocked: true,
+		},
+		{
+			name:            "IPv6: drop rule",
+			srcIP:           "fd00::1",
+			dstIP:           "fd00::100",
+			proto:           fw.ProtocolTCP,
+			srcPort:         12345,
+			dstPort:         22,
+			ruleIP:          "fd00::1",
+			ruleProto:       fw.ProtocolTCP,
+			ruleDstPort:     &fw.Port{Values: []uint16{22}},
+			ruleAction:      fw.ActionDrop,
+			shouldBeBlocked: true,
+		},
+		{
+			name:            "IPv6: allow all protocols",
+			srcIP:           "fd00::1",
+			dstIP:           "fd00::100",
+			proto:           fw.ProtocolUDP,
+			srcPort:         12345,
+			dstPort:         9999,
+			ruleIP:          "fd00::1",
+			ruleProto:       fw.ProtocolALL,
+			ruleAction:      fw.ActionAccept,
+			shouldBeBlocked: false,
+		},
+		{
+			name:            "IPv6: v4 wildcard ICMP rule matches ICMPv6 via protoLayerMatches",
+			srcIP:           "fd00::1",
+			dstIP:           "fd00::100",
+			proto:           fw.ProtocolICMP,
+			ruleIP:          "0.0.0.0",
+			ruleProto:       fw.ProtocolICMP,
+			ruleAction:      fw.ActionAccept,
+			shouldBeBlocked: false,
+		},
+	}
+
+	t.Run("IPv6 implicit DROP (no rules)", func(t *testing.T) {
+		packet := createTestPacket(t, "fd00::1", "fd00::100", fw.ProtocolTCP, 12345, 443)
+		isDropped := manager.FilterInbound(packet, 0)
+		require.True(t, isDropped, "IPv6 packet should be dropped when no rules exist")
+	})
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.ruleAction == fw.ActionDrop {
+				rules, err := manager.AddPeerFiltering(nil, net.ParseIP(tc.ruleIP), fw.ProtocolALL, nil, nil, fw.ActionAccept, "")
+				require.NoError(t, err)
+				t.Cleanup(func() {
+					for _, rule := range rules {
+						require.NoError(t, manager.DeletePeerRule(rule))
+					}
+				})
+			}
+
+			rules, err := manager.AddPeerFiltering(nil, net.ParseIP(tc.ruleIP), tc.ruleProto, nil, tc.ruleDstPort, tc.ruleAction, "")
+			require.NoError(t, err)
+			require.NotEmpty(t, rules)
+			t.Cleanup(func() {
+				for _, rule := range rules {
+					require.NoError(t, manager.DeletePeerRule(rule))
+				}
+			})
+
+			packet := createTestPacket(t, tc.srcIP, tc.dstIP, tc.proto, tc.srcPort, tc.dstPort)
+			isDropped := manager.FilterInbound(packet, 0)
+			require.Equal(t, tc.shouldBeBlocked, isDropped, "packet filter result mismatch")
+		})
+	}
+}
+
 func createTestPacket(t *testing.T, srcIP, dstIP string, proto fw.Protocol, srcPort, dstPort uint16) []byte {
 	t.Helper()
+
+	src := net.ParseIP(srcIP)
+	dst := net.ParseIP(dstIP)
 
 	buf := gopacket.NewSerializeBuffer()
 	opts := gopacket.SerializeOptions{
@@ -548,44 +709,66 @@ func createTestPacket(t *testing.T, srcIP, dstIP string, proto fw.Protocol, srcP
 		FixLengths:       true,
 	}
 
-	ipLayer := &layers.IPv4{
-		Version: 4,
-		TTL:     64,
-		SrcIP:   net.ParseIP(srcIP),
-		DstIP:   net.ParseIP(dstIP),
-	}
+	// Detect address family
+	isV6 := src.To4() == nil
 
 	var err error
-	switch proto {
-	case fw.ProtocolTCP:
-		ipLayer.Protocol = layers.IPProtocolTCP
-		tcp := &layers.TCP{
-			SrcPort: layers.TCPPort(srcPort),
-			DstPort: layers.TCPPort(dstPort),
-		}
-		err = tcp.SetNetworkLayerForChecksum(ipLayer)
-		require.NoError(t, err)
-		err = gopacket.SerializeLayers(buf, opts, ipLayer, tcp)
 
-	case fw.ProtocolUDP:
-		ipLayer.Protocol = layers.IPProtocolUDP
-		udp := &layers.UDP{
-			SrcPort: layers.UDPPort(srcPort),
-			DstPort: layers.UDPPort(dstPort),
+	if isV6 {
+		ip6 := &layers.IPv6{
+			Version:  6,
+			HopLimit: 64,
+			SrcIP:    src,
+			DstIP:    dst,
 		}
-		err = udp.SetNetworkLayerForChecksum(ipLayer)
-		require.NoError(t, err)
-		err = gopacket.SerializeLayers(buf, opts, ipLayer, udp)
 
-	case fw.ProtocolICMP:
-		ipLayer.Protocol = layers.IPProtocolICMPv4
-		icmp := &layers.ICMPv4{
-			TypeCode: layers.CreateICMPv4TypeCode(layers.ICMPv4TypeEchoRequest, 0),
+		switch proto {
+		case fw.ProtocolTCP:
+			ip6.NextHeader = layers.IPProtocolTCP
+			tcp := &layers.TCP{SrcPort: layers.TCPPort(srcPort), DstPort: layers.TCPPort(dstPort)}
+			_ = tcp.SetNetworkLayerForChecksum(ip6)
+			err = gopacket.SerializeLayers(buf, opts, ip6, tcp)
+		case fw.ProtocolUDP:
+			ip6.NextHeader = layers.IPProtocolUDP
+			udp := &layers.UDP{SrcPort: layers.UDPPort(srcPort), DstPort: layers.UDPPort(dstPort)}
+			_ = udp.SetNetworkLayerForChecksum(ip6)
+			err = gopacket.SerializeLayers(buf, opts, ip6, udp)
+		case fw.ProtocolICMP:
+			ip6.NextHeader = layers.IPProtocolICMPv6
+			icmp := &layers.ICMPv6{
+				TypeCode: layers.CreateICMPv6TypeCode(layers.ICMPv6TypeEchoRequest, 0),
+			}
+			_ = icmp.SetNetworkLayerForChecksum(ip6)
+			err = gopacket.SerializeLayers(buf, opts, ip6, icmp)
+		default:
+			err = gopacket.SerializeLayers(buf, opts, ip6)
 		}
-		err = gopacket.SerializeLayers(buf, opts, ipLayer, icmp)
+	} else {
+		ip4 := &layers.IPv4{
+			Version: 4,
+			TTL:     64,
+			SrcIP:   src,
+			DstIP:   dst,
+		}
 
-	default:
-		err = gopacket.SerializeLayers(buf, opts, ipLayer)
+		switch proto {
+		case fw.ProtocolTCP:
+			ip4.Protocol = layers.IPProtocolTCP
+			tcp := &layers.TCP{SrcPort: layers.TCPPort(srcPort), DstPort: layers.TCPPort(dstPort)}
+			_ = tcp.SetNetworkLayerForChecksum(ip4)
+			err = gopacket.SerializeLayers(buf, opts, ip4, tcp)
+		case fw.ProtocolUDP:
+			ip4.Protocol = layers.IPProtocolUDP
+			udp := &layers.UDP{SrcPort: layers.UDPPort(srcPort), DstPort: layers.UDPPort(dstPort)}
+			_ = udp.SetNetworkLayerForChecksum(ip4)
+			err = gopacket.SerializeLayers(buf, opts, ip4, udp)
+		case fw.ProtocolICMP:
+			ip4.Protocol = layers.IPProtocolICMPv4
+			icmp := &layers.ICMPv4{TypeCode: layers.CreateICMPv4TypeCode(layers.ICMPv4TypeEchoRequest, 0)}
+			err = gopacket.SerializeLayers(buf, opts, ip4, icmp)
+		default:
+			err = gopacket.SerializeLayers(buf, opts, ip4)
+		}
 	}
 
 	require.NoError(t, err)
@@ -1497,4 +1680,104 @@ func TestRouteACLSet(t *testing.T) {
 	// Now the packet should be allowed
 	_, isAllowed = manager.routeACLsPass(srcIP, dstIP, protoToLayer(fw.ProtocolTCP, layers.LayerTypeIPv4), 12345, 80)
 	require.True(t, isAllowed, "After set update, traffic to the added network should be allowed")
+}
+
+// TestRouteACLFilteringIPv6 tests IPv6 route ACL matching directly via routeACLsPass.
+// Note: full FilterInbound for routed IPv6 traffic drops at the forwarder stage (IPv4-only)
+// but the ACL decision itself is correct.
+func TestRouteACLFilteringIPv6(t *testing.T) {
+	manager := setupRoutedManager(t, "10.10.0.100/16")
+
+	v6Dst := netip.MustParsePrefix("fd00:dead:beef::/48")
+	_, err := manager.AddRouteFiltering(
+		nil,
+		[]netip.Prefix{netip.MustParsePrefix("fd00::/16")},
+		fw.Network{Prefix: v6Dst},
+		fw.ProtocolTCP,
+		nil,
+		&fw.Port{Values: []uint16{80}},
+		fw.ActionAccept,
+	)
+	require.NoError(t, err)
+
+	_, err = manager.AddRouteFiltering(
+		nil,
+		[]netip.Prefix{netip.MustParsePrefix("fd00::/16")},
+		fw.Network{Prefix: netip.MustParsePrefix("fd00:dead:beef:1::/64")},
+		fw.ProtocolALL,
+		nil,
+		nil,
+		fw.ActionDrop,
+	)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name    string
+		srcIP   netip.Addr
+		dstIP   netip.Addr
+		proto   gopacket.LayerType
+		srcPort uint16
+		dstPort uint16
+		allowed bool
+	}{
+		{
+			name:    "IPv6 TCP to allowed dest",
+			srcIP:   netip.MustParseAddr("fd00::1"),
+			dstIP:   netip.MustParseAddr("fd00:dead:beef::80"),
+			proto:   layers.LayerTypeTCP,
+			srcPort: 12345,
+			dstPort: 80,
+			allowed: true,
+		},
+		{
+			name:    "IPv6 TCP wrong port",
+			srcIP:   netip.MustParseAddr("fd00::1"),
+			dstIP:   netip.MustParseAddr("fd00:dead:beef::80"),
+			proto:   layers.LayerTypeTCP,
+			srcPort: 12345,
+			dstPort: 443,
+			allowed: false,
+		},
+		{
+			name:    "IPv6 UDP not matched by TCP rule",
+			srcIP:   netip.MustParseAddr("fd00::1"),
+			dstIP:   netip.MustParseAddr("fd00:dead:beef::80"),
+			proto:   layers.LayerTypeUDP,
+			srcPort: 12345,
+			dstPort: 80,
+			allowed: false,
+		},
+		{
+			name:    "IPv6 ICMPv6 matches ICMP rule via protoLayerMatches",
+			srcIP:   netip.MustParseAddr("fd00::1"),
+			dstIP:   netip.MustParseAddr("fd00:dead:beef::80"),
+			proto:   layers.LayerTypeICMPv6,
+			allowed: false,
+		},
+		{
+			name:    "IPv6 to denied subnet",
+			srcIP:   netip.MustParseAddr("fd00::1"),
+			dstIP:   netip.MustParseAddr("fd00:dead:beef:1::1"),
+			proto:   layers.LayerTypeTCP,
+			srcPort: 12345,
+			dstPort: 80,
+			allowed: false,
+		},
+		{
+			name:    "IPv6 source outside allowed range",
+			srcIP:   netip.MustParseAddr("fe80::1"),
+			dstIP:   netip.MustParseAddr("fd00:dead:beef::80"),
+			proto:   layers.LayerTypeTCP,
+			srcPort: 12345,
+			dstPort: 80,
+			allowed: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, pass := manager.routeACLsPass(tc.srcIP, tc.dstIP, tc.proto, tc.srcPort, tc.dstPort)
+			require.Equal(t, tc.allowed, pass, "route ACL result mismatch")
+		})
+	}
 }

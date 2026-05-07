@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -1196,7 +1197,6 @@ func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types
 		account.NameServerGroups[ns.ID] = &ns
 	}
 	account.NameServerGroupsG = nil
-	account.InitOnce()
 	return &account, nil
 }
 
@@ -1504,7 +1504,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		SELECT
 			id, created_by, created_at, domain, domain_category, is_domain_primary_account,
 			-- Embedded Network
-			network_identifier, network_net, network_dns, network_serial,
+			network_identifier, network_net, network_net_v6, network_dns, network_serial,
 			-- Embedded DNSSettings
 			dns_settings_disabled_management_groups,
 			-- Embedded Settings
@@ -1513,7 +1513,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 			settings_regular_users_view_blocked, settings_groups_propagation_enabled,
 			settings_jwt_groups_enabled, settings_jwt_groups_claim_name, settings_jwt_allow_groups,
 			settings_routing_peer_dns_resolution_enabled, settings_dns_domain, settings_network_range,
-			settings_lazy_connection_enabled,
+			settings_network_range_v6, settings_ipv6_enabled_groups, settings_lazy_connection_enabled,
 			-- Embedded ExtraSettings
 			settings_extra_peer_approval_enabled, settings_extra_user_approval_required,
 			settings_extra_integrated_validator, settings_extra_integrated_validator_groups
@@ -1532,12 +1532,15 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		sRoutingPeerDNSResolutionEnabled sql.NullBool
 		sDNSDomain                       sql.NullString
 		sNetworkRange                    sql.NullString
+		sNetworkRangeV6                  sql.NullString
+		sIPv6EnabledGroups               sql.NullString
 		sLazyConnectionEnabled           sql.NullBool
 		sExtraPeerApprovalEnabled        sql.NullBool
 		sExtraUserApprovalRequired       sql.NullBool
 		sExtraIntegratedValidator        sql.NullString
 		sExtraIntegratedValidatorGroups  sql.NullString
 		networkNet                       sql.NullString
+		networkNetV6                     sql.NullString
 		dnsSettingsDisabledGroups        sql.NullString
 		networkIdentifier                sql.NullString
 		networkDns                       sql.NullString
@@ -1546,14 +1549,14 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 	)
 	err := s.pool.QueryRow(ctx, accountQuery, accountID).Scan(
 		&account.Id, &account.CreatedBy, &createdAt, &account.Domain, &account.DomainCategory, &account.IsDomainPrimaryAccount,
-		&networkIdentifier, &networkNet, &networkDns, &networkSerial,
+		&networkIdentifier, &networkNet, &networkNetV6, &networkDns, &networkSerial,
 		&dnsSettingsDisabledGroups,
 		&sPeerLoginExpirationEnabled, &sPeerLoginExpiration,
 		&sPeerInactivityExpirationEnabled, &sPeerInactivityExpiration,
 		&sRegularUsersViewBlocked, &sGroupsPropagationEnabled,
 		&sJWTGroupsEnabled, &sJWTGroupsClaimName, &sJWTAllowGroups,
 		&sRoutingPeerDNSResolutionEnabled, &sDNSDomain, &sNetworkRange,
-		&sLazyConnectionEnabled,
+		&sNetworkRangeV6, &sIPv6EnabledGroups, &sLazyConnectionEnabled,
 		&sExtraPeerApprovalEnabled, &sExtraUserApprovalRequired,
 		&sExtraIntegratedValidator, &sExtraIntegratedValidatorGroups,
 	)
@@ -1622,6 +1625,15 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 	if sNetworkRange.Valid {
 		_ = json.Unmarshal([]byte(sNetworkRange.String), &account.Settings.NetworkRange)
 	}
+	if networkNetV6.Valid {
+		_ = json.Unmarshal([]byte(networkNetV6.String), &account.Network.NetV6)
+	}
+	if sNetworkRangeV6.Valid {
+		_ = json.Unmarshal([]byte(sNetworkRangeV6.String), &account.Settings.NetworkRangeV6)
+	}
+	if sIPv6EnabledGroups.Valid {
+		_ = json.Unmarshal([]byte(sIPv6EnabledGroups.String), &account.Settings.IPv6EnabledGroups)
+	}
 
 	if sExtraPeerApprovalEnabled.Valid {
 		account.Settings.Extra.PeerApprovalEnabled = sExtraPeerApprovalEnabled.Bool
@@ -1635,7 +1647,6 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 	if sExtraIntegratedValidatorGroups.Valid {
 		_ = json.Unmarshal([]byte(sExtraIntegratedValidatorGroups.String), &account.Settings.Extra.IntegratedValidatorGroups)
 	}
-	account.InitOnce()
 	return &account, nil
 }
 
@@ -1704,12 +1715,12 @@ func (s *SqlStore) getSetupKeys(ctx context.Context, accountID string) ([]types.
 
 func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Peer, error) {
 	const query = `SELECT id, account_id, key, ip, name, dns_label, user_id, ssh_key, ssh_enabled, login_expiration_enabled,
-	inactivity_expiration_enabled, last_login, created_at, ephemeral, extra_dns_labels, allow_extra_dns_labels, meta_hostname, 
-	meta_go_os, meta_kernel, meta_core, meta_platform, meta_os, meta_os_version, meta_wt_version, meta_ui_version, 
+	inactivity_expiration_enabled, last_login, created_at, ephemeral, extra_dns_labels, allow_extra_dns_labels, meta_hostname,
+	meta_go_os, meta_kernel, meta_core, meta_platform, meta_os, meta_os_version, meta_wt_version, meta_ui_version,
 	meta_kernel_version, meta_network_addresses, meta_system_serial_number, meta_system_product_name, meta_system_manufacturer,
-	meta_environment, meta_flags, meta_files, peer_status_last_seen, peer_status_connected, peer_status_login_expired, 
-	peer_status_requires_approval, location_connection_ip, location_country_code, location_city_name, 
-	location_geo_name_id, proxy_meta_embedded, proxy_meta_cluster FROM peers WHERE account_id = $1`
+	meta_environment, meta_flags, meta_files, meta_capabilities, peer_status_last_seen, peer_status_connected, peer_status_login_expired,
+	peer_status_requires_approval, location_connection_ip, location_country_code, location_city_name,
+	location_geo_name_id, proxy_meta_embedded, proxy_meta_cluster, ipv6 FROM peers WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -1723,7 +1734,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			sshEnabled, loginExpirationEnabled, inactivityExpirationEnabled, ephemeral, allowExtraDNSLabels sql.NullBool
 			peerStatusLastSeen                                                                              sql.NullTime
 			peerStatusConnected, peerStatusLoginExpired, peerStatusRequiresApproval, proxyEmbedded          sql.NullBool
-			ip, extraDNS, netAddr, env, flags, files, connIP                                                []byte
+			ip, extraDNS, netAddr, env, flags, files, capabilities, connIP, ipv6                            []byte
 			metaHostname, metaGoOS, metaKernel, metaCore, metaPlatform                                      sql.NullString
 			metaOS, metaOSVersion, metaWtVersion, metaUIVersion, metaKernelVersion                          sql.NullString
 			metaSystemSerialNumber, metaSystemProductName, metaSystemManufacturer                           sql.NullString
@@ -1735,9 +1746,9 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			&loginExpirationEnabled, &inactivityExpirationEnabled, &lastLogin, &createdAt, &ephemeral, &extraDNS,
 			&allowExtraDNSLabels, &metaHostname, &metaGoOS, &metaKernel, &metaCore, &metaPlatform,
 			&metaOS, &metaOSVersion, &metaWtVersion, &metaUIVersion, &metaKernelVersion, &netAddr,
-			&metaSystemSerialNumber, &metaSystemProductName, &metaSystemManufacturer, &env, &flags, &files,
+			&metaSystemSerialNumber, &metaSystemProductName, &metaSystemManufacturer, &env, &flags, &files, &capabilities,
 			&peerStatusLastSeen, &peerStatusConnected, &peerStatusLoginExpired, &peerStatusRequiresApproval, &connIP,
-			&locationCountryCode, &locationCityName, &locationGeoNameID, &proxyEmbedded, &proxyCluster)
+			&locationCountryCode, &locationCityName, &locationGeoNameID, &proxyEmbedded, &proxyCluster, &ipv6)
 
 		if err == nil {
 			if lastLogin.Valid {
@@ -1830,6 +1841,9 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			if ip != nil {
 				_ = json.Unmarshal(ip, &p.IP)
 			}
+			if ipv6 != nil {
+				_ = json.Unmarshal(ipv6, &p.IPv6)
+			}
 			if extraDNS != nil {
 				_ = json.Unmarshal(extraDNS, &p.ExtraDNSLabels)
 			}
@@ -1844,6 +1858,9 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			}
 			if files != nil {
 				_ = json.Unmarshal(files, &p.Meta.Files)
+			}
+			if capabilities != nil {
+				_ = json.Unmarshal(capabilities, &p.Meta.Capabilities)
 			}
 			if connIP != nil {
 				_ = json.Unmarshal(connIP, &p.Location.ConnectionIP)
@@ -2588,7 +2605,7 @@ func (s *SqlStore) GetAccountIDBySetupKey(ctx context.Context, setupKey string) 
 	return accountID, nil
 }
 
-func (s *SqlStore) GetTakenIPs(ctx context.Context, lockStrength LockingStrength, accountID string) ([]net.IP, error) {
+func (s *SqlStore) GetTakenIPs(ctx context.Context, lockStrength LockingStrength, accountID string) ([]netip.Addr, error) {
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
@@ -2596,7 +2613,6 @@ func (s *SqlStore) GetTakenIPs(ctx context.Context, lockStrength LockingStrength
 
 	var ipJSONStrings []string
 
-	// Fetch the IP addresses as JSON strings
 	result := tx.Model(&nbpeer.Peer{}).
 		Where("account_id = ?", accountID).
 		Pluck("ip", &ipJSONStrings)
@@ -2607,14 +2623,13 @@ func (s *SqlStore) GetTakenIPs(ctx context.Context, lockStrength LockingStrength
 		return nil, status.Errorf(status.Internal, "issue getting IPs from store: %s", result.Error)
 	}
 
-	// Convert the JSON strings to net.IP objects
-	ips := make([]net.IP, len(ipJSONStrings))
+	ips := make([]netip.Addr, len(ipJSONStrings))
 	for i, ipJSON := range ipJSONStrings {
-		var ip net.IP
+		var ip netip.Addr
 		if err := json.Unmarshal([]byte(ipJSON), &ip); err != nil {
 			return nil, status.Errorf(status.Internal, "issue parsing IP JSON from store")
 		}
-		ips[i] = ip
+		ips[i] = ip.Unmap()
 	}
 
 	return ips, nil
@@ -3216,7 +3231,7 @@ func (s *SqlStore) GetAccountPeers(ctx context.Context, lockStrength LockingStre
 		query = query.Where("name LIKE ?", "%"+nameFilter+"%")
 	}
 	if ipFilter != "" {
-		query = query.Where("ip LIKE ?", "%"+ipFilter+"%")
+		query = query.Where("ip LIKE ? OR ipv6 LIKE ?", "%"+ipFilter+"%", "%"+ipFilter+"%")
 	}
 
 	if err := query.Find(&peers).Error; err != nil {
@@ -3310,7 +3325,7 @@ func (s *SqlStore) GetAccountPeersWithExpiration(ctx context.Context, lockStreng
 
 	var peers []*nbpeer.Peer
 	result := tx.
-		Where("login_expiration_enabled = ? AND user_id IS NOT NULL AND user_id != ''", true).
+		Where("login_expiration_enabled = ? AND peer_status_login_expired != ? AND user_id IS NOT NULL AND user_id != ''", true, true).
 		Find(&peers, accountIDCondition, accountID)
 	if err := result.Error; err != nil {
 		log.WithContext(ctx).Errorf("failed to get peers with expiration from the store: %s", result.Error)
@@ -4092,9 +4107,10 @@ func (s *SqlStore) SaveAccountSettings(ctx context.Context, accountID string, se
 		return status.Errorf(status.Internal, "failed to save account settings to store")
 	}
 
-	if result.RowsAffected == 0 {
-		return status.NewAccountNotFoundError(accountID)
-	}
+	// MySQL reports RowsAffected=0 for no-op updates where values don't change,
+	// unlike SQLite/Postgres which report matched rows. Skip the check since the
+	// caller (UpdateAccountSettings) already verified the account exists via
+	// GetAccountSettings with LockingStrengthUpdate.
 
 	return nil
 }
@@ -4519,11 +4535,15 @@ func (s *SqlStore) GetPeerByIP(ctx context.Context, lockStrength LockingStrength
 		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
 	}
 
+	column := "ip"
+	if ip.To4() == nil {
+		column = "ipv6"
+	}
 	jsonValue := fmt.Sprintf(`"%s"`, ip.String())
 
 	var peer nbpeer.Peer
 	result := tx.
-		Take(&peer, "account_id = ? AND ip = ?", accountID, jsonValue)
+		Take(&peer, fmt.Sprintf("account_id = ? AND %s = ?", column), accountID, jsonValue)
 	if result.Error != nil {
 		// no logging here
 		return nil, status.Errorf(status.Internal, "failed to get peer from store")
@@ -4638,6 +4658,27 @@ func (s *SqlStore) UpdateAccountNetwork(ctx context.Context, accountID string, i
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("failed to update account network: %v", result.Error)
 		return status.Errorf(status.Internal, "failed to update account network")
+	}
+	if result.RowsAffected == 0 {
+		return status.NewAccountNotFoundError(accountID)
+	}
+	return nil
+}
+
+// UpdateAccountNetworkV6 updates the IPv6 network range for the account.
+func (s *SqlStore) UpdateAccountNetworkV6(ctx context.Context, accountID string, ipNet net.IPNet) error {
+	patch := accountNetworkPatch{
+		Network: &types.Network{NetV6: ipNet},
+	}
+
+	result := s.db.
+		Model(&types.Account{}).
+		Where(idQueryCondition, accountID).
+		Updates(&patch)
+
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to update account network v6: %v", result.Error)
+		return status.Errorf(status.Internal, "update account network v6")
 	}
 	if result.RowsAffected == 0 {
 		return status.NewAccountNotFoundError(accountID)
@@ -5439,13 +5480,35 @@ func (s *SqlStore) SaveProxy(ctx context.Context, p *proxy.Proxy) error {
 	return nil
 }
 
-// UpdateProxyHeartbeat updates the last_seen timestamp for a proxy or creates a new entry if it doesn't exist
-func (s *SqlStore) UpdateProxyHeartbeat(ctx context.Context, proxyID, clusterAddress, ipAddress string) error {
+// DisconnectProxy marks a proxy as disconnected only if the session ID matches.
+// This prevents a slow-to-close old session from overwriting a newer reconnection.
+func (s *SqlStore) DisconnectProxy(ctx context.Context, proxyID, sessionID string) error {
+	now := time.Now()
+	result := s.db.
+		Model(&proxy.Proxy{}).
+		Where("id = ? AND session_id = ?", proxyID, sessionID).
+		Updates(map[string]any{
+			"status":          "disconnected",
+			"disconnected_at": now,
+			"last_seen":       now,
+		})
+	if result.Error != nil {
+		log.WithContext(ctx).Errorf("failed to disconnect proxy %s session %s: %v", proxyID, sessionID, result.Error)
+		return status.Errorf(status.Internal, "failed to disconnect proxy")
+	}
+	if result.RowsAffected == 0 {
+		log.WithContext(ctx).Debugf("proxy %s session %s: no row updated (superseded by newer session)", proxyID, sessionID)
+	}
+	return nil
+}
+
+// UpdateProxyHeartbeat updates the last_seen timestamp for the proxy's current session.
+func (s *SqlStore) UpdateProxyHeartbeat(ctx context.Context, p *proxy.Proxy) error {
 	now := time.Now()
 
 	result := s.db.
 		Model(&proxy.Proxy{}).
-		Where("id = ? AND status = ?", proxyID, "connected").
+		Where("id = ? AND session_id = ?", p.ID, p.SessionID).
 		Update("last_seen", now)
 
 	if result.Error != nil {
@@ -5454,17 +5517,11 @@ func (s *SqlStore) UpdateProxyHeartbeat(ctx context.Context, proxyID, clusterAdd
 	}
 
 	if result.RowsAffected == 0 {
-		p := &proxy.Proxy{
-			ID:             proxyID,
-			ClusterAddress: clusterAddress,
-			IPAddress:      ipAddress,
-			LastSeen:       now,
-			ConnectedAt:    &now,
-			Status:         "connected",
-		}
-		if err := s.db.Save(p).Error; err != nil {
-			log.WithContext(ctx).Errorf("failed to create proxy on heartbeat: %v", err)
-			return status.Errorf(status.Internal, "failed to create proxy on heartbeat")
+		p.LastSeen = now
+		p.ConnectedAt = &now
+		p.Status = "connected"
+		if err := s.db.Create(p).Error; err != nil {
+			log.WithContext(ctx).Debugf("proxy %s session %s: heartbeat fallback insert skipped: %v", p.ID, p.SessionID, err)
 		}
 	}
 

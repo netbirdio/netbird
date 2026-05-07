@@ -50,10 +50,10 @@ type Route struct {
 	cancel               context.CancelFunc
 	statusRecorder       *peer.Status
 	wgInterface          iface.WGIface
-	resolverAddr         string
+	resolverAddr         netip.AddrPort
 }
 
-func NewRoute(params common.HandlerParams, resolverAddr string) *Route {
+func NewRoute(params common.HandlerParams, resolverAddr netip.AddrPort) *Route {
 	return &Route{
 		route:                params.Route,
 		routeRefCounter:      params.RouteRefCounter,

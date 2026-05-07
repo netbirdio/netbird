@@ -21,6 +21,7 @@ import (
 	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/dns/resutil"
 	"github.com/netbirdio/netbird/client/internal/dns/types"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -28,6 +29,12 @@ import (
 )
 
 var currentMTU uint16 = iface.DefaultMTU
+
+// privateClientIface is the subset of the WireGuard interface needed by GetClientPrivate.
+type privateClientIface interface {
+	Name() string
+	Address() wgaddr.Address
+}
 
 func SetCurrentMTU(mtu uint16) {
 	currentMTU = mtu

@@ -267,8 +267,8 @@ func Test_SyncProtocol(t *testing.T) {
 	}
 
 	// expired peers come separately.
-	if len(networkMap.GetOfflinePeers()) != 1 {
-		t.Fatal("expecting SyncResponse to have NetworkMap with 1 offline peer")
+	if len(networkMap.GetOfflinePeers()) != 2 {
+		t.Fatal("expecting SyncResponse to have NetworkMap with 2 offline peer")
 	}
 
 	expiredPeerPubKey := "RlSy2vzoG2HyMBTUImXOiVhCBiiBa5qD5xzMxkiFDW4="
@@ -391,7 +391,7 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 		return nil, nil, "", cleanup, err
 	}
 
-	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, jobManager, secretsManager, nil, nil, MockIntegratedValidator{}, networkMapController, nil)
+	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, jobManager, secretsManager, nil, nil, MockIntegratedValidator{}, networkMapController, nil, nil)
 	if err != nil {
 		return nil, nil, "", cleanup, err
 	}
