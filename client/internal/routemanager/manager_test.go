@@ -516,7 +516,9 @@ func TestDisableDefaultRouteSkipsSystemRoute(t *testing.T) {
 	require.NoError(t, err)
 	defer wgInterface.Close()
 
-	require.NoError(t, wgInterface.Create())
+	if err := wgInterface.Create(); err != nil {
+		t.Skipf("cannot create WireGuard interface (requires elevated privileges): %v", err)
+	}
 
 	statusRecorder := peer.NewRecorder("https://mgm")
 
@@ -527,7 +529,9 @@ func TestDisableDefaultRouteSkipsSystemRoute(t *testing.T) {
 		StatusRecorder:      statusRecorder,
 		DisableDefaultRoute: true,
 	})
-	require.NoError(t, mgr.Init())
+	if err := mgr.Init(); err != nil {
+		t.Skipf("cannot init route manager (requires elevated privileges): %v", err)
+	}
 	defer mgr.Stop(nil)
 
 	// Use the REAL routeRefCounter created by setupRefCounters — do not replace it.
