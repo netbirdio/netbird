@@ -237,9 +237,9 @@ const (
 	AccountIPv6Disabled Activity = 122
 
 	// AccountLocalMfaEnabled indicates that a user enabled TOTP MFA for local users
-	AccountLocalMfaEnabled Activity = 121
+	AccountLocalMfaEnabled Activity = 123
 	// AccountLocalMfaDisabled indicates that a user disabled TOTP MFA for local users
-	AccountLocalMfaDisabled Activity = 122
+	AccountLocalMfaDisabled Activity = 124
 
 	AccountDeleted Activity = 99999
 )
