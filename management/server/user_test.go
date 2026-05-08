@@ -1531,11 +1531,14 @@ func TestUserAccountPeersUpdate(t *testing.T) {
 		}
 	})
 
+	// drain any buffered updates from previous subtests
+	drainPeerUpdates(updMsg)
+
 	// deleting user with no linked peers should not update account peers and not send peer update
 	t.Run("deleting user with no linked peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldReceiveUpdate(t, updMsg)
+			peerShouldNotReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
