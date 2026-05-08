@@ -17,6 +17,7 @@ type SettingsContextValue = {
     config: Config;
     setField: <K extends keyof Config>(k: K, v: Config[K]) => void;
     saveField: <K extends keyof Config>(k: K, v: Config[K]) => Promise<void>;
+    saveFields: (partial: Partial<Config>) => Promise<void>;
     saveNow: () => Promise<void>;
 };
 
@@ -113,11 +114,26 @@ const useSettingsState = () => {
         [config, save],
     );
 
-    return { config, error, setField, saveField, saveNow };
+    const saveFields = useCallback(
+        async (partial: Partial<Config>) => {
+            if (!config) return;
+            if (saveTimer.current) {
+                clearTimeout(saveTimer.current);
+                saveTimer.current = null;
+            }
+            const next = { ...config, ...partial };
+            setConfig(next);
+            await save(next);
+        },
+        [config, save],
+    );
+
+    return { config, error, setField, saveField, saveFields, saveNow };
 };
 
 export const SettingsProvider = ({ children }: { children: ReactNode }) => {
-    const { config, error, setField, saveField, saveNow } = useSettingsState();
+    const { config, error, setField, saveField, saveFields, saveNow } =
+        useSettingsState();
 
     return (
         <>
@@ -127,7 +143,13 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
                     <div className={"p-6 text-sm text-nb-gray-500"}>Loading…</div>
                 ) : (
                     <SettingsContext.Provider
-                        value={{ config, setField, saveField, saveNow }}
+                        value={{
+                            config,
+                            setField,
+                            saveField,
+                            saveFields,
+                            saveNow,
+                        }}
                     >
                         {children}
                     </SettingsContext.Provider>

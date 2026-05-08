@@ -1,10 +1,11 @@
 import { cva, VariantProps } from "class-variance-authority";
-import { Eye, EyeOff } from "lucide-react";
+import { ChevronDown, ChevronUp, Eye, EyeOff } from "lucide-react";
 import {
     forwardRef,
     InputHTMLAttributes,
     ReactNode,
     useId,
+    useRef,
     useState,
 } from "react";
 import { cn } from "@/lib/cn";
@@ -73,17 +74,44 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
     const [showPassword, setShowPassword] = useState(false);
     const isPasswordType = type === "password";
     const inputType = isPasswordType && showPassword ? "text" : type;
+    const isNumber = type === "number";
 
     const reactId = useId();
     const inputId =
         id ?? (label ? `input-${reactId}` : undefined);
+
+    const internalRef = useRef<HTMLInputElement | null>(null);
+    const setRefs = (el: HTMLInputElement | null) => {
+        internalRef.current = el;
+        if (typeof ref === "function") ref(el);
+        else if (ref) (ref as React.MutableRefObject<HTMLInputElement | null>).current = el;
+    };
+
+    const stepBy = (delta: 1 | -1) => {
+        const el = internalRef.current;
+        if (!el || el.disabled || el.readOnly) return;
+        const setter = Object.getOwnPropertyDescriptor(
+            window.HTMLInputElement.prototype,
+            "value",
+        )?.set;
+        const stepAttr = el.step !== "" ? Number(el.step) : 1;
+        const step = Number.isFinite(stepAttr) && stepAttr > 0 ? stepAttr : 1;
+        const min = el.min !== "" ? Number(el.min) : -Infinity;
+        const max = el.max !== "" ? Number(el.max) : Infinity;
+        const current = el.value === "" ? 0 : Number(el.value);
+        let next = (Number.isFinite(current) ? current : 0) + delta * step;
+        if (next < min) next = min;
+        if (next > max) next = max;
+        setter?.call(el, String(next));
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+    };
 
     const passwordToggle =
         isPasswordType && showPasswordToggle ? (
             <button
                 type="button"
                 onClick={() => setShowPassword((s) => !s)}
-                className="hover:text-white transition-all"
+                className="hover:text-white transition-all pointer-events-auto"
                 aria-label="Toggle password visibility"
             >
                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -91,6 +119,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         ) : null;
 
     const suffix = passwordToggle || customSuffix;
+    const showStepper = isNumber;
 
     return (
         <div className="flex flex-col w-full min-w-0">
@@ -125,37 +154,75 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
                     </div>
                 )}
 
-                <input
-                    id={inputId}
-                    type={inputType}
-                    ref={ref}
-                    {...props}
-                    className={cn(
-                        inputVariants({
-                            variant: error ? "error" : variant,
-                        }),
-                        "flex h-[40px] w-full rounded-md bg-white px-3 py-2 text-sm",
-                        "file:bg-transparent file:text-sm file:font-medium file:border-0",
-                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
-                        "disabled:cursor-not-allowed disabled:opacity-40",
-                        customPrefix && "!border-l-0 !rounded-l-none",
-                        suffix && "!pr-16",
-                        icon && "!pl-10",
-                        "border",
-                        props.readOnly &&
-                            "!bg-nb-gray-920 text-nb-gray-400 !border-nb-gray-800",
-                        className,
-                    )}
-                />
+                <div className="relative flex flex-grow min-w-0">
+                    <input
+                        id={inputId}
+                        type={inputType}
+                        ref={setRefs}
+                        {...props}
+                        className={cn(
+                            inputVariants({
+                                variant: error ? "error" : variant,
+                            }),
+                            "flex h-[40px] w-full rounded-md bg-white px-3 py-2 text-sm",
+                            "file:bg-transparent file:text-sm file:font-medium file:border-0",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
+                            "disabled:cursor-not-allowed disabled:opacity-40",
+                            customPrefix && "!border-l-0 !rounded-l-none",
+                            suffix && "!pr-9",
+                            icon && "!pl-10",
+                            "border",
+                            props.readOnly &&
+                                "!bg-nb-gray-920 text-nb-gray-400 !border-nb-gray-800",
+                            showStepper &&
+                                "!rounded-r-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]",
+                            className,
+                        )}
+                    />
 
-                {suffix && (
+                    {suffix && (
+                        <div
+                            className={cn(
+                                "absolute right-0 top-0 h-full flex items-center text-xs dark:text-nb-gray-300 pr-3 leading-[0] select-none pointer-events-none",
+                                props.disabled && "opacity-30",
+                            )}
+                        >
+                            {suffix}
+                        </div>
+                    )}
+                </div>
+
+                {showStepper && (
                     <div
                         className={cn(
-                            "absolute right-0 top-0 h-full flex items-center text-xs dark:text-nb-gray-300 pr-4 leading-[0] select-none",
-                            props.disabled && "opacity-30",
+                            "flex flex-col h-[40px] shrink-0 overflow-hidden",
+                            "border border-l-0 rounded-r-md",
+                            "border-neutral-200 dark:border-nb-gray-700 dark:bg-nb-gray-900",
+                            error && "dark:border-red-500",
+                            props.disabled && "opacity-40 pointer-events-none",
                         )}
                     >
-                        {suffix}
+                        <button
+                            type="button"
+                            tabIndex={-1}
+                            aria-label="Increase"
+                            onClick={() => stepBy(1)}
+                            className="flex-1 flex items-center justify-center w-9 hover:bg-nb-gray-800 transition-colors text-nb-gray-300 cursor-default"
+                        >
+                            <ChevronUp size={12} />
+                        </button>
+                        <button
+                            type="button"
+                            tabIndex={-1}
+                            aria-label="Decrease"
+                            onClick={() => stepBy(-1)}
+                            className={cn(
+                                "flex-1 flex items-center justify-center w-9 hover:bg-nb-gray-800 transition-colors text-nb-gray-300 cursor-default",
+                                "border-t border-neutral-200 dark:border-nb-gray-700",
+                            )}
+                        >
+                            <ChevronDown size={12} />
+                        </button>
                     </div>
                 )}
             </div>
