@@ -1040,6 +1040,13 @@ func (am *DefaultAccountManager) lookupCache(ctx context.Context, accountUsers m
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		if am.isCacheFresh(ctx, accountUsers, data) {
+			// Catch the silent vacuous-fresh case: empty accountUsers map + empty cache data
+			// → isCacheFresh returns true without iterating, skipping refreshCache,
+			// returning empty data. This matters when the account is mostly integration
+			// (SCIM) users and the InternalCache has been flushed.
+			if len(accountUsers) == 0 && len(data) == 0 {
+				log.WithContext(ctx).Warnf("lookupCache VACUOUS FRESH: accountUsers map is empty AND cache is empty for account %s — returning empty data without triggering loadAccount", accountID)
+			}
 			return data, nil
 		}
 

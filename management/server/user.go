@@ -1061,14 +1061,27 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 		queriedUsers = append(queriedUsers, usersFromIntegration...)
 	}
 
+	idpManagerNil := isNil(am.idpManager)
+	idpManagerEmbedded := !idpManagerNil && IsEmbeddedIdp(am.idpManager)
+
 	userInfosMap := make(map[string]*types.UserInfo)
 
 	// in case of self-hosted, or IDP doesn't return anything, we will return the locally stored userInfo
 	if len(queriedUsers) == 0 {
+		var earlyReturnEmpty int
+		var earlyReturnEmptySamples []string
 		for _, accountUser := range accountUsers {
 			info, err := accountUser.ToUserInfo(nil)
 			if err != nil {
 				return nil, err
+			}
+			if !accountUser.IsServiceUser && (info.Email == "" || info.Name == "") {
+				earlyReturnEmpty++
+				if len(earlyReturnEmptySamples) < 50 {
+					earlyReturnEmptySamples = append(earlyReturnEmptySamples,
+						fmt.Sprintf("%s(issued=%s,db.email=%q,db.name=%q)",
+							accountUser.Id, accountUser.Issued, accountUser.Email, accountUser.Name))
+				}
 			}
 			// Try to decode Dex user ID to extract the IdP ID (connector ID)
 			if _, connectorID, decodeErr := dex.DecodeDexUserID(accountUser.Id); decodeErr == nil && connectorID != "" {
@@ -1077,17 +1090,61 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 			userInfosMap[accountUser.Id] = info
 		}
 
+		log.WithContext(ctx).Warnf("BuildUserInfosForAccount EARLY RETURN: queriedUsers empty, returning %d users with DB-only data (idpManagerNil=%v, idpManagerEmbedded=%v). %d non-service users have empty email/name in DB. Samples: %v",
+			len(accountUsers), idpManagerNil, idpManagerEmbedded, earlyReturnEmpty, earlyReturnEmptySamples)
+
+		// Same canonical-truth final scan, also on the early-return path
+		var finalEmptyEmail, finalEmptyName int
+		var finalEmptySamples []string
+		for id, info := range userInfosMap {
+			if info.IsServiceUser {
+				continue
+			}
+			if info.Email == "" {
+				finalEmptyEmail++
+			}
+			if info.Name == "" {
+				finalEmptyName++
+			}
+			if (info.Email == "" || info.Name == "") && len(finalEmptySamples) < 200 {
+				finalEmptySamples = append(finalEmptySamples,
+					fmt.Sprintf("%s(email=%q,name=%q,issued=%s)", id, info.Email, info.Name, info.Issued))
+			}
+		}
+		if finalEmptyEmail > 0 || finalEmptyName > 0 {
+			log.WithContext(ctx).Warnf("BuildUserInfosForAccount FINAL (early-return path): returning %d UserInfo entries — %d with empty email, %d with empty name. Samples: %v",
+				len(userInfosMap), finalEmptyEmail, finalEmptyName, finalEmptySamples)
+		}
+
 		return userInfosMap, nil
 	}
 
+	var cacheHitEmpty, fallbackMiss int
+	var cacheHitEmptySamples, fallbackMissSamples []string
 	for _, localUser := range accountUsers {
 		var info *types.UserInfo
 		if queriedUser, contains := findUserInIDPUserdata(localUser.Id, queriedUsers); contains {
+			if !localUser.IsServiceUser && (queriedUser.Email == "" || queriedUser.Name == "") {
+				cacheHitEmpty++
+				if len(cacheHitEmptySamples) < 50 {
+					cacheHitEmptySamples = append(cacheHitEmptySamples,
+						fmt.Sprintf("%s(cache.email=%q,cache.name=%q,db.email=%q,db.name=%q)",
+							localUser.Id, queriedUser.Email, queriedUser.Name, localUser.Email, localUser.Name))
+				}
+			}
 			info, err = localUser.ToUserInfo(queriedUser)
 			if err != nil {
 				return nil, err
 			}
 		} else {
+			if !localUser.IsServiceUser {
+				fallbackMiss++
+				if len(fallbackMissSamples) < 50 {
+					fallbackMissSamples = append(fallbackMissSamples,
+						fmt.Sprintf("%s(issued=%s,db.email=%q,db.name=%q)",
+							localUser.Id, localUser.Issued, localUser.Email, localUser.Name))
+				}
+			}
 			name := ""
 			if localUser.IsServiceUser {
 				name = localUser.ServiceUserName
@@ -1109,6 +1166,40 @@ func (am *DefaultAccountManager) BuildUserInfosForAccount(ctx context.Context, a
 			info.IdPID = connectorID
 		}
 		userInfosMap[info.ID] = info
+	}
+
+	if cacheHitEmpty > 0 {
+		log.WithContext(ctx).Warnf("BuildUserInfosForAccount: %d users found in cache with empty email or name (cache pollution). Samples: %v",
+			cacheHitEmpty, cacheHitEmptySamples)
+	}
+	if fallbackMiss > 0 {
+		log.WithContext(ctx).Warnf("BuildUserInfosForAccount: %d non-service users missed both caches (will get empty Name in API response from fallback). Samples: %v",
+			fallbackMiss, fallbackMissSamples)
+	}
+
+	// Canonical-truth log: scan what we are actually about to return to the handler.
+	// This catches empties from any code path (early-return, cache-hit-empty, fallback-miss,
+	// or anything we haven't identified yet).
+	var finalEmptyEmail, finalEmptyName int
+	var finalEmptySamples []string
+	for id, info := range userInfosMap {
+		if info.IsServiceUser {
+			continue
+		}
+		if info.Email == "" {
+			finalEmptyEmail++
+		}
+		if info.Name == "" {
+			finalEmptyName++
+		}
+		if (info.Email == "" || info.Name == "") && len(finalEmptySamples) < 200 {
+			finalEmptySamples = append(finalEmptySamples,
+				fmt.Sprintf("%s(email=%q,name=%q,issued=%s)", id, info.Email, info.Name, info.Issued))
+		}
+	}
+	if finalEmptyEmail > 0 || finalEmptyName > 0 {
+		log.WithContext(ctx).Warnf("BuildUserInfosForAccount FINAL: returning %d UserInfo entries — %d with empty email, %d with empty name. Samples: %v",
+			len(userInfosMap), finalEmptyEmail, finalEmptyName, finalEmptySamples)
 	}
 
 	return userInfosMap, nil
