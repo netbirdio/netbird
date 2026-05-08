@@ -538,19 +538,24 @@ func collectResourcePolicySourceGroups(policies []*nbtypes.Policy, destGroupIDs 
 		if policy == nil || !policy.Enabled {
 			continue
 		}
-		for _, rule := range policy.Rules {
-			if rule == nil || !rule.Enabled {
-				continue
-			}
-			if !ruleMatchesDestinations(rule, destSet) {
-				continue
-			}
-			for _, gID := range rule.Sources {
-				groupSet[gID] = struct{}{}
-			}
-			if rule.SourceResource.Type == nbtypes.ResourceTypePeer && rule.SourceResource.ID != "" {
-				directPeerIDs = append(directPeerIDs, rule.SourceResource.ID)
-			}
+		directPeerIDs = collectSourcesFromPolicyRules(policy.Rules, destSet, groupSet, directPeerIDs)
+	}
+	return directPeerIDs
+}
+
+func collectSourcesFromPolicyRules(rules []*nbtypes.PolicyRule, destSet map[string]struct{}, groupSet map[string]struct{}, directPeerIDs []string) []string {
+	for _, rule := range rules {
+		if rule == nil || !rule.Enabled {
+			continue
+		}
+		if !ruleMatchesDestinations(rule, destSet) {
+			continue
+		}
+		for _, gID := range rule.Sources {
+			groupSet[gID] = struct{}{}
+		}
+		if rule.SourceResource.Type == nbtypes.ResourceTypePeer && rule.SourceResource.ID != "" {
+			directPeerIDs = append(directPeerIDs, rule.SourceResource.ID)
 		}
 	}
 	return directPeerIDs
