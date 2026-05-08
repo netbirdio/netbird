@@ -1,12 +1,14 @@
 import { cva, VariantProps } from "class-variance-authority";
 import classNames from "classnames";
-import { ButtonHTMLAttributes, forwardRef } from "react";
+import { Check, Copy } from "lucide-react";
+import { ButtonHTMLAttributes, forwardRef, useState } from "react";
 
 export type ButtonVariants = VariantProps<typeof buttonVariants>;
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>, ButtonVariants {
     disabled?: boolean;
     stopPropagation?: boolean;
+    copy?: string;
 }
 
 export const buttonVariants = cva(
@@ -84,7 +86,7 @@ export const buttonVariants = cva(
                 ],
             },
             size: {
-                xs: "text-xs py-2 px-4",
+                xs: "text-xs py-2 px-3.5",
                 xs2: "text-[0.78rem] py-2 px-4",
                 sm: "text-sm py-[9px] px-4",
                 md: "text-md py-[9px] px-4",
@@ -115,10 +117,13 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
         className,
         onClick,
         disabled,
+        copy,
         ...props
     },
     ref,
 ) {
+    const [copied, setCopied] = useState(false);
+    const iconSize = size === "xs" ? 12 : 14;
     return (
         <button
             ref={ref}
@@ -135,10 +140,21 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
             )}
             onClick={(e) => {
                 if (stopPropagation) e.stopPropagation();
+                if (copy !== undefined) {
+                    void navigator.clipboard
+                        .writeText(copy)
+                        .then(() => {
+                            setCopied(true);
+                            setTimeout(() => setCopied(false), 1500);
+                        })
+                        .catch(() => {});
+                }
                 onClick?.(e);
             }}
             {...props}
         >
+            {copy !== undefined &&
+                (copied ? <Check size={iconSize} /> : <Copy size={iconSize} />)}
             {children}
         </button>
     );

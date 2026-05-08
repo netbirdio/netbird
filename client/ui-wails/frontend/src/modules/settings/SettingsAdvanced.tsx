@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Button from "@/components/Button";
 import { HelpText } from "@/components/HelpText";
 import { Input } from "@/components/Input";
@@ -9,7 +9,7 @@ import { useSettings } from "@/modules/settings/SettingsContext.tsx";
 export function SettingsAdvanced() {
     const { config, saveFields } = useSettings();
 
-    const [draft, setDraft] = useState({
+    const [values, setValues] = useState({
         interfaceName: config.interfaceName,
         wireguardPort: config.wireguardPort,
         mtu: config.mtu,
@@ -17,27 +17,17 @@ export function SettingsAdvanced() {
     });
     const [saving, setSaving] = useState(false);
 
-    // Re-sync the draft when the underlying config changes from elsewhere (e.g. reload).
-    useEffect(() => {
-        setDraft({
-            interfaceName: config.interfaceName,
-            wireguardPort: config.wireguardPort,
-            mtu: config.mtu,
-            preSharedKey: config.preSharedKey,
-        });
-    }, [config.interfaceName, config.wireguardPort, config.mtu, config.preSharedKey]);
-
-    const isDirty =
-        draft.interfaceName !== config.interfaceName ||
-        draft.wireguardPort !== config.wireguardPort ||
-        draft.mtu !== config.mtu ||
-        draft.preSharedKey !== config.preSharedKey;
+    const hasChanges =
+        values.interfaceName !== config.interfaceName ||
+        values.wireguardPort !== config.wireguardPort ||
+        values.mtu !== config.mtu ||
+        values.preSharedKey !== config.preSharedKey;
 
     const handleSave = async () => {
-        if (!isDirty || saving) return;
+        if (!hasChanges || saving) return;
         setSaving(true);
         try {
-            await saveFields(draft);
+            await saveFields(values);
         } finally {
             setSaving(false);
         }
@@ -48,17 +38,19 @@ export function SettingsAdvanced() {
             <SectionGroup title={"Interface"}>
                 <Input
                     label={"Name"}
-                    value={draft.interfaceName}
-                    onChange={(e) => setDraft((d) => ({ ...d, interfaceName: e.target.value }))}
+                    value={values.interfaceName}
+                    onChange={(e) =>
+                        setValues((v) => ({ ...v, interfaceName: e.target.value }))
+                    }
                 />
                 <div className={"grid grid-cols-2 gap-4"}>
                     <Input
                         label={"Port"}
                         type={"number"}
-                        value={draft.wireguardPort}
+                        value={values.wireguardPort}
                         onChange={(e) =>
-                            setDraft((d) => ({
-                                ...d,
+                            setValues((v) => ({
+                                ...v,
                                 wireguardPort: Number(e.target.value),
                             }))
                         }
@@ -66,12 +58,9 @@ export function SettingsAdvanced() {
                     <Input
                         label={"MTU"}
                         type={"number"}
-                        value={draft.mtu}
+                        value={values.mtu}
                         onChange={(e) =>
-                            setDraft((d) => ({
-                                ...d,
-                                mtu: Number(e.target.value),
-                            }))
+                            setValues((v) => ({ ...v, mtu: Number(e.target.value) }))
                         }
                     />
                 </div>
@@ -82,19 +71,16 @@ export function SettingsAdvanced() {
                     <Label as={"div"}>Pre-shared Key</Label>
                     <HelpText>
                         Optional WireGuard PSK for extra symmetric encryption. Not the same as a
-                        NetBird Setup Key. Set the same value on every peer, otherwise they can't
-                        connect to each other.
+                        NetBird Setup Key. You will only communicate with peers that use the same
+                        pre-shared key.
                     </HelpText>
                     <Input
                         type={"password"}
                         showPasswordToggle
                         placeholder={"kQv0qF3oQpJYdgD5mC9hL7sB2xZ8nT4eU6wY1aR3jK0="}
-                        value={draft.preSharedKey}
+                        value={values.preSharedKey}
                         onChange={(e) =>
-                            setDraft((d) => ({
-                                ...d,
-                                preSharedKey: e.target.value,
-                            }))
+                            setValues((v) => ({ ...v, preSharedKey: e.target.value }))
                         }
                     />
                 </div>
@@ -105,7 +91,7 @@ export function SettingsAdvanced() {
                     <Button
                         variant={"primary"}
                         size={"md"}
-                        disabled={!isDirty || saving}
+                        disabled={!hasChanges || saving}
                         onClick={handleSave}
                     >
                         Save Changes

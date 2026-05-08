@@ -10,7 +10,7 @@ export const SectionGroup = ({
     children: ReactNode;
     disabled?: boolean;
 }) => (
-    <section className={cn("mb-8 px-1", disabled && "opacity-50 pointer-events-none")}>
+    <section className={cn("mb-8 last:mb-1 px-1", disabled && "opacity-30 pointer-events-none")}>
         <h2 className={"text-xs uppercase tracking-wider text-nb-gray-400 mb-4 font-semibold"}>
             {title}
         </h2>

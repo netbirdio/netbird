@@ -1,21 +1,12 @@
 import { cva, VariantProps } from "class-variance-authority";
-import { ChevronDown, ChevronUp, Eye, EyeOff } from "lucide-react";
-import {
-    forwardRef,
-    InputHTMLAttributes,
-    ReactNode,
-    useId,
-    useRef,
-    useState,
-} from "react";
+import { Check, ChevronDown, ChevronUp, Copy, Eye, EyeOff } from "lucide-react";
+import { forwardRef, InputHTMLAttributes, ReactNode, useId, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { Label } from "@/components/Label";
 
 type InputVariants = VariantProps<typeof inputVariants>;
 
-export interface InputProps
-    extends InputHTMLAttributes<HTMLInputElement>,
-        InputVariants {
+export interface InputProps extends InputHTMLAttributes<HTMLInputElement>, InputVariants {
     label?: string;
     customPrefix?: ReactNode;
     customSuffix?: ReactNode;
@@ -24,6 +15,7 @@ export interface InputProps
     error?: string;
     prefixClassName?: string;
     showPasswordToggle?: boolean;
+    copy?: boolean;
 }
 
 const inputVariants = cva("", {
@@ -46,9 +38,7 @@ const inputVariants = cva("", {
             default: [
                 "dark:bg-nb-gray-900 border-neutral-200 dark:border-nb-gray-700 text-nb-gray-300",
             ],
-            error: [
-                "dark:bg-nb-gray-900 border-red-500 text-nb-gray-300 text-red-500",
-            ],
+            error: ["dark:bg-nb-gray-900 border-red-500 text-nb-gray-300 text-red-500"],
         },
     },
 });
@@ -66,19 +56,20 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         variant = "default",
         prefixClassName,
         showPasswordToggle = false,
+        copy = false,
         id,
         ...props
     },
     ref,
 ) {
     const [showPassword, setShowPassword] = useState(false);
+    const [copied, setCopied] = useState(false);
     const isPasswordType = type === "password";
     const inputType = isPasswordType && showPassword ? "text" : type;
     const isNumber = type === "number";
 
     const reactId = useId();
-    const inputId =
-        id ?? (label ? `input-${reactId}` : undefined);
+    const inputId = id ?? (label ? `input-${reactId}` : undefined);
 
     const internalRef = useRef<HTMLInputElement | null>(null);
     const setRefs = (el: HTMLInputElement | null) => {
@@ -118,7 +109,30 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
             </button>
         ) : null;
 
-    const suffix = passwordToggle || customSuffix;
+    const onCopy = async () => {
+        const text = props.value != null ? String(props.value) : (internalRef.current?.value ?? "");
+        if (!text) return;
+        try {
+            await navigator.clipboard.writeText(text);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+        } catch {
+            // ignore
+        }
+    };
+
+    const copyToggle = copy ? (
+        <button
+            type="button"
+            onClick={onCopy}
+            className="hover:text-white transition-all pointer-events-auto"
+            aria-label="Copy"
+        >
+            {copied ? <Check size={16} /> : <Copy size={16} />}
+        </button>
+    ) : null;
+
+    const suffix = passwordToggle || copyToggle || customSuffix;
     const showStepper = isNumber;
 
     return (
@@ -129,9 +143,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
                     <div
                         className={cn(
                             inputVariants({
-                                prefixSuffixVariant: error
-                                    ? "error"
-                                    : "default",
+                                prefixSuffixVariant: error ? "error" : "default",
                             }),
                             "flex h-[40px] w-auto rounded-l-md bg-white px-3 py-2 text-sm",
                             "border items-center whitespace-nowrap",
@@ -173,7 +185,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
                             icon && "!pl-10",
                             "border",
                             props.readOnly &&
-                                "!bg-nb-gray-920 text-nb-gray-400 !border-nb-gray-800",
+                                "!bg-nb-gray-910 text-nb-gray-400 !border-nb-gray-800",
                             showStepper &&
                                 "!rounded-r-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]",
                             className,

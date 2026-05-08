@@ -4,6 +4,10 @@ package services
 
 import (
 	"context"
+	"fmt"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 
 	"github.com/netbirdio/netbird/client/proto"
 )
@@ -72,6 +76,25 @@ func (s *Debug) GetLogLevel(ctx context.Context) (LogLevel, error) {
 		return LogLevel{}, err
 	}
 	return LogLevel{Level: resp.GetLevel().String()}, nil
+}
+
+// RevealFile opens the OS file manager focused on the given path. Wails'
+// Browser.OpenURL refuses non-http(s) schemes, so the UI calls this binding
+// instead of constructing a file:// URL.
+func (s *Debug) RevealFile(_ context.Context, path string) error {
+	if path == "" {
+		return fmt.Errorf("empty path")
+	}
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", "-R", path)
+	case "windows":
+		cmd = exec.Command("explorer", "/select,"+path)
+	default:
+		cmd = exec.Command("xdg-open", filepath.Dir(path))
+	}
+	return cmd.Start()
 }
 
 func (s *Debug) SetLogLevel(ctx context.Context, lvl LogLevel) error {

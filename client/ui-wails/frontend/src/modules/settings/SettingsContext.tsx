@@ -62,9 +62,15 @@ const useSettingsState = () => {
 
     const save = useCallback(
         async (next: Config) => {
+            // The daemon masks an existing PSK as "**********" in GetConfig.
+            // Sending the mask back round-trips it into the saved config and
+            // wgtypes.ParseKey fails on the next connect. Drop the mask so
+            // unrelated toggles don't corrupt the stored PSK.
+            const { preSharedKey, ...rest } = next;
             try {
                 await SettingsSvc.SetConfig({
-                    ...next,
+                    ...rest,
+                    ...(preSharedKey === "**********" ? {} : { preSharedKey }),
                     profileName: activeProfile,
                     username,
                 });

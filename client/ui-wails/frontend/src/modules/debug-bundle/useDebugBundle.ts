@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
     Connection as ConnectionSvc,
     Debug as DebugSvc,
@@ -6,7 +6,7 @@ import {
 import type { DebugBundleResult } from "@bindings/services/models.js";
 import { useProfile } from "@/modules/profile/ProfileContext.tsx";
 
-const NETBIRD_UPLOAD_URL = "https://debug.netbird.io/upload";
+const NETBIRD_UPLOAD_URL = "https://upload.debug.netbird.io/upload-url";
 const TRACE_LOG_FILE_COUNT = 5;
 const PLAIN_LOG_FILE_COUNT = 1;
 
@@ -18,19 +18,40 @@ export type DebugStage =
     | { kind: "restoring-level" }
     | { kind: "bundling" }
     | { kind: "uploading" }
+    | { kind: "cancelling" }
     | { kind: "done"; result: DebugBundleResult; uploadAttempted: boolean }
     | { kind: "error"; message: string };
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms: number, signal: AbortSignal) =>
+    new Promise<void>((resolve, reject) => {
+        if (signal.aborted) {
+            reject(new DOMException("aborted", "AbortError"));
+            return;
+        }
+        const onAbort = () => {
+            clearTimeout(id);
+            reject(new DOMException("aborted", "AbortError"));
+        };
+        const id = setTimeout(() => {
+            signal.removeEventListener("abort", onAbort);
+            resolve();
+        }, ms);
+        signal.addEventListener("abort", onAbort);
+    });
+
+const isAbort = (e: unknown) =>
+    e instanceof DOMException && e.name === "AbortError";
 
 export const useDebugBundle = () => {
     const { activeProfile, username } = useProfile();
-    const [anonymize, setAnonymize] = useState(true);
+    const [anonymize, setAnonymize] = useState(false);
     const [systemInfo, setSystemInfo] = useState(true);
-    const [upload, setUpload] = useState(false);
-    const [trace, setTrace] = useState(false);
-    const [traceMinutes, setTraceMinutes] = useState(3);
+    const [upload, setUpload] = useState(true);
+    const [trace, setTrace] = useState(true);
+    const [traceMinutes, setTraceMinutes] = useState(1);
     const [stage, setStage] = useState<DebugStage>({ kind: "idle" });
+    const [lastBundlePath, setLastBundlePath] = useState<string>("");
+    const abortRef = useRef<AbortController | null>(null);
 
     const isRunning =
         stage.kind !== "idle" &&
@@ -39,10 +60,26 @@ export const useDebugBundle = () => {
 
     const reset = () => setStage({ kind: "idle" });
 
+    const cancel = () => {
+        if (!abortRef.current || abortRef.current.signal.aborted) return;
+        abortRef.current.abort();
+        setStage({ kind: "cancelling" });
+    };
+
     const run = async () => {
+        const ctrl = new AbortController();
+        abortRef.current = ctrl;
+        const signal = ctrl.signal;
+        const checkAbort = () => {
+            if (signal.aborted)
+                throw new DOMException("aborted", "AbortError");
+        };
+
         const uploadUrl = upload ? NETBIRD_UPLOAD_URL : "";
+        let originalLevel = "info";
+        let raisedLevel = false;
+
         try {
-            let originalLevel = "info";
             if (trace) {
                 setStage({ kind: "preparing-trace" });
                 try {
@@ -51,14 +88,18 @@ export const useDebugBundle = () => {
                 } catch {
                     // best effort
                 }
+                checkAbort();
                 await DebugSvc.SetLogLevel({ level: "trace" });
+                raisedLevel = true;
 
+                checkAbort();
                 setStage({ kind: "reconnecting" });
                 try {
                     await ConnectionSvc.Down();
                 } catch {
                     // already down
                 }
+                checkAbort();
                 await ConnectionSvc.Up({
                     profileName: activeProfile,
                     username,
@@ -72,17 +113,19 @@ export const useDebugBundle = () => {
                         remainingSec: remaining,
                         totalSec,
                     });
-                    await sleep(1000);
+                    await sleep(1000, signal);
                 }
 
                 setStage({ kind: "restoring-level" });
                 try {
                     await DebugSvc.SetLogLevel({ level: originalLevel });
+                    raisedLevel = false;
                 } catch {
                     // restore is best-effort
                 }
             }
 
+            checkAbort();
             setStage({ kind: "bundling" });
             const logFileCount = trace
                 ? TRACE_LOG_FILE_COUNT
@@ -95,14 +138,34 @@ export const useDebugBundle = () => {
                 uploadUrl,
                 logFileCount,
             });
+            checkAbort();
+            if (result.path) setLastBundlePath(result.path);
             setStage({
                 kind: "done",
                 result,
                 uploadAttempted: Boolean(uploadUrl),
             });
         } catch (e) {
+            if (isAbort(e)) {
+                if (raisedLevel) {
+                    try {
+                        await DebugSvc.SetLogLevel({ level: originalLevel });
+                    } catch {
+                        // best effort
+                    }
+                }
+                setStage({ kind: "idle" });
+                return;
+            }
             setStage({ kind: "error", message: String(e) });
+        } finally {
+            if (abortRef.current === ctrl) abortRef.current = null;
         }
+    };
+
+    const openBundleDir = () => {
+        if (!lastBundlePath) return;
+        void DebugSvc.RevealFile(lastBundlePath).catch(() => {});
     };
 
     return {
@@ -118,7 +181,10 @@ export const useDebugBundle = () => {
         setTraceMinutes,
         stage,
         isRunning,
+        lastBundlePath,
         run,
+        cancel,
         reset,
+        openBundleDir,
     };
 };
