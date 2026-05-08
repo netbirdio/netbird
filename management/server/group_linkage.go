@@ -194,33 +194,103 @@ func isGroupLinkedToNetworkRouter(ctx context.Context, transaction store.Store, 
 }
 
 // areGroupChangesAffectPeers checks if any changes to the specified groups will affect peers.
+// It fetches each collection once and checks all groupIDs against them in memory.
 func areGroupChangesAffectPeers(ctx context.Context, transaction store.Store, accountID string, groupIDs []string) (bool, error) {
 	if len(groupIDs) == 0 {
 		return false, nil
 	}
 
+	groupSet := make(map[string]struct{}, len(groupIDs))
+	for _, id := range groupIDs {
+		groupSet[id] = struct{}{}
+	}
+
+	if affected, err := dnsSettingsReferenceGroups(ctx, transaction, accountID, groupSet); affected || err != nil {
+		return affected, err
+	}
+	if affected, err := nameServersReferenceGroups(ctx, transaction, accountID, groupSet); affected || err != nil {
+		return affected, err
+	}
+	if affected, err := policiesReferenceGroups(ctx, transaction, accountID, groupSet); affected || err != nil {
+		return affected, err
+	}
+	if affected, err := routesReferenceGroups(ctx, transaction, accountID, groupSet); affected || err != nil {
+		return affected, err
+	}
+	if affected, err := networkRoutersReferenceGroups(ctx, transaction, accountID, groupSet); affected || err != nil {
+		return affected, err
+	}
+
+	return false, nil
+}
+
+func anyInSet(ids []string, set map[string]struct{}) bool {
+	for _, id := range ids {
+		if _, ok := set[id]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func dnsSettingsReferenceGroups(ctx context.Context, transaction store.Store, accountID string, groupSet map[string]struct{}) (bool, error) {
 	dnsSettings, err := transaction.GetAccountDNSSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return false, err
 	}
+	return anyInSet(dnsSettings.DisabledManagementGroups, groupSet), nil
+}
 
-	for _, groupID := range groupIDs {
-		if slices.Contains(dnsSettings.DisabledManagementGroups, groupID) {
-			return true, nil
-		}
-		if linked, _ := isGroupLinkedToDns(ctx, transaction, accountID, groupID); linked {
-			return true, nil
-		}
-		if linked, _ := isGroupLinkedToPolicy(ctx, transaction, accountID, groupID); linked {
-			return true, nil
-		}
-		if linked, _ := isGroupLinkedToRoute(ctx, transaction, accountID, groupID); linked {
-			return true, nil
-		}
-		if linked, _ := isGroupLinkedToNetworkRouter(ctx, transaction, accountID, groupID); linked {
+func nameServersReferenceGroups(ctx context.Context, transaction store.Store, accountID string, groupSet map[string]struct{}) (bool, error) {
+	nameServerGroups, err := transaction.GetAccountNameServerGroups(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return false, err
+	}
+	for _, ns := range nameServerGroups {
+		if anyInSet(ns.Groups, groupSet) {
 			return true, nil
 		}
 	}
+	return false, nil
+}
 
+func policiesReferenceGroups(ctx context.Context, transaction store.Store, accountID string, groupSet map[string]struct{}) (bool, error) {
+	policies, err := transaction.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return false, err
+	}
+	for _, policy := range policies {
+		for _, rule := range policy.Rules {
+			if anyInSet(rule.Sources, groupSet) || anyInSet(rule.Destinations, groupSet) {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+func routesReferenceGroups(ctx context.Context, transaction store.Store, accountID string, groupSet map[string]struct{}) (bool, error) {
+	routes, err := transaction.GetAccountRoutes(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return false, err
+	}
+	for _, r := range routes {
+		if anyInSet(r.Groups, groupSet) || anyInSet(r.PeerGroups, groupSet) || anyInSet(r.AccessControlGroups, groupSet) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func networkRoutersReferenceGroups(ctx context.Context, transaction store.Store, accountID string, groupSet map[string]struct{}) (bool, error) {
+	routers, err := transaction.GetNetworkRoutersByAccountID(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return false, err
+	}
+	for _, router := range routers {
+		if anyInSet(router.PeerGroups, groupSet) {
+			return true, nil
+		}
+	}
 	return false, nil
 }

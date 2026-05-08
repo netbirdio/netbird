@@ -66,18 +66,16 @@ func collectPolicyAffectedGroups(ctx context.Context, transaction store.Store, a
 		for _, gID := range ruleGroups {
 			groupSet[gID] = struct{}{}
 		}
-		collectPolicyDirectPeers(ctx, policy, peerSet)
+		collectPolicyDirectPeers(policy, peerSet)
 	}
 }
 
-func collectPolicyDirectPeers(ctx context.Context, policy *types.Policy, peerSet map[string]struct{}) {
+func collectPolicyDirectPeers(policy *types.Policy, peerSet map[string]struct{}) {
 	for _, rule := range policy.Rules {
 		if rule.SourceResource.Type == types.ResourceTypePeer && rule.SourceResource.ID != "" {
-			log.WithContext(ctx).Tracef("policy %s rule %s has direct source peer %s", policy.ID, rule.ID, rule.SourceResource.ID)
 			peerSet[rule.SourceResource.ID] = struct{}{}
 		}
 		if rule.DestinationResource.Type == types.ResourceTypePeer && rule.DestinationResource.ID != "" {
-			log.WithContext(ctx).Tracef("policy %s rule %s has direct destination peer %s", policy.ID, rule.ID, rule.DestinationResource.ID)
 			peerSet[rule.DestinationResource.ID] = struct{}{}
 		}
 	}
@@ -95,17 +93,8 @@ func collectRouteAffectedGroups(ctx context.Context, transaction store.Store, ac
 			continue
 		}
 		log.WithContext(ctx).Tracef("route %s (%s) references changed groups", r.ID, r.Description)
-		for _, gID := range r.Groups {
-			groupSet[gID] = struct{}{}
-		}
-		for _, gID := range r.PeerGroups {
-			groupSet[gID] = struct{}{}
-		}
-		for _, gID := range r.AccessControlGroups {
-			groupSet[gID] = struct{}{}
-		}
+		addAllToSet(groupSet, r.Groups, r.PeerGroups, r.AccessControlGroups)
 		if r.Peer != "" {
-			log.WithContext(ctx).Tracef("route %s has direct peer %s", r.ID, r.Peer)
 			peerSet[r.Peer] = struct{}{}
 		}
 	}
@@ -221,24 +210,25 @@ func collectPolicyDirectPeerRefGroups(ctx context.Context, transaction store.Sto
 		for _, gID := range policy.RuleGroups() {
 			groupSet[gID] = struct{}{}
 		}
-		collectPolicyDirectPeers(ctx, policy, peerSet)
+		collectPolicyDirectPeers(policy, peerSet)
 	}
 }
 
 func policyReferencesDirectPeers(policy *types.Policy, changedSet map[string]struct{}) bool {
 	for _, rule := range policy.Rules {
-		if rule.SourceResource.Type == types.ResourceTypePeer && rule.SourceResource.ID != "" {
-			if _, ok := changedSet[rule.SourceResource.ID]; ok {
-				return true
-			}
-		}
-		if rule.DestinationResource.Type == types.ResourceTypePeer && rule.DestinationResource.ID != "" {
-			if _, ok := changedSet[rule.DestinationResource.ID]; ok {
-				return true
-			}
+		if isDirectPeerInSet(rule.SourceResource, changedSet) || isDirectPeerInSet(rule.DestinationResource, changedSet) {
+			return true
 		}
 	}
 	return false
+}
+
+func isDirectPeerInSet(res types.Resource, set map[string]struct{}) bool {
+	if res.Type != types.ResourceTypePeer || res.ID == "" {
+		return false
+	}
+	_, ok := set[res.ID]
+	return ok
 }
 
 func collectRouteDirectPeerRefGroups(ctx context.Context, transaction store.Store, accountID string, changedSet, groupSet, peerSet map[string]struct{}) {
@@ -255,15 +245,7 @@ func collectRouteDirectPeerRefGroups(ctx context.Context, transaction store.Stor
 		if _, ok := changedSet[r.Peer]; !ok {
 			continue
 		}
-		for _, gID := range r.Groups {
-			groupSet[gID] = struct{}{}
-		}
-		for _, gID := range r.PeerGroups {
-			groupSet[gID] = struct{}{}
-		}
-		for _, gID := range r.AccessControlGroups {
-			groupSet[gID] = struct{}{}
-		}
+		addAllToSet(groupSet, r.Groups, r.PeerGroups, r.AccessControlGroups)
 		peerSet[r.Peer] = struct{}{}
 	}
 }
@@ -291,44 +273,25 @@ func collectRouterDirectPeerRefGroups(ctx context.Context, transaction store.Sto
 
 func policyReferencesGroups(policy *types.Policy, groupSet map[string]struct{}) bool {
 	for _, rule := range policy.Rules {
-		for _, gID := range rule.Sources {
-			if _, ok := groupSet[gID]; ok {
-				return true
-			}
-		}
-		for _, gID := range rule.Destinations {
-			if _, ok := groupSet[gID]; ok {
-				return true
-			}
+		if anyInSet(rule.Sources, groupSet) || anyInSet(rule.Destinations, groupSet) {
+			return true
 		}
 	}
 	return false
 }
 
 func routeReferencesGroups(r *route.Route, groupSet map[string]struct{}) bool {
-	for _, gID := range r.Groups {
-		if _, ok := groupSet[gID]; ok {
-			return true
-		}
-	}
-	for _, gID := range r.PeerGroups {
-		if _, ok := groupSet[gID]; ok {
-			return true
-		}
-	}
-	for _, gID := range r.AccessControlGroups {
-		if _, ok := groupSet[gID]; ok {
-			return true
-		}
-	}
-	return false
+	return anyInSet(r.Groups, groupSet) || anyInSet(r.PeerGroups, groupSet) || anyInSet(r.AccessControlGroups, groupSet)
 }
 
 func routerReferencesGroups(router *routerTypes.NetworkRouter, groupSet map[string]struct{}) bool {
-	for _, gID := range router.PeerGroups {
-		if _, ok := groupSet[gID]; ok {
-			return true
+	return anyInSet(router.PeerGroups, groupSet)
+}
+
+func addAllToSet(set map[string]struct{}, slices ...[]string) {
+	for _, s := range slices {
+		for _, id := range s {
+			set[id] = struct{}{}
 		}
 	}
-	return false
 }
