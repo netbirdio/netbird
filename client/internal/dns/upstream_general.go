@@ -52,7 +52,7 @@ func (u *upstreamResolver) exchange(ctx context.Context, upstream string, r *dns
 	return ExchangeWithFallback(ctx, client, r, upstream)
 }
 
-func GetClientPrivate(ip netip.Addr, interfaceName string, dialTimeout time.Duration) (*dns.Client, error) {
+func GetClientPrivate(_ privateClientIface, _ netip.Addr, dialTimeout time.Duration) (*dns.Client, error) {
 	return &dns.Client{
 		Timeout: dialTimeout,
 		Net:     "udp",

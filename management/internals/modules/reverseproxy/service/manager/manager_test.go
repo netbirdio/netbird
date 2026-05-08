@@ -3,7 +3,7 @@ package manager
 import (
 	"context"
 	"errors"
-	"net"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -405,7 +405,8 @@ func TestDeletePeerService_SourcePeerValidation(t *testing.T) {
 	testPeer := &nbpeer.Peer{
 		ID:   ownerPeerID,
 		Name: "test-peer",
-		IP:   net.ParseIP("100.64.0.1"),
+		IP:   netip.MustParseAddr("100.64.0.1"),
+		IPv6: netip.MustParseAddr("fd00::1"),
 	}
 
 	newEphemeralService := func() *rpservice.Service {
@@ -682,7 +683,8 @@ func setupIntegrationTest(t *testing.T) (*Manager, store.Store) {
 				Key:       "test-key",
 				DNSLabel:  "test-peer",
 				Name:      "test-peer",
-				IP:        net.ParseIP("100.64.0.1"),
+				IP:        netip.MustParseAddr("100.64.0.1"),
+				IPv6:      netip.MustParseAddr("fd00::1"),
 				Status:    &nbpeer.PeerStatus{Connected: true, LastSeen: time.Now()},
 				Meta:      nbpeer.PeerSystemMeta{Hostname: "test-peer"},
 			},
@@ -751,7 +753,8 @@ func Test_validateExposePermission(t *testing.T) {
 			Key:       "other-key",
 			DNSLabel:  "other-peer",
 			Name:      "other-peer",
-			IP:        net.ParseIP("100.64.0.2"),
+			IP:        netip.MustParseAddr("100.64.0.2"),
+			IPv6:      netip.MustParseAddr("fd00::2"),
 			Status:    &nbpeer.PeerStatus{LastSeen: time.Now()},
 			Meta:      nbpeer.PeerSystemMeta{Hostname: "other-peer"},
 		})
