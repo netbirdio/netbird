@@ -1,6 +1,6 @@
 import { Browser } from "@wailsio/runtime";
 import { Update as UpdateSvc } from "@bindings/services";
-import netbirdAppIcon from "@/assets/logos/netbird-app-icon.svg";
+import netbirdFull from "@/assets/logos/netbird-full.svg";
 import pkg from "../../../package.json";
 import { useStatus } from "@/hooks/useStatus";
 import { Button } from "@/components/Button";
@@ -14,6 +14,16 @@ const LEGAL_LINKS: { label: string; url: string }[] = [
 
 function openUrl(url: string) {
     void Browser.OpenURL(url).catch(() => window.open(url, "_blank"));
+}
+
+function formatLastChecked(date: Date) {
+    return date.toLocaleString(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+    });
 }
 
 export function SettingsAbout() {
@@ -30,28 +40,23 @@ export function SettingsAbout() {
     };
 
     return (
-        <div className={"flex flex-col gap-5 max-w-2xl"}>
-            <div className={"flex gap-6 items-center"}>
-                <img
-                    src={netbirdAppIcon}
-                    alt={"NetBird"}
-                    className={
-                        "w-24 h-24 rounded-2xl shrink-0 border border-nb-gray-800"
-                    }
-                />
-                <div className={"flex-1 min-w-0 flex flex-col gap-2"}>
-                    <h2 className={"text-2xl font-semibold"}>NetBird</h2>
-                    <div className={"text-sm text-nb-gray-300 space-y-0.5"}>
-                        <div>GUI v{guiVersion}</div>
-                        <div>Client v{daemonVersion}</div>
-                    </div>
-                </div>
+        <div
+            className={
+                "flex flex-col items-center justify-center gap-4 max-w-2xl mx-auto min-h-[calc(100vh-10rem)]"
+            }
+        >
+            <img src={netbirdFull} alt={"NetBird"} className={"h-7 w-auto"} />
+            <div className={"flex flex-col items-center gap-0.5 text-center"}>
+                <p className={"text-sm font-semibold text-nb-gray-100"}>
+                    NetBird Client v{daemonVersion}
+                </p>
+                <p className={"text-sm text-nb-gray-300"}>GUI v{guiVersion}</p>
             </div>
 
-            {updateVersion && (
+            {updateVersion ? (
                 <div
                     className={
-                        "flex items-center justify-between gap-4 rounded-md border border-nb-gray-800 bg-nb-gray-920 px-4 py-3"
+                        "w-full max-w-md flex items-center justify-between gap-4 rounded-md border border-nb-gray-800 bg-nb-gray-910 px-4 py-3"
                     }
                 >
                     <div>
@@ -65,47 +70,45 @@ export function SettingsAbout() {
                                     `https://github.com/netbirdio/netbird/releases/tag/v${updateVersion}`,
                                 )
                             }
-                            className={"text-xs text-netbird hover:underline"}
+                            className={
+                                "text-sm text-netbird hover:underline hover:underline-offset-4 hover:decoration-[0.5px] font-medium"
+                            }
                         >
                             What's new?
                         </button>
                     </div>
-                    <Button
-                        variant={"primary"}
-                        size={"sm"}
-                        onClick={triggerUpdate}
-                    >
-                        Restart now
+                    <Button variant={"primary"} size={"xs"} onClick={triggerUpdate}>
+                        Restart Now
+                    </Button>
+                </div>
+            ) : (
+                <div className={"flex flex-col items-center gap-2"}>
+                    <p className={"text-xs text-nb-gray-400 text-center"}>
+                        Last checked for updates on {formatLastChecked(new Date())}
+                    </p>
+                    <Button variant={"secondary"} size={"sm"} onClick={triggerUpdate}>
+                        Check for updates
                     </Button>
                 </div>
             )}
 
-            <p className={"text-xs text-nb-gray-500"}>
+            <p className={"text-sm text-nb-gray-300 text-center"}>
                 © {new Date().getFullYear()} NetBird. All Rights Reserved.
             </p>
             <div
-                className={
-                    "flex flex-wrap gap-x-3 gap-y-1 text-xs text-nb-gray-400"
-                }
+                className={"flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-nb-gray-200"}
             >
-                {LEGAL_LINKS.map((link, i) => (
-                    <span key={link.url} className={"flex items-center"}>
-                        {i > 0 && (
-                            <span
-                                className={"mr-3 text-nb-gray-700"}
-                                aria-hidden
-                            >
-                                ·
-                            </span>
-                        )}
-                        <button
-                            type={"button"}
-                            onClick={() => openUrl(link.url)}
-                            className={"hover:text-nb-gray-200 transition"}
-                        >
-                            {link.label}
-                        </button>
-                    </span>
+                {LEGAL_LINKS.map((link) => (
+                    <button
+                        key={link.url}
+                        type={"button"}
+                        onClick={() => openUrl(link.url)}
+                        className={
+                            "decoration-[0.5px] underline-offset-4 hover:text-nb-gray-100 hover:underline transition"
+                        }
+                    >
+                        {link.label}
+                    </button>
                 ))}
             </div>
         </div>
