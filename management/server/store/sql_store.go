@@ -265,7 +265,8 @@ func (s *SqlStore) AcquireGlobalLock(ctx context.Context) (unlock func()) {
 	return unlock
 }
 
-// Deprecated: Full account operations are no longer supported
+// Deprecated: Full
+// account operations are no longer supported
 func (s *SqlStore) SaveAccount(ctx context.Context, account *types.Account) error {
 	start := time.Now()
 	defer func() {
