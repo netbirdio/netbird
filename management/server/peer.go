@@ -1343,14 +1343,8 @@ func (am *DefaultAccountManager) resolveAffectedPeersForPeerChanges(ctx context.
 
 	log.WithContext(ctx).Tracef("resolveAffectedPeersForPeerChanges: changedPeers=%v -> groups=%v", changedPeerIDs, groupIDs)
 
-	allGroupIDs, directPeerIDs := collectGroupChangeAffectedGroups(ctx, s, accountID, groupIDs)
-
-	// Also collect groups/peers from entities that reference the changed peers directly by ID
-	// (e.g. Route.Peer, PolicyRule.SourceResource/DestinationResource, NetworkRouter.Peer)
-	directRefGroups, directRefPeers := collectDirectPeerRefAffectedGroups(ctx, s, accountID, changedPeerIDs)
-	allGroupIDs = append(allGroupIDs, directRefGroups...)
-	directPeerIDs = append(directPeerIDs, directRefPeers...)
-
+	// Single pass: find entities referencing the changed groups OR the changed peers directly
+	allGroupIDs, directPeerIDs := collectPeerChangeAffectedGroups(ctx, s, accountID, groupIDs, changedPeerIDs)
 	result := am.resolvePeerIDs(ctx, s, accountID, allGroupIDs, directPeerIDs)
 
 	log.WithContext(ctx).Tracef("resolveAffectedPeersForPeerChanges: changedPeers=%v -> %d affected peers", changedPeerIDs, len(result))

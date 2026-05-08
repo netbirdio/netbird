@@ -224,15 +224,6 @@ func areGroupChangesAffectPeers(ctx context.Context, transaction store.Store, ac
 	return false, nil
 }
 
-func anyInSet(ids []string, set map[string]struct{}) bool {
-	for _, id := range ids {
-		if _, ok := set[id]; ok {
-			return true
-		}
-	}
-	return false
-}
-
 func dnsSettingsReferenceGroups(ctx context.Context, transaction store.Store, accountID string, groupSet map[string]struct{}) (bool, error) {
 	dnsSettings, err := transaction.GetAccountDNSSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
