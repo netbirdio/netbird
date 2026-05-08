@@ -248,19 +248,7 @@ func (c *Controller) UpdateAffectedPeers(ctx context.Context, accountID string, 
 func (c *Controller) sendUpdateForAffectedPeers(ctx context.Context, accountID string, peerIDs []string) error {
 	log.WithContext(ctx).Tracef("sendUpdateForAffectedPeers: account %s, %d affected peers: %v (caller: %s)", accountID, len(peerIDs), peerIDs, util.GetCallerName())
 
-	affected := make(map[string]struct{}, len(peerIDs))
-	for _, id := range peerIDs {
-		affected[id] = struct{}{}
-	}
-
-	hasConnected := false
-	for _, id := range peerIDs {
-		if c.peersUpdateManager.HasChannel(id) {
-			hasConnected = true
-			break
-		}
-	}
-	if !hasConnected {
+	if !c.hasConnectedPeers(peerIDs) {
 		log.WithContext(ctx).Tracef("sendUpdateForAffectedPeers: no connected peers among %v, skipping", peerIDs)
 		return nil
 	}
@@ -272,13 +260,7 @@ func (c *Controller) sendUpdateForAffectedPeers(ctx context.Context, accountID s
 
 	globalStart := time.Now()
 
-	var peersToUpdate []*nbpeer.Peer
-	for _, peer := range account.Peers {
-		if _, ok := affected[peer.ID]; ok && c.peersUpdateManager.HasChannel(peer.ID) {
-			peersToUpdate = append(peersToUpdate, peer)
-		}
-	}
-
+	peersToUpdate := c.filterConnectedAffectedPeers(account, peerIDs)
 	if len(peersToUpdate) == 0 {
 		log.WithContext(ctx).Tracef("sendUpdateForAffectedPeers: no peers to update (affected peers not found in account or no channels)")
 		return nil
@@ -366,6 +348,30 @@ func (c *Controller) sendUpdateForAffectedPeers(ctx context.Context, accountID s
 	}
 
 	return nil
+}
+
+func (c *Controller) hasConnectedPeers(peerIDs []string) bool {
+	for _, id := range peerIDs {
+		if c.peersUpdateManager.HasChannel(id) {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *Controller) filterConnectedAffectedPeers(account *types.Account, peerIDs []string) []*nbpeer.Peer {
+	affected := make(map[string]struct{}, len(peerIDs))
+	for _, id := range peerIDs {
+		affected[id] = struct{}{}
+	}
+
+	var result []*nbpeer.Peer
+	for _, peer := range account.Peers {
+		if _, ok := affected[peer.ID]; ok && c.peersUpdateManager.HasChannel(peer.ID) {
+			result = append(result, peer)
+		}
+	}
+	return result
 }
 
 func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, peerId string) error {

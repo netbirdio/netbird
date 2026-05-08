@@ -116,49 +116,9 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 	var eventsToStore []func()
 	var affectedData *resourceAffectedPeersData
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		_, err = transaction.GetNetworkResourceByName(ctx, store.LockingStrengthNone, resource.AccountID, resource.Name)
-		if err == nil {
-			return status.Errorf(status.InvalidArgument, "resource with name %s already exists", resource.Name)
-		}
-
-		network, err := transaction.GetNetworkByID(ctx, store.LockingStrengthUpdate, resource.AccountID, resource.NetworkID)
-		if err != nil {
-			return fmt.Errorf("failed to get network: %w", err)
-		}
-
-		err = transaction.SaveNetworkResource(ctx, resource)
-		if err != nil {
-			return fmt.Errorf("failed to save network resource: %w", err)
-		}
-
-		event := func() {
-			m.accountManager.StoreEvent(ctx, userID, resource.ID, resource.AccountID, activity.NetworkResourceCreated, resource.EventMeta(network))
-		}
-		eventsToStore = append(eventsToStore, event)
-
-		res := nbtypes.Resource{
-			ID:   resource.ID,
-			Type: nbtypes.ResourceType(resource.Type.String()),
-		}
-		for _, groupID := range resource.GroupIDs {
-			event, err := m.groupsManager.AddResourceToGroupInTransaction(ctx, transaction, resource.AccountID, userID, groupID, &res)
-			if err != nil {
-				return fmt.Errorf("failed to add resource to group: %w", err)
-			}
-			eventsToStore = append(eventsToStore, event)
-		}
-
-		err = transaction.IncrementNetworkSerial(ctx, resource.AccountID)
-		if err != nil {
-			return fmt.Errorf("failed to increment network serial: %w", err)
-		}
-
-		affectedData, err = loadResourceAffectedPeersData(ctx, transaction, resource.AccountID, resource.NetworkID, resource.GroupIDs)
-		if err != nil {
-			log.WithContext(ctx).Errorf("failed to load affected peers data: %v", err)
-		}
-
-		return nil
+		var txErr error
+		eventsToStore, affectedData, txErr = m.createResourceInTransaction(ctx, transaction, userID, resource)
+		return txErr
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create network resource: %w", err)
@@ -176,6 +136,50 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 	}
 
 	return resource, nil
+}
+
+func (m *managerImpl) createResourceInTransaction(ctx context.Context, transaction store.Store, userID string, resource *types.NetworkResource) ([]func(), *resourceAffectedPeersData, error) {
+	_, err := transaction.GetNetworkResourceByName(ctx, store.LockingStrengthNone, resource.AccountID, resource.Name)
+	if err == nil {
+		return nil, nil, status.Errorf(status.InvalidArgument, "resource with name %s already exists", resource.Name)
+	}
+
+	network, err := transaction.GetNetworkByID(ctx, store.LockingStrengthUpdate, resource.AccountID, resource.NetworkID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get network: %w", err)
+	}
+
+	if err = transaction.SaveNetworkResource(ctx, resource); err != nil {
+		return nil, nil, fmt.Errorf("failed to save network resource: %w", err)
+	}
+
+	var eventsToStore []func()
+	eventsToStore = append(eventsToStore, func() {
+		m.accountManager.StoreEvent(ctx, userID, resource.ID, resource.AccountID, activity.NetworkResourceCreated, resource.EventMeta(network))
+	})
+
+	res := nbtypes.Resource{
+		ID:   resource.ID,
+		Type: nbtypes.ResourceType(resource.Type.String()),
+	}
+	for _, groupID := range resource.GroupIDs {
+		event, err := m.groupsManager.AddResourceToGroupInTransaction(ctx, transaction, resource.AccountID, userID, groupID, &res)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to add resource to group: %w", err)
+		}
+		eventsToStore = append(eventsToStore, event)
+	}
+
+	if err = transaction.IncrementNetworkSerial(ctx, resource.AccountID); err != nil {
+		return nil, nil, fmt.Errorf("failed to increment network serial: %w", err)
+	}
+
+	affectedData, err := loadResourceAffectedPeersData(ctx, transaction, resource.AccountID, resource.NetworkID, resource.GroupIDs)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to load affected peers data: %v", err)
+	}
+
+	return eventsToStore, affectedData, nil
 }
 
 func (m *managerImpl) GetResource(ctx context.Context, accountID, userID, networkID, resourceID string) (*types.NetworkResource, error) {
@@ -502,40 +506,9 @@ func (m *managerImpl) resolveResourceAffectedPeers(ctx context.Context, accountI
 
 	log.WithContext(ctx).Tracef("resolveResourceAffectedPeers: resourceGroupIDs=%v, routerPeerGroups=%v, routerDirectPeers=%v, policies=%d",
 		data.resourceGroupIDs, data.routerPeerGroups, data.routerDirectPeers, len(data.policies))
+
 	groupSet := make(map[string]struct{})
-	var directPeerIDs []string
-
-	destSet := make(map[string]struct{}, len(data.resourceGroupIDs))
-	for _, gID := range data.resourceGroupIDs {
-		destSet[gID] = struct{}{}
-	}
-
-	for _, policy := range data.policies {
-		if policy == nil || !policy.Enabled {
-			continue
-		}
-		for _, rule := range policy.Rules {
-			if rule == nil || !rule.Enabled {
-				continue
-			}
-			referencesResource := false
-			for _, gID := range rule.Destinations {
-				if _, ok := destSet[gID]; ok {
-					referencesResource = true
-					break
-				}
-			}
-			if !referencesResource {
-				continue
-			}
-			for _, gID := range rule.Sources {
-				groupSet[gID] = struct{}{}
-			}
-			if rule.SourceResource.Type == nbtypes.ResourceTypePeer && rule.SourceResource.ID != "" {
-				directPeerIDs = append(directPeerIDs, rule.SourceResource.ID)
-			}
-		}
-	}
+	directPeerIDs := collectResourcePolicySourceGroups(data.policies, data.resourceGroupIDs, groupSet)
 
 	for _, gID := range data.routerPeerGroups {
 		groupSet[gID] = struct{}{}
@@ -546,31 +519,78 @@ func (m *managerImpl) resolveResourceAffectedPeers(ctx context.Context, accountI
 		return nil
 	}
 
+	peerIDs := resolveGroupsAndDirectPeers(ctx, m.store, accountID, groupSet, directPeerIDs)
+
+	log.WithContext(ctx).Tracef("resolveResourceAffectedPeers: result %d peers: %v", len(peerIDs), peerIDs)
+	return peerIDs
+}
+
+// collectResourcePolicySourceGroups finds policies whose rules reference the resource destination groups,
+// adds their source groups to groupSet, and returns any direct peer IDs from source resources.
+func collectResourcePolicySourceGroups(policies []*nbtypes.Policy, destGroupIDs []string, groupSet map[string]struct{}) []string {
+	destSet := make(map[string]struct{}, len(destGroupIDs))
+	for _, gID := range destGroupIDs {
+		destSet[gID] = struct{}{}
+	}
+
+	var directPeerIDs []string
+	for _, policy := range policies {
+		if policy == nil || !policy.Enabled {
+			continue
+		}
+		for _, rule := range policy.Rules {
+			if rule == nil || !rule.Enabled {
+				continue
+			}
+			if !ruleMatchesDestinations(rule, destSet) {
+				continue
+			}
+			for _, gID := range rule.Sources {
+				groupSet[gID] = struct{}{}
+			}
+			if rule.SourceResource.Type == nbtypes.ResourceTypePeer && rule.SourceResource.ID != "" {
+				directPeerIDs = append(directPeerIDs, rule.SourceResource.ID)
+			}
+		}
+	}
+	return directPeerIDs
+}
+
+func ruleMatchesDestinations(rule *nbtypes.PolicyRule, destSet map[string]struct{}) bool {
+	for _, gID := range rule.Destinations {
+		if _, ok := destSet[gID]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func resolveGroupsAndDirectPeers(ctx context.Context, s store.Store, accountID string, groupSet map[string]struct{}, directPeerIDs []string) []string {
 	groupIDs := make([]string, 0, len(groupSet))
 	for gID := range groupSet {
 		groupIDs = append(groupIDs, gID)
 	}
 
-	peerIDs, err := m.store.GetPeerIDsByGroups(ctx, accountID, groupIDs)
+	peerIDs, err := s.GetPeerIDsByGroups(ctx, accountID, groupIDs)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to resolve peer IDs: %v", err)
 		return nil
 	}
 
-	if len(directPeerIDs) > 0 {
-		seen := make(map[string]struct{}, len(peerIDs))
-		for _, id := range peerIDs {
-			seen[id] = struct{}{}
-		}
-		for _, id := range directPeerIDs {
-			if _, exists := seen[id]; !exists {
-				peerIDs = append(peerIDs, id)
-				seen[id] = struct{}{}
-			}
-		}
+	if len(directPeerIDs) == 0 {
+		return peerIDs
 	}
 
-	log.WithContext(ctx).Tracef("resolveResourceAffectedPeers: result %d peers: %v", len(peerIDs), peerIDs)
+	seen := make(map[string]struct{}, len(peerIDs))
+	for _, id := range peerIDs {
+		seen[id] = struct{}{}
+	}
+	for _, id := range directPeerIDs {
+		if _, exists := seen[id]; !exists {
+			peerIDs = append(peerIDs, id)
+			seen[id] = struct{}{}
+		}
+	}
 	return peerIDs
 }
 

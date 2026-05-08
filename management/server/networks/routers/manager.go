@@ -170,44 +170,9 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 	var network *networkTypes.Network
 	var affectedData *routerAffectedPeersData
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		network, err = transaction.GetNetworkByID(ctx, store.LockingStrengthNone, router.AccountID, router.NetworkID)
-		if err != nil {
-			return fmt.Errorf("failed to get network: %w", err)
-		}
-
-		if network.ID != router.NetworkID {
-			return status.NewRouterNotPartOfNetworkError(router.ID, router.NetworkID)
-		}
-
-		allPeerGroups := router.PeerGroups
-		var directPeers []string
-		if router.Peer != "" {
-			directPeers = append(directPeers, router.Peer)
-		}
-		oldRouter, err := transaction.GetNetworkRouterByID(ctx, store.LockingStrengthNone, router.AccountID, router.ID)
-		if err == nil {
-			allPeerGroups = append(allPeerGroups, oldRouter.PeerGroups...)
-			if oldRouter.Peer != "" {
-				directPeers = append(directPeers, oldRouter.Peer)
-			}
-		}
-
-		err = transaction.SaveNetworkRouter(ctx, router)
-		if err != nil {
-			return fmt.Errorf("failed to update network router: %w", err)
-		}
-
-		err = transaction.IncrementNetworkSerial(ctx, router.AccountID)
-		if err != nil {
-			return fmt.Errorf("failed to increment network serial: %w", err)
-		}
-
-		affectedData, err = loadRouterAffectedPeersData(ctx, transaction, router.AccountID, router.NetworkID, allPeerGroups, directPeers...)
-		if err != nil {
-			log.WithContext(ctx).Errorf("failed to load affected peers data: %v", err)
-		}
-
-		return nil
+		var txErr error
+		network, affectedData, txErr = m.updateRouterInTransaction(ctx, transaction, router)
+		return txErr
 	})
 	if err != nil {
 		return nil, err
@@ -223,6 +188,45 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 	}
 
 	return router, nil
+}
+
+func (m *managerImpl) updateRouterInTransaction(ctx context.Context, transaction store.Store, router *types.NetworkRouter) (*networkTypes.Network, *routerAffectedPeersData, error) {
+	network, err := transaction.GetNetworkByID(ctx, store.LockingStrengthNone, router.AccountID, router.NetworkID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get network: %w", err)
+	}
+
+	if network.ID != router.NetworkID {
+		return nil, nil, status.NewRouterNotPartOfNetworkError(router.ID, router.NetworkID)
+	}
+
+	allPeerGroups := router.PeerGroups
+	var directPeers []string
+	if router.Peer != "" {
+		directPeers = append(directPeers, router.Peer)
+	}
+	oldRouter, err := transaction.GetNetworkRouterByID(ctx, store.LockingStrengthNone, router.AccountID, router.ID)
+	if err == nil {
+		allPeerGroups = append(allPeerGroups, oldRouter.PeerGroups...)
+		if oldRouter.Peer != "" {
+			directPeers = append(directPeers, oldRouter.Peer)
+		}
+	}
+
+	if err = transaction.SaveNetworkRouter(ctx, router); err != nil {
+		return nil, nil, fmt.Errorf("failed to update network router: %w", err)
+	}
+
+	if err = transaction.IncrementNetworkSerial(ctx, router.AccountID); err != nil {
+		return nil, nil, fmt.Errorf("failed to increment network serial: %w", err)
+	}
+
+	affectedData, err := loadRouterAffectedPeersData(ctx, transaction, router.AccountID, router.NetworkID, allPeerGroups, directPeers...)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to load affected peers data: %v", err)
+	}
+
+	return network, affectedData, nil
 }
 
 func (m *managerImpl) DeleteRouter(ctx context.Context, accountID, userID, networkID, routerID string) error {
@@ -374,65 +378,79 @@ func (m *managerImpl) resolveRouterAffectedPeers(ctx context.Context, accountID 
 	}
 
 	if len(data.resourceGroupIDs) > 0 {
-		destSet := make(map[string]struct{}, len(data.resourceGroupIDs))
-		for _, gID := range data.resourceGroupIDs {
-			destSet[gID] = struct{}{}
-		}
-
-		for _, policy := range data.policies {
-			if policy == nil || !policy.Enabled {
-				continue
-			}
-			for _, rule := range policy.Rules {
-				if rule == nil || !rule.Enabled {
-					continue
-				}
-				referencesResource := false
-				for _, gID := range rule.Destinations {
-					if _, ok := destSet[gID]; ok {
-						referencesResource = true
-						break
-					}
-				}
-				if !referencesResource {
-					continue
-				}
-				for _, gID := range rule.Sources {
-					groupSet[gID] = struct{}{}
-				}
-			}
-		}
+		collectPolicySourceGroups(data.policies, data.resourceGroupIDs, groupSet)
 	}
 
 	if len(groupSet) == 0 && len(data.directPeerIDs) == 0 {
 		return nil
 	}
 
+	peerIDs := resolveGroupsAndDirectPeers(ctx, m.store, accountID, groupSet, data.directPeerIDs)
+
+	log.WithContext(ctx).Tracef("resolveRouterAffectedPeers: result %d peers: %v", len(peerIDs), peerIDs)
+	return peerIDs
+}
+
+// collectPolicySourceGroups finds policies whose rules reference any of the destination group IDs
+// and adds their source groups to the groupSet.
+func collectPolicySourceGroups(policies []*nbtypes.Policy, destGroupIDs []string, groupSet map[string]struct{}) {
+	destSet := make(map[string]struct{}, len(destGroupIDs))
+	for _, gID := range destGroupIDs {
+		destSet[gID] = struct{}{}
+	}
+
+	for _, policy := range policies {
+		if policy == nil || !policy.Enabled {
+			continue
+		}
+		for _, rule := range policy.Rules {
+			if rule == nil || !rule.Enabled {
+				continue
+			}
+			if ruleMatchesDestinations(rule, destSet) {
+				for _, gID := range rule.Sources {
+					groupSet[gID] = struct{}{}
+				}
+			}
+		}
+	}
+}
+
+func ruleMatchesDestinations(rule *nbtypes.PolicyRule, destSet map[string]struct{}) bool {
+	for _, gID := range rule.Destinations {
+		if _, ok := destSet[gID]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func resolveGroupsAndDirectPeers(ctx context.Context, s store.Store, accountID string, groupSet map[string]struct{}, directPeerIDs []string) []string {
 	groupIDs := make([]string, 0, len(groupSet))
 	for gID := range groupSet {
 		groupIDs = append(groupIDs, gID)
 	}
 
-	peerIDs, err := m.store.GetPeerIDsByGroups(ctx, accountID, groupIDs)
+	peerIDs, err := s.GetPeerIDsByGroups(ctx, accountID, groupIDs)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to resolve peer IDs: %v", err)
 		return nil
 	}
 
-	if len(data.directPeerIDs) > 0 {
-		seen := make(map[string]struct{}, len(peerIDs))
-		for _, id := range peerIDs {
-			seen[id] = struct{}{}
-		}
-		for _, id := range data.directPeerIDs {
-			if _, exists := seen[id]; !exists {
-				peerIDs = append(peerIDs, id)
-				seen[id] = struct{}{}
-			}
-		}
+	if len(directPeerIDs) == 0 {
+		return peerIDs
 	}
 
-	log.WithContext(ctx).Tracef("resolveRouterAffectedPeers: result %d peers: %v", len(peerIDs), peerIDs)
+	seen := make(map[string]struct{}, len(peerIDs))
+	for _, id := range peerIDs {
+		seen[id] = struct{}{}
+	}
+	for _, id := range directPeerIDs {
+		if _, exists := seen[id]; !exists {
+			peerIDs = append(peerIDs, id)
+			seen[id] = struct{}{}
+		}
+	}
 	return peerIDs
 }
 

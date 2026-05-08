@@ -245,62 +245,84 @@ func resolveNetworkAffectedPeers(ctx context.Context, s store.Store, accountID s
 	}
 
 	if len(data.resourceGroupIDs) > 0 {
-		destSet := make(map[string]struct{}, len(data.resourceGroupIDs))
 		for _, gID := range data.resourceGroupIDs {
-			destSet[gID] = struct{}{}
 			groupSet[gID] = struct{}{}
 		}
-
-		for _, policy := range data.policies {
-			if policy == nil || !policy.Enabled {
-				continue
-			}
-			for _, rule := range policy.Rules {
-				if rule == nil || !rule.Enabled {
-					continue
-				}
-				for _, gID := range rule.Destinations {
-					if _, ok := destSet[gID]; ok {
-						for _, srcGID := range rule.Sources {
-							groupSet[srcGID] = struct{}{}
-						}
-						break
-					}
-				}
-			}
-		}
+		collectPolicySourceGroups(data.policies, data.resourceGroupIDs, groupSet)
 	}
 
 	if len(groupSet) == 0 && len(data.directPeerIDs) == 0 {
 		return nil
 	}
 
+	peerIDs := resolveGroupsAndDirectPeers(ctx, s, accountID, groupSet, data.directPeerIDs)
+
+	log.WithContext(ctx).Tracef("resolveNetworkAffectedPeers: result %d peers: %v", len(peerIDs), peerIDs)
+	return peerIDs
+}
+
+// collectPolicySourceGroups finds policies whose rules reference any of the destination group IDs
+// and adds their source groups to the groupSet.
+func collectPolicySourceGroups(policies []*nbTypes.Policy, destGroupIDs []string, groupSet map[string]struct{}) {
+	destSet := make(map[string]struct{}, len(destGroupIDs))
+	for _, gID := range destGroupIDs {
+		destSet[gID] = struct{}{}
+	}
+
+	for _, policy := range policies {
+		if policy == nil || !policy.Enabled {
+			continue
+		}
+		for _, rule := range policy.Rules {
+			if rule == nil || !rule.Enabled {
+				continue
+			}
+			if ruleMatchesDestinations(rule, destSet) {
+				for _, gID := range rule.Sources {
+					groupSet[gID] = struct{}{}
+				}
+			}
+		}
+	}
+}
+
+// ruleMatchesDestinations checks if a policy rule references any of the destination groups.
+func ruleMatchesDestinations(rule *nbTypes.PolicyRule, destSet map[string]struct{}) bool {
+	for _, gID := range rule.Destinations {
+		if _, ok := destSet[gID]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveGroupsAndDirectPeers resolves group IDs and direct peer IDs into a deduplicated peer ID list.
+func resolveGroupsAndDirectPeers(ctx context.Context, s store.Store, accountID string, groupSet map[string]struct{}, directPeerIDs []string) []string {
 	groupIDs := make([]string, 0, len(groupSet))
 	for gID := range groupSet {
 		groupIDs = append(groupIDs, gID)
 	}
 
-	log.WithContext(ctx).Tracef("resolveNetworkAffectedPeers: resolved groupIDs=%v", groupIDs)
 	peerIDs, err := s.GetPeerIDsByGroups(ctx, accountID, groupIDs)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to resolve peer IDs: %v", err)
 		return nil
 	}
 
-	if len(data.directPeerIDs) > 0 {
-		seen := make(map[string]struct{}, len(peerIDs))
-		for _, id := range peerIDs {
-			seen[id] = struct{}{}
-		}
-		for _, id := range data.directPeerIDs {
-			if _, exists := seen[id]; !exists {
-				peerIDs = append(peerIDs, id)
-				seen[id] = struct{}{}
-			}
-		}
+	if len(directPeerIDs) == 0 {
+		return peerIDs
 	}
 
-	log.WithContext(ctx).Tracef("resolveNetworkAffectedPeers: result %d peers: %v", len(peerIDs), peerIDs)
+	seen := make(map[string]struct{}, len(peerIDs))
+	for _, id := range peerIDs {
+		seen[id] = struct{}{}
+	}
+	for _, id := range directPeerIDs {
+		if _, exists := seen[id]; !exists {
+			peerIDs = append(peerIDs, id)
+			seen[id] = struct{}{}
+		}
+	}
 	return peerIDs
 }
 
