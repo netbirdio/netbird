@@ -993,7 +993,11 @@ func (s *Server) getOrCreateInternalRouter(ctx context.Context, accountID types.
 	handler = s.meter.Middleware(handler)
 	handler = s.hijackTracker.Middleware(handler)
 
-	tlsCfg := selfSignedTLSConfig()
+	tlsCfg, err := selfSignedTLSConfig()
+	if err != nil {
+		_ = ln.Close()
+		return nil, fmt.Errorf("self-signed TLS for account %s: %w", accountID, err)
+	}
 
 	irCtx, cancel := context.WithCancel(ctx)
 	httpSrv := &http.Server{
@@ -1050,10 +1054,10 @@ func (s *Server) cleanupInternalRouter(accountID types.AccountID) {
 	s.Logger.Debugf("cleaned up empty internal router for account %s", accountID)
 }
 
-func selfSignedTLSConfig() *tls.Config {
+func selfSignedTLSConfig() (*tls.Config, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), crand.Reader)
 	if err != nil {
-		panic("generate self-signed key: " + err.Error())
+		return nil, fmt.Errorf("generate self-signed key: %w", err)
 	}
 	template := &x509.Certificate{
 		SerialNumber: big.NewInt(1),
@@ -1066,7 +1070,7 @@ func selfSignedTLSConfig() *tls.Config {
 	}
 	certDER, err := x509.CreateCertificate(crand.Reader, template, template, &key.PublicKey, key)
 	if err != nil {
-		panic("create self-signed cert: " + err.Error())
+		return nil, fmt.Errorf("create self-signed cert: %w", err)
 	}
 	return &tls.Config{
 		MinVersion: tls.VersionTLS12,
@@ -1074,7 +1078,7 @@ func selfSignedTLSConfig() *tls.Config {
 			Certificate: [][]byte{certDER},
 			PrivateKey:  key,
 		}},
-	}
+	}, nil
 }
 
 func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.ProxyServiceClient) {
