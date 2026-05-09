@@ -791,18 +791,7 @@ func (s *Server) shutdownServices() {
 	// Wait for per-port router serve goroutines to exit.
 	s.portRouterWg.Wait()
 
-	// Close all internal WireGuard-bound routers.
-	s.internalMu.Lock()
-	for accountID, ir := range s.internalRouters {
-		ir.cancel()
-		_ = ir.httpSrv.Close()
-		if err := ir.listener.Close(); err != nil {
-			s.Logger.Debugf("close internal listener for account %s: %v", accountID, err)
-		}
-		delete(s.internalRouters, accountID)
-	}
-	s.internalMu.Unlock()
-	s.internalWg.Wait()
+	s.shutdownInternalRouters()
 
 	wg.Wait()
 
@@ -931,6 +920,21 @@ func (s *Server) getOrCreatePortRouter(ctx context.Context, port uint16) (*nbtcp
 
 	s.Logger.Debugf("started per-port router on %s", listenAddr)
 	return router, nil
+}
+
+// shutdownInternalRouters closes all WireGuard-bound internal routers.
+func (s *Server) shutdownInternalRouters() {
+	s.internalMu.Lock()
+	for accountID, ir := range s.internalRouters {
+		ir.cancel()
+		_ = ir.httpSrv.Close()
+		if err := ir.listener.Close(); err != nil {
+			s.Logger.Debugf("close internal listener for account %s: %v", accountID, err)
+		}
+		delete(s.internalRouters, accountID)
+	}
+	s.internalMu.Unlock()
+	s.internalWg.Wait()
 }
 
 // cleanupPortIfEmpty tears down a per-port router if it has no remaining
@@ -1791,7 +1795,6 @@ func (s *Server) removeMapping(ctx context.Context, mapping *proto.ProxyMapping)
 // removal and in-place modification of mappings.
 func (s *Server) cleanupMappingRoutes(mapping *proto.ProxyMapping) {
 	svcID := types.ServiceID(mapping.GetId())
-	accountID := types.AccountID(mapping.GetAccountId())
 	host := mapping.GetDomain()
 	visibility := mappingVisibility(mapping)
 
@@ -1807,51 +1810,59 @@ func (s *Server) cleanupMappingRoutes(mapping *proto.ProxyMapping) {
 	}
 
 	if isPublicVisible(visibility) {
-		if host != "" {
-			d := domain.Domain(host)
-			if s.acme != nil {
-				s.acme.RemoveDomain(d)
-			}
-			s.mainRouter.RemoveRoute(nbtcp.SNIHost(host), svcID)
-		}
-
-		s.portMu.Lock()
-		entries := s.svcPorts[svcID]
-		delete(s.svcPorts, svcID)
-		s.portMu.Unlock()
-
-		for _, entry := range entries {
-			if router := s.routerForPortExisting(entry); router != nil {
-				if host != "" {
-					router.RemoveRoute(nbtcp.SNIHost(host), svcID)
-				} else {
-					router.RemoveFallback(svcID)
-				}
-			}
-			s.cleanupPortIfEmpty(entry)
-		}
+		s.cleanupPublicRoutes(svcID, host)
 	}
-
 	if isInternalVisible(visibility) {
-		s.internalMu.RLock()
-		ir, ok := s.internalRouters[accountID]
-		s.internalMu.RUnlock()
-		if ok {
-			if host != "" {
-				ir.router.RemoveRoute(nbtcp.SNIHost(host), svcID)
-			} else {
-				ir.router.RemoveFallback(svcID)
-			}
-			s.cleanupInternalRouter(accountID)
-		}
+		s.cleanupInternalRoutes(types.AccountID(mapping.GetAccountId()), svcID, host)
 	}
 
-	// UDP relay cleanup (idempotent).
 	s.removeUDPRelay(svcID)
-
-	// Release CrowdSec after all routes are removed so the shared bouncer
-	// isn't stopped while stale filters can still be reached by in-flight requests.
 	s.releaseCrowdSec(svcID)
+}
+
+// cleanupPublicRoutes removes public routes: ACME domain, main router SNI,
+// and any per-port router entries.
+func (s *Server) cleanupPublicRoutes(svcID types.ServiceID, host string) {
+	if host != "" {
+		d := domain.Domain(host)
+		if s.acme != nil {
+			s.acme.RemoveDomain(d)
+		}
+		s.mainRouter.RemoveRoute(nbtcp.SNIHost(host), svcID)
+	}
+
+	s.portMu.Lock()
+	entries := s.svcPorts[svcID]
+	delete(s.svcPorts, svcID)
+	s.portMu.Unlock()
+
+	for _, entry := range entries {
+		if router := s.routerForPortExisting(entry); router != nil {
+			if host != "" {
+				router.RemoveRoute(nbtcp.SNIHost(host), svcID)
+			} else {
+				router.RemoveFallback(svcID)
+			}
+		}
+		s.cleanupPortIfEmpty(entry)
+	}
+}
+
+// cleanupInternalRoutes removes routes from the account's internal WireGuard
+// router, tearing it down if empty.
+func (s *Server) cleanupInternalRoutes(accountID types.AccountID, svcID types.ServiceID, host string) {
+	s.internalMu.RLock()
+	ir, ok := s.internalRouters[accountID]
+	s.internalMu.RUnlock()
+	if !ok {
+		return
+	}
+	if host != "" {
+		ir.router.RemoveRoute(nbtcp.SNIHost(host), svcID)
+	} else {
+		ir.router.RemoveFallback(svcID)
+	}
+	s.cleanupInternalRouter(accountID)
 }
 
 // removeUDPRelay stops and removes a UDP relay by service ID.
