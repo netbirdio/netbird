@@ -9,11 +9,15 @@ package proxy
 
 import (
 	"context"
+	crand "crypto/rand"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"net"
 	"net/http"
 	"net/netip"
@@ -69,6 +73,15 @@ type portRouter struct {
 	cancel   context.CancelFunc
 }
 
+// internalRouter bundles a per-account WireGuard-bound Router with its
+// listener, HTTP server, and cancel func for internal-only services.
+type internalRouter struct {
+	router   *nbtcp.Router
+	listener net.Listener
+	httpSrv  *http.Server
+	cancel   context.CancelFunc
+}
+
 type Server struct {
 	mgmtClient    proto.ProxyServiceClient
 	proxy         *proxy.ReverseProxy
@@ -92,6 +105,9 @@ type Server struct {
 	svcPorts      map[types.ServiceID][]uint16
 	lastMappings  map[types.ServiceID]*proto.ProxyMapping
 	portRouterWg  sync.WaitGroup
+	internalMu      sync.RWMutex
+	internalRouters map[types.AccountID]*internalRouter
+	internalWg      sync.WaitGroup
 
 	// hijackTracker tracks hijacked connections (e.g. WebSocket upgrades)
 	// so they can be closed during graceful shutdown, since http.Server.Shutdown
@@ -247,6 +263,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	s.portRouters = make(map[uint16]*portRouter)
 	s.svcPorts = make(map[types.ServiceID][]uint16)
 	s.lastMappings = make(map[types.ServiceID]*proto.ProxyMapping)
+	s.internalRouters = make(map[types.AccountID]*internalRouter)
 
 	exporter, err := prometheus.New()
 	if err != nil {
@@ -702,6 +719,12 @@ func (s *Server) drainAllRouters(timeout time.Duration) {
 	}
 	s.portMu.RUnlock()
 
+	s.internalMu.RLock()
+	for accountID, ir := range s.internalRouters {
+		drain(fmt.Sprintf("internal/%s", accountID), ir.router)
+	}
+	s.internalMu.RUnlock()
+
 	wg.Wait()
 }
 
@@ -766,6 +789,19 @@ func (s *Server) shutdownServices() {
 
 	// Wait for per-port router serve goroutines to exit.
 	s.portRouterWg.Wait()
+
+	// Close all internal WireGuard-bound routers.
+	s.internalMu.Lock()
+	for accountID, ir := range s.internalRouters {
+		ir.cancel()
+		_ = ir.httpSrv.Close()
+		if err := ir.listener.Close(); err != nil {
+			s.Logger.Debugf("close internal listener for account %s: %v", accountID, err)
+		}
+		delete(s.internalRouters, accountID)
+	}
+	s.internalMu.Unlock()
+	s.internalWg.Wait()
 
 	wg.Wait()
 
@@ -925,6 +961,116 @@ func (s *Server) cleanupPortIfEmpty(port uint16) {
 		s.Logger.Warnf("timed out draining relay connections on port %d", port)
 	}
 	s.Logger.Debugf("cleaned up empty per-port router on port %d", port)
+}
+
+func (s *Server) getOrCreateInternalRouter(ctx context.Context, accountID types.AccountID) (*internalRouter, error) {
+	s.internalMu.Lock()
+	defer s.internalMu.Unlock()
+
+	if ir, ok := s.internalRouters[accountID]; ok {
+		return ir, nil
+	}
+
+	client, ok := s.netbird.GetClient(accountID)
+	if !ok {
+		return nil, fmt.Errorf("no embedded client for account %s", accountID)
+	}
+
+	ln, err := client.ListenTCP(":443")
+	if err != nil {
+		return nil, fmt.Errorf("listen on WireGuard interface for account %s: %w", accountID, err)
+	}
+
+	router := nbtcp.NewRouter(s.Logger, s.resolveDialFunc, ln.Addr())
+	router.SetObserver(s.meter)
+	router.SetAccessLogger(s.accessLog)
+
+	handler := http.Handler(s.proxy)
+	handler = s.auth.Protect(handler)
+	handler = web.AssetHandler(handler)
+	handler = s.accessLog.Middleware(handler)
+	handler = s.meter.Middleware(handler)
+	handler = s.hijackTracker.Middleware(handler)
+
+	tlsCfg := selfSignedTLSConfig()
+
+	irCtx, cancel := context.WithCancel(ctx)
+	httpSrv := &http.Server{
+		Handler:           handler,
+		TLSConfig:         tlsCfg,
+		ReadHeaderTimeout: httpReadHeaderTimeout,
+		IdleTimeout:       httpIdleTimeout,
+		ErrorLog:          newHTTPServerLogger(s.Logger, logtagValueHTTPS),
+	}
+
+	ir := &internalRouter{
+		router:   router,
+		listener: ln,
+		httpSrv:  httpSrv,
+		cancel:   cancel,
+	}
+	s.internalRouters[accountID] = ir
+
+	s.internalWg.Add(2)
+	go func() {
+		defer s.internalWg.Done()
+		if err := httpSrv.ServeTLS(router.HTTPListener(), "", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			s.Logger.Debugf("internal HTTPS server for account %s stopped: %v", accountID, err)
+		}
+	}()
+	go func() {
+		defer s.internalWg.Done()
+		if err := router.Serve(irCtx, ln); err != nil {
+			s.Logger.Debugf("internal router for account %s stopped: %v", accountID, err)
+		}
+	}()
+
+	s.Logger.Infof("started internal WireGuard-bound router for account %s on %s", accountID, ln.Addr())
+	return ir, nil
+}
+
+func (s *Server) cleanupInternalRouter(accountID types.AccountID) {
+	s.internalMu.Lock()
+	ir, ok := s.internalRouters[accountID]
+	if !ok || !ir.router.IsEmpty() {
+		s.internalMu.Unlock()
+		return
+	}
+
+	ir.cancel()
+	_ = ir.httpSrv.Close()
+	_ = ir.listener.Close()
+	delete(s.internalRouters, accountID)
+	s.internalMu.Unlock()
+
+	if ok := ir.router.Drain(nbtcp.DefaultDrainTimeout); !ok {
+		s.Logger.Warnf("timed out draining internal router for account %s", accountID)
+	}
+	s.Logger.Debugf("cleaned up empty internal router for account %s", accountID)
+}
+
+func selfSignedTLSConfig() *tls.Config {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), crand.Reader)
+	if err != nil {
+		panic("generate self-signed key: " + err.Error())
+	}
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		NotBefore:    time.Now(),
+		NotAfter:     time.Now().Add(10 * 365 * 24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	certDER, err := x509.CreateCertificate(crand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		panic("create self-signed cert: " + err.Error())
+	}
+	return &tls.Config{
+		Certificates: []tls.Certificate{{
+			Certificate: [][]byte{certDER},
+			PrivateKey:  key,
+		}},
+	}
 }
 
 func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.ProxyServiceClient) {
@@ -1144,6 +1290,16 @@ func (s *Server) modifyMapping(ctx context.Context, mapping *proto.ProxyMapping)
 
 // setupMappingRoutes configures the appropriate routes or relays for the given
 // service mapping based on its mode. The NetBird peer must already exist.
+func mappingVisibility(mapping *proto.ProxyMapping) string {
+	if v := mapping.GetVisibility(); v != "" {
+		return v
+	}
+	return "public"
+}
+
+func isPublicVisible(v string) bool   { return v == "public" }
+func isInternalVisible(v string) bool { return v == "internal" }
+
 func (s *Server) setupMappingRoutes(ctx context.Context, mapping *proto.ProxyMapping) error {
 	switch types.ServiceMode(mapping.GetMode()) {
 	case types.ServiceModeTCP:
@@ -1162,29 +1318,48 @@ func (s *Server) setupHTTPMapping(ctx context.Context, mapping *proto.ProxyMappi
 	d := domain.Domain(mapping.GetDomain())
 	accountID := types.AccountID(mapping.GetAccountId())
 	svcID := types.ServiceID(mapping.GetId())
+	visibility := mappingVisibility(mapping)
 
 	if len(mapping.GetPath()) == 0 {
 		return nil
 	}
 
-	var wildcardHit bool
-	if s.acme != nil {
-		wildcardHit = s.acme.AddDomain(d, accountID, svcID)
-	}
-	s.mainRouter.AddRoute(nbtcp.SNIHost(mapping.GetDomain()), nbtcp.Route{
-		Type:      nbtcp.RouteHTTP,
-		AccountID: accountID,
-		ServiceID: svcID,
-		Domain:    mapping.GetDomain(),
-	})
-	if err := s.updateMapping(ctx, mapping); err != nil {
-		return fmt.Errorf("update mapping for domain %q: %w", d, err)
+	if isPublicVisible(visibility) {
+		var wildcardHit bool
+		if s.acme != nil {
+			wildcardHit = s.acme.AddDomain(d, accountID, svcID)
+		}
+		s.mainRouter.AddRoute(nbtcp.SNIHost(mapping.GetDomain()), nbtcp.Route{
+			Type:      nbtcp.RouteHTTP,
+			AccountID: accountID,
+			ServiceID: svcID,
+			Domain:    mapping.GetDomain(),
+		})
+		if err := s.updateMapping(ctx, mapping); err != nil {
+			return fmt.Errorf("update mapping for domain %q: %w", d, err)
+		}
+		if wildcardHit {
+			if err := s.NotifyCertificateIssued(ctx, accountID, svcID, string(d)); err != nil {
+				s.Logger.Warnf("notify certificate ready for domain %q: %v", d, err)
+			}
+		}
 	}
 
-	if wildcardHit {
-		if err := s.NotifyCertificateIssued(ctx, accountID, svcID, string(d)); err != nil {
-			s.Logger.Warnf("notify certificate ready for domain %q: %v", d, err)
+	if isInternalVisible(visibility) {
+		ir, err := s.getOrCreateInternalRouter(ctx, accountID)
+		if err != nil {
+			return fmt.Errorf("internal router for account %s: %w", accountID, err)
 		}
+		ir.router.AddRoute(nbtcp.SNIHost(mapping.GetDomain()), nbtcp.Route{
+			Type:      nbtcp.RouteHTTP,
+			AccountID: accountID,
+			ServiceID: svcID,
+			Domain:    mapping.GetDomain(),
+		})
+		if err := s.updateMapping(ctx, mapping); err != nil {
+			return fmt.Errorf("internal update mapping for domain %q: %w", d, err)
+		}
+		s.sendStatusUpdate(ctx, accountID, svcID, proto.ProxyStatus_PROXY_STATUS_ACTIVE, nil)
 	}
 
 	return nil
@@ -1194,6 +1369,7 @@ func (s *Server) setupHTTPMapping(ctx context.Context, mapping *proto.ProxyMappi
 func (s *Server) setupTCPMapping(ctx context.Context, mapping *proto.ProxyMapping) error {
 	svcID := types.ServiceID(mapping.GetId())
 	accountID := types.AccountID(mapping.GetAccountId())
+	visibility := mappingVisibility(mapping)
 
 	port, err := netutil.ValidatePort(mapping.GetListenPort())
 	if err != nil {
@@ -1205,19 +1381,9 @@ func (s *Server) setupTCPMapping(ctx context.Context, mapping *proto.ProxyMappin
 		return fmt.Errorf("empty target address for TCP service %s", svcID)
 	}
 
-	if s.WireguardPort != 0 && port == s.WireguardPort {
-		return fmt.Errorf("port %d conflicts with tunnel port", port)
-	}
-
-	router, err := s.routerForPort(ctx, port)
-	if err != nil {
-		return fmt.Errorf("router for TCP port %d: %w", port, err)
-	}
-
 	s.warnIfGeoUnavailable(mapping.GetDomain(), mapping.GetAccessRestrictions())
 
-	router.SetGeo(s.geo)
-	router.SetFallback(nbtcp.Route{
+	tcpRoute := nbtcp.Route{
 		Type:               nbtcp.RouteTCP,
 		AccountID:          accountID,
 		ServiceID:          svcID,
@@ -1228,14 +1394,39 @@ func (s *Server) setupTCPMapping(ctx context.Context, mapping *proto.ProxyMappin
 		DialTimeout:        s.l4DialTimeout(mapping),
 		SessionIdleTimeout: s.clampIdleTimeout(l4SessionIdleTimeout(mapping)),
 		Filter:             s.parseRestrictions(mapping),
-	})
+	}
 
-	s.portMu.Lock()
-	s.svcPorts[svcID] = []uint16{port}
-	s.portMu.Unlock()
+	if isPublicVisible(visibility) {
+		if s.WireguardPort != 0 && port == s.WireguardPort {
+			return fmt.Errorf("port %d conflicts with tunnel port", port)
+		}
 
-	s.meter.L4ServiceAdded(types.ServiceModeTCP)
-	s.sendStatusUpdate(ctx, accountID, svcID, proto.ProxyStatus_PROXY_STATUS_ACTIVE, nil)
+		router, err := s.routerForPort(ctx, port)
+		if err != nil {
+			return fmt.Errorf("router for TCP port %d: %w", port, err)
+		}
+
+		router.SetGeo(s.geo)
+		router.SetFallback(tcpRoute)
+
+		s.portMu.Lock()
+		s.svcPorts[svcID] = []uint16{port}
+		s.portMu.Unlock()
+
+		s.meter.L4ServiceAdded(types.ServiceModeTCP)
+		s.sendStatusUpdate(ctx, accountID, svcID, proto.ProxyStatus_PROXY_STATUS_ACTIVE, nil)
+	}
+
+	if isInternalVisible(visibility) {
+		ir, err := s.getOrCreateInternalRouter(ctx, accountID)
+		if err != nil {
+			return fmt.Errorf("internal router for account %s: %w", accountID, err)
+		}
+		ir.router.SetFallback(tcpRoute)
+		s.meter.L4ServiceAdded(types.ServiceModeTCP)
+		s.sendStatusUpdate(ctx, accountID, svcID, proto.ProxyStatus_PROXY_STATUS_ACTIVE, nil)
+	}
+
 	return nil
 }
 
@@ -1243,6 +1434,7 @@ func (s *Server) setupTCPMapping(ctx context.Context, mapping *proto.ProxyMappin
 func (s *Server) setupUDPMapping(ctx context.Context, mapping *proto.ProxyMapping) error {
 	svcID := types.ServiceID(mapping.GetId())
 	accountID := types.AccountID(mapping.GetAccountId())
+	visibility := mappingVisibility(mapping)
 
 	port, err := netutil.ValidatePort(mapping.GetListenPort())
 	if err != nil {
@@ -1256,12 +1448,28 @@ func (s *Server) setupUDPMapping(ctx context.Context, mapping *proto.ProxyMappin
 
 	s.warnIfGeoUnavailable(mapping.GetDomain(), mapping.GetAccessRestrictions())
 
-	if err := s.addUDPRelay(ctx, mapping, targetAddr, port); err != nil {
-		return fmt.Errorf("UDP relay for service %s: %w", svcID, err)
+	if isPublicVisible(visibility) {
+		if err := s.addUDPRelay(ctx, mapping, targetAddr, port); err != nil {
+			return fmt.Errorf("UDP relay for service %s: %w", svcID, err)
+		}
+		s.meter.L4ServiceAdded(types.ServiceModeUDP)
+		s.sendStatusUpdate(ctx, accountID, svcID, proto.ProxyStatus_PROXY_STATUS_ACTIVE, nil)
 	}
 
-	s.meter.L4ServiceAdded(types.ServiceModeUDP)
-	s.sendStatusUpdate(ctx, accountID, svcID, proto.ProxyStatus_PROXY_STATUS_ACTIVE, nil)
+	if isInternalVisible(visibility) {
+		client, ok := s.netbird.GetClient(accountID)
+		if !ok {
+			return fmt.Errorf("no embedded client for account %s", accountID)
+		}
+		conn, err := client.ListenUDP(fmt.Sprintf(":%d", port))
+		if err != nil {
+			return fmt.Errorf("listen UDP on WireGuard for account %s: %w", accountID, err)
+		}
+		_ = conn // TODO: wire up internal UDP relay
+		s.meter.L4ServiceAdded(types.ServiceModeUDP)
+		s.sendStatusUpdate(ctx, accountID, svcID, proto.ProxyStatus_PROXY_STATUS_ACTIVE, nil)
+	}
+
 	return nil
 }
 
@@ -1269,6 +1477,7 @@ func (s *Server) setupUDPMapping(ctx context.Context, mapping *proto.ProxyMappin
 func (s *Server) setupTLSMapping(ctx context.Context, mapping *proto.ProxyMapping) error {
 	svcID := types.ServiceID(mapping.GetId())
 	accountID := types.AccountID(mapping.GetAccountId())
+	visibility := mappingVisibility(mapping)
 
 	tlsPort, err := netutil.ValidatePort(mapping.GetListenPort())
 	if err != nil {
@@ -1280,19 +1489,9 @@ func (s *Server) setupTLSMapping(ctx context.Context, mapping *proto.ProxyMappin
 		return fmt.Errorf("empty target address for TLS service %s", svcID)
 	}
 
-	if s.WireguardPort != 0 && tlsPort == s.WireguardPort {
-		return fmt.Errorf("port %d conflicts with tunnel port", tlsPort)
-	}
-
-	router, err := s.routerForPort(ctx, tlsPort)
-	if err != nil {
-		return fmt.Errorf("router for TLS port %d: %w", tlsPort, err)
-	}
-
 	s.warnIfGeoUnavailable(mapping.GetDomain(), mapping.GetAccessRestrictions())
 
-	router.SetGeo(s.geo)
-	router.AddRoute(nbtcp.SNIHost(mapping.GetDomain()), nbtcp.Route{
+	tlsRoute := nbtcp.Route{
 		Type:               nbtcp.RouteTCP,
 		AccountID:          accountID,
 		ServiceID:          svcID,
@@ -1303,23 +1502,48 @@ func (s *Server) setupTLSMapping(ctx context.Context, mapping *proto.ProxyMappin
 		DialTimeout:        s.l4DialTimeout(mapping),
 		SessionIdleTimeout: s.clampIdleTimeout(l4SessionIdleTimeout(mapping)),
 		Filter:             s.parseRestrictions(mapping),
-	})
-
-	if tlsPort != s.mainPort {
-		s.portMu.Lock()
-		s.svcPorts[svcID] = []uint16{tlsPort}
-		s.portMu.Unlock()
 	}
 
-	s.Logger.WithFields(log.Fields{
-		"domain":  mapping.GetDomain(),
-		"target":  targetAddr,
-		"port":    tlsPort,
-		"service": svcID,
-	}).Info("TLS passthrough mapping added")
+	if isPublicVisible(visibility) {
+		if s.WireguardPort != 0 && tlsPort == s.WireguardPort {
+			return fmt.Errorf("port %d conflicts with tunnel port", tlsPort)
+		}
 
-	s.meter.L4ServiceAdded(types.ServiceModeTLS)
-	s.sendStatusUpdate(ctx, accountID, svcID, proto.ProxyStatus_PROXY_STATUS_ACTIVE, nil)
+		router, err := s.routerForPort(ctx, tlsPort)
+		if err != nil {
+			return fmt.Errorf("router for TLS port %d: %w", tlsPort, err)
+		}
+
+		router.SetGeo(s.geo)
+		router.AddRoute(nbtcp.SNIHost(mapping.GetDomain()), tlsRoute)
+
+		if tlsPort != s.mainPort {
+			s.portMu.Lock()
+			s.svcPorts[svcID] = []uint16{tlsPort}
+			s.portMu.Unlock()
+		}
+
+		s.Logger.WithFields(log.Fields{
+			"domain":  mapping.GetDomain(),
+			"target":  targetAddr,
+			"port":    tlsPort,
+			"service": svcID,
+		}).Info("TLS passthrough mapping added")
+
+		s.meter.L4ServiceAdded(types.ServiceModeTLS)
+		s.sendStatusUpdate(ctx, accountID, svcID, proto.ProxyStatus_PROXY_STATUS_ACTIVE, nil)
+	}
+
+	if isInternalVisible(visibility) {
+		ir, err := s.getOrCreateInternalRouter(ctx, accountID)
+		if err != nil {
+			return fmt.Errorf("internal router for account %s: %w", accountID, err)
+		}
+		ir.router.AddRoute(nbtcp.SNIHost(mapping.GetDomain()), tlsRoute)
+		s.meter.L4ServiceAdded(types.ServiceModeTLS)
+		s.sendStatusUpdate(ctx, accountID, svcID, proto.ProxyStatus_PROXY_STATUS_ACTIVE, nil)
+	}
+
 	return nil
 }
 
@@ -1574,41 +1798,59 @@ func (s *Server) removeMapping(ctx context.Context, mapping *proto.ProxyMapping)
 // removal and in-place modification of mappings.
 func (s *Server) cleanupMappingRoutes(mapping *proto.ProxyMapping) {
 	svcID := types.ServiceID(mapping.GetId())
+	accountID := types.AccountID(mapping.GetAccountId())
 	host := mapping.GetDomain()
+	visibility := mappingVisibility(mapping)
 
-	// HTTP/TLS cleanup (only relevant when a domain is set).
+	// Auth / proxy / hijack cleanup (unconditional).
 	if host != "" {
-		d := domain.Domain(host)
-		if s.acme != nil {
-			s.acme.RemoveDomain(d)
-		}
 		s.auth.RemoveDomain(host)
 		if s.proxy.RemoveMapping(proxy.Mapping{Host: host}) {
 			s.meter.RemoveMapping(proxy.Mapping{Host: host})
 		}
-		// Close hijacked connections (WebSocket) for this domain.
 		if n := s.hijackTracker.CloseByHost(host); n > 0 {
 			s.Logger.Debugf("closed %d hijacked connection(s) for %s", n, host)
 		}
-		// Remove SNI route from the main router (covers both HTTP and main-port TLS).
-		s.mainRouter.RemoveRoute(nbtcp.SNIHost(host), svcID)
 	}
 
-	// Extract and delete tracked custom-port entries atomically.
-	s.portMu.Lock()
-	entries := s.svcPorts[svcID]
-	delete(s.svcPorts, svcID)
-	s.portMu.Unlock()
-
-	for _, entry := range entries {
-		if router := s.routerForPortExisting(entry); router != nil {
-			if host != "" {
-				router.RemoveRoute(nbtcp.SNIHost(host), svcID)
-			} else {
-				router.RemoveFallback(svcID)
+	if isPublicVisible(visibility) {
+		if host != "" {
+			d := domain.Domain(host)
+			if s.acme != nil {
+				s.acme.RemoveDomain(d)
 			}
+			s.mainRouter.RemoveRoute(nbtcp.SNIHost(host), svcID)
 		}
-		s.cleanupPortIfEmpty(entry)
+
+		s.portMu.Lock()
+		entries := s.svcPorts[svcID]
+		delete(s.svcPorts, svcID)
+		s.portMu.Unlock()
+
+		for _, entry := range entries {
+			if router := s.routerForPortExisting(entry); router != nil {
+				if host != "" {
+					router.RemoveRoute(nbtcp.SNIHost(host), svcID)
+				} else {
+					router.RemoveFallback(svcID)
+				}
+			}
+			s.cleanupPortIfEmpty(entry)
+		}
+	}
+
+	if isInternalVisible(visibility) {
+		s.internalMu.RLock()
+		ir, ok := s.internalRouters[accountID]
+		s.internalMu.RUnlock()
+		if ok {
+			if host != "" {
+				ir.router.RemoveRoute(nbtcp.SNIHost(host), svcID)
+			} else {
+				ir.router.RemoveFallback(svcID)
+			}
+			s.cleanupInternalRouter(accountID)
+		}
 	}
 
 	// UDP relay cleanup (idempotent).

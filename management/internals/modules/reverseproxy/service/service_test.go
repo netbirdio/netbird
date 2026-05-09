@@ -12,6 +12,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/shared/hash/argon2id"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -1038,4 +1039,97 @@ func TestValidate_HeaderAuths(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "exceeds maximum length")
 	})
+}
+
+func TestValidate_VisibilityValues(t *testing.T) {
+	for _, vis := range []string{"public", "internal"} {
+		t.Run(vis, func(t *testing.T) {
+			rp := validProxy()
+			rp.Visibility = vis
+			require.NoError(t, rp.Validate())
+		})
+	}
+}
+
+func TestValidate_VisibilityDefaultsToPublic(t *testing.T) {
+	rp := validProxy()
+	rp.Visibility = ""
+	require.NoError(t, rp.Validate())
+	assert.Equal(t, VisibilityPublic, rp.Visibility)
+}
+
+func TestValidate_VisibilityInvalid(t *testing.T) {
+	rp := validProxy()
+	rp.Visibility = "private"
+	err := rp.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported visibility")
+}
+
+func TestToProtoMapping_Visibility(t *testing.T) {
+	rp := &Service{
+		ID:         "svc-1",
+		AccountID:  "acc-1",
+		Domain:     "example.com",
+		Visibility: VisibilityInternal,
+		Targets: []*Target{
+			{TargetId: "peer-1", TargetType: TargetTypePeer, Host: "10.0.0.1", Port: 80, Protocol: "http", Enabled: true},
+		},
+	}
+	pm := rp.ToProtoMapping(Create, "token", proxy.OIDCValidationConfig{})
+	assert.Equal(t, "internal", pm.Visibility)
+}
+
+func TestToProtoMapping_VisibilityDefaultEmpty(t *testing.T) {
+	rp := &Service{
+		ID:        "svc-1",
+		AccountID: "acc-1",
+		Domain:    "example.com",
+		Targets: []*Target{
+			{TargetId: "peer-1", TargetType: TargetTypePeer, Host: "10.0.0.1", Port: 80, Protocol: "http", Enabled: true},
+		},
+	}
+	pm := rp.ToProtoMapping(Create, "token", proxy.OIDCValidationConfig{})
+	assert.Equal(t, "", pm.Visibility)
+}
+
+func TestToAPIResponse_Visibility(t *testing.T) {
+	rp := &Service{
+		ID:         "svc-1",
+		AccountID:  "acc-1",
+		Name:       "test",
+		Domain:     "example.com",
+		Visibility: VisibilityInternal,
+		Meta:       Meta{Status: string(StatusActive)},
+		Targets: []*Target{
+			{TargetId: "peer-1", TargetType: TargetTypePeer, Host: "10.0.0.1", Port: 80, Protocol: "http", Enabled: true},
+		},
+	}
+	resp := rp.ToAPIResponse()
+	require.NotNil(t, resp.Visibility)
+	assert.Equal(t, api.ServiceVisibilityInternal, *resp.Visibility)
+}
+
+func TestFromAPIRequest_Visibility(t *testing.T) {
+	vis := api.ServiceRequestVisibilityInternal
+	req := &api.ServiceRequest{
+		Name:       "test",
+		Domain:     "example.com",
+		Enabled:    true,
+		Visibility: &vis,
+	}
+	var svc Service
+	require.NoError(t, svc.FromAPIRequest(req, "acc-1"))
+	assert.Equal(t, VisibilityInternal, svc.Visibility)
+}
+
+func TestFromAPIRequest_VisibilityNil(t *testing.T) {
+	req := &api.ServiceRequest{
+		Name:    "test",
+		Domain:  "example.com",
+		Enabled: true,
+	}
+	var svc Service
+	require.NoError(t, svc.FromAPIRequest(req, "acc-1"))
+	assert.Equal(t, "", svc.Visibility)
 }

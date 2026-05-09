@@ -3024,6 +3024,12 @@ components:
           enum: [http, tcp, udp, tls]
           default: http
           example: "http"
+        visibility:
+          type: string
+          description: Controls where the service is reachable. "public" (default) exposes via the internet. "internal" exposes only to WireGuard mesh peers.
+          enum: [public, internal]
+          default: public
+          example: "public"
         listen_port:
           type: integer
           minimum: 0
@@ -3119,6 +3125,12 @@ components:
           enum: [http, tcp, udp, tls]
           default: http
           example: "http"
+        visibility:
+          type: string
+          description: Controls where the service is reachable. "public" (default) exposes via the internet. "internal" exposes only to WireGuard mesh peers.
+          enum: [public, internal]
+          default: public
+          example: "public"
         listen_port:
           type: integer
           minimum: 0

@@ -1019,6 +1019,42 @@ func (e ServiceRequestMode) Valid() bool {
 	}
 }
 
+// Defines values for ServiceVisibility.
+const (
+	ServiceVisibilityPublic   ServiceVisibility = "public"
+	ServiceVisibilityInternal ServiceVisibility = "internal"
+)
+
+// Valid indicates whether the value is a known member of the ServiceVisibility enum.
+func (e ServiceVisibility) Valid() bool {
+	switch e {
+	case ServiceVisibilityPublic:
+		return true
+	case ServiceVisibilityInternal:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ServiceRequestVisibility.
+const (
+	ServiceRequestVisibilityPublic   ServiceRequestVisibility = "public"
+	ServiceRequestVisibilityInternal ServiceRequestVisibility = "internal"
+)
+
+// Valid indicates whether the value is a known member of the ServiceRequestVisibility enum.
+func (e ServiceRequestVisibility) Valid() bool {
+	switch e {
+	case ServiceRequestVisibilityPublic:
+		return true
+	case ServiceRequestVisibilityInternal:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ServiceTargetProtocol.
 const (
 	ServiceTargetProtocolHttp  ServiceTargetProtocol = "http"
@@ -4048,6 +4084,9 @@ type Service struct {
 
 	// Terminated Whether the service has been terminated. Terminated services cannot be updated. Services that violate the Terms of Service will be terminated.
 	Terminated *bool `json:"terminated,omitempty"`
+
+	// Visibility Controls where the service is reachable. "public" (default) exposes via the internet. "internal" exposes only to WireGuard mesh peers.
+	Visibility *ServiceVisibility `json:"visibility,omitempty"`
 }
 
 // ServiceMode Service mode. "http" for L7 reverse proxy, "tcp"/"udp"/"tls" for L4 passthrough.
@@ -4106,10 +4145,19 @@ type ServiceRequest struct {
 
 	// Targets List of target backends for this service
 	Targets *[]ServiceTarget `json:"targets,omitempty"`
+
+	// Visibility Controls where the service is reachable. "public" (default) exposes via the internet. "internal" exposes only to WireGuard mesh peers.
+	Visibility *ServiceRequestVisibility `json:"visibility,omitempty"`
 }
 
 // ServiceRequestMode Service mode. "http" for L7 reverse proxy, "tcp"/"udp"/"tls" for L4 passthrough.
 type ServiceRequestMode string
+
+// ServiceVisibility Controls where the service is reachable.
+type ServiceVisibility string
+
+// ServiceRequestVisibility Controls where the service is reachable.
+type ServiceRequestVisibility string
 
 // ServiceTarget defines model for ServiceTarget.
 type ServiceTarget struct {

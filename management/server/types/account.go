@@ -1491,6 +1491,56 @@ func (a *Account) InjectProxyPolicies(ctx context.Context) {
 
 }
 
+// GetInternalServiceZones returns DNS custom zones that map internal-service
+// domains to their proxy peer's WireGuard IP. Mesh peers use these to reach
+// internal services through the WireGuard interface instead of the public
+// internet. Services with visibility != "internal" are skipped.
+func (a *Account) GetInternalServiceZones() []nbdns.CustomZone {
+	if len(a.Services) == 0 {
+		return nil
+	}
+	proxyPeersByCluster := a.GetProxyPeers()
+	if len(proxyPeersByCluster) == 0 {
+		return nil
+	}
+
+	var zones []nbdns.CustomZone
+	for _, svc := range a.Services {
+		if !svc.Enabled || svc.Domain == "" {
+			continue
+		}
+		if svc.Visibility != service.VisibilityInternal {
+			continue
+		}
+		proxyPeers := proxyPeersByCluster[svc.ProxyCluster]
+		if len(proxyPeers) == 0 {
+			continue
+		}
+		var records []nbdns.SimpleRecord
+		for _, p := range proxyPeers {
+			if !p.IP.IsValid() {
+				continue
+			}
+			records = append(records, nbdns.SimpleRecord{
+				Name:  svc.Domain,
+				Type:  int(dns.TypeA),
+				Class: nbdns.DefaultClass,
+				TTL:   60,
+				RData: p.IP.String(),
+			})
+		}
+		if len(records) == 0 {
+			continue
+		}
+		zones = append(zones, nbdns.CustomZone{
+			Domain:           svc.Domain,
+			Records:          records,
+			NonAuthoritative: true,
+		})
+	}
+	return zones
+}
+
 func (a *Account) injectServiceProxyPolicies(ctx context.Context, service *service.Service, proxyPeersByCluster map[string][]*nbpeer.Peer) {
 	proxyPeers := proxyPeersByCluster[service.ProxyCluster]
 	for _, target := range service.Targets {

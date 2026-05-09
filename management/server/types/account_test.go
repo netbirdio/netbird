@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -1582,4 +1583,77 @@ func Test_filterPeerAppliedZones(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGetInternalServiceZones(t *testing.T) {
+	proxyIP := netip.MustParseAddr("100.64.0.5")
+	makeAccount := func(svc *service.Service, withProxy bool) *Account {
+		acc := &Account{
+			Peers:    map[string]*nbpeer.Peer{},
+			Services: []*service.Service{svc},
+		}
+		if withProxy {
+			acc.Peers["proxy1"] = &nbpeer.Peer{
+				ID:        "proxy1",
+				IP:        proxyIP,
+				ProxyMeta: nbpeer.ProxyMeta{Embedded: true, Cluster: "eu.proxy"},
+			}
+		}
+		return acc
+	}
+
+	t.Run("internal service produces zone with proxy IP", func(t *testing.T) {
+		svc := &service.Service{
+			ID:           "svc-1",
+			Domain:       "myapp.example.netbird.app",
+			ProxyCluster: "eu.proxy",
+			Visibility:   service.VisibilityInternal,
+			Enabled:      true,
+		}
+		acc := makeAccount(svc, true)
+		zones := acc.GetInternalServiceZones()
+		require.Len(t, zones, 1)
+		assert.Equal(t, "myapp.example.netbird.app", zones[0].Domain)
+		assert.True(t, zones[0].NonAuthoritative)
+		require.Len(t, zones[0].Records, 1)
+		assert.Equal(t, "myapp.example.netbird.app", zones[0].Records[0].Name)
+		assert.Equal(t, int(dns.TypeA), zones[0].Records[0].Type)
+		assert.Equal(t, "100.64.0.5", zones[0].Records[0].RData)
+	})
+
+	t.Run("public service is skipped", func(t *testing.T) {
+		svc := &service.Service{
+			ID:           "svc-1",
+			Domain:       "myapp.example.netbird.app",
+			ProxyCluster: "eu.proxy",
+			Visibility:   service.VisibilityPublic,
+			Enabled:      true,
+		}
+		acc := makeAccount(svc, true)
+		assert.Empty(t, acc.GetInternalServiceZones())
+	})
+
+	t.Run("disabled service is skipped", func(t *testing.T) {
+		svc := &service.Service{
+			ID:           "svc-1",
+			Domain:       "myapp.example.netbird.app",
+			ProxyCluster: "eu.proxy",
+			Visibility:   service.VisibilityInternal,
+			Enabled:      false,
+		}
+		acc := makeAccount(svc, true)
+		assert.Empty(t, acc.GetInternalServiceZones())
+	})
+
+	t.Run("no proxy peer in cluster yields no zone", func(t *testing.T) {
+		svc := &service.Service{
+			ID:           "svc-1",
+			Domain:       "myapp.example.netbird.app",
+			ProxyCluster: "eu.proxy",
+			Visibility:   service.VisibilityInternal,
+			Enabled:      true,
+		}
+		acc := makeAccount(svc, false)
+		assert.Empty(t, acc.GetInternalServiceZones())
+	})
 }
