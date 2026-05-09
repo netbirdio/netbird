@@ -740,6 +740,10 @@ func (s *Service) Validate() error {
 		return fmt.Errorf("unsupported visibility %q", s.Visibility)
 	}
 
+	if s.Visibility == VisibilityInternal && IsL4Protocol(s.Mode) {
+		return fmt.Errorf("internal visibility is not yet supported for %s services", s.Mode)
+	}
+
 	if err := validateHeaderAuths(s.Auth.HeaderAuths); err != nil {
 		return err
 	}

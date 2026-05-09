@@ -1418,13 +1418,7 @@ func (s *Server) setupTCPMapping(ctx context.Context, mapping *proto.ProxyMappin
 	}
 
 	if isInternalVisible(visibility) {
-		ir, err := s.getOrCreateInternalRouter(ctx, accountID)
-		if err != nil {
-			return fmt.Errorf("internal router for account %s: %w", accountID, err)
-		}
-		ir.router.SetFallback(tcpRoute)
-		s.meter.L4ServiceAdded(types.ServiceModeTCP)
-		s.sendStatusUpdate(ctx, accountID, svcID, proto.ProxyStatus_PROXY_STATUS_ACTIVE, nil)
+		return fmt.Errorf("internal TCP services are not yet supported")
 	}
 
 	return nil
@@ -1457,17 +1451,7 @@ func (s *Server) setupUDPMapping(ctx context.Context, mapping *proto.ProxyMappin
 	}
 
 	if isInternalVisible(visibility) {
-		client, ok := s.netbird.GetClient(accountID)
-		if !ok {
-			return fmt.Errorf("no embedded client for account %s", accountID)
-		}
-		conn, err := client.ListenUDP(fmt.Sprintf(":%d", port))
-		if err != nil {
-			return fmt.Errorf("listen UDP on WireGuard for account %s: %w", accountID, err)
-		}
-		_ = conn // TODO: wire up internal UDP relay
-		s.meter.L4ServiceAdded(types.ServiceModeUDP)
-		s.sendStatusUpdate(ctx, accountID, svcID, proto.ProxyStatus_PROXY_STATUS_ACTIVE, nil)
+		return fmt.Errorf("internal UDP services are not yet supported")
 	}
 
 	return nil
@@ -1535,13 +1519,7 @@ func (s *Server) setupTLSMapping(ctx context.Context, mapping *proto.ProxyMappin
 	}
 
 	if isInternalVisible(visibility) {
-		ir, err := s.getOrCreateInternalRouter(ctx, accountID)
-		if err != nil {
-			return fmt.Errorf("internal router for account %s: %w", accountID, err)
-		}
-		ir.router.AddRoute(nbtcp.SNIHost(mapping.GetDomain()), tlsRoute)
-		s.meter.L4ServiceAdded(types.ServiceModeTLS)
-		s.sendStatusUpdate(ctx, accountID, svcID, proto.ProxyStatus_PROXY_STATUS_ACTIVE, nil)
+		return fmt.Errorf("internal TLS services are not yet supported")
 	}
 
 	return nil

@@ -1516,13 +1516,14 @@ func (a *Account) GetInternalServiceZones() []nbdns.CustomZone {
 		if len(proxyPeers) == 0 {
 			continue
 		}
+		fqdn := dns.Fqdn(svc.Domain)
 		var records []nbdns.SimpleRecord
 		for _, p := range proxyPeers {
 			if !p.IP.IsValid() {
 				continue
 			}
 			records = append(records, nbdns.SimpleRecord{
-				Name:  svc.Domain,
+				Name:  fqdn,
 				Type:  int(dns.TypeA),
 				Class: nbdns.DefaultClass,
 				TTL:   60,
@@ -1533,7 +1534,7 @@ func (a *Account) GetInternalServiceZones() []nbdns.CustomZone {
 			continue
 		}
 		zones = append(zones, nbdns.CustomZone{
-			Domain:           svc.Domain,
+			Domain:           fqdn,
 			Records:          records,
 			NonAuthoritative: true,
 		})
