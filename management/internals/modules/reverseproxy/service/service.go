@@ -1203,6 +1203,7 @@ func (s *Service) Copy() *Service {
 		Source:            s.Source,
 		SourcePeer:        s.SourcePeer,
 		Mode:              s.Mode,
+		Visibility:        s.Visibility,
 		ListenPort:        s.ListenPort,
 		PortAutoAssigned:  s.PortAutoAssigned,
 	}

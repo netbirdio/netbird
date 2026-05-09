@@ -14,6 +14,7 @@ import (
 	"crypto/elliptic"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"errors"
 	"fmt"
 	"io"
@@ -1056,6 +1057,8 @@ func selfSignedTLSConfig() *tls.Config {
 	}
 	template := &x509.Certificate{
 		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "netbird-internal"},
+		DNSNames:     []string{"*"},
 		NotBefore:    time.Now(),
 		NotAfter:     time.Now().Add(10 * 365 * 24 * time.Hour),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
@@ -1066,6 +1069,7 @@ func selfSignedTLSConfig() *tls.Config {
 		panic("create self-signed cert: " + err.Error())
 	}
 	return &tls.Config{
+		MinVersion: tls.VersionTLS12,
 		Certificates: []tls.Certificate{{
 			Certificate: [][]byte{certDER},
 			PrivateKey:  key,
@@ -1288,17 +1292,24 @@ func (s *Server) modifyMapping(ctx context.Context, mapping *proto.ProxyMapping)
 	return nil
 }
 
+// Visibility constants matching the management-side service.VisibilityPublic
+// and service.VisibilityInternal values.
+const (
+	visibilityPublic   = "public"
+	visibilityInternal = "internal"
+)
+
 // setupMappingRoutes configures the appropriate routes or relays for the given
 // service mapping based on its mode. The NetBird peer must already exist.
 func mappingVisibility(mapping *proto.ProxyMapping) string {
 	if v := mapping.GetVisibility(); v != "" {
 		return v
 	}
-	return "public"
+	return visibilityPublic
 }
 
-func isPublicVisible(v string) bool   { return v == "public" }
-func isInternalVisible(v string) bool { return v == "internal" }
+func isPublicVisible(v string) bool   { return v == visibilityPublic }
+func isInternalVisible(v string) bool { return v == visibilityInternal }
 
 func (s *Server) setupMappingRoutes(ctx context.Context, mapping *proto.ProxyMapping) error {
 	switch types.ServiceMode(mapping.GetMode()) {
