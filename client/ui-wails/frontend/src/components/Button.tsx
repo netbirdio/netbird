@@ -14,7 +14,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>, Bu
 export const buttonVariants = cva(
     [
         "relative",
-        "text-sm focus:z-10 focus:ring-2 font-medium focus:outline-none whitespace-nowrap shadow-sm",
+        "text-sm focus:z-10 focus:ring-2 font-semibold focus:outline-none whitespace-nowrap shadow-sm",
         "inline-flex gap-2 items-center justify-center transition-colors focus:ring-offset-1",
         "disabled:opacity-40 disabled:cursor-not-allowed disabled:dark:text-nb-gray-300 dark:ring-offset-neutral-950/50",
     ],
@@ -153,8 +153,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
             }}
             {...props}
         >
-            {copy !== undefined &&
-                (copied ? <Check size={iconSize} /> : <Copy size={iconSize} />)}
+            {copy !== undefined && (copied ? <Check size={iconSize} /> : <Copy size={iconSize} />)}
             {children}
         </button>
     );

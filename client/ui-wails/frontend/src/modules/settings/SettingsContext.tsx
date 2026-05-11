@@ -10,6 +10,7 @@ import {
 import { Settings as SettingsSvc } from "@bindings/services";
 import type { Config } from "@bindings/services/models.js";
 import { useProfile } from "@/modules/profile/ProfileContext.tsx";
+import { SkeletonSettings } from "@/modules/skeletons/SkeletonSettings.tsx";
 
 const SAVE_DEBOUNCE_MS = 400;
 
@@ -138,15 +139,15 @@ const useSettingsState = () => {
 };
 
 export const SettingsProvider = ({ children }: { children: ReactNode }) => {
-    const { config, error, setField, saveField, saveFields, saveNow } =
-        useSettingsState();
+    const { config, error, setField, saveField, saveFields, saveNow } = useSettingsState();
 
+    // TODO: Better displaying of errors
     return (
         <>
             {error && <p className={"pb-6 text-sm text-red-500"}>{error}</p>}
             <div className={"flex-1 min-h-0 overflow-y-auto"}>
                 {!config ? (
-                    <div className={"p-6 text-sm text-nb-gray-500"}>Loading…</div>
+                    <SkeletonSettings />
                 ) : (
                     <SettingsContext.Provider
                         value={{
