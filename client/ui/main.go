@@ -7,6 +7,7 @@ import (
 	"embed"
 	"flag"
 	"log"
+	"runtime"
 	"strings"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -66,6 +67,15 @@ func main() {
 	// declared before app.New so the closure has a stable reference.
 	var tray *Tray
 
+	// On macOS, application.Options.Icon is fed into NSApplication's
+	// setApplicationIconImage at startup, which would override the bundle
+	// icon (Assets.car / icons.icns) the OS already picked. We want the
+	// bundle's squircle to stay, so suppress it on darwin.
+	appIcon := iconWindow
+	if runtime.GOOS == "darwin" {
+		appIcon = nil
+	}
+
 	app := application.New(application.Options{
 		// Windows uses Name as the AppUserModelID for toast notifications
 		// (see notifications_windows.go: cfg.Name -> wn.appName -> AppID)
@@ -77,7 +87,7 @@ func main() {
 		// CustomActivator registry value is orphaned.
 		Name:        "NetBird",
 		Description: "NetBird desktop client",
-		Icon:        iconWindow,
+		Icon:        appIcon,
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
 		},
