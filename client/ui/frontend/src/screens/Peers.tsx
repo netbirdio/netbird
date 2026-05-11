@@ -1,11 +1,7 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Network, ShieldCheck, Zap } from "lucide-react";
 import { useStatus } from "../hooks/useStatus";
-<<<<<<<< HEAD:client/ui/frontend/src/screens/Peers.tsx
 import type { PeerStatus } from "@bindings/services/models.js";
-========
-import type { PeerStatus } from "../../bindings/github.com/netbirdio/netbird/client/ui/services/models.js";
->>>>>>>> ui-refactor:client/ui/frontend/src/pages/Peers.tsx
 import { Card } from "../components/Card";
 import { Input } from "../components/Input";
 import { cn } from "../lib/cn";

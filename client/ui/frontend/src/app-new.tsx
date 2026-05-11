@@ -3,7 +3,7 @@ import ReactDOM from "react-dom/client";
 import "./globals.css";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import QuickActions from "@/screens/QuickActions.tsx";
-import LoginUrl from "@/screens/LoginUrl.tsx";
+import LoginUrl from "@/pages/LoginUrl.tsx";
 import Update from "@/screens/Update.tsx";
 import { AppLayout } from "@/layouts/AppLayout.tsx";
 import { Main } from "@/layouts/Main.tsx";

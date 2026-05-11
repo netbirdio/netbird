@@ -10,7 +10,7 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
       "@bindings": path.resolve(
         __dirname,
-        "./bindings/github.com/netbirdio/netbird/client/ui-wails",
+        "./bindings/github.com/netbirdio/netbird/client/ui",
       ),
     },
   },

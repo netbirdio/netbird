@@ -1,11 +1,6 @@
 import { useState } from "react";
-<<<<<<<< HEAD:client/ui/frontend/src/screens/Debug.tsx
 import { Debug as DebugSvc } from "@bindings/services";
 import type { DebugBundleResult } from "@bindings/services/models.js";
-========
-import { Debug as DebugSvc } from "../../bindings/github.com/netbirdio/netbird/client/ui/services";
-import type { DebugBundleResult } from "../../bindings/github.com/netbirdio/netbird/client/ui/services/models.js";
->>>>>>>> ui-refactor:client/ui/frontend/src/pages/Debug.tsx
 import { Button } from "../components/Button";
 import { Input } from "../components/Input";
 import { Switch } from "../components/Switch";

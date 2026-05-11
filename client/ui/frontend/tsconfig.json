@@ -23,7 +23,7 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"],
-      "@bindings/*": ["bindings/github.com/netbirdio/netbird/client/ui-wails/*"]
+      "@bindings/*": ["bindings/github.com/netbirdio/netbird/client/ui/*"]
     }
   },
   "include": ["src", "bindings"],

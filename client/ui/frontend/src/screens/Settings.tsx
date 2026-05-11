@@ -2,13 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Settings as SettingsSvc,
   Profiles as ProfilesSvc,
-<<<<<<<< HEAD:client/ui/frontend/src/screens/Settings.tsx
 } from "@bindings/services";
 import type { Config } from "@bindings/services/models.js";
-========
-} from "../../bindings/github.com/netbirdio/netbird/client/ui/services";
-import type { Config } from "../../bindings/github.com/netbirdio/netbird/client/ui/services/models.js";
->>>>>>>> ui-refactor:client/ui/frontend/src/pages/Settings.tsx
 import { Button } from "../components/Button";
 import { Input } from "../components/Input";
 import { Switch } from "../components/Switch";

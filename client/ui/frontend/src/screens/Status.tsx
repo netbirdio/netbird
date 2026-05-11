@@ -1,13 +1,8 @@
 import { CheckCircle2, Circle, Loader2, AlertTriangle, Power, LogIn } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useStatus } from "../hooks/useStatus";
-<<<<<<<< HEAD:client/ui/frontend/src/screens/Status.tsx
 import { Connection } from "@bindings/services";
 import type { SystemEvent } from "@bindings/services/models.js";
-========
-import { Connection } from "../../bindings/github.com/netbirdio/netbird/client/ui/services";
-import type { SystemEvent } from "../../bindings/github.com/netbirdio/netbird/client/ui/services/models.js";
->>>>>>>> ui-refactor:client/ui/frontend/src/pages/Status.tsx
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { cn } from "../lib/cn";
@@ -29,15 +24,12 @@ export default function Status() {
   // the user has no other way out. Disconnect is the manual unstick path.
   const showLogin = !connected;
 
-<<<<<<<< HEAD:client/ui/frontend/src/screens/Status.tsx
   const toggleState: ConnectionState =
     connected ? ConnectionState.Connected
     : connecting ? ConnectionState.Connecting
     : ConnectionState.Disconnected;
 
-========
   const login = () => navigate("/login");
->>>>>>>> ui-refactor:client/ui/frontend/src/pages/Status.tsx
   const connect = () => Connection.Up({ profileName: "", username: "" }).catch(console.error);
   const disconnect = () => Connection.Down().catch(console.error);
   const toggleConnection = () => (connected ? disconnect() : connect());

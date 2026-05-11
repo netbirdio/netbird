@@ -3,13 +3,8 @@ import { Plus, RefreshCw } from "lucide-react";
 import {
   Profiles as ProfilesSvc,
   Connection,
-<<<<<<<< HEAD:client/ui/frontend/src/screens/Profiles.tsx
 } from "@bindings/services";
 import type { Profile } from "@bindings/services/models.js";
-========
-} from "../../bindings/github.com/netbirdio/netbird/client/ui/services";
-import type { Profile } from "../../bindings/github.com/netbirdio/netbird/client/ui/services/models.js";
->>>>>>>> ui-refactor:client/ui/frontend/src/pages/Profiles.tsx
 import { Button } from "../components/Button";
 import { Input } from "../components/Input";
 import { Card } from "../components/Card";

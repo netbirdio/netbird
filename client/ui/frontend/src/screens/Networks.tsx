@@ -1,12 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
-<<<<<<<< HEAD:client/ui/frontend/src/screens/Networks.tsx
 import { Networks as NetworksSvc } from "@bindings/services";
 import type { Network } from "@bindings/services/models.js";
-========
-import { Networks as NetworksSvc } from "../../bindings/github.com/netbirdio/netbird/client/ui/services";
-import type { Network } from "../../bindings/github.com/netbirdio/netbird/client/ui/services/models.js";
->>>>>>>> ui-refactor:client/ui/frontend/src/pages/Networks.tsx
 import { Button } from "../components/Button";
 import { Tabs } from "../components/Tabs";
 

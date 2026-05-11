@@ -26,6 +26,15 @@ export function GetLogLevel(): $CancellablePromise<$models.LogLevel> {
     });
 }
 
+/**
+ * RevealFile opens the OS file manager focused on the given path. Wails'
+ * Browser.OpenURL refuses non-http(s) schemes, so the UI calls this binding
+ * instead of constructing a file:// URL.
+ */
+export function RevealFile(path: string): $CancellablePromise<void> {
+    return $Call.ByID(2620662837, path);
+}
+
 export function SetLogLevel(lvl: $models.LogLevel): $CancellablePromise<void> {
     return $Call.ByID(4122411498, lvl);
 }
