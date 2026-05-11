@@ -15,27 +15,27 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 import * as $models from "./models.js";
 
 export function Add(p: $models.ProfileRef): $CancellablePromise<void> {
-    return $Call.ByID(701512397, p);
+    return $Call.ByID(722930578, p);
 }
 
 export function GetActive(): $CancellablePromise<$models.ActiveProfile> {
-    return $Call.ByID(2605259596).then(($result: any) => {
+    return $Call.ByID(3458449443).then(($result: any) => {
         return $$createType0($result);
     });
 }
 
 export function List(username: string): $CancellablePromise<$models.Profile[]> {
-    return $Call.ByID(1745269178, username).then(($result: any) => {
+    return $Call.ByID(3702185167, username).then(($result: any) => {
         return $$createType2($result);
     });
 }
 
 export function Remove(p: $models.ProfileRef): $CancellablePromise<void> {
-    return $Call.ByID(2506403914, p);
+    return $Call.ByID(2365690315, p);
 }
 
 export function Switch(p: $models.ProfileRef): $CancellablePromise<void> {
-    return $Call.ByID(3405248534, p);
+    return $Call.ByID(3209858855, p);
 }
 
 /**
@@ -43,7 +43,7 @@ export function Switch(p: $models.ProfileRef): $CancellablePromise<void> {
  * The frontend calls this once at boot and reuses the result.
  */
 export function Username(): $CancellablePromise<string> {
-    return $Call.ByID(1939223418);
+    return $Call.ByID(262345647);
 }
 
 // Private type creation functions

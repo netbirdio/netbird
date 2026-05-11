@@ -4,11 +4,11 @@ project_name: netbird-ui
 
 before:
   hooks:
-    - sh -c 'cd client/ui-wails/frontend && pnpm install --frozen-lockfile && pnpm build'
+    - sh -c 'cd client/ui/frontend && pnpm install --frozen-lockfile && pnpm build'
 
 builds:
   - id: netbird-ui
-    dir: client/ui-wails
+    dir: client/ui
     binary: netbird-ui
     env:
       - CGO_ENABLED=1
@@ -21,7 +21,7 @@ builds:
     mod_timestamp: "{{ .CommitTimestamp }}"
 
   - id: netbird-ui-windows-amd64
-    dir: client/ui-wails
+    dir: client/ui
     binary: netbird-ui
     env:
       - CGO_ENABLED=1
@@ -36,7 +36,7 @@ builds:
     mod_timestamp: "{{ .CommitTimestamp }}"
 
   - id: netbird-ui-windows-arm64
-    dir: client/ui-wails
+    dir: client/ui
     binary: netbird-ui
     env:
       - CGO_ENABLED=1
@@ -75,9 +75,9 @@ nfpms:
     scripts:
       postinstall: "release_files/ui-post-install.sh"
     contents:
-      - src: client/ui-wails/build/linux/netbird.desktop
+      - src: client/ui/build/linux/netbird.desktop
         dst: /usr/share/applications/netbird.desktop
-      - src: client/ui-wails/build/appicon.png
+      - src: client/ui/build/appicon.png
         dst: /usr/share/pixmaps/netbird.png
     dependencies:
       - netbird
@@ -97,9 +97,9 @@ nfpms:
     scripts:
       postinstall: "release_files/ui-post-install.sh"
     contents:
-      - src: client/ui-wails/build/linux/netbird.desktop
+      - src: client/ui/build/linux/netbird.desktop
         dst: /usr/share/applications/netbird.desktop
-      - src: client/ui-wails/build/appicon.png
+      - src: client/ui/build/appicon.png
         dst: /usr/share/pixmaps/netbird.png
     dependencies:
       - netbird

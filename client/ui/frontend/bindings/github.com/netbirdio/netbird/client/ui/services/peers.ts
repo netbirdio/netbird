@@ -19,7 +19,7 @@ import * as $models from "./models.js";
  * Get returns the current daemon status snapshot.
  */
 export function Get(): $CancellablePromise<$models.Status> {
-    return $Call.ByID(196038193).then(($result: any) => {
+    return $Call.ByID(3266051360).then(($result: any) => {
         return $$createType0($result);
     });
 }
@@ -39,7 +39,7 @@ export function Get(): $CancellablePromise<$models.Status> {
  * via exponential backoff.
  */
 export function Watch(): $CancellablePromise<void> {
-    return $Call.ByID(741320382);
+    return $Call.ByID(2799871735);
 }
 
 // Private type creation functions

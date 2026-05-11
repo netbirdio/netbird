@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Update as UpdateSvc } from "../../bindings/github.com/netbirdio/netbird/client/ui-wails/services";
+import { Update as UpdateSvc } from "../../bindings/github.com/netbirdio/netbird/client/ui/services";
 
 const TIMEOUT_MS = 15 * 60 * 1000;
 const POLL_INTERVAL_MS = 2000;

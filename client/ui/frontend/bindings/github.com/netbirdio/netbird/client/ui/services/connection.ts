@@ -15,17 +15,17 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 import * as $models from "./models.js";
 
 export function Down(): $CancellablePromise<void> {
-    return $Call.ByID(1062334452);
+    return $Call.ByID(70044537);
 }
 
 export function Login(p: $models.LoginParams): $CancellablePromise<$models.LoginResult> {
-    return $Call.ByID(782816741, p).then(($result: any) => {
+    return $Call.ByID(252661358, p).then(($result: any) => {
         return $$createType0($result);
     });
 }
 
 export function Logout(p: $models.LogoutParams): $CancellablePromise<void> {
-    return $Call.ByID(4028053230, p);
+    return $Call.ByID(3824847887, p);
 }
 
 /**
@@ -36,15 +36,15 @@ export function Logout(p: $models.LogoutParams): $CancellablePromise<void> {
  * SSO. Honors $BROWSER first, then falls back to the platform default.
  */
 export function OpenURL(url: string): $CancellablePromise<void> {
-    return $Call.ByID(4267001345, url);
+    return $Call.ByID(3786555598, url);
 }
 
 export function Up(p: $models.UpParams): $CancellablePromise<void> {
-    return $Call.ByID(1178388469, p);
+    return $Call.ByID(3381092588, p);
 }
 
 export function WaitSSOLogin(p: $models.WaitSSOParams): $CancellablePromise<string> {
-    return $Call.ByID(3487329509, p);
+    return $Call.ByID(1751351500, p);
 }
 
 // Private type creation functions

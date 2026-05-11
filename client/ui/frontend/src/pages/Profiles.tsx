@@ -3,8 +3,8 @@ import { Plus, RefreshCw } from "lucide-react";
 import {
   Profiles as ProfilesSvc,
   Connection,
-} from "../../bindings/github.com/netbirdio/netbird/client/ui-wails/services";
-import type { Profile } from "../../bindings/github.com/netbirdio/netbird/client/ui-wails/services/models.js";
+} from "../../bindings/github.com/netbirdio/netbird/client/ui/services";
+import type { Profile } from "../../bindings/github.com/netbirdio/netbird/client/ui/services/models.js";
 import { Button } from "../components/Button";
 import { Input } from "../components/Input";
 import { Card } from "../components/Card";

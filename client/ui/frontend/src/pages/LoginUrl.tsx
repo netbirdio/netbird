@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ExternalLink } from "lucide-react";
-import { Connection } from "../../bindings/github.com/netbirdio/netbird/client/ui-wails/services";
+import { Connection } from "../../bindings/github.com/netbirdio/netbird/client/ui/services";
 import { Button } from "../components/Button";
 
 export default function LoginUrl() {

@@ -17,7 +17,7 @@ WebView.
 ## Develop without rebuilding
 
 ```bash
-cd client/ui-wails
+cd client/ui
 task dev
 ```
 

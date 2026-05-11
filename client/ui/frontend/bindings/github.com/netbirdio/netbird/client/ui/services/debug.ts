@@ -15,19 +15,19 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 import * as $models from "./models.js";
 
 export function Bundle(p: $models.DebugBundleParams): $CancellablePromise<$models.DebugBundleResult> {
-    return $Call.ByID(1875836985, p).then(($result: any) => {
+    return $Call.ByID(617551238, p).then(($result: any) => {
         return $$createType0($result);
     });
 }
 
 export function GetLogLevel(): $CancellablePromise<$models.LogLevel> {
-    return $Call.ByID(2713455331).then(($result: any) => {
+    return $Call.ByID(3832950014).then(($result: any) => {
         return $$createType1($result);
     });
 }
 
 export function SetLogLevel(lvl: $models.LogLevel): $CancellablePromise<void> {
-    return $Call.ByID(2627038775, lvl);
+    return $Call.ByID(4122411498, lvl);
 }
 
 // Private type creation functions

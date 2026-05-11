@@ -15,7 +15,7 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 import * as $models from "./models.js";
 
 export function GetInstallerResult(): $CancellablePromise<$models.UpdateResult> {
-    return $Call.ByID(2190725314).then(($result: any) => {
+    return $Call.ByID(2533624807).then(($result: any) => {
         return $$createType0($result);
     });
 }
@@ -28,11 +28,11 @@ export function GetInstallerResult(): $CancellablePromise<$models.UpdateResult> 
  * before the runtime tears down.
  */
 export function Quit(): $CancellablePromise<void> {
-    return $Call.ByID(27817640);
+    return $Call.ByID(409602657);
 }
 
 export function Trigger(): $CancellablePromise<$models.UpdateResult> {
-    return $Call.ByID(2415339649).then(($result: any) => {
+    return $Call.ByID(166270378).then(($result: any) => {
         return $$createType0($result);
     });
 }

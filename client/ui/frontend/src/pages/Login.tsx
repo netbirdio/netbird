@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ExternalLink, Loader2, AlertTriangle, X, RotateCcw } from "lucide-react";
-import { Connection } from "../../bindings/github.com/netbirdio/netbird/client/ui-wails/services";
+import { Connection } from "../../bindings/github.com/netbirdio/netbird/client/ui/services";
 import { Button } from "../components/Button";
 
 type Phase = "starting" | "browser" | "connecting" | "error";

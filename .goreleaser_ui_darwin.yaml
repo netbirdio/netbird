@@ -4,11 +4,11 @@ project_name: netbird-ui
 
 before:
   hooks:
-    - sh -c 'cd client/ui-wails/frontend && pnpm install --frozen-lockfile && pnpm build'
+    - sh -c 'cd client/ui/frontend && pnpm install --frozen-lockfile && pnpm build'
 
 builds:
   - id: netbird-ui-darwin
-    dir: client/ui-wails
+    dir: client/ui
     binary: netbird-ui
     env:
       - CGO_ENABLED=1

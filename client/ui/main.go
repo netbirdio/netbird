@@ -13,7 +13,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/events"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 
-	"github.com/netbirdio/netbird/client/ui-wails/services"
+	"github.com/netbirdio/netbird/client/ui/services"
 	"github.com/netbirdio/netbird/util"
 )
 

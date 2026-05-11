@@ -15,17 +15,17 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 import * as $models from "./models.js";
 
 export function Deselect(p: $models.SelectNetworksParams): $CancellablePromise<void> {
-    return $Call.ByID(2335193802, p);
+    return $Call.ByID(3382210947, p);
 }
 
 export function List(): $CancellablePromise<$models.Network[]> {
-    return $Call.ByID(719769457).then(($result: any) => {
+    return $Call.ByID(1550842096).then(($result: any) => {
         return $$createType1($result);
     });
 }
 
 export function Select(p: $models.SelectNetworksParams): $CancellablePromise<void> {
-    return $Call.ByID(3714393053, p);
+    return $Call.ByID(1339338400, p);
 }
 
 // Private type creation functions

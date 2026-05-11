@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Settings as SettingsSvc,
   Profiles as ProfilesSvc,
-} from "../../bindings/github.com/netbirdio/netbird/client/ui-wails/services";
-import type { Config } from "../../bindings/github.com/netbirdio/netbird/client/ui-wails/services/models.js";
+} from "../../bindings/github.com/netbirdio/netbird/client/ui/services";
+import type { Config } from "../../bindings/github.com/netbirdio/netbird/client/ui/services/models.js";
 import { Button } from "../components/Button";
 import { Input } from "../components/Input";
 import { Switch } from "../components/Switch";
