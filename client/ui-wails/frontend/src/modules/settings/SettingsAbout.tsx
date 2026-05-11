@@ -4,6 +4,7 @@ import netbirdFull from "@/assets/logos/netbird-full.svg";
 import pkg from "../../../package.json";
 import { useStatus } from "@/hooks/useStatus";
 import { Button } from "@/components/Button";
+import { useAccentTrigger } from "@/modules/settings/SettingsAccent";
 
 const LEGAL_LINKS: { label: string; url: string }[] = [
     { label: "Imprint", url: "https://netbird.io/imprint" },
@@ -39,6 +40,8 @@ export function SettingsAbout() {
         UpdateSvc.Trigger().catch(() => {});
     };
 
+    const handleVersionClick = useAccentTrigger();
+
     return (
         <div
             className={
@@ -47,7 +50,10 @@ export function SettingsAbout() {
         >
             <img src={netbirdFull} alt={"NetBird"} className={"h-7 w-auto"} />
             <div className={"flex flex-col items-center gap-0.5 text-center"}>
-                <p className={"text-sm font-semibold text-nb-gray-100"}>
+                <p
+                    className={"text-sm font-semibold text-nb-gray-100 cursor-default select-none"}
+                    onClick={handleVersionClick}
+                >
                     NetBird Client v{daemonVersion}
                 </p>
                 <p className={"text-sm text-nb-gray-300"}>GUI v{guiVersion}</p>
@@ -60,7 +66,7 @@ export function SettingsAbout() {
                     }
                 >
                     <div>
-                        <p className={"text-sm font-medium"}>
+                        <p className={"text-sm font-semibold"}>
                             Version {updateVersion} is available.
                         </p>
                         <button
