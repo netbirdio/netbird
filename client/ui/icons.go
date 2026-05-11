@@ -26,6 +26,9 @@ var iconConnecting []byte
 //go:embed assets/netbird-systemtray-error.png
 var iconError []byte
 
+//go:embed assets/netbird-systemtray-needs-login.png
+var iconNeedsLogin []byte
+
 //go:embed assets/netbird-systemtray-update-connected.png
 var iconUpdateConnected []byte
 
@@ -43,6 +46,9 @@ var iconConnectingMacOS []byte
 
 //go:embed assets/netbird-systemtray-error-macos.png
 var iconErrorMacOS []byte
+
+//go:embed assets/netbird-systemtray-needs-login-macos.png
+var iconNeedsLoginMacOS []byte
 
 //go:embed assets/netbird-systemtray-update-connected-macos.png
 var iconUpdateConnectedMacOS []byte

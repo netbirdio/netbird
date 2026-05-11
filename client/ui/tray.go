@@ -80,6 +80,12 @@ const (
 	// completed an SSO authentication on this profile. Mirrors
 	// internal.StatusNeedsLogin.
 	statusNeedsLogin = "NeedsLogin"
+	// statusLoginFailed is what the daemon publishes when a login attempt
+	// failed with a non-auth error (management unreachable, init error,
+	// etc.). The CLI groups it with NeedsLogin/SessionExpired and prompts
+	// the user to run "netbird up", so we mirror that here. Mirrors
+	// internal.StatusLoginFailed.
+	statusLoginFailed = "LoginFailed"
 
 	// External URLs.
 	urlGitHubRepo     = "https://github.com/netbirdio/netbird"
@@ -434,7 +440,8 @@ func (t *Tray) applyStatus(st services.Status) {
 	if iconChanged {
 		t.applyIcon()
 		needsLogin := strings.EqualFold(st.Status, statusNeedsLogin) ||
-			strings.EqualFold(st.Status, statusSessionExpired)
+			strings.EqualFold(st.Status, statusSessionExpired) ||
+			strings.EqualFold(st.Status, statusLoginFailed)
 		daemonUnavailable := strings.EqualFold(st.Status, services.StatusDaemonUnavailable)
 		if t.statusItem != nil {
 			// When the daemon needs re-authentication the status row turns
@@ -542,6 +549,9 @@ func (t *Tray) iconForState() (icon, dark []byte) {
 	connecting := strings.EqualFold(statusLabel, "Connecting")
 	errored := strings.EqualFold(statusLabel, "Error") ||
 		strings.EqualFold(statusLabel, services.StatusDaemonUnavailable)
+	needsLogin := strings.EqualFold(statusLabel, statusNeedsLogin) ||
+		strings.EqualFold(statusLabel, statusSessionExpired) ||
+		strings.EqualFold(statusLabel, statusLoginFailed)
 
 	if runtime.GOOS == "darwin" {
 		switch {
@@ -549,6 +559,8 @@ func (t *Tray) iconForState() (icon, dark []byte) {
 			return iconConnectingMacOS, nil
 		case errored:
 			return iconErrorMacOS, nil
+		case needsLogin:
+			return iconNeedsLoginMacOS, nil
 		case connected && hasUpdate:
 			return iconUpdateConnectedMacOS, nil
 		case connected:
@@ -565,6 +577,8 @@ func (t *Tray) iconForState() (icon, dark []byte) {
 		return iconConnecting, nil
 	case errored:
 		return iconError, nil
+	case needsLogin:
+		return iconNeedsLogin, nil
 	case connected && hasUpdate:
 		return iconUpdateConnected, nil
 	case connected:
