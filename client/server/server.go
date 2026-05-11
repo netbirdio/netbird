@@ -341,9 +341,7 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 	}
 
 	if msg.OptionalPreSharedKey != nil {
-		if *msg.OptionalPreSharedKey != "" {
-			config.PreSharedKey = msg.OptionalPreSharedKey
-		}
+		config.PreSharedKey = msg.OptionalPreSharedKey
 	}
 
 	if msg.CleanDNSLabels {
