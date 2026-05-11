@@ -16,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/proxy/internal/accesslog"
 	"github.com/netbirdio/netbird/proxy/internal/restrict"
 	"github.com/netbirdio/netbird/proxy/internal/types"
+	"github.com/netbirdio/netbird/util/netrelay"
 )
 
 // defaultDialTimeout is the fallback dial timeout when no per-route
@@ -528,11 +529,14 @@ func (r *Router) relayTCP(ctx context.Context, conn net.Conn, sni SNIHost, route
 
 	idleTimeout := route.SessionIdleTimeout
 	if idleTimeout <= 0 {
-		idleTimeout = DefaultIdleTimeout
+		idleTimeout = netrelay.DefaultIdleTimeout
 	}
 
 	start := time.Now()
-	s2d, d2s := Relay(svcCtx, entry, conn, backend, idleTimeout)
+	s2d, d2s := netrelay.Relay(svcCtx, conn, backend, netrelay.Options{
+		IdleTimeout: idleTimeout,
+		Logger:      entry,
+	})
 	elapsed := time.Since(start)
 
 	if obs != nil {

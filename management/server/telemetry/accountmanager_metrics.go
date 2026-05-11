@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
 
@@ -11,6 +12,7 @@ import (
 type AccountManagerMetrics struct {
 	ctx                          context.Context
 	updateAccountPeersDurationMs metric.Float64Histogram
+	updateAccountPeersCounter    metric.Int64Counter
 	getPeerNetworkMapDurationMs  metric.Float64Histogram
 	networkMapObjectCount        metric.Int64Histogram
 	peerMetaUpdateCount          metric.Int64Counter
@@ -48,6 +50,13 @@ func NewAccountManagerMetrics(ctx context.Context, meter metric.Meter) (*Account
 		return nil, err
 	}
 
+	updateAccountPeersCounter, err := meter.Int64Counter("management.account.update.account.peers.counter",
+		metric.WithUnit("1"),
+		metric.WithDescription("Number of account peers updates triggered, labeled by resource and operation"))
+	if err != nil {
+		return nil, err
+	}
+
 	peerMetaUpdateCount, err := meter.Int64Counter("management.account.peer.meta.update.counter",
 		metric.WithUnit("1"),
 		metric.WithDescription("Number of updates with new meta data from the peers"))
@@ -59,6 +68,7 @@ func NewAccountManagerMetrics(ctx context.Context, meter metric.Meter) (*Account
 		ctx:                          ctx,
 		getPeerNetworkMapDurationMs:  getPeerNetworkMapDurationMs,
 		updateAccountPeersDurationMs: updateAccountPeersDurationMs,
+		updateAccountPeersCounter:    updateAccountPeersCounter,
 		networkMapObjectCount:        networkMapObjectCount,
 		peerMetaUpdateCount:          peerMetaUpdateCount,
 	}, nil
@@ -78,6 +88,16 @@ func (metrics *AccountManagerMetrics) CountGetPeerNetworkMapDuration(duration ti
 // CountNetworkMapObjects counts the number of network map objects
 func (metrics *AccountManagerMetrics) CountNetworkMapObjects(count int64) {
 	metrics.networkMapObjectCount.Record(metrics.ctx, count)
+}
+
+// CountUpdateAccountPeersTriggered increments the counter for account peers updates with resource and operation labels.
+func (metrics *AccountManagerMetrics) CountUpdateAccountPeersTriggered(resource, operation string) {
+	metrics.updateAccountPeersCounter.Add(metrics.ctx, 1,
+		metric.WithAttributes(
+			attribute.String("resource", resource),
+			attribute.String("operation", operation),
+		),
+	)
 }
 
 // CountPeerMetUpdate counts the number of peer meta updates

@@ -110,8 +110,25 @@ func (n *networkManagerDbusConfigurator) applyDNSConfig(config HostDNSConfig, st
 
 	connSettings.cleanDeprecatedSettings()
 
-	convDNSIP := binary.LittleEndian.Uint32(config.ServerIP.AsSlice())
-	connSettings[networkManagerDbusIPv4Key][networkManagerDbusDNSKey] = dbus.MakeVariant([]uint32{convDNSIP})
+	ipKey := networkManagerDbusIPv4Key
+	staleKey := networkManagerDbusIPv6Key
+	if config.ServerIP.Is6() {
+		ipKey = networkManagerDbusIPv6Key
+		staleKey = networkManagerDbusIPv4Key
+		raw := config.ServerIP.As16()
+		connSettings[ipKey][networkManagerDbusDNSKey] = dbus.MakeVariant([][]byte{raw[:]})
+	} else {
+		convDNSIP := binary.LittleEndian.Uint32(config.ServerIP.AsSlice())
+		connSettings[ipKey][networkManagerDbusDNSKey] = dbus.MakeVariant([]uint32{convDNSIP})
+	}
+
+	// Clear stale DNS settings from the opposite address family to avoid
+	// leftover entries if the server IP family changed.
+	if staleSettings, ok := connSettings[staleKey]; ok {
+		delete(staleSettings, networkManagerDbusDNSKey)
+		delete(staleSettings, networkManagerDbusDNSPriorityKey)
+		delete(staleSettings, networkManagerDbusDNSSearchKey)
+	}
 	var (
 		searchDomains []string
 		matchDomains  []string
@@ -146,8 +163,8 @@ func (n *networkManagerDbusConfigurator) applyDNSConfig(config HostDNSConfig, st
 		n.routingAll = false
 	}
 
-	connSettings[networkManagerDbusIPv4Key][networkManagerDbusDNSPriorityKey] = dbus.MakeVariant(priority)
-	connSettings[networkManagerDbusIPv4Key][networkManagerDbusDNSSearchKey] = dbus.MakeVariant(newDomainList)
+	connSettings[ipKey][networkManagerDbusDNSPriorityKey] = dbus.MakeVariant(priority)
+	connSettings[ipKey][networkManagerDbusDNSSearchKey] = dbus.MakeVariant(newDomainList)
 
 	state := &ShutdownState{
 		ManagerType: networkManager,

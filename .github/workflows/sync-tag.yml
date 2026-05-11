@@ -9,6 +9,8 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
   cancel-in-progress: true
 
+# Receiving workflows (cloud sync-tag, mobile bump-netbird) expect the short
+# tag form (e.g. v0.30.0), not refs/tags/v0.30.0 — github.ref_name, not github.ref.
 jobs:
   trigger_sync_tag:
     runs-on: ubuntu-latest
@@ -19,5 +21,31 @@ jobs:
           workflow: sync-tag.yml
           ref: main
           repo: ${{ secrets.UPSTREAM_REPO }}
+          token: ${{ secrets.NC_GITHUB_TOKEN }}
+          inputs: '{ "tag": "${{ github.ref_name }}" }'
+
+  trigger_android_bump:
+    runs-on: ubuntu-latest
+    if: github.event.created && !github.event.deleted && startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
+    steps:
+      - name: Trigger android-client submodule bump
+        uses: benc-uk/workflow-dispatch@7a027648b88c2413826b6ddd6c76114894dc5ec4 # v1.3.1
+        with:
+          workflow: bump-netbird.yml
+          ref: main
+          repo: netbirdio/android-client
+          token: ${{ secrets.NC_GITHUB_TOKEN }}
+          inputs: '{ "tag": "${{ github.ref_name }}" }'
+
+  trigger_ios_bump:
+    runs-on: ubuntu-latest
+    if: github.event.created && !github.event.deleted && startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
+    steps:
+      - name: Trigger ios-client submodule bump
+        uses: benc-uk/workflow-dispatch@7a027648b88c2413826b6ddd6c76114894dc5ec4 # v1.3.1
+        with:
+          workflow: bump-netbird.yml
+          ref: main
+          repo: netbirdio/ios-client
           token: ${{ secrets.NC_GITHUB_TOKEN }}
           inputs: '{ "tag": "${{ github.ref_name }}" }'

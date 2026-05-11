@@ -104,7 +104,7 @@ func TestConnectWithRetryRuns(t *testing.T) {
 		t.Fatalf("failed to set active profile state: %v", err)
 	}
 
-	s := New(ctx, "debug", "", false, false, false)
+	s := New(ctx, "debug", "", false, false, false, false)
 
 	s.config = config
 
@@ -165,7 +165,7 @@ func TestServer_Up(t *testing.T) {
 		t.Fatalf("failed to set active profile state: %v", err)
 	}
 
-	s := New(ctx, "console", "", false, false, false)
+	s := New(ctx, "console", "", false, false, false, false)
 	err = s.Start()
 	require.NoError(t, err)
 
@@ -235,7 +235,7 @@ func TestServer_SubcribeEvents(t *testing.T) {
 		t.Fatalf("failed to set active profile state: %v", err)
 	}
 
-	s := New(ctx, "console", "", false, false, false)
+	s := New(ctx, "console", "", false, false, false, false)
 
 	err = s.Start()
 	require.NoError(t, err)
@@ -335,7 +335,7 @@ func startManagement(t *testing.T, signalAddr string, counter *int) (*grpc.Serve
 	if err != nil {
 		return nil, "", err
 	}
-	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, jobManager, secretsManager, nil, nil, &server.MockIntegratedValidator{}, networkMapController, nil)
+	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, jobManager, secretsManager, nil, nil, &server.MockIntegratedValidator{}, networkMapController, nil, nil)
 	if err != nil {
 		return nil, "", err
 	}

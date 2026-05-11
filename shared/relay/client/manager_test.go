@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -101,15 +102,15 @@ func TestForeignConn(t *testing.T) {
 	if err := clientBob.Serve(); err != nil {
 		t.Fatalf("failed to serve manager: %s", err)
 	}
-	bobsSrvAddr, err := clientBob.RelayInstanceAddress()
+	bobsSrvAddr, _, err := clientBob.RelayInstanceAddress()
 	if err != nil {
 		t.Fatalf("failed to get relay address: %s", err)
 	}
-	connAliceToBob, err := clientAlice.OpenConn(ctx, bobsSrvAddr, "bob")
+	connAliceToBob, err := clientAlice.OpenConn(ctx, bobsSrvAddr, "bob", netip.Addr{})
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
-	connBobToAlice, err := clientBob.OpenConn(ctx, bobsSrvAddr, "alice")
+	connBobToAlice, err := clientBob.OpenConn(ctx, bobsSrvAddr, "alice", netip.Addr{})
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
@@ -209,7 +210,7 @@ func TestForeginConnClose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to serve manager: %s", err)
 	}
-	conn, err := mgr.OpenConn(ctx, toURL(srvCfg2)[0], "bob")
+	conn, err := mgr.OpenConn(ctx, toURL(srvCfg2)[0], "bob", netip.Addr{})
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}
@@ -301,7 +302,7 @@ func TestForeignAutoClose(t *testing.T) {
 	}
 
 	t.Log("open connection to another peer")
-	if _, err = mgr.OpenConn(ctx, foreignServerURL, "anotherpeer"); err == nil {
+	if _, err = mgr.OpenConn(ctx, foreignServerURL, "anotherpeer", netip.Addr{}); err == nil {
 		t.Fatalf("should have failed to open connection to another peer")
 	}
 
@@ -367,11 +368,11 @@ func TestAutoReconnect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to serve manager: %s", err)
 	}
-	ra, err := clientAlice.RelayInstanceAddress()
+	ra, _, err := clientAlice.RelayInstanceAddress()
 	if err != nil {
 		t.Errorf("failed to get relay address: %s", err)
 	}
-	conn, err := clientAlice.OpenConn(ctx, ra, "bob")
+	conn, err := clientAlice.OpenConn(ctx, ra, "bob", netip.Addr{})
 	if err != nil {
 		t.Errorf("failed to bind channel: %s", err)
 	}
@@ -391,7 +392,7 @@ func TestAutoReconnect(t *testing.T) {
 	}
 
 	log.Infof("reopent the connection")
-	_, err = clientAlice.OpenConn(ctx, ra, "bob")
+	_, err = clientAlice.OpenConn(ctx, ra, "bob", netip.Addr{})
 	if err != nil {
 		t.Errorf("failed to open channel: %s", err)
 	}
@@ -453,7 +454,7 @@ func TestNotifierDoubleAdd(t *testing.T) {
 		t.Fatalf("failed to serve manager: %s", err)
 	}
 
-	conn1, err := clientAlice.OpenConn(ctx, clientAlice.ServerURLs()[0], "bob")
+	conn1, err := clientAlice.OpenConn(ctx, clientAlice.ServerURLs()[0], "bob", netip.Addr{})
 	if err != nil {
 		t.Fatalf("failed to bind channel: %s", err)
 	}

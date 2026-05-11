@@ -42,7 +42,7 @@ func buildScalableTestAccount(numPeers, numGroups int, withDefaultPolicy bool) (
 
 	for i := range numPeers {
 		peerID := fmt.Sprintf("peer-%d", i)
-		ip := net.IP{100, byte(64 + i/65536), byte((i / 256) % 256), byte(i % 256)}
+		ip := netip.AddrFrom4([4]byte{100, byte(64 + i/65536), byte((i / 256) % 256), byte(i % 256)})
 		wtVersion := "0.25.0"
 		if i%2 == 0 {
 			wtVersion = "0.40.0"
@@ -1083,7 +1083,7 @@ func TestComponents_PeerIsNameserverExcludedFromNSGroup(t *testing.T) {
 	nsIP := account.Peers["peer-0"].IP
 	account.NameServerGroups["ns-self"] = &nbdns.NameServerGroup{
 		ID: "ns-self", Name: "Self NS", Enabled: true, Groups: []string{"group-all"},
-		NameServers: []nbdns.NameServer{{IP: netip.AddrFrom4([4]byte{nsIP[0], nsIP[1], nsIP[2], nsIP[3]}), NSType: nbdns.UDPNameServerType, Port: 53}},
+		NameServers: []nbdns.NameServer{{IP: nsIP, NSType: nbdns.UDPNameServerType, Port: 53}},
 	}
 
 	nm := componentsNetworkMap(account, "peer-0", validatedPeers)

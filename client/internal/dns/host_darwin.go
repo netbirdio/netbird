@@ -298,6 +298,7 @@ func (s *systemConfigurator) getSystemDNSSettings() (SystemDNSSettings, error) {
 			if ip, err := netip.ParseAddr(address); err == nil && !ip.IsUnspecified() {
 				ip = ip.Unmap()
 				serverAddresses = append(serverAddresses, ip)
+				// Prefer the first IPv4 server as ServerIP since our DNS listener is IPv4.
 				if !dnsSettings.ServerIP.IsValid() && ip.Is4() {
 					dnsSettings.ServerIP = ip
 				}
