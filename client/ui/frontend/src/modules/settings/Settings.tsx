@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { cn } from "@/lib/cn";
 import { MainRightSide } from "@/layouts/MainRightSide.tsx";
@@ -14,7 +15,13 @@ import { SettingsTroubleshooting } from "@/modules/settings/SettingsTroubleshoot
 import { SettingsAbout } from "@/modules/settings/SettingsAbout.tsx";
 
 export const Settings = () => {
-    const [active, setActive] = useState("general");
+    const location = useLocation();
+    const navState = location.state as { tab?: string } | null;
+    const [active, setActive] = useState(navState?.tab ?? "general");
+
+    useEffect(() => {
+        if (navState?.tab) setActive(navState.tab);
+    }, [navState?.tab, location.key]);
 
     return (
         <VerticalTabs value={active} onValueChange={setActive} className={"p-4"}>

@@ -1,4 +1,4 @@
-import { ComponentType, forwardRef } from "react";
+import { ComponentType, ReactNode, forwardRef } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
 import { LucideProps } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -33,11 +33,12 @@ type TriggerProps = Tabs.TabsTriggerProps & {
     icon: ComponentType<LucideProps>;
     title: string;
     iconSize?: number;
+    adornment?: ReactNode;
 };
 
 const Trigger = forwardRef<HTMLButtonElement, TriggerProps>(
     function VerticalTabsTrigger(
-        { icon: Icon, title, iconSize = 16, className, ...props },
+        { icon: Icon, title, iconSize = 16, adornment, className, ...props },
         ref,
     ) {
         return (
@@ -67,6 +68,7 @@ const Trigger = forwardRef<HTMLButtonElement, TriggerProps>(
                 >
                     {title}
                 </h2>
+                {adornment && <div className={"ml-auto mr-2 shrink-0"}>{adornment}</div>}
             </Tabs.Trigger>
         );
     },
