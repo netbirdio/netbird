@@ -16,7 +16,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
-type USPDevice struct {
+type TunDevice struct {
 	name    string
 	address wgaddr.Address
 	port    int
@@ -30,10 +30,10 @@ type USPDevice struct {
 	configurer     WGConfigurer
 }
 
-func NewUSPDevice(name string, address wgaddr.Address, port int, key string, mtu uint16, iceBind *bind.ICEBind) *USPDevice {
+func NewTunDevice(name string, address wgaddr.Address, port int, key string, mtu uint16, iceBind *bind.ICEBind) *TunDevice {
 	log.Infof("using userspace bind mode")
 
-	return &USPDevice{
+	return &TunDevice{
 		name:    name,
 		address: address,
 		port:    port,
@@ -43,7 +43,7 @@ func NewUSPDevice(name string, address wgaddr.Address, port int, key string, mtu
 	}
 }
 
-func (t *USPDevice) Create() (WGConfigurer, error) {
+func (t *TunDevice) Create() (WGConfigurer, error) {
 	log.Info("create tun interface")
 	tunIface, err := tun.CreateTUN(t.name, int(t.mtu))
 	if err != nil {
@@ -75,7 +75,7 @@ func (t *USPDevice) Create() (WGConfigurer, error) {
 	return t.configurer, nil
 }
 
-func (t *USPDevice) Up() (*udpmux.UniversalUDPMuxDefault, error) {
+func (t *TunDevice) Up() (*udpmux.UniversalUDPMuxDefault, error) {
 	if t.device == nil {
 		return nil, fmt.Errorf("device is not ready yet")
 	}
@@ -95,12 +95,12 @@ func (t *USPDevice) Up() (*udpmux.UniversalUDPMuxDefault, error) {
 	return udpMux, nil
 }
 
-func (t *USPDevice) UpdateAddr(address wgaddr.Address) error {
+func (t *TunDevice) UpdateAddr(address wgaddr.Address) error {
 	t.address = address
 	return t.assignAddr()
 }
 
-func (t *USPDevice) Close() error {
+func (t *TunDevice) Close() error {
 	if t.configurer != nil {
 		t.configurer.Close()
 	}
@@ -115,39 +115,39 @@ func (t *USPDevice) Close() error {
 	return nil
 }
 
-func (t *USPDevice) WgAddress() wgaddr.Address {
+func (t *TunDevice) WgAddress() wgaddr.Address {
 	return t.address
 }
 
-func (t *USPDevice) MTU() uint16 {
+func (t *TunDevice) MTU() uint16 {
 	return t.mtu
 }
 
-func (t *USPDevice) DeviceName() string {
+func (t *TunDevice) DeviceName() string {
 	return t.name
 }
 
-func (t *USPDevice) FilteredDevice() *FilteredDevice {
+func (t *TunDevice) FilteredDevice() *FilteredDevice {
 	return t.filteredDevice
 }
 
 // Device returns the wireguard device
-func (t *USPDevice) Device() *device.Device {
+func (t *TunDevice) Device() *device.Device {
 	return t.device
 }
 
 // assignAddr Adds IP address to the tunnel interface
-func (t *USPDevice) assignAddr() error {
+func (t *TunDevice) assignAddr() error {
 	link := newWGLink(t.name)
 
-	return link.assignAddr(t.address)
+	return link.assignAddr(&t.address)
 }
 
-func (t *USPDevice) GetNet() *netstack.Net {
+func (t *TunDevice) GetNet() *netstack.Net {
 	return nil
 }
 
 // GetICEBind returns the ICEBind instance
-func (t *USPDevice) GetICEBind() EndpointManager {
+func (t *TunDevice) GetICEBind() EndpointManager {
 	return t.iceBind
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -142,6 +144,30 @@ func TestEncodeDexUserID_MatchesDexFormat(t *testing.T) {
 	// Re-encode and verify it matches
 	reEncoded := EncodeDexUserID(knownUserID, knownConnectorID)
 	assert.Equal(t, knownEncodedID, reEncoded)
+}
+
+func TestHandlerRedirectsLogoutWithoutIDTokenHint(t *testing.T) {
+	ctx := context.Background()
+
+	tmpDir, err := os.MkdirTemp("", "dex-logout-handler-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	provider, err := NewProvider(ctx, &Config{
+		Issuer:  "http://localhost:5556/oauth2",
+		Port:    5556,
+		DataDir: tmpDir,
+	})
+	require.NoError(t, err)
+	defer func() { _ = provider.Stop(ctx) }()
+
+	req := httptest.NewRequest(http.MethodGet, "/oauth2/logout?post_logout_redirect_uri=https://example.com", nil)
+	rec := httptest.NewRecorder()
+
+	provider.Handler().ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusSeeOther, rec.Code)
+	require.Equal(t, "/", rec.Header().Get("Location"))
 }
 
 func TestCreateUserInTempDB(t *testing.T) {

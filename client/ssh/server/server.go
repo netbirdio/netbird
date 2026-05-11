@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/netip"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +27,7 @@ import (
 	"github.com/netbirdio/netbird/client/ssh/detection"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/auth/jwt"
+	"github.com/netbirdio/netbird/util/netrelay"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -51,6 +53,10 @@ const (
 	// that backdate the iat claim by up to 5 minutes.
 	DefaultJWTMaxTokenAge = 10 * 60
 )
+
+// directTCPIPDialTimeout bounds how long relayDirectTCPIP waits on a dial to
+// the forwarded destination before rejecting the SSH channel.
+const directTCPIPDialTimeout = 30 * time.Second
 
 var (
 	ErrPrivilegedUserDisabled = errors.New(msgPrivilegedUserDisabled)
@@ -137,10 +143,11 @@ type sessionState struct {
 }
 
 type Server struct {
-	sshServer  *ssh.Server
-	listener   net.Listener
-	mu         sync.RWMutex
-	hostKeyPEM []byte
+	sshServer      *ssh.Server
+	listener       net.Listener
+	extraListeners []net.Listener
+	mu             sync.RWMutex
+	hostKeyPEM     []byte
 
 	// sessions tracks active SSH sessions (shell, command, SFTP).
 	// These are created when a client opens a session channel and requests shell/exec/subsystem.
@@ -254,6 +261,35 @@ func (s *Server) Start(ctx context.Context, addr netip.AddrPort) error {
 	return nil
 }
 
+// AddListener starts serving SSH on an additional address (e.g. IPv6).
+// Must be called after Start.
+func (s *Server) AddListener(ctx context.Context, addr netip.AddrPort) error {
+	s.mu.Lock()
+	srv := s.sshServer
+	if srv == nil {
+		s.mu.Unlock()
+		return errors.New("SSH server is not running")
+	}
+
+	ln, addrDesc, err := s.createListener(ctx, addr)
+	if err != nil {
+		s.mu.Unlock()
+		return fmt.Errorf("create listener: %w", err)
+	}
+
+	s.extraListeners = append(s.extraListeners, ln)
+	s.mu.Unlock()
+
+	log.Infof("SSH server also listening on %s", addrDesc)
+
+	go func() {
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, ssh.ErrServerClosed) {
+			log.Errorf("SSH server error on %s: %v", addrDesc, err)
+		}
+	}()
+	return nil
+}
+
 func (s *Server) createListener(ctx context.Context, addr netip.AddrPort) (net.Listener, string, error) {
 	if s.netstackNet != nil {
 		ln, err := s.netstackNet.ListenTCPAddrPort(addr)
@@ -291,11 +327,19 @@ func (s *Server) Stop() error {
 	}
 	s.sshServer = nil
 	s.listener = nil
+	extraListeners := s.extraListeners
+	s.extraListeners = nil
 	s.mu.Unlock()
 
 	// Close outside the lock: session handlers need s.mu for unregisterSession.
 	if err := sshServer.Close(); err != nil {
 		log.Debugf("close SSH server: %v", err)
+	}
+
+	for _, ln := range extraListeners {
+		if err := ln.Close(); err != nil {
+			log.Debugf("close extra SSH listener: %v", err)
+		}
 	}
 
 	s.mu.Lock()
@@ -749,11 +793,10 @@ func (s *Server) findSessionKeyByContext(ctx ssh.Context) sessionKey {
 
 func (s *Server) connectionValidator(_ ssh.Context, conn net.Conn) net.Conn {
 	s.mu.RLock()
-	netbirdNetwork := s.wgAddress.Network
-	localIP := s.wgAddress.IP
+	wgAddr := s.wgAddress
 	s.mu.RUnlock()
 
-	if !netbirdNetwork.IsValid() || !localIP.IsValid() {
+	if !wgAddr.Network.IsValid() || !wgAddr.IP.IsValid() {
 		return conn
 	}
 
@@ -769,14 +812,17 @@ func (s *Server) connectionValidator(_ ssh.Context, conn net.Conn) net.Conn {
 		log.Warnf("SSH connection rejected: invalid remote IP %s", tcpAddr.IP)
 		return nil
 	}
+	remoteIP = remoteIP.Unmap()
 
 	// Block connections from our own IP (prevent local apps from connecting to ourselves)
-	if remoteIP == localIP {
+	if remoteIP == wgAddr.IP || wgAddr.IPv6.IsValid() && remoteIP == wgAddr.IPv6 {
 		log.Warnf("SSH connection rejected from own IP %s", remoteIP)
 		return nil
 	}
 
-	if !netbirdNetwork.Contains(remoteIP) {
+	inV4 := wgAddr.Network.Contains(remoteIP)
+	inV6 := wgAddr.IPv6Net.IsValid() && wgAddr.IPv6Net.Contains(remoteIP)
+	if !inV4 && !inV6 {
 		log.Warnf("SSH connection rejected from non-NetBird IP %s", remoteIP)
 		return nil
 	}
@@ -876,20 +922,45 @@ func (s *Server) directTCPIPHandler(srv *ssh.Server, conn *cryptossh.ServerConn,
 	s.mu.RUnlock()
 
 	if !allowLocal {
-		logger.Warnf("local port forwarding denied for %s:%d: disabled", payload.Host, payload.Port)
+		logger.Warnf("local port forwarding denied for %s: disabled", net.JoinHostPort(payload.Host, strconv.Itoa(int(payload.Port))))
 		_ = newChan.Reject(cryptossh.Prohibited, "local port forwarding disabled")
 		return
 	}
 
 	if err := s.checkPortForwardingPrivileges(ctx, "local", payload.Port); err != nil {
-		logger.Warnf("local port forwarding denied for %s:%d: %v", payload.Host, payload.Port, err)
+		logger.Warnf("local port forwarding denied for %s: %v", net.JoinHostPort(payload.Host, strconv.Itoa(int(payload.Port))), err)
 		_ = newChan.Reject(cryptossh.Prohibited, "insufficient privileges")
 		return
 	}
 
-	forwardAddr := fmt.Sprintf("-L %s:%d", payload.Host, payload.Port)
+	hostPort := net.JoinHostPort(payload.Host, strconv.Itoa(int(payload.Port)))
+	forwardAddr := "-L " + hostPort
 	s.addConnectionPortForward(ctx.User(), ctx.RemoteAddr(), forwardAddr)
-	logger.Infof("local port forwarding: %s:%d", payload.Host, payload.Port)
+	logger.Infof("local port forwarding: %s", hostPort)
 
-	ssh.DirectTCPIPHandler(srv, conn, newChan, ctx)
+	s.relayDirectTCPIP(ctx, newChan, payload.Host, int(payload.Port), logger)
+}
+
+// relayDirectTCPIP is a netrelay-based replacement for gliderlabs'
+// DirectTCPIPHandler. The upstream handler closes both sides on the first
+// EOF; netrelay.Relay propagates CloseWrite so each direction drains on its
+// own terms.
+func (s *Server) relayDirectTCPIP(ctx ssh.Context, newChan cryptossh.NewChannel, host string, port int, logger *log.Entry) {
+	dest := net.JoinHostPort(host, strconv.Itoa(port))
+
+	dialer := net.Dialer{Timeout: directTCPIPDialTimeout}
+	dconn, err := dialer.DialContext(ctx, "tcp", dest)
+	if err != nil {
+		_ = newChan.Reject(cryptossh.ConnectionFailed, err.Error())
+		return
+	}
+
+	ch, reqs, err := newChan.Accept()
+	if err != nil {
+		_ = dconn.Close()
+		return
+	}
+	go cryptossh.DiscardRequests(reqs)
+
+	netrelay.Relay(ctx, dconn, ch, netrelay.Options{Logger: logger})
 }

@@ -6,6 +6,7 @@ import (
 	b64 "encoding/base64"
 	"fmt"
 	"net"
+	"net/netip"
 	"slices"
 	"strings"
 	"time"
@@ -33,8 +34,8 @@ import (
 
 const remoteJobsMinVer = "0.64.0"
 
-// GetPeers returns a list of peers under the given account filtering out peers that do not belong to a user if
-// the current user is not an admin.
+// GetPeers returns peers visible to the user within an account.
+// Users with "peers:read" see all peers. Otherwise, users see only their own peers, or none if restricted by account settings.
 func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error) {
 	user, err := am.Store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 	if err != nil {
@@ -46,14 +47,8 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 		return nil, status.NewPermissionValidationError(err)
 	}
 
-	accountPeers, err := am.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, nameFilter, ipFilter)
-	if err != nil {
-		return nil, err
-	}
-
-	// @note if the user has permission to read peers it shows all account peers
 	if allowed {
-		return accountPeers, nil
+		return am.Store.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, nameFilter, ipFilter)
 	}
 
 	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
@@ -65,41 +60,7 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 		return []*nbpeer.Peer{}, nil
 	}
 
-	// @note if it does not have permission read peers then only display it's own peers
-	peers := make([]*nbpeer.Peer, 0)
-	peersMap := make(map[string]*nbpeer.Peer)
-
-	for _, peer := range accountPeers {
-		if user.Id != peer.UserID {
-			continue
-		}
-		peers = append(peers, peer)
-		peersMap[peer.ID] = peer
-	}
-
-	return am.getUserAccessiblePeers(ctx, accountID, peersMap, peers)
-}
-
-func (am *DefaultAccountManager) getUserAccessiblePeers(ctx context.Context, accountID string, peersMap map[string]*nbpeer.Peer, peers []*nbpeer.Peer) ([]*nbpeer.Peer, error) {
-	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(ctx, accountID, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
-	if err != nil {
-		return nil, err
-	}
-
-	// fetch all the peers that have access to the user's peers
-	for _, peer := range peers {
-		aclPeers, _, _, _ := account.GetPeerConnectionResources(ctx, peer, approvedPeersMap, account.GetActiveGroupUsers())
-		for _, p := range aclPeers {
-			peersMap[p.ID] = p
-		}
-	}
-
-	return maps.Values(peersMap), nil
+	return am.Store.GetUserPeers(ctx, store.LockingStrengthNone, accountID, userID)
 }
 
 // MarkPeerConnected marks peer as connected (true) or disconnected (false)
@@ -561,6 +522,27 @@ func (am *DefaultAccountManager) GetPeerNetwork(ctx context.Context, peerID stri
 	return account.Network.Copy(), err
 }
 
+// peerWillHaveIPv6 checks whether the peer's future group memberships
+// (auto-groups + allGroupID) overlap with IPv6EnabledGroups.
+func peerWillHaveIPv6(settings *types.Settings, groupsToAdd []string, allGroupID string) bool {
+	enabledSet := make(map[string]struct{}, len(settings.IPv6EnabledGroups))
+	for _, gid := range settings.IPv6EnabledGroups {
+		enabledSet[gid] = struct{}{}
+	}
+
+	if allGroupID != "" {
+		if _, ok := enabledSet[allGroupID]; ok {
+			return true
+		}
+	}
+	for _, gid := range groupsToAdd {
+		if _, ok := enabledSet[gid]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 type peerAddAuthConfig struct {
 	AccountID           string
 	SetupKeyID          string
@@ -755,8 +737,11 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 
 	maxAttempts := 10
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		var freeIP net.IP
-		freeIP, err = types.AllocateRandomPeerIP(network.Net)
+		netPrefix, err := netip.ParsePrefix(network.Net.String())
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("parse network prefix: %w", err)
+		}
+		freeIP, err := types.AllocateRandomPeerIP(netPrefix)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("failed to get free IP: %w", err)
 		}
@@ -775,6 +760,29 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		}
 		newPeer.DNSLabel = freeLabel
 		newPeer.IP = freeIP
+
+		if len(settings.IPv6EnabledGroups) > 0 && network.NetV6.IP != nil {
+			var allGroupID string
+			if !peer.ProxyMeta.Embedded {
+				allGroup, err := am.Store.GetGroupByName(ctx, store.LockingStrengthNone, accountID, "All")
+				if err != nil {
+					log.WithContext(ctx).Debugf("get All group for IPv6 allocation: %v", err)
+				} else {
+					allGroupID = allGroup.ID
+				}
+			}
+			if peerWillHaveIPv6(settings, peerAddConfig.GroupsToAdd, allGroupID) {
+				v6Prefix, err := netip.ParsePrefix(network.NetV6.String())
+				if err != nil {
+					return nil, nil, nil, fmt.Errorf("parse IPv6 prefix: %w", err)
+				}
+				freeIPv6, err := types.AllocateRandomPeerIPv6(v6Prefix)
+				if err != nil {
+					return nil, nil, nil, fmt.Errorf("allocate peer IPv6: %w", err)
+				}
+				newPeer.IPv6 = freeIPv6
+			}
+		}
 
 		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 			err = transaction.AddPeerToAccount(ctx, newPeer)
@@ -845,10 +853,6 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 
 		return nil, nil, nil, fmt.Errorf("failed to add peer to database: %w", err)
 	}
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to add peer to database after %d attempts: %w", maxAttempts, err)
-	}
-
 	if newPeer == nil {
 		return nil, nil, nil, fmt.Errorf("new peer is nil")
 	}
@@ -857,6 +861,9 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 	opEvent.Meta = newPeer.EventMeta(am.networkMapController.GetDNSDomain(settings))
 	if !addedByUser {
 		opEvent.Meta["setup_key_name"] = peerAddConfig.SetupKeyName
+	}
+	if newPeer.Status != nil && newPeer.Status.RequiresApproval {
+		opEvent.Meta["pending_approval"] = true
 	}
 
 	if !temporary {
@@ -871,21 +878,24 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 	return p, nmap, pc, err
 }
 
-func getPeerIPDNSLabel(ip net.IP, peerHostName string) (string, error) {
-	ip = ip.To4()
+func getPeerIPDNSLabel(ip netip.Addr, peerHostName string) (string, error) {
+	if !ip.Is4() {
+		return "", fmt.Errorf("DNS label generation requires an IPv4 address, got %s", ip)
+	}
+	b := ip.As4()
 
 	dnsName, err := nbdns.GetParsedDomainLabel(peerHostName)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse peer host name %s: %w", peerHostName, err)
 	}
 
-	return fmt.Sprintf("%s-%d-%d", dnsName, ip[2], ip[3]), nil
+	return fmt.Sprintf("%s-%d-%d", dnsName, b[2], b[3]), nil
 }
 
 // SyncPeer checks whether peer is eligible for receiving NetworkMap (authenticated) and returns its NetworkMap if eligible
 func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error) {
 	var peer *nbpeer.Peer
-	var updated, versionChanged bool
+	var updated, versionChanged, ipv6CapabilityChanged bool
 	var err error
 	var postureChecks []*posture.Checks
 	var peerGroupIDs []string
@@ -921,7 +931,9 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 			return err
 		}
 
+		oldHasIPv6Cap := peer.HasCapability(nbpeer.PeerCapabilityIPv6Overlay)
 		updated, versionChanged = peer.UpdateMetaIfNew(sync.Meta)
+		ipv6CapabilityChanged = oldHasIPv6Cap != peer.HasCapability(nbpeer.PeerCapabilityIPv6Overlay)
 		if updated {
 			am.metrics.AccountManagerMetrics().CountPeerMetUpdate()
 			log.WithContext(ctx).Tracef("peer %s metadata updated", peer.ID)
@@ -945,7 +957,7 @@ func (am *DefaultAccountManager) SyncPeer(ctx context.Context, sync types.PeerSy
 		return nil, nil, nil, 0, err
 	}
 
-	if isStatusChanged || sync.UpdateAccountPeers || (updated && (len(postureChecks) > 0 || versionChanged)) {
+	if isStatusChanged || sync.UpdateAccountPeers || ipv6CapabilityChanged || (updated && (len(postureChecks) > 0 || versionChanged)) {
 		err = am.networkMapController.OnPeersUpdated(ctx, accountID, []string{peer.ID})
 		if err != nil {
 			return nil, nil, nil, 0, fmt.Errorf("notify network map controller of peer update: %w", err)
@@ -995,6 +1007,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 	var peer *nbpeer.Peer
 	var updateRemotePeers bool
 	var isPeerUpdated bool
+	var ipv6CapabilityChanged bool
 	var postureChecks []*posture.Checks
 	var peerGroupIDs []string
 
@@ -1034,7 +1047,9 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 			return err
 		}
 
+		oldHasIPv6Cap := peer.HasCapability(nbpeer.PeerCapabilityIPv6Overlay)
 		isPeerUpdated, _ = peer.UpdateMetaIfNew(login.Meta)
+		ipv6CapabilityChanged = oldHasIPv6Cap != peer.HasCapability(nbpeer.PeerCapabilityIPv6Overlay)
 		if isPeerUpdated {
 			am.metrics.AccountManagerMetrics().CountPeerMetUpdate()
 			shouldStorePeer = true
@@ -1072,7 +1087,7 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 		return nil, nil, nil, err
 	}
 
-	if updateRemotePeers || isStatusChanged || (isPeerUpdated && len(postureChecks) > 0) {
+	if updateRemotePeers || isStatusChanged || ipv6CapabilityChanged || (isPeerUpdated && len(postureChecks) > 0) {
 		err = am.networkMapController.OnPeersUpdated(ctx, accountID, []string{peer.ID})
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("notify network map controller of peer update: %w", err)
@@ -1230,7 +1245,8 @@ func peerLoginExpired(ctx context.Context, peer *nbpeer.Peer, settings *types.Se
 	return false
 }
 
-// GetPeer for a given accountID, peerID and userID error if not found.
+// GetPeer returns a peer visible to the user within an account.
+// Users with "peers:read" permission can access any peer. Otherwise, users can access only their own peer.
 func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error) {
 	peer, err := am.Store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 	if err != nil {
@@ -1255,47 +1271,17 @@ func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID,
 		return peer, nil
 	}
 
-	return am.checkIfUserOwnsPeer(ctx, accountID, userID, peer)
-}
-
-func (am *DefaultAccountManager) checkIfUserOwnsPeer(ctx context.Context, accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error) {
-	account, err := am.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	approvedPeersMap, err := am.integratedPeerValidator.GetValidatedPeers(ctx, accountID, maps.Values(account.Groups), maps.Values(account.Peers), account.Settings.Extra)
-	if err != nil {
-		return nil, err
-	}
-
-	// it is also possible that user doesn't own the peer but some of his peers have access to it,
-	// this is a valid case, show the peer as well.
-	userPeers, err := am.Store.GetUserPeers(ctx, store.LockingStrengthNone, accountID, userID)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, p := range userPeers {
-		aclPeers, _, _, _ := account.GetPeerConnectionResources(ctx, p, approvedPeersMap, account.GetActiveGroupUsers())
-		for _, aclPeer := range aclPeers {
-			if aclPeer.ID == peer.ID {
-				return peer, nil
-			}
-		}
-	}
-
 	return nil, status.Errorf(status.Internal, "user %s has no access to peer %s under account %s", userID, peer.ID, accountID)
 }
 
 // UpdateAccountPeers updates all peers that belong to an account.
 // Should be called when changes have to be synced to peers.
-func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, accountID string) {
-	_ = am.networkMapController.UpdateAccountPeers(ctx, accountID)
+func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) {
+	_ = am.networkMapController.UpdateAccountPeers(ctx, accountID, reason)
 }
 
-func (am *DefaultAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string) {
-	_ = am.networkMapController.BufferUpdateAccountPeers(ctx, accountID)
+func (am *DefaultAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) {
+	_ = am.networkMapController.BufferUpdateAccountPeers(ctx, accountID, reason)
 }
 
 // UpdateAccountPeer updates a single peer that belongs to an account.

@@ -20,6 +20,9 @@ const (
 	MaxMetric = 9999
 	// MaxNetIDChar Max Network Identifier
 	MaxNetIDChar = 40
+
+	// V6ExitSuffix is appended to a v4 exit node NetID to form its v6 counterpart.
+	V6ExitSuffix = "-v6"
 )
 
 const (
@@ -214,4 +217,62 @@ func ParseNetwork(networkString string) (NetworkType, netip.Prefix, error) {
 	}
 
 	return IPv4Network, masked, nil
+}
+
+var (
+	v4Default = netip.PrefixFrom(netip.IPv4Unspecified(), 0)
+	v6Default = netip.PrefixFrom(netip.IPv6Unspecified(), 0)
+)
+
+// IsV4DefaultRoute reports whether p is the IPv4 default route (0.0.0.0/0).
+func IsV4DefaultRoute(p netip.Prefix) bool { return p == v4Default }
+
+// IsV6DefaultRoute reports whether p is the IPv6 default route (::/0).
+func IsV6DefaultRoute(p netip.Prefix) bool { return p == v6Default }
+
+// ExpandV6ExitPairs appends the paired "-v6" exit node NetID for any v4 exit
+// node (0.0.0.0/0) in ids that has a matching v6 counterpart (::/0) in routesMap.
+// It modifies and returns the input slice.
+func ExpandV6ExitPairs(ids []NetID, routesMap map[NetID][]*Route) []NetID {
+	for _, id := range ids {
+		rt, ok := routesMap[id]
+		if !ok || len(rt) == 0 || !IsV4DefaultRoute(rt[0].Network) {
+			continue
+		}
+		v6ID := NetID(string(id) + V6ExitSuffix)
+		if v6Rt, ok := routesMap[v6ID]; ok && len(v6Rt) > 0 && IsV6DefaultRoute(v6Rt[0].Network) {
+			if !slices.Contains(ids, v6ID) {
+				ids = append(ids, v6ID)
+			}
+		}
+	}
+	return ids
+}
+
+// V6ExitMergeSet scans routesMap and returns the set of v6 exit node NetIDs
+// that should be hidden from the UI because they are paired with a v4 exit node.
+// A v6 ID is paired when it has suffix "-v6", its route is ::/0, and the base
+// name (without "-v6") exists with route 0.0.0.0/0.
+func V6ExitMergeSet(routesMap map[NetID][]*Route) map[NetID]struct{} {
+	merged := make(map[NetID]struct{})
+	for id, rt := range routesMap {
+		if len(rt) == 0 {
+			continue
+		}
+		name := string(id)
+		if !IsV6DefaultRoute(rt[0].Network) || !strings.HasSuffix(name, V6ExitSuffix) {
+			continue
+		}
+		baseName := NetID(strings.TrimSuffix(name, V6ExitSuffix))
+		if baseRt, ok := routesMap[baseName]; ok && len(baseRt) > 0 && IsV4DefaultRoute(baseRt[0].Network) {
+			merged[id] = struct{}{}
+		}
+	}
+	return merged
+}
+
+// HasV6ExitPair reports whether id has a paired v6 exit node in the merge set.
+func HasV6ExitPair(id NetID, v6Merged map[NetID]struct{}) bool {
+	_, ok := v6Merged[NetID(string(id)+"-v6")]
+	return ok
 }

@@ -75,7 +75,7 @@ func (m *Manager) addPeer(rosenpassPubKey []byte, rosenpassAddr string, wireGuar
 		if err != nil {
 			return fmt.Errorf("failed to parse rosenpass address: %w", err)
 		}
-		peerAddr := fmt.Sprintf("%s:%s", wireGuardIP, strPort)
+		peerAddr := net.JoinHostPort(wireGuardIP, strPort)
 		if pcfg.Endpoint, err = net.ResolveUDPAddr("udp", peerAddr); err != nil {
 			return fmt.Errorf("failed to resolve peer endpoint address: %w", err)
 		}
@@ -259,6 +259,9 @@ func findRandomAvailableUDPPort() (int, error) {
 	}
 	defer conn.Close()
 
-	splitAddress := strings.Split(conn.LocalAddr().String(), ":")
-	return strconv.Atoi(splitAddress[len(splitAddress)-1])
+	_, portStr, err := net.SplitHostPort(conn.LocalAddr().String())
+	if err != nil {
+		return 0, fmt.Errorf("parse local address %s: %w", conn.LocalAddr(), err)
+	}
+	return strconv.Atoi(portStr)
 }

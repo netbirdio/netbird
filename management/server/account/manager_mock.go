@@ -111,15 +111,15 @@ func (mr *MockManagerMockRecorder) ApproveUser(ctx, accountID, initiatorUserID, 
 }
 
 // BufferUpdateAccountPeers mocks base method.
-func (m *MockManager) BufferUpdateAccountPeers(ctx context.Context, accountID string) {
+func (m *MockManager) BufferUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "BufferUpdateAccountPeers", ctx, accountID)
+	m.ctrl.Call(m, "BufferUpdateAccountPeers", ctx, accountID, reason)
 }
 
 // BufferUpdateAccountPeers indicates an expected call of BufferUpdateAccountPeers.
-func (mr *MockManagerMockRecorder) BufferUpdateAccountPeers(ctx, accountID interface{}) *gomock.Call {
+func (mr *MockManagerMockRecorder) BufferUpdateAccountPeers(ctx, accountID, reason interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BufferUpdateAccountPeers", reflect.TypeOf((*MockManager)(nil).BufferUpdateAccountPeers), ctx, accountID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BufferUpdateAccountPeers", reflect.TypeOf((*MockManager)(nil).BufferUpdateAccountPeers), ctx, accountID, reason)
 }
 
 // BuildUserInfosForAccount mocks base method.
@@ -1597,15 +1597,15 @@ func (mr *MockManagerMockRecorder) UpdateAccountOnboarding(ctx, accountID, userI
 }
 
 // UpdateAccountPeers mocks base method.
-func (m *MockManager) UpdateAccountPeers(ctx context.Context, accountID string) {
+func (m *MockManager) UpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "UpdateAccountPeers", ctx, accountID)
+	m.ctrl.Call(m, "UpdateAccountPeers", ctx, accountID, reason)
 }
 
 // UpdateAccountPeers indicates an expected call of UpdateAccountPeers.
-func (mr *MockManagerMockRecorder) UpdateAccountPeers(ctx, accountID interface{}) *gomock.Call {
+func (mr *MockManagerMockRecorder) UpdateAccountPeers(ctx, accountID, reason interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAccountPeers", reflect.TypeOf((*MockManager)(nil).UpdateAccountPeers), ctx, accountID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAccountPeers", reflect.TypeOf((*MockManager)(nil).UpdateAccountPeers), ctx, accountID, reason)
 }
 
 // UpdateAccountSettings mocks base method.
@@ -1707,6 +1707,18 @@ func (m *MockManager) UpdatePeerIP(ctx context.Context, accountID, userID, peerI
 func (mr *MockManagerMockRecorder) UpdatePeerIP(ctx, accountID, userID, peerID, newIP interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePeerIP", reflect.TypeOf((*MockManager)(nil).UpdatePeerIP), ctx, accountID, userID, peerID, newIP)
+}
+
+func (m *MockManager) UpdatePeerIPv6(ctx context.Context, accountID, userID, peerID string, newIPv6 netip.Addr) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdatePeerIPv6", ctx, accountID, userID, peerID, newIPv6)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+func (mr *MockManagerMockRecorder) UpdatePeerIPv6(ctx, accountID, userID, peerID, newIPv6 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePeerIPv6", reflect.TypeOf((*MockManager)(nil).UpdatePeerIPv6), ctx, accountID, userID, peerID, newIPv6)
 }
 
 // UpdateToPrimaryAccount mocks base method.

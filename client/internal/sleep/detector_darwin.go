@@ -2,217 +2,358 @@
 
 package sleep
 
-/*
-#cgo LDFLAGS: -framework IOKit -framework CoreFoundation
-#include <IOKit/pwr_mgt/IOPMLib.h>
-#include <IOKit/IOMessage.h>
-#include <CoreFoundation/CoreFoundation.h>
-
-extern void sleepCallbackBridge();
-extern void poweredOnCallbackBridge();
-extern void suspendedCallbackBridge();
-extern void resumedCallbackBridge();
-
-
-// C global variables for IOKit state
-static IONotificationPortRef g_notifyPortRef = NULL;
-static io_object_t g_notifierObject = 0;
-static io_object_t g_generalInterestNotifier = 0;
-static io_connect_t g_rootPort = 0;
-static CFRunLoopRef g_runLoop = NULL;
-
-static void sleepCallback(void* refCon, io_service_t service, natural_t messageType, void* messageArgument) {
-	switch (messageType) {
-		case kIOMessageSystemWillSleep:
-			sleepCallbackBridge();
-			IOAllowPowerChange(g_rootPort, (long)messageArgument);
-			break;
-        case kIOMessageSystemHasPoweredOn:
-          	poweredOnCallbackBridge();
-          	break;
-        case kIOMessageServiceIsSuspended:
-			suspendedCallbackBridge();
-			break;
-		case kIOMessageServiceIsResumed:
-			resumedCallbackBridge();
-			break;
-		default:
-			break;
-	}
-}
-
-static void registerNotifications() {
-	g_rootPort = IORegisterForSystemPower(
-		NULL,
-		&g_notifyPortRef,
-		(IOServiceInterestCallback)sleepCallback,
-		&g_notifierObject
-	);
-
-	if (g_rootPort == 0) {
-		return;
-	}
-
-	CFRunLoopAddSource(CFRunLoopGetCurrent(),
-		IONotificationPortGetRunLoopSource(g_notifyPortRef),
-		kCFRunLoopCommonModes);
-
-	g_runLoop = CFRunLoopGetCurrent();
-	CFRunLoopRun();
-}
-
-static void unregisterNotifications() {
-	CFRunLoopRemoveSource(g_runLoop,
-		IONotificationPortGetRunLoopSource(g_notifyPortRef),
-		kCFRunLoopCommonModes);
-
-	IODeregisterForSystemPower(&g_notifierObject);
-	IOServiceClose(g_rootPort);
-	IONotificationPortDestroy(g_notifyPortRef);
-	CFRunLoopStop(g_runLoop);
-
-	g_notifyPortRef = NULL;
-	g_notifierObject = 0;
-	g_rootPort = 0;
-	g_runLoop = NULL;
-}
-
-*/
-import "C"
-
 import (
-	"context"
 	"fmt"
 	"runtime"
 	"sync"
 	"time"
+	"unsafe"
 
+	"github.com/ebitengine/purego"
 	log "github.com/sirupsen/logrus"
 )
 
-var (
-	serviceRegistry   = make(map[*Detector]struct{})
-	serviceRegistryMu sync.Mutex
+// IOKit message types from IOKit/IOMessage.h.
+const (
+	kIOMessageCanSystemSleep     uintptr = 0xe0000270
+	kIOMessageSystemWillSleep    uintptr = 0xe0000280
+	kIOMessageSystemHasPoweredOn uintptr = 0xe0000300
 )
 
-//export sleepCallbackBridge
-func sleepCallbackBridge() {
-	log.Info("sleepCallbackBridge event triggered")
+var (
+	ioKit         iokitFuncs
+	cf            cfFuncs
+	cfCommonModes uintptr
 
-	serviceRegistryMu.Lock()
-	defer serviceRegistryMu.Unlock()
+	libInitOnce sync.Once
+	libInitErr  error
 
-	for svc := range serviceRegistry {
-		svc.triggerCallback(EventTypeSleep)
-	}
+	// callbackThunk is the single C-callable trampoline registered with IOKit.
+	callbackThunk uintptr
+
+	serviceRegistry   = make(map[*Detector]struct{})
+	serviceRegistryMu sync.Mutex
+	session           *runLoopSession
+
+	// lifecycleMu serializes Register/Deregister so a new registration can't
+	// start a second runloop while a previous teardown is still pending.
+	lifecycleMu sync.Mutex
+)
+
+// iokitFuncs holds IOKit symbols resolved once at init.
+type iokitFuncs struct {
+	IORegisterForSystemPower           func(refcon uintptr, portRef *uintptr, callback uintptr, notifier *uintptr) uintptr
+	IODeregisterForSystemPower         func(notifier *uintptr) int32
+	IOAllowPowerChange                 func(kernelPort uintptr, notificationID uintptr) int32
+	IOServiceClose                     func(connect uintptr) int32
+	IONotificationPortGetRunLoopSource func(port uintptr) uintptr
+	IONotificationPortDestroy          func(port uintptr)
 }
 
-//export resumedCallbackBridge
-func resumedCallbackBridge() {
-	log.Info("resumedCallbackBridge event triggered")
+// cfFuncs holds CoreFoundation symbols resolved once at init.
+type cfFuncs struct {
+	CFRunLoopGetCurrent   func() uintptr
+	CFRunLoopRun          func()
+	CFRunLoopStop         func(rl uintptr)
+	CFRunLoopAddSource    func(rl, source, mode uintptr)
+	CFRunLoopRemoveSource func(rl, source, mode uintptr)
 }
 
-//export suspendedCallbackBridge
-func suspendedCallbackBridge() {
-	log.Info("suspendedCallbackBridge event triggered")
+// runLoopSession bundles the handles owned by one CFRunLoop lifetime. A nil
+// session means no runloop is active and the next Register must start one.
+type runLoopSession struct {
+	rl       uintptr
+	port     uintptr
+	notifier uintptr
+	rp       uintptr
 }
 
-//export poweredOnCallbackBridge
-func poweredOnCallbackBridge() {
-	log.Info("poweredOnCallbackBridge event triggered")
-	serviceRegistryMu.Lock()
-	defer serviceRegistryMu.Unlock()
-
-	for svc := range serviceRegistry {
-		svc.triggerCallback(EventTypeWakeUp)
-	}
+// detectorSnapshot pins a detector's callback and done channel so dispatch
+// runs with values valid at snapshot time, even if a concurrent
+// Deregister/Register rewrites the detector's fields.
+type detectorSnapshot struct {
+	detector *Detector
+	callback func(event EventType)
+	done     <-chan struct{}
 }
 
+// Detector delivers sleep and wake events to a registered callback.
 type Detector struct {
 	callback func(event EventType)
-	ctx      context.Context
-	cancel   context.CancelFunc
+	done     chan struct{}
 }
 
-func NewDetector() (*Detector, error) {
-	return &Detector{}, nil
-}
-
+// Register installs callback for power events. The first registration starts
+// the CFRunLoop on a dedicated OS-locked thread and blocks until IOKit
+// registration succeeds or fails; subsequent registrations just add to the
+// dispatch set.
 func (d *Detector) Register(callback func(event EventType)) error {
-	serviceRegistryMu.Lock()
-	defer serviceRegistryMu.Unlock()
+	lifecycleMu.Lock()
+	defer lifecycleMu.Unlock()
 
+	serviceRegistryMu.Lock()
 	if _, exists := serviceRegistry[d]; exists {
+		serviceRegistryMu.Unlock()
 		return fmt.Errorf("detector service already registered")
 	}
-
 	d.callback = callback
+	d.done = make(chan struct{})
+	serviceRegistry[d] = struct{}{}
+	needSetup := session == nil
+	serviceRegistryMu.Unlock()
 
-	d.ctx, d.cancel = context.WithCancel(context.Background())
-
-	if len(serviceRegistry) > 0 {
-		serviceRegistry[d] = struct{}{}
+	if !needSetup {
 		return nil
 	}
 
-	serviceRegistry[d] = struct{}{}
-
-	// CFRunLoop must run on a single fixed OS thread
-	go func() {
-		runtime.LockOSThread()
-		defer runtime.UnlockOSThread()
-
-		C.registerNotifications()
-	}()
+	errCh := make(chan error, 1)
+	go runRunLoop(errCh)
+	if err := <-errCh; err != nil {
+		serviceRegistryMu.Lock()
+		delete(serviceRegistry, d)
+		close(d.done)
+		d.done = nil
+		serviceRegistryMu.Unlock()
+		return err
+	}
 
 	log.Info("sleep detection service started on macOS")
 	return nil
 }
 
-// Deregister removes the detector. When the last detector is removed, IOKit registration is torn down
-// and the runloop is stopped and cleaned up.
+// Deregister removes the detector. When the last detector leaves, IOKit
+// notifications are torn down and the runloop is stopped.
 func (d *Detector) Deregister() error {
+	lifecycleMu.Lock()
+	defer lifecycleMu.Unlock()
+
 	serviceRegistryMu.Lock()
-	defer serviceRegistryMu.Unlock()
-	_, exists := serviceRegistry[d]
-	if !exists {
+	if _, exists := serviceRegistry[d]; !exists {
+		serviceRegistryMu.Unlock()
 		return nil
 	}
-
-	// cancel and remove this detector
-	d.cancel()
+	close(d.done)
 	delete(serviceRegistry, d)
 
-	// If other Detectors still exist, leave IOKit running
 	if len(serviceRegistry) > 0 {
+		serviceRegistryMu.Unlock()
 		return nil
 	}
+	sess := session
+	serviceRegistryMu.Unlock()
 
 	log.Info("sleep detection service stopping (deregister)")
 
-	// Deregister IOKit notifications, stop runloop, and free resources
-	C.unregisterNotifications()
+	if sess == nil {
+		return nil
+	}
+
+	if sess.rl != 0 && sess.port != 0 {
+		source := ioKit.IONotificationPortGetRunLoopSource(sess.port)
+		cf.CFRunLoopRemoveSource(sess.rl, source, cfCommonModes)
+	}
+	if sess.notifier != 0 {
+		n := sess.notifier
+		ioKit.IODeregisterForSystemPower(&n)
+	}
+
+	// Clear session only after IODeregisterForSystemPower returns so any
+	// in-flight powerCallback can still look up session.rp to ack sleep.
+	serviceRegistryMu.Lock()
+	session = nil
+	serviceRegistryMu.Unlock()
+
+	if sess.rp != 0 {
+		ioKit.IOServiceClose(sess.rp)
+	}
+	if sess.port != 0 {
+		ioKit.IONotificationPortDestroy(sess.port)
+	}
+	if sess.rl != 0 {
+		cf.CFRunLoopStop(sess.rl)
+	}
 
 	return nil
 }
 
-func (d *Detector) triggerCallback(event EventType) {
-	doneChan := make(chan struct{})
+func (d *Detector) triggerCallback(event EventType, cb func(event EventType), done <-chan struct{}) {
+	if cb == nil || done == nil {
+		return
+	}
 
+	select {
+	case <-done:
+		return
+	default:
+	}
+
+	doneChan := make(chan struct{})
 	timeout := time.NewTimer(500 * time.Millisecond)
 	defer timeout.Stop()
 
-	cb := d.callback
-	go func(callback func(event EventType)) {
+	go func() {
+		defer close(doneChan)
+		defer func() {
+			if r := recover(); r != nil {
+				log.Errorf("panic in sleep callback: %v", r)
+			}
+		}()
 		log.Info("sleep detection event fired")
-		callback(event)
-		close(doneChan)
-	}(cb)
+		cb(event)
+	}()
 
 	select {
 	case <-doneChan:
-	case <-d.ctx.Done():
+	case <-done:
 	case <-timeout.C:
-		log.Warnf("sleep callback timed out")
+		log.Warn("sleep callback timed out")
 	}
+}
+
+// NewDetector initializes IOKit/CoreFoundation bindings and returns a Detector.
+func NewDetector() (*Detector, error) {
+	if err := initLibs(); err != nil {
+		return nil, err
+	}
+	return &Detector{}, nil
+}
+
+func initLibs() error {
+	libInitOnce.Do(func() {
+		iokit, err := purego.Dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", purego.RTLD_NOW|purego.RTLD_GLOBAL)
+		if err != nil {
+			libInitErr = fmt.Errorf("dlopen IOKit: %w", err)
+			return
+		}
+		cfLib, err := purego.Dlopen("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation", purego.RTLD_NOW|purego.RTLD_GLOBAL)
+		if err != nil {
+			libInitErr = fmt.Errorf("dlopen CoreFoundation: %w", err)
+			return
+		}
+
+		purego.RegisterLibFunc(&ioKit.IORegisterForSystemPower, iokit, "IORegisterForSystemPower")
+		purego.RegisterLibFunc(&ioKit.IODeregisterForSystemPower, iokit, "IODeregisterForSystemPower")
+		purego.RegisterLibFunc(&ioKit.IOAllowPowerChange, iokit, "IOAllowPowerChange")
+		purego.RegisterLibFunc(&ioKit.IOServiceClose, iokit, "IOServiceClose")
+		purego.RegisterLibFunc(&ioKit.IONotificationPortGetRunLoopSource, iokit, "IONotificationPortGetRunLoopSource")
+		purego.RegisterLibFunc(&ioKit.IONotificationPortDestroy, iokit, "IONotificationPortDestroy")
+
+		purego.RegisterLibFunc(&cf.CFRunLoopGetCurrent, cfLib, "CFRunLoopGetCurrent")
+		purego.RegisterLibFunc(&cf.CFRunLoopRun, cfLib, "CFRunLoopRun")
+		purego.RegisterLibFunc(&cf.CFRunLoopStop, cfLib, "CFRunLoopStop")
+		purego.RegisterLibFunc(&cf.CFRunLoopAddSource, cfLib, "CFRunLoopAddSource")
+		purego.RegisterLibFunc(&cf.CFRunLoopRemoveSource, cfLib, "CFRunLoopRemoveSource")
+
+		modeAddr, err := purego.Dlsym(cfLib, "kCFRunLoopCommonModes")
+		if err != nil {
+			libInitErr = fmt.Errorf("dlsym kCFRunLoopCommonModes: %w", err)
+			return
+		}
+		// Launder the uintptr-to-pointer conversion through a Go variable so
+		// go vet's unsafeptr analyzer doesn't flag a system-library global.
+		cfCommonModes = **(**uintptr)(unsafe.Pointer(&modeAddr))
+
+		// NewCallback slots are a finite, non-reclaimable resource, so register
+		// a single thunk that dispatches to the current Detector set.
+		callbackThunk = purego.NewCallback(powerCallback)
+	})
+	return libInitErr
+}
+
+// powerCallback is the IOServiceInterestCallback trampoline, invoked on the
+// runloop thread. A Go panic crossing the purego boundary has undefined
+// behavior, so contain it here.
+func powerCallback(refcon, service, messageType, messageArgument uintptr) uintptr {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Errorf("panic in sleep powerCallback: %v", r)
+		}
+	}()
+	switch messageType {
+	case kIOMessageCanSystemSleep:
+		// Not acknowledging forces a 30s IOKit timeout before idle sleep.
+		allowPowerChange(messageArgument)
+	case kIOMessageSystemWillSleep:
+		dispatchEvent(EventTypeSleep)
+		allowPowerChange(messageArgument)
+	case kIOMessageSystemHasPoweredOn:
+		dispatchEvent(EventTypeWakeUp)
+	}
+	return 0
+}
+
+func allowPowerChange(messageArgument uintptr) {
+	serviceRegistryMu.Lock()
+	var port uintptr
+	if session != nil {
+		port = session.rp
+	}
+	serviceRegistryMu.Unlock()
+	if port != 0 {
+		ioKit.IOAllowPowerChange(port, messageArgument)
+	}
+}
+
+func dispatchEvent(event EventType) {
+	serviceRegistryMu.Lock()
+	snaps := make([]detectorSnapshot, 0, len(serviceRegistry))
+	for d := range serviceRegistry {
+		snaps = append(snaps, detectorSnapshot{
+			detector: d,
+			callback: d.callback,
+			done:     d.done,
+		})
+	}
+	serviceRegistryMu.Unlock()
+
+	for _, s := range snaps {
+		s.detector.triggerCallback(event, s.callback, s.done)
+	}
+}
+
+// runRunLoop owns the OS-locked thread that CFRunLoop is pinned to. Setup
+// result is reported on errCh so Register can surface failures synchronously.
+func runRunLoop(errCh chan<- error) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	sess, err := setupSession()
+	if err == nil {
+		serviceRegistryMu.Lock()
+		session = sess
+		serviceRegistryMu.Unlock()
+	}
+	errCh <- err
+	if err != nil {
+		return
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			log.Errorf("panic in sleep runloop: %v", r)
+		}
+	}()
+	cf.CFRunLoopRun()
+}
+
+// setupSession performs the IOKit registration on the current thread. Panics
+// are converted to errors so runRunLoop never leaves errCh unsent.
+func setupSession() (s *runLoopSession, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic during runloop setup: %v", r)
+		}
+	}()
+
+	var portRef, notifier uintptr
+	rp := ioKit.IORegisterForSystemPower(0, &portRef, callbackThunk, &notifier)
+	if rp == 0 {
+		return nil, fmt.Errorf("IORegisterForSystemPower returned zero")
+	}
+
+	rl := cf.CFRunLoopGetCurrent()
+	source := ioKit.IONotificationPortGetRunLoopSource(portRef)
+	cf.CFRunLoopAddSource(rl, source, cfCommonModes)
+
+	return &runLoopSession{rl: rl, port: portRef, notifier: notifier, rp: rp}, nil
 }

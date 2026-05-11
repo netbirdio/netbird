@@ -770,3 +770,132 @@ func TestExchangeWithFallback_TCPTruncatesToClientSize(t *testing.T) {
 	assert.Less(t, len(rm2.Answer), 20, "small EDNS0 client should get fewer records")
 	assert.True(t, rm2.Truncated, "response should be truncated for small buffer client")
 }
+
+func msgWithEDE(rcode int, codes ...uint16) *dns.Msg {
+	m := new(dns.Msg)
+	m.Response = true
+	m.Rcode = rcode
+	if len(codes) == 0 {
+		return m
+	}
+	opt := &dns.OPT{Hdr: dns.RR_Header{Name: ".", Rrtype: dns.TypeOPT}}
+	opt.SetUDPSize(dns.MinMsgSize)
+	for _, c := range codes {
+		opt.Option = append(opt.Option, &dns.EDNS0_EDE{InfoCode: c})
+	}
+	m.Extra = append(m.Extra, opt)
+	return m
+}
+
+func TestNonRetryableEDE(t *testing.T) {
+	tests := []struct {
+		name     string
+		msg      *dns.Msg
+		wantOK   bool
+		wantCode uint16
+	}{
+		{name: "no edns0", msg: msgWithEDE(dns.RcodeServerFailure)},
+		{
+			name: "opt without ede",
+			msg: func() *dns.Msg {
+				m := msgWithEDE(dns.RcodeServerFailure)
+				opt := &dns.OPT{Hdr: dns.RR_Header{Name: ".", Rrtype: dns.TypeOPT}}
+				opt.Option = append(opt.Option, &dns.EDNS0_NSID{Code: dns.EDNS0NSID})
+				m.Extra = []dns.RR{opt}
+				return m
+			}(),
+		},
+		{name: "ede dnsbogus", msg: msgWithEDE(dns.RcodeServerFailure, dns.ExtendedErrorCodeDNSBogus), wantOK: true, wantCode: dns.ExtendedErrorCodeDNSBogus},
+		{name: "ede signature expired", msg: msgWithEDE(dns.RcodeServerFailure, dns.ExtendedErrorCodeSignatureExpired), wantOK: true, wantCode: dns.ExtendedErrorCodeSignatureExpired},
+		{name: "ede blocked", msg: msgWithEDE(dns.RcodeServerFailure, dns.ExtendedErrorCodeBlocked), wantOK: true, wantCode: dns.ExtendedErrorCodeBlocked},
+		{name: "ede prohibited", msg: msgWithEDE(dns.RcodeRefused, dns.ExtendedErrorCodeProhibited), wantOK: true, wantCode: dns.ExtendedErrorCodeProhibited},
+		{name: "ede cached error retryable", msg: msgWithEDE(dns.RcodeServerFailure, dns.ExtendedErrorCodeCachedError)},
+		{name: "ede network error retryable", msg: msgWithEDE(dns.RcodeServerFailure, dns.ExtendedErrorCodeNetworkError)},
+		{name: "ede not ready retryable", msg: msgWithEDE(dns.RcodeServerFailure, dns.ExtendedErrorCodeNotReady)},
+		{
+			name:     "first non-retryable wins",
+			msg:      msgWithEDE(dns.RcodeServerFailure, dns.ExtendedErrorCodeNetworkError, dns.ExtendedErrorCodeDNSBogus),
+			wantOK:   true,
+			wantCode: dns.ExtendedErrorCodeDNSBogus,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			code, ok := nonRetryableEDE(tc.msg)
+			assert.Equal(t, tc.wantOK, ok, "ok should match")
+			if tc.wantOK {
+				assert.Equal(t, tc.wantCode, code, "code should match")
+			}
+		})
+	}
+}
+
+func TestEDEName(t *testing.T) {
+	assert.Equal(t, "DNSSEC Bogus", edeName(dns.ExtendedErrorCodeDNSBogus))
+	assert.Equal(t, "Signature Expired", edeName(dns.ExtendedErrorCodeSignatureExpired))
+	assert.Equal(t, "EDE 9999", edeName(9999), "unknown code falls back to numeric")
+}
+
+func TestStripOPT(t *testing.T) {
+	rm := &dns.Msg{
+		Extra: []dns.RR{
+			&dns.OPT{Hdr: dns.RR_Header{Name: ".", Rrtype: dns.TypeOPT}},
+			&dns.A{Hdr: dns.RR_Header{Name: "x.", Rrtype: dns.TypeA}, A: net.IPv4(1, 2, 3, 4)},
+		},
+	}
+	stripOPT(rm)
+	assert.Len(t, rm.Extra, 1, "OPT should be removed, A kept")
+	_, isOPT := rm.Extra[0].(*dns.OPT)
+	assert.False(t, isOPT, "remaining record must not be OPT")
+}
+
+func TestUpstreamResolver_NonRetryableEDEShortCircuits(t *testing.T) {
+	upstream1 := netip.MustParseAddrPort("192.0.2.1:53")
+	upstream2 := netip.MustParseAddrPort("192.0.2.2:53")
+
+	servfailWithEDE := msgWithEDE(dns.RcodeServerFailure, dns.ExtendedErrorCodeDNSBogus)
+	successResp := buildMockResponse(dns.RcodeSuccess, "192.0.2.100")
+
+	var queried []string
+	tracking := &trackingMockClient{
+		inner: &mockUpstreamResolverPerServer{
+			responses: map[string]mockUpstreamResponse{
+				upstream1.String(): {msg: servfailWithEDE},
+				upstream2.String(): {msg: successResp},
+			},
+			rtt: time.Millisecond,
+		},
+		queriedUpstreams: &queried,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	resolver := &upstreamResolverBase{
+		ctx:             ctx,
+		upstreamClient:  tracking,
+		upstreamServers: []netip.AddrPort{upstream1, upstream2},
+		upstreamTimeout: UpstreamTimeout,
+	}
+
+	var written *dns.Msg
+	w := &test.MockResponseWriter{
+		WriteMsgFunc: func(m *dns.Msg) error {
+			written = m
+			return nil
+		},
+	}
+
+	// Client query without EDNS0 must not see an OPT in the response.
+	q := new(dns.Msg).SetQuestion("example.com.", dns.TypeA)
+	resolver.ServeDNS(w, q)
+
+	require.NotNil(t, written, "response must be written")
+	assert.Equal(t, dns.RcodeServerFailure, written.Rcode, "SERVFAIL must propagate")
+	assert.Len(t, queried, 1, "only first upstream should be queried")
+	assert.Equal(t, upstream1.String(), queried[0])
+	for _, rr := range written.Extra {
+		_, isOPT := rr.(*dns.OPT)
+		assert.False(t, isOPT, "synthetic OPT must not leak to a non-EDNS0 client")
+	}
+}
