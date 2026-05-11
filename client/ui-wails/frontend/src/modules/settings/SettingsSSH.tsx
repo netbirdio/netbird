@@ -100,7 +100,7 @@ export function SettingsSSH() {
                     )}
                 >
                     <div className={"flex-1 max-w-md"}>
-                        <Label as={"div"}>JWT Cache TTL (Seconds)</Label>
+                        <Label as={"div"}>JWT Cache TTL</Label>
                         <HelpText margin={false}>
                             How long this client caches a JWT before prompting again on outgoing SSH
                             connections. Set to 0 to disable caching and authenticate on every
@@ -114,7 +114,7 @@ export function SettingsSSH() {
                             value={jwtTtlInput}
                             onChange={handleJwtTtlChange}
                             onBlur={handleJwtTtlBlur}
-                            customSuffix={"Seconds"}
+                            customSuffix={"Second(s)"}
                         />
                     </div>
                 </div>

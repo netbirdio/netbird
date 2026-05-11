@@ -94,7 +94,7 @@ export function SettingsTroubleshooting() {
                         onChange={(e) =>
                             setTraceMinutes(Math.max(1, Math.min(30, Number(e.target.value) || 1)))
                         }
-                        customSuffix={"Minutes"}
+                        customSuffix={"Minute(s)"}
                         disabled={!trace}
                     />
                 </div>
@@ -119,12 +119,7 @@ function ProgressSection({ stage, onCancel }: { stage: DebugStage; onCancel: () 
                 "Collecting logs, system details, and connection state. This usually takes a moment — keep this window open until it completes."
             }
             actions={
-                <Button
-                    variant={"secondary"}
-                    size={"xs"}
-                    onClick={onCancel}
-                    disabled={cancelling}
-                >
+                <Button variant={"secondary"} size={"xs"} onClick={onCancel} disabled={cancelling}>
                     {cancelling ? "Cancelling…" : "Cancel"}
                 </Button>
             }
@@ -186,20 +181,12 @@ function DoneResult({
                         Close
                     </Button>
                     {showKey ? (
-                        <Button
-                            variant={"primary"}
-                            size={"xs"}
-                            copy={result.uploadedKey}
-                        >
+                        <Button variant={"primary"} size={"xs"} copy={result.uploadedKey}>
                             Copy Key
                         </Button>
                     ) : (
                         result.path && (
-                            <Button
-                                variant={"primary"}
-                                size={"xs"}
-                                onClick={onRevealPath}
-                            >
+                            <Button variant={"primary"} size={"xs"} onClick={onRevealPath}>
                                 <FolderOpen size={12} />
                                 Open Folder
                             </Button>
@@ -235,10 +222,8 @@ function DoneResult({
                         }
                     >
                         Upload failed
-                        {result.uploadFailureReason
-                            ? `: ${result.uploadFailureReason}`
-                            : "."}{" "}
-                        The bundle is still saved locally.
+                        {result.uploadFailureReason ? `: ${result.uploadFailureReason}` : "."} The
+                        bundle is still saved locally.
                     </div>
                 )}
             </div>
