@@ -198,7 +198,7 @@ function DoneResult({
             <div className={"w-full max-w-xs mx-auto flex flex-col gap-3"}>
                 {showKey && <Input value={result.uploadedKey} readOnly copy />}
 
-                {result.path && (
+                {result.path && !showKey && (
                     <Input
                         value={result.path}
                         readOnly

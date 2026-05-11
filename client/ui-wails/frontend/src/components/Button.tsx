@@ -39,6 +39,11 @@ export const buttonVariants = cva(
                     "dark:ring-offset-neutral-950/50 dark:focus:ring-neutral-500/20",
                     "dark:bg-nb-gray-900/70 dark:text-gray-400 dark:border-gray-700/70 dark:hover:text-white dark:hover:bg-nb-gray-800/60",
                 ],
+                subtle: [
+                    "bg-nb-gray-50 hover:bg-nb-gray-100 focus:ring-nb-gray-200/60 border-nb-gray-200 text-nb-gray-900",
+                    "dark:ring-offset-neutral-950/50 dark:focus:ring-nb-gray-200/40",
+                    "dark:bg-nb-gray-50 dark:text-nb-gray-900 dark:border-nb-gray-200 dark:hover:bg-nb-gray-100 dark:hover:text-nb-gray-950",
+                ],
                 input: [
                     "bg-white hover:text-black focus:ring-zinc-200/50 hover:bg-gray-100 border-neutral-200 text-gray-900",
                     "dark:ring-offset-neutral-950/50 dark:focus:ring-neutral-500/20",

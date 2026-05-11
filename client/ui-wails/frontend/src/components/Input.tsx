@@ -185,7 +185,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
                             icon && "!pl-10",
                             "border",
                             props.readOnly &&
-                                "!bg-nb-gray-910 text-nb-gray-400 !border-nb-gray-800",
+                                "!bg-nb-gray-910 text-nb-gray-350 !border-nb-gray-800",
                             showStepper &&
                                 "!rounded-r-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]",
                             className,

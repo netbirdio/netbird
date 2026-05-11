@@ -1,6 +1,6 @@
 import { Outlet } from "react-router-dom";
 import { Header } from "@/layouts/Header.tsx";
-import { AutoUpdate } from "@/modules/auto-update/AutoUpdate.tsx";
+import { UpdateAvailableBanner } from "@/modules/auto-update/UpdateAvailableBanner.tsx";
 import { DebugBundleProvider } from "@/modules/debug-bundle/DebugBundleContext.tsx";
 import { ProfileProvider } from "@/modules/profile/ProfileContext.tsx";
 
@@ -11,7 +11,7 @@ export const AppLayout = () => {
                 <div className={"relative flex h-full flex-col"}>
                     <Header />
                     <Outlet />
-                    <AutoUpdate />
+                    <UpdateAvailableBanner />
                 </div>
             </DebugBundleProvider>
         </ProfileProvider>
