@@ -236,7 +236,6 @@ func (s *SqlStore) GetPeerJobs(ctx context.Context, accountID, peerID string) ([
 		Where(accountAndPeerIDQueryCondition, accountID, peerID).
 		Order("created_at DESC").
 		Find(&jobs).Error
-
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to fetch jobs from store: %s", err)
 		return nil, err
@@ -463,7 +462,6 @@ func (s *SqlStore) SavePeer(ctx context.Context, accountID string, peer *nbpeer.
 
 		return nil
 	})
-
 	if err != nil {
 		return err
 	}
@@ -1514,6 +1512,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 			settings_jwt_groups_enabled, settings_jwt_groups_claim_name, settings_jwt_allow_groups,
 			settings_routing_peer_dns_resolution_enabled, settings_dns_domain, settings_network_range,
 			settings_network_range_v6, settings_ipv6_enabled_groups, settings_lazy_connection_enabled,
+			settings_local_mfa_enabled,
 			-- Embedded ExtraSettings
 			settings_extra_peer_approval_enabled, settings_extra_user_approval_required,
 			settings_extra_integrated_validator, settings_extra_integrated_validator_groups
@@ -1535,6 +1534,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		sNetworkRangeV6                  sql.NullString
 		sIPv6EnabledGroups               sql.NullString
 		sLazyConnectionEnabled           sql.NullBool
+		sLocalMFAEnabled                 sql.NullBool
 		sExtraPeerApprovalEnabled        sql.NullBool
 		sExtraUserApprovalRequired       sql.NullBool
 		sExtraIntegratedValidator        sql.NullString
@@ -1557,6 +1557,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		&sJWTGroupsEnabled, &sJWTGroupsClaimName, &sJWTAllowGroups,
 		&sRoutingPeerDNSResolutionEnabled, &sDNSDomain, &sNetworkRange,
 		&sNetworkRangeV6, &sIPv6EnabledGroups, &sLazyConnectionEnabled,
+		&sLocalMFAEnabled,
 		&sExtraPeerApprovalEnabled, &sExtraUserApprovalRequired,
 		&sExtraIntegratedValidator, &sExtraIntegratedValidatorGroups,
 	)
@@ -1618,6 +1619,9 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 	}
 	if sLazyConnectionEnabled.Valid {
 		account.Settings.LazyConnectionEnabled = sLazyConnectionEnabled.Bool
+	}
+	if sLocalMFAEnabled.Valid {
+		account.Settings.LocalMfaEnabled = sLocalMFAEnabled.Bool
 	}
 	if sJWTAllowGroups.Valid {
 		_ = json.Unmarshal([]byte(sJWTAllowGroups.String), &account.Settings.JWTAllowGroups)
@@ -3061,7 +3065,6 @@ func (s *SqlStore) AddPeerToAllGroup(ctx context.Context, accountID string, peer
 		GroupID:   groupID,
 		PeerID:    peerID,
 	}).Error
-
 	if err != nil {
 		return status.Errorf(status.Internal, "error adding peer to group 'All': %v", err)
 	}
@@ -3081,7 +3084,6 @@ func (s *SqlStore) AddPeerToGroup(ctx context.Context, accountID, peerID, groupI
 		Columns:   []clause.Column{{Name: "group_id"}, {Name: "peer_id"}},
 		DoNothing: true,
 	}).Create(peer).Error
-
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to add peer %s to group %s for account %s: %v", peerID, groupID, accountID, err)
 		return status.Errorf(status.Internal, "failed to add peer to group")
@@ -3094,7 +3096,6 @@ func (s *SqlStore) AddPeerToGroup(ctx context.Context, accountID, peerID, groupI
 func (s *SqlStore) RemovePeerFromGroup(ctx context.Context, peerID string, groupID string) error {
 	err := s.db.
 		Delete(&types.GroupPeer{}, "group_id = ? AND peer_id = ?", groupID, peerID).Error
-
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to remove peer %s from group %s: %v", peerID, groupID, err)
 		return status.Errorf(status.Internal, "failed to remove peer from group")
@@ -3107,7 +3108,6 @@ func (s *SqlStore) RemovePeerFromGroup(ctx context.Context, peerID string, group
 func (s *SqlStore) RemovePeerFromAllGroups(ctx context.Context, peerID string) error {
 	err := s.db.
 		Delete(&types.GroupPeer{}, "peer_id = ?", peerID).Error
-
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to remove peer %s from all groups: %v", peerID, err)
 		return status.Errorf(status.Internal, "failed to remove peer from all groups")
@@ -4964,7 +4964,6 @@ func (s *SqlStore) UpdateService(ctx context.Context, service *rpservice.Service
 
 		return nil
 	})
-
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to update service to store: %v", err)
 		return status.Errorf(status.Internal, "failed to update service to store")
@@ -5620,7 +5619,6 @@ func (s *SqlStore) getClusterUnanimousCapability(ctx context.Context, clusterAdd
 		Where("cluster_address = ? AND status = ? AND last_seen > ?",
 			clusterAddr, "connected", time.Now().Add(-proxyActiveThreshold)).
 		Scan(&result).Error
-
 	if err != nil {
 		log.WithContext(ctx).Errorf("query cluster capability %s for %s: %v", column, clusterAddr, err)
 		return nil
@@ -5662,7 +5660,6 @@ func (s *SqlStore) getClusterCapability(ctx context.Context, clusterAddr, column
 		Where("cluster_address = ? AND status = ? AND last_seen > ?",
 			clusterAddr, "connected", time.Now().Add(-proxyActiveThreshold)).
 		Scan(&result).Error
-
 	if err != nil {
 		log.WithContext(ctx).Errorf("query cluster capability %s for %s: %v", column, clusterAddr, err)
 		return nil

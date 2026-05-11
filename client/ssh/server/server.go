@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"strconv"
 	"net/netip"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +27,7 @@ import (
 	"github.com/netbirdio/netbird/client/ssh/detection"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/auth/jwt"
+	"github.com/netbirdio/netbird/util/netrelay"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -52,6 +53,10 @@ const (
 	// that backdate the iat claim by up to 5 minutes.
 	DefaultJWTMaxTokenAge = 10 * 60
 )
+
+// directTCPIPDialTimeout bounds how long relayDirectTCPIP waits on a dial to
+// the forwarded destination before rejecting the SSH channel.
+const directTCPIPDialTimeout = 30 * time.Second
 
 var (
 	ErrPrivilegedUserDisabled = errors.New(msgPrivilegedUserDisabled)
@@ -933,5 +938,29 @@ func (s *Server) directTCPIPHandler(srv *ssh.Server, conn *cryptossh.ServerConn,
 	s.addConnectionPortForward(ctx.User(), ctx.RemoteAddr(), forwardAddr)
 	logger.Infof("local port forwarding: %s", hostPort)
 
-	ssh.DirectTCPIPHandler(srv, conn, newChan, ctx)
+	s.relayDirectTCPIP(ctx, newChan, payload.Host, int(payload.Port), logger)
+}
+
+// relayDirectTCPIP is a netrelay-based replacement for gliderlabs'
+// DirectTCPIPHandler. The upstream handler closes both sides on the first
+// EOF; netrelay.Relay propagates CloseWrite so each direction drains on its
+// own terms.
+func (s *Server) relayDirectTCPIP(ctx ssh.Context, newChan cryptossh.NewChannel, host string, port int, logger *log.Entry) {
+	dest := net.JoinHostPort(host, strconv.Itoa(port))
+
+	dialer := net.Dialer{Timeout: directTCPIPDialTimeout}
+	dconn, err := dialer.DialContext(ctx, "tcp", dest)
+	if err != nil {
+		_ = newChan.Reject(cryptossh.ConnectionFailed, err.Error())
+		return
+	}
+
+	ch, reqs, err := newChan.Accept()
+	if err != nil {
+		_ = dconn.Close()
+		return
+	}
+	go cryptossh.DiscardRequests(reqs)
+
+	netrelay.Relay(ctx, dconn, ch, netrelay.Options{Logger: logger})
 }

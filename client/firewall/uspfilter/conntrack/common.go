@@ -3,14 +3,60 @@ package conntrack
 import (
 	"net"
 	"net/netip"
+	"os"
 	"strconv"
 	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
 
+	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 )
+
+// evictSampleSize bounds how many map entries we scan per eviction call.
+// Keeps eviction O(1) even at cap under sustained load; the sampled-LRU
+// heuristic is good enough for a conntrack table that only overflows under
+// abuse.
+const evictSampleSize = 8
+
+// envDuration parses an os.Getenv(name) as a time.Duration. Falls back to
+// def on empty or invalid; logs a warning on invalid.
+func envDuration(logger *nblog.Logger, name string, def time.Duration) time.Duration {
+	v := os.Getenv(name)
+	if v == "" {
+		return def
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		logger.Warn3("invalid %s=%q: %v, using default", name, v, err)
+		return def
+	}
+	if d <= 0 {
+		logger.Warn2("invalid %s=%q: must be positive, using default", name, v)
+		return def
+	}
+	return d
+}
+
+// envInt parses an os.Getenv(name) as an int. Falls back to def on empty,
+// invalid, or non-positive. Logs a warning on invalid input.
+func envInt(logger *nblog.Logger, name string, def int) int {
+	v := os.Getenv(name)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	switch {
+	case err != nil:
+		logger.Warn3("invalid %s=%q: %v, using default", name, v, err)
+		return def
+	case n <= 0:
+		logger.Warn2("invalid %s=%q: must be positive, using default", name, v)
+		return def
+	}
+	return n
+}
 
 // BaseConnTrack provides common fields and locking for all connection types
 type BaseConnTrack struct {

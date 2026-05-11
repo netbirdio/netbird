@@ -13,6 +13,7 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 
+	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 )
 
@@ -97,8 +98,10 @@ func (f *Forwarder) forwardICMPPacket(id stack.TransportEndpointID, payload []by
 		return nil, fmt.Errorf("write ICMP packet: %w", err)
 	}
 
-	f.logger.Trace3("forwarder: Forwarded ICMP packet %v type %v code %v",
-		epID(id), icmpType, icmpCode)
+	if f.logger.Enabled(nblog.LevelTrace) {
+		f.logger.Trace3("forwarder: Forwarded ICMP packet %v type %v code %v",
+			epID(id), icmpType, icmpCode)
+	}
 
 	return conn, nil
 }
@@ -121,12 +124,14 @@ func (f *Forwarder) handleICMPViaSocket(flowID uuid.UUID, id stack.TransportEndp
 	txBytes := f.handleEchoResponse(conn, id, v6)
 	rtt := time.Since(sendTime).Round(10 * time.Microsecond)
 
-	proto := "ICMP"
-	if v6 {
-		proto = "ICMPv6"
+	if f.logger.Enabled(nblog.LevelTrace) {
+		proto := "ICMP"
+		if v6 {
+			proto = "ICMPv6"
+		}
+		f.logger.Trace5("forwarder: Forwarded %s echo reply %v type %v code %v (rtt=%v, raw socket)",
+			proto, epID(id), icmpType, icmpCode, rtt)
 	}
-	f.logger.Trace5("forwarder: Forwarded %s echo reply %v type %v code %v (rtt=%v, raw socket)",
-		proto, epID(id), icmpType, icmpCode, rtt)
 
 	f.sendICMPEvent(nftypes.TypeEnd, flowID, id, icmpType, icmpCode, uint64(rxBytes), uint64(txBytes))
 }
@@ -224,13 +229,17 @@ func (f *Forwarder) handleICMPViaPing(flowID uuid.UUID, id stack.TransportEndpoi
 	}
 	rtt := time.Since(pingStart).Round(10 * time.Microsecond)
 
-	f.logger.Trace3("forwarder: Forwarded ICMP echo request %v type %v code %v",
-		epID(id), icmpType, icmpCode)
+	if f.logger.Enabled(nblog.LevelTrace) {
+		f.logger.Trace3("forwarder: Forwarded ICMP echo request %v type %v code %v",
+			epID(id), icmpType, icmpCode)
+	}
 
 	txBytes := f.synthesizeEchoReply(id, icmpData)
 
-	f.logger.Trace4("forwarder: Forwarded ICMP echo reply %v type %v code %v (rtt=%v, ping binary)",
-		epID(id), icmpType, icmpCode, rtt)
+	if f.logger.Enabled(nblog.LevelTrace) {
+		f.logger.Trace4("forwarder: Forwarded ICMP echo reply %v type %v code %v (rtt=%v, ping binary)",
+			epID(id), icmpType, icmpCode, rtt)
+	}
 
 	f.sendICMPEvent(nftypes.TypeEnd, flowID, id, icmpType, icmpCode, uint64(rxBytes), uint64(txBytes))
 }

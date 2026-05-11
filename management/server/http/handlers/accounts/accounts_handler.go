@@ -277,6 +277,9 @@ func (h *handler) updateAccountRequestSettings(req api.PutApiAccountsAccountIdJS
 	if req.Settings.AutoUpdateAlways != nil {
 		returnSettings.AutoUpdateAlways = *req.Settings.AutoUpdateAlways
 	}
+	if req.Settings.LocalMfaEnabled != nil {
+		returnSettings.LocalMfaEnabled = *req.Settings.LocalMfaEnabled
+	}
 	if req.Settings.Ipv6EnabledGroups != nil {
 		returnSettings.IPv6EnabledGroups = *req.Settings.Ipv6EnabledGroups
 	}
@@ -412,6 +415,7 @@ func toAccountResponse(accountID string, settings *types.Settings, meta *types.A
 		Ipv6EnabledGroups:               &settings.IPv6EnabledGroups,
 		EmbeddedIdpEnabled:              &settings.EmbeddedIdpEnabled,
 		LocalAuthDisabled:               &settings.LocalAuthDisabled,
+		LocalMfaEnabled:                 &settings.LocalMfaEnabled,
 	}
 
 	if settings.NetworkRange.IsValid() {

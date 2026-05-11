@@ -17,7 +17,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	cryptossh "golang.org/x/crypto/ssh"
 
-	nbssh "github.com/netbirdio/netbird/client/ssh"
+	"github.com/netbirdio/netbird/util/netrelay"
 )
 
 const privilegedPortThreshold = 1024
@@ -357,7 +357,7 @@ func (s *Server) handleRemoteForwardConnection(ctx ssh.Context, conn net.Conn, h
 		return
 	}
 
-	nbssh.BidirectionalCopyWithContext(logger, ctx, conn, channel)
+	netrelay.Relay(ctx, conn, channel, netrelay.Options{Logger: logger})
 }
 
 // openForwardChannel creates an SSH forwarded-tcpip channel

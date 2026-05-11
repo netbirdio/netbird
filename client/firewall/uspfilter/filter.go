@@ -787,7 +787,9 @@ func (m *Manager) filterOutbound(packetData []byte, size int) bool {
 
 	srcIP, dstIP := m.extractIPs(d)
 	if !srcIP.IsValid() {
-		m.logger.Error1("Unknown network layer: %v", d.decoded[0])
+		if m.logger.Enabled(nblog.LevelError) {
+			m.logger.Error1("Unknown network layer: %v", d.decoded[0])
+		}
 		return false
 	}
 
@@ -901,7 +903,9 @@ func (m *Manager) clampTCPMSS(packetData []byte, d *decoder) bool {
 		return false
 	}
 
-	m.logger.Trace2("Clamped TCP MSS from %d to %d", currentMSS, mssClampValue)
+	if m.logger.Enabled(nblog.LevelTrace) {
+		m.logger.Trace2("Clamped TCP MSS from %d to %d", currentMSS, mssClampValue)
+	}
 	return true
 }
 
@@ -1044,11 +1048,13 @@ func (m *Manager) filterInbound(packetData []byte, size int) bool {
 
 	// TODO: pass fragments of routed packets to forwarder
 	if fragment {
-		if d.decoded[0] == layers.LayerTypeIPv4 {
-			m.logger.Trace4("packet is a fragment: src=%v dst=%v id=%v flags=%v",
-				srcIP, dstIP, d.ip4.Id, d.ip4.Flags)
-		} else {
-			m.logger.Trace2("packet is an IPv6 fragment: src=%v dst=%v", srcIP, dstIP)
+		if m.logger.Enabled(nblog.LevelTrace) {
+			if d.decoded[0] == layers.LayerTypeIPv4 {
+				m.logger.Trace4("packet is a fragment: src=%v dst=%v id=%v flags=%v",
+					srcIP, dstIP, d.ip4.Id, d.ip4.Flags)
+			} else {
+				m.logger.Trace2("packet is an IPv6 fragment: src=%v dst=%v", srcIP, dstIP)
+			}
 		}
 		return false
 	}
@@ -1091,8 +1097,10 @@ func (m *Manager) handleLocalTraffic(d *decoder, srcIP, dstIP netip.Addr, packet
 		pnum := getProtocolFromPacket(d)
 		srcPort, dstPort := getPortsFromPacket(d)
 
-		m.logger.Trace6("Dropping local packet (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
-			ruleID, pnum, srcIP, srcPort, dstIP, dstPort)
+		if m.logger.Enabled(nblog.LevelTrace) {
+			m.logger.Trace6("Dropping local packet (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
+				ruleID, pnum, srcIP, srcPort, dstIP, dstPort)
+		}
 
 		m.flowLogger.StoreEvent(nftypes.EventFields{
 			FlowID:     uuid.New(),
@@ -1142,8 +1150,10 @@ func (m *Manager) handleForwardedLocalTraffic(packetData []byte) bool {
 func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP netip.Addr, packetData []byte, size int) bool {
 	// Drop if routing is disabled
 	if !m.routingEnabled.Load() {
-		m.logger.Trace2("Dropping routed packet (routing disabled): src=%s dst=%s",
-			srcIP, dstIP)
+		if m.logger.Enabled(nblog.LevelTrace) {
+			m.logger.Trace2("Dropping routed packet (routing disabled): src=%s dst=%s",
+				srcIP, dstIP)
+		}
 		return true
 	}
 
@@ -1160,8 +1170,10 @@ func (m *Manager) handleRoutedTraffic(d *decoder, srcIP, dstIP netip.Addr, packe
 	if !pass {
 		proto := getProtocolFromPacket(d)
 
-		m.logger.Trace6("Dropping routed packet (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
-			ruleID, proto, srcIP, srcPort, dstIP, dstPort)
+		if m.logger.Enabled(nblog.LevelTrace) {
+			m.logger.Trace6("Dropping routed packet (ACL denied): rule_id=%s proto=%v src=%s:%d dst=%s:%d",
+				ruleID, proto, srcIP, srcPort, dstIP, dstPort)
+		}
 
 		m.flowLogger.StoreEvent(nftypes.EventFields{
 			FlowID:     uuid.New(),
@@ -1287,7 +1299,9 @@ func getPortsFromPacket(d *decoder) (srcPort, dstPort uint16) {
 // It returns true, true if the packet is a fragment and valid.
 func (m *Manager) isValidPacket(d *decoder, packetData []byte) (bool, bool) {
 	if err := d.decodePacket(packetData); err != nil {
-		m.logger.Trace1("couldn't decode packet, err: %s", err)
+		if m.logger.Enabled(nblog.LevelTrace) {
+			m.logger.Trace1("couldn't decode packet, err: %s", err)
+		}
 		return false, false
 	}
 

@@ -386,6 +386,9 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	if err = am.handleInactivityExpirationSettings(ctx, oldSettings, newSettings, userID, accountID); err != nil {
 		return nil, err
 	}
+	if err = am.handleLocalMfaSettings(ctx, oldSettings, newSettings, userID, accountID); err != nil {
+		return nil, err
+	}
 	if oldSettings.DNSDomain != newSettings.DNSDomain {
 		eventMeta := map[string]any{
 			"old_dns_domain": oldSettings.DNSDomain,
@@ -597,6 +600,29 @@ func (am *DefaultAccountManager) handleInactivityExpirationSettings(ctx context.
 			}
 			am.StoreEvent(ctx, userID, accountID, accountID, event, nil)
 		}
+	}
+
+	return nil
+}
+
+func (am *DefaultAccountManager) handleLocalMfaSettings(ctx context.Context, oldSettings, newSettings *types.Settings, userID, accountID string) error {
+	if oldSettings.LocalMfaEnabled == newSettings.LocalMfaEnabled {
+		return nil
+	}
+
+	embeddedIdp, ok := am.idpManager.(*idp.EmbeddedIdPManager)
+	if !ok {
+		return nil
+	}
+
+	if err := embeddedIdp.SetMFAEnabled(ctx, newSettings.LocalMfaEnabled); err != nil {
+		return fmt.Errorf("failed to toggle MFA: %w", err)
+	}
+
+	if newSettings.LocalMfaEnabled {
+		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountLocalMfaEnabled, nil)
+	} else {
+		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountLocalMfaDisabled, nil)
 	}
 
 	return nil

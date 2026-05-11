@@ -236,6 +236,11 @@ const (
 	// AccountIPv6Disabled indicates that a user disabled IPv6 overlay for the account
 	AccountIPv6Disabled Activity = 122
 
+	// AccountLocalMfaEnabled indicates that a user enabled TOTP MFA for local users
+	AccountLocalMfaEnabled Activity = 123
+	// AccountLocalMfaDisabled indicates that a user disabled TOTP MFA for local users
+	AccountLocalMfaDisabled Activity = 124
+
 	AccountDeleted Activity = 99999
 )
 
@@ -385,6 +390,9 @@ var activityMap = map[Activity]Code{
 
 	AccountPeerExposeEnabled:  {"Account peer expose enabled", "account.setting.peer.expose.enable"},
 	AccountPeerExposeDisabled: {"Account peer expose disabled", "account.setting.peer.expose.disable"},
+
+	AccountLocalMfaEnabled:  {"Account local MFA enabled", "account.setting.local.mfa.enable"},
+	AccountLocalMfaDisabled: {"Account local MFA disabled", "account.setting.local.mfa.disable"},
 
 	DomainAdded:     {"Domain added", "domain.add"},
 	DomainDeleted:   {"Domain deleted", "domain.delete"},

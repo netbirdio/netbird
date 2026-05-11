@@ -381,6 +381,10 @@ components:
           type: boolean
           readOnly: true
           example: false
+        local_mfa_enabled:
+          description: Enables or disables TOTP multi-factor authentication for local users. Only applicable when the embedded identity provider is enabled.
+          type: boolean
+          example: false
         ipv6_enabled_groups:
           description: List of group IDs whose peers receive IPv6 overlay addresses. Peers not in any of these groups will not be allocated an IPv6 address. New accounts default to the All group.
           type: array
