@@ -37,6 +37,7 @@ type Config struct {
 	DisableClientRoutes           bool    `json:"disableClientRoutes"`
 	DisableServerRoutes           bool    `json:"disableServerRoutes"`
 	DisableDNS                    bool    `json:"disableDns"`
+	DisableIPv6                   bool    `json:"disableIpv6"`
 	BlockLANAccess                bool    `json:"blockLanAccess"`
 	EnableSSHRoot                 bool    `json:"enableSshRoot"`
 	EnableSSHSFTP                 bool    `json:"enableSshSftp"`
@@ -68,6 +69,7 @@ type SetConfigParams struct {
 	DisableClientRoutes           *bool   `json:"disableClientRoutes,omitempty"`
 	DisableServerRoutes           *bool   `json:"disableServerRoutes,omitempty"`
 	DisableDNS                    *bool   `json:"disableDns,omitempty"`
+	DisableIPv6                   *bool   `json:"disableIpv6,omitempty"`
 	DisableFirewall               *bool   `json:"disableFirewall,omitempty"`
 	BlockLANAccess                *bool   `json:"blockLanAccess,omitempty"`
 	EnableSSHRoot                 *bool   `json:"enableSshRoot,omitempty"`
@@ -127,6 +129,7 @@ func (s *Settings) GetConfig(ctx context.Context, p ConfigParams) (Config, error
 		DisableClientRoutes:           resp.GetDisableClientRoutes(),
 		DisableServerRoutes:           resp.GetDisableServerRoutes(),
 		DisableDNS:                    resp.GetDisableDns(),
+		DisableIPv6:                   resp.GetDisableIpv6(),
 		BlockLANAccess:                resp.GetBlockLanAccess(),
 		EnableSSHRoot:                 resp.GetEnableSSHRoot(),
 		EnableSSHSFTP:                 resp.GetEnableSSHSFTP(),
@@ -162,6 +165,7 @@ func (s *Settings) SetConfig(ctx context.Context, p SetConfigParams) error {
 		DisableClientRoutes:           p.DisableClientRoutes,
 		DisableServerRoutes:           p.DisableServerRoutes,
 		DisableDns:                    p.DisableDNS,
+		DisableIpv6:                   p.DisableIPv6,
 		DisableFirewall:               p.DisableFirewall,
 		BlockLanAccess:                p.BlockLANAccess,
 		EnableSSHRoot:                 p.EnableSSHRoot,

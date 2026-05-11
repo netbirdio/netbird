@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sync"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
@@ -32,6 +34,12 @@ type ShutdownState struct {
 
 	ACLEntries    aclEntries  `json:"acl_entries,omitempty"`
 	ACLIPsetStore *ipsetStore `json:"acl_ipset_store,omitempty"`
+
+	// IPv6 counterparts
+	RouteRules6        routeRules    `json:"route_rules_v6,omitempty"`
+	RouteIPsetCounter6 *ipsetCounter `json:"route_ipset_counter_v6,omitempty"`
+	ACLEntries6        aclEntries    `json:"acl_entries_v6,omitempty"`
+	ACLIPsetStore6     *ipsetStore   `json:"acl_ipset_store_v6,omitempty"`
 }
 
 func (s *ShutdownState) Name() string {
@@ -60,6 +68,28 @@ func (s *ShutdownState) Cleanup() error {
 	}
 	if s.ACLIPsetStore != nil {
 		ipt.aclMgr.ipsetStore = s.ACLIPsetStore
+	}
+
+	// Clean up v6 state even if the current run has no IPv6.
+	// The previous run may have left ip6tables rules behind.
+	if !ipt.hasIPv6() {
+		if err := ipt.createIPv6Components(s.InterfaceState, mtu); err != nil {
+			log.Warnf("failed to create v6 components for cleanup: %v", err)
+		}
+	}
+	if ipt.hasIPv6() {
+		if s.RouteRules6 != nil {
+			ipt.router6.rules = s.RouteRules6
+		}
+		if s.RouteIPsetCounter6 != nil {
+			ipt.router6.ipsetCounter.LoadData(s.RouteIPsetCounter6)
+		}
+		if s.ACLEntries6 != nil {
+			ipt.aclMgr6.entries = s.ACLEntries6
+		}
+		if s.ACLIPsetStore6 != nil {
+			ipt.aclMgr6.ipsetStore = s.ACLIPsetStore6
+		}
 	}
 
 	if err := ipt.Close(nil); err != nil {

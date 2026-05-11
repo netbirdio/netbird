@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"os"
 	"slices"
@@ -1103,7 +1104,7 @@ func (m *Manager) CreateServiceFromPeer(ctx context.Context, accountID, peerID s
 
 	serviceURL := "https://" + svc.Domain
 	if service.IsL4Protocol(svc.Mode) {
-		serviceURL = fmt.Sprintf("%s://%s:%d", svc.Mode, svc.Domain, svc.ListenPort)
+		serviceURL = fmt.Sprintf("%s://%s", svc.Mode, net.JoinHostPort(svc.Domain, strconv.Itoa(int(svc.ListenPort))))
 	}
 
 	return &service.ExposeServiceResponse{
@@ -1272,7 +1273,7 @@ func addPeerInfoToEventMeta(meta map[string]any, peer *nbpeer.Peer) map[string]a
 		return meta
 	}
 	meta["peer_name"] = peer.Name
-	if peer.IP != nil {
+	if peer.IP.IsValid() {
 		meta["peer_ip"] = peer.IP.String()
 	}
 	return meta

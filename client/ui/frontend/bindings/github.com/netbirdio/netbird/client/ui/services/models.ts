@@ -58,6 +58,7 @@ export class Config {
     "disableClientRoutes": boolean;
     "disableServerRoutes": boolean;
     "disableDns": boolean;
+    "disableIpv6": boolean;
     "blockLanAccess": boolean;
     "enableSshRoot": boolean;
     "enableSshSftp": boolean;
@@ -124,6 +125,9 @@ export class Config {
         }
         if (!("disableDns" in $$source)) {
             this["disableDns"] = false;
+        }
+        if (!("disableIpv6" in $$source)) {
+            this["disableIpv6"] = false;
         }
         if (!("blockLanAccess" in $$source)) {
             this["blockLanAccess"] = false;
@@ -862,6 +866,7 @@ export class SetConfigParams {
     "disableClientRoutes"?: boolean | null;
     "disableServerRoutes"?: boolean | null;
     "disableDns"?: boolean | null;
+    "disableIpv6"?: boolean | null;
     "disableFirewall"?: boolean | null;
     "blockLanAccess"?: boolean | null;
     "enableSshRoot"?: boolean | null;

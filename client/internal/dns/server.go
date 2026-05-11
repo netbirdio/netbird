@@ -410,7 +410,7 @@ func (s *DefaultServer) Stop() {
 		log.Errorf("failed to disable DNS: %v", err)
 	}
 
-	maps.Clear(s.extraDomains)
+	clear(s.extraDomains)
 }
 
 func (s *DefaultServer) disableDNS() (retErr error) {

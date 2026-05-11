@@ -68,6 +68,7 @@ export default function Settings() {
         disableClientRoutes: cfg.disableClientRoutes,
         disableServerRoutes: cfg.disableServerRoutes,
         disableDns: cfg.disableDns,
+        disableIpv6: cfg.disableIpv6,
         blockLanAccess: cfg.blockLanAccess,
         enableSshRoot: cfg.enableSshRoot,
         enableSshSftp: cfg.enableSshSftp,
@@ -181,6 +182,11 @@ function NetworkTab({ cfg, setField }: Ctx) {
         checked={cfg.disableServerRoutes}
         onChange={(v) => setField("disableServerRoutes", v)}
         label="Disable server routes"
+      />
+      <Switch
+        checked={cfg.disableIpv6}
+        onChange={(v) => setField("disableIpv6", v)}
+        label="Disable IPv6 overlay addressing"
       />
       <Switch
         checked={cfg.blockLanAccess}

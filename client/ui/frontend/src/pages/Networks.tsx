@@ -54,7 +54,10 @@ export default function Networks() {
   };
 
   const overlapping = useMemo(() => filterOverlapping(routes), [routes]);
-  const exitNodes = useMemo(() => routes.filter((r) => r.range === "0.0.0.0/0"), [routes]);
+  const exitNodes = useMemo(
+    () => routes.filter((r) => r.range === "0.0.0.0/0" || r.range === "::/0"),
+    [routes],
+  );
 
   return (
     <div className="flex h-full flex-col p-6">

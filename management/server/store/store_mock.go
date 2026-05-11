@@ -7,6 +7,7 @@ package store
 import (
 	context "context"
 	net "net"
+	netip "net/netip"
 	reflect "reflect"
 	time "time"
 
@@ -2138,10 +2139,10 @@ func (mr *MockStoreMockRecorder) GetStoreEngine() *gomock.Call {
 }
 
 // GetTakenIPs mocks base method.
-func (m *MockStore) GetTakenIPs(ctx context.Context, lockStrength LockingStrength, accountId string) ([]net.IP, error) {
+func (m *MockStore) GetTakenIPs(ctx context.Context, lockStrength LockingStrength, accountId string) ([]netip.Addr, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetTakenIPs", ctx, lockStrength, accountId)
-	ret0, _ := ret[0].([]net.IP)
+	ret0, _ := ret[0].([]netip.Addr)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -2950,6 +2951,20 @@ func (m *MockStore) UpdateAccountNetwork(ctx context.Context, accountID string, 
 func (mr *MockStoreMockRecorder) UpdateAccountNetwork(ctx, accountID, ipNet interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAccountNetwork", reflect.TypeOf((*MockStore)(nil).UpdateAccountNetwork), ctx, accountID, ipNet)
+}
+
+// UpdateAccountNetworkV6 mocks base method.
+func (m *MockStore) UpdateAccountNetworkV6(ctx context.Context, accountID string, ipNet net.IPNet) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateAccountNetworkV6", ctx, accountID, ipNet)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateAccountNetworkV6 indicates an expected call of UpdateAccountNetworkV6.
+func (mr *MockStoreMockRecorder) UpdateAccountNetworkV6(ctx, accountID, ipNet interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAccountNetworkV6", reflect.TypeOf((*MockStore)(nil).UpdateAccountNetworkV6), ctx, accountID, ipNet)
 }
 
 // UpdateCustomDomain mocks base method.

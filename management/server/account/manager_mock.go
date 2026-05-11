@@ -1709,6 +1709,18 @@ func (mr *MockManagerMockRecorder) UpdatePeerIP(ctx, accountID, userID, peerID, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePeerIP", reflect.TypeOf((*MockManager)(nil).UpdatePeerIP), ctx, accountID, userID, peerID, newIP)
 }
 
+func (m *MockManager) UpdatePeerIPv6(ctx context.Context, accountID, userID, peerID string, newIPv6 netip.Addr) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdatePeerIPv6", ctx, accountID, userID, peerID, newIPv6)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+func (mr *MockManagerMockRecorder) UpdatePeerIPv6(ctx, accountID, userID, peerID, newIPv6 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePeerIPv6", reflect.TypeOf((*MockManager)(nil).UpdatePeerIPv6), ctx, accountID, userID, peerID, newIPv6)
+}
+
 // UpdateToPrimaryAccount mocks base method.
 func (m *MockManager) UpdateToPrimaryAccount(ctx context.Context, accountId string) error {
 	m.ctrl.T.Helper()

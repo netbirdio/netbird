@@ -2,6 +2,7 @@ package idp
 
 import (
 	"context"
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"testing"
@@ -310,6 +311,72 @@ func TestEmbeddedIdPManager_UpdateUserPassword(t *testing.T) {
 		err := manager.UpdateUserPassword(ctx, userID, userID, samePassword, samePassword)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "new password must be different")
+	})
+}
+
+func TestEmbeddedIdPConfig_ToYAMLConfig_SessionCookieEncryptionKey(t *testing.T) {
+	t.Setenv(sessionCookieEncryptionKeyEnv, "")
+
+	rawKey := "0123456789abcdef0123456789abcdef"
+	config := &EmbeddedIdPConfig{
+		Enabled:                    true,
+		Issuer:                     "http://localhost:5556/dex",
+		SessionCookieEncryptionKey: base64.StdEncoding.EncodeToString([]byte(rawKey)),
+		Storage: EmbeddedStorageConfig{
+			Type: "sqlite3",
+			Config: EmbeddedStorageTypeConfig{
+				File: filepath.Join(t.TempDir(), "dex.db"),
+			},
+		},
+	}
+
+	yamlConfig, err := config.ToYAMLConfig()
+	require.NoError(t, err)
+	require.NotNil(t, yamlConfig.Sessions)
+	assert.Equal(t, rawKey, yamlConfig.Sessions.CookieEncryptionKey)
+}
+
+func TestResolveSessionCookieEncryptionKey(t *testing.T) {
+	rawKey := "0123456789abcdef0123456789abcdef"
+
+	t.Run("uses raw configured key", func(t *testing.T) {
+		t.Setenv(sessionCookieEncryptionKeyEnv, "")
+
+		key, err := resolveSessionCookieEncryptionKey(rawKey)
+		require.NoError(t, err)
+		assert.Equal(t, rawKey, key)
+	})
+
+	t.Run("uses base64 configured key", func(t *testing.T) {
+		t.Setenv(sessionCookieEncryptionKeyEnv, "")
+
+		key, err := resolveSessionCookieEncryptionKey(base64.StdEncoding.EncodeToString([]byte(rawKey)))
+		require.NoError(t, err)
+		assert.Equal(t, rawKey, key)
+	})
+
+	t.Run("falls back to env var", func(t *testing.T) {
+		t.Setenv(sessionCookieEncryptionKeyEnv, rawKey)
+
+		key, err := resolveSessionCookieEncryptionKey("")
+		require.NoError(t, err)
+		assert.Equal(t, rawKey, key)
+	})
+
+	t.Run("empty key disables encryption", func(t *testing.T) {
+		t.Setenv(sessionCookieEncryptionKeyEnv, "")
+
+		key, err := resolveSessionCookieEncryptionKey("")
+		require.NoError(t, err)
+		assert.Empty(t, key)
+	})
+
+	t.Run("rejects invalid key length", func(t *testing.T) {
+		t.Setenv(sessionCookieEncryptionKeyEnv, "")
+
+		_, err := resolveSessionCookieEncryptionKey("32")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), sessionCookieEncryptionKeyEnv)
 	})
 }
 

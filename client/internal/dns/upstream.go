@@ -21,6 +21,7 @@ import (
 	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/dns/resutil"
 	"github.com/netbirdio/netbird/client/internal/dns/types"
 	"github.com/netbirdio/netbird/client/internal/peer"
@@ -28,6 +29,33 @@ import (
 )
 
 var currentMTU uint16 = iface.DefaultMTU
+
+// nonRetryableEDECodes lists EDE info codes (RFC 8914) for which a SERVFAIL
+// from one upstream means another upstream would return the same answer:
+// DNSSEC validation outcomes and policy-based blocks. Transient errors
+// (network, cached, not ready) are not included.
+var nonRetryableEDECodes = map[uint16]struct{}{
+	dns.ExtendedErrorCodeUnsupportedDNSKEYAlgorithm: {},
+	dns.ExtendedErrorCodeUnsupportedDSDigestType:    {},
+	dns.ExtendedErrorCodeDNSSECIndeterminate:        {},
+	dns.ExtendedErrorCodeDNSBogus:                   {},
+	dns.ExtendedErrorCodeSignatureExpired:           {},
+	dns.ExtendedErrorCodeSignatureNotYetValid:       {},
+	dns.ExtendedErrorCodeDNSKEYMissing:              {},
+	dns.ExtendedErrorCodeRRSIGsMissing:              {},
+	dns.ExtendedErrorCodeNoZoneKeyBitSet:            {},
+	dns.ExtendedErrorCodeNSECMissing:                {},
+	dns.ExtendedErrorCodeBlocked:                    {},
+	dns.ExtendedErrorCodeCensored:                   {},
+	dns.ExtendedErrorCodeFiltered:                   {},
+	dns.ExtendedErrorCodeProhibited:                 {},
+}
+
+// privateClientIface is the subset of the WireGuard interface needed by GetClientPrivate.
+type privateClientIface interface {
+	Name() string
+	Address() wgaddr.Address
+}
 
 func SetCurrentMTU(mtu uint16) {
 	currentMTU = mtu
@@ -243,6 +271,18 @@ func (u *upstreamResolverBase) queryUpstream(parentCtx context.Context, w dns.Re
 	var t time.Duration
 	var err error
 
+	// Advertise EDNS0 so the upstream may include Extended DNS Errors
+	// (RFC 8914) in failure responses; we use those to short-circuit
+	// failover for definitive answers like DNSSEC validation failures.
+	// Operate on a copy so the inbound request is unchanged: a client that
+	// did not advertise EDNS0 must not see an OPT in the response.
+	hadEdns := r.IsEdns0() != nil
+	reqUp := r
+	if !hadEdns {
+		reqUp = r.Copy()
+		reqUp.SetEdns0(upstreamUDPSize(), false)
+	}
+
 	var startTime time.Time
 	var upstreamProto *upstreamProtocolResult
 	func() {
@@ -250,7 +290,7 @@ func (u *upstreamResolverBase) queryUpstream(parentCtx context.Context, w dns.Re
 		defer cancel()
 		ctx, upstreamProto = contextWithupstreamProtocolResult(ctx)
 		startTime = time.Now()
-		rm, t, err = u.upstreamClient.exchange(ctx, upstream.String(), r)
+		rm, t, err = u.upstreamClient.exchange(ctx, upstream.String(), reqUp)
 	}()
 
 	if err != nil {
@@ -262,11 +302,47 @@ func (u *upstreamResolverBase) queryUpstream(parentCtx context.Context, w dns.Re
 	}
 
 	if rm.Rcode == dns.RcodeServerFailure || rm.Rcode == dns.RcodeRefused {
+		if code, ok := nonRetryableEDE(rm); ok {
+			resutil.SetMeta(w, "ede", edeName(code))
+			if !hadEdns {
+				stripOPT(rm)
+			}
+			u.writeSuccessResponse(w, rm, upstream, r.Question[0].Name, t, upstreamProto, logger)
+			return nil
+		}
 		return &upstreamFailure{upstream: upstream, reason: dns.RcodeToString[rm.Rcode]}
 	}
 
+	if !hadEdns {
+		stripOPT(rm)
+	}
 	u.writeSuccessResponse(w, rm, upstream, r.Question[0].Name, t, upstreamProto, logger)
 	return nil
+}
+
+// upstreamUDPSize returns the EDNS0 UDP buffer size we advertise to upstreams,
+// derived from the tunnel MTU and bounded against underflow.
+func upstreamUDPSize() uint16 {
+	if currentMTU > ipUDPHeaderSize {
+		return currentMTU - ipUDPHeaderSize
+	}
+	return dns.MinMsgSize
+}
+
+// stripOPT removes any OPT pseudo-RRs from the response's Extra section so
+// the response complies with RFC 6891 when the client did not advertise EDNS0.
+func stripOPT(rm *dns.Msg) {
+	if len(rm.Extra) == 0 {
+		return
+	}
+	out := rm.Extra[:0]
+	for _, rr := range rm.Extra {
+		if _, ok := rr.(*dns.OPT); ok {
+			continue
+		}
+		out = append(out, rr)
+	}
+	rm.Extra = out
 }
 
 func (u *upstreamResolverBase) handleUpstreamError(err error, upstream netip.AddrPort, startTime time.Time) *upstreamFailure {
@@ -328,6 +404,34 @@ func formatFailures(failures []upstreamFailure) string {
 		parts = append(parts, fmt.Sprintf("%s=%s", f.upstream, f.reason))
 	}
 	return strings.Join(parts, ", ")
+}
+
+// nonRetryableEDE returns the first non-retryable EDE code carried in the
+// response, if any.
+func nonRetryableEDE(rm *dns.Msg) (uint16, bool) {
+	opt := rm.IsEdns0()
+	if opt == nil {
+		return 0, false
+	}
+	for _, o := range opt.Option {
+		ede, ok := o.(*dns.EDNS0_EDE)
+		if !ok {
+			continue
+		}
+		if _, ok := nonRetryableEDECodes[ede.InfoCode]; ok {
+			return ede.InfoCode, true
+		}
+	}
+	return 0, false
+}
+
+// edeName returns a human-readable name for an EDE code, falling back to
+// the numeric code when unknown.
+func edeName(code uint16) string {
+	if name, ok := dns.ExtendedErrorCodeToString[code]; ok {
+		return name
+	}
+	return fmt.Sprintf("EDE %d", code)
 }
 
 // ProbeAvailability tests all upstream servers simultaneously and

@@ -168,11 +168,16 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 }
 
 // ShowWindow brings the main window forward — used by SIGUSR1 / Windows event.
+// Show() alone is not enough on macOS: makeKeyAndOrderFront skips app
+// activation, so a tray-style app's window pops up behind the currently
+// active app. Focus() additionally calls activateIgnoringOtherApps:YES on
+// macOS and SetForegroundWindow on Windows.
 func (t *Tray) ShowWindow() {
 	if t.window == nil {
 		return
 	}
 	t.window.Show()
+	t.window.Focus()
 }
 
 func (t *Tray) buildMenu() *application.Menu {
@@ -243,6 +248,7 @@ func (t *Tray) openRoute(route string) {
 		return
 	}
 	t.window.Show()
+	t.window.Focus()
 	t.window.SetURL("/#" + route)
 }
 
@@ -291,6 +297,12 @@ func (t *Tray) onSystemEvent(ev *application.CustomEvent) {
 		return
 	}
 	if _, isUpdate := se.Metadata["new_version_available"]; isUpdate {
+		return
+	}
+	// Management pairs ::/0 with 0.0.0.0/0 for exit-node default routes;
+	// the v4 partner already drives the user-facing toast, so the v6 one
+	// is suppressed to avoid a duplicate notification.
+	if se.Category == "network" && se.Metadata["network"] == "::/0" {
 		return
 	}
 
@@ -377,6 +389,7 @@ func (t *Tray) handleUpdate() {
 		}
 		t.window.SetURL(url)
 		t.window.Show()
+		t.window.Focus()
 	}
 
 	go func() {
@@ -406,6 +419,7 @@ func (t *Tray) onUpdateProgress(ev *application.CustomEvent) {
 	}
 	t.window.SetURL(url)
 	t.window.Show()
+	t.window.Focus()
 }
 
 // applyStatus updates the tray icon, status label, exit-node submenu, and
@@ -500,6 +514,7 @@ func (t *Tray) handleSessionExpired() {
 	if t.window != nil {
 		t.window.SetURL("/#/login")
 		t.window.Show()
+		t.window.Focus()
 	}
 }
 
