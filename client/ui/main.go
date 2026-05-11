@@ -118,7 +118,7 @@ func main() {
 		Title:            "NetBird",
 		Width:            960,
 		Height:           640,
-		Hidden:           false,
+		Hidden:           true,
 		BackgroundColour: application.NewRGB(24, 26, 29),
 		URL:              "/",
 		Mac: application.MacWindow{
