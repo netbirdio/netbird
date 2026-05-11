@@ -258,6 +258,15 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profil
 	runOperation := func() error {
 		err := s.connect(ctx, profileConfig, statusRecorder, runningChan)
 		if err != nil {
+			// PermissionDenied means the daemon transitioned to NeedsLogin
+			// inside connect(). Without backoff.Permanent the outer retry
+			// re-enters connect(), which resets the state to Connecting and
+			// makes the tray flicker between NeedsLogin and Connecting until
+			// the user logs in. Stop retrying and let the state stick.
+			if s, ok := gstatus.FromError(err); ok && s.Code() == codes.PermissionDenied {
+				log.Debugf("run client connection exited with PermissionDenied, waiting for login")
+				return backoff.Permanent(err)
+			}
 			log.Debugf("run client connection exited with error: %v. Will retry in the background", err)
 			return err
 		}
