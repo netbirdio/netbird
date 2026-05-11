@@ -35,9 +35,9 @@ export const Peers = () => {
 
     return (
         <div className={"flex flex-col w-full h-full min-h-0 pt-4"}>
-            <div className={"flex flex-col gap-3 px-4"}>
+            <div className={"flex flex-col gap-3 px-6"}>
                 <SearchInput
-                    placeholder={"Search by FQDN or IP…"}
+                    placeholder={"Search by peer name, DNS or IP address"}
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                 />

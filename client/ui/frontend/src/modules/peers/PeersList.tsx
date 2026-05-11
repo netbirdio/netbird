@@ -21,7 +21,7 @@ export const PeersList = ({ data }: { data: Peer[] }) => {
             {data.map((peer) => (
                 <li
                     key={peer.id}
-                    className={"flex items-center gap-3 px-4 py-3 min-w-0"}
+                    className={"flex items-center gap-3 px-7 py-3 min-w-0"}
                 >
                     <span
                         className={cn(

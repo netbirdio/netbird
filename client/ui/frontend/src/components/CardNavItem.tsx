@@ -1,10 +1,11 @@
-import { ComponentType, forwardRef } from "react";
+import { ComponentType, forwardRef, ReactNode } from "react";
 import { motion, HTMLMotionProps } from "framer-motion";
 import { LucideProps } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 type Props = HTMLMotionProps<"button"> & {
-    icon: ComponentType<LucideProps>;
+    icon?: ComponentType<LucideProps>;
+    iconNode?: ReactNode;
     title: string;
     description?: string;
     active?: boolean;
@@ -15,6 +16,7 @@ export const CardNavItem = forwardRef<HTMLButtonElement, Props>(
     function CardNavItem(
         {
             icon: Icon,
+            iconNode,
             title,
             description,
             active = false,
@@ -45,13 +47,15 @@ export const CardNavItem = forwardRef<HTMLButtonElement, Props>(
                         active ? "bg-nb-gray-800" : "bg-nb-gray-920",
                     )}
                 >
-                    <Icon
-                        size={iconSize}
-                        className={cn(
-                            "transition-colors duration-150",
-                            active ? "text-nb-gray-200" : "text-nb-gray-400",
-                        )}
-                    />
+                    {iconNode ?? (Icon && (
+                        <Icon
+                            size={iconSize}
+                            className={cn(
+                                "transition-colors duration-150",
+                                active ? "text-nb-gray-200" : "text-nb-gray-400",
+                            )}
+                        />
+                    ))}
                 </div>
                 <div className={"min-w-0"}>
                     <h2

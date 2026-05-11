@@ -7,9 +7,10 @@ import { useSwitchItemGroup } from "@/components/SwitchItemGroup";
 type Props = {
     value: string;
     children: ReactNode;
+    className?: string;
 };
 
-export const SwitchItem = ({ value, children }: Props) => {
+export const SwitchItem = ({ value, children, className }: Props) => {
     const { value: activeValue, layoutId } = useSwitchItemGroup();
     const active = activeValue === value;
 
@@ -22,6 +23,7 @@ export const SwitchItem = ({ value, children }: Props) => {
                 active
                     ? "text-nb-gray-100"
                     : "text-nb-gray-400 hover:text-nb-gray-200 active:text-nb-gray-100",
+                className,
             )}
         >
             {active && (

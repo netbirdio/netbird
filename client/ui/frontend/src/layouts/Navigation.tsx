@@ -1,9 +1,6 @@
 import { CardNavItem } from "@/components/CardNavItem.tsx";
-import {
-    Layers3Icon,
-    MonitorSmartphoneIcon,
-    SquareArrowUpRight,
-} from "lucide-react";
+import { Layers3Icon, MonitorSmartphoneIcon } from "lucide-react";
+import deFlag from "@/assets/flags/1x1/de.svg";
 
 type Props = {
     peersActive?: boolean;
@@ -16,7 +13,7 @@ export const Navigation = ({ peersActive = false, onPeersClick }: Props) => {
             <CardNavItem
                 icon={MonitorSmartphoneIcon}
                 title={"Peers"}
-                description={"13 of 16 Online"}
+                description={"17 of 25 Online"}
                 active={peersActive}
                 onClick={onPeersClick}
             />
@@ -27,10 +24,15 @@ export const Navigation = ({ peersActive = false, onPeersClick }: Props) => {
                 iconSize={14}
             />
             <CardNavItem
-                icon={SquareArrowUpRight}
+                iconNode={
+                    <img
+                        src={deFlag}
+                        alt={"Germany"}
+                        className={"h-6 w-6 rounded-full border-[3px] border-nb-gray-850 shrink-0"}
+                    />
+                }
                 title={"Exit Node Berlin"}
-                description={"192.168..."}
-                iconSize={14}
+                description={"100.92.14.37"}
             />
         </nav>
     );
