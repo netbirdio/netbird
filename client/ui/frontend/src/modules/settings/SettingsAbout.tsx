@@ -2,7 +2,7 @@ import { Browser } from "@wailsio/runtime";
 import netbirdFull from "@/assets/logos/netbird-full.svg";
 import pkg from "../../../package.json";
 import { useStatus } from "@/hooks/useStatus";
-import { NetBirdVersionCard } from "@/components/NetBirdVersionCard";
+import { UpdateVersionCard } from "@/modules/auto-update/UpdateVersionCard";
 import { useAccentTrigger } from "@/modules/settings/SettingsAccent";
 
 const LEGAL_LINKS: { label: string; url: string }[] = [
@@ -40,7 +40,7 @@ export function SettingsAbout() {
                 <p className={"text-sm text-nb-gray-300"}>GUI v{guiVersion}</p>
             </div>
 
-            <NetBirdVersionCard />
+            <UpdateVersionCard />
 
             <p className={"text-sm text-nb-gray-300 text-center"}>
                 © {new Date().getFullYear()} NetBird. All Rights Reserved.

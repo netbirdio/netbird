@@ -1,8 +1,8 @@
 import { Tooltip } from "@/components/Tooltip.tsx";
 import { VerticalTabs } from "@/components/VerticalTabs.tsx";
-import { useStatus } from "@/hooks/useStatus";
+import { UpdateBadge } from "@/modules/auto-update/UpdateBadge.tsx";
+import { useClientVersion } from "@/modules/auto-update/ClientVersionContext.tsx";
 import {
-    ArrowUpCircleIcon,
     BoltIcon,
     InfoIcon,
     LifeBuoyIcon,
@@ -13,21 +13,11 @@ import {
 } from "lucide-react";
 
 export const SettingsNavigationTriggers = () => {
-    const { status } = useStatus();
-    const updateAvailable = (status?.events ?? []).some((e) =>
-        Boolean(e.metadata?.["new_version_available"]),
-    );
+    const { updateAvailable } = useClientVersion();
 
     const aboutAdornment = updateAvailable ? (
         <Tooltip content={"Update Available"} side={"right"}>
-            <div className={"relative flex items-center justify-center"}>
-                <span
-                    className={
-                        "animate-ping absolute inline-flex h-[15px] w-[15px] rounded-full bg-netbird opacity-20 pointer-events-none"
-                    }
-                />
-                <ArrowUpCircleIcon size={15} className={"text-netbird"} />
-            </div>
+            <UpdateBadge />
         </Tooltip>
     ) : undefined;
 

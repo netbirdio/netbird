@@ -1,8 +1,7 @@
 import { ReactNode } from "react";
 import { Browser } from "@wailsio/runtime";
-import { Update as UpdateSvc } from "@bindings/services";
 import { Button } from "@/components/Button";
-import { useStatus } from "@/hooks/useStatus";
+import { useClientVersion } from "@/modules/auto-update/ClientVersionContext";
 import { cn } from "@/lib/cn";
 
 function openUrl(url: string) {
@@ -18,15 +17,8 @@ function formatLastChecked(date: Date) {
     });
 }
 
-function triggerUpdate() {
-    UpdateSvc.Trigger().catch(() => {});
-}
-
-export function NetBirdVersionCard() {
-    const { status } = useStatus();
-    const updateVersion = (status?.events ?? [])
-        .map((e) => e.metadata?.["new_version_available"])
-        .find((v): v is string => Boolean(v));
+export function UpdateVersionCard() {
+    const { updateVersion, triggerUpdate } = useClientVersion();
 
     if (updateVersion) {
         return (

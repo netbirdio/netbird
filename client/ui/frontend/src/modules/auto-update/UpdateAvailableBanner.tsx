@@ -1,25 +1,15 @@
 import { useState } from "react";
 import { Button } from "@/components/Button";
-import { useStatus } from "@/hooks/useStatus";
+import { useClientVersion } from "@/modules/auto-update/ClientVersionContext";
 import { cn } from "@/lib/cn";
-import { Update as UpdateSvc } from "@bindings/services";
 
 // TODO: Shown only when management has auto updates enabled + there are updates available + force updates is disabled
 export const UpdateAvailableBanner = () => {
-    const { status } = useStatus();
+    const { updateVersion, triggerUpdate } = useClientVersion();
     const [dismissed, setDismissed] = useState(false);
 
     if (import.meta.env.DEV) return null;
-
-    const updateVersion = (status?.events ?? [])
-        .map((e) => e.metadata?.["new_version_available"])
-        .find((v): v is string => Boolean(v));
-
     if (!updateVersion || dismissed) return null;
-
-    const triggerUpdate = () => {
-        UpdateSvc.Trigger().catch(() => {});
-    };
 
     return (
         <div

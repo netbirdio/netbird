@@ -1,19 +1,14 @@
 import { useLocation, useNavigate } from "react-router-dom";
-import { ArrowUpCircleIcon, SettingsIcon } from "lucide-react";
+import { SettingsIcon } from "lucide-react";
 import { ProfileSelector } from "@/components/ProfileSelector.tsx";
 import { IconButton } from "@/components/IconButton.tsx";
-import { Tooltip } from "@/components/Tooltip.tsx";
-import { useStatus } from "@/hooks/useStatus";
+import { UpdateHeaderTrigger } from "@/modules/auto-update/UpdateHeaderTrigger.tsx";
 import { cn } from "@/lib/cn";
 
 export const Header = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const isSettingsPage = location.pathname.startsWith("/settings");
-    const { status } = useStatus();
-    const updateAvailable = (status?.events ?? []).some((e) =>
-        Boolean(e.metadata?.["new_version_available"]),
-    );
 
     return (
         <div
@@ -24,25 +19,7 @@ export const Header = () => {
             <div className={"ml-20"}>
                 <ProfileSelector email={"eduard@netbird.io"} />
             </div>
-            {updateAvailable && (
-                <Tooltip content={"Update Available"}>
-                    <div className={"relative h-11 w-11 flex items-center justify-center"}>
-                        <span
-                            className={
-                                "animate-ping absolute inline-flex h-[15px] w-[15px] rounded-full bg-netbird opacity-20 pointer-events-none"
-                            }
-                        />
-                        <IconButton
-                            icon={ArrowUpCircleIcon}
-                            iconClassName={"text-netbird"}
-                            onClick={() =>
-                                navigate("/settings", { state: { tab: "about" } })
-                            }
-                            className={"absolute inset-0"}
-                        />
-                    </div>
-                </Tooltip>
-            )}
+            <UpdateHeaderTrigger />
             <IconButton
                 icon={SettingsIcon}
                 onClick={() => navigate(isSettingsPage ? "/" : "/settings")}
