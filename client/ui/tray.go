@@ -26,8 +26,9 @@ const (
 	trayTooltip = "NetBird"
 
 	// Top-level menu entries.
-	menuStatusDisconnected = "Disconnected"
-	menuOpenNetBird        = "Open NetBird"
+	menuStatusDisconnected     = "Disconnected"
+	menuStatusDaemonUnavailable = "Not running"
+	menuOpenNetBird            = "Open NetBird"
 	menuConnect            = "Connect"
 	menuDisconnect         = "Disconnect"
 	menuExitNode           = "Exit Node"
@@ -112,6 +113,8 @@ type Tray struct {
 	downItem          *application.MenuItem
 	exitNodeItem      *application.MenuItem
 	networksItem      *application.MenuItem
+	settingsItem      *application.MenuItem
+	debugItem         *application.MenuItem
 	updateItem        *application.MenuItem
 	daemonVersionItem *application.MenuItem
 
@@ -201,8 +204,8 @@ func (t *Tray) buildMenu() *application.Menu {
 	// block-inbound, auto-connect, notifications) and profile switching
 	// all live in the in-window Settings page now. The tray menu only
 	// surfaces the day-to-day actions.
-	menu.Add(menuSettings).OnClick(func(*application.Context) { t.openRoute("/settings") })
-	menu.Add(menuCreateDebugBundle).OnClick(func(*application.Context) { t.openRoute("/debug") })
+	t.settingsItem = menu.Add(menuSettings).OnClick(func(*application.Context) { t.openRoute("/settings") })
+	t.debugItem = menu.Add(menuCreateDebugBundle).OnClick(func(*application.Context) { t.openRoute("/debug") })
 
 	menu.AddSeparator()
 
@@ -432,19 +435,39 @@ func (t *Tray) applyStatus(st services.Status) {
 		t.applyIcon()
 		needsLogin := strings.EqualFold(st.Status, statusNeedsLogin) ||
 			strings.EqualFold(st.Status, statusSessionExpired)
+		daemonUnavailable := strings.EqualFold(st.Status, services.StatusDaemonUnavailable)
 		if t.statusItem != nil {
 			// When the daemon needs re-authentication the status row turns
 			// into the actionable Login entry — Connect would only fail.
-			t.statusItem.SetLabel(st.Status)
+			// When the daemon socket is unreachable, swap the label to make
+			// the cause obvious; Connect/Disconnect would just fail.
+			label := st.Status
+			if daemonUnavailable {
+				label = menuStatusDaemonUnavailable
+			}
+			t.statusItem.SetLabel(label)
 			t.statusItem.SetEnabled(needsLogin)
 		}
 		if t.upItem != nil {
-			t.upItem.SetHidden(connected || needsLogin)
-			t.upItem.SetEnabled(!connected && !needsLogin)
+			t.upItem.SetHidden(connected || needsLogin || daemonUnavailable)
+			t.upItem.SetEnabled(!connected && !needsLogin && !daemonUnavailable)
 		}
 		if t.downItem != nil {
 			t.downItem.SetHidden(!connected)
 			t.downItem.SetEnabled(connected)
+		}
+		// Settings, Networks and Debug Bundle all drive daemon RPCs from
+		// their respective frontend routes — disable them while the daemon
+		// socket is unreachable so the user doesn't land on a page that
+		// would only fail to load.
+		if t.networksItem != nil {
+			t.networksItem.SetEnabled(!daemonUnavailable)
+		}
+		if t.settingsItem != nil {
+			t.settingsItem.SetEnabled(!daemonUnavailable)
+		}
+		if t.debugItem != nil {
+			t.debugItem.SetEnabled(!daemonUnavailable)
 		}
 	}
 	if exitNodesChanged {
@@ -517,7 +540,8 @@ func (t *Tray) iconForState() (icon, dark []byte) {
 	t.mu.Unlock()
 
 	connecting := strings.EqualFold(statusLabel, "Connecting")
-	errored := strings.EqualFold(statusLabel, "Error")
+	errored := strings.EqualFold(statusLabel, "Error") ||
+		strings.EqualFold(statusLabel, services.StatusDaemonUnavailable)
 
 	if runtime.GOOS == "darwin" {
 		switch {

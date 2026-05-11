@@ -29,6 +29,12 @@ const (
 	// started) installing an update — Mode 2 enforced flow. The UI opens the
 	// progress window in response.
 	EventUpdateProgress = "netbird:update:progress"
+
+	// StatusDaemonUnavailable is the synthetic Status the UI emits when the
+	// daemon's gRPC socket is unreachable (daemon not running, socket
+	// permission, etc.). Real daemon statuses come straight from
+	// internal.Status* — none of those collide with this label.
+	StatusDaemonUnavailable = "DaemonUnavailable"
 )
 
 // Emitter is what peers.Watch needs from the host application: a simple
@@ -198,13 +204,28 @@ func (s *Peers) statusStreamLoop(ctx context.Context) {
 		Clock:               backoff.SystemClock,
 	}, ctx)
 
+	// unavailable tracks whether we've already signalled the daemon as
+	// unreachable. The synthetic event is emitted once per outage so the
+	// tray flips to the "Daemon not running" state, but the exponential
+	// backoff retries don't re-fire it on every attempt.
+	unavailable := false
+	emitUnavailable := func() {
+		if unavailable {
+			return
+		}
+		unavailable = true
+		s.emitter.Emit(EventStatus, Status{Status: StatusDaemonUnavailable})
+	}
+
 	op := func() error {
 		cli, err := s.conn.Client()
 		if err != nil {
+			emitUnavailable()
 			return fmt.Errorf("get client: %w", err)
 		}
 		stream, err := cli.SubscribeStatus(ctx, &proto.StatusRequest{GetFullPeerStatus: true})
 		if err != nil {
+			emitUnavailable()
 			return fmt.Errorf("subscribe status: %w", err)
 		}
 		for {
@@ -213,8 +234,10 @@ func (s *Peers) statusStreamLoop(ctx context.Context) {
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
+				emitUnavailable()
 				return fmt.Errorf("status stream recv: %w", err)
 			}
+			unavailable = false
 			st := statusFromProto(resp)
 			log.Infof("backend event: status status=%q peers=%d", st.Status, len(st.Peers))
 			s.emitter.Emit(EventStatus, st)
