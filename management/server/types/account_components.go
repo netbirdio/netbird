@@ -296,25 +296,49 @@ func (a *Account) getPeersGroupsPoliciesRoutes(
 
 	relevantPeerIDs[peerID] = a.GetPeer(peerID)
 
+	peerGroupSet := make(map[string]struct{}, 8)
 	for groupID, group := range a.Groups {
 		if slices.Contains(group.Peers, peerID) {
 			relevantGroupIDs[groupID] = a.GetGroup(groupID)
+			peerGroupSet[groupID] = struct{}{}
 		}
 	}
 
 	routeAccessControlGroups := make(map[string]struct{})
 	for _, r := range a.Routes {
-		for _, groupID := range r.Groups {
-			relevantGroupIDs[groupID] = a.GetGroup(groupID)
+		if r == nil {
+			continue
 		}
+		relevant := r.Peer == peerID
+		if !relevant {
+			for _, groupID := range r.PeerGroups {
+				if _, ok := peerGroupSet[groupID]; ok {
+					relevant = true
+					break
+				}
+			}
+		}
+		if !relevant && r.Enabled {
+			for _, groupID := range r.Groups {
+				if _, ok := peerGroupSet[groupID]; ok {
+					relevant = true
+					break
+				}
+			}
+		}
+		if !relevant {
+			continue
+		}
+
 		for _, groupID := range r.PeerGroups {
 			relevantGroupIDs[groupID] = a.GetGroup(groupID)
 		}
-		if r.Enabled {
-			for _, groupID := range r.AccessControlGroups {
-				relevantGroupIDs[groupID] = a.GetGroup(groupID)
-				routeAccessControlGroups[groupID] = struct{}{}
-			}
+		for _, groupID := range r.Groups {
+			relevantGroupIDs[groupID] = a.GetGroup(groupID)
+		}
+		for _, groupID := range r.AccessControlGroups {
+			relevantGroupIDs[groupID] = a.GetGroup(groupID)
+			routeAccessControlGroups[groupID] = struct{}{}
 		}
 		relevantRoutes = append(relevantRoutes, r)
 	}
