@@ -360,6 +360,9 @@ func (u *upstreamResolverBase) raceAll(ctx context.Context, w dns.ResponseWriter
 		case res := <-results:
 			failures = append(failures, res.failures...)
 			if res.msg != nil {
+				if res.ede != "" {
+					resutil.SetMeta(w, "ede", res.ede)
+				}
 				u.writeSuccessResponse(w, res.msg, res.upstream, r.Question[0].Name, res.protocol, logger)
 				return true, failures
 			}
@@ -446,12 +449,12 @@ func (u *upstreamResolverBase) queryUpstream(parentCtx context.Context, r *dns.M
 	}
 
 	if rm.Rcode == dns.RcodeServerFailure || rm.Rcode == dns.RcodeRefused {
-		if _, ok := nonRetryableEDE(rm); ok {
+		if code, ok := nonRetryableEDE(rm); ok {
 			if !hadEdns {
 				stripOPT(rm)
 			}
 			u.markUpstreamOk(upstream)
-			return raceResult{msg: rm, upstream: upstream, protocol: proto}, nil
+			return raceResult{msg: rm, upstream: upstream, protocol: proto, ede: edeName(code)}, nil
 		}
 		reason := dns.RcodeToString[rm.Rcode]
 		u.markUpstreamFail(upstream, reason)
