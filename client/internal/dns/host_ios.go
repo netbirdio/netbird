@@ -15,18 +15,18 @@ type iosHostManager struct {
 	config     HostDNSConfig
 }
 
+func newHostManager(dnsManager IosDnsManager) (*iosHostManager, error) {
+	return &iosHostManager{
+		dnsManager: dnsManager,
+	}, nil
+}
+
 func (a iosHostManager) getOriginalNameservers() []netip.Addr {
 	// Quad9 v4+v6: 9.9.9.9, 2620:fe::fe.
 	return []netip.Addr{
 		netip.AddrFrom4([4]byte{9, 9, 9, 9}),
 		netip.AddrFrom16([16]byte{0x26, 0x20, 0x00, 0xfe, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xfe}),
 	}
-}
-
-func newHostManager(dnsManager IosDnsManager) (*iosHostManager, error) {
-	return &iosHostManager{
-		dnsManager: dnsManager,
-	}, nil
 }
 
 func (a iosHostManager) applyDNSConfig(config HostDNSConfig, _ *statemanager.Manager) error {

@@ -17,23 +17,23 @@ func newHostManager(holder *hostsDNSHolder) (*androidHostManager, error) {
 	return &androidHostManager{holder: holder}, nil
 }
 
-func (a *androidHostManager) applyDNSConfig(HostDNSConfig, *statemanager.Manager) error {
+func (a androidHostManager) applyDNSConfig(HostDNSConfig, *statemanager.Manager) error {
 	return nil
 }
 
-func (a *androidHostManager) restoreHostDNS() error {
+func (a androidHostManager) restoreHostDNS() error {
 	return nil
 }
 
-func (a *androidHostManager) supportCustomPort() bool {
+func (a androidHostManager) supportCustomPort() bool {
 	return false
 }
 
-func (a *androidHostManager) string() string {
+func (a androidHostManager) string() string {
 	return "none"
 }
 
-func (a *androidHostManager) getOriginalNameservers() []netip.Addr {
+func (a androidHostManager) getOriginalNameservers() []netip.Addr {
 	hosts := a.holder.get()
 	out := make([]netip.Addr, 0, len(hosts))
 	for ap := range hosts {
