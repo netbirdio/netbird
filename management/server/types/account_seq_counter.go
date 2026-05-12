@@ -10,6 +10,8 @@ const (
 	AccountSeqEntityNetworkResource AccountSeqEntity = "network_resource"
 	AccountSeqEntityNetworkRouter   AccountSeqEntity = "network_router"
 	AccountSeqEntityNameserverGroup AccountSeqEntity = "nameserver_group"
+	AccountSeqEntityNetwork         AccountSeqEntity = "network"
+	AccountSeqEntityPostureCheck    AccountSeqEntity = "posture_check"
 )
 
 // AccountSeqCounter tracks the next per-account integer id for a given component

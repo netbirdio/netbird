@@ -11,6 +11,8 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
+	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
 )
@@ -208,6 +210,7 @@ func TestSaveAccount_PreservesExistingSeqIDs(t *testing.T) {
 	nsgSeqs := make(map[string]uint32)
 	resourceSeqs := make(map[string]uint32)
 	routerSeqs := make(map[string]uint32)
+	networkSeqs := make(map[string]uint32)
 
 	for _, g := range account.Groups {
 		require.NotZero(t, g.AccountSeqID, "fixture group must have seq>0 after backfill")
@@ -233,6 +236,10 @@ func TestSaveAccount_PreservesExistingSeqIDs(t *testing.T) {
 		require.NotZero(t, nr.AccountSeqID, "fixture network_router must have seq>0")
 		routerSeqs[nr.ID] = nr.AccountSeqID
 	}
+	for _, n := range account.Networks {
+		require.NotZero(t, n.AccountSeqID, "fixture network must have seq>0 after backfill")
+		networkSeqs[n.ID] = n.AccountSeqID
+	}
 
 	require.NoError(t, store.SaveAccount(ctx, account))
 
@@ -255,6 +262,9 @@ func TestSaveAccount_PreservesExistingSeqIDs(t *testing.T) {
 	}
 	for _, nr := range after.NetworkRouters {
 		require.Equal(t, routerSeqs[nr.ID], nr.AccountSeqID, "network_router %s seq must be preserved", nr.ID)
+	}
+	for _, n := range after.Networks {
+		require.Equal(t, networkSeqs[n.ID], n.AccountSeqID, "network %s seq must be preserved", n.ID)
 	}
 }
 
@@ -298,6 +308,15 @@ func TestSaveAccount_AllocatesSeqIDsForAllEntityTypes(t *testing.T) {
 		NetworkRouters: []*routerTypes.NetworkRouter{
 			{ID: "nrt1", AccountID: accountID, NetworkID: "net1", Peer: "peer1", Enabled: true},
 		},
+		Networks: []*networkTypes.Network{
+			{ID: "n1", AccountID: accountID, Name: "n1"},
+		},
+		PostureChecks: []*posture.Checks{
+			{ID: "pc1", AccountID: accountID, Name: "pc1",
+				Checks: posture.ChecksDefinition{
+					NBVersionCheck: &posture.NBVersionCheck{MinVersion: "0.26.0"},
+				}},
+		},
 	}
 
 	require.NoError(t, store.SaveAccount(ctx, account))
@@ -311,6 +330,8 @@ func TestSaveAccount_AllocatesSeqIDsForAllEntityTypes(t *testing.T) {
 	require.Len(t, after.NameServerGroups, 1)
 	require.Len(t, after.NetworkResources, 1)
 	require.Len(t, after.NetworkRouters, 1)
+	require.Len(t, after.Networks, 1)
+	require.Len(t, after.PostureChecks, 1)
 
 	for _, g := range after.Groups {
 		require.NotZero(t, g.AccountSeqID, "group seq must be allocated")
@@ -330,6 +351,12 @@ func TestSaveAccount_AllocatesSeqIDsForAllEntityTypes(t *testing.T) {
 	for _, nr := range after.NetworkRouters {
 		require.NotZero(t, nr.AccountSeqID, "network_router seq must be allocated")
 	}
+	for _, n := range after.Networks {
+		require.NotZero(t, n.AccountSeqID, "network seq must be allocated")
+	}
+	for _, pc := range after.PostureChecks {
+		require.NotZero(t, pc.AccountSeqID, "posture_check seq must be allocated")
+	}
 
 	require.NoError(t, store.SaveAccount(ctx, after))
 	final, err := store.GetAccount(ctx, accountID)
@@ -339,6 +366,20 @@ func TestSaveAccount_AllocatesSeqIDsForAllEntityTypes(t *testing.T) {
 	}
 	for _, n := range final.NameServerGroups {
 		require.Equal(t, after.NameServerGroups[n.ID].AccountSeqID, n.AccountSeqID, "name_server_group seq preserved on re-save")
+	}
+	afterByID := map[string]uint32{}
+	for _, n := range after.Networks {
+		afterByID[n.ID] = n.AccountSeqID
+	}
+	for _, n := range final.Networks {
+		require.Equal(t, afterByID[n.ID], n.AccountSeqID, "network seq preserved on re-save")
+	}
+	afterPCByID := map[string]uint32{}
+	for _, pc := range after.PostureChecks {
+		afterPCByID[pc.ID] = pc.AccountSeqID
+	}
+	for _, pc := range final.PostureChecks {
+		require.Equal(t, afterPCByID[pc.ID], pc.AccountSeqID, "posture_check seq preserved on re-save")
 	}
 }
 

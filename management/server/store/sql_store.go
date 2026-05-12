@@ -3724,6 +3724,26 @@ func (s *SqlStore) assignAccountSeqIDs(ctx context.Context, tx *gorm.DB, account
 		}
 		nr.AccountSeqID = seq
 	}
+	for _, n := range account.Networks {
+		if n == nil || n.AccountSeqID != 0 {
+			continue
+		}
+		seq, err := allocateAccountSeqID(ctx, tx, s.storeEngine, account.Id, types.AccountSeqEntityNetwork)
+		if err != nil {
+			return err
+		}
+		n.AccountSeqID = seq
+	}
+	for _, pc := range account.PostureChecks {
+		if pc == nil || pc.AccountSeqID != 0 {
+			continue
+		}
+		seq, err := allocateAccountSeqID(ctx, tx, s.storeEngine, account.Id, types.AccountSeqEntityPostureCheck)
+		if err != nil {
+			return err
+		}
+		pc.AccountSeqID = seq
+	}
 	return nil
 }
 

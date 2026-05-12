@@ -51,12 +51,24 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 		}
 
 		if isUpdate {
+			existing, err := transaction.GetPostureChecksByID(ctx, store.LockingStrengthNone, accountID, postureChecks.ID)
+			if err != nil {
+				return err
+			}
+			postureChecks.AccountSeqID = existing.AccountSeqID
+
 			updateAccountPeers, err = arePostureCheckChangesAffectPeers(ctx, transaction, accountID, postureChecks.ID)
 			if err != nil {
 				return err
 			}
 
 			action = activity.PostureCheckUpdated
+		} else {
+			seq, err := transaction.AllocateAccountSeqID(ctx, accountID, types.AccountSeqEntityPostureCheck)
+			if err != nil {
+				return err
+			}
+			postureChecks.AccountSeqID = seq
 		}
 
 		postureChecks.AccountID = accountID
