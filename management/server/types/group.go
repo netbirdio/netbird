@@ -86,6 +86,7 @@ func (g *Group) Copy() *Group {
 	group := &Group{
 		ID:                   g.ID,
 		AccountID:            g.AccountID,
+		AccountSeqID:         g.AccountSeqID,
 		Name:                 g.Name,
 		Issued:               g.Issued,
 		Peers:                make([]string, len(g.Peers)),
