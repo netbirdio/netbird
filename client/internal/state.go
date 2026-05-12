@@ -57,6 +57,17 @@ func (c *contextState) Status() (StatusType, error) {
 	return c.status, nil
 }
 
+// CurrentStatus returns the last status set via Set, ignoring any wrapped
+// error. Use when the status is needed for reporting purposes (e.g. the
+// status snapshot stream) and a transient wrapped error from a retry loop
+// shouldn't blank out the underlying status.
+func (c *contextState) CurrentStatus() StatusType {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	return c.status
+}
+
 func (c *contextState) Wrap(err error) error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()

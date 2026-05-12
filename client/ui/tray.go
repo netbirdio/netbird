@@ -479,6 +479,7 @@ func (t *Tray) applyStatus(st services.Status) {
 			strings.EqualFold(st.Status, statusSessionExpired) ||
 			strings.EqualFold(st.Status, statusLoginFailed)
 		daemonUnavailable := strings.EqualFold(st.Status, services.StatusDaemonUnavailable)
+		connecting := strings.EqualFold(st.Status, statusConnecting)
 		if t.statusItem != nil {
 			// When the daemon needs re-authentication the status row turns
 			// into the actionable Login entry — Connect would only fail.
@@ -496,12 +497,19 @@ func (t *Tray) applyStatus(st services.Status) {
 			t.applyStatusIndicator(st.Status)
 		}
 		if t.upItem != nil {
-			t.upItem.SetHidden(connected || needsLogin || daemonUnavailable)
-			t.upItem.SetEnabled(!connected && !needsLogin && !daemonUnavailable)
+			// Hide Connect whenever an Up action would be a no-op or would
+			// only fail: tunnel already up, daemon mid-connect (Disconnect
+			// takes over the slot so the user can abort), login required,
+			// or daemon socket unreachable.
+			t.upItem.SetHidden(connected || connecting || needsLogin || daemonUnavailable)
+			t.upItem.SetEnabled(!connected && !connecting && !needsLogin && !daemonUnavailable)
 		}
 		if t.downItem != nil {
-			t.downItem.SetHidden(!connected)
-			t.downItem.SetEnabled(connected)
+			// Disconnect is the abort path while the daemon is still
+			// retrying the management dial — without it the user has no
+			// way to stop the loop short of killing the daemon.
+			t.downItem.SetHidden(!connected && !connecting)
+			t.downItem.SetEnabled(connected || connecting)
 		}
 		// Exit Node and Resources surface tunnel-routed state, so only
 		// expose them while the tunnel is up. Settings/Debug-Bundle just

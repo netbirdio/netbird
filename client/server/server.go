@@ -846,9 +846,6 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 		return nil, err
 	}
 
-	state := internal.CtxGetState(s.rootCtx)
-	state.Set(internal.StatusIdle)
-
 	s.mutex.Unlock()
 
 	// Wait for the connectWithRetryRuns goroutine to finish with a short timeout.
@@ -862,6 +859,12 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 			log.Warnf("timeout waiting for client goroutine to finish, proceeding anyway")
 		}
 	}
+
+	// Set Idle only after the retry goroutine has exited (or timed out).
+	// Setting it earlier races with the goroutine's own Set(StatusConnecting)
+	// at the top of each retry attempt, which would leave the snapshot
+	// stuck at Connecting long after the user asked to disconnect.
+	internal.CtxGetState(s.rootCtx).Set(internal.StatusIdle)
 
 	return &proto.DownResponse{}, nil
 }
@@ -1123,9 +1126,16 @@ func (s *Server) Status(
 // state. Shared between the unary Status RPC and the SubscribeStatus
 // stream so both paths return identical snapshots.
 func (s *Server) buildStatusResponse(msg *proto.StatusRequest) (*proto.StatusResponse, error) {
-	status, err := internal.CtxGetState(s.rootCtx).Status()
+	state := internal.CtxGetState(s.rootCtx)
+	status, err := state.Status()
 	if err != nil {
-		return nil, err
+		// state.Status() blanks the status when err is set (e.g. management
+		// retry loop wrapped a connection error). The underlying status is
+		// still meaningful and the failure is already surfaced via
+		// FullStatus.ManagementState.Error, so don't propagate err — that
+		// would tear down the SubscribeStatus stream and cause the UI to
+		// mark the daemon as unreachable on every retry.
+		status = state.CurrentStatus()
 	}
 
 	if status == internal.StatusNeedsLogin && s.isSessionActive.Load() {
