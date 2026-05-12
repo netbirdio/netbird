@@ -79,6 +79,20 @@ func (mr *MockManagerMockRecorder) DeleteAllServices(ctx, accountID, userID inte
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAllServices", reflect.TypeOf((*MockManager)(nil).DeleteAllServices), ctx, accountID, userID)
 }
 
+// DeleteAccountCluster mocks base method.
+func (m *MockManager) DeleteAccountCluster(ctx context.Context, accountID, userID, clusterAddress string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteAccountCluster", ctx, accountID, userID, clusterAddress)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteAccountCluster indicates an expected call of DeleteAccountCluster.
+func (mr *MockManagerMockRecorder) DeleteAccountCluster(ctx, accountID, userID, clusterAddress interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAccountCluster", reflect.TypeOf((*MockManager)(nil).DeleteAccountCluster), ctx, accountID, userID, clusterAddress)
+}
+
 // DeleteService mocks base method.
 func (m *MockManager) DeleteService(ctx context.Context, accountID, userID, serviceID string) error {
 	m.ctrl.T.Helper()
@@ -136,6 +150,21 @@ func (m *MockManager) GetAllServices(ctx context.Context, accountID, userID stri
 func (mr *MockManagerMockRecorder) GetAllServices(ctx, accountID, userID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllServices", reflect.TypeOf((*MockManager)(nil).GetAllServices), ctx, accountID, userID)
+}
+
+// GetServiceByDomain mocks base method.
+func (m *MockManager) GetServiceByDomain(ctx context.Context, domain string) (*Service, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetServiceByDomain", ctx, domain)
+	ret0, _ := ret[0].(*Service)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetServiceByDomain indicates an expected call of GetServiceByDomain.
+func (mr *MockManagerMockRecorder) GetServiceByDomain(ctx, domain interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetServiceByDomain", reflect.TypeOf((*MockManager)(nil).GetServiceByDomain), ctx, domain)
 }
 
 // GetGlobalServices mocks base method.

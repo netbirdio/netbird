@@ -16,11 +16,16 @@ type store interface {
 	DisconnectProxy(ctx context.Context, proxyID, sessionID string) error
 	UpdateProxyHeartbeat(ctx context.Context, p *proxy.Proxy) error
 	GetActiveProxyClusterAddresses(ctx context.Context) ([]string, error)
-	GetActiveProxyClusters(ctx context.Context) ([]proxy.Cluster, error)
+	GetActiveProxyClusterAddressesForAccount(ctx context.Context, accountID string) ([]string, error)
+	GetActiveProxyClusters(ctx context.Context, accountID string) ([]proxy.Cluster, error)
 	GetClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
 	GetClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
 	CleanupStaleProxies(ctx context.Context, inactivityDuration time.Duration) error
+	GetProxyByAccountID(ctx context.Context, accountID string) (*proxy.Proxy, error)
+	CountProxiesByAccountID(ctx context.Context, accountID string) (int64, error)
+	IsClusterAddressConflicting(ctx context.Context, clusterAddress, accountID string) (bool, error)
+	DeleteAccountCluster(ctx context.Context, clusterAddress, accountID string) error
 }
 
 // Manager handles all proxy operations
@@ -44,7 +49,7 @@ func NewManager(store store, meter metric.Meter) (*Manager, error) {
 
 // Connect registers a new proxy connection in the database.
 // capabilities may be nil for old proxies that do not report them.
-func (m Manager) Connect(ctx context.Context, proxyID, sessionID, clusterAddress, ipAddress string, capabilities *proxy.Capabilities) (*proxy.Proxy, error) {
+func (m *Manager) Connect(ctx context.Context, proxyID, sessionID, clusterAddress, ipAddress string, accountID *string, capabilities *proxy.Capabilities) (*proxy.Proxy, error) {
 	now := time.Now()
 	var caps proxy.Capabilities
 	if capabilities != nil {
@@ -55,9 +60,10 @@ func (m Manager) Connect(ctx context.Context, proxyID, sessionID, clusterAddress
 		SessionID:      sessionID,
 		ClusterAddress: clusterAddress,
 		IPAddress:      ipAddress,
+		AccountID:      accountID,
 		LastSeen:       now,
 		ConnectedAt:    &now,
-		Status:         "connected",
+		Status:         proxy.StatusConnected,
 		Capabilities:   caps,
 	}
 
@@ -77,7 +83,7 @@ func (m Manager) Connect(ctx context.Context, proxyID, sessionID, clusterAddress
 }
 
 // Disconnect marks a proxy as disconnected in the database.
-func (m Manager) Disconnect(ctx context.Context, proxyID, sessionID string) error {
+func (m *Manager) Disconnect(ctx context.Context, proxyID, sessionID string) error {
 	if err := m.store.DisconnectProxy(ctx, proxyID, sessionID); err != nil {
 		log.WithContext(ctx).Errorf("failed to disconnect proxy %s session %s: %v", proxyID, sessionID, err)
 		return err
@@ -92,7 +98,7 @@ func (m Manager) Disconnect(ctx context.Context, proxyID, sessionID string) erro
 }
 
 // Heartbeat updates the proxy's last seen timestamp.
-func (m Manager) Heartbeat(ctx context.Context, p *proxy.Proxy) error {
+func (m *Manager) Heartbeat(ctx context.Context, p *proxy.Proxy) error {
 	if err := m.store.UpdateProxyHeartbeat(ctx, p); err != nil {
 		log.WithContext(ctx).Debugf("failed to update proxy %s heartbeat: %v", p.ID, err)
 		return err
@@ -104,23 +110,13 @@ func (m Manager) Heartbeat(ctx context.Context, p *proxy.Proxy) error {
 }
 
 // GetActiveClusterAddresses returns all unique cluster addresses for active proxies
-func (m Manager) GetActiveClusterAddresses(ctx context.Context) ([]string, error) {
+func (m *Manager) GetActiveClusterAddresses(ctx context.Context) ([]string, error) {
 	addresses, err := m.store.GetActiveProxyClusterAddresses(ctx)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get active proxy cluster addresses: %v", err)
 		return nil, err
 	}
 	return addresses, nil
-}
-
-// GetActiveClusters returns all active proxy clusters with their connected proxy count.
-func (m Manager) GetActiveClusters(ctx context.Context) ([]proxy.Cluster, error) {
-	clusters, err := m.store.GetActiveProxyClusters(ctx)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get active proxy clusters: %v", err)
-		return nil, err
-	}
-	return clusters, nil
 }
 
 // ClusterSupportsCustomPorts returns whether any active proxy in the cluster
@@ -142,10 +138,44 @@ func (m Manager) ClusterSupportsCrowdSec(ctx context.Context, clusterAddr string
 }
 
 // CleanupStale removes proxies that haven't sent heartbeat in the specified duration
-func (m Manager) CleanupStale(ctx context.Context, inactivityDuration time.Duration) error {
+func (m *Manager) CleanupStale(ctx context.Context, inactivityDuration time.Duration) error {
 	if err := m.store.CleanupStaleProxies(ctx, inactivityDuration); err != nil {
 		log.WithContext(ctx).Errorf("failed to cleanup stale proxies: %v", err)
 		return err
 	}
 	return nil
 }
+
+func (m *Manager) GetActiveClusterAddressesForAccount(ctx context.Context, accountID string) ([]string, error) {
+	addresses, err := m.store.GetActiveProxyClusterAddressesForAccount(ctx, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get active proxy cluster addresses for account %s: %v", accountID, err)
+		return nil, err
+	}
+	return addresses, nil
+}
+
+func (m *Manager) GetAccountProxy(ctx context.Context, accountID string) (*proxy.Proxy, error) {
+	return m.store.GetProxyByAccountID(ctx, accountID)
+}
+
+func (m *Manager) CountAccountProxies(ctx context.Context, accountID string) (int64, error) {
+	return m.store.CountProxiesByAccountID(ctx, accountID)
+}
+
+func (m *Manager) IsClusterAddressAvailable(ctx context.Context, clusterAddress, accountID string) (bool, error) {
+	conflicting, err := m.store.IsClusterAddressConflicting(ctx, clusterAddress, accountID)
+	if err != nil {
+		return false, err
+	}
+	return !conflicting, nil
+}
+
+func (m *Manager) DeleteAccountCluster(ctx context.Context, clusterAddress, accountID string) error {
+	if err := m.store.DeleteAccountCluster(ctx, clusterAddress, accountID); err != nil {
+		log.WithContext(ctx).Errorf("failed to delete cluster %s for account %s: %v", clusterAddress, accountID, err)
+		return err
+	}
+	return nil
+}
+

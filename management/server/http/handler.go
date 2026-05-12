@@ -16,6 +16,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/accesslogs"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxytoken"
 	reverseproxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service/manager"
 
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
@@ -144,6 +145,9 @@ func NewAPIHandler(ctx context.Context, accountManager account.Manager, networks
 	if serviceManager != nil && reverseProxyDomainManager != nil {
 		reverseproxymanager.RegisterEndpoints(serviceManager, *reverseProxyDomainManager, reverseProxyAccessLogsManager, permissionsManager, router)
 	}
+
+	proxytoken.RegisterEndpoints(accountManager.GetStore(), permissionsManager, router)
+
 	// Register OAuth callback handler for proxy authentication
 	if proxyGRPCServer != nil {
 		oauthHandler := proxy.NewAuthCallbackHandler(proxyGRPCServer, trustedHTTPProxies)

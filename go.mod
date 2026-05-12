@@ -344,8 +344,8 @@ replace github.com/cloudflare/circl => github.com/cunicu/circl v0.0.0-2023080111
 
 replace github.com/pion/ice/v4 => github.com/netbirdio/ice/v4 v4.0.0-20250908184934-6202be846b51
 
-replace github.com/dexidp/dex => github.com/netbirdio/dex v0.244.1-0.20260415145816-a0c6b40ff9f2
+replace github.com/dexidp/dex => github.com/netbirdio/dex v0.244.1-0.20260512110716-8d70ad8647c1
 
-replace github.com/dexidp/dex/api/v2 => github.com/netbirdio/dex/api/v2 v2.0.0-20260415145816-a0c6b40ff9f2
+replace github.com/dexidp/dex/api/v2 => github.com/netbirdio/dex/api/v2 v2.0.0-20260512110716-8d70ad8647c1
 
 replace github.com/mailru/easyjson => github.com/netbirdio/easyjson v0.9.0

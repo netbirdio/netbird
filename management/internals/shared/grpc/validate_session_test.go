@@ -42,7 +42,7 @@ func setupValidateSessionTest(t *testing.T) *validateSessionTestSetup {
 	tokenStore := NewOneTimeTokenStore(ctx, testCacheStore(t))
 	pkceStore := NewPKCEVerifierStore(ctx, testCacheStore(t))
 
-	proxyService := NewProxyServiceServer(nil, tokenStore, pkceStore, ProxyOIDCConfig{}, nil, usersManager, proxyManager)
+	proxyService := NewProxyServiceServer(nil, tokenStore, pkceStore, ProxyOIDCConfig{}, nil, usersManager, proxyManager, nil)
 	proxyService.SetServiceManager(serviceManager)
 
 	createTestProxies(t, ctx, testStore)
@@ -318,13 +318,17 @@ func (m *testValidateSessionServiceManager) StopServiceFromPeer(_ context.Contex
 
 func (m *testValidateSessionServiceManager) StartExposeReaper(_ context.Context) {}
 
+func (m *testValidateSessionServiceManager) GetServiceByDomain(ctx context.Context, domain string) (*service.Service, error) {
+	return m.store.GetServiceByDomain(ctx, domain)
+}
+
 func (m *testValidateSessionServiceManager) GetActiveClusters(_ context.Context, _, _ string) ([]proxy.Cluster, error) {
 	return nil, nil
 }
 
 type testValidateSessionProxyManager struct{}
 
-func (m *testValidateSessionProxyManager) Connect(_ context.Context, _, _, _ string, _ *proxy.Capabilities) error {
+func (m *testValidateSessionProxyManager) Connect(_ context.Context, _, _, _ string, _ *string, _ *proxy.Capabilities) error {
 	return nil
 }
 
@@ -340,11 +344,31 @@ func (m *testValidateSessionProxyManager) GetActiveClusterAddresses(_ context.Co
 	return nil, nil
 }
 
+func (m *testValidateSessionProxyManager) GetActiveClusterAddressesForAccount(_ context.Context, _ string) ([]string, error) {
+	return nil, nil
+}
+
 func (m *testValidateSessionProxyManager) GetActiveClusters(_ context.Context) ([]proxy.Cluster, error) {
 	return nil, nil
 }
 
 func (m *testValidateSessionProxyManager) CleanupStale(_ context.Context, _ time.Duration) error {
+	return nil
+}
+
+func (m *testValidateSessionProxyManager) GetAccountProxy(_ context.Context, _ string) (*proxy.Proxy, error) {
+	return nil, nil
+}
+
+func (m *testValidateSessionProxyManager) CountAccountProxies(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
+func (m *testValidateSessionProxyManager) IsClusterAddressAvailable(_ context.Context, _, _ string) (bool, error) {
+	return true, nil
+}
+
+func (m *testValidateSessionProxyManager) DeleteProxy(_ context.Context, _ string) error {
 	return nil
 }
 

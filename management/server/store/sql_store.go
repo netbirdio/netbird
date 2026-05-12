@@ -4513,6 +4513,47 @@ func (s *SqlStore) RevokeProxyAccessToken(ctx context.Context, tokenID string) e
 	return nil
 }
 
+func (s *SqlStore) GetProxyAccessTokensByAccountID(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.ProxyAccessToken, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var tokens []*types.ProxyAccessToken
+	result := tx.Where("account_id = ?", accountID).Find(&tokens)
+	if result.Error != nil {
+		return nil, status.Errorf(status.Internal, "get proxy access tokens by account: %v", result.Error)
+	}
+
+	return tokens, nil
+}
+
+func (s *SqlStore) IsProxyAccessTokenValid(ctx context.Context, tokenID string) (bool, error) {
+	token, err := s.GetProxyAccessTokenByID(ctx, LockingStrengthNone, tokenID)
+	if err != nil {
+		return false, err
+	}
+	return token.IsValid(), nil
+}
+
+func (s *SqlStore) GetProxyAccessTokenByID(ctx context.Context, lockStrength LockingStrength, tokenID string) (*types.ProxyAccessToken, error) {
+	tx := s.db
+	if lockStrength != LockingStrengthNone {
+		tx = tx.Clauses(clause.Locking{Strength: string(lockStrength)})
+	}
+
+	var token types.ProxyAccessToken
+	result := tx.Take(&token, idQueryCondition, tokenID)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "proxy access token not found")
+		}
+		return nil, status.Errorf(status.Internal, "get proxy access token by ID: %v", result.Error)
+	}
+
+	return &token, nil
+}
+
 // MarkProxyAccessTokenUsed updates the last used timestamp for a proxy access token.
 func (s *SqlStore) MarkProxyAccessTokenUsed(ctx context.Context, tokenID string) error {
 	result := s.db.Model(&types.ProxyAccessToken{}).
@@ -5487,7 +5528,7 @@ func (s *SqlStore) DisconnectProxy(ctx context.Context, proxyID, sessionID strin
 		Model(&proxy.Proxy{}).
 		Where("id = ? AND session_id = ?", proxyID, sessionID).
 		Updates(map[string]any{
-			"status":          "disconnected",
+			"status":          proxy.StatusDisconnected,
 			"disconnected_at": now,
 			"last_seen":       now,
 		})
@@ -5518,7 +5559,7 @@ func (s *SqlStore) UpdateProxyHeartbeat(ctx context.Context, p *proxy.Proxy) err
 	if result.RowsAffected == 0 {
 		p.LastSeen = now
 		p.ConnectedAt = &now
-		p.Status = "connected"
+		p.Status = proxy.StatusConnected
 		if err := s.db.Create(p).Error; err != nil {
 			log.WithContext(ctx).Debugf("proxy %s session %s: heartbeat fallback insert skipped: %v", p.ID, p.SessionID, err)
 		}
@@ -5527,13 +5568,15 @@ func (s *SqlStore) UpdateProxyHeartbeat(ctx context.Context, p *proxy.Proxy) err
 	return nil
 }
 
-// GetActiveProxyClusterAddresses returns all unique cluster addresses for active proxies
+// GetActiveProxyClusterAddresses returns the unique cluster addresses of active
+// shared proxies (those without an account scope). BYOP cluster addresses are
+// excluded; use GetActiveProxyClusterAddressesForAccount to retrieve them.
 func (s *SqlStore) GetActiveProxyClusterAddresses(ctx context.Context) ([]string, error) {
 	var addresses []string
 
 	result := s.db.
 		Model(&proxy.Proxy{}).
-		Where("status = ? AND last_seen > ?", "connected", time.Now().Add(-proxyActiveThreshold)).
+		Where("account_id IS NULL AND status = ? AND last_seen > ?", proxy.StatusConnected, time.Now().Add(-proxyActiveThreshold)).
 		Distinct("cluster_address").
 		Pluck("cluster_address", &addresses)
 
@@ -5545,13 +5588,75 @@ func (s *SqlStore) GetActiveProxyClusterAddresses(ctx context.Context) ([]string
 	return addresses, nil
 }
 
-// GetActiveProxyClusters returns all active proxy clusters with their connected proxy count.
-func (s *SqlStore) GetActiveProxyClusters(ctx context.Context) ([]proxy.Cluster, error) {
+func (s *SqlStore) GetActiveProxyClusterAddressesForAccount(ctx context.Context, accountID string) ([]string, error) {
+	var addresses []string
+
+	result := s.db.
+		Model(&proxy.Proxy{}).
+		Where("account_id = ? AND status = ? AND last_seen > ?", accountID, proxy.StatusConnected, time.Now().Add(-proxyActiveThreshold)).
+		Distinct("cluster_address").
+		Pluck("cluster_address", &addresses)
+
+	if result.Error != nil {
+		return nil, status.Errorf(status.Internal, "failed to get active proxy cluster addresses for account")
+	}
+
+	return addresses, nil
+}
+
+func (s *SqlStore) GetProxyByAccountID(ctx context.Context, accountID string) (*proxy.Proxy, error) {
+	var p proxy.Proxy
+	result := s.db.Where("account_id = ?", accountID).Take(&p)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "proxy not found for account")
+		}
+		return nil, status.Errorf(status.Internal, "get proxy by account ID: %v", result.Error)
+	}
+	return &p, nil
+}
+
+func (s *SqlStore) CountProxiesByAccountID(ctx context.Context, accountID string) (int64, error) {
+	var count int64
+	result := s.db.Model(&proxy.Proxy{}).Where("account_id = ?", accountID).Count(&count)
+	if result.Error != nil {
+		return 0, status.Errorf(status.Internal, "count proxies by account ID: %v", result.Error)
+	}
+	return count, nil
+}
+
+func (s *SqlStore) IsClusterAddressConflicting(ctx context.Context, clusterAddress, accountID string) (bool, error) {
+	var count int64
+	result := s.db.
+		Model(&proxy.Proxy{}).
+		Where("cluster_address = ? AND (account_id IS NULL OR account_id != ?)", clusterAddress, accountID).
+		Count(&count)
+	if result.Error != nil {
+		return false, status.Errorf(status.Internal, "check cluster address conflict: %v", result.Error)
+	}
+	return count > 0, nil
+}
+
+func (s *SqlStore) DeleteAccountCluster(ctx context.Context, clusterAddress, accountID string) error {
+	result := s.db.
+		Where("cluster_address = ? AND account_id = ?", clusterAddress, accountID).
+		Delete(&proxy.Proxy{})
+	if result.Error != nil {
+		return status.Errorf(status.Internal, "delete account cluster: %v", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return status.Errorf(status.NotFound, "cluster not found")
+	}
+	return nil
+}
+
+func (s *SqlStore) GetActiveProxyClusters(ctx context.Context, accountID string) ([]proxy.Cluster, error) {
 	var clusters []proxy.Cluster
 
 	result := s.db.Model(&proxy.Proxy{}).
-		Select("cluster_address as address, COUNT(*) as connected_proxies").
-		Where("status = ? AND last_seen > ?", "connected", time.Now().Add(-proxyActiveThreshold)).
+		Select("MIN(id) as id, cluster_address as address, COUNT(*) as connected_proxies, COUNT(account_id) > 0 as self_hosted").
+		Where("status = ? AND last_seen > ? AND (account_id IS NULL OR account_id = ?)",
+			proxy.StatusConnected, time.Now().Add(-proxyActiveThreshold), accountID).
 		Group("cluster_address").
 		Scan(&clusters)
 
