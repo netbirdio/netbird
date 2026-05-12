@@ -546,24 +546,6 @@ jobs:
       - name: Move wintun.dll into dist
         run: mv ${{ env.downloadPath }}\wintun\bin\${{ matrix.wintun_arch }}\wintun.dll ${{ github.workspace }}\dist\${{ env.PackageWorkdir }}\
 
-      - name: Download Mesa3D (amd64 only)
-        uses: carlosperate/download-file-action@v2
-        id: download-mesa3d
-        if: matrix.arch == 'amd64'
-        with:
-          file-url: https://downloads.fdossena.com/Projects/Mesa3D/Builds/MesaForWindows-x64-20.1.8.7z
-          file-name: mesa3d.7z
-          location: ${{ env.downloadPath }}
-          sha256: '71c7cb64ec229a1d6b8d62fa08e1889ed2bd17c0eeede8689daf0f25cb31d6b9'
-
-      - name: Extract Mesa3D driver (amd64 only)
-        if: matrix.arch == 'amd64'
-        run: 7z x -o"${{ env.downloadPath }}" "${{ env.downloadPath }}/mesa3d.7z"
-
-      - name: Move opengl32.dll into dist (amd64 only)
-        if: matrix.arch == 'amd64'
-        run: mv ${{ env.downloadPath }}\opengl32.dll ${{ github.workspace }}\dist\${{ env.PackageWorkdir }}\
-
       - name: Download EnVar plugin for NSIS
         uses: carlosperate/download-file-action@v2
         with:
