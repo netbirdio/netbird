@@ -5,10 +5,12 @@ import (
 
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
 
+	"github.com/netbirdio/netbird/client/ssh/auth"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -41,17 +43,23 @@ func ToComponentSyncResponse(
 	dnsFwdPort int64,
 ) *proto.SyncResponse {
 	network := networkOrZero(components)
-	enableSSH := computeSSHEnabledForPeer(components, peer.ID)
+	enableSSH := computeSSHEnabledForPeer(components, peer)
 	peerConfig := toPeerConfig(peer, network, dnsName, settings, httpConfig, deviceFlowConfig, enableSSH)
 
 	includeIPv6 := peer.SupportsIPv6() && peer.IPv6.IsValid()
 	useSourcePrefixes := peer.SupportsSourcePrefixes()
+
+	userIDClaim := auth.DefaultUserIDClaim
+	if httpConfig != nil && httpConfig.AuthUserIDClaim != "" {
+		userIDClaim = httpConfig.AuthUserIDClaim
+	}
 
 	envelope := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{
 		Components:       components,
 		PeerConfig:       peerConfig,
 		DNSDomain:        dnsName,
 		DNSForwarderPort: dnsFwdPort,
+		UserIDClaim:      userIDClaim,
 		ProxyPatch:       toProxyPatch(proxyPatch, dnsName, includeIPv6, useSourcePrefixes),
 	})
 
@@ -98,11 +106,11 @@ func toProxyPatch(nm *types.NetworkMap, dnsName string, includeIPv6, useSourcePr
 	}
 
 	patch := &proto.ProxyPatch{
-		Peers:               appendRemotePeerConfig(nil, nm.Peers, dnsName, includeIPv6),
-		OfflinePeers:        appendRemotePeerConfig(nil, nm.OfflinePeers, dnsName, includeIPv6),
-		FirewallRules:       toProtocolFirewallRules(nm.FirewallRules, includeIPv6, useSourcePrefixes),
-		Routes:              toProtocolRoutes(nm.Routes),
-		RouteFirewallRules:  toProtocolRoutesFirewallRules(nm.RoutesFirewallRules),
+		Peers:              networkmap.AppendRemotePeerConfig(nil, nm.Peers, dnsName, includeIPv6),
+		OfflinePeers:       networkmap.AppendRemotePeerConfig(nil, nm.OfflinePeers, dnsName, includeIPv6),
+		FirewallRules:      networkmap.ToProtocolFirewallRules(nm.FirewallRules, includeIPv6, useSourcePrefixes),
+		Routes:             networkmap.ToProtocolRoutes(nm.Routes),
+		RouteFirewallRules: networkmap.ToProtocolRoutesFirewallRules(nm.RoutesFirewallRules),
 	}
 	if len(nm.ForwardingRules) > 0 {
 		patch.ForwardingRules = make([]*proto.ForwardingRule, 0, len(nm.ForwardingRules))
@@ -120,12 +128,23 @@ func toProxyPatch(nm *types.NetworkMap, dnsName string, includeIPv6, useSourcePr
 // that's the destination of an SSH-enabling policy without having
 // peer.SSHEnabled set locally.
 //
-// Cheaper than running Calculate() because we ignore peer-pair expansion —
-// only the "any matched policy with NetbirdSSH protocol" check is needed.
+// Mirrors the two activation paths in Calculate() (`networkmap_components.go`
+// `getPeerConnectionResources`):
+//  1. Explicit: rule.Protocol == NetbirdSSH and peer is in the rule's
+//     destinations.
+//  2. Legacy implicit: rule covers TCP/22 or TCP/22022 (or ALL), peer is in
+//     destinations, AND the peer has SSHEnabled set locally — this is the
+//     "allow-all/TCP-22 implies SSH activation for SSH-capable peers" path.
+//
 // The full SSH AuthorizedUsers map is still produced by the client when it
 // runs Calculate() over the envelope.
-func computeSSHEnabledForPeer(c *types.NetworkMapComponents, peerID string) bool {
-	if c == nil {
+func computeSSHEnabledForPeer(c *types.NetworkMapComponents, peer *nbpeer.Peer) bool {
+	if c == nil || peer == nil {
+		return false
+	}
+	// Mirror Calculate's `getAllPeersFromGroups` invariant: target peer must
+	// exist in c.Peers, otherwise no rule applies to it.
+	if _, ok := c.Peers[peer.ID]; !ok {
 		return false
 	}
 	for _, policy := range c.Policies {
@@ -136,10 +155,13 @@ func computeSSHEnabledForPeer(c *types.NetworkMapComponents, peerID string) bool
 			if rule == nil || !rule.Enabled {
 				continue
 			}
-			if rule.Protocol != types.PolicyRuleProtocolNetbirdSSH {
+			if !peerInDestinations(c, rule, peer.ID) {
 				continue
 			}
-			if peerInDestinations(c, rule, peerID) {
+			if rule.Protocol == types.PolicyRuleProtocolNetbirdSSH {
+				return true
+			}
+			if peer.SSHEnabled && types.PolicyRuleImpliesLegacySSH(rule) {
 				return true
 			}
 		}
@@ -148,9 +170,11 @@ func computeSSHEnabledForPeer(c *types.NetworkMapComponents, peerID string) bool
 }
 
 // peerInDestinations reports whether peerID is in any of rule.Destinations'
-// groups (or matches DestinationResource if used).
+// groups (or matches DestinationResource if it's a peer-typed resource —
+// for non-peer types Calculate falls through to group lookup, so we mirror
+// that exactly to avoid silent divergence).
 func peerInDestinations(c *types.NetworkMapComponents, rule *types.PolicyRule, peerID string) bool {
-	if rule.DestinationResource.ID != "" {
+	if rule.DestinationResource.Type == types.ResourceTypePeer && rule.DestinationResource.ID != "" {
 		return rule.DestinationResource.ID == peerID
 	}
 	for _, groupID := range rule.Destinations {

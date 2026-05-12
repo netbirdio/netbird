@@ -10,6 +10,7 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
 	nbroute "github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -27,6 +28,10 @@ type ComponentsEnvelopeInput struct {
 	PeerConfig       *proto.PeerConfig
 	DNSDomain        string
 	DNSForwarderPort int64
+	// UserIDClaim is the OIDC claim name the client should embed in
+	// SshAuth.UserIDClaim when reconstructing the NetworkMap. Empty value
+	// is OK — client treats empty as "no SshAuth to build".
+	UserIDClaim string
 	// ProxyPatch carries pre-expanded NetworkMap fragments injected by
 	// external controllers (BYOP/port-forwarding). Nil when no proxy data
 	// is present; encoder skips the field in that case.
@@ -64,6 +69,7 @@ func EncodeNetworkMapEnvelope(in ComponentsEnvelopeInput) *proto.NetworkMapEnvel
 					PeerConfig:       in.PeerConfig,
 					DnsDomain:        in.DNSDomain,
 					DnsForwarderPort: in.DNSForwarderPort,
+					UserIdClaim:      in.UserIDClaim,
 					AccountSettings:  &proto.AccountSettingsCompact{},
 					ProxyPatch:       in.ProxyPatch,
 				},
@@ -95,6 +101,7 @@ func EncodeNetworkMapEnvelope(in ComponentsEnvelopeInput) *proto.NetworkMapEnvel
 		Network:             toAccountNetwork(c.Network),
 		AccountSettings:     toAccountSettingsCompact(c.AccountSettings),
 		DnsForwarderPort:    in.DNSForwarderPort,
+		UserIdClaim:         in.UserIDClaim,
 		ProxyPatch:          in.ProxyPatch,
 		DnsSettings:         enc.encodeDNSSettings(c.DNSSettings),
 		DnsDomain:           in.DNSDomain,
@@ -108,9 +115,9 @@ func EncodeNetworkMapEnvelope(in ComponentsEnvelopeInput) *proto.NetworkMapEnvel
 		NameserverGroups:    enc.encodeNameServerGroups(c.NameServerGroups),
 		AllDnsRecords:       encodeSimpleRecords(c.AllDNSRecords),
 		AccountZones:        encodeCustomZones(c.AccountZones),
-		NetworkResources:    encodeNetworkResources(c.NetworkResources),
+		NetworkResources:    enc.encodeNetworkResources(c.NetworkResources),
 		RoutersMap:          enc.encodeRoutersMap(c.RoutersMap),
-		ResourcePoliciesMap: encodeResourcePoliciesMap(c.ResourcePoliciesMap, policyToIdxs),
+		ResourcePoliciesMap: enc.encodeResourcePoliciesMap(c.ResourcePoliciesMap, policyToIdxs),
 		GroupIdToUserIds:    enc.encodeGroupIDToUserIDs(c.GroupIDToUserIDs),
 		AllowedUserIds:      stringSetToSlice(c.AllowedUserIDs),
 		PostureFailedPeers:  enc.encodePostureFailedPeers(c.PostureFailedPeers),
@@ -146,8 +153,7 @@ func newComponentEncoder(c *types.NetworkMapComponents) *componentEncoder {
 		components:        c,
 		peerOrder:         make(map[string]uint32, len(c.Peers)),
 		peers:             make([]*proto.PeerCompact, 0, len(c.Peers)),
-		agentVersionOrder: map[string]uint32{"": 0},
-		agentVersions:     []string{""},
+		agentVersionOrder: make(map[string]uint32),
 	}
 }
 
@@ -173,6 +179,21 @@ func (e *componentEncoder) appendPeer(p *nbpeer.Peer) uint32 {
 func (e *componentEncoder) agentVersionIndex(v string) uint32 {
 	if idx, ok := e.agentVersionOrder[v]; ok {
 		return idx
+	}
+	// Lazy-initialise the table with "" at index 0 so the empty string
+	// stays interchangeable with proto3's default uint32=0 — peers without
+	// a WtVersion don't force the table to materialise.
+	if v == "" {
+		idx := uint32(len(e.agentVersions))
+		if idx == 0 {
+			e.agentVersions = append(e.agentVersions, "")
+		}
+		e.agentVersionOrder[""] = idx
+		return idx
+	}
+	if len(e.agentVersions) == 0 {
+		e.agentVersions = append(e.agentVersions, "")
+		e.agentVersionOrder[""] = 0
 	}
 	idx := uint32(len(e.agentVersions))
 	e.agentVersionOrder[v] = idx
@@ -244,14 +265,19 @@ func (e *componentEncoder) encodePolicies(policies []*types.Policy) ([]*proto.Po
 				continue
 			}
 			pc := &proto.PolicyCompact{
-				Id:                  pol.AccountSeqID,
-				Action:              getProtoAction(string(r.Action)),
-				Protocol:            getProtoProtocol(string(r.Protocol)),
-				Bidirectional:       r.Bidirectional,
-				Ports:               portsToUint32(r.Ports),
-				PortRanges:          portRangesToProto(r.PortRanges),
-				SourceGroupIds:      make([]uint32, 0, len(r.Sources)),
-				DestinationGroupIds: make([]uint32, 0, len(r.Destinations)),
+				Id:                       pol.AccountSeqID,
+				Action:                   networkmap.GetProtoAction(string(r.Action)),
+				Protocol:                 networkmap.GetProtoProtocol(string(r.Protocol)),
+				Bidirectional:            r.Bidirectional,
+				Ports:                    portsToUint32(r.Ports),
+				PortRanges:               portRangesToProto(r.PortRanges),
+				SourceGroupIds:           make([]uint32, 0, len(r.Sources)),
+				DestinationGroupIds:      make([]uint32, 0, len(r.Destinations)),
+				AuthorizedUser:           r.AuthorizedUser,
+				AuthorizedGroups:         e.encodeAuthorizedGroups(r.AuthorizedGroups),
+				SourceResource:           e.resourceToProto(r.SourceResource),
+				DestinationResource:      e.resourceToProto(r.DestinationResource),
+				SourcePostureCheckSeqIds: e.postureCheckSeqs(pol.SourcePostureChecks),
 			}
 			for _, gid := range r.Sources {
 				if seq, ok := e.groupSeq(gid); ok {
@@ -277,6 +303,11 @@ func (e *componentEncoder) encodePolicies(policies []*types.Policy) ([]*proto.Po
 // from the wire and the client's resource-policy lookup would come back
 // empty.
 func unionPolicies(policies []*types.Policy, resourcePolicies map[string][]*types.Policy) []*types.Policy {
+	// Fast path: non-router peers have no resource-only policies, so the
+	// "union" is identical to `policies`. Skip the dedup map allocation.
+	if len(resourcePolicies) == 0 {
+		return policies
+	}
 	seen := make(map[*types.Policy]struct{}, len(policies))
 	out := make([]*types.Policy, 0, len(policies))
 	for _, p := range policies {
@@ -304,12 +335,81 @@ func unionPolicies(policies []*types.Policy, resourcePolicies map[string][]*type
 	return out
 }
 
+// encodeAuthorizedGroups translates rule.AuthorizedGroups (map keyed by
+// group xid → local-user names) to the wire form (map keyed by group
+// account_seq_id → UserNameList). Groups without a seq id are dropped —
+// matches how source/destination group references handle the same case.
+func (e *componentEncoder) encodeAuthorizedGroups(m map[string][]string) map[uint32]*proto.UserNameList {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make(map[uint32]*proto.UserNameList, len(m))
+	for groupID, names := range m {
+		seq, ok := e.groupSeq(groupID)
+		if !ok {
+			continue
+		}
+		out[seq] = &proto.UserNameList{Names: append([]string(nil), names...)}
+	}
+	return out
+}
+
 func (e *componentEncoder) groupSeq(groupID string) (uint32, bool) {
 	g, ok := e.components.Groups[groupID]
 	if !ok || !g.HasSeqID() {
 		return 0, false
 	}
 	return g.AccountSeqID, true
+}
+
+// resourceToProto translates types.Resource for the wire. For peer-typed
+// resources the peer id is converted to a peer index into the envelope's
+// peers array. For other resource types only the type string is shipped
+// today (Calculate's resource-typed rule path consults SourceResource only
+// for "peer" — other types fall through to group-based lookup).
+func (e *componentEncoder) resourceToProto(r types.Resource) *proto.ResourceCompact {
+	if r.ID == "" && r.Type == "" {
+		return nil
+	}
+	out := &proto.ResourceCompact{Type: string(r.Type)}
+	if r.Type == types.ResourceTypePeer && r.ID != "" {
+		if idx, ok := e.peerOrder[r.ID]; ok {
+			out.PeerIndexSet = true
+			out.PeerIndex = idx
+		}
+	}
+	return out
+}
+
+// postureCheckSeqs translates a slice of posture-check xids to their
+// per-account integer ids using the NetworkMapComponents.PostureCheckXIDToSeq
+// lookup. Unresolvable xids are silently dropped — matches how group/peer
+// references handle the same case.
+func (e *componentEncoder) postureCheckSeqs(xids []string) []uint32 {
+	if len(xids) == 0 || len(e.components.PostureCheckXIDToSeq) == 0 {
+		return nil
+	}
+	out := make([]uint32, 0, len(xids))
+	for _, xid := range xids {
+		if seq, ok := e.components.PostureCheckXIDToSeq[xid]; ok {
+			out = append(out, seq)
+		}
+	}
+	return out
+}
+
+// networkSeq translates a Network xid to its per-account integer id using
+// the NetworkMapComponents.NetworkXIDToSeq lookup. Returns (0,false) when
+// the xid isn't known — callers decide whether to skip the parent record.
+func (e *componentEncoder) networkSeq(xid string) (uint32, bool) {
+	if xid == "" {
+		return 0, false
+	}
+	seq, ok := e.components.NetworkXIDToSeq[xid]
+	if !ok || seq == 0 {
+		return 0, false
+	}
+	return seq, true
 }
 
 func (e *componentEncoder) encodeDNSSettings(s *types.DNSSettings) *proto.DNSSettingsCompact {
@@ -451,7 +551,7 @@ func encodeCustomZones(zones []nbdns.CustomZone) []*proto.CustomZone {
 	return out
 }
 
-func encodeNetworkResources(resources []*resourceTypes.NetworkResource) []*proto.NetworkResourceRaw {
+func (e *componentEncoder) encodeNetworkResources(resources []*resourceTypes.NetworkResource) []*proto.NetworkResourceRaw {
 	if len(resources) == 0 {
 		return nil
 	}
@@ -462,13 +562,15 @@ func encodeNetworkResources(resources []*resourceTypes.NetworkResource) []*proto
 		}
 		entry := &proto.NetworkResourceRaw{
 			Id:          r.AccountSeqID,
-			NetworkId:   r.NetworkID,
 			Name:        r.Name,
 			Description: r.Description,
 			Type:        string(r.Type),
 			Address:     r.Address,
 			DomainValue: r.Domain,
 			Enabled:     r.Enabled,
+		}
+		if seq, ok := e.networkSeq(r.NetworkID); ok {
+			entry.NetworkSeq = seq
 		}
 		if r.Prefix.IsValid() {
 			entry.PrefixCidr = r.Prefix.String()
@@ -478,13 +580,17 @@ func encodeNetworkResources(resources []*resourceTypes.NetworkResource) []*proto
 	return out
 }
 
-func (e *componentEncoder) encodeRoutersMap(routersMap map[string]map[string]*routerTypes.NetworkRouter) map[string]*proto.NetworkRouterList {
+func (e *componentEncoder) encodeRoutersMap(routersMap map[string]map[string]*routerTypes.NetworkRouter) map[uint32]*proto.NetworkRouterList {
 	if len(routersMap) == 0 {
 		return nil
 	}
-	out := make(map[string]*proto.NetworkRouterList, len(routersMap))
-	for networkID, routers := range routersMap {
+	out := make(map[uint32]*proto.NetworkRouterList, len(routersMap))
+	for networkXID, routers := range routersMap {
 		if len(routers) == 0 {
+			continue
+		}
+		netSeq, ok := e.networkSeq(networkXID)
+		if !ok {
 			continue
 		}
 		entries := make([]*proto.NetworkRouterEntry, 0, len(routers))
@@ -505,17 +611,30 @@ func (e *componentEncoder) encodeRoutersMap(routersMap map[string]map[string]*ro
 			}
 			entries = append(entries, entry)
 		}
-		out[networkID] = &proto.NetworkRouterList{Entries: entries}
+		out[netSeq] = &proto.NetworkRouterList{Entries: entries}
 	}
 	return out
 }
 
-func encodeResourcePoliciesMap(rpm map[string][]*types.Policy, policyToIdxs map[*types.Policy][]uint32) map[string]*proto.PolicyIndexes {
+func (e *componentEncoder) encodeResourcePoliciesMap(rpm map[string][]*types.Policy, policyToIdxs map[*types.Policy][]uint32) map[uint32]*proto.PolicyIndexes {
 	if len(rpm) == 0 {
 		return nil
 	}
-	out := make(map[string]*proto.PolicyIndexes, len(rpm))
-	for resourceID, policies := range rpm {
+	// resourceXIDToSeq is local to one encode — built from components.NetworkResources
+	// (small slice). Network resources without seq id are dropped, matching how
+	// other components-without-seq are silently filtered.
+	resourceXIDToSeq := make(map[string]uint32, len(e.components.NetworkResources))
+	for _, r := range e.components.NetworkResources {
+		if r != nil && r.AccountSeqID != 0 {
+			resourceXIDToSeq[r.ID] = r.AccountSeqID
+		}
+	}
+	out := make(map[uint32]*proto.PolicyIndexes, len(rpm))
+	for resourceXID, policies := range rpm {
+		seq, ok := resourceXIDToSeq[resourceXID]
+		if !ok {
+			continue
+		}
 		idxs := make([]uint32, 0, len(policies)*2)
 		for _, pol := range policies {
 			idxs = append(idxs, policyToIdxs[pol]...)
@@ -523,7 +642,7 @@ func encodeResourcePoliciesMap(rpm map[string][]*types.Policy, policyToIdxs map[
 		if len(idxs) == 0 {
 			continue
 		}
-		out[resourceID] = &proto.PolicyIndexes{Indexes: idxs}
+		out[seq] = &proto.PolicyIndexes{Indexes: idxs}
 	}
 	return out
 }
@@ -554,12 +673,16 @@ func stringSetToSlice(s map[string]struct{}) []string {
 	return out
 }
 
-func (e *componentEncoder) encodePostureFailedPeers(m map[string]map[string]struct{}) map[string]*proto.PeerIndexSet {
+func (e *componentEncoder) encodePostureFailedPeers(m map[string]map[string]struct{}) map[uint32]*proto.PeerIndexSet {
 	if len(m) == 0 {
 		return nil
 	}
-	out := make(map[string]*proto.PeerIndexSet, len(m))
-	for checkID, failedPeerIDs := range m {
+	out := make(map[uint32]*proto.PeerIndexSet, len(m))
+	for checkXID, failedPeerIDs := range m {
+		seq, ok := e.components.PostureCheckXIDToSeq[checkXID]
+		if !ok || seq == 0 {
+			continue
+		}
 		idxs := make([]uint32, 0, len(failedPeerIDs))
 		for peerID := range failedPeerIDs {
 			if idx, ok := e.peerOrder[peerID]; ok {
@@ -569,7 +692,7 @@ func (e *componentEncoder) encodePostureFailedPeers(m map[string]map[string]stru
 		if len(idxs) == 0 {
 			continue
 		}
-		out[checkID] = &proto.PeerIndexSet{PeerIndexes: idxs}
+		out[seq] = &proto.PeerIndexSet{PeerIndexes: idxs}
 	}
 	return out
 }
@@ -614,6 +737,10 @@ func toPeerCompact(p *nbpeer.Peer, agentVersionIdx uint32) *proto.PeerCompact {
 		AgentVersionIdx:        agentVersionIdx,
 		AddedWithSsoLogin:      p.UserID != "",
 		LoginExpirationEnabled: p.LoginExpirationEnabled,
+		SshEnabled:             p.SSHEnabled,
+		SupportsIpv6:           p.SupportsIPv6(),
+		SupportsSourcePrefixes: p.SupportsSourcePrefixes(),
+		ServerSshAllowed:       p.Meta.Flags.ServerSSHAllowed,
 	}
 	if p.LastLogin != nil {
 		pc.LastLoginUnixNano = p.LastLogin.UnixNano()

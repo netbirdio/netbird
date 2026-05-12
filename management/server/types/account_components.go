@@ -125,15 +125,27 @@ func (a *Account) GetPeerNetworkMapComponents(
 	}
 
 	components := &NetworkMapComponents{
-		PeerID:              peerID,
-		Network:             a.Network.Copy(),
-		NameServerGroups:    make([]*nbdns.NameServerGroup, 0),
-		CustomZoneDomain:    peersCustomZone.Domain,
-		ResourcePoliciesMap: make(map[string][]*Policy),
-		RoutersMap:          make(map[string]map[string]*routerTypes.NetworkRouter),
-		NetworkResources:    make([]*resourceTypes.NetworkResource, 0),
-		PostureFailedPeers:  make(map[string]map[string]struct{}, len(a.PostureChecks)),
-		RouterPeers:         make(map[string]*nbpeer.Peer),
+		PeerID:               peerID,
+		Network:              a.Network.Copy(),
+		NameServerGroups:     make([]*nbdns.NameServerGroup, 0),
+		CustomZoneDomain:     peersCustomZone.Domain,
+		ResourcePoliciesMap:  make(map[string][]*Policy),
+		RoutersMap:           make(map[string]map[string]*routerTypes.NetworkRouter),
+		NetworkResources:     make([]*resourceTypes.NetworkResource, 0),
+		PostureFailedPeers:   make(map[string]map[string]struct{}, len(a.PostureChecks)),
+		RouterPeers:          make(map[string]*nbpeer.Peer),
+		NetworkXIDToSeq:      make(map[string]uint32, len(a.Networks)),
+		PostureCheckXIDToSeq: make(map[string]uint32, len(a.PostureChecks)),
+	}
+	for _, n := range a.Networks {
+		if n != nil && n.HasSeqID() {
+			components.NetworkXIDToSeq[n.ID] = n.AccountSeqID
+		}
+	}
+	for _, pc := range a.PostureChecks {
+		if pc != nil && pc.HasSeqID() {
+			components.PostureCheckXIDToSeq[pc.ID] = pc.AccountSeqID
+		}
 	}
 
 	components.AccountSettings = &AccountSettingsInfo{
@@ -552,6 +564,13 @@ func (a *Account) getPostureValidPeersSaveFailed(inputPeers []string, postureChe
 	return dest
 }
 
+// filterGroupPeers trims each group's Peers slice to only those peers that
+// also appear in `peers`. Groups whose filtered list is empty are NOT
+// deleted from the map — they're kept so the components wire encoder can
+// still resolve seq references from routes/policies/access-control groups
+// that name them. Calculate() tolerates groups with empty Peers (the inner
+// loops simply iterate zero times), so retaining them is behaviourally a
+// no-op for the legacy path that consumes the same NetworkMapComponents.
 func filterGroupPeers(groups *map[string]*Group, peers map[string]*nbpeer.Peer) {
 	for groupID, groupInfo := range *groups {
 		filteredPeers := make([]string, 0, len(groupInfo.Peers))
@@ -561,9 +580,7 @@ func filterGroupPeers(groups *map[string]*Group, peers map[string]*nbpeer.Peer) 
 			}
 		}
 
-		if len(filteredPeers) == 0 {
-			delete(*groups, groupID)
-		} else if len(filteredPeers) != len(groupInfo.Peers) {
+		if len(filteredPeers) != len(groupInfo.Peers) {
 			ng := groupInfo.Copy()
 			ng.Peers = filteredPeers
 			(*groups)[groupID] = ng

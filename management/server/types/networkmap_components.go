@@ -42,6 +42,17 @@ type NetworkMapComponents struct {
 	PostureFailedPeers map[string]map[string]struct{}
 
 	RouterPeers map[string]*nbpeer.Peer
+
+	// NetworkXIDToSeq maps Network.ID (xid) → AccountSeqID. Populated by the
+	// account-side component builder; consumed by the envelope encoder to
+	// translate RoutersMap keys and NetworkResource.NetworkID references
+	// to compact uint32 ids. Legacy Calculate() doesn't consult it.
+	NetworkXIDToSeq map[string]uint32
+
+	// PostureCheckXIDToSeq maps posture.Checks.ID (xid) → AccountSeqID.
+	// Same role as NetworkXIDToSeq, used for PostureFailedPeers keys and
+	// policy SourcePostureChecks references.
+	PostureCheckXIDToSeq map[string]uint32
 }
 
 type AccountSettingsInfo struct {

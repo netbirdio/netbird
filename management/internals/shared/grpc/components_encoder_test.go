@@ -15,6 +15,7 @@ import (
 	goproto "google.golang.org/protobuf/proto"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -637,6 +638,11 @@ func TestEncodeNetworkMapEnvelope_ResourceOnlyPolicyShippedAndIndexed(t *testing
 	c.ResourcePoliciesMap = map[string][]*types.Policy{
 		"resource-x": {c.Policies[0], resourceOnlyPolicy}, // shared + resource-only
 	}
+	// Resource must appear in components.NetworkResources with a seq id —
+	// encoder uses that to translate the xid map key to uint32.
+	c.NetworkResources = []*resourceTypes.NetworkResource{
+		{ID: "resource-x", AccountSeqID: 77, Name: "res-x", Enabled: true},
+	}
 
 	full := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{Components: c}).GetFull()
 
@@ -651,8 +657,8 @@ func TestEncodeNetworkMapEnvelope_ResourceOnlyPolicyShippedAndIndexed(t *testing
 	require.Contains(t, policyByID, uint32(10), "original peer-traffic policy id 10")
 	require.Contains(t, policyByID, uint32(99), "resource-only policy id 99")
 
-	require.Contains(t, full.ResourcePoliciesMap, "resource-x")
-	idxs := full.ResourcePoliciesMap["resource-x"].Indexes
+	require.Contains(t, full.ResourcePoliciesMap, uint32(77))
+	idxs := full.ResourcePoliciesMap[77].Indexes
 	require.Len(t, idxs, 2)
 	assert.ElementsMatch(t, []uint32{policyIdxByID[10], policyIdxByID[99]}, idxs,
 		"resource policies map must reference both wire policy indexes")
@@ -665,7 +671,7 @@ func TestEncodeNetworkMapEnvelope_NameServerGroups(t *testing.T) {
 		NameServers: []nbdns.NameServer{{
 			IP: netip.MustParseAddr("8.8.8.8"), NSType: nbdns.UDPNameServerType, Port: 53,
 		}},
-		Groups: []string{"group-src", "group-not-persisted"},
+		Groups:  []string{"group-src", "group-not-persisted"},
 		Primary: true, Enabled: true,
 		Domains: []string{"corp.example"},
 	}}
@@ -685,6 +691,7 @@ func TestEncodeNetworkMapEnvelope_NameServerGroups(t *testing.T) {
 
 func TestEncodeNetworkMapEnvelope_PostureFailedPeers(t *testing.T) {
 	c := newTestComponents()
+	c.PostureCheckXIDToSeq = map[string]uint32{"check-1": 33}
 	c.PostureFailedPeers = map[string]map[string]struct{}{
 		"check-1": {
 			"peer-a":              {},
@@ -695,13 +702,14 @@ func TestEncodeNetworkMapEnvelope_PostureFailedPeers(t *testing.T) {
 
 	full := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{Components: c}).GetFull()
 
-	require.Contains(t, full.PostureFailedPeers, "check-1")
-	idxs := full.PostureFailedPeers["check-1"].PeerIndexes
+	require.Contains(t, full.PostureFailedPeers, uint32(33))
+	idxs := full.PostureFailedPeers[33].PeerIndexes
 	assert.Len(t, idxs, 2, "missing peer is silently dropped (filterPostureFailedPeers guarantees presence in real data)")
 }
 
 func TestEncodeNetworkMapEnvelope_RoutersMap(t *testing.T) {
 	c := newTestComponents()
+	c.NetworkXIDToSeq = map[string]uint32{"net-1": 5}
 	c.RoutersMap = map[string]map[string]*routerTypes.NetworkRouter{
 		"net-1": {
 			"peer-c": {
@@ -713,8 +721,8 @@ func TestEncodeNetworkMapEnvelope_RoutersMap(t *testing.T) {
 
 	full := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{Components: c}).GetFull()
 
-	require.Contains(t, full.RoutersMap, "net-1")
-	entries := full.RoutersMap["net-1"].Entries
+	require.Contains(t, full.RoutersMap, uint32(5))
+	entries := full.RoutersMap[5].Entries
 	require.Len(t, entries, 1)
 	e := entries[0]
 	assert.EqualValues(t, 200, e.Id)
@@ -737,15 +745,16 @@ func TestEncodeNetworkMapEnvelope_RouterPeerNotInComponentsPeers(t *testing.T) {
 		DNSLabel: "peerc", Meta: nbpeer.PeerSystemMeta{WtVersion: "0.40.0"},
 	}
 	c.RouterPeers = map[string]*nbpeer.Peer{"peer-c": routerPeer}
+	c.NetworkXIDToSeq = map[string]uint32{"net-1": 5}
 	c.RoutersMap = map[string]map[string]*routerTypes.NetworkRouter{
 		"net-1": {"peer-c": {ID: "r-1", AccountSeqID: 1, Peer: "peer-c", Enabled: true}},
 	}
 
 	full := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{Components: c}).GetFull()
 
-	require.Contains(t, full.RoutersMap, "net-1")
-	require.Len(t, full.RoutersMap["net-1"].Entries, 1)
-	e := full.RoutersMap["net-1"].Entries[0]
+	require.Contains(t, full.RoutersMap, uint32(5))
+	require.Len(t, full.RoutersMap[5].Entries, 1)
+	e := full.RoutersMap[5].Entries[0]
 	assert.True(t, e.PeerIndexSet, "router peer must be indexed even when not in c.Peers")
 }
 
@@ -766,9 +775,9 @@ func TestEncodeNetworkMapEnvelope_DNSSettingsFiltersUnpersistedGroups(t *testing
 func TestEncodeNetworkMapEnvelope_GroupIDToUserIDs(t *testing.T) {
 	c := newTestComponents()
 	c.GroupIDToUserIDs = map[string][]string{
-		"group-src":      {"user-1", "user-2"},
-		"group-no-seq":   {"user-3"}, // group not persisted → drop
-		"group-missing":  {"user-4"}, // group not in components → drop
+		"group-src":     {"user-1", "user-2"},
+		"group-no-seq":  {"user-3"}, // group not persisted → drop
+		"group-missing": {"user-4"}, // group not in components → drop
 	}
 	c.Groups["group-no-seq"] = &types.Group{ID: "group-no-seq", AccountSeqID: 0}
 

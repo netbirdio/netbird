@@ -1006,6 +1006,15 @@ func (a *Account) connResourcesGenerator(ctx context.Context, targetPeer *nbpeer
 		}
 }
 
+// PolicyRuleImpliesLegacySSH reports whether the rule (without an explicit
+// NetbirdSSH protocol) implicitly authorises SSH because it permits TCP/22 or
+// TCP/22022 — either by ALL-protocol coverage or by an explicit port/port-range
+// containing one of those. Exposed for ToComponentSyncResponse so the
+// envelope-format response mirrors the legacy SshConfig.SshEnabled bit.
+func PolicyRuleImpliesLegacySSH(rule *PolicyRule) bool {
+	return policyRuleImpliesLegacySSH(rule)
+}
+
 func policyRuleImpliesLegacySSH(rule *PolicyRule) bool {
 	return rule.Protocol == PolicyRuleProtocolALL || (rule.Protocol == PolicyRuleProtocolTCP && (portsIncludesSSH(rule.Ports) || portRangeIncludesSSH(rule.PortRanges)))
 }

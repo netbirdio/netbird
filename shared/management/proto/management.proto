@@ -577,6 +577,13 @@ enum RuleProtocol {
   UDP = 3;
   ICMP = 4;
   CUSTOM = 5;
+  // NETBIRD_SSH (types.PolicyRuleProtocolType "netbird-ssh") is the marker
+  // policy rule that drives SSH-server activation in Calculate(). The legacy
+  // proto.FirewallRule path doesn't ship this value (Calculate already
+  // expands SSH rules into TCP/22 before encoding), but the components path
+  // ships RAW policies — the client must see this protocol to derive
+  // AuthorizedUsers locally.
+  NETBIRD_SSH = 6;
 }
 
 enum RuleDirection {
@@ -801,13 +808,21 @@ message NetworkMapComponentsFull {
   // Network resources (mirrors []*resourceTypes.NetworkResource).
   repeated NetworkResourceRaw network_resources = 17;
 
-  // Routers per network. Outer key: network id (xid string). Each entry is
+  // Routers per network. Outer key: network account_seq_id. Each entry is
   // the set of routers backing that network for this peer's view.
-  map<string, NetworkRouterList> routers_map = 18;
+  //
+  // INCOMPATIBLE WIRE CHANGE: the map key changed from string (network xid)
+  // to uint32 (account_seq_id). Field 18 was reused without a `reserved`
+  // entry because capability=3 has never been released — every cap=3
+  // producer and consumer carries the same regenerated descriptor. Do NOT
+  // reuse this pattern for any further wire change once cap=3 ships.
+  map<uint32, NetworkRouterList> routers_map = 18;
 
-  // For each NetworkResource id (xid string), the indexes into policies[]
+  // For each NetworkResource account_seq_id, the indexes into policies[]
   // that apply to it.
-  map<string, PolicyIndexes> resource_policies_map = 19;
+  //
+  // INCOMPATIBLE WIRE CHANGE: see routers_map note above.
+  map<uint32, PolicyIndexes> resource_policies_map = 19;
 
   // Group-id (account_seq_id) → user ids authorized for SSH on members.
   map<uint32, UserIDList> group_id_to_user_ids = 20;
@@ -816,9 +831,11 @@ message NetworkMapComponentsFull {
   // authorized users for the receiving peer).
   repeated string allowed_user_ids = 21;
 
-  // Per posture-check id (xid string), the set of peer indexes that failed
+  // Per posture-check account_seq_id, the set of peer indexes that failed
   // the check. Server-side evaluation result; clients do not re-evaluate.
-  map<string, PeerIndexSet> posture_failed_peers = 22;
+  //
+  // INCOMPATIBLE WIRE CHANGE: see routers_map note above.
+  map<uint32, PeerIndexSet> posture_failed_peers = 22;
 
   // Account-level DNS forwarder port (mirrors the legacy
   // proto.DNSConfig.ForwarderPort). Computed by the controller from peer
@@ -832,9 +849,15 @@ message NetworkMapComponentsFull {
   // a unified merged result regardless of source.
   ProxyPatch proxy_patch = 24;
 
+  // SSH UserIDClaim — server-side HttpServerConfig.AuthUserIDClaim, or
+  // "sub" by default. Populated in proto.SSHAuth.UserIDClaim when the
+  // client rebuilds the NetworkMap from this envelope. Empty when the
+  // account has no AuthorizedUsers (and thus no SshAuth to populate).
+  string user_id_claim = 25;
+
   // Reserved for future component additions (incremental_serial, parent_seq,
   // etc.) without forcing a renumber.
-  reserved 25 to 50;
+  reserved 26 to 50;
 }
 
 // ProxyPatch carries NetworkMap fragments that don't fit the component-graph
@@ -925,6 +948,32 @@ message PeerCompact {
   // makes a fresh peer immediately expired iff login_expiration_enabled is
   // true — the same semantics as types.Peer.GetLastLogin).
   int64 last_login_unix_nano = 9;
+
+  // True when the peer has an SSH server enabled locally. Used by the
+  // legacy SSH path in Calculate() (`policyRuleImpliesLegacySSH`): a rule
+  // with protocol ALL/TCP-with-SSH-ports activates SSH for the receiving
+  // peer when this bit is set, even without an explicit NetbirdSSH rule.
+  bool ssh_enabled = 10;
+
+  reserved 11; // was: id (string xid)
+
+  // Mirror of types.Peer.SupportsIPv6() — !Meta.Flags.DisableIPv6 &&
+  // HasCapability(PeerCapabilityIPv6Overlay). Used by the local peer's
+  // Calculate() when deciding whether to emit IPv6 firewall rules
+  // (appendIPv6FirewallRule) against this peer's IPv6 address.
+  bool supports_ipv6 = 12;
+
+  // Mirror of types.Peer.SupportsSourcePrefixes() —
+  // HasCapability(PeerCapabilitySourcePrefixes). Determines whether the
+  // local peer's Calculate() emits SourcePrefixes alongside legacy PeerIP
+  // fields in proto.FirewallRule.
+  bool supports_source_prefixes = 13;
+
+  // Mirror of types.Peer.Meta.Flags.ServerSSHAllowed. Read by Calculate()
+  // when expanding TCP port-22 firewall rules — the native SSH companion
+  // (port 22022) is only added when this flag is set and the peer agent
+  // version supports it.
+  bool server_ssh_allowed = 14;
 }
 
 // PolicyCompact is the compact form of a policy rule. Group references use
@@ -933,7 +982,9 @@ message PeerCompact {
 // on the client (ingress when the peer is in destination_group_ids, egress
 // when in source_group_ids; both when bidirectional).
 message PolicyCompact {
-  // Per-account integer id (matches policies.account_seq_id).
+  // Per-account integer id (matches policies.account_seq_id). Used as a
+  // stable reference for ResourcePoliciesMap.indexes and future delta
+  // updates (Step 3).
   uint32 id = 1;
 
   RuleAction action = 2;
@@ -949,6 +1000,55 @@ message PolicyCompact {
   // Group ids (account_seq_id) of source / destination groups.
   repeated uint32 source_group_ids = 7;
   repeated uint32 destination_group_ids = 8;
+
+  reserved 9; // was: xid (string)
+
+  // SSH authorization fields. PolicyRule.AuthorizedGroups maps the rule's
+  // applicable group ids (account_seq_id) to a list of local-user names —
+  // when a peer in one of those groups is the SSH destination, the named
+  // local users gain access. AuthorizedUser is the single-user form
+  // (legacy: rule scopes SSH to one specific user id).
+  //
+  // Both fields are only consumed by Calculate() when the rule's protocol
+  // is NetbirdSSH (or the legacy implicit-SSH heuristic).
+  map<uint32, UserNameList> authorized_groups = 10;
+  string authorized_user = 11;
+
+  // Resource-typed rule sources/destinations. When a rule targets a specific
+  // peer (rather than groups), Calculate() reads SourceResource /
+  // DestinationResource — without these the rule's connection resources
+  // can't be produced on the client. ResourceCompact's peer_index refers to
+  // NetworkMapComponentsFull.peers; type is the raw ResourceType string
+  // ("peer", "host", "subnet", "domain"). Only "peer" is meaningful for
+  // Calculate's resource-typed rule path today.
+  ResourceCompact source_resource = 12;
+  ResourceCompact destination_resource = 13;
+
+  // Posture-check seq ids gating this policy's source peers. Calculate()
+  // reads them when filtering rule peers (peers that fail any listed check
+  // are dropped from sourcePeers). Match keys in
+  // NetworkMapComponentsFull.posture_failed_peers.
+  repeated uint32 source_posture_check_seq_ids = 15;
+
+  reserved 14; // was: source_posture_check_ids (repeated string xid)
+}
+
+// ResourceCompact mirrors types.Resource. Used by PolicyCompact to carry
+// rule.SourceResource / rule.DestinationResource when the rule targets a
+// specific resource (typically a peer) rather than groups.
+// peer_index_set tells whether peer_index is valid (proto3 uint32 cannot
+// disambiguate "0" from "unset"); set only when type == "peer".
+message ResourceCompact {
+  string type = 1;
+  bool peer_index_set = 2;
+  uint32 peer_index = 3;
+  reserved 4; // future: host/subnet/domain references when needed
+}
+
+// UserNameList is a list of local-user names — used as the value type in
+// PolicyCompact.authorized_groups.
+message UserNameList {
+  repeated string names = 1;
 }
 
 // GroupCompact is the wire-shape of a group: per-account integer id, optional
@@ -1007,6 +1107,8 @@ message RouteRaw {
   repeated uint32 group_ids = 14;
   repeated uint32 access_control_group_ids = 15;
   bool skip_auto_apply = 16;
+
+  reserved 17; // was: xid (string)
 }
 
 // NameServerGroupRaw mirrors *nbdns.NameServerGroup. Distinct from the
@@ -1027,9 +1129,15 @@ message NameServerGroupRaw {
 }
 
 // NetworkResourceRaw mirrors *resourceTypes.NetworkResource.
+//
+// INCOMPATIBLE WIRE CHANGE: field 2 changed from `string network_id` (xid)
+// to `uint32 network_seq` without a `reserved` entry. Safe only because
+// capability=3 has never been released — every cap=3 producer and consumer
+// carries the same regenerated descriptor. Do NOT reuse this pattern once
+// cap=3 ships.
 message NetworkResourceRaw {
   uint32 id = 1;            // network_resources.account_seq_id
-  string network_id = 2;    // xid string — networks have no seq id today
+  uint32 network_seq = 2;   // networks.account_seq_id (replaces xid)
   string name = 3;
   string description = 4;
   // Resource type: "host" / "subnet" / "domain".
@@ -1038,6 +1146,7 @@ message NetworkResourceRaw {
   string domain_value = 7;  // resource.Domain
   string prefix_cidr = 8;
   bool enabled = 9;
+  reserved 10; // was: xid (string)
 }
 
 // NetworkRouterList carries the routers backing one network.

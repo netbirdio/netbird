@@ -61,9 +61,11 @@ import (
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/management/domain"
+	nbnetworkmap "github.com/netbirdio/netbird/shared/management/networkmap"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/netiputil"
 	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
@@ -201,6 +203,13 @@ type Engine struct {
 
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
+
+	// latestComponents is the most-recent NetworkMapComponents decoded from
+	// a NetworkMapEnvelope (capability=3 peers only). Held alongside the
+	// NetworkMap that Calculate() produced from it so Step 3 incremental
+	// updates have a base to apply changes against. nil for legacy-format
+	// peers. Guarded by syncMsgMux.
+	latestComponents *types.NetworkMapComponents
 
 	networkMonitor *networkmonitor.NetworkMonitor
 
@@ -907,9 +916,43 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		return err
 	}
 
-	nm := update.GetNetworkMap()
+	var (
+		nm         *mgmProto.NetworkMap
+		components *types.NetworkMapComponents
+	)
+	if envelope := update.GetNetworkMapEnvelope(); envelope != nil {
+		// Components-format peer: decode the envelope back to typed
+		// components, run Calculate() locally, and convert to the wire
+		// NetworkMap shape the rest of the engine consumes. Components are
+		// retained so future incremental updates (Step 3) can apply deltas
+		// instead of doing a full reconstruction.
+		localKey := e.config.WgPrivateKey.PublicKey().String()
+		dnsName := ""
+		if pc := update.GetPeerConfig(); pc != nil {
+			// PeerConfig.Fqdn = "<dns_label>.<dns_domain>" — extract the
+			// shared domain by stripping the peer's own label prefix. Falls
+			// back to empty if the FQDN doesn't have the expected shape.
+			dnsName = extractDNSDomainFromFQDN(pc.GetFqdn())
+		}
+		result, err := nbnetworkmap.EnvelopeToNetworkMap(e.ctx, envelope, localKey, dnsName)
+		if err != nil {
+			return fmt.Errorf("decode network map envelope: %w", err)
+		}
+		nm = result.NetworkMap
+		components = result.Components
+	} else {
+		nm = update.GetNetworkMap()
+	}
 	if nm == nil {
 		return nil
+	}
+
+	// Only retain the components view when the server sent the envelope
+	// path. A legacy proto.NetworkMap means components == nil; writing it
+	// here would clobber a previously-cached snapshot, breaking the Step 3
+	// incremental-delta base on a future envelope sync.
+	if components != nil {
+		e.latestComponents = components
 	}
 
 	// Persist sync response under the dedicated lock (syncRespMux), not under syncMsgMux.
@@ -935,6 +978,19 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	e.statusRecorder.PublishEvent(cProto.SystemEvent_INFO, cProto.SystemEvent_SYSTEM, "Network map updated", "", nil)
 
 	return nil
+}
+
+// extractDNSDomainFromFQDN returns the trailing dotted domain part of the
+// receiving peer's FQDN — the same value the management server fills as
+// dnsName when it builds the legacy NetworkMap. "peer42.netbird.cloud" →
+// "netbird.cloud". An empty string is returned for unrecognized formats.
+func extractDNSDomainFromFQDN(fqdn string) string {
+	for i := 0; i < len(fqdn); i++ {
+		if fqdn[i] == '.' && i+1 < len(fqdn) {
+			return fqdn[i+1:]
+		}
+	}
+	return ""
 }
 
 func (e *Engine) handleRelayUpdate(update *mgmProto.RelayConfig) error {

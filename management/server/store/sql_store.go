@@ -2177,7 +2177,7 @@ func (s *SqlStore) getNameServerGroups(ctx context.Context, accountID string) ([
 }
 
 func (s *SqlStore) getPostureChecks(ctx context.Context, accountID string) ([]*posture.Checks, error) {
-	const query = `SELECT id, account_id, name, description, checks FROM posture_checks WHERE account_id = $1`
+	const query = `SELECT id, account_id, account_seq_id, name, description, checks FROM posture_checks WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -2185,7 +2185,7 @@ func (s *SqlStore) getPostureChecks(ctx context.Context, accountID string) ([]*p
 	checks, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*posture.Checks, error) {
 		var c posture.Checks
 		var checksDef []byte
-		err := row.Scan(&c.ID, &c.AccountID, &c.Name, &c.Description, &checksDef)
+		err := row.Scan(&c.ID, &c.AccountID, &c.AccountSeqID, &c.Name, &c.Description, &checksDef)
 		if err == nil && checksDef != nil {
 			_ = json.Unmarshal(checksDef, &c.Checks)
 		}
@@ -2351,7 +2351,7 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 }
 
 func (s *SqlStore) getNetworks(ctx context.Context, accountID string) ([]*networkTypes.Network, error) {
-	const query = `SELECT id, account_id, name, description FROM networks WHERE account_id = $1`
+	const query = `SELECT id, account_id, account_seq_id, name, description FROM networks WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
