@@ -26,14 +26,14 @@ const (
 	trayTooltip = "NetBird"
 
 	// Top-level menu entries.
-	menuStatusDisconnected     = "Disconnected"
+	menuStatusDisconnected      = "Disconnected"
 	menuStatusDaemonUnavailable = "Not running"
-	menuOpenNetBird            = "Open NetBird"
-	menuConnect            = "Connect"
-	menuDisconnect         = "Disconnect"
-	menuExitNode           = "Exit Node"
-	menuNetworks           = "Networks"
-	menuQuit               = "Quit"
+	menuOpenNetBird             = "Open NetBird"
+	menuConnect                 = "Connect"
+	menuDisconnect              = "Disconnect"
+	menuExitNode                = "Exit Node"
+	menuNetworks                = "Resources"
+	menuQuit                    = "Quit"
 
 	// Settings + diagnostics. The settings page replaces the Fyne tray's
 	// Settings submenu (per-toggle checkboxes for SSH, auto-connect,
@@ -68,11 +68,17 @@ const (
 	notifySessionExpiredBody   = "Your NetBird session has expired. Please log in again."
 
 	// Notification IDs (used to coalesce duplicate toasts).
-	notifyIDUpdatePrefix    = "netbird-update-"
-	notifyIDEvent           = "netbird-event-"
-	notifyIDTrayError       = "netbird-tray-error"
-	notifyIDSessionExpired  = "netbird-session-expired"
+	notifyIDUpdatePrefix   = "netbird-update-"
+	notifyIDEvent          = "netbird-event-"
+	notifyIDTrayError      = "netbird-tray-error"
+	notifyIDSessionExpired = "netbird-session-expired"
 
+	// Daemon status strings mirroring internal.Status* — kept in sync
+	// with client/internal/state.go.
+	statusConnected  = "Connected"
+	statusConnecting = "Connecting"
+	statusIdle       = "Idle"
+	statusError      = "Error"
 	// Daemon status string for an SSO session that has expired and needs
 	// re-authentication. Mirrors internal.StatusSessionExpired.
 	statusSessionExpired = "SessionExpired"
@@ -189,7 +195,8 @@ func (t *Tray) buildMenu() *application.Menu {
 	// up unconditionally rather than swapping items at runtime.
 	t.statusItem = menu.Add(menuStatusDisconnected).
 		OnClick(func(*application.Context) { t.openRoute("/login") }).
-		SetEnabled(false)
+		SetEnabled(false).
+		SetBitmap(iconMenuDotIdle)
 
 	menu.AddSeparator()
 	// The tray icon's left-click handler is intentionally unbound (see
@@ -430,7 +437,7 @@ func (t *Tray) onUpdateProgress(ev *application.CustomEvent) {
 // otherwise spam Shell_NotifyIcon and the log.
 func (t *Tray) applyStatus(st services.Status) {
 	t.mu.Lock()
-	connected := strings.EqualFold(st.Status, "Connected")
+	connected := strings.EqualFold(st.Status, statusConnected)
 	iconChanged := connected != t.connected || st.Status != t.lastStatus
 	// Detect the transition into SessionExpired: the daemon emits the
 	// state on every Status snapshot for as long as the session stays
@@ -463,11 +470,15 @@ func (t *Tray) applyStatus(st services.Status) {
 			// When the daemon socket is unreachable, swap the label to make
 			// the cause obvious; Connect/Disconnect would just fail.
 			label := st.Status
-			if daemonUnavailable {
+			switch {
+			case daemonUnavailable:
 				label = menuStatusDaemonUnavailable
+			case strings.EqualFold(st.Status, statusIdle):
+				label = menuStatusDisconnected
 			}
 			t.statusItem.SetLabel(label)
 			t.statusItem.SetEnabled(needsLogin)
+			t.applyStatusIndicator(st.Status)
 		}
 		if t.upItem != nil {
 			t.upItem.SetHidden(connected || needsLogin || daemonUnavailable)
@@ -477,12 +488,14 @@ func (t *Tray) applyStatus(st services.Status) {
 			t.downItem.SetHidden(!connected)
 			t.downItem.SetEnabled(connected)
 		}
-		// Settings, Networks and Debug Bundle all drive daemon RPCs from
-		// their respective frontend routes — disable them while the daemon
-		// socket is unreachable so the user doesn't land on a page that
-		// would only fail to load.
+		// Exit Node and Resources surface tunnel-routed state, so only
+		// expose them while the tunnel is up. Settings/Debug-Bundle just
+		// need the daemon socket reachable.
+		if t.exitNodeItem != nil {
+			t.exitNodeItem.SetEnabled(connected)
+		}
 		if t.networksItem != nil {
-			t.networksItem.SetEnabled(!daemonUnavailable)
+			t.networksItem.SetEnabled(connected)
 		}
 		if t.settingsItem != nil {
 			t.settingsItem.SetEnabled(!daemonUnavailable)
@@ -519,18 +532,44 @@ func (t *Tray) handleSessionExpired() {
 }
 
 func (t *Tray) rebuildExitNodes(nodes []string) {
-	if t.exitNodeItem == nil {
-		return
-	}
-	if len(nodes) == 0 {
-		t.exitNodeItem.SetEnabled(false)
+	if t.exitNodeItem == nil || len(nodes) == 0 {
 		return
 	}
 	sub := application.NewMenu()
 	for _, fqdn := range nodes {
 		sub.AddCheckbox(fqdn, false)
 	}
-	t.exitNodeItem.SetEnabled(true)
+}
+
+// applyStatusIndicator sets the small coloured dot shown on the status
+// menu entry. The dot mirrors the tray icon's state through a fixed
+// palette: green for Connected, yellow for Connecting, blue for the
+// login states, red for hard errors, grey for the idle/disconnected
+// pair and a darker grey when the daemon socket is unreachable.
+func (t *Tray) applyStatusIndicator(status string) {
+	if t.statusItem == nil {
+		return
+	}
+	t.statusItem.SetBitmap(statusIndicatorBitmap(status))
+}
+
+func statusIndicatorBitmap(status string) []byte {
+	switch {
+	case strings.EqualFold(status, statusConnected):
+		return iconMenuDotConnected
+	case strings.EqualFold(status, statusConnecting):
+		return iconMenuDotConnecting
+	case strings.EqualFold(status, statusNeedsLogin),
+		strings.EqualFold(status, statusSessionExpired):
+		return iconMenuDotLogin
+	case strings.EqualFold(status, statusLoginFailed),
+		strings.EqualFold(status, statusError):
+		return iconMenuDotError
+	case strings.EqualFold(status, services.StatusDaemonUnavailable):
+		return iconMenuDotOffline
+	default:
+		return iconMenuDotIdle
+	}
 }
 
 func (t *Tray) applyIcon() {
@@ -561,8 +600,8 @@ func (t *Tray) iconForState() (icon, dark []byte) {
 	statusLabel := t.lastStatus
 	t.mu.Unlock()
 
-	connecting := strings.EqualFold(statusLabel, "Connecting")
-	errored := strings.EqualFold(statusLabel, "Error") ||
+	connecting := strings.EqualFold(statusLabel, statusConnecting)
+	errored := strings.EqualFold(statusLabel, statusError) ||
 		strings.EqualFold(statusLabel, services.StatusDaemonUnavailable)
 	needsLogin := strings.EqualFold(statusLabel, statusNeedsLogin) ||
 		strings.EqualFold(statusLabel, statusSessionExpired) ||
