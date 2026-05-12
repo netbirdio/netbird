@@ -355,34 +355,28 @@ func startServers(wg *sync.WaitGroup, srv *relayServer.Server, httpHealthcheck *
 		log.Infof("Relay WebSocket multiplexed on management port (no separate relay listener)")
 	}
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		log.Infof("running metrics server: %s%s", metricsServer.Addr, metricsServer.Endpoint)
 		if err := metricsServer.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("failed to start metrics server: %v", err)
 		}
-	}()
+	})
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		if err := httpHealthcheck.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("failed to start healthcheck server: %v", err)
 		}
-	}()
+	})
 
 	if stunServer != nil {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if err := stunServer.Listen(); err != nil {
 				if errors.Is(err, stun.ErrServerClosed) {
 					return
 				}
 				log.Errorf("STUN server error: %v", err)
 			}
-		}()
+		})
 	}
 }
 
