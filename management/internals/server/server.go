@@ -34,6 +34,8 @@ const (
 	ManagementLegacyPort = 33073
 	// DefaultSelfHostedDomain is the default domain used for self-hosted fresh installs.
 	DefaultSelfHostedDomain = "netbird.selfhosted"
+
+	ContainerKeyBaseServer = "baseServer"
 )
 
 type Server interface {
@@ -91,7 +93,7 @@ type Config struct {
 
 // NewServer initializes and configures a new Server instance
 func NewServer(cfg *Config) *BaseServer {
-	return &BaseServer{
+	s := &BaseServer{
 		Config:                      cfg.NbConfig,
 		container:                   make(map[string]any),
 		dnsDomain:                   cfg.DNSDomain,
@@ -104,6 +106,9 @@ func NewServer(cfg *Config) *BaseServer {
 		mgmtMetricsPort:             cfg.MgmtMetricsPort,
 		autoResolveDomains:          cfg.AutoResolveDomains,
 	}
+	s.container[ContainerKeyBaseServer] = s
+
+	return s
 }
 
 func (s *BaseServer) AfterInit(fn func(s *BaseServer)) {
