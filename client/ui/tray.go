@@ -13,6 +13,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 
 	"github.com/netbirdio/netbird/client/ui/services"
@@ -33,6 +34,7 @@ const (
 	menuDisconnect              = "Disconnect"
 	menuExitNode                = "Exit Node"
 	menuNetworks                = "Resources"
+	menuProfiles                = "Profiles"
 	menuQuit                    = "Quit"
 
 	// Settings + diagnostics. The settings page replaces the Fyne tray's
@@ -125,6 +127,7 @@ type Tray struct {
 	downItem          *application.MenuItem
 	exitNodeItem      *application.MenuItem
 	networksItem      *application.MenuItem
+	profileSubmenu    *application.Menu
 	settingsItem      *application.MenuItem
 	debugItem         *application.MenuItem
 	updateItem        *application.MenuItem
@@ -168,6 +171,13 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 	app.Event.On(services.EventSystem, t.onSystemEvent)
 	app.Event.On(services.EventUpdateAvailable, t.onUpdateAvailable)
 	app.Event.On(services.EventUpdateProgress, t.onUpdateProgress)
+	// Defer the first profile load until the macOS/GTK/Win32 menu impl is
+	// live — Menu.Update() short-circuits while app.running is false, and
+	// AppKit's main queue isn't ready earlier either (see d23ef34 InvokeSync
+	// nil-deref).
+	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		go t.loadProfiles()
+	})
 
 	go t.loadConfig()
 	return t
@@ -203,6 +213,11 @@ func (t *Tray) buildMenu() *application.Menu {
 	// NewTray for the rationale), so expose the window through an explicit
 	// menu entry on every platform.
 	menu.Add(menuOpenNetBird).OnClick(func(*application.Context) { t.ShowWindow() })
+	menu.AddSeparator()
+	// Profiles submenu is populated asynchronously once the application
+	// has started — Menu.Update() is a no-op before app.running is true,
+	// so the initial fill is gated on the ApplicationStarted hook.
+	t.profileSubmenu = menu.AddSubmenu(menuProfiles)
 	menu.AddSeparator()
 	// Only the action that applies to the current state is visible: Connect
 	// when disconnected, Disconnect when connected. applyStatus swaps them on
@@ -673,6 +688,68 @@ func (t *Tray) loadConfig() {
 	t.activeUsername = active.Username
 	t.notificationsEnabled = !cfg.DisableNotifications
 	t.mu.Unlock()
+}
+
+// loadProfiles refreshes the Profiles submenu from the daemon. Each
+// entry is a checkbox showing the active profile and switches on click.
+// Called once on ApplicationStarted and again after a successful switch
+// so the checkmark moves to the new active profile.
+func (t *Tray) loadProfiles() {
+	if t.profileSubmenu == nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	username, err := t.svc.Profiles.Username()
+	if err != nil {
+		log.Debugf("get current user: %v", err)
+		return
+	}
+	profiles, err := t.svc.Profiles.List(ctx, username)
+	if err != nil {
+		log.Debugf("list profiles: %v", err)
+		return
+	}
+	sort.Slice(profiles, func(i, j int) bool { return profiles[i].Name < profiles[j].Name })
+
+	t.profileSubmenu.Clear()
+	for _, p := range profiles {
+		name := p.Name
+		active := p.IsActive
+		item := t.profileSubmenu.AddCheckbox(name, active)
+		item.OnClick(func(*application.Context) {
+			if active {
+				return
+			}
+			t.switchProfile(name)
+		})
+	}
+	t.profileSubmenu.Update()
+}
+
+// switchProfile runs the daemon RPC in a goroutine so the menu click
+// returns immediately, then reloads the submenu to move the checkmark.
+func (t *Tray) switchProfile(name string) {
+	go func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		username, err := t.svc.Profiles.Username()
+		if err != nil {
+			log.Errorf("get current user: %v", err)
+			return
+		}
+		if err := t.svc.Profiles.Switch(ctx, services.ProfileRef{
+			ProfileName: name,
+			Username:    username,
+		}); err != nil {
+			log.Errorf("switch profile to %s: %v", name, err)
+			t.notifyError(fmt.Sprintf("Failed to switch to %s", name))
+			return
+		}
+		t.loadProfiles()
+	}()
 }
 
 // notify wraps the Wails notification service with the tray's standard
