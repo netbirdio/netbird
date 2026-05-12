@@ -122,6 +122,7 @@ type Tray struct {
 	window *application.WebviewWindow
 	svc    TrayServices
 
+	menu              *application.Menu
 	statusItem        *application.MenuItem
 	upItem            *application.MenuItem
 	downItem          *application.MenuItem
@@ -156,7 +157,8 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 	t.tray = app.SystemTray.New()
 	t.applyIcon()
 	t.tray.SetTooltip(trayTooltip)
-	t.tray.SetMenu(t.buildMenu())
+	t.menu = t.buildMenu()
+	t.tray.SetMenu(t.menu)
 	// Left-click on the tray icon opens the menu on every platform. The
 	// window is reached through the explicit "Open NetBird" entry. This
 	// matches macOS NSStatusItem convention (click → menu), the Linux
@@ -721,19 +723,32 @@ func (t *Tray) loadProfiles() {
 	}
 	sort.Slice(profiles, func(i, j int) bool { return profiles[i].Name < profiles[j].Name })
 
+	log.Infof("tray loadProfiles: received %d profile(s) for user %q", len(profiles), username)
 	t.profileSubmenu.Clear()
 	for _, p := range profiles {
 		name := p.Name
 		active := p.IsActive
+		log.Infof("tray loadProfiles: profile=%q active=%v", name, active)
 		item := t.profileSubmenu.AddCheckbox(name, active)
 		item.OnClick(func(*application.Context) {
+			log.Infof("tray profile click: profile=%q wasActive=%v", name, active)
 			if active {
 				return
 			}
 			t.switchProfile(name)
 		})
 	}
-	t.profileSubmenu.Update()
+	// Wails v3 alpha's submenu.Update() builds a fresh, detached NSMenu on
+	// darwin that never replaces the empty NSMenu attached to the parent
+	// menu item at initial setup — so the visible Profiles menu stays
+	// frozen on the snapshot taken when the tray was registered. Re-running
+	// SetMenu on the top-level rebuilds the entire NSMenu tree against the
+	// cached pointer and is the only path that propagates submenu changes.
+	if t.menu != nil {
+		t.tray.SetMenu(t.menu)
+	} else {
+		t.profileSubmenu.Update()
+	}
 }
 
 // switchProfile runs the daemon RPC in a goroutine so the menu click
@@ -748,14 +763,16 @@ func (t *Tray) switchProfile(name string) {
 			log.Errorf("get current user: %v", err)
 			return
 		}
+		log.Infof("tray switchProfile: sending SwitchProfile RPC profile=%q user=%q", name, username)
 		if err := t.svc.Profiles.Switch(ctx, services.ProfileRef{
 			ProfileName: name,
 			Username:    username,
 		}); err != nil {
-			log.Errorf("switch profile to %s: %v", name, err)
+			log.Errorf("tray switchProfile: SwitchProfile RPC failed profile=%q err=%v", name, err)
 			t.notifyError(fmt.Sprintf("Failed to switch to %s", name))
 			return
 		}
+		log.Infof("tray switchProfile: SwitchProfile RPC succeeded profile=%q", name)
 		t.loadProfiles()
 	}()
 }
