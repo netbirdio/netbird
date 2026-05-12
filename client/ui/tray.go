@@ -571,11 +571,22 @@ func (t *Tray) rebuildExitNodes(nodes []string) {
 // palette: green for Connected, yellow for Connecting, blue for the
 // login states, red for hard errors, grey for the idle/disconnected
 // pair and a darker grey when the daemon socket is unreachable.
+//
+// Wails v3 alpha's setMenuItemBitmap calls NSMenuItem.setImage from
+// whichever thread invoked SetBitmap — unlike setMenuItemLabel/Disabled/
+// Hidden/Checked which dispatch_sync onto the main queue. The off-thread
+// AppKit call leaves the visible dot stale until the next time the menu
+// is reopened (close+reopen workaround). Rebuilding via tray.SetMenu
+// reruns processMenu inside InvokeSync, so the bitmap is applied to a
+// fresh NSMenuItem on the main thread and macOS picks it up.
 func (t *Tray) applyStatusIndicator(status string) {
 	if t.statusItem == nil {
 		return
 	}
 	t.statusItem.SetBitmap(statusIndicatorBitmap(status))
+	if t.menu != nil {
+		t.tray.SetMenu(t.menu)
+	}
 }
 
 func statusIndicatorBitmap(status string) []byte {
