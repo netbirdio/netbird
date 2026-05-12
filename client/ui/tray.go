@@ -753,7 +753,33 @@ func (t *Tray) loadProfiles() {
 
 // switchProfile runs the daemon RPC in a goroutine so the menu click
 // returns immediately, then reloads the submenu to move the checkmark.
+//
+// Reconnect policy by previous daemon status:
+//
+//	┌─────────────────┬──────────────────────┬───────────────────────────────────┐
+//	│ Previous status │ Tray action          │ Rationale                         │
+//	├─────────────────┼──────────────────────┼───────────────────────────────────┤
+//	│ Connected       │ Switch + Down + Up   │ Reconnect with the new profile.   │
+//	│ Connecting      │ Switch + Down + Up   │ Stop the retry loop still dialing │
+//	│                 │                      │ the old management server, then   │
+//	│                 │                      │ restart with new config.          │
+//	│ Idle            │ Switch only          │ User chose to be offline; don't   │
+//	│                 │                      │ silently flip the daemon online.  │
+//	│ NeedsLogin      │ Switch only          │ Login needs interactive SSO; let  │
+//	│ LoginFailed     │ Switch only          │ the user trigger the next step.   │
+//	│ SessionExpired  │ Switch only          │                                   │
+//	└─────────────────┴──────────────────────┴───────────────────────────────────┘
+//
+// Rule of thumb: auto-reconnect only when the daemon was actively trying
+// to be online (Connected or Connecting). Any other state is a deliberate
+// waiting point — keep the user in control of the next action.
 func (t *Tray) switchProfile(name string) {
+	t.mu.Lock()
+	prevStatus := t.lastStatus
+	t.mu.Unlock()
+	wasActive := strings.EqualFold(prevStatus, statusConnected) ||
+		strings.EqualFold(prevStatus, statusConnecting)
+
 	go func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -763,7 +789,8 @@ func (t *Tray) switchProfile(name string) {
 			log.Errorf("get current user: %v", err)
 			return
 		}
-		log.Infof("tray switchProfile: sending SwitchProfile RPC profile=%q user=%q", name, username)
+		log.Infof("tray switchProfile: sending SwitchProfile RPC profile=%q user=%q prevStatus=%q wasActive=%v",
+			name, username, prevStatus, wasActive)
 		if err := t.svc.Profiles.Switch(ctx, services.ProfileRef{
 			ProfileName: name,
 			Username:    username,
@@ -773,6 +800,24 @@ func (t *Tray) switchProfile(name string) {
 			return
 		}
 		log.Infof("tray switchProfile: SwitchProfile RPC succeeded profile=%q", name)
+
+		if wasActive {
+			// Stop the in-flight (or established) connection that's still
+			// pointing at the previous profile's management server, then
+			// bring it back up against the new profile.
+			log.Infof("tray switchProfile: was active (%s), reconnecting with new profile %q", prevStatus, name)
+			if err := t.svc.Connection.Down(ctx); err != nil {
+				log.Errorf("tray switchProfile: Down failed: %v", err)
+			}
+			if err := t.svc.Connection.Up(ctx, services.UpParams{
+				ProfileName: name,
+				Username:    username,
+			}); err != nil {
+				log.Errorf("tray switchProfile: Up failed: %v", err)
+				t.notifyError(fmt.Sprintf("Failed to reconnect with %s", name))
+			}
+		}
+
 		t.loadProfiles()
 	}()
 }
