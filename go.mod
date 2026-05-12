@@ -45,7 +45,7 @@ require (
 	github.com/creack/pty v1.1.24
 	github.com/crowdsecurity/crowdsec v1.7.7
 	github.com/crowdsecurity/go-cs-bouncer v0.0.21
-	github.com/dexidp/dex v0.0.0-00010101000000-000000000000
+	github.com/dexidp/dex v2.13.0+incompatible
 	github.com/dexidp/dex/api/v2 v2.4.0
 	github.com/ebitengine/purego v0.8.4
 	github.com/eko/gocache/lib/v4 v4.2.0
@@ -73,7 +73,7 @@ require (
 	github.com/lrh3321/ipset-go v0.0.0-20250619021614-54a0a98ace81
 	github.com/mdlayher/socket v0.5.1
 	github.com/mdp/qrterminal/v3 v3.2.1
-	github.com/miekg/dns v1.1.59
+	github.com/miekg/dns v1.1.72
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/netbirdio/management-integrations/integrations v0.0.0-20260416123949-2355d972be42
 	github.com/netbirdio/signal-dispatcher/dispatcher v0.0.0-20250805121659-6b4ac470ca45
@@ -340,7 +340,7 @@ replace github.com/getlantern/systray => github.com/netbirdio/systray v0.0.0-202
 
 replace golang.zx2c4.com/wireguard => github.com/netbirdio/wireguard-go v0.0.0-20260107100953-33b7c9d03db0
 
-replace github.com/cloudflare/circl => github.com/cunicu/circl v0.0.0-20230801113412-fec58fc7b5f6
+replace github.com/cloudflare/circl => codeberg.org/cunicu/circl v0.0.0-20230801113412-fec58fc7b5f6
 
 replace github.com/pion/ice/v4 => github.com/netbirdio/ice/v4 v4.0.0-20250908184934-6202be846b51
 
