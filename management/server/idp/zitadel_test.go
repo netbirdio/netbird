@@ -379,6 +379,7 @@ func TestZitadelCreateUser_v1_RequestBody(t *testing.T) {
 	assert.Contains(t, client.reqBody, `"userName"`, "v1 API must use \"userName\" field")
 	assert.NotContains(t, client.reqBody, `"username"`, "v1 API must not use \"username\" field")
 	assert.Contains(t, client.reqBody, `"firstName"`, "v1 API must use \"firstName\" in profile")
+	assert.Contains(t, client.reqBody, `"lastName"`, "v1 API must use \"lastName\" in profile")
 	assert.Contains(t, client.reqBody, `"isEmailVerified"`, "v1 API must use \"isEmailVerified\" in email")
 }
 
