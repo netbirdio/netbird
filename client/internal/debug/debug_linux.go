@@ -832,6 +832,10 @@ func collectSysctls() string {
 	))
 	writeSysctlGroup(&builder, "conntrack", []string{
 		"net.netfilter.nf_conntrack_acct",
+		"net.netfilter.nf_conntrack_tcp_loose",
+	})
+	writeSysctlGroup(&builder, "tcp", []string{
+		"net.ipv4.tcp_tw_reuse",
 	})
 
 	return builder.String()
