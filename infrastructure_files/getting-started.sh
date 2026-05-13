@@ -580,12 +580,14 @@ start_services_and_show_instructions() {
 }
 
 init_environment() {
+  # Check if docker compose is installed using check_docker_compose function
+  DOCKER_COMPOSE_COMMAND=$(check_docker_compose)
+
   initialize_default_values
   configure_domain
   configure_reverse_proxy
 
   check_jq
-  DOCKER_COMPOSE_COMMAND=$(check_docker_compose)
 
   check_existing_installation
   generate_configuration_files
