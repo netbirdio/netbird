@@ -60,7 +60,22 @@ func NewManager(preSharedKey *wgtypes.Key, wgIfaceName string) (*Manager, error)
 
 	rpKeyHash := hashRosenpassKey(public)
 	log.Tracef("generated new rosenpass key pair with public key %s", rpKeyHash)
-	return &Manager{ifaceName: wgIfaceName, rpKeyHash: rpKeyHash, spk: public, ssk: secret, preSharedKey: (*[32]byte)(preSharedKey), rpPeerIDs: make(map[string]*rp.PeerID), lock: sync.Mutex{}}, nil
+	return &Manager{
+		ifaceName:    wgIfaceName,
+		rpKeyHash:    rpKeyHash,
+		spk:          public,
+		ssk:          secret,
+		preSharedKey: (*[32]byte)(preSharedKey),
+		rpPeerIDs:    make(map[string]*rp.PeerID),
+		// rpWgHandler is created here (instead of only in generateConfig) so it
+		// is never nil between NewManager and Run(). Otherwise an early
+		// OnConnected call (race observed on Android, issue #4341) panics on
+		// nil receiver in addPeer -> m.rpWgHandler.AddPeer. generateConfig will
+		// replace it with a fresh handler on each Run() to clear stale peer
+		// state from previous engine sessions.
+		rpWgHandler: NewNetbirdHandler(),
+		lock:        sync.Mutex{},
+	}, nil
 }
 
 func (m *Manager) GetPubKey() []byte {
@@ -74,6 +89,16 @@ func (m *Manager) GetAddress() *net.UDPAddr {
 
 // addPeer adds a new peer to the Rosenpass server
 func (m *Manager) addPeer(rosenpassPubKey []byte, rosenpassAddr string, wireGuardIP string, wireGuardPubKey string) error {
+	// Defense in depth against issue #4341 (Android crash): if Run() has not
+	// completed yet, m.server / m.rpWgHandler may be nil. Return an explicit
+	// error instead of panicking on nil-receiver dereference.
+	if m.server == nil {
+		return fmt.Errorf("rosenpass server not initialized")
+	}
+	if m.rpWgHandler == nil {
+		return fmt.Errorf("rosenpass wg handler not initialized")
+	}
+
 	var err error
 	pcfg := rp.PeerConfig{PublicKey: rosenpassPubKey}
 	if m.preSharedKey != nil {

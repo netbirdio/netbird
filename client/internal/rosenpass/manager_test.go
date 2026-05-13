@@ -229,6 +229,37 @@ func TestAddPeer_ServerError_Propagates(t *testing.T) {
 	require.Error(t, err)
 }
 
+// Regression guard for issue #4341 (Android crash). If Run() has not completed
+// before OnConnected fires, m.rpWgHandler or m.server may be nil. Without the
+// nil guards, m.rpWgHandler.AddPeer panics on nil receiver.
+func TestAddPeer_NilHandler_ReturnsErrorNoCrash(t *testing.T) {
+	srv := &mockServer{}
+	m := newTestManager(0xFF, srv)
+	m.rpWgHandler = nil // simulate Run() not yet completed
+
+	err := m.addPeer(make([]byte, 32), "rp:5000", "100.1.1.1", validWGKey(t, 1))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "wg handler not initialized")
+}
+
+func TestAddPeer_NilServer_ReturnsErrorNoCrash(t *testing.T) {
+	m := newTestManager(0xFF, nil)
+	m.server = nil // simulate Run() not yet completed
+
+	err := m.addPeer(make([]byte, 32), "rp:5000", "100.1.1.1", validWGKey(t, 1))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "server not initialized")
+}
+
+// NewManager must pre-initialize rpWgHandler so the nil-receiver crash from
+// issue #4341 cannot occur in the window between NewManager and Run().
+func TestNewManager_PreInitializesHandler(t *testing.T) {
+	psk := wgtypes.Key{}
+	m, err := NewManager(&psk, "wt0")
+	require.NoError(t, err)
+	require.NotNil(t, m.rpWgHandler, "rpWgHandler must be initialized in NewManager")
+}
+
 func TestAddPeer_RecordsPeerID(t *testing.T) {
 	srv := &mockServer{}
 	m := newTestManager(0xFF, srv)
