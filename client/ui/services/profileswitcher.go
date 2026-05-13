@@ -62,21 +62,25 @@ func (s *ProfileSwitcher) SwitchActive(ctx context.Context, p ProfileRef) error 
 		return fmt.Errorf("switch profile %q: %w", p.ProfileName, err)
 	}
 
-	if needsDown {
-		if err := s.connection.Down(ctx); err != nil {
-			log.Errorf("profileswitcher: Down: %v", err)
+	// Down and Up run in a goroutine so the caller returns immediately after
+	// the Switch RPC. Up uses async mode so the goroutine itself is short-lived.
+	go func() {
+		bgCtx := context.Background()
+		if needsDown {
+			if err := s.connection.Down(bgCtx); err != nil {
+				log.Errorf("profileswitcher: Down: %v", err)
+			}
 		}
-	}
-
-	if wasActive {
-		if err := s.connection.Up(ctx, UpParams{
-			ProfileName: p.ProfileName,
-			Username:    p.Username,
-			Async:       true,
-		}); err != nil {
-			return fmt.Errorf("reconnect %q: %w", p.ProfileName, err)
+		if wasActive {
+			if err := s.connection.Up(bgCtx, UpParams{
+				ProfileName: p.ProfileName,
+				Username:    p.Username,
+				Async:       true,
+			}); err != nil {
+				log.Errorf("profileswitcher: Up %s: %v", p.ProfileName, err)
+			}
 		}
-	}
+	}()
 
 	return nil
 }
