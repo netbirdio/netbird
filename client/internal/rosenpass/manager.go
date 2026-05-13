@@ -119,6 +119,7 @@ func (m *Manager) addPeer(rosenpassPubKey []byte, rosenpassAddr string, wireGuar
 		// 4-byte IPv4 for IPv4 hosts, which the kernel rejects (EDESTADDRREQ) when
 		// sent from an AF_INET6 socket. Normalize the remote endpoint to IPv4-mapped
 		// IPv6 so its address family matches our listening socket.
+		// TODO: maybe bind the Rosenpass UDP server to the peer wg IP addr
 		if v4 := pcfg.Endpoint.IP.To4(); v4 != nil {
 			pcfg.Endpoint.IP = v4.To16()
 		}
