@@ -31,8 +31,9 @@ import * as $models from "./models.js";
 
 /**
  * SwitchActive switches to the named profile applying the reconnect policy.
- * It returns after the Switch RPC completes so the caller can refresh its UI
- * immediately; Down and Up run in a background goroutine.
+ * All RPCs complete quickly: Up uses async mode so the daemon starts the
+ * connection attempt and returns immediately; status updates flow via the
+ * SubscribeStatus stream.
  * @param {$models.ProfileRef} p
  * @returns {$CancellablePromise<void>}
  */
