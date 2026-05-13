@@ -336,7 +336,7 @@ func (c *Client) ListenTCP(address string) (net.Listener, error) {
 	if err != nil {
 		return nil, fmt.Errorf("split host port: %w", err)
 	}
-	listenAddr := fmt.Sprintf("%s:%s", addr, port)
+	listenAddr := net.JoinHostPort(addr.String(), port)
 
 	tcpAddr, err := net.ResolveTCPAddr("tcp", listenAddr)
 	if err != nil {
@@ -357,7 +357,7 @@ func (c *Client) ListenUDP(address string) (net.PacketConn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("split host port: %w", err)
 	}
-	listenAddr := fmt.Sprintf("%s:%s", addr, port)
+	listenAddr := net.JoinHostPort(addr.String(), port)
 
 	udpAddr, err := net.ResolveUDPAddr("udp", listenAddr)
 	if err != nil {
