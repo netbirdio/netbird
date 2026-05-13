@@ -147,7 +147,8 @@ func (s *Connection) Up(ctx context.Context, p UpParams) error {
 	if err != nil {
 		return err
 	}
-	req := &proto.UpRequest{}
+	// The UI always uses async mode: status updates flow via SubscribeStatus.
+	req := &proto.UpRequest{Async: true}
 	if p.ProfileName != "" {
 		req.ProfileName = ptrStr(p.ProfileName)
 	}

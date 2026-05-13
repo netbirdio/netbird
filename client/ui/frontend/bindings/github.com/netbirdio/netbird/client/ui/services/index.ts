@@ -6,6 +6,7 @@ import * as Debug from "./debug.js";
 import * as Forwarding from "./forwarding.js";
 import * as Networks from "./networks.js";
 import * as Peers from "./peers.js";
+import * as ProfileSwitcher from "./profileswitcher.js";
 import * as Profiles from "./profiles.js";
 import * as Settings from "./settings.js";
 import * as Update from "./update.js";
@@ -16,6 +17,7 @@ export {
     Forwarding,
     Networks,
     Peers,
+    ProfileSwitcher,
     Profiles,
     Settings,
     Update,

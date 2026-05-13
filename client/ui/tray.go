@@ -75,25 +75,9 @@ const (
 	notifyIDTrayError      = "netbird-tray-error"
 	notifyIDSessionExpired = "netbird-session-expired"
 
-	// Daemon status strings mirroring internal.Status* — kept in sync
-	// with client/internal/state.go.
-	statusConnected  = "Connected"
-	statusConnecting = "Connecting"
-	statusIdle       = "Idle"
-	statusError      = "Error"
-	// Daemon status string for an SSO session that has expired and needs
-	// re-authentication. Mirrors internal.StatusSessionExpired.
-	statusSessionExpired = "SessionExpired"
-	// statusNeedsLogin is what the daemon publishes before the user has
-	// completed an SSO authentication on this profile. Mirrors
-	// internal.StatusNeedsLogin.
-	statusNeedsLogin = "NeedsLogin"
-	// statusLoginFailed is what the daemon publishes when a login attempt
-	// failed with a non-auth error (management unreachable, init error,
-	// etc.). The CLI groups it with NeedsLogin/SessionExpired and prompts
-	// the user to run "netbird up", so we mirror that here. Mirrors
-	// internal.StatusLoginFailed.
-	statusLoginFailed = "LoginFailed"
+	// statusError is a tray-only synthetic label used for the error icon;
+	// it does not come from the daemon and is not exported.
+	statusError = "Error"
 
 	// External URLs.
 	urlGitHubRepo     = "https://github.com/netbirdio/netbird"
@@ -108,12 +92,13 @@ const (
 // linter's parameter-count threshold and so adding another service later
 // is a one-line struct change instead of a NewTray signature break.
 type TrayServices struct {
-	Connection *services.Connection
-	Settings   *services.Settings
-	Profiles   *services.Profiles
-	Peers      *services.Peers
-	Notifier   *notifications.NotificationService
-	Update     *services.Update
+	Connection      *services.Connection
+	Settings        *services.Settings
+	Profiles        *services.Profiles
+	Peers           *services.Peers
+	Notifier        *notifications.NotificationService
+	Update          *services.Update
+	ProfileSwitcher *services.ProfileSwitcher
 }
 
 type Tray struct {
@@ -128,7 +113,9 @@ type Tray struct {
 	downItem          *application.MenuItem
 	exitNodeItem      *application.MenuItem
 	networksItem      *application.MenuItem
-	profileSubmenu    *application.Menu
+	profileSubmenu     *application.Menu
+	profileSubmenuItem *application.MenuItem
+	profileEmailItem   *application.MenuItem
 	settingsItem      *application.MenuItem
 	debugItem         *application.MenuItem
 	updateItem        *application.MenuItem
@@ -145,6 +132,7 @@ type Tray struct {
 	notificationsEnabled bool
 	activeProfile        string
 	activeUsername       string
+	switchCancel         context.CancelFunc
 }
 
 func NewTray(app *application.App, window *application.WebviewWindow, svc TrayServices) *Tray {
@@ -220,6 +208,16 @@ func (t *Tray) buildMenu() *application.Menu {
 	// has started — Menu.Update() is a no-op before app.running is true,
 	// so the initial fill is gated on the ApplicationStarted hook.
 	t.profileSubmenu = menu.AddSubmenu(menuProfiles)
+	// profileSubmenuItem is the parent MenuItem whose label is the active
+	// profile name. AddSubmenu returns the child *Menu, so we retrieve the
+	// parent *MenuItem via FindByLabel immediately after insertion.
+	t.profileSubmenuItem = menu.FindByLabel(menuProfiles)
+	// profileEmailItem shows the account email of the active profile directly
+	// in the main menu, below the Profiles submenu — matching the behaviour of
+	// the legacy Fyne/systray UI. It is hidden until loadProfiles resolves a
+	// non-empty email for the active profile.
+	t.profileEmailItem = menu.Add("").SetEnabled(false)
+	t.profileEmailItem.SetHidden(true)
 	menu.AddSeparator()
 	// Only the action that applies to the current state is visible: Connect
 	// when disconnected, Disconnect when connected. applyStatus swaps them on
@@ -454,15 +452,15 @@ func (t *Tray) onUpdateProgress(ev *application.CustomEvent) {
 // otherwise spam Shell_NotifyIcon and the log.
 func (t *Tray) applyStatus(st services.Status) {
 	t.mu.Lock()
-	connected := strings.EqualFold(st.Status, statusConnected)
+	connected := strings.EqualFold(st.Status, services.StatusConnected)
 	iconChanged := connected != t.connected || st.Status != t.lastStatus
 	// Detect the transition into SessionExpired: the daemon emits the
 	// state on every Status snapshot for as long as the session stays
 	// expired, so without this guard we would re-fire the notification
 	// on every push. Mirrors the legacy Fyne client's sendNotification
 	// flag in onSessionExpire.
-	sessionExpiredEnter := strings.EqualFold(st.Status, statusSessionExpired) &&
-		!strings.EqualFold(t.lastStatus, statusSessionExpired)
+	sessionExpiredEnter := strings.EqualFold(st.Status, services.StatusSessionExpired) &&
+		!strings.EqualFold(t.lastStatus, services.StatusSessionExpired)
 	daemonVersionChanged := st.DaemonVersion != "" && st.DaemonVersion != t.lastDaemonVersion
 	t.connected = connected
 	t.lastStatus = st.Status
@@ -477,11 +475,11 @@ func (t *Tray) applyStatus(st services.Status) {
 
 	if iconChanged {
 		t.applyIcon()
-		needsLogin := strings.EqualFold(st.Status, statusNeedsLogin) ||
-			strings.EqualFold(st.Status, statusSessionExpired) ||
-			strings.EqualFold(st.Status, statusLoginFailed)
+		needsLogin := strings.EqualFold(st.Status, services.StatusNeedsLogin) ||
+			strings.EqualFold(st.Status, services.StatusSessionExpired) ||
+			strings.EqualFold(st.Status, services.StatusLoginFailed)
 		daemonUnavailable := strings.EqualFold(st.Status, services.StatusDaemonUnavailable)
-		connecting := strings.EqualFold(st.Status, statusConnecting)
+		connecting := strings.EqualFold(st.Status, services.StatusConnecting)
 		if t.statusItem != nil {
 			// When the daemon needs re-authentication the status row turns
 			// into the actionable Login entry — Connect would only fail.
@@ -491,7 +489,7 @@ func (t *Tray) applyStatus(st services.Status) {
 			switch {
 			case daemonUnavailable:
 				label = menuStatusDaemonUnavailable
-			case strings.EqualFold(st.Status, statusIdle):
+			case strings.EqualFold(st.Status, services.StatusIdle):
 				label = menuStatusDisconnected
 			}
 			t.statusItem.SetLabel(label)
@@ -591,14 +589,14 @@ func (t *Tray) applyStatusIndicator(status string) {
 
 func statusIndicatorBitmap(status string) []byte {
 	switch {
-	case strings.EqualFold(status, statusConnected):
+	case strings.EqualFold(status, services.StatusConnected):
 		return iconMenuDotConnected
-	case strings.EqualFold(status, statusConnecting):
+	case strings.EqualFold(status, services.StatusConnecting):
 		return iconMenuDotConnecting
-	case strings.EqualFold(status, statusNeedsLogin),
-		strings.EqualFold(status, statusSessionExpired):
+	case strings.EqualFold(status, services.StatusNeedsLogin),
+		strings.EqualFold(status, services.StatusSessionExpired):
 		return iconMenuDotLogin
-	case strings.EqualFold(status, statusLoginFailed),
+	case strings.EqualFold(status, services.StatusLoginFailed),
 		strings.EqualFold(status, statusError):
 		return iconMenuDotError
 	case strings.EqualFold(status, services.StatusDaemonUnavailable):
@@ -636,12 +634,12 @@ func (t *Tray) iconForState() (icon, dark []byte) {
 	statusLabel := t.lastStatus
 	t.mu.Unlock()
 
-	connecting := strings.EqualFold(statusLabel, statusConnecting)
+	connecting := strings.EqualFold(statusLabel, services.StatusConnecting)
 	errored := strings.EqualFold(statusLabel, statusError) ||
 		strings.EqualFold(statusLabel, services.StatusDaemonUnavailable)
-	needsLogin := strings.EqualFold(statusLabel, statusNeedsLogin) ||
-		strings.EqualFold(statusLabel, statusSessionExpired) ||
-		strings.EqualFold(statusLabel, statusLoginFailed)
+	needsLogin := strings.EqualFold(statusLabel, services.StatusNeedsLogin) ||
+		strings.EqualFold(statusLabel, services.StatusSessionExpired) ||
+		strings.EqualFold(statusLabel, services.StatusLoginFailed)
 
 	if runtime.GOOS == "darwin" {
 		switch {
@@ -736,11 +734,21 @@ func (t *Tray) loadProfiles() {
 
 	log.Infof("tray loadProfiles: received %d profile(s) for user %q", len(profiles), username)
 	t.profileSubmenu.Clear()
+	var activeName, activeEmail string
 	for _, p := range profiles {
 		name := p.Name
 		active := p.IsActive
 		log.Infof("tray loadProfiles: profile=%q active=%v", name, active)
-		item := t.profileSubmenu.AddCheckbox(name, active)
+		// Use Add instead of AddCheckbox: Wails auto-toggles a checkbox's
+		// checked state on click (before the OnClick handler fires), so with
+		// AddCheckbox both the old and the new profile would briefly show as
+		// checked while the switchProfile goroutine is running. A plain item
+		// with a "✓ " prefix avoids the race entirely.
+		label := name
+		if active {
+			label = "✓ " + name
+		}
+		item := t.profileSubmenu.Add(label)
 		item.OnClick(func(*application.Context) {
 			log.Infof("tray profile click: profile=%q wasActive=%v", name, active)
 			if active {
@@ -748,6 +756,21 @@ func (t *Tray) loadProfiles() {
 			}
 			t.switchProfile(name)
 		})
+		if active {
+			activeName = name
+			activeEmail = p.Email
+		}
+	}
+	if t.profileSubmenuItem != nil && activeName != "" {
+		t.profileSubmenuItem.SetLabel(activeName)
+	}
+	if t.profileEmailItem != nil {
+		if activeEmail != "" {
+			t.profileEmailItem.SetLabel(fmt.Sprintf("(%s)", activeEmail))
+			t.profileEmailItem.SetHidden(false)
+		} else {
+			t.profileEmailItem.SetHidden(true)
+		}
 	}
 	// Wails v3 alpha's submenu.Update() builds a fresh, detached NSMenu on
 	// darwin that never replaces the empty NSMenu attached to the parent
@@ -762,73 +785,35 @@ func (t *Tray) loadProfiles() {
 	}
 }
 
-// switchProfile runs the daemon RPC in a goroutine so the menu click
-// returns immediately, then reloads the submenu to move the checkmark.
-//
-// Reconnect policy by previous daemon status:
-//
-//	┌─────────────────┬──────────────────────┬───────────────────────────────────┐
-//	│ Previous status │ Tray action          │ Rationale                         │
-//	├─────────────────┼──────────────────────┼───────────────────────────────────┤
-//	│ Connected       │ Switch + Down + Up   │ Reconnect with the new profile.   │
-//	│ Connecting      │ Switch + Down + Up   │ Stop the retry loop still dialing │
-//	│                 │                      │ the old management server, then   │
-//	│                 │                      │ restart with new config.          │
-//	│ Idle            │ Switch only          │ User chose to be offline; don't   │
-//	│                 │                      │ silently flip the daemon online.  │
-//	│ NeedsLogin      │ Switch only          │ Login needs interactive SSO; let  │
-//	│ LoginFailed     │ Switch only          │ the user trigger the next step.   │
-//	│ SessionExpired  │ Switch only          │                                   │
-//	└─────────────────┴──────────────────────┴───────────────────────────────────┘
-//
-// Rule of thumb: auto-reconnect only when the daemon was actively trying
-// to be online (Connected or Connecting). Any other state is a deliberate
-// waiting point — keep the user in control of the next action.
+// switchProfile cancels any in-flight profile switch, then starts a new one.
+// Cancelling the previous context aborts its in-flight gRPC calls (Down/Up)
+// so rapid clicks always converge to the last selected profile.
 func (t *Tray) switchProfile(name string) {
 	t.mu.Lock()
-	prevStatus := t.lastStatus
+	if t.switchCancel != nil {
+		t.switchCancel()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.switchCancel = cancel
 	t.mu.Unlock()
-	wasActive := strings.EqualFold(prevStatus, statusConnected) ||
-		strings.EqualFold(prevStatus, statusConnecting)
 
 	go func() {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
 		username, err := t.svc.Profiles.Username()
 		if err != nil {
-			log.Errorf("get current user: %v", err)
+			log.Errorf("tray switchProfile: get current user: %v", err)
 			return
 		}
-		log.Infof("tray switchProfile: sending SwitchProfile RPC profile=%q user=%q prevStatus=%q wasActive=%v",
-			name, username, prevStatus, wasActive)
-		if err := t.svc.Profiles.Switch(ctx, services.ProfileRef{
+		if err := t.svc.ProfileSwitcher.SwitchActive(ctx, services.ProfileRef{
 			ProfileName: name,
 			Username:    username,
 		}); err != nil {
-			log.Errorf("tray switchProfile: SwitchProfile RPC failed profile=%q err=%v", name, err)
+			if ctx.Err() != nil {
+				return
+			}
+			log.Errorf("tray switchProfile: %v", err)
 			t.notifyError(fmt.Sprintf("Failed to switch to %s", name))
 			return
 		}
-		log.Infof("tray switchProfile: SwitchProfile RPC succeeded profile=%q", name)
-
-		if wasActive {
-			// Stop the in-flight (or established) connection that's still
-			// pointing at the previous profile's management server, then
-			// bring it back up against the new profile.
-			log.Infof("tray switchProfile: was active (%s), reconnecting with new profile %q", prevStatus, name)
-			if err := t.svc.Connection.Down(ctx); err != nil {
-				log.Errorf("tray switchProfile: Down failed: %v", err)
-			}
-			if err := t.svc.Connection.Up(ctx, services.UpParams{
-				ProfileName: name,
-				Username:    username,
-			}); err != nil {
-				log.Errorf("tray switchProfile: Up failed: %v", err)
-				t.notifyError(fmt.Sprintf("Failed to reconnect with %s", name))
-			}
-		}
-
 		t.loadProfiles()
 	}()
 }

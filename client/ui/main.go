@@ -113,6 +113,18 @@ func main() {
 	peers := services.NewPeers(conn, app.Event)
 	update := services.NewUpdate(conn)
 	notifier := notifications.New()
+	profileSwitcher := services.NewProfileSwitcher(profiles, connection, peers)
+
+	app.RegisterService(application.NewService(connection))
+	app.RegisterService(application.NewService(settings))
+	app.RegisterService(application.NewService(services.NewNetworks(conn)))
+	app.RegisterService(application.NewService(services.NewForwarding(conn)))
+	app.RegisterService(application.NewService(profiles))
+	app.RegisterService(application.NewService(services.NewDebug(conn)))
+	app.RegisterService(application.NewService(update))
+	app.RegisterService(application.NewService(peers))
+	app.RegisterService(application.NewService(notifier))
+	app.RegisterService(application.NewService(profileSwitcher))
 
 	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:               "NetBird",
@@ -165,12 +177,13 @@ func main() {
 	startStatusNotifierWatcher()
 
 	tray = NewTray(app, window, TrayServices{
-		Connection: connection,
-		Settings:   settings,
-		Profiles:   profiles,
-		Peers:      peers,
-		Notifier:   notifier,
-		Update:     update,
+		Connection:      connection,
+		Settings:        settings,
+		Profiles:        profiles,
+		Peers:           peers,
+		Notifier:        notifier,
+		Update:          update,
+		ProfileSwitcher: profileSwitcher,
 	})
 	listenForShowSignal(context.Background(), tray)
 

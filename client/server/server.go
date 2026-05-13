@@ -747,6 +747,9 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
 
 	s.mutex.Unlock()
+	if msg.GetAsync() {
+		return &proto.UpResponse{}, nil
+	}
 	return s.waitForUp(callerCtx)
 }
 
@@ -865,6 +868,15 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 	// at the top of each retry attempt, which would leave the snapshot
 	// stuck at Connecting long after the user asked to disconnect.
 	internal.CtxGetState(s.rootCtx).Set(internal.StatusIdle)
+
+	// Clear stale management/signal errors so the next Up() (typically for a
+	// different profile) starts with a clean status snapshot. Without this,
+	// a managementError left over from a LoginFailed cycle persists in the
+	// statusRecorder and appears in the new profile's initial
+	// SubscribeStatus snapshot, making the new profile look like it also
+	// failed to log in.
+	s.statusRecorder.MarkManagementDisconnected(nil)
+	s.statusRecorder.MarkSignalDisconnected(nil)
 
 	return &proto.DownResponse{}, nil
 }

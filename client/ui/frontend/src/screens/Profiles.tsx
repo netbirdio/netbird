@@ -3,23 +3,24 @@ import { Plus, RefreshCw } from "lucide-react";
 import {
   Profiles as ProfilesSvc,
   Connection,
-} from "@bindings/services";
-import type { Profile } from "@bindings/services/models.js";
+  ProfileSwitcher,
+} from "../../bindings/github.com/netbirdio/netbird/client/ui/services";
+import type { Profile } from "../../bindings/github.com/netbirdio/netbird/client/ui/services/models.js";
 import { Button } from "../components/Button";
 import { Input } from "../components/Input";
 import { Card } from "../components/Card";
-import { useProfile } from "@/modules/profile/ProfileContext.tsx";
 
 export default function Profiles() {
-  const { username, loaded, refresh: refreshProfile, switchProfile } = useProfile();
+  const [username, setUsername] = useState("");
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
   const refresh = useCallback(async () => {
-    if (!username) return;
     try {
-      const list = await ProfilesSvc.List(username);
+      const u = username || (await ProfilesSvc.Username());
+      if (!username) setUsername(u);
+      const list = await ProfilesSvc.List(u);
       setProfiles(list);
       setError(null);
     } catch (e) {
@@ -28,13 +29,12 @@ export default function Profiles() {
   }, [username]);
 
   useEffect(() => {
-    if (loaded) refresh();
-  }, [loaded, refresh]);
+    refresh();
+  }, [refresh]);
 
   const select = async (name: string) => {
     try {
-      await switchProfile(name);
-      await Connection.Up({ profileName: name, username });
+      await ProfileSwitcher.SwitchActive({ profileName: name, username });
       await refresh();
     } catch (e) {
       setError(String(e));
@@ -54,7 +54,6 @@ export default function Profiles() {
     if (name === "default") return;
     try {
       await ProfilesSvc.Remove({ profileName: name, username });
-      await refreshProfile();
       await refresh();
     } catch (e) {
       setError(String(e));

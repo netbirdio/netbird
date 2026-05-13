@@ -37,6 +37,15 @@ const (
 	// permission, etc.). Real daemon statuses come straight from
 	// internal.Status* — none of those collide with this label.
 	StatusDaemonUnavailable = "DaemonUnavailable"
+
+	// Daemon connection status strings — mirror internal.Status* in
+	// client/internal/state.go.
+	StatusConnected     = "Connected"
+	StatusConnecting    = "Connecting"
+	StatusIdle          = "Idle"
+	StatusNeedsLogin    = "NeedsLogin"
+	StatusLoginFailed   = "LoginFailed"
+	StatusSessionExpired = "SessionExpired"
 )
 
 // Emitter is what peers.Watch needs from the host application: a simple
