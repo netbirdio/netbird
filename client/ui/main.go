@@ -114,23 +114,14 @@ func main() {
 	update := services.NewUpdate(conn)
 	notifier := notifications.New()
 
-	app.RegisterService(application.NewService(connection))
-	app.RegisterService(application.NewService(settings))
-	app.RegisterService(application.NewService(services.NewNetworks(conn)))
-	app.RegisterService(application.NewService(services.NewForwarding(conn)))
-	app.RegisterService(application.NewService(profiles))
-	app.RegisterService(application.NewService(services.NewDebug(conn)))
-	app.RegisterService(application.NewService(update))
-	app.RegisterService(application.NewService(peers))
-	app.RegisterService(application.NewService(notifier))
-
 	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:            "NetBird",
-		Width:            925,
-		Height:           615,
-		Hidden:           true,
-		BackgroundColour: application.NewRGB(24, 26, 29),
-		URL:              "/",
+		Title:               "NetBird",
+		Width:               925,
+		Height:              615,
+		Hidden:              true,
+		BackgroundColour:    application.NewRGB(24, 26, 29),
+		URL:                 "/",
+		MaximiseButtonState: application.ButtonHidden,
 		Mac: application.MacWindow{
 			InvisibleTitleBarHeight: 38,
 			Backdrop:                application.MacBackdropTranslucent,
@@ -148,6 +139,23 @@ func main() {
 		e.Cancel()
 		window.Hide()
 	})
+
+	// Pre-create the settings window AFTER the main window so the OS treats
+	// the main window as the primary one. The settings window stays hidden
+	// until the user clicks the Settings icon — preloading it here keeps the
+	// first-open instant.
+	windows := services.NewWindows(app)
+
+	app.RegisterService(application.NewService(connection))
+	app.RegisterService(application.NewService(settings))
+	app.RegisterService(application.NewService(services.NewNetworks(conn)))
+	app.RegisterService(application.NewService(services.NewForwarding(conn)))
+	app.RegisterService(application.NewService(profiles))
+	app.RegisterService(application.NewService(services.NewDebug(conn)))
+	app.RegisterService(application.NewService(update))
+	app.RegisterService(application.NewService(peers))
+	app.RegisterService(application.NewService(windows))
+	app.RegisterService(application.NewService(notifier))
 
 	// Register an in-process StatusNotifierWatcher so the tray works on
 	// minimal WMs (Fluxbox, OpenBox, i3, dwm, vanilla GNOME without the

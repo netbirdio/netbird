@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
 import { PanelRightCloseIcon, PanelRightOpenIcon, SettingsIcon } from "lucide-react";
 import { Window } from "@wailsio/runtime";
+import { Windows as WindowsSvc } from "@bindings/services";
 import { ProfileSelector } from "@/components/ProfileSelector.tsx";
 import { IconButton } from "@/components/IconButton.tsx";
 import { useAppearance } from "@/modules/appearance/AppearanceContext.tsx";
@@ -13,11 +13,7 @@ const WINDOW_HEIGHT = 615;
 const EXPANDED_THRESHOLD = 500;
 
 export const Header = () => {
-    const navigate = useNavigate();
-    const location = useLocation();
-    const isSettingsPage = location.pathname.startsWith("/settings");
     const { showProfileSelector, showSettingsButton, expanded, setField } = useAppearance();
-    const showSettings = showSettingsButton || isSettingsPage;
     const didInitialResize = useRef(false);
 
     useEffect(() => {
@@ -27,6 +23,12 @@ export const Header = () => {
         void Window.SetSize(w, WINDOW_HEIGHT).catch(() => {});
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    useEffect(() => {
+        if (!didInitialResize.current) return;
+        const w = expanded ? WINDOW_BIG_WIDTH : WINDOW_SMALL_WIDTH;
+        void Window.SetSize(w, WINDOW_HEIGHT).catch(() => {});
+    }, [expanded]);
 
     useEffect(() => {
         const onResize = () => {
@@ -44,6 +46,10 @@ export const Header = () => {
         void Window.SetSize(w, WINDOW_HEIGHT).catch(() => {});
     };
 
+    const openSettings = () => {
+        void WindowsSvc.OpenSettings().catch(() => {});
+    };
+
     return (
         <div
             className={cn(
@@ -53,7 +59,7 @@ export const Header = () => {
         >
             {showProfileSelector && (
                 <div className={"ml-20"}>
-                    <ProfileSelector email={"eduard@netbird.io"} />
+                    <ProfileSelector />
                 </div>
             )}
 
@@ -61,15 +67,8 @@ export const Header = () => {
                 icon={expanded ? PanelRightOpenIcon : PanelRightCloseIcon}
                 onClick={togglePanel}
             />
-            {showSettings && (
-                <IconButton
-                    icon={SettingsIcon}
-                    onClick={() => navigate(isSettingsPage ? "/" : "/settings")}
-                    className={cn(
-                        isSettingsPage &&
-                            "bg-nb-gray-910 hover:bg-nb-gray-910 text-nb-gray-200 hover:text-nb-gray-200",
-                    )}
-                />
+            {showSettingsButton && (
+                <IconButton icon={SettingsIcon} onClick={openSettings} />
             )}
         </div>
     );

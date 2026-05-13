@@ -9,6 +9,7 @@ import * as Peers from "./peers.js";
 import * as Profiles from "./profiles.js";
 import * as Settings from "./settings.js";
 import * as Update from "./update.js";
+import * as Windows from "./windows.js";
 export {
     Connection,
     Debug,
@@ -17,7 +18,8 @@ export {
     Peers,
     Profiles,
     Settings,
-    Update
+    Update,
+    Windows
 };
 
 export {

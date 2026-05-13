@@ -12,13 +12,16 @@ export default function Status() {
   const { status, error } = useStatus();
   const navigate = useNavigate();
 
-  const connState = status?.status ?? "Disconnected";
+  const connState = status?.status ?? "Idle";
   const connected = connState === "Connected";
   const connecting = connState === "Connecting";
   // The daemon reports "NeedsLogin" on a fresh install or after a session
   // expires; "SessionExpired" once a previously good session lapses. In both
   // cases Connect would fail without a fresh SSO login.
-  const needsLogin = connState === "NeedsLogin" || connState === "SessionExpired";
+  const needsLogin = connState === "NeedsLogin" || connState === "SessionExpired" || connState === "LoginFailed";
+  // DaemonUnavailable is the synthetic status the UI emits when the gRPC
+  // socket is unreachable; Up/Down would just error, so the toggle is dead.
+  const unreachable = connState === "DaemonUnavailable";
   // Always offer Login while we aren't Connected — including Connecting,
   // because a stuck Login on the daemon leaves us in Connecting forever and
   // the user has no other way out. Disconnect is the manual unstick path.
@@ -32,7 +35,17 @@ export default function Status() {
   const login = () => navigate("/login");
   const connect = () => Connection.Up({ profileName: "", username: "" }).catch(console.error);
   const disconnect = () => Connection.Down().catch(console.error);
-  const toggleConnection = () => (connected ? disconnect() : connect());
+  const toggleConnection = () => {
+    if (needsLogin) {
+      navigate("/login");
+      return;
+    }
+    if (connected) {
+      disconnect();
+      return;
+    }
+    connect();
+  };
 
   return (
     <div className="space-y-4 p-6">
@@ -107,8 +120,12 @@ export default function Status() {
         })()}
       </Card>
 
-        <div className="flex justify-center bg-nb-gray p-10">
-            <NetBirdConnectToggle state={toggleState} onClick={toggleConnection} />
+        <div className="flex justify-center py-6">
+            <NetBirdConnectToggle
+              state={toggleState}
+              onClick={toggleConnection}
+              disabled={unreachable}
+            />
         </div>
     </div>
   );

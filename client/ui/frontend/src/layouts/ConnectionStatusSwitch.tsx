@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { Dialogs } from "@wailsio/runtime";
+import { Connection } from "@bindings/services";
 import { ConnectionState } from "@/components/NetBirdConnectToggle.tsx";
 import { ToggleSwitch } from "@/components/ToggleSwitch.tsx";
+import { useStatus } from "@/hooks/useStatus";
+import { useProfile } from "@/modules/profile/ProfileContext.tsx";
 import { cn } from "@/lib/cn.ts";
 import netbirdFullLogo from "@/assets/logos/netbird-full.svg";
-
-const CONNECT_DURATION_MS = 1500;
-const DISCONNECT_DURATION_MS = 800;
 
 const STATUS_LABEL: Record<ConnectionState, string> = {
     [ConnectionState.Disconnected]: "Disconnected",
@@ -14,46 +16,98 @@ const STATUS_LABEL: Record<ConnectionState, string> = {
     [ConnectionState.Disconnecting]: "Disconnecting...",
 };
 
+const errorMessage = (e: unknown) =>
+    e instanceof Error ? e.message : String(e);
+
 export const ConnectionStatusSwitch = () => {
-    const [state, setState] = useState<ConnectionState>(ConnectionState.Disconnected);
-    const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const { status, refresh } = useStatus();
+    const { activeProfile, username } = useProfile();
+    const navigate = useNavigate();
 
-    useEffect(
-        () => () => {
-            if (timerRef.current) clearTimeout(timerRef.current);
-        },
-        [],
-    );
+    const daemonState = status?.status ?? "Idle";
+    const needsLogin =
+        daemonState === "NeedsLogin" ||
+        daemonState === "SessionExpired" ||
+        daemonState === "LoginFailed";
+    const unreachable = daemonState === "DaemonUnavailable";
 
-    const transition = (next: ConnectionState, after: ConnectionState, delay: number) => {
-        if (timerRef.current) clearTimeout(timerRef.current);
-        setState(next);
-        timerRef.current = setTimeout(() => {
-            setState(after);
-            timerRef.current = null;
-        }, delay);
+    // Tracks an in-flight user action (Up/Down RPC + refresh) so we can show a
+    // transitional label and disable the switch without lying about the
+    // daemon's actual state.
+    const [action, setAction] = useState<"connect" | "disconnect" | null>(null);
+
+    const connState: ConnectionState = useMemo(() => {
+        if (action === "disconnect" && daemonState === "Connected") {
+            return ConnectionState.Disconnecting;
+        }
+        if (action === "connect" && daemonState !== "Connected") {
+            return ConnectionState.Connecting;
+        }
+        switch (daemonState) {
+            case "Connected":
+                return ConnectionState.Connected;
+            case "Connecting":
+                return ConnectionState.Connecting;
+            default:
+                return ConnectionState.Disconnected;
+        }
+    }, [daemonState, action]);
+
+    const connect = async () => {
+        setAction("connect");
+        try {
+            await Connection.Up({
+                profileName: activeProfile,
+                username,
+            });
+        } catch (e) {
+            await Dialogs.Error({
+                Title: "Connect Failed",
+                Message: errorMessage(e),
+            });
+        } finally {
+            await refresh();
+            setAction(null);
+        }
     };
 
-    const connect = () =>
-        transition(ConnectionState.Connecting, ConnectionState.Connected, CONNECT_DURATION_MS);
-    const disconnect = () =>
-        transition(
-            ConnectionState.Disconnecting,
-            ConnectionState.Disconnected,
-            DISCONNECT_DURATION_MS,
-        );
+    const disconnect = async () => {
+        setAction("disconnect");
+        try {
+            await Connection.Down();
+        } catch (e) {
+            await Dialogs.Error({
+                Title: "Disconnect Failed",
+                Message: errorMessage(e),
+            });
+        } finally {
+            await refresh();
+            setAction(null);
+        }
+    };
 
     const handleSwitch = (next: boolean) => {
-        if (next) {
-            if (state === ConnectionState.Disconnected) connect();
-        } else if (state === ConnectionState.Connected) {
-            disconnect();
+        if (unreachable || action !== null) return;
+        if (needsLogin) {
+            navigate("/login");
+            return;
+        }
+        if (next && connState === ConnectionState.Disconnected) {
+            void connect();
+        } else if (!next && connState === ConnectionState.Connected) {
+            void disconnect();
         }
     };
 
     const isTransitioning =
-        state === ConnectionState.Connecting || state === ConnectionState.Disconnecting;
-    const isOn = state === ConnectionState.Connected || state === ConnectionState.Connecting;
+        connState === ConnectionState.Connecting ||
+        connState === ConnectionState.Disconnecting;
+    const isOn =
+        connState === ConnectionState.Connected ||
+        connState === ConnectionState.Connecting;
+    const showLocal = connState === ConnectionState.Connected;
+    const fqdn = status?.local.fqdn || "";
+    const ip = status?.local.ip || "";
 
     return (
         <div className={cn("flex flex-col h-full w-full items-center justify-center gap-4 -mt-4")}>
@@ -68,8 +122,11 @@ export const ConnectionStatusSwitch = () => {
                 size={"large"}
                 checked={isOn}
                 onCheckedChange={handleSwitch}
-                disabled={isTransitioning}
-                className={cn(isTransitioning && "opacity-80")}
+                disabled={isTransitioning || unreachable}
+                className={cn(
+                    unreachable && "opacity-80",
+                    isTransitioning && "animate-pulse",
+                )}
             />
 
             <div className={"flex flex-col items-center"}>
@@ -78,23 +135,27 @@ export const ConnectionStatusSwitch = () => {
                         "text-sm font-medium text-nb-gray-200 tracking-wide transition-colors duration-300"
                     }
                 >
-                    {STATUS_LABEL[state]}
+                    {unreachable
+                        ? "Daemon unavailable"
+                        : needsLogin
+                          ? "Login required"
+                          : STATUS_LABEL[connState]}
                 </h1>
                 <p
-                    className={
-                        "font-mono text-xs text-nb-gray-300 mt-2 transition-opacity duration-300 " +
-                        (state === ConnectionState.Connected ? "opacity-100" : "opacity-0")
-                    }
+                    className={cn(
+                        "font-mono text-xs leading-tight min-h-[1em] text-nb-gray-300 mt-2 transition-opacity duration-300",
+                        showLocal && fqdn ? "opacity-100" : "opacity-0",
+                    )}
                 >
-                    peer-hostname.netbird.cloud
+                    {fqdn || " "}
                 </p>
                 <p
-                    className={
-                        "font-mono text-xs text-nb-gray-300 mt-0.5 transition-opacity duration-300 " +
-                        (state === ConnectionState.Connected ? "opacity-100" : "opacity-0")
-                    }
+                    className={cn(
+                        "font-mono text-xs leading-tight min-h-[1em] text-nb-gray-300 mt-0.5 transition-opacity duration-300",
+                        showLocal && ip ? "opacity-100" : "opacity-0",
+                    )}
                 >
-                    192.168.0.1
+                    {ip || " "}
                 </p>
             </div>
         </div>

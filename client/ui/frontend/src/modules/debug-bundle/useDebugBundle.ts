@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { Dialogs } from "@wailsio/runtime";
 import {
     Connection as ConnectionSvc,
     Debug as DebugSvc,
@@ -19,8 +20,7 @@ export type DebugStage =
     | { kind: "bundling" }
     | { kind: "uploading" }
     | { kind: "cancelling" }
-    | { kind: "done"; result: DebugBundleResult; uploadAttempted: boolean }
-    | { kind: "error"; message: string };
+    | { kind: "done"; result: DebugBundleResult; uploadAttempted: boolean };
 
 const sleep = (ms: number, signal: AbortSignal) =>
     new Promise<void>((resolve, reject) => {
@@ -53,10 +53,7 @@ export const useDebugBundle = () => {
     const [lastBundlePath, setLastBundlePath] = useState<string>("");
     const abortRef = useRef<AbortController | null>(null);
 
-    const isRunning =
-        stage.kind !== "idle" &&
-        stage.kind !== "done" &&
-        stage.kind !== "error";
+    const isRunning = stage.kind !== "idle" && stage.kind !== "done";
 
     const reset = () => setStage({ kind: "idle" });
 
@@ -157,7 +154,11 @@ export const useDebugBundle = () => {
                 setStage({ kind: "idle" });
                 return;
             }
-            setStage({ kind: "error", message: String(e) });
+            setStage({ kind: "idle" });
+            await Dialogs.Error({
+                Title: "Debug Bundle Failed",
+                Message: e instanceof Error ? e.message : String(e),
+            });
         } finally {
             if (abortRef.current === ctrl) abortRef.current = null;
         }

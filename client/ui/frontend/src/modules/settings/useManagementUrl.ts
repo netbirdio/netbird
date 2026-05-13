@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Dialogs } from "@wailsio/runtime";
 import { useSettings } from "@/modules/settings/SettingsContext.tsx";
 
 export enum ManagementMode {
@@ -52,13 +53,29 @@ export function useManagementUrl() {
     }, [config.managementUrl]);
 
     const setMode = (next: ManagementMode) => {
-        setModeState(next);
         if (
             next === ManagementMode.Cloud &&
             config.managementUrl !== CLOUD_MANAGEMENT_URL
         ) {
-            void saveField("managementUrl", CLOUD_MANAGEMENT_URL);
+            // Switching from a self-hosted management server to NetBird Cloud
+            // re-points the client at a different deployment and forces a
+            // reconnect/re-login. Confirm before applying.
+            void Dialogs.Warning({
+                Title: "Switch to NetBird Cloud?",
+                Message:
+                    "This will disconnect from your self-hosted management server and reconnect to NetBird Cloud. You may need to log in again.",
+                Buttons: [
+                    { Label: "Cancel", IsCancel: true, IsDefault: true },
+                    { Label: "Switch to Cloud" },
+                ],
+            }).then((result) => {
+                if (result !== "Switch to Cloud") return;
+                setModeState(ManagementMode.Cloud);
+                void saveField("managementUrl", CLOUD_MANAGEMENT_URL);
+            });
+            return;
         }
+        setModeState(next);
     };
 
     const normalizedUrl = normalizeManagementUrl(url);

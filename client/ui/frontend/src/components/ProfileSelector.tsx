@@ -5,89 +5,82 @@ import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { Command } from "cmdk";
 import { Dialogs } from "@wailsio/runtime";
 import { ChevronDown, MoreVertical, PlusCircle, Search, Trash2, UserMinus } from "lucide-react";
+import type { Profile } from "@bindings/services/models.js";
 import { cn } from "@/lib/cn";
 import { generateColorFromString } from "@/lib/color";
 import { NewProfileDialog } from "@/components/NewProfileDialog";
+import { useProfile } from "@/modules/profile/ProfileContext.tsx";
 
-export type Profile = {
-    id: string;
-    name: string;
-};
+const DEFAULT_PROFILE = "default";
 
-const MOCK_PROFILES: Profile[] = [
-    { id: "default", name: "Default Profile" },
-    { id: "work", name: "Work" },
-    { id: "personal", name: "Personal" },
-    { id: "staging", name: "Staging" },
-    { id: "production", name: "Production" },
-    { id: "dev", name: "Development" },
-    { id: "qa", name: "QA Environment" },
-    { id: "demo", name: "Demo" },
-    { id: "client-acme", name: "Client - ACME" },
-    { id: "client-globex", name: "Client - Globex" },
-    { id: "client-initech", name: "Client - Initech" },
-    { id: "homelab", name: "Homelab" },
-    { id: "office-berlin", name: "Office Berlin" },
-    { id: "office-sf", name: "Office San Francisco" },
-    { id: "office-tokyo", name: "Office Tokyo" },
-    { id: "vpn-eu", name: "VPN EU" },
-    { id: "vpn-us", name: "VPN US" },
-    { id: "vpn-asia", name: "VPN Asia" },
-    { id: "test", name: "Test" },
-    { id: "sandbox", name: "Sandbox" },
-];
+export const ProfileSelector = () => {
+    const {
+        profiles,
+        activeProfile,
+        loaded,
+        switchProfile,
+        addProfile,
+        removeProfile,
+        logoutProfile,
+    } = useProfile();
 
-type Props = {
-    email?: string;
-};
-
-export const ProfileSelector = ({ email = "" }: Props) => {
-    const [profiles, setProfiles] = useState<Profile[]>(MOCK_PROFILES);
-    const [selectedId, setSelectedId] = useState<string>(MOCK_PROFILES[0].id);
     const [open, setOpen] = useState(false);
     const [newOpen, setNewOpen] = useState(false);
+    const [busy, setBusy] = useState(false);
 
-    const selected = profiles.find((p) => p.id === selectedId) ?? profiles[0];
+    const selected =
+        profiles.find((p) => p.name === activeProfile) ??
+        profiles.find((p) => p.isActive) ??
+        profiles[0];
 
     const sorted = [...profiles].sort((a, b) => a.name.localeCompare(b.name));
 
-    const handleSelect = (id: string) => {
-        setSelectedId(id);
-        setOpen(false);
+    const guarded = async (title: string, fn: () => Promise<void>) => {
+        if (busy) return;
+        setBusy(true);
+        try {
+            await fn();
+        } catch (e) {
+            await Dialogs.Error({
+                Title: title,
+                Message: e instanceof Error ? e.message : String(e),
+            });
+        } finally {
+            setBusy(false);
+        }
     };
 
-    const handleDeregister = async (id: string) => {
-        const profile = profiles.find((p) => p.id === id);
-        if (!profile) return;
+    const handleSelect = (name: string) => {
+        setOpen(false);
+        if (name === activeProfile) return;
+        void guarded("Switch Profile Failed", () => switchProfile(name));
+    };
+
+    const handleDeregister = async (name: string) => {
         const result = await Dialogs.Warning({
             Title: "Deregister Profile",
-            Message: `Are you sure you want to deregister "${profile.name}"? You will need to log in again to use it.`,
+            Message: `Are you sure you want to deregister "${name}"? You will need to log in again to use it.`,
             Buttons: [
                 { Label: "Cancel", IsCancel: true },
                 { Label: "Deregister", IsDefault: true },
             ],
         });
         if (result !== "Deregister") return;
-        console.log("Deregister profile", id);
+        void guarded("Deregister Profile Failed", () => logoutProfile(name));
     };
 
-    const handleDelete = async (id: string) => {
-        const profile = profiles.find((p) => p.id === id);
-        if (!profile) return;
+    const handleDelete = async (name: string) => {
+        if (name === DEFAULT_PROFILE) return;
         const result = await Dialogs.Warning({
             Title: "Delete Profile",
-            Message: `Are you sure you want to delete "${profile.name}"? This action cannot be undone.`,
+            Message: `Are you sure you want to delete "${name}"? This action cannot be undone.`,
             Buttons: [
                 { Label: "Cancel", IsCancel: true },
                 { Label: "Delete", IsDefault: true },
             ],
         });
         if (result !== "Delete") return;
-        setProfiles((prev) => prev.filter((p) => p.id !== id));
-        if (selectedId === id) {
-            const remaining = profiles.filter((p) => p.id !== id);
-            if (remaining.length > 0) setSelectedId(remaining[0].id);
-        }
+        void guarded("Delete Profile Failed", () => removeProfile(name));
     };
 
     const handleNewProfile = () => {
@@ -96,12 +89,11 @@ export const ProfileSelector = ({ email = "" }: Props) => {
     };
 
     const handleCreateProfile = (name: string) => {
-        const id = `${name.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}`;
-        setProfiles((prev) => [...prev, { id, name }]);
-        setSelectedId(id);
+        void guarded("Create Profile Failed", () => addProfile(name));
     };
 
-    const initial = selected?.name.charAt(0).toUpperCase() ?? "?";
+    const displayName = selected?.name ?? (loaded ? "No profile" : "Loading...");
+    const initial = (selected?.name ?? "?").charAt(0).toUpperCase();
     const initialColor = generateColorFromString(selected?.name);
 
     return (
@@ -116,27 +108,20 @@ export const ProfileSelector = ({ email = "" }: Props) => {
                     >
                         <div
                             className={cn(
-                                "flex items-center justify-center bg-nb-gray-900 rounded-md text-xs font-semibold",
-                                email ? "h-7 w-7" : "h-6 w-6",
+                                "flex items-center justify-center bg-nb-gray-900 rounded-md text-xs font-semibold h-6 w-6",
                             )}
                             style={{ color: initialColor }}
                         >
                             {initial}
                         </div>
                         <div
-                            className={cn(
-                                "whitespace-nowrap flex flex-col ml-1 text-left",
-                                email ? "mt-1" : "justify-center",
-                            )}
+                            className={
+                                "whitespace-nowrap flex flex-col ml-1 text-left justify-center"
+                            }
                         >
                             <span className={"leading-none text-nb-gray-200 font-semibold"}>
-                                {selected?.name ?? "No profile"}
+                                {displayName}
                             </span>
-                            {email && (
-                                <span className={"text-[0.73rem] font-normal text-nb-gray-300"}>
-                                    {email}
-                                </span>
-                            )}
                         </div>
                         <ChevronDown size={14} className={"ml-2 mr-2"} />
                     </button>
@@ -196,12 +181,13 @@ export const ProfileSelector = ({ email = "" }: Props) => {
 
                                         {sorted.map((profile) => (
                                             <ProfileRow
-                                                key={profile.id}
+                                                key={profile.name}
                                                 profile={profile}
-                                                selected={profile.id === selectedId}
-                                                onSelect={() => handleSelect(profile.id)}
-                                                onDeregister={() => handleDeregister(profile.id)}
-                                                onDelete={() => handleDelete(profile.id)}
+                                                selected={profile.name === activeProfile}
+                                                onSelect={() => handleSelect(profile.name)}
+                                                onDeregister={() => handleDeregister(profile.name)}
+                                                onDelete={() => handleDelete(profile.name)}
+                                                deletable={profile.name !== DEFAULT_PROFILE}
                                             />
                                         ))}
                                     </Command.List>
@@ -255,9 +241,17 @@ type ProfileRowProps = {
     onSelect: () => void;
     onDeregister: () => void;
     onDelete: () => void;
+    deletable: boolean;
 };
 
-const ProfileRow = ({ profile, selected, onSelect, onDeregister, onDelete }: ProfileRowProps) => {
+const ProfileRow = ({
+    profile,
+    selected,
+    onSelect,
+    onDeregister,
+    onDelete,
+    deletable,
+}: ProfileRowProps) => {
     const [menuOpen, setMenuOpen] = useState(false);
     const initial = profile.name.charAt(0).toUpperCase();
     const initialColor = generateColorFromString(profile.name);
@@ -265,7 +259,6 @@ const ProfileRow = ({ profile, selected, onSelect, onDeregister, onDelete }: Pro
     return (
         <Command.Item
             value={profile.name}
-            keywords={[profile.id]}
             onSelect={() => onSelect()}
             className={cn(
                 "group flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md cursor-default outline-none",
@@ -338,14 +331,19 @@ const ProfileRow = ({ profile, selected, onSelect, onDeregister, onDelete }: Pro
                             <span>Deregister</span>
                         </DropdownMenu.Item>
                         <DropdownMenu.Item
+                            disabled={!deletable}
                             onSelect={(e) => {
                                 e.preventDefault();
+                                if (!deletable) return;
                                 onDelete();
                                 setMenuOpen(false);
                             }}
                             className={cn(
                                 "flex items-center gap-2 px-2 py-1.5 rounded-md cursor-default outline-none font-medium",
-                                "text-xs text-red-500 data-[highlighted]:bg-nb-gray-850",
+                                "text-xs data-[highlighted]:bg-nb-gray-850",
+                                deletable
+                                    ? "text-red-500"
+                                    : "text-nb-gray-500 cursor-not-allowed",
                             )}
                         >
                             <Trash2 size={14} />

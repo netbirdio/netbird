@@ -6,15 +6,20 @@ import {
     useState,
     type ReactNode,
 } from "react";
-import { Profiles as ProfilesSvc } from "@bindings/services";
+import { Dialogs } from "@wailsio/runtime";
+import { Connection, Peers, Profiles as ProfilesSvc } from "@bindings/services";
+import type { Profile } from "@bindings/services/models.js";
 
 type ProfileContextValue = {
     username: string;
     activeProfile: string;
+    profiles: Profile[];
     loaded: boolean;
-    error: string | null;
     refresh: () => Promise<void>;
     switchProfile: (name: string) => Promise<void>;
+    addProfile: (name: string) => Promise<void>;
+    removeProfile: (name: string) => Promise<void>;
+    logoutProfile: (name: string) => Promise<void>;
 };
 
 const ProfileContext = createContext<ProfileContextValue | null>(null);
@@ -30,18 +35,24 @@ export const useProfile = () => {
 export const ProfileProvider = ({ children }: { children: ReactNode }) => {
     const [username, setUsername] = useState("");
     const [activeProfile, setActiveProfile] = useState("");
+    const [profiles, setProfiles] = useState<Profile[]>([]);
     const [loaded, setLoaded] = useState(false);
-    const [error, setError] = useState<string | null>(null);
 
     const refresh = useCallback(async () => {
         try {
             const u = await ProfilesSvc.Username();
-            const active = await ProfilesSvc.GetActive();
+            const [active, list] = await Promise.all([
+                ProfilesSvc.GetActive(),
+                ProfilesSvc.List(u),
+            ]);
             setUsername(u);
             setActiveProfile(active.profileName || "default");
-            setError(null);
+            setProfiles(list);
         } catch (e) {
-            setError(String(e));
+            await Dialogs.Error({
+                Title: "Load Profiles Failed",
+                Message: e instanceof Error ? e.message : String(e),
+            });
         } finally {
             setLoaded(true);
         }
@@ -53,10 +64,53 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
 
     const switchProfile = useCallback(
         async (name: string) => {
+            // Mirror tray.go switchProfile: only reconnect when the daemon was
+            // actively online. Calling Up on an Idle/NeedsLogin daemon makes
+            // the daemon wait 50s on its internal waitForUp and return
+            // DeadlineExceeded.
+            let wasActive = false;
+            try {
+                const prev = await Peers.Get();
+                const s = (prev?.status ?? "").toLowerCase();
+                wasActive = s === "connected" || s === "connecting";
+            } catch {
+                wasActive = false;
+            }
+
             await ProfilesSvc.Switch({ profileName: name, username });
-            setActiveProfile(name);
+
+            if (wasActive) {
+                await Connection.Down();
+                await Connection.Up({ profileName: name, username });
+            }
+
+            await refresh();
         },
-        [username],
+        [username, refresh],
+    );
+
+    const addProfile = useCallback(
+        async (name: string) => {
+            await ProfilesSvc.Add({ profileName: name, username });
+            await refresh();
+        },
+        [username, refresh],
+    );
+
+    const removeProfile = useCallback(
+        async (name: string) => {
+            await ProfilesSvc.Remove({ profileName: name, username });
+            await refresh();
+        },
+        [username, refresh],
+    );
+
+    const logoutProfile = useCallback(
+        async (name: string) => {
+            await Connection.Logout({ profileName: name, username });
+            await refresh();
+        },
+        [username, refresh],
     );
 
     return (
@@ -64,10 +118,13 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
             value={{
                 username,
                 activeProfile,
+                profiles,
                 loaded,
-                error,
                 refresh,
                 switchProfile,
+                addProfile,
+                removeProfile,
+                logoutProfile,
             }}
         >
             {children}

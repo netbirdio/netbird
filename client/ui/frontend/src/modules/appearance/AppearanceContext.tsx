@@ -8,11 +8,9 @@ import {
     type ReactNode,
 } from "react";
 
-export type AppearanceView = "default" | "advanced";
 export type ConnectionLayout = "default" | "switch";
 
 export type AppearanceState = {
-    view: AppearanceView;
     connectionLayout: ConnectionLayout;
     expanded: boolean;
     showPeersNav: boolean;
@@ -25,7 +23,6 @@ export type AppearanceState = {
 const STORAGE_KEY = "netbird:appearance";
 
 const DEFAULTS: AppearanceState = {
-    view: "default",
     connectionLayout: "default",
     expanded: true,
     showPeersNav: true,
@@ -47,7 +44,6 @@ const readStored = (): AppearanceState => {
 };
 
 type AppearanceContextValue = AppearanceState & {
-    setView: (v: AppearanceView) => void;
     setField: <K extends keyof AppearanceState>(k: K, v: AppearanceState[K]) => void;
 };
 
@@ -79,13 +75,9 @@ export const AppearanceProvider = ({ children }: { children: ReactNode }) => {
         [],
     );
 
-    const setView = useCallback((v: AppearanceView) => {
-        setState((s) => ({ ...s, view: v }));
-    }, []);
-
     const value = useMemo<AppearanceContextValue>(
-        () => ({ ...state, setView, setField }),
-        [state, setView, setField],
+        () => ({ ...state, setField }),
+        [state, setField],
     );
 
     return (

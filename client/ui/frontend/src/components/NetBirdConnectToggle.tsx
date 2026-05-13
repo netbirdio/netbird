@@ -18,9 +18,10 @@ type NetBirdConnectToggleProps = {
     state: ConnectionState;
     size?: number;
     onClick?: () => void;
+    disabled?: boolean;
 };
 
-export const NetBirdConnectToggle = ({ state, size = 140, onClick }: NetBirdConnectToggleProps) => {
+export const NetBirdConnectToggle = ({ state, size = 140, onClick, disabled }: NetBirdConnectToggleProps) => {
     const [visualState, setVisualState] = useState(state);
 
     useEffect(() => {
@@ -28,9 +29,10 @@ export const NetBirdConnectToggle = ({ state, size = 140, onClick }: NetBirdConn
     }, [state]);
 
     const handleClick = () => {
+        if (disabled) return;
         if (visualState === ConnectionState.Connected) {
             setVisualState(ConnectionState.Disconnecting);
-        } else {
+        } else if (visualState === ConnectionState.Disconnected) {
             setVisualState(ConnectionState.Connecting);
         }
         onClick?.();
@@ -46,10 +48,14 @@ export const NetBirdConnectToggle = ({ state, size = 140, onClick }: NetBirdConn
     return (
         <div>
             <motion.button
-                className="rounded-full relative overflow-visible cursor-default outline-none border-none bg-transparent"
+                className={cn(
+                    "rounded-full relative overflow-visible outline-none border-none bg-transparent",
+                    disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
+                )}
                 style={{ padding }}
                 onClick={handleClick}
-                whileTap={{ scale: 0.98 }}
+                disabled={disabled}
+                whileTap={disabled ? undefined : { scale: 0.98 }}
                 transition={{ type: "spring", stiffness: 400, damping: 17 }}
             >
                 <OuterRing state={visualState} />

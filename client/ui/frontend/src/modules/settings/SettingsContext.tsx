@@ -7,10 +7,14 @@ import {
     useState,
     type ReactNode,
 } from "react";
+import { Dialogs } from "@wailsio/runtime";
 import { Settings as SettingsSvc } from "@bindings/services";
 import type { Config } from "@bindings/services/models.js";
 import { useProfile } from "@/modules/profile/ProfileContext.tsx";
 import { SkeletonSettings } from "@/modules/skeletons/SkeletonSettings.tsx";
+
+const errorMessage = (e: unknown) =>
+    e instanceof Error ? e.message : String(e);
 
 const SAVE_DEBOUNCE_MS = 400;
 
@@ -35,7 +39,6 @@ export const useSettings = () => {
 const useSettingsState = () => {
     const { username, activeProfile, loaded: profileLoaded } = useProfile();
     const [config, setConfig] = useState<Config | null>(null);
-    const [error, setError] = useState<string | null>(null);
     const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
@@ -47,9 +50,11 @@ const useSettingsState = () => {
                     username,
                 });
                 setConfig(c);
-                setError(null);
             } catch (e) {
-                setError(String(e));
+                await Dialogs.Error({
+                    Title: "Load Settings Failed",
+                    Message: errorMessage(e),
+                });
             }
         })();
     }, [profileLoaded, activeProfile, username]);
@@ -75,9 +80,11 @@ const useSettingsState = () => {
                     profileName: activeProfile,
                     username,
                 });
-                setError(null);
             } catch (e) {
-                setError(String(e));
+                await Dialogs.Error({
+                    Title: "Save Settings Failed",
+                    Message: errorMessage(e),
+                });
             }
         },
         [activeProfile, username],
@@ -135,33 +142,29 @@ const useSettingsState = () => {
         [config, save],
     );
 
-    return { config, error, setField, saveField, saveFields, saveNow };
+    return { config, setField, saveField, saveFields, saveNow };
 };
 
 export const SettingsProvider = ({ children }: { children: ReactNode }) => {
-    const { config, error, setField, saveField, saveFields, saveNow } = useSettingsState();
+    const { config, setField, saveField, saveFields, saveNow } = useSettingsState();
 
-    // TODO: Better displaying of errors
     return (
-        <>
-            {error && <p className={"pb-6 text-sm text-red-500"}>{error}</p>}
-            <div className={"flex-1 min-h-0 overflow-y-auto"}>
-                {!config ? (
-                    <SkeletonSettings />
-                ) : (
-                    <SettingsContext.Provider
-                        value={{
-                            config,
-                            setField,
-                            saveField,
-                            saveFields,
-                            saveNow,
-                        }}
-                    >
-                        {children}
-                    </SettingsContext.Provider>
-                )}
-            </div>
-        </>
+        <div className={"flex-1 min-h-0 overflow-y-auto"}>
+            {!config ? (
+                <SkeletonSettings />
+            ) : (
+                <SettingsContext.Provider
+                    value={{
+                        config,
+                        setField,
+                        saveField,
+                        saveFields,
+                        saveNow,
+                    }}
+                >
+                    {children}
+                </SettingsContext.Provider>
+            )}
+        </div>
     );
 };

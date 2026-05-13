@@ -31,8 +31,14 @@ export function SettingsTroubleshooting() {
         reset,
     } = useDebugBundleContext();
 
-    if (stage.kind === "done" || stage.kind === "error") {
-        return <ResultSection stage={stage} onClose={reset} />;
+    if (stage.kind === "done") {
+        return (
+            <DoneResult
+                result={stage.result}
+                uploaded={stage.uploadAttempted}
+                onClose={reset}
+            />
+        );
     }
     if (stage.kind !== "idle") {
         return <ProgressSection stage={stage} onCancel={cancel} />;
@@ -125,30 +131,6 @@ function ProgressSection({ stage, onCancel }: { stage: DebugStage; onCancel: () 
             }
         />
     );
-}
-
-function ResultSection({
-    stage,
-    onClose,
-}: {
-    stage: Extract<DebugStage, { kind: "done" } | { kind: "error" }>;
-    onClose: () => void;
-}) {
-    if (stage.kind === "error") {
-        return (
-            <StatusPanel
-                variant={"error"}
-                title={"Bundle failed"}
-                description={stage.message}
-                actions={
-                    <Button variant={"secondary"} size={"xs"} onClick={onClose}>
-                        Close
-                    </Button>
-                }
-            />
-        );
-    }
-    return <DoneResult result={stage.result} uploaded={stage.uploadAttempted} onClose={onClose} />;
 }
 
 function DoneResult({
