@@ -16,6 +16,7 @@ import (
 	"golang.org/x/sys/windows/registry"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
+	"github.com/netbirdio/netbird/client/internal/dns/dnsfw"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/internal/winregistry"
 )
@@ -71,6 +72,7 @@ type registryConfigurator struct {
 	routingAll     bool
 	gpo            bool
 	nrptEntryCount int
+	dnsFirewall    dnsfw.Manager
 }
 
 func newHostManager(wgInterface WGIface) (*registryConfigurator, error) {
@@ -90,8 +92,9 @@ func newHostManager(wgInterface WGIface) (*registryConfigurator, error) {
 	}
 
 	configurator := &registryConfigurator{
-		guid: guid,
-		gpo:  useGPO,
+		guid:        guid,
+		gpo:         useGPO,
+		dnsFirewall: dnsfw.New(),
 	}
 
 	if err := configurator.configureInterface(); err != nil {
@@ -169,16 +172,8 @@ func (r *registryConfigurator) disableWINSForInterface() error {
 }
 
 func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error {
-	if config.RouteAll {
-		if err := r.addDNSSetupForAll(config.ServerIP); err != nil {
-			return fmt.Errorf("add dns setup: %w", err)
-		}
-	} else if r.routingAll {
-		if err := r.deleteInterfaceRegistryKeyProperty(interfaceConfigNameServerKey); err != nil {
-			return fmt.Errorf("delete interface registry key property: %w", err)
-		}
-		r.routingAll = false
-		log.Infof("removed %s as main DNS forwarder for this peer", config.ServerIP)
+	if err := r.applyRouteAll(config); err != nil {
+		return err
 	}
 
 	r.updateState(stateManager)
@@ -217,6 +212,35 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 
 	go r.flushDNSCache()
 
+	return nil
+}
+
+func (r *registryConfigurator) applyRouteAll(config HostDNSConfig) error {
+	if config.RouteAll {
+		if err := r.dnsFirewall.Enable(r.guid, config.ServerIP); err != nil {
+			return fmt.Errorf("dns firewall: %w", err)
+		}
+		if err := r.addDNSSetupForAll(config.ServerIP); err != nil {
+			merr := multierror.Append(nil, fmt.Errorf("add dns setup: %w", err))
+			if dErr := r.dnsFirewall.Disable(); dErr != nil {
+				merr = multierror.Append(merr, fmt.Errorf("rollback dns firewall: %w", dErr))
+			}
+			return nberrors.FormatErrorOrNil(merr)
+		}
+		return nil
+	}
+
+	if err := r.dnsFirewall.Disable(); err != nil {
+		log.Errorf("disable dns firewall: %v", err)
+	}
+	if !r.routingAll {
+		return nil
+	}
+	if err := r.deleteInterfaceRegistryKeyProperty(interfaceConfigNameServerKey); err != nil {
+		return fmt.Errorf("delete interface registry key property: %w", err)
+	}
+	r.routingAll = false
+	log.Infof("removed %s as main DNS forwarder for this peer", config.ServerIP)
 	return nil
 }
 
@@ -404,6 +428,10 @@ func (r *registryConfigurator) restoreHostDNS() error {
 
 	if err := r.deleteInterfaceRegistryKeyProperty(interfaceConfigSearchListKey); err != nil {
 		return fmt.Errorf("remove interface registry key: %w", err)
+	}
+
+	if err := r.dnsFirewall.Disable(); err != nil {
+		log.Errorf("disable dns firewall: %v", err)
 	}
 
 	go r.flushDNSCache()
