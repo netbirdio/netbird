@@ -132,6 +132,7 @@ type Tray struct {
 	notificationsEnabled bool
 	activeProfile        string
 	activeUsername       string
+	switchCancel         context.CancelFunc
 }
 
 func NewTray(app *application.App, window *application.WebviewWindow, svc TrayServices) *Tray {
@@ -784,14 +785,19 @@ func (t *Tray) loadProfiles() {
 	}
 }
 
-// switchProfile delegates to ProfileSwitcher.SwitchActive in a goroutine so
-// the menu click returns immediately. The menu is refreshed as soon as the
-// Switch RPC completes (before Down/Up finishes in the background).
+// switchProfile cancels any in-flight profile switch, then starts a new one.
+// Cancelling the previous context aborts its in-flight gRPC calls (Down/Up)
+// so rapid clicks always converge to the last selected profile.
 func (t *Tray) switchProfile(name string) {
-	go func() {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+	t.mu.Lock()
+	if t.switchCancel != nil {
+		t.switchCancel()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.switchCancel = cancel
+	t.mu.Unlock()
 
+	go func() {
 		username, err := t.svc.Profiles.Username()
 		if err != nil {
 			log.Errorf("tray switchProfile: get current user: %v", err)
@@ -801,13 +807,13 @@ func (t *Tray) switchProfile(name string) {
 			ProfileName: name,
 			Username:    username,
 		}); err != nil {
+			if ctx.Err() != nil {
+				return
+			}
 			log.Errorf("tray switchProfile: %v", err)
 			t.notifyError(fmt.Sprintf("Failed to switch to %s", name))
 			return
 		}
-		// SwitchActive returns after the Switch RPC — active_profile.json is
-		// updated; Down/Up run in the background. Refresh menu now so the
-		// checkmark moves immediately.
 		t.loadProfiles()
 	}()
 }
