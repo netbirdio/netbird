@@ -37,8 +37,9 @@ func NewProfileSwitcher(profiles *Profiles, connection *Connection, peers *Peers
 }
 
 // SwitchActive switches to the named profile applying the reconnect policy.
-// It returns after the Switch RPC completes so the caller can refresh its UI
-// immediately; Down and Up run in a background goroutine.
+// All RPCs complete quickly: Up uses async mode so the daemon starts the
+// connection attempt and returns immediately; status updates flow via the
+// SubscribeStatus stream.
 func (s *ProfileSwitcher) SwitchActive(ctx context.Context, p ProfileRef) error {
 	prevStatus := ""
 	if st, err := s.peers.Get(ctx); err == nil {
@@ -61,22 +62,21 @@ func (s *ProfileSwitcher) SwitchActive(ctx context.Context, p ProfileRef) error 
 		return fmt.Errorf("switch profile %q: %w", p.ProfileName, err)
 	}
 
-	go func() {
-		bgCtx := context.Background()
-		if needsDown {
-			if err := s.connection.Down(bgCtx); err != nil {
-				log.Errorf("profileswitcher: Down: %v", err)
-			}
+	if needsDown {
+		if err := s.connection.Down(ctx); err != nil {
+			log.Errorf("profileswitcher: Down: %v", err)
 		}
-		if wasActive {
-			if err := s.connection.Up(bgCtx, UpParams{
-				ProfileName: p.ProfileName,
-				Username:    p.Username,
-			}); err != nil {
-				log.Errorf("profileswitcher: Up %s: %v", p.ProfileName, err)
-			}
+	}
+
+	if wasActive {
+		if err := s.connection.Up(ctx, UpParams{
+			ProfileName: p.ProfileName,
+			Username:    p.Username,
+			Async:       true,
+		}); err != nil {
+			return fmt.Errorf("reconnect %q: %w", p.ProfileName, err)
 		}
-	}()
+	}
 
 	return nil
 }

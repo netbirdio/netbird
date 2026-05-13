@@ -747,6 +747,9 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
 
 	s.mutex.Unlock()
+	if msg.GetAsync() {
+		return &proto.UpResponse{}, nil
+	}
 	return s.waitForUp(callerCtx)
 }
 

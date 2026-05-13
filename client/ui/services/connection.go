@@ -42,6 +42,11 @@ type WaitSSOParams struct {
 type UpParams struct {
 	ProfileName string `json:"profileName"`
 	Username    string `json:"username"`
+	// Async instructs the daemon to start the connection and return
+	// immediately. Status updates flow via the SubscribeStatus stream.
+	// When false (the default) the RPC blocks until connected, which is
+	// the CLI behaviour.
+	Async bool `json:"async"`
 }
 
 // LogoutParams selects the profile the daemon should log out.
@@ -147,7 +152,7 @@ func (s *Connection) Up(ctx context.Context, p UpParams) error {
 	if err != nil {
 		return err
 	}
-	req := &proto.UpRequest{}
+	req := &proto.UpRequest{Async: p.Async}
 	if p.ProfileName != "" {
 		req.ProfileName = ptrStr(p.ProfileName)
 	}

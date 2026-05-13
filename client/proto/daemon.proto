@@ -233,6 +233,12 @@ message UpRequest {
   optional string profileName = 1;
   optional string username = 2;
   reserved 3;
+  // async instructs the daemon to start the connection attempt and return
+  // immediately without waiting for the engine to become ready. Status updates
+  // are delivered via the SubscribeStatus stream. When false (the default) the
+  // RPC blocks until the engine is running or gives up, which is the behaviour
+  // needed by the CLI.
+  bool async = 4;
 }
 
 message UpResponse {}
