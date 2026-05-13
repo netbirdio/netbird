@@ -6,7 +6,7 @@
 !define DESCRIPTION "Connect your devices into a secure WireGuard-based overlay network with SSO, MFA, and granular access controls."
 !define INSTALLER_NAME "netbird-installer.exe"
 !define MAIN_APP_EXE "Netbird"
-!define ICON "ui\\assets\\netbird.ico"
+!define ICON "ui\\build\\windows\\icon.ico"
 !define BANNER "ui\\build\\banner.bmp"
 !define LICENSE_DATA "..\\LICENSE"
 

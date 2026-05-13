@@ -123,7 +123,7 @@
 		</InstallExecuteSequence>
 
 		<!-- Icons -->
-		<Icon Id="NetbirdIcon" SourceFile=".\client\ui\assets\netbird.ico" />
+		<Icon Id="NetbirdIcon" SourceFile=".\client\ui\build\windows\icon.ico" />
 		<Property Id="ARPPRODUCTICON" Value="NetbirdIcon" />
 
 	</Package>
