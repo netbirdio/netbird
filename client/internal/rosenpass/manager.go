@@ -79,6 +79,15 @@ func (m *Manager) addPeer(rosenpassPubKey []byte, rosenpassAddr string, wireGuar
 		if pcfg.Endpoint, err = net.ResolveUDPAddr("udp", peerAddr); err != nil {
 			return fmt.Errorf("failed to resolve peer endpoint address: %w", err)
 		}
+		// Our local Rosenpass UDP server binds on the IPv6 wildcard ([::]) — see
+		// GetAddress(). The remote peer's endpoint (pcfg.Endpoint) is the destination
+		// our server will sendto when initiating handshakes. ResolveUDPAddr returns a
+		// 4-byte IPv4 for IPv4 hosts, which the kernel rejects (EDESTADDRREQ) when
+		// sent from an AF_INET6 socket. Normalize the remote endpoint to IPv4-mapped
+		// IPv6 so its address family matches our listening socket.
+		if v4 := pcfg.Endpoint.IP.To4(); v4 != nil {
+			pcfg.Endpoint.IP = v4.To16()
+		}
 	}
 	peerID, err := m.server.AddPeer(pcfg)
 	if err != nil {
