@@ -128,7 +128,9 @@ type Tray struct {
 	downItem          *application.MenuItem
 	exitNodeItem      *application.MenuItem
 	networksItem      *application.MenuItem
-	profileSubmenu    *application.Menu
+	profileSubmenu     *application.Menu
+	profileSubmenuItem *application.MenuItem
+	profileEmailItem   *application.MenuItem
 	settingsItem      *application.MenuItem
 	debugItem         *application.MenuItem
 	updateItem        *application.MenuItem
@@ -220,6 +222,16 @@ func (t *Tray) buildMenu() *application.Menu {
 	// has started — Menu.Update() is a no-op before app.running is true,
 	// so the initial fill is gated on the ApplicationStarted hook.
 	t.profileSubmenu = menu.AddSubmenu(menuProfiles)
+	// profileSubmenuItem is the parent MenuItem whose label is the active
+	// profile name. AddSubmenu returns the child *Menu, so we retrieve the
+	// parent *MenuItem via FindByLabel immediately after insertion.
+	t.profileSubmenuItem = menu.FindByLabel(menuProfiles)
+	// profileEmailItem shows the account email of the active profile directly
+	// in the main menu, below the Profiles submenu — matching the behaviour of
+	// the legacy Fyne/systray UI. It is hidden until loadProfiles resolves a
+	// non-empty email for the active profile.
+	t.profileEmailItem = menu.Add("").SetEnabled(false)
+	t.profileEmailItem.SetHidden(true)
 	menu.AddSeparator()
 	// Only the action that applies to the current state is visible: Connect
 	// when disconnected, Disconnect when connected. applyStatus swaps them on
@@ -736,11 +748,21 @@ func (t *Tray) loadProfiles() {
 
 	log.Infof("tray loadProfiles: received %d profile(s) for user %q", len(profiles), username)
 	t.profileSubmenu.Clear()
+	var activeName, activeEmail string
 	for _, p := range profiles {
 		name := p.Name
 		active := p.IsActive
 		log.Infof("tray loadProfiles: profile=%q active=%v", name, active)
-		item := t.profileSubmenu.AddCheckbox(name, active)
+		// Use Add instead of AddCheckbox: Wails auto-toggles a checkbox's
+		// checked state on click (before the OnClick handler fires), so with
+		// AddCheckbox both the old and the new profile would briefly show as
+		// checked while the switchProfile goroutine is running. A plain item
+		// with a "✓ " prefix avoids the race entirely.
+		label := name
+		if active {
+			label = "✓ " + name
+		}
+		item := t.profileSubmenu.Add(label)
 		item.OnClick(func(*application.Context) {
 			log.Infof("tray profile click: profile=%q wasActive=%v", name, active)
 			if active {
@@ -748,6 +770,21 @@ func (t *Tray) loadProfiles() {
 			}
 			t.switchProfile(name)
 		})
+		if active {
+			activeName = name
+			activeEmail = p.Email
+		}
+	}
+	if t.profileSubmenuItem != nil && activeName != "" {
+		t.profileSubmenuItem.SetLabel(activeName)
+	}
+	if t.profileEmailItem != nil {
+		if activeEmail != "" {
+			t.profileEmailItem.SetLabel(fmt.Sprintf("(%s)", activeEmail))
+			t.profileEmailItem.SetHidden(false)
+		} else {
+			t.profileEmailItem.SetHidden(true)
+		}
 	}
 	// Wails v3 alpha's submenu.Update() builds a fresh, detached NSMenu on
 	// darwin that never replaces the empty NSMenu attached to the parent

@@ -755,6 +755,18 @@ export class Profile {
     "name": string;
     "isActive": boolean;
 
+    /**
+     * Email is the account address associated with this profile, sourced from
+     * the per-profile state file written by the CLI after a successful SSO
+     * login (e.g. ~/Library/Application Support/netbird/default.state.json on
+     * macOS). The daemon always runs as root, so its getConfigDir() resolves to
+     * the root home directory and cannot reach the user-owned state file. The
+     * UI process runs as the logged-in user and can read it directly via
+     * profilemanager.ProfileManager, which is why the email is fetched here
+     * instead of being returned by the ListProfiles RPC.
+     */
+    "email": string;
+
     /** Creates a new Profile instance. */
     constructor($$source: Partial<Profile> = {}) {
         if (!("name" in $$source)) {
@@ -762,6 +774,9 @@ export class Profile {
         }
         if (!("isActive" in $$source)) {
             this["isActive"] = false;
+        }
+        if (!("email" in $$source)) {
+            this["email"] = "";
         }
 
         Object.assign(this, $$source);

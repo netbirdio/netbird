@@ -6,6 +6,7 @@ import (
 	"context"
 	"os/user"
 
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 )
 
@@ -13,6 +14,15 @@ import (
 type Profile struct {
 	Name     string `json:"name"`
 	IsActive bool   `json:"isActive"`
+	// Email is the account address associated with this profile, sourced from
+	// the per-profile state file written by the CLI after a successful SSO
+	// login (e.g. ~/Library/Application Support/netbird/default.state.json on
+	// macOS). The daemon always runs as root, so its getConfigDir() resolves to
+	// the root home directory and cannot reach the user-owned state file. The
+	// UI process runs as the logged-in user and can read it directly via
+	// profilemanager.ProfileManager, which is why the email is fetched here
+	// instead of being returned by the ListProfiles RPC.
+	Email string `json:"email"`
 }
 
 // ProfileRef identifies a profile by name+username.
@@ -55,9 +65,14 @@ func (s *Profiles) List(ctx context.Context, username string) ([]Profile, error)
 	if err != nil {
 		return nil, err
 	}
+	pm := profilemanager.NewProfileManager()
 	out := make([]Profile, 0, len(resp.GetProfiles()))
 	for _, p := range resp.GetProfiles() {
-		out = append(out, Profile{Name: p.GetName(), IsActive: p.GetIsActive()})
+		prof := Profile{Name: p.GetName(), IsActive: p.GetIsActive()}
+		if state, err := pm.GetProfileState(p.GetName()); err == nil {
+			prof.Email = state.Email
+		}
+		out = append(out, prof)
 	}
 	return out, nil
 }
