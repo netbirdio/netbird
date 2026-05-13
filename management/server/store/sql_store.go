@@ -120,6 +120,12 @@ func NewSqlStore(ctx context.Context, db *gorm.DB, storeEngine types.Engine, met
 	log.WithContext(ctx).Infof("Set max open db connections to %d, max idle to %d, max lifetime to %v, max idle time to %v",
 		conns, conns, time.Hour, 3*time.Minute)
 
+	if storeEngine == types.SqliteStoreEngine {
+		if err := db.Exec("PRAGMA busy_timeout = 30000").Error; err != nil {
+			log.WithContext(ctx).Warnf("failed to set SQLite busy_timeout: %v", err)
+		}
+	}
+
 	if skipMigration {
 		log.WithContext(ctx).Infof("skipping migration")
 		return &SqlStore{db: db, storeEngine: storeEngine, metrics: metrics, installationPK: 1, transactionTimeout: transactionTimeout}, nil
@@ -3402,7 +3408,7 @@ func (s *SqlStore) IncrementNetworkSerial(ctx context.Context, accountId string)
 }
 
 func (s *SqlStore) ExecuteInTransaction(ctx context.Context, operation func(store Store) error) error {
-	timeoutCtx, cancel := context.WithTimeout(context.Background(), s.transactionTimeout)
+	timeoutCtx, cancel := context.WithTimeout(ctx, s.transactionTimeout)
 	defer cancel()
 
 	startTime := time.Now()

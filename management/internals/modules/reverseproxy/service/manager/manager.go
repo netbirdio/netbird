@@ -306,6 +306,10 @@ func (m *Manager) validateSubdomainRequirement(ctx context.Context, domain, clus
 func (m *Manager) persistNewService(ctx context.Context, accountID string, svc *service.Service) error {
 	customPorts := m.clusterCustomPorts(ctx, svc)
 
+	if err := validateTargetReferences(ctx, m.store, accountID, svc.Targets); err != nil {
+		return err
+	}
+
 	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if svc.Domain != "" {
 			if err := m.checkDomainAvailable(ctx, transaction, svc.Domain, ""); err != nil {
@@ -318,10 +322,6 @@ func (m *Manager) persistNewService(ctx context.Context, accountID string, svc *
 		}
 
 		if err := m.checkPortConflict(ctx, transaction, svc); err != nil {
-			return err
-		}
-
-		if err := validateTargetReferences(ctx, transaction, accountID, svc.Targets); err != nil {
 			return err
 		}
 
@@ -435,6 +435,10 @@ func (m *Manager) assignPort(ctx context.Context, tx store.Store, cluster string
 func (m *Manager) persistNewEphemeralService(ctx context.Context, accountID, peerID string, svc *service.Service) error {
 	customPorts := m.clusterCustomPorts(ctx, svc)
 
+	if err := validateTargetReferences(ctx, m.store, accountID, svc.Targets); err != nil {
+		return err
+	}
+
 	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err := m.validateEphemeralPreconditions(ctx, transaction, accountID, peerID, svc); err != nil {
 			return err
@@ -445,10 +449,6 @@ func (m *Manager) persistNewEphemeralService(ctx context.Context, accountID, pee
 		}
 
 		if err := m.checkPortConflict(ctx, transaction, svc); err != nil {
-			return err
-		}
-
-		if err := validateTargetReferences(ctx, transaction, accountID, svc.Targets); err != nil {
 			return err
 		}
 
@@ -552,6 +552,10 @@ func (m *Manager) persistServiceUpdate(ctx context.Context, accountID string, se
 	svcForCaps.ProxyCluster = effectiveCluster
 	customPorts := m.clusterCustomPorts(ctx, &svcForCaps)
 
+	if err := validateTargetReferences(ctx, m.store, accountID, service.Targets); err != nil {
+		return nil, err
+	}
+
 	var updateInfo serviceUpdateInfo
 
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
@@ -626,9 +630,6 @@ func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.St
 		return err
 	}
 	if err := m.checkPortConflict(ctx, transaction, service); err != nil {
-		return err
-	}
-	if err := validateTargetReferences(ctx, transaction, accountID, service.Targets); err != nil {
 		return err
 	}
 	if err := transaction.UpdateService(ctx, service); err != nil {
