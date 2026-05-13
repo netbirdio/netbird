@@ -10,6 +10,7 @@ import {
     ShieldIcon,
     SlidersHorizontalIcon,
     SquareTerminalIcon,
+    SwatchBookIcon,
 } from "lucide-react";
 
 export const SettingsNavigationTriggers = () => {
@@ -28,6 +29,11 @@ export const SettingsNavigationTriggers = () => {
                 value={"general"}
                 icon={SlidersHorizontalIcon}
                 title={"General"}
+            />
+            <VerticalTabs.Trigger
+                value={"appearance"}
+                icon={SwatchBookIcon}
+                title={"Appearance"}
             />
             <VerticalTabs.Trigger
                 value={"network"}

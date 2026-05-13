@@ -12,6 +12,7 @@ const switchVariants = cva("", {
     size: {
       default: "h-[24px] w-[44px]",
       small: "h-[18px] w-[36px]",
+      large: "h-[36px] w-[66px]",
     },
     variant: {
       default: [
@@ -36,6 +37,7 @@ const switchVariants = cva("", {
     "thumb-size": {
       default: "h-5 w-5 data-[state=checked]:translate-x-5",
       small: "h-[14px] w-[14px] data-[state=checked]:translate-x-[17px]",
+      large: "h-[28px] w-[28px] data-[state=checked]:translate-x-[30px]",
     },
   },
 });

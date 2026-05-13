@@ -17,7 +17,7 @@ body,
 }
 
 body {
-  @apply bg-nb-gray font-sans text-nb-gray-200 antialiased;
+  @apply bg-nb-gray/90 font-sans text-nb-gray-200 antialiased;
 }
 
 .wails-draggable {

@@ -4,6 +4,7 @@ import "./globals.css";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import QuickActions from "@/screens/QuickActions.tsx";
 import LoginUrl from "@/pages/LoginUrl.tsx";
+import SessionExpired from "@/pages/SessionExpired.tsx";
 import Update from "@/screens/Update.tsx";
 import { AppLayout } from "@/layouts/AppLayout.tsx";
 import { Main } from "@/layouts/Main.tsx";
@@ -22,6 +23,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
                     <Route path="/quick" element={<QuickActions />} />
                     <Route path="/login" element={<LoginUrl />} />
                     <Route path="/update" element={<Update />} />
+                    <Route path="/session-expired" element={<SessionExpired />} />
                     <Route element={<AppLayout />}>
                         <Route index element={<Main />} />
                         <Route path="settings" element={<Settings />} />

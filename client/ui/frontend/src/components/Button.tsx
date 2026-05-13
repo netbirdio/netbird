@@ -91,7 +91,7 @@ export const buttonVariants = cva(
                 ],
             },
             size: {
-                xs: "text-xs py-2 px-3.5",
+                xs: "text-xs py-2.5 px-3.5",
                 xs2: "text-[0.78rem] py-2 px-4",
                 sm: "text-sm py-[9px] px-4",
                 md: "text-md py-[9px] px-4",

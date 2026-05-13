@@ -7,6 +7,7 @@ import { VerticalTabs } from "@/components/VerticalTabs.tsx";
 import { SettingsNavigationTriggers } from "@/modules/settings/SettingsNavigationTriggers.tsx";
 import { SettingsProvider } from "@/modules/settings/SettingsContext.tsx";
 import { SettingsGeneral } from "@/modules/settings/SettingsGeneral.tsx";
+import { SettingsAppearance } from "@/modules/settings/SettingsAppearance.tsx";
 import { SettingsNetwork } from "@/modules/settings/SettingsNetwork.tsx";
 import { SettingsSecurity } from "@/modules/settings/SettingsSecurity.tsx";
 import { SettingsSSH } from "@/modules/settings/SettingsSSH.tsx";
@@ -14,14 +15,34 @@ import { SettingsAdvanced } from "@/modules/settings/SettingsAdvanced.tsx";
 import { SettingsTroubleshooting } from "@/modules/settings/SettingsTroubleshooting.tsx";
 import { SettingsAbout } from "@/modules/settings/SettingsAbout.tsx";
 
+const LAST_TAB_KEY = "netbird:settings:lastTab";
+
+const readLastTab = () => {
+    try {
+        return localStorage.getItem(LAST_TAB_KEY);
+    } catch {
+        return null;
+    }
+};
+
 export const Settings = () => {
     const location = useLocation();
     const navState = location.state as { tab?: string } | null;
-    const [active, setActive] = useState(navState?.tab ?? "general");
+    const [active, setActive] = useState(
+        () => navState?.tab ?? readLastTab() ?? "general",
+    );
 
     useEffect(() => {
         if (navState?.tab) setActive(navState.tab);
     }, [navState?.tab, location.key]);
+
+    useEffect(() => {
+        try {
+            localStorage.setItem(LAST_TAB_KEY, active);
+        } catch {
+            // ignore quota / unavailable storage
+        }
+    }, [active]);
 
     return (
         <VerticalTabs value={active} onValueChange={setActive} className={"p-4"}>
@@ -36,6 +57,9 @@ export const Settings = () => {
                             <SettingsProvider>
                                 <VerticalTabs.Content value={"general"}>
                                     <SettingsGeneral />
+                                </VerticalTabs.Content>
+                                <VerticalTabs.Content value={"appearance"}>
+                                    <SettingsAppearance />
                                 </VerticalTabs.Content>
                                 <VerticalTabs.Content value={"network"}>
                                     <SettingsNetwork />
