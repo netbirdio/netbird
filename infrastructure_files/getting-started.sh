@@ -19,6 +19,34 @@ readonly MSG_SEPARATOR="=========================================="
 # Utility Functions
 ############################################
 
+check_docker_sock_perms() {
+  local sock="${DOCKER_HOST:-unix:///var/run/docker.sock}"
+  sock="${sock#unix://}"
+
+  if [[ ! -S "$sock" ]]; then
+    return 0
+  fi
+
+  if [[ ! -r "$sock" ]] || [[ ! -w "$sock" ]]; then
+    local group
+    group="$(stat -c '%G' "$sock")"
+
+    echo "Cannot access Docker socket: $sock" > /dev/stderr
+    echo "" > /dev/stderr
+    echo "Socket permissions:" > /dev/stderr
+    ls -l "$sock" > /dev/stderr
+    echo "" > /dev/stderr
+    echo "Your user may need to be added to the '$group' group:" > /dev/stderr
+    echo "  sudo usermod -aG $group \"$USER\"" > /dev/stderr
+    echo "Then log out and back in, or run this for the current shell:" > /dev/stderr
+    echo "  newgrp $group" > /dev/stderr
+    echo "Note: newgrp is temporary; usermod is the permanent group change." > /dev/stderr
+
+    exit 1
+  fi
+  return 0
+}
+
 check_docker_compose() {
   if command -v docker-compose &> /dev/null
   then
@@ -582,6 +610,7 @@ start_services_and_show_instructions() {
 init_environment() {
   # Check if docker compose is installed using check_docker_compose function
   DOCKER_COMPOSE_COMMAND=$(check_docker_compose)
+  check_docker_sock_perms
 
   initialize_default_values
   configure_domain
