@@ -28,6 +28,15 @@ func hashRosenpassKey(key []byte) string {
 	return hex.EncodeToString(hasher.Sum(nil))
 }
 
+// rpServer is the subset of rp.Server used by Manager. Defined as an interface
+// so tests can substitute a mock without spinning up a real UDP server.
+type rpServer interface {
+	AddPeer(rp.PeerConfig) (rp.PeerID, error)
+	RemovePeer(rp.PeerID) error
+	Run() error
+	Close() error
+}
+
 type Manager struct {
 	ifaceName    string
 	spk          []byte
@@ -36,7 +45,7 @@ type Manager struct {
 	preSharedKey *[32]byte
 	rpPeerIDs    map[string]*rp.PeerID
 	rpWgHandler  *NetbirdHandler
-	server       *rp.Server
+	server       rpServer
 	lock         sync.Mutex
 	port         int
 	wgIface      PresharedKeySetter
