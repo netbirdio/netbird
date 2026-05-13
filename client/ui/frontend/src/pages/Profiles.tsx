@@ -3,6 +3,7 @@ import { Plus, RefreshCw } from "lucide-react";
 import {
   Profiles as ProfilesSvc,
   Connection,
+  ProfileSwitcher,
 } from "../../bindings/github.com/netbirdio/netbird/client/ui/services";
 import type { Profile } from "../../bindings/github.com/netbirdio/netbird/client/ui/services/models.js";
 import { Button } from "../components/Button";
@@ -33,8 +34,7 @@ export default function Profiles() {
 
   const select = async (name: string) => {
     try {
-      await ProfilesSvc.Switch({ profileName: name, username });
-      await Connection.Up({ profileName: name, username });
+      await ProfileSwitcher.SwitchActive({ profileName: name, username });
       await refresh();
     } catch (e) {
       setError(String(e));
