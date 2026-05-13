@@ -170,12 +170,17 @@ func (g *BundleGenerator) addIPTablesRulesToBundle(saveBin, listBin, filename st
 }
 
 // collectIPTablesRules collects rules using both <saveBin> and verbose listing via <listBin>.
+// Returns an error when neither command produced any output (e.g. the binary is missing),
+// so the caller can skip writing an empty file.
 func collectIPTablesRules(saveBin, listBin string) (string, error) {
 	var builder strings.Builder
+	var collected bool
+	var firstErr error
 
 	saveOutput, err := runCommand(saveBin)
 	switch {
 	case err != nil:
+		firstErr = err
 		log.Warnf("Failed to collect %s output: %v", saveBin, err)
 	case strings.TrimSpace(saveOutput) == "":
 		log.Debugf("%s produced no output, skipping", saveBin)
@@ -183,23 +188,31 @@ func collectIPTablesRules(saveBin, listBin string) (string, error) {
 		builder.WriteString(fmt.Sprintf("=== %s output ===\n", saveBin))
 		builder.WriteString(saveOutput)
 		builder.WriteString("\n")
+		collected = true
 	}
 
-	builder.WriteString(fmt.Sprintf("=== %s -v -n -L output ===\n", listBin))
+	listHeader := fmt.Sprintf("=== %s -v -n -L output ===\n", listBin)
+	builder.WriteString(listHeader)
 
 	tables := []string{"filter", "nat", "mangle", "raw", "security"}
 	for _, table := range tables {
-		builder.WriteString(fmt.Sprintf("*%s\n", table))
-
 		stats, err := runCommand(listBin, "-v", "-n", "-L", "-t", table)
 		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
 			log.Warnf("Failed to get %s statistics for table %s: %v", listBin, table, err)
 			continue
 		}
+		builder.WriteString(fmt.Sprintf("*%s\n", table))
 		builder.WriteString(stats)
 		builder.WriteString("\n")
+		collected = true
 	}
 
+	if !collected {
+		return "", fmt.Errorf("collect %s rules: %w", listBin, firstErr)
+	}
 	return builder.String(), nil
 }
 
@@ -821,6 +834,7 @@ func collectSysctls() string {
 		"net.ipv6.conf.all.forwarding",
 		"net.ipv6.conf.default.forwarding",
 	})
+	writeSysctlGroup(&builder, "ipv4 per-interface forwarding", listInterfaceSysctls("ipv4", "forwarding"))
 	writeSysctlGroup(&builder, "ipv6 per-interface forwarding", listInterfaceSysctls("ipv6", "forwarding"))
 	writeSysctlGroup(&builder, "rp_filter", append(
 		[]string{"net.ipv4.conf.all.rp_filter", "net.ipv4.conf.default.rp_filter"},

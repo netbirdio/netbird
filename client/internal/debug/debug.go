@@ -168,22 +168,33 @@ The config.txt file contains anonymized configuration information of the NetBird
 Other non-sensitive configuration options are included without anonymization.
 
 Firewall Rules (Linux only)
-The bundle includes two separate firewall rule files:
+The bundle includes the following firewall-related files:
 
 iptables.txt:
-- Complete iptables ruleset with packet counters using 'iptables -v -n -L'
+- IPv4 iptables ruleset with packet counters using 'iptables-save' and 'iptables -v -n -L'
 - Includes all tables (filter, nat, mangle, raw, security)
 - Shows packet and byte counters for each rule
 - All IP addresses are anonymized
 - Chain names, table names, and other non-sensitive information remain unchanged
 
+ip6tables.txt:
+- IPv6 ip6tables ruleset with packet counters using 'ip6tables-save' and 'ip6tables -v -n -L'
+- Same table coverage and anonymization as iptables.txt
+- Omitted when ip6tables is not installed or no IPv6 rules are present
+
+ipset.txt:
+- Output of 'ipset list' (family-agnostic)
+- IP addresses are anonymized; set names and types remain unchanged
+
 nftables.txt:
-- Complete nftables ruleset obtained via 'nft -a list ruleset'
+- Complete nftables ruleset across all families (ip, ip6, inet, arp, bridge, netdev) via 'nft -a list ruleset'
 - Includes rule handle numbers and packet counters
-- All tables, chains, and rules are included
-- Shows packet and byte counters for each rule
-- All IP addresses are anonymized
-- Chain names, table names, and other non-sensitive information remain unchanged
+- All IP addresses are anonymized; chain/table names remain unchanged
+
+sysctls.txt:
+- Forwarding (IPv4 + IPv6, global and per-interface), reverse-path filter, source-validation, conntrack accounting, and TCP-related sysctls that netbird may read or modify
+- Per-interface keys are enumerated from /proc/sys/net/ipv{4,6}/conf
+- Interface names anonymized when --anonymize is set
 
 IP Rules (Linux only)
 The ip_rules.txt file contains detailed IP routing rule information:
