@@ -136,3 +136,19 @@ func TestGetClusterAllowList_BYOPEmptySlice_FallbackToShared(t *testing.T) {
 	assert.Equal(t, []string{"eu.proxy.netbird.io"}, result)
 }
 
+func TestGetClusterAllowList_PublicEmpty_BYOPOnly(t *testing.T) {
+	pm := &mockProxyManager{
+		getActiveClusterAddressesForAccountFunc: func(_ context.Context, _ string) ([]string, error) {
+			return []string{"byop.example.com"}, nil
+		},
+		getActiveClusterAddressesFunc: func(_ context.Context) ([]string, error) {
+			return nil, nil
+		},
+	}
+
+	mgr := Manager{proxyManager: pm}
+	result, err := mgr.getClusterAllowList(context.Background(), "acc-123")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"byop.example.com"}, result)
+}
+
