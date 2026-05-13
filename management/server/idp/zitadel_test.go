@@ -399,6 +399,7 @@ func TestZitadelInviteUser_v2_Endpoint(t *testing.T) {
 
 	assert.Contains(t, capturedURL, "users/user-abc-123/invite_code", "v2 must use CreateInviteCode endpoint")
 	assert.NotContains(t, capturedURL, "invite_code/resend", "v2 must not use deprecated ResendInviteCode endpoint")
+	assert.Equal(t, `{"sendCode":{}}`, client.reqBody, "v2 invite must include sendCode variant")
 }
 
 func TestZitadelGetAccount_v2_RequestBody(t *testing.T) {

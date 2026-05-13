@@ -324,7 +324,7 @@ func (zc *ZitadelCredentials) Authenticate(ctx context.Context) (JWTToken, error
 // CreateUser creates a new user in zitadel Idp and sends an invite via Zitadel.
 func (zm *ZitadelManager) CreateUser(ctx context.Context, email, name, accountID, invitedByEmail string) (*UserData, error) {
 	firstLast := strings.SplitN(name, " ", 2)
-	lastName := firstLast[0]
+	lastName := ""
 	if len(firstLast) > 1 {
 		lastName = firstLast[1]
 	}
@@ -550,7 +550,7 @@ func (zm *ZitadelManager) InviteUserByID(ctx context.Context, userID string) err
 		// CreateInviteCode: creates and sends a new invite code regardless of prior state.
 		// ResendInviteCode (/invite_code/resend) is deprecated and requires a pre-existing code.
 		endpoint = fmt.Sprintf("users/%s/invite_code", userID)
-		payload = "{}"
+		payload = `{"sendCode":{}}`
 	} else {
 		endpoint = fmt.Sprintf("users/%s/_resend_initialization", userID)
 		inviteUser := map[string]string{"email": userID}
