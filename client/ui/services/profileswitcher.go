@@ -69,10 +69,7 @@ func (s *ProfileSwitcher) SwitchActive(ctx context.Context, p ProfileRef) error 
 	}
 
 	if wasActive {
-		if err := s.connection.Up(ctx, UpParams{
-			ProfileName: p.ProfileName,
-			Username:    p.Username,
-		}); err != nil {
+		if err := s.connection.Up(ctx, UpParams(p)); err != nil {
 			return fmt.Errorf("reconnect %q: %w", p.ProfileName, err)
 		}
 	}
