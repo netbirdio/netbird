@@ -58,3 +58,25 @@ var iconUpdateDisconnectedMacOS []byte
 
 //go:embed assets/netbird.png
 var iconWindow []byte
+
+// Small colored dots shown next to the status menu entry. Rendered as
+// regular NSImage/HBITMAP/GTK menu-item icons (not template), so the
+// colours stay intact on every platform.
+
+//go:embed assets/netbird-menu-dot-connected.png
+var iconMenuDotConnected []byte
+
+//go:embed assets/netbird-menu-dot-connecting.png
+var iconMenuDotConnecting []byte
+
+//go:embed assets/netbird-menu-dot-login.png
+var iconMenuDotLogin []byte
+
+//go:embed assets/netbird-menu-dot-error.png
+var iconMenuDotError []byte
+
+//go:embed assets/netbird-menu-dot-idle.png
+var iconMenuDotIdle []byte
+
+//go:embed assets/netbird-menu-dot-offline.png
+var iconMenuDotOffline []byte

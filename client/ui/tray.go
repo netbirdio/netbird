@@ -13,6 +13,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 
 	"github.com/netbirdio/netbird/client/ui/services"
@@ -26,14 +27,15 @@ const (
 	trayTooltip = "NetBird"
 
 	// Top-level menu entries.
-	menuStatusDisconnected     = "Disconnected"
+	menuStatusDisconnected      = "Disconnected"
 	menuStatusDaemonUnavailable = "Not running"
-	menuOpenNetBird            = "Open NetBird"
-	menuConnect            = "Connect"
-	menuDisconnect         = "Disconnect"
-	menuExitNode           = "Exit Node"
-	menuNetworks           = "Networks"
-	menuQuit               = "Quit"
+	menuOpenNetBird             = "Open NetBird"
+	menuConnect                 = "Connect"
+	menuDisconnect              = "Disconnect"
+	menuExitNode                = "Exit Node"
+	menuNetworks                = "Resources"
+	menuProfiles                = "Profiles"
+	menuQuit                    = "Quit"
 
 	// Settings + diagnostics. The settings page replaces the Fyne tray's
 	// Settings submenu (per-toggle checkboxes for SSH, auto-connect,
@@ -68,11 +70,17 @@ const (
 	notifySessionExpiredBody   = "Your NetBird session has expired. Please log in again."
 
 	// Notification IDs (used to coalesce duplicate toasts).
-	notifyIDUpdatePrefix    = "netbird-update-"
-	notifyIDEvent           = "netbird-event-"
-	notifyIDTrayError       = "netbird-tray-error"
-	notifyIDSessionExpired  = "netbird-session-expired"
+	notifyIDUpdatePrefix   = "netbird-update-"
+	notifyIDEvent          = "netbird-event-"
+	notifyIDTrayError      = "netbird-tray-error"
+	notifyIDSessionExpired = "netbird-session-expired"
 
+	// Daemon status strings mirroring internal.Status* — kept in sync
+	// with client/internal/state.go.
+	statusConnected  = "Connected"
+	statusConnecting = "Connecting"
+	statusIdle       = "Idle"
+	statusError      = "Error"
 	// Daemon status string for an SSO session that has expired and needs
 	// re-authentication. Mirrors internal.StatusSessionExpired.
 	statusSessionExpired = "SessionExpired"
@@ -114,11 +122,13 @@ type Tray struct {
 	window *application.WebviewWindow
 	svc    TrayServices
 
+	menu              *application.Menu
 	statusItem        *application.MenuItem
 	upItem            *application.MenuItem
 	downItem          *application.MenuItem
 	exitNodeItem      *application.MenuItem
 	networksItem      *application.MenuItem
+	profileSubmenu    *application.Menu
 	settingsItem      *application.MenuItem
 	debugItem         *application.MenuItem
 	updateItem        *application.MenuItem
@@ -147,7 +157,8 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 	t.tray = app.SystemTray.New()
 	t.applyIcon()
 	t.tray.SetTooltip(trayTooltip)
-	t.tray.SetMenu(t.buildMenu())
+	t.menu = t.buildMenu()
+	t.tray.SetMenu(t.menu)
 	// Left-click on the tray icon opens the menu on every platform. The
 	// window is reached through the explicit "Open NetBird" entry. This
 	// matches macOS NSStatusItem convention (click → menu), the Linux
@@ -162,6 +173,13 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 	app.Event.On(services.EventSystem, t.onSystemEvent)
 	app.Event.On(services.EventUpdateAvailable, t.onUpdateAvailable)
 	app.Event.On(services.EventUpdateProgress, t.onUpdateProgress)
+	// Defer the first profile load until the macOS/GTK/Win32 menu impl is
+	// live — Menu.Update() short-circuits while app.running is false, and
+	// AppKit's main queue isn't ready earlier either (see d23ef34 InvokeSync
+	// nil-deref).
+	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		go t.loadProfiles()
+	})
 
 	go t.loadConfig()
 	return t
@@ -189,13 +207,19 @@ func (t *Tray) buildMenu() *application.Menu {
 	// up unconditionally rather than swapping items at runtime.
 	t.statusItem = menu.Add(menuStatusDisconnected).
 		OnClick(func(*application.Context) { t.openRoute("/login") }).
-		SetEnabled(false)
+		SetEnabled(false).
+		SetBitmap(iconMenuDotIdle)
 
 	menu.AddSeparator()
 	// The tray icon's left-click handler is intentionally unbound (see
 	// NewTray for the rationale), so expose the window through an explicit
 	// menu entry on every platform.
 	menu.Add(menuOpenNetBird).OnClick(func(*application.Context) { t.ShowWindow() })
+	menu.AddSeparator()
+	// Profiles submenu is populated asynchronously once the application
+	// has started — Menu.Update() is a no-op before app.running is true,
+	// so the initial fill is gated on the ApplicationStarted hook.
+	t.profileSubmenu = menu.AddSubmenu(menuProfiles)
 	menu.AddSeparator()
 	// Only the action that applies to the current state is visible: Connect
 	// when disconnected, Disconnect when connected. applyStatus swaps them on
@@ -430,7 +454,7 @@ func (t *Tray) onUpdateProgress(ev *application.CustomEvent) {
 // otherwise spam Shell_NotifyIcon and the log.
 func (t *Tray) applyStatus(st services.Status) {
 	t.mu.Lock()
-	connected := strings.EqualFold(st.Status, "Connected")
+	connected := strings.EqualFold(st.Status, statusConnected)
 	iconChanged := connected != t.connected || st.Status != t.lastStatus
 	// Detect the transition into SessionExpired: the daemon emits the
 	// state on every Status snapshot for as long as the session stays
@@ -457,32 +481,46 @@ func (t *Tray) applyStatus(st services.Status) {
 			strings.EqualFold(st.Status, statusSessionExpired) ||
 			strings.EqualFold(st.Status, statusLoginFailed)
 		daemonUnavailable := strings.EqualFold(st.Status, services.StatusDaemonUnavailable)
+		connecting := strings.EqualFold(st.Status, statusConnecting)
 		if t.statusItem != nil {
 			// When the daemon needs re-authentication the status row turns
 			// into the actionable Login entry — Connect would only fail.
 			// When the daemon socket is unreachable, swap the label to make
 			// the cause obvious; Connect/Disconnect would just fail.
 			label := st.Status
-			if daemonUnavailable {
+			switch {
+			case daemonUnavailable:
 				label = menuStatusDaemonUnavailable
+			case strings.EqualFold(st.Status, statusIdle):
+				label = menuStatusDisconnected
 			}
 			t.statusItem.SetLabel(label)
 			t.statusItem.SetEnabled(needsLogin)
+			t.applyStatusIndicator(st.Status)
 		}
 		if t.upItem != nil {
-			t.upItem.SetHidden(connected || needsLogin || daemonUnavailable)
-			t.upItem.SetEnabled(!connected && !needsLogin && !daemonUnavailable)
+			// Hide Connect whenever an Up action would be a no-op or would
+			// only fail: tunnel already up, daemon mid-connect (Disconnect
+			// takes over the slot so the user can abort), login required,
+			// or daemon socket unreachable.
+			t.upItem.SetHidden(connected || connecting || needsLogin || daemonUnavailable)
+			t.upItem.SetEnabled(!connected && !connecting && !needsLogin && !daemonUnavailable)
 		}
 		if t.downItem != nil {
-			t.downItem.SetHidden(!connected)
-			t.downItem.SetEnabled(connected)
+			// Disconnect is the abort path while the daemon is still
+			// retrying the management dial — without it the user has no
+			// way to stop the loop short of killing the daemon.
+			t.downItem.SetHidden(!connected && !connecting)
+			t.downItem.SetEnabled(connected || connecting)
 		}
-		// Settings, Networks and Debug Bundle all drive daemon RPCs from
-		// their respective frontend routes — disable them while the daemon
-		// socket is unreachable so the user doesn't land on a page that
-		// would only fail to load.
+		// Exit Node and Resources surface tunnel-routed state, so only
+		// expose them while the tunnel is up. Settings/Debug-Bundle just
+		// need the daemon socket reachable.
+		if t.exitNodeItem != nil {
+			t.exitNodeItem.SetEnabled(connected)
+		}
 		if t.networksItem != nil {
-			t.networksItem.SetEnabled(!daemonUnavailable)
+			t.networksItem.SetEnabled(connected)
 		}
 		if t.settingsItem != nil {
 			t.settingsItem.SetEnabled(!daemonUnavailable)
@@ -519,18 +557,55 @@ func (t *Tray) handleSessionExpired() {
 }
 
 func (t *Tray) rebuildExitNodes(nodes []string) {
-	if t.exitNodeItem == nil {
-		return
-	}
-	if len(nodes) == 0 {
-		t.exitNodeItem.SetEnabled(false)
+	if t.exitNodeItem == nil || len(nodes) == 0 {
 		return
 	}
 	sub := application.NewMenu()
 	for _, fqdn := range nodes {
 		sub.AddCheckbox(fqdn, false)
 	}
-	t.exitNodeItem.SetEnabled(true)
+}
+
+// applyStatusIndicator sets the small coloured dot shown on the status
+// menu entry. The dot mirrors the tray icon's state through a fixed
+// palette: green for Connected, yellow for Connecting, blue for the
+// login states, red for hard errors, grey for the idle/disconnected
+// pair and a darker grey when the daemon socket is unreachable.
+//
+// Wails v3 alpha's setMenuItemBitmap calls NSMenuItem.setImage from
+// whichever thread invoked SetBitmap — unlike setMenuItemLabel/Disabled/
+// Hidden/Checked which dispatch_sync onto the main queue. The off-thread
+// AppKit call leaves the visible dot stale until the next time the menu
+// is reopened (close+reopen workaround). Rebuilding via tray.SetMenu
+// reruns processMenu inside InvokeSync, so the bitmap is applied to a
+// fresh NSMenuItem on the main thread and macOS picks it up.
+func (t *Tray) applyStatusIndicator(status string) {
+	if t.statusItem == nil {
+		return
+	}
+	t.statusItem.SetBitmap(statusIndicatorBitmap(status))
+	if t.menu != nil {
+		t.tray.SetMenu(t.menu)
+	}
+}
+
+func statusIndicatorBitmap(status string) []byte {
+	switch {
+	case strings.EqualFold(status, statusConnected):
+		return iconMenuDotConnected
+	case strings.EqualFold(status, statusConnecting):
+		return iconMenuDotConnecting
+	case strings.EqualFold(status, statusNeedsLogin),
+		strings.EqualFold(status, statusSessionExpired):
+		return iconMenuDotLogin
+	case strings.EqualFold(status, statusLoginFailed),
+		strings.EqualFold(status, statusError):
+		return iconMenuDotError
+	case strings.EqualFold(status, services.StatusDaemonUnavailable):
+		return iconMenuDotOffline
+	default:
+		return iconMenuDotIdle
+	}
 }
 
 func (t *Tray) applyIcon() {
@@ -561,8 +636,8 @@ func (t *Tray) iconForState() (icon, dark []byte) {
 	statusLabel := t.lastStatus
 	t.mu.Unlock()
 
-	connecting := strings.EqualFold(statusLabel, "Connecting")
-	errored := strings.EqualFold(statusLabel, "Error") ||
+	connecting := strings.EqualFold(statusLabel, statusConnecting)
+	errored := strings.EqualFold(statusLabel, statusError) ||
 		strings.EqualFold(statusLabel, services.StatusDaemonUnavailable)
 	needsLogin := strings.EqualFold(statusLabel, statusNeedsLogin) ||
 		strings.EqualFold(statusLabel, statusSessionExpired) ||
@@ -634,6 +709,128 @@ func (t *Tray) loadConfig() {
 	t.activeUsername = active.Username
 	t.notificationsEnabled = !cfg.DisableNotifications
 	t.mu.Unlock()
+}
+
+// loadProfiles refreshes the Profiles submenu from the daemon. Each
+// entry is a checkbox showing the active profile and switches on click.
+// Called once on ApplicationStarted and again after a successful switch
+// so the checkmark moves to the new active profile.
+func (t *Tray) loadProfiles() {
+	if t.profileSubmenu == nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	username, err := t.svc.Profiles.Username()
+	if err != nil {
+		log.Debugf("get current user: %v", err)
+		return
+	}
+	profiles, err := t.svc.Profiles.List(ctx, username)
+	if err != nil {
+		log.Debugf("list profiles: %v", err)
+		return
+	}
+	sort.Slice(profiles, func(i, j int) bool { return profiles[i].Name < profiles[j].Name })
+
+	log.Infof("tray loadProfiles: received %d profile(s) for user %q", len(profiles), username)
+	t.profileSubmenu.Clear()
+	for _, p := range profiles {
+		name := p.Name
+		active := p.IsActive
+		log.Infof("tray loadProfiles: profile=%q active=%v", name, active)
+		item := t.profileSubmenu.AddCheckbox(name, active)
+		item.OnClick(func(*application.Context) {
+			log.Infof("tray profile click: profile=%q wasActive=%v", name, active)
+			if active {
+				return
+			}
+			t.switchProfile(name)
+		})
+	}
+	// Wails v3 alpha's submenu.Update() builds a fresh, detached NSMenu on
+	// darwin that never replaces the empty NSMenu attached to the parent
+	// menu item at initial setup — so the visible Profiles menu stays
+	// frozen on the snapshot taken when the tray was registered. Re-running
+	// SetMenu on the top-level rebuilds the entire NSMenu tree against the
+	// cached pointer and is the only path that propagates submenu changes.
+	if t.menu != nil {
+		t.tray.SetMenu(t.menu)
+	} else {
+		t.profileSubmenu.Update()
+	}
+}
+
+// switchProfile runs the daemon RPC in a goroutine so the menu click
+// returns immediately, then reloads the submenu to move the checkmark.
+//
+// Reconnect policy by previous daemon status:
+//
+//	┌─────────────────┬──────────────────────┬───────────────────────────────────┐
+//	│ Previous status │ Tray action          │ Rationale                         │
+//	├─────────────────┼──────────────────────┼───────────────────────────────────┤
+//	│ Connected       │ Switch + Down + Up   │ Reconnect with the new profile.   │
+//	│ Connecting      │ Switch + Down + Up   │ Stop the retry loop still dialing │
+//	│                 │                      │ the old management server, then   │
+//	│                 │                      │ restart with new config.          │
+//	│ Idle            │ Switch only          │ User chose to be offline; don't   │
+//	│                 │                      │ silently flip the daemon online.  │
+//	│ NeedsLogin      │ Switch only          │ Login needs interactive SSO; let  │
+//	│ LoginFailed     │ Switch only          │ the user trigger the next step.   │
+//	│ SessionExpired  │ Switch only          │                                   │
+//	└─────────────────┴──────────────────────┴───────────────────────────────────┘
+//
+// Rule of thumb: auto-reconnect only when the daemon was actively trying
+// to be online (Connected or Connecting). Any other state is a deliberate
+// waiting point — keep the user in control of the next action.
+func (t *Tray) switchProfile(name string) {
+	t.mu.Lock()
+	prevStatus := t.lastStatus
+	t.mu.Unlock()
+	wasActive := strings.EqualFold(prevStatus, statusConnected) ||
+		strings.EqualFold(prevStatus, statusConnecting)
+
+	go func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		username, err := t.svc.Profiles.Username()
+		if err != nil {
+			log.Errorf("get current user: %v", err)
+			return
+		}
+		log.Infof("tray switchProfile: sending SwitchProfile RPC profile=%q user=%q prevStatus=%q wasActive=%v",
+			name, username, prevStatus, wasActive)
+		if err := t.svc.Profiles.Switch(ctx, services.ProfileRef{
+			ProfileName: name,
+			Username:    username,
+		}); err != nil {
+			log.Errorf("tray switchProfile: SwitchProfile RPC failed profile=%q err=%v", name, err)
+			t.notifyError(fmt.Sprintf("Failed to switch to %s", name))
+			return
+		}
+		log.Infof("tray switchProfile: SwitchProfile RPC succeeded profile=%q", name)
+
+		if wasActive {
+			// Stop the in-flight (or established) connection that's still
+			// pointing at the previous profile's management server, then
+			// bring it back up against the new profile.
+			log.Infof("tray switchProfile: was active (%s), reconnecting with new profile %q", prevStatus, name)
+			if err := t.svc.Connection.Down(ctx); err != nil {
+				log.Errorf("tray switchProfile: Down failed: %v", err)
+			}
+			if err := t.svc.Connection.Up(ctx, services.UpParams{
+				ProfileName: name,
+				Username:    username,
+			}); err != nil {
+				log.Errorf("tray switchProfile: Up failed: %v", err)
+				t.notifyError(fmt.Sprintf("Failed to reconnect with %s", name))
+			}
+		}
+
+		t.loadProfiles()
+	}()
 }
 
 // notify wraps the Wails notification service with the tray's standard

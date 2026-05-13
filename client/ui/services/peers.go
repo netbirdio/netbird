@@ -11,6 +11,8 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/proto"
 )
@@ -185,6 +187,23 @@ func (s *Peers) Get(ctx context.Context) (Status, error) {
 	return statusFromProto(resp), nil
 }
 
+// isDaemonUnreachable reports whether a gRPC stream error indicates the
+// daemon socket itself is not answering (process down, socket missing,
+// permission denied) versus the daemon responding with an application-level
+// error code. Only the former should flip the tray to "Not running" — a
+// daemon that returns FailedPrecondition (e.g. while it's retrying the
+// management connection) is alive and shouldn't be reported as down.
+func isDaemonUnreachable(err error) bool {
+	if err == nil {
+		return false
+	}
+	st, ok := status.FromError(err)
+	if !ok {
+		return true
+	}
+	return st.Code() == codes.Unavailable
+}
+
 // statusStreamLoop subscribes to the daemon's SubscribeStatus stream and
 // re-emits each FullStatus snapshot on the Wails event bus. The first
 // message is the current snapshot; subsequent messages fire on
@@ -225,7 +244,9 @@ func (s *Peers) statusStreamLoop(ctx context.Context) {
 		}
 		stream, err := cli.SubscribeStatus(ctx, &proto.StatusRequest{GetFullPeerStatus: true})
 		if err != nil {
-			emitUnavailable()
+			if isDaemonUnreachable(err) {
+				emitUnavailable()
+			}
 			return fmt.Errorf("subscribe status: %w", err)
 		}
 		for {
@@ -234,7 +255,9 @@ func (s *Peers) statusStreamLoop(ctx context.Context) {
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
-				emitUnavailable()
+				if isDaemonUnreachable(err) {
+					emitUnavailable()
+				}
 				return fmt.Errorf("status stream recv: %w", err)
 			}
 			unavailable = false

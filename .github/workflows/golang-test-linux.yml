@@ -51,7 +51,7 @@ jobs:
 
       - name: Install dependencies
         if: steps.cache.outputs.cache-hit != 'true'
-        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-multilib libpcap-dev
+        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-multilib libpcap-dev
 
       - name: Install 32-bit libpcap
         if: steps.cache.outputs.cache-hit != 'true'
@@ -141,7 +141,7 @@ jobs:
             ${{ runner.os }}-gotest-cache-
 
       - name: Install dependencies
-        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-multilib libpcap-dev
+        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-multilib libpcap-dev
 
       - name: Install 32-bit libpcap
         if: matrix.arch == '386'
