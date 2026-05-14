@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
 
 // ProfileSwitcher encapsulates the full profile-switching reconnect policy so
@@ -60,6 +62,21 @@ func (s *ProfileSwitcher) SwitchActive(ctx context.Context, p ProfileRef) error 
 
 	if err := s.profiles.Switch(ctx, p); err != nil {
 		return fmt.Errorf("switch profile %q: %w", p.ProfileName, err)
+	}
+
+	// Mirror the daemon-side switch into the user-side ProfileManager state
+	// (~/Library/Application Support/netbird/active_profile on macOS, the
+	// equivalent user config dir elsewhere). The CLI's `netbird up` reads
+	// from this file (cmd/up.go: pm.GetActiveProfile()) and then sends the
+	// resolved name back in the Login/Up RPC — if it diverges from the
+	// daemon-side /var/lib/netbird/active_profile.json, the daemon will
+	// silently switch its active profile to whatever the CLI sends, so the
+	// next CLI `up` after a UI switch reverts the profile. Failures here
+	// don't abort the switch (the daemon is the authority; the local
+	// mirror is a cache the CLI consults), but they leave the CLI's view
+	// stale until the next successful switch — surface as a warning.
+	if err := profilemanager.NewProfileManager().SwitchProfile(p.ProfileName); err != nil {
+		log.Warnf("profileswitcher: mirror to user-side ProfileManager failed: %v", err)
 	}
 
 	if needsDown {
