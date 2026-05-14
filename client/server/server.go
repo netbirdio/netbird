@@ -229,10 +229,20 @@ func (s *Server) Start() error {
 // mechanism to keep the client connected even when the connection is lost.
 // we cancel retry if the client receive a stop or down command, or if disable auto connect is configured.
 func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}, giveUpChan chan struct{}) {
+	// close(giveUpChan) MUST run on every exit path (DisableAutoConnect
+	// return, backoff.Retry return, panic) — Down() blocks for up to 5s
+	// waiting on this signal before flipping the state to Idle, and a
+	// missed close leaves Down() always hitting the timeout. The signal
+	// fires AFTER clientRunning=false is committed under the mutex so a
+	// Down/Up racing with the goroutine exit never observes a half-state
+	// (chan closed but clientRunning still true).
 	defer func() {
 		s.mutex.Lock()
 		s.clientRunning = false
 		s.mutex.Unlock()
+		if giveUpChan != nil {
+			close(giveUpChan)
+		}
 	}()
 
 	if s.config.DisableAutoConnect {
@@ -286,10 +296,6 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profil
 
 	if err := backoff.Retry(runOperation, backOff); err != nil {
 		log.Errorf("operation failed: %v", err)
-	}
-
-	if giveUpChan != nil {
-		close(giveUpChan)
 	}
 }
 
@@ -903,11 +909,13 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 
 	// Wait for the connectWithRetryRuns goroutine to finish with a short timeout.
 	// This prevents the goroutine from setting ErrResetConnection after Down() returns.
-	// The giveUpChan is closed at the end of connectWithRetryRuns.
+	// The giveUpChan is closed by the goroutine's deferred cleanup (see
+	// connectWithRetryRuns) on every exit path. A timeout here typically
+	// means the goroutine is still wedged inside a slow teardown step.
 	if giveUpChan != nil {
 		select {
 		case <-giveUpChan:
-			log.Debugf("client goroutine finished successfully")
+			log.Debugf("client goroutine finished, giveUpChan closed")
 		case <-time.After(5 * time.Second):
 			log.Warnf("timeout waiting for client goroutine to finish, proceeding anyway")
 		}
