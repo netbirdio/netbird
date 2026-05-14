@@ -306,6 +306,10 @@ func (m *Manager) validateSubdomainRequirement(ctx context.Context, domain, clus
 func (m *Manager) persistNewService(ctx context.Context, accountID string, svc *service.Service) error {
 	customPorts := m.clusterCustomPorts(ctx, svc)
 
+	if err := validateTargetReferences(ctx, m.store, accountID, svc.Targets); err != nil {
+		return err
+	}
+
 	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if svc.Domain != "" {
 			if err := m.checkDomainAvailable(ctx, transaction, svc.Domain, ""); err != nil {
@@ -318,10 +322,6 @@ func (m *Manager) persistNewService(ctx context.Context, accountID string, svc *
 		}
 
 		if err := m.checkPortConflict(ctx, transaction, svc); err != nil {
-			return err
-		}
-
-		if err := validateTargetReferences(ctx, transaction, accountID, svc.Targets); err != nil {
 			return err
 		}
 
@@ -435,6 +435,10 @@ func (m *Manager) assignPort(ctx context.Context, tx store.Store, cluster string
 func (m *Manager) persistNewEphemeralService(ctx context.Context, accountID, peerID string, svc *service.Service) error {
 	customPorts := m.clusterCustomPorts(ctx, svc)
 
+	if err := validateTargetReferences(ctx, m.store, accountID, svc.Targets); err != nil {
+		return err
+	}
+
 	return m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err := m.validateEphemeralPreconditions(ctx, transaction, accountID, peerID, svc); err != nil {
 			return err
@@ -445,10 +449,6 @@ func (m *Manager) persistNewEphemeralService(ctx context.Context, accountID, pee
 		}
 
 		if err := m.checkPortConflict(ctx, transaction, svc); err != nil {
-			return err
-		}
-
-		if err := validateTargetReferences(ctx, transaction, accountID, svc.Targets); err != nil {
 			return err
 		}
 
@@ -552,10 +552,22 @@ func (m *Manager) persistServiceUpdate(ctx context.Context, accountID string, se
 	svcForCaps.ProxyCluster = effectiveCluster
 	customPorts := m.clusterCustomPorts(ctx, &svcForCaps)
 
+	if err := validateTargetReferences(ctx, m.store, accountID, service.Targets); err != nil {
+		return nil, err
+	}
+
+	// Validate subdomain requirement *before* the transaction: the underlying
+	// capability lookup talks to the main DB pool, and SQLite's single-connection
+	// pool would self-deadlock if this ran while the tx already held the only
+	// connection.
+	if err := m.validateSubdomainRequirement(ctx, service.Domain, effectiveCluster); err != nil {
+		return nil, err
+	}
+
 	var updateInfo serviceUpdateInfo
 
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		return m.executeServiceUpdate(ctx, transaction, accountID, service, &updateInfo, customPorts)
+		return m.executeServiceUpdate(ctx, transaction, accountID, service, &updateInfo, customPorts, effectiveCluster)
 	})
 
 	return &updateInfo, err
@@ -585,7 +597,7 @@ func (m *Manager) resolveEffectiveCluster(ctx context.Context, accountID string,
 	return existing.ProxyCluster, nil
 }
 
-func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.Store, accountID string, service *service.Service, updateInfo *serviceUpdateInfo, customPorts *bool) error {
+func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.Store, accountID string, service *service.Service, updateInfo *serviceUpdateInfo, customPorts *bool, effectiveCluster string) error {
 	existingService, err := transaction.GetServiceByID(ctx, store.LockingStrengthUpdate, accountID, service.ID)
 	if err != nil {
 		return err
@@ -603,15 +615,11 @@ func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.St
 	updateInfo.domainChanged = existingService.Domain != service.Domain
 
 	if updateInfo.domainChanged {
-		if err := m.handleDomainChange(ctx, transaction, accountID, service); err != nil {
+		if err := m.handleDomainChange(ctx, transaction, service, effectiveCluster); err != nil {
 			return err
 		}
 	} else {
 		service.ProxyCluster = existingService.ProxyCluster
-	}
-
-	if err := m.validateSubdomainRequirement(ctx, service.Domain, service.ProxyCluster); err != nil {
-		return err
 	}
 
 	m.preserveExistingAuthSecrets(service, existingService)
@@ -628,9 +636,6 @@ func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.St
 	if err := m.checkPortConflict(ctx, transaction, service); err != nil {
 		return err
 	}
-	if err := validateTargetReferences(ctx, transaction, accountID, service.Targets); err != nil {
-		return err
-	}
 	if err := transaction.UpdateService(ctx, service); err != nil {
 		return fmt.Errorf("update service: %w", err)
 	}
@@ -638,20 +643,18 @@ func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.St
 	return nil
 }
 
-func (m *Manager) handleDomainChange(ctx context.Context, transaction store.Store, accountID string, svc *service.Service) error {
+// handleDomainChange validates the new domain is free inside the transaction
+// and applies the pre-resolved cluster (computed outside the tx by
+// resolveEffectiveCluster). It must NOT call clusterDeriver here: that talks
+// to the main DB pool and would self-deadlock under SQLite (max_open_conns=1)
+// because the transaction already holds the only connection.
+func (m *Manager) handleDomainChange(ctx context.Context, transaction store.Store, svc *service.Service, effectiveCluster string) error {
 	if err := m.checkDomainAvailable(ctx, transaction, svc.Domain, svc.ID); err != nil {
 		return err
 	}
-
-	if m.clusterDeriver != nil {
-		newCluster, err := m.clusterDeriver.DeriveClusterFromDomain(ctx, accountID, svc.Domain)
-		if err != nil {
-			log.WithError(err).Warnf("could not derive cluster from domain %s", svc.Domain)
-		} else {
-			svc.ProxyCluster = newCluster
-		}
+	if effectiveCluster != "" {
+		svc.ProxyCluster = effectiveCluster
 	}
-
 	return nil
 }
 
