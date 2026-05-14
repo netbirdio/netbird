@@ -20,7 +20,6 @@ import (
 	"net/url"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"sync"
 	"time"
 
@@ -1659,7 +1658,7 @@ func (s *Server) deleteMapping(svcID types.ServiceID) *proto.ProxyMapping {
 func (s *Server) protoToMapping(ctx context.Context, mapping *proto.ProxyMapping) proxy.Mapping {
 	paths := make(map[string]*proxy.PathTarget)
 	for _, pathMapping := range mapping.GetPath() {
-		targetURL, err := parseTargetURL(pathMapping.GetTarget())
+		targetURL, err := url.Parse(pathMapping.GetTarget())
 		if err != nil {
 			s.Logger.WithFields(log.Fields{
 				"service_id": mapping.GetId(),
@@ -1696,24 +1695,6 @@ func (s *Server) protoToMapping(ctx context.Context, mapping *proto.ProxyMapping
 		m.StripAuthHeaders = append(m.StripAuthHeaders, ha.GetHeader())
 	}
 	return m
-}
-
-// parseTargetURL parses a backend target URL, bracketing an unbracketed IPv6
-// host so callers don't have to do it themselves. Unbracketed IPv6 in a URL is
-// invalid per RFC 3986 §3.2.2 and causes the URL parser to interpret the last
-// hextet as a port.
-func parseTargetURL(raw string) (*url.URL, error) {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return nil, err
-	}
-	if u.Host == "" || strings.HasPrefix(u.Host, "[") {
-		return u, nil
-	}
-	if addr, err := netip.ParseAddr(u.Host); err == nil && addr.Unmap().Is6() {
-		u.Host = "[" + u.Host + "]"
-	}
-	return u, nil
 }
 
 func protoToPathRewrite(mode proto.PathRewriteMode) proxy.PathRewriteMode {
