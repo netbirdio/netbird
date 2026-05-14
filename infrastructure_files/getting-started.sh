@@ -29,7 +29,11 @@ check_docker_sock_perms() {
 
   if [[ ! -r "$sock" ]] || [[ ! -w "$sock" ]]; then
     local group
-    group="$(stat -c '%G' "$sock")"
+    if [[ "${OSTYPE}" == "darwin"* ]]; then
+      group="$(stat -f '%Sg' "$sock")"
+    else
+      group="$(stat -c '%G' "$sock")"
+    fi
 
     echo "Cannot access Docker socket: $sock" > /dev/stderr
     echo "" > /dev/stderr
