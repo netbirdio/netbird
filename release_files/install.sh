@@ -429,6 +429,11 @@ if type uname >/dev/null 2>&1; then
                       echo "  2. Rebuild your base image with rpm-ostree included" >&2
                       echo "  3. Bake NetBird into your Containerfile" >&2
                       exit 1
+                  else
+                      echo "Detected ostree-booted system without rpm-ostree or bootc." >&2
+                      echo "NetBird cannot be installed automatically on this atomic system." >&2
+                      echo "Please install NetBird by rebuilding your base image or use a supported package manager." >&2
+                      exit 1
                   fi
               elif [ -x "$(command -v apt-get)" ]; then
                   PACKAGE_MANAGER="apt"
