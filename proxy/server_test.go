@@ -85,6 +85,13 @@ func TestParseTargetURL(t *testing.T) {
 			wantPort:     "",
 		},
 		{
+			name:         "ambiguous unbracketed ipv6 parsed as full address",
+			input:        "http://fb00:cafe::1:8080/",
+			wantHost:     "[fb00:cafe::1:8080]",
+			wantHostname: "fb00:cafe::1:8080",
+			wantPort:     "",
+		},
+		{
 			name:    "malformed url returns error",
 			input:   "://not a url",
 			wantErr: true,
