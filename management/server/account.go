@@ -2487,6 +2487,18 @@ func (am *DefaultAccountManager) buildIPv6AllowedPeers(ctx context.Context, tran
 			allowedPeers[peerID] = struct{}{}
 		}
 	}
+
+	// Embedded proxy peers sit outside regular group membership but must
+	// participate in any v6-enabled overlay to reach v6-only peers.
+	peers, err := transaction.GetAccountPeers(ctx, store.LockingStrengthNone, accountID, "", "")
+	if err != nil {
+		return nil, fmt.Errorf("get peers: %w", err)
+	}
+	for _, p := range peers {
+		if p.ProxyMeta.Embedded {
+			allowedPeers[p.ID] = struct{}{}
+		}
+	}
 	return allowedPeers, nil
 }
 
