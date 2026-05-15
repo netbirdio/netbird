@@ -182,24 +182,31 @@ func (m *Manager) Run() error {
 		return err
 	}
 
-	m.server, err = rp.NewUDPServer(conf)
+	server, err := rp.NewUDPServer(conf)
 	if err != nil {
 		return err
 	}
 
+	m.lock.Lock()
+	m.server = server
+	m.lock.Unlock()
+
 	log.Infof("starting rosenpass server on port %d", m.port)
 
-	return m.server.Run()
+	return server.Run()
 }
 
 // Close closes the Rosenpass server
 func (m *Manager) Close() error {
-	if m.server != nil {
-		err := m.server.Close()
-		if err != nil {
-			log.Errorf("failed closing local rosenpass server")
-		}
-		m.server = nil
+	m.lock.Lock()
+	server := m.server
+	m.server = nil
+	m.lock.Unlock()
+	if server == nil {
+		return nil
+	}
+	if err := server.Close(); err != nil {
+		log.Errorf("failed closing local rosenpass server: %v", err)
 	}
 	return nil
 }
