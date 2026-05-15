@@ -394,6 +394,13 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 		if end > len(mappings) {
 			end = len(mappings)
 		}
+		for _, m := range mappings[i:end] {
+			token, err := s.tokenStore.GenerateToken(m.AccountId, m.Id, s.proxyTokenTTL())
+			if err != nil {
+				return fmt.Errorf("generate auth token for service %s: %w", m.Id, err)
+			}
+			m.AuthToken = token
+		}
 		if err := conn.stream.Send(&proto.GetMappingUpdateResponse{
 			Mapping:             mappings[i:end],
 			InitialSyncComplete: end == len(mappings),
@@ -425,18 +432,14 @@ func (s *ProxyServiceServer) snapshotServiceMappings(ctx context.Context, conn *
 		return nil, fmt.Errorf("get services from store: %w", err)
 	}
 
+	oidcCfg := s.GetOIDCValidationConfig()
 	var mappings []*proto.ProxyMapping
 	for _, service := range services {
 		if !service.Enabled || service.ProxyCluster == "" || service.ProxyCluster != conn.address {
 			continue
 		}
 
-		token, err := s.tokenStore.GenerateToken(service.AccountID, service.ID, s.proxyTokenTTL())
-		if err != nil {
-			return nil, fmt.Errorf("generate auth token for service %s: %w", service.ID, err)
-		}
-
-		m := service.ToProtoMapping(rpservice.Create, token, s.GetOIDCValidationConfig())
+		m := service.ToProtoMapping(rpservice.Create, "", oidcCfg)
 		if !proxyAcceptsMapping(conn, m) {
 			continue
 		}
