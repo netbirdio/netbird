@@ -4,6 +4,26 @@
 /**
  * Peers serves the dashboard data: one polled Status RPC and a long-running
  * SubscribeEvents stream that re-emits every event over the Wails event bus.
+ * 
+ * Profile-switch suppression: ProfileSwitcher calls BeginProfileSwitch
+ * before tearing down the old profile when it would otherwise be followed
+ * by an Up on the new profile (i.e. previous status was Connected or
+ * Connecting). statusStreamLoop then swallows the transient stale
+ * Connected and Idle pushes the daemon emits during Down so the tray
+ * and the React Status page both see Connecting → new-profile-state
+ * instead of Connected → Connected → Idle → Connecting → new-state.
+ * 
+ * Suppression transition (applied by shouldSuppress before each emit):
+ * 
+ * 	┌────────────────────────────────────────────┬──────────────────────────────────┐
+ * 	│ Incoming daemon status                     │ Action                           │
+ * 	├────────────────────────────────────────────┼──────────────────────────────────┤
+ * 	│ Connected, Idle                            │ Suppress (the blink we hide)     │
+ * 	│ Connecting                                 │ Emit, clear flag (new Up began)  │
+ * 	│ NeedsLogin, LoginFailed, SessionExpired,   │ Emit, clear flag (new profile's  │
+ * 	│   DaemonUnavailable                        │   "Up won't run" terminal state) │
+ * 	│ (timeout elapsed)                          │ Clear flag, emit normally        │
+ * 	└────────────────────────────────────────────┴──────────────────────────────────┘
  * @module
  */
 
@@ -14,6 +34,30 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as $models from "./models.js";
+
+/**
+ * BeginProfileSwitch is called by ProfileSwitcher at the start of a switch
+ * when the previous status was Connected/Connecting — i.e. the daemon is
+ * about to emit Connected updates during Down's peer-count teardown and
+ * then an Idle before the new profile's Up resumes the stream. The flag
+ * makes statusStreamLoop drop those transient events. A synthetic
+ * Connecting snapshot is emitted right away so both consumers (tray and
+ * React) paint the optimistic state immediately. A 30s safety timeout
+ * clears the flag if the daemon never emits a follow-up status.
+ */
+export function BeginProfileSwitch(): $CancellablePromise<void> {
+    return $Call.ByID(3532998514);
+}
+
+/**
+ * CancelProfileSwitch is called by callers that abort the switch midway
+ * (the tray's Disconnect click while Connecting). Clears the suppression
+ * flag so the next daemon Idle paints through immediately instead of
+ * being swallowed.
+ */
+export function CancelProfileSwitch(): $CancellablePromise<void> {
+    return $Call.ByID(4190545179);
+}
 
 /**
  * Get returns the current daemon status snapshot.
