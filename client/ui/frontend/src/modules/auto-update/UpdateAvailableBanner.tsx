@@ -3,13 +3,17 @@ import { Button } from "@/components/Button";
 import { useClientVersion } from "@/modules/auto-update/ClientVersionContext";
 import { cn } from "@/lib/cn";
 
-// TODO: Shown only when management has auto updates enabled + there are updates available + force updates is disabled
+// Shown only when management has auto-update enabled (enforced=true) and the
+// daemon has not yet started the installer (installing=false). The
+// download-only branch (enforced=false) routes the user to GitHub via the
+// tray menu instead; the force-install branch (installing=true) takes over
+// with the full-screen UpdatingOverlay.
 export const UpdateAvailableBanner = () => {
-    const { updateVersion, triggerUpdate } = useClientVersion();
+    const { updateVersion, enforced, installing, triggerUpdate } = useClientVersion();
     const [dismissed, setDismissed] = useState(false);
 
     if (import.meta.env.DEV) return null;
-    if (!updateVersion || dismissed) return null;
+    if (!updateVersion || !enforced || installing || dismissed) return null;
 
     return (
         <div
@@ -22,14 +26,14 @@ export const UpdateAvailableBanner = () => {
             )}
         >
             <p className={"text-sm text-nb-gray-900 pr-4 pl-2 font-medium"}>
-                NetBird will update when you restart the app.
+                NetBird {updateVersion} is ready to install.
             </p>
             <div className={"flex gap-2"}>
                 <Button variant={"subtle"} size={"xs"} onClick={() => setDismissed(true)}>
                     Later
                 </Button>
                 <Button variant={"primary"} size={"xs"} onClick={triggerUpdate}>
-                    Restart now
+                    Install now
                 </Button>
             </div>
         </div>

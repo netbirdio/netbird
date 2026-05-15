@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/client/ui/updater"
 )
 
 const (
@@ -22,15 +23,10 @@ const (
 	// is captured (from a poll or a stream-driven refresh).
 	EventStatus = "netbird:status"
 	// EventSystem is emitted for each SubscribeEvents message (DNS, network,
-	// auth, connectivity categories).
+	// auth, connectivity categories). Auto-update SystemEvents are also
+	// forwarded here to updater.Holder.OnSystemEvent so the typed update
+	// state can be maintained without a second daemon subscription.
 	EventSystem = "netbird:event"
-	// EventUpdateAvailable fires when the daemon detects a new version. The
-	// metadata's enforced flag is propagated as part of the payload.
-	EventUpdateAvailable = "netbird:update:available"
-	// EventUpdateProgress fires when the daemon is about to start (or has
-	// started) installing an update — Mode 2 enforced flow. The UI opens the
-	// progress window in response.
-	EventUpdateProgress = "netbird:update:progress"
 
 	// StatusDaemonUnavailable is the synthetic Status the UI emits when the
 	// daemon's gRPC socket is unreachable (daemon not running, socket
@@ -53,18 +49,6 @@ const (
 // satisfies this with its Emit method.
 type Emitter interface {
 	Emit(name string, data ...any) bool
-}
-
-// UpdateAvailable carries the new_version_available metadata.
-type UpdateAvailable struct {
-	Version  string `json:"version"`
-	Enforced bool   `json:"enforced"`
-}
-
-// UpdateProgress carries the progress_window metadata.
-type UpdateProgress struct {
-	Action  string `json:"action"`
-	Version string `json:"version"`
 }
 
 // SystemEvent is the frontend-facing shape of a daemon SystemEvent.
@@ -153,6 +137,7 @@ type Status struct {
 type Peers struct {
 	conn    DaemonConn
 	emitter Emitter
+	updater *updater.Holder
 
 	mu       sync.Mutex
 	cancel   context.CancelFunc
@@ -163,8 +148,8 @@ type Peers struct {
 	switchInProgressUntil time.Time
 }
 
-func NewPeers(conn DaemonConn, emitter Emitter) *Peers {
-	return &Peers{conn: conn, emitter: emitter}
+func NewPeers(conn DaemonConn, emitter Emitter, updaterHolder *updater.Holder) *Peers {
+	return &Peers{conn: conn, emitter: emitter, updater: updaterHolder}
 }
 
 // BeginProfileSwitch is called by ProfileSwitcher at the start of a switch
@@ -403,7 +388,9 @@ func (s *Peers) toastStreamLoop(ctx context.Context) {
 			se := systemEventFromProto(ev)
 			log.Infof("backend event: system severity=%s category=%s msg=%q", se.Severity, se.Category, se.UserMessage)
 			s.emitter.Emit(EventSystem, se)
-			s.fanOutUpdateEvents(ev)
+			if s.updater != nil {
+				s.updater.OnSystemEvent(ev)
+			}
 		}
 	}
 
@@ -464,27 +451,6 @@ func statusFromProto(resp *proto.StatusResponse) Status {
 		st.Events = append(st.Events, systemEventFromProto(e))
 	}
 	return st
-}
-
-// fanOutUpdateEvents inspects the daemon SystemEvent for update-related
-// metadata keys and re-emits them as dedicated Wails events. This lets the
-// tray and React update window listen for a single, narrow event instead of
-// re-checking metadata on every system event they receive.
-func (s *Peers) fanOutUpdateEvents(ev *proto.SystemEvent) {
-	md := ev.GetMetadata()
-	if md == nil {
-		return
-	}
-	if v, ok := md["new_version_available"]; ok {
-		_, enforced := md["enforced"]
-		s.emitter.Emit(EventUpdateAvailable, UpdateAvailable{Version: v, Enforced: enforced})
-	}
-	if action, ok := md["progress_window"]; ok {
-		s.emitter.Emit(EventUpdateProgress, UpdateProgress{
-			Action:  action,
-			Version: md["version"],
-		})
-	}
 }
 
 func systemEventFromProto(e *proto.SystemEvent) SystemEvent {

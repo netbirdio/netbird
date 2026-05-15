@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/client/ui/i18n"
 	"github.com/netbirdio/netbird/client/ui/preferences"
 	"github.com/netbirdio/netbird/client/ui/services"
+	"github.com/netbirdio/netbird/client/ui/updater"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -58,8 +59,7 @@ func (s *stringList) Set(v string) error {
 func init() {
 	application.RegisterEvent[services.Status](services.EventStatus)
 	application.RegisterEvent[services.SystemEvent](services.EventSystem)
-	application.RegisterEvent[services.UpdateAvailable](services.EventUpdateAvailable)
-	application.RegisterEvent[services.UpdateProgress](services.EventUpdateProgress)
+	application.RegisterEvent[updater.State](updater.EventStateChanged)
 	application.RegisterEvent[preferences.UIPreferences](preferences.EventPreferencesChanged)
 }
 
@@ -123,8 +123,12 @@ func main() {
 	connection := services.NewConnection(conn)
 	settings := services.NewSettings(conn)
 	profiles := services.NewProfiles(conn)
-	peers := services.NewPeers(conn, app.Event)
-	update := services.NewUpdate(conn)
+	// updater.Holder owns the typed update State. Peers feeds the daemon
+	// SubscribeEvents stream into it; the Update service is a thin
+	// Wails-bound facade over the holder plus the install RPCs.
+	updaterHolder := updater.NewHolder(app.Event)
+	update := services.NewUpdate(conn, updaterHolder)
+	peers := services.NewPeers(conn, app.Event, updaterHolder)
 	notifier := notifications.New()
 	profileSwitcher := services.NewProfileSwitcher(profiles, connection, peers)
 

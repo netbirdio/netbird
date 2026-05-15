@@ -9,6 +9,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/client/ui/updater"
 )
 
 // UpdateResult mirrors TriggerUpdateResponse: Success false carries an error
@@ -18,13 +19,25 @@ type UpdateResult struct {
 	ErrorMsg string `json:"errorMsg"`
 }
 
-// Update groups the RPCs that drive the enforced-update install flow.
+// Update is the Wails-bound facade over the daemon's update RPCs and the
+// updater.Holder cached state. The state machine, metadata schema, and
+// push event live in client/ui/updater — this file exists only to give
+// the binding generator a service type with the context.Context-first
+// signatures it expects.
 type Update struct {
-	conn DaemonConn
+	conn   DaemonConn
+	holder *updater.Holder
 }
 
-func NewUpdate(conn DaemonConn) *Update {
-	return &Update{conn: conn}
+func NewUpdate(conn DaemonConn, holder *updater.Holder) *Update {
+	return &Update{conn: conn, holder: holder}
+}
+
+// GetState returns the latest update.State snapshot. The frontend calls
+// this once on mount, then subscribes to updater.EventStateChanged for
+// live updates.
+func (s *Update) GetState() updater.State {
+	return s.holder.Get()
 }
 
 // Quit asks the host application to exit. The /update page calls this once

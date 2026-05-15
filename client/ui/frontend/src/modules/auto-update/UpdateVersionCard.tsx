@@ -4,6 +4,8 @@ import { Button } from "@/components/Button";
 import { useClientVersion } from "@/modules/auto-update/ClientVersionContext";
 import { cn } from "@/lib/cn";
 
+const GITHUB_RELEASES = "https://github.com/netbirdio/netbird/releases/latest";
+
 function openUrl(url: string) {
     void Browser.OpenURL(url).catch(() => window.open(url, "_blank"));
 }
@@ -18,7 +20,7 @@ function formatLastChecked(date: Date) {
 }
 
 export function UpdateVersionCard() {
-    const { updateVersion, triggerUpdate } = useClientVersion();
+    const { updateVersion, enforced, triggerUpdate } = useClientVersion();
 
     if (updateVersion) {
         return (
@@ -31,9 +33,19 @@ export function UpdateVersionCard() {
                         What's new?
                     </Link>
                 </div>
-                <Button variant={"primary"} size={"xs"} onClick={triggerUpdate}>
-                    Restart Now
-                </Button>
+                {enforced ? (
+                    <Button variant={"primary"} size={"xs"} onClick={triggerUpdate}>
+                        Install now
+                    </Button>
+                ) : (
+                    <Button
+                        variant={"primary"}
+                        size={"xs"}
+                        onClick={() => openUrl(GITHUB_RELEASES)}
+                    >
+                        Get installer
+                    </Button>
+                )}
             </Card>
         );
     }

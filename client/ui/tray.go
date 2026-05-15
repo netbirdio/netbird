@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -86,14 +85,12 @@ type Tray struct {
 	profileEmailItem   *application.MenuItem
 	settingsItem       *application.MenuItem
 	debugItem          *application.MenuItem
-	updateItem         *application.MenuItem
 	daemonVersionItem  *application.MenuItem
+
+	updater *trayUpdater
 
 	mu                   sync.Mutex
 	connected            bool
-	hasUpdate            bool
-	updateVersion        string
-	updateEnforced       bool
 	exitNodes            []string
 	lastStatus           string
 	lastDaemonVersion    string
@@ -121,6 +118,7 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 		// the right locale — no English flash followed by a re-paint.
 		loc: svc.Localizer,
 	}
+	t.updater = newTrayUpdater(app, window, svc.Update, svc.Notifier, t.loc, func() { t.applyIcon() })
 	t.tray = app.SystemTray.New()
 	t.applyIcon()
 	t.tray.SetTooltip(t.loc.T("tray.tooltip"))
@@ -138,8 +136,6 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 
 	app.Event.On(services.EventStatus, t.onStatusEvent)
 	app.Event.On(services.EventSystem, t.onSystemEvent)
-	app.Event.On(services.EventUpdateAvailable, t.onUpdateAvailable)
-	app.Event.On(services.EventUpdateProgress, t.onUpdateProgress)
 	// Defer the first profile load until the macOS/GTK/Win32 menu impl is
 	// live — Menu.Update() short-circuits while app.running is false, and
 	// AppKit's main queue isn't ready earlier either (see d23ef34 InvokeSync
@@ -170,18 +166,15 @@ func (t *Tray) applyLanguage() {
 }
 
 // reapplyMenuState walks cached state and re-applies the visibility,
-// enablement and label mutations that applyStatus / onUpdateAvailable
-// would have performed since the last menu rebuild. Required after
-// buildMenu because that constructor returns items in their default
-// (disconnected, no-update) shape.
+// enablement and label mutations that applyStatus would have performed
+// since the last menu rebuild. Required after buildMenu because that
+// constructor returns items in their default (disconnected) shape. The
+// update menu item is re-applied by trayUpdater.applyLanguage.
 func (t *Tray) reapplyMenuState() {
 	t.mu.Lock()
 	connected := t.connected
 	lastStatus := t.lastStatus
 	daemonVersion := t.lastDaemonVersion
-	hasUpdate := t.hasUpdate
-	updateVersion := t.updateVersion
-	updateEnforced := t.updateEnforced
 	exitNodes := append([]string(nil), t.exitNodes...)
 	t.mu.Unlock()
 
@@ -216,13 +209,8 @@ func (t *Tray) reapplyMenuState() {
 	if daemonVersion != "" && t.daemonVersionItem != nil {
 		t.daemonVersionItem.SetLabel(t.loc.T("tray.menu.daemonVersion", "version", daemonVersion))
 	}
-	if hasUpdate && t.updateItem != nil {
-		if updateEnforced {
-			t.updateItem.SetLabel(t.loc.T("tray.menu.installVersion", "version", updateVersion))
-		} else {
-			t.updateItem.SetLabel(t.loc.T("tray.menu.downloadLatest"))
-		}
-		t.updateItem.SetHidden(false)
+	if t.updater != nil {
+		t.updater.applyLanguage()
 	}
 	if len(exitNodes) > 0 {
 		t.rebuildExitNodes(exitNodes)
@@ -310,12 +298,14 @@ func (t *Tray) buildMenu() *application.Menu {
 	// Status snapshot and is updated in applyStatus.
 	about.Add(t.loc.T("tray.menu.guiVersion", "version", version.NetbirdVersion())).SetEnabled(false)
 	t.daemonVersionItem = about.Add(t.loc.T("tray.menu.daemonVersion", "version", t.loc.T("tray.menu.versionUnknown"))).SetEnabled(false)
-	// Hidden until the daemon emits EventUpdateAvailable. The label is
-	// rewritten in onUpdateAvailable: tray.menu.downloadLatest for opt-in,
-	// tray.menu.installVersion when the management server enforces the
-	// update.
-	t.updateItem = about.Add(t.loc.T("tray.menu.downloadLatest")).OnClick(func(*application.Context) { t.handleUpdate() })
-	t.updateItem.SetHidden(true)
+	// Update menu item is hidden until the daemon reports a new version
+	// (EventUpdateState with Available=true). trayUpdater rewrites the
+	// label between tray.menu.downloadLatest (opt-in) and
+	// tray.menu.installVersion (enforced) and drives the click.
+	updateItem := about.Add(t.loc.T("tray.menu.downloadLatest")).
+		OnClick(func(*application.Context) { t.updater.handleClick() })
+	updateItem.SetHidden(true)
+	t.updater.attach(updateItem)
 
 	menu.AddSeparator()
 	menu.Add(t.loc.T("tray.menu.quit")).OnClick(func(*application.Context) { t.app.Quit() })
@@ -396,14 +386,17 @@ func (t *Tray) onStatusEvent(ev *application.CustomEvent) {
 // onSystemEvent fires an OS notification for daemon SystemEvents that carry
 // a user-facing message, mirroring the legacy event.Manager behaviour: gated
 // by the user's "Notifications" toggle, with CRITICAL events bypassing the
-// gate. The narrowly-scoped EventUpdate* events are skipped here because
-// onUpdateAvailable already produces a richer notification for them.
+// gate. Update-related events are skipped here because trayUpdater produces
+// its own richer notification when EventUpdateState fires.
 func (t *Tray) onSystemEvent(ev *application.CustomEvent) {
 	se, ok := ev.Data.(services.SystemEvent)
 	if !ok || se.UserMessage == "" {
 		return
 	}
 	if _, isUpdate := se.Metadata["new_version_available"]; isUpdate {
+		return
+	}
+	if _, isProgress := se.Metadata["progress_window"]; isProgress {
 		return
 	}
 	// Management pairs ::/0 with 0.0.0.0/0 for exit-node default routes;
@@ -426,107 +419,6 @@ func (t *Tray) onSystemEvent(ev *application.CustomEvent) {
 		body += fmt.Sprintf(" ID: %s", id)
 	}
 	t.notify(eventTitle(se), body, notifyIDEvent+se.ID)
-}
-
-// onUpdateAvailable runs when the daemon reports a new netbird version. It
-// flips the tray's hasUpdate flag (icon swap), reveals the update menu
-// item with the right label, and posts an OS notification.
-// The notification is what the legacy Fyne UI used to alert the user.
-func (t *Tray) onUpdateAvailable(ev *application.CustomEvent) {
-	upd, ok := ev.Data.(services.UpdateAvailable)
-	if !ok {
-		log.Warnf("update event payload not UpdateAvailable: %T", ev.Data)
-		return
-	}
-	log.Infof("tray onUpdateAvailable: version=%s enforced=%v", upd.Version, upd.Enforced)
-	t.mu.Lock()
-	t.hasUpdate = true
-	t.updateVersion = upd.Version
-	t.updateEnforced = upd.Enforced
-	t.mu.Unlock()
-	t.applyIcon()
-
-	if t.updateItem != nil {
-		// Match the Fyne wording: enforced updates name the version
-		// because the install starts on click; opt-in updates just
-		// route the user to the latest release.
-		if upd.Enforced {
-			t.updateItem.SetLabel(t.loc.T("tray.menu.installVersion", "version", upd.Version))
-		} else {
-			t.updateItem.SetLabel(t.loc.T("tray.menu.downloadLatest"))
-		}
-		t.updateItem.SetHidden(false)
-	}
-
-	body := t.loc.T("notify.update.body", "version", upd.Version)
-	if upd.Enforced {
-		body += t.loc.T("notify.update.enforcedSuffix")
-	}
-	if err := t.svc.Notifier.SendNotification(notifications.NotificationOptions{
-		ID:    notifyIDUpdatePrefix + upd.Version,
-		Title: t.loc.T("notify.update.title"),
-		Body:  body,
-	}); err != nil {
-		log.Debugf("send update notification: %v", err)
-	}
-}
-
-// handleUpdate runs when the user clicks the "Download latest version" /
-// "Install version X" menu item. Enforced updates trigger the daemon's
-// installer flow and surface the in-window /update progress page;
-// opt-in updates just open the GitHub releases page in the browser.
-func (t *Tray) handleUpdate() {
-	t.mu.Lock()
-	enforced := t.updateEnforced
-	updateVersion := t.updateVersion
-	t.mu.Unlock()
-
-	if !enforced {
-		_ = t.app.Browser.OpenURL(urlGitHubReleases)
-		return
-	}
-
-	// Surface the progress page first so the user sees the install
-	// kick off; the daemon then drives the rest via the InstallerResult
-	// RPC the /update page is polling.
-	if t.window != nil {
-		url := "/#/update"
-		if updateVersion != "" {
-			url += "?version=" + updateVersion
-		}
-		t.window.SetURL(url)
-		t.window.Show()
-		t.window.Focus()
-	}
-
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if _, err := t.svc.Update.Trigger(ctx); err != nil {
-			log.Errorf("trigger update: %v", err)
-		}
-	}()
-}
-
-// onUpdateProgress runs when the daemon enters the install phase of an
-// enforced update. The Fyne UI used to spawn a separate process with the
-// update window; here the window is already in-process, so we just route to
-// the /update page and bring it forward.
-func (t *Tray) onUpdateProgress(ev *application.CustomEvent) {
-	prog, ok := ev.Data.(services.UpdateProgress)
-	if !ok || prog.Action != "show" {
-		return
-	}
-	if t.window == nil {
-		return
-	}
-	url := "/#/update"
-	if prog.Version != "" {
-		url += "?version=" + prog.Version
-	}
-	t.window.SetURL(url)
-	t.window.Show()
-	t.window.Focus()
 }
 
 // applyStatus updates the tray icon, status label, exit-node submenu, and
@@ -701,9 +593,12 @@ func statusIndicatorBitmap(status string) []byte {
 func (t *Tray) applyIcon() {
 	t.mu.Lock()
 	connected := t.connected
-	hasUpdate := t.hasUpdate
 	statusLabel := t.lastStatus
 	t.mu.Unlock()
+	hasUpdate := false
+	if t.updater != nil {
+		hasUpdate = t.updater.hasUpdate()
+	}
 
 	log.Infof("tray applyIcon: connected=%v hasUpdate=%v status=%q goos=%s",
 		connected, hasUpdate, statusLabel, runtime.GOOS)
@@ -722,9 +617,12 @@ func (t *Tray) applyIcon() {
 func (t *Tray) iconForState() (icon, dark []byte) {
 	t.mu.Lock()
 	connected := t.connected
-	hasUpdate := t.hasUpdate
 	statusLabel := t.lastStatus
 	t.mu.Unlock()
+	hasUpdate := false
+	if t.updater != nil {
+		hasUpdate = t.updater.hasUpdate()
+	}
 
 	connecting := strings.EqualFold(statusLabel, services.StatusConnecting)
 	errored := strings.EqualFold(statusLabel, statusError) ||
