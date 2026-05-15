@@ -559,7 +559,7 @@ func (s *serviceClient) parseNumericSettings() (int64, int64, error) {
 		return 0, 0, errors.New("invalid interface port")
 	}
 	if port < 0 || port > 65535 {
-		return 0, 0, errors.New("invalid interface port: out of range 1-65535")
+		return 0, 0, errors.New("invalid interface port: out of range 0-65535")
 	}
 
 	var mtu int64
