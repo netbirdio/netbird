@@ -2318,6 +2318,11 @@ func (e *Engine) SetCapture(pc device.PacketCapture) error {
 	return nil
 }
 
+// GetWgPort returns the port currently configured for Wireguard.
+func (e *Engine) GetWgPort() int {
+	return e.config.WgPort
+}
+
 // setForwarderCapture propagates capture to the USP filter's forwarder endpoint.
 // This captures outbound response packets that bypass the FilteredDevice in netstack mode.
 func (e *Engine) setForwarderCapture(pc device.PacketCapture) {

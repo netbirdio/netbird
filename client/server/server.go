@@ -1446,6 +1446,7 @@ func (s *Server) runProbes(waitForProbeResult bool) {
 // GetConfig of the daemon.
 func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*proto.GetConfigResponse, error) {
 	s.mutex.Lock()
+	connectClient := s.connectClient
 	defer s.mutex.Unlock()
 
 	if ctx.Err() != nil {
@@ -1522,12 +1523,21 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		sshJWTCacheTTL = int32(*cfg.SSHJWTCacheTTL)
 	}
 
+	wgPort := int64(cfg.WgPort)
+	// Get correct assigned port, could be random if cfg.WgPort is 0.
+	if connectClient != nil && wgPort == 0 {
+		engine := connectClient.Engine()
+		if engine != nil {
+			wgPort = int64(engine.GetWgPort())
+		}
+	}
+
 	return &proto.GetConfigResponse{
 		ManagementUrl:                 managementURL.String(),
 		PreSharedKey:                  preSharedKey,
 		AdminURL:                      adminURL.String(),
 		InterfaceName:                 cfg.WgIface,
-		WireguardPort:                 int64(cfg.WgPort),
+		WireguardPort:                 wgPort,
 		Mtu:                           int64(cfg.MTU),
 		DisableAutoConnect:            cfg.DisableAutoConnect,
 		ServerSSHAllowed:              *cfg.ServerSSHAllowed,
