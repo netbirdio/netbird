@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -62,7 +63,11 @@ var debugSyncCmd = &cobra.Command{
 	SilenceUsage: true,
 }
 
-var pingTimeout string
+var (
+	pingTimeout time.Duration
+	pingIPv4    bool
+	pingIPv6    bool
+)
 
 var debugPingCmd = &cobra.Command{
 	Use:          "ping <account-id> <host> [port]",
@@ -134,7 +139,10 @@ func init() {
 	debugStatusCmd.Flags().StringVar(&statusFilterByStatus, "filter-by-status", "", "Filter by status (idle|connecting|connected)")
 	debugStatusCmd.Flags().StringVar(&statusFilterByConnectionType, "filter-by-connection-type", "", "Filter by connection type (P2P|Relayed)")
 
-	debugPingCmd.Flags().StringVar(&pingTimeout, "timeout", "", "Ping timeout (e.g., 10s)")
+	debugPingCmd.Flags().DurationVar(&pingTimeout, "timeout", 0, "Ping timeout (e.g., 10s)")
+	debugPingCmd.Flags().BoolVarP(&pingIPv4, "ipv4", "4", false, "Force IPv4")
+	debugPingCmd.Flags().BoolVarP(&pingIPv6, "ipv6", "6", false, "Force IPv6")
+	debugPingCmd.MarkFlagsMutuallyExclusive("ipv4", "ipv6")
 
 	debugCaptureCmd.Flags().DurationP("duration", "d", 0, "Capture duration (0 = server default)")
 	debugCaptureCmd.Flags().Bool("pcap", false, "Force pcap binary output (default when --output is set)")
@@ -190,7 +198,14 @@ func runDebugPing(cmd *cobra.Command, args []string) error {
 		}
 		port = p
 	}
-	return getDebugClient(cmd).PingTCP(cmd.Context(), args[0], args[1], port, pingTimeout)
+	var ipVersion string
+	switch {
+	case pingIPv4:
+		ipVersion = "4"
+	case pingIPv6:
+		ipVersion = "6"
+	}
+	return getDebugClient(cmd).PingTCP(cmd.Context(), args[0], args[1], port, pingTimeout, ipVersion)
 }
 
 func runDebugLogLevel(cmd *cobra.Command, args []string) error {

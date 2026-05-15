@@ -63,6 +63,7 @@ type MockAccountManager struct {
 	UpdatePeerMetaFunc                    func(ctx context.Context, peerID string, meta nbpeer.PeerSystemMeta) error
 	UpdatePeerFunc                        func(ctx context.Context, accountID, userID string, peer *nbpeer.Peer) (*nbpeer.Peer, error)
 	UpdatePeerIPFunc                      func(ctx context.Context, accountID, userID, peerID string, newIP netip.Addr) error
+	UpdatePeerIPv6Func                    func(ctx context.Context, accountID, userID, peerID string, newIPv6 netip.Addr) error
 	CreateRouteFunc                       func(ctx context.Context, accountID string, prefix netip.Prefix, networkType route.NetworkType, domains domain.List, peer string, peerGroups []string, description string, netID route.NetID, masquerade bool, metric int, groups, accessControlGroupIDs []string, enabled bool, userID string, keepRoute bool, isSelected bool) (*route.Route, error)
 	GetRouteFunc                          func(ctx context.Context, accountID string, routeID route.ID, userID string) (*route.Route, error)
 	SaveRouteFunc                         func(ctx context.Context, accountID string, userID string, route *route.Route) error
@@ -537,6 +538,13 @@ func (am *MockAccountManager) UpdatePeerIP(ctx context.Context, accountID, userI
 		return am.UpdatePeerIPFunc(ctx, accountID, userID, peerID, newIP)
 	}
 	return status.Errorf(codes.Unimplemented, "method UpdatePeerIP is not implemented")
+}
+
+func (am *MockAccountManager) UpdatePeerIPv6(ctx context.Context, accountID, userID, peerID string, newIPv6 netip.Addr) error {
+	if am.UpdatePeerIPv6Func != nil {
+		return am.UpdatePeerIPv6Func(ctx, accountID, userID, peerID, newIPv6)
+	}
+	return status.Errorf(codes.Unimplemented, "method UpdatePeerIPv6 is not implemented")
 }
 
 // CreateRoute mock implementation of CreateRoute from server.AccountManager interface

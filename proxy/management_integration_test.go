@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -140,6 +141,7 @@ func setupIntegrationTest(t *testing.T) *integrationTestSetup {
 		nil,
 		usersManager,
 		proxyManager,
+		nil,
 	)
 
 	// Use store-backed service manager
@@ -201,8 +203,8 @@ func (m *testAccessLogManager) GetAllAccessLogs(_ context.Context, _, _ string, 
 // testProxyManager is a mock implementation of proxy.Manager for testing.
 type testProxyManager struct{}
 
-func (m *testProxyManager) Connect(_ context.Context, proxyID, sessionID, _, _ string, _ *nbproxy.Capabilities) (*nbproxy.Proxy, error) {
-	return &nbproxy.Proxy{ID: proxyID, SessionID: sessionID, Status: "connected"}, nil
+func (m *testProxyManager) Connect(_ context.Context, proxyID, sessionID, _, _ string, _ *string, _ *nbproxy.Capabilities) (*nbproxy.Proxy, error) {
+	return &nbproxy.Proxy{ID: proxyID, SessionID: sessionID, Status: nbproxy.StatusConnected}, nil
 }
 
 func (m *testProxyManager) Disconnect(_ context.Context, _, _ string) error {
@@ -214,6 +216,10 @@ func (m *testProxyManager) Heartbeat(_ context.Context, _ *nbproxy.Proxy) error 
 }
 
 func (m *testProxyManager) GetActiveClusterAddresses(_ context.Context) ([]string, error) {
+	return nil, nil
+}
+
+func (m *testProxyManager) GetActiveClusterAddressesForAccount(_ context.Context, _ string) ([]string, error) {
 	return nil, nil
 }
 
@@ -234,6 +240,22 @@ func (m *testProxyManager) ClusterSupportsCrowdSec(_ context.Context, _ string) 
 }
 
 func (m *testProxyManager) CleanupStale(_ context.Context, _ time.Duration) error {
+	return nil
+}
+
+func (m *testProxyManager) GetAccountProxy(_ context.Context, accountID string) (*nbproxy.Proxy, error) {
+	return nil, fmt.Errorf("proxy not found for account %s", accountID)
+}
+
+func (m *testProxyManager) CountAccountProxies(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
+func (m *testProxyManager) IsClusterAddressAvailable(_ context.Context, _, _ string) (bool, error) {
+	return true, nil
+}
+
+func (m *testProxyManager) DeleteAccountCluster(_ context.Context, _, _ string) error {
 	return nil
 }
 
@@ -290,6 +312,10 @@ func (m *storeBackedServiceManager) DeleteService(ctx context.Context, accountID
 	return nil
 }
 
+func (m *storeBackedServiceManager) DeleteAccountCluster(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
 func (m *storeBackedServiceManager) SetCertificateIssuedAt(ctx context.Context, accountID, serviceID string) error {
 	return nil
 }
@@ -336,6 +362,10 @@ func (m *storeBackedServiceManager) StopServiceFromPeer(_ context.Context, _, _,
 
 func (m *storeBackedServiceManager) StartExposeReaper(_ context.Context) {}
 
+func (m *storeBackedServiceManager) GetServiceByDomain(ctx context.Context, domain string) (*service.Service, error) {
+	return m.store.GetServiceByDomain(ctx, domain)
+}
+
 func (m *storeBackedServiceManager) GetActiveClusters(_ context.Context, _, _ string) ([]nbproxy.Cluster, error) {
 	return nil, nil
 }
@@ -364,13 +394,15 @@ func TestIntegration_ProxyConnection_HappyPath(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Receive all mappings from the snapshot - server sends each mapping individually
 	mappingsByID := make(map[string]*proto.ProxyMapping)
-	for i := 0; i < 2; i++ {
+	for {
 		msg, err := stream.Recv()
 		require.NoError(t, err)
 		for _, m := range msg.GetMapping() {
 			mappingsByID[m.GetId()] = m
+		}
+		if msg.GetInitialSyncComplete() {
+			break
 		}
 	}
 
@@ -411,12 +443,14 @@ func TestIntegration_ProxyConnection_SendsClusterAddress(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Receive all mappings - server sends each mapping individually
 	mappings := make([]*proto.ProxyMapping, 0)
-	for i := 0; i < 2; i++ {
+	for {
 		msg, err := stream.Recv()
 		require.NoError(t, err)
 		mappings = append(mappings, msg.GetMapping()...)
+		if msg.GetInitialSyncComplete() {
+			break
+		}
 	}
 
 	// Should receive the 2 mappings matching the cluster
@@ -440,13 +474,15 @@ func TestIntegration_ProxyConnection_Reconnect_ReceivesSameConfig(t *testing.T) 
 	clusterAddress := "test.proxy.io"
 	proxyID := "test-proxy-reconnect"
 
-	// Helper to receive all mappings from a stream
-	receiveMappings := func(stream proto.ProxyService_GetMappingUpdateClient, count int) []*proto.ProxyMapping {
+	receiveMappings := func(stream proto.ProxyService_GetMappingUpdateClient) []*proto.ProxyMapping {
 		var mappings []*proto.ProxyMapping
-		for i := 0; i < count; i++ {
+		for {
 			msg, err := stream.Recv()
 			require.NoError(t, err)
 			mappings = append(mappings, msg.GetMapping()...)
+			if msg.GetInitialSyncComplete() {
+				break
+			}
 		}
 		return mappings
 	}
@@ -460,7 +496,7 @@ func TestIntegration_ProxyConnection_Reconnect_ReceivesSameConfig(t *testing.T) 
 	})
 	require.NoError(t, err)
 
-	firstMappings := receiveMappings(stream1, 2)
+	firstMappings := receiveMappings(stream1)
 	cancel1()
 
 	time.Sleep(100 * time.Millisecond)
@@ -476,7 +512,7 @@ func TestIntegration_ProxyConnection_Reconnect_ReceivesSameConfig(t *testing.T) 
 	})
 	require.NoError(t, err)
 
-	secondMappings := receiveMappings(stream2, 2)
+	secondMappings := receiveMappings(stream2)
 
 	// Should receive the same mappings
 	assert.Equal(t, len(firstMappings), len(secondMappings),
@@ -542,12 +578,14 @@ func TestIntegration_ProxyConnection_ReconnectDoesNotDuplicateState(t *testing.T
 		}
 	}
 
-	// Helper to receive and apply all mappings
 	receiveAndApply := func(stream proto.ProxyService_GetMappingUpdateClient) {
-		for i := 0; i < 2; i++ {
+		for {
 			msg, err := stream.Recv()
 			require.NoError(t, err)
 			applyMappings(msg.GetMapping())
+			if msg.GetInitialSyncComplete() {
+				break
+			}
 		}
 	}
 
@@ -636,12 +674,14 @@ func TestIntegration_ProxyConnection_MultipleProxiesReceiveUpdates(t *testing.T)
 			})
 			require.NoError(t, err)
 
-			// Receive all mappings - server sends each mapping individually
 			count := 0
-			for i := 0; i < 2; i++ {
+			for {
 				msg, err := stream.Recv()
 				require.NoError(t, err)
 				count += len(msg.GetMapping())
+				if msg.GetInitialSyncComplete() {
+					break
+				}
 			}
 
 			mu.Lock()
@@ -681,9 +721,12 @@ func TestIntegration_ProxyConnection_FastReconnectDoesNotLoseState(t *testing.T)
 	})
 	require.NoError(t, err)
 
-	for i := 0; i < 2; i++ {
-		_, err := stream1.Recv()
+	for {
+		msg, err := stream1.Recv()
 		require.NoError(t, err)
+		if msg.GetInitialSyncComplete() {
+			break
+		}
 	}
 
 	require.Contains(t, setup.proxyService.GetConnectedProxies(), proxyID,
@@ -699,9 +742,12 @@ func TestIntegration_ProxyConnection_FastReconnectDoesNotLoseState(t *testing.T)
 	})
 	require.NoError(t, err)
 
-	for i := 0; i < 2; i++ {
-		_, err := stream2.Recv()
+	for {
+		msg, err := stream2.Recv()
 		require.NoError(t, err)
+		if msg.GetInitialSyncComplete() {
+			break
+		}
 	}
 
 	cancel1()

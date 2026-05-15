@@ -35,6 +35,7 @@ func RegisterEndpoints(manager rpservice.Manager, domainManager domainmanager.Ma
 	accesslogsmanager.RegisterEndpoints(router, accessLogsManager)
 
 	router.HandleFunc("/reverse-proxies/clusters", h.getClusters).Methods("GET", "OPTIONS")
+	router.HandleFunc("/reverse-proxies/clusters/{clusterAddress}", h.deleteCluster).Methods("DELETE", "OPTIONS")
 	router.HandleFunc("/reverse-proxies/services", h.getAllServices).Methods("GET", "OPTIONS")
 	router.HandleFunc("/reverse-proxies/services", h.createService).Methods("POST", "OPTIONS")
 	router.HandleFunc("/reverse-proxies/services/{serviceId}", h.getService).Methods("GET", "OPTIONS")
@@ -195,10 +196,33 @@ func (h *handler) getClusters(w http.ResponseWriter, r *http.Request) {
 	apiClusters := make([]api.ProxyCluster, 0, len(clusters))
 	for _, c := range clusters {
 		apiClusters = append(apiClusters, api.ProxyCluster{
+			Id:               c.ID,
 			Address:          c.Address,
 			ConnectedProxies: c.ConnectedProxies,
+			SelfHosted:       c.SelfHosted,
 		})
 	}
 
 	util.WriteJSONObject(r.Context(), w, apiClusters)
+}
+
+func (h *handler) deleteCluster(w http.ResponseWriter, r *http.Request) {
+	userAuth, err := nbcontext.GetUserAuthFromContext(r.Context())
+	if err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	clusterAddress := mux.Vars(r)["clusterAddress"]
+	if clusterAddress == "" {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "cluster address is required"), w)
+		return
+	}
+
+	if err := h.manager.DeleteAccountCluster(r.Context(), userAuth.AccountId, userAuth.UserId, clusterAddress); err != nil {
+		util.WriteError(r.Context(), err, w)
+		return
+	}
+
+	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
 }

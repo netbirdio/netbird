@@ -1381,6 +1381,9 @@ type AccessiblePeer struct {
 	// Ip Peer's IP address
 	Ip string `json:"ip"`
 
+	// Ipv6 Peer's IPv6 overlay address
+	Ipv6 *string `json:"ipv6,omitempty"`
+
 	// LastSeen Last time peer connected to Netbird's management service
 	LastSeen time.Time `json:"last_seen"`
 
@@ -1465,6 +1468,9 @@ type AccountSettings struct {
 	// GroupsPropagationEnabled Allows propagate the new user auto groups to peers that belongs to the user
 	GroupsPropagationEnabled *bool `json:"groups_propagation_enabled,omitempty"`
 
+	// Ipv6EnabledGroups List of group IDs whose peers receive IPv6 overlay addresses. Peers not in any of these groups will not be allocated an IPv6 address. New accounts default to the All group.
+	Ipv6EnabledGroups *[]string `json:"ipv6_enabled_groups,omitempty"`
+
 	// JwtAllowGroups List of groups to which users are allowed access
 	JwtAllowGroups *[]string `json:"jwt_allow_groups,omitempty"`
 
@@ -1480,8 +1486,14 @@ type AccountSettings struct {
 	// LocalAuthDisabled Indicates whether local (email/password) authentication is disabled. When true, users can only authenticate via external identity providers. This is a read-only field.
 	LocalAuthDisabled *bool `json:"local_auth_disabled,omitempty"`
 
+	// LocalMfaEnabled Enables or disables TOTP multi-factor authentication for local users. Only applicable when the embedded identity provider is enabled.
+	LocalMfaEnabled *bool `json:"local_mfa_enabled,omitempty"`
+
 	// NetworkRange Allows to define a custom network range for the account in CIDR format
 	NetworkRange *string `json:"network_range,omitempty"`
+
+	// NetworkRangeV6 Allows to define a custom IPv6 network range for the account in CIDR format.
+	NetworkRangeV6 *string `json:"network_range_v6,omitempty"`
 
 	// PeerExposeEnabled Enables or disables peer expose. If enabled, peers can expose local services through the reverse proxy using the CLI.
 	PeerExposeEnabled bool `json:"peer_expose_enabled"`
@@ -3141,6 +3153,9 @@ type Peer struct {
 	// Ip Peer's IP address
 	Ip string `json:"ip"`
 
+	// Ipv6 Peer's IPv6 overlay address
+	Ipv6 *string `json:"ipv6,omitempty"`
+
 	// KernelVersion Peer's operating system kernel version
 	KernelVersion string `json:"kernel_version"`
 
@@ -3231,6 +3246,9 @@ type PeerBatch struct {
 
 	// Ip Peer's IP address
 	Ip string `json:"ip"`
+
+	// Ipv6 Peer's IPv6 overlay address
+	Ipv6 *string `json:"ipv6,omitempty"`
 
 	// KernelVersion Peer's operating system kernel version
 	KernelVersion string `json:"kernel_version"`
@@ -3331,7 +3349,10 @@ type PeerRequest struct {
 	InactivityExpirationEnabled bool  `json:"inactivity_expiration_enabled"`
 
 	// Ip Peer's IP address
-	Ip                     *string `json:"ip,omitempty"`
+	Ip *string `json:"ip,omitempty"`
+
+	// Ipv6 Peer's IPv6 overlay address. Omitted if IPv6 is not enabled for the account.
+	Ipv6                   *string `json:"ipv6,omitempty"`
 	LoginExpirationEnabled bool    `json:"login_expiration_enabled"`
 	Name                   string  `json:"name"`
 	SshEnabled             bool    `json:"ssh_enabled"`
@@ -3764,11 +3785,49 @@ type ProxyAccessLogsResponse struct {
 
 // ProxyCluster A proxy cluster represents a group of proxy nodes serving the same address
 type ProxyCluster struct {
+	// Id Unique identifier of a proxy in this cluster
+	Id string `json:"id"`
+
 	// Address Cluster address used for CNAME targets
 	Address string `json:"address"`
 
 	// ConnectedProxies Number of proxy nodes connected in this cluster
 	ConnectedProxies int `json:"connected_proxies"`
+
+	// SelfHosted Whether this cluster is a self-hosted (BYOP) proxy managed by the account owner
+	SelfHosted bool `json:"self_hosted"`
+}
+
+// ProxyToken defines model for ProxyToken.
+type ProxyToken struct {
+	CreatedAt time.Time  `json:"created_at"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	Id        string     `json:"id"`
+	LastUsed  *time.Time `json:"last_used,omitempty"`
+	Name      string     `json:"name"`
+	Revoked   bool       `json:"revoked"`
+}
+
+// ProxyTokenCreated defines model for ProxyTokenCreated.
+type ProxyTokenCreated struct {
+	CreatedAt time.Time  `json:"created_at"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	Id        string     `json:"id"`
+	LastUsed  *time.Time `json:"last_used,omitempty"`
+	Name      string     `json:"name"`
+
+	// PlainToken The plain text token (shown only once)
+	PlainToken string `json:"plain_token"`
+	Revoked    bool   `json:"revoked"`
+}
+
+// ProxyTokenRequest defines model for ProxyTokenRequest.
+type ProxyTokenRequest struct {
+	// ExpiresIn Token expiration in seconds (0 = never expires)
+	ExpiresIn *int `json:"expires_in,omitempty"`
+
+	// Name Human-readable token name
+	Name string `json:"name"`
 }
 
 // Resource defines model for Resource.
@@ -5138,6 +5197,9 @@ type PutApiPostureChecksPostureCheckIdJSONRequestBody = PostureCheckUpdate
 
 // PostApiReverseProxiesDomainsJSONRequestBody defines body for PostApiReverseProxiesDomains for application/json ContentType.
 type PostApiReverseProxiesDomainsJSONRequestBody = ReverseProxyDomainRequest
+
+// PostApiReverseProxiesProxyTokensJSONRequestBody defines body for PostApiReverseProxiesProxyTokens for application/json ContentType.
+type PostApiReverseProxiesProxyTokensJSONRequestBody = ProxyTokenRequest
 
 // PostApiReverseProxiesServicesJSONRequestBody defines body for PostApiReverseProxiesServices for application/json ContentType.
 type PostApiReverseProxiesServicesJSONRequestBody = ServiceRequest

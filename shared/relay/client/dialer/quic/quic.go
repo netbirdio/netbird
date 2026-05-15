@@ -49,7 +49,7 @@ func (d Dialer) Dial(ctx context.Context, address, serverName string) (net.Conn,
 		InitialPacketSize: nbRelay.QUICInitialPacketSize,
 	}
 
-	udpConn, err := nbnet.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
+	udpConn, err := nbnet.ListenUDP("udp", &net.UDPAddr{Port: 0})
 	if err != nil {
 		log.Errorf("failed to listen on UDP: %s", err)
 		return nil, err

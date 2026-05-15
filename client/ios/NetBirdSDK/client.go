@@ -50,10 +50,11 @@ type CustomLogger interface {
 }
 
 type selectRoute struct {
-	NetID    string
-	Network  netip.Prefix
-	Domains  domain.List
-	Selected bool
+	NetID         string
+	Network       netip.Prefix
+	Domains       domain.List
+	Selected      bool
+	extraNetworks []netip.Prefix
 }
 
 func init() {
@@ -161,11 +162,7 @@ func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
 	cfg.WgIface = interfaceName
 
 	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder)
-	hostDNS := []netip.AddrPort{
-		netip.MustParseAddrPort("9.9.9.9:53"),
-		netip.MustParseAddrPort("149.112.112.112:53"),
-	}
-	return c.connectClient.RunOniOS(fd, c.networkChangeListener, c.dnsManager, hostDNS, c.stateFile)
+	return c.connectClient.RunOniOS(fd, c.networkChangeListener, c.dnsManager, c.stateFile)
 }
 
 // Stop the internal client and free the resources
@@ -198,6 +195,7 @@ func (c *Client) GetStatusDetails() *StatusDetails {
 		}
 		pi := PeerInfo{
 			IP:                         p.IP,
+			IPv6:                       p.IPv6,
 			FQDN:                       p.FQDN,
 			LocalIceCandidateEndpoint:  p.LocalIceCandidateEndpoint,
 			RemoteIceCandidateEndpoint: p.RemoteIceCandidateEndpoint,
@@ -216,7 +214,7 @@ func (c *Client) GetStatusDetails() *StatusDetails {
 		}
 		peerInfos[n] = pi
 	}
-	return &StatusDetails{items: peerInfos, fqdn: fullStatus.LocalPeerState.FQDN, ip: fullStatus.LocalPeerState.IP}
+	return &StatusDetails{items: peerInfos, fqdn: fullStatus.LocalPeerState.FQDN, ip: fullStatus.LocalPeerState.IP, ipv6: fullStatus.LocalPeerState.IPv6}
 }
 
 // SetConnectionListener set the network connection listener
@@ -366,72 +364,102 @@ func (c *Client) GetRoutesSelectionDetails() (*RoutesSelectionDetails, error) {
 	}
 
 	routeManager := engine.GetRouteManager()
-	routesMap := routeManager.GetClientRoutesWithNetID()
 	if routeManager == nil {
 		return nil, fmt.Errorf("could not get route manager")
 	}
+	routesMap := routeManager.GetClientRoutesWithNetID()
 	routeSelector := routeManager.GetRouteSelector()
 	if routeSelector == nil {
 		return nil, fmt.Errorf("could not get route selector")
 	}
 
+	v6ExitMerged := route.V6ExitMergeSet(routesMap)
+	routes := buildSelectRoutes(routesMap, routeSelector.IsSelected, v6ExitMerged)
+	resolvedDomains := c.recorder.GetResolvedDomainsStates()
+
+	return prepareRouteSelectionDetails(routes, resolvedDomains), nil
+}
+
+func buildSelectRoutes(routesMap map[route.NetID][]*route.Route, isSelected func(route.NetID) bool, v6Merged map[route.NetID]struct{}) []*selectRoute {
 	var routes []*selectRoute
 	for id, rt := range routesMap {
 		if len(rt) == 0 {
 			continue
 		}
-		route := &selectRoute{
+		if _, ok := v6Merged[id]; ok {
+			continue
+		}
+
+		r := &selectRoute{
 			NetID:    string(id),
 			Network:  rt[0].Network,
 			Domains:  rt[0].Domains,
-			Selected: routeSelector.IsSelected(id),
+			Selected: isSelected(id),
 		}
-		routes = append(routes, route)
+
+		v6ID := route.NetID(string(id) + route.V6ExitSuffix)
+		if _, ok := v6Merged[v6ID]; ok {
+			r.extraNetworks = []netip.Prefix{routesMap[v6ID][0].Network}
+		}
+
+		routes = append(routes, r)
 	}
 
 	sort.Slice(routes, func(i, j int) bool {
-		iPrefix := routes[i].Network.Bits()
-		jPrefix := routes[j].Network.Bits()
-
-		if iPrefix == jPrefix {
-			iAddr := routes[i].Network.Addr()
-			jAddr := routes[j].Network.Addr()
-			if iAddr == jAddr {
-				return routes[i].NetID < routes[j].NetID
-			}
-			return iAddr.String() < jAddr.String()
+		iBits, jBits := routes[i].Network.Bits(), routes[j].Network.Bits()
+		if iBits != jBits {
+			return iBits < jBits
 		}
-		return iPrefix < jPrefix
+		iAddr, jAddr := routes[i].Network.Addr(), routes[j].Network.Addr()
+		if iAddr != jAddr {
+			return iAddr.Less(jAddr)
+		}
+		return routes[i].NetID < routes[j].NetID
 	})
 
-	resolvedDomains := c.recorder.GetResolvedDomainsStates()
-
-	return prepareRouteSelectionDetails(routes, resolvedDomains), nil
-
+	return routes
 }
 
 func prepareRouteSelectionDetails(routes []*selectRoute, resolvedDomains map[domain.Domain]peer.ResolvedDomainInfo) *RoutesSelectionDetails {
 	var routeSelection []RoutesSelectionInfo
 	for _, r := range routes {
-		domainList := make([]DomainInfo, 0)
+		// resolvedDomains is keyed by the resolved domain (e.g. api.ipify.org),
+		// not the configured pattern (e.g. *.ipify.org). Group entries whose
+		// ParentDomain belongs to this route, mirroring the daemon logic in
+		// client/server/network.go.
+		domainList := make([]DomainInfo, 0, len(r.Domains))
+		domainIndex := make(map[domain.Domain]int, len(r.Domains))
 		for _, d := range r.Domains {
-			domainResp := DomainInfo{
-				Domain: d.SafeString(),
-			}
-
-			if info, exists := resolvedDomains[d]; exists {
-				var ipStrings []string
-				for _, prefix := range info.Prefixes {
-					ipStrings = append(ipStrings, prefix.Addr().String())
-				}
-				domainResp.ResolvedIPs = strings.Join(ipStrings, ", ")
-			}
-			domainList = append(domainList, domainResp)
+			domainIndex[d] = len(domainList)
+			domainList = append(domainList, DomainInfo{Domain: d.SafeString()})
 		}
+
+		for _, info := range resolvedDomains {
+			idx, ok := domainIndex[info.ParentDomain]
+			if !ok {
+				continue
+			}
+			for _, prefix := range info.Prefixes {
+				domainList[idx].AddResolvedIP(prefix.Addr().String())
+			}
+		}
+
 		domainDetails := DomainDetails{items: domainList}
+
+		// For dynamic (DNS) routes, expose the joined domain pattern as the
+		// Network value so it matches the peer.routes entries on the Swift
+		// side (mirroring the Android bridge in client/android/client.go).
+		netStr := r.Network.String()
+		if len(r.Domains) > 0 {
+			netStr = r.Domains.SafeString()
+		}
+		for _, extra := range r.extraNetworks {
+			netStr += ", " + extra.String()
+		}
+
 		routeSelection = append(routeSelection, RoutesSelectionInfo{
 			ID:       r.NetID,
-			Network:  r.Network.String(),
+			Network:  netStr,
 			Domains:  &domainDetails,
 			Selected: r.Selected,
 		})
@@ -459,7 +487,9 @@ func (c *Client) SelectRoute(id string) error {
 	} else {
 		log.Debugf("select route with id: %s", id)
 		routes := toNetIDs([]string{id})
-		if err := routeSelector.SelectRoutes(routes, true, maps.Keys(routeManager.GetClientRoutesWithNetID())); err != nil {
+		routesMap := routeManager.GetClientRoutesWithNetID()
+		routes = route.ExpandV6ExitPairs(routes, routesMap)
+		if err := routeSelector.SelectRoutes(routes, true, maps.Keys(routesMap)); err != nil {
 			log.Debugf("error when selecting routes: %s", err)
 			return fmt.Errorf("select routes: %w", err)
 		}
@@ -486,7 +516,9 @@ func (c *Client) DeselectRoute(id string) error {
 	} else {
 		log.Debugf("deselect route with id: %s", id)
 		routes := toNetIDs([]string{id})
-		if err := routeSelector.DeselectRoutes(routes, maps.Keys(routeManager.GetClientRoutesWithNetID())); err != nil {
+		routesMap := routeManager.GetClientRoutesWithNetID()
+		routes = route.ExpandV6ExitPairs(routes, routesMap)
+		if err := routeSelector.DeselectRoutes(routes, maps.Keys(routesMap)); err != nil {
 			log.Debugf("error when deselecting routes: %s", err)
 			return fmt.Errorf("deselect routes: %w", err)
 		}
