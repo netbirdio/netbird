@@ -4,8 +4,10 @@
 import * as Connection from "./connection.js";
 import * as Debug from "./debug.js";
 import * as Forwarding from "./forwarding.js";
+import * as I18n from "./i18n.js";
 import * as Networks from "./networks.js";
 import * as Peers from "./peers.js";
+import * as Preferences from "./preferences.js";
 import * as ProfileSwitcher from "./profileswitcher.js";
 import * as Profiles from "./profiles.js";
 import * as Settings from "./settings.js";
@@ -15,8 +17,10 @@ export {
     Connection,
     Debug,
     Forwarding,
+    I18n,
     Networks,
     Peers,
+    Preferences,
     ProfileSwitcher,
     Profiles,
     Settings,
@@ -32,6 +36,7 @@ export {
     DebugBundleResult,
     Features,
     ForwardingRule,
+    Language,
     LocalPeer,
     LogLevel,
     LoginParams,
@@ -48,6 +53,7 @@ export {
     SetConfigParams,
     Status,
     SystemEvent,
+    UIPreferences,
     UpParams,
     UpdateAvailable,
     UpdateProgress,

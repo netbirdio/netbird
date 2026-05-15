@@ -13,16 +13,18 @@ import * as services$0 from "../../../../netbirdio/netbird/client/ui/services/mo
 function configure() {
     Object.freeze(Object.assign($Create.Events, {
         "netbird:event": $$createType0,
-        "netbird:status": $$createType1,
-        "netbird:update:available": $$createType2,
-        "netbird:update:progress": $$createType3,
+        "netbird:preferences:changed": $$createType1,
+        "netbird:status": $$createType2,
+        "netbird:update:available": $$createType3,
+        "netbird:update:progress": $$createType4,
     }));
 }
 
 // Private type creation functions
 const $$createType0 = services$0.SystemEvent.createFrom;
-const $$createType1 = services$0.Status.createFrom;
-const $$createType2 = services$0.UpdateAvailable.createFrom;
-const $$createType3 = services$0.UpdateProgress.createFrom;
+const $$createType1 = services$0.UIPreferences.createFrom;
+const $$createType2 = services$0.Status.createFrom;
+const $$createType3 = services$0.UpdateAvailable.createFrom;
+const $$createType4 = services$0.UpdateProgress.createFrom;
 
 configure();

@@ -6,6 +6,7 @@ import (
 	"context"
 	"embed"
 	"flag"
+	"io/fs"
 	"log"
 	"runtime"
 	"strings"
@@ -14,12 +15,23 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/events"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 
+	"github.com/netbirdio/netbird/client/ui/i18n"
+	"github.com/netbirdio/netbird/client/ui/preferences"
 	"github.com/netbirdio/netbird/client/ui/services"
 	"github.com/netbirdio/netbird/util"
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
+
+// localesFS roots the i18n translation bundles. Embedded from the same
+// directory the React app imports, so a single JSON source drives both
+// the tray (Go) and the in-window UI (Vite imports the files directly).
+// The `all:` prefix is required so _index.json is included — //go:embed
+// silently drops files whose names start with "_" or "." otherwise.
+//
+//go:embed all:frontend/src/i18n/locales
+var localesRoot embed.FS
 
 // stringList is a flag.Value that collects repeated string flags. The first
 // time the user passes -log-file the seeded default ("console") is dropped;
@@ -48,6 +60,7 @@ func init() {
 	application.RegisterEvent[services.SystemEvent](services.EventSystem)
 	application.RegisterEvent[services.UpdateAvailable](services.EventUpdateAvailable)
 	application.RegisterEvent[services.UpdateProgress](services.EventUpdateProgress)
+	application.RegisterEvent[preferences.UIPreferences](preferences.EventPreferencesChanged)
 }
 
 func main() {
@@ -115,6 +128,27 @@ func main() {
 	notifier := notifications.New()
 	profileSwitcher := services.NewProfileSwitcher(profiles, connection, peers)
 
+	// localesFS reroots the embedded tree at the locales directory itself
+	// so the bundle sees _index.json and <lang>/common.json at the top
+	// level (the //go:embed path is rooted at the package, not the leaf
+	// dir).
+	localesFS, err := fs.Sub(localesRoot, "frontend/src/i18n/locales")
+	if err != nil {
+		log.Fatalf("locate locales fs: %v", err)
+	}
+	// Build the domain layer first, then wrap it in the Wails-bound
+	// services. The Bundle satisfies preferences.LanguageValidator so
+	// SetLanguage rejects codes that have no shipped translation.
+	bundle, err := i18n.NewBundle(localesFS)
+	if err != nil {
+		log.Fatalf("init i18n bundle: %v", err)
+	}
+	prefStore, err := preferences.NewStore(bundle, app.Event)
+	if err != nil {
+		log.Fatalf("init preferences store: %v", err)
+	}
+	localizer := NewLocalizer(bundle, prefStore)
+
 	app.RegisterService(application.NewService(connection))
 	app.RegisterService(application.NewService(settings))
 	app.RegisterService(application.NewService(services.NewNetworks(conn)))
@@ -125,6 +159,8 @@ func main() {
 	app.RegisterService(application.NewService(peers))
 	app.RegisterService(application.NewService(notifier))
 	app.RegisterService(application.NewService(profileSwitcher))
+	app.RegisterService(application.NewService(services.NewI18n(bundle)))
+	app.RegisterService(application.NewService(services.NewPreferences(prefStore)))
 
 	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:               "NetBird",
@@ -173,6 +209,7 @@ func main() {
 		Notifier:        notifier,
 		Update:          update,
 		ProfileSwitcher: profileSwitcher,
+		Localizer:       localizer,
 	})
 	listenForShowSignal(context.Background(), tray)
 

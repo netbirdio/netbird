@@ -13,6 +13,7 @@ declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
             "netbird:event": services$0.SystemEvent;
+            "netbird:preferences:changed": services$0.UIPreferences;
             "netbird:status": services$0.Status;
             "netbird:update:available": services$0.UpdateAvailable;
             "netbird:update:progress": services$0.UpdateProgress;

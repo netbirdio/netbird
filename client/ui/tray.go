@@ -16,70 +16,28 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/events"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 
+	"github.com/netbirdio/netbird/client/ui/i18n"
 	"github.com/netbirdio/netbird/client/ui/services"
 	"github.com/netbirdio/netbird/version"
 )
 
-// User-facing strings exposed in the tray, OS notifications and the
-// browser-opened URLs. Centralised here so future copy edits and (one
-// day) localisation have a single source of truth.
+// Translation keys for every user-facing string the tray paints. The text
+// itself lives in frontend/src/i18n/locales/<lang>/common.json — both the
+// tray and the React UI read from there so a single bundle drives the
+// whole product. Keys are referenced by the Tray.tr helper.
+
+// Non-translated identifiers. Notification IDs coalesce duplicate toasts
+// (the OS uses them as dedup keys); statusError is a tray-only sentinel
+// distinguishing the error-icon state from real daemon status strings;
+// URLs are baked-in product links.
 const (
-	trayTooltip = "NetBird"
-
-	// Top-level menu entries.
-	menuStatusDisconnected      = "Disconnected"
-	menuStatusDaemonUnavailable = "Not running"
-	menuOpenNetBird             = "Open NetBird"
-	menuConnect                 = "Connect"
-	menuDisconnect              = "Disconnect"
-	menuExitNode                = "Exit Node"
-	menuNetworks                = "Resources"
-	menuProfiles                = "Profiles"
-	menuQuit                    = "Quit"
-
-	// Settings + diagnostics. The settings page replaces the Fyne tray's
-	// Settings submenu (per-toggle checkboxes for SSH, auto-connect,
-	// Rosenpass, lazy connections, block-inbound, notifications); those
-	// live in the in-window Settings page now.
-	menuSettings          = "Settings"
-	menuCreateDebugBundle = "Create Debug Bundle"
-
-	// About submenu and update flow.
-	menuAbout                 = "About"
-	menuGitHub                = "GitHub"
-	menuDocumentation         = "Documentation"
-	menuDownloadLatestVersion = "Download latest version"
-	// menuInstallVersionPrefix is rewritten with the target version when
-	// the management server enforces the update.
-	menuInstallVersionPrefix = "Install version "
-	// menuGUIVersionFmt and menuDaemonVersionFmt drive the disabled
-	// version-info entries under About. The daemon line is "—" until the
-	// first Status snapshot reports the daemon's version.
-	menuGUIVersionFmt    = "GUI: %s"
-	menuDaemonVersionFmt = "Daemon: %s"
-	menuVersionUnknown   = "—"
-
-	// OS notifications.
-	notifyUpdateTitle          = "NetBird update available"
-	notifyUpdateBodyFmt        = "NetBird %s is available."
-	notifyUpdateEnforcedSuffix = " Your administrator requires this update."
-	notifyErrorTitle           = "Error"
-	notifyErrorConnect         = "Failed to connect"
-	notifyErrorDisconnect      = "Failed to disconnect"
-	notifySessionExpiredTitle  = "NetBird session expired"
-	notifySessionExpiredBody   = "Your NetBird session has expired. Please log in again."
-
-	// Notification IDs (used to coalesce duplicate toasts).
 	notifyIDUpdatePrefix   = "netbird-update-"
 	notifyIDEvent          = "netbird-event-"
 	notifyIDTrayError      = "netbird-tray-error"
 	notifyIDSessionExpired = "netbird-session-expired"
 
-	// statusError is a tray-only synthetic label used for the error icon;
-	// it does not come from the daemon and is not exported.
 	statusError = "Error"
 
-	// External URLs.
 	urlGitHubRepo     = "https://github.com/netbirdio/netbird"
 	urlGitHubReleases = "https://github.com/netbirdio/netbird/releases/latest"
 )
@@ -99,6 +57,11 @@ type TrayServices struct {
 	Notifier        *notifications.NotificationService
 	Update          *services.Update
 	ProfileSwitcher *services.ProfileSwitcher
+	// Localizer is the tray's bridge to translations. Constructed in main
+	// from i18n.Bundle + preferences.Store; the Wails-bound facades
+	// (services.I18n, services.Preferences) are registered separately for
+	// React and are not needed here.
+	Localizer *Localizer
 }
 
 type Tray struct {
@@ -106,20 +69,25 @@ type Tray struct {
 	tray   *application.SystemTray
 	window *application.WebviewWindow
 	svc    TrayServices
+	// loc owns the active language plus the preference subscription. The
+	// tray talks to it for every translated label (t.loc.T(...)) and
+	// registers a callback in NewTray that re-renders the menu on a
+	// language switch.
+	loc *Localizer
 
-	menu              *application.Menu
-	statusItem        *application.MenuItem
-	upItem            *application.MenuItem
-	downItem          *application.MenuItem
-	exitNodeItem      *application.MenuItem
-	networksItem      *application.MenuItem
+	menu               *application.Menu
+	statusItem         *application.MenuItem
+	upItem             *application.MenuItem
+	downItem           *application.MenuItem
+	exitNodeItem       *application.MenuItem
+	networksItem       *application.MenuItem
 	profileSubmenu     *application.Menu
 	profileSubmenuItem *application.MenuItem
 	profileEmailItem   *application.MenuItem
-	settingsItem      *application.MenuItem
-	debugItem         *application.MenuItem
-	updateItem        *application.MenuItem
-	daemonVersionItem *application.MenuItem
+	settingsItem       *application.MenuItem
+	debugItem          *application.MenuItem
+	updateItem         *application.MenuItem
+	daemonVersionItem  *application.MenuItem
 
 	mu                   sync.Mutex
 	connected            bool
@@ -148,10 +116,14 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 		window:               window,
 		svc:                  svc,
 		notificationsEnabled: true,
+		// Localizer is constructed by main from the i18n.Bundle and
+		// preferences.Store so the first menu render below is already in
+		// the right locale — no English flash followed by a re-paint.
+		loc: svc.Localizer,
 	}
 	t.tray = app.SystemTray.New()
 	t.applyIcon()
-	t.tray.SetTooltip(trayTooltip)
+	t.tray.SetTooltip(t.loc.T("tray.tooltip"))
 	t.menu = t.buildMenu()
 	t.tray.SetMenu(t.menu)
 	// Left-click on the tray icon opens the menu on every platform. The
@@ -176,8 +148,86 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 		go t.loadProfiles()
 	})
 
+	// Localizer fires this callback after it has already swapped its own
+	// cached language, so every t.loc.T(...) lookup inside applyLanguage
+	// runs against the new locale.
+	t.loc.Watch(func(i18n.LanguageCode) { t.applyLanguage() })
+
 	go t.loadConfig()
 	return t
+}
+
+// applyLanguage re-renders every translated surface using the Localizer's
+// current language. Wails dispatches menu/tray APIs onto the platform's
+// UI thread internally, so calling them from the Localizer's background
+// goroutine is safe; profileLoadMu prevents loadProfiles from racing the
+// rebuild.
+func (t *Tray) applyLanguage() {
+	t.tray.SetTooltip(t.loc.T("tray.tooltip"))
+	t.menu = t.buildMenu()
+	t.tray.SetMenu(t.menu)
+	t.reapplyMenuState()
+}
+
+// reapplyMenuState walks cached state and re-applies the visibility,
+// enablement and label mutations that applyStatus / onUpdateAvailable
+// would have performed since the last menu rebuild. Required after
+// buildMenu because that constructor returns items in their default
+// (disconnected, no-update) shape.
+func (t *Tray) reapplyMenuState() {
+	t.mu.Lock()
+	connected := t.connected
+	lastStatus := t.lastStatus
+	daemonVersion := t.lastDaemonVersion
+	hasUpdate := t.hasUpdate
+	updateVersion := t.updateVersion
+	updateEnforced := t.updateEnforced
+	exitNodes := append([]string(nil), t.exitNodes...)
+	t.mu.Unlock()
+
+	daemonUnavailable := strings.EqualFold(lastStatus, services.StatusDaemonUnavailable)
+	connecting := strings.EqualFold(lastStatus, services.StatusConnecting)
+
+	if t.statusItem != nil && lastStatus != "" {
+		t.statusItem.SetLabel(t.loc.StatusLabel(lastStatus))
+		t.statusItem.SetEnabled(false)
+		t.applyStatusIndicator(lastStatus)
+	}
+	if t.upItem != nil {
+		t.upItem.SetHidden(connected || connecting || daemonUnavailable)
+		t.upItem.SetEnabled(!connected && !connecting && !daemonUnavailable)
+	}
+	if t.downItem != nil {
+		t.downItem.SetHidden(!connected && !connecting)
+		t.downItem.SetEnabled(connected || connecting)
+	}
+	if t.exitNodeItem != nil {
+		t.exitNodeItem.SetEnabled(connected)
+	}
+	if t.networksItem != nil {
+		t.networksItem.SetEnabled(connected)
+	}
+	if t.settingsItem != nil {
+		t.settingsItem.SetEnabled(!daemonUnavailable)
+	}
+	if t.debugItem != nil {
+		t.debugItem.SetEnabled(!daemonUnavailable)
+	}
+	if daemonVersion != "" && t.daemonVersionItem != nil {
+		t.daemonVersionItem.SetLabel(t.loc.T("tray.menu.daemonVersion", "version", daemonVersion))
+	}
+	if hasUpdate && t.updateItem != nil {
+		if updateEnforced {
+			t.updateItem.SetLabel(t.loc.T("tray.menu.installVersion", "version", updateVersion))
+		} else {
+			t.updateItem.SetLabel(t.loc.T("tray.menu.downloadLatest"))
+		}
+		t.updateItem.SetHidden(false)
+	}
+	if len(exitNodes) > 0 {
+		t.rebuildExitNodes(exitNodes)
+	}
+	go t.loadProfiles()
 }
 
 // ShowWindow brings the main window forward — used by SIGUSR1 / Windows event.
@@ -201,7 +251,7 @@ func (t *Tray) buildMenu() *application.Menu {
 	// only. The Connect entry below drives every actionable transition,
 	// including the SSO re-auth flow for NeedsLogin/SessionExpired
 	// (the daemon's Up RPC returns NeedsSSOLogin when applicable).
-	t.statusItem = menu.Add(menuStatusDisconnected).
+	t.statusItem = menu.Add(t.loc.T("tray.status.disconnected")).
 		SetEnabled(false).
 		SetBitmap(iconMenuDotIdle)
 
@@ -209,16 +259,17 @@ func (t *Tray) buildMenu() *application.Menu {
 	// The tray icon's left-click handler is intentionally unbound (see
 	// NewTray for the rationale), so expose the window through an explicit
 	// menu entry on every platform.
-	menu.Add(menuOpenNetBird).OnClick(func(*application.Context) { t.ShowWindow() })
+	menu.Add(t.loc.T("tray.menu.open")).OnClick(func(*application.Context) { t.ShowWindow() })
 	menu.AddSeparator()
 	// Profiles submenu is populated asynchronously once the application
 	// has started — Menu.Update() is a no-op before app.running is true,
 	// so the initial fill is gated on the ApplicationStarted hook.
-	t.profileSubmenu = menu.AddSubmenu(menuProfiles)
+	profilesLabel := t.loc.T("tray.menu.profiles")
+	t.profileSubmenu = menu.AddSubmenu(profilesLabel)
 	// profileSubmenuItem is the parent MenuItem whose label is the active
 	// profile name. AddSubmenu returns the child *Menu, so we retrieve the
 	// parent *MenuItem via FindByLabel immediately after insertion.
-	t.profileSubmenuItem = menu.FindByLabel(menuProfiles)
+	t.profileSubmenuItem = menu.FindByLabel(profilesLabel)
 	// profileEmailItem shows the account email of the active profile directly
 	// in the main menu, below the Profiles submenu — matching the behaviour of
 	// the legacy Fyne/systray UI. It is hidden until loadProfiles resolves a
@@ -229,14 +280,14 @@ func (t *Tray) buildMenu() *application.Menu {
 	// Only the action that applies to the current state is visible: Connect
 	// when disconnected, Disconnect when connected. applyStatus swaps them on
 	// each daemon status change.
-	t.upItem = menu.Add(menuConnect).OnClick(func(*application.Context) { t.handleConnect() })
-	t.downItem = menu.Add(menuDisconnect).OnClick(func(*application.Context) { t.handleDisconnect() })
+	t.upItem = menu.Add(t.loc.T("tray.menu.connect")).OnClick(func(*application.Context) { t.handleConnect() })
+	t.downItem = menu.Add(t.loc.T("tray.menu.disconnect")).OnClick(func(*application.Context) { t.handleDisconnect() })
 	t.downItem.SetHidden(true)
 
 	menu.AddSeparator()
 
-	t.exitNodeItem = menu.Add(menuExitNode).SetEnabled(false)
-	t.networksItem = menu.Add(menuNetworks).OnClick(func(*application.Context) { t.openRoute("/networks") })
+	t.exitNodeItem = menu.Add(t.loc.T("tray.menu.exitNode")).SetEnabled(false)
+	t.networksItem = menu.Add(t.loc.T("tray.menu.networks")).OnClick(func(*application.Context) { t.openRoute("/networks") })
 
 	menu.AddSeparator()
 
@@ -244,30 +295,30 @@ func (t *Tray) buildMenu() *application.Menu {
 	// block-inbound, auto-connect, notifications) and profile switching
 	// all live in the in-window Settings page now. The tray menu only
 	// surfaces the day-to-day actions.
-	t.settingsItem = menu.Add(menuSettings).OnClick(func(*application.Context) { t.openRoute("/settings") })
-	t.debugItem = menu.Add(menuCreateDebugBundle).OnClick(func(*application.Context) { t.openRoute("/debug") })
+	t.settingsItem = menu.Add(t.loc.T("tray.menu.settings")).OnClick(func(*application.Context) { t.openRoute("/settings") })
+	t.debugItem = menu.Add(t.loc.T("tray.menu.debugBundle")).OnClick(func(*application.Context) { t.openRoute("/debug") })
 
 	menu.AddSeparator()
 
-	about := menu.AddSubmenu(menuAbout)
-	about.Add(menuGitHub).OnClick(func(*application.Context) {
+	about := menu.AddSubmenu(t.loc.T("tray.menu.about"))
+	about.Add(t.loc.T("tray.menu.github")).OnClick(func(*application.Context) {
 		_ = t.app.Browser.OpenURL(urlGitHubRepo)
 	})
-	about.Add(menuDocumentation).SetEnabled(false)
+	about.Add(t.loc.T("tray.menu.documentation")).SetEnabled(false)
 	// Disabled informational entries: the GUI version is baked in at
 	// build time via -ldflags, the daemon version comes from the first
 	// Status snapshot and is updated in applyStatus.
-	about.Add(fmt.Sprintf(menuGUIVersionFmt, version.NetbirdVersion())).SetEnabled(false)
-	t.daemonVersionItem = about.Add(fmt.Sprintf(menuDaemonVersionFmt, menuVersionUnknown)).SetEnabled(false)
+	about.Add(t.loc.T("tray.menu.guiVersion", "version", version.NetbirdVersion())).SetEnabled(false)
+	t.daemonVersionItem = about.Add(t.loc.T("tray.menu.daemonVersion", "version", t.loc.T("tray.menu.versionUnknown"))).SetEnabled(false)
 	// Hidden until the daemon emits EventUpdateAvailable. The label is
-	// rewritten in onUpdateAvailable to match the legacy Fyne UI:
-	// menuDownloadLatestVersion for opt-in, menuInstallVersionPrefix+version
-	// when the management server enforces the update.
-	t.updateItem = about.Add(menuDownloadLatestVersion).OnClick(func(*application.Context) { t.handleUpdate() })
+	// rewritten in onUpdateAvailable: tray.menu.downloadLatest for opt-in,
+	// tray.menu.installVersion when the management server enforces the
+	// update.
+	t.updateItem = about.Add(t.loc.T("tray.menu.downloadLatest")).OnClick(func(*application.Context) { t.handleUpdate() })
 	t.updateItem.SetHidden(true)
 
 	menu.AddSeparator()
-	menu.Add(menuQuit).OnClick(func(*application.Context) { t.app.Quit() })
+	menu.Add(t.loc.T("tray.menu.quit")).OnClick(func(*application.Context) { t.app.Quit() })
 
 	return menu
 }
@@ -302,7 +353,7 @@ func (t *Tray) handleConnect() {
 		defer cancel()
 		if err := t.svc.Connection.Up(ctx, services.UpParams{}); err != nil {
 			log.Errorf("connect: %v", err)
-			t.notifyError(notifyErrorConnect)
+			t.notifyError(t.loc.T("notify.error.connect"))
 			t.upItem.SetEnabled(true)
 		}
 	}()
@@ -328,7 +379,7 @@ func (t *Tray) handleDisconnect() {
 		defer cancel()
 		if err := t.svc.Connection.Down(ctx); err != nil {
 			log.Errorf("disconnect: %v", err)
-			t.notifyError(notifyErrorDisconnect)
+			t.notifyError(t.loc.T("notify.error.disconnect"))
 			t.downItem.SetEnabled(true)
 		}
 	}()
@@ -400,20 +451,20 @@ func (t *Tray) onUpdateAvailable(ev *application.CustomEvent) {
 		// because the install starts on click; opt-in updates just
 		// route the user to the latest release.
 		if upd.Enforced {
-			t.updateItem.SetLabel(menuInstallVersionPrefix + upd.Version)
+			t.updateItem.SetLabel(t.loc.T("tray.menu.installVersion", "version", upd.Version))
 		} else {
-			t.updateItem.SetLabel(menuDownloadLatestVersion)
+			t.updateItem.SetLabel(t.loc.T("tray.menu.downloadLatest"))
 		}
 		t.updateItem.SetHidden(false)
 	}
 
-	body := fmt.Sprintf(notifyUpdateBodyFmt, upd.Version)
+	body := t.loc.T("notify.update.body", "version", upd.Version)
 	if upd.Enforced {
-		body += notifyUpdateEnforcedSuffix
+		body += t.loc.T("notify.update.enforcedSuffix")
 	}
 	if err := t.svc.Notifier.SendNotification(notifications.NotificationOptions{
 		ID:    notifyIDUpdatePrefix + upd.Version,
-		Title: notifyUpdateTitle,
+		Title: t.loc.T("notify.update.title"),
 		Body:  body,
 	}); err != nil {
 		log.Debugf("send update notification: %v", err)
@@ -520,14 +571,7 @@ func (t *Tray) applyStatus(st services.Status) {
 			// Label-only: kept disabled (informational row). Swap the
 			// displayed text so the user sees a familiar phrase instead
 			// of the raw daemon enum.
-			label := st.Status
-			switch {
-			case daemonUnavailable:
-				label = menuStatusDaemonUnavailable
-			case strings.EqualFold(st.Status, services.StatusIdle):
-				label = menuStatusDisconnected
-			}
-			t.statusItem.SetLabel(label)
+			t.statusItem.SetLabel(t.loc.StatusLabel(st.Status))
 			t.statusItem.SetEnabled(false)
 			t.applyStatusIndicator(st.Status)
 		}
@@ -579,7 +623,7 @@ func (t *Tray) applyStatus(st services.Status) {
 		t.rebuildExitNodes(exitNodes)
 	}
 	if daemonVersionChanged && t.daemonVersionItem != nil {
-		t.daemonVersionItem.SetLabel(fmt.Sprintf(menuDaemonVersionFmt, st.DaemonVersion))
+		t.daemonVersionItem.SetLabel(t.loc.T("tray.menu.daemonVersion", "version", st.DaemonVersion))
 	}
 	if sessionExpiredEnter {
 		t.handleSessionExpired()
@@ -594,7 +638,7 @@ func (t *Tray) applyStatus(st services.Status) {
 // Fyne client's onSessionExpire, which used a runSelfCommand to spawn
 // the login-url helper; here the window is already in-process.
 func (t *Tray) handleSessionExpired() {
-	t.notify(notifySessionExpiredTitle, notifySessionExpiredBody, notifyIDSessionExpired)
+	t.notify(t.loc.T("notify.sessionExpired.title"), t.loc.T("notify.sessionExpired.body"), notifyIDSessionExpired)
 	if t.window != nil {
 		t.window.SetURL("/#/login")
 		t.window.Show()
@@ -873,7 +917,7 @@ func (t *Tray) switchProfile(name string) {
 				return
 			}
 			log.Errorf("tray switchProfile: %v", err)
-			t.notifyError(fmt.Sprintf("Failed to switch to %s", name))
+			t.notifyError(t.loc.T("notify.error.switchProfile", "profile", name))
 			return
 		}
 		t.loadProfiles()
@@ -899,7 +943,7 @@ func (t *Tray) notify(title, body, id string) {
 // failures. Each tray click site already logs the underlying error; this
 // adds the user-visible toast.
 func (t *Tray) notifyError(message string) {
-	t.notify(notifyErrorTitle, message, notifyIDTrayError)
+	t.notify(t.loc.T("notify.error.title"), message, notifyIDTrayError)
 }
 
 func exitNodesFromStatus(st services.Status) []string {
