@@ -380,6 +380,20 @@ func (mr *MockStoreMockRecorder) DeleteAccount(ctx, account interface{}) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAccount", reflect.TypeOf((*MockStore)(nil).DeleteAccount), ctx, account)
 }
 
+// DeleteAccountCluster mocks base method.
+func (m *MockStore) DeleteAccountCluster(ctx context.Context, clusterAddress, accountID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteAccountCluster", ctx, clusterAddress, accountID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteAccountCluster indicates an expected call of DeleteAccountCluster.
+func (mr *MockStoreMockRecorder) DeleteAccountCluster(ctx, clusterAddress, accountID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAccountCluster", reflect.TypeOf((*MockStore)(nil).DeleteAccountCluster), ctx, clusterAddress, accountID)
+}
+
 // DeleteCustomDomain mocks base method.
 func (m *MockStore) DeleteCustomDomain(ctx context.Context, accountID, domainID string) error {
 	m.ctrl.T.Helper()
@@ -577,20 +591,6 @@ func (mr *MockStoreMockRecorder) DeletePostureChecks(ctx, accountID, postureChec
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePostureChecks", reflect.TypeOf((*MockStore)(nil).DeletePostureChecks), ctx, accountID, postureChecksID)
 }
 
-// DeleteAccountCluster mocks base method.
-func (m *MockStore) DeleteAccountCluster(ctx context.Context, clusterAddress, accountID string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteAccountCluster", ctx, clusterAddress, accountID)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// DeleteAccountCluster indicates an expected call of DeleteAccountCluster.
-func (mr *MockStoreMockRecorder) DeleteAccountCluster(ctx, clusterAddress, accountID interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAccountCluster", reflect.TypeOf((*MockStore)(nil).DeleteAccountCluster), ctx, clusterAddress, accountID)
-}
-
 // DeleteRoute mocks base method.
 func (m *MockStore) DeleteRoute(ctx context.Context, accountID, routeID string) error {
 	m.ctrl.T.Helper()
@@ -729,6 +729,20 @@ func (m *MockStore) DeleteZoneDNSRecords(ctx context.Context, accountID, zoneID 
 func (mr *MockStoreMockRecorder) DeleteZoneDNSRecords(ctx, accountID, zoneID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteZoneDNSRecords", reflect.TypeOf((*MockStore)(nil).DeleteZoneDNSRecords), ctx, accountID, zoneID)
+}
+
+// DisconnectProxy mocks base method.
+func (m *MockStore) DisconnectProxy(ctx context.Context, proxyID, sessionID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DisconnectProxy", ctx, proxyID, sessionID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DisconnectProxy indicates an expected call of DisconnectProxy.
+func (mr *MockStoreMockRecorder) DisconnectProxy(ctx, proxyID, sessionID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DisconnectProxy", reflect.TypeOf((*MockStore)(nil).DisconnectProxy), ctx, proxyID, sessionID)
 }
 
 // EphemeralServiceExists mocks base method.
@@ -1330,21 +1344,6 @@ func (m *MockStore) GetActiveProxyClusterAddressesForAccount(ctx context.Context
 func (mr *MockStoreMockRecorder) GetActiveProxyClusterAddressesForAccount(ctx, accountID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveProxyClusterAddressesForAccount", reflect.TypeOf((*MockStore)(nil).GetActiveProxyClusterAddressesForAccount), ctx, accountID)
-}
-
-// GetActiveProxyClusters mocks base method.
-func (m *MockStore) GetActiveProxyClusters(ctx context.Context, accountID string) ([]proxy.Cluster, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetActiveProxyClusters", ctx, accountID)
-	ret0, _ := ret[0].([]proxy.Cluster)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetActiveProxyClusters indicates an expected call of GetActiveProxyClusters.
-func (mr *MockStoreMockRecorder) GetActiveProxyClusters(ctx, accountID interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveProxyClusters", reflect.TypeOf((*MockStore)(nil).GetActiveProxyClusters), ctx, accountID)
 }
 
 // GetAllAccounts mocks base method.
@@ -2046,6 +2045,21 @@ func (m *MockStore) GetProxyByAccountID(ctx context.Context, accountID string) (
 func (mr *MockStoreMockRecorder) GetProxyByAccountID(ctx, accountID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProxyByAccountID", reflect.TypeOf((*MockStore)(nil).GetProxyByAccountID), ctx, accountID)
+}
+
+// GetProxyClusters mocks base method.
+func (m *MockStore) GetProxyClusters(ctx context.Context, accountID string) ([]proxy.Cluster, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetProxyClusters", ctx, accountID)
+	ret0, _ := ret[0].([]proxy.Cluster)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetProxyClusters indicates an expected call of GetProxyClusters.
+func (mr *MockStoreMockRecorder) GetProxyClusters(ctx, accountID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProxyClusters", reflect.TypeOf((*MockStore)(nil).GetProxyClusters), ctx, accountID)
 }
 
 // GetResourceGroups mocks base method.
@@ -2918,20 +2932,6 @@ func (m *MockStore) SaveProxy(ctx context.Context, proxy *proxy.Proxy) error {
 func (mr *MockStoreMockRecorder) SaveProxy(ctx, proxy interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveProxy", reflect.TypeOf((*MockStore)(nil).SaveProxy), ctx, proxy)
-}
-
-// DisconnectProxy mocks base method.
-func (m *MockStore) DisconnectProxy(ctx context.Context, proxyID, sessionID string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DisconnectProxy", ctx, proxyID, sessionID)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// DisconnectProxy indicates an expected call of DisconnectProxy.
-func (mr *MockStoreMockRecorder) DisconnectProxy(ctx, proxyID, sessionID interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DisconnectProxy", reflect.TypeOf((*MockStore)(nil).DisconnectProxy), ctx, proxyID, sessionID)
 }
 
 // SaveProxyAccessToken mocks base method.
