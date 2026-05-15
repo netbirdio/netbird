@@ -293,35 +293,27 @@ func setupConfigInputFromUpCmd(cmd *cobra.Command) (*profilemanager.ConfigInput,
 	if cmd.Flag(enableRosenpassFlag).Changed {
 		ic.RosenpassEnabled = &rosenpassEnabled
 	}
-
 	if cmd.Flag(rosenpassPermissiveFlag).Changed {
 		ic.RosenpassPermissive = &rosenpassPermissive
 	}
-
 	if cmd.Flag(serverSSHAllowedFlag).Changed {
 		ic.ServerSSHAllowed = &serverSSHAllowed
 	}
-
 	if cmd.Flag(enableSSHRootFlag).Changed {
 		ic.EnableSSHRoot = &enableSSHRoot
 	}
-
 	if cmd.Flag(enableSSHSFTPFlag).Changed {
 		ic.EnableSSHSFTP = &enableSSHSFTP
 	}
-
 	if cmd.Flag(enableSSHLocalPortForwardFlag).Changed {
 		ic.EnableSSHLocalPortForwarding = &enableSSHLocalPortForward
 	}
-
 	if cmd.Flag(enableSSHRemotePortForwardFlag).Changed {
 		ic.EnableSSHRemotePortForwarding = &enableSSHRemotePortForward
 	}
-
 	if cmd.Flag(disableSSHAuthFlag).Changed {
 		ic.DisableSSHAuth = &disableSSHAuth
 	}
-
 	if cmd.Flag(sshJWTCacheTTLFlag).Changed {
 		ic.SSHJWTCacheTTL = &sshJWTCacheTTL
 	}
