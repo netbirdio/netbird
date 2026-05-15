@@ -53,6 +53,7 @@ type Manager interface {
 	GetRouteSelector() *routeselector.RouteSelector
 	GetClientRoutes() route.HAMap
 	GetSelectedClientRoutes() route.HAMap
+	GetActiveClientRoutes() route.HAMap
 	GetClientRoutesWithNetID() map[route.NetID][]*route.Route
 	SetRouteChangeListener(listener listener.NetworkChangeListener)
 	InitialRouteRange() []string
@@ -483,6 +484,39 @@ func (m *DefaultManager) GetSelectedClientRoutes() route.HAMap {
 	defer m.mux.Unlock()
 
 	return m.routeSelector.FilterSelectedExitNodes(maps.Clone(m.clientRoutes))
+}
+
+// GetActiveClientRoutes returns the subset of selected client routes
+// that are currently reachable: the route's peer is Connected and is
+// the one actively carrying the route (not just an HA sibling).
+func (m *DefaultManager) GetActiveClientRoutes() route.HAMap {
+	m.mux.Lock()
+	selected := m.routeSelector.FilterSelectedExitNodes(maps.Clone(m.clientRoutes))
+	recorder := m.statusRecorder
+	m.mux.Unlock()
+
+	if recorder == nil {
+		return selected
+	}
+
+	out := make(route.HAMap, len(selected))
+	for id, routes := range selected {
+		for _, r := range routes {
+			st, err := recorder.GetPeer(r.Peer)
+			if err != nil {
+				continue
+			}
+			if st.ConnStatus != peer.StatusConnected {
+				continue
+			}
+			if _, hasRoute := st.GetRoutes()[r.Network.String()]; !hasRoute {
+				continue
+			}
+			out[id] = routes
+			break
+		}
+	}
+	return out
 }
 
 // GetClientRoutesWithNetID returns the current routes from the route map, but the keys consist of the network ID only
