@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import netbirdLogo from "@/assets/logos/netbird.svg";
 import { SwitchItem } from "@/components/SwitchItem";
 import { SwitchItemGroup } from "@/components/SwitchItemGroup";
@@ -9,13 +10,20 @@ type Props = {
 };
 
 export const ManagementServerSwitch = ({ value, onChange }: Props) => {
+    const { t, i18n } = useTranslation();
     return (
-        <SwitchItemGroup value={value} onChange={(v) => onChange(v as ManagementMode)}>
+        <SwitchItemGroup
+            key={i18n.language}
+            value={value}
+            onChange={(v) => onChange(v as ManagementMode)}
+        >
             <SwitchItem value={ManagementMode.Cloud}>
                 <img src={netbirdLogo} alt={""} className={"h-[0.8rem] aspect-[31/23] shrink-0"} />
-                Cloud
+                {t("settings.general.management.cloud")}
             </SwitchItem>
-            <SwitchItem value={ManagementMode.SelfHosted}>Self-hosted</SwitchItem>
+            <SwitchItem value={ManagementMode.SelfHosted}>
+                {t("settings.general.management.selfHosted")}
+            </SwitchItem>
         </SwitchItemGroup>
     );
 };

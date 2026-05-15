@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import FancyToggleSwitch from "@/components/FancyToggleSwitch";
 import { HelpText } from "@/components/HelpText";
 import { Input } from "@/components/Input";
@@ -8,11 +9,11 @@ import { useSettings } from "@/modules/settings/SettingsContext.tsx";
 import { type ChangeEvent, useEffect, useState } from "react";
 
 export function SettingsSSH() {
+    const { t } = useTranslation();
     const { config, setField } = useSettings();
     const isSSHServerEnabled = config.serverSshAllowed;
     const [jwtTtlInput, setJwtTtlInput] = useState(String(config.sshJwtCacheTtl));
 
-    // Keep the local input in sync when the config changes from elsewhere
     useEffect(() => {
         setJwtTtlInput(String(config.sshJwtCacheTtl));
     }, [config.sshJwtCacheTtl]);
@@ -40,58 +41,48 @@ export function SettingsSSH() {
     };
     return (
         <>
-            <SectionGroup title={"Server"}>
+            <SectionGroup title={t("settings.ssh.section.server")}>
                 <FancyToggleSwitch
                     value={config.serverSshAllowed}
                     onChange={(v) => setField("serverSshAllowed", v)}
-                    label={"Enable SSH Server"}
-                    helpText={
-                        "Run the NetBird SSH server on this host so other peers can connect to it."
-                    }
+                    label={t("settings.ssh.server.label")}
+                    helpText={t("settings.ssh.server.help")}
                 />
             </SectionGroup>
 
-            <SectionGroup title={"Capabilities"} disabled={!isSSHServerEnabled}>
+            <SectionGroup title={t("settings.ssh.section.capabilities")} disabled={!isSSHServerEnabled}>
                 <FancyToggleSwitch
                     value={config.enableSshRoot}
                     onChange={(v) => setField("enableSshRoot", v)}
-                    label={"Allow Root Login"}
-                    helpText={
-                        "Let peers sign in as the root user. Disable to require a non-privileged account."
-                    }
+                    label={t("settings.ssh.root.label")}
+                    helpText={t("settings.ssh.root.help")}
                 />
                 <FancyToggleSwitch
                     value={config.enableSshSftp}
                     onChange={(v) => setField("enableSshSftp", v)}
-                    label={"Allow SFTP"}
-                    helpText={"Transfer files securely using native SFTP or SCP clients."}
+                    label={t("settings.ssh.sftp.label")}
+                    helpText={t("settings.ssh.sftp.help")}
                 />
                 <FancyToggleSwitch
                     value={config.enableSshLocalPortForwarding}
                     onChange={(v) => setField("enableSshLocalPortForwarding", v)}
-                    label={"Local Port Forwarding"}
-                    helpText={
-                        "Let connecting peers tunnel local ports to services reachable from this host."
-                    }
+                    label={t("settings.ssh.localForward.label")}
+                    helpText={t("settings.ssh.localForward.help")}
                 />
                 <FancyToggleSwitch
                     value={config.enableSshRemotePortForwarding}
                     onChange={(v) => setField("enableSshRemotePortForwarding", v)}
-                    label={"Remote Port Forwarding"}
-                    helpText={
-                        "Let connecting peers expose ports on this host back to their own machine."
-                    }
+                    label={t("settings.ssh.remoteForward.label")}
+                    helpText={t("settings.ssh.remoteForward.help")}
                 />
             </SectionGroup>
 
-            <SectionGroup title={"Authentication"} disabled={!isSSHServerEnabled}>
+            <SectionGroup title={t("settings.ssh.section.authentication")} disabled={!isSSHServerEnabled}>
                 <FancyToggleSwitch
                     value={!config.disableSshAuth}
                     onChange={(v) => setField("disableSshAuth", !v)}
-                    label={"Enable JWT Authentication"}
-                    helpText={
-                        "Verify each SSH session against your IdP for user identity and audit. Disable to rely on network ACL policies only, useful when no IdP is available."
-                    }
+                    label={t("settings.ssh.jwt.label")}
+                    helpText={t("settings.ssh.jwt.help")}
                 />
                 <div
                     className={cn(
@@ -100,11 +91,9 @@ export function SettingsSSH() {
                     )}
                 >
                     <div className={"flex-1 max-w-md"}>
-                        <Label as={"div"}>JWT Cache TTL</Label>
+                        <Label as={"div"}>{t("settings.ssh.jwtTtl.label")}</Label>
                         <HelpText margin={false}>
-                            How long this client caches a JWT before prompting again on outgoing SSH
-                            connections. Set to 0 to disable caching and authenticate on every
-                            connection.
+                            {t("settings.ssh.jwtTtl.help")}
                         </HelpText>
                     </div>
                     <div className={"w-40 shrink-0"}>
@@ -114,7 +103,7 @@ export function SettingsSSH() {
                             value={jwtTtlInput}
                             onChange={handleJwtTtlChange}
                             onBlur={handleJwtTtlBlur}
-                            customSuffix={"Second(s)"}
+                            customSuffix={t("settings.ssh.jwtTtl.suffix")}
                         />
                     </div>
                 </div>

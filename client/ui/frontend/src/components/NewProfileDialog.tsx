@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import * as Dialog from "@/components/Dialog";
 import { Input } from "@/components/Input";
 import { Button } from "@/components/Button";
@@ -10,6 +11,7 @@ type Props = {
 };
 
 export const NewProfileDialog = ({ open, onOpenChange, onCreate }: Props) => {
+    const { t } = useTranslation();
     const [name, setName] = useState("");
 
     useEffect(() => {
@@ -34,17 +36,16 @@ export const NewProfileDialog = ({ open, onOpenChange, onCreate }: Props) => {
             >
                 <form onSubmit={handleSubmit}>
                     <div className="px-8 pt-2">
-                        <Dialog.Title>New Profile</Dialog.Title>
+                        <Dialog.Title>{t("profile.dialog.title")}</Dialog.Title>
                         <Dialog.Description>
-                            Profiles let you keep separate NetBird connections
-                            side by side. Give your profile a memorable name.
+                            {t("profile.dialog.description")}
                         </Dialog.Description>
                     </div>
 
                     <div className="px-8 pt-3">
                         <Input
                             autoFocus
-                            placeholder="e.g. Work"
+                            placeholder={t("profile.dialog.placeholder")}
                             value={name}
                             onChange={(e) => setName(e.target.value)}
                         />
@@ -56,14 +57,14 @@ export const NewProfileDialog = ({ open, onOpenChange, onCreate }: Props) => {
                             variant="secondary"
                             onClick={() => onOpenChange(false)}
                         >
-                            Cancel
+                            {t("common.cancel")}
                         </Button>
                         <Button
                             type="submit"
                             variant="primary"
                             disabled={!canSubmit}
                         >
-                            Create
+                            {t("common.create")}
                         </Button>
                     </Dialog.Footer>
                 </form>

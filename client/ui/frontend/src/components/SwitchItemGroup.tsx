@@ -33,7 +33,7 @@ export const SwitchItemGroup = ({ value, onChange, children, className }: Props)
                 value={value}
                 onValueChange={onChange}
                 className={cn(
-                    "flex shrink-0 rounded-lg border border-nb-gray-850 bg-nb-gray-910 p-1",
+                    "flex shrink-0 rounded-lg border border-nb-gray-850 bg-nb-gray-910 p-1 overflow-hidden",
                     className,
                 )}
             >

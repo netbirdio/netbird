@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { cn } from "@/lib/cn";
 import { SearchInput } from "@/components/SearchInput";
@@ -9,6 +10,7 @@ import { PeersList } from "./PeersList";
 const isOnline = (status: string) => status === "connected";
 
 export const Peers = () => {
+    const { t } = useTranslation();
     const [search, setSearch] = useState("");
     const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
@@ -37,7 +39,7 @@ export const Peers = () => {
         <div className={"flex flex-col w-full h-full min-h-0 pt-4"}>
             <div className={"flex flex-col gap-3 px-6"}>
                 <SearchInput
-                    placeholder={"Search by peer name, DNS or IP address"}
+                    placeholder={t("peers.search.placeholder")}
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                 />

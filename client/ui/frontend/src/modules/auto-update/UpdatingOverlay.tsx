@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Loader2, XCircle } from "lucide-react";
 import { Button } from "@/components/Button";
 
@@ -13,31 +14,38 @@ type Variant = {
     message?: string;
 };
 
-function classifyError(msg: string, version: string | null): Variant {
+function classifyError(
+    msg: string,
+    version: string | null,
+    t: (key: string, options?: Record<string, unknown>) => string,
+): Variant {
     const lower = msg.toLowerCase();
-    const target = version ? `v${version}` : "the new version";
+    const target = version
+        ? t("update.overlay.error.targetVersion", { version })
+        : t("update.overlay.error.targetFallback");
     if (lower.includes("timeout") || lower.includes("timed out")) {
         return {
-            title: "Update Is Taking Too Long",
-            description: `Installing ${target} took too long and didn't finish.`,
+            title: t("update.overlay.error.timeoutTitle"),
+            description: t("update.overlay.error.timeoutDescription", { target }),
         };
     }
     if (lower.includes("cancel")) {
         return {
-            title: "Update Was Stopped",
-            description: `The update to ${target} was canceled before it finished.`,
+            title: t("update.overlay.error.canceledTitle"),
+            description: t("update.overlay.error.canceledDescription", { target }),
         };
     }
     return {
-        title: "Couldn't Install the Update",
-        description: `${target} couldn't be installed.`,
-        message: msg || "unknown error",
+        title: t("update.overlay.error.failTitle"),
+        description: t("update.overlay.error.failDescription", { target }),
+        message: msg || t("update.overlay.error.unknownMessage"),
     };
 }
 
 export const UpdatingOverlay = ({ version, error, onDismiss }: Props) => {
+    const { t } = useTranslation();
     const isError = Boolean(error);
-    const errorInfo = error ? classifyError(error, version) : null;
+    const errorInfo = error ? classifyError(error, version, t) : null;
 
     return (
         <div
@@ -75,8 +83,8 @@ export const UpdatingOverlay = ({ version, error, onDismiss }: Props) => {
                         {isError
                             ? errorInfo!.title
                             : version
-                                ? `Updating NetBird to v${version}`
-                                : "Updating NetBird"}
+                                ? t("update.overlay.updatingVersion", { version })
+                                : t("update.overlay.updating")}
                     </p>
                     <p className={"text-sm text-nb-gray-300"}>
                         {isError ? (
@@ -92,7 +100,7 @@ export const UpdatingOverlay = ({ version, error, onDismiss }: Props) => {
                                 )}
                             </>
                         ) : (
-                            "A newer version is available and is being installed. NetBird will restart automatically once the update is finished."
+                            t("update.overlay.description")
                         )}
                     </p>
                 </div>
@@ -100,7 +108,7 @@ export const UpdatingOverlay = ({ version, error, onDismiss }: Props) => {
                 {isError && (
                     <div className={"wails-no-draggable"}>
                         <Button variant={"secondary"} size={"xs"} onClick={onDismiss}>
-                            Close
+                            {t("common.close")}
                         </Button>
                     </div>
                 )}

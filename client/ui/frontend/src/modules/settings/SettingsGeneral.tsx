@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/Button";
 import FancyToggleSwitch from "@/components/FancyToggleSwitch";
 import { HelpText } from "@/components/HelpText";
@@ -8,8 +9,10 @@ import { SectionGroup } from "@/modules/settings/SettingsSection.tsx";
 import { useSettings } from "@/modules/settings/SettingsContext.tsx";
 import { ManagementServerSwitch } from "@/modules/settings/ManagementServerSwitch.tsx";
 import { ManagementMode, useManagementUrl } from "@/modules/settings/useManagementUrl.ts";
+import { LanguagePicker } from "@/modules/settings/LanguagePicker.tsx";
 
 export function SettingsGeneral() {
+    const { t } = useTranslation();
     const { config, setField } = useSettings();
     const { mode, setMode, setUrl, displayUrl, showError, canSave, save } = useManagementUrl();
 
@@ -27,29 +30,29 @@ export function SettingsGeneral() {
 
     return (
         <>
-            <SectionGroup title={"General"}>
+            <SectionGroup title={t("settings.general.section.general")}>
+                <LanguagePicker />
                 <FancyToggleSwitch
                     value={!config.disableAutoConnect}
                     onChange={(v) => setField("disableAutoConnect", !v)}
-                    label={"Connect on Startup"}
-                    helpText={"Automatically establish a connection when the service starts."}
+                    label={t("settings.general.connectOnStartup.label")}
+                    helpText={t("settings.general.connectOnStartup.help")}
                 />
                 <FancyToggleSwitch
                     value={!config.disableNotifications}
                     onChange={(v) => setField("disableNotifications", !v)}
-                    label={"Desktop Notifications"}
-                    helpText={"Show desktop notifications for new updates and connection events."}
+                    label={t("settings.general.notifications.label")}
+                    helpText={t("settings.general.notifications.help")}
                 />
             </SectionGroup>
 
-            <SectionGroup title={"Connection"}>
+            <SectionGroup title={t("settings.general.section.connection")}>
                 <div>
                     <div className={"flex items-start gap-3"}>
                         <div className={"flex-1 min-w-0"}>
-                            <Label as={"div"}>Management Server</Label>
+                            <Label as={"div"}>{t("settings.general.management.label")}</Label>
                             <HelpText>
-                                Connect to NetBird Cloud or your own self-hosted management server.
-                                Changes will reconnect the client.
+                                {t("settings.general.management.help")}
                             </HelpText>
                         </div>
                         <ManagementServerSwitch value={mode} onChange={setMode} />
@@ -60,10 +63,10 @@ export function SettingsGeneral() {
                                 ref={inputRef}
                                 value={displayUrl}
                                 onChange={(e) => setUrl(e.target.value)}
-                                placeholder={"https://netbird.selfhosted.com:443"}
+                                placeholder={t("settings.general.management.urlPlaceholder")}
                                 error={
                                     showError
-                                        ? "Please enter a valid URL, e.g., https://netbird.selfhosted.com:443"
+                                        ? t("settings.general.management.urlError")
                                         : undefined
                                 }
                             />
@@ -73,7 +76,7 @@ export function SettingsGeneral() {
                                 disabled={!canSave}
                                 onClick={() => save()}
                             >
-                                Save
+                                {t("common.save")}
                             </Button>
                         </div>
                     )}

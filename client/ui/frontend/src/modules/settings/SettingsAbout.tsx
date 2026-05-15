@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Browser } from "@wailsio/runtime";
 import netbirdFull from "@/assets/logos/netbird-full.svg";
 import pkg from "../../../package.json";
@@ -5,23 +6,24 @@ import { useStatus } from "@/hooks/useStatus";
 import { UpdateVersionCard } from "@/modules/auto-update/UpdateVersionCard";
 import { useAccentTrigger } from "@/modules/settings/SettingsAccent";
 
-const LEGAL_LINKS: { label: string; url: string }[] = [
-    { label: "Imprint", url: "https://netbird.io/imprint" },
-    { label: "Privacy", url: "https://netbird.io/privacy" },
-    { label: "CLA", url: "https://netbird.io/cla" },
-    { label: "Terms of Service", url: "https://netbird.io/terms" },
-];
-
 function openUrl(url: string) {
     void Browser.OpenURL(url).catch(() => window.open(url, "_blank"));
 }
 
 export function SettingsAbout() {
+    const { t } = useTranslation();
     const { status } = useStatus();
     const guiVersion = pkg.version;
     const daemonVersion = status?.daemonVersion ?? "—";
 
     const handleVersionClick = useAccentTrigger();
+
+    const LEGAL_LINKS: { label: string; url: string }[] = [
+        { label: t("settings.about.links.imprint"), url: "https://netbird.io/imprint" },
+        { label: t("settings.about.links.privacy"), url: "https://netbird.io/privacy" },
+        { label: t("settings.about.links.cla"), url: "https://netbird.io/cla" },
+        { label: t("settings.about.links.terms"), url: "https://netbird.io/terms" },
+    ];
 
     return (
         <div
@@ -35,15 +37,17 @@ export function SettingsAbout() {
                     className={"text-sm font-semibold text-nb-gray-100 cursor-default select-none"}
                     onClick={handleVersionClick}
                 >
-                    NetBird Client v{daemonVersion}
+                    {t("settings.about.client", { version: daemonVersion })}
                 </p>
-                <p className={"text-sm text-nb-gray-300"}>GUI v{guiVersion}</p>
+                <p className={"text-sm text-nb-gray-300"}>
+                    {t("settings.about.gui", { version: guiVersion })}
+                </p>
             </div>
 
             <UpdateVersionCard />
 
             <p className={"text-sm text-nb-gray-300 text-center"}>
-                © {new Date().getFullYear()} NetBird. All Rights Reserved.
+                {t("settings.about.copyright", { year: new Date().getFullYear() })}
             </p>
             <div
                 className={"flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-nb-gray-200"}

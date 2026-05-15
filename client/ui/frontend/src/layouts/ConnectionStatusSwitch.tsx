@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Dialogs, Events } from "@wailsio/runtime";
 import { Connection, WindowManager } from "@bindings/services";
+import i18next from "@/lib/i18n";
 import { ToggleSwitch } from "@/components/ToggleSwitch.tsx";
 import { useStatus } from "@/hooks/useStatus";
 import { useProfile } from "@/modules/profile/ProfileContext.tsx";
@@ -14,11 +16,11 @@ enum ConnectionState {
     Disconnecting = "disconnecting",
 }
 
-const STATUS_LABEL: Record<ConnectionState, string> = {
-    [ConnectionState.Disconnected]: "Disconnected",
-    [ConnectionState.Connecting]: "Connecting...",
-    [ConnectionState.Connected]: "Connected",
-    [ConnectionState.Disconnecting]: "Disconnecting...",
+const STATUS_KEY: Record<ConnectionState, string> = {
+    [ConnectionState.Disconnected]: "connect.status.disconnected",
+    [ConnectionState.Connecting]: "connect.status.connecting",
+    [ConnectionState.Connected]: "connect.status.connected",
+    [ConnectionState.Disconnecting]: "connect.status.disconnecting",
 };
 
 const EVENT_BROWSER_LOGIN_CANCEL = "browser-login:cancel";
@@ -90,7 +92,7 @@ async function startLogin(): Promise<void> {
         WindowManager.CloseBrowserLogin().catch(console.error);
         if (cancelled) return;
         await Dialogs.Error({
-            Title: "Login Failed",
+            Title: i18next.t("connect.error.loginTitle"),
             Message: errorMessage(e),
         });
     } finally {
@@ -100,6 +102,7 @@ async function startLogin(): Promise<void> {
 }
 
 export const ConnectionStatusSwitch = () => {
+    const { t } = useTranslation();
     const { status, refresh } = useStatus();
     const { activeProfile, username } = useProfile();
 
@@ -141,7 +144,7 @@ export const ConnectionStatusSwitch = () => {
             });
         } catch (e) {
             await Dialogs.Error({
-                Title: "Connect Failed",
+                Title: t("connect.error.connectTitle"),
                 Message: errorMessage(e),
             });
         } finally {
@@ -156,7 +159,7 @@ export const ConnectionStatusSwitch = () => {
             await Connection.Down();
         } catch (e) {
             await Dialogs.Error({
-                Title: "Disconnect Failed",
+                Title: t("connect.error.disconnectTitle"),
                 Message: errorMessage(e),
             });
         } finally {
@@ -215,10 +218,10 @@ export const ConnectionStatusSwitch = () => {
                     }
                 >
                     {unreachable
-                        ? "Daemon unavailable"
+                        ? t("connect.status.daemonUnavailable")
                         : needsLogin
-                          ? "Login required"
-                          : STATUS_LABEL[connState]}
+                          ? t("connect.status.loginRequired")
+                          : t(STATUS_KEY[connState])}
                 </h1>
                 <p
                     className={cn(

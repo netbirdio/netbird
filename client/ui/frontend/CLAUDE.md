@@ -2,47 +2,19 @@
 
 This is the React/TS frontend for the Wails v3 desktop UI. It runs inside the main Wails webview plus two auxiliary windows (`/#/settings` and `/#/browser-login`) opened by Go (`services/windowmanager.go`). For Go-side conventions and the daemon gRPC layer see `../CLAUDE.md`.
 
+> **Keep these notes current.** When working in this directory with Claude, update this file whenever you change conventions, rename a context/provider, shift the route table, add or remove a top-level dependency, or introduce a new cross-cutting feature (i18n, theming, telemetry, etc.). The aim is that a cold-start agent can orient itself from these notes without re-deriving the codebase.
+
 > **Work in progress.** Big chunks of the UI are still mocked, prototyped, or duplicated across screens that pre-date the current AppLayout. Anything marked "prototype" / "mocked" / "legacy" below should be assumed half-wired. The polished surface today is: the main connect toggle, the Settings window, the debug-bundle flow, the auto-update overlay, and the profile selector. Everything else is in flight.
 
-## Stack
+## Stack & tooling
 
-- **React 18** with `react-dom/client` + `<React.StrictMode>` (app.tsx).
-- **TypeScript 5.7**, `"strict": true`, `noUnusedLocals: true`, `noImplicitAny: false`, `jsx: react-jsx`.
-- **Vite 6** + `@vitejs/plugin-react`. Wails ships its own Vite plugin (`@wailsio/runtime/plugins/vite`) that's wired in for binding regen / runtime injection.
-- **React Router v7** (`HashRouter` — Wails serves a static bundle so hash-based routing avoids server-side fallback).
-- **Tailwind CSS 3** with `darkMode: "class"`. Class-merging via `cn(...inputs)` (`src/lib/cn.ts` — `twMerge(clsx(inputs))`).
-- **Radix UI primitives** for Dialog / DropdownMenu / Popover / RadioGroup / ScrollArea / Switch / Tabs / Tooltip / VisuallyHidden / Label.
-- **framer-motion** for the central connect-toggle animation only.
-- **lucide-react** for icons. **chroma-js** for the deterministic-color helper. **cmdk** is installed but not currently used.
-- **`@wailsio/runtime`** for `Dialogs`, `Events`, `Browser`, `Window` APIs.
-- **Package manager: pnpm** (`pnpm-lock.yaml`). No `package-lock.json` / `yarn.lock`.
+React 18 + TS 5.7 (`strict`, `noImplicitAny: false`) + Vite 6 + Tailwind 3 (`darkMode: "class"`) + Radix primitives + i18next + `@wailsio/runtime`. React Router v7 `HashRouter` (Wails serves a static bundle). pnpm only — `package.json` is authoritative for deps and scripts. Class merging: `cn(...)` in `src/lib/cn.ts`. framer-motion is used only by `NetBirdConnectToggle`. `task dev` from `client/ui/` is the canonical dev entry point — it runs Vite on `WAILS_VITE_PORT || 9245`.
 
-Scripts (`package.json`):
+## Path aliases & bindings
 
-```
-pnpm dev            # vite dev server (port 9245, host 127.0.0.1)
-pnpm build:dev      # tsc + vite build, mode=development, --minify false
-pnpm build          # tsc + vite build, mode=production
-pnpm preview        # vite preview
-pnpm typecheck      # tsc --noEmit
-pnpm format         # prettier write on src/**
-pnpm format:check
-```
+`@/*` → `src/*`, `@bindings/*` → `bindings/github.com/netbirdio/netbird/client/ui/*` (set in both `tsconfig.json` and `vite.config.ts`). Canonical imports: `from "@bindings/services"` (functions) and `from "@bindings/services/models.js"` (types). A few legacy screens (`screens/Profiles.tsx`, `pages/Update.tsx`) still use deep `../../bindings/...` paths — treat as a smell.
 
-`task dev` from `client/ui/` starts the Wails dev harness, which in turn runs `vite` (port `WAILS_VITE_PORT || 9245`).
-
-## Path aliases
-
-`tsconfig.json` and `vite.config.ts` agree on two aliases:
-
-| Alias | Resolves to |
-|---|---|
-| `@/*` | `src/*` |
-| `@bindings/*` | `bindings/github.com/netbirdio/netbird/client/ui/*` |
-
-So `import { Connection } from "@bindings/services"` and `import type { Status } from "@bindings/services/models.js"` are the canonical imports. **Don't** hand-write deep `../../bindings/github.com/...` paths — a few legacy screens (`screens/Profiles.tsx`, `pages/Update.tsx`) still do; treat that as a smell.
-
-`bindings/` is **gitignored** — every file is generated and never hand-edited. Regenerate from `client/ui/` via `wails3 generate bindings -clean=true -ts`, or use the `pnpm bindings` shortcut from this directory. A fresh clone has no `bindings/` on disk, so `pnpm typecheck` will fail until you run it once; `wails3 dev` regenerates on its own.
+`bindings/` is gitignored and fully generated. A fresh clone has no `bindings/` on disk, so `pnpm typecheck` fails until you run `pnpm bindings` (or `wails3 generate bindings -clean=true -ts` from `client/ui/`) once. `wails3 dev` regenerates on its own.
 
 ## Routing (app.tsx)
 
@@ -64,62 +36,7 @@ So `import { Connection } from "@bindings/services"` and `import type { Status }
 
 ## Directory layout (src/)
 
-```
-app.tsx               # entry, routes, <SkeletonTheme>, welcome() console banner
-globals.css           # Tailwind layers + custom CSS variables
-vite-env.d.ts
-
-assets/               # flags/, fonts/, logos/ (svg)
-components/           # presentational primitives — see "Components" below
-hooks/                # useStatus.ts (currently the only hook here)
-layouts/              # AppLayout, SettingsLayout, Header, Main, MainRightSide,
-                      # Navigation, ConnectionStatus, ConnectionStatusSwitch
-lib/                  # cn (tailwind merge), color (hash → hex), welcome (console art),
-                      # MainModuleContext (unused legacy)
-modules/              # feature folders that own their own contexts/state
-  auto-update/        # ClientVersionContext + overlays/banners/badges
-  debug-bundle/       # useDebugBundle hook + Provider wrapper
-  peers/              # Peers UI (currently mockPeers; not wired to daemon data)
-  profile/            # ProfileContext
-  settings/           # Settings root + per-tab files + SettingsContext
-  skeletons/          # SkeletonSettings
-pages/                # full-screen single-purpose pages routed via app.tsx
-  BrowserLogin.tsx    # auxiliary window content
-  SessionExpired.tsx  # prototype, no wiring
-  Update.tsx          # enforced-update install screen (real one)
-  Debug.tsx           # legacy debug bundle UI, superseded by SettingsTroubleshooting
-screens/              # in-window screens (mostly legacy; pre-AppLayout era)
-  Peers.tsx           # legacy peer-detail UI (uses real Peers.Get data)
-  Networks.tsx        # legacy networks UI
-  Profiles.tsx        # uses ProfileSwitcher.SwitchActive (current preferred path)
-  Settings.tsx        # legacy — superseded by modules/settings/Settings.tsx
-  Update.tsx          # legacy update page (different from pages/Update.tsx)
-  QuickActions.tsx    # legacy quick-action panel
-  Debug.tsx           # legacy
-```
-
-The split between `pages/`, `screens/`, and `modules/` is historical and not load-bearing. Today: `modules/` owns the polished AppLayout-shell-driven UI, `pages/` owns the few routes that live outside that shell, and `screens/` is the unsorted legacy bucket. Don't add new code under `screens/` — pick `pages/` (own route, no shell) or `modules/<feature>/` (lives inside the shell).
-
-## Generated bindings
-
-Re-exported from `@bindings/services/index.ts`:
-
-```ts
-import {
-  Connection, Debug, Forwarding, Networks, Peers,
-  ProfileSwitcher, Profiles, Settings, Update, WindowManager,
-} from "@bindings/services";
-
-import type {
-  ActiveProfile, Config, ConfigParams, DebugBundleParams, DebugBundleResult,
-  Features, ForwardingRule, LocalPeer, LogLevel, LoginParams, LoginResult,
-  LogoutParams, Network, PeerLink, PeerStatus, PortInfo, PortRange, Profile,
-  ProfileRef, SelectNetworksParams, SetConfigParams, Status, SystemEvent,
-  UpParams, UpdateAvailable, UpdateProgress, UpdateResult, WaitSSOParams,
-} from "@bindings/services/models.js";
-```
-
-Every service method returns a `$CancellablePromise<T>` (Wails3 wrapper) — call `.cancel()` to abort the underlying gRPC call. In practice we `await` them and never call `.cancel()`; the few stream-driven cases use `AbortController` (see `useDebugBundle`).
+The split between `pages/`, `screens/`, and `modules/` is historical and not load-bearing. **Today:** `modules/` owns the polished AppLayout-shell-driven UI, `pages/` owns the few routes that live outside that shell, and `screens/` is the unsorted legacy bucket. Don't add new code under `screens/` — pick `pages/` (own route, no shell) or `modules/<feature>/` (lives inside the shell). `lib/MainModuleContext.tsx` is exported but unused — candidate for deletion.
 
 ## Wails event bus
 
@@ -140,62 +57,66 @@ If you wire a new daemon-event subscriber on the TS side, prefer subscribing onc
 
 State that crosses screens / windows lives in context. Each provider is mounted exactly once inside `AppLayout` or `SettingsLayout`.
 
-### `useStatus` (hooks/useStatus.ts)
+- **`useStatus`** (`hooks/useStatus.ts`) — `{ status, error, refresh }`. Fetches `Peers.Get()` once, re-renders on every `netbird:status` push. `refresh()` after Connect/Disconnect to dodge a few hundred ms of event-stream lag.
 
-Returns `{ status, error, refresh }`. Fetches `Peers.Get()` once, then re-renders on every `netbird:status` push. `refresh()` is for forcing a re-read after a user action (Connect / Disconnect) so the UI doesn't lag the event stream by a few hundred ms.
+- **`ProfileContext`** (`modules/profile/`) — `username`, `activeProfile`, `profiles`, plus `refresh` / `switchProfile` / `addProfile` / `removeProfile` / `logoutProfile`. `switchProfile` delegates to `ProfileSwitcher.SwitchActive` (the Go-side single source of truth — drives the optimistic-Connecting paint and `Peers` suppression). The other methods are thin wrappers over `Profiles.*` / `Connection.Logout` plus a `refresh()`.
 
-### `ProfileContext` (modules/profile/ProfileContext.tsx)
+- **`SettingsContext`** (`modules/settings/`) — `setField` / `saveField` / `saveFields` / `saveNow` over `SettingsSvc.GetConfig|SetConfig` with 400ms debounce. Renders `<SkeletonSettings/>` while `config === null` so tabs never see null. **PSK mask quirk:** `GetConfig` returns existing PSKs as `"**********"`; sending the mask back round-trips it into storage and `wgtypes.ParseKey` fails on the next connect. `save` drops the field when it equals `"**********"`.
 
-Single source of truth for `username`, `activeProfile`, `profiles`. Exposes `refresh`, `switchProfile`, `addProfile`, `removeProfile`, `logoutProfile`.
+- **`DebugBundleProvider` + `useDebugBundle`** (`modules/debug-bundle/`) — stages: `idle → preparing-trace → reconnecting → capturing → restoring-level → bundling → uploading → done`. Cancellable via `AbortController` at any stage; cancel restores the original log level best-effort. Wrapped in a context so the troubleshooting tab keeps stage across navigation. Upload URL is the hardcoded `NETBIRD_UPLOAD_URL`.
 
-**Caveat:** `ProfileContext.switchProfile` implements the reconnect policy in TS (Switch + conditional Down/Up gated on previous Connected/Connecting). The Go-side `ProfileSwitcher.SwitchActive` does the same thing **plus** drives the optimistic-Connecting paint via `Peers.BeginProfileSwitch`. Prefer `ProfileSwitcher.SwitchActive` for new call sites — `screens/Profiles.tsx` already does. The duplicate logic in `ProfileContext` is on the cleanup list.
+- **`ClientVersionContext`** (`modules/auto-update/`) — derives `updateAvailable` / `updateVersion` from `Status.events` metadata (`new_version_available` key), exposes `triggerUpdate`, mounts `<UpdateAvailableBanner/>` + `<UpdatingOverlay/>` so every screen inherits them. **Dev preview flags at the top of the file** (`FORCE_UPDATE_AVAILABLE`, `FORCE_UPDATING`, `FORCE_VERSION`, `HIDE_UPDATE_AVAILABLE`, `FORCE_ERROR`, `FORCE_ERROR_MSG`) override daemon state for UI preview. `FORCE_UPDATE_AVAILABLE = true` is currently committed — flip back to `false` before a real release. `UpdateAvailableBanner` additionally returns null in `import.meta.env.DEV`.
 
-### `SettingsContext` (modules/settings/SettingsContext.tsx)
+### Wide/narrow panel + no client-side persistence
 
-Loads `SettingsSvc.GetConfig` for the active profile, then debounces every `setField` write (`SAVE_DEBOUNCE_MS = 400`). API:
+The `expanded` flag (380px ↔ 925px) lives in `AppLayout` as plain `useState(false)` — the only shell-layout knob. `Header.tsx` reads it via props and calls `Window.SetSize(w, 615)`; `Main.tsx` reads it via `MainOutletContext` to mount/unmount the right-side panel. Every app launch starts small. **No `localStorage` / `sessionStorage` / cookies anywhere in the frontend** — persistence is the Go side's job (settings → `SetConfig`, language → `Preferences.SetLanguage`). Nav-item visibility and header buttons are hardcoded to always-render (the old Appearance toggles are gone).
 
-- `setField(k, v)` — optimistic update + debounced save. Use for toggles.
-- `saveField(k, v)` — flush pending + save immediately. Use for explicit Save buttons.
-- `saveFields(partial)` — same as `saveField` but for multiple keys at once (used by the Advanced tab's batched save).
-- `saveNow()` — flush pending without changing values.
+## Localisation (i18n)
 
-While `config` is `null` the provider renders `<SkeletonSettings/>` instead of children — the actual tabs never need to handle a null config.
+Bootstrap lives in `src/i18n/index.ts` and is awaited before render in `app.tsx`. It reads the current language from `Preferences.Get()`, statically imports every bundle JSON (`en/common.json`, `de/common.json`, `hu/common.json` today), initialises i18next with `fallbackLng: "en"` and `interpolation: { prefix: "{", suffix: "}" }`, and subscribes to the `netbird:preferences:changed` Wails event so a flip from any window (tray, settings, another renderer) calls `i18next.changeLanguage` here.
 
-**PSK mask quirk:** The daemon returns existing pre-shared keys as `"**********"` in `GetConfig`. Sending the mask back round-trips it into the saved config and `wgtypes.ParseKey` fails on the next connect. `save` drops the field when it equals `"**********"` so an unrelated toggle save doesn't corrupt the stored PSK.
+**No first-run detection.** When no preferences file exists, `Preferences.Get()` returns `{language: "en"}` from the Go-side in-memory default. The frontend treats `en` as the fallback (i18next `fallbackLng: "en"`) and users pick a different language via the picker in `SettingsGeneral`. The Go store persists on the first explicit `SetLanguage`.
 
-### Wide/narrow panel state
+The frontend deliberately uses **no `localStorage` / `sessionStorage` / cookies anywhere** — persistence is the Go side's job (settings via `SettingsContext.save → SetConfig`, language via `Preferences.SetLanguage`). The previous wide-panel and settings-tab persistence experiments were removed; every window opens at its baseline state.
 
-There is no appearance context or localStorage. The `expanded` flag lives in `AppLayout` as plain `useState(false)` and is the only shell-layout knob. `Header.tsx` reads it via props (sets the panel-toggle icon and calls `Window.SetSize(925|380, 615)` on change); `Main.tsx` reads it via Outlet context (`MainOutletContext`) to decide whether to mount the right-side panel. Every app launch starts small — no cross-machine drift.
-
-Nav-item visibility (Peers / Resources / Exit Node) and the header buttons (profile selector, settings) are hardcoded to always-render in `Navigation.tsx` and `Header.tsx` respectively; the previous toggles are gone along with the Appearance settings tab.
-
-### `DebugBundleProvider` + `useDebugBundle` (modules/debug-bundle/)
-
-Stateful hook driving the debug-bundle flow. Wrapped in a context so the troubleshooting tab inside the Settings window keeps the same stage if the user navigates away and back. Stages:
-
-```
-idle → preparing-trace → reconnecting → capturing (per-second countdown) →
-restoring-level → bundling → uploading → done
-```
-
-Cancellable via `AbortController` from any stage. On cancel the original log level is restored best-effort. `NETBIRD_UPLOAD_URL = https://upload.debug.netbird.io/upload-url` is hardcoded.
-
-### `ClientVersionContext` (modules/auto-update/ClientVersionContext.tsx)
-
-Reads `Status.events`, finds the most recent event whose metadata carries `new_version_available`, and exposes `{ updateAvailable, updateVersion, triggerUpdate, updating, updateError, dismissUpdateError }`. Mounts `<UpdateAvailableBanner/>` and the `<UpdatingOverlay/>` so any screen inherits the overlay without opting in.
-
-**Dev preview flags at the top of the file** (flip and save to preview UI states without involving the daemon):
+**Usage in components.** Default to the hook:
 
 ```ts
-const FORCE_UPDATE_AVAILABLE = true;    // currently TRUE — banner is forced on
-const FORCE_UPDATING = false;
-const FORCE_VERSION = "0.65.0";
-const HIDE_UPDATE_AVAILABLE = false;    // hard-hide everything regardless of state
-const FORCE_ERROR: ForceError = null;   // "timeout" | "cancel" | "fail" | null
-const FORCE_ERROR_MSG = "installer exited with code 1";
+import { useTranslation } from "react-i18next";
+const { t } = useTranslation();
+return <span>{t("settings.tabs.general")}</span>;
+// with placeholders:
+t("update.card.versionAvailable", { version: updateVersion })
 ```
 
-`FORCE_UPDATE_AVAILABLE = true` means the banner shows in production builds too right now. Flip it back to `false` before a real release. `UpdateAvailableBanner` additionally returns null in `import.meta.env.DEV` to avoid noise during `pnpm dev`.
+For strings outside React (event handlers in modules, `Dialogs.Error` titles set from `useDebugBundle`, `useManagementUrl`, `ProfileContext`, `SettingsContext`) import the i18next instance directly:
+
+```ts
+import i18next from "@/i18n";
+await Dialogs.Error({ Title: i18next.t("settings.error.saveTitle"), Message: ... });
+```
+
+**Confirm dialogs.** `Dialogs.Warning` resolves with the **button label string** — not an index. After translation, those labels change per language. Pin the label into a variable so the comparison stays correct:
+
+```ts
+const confirmLabel = t("profile.delete.message"); // wrong example — show your real key
+const cancelLabel = t("common.cancel");
+const result = await Dialogs.Warning({ Title, Message, Buttons: [
+  { Label: cancelLabel, IsCancel: true },
+  { Label: confirmLabel, IsDefault: true },
+]});
+if (result !== confirmLabel) return;
+```
+
+Compare against the variable, never against an English literal.
+
+**Bundle files.** Keys live in `src/i18n/locales/<code>/common.json` as a flat key→string map (`"settings.tabs.general": "General"`). Placeholders use single braces: `"Install version {version}"`. Adding a key: add to `en/common.json` first (the fallback), then every other locale. Missing keys fall back to English; if even that misses, i18next returns the key itself so the gap is visible in the UI rather than blank.
+
+**Adding a language.** Drop `src/i18n/locales/<code>/common.json` and append the row to `src/i18n/locales/_index.json`. That's it — `src/i18n/index.ts` discovers bundles via `import.meta.glob('./locales/*/common.json', { eager: true })`, so no code change is needed to wire the new locale in. Vite still inlines each bundle at build time, same chunk shape as static imports. The Go side reads the same tree (embedded via `client/ui/main.go`'s `embed.FS`), so the tray menu localises automatically off the same files.
+
+**Language picker.** `src/modules/settings/LanguagePicker.tsx` is mounted inside the Language section of `SettingsGeneral.tsx`. It populates from `I18n.Languages()` (matches `_index.json`) and calls `Preferences.SetLanguage(code)` on selection. The preference write triggers `netbird:preferences:changed`, which both the local i18next instance and every other open window listen to.
+
+**What gets translated.** Every user-facing string in the polished AppLayout/Settings/Update/BrowserLogin/SessionExpired/Peers surfaces. Don't add hard-coded user-facing English to new code — add the key, then `t()`. Internal log strings, dev-only forced-state strings in `ClientVersionContext`, and the `Update failed` fallback fed into `classifyError()` (which then renders a translated description) are not translated.
 
 ## Login flow (`startLogin` in `ConnectionStatusSwitch.tsx`)
 
@@ -215,51 +136,15 @@ This is the only SSO entry point used by the polished Main UI. Legacy screens (`
 
 ## Components
 
-`src/components/` holds presentational primitives (no daemon RPCs, no router):
+`src/components/` holds presentational primitives (no daemon RPCs, no router) — see the directory listing. Settings rows use `FancyToggleSwitch` inside `<SectionGroup title=…>` (section-group dimming via `disabled` → greyed + `pointer-events-none`). In-app modals use the Radix `Dialog` primitive in the main webview; the two auxiliary OS windows (Settings, BrowserLogin) are created Go-side via `WindowManager`.
 
-- **Form / interactive:** `Button`, `IconButton`, `Input` (label + help text + reveal toggle + suffix + readonly + copy slot), `Switch`, `ToggleSwitch`, `FancyToggleSwitch` (label + helpText + value), `Label`, `HelpText`, `SearchInput`, `Tabs`, `VerticalTabs`, `CardSelect`, `CardNavItem`, `Card`.
-- **Layout / overlays:** `Dialog` (Radix wrapper with `Root/Trigger/Content/Title/Description/Footer`), `BottomSheet`, `Tooltip`, `StatusPanel`.
-- **Domain-specific:** `NetBirdConnectToggle` (the big animated brand circle — framer-motion + tailwind keyframes), `ProfileSelector`, `NewProfileDialog`, `Avatar`.
+## Dialogs convention
 
-Settings rows mostly use `FancyToggleSwitch` inside `<SectionGroup title=…>`. Section group dimming is handled with `disabled` (greyed + `pointer-events-none`).
-
-In-app modals (NewProfileDialog, the delete-profile confirm in `screens/Profiles.tsx`) use the Radix `Dialog` primitive inside the main webview. The two auxiliary OS windows (Settings, BrowserLogin) are created by Go via `WindowManager`, not by frontend code.
-
-## Dialogs convention (recap)
-
-Errors surface via `Dialogs.Error` from `@wailsio/runtime` with an action-named title:
-
-```ts
-await Dialogs.Error({
-  Title: "Save Settings Failed",     // not "Error"
-  Message: e instanceof Error ? e.message : String(e),
-});
-```
-
-Confirmations use `Dialogs.Warning` with explicit `Buttons` and compare against the **Label string**, not an index:
-
-```ts
-const r = await Dialogs.Warning({
-  Title: "Delete Profile",
-  Message: `Delete "${name}"?`,
-  Buttons: [{ Label: "Cancel", IsCancel: true }, { Label: "Delete", IsDefault: true }],
-});
-if (r !== "Delete") return;
-```
-
-When **not** to use native dialogs: inline form validation, transient link errors on the dashboard, "partial success" notes inside an otherwise-OK flow. See `../CLAUDE.md` for the full rules. The settings management-URL switch is a good example: `useManagementUrl` shows inline URL-format errors but throws up a `Dialogs.Warning` confirmation when the user is about to flip from self-hosted to NetBird Cloud (because that forces a reconnect/re-login).
+Errors → `Dialogs.Error` with action-named title ("Save Settings Failed", not "Error"). Confirmations → `Dialogs.Warning` with explicit `Buttons` — compare against the **Label string**, not an index. **Skip** native dialogs for inline form validation, transient link errors on the dashboard, and "partial success" notes inside an otherwise-OK flow. Full API + per-OS notes in `../WAILS-DIALOGS.md`; full convention rationale in `../CLAUDE.md`.
 
 ## Tailwind tokens
 
-Custom colors in `tailwind.config.ts`:
-
-- `nb-gray` — main neutral palette, 50–960. `nb-gray-950` (#181a1d) is the app background; tabs/cards step through 900/910/920/925/935/940 as you go deeper. `DEFAULT` is `nb-gray-950`.
-- `netbird` — brand orange. `DEFAULT` is `#f68330` (500-ish). Used for primary buttons, focused tab borders, the connect-toggle border ring.
-- `gray`, `red`, `yellow`, `green`, `blue`, `indigo`, `purple`, `pink` — Flowbite-style 50–900 palettes used in the legacy screens (`screens/*`). Avoid in new code — stick to `nb-gray` + `netbird` + the semantic dot colors (`green-500`, `red-500`, `yellow-500`).
-
-Background image `bg-conic-netbird` and keyframes `pulse-reverse` / `spin-slow` / `ping-slow` (plus the animations `animate-pulse-slow`, `animate-pulse-slower`, `animate-spin-slow`, `animate-ping-slow`) are used by `NetBirdConnectToggle`.
-
-Fonts: Inter Variable (sans) + JetBrains Mono Variable (mono) — both shipped under `src/assets/fonts/`.
+Defined in `tailwind.config.ts`. `nb-gray` is the neutral palette (background = `nb-gray-950`); `netbird` is brand orange (`#f68330`). The Flowbite-style `gray`/`red`/`yellow`/`...` palettes are legacy — only use them inside `screens/*`; new code sticks to `nb-gray` + `netbird` + semantic dot colors (`green-500`, `red-500`, `yellow-500`). `bg-conic-netbird` and the `pulse-reverse` / `spin-slow` / `ping-slow` keyframes are used only by `NetBirdConnectToggle`. Fonts: Inter Variable (sans) + JetBrains Mono Variable (mono), shipped under `src/assets/fonts/`.
 
 ## Wails-specific quirks
 
@@ -281,275 +166,11 @@ Fonts: Inter Variable (sans) + JetBrains Mono Variable (mono) — both shipped u
 
 ## Wails Go API reference
 
-Quick reference for every binding method and model shape exposed to the frontend. Generated from `services/*.go` via `wails3 generate bindings -clean=true -ts` — regenerate after any Go-side change. Authoritative source is always `bindings/github.com/netbirdio/netbird/client/ui/services/*.ts`.
-
-Every method returns `$CancellablePromise<T>` (a Wails3 wrapper around `Promise`). Call `.cancel()` to abort the underlying gRPC call; in practice we just `await` and let it run.
-
-### Imports
-
-```ts
-// Services
-import {
-  Connection, Peers, ProfileSwitcher, Profiles,
-  Settings, Networks, Forwarding, Debug, Update, WindowManager,
-} from "@bindings/services";
-
-// Models (types-only)
-import type {
-  Status, PeerStatus, PeerLink, LocalPeer, SystemEvent,
-  Profile, ProfileRef, ActiveProfile,
-  Config, ConfigParams, SetConfigParams, Features,
-  Network, SelectNetworksParams,
-  ForwardingRule, PortInfo, PortRange,
-  LoginParams, LoginResult, LogoutParams, WaitSSOParams, UpParams,
-  DebugBundleParams, DebugBundleResult, LogLevel,
-  UpdateResult, UpdateAvailable, UpdateProgress,
-} from "@bindings/services/models.js";
-```
-
-### Push events
-
-Subscribe with `Events.On(name, handler)` from `@wailsio/runtime`. Handlers receive `{ data: <payload> }`.
-
-| Event | Payload | Fires on |
-|---|---|---|
-| `netbird:status` | `Status` | Daemon SubscribeStatus snapshot — connection-state change, peer-list change, address change, mgmt/signal flip. Synthetic `StatusDaemonUnavailable` is emitted when the gRPC socket is unreachable, and a synthetic `Connecting` is emitted at the start of an active profile switch. |
-| `netbird:event` | `SystemEvent` | One push per daemon SubscribeEvents item (DNS / network / authentication / connectivity / system). Used by the tray for OS toasts; the TS side reads events through `Status.events` instead. |
-| `netbird:update:available` | `UpdateAvailable` | Daemon detected a new version (fan-out of the `new_version_available` metadata key). |
-| `netbird:update:progress` | `UpdateProgress` | Daemon enforced-update install progress (`action: "show"` etc.). |
-| `browser-login:cancel` | (none) | Either the user closed the `BrowserLogin` window (Go-emitted) or the page's Cancel button (frontend-emitted). |
-| `trigger-login` | (none) | Reserved by the tray for asking the frontend to start an SSO flow; not currently wired on the TS side. |
-
-The two stream loops behind `netbird:status` and `netbird:event` start automatically — `main.go` calls `peers.Watch(context.Background())` at boot. `Peers.Watch` is still exported but the frontend doesn't need to invoke it.
-
-### `Connection`
-
-```ts
-Connection.Login(p: LoginParams): Promise<LoginResult>
-Connection.WaitSSOLogin(p: WaitSSOParams): Promise<string>   // returns email
-Connection.Up(p: UpParams): Promise<void>                    // async on the daemon
-Connection.Down(): Promise<void>
-Connection.Logout(p: LogoutParams): Promise<void>
-Connection.OpenURL(url: string): Promise<void>               // honors $BROWSER
-```
-
-`Login` Down-resets the daemon first to dislodge a stale `WaitSSOLogin` (so a previously abandoned SSO flow doesn't fail the next attempt). `Up` always uses async mode — status flows back through `netbird:status`. **Do not call `Up` on an `Idle` / `NeedsLogin` daemon** — the daemon's internal 50s `waitForUp` will block and return `DeadlineExceeded`.
-
-Full SSO sequence: `Login` → if `result.needsSsoLogin`, open `result.verificationUriComplete` via `OpenURL` + `WindowManager.OpenBrowserLogin(uri)` → `WaitSSOLogin({ userCode })` → `Up({})`. The canonical implementation is `startLogin()` in `layouts/ConnectionStatusSwitch.tsx`.
-
-### `Peers`
-
-```ts
-Peers.Get(): Promise<Status>            // one-shot snapshot
-Peers.Watch(): Promise<void>            // already invoked from main.go
-Peers.BeginProfileSwitch(): Promise<void>
-Peers.CancelProfileSwitch(): Promise<void>
-```
-
-`BeginProfileSwitch` and `CancelProfileSwitch` are normally driven by `ProfileSwitcher` / the tray, not the frontend.
-
-### `ProfileSwitcher`
-
-```ts
-ProfileSwitcher.SwitchActive(p: ProfileRef): Promise<void>
-```
-
-The single entry point both tray and frontend should use for profile flips. Applies the reconnect policy below, mirrors the switch into the user-side `profilemanager` (so the CLI's `netbird up` reads a consistent active profile), and drives the optimistic-Connecting paint via `Peers.BeginProfileSwitch`.
-
-Reconnect policy (driven by `prevStatus` captured at entry):
-
-| Previous status | Action | Optimistic UI | Suppressed events until new flow |
-|---|---|---|---|
-| Connected | Switch + Down + Up | Connecting (synthetic) | Connected, Idle |
-| Connecting | Switch + Down + Up | Connecting (unchanged) | Connected, Idle |
-| NeedsLogin / LoginFailed / SessionExpired | Switch + Down | (no change) | — |
-| Idle | Switch only | (no change) | — |
-
-### `Profiles`
-
-```ts
-Profiles.Username(): Promise<string>            // current OS username
-Profiles.List(username: string): Promise<Profile[]>
-Profiles.GetActive(): Promise<ActiveProfile>
-Profiles.Switch(p: ProfileRef): Promise<void>   // raw daemon RPC; prefer ProfileSwitcher.SwitchActive
-Profiles.Add(p: ProfileRef): Promise<void>
-Profiles.Remove(p: ProfileRef): Promise<void>
-```
-
-`Profile.email` is populated by the **UI process** reading the per-profile state file (`~/Library/Application Support/netbird/<name>.state.json` on macOS), not by the daemon — the daemon runs as root and can't read user-owned files.
-
-### `Settings`
-
-```ts
-Settings.GetConfig(p: ConfigParams): Promise<Config>
-Settings.SetConfig(p: SetConfigParams): Promise<void>     // partial update
-Settings.GetFeatures(): Promise<Features>                 // operator-disabled UI sections
-```
-
-`SetConfig` is a partial update: only fields you set are pushed to the daemon. `profileName` + `username` are always required; the typed fields in `SetConfigParams` are optional (`field?: T | null`). `managementUrl` and `adminUrl` are always-string for historical reasons.
-
-**PSK mask quirk:** `GetConfig` returns existing pre-shared keys as `"**********"`. If you send the mask back, `wgtypes.ParseKey` fails on the next connect. `SettingsContext.save` drops the field when it equals `"**********"`. See `modules/settings/SettingsContext.tsx`.
-
-`SetConfigParams` carries one field that `Config` does not: `disableFirewall`. There's no current GET path for it.
-
-### `Networks`
-
-```ts
-Networks.List(): Promise<Network[]>
-Networks.Select(p: SelectNetworksParams): Promise<void>
-Networks.Deselect(p: SelectNetworksParams): Promise<void>
-```
-
-`SelectNetworksParams.append=true` merges into the existing selection; `false` replaces. `all=true` ignores `networkIds` and targets every network (Select-All / Deselect-All).
-
-Exit-node filter: `range === "0.0.0.0/0" || range === "::/0"`. Domain network: `domains.length > 0`. CIDR overlap check is client-side.
-
-### `Forwarding`
-
-```ts
-Forwarding.List(): Promise<ForwardingRule[]>
-```
-
-`PortInfo` is a daemon-side oneof — exactly one of `port?: number` or `range?: PortRange` is populated. `protocol` is the lowercase daemon string (`"tcp"` / `"udp"`).
-
-### `Debug`
-
-```ts
-Debug.GetLogLevel(): Promise<LogLevel>
-Debug.SetLogLevel(lvl: LogLevel): Promise<void>
-Debug.Bundle(p: DebugBundleParams): Promise<DebugBundleResult>
-Debug.RevealFile(path: string): Promise<void>          // OS file-manager focus
-```
-
-**Log level case sensitivity bug:** `proto.LogLevel_value` is keyed on uppercase enum names (`"TRACE"`, `"DEBUG"`, `"INFO"`, `"WARN"`, `"ERROR"`, `"PANIC"`, `"FATAL"`, `"UNKNOWN"`). `Debug.SetLogLevel` calls `proto.LogLevel_value[lvl.Level]` and falls back to `INFO` on miss. `useDebugBundle` currently passes `"trace"` (lowercase), which silently maps to `INFO` — the trace-capture flow doesn't actually raise the log level today. To raise to trace, pass `{ level: "TRACE" }`. Fix on the cleanup list.
-
-`Debug.Bundle` uploads when `uploadUrl != ""`. Result fields: `path` (local copy), `uploadedKey` (set on success), `uploadFailureReason` (set on upload failure — the local copy is still saved).
-
-### `Update`
-
-```ts
-Update.Trigger(): Promise<UpdateResult>             // start the install
-Update.GetInstallerResult(): Promise<UpdateResult>  // poll the outcome (long-running)
-Update.Quit(): Promise<void>                        // 100ms later, app.Quit()
-```
-
-Typical enforced-update flow on the `/update` route: call `Trigger` once, then poll `GetInstallerResult` every 2s with a 15-minute total timeout. On `success: true` call `Quit`. On `success: false` show `errorMsg`. If the gRPC poll itself starts failing for `DAEMON_DOWN_GRACE_MS` (5s), treat that as success and quit too — the installer commonly takes the daemon offline mid-upgrade. See `pages/Update.tsx` for the canonical implementation.
-
-### `WindowManager`
-
-```ts
-WindowManager.OpenSettings(): Promise<void>
-WindowManager.OpenBrowserLogin(uri: string): Promise<void>   // uri appended as ?uri=…
-WindowManager.CloseBrowserLogin(): Promise<void>
-```
-
-Both auxiliary windows are created on first open and destroyed on close (mutex-guarded singleton). The BrowserLogin window's red-X close fires the `browser-login:cancel` event so `startLogin()` can tear down the pending daemon `WaitSSOLogin`.
-
-### Daemon `Status.status` values
-
-Mirror `internal.Status*` in `client/internal/state.go` plus the synthetic UI label:
-
-| Value | Meaning |
-|---|---|
-| `"Idle"` | Tunnel down (Up never invoked or Down completed) |
-| `"Connecting"` | Up in progress |
-| `"Connected"` | Tunnel up |
-| `"NeedsLogin"` | Fresh install or token cleared; needs Login → SSO → Up |
-| `"LoginFailed"` | Previous Login attempt errored |
-| `"SessionExpired"` | SSO token expired; needs re-Login |
-| `"DaemonUnavailable"` | **Synthetic** — UI side, emitted when the daemon gRPC socket is unreachable. Not a real daemon enum. |
-
-The tray also reads a tray-only synthetic `"Error"` for icon purposes; the frontend doesn't see that.
-
-### Model field reference
-
-`Status`:
-```ts
-{ status, daemonVersion: string;
-  management: PeerLink; signal: PeerLink;
-  local: LocalPeer;
-  peers: PeerStatus[];
-  events: SystemEvent[]; }
-```
-
-`PeerLink`: `{ url: string; connected: boolean; error?: string }`.
-
-`LocalPeer`: `{ ip, pubKey, fqdn: string; networks: string[] }`.
-
-`PeerStatus`:
-```ts
-{ ip, pubKey, fqdn, connStatus: string;
-  connStatusUpdateUnix: number;
-  relayed: boolean;
-  localIceCandidateType, remoteIceCandidateType: string;     // pion: "host"|"srflx"|"prflx"|"relay"|""
-  localIceCandidateEndpoint, remoteIceCandidateEndpoint: string;
-  bytesRx, bytesTx, latencyMs, lastHandshakeUnix: number;
-  relayAddress: string;                                       // set when relayed=true
-  rosenpassEnabled: boolean;
-  networks: string[]; }
-```
-
-`SystemEvent`:
-```ts
-{ id: string;
-  severity: string;       // "info"|"warning"|"error"|"critical" (lowercased proto enum, "SystemEvent_" prefix stripped)
-  category: string;       // "network"|"dns"|"authentication"|"connectivity"|"system" (same casing rules)
-  message: string;        // technical / log line
-  userMessage: string;    // human-friendly — render this
-  timestamp: number;      // unix seconds
-  metadata: Record<string, string>; }   // keys: "new_version_available", "enforced", "id", "network", "version", "progress_window", …
-```
-
-`Profile`: `{ name: string; isActive: boolean; email: string }`.
-
-`Config` (read-only mirror, all required):
-```ts
-{ managementUrl, adminUrl, configFile, logFile, preSharedKey, interfaceName: string;
-  wireguardPort, mtu, sshJwtCacheTtl: number;
-  disableAutoConnect, serverSshAllowed,
-  rosenpassEnabled, rosenpassPermissive,
-  disableNotifications, lazyConnectionEnabled, blockInbound,
-  networkMonitor, disableClientRoutes, disableServerRoutes,
-  disableDns, disableIpv6, blockLanAccess,
-  enableSshRoot, enableSshSftp,
-  enableSshLocalPortForwarding, enableSshRemotePortForwarding,
-  disableSshAuth: boolean; }
-```
-
-`SetConfigParams` has all `Config` fields as `field?: T | null` (partial update), plus the write-only `disableFirewall?: boolean | null`, plus `profileName` / `username` / `managementUrl` / `adminUrl` as required strings.
-
-`Features`: `{ disableProfiles, disableUpdateSettings, disableNetworks: boolean }`.
-
-`Network`: `{ id, range: string; selected: boolean; domains: string[]; resolvedIps: Record<string, string[]> }`.
-
-`ForwardingRule`: `{ protocol: string; destinationPort: PortInfo; translatedAddress, translatedHostname: string; translatedPort: PortInfo }`.
-
-`PortInfo`: `{ port?: number | null; range?: PortRange | null }` (exactly one populated).
-
-`PortRange`: `{ start, end: number }` (inclusive).
-
-`LoginParams`: `{ profileName, username, managementUrl, setupKey, preSharedKey, hostname, hint: string }`.
-
-`LoginResult`: `{ needsSsoLogin: boolean; userCode, verificationUri, verificationUriComplete: string }`.
-
-`WaitSSOParams`: `{ userCode, hostname: string }`. Resolves to the user's email.
-
-`UpParams` / `LogoutParams` / `ProfileRef` / `ConfigParams` / `ActiveProfile`: all `{ profileName, username: string }` (different names but same shape — kept distinct by Wails for clarity).
-
-`DebugBundleParams`: `{ anonymize, systemInfo: boolean; uploadUrl: string; logFileCount: number }`.
-
-`DebugBundleResult`: `{ path, uploadedKey, uploadFailureReason: string }`.
-
-`LogLevel`: `{ level: string }` — **uppercase** proto enum name (`"TRACE"`, `"DEBUG"`, `"INFO"`, `"WARN"`, `"ERROR"`, `"PANIC"`, `"FATAL"`).
-
-`UpdateResult`: `{ success: boolean; errorMsg: string }`.
-
-`UpdateAvailable`: `{ version: string; enforced: boolean }`.
-
-`UpdateProgress`: `{ action: string; version: string }`.
+Full per-service binding signatures, push-event payloads, and model field shapes live in `WAILS-API.md` (sibling). Every service method returns `$CancellablePromise<T>` — `await` and ignore `.cancel()` in practice. Regenerate bindings via `pnpm bindings` after any Go-side change.
 
 ## Useful references
 
+- `WAILS-API.md` (sibling) — full binding signatures, push events, and model shapes.
 - Wails v3 dialog signatures: `node_modules/@wailsio/runtime/types/dialogs.d.ts`.
 - Wails v3 docs (may 403 from some clients): https://v3.wails.io/
 - `../CLAUDE.md` for Go-side conventions, service registration, profile-switching policy, and Linux tray internals.

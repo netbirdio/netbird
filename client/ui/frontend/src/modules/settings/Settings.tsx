@@ -14,34 +14,18 @@ import { SettingsAdvanced } from "@/modules/settings/SettingsAdvanced.tsx";
 import { SettingsTroubleshooting } from "@/modules/settings/SettingsTroubleshooting.tsx";
 import { SettingsAbout } from "@/modules/settings/SettingsAbout.tsx";
 
-const LAST_TAB_KEY = "netbird:settings:lastTab";
-
-const readLastTab = () => {
-    try {
-        return localStorage.getItem(LAST_TAB_KEY);
-    } catch {
-        return null;
-    }
-};
-
+// The settings window always opens at General. The only way to land on a
+// different tab is via navigation state (e.g. the update-available header
+// trigger jumps to About). No persistence across opens — a user who wants
+// to revisit a deep tab gets there in two clicks.
 export const Settings = () => {
     const location = useLocation();
     const navState = location.state as { tab?: string } | null;
-    const [active, setActive] = useState(
-        () => navState?.tab ?? readLastTab() ?? "general",
-    );
+    const [active, setActive] = useState(() => navState?.tab ?? "general");
 
     useEffect(() => {
         if (navState?.tab) setActive(navState.tab);
     }, [navState?.tab, location.key]);
-
-    useEffect(() => {
-        try {
-            localStorage.setItem(LAST_TAB_KEY, active);
-        } catch {
-            // ignore quota / unavailable storage
-        }
-    }, [active]);
 
     return (
         <VerticalTabs value={active} onValueChange={setActive} className={"p-4"}>

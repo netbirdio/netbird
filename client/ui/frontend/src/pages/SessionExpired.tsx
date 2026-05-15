@@ -1,7 +1,9 @@
+import { useTranslation } from "react-i18next";
 import { ShieldAlertIcon } from "lucide-react";
 import { Button } from "@/components/Button";
 
 export default function SessionExpired() {
+    const { t } = useTranslation();
     return (
         <div
             className={
@@ -15,16 +17,18 @@ export default function SessionExpired() {
             >
                 <ShieldAlertIcon size={22} />
             </div>
-            <h1 className={"text-base font-semibold text-nb-gray-100"}>Session expired</h1>
+            <h1 className={"text-base font-semibold text-nb-gray-100"}>
+                {t("sessionExpired.title")}
+            </h1>
             <p className={"text-xs text-nb-gray-400 mt-1.5 max-w-[20rem] leading-snug"}>
-                Your NetBird session has expired. Sign in again to keep your devices connected.
+                {t("sessionExpired.description")}
             </p>
             <div className={"flex gap-2 mt-5 w-full max-w-[18rem]"}>
                 <Button variant={"secondary"} size={"xs"} className={"flex-1"}>
-                    Later
+                    {t("sessionExpired.later")}
                 </Button>
                 <Button variant={"primary"} size={"xs"} className={"flex-1"}>
-                    Sign in
+                    {t("sessionExpired.signIn")}
                 </Button>
             </div>
         </div>

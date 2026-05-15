@@ -1,49 +1,43 @@
+import { useTranslation } from "react-i18next";
 import FancyToggleSwitch from "@/components/FancyToggleSwitch";
 import { SectionGroup } from "@/modules/settings/SettingsSection.tsx";
 import { useSettings } from "@/modules/settings/SettingsContext.tsx";
 
 export function SettingsSecurity() {
+    const { t } = useTranslation();
     const { config, setField } = useSettings();
     return (
         <>
-            <SectionGroup title={"Firewall"}>
+            <SectionGroup title={t("settings.security.section.firewall")}>
                 <FancyToggleSwitch
                     value={config.blockInbound}
                     onChange={(v) => setField("blockInbound", v)}
-                    label={"Block Inbound Traffic"}
-                    helpText={
-                        "Reject unsolicited connections from peers to this device and any networks it routes. Outbound traffic is unaffected."
-                    }
+                    label={t("settings.security.blockInbound.label")}
+                    helpText={t("settings.security.blockInbound.help")}
                 />
                 <FancyToggleSwitch
                     value={config.blockLanAccess}
                     onChange={(v) => setField("blockLanAccess", v)}
-                    label={"Block LAN Access"}
-                    helpText={
-                        "Prevent peers from reaching your local network or its devices when this device routes their traffic."
-                    }
+                    label={t("settings.security.blockLan.label")}
+                    helpText={t("settings.security.blockLan.help")}
                 />
             </SectionGroup>
 
-            <SectionGroup title={"Encryption"}>
+            <SectionGroup title={t("settings.security.section.encryption")}>
                 <FancyToggleSwitch
                     value={config.rosenpassEnabled}
                     onChange={(v) => {
                         setField("rosenpassEnabled", v);
                         if (!v) setField("rosenpassPermissive", false);
                     }}
-                    label={"Enable Quantum-Resistance"}
-                    helpText={
-                        "Add a post-quantum key exchange via Rosenpass on top of WireGuard®."
-                    }
+                    label={t("settings.security.rosenpass.label")}
+                    helpText={t("settings.security.rosenpass.help")}
                 />
                 <FancyToggleSwitch
                     value={config.rosenpassPermissive}
                     onChange={(v) => setField("rosenpassPermissive", v)}
-                    label={"Enable Permissive Mode"}
-                    helpText={
-                        "Allow connections to peers without quantum-resistance support."
-                    }
+                    label={t("settings.security.rosenpassPermissive.label")}
+                    helpText={t("settings.security.rosenpassPermissive.help")}
                     disabled={!config.rosenpassEnabled}
                 />
             </SectionGroup>

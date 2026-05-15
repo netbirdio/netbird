@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Tooltip } from "@/components/Tooltip.tsx";
 import { VerticalTabs } from "@/components/VerticalTabs.tsx";
 import { UpdateBadge } from "@/modules/auto-update/UpdateBadge.tsx";
@@ -13,10 +14,11 @@ import {
 } from "lucide-react";
 
 export const SettingsNavigationTriggers = () => {
+    const { t } = useTranslation();
     const { updateAvailable } = useClientVersion();
 
     const aboutAdornment = updateAvailable ? (
-        <Tooltip content={"Update Available"} side={"right"}>
+        <Tooltip content={t("settings.tabs.updateAvailable")} side={"right"}>
             <UpdateBadge />
         </Tooltip>
     ) : undefined;
@@ -27,37 +29,37 @@ export const SettingsNavigationTriggers = () => {
             <VerticalTabs.Trigger
                 value={"general"}
                 icon={SlidersHorizontalIcon}
-                title={"General"}
+                title={t("settings.tabs.general")}
             />
             <VerticalTabs.Trigger
                 value={"network"}
                 icon={NetworkIcon}
-                title={"Network"}
+                title={t("settings.tabs.network")}
             />
             <VerticalTabs.Trigger
                 value={"security"}
                 icon={ShieldIcon}
-                title={"Security"}
+                title={t("settings.tabs.security")}
             />
             <VerticalTabs.Trigger
                 value={"ssh"}
                 icon={SquareTerminalIcon}
-                title={"SSH"}
+                title={t("settings.tabs.ssh")}
             />
             <VerticalTabs.Trigger
                 value={"advanced"}
                 icon={BoltIcon}
-                title={"Advanced"}
+                title={t("settings.tabs.advanced")}
             />
             <VerticalTabs.Trigger
                 value={"troubleshooting"}
                 icon={LifeBuoyIcon}
-                title={"Troubleshooting"}
+                title={t("settings.tabs.troubleshooting")}
             />
             <VerticalTabs.Trigger
                 value={"about"}
                 icon={InfoIcon}
-                title={"About"}
+                title={t("settings.tabs.about")}
                 adornment={aboutAdornment}
             />
         </VerticalTabs.List>

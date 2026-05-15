@@ -1,17 +1,19 @@
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { ArrowUpCircleIcon } from "lucide-react";
 import { IconButton } from "@/components/IconButton.tsx";
 import { Tooltip } from "@/components/Tooltip.tsx";
 import { useClientVersion } from "@/modules/auto-update/ClientVersionContext";
 
 export const UpdateHeaderTrigger = () => {
+    const { t } = useTranslation();
     const navigate = useNavigate();
     const { updateAvailable } = useClientVersion();
 
     if (!updateAvailable) return null;
 
     return (
-        <Tooltip content={"Update Available"}>
+        <Tooltip content={t("update.header.tooltip")}>
             <div className={"relative h-11 w-11 flex items-center justify-center"}>
                 <span
                     className={

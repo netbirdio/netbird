@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/Button";
 import { useClientVersion } from "@/modules/auto-update/ClientVersionContext";
 import { cn } from "@/lib/cn";
@@ -9,6 +10,7 @@ import { cn } from "@/lib/cn";
 // tray menu instead; the force-install branch (installing=true) takes over
 // with the full-screen UpdatingOverlay.
 export const UpdateAvailableBanner = () => {
+    const { t } = useTranslation();
     const { updateVersion, enforced, installing, triggerUpdate } = useClientVersion();
     const [dismissed, setDismissed] = useState(false);
 
@@ -26,14 +28,14 @@ export const UpdateAvailableBanner = () => {
             )}
         >
             <p className={"text-sm text-nb-gray-900 pr-4 pl-2 font-medium"}>
-                NetBird {updateVersion} is ready to install.
+                {t("update.banner.message", { version: updateVersion })}
             </p>
             <div className={"flex gap-2"}>
                 <Button variant={"subtle"} size={"xs"} onClick={() => setDismissed(true)}>
-                    Later
+                    {t("update.banner.later")}
                 </Button>
                 <Button variant={"primary"} size={"xs"} onClick={triggerUpdate}>
-                    Install now
+                    {t("update.banner.installNow")}
                 </Button>
             </div>
         </div>

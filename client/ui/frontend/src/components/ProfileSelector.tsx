@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import * as Popover from "@radix-ui/react-popover";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
@@ -14,6 +15,7 @@ import { useProfile } from "@/modules/profile/ProfileContext.tsx";
 const DEFAULT_PROFILE = "default";
 
 export const ProfileSelector = () => {
+    const { t } = useTranslation();
     const {
         profiles,
         activeProfile,
@@ -53,34 +55,38 @@ export const ProfileSelector = () => {
     const handleSelect = (name: string) => {
         setOpen(false);
         if (name === activeProfile) return;
-        void guarded("Switch Profile Failed", () => switchProfile(name));
+        void guarded(t("profile.error.switchTitle"), () => switchProfile(name));
     };
 
     const handleDeregister = async (name: string) => {
+        const cancelLabel = t("common.cancel");
+        const confirmLabel = t("profile.deregister.confirm");
         const result = await Dialogs.Warning({
-            Title: "Deregister Profile",
-            Message: `Are you sure you want to deregister "${name}"? You will need to log in again to use it.`,
+            Title: t("profile.deregister.title"),
+            Message: t("profile.deregister.message", { name }),
             Buttons: [
-                { Label: "Cancel", IsCancel: true },
-                { Label: "Deregister", IsDefault: true },
+                { Label: cancelLabel, IsCancel: true },
+                { Label: confirmLabel, IsDefault: true },
             ],
         });
-        if (result !== "Deregister") return;
-        void guarded("Deregister Profile Failed", () => logoutProfile(name));
+        if (result !== confirmLabel) return;
+        void guarded(t("profile.error.deregisterTitle"), () => logoutProfile(name));
     };
 
     const handleDelete = async (name: string) => {
         if (name === DEFAULT_PROFILE) return;
+        const cancelLabel = t("common.cancel");
+        const confirmLabel = t("common.delete");
         const result = await Dialogs.Warning({
-            Title: "Delete Profile",
-            Message: `Are you sure you want to delete "${name}"? This action cannot be undone.`,
+            Title: t("profile.delete.title"),
+            Message: t("profile.delete.message", { name }),
             Buttons: [
-                { Label: "Cancel", IsCancel: true },
-                { Label: "Delete", IsDefault: true },
+                { Label: cancelLabel, IsCancel: true },
+                { Label: confirmLabel, IsDefault: true },
             ],
         });
-        if (result !== "Delete") return;
-        void guarded("Delete Profile Failed", () => removeProfile(name));
+        if (result !== confirmLabel) return;
+        void guarded(t("profile.error.deleteTitle"), () => removeProfile(name));
     };
 
     const handleNewProfile = () => {
@@ -89,10 +95,12 @@ export const ProfileSelector = () => {
     };
 
     const handleCreateProfile = (name: string) => {
-        void guarded("Create Profile Failed", () => addProfile(name));
+        void guarded(t("profile.error.createTitle"), () => addProfile(name));
     };
 
-    const displayName = selected?.name ?? (loaded ? "No profile" : "Loading...");
+    const displayName =
+        selected?.name ??
+        (loaded ? t("profile.selector.noProfile") : t("profile.selector.loading"));
     const initial = (selected?.name ?? "?").charAt(0).toUpperCase();
     const initialColor = generateColorFromString(selected?.name);
 
@@ -155,7 +163,7 @@ export const ProfileSelector = () => {
                                     <Search size={12} className="text-nb-gray-300 shrink-0" />
                                     <Command.Input
                                         autoFocus
-                                        placeholder="Search profile by name..."
+                                        placeholder={t("profile.selector.searchPlaceholder")}
                                         className={cn(
                                             "w-full bg-transparent text-xs text-nb-gray-200 placeholder:text-nb-gray-400",
                                             "outline-none border-none",
@@ -170,11 +178,10 @@ export const ProfileSelector = () => {
                                         <Command.Empty>
                                             <div className="flex flex-col items-center text-center px-4 pt-2 pb-3">
                                                 <h3 className="text-xs font-semibold text-nb-gray-200">
-                                                    No Profiles Found
+                                                    {t("profile.selector.emptyTitle")}
                                                 </h3>
                                                 <p className="text-[0.7rem] leading-snug text-nb-gray-400 mt-1 text-balance">
-                                                    Try a different search term or create a new
-                                                    profile.
+                                                    {t("profile.selector.emptyDescription")}
                                                 </p>
                                             </div>
                                         </Command.Empty>
@@ -220,7 +227,7 @@ export const ProfileSelector = () => {
                                 >
                                     <PlusCircle size={12} className="text-netbird" />
                                 </div>
-                                <span className="text-xs font-semibold">New Profile</span>
+                                <span className="text-xs font-semibold">{t("profile.selector.newProfile")}</span>
                             </button>
                         </Command>
                     </Popover.Content>
@@ -252,6 +259,7 @@ const ProfileRow = ({
     onDelete,
     deletable,
 }: ProfileRowProps) => {
+    const { t } = useTranslation();
     const [menuOpen, setMenuOpen] = useState(false);
     const initial = profile.name.charAt(0).toUpperCase();
     const initialColor = generateColorFromString(profile.name);
@@ -300,7 +308,7 @@ const ProfileRow = ({
                             "hover:bg-nb-gray-800 hover:text-nb-gray-200 outline-none",
                             "data-[state=open]:bg-nb-gray-800 data-[state=open]:text-nb-gray-200",
                         )}
-                        aria-label="More options"
+                        aria-label={t("profile.selector.moreOptions")}
                     >
                         <MoreVertical size={14} />
                     </button>
@@ -328,7 +336,7 @@ const ProfileRow = ({
                             )}
                         >
                             <UserMinus size={14} className="text-nb-gray-300" />
-                            <span>Deregister</span>
+                            <span>{t("profile.selector.deregister")}</span>
                         </DropdownMenu.Item>
                         <DropdownMenu.Item
                             disabled={!deletable}
@@ -347,7 +355,7 @@ const ProfileRow = ({
                             )}
                         >
                             <Trash2 size={14} />
-                            <span>Delete Profile</span>
+                            <span>{t("profile.selector.delete")}</span>
                         </DropdownMenu.Item>
                     </DropdownMenu.Content>
                 </DropdownMenu.Portal>

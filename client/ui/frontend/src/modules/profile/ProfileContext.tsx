@@ -7,8 +7,13 @@ import {
     type ReactNode,
 } from "react";
 import { Dialogs } from "@wailsio/runtime";
-import { Connection, Peers, Profiles as ProfilesSvc } from "@bindings/services";
+import {
+    Connection,
+    ProfileSwitcher,
+    Profiles as ProfilesSvc,
+} from "@bindings/services";
 import type { Profile } from "@bindings/services/models.js";
+import i18next from "@/lib/i18n";
 
 type ProfileContextValue = {
     username: string;
@@ -50,7 +55,7 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
             setProfiles(list);
         } catch (e) {
             await Dialogs.Error({
-                Title: "Load Profiles Failed",
+                Title: i18next.t("profile.error.loadTitle"),
                 Message: e instanceof Error ? e.message : String(e),
             });
         } finally {
@@ -64,26 +69,7 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
 
     const switchProfile = useCallback(
         async (name: string) => {
-            // Mirror tray.go switchProfile: only reconnect when the daemon was
-            // actively online. Calling Up on an Idle/NeedsLogin daemon makes
-            // the daemon wait 50s on its internal waitForUp and return
-            // DeadlineExceeded.
-            let wasActive = false;
-            try {
-                const prev = await Peers.Get();
-                const s = (prev?.status ?? "").toLowerCase();
-                wasActive = s === "connected" || s === "connecting";
-            } catch {
-                wasActive = false;
-            }
-
-            await ProfilesSvc.Switch({ profileName: name, username });
-
-            if (wasActive) {
-                await Connection.Down();
-                await Connection.Up({ profileName: name, username });
-            }
-
+            await ProfileSwitcher.SwitchActive({ profileName: name, username });
             await refresh();
         },
         [username, refresh],

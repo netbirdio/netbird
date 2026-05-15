@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Dialogs } from "@wailsio/runtime";
+import i18next from "@/lib/i18n";
 import { useSettings } from "@/modules/settings/SettingsContext.tsx";
 
 export enum ManagementMode {
@@ -60,16 +61,17 @@ export function useManagementUrl() {
             // Switching from a self-hosted management server to NetBird Cloud
             // re-points the client at a different deployment and forces a
             // reconnect/re-login. Confirm before applying.
+            const cancelLabel = i18next.t("common.cancel");
+            const confirmLabel = i18next.t("settings.general.management.switchCloudConfirm");
             void Dialogs.Warning({
-                Title: "Switch to NetBird Cloud?",
-                Message:
-                    "This will disconnect from your self-hosted management server and reconnect to NetBird Cloud. You may need to log in again.",
+                Title: i18next.t("settings.general.management.switchCloudTitle"),
+                Message: i18next.t("settings.general.management.switchCloudMessage"),
                 Buttons: [
-                    { Label: "Cancel", IsCancel: true, IsDefault: true },
-                    { Label: "Switch to Cloud" },
+                    { Label: cancelLabel, IsCancel: true, IsDefault: true },
+                    { Label: confirmLabel },
                 ],
             }).then((result) => {
-                if (result !== "Switch to Cloud") return;
+                if (result !== confirmLabel) return;
                 setModeState(ManagementMode.Cloud);
                 void saveField("managementUrl", CLOUD_MANAGEMENT_URL);
             });

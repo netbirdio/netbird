@@ -10,6 +10,7 @@ import {
 import { Dialogs } from "@wailsio/runtime";
 import { Settings as SettingsSvc } from "@bindings/services";
 import type { Config } from "@bindings/services/models.js";
+import i18next from "@/lib/i18n";
 import { useProfile } from "@/modules/profile/ProfileContext.tsx";
 import { SkeletonSettings } from "@/modules/skeletons/SkeletonSettings.tsx";
 
@@ -52,7 +53,7 @@ const useSettingsState = () => {
                 setConfig(c);
             } catch (e) {
                 await Dialogs.Error({
-                    Title: "Load Settings Failed",
+                    Title: i18next.t("settings.error.loadTitle"),
                     Message: errorMessage(e),
                 });
             }
@@ -82,7 +83,7 @@ const useSettingsState = () => {
                 });
             } catch (e) {
                 await Dialogs.Error({
-                    Title: "Save Settings Failed",
+                    Title: i18next.t("settings.error.saveTitle"),
                     Message: errorMessage(e),
                 });
             }

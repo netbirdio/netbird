@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/cn";
 import { Peer, PeerStatus } from "./types";
 
@@ -8,10 +9,11 @@ const DOT: Record<PeerStatus, string> = {
 };
 
 export const PeersList = ({ data }: { data: Peer[] }) => {
+    const { t } = useTranslation();
     if (data.length === 0) {
         return (
             <div className={"py-12 text-center text-sm text-nb-gray-400"}>
-                No peers match the current filters.
+                {t("peers.empty")}
             </div>
         );
     }

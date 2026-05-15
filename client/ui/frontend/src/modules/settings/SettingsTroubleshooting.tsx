@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Trans, useTranslation } from "react-i18next";
 import { FolderOpen } from "lucide-react";
 import { Debug as DebugSvc } from "@bindings/services";
 import type { DebugBundleResult } from "@bindings/services/models.js";
@@ -14,6 +15,7 @@ import { useDebugBundleContext } from "@/modules/debug-bundle/useDebugBundleCont
 import { SectionGroup } from "@/modules/settings/SettingsSection.tsx";
 
 export function SettingsTroubleshooting() {
+    const { t } = useTranslation();
     const {
         anonymize,
         setAnonymize,
@@ -45,39 +47,34 @@ export function SettingsTroubleshooting() {
     }
 
     return (
-        <SectionGroup title={"Debug bundle"}>
+        <SectionGroup title={t("settings.troubleshooting.section.title")}>
             <HelpText className={"-mt-2 mb-2"}>
-                A debug bundle helps NetBird support investigate connection problems. <br /> It's a
-                .zip file with logs, system details and debug information from your device.
+                <Trans i18nKey={"settings.troubleshooting.intro"} components={{ br: <br /> }} />
             </HelpText>
 
             <FancyToggleSwitch
                 value={anonymize}
                 onChange={setAnonymize}
-                label={"Anonymize Sensitive Information"}
-                helpText={"Hides public IP addresses and non-NetBird domains from logs."}
+                label={t("settings.troubleshooting.anonymize.label")}
+                helpText={t("settings.troubleshooting.anonymize.help")}
             />
             <FancyToggleSwitch
                 value={systemInfo}
                 onChange={setSystemInfo}
-                label={"Include System Information"}
-                helpText={"Include OS, kernel, network interfaces, and routing tables."}
+                label={t("settings.troubleshooting.systemInfo.label")}
+                helpText={t("settings.troubleshooting.systemInfo.help")}
             />
             <FancyToggleSwitch
                 value={upload}
                 onChange={setUpload}
-                label={"Upload Bundle to NetBird Servers"}
-                helpText={
-                    "Securely uploads the bundle and returns an upload key. Share the key with NetBird support over GitHub or Slack instead of attaching the file directly."
-                }
+                label={t("settings.troubleshooting.upload.label")}
+                helpText={t("settings.troubleshooting.upload.help")}
             />
             <FancyToggleSwitch
                 value={trace}
                 onChange={setTrace}
-                label={"Capture Trace Logs"}
-                helpText={
-                    "Raises logging to TRACE and cycles NetBird up and down to capture connection logs. The previous level is restored after the bundle is built."
-                }
+                label={t("settings.troubleshooting.trace.label")}
+                helpText={t("settings.troubleshooting.trace.help")}
             />
             <div
                 className={cn(
@@ -86,9 +83,9 @@ export function SettingsTroubleshooting() {
                 )}
             >
                 <div className={"flex-1 max-w-md"}>
-                    <Label as={"div"}>Capture Duration</Label>
+                    <Label as={"div"}>{t("settings.troubleshooting.duration.label")}</Label>
                     <HelpText margin={false}>
-                        How long to capture trace logs before generating the bundle.
+                        {t("settings.troubleshooting.duration.help")}
                     </HelpText>
                 </div>
                 <div className={"w-40 shrink-0"}>
@@ -100,7 +97,7 @@ export function SettingsTroubleshooting() {
                         onChange={(e) =>
                             setTraceMinutes(Math.max(1, Math.min(30, Number(e.target.value) || 1)))
                         }
-                        customSuffix={"Minute(s)"}
+                        customSuffix={t("settings.troubleshooting.duration.suffix")}
                         disabled={!trace}
                     />
                 </div>
@@ -108,7 +105,7 @@ export function SettingsTroubleshooting() {
 
             <BottomBar>
                 <Button variant={"primary"} size={"md"} onClick={run}>
-                    Create Bundle
+                    {t("settings.troubleshooting.create")}
                 </Button>
             </BottomBar>
         </SectionGroup>
@@ -116,17 +113,18 @@ export function SettingsTroubleshooting() {
 }
 
 function ProgressSection({ stage, onCancel }: { stage: DebugStage; onCancel: () => void }) {
+    const { t } = useTranslation();
     const cancelling = stage.kind === "cancelling";
     return (
         <StatusPanel
             variant={"loading"}
-            title={stageLabel(stage)}
-            description={
-                "Collecting logs, system details, and connection state. This usually takes a moment — keep this window open until it completes."
-            }
+            title={stageLabel(stage, t)}
+            description={t("settings.troubleshooting.progress.description")}
             actions={
                 <Button variant={"secondary"} size={"xs"} onClick={onCancel} disabled={cancelling}>
-                    {cancelling ? "Cancelling…" : "Cancel"}
+                    {cancelling
+                        ? t("settings.troubleshooting.cancelling")
+                        : t("common.cancel")}
                 </Button>
             }
         />
@@ -142,6 +140,7 @@ function DoneResult({
     uploaded: boolean;
     onClose: () => void;
 }) {
+    const { t } = useTranslation();
     const showKey = uploaded && Boolean(result.uploadedKey);
     const uploadFailed = uploaded && !result.uploadedKey;
     const onRevealPath = () => {
@@ -151,26 +150,30 @@ function DoneResult({
     return (
         <StatusPanel
             variant={"success"}
-            title={showKey ? "Debug bundle successfully uploaded!" : "Bundle saved"}
+            title={
+                showKey
+                    ? t("settings.troubleshooting.done.uploadedTitle")
+                    : t("settings.troubleshooting.done.savedTitle")
+            }
             description={
                 showKey
-                    ? "Share the upload key below with NetBird support. A local copy was also saved on your device."
-                    : "Your debug bundle has been saved locally."
+                    ? t("settings.troubleshooting.done.uploadedDescription")
+                    : t("settings.troubleshooting.done.savedDescription")
             }
             actions={
                 <>
                     <Button variant={"secondary"} size={"xs"} onClick={onClose}>
-                        Close
+                        {t("common.close")}
                     </Button>
                     {showKey ? (
                         <Button variant={"primary"} size={"xs"} copy={result.uploadedKey}>
-                            Copy Key
+                            {t("settings.troubleshooting.done.copyKey")}
                         </Button>
                     ) : (
                         result.path && (
                             <Button variant={"primary"} size={"xs"} onClick={onRevealPath}>
                                 <FolderOpen size={12} />
-                                Open Folder
+                                {t("settings.troubleshooting.done.openFolder")}
                             </Button>
                         )
                     )}
@@ -189,7 +192,7 @@ function DoneResult({
                                 type={"button"}
                                 onClick={onRevealPath}
                                 className={"pointer-events-auto hover:text-white transition-all"}
-                                aria-label={"Open file location"}
+                                aria-label={t("settings.troubleshooting.done.openFileLocation")}
                             >
                                 <FolderOpen size={16} />
                             </button>
@@ -203,9 +206,11 @@ function DoneResult({
                             "rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300"
                         }
                     >
-                        Upload failed
-                        {result.uploadFailureReason ? `: ${result.uploadFailureReason}` : "."} The
-                        bundle is still saved locally.
+                        {result.uploadFailureReason
+                            ? t("settings.troubleshooting.uploadFailedWithReason", {
+                                  reason: result.uploadFailureReason,
+                              })
+                            : t("settings.troubleshooting.uploadFailed")}
                     </div>
                 )}
             </div>
@@ -227,26 +232,27 @@ function BottomBar({ children }: { children: ReactNode }) {
     );
 }
 
-const stageLabel = (stage: DebugStage): string => {
+const stageLabel = (stage: DebugStage, t: (key: string, options?: Record<string, unknown>) => string): string => {
     switch (stage.kind) {
         case "preparing-trace":
-            return "Switching to trace logging…";
+            return t("settings.troubleshooting.stage.preparingTrace");
         case "reconnecting":
-            return "Reconnecting NetBird…";
+            return t("settings.troubleshooting.stage.reconnecting");
         case "capturing": {
             const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-            return `Capturing logs — ${fmt(
-                stage.totalSec - stage.remainingSec,
-            )} / ${fmt(stage.totalSec)}`;
+            return t("settings.troubleshooting.stage.capturing", {
+                elapsed: fmt(stage.totalSec - stage.remainingSec),
+                total: fmt(stage.totalSec),
+            });
         }
         case "restoring-level":
-            return "Restoring previous log level…";
+            return t("settings.troubleshooting.stage.restoring");
         case "bundling":
-            return "Generating debug bundle…";
+            return t("settings.troubleshooting.stage.bundling");
         case "uploading":
-            return "Uploading to NetBird…";
+            return t("settings.troubleshooting.stage.uploading");
         case "cancelling":
-            return "Cancelling…";
+            return t("settings.troubleshooting.stage.cancelling");
         default:
             return "";
     }

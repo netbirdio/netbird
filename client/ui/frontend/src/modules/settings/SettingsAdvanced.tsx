@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import Button from "@/components/Button";
 import { HelpText } from "@/components/HelpText";
 import { Input } from "@/components/Input";
@@ -7,6 +8,7 @@ import { SectionGroup } from "@/modules/settings/SettingsSection.tsx";
 import { useSettings } from "@/modules/settings/SettingsContext.tsx";
 
 export function SettingsAdvanced() {
+    const { t } = useTranslation();
     const { config, saveFields } = useSettings();
 
     const [values, setValues] = useState({
@@ -35,9 +37,9 @@ export function SettingsAdvanced() {
 
     return (
         <>
-            <SectionGroup title={"Interface"}>
+            <SectionGroup title={t("settings.advanced.section.interface")}>
                 <Input
-                    label={"Name"}
+                    label={t("settings.advanced.interfaceName.label")}
                     value={values.interfaceName}
                     onChange={(e) =>
                         setValues((v) => ({ ...v, interfaceName: e.target.value }))
@@ -45,7 +47,7 @@ export function SettingsAdvanced() {
                 />
                 <div className={"grid grid-cols-2 gap-4"}>
                     <Input
-                        label={"Port"}
+                        label={t("settings.advanced.port.label")}
                         type={"number"}
                         value={values.wireguardPort}
                         onChange={(e) =>
@@ -56,7 +58,7 @@ export function SettingsAdvanced() {
                         }
                     />
                     <Input
-                        label={"MTU"}
+                        label={t("settings.advanced.mtu.label")}
                         type={"number"}
                         value={values.mtu}
                         onChange={(e) =>
@@ -66,13 +68,11 @@ export function SettingsAdvanced() {
                 </div>
             </SectionGroup>
 
-            <SectionGroup title={"Security"}>
+            <SectionGroup title={t("settings.advanced.section.security")}>
                 <div>
-                    <Label as={"div"}>Pre-shared Key</Label>
+                    <Label as={"div"}>{t("settings.advanced.psk.label")}</Label>
                     <HelpText>
-                        Optional WireGuard PSK for extra symmetric encryption. Not the same as a
-                        NetBird Setup Key. You will only communicate with peers that use the same
-                        pre-shared key.
+                        {t("settings.advanced.psk.help")}
                     </HelpText>
                     <Input
                         type={"password"}
@@ -94,7 +94,7 @@ export function SettingsAdvanced() {
                         disabled={!hasChanges || saving}
                         onClick={handleSave}
                     >
-                        Save Changes
+                        {t("common.saveChanges")}
                     </Button>
                 </div>
             </div>

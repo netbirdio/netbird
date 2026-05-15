@@ -1,4 +1,5 @@
 import { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { Browser } from "@wailsio/runtime";
 import { Button } from "@/components/Button";
 import { useClientVersion } from "@/modules/auto-update/ClientVersionContext";
@@ -10,8 +11,8 @@ function openUrl(url: string) {
     void Browser.OpenURL(url).catch(() => window.open(url, "_blank"));
 }
 
-function formatLastChecked(date: Date) {
-    return date.toLocaleString(undefined, {
+function formatLastChecked(date: Date, locale?: string) {
+    return date.toLocaleString(locale, {
         month: "short",
         day: "numeric",
         hour: "2-digit",
@@ -20,22 +21,23 @@ function formatLastChecked(date: Date) {
 }
 
 export function UpdateVersionCard() {
+    const { t, i18n } = useTranslation();
     const { updateVersion, enforced, triggerUpdate } = useClientVersion();
 
     if (updateVersion) {
         return (
             <Card>
                 <div>
-                    <Title>Version {updateVersion} is available.</Title>
+                    <Title>{t("update.card.versionAvailable", { version: updateVersion })}</Title>
                     <Link
                         url={`https://github.com/netbirdio/netbird/releases/tag/v${updateVersion}`}
                     >
-                        What's new?
+                        {t("update.card.whatsNew")}
                     </Link>
                 </div>
                 {enforced ? (
                     <Button variant={"primary"} size={"xs"} onClick={triggerUpdate}>
-                        Install now
+                        {t("update.card.installNow")}
                     </Button>
                 ) : (
                     <Button
@@ -43,7 +45,7 @@ export function UpdateVersionCard() {
                         size={"xs"}
                         onClick={() => openUrl(GITHUB_RELEASES)}
                     >
-                        Get installer
+                        {t("update.card.getInstaller")}
                     </Button>
                 )}
             </Card>
@@ -53,11 +55,15 @@ export function UpdateVersionCard() {
     return (
         <Card className={"max-w-md"}>
             <div>
-                <Title>Last checked on {formatLastChecked(new Date())}</Title>
-                <Link url={"https://github.com/netbirdio/netbird/releases/latest"}>Changelog</Link>
+                <Title>
+                    {t("update.card.lastChecked", {
+                        date: formatLastChecked(new Date(), i18n.language),
+                    })}
+                </Title>
+                <Link url={GITHUB_RELEASES}>{t("update.card.changelog")}</Link>
             </div>
             <Button variant={"primary"} size={"xs"} onClick={triggerUpdate}>
-                Check for updates
+                {t("update.card.checkForUpdates")}
             </Button>
         </Card>
     );
