@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { PanelRightCloseIcon, PanelRightOpenIcon, SettingsIcon } from "lucide-react";
 import { Window } from "@wailsio/runtime";
-import { Windows as WindowsSvc } from "@bindings/services";
+import { WindowManager } from "@bindings/services";
 import { ProfileSelector } from "@/components/ProfileSelector.tsx";
 import { IconButton } from "@/components/IconButton.tsx";
 import { useAppearance } from "@/modules/appearance/AppearanceContext.tsx";
@@ -47,7 +47,7 @@ export const Header = () => {
     };
 
     const openSettings = () => {
-        void WindowsSvc.OpenSettings().catch(() => {});
+        void WindowManager.OpenSettings().catch(() => {});
     };
 
     return (

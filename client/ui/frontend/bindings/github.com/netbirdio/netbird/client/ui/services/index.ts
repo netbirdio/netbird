@@ -10,7 +10,7 @@ import * as ProfileSwitcher from "./profileswitcher.js";
 import * as Profiles from "./profiles.js";
 import * as Settings from "./settings.js";
 import * as Update from "./update.js";
-import * as Windows from "./windows.js";
+import * as WindowManager from "./windowmanager.js";
 export {
     Connection,
     Debug,
@@ -21,7 +21,7 @@ export {
     Profiles,
     Settings,
     Update,
-    Windows
+    WindowManager
 };
 
 export {

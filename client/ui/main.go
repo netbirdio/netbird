@@ -152,22 +152,11 @@ func main() {
 		window.Hide()
 	})
 
-	// Pre-create the settings window AFTER the main window so the OS treats
-	// the main window as the primary one. The settings window stays hidden
-	// until the user clicks the Settings icon — preloading it here keeps the
-	// first-open instant.
-	windows := services.NewWindows(app)
-
-	app.RegisterService(application.NewService(connection))
-	app.RegisterService(application.NewService(settings))
-	app.RegisterService(application.NewService(services.NewNetworks(conn)))
-	app.RegisterService(application.NewService(services.NewForwarding(conn)))
-	app.RegisterService(application.NewService(profiles))
-	app.RegisterService(application.NewService(services.NewDebug(conn)))
-	app.RegisterService(application.NewService(update))
-	app.RegisterService(application.NewService(peers))
-	app.RegisterService(application.NewService(windows))
-	app.RegisterService(application.NewService(notifier))
+	// The settings and browser-login windows are created lazily and
+	// destroyed on close, so they don't linger as hidden windows that
+	// Wails's macOS dock-reopen handler would pop back up.
+	windowManager := services.NewWindowManager(app)
+	app.RegisterService(application.NewService(windowManager))
 
 	// Register an in-process StatusNotifierWatcher so the tray works on
 	// minimal WMs (Fluxbox, OpenBox, i3, dwm, vanilla GNOME without the

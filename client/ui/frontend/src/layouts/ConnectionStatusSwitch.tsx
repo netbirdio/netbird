@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Dialogs } from "@wailsio/runtime";
-import { Connection } from "@bindings/services";
+import { Dialogs, Events } from "@wailsio/runtime";
+import { Connection, WindowManager } from "@bindings/services";
 import { ConnectionState } from "@/components/NetBirdConnectToggle.tsx";
 import { ToggleSwitch } from "@/components/ToggleSwitch.tsx";
 import { useStatus } from "@/hooks/useStatus";
@@ -16,13 +15,87 @@ const STATUS_LABEL: Record<ConnectionState, string> = {
     [ConnectionState.Disconnecting]: "Disconnecting...",
 };
 
+const EVENT_BROWSER_LOGIN_CANCEL = "browser-login:cancel";
+
 const errorMessage = (e: unknown) =>
     e instanceof Error ? e.message : String(e);
+
+// startLogin drives the daemon's SSO login end-to-end. The BrowserLogin
+// popup window is the only login UI; errors surface as a native
+// Dialogs.Error. Concurrent calls are dropped via the inFlight guard.
+let loginInFlight = false;
+async function startLogin(): Promise<void> {
+    if (loginInFlight) return;
+    loginInFlight = true;
+
+    let cancelled = false;
+    let offCancel: (() => void) | undefined;
+
+    try {
+        const result = await Connection.Login({
+            profileName: "",
+            username: "",
+            managementUrl: "",
+            setupKey: "",
+            preSharedKey: "",
+            hostname: "",
+            hint: "",
+        });
+
+        if (result.needsSsoLogin) {
+            const uri = result.verificationUriComplete || result.verificationUri;
+            if (uri) {
+                Connection.OpenURL(uri).catch(console.error);
+                WindowManager.OpenBrowserLogin(uri).catch(console.error);
+            }
+
+            const cancelPromise = new Promise<void>((resolve) => {
+                offCancel = Events.On(EVENT_BROWSER_LOGIN_CANCEL, () => {
+                    cancelled = true;
+                    resolve();
+                });
+            });
+
+            const waitPromise = Connection.WaitSSOLogin({
+                userCode: result.userCode,
+                hostname: "",
+            });
+
+            try {
+                await Promise.race([waitPromise, cancelPromise]);
+            } finally {
+                WindowManager.CloseBrowserLogin().catch(console.error);
+            }
+
+            if (cancelled) {
+                // Tell the daemon to drop the in-flight WaitSSOLogin so a
+                // future Login starts fresh; see services/connection.go:74.
+                try {
+                    await Connection.Down();
+                } catch (e) {
+                    console.error(e);
+                }
+                return;
+            }
+        }
+
+        await Connection.Up({ profileName: "", username: "" });
+    } catch (e) {
+        WindowManager.CloseBrowserLogin().catch(console.error);
+        if (cancelled) return;
+        await Dialogs.Error({
+            Title: "Login Failed",
+            Message: errorMessage(e),
+        });
+    } finally {
+        offCancel?.();
+        loginInFlight = false;
+    }
+}
 
 export const ConnectionStatusSwitch = () => {
     const { status, refresh } = useStatus();
     const { activeProfile, username } = useProfile();
-    const navigate = useNavigate();
 
     const daemonState = status?.status ?? "Idle";
     const needsLogin =
@@ -89,7 +162,7 @@ export const ConnectionStatusSwitch = () => {
     const handleSwitch = (next: boolean) => {
         if (unreachable || action !== null) return;
         if (needsLogin) {
-            navigate("/login");
+            void startLogin().finally(() => refresh());
             return;
         }
         if (next && connState === ConnectionState.Disconnected) {

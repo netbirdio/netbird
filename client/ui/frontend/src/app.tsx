@@ -12,7 +12,7 @@ import { Settings } from "@/modules/settings/Settings.tsx";
 import { SkeletonTheme } from "react-loading-skeleton";
 import "react-loading-skeleton/dist/skeleton.css";
 import { welcome } from "@/lib/welcome";
-import Login from "@/pages/Login.tsx";
+import BrowserLogin from "@/pages/BrowserLogin.tsx";
 
 welcome();
 
@@ -22,7 +22,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
             <HashRouter>
                 <Routes>
                     <Route path="/quick" element={<QuickActions />} />
-                    <Route path="/login" element={<Login />} />
+                    <Route path="/browser-login" element={<BrowserLogin />} />
                     <Route path="/update" element={<Update />} />
                     <Route path="/session-expired" element={<SessionExpired />} />
                     <Route element={<SettingsLayout />}>
