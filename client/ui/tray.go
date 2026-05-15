@@ -134,15 +134,6 @@ type Tray struct {
 	activeUsername       string
 	switchCancel         context.CancelFunc
 
-	// switchInProgress / switchInProgressUntil drive the optimistic
-	// Connecting feedback when the user clicks a profile while we are
-	// Connected or Connecting. See switchProfile and applyStatus —
-	// applyStatus suppresses the transient daemon Idle that the Down
-	// step emits, keeping the tray on Connecting until the new
-	// profile's Up actually starts.
-	switchInProgress      bool
-	switchInProgressUntil time.Time
-
 	// profileLoadMu serializes loadProfiles so the daemon-status-driven
 	// refresh in applyStatus cannot race with the ApplicationStarted seed
 	// or the post-switchProfile reload — both manipulate profileSubmenu and
@@ -320,8 +311,9 @@ func (t *Tray) handleConnect() {
 // handleDisconnect aborts any in-flight profile switch before sending
 // Down — otherwise the switcher's queued Up would re-establish the
 // connection right after the Disconnect, making the click look like a
-// no-op. Also clears the optimistic-Connecting guard so subsequent
-// daemon Idle pushes paint through to the tray immediately.
+// no-op. Also clears Peers' optimistic-Connecting guard so the daemon's
+// Idle push (and any subsequent updates) paint through immediately
+// instead of being swallowed by the profile-switch suppression filter.
 func (t *Tray) handleDisconnect() {
 	t.downItem.SetEnabled(false)
 	t.mu.Lock()
@@ -329,8 +321,8 @@ func (t *Tray) handleDisconnect() {
 		t.switchCancel()
 		t.switchCancel = nil
 	}
-	t.switchInProgress = false
 	t.mu.Unlock()
+	t.svc.Peers.CancelProfileSwitch()
 	go func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -493,49 +485,12 @@ func (t *Tray) onUpdateProgress(ev *application.CustomEvent) {
 // rapid SubscribeStatus bursts during health probes that would
 // otherwise spam Shell_NotifyIcon and the log.
 //
-// Optimistic profile-switch suppression: when switchProfile fired the
-// optimistic Connecting paint (see its table), switchInProgress is set
-// and the daemon-emitted Connected (stale, from old profile teardown
-// where the daemon keeps pushing as peer count drops) and Idle (from
-// the Down step) events are swallowed here so the user doesn't see a
-// Disconnected/Connected blink before the new profile's flow begins.
-// Clears the flag and lets reality take over on:
-//   - Connecting (the new profile's Up has officially started),
-//   - NeedsLogin / LoginFailed / SessionExpired / DaemonUnavailable
-//     (the daemon won't start Up — that's the new profile's terminal
-//     state, surface it immediately), or
-//   - the 30s safety timeout (Up wedged or never emitted anything).
+// Profile-switch suppression lives one layer up in services/peers.go
+// (Peers.BeginProfileSwitch / shouldSuppress) so the optimistic
+// Connecting paint and the suppressed Idle/Connected events are shared
+// with the React Status page rather than being a tray-only behaviour.
 func (t *Tray) applyStatus(st services.Status) {
 	t.mu.Lock()
-	if t.switchInProgress {
-		switch {
-		case time.Now().After(t.switchInProgressUntil):
-			// Safety net: the daemon never emitted a follow-up status
-			// after Down (Up failed silently, RPC wedged, etc.). Drop
-			// the optimistic guard and render whatever arrives next.
-			t.switchInProgress = false
-		case strings.EqualFold(st.Status, services.StatusConnecting),
-			strings.EqualFold(st.Status, services.StatusNeedsLogin),
-			strings.EqualFold(st.Status, services.StatusLoginFailed),
-			strings.EqualFold(st.Status, services.StatusSessionExpired),
-			strings.EqualFold(st.Status, services.StatusDaemonUnavailable):
-			// New profile's flow has officially started: Up has begun
-			// (Connecting) or the daemon refused to start Up at all
-			// (NeedsLogin/LoginFailed/SessionExpired/DaemonUnavailable).
-			// Clear the guard and let applyStatus paint normally — the
-			// user should see the new state without further delay.
-			t.switchInProgress = false
-		default:
-			// Connected (stale leftover from the old profile's teardown
-			// — the daemon emits extra status updates while peer count
-			// drops during cleanup) or Idle (transient between Down and
-			// Up). Suppress so the tray stays on the optimistic
-			// Connecting until the new profile's flow actually emits a
-			// post-switch status.
-			t.mu.Unlock()
-			return
-		}
-	}
 	connected := strings.EqualFold(st.Status, services.StatusConnected)
 	iconChanged := connected != t.connected || st.Status != t.lastStatus
 	// Detect the transition into SessionExpired: the daemon emits the
@@ -888,38 +843,13 @@ func (t *Tray) loadProfiles() {
 // Cancelling the previous context aborts its in-flight gRPC calls (Down/Up)
 // so rapid clicks always converge to the last selected profile.
 //
-// Optimistic-feedback transition table (driven by t.lastStatus at click time;
-// see applyStatus for the suppression rules):
-//
-//	┌──────────────────────┬──────────────────────┬──────────────────────────┬────────────────────┐
-//	│ prevStatus           │ ProfileSwitcher call │ Optimistic tray label    │ Suppressed events  │
-//	│                      │                      │ shown immediately        │ until new flow     │
-//	├──────────────────────┼──────────────────────┼──────────────────────────┼────────────────────┤
-//	│ Connected            │ Switch + Down + Up   │ Connecting (spinner)     │ Connected, Idle    │
-//	│ Connecting           │ Switch + Down + Up   │ Connecting (unchanged)   │ Connected, Idle    │
-//	│ Idle                 │ Switch only          │ (no change)              │ —                  │
-//	│ NeedsLogin           │ Switch + Down        │ (no change)              │ —                  │
-//	│ LoginFailed          │ Switch + Down        │ (no change)              │ —                  │
-//	│ SessionExpired       │ Switch + Down        │ (no change)              │ —                  │
-//	│ DaemonUnavailable    │ (RPC fails)          │ (no change; toast error) │ —                  │
-//	└──────────────────────┴──────────────────────┴──────────────────────────┴────────────────────┘
-//
-// Only Connected/Connecting need optimistic feedback because they're the
-// only prevStatus values where the switcher follows up with Up — i.e. the
-// only ones where the daemon emits stale Connected updates during Down
-// (peer count drops as the engine tears down) and then Idle, before the
-// new profile's Connecting/Connected. Both the stale Connected and the
-// transient Idle are suppressed by applyStatus until a status that
-// indicates the new flow has begun (Connecting, or any of the "Up won't
-// run" states: NeedsLogin / LoginFailed / SessionExpired /
-// DaemonUnavailable). The other branches either don't drive Down/Up at
-// all (Idle) or stop after Down (NeedsLogin / LoginFailed /
-// SessionExpired), and the resulting Idle is the correct terminal
-// state, so no suppression is needed.
-//
-// A 30s safety timeout clears the in-progress flag if the daemon never
-// emits a follow-up event — without it, a stuck Down/Up could leave the
-// tray frozen on Connecting forever.
+// The optimistic Connecting paint (and suppression of the transient
+// Idle/stale Connected daemon events that follow Down) lives in
+// services/peers.go — ProfileSwitcher calls Peers.BeginProfileSwitch
+// when the previous status was Connected/Connecting, which emits a
+// synthetic Connecting status to the event bus and starts filtering
+// the daemon stream. That way both this tray and the React Status
+// page see the same optimistic state without duplicating policy.
 func (t *Tray) switchProfile(name string) {
 	t.mu.Lock()
 	if t.switchCancel != nil {
@@ -927,17 +857,7 @@ func (t *Tray) switchProfile(name string) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.switchCancel = cancel
-	needsOptimistic := strings.EqualFold(t.lastStatus, services.StatusConnected) ||
-		strings.EqualFold(t.lastStatus, services.StatusConnecting)
-	if needsOptimistic {
-		t.switchInProgress = true
-		t.switchInProgressUntil = time.Now().Add(30 * time.Second)
-	}
 	t.mu.Unlock()
-
-	if needsOptimistic {
-		t.applyOptimisticConnecting()
-	}
 
 	go func() {
 		username, err := t.svc.Profiles.Username()
@@ -958,35 +878,6 @@ func (t *Tray) switchProfile(name string) {
 		}
 		t.loadProfiles()
 	}()
-}
-
-// applyOptimisticConnecting paints the tray as if the daemon had just
-// pushed status=Connecting, without waiting for the daemon to actually
-// get there. Touches the status cache (so the iconChanged comparison in
-// the next real applyStatus call lines up) and the same item bits that
-// applyStatus would set for Connecting. Doesn't touch exitNodes,
-// daemonVersion, or sessionExpired — none of those should change as a
-// side effect of a profile switch.
-func (t *Tray) applyOptimisticConnecting() {
-	t.mu.Lock()
-	t.connected = false
-	t.lastStatus = services.StatusConnecting
-	t.mu.Unlock()
-
-	t.applyIcon()
-	if t.statusItem != nil {
-		t.statusItem.SetLabel(services.StatusConnecting)
-		t.statusItem.SetEnabled(false)
-		t.applyStatusIndicator(services.StatusConnecting)
-	}
-	if t.upItem != nil {
-		t.upItem.SetHidden(true)
-		t.upItem.SetEnabled(false)
-	}
-	if t.downItem != nil {
-		t.downItem.SetHidden(false)
-		t.downItem.SetEnabled(true)
-	}
 }
 
 // notify wraps the Wails notification service with the tray's standard

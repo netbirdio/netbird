@@ -130,6 +130,26 @@ type Status struct {
 
 // Peers serves the dashboard data: one polled Status RPC and a long-running
 // SubscribeEvents stream that re-emits every event over the Wails event bus.
+//
+// Profile-switch suppression: ProfileSwitcher calls BeginProfileSwitch
+// before tearing down the old profile when it would otherwise be followed
+// by an Up on the new profile (i.e. previous status was Connected or
+// Connecting). statusStreamLoop then swallows the transient stale
+// Connected and Idle pushes the daemon emits during Down so the tray
+// and the React Status page both see Connecting → new-profile-state
+// instead of Connected → Connected → Idle → Connecting → new-state.
+//
+// Suppression transition (applied by shouldSuppress before each emit):
+//
+//	┌────────────────────────────────────────────┬──────────────────────────────────┐
+//	│ Incoming daemon status                     │ Action                           │
+//	├────────────────────────────────────────────┼──────────────────────────────────┤
+//	│ Connected, Idle                            │ Suppress (the blink we hide)     │
+//	│ Connecting                                 │ Emit, clear flag (new Up began)  │
+//	│ NeedsLogin, LoginFailed, SessionExpired,   │ Emit, clear flag (new profile's  │
+//	│   DaemonUnavailable                        │   "Up won't run" terminal state) │
+//	│ (timeout elapsed)                          │ Clear flag, emit normally        │
+//	└────────────────────────────────────────────┴──────────────────────────────────┘
 type Peers struct {
 	conn    DaemonConn
 	emitter Emitter
@@ -137,10 +157,68 @@ type Peers struct {
 	mu       sync.Mutex
 	cancel   context.CancelFunc
 	streamWg sync.WaitGroup
+
+	switchMu              sync.Mutex
+	switchInProgress      bool
+	switchInProgressUntil time.Time
 }
 
 func NewPeers(conn DaemonConn, emitter Emitter) *Peers {
 	return &Peers{conn: conn, emitter: emitter}
+}
+
+// BeginProfileSwitch is called by ProfileSwitcher at the start of a switch
+// when the previous status was Connected/Connecting — i.e. the daemon is
+// about to emit Connected updates during Down's peer-count teardown and
+// then an Idle before the new profile's Up resumes the stream. The flag
+// makes statusStreamLoop drop those transient events. A synthetic
+// Connecting snapshot is emitted right away so both consumers (tray and
+// React) paint the optimistic state immediately. A 30s safety timeout
+// clears the flag if the daemon never emits a follow-up status.
+func (s *Peers) BeginProfileSwitch() {
+	s.switchMu.Lock()
+	s.switchInProgress = true
+	s.switchInProgressUntil = time.Now().Add(30 * time.Second)
+	s.switchMu.Unlock()
+	s.emitter.Emit(EventStatus, Status{Status: StatusConnecting})
+}
+
+// CancelProfileSwitch is called by callers that abort the switch midway
+// (the tray's Disconnect click while Connecting). Clears the suppression
+// flag so the next daemon Idle paints through immediately instead of
+// being swallowed.
+func (s *Peers) CancelProfileSwitch() {
+	s.switchMu.Lock()
+	s.switchInProgress = false
+	s.switchMu.Unlock()
+}
+
+func (s *Peers) shouldSuppress(st Status) bool {
+	s.switchMu.Lock()
+	defer s.switchMu.Unlock()
+	if !s.switchInProgress {
+		return false
+	}
+	if time.Now().After(s.switchInProgressUntil) {
+		s.switchInProgress = false
+		return false
+	}
+	switch {
+	case strings.EqualFold(st.Status, StatusConnecting),
+		strings.EqualFold(st.Status, StatusNeedsLogin),
+		strings.EqualFold(st.Status, StatusLoginFailed),
+		strings.EqualFold(st.Status, StatusSessionExpired),
+		strings.EqualFold(st.Status, StatusDaemonUnavailable):
+		// New profile's flow has officially begun (Up started, or daemon
+		// refused to start it). Clear the guard and let it through.
+		s.switchInProgress = false
+		return false
+	default:
+		// Connected (stale carryover from old profile's teardown) or Idle
+		// (transient between Down and Up). Suppress so the optimistic
+		// Connecting from BeginProfileSwitch stays painted.
+		return true
+	}
 }
 
 // Watch starts the background loops that feed the frontend:
@@ -272,6 +350,10 @@ func (s *Peers) statusStreamLoop(ctx context.Context) {
 			unavailable = false
 			st := statusFromProto(resp)
 			log.Infof("backend event: status status=%q peers=%d", st.Status, len(st.Peers))
+			if s.shouldSuppress(st) {
+				log.Debugf("suppressing status=%q during profile switch", st.Status)
+				continue
+			}
 			s.emitter.Emit(EventStatus, st)
 		}
 	}
