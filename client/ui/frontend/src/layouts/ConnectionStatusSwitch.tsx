@@ -1,12 +1,18 @@
 import { useMemo, useState } from "react";
 import { Dialogs, Events } from "@wailsio/runtime";
 import { Connection, WindowManager } from "@bindings/services";
-import { ConnectionState } from "@/components/NetBirdConnectToggle.tsx";
 import { ToggleSwitch } from "@/components/ToggleSwitch.tsx";
 import { useStatus } from "@/hooks/useStatus";
 import { useProfile } from "@/modules/profile/ProfileContext.tsx";
 import { cn } from "@/lib/cn.ts";
 import netbirdFullLogo from "@/assets/logos/netbird-full.svg";
+
+enum ConnectionState {
+    Disconnected = "disconnected",
+    Connecting = "connecting",
+    Connected = "connected",
+    Disconnecting = "disconnecting",
+}
 
 const STATUS_LABEL: Record<ConnectionState, string> = {
     [ConnectionState.Disconnected]: "Disconnected",

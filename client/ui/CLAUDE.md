@@ -20,9 +20,9 @@ Each service is registered via `app.RegisterService(application.NewService(svc))
 
 ### Frontend (`frontend/src/`)
 - `app.tsx` — top-level routes. Hash router with `/quick`, `/browser-login`, `/update`, `/session-expired`, `/settings` (own layout), and a root `AppLayout` that hosts `Main` and a `*` catch-all.
-- `layouts/AppLayout.tsx` — composition shell. Wraps `Header + Outlet` in `AppearanceProvider → ProfileProvider → DebugBundleProvider → ClientVersionProvider`.
+- `layouts/AppLayout.tsx` — composition shell. Wraps `Header + Outlet` in `ProfileProvider → DebugBundleProvider → ClientVersionProvider`. The wide-panel `expanded` state lives here as plain `useState` (no persistence) and is passed to `Header` via props and `Main` via Outlet context.
 - `layouts/SettingsLayout.tsx` — used when the settings window opens (route `/settings`).
-- `modules/*/Context.tsx` — context providers (`appearance`, `auto-update`, `debug-bundle`, `profile`).
+- `modules/*/Context.tsx` — context providers (`auto-update`, `debug-bundle`, `profile`).
 - `pages/` — full-screen, single-purpose pages opened in popups or via top-level routes (`BrowserLogin`, `SessionExpired`, `Update`, `Debug`).
 - `screens/` — content shown inside `AppLayout` (`Status`, `Peers`, `Networks`, `Profiles`, `Settings`, `Update`, `QuickActions`, `Debug`).
 

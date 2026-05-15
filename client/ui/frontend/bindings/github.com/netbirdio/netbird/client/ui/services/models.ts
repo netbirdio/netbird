@@ -345,41 +345,6 @@ export class ForwardingRule {
 }
 
 /**
- * Language describes one shipped UI locale. Code is the BCP-47-ish key the
- * frontend and the preferences file use; DisplayName is shown in the language
- * picker in its own script (so a Hungarian user sees "Magyar" even when the
- * current UI language is English).
- */
-export class Language {
-    "code": string;
-    "displayName": string;
-    "englishName": string;
-
-    /** Creates a new Language instance. */
-    constructor($$source: Partial<Language> = {}) {
-        if (!("code" in $$source)) {
-            this["code"] = "";
-        }
-        if (!("displayName" in $$source)) {
-            this["displayName"] = "";
-        }
-        if (!("englishName" in $$source)) {
-            this["englishName"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new Language instance from a string or object.
-     */
-    static createFrom($$source: any = {}): Language {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new Language($$parsedSource as Partial<Language>);
-    }
-}
-
-/**
  * LocalPeer mirrors LocalPeerState — what this client looks like on the mesh.
  */
 export class LocalPeer {
@@ -1070,32 +1035,6 @@ export class SystemEvent {
             $$parsedSource["metadata"] = $$createField6_0($$parsedSource["metadata"]);
         }
         return new SystemEvent($$parsedSource as Partial<SystemEvent>);
-    }
-}
-
-/**
- * UIPreferences is the user-scope UI state mirrored to disk and to the
- * frontend. Pointer-free because the whole document is rewritten on every
- * change — there are no per-field partial updates.
- */
-export class UIPreferences {
-    "language": string;
-
-    /** Creates a new UIPreferences instance. */
-    constructor($$source: Partial<UIPreferences> = {}) {
-        if (!("language" in $$source)) {
-            this["language"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new UIPreferences instance from a string or object.
-     */
-    static createFrom($$source: any = {}): UIPreferences {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new UIPreferences($$parsedSource as Partial<UIPreferences>);
     }
 }
 

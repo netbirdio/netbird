@@ -7,7 +7,6 @@ import { VerticalTabs } from "@/components/VerticalTabs.tsx";
 import { SettingsNavigationTriggers } from "@/modules/settings/SettingsNavigationTriggers.tsx";
 import { SettingsProvider } from "@/modules/settings/SettingsContext.tsx";
 import { SettingsGeneral } from "@/modules/settings/SettingsGeneral.tsx";
-import { SettingsAppearance } from "@/modules/settings/SettingsAppearance.tsx";
 import { SettingsNetwork } from "@/modules/settings/SettingsNetwork.tsx";
 import { SettingsSecurity } from "@/modules/settings/SettingsSecurity.tsx";
 import { SettingsSSH } from "@/modules/settings/SettingsSSH.tsx";
@@ -57,9 +56,6 @@ export const Settings = () => {
                             <SettingsProvider>
                                 <VerticalTabs.Content value={"general"}>
                                     <SettingsGeneral />
-                                </VerticalTabs.Content>
-                                <VerticalTabs.Content value={"appearance"}>
-                                    <SettingsAppearance />
                                 </VerticalTabs.Content>
                                 <VerticalTabs.Content value={"network"}>
                                     <SettingsNetwork />

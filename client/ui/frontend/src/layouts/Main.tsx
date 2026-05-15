@@ -1,13 +1,13 @@
-import { ConnectionStatus } from "@/layouts/ConnectionStatus.tsx";
+import { useOutletContext } from "react-router-dom";
 import { ConnectionStatusSwitch } from "@/layouts/ConnectionStatusSwitch.tsx";
 import { MainRightSide } from "@/layouts/MainRightSide.tsx";
 import { Navigation } from "@/layouts/Navigation.tsx";
 import { Peers } from "@/modules/peers/Peers.tsx";
-import { useAppearance } from "@/modules/appearance/AppearanceContext.tsx";
+import type { MainOutletContext } from "@/layouts/AppLayout.tsx";
 import { cn } from "@/lib/cn";
 
 export const Main = () => {
-    const { connectionLayout, expanded } = useAppearance();
+    const { expanded } = useOutletContext<MainOutletContext>();
     return (
         <div className={"wails-draggable flex flex-1 min-h-0 p-4 gap-4"}>
             <div
@@ -16,11 +16,7 @@ export const Main = () => {
                     expanded && "max-w-xs",
                 )}
             >
-                {connectionLayout === "switch" ? (
-                    <ConnectionStatusSwitch />
-                ) : (
-                    <ConnectionStatus />
-                )}
+                <ConnectionStatusSwitch />
                 <Navigation peersActive />
             </div>
             {expanded && (

@@ -8,6 +8,9 @@ import { Create as $Create } from "@wailsio/runtime";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as preferences$0 from "../../../../netbirdio/netbird/client/ui/preferences/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as services$0 from "../../../../netbirdio/netbird/client/ui/services/models.js";
 
 function configure() {
@@ -22,7 +25,7 @@ function configure() {
 
 // Private type creation functions
 const $$createType0 = services$0.SystemEvent.createFrom;
-const $$createType1 = services$0.UIPreferences.createFrom;
+const $$createType1 = preferences$0.UIPreferences.createFrom;
 const $$createType2 = services$0.Status.createFrom;
 const $$createType3 = services$0.UpdateAvailable.createFrom;
 const $$createType4 = services$0.UpdateProgress.createFrom;

@@ -1,6 +1,7 @@
 {
     "languages": [
         {"code": "en", "displayName": "English", "englishName": "English"},
+        {"code": "de", "displayName": "Deutsch", "englishName": "German"},
         {"code": "hu", "displayName": "Magyar", "englishName": "Hungarian"}
     ]
 }

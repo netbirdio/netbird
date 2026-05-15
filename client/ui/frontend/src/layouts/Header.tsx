@@ -4,7 +4,6 @@ import { Window } from "@wailsio/runtime";
 import { WindowManager } from "@bindings/services";
 import { ProfileSelector } from "@/components/ProfileSelector.tsx";
 import { IconButton } from "@/components/IconButton.tsx";
-import { useAppearance } from "@/modules/appearance/AppearanceContext.tsx";
 import { cn } from "@/lib/cn";
 
 const WINDOW_SMALL_WIDTH = 380;
@@ -12,8 +11,12 @@ const WINDOW_BIG_WIDTH = 925;
 const WINDOW_HEIGHT = 615;
 const EXPANDED_THRESHOLD = 500;
 
-export const Header = () => {
-    const { showProfileSelector, showSettingsButton, expanded, setField } = useAppearance();
+type HeaderProps = {
+    expanded: boolean;
+    setExpanded: (next: boolean) => void;
+};
+
+export const Header = ({ expanded, setExpanded }: HeaderProps) => {
     const didInitialResize = useRef(false);
 
     useEffect(() => {
@@ -33,15 +36,15 @@ export const Header = () => {
     useEffect(() => {
         const onResize = () => {
             const isWide = window.innerWidth >= EXPANDED_THRESHOLD;
-            if (isWide !== expanded) setField("expanded", isWide);
+            if (isWide !== expanded) setExpanded(isWide);
         };
         window.addEventListener("resize", onResize);
         return () => window.removeEventListener("resize", onResize);
-    }, [expanded, setField]);
+    }, [expanded, setExpanded]);
 
     const togglePanel = () => {
         const next = !expanded;
-        setField("expanded", next);
+        setExpanded(next);
         const w = next ? WINDOW_BIG_WIDTH : WINDOW_SMALL_WIDTH;
         void Window.SetSize(w, WINDOW_HEIGHT).catch(() => {});
     };
@@ -57,19 +60,15 @@ export const Header = () => {
                 "pt-4",
             )}
         >
-            {showProfileSelector && (
-                <div className={"ml-20"}>
-                    <ProfileSelector />
-                </div>
-            )}
+            <div className={"ml-20"}>
+                <ProfileSelector />
+            </div>
 
             <IconButton
                 icon={expanded ? PanelRightOpenIcon : PanelRightCloseIcon}
                 onClick={togglePanel}
             />
-            {showSettingsButton && (
-                <IconButton icon={SettingsIcon} onClick={openSettings} />
-            )}
+            <IconButton icon={SettingsIcon} onClick={openSettings} />
         </div>
     );
 };

@@ -58,7 +58,7 @@ Bindings are regenerated from Go via `wails3 generate bindings -clean=true -ts` 
 | `/settings` | `Settings` | `SettingsLayout` | Auxiliary window (Go `WindowManager.OpenSettings`) |
 | `*` | `<Navigate to="/">` | `AppLayout` | Catch-all |
 
-`AppLayout` wraps `Header + <Outlet/>` in this provider order: `AppearanceProvider → ProfileProvider → DebugBundleProvider → ClientVersionProvider`. The order matters — `DebugBundleProvider` reads `useProfile`, and `ClientVersionProvider` paints the `<UpdatingOverlay/>` so it has to be outermost in terms of z-index but innermost in the tree.
+`AppLayout` wraps `Header + <Outlet/>` in this provider order: `ProfileProvider → DebugBundleProvider → ClientVersionProvider`. The order matters — `DebugBundleProvider` reads `useProfile`, and `ClientVersionProvider` paints the `<UpdatingOverlay/>` so it has to be outermost in terms of z-index but innermost in the tree. `AppLayout` also owns the wide/narrow `expanded` state as plain `useState` (no persistence) and passes it to `Header` via props and to `Main` via Outlet context (`MainOutletContext`).
 
 `SettingsLayout` uses the same provider stack minus the `Header`. It also reserves a 38px `wails-draggable` strip at the top so the macOS traffic-light buttons (the window uses `MacTitleBarHiddenInset`) don't overlap content.
 
@@ -77,12 +77,11 @@ layouts/              # AppLayout, SettingsLayout, Header, Main, MainRightSide,
 lib/                  # cn (tailwind merge), color (hash → hex), welcome (console art),
                       # MainModuleContext (unused legacy)
 modules/              # feature folders that own their own contexts/state
-  appearance/         # AppearanceContext (localStorage)
   auto-update/        # ClientVersionContext + overlays/banners/badges
   debug-bundle/       # useDebugBundle hook + Provider wrapper
   peers/              # Peers UI (currently mockPeers; not wired to daemon data)
   profile/            # ProfileContext
-  settings/           # Settings root + per-tab files + SettingsContext + accent egg
+  settings/           # Settings root + per-tab files + SettingsContext
   skeletons/          # SkeletonSettings
 pages/                # full-screen single-purpose pages routed via app.tsx
   BrowserLogin.tsx    # auxiliary window content
@@ -90,7 +89,6 @@ pages/                # full-screen single-purpose pages routed via app.tsx
   Update.tsx          # enforced-update install screen (real one)
   Debug.tsx           # legacy debug bundle UI, superseded by SettingsTroubleshooting
 screens/              # in-window screens (mostly legacy; pre-AppLayout era)
-  Status.tsx          # legacy detailed status page (not in current route table)
   Peers.tsx           # legacy peer-detail UI (uses real Peers.Get data)
   Networks.tsx        # legacy networks UI
   Profiles.tsx        # uses ProfileSwitcher.SwitchActive (current preferred path)
@@ -165,9 +163,11 @@ While `config` is `null` the provider renders `<SkeletonSettings/>` instead of c
 
 **PSK mask quirk:** The daemon returns existing pre-shared keys as `"**********"` in `GetConfig`. Sending the mask back round-trips it into the saved config and `wgtypes.ParseKey` fails on the next connect. `save` drops the field when it equals `"**********"` so an unrelated toggle save doesn't corrupt the stored PSK.
 
-### `AppearanceContext` (modules/appearance/AppearanceContext.tsx)
+### Wide/narrow panel state
 
-Pure-frontend UI preferences persisted to `localStorage` under `netbird:appearance`. Fields: `connectionLayout` (`"default" | "switch"`), `expanded` (bool — drives the wide / narrow window mode), `showPeersNav`, `showResourcesNav`, `showExitNodeNav`, `showProfileSelector`, `showSettingsButton`. `Header.tsx` writes `expanded` and resizes the OS window to match (`Window.SetSize(925|380, 615)`).
+There is no appearance context or localStorage. The `expanded` flag lives in `AppLayout` as plain `useState(false)` and is the only shell-layout knob. `Header.tsx` reads it via props (sets the panel-toggle icon and calls `Window.SetSize(925|380, 615)` on change); `Main.tsx` reads it via Outlet context (`MainOutletContext`) to decide whether to mount the right-side panel. Every app launch starts small — no cross-machine drift.
+
+Nav-item visibility (Peers / Resources / Exit Node) and the header buttons (profile selector, settings) are hardcoded to always-render in `Navigation.tsx` and `Header.tsx` respectively; the previous toggles are gone along with the Appearance settings tab.
 
 ### `DebugBundleProvider` + `useDebugBundle` (modules/debug-bundle/)
 
@@ -278,8 +278,6 @@ Fonts: Inter Variable (sans) + JetBrains Mono Variable (mono) — both shipped u
 - **`screens/QuickActions.tsx`** is wired to `/quick` in the route table but nothing on the Go side currently navigates there.
 - **`UpdateAvailableBanner`** is force-enabled via `FORCE_UPDATE_AVAILABLE = true` and additionally TODO-commented for the "only when management has auto updates enabled + force updates is disabled" case.
 - **`lib/MainModuleContext.tsx`** is exported but unused. Candidate for deletion.
-- **`ConnectionStatus.tsx`** (the non-Switch variant of the main toggle) is local-state-only — it does not call `Connection.Up/Down` and shows hardcoded `peer-hostname.netbird.cloud` / `192.168.0.1`. It's a visual prototype the user can flip to via `connectionLayout` in `AppearanceContext`; **don't rely on it for real connect/disconnect behavior**. The real one is `ConnectionStatusSwitch.tsx`.
-- **`SettingsAccent`** is a 10-clicks-on-the-version-label easter egg that renders a falling-`TEAMNETBIRD` canvas overlay for 9 seconds. Kept on purpose.
 
 ## Wails Go API reference
 
