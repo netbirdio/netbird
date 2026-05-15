@@ -42,7 +42,7 @@ pnpm format:check
 
 So `import { Connection } from "@bindings/services"` and `import type { Status } from "@bindings/services/models.js"` are the canonical imports. **Don't** hand-write deep `../../bindings/github.com/...` paths — a few legacy screens (`screens/Profiles.tsx`, `pages/Update.tsx`) still do; treat that as a smell.
 
-Bindings are regenerated from Go via `wails3 generate bindings -clean=true -ts` from `client/ui/`. Don't edit anything under `bindings/`.
+`bindings/` is **gitignored** — every file is generated and never hand-edited. Regenerate from `client/ui/` via `wails3 generate bindings -clean=true -ts`, or use the `pnpm bindings` shortcut from this directory. A fresh clone has no `bindings/` on disk, so `pnpm typecheck` will fail until you run it once; `wails3 dev` regenerates on its own.
 
 ## Routing (app.tsx)
 

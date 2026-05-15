@@ -9,6 +9,7 @@
     "build": "tsc && vite build --mode production",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "bindings": "cd .. && wails3 generate bindings -clean=true -ts",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,css,json,md}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,css,json,md}\""
   },

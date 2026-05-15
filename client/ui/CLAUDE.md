@@ -27,7 +27,7 @@ Each service is registered via `app.RegisterService(application.NewService(svc))
 - `screens/` — content shown inside `AppLayout` (`Status`, `Peers`, `Networks`, `Profiles`, `Settings`, `Update`, `QuickActions`, `Debug`).
 
 ### Generated bindings
-- `frontend/bindings/**` — generated, do not edit by hand. Regenerate via `wails3 generate bindings -clean=true -ts` from this directory after editing any `services/*.go`.
+- `frontend/bindings/**` — generated, **gitignored**, do not edit by hand. After editing any `services/*.go`, regenerate from this directory via `wails3 generate bindings -clean=true -ts` (or `pnpm bindings` from `frontend/`). Fresh clones need to run this once before `pnpm typecheck` will succeed; `wails3 dev` regenerates on its own.
 
 ## Services rundown
 
