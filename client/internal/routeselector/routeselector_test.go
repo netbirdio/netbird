@@ -330,6 +330,105 @@ func TestRouteSelector_FilterSelectedExitNodes(t *testing.T) {
 	assert.Len(t, filtered, 0) // No routes should be selected
 }
 
+// TestRouteSelector_V6ExitPairInherits covers the v4/v6 exit-node pair
+// selection mirror. A "-v6" entry with no explicit state of its own inherits
+// its v4 base's selection state, so legacy persisted selections that predate
+// v6 pairing transparently apply to the synthesized v6 entry. Explicit
+// selections on the v6 entry itself always win.
+func TestRouteSelector_V6ExitPairInherits(t *testing.T) {
+	all := []route.NetID{"exit1", "exit1-v6", "exit2", "exit2-v6"}
+
+	t.Run("v6 mirrors deselected v4 base", func(t *testing.T) {
+		rs := routeselector.NewRouteSelector()
+		require.NoError(t, rs.DeselectRoutes([]route.NetID{"exit1"}, all))
+
+		assert.False(t, rs.IsSelected("exit1"))
+		assert.False(t, rs.IsSelected("exit1-v6"), "v6 pair inherits deselected v4 base")
+		assert.True(t, rs.HasUserSelectionForRoute("exit1-v6"), "v6 pair sees v4 base's user selection")
+
+		// unrelated v6 with no v4 base touched stays at default (selected)
+		assert.True(t, rs.IsSelected("exit2-v6"))
+		assert.False(t, rs.HasUserSelectionForRoute("exit2-v6"))
+	})
+
+	t.Run("explicit v6 state overrides v4 base", func(t *testing.T) {
+		rs := routeselector.NewRouteSelector()
+		require.NoError(t, rs.DeselectRoutes([]route.NetID{"exit1"}, all))
+		require.NoError(t, rs.SelectRoutes([]route.NetID{"exit1-v6"}, true, all))
+
+		assert.False(t, rs.IsSelected("exit1"))
+		assert.True(t, rs.IsSelected("exit1-v6"), "explicit v6 select wins over v4 base")
+	})
+
+	t.Run("non-v6-suffix routes unaffected", func(t *testing.T) {
+		rs := routeselector.NewRouteSelector()
+		require.NoError(t, rs.DeselectRoutes([]route.NetID{"exit1"}, all))
+
+		// A route literally named "exit1-something" must not pair-resolve.
+		assert.True(t, rs.IsSelected("exit1-something"))
+	})
+
+	t.Run("filter v6 paired with deselected v4 base", func(t *testing.T) {
+		rs := routeselector.NewRouteSelector()
+		require.NoError(t, rs.DeselectRoutes([]route.NetID{"exit1"}, all))
+
+		v4Route := &route.Route{NetID: "exit1", Network: netip.MustParsePrefix("0.0.0.0/0")}
+		v6Route := &route.Route{NetID: "exit1-v6", Network: netip.MustParsePrefix("::/0")}
+		routes := route.HAMap{
+			"exit1|0.0.0.0/0": {v4Route},
+			"exit1-v6|::/0":   {v6Route},
+		}
+
+		filtered := rs.FilterSelectedExitNodes(routes)
+		assert.Empty(t, filtered, "deselecting v4 base must also drop the v6 pair")
+	})
+}
+
+// TestRouteSelector_SkipAutoApplyPerRoute verifies that management's
+// SkipAutoApply flag governs each untouched route independently, even when
+// the user has explicit selections on other routes.
+func TestRouteSelector_SkipAutoApplyPerRoute(t *testing.T) {
+	autoApplied := &route.Route{
+		NetID:         "Auto",
+		Network:       netip.MustParsePrefix("0.0.0.0/0"),
+		SkipAutoApply: false,
+	}
+	skipApply := &route.Route{
+		NetID:         "Skip",
+		Network:       netip.MustParsePrefix("0.0.0.0/0"),
+		SkipAutoApply: true,
+	}
+	routes := route.HAMap{
+		"Auto|0.0.0.0/0": {autoApplied},
+		"Skip|0.0.0.0/0": {skipApply},
+	}
+
+	rs := routeselector.NewRouteSelector()
+	// User makes an unrelated explicit selection elsewhere.
+	require.NoError(t, rs.DeselectRoutes([]route.NetID{"Unrelated"}, []route.NetID{"Auto", "Skip", "Unrelated"}))
+
+	filtered := rs.FilterSelectedExitNodes(routes)
+	assert.Contains(t, filtered, route.HAUniqueID("Auto|0.0.0.0/0"), "AutoApply route should be included")
+	assert.NotContains(t, filtered, route.HAUniqueID("Skip|0.0.0.0/0"), "SkipAutoApply route should be excluded without explicit user selection")
+}
+
+// TestRouteSelector_V6ExitIsExitNode verifies that ::/0 routes are recognized
+// as exit nodes by the selector's filter path.
+func TestRouteSelector_V6ExitIsExitNode(t *testing.T) {
+	v6Exit := &route.Route{
+		NetID:         "V6Only",
+		Network:       netip.MustParsePrefix("::/0"),
+		SkipAutoApply: true,
+	}
+	routes := route.HAMap{
+		"V6Only|::/0": {v6Exit},
+	}
+
+	rs := routeselector.NewRouteSelector()
+	filtered := rs.FilterSelectedExitNodes(routes)
+	assert.Empty(t, filtered, "::/0 should be treated as an exit node and respect SkipAutoApply")
+}
+
 func TestRouteSelector_NewRoutesBehavior(t *testing.T) {
 	initialRoutes := []route.NetID{"route1", "route2", "route3"}
 	newRoutes := []route.NetID{"route1", "route2", "route3", "route4", "route5"}
