@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal"
@@ -262,7 +263,7 @@ func setupSetConfigFromConfigInput(cmd *cobra.Command, ic *profilemanager.Config
 		req.DisableIpv6 = &disableIPv6
 	}
 
-	return &req
+	return req
 }
 
 func setupConfigInputFromUpCmd(cmd *cobra.Command) (*profilemanager.ConfigInput, error) {
@@ -446,7 +447,7 @@ func setupLoginRequestFromConfigInput(cmd *cobra.Command, ic *profilemanager.Con
 		req.OptionalPreSharedKey = ic.PreSharedKey
 	}
 	if cmd.Flag(disableIPv6Flag).Changed {
-		loginRequest.DisableIpv6 = &disableIPv6
+		req.DisableIpv6 = &disableIPv6
 	}
 
 	return req
