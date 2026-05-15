@@ -133,6 +133,13 @@ type Tray struct {
 	activeProfile        string
 	activeUsername       string
 	switchCancel         context.CancelFunc
+
+	// profileLoadMu serializes loadProfiles so the daemon-status-driven
+	// refresh in applyStatus cannot race with the ApplicationStarted seed
+	// or the post-switchProfile reload — both manipulate profileSubmenu and
+	// SetMenu, which the Wails menu API is not safe against concurrent
+	// callers.
+	profileLoadMu sync.Mutex
 }
 
 func NewTray(app *application.App, window *application.WebviewWindow, svc TrayServices) *Tray {
@@ -189,12 +196,12 @@ func (t *Tray) ShowWindow() {
 func (t *Tray) buildMenu() *application.Menu {
 	menu := application.NewMenu()
 
-	// statusItem doubles as the "Login" entry once the daemon reports
-	// NeedsLogin/SessionExpired — applyStatus toggles its enabled state and
-	// label. The click handler is harmless while disabled, so we wire it
-	// up unconditionally rather than swapping items at runtime.
+	// statusItem shows the daemon's current status. Disabled (and no
+	// OnClick handler) so clicks are no-ops — the row is informational
+	// only. The Connect entry below drives every actionable transition,
+	// including the SSO re-auth flow for NeedsLogin/SessionExpired
+	// (the daemon's Up RPC returns NeedsSSOLogin when applicable).
 	t.statusItem = menu.Add(menuStatusDisconnected).
-		OnClick(func(*application.Context) { t.openRoute("/login") }).
 		SetEnabled(false).
 		SetBitmap(iconMenuDotIdle)
 
@@ -275,6 +282,20 @@ func (t *Tray) openRoute(route string) {
 }
 
 func (t *Tray) handleConnect() {
+	// NeedsLogin/SessionExpired/LoginFailed mean the daemon won't honor a
+	// plain Up RPC ("up already in progress: current status NeedsLogin") —
+	// it needs the Login → WaitSSOLogin → Up sequence instead. The
+	// frontend's /login route already drives that flow, so route the
+	// click there rather than re-implementing the SSO dance in the tray.
+	t.mu.Lock()
+	needsLogin := strings.EqualFold(t.lastStatus, services.StatusNeedsLogin) ||
+		strings.EqualFold(t.lastStatus, services.StatusSessionExpired) ||
+		strings.EqualFold(t.lastStatus, services.StatusLoginFailed)
+	t.mu.Unlock()
+	if needsLogin {
+		t.openRoute("/login")
+		return
+	}
 	t.upItem.SetEnabled(false)
 	go func() {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -287,8 +308,21 @@ func (t *Tray) handleConnect() {
 	}()
 }
 
+// handleDisconnect aborts any in-flight profile switch before sending
+// Down — otherwise the switcher's queued Up would re-establish the
+// connection right after the Disconnect, making the click look like a
+// no-op. Also clears Peers' optimistic-Connecting guard so the daemon's
+// Idle push (and any subsequent updates) paint through immediately
+// instead of being swallowed by the profile-switch suppression filter.
 func (t *Tray) handleDisconnect() {
 	t.downItem.SetEnabled(false)
+	t.mu.Lock()
+	if t.switchCancel != nil {
+		t.switchCancel()
+		t.switchCancel = nil
+	}
+	t.mu.Unlock()
+	t.svc.Peers.CancelProfileSwitch()
 	go func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -450,6 +484,11 @@ func (t *Tray) onUpdateProgress(ev *application.CustomEvent) {
 // (connected, hasUpdate, status label) changed — the daemon emits
 // rapid SubscribeStatus bursts during health probes that would
 // otherwise spam Shell_NotifyIcon and the log.
+//
+// Profile-switch suppression lives one layer up in services/peers.go
+// (Peers.BeginProfileSwitch / shouldSuppress) so the optimistic
+// Connecting paint and the suppressed Idle/Connected events are shared
+// with the React Status page rather than being a tray-only behaviour.
 func (t *Tray) applyStatus(st services.Status) {
 	t.mu.Lock()
 	connected := strings.EqualFold(st.Status, services.StatusConnected)
@@ -475,16 +514,12 @@ func (t *Tray) applyStatus(st services.Status) {
 
 	if iconChanged {
 		t.applyIcon()
-		needsLogin := strings.EqualFold(st.Status, services.StatusNeedsLogin) ||
-			strings.EqualFold(st.Status, services.StatusSessionExpired) ||
-			strings.EqualFold(st.Status, services.StatusLoginFailed)
 		daemonUnavailable := strings.EqualFold(st.Status, services.StatusDaemonUnavailable)
 		connecting := strings.EqualFold(st.Status, services.StatusConnecting)
 		if t.statusItem != nil {
-			// When the daemon needs re-authentication the status row turns
-			// into the actionable Login entry — Connect would only fail.
-			// When the daemon socket is unreachable, swap the label to make
-			// the cause obvious; Connect/Disconnect would just fail.
+			// Label-only: kept disabled (informational row). Swap the
+			// displayed text so the user sees a familiar phrase instead
+			// of the raw daemon enum.
 			label := st.Status
 			switch {
 			case daemonUnavailable:
@@ -493,16 +528,19 @@ func (t *Tray) applyStatus(st services.Status) {
 				label = menuStatusDisconnected
 			}
 			t.statusItem.SetLabel(label)
-			t.statusItem.SetEnabled(needsLogin)
+			t.statusItem.SetEnabled(false)
 			t.applyStatusIndicator(st.Status)
 		}
 		if t.upItem != nil {
-			// Hide Connect whenever an Up action would be a no-op or would
-			// only fail: tunnel already up, daemon mid-connect (Disconnect
-			// takes over the slot so the user can abort), login required,
-			// or daemon socket unreachable.
-			t.upItem.SetHidden(connected || connecting || needsLogin || daemonUnavailable)
-			t.upItem.SetEnabled(!connected && !connecting && !needsLogin && !daemonUnavailable)
+			// Connect stays visible/clickable in NeedsLogin/SessionExpired/
+			// LoginFailed too — the daemon's Up RPC kicks off the SSO flow
+			// when re-auth is required, mirroring the legacy Fyne client
+			// where the same button drove the initial and the re-login
+			// paths. Hidden only when the action would be a no-op (tunnel
+			// up, daemon mid-connect — Disconnect takes the slot) or
+			// would fail with no useful side effect (daemon unreachable).
+			t.upItem.SetHidden(connected || connecting || daemonUnavailable)
+			t.upItem.SetEnabled(!connected && !connecting && !daemonUnavailable)
 		}
 		if t.downItem != nil {
 			// Disconnect is the abort path while the daemon is still
@@ -526,6 +564,16 @@ func (t *Tray) applyStatus(st services.Status) {
 		if t.debugItem != nil {
 			t.debugItem.SetEnabled(!daemonUnavailable)
 		}
+		// Refresh the Profiles submenu on every status-text transition: the
+		// daemon does not emit an active-profile event, so the startup race
+		// (UI loads profiles before autoconnect picks the persisted profile)
+		// and a CLI "profile select && up" both surface here. Fired AFTER
+		// all SetHidden/SetEnabled writes on the static menu items above so
+		// loadProfiles' SetMenu rebuild (which clearMenu+processMenu the
+		// entire NSMenu and re-assigns item.impl) cannot race those
+		// writes — the Wails 3 alpha menu API is not goroutine-safe and
+		// reads item.disabled/item.hidden at NSMenuItem construction time.
+		go t.loadProfiles()
 	}
 	if exitNodesChanged {
 		t.rebuildExitNodes(exitNodes)
@@ -711,12 +759,18 @@ func (t *Tray) loadConfig() {
 
 // loadProfiles refreshes the Profiles submenu from the daemon. Each
 // entry is a checkbox showing the active profile and switches on click.
-// Called once on ApplicationStarted and again after a successful switch
-// so the checkmark moves to the new active profile.
+// Called on ApplicationStarted, after a successful switchProfile, and
+// from applyStatus whenever the daemon's status text changes — the
+// last case catches profile flips driven by another channel (CLI
+// "netbird profile select", autoconnect picking the persisted profile
+// after the UI's first ListProfiles, etc.) since the daemon does not
+// emit a dedicated active-profile event.
 func (t *Tray) loadProfiles() {
 	if t.profileSubmenu == nil {
 		return
 	}
+	t.profileLoadMu.Lock()
+	defer t.profileLoadMu.Unlock()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -788,6 +842,14 @@ func (t *Tray) loadProfiles() {
 // switchProfile cancels any in-flight profile switch, then starts a new one.
 // Cancelling the previous context aborts its in-flight gRPC calls (Down/Up)
 // so rapid clicks always converge to the last selected profile.
+//
+// The optimistic Connecting paint (and suppression of the transient
+// Idle/stale Connected daemon events that follow Down) lives in
+// services/peers.go — ProfileSwitcher calls Peers.BeginProfileSwitch
+// when the previous status was Connected/Connecting, which emits a
+// synthetic Connecting status to the event bus and starts filtering
+// the daemon stream. That way both this tray and the React Status
+// page see the same optimistic state without duplicating policy.
 func (t *Tray) switchProfile(name string) {
 	t.mu.Lock()
 	if t.switchCancel != nil {

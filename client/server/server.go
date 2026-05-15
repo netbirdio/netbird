@@ -140,6 +140,15 @@ func (s *Server) Start() error {
 	}
 
 	state := internal.CtxGetState(s.rootCtx)
+	// Every contextState.Set in the connect/login/server paths must push a
+	// SubscribeStatus snapshot, otherwise transitions that don't happen to
+	// be accompanied by a Mark{Management,Signal,...} call (e.g. plain
+	// StatusNeedsLogin after a PermissionDenied login, StatusLoginFailed
+	// after OAuth init failure, StatusIdle in the Login defer) leave the
+	// UI stuck on the previous status until the next unrelated peer event.
+	// Binding the recorder here means new state.Set callsites don't have
+	// to opt in individually.
+	state.SetOnChange(s.statusRecorder.NotifyStateChange)
 
 	if err := handlePanicLog(); err != nil {
 		log.Warnf("failed to redirect stderr: %v", err)
@@ -220,10 +229,20 @@ func (s *Server) Start() error {
 // mechanism to keep the client connected even when the connection is lost.
 // we cancel retry if the client receive a stop or down command, or if disable auto connect is configured.
 func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}, giveUpChan chan struct{}) {
+	// close(giveUpChan) MUST run on every exit path (DisableAutoConnect
+	// return, backoff.Retry return, panic) — Down() blocks for up to 5s
+	// waiting on this signal before flipping the state to Idle, and a
+	// missed close leaves Down() always hitting the timeout. The signal
+	// fires AFTER clientRunning=false is committed under the mutex so a
+	// Down/Up racing with the goroutine exit never observes a half-state
+	// (chan closed but clientRunning still true).
 	defer func() {
 		s.mutex.Lock()
 		s.clientRunning = false
 		s.mutex.Unlock()
+		if giveUpChan != nil {
+			close(giveUpChan)
+		}
 	}()
 
 	if s.config.DisableAutoConnect {
@@ -277,10 +296,6 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profil
 
 	if err := backoff.Retry(runOperation, backOff); err != nil {
 		log.Errorf("operation failed: %v", err)
-	}
-
-	if giveUpChan != nil {
-		close(giveUpChan)
 	}
 }
 
@@ -571,8 +586,35 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	return &proto.LoginResponse{}, nil
 }
 
-// WaitSSOLogin uses the userCode to validate the TokenInfo and
-// waits for the user to continue with the login on a browser
+// WaitSSOLogin validates the supplied userCode against the in-flight OAuth
+// device/PKCE flow and blocks until the user finishes the browser leg.
+//
+// State transitions on exit:
+//
+//	┌──────────────────────────────────────────┬──────────────────────────────────┐
+//	│ Outcome                                  │ contextState                     │
+//	├──────────────────────────────────────────┼──────────────────────────────────┤
+//	│ Success → loginAttempt → Connected       │ StatusConnected (loginAttempt)   │
+//	│ Success → loginAttempt → still-NeedsLogin│ StatusNeedsLogin (loginAttempt)  │
+//	│ Success → loginAttempt error             │ StatusLoginFailed (loginAttempt) │
+//	│ UserCode mismatch                        │ StatusLoginFailed                │
+//	│ WaitToken: context.Canceled (external    │ defer runs: status untouched if  │
+//	│   abort — profile switch invokes         │   already NeedsLogin/LoginFailed,│
+//	│   actCancel/waitCancel, app quit,        │   else StatusIdle. Keeps the     │
+//	│   another WaitSSOLogin started)          │   cancel from leaking as a       │
+//	│                                          │   spurious LoginFailed on the    │
+//	│                                          │   next profile's Up.             │
+//	│ WaitToken: context.DeadlineExceeded      │ StatusNeedsLogin                 │
+//	│   (OAuth device-code window expired      │   (retryable; the UI's "Connect" │
+//	│   while waiting on the browser leg)      │   re-enters the Login flow)      │
+//	│ WaitToken: any other error               │ StatusLoginFailed                │
+//	│   (access_denied, expired_token, HTTP    │   (genuine auth/IO failure;      │
+//	│   failure, token validation rejection)   │   surfaced verbatim to caller)   │
+//	└──────────────────────────────────────────┴──────────────────────────────────┘
+//
+// The defer at the top of the function applies the Idle fallback so callers
+// that bypass the explicit Set calls (the Canceled branch above, the success
+// path before loginAttempt) still land on a sensible terminal status.
 func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLoginRequest) (*proto.WaitSSOLoginResponse, error) {
 	s.mutex.Lock()
 	if s.actCancel != nil {
@@ -632,7 +674,21 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 		s.mutex.Lock()
 		s.oauthAuthFlow.expiresAt = time.Now()
 		s.mutex.Unlock()
-		state.Set(internal.StatusLoginFailed)
+		switch {
+		case errors.Is(err, context.Canceled):
+			// External abort (profile switch, app quit, another
+			// WaitSSOLogin started). Not a login failure — let the
+			// top-level defer fall through to StatusIdle so the next
+			// flow starts from a clean state.
+		case errors.Is(err, context.DeadlineExceeded):
+			// OAuth device-code window expired with no user action.
+			// Retryable — leave the daemon in NeedsLogin so the UI
+			// keeps the Login affordance instead of reading as a
+			// hard failure.
+			state.Set(internal.StatusNeedsLogin)
+		default:
+			state.Set(internal.StatusLoginFailed)
+		}
 		log.Errorf("waiting for browser login failed: %v", err)
 		return nil, err
 	}
@@ -853,11 +909,13 @@ func (s *Server) Down(ctx context.Context, _ *proto.DownRequest) (*proto.DownRes
 
 	// Wait for the connectWithRetryRuns goroutine to finish with a short timeout.
 	// This prevents the goroutine from setting ErrResetConnection after Down() returns.
-	// The giveUpChan is closed at the end of connectWithRetryRuns.
+	// The giveUpChan is closed by the goroutine's deferred cleanup (see
+	// connectWithRetryRuns) on every exit path. A timeout here typically
+	// means the goroutine is still wedged inside a slow teardown step.
 	if giveUpChan != nil {
 		select {
 		case <-giveUpChan:
-			log.Debugf("client goroutine finished successfully")
+			log.Debugf("client goroutine finished, giveUpChan closed")
 		case <-time.After(5 * time.Second):
 			log.Warnf("timeout waiting for client goroutine to finish, proceeding anyway")
 		}

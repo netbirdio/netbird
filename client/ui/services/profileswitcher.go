@@ -8,23 +8,48 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
 
-// ProfileSwitcher encapsulates the full profile-switching reconnect policy so
-// both the tray and the React frontend use identical logic.
+// ProfileSwitcher encapsulates the full profile-switching reconnect policy
+// so both the tray and the React frontend use identical logic.
 //
-// Reconnect policy:
+// Reconnect policy + optimistic-feedback table (driven by prevStatus
+// captured from Peers.Get at SwitchActive entry):
 //
-//	┌─────────────────┬──────────────────────┬────────────────────────────────────┐
-//	│ Previous status │ Action               │ Rationale                          │
-//	├─────────────────┼──────────────────────┼────────────────────────────────────┤
-//	│ Connected       │ Switch + Down + Up   │ Reconnect with the new profile.    │
-//	│ Connecting      │ Switch + Down + Up   │ Stop old retry loop, restart.      │
-//	│ NeedsLogin      │ Switch + Down        │ Clear stale error; user logs in.   │
-//	│ LoginFailed     │ Switch + Down        │ Clear stale error; user logs in.   │
-//	│ SessionExpired  │ Switch + Down        │ Clear stale error; user logs in.   │
-//	│ Idle            │ Switch only          │ User chose offline; don't connect. │
-//	└─────────────────┴──────────────────────┴────────────────────────────────────┘
+//	┌─────────────────┬──────────────────────┬──────────────────────────┬────────────────────┐
+//	│ Previous status │ Action               │ Optimistic UI label      │ Suppressed events  │
+//	│                 │                      │ shown immediately        │ until new flow     │
+//	├─────────────────┼──────────────────────┼──────────────────────────┼────────────────────┤
+//	│ Connected       │ Switch + Down + Up   │ Connecting (synthetic)   │ Connected, Idle    │
+//	│ Connecting      │ Switch + Down + Up   │ Connecting (unchanged)   │ Connected, Idle    │
+//	│ NeedsLogin      │ Switch + Down        │ (no change)              │ —                  │
+//	│ LoginFailed     │ Switch + Down        │ (no change)              │ —                  │
+//	│ SessionExpired  │ Switch + Down        │ (no change)              │ —                  │
+//	│ Idle            │ Switch only          │ (no change)              │ —                  │
+//	└─────────────────┴──────────────────────┴──────────────────────────┴────────────────────┘
+//
+// Only Connected/Connecting trigger the optimistic Connecting paint
+// (via Peers.BeginProfileSwitch): they're the only prevStatuses where
+// the daemon emits stale Connected updates (peer count drops as the
+// engine tears down) and then Idle, before the new profile's Up
+// resumes the stream. Both are swallowed by Peers.shouldSuppress
+// until a status that signals the new flow has begun (Connecting, or
+// any of the "Up won't run" terminal states: NeedsLogin / LoginFailed /
+// SessionExpired / DaemonUnavailable). The other prevStatuses either
+// don't drive Down/Up at all (Idle) or stop after Down (NeedsLogin /
+// LoginFailed / SessionExpired) — the resulting Idle is the correct
+// terminal state, so no suppression is needed.
+//
+// Rationale for each Action choice:
+//
+//	Connected       → Reconnect with the new profile.
+//	Connecting      → Stop old retry loop, restart.
+//	NeedsLogin      → Clear stale error; user logs in.
+//	LoginFailed     → Clear stale error; user logs in.
+//	SessionExpired  → Clear stale error; user logs in.
+//	Idle            → User chose offline; don't connect.
 type ProfileSwitcher struct {
 	profiles   *Profiles
 	connection *Connection
@@ -58,8 +83,33 @@ func (s *ProfileSwitcher) SwitchActive(ctx context.Context, p ProfileRef) error 
 	log.Infof("profileswitcher: switch profile=%q prevStatus=%q wasActive=%v needsDown=%v",
 		p.ProfileName, prevStatus, wasActive, needsDown)
 
+	// Optimistic Connecting feedback for tray + React Status page: only
+	// when wasActive — those are the prevStatuses where the daemon will
+	// emit stale Connected + transient Idle pushes during Down before
+	// the new profile's Up resumes the stream (see Peers godoc for the
+	// suppression table). Other prevStatuses already terminate cleanly
+	// on Idle, no suppression needed.
+	if wasActive {
+		s.peers.BeginProfileSwitch()
+	}
+
 	if err := s.profiles.Switch(ctx, p); err != nil {
 		return fmt.Errorf("switch profile %q: %w", p.ProfileName, err)
+	}
+
+	// Mirror the daemon-side switch into the user-side ProfileManager state
+	// (~/Library/Application Support/netbird/active_profile on macOS, the
+	// equivalent user config dir elsewhere). The CLI's `netbird up` reads
+	// from this file (cmd/up.go: pm.GetActiveProfile()) and then sends the
+	// resolved name back in the Login/Up RPC — if it diverges from the
+	// daemon-side /var/lib/netbird/active_profile.json, the daemon will
+	// silently switch its active profile to whatever the CLI sends, so the
+	// next CLI `up` after a UI switch reverts the profile. Failures here
+	// don't abort the switch (the daemon is the authority; the local
+	// mirror is a cache the CLI consults), but they leave the CLI's view
+	// stale until the next successful switch — surface as a warning.
+	if err := profilemanager.NewProfileManager().SwitchProfile(p.ProfileName); err != nil {
+		log.Warnf("profileswitcher: mirror to user-side ProfileManager failed: %v", err)
 	}
 
 	if needsDown {

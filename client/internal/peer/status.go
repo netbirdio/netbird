@@ -1281,6 +1281,18 @@ func (d *Status) notifyStateChange() {
 	}
 }
 
+// NotifyStateChange is the public wake-the-subscribers entry point used by
+// callers that mutate state outside the peer recorder — most importantly
+// the connect-state machine, which writes StatusNeedsLogin into the
+// shared contextState (client/internal/state.go) without touching any
+// recorder field. Without this push the SubscribeStatus stream stays on
+// the previous snapshot until an unrelated peer/management/signal
+// change happens to fire notifyStateChange, leaving the UI's status
+// out of sync with the daemon.
+func (d *Status) NotifyStateChange() {
+	d.notifyStateChange()
+}
+
 func (d *Status) SetWgIface(wgInterface WGIfaceStatus) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
