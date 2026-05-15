@@ -330,34 +330,50 @@ func TestRouteSelector_FilterSelectedExitNodes(t *testing.T) {
 	assert.Len(t, filtered, 0) // No routes should be selected
 }
 
-// TestRouteSelector_V6ExitPairInherits covers the v4/v6 exit-node pair
-// selection mirror. A "-v6" entry with no explicit state of its own inherits
-// its v4 base's selection state, so legacy persisted selections that predate
-// v6 pairing transparently apply to the synthesized v6 entry. Explicit
-// selections on the v6 entry itself always win.
+// TestRouteSelector_V6ExitPairInherits covers the v4/v6 exit-node pair selection
+// mirror. The mirror is scoped to exit-node code paths: HasUserSelectionForRoute
+// and FilterSelectedExitNodes resolve a "-v6" entry without explicit state to its
+// v4 base, so legacy persisted selections that predate v6 pairing transparently
+// apply to the synthesized v6 entry. General lookups (IsSelected, FilterSelected)
+// stay literal so unrelated routes named "*-v6" don't inherit unrelated state.
 func TestRouteSelector_V6ExitPairInherits(t *testing.T) {
-	all := []route.NetID{"exit1", "exit1-v6", "exit2", "exit2-v6"}
+	all := []route.NetID{"exit1", "exit1-v6", "exit2", "exit2-v6", "corp", "corp-v6"}
 
-	t.Run("v6 mirrors deselected v4 base", func(t *testing.T) {
+	t.Run("HasUserSelectionForRoute mirrors deselected v4 base", func(t *testing.T) {
 		rs := routeselector.NewRouteSelector()
 		require.NoError(t, rs.DeselectRoutes([]route.NetID{"exit1"}, all))
 
-		assert.False(t, rs.IsSelected("exit1"))
-		assert.False(t, rs.IsSelected("exit1-v6"), "v6 pair inherits deselected v4 base")
 		assert.True(t, rs.HasUserSelectionForRoute("exit1-v6"), "v6 pair sees v4 base's user selection")
 
-		// unrelated v6 with no v4 base touched stays at default (selected)
-		assert.True(t, rs.IsSelected("exit2-v6"))
+		// unrelated v6 with no v4 base touched is unaffected
 		assert.False(t, rs.HasUserSelectionForRoute("exit2-v6"))
 	})
 
-	t.Run("explicit v6 state overrides v4 base", func(t *testing.T) {
+	t.Run("IsSelected stays literal for non-exit lookups", func(t *testing.T) {
+		rs := routeselector.NewRouteSelector()
+		require.NoError(t, rs.DeselectRoutes([]route.NetID{"corp"}, all))
+
+		// A non-exit route literally named "corp-v6" must not inherit "corp"'s state
+		// via the mirror; the mirror only applies in exit-node code paths.
+		assert.False(t, rs.IsSelected("corp"))
+		assert.True(t, rs.IsSelected("corp-v6"), "non-exit *-v6 routes must not inherit unrelated v4 state")
+	})
+
+	t.Run("explicit v6 state overrides v4 base in filter", func(t *testing.T) {
 		rs := routeselector.NewRouteSelector()
 		require.NoError(t, rs.DeselectRoutes([]route.NetID{"exit1"}, all))
 		require.NoError(t, rs.SelectRoutes([]route.NetID{"exit1-v6"}, true, all))
 
-		assert.False(t, rs.IsSelected("exit1"))
-		assert.True(t, rs.IsSelected("exit1-v6"), "explicit v6 select wins over v4 base")
+		v4Route := &route.Route{NetID: "exit1", Network: netip.MustParsePrefix("0.0.0.0/0")}
+		v6Route := &route.Route{NetID: "exit1-v6", Network: netip.MustParsePrefix("::/0")}
+		routes := route.HAMap{
+			"exit1|0.0.0.0/0": {v4Route},
+			"exit1-v6|::/0":   {v6Route},
+		}
+
+		filtered := rs.FilterSelectedExitNodes(routes)
+		assert.NotContains(t, filtered, route.HAUniqueID("exit1|0.0.0.0/0"))
+		assert.Contains(t, filtered, route.HAUniqueID("exit1-v6|::/0"), "explicit v6 select wins over v4 base")
 	})
 
 	t.Run("non-v6-suffix routes unaffected", func(t *testing.T) {
@@ -365,7 +381,7 @@ func TestRouteSelector_V6ExitPairInherits(t *testing.T) {
 		require.NoError(t, rs.DeselectRoutes([]route.NetID{"exit1"}, all))
 
 		// A route literally named "exit1-something" must not pair-resolve.
-		assert.True(t, rs.IsSelected("exit1-something"))
+		assert.False(t, rs.HasUserSelectionForRoute("exit1-something"))
 	})
 
 	t.Run("filter v6 paired with deselected v4 base", func(t *testing.T) {
@@ -381,6 +397,22 @@ func TestRouteSelector_V6ExitPairInherits(t *testing.T) {
 
 		filtered := rs.FilterSelectedExitNodes(routes)
 		assert.Empty(t, filtered, "deselecting v4 base must also drop the v6 pair")
+	})
+
+	t.Run("non-exit *-v6 routes pass through FilterSelectedExitNodes", func(t *testing.T) {
+		rs := routeselector.NewRouteSelector()
+		require.NoError(t, rs.DeselectRoutes([]route.NetID{"corp"}, all))
+
+		// A non-default-route entry named "corp-v6" is not an exit node and
+		// must not be skipped because its v4 base "corp" is deselected.
+		corpV6 := &route.Route{NetID: "corp-v6", Network: netip.MustParsePrefix("10.0.0.0/8")}
+		routes := route.HAMap{
+			"corp-v6|10.0.0.0/8": {corpV6},
+		}
+
+		filtered := rs.FilterSelectedExitNodes(routes)
+		assert.Contains(t, filtered, route.HAUniqueID("corp-v6|10.0.0.0/8"),
+			"non-exit *-v6 routes must not inherit unrelated v4 state in FilterSelectedExitNodes")
 	})
 }
 
