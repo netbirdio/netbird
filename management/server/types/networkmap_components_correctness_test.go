@@ -981,6 +981,44 @@ func TestComponents_SSHAuthorizedUsersContent(t *testing.T) {
 	assert.True(t, hasRoot || hasAdmin, "AuthorizedUsers should contain 'root' or 'admin' machine user mapping")
 }
 
+// TestComponents_SSHAuthorizedUsersBidirectionalSource verifies that a peer
+// on the sources side of a bidirectional NetbirdSSH rule receives the rule's
+// authorized users. The reverse direction (destinations -> sources) makes
+// the source-side peer a destination too, so it must be able to authorize
+// inbound SSH from the rule's destinations.
+func TestComponents_SSHAuthorizedUsersBidirectionalSource(t *testing.T) {
+	account, validatedPeers := scalableTestAccountWithoutDefaultPolicy(20, 2)
+
+	account.Users["user-dev"] = &types.User{Id: "user-dev", Role: types.UserRoleUser, AccountID: "test-account", AutoGroups: []string{"ssh-users"}}
+	account.Groups["ssh-users"] = &types.Group{ID: "ssh-users", Name: "SSH Users", Peers: []string{}}
+
+	account.Policies = append(account.Policies, &types.Policy{
+		ID: "policy-ssh-bidir", Name: "Bidirectional SSH", Enabled: true, AccountID: "test-account",
+		Rules: []*types.PolicyRule{{
+			ID: "rule-ssh-bidir", Name: "SSH both ways", Enabled: true,
+			Action: types.PolicyTrafficActionAccept, Protocol: types.PolicyRuleProtocolNetbirdSSH,
+			Bidirectional: true,
+			Sources:       []string{"group-0"}, Destinations: []string{"group-1"},
+			AuthorizedGroups: map[string][]string{"ssh-users": {"root"}},
+		}},
+	})
+
+	nmSrc := componentsNetworkMap(account, "peer-0", validatedPeers)
+	require.NotNil(t, nmSrc)
+	assert.True(t, nmSrc.EnableSSH, "source-side peer of bidirectional SSH rule should have SSH enabled")
+	require.NotEmpty(t, nmSrc.AuthorizedUsers, "source-side peer should receive authorized users from bidirectional rule")
+	rootUsers, hasRoot := nmSrc.AuthorizedUsers["root"]
+	require.True(t, hasRoot, "source-side peer should map the 'root' local user")
+	_, hasDev := rootUsers["user-dev"]
+	assert.True(t, hasDev, "source-side peer should include 'user-dev' under 'root'")
+
+	nmDst := componentsNetworkMap(account, "peer-10", validatedPeers)
+	require.NotNil(t, nmDst)
+	assert.True(t, nmDst.EnableSSH, "destination-side peer should also have SSH enabled")
+	_, hasRoot = nmDst.AuthorizedUsers["root"]
+	assert.True(t, hasRoot, "destination-side peer should also map the 'root' local user")
+}
+
 // TestComponents_SSHLegacyImpliedSSH verifies that a non-SSH ALL protocol policy with
 // SSHEnabled peer implies legacy SSH access.
 func TestComponents_SSHLegacyImpliedSSH(t *testing.T) {
