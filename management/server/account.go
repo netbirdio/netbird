@@ -295,6 +295,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 	var updateAccountPeers bool
 	var groupChangesAffectPeers bool
 	var reloadReverseProxy bool
+	var effectiveOldNetworkRange netip.Prefix
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		var groupsUpdated bool
@@ -307,6 +308,12 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		if err = am.validateSettingsUpdate(ctx, transaction, newSettings, oldSettings, userID, accountID); err != nil {
 			return err
 		}
+
+		network, err := transaction.GetAccountNetwork(ctx, store.LockingStrengthShare, accountID)
+		if err != nil {
+			return fmt.Errorf("get account network: %w", err)
+		}
+		effectiveOldNetworkRange = prefixFromIPNet(network.Net)
 
 		if oldSettings.Extra != nil && newSettings.Extra != nil &&
 			oldSettings.Extra.PeerApprovalEnabled && !newSettings.Extra.PeerApprovalEnabled {
@@ -321,7 +328,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			}
 		}
 
-		if oldSettings.NetworkRange != newSettings.NetworkRange {
+		if newSettings.NetworkRange.IsValid() && newSettings.NetworkRange != effectiveOldNetworkRange {
 			if err = am.reallocateAccountPeerIPs(ctx, transaction, accountID, newSettings.NetworkRange); err != nil {
 				return err
 			}
@@ -396,9 +403,9 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		}
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountDNSDomainUpdated, eventMeta)
 	}
-	if oldSettings.NetworkRange != newSettings.NetworkRange {
+	if newSettings.NetworkRange.IsValid() && newSettings.NetworkRange != effectiveOldNetworkRange {
 		eventMeta := map[string]any{
-			"old_network_range": oldSettings.NetworkRange.String(),
+			"old_network_range": effectiveOldNetworkRange.String(),
 			"new_network_range": newSettings.NetworkRange.String(),
 		}
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountNetworkRangeUpdated, eventMeta)
@@ -441,6 +448,22 @@ func ipv6SettingsChanged(old, updated *types.Settings) bool {
 	slices.Sort(oldGroups)
 	slices.Sort(newGroups)
 	return !slices.Equal(oldGroups, newGroups)
+}
+
+// prefixFromIPNet returns the overlay prefix actually allocated on the account
+// network, or an invalid prefix if none is set. Settings.NetworkRange is a
+// user-facing override that is empty on legacy accounts, so the effective
+// range must be read from network.Net to compare against an incoming update.
+func prefixFromIPNet(ipNet net.IPNet) netip.Prefix {
+	if ipNet.IP == nil {
+		return netip.Prefix{}
+	}
+	addr, ok := netip.AddrFromSlice(ipNet.IP)
+	if !ok {
+		return netip.Prefix{}
+	}
+	ones, _ := ipNet.Mask.Size()
+	return netip.PrefixFrom(addr.Unmap(), ones)
 }
 
 func (am *DefaultAccountManager) validateSettingsUpdate(ctx context.Context, transaction store.Store, newSettings, oldSettings *types.Settings, userID, accountID string) error {
