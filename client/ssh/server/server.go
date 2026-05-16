@@ -551,27 +551,7 @@ func (s *Server) checkTokenAge(token *gojwt.Token, jwtConfig *JWTConfig) error {
 		maxTokenAge = DefaultJWTMaxTokenAge
 	}
 
-	claims, ok := token.Claims.(gojwt.MapClaims)
-	if !ok {
-		userID := extractUserID(token)
-		return fmt.Errorf("token has invalid claims format (user=%s)", userID)
-	}
-
-	iat, ok := claims["iat"].(float64)
-	if !ok {
-		userID := extractUserID(token)
-		return fmt.Errorf("token missing iat claim (user=%s)", userID)
-	}
-
-	issuedAt := time.Unix(int64(iat), 0)
-	tokenAge := time.Since(issuedAt)
-	maxAge := time.Duration(maxTokenAge) * time.Second
-	if tokenAge > maxAge {
-		userID := getUserIDFromClaims(claims)
-		return fmt.Errorf("token expired for user=%s: age=%v, max=%v", userID, tokenAge, maxAge)
-	}
-
-	return nil
+	return jwt.CheckTokenAge(token, time.Duration(maxTokenAge)*time.Second)
 }
 
 func (s *Server) extractAndValidateUser(token *gojwt.Token) (*auth.UserAuth, error) {
@@ -602,27 +582,7 @@ func (s *Server) hasSSHAccess(userAuth *auth.UserAuth) bool {
 }
 
 func extractUserID(token *gojwt.Token) string {
-	if token == nil {
-		return "unknown"
-	}
-	claims, ok := token.Claims.(gojwt.MapClaims)
-	if !ok {
-		return "unknown"
-	}
-	return getUserIDFromClaims(claims)
-}
-
-func getUserIDFromClaims(claims gojwt.MapClaims) string {
-	if sub, ok := claims["sub"].(string); ok && sub != "" {
-		return sub
-	}
-	if userID, ok := claims["user_id"].(string); ok && userID != "" {
-		return userID
-	}
-	if email, ok := claims["email"].(string); ok && email != "" {
-		return email
-	}
-	return "unknown"
+	return jwt.UserIDFromToken(token)
 }
 
 func (s *Server) parseTokenWithoutValidation(tokenString string) (map[string]interface{}, error) {

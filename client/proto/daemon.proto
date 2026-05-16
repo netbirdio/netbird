@@ -205,6 +205,8 @@ message LoginRequest {
   optional bool disableSSHAuth = 38;
   optional int32 sshJWTCacheTTL = 39;
   optional bool disable_ipv6 = 40;
+
+  optional bool serverVNCAllowed = 41;
 }
 
 message LoginResponse {
@@ -314,6 +316,8 @@ message GetConfigResponse {
   int32 sshJWTCacheTTL = 26;
 
   bool disable_ipv6 = 27;
+
+  bool serverVNCAllowed = 28;
 }
 
 // PeerState contains the latest state of a peer
@@ -394,6 +398,11 @@ message SSHServerState {
   repeated SSHSessionInfo sessions = 2;
 }
 
+// VNCServerState contains the latest state of the VNC server
+message VNCServerState {
+  bool enabled = 1;
+}
+
 // FullStatus contains the full state held by the Status instance
 message FullStatus {
   ManagementState managementState = 1;
@@ -408,6 +417,7 @@ message FullStatus {
 
   bool lazyConnectionEnabled = 9;
   SSHServerState sshServerState = 10;
+  VNCServerState vncServerState = 11;
 }
 
 // Networks
@@ -678,6 +688,8 @@ message SetConfigRequest {
   optional bool disableSSHAuth = 33;
   optional int32 sshJWTCacheTTL = 34;
   optional bool disable_ipv6 = 35;
+
+  optional bool serverVNCAllowed = 36;
 }
 
 message SetConfigResponse{}

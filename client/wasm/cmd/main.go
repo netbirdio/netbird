@@ -19,8 +19,8 @@ import (
 	nbstatus "github.com/netbirdio/netbird/client/status"
 	wasmcapture "github.com/netbirdio/netbird/client/wasm/internal/capture"
 	"github.com/netbirdio/netbird/client/wasm/internal/http"
-	"github.com/netbirdio/netbird/client/wasm/internal/rdp"
 	"github.com/netbirdio/netbird/client/wasm/internal/ssh"
+	"github.com/netbirdio/netbird/client/wasm/internal/vnc"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -364,27 +364,131 @@ func createProxyRequestMethod(client *netbird.Client) js.Func {
 	})
 }
 
-// createRDPProxyMethod creates the RDP proxy method
-func createRDPProxyMethod(client *netbird.Client) js.Func {
+// createVNCProxyMethod creates the VNC proxy method for raw TCP-over-WebSocket bridging.
+// JS signature: createVNCProxy(hostname, port, mode?, username?, jwt?, sessionID?, width?, height?)
+// mode: "attach" (default) or "session"
+// username: required when mode is "session"
+// jwt: authentication token (from OIDC session)
+// sessionID: Windows session ID (0 = console/auto)
+// width/height: requested viewport size for session mode (0 = server default)
+func createVNCProxyMethod(client *netbird.Client) js.Func {
 	return js.FuncOf(func(_ js.Value, args []js.Value) any {
-		if len(args) < 2 {
-			return js.ValueOf("error: hostname and port required")
+		params, err := parseVNCProxyArgs(args)
+		if err != nil {
+			if params.rejectViaPromise {
+				return createPromise(func(resolve, reject js.Value) {
+					reject.Invoke(js.ValueOf(err.Error()))
+				})
+			}
+			return js.ValueOf(err.Error())
 		}
-
-		if args[0].Type() != js.TypeString {
-			return createPromise(func(resolve, reject js.Value) {
-				reject.Invoke(js.ValueOf("hostname parameter must be a string"))
-			})
-		}
-		if args[1].Type() != js.TypeString {
-			return createPromise(func(resolve, reject js.Value) {
-				reject.Invoke(js.ValueOf("port parameter must be a string"))
-			})
-		}
-
-		proxy := rdp.NewRDCleanPathProxy(client)
-		return proxy.CreateProxy(args[0].String(), args[1].String())
+		proxy := vnc.NewVNCProxy(client)
+		return proxy.CreateProxy(vnc.ProxyRequest{
+			Hostname:  params.hostname,
+			Port:      params.port,
+			Mode:      params.mode,
+			Username:  params.username,
+			JWT:       params.jwt,
+			SessionID: params.sessionID,
+			Width:     params.width,
+			Height:    params.height,
+		})
 	})
+}
+
+type vncProxyParams struct {
+	hostname         string
+	port             string
+	mode             string
+	username         string
+	jwt              string
+	sessionID        uint32
+	width            uint16
+	height           uint16
+	rejectViaPromise bool // true when the JS caller expects a rejected Promise instead of a plain string return
+}
+
+// parseVNCProxyArgs validates JS args for createVNCProxyMethod and returns
+// the parsed params plus the first validation error (nil on success).
+// vncProxyParams.rejectViaPromise tells the caller which JS-side response
+// path to use for the returned error.
+func parseVNCProxyArgs(args []js.Value) (vncProxyParams, error) {
+	var p vncProxyParams
+	if err := parseVNCProxyRequiredArgs(args, &p); err != nil {
+		return p, err
+	}
+	if err := parseVNCProxyOptionalStrings(args, &p); err != nil {
+		return p, err
+	}
+	if err := parseVNCProxyOptionalNumbers(args, &p); err != nil {
+		return p, err
+	}
+	return p, nil
+}
+
+func parseVNCProxyRequiredArgs(args []js.Value, p *vncProxyParams) error {
+	if len(args) < 2 {
+		return fmt.Errorf("hostname and port required")
+	}
+	if args[0].Type() != js.TypeString {
+		p.rejectViaPromise = true
+		return fmt.Errorf("hostname parameter must be a string")
+	}
+	if args[1].Type() != js.TypeString {
+		p.rejectViaPromise = true
+		return fmt.Errorf("port parameter must be a string")
+	}
+	p.hostname = args[0].String()
+	p.port = args[1].String()
+	p.mode = "attach"
+	return nil
+}
+
+func parseVNCProxyOptionalStrings(args []js.Value, p *vncProxyParams) error {
+	if len(args) > 2 && args[2].Type() == js.TypeString {
+		p.mode = args[2].String()
+	}
+	if p.mode != "attach" && p.mode != "session" {
+		p.rejectViaPromise = true
+		return fmt.Errorf("invalid mode %q: expected \"attach\" or \"session\"", p.mode)
+	}
+	if len(args) > 3 && args[3].Type() == js.TypeString {
+		p.username = args[3].String()
+	}
+	if len(args) > 4 && args[4].Type() == js.TypeString {
+		p.jwt = args[4].String()
+	}
+	return nil
+}
+
+func parseVNCProxyOptionalNumbers(args []js.Value, p *vncProxyParams) error {
+	if len(args) > 5 && args[5].Type() == js.TypeNumber {
+		v := args[5].Int()
+		if v < 0 || v > 0xFFFFFFFF {
+			p.rejectViaPromise = true
+			return fmt.Errorf("invalid sessionID %d: must be 0..0xFFFFFFFF", v)
+		}
+		p.sessionID = uint32(v)
+	}
+	// width=0 / height=0 mean "use server default"; reject only out-of-range
+	// non-zero values so attach mode (which omits width/height) still works.
+	if len(args) > 6 && args[6].Type() == js.TypeNumber {
+		v := args[6].Int()
+		if v < 0 || v > 0xFFFF {
+			p.rejectViaPromise = true
+			return fmt.Errorf("invalid width %d: must be 0..65535", v)
+		}
+		p.width = uint16(v)
+	}
+	if len(args) > 7 && args[7].Type() == js.TypeNumber {
+		v := args[7].Int()
+		if v < 0 || v > 0xFFFF {
+			p.rejectViaPromise = true
+			return fmt.Errorf("invalid height %d: must be 0..65535", v)
+		}
+		p.height = uint16(v)
+	}
+	return nil
 }
 
 // getStatusOverview is a helper to get the status overview
@@ -676,7 +780,7 @@ func createClientObject(client *netbird.Client) js.Value {
 	obj["detectSSHServerType"] = createDetectSSHServerMethod(client)
 	obj["createSSHConnection"] = createSSHMethod(client)
 	obj["proxyRequest"] = createProxyRequestMethod(client)
-	obj["createRDPProxy"] = createRDPProxyMethod(client)
+	obj["createVNCProxy"] = createVNCProxyMethod(client)
 	obj["status"] = createStatusMethod(client)
 	obj["statusSummary"] = createStatusSummaryMethod(client)
 	obj["statusDetail"] = createStatusDetailMethod(client)

@@ -65,6 +65,7 @@ type ConfigInput struct {
 	StateFilePath                 string
 	PreSharedKey                  *string
 	ServerSSHAllowed              *bool
+	ServerVNCAllowed              *bool
 	EnableSSHRoot                 *bool
 	EnableSSHSFTP                 *bool
 	EnableSSHLocalPortForwarding  *bool
@@ -116,6 +117,7 @@ type Config struct {
 	RosenpassEnabled              bool
 	RosenpassPermissive           bool
 	ServerSSHAllowed              *bool
+	ServerVNCAllowed              *bool
 	EnableSSHRoot                 *bool
 	EnableSSHSFTP                 *bool
 	EnableSSHLocalPortForwarding  *bool
@@ -415,6 +417,21 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			log.Infof("falling back to enabled SSH server for pre-existing configuration")
 			config.ServerSSHAllowed = util.True()
 		}
+		updated = true
+	}
+
+	if input.ServerVNCAllowed != nil {
+		if config.ServerVNCAllowed == nil || *input.ServerVNCAllowed != *config.ServerVNCAllowed {
+			if *input.ServerVNCAllowed {
+				log.Infof("enabling VNC server")
+			} else {
+				log.Infof("disabling VNC server")
+			}
+			config.ServerVNCAllowed = input.ServerVNCAllowed
+			updated = true
+		}
+	} else if config.ServerVNCAllowed == nil {
+		config.ServerVNCAllowed = util.True()
 		updated = true
 	}
 

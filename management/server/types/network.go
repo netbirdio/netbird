@@ -48,6 +48,7 @@ type NetworkMap struct {
 	RoutesFirewallRules []*RouteFirewallRule
 	ForwardingRules     []*ForwardingRule
 	AuthorizedUsers     map[string]map[string]struct{}
+	VNCAuthorizedUsers  map[string]map[string]struct{}
 	EnableSSH           bool
 }
 

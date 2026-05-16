@@ -39,6 +39,8 @@ func (h *eventHandler) listen(ctx context.Context) {
 			h.handleDisconnectClick()
 		case <-h.client.mAllowSSH.ClickedCh:
 			h.handleAllowSSHClick()
+		case <-h.client.mAllowVNC.ClickedCh:
+			h.handleAllowVNCClick()
 		case <-h.client.mAutoConnect.ClickedCh:
 			h.handleAutoConnectClick()
 		case <-h.client.mEnableRosenpass.ClickedCh:
@@ -132,6 +134,15 @@ func (h *eventHandler) handleAllowSSHClick() {
 		h.client.notifier.Send("Error", "Failed to update SSH settings")
 	}
 
+}
+
+func (h *eventHandler) handleAllowVNCClick() {
+	h.toggleCheckbox(h.client.mAllowVNC)
+	if err := h.updateConfigWithErr(); err != nil {
+		h.toggleCheckbox(h.client.mAllowVNC) // revert checkbox state on error
+		log.Errorf("failed to update config: %v", err)
+		h.client.notifier.Send("Error", "Failed to update VNC settings")
+	}
 }
 
 func (h *eventHandler) handleAutoConnectClick() {

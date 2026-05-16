@@ -109,7 +109,8 @@ func (c *NetworkMapComponents) Calculate(ctx context.Context) *NetworkMap {
 
 	peerGroups := c.GetPeerGroups(targetPeerID)
 
-	aclPeers, firewallRules, authorizedUsers, sshEnabled := c.getPeerConnectionResources(targetPeerID)
+	connRes := c.getPeerConnectionResources(targetPeerID)
+	aclPeers := connRes.peers
 
 	peersToConnect, expiredPeers := c.filterPeersByLoginExpiration(aclPeers)
 
@@ -162,105 +163,98 @@ func (c *NetworkMapComponents) Calculate(ctx context.Context) *NetworkMap {
 		Routes:              append(filterAndExpandRoutes(networkResourcesRoutes, includeIPv6), routesUpdate...),
 		DNSConfig:           dnsUpdate,
 		OfflinePeers:        expiredPeers,
-		FirewallRules:       firewallRules,
+		FirewallRules:       connRes.firewallRules,
 		RoutesFirewallRules: append(networkResourcesFirewallRules, routesFirewallRules...),
-		AuthorizedUsers:     authorizedUsers,
-		EnableSSH:           sshEnabled,
+		AuthorizedUsers:     connRes.authorizedUsers,
+		VNCAuthorizedUsers:  connRes.vncAuthorizedUsers,
+		EnableSSH:           connRes.sshEnabled,
 	}
 }
 
-func (c *NetworkMapComponents) getPeerConnectionResources(targetPeerID string) ([]*nbpeer.Peer, []*FirewallRule, map[string]map[string]struct{}, bool) {
+// peerConnectionResult holds the output of getPeerConnectionResources.
+type peerConnectionResult struct {
+	peers              []*nbpeer.Peer
+	firewallRules      []*FirewallRule
+	authorizedUsers    map[string]map[string]struct{}
+	vncAuthorizedUsers map[string]map[string]struct{}
+	sshEnabled         bool
+}
+
+func (c *NetworkMapComponents) getPeerConnectionResources(targetPeerID string) peerConnectionResult {
 	targetPeer := c.GetPeerInfo(targetPeerID)
 	if targetPeer == nil {
-		return nil, nil, nil, false
+		return peerConnectionResult{}
 	}
 
 	generateResources, getAccumulatedResources := c.connResourcesGenerator(targetPeer)
-	authorizedUsers := make(map[string]map[string]struct{})
-	sshEnabled := false
+	state := &peerConnResolveState{
+		authorizedUsers:    make(map[string]map[string]struct{}),
+		vncAuthorizedUsers: make(map[string]map[string]struct{}),
+	}
 
 	for _, policy := range c.Policies {
 		if !policy.Enabled {
 			continue
 		}
-
 		for _, rule := range policy.Rules {
 			if !rule.Enabled {
 				continue
 			}
-
-			var sourcePeers, destinationPeers []*nbpeer.Peer
-			var peerInSources, peerInDestinations bool
-
-			if rule.SourceResource.Type == ResourceTypePeer && rule.SourceResource.ID != "" {
-				sourcePeers, peerInSources = c.getPeerFromResource(rule.SourceResource, targetPeerID)
-			} else {
-				sourcePeers, peerInSources = c.getAllPeersFromGroups(rule.Sources, targetPeerID, policy.SourcePostureChecks)
-			}
-
-			if rule.DestinationResource.Type == ResourceTypePeer && rule.DestinationResource.ID != "" {
-				destinationPeers, peerInDestinations = c.getPeerFromResource(rule.DestinationResource, targetPeerID)
-			} else {
-				destinationPeers, peerInDestinations = c.getAllPeersFromGroups(rule.Destinations, targetPeerID, nil)
-			}
-
-			if rule.Bidirectional {
-				if peerInSources {
-					generateResources(rule, destinationPeers, FirewallRuleDirectionIN)
-				}
-				if peerInDestinations {
-					generateResources(rule, sourcePeers, FirewallRuleDirectionOUT)
-				}
-			}
-
-			if peerInSources {
-				generateResources(rule, destinationPeers, FirewallRuleDirectionOUT)
-			}
-
-			if peerInDestinations {
-				generateResources(rule, sourcePeers, FirewallRuleDirectionIN)
-			}
-
-			if peerInDestinations && rule.Protocol == PolicyRuleProtocolNetbirdSSH {
-				sshEnabled = true
-				switch {
-				case len(rule.AuthorizedGroups) > 0:
-					for groupID, localUsers := range rule.AuthorizedGroups {
-						userIDs, ok := c.GroupIDToUserIDs[groupID]
-						if !ok {
-							continue
-						}
-
-						if len(localUsers) == 0 {
-							localUsers = []string{auth.Wildcard}
-						}
-
-						for _, localUser := range localUsers {
-							if authorizedUsers[localUser] == nil {
-								authorizedUsers[localUser] = make(map[string]struct{})
-							}
-							for _, userID := range userIDs {
-								authorizedUsers[localUser][userID] = struct{}{}
-							}
-						}
-					}
-				case rule.AuthorizedUser != "":
-					if authorizedUsers[auth.Wildcard] == nil {
-						authorizedUsers[auth.Wildcard] = make(map[string]struct{})
-					}
-					authorizedUsers[auth.Wildcard][rule.AuthorizedUser] = struct{}{}
-				default:
-					authorizedUsers[auth.Wildcard] = c.getAllowedUserIDs()
-				}
-			} else if peerInDestinations && policyRuleImpliesLegacySSH(rule) && targetPeer.SSHEnabled {
-				sshEnabled = true
-				authorizedUsers[auth.Wildcard] = c.getAllowedUserIDs()
-			}
+			c.applyPolicyRule(rule, policy.SourcePostureChecks, targetPeer, targetPeerID, generateResources, state)
 		}
 	}
 
 	peers, fwRules := getAccumulatedResources()
-	return peers, fwRules, authorizedUsers, sshEnabled
+	return peerConnectionResult{
+		peers:              peers,
+		firewallRules:      fwRules,
+		authorizedUsers:    state.authorizedUsers,
+		vncAuthorizedUsers: state.vncAuthorizedUsers,
+		sshEnabled:         state.sshEnabled,
+	}
+}
+
+func (c *NetworkMapComponents) applyPolicyRule(
+	rule *PolicyRule,
+	sourcePostureChecks []string,
+	targetPeer *nbpeer.Peer,
+	targetPeerID string,
+	generateResources func(*PolicyRule, []*nbpeer.Peer, int),
+	state *peerConnResolveState,
+) {
+	sourcePeers, peerInSources := c.resolveRuleEndpoint(rule.SourceResource, rule.Sources, targetPeerID, sourcePostureChecks)
+	destinationPeers, peerInDestinations := c.resolveRuleEndpoint(rule.DestinationResource, rule.Destinations, targetPeerID, nil)
+
+	cb := ruleAuthCallbacks{
+		collectSSHUsers:   c.collectAuthorizedUsers,
+		collectVNCUsers:   c.collectAuthorizedUsers,
+		getAllowedUserIDs: c.getAllowedUserIDs,
+	}
+	applyResolvedRuleToState(rule, sourcePeers, destinationPeers, peerInSources, peerInDestinations, targetPeer.SSHEnabled, generateResources, cb, state)
+}
+
+func (c *NetworkMapComponents) resolveRuleEndpoint(
+	resource Resource,
+	groups []string,
+	peerID string,
+	postureChecks []string,
+) ([]*nbpeer.Peer, bool) {
+	if resource.Type == ResourceTypePeer && resource.ID != "" {
+		return c.getPeerFromResource(resource, peerID)
+	}
+	return c.getAllPeersFromGroups(groups, peerID, postureChecks)
+}
+
+// collectAuthorizedUsers populates the target map with authorized user mappings from the rule.
+func (c *NetworkMapComponents) collectAuthorizedUsers(rule *PolicyRule, target map[string]map[string]struct{}) {
+	switch {
+	case len(rule.AuthorizedGroups) > 0:
+		mergeAuthorizedGroupUsers(context.Background(), rule.AuthorizedGroups, c.GroupIDToUserIDs, target)
+	case rule.AuthorizedUser != "":
+		ensureWildcardUser(target, rule.AuthorizedUser)
+	default:
+		target[auth.Wildcard] = c.getAllowedUserIDs()
+	}
 }
 
 func (c *NetworkMapComponents) getAllowedUserIDs() map[string]struct{} {
@@ -279,10 +273,8 @@ func (c *NetworkMapComponents) connResourcesGenerator(targetPeer *nbpeer.Peer) (
 	peers := make([]*nbpeer.Peer, 0)
 
 	return func(rule *PolicyRule, groupPeers []*nbpeer.Peer, direction int) {
-			protocol := rule.Protocol
-			if protocol == PolicyRuleProtocolNetbirdSSH {
-				protocol = PolicyRuleProtocolTCP
-			}
+			effectiveRule, protocol := normalizePolicyRuleProtocol(rule)
+			rule = effectiveRule
 
 			protocolStr := string(protocol)
 			actionStr := string(rule.Action)
@@ -556,7 +548,6 @@ func (c *NetworkMapComponents) getRoutingPeerRoutes(peerID string) (enabledRoute
 
 	return enabledRoutes, disabledRoutes
 }
-
 
 func (c *NetworkMapComponents) filterRoutesByGroups(routes []*route.Route, groupListMap LookupMap) []*route.Route {
 	var filteredRoutes []*route.Route

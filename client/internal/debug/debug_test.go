@@ -862,6 +862,7 @@ func TestAddConfig_AllFieldsCovered(t *testing.T) {
 		RosenpassEnabled:              true,
 		RosenpassPermissive:           true,
 		ServerSSHAllowed:              &bTrue,
+		ServerVNCAllowed:              &bTrue,
 		EnableSSHRoot:                 &bTrue,
 		EnableSSHSFTP:                 &bTrue,
 		EnableSSHLocalPortForwarding:  &bTrue,

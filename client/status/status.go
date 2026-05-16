@@ -131,6 +131,10 @@ type SSHServerStateOutput struct {
 	Sessions []SSHSessionOutput `json:"sessions" yaml:"sessions"`
 }
 
+type VNCServerStateOutput struct {
+	Enabled bool `json:"enabled" yaml:"enabled"`
+}
+
 type OutputOverview struct {
 	Peers                   PeersStateOutput           `json:"peers" yaml:"peers"`
 	CliVersion              string                     `json:"cliVersion" yaml:"cliVersion"`
@@ -153,6 +157,7 @@ type OutputOverview struct {
 	LazyConnectionEnabled   bool                       `json:"lazyConnectionEnabled" yaml:"lazyConnectionEnabled"`
 	ProfileName             string                     `json:"profileName" yaml:"profileName"`
 	SSHServerState          SSHServerStateOutput       `json:"sshServer" yaml:"sshServer"`
+	VNCServerState          VNCServerStateOutput       `json:"vncServer" yaml:"vncServer"`
 }
 
 // ConvertToStatusOutputOverview converts protobuf status to the output overview.
@@ -173,6 +178,9 @@ func ConvertToStatusOutputOverview(pbFullStatus *proto.FullStatus, opts ConvertO
 
 	relayOverview := mapRelays(pbFullStatus.GetRelays())
 	sshServerOverview := mapSSHServer(pbFullStatus.GetSshServerState())
+	vncServerOverview := VNCServerStateOutput{
+		Enabled: pbFullStatus.GetVncServerState().GetEnabled(),
+	}
 	peersOverview := mapPeers(pbFullStatus.GetPeers(), opts.StatusFilter, opts.PrefixNamesFilter, opts.PrefixNamesFilterMap, opts.IPsFilter, opts.ConnectionTypeFilter)
 
 	overview := OutputOverview{
@@ -197,6 +205,7 @@ func ConvertToStatusOutputOverview(pbFullStatus *proto.FullStatus, opts ConvertO
 		LazyConnectionEnabled:   pbFullStatus.GetLazyConnectionEnabled(),
 		ProfileName:             opts.ProfileName,
 		SSHServerState:          sshServerOverview,
+		VNCServerState:          vncServerOverview,
 	}
 
 	if opts.Anonymize {
@@ -533,6 +542,11 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		}
 	}
 
+	vncServerStatus := "Disabled"
+	if o.VNCServerState.Enabled {
+		vncServerStatus = "Enabled"
+	}
+
 	peersCountString := fmt.Sprintf("%d/%d Connected", o.Peers.Connected, o.Peers.Total)
 
 	var forwardingRulesString string
@@ -563,6 +577,7 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 			"Quantum resistance: %s\n"+
 			"Lazy connection: %s\n"+
 			"SSH Server: %s\n"+
+			"VNC Server: %s\n"+
 			"Networks: %s\n"+
 			"%s"+
 			"Peers count: %s\n",
@@ -581,6 +596,7 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		rosenpassEnabledStatus,
 		lazyConnectionEnabledStatus,
 		sshServerStatus,
+		vncServerStatus,
 		networks,
 		forwardingRulesString,
 		peersCountString,

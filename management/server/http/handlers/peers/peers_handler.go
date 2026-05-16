@@ -514,7 +514,7 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) 
 				PortRanges:    []types.RulePortRange{portRange},
 			}},
 		}
-		if protocol == types.PolicyRuleProtocolNetbirdSSH {
+		if protocol == types.PolicyRuleProtocolNetbirdSSH || protocol == types.PolicyRuleProtocolNetbirdVNC {
 			policy.Rules[0].AuthorizedUser = userAuth.UserId
 		}
 
@@ -610,6 +610,7 @@ func toSinglePeerResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dnsD
 			RosenpassEnabled:      &peer.Meta.Flags.RosenpassEnabled,
 			RosenpassPermissive:   &peer.Meta.Flags.RosenpassPermissive,
 			ServerSshAllowed:      &peer.Meta.Flags.ServerSSHAllowed,
+			ServerVncAllowed:      &peer.Meta.Flags.ServerVNCAllowed,
 		},
 	}
 
@@ -665,6 +666,7 @@ func toPeerListItemResponse(peer *nbpeer.Peer, groupsInfo []api.GroupMinimum, dn
 			RosenpassEnabled:      &peer.Meta.Flags.RosenpassEnabled,
 			RosenpassPermissive:   &peer.Meta.Flags.RosenpassPermissive,
 			ServerSshAllowed:      &peer.Meta.Flags.ServerSSHAllowed,
+			ServerVncAllowed:      &peer.Meta.Flags.ServerVNCAllowed,
 		},
 	}
 }
