@@ -230,7 +230,12 @@ func (c *NetworkMapComponents) getPeerConnectionResources(targetPeerID string) (
 				generateResources(rule, sourcePeers, FirewallRuleDirectionIN)
 			}
 
-			if peerInDestinations && rule.Protocol == PolicyRuleProtocolNetbirdSSH {
+			// Auth is collected when this peer serves the rule. For bidirectional
+			// rules the peer-in-sources side also serves inbound traffic, so it
+			// must be treated as a destination too.
+			peerServesAuth := peerInDestinations || (rule.Bidirectional && peerInSources)
+
+			if peerServesAuth && rule.Protocol == PolicyRuleProtocolNetbirdSSH {
 				sshEnabled = true
 				switch {
 				case len(rule.AuthorizedGroups) > 0:
@@ -261,7 +266,7 @@ func (c *NetworkMapComponents) getPeerConnectionResources(targetPeerID string) (
 				default:
 					authorizedUsers[auth.Wildcard] = c.getAllowedUserIDs()
 				}
-			} else if peerInDestinations && policyRuleImpliesLegacySSH(rule) && targetPeer.SSHEnabled {
+			} else if peerServesAuth && policyRuleImpliesLegacySSH(rule) && targetPeer.SSHEnabled {
 				sshEnabled = true
 				authorizedUsers[auth.Wildcard] = c.getAllowedUserIDs()
 			}
