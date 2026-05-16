@@ -281,14 +281,55 @@ type AppendRemotePeerConfigContext struct {
 func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer, c AppendRemotePeerConfigContext) []*proto.RemotePeerConfig {
 	var cfgConnMode string
 	var cfgRelayTO, cfgP2pTO, cfgP2pRetryMax uint32
+	// Phase 3.7i (#5989) follow-up: precompute the account's resolved
+	// connection mode + LegacyLazyFallback toggle so we can apply the same
+	// legacy-fallback to each RemotePeerConfig.EffectiveConnectionMode that
+	// toPeerConfig already applies to the peer's own PeerConfig. Without
+	// this, new clients (phase-3.7i+) receive EffectiveConnectionMode="" for
+	// legacy remote peers (because legacy clients don't self-report it),
+	// and the client-side per-peer-mode gate cannot identify them as lazy.
+	var resolvedAccountMode connectionmode.Mode
+	var legacyLazyFallbackEnabled bool
+	var legacyLazyFallbackRelayTO uint32
 	if c.Cfg != nil {
 		cfgConnMode = derefStringOrEmpty(c.Cfg.ConnectionMode)
 		cfgRelayTO = derefUint32OrZero(c.Cfg.RelayTimeoutSeconds)
 		cfgP2pTO = derefUint32OrZero(c.Cfg.P2pTimeoutSeconds)
 		cfgP2pRetryMax = derefUint32OrZero(c.Cfg.P2pRetryMaxSeconds)
+
+		resolvedAccountMode = connectionmode.ResolveLegacyLazyBool(c.Cfg.LazyConnectionEnabled)
+		if c.Cfg.ConnectionMode != nil {
+			if m, err := connectionmode.ParseString(*c.Cfg.ConnectionMode); err == nil && m != connectionmode.ModeUnspecified {
+				resolvedAccountMode = m
+			}
+		}
+		legacyLazyFallbackEnabled = c.Cfg.LegacyLazyFallbackEnabled
+		legacyLazyFallbackRelayTO = c.Cfg.LegacyLazyFallbackTimeoutSeconds
 	}
 
 	for _, rPeer := range peers {
+		effectiveMode := rPeer.Meta.EffectiveConnectionMode
+		effectiveRelayTO := rPeer.Meta.EffectiveRelayTimeoutSecs
+		effectiveP2pTO := rPeer.Meta.EffectiveP2PTimeoutSecs
+		effectiveP2pRetryMax := rPeer.Meta.EffectiveP2PRetryMaxSecs
+
+		// Phase 3.7i (#5989) follow-up: apply LegacyLazyFallback to remote
+		// peer view. Mirror the toPeerConfig branch (line 149): when the
+		// account mode is p2p-dynamic AND the toggle is on AND the peer
+		// does NOT advertise "p2p_dynamic", treat the peer as p2p-lazy.
+		// This is the signal a peer-3.7i+ client uses to suppress eager
+		// connection setup (Conn.RemoteEffectiveMode == p2p-lazy ->
+		// ConnMgr.ActivatePeer + onGuardEvent skip OFFER).
+		if resolvedAccountMode == connectionmode.ModeP2PDynamic && legacyLazyFallbackEnabled {
+			if !slices.Contains(rPeer.Meta.SupportedFeatures, "p2p_dynamic") {
+				effectiveMode = connectionmode.ModeP2PLazy.String()
+				effectiveRelayTO = legacyLazyFallbackRelayTO
+				// p2pTO / p2pRetryMax stay at peer's self-report; they are
+				// inert in p2p-lazy semantics but a future mode might use
+				// them, so leave them populated.
+			}
+		}
+
 		cfg := &proto.RemotePeerConfig{
 			WgPubKey:   rPeer.Key,
 			AllowedIps: []string{rPeer.IP.String() + "/32"},
@@ -297,11 +338,12 @@ func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer,
 
 			AgentVersion: rPeer.Meta.WtVersion,
 
-			// Phase 3.7i: effective values from the peer's last self-report.
-			EffectiveConnectionMode:   rPeer.Meta.EffectiveConnectionMode,
-			EffectiveRelayTimeoutSecs: rPeer.Meta.EffectiveRelayTimeoutSecs,
-			EffectiveP2PTimeoutSecs:   rPeer.Meta.EffectiveP2PTimeoutSecs,
-			EffectiveP2PRetryMaxSecs:  rPeer.Meta.EffectiveP2PRetryMaxSecs,
+			// Phase 3.7i: effective values, with LegacyLazyFallback applied
+			// for legacy peers (see block above).
+			EffectiveConnectionMode:   effectiveMode,
+			EffectiveRelayTimeoutSecs: effectiveRelayTO,
+			EffectiveP2PTimeoutSecs:   effectiveP2pTO,
+			EffectiveP2PRetryMaxSecs:  effectiveP2pRetryMax,
 
 			// Phase 3.7i: account-wide configured values from Settings.
 			ConfiguredConnectionMode:   cfgConnMode,

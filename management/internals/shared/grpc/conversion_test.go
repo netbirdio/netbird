@@ -277,6 +277,124 @@ func TestToPeerConfig_LegacyFallback_NonDynamicMode_NoOverride(t *testing.T) {
 	}
 }
 
+// Phase 3.7i (#5989) follow-up: legacy-lazy-fallback must be applied to
+// the RemotePeerConfig view as well, not only to the peer's own
+// PeerConfig. Without this, new clients see EffectiveConnectionMode=""
+// for legacy peers (because legacy clients don't self-report it) and
+// their per-peer eager-suppression gates cannot identify the peer as
+// lazy — leading to the 12 idle P2P tunnels reported on S26 (2026-05-16).
+
+// appendRemotePeerConfigForTest builds one RemotePeerConfig entry for a
+// peer with the given features+meta, using the supplied settings as the
+// account ctx.
+func appendRemotePeerConfigForTest(settings *types.Settings, features []string, meta nbpeer.PeerSystemMeta) *mgmProto.RemotePeerConfig {
+	_, ipnet, _ := net.ParseCIDR("10.0.0.0/16")
+	_ = ipnet
+	meta.SupportedFeatures = features
+	peer := &nbpeer.Peer{
+		ID:       "rp1",
+		Name:     "remote-peer",
+		DNSLabel: "remote-peer",
+		Key:      "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+		IP:       net.IPv4(10, 0, 0, 7),
+		Meta:     meta,
+	}
+	ctx := AppendRemotePeerConfigContext{DNSDomain: "example.local", Cfg: settings}
+	out := appendRemotePeerConfig(nil, []*nbpeer.Peer{peer}, ctx)
+	if len(out) != 1 {
+		return nil
+	}
+	return out[0]
+}
+
+func TestAppendRemotePeerConfig_LegacyFallback_LegacyPeer_GetsLazyEffective(t *testing.T) {
+	rt := uint32(300)
+	settings := &types.Settings{
+		ConnectionMode:                   strPtrTest("p2p-dynamic"),
+		RelayTimeoutSeconds:              &rt,
+		LegacyLazyFallbackEnabled:        true,
+		LegacyLazyFallbackTimeoutSeconds: 3600,
+	}
+	// Legacy peer: no SupportedFeatures, empty EffectiveConnectionMode
+	// in its self-reported meta.
+	rp := appendRemotePeerConfigForTest(settings, nil, nbpeer.PeerSystemMeta{})
+
+	if rp == nil {
+		t.Fatal("expected one RemotePeerConfig, got none")
+	}
+	if rp.GetEffectiveConnectionMode() != "p2p-lazy" {
+		t.Errorf("legacy peer should be downgraded to p2p-lazy on RemotePeerConfig, got %q", rp.GetEffectiveConnectionMode())
+	}
+	if rp.GetEffectiveRelayTimeoutSecs() != 3600 {
+		t.Errorf("legacy peer should get LegacyLazyFallbackTimeoutSeconds=3600 on RemotePeerConfig, got %d", rp.GetEffectiveRelayTimeoutSecs())
+	}
+}
+
+func TestAppendRemotePeerConfig_LegacyFallback_NewPeer_PassesThrough(t *testing.T) {
+	rt := uint32(300)
+	settings := &types.Settings{
+		ConnectionMode:                   strPtrTest("p2p-dynamic"),
+		RelayTimeoutSeconds:              &rt,
+		LegacyLazyFallbackEnabled:        true,
+		LegacyLazyFallbackTimeoutSeconds: 3600,
+	}
+	// New peer: advertises p2p_dynamic AND self-reports its effective mode.
+	rp := appendRemotePeerConfigForTest(settings,
+		[]string{"p2p_dynamic"},
+		nbpeer.PeerSystemMeta{
+			EffectiveConnectionMode:   "p2p-dynamic",
+			EffectiveRelayTimeoutSecs: 300,
+		})
+
+	if rp == nil {
+		t.Fatal("expected one RemotePeerConfig, got none")
+	}
+	if rp.GetEffectiveConnectionMode() != "p2p-dynamic" {
+		t.Errorf("new peer should keep its self-reported mode on RemotePeerConfig, got %q", rp.GetEffectiveConnectionMode())
+	}
+	if rp.GetEffectiveRelayTimeoutSecs() != 300 {
+		t.Errorf("new peer should keep self-reported timeout, got %d", rp.GetEffectiveRelayTimeoutSecs())
+	}
+}
+
+func TestAppendRemotePeerConfig_LegacyFallback_ToggleOff_NoOverride(t *testing.T) {
+	rt := uint32(300)
+	settings := &types.Settings{
+		ConnectionMode:                   strPtrTest("p2p-dynamic"),
+		RelayTimeoutSeconds:              &rt,
+		LegacyLazyFallbackEnabled:        false,
+		LegacyLazyFallbackTimeoutSeconds: 3600,
+	}
+	rp := appendRemotePeerConfigForTest(settings, nil, nbpeer.PeerSystemMeta{})
+
+	if rp == nil {
+		t.Fatal("expected one RemotePeerConfig, got none")
+	}
+	if rp.GetEffectiveConnectionMode() != "" {
+		t.Errorf("toggle OFF: legacy peer should stay empty (no override), got %q", rp.GetEffectiveConnectionMode())
+	}
+}
+
+func TestAppendRemotePeerConfig_LegacyFallback_NonDynamicAccount_NoOverride(t *testing.T) {
+	rt := uint32(300)
+	settings := &types.Settings{
+		ConnectionMode:                   strPtrTest("p2p-lazy"),
+		RelayTimeoutSeconds:              &rt,
+		LegacyLazyFallbackEnabled:        true,
+		LegacyLazyFallbackTimeoutSeconds: 3600,
+	}
+	rp := appendRemotePeerConfigForTest(settings, nil, nbpeer.PeerSystemMeta{})
+
+	if rp == nil {
+		t.Fatal("expected one RemotePeerConfig, got none")
+	}
+	// Account is p2p-lazy already; fallback gates on account==p2p-dynamic
+	// so override does not apply. Empty self-report stays empty.
+	if rp.GetEffectiveConnectionMode() != "" {
+		t.Errorf("non-dynamic account: expected empty effective, got %q", rp.GetEffectiveConnectionMode())
+	}
+}
+
 func TestToProtocolDNSConfigWithCache(t *testing.T) {
 	var cache cache.DNSConfigCache
 
