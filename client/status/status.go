@@ -1024,6 +1024,19 @@ func anonymizeOverview(a *anonymize.Anonymizer, overview *OutputOverview) {
 		overview.Relays.Details[i] = detail
 	}
 
+	anonymizeNSServerGroups(a, overview)
+
+	for i, route := range overview.Networks {
+		overview.Networks[i] = a.AnonymizeRoute(route)
+	}
+
+	overview.FQDN = a.AnonymizeDomain(overview.FQDN)
+
+	anonymizeEvents(a, overview)
+	anonymizeServerSessions(a, overview)
+}
+
+func anonymizeNSServerGroups(a *anonymize.Anonymizer, overview *OutputOverview) {
 	for i, nsGroup := range overview.NSServerGroups {
 		for j, domain := range nsGroup.Domains {
 			overview.NSServerGroups[i].Domains[j] = a.AnonymizeDomain(domain)
@@ -1035,13 +1048,9 @@ func anonymizeOverview(a *anonymize.Anonymizer, overview *OutputOverview) {
 			}
 		}
 	}
+}
 
-	for i, route := range overview.Networks {
-		overview.Networks[i] = a.AnonymizeRoute(route)
-	}
-
-	overview.FQDN = a.AnonymizeDomain(overview.FQDN)
-
+func anonymizeEvents(a *anonymize.Anonymizer, overview *OutputOverview) {
 	for i, event := range overview.Events {
 		overview.Events[i].Message = a.AnonymizeString(event.Message)
 		overview.Events[i].UserMessage = a.AnonymizeString(event.UserMessage)
@@ -1050,21 +1059,21 @@ func anonymizeOverview(a *anonymize.Anonymizer, overview *OutputOverview) {
 			event.Metadata[k] = a.AnonymizeString(v)
 		}
 	}
+}
 
+func anonymizeRemoteAddress(a *anonymize.Anonymizer, addr string) string {
+	if host, port, err := net.SplitHostPort(addr); err == nil {
+		return fmt.Sprintf("%s:%s", a.AnonymizeIPString(host), port)
+	}
+	return a.AnonymizeIPString(addr)
+}
+
+func anonymizeServerSessions(a *anonymize.Anonymizer, overview *OutputOverview) {
 	for i, session := range overview.SSHServerState.Sessions {
-		if host, port, err := net.SplitHostPort(session.RemoteAddress); err == nil {
-			overview.SSHServerState.Sessions[i].RemoteAddress = fmt.Sprintf("%s:%s", a.AnonymizeIPString(host), port)
-		} else {
-			overview.SSHServerState.Sessions[i].RemoteAddress = a.AnonymizeIPString(session.RemoteAddress)
-		}
+		overview.SSHServerState.Sessions[i].RemoteAddress = anonymizeRemoteAddress(a, session.RemoteAddress)
 		overview.SSHServerState.Sessions[i].Command = a.AnonymizeString(session.Command)
 	}
-
 	for i, sess := range overview.VNCServerState.Sessions {
-		if host, port, err := net.SplitHostPort(sess.RemoteAddress); err == nil {
-			overview.VNCServerState.Sessions[i].RemoteAddress = fmt.Sprintf("%s:%s", a.AnonymizeIPString(host), port)
-		} else {
-			overview.VNCServerState.Sessions[i].RemoteAddress = a.AnonymizeIPString(sess.RemoteAddress)
-		}
+		overview.VNCServerState.Sessions[i].RemoteAddress = anonymizeRemoteAddress(a, sess.RemoteAddress)
 	}
 }
