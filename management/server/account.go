@@ -313,7 +313,11 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			return err
 		}
 
-		network, err := transaction.GetAccountNetwork(ctx, store.LockingStrengthShare, accountID)
+		// No lock: the transaction already holds Settings(Update), and network.Net is
+		// only mutated by reallocateAccountPeerIPs, which is reachable only through
+		// this same code path. A Share lock here would extend an unnecessary row lock
+		// and complicate ordering against updatePeerIPv6InTransaction.
+		network, err := transaction.GetAccountNetwork(ctx, store.LockingStrengthNone, accountID)
 		if err != nil {
 			return fmt.Errorf("get account network: %w", err)
 		}
