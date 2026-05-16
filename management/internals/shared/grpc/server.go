@@ -522,10 +522,11 @@ func (s *Server) sendJob(ctx context.Context, peerKey wgtypes.Key, job *job.Even
 }
 
 func (s *Server) cancelPeerRoutines(ctx context.Context, accountID string, peer *nbpeer.Peer, streamStartTime time.Time) {
-	unlock := s.acquirePeerLockByUID(ctx, peer.Key)
+	uncanceledCTX := context.WithoutCancel(ctx)
+	unlock := s.acquirePeerLockByUID(uncanceledCTX, peer.Key)
 	defer unlock()
 
-	s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, streamStartTime)
+	s.cancelPeerRoutinesWithoutLock(uncanceledCTX, accountID, peer, streamStartTime)
 }
 
 func (s *Server) cancelPeerRoutinesWithoutLock(ctx context.Context, accountID string, peer *nbpeer.Peer, streamStartTime time.Time) {
