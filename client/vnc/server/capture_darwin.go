@@ -285,21 +285,25 @@ func (c *CGCapturer) Capture() (*image.RGBA, error) {
 	case bytesPerPixel == 4 && ds == 2:
 		convertBGRAToRGBADownscale2(img.Pix, img.Stride, src, bytesPerRow, outW, outH)
 	default:
-		convertBGRAToRGBAGeneric(img.Pix, img.Stride, src, bytesPerRow, outW, outH, bytesPerPixel, ds)
+		convertBGRAToRGBAGeneric(img.Pix, img.Stride, src, bytesPerRow, bgraDownscaleParams{outW: outW, outH: outH, bytesPerPixel: bytesPerPixel, ds: ds})
 	}
 
 	return img, nil
 }
 
+type bgraDownscaleParams struct {
+	outW, outH, bytesPerPixel, ds int
+}
+
 // convertBGRAToRGBAGeneric is the slow per-pixel fallback for non-4-bytes
 // or non-1/2 downscale formats. Always available regardless of the source
 // format quirks the fast paths optimize for.
-func convertBGRAToRGBAGeneric(dst []byte, dstStride int, src []byte, srcStride, outW, outH, bytesPerPixel, ds int) {
-	for row := 0; row < outH; row++ {
-		srcOff := row * ds * srcStride
+func convertBGRAToRGBAGeneric(dst []byte, dstStride int, src []byte, srcStride int, p bgraDownscaleParams) {
+	for row := 0; row < p.outH; row++ {
+		srcOff := row * p.ds * srcStride
 		dstOff := row * dstStride
-		for col := 0; col < outW; col++ {
-			si := srcOff + col*ds*bytesPerPixel
+		for col := 0; col < p.outW; col++ {
+			si := srcOff + col*p.ds*p.bytesPerPixel
 			di := dstOff + col*4
 			dst[di+0] = src[si+2]
 			dst[di+1] = src[si+1]

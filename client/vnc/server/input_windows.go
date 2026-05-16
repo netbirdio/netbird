@@ -35,9 +35,10 @@ const (
 
 	wheelDelta = 120
 
-	keyeventfKeyUp    = 0x0002
-	keyeventfUnicode  = 0x0004
-	keyeventfScanCode = 0x0008
+	keyeventfExtendedKey = 0x0001
+	keyeventfKeyUp       = 0x0002
+	keyeventfUnicode     = 0x0004
+	keyeventfScanCode    = 0x0008
 )
 
 // winlogonDesktopName is the name of the Windows secure desktop that hosts the
@@ -234,7 +235,7 @@ func (w *WindowsInputInjector) doInjectKey(keysym uint32, down bool) {
 		flags |= keyeventfKeyUp
 	}
 	if extended {
-		flags |= keyeventfScanCode
+		flags |= keyeventfExtendedKey
 	}
 	sendKeyInput(vk, 0, flags)
 }

@@ -1192,8 +1192,19 @@ func (s *Server) getVNCServerState() *proto.VNCServerState {
 		return nil
 	}
 
+	enabled, sessions := engine.GetVNCServerStatus()
+	pbSessions := make([]*proto.VNCSessionInfo, 0, len(sessions))
+	for _, sess := range sessions {
+		pbSessions = append(pbSessions, &proto.VNCSessionInfo{
+			RemoteAddress: sess.RemoteAddress,
+			Mode:          sess.Mode,
+			Username:      sess.Username,
+			JwtUsername:   sess.JWTUsername,
+		})
+	}
 	return &proto.VNCServerState{
-		Enabled: engine.GetVNCServerStatus(),
+		Enabled:  enabled,
+		Sessions: pbSessions,
 	}
 }
 

@@ -364,8 +364,8 @@ type rectCoalescer struct {
 	curY                       int
 }
 
-func newRectCoalescer(cap int) *rectCoalescer {
-	return &rectCoalescer{out: make([][4]int, 0, cap)}
+func newRectCoalescer(capacity int) *rectCoalescer {
+	return &rectCoalescer{out: make([][4]int, 0, capacity)}
 }
 
 // consume processes one rect from the (row-ordered) input.

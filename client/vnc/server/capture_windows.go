@@ -321,7 +321,7 @@ func (c *DesktopCapturer) Width() int {
 	c.mu.Lock()
 	w := c.w
 	c.mu.Unlock()
-	if w == 0 {
+	if w == 0 && c.clients.Load() > 0 {
 		_, _ = c.Capture()
 		c.mu.Lock()
 		w = c.w
@@ -331,12 +331,13 @@ func (c *DesktopCapturer) Width() int {
 }
 
 // Height returns the current screen height, triggering a capture if the
-// worker hasn't initialised yet (see Width).
+// worker hasn't initialised yet (see Width). Returns 0 while no client is
+// connected so callers don't deadlock against a parked worker.
 func (c *DesktopCapturer) Height() int {
 	c.mu.Lock()
 	h := c.h
 	c.mu.Unlock()
-	if h == 0 {
+	if h == 0 && c.clients.Load() > 0 {
 		_, _ = c.Capture()
 		c.mu.Lock()
 		h = c.h

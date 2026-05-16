@@ -131,8 +131,16 @@ type SSHServerStateOutput struct {
 	Sessions []SSHSessionOutput `json:"sessions" yaml:"sessions"`
 }
 
+type VNCSessionOutput struct {
+	RemoteAddress string `json:"remoteAddress" yaml:"remoteAddress"`
+	Mode          string `json:"mode" yaml:"mode"`
+	Username      string `json:"username,omitempty" yaml:"username,omitempty"`
+	JWTUsername   string `json:"jwtUsername,omitempty" yaml:"jwtUsername,omitempty"`
+}
+
 type VNCServerStateOutput struct {
-	Enabled bool `json:"enabled" yaml:"enabled"`
+	Enabled  bool               `json:"enabled" yaml:"enabled"`
+	Sessions []VNCSessionOutput `json:"sessions" yaml:"sessions"`
 }
 
 type OutputOverview struct {
@@ -178,9 +186,7 @@ func ConvertToStatusOutputOverview(pbFullStatus *proto.FullStatus, opts ConvertO
 
 	relayOverview := mapRelays(pbFullStatus.GetRelays())
 	sshServerOverview := mapSSHServer(pbFullStatus.GetSshServerState())
-	vncServerOverview := VNCServerStateOutput{
-		Enabled: pbFullStatus.GetVncServerState().GetEnabled(),
-	}
+	vncServerOverview := mapVNCServer(pbFullStatus.GetVncServerState())
 	peersOverview := mapPeers(pbFullStatus.GetPeers(), opts.StatusFilter, opts.PrefixNamesFilter, opts.PrefixNamesFilterMap, opts.IPsFilter, opts.ConnectionTypeFilter)
 
 	overview := OutputOverview{
@@ -276,6 +282,25 @@ func mapSSHServer(sshServerState *proto.SSHServerState) SSHServerStateOutput {
 
 	return SSHServerStateOutput{
 		Enabled:  sshServerState.GetEnabled(),
+		Sessions: sessions,
+	}
+}
+
+func mapVNCServer(state *proto.VNCServerState) VNCServerStateOutput {
+	if state == nil {
+		return VNCServerStateOutput{Sessions: []VNCSessionOutput{}}
+	}
+	sessions := make([]VNCSessionOutput, 0, len(state.GetSessions()))
+	for _, sess := range state.GetSessions() {
+		sessions = append(sessions, VNCSessionOutput{
+			RemoteAddress: sess.GetRemoteAddress(),
+			Mode:          sess.GetMode(),
+			Username:      sess.GetUsername(),
+			JWTUsername:   sess.GetJwtUsername(),
+		})
+	}
+	return VNCServerStateOutput{
+		Enabled:  state.GetEnabled(),
 		Sessions: sessions,
 	}
 }
@@ -544,7 +569,30 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 
 	vncServerStatus := "Disabled"
 	if o.VNCServerState.Enabled {
-		vncServerStatus = "Enabled"
+		vncSessionCount := len(o.VNCServerState.Sessions)
+		if vncSessionCount > 0 {
+			sessionWord := "session"
+			if vncSessionCount > 1 {
+				sessionWord = "sessions"
+			}
+			vncServerStatus = fmt.Sprintf("Enabled (%d active %s)", vncSessionCount, sessionWord)
+		} else {
+			vncServerStatus = "Enabled"
+		}
+
+		if showSSHSessions && vncSessionCount > 0 {
+			for _, sess := range o.VNCServerState.Sessions {
+				var line string
+				if sess.JWTUsername != "" {
+					line = fmt.Sprintf("[%s@%s -> %s] mode=%s",
+						sess.JWTUsername, sess.RemoteAddress, sess.Username, sess.Mode)
+				} else {
+					line = fmt.Sprintf("[%s] mode=%s user=%s",
+						sess.RemoteAddress, sess.Mode, sess.Username)
+				}
+				vncServerStatus += "\n  " + line
+			}
+		}
 	}
 
 	peersCountString := fmt.Sprintf("%d/%d Connected", o.Peers.Connected, o.Peers.Total)
@@ -1010,5 +1058,13 @@ func anonymizeOverview(a *anonymize.Anonymizer, overview *OutputOverview) {
 			overview.SSHServerState.Sessions[i].RemoteAddress = a.AnonymizeIPString(session.RemoteAddress)
 		}
 		overview.SSHServerState.Sessions[i].Command = a.AnonymizeString(session.Command)
+	}
+
+	for i, sess := range overview.VNCServerState.Sessions {
+		if host, port, err := net.SplitHostPort(sess.RemoteAddress); err == nil {
+			overview.VNCServerState.Sessions[i].RemoteAddress = fmt.Sprintf("%s:%s", a.AnonymizeIPString(host), port)
+		} else {
+			overview.VNCServerState.Sessions[i].RemoteAddress = a.AnonymizeIPString(sess.RemoteAddress)
+		}
 	}
 }

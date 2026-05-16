@@ -147,6 +147,18 @@ type Server struct {
 	authorizer   *sshauth.Authorizer
 	netstackNet  *netstack.Net
 	agentToken   []byte // raw token bytes for agent-mode auth
+
+	sessionsMu sync.Mutex
+	sessionSeq uint64
+	sessions   map[uint64]ActiveSessionInfo
+}
+
+// ActiveSessionInfo describes a currently connected VNC client.
+type ActiveSessionInfo struct {
+	RemoteAddress string
+	Mode          string
+	Username      string
+	JWTUsername   string
 }
 
 // vncSession provides capturer and injector for a virtual display session.
@@ -174,7 +186,34 @@ func New(capturer ScreenCapturer, injector InputInjector, password string) *Serv
 		password:   password,
 		authorizer: sshauth.NewAuthorizer(),
 		log:        log.WithField("component", "vnc-server"),
+		sessions:   make(map[uint64]ActiveSessionInfo),
 	}
+}
+
+// ActiveSessions returns a snapshot of currently connected VNC clients.
+func (s *Server) ActiveSessions() []ActiveSessionInfo {
+	s.sessionsMu.Lock()
+	defer s.sessionsMu.Unlock()
+	out := make([]ActiveSessionInfo, 0, len(s.sessions))
+	for _, info := range s.sessions {
+		out = append(out, info)
+	}
+	return out
+}
+
+func (s *Server) addSession(info ActiveSessionInfo) uint64 {
+	s.sessionsMu.Lock()
+	defer s.sessionsMu.Unlock()
+	s.sessionSeq++
+	id := s.sessionSeq
+	s.sessions[id] = info
+	return id
+}
+
+func (s *Server) removeSession(id uint64) {
+	s.sessionsMu.Lock()
+	defer s.sessionsMu.Unlock()
+	delete(s.sessions, id)
 }
 
 // SetServiceMode enables proxy-to-agent mode for Windows service operation.
@@ -408,7 +447,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 		conn.Close()
 		return
 	}
-	connLog, ok := s.authorizeJWT(conn, header, connLog)
+	connLog, jwtUserID, ok := s.authorizeJWT(conn, header, connLog)
 	if !ok {
 		return
 	}
@@ -418,6 +457,14 @@ func (s *Server) handleConnection(conn net.Conn) {
 		return
 	}
 	defer sessionCleanup()
+
+	sessionID := s.addSession(ActiveSessionInfo{
+		RemoteAddress: conn.RemoteAddr().String(),
+		Mode:          modeString(header.mode),
+		Username:      header.username,
+		JWTUsername:   jwtUserID,
+	})
+	defer s.removeSession(sessionID)
 
 	if err := s.validateCapturer(capturer); err != nil {
 		rejectConnection(conn, codeMessage(RejectCodeCapturerError, fmt.Sprintf("screen capturer: %v", err)))
@@ -686,23 +733,24 @@ func (s *Server) verifyAgentToken(conn net.Conn, connLog *log.Entry) bool {
 }
 
 // authorizeJWT performs JWT validation when auth is enabled. Returns the
-// enriched log entry and ok=false if the connection was rejected.
-func (s *Server) authorizeJWT(conn net.Conn, header *connectionHeader, connLog *log.Entry) (*log.Entry, bool) {
+// enriched log entry, jwt user ID (empty when auth disabled), and ok=false
+// if the connection was rejected.
+func (s *Server) authorizeJWT(conn net.Conn, header *connectionHeader, connLog *log.Entry) (*log.Entry, string, bool) {
 	if s.disableAuth {
-		return connLog, true
+		return connLog, "", true
 	}
 	if s.jwtConfig == nil {
 		rejectConnection(conn, codeMessage(RejectCodeAuthConfig, "auth enabled but no identity provider configured"))
 		connLog.Warn("auth rejected: no identity provider configured")
-		return connLog, false
+		return connLog, "", false
 	}
 	jwtUserID, err := s.authenticateJWT(header)
 	if err != nil {
 		rejectConnection(conn, codeMessage(jwtErrorCode(err), err.Error()))
 		connLog.Warnf("auth rejected: %v", err)
-		return connLog, false
+		return connLog, "", false
 	}
-	return connLog.WithField("jwt_user", jwtUserID), true
+	return connLog.WithField("jwt_user", jwtUserID), jwtUserID, true
 }
 
 // acquireSessionResources returns the capturer/injector to use for this
@@ -751,4 +799,16 @@ func (s *Server) acquireAttachSession() ScreenCapturer {
 // named func rather than an inline closure so the empty body is unambiguous.
 func attachSessionCleanup() {
 	// Attach mode keeps the shared capturer; nothing to release per session.
+}
+
+// modeString returns a human-readable session mode name.
+func modeString(m byte) string {
+	switch m {
+	case ModeAttach:
+		return "attach"
+	case ModeSession:
+		return "session"
+	default:
+		return "unknown"
+	}
 }

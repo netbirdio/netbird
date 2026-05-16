@@ -24,6 +24,7 @@ const (
 type vncServer interface {
 	Start(ctx context.Context, addr netip.AddrPort, network netip.Prefix) error
 	Stop() error
+	ActiveSessions() []vncserver.ActiveSessionInfo
 }
 
 func (e *Engine) setupVNCPortRedirection() error {
@@ -208,9 +209,13 @@ func (e *Engine) updateVNCServerAuth(vncAuth *mgmProto.VNCAuth) {
 	})
 }
 
-// GetVNCServerStatus returns whether the VNC server is running.
-func (e *Engine) GetVNCServerStatus() bool {
-	return e.vncSrv != nil
+// GetVNCServerStatus returns whether the VNC server is running and the list
+// of active VNC sessions.
+func (e *Engine) GetVNCServerStatus() (enabled bool, sessions []vncserver.ActiveSessionInfo) {
+	if e.vncSrv == nil {
+		return false, nil
+	}
+	return true, e.vncSrv.ActiveSessions()
 }
 
 func (e *Engine) stopVNCServer() error {

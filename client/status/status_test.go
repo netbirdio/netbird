@@ -240,6 +240,10 @@ var overview = OutputOverview{
 		Enabled:  false,
 		Sessions: []SSHSessionOutput{},
 	},
+	VNCServerState: VNCServerStateOutput{
+		Enabled:  false,
+		Sessions: []VNCSessionOutput{},
+	},
 }
 
 func TestConversionFromFullStatusToOutputOverview(t *testing.T) {
@@ -406,7 +410,8 @@ func TestParsingToJSON(t *testing.T) {
 			"sessions":[]
 		  },
 		  "vncServer":{
-		    "enabled":false
+		    "enabled":false,
+			"sessions":[]
 		  }
         }`
 	// @formatter:on
@@ -518,6 +523,7 @@ sshServer:
     sessions: []
 vncServer:
     enabled: false
+    sessions: []
 `
 
 	assert.Equal(t, expectedYAML, yaml)

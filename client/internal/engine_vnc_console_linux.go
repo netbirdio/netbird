@@ -21,8 +21,7 @@ func newConsoleVNC() (vncserver.ScreenCapturer, vncserver.InputInjector, error) 
 	}
 	inj, err := vncserver.NewUInputInjector(w, h)
 	if err != nil {
-		poller.Close()
-		return nil, nil, fmt.Errorf("uinput init: %w", err)
+		return poller, &vncserver.StubInputInjector{}, nil
 	}
 	return poller, inj, nil
 }

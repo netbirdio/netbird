@@ -398,9 +398,18 @@ message SSHServerState {
   repeated SSHSessionInfo sessions = 2;
 }
 
+// VNCSessionInfo contains information about an active VNC session
+message VNCSessionInfo {
+  string remoteAddress = 1;
+  string mode = 2;
+  string username = 3;
+  string jwtUsername = 4;
+}
+
 // VNCServerState contains the latest state of the VNC server
 message VNCServerState {
   bool enabled = 1;
+  repeated VNCSessionInfo sessions = 2;
 }
 
 // FullStatus contains the full state held by the Status instance
