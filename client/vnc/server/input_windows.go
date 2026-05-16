@@ -41,12 +41,6 @@ const (
 	keyeventfScanCode    = 0x0008
 )
 
-// winlogonDesktopName is the name of the Windows secure desktop that hosts the
-// logon UI, Ctrl+Alt+Del screen, UAC prompts, and credential dialogs. Its
-// clipboard is isolated from the interactive Default desktop, so pasting via
-// the clipboard API does not work there. We fall back to synthesizing the
-// text as Unicode keystrokes.
-const winlogonDesktopName = "Winlogon"
 
 // maxTypedClipboardChars caps the number of characters we will synthesize as
 // keystrokes when falling back on the Winlogon desktop. Passwords are short;
@@ -258,7 +252,7 @@ func signalSAS() {
 		return
 	}
 	ev := windows.Handle(h)
-	defer windows.CloseHandle(ev)
+	defer func() { _ = windows.CloseHandle(ev) }()
 	if err := windows.SetEvent(ev); err != nil {
 		log.Warnf("SetEvent SAS: %v", err)
 	} else {

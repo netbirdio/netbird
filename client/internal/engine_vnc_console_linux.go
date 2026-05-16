@@ -5,6 +5,8 @@ package internal
 import (
 	"fmt"
 
+	log "github.com/sirupsen/logrus"
+
 	vncserver "github.com/netbirdio/netbird/client/vnc/server"
 )
 
@@ -21,6 +23,7 @@ func newConsoleVNC() (vncserver.ScreenCapturer, vncserver.InputInjector, error) 
 	}
 	inj, err := vncserver.NewUInputInjector(w, h)
 	if err != nil {
+		log.Debugf("uinput unavailable, falling back to view-only VNC: %v", err)
 		return poller, &vncserver.StubInputInjector{}, nil
 	}
 	return poller, inj, nil

@@ -1,3 +1,5 @@
+//go:build !windows
+
 package server
 
 // keysymForASCIIRune maps an ASCII rune to (X11 keysym for the unshifted

@@ -166,7 +166,7 @@ func createSASEvent() (windows.Handle, bool) {
 // signalled, until ctx is cancelled. Recovers from panics inside SendSAS so
 // a future ABI surprise doesn't tear down the service.
 func runSASListenerLoop(ctx context.Context, ev windows.Handle) {
-	defer windows.CloseHandle(ev)
+	defer func() { _ = windows.CloseHandle(ev) }()
 	defer func() {
 		if r := recover(); r != nil {
 			log.Warnf("SAS listener recovered from panic: %v", r)

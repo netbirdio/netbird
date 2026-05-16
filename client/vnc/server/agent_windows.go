@@ -91,12 +91,6 @@ const (
 	wtsDisconnected = 4
 )
 
-type wtsSessionInfo struct {
-	SessionID      uint32
-	WinStationName [66]byte // actually *uint16, but we just need the struct size
-	State          uint32
-}
-
 // getActiveSessionID returns the session ID of the best session to attach to.
 // On a Windows Server with no console display attached, session 1 still
 // reports WTSActive (login screen "owns" the console), so a naive
@@ -176,7 +170,7 @@ func reapOrphanOnPort(portStr string) {
 		log.Warnf("reap on port %d: open PID=%d: %v", port, pid, err)
 		return
 	}
-	defer windows.CloseHandle(h)
+	defer func() { _ = windows.CloseHandle(h) }()
 	if !isOurAgentProcess(h) {
 		log.Warnf("reap on port %d: PID=%d is not a netbird vnc-agent, leaving it alone", port, pid)
 		return
@@ -307,7 +301,7 @@ func getSystemTokenForSession(sessionID uint32) (windows.Token, error) {
 	return dup, nil
 }
 
-const agentTokenEnvVar = "NB_VNC_AGENT_TOKEN"
+const agentTokenEnvVar = "NB_VNC_AGENT_TOKEN" // #nosec G101 -- env var name, not a credential
 
 // injectEnvVar appends a KEY=VALUE entry to a Unicode environment block.
 // The block is a sequence of null-terminated UTF-16 strings, terminated by
@@ -698,7 +692,7 @@ func (m *sessionManager) killAgent() {
 // error output, panic stack traces) are forwarded verbatim so failures
 // during early agent startup remain visible.
 func relogAgentOutput(pipe windows.Handle) {
-	defer windows.CloseHandle(pipe)
+	defer func() { _ = windows.CloseHandle(pipe) }()
 	f := os.NewFile(uintptr(pipe), "vnc-agent-stderr")
 	defer f.Close()
 
