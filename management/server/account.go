@@ -291,6 +291,10 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, status.NewPermissionDeniedError()
 	}
 
+	// Canonicalize the incoming range so a caller-supplied prefix with host bits
+	// (e.g. 100.64.1.1/16) compares equal to the masked form stored on network.Net.
+	newSettings.NetworkRange = newSettings.NetworkRange.Masked()
+
 	var oldSettings *types.Settings
 	var updateAccountPeers bool
 	var groupChangesAffectPeers bool

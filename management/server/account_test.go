@@ -4011,6 +4011,23 @@ func TestDefaultAccountManager_UpdateAccountSettings_NetworkRangePreserved(t *te
 		assert.Equal(t, before[p.ID], p.IP, "peer %s IP should not change when range matches effective", p.ID)
 	}
 
+	// Carrying the same range with host bits set must also be a no-op once canonicalized.
+	hostBitsForm := netip.PrefixFrom(peer1.IP, ones)
+	require.NotEqual(t, effective, hostBitsForm, "precondition: host-bit form should differ before masking")
+	_, err = manager.UpdateAccountSettings(ctx, account.Id, userID, &types.Settings{
+		PeerLoginExpirationEnabled: true,
+		PeerLoginExpiration:        types.DefaultPeerLoginExpiration,
+		NetworkRange:               hostBitsForm,
+		Extra:                      &types.ExtraSettings{},
+	})
+	require.NoError(t, err)
+
+	peers, err = manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, account.Id, "", "")
+	require.NoError(t, err)
+	for _, p := range peers {
+		assert.Equal(t, before[p.ID], p.IP, "peer %s IP should not change for host-bit-set equivalent range", p.ID)
+	}
+
 	// Omitting NetworkRange (invalid prefix) must also be a no-op.
 	_, err = manager.UpdateAccountSettings(ctx, account.Id, userID, &types.Settings{
 		PeerLoginExpirationEnabled: true,
