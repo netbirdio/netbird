@@ -658,7 +658,45 @@ func (conn *Conn) handleRelayDisconnectedLocked() {
 	}
 }
 
+// remoteEffectiveMode returns the connection mode the management server
+// has resolved per-peer for the REMOTE peer (RemotePeerConfig.
+// effective_connection_mode). For peers covered by the server's
+// LegacyLazyFallback this is p2p-lazy even when the account-wide mode
+// is p2p-dynamic. ModeUnspecified means the status recorder does not
+// know the mode yet (early bootstrap before first NetworkMap, or status
+// recorder missing).
+func (conn *Conn) remoteEffectiveMode() connectionmode.Mode {
+	if conn.statusRecorder == nil {
+		return connectionmode.ModeUnspecified
+	}
+	state, err := conn.statusRecorder.GetPeer(conn.config.Key)
+	if err != nil {
+		return connectionmode.ModeUnspecified
+	}
+	m, _ := connectionmode.ParseString(state.RemoteEffectiveConnectionMode)
+	return m
+}
+
 func (conn *Conn) onGuardEvent() {
+	// Respect remote peer's resolved connection mode: when the management
+	// server has placed the REMOTE peer in p2p-lazy (typical for legacy
+	// clients covered by LegacyLazyFallback even though the account-wide
+	// mode is p2p-dynamic), it expects strict lazy semantics — i.e. no
+	// unsolicited offers from us. The remote will signal an OFFER on its
+	// own when its local WG-bind sees user traffic; we don't need (and
+	// shouldn't) bootstrap the tunnel. Skipping here prevents the eager
+	// initial P2P establishment to dozens of legacy peers that the user
+	// never actually communicates with.
+	//
+	// Note: we still respect remote-initiated OFFERs via the signal-
+	// receive path (engine.go -> ConnMgr.ActivatePeer is NOT gated on
+	// this), and we still bootstrap when local user traffic triggers
+	// the local lazy manager (manager.onPeerActivity -> AttachICE).
+	if conn.remoteEffectiveMode() == connectionmode.ModeP2PLazy {
+		conn.Log.Tracef("guard: skip offer (remote peer is p2p-lazy; wait for remote OFFER or local activity)")
+		return
+	}
+
 	conn.dumpState.SendOffer()
 	if err := conn.handshaker.SendOffer(); err != nil {
 		conn.Log.Errorf("failed to send offer: %v", err)
