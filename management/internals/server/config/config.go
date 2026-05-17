@@ -114,6 +114,120 @@ type RelayEndpoint struct {
 	Transports []string
 }
 
+// KnownRelayTransports is the set of transport identifiers the management
+// server accepts in RelayEndpoint.Transports. Anything outside this set is
+// silently dropped at config load — we don't want a typo in Transports to
+// turn into clients trying a dialer that doesn't exist.
+var KnownRelayTransports = map[string]struct{}{
+	"ws":   {},
+	"quic": {},
+	"wt":   {},
+}
+
+// HasURLs reports whether any relay address is configured (either via the
+// legacy Addresses slice or via Endpoints). Callers that only care
+// "is the relay feature on for this server" should use this rather than
+// checking either field directly.
+func (r *Relay) HasURLs() bool {
+	if r == nil {
+		return false
+	}
+	if len(r.Addresses) > 0 {
+		return true
+	}
+	for _, ep := range r.Endpoints {
+		if ep.URL != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// AllURLs returns every relay URL the management server will advertise,
+// preserving order with Endpoints listed first and any Addresses not also
+// covered by an Endpoint appended after. Used for logging and for callers
+// that want a flat URL list without caring about transport hints.
+func (r *Relay) AllURLs() []string {
+	if r == nil {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(r.Endpoints)+len(r.Addresses))
+	out := make([]string, 0, len(r.Endpoints)+len(r.Addresses))
+	for _, ep := range r.Endpoints {
+		if ep.URL == "" {
+			continue
+		}
+		if _, ok := seen[ep.URL]; ok {
+			continue
+		}
+		seen[ep.URL] = struct{}{}
+		out = append(out, ep.URL)
+	}
+	for _, addr := range r.Addresses {
+		if addr == "" {
+			continue
+		}
+		if _, ok := seen[addr]; ok {
+			continue
+		}
+		seen[addr] = struct{}{}
+		out = append(out, addr)
+	}
+	return out
+}
+
+// Normalize trims unknown transport identifiers from each Endpoint, dropping
+// dupes and empty URLs. Returns the unknown transports it discarded so the
+// caller can surface them as a warning at startup.
+//
+// Does not error on empty Transports — an empty list is a valid "unknown,
+// try everything" signal, distinct from "I tried to declare it but typoed".
+func (r *Relay) Normalize() (unknownTransports []string) {
+	if r == nil {
+		return nil
+	}
+	if len(r.Endpoints) == 0 {
+		return nil
+	}
+	dropped := map[string]struct{}{}
+	urlSeen := make(map[string]struct{}, len(r.Endpoints))
+	cleaned := make([]RelayEndpoint, 0, len(r.Endpoints))
+	for _, ep := range r.Endpoints {
+		if ep.URL == "" {
+			continue
+		}
+		if _, dup := urlSeen[ep.URL]; dup {
+			continue
+		}
+		urlSeen[ep.URL] = struct{}{}
+
+		filtered := make([]string, 0, len(ep.Transports))
+		tSeen := make(map[string]struct{}, len(ep.Transports))
+		for _, t := range ep.Transports {
+			if _, ok := KnownRelayTransports[t]; !ok {
+				dropped[t] = struct{}{}
+				continue
+			}
+			if _, ok := tSeen[t]; ok {
+				continue
+			}
+			tSeen[t] = struct{}{}
+			filtered = append(filtered, t)
+		}
+		cleaned = append(cleaned, RelayEndpoint{URL: ep.URL, Transports: filtered})
+	}
+	r.Endpoints = cleaned
+
+	if len(dropped) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(dropped))
+	for t := range dropped {
+		out = append(out, t)
+	}
+	return out
+}
+
 // HttpServerConfig is a config of the HTTP Management service server
 type HttpServerConfig struct {
 	LetsEncryptDomain string

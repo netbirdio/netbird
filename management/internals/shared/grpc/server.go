@@ -824,7 +824,7 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 func (s *Server) prepareLoginResponse(ctx context.Context, peer *nbpeer.Peer, netMap *types.NetworkMap, postureChecks []*posture.Checks) (*proto.LoginResponse, error) {
 	var relayToken *Token
 	var err error
-	if s.config.Relay != nil && len(s.config.Relay.Addresses) > 0 {
+	if s.config.Relay.HasURLs() {
 		relayToken, err = s.secretsManager.GenerateRelayToken()
 		if err != nil {
 			log.Errorf("failed generating Relay token: %v", err)
@@ -915,7 +915,7 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 	}
 
 	var relayToken *Token
-	if s.config.Relay != nil && len(s.config.Relay.Addresses) > 0 {
+	if s.config.Relay.HasURLs() {
 		relayToken, err = s.secretsManager.GenerateRelayToken()
 		if err != nil {
 			log.Errorf("failed generating Relay token: %v", err)

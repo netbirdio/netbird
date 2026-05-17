@@ -320,7 +320,15 @@ func LogConfigInfo(cfg *nbconfig.Config) {
 		log.Infof("running with the embedded IdP: %v", cfg.EmbeddedIdP.Issuer)
 	}
 	if cfg.Relay != nil {
-		log.Infof("Relay addresses: %v", cfg.Relay.Addresses)
+		if unknown := cfg.Relay.Normalize(); len(unknown) > 0 {
+			log.Warnf("Relay config contains unknown transport identifiers (dropped): %v", unknown)
+		}
+		log.Infof("Relay URLs: %v", cfg.Relay.AllURLs())
+		for _, ep := range cfg.Relay.Endpoints {
+			if len(ep.Transports) > 0 {
+				log.Infof("Relay endpoint %s advertises transports: %v", ep.URL, ep.Transports)
+			}
+		}
 	}
 }
 
