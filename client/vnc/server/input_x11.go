@@ -260,7 +260,9 @@ func (x *X11InputInjector) GetClipboard() string {
 	cmd.Env = x.clipboardEnv()
 	out, err := cmd.Output()
 	if err != nil {
-		log.Tracef("get clipboard via %s: %v", x.clipboardToolName, err)
+		// Exit status 1 just means there is no STRING selection set yet,
+		// which is the steady state on a fresh Xvfb session — logging it
+		// every clipboard poll (2s) floods the trace stream.
 		return ""
 	}
 	return string(out)
