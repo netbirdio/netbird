@@ -1064,19 +1064,6 @@ func (a *Account) getAllPeersFromGroups(ctx context.Context, groups []string, pe
 	return filteredPeers, peerInGroups
 }
 
-func (a *Account) getPeerFromResource(resource Resource, peerID string) ([]*nbpeer.Peer, bool) {
-	peer := a.GetPeer(resource.ID)
-	if peer == nil {
-		return []*nbpeer.Peer{}, false
-	}
-
-	if peer.ID == peerID {
-		return []*nbpeer.Peer{}, true
-	}
-
-	return []*nbpeer.Peer{peer}, false
-}
-
 // validatePostureChecksOnPeer validates the posture checks on a peer
 func (a *Account) validatePostureChecksOnPeer(ctx context.Context, sourcePostureChecksID []string, peerID string) bool {
 	peer, ok := a.Peers[peerID]
