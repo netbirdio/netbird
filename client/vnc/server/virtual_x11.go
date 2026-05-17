@@ -249,7 +249,6 @@ func (vs *VirtualSession) startXvfbDirect() error {
 	geom := fmt.Sprintf("%dx%dx24", vs.width, vs.height)
 	vs.xvfb = exec.Command("Xvfb", vs.display,
 		"-screen", "0", geom,
-		"-ac",
 		"-nolisten", "tcp",
 	)
 	vs.xvfb.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Pdeathsig: syscall.SIGTERM}
@@ -306,7 +305,6 @@ EndSection
 		"-config", confPath,
 		"-noreset",
 		"-nolisten", "tcp",
-		"-ac",
 	)
 	vs.xvfb.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Pdeathsig: syscall.SIGTERM}
 
