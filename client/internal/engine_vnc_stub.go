@@ -10,7 +10,8 @@ type vncServer interface{}
 
 func (e *Engine) updateVNC(_ *mgmProto.SSHConfig) error { return nil }
 
-// updateVNCServerAuth is a no-op on platforms without a VNC server.
-func (e *Engine) updateVNCServerAuth(_ *mgmProto.VNCAuth) {}
+func (e *Engine) updateVNCServerAuth(_ *mgmProto.VNCAuth) {
+	// no-op on platforms without a VNC server
+}
 
 func (e *Engine) stopVNCServer() error { return nil }

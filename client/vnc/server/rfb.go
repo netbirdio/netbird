@@ -671,10 +671,6 @@ type zlibState struct {
 	w   *zlib.Writer
 }
 
-func newZlibState() *zlibState {
-	return newZlibStateLevel(zlib.BestSpeed)
-}
-
 func newZlibStateLevel(level int) *zlibState {
 	buf := &bytes.Buffer{}
 	w, _ := zlib.NewWriterLevel(buf, level)

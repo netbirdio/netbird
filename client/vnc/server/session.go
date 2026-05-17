@@ -316,42 +316,8 @@ func (s *session) handleSetEncodings() error {
 	s.encMu.Lock()
 	for i := range int(numEnc) {
 		enc := int32(binary.BigEndian.Uint32(buf[i*4 : i*4+4]))
-		switch enc {
-		case encCopyRect:
-			s.useCopyRect = true
-			if s.copyRectDet == nil {
-				s.copyRectDet = newCopyRectDetector(tileSize)
-			}
-			encs = append(encs, "copyrect")
-		case pseudoEncDesktopSize:
-			s.clientSupportsDesktopSize = true
-			encs = append(encs, "desktop-size")
-		case pseudoEncExtendedDesktopSize:
-			s.clientSupportsExtendedDesktopSize = true
-			encs = append(encs, "ext-desktop-size")
-		case pseudoEncDesktopName:
-			s.clientSupportsDesktopName = true
-			encs = append(encs, "desktop-name")
-		case pseudoEncLastRect:
-			s.clientSupportsLastRect = true
-			encs = append(encs, "last-rect")
-		case pseudoEncQEMUExtendedKeyEvent:
-			s.clientSupportsQEMUKey = true
-			encs = append(encs, "qemu-key")
-		case pseudoEncExtendedClipboard:
-			s.clientSupportsExtClipboard = true
-			encs = append(encs, "ext-clipboard")
-		case encTight:
-			s.useTight = true
-			encs = append(encs, "tight")
-		}
-		switch {
-		case enc >= pseudoEncQualityLevelMin && enc <= pseudoEncQualityLevelMax:
-			s.clientJPEGQuality = int(enc - pseudoEncQualityLevelMin)
-			encs = append(encs, fmt.Sprintf("quality=%d", s.clientJPEGQuality))
-		case enc >= pseudoEncCompressLevelMin && enc <= pseudoEncCompressLevelMax:
-			s.clientZlibLevel = int(enc - pseudoEncCompressLevelMin)
-			encs = append(encs, fmt.Sprintf("compress=%d", s.clientZlibLevel))
+		if name := s.applyEncoding(enc); name != "" {
+			encs = append(encs, name)
 		}
 	}
 	if s.useTight && (s.tight == nil ||
@@ -373,6 +339,50 @@ func (s *session) handleSetEncodings() error {
 		}
 	}
 	return nil
+}
+
+// applyEncoding records a single encoding/pseudo-encoding from a SetEncodings
+// message. Returns the short name used in the debug log, or "" if the value
+// is one we don't recognise. Caller holds s.encMu.
+func (s *session) applyEncoding(enc int32) string {
+	switch enc {
+	case encCopyRect:
+		s.useCopyRect = true
+		if s.copyRectDet == nil {
+			s.copyRectDet = newCopyRectDetector(tileSize)
+		}
+		return "copyrect"
+	case pseudoEncDesktopSize:
+		s.clientSupportsDesktopSize = true
+		return "desktop-size"
+	case pseudoEncExtendedDesktopSize:
+		s.clientSupportsExtendedDesktopSize = true
+		return "ext-desktop-size"
+	case pseudoEncDesktopName:
+		s.clientSupportsDesktopName = true
+		return "desktop-name"
+	case pseudoEncLastRect:
+		s.clientSupportsLastRect = true
+		return "last-rect"
+	case pseudoEncQEMUExtendedKeyEvent:
+		s.clientSupportsQEMUKey = true
+		return "qemu-key"
+	case pseudoEncExtendedClipboard:
+		s.clientSupportsExtClipboard = true
+		return "ext-clipboard"
+	case encTight:
+		s.useTight = true
+		return "tight"
+	}
+	if enc >= pseudoEncQualityLevelMin && enc <= pseudoEncQualityLevelMax {
+		s.clientJPEGQuality = int(enc - pseudoEncQualityLevelMin)
+		return fmt.Sprintf("quality=%d", s.clientJPEGQuality)
+	}
+	if enc >= pseudoEncCompressLevelMin && enc <= pseudoEncCompressLevelMax {
+		s.clientZlibLevel = int(enc - pseudoEncCompressLevelMin)
+		return fmt.Sprintf("compress=%d", s.clientZlibLevel)
+	}
+	return ""
 }
 
 // handleFBUpdateRequest parses the request and hands it to the encoder
