@@ -602,14 +602,11 @@ func sampledColorCountInto(seen map[uint32]struct{}, img *image.RGBA, x, y, w, h
 	return len(seen)
 }
 
-// zlibState holds the persistent zlib writer, output buffer, and a scratch
-// slice reused by encodeZlibRect to stage the packed pixel stream before
-// handing it to the deflate writer. The scratch grows to the largest rect
-// we've seen and is kept for the session lifetime.
+// zlibState holds the persistent zlib writer and its output buffer, reused
+// across rects so steady-state Tight encoding stays alloc-free.
 type zlibState struct {
-	buf     *bytes.Buffer
-	w       *zlib.Writer
-	scratch []byte
+	buf *bytes.Buffer
+	w   *zlib.Writer
 }
 
 func newZlibState() *zlibState {
