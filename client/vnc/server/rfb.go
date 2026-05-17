@@ -52,6 +52,14 @@ const (
 	encZlib     = 6
 	encTight    = 7
 
+	// Pseudo-encodings carried over wire as rects with a negative
+	// encoding value. The client advertises supported optional protocol
+	// extensions by listing these in SetEncodings.
+	pseudoEncDesktopSize         = -223
+	pseudoEncLastRect            = -224
+	pseudoEncDesktopName         = -307
+	pseudoEncExtendedDesktopSize = -308
+
 	// Tight compression-control byte top nibble. Stream-reset bits 0-3
 	// (one per zlib stream) are unused while we run a single stream.
 	tightFillSubenc  = 0x80
@@ -154,6 +162,52 @@ func encodeCopyRectBody(srcX, srcY, dstX, dstY, w, h int) []byte {
 	binary.BigEndian.PutUint32(buf[8:12], uint32(encCopyRect))
 	binary.BigEndian.PutUint16(buf[12:14], uint16(srcX))
 	binary.BigEndian.PutUint16(buf[14:16], uint16(srcY))
+	return buf
+}
+
+// encodeDesktopSizeBody emits a DesktopSize pseudo-encoded rectangle. The
+// "rect" carries no pixel data: x and y are zero, w and h are the new
+// framebuffer dimensions, and encoding=-223 signals to the client that the
+// framebuffer was resized. Clients reallocate their backing buffer and
+// expect a full update at the new size to follow.
+func encodeDesktopSizeBody(w, h int) []byte {
+	buf := make([]byte, 12)
+	binary.BigEndian.PutUint16(buf[0:2], 0)
+	binary.BigEndian.PutUint16(buf[2:4], 0)
+	binary.BigEndian.PutUint16(buf[4:6], uint16(w))
+	binary.BigEndian.PutUint16(buf[6:8], uint16(h))
+	enc := int32(pseudoEncDesktopSize)
+	binary.BigEndian.PutUint32(buf[8:12], uint32(enc))
+	return buf
+}
+
+// encodeDesktopNameBody emits a DesktopName pseudo-encoded rectangle. The
+// rect header is all zeros and encoding=-307; the body is a 4-byte
+// big-endian length followed by the UTF-8 name. Clients update their
+// window title or label without reconnecting.
+func encodeDesktopNameBody(name string) []byte {
+	nameBytes := []byte(name)
+	buf := make([]byte, 12+4+len(nameBytes))
+	binary.BigEndian.PutUint16(buf[0:2], 0)
+	binary.BigEndian.PutUint16(buf[2:4], 0)
+	binary.BigEndian.PutUint16(buf[4:6], 0)
+	binary.BigEndian.PutUint16(buf[6:8], 0)
+	enc := int32(pseudoEncDesktopName)
+	binary.BigEndian.PutUint32(buf[8:12], uint32(enc))
+	binary.BigEndian.PutUint32(buf[12:16], uint32(len(nameBytes)))
+	copy(buf[16:], nameBytes)
+	return buf
+}
+
+// encodeLastRectBody emits a LastRect sentinel. When the server sets
+// numRects=0xFFFF in the FramebufferUpdate header, the client reads rects
+// until it sees one with this encoding. Lets us stream rects from a
+// goroutine without committing to a count up front.
+func encodeLastRectBody() []byte {
+	buf := make([]byte, 12)
+	// x, y, w, h all zero; encoding = -224.
+	enc := int32(pseudoEncLastRect)
+	binary.BigEndian.PutUint32(buf[8:12], uint32(enc))
 	return buf
 }
 

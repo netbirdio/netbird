@@ -34,13 +34,14 @@ const (
 )
 
 type session struct {
-	conn     net.Conn
-	capturer ScreenCapturer
-	injector InputInjector
-	serverW  int
-	serverH  int
-	password string
-	log      *log.Entry
+	conn        net.Conn
+	capturer    ScreenCapturer
+	injector    InputInjector
+	serverW     int
+	serverH     int
+	desktopName string
+	password    string
+	log         *log.Entry
 
 	writeMu sync.Mutex
 	// encMu guards the negotiated pixel format and encoding state below.
@@ -56,6 +57,12 @@ type session struct {
 	zlib        *zlibState
 	tight       *tightState
 	copyRectDet *copyRectDetector
+	// Pseudo-encodings the client advertised support for. Updated under
+	// encMu by handleSetEncodings and read by the encoder goroutine.
+	clientSupportsDesktopSize         bool
+	clientSupportsExtendedDesktopSize bool
+	clientSupportsDesktopName         bool
+	clientSupportsLastRect            bool
 	// prevFrame, curFrame and idleFrames live on the encoder goroutine and
 	// must not be touched elsewhere. curFrame holds a session-owned copy of
 	// the capturer's latest frame so the encoder works on a stable buffer
@@ -233,7 +240,11 @@ func (s *session) doVNCAuth() error {
 }
 
 func (s *session) sendServerInit() error {
-	name := []byte("NetBird VNC")
+	desktop := s.desktopName
+	if desktop == "" {
+		desktop = "NetBird VNC"
+	}
+	name := []byte(desktop)
 	buf := make([]byte, 0, 4+16+4+len(name))
 
 	// Framebuffer width and height.
@@ -333,6 +344,18 @@ func (s *session) handleSetEncodings() error {
 				s.copyRectDet = newCopyRectDetector(tileSize)
 			}
 			encs = append(encs, "copyrect")
+		case pseudoEncDesktopSize:
+			s.clientSupportsDesktopSize = true
+			encs = append(encs, "desktop-size")
+		case pseudoEncExtendedDesktopSize:
+			s.clientSupportsExtendedDesktopSize = true
+			encs = append(encs, "ext-desktop-size")
+		case pseudoEncDesktopName:
+			s.clientSupportsDesktopName = true
+			encs = append(encs, "desktop-name")
+		case pseudoEncLastRect:
+			s.clientSupportsLastRect = true
+			encs = append(encs, "last-rect")
 		case encZlib:
 			s.useZlib = true
 			if s.zlib == nil {
@@ -401,6 +424,15 @@ func (s *session) encoderLoop(done chan<- struct{}) {
 }
 
 func (s *session) processFBRequest(req fbRequest) error {
+	// Watch for resolution changes between cycles. When the capturer
+	// reports a new size, tell the client via DesktopSize so it can
+	// reallocate its backing buffer; the next full update will then fill
+	// the new dimensions. Clients that didn't advertise support are stuck
+	// with the original handshake size and just see clipping on resize.
+	if err := s.handleResize(); err != nil {
+		return err
+	}
+
 	img, err := s.captureFrame()
 	if errors.Is(err, errFrameUnchanged) {
 		// macOS hashes the raw capture bytes and short-circuits when the
@@ -501,6 +533,90 @@ func (s *session) captureRecovered() {
 		s.log.Debugf("capture recovered")
 		s.captureErrSeen = false
 	}
+}
+
+// handleResize detects framebuffer-size changes between encode cycles and
+// notifies the client via the DesktopSize pseudo-encoding. Returns an
+// error only on write failure; capturers that don't expose Width/Height
+// yet (zero values during early startup) are silently ignored.
+func (s *session) handleResize() error {
+	w, h := s.capturer.Width(), s.capturer.Height()
+	if w <= 0 || h <= 0 {
+		return nil
+	}
+	if w == s.serverW && h == s.serverH {
+		return nil
+	}
+	s.log.Debugf("framebuffer resized: %dx%d -> %dx%d", s.serverW, s.serverH, w, h)
+	s.serverW = w
+	s.serverH = h
+	// Drop the prev frame so the next encode produces a full update at
+	// the new dimensions rather than diffing against a stale-sized buffer.
+	s.prevFrame = nil
+	s.curFrame = nil
+	if s.copyRectDet != nil {
+		// Tile geometry changed; let updateDirty rebuild from scratch on
+		// the next pass instead of reusing stale hashes keyed on old
+		// (cols, rows).
+		s.copyRectDet.prevTiles = nil
+		s.copyRectDet.tileHash = nil
+	}
+	if err := s.sendDesktopSize(w, h); err != nil {
+		return fmt.Errorf("send desktop size: %w", err)
+	}
+	return nil
+}
+
+// sendDesktopSize emits a single-rect FramebufferUpdate carrying the
+// DesktopSize pseudo-encoding. No-op if the client did not negotiate it,
+// in which case the client just sees the new dimensions on the next full
+// update and will likely clip or scale.
+func (s *session) sendDesktopSize(w, h int) error {
+	s.encMu.RLock()
+	supported := s.clientSupportsDesktopSize || s.clientSupportsExtendedDesktopSize
+	s.encMu.RUnlock()
+	if !supported {
+		return nil
+	}
+	header := make([]byte, 4)
+	header[0] = serverFramebufferUpdate
+	binary.BigEndian.PutUint16(header[2:4], 1)
+
+	body := encodeDesktopSizeBody(w, h)
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if _, err := s.conn.Write(header); err != nil {
+		return err
+	}
+	_, err := s.conn.Write(body)
+	return err
+}
+
+// SendDesktopName pushes a DesktopName pseudo-encoded update to the
+// client if it advertised support. Used by the server to keep the
+// dashboard title in sync with the active session (e.g. username
+// changes after login on a virtual session).
+func (s *session) SendDesktopName(name string) error {
+	s.encMu.RLock()
+	supported := s.clientSupportsDesktopName
+	s.encMu.RUnlock()
+	if !supported {
+		s.desktopName = name
+		return nil
+	}
+	s.desktopName = name
+	header := make([]byte, 4)
+	header[0] = serverFramebufferUpdate
+	binary.BigEndian.PutUint16(header[2:4], 1)
+
+	body := encodeDesktopNameBody(name)
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if _, err := s.conn.Write(header); err != nil {
+		return err
+	}
+	_, err := s.conn.Write(body)
+	return err
 }
 
 // refreshCopyRectIndex does a full hash sweep of the just-swapped prevFrame.
