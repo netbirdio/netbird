@@ -47,13 +47,15 @@ type session struct {
 	// messageLoop writes these on SetPixelFormat/SetEncodings, which RFB
 	// clients may send at any time after the handshake, while encoderLoop
 	// reads them on every frame.
-	encMu      sync.RWMutex
-	pf         clientPixelFormat
-	useZlib    bool
-	useHextile bool
-	useTight   bool
-	zlib       *zlibState
-	tight      *tightState
+	encMu       sync.RWMutex
+	pf          clientPixelFormat
+	useZlib     bool
+	useHextile  bool
+	useTight    bool
+	useCopyRect bool
+	zlib        *zlibState
+	tight       *tightState
+	copyRectDet *copyRectDetector
 	// prevFrame, curFrame and idleFrames live on the encoder goroutine and
 	// must not be touched elsewhere. curFrame holds a session-owned copy of
 	// the capturer's latest frame so the encoder works on a stable buffer
@@ -319,6 +321,12 @@ func (s *session) handleSetEncodings() error {
 	for i := range int(numEnc) {
 		enc := int32(binary.BigEndian.Uint32(buf[i*4 : i*4+4]))
 		switch enc {
+		case encCopyRect:
+			s.useCopyRect = true
+			if s.copyRectDet == nil {
+				s.copyRectDet = newCopyRectDetector(tileSize)
+			}
+			encs = append(encs, "copyrect")
 		case encZlib:
 			s.useZlib = true
 			if s.zlib == nil {
@@ -410,8 +418,8 @@ func (s *session) processFBRequest(req fbRequest) error {
 	}
 
 	if req.incremental && s.prevFrame != nil {
-		rects := diffRects(s.prevFrame, img, s.serverW, s.serverH, tileSize)
-		if len(rects) == 0 {
+		tiles := diffTiles(s.prevFrame, img, s.serverW, s.serverH, tileSize)
+		if len(tiles) == 0 {
 			// Nothing changed. Back off briefly before responding to reduce
 			// CPU usage when the screen is static. The client re-requests
 			// immediately after receiving our empty response, so without
@@ -423,17 +431,33 @@ func (s *session) processFBRequest(req fbRequest) error {
 			return s.sendEmptyUpdate()
 		}
 		s.idleFrames = 0
-		if s.shouldPromoteToFullFrame(rects) {
+
+		// Snapshot the dirty set before extractCopyRectTiles consumes it.
+		// extract mutates in place, so without the copy we lose the
+		// move-destination positions needed to incrementally update the
+		// CopyRect index after the swap.
+		dirty := make([][4]int, len(tiles))
+		copy(dirty, tiles)
+
+		var moves []copyRectMove
+		if s.useCopyRect && s.copyRectDet != nil {
+			moves, tiles = s.copyRectDet.extractCopyRectTiles(img, tiles)
+		}
+
+		rects := coalesceRects(tiles)
+		if s.shouldPromoteToFullFrame(rects) && len(moves) == 0 {
 			if err := s.sendFullUpdate(img); err != nil {
 				return err
 			}
 			s.swapPrevCur()
+			s.refreshCopyRectIndex()
 			return nil
 		}
-		if err := s.sendDirtyRects(img, rects); err != nil {
+		if err := s.sendDirtyAndMoves(img, moves, rects); err != nil {
 			return err
 		}
 		s.swapPrevCur()
+		s.updateCopyRectIndex(dirty)
 		return nil
 	}
 
@@ -443,7 +467,28 @@ func (s *session) processFBRequest(req fbRequest) error {
 		return err
 	}
 	s.swapPrevCur()
+	s.refreshCopyRectIndex()
 	return nil
+}
+
+// refreshCopyRectIndex does a full hash sweep of the just-swapped prevFrame.
+// Used after full-frame sends, where we don't have a per-tile dirty list to
+// drive an incremental update.
+func (s *session) refreshCopyRectIndex() {
+	if s.copyRectDet == nil || s.prevFrame == nil {
+		return
+	}
+	s.copyRectDet.rebuild(s.prevFrame, s.serverW, s.serverH)
+}
+
+// updateCopyRectIndex incrementally updates the CopyRect detector's hash
+// tables for the tiles that just changed. On first use (or after resize)
+// updateDirty internally falls back to a full rebuild.
+func (s *session) updateCopyRectIndex(dirty [][4]int) {
+	if s.copyRectDet == nil || s.prevFrame == nil {
+		return
+	}
+	s.copyRectDet.updateDirty(s.prevFrame, s.serverW, s.serverH, dirty)
 }
 
 // captureFrame returns a session-owned frame for this encode cycle.
@@ -529,18 +574,33 @@ func (s *session) sendFullUpdate(img *image.RGBA) error {
 	return err
 }
 
-func (s *session) sendDirtyRects(img *image.RGBA, rects [][4]int) error {
-	// Build a multi-rectangle FramebufferUpdate.
-	// Header: type(1) + padding(1) + numRects(2)
+// sendDirtyAndMoves writes one FramebufferUpdate combining CopyRect moves
+// (cheap, 16 bytes each) and pixel-encoded dirty rects. Moves come first so
+// their source tiles are read from the client's pre-update framebuffer state,
+// before any subsequent rect overwrites them.
+func (s *session) sendDirtyAndMoves(img *image.RGBA, moves []copyRectMove, rects [][4]int) error {
+	if len(moves) == 0 && len(rects) == 0 {
+		return nil
+	}
+
+	total := len(moves) + len(rects)
 	header := make([]byte, 4)
 	header[0] = serverFramebufferUpdate
-	binary.BigEndian.PutUint16(header[2:4], uint16(len(rects)))
+	binary.BigEndian.PutUint16(header[2:4], uint16(total))
 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
 	if _, err := s.conn.Write(header); err != nil {
 		return err
+	}
+
+	ts := tileSize
+	for _, m := range moves {
+		body := encodeCopyRectBody(m.srcX, m.srcY, m.dstX, m.dstY, ts, ts)
+		if _, err := s.conn.Write(body); err != nil {
+			return err
+		}
 	}
 
 	for _, r := range rects {

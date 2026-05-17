@@ -46,10 +46,11 @@ const (
 	serverCutText           = 3
 
 	// Encoding types.
-	encRaw     = 0
-	encHextile = 5
-	encZlib    = 6
-	encTight   = 7
+	encRaw      = 0
+	encCopyRect = 1
+	encHextile  = 5
+	encZlib     = 6
+	encTight    = 7
 
 	// Tight compression-control byte top nibble. Stream-reset bits 0-3
 	// (one per zlib stream) are unused while we run a single stream.
@@ -138,6 +139,22 @@ func parsePixelFormat(pf []byte) clientPixelFormat {
 		gShift:    pf[11],
 		bShift:    pf[12],
 	}
+}
+
+// encodeCopyRectBody emits the per-rect payload for a CopyRect rectangle:
+// the 12-byte rect header (dst position + size + encoding=1) plus a 4-byte
+// source position. Used inside multi-rect FramebufferUpdate messages, so
+// the 4-byte FU header is the caller's responsibility.
+func encodeCopyRectBody(srcX, srcY, dstX, dstY, w, h int) []byte {
+	buf := make([]byte, 12+4)
+	binary.BigEndian.PutUint16(buf[0:2], uint16(dstX))
+	binary.BigEndian.PutUint16(buf[2:4], uint16(dstY))
+	binary.BigEndian.PutUint16(buf[4:6], uint16(w))
+	binary.BigEndian.PutUint16(buf[6:8], uint16(h))
+	binary.BigEndian.PutUint32(buf[8:12], uint32(encCopyRect))
+	binary.BigEndian.PutUint16(buf[12:14], uint16(srcX))
+	binary.BigEndian.PutUint16(buf[14:16], uint16(srcY))
+	return buf
 }
 
 // encodeRawRect encodes a framebuffer region as a raw RFB rectangle.
@@ -311,13 +328,14 @@ func encodeZlibRect(img *image.RGBA, pf clientPixelFormat, x, y, w, h int, z *zl
 	return buf
 }
 
-// diffRects compares two RGBA images and returns a list of dirty rectangles.
-// Divides the screen into tiles and checks each for changes.
-func diffRects(prev, cur *image.RGBA, w, h, tileSize int) [][4]int {
+// diffTiles compares two RGBA images and returns a tile-ordered list of
+// dirty tiles, one entry per tile. Tile order is top-to-bottom, left-to-
+// right within each row. The caller decides whether to coalesce or hand
+// the list off to the CopyRect detector first.
+func diffTiles(prev, cur *image.RGBA, w, h, tileSize int) [][4]int {
 	if prev == nil {
 		return [][4]int{{0, 0, w, h}}
 	}
-
 	var rects [][4]int
 	for ty := 0; ty < h; ty += tileSize {
 		th := min(tileSize, h-ty)
@@ -328,7 +346,14 @@ func diffRects(prev, cur *image.RGBA, w, h, tileSize int) [][4]int {
 			}
 		}
 	}
-	return coalesceRects(rects)
+	return rects
+}
+
+// diffRects is the legacy convenience: diff then coalesce. Used by paths
+// that don't go through the CopyRect detector and by tests that exercise
+// the diff-plus-coalesce pipeline as one unit.
+func diffRects(prev, cur *image.RGBA, w, h, tileSize int) [][4]int {
+	return coalesceRects(diffTiles(prev, cur, w, h, tileSize))
 }
 
 // coalesceRects merges adjacent dirty tiles into larger rectangles to cut
