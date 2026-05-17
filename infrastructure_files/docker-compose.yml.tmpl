@@ -58,17 +58,6 @@ services:
     ]
 
   # Relay
-  #
-  # The relay listens on the same address for three transports, multiplexed by
-  # ALPN on a single TLS endpoint:
-  #   - TCP: WebSocket (rels:// path /relay) — universal, works through any HTTP proxy
-  #   - UDP: raw QUIC (nb-quic ALPN) — used by native clients
-  #   - UDP: HTTP/3 + WebTransport (h3 ALPN, path /relay) — used by browser/WASM clients
-  # Both TCP and UDP must be published on the same port. Operators who want to
-  # disable a transport for clients should NOT remove the port mapping — the
-  # listener still binds — instead drop the transport from each entry's
-  # `transports:` list in management.json so the management server stops
-  # advertising it.
   relay:
     <<: *default
     image: netbirdio/relay:$NETBIRD_RELAY_TAG

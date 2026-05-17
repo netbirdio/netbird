@@ -112,7 +112,6 @@ mkdir -p $artifacts_path
 MGMT_VOLUMENAME="${VOLUME_PREFIX}${MGMT_VOLUMESUFFIX}"
 SIGNAL_VOLUMENAME="${VOLUME_PREFIX}${SIGNAL_VOLUMESUFFIX}"
 LETSENCRYPT_VOLUMENAME="${VOLUME_PREFIX}${LETSENCRYPT_VOLUMESUFFIX}"
-RELAY_LE_VOLUMENAME="${VOLUME_PREFIX}${RELAY_LE_VOLUMESUFFIX}"
 # if volume with wiretrustee- prefix already exists, use it, else create new with netbird-
 OLD_PREFIX='wiretrustee-'
 if docker volume ls | grep -q "${OLD_PREFIX}${MGMT_VOLUMESUFFIX}"; then
@@ -128,7 +127,6 @@ fi
 export MGMT_VOLUMENAME
 export SIGNAL_VOLUMENAME
 export LETSENCRYPT_VOLUMENAME
-export RELAY_LE_VOLUMENAME
 
 #backwards compatibility after migrating to generic OIDC with Auth0
 if [[ -z "${NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT}" ]]; then
