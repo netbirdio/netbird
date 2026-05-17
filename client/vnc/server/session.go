@@ -62,6 +62,12 @@ type session struct {
 	clientSupportsQEMUKey             bool
 	clientSupportsExtClipboard        bool
 	extClipCapsSent                   bool
+	// clientJPEGQuality and clientZlibLevel hold the 0..9 levels the client
+	// advertised via the QualityLevel / CompressLevel pseudo-encodings, or
+	// -1 when the client has not expressed a preference. Applied to the
+	// tight encoder state after every SetEncodings.
+	clientJPEGQuality int
+	clientZlibLevel   int
 	// prevFrame, curFrame and idleFrames live on the encoder goroutine and
 	// must not be touched elsewhere. curFrame holds a session-owned copy of
 	// the capturer's latest frame so the encoder works on a stable buffer
@@ -92,6 +98,8 @@ func (s *session) addr() string { return s.conn.RemoteAddr().String() }
 func (s *session) serve() {
 	defer s.conn.Close()
 	s.pf = defaultClientPixelFormat()
+	s.clientJPEGQuality = -1
+	s.clientZlibLevel = -1
 	s.encodeCh = make(chan fbRequest, 1)
 
 	if err := s.handshake(); err != nil {
@@ -335,11 +343,21 @@ func (s *session) handleSetEncodings() error {
 			encs = append(encs, "ext-clipboard")
 		case encTight:
 			s.useTight = true
-			if s.tight == nil {
-				s.tight = newTightState()
-			}
 			encs = append(encs, "tight")
 		}
+		switch {
+		case enc >= pseudoEncQualityLevelMin && enc <= pseudoEncQualityLevelMax:
+			s.clientJPEGQuality = int(enc - pseudoEncQualityLevelMin)
+			encs = append(encs, fmt.Sprintf("quality=%d", s.clientJPEGQuality))
+		case enc >= pseudoEncCompressLevelMin && enc <= pseudoEncCompressLevelMax:
+			s.clientZlibLevel = int(enc - pseudoEncCompressLevelMin)
+			encs = append(encs, fmt.Sprintf("compress=%d", s.clientZlibLevel))
+		}
+	}
+	if s.useTight && (s.tight == nil ||
+		s.tight.qualityLevel != s.clientJPEGQuality ||
+		s.tight.compressLevel != s.clientZlibLevel) {
+		s.tight = newTightStateWithLevels(s.clientJPEGQuality, s.clientZlibLevel)
 	}
 	sendExtClipCaps := s.clientSupportsExtClipboard && !s.extClipCapsSent
 	if sendExtClipCaps {
@@ -877,7 +895,8 @@ func (s *session) handleExtCutText(payloadLen uint32) error {
 		}
 		return nil
 	case extClipActionProvide:
-		return s.handleExtClipProvide(flags, rest)
+		s.handleExtClipProvide(flags, rest)
+		return nil
 	default:
 		s.log.Debugf("unknown ext clipboard action 0x%x", action)
 		return nil
@@ -885,22 +904,21 @@ func (s *session) handleExtCutText(payloadLen uint32) error {
 }
 
 // handleExtClipProvide decodes a Provide payload and pushes the recovered
-// text into the host clipboard. Errors and other unsupported formats (RTF,
-// HTML, etc.) are swallowed so a malformed message doesn't tear down the
-// session.
-func (s *session) handleExtClipProvide(flags uint32, payload []byte) error {
+// text into the host clipboard. Decode errors and unsupported formats (RTF,
+// HTML, etc.) are logged and dropped so a malformed message doesn't tear
+// down the session.
+func (s *session) handleExtClipProvide(flags uint32, payload []byte) {
 	if len(payload) == 0 {
-		return nil
+		return
 	}
 	text, err := parseExtClipProvideText(flags, payload)
 	if err != nil {
 		s.log.Debugf("parse ext clipboard provide: %v", err)
-		return nil
+		return
 	}
 	if text != "" {
 		s.injector.SetClipboard(text)
 	}
-	return nil
 }
 
 // sendExtClipProvideText answers an inbound Request(text) with the current

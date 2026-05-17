@@ -69,6 +69,15 @@ const (
 	pseudoEncDesktopName             = -307
 	pseudoEncExtendedDesktopSize     = -308
 
+	// Quality/Compression level pseudo-encodings (TightVNC extension). The
+	// client picks one value from each range to tune JPEG quality and zlib
+	// effort. 0 is lowest quality / fastest, 9 is highest quality / best
+	// compression.
+	pseudoEncQualityLevelMin  = -32
+	pseudoEncQualityLevelMax  = -23
+	pseudoEncCompressLevelMin = -256
+	pseudoEncCompressLevelMax = -247
+
 	// Tight compression-control byte top nibble. Stream-reset bits 0-3
 	// (one per zlib stream) are unused while we run a single stream.
 	tightFillSubenc  = 0x80
@@ -427,14 +436,63 @@ type tightState struct {
 	// colorSeen is reused by sampledColorCount per rect; cleared via the Go
 	// runtime's map-clear fast path to avoid a fresh allocation each call.
 	colorSeen map[uint32]struct{}
+	// jpegQualityOverride forces a fixed JPEG quality on every rect when
+	// non-zero (set from the client's QualityLevel pseudo-encoding). Zero
+	// falls back to the area-based tiers in tightQualityFor.
+	jpegQualityOverride int
+	// qualityLevel and compressLevel are the 0..9 levels currently applied,
+	// or -1 if the client did not express a preference. Used to decide
+	// whether a SetEncodings refresh needs to recreate the tight state.
+	qualityLevel  int
+	compressLevel int
 }
 
 func newTightState() *tightState {
+	return newTightStateWithLevels(-1, -1)
+}
+
+// newTightStateWithLevels builds a tightState whose zlib stream and JPEG
+// quality reflect the client's QualityLevel / CompressLevel pseudo-encodings.
+// Pass -1 for either level to keep our defaults (BestSpeed zlib and the
+// area-tiered JPEG quality in tightQualityFor).
+func newTightStateWithLevels(qualityLevel, compressLevel int) *tightState {
 	return &tightState{
-		jpegBuf:   &bytes.Buffer{},
-		zlib:      newZlibState(),
-		colorSeen: make(map[uint32]struct{}, 64),
+		jpegBuf:             &bytes.Buffer{},
+		zlib:                newZlibStateLevel(zlibLevelFor(compressLevel)),
+		colorSeen:           make(map[uint32]struct{}, 64),
+		jpegQualityOverride: jpegQualityForLevel(qualityLevel),
+		qualityLevel:        qualityLevel,
+		compressLevel:       compressLevel,
 	}
+}
+
+// jpegQualityForLevel maps a 0..9 client preference to a JPEG quality value.
+// Returns 0 when no preference is set (-1), letting the encoder fall back to
+// the area-based tiers.
+func jpegQualityForLevel(level int) int {
+	if level < 0 {
+		return 0
+	}
+	if level > 9 {
+		level = 9
+	}
+	// 0 -> 30, 9 -> 93. Linear so adjacent steps are perceptually similar.
+	return 30 + level*7
+}
+
+// zlibLevelFor maps a 0..9 client preference to a zlib compression level.
+// Level 0 ("no compression") would emit larger output than input on most
+// rects, so we floor to BestSpeed (1). -1 (no preference) also picks
+// BestSpeed: matches the historical default before the pseudo-encoding
+// was honoured.
+func zlibLevelFor(level int) int {
+	if level < 1 {
+		return zlib.BestSpeed
+	}
+	if level > zlib.BestCompression {
+		return zlib.BestCompression
+	}
+	return level
 }
 
 // encodeTightRect emits a single Tight-encoded rect. Picks Fill for uniform
@@ -496,7 +554,11 @@ func encodeTightFill(x, y, w, h int, r, g, b byte) []byte {
 func encodeTightJPEG(img *image.RGBA, x, y, w, h int, t *tightState) ([]byte, bool) {
 	t.jpegBuf.Reset()
 	sub := img.SubImage(image.Rect(img.Rect.Min.X+x, img.Rect.Min.Y+y, img.Rect.Min.X+x+w, img.Rect.Min.Y+y+h))
-	if err := jpeg.Encode(t.jpegBuf, sub, &jpeg.Options{Quality: tightQualityFor(w * h)}); err != nil {
+	q := t.jpegQualityOverride
+	if q == 0 {
+		q = tightQualityFor(w * h)
+	}
+	if err := jpeg.Encode(t.jpegBuf, sub, &jpeg.Options{Quality: q}); err != nil {
 		return nil, false
 	}
 	jpegBytes := t.jpegBuf.Bytes()
@@ -610,8 +672,12 @@ type zlibState struct {
 }
 
 func newZlibState() *zlibState {
+	return newZlibStateLevel(zlib.BestSpeed)
+}
+
+func newZlibStateLevel(level int) *zlibState {
 	buf := &bytes.Buffer{}
-	w, _ := zlib.NewWriterLevel(buf, zlib.BestSpeed)
+	w, _ := zlib.NewWriterLevel(buf, level)
 	return &zlibState{buf: buf, w: w}
 }
 
