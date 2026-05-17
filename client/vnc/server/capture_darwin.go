@@ -93,6 +93,27 @@ type CGCapturer struct {
 	hasHash   bool
 }
 
+// PrimeScreenCapturePermission triggers the macOS Screen Recording
+// permission probe (and prompt, if not granted) without creating a full
+// capturer. The platform wiring calls this at VNC-server enable time so
+// the user sees the prompt the moment they turn the feature on, rather
+// than on first-client-connect when the cause may not be obvious.
+func PrimeScreenCapturePermission() {
+	initDarwinCapture()
+	if !darwinCaptureReady {
+		return
+	}
+	if cgPreflightScreenCaptureAccess == nil || cgPreflightScreenCaptureAccess() {
+		return
+	}
+	if cgRequestScreenCaptureAccess != nil {
+		cgRequestScreenCaptureAccess()
+	}
+	openPrivacyPane("Privacy_ScreenCapture")
+	log.Warn("Screen Recording permission not granted. Approve the prompt " +
+		"or grant in System Settings > Privacy & Security > Screen Recording.")
+}
+
 // NewCGCapturer creates a screen capturer for the main display.
 func NewCGCapturer() (*CGCapturer, error) {
 	initDarwinCapture()

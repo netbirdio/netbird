@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"unsafe"
 
 	"github.com/ebitengine/purego"
 	log "github.com/sirupsen/logrus"
@@ -54,6 +55,23 @@ var (
 	cgEventCreateScrollWheelEventAddr uintptr
 
 	axIsProcessTrusted func() bool
+	// axIsProcessTrustedWithOptions takes a CFDictionary; when the dict's
+	// kAXTrustedCheckOptionPrompt key is true, macOS shows the native
+	// Accessibility prompt with an "Open System Settings" button the
+	// first time the process asks. The bare AXIsProcessTrusted variant is
+	// a silent check that never prompts.
+	axIsProcessTrustedWithOptions func(uintptr) bool
+	// cfDictionaryCreate builds the options dictionary above.
+	cfDictionaryCreate func(uintptr, *uintptr, *uintptr, int64, uintptr, uintptr) uintptr
+	// cfBooleanTrue is the global CF boolean we cache from a Dlsym lookup.
+	cfBooleanTrue uintptr
+	// axTrustedCheckOptionPromptCFStr is the option key for the dict.
+	axTrustedCheckOptionPromptCFStr uintptr
+	// kCFTypeDictionaryKey/Value CallBacks: standard CF retain/release
+	// callback tables. Required so the dict properly manages refcounts on
+	// the CFString key and CFBoolean value.
+	kCFTypeDictionaryKeyCallBacksAddr   uintptr
+	kCFTypeDictionaryValueCallBacksAddr uintptr
 
 	// IOKit power-management bindings used to wake the display and inhibit
 	// idle sleep while a VNC client is driving input.
@@ -100,12 +118,47 @@ func initDarwinInput() {
 			if sym, err := purego.Dlsym(ax, "AXIsProcessTrusted"); err == nil {
 				purego.RegisterFunc(&axIsProcessTrusted, sym)
 			}
+			if sym, err := purego.Dlsym(ax, "AXIsProcessTrustedWithOptions"); err == nil {
+				purego.RegisterFunc(&axIsProcessTrustedWithOptions, sym)
+			}
 		}
 
+		// initPowerAssertions registers cfStringCreateWithCString, which
+		// initCFDictionarySymbols then uses to build the AX prompt key.
 		initPowerAssertions()
+		initCFDictionarySymbols()
 
 		darwinInputReady = true
 	})
+}
+
+// initCFDictionarySymbols loads the CF symbols needed to build the
+// options dictionary for AXIsProcessTrustedWithOptions. Best-effort:
+// failure here just leaves axIsProcessTrustedWithOptions unusable and we
+// fall back to the silent check.
+func initCFDictionarySymbols() {
+	cf, err := purego.Dlopen("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation", purego.RTLD_NOW|purego.RTLD_GLOBAL)
+	if err != nil {
+		log.Debugf("load CoreFoundation for AX prompt dict: %v", err)
+		return
+	}
+	if sym, err := purego.Dlsym(cf, "CFDictionaryCreate"); err == nil {
+		purego.RegisterFunc(&cfDictionaryCreate, sym)
+	}
+	if sym, err := purego.Dlsym(cf, "kCFTypeDictionaryKeyCallBacks"); err == nil {
+		kCFTypeDictionaryKeyCallBacksAddr = sym
+	}
+	if sym, err := purego.Dlsym(cf, "kCFTypeDictionaryValueCallBacks"); err == nil {
+		kCFTypeDictionaryValueCallBacksAddr = sym
+	}
+	if sym, err := purego.Dlsym(cf, "kCFBooleanTrue"); err == nil {
+		// kCFBooleanTrue is a pointer-to-pointer (CFBooleanRef stored at the
+		// symbol address). Dereference once to get the actual CFBoolean.
+		cfBooleanTrue = *(*uintptr)(unsafe.Pointer(sym))
+	}
+	if cfStringCreateWithCString != nil {
+		axTrustedCheckOptionPromptCFStr = cfStringCreateWithCString(0, "AXTrustedCheckOptionPrompt", kCFStringEncodingUTF8)
+	}
 }
 
 func initPowerAssertions() {
@@ -234,23 +287,53 @@ func NewMacInputInjector() (*MacInputInjector, error) {
 	return m, nil
 }
 
-// checkMacPermissions warns and opens the Privacy pane if Accessibility is
-// missing. Uses AXIsProcessTrusted which returns immediately; the previous
-// osascript probe blocked for 120s (AppleEvent timeout) when access was
-// denied, which delayed VNC server startup past client deadlines.
+// checkMacPermissions probes Accessibility access. Prefers the prompting
+// variant of AXIsProcessTrusted: when the process is not yet trusted,
+// macOS shows its native "would like to control your computer" dialog
+// with an "Open System Settings" button. The silent variant is the
+// fallback when the prompting symbol or its CF dictionary plumbing
+// couldn't be loaded.
 func checkMacPermissions() {
-	if axIsProcessTrusted != nil && !axIsProcessTrusted() {
-		openPrivacyPane("Privacy_Accessibility")
+	if !axProcessIsTrusted() {
 		log.Warn("Accessibility permission not granted. Input injection will not work. " +
-			"Opened System Settings > Privacy & Security > Accessibility; enable netbird.")
+			"Approve the prompt or grant in System Settings > Privacy & Security > Accessibility.")
+		openPrivacyPane("Privacy_Accessibility")
 	}
-
-	log.Info("Screen Recording permission is required for screen capture. " +
-		"If the screen appears black, grant in System Settings > Privacy & Security > Screen Recording.")
 }
 
-// openPrivacyPane opens the given Privacy pane in System Settings so the user
-// can toggle the permission without navigating manually.
+// axProcessIsTrusted asks macOS whether netbird has Accessibility access,
+// and triggers the native prompt the first time when not trusted. Returns
+// the current trust status either way.
+func axProcessIsTrusted() bool {
+	if axIsProcessTrustedWithOptions != nil &&
+		cfDictionaryCreate != nil &&
+		axTrustedCheckOptionPromptCFStr != 0 &&
+		cfBooleanTrue != 0 &&
+		kCFTypeDictionaryKeyCallBacksAddr != 0 &&
+		kCFTypeDictionaryValueCallBacksAddr != 0 {
+		keys := [1]uintptr{axTrustedCheckOptionPromptCFStr}
+		values := [1]uintptr{cfBooleanTrue}
+		dict := cfDictionaryCreate(0, &keys[0], &values[0], 1,
+			kCFTypeDictionaryKeyCallBacksAddr,
+			kCFTypeDictionaryValueCallBacksAddr)
+		if dict != 0 {
+			return axIsProcessTrustedWithOptions(dict)
+		}
+	}
+	if axIsProcessTrusted != nil {
+		return axIsProcessTrusted()
+	}
+	// Symbol load failed entirely. Assume trusted so we don't spam the
+	// log every cycle; capture/inject calls will report concrete errors
+	// if access really is missing.
+	return true
+}
+
+// openPrivacyPane opens the relevant pane of System Settings so the user
+// can toggle the permission without navigating manually. The
+// x-apple.systempreferences URL scheme works on every macOS release from
+// 10.10 onward; the per-pane anchor (Privacy_Accessibility, Privacy_ScreenCapture)
+// is what System Settings/Preferences uses to land on the right row.
 func openPrivacyPane(pane string) {
 	url := "x-apple.systempreferences:com.apple.preference.security?" + pane
 	if err := exec.Command("open", url).Start(); err != nil {
