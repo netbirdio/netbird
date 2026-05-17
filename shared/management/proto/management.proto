@@ -288,9 +288,29 @@ message HostConfig {
 }
 
 message RelayConfig {
+  // urls is the legacy flat list of relay addresses. Clients should prefer
+  // endpoints when present; urls remains populated for backward compatibility
+  // with older clients that don't understand RelayEndpoint.
   repeated string urls = 1;
   string tokenPayload = 2;
   string tokenSignature = 3;
+  // endpoints carries per-relay transport capability hints so clients can
+  // skip dialers a given relay doesn't speak (e.g. only attempt WebTransport
+  // against relays that advertise "wt").
+  repeated RelayEndpoint endpoints = 4;
+}
+
+// RelayEndpoint announces a single relay server and the transports it speaks.
+// Mirrors the peer/proxy capability-announcement pattern.
+message RelayEndpoint {
+  // url is the relay address, e.g. rels://relay.example.com:443
+  string url = 1;
+  // transports lists the protocols the relay accepts. Known values:
+  //   "ws"   - WebSocket over TCP/443 (always supported by current relays)
+  //   "quic" - raw QUIC over UDP (native clients only)
+  //   "wt"   - WebTransport over HTTP/3 (browser clients)
+  // Empty means "unknown — try all dialers".
+  repeated string transports = 2;
 }
 
 message FlowConfig {

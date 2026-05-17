@@ -172,6 +172,17 @@ type Client struct {
 	stateSubscription *PeersStateSubscription
 
 	mtu uint16
+
+	// transportHint optionally restricts the race dialer to the listed
+	// protocols. Empty means try every locally compiled dialer.
+	transportHint []string
+}
+
+// SetTransportHint configures the relay client to only attempt the given
+// transports during the dial race. Pass nil/empty to clear the restriction.
+// Must be set before Connect.
+func (c *Client) SetTransportHint(transports []string) {
+	c.transportHint = transports
 }
 
 // NewClient creates a new client for the relay server. The client is not connected to the server until the Connect
@@ -374,7 +385,8 @@ func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
 	}
 
 	if conn == nil {
-		rd := dialer.NewRaceDial(c.log, dialer.DefaultConnectionTimeout, c.connectionURL, dialers...)
+		rd := dialer.NewRaceDial(c.log, dialer.DefaultConnectionTimeout, c.connectionURL, dialers...).
+			WithTransportHint(c.transportHint)
 		var err error
 		conn, err = rd.Dial(ctx)
 		if err != nil {
@@ -405,7 +417,8 @@ func (c *Client) dialRaceDirect(ctx context.Context, dialers []dialer.DialeFn) (
 	c.log.Debugf("dialing via server IP %s (SNI=%s)", c.serverIP, serverName)
 
 	rd := dialer.NewRaceDial(c.log, dialer.DefaultConnectionTimeout, directURL, dialers...).
-		WithServerName(serverName)
+		WithServerName(serverName).
+		WithTransportHint(c.transportHint)
 	return rd.Dial(ctx)
 }
 

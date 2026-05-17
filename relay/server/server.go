@@ -14,6 +14,7 @@ import (
 	"github.com/netbirdio/netbird/relay/server/listener"
 	"github.com/netbirdio/netbird/relay/server/listener/quic"
 	"github.com/netbirdio/netbird/relay/server/listener/ws"
+	"github.com/netbirdio/netbird/relay/server/listener/wt"
 	quictls "github.com/netbirdio/netbird/shared/relay/tls"
 )
 
@@ -69,13 +70,26 @@ func (r *Server) Listen(cfg ListenerConfig) error {
 	r.listenerMux.Lock()
 	r.listeners = append(r.listeners, wSListener)
 
-	tlsConfigQUIC, err := quictls.ServerQUICTLSConfig(cfg.TLSConfig)
+	tlsConfigQUIC, err := quictls.ServerMuxTLSConfig(cfg.TLSConfig)
 	if err != nil {
 		log.Warnf("Not starting QUIC listener: %v", err)
 	} else {
+		// WebTransport handler shares the QUIC listener's UDP socket via ALPN
+		// multiplexing. http3 uses its own TLS config with only the "h3" ALPN.
+		wtTLS := tlsConfigQUIC.Clone()
+		wtTLS.NextProtos = []string{quictls.H3alpn}
+		wtHandler := wt.New(wtTLS)
+		if err := wtHandler.Install(r.relay.Accept); err != nil {
+			log.Warnf("WebTransport handler not installed: %v", err)
+			wtHandler = nil
+		}
+
 		quicListener := &quic.Listener{
 			Address:   cfg.Address,
 			TLSConfig: tlsConfigQUIC,
+		}
+		if wtHandler != nil {
+			quicListener.H3 = wtHandler
 		}
 
 		r.listeners = append(r.listeners, quicListener)

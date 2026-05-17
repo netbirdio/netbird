@@ -244,6 +244,16 @@ func (m *Manager) HasRelayAddress() bool {
 func (m *Manager) UpdateServerURLs(serverURLs []string) {
 	log.Infof("update relay server URLs: %v", serverURLs)
 	m.serverPicker.ServerURLs.Store(serverURLs)
+	m.serverPicker.Endpoints.Store(EndpointsFromURLs(serverURLs))
+}
+
+// UpdateServerEndpoints replaces the picker's relay endpoint list, including
+// per-relay transport capability hints announced by the management server.
+// Callers that don't have hints should keep using UpdateServerURLs.
+func (m *Manager) UpdateServerEndpoints(endpoints []ServerEndpoint) {
+	log.Infof("update relay endpoints: %d entries", len(endpoints))
+	m.serverPicker.ServerURLs.Store(URLsFromEndpoints(endpoints))
+	m.serverPicker.Endpoints.Store(endpoints)
 }
 
 // UpdateToken updates the token in the token store.

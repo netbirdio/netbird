@@ -952,8 +952,20 @@ func (e *Engine) handleRelayUpdate(update *mgmProto.RelayConfig) error {
 		if override, ok := peer.OverrideRelayURLs(); ok {
 			log.Infof("overriding relay URLs from %s: %v", peer.EnvKeyNBHomeRelayServers, override)
 			urls = override
+			e.relayManager.UpdateServerURLs(urls)
+		} else if eps := update.GetEndpoints(); len(eps) > 0 {
+			// Management announced per-relay transport hints; use the rich form.
+			converted := make([]relayClient.ServerEndpoint, len(eps))
+			for i, ep := range eps {
+				converted[i] = relayClient.ServerEndpoint{
+					URL:        ep.GetUrl(),
+					Transports: ep.GetTransports(),
+				}
+			}
+			e.relayManager.UpdateServerEndpoints(converted)
+		} else {
+			e.relayManager.UpdateServerURLs(urls)
 		}
-		e.relayManager.UpdateServerURLs(urls)
 
 		// Just in case the agent started with an MGM server where the relay was disabled but was later enabled.
 		// We can ignore all errors because the guard will manage the reconnection retries.

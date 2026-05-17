@@ -32,6 +32,7 @@ type RaceDial struct {
 	serverName        string
 	dialerFns         []DialeFn
 	connectionTimeout time.Duration
+	transportHint     []string
 }
 
 func NewRaceDial(log *log.Entry, connectionTimeout time.Duration, serverURL string, dialerFns ...DialeFn) *RaceDial {
@@ -53,17 +54,53 @@ func (r *RaceDial) WithServerName(serverName string) *RaceDial {
 	return r
 }
 
+// WithTransportHint restricts the dial race to dialers whose Protocol() is
+// listed in hint. An empty or nil hint means "try every configured dialer"
+// (legacy behavior). Used to skip dialers a relay has advertised it doesn't
+// support — e.g. don't burn a WebTransport handshake on an old relay.
+func (r *RaceDial) WithTransportHint(hint []string) *RaceDial {
+	r.transportHint = hint
+	return r
+}
+
+// activeDialers returns the subset of dialerFns that match the transport hint.
+// With no hint set, all dialers are returned.
+func (r *RaceDial) activeDialers() []DialeFn {
+	if len(r.transportHint) == 0 {
+		return r.dialerFns
+	}
+	allowed := make(map[string]struct{}, len(r.transportHint))
+	for _, p := range r.transportHint {
+		allowed[p] = struct{}{}
+	}
+	out := make([]DialeFn, 0, len(r.dialerFns))
+	for _, d := range r.dialerFns {
+		if _, ok := allowed[d.Protocol()]; ok {
+			out = append(out, d)
+		}
+	}
+	if len(out) == 0 {
+		// Hint matched nothing the local build supports — fall back to all
+		// rather than fail with no dialers. Mirrors race-dialer's "try
+		// everything" default.
+		r.log.Debugf("transport hint %v matched no local dialer; falling back to all", r.transportHint)
+		return r.dialerFns
+	}
+	return out
+}
+
 func (r *RaceDial) Dial(ctx context.Context) (net.Conn, error) {
-	connChan := make(chan dialResult, len(r.dialerFns))
+	dialers := r.activeDialers()
+	connChan := make(chan dialResult, len(dialers))
 	winnerConn := make(chan net.Conn, 1)
 	abortCtx, abort := context.WithCancel(ctx)
 	defer abort()
 
-	for _, dfn := range r.dialerFns {
+	for _, dfn := range dialers {
 		go r.dial(dfn, abortCtx, connChan)
 	}
 
-	go r.processResults(connChan, winnerConn, abort)
+	go r.processResults(connChan, winnerConn, abort, len(dialers))
 
 	conn, ok := <-winnerConn
 	if !ok {
@@ -81,9 +118,9 @@ func (r *RaceDial) dial(dfn DialeFn, abortCtx context.Context, connChan chan dia
 	connChan <- dialResult{Conn: conn, Protocol: dfn.Protocol(), Err: err}
 }
 
-func (r *RaceDial) processResults(connChan chan dialResult, winnerConn chan net.Conn, abort context.CancelFunc) {
+func (r *RaceDial) processResults(connChan chan dialResult, winnerConn chan net.Conn, abort context.CancelFunc, total int) {
 	var hasWinner bool
-	for i := 0; i < len(r.dialerFns); i++ {
+	for i := 0; i < total; i++ {
 		dr := <-connChan
 		if dr.Err != nil {
 			if errors.Is(dr.Err, context.Canceled) {
