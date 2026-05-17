@@ -60,6 +60,8 @@ type session struct {
 	clientSupportsDesktopName         bool
 	clientSupportsLastRect            bool
 	clientSupportsQEMUKey             bool
+	clientSupportsExtClipboard        bool
+	extClipCapsSent                   bool
 	// prevFrame, curFrame and idleFrames live on the encoder goroutine and
 	// must not be touched elsewhere. curFrame holds a session-owned copy of
 	// the capturer's latest frame so the encoder works on a stable buffer
@@ -132,12 +134,21 @@ func (s *session) clipboardPoll(done <-chan struct{}) {
 			if len(text) > maxCutTextBytes {
 				text = text[:maxCutTextBytes]
 			}
-			if text != "" && text != lastClip {
-				lastClip = text
-				if err := s.sendServerCutText(text); err != nil {
-					s.log.Debugf("send clipboard to client: %v", err)
+			if text == "" || text == lastClip {
+				continue
+			}
+			lastClip = text
+			s.encMu.RLock()
+			ext := s.clientSupportsExtClipboard
+			s.encMu.RUnlock()
+			if ext {
+				if err := s.writeExtClipMessage(buildExtClipNotify(extClipFormatText)); err != nil {
+					s.log.Debugf("send ext clipboard notify: %v", err)
 					return
 				}
+			} else if err := s.sendServerCutText(text); err != nil {
+				s.log.Debugf("send clipboard to client: %v", err)
+				return
 			}
 		}
 	}
@@ -319,6 +330,9 @@ func (s *session) handleSetEncodings() error {
 		case pseudoEncQEMUExtendedKeyEvent:
 			s.clientSupportsQEMUKey = true
 			encs = append(encs, "qemu-key")
+		case pseudoEncExtendedClipboard:
+			s.clientSupportsExtClipboard = true
+			encs = append(encs, "ext-clipboard")
 		case encTight:
 			s.useTight = true
 			if s.tight == nil {
@@ -327,9 +341,18 @@ func (s *session) handleSetEncodings() error {
 			encs = append(encs, "tight")
 		}
 	}
+	sendExtClipCaps := s.clientSupportsExtClipboard && !s.extClipCapsSent
+	if sendExtClipCaps {
+		s.extClipCapsSent = true
+	}
 	s.encMu.Unlock()
 	if len(encs) > 0 {
 		s.log.Debugf("client supports encodings: %s", strings.Join(encs, ", "))
+	}
+	if sendExtClipCaps {
+		if err := s.writeExtClipMessage(buildExtClipCaps()); err != nil {
+			return fmt.Errorf("send ext clipboard caps: %w", err)
+		}
 	}
 	return nil
 }
@@ -795,7 +818,16 @@ func (s *session) handleCutText() error {
 	if _, err := io.ReadFull(s.conn, header[:]); err != nil {
 		return fmt.Errorf("read CutText header: %w", err)
 	}
-	length := binary.BigEndian.Uint32(header[3:7])
+	rawLen := int32(binary.BigEndian.Uint32(header[3:7]))
+	if rawLen < 0 {
+		// Negative length signals ExtendedClipboard; absolute value is the
+		// payload size. Guard against MinInt32 overflow before negating.
+		if rawLen == -2147483648 {
+			return fmt.Errorf("ext clipboard payload too large")
+		}
+		return s.handleExtCutText(uint32(-rawLen))
+	}
+	length := uint32(rawLen)
 	if length > maxCutTextBytes {
 		return fmt.Errorf("cut text too large: %d bytes", length)
 	}
@@ -805,6 +837,94 @@ func (s *session) handleCutText() error {
 	}
 	s.injector.SetClipboard(string(buf))
 	return nil
+}
+
+// handleExtCutText parses an ExtendedClipboard message (any of Caps,
+// Notify, Request, Peek, Provide) carried as a negative-length CutText.
+// Unknown actions and formats we don't handle (RTF/HTML/DIB/Files) are
+// dropped without aborting the session.
+func (s *session) handleExtCutText(payloadLen uint32) error {
+	if payloadLen < 4 {
+		return fmt.Errorf("ext clipboard payload too short: %d", payloadLen)
+	}
+	if payloadLen > extClipMaxPayload {
+		return fmt.Errorf("ext clipboard payload too large: %d", payloadLen)
+	}
+	buf := make([]byte, payloadLen)
+	if _, err := io.ReadFull(s.conn, buf); err != nil {
+		return fmt.Errorf("read ext clipboard payload: %w", err)
+	}
+	flags := binary.BigEndian.Uint32(buf[0:4])
+	action := flags & extClipActionMask
+	formats := flags & extClipFormatMask
+	rest := buf[4:]
+
+	switch action {
+	case extClipActionCaps:
+		// Client max sizes are informational for us today: we only emit
+		// text and already cap it at extClipMaxText.
+		return nil
+	case extClipActionRequest:
+		if formats&extClipFormatText != 0 {
+			return s.sendExtClipProvideText()
+		}
+		return nil
+	case extClipActionPeek:
+		return s.writeExtClipMessage(buildExtClipNotify(extClipFormatText))
+	case extClipActionNotify:
+		if formats&extClipFormatText != 0 {
+			return s.writeExtClipMessage(buildExtClipRequest(extClipFormatText))
+		}
+		return nil
+	case extClipActionProvide:
+		if len(rest) == 0 {
+			return nil
+		}
+		text, err := parseExtClipProvideText(flags, rest)
+		if err != nil {
+			s.log.Debugf("parse ext clipboard provide: %v", err)
+			return nil
+		}
+		if text != "" {
+			s.injector.SetClipboard(text)
+		}
+		return nil
+	default:
+		s.log.Debugf("unknown ext clipboard action 0x%x", action)
+		return nil
+	}
+}
+
+// sendExtClipProvideText answers an inbound Request(text) with the current
+// host clipboard contents, capped to extClipMaxText.
+func (s *session) sendExtClipProvideText() error {
+	text := s.injector.GetClipboard()
+	if len(text) > extClipMaxText {
+		text = text[:extClipMaxText]
+	}
+	payload, err := buildExtClipProvideText(text)
+	if err != nil {
+		return fmt.Errorf("build provide: %w", err)
+	}
+	return s.writeExtClipMessage(payload)
+}
+
+// writeExtClipMessage frames an ExtendedClipboard payload as a ServerCutText
+// message with a negative length, then writes it under writeMu.
+func (s *session) writeExtClipMessage(payload []byte) error {
+	if len(payload) == 0 {
+		return nil
+	}
+	buf := make([]byte, 8+len(payload))
+	buf[0] = serverCutText
+	// buf[1:4] = padding (zero)
+	binary.BigEndian.PutUint32(buf[4:8], uint32(-int32(len(payload))))
+	copy(buf[8:], payload)
+
+	s.writeMu.Lock()
+	_, err := s.conn.Write(buf)
+	s.writeMu.Unlock()
+	return err
 }
 
 // handleTypeText handles the NetBird-specific PasteAndType message used by
