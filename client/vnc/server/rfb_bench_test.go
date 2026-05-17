@@ -58,16 +58,16 @@ func BenchmarkEncodeRawRect(b *testing.B) {
 	}
 }
 
-func BenchmarkEncodeZlibRect(b *testing.B) {
+func BenchmarkEncodeTightRect(b *testing.B) {
 	pf := defaultClientPixelFormat()
 	for _, r := range benchRects {
 		img := makeBenchImage(r.w, r.h, 1)
-		z := newZlibState()
+		t := newTightState()
 		b.Run(r.name, func(b *testing.B) {
 			b.SetBytes(int64(r.w * r.h * 4))
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				_ = encodeZlibRect(img, pf, 0, 0, r.w, r.h, z)
+				_ = encodeTightRect(img, pf, 0, 0, r.w, r.h, t)
 			}
 		})
 	}
@@ -151,9 +151,9 @@ func BenchmarkSwizzleBGRAtoRGBANaive(b *testing.B) {
 	}
 }
 
-// BenchmarkEncodeUniformTile_Zlib measures the cost of sending a uniform
-// 64×64 dirty tile via zlib (the old path before the Hextile fast path).
-func BenchmarkEncodeUniformTile_Zlib(b *testing.B) {
+// BenchmarkEncodeUniformTile_TightFill measures the fast path for a uniform
+// 64×64 tile via Tight's Fill subencoding (16 wire bytes regardless of size).
+func BenchmarkEncodeUniformTile_TightFill(b *testing.B) {
 	pf := defaultClientPixelFormat()
 	img := image.NewRGBA(image.Rect(0, 0, 64, 64))
 	for i := 0; i < len(img.Pix); i += 4 {
@@ -162,24 +162,11 @@ func BenchmarkEncodeUniformTile_Zlib(b *testing.B) {
 		img.Pix[i+2] = 0x99
 		img.Pix[i+3] = 0xff
 	}
-	z := newZlibState()
+	t := newTightState()
 	b.ReportAllocs()
 	var bytesOut int
 	for i := 0; i < b.N; i++ {
-		out := encodeZlibRect(img, pf, 0, 0, 64, 64, z)
-		bytesOut = len(out)
-	}
-	b.ReportMetric(float64(bytesOut), "wire_bytes")
-}
-
-// BenchmarkEncodeUniformTile_Hextile measures the new fast path: uniform
-// 64×64 tile emitted as Hextile SolidFill.
-func BenchmarkEncodeUniformTile_Hextile(b *testing.B) {
-	pf := defaultClientPixelFormat()
-	b.ReportAllocs()
-	var bytesOut int
-	for i := 0; i < b.N; i++ {
-		out := encodeHextileSolidRect(0x33, 0x66, 0x99, pf, rect{0, 0, 64, 64})
+		out := encodeTightRect(img, pf, 0, 0, 64, 64, t)
 		bytesOut = len(out)
 	}
 	b.ReportMetric(float64(bytesOut), "wire_bytes")
@@ -198,7 +185,7 @@ func BenchmarkTileIsUniform(b *testing.B) {
 
 // BenchmarkEncodeManyTilesVsFullFrame exercises the bandwidth + CPU
 // trade-off that motivates the full-frame promotion path: encoding a burst
-// of N dirty 64×64 tiles as separate zlib rects vs emitting one big zlib
+// of N dirty 64×64 tiles as separate Tight rects vs emitting one big Tight
 // rect for the whole frame.
 func BenchmarkEncodeManyTilesVsFullFrame(b *testing.B) {
 	pf := defaultClientPixelFormat()
@@ -222,15 +209,15 @@ func BenchmarkEncodeManyTilesVsFullFrame(b *testing.B) {
 	}
 	nTiles := len(tiles)
 
-	b.Run("per_tile_zlib", func(b *testing.B) {
-		z := newZlibState()
+	b.Run("per_tile_tight", func(b *testing.B) {
+		t := newTightState()
 		b.SetBytes(int64(w * h * 4))
 		b.ReportAllocs()
 		var totalOut int
 		for i := 0; i < b.N; i++ {
 			totalOut = 0
 			for _, r := range tiles {
-				out := encodeZlibRect(img, pf, r[0], r[1], r[2], r[3], z)
+				out := encodeTightRect(img, pf, r[0], r[1], r[2], r[3], t)
 				totalOut += len(out)
 			}
 		}
@@ -238,13 +225,13 @@ func BenchmarkEncodeManyTilesVsFullFrame(b *testing.B) {
 		b.ReportMetric(float64(nTiles), "tiles")
 	})
 
-	b.Run("full_frame_zlib", func(b *testing.B) {
-		z := newZlibState()
+	b.Run("full_frame_tight", func(b *testing.B) {
+		t := newTightState()
 		b.SetBytes(int64(w * h * 4))
 		b.ReportAllocs()
 		var totalOut int
 		for i := 0; i < b.N; i++ {
-			out := encodeZlibRect(img, pf, 0, 0, w, h, z)
+			out := encodeTightRect(img, pf, 0, 0, w, h, t)
 			totalOut = len(out)
 		}
 		b.ReportMetric(float64(totalOut), "wire_bytes")
@@ -297,13 +284,13 @@ func BenchmarkEncodeCoalescedVsPerTile(b *testing.B) {
 	coalesced := coalesceRects(append([][4]int(nil), perTile...))
 
 	b.Run("per_tile", func(b *testing.B) {
-		z := newZlibState()
+		t := newTightState()
 		b.ReportAllocs()
 		var bytesOut int
 		for i := 0; i < b.N; i++ {
 			bytesOut = 0
 			for _, r := range perTile {
-				out := encodeZlibRect(img, pf, r[0], r[1], r[2], r[3], z)
+				out := encodeTightRect(img, pf, r[0], r[1], r[2], r[3], t)
 				bytesOut += len(out)
 			}
 		}
@@ -312,13 +299,13 @@ func BenchmarkEncodeCoalescedVsPerTile(b *testing.B) {
 	})
 
 	b.Run("coalesced", func(b *testing.B) {
-		z := newZlibState()
+		t := newTightState()
 		b.ReportAllocs()
 		var bytesOut int
 		for i := 0; i < b.N; i++ {
 			bytesOut = 0
 			for _, r := range coalesced {
-				out := encodeZlibRect(img, pf, r[0], r[1], r[2], r[3], z)
+				out := encodeTightRect(img, pf, r[0], r[1], r[2], r[3], t)
 				bytesOut += len(out)
 			}
 		}
@@ -352,10 +339,10 @@ func BenchmarkCoalesceRects(b *testing.B) {
 	}
 }
 
-// BenchmarkEncodeTightVsZlib_Photo compares Tight (which routes random/
-// photographic content to JPEG) against the persistent Zlib stream. JPEG
-// at quality 70 should be 5-15× smaller on this kind of content.
-func BenchmarkEncodeTightVsZlib_Photo(b *testing.B) {
+// BenchmarkEncodeTight_Photo measures Tight on random/photographic content.
+// The internal sampledColorCount gate routes large many-colour rects to JPEG
+// at quality 70.
+func BenchmarkEncodeTight_Photo(b *testing.B) {
 	pf := defaultClientPixelFormat()
 	for _, r := range []struct {
 		name string
@@ -366,17 +353,6 @@ func BenchmarkEncodeTightVsZlib_Photo(b *testing.B) {
 		{"1080p", 1920, 1080},
 	} {
 		img := makeBenchImage(r.w, r.h, 1)
-		b.Run(r.name+"/zlib", func(b *testing.B) {
-			z := newZlibState()
-			b.SetBytes(int64(r.w * r.h * 4))
-			b.ReportAllocs()
-			var bytesOut int
-			for i := 0; i < b.N; i++ {
-				out := encodeZlibRect(img, pf, 0, 0, r.w, r.h, z)
-				bytesOut = len(out)
-			}
-			b.ReportMetric(float64(bytesOut), "wire_bytes")
-		})
 		b.Run(r.name+"/tight", func(b *testing.B) {
 			t := newTightState()
 			b.SetBytes(int64(r.w * r.h * 4))

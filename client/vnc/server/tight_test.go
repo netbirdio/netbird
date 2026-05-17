@@ -2,9 +2,35 @@ package server
 
 import (
 	"bytes"
+	"image"
 	"image/jpeg"
 	"testing"
 )
+
+func makeUniformImage(w, h int, r, g, b byte) *image.RGBA {
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for i := 0; i < len(img.Pix); i += 4 {
+		img.Pix[i+0] = r
+		img.Pix[i+1] = g
+		img.Pix[i+2] = b
+		img.Pix[i+3] = 0xff
+	}
+	return img
+}
+
+func makeTwoColorImage(w, h int) *image.RGBA {
+	img := makeUniformImage(w, h, 0x10, 0x20, 0x30)
+	fg := [3]byte{0xa0, 0xb0, 0xc0}
+	for y := 0; y < h; y++ {
+		for x := w / 4; x < w/2; x++ {
+			i := y*img.Stride + x*4
+			img.Pix[i+0] = fg[0]
+			img.Pix[i+1] = fg[1]
+			img.Pix[i+2] = fg[2]
+		}
+	}
+	return img
+}
 
 func decodeTightLength(buf []byte) (n, consumed int) {
 	b0 := buf[0]

@@ -50,11 +50,8 @@ type session struct {
 	// reads them on every frame.
 	encMu       sync.RWMutex
 	pf          clientPixelFormat
-	useZlib     bool
-	useHextile  bool
 	useTight    bool
 	useCopyRect bool
-	zlib        *zlibState
 	tight       *tightState
 	copyRectDet *copyRectDetector
 	// Pseudo-encodings the client advertised support for. Updated under
@@ -356,15 +353,6 @@ func (s *session) handleSetEncodings() error {
 		case pseudoEncLastRect:
 			s.clientSupportsLastRect = true
 			encs = append(encs, "last-rect")
-		case encZlib:
-			s.useZlib = true
-			if s.zlib == nil {
-				s.zlib = newZlibState()
-			}
-			encs = append(encs, "zlib")
-		case encHextile:
-			s.useHextile = true
-			encs = append(encs, "hextile")
 		case encTight:
 			s.useTight = true
 			if s.tight == nil {
@@ -705,17 +693,26 @@ func (s *session) sendFullUpdate(img *image.RGBA) error {
 
 	s.encMu.RLock()
 	pf := s.pf
-	useZlib := s.useZlib
-	zlib := s.zlib
+	useTight := s.useTight
+	tight := s.tight
 	s.encMu.RUnlock()
 
-	var buf []byte
-	if useZlib && zlib != nil {
-		buf = encodeZlibRect(img, pf, 0, 0, w, h, zlib)
-	} else {
-		buf = encodeRawRect(img, pf, 0, 0, w, h)
+	if useTight && tight != nil && pfIsTightCompatible(pf) {
+		// Tight encodes arbitrary sizes natively (Fill for uniform, JPEG
+		// for photo-like, Basic+zlib otherwise). Wrap the rect bytes with
+		// the 4-byte FramebufferUpdate header.
+		rectBuf := encodeTightRect(img, pf, 0, 0, w, h, tight)
+		buf := make([]byte, 4+len(rectBuf))
+		buf[0] = serverFramebufferUpdate
+		binary.BigEndian.PutUint16(buf[2:4], 1)
+		copy(buf[4:], rectBuf)
+		s.writeMu.Lock()
+		_, err := s.conn.Write(buf)
+		s.writeMu.Unlock()
+		return err
 	}
 
+	buf := encodeRawRect(img, pf, 0, 0, w, h)
 	s.writeMu.Lock()
 	_, err := s.conn.Write(buf)
 	s.writeMu.Unlock()
@@ -761,45 +758,24 @@ func (s *session) sendDirtyAndMoves(img *image.RGBA, moves []copyRectMove, rects
 	return nil
 }
 
-// encodeTile produces the on-wire rect bytes for a single dirty tile,
-// picking the cheapest encoding available:
-//   - Hextile SolidFill when the tile is a single colour (~20 bytes for a
-//     64×64 tile instead of ~1-2 KB zlib, ~16 KB raw).
-//   - Zlib when the client negotiated it.
-//   - Raw otherwise.
+// encodeTile produces the on-wire rect bytes for a single dirty tile. Tight
+// is the only non-Raw encoding we negotiate: uniform tiles collapse to its
+// Fill subencoding (~16 bytes), photo-like rects route to JPEG, and the
+// rest take the Basic+zlib path. Raw is the fallback when Tight is not
+// negotiated or the negotiated pixel format is incompatible with Tight's
+// mandatory 24-bit RGB TPIXEL encoding.
 //
 // Output omits the 4-byte FramebufferUpdate header; callers combine multiple
 // tiles into one message.
 func (s *session) encodeTile(img *image.RGBA, x, y, w, h int) []byte {
 	s.encMu.RLock()
 	pf := s.pf
-	useHextile := s.useHextile
 	useTight := s.useTight
 	tight := s.tight
-	useZlib := s.useZlib
-	zlib := s.zlib
 	s.encMu.RUnlock()
 
-	if useHextile {
-		if pixel, uniform := tileIsUniform(img, x, y, w, h); uniform {
-			r := byte(pixel)
-			g := byte(pixel >> 8)
-			b := byte(pixel >> 16)
-			return encodeHextileSolidRect(r, g, b, pf, rect{x, y, w, h})
-		}
-		// Full Hextile encoder disabled pending investigation of 16x16
-		// red-tile artifacts on Windows. Solid-fill fast path is safe.
-	}
-	// Larger merged rects: prefer Tight (JPEG for photo-like, Basic+zlib
-	// otherwise) when the client supports it AND the negotiated format is
-	// compatible with Tight's mandatory 24-bit RGB TPIXEL encoding. Tight is
-	// dramatically better than RFB Zlib on photographic content and
-	// competitive on UI.
 	if useTight && tight != nil && pfIsTightCompatible(pf) {
 		return encodeTightRect(img, pf, x, y, w, h, tight)
-	}
-	if useZlib && zlib != nil {
-		return encodeZlibRect(img, pf, x, y, w, h, zlib)[4:]
 	}
 	return encodeRawRect(img, pf, x, y, w, h)[4:]
 }
