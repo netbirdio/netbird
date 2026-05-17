@@ -57,6 +57,7 @@ type session struct {
 	clientSupportsExtendedDesktopSize bool
 	clientSupportsDesktopName         bool
 	clientSupportsLastRect            bool
+	clientSupportsQEMUKey             bool
 	// prevFrame, curFrame and idleFrames live on the encoder goroutine and
 	// must not be touched elsewhere. curFrame holds a session-owned copy of
 	// the capturer's latest frame so the encoder works on a stable buffer
@@ -241,6 +242,8 @@ func (s *session) messageLoop() error {
 			err = s.handlePointerEvent()
 		case clientCutText:
 			err = s.handleCutText()
+		case clientQEMUMessage:
+			err = s.handleQEMUMessage()
 		case clientNetbirdTypeText:
 			err = s.handleTypeText()
 		default:
@@ -311,6 +314,9 @@ func (s *session) handleSetEncodings() error {
 		case pseudoEncLastRect:
 			s.clientSupportsLastRect = true
 			encs = append(encs, "last-rect")
+		case pseudoEncQEMUExtendedKeyEvent:
+			s.clientSupportsQEMUKey = true
+			encs = append(encs, "qemu-key")
 		case encTight:
 			s.useTight = true
 			if s.tight == nil {
@@ -746,6 +752,27 @@ func (s *session) handleKeyEvent() error {
 	down := data[0] == 1
 	keysym := binary.BigEndian.Uint32(data[3:7])
 	s.injector.InjectKey(keysym, down)
+	return nil
+}
+
+// handleQEMUMessage parses one QEMU vendor message. Today we only handle
+// subtype 0 (Extended Key Event); the message itself is 12 bytes total so
+// reading 11 more after the type byte covers the layout regardless of
+// subtype, and unknown subtypes are dropped without aborting the session.
+func (s *session) handleQEMUMessage() error {
+	var data [11]byte // subtype(1) + down(2) + keysym(4) + keycode(4)
+	if _, err := io.ReadFull(s.conn, data[:]); err != nil {
+		return fmt.Errorf("read QEMU message: %w", err)
+	}
+	subtype := data[0]
+	if subtype != qemuSubtypeExtendedKeyEvent {
+		s.log.Tracef("ignoring QEMU subtype %d", subtype)
+		return nil
+	}
+	down := binary.BigEndian.Uint16(data[1:3]) != 0
+	keysym := binary.BigEndian.Uint32(data[3:7])
+	scancode := binary.BigEndian.Uint32(data[7:11])
+	s.injector.InjectKeyScancode(scancode, keysym, down)
 	return nil
 }
 

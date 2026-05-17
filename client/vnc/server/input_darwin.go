@@ -352,6 +352,30 @@ func (m *MacInputInjector) InjectKey(keysym uint32, down bool) {
 	if keycode == 0xFFFF {
 		return
 	}
+	m.postMacKey(src, keycode, down)
+}
+
+// InjectKeyScancode injects using the QEMU scancode, mapped via the
+// qemuToMacVK table to Apple's virtual-keycode space. Apple uses an
+// entirely different scheme from PC AT scancodes, so the table is the
+// authoritative bridge. On miss we fall back to the keysym path.
+func (m *MacInputInjector) InjectKeyScancode(scancode, keysym uint32, down bool) {
+	wakeDisplay()
+	src := ensureEventSource()
+	if src == 0 {
+		return
+	}
+	vk, ok := qemuToMacVK[scancode]
+	if !ok {
+		// Fall back to the keysym path so unmapped keys still work.
+		m.InjectKey(keysym, down)
+		return
+	}
+	m.postMacKey(src, vk, down)
+}
+
+// postMacKey emits a single key down/up event via Core Graphics.
+func (m *MacInputInjector) postMacKey(src uintptr, keycode uint16, down bool) {
 	event := cgEventCreateKeyboardEvent(src, keycode, down)
 	if event == 0 {
 		return

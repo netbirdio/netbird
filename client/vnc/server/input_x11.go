@@ -74,14 +74,38 @@ func (x *X11InputInjector) InjectKey(keysym uint32, down bool) {
 	if keycode == 0 {
 		return
 	}
+	x.fakeKeyEvent(keycode, down)
+}
 
+// InjectKeyScancode injects using the QEMU scancode by translating to a
+// Linux KEY_ code and then to an X11 keycode (KEY_* + xkbKeycodeOffset).
+// On a server running a standard XKB keymap this is layout-independent:
+// the scancode names the physical key, the server's layout determines the
+// resulting character. Falls back to the keysym path when the scancode
+// has no Linux mapping.
+func (x *X11InputInjector) InjectKeyScancode(scancode, keysym uint32, down bool) {
+	linuxKey := qemuScancodeToLinuxKey(scancode)
+	if linuxKey == 0 {
+		x.InjectKey(keysym, down)
+		return
+	}
+	x.fakeKeyEvent(byte(linuxKey+xkbKeycodeOffset), down)
+}
+
+// xkbKeycodeOffset is the per-server constant offset between Linux KEY_*
+// event codes and the X server's keycode space under XKB. The X protocol
+// reserves keycodes 0..7 for internal use, so any normal XKB keymap
+// starts at 8 (KEY_ESC=1 → X keycode 9, KEY_A=30 → X keycode 38, etc.).
+const xkbKeycodeOffset = 8
+
+// fakeKeyEvent sends an XTest FakeInput for a press or release.
+func (x *X11InputInjector) fakeKeyEvent(keycode byte, down bool) {
 	var eventType byte
 	if down {
 		eventType = xproto.KeyPress
 	} else {
 		eventType = xproto.KeyRelease
 	}
-
 	xtest.FakeInput(x.conn, eventType, keycode, 0, x.root, 0, 0, 0)
 }
 

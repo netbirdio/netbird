@@ -29,6 +29,14 @@ const (
 	clientKeyEvent                 = 4
 	clientPointerEvent             = 5
 	clientCutText                  = 6
+	// clientQEMUMessage is the QEMU vendor message wrapper. The subtype
+	// byte that follows selects the actual operation; we only handle the
+	// Extended Key Event (subtype 0) which carries a hardware scancode in
+	// addition to the X11 keysym. Layout-independent key entry.
+	clientQEMUMessage = 255
+
+	// QEMU Extended Key Event subtype carried inside clientQEMUMessage.
+	qemuSubtypeExtendedKeyEvent = 0
 
 	// clientNetbirdTypeText is a NetBird-specific message that asks the
 	// server to synthesize the given text as keystrokes regardless of the
@@ -53,10 +61,11 @@ const (
 	// Pseudo-encodings carried over wire as rects with a negative
 	// encoding value. The client advertises supported optional protocol
 	// extensions by listing these in SetEncodings.
-	pseudoEncDesktopSize         = -223
-	pseudoEncLastRect            = -224
-	pseudoEncDesktopName         = -307
-	pseudoEncExtendedDesktopSize = -308
+	pseudoEncDesktopSize             = -223
+	pseudoEncLastRect                = -224
+	pseudoEncQEMUExtendedKeyEvent    = -258
+	pseudoEncDesktopName             = -307
+	pseudoEncExtendedDesktopSize     = -308
 
 	// Tight compression-control byte top nibble. Stream-reset bits 0-3
 	// (one per zlib stream) are unused while we run a single stream.

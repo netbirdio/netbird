@@ -79,6 +79,13 @@ var errFrameUnchanged = errors.New("frame unchanged")
 type InputInjector interface {
 	// InjectKey simulates a key press or release. keysym is an X11 KeySym.
 	InjectKey(keysym uint32, down bool)
+	// InjectKeyScancode simulates a key press or release using the QEMU
+	// scancode (PC AT set 1, high byte 0xE0 for extended keys). Layout-
+	// independent: the server's local keyboard layout decides what
+	// character the key produces. Implementations should fall back to
+	// InjectKey(keysym, down) when they don't have a scancode mapping
+	// for the given code; that's strictly no worse than the legacy path.
+	InjectKeyScancode(scancode uint32, keysym uint32, down bool)
 	// InjectPointer simulates mouse movement and button state.
 	InjectPointer(buttonMask uint8, x, y, serverW, serverH int)
 	// SetClipboard sets the system clipboard to the given text.

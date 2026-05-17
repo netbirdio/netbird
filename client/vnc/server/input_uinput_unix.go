@@ -199,6 +199,27 @@ func (u *UInputInjector) InjectKey(keysym uint32, down bool) {
 	if !ok {
 		return
 	}
+	u.emitKeyCode(code, down)
+}
+
+// InjectKeyScancode injects a press or release using the QEMU scancode.
+// uinput speaks Linux KEY_* codes natively, so we map QEMU scancode →
+// KEY_* via qemuToLinuxKey. On miss (scancode we don't have a mapping
+// for) we fall back to the keysym path, which is exactly the legacy
+// behaviour.
+func (u *UInputInjector) InjectKeyScancode(scancode, keysym uint32, down bool) {
+	code := qemuScancodeToLinuxKey(scancode)
+	if code == 0 {
+		u.InjectKey(keysym, down)
+		return
+	}
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.emitKeyCode(uint16(code), down)
+}
+
+// emitKeyCode emits one key down/up event plus a sync. Caller holds u.mu.
+func (u *UInputInjector) emitKeyCode(code uint16, down bool) {
 	value := int32(0)
 	if down {
 		value = 1
@@ -297,45 +318,8 @@ func (u *UInputInjector) Close() {
 	})
 }
 
-// Linux KEY_* codes for the small set we care about.
-const (
-	keyEsc          = 1
-	keyMinus        = 12
-	keyEqual        = 13
-	keyBackspace    = 14
-	keyTab          = 15
-	keyEnter        = 28
-	keyLeftCtrl     = 29
-	keySemicolon    = 39
-	keyApostrophe   = 40
-	keyGrave        = 41
-	keyLeftShift    = 42
-	keyBackslash    = 43
-	keyComma        = 51
-	keyDot          = 52
-	keySlash        = 53
-	keyRightShift   = 54
-	keyLeftAlt      = 56
-	keySpace        = 57
-	keyCapsLock     = 58
-	keyF1           = 59
-	keyLeftBracket  = 26
-	keyRightBracket = 27
-	keyHome         = 102
-	keyUp           = 103
-	keyPageUp       = 104
-	keyLeft         = 105
-	keyRight        = 106
-	keyEnd          = 107
-	keyDown         = 108
-	keyPageDown     = 109
-	keyInsert       = 110
-	keyDelete       = 111
-	keyRightCtrl    = 97
-	keyRightAlt     = 100
-	keyLeftMeta     = 125
-	keyRightMeta    = 126
-)
+// Linux KEY_* codes live in scancodes.go (shared with the QEMU scancode
+// path). Don't duplicate them here.
 
 // buildUInputKeymap returns every linux KEY_ code we want the virtual
 // device to advertise during UI_SET_KEYBIT. Order doesn't matter.

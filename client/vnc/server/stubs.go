@@ -27,6 +27,11 @@ func (s *StubInputInjector) InjectKey(_ uint32, _ bool) {
 	// no-op
 }
 
+// InjectKeyScancode is a no-op on unsupported platforms.
+func (s *StubInputInjector) InjectKeyScancode(_ uint32, _ uint32, _ bool) {
+	// no-op
+}
+
 // InjectPointer is a no-op on unsupported platforms.
 func (s *StubInputInjector) InjectPointer(_ uint8, _, _, _, _ int) {
 	// no-op

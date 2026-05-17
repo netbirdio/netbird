@@ -106,9 +106,11 @@ const sasEventName = `Global\NetBirdVNC_SAS`
 
 type inputCmd struct {
 	isKey       bool
+	isScancode  bool
 	isClipboard bool
 	isType      bool
 	keysym      uint32
+	scancode    uint32
 	down        bool
 	buttonMask  uint8
 	x, y        int
@@ -187,6 +189,8 @@ func (w *WindowsInputInjector) dispatch(cmd inputCmd) {
 		w.doSetClipboard(cmd.clipText)
 	case cmd.isType:
 		w.typeUnicodeText(cmd.clipText)
+	case cmd.isScancode:
+		w.doInjectKeyScancode(cmd.scancode, cmd.keysym, cmd.down)
 	case cmd.isKey:
 		w.doInjectKey(cmd.keysym, cmd.down)
 	default:
@@ -199,12 +203,51 @@ func (w *WindowsInputInjector) InjectKey(keysym uint32, down bool) {
 	w.tryEnqueue(inputCmd{isKey: true, keysym: keysym, down: down})
 }
 
+// InjectKeyScancode queues a raw-scancode key event. PC AT Set 1 maps
+// directly onto what SendInput's KEYEVENTF_SCANCODE flag wants, so the
+// only translation is splitting the optional 0xE0 prefix off into the
+// KEYEVENTF_EXTENDEDKEY flag. keysym is the noVNC-provided fallback we
+// reach for if the scancode is zero.
+func (w *WindowsInputInjector) InjectKeyScancode(scancode uint32, keysym uint32, down bool) {
+	if scancode == 0 {
+		w.InjectKey(keysym, down)
+		return
+	}
+	w.tryEnqueue(inputCmd{isScancode: true, scancode: scancode, keysym: keysym, down: down})
+}
+
 // InjectPointer queues a pointer event for injection on the input desktop
 // thread. Pointer events coalesce: when the channel is full (slow desktop
 // switch, hung SendInput), drop the new sample so the read loop never
 // blocks. The next mouse event carries fresher position anyway.
 func (w *WindowsInputInjector) InjectPointer(buttonMask uint8, x, y, serverW, serverH int) {
 	w.tryEnqueue(inputCmd{buttonMask: buttonMask, x: x, y: y, serverW: serverW, serverH: serverH})
+}
+
+// doInjectKeyScancode injects a key event using the QEMU scancode directly,
+// bypassing the keysym→VK lookup. Windows accepts PC AT Set 1 scancodes
+// natively via KEYEVENTF_SCANCODE, so the only work is splitting the
+// optional 0xE0 prefix off into the EXTENDEDKEY flag and tracking
+// modifier state for the SAS Ctrl+Alt+Del shortcut.
+func (w *WindowsInputInjector) doInjectKeyScancode(scancode, keysym uint32, down bool) {
+	switch keysym {
+	case 0xffe3, 0xffe4:
+		w.ctrlDown = down
+	case 0xffe9, 0xffea:
+		w.altDown = down
+	}
+	if (keysym == 0xff9f || keysym == 0xffff) && w.ctrlDown && w.altDown && down {
+		signalSAS()
+		return
+	}
+	flags := uint32(keyeventfScanCode)
+	if !down {
+		flags |= keyeventfKeyUp
+	}
+	if qemuScancodeIsExtended(scancode) {
+		flags |= keyeventfExtendedKey
+	}
+	sendKeyInput(0, qemuScancodeLowByte(scancode), flags)
 }
 
 func (w *WindowsInputInjector) doInjectKey(keysym uint32, down bool) {
