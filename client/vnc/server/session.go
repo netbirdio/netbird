@@ -877,22 +877,30 @@ func (s *session) handleExtCutText(payloadLen uint32) error {
 		}
 		return nil
 	case extClipActionProvide:
-		if len(rest) == 0 {
-			return nil
-		}
-		text, err := parseExtClipProvideText(flags, rest)
-		if err != nil {
-			s.log.Debugf("parse ext clipboard provide: %v", err)
-			return nil
-		}
-		if text != "" {
-			s.injector.SetClipboard(text)
-		}
-		return nil
+		return s.handleExtClipProvide(flags, rest)
 	default:
 		s.log.Debugf("unknown ext clipboard action 0x%x", action)
 		return nil
 	}
+}
+
+// handleExtClipProvide decodes a Provide payload and pushes the recovered
+// text into the host clipboard. Errors and other unsupported formats (RTF,
+// HTML, etc.) are swallowed so a malformed message doesn't tear down the
+// session.
+func (s *session) handleExtClipProvide(flags uint32, payload []byte) error {
+	if len(payload) == 0 {
+		return nil
+	}
+	text, err := parseExtClipProvideText(flags, payload)
+	if err != nil {
+		s.log.Debugf("parse ext clipboard provide: %v", err)
+		return nil
+	}
+	if text != "" {
+		s.injector.SetClipboard(text)
+	}
+	return nil
 }
 
 // sendExtClipProvideText answers an inbound Request(text) with the current

@@ -52,11 +52,16 @@ const (
 	extClipMaxPayload = extClipMaxText + 1024
 )
 
-// buildExtClipCaps emits the Caps payload advertising the formats we accept
-// and our maximum size per format. One uint32 size follows the flags word
-// for each format bit set, in ascending bit order.
+// buildExtClipCaps emits the Caps payload. The flags word advertises every
+// action we support in the high byte (Caps + Request + Peek + Notify +
+// Provide) and every format we accept in the low 16 bits. noVNC uses these
+// action bits to decide whether to auto-Request on Notify; without
+// Request in our Caps it silently drops our Notify messages. After the
+// flags word we emit one uint32 max size per format bit set, in ascending
+// bit order.
 func buildExtClipCaps() []byte {
-	flags := extClipActionCaps | extClipFormatText
+	flags := extClipActionCaps | extClipActionRequest | extClipActionPeek |
+		extClipActionNotify | extClipActionProvide | extClipFormatText
 	payload := make([]byte, 4+4)
 	binary.BigEndian.PutUint32(payload[0:4], flags)
 	binary.BigEndian.PutUint32(payload[4:8], uint32(extClipMaxText))
