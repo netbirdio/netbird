@@ -511,6 +511,7 @@ func (e GroupMinimumIssued) Valid() bool {
 
 // Defines values for IdentityProviderType.
 const (
+	IdentityProviderTypeAdfs      IdentityProviderType = "adfs"
 	IdentityProviderTypeEntra     IdentityProviderType = "entra"
 	IdentityProviderTypeGoogle    IdentityProviderType = "google"
 	IdentityProviderTypeMicrosoft IdentityProviderType = "microsoft"
@@ -518,12 +519,13 @@ const (
 	IdentityProviderTypeOkta      IdentityProviderType = "okta"
 	IdentityProviderTypePocketid  IdentityProviderType = "pocketid"
 	IdentityProviderTypeZitadel   IdentityProviderType = "zitadel"
-	IdentityProviderTypeAdfs      IdentityProviderType = "adfs"
 )
 
 // Valid indicates whether the value is a known member of the IdentityProviderType enum.
 func (e IdentityProviderType) Valid() bool {
 	switch e {
+	case IdentityProviderTypeAdfs:
+		return true
 	case IdentityProviderTypeEntra:
 		return true
 	case IdentityProviderTypeGoogle:
@@ -537,8 +539,6 @@ func (e IdentityProviderType) Valid() bool {
 	case IdentityProviderTypePocketid:
 		return true
 	case IdentityProviderTypeZitadel:
-		return true
-	case IdentityProviderTypeAdfs:
 		return true
 	default:
 		return false
@@ -1638,7 +1638,9 @@ type Checks struct {
 	// OsVersionCheck Posture check for the version of operating system
 	OsVersionCheck *OSVersionCheck `json:"os_version_check,omitempty"`
 
-	// PeerNetworkRangeCheck Posture check for allow or deny access based on the peer's IP addresses. A range matches when it contains any of the peer's local network interface IPs or its public connection (NAT egress) IP, so ranges may target private subnets, public CIDRs, or single hosts via a /32 or /128.
+	// PeerNetworkRangeCheck Posture check for allow or deny access based on the peer's IP addresses. A range matches when it
+	// contains any of the peer's local network interface IPs or its public connection (NAT egress) IP,
+	// so ranges may target private subnets, public CIDRs, or single hosts via a /32 or /128.
 	PeerNetworkRangeCheck *PeerNetworkRangeCheck `json:"peer_network_range_check,omitempty"`
 
 	// ProcessCheck Posture Check for binaries exist and are running in the peer’s system
@@ -3319,6 +3321,9 @@ type PeerLocalFlags struct {
 
 	// ServerSshAllowed Indicates whether SSH access this peer is allowed or not
 	ServerSshAllowed *bool `json:"server_ssh_allowed,omitempty"`
+
+	// ServerVncAllowed Indicates whether the embedded VNC server is enabled on this peer
+	ServerVncAllowed *bool `json:"server_vnc_allowed,omitempty"`
 }
 
 // PeerMinimum defines model for PeerMinimum.
@@ -3330,7 +3335,9 @@ type PeerMinimum struct {
 	Name string `json:"name"`
 }
 
-// PeerNetworkRangeCheck Posture check for allow or deny access based on the peer's IP addresses. A range matches when it contains any of the peer's local network interface IPs or its public connection (NAT egress) IP, so ranges may target private subnets, public CIDRs, or single hosts via a /32 or /128.
+// PeerNetworkRangeCheck Posture check for allow or deny access based on the peer's IP addresses. A range matches when it
+// contains any of the peer's local network interface IPs or its public connection (NAT egress) IP,
+// so ranges may target private subnets, public CIDRs, or single hosts via a /32 or /128.
 type PeerNetworkRangeCheck struct {
 	// Action Action to take upon policy match
 	Action PeerNetworkRangeCheckAction `json:"action"`
@@ -3785,14 +3792,14 @@ type ProxyAccessLogsResponse struct {
 
 // ProxyCluster A proxy cluster represents a group of proxy nodes serving the same address
 type ProxyCluster struct {
-	// Id Unique identifier of a proxy in this cluster
-	Id string `json:"id"`
-
 	// Address Cluster address used for CNAME targets
 	Address string `json:"address"`
 
 	// ConnectedProxies Number of proxy nodes connected in this cluster
 	ConnectedProxies int `json:"connected_proxies"`
+
+	// Id Unique identifier of a proxy in this cluster
+	Id string `json:"id"`
 
 	// SelfHosted Whether this cluster is a self-hosted (BYOP) proxy managed by the account owner
 	SelfHosted bool `json:"self_hosted"`

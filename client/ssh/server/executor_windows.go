@@ -200,8 +200,8 @@ func newLsaString(s string) lsaString {
 	}
 }
 
-// generateS4UUserToken creates a Windows token using S4U authentication
-// This is the exact approach OpenSSH for Windows uses for public key authentication
+// generateS4UUserToken creates a Windows token using S4U authentication.
+// This is the same approach OpenSSH for Windows uses for public key authentication.
 func generateS4UUserToken(logger *log.Entry, username, domain string) (windows.Handle, error) {
 	userCpn := buildUserCpn(username, domain)
 

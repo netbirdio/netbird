@@ -249,6 +249,7 @@ type serviceClient struct {
 	mQuit              *systray.MenuItem
 	mNetworks          *systray.MenuItem
 	mAllowSSH          *systray.MenuItem
+	mAllowVNC          *systray.MenuItem
 	mAutoConnect       *systray.MenuItem
 	mEnableRosenpass   *systray.MenuItem
 	mLazyConnEnabled   *systray.MenuItem
@@ -1045,6 +1046,7 @@ func (s *serviceClient) onTrayReady() {
 
 	s.mSettings = systray.AddMenuItem("Settings", disabledMenuDescr)
 	s.mAllowSSH = s.mSettings.AddSubMenuItemCheckbox("Allow SSH", allowSSHMenuDescr, false)
+	s.mAllowVNC = s.mSettings.AddSubMenuItemCheckbox("Allow VNC", allowVNCMenuDescr, false)
 	s.mAutoConnect = s.mSettings.AddSubMenuItemCheckbox("Connect on Startup", autoConnectMenuDescr, false)
 	s.mEnableRosenpass = s.mSettings.AddSubMenuItemCheckbox("Enable Quantum-Resistance", quantumResistanceMenuDescr, false)
 	s.mLazyConnEnabled = s.mSettings.AddSubMenuItemCheckbox("Enable Lazy Connections", lazyConnMenuDescr, false)
@@ -1452,6 +1454,7 @@ func protoConfigToConfig(cfg *proto.GetConfigResponse) *profilemanager.Config {
 
 	config.DisableAutoConnect = cfg.DisableAutoConnect
 	config.ServerSSHAllowed = &cfg.ServerSSHAllowed
+	config.ServerVNCAllowed = &cfg.ServerVNCAllowed
 	config.RosenpassEnabled = cfg.RosenpassEnabled
 	config.RosenpassPermissive = cfg.RosenpassPermissive
 	config.DisableNotifications = &cfg.DisableNotifications
@@ -1547,6 +1550,12 @@ func (s *serviceClient) loadSettings() {
 		s.mAllowSSH.Uncheck()
 	}
 
+	if cfg.ServerVNCAllowed {
+		s.mAllowVNC.Check()
+	} else {
+		s.mAllowVNC.Uncheck()
+	}
+
 	if cfg.DisableAutoConnect {
 		s.mAutoConnect.Uncheck()
 	} else {
@@ -1586,6 +1595,7 @@ func (s *serviceClient) loadSettings() {
 func (s *serviceClient) updateConfig() error {
 	disableAutoStart := !s.mAutoConnect.Checked()
 	sshAllowed := s.mAllowSSH.Checked()
+	vncAllowed := s.mAllowVNC.Checked()
 	rosenpassEnabled := s.mEnableRosenpass.Checked()
 	lazyConnectionEnabled := s.mLazyConnEnabled.Checked()
 	blockInbound := s.mBlockInbound.Checked()
@@ -1614,6 +1624,7 @@ func (s *serviceClient) updateConfig() error {
 		Username:              currUser.Username,
 		DisableAutoConnect:    &disableAutoStart,
 		ServerSSHAllowed:      &sshAllowed,
+		ServerVNCAllowed:      &vncAllowed,
 		RosenpassEnabled:      &rosenpassEnabled,
 		LazyConnectionEnabled: &lazyConnectionEnabled,
 		BlockInbound:          &blockInbound,

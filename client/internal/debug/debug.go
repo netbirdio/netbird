@@ -636,6 +636,9 @@ func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) 
 	if g.internalConfig.SSHJWTCacheTTL != nil {
 		configContent.WriteString(fmt.Sprintf("SSHJWTCacheTTL: %d\n", *g.internalConfig.SSHJWTCacheTTL))
 	}
+	if g.internalConfig.ServerVNCAllowed != nil {
+		configContent.WriteString(fmt.Sprintf("ServerVNCAllowed: %v\n", *g.internalConfig.ServerVNCAllowed))
+	}
 
 	configContent.WriteString(fmt.Sprintf("DisableClientRoutes: %v\n", g.internalConfig.DisableClientRoutes))
 	configContent.WriteString(fmt.Sprintf("DisableServerRoutes: %v\n", g.internalConfig.DisableServerRoutes))

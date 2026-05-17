@@ -240,6 +240,10 @@ var overview = OutputOverview{
 		Enabled:  false,
 		Sessions: []SSHSessionOutput{},
 	},
+	VNCServerState: VNCServerStateOutput{
+		Enabled:  false,
+		Sessions: []VNCSessionOutput{},
+	},
 }
 
 func TestConversionFromFullStatusToOutputOverview(t *testing.T) {
@@ -404,6 +408,10 @@ func TestParsingToJSON(t *testing.T) {
 		  "sshServer":{
 		    "enabled":false,
 			"sessions":[]
+		  },
+		  "vncServer":{
+		    "enabled":false,
+			"sessions":[]
 		  }
         }`
 	// @formatter:on
@@ -513,6 +521,9 @@ profileName: ""
 sshServer:
     enabled: false
     sessions: []
+vncServer:
+    enabled: false
+    sessions: []
 `
 
 	assert.Equal(t, expectedYAML, yaml)
@@ -582,6 +593,7 @@ Interface type: Kernel
 Quantum resistance: false
 Lazy connection: false
 SSH Server: Disabled
+VNC Server: Disabled
 Networks: 10.10.0.0/24
 Peers count: 2/2 Connected
 `, lastConnectionUpdate1, lastHandshake1, lastConnectionUpdate2, lastHandshake2, runtime.GOOS, runtime.GOARCH, overview.CliVersion)
@@ -607,6 +619,7 @@ Interface type: Kernel
 Quantum resistance: false
 Lazy connection: false
 SSH Server: Disabled
+VNC Server: Disabled
 Networks: 10.10.0.0/24
 Peers count: 2/2 Connected
 `

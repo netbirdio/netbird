@@ -98,10 +98,7 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 
 	sshConfig := &proto.SSHConfig{
 		SshEnabled: peer.SSHEnabled || enableSSH,
-	}
-
-	if sshConfig.SshEnabled {
-		sshConfig.JwtConfig = buildJWTConfig(httpConfig, deviceFlowConfig)
+		JwtConfig:  buildJWTConfig(httpConfig, deviceFlowConfig),
 	}
 
 	peerConfig := &proto.PeerConfig{
@@ -134,13 +131,14 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 	includeIPv6 := peer.SupportsIPv6() && peer.IPv6.IsValid()
 	useSourcePrefixes := peer.SupportsSourcePrefixes()
 
+	peerConfig := toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig, networkMap.EnableSSH)
 	response := &proto.SyncResponse{
-		PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig, networkMap.EnableSSH),
+		PeerConfig: peerConfig,
 		NetworkMap: &proto.NetworkMap{
 			Serial:     networkMap.Network.CurrentSerial(),
 			Routes:     toProtocolRoutes(networkMap.Routes),
 			DNSConfig:  toProtocolDNSConfig(networkMap.DNSConfig, dnsCache, dnsFwdPort),
-			PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig, networkMap.EnableSSH),
+			PeerConfig: peerConfig,
 		},
 		Checks: toProtocolChecks(ctx, checks),
 	}
@@ -148,8 +146,6 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 	nbConfig := toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings)
 	extendedConfig := integrationsConfig.ExtendNetBirdConfig(peer.ID, peerGroups, nbConfig, extraSettings)
 	response.NetbirdConfig = extendedConfig
-
-	response.NetworkMap.PeerConfig = response.PeerConfig
 
 	remotePeers := make([]*proto.RemotePeerConfig, 0, len(networkMap.Peers)+len(networkMap.OfflinePeers))
 	remotePeers = appendRemotePeerConfig(remotePeers, networkMap.Peers, dnsName, includeIPv6)
@@ -176,13 +172,19 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 		response.NetworkMap.ForwardingRules = forwardingRules
 	}
 
+	userIDClaim := auth.DefaultUserIDClaim
+	if httpConfig != nil && httpConfig.AuthUserIDClaim != "" {
+		userIDClaim = httpConfig.AuthUserIDClaim
+	}
+
 	if networkMap.AuthorizedUsers != nil {
 		hashedUsers, machineUsers := buildAuthorizedUsersProto(ctx, networkMap.AuthorizedUsers)
-		userIDClaim := auth.DefaultUserIDClaim
-		if httpConfig != nil && httpConfig.AuthUserIDClaim != "" {
-			userIDClaim = httpConfig.AuthUserIDClaim
-		}
 		response.NetworkMap.SshAuth = &proto.SSHAuth{AuthorizedUsers: hashedUsers, MachineUsers: machineUsers, UserIDClaim: userIDClaim}
+	}
+
+	if networkMap.VNCAuthorizedUsers != nil {
+		hashedUsers, machineUsers := buildAuthorizedUsersProto(ctx, networkMap.VNCAuthorizedUsers)
+		response.NetworkMap.VncAuth = &proto.VNCAuth{AuthorizedUsers: hashedUsers, MachineUsers: machineUsers, UserIDClaim: userIDClaim}
 	}
 
 	return response

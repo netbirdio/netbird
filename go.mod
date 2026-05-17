@@ -66,6 +66,8 @@ require (
 	github.com/hashicorp/go-secure-stdlib/base62 v0.1.2
 	github.com/hashicorp/go-version v1.7.0
 	github.com/jackc/pgx/v5 v5.5.5
+	github.com/jezek/xgb v1.3.0
+	github.com/kirides/go-d3d v1.0.1
 	github.com/libdns/route53 v1.5.0
 	github.com/libp2p/go-nat v0.2.0
 	github.com/libp2p/go-netroute v0.4.0

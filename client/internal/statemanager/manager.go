@@ -74,6 +74,14 @@ func New(filePath string) *Manager {
 	}
 }
 
+// FilePath returns the path of the underlying state file.
+func (m *Manager) FilePath() string {
+	if m == nil {
+		return ""
+	}
+	return m.filePath
+}
+
 // Start starts the state manager periodic save routine
 func (m *Manager) Start() {
 	if m == nil {

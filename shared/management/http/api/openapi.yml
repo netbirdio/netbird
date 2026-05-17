@@ -958,6 +958,10 @@ components:
           description: Indicates whether SSH access this peer is allowed or not
           type: boolean
           example: true
+        server_vnc_allowed:
+          description: Indicates whether the embedded VNC server is enabled on this peer
+          type: boolean
+          example: false
         disable_client_routes:
           description: Indicates whether client routes are disabled on this peer or not
           type: boolean
