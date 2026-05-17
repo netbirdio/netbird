@@ -43,10 +43,11 @@ type session struct {
 	log      *log.Entry
 
 	writeMu sync.Mutex
-	// pf and useZlib/zlib are written by messageLoop before the first FB
-	// update request arrives (SetPixelFormat/SetEncodings happen during the
-	// client handshake), and only read from the encoder goroutine. Fine
-	// without locks because of that ordering invariant.
+	// encMu guards the negotiated pixel format and encoding state below.
+	// messageLoop writes these on SetPixelFormat/SetEncodings, which RFB
+	// clients may send at any time after the handshake, while encoderLoop
+	// reads them on every frame.
+	encMu      sync.RWMutex
 	pf         clientPixelFormat
 	useZlib    bool
 	useHextile bool
@@ -288,7 +289,10 @@ func (s *session) handleSetPixelFormat() error {
 	if _, err := io.ReadFull(s.conn, buf[:]); err != nil {
 		return fmt.Errorf("read SetPixelFormat: %w", err)
 	}
-	s.pf = parsePixelFormat(buf[3:19])
+	pf := parsePixelFormat(buf[3:19])
+	s.encMu.Lock()
+	s.pf = pf
+	s.encMu.Unlock()
 	return nil
 }
 
@@ -311,6 +315,7 @@ func (s *session) handleSetEncodings() error {
 	}
 
 	var encs []string
+	s.encMu.Lock()
 	for i := range int(numEnc) {
 		enc := int32(binary.BigEndian.Uint32(buf[i*4 : i*4+4]))
 		switch enc {
@@ -331,6 +336,7 @@ func (s *session) handleSetEncodings() error {
 			encs = append(encs, "tight")
 		}
 	}
+	s.encMu.Unlock()
 	if len(encs) > 0 {
 		s.log.Debugf("client supports encodings: %s", strings.Join(encs, ", "))
 	}
@@ -504,11 +510,17 @@ func (s *session) sendEmptyUpdate() error {
 func (s *session) sendFullUpdate(img *image.RGBA) error {
 	w, h := s.serverW, s.serverH
 
+	s.encMu.RLock()
+	pf := s.pf
+	useZlib := s.useZlib
+	zlib := s.zlib
+	s.encMu.RUnlock()
+
 	var buf []byte
-	if s.useZlib && s.zlib != nil {
-		buf = encodeZlibRect(img, s.pf, 0, 0, w, h, s.zlib)
+	if useZlib && zlib != nil {
+		buf = encodeZlibRect(img, pf, 0, 0, w, h, zlib)
 	} else {
-		buf = encodeRawRect(img, s.pf, 0, 0, w, h)
+		buf = encodeRawRect(img, pf, 0, 0, w, h)
 	}
 
 	s.writeMu.Lock()
@@ -551,14 +563,23 @@ func (s *session) sendDirtyRects(img *image.RGBA, rects [][4]int) error {
 // Output omits the 4-byte FramebufferUpdate header; callers combine multiple
 // tiles into one message.
 func (s *session) encodeTile(img *image.RGBA, x, y, w, h int) []byte {
-	if s.useHextile {
+	s.encMu.RLock()
+	pf := s.pf
+	useHextile := s.useHextile
+	useTight := s.useTight
+	tight := s.tight
+	useZlib := s.useZlib
+	zlib := s.zlib
+	s.encMu.RUnlock()
+
+	if useHextile {
 		if pixel, uniform := tileIsUniform(img, x, y, w, h); uniform {
 			r := byte(pixel)
 			g := byte(pixel >> 8)
 			b := byte(pixel >> 16)
-			return encodeHextileSolidRect(r, g, b, s.pf, rect{x, y, w, h})
+			return encodeHextileSolidRect(r, g, b, pf, rect{x, y, w, h})
 		}
-		// Full Hextile encoder disabled pending investigation of 16×16
+		// Full Hextile encoder disabled pending investigation of 16x16
 		// red-tile artifacts on Windows. Solid-fill fast path is safe.
 	}
 	// Larger merged rects: prefer Tight (JPEG for photo-like, Basic+zlib
@@ -566,13 +587,13 @@ func (s *session) encodeTile(img *image.RGBA, x, y, w, h int) []byte {
 	// compatible with Tight's mandatory 24-bit RGB TPIXEL encoding. Tight is
 	// dramatically better than RFB Zlib on photographic content and
 	// competitive on UI.
-	if s.useTight && s.tight != nil && pfIsTightCompatible(s.pf) {
-		return encodeTightRect(img, s.pf, x, y, w, h, s.tight)
+	if useTight && tight != nil && pfIsTightCompatible(pf) {
+		return encodeTightRect(img, pf, x, y, w, h, tight)
 	}
-	if s.useZlib && s.zlib != nil {
-		return encodeZlibRect(img, s.pf, x, y, w, h, s.zlib)[4:]
+	if useZlib && zlib != nil {
+		return encodeZlibRect(img, pf, x, y, w, h, zlib)[4:]
 	}
-	return encodeRawRect(img, s.pf, x, y, w, h)[4:]
+	return encodeRawRect(img, pf, x, y, w, h)[4:]
 }
 
 func (s *session) handleKeyEvent() error {
