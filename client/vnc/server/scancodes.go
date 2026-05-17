@@ -1,3 +1,5 @@
+//go:build !js && !ios && !android
+
 package server
 
 // QEMU Extended Key Event carries hardware scancodes encoded as PC AT Set 1.

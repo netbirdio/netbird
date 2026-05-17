@@ -1,4 +1,4 @@
-//go:build (linux && !android) || freebsd
+//go:build unix && !darwin && !ios && !android
 
 package server
 

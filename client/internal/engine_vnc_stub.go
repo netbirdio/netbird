@@ -1,13 +1,15 @@
-//go:build (!windows && !darwin && !freebsd && !(linux && !android)) || (darwin && ios)
+//go:build js || ios || android
 
 package internal
 
-import vncserver "github.com/netbirdio/netbird/client/vnc/server"
+import (
+	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
+)
 
-func newPlatformVNC() (vncserver.ScreenCapturer, vncserver.InputInjector, bool) {
-	return nil, nil, false
-}
+type vncServer interface{}
 
-func vncNeedsServiceMode() bool {
-	return false
-}
+func (e *Engine) updateVNC(_ *mgmProto.SSHConfig) error { return nil }
+
+func (e *Engine) updateVNCServerAuth(_ *mgmProto.VNCAuth) {}
+
+func (e *Engine) stopVNCServer() error { return nil }

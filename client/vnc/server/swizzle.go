@@ -1,3 +1,5 @@
+//go:build !js && !ios && !android
+
 package server
 
 import "unsafe"
