@@ -64,6 +64,12 @@ type session struct {
 	curFrame   *image.RGBA
 	idleFrames int
 
+	// captureErrLast throttles "capture (transient)" logs while the
+	// capturer is in a sustained failure state (e.g. X server died but a
+	// noVNC tab is still open). Owned by the encoder goroutine.
+	captureErrLast time.Time
+	captureErrSeen bool
+
 	// encodeCh carries framebuffer-update requests from the read loop to the
 	// encoder goroutine. Buffered size 1: RFB clients have one outstanding
 	// request at a time, so a new request always replaces any pending one.
@@ -409,13 +415,16 @@ func (s *session) processFBRequest(req fbRequest) error {
 		// Capture failures are transient on Windows: a Ctrl+Alt+Del or
 		// sign-out switches the OS to the secure desktop, and the DXGI
 		// duplicator on the previous desktop returns an error until the
-		// capturer reattaches on the new desktop. Don't tear down the
-		// session. Back off briefly and reply with an empty update so
-		// the client keeps re-requesting.
-		s.log.Debugf("capture (transient): %v", err)
+		// capturer reattaches on the new desktop. On Linux the X server
+		// behind a virtual session may exit and the capturer reports
+		// "unavailable" on every retry tick. Don't tear down the session
+		// and don't spam the log: emit one line on the first failure, then
+		// throttle further "still failing" lines to once per 5 s.
+		s.captureErrorLog(err)
 		time.Sleep(100 * time.Millisecond)
 		return s.sendEmptyUpdate()
 	}
+	s.captureRecovered()
 
 	if req.incremental && s.prevFrame != nil {
 		tiles := diffTiles(s.prevFrame, img, s.serverW, s.serverH, tileSize)
@@ -469,6 +478,29 @@ func (s *session) processFBRequest(req fbRequest) error {
 	s.swapPrevCur()
 	s.refreshCopyRectIndex()
 	return nil
+}
+
+// captureErrorLog emits one log line on the first failure after success,
+// then at most once every captureErrThrottle while the capturer keeps
+// failing. The "recovered" transition is logged once when err is nil and
+// captureErrSeen was set.
+func (s *session) captureErrorLog(err error) {
+	const captureErrThrottle = 5 * time.Second
+	now := time.Now()
+	if !s.captureErrSeen || now.Sub(s.captureErrLast) >= captureErrThrottle {
+		s.log.Debugf("capture (transient): %v", err)
+		s.captureErrLast = now
+	}
+	s.captureErrSeen = true
+}
+
+// captureRecovered emits a one-shot debug line when capture works again
+// after a failure streak. Called by the success paths.
+func (s *session) captureRecovered() {
+	if s.captureErrSeen {
+		s.log.Debugf("capture recovered")
+		s.captureErrSeen = false
+	}
 }
 
 // refreshCopyRectIndex does a full hash sweep of the just-swapped prevFrame.
