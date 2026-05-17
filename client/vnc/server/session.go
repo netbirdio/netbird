@@ -260,7 +260,10 @@ func (s *session) handleSetPixelFormat() error {
 	if _, err := io.ReadFull(s.conn, buf[:]); err != nil {
 		return fmt.Errorf("read SetPixelFormat: %w", err)
 	}
-	pf := parsePixelFormat(buf[3:19])
+	pf, err := parsePixelFormat(buf[3:19])
+	if err != nil {
+		return err
+	}
 	s.encMu.Lock()
 	s.pf = pf
 	s.encMu.Unlock()
@@ -822,11 +825,8 @@ func drainRequests(ch chan fbRequest) int {
 }
 
 // pfIsTightCompatible reports whether the negotiated client pixel format
-// matches Tight's TPIXEL constraint: 32 bpp true colour with 8-bit RGB
-// channels at standard shifts (R=16, G=8, B=0). For anything else we fall
-// back to Zlib/Hextile/Raw which respect pf in full.
+// matches Tight's TPIXEL constraint: standard RGB shifts (R=16, G=8, B=0).
+// bpp/endianness/channel-max are already locked at SetPixelFormat time.
 func pfIsTightCompatible(pf clientPixelFormat) bool {
-	return pf.bpp == 32 &&
-		pf.rMax == 255 && pf.gMax == 255 && pf.bMax == 255 &&
-		pf.rShift == 16 && pf.gShift == 8 && pf.bShift == 0
+	return pf.rShift == 16 && pf.gShift == 8 && pf.bShift == 0
 }

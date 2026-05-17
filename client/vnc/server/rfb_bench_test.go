@@ -84,26 +84,7 @@ func BenchmarkWritePixels(b *testing.B) {
 			b.SetBytes(int64(r.w * r.h * 4))
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				writePixels(dst, img, pf, rect{0, 0, r.w, r.h}, 4)
-			}
-		})
-	}
-}
-
-// BenchmarkWritePixelsScaled forces the general (non-fast) path by using a
-// pixel format with non-255 channel maxes.
-func BenchmarkWritePixelsScaled(b *testing.B) {
-	pf := defaultClientPixelFormat()
-	pf.rMax, pf.gMax, pf.bMax = 31, 63, 31 // 16bpp-ish; exercises the divide path
-	pf.bpp = 16
-	for _, r := range benchRects {
-		img := makeBenchImage(r.w, r.h, 1)
-		dst := make([]byte, r.w*r.h*2)
-		b.Run(r.name, func(b *testing.B) {
-			b.SetBytes(int64(r.w * r.h * 4))
-			b.ReportAllocs()
-			for i := 0; i < b.N; i++ {
-				writePixels(dst, img, pf, rect{0, 0, r.w, r.h}, 2)
+				writePixels(dst, img, pf, rect{0, 0, r.w, r.h})
 			}
 		})
 	}

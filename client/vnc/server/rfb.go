@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/zlib"
 	"encoding/binary"
+	"fmt"
 	"image"
 	"image/jpeg"
 	"unsafe"
@@ -80,24 +81,17 @@ const (
 	// Distinct-colour cap below which we still prefer Basic+zlib (text,
 	// UI). Sampled, not exhaustive: cheap to compute, good enough.
 	tightJPEGMinColors = 64
-
-	// Hextile subencoding flags (a bitmask in the first byte of each sub-tile).
-	hextileRaw                 = 0x01
-	hextileBackgroundSpecified = 0x02
-	hextileForegroundSpecified = 0x04
-	hextileAnySubrects         = 0x08
-	hextileSubrectsColoured    = 0x10
-
-	// Hextile sub-tile size per RFB spec.
-	hextileSubSize = 16
 )
 
-// serverPixelFormat is the default pixel format advertised by the server:
-// 32bpp RGBA, big-endian, true-colour, 8 bits per channel.
+// serverPixelFormat is the pixel format the server advertises and requires:
+// 32bpp RGBA, little-endian, true-colour, 8 bits per channel at standard
+// shifts (R=16, G=8, B=0). handleSetPixelFormat rejects any client that
+// negotiates a different format. Browser-side decoders are little-endian
+// natively, so advertising little-endian skips a byte-swap on every pixel.
 var serverPixelFormat = [16]byte{
 	32,     // bits-per-pixel
 	24,     // depth
-	1,      // big-endian-flag
+	0,      // big-endian-flag
 	1,      // true-colour-flag
 	0, 255, // red-max
 	0, 255, // green-max
@@ -108,42 +102,48 @@ var serverPixelFormat = [16]byte{
 	0, 0, 0, // padding
 }
 
-// clientPixelFormat holds the negotiated pixel format from the client.
+// clientPixelFormat holds the negotiated pixel format. Only RGB channel
+// shifts are tracked: every other field is constrained by the server to
+// the values in serverPixelFormat (32bpp / little-endian / truecolour /
+// 8-bit channels) and rejected at SetPixelFormat time if the client tries
+// to negotiate otherwise.
 type clientPixelFormat struct {
-	bpp       uint8
-	bigEndian uint8
-	rMax      uint16
-	gMax      uint16
-	bMax      uint16
-	rShift    uint8
-	gShift    uint8
-	bShift    uint8
+	rShift uint8
+	gShift uint8
+	bShift uint8
 }
 
 func defaultClientPixelFormat() clientPixelFormat {
 	return clientPixelFormat{
-		bpp:       serverPixelFormat[0],
-		bigEndian: serverPixelFormat[2],
-		rMax:      binary.BigEndian.Uint16(serverPixelFormat[4:6]),
-		gMax:      binary.BigEndian.Uint16(serverPixelFormat[6:8]),
-		bMax:      binary.BigEndian.Uint16(serverPixelFormat[8:10]),
-		rShift:    serverPixelFormat[10],
-		gShift:    serverPixelFormat[11],
-		bShift:    serverPixelFormat[12],
+		rShift: serverPixelFormat[10],
+		gShift: serverPixelFormat[11],
+		bShift: serverPixelFormat[12],
 	}
 }
 
-func parsePixelFormat(pf []byte) clientPixelFormat {
-	return clientPixelFormat{
-		bpp:       pf[0],
-		bigEndian: pf[2],
-		rMax:      binary.BigEndian.Uint16(pf[4:6]),
-		gMax:      binary.BigEndian.Uint16(pf[6:8]),
-		bMax:      binary.BigEndian.Uint16(pf[8:10]),
-		rShift:    pf[10],
-		gShift:    pf[11],
-		bShift:    pf[12],
+// parsePixelFormat returns the negotiated client pixel format, or an error
+// if the client tried to negotiate an unsupported format. The server only
+// supports 32bpp truecolour little-endian with 8-bit channels; arbitrary
+// shifts within that constraint are allowed because they are cheap to honour.
+func parsePixelFormat(pf []byte) (clientPixelFormat, error) {
+	bpp := pf[0]
+	bigEndian := pf[2]
+	trueColour := pf[3]
+	rMax := binary.BigEndian.Uint16(pf[4:6])
+	gMax := binary.BigEndian.Uint16(pf[6:8])
+	bMax := binary.BigEndian.Uint16(pf[8:10])
+	if bpp != 32 || bigEndian != 0 || trueColour != 1 ||
+		rMax != 255 || gMax != 255 || bMax != 255 {
+		return clientPixelFormat{}, fmt.Errorf(
+			"unsupported pixel format (bpp=%d be=%d tc=%d rgb-max=%d/%d/%d): "+
+				"server only supports 32bpp truecolour little-endian 8-bit channels",
+			bpp, bigEndian, trueColour, rMax, gMax, bMax)
 	}
+	return clientPixelFormat{
+		rShift: pf[10],
+		gShift: pf[11],
+		bShift: pf[12],
+	}, nil
 }
 
 // encodeCopyRectBody emits the per-rect payload for a CopyRect rectangle:
@@ -211,10 +211,7 @@ func encodeLastRectBody() []byte {
 // encodeRawRect encodes a framebuffer region as a raw RFB rectangle.
 // The returned buffer includes the FramebufferUpdate header (1 rectangle).
 func encodeRawRect(img *image.RGBA, pf clientPixelFormat, x, y, w, h int) []byte {
-	bytesPerPixel := max(int(pf.bpp)/8, 1)
-
-	pixelBytes := w * h * bytesPerPixel
-	buf := make([]byte, 4+12+pixelBytes)
+	buf := make([]byte, 4+12+w*h*4)
 
 	// FramebufferUpdate header.
 	buf[0] = serverFramebufferUpdate
@@ -228,26 +225,17 @@ func encodeRawRect(img *image.RGBA, pf clientPixelFormat, x, y, w, h int) []byte
 	binary.BigEndian.PutUint16(buf[10:12], uint16(h))
 	binary.BigEndian.PutUint32(buf[12:16], uint32(encRaw))
 
-	writePixels(buf[16:], img, pf, rect{x, y, w, h}, bytesPerPixel)
+	writePixels(buf[16:], img, pf, rect{x, y, w, h})
 	return buf
 }
 
-// writePixels writes a rectangle of img into dst in the client's requested
-// pixel format. It fast-paths the common case (32bpp, full 8-bit channels)
-// with a tight loop that skips the per-channel *max/255 arithmetic and emits
-// a single uint32 per pixel; the general path handles arbitrary formats.
-func writePixels(dst []byte, img *image.RGBA, pf clientPixelFormat, r rect, bytesPerPixel int) {
-	if bytesPerPixel == 4 && pf.rMax == 255 && pf.gMax == 255 && pf.bMax == 255 {
-		writePixelsFast32(dst, img, pf, r)
-		return
-	}
-	writePixelsGeneric(dst, img, pf, r, bytesPerPixel)
-}
-
-func writePixelsFast32(dst []byte, img *image.RGBA, pf clientPixelFormat, r rect) {
+// writePixels writes a rectangle of img into dst as 32bpp little-endian
+// pixels at the negotiated RGB shifts. The pixel format is constrained at
+// SetPixelFormat time so we can assume 4 bytes per pixel, 8-bit channels,
+// and little-endian byte order; arbitrary shifts (R/G/B order) are honoured.
+func writePixels(dst []byte, img *image.RGBA, pf clientPixelFormat, r rect) {
 	stride := img.Stride
 	rShift, gShift, bShift := pf.rShift, pf.gShift, pf.bShift
-	bigEndian := pf.bigEndian != 0
 	off := 0
 	for row := r.y; row < r.y+r.h; row++ {
 		p := row*stride + r.x*4
@@ -255,46 +243,12 @@ func writePixelsFast32(dst []byte, img *image.RGBA, pf clientPixelFormat, r rect
 			pixel := (uint32(img.Pix[p]) << rShift) |
 				(uint32(img.Pix[p+1]) << gShift) |
 				(uint32(img.Pix[p+2]) << bShift)
-			if bigEndian {
-				binary.BigEndian.PutUint32(dst[off:off+4], pixel)
-			} else {
-				binary.LittleEndian.PutUint32(dst[off:off+4], pixel)
-			}
+			binary.LittleEndian.PutUint32(dst[off:off+4], pixel)
 			p += 4
 			off += 4
 		}
 	}
 }
-
-func writePixelsGeneric(dst []byte, img *image.RGBA, pf clientPixelFormat, r rect, bytesPerPixel int) {
-	stride := img.Stride
-	off := 0
-	for row := r.y; row < r.y+r.h; row++ {
-		for col := r.x; col < r.x+r.w; col++ {
-			p := row*stride + col*4
-			rv := uint32(img.Pix[p]) * uint32(pf.rMax) / 255
-			gv := uint32(img.Pix[p+1]) * uint32(pf.gMax) / 255
-			bv := uint32(img.Pix[p+2]) * uint32(pf.bMax) / 255
-			pixel := (rv << pf.rShift) | (gv << pf.gShift) | (bv << pf.bShift)
-			emitPixelBytes(dst[off:off+bytesPerPixel], pixel, bytesPerPixel, pf.bigEndian != 0)
-			off += bytesPerPixel
-		}
-	}
-}
-
-func emitPixelBytes(dst []byte, pixel uint32, bytesPerPixel int, bigEndian bool) {
-	if bigEndian {
-		for i := range bytesPerPixel {
-			dst[i] = byte(pixel >> uint((bytesPerPixel-1-i)*8))
-		}
-		return
-	}
-	for i := range bytesPerPixel {
-		dst[i] = byte(pixel >> uint(i*8))
-	}
-}
-
-
 
 // diffTiles compares two RGBA images and returns a tile-ordered list of
 // dirty tiles, one entry per tile. Tile order is top-to-bottom, left-to-
@@ -452,33 +406,6 @@ func tileIsUniform(img *image.RGBA, x, y, w, h int) (uint32, bool) {
 	}
 	return first, true
 }
-
-// encodePixel packs an RGBA byte triple into the client's requested pixel
-// format, honouring bpp, channel maxes, shifts and endianness. Returns the
-// number of bytes written to dst (1..4).
-func encodePixel(dst []byte, pf clientPixelFormat, r, g, b byte) int {
-	bytesPerPixel := max(int(pf.bpp)/8, 1)
-	var val uint32
-	if pf.rMax == 255 && pf.gMax == 255 && pf.bMax == 255 {
-		val = (uint32(r) << pf.rShift) | (uint32(g) << pf.gShift) | (uint32(b) << pf.bShift)
-	} else {
-		rv := uint32(r) * uint32(pf.rMax) / 255
-		gv := uint32(g) * uint32(pf.gMax) / 255
-		bv := uint32(b) * uint32(pf.bMax) / 255
-		val = (rv << pf.rShift) | (gv << pf.gShift) | (bv << pf.bShift)
-	}
-	if pf.bigEndian != 0 {
-		for i := range bytesPerPixel {
-			dst[i] = byte(val >> uint((bytesPerPixel-1-i)*8))
-		}
-	} else {
-		for i := range bytesPerPixel {
-			dst[i] = byte(val >> uint(i*8))
-		}
-	}
-	return bytesPerPixel
-}
-
 
 // tightState holds the per-session JPEG scratch buffer and reused encoders
 // so per-rect encoding stays alloc-free in the steady state.
