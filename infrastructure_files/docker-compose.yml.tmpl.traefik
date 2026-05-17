@@ -54,19 +54,48 @@ services:
     - traefik.http.services.netbird-signal.loadbalancer.server.scheme=h2c
 
   # Relay
+  #
+  # Traefik fronts the TCP/WebSocket side of the relay on port 443 via the HTTP
+  # router below — this gives us WS over TLS that traverses any HTTP proxy.
+  #
+  # WebTransport (h3) and raw QUIC require direct UDP termination on the relay
+  # itself: Traefik does not proxy WebTransport sessions, and tunnelling the
+  # h3 stream end-to-end through a reverse proxy defeats the point. The relay
+  # therefore publishes UDP/443 on the host directly and terminates TLS for
+  # both ALPNs ("nb-quic" and "h3") on a single socket via ALPN multiplexing.
+  #
+  # The relay obtains its own Let's Encrypt certificate (NB_LETSENCRYPT_*
+  # below) since Traefik's certificate store is not shared with the container.
+  # The cert is bound to NETBIRD_RELAY_DOMAIN — point this at the same FQDN
+  # clients use to dial the relay.
+  #
+  # If a deployment can't open UDP/443 to the host (firewall, k8s without
+  # hostPort, etc.), leave it unmapped: native clients fall back to raw QUIC
+  # over WS and browser clients fall back to WS. Drop "quic"/"wt" from the
+  # management Relays config in that case so clients don't waste a handshake.
   relay:
     <<: *default
     image: netbirdio/relay:$NETBIRD_RELAY_TAG
     environment:
     - NB_LOG_LEVEL=info
-    - NB_LISTEN_ADDRESS=:33080
+    - NB_LISTEN_ADDRESS=:443
     - NB_EXPOSED_ADDRESS=$NETBIRD_RELAY_ENDPOINT
+    - NB_LETSENCRYPT_DOMAINS=$NETBIRD_RELAY_DOMAIN
+    - NB_LETSENCRYPT_EMAIL=$NETBIRD_LETSENCRYPT_EMAIL
+    - NB_LETSENCRYPT_DATA_DIR=/var/lib/netbird-relay
     # todo: change to a secure secret
     - NB_AUTH_SECRET=$NETBIRD_RELAY_AUTH_SECRET
+    volumes:
+      - $RELAY_LE_VOLUMENAME:/var/lib/netbird-relay
+    ports:
+      # Direct UDP exposure for QUIC + WebTransport (bypasses Traefik).
+      - 443:443/udp
     labels:
+    # The TCP WS path stays behind Traefik so the existing /relay route keeps
+    # working for clients that can't open UDP/443.
     - traefik.enable=true
     - traefik.http.routers.netbird-relay.rule=Host(`$NETBIRD_DOMAIN`) && PathPrefix(`/relay`)
-    - traefik.http.services.netbird-relay.loadbalancer.server.port=33080
+    - traefik.http.services.netbird-relay.loadbalancer.server.port=443
 
   # Management
   management:
@@ -117,3 +146,4 @@ volumes:
   $MGMT_VOLUMENAME:
   $SIGNAL_VOLUMENAME:
   $LETSENCRYPT_VOLUMENAME:
+  $RELAY_LE_VOLUMENAME:

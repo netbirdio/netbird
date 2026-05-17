@@ -87,10 +87,31 @@ type TURNConfig struct {
 }
 
 // Relay configuration type
+//
+// Addresses is the legacy flat list and is forwarded to clients as
+// RelayConfig.urls for back-compat with older agents.
+//
+// Endpoints, when populated, additionally announces the transports each
+// relay URL supports. Under GeoDNS, where one URL resolves to several
+// physical relays in different regions, Transports must be the
+// intersection of the transports supported by every backend behind that
+// hostname — clients pick a transport per URL and the management server
+// does not probe individual backends. If a single backend in the pool
+// does not support h3/WebTransport, drop "wt" from Transports so no
+// client tries it against that hostname.
 type Relay struct {
 	Addresses      []string
+	Endpoints      []RelayEndpoint
 	CredentialsTTL util.Duration
 	Secret         string
+}
+
+// RelayEndpoint pairs a relay URL with the transports it advertises.
+// Transports values: "ws", "quic", "wt". Empty Transports means "unknown,
+// let the client try whatever it supports".
+type RelayEndpoint struct {
+	URL        string
+	Transports []string
 }
 
 // HttpServerConfig is a config of the HTTP Management service server

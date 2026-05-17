@@ -62,16 +62,10 @@ func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken
 		}
 	}
 
-	var relayCfg *proto.RelayConfig
-	if config.Relay != nil && len(config.Relay.Addresses) > 0 {
-		relayCfg = &proto.RelayConfig{
-			Urls: config.Relay.Addresses,
-		}
-
-		if relayToken != nil {
-			relayCfg.TokenPayload = relayToken.Payload
-			relayCfg.TokenSignature = relayToken.Signature
-		}
+	relayCfg := BuildRelayConfigProto(config.Relay)
+	if relayCfg != nil && relayToken != nil {
+		relayCfg.TokenPayload = relayToken.Payload
+		relayCfg.TokenSignature = relayToken.Signature
 	}
 
 	var signalCfg *proto.HostConfig
@@ -90,6 +84,60 @@ func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken
 	}
 
 	return nbConfig
+}
+
+// BuildRelayConfigProto translates the management-server relay config into
+// the wire-level proto.RelayConfig.
+//
+// Both forms are emitted side by side: the legacy `urls` slice always carries
+// every relay address (so old agents that don't understand `endpoints` still
+// receive a working URL list), and `endpoints` adds per-relay transport hints
+// when the operator has configured them.
+//
+// Under GeoDNS a single URL fans out to several physical relays. The hint
+// declared here must already be the intersection of the transports supported
+// by every backend; the management server takes the operator's word for it
+// rather than probing each region. If even one backend behind a hostname
+// can't speak h3/WebTransport, the operator must omit "wt" from that
+// hostname's Transports.
+func BuildRelayConfigProto(cfg *nbconfig.Relay) *proto.RelayConfig {
+	if cfg == nil {
+		return nil
+	}
+	if len(cfg.Addresses) == 0 && len(cfg.Endpoints) == 0 {
+		return nil
+	}
+
+	out := &proto.RelayConfig{}
+
+	if len(cfg.Endpoints) > 0 {
+		seen := make(map[string]struct{}, len(cfg.Endpoints))
+		out.Endpoints = make([]*proto.RelayEndpoint, 0, len(cfg.Endpoints))
+		out.Urls = make([]string, 0, len(cfg.Endpoints)+len(cfg.Addresses))
+		for _, ep := range cfg.Endpoints {
+			if ep.URL == "" {
+				continue
+			}
+			out.Endpoints = append(out.Endpoints, &proto.RelayEndpoint{
+				Url:        ep.URL,
+				Transports: append([]string(nil), ep.Transports...),
+			})
+			out.Urls = append(out.Urls, ep.URL)
+			seen[ep.URL] = struct{}{}
+		}
+		// Append any plain Addresses that weren't already covered by an
+		// Endpoint, so legacy clients still see them via `urls`.
+		for _, addr := range cfg.Addresses {
+			if _, ok := seen[addr]; ok {
+				continue
+			}
+			out.Urls = append(out.Urls, addr)
+		}
+	} else {
+		out.Urls = append([]string(nil), cfg.Addresses...)
+	}
+
+	return out
 }
 
 func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, settings *types.Settings, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, enableSSH bool) *proto.PeerConfig {
