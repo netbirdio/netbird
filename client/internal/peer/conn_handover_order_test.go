@@ -85,6 +85,53 @@ func TestConn_OnGuardEvent_SkipOfferGatedOnEverConnected(t *testing.T) {
 	}
 }
 
+// Codex follow-up regression: onGuardEvent must skip emitting OFFERs
+// when the management server has resolved the REMOTE peer to p2p-lazy
+// (legacy clients covered by LegacyLazyFallback even when the account-
+// wide mode is p2p-dynamic). Without that gate, the local dynamic
+// client bootstraps eager P2P tunnels to dozens of lazy legacy peers
+// the user is not actively communicating with — defeating the lazy
+// semantics that the server explicitly asked us to honor for that peer.
+// Caught after the 13-idle-P2P-tunnels report on 2026-05-16.
+//
+// Companion gate on everConnected: skip ONLY on bootstrap. For peers
+// that were once connected and then lost their relay/ICE path, the
+// guard MUST still send recovery OFFERs — verified after the
+// post-standby recovery regression on 2026-05-17.
+func TestConn_OnGuardEvent_SkipOfferForRemoteLazy(t *testing.T) {
+	src, err := os.ReadFile("conn.go")
+	if err != nil {
+		t.Fatalf("read conn.go: %v", err)
+	}
+	body := extractFunctionBody(t, string(src), "onGuardEvent")
+	const modeCheck = "remoteEffectiveMode() == connectionmode.ModeP2PLazy"
+	const everConnectedGate = "!conn.everConnected.Load()"
+	const skipTrace = "skip offer (remote peer is p2p-lazy"
+	if !strings.Contains(body, modeCheck) {
+		t.Fatalf("onGuardEvent missing %q — remote p2p-lazy gate is gone; eager bootstrap regressed", modeCheck)
+	}
+	// The everConnected gate is REQUIRED so the guard does not silently
+	// suppress recovery offers for peers that already had a tunnel and
+	// then lost it (relay reconnect, network change, daemon resume from
+	// standby). Without this, post-standby S26 was stuck with all legacy
+	// peers in idle/disconnected forever — 2026-05-17 regression.
+	if !strings.Contains(body, everConnectedGate) {
+		t.Fatalf("onGuardEvent missing %q in p2p-lazy gate — recovery after relay/ICE reconnect will be silently suppressed for any peer that was once connected", everConnectedGate)
+	}
+	if !strings.Contains(body, skipTrace) {
+		t.Fatalf("onGuardEvent missing %q trace — remote p2p-lazy gate trace landmark is gone", skipTrace)
+	}
+	// The gate MUST be the first non-comment guard in onGuardEvent so it
+	// applies before the local-mode-only carve-outs. Verify it appears
+	// before the existing "RemoteServerLivenessKnown" guard which is the
+	// next pre-existing exit branch.
+	idxMode := strings.Index(body, modeCheck)
+	idxLiveness := strings.Index(body, "RemoteServerLivenessKnown")
+	if idxLiveness >= 0 && idxMode > idxLiveness {
+		t.Errorf("remote-lazy gate must appear BEFORE the live-online gate (got %d > %d)", idxMode, idxLiveness)
+	}
+}
+
 // Codex follow-up regression: onWGDisconnected MUST invoke
 // onWGTimeoutRecover after closing the active worker — without it,
 // the peer is stuck in "Connecting" forever because lazy mgr keeps

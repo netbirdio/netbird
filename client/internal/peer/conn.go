@@ -711,7 +711,55 @@ func (conn *Conn) handleRelayDisconnectedLocked() {
 	}
 }
 
+// remoteEffectiveMode returns the connection mode the management server
+// has resolved per-peer for the REMOTE peer (RemotePeerConfig.
+// effective_connection_mode). For peers covered by the server's
+// LegacyLazyFallback this is p2p-lazy even when the account-wide mode
+// is p2p-dynamic. ModeUnspecified means the status recorder does not
+// know the mode yet (early bootstrap before first NetworkMap, or status
+// recorder missing).
+func (conn *Conn) remoteEffectiveMode() connectionmode.Mode {
+	if conn.statusRecorder == nil {
+		return connectionmode.ModeUnspecified
+	}
+	state, err := conn.statusRecorder.GetPeer(conn.config.Key)
+	if err != nil {
+		return connectionmode.ModeUnspecified
+	}
+	m, _ := connectionmode.ParseString(state.RemoteEffectiveConnectionMode)
+	return m
+}
+
 func (conn *Conn) onGuardEvent() {
+	// Respect remote peer's resolved connection mode: when the management
+	// server has placed the REMOTE peer in p2p-lazy (typical for legacy
+	// clients covered by LegacyLazyFallback even though the account-wide
+	// mode is p2p-dynamic), it expects strict lazy semantics — i.e. no
+	// unsolicited initial offers from us. Skipping here prevents the
+	// eager initial P2P establishment to dozens of legacy peers that
+	// the user never actually communicates with.
+	//
+	// CRITICAL gate on everConnected: skip ONLY on the BOOTSTRAP case
+	// (peer never connected yet). For peers that WERE connected and
+	// then lost their relay/ICE path (network change, signal/relay
+	// reconnect, daemon resume from standby), the guard MUST still
+	// send recovery OFFERs — otherwise the tunnel stays cold forever
+	// because (a) the local activity-listener is inactive for already-
+	// opened conns and (b) the legacy remote won't re-initiate on its
+	// own either. Discovered 2026-05-17: S26 had 23 idle / 5 offline
+	// after overnight standby; relay reconnected at 06:18 but every
+	// guard fire was silently skipped here, leaving every legacy peer
+	// unable to recover.
+	//
+	// Note: we still respect remote-initiated OFFERs via the signal-
+	// receive path (engine.go -> ConnMgr.ActivatePeer is NOT gated on
+	// this), and we still bootstrap when local user traffic triggers
+	// the local lazy manager (manager.onPeerActivity -> AttachICE).
+	if conn.remoteEffectiveMode() == connectionmode.ModeP2PLazy && !conn.everConnected.Load() {
+		conn.Log.Tracef("guard: skip offer (remote peer is p2p-lazy AND never connected; wait for remote OFFER or local activity)")
+		return
+	}
+
 	// Suppress reconnect-offers under p2p-dynamic when the management
 	// server reports the remote peer as offline (live_online=false). The
 	// guard otherwise spams an offer every 5-30 s for up to relay_timeout
