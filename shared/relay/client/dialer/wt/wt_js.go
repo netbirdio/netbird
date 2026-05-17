@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"sync"
 	"syscall/js"
 
 	log "github.com/sirupsen/logrus"
@@ -87,18 +88,31 @@ func prepareURL(address string) (string, error) {
 	return parsed.String(), nil
 }
 
-// awaitPromise bridges a JS Promise to a Go return. It respects ctx
-// cancellation and releases its js.Func callbacks on the resolve/reject path.
+// awaitPromise bridges a JS Promise to a Go return.
+//
+// js.Func release timing is the subtle part: if we released the callbacks on
+// ctx cancellation, the JS engine would later try to invoke a dead Go
+// function when the promise eventually settled (closing the WebTransport
+// rejects every pending read/write promise) and crash the WASM module. So
+// the callbacks always release themselves from inside the settlement path,
+// regardless of whether the Go side is still listening. Ctx cancellation
+// only releases the Go-side goroutine; the JS-side callbacks live until JS
+// runs them once.
 func awaitPromise(ctx context.Context, p js.Value) (js.Value, error) {
 	type res struct {
 		val js.Value
 		err error
 	}
 	ch := make(chan res, 1)
-	var thenFn, catchFn js.Func
+	var (
+		thenFn, catchFn js.Func
+		releaseOnce     sync.Once
+	)
 	release := func() {
-		thenFn.Release()
-		catchFn.Release()
+		releaseOnce.Do(func() {
+			thenFn.Release()
+			catchFn.Release()
+		})
 	}
 	thenFn = js.FuncOf(func(_ js.Value, args []js.Value) interface{} {
 		var v js.Value
@@ -109,6 +123,7 @@ func awaitPromise(ctx context.Context, p js.Value) (js.Value, error) {
 		case ch <- res{val: v}:
 		default:
 		}
+		release()
 		return nil
 	})
 	catchFn = js.FuncOf(func(_ js.Value, args []js.Value) interface{} {
@@ -120,16 +135,15 @@ func awaitPromise(ctx context.Context, p js.Value) (js.Value, error) {
 		case ch <- res{err: errors.New(msg)}:
 		default:
 		}
+		release()
 		return nil
 	})
 	p.Call("then", thenFn).Call("catch", catchFn)
 
 	select {
 	case r := <-ch:
-		release()
 		return r.val, r.err
 	case <-ctx.Done():
-		release()
 		return js.Value{}, ctx.Err()
 	}
 }

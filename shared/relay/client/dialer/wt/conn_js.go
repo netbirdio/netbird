@@ -80,6 +80,11 @@ func (c *conn) Read(b []byte) (int, error) {
 			if errors.Is(err, context.Canceled) {
 				return 0, net.ErrClosed
 			}
+			// Any other error from the datagram reader is terminal — the
+			// browser closes the underlying read stream on session failure.
+			// Mark the conn closed so the relay client's read loop sees a
+			// consistent net.ErrClosed on its next call.
+			c.markClosed()
 			return 0, netErr.ErrClosedByServer
 		}
 		if v.Get("done").Bool() {
@@ -92,8 +97,8 @@ func (c *conn) Read(b []byte) (int, error) {
 		}
 		n := val.Get("byteLength").Int()
 		if n > len(b) {
-			// Datagrams shouldn't exceed the relay's MaxMessageSize (8 KB) so
-			// this branch is defensive — truncate rather than fail hard.
+			// Datagrams shouldn't exceed the relay's MaxMessageSize (8 KB)
+			// so this branch is defensive — truncate rather than fail hard.
 			n = len(b)
 		}
 		js.CopyBytesToGo(b[:n], val)
@@ -114,6 +119,7 @@ func (c *conn) Write(b []byte) (int, error) {
 		if errors.Is(err, context.Canceled) {
 			return 0, net.ErrClosed
 		}
+		c.markClosed()
 		return 0, netErr.ErrClosedByServer
 	}
 	return len(b), nil
