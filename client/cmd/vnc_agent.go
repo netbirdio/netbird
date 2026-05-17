@@ -44,7 +44,7 @@ var vncAgentCmd = &cobra.Command{
 
 		capturer := vncserver.NewDesktopCapturer()
 		injector := vncserver.NewWindowsInputInjector()
-		srv := vncserver.New(capturer, injector, "")
+		srv := vncserver.New(capturer, injector)
 		srv.SetDisableAuth(true)
 		srv.SetAgentToken(token)
 

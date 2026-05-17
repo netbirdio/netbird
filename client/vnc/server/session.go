@@ -1,8 +1,6 @@
 package server
 
 import (
-	"bytes"
-	"crypto/rand"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -40,7 +38,6 @@ type session struct {
 	serverW     int
 	serverH     int
 	desktopName string
-	password    string
 	log         *log.Entry
 
 	writeMu sync.Mutex
@@ -179,61 +176,19 @@ func (s *session) handshake() error {
 	return s.sendServerInit()
 }
 
+// sendSecurityTypes advertises only secNone. Authentication and access
+// control are layered on top by the dashboard JWT exchange after the RFB
+// handshake completes, not by the protocol-level password scheme.
 func (s *session) sendSecurityTypes() error {
-	if s.password == "" {
-		_, err := s.conn.Write([]byte{1, secNone})
-		return err
-	}
-	_, err := s.conn.Write([]byte{1, secVNCAuth})
+	_, err := s.conn.Write([]byte{1, secNone})
 	return err
 }
 
 func (s *session) handleSecurity(secType byte) error {
-	switch secType {
-	case secVNCAuth:
-		return s.doVNCAuth()
-	case secNone:
-		return binary.Write(s.conn, binary.BigEndian, uint32(0))
-	default:
+	if secType != secNone {
 		return fmt.Errorf("unsupported security type: %d", secType)
 	}
-}
-
-func (s *session) doVNCAuth() error {
-	challenge := make([]byte, 16)
-	if _, err := rand.Read(challenge); err != nil {
-		return fmt.Errorf("generate challenge: %w", err)
-	}
-	if _, err := s.conn.Write(challenge); err != nil {
-		return fmt.Errorf("send challenge: %w", err)
-	}
-
-	response := make([]byte, 16)
-	if _, err := io.ReadFull(s.conn, response); err != nil {
-		return fmt.Errorf("read auth response: %w", err)
-	}
-
-	var result uint32
-	if s.password != "" {
-		expected, err := vncAuthEncrypt(challenge, s.password)
-		if err != nil {
-			return fmt.Errorf("vnc auth encrypt: %w", err)
-		}
-		if !bytes.Equal(expected, response) {
-			result = 1
-		}
-	}
-
-	if err := binary.Write(s.conn, binary.BigEndian, result); err != nil {
-		return fmt.Errorf("send auth result: %w", err)
-	}
-	if result != 0 {
-		msg := "authentication failed"
-		_ = binary.Write(s.conn, binary.BigEndian, uint32(len(msg)))
-		_, _ = s.conn.Write([]byte(msg))
-		return fmt.Errorf("authentication failed from %s", s.addr())
-	}
-	return nil
+	return binary.Write(s.conn, binary.BigEndian, uint32(0))
 }
 
 func (s *session) sendServerInit() error {

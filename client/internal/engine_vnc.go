@@ -99,7 +99,7 @@ func (e *Engine) startVNCServer(sshConf *mgmProto.SSHConfig) error {
 
 	netbirdIP := e.wgInterface.Address().IP
 
-	srv := vncserver.New(capturer, injector, "")
+	srv := vncserver.New(capturer, injector)
 	if vncNeedsServiceMode() {
 		log.Info("VNC: running in Session 0, enabling service mode (agent proxy)")
 		srv.SetServiceMode(true)

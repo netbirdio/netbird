@@ -129,7 +129,6 @@ type connectionHeader struct {
 type Server struct {
 	capturer    ScreenCapturer
 	injector    InputInjector
-	password    string
 	serviceMode bool
 	disableAuth bool
 	localAddr   netip.Addr   // NetBird WireGuard IP this server is bound to
@@ -179,11 +178,12 @@ type virtualSessionManager interface {
 }
 
 // New creates a VNC server with the given screen capturer and input injector.
-func New(capturer ScreenCapturer, injector InputInjector, password string) *Server {
+// Authentication is handled by the dashboard JWT exchange after the RFB
+// handshake; the protocol-level VNC password scheme is not supported.
+func New(capturer ScreenCapturer, injector InputInjector) *Server {
 	return &Server{
 		capturer:   capturer,
 		injector:   injector,
-		password:   password,
 		authorizer: sshauth.NewAuthorizer(),
 		log:        log.WithField("component", "vnc-server"),
 		sessions:   make(map[uint64]ActiveSessionInfo),
@@ -478,7 +478,6 @@ func (s *Server) handleConnection(conn net.Conn) {
 		injector: injector,
 		serverW:  capturer.Width(),
 		serverH:  capturer.Height(),
-		password: s.password,
 		log:      connLog,
 	}
 	sess.serve()

@@ -3,9 +3,7 @@ package server
 import (
 	"bytes"
 	"compress/zlib"
-	"crypto/des" //nolint:gosec // RFB protocol-defined DES challenge/response; not used for confidentiality
 	"encoding/binary"
-	"fmt"
 	"image"
 	"image/jpeg"
 	"unsafe"
@@ -21,8 +19,7 @@ type rect struct {
 const (
 	rfbProtocolVersion = "RFB 003.008\n"
 
-	secNone    = 1
-	secVNCAuth = 2
+	secNone = 1
 
 	// Client message types.
 	clientSetPixelFormat           = 0
@@ -297,38 +294,6 @@ func emitPixelBytes(dst []byte, pixel uint32, bytesPerPixel int, bigEndian bool)
 	}
 }
 
-// vncAuthEncrypt encrypts a 16-byte challenge using the VNC DES scheme.
-func vncAuthEncrypt(challenge []byte, password string) ([]byte, error) {
-	key := make([]byte, 8)
-	pw := []byte(password)
-	n := len(pw)
-	if n > 8 {
-		n = 8
-	}
-	for i := 0; i < n; i++ {
-		key[i] = reverseBits(pw[i])
-	}
-	block, err := des.NewCipher(key) //nolint:gosec // RFB protocol-defined DES challenge/response; not a confidentiality cipher
-	if err != nil {
-		return nil, fmt.Errorf("des.NewCipher: %w", err)
-	}
-	if len(challenge) < 16 { //nolint:gosec // explicit length check disarms G602
-		return nil, fmt.Errorf("vnc auth challenge too short: %d", len(challenge))
-	}
-	out := make([]byte, 16)
-	block.Encrypt(out[:8], challenge[:8])
-	block.Encrypt(out[8:], challenge[8:])
-	return out, nil
-}
-
-func reverseBits(b byte) byte {
-	var r byte
-	for range 8 {
-		r = (r << 1) | (b & 1)
-		b >>= 1
-	}
-	return r
-}
 
 
 // diffTiles compares two RGBA images and returns a tile-ordered list of
