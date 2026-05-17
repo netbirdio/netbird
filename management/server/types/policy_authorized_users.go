@@ -62,7 +62,12 @@ func applyResolvedRuleToState(
 			return
 		}
 		state.sshEnabled = true
-		state.authorizedUsers[auth.Wildcard] = cb.getAllowedUserIDs()
+		if state.authorizedUsers[auth.Wildcard] == nil {
+			state.authorizedUsers[auth.Wildcard] = make(map[string]struct{})
+		}
+		for userID := range cb.getAllowedUserIDs() {
+			state.authorizedUsers[auth.Wildcard][userID] = struct{}{}
+		}
 	}
 }
 
