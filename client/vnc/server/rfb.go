@@ -495,10 +495,17 @@ func zlibLevelFor(level int) int {
 	return level
 }
 
+// tightMaxLength is the maximum payload size representable in the Tight
+// compact length prefix (RFB §7.7.6: 22 bits, three 7+7+8 bit groups).
+// Exceeding this would silently truncate the high byte; callers must fall
+// back to a different encoding when an attempt would overflow.
+const tightMaxLength = (1 << 22) - 1
+
 // encodeTightRect emits a single Tight-encoded rect. Picks Fill for uniform
 // content, JPEG for photo-like rects above a size and color-count threshold,
-// and Basic+zlib otherwise. Returns the rect header + Tight body (no
-// FramebufferUpdate header).
+// and Basic+zlib otherwise. When Tight's 22-bit length cap would be exceeded
+// (huge full-frame rects under bad compression), falls back to Raw. Returns
+// the rect header + body (no FramebufferUpdate header).
 func encodeTightRect(img *image.RGBA, pf clientPixelFormat, x, y, w, h int, t *tightState) []byte {
 	if pixel, uniform := tileIsUniform(img, x, y, w, h); uniform {
 		return encodeTightFill(x, y, w, h, byte(pixel), byte(pixel>>8), byte(pixel>>16))
@@ -508,7 +515,12 @@ func encodeTightRect(img *image.RGBA, pf clientPixelFormat, x, y, w, h int, t *t
 			return buf
 		}
 	}
-	return encodeTightBasic(img, x, y, w, h, t)
+	if buf, ok := encodeTightBasic(img, x, y, w, h, t); ok {
+		return buf
+	}
+	// Fall back to Raw rect body (skip the 4-byte FU header that encodeRawRect
+	// prepends, since callers compose their own FU header).
+	return encodeRawRect(img, pf, x, y, w, h)[4:]
 }
 
 func writeTightRectHeader(buf []byte, x, y, w, h int) {
@@ -520,8 +532,13 @@ func writeTightRectHeader(buf []byte, x, y, w, h int) {
 }
 
 // appendTightLength encodes a Tight compact length prefix (1, 2, or 3 bytes
-// LE-ish, top bit of each byte signals continuation).
+// LE-ish, top bit of each byte signals continuation). Lengths exceeding
+// tightMaxLength would silently truncate the high byte; callers must clamp
+// or fall back before reaching here.
 func appendTightLength(buf []byte, n int) []byte {
+	if n < 0 || n > tightMaxLength {
+		panic(fmt.Sprintf("tight length out of range: %d", n))
+	}
 	b0 := byte(n & 0x7f)
 	if n <= 0x7f {
 		return append(buf, b0)
@@ -532,6 +549,8 @@ func appendTightLength(buf []byte, n int) []byte {
 		return append(buf, b0, b1)
 	}
 	b1 |= 0x80
+	// High group is 8 bits per spec, but our cap guarantees the top 2 bits
+	// are zero; mask defensively.
 	b2 := byte((n >> 14) & 0xff)
 	return append(buf, b0, b1, b2)
 }
@@ -562,6 +581,9 @@ func encodeTightJPEG(img *image.RGBA, x, y, w, h int, t *tightState) ([]byte, bo
 		return nil, false
 	}
 	jpegBytes := t.jpegBuf.Bytes()
+	if len(jpegBytes) > tightMaxLength {
+		return nil, false
+	}
 	buf := make([]byte, 0, 12+1+3+len(jpegBytes))
 	buf = buf[:12]
 	writeTightRectHeader(buf, x, y, w, h)
@@ -574,8 +596,10 @@ func encodeTightJPEG(img *image.RGBA, x, y, w, h int, t *tightState) ([]byte, bo
 // encodeTightBasic emits Basic+zlib with the no-op (CopyFilter) filter.
 // Pixels are sent as 24-bit RGB ("TPIXEL" format) which most clients
 // negotiate when the server advertises 32bpp true colour. Streams under
-// 12 bytes ship uncompressed per RFB Tight spec.
-func encodeTightBasic(img *image.RGBA, x, y, w, h int, t *tightState) []byte {
+// 12 bytes ship uncompressed per RFB Tight spec. Returns ok=false when the
+// compressed payload would exceed Tight's 22-bit length cap or when zlib
+// errors, signalling the caller to fall back to Raw.
+func encodeTightBasic(img *image.RGBA, x, y, w, h int, t *tightState) ([]byte, bool) {
 	pixelStream := w * h * 3
 	if cap(t.scratch) < pixelStream {
 		t.scratch = make([]byte, pixelStream)
@@ -605,20 +629,23 @@ func encodeTightBasic(img *image.RGBA, x, y, w, h int, t *tightState) []byte {
 		writeTightRectHeader(buf, x, y, w, h)
 		buf = append(buf, subenc, filter)
 		buf = append(buf, scratch...)
-		return buf
+		return buf, true
 	}
 
 	z := t.zlib
 	z.buf.Reset()
 	if _, err := z.w.Write(scratch); err != nil {
 		log.Debugf("tight zlib write: %v", err)
-		return nil
+		return nil, false
 	}
 	if err := z.w.Flush(); err != nil {
 		log.Debugf("tight zlib flush: %v", err)
-		return nil
+		return nil, false
 	}
 	compressed := z.buf.Bytes()
+	if len(compressed) > tightMaxLength {
+		return nil, false
+	}
 
 	buf := make([]byte, 0, 12+2+5+len(compressed))
 	buf = buf[:12]
@@ -626,7 +653,7 @@ func encodeTightBasic(img *image.RGBA, x, y, w, h int, t *tightState) []byte {
 	buf = append(buf, subenc, filter)
 	buf = appendTightLength(buf, len(compressed))
 	buf = append(buf, compressed...)
-	return buf
+	return buf, true
 }
 
 func tightQualityFor(pixels int) int {
