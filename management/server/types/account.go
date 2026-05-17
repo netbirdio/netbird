@@ -906,7 +906,20 @@ func (a *Account) resolveRuleEndpoint(
 	validatedPeersMap map[string]struct{},
 ) ([]*nbpeer.Peer, bool) {
 	if resource.Type == ResourceTypePeer && resource.ID != "" {
-		return a.getPeerFromResource(resource, peerID)
+		resolvedPeer := a.GetPeer(resource.ID)
+		if resolvedPeer == nil {
+			return []*nbpeer.Peer{}, false
+		}
+		if len(postureChecks) > 0 && !a.validatePostureChecksOnPeer(ctx, postureChecks, resolvedPeer.ID) {
+			return []*nbpeer.Peer{}, false
+		}
+		if _, ok := validatedPeersMap[resolvedPeer.ID]; !ok {
+			return []*nbpeer.Peer{}, false
+		}
+		if resolvedPeer.ID == peerID {
+			return []*nbpeer.Peer{}, true
+		}
+		return []*nbpeer.Peer{resolvedPeer}, false
 	}
 	return a.getAllPeersFromGroups(ctx, groups, peerID, postureChecks, validatedPeersMap)
 }
