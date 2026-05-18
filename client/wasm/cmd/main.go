@@ -19,6 +19,7 @@ import (
 	nbstatus "github.com/netbirdio/netbird/client/status"
 	wasmcapture "github.com/netbirdio/netbird/client/wasm/internal/capture"
 	"github.com/netbirdio/netbird/client/wasm/internal/http"
+	"github.com/netbirdio/netbird/client/wasm/internal/rdp"
 	"github.com/netbirdio/netbird/client/wasm/internal/ssh"
 	"github.com/netbirdio/netbird/client/wasm/internal/vnc"
 	"github.com/netbirdio/netbird/util"
@@ -361,6 +362,29 @@ func createProxyRequestMethod(client *netbird.Client) js.Func {
 			}
 			resolve.Invoke(response)
 		})
+	})
+}
+
+// createRDPProxyMethod creates the RDP proxy method
+func createRDPProxyMethod(client *netbird.Client) js.Func {
+	return js.FuncOf(func(_ js.Value, args []js.Value) any {
+		if len(args) < 2 {
+			return js.ValueOf("error: hostname and port required")
+		}
+
+		if args[0].Type() != js.TypeString {
+			return createPromise(func(resolve, reject js.Value) {
+				reject.Invoke(js.ValueOf("hostname parameter must be a string"))
+			})
+		}
+		if args[1].Type() != js.TypeString {
+			return createPromise(func(resolve, reject js.Value) {
+				reject.Invoke(js.ValueOf("port parameter must be a string"))
+			})
+		}
+
+		proxy := rdp.NewRDCleanPathProxy(client)
+		return proxy.CreateProxy(args[0].String(), args[1].String())
 	})
 }
 
@@ -780,6 +804,7 @@ func createClientObject(client *netbird.Client) js.Value {
 	obj["detectSSHServerType"] = createDetectSSHServerMethod(client)
 	obj["createSSHConnection"] = createSSHMethod(client)
 	obj["proxyRequest"] = createProxyRequestMethod(client)
+	obj["createRDPProxy"] = createRDPProxyMethod(client)
 	obj["createVNCProxy"] = createVNCProxyMethod(client)
 	obj["status"] = createStatusMethod(client)
 	obj["statusSummary"] = createStatusSummaryMethod(client)
