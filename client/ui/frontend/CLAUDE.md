@@ -46,10 +46,11 @@ Subscribe with `Events.On(name, handler)`. The handler receives `{ data: <typed 
 |---|---|---|---|
 | `netbird:status` | `Status` | `services/peers.go statusStreamLoop` | `hooks/useStatus` |
 | `netbird:event` | `SystemEvent` | `services/peers.go toastStreamLoop` | Not currently subscribed on the TS side — Status is read via `useStatus().status.events` instead. The tray (Go) consumes it for OS notifications. |
+| `netbird:profile:changed` | `ProfileRef` | `services/profileswitcher.go SwitchActive` | `modules/profile/ProfileContext` refreshes so a tray-initiated switch paints in the React UI. |
 | `netbird:update:available` | `UpdateAvailable` | `services/peers.go fanOutUpdateEvents` | Not directly subscribed on the TS side; `ClientVersionContext` derives `updateVersion` from `status.events` metadata instead. |
 | `netbird:update:progress` | `UpdateProgress` | same | Same — drives the tray; Go side opens the `/update` route. |
 | `browser-login:cancel` | (no payload) | `BrowserLogin` page (frontend) when user clicks Cancel **or** Go `services/windowmanager.go` when user closes the BrowserLogin window | `layouts/ConnectionStatusSwitch.tsx`'s `startLogin()` to abort the in-flight `WaitSSOLogin` |
-| `trigger-login` | (no payload) | Reserved (`services.EventTriggerLogin`); not currently used by the frontend |
+| `trigger-login` | (no payload) | Reserved (`services.EventTriggerLogin`); `layouts/ConnectionStatusSwitch.tsx` subscribes and runs `startLogin()` when fired. No Go-side emitter today. |
 
 If you wire a new daemon-event subscriber on the TS side, prefer subscribing once at the context level rather than per-screen — the Wails event bus is process-wide and each `Events.On` adds an emit-time fan-out.
 

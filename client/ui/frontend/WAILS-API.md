@@ -43,7 +43,7 @@ Subscribe with `Events.On(name, handler)` from `@wailsio/runtime`. Handlers rece
 | `netbird:preferences:changed` | `{ language: string }` | Fires after every successful `Preferences.SetLanguage` (including the caller's own window). `src/i18n/index.ts` subscribes and calls `i18next.changeLanguage`. |
 | `netbird:update:progress` | `UpdateProgress` | Daemon enforced-update install progress (`action: "show"` etc.). |
 | `browser-login:cancel` | (none) | Either the user closed the `BrowserLogin` window (Go-emitted) or the page's Cancel button (frontend-emitted). |
-| `trigger-login` | (none) | Reserved by the tray for asking the frontend to start an SSO flow; not currently wired on the TS side. |
+| `trigger-login` | (none) | Reserved by the tray for asking the frontend to start an SSO flow. `layouts/ConnectionStatusSwitch.tsx` subscribes and runs `startLogin()`; no Go-side emitter today. |
 
 The two stream loops behind `netbird:status` and `netbird:event` start automatically — `main.go` calls `peers.Watch(context.Background())` at boot. `Peers.Watch` is still exported but the frontend doesn't need to invoke it.
 
