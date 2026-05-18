@@ -76,6 +76,11 @@ type clientEntry struct {
 	services          map[ServiceKey]serviceInfo
 	createdAt         time.Time
 	started           bool
+	// ready is closed once the client has been fully initialized.
+	// Callers that find a pending entry wait on this channel before
+	// accessing the client. A nil initErr means success.
+	ready   chan struct{}
+	initErr error
 	// Per-backend in-flight limiting keyed by target host:port.
 	// TODO: clean up stale entries when backend targets change.
 	inflightMu  sync.Mutex
@@ -157,6 +162,9 @@ type skipTLSVerifyContextKey struct{}
 // AddPeer registers a service for an account. If the account doesn't have a client yet,
 // one is created by authenticating with the management server using the provided token.
 // Multiple services can share the same client.
+//
+// Client creation (WG keygen, gRPC, embed.New) runs without holding clientsMux
+// so that concurrent AddPeer calls for different accounts execute in parallel.
 func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, key ServiceKey, authToken string, serviceID types.ServiceID) error {
 	si := serviceInfo{serviceID: serviceID}
 
@@ -164,9 +172,22 @@ func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, key Se
 
 	entry, exists := n.clients[accountID]
 	if exists {
+		ready := entry.ready
 		entry.services[key] = si
 		started := entry.started
 		n.clientsMux.Unlock()
+
+		// If the entry is still being initialized by another goroutine, wait.
+		if ready != nil {
+			select {
+			case <-ready:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+			if entry.initErr != nil {
+				return fmt.Errorf("peer initialization failed: %w", entry.initErr)
+			}
+		}
 
 		n.logger.WithFields(log.Fields{
 			"account_id":  accountID,
@@ -184,14 +205,38 @@ func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, key Se
 		return nil
 	}
 
-	entry, err := n.createClientEntry(ctx, accountID, key, authToken, si)
+	// Insert a placeholder so other goroutines calling AddPeer for the same
+	// account will wait on the ready channel instead of starting a second
+	// client creation.
+	entry = &clientEntry{
+		services: map[ServiceKey]serviceInfo{key: si},
+		ready:    make(chan struct{}),
+	}
+	n.clients[accountID] = entry
+	n.clientsMux.Unlock()
+
+	created, err := n.createClientEntry(ctx, accountID, key, authToken, si)
 	if err != nil {
+		entry.initErr = err
+		close(entry.ready)
+
+		n.clientsMux.Lock()
+		delete(n.clients, accountID)
 		n.clientsMux.Unlock()
 		return err
 	}
 
-	n.clients[accountID] = entry
+	// Transfer any services that were registered by concurrent AddPeer calls
+	// while we were creating the client.
+	n.clientsMux.Lock()
+	for k, v := range entry.services {
+		created.services[k] = v
+	}
+	created.ready = nil
+	n.clients[accountID] = created
 	n.clientsMux.Unlock()
+
+	close(entry.ready)
 
 	n.logger.WithFields(log.Fields{
 		"account_id":  accountID,
@@ -200,13 +245,13 @@ func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, key Se
 
 	// Attempt to start the client in the background; if this fails we will
 	// retry on the first request via RoundTrip.
-	go n.runClientStartup(ctx, accountID, entry.client)
+	go n.runClientStartup(ctx, accountID, created.client)
 
 	return nil
 }
 
 // createClientEntry generates a WireGuard keypair, authenticates with management,
-// and creates an embedded NetBird client. Must be called with clientsMux held.
+// and creates an embedded NetBird client.
 func (n *NetBird) createClientEntry(ctx context.Context, accountID types.AccountID, key ServiceKey, authToken string, si serviceInfo) (*clientEntry, error) {
 	serviceID := si.serviceID
 	n.logger.WithFields(log.Fields{

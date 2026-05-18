@@ -136,9 +136,12 @@ type proxyConnection struct {
 	tokenID      string
 	capabilities *proto.ProxyCapabilities
 	stream       proto.ProxyService_GetMappingUpdateServer
-	sendChan     chan *proto.GetMappingUpdateResponse
-	ctx          context.Context
-	cancel       context.CancelFunc
+	// syncStream is set when the proxy connected via SyncMappings.
+	// When non-nil, the sender goroutine uses this instead of stream.
+	syncStream proto.ProxyService_SyncMappingsServer
+	sendChan   chan *proto.GetMappingUpdateResponse
+	ctx        context.Context
+	cancel     context.CancelFunc
 }
 
 func enforceAccountScope(ctx context.Context, requestAccountID string) error {
@@ -345,6 +348,223 @@ func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest
 	}
 }
 
+// SyncMappings implements the bidirectional SyncMappings RPC.
+// It mirrors GetMappingUpdate but provides application-level back-pressure:
+// management waits for an ack from the proxy before sending the next batch.
+func (s *ProxyServiceServer) SyncMappings(stream proto.ProxyService_SyncMappingsServer) error {
+	ctx := stream.Context()
+
+	peerInfo := PeerIPFromContext(ctx)
+	log.Infof("New proxy SyncMappings connection from %s", peerInfo)
+
+	// First message must be init.
+	firstMsg, err := stream.Recv()
+	if err != nil {
+		return status.Errorf(codes.Internal, "receive init: %v", err)
+	}
+	init := firstMsg.GetInit()
+	if init == nil {
+		return status.Errorf(codes.InvalidArgument, "first message must be init")
+	}
+
+	proxyID := init.GetProxyId()
+	if proxyID == "" {
+		return status.Errorf(codes.InvalidArgument, "proxy_id is required")
+	}
+
+	proxyAddress := init.GetAddress()
+	if !isProxyAddressValid(proxyAddress) {
+		return status.Errorf(codes.InvalidArgument, "proxy address is invalid")
+	}
+
+	var accountID *string
+	token := GetProxyTokenFromContext(ctx)
+	if token != nil && token.AccountID != nil {
+		accountID = token.AccountID
+
+		available, err := s.proxyManager.IsClusterAddressAvailable(ctx, proxyAddress, *accountID)
+		if err != nil {
+			return status.Errorf(codes.Internal, "check cluster address: %v", err)
+		}
+		if !available {
+			return status.Errorf(codes.AlreadyExists, "cluster address %s is already in use", proxyAddress)
+		}
+	}
+
+	var tokenID string
+	if token != nil {
+		tokenID = token.ID
+	}
+
+	sessionID := uuid.NewString()
+
+	if old, loaded := s.connectedProxies.Load(proxyID); loaded {
+		oldConn := old.(*proxyConnection)
+		log.WithFields(log.Fields{
+			"proxy_id":       proxyID,
+			"old_session_id": oldConn.sessionID,
+			"new_session_id": sessionID,
+		}).Info("Superseding existing proxy connection")
+		oldConn.cancel()
+	}
+
+	connCtx, cancel := context.WithCancel(ctx)
+	conn := &proxyConnection{
+		proxyID:      proxyID,
+		sessionID:    sessionID,
+		address:      proxyAddress,
+		accountID:    accountID,
+		tokenID:      tokenID,
+		capabilities: init.GetCapabilities(),
+		syncStream:   stream,
+		sendChan:     make(chan *proto.GetMappingUpdateResponse, 100),
+		ctx:          connCtx,
+		cancel:       cancel,
+	}
+
+	var caps *proxy.Capabilities
+	if c := init.GetCapabilities(); c != nil {
+		caps = &proxy.Capabilities{
+			SupportsCustomPorts: c.SupportsCustomPorts,
+			RequireSubdomain:    c.RequireSubdomain,
+			SupportsCrowdsec:    c.SupportsCrowdsec,
+		}
+	}
+	proxyRecord, err := s.proxyManager.Connect(ctx, proxyID, sessionID, proxyAddress, peerInfo, accountID, caps)
+	if err != nil {
+		cancel()
+		if accountID != nil {
+			return status.Errorf(codes.Internal, "failed to register BYOP proxy: %v", err)
+		}
+		log.WithContext(ctx).Warnf("failed to register proxy %s in database: %v", proxyID, err)
+		return status.Errorf(codes.Internal, "register proxy in database: %v", err)
+	}
+
+	s.connectedProxies.Store(proxyID, conn)
+	if err := s.proxyController.RegisterProxyToCluster(ctx, conn.address, proxyID); err != nil {
+		log.WithContext(ctx).Warnf("Failed to register proxy %s in cluster: %v", proxyID, err)
+	}
+
+	if err := s.sendSnapshotSync(ctx, conn, stream); err != nil {
+		if s.connectedProxies.CompareAndDelete(proxyID, conn) {
+			if unregErr := s.proxyController.UnregisterProxyFromCluster(context.Background(), conn.address, proxyID); unregErr != nil {
+				log.WithContext(ctx).Debugf("cleanup after snapshot failure for proxy %s: %v", proxyID, unregErr)
+			}
+		}
+		cancel()
+		if disconnErr := s.proxyManager.Disconnect(context.Background(), proxyID, sessionID); disconnErr != nil {
+			log.WithContext(ctx).Debugf("cleanup after snapshot failure for proxy %s: %v", proxyID, disconnErr)
+		}
+		return fmt.Errorf("send snapshot to proxy %s: %w", proxyID, err)
+	}
+
+	errChan := make(chan error, 2)
+	go s.sender(conn, errChan)
+
+	// Drain acks from the proxy in the background so the stream stays healthy.
+	// After the snapshot phase, the proxy may still send acks for incremental
+	// updates; we simply discard them.
+	go func() {
+		for {
+			if _, err := stream.Recv(); err != nil {
+				errChan <- err
+				return
+			}
+		}
+	}()
+
+	log.WithFields(log.Fields{
+		"proxy_id":      proxyID,
+		"session_id":    sessionID,
+		"address":       proxyAddress,
+		"cluster_addr":  proxyAddress,
+		"account_id":    accountID,
+		"total_proxies": len(s.GetConnectedProxies()),
+	}).Info("Proxy registered in cluster (SyncMappings)")
+	defer func() {
+		if !s.connectedProxies.CompareAndDelete(proxyID, conn) {
+			log.Infof("Proxy %s session %s: skipping cleanup, superseded by new connection", proxyID, sessionID)
+			cancel()
+			return
+		}
+
+		if err := s.proxyController.UnregisterProxyFromCluster(context.Background(), conn.address, proxyID); err != nil {
+			log.Warnf("Failed to unregister proxy %s from cluster: %v", proxyID, err)
+		}
+		if err := s.proxyManager.Disconnect(context.Background(), proxyID, sessionID); err != nil {
+			log.Warnf("Failed to mark proxy %s as disconnected: %v", proxyID, err)
+		}
+
+		cancel()
+		log.Infof("Proxy %s session %s disconnected", proxyID, sessionID)
+	}()
+
+	go s.heartbeat(connCtx, conn, proxyRecord)
+
+	select {
+	case err := <-errChan:
+		log.WithContext(ctx).Warnf("Failed to send update: %v", err)
+		return fmt.Errorf("send update to proxy %s: %w", proxyID, err)
+	case <-connCtx.Done():
+		log.WithContext(ctx).Infof("Proxy %s context canceled", proxyID)
+		return connCtx.Err()
+	}
+}
+
+// sendSnapshotSync sends the initial snapshot with back-pressure: it sends
+// one batch, then waits for the proxy to ack before sending the next.
+func (s *ProxyServiceServer) sendSnapshotSync(ctx context.Context, conn *proxyConnection, stream proto.ProxyService_SyncMappingsServer) error {
+	if !isProxyAddressValid(conn.address) {
+		return fmt.Errorf("proxy address is invalid")
+	}
+
+	mappings, err := s.snapshotServiceMappings(ctx, conn)
+	if err != nil {
+		return err
+	}
+
+	for i := 0; i < len(mappings); i += s.snapshotBatchSize {
+		end := i + s.snapshotBatchSize
+		if end > len(mappings) {
+			end = len(mappings)
+		}
+		for _, m := range mappings[i:end] {
+			token, err := s.tokenStore.GenerateToken(m.AccountId, m.Id, s.proxyTokenTTL())
+			if err != nil {
+				return fmt.Errorf("generate auth token for service %s: %w", m.Id, err)
+			}
+			m.AuthToken = token
+		}
+		if err := stream.Send(&proto.SyncMappingsResponse{
+			Mapping:             mappings[i:end],
+			InitialSyncComplete: end == len(mappings),
+		}); err != nil {
+			return fmt.Errorf("send snapshot batch: %w", err)
+		}
+
+		// Wait for ack before sending the next batch.
+		if end < len(mappings) {
+			msg, err := stream.Recv()
+			if err != nil {
+				return fmt.Errorf("receive ack: %w", err)
+			}
+			if msg.GetAck() == nil {
+				return fmt.Errorf("expected ack, got %T", msg.GetMsg())
+			}
+		}
+	}
+
+	if len(mappings) == 0 {
+		if err := stream.Send(&proto.SyncMappingsResponse{
+			InitialSyncComplete: true,
+		}); err != nil {
+			return fmt.Errorf("send snapshot completion: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // heartbeat updates the proxy's last_seen timestamp every minute and
 // disconnects the proxy if its access token has been revoked.
 func (s *ProxyServiceServer) heartbeat(ctx context.Context, conn *proxyConnection, p *proxy.Proxy) {
@@ -460,12 +680,14 @@ func isProxyAddressValid(addr string) bool {
 	return err == nil
 }
 
-// sender handles sending messages to proxy
+// sender handles sending messages to proxy.
+// When conn.syncStream is set the message is sent as SyncMappingsResponse;
+// otherwise the legacy GetMappingUpdateResponse stream is used.
 func (s *ProxyServiceServer) sender(conn *proxyConnection, errChan chan<- error) {
 	for {
 		select {
 		case resp := <-conn.sendChan:
-			if err := conn.stream.Send(resp); err != nil {
+			if err := conn.sendResponse(resp); err != nil {
 				errChan <- err
 				return
 			}
@@ -473,6 +695,17 @@ func (s *ProxyServiceServer) sender(conn *proxyConnection, errChan chan<- error)
 			return
 		}
 	}
+}
+
+// sendResponse sends a mapping update on whichever stream the proxy connected with.
+func (conn *proxyConnection) sendResponse(resp *proto.GetMappingUpdateResponse) error {
+	if conn.syncStream != nil {
+		return conn.syncStream.Send(&proto.SyncMappingsResponse{
+			Mapping:             resp.Mapping,
+			InitialSyncComplete: resp.InitialSyncComplete,
+		})
+	}
+	return conn.stream.Send(resp)
 }
 
 // SendAccessLog processes access log from proxy
@@ -541,8 +774,8 @@ func (s *ProxyServiceServer) SendServiceUpdate(update *proto.GetMappingUpdateRes
 				return true
 			}
 			connUpdate = &proto.GetMappingUpdateResponse{
-				Mapping:              filtered,
-				InitialSyncComplete:  update.InitialSyncComplete,
+				Mapping:             filtered,
+				InitialSyncComplete: update.InitialSyncComplete,
 			}
 		}
 		resp := s.perProxyMessage(connUpdate, conn.proxyID)
