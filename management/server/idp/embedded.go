@@ -159,10 +159,9 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 	// MGMT api and the dashboard, adding baseURL means less configuration for the instance admin
 	dashboardPostLogoutRedirectURIs = append(dashboardPostLogoutRedirectURIs, baseURL)
 
-	redirectURIs := append(
-		cliRedirectURIs,
-		dashboardRedirectURIs...,
-	)
+	redirectURIs := make([]string, 0)
+	redirectURIs = append(redirectURIs, cliRedirectURIs...)
+	redirectURIs = append(redirectURIs, dashboardRedirectURIs...)
 
 	cfg := &dex.YAMLConfig{
 		Issuer: c.Issuer,
