@@ -277,6 +277,10 @@ func (s *session) handleSetEncodings() error {
 
 	var encs []string
 	s.encMu.Lock()
+	// Per RFC 6143 §7.5.3 each SetEncodings replaces the previous list, so
+	// reset all flags before re-applying. extClipCapsSent stays sticky so
+	// we don't re-emit Caps every refresh.
+	s.resetEncodingCaps()
 	for i := range int(numEnc) {
 		enc := int32(binary.BigEndian.Uint32(buf[i*4 : i*4+4]))
 		if name := s.applyEncoding(enc); name != "" {
@@ -302,6 +306,23 @@ func (s *session) handleSetEncodings() error {
 		}
 	}
 	return nil
+}
+
+// resetEncodingCaps zeroes the encoding capability flags so the next pass
+// through applyEncoding reflects exactly what the client just advertised.
+// Caller holds s.encMu. tight / copyRectDet allocations are kept; their
+// runtime use is gated by the boolean flags here.
+func (s *session) resetEncodingCaps() {
+	s.useTight = false
+	s.useCopyRect = false
+	s.clientSupportsDesktopSize = false
+	s.clientSupportsExtendedDesktopSize = false
+	s.clientSupportsDesktopName = false
+	s.clientSupportsLastRect = false
+	s.clientSupportsQEMUKey = false
+	s.clientSupportsExtClipboard = false
+	s.clientJPEGQuality = -1
+	s.clientZlibLevel = -1
 }
 
 // applyEncoding records a single encoding/pseudo-encoding from a SetEncodings
