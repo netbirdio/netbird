@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
@@ -171,4 +172,56 @@ func TestSendSnapshot_EmptySnapshot(t *testing.T) {
 	require.Len(t, stream.messages, 1, "empty snapshot must still send sync-complete")
 	assert.Empty(t, stream.messages[0].Mapping)
 	assert.True(t, stream.messages[0].InitialSyncComplete)
+}
+
+type hookingStream struct {
+	grpc.ServerStream
+	onSend func(*proto.GetMappingUpdateResponse)
+}
+
+func (s *hookingStream) Send(m *proto.GetMappingUpdateResponse) error {
+	if s.onSend != nil {
+		s.onSend(m)
+	}
+	return nil
+}
+
+func (s *hookingStream) Context() context.Context     { return context.Background() }
+func (s *hookingStream) SetHeader(metadata.MD) error  { return nil }
+func (s *hookingStream) SendHeader(metadata.MD) error { return nil }
+func (s *hookingStream) SetTrailer(metadata.MD)       {}
+func (s *hookingStream) SendMsg(any) error            { return nil }
+func (s *hookingStream) RecvMsg(any) error            { return nil }
+
+func TestSendSnapshot_TokensRemainValidUnderSlowSend(t *testing.T) {
+	const cluster = "cluster.example.com"
+	const batchSize = 2
+	const totalServices = 6
+	const ttl = 100 * time.Millisecond
+	const sendDelay = 200 * time.Millisecond
+
+	ctrl := gomock.NewController(t)
+	mgr := rpservice.NewMockManager(ctrl)
+	mgr.EXPECT().GetGlobalServices(gomock.Any()).Return(makeServices(totalServices, cluster), nil)
+
+	s := newSnapshotTestServer(t, batchSize)
+	s.serviceManager = mgr
+	s.tokenTTL = ttl
+
+	var validateErrs []error
+	stream := &hookingStream{
+		onSend: func(resp *proto.GetMappingUpdateResponse) {
+			for _, m := range resp.Mapping {
+				if err := s.tokenStore.ValidateAndConsume(m.AuthToken, m.AccountId, m.Id); err != nil {
+					validateErrs = append(validateErrs, fmt.Errorf("svc %s: %w", m.Id, err))
+				}
+			}
+			time.Sleep(sendDelay)
+		},
+	}
+	conn := &proxyConnection{proxyID: "proxy-a", address: cluster, stream: stream}
+
+	require.NoError(t, s.sendSnapshot(context.Background(), conn))
+	require.Empty(t, validateErrs,
+		"tokens must remain valid even when batches are sent slowly: lazy per-batch generation guarantees freshness")
 }

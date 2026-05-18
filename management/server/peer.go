@@ -762,16 +762,19 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		newPeer.IP = freeIP
 
 		if len(settings.IPv6EnabledGroups) > 0 && network.NetV6.IP != nil {
-			var allGroupID string
-			if !peer.ProxyMeta.Embedded {
-				allGroup, err := am.Store.GetGroupByName(ctx, store.LockingStrengthNone, accountID, "All")
-				if err != nil {
-					log.WithContext(ctx).Debugf("get All group for IPv6 allocation: %v", err)
-				} else {
+			// Embedded proxy peers are not group members but participate in any
+			// IPv6-enabled overlay so reverse-proxy traffic reaches v6-only peers.
+			allocate := peer.ProxyMeta.Embedded
+			if !allocate {
+				var allGroupID string
+				if allGroup, err := am.Store.GetGroupByName(ctx, store.LockingStrengthNone, accountID, types.GroupAllName); err == nil {
 					allGroupID = allGroup.ID
+				} else {
+					log.WithContext(ctx).Debugf("get All group for IPv6 allocation: %v", err)
 				}
+				allocate = peerWillHaveIPv6(settings, peerAddConfig.GroupsToAdd, allGroupID)
 			}
-			if peerWillHaveIPv6(settings, peerAddConfig.GroupsToAdd, allGroupID) {
+			if allocate {
 				v6Prefix, err := netip.ParsePrefix(network.NetV6.String())
 				if err != nil {
 					return nil, nil, nil, fmt.Errorf("parse IPv6 prefix: %w", err)

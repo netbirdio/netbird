@@ -45,8 +45,11 @@ netbird.out: Most recent, anonymized stdout log file of the NetBird client.
 routes.txt: Detailed system routing table in tabular format including destination, gateway, interface, metrics, and protocol information, if --system-info flag was provided.
 interfaces.txt: Anonymized network interface information, if --system-info flag was provided.
 ip_rules.txt: Detailed IP routing rules in tabular format including priority, source, destination, interfaces, table, and action information (Linux only), if --system-info flag was provided.
-iptables.txt: Anonymized iptables rules with packet counters, if --system-info flag was provided.
-nftables.txt: Anonymized nftables rules with packet counters, if --system-info flag was provided.
+iptables.txt: Anonymized iptables (IPv4) rules with packet counters, if --system-info flag was provided.
+ip6tables.txt: Anonymized ip6tables (IPv6) rules with packet counters, if --system-info flag was provided.
+ipset.txt: Anonymized ipset list output, if --system-info flag was provided.
+nftables.txt: Anonymized nftables rules with packet counters across all families (ip, ip6, inet, etc.), if --system-info flag was provided.
+sysctls.txt: Forwarding, reverse-path filter, source-validation, and conntrack accounting sysctl values that the NetBird client may read or modify, if --system-info flag was provided (Linux only).
 resolv.conf: DNS resolver configuration from /etc/resolv.conf (Unix systems only), if --system-info flag was provided.
 scutil_dns.txt: DNS configuration from scutil --dns (macOS only), if --system-info flag was provided.
 resolved_domains.txt: Anonymized resolved domain IP addresses from the status recorder.
@@ -165,22 +168,33 @@ The config.txt file contains anonymized configuration information of the NetBird
 Other non-sensitive configuration options are included without anonymization.
 
 Firewall Rules (Linux only)
-The bundle includes two separate firewall rule files:
+The bundle includes the following firewall-related files:
 
 iptables.txt:
-- Complete iptables ruleset with packet counters using 'iptables -v -n -L'
+- IPv4 iptables ruleset with packet counters using 'iptables-save' and 'iptables -v -n -L'
 - Includes all tables (filter, nat, mangle, raw, security)
 - Shows packet and byte counters for each rule
 - All IP addresses are anonymized
 - Chain names, table names, and other non-sensitive information remain unchanged
 
+ip6tables.txt:
+- IPv6 ip6tables ruleset with packet counters using 'ip6tables-save' and 'ip6tables -v -n -L'
+- Same table coverage and anonymization as iptables.txt
+- Omitted when ip6tables is not installed or no IPv6 rules are present
+
+ipset.txt:
+- Output of 'ipset list' (family-agnostic)
+- IP addresses are anonymized; set names and types remain unchanged
+
 nftables.txt:
-- Complete nftables ruleset obtained via 'nft -a list ruleset'
+- Complete nftables ruleset across all families (ip, ip6, inet, arp, bridge, netdev) via 'nft -a list ruleset'
 - Includes rule handle numbers and packet counters
-- All tables, chains, and rules are included
-- Shows packet and byte counters for each rule
-- All IP addresses are anonymized
-- Chain names, table names, and other non-sensitive information remain unchanged
+- All IP addresses are anonymized; chain/table names remain unchanged
+
+sysctls.txt:
+- Forwarding (IPv4 + IPv6, global and per-interface), reverse-path filter, source-validation, conntrack accounting, and TCP-related sysctls that netbird may read or modify
+- Per-interface keys are enumerated from /proc/sys/net/ipv{4,6}/conf
+- Interface names anonymized when --anonymize is set
 
 IP Rules (Linux only)
 The ip_rules.txt file contains detailed IP routing rule information:
@@ -410,6 +424,10 @@ func (g *BundleGenerator) addSystemInfo() {
 
 	if err := g.addFirewallRules(); err != nil {
 		log.Errorf("failed to add firewall rules to debug bundle: %v", err)
+	}
+
+	if err := g.addSysctls(); err != nil {
+		log.Errorf("failed to add sysctls to debug bundle: %v", err)
 	}
 
 	if err := g.addDNSInfo(); err != nil {
