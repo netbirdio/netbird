@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Outlet } from "react-router-dom";
 import { Header } from "@/layouts/Header.tsx";
 import { ClientVersionProvider } from "@/modules/auto-update/ClientVersionContext.tsx";
+import { DaemonUnavailableOverlay } from "@/modules/daemon-status/DaemonUnavailableOverlay.tsx";
 import { DebugBundleProvider } from "@/modules/debug-bundle/DebugBundleContext.tsx";
 import { ProfileProvider } from "@/modules/profile/ProfileContext.tsx";
 
@@ -20,6 +21,7 @@ export const AppLayout = () => {
                     <ClientVersionProvider>
                         <Header expanded={expanded} setExpanded={setExpanded} />
                         <Outlet context={{ expanded } satisfies MainOutletContext} />
+                        <DaemonUnavailableOverlay />
                     </ClientVersionProvider>
                 </DebugBundleProvider>
             </ProfileProvider>

@@ -275,5 +275,9 @@
     "peers.empty": "Egyetlen társ sem felel meg a jelenlegi szűrőknek.",
 
     "quickActions.connect": "Csatlakozás",
-    "quickActions.disconnect": "Bontás"
+    "quickActions.disconnect": "Bontás",
+
+    "daemon.unavailable.title": "A NetBird szolgáltatás nem fut",
+    "daemon.unavailable.description": "Az alkalmazás automatikusan újracsatlakozik, amint a szolgáltatás újra elérhető.",
+    "daemon.unavailable.docsLink": "Dokumentáció"
 }

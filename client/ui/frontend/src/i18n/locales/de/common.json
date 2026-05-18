@@ -275,5 +275,9 @@
     "peers.empty": "Keine Peers entsprechen den aktuellen Filtern.",
 
     "quickActions.connect": "Verbinden",
-    "quickActions.disconnect": "Trennen"
+    "quickActions.disconnect": "Trennen",
+
+    "daemon.unavailable.title": "NetBird-Dienst läuft nicht",
+    "daemon.unavailable.description": "Die App stellt automatisch die Verbindung wieder her, sobald der Dienst läuft.",
+    "daemon.unavailable.docsLink": "Dokumentation"
 }
