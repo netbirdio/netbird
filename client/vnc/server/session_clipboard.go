@@ -67,20 +67,68 @@ func (s *session) handleCutText() error {
 	if _, err := io.ReadFull(s.conn, buf); err != nil {
 		return fmt.Errorf("read CutText payload: %w", err)
 	}
-	s.injector.SetClipboard(string(buf))
+	s.injector.SetClipboard(latin1ToUTF8(buf))
 	return nil
+}
+
+// drainBytes consumes and discards n bytes from the connection. Used to
+// skip the payload of a malformed clipboard message after we've decided
+// not to honour it, so the next message stays aligned.
+func (s *session) drainBytes(n uint32) error {
+	if n == 0 {
+		return nil
+	}
+	if _, err := io.CopyN(io.Discard, s.conn, int64(n)); err != nil {
+		return fmt.Errorf("drain %d bytes: %w", n, err)
+	}
+	return nil
+}
+
+// latin1ToUTF8 converts an RFB ClientCutText payload (ISO 8859-1 per
+// RFC 6143 §7.5.6) into a UTF-8 string. Bytes 0x80..0xFF map to the
+// matching U+0080..U+00FF code points; passing them through Go's
+// `string([]byte)` instead would produce invalid UTF-8 that downstream
+// clipboard backends mangle.
+func latin1ToUTF8(b []byte) string {
+	runes := make([]rune, len(b))
+	for i, c := range b {
+		runes[i] = rune(c)
+	}
+	return string(runes)
+}
+
+// utf8ToLatin1 converts a UTF-8 string into the Latin-1 byte sequence
+// required by legacy ServerCutText (RFC 6143 §7.6.4). Runes outside
+// U+0000..U+00FF are not representable in Latin-1; we substitute '?' so the
+// peer still receives a coherent message instead of a truncated or
+// silently mojibake'd payload. ExtendedClipboard clients take a separate
+// path that preserves full UTF-8.
+func utf8ToLatin1(s string) []byte {
+	out := make([]byte, 0, len(s))
+	for _, r := range s {
+		if r > 0xFF {
+			out = append(out, '?')
+			continue
+		}
+		out = append(out, byte(r))
+	}
+	return out
 }
 
 // handleExtCutText parses an ExtendedClipboard message (any of Caps,
 // Notify, Request, Peek, Provide) carried as a negative-length CutText.
-// Unknown actions and formats we don't handle (RTF/HTML/DIB/Files) are
-// dropped without aborting the session.
+// Unknown actions, oversized payloads, and formats we don't handle
+// (RTF/HTML/DIB/Files) are logged and dropped instead of aborting the
+// session: a malformed clipboard message must never cost the user their
+// VNC connection. Read errors on the socket itself still propagate.
 func (s *session) handleExtCutText(payloadLen uint32) error {
 	if payloadLen < 4 {
-		return fmt.Errorf("ext clipboard payload too short: %d", payloadLen)
+		s.log.Debugf("ext clipboard payload too short: %d", payloadLen)
+		return s.drainBytes(payloadLen)
 	}
 	if payloadLen > extClipMaxPayload {
-		return fmt.Errorf("ext clipboard payload too large: %d", payloadLen)
+		s.log.Debugf("ext clipboard payload too large: %d", payloadLen)
+		return s.drainBytes(payloadLen)
 	}
 	buf := make([]byte, payloadLen)
 	if _, err := io.ReadFull(s.conn, buf); err != nil {
@@ -187,9 +235,12 @@ func (s *session) handleTypeText() error {
 	return nil
 }
 
-// sendServerCutText sends clipboard text from the server to the client.
+// sendServerCutText sends clipboard text from the server to the legacy
+// (non-ExtendedClipboard) client. The wire encoding is Latin-1; runes that
+// fall outside U+0000..U+00FF are best-effort replaced with '?' since the
+// peer cannot represent them.
 func (s *session) sendServerCutText(text string) error {
-	data := []byte(text)
+	data := utf8ToLatin1(text)
 	buf := make([]byte, 8+len(data))
 	buf[0] = serverCutText
 	// buf[1:4] = padding (zero)
