@@ -209,6 +209,8 @@
     "settings.troubleshooting.stage.cancelling": "Cancelling…",
 
     "settings.about.client": "NetBird Client v{version}",
+    "settings.about.clientName": "NetBird Client",
+    "settings.about.development": "[Development]",
     "settings.about.gui": "GUI v{version}",
     "settings.about.copyright": "© {year} NetBird. All Rights Reserved.",
     "settings.about.links.imprint": "Imprint",

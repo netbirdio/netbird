@@ -209,6 +209,8 @@
     "settings.troubleshooting.stage.cancelling": "Megszakítás…",
 
     "settings.about.client": "NetBird Kliens v{version}",
+    "settings.about.clientName": "NetBird Kliens",
+    "settings.about.development": "[Fejlesztés]",
     "settings.about.gui": "Felület v{version}",
     "settings.about.copyright": "© {year} NetBird. Minden jog fenntartva.",
     "settings.about.links.imprint": "Impresszum",

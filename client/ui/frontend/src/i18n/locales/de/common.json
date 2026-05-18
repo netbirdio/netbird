@@ -209,6 +209,8 @@
     "settings.troubleshooting.stage.cancelling": "Wird abgebrochen…",
 
     "settings.about.client": "NetBird Client v{version}",
+    "settings.about.clientName": "NetBird Client",
+    "settings.about.development": "[Entwicklung]",
     "settings.about.gui": "Oberfläche v{version}",
     "settings.about.copyright": "© {year} NetBird. Alle Rechte vorbehalten.",
     "settings.about.links.imprint": "Impressum",

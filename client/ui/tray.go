@@ -136,6 +136,14 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 
 	app.Event.On(services.EventStatus, t.onStatusEvent)
 	app.Event.On(services.EventSystem, t.onSystemEvent)
+	// Refresh the Profiles submenu when ProfileSwitcher fires the change.
+	// applyStatus already reloads on status-text transitions, but a
+	// switch on an idle daemon doesn't drive one — without this hook,
+	// a React-initiated switch leaves the tray's submenu and active-
+	// profile label stale.
+	app.Event.On(services.EventProfileChanged, func(*application.CustomEvent) {
+		go t.loadProfiles()
+	})
 	// Defer the first profile load until the macOS/GTK/Win32 menu impl is
 	// live — Menu.Update() short-circuits while app.running is false, and
 	// AppKit's main queue isn't ready earlier either (see d23ef34 InvokeSync

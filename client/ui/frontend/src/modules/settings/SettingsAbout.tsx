@@ -37,7 +37,16 @@ export function SettingsAbout() {
                     className={"text-sm font-semibold text-nb-gray-100 cursor-default select-none"}
                     onClick={handleVersionClick}
                 >
-                    {t("settings.about.client", { version: daemonVersion })}
+                    {daemonVersion === "development" ? (
+                        <span>
+                            {t("settings.about.clientName")}{" "}
+                            <span className={" text-yellow-400 font-mono"}>
+                                {t("settings.about.development")}
+                            </span>
+                        </span>
+                    ) : (
+                        t("settings.about.client", { version: daemonVersion })
+                    )}
                 </p>
                 <p className={"text-sm text-nb-gray-300"}>
                     {t("settings.about.gui", { version: guiVersion })}
