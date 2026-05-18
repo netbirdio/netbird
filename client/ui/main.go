@@ -59,6 +59,7 @@ func (s *stringList) Set(v string) error {
 func init() {
 	application.RegisterEvent[services.Status](services.EventStatus)
 	application.RegisterEvent[services.SystemEvent](services.EventSystem)
+	application.RegisterEvent[services.ProfileRef](services.EventProfileChanged)
 	application.RegisterEvent[updater.State](updater.EventStateChanged)
 	application.RegisterEvent[preferences.UIPreferences](preferences.EventPreferencesChanged)
 }

@@ -57,6 +57,9 @@ type ProfileSwitcher struct {
 }
 
 // NewProfileSwitcher creates a ProfileSwitcher backed by the given services.
+// EventProfileChanged is emitted via peers.emitter (same package), so React
+// refreshes after a tray-driven switch and vice versa — the daemon does
+// not emit a dedicated profile event.
 func NewProfileSwitcher(profiles *Profiles, connection *Connection, peers *Peers) *ProfileSwitcher {
 	return &ProfileSwitcher{profiles: profiles, connection: connection, peers: peers}
 }
@@ -122,6 +125,15 @@ func (s *ProfileSwitcher) SwitchActive(ctx context.Context, p ProfileRef) error 
 		if err := s.connection.Up(ctx, UpParams(p)); err != nil {
 			return fmt.Errorf("reconnect %q: %w", p.ProfileName, err)
 		}
+	}
+
+	// Fan out the switch to every UI surface. The daemon does not emit a
+	// profile event, so without this the React ProfileContext stays on the
+	// old profile after a tray-initiated switch (and the tray's profile
+	// submenu would lag a React-initiated one, except the tray rebuilds on
+	// every status transition).
+	if s.peers != nil && s.peers.emitter != nil {
+		s.peers.emitter.Emit(EventProfileChanged, p)
 	}
 
 	return nil

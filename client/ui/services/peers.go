@@ -27,6 +27,13 @@ const (
 	// forwarded here to updater.Holder.OnSystemEvent so the typed update
 	// state can be maintained without a second daemon subscription.
 	EventSystem = "netbird:event"
+	// EventProfileChanged fires after ProfileSwitcher.SwitchActive completes
+	// a daemon-side switch. The payload is the new ProfileRef. Both tray
+	// and React subscribers refresh their profile views off this so a flip
+	// driven from one surface (tray menu, settings page) paints in the
+	// others without polling. The daemon itself does not emit a profile
+	// event, so this is the only signal that closes the gap.
+	EventProfileChanged = "netbird:profile:changed"
 
 	// StatusDaemonUnavailable is the synthetic Status the UI emits when the
 	// daemon's gRPC socket is unreachable (daemon not running, socket
