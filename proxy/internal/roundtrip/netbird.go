@@ -142,6 +142,11 @@ type NetBird struct {
 	clients        map[types.AccountID]*clientEntry
 	initLogOnce    sync.Once
 	statusNotifier statusNotifier
+
+	// OnAddPeer, when set, is called after AddPeer completes for a new account
+	// (i.e. when a new client was actually created, not when an existing one
+	// was reused). The duration covers keygen + gRPC CreateProxyPeer + embed.New.
+	OnAddPeer func(d time.Duration, err error)
 }
 
 // ClientDebugInfo contains debug information about a client.
@@ -215,7 +220,11 @@ func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, key Se
 	n.clients[accountID] = entry
 	n.clientsMux.Unlock()
 
+	createStart := time.Now()
 	created, err := n.createClientEntry(ctx, accountID, key, authToken, si)
+	if n.OnAddPeer != nil {
+		n.OnAddPeer(time.Since(createStart), err)
+	}
 	if err != nil {
 		entry.initErr = err
 		close(entry.ready)

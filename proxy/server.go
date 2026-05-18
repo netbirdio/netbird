@@ -284,6 +284,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 		WGPort:       s.WireguardPort,
 		PreSharedKey: s.PreSharedKey,
 	}, s.Logger, s, s.mgmtClient)
+	s.netbird.OnAddPeer = s.meter.RecordAddPeerDuration
 
 	// Create health checker before the mapping worker so it can track
 	// management connectivity from the first stream connection.
@@ -999,6 +1000,7 @@ func (s *Server) proxyCapabilities() *proto.ProxyCapabilities {
 }
 
 func (s *Server) tryGetMappingUpdate(ctx context.Context, client proto.ProxyServiceClient, initialSyncDone *bool) error {
+	connectTime := time.Now()
 	mappingClient, err := client.GetMappingUpdate(ctx, &proto.GetMappingUpdateRequest{
 		ProxyId:      s.ID,
 		Version:      s.Version,
@@ -1015,10 +1017,11 @@ func (s *Server) tryGetMappingUpdate(ctx context.Context, client proto.ProxyServ
 	}
 	s.Logger.Debug("management mapping stream established (GetMappingUpdate)")
 
-	return s.handleMappingStream(ctx, mappingClient, initialSyncDone)
+	return s.handleMappingStream(ctx, mappingClient, initialSyncDone, connectTime)
 }
 
 func (s *Server) trySyncMappings(ctx context.Context, client proto.ProxyServiceClient, initialSyncDone *bool) error {
+	connectTime := time.Now()
 	stream, err := client.SyncMappings(ctx)
 	if err != nil {
 		return fmt.Errorf("create sync stream: %w", err)
@@ -1044,7 +1047,7 @@ func (s *Server) trySyncMappings(ctx context.Context, client proto.ProxyServiceC
 	}
 	s.Logger.Debug("management mapping stream established (SyncMappings)")
 
-	return s.handleSyncMappingsStream(ctx, stream, initialSyncDone)
+	return s.handleSyncMappingsStream(ctx, stream, initialSyncDone, connectTime)
 }
 
 func isSyncUnimplemented(err error) bool {
@@ -1055,7 +1058,7 @@ func isSyncUnimplemented(err error) bool {
 	return ok && st.Code() == codes.Unimplemented
 }
 
-func (s *Server) handleSyncMappingsStream(ctx context.Context, stream proto.ProxyService_SyncMappingsClient, initialSyncDone *bool) error {
+func (s *Server) handleSyncMappingsStream(ctx context.Context, stream proto.ProxyService_SyncMappingsClient, initialSyncDone *bool, connectTime time.Time) error {
 	select {
 	case <-s.routerReady:
 	case <-ctx.Done():
@@ -1079,9 +1082,15 @@ func (s *Server) handleSyncMappingsStream(ctx context.Context, stream proto.Prox
 			case err != nil:
 				return fmt.Errorf("receive msg: %w", err)
 			}
+
+			batchStart := time.Now()
 			s.Logger.Debug("Received mapping update, starting processing")
 			s.processMappings(ctx, msg.GetMapping())
 			s.Logger.Debug("Processing mapping update completed")
+
+			if !*initialSyncDone && s.meter != nil {
+				s.meter.RecordSnapshotBatchDuration(time.Since(batchStart))
+			}
 
 			// Send ack so management knows we're ready for the next batch.
 			if err := stream.Send(&proto.SyncMappingsRequest{
@@ -1101,6 +1110,9 @@ func (s *Server) handleSyncMappingsStream(ctx context.Context, stream proto.Prox
 						s.healthChecker.SetInitialSyncComplete()
 					}
 					*initialSyncDone = true
+					if s.meter != nil {
+						s.meter.RecordSnapshotSyncDuration(time.Since(connectTime))
+					}
 					s.Logger.Info("Initial mapping sync complete")
 				}
 			}
@@ -1108,7 +1120,7 @@ func (s *Server) handleSyncMappingsStream(ctx context.Context, stream proto.Prox
 	}
 }
 
-func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.ProxyService_GetMappingUpdateClient, initialSyncDone *bool) error {
+func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.ProxyService_GetMappingUpdateClient, initialSyncDone *bool, connectTime time.Time) error {
 	select {
 	case <-s.routerReady:
 	case <-ctx.Done():
@@ -1136,9 +1148,15 @@ func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.Pr
 				// Something has gone horribly wrong, return and hope the parent retries the connection.
 				return fmt.Errorf("receive msg: %w", err)
 			}
+
+			batchStart := time.Now()
 			s.Logger.Debug("Received mapping update, starting processing")
 			s.processMappings(ctx, msg.GetMapping())
 			s.Logger.Debug("Processing mapping update completed")
+
+			if !*initialSyncDone && s.meter != nil {
+				s.meter.RecordSnapshotBatchDuration(time.Since(batchStart))
+			}
 
 			if !*initialSyncDone {
 				for _, m := range msg.GetMapping() {
@@ -1151,6 +1169,9 @@ func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.Pr
 						s.healthChecker.SetInitialSyncComplete()
 					}
 					*initialSyncDone = true
+					if s.meter != nil {
+						s.meter.RecordSnapshotSyncDuration(time.Since(connectTime))
+					}
 					s.Logger.Info("Initial mapping sync complete")
 				}
 			}
