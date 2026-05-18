@@ -56,9 +56,17 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
             setActiveProfile(active.profileName || "default");
             setProfiles(list);
         } catch (e) {
+            // Daemon-down is already surfaced globally by
+            // DaemonUnavailableOverlay; a second popup on top of it is
+            // pure noise. Every profile RPC routes through the same gRPC
+            // conn, so the Unavailable code is the reliable marker.
+            const msg = e instanceof Error ? e.message : String(e);
+            if (msg.includes("code = Unavailable")) {
+                return;
+            }
             await Dialogs.Error({
                 Title: i18next.t("profile.error.loadTitle"),
-                Message: e instanceof Error ? e.message : String(e),
+                Message: msg,
             });
         } finally {
             setLoaded(true);

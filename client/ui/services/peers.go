@@ -253,14 +253,25 @@ func (s *Peers) ServiceShutdown() error {
 	return nil
 }
 
-// Get returns the current daemon status snapshot.
+// Get returns the current daemon status snapshot. When the daemon socket
+// is unreachable (process down, socket missing, permission denied) it
+// returns Status{Status: StatusDaemonUnavailable} instead of an error so
+// the frontend's initial useStatus().refresh() picks up the same string
+// the live event stream emits — the React overlay and per-screen gating
+// then key off a single status enum without a parallel "error" path.
 func (s *Peers) Get(ctx context.Context) (Status, error) {
 	cli, err := s.conn.Client()
 	if err != nil {
+		if isDaemonUnreachable(err) {
+			return Status{Status: StatusDaemonUnavailable}, nil
+		}
 		return Status{}, err
 	}
 	resp, err := cli.Status(ctx, &proto.StatusRequest{GetFullPeerStatus: true})
 	if err != nil {
+		if isDaemonUnreachable(err) {
+			return Status{Status: StatusDaemonUnavailable}, nil
+		}
 		return Status{}, err
 	}
 	return statusFromProto(resp), nil

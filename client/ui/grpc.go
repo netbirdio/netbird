@@ -7,8 +7,10 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/netbirdio/netbird/client/proto"
@@ -39,6 +41,19 @@ func (c *Conn) Client() (proto.DaemonServiceClient, error) {
 		strings.TrimPrefix(c.addr, "tcp://"),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithUserAgent(desktop.GetUIUserAgent()),
+		// Without ConnectParams the SubChannel uses gRPC's default 120s
+		// MaxDelay, so after a couple of failed dials the UI waits 30-60s
+		// before noticing a freshly-started daemon. The Wails UI is a
+		// desktop client expecting prompt reconnects, not a high-fanout
+		// backend, so a 5s cap is a better trade-off than the default.
+		grpc.WithConnectParams(grpc.ConnectParams{
+			Backoff: backoff.Config{
+				BaseDelay:  1 * time.Second,
+				Multiplier: 1.6,
+				Jitter:     0.2,
+				MaxDelay:   5 * time.Second,
+			},
+		}),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("dial daemon: %w", err)

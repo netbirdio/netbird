@@ -214,6 +214,9 @@ func (t *Tray) reapplyMenuState() {
 	if t.debugItem != nil {
 		t.debugItem.SetEnabled(!daemonUnavailable)
 	}
+	if t.profileSubmenuItem != nil {
+		t.profileSubmenuItem.SetEnabled(!daemonUnavailable)
+	}
 	if daemonVersion != "" && t.daemonVersionItem != nil {
 		t.daemonVersionItem.SetLabel(t.loc.T("tray.menu.daemonVersion", "version", daemonVersion))
 	}
@@ -510,6 +513,9 @@ func (t *Tray) applyStatus(st services.Status) {
 		}
 		if t.debugItem != nil {
 			t.debugItem.SetEnabled(!daemonUnavailable)
+		}
+		if t.profileSubmenuItem != nil {
+			t.profileSubmenuItem.SetEnabled(!daemonUnavailable)
 		}
 		// Refresh the Profiles submenu on every status-text transition: the
 		// daemon does not emit an active-profile event, so the startup race
