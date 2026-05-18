@@ -16,7 +16,11 @@ type ConfirmDialogProps = {
 export const ConfirmDialog = forwardRef<HTMLDivElement, ConfirmDialogProps>(
     function ConfirmDialog({ children }, ref) {
         return (
-            <div className={"flex flex-col items-center justify-center"}>
+            <div
+                className={
+                    "wails-draggable select-none flex flex-col items-center justify-center"
+                }
+            >
                 <div
                     ref={ref}
                     className={"flex flex-col items-center gap-5 p-8 text-center"}
