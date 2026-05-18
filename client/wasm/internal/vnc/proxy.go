@@ -4,6 +4,7 @@ package vnc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -23,6 +24,15 @@ const (
 	// Connection modes matching server/server.go constants.
 	modeAttach  byte = 0
 	modeSession byte = 1
+
+	// WebSocket close codes the dashboard branches on. Codes 1000-1015
+	// are reserved by RFC 6455; 4000-4999 are application-defined.
+	wsCodeNormal       = 1000
+	wsCodeAbnormal     = 1006
+	wsCodeDialTimeout  = 4001
+	wsCodeDialFailure  = 4002
+	wsCodeSessionSetup = 4003
+	wsCodeTransport    = 4004
 )
 
 // VNCProxy bridges WebSocket connections from noVNC in the browser
@@ -245,8 +255,12 @@ func (p *VNCProxy) connectToVNC(conn *vncConnection) {
 	if err != nil {
 		log.Errorf("VNC connect to %s: %v", conn.destination.address, err)
 		// Close the WebSocket so noVNC fires a disconnect event.
+		code := wsCodeDialFailure
+		if errors.Is(err, context.DeadlineExceeded) {
+			code = wsCodeDialTimeout
+		}
 		if conn.wsHandlers.Get("close").Truthy() {
-			conn.wsHandlers.Call("close", 1006, fmt.Sprintf("connect to peer: %v", err))
+			conn.wsHandlers.Call("close", code, fmt.Sprintf("connect to peer: %v", err))
 		}
 		p.cleanupConnection(conn)
 		return
@@ -259,7 +273,7 @@ func (p *VNCProxy) connectToVNC(conn *vncConnection) {
 	if err := p.sendSessionHeader(vncConn, conn.destination); err != nil {
 		log.Errorf("send VNC session header: %v", err)
 		if conn.wsHandlers.Get("close").Truthy() {
-			conn.wsHandlers.Call("close", 1006, fmt.Sprintf("send session header: %v", err))
+			conn.wsHandlers.Call("close", wsCodeSessionSetup, fmt.Sprintf("send session header: %v", err))
 		}
 		p.cleanupConnection(conn)
 		return
@@ -359,24 +373,23 @@ func (c *vncConnection) snapshotVNC() (net.Conn, bool) {
 }
 
 // handleConnReadError classifies an error from the VNC read loop. Returns
-// true if the caller should exit; false to retry (transient timeout).
+// true if the caller should exit and trigger the cleanup path. A read
+// timeout counts as a fatal error: in a healthy session the server emits
+// empty FramebufferUpdate responses several times per second, so a full
+// idleReadDeadline of silence means the peer is dead (process gone,
+// machine off, network partition) and the in-browser TCP stack will
+// never surface that on its own.
 func (p *VNCProxy) handleConnReadError(conn *vncConnection, err error) bool {
 	if conn.ctx.Err() != nil {
 		return true
 	}
 	if netErr, ok := err.(interface{ Timeout() bool }); ok && netErr.Timeout() {
-		// Read timeout: connection might be stale. The next iteration will
-		// fail too and trigger the close path.
-		return false
-	}
-	if err != io.EOF {
+		log.Debugf("VNC read deadline expired; treating peer as dead")
+	} else if err != io.EOF {
 		log.Debugf("read from VNC connection: %v", err)
 	}
-	// Close the WebSocket to notify noVNC, and cancel the local context so
-	// cleanupConnection isn't left waiting on the JS close callback that
-	// may never fire on hard errors.
 	if conn.wsHandlers.Get("close").Truthy() {
-		conn.wsHandlers.Call("close", 1006, "VNC connection lost")
+		conn.wsHandlers.Call("close", wsCodeTransport, "VNC connection lost")
 	}
 	conn.cancel()
 	return true

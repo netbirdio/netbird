@@ -691,10 +691,10 @@ func createStartCaptureMethod(client *netbird.Client) js.Func {
 //
 // Usage from browser devtools console:
 //
-//	await client.capture()              // capture all packets
-//	await client.capture("tcp")         // capture with filter
-//	await client.capture({filter: "host 10.0.0.1", verbose: true})
-//	client.stopCapture()                // stop and print stats
+//	await netbird.capture()              // capture all packets
+//	await netbird.capture("tcp")         // capture with filter
+//	await netbird.capture({filter: "host 10.0.0.1", verbose: true})
+//	netbird.stopCapture()                // stop and print stats
 func captureMethods(client *netbird.Client) (startFn, stopFn js.Func) {
 	var mu sync.Mutex
 	var active *wasmcapture.Handle
@@ -722,7 +722,7 @@ func captureMethods(client *netbird.Client) (startFn, stopFn js.Func) {
 			active = h
 
 			console := js.Global().Get("console")
-			console.Call("log", "[capture] started, call client.stopCapture() to stop")
+			console.Call("log", "[capture] started, call netbird.stopCapture() to stop")
 			resolve.Invoke(js.Undefined())
 		})
 	})

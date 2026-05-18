@@ -11,6 +11,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/internal/metrics"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	sshauth "github.com/netbirdio/netbird/client/ssh/auth"
 	vncserver "github.com/netbirdio/netbird/client/vnc/server"
@@ -102,6 +103,20 @@ func (e *Engine) startVNCServer(sshConf *mgmProto.SSHConfig) error {
 	netbirdIP := e.wgInterface.Address().IP
 
 	srv := vncserver.New(capturer, injector)
+	if e.clientMetrics != nil {
+		srv.SetSessionRecorder(func(t vncserver.SessionTick) {
+			e.clientMetrics.RecordVNCSessionTick(e.ctx, metrics.VNCSessionTick{
+				Period:        t.Period,
+				BytesOut:      t.BytesOut,
+				Writes:        t.Writes,
+				FBUs:          t.FBUs,
+				MaxFBUBytes:   t.MaxFBUBytes,
+				MaxFBURects:   t.MaxFBURects,
+				MaxWriteBytes: t.MaxWriteBytes,
+				WriteNanos:    t.WriteNanos,
+			})
+		})
+	}
 	if vncNeedsServiceMode() {
 		log.Info("VNC: running in Session 0, enabling service mode (agent proxy)")
 		srv.SetServiceMode(true)

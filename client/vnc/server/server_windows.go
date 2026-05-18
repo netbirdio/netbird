@@ -255,6 +255,8 @@ func (s *Server) serviceAcceptLoop() {
 			continue
 		}
 
+		enableTCPKeepAlive(conn, s.log)
+		conn = newMetricsConn(conn, s.sessionRecorder)
 		go s.handleServiceConnection(conn, sm)
 	}
 }

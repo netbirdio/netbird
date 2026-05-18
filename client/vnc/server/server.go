@@ -156,9 +156,15 @@ type Server struct {
 	netstackNet  *netstack.Net
 	agentToken   []byte // raw token bytes for agent-mode auth
 
-	sessionsMu sync.Mutex
-	sessionSeq uint64
-	sessions   map[uint64]ActiveSessionInfo
+	sessionsMu   sync.Mutex
+	sessionSeq   uint64
+	sessions     map[uint64]ActiveSessionInfo
+	sessionConns map[uint64]net.Conn
+
+	// sessionRecorder, when non-nil, receives a SessionTick periodically
+	// during each VNC session and on session close. The engine wires
+	// this to its metrics framework.
+	sessionRecorder func(SessionTick)
 }
 
 // ActiveSessionInfo describes a currently connected VNC client.
@@ -195,7 +201,8 @@ func New(capturer ScreenCapturer, injector InputInjector) *Server {
 		injector:   injector,
 		authorizer: sshauth.NewAuthorizer(),
 		log:        log.WithField("component", "vnc-server"),
-		sessions:   make(map[uint64]ActiveSessionInfo),
+		sessions:     make(map[uint64]ActiveSessionInfo),
+		sessionConns: make(map[uint64]net.Conn),
 	}
 }
 
@@ -210,12 +217,13 @@ func (s *Server) ActiveSessions() []ActiveSessionInfo {
 	return out
 }
 
-func (s *Server) addSession(info ActiveSessionInfo) uint64 {
+func (s *Server) addSession(info ActiveSessionInfo, conn net.Conn) uint64 {
 	s.sessionsMu.Lock()
 	defer s.sessionsMu.Unlock()
 	s.sessionSeq++
 	id := s.sessionSeq
 	s.sessions[id] = info
+	s.sessionConns[id] = conn
 	return id
 }
 
@@ -223,11 +231,37 @@ func (s *Server) removeSession(id uint64) {
 	s.sessionsMu.Lock()
 	defer s.sessionsMu.Unlock()
 	delete(s.sessions, id)
+	delete(s.sessionConns, id)
+}
+
+// closeActiveSessions closes every active session's connection so the
+// per-session serve goroutines unblock from their Read loops and exit.
+// Called from Stop to make sure clients see an immediate disconnect when
+// the server is brought down, instead of waiting for the OS to reclaim
+// the sockets after process exit.
+func (s *Server) closeActiveSessions() {
+	s.sessionsMu.Lock()
+	conns := make([]net.Conn, 0, len(s.sessionConns))
+	for _, c := range s.sessionConns {
+		conns = append(conns, c)
+	}
+	s.sessionsMu.Unlock()
+	for _, c := range conns {
+		_ = c.Close()
+	}
 }
 
 // SetServiceMode enables proxy-to-agent mode for Windows service operation.
 func (s *Server) SetServiceMode(enabled bool) {
 	s.serviceMode = enabled
+}
+
+// SetSessionRecorder installs a callback that receives a SessionTick
+// each sessionTickInterval during a VNC session and one final tick on
+// session close. Pass nil to disable. Empty ticks (no wire activity)
+// are skipped.
+func (s *Server) SetSessionRecorder(recorder func(SessionTick)) {
+	s.sessionRecorder = recorder
 }
 
 // SetJWTConfig configures JWT authentication for VNC connections.
@@ -340,6 +374,13 @@ func (s *Server) Stop() error {
 		s.cancel = nil
 	}
 
+	// Close active client connections before tearing down capturers and
+	// listeners. The per-session serve goroutines unblock from their Read
+	// loop with an error and run their deferred conn.Close, which surfaces
+	// a clean disconnect on the client side instead of leaving the
+	// connection hanging until the OS reclaims it on process exit.
+	s.closeActiveSessions()
+
 	if s.vmgr != nil {
 		s.vmgr.StopAll()
 	}
@@ -378,7 +419,33 @@ func (s *Server) acceptLoop() {
 			continue
 		}
 
+		enableTCPKeepAlive(conn, s.log)
 		go s.handleConnection(conn)
+	}
+}
+
+// vncKeepAlivePeriod controls how often TCP layer probes are sent on an
+// idle connection. Default OS settings (2 hours) are too long for an
+// interactive session: when the server-side host dies without sending FIN
+// (power loss, network partition, hung kernel), the client only learns of
+// the dead connection when the OS gives up on a probe. 30 s here means
+// most clients notice within ~3 minutes worst case.
+const vncKeepAlivePeriod = 30 * time.Second
+
+// enableTCPKeepAlive turns on SO_KEEPALIVE on the underlying TCP socket.
+// Non-TCP conns (e.g. the netstack-backed listener) are skipped silently;
+// keepalive there is the netstack's concern.
+func enableTCPKeepAlive(c net.Conn, log *log.Entry) {
+	tc, ok := c.(*net.TCPConn)
+	if !ok {
+		return
+	}
+	if err := tc.SetKeepAlive(true); err != nil {
+		log.Debugf("set keepalive: %v", err)
+		return
+	}
+	if err := tc.SetKeepAlivePeriod(vncKeepAlivePeriod); err != nil {
+		log.Debugf("set keepalive period: %v", err)
 	}
 }
 
@@ -472,7 +539,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 		Mode:          modeString(header.mode),
 		Username:      header.username,
 		JWTUsername:   jwtUserID,
-	})
+	}, conn)
 	defer s.removeSession(sessionID)
 
 	if err := s.validateCapturer(capturer); err != nil {
@@ -481,6 +548,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 		return
 	}
 
+	conn = newMetricsConn(conn, s.sessionRecorder)
 	sess := &session{
 		conn:     conn,
 		capturer: capturer,
