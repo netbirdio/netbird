@@ -88,8 +88,12 @@ func buildExtClipRequest(formats uint32) []byte {
 // buildExtClipProvideText emits a Provide carrying UTF-8 text. The inner
 // stream (4-byte length including the trailing NUL, then UTF-8 bytes, then
 // NUL) is zlib-compressed; each Provide uses an independent zlib context
-// per the extension spec.
+// per the extension spec. Rejects oversized input so a caller bug can't
+// produce a payload larger than the size advertised in our Caps.
 func buildExtClipProvideText(text string) ([]byte, error) {
+	if len(text) > extClipMaxText {
+		return nil, fmt.Errorf("clipboard text exceeds extClipMaxText (%d > %d)", len(text), extClipMaxText)
+	}
 	body := make([]byte, 0, 4+len(text)+1)
 	var lenBuf [4]byte
 	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(text)+1))
