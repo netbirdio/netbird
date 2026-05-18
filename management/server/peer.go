@@ -28,6 +28,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -72,19 +73,32 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 // Disconnects use MarkPeerDisconnected and require the session to match
 // exactly; see PeerStatus.SessionStartedAt for the protocol.
 func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubKey string, realIP net.IP, accountID string, sessionStartedAt int64) error {
+	start := time.Now()
+	defer func() {
+		am.metrics.AccountManagerMetrics().RecordPeerStatusUpdateDuration(telemetry.PeerStatusConnect, time.Since(start))
+	}()
+
 	peer, err := am.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, peerPubKey)
 	if err != nil {
+		outcome := telemetry.PeerStatusError
+		if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
+			outcome = telemetry.PeerStatusPeerNotFound
+		}
+		am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusConnect, outcome)
 		return err
 	}
 
 	updated, err := am.Store.MarkPeerConnectedIfNewerSession(ctx, accountID, peer.ID, sessionStartedAt)
 	if err != nil {
+		am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusConnect, telemetry.PeerStatusError)
 		return err
 	}
 	if !updated {
+		am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusConnect, telemetry.PeerStatusStale)
 		log.WithContext(ctx).Tracef("peer %s already has a newer session in store, skipping connect", peer.ID)
 		return nil
 	}
+	am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusConnect, telemetry.PeerStatusApplied)
 
 	if am.geo != nil && realIP != nil {
 		am.updatePeerLocationIfChanged(ctx, accountID, peer, realIP)
@@ -119,19 +133,33 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 // newer stream has already taken ownership of the peer — disconnects from
 // the older stream are ignored. LastSeen is written by the database.
 func (am *DefaultAccountManager) MarkPeerDisconnected(ctx context.Context, peerPubKey string, accountID string, sessionStartedAt int64) error {
+	start := time.Now()
+	defer func() {
+		am.metrics.AccountManagerMetrics().RecordPeerStatusUpdateDuration(telemetry.PeerStatusDisconnect, time.Since(start))
+	}()
+
 	peer, err := am.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, peerPubKey)
 	if err != nil {
+		outcome := telemetry.PeerStatusError
+		if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
+			outcome = telemetry.PeerStatusPeerNotFound
+		}
+		am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusDisconnect, outcome)
 		return err
 	}
 
 	updated, err := am.Store.MarkPeerDisconnectedIfSameSession(ctx, accountID, peer.ID, sessionStartedAt)
 	if err != nil {
+		am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusDisconnect, telemetry.PeerStatusError)
 		return err
 	}
 	if !updated {
+		am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusDisconnect, telemetry.PeerStatusStale)
 		log.WithContext(ctx).Tracef("peer %s session token mismatch on disconnect (token=%d), skipping",
 			peer.ID, sessionStartedAt)
+		return nil
 	}
+	am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusDisconnect, telemetry.PeerStatusApplied)
 	return nil
 }
 
