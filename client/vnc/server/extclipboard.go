@@ -16,7 +16,7 @@ import (
 //   - UTF-8 text format (legacy is Latin-1).
 //   - Pull-based: a Notify announces "I have new content", the peer fetches
 //     via Request only when it actually needs the data. Saves bandwidth on
-//     a high-latency relay path versus pushing every change.
+//     high-latency transports versus pushing every change.
 //   - zlib-compressed payloads.
 //   - Caps negotiation so each side knows the other's per-format max size.
 //

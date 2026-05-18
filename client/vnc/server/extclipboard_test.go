@@ -16,7 +16,7 @@ func TestBuildExtClipCaps(t *testing.T) {
 	require.Len(t, payload, 8, "Caps with one format should be 4 bytes flags + 4 bytes size")
 
 	flags := binary.BigEndian.Uint32(payload[0:4])
-	// noVNC checks individual action bits in our Caps to decide whether to
+	// Clients check individual action bits in our Caps to decide whether to
 	// auto-Request on Notify, so all supported actions must be advertised.
 	assert.NotZero(t, flags&extClipActionCaps, "Caps action bit must be set")
 	assert.NotZero(t, flags&extClipActionRequest, "Request action bit must be set")
