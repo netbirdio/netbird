@@ -88,10 +88,11 @@ Also: `ProfileSwitcher.SwitchActive` mirrors the daemon switch into the user-sid
 
 The main window is created up front in `main.go`. Auxiliary windows are created on demand by `services.WindowManager`:
 
-- **Settings** (`/#/settings`) — opened from the header gear icon (`layouts/Header.tsx → WindowManager.OpenSettings`). Frameless-look (translucent macOS backdrop, hidden inset title bar), fixed 900×640, no resize, no minimise/maximise.
+- **Settings** (`/#/settings`) — opened from the header gear icon (`layouts/Header.tsx → WindowManager.OpenSettings`) **and** the tray's Settings menu entry (`tray.go openSettings` → `WindowManager.OpenSettings`). Both call sites go through `WindowManager` so the user sees the same dedicated frameless window from either trigger — the tray used to repurpose the main window via `SetURL("/#/settings")`, which replaced the main UI in place. Frameless-look (translucent macOS backdrop, hidden inset title bar), fixed 900×640, no resize, no minimise/maximise.
 - **BrowserLogin** (`/#/browser-login?uri=…`) — opened by the connection toggle's SSO flow (`layouts/ConnectionStatusSwitch.tsx`). 460×440, fixed size. The close button (red X) fires `EventBrowserLoginCancel` so the JS-side `startLogin()` can tear down the daemon's pending `WaitSSOLogin`. `WindowManager.CloseBrowserLogin` closes it programmatically when the flow completes.
+- **SessionExpired** (`/#/session-expired`) and **SessionAboutToExpire** (`/#/session-about-to-expire?seconds=<n>`) — opened by `WindowManager.OpenSessionExpired` / `OpenSessionAboutToExpire(seconds)`. 460×380, fixed size, `AlwaysOnTop: true` (the user can't miss them). The React-side buttons close the window via `WindowManager.CloseSession*` and (for Sign-in / Stay-connected) emit `EventTriggerLogin` so the main window's `startLogin()` orchestrator handles the SSO flow. Currently triggered only by the DEV-only "Development" Settings tab; daemon-status integration is a follow-up.
 
-Both windows are **destroyed** on close (mutex-guarded singleton; `closing` hook nils the field). Destroying rather than hiding is deliberate — Wails' macOS dock-reopen handler resurrects hidden windows, which we don't want for auxiliaries.
+All four auxiliary windows are **destroyed** on close (mutex-guarded singleton; `closing` hook nils the field). Destroying rather than hiding is deliberate — Wails' macOS dock-reopen handler resurrects hidden windows, which we don't want for auxiliaries.
 
 The main window is **hidden** on close (the `WindowClosing` hook calls `e.Cancel(); window.Hide()`). The user reaches "really quit" through the tray → Quit menu entry.
 

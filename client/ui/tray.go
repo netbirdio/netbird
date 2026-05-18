@@ -56,6 +56,7 @@ type TrayServices struct {
 	Notifier        *notifications.NotificationService
 	Update          *services.Update
 	ProfileSwitcher *services.ProfileSwitcher
+	WindowManager   *services.WindowManager
 	// Localizer is the tray's bridge to translations. Constructed in main
 	// from i18n.Bundle + preferences.Store; the Wails-bound facades
 	// (services.I18n, services.Preferences) are registered separately for
@@ -294,7 +295,7 @@ func (t *Tray) buildMenu() *application.Menu {
 	// block-inbound, auto-connect, notifications) and profile switching
 	// all live in the in-window Settings page now. The tray menu only
 	// surfaces the day-to-day actions.
-	t.settingsItem = menu.Add(t.loc.T("tray.menu.settings")).OnClick(func(*application.Context) { t.openRoute("/settings") })
+	t.settingsItem = menu.Add(t.loc.T("tray.menu.settings")).OnClick(func(*application.Context) { t.svc.WindowManager.OpenSettings() })
 	t.debugItem = menu.Add(t.loc.T("tray.menu.debugBundle")).OnClick(func(*application.Context) { t.openRoute("/debug") })
 
 	menu.AddSeparator()

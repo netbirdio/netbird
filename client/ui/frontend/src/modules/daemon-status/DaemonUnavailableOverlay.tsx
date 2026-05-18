@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next";
 import { AlertCircleIcon, BookText } from "lucide-react";
 import { Browser } from "@wailsio/runtime";
 import { Button } from "@/components/Button";
-import { useStatus } from "@/hooks/useStatus";
+import { useStatus } from "@/modules/daemon-status/StatusContext.tsx";
 
 const DOCS_URL = "https://docs.netbird.io/how-to/installation";
 
@@ -12,9 +12,9 @@ function openUrl(url: string) {
 
 export const DaemonUnavailableOverlay = () => {
     const { t } = useTranslation();
-    const { status } = useStatus();
+    const { isDaemonUnavailable } = useStatus();
 
-    if (status?.status !== "DaemonUnavailable") return null;
+    if (!isDaemonUnavailable) return null;
 
     return (
         <div

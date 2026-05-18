@@ -4,6 +4,7 @@ package services
 
 import (
 	"net/url"
+	"strconv"
 	"sync"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -29,10 +30,12 @@ const EventBrowserLoginCancel = "browser-login:cancel"
 // "Cleanup on close"). Destroying rather than hiding means the dock-reopen
 // handler doesn't find a hidden window to resurrect.
 type WindowManager struct {
-	app          *application.App
-	settings     *application.WebviewWindow
-	browserLogin *application.WebviewWindow
-	mu           sync.Mutex
+	app                   *application.App
+	settings              *application.WebviewWindow
+	browserLogin          *application.WebviewWindow
+	sessionExpired        *application.WebviewWindow
+	sessionAboutToExpire  *application.WebviewWindow
+	mu                    sync.Mutex
 }
 
 func NewWindowManager(app *application.App) *WindowManager {
@@ -125,6 +128,102 @@ func (s *WindowManager) CloseBrowserLogin() {
 	s.mu.Lock()
 	w := s.browserLogin
 	s.browserLogin = nil
+	s.mu.Unlock()
+	if w != nil {
+		w.Close()
+	}
+}
+
+// OpenSessionExpired shows the "session expired" prompt window above all
+// other application windows. Singleton — destroyed on close.
+func (s *WindowManager) OpenSessionExpired() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.sessionExpired == nil {
+		s.sessionExpired = s.app.Window.NewWithOptions(application.WebviewWindowOptions{
+			Name:                "session-expired",
+			Title:               "NetBird",
+			Width:               460,
+			Height:              380,
+			DisableResize:       true,
+			AlwaysOnTop:         true,
+			MinimiseButtonState: application.ButtonHidden,
+			MaximiseButtonState: application.ButtonHidden,
+			CloseButtonState:    application.ButtonEnabled,
+			BackgroundColour:    application.NewRGB(24, 26, 29),
+			URL:                 "/#/session-expired",
+			Mac: application.MacWindow{
+				InvisibleTitleBarHeight: 38,
+				Backdrop:                application.MacBackdropTranslucent,
+				TitleBar:                application.MacTitleBarHiddenInset,
+				CollectionBehavior:      application.MacWindowCollectionBehaviorFullScreenNone,
+			},
+		})
+		s.sessionExpired.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
+			s.mu.Lock()
+			s.sessionExpired = nil
+			s.mu.Unlock()
+		})
+	}
+	s.sessionExpired.Show()
+	s.sessionExpired.Focus()
+}
+
+// CloseSessionExpired destroys the session-expired window if open.
+func (s *WindowManager) CloseSessionExpired() {
+	s.mu.Lock()
+	w := s.sessionExpired
+	s.sessionExpired = nil
+	s.mu.Unlock()
+	if w != nil {
+		w.Close()
+	}
+}
+
+// OpenSessionAboutToExpire shows the countdown warning window above all
+// other application windows. `seconds` seeds the initial countdown value
+// rendered as mm:ss in the React layer. Singleton — destroyed on close.
+func (s *WindowManager) OpenSessionAboutToExpire(seconds int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	startURL := "/#/session-about-to-expire?seconds=" + strconv.Itoa(seconds)
+	if s.sessionAboutToExpire == nil {
+		s.sessionAboutToExpire = s.app.Window.NewWithOptions(application.WebviewWindowOptions{
+			Name:                "session-about-to-expire",
+			Title:               "NetBird",
+			Width:               460,
+			Height:              380,
+			DisableResize:       true,
+			AlwaysOnTop:         true,
+			MinimiseButtonState: application.ButtonHidden,
+			MaximiseButtonState: application.ButtonHidden,
+			CloseButtonState:    application.ButtonEnabled,
+			BackgroundColour:    application.NewRGB(24, 26, 29),
+			URL:                 startURL,
+			Mac: application.MacWindow{
+				InvisibleTitleBarHeight: 38,
+				Backdrop:                application.MacBackdropTranslucent,
+				TitleBar:                application.MacTitleBarHiddenInset,
+				CollectionBehavior:      application.MacWindowCollectionBehaviorFullScreenNone,
+			},
+		})
+		s.sessionAboutToExpire.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
+			s.mu.Lock()
+			s.sessionAboutToExpire = nil
+			s.mu.Unlock()
+		})
+	} else {
+		s.sessionAboutToExpire.SetURL(startURL)
+	}
+	s.sessionAboutToExpire.Show()
+	s.sessionAboutToExpire.Focus()
+}
+
+// CloseSessionAboutToExpire destroys the countdown warning window if open.
+func (s *WindowManager) CloseSessionAboutToExpire() {
+	s.mu.Lock()
+	w := s.sessionAboutToExpire
+	s.sessionAboutToExpire = nil
 	s.mu.Unlock()
 	if w != nil {
 		w.Close()

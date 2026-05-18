@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next";
 import { Browser } from "@wailsio/runtime";
 import netbirdFull from "@/assets/logos/netbird-full.svg";
 import pkg from "../../../package.json";
-import { useStatus } from "@/hooks/useStatus";
+import { useStatus } from "@/modules/daemon-status/StatusContext.tsx";
 import { UpdateVersionCard } from "@/modules/auto-update/UpdateVersionCard";
 import { useAccentTrigger } from "@/modules/settings/SettingsAccent";
 

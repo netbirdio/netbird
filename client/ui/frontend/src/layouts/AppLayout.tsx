@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Outlet } from "react-router-dom";
 import { Header } from "@/layouts/Header.tsx";
 import { ClientVersionProvider } from "@/modules/auto-update/ClientVersionContext.tsx";
-import { DaemonUnavailableOverlay } from "@/modules/daemon-status/DaemonUnavailableOverlay.tsx";
+import { StatusProvider } from "@/modules/daemon-status/StatusContext.tsx";
 import { DebugBundleProvider } from "@/modules/debug-bundle/DebugBundleContext.tsx";
 import { ProfileProvider } from "@/modules/profile/ProfileContext.tsx";
 
@@ -16,15 +16,16 @@ export const AppLayout = () => {
     const [expanded, setExpanded] = useState(false);
     return (
         <div className={"relative flex h-full flex-col"}>
-            <ProfileProvider>
-                <DebugBundleProvider>
-                    <ClientVersionProvider>
-                        <Header expanded={expanded} setExpanded={setExpanded} />
-                        <Outlet context={{ expanded } satisfies MainOutletContext} />
-                        <DaemonUnavailableOverlay />
-                    </ClientVersionProvider>
-                </DebugBundleProvider>
-            </ProfileProvider>
+            <StatusProvider>
+                <ProfileProvider>
+                    <DebugBundleProvider>
+                        <ClientVersionProvider>
+                            <Header expanded={expanded} setExpanded={setExpanded} />
+                            <Outlet context={{ expanded } satisfies MainOutletContext} />
+                        </ClientVersionProvider>
+                    </DebugBundleProvider>
+                </ProfileProvider>
+            </StatusProvider>
         </div>
     );
 };

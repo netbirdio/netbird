@@ -1,13 +1,28 @@
+import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
+import { Events } from "@wailsio/runtime";
 import { ShieldAlertIcon } from "lucide-react";
 import { Button } from "@/components/Button";
+import { WindowManager } from "@bindings/services";
+
+const EVENT_TRIGGER_LOGIN = "trigger-login";
 
 export default function SessionExpired() {
     const { t } = useTranslation();
+
+    const signIn = useCallback(() => {
+        void Events.Emit(EVENT_TRIGGER_LOGIN);
+        WindowManager.CloseSessionExpired().catch(console.error);
+    }, []);
+
+    const later = useCallback(() => {
+        WindowManager.CloseSessionExpired().catch(console.error);
+    }, []);
+
     return (
         <div
             className={
-                "h-full w-full flex flex-col items-center justify-center text-center px-6 py-8 bg-nb-gray-950"
+                "h-screen w-full flex flex-col items-center justify-center text-center px-6 py-8 bg-nb-gray-950"
             }
         >
             <div
@@ -24,10 +39,20 @@ export default function SessionExpired() {
                 {t("sessionExpired.description")}
             </p>
             <div className={"flex gap-2 mt-5 w-full max-w-[18rem]"}>
-                <Button variant={"secondary"} size={"xs"} className={"flex-1"}>
+                <Button
+                    variant={"secondary"}
+                    size={"xs"}
+                    className={"flex-1"}
+                    onClick={later}
+                >
                     {t("sessionExpired.later")}
                 </Button>
-                <Button variant={"primary"} size={"xs"} className={"flex-1"}>
+                <Button
+                    variant={"primary"}
+                    size={"xs"}
+                    className={"flex-1"}
+                    onClick={signIn}
+                >
                     {t("sessionExpired.signIn")}
                 </Button>
             </div>

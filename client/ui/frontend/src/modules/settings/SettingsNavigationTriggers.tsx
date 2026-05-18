@@ -5,6 +5,7 @@ import { UpdateBadge } from "@/modules/auto-update/UpdateBadge.tsx";
 import { useClientVersion } from "@/modules/auto-update/ClientVersionContext.tsx";
 import {
     BoltIcon,
+    HammerIcon,
     InfoIcon,
     LifeBuoyIcon,
     NetworkIcon,
@@ -62,6 +63,13 @@ export const SettingsNavigationTriggers = () => {
                 title={t("settings.tabs.about")}
                 adornment={aboutAdornment}
             />
+            {import.meta.env.DEV && (
+                <VerticalTabs.Trigger
+                    value={"development"}
+                    icon={HammerIcon}
+                    title={"Development"}
+                />
+            )}
         </VerticalTabs.List>
         </div>
     );

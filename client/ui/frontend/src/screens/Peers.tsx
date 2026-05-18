@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Network, ShieldCheck, Zap } from "lucide-react";
-import { useStatus } from "../hooks/useStatus";
+import { useStatus } from "@/modules/daemon-status/StatusContext.tsx";
 import type { PeerStatus } from "@bindings/services/models.js";
 import { Card } from "../components/Card";
 import { Input } from "../components/Input";

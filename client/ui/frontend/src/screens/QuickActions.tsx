@@ -1,5 +1,5 @@
 import { CheckCircle2, Circle, Loader2, Power } from "lucide-react";
-import { useStatus } from "../hooks/useStatus";
+import { useStatus } from "@/modules/daemon-status/StatusContext.tsx";
 import { Connection } from "@bindings/services";
 import { Button } from "../components/Button";
 import { cn } from "../lib/cn";

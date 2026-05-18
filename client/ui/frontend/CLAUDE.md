@@ -26,11 +26,12 @@ React 18 + TS 5.7 (`strict`, `noImplicitAny: false`) + Vite 6 + Tailwind 3 (`dar
 | `/quick` | `QuickActions` | none | Standalone — **prototype**, not currently invoked by the Go side |
 | `/browser-login` | `BrowserLogin` | none | Auxiliary window (Go `WindowManager.OpenBrowserLogin`) |
 | `/update` | `Update` (pages) | none | Main window during enforced-update install |
-| `/session-expired` | `SessionExpired` | none | Standalone — **prototype**, no buttons wired |
+| `/session-expired` | `SessionExpired` (modules/session) | none | Auxiliary window (Go `WindowManager.OpenSessionExpired`, always-on-top) |
+| `/session-about-to-expire` | `SessionAboutToExpire` (modules/session) | none | Auxiliary window (Go `WindowManager.OpenSessionAboutToExpire(seconds)`, always-on-top, mm:ss countdown via `?seconds=`) |
 | `/settings` | `Settings` | `SettingsLayout` | Auxiliary window (Go `WindowManager.OpenSettings`) |
 | `*` | `<Navigate to="/">` | `AppLayout` | Catch-all |
 
-`AppLayout` wraps `Header + <Outlet/>` in this provider order: `ProfileProvider → DebugBundleProvider → ClientVersionProvider`. The order matters — `DebugBundleProvider` reads `useProfile`, and `ClientVersionProvider` paints the `<UpdatingOverlay/>` so it has to be outermost in terms of z-index but innermost in the tree. `AppLayout` also owns the wide/narrow `expanded` state as plain `useState` (no persistence) and passes it to `Header` via props and to `Main` via Outlet context (`MainOutletContext`).
+`AppLayout` wraps `Header + <Outlet/>` in this provider order: `StatusProvider → ProfileProvider → DebugBundleProvider → ClientVersionProvider`. `StatusProvider` (in `modules/daemon-status/StatusContext.tsx`) owns the single `Peers.Get` + `netbird:status` subscription, exposes `{ status, error, refresh, isReady, isDaemonAvailable, isDaemonUnavailable }`, **and only renders its children when the daemon is reachable** — until the first `Peers.Get` resolves and on `DaemonUnavailable` it short-circuits to just the `<DaemonUnavailableOverlay/>` (also owned by the provider). The consequence: every context downstream (`ProfileProvider`, `DebugBundleProvider`, `ClientVersionProvider`) can assume the daemon is reachable at mount time — no per-context `useStatus` gating. When the daemon flips back to unavailable the whole downstream subtree unmounts and remounts fresh once it returns. The remaining order is structural — `DebugBundleProvider` reads `useProfile`, and `ClientVersionProvider` paints `<UpdatingOverlay/>` so it has to be outermost in z-index but innermost in the tree. `AppLayout` also owns the wide/narrow `expanded` state as plain `useState` (no persistence) and passes it to `Header` via props and to `Main` via Outlet context (`MainOutletContext`).
 
 `SettingsLayout` uses the same provider stack minus the `Header`. It also reserves a 38px `wails-draggable` strip at the top so the macOS traffic-light buttons (the window uses `MacTitleBarHiddenInset`) don't overlap content.
 
@@ -44,7 +45,7 @@ Subscribe with `Events.On(name, handler)`. The handler receives `{ data: <typed 
 
 | Event name (string) | Payload | Emitted by | Consumed by |
 |---|---|---|---|
-| `netbird:status` | `Status` | `services/peers.go statusStreamLoop` | `hooks/useStatus` |
+| `netbird:status` | `Status` | `services/peers.go statusStreamLoop` | `modules/daemon-status/StatusContext` (`useStatus`) |
 | `netbird:event` | `SystemEvent` | `services/peers.go toastStreamLoop` | Not currently subscribed on the TS side — Status is read via `useStatus().status.events` instead. The tray (Go) consumes it for OS notifications. |
 | `netbird:profile:changed` | `ProfileRef` | `services/profileswitcher.go SwitchActive` | `modules/profile/ProfileContext` refreshes so a tray-initiated switch paints in the React UI. |
 | `netbird:update:available` | `UpdateAvailable` | `services/peers.go fanOutUpdateEvents` | Not directly subscribed on the TS side; `ClientVersionContext` derives `updateVersion` from `status.events` metadata instead. |
@@ -58,7 +59,7 @@ If you wire a new daemon-event subscriber on the TS side, prefer subscribing onc
 
 State that crosses screens / windows lives in context. Each provider is mounted exactly once inside `AppLayout` or `SettingsLayout`.
 
-- **`useStatus`** (`hooks/useStatus.ts`) — `{ status, error, refresh }`. Fetches `Peers.Get()` once, re-renders on every `netbird:status` push. `refresh()` after Connect/Disconnect to dodge a few hundred ms of event-stream lag.
+- **`useStatus`** (`modules/daemon-status/StatusContext.tsx`) — `{ status, error, refresh, isReady, isDaemonAvailable, isDaemonUnavailable }`. The provider owns a single `Peers.Get()` + `netbird:status` subscription and renders `<DaemonUnavailableOverlay/>`. `refresh()` after Connect/Disconnect to dodge a few hundred ms of event-stream lag. Other contexts (e.g. `ProfileContext`) read the boolean flags to skip RPCs while the daemon socket is down.
 
 - **`ProfileContext`** (`modules/profile/`) — `username`, `activeProfile`, `profiles`, plus `refresh` / `switchProfile` / `addProfile` / `removeProfile` / `logoutProfile`. `switchProfile` delegates to `ProfileSwitcher.SwitchActive` (the Go-side single source of truth — drives the optimistic-Connecting paint and `Peers` suppression). The other methods are thin wrappers over `Profiles.*` / `Connection.Logout` plus a `refresh()`.
 
@@ -160,7 +161,7 @@ Defined in `tailwind.config.ts`. `nb-gray` is the neutral palette (background = 
 - **`screens/Profiles.tsx`** still imports bindings via the deep relative path. It's the example of the preferred `ProfileSwitcher.SwitchActive` flow but otherwise pre-AppLayout.
 - **`pages/Debug.tsx`** is the legacy debug-bundle screen. The polished flow is in `modules/settings/SettingsTroubleshooting.tsx` (via `useDebugBundle`). `pages/Debug.tsx` isn't currently routed.
 - **`pages/Update.tsx`** and **`screens/Update.tsx`** are two different update pages. The route table points at `pages/Update.tsx` (the production one with the 15-minute timeout, daemon-down-grace, and error-mapping). The `screens/Update.tsx` is an older simpler variant.
-- **`pages/SessionExpired.tsx`** is fully rendered but the Sign-in / Later buttons have no onClick handlers yet.
+- **`modules/session/SessionExpired.tsx`** and **`modules/session/SessionAboutToExpire.tsx`** are the always-on-top auxiliary windows. Today they're only triggered via the DEV-only "Development" tab in Settings (`SettingsDevelopment.tsx`) — a daemon-status hook (status `SessionExpired`, plus a future "about-to-expire" signal) will drive them later. Sign-in / Stay-connected emit `EventTriggerLogin` so the main window's `startLogin()` orchestrator handles the SSO flow; Logout uses `Connection.Logout({profileName, username})`.
 - **`screens/QuickActions.tsx`** is wired to `/quick` in the route table but nothing on the Go side currently navigates there.
 - **`UpdateAvailableBanner`** is force-enabled via `FORCE_UPDATE_AVAILABLE = true` and additionally TODO-commented for the "only when management has auto updates enabled + force updates is disabled" case.
 - **`lib/MainModuleContext.tsx`** is exported but unused. Candidate for deletion.

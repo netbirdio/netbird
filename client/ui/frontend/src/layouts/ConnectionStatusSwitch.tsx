@@ -4,7 +4,7 @@ import { Dialogs, Events } from "@wailsio/runtime";
 import { Connection, WindowManager } from "@bindings/services";
 import i18next from "@/lib/i18n";
 import { ToggleSwitch } from "@/components/ToggleSwitch.tsx";
-import { useStatus } from "@/hooks/useStatus";
+import { useStatus } from "@/modules/daemon-status/StatusContext.tsx";
 import { useProfile } from "@/modules/profile/ProfileContext.tsx";
 import { cn } from "@/lib/cn.ts";
 import netbirdFullLogo from "@/assets/logos/netbird-full.svg";

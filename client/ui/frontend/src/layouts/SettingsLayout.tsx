@@ -1,6 +1,6 @@
 import { Outlet } from "react-router-dom";
 import { ClientVersionProvider } from "@/modules/auto-update/ClientVersionContext.tsx";
-import { DaemonUnavailableOverlay } from "@/modules/daemon-status/DaemonUnavailableOverlay.tsx";
+import { StatusProvider } from "@/modules/daemon-status/StatusContext.tsx";
 import { DebugBundleProvider } from "@/modules/debug-bundle/DebugBundleContext.tsx";
 import { ProfileProvider } from "@/modules/profile/ProfileContext.tsx";
 
@@ -18,19 +18,20 @@ import { ProfileProvider } from "@/modules/profile/ProfileContext.tsx";
 export const SettingsLayout = () => {
     return (
         <div className={"relative flex h-full flex-col"}>
-            <ProfileProvider>
-                <DebugBundleProvider>
-                    <ClientVersionProvider>
-                        <div
-                            className={
-                                "wails-draggable cursor-default select-none h-[38px] shrink-0"
-                            }
-                        />
-                        <Outlet />
-                        <DaemonUnavailableOverlay />
-                    </ClientVersionProvider>
-                </DebugBundleProvider>
-            </ProfileProvider>
+            <StatusProvider>
+                <ProfileProvider>
+                    <DebugBundleProvider>
+                        <ClientVersionProvider>
+                            <div
+                                className={
+                                    "wails-draggable cursor-default select-none h-[38px] shrink-0"
+                                }
+                            />
+                            <Outlet />
+                        </ClientVersionProvider>
+                    </DebugBundleProvider>
+                </ProfileProvider>
+            </StatusProvider>
         </div>
     );
 };

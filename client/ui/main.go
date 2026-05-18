@@ -219,6 +219,7 @@ func main() {
 		Notifier:        notifier,
 		Update:          update,
 		ProfileSwitcher: profileSwitcher,
+		WindowManager:   windowManager,
 		Localizer:       localizer,
 	})
 	listenForShowSignal(context.Background(), tray)

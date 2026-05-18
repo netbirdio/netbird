@@ -268,6 +268,12 @@
     "sessionExpired.later": "Später",
     "sessionExpired.signIn": "Anmelden",
 
+    "sessionAboutToExpire.title": "Sitzung läuft bald ab",
+    "sessionAboutToExpire.description": "Ihre NetBird-Sitzung läuft in Kürze ab. Bleiben Sie verbunden, damit Ihre Geräte online bleiben.",
+    "sessionAboutToExpire.stay": "Verbunden bleiben",
+    "sessionAboutToExpire.logout": "Abmelden",
+    "sessionAboutToExpire.expired": "Sitzung abgelaufen",
+
     "peers.search.placeholder": "Nach Peer-Name, DNS oder IP-Adresse suchen",
     "peers.filter.all": "Alle",
     "peers.filter.online": "Online",

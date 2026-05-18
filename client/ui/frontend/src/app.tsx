@@ -3,7 +3,8 @@ import ReactDOM from "react-dom/client";
 import "./globals.css";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import QuickActions from "@/screens/QuickActions.tsx";
-import SessionExpired from "@/pages/SessionExpired.tsx";
+import SessionExpired from "@/modules/session/SessionExpired.tsx";
+import SessionAboutToExpire from "@/modules/session/SessionAboutToExpire.tsx";
 import Update from "@/screens/Update.tsx";
 import { AppLayout } from "@/layouts/AppLayout.tsx";
 import { SettingsLayout } from "@/layouts/SettingsLayout.tsx";
@@ -34,6 +35,7 @@ initI18n()
                         <Route path="/browser-login" element={<BrowserLogin />} />
                         <Route path="/update" element={<Update />} />
                         <Route path="/session-expired" element={<SessionExpired />} />
+                        <Route path="/session-about-to-expire" element={<SessionAboutToExpire />} />
                         <Route element={<SettingsLayout />}>
                             <Route path="settings" element={<Settings />} />
                         </Route>

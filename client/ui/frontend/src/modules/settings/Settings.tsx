@@ -13,6 +13,7 @@ import { SettingsSSH } from "@/modules/settings/SettingsSSH.tsx";
 import { SettingsAdvanced } from "@/modules/settings/SettingsAdvanced.tsx";
 import { SettingsTroubleshooting } from "@/modules/settings/SettingsTroubleshooting.tsx";
 import { SettingsAbout } from "@/modules/settings/SettingsAbout.tsx";
+import { SettingsDevelopment } from "@/modules/settings/SettingsDevelopment.tsx";
 
 // The settings window always opens at General. The only way to land on a
 // different tab is via navigation state (e.g. the update-available header
@@ -59,6 +60,11 @@ export const Settings = () => {
                                 <VerticalTabs.Content value={"about"}>
                                     <SettingsAbout />
                                 </VerticalTabs.Content>
+                                {import.meta.env.DEV && (
+                                    <VerticalTabs.Content value={"development"}>
+                                        <SettingsDevelopment />
+                                    </VerticalTabs.Content>
+                                )}
                             </SettingsProvider>
                         </div>
                     </ScrollArea.Viewport>

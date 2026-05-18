@@ -74,7 +74,10 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
     }, []);
 
     useEffect(() => {
-        refresh();
+        void refresh();
+    }, [refresh]);
+
+    useEffect(() => {
         // The tray and other windows drive switches through the same
         // ProfileSwitcher.SwitchActive RPC, which emits this event on success.
         // Without the subscription, a tray-initiated switch leaves this
