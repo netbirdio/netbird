@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Dialogs, Events } from "@wailsio/runtime";
 import { Connection, WindowManager } from "@bindings/services";
@@ -16,14 +16,27 @@ enum ConnectionState {
     Disconnecting = "disconnecting",
 }
 
+// Only three user-visible labels: Disconnected, Connecting, Connected.
+// Disconnecting maps to "Disconnected" so the optimistic flip on click
+// reads as the user's intent (off) rather than naming an intermediate
+// state. NeedsLogin / SessionExpired / DaemonUnavailable never reach
+// this map — connState collapses them into Connecting or Disconnected
+// upstream.
 const STATUS_KEY: Record<ConnectionState, string> = {
     [ConnectionState.Disconnected]: "connect.status.disconnected",
     [ConnectionState.Connecting]: "connect.status.connecting",
     [ConnectionState.Connected]: "connect.status.connected",
-    [ConnectionState.Disconnecting]: "connect.status.disconnecting",
+    [ConnectionState.Disconnecting]: "connect.status.disconnected",
 };
 
 const EVENT_BROWSER_LOGIN_CANCEL = "browser-login:cancel";
+const EVENT_TRIGGER_LOGIN = "trigger-login";
+
+const NEEDS_LOGIN_STATES = new Set([
+    "NeedsLogin",
+    "SessionExpired",
+    "LoginFailed",
+]);
 
 const errorMessage = (e: unknown) =>
     e instanceof Error ? e.message : String(e);
@@ -107,29 +120,64 @@ export const ConnectionStatusSwitch = () => {
     const { activeProfile, username } = useProfile();
 
     const daemonState = status?.status ?? "Idle";
-    const needsLogin =
-        daemonState === "NeedsLogin" ||
-        daemonState === "SessionExpired" ||
-        daemonState === "LoginFailed";
+    const needsLogin = NEEDS_LOGIN_STATES.has(daemonState);
     const unreachable = daemonState === "DaemonUnavailable";
 
-    // Tracks an in-flight user action (Up/Down RPC + refresh) so we can show a
-    // transitional label and disable the switch without lying about the
-    // daemon's actual state.
-    const [action, setAction] = useState<"connect" | "disconnect" | null>(null);
+    // Tracks an in-flight user action so we can show a transitional label
+    // and disable the switch without lying about the daemon's actual state.
+    //
+    //  "connect"     — user clicked Up; waiting for daemon to settle
+    //  "logging-in"  — SSO flow is driving the daemon (Login → browser →
+    //                  Up). Keeps the switch in "Connecting" while the
+    //                  daemon flaps NeedsLogin → Idle → NeedsLogin →
+    //                  Connecting that Login's internal Down causes.
+    //  "disconnect"  — user clicked Down; waiting for daemon to settle
+    type Action = "connect" | "logging-in" | "disconnect" | null;
+    const [action, setAction] = useState<Action>(null);
+
+    // Guards startLogin from being fired twice in parallel (effect path +
+    // tray trigger-login + handleSwitch). startLogin's module-level
+    // loginInFlight already drops the second daemon call, but its
+    // Promise would resolve immediately and the .finally clear our
+    // "logging-in" latch while the first flow is still running.
+    const loginGuard = useRef(false);
+    const driveLogin = useCallback(() => {
+        if (loginGuard.current) return;
+        loginGuard.current = true;
+        setAction("logging-in");
+        void startLogin().finally(() => {
+            loginGuard.current = false;
+            setAction(null);
+            void refresh();
+        });
+    }, [refresh]);
 
     const connState: ConnectionState = useMemo(() => {
         if (action === "disconnect" && daemonState === "Connected") {
             return ConnectionState.Disconnecting;
         }
-        if (action === "connect" && daemonState !== "Connected") {
+        if (
+            (action === "connect" || action === "logging-in") &&
+            daemonState !== "Connected"
+        ) {
             return ConnectionState.Connecting;
         }
         switch (daemonState) {
             case "Connected":
                 return ConnectionState.Connected;
             case "Connecting":
+            case "NeedsLogin":
+                // NeedsLogin is mid-SSO: the auto-chain in this component
+                // (and the tray's trigger-login emitter) flips the browser
+                // login window open as soon as the daemon reports it, so
+                // the switch should keep painting "Connecting" rather than
+                // dropping back to Disconnected while the user signs in.
                 return ConnectionState.Connecting;
+            case "Idle":
+            case "LoginFailed":
+            case "SessionExpired":
+            case "DaemonUnavailable":
+                return ConnectionState.Disconnected;
             default:
                 return ConnectionState.Disconnected;
         }
@@ -142,36 +190,82 @@ export const ConnectionStatusSwitch = () => {
                 profileName: activeProfile,
                 username,
             });
+            await refresh();
         } catch (e) {
+            setAction(null);
+            await refresh();
             await Dialogs.Error({
                 Title: t("connect.error.connectTitle"),
                 Message: errorMessage(e),
             });
-        } finally {
-            await refresh();
-            setAction(null);
         }
+        // Don't clear action here on success — the daemon's first status
+        // push (Connecting / NeedsLogin / ...) may land after Up returns,
+        // and clearing eagerly would let connState fall back to
+        // Disconnected for one render. The effect below clears the latch
+        // once daemonState catches up.
     };
 
     const disconnect = async () => {
         setAction("disconnect");
         try {
             await Connection.Down();
+            await refresh();
         } catch (e) {
+            setAction(null);
+            await refresh();
             await Dialogs.Error({
                 Title: t("connect.error.disconnectTitle"),
                 Message: errorMessage(e),
             });
-        } finally {
-            await refresh();
-            setAction(null);
         }
+        // See connect() above — clear via the effect, not eagerly.
     };
+
+    // Release the action latch when the daemon settles on a terminal
+    // state for the user's intent — and, in the connect → NeedsLogin
+    // case, hand off to driveLogin so the user doesn't have to click
+    // the switch a second time. "logging-in" is cleared by driveLogin's
+    // .finally, not here: Login's internal Down makes the daemon flap
+    // through Idle, which would otherwise look like a terminal state.
+    useEffect(() => {
+        if (action === "connect") {
+            if (needsLogin) {
+                driveLogin();
+                return;
+            }
+            if (daemonState === "Connected" || unreachable) {
+                setAction(null);
+            }
+            return;
+        }
+        if (action === "disconnect") {
+            if (
+                daemonState === "Idle" ||
+                daemonState === "Disconnected" ||
+                unreachable
+            ) {
+                setAction(null);
+            }
+        }
+    }, [action, daemonState, needsLogin, unreachable, driveLogin]);
+
+    // The tray clicks Connect via its own gRPC call. When the daemon flips
+    // to NeedsLogin afterwards, the tray emits trigger-login so the React
+    // UI (which owns the SSO orchestration and the browser-login window)
+    // takes over. driveLogin's loginGuard handles concurrent tray +
+    // switch clicks.
+    useEffect(() => {
+        const off = Events.On(EVENT_TRIGGER_LOGIN, () => {
+            driveLogin();
+        });
+        return () => off();
+    }, [driveLogin]);
 
     const handleSwitch = (next: boolean) => {
         if (unreachable || action !== null) return;
         if (needsLogin) {
-            void startLogin().finally(() => refresh());
+            driveLogin();
             return;
         }
         if (next && connState === ConnectionState.Disconnected) {
@@ -217,11 +311,7 @@ export const ConnectionStatusSwitch = () => {
                         "text-sm font-medium text-nb-gray-200 tracking-wide transition-colors duration-300"
                     }
                 >
-                    {unreachable
-                        ? t("connect.status.daemonUnavailable")
-                        : needsLogin
-                          ? t("connect.status.loginRequired")
-                          : t(STATUS_KEY[connState])}
+                    {t(STATUS_KEY[connState])}
                 </h1>
                 <p
                     className={cn(
