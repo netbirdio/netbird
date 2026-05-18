@@ -6,7 +6,7 @@ import {
     useState,
     type ReactNode,
 } from "react";
-import { Dialogs } from "@wailsio/runtime";
+import { Dialogs, Events } from "@wailsio/runtime";
 import {
     Connection,
     ProfileSwitcher,
@@ -14,6 +14,8 @@ import {
 } from "@bindings/services";
 import type { Profile } from "@bindings/services/models.js";
 import i18next from "@/lib/i18n";
+
+const EVENT_PROFILE_CHANGED = "netbird:profile:changed";
 
 type ProfileContextValue = {
     username: string;
@@ -65,6 +67,16 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
 
     useEffect(() => {
         refresh();
+        // The tray and other windows drive switches through the same
+        // ProfileSwitcher.SwitchActive RPC, which emits this event on success.
+        // Without the subscription, a tray-initiated switch leaves this
+        // window painting the old activeProfile until the next mount.
+        const off = Events.On(EVENT_PROFILE_CHANGED, () => {
+            void refresh();
+        });
+        return () => {
+            off();
+        };
     }, [refresh]);
 
     const switchProfile = useCallback(
