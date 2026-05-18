@@ -112,7 +112,11 @@ func (s *BaseServer) AuthManager() auth.Manager {
 
 func (s *BaseServer) EphemeralManager() ephemeral.Manager {
 	return Create(s, func() ephemeral.Manager {
-		return manager.NewEphemeralManager(s.Store(), s.PeersManager())
+		em := manager.NewEphemeralManager(s.Store(), s.PeersManager())
+		if metrics := s.Metrics(); metrics != nil {
+			em.SetMetrics(metrics.EphemeralPeersMetrics())
+		}
+		return em
 	})
 }
 

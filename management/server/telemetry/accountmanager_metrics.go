@@ -16,6 +16,8 @@ type AccountManagerMetrics struct {
 	getPeerNetworkMapDurationMs  metric.Float64Histogram
 	networkMapObjectCount        metric.Int64Histogram
 	peerMetaUpdateCount          metric.Int64Counter
+	peerStatusUpdateCounter      metric.Int64Counter
+	peerStatusUpdateDurationMs   metric.Float64Histogram
 }
 
 // NewAccountManagerMetrics creates an instance of AccountManagerMetrics
@@ -64,6 +66,24 @@ func NewAccountManagerMetrics(ctx context.Context, meter metric.Meter) (*Account
 		return nil, err
 	}
 
+	// peerStatusUpdateCounter records every attempt to mark a peer as connected or disconnected
+	peerStatusUpdateCounter, err := meter.Int64Counter("management.account.peer.status.update.counter",
+		metric.WithUnit("1"),
+		metric.WithDescription("Number of peer status update attempts, labeled by operation (connect|disconnect) and outcome (applied|stale|error|peer_not_found)"))
+	if err != nil {
+		return nil, err
+	}
+
+	peerStatusUpdateDurationMs, err := meter.Float64Histogram("management.account.peer.status.update.duration.ms",
+		metric.WithUnit("milliseconds"),
+		metric.WithExplicitBucketBoundaries(
+			1, 5, 15, 25, 50, 100, 250, 500, 1000, 2000, 5000,
+		),
+		metric.WithDescription("Duration of a peer status update (fence UPDATE + post-write side effects), labeled by operation"))
+	if err != nil {
+		return nil, err
+	}
+
 	return &AccountManagerMetrics{
 		ctx:                          ctx,
 		getPeerNetworkMapDurationMs:  getPeerNetworkMapDurationMs,
@@ -71,9 +91,34 @@ func NewAccountManagerMetrics(ctx context.Context, meter metric.Meter) (*Account
 		updateAccountPeersCounter:    updateAccountPeersCounter,
 		networkMapObjectCount:        networkMapObjectCount,
 		peerMetaUpdateCount:          peerMetaUpdateCount,
+		peerStatusUpdateCounter:      peerStatusUpdateCounter,
+		peerStatusUpdateDurationMs:   peerStatusUpdateDurationMs,
 	}, nil
 
 }
+
+// PeerStatusOperation labels the kind of fence-locked peer status write.
+type PeerStatusOperation string
+
+// PeerStatusOutcome labels how a fence-locked peer status write resolved.
+type PeerStatusOutcome string
+
+const (
+	PeerStatusConnect    PeerStatusOperation = "connect"
+	PeerStatusDisconnect PeerStatusOperation = "disconnect"
+
+	// PeerStatusApplied — the fence WHERE matched and the UPDATE landed.
+	PeerStatusApplied PeerStatusOutcome = "applied"
+	// PeerStatusStale — the fence WHERE rejected the write because a
+	// newer session has already taken ownership (connect: stored token
+	// >= incoming; disconnect: stored token != incoming).
+	PeerStatusStale PeerStatusOutcome = "stale"
+	// PeerStatusError — the store returned a non-NotFound error.
+	PeerStatusError PeerStatusOutcome = "error"
+	// PeerStatusPeerNotFound — the peer lookup failed (the peer was
+	// deleted between the gRPC sync handshake and the status write).
+	PeerStatusPeerNotFound PeerStatusOutcome = "peer_not_found"
+)
 
 // CountUpdateAccountPeersDuration counts the duration of updating account peers
 func (metrics *AccountManagerMetrics) CountUpdateAccountPeersDuration(duration time.Duration) {
@@ -103,4 +148,24 @@ func (metrics *AccountManagerMetrics) CountUpdateAccountPeersTriggered(resource,
 // CountPeerMetUpdate counts the number of peer meta updates
 func (metrics *AccountManagerMetrics) CountPeerMetUpdate() {
 	metrics.peerMetaUpdateCount.Add(metrics.ctx, 1)
+}
+
+// CountPeerStatusUpdate increments the connect/disconnect counter,
+// labeled by operation and outcome. Both labels are bounded enums.
+func (metrics *AccountManagerMetrics) CountPeerStatusUpdate(op PeerStatusOperation, outcome PeerStatusOutcome) {
+	metrics.peerStatusUpdateCounter.Add(metrics.ctx, 1,
+		metric.WithAttributes(
+			attribute.String("operation", string(op)),
+			attribute.String("outcome", string(outcome)),
+		),
+	)
+}
+
+// RecordPeerStatusUpdateDuration records the wall-clock time spent
+// running a peer status update (including post-write side effects),
+// labeled by operation.
+func (metrics *AccountManagerMetrics) RecordPeerStatusUpdateDuration(op PeerStatusOperation, d time.Duration) {
+	metrics.peerStatusUpdateDurationMs.Record(metrics.ctx, float64(d.Nanoseconds())/1e6,
+		metric.WithAttributes(attribute.String("operation", string(op))),
+	)
 }
