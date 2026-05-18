@@ -201,7 +201,7 @@ func main() {
 	// The settings and browser-login windows are created lazily and
 	// destroyed on close, so they don't linger as hidden windows that
 	// Wails's macOS dock-reopen handler would pop back up.
-	windowManager := services.NewWindowManager(app)
+	windowManager := services.NewWindowManager(app, window)
 	app.RegisterService(application.NewService(windowManager))
 
 	// Register an in-process StatusNotifierWatcher so the tray works on

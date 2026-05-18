@@ -258,8 +258,6 @@
     "update.page.failed": "Update fehlgeschlagen",
 
     "browserLogin.title": "Setzen Sie den Anmeldevorgang im Browser fort",
-    "browserLogin.description": "Bitte schließen Sie die Kontoauthentifizierung im Browser-Tab ab und fahren Sie dort fort.",
-    "browserLogin.waiting": "Warten auf Anmeldung…",
     "browserLogin.notSeeing": "Sehen Sie den Browser-Tab nicht?",
     "browserLogin.tryAgain": "Erneut versuchen",
 

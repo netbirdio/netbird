@@ -30,16 +30,26 @@ const EventBrowserLoginCancel = "browser-login:cancel"
 // "Cleanup on close"). Destroying rather than hiding means the dock-reopen
 // handler doesn't find a hidden window to resurrect.
 type WindowManager struct {
-	app                   *application.App
-	settings              *application.WebviewWindow
-	browserLogin          *application.WebviewWindow
-	sessionExpired        *application.WebviewWindow
-	sessionAboutToExpire  *application.WebviewWindow
-	mu                    sync.Mutex
+	app                  *application.App
+	mainWindow           *application.WebviewWindow
+	settings             *application.WebviewWindow
+	browserLogin         *application.WebviewWindow
+	sessionExpired       *application.WebviewWindow
+	sessionAboutToExpire *application.WebviewWindow
+	// hiddenForLogin remembers windows that were visible when the
+	// BrowserLogin popup opened. They were Hide()n to keep focus on the
+	// SSO flow without resorting to AlwaysOnTop, and are restored when
+	// the BrowserLogin window closes (success or cancel).
+	hiddenForLogin []application.Window
+	mu             sync.Mutex
 }
 
-func NewWindowManager(app *application.App) *WindowManager {
-	return &WindowManager{app: app}
+// NewWindowManager wires the manager to the main app. `mainWindow` is the
+// up-front-created webview the user interacts with from the tray — used to
+// pick the BrowserLogin window's display so the sign-in popup follows the
+// user onto the screen they're already looking at.
+func NewWindowManager(app *application.App, mainWindow *application.WebviewWindow) *WindowManager {
+	return &WindowManager{app: app, mainWindow: mainWindow}
 }
 
 // OpenSettings shows the settings window, creating it on first use (and
@@ -87,12 +97,32 @@ func (s *WindowManager) OpenBrowserLogin(uri string) {
 		if uri != "" {
 			startURL = "/#/browser-login?uri=" + url.QueryEscape(uri)
 		}
+		s.hideOtherWindowsLocked("browser-login")
+		// Prefer the screen the main window is on so the sign-in popup
+		// shows up where the user is already looking on multi-monitor
+		// setups. Falls back to OS-default centering if the main window
+		// has no resolvable screen yet.
+		var screen *application.Screen
+		if s.mainWindow != nil {
+			if sc, err := s.mainWindow.GetScreen(); err == nil {
+				screen = sc
+			}
+		}
 		s.browserLogin = s.app.Window.NewWithOptions(application.WebviewWindowOptions{
 			Name:                "browser-login",
 			Title:               "NetBird Sign-in",
-			Width:               460,
-			Height:              440,
+			Width:               360,
+			Height:              320,
 			DisableResize:       true,
+			// Hidden so the React side can measure its content via
+			// useAutoSizeWindow and call Window.SetSize + Show before the
+			// user sees the placeholder snapping to the measured height,
+			// matching the Session* windows.
+			Hidden:              true,
+			// WindowCentered + Screen centers on the chosen display's
+			// WorkArea (see WebviewWindowOptions.Screen docs).
+			InitialPosition:     application.WindowCentered,
+			Screen:              screen,
 			MinimiseButtonState: application.ButtonHidden,
 			MaximiseButtonState: application.ButtonHidden,
 			CloseButtonState:    application.ButtonEnabled,
@@ -113,13 +143,58 @@ func (s *WindowManager) OpenBrowserLogin(uri string) {
 			s.app.Event.Emit(EventBrowserLoginCancel)
 			s.mu.Lock()
 			s.browserLogin = nil
+			s.restoreHiddenWindowsLocked()
 			s.mu.Unlock()
 		})
-	} else if uri != "" {
+		// First open: window is Hidden, the React side auto-sizes via
+		// useAutoSizeWindow and calls Window.Show/Focus once content is
+		// measured. Returning here avoids the snap from placeholder to
+		// measured height.
+		return
+	}
+	if uri != "" {
 		s.browserLogin.SetURL("/#/browser-login?uri=" + url.QueryEscape(uri))
 	}
 	s.browserLogin.Show()
 	s.browserLogin.Focus()
+}
+
+// hideOtherWindowsLocked hides every currently visible window except the one
+// named `keepName` and remembers them in hiddenForLogin so they can be
+// restored when the BrowserLogin flow ends. Caller must hold s.mu.
+func (s *WindowManager) hideOtherWindowsLocked(keepName string) {
+	for _, w := range s.app.Window.GetAll() {
+		if w == nil || w.Name() == keepName {
+			continue
+		}
+		if !w.IsVisible() {
+			continue
+		}
+		w.Hide()
+		s.hiddenForLogin = append(s.hiddenForLogin, w)
+	}
+}
+
+// restoreHiddenWindowsLocked re-shows every window that was hidden by
+// hideOtherWindowsLocked. Caller must hold s.mu.
+func (s *WindowManager) restoreHiddenWindowsLocked() {
+	for _, w := range s.hiddenForLogin {
+		if w == nil {
+			continue
+		}
+		w.Show()
+	}
+	s.hiddenForLogin = nil
+}
+
+// BrowserLoginWindow returns the live SSO popup window, or nil if no SSO
+// flow is in progress. While it is non-nil it should be treated as the
+// app's focal window — tray "Open" and dock/taskbar activation hand off
+// to it instead of the (currently hidden) main window.
+func (s *WindowManager) BrowserLoginWindow() *application.WebviewWindow {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.browserLogin
 }
 
 // CloseBrowserLogin destroys the SSO popup window if it exists. Called from
@@ -136,6 +211,12 @@ func (s *WindowManager) CloseBrowserLogin() {
 
 // OpenSessionExpired shows the "session expired" prompt window above all
 // other application windows. Singleton — destroyed on close.
+//
+// The window is created Hidden so the React side can measure its content
+// and call Window.SetSize + Window.Show before the user sees the chrome —
+// otherwise the user would briefly see the 360x320 placeholder snapping to
+// the measured height. Re-opens (singleton already alive) Show/Focus
+// directly here.
 func (s *WindowManager) OpenSessionExpired() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -143,10 +224,11 @@ func (s *WindowManager) OpenSessionExpired() {
 		s.sessionExpired = s.app.Window.NewWithOptions(application.WebviewWindowOptions{
 			Name:                "session-expired",
 			Title:               "NetBird",
-			Width:               460,
-			Height:              380,
+			Width:               360,
+			Height:              320,
 			DisableResize:       true,
 			AlwaysOnTop:         true,
+			Hidden:              true,
 			MinimiseButtonState: application.ButtonHidden,
 			MaximiseButtonState: application.ButtonHidden,
 			CloseButtonState:    application.ButtonEnabled,
@@ -164,6 +246,7 @@ func (s *WindowManager) OpenSessionExpired() {
 			s.sessionExpired = nil
 			s.mu.Unlock()
 		})
+		return
 	}
 	s.sessionExpired.Show()
 	s.sessionExpired.Focus()
@@ -183,6 +266,8 @@ func (s *WindowManager) CloseSessionExpired() {
 // OpenSessionAboutToExpire shows the countdown warning window above all
 // other application windows. `seconds` seeds the initial countdown value
 // rendered as mm:ss in the React layer. Singleton — destroyed on close.
+// Window is created Hidden so the React side can auto-size before paint
+// (see OpenSessionExpired comment).
 func (s *WindowManager) OpenSessionAboutToExpire(seconds int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -191,10 +276,11 @@ func (s *WindowManager) OpenSessionAboutToExpire(seconds int) {
 		s.sessionAboutToExpire = s.app.Window.NewWithOptions(application.WebviewWindowOptions{
 			Name:                "session-about-to-expire",
 			Title:               "NetBird",
-			Width:               460,
-			Height:              380,
+			Width:               360,
+			Height:              320,
 			DisableResize:       true,
 			AlwaysOnTop:         true,
+			Hidden:              true,
 			MinimiseButtonState: application.ButtonHidden,
 			MaximiseButtonState: application.ButtonHidden,
 			CloseButtonState:    application.ButtonEnabled,
@@ -212,9 +298,9 @@ func (s *WindowManager) OpenSessionAboutToExpire(seconds int) {
 			s.sessionAboutToExpire = nil
 			s.mu.Unlock()
 		})
-	} else {
-		s.sessionAboutToExpire.SetURL(startURL)
+		return
 	}
+	s.sessionAboutToExpire.SetURL(startURL)
 	s.sessionAboutToExpire.Show()
 	s.sessionAboutToExpire.Focus()
 }

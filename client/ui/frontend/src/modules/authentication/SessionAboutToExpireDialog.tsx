@@ -4,14 +4,17 @@ import { useSearchParams } from "react-router-dom";
 import { Events } from "@wailsio/runtime";
 import { ClockIcon } from "lucide-react";
 import { Button } from "@/components/Button";
-import {
-    Connection,
-    Profiles as ProfilesSvc,
-    WindowManager,
-} from "@bindings/services";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { DialogActions } from "@/components/DialogActions";
+import { DialogDescription } from "@/components/DialogDescription";
+import { DialogHeading } from "@/components/DialogHeading";
+import { SquareIcon } from "@/components/SquareIcon";
+import { Connection, Profiles as ProfilesSvc, WindowManager } from "@bindings/services";
+import { useAutoSizeWindow } from "@/lib/useAutoSizeWindow";
 
 const EVENT_TRIGGER_LOGIN = "trigger-login";
 const DEFAULT_SECONDS = 360;
+const WINDOW_WIDTH = 360;
 
 function formatMMSS(seconds: number): string {
     const s = Math.max(0, seconds | 0);
@@ -20,8 +23,9 @@ function formatMMSS(seconds: number): string {
     return `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
 }
 
-export default function SessionAboutToExpire() {
+export default function SessionAboutToExpireDialog() {
     const { t } = useTranslation();
+    const contentRef = useAutoSizeWindow<HTMLDivElement>(WINDOW_WIDTH);
     const [params] = useSearchParams();
     const initialSeconds = useMemo(() => {
         const raw = params.get("seconds");
@@ -66,53 +70,48 @@ export default function SessionAboutToExpire() {
     }, []);
 
     return (
-        <div
-            className={
-                "h-screen w-full flex flex-col items-center justify-center text-center px-6 py-8 bg-nb-gray-950"
-            }
-        >
-            <div
-                className={
-                    "h-12 w-12 rounded-full flex items-center justify-center bg-nb-gray-900 text-netbird mb-4"
-                }
-            >
-                <ClockIcon size={22} />
+        <ConfirmDialog ref={contentRef}>
+            <SquareIcon icon={ClockIcon} className={"mt-4"} />
+
+            <div className={"flex flex-col items-center gap-1"}>
+                <DialogHeading>
+                    {expired
+                        ? t("sessionAboutToExpire.expired")
+                        : t("sessionAboutToExpire.title")}
+                </DialogHeading>
+                <DialogDescription>
+                    {t("sessionAboutToExpire.description")}
+                </DialogDescription>
             </div>
-            <h1 className={"text-base font-semibold text-nb-gray-100"}>
-                {expired
-                    ? t("sessionAboutToExpire.expired")
-                    : t("sessionAboutToExpire.title")}
-            </h1>
-            <p className={"text-xs text-nb-gray-400 mt-1.5 max-w-[20rem] leading-snug"}>
-                {t("sessionAboutToExpire.description")}
-            </p>
+
             <div
                 className={
-                    "mt-5 font-mono text-3xl tabular-nums text-nb-gray-100 tracking-wider"
+                    "font-mono font-semibold text-2xl tabular-nums text-nb-gray-50 tracking-wider"
                 }
                 aria-live={"polite"}
             >
                 {formatMMSS(remaining)}
             </div>
-            <div className={"flex gap-2 mt-5 w-full max-w-[18rem]"}>
-                <Button
-                    variant={"secondary"}
-                    size={"xs"}
-                    className={"flex-1"}
-                    onClick={logout}
-                >
-                    {t("sessionAboutToExpire.logout")}
-                </Button>
+
+            <DialogActions>
                 <Button
                     variant={"primary"}
-                    size={"xs"}
-                    className={"flex-1"}
+                    size={"md"}
+                    className={"w-full"}
                     onClick={stay}
                     disabled={expired}
                 >
                     {t("sessionAboutToExpire.stay")}
                 </Button>
-            </div>
-        </div>
+                <Button
+                    variant={"secondary"}
+                    size={"md"}
+                    className={"w-full"}
+                    onClick={logout}
+                >
+                    {t("sessionAboutToExpire.logout")}
+                </Button>
+            </DialogActions>
+        </ConfirmDialog>
     );
 }

@@ -66,8 +66,16 @@ async function startLogin(): Promise<void> {
         if (result.needsSsoLogin) {
             const uri = result.verificationUriComplete || result.verificationUri;
             if (uri) {
+                // Open the in-app sign-in popup first so it's already on
+                // screen when the system browser steals focus; otherwise
+                // the browser lands on top and the user has to dig the
+                // NetBird window back out.
+                try {
+                    await WindowManager.OpenBrowserLogin(uri);
+                } catch (e) {
+                    console.error(e);
+                }
                 Connection.OpenURL(uri).catch(console.error);
-                WindowManager.OpenBrowserLogin(uri).catch(console.error);
             }
 
             const cancelPromise = new Promise<void>((resolve) => {
@@ -166,17 +174,17 @@ export const ConnectionStatusSwitch = () => {
             case "Connected":
                 return ConnectionState.Connected;
             case "Connecting":
-            case "NeedsLogin":
-                // NeedsLogin is mid-SSO: the auto-chain in this component
-                // (and the tray's trigger-login emitter) flips the browser
-                // login window open as soon as the daemon reports it, so
-                // the switch should keep painting "Connecting" rather than
-                // dropping back to Disconnected while the user signs in.
                 return ConnectionState.Connecting;
             case "Idle":
+            case "NeedsLogin":
             case "LoginFailed":
             case "SessionExpired":
             case "DaemonUnavailable":
+                // NeedsLogin / SessionExpired without an in-flight user
+                // action read as Disconnected — the switch only flips to
+                // Connecting once the user (or the tray's trigger-login)
+                // kicks off the SSO flow, which sets action = "logging-in"
+                // and is handled by the guard above.
                 return ConnectionState.Disconnected;
             default:
                 return ConnectionState.Disconnected;

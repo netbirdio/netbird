@@ -236,6 +236,15 @@ func (t *Tray) reapplyMenuState() {
 // active app. Focus() additionally calls activateIgnoringOtherApps:YES on
 // macOS and SetForegroundWindow on Windows.
 func (t *Tray) ShowWindow() {
+	// While an SSO flow is in progress the BrowserLogin popup is the focal
+	// window — the main window was hidden by WindowManager so the user
+	// stays on the sign-in surface. Tray "Open" / SIGUSR1 / dock-reopen
+	// should bring that window forward, not resurrect the main one mid-flow.
+	if w := t.svc.WindowManager.BrowserLoginWindow(); w != nil {
+		w.Show()
+		w.Focus()
+		return
+	}
 	if t.window == nil {
 		return
 	}

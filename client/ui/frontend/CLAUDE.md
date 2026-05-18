@@ -24,10 +24,10 @@ React 18 + TS 5.7 (`strict`, `noImplicitAny: false`) + Vite 6 + Tailwind 3 (`dar
 |---|---|---|---|
 | `/` | `Main` | `AppLayout` | Main window default route |
 | `/quick` | `QuickActions` | none | Standalone — **prototype**, not currently invoked by the Go side |
-| `/browser-login` | `BrowserLogin` | none | Auxiliary window (Go `WindowManager.OpenBrowserLogin`) |
+| `/browser-login` | `WaitingForBrowserDialog` (modules/authentication) | none | Auxiliary window (Go `WindowManager.OpenBrowserLogin`) |
 | `/update` | `Update` (pages) | none | Main window during enforced-update install |
-| `/session-expired` | `SessionExpired` (modules/session) | none | Auxiliary window (Go `WindowManager.OpenSessionExpired`, always-on-top) |
-| `/session-about-to-expire` | `SessionAboutToExpire` (modules/session) | none | Auxiliary window (Go `WindowManager.OpenSessionAboutToExpire(seconds)`, always-on-top, mm:ss countdown via `?seconds=`) |
+| `/session-expired` | `SessionExpiredDialog` (modules/authentication) | none | Auxiliary window (Go `WindowManager.OpenSessionExpired`, always-on-top) |
+| `/session-about-to-expire` | `SessionAboutToExpireDialog` (modules/authentication) | none | Auxiliary window (Go `WindowManager.OpenSessionAboutToExpire(seconds)`, always-on-top, mm:ss countdown via `?seconds=`) |
 | `/settings` | `Settings` | `SettingsLayout` | Auxiliary window (Go `WindowManager.OpenSettings`) |
 | `*` | `<Navigate to="/">` | `AppLayout` | Catch-all |
 
@@ -161,7 +161,7 @@ Defined in `tailwind.config.ts`. `nb-gray` is the neutral palette (background = 
 - **`screens/Profiles.tsx`** still imports bindings via the deep relative path. It's the example of the preferred `ProfileSwitcher.SwitchActive` flow but otherwise pre-AppLayout.
 - **`pages/Debug.tsx`** is the legacy debug-bundle screen. The polished flow is in `modules/settings/SettingsTroubleshooting.tsx` (via `useDebugBundle`). `pages/Debug.tsx` isn't currently routed.
 - **`pages/Update.tsx`** and **`screens/Update.tsx`** are two different update pages. The route table points at `pages/Update.tsx` (the production one with the 15-minute timeout, daemon-down-grace, and error-mapping). The `screens/Update.tsx` is an older simpler variant.
-- **`modules/session/SessionExpired.tsx`** and **`modules/session/SessionAboutToExpire.tsx`** are the always-on-top auxiliary windows. Today they're only triggered via the DEV-only "Development" tab in Settings (`SettingsDevelopment.tsx`) — a daemon-status hook (status `SessionExpired`, plus a future "about-to-expire" signal) will drive them later. Sign-in / Stay-connected emit `EventTriggerLogin` so the main window's `startLogin()` orchestrator handles the SSO flow; Logout uses `Connection.Logout({profileName, username})`.
+- **`modules/authentication/SessionExpiredDialog.tsx`** and **`modules/authentication/SessionAboutToExpireDialog.tsx`** are the always-on-top auxiliary windows. Today they're only triggered via the DEV-only "Development" tab in Settings (`SettingsDevelopment.tsx`) — a daemon-status hook (status `SessionExpired`, plus a future "about-to-expire" signal) will drive them later. Sign-in / Stay-connected emit `EventTriggerLogin` so the main window's `startLogin()` orchestrator handles the SSO flow; Logout uses `Connection.Logout({profileName, username})`.
 - **`screens/QuickActions.tsx`** is wired to `/quick` in the route table but nothing on the Go side currently navigates there.
 - **`UpdateAvailableBanner`** is force-enabled via `FORCE_UPDATE_AVAILABLE = true` and additionally TODO-commented for the "only when management has auto updates enabled + force updates is disabled" case.
 - **`lib/MainModuleContext.tsx`** is exported but unused. Candidate for deletion.

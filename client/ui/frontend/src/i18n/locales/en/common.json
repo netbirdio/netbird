@@ -258,8 +258,6 @@
     "update.page.failed": "Update failed",
 
     "browserLogin.title": "Continue in your browser to complete the login",
-    "browserLogin.description": "Please complete the account authentication process in the browser tab and continue from there.",
-    "browserLogin.waiting": "Waiting for sign-in…",
     "browserLogin.notSeeing": "Not seeing the browser tab?",
     "browserLogin.tryAgain": "Try again",
 

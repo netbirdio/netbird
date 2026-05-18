@@ -258,8 +258,6 @@
     "update.page.failed": "Frissítés sikertelen",
 
     "browserLogin.title": "Folytassa a böngészőben a bejelentkezés befejezéséhez",
-    "browserLogin.description": "Kérjük, fejezze be a fiókhitelesítést a böngésző fülén, és folytassa onnan.",
-    "browserLogin.waiting": "Várakozás a bejelentkezésre…",
     "browserLogin.notSeeing": "Nem látja a böngésző fülét?",
     "browserLogin.tryAgain": "Próbálja újra",
 
