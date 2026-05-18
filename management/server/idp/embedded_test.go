@@ -314,6 +314,34 @@ func TestEmbeddedIdPManager_UpdateUserPassword(t *testing.T) {
 	})
 }
 
+func TestEmbeddedIdPConfig_ToYAMLConfig_IncludesDeviceCallbackRedirectURI(t *testing.T) {
+	config := &EmbeddedIdPConfig{
+		Enabled: true,
+		Issuer:  "https://example.com/oauth2",
+		Storage: EmbeddedStorageConfig{
+			Type: "sqlite3",
+			Config: EmbeddedStorageTypeConfig{
+				File: filepath.Join(t.TempDir(), "dex.db"),
+			},
+		},
+	}
+
+	yamlConfig, err := config.ToYAMLConfig()
+	require.NoError(t, err)
+
+	var cliRedirectURIs []string
+	for _, client := range yamlConfig.StaticClients {
+		if client.ID == staticClientCLI {
+			cliRedirectURIs = client.RedirectURIs
+			break
+		}
+	}
+	require.NotEmpty(t, cliRedirectURIs)
+	assert.Contains(t, cliRedirectURIs, "/device/callback")
+	assert.Contains(t, cliRedirectURIs, "/oauth2/device/callback")
+	assert.Contains(t, cliRedirectURIs, "https://example.com/oauth2/device/callback")
+}
+
 func TestEmbeddedIdPConfig_ToYAMLConfig_SessionCookieEncryptionKey(t *testing.T) {
 	t.Setenv(sessionCookieEncryptionKeyEnv, "")
 
