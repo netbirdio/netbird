@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
+	"path"
 	"strings"
 
 	"github.com/dexidp/dex/storage"
@@ -138,10 +140,13 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 		return nil, fmt.Errorf("invalid IdP storage config: %w", err)
 	}
 
-	// Build CLI redirect URIs including the device callback (both relative and absolute)
+	// Build CLI redirect URIs including the device callback. Dex uses the issuer-relative
+	// path (for example, /oauth2/device/callback) when completing the device flow, so
+	// include it explicitly in addition to the legacy bare path and absolute URL.
 	cliRedirectURIs := c.CLIRedirectURIs
 	cliRedirectURIs = append(cliRedirectURIs, "/device/callback")
-	cliRedirectURIs = append(cliRedirectURIs, c.Issuer+"/device/callback")
+	cliRedirectURIs = append(cliRedirectURIs, issuerRelativeDeviceCallback(c.Issuer))
+	cliRedirectURIs = append(cliRedirectURIs, strings.TrimSuffix(c.Issuer, "/")+"/device/callback")
 
 	// Build dashboard redirect URIs including the OAuth callback for proxy authentication
 	dashboardRedirectURIs := c.DashboardRedirectURIs
@@ -153,6 +158,10 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 	// It is safe to assume that most installations will share the location of the
 	// MGMT api and the dashboard, adding baseURL means less configuration for the instance admin
 	dashboardPostLogoutRedirectURIs = append(dashboardPostLogoutRedirectURIs, baseURL)
+
+	redirectURIs := make([]string, 0)
+	redirectURIs = append(redirectURIs, cliRedirectURIs...)
+	redirectURIs = append(redirectURIs, dashboardRedirectURIs...)
 
 	cfg := &dex.YAMLConfig{
 		Issuer: c.Issuer,
@@ -179,14 +188,14 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 				ID:                     staticClientDashboard,
 				Name:                   "NetBird Dashboard",
 				Public:                 true,
-				RedirectURIs:           dashboardRedirectURIs,
+				RedirectURIs:           redirectURIs,
 				PostLogoutRedirectURIs: sanitizePostLogoutRedirectURIs(dashboardPostLogoutRedirectURIs),
 			},
 			{
 				ID:           staticClientCLI,
 				Name:         "NetBird CLI",
 				Public:       true,
-				RedirectURIs: cliRedirectURIs,
+				RedirectURIs: redirectURIs,
 			},
 		},
 		StaticConnectors: c.StaticConnectors,
@@ -215,6 +224,14 @@ func (c *EmbeddedIdPConfig) ToYAMLConfig() (*dex.YAMLConfig, error) {
 	}
 
 	return cfg, nil
+}
+
+func issuerRelativeDeviceCallback(issuer string) string {
+	u, err := url.Parse(issuer)
+	if err != nil || u.Path == "" {
+		return "/device/callback"
+	}
+	return path.Join(u.Path, "/device/callback")
 }
 
 // Due to how the frontend generates the logout, sometimes it appends a trailing slash
@@ -299,7 +316,7 @@ func resolveSessionCookieEncryptionKey(configuredKey string) (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("invalid embedded IdP session cookie encryption key: %s (or sessionCookieEncryptionKey) must be 16, 24, or 32 bytes as a raw string or base64-encoded to one of those lengths; got %d raw bytes", sessionCookieEncryptionKeyEnv, len([]byte(key)))
+	return "", fmt.Errorf("invalid embedded IdP session cookie encryption key:%s (or sessionCookieEncryptionKey) must be 16, 24, or 32 bytes as a raw string or base64-encoded to one of those lengths; got %d raw bytes", sessionCookieEncryptionKeyEnv, len([]byte(key)))
 }
 
 func validSessionCookieEncryptionKeyLength(length int) bool {
