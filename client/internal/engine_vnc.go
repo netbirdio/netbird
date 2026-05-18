@@ -148,11 +148,13 @@ func (e *Engine) startVNCServer(sshConf *mgmProto.SSHConfig) error {
 
 	e.vncSrv = srv
 
-	if registrar, ok := e.firewall.(interface {
-		RegisterNetstackService(protocol nftypes.Protocol, port uint16)
-	}); ok {
-		registrar.RegisterNetstackService(nftypes.TCP, vncInternalPort)
-		log.Debugf("registered VNC service for TCP:%d", vncInternalPort)
+	if netstackNet := e.wgInterface.GetNet(); netstackNet != nil {
+		if registrar, ok := e.firewall.(interface {
+			RegisterNetstackService(protocol nftypes.Protocol, port uint16)
+		}); ok {
+			registrar.RegisterNetstackService(nftypes.TCP, vncInternalPort)
+			log.Debugf("registered VNC service with netstack for TCP:%d", vncInternalPort)
+		}
 	}
 
 	if err := e.setupVNCPortRedirection(); err != nil {
@@ -244,10 +246,12 @@ func (e *Engine) stopVNCServer() error {
 		log.Warnf("cleanup VNC port redirection: %v", err)
 	}
 
-	if registrar, ok := e.firewall.(interface {
-		UnregisterNetstackService(protocol nftypes.Protocol, port uint16)
-	}); ok {
-		registrar.UnregisterNetstackService(nftypes.TCP, vncInternalPort)
+	if netstackNet := e.wgInterface.GetNet(); netstackNet != nil {
+		if registrar, ok := e.firewall.(interface {
+			UnregisterNetstackService(protocol nftypes.Protocol, port uint16)
+		}); ok {
+			registrar.UnregisterNetstackService(nftypes.TCP, vncInternalPort)
+		}
 	}
 
 	log.Info("stopping VNC server")
