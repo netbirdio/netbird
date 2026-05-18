@@ -3355,10 +3355,64 @@ components:
           example: false
       required:
         - enabled
+    ProxyTokenRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Human-readable token name
+          example: "my-proxy-token"
+        expires_in:
+          type: integer
+          minimum: 0
+          description: Token expiration in seconds (0 = never expires)
+          example: 0
+      required:
+        - name
+    ProxyToken:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        last_used:
+          type: string
+          format: date-time
+        revoked:
+          type: boolean
+      required:
+        - id
+        - name
+        - created_at
+        - revoked
+    ProxyTokenCreated:
+      type: object
+      description: Returned on creation — plain_token is shown only once
+      allOf:
+        - $ref: '#/components/schemas/ProxyToken'
+        - type: object
+          properties:
+            plain_token:
+              type: string
+              description: The plain text token (shown only once)
+              example: "nbx_abc123..."
+          required:
+            - plain_token
     ProxyCluster:
       type: object
       description: A proxy cluster represents a group of proxy nodes serving the same address
       properties:
+        id:
+          type: string
+          description: Unique identifier of a proxy in this cluster
+          example: "chlfq4q5r8kc73b0qjpg"
         address:
           type: string
           description: Cluster address used for CNAME targets
@@ -3367,9 +3421,15 @@ components:
           type: integer
           description: Number of proxy nodes connected in this cluster
           example: 3
+        self_hosted:
+          type: boolean
+          description: Whether this cluster is a self-hosted (BYOP) proxy managed by the account owner
+          example: false
       required:
+        - id
         - address
         - connected_proxies
+        - self_hosted
     ReverseProxyDomainType:
       type: string
       description: Type of Reverse Proxy Domain
@@ -11373,6 +11433,111 @@ paths:
           "$ref": "#/components/responses/requires_authentication"
         '403':
           "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/reverse-proxies/clusters/{clusterAddress}:
+    delete:
+      summary: Delete a self-hosted proxy cluster
+      description: Removes all self-hosted (BYOP) proxy registrations for the given cluster address owned by the account.
+      tags: [ Services ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: clusterAddress
+          required: true
+          schema:
+            type: string
+          description: The address of the proxy cluster
+      responses:
+        '200':
+          description: Proxy cluster deleted successfully
+          content: { }
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/reverse-proxies/proxy-tokens:
+    get:
+      summary: List Proxy Tokens
+      description: Returns all proxy access tokens for the account
+      tags: [ Self-Hosted Proxies ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of proxy tokens
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProxyToken'
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Create a Proxy Token
+      description: Generate an account-scoped proxy access token for self-hosted proxy registration
+      tags: [ Self-Hosted Proxies ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProxyTokenRequest'
+      responses:
+        '200':
+          description: Proxy token created (plain token shown once)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProxyTokenCreated'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/reverse-proxies/proxy-tokens/{tokenId}:
+    delete:
+      summary: Revoke a Proxy Token
+      description: Revoke an account-scoped proxy access token
+      tags: [ Self-Hosted Proxies ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: tokenId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of the proxy token
+      responses:
+        '200':
+          description: Token revoked
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '404':
+          "$ref": "#/components/responses/not_found"
         '500':
           "$ref": "#/components/responses/internal_error"
   /api/reverse-proxies/services:

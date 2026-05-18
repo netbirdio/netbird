@@ -53,6 +53,10 @@ func (m *mockReverseProxyManager) DeleteService(ctx context.Context, accountID, 
 	return nil
 }
 
+func (m *mockReverseProxyManager) DeleteAccountCluster(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
 func (m *mockReverseProxyManager) SetCertificateIssuedAt(ctx context.Context, accountID, reverseProxyID string) error {
 	return nil
 }
@@ -90,6 +94,20 @@ func (m *mockReverseProxyManager) StopServiceFromPeer(_ context.Context, _, _, _
 }
 
 func (m *mockReverseProxyManager) StartExposeReaper(_ context.Context) {}
+
+func (m *mockReverseProxyManager) GetServiceByDomain(_ context.Context, domain string) (*service.Service, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	for _, services := range m.proxiesByAccount {
+		for _, svc := range services {
+			if svc.Domain == domain {
+				return svc, nil
+			}
+		}
+	}
+	return nil, errors.New("service not found for domain: " + domain)
+}
 
 func (m *mockReverseProxyManager) GetActiveClusters(_ context.Context, _, _ string) ([]proxy.Cluster, error) {
 	return nil, nil

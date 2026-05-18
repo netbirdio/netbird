@@ -12,9 +12,12 @@ import (
 	cachestore "github.com/eko/gocache/lib/v4/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -314,6 +317,58 @@ func TestValidateState_RejectsOldTwoPartFormat(t *testing.T) {
 	_, _, err = s.ValidateState("base64url|hmac")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid state format")
+}
+
+func scopedCtx(accountID string) context.Context {
+	token := &types.ProxyAccessToken{
+		ID:        "token-1",
+		AccountID: &accountID,
+	}
+	return context.WithValue(context.Background(), ProxyTokenContextKey, token)
+}
+
+func globalCtx() context.Context {
+	token := &types.ProxyAccessToken{
+		ID: "token-global",
+	}
+	return context.WithValue(context.Background(), ProxyTokenContextKey, token)
+}
+
+func TestEnforceAccountScope_AllowsMatchingAccount(t *testing.T) {
+	err := enforceAccountScope(scopedCtx("acc-1"), "acc-1")
+	assert.NoError(t, err)
+}
+
+func TestEnforceAccountScope_BlocksMismatchedAccount(t *testing.T) {
+	err := enforceAccountScope(scopedCtx("acc-1"), "acc-2")
+	require.Error(t, err)
+	st, ok := grpcstatus.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.PermissionDenied, st.Code())
+}
+
+func TestEnforceAccountScope_BlocksEmptyRequestAccountID(t *testing.T) {
+	err := enforceAccountScope(scopedCtx("acc-1"), "")
+	require.Error(t, err)
+	st, ok := grpcstatus.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.PermissionDenied, st.Code())
+}
+
+func TestEnforceAccountScope_AllowsGlobalToken(t *testing.T) {
+	err := enforceAccountScope(globalCtx(), "acc-1")
+	assert.NoError(t, err)
+
+	err = enforceAccountScope(globalCtx(), "acc-2")
+	assert.NoError(t, err)
+
+	err = enforceAccountScope(globalCtx(), "")
+	assert.NoError(t, err)
+}
+
+func TestEnforceAccountScope_AllowsNoTokenInContext(t *testing.T) {
+	err := enforceAccountScope(context.Background(), "acc-1")
+	assert.NoError(t, err)
 }
 
 func TestValidateState_RejectsInvalidHMAC(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -140,6 +141,7 @@ func setupIntegrationTest(t *testing.T) *integrationTestSetup {
 		nil,
 		usersManager,
 		proxyManager,
+		nil,
 	)
 
 	// Use store-backed service manager
@@ -201,8 +203,8 @@ func (m *testAccessLogManager) GetAllAccessLogs(_ context.Context, _, _ string, 
 // testProxyManager is a mock implementation of proxy.Manager for testing.
 type testProxyManager struct{}
 
-func (m *testProxyManager) Connect(_ context.Context, proxyID, sessionID, _, _ string, _ *nbproxy.Capabilities) (*nbproxy.Proxy, error) {
-	return &nbproxy.Proxy{ID: proxyID, SessionID: sessionID, Status: "connected"}, nil
+func (m *testProxyManager) Connect(_ context.Context, proxyID, sessionID, _, _ string, _ *string, _ *nbproxy.Capabilities) (*nbproxy.Proxy, error) {
+	return &nbproxy.Proxy{ID: proxyID, SessionID: sessionID, Status: nbproxy.StatusConnected}, nil
 }
 
 func (m *testProxyManager) Disconnect(_ context.Context, _, _ string) error {
@@ -214,6 +216,10 @@ func (m *testProxyManager) Heartbeat(_ context.Context, _ *nbproxy.Proxy) error 
 }
 
 func (m *testProxyManager) GetActiveClusterAddresses(_ context.Context) ([]string, error) {
+	return nil, nil
+}
+
+func (m *testProxyManager) GetActiveClusterAddressesForAccount(_ context.Context, _ string) ([]string, error) {
 	return nil, nil
 }
 
@@ -234,6 +240,22 @@ func (m *testProxyManager) ClusterSupportsCrowdSec(_ context.Context, _ string) 
 }
 
 func (m *testProxyManager) CleanupStale(_ context.Context, _ time.Duration) error {
+	return nil
+}
+
+func (m *testProxyManager) GetAccountProxy(_ context.Context, accountID string) (*nbproxy.Proxy, error) {
+	return nil, fmt.Errorf("proxy not found for account %s", accountID)
+}
+
+func (m *testProxyManager) CountAccountProxies(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
+func (m *testProxyManager) IsClusterAddressAvailable(_ context.Context, _, _ string) (bool, error) {
+	return true, nil
+}
+
+func (m *testProxyManager) DeleteAccountCluster(_ context.Context, _, _ string) error {
 	return nil
 }
 
@@ -290,6 +312,10 @@ func (m *storeBackedServiceManager) DeleteService(ctx context.Context, accountID
 	return nil
 }
 
+func (m *storeBackedServiceManager) DeleteAccountCluster(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
 func (m *storeBackedServiceManager) SetCertificateIssuedAt(ctx context.Context, accountID, serviceID string) error {
 	return nil
 }
@@ -335,6 +361,10 @@ func (m *storeBackedServiceManager) StopServiceFromPeer(_ context.Context, _, _,
 }
 
 func (m *storeBackedServiceManager) StartExposeReaper(_ context.Context) {}
+
+func (m *storeBackedServiceManager) GetServiceByDomain(ctx context.Context, domain string) (*service.Service, error) {
+	return m.store.GetServiceByDomain(ctx, domain)
+}
 
 func (m *storeBackedServiceManager) GetActiveClusters(_ context.Context, _, _ string) ([]nbproxy.Cluster, error) {
 	return nil, nil

@@ -3113,7 +3113,7 @@ func createManager(t testing.TB) (*DefaultAccountManager, *update_channel.PeersU
 		return nil, nil, err
 	}
 
-	proxyGrpcServer := nbgrpc.NewProxyServiceServer(nil, nil, nil, nbgrpc.ProxyOIDCConfig{}, peersManager, nil, proxyManager)
+	proxyGrpcServer := nbgrpc.NewProxyServiceServer(nil, nil, nil, nbgrpc.ProxyOIDCConfig{}, peersManager, nil, proxyManager, nil)
 	proxyController, err := proxymanager.NewGRPCController(proxyGrpcServer, noop.Meter{})
 	if err != nil {
 		return nil, nil, err
@@ -3967,6 +3967,96 @@ func TestDefaultAccountManager_UpdateAccountSettings_NetworkRangeChange(t *testi
 		require.NoError(t, err, "UpdateAccountSettings should complete without error")
 	case <-time.After(10 * time.Second):
 		t.Fatal("UpdateAccountSettings deadlocked when changing NetworkRange")
+	}
+}
+
+// TestDefaultAccountManager_UpdateAccountSettings_NetworkRangePreserved guards against
+// peer IP reallocation when a settings update carries the network range that is already
+// in use. Legacy accounts have Settings.NetworkRange unset in the DB while network.Net
+// holds the actual allocated overlay; the dashboard backfills the GET response from
+// network.Net and echoes the value back on PUT, so the diff must be against the
+// effective range to avoid renumbering every peer on an unrelated settings change.
+func TestDefaultAccountManager_UpdateAccountSettings_NetworkRangePreserved(t *testing.T) {
+	manager, _, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+	ctx := context.Background()
+
+	settings, err := manager.Store.GetAccountSettings(ctx, store.LockingStrengthNone, account.Id)
+	require.NoError(t, err)
+	require.False(t, settings.NetworkRange.IsValid(), "precondition: new accounts leave Settings.NetworkRange unset")
+
+	network, err := manager.Store.GetAccountNetwork(ctx, store.LockingStrengthNone, account.Id)
+	require.NoError(t, err)
+	require.NotNil(t, network.Net.IP, "precondition: network.Net should be allocated")
+	addr, ok := netip.AddrFromSlice(network.Net.IP)
+	require.True(t, ok)
+	ones, _ := network.Net.Mask.Size()
+	effective := netip.PrefixFrom(addr.Unmap(), ones)
+	require.True(t, effective.IsValid())
+
+	before := map[string]netip.Addr{peer1.ID: peer1.IP, peer2.ID: peer2.IP, peer3.ID: peer3.IP}
+
+	// Round-trip the effective range as if the dashboard echoed back the GET-backfilled value.
+	_, err = manager.UpdateAccountSettings(ctx, account.Id, userID, &types.Settings{
+		PeerLoginExpirationEnabled: true,
+		PeerLoginExpiration:        types.DefaultPeerLoginExpiration,
+		NetworkRange:               effective,
+		Extra:                      &types.ExtraSettings{},
+	})
+	require.NoError(t, err)
+
+	peers, err := manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, account.Id, "", "")
+	require.NoError(t, err)
+	require.Len(t, peers, len(before))
+	for _, p := range peers {
+		assert.Equal(t, before[p.ID], p.IP, "peer %s IP should not change when range matches effective", p.ID)
+	}
+
+	// Carrying the same range with host bits set must also be a no-op once canonicalized.
+	hostBitsForm := netip.PrefixFrom(peer1.IP, ones)
+	require.NotEqual(t, effective, hostBitsForm, "precondition: host-bit form should differ before masking")
+	_, err = manager.UpdateAccountSettings(ctx, account.Id, userID, &types.Settings{
+		PeerLoginExpirationEnabled: true,
+		PeerLoginExpiration:        types.DefaultPeerLoginExpiration,
+		NetworkRange:               hostBitsForm,
+		Extra:                      &types.ExtraSettings{},
+	})
+	require.NoError(t, err)
+
+	peers, err = manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, account.Id, "", "")
+	require.NoError(t, err)
+	for _, p := range peers {
+		assert.Equal(t, before[p.ID], p.IP, "peer %s IP should not change for host-bit-set equivalent range", p.ID)
+	}
+
+	// Omitting NetworkRange (invalid prefix) must also be a no-op.
+	_, err = manager.UpdateAccountSettings(ctx, account.Id, userID, &types.Settings{
+		PeerLoginExpirationEnabled: true,
+		PeerLoginExpiration:        types.DefaultPeerLoginExpiration,
+		Extra:                      &types.ExtraSettings{},
+	})
+	require.NoError(t, err)
+
+	peers, err = manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, account.Id, "", "")
+	require.NoError(t, err)
+	for _, p := range peers {
+		assert.Equal(t, before[p.ID], p.IP, "peer %s IP should not change when NetworkRange omitted", p.ID)
+	}
+
+	// Sanity: an actually different range still triggers reallocation.
+	newRange := netip.MustParsePrefix("100.99.0.0/16")
+	_, err = manager.UpdateAccountSettings(ctx, account.Id, userID, &types.Settings{
+		PeerLoginExpirationEnabled: true,
+		PeerLoginExpiration:        types.DefaultPeerLoginExpiration,
+		NetworkRange:               newRange,
+		Extra:                      &types.ExtraSettings{},
+	})
+	require.NoError(t, err)
+
+	peers, err = manager.Store.GetAccountPeers(ctx, store.LockingStrengthNone, account.Id, "", "")
+	require.NoError(t, err)
+	for _, p := range peers {
+		assert.True(t, newRange.Contains(p.IP), "peer %s should be in new range %s, got %s", p.ID, newRange, p.IP)
+		assert.NotEqual(t, before[p.ID], p.IP, "peer %s IP should change on real range update", p.ID)
 	}
 }
 

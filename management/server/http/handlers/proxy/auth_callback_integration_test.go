@@ -216,6 +216,7 @@ func setupAuthCallbackTest(t *testing.T) *testSetup {
 		nil,
 		usersManager,
 		nil,
+		nil,
 	)
 
 	proxyService.SetServiceManager(&testServiceManager{store: testStore})
@@ -389,6 +390,10 @@ func (m *testServiceManager) DeleteService(_ context.Context, _, _, _ string) er
 	return nil
 }
 
+func (m *testServiceManager) DeleteAccountCluster(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
 func (m *testServiceManager) SetCertificateIssuedAt(_ context.Context, _, _ string) error {
 	return nil
 }
@@ -434,6 +439,10 @@ func (m *testServiceManager) StopServiceFromPeer(_ context.Context, _, _, _ stri
 }
 
 func (m *testServiceManager) StartExposeReaper(_ context.Context) {}
+
+func (m *testServiceManager) GetServiceByDomain(ctx context.Context, domain string) (*service.Service, error) {
+	return m.store.GetServiceByDomain(ctx, domain)
+}
 
 func (m *testServiceManager) GetActiveClusters(_ context.Context, _, _ string) ([]nbproxy.Cluster, error) {
 	return nil, nil

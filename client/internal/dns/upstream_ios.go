@@ -15,6 +15,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 type upstreamResolverIOS struct {
@@ -27,9 +28,9 @@ func newUpstreamResolver(
 	wgIface WGIface,
 	statusRecorder *peer.Status,
 	_ *hostsDNSHolder,
-	domain string,
+	d domain.Domain,
 ) (*upstreamResolverIOS, error) {
-	upstreamResolverBase := newUpstreamResolverBase(ctx, statusRecorder, domain)
+	upstreamResolverBase := newUpstreamResolverBase(ctx, statusRecorder, d)
 
 	ios := &upstreamResolverIOS{
 		upstreamResolverBase: upstreamResolverBase,
@@ -62,9 +63,16 @@ func (u *upstreamResolverIOS) exchange(ctx context.Context, upstream string, r *
 		upstreamIP = upstreamIP.Unmap()
 	}
 	addr := u.wgIface.Address()
+	var routed bool
+	if u.selectedRoutes != nil {
+		// Only a concrete prefix match binds to the tunnel: dialing
+		// through a private client for an upstream we can't prove is
+		// routed would break public resolvers.
+		routed, _ = haMapContains(u.selectedRoutes(), upstreamIP)
+	}
 	needsPrivate := addr.Network.Contains(upstreamIP) ||
 		addr.IPv6Net.Contains(upstreamIP) ||
-		(u.routeMatch != nil && u.routeMatch(upstreamIP))
+		routed
 	if needsPrivate {
 		log.Debugf("using private client to query %s via upstream %s", r.Question[0].Name, upstream)
 		client, err = GetClientPrivate(u.wgIface, upstreamIP, timeout)
@@ -73,8 +81,7 @@ func (u *upstreamResolverIOS) exchange(ctx context.Context, upstream string, r *
 		}
 	}
 
-	// Cannot use client.ExchangeContext because it overwrites our Dialer
-	return ExchangeWithFallback(nil, client, r, upstream)
+	return ExchangeWithFallback(ctx, client, r, upstream)
 }
 
 // GetClientPrivate returns a new DNS client bound to the local IP of the Netbird interface.

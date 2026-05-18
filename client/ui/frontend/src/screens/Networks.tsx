@@ -55,7 +55,7 @@ export default function Networks() {
 
   const overlapping = useMemo(() => filterOverlapping(routes), [routes]);
   const exitNodes = useMemo(
-    () => routes.filter((r) => r.range === "0.0.0.0/0" || r.range === "::/0"),
+    () => routes.filter((r) => isDefaultRoute(r.range)),
     [routes],
   );
 
@@ -144,6 +144,15 @@ function NetworkList({
       </ul>
     </div>
   );
+}
+
+// range is the merged display string from the daemon, e.g. "0.0.0.0/0",
+// "::/0", or "0.0.0.0/0, ::/0" when a v4 exit node has a paired v6 entry.
+function isDefaultRoute(range: string): boolean {
+  return range.split(",").some((part) => {
+    const trimmed = part.trim();
+    return trimmed === "0.0.0.0/0" || trimmed === "::/0";
+  });
 }
 
 function filterOverlapping(routes: Network[]): Network[] {
