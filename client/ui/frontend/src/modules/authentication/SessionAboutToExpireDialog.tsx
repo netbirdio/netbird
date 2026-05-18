@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
-import { Events } from "@wailsio/runtime";
+import { Dialogs } from "@wailsio/runtime";
 import { ClockIcon } from "lucide-react";
 import { Button } from "@/components/Button";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -9,10 +9,14 @@ import { DialogActions } from "@/components/DialogActions";
 import { DialogDescription } from "@/components/DialogDescription";
 import { DialogHeading } from "@/components/DialogHeading";
 import { SquareIcon } from "@/components/SquareIcon";
-import { Connection, Profiles as ProfilesSvc, WindowManager } from "@bindings/services";
+import {
+    Connection,
+    Profiles as ProfilesSvc,
+    Session,
+    WindowManager,
+} from "@bindings/services";
 import { useAutoSizeWindow } from "@/lib/useAutoSizeWindow";
 
-const EVENT_TRIGGER_LOGIN = "trigger-login";
 const DEFAULT_SECONDS = 360;
 const WINDOW_WIDTH = 360;
 
@@ -35,6 +39,7 @@ export default function SessionAboutToExpireDialog() {
     }, [params]);
 
     const [remaining, setRemaining] = useState(initialSeconds);
+    const [busy, setBusy] = useState(false);
     const expired = remaining <= 0;
 
     useEffect(() => {
@@ -49,10 +54,38 @@ export default function SessionAboutToExpireDialog() {
         return () => window.clearInterval(id);
     }, [remaining]);
 
-    const stay = useCallback(() => {
-        void Events.Emit(EVENT_TRIGGER_LOGIN);
-        WindowManager.CloseSessionAboutToExpire().catch(console.error);
-    }, []);
+    // Mirrors tray.go::runExtendSession: starts the daemon SSO extend flow,
+    // opens the browser for the user to sign in, blocks on the daemon until
+    // the new deadline arrives. Tunnel stays up; success simply closes the
+    // dialog, failure surfaces a native error dialog and leaves this one
+    // open so the user can retry or logout.
+    const stay = useCallback(async () => {
+        if (busy) return;
+        setBusy(true);
+        try {
+            const start = await Session.RequestExtend({});
+            const uri = start.verificationUriComplete || start.verificationUri;
+            if (uri) {
+                try {
+                    await Connection.OpenURL(uri);
+                } catch (e) {
+                    console.debug("OpenURL failed during extend", e);
+                }
+            }
+            await Session.WaitExtend({
+                deviceCode: start.deviceCode,
+                userCode: start.userCode,
+            });
+            WindowManager.CloseSessionAboutToExpire().catch(console.error);
+        } catch (e) {
+            await Dialogs.Error({
+                Title: t("sessionAboutToExpire.extendFailedTitle"),
+                Message: e instanceof Error ? e.message : String(e),
+            });
+        } finally {
+            setBusy(false);
+        }
+    }, [busy, t]);
 
     const logout = useCallback(async () => {
         try {
@@ -99,7 +132,7 @@ export default function SessionAboutToExpireDialog() {
                     size={"md"}
                     className={"w-full"}
                     onClick={stay}
-                    disabled={expired}
+                    disabled={expired || busy}
                 >
                     {t("sessionAboutToExpire.stay")}
                 </Button>
@@ -108,6 +141,7 @@ export default function SessionAboutToExpireDialog() {
                     size={"md"}
                     className={"w-full"}
                     onClick={logout}
+                    disabled={busy}
                 >
                     {t("sessionAboutToExpire.logout")}
                 </Button>

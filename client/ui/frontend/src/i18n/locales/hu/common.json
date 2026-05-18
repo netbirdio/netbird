@@ -3,6 +3,7 @@
     "tray.status.disconnected": "Lekapcsolva",
     "tray.status.daemonUnavailable": "Nem fut",
     "tray.status.error": "Hiba",
+    "tray.session.expiresIn": "Munkamenet: {remaining}",
 
     "tray.menu.open": "NetBird megnyitása",
     "tray.menu.connect": "Csatlakozás",
@@ -31,6 +32,14 @@
     "notify.error.switchProfile": "Átváltás sikertelen erre: {profile}",
     "notify.sessionExpired.title": "NetBird munkamenet lejárt",
     "notify.sessionExpired.body": "A NetBird munkamenet lejárt. Kérjük, jelentkezzen be újra.",
+    "notify.sessionWarning.title": "Munkamenet hamarosan lejár",
+    "notify.sessionWarning.body": "A NetBird munkamenet {remaining} múlva lejár. Kattints a Meghosszabbítás gombra a megújításhoz.",
+    "notify.sessionWarning.bodyGeneric": "A NetBird munkamenet hamarosan lejár. Kattints a Meghosszabbítás gombra a megújításhoz.",
+    "notify.sessionWarning.extend": "Meghosszabbítás",
+    "notify.sessionWarning.dismiss": "Elvetés",
+    "notify.sessionWarning.failed": "A NetBird munkamenet meghosszabbítása sikertelen",
+    "notify.sessionWarning.successTitle": "NetBird munkamenet meghosszabbítva",
+    "notify.sessionWarning.successBody": "A munkamenet frissítve.",
 
     "common.cancel": "Mégse",
     "common.save": "Mentés",
@@ -271,6 +280,7 @@
     "sessionAboutToExpire.stay": "Maradjon csatlakoztatva",
     "sessionAboutToExpire.logout": "Kijelentkezés",
     "sessionAboutToExpire.expired": "Munkamenet lejárt",
+    "sessionAboutToExpire.extendFailedTitle": "A munkamenet meghosszabbítása sikertelen",
 
     "peers.search.placeholder": "Keresés társ neve, DNS vagy IP-cím alapján",
     "peers.filter.all": "Összes",

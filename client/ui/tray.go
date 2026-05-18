@@ -9,12 +9,15 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 
+	nbstatus "github.com/netbirdio/netbird/client/status"
+	"github.com/netbirdio/netbird/client/ui/authsession"
 	"github.com/netbirdio/netbird/client/ui/i18n"
 	"github.com/netbirdio/netbird/client/ui/services"
 	"github.com/netbirdio/netbird/version"
@@ -34,12 +37,28 @@ const (
 	notifyIDEvent          = "netbird-event-"
 	notifyIDTrayError      = "netbird-tray-error"
 	notifyIDSessionExpired = "netbird-session-expired"
+	notifyIDSessionWarning = "netbird-session-warning"
+
+	// notifyCategorySessionWarning groups the "Extend now" / "Dismiss"
+	// actions on the T-10min OS notification. Registered once at tray
+	// construction with the Wails notifications service; subsequent
+	// SendNotificationWithActions calls reference it by ID.
+	notifyCategorySessionWarning = "netbird-session-warning"
+	notifyActionExtendNow        = "extend-now"
+	notifyActionDismiss          = "dismiss"
 
 	statusError = "Error"
 
 	urlGitHubRepo     = "https://github.com/netbirdio/netbird"
 	urlGitHubReleases = "https://github.com/netbirdio/netbird/releases/latest"
+
+	// finalWarningCountdownSeconds is the countdown shown in the auto-opened
+	// SessionAboutToExpire dialog. Mirrors sessionwatch.FinalWarningLead
+	// (2 minutes); the values stay in sync by hand because the lead is fixed
+	// for the initial rollout.
+	finalWarningCountdownSeconds = 120
 )
+
 
 // Tray builds and updates the systray menu. It mirrors the layout of the Fyne
 // systray 1:1 and routes clicks back to the gRPC services. Dynamic state
@@ -57,6 +76,12 @@ type TrayServices struct {
 	Update          *services.Update
 	ProfileSwitcher *services.ProfileSwitcher
 	WindowManager   *services.WindowManager
+	// Session drives the SSO session-extend flow invoked from the
+	// "Extend now" action on the T-10min OS notification, plus the
+	// Dismiss hand-off that suppresses the T-2 fallback dialog. Bound to
+	// the authsession package directly because the Wails wrapper in
+	// services only re-exposes the React-facing subset.
+	Session *authsession.Session
 	// Localizer is the tray's bridge to translations. Constructed in main
 	// from i18n.Bundle + preferences.Store; the Wails-bound facades
 	// (services.I18n, services.Preferences) are registered separately for
@@ -75,8 +100,14 @@ type Tray struct {
 	// language switch.
 	loc *Localizer
 
-	menu               *application.Menu
-	statusItem         *application.MenuItem
+	menu       *application.Menu
+	statusItem *application.MenuItem
+	// sessionExpiresItem displays the SSO session deadline as a humanised
+	// remaining-time label ("Session: 47m"). Hidden when no deadline is
+	// tracked (non-SSO peer or login-expiration disabled on the account).
+	// Refreshed by applyStatus on every Status push and by a 1-minute
+	// ticker between pushes so the countdown moves naturally.
+	sessionExpiresItem *application.MenuItem
 	upItem             *application.MenuItem
 	downItem           *application.MenuItem
 	exitNodeItem       *application.MenuItem
@@ -99,6 +130,16 @@ type Tray struct {
 	activeProfile        string
 	activeUsername       string
 	switchCancel         context.CancelFunc
+	// sessionExpiresAt is the most recent deadline observed on a Status
+	// snapshot. Used to skip a no-op label rewrite when the daemon repeats
+	// the same value across rapid pushes. Guarded by mu.
+	sessionExpiresAt time.Time
+	// pendingConnectLogin is set when handleConnect kicks off an Up on an
+	// idle daemon. The daemon will flip to NeedsLogin if the peer is
+	// SSO-tracked and has no cached token; applyStatus consumes this flag
+	// on that transition to automatically open the browser-login flow,
+	// saving the user a second Connect click. Guarded by mu.
+	pendingConnectLogin bool
 
 	// profileLoadMu serializes loadProfiles so the daemon-status-driven
 	// refresh in applyStatus cannot race with the ApplicationStarted seed
@@ -151,6 +192,14 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 	// nil-deref).
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		go t.loadProfiles()
+		// Notification-category registration must run after the Wails
+		// notifications service Startup has populated wn.appName /
+		// registry path on Windows; before app.Run() the category lookup
+		// in SendNotificationWithActions silently falls back to a
+		// gomb-nélküli notification (the Windows impl logs "Category not
+		// found"). The macOS/Linux impls don't strictly require this
+		// ordering, but running here is harmless for them.
+		t.registerSessionWarningCategory()
 	})
 
 	// Localizer fires this callback after it has already swapped its own
@@ -185,6 +234,7 @@ func (t *Tray) reapplyMenuState() {
 	lastStatus := t.lastStatus
 	daemonVersion := t.lastDaemonVersion
 	exitNodes := append([]string(nil), t.exitNodes...)
+	sessionDeadline := t.sessionExpiresAt
 	t.mu.Unlock()
 
 	daemonUnavailable := strings.EqualFold(lastStatus, services.StatusDaemonUnavailable)
@@ -194,6 +244,15 @@ func (t *Tray) reapplyMenuState() {
 		t.statusItem.SetLabel(t.loc.StatusLabel(lastStatus))
 		t.statusItem.SetEnabled(false)
 		t.applyStatusIndicator(lastStatus)
+	}
+	if t.sessionExpiresItem != nil {
+		if sessionDeadline.IsZero() {
+			t.sessionExpiresItem.SetHidden(true)
+		} else {
+			remaining := nbstatus.FormatRemainingDuration(time.Until(sessionDeadline))
+			t.sessionExpiresItem.SetLabel(t.loc.T("tray.session.expiresIn", "remaining", remaining))
+			t.sessionExpiresItem.SetHidden(false)
+		}
 	}
 	if t.upItem != nil {
 		t.upItem.SetHidden(connected || connecting || daemonUnavailable)
@@ -263,6 +322,14 @@ func (t *Tray) buildMenu() *application.Menu {
 	t.statusItem = menu.Add(t.loc.T("tray.status.disconnected")).
 		SetEnabled(false).
 		SetBitmap(iconMenuDotIdle)
+
+	// sessionExpiresItem sits directly below the status row so the
+	// remaining-time label reads as a sub-line of "Connected" etc. Hidden
+	// until applyStatus sees a non-zero SessionExpiresAt on the daemon
+	// Status snapshot — peers without SSO tracking or with login expiry
+	// disabled never reveal this row.
+	t.sessionExpiresItem = menu.Add("").SetEnabled(false)
+	t.sessionExpiresItem.SetHidden(true)
 
 	menu.AddSeparator()
 	// The tray icon's left-click handler is intentionally unbound (see
@@ -362,12 +429,25 @@ func (t *Tray) handleConnect() {
 		return
 	}
 	t.upItem.SetEnabled(false)
+	// Arm the SSO auto-handoff: Up() is async and the daemon may flip to
+	// NeedsLogin once it detects an SSO peer with no cached token. The
+	// flag is consumed by applyStatus on that transition, which then
+	// triggers the browser-login flow without the user having to click
+	// Connect a second time. Cleared on any terminal state (Connected /
+	// Idle / LoginFailed / DaemonUnavailable / SessionExpired) so a stale
+	// flag can't hijack a future status push.
+	t.mu.Lock()
+	t.pendingConnectLogin = true
+	t.mu.Unlock()
 	go func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		if err := t.svc.Connection.Up(ctx, services.UpParams{}); err != nil {
 			log.Errorf("connect: %v", err)
 			t.notifyError(t.loc.T("notify.error.connect"))
+			t.mu.Lock()
+			t.pendingConnectLogin = false
+			t.mu.Unlock()
 			t.upItem.SetEnabled(true)
 		}
 	}()
@@ -414,7 +494,14 @@ func (t *Tray) onStatusEvent(ev *application.CustomEvent) {
 // its own richer notification when EventUpdateState fires.
 func (t *Tray) onSystemEvent(ev *application.CustomEvent) {
 	se, ok := ev.Data.(services.SystemEvent)
-	if !ok || se.UserMessage == "" {
+	if !ok {
+		return
+	}
+	// Session-warning events carry no UserMessage — the tray builds the
+	// localised notification body locally from metadata. Every other
+	// event needs a non-empty UserMessage to show anything meaningful.
+	isSessionWarning := se.Metadata[authsession.MetaWarning] == "true"
+	if !isSessionWarning && se.UserMessage == "" {
 		return
 	}
 	if _, isUpdate := se.Metadata["new_version_available"]; isUpdate {
@@ -435,6 +522,29 @@ func (t *Tray) onSystemEvent(ev *application.CustomEvent) {
 	enabled := t.notificationsEnabled
 	t.mu.Unlock()
 	if !enabled && !critical {
+		return
+	}
+
+	// Session-warning events come in two flavours; detect via the stable
+	// metadata flags rather than category/severity so a future reword on
+	// the daemon side still routes here.
+	//   - T-WarningLead (MetaSessionWarning + no MetaSessionFinal) →
+	//     interactive "Extend now / Dismiss" OS notification. Title and
+	//     body are built locally from i18n + metadata so the text follows
+	//     the active UI language regardless of what the daemon (which has
+	//     no locale context) writes into UserMessage.
+	//   - T-FinalWarningLead (MetaSessionFinal=true) → auto-open the
+	//     SessionAboutToExpire dialog. No OS notification here; the
+	//     dialog is the last-chance reminder, doubling up would be noise.
+	if se.Metadata != nil && se.Metadata[authsession.MetaWarning] == "true" {
+		if se.Metadata[authsession.MetaFinal] == "true" {
+			t.openSessionAboutToExpire()
+			return
+		}
+		t.notifySessionWarning(
+			t.loc.T("notify.sessionWarning.title"),
+			t.buildSessionWarningBody(se.Metadata),
+		)
 		return
 	}
 
@@ -467,6 +577,28 @@ func (t *Tray) applyStatus(st services.Status) {
 	// flag in onSessionExpire.
 	sessionExpiredEnter := strings.EqualFold(st.Status, services.StatusSessionExpired) &&
 		!strings.EqualFold(t.lastStatus, services.StatusSessionExpired)
+
+	// Consume the SSO auto-handoff flag armed by handleConnect. Trigger
+	// the browser-login flow on a Connect → NeedsLogin transition so the
+	// user doesn't need to click Connect a second time. Clear it on any
+	// other terminal state — including Connecting bursts that resolve to
+	// Connected / Idle / LoginFailed / DaemonUnavailable — so a stale
+	// flag can't fire weeks later when the daemon happens to flip.
+	triggerLogin := false
+	if t.pendingConnectLogin {
+		switch {
+		case strings.EqualFold(st.Status, services.StatusNeedsLogin):
+			triggerLogin = true
+			t.pendingConnectLogin = false
+		case strings.EqualFold(st.Status, services.StatusConnected),
+			strings.EqualFold(st.Status, services.StatusIdle),
+			strings.EqualFold(st.Status, services.StatusLoginFailed),
+			strings.EqualFold(st.Status, services.StatusSessionExpired),
+			strings.EqualFold(st.Status, services.StatusDaemonUnavailable):
+			t.pendingConnectLogin = false
+		}
+	}
+
 	daemonVersionChanged := st.DaemonVersion != "" && st.DaemonVersion != t.lastDaemonVersion
 	t.connected = connected
 	t.lastStatus = st.Status
@@ -478,6 +610,11 @@ func (t *Tray) applyStatus(st services.Status) {
 	exitNodesChanged := !equalStrings(exitNodes, t.exitNodes)
 	t.exitNodes = exitNodes
 	t.mu.Unlock()
+
+	if triggerLogin {
+		t.ShowWindow()
+		t.app.Event.Emit(services.EventTriggerLogin)
+	}
 
 	if iconChanged {
 		t.applyIcon()
@@ -547,6 +684,8 @@ func (t *Tray) applyStatus(st services.Status) {
 	if sessionExpiredEnter {
 		t.handleSessionExpired()
 	}
+
+	t.applySessionExpiry(st.SessionExpiresAt, connected)
 }
 
 // handleSessionExpired surfaces the SSO re-authentication path when the
@@ -849,6 +988,40 @@ func (t *Tray) switchProfile(name string) {
 	}()
 }
 
+// applySessionExpiry refreshes the "Session: 47m" tray row from the latest
+// Status snapshot's SessionExpiresAt. Only shown when the tunnel is up:
+// in any other state (Idle after a Down, Connecting, NeedsLogin,
+// SessionExpired, LoginFailed, DaemonUnavailable, or mid profile-switch)
+// the deadline is meaningless and the row is hidden. The internal
+// sessionExpiresAt cache is cleared in the same path so reapplyMenuState
+// after a language switch doesn't resurrect a stale label.
+//
+// No per-minute ticker: between Status pushes the label may drift by a
+// few minutes, which is fine for a tray-menu status row that the user
+// opens on demand. The T-10min OS notification (driven by the daemon's
+// sessionwatch) does the time-critical signalling.
+func (t *Tray) applySessionExpiry(deadline *time.Time, connected bool) {
+	var d time.Time
+	if connected && deadline != nil {
+		d = *deadline
+	}
+
+	t.mu.Lock()
+	t.sessionExpiresAt = d
+	t.mu.Unlock()
+
+	if t.sessionExpiresItem == nil {
+		return
+	}
+	if d.IsZero() {
+		t.sessionExpiresItem.SetHidden(true)
+		return
+	}
+	remaining := nbstatus.FormatRemainingDuration(time.Until(d))
+	t.sessionExpiresItem.SetLabel(t.loc.T("tray.session.expiresIn", "remaining", remaining))
+	t.sessionExpiresItem.SetHidden(false)
+}
+
 // notify wraps the Wails notification service with the tray's standard
 // id-prefix scheme and swallows errors (notifications are best-effort).
 func (t *Tray) notify(title, body, id string) {
@@ -862,6 +1035,166 @@ func (t *Tray) notify(title, body, id string) {
 	}); err != nil {
 		log.Debugf("notify %q: %v", title, err)
 	}
+}
+
+// registerSessionWarningCategory wires the OS notification category for the
+// T-10min SSO expiry warning. The category carries two actions ("Extend now"
+// and "Dismiss") and the global response handler so a click resolves back
+// into runExtendSession. Idempotent — called once from NewTray; errors are
+// logged and swallowed because the worst case is a plain text notification
+// without buttons.
+func (t *Tray) registerSessionWarningCategory() {
+	if t.svc.Notifier == nil {
+		return
+	}
+	if err := t.svc.Notifier.RegisterNotificationCategory(notifications.NotificationCategory{
+		ID: notifyCategorySessionWarning,
+		Actions: []notifications.NotificationAction{
+			{ID: notifyActionExtendNow, Title: t.loc.T("notify.sessionWarning.extend")},
+			{ID: notifyActionDismiss, Title: t.loc.T("notify.sessionWarning.dismiss")},
+		},
+	}); err != nil {
+		log.Debugf("register session-warning notification category: %v", err)
+	}
+	t.svc.Notifier.OnNotificationResponse(func(result notifications.NotificationResult) {
+		if result.Error != nil {
+			log.Debugf("notification response error: %v", result.Error)
+			return
+		}
+		if result.Response.CategoryID != notifyCategorySessionWarning {
+			return
+		}
+		switch result.Response.ActionIdentifier {
+		case notifyActionExtendNow, notifications.DefaultActionIdentifier:
+			// DefaultActionIdentifier covers the body-click on platforms
+			// that don't expose buttons separately (e.g. some minimal
+			// Linux notification daemons fall back to a single click
+			// area). Treat it as Extend so the user always has a path.
+			go t.runExtendSession()
+		case notifyActionDismiss:
+			// Explicit user opt-out. Tell the daemon so the
+			// T-FinalWarningLead fallback dialog stays closed for this
+			// deadline; the regular watcher remains armed for the next
+			// deadline value (e.g. after a successful extend elsewhere).
+			go t.dismissSessionWarning()
+		}
+	})
+}
+
+// buildSessionWarningBody composes the localised body for the T-10min
+// notification from the daemon's metadata. The daemon does not have a
+// locale, so it ships a stable RFC3339 deadline ("session_expires_at")
+// and integer lead time ("lead_minutes") in metadata; the tray turns
+// them into a user-language sentence via the active i18n bundle.
+//
+// Falls back to a constant string when the metadata is missing or the
+// timestamp fails to parse — the user still sees the warning, just
+// without the remaining-time count.
+func (t *Tray) buildSessionWarningBody(meta map[string]string) string {
+	if meta == nil {
+		return t.loc.T("notify.sessionWarning.bodyGeneric")
+	}
+	raw := meta[authsession.MetaExpiresAt]
+	if raw == "" {
+		return t.loc.T("notify.sessionWarning.bodyGeneric")
+	}
+	deadline, err := authsession.ParseExpiresAt(raw)
+	if err != nil {
+		return t.loc.T("notify.sessionWarning.bodyGeneric")
+	}
+	remaining := nbstatus.FormatRemainingDuration(time.Until(deadline))
+	return t.loc.T("notify.sessionWarning.body", "remaining", remaining)
+}
+
+// notifySessionWarning sends the interactive T-10min OS notification. Falls
+// back to the plain `notify` helper if the Wails service doesn't expose the
+// with-actions variant (older platform impls, or a bare Notifier in tests).
+func (t *Tray) notifySessionWarning(title, body string) {
+	if t.svc.Notifier == nil {
+		return
+	}
+	err := t.svc.Notifier.SendNotificationWithActions(notifications.NotificationOptions{
+		ID:         notifyIDSessionWarning,
+		Title:      title,
+		Body:       body,
+		CategoryID: notifyCategorySessionWarning,
+	})
+	if err != nil {
+		log.Debugf("notify session-warning with actions: %v", err)
+		// Fall back to a plain notification so the user at least gets
+		// the warning text, even without buttons.
+		t.notify(title, body, notifyIDSessionWarning)
+	}
+}
+
+// runExtendSession drives the daemon's RequestExtendAuthSession +
+// WaitExtendAuthSession pair when the user clicks "Extend now" on the
+// session-warning notification. Mirrors `doExtendSession` in
+// client/cmd/login.go but talks to the in-process Wails Session service
+// instead of opening a daemon gRPC channel from a CLI process. The
+// browser is opened via Connection.OpenURL (which honours $BROWSER on
+// Unix). Errors surface as plain notifyError calls — there is no foreground
+// UI flow here because the warning may fire while the main window is
+// closed.
+func (t *Tray) runExtendSession() {
+	if t.svc.Session == nil || t.svc.Connection == nil {
+		log.Debugf("session-warning: extend requested but services not wired")
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	start, err := t.svc.Session.RequestExtend(ctx, services.ExtendStartParams{})
+	if err != nil {
+		log.Warnf("session-warning: RequestExtend failed: %v", err)
+		t.notifyError(t.loc.T("notify.sessionWarning.failed"))
+		return
+	}
+
+	uri := start.VerificationURIComplete
+	if uri == "" {
+		uri = start.VerificationURI
+	}
+	if uri != "" {
+		if err := t.svc.Connection.OpenURL(uri); err != nil {
+			log.Debugf("session-warning: opening verification URL: %v", err)
+		}
+	}
+
+	if _, err := t.svc.Session.WaitExtend(ctx, services.ExtendWaitParams{
+		DeviceCode: start.DeviceCode,
+		UserCode:   start.UserCode,
+	}); err != nil {
+		log.Warnf("session-warning: WaitExtend failed: %v", err)
+		t.notifyError(t.loc.T("notify.sessionWarning.failed"))
+		return
+	}
+	t.notify(t.loc.T("notify.sessionWarning.successTitle"), t.loc.T("notify.sessionWarning.successBody"), notifyIDSessionWarning)
+}
+
+// dismissSessionWarning tells the daemon to silence the T-FinalWarningLead
+// fallback dialog for the current deadline. Best-effort: a failure only
+// means the dialog will still appear, so we log and move on.
+func (t *Tray) dismissSessionWarning() {
+	if t.svc.Session == nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := t.svc.Session.DismissWarning(ctx); err != nil {
+		log.Debugf("session-warning: DismissWarning failed: %v", err)
+	}
+}
+
+// openSessionAboutToExpire fires the auto-opened fallback dialog at
+// T-FinalWarningLead when the user did not dismiss the earlier T-10
+// notification. Idempotent on the WindowManager side (a second call
+// while the window is already open is a no-op).
+func (t *Tray) openSessionAboutToExpire() {
+	if t.svc.WindowManager == nil {
+		return
+	}
+	t.svc.WindowManager.OpenSessionAboutToExpire(finalWarningCountdownSeconds)
 }
 
 // notifyError fires a generic "Error" notification for tray-driven action

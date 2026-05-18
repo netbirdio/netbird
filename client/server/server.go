@@ -19,6 +19,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	gstatus "google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/expose"
@@ -67,6 +68,12 @@ type Server struct {
 	logFile string
 
 	oauthAuthFlow oauthAuthFlow
+	// extendAuthSessionFlow holds the pending PKCE flow created by
+	// RequestExtendAuthSession until WaitExtendAuthSession resolves it.
+	// Kept separate from oauthAuthFlow (which is reserved for the SSH
+	// JWT path) so a concurrent SSH auth doesn't clobber the session
+	// extend flow or vice versa.
+	extendAuthSessionFlow *auth.PendingFlow
 
 	mutex  sync.Mutex
 	config *profilemanager.Config
@@ -123,6 +130,7 @@ func New(ctx context.Context, logFile string, configFile string, profilesDisable
 		captureEnabled:         captureEnabled,
 		networksDisabled:       networksDisabled,
 		jwtCache:               newJWTCache(),
+		extendAuthSessionFlow:  auth.NewPendingFlow(),
 	}
 	agent := &serverAgent{s}
 	s.sleepHandler = sleephandler.New(agent)
@@ -1221,6 +1229,10 @@ func (s *Server) buildStatusResponse(msg *proto.StatusRequest) (*proto.StatusRes
 
 	statusResponse := proto.StatusResponse{Status: string(status), DaemonVersion: version.NetbirdVersion()}
 
+	if deadline := s.statusRecorder.GetSessionExpiresAt(); !deadline.IsZero() {
+		statusResponse.SessionExpiresAt = timestamppb.New(deadline)
+	}
+
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 
@@ -1448,6 +1460,131 @@ func (s *Server) WaitJWTToken(
 		TokenType: tokenInfo.TokenType,
 		ExpiresIn: int64(tokenInfo.ExpiresIn),
 	}, nil
+}
+
+// RequestExtendAuthSession initiates the SSO session-extension flow and
+// returns the verification URI the UI should open. The flow state is held
+// in s.extendAuthSessionFlow until WaitExtendAuthSession resolves it.
+func (s *Server) RequestExtendAuthSession(
+	ctx context.Context,
+	msg *proto.RequestExtendAuthSessionRequest,
+) (*proto.RequestExtendAuthSessionResponse, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	s.mutex.Lock()
+	config := s.config
+	connectClient := s.connectClient
+	s.mutex.Unlock()
+
+	if config == nil {
+		return nil, gstatus.Errorf(codes.FailedPrecondition, "client is not configured")
+	}
+	if connectClient == nil {
+		return nil, gstatus.Errorf(codes.FailedPrecondition, "client is not running")
+	}
+
+	hint := ""
+	if msg.Hint != nil {
+		hint = *msg.Hint
+	}
+	if hint == "" {
+		hint = profilemanager.GetLoginHint()
+	}
+
+	isDesktop := isUnixRunningDesktop()
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config, isDesktop, false, hint)
+	if err != nil {
+		return nil, gstatus.Errorf(codes.Internal, "failed to create OAuth flow: %v", err)
+	}
+
+	authInfo, err := oAuthFlow.RequestAuthInfo(ctx)
+	if err != nil {
+		return nil, gstatus.Errorf(codes.Internal, "failed to request auth info: %v", err)
+	}
+
+	s.extendAuthSessionFlow.Set(oAuthFlow, authInfo)
+
+	return &proto.RequestExtendAuthSessionResponse{
+		VerificationURI:         authInfo.VerificationURI,
+		VerificationURIComplete: authInfo.VerificationURIComplete,
+		UserCode:                authInfo.UserCode,
+		DeviceCode:              authInfo.DeviceCode,
+		ExpiresIn:               int64(authInfo.ExpiresIn),
+	}, nil
+}
+
+// WaitExtendAuthSession blocks until the user completes the SSO step
+// initiated by RequestExtendAuthSession, then forwards the resulting JWT
+// to the management server's ExtendAuthSession RPC. The returned deadline
+// is also applied locally via the engine so SubscribeStatus consumers see
+// the refreshed state.
+func (s *Server) WaitExtendAuthSession(
+	ctx context.Context,
+	req *proto.WaitExtendAuthSessionRequest,
+) (*proto.WaitExtendAuthSessionResponse, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	oAuthFlow, authInfo, ok := s.extendAuthSessionFlow.Get()
+
+	s.mutex.Lock()
+	connectClient := s.connectClient
+	s.mutex.Unlock()
+
+	if !ok || authInfo.DeviceCode != req.DeviceCode {
+		return nil, gstatus.Errorf(codes.InvalidArgument, "invalid device code or no active extend-session flow")
+	}
+
+	tokenInfo, err := oAuthFlow.WaitToken(ctx, authInfo)
+	if err != nil {
+		return nil, gstatus.Errorf(codes.Internal, "failed to obtain JWT token: %v", err)
+	}
+
+	// Clear pending flow before talking to mgm so a retry can re-initiate.
+	s.extendAuthSessionFlow.Clear()
+
+	if connectClient == nil {
+		return nil, gstatus.Errorf(codes.FailedPrecondition, "client is not running")
+	}
+	engine := connectClient.Engine()
+	if engine == nil {
+		return nil, gstatus.Errorf(codes.FailedPrecondition, "engine is not initialised")
+	}
+
+	deadline, err := engine.ExtendAuthSession(ctx, tokenInfo.GetTokenToUse())
+	if err != nil {
+		return nil, gstatus.Errorf(codes.Internal, "management ExtendAuthSession failed: %v", err)
+	}
+
+	resp := &proto.WaitExtendAuthSessionResponse{}
+	if !deadline.IsZero() {
+		resp.SessionExpiresAt = timestamppb.New(deadline)
+	}
+	return resp, nil
+}
+
+// DismissSessionWarning forwards the user's "Dismiss" click on the
+// T-WarningLead notification down to the engine's sessionWatcher so the
+// T-FinalWarningLead fallback is suppressed for the current deadline.
+// Best-effort: when the client/engine is not yet running the call is a
+// successful no-op (the watcher has no deadline to dismiss anyway).
+func (s *Server) DismissSessionWarning(
+	_ context.Context,
+	_ *proto.DismissSessionWarningRequest,
+) (*proto.DismissSessionWarningResponse, error) {
+	s.mutex.Lock()
+	connectClient := s.connectClient
+	s.mutex.Unlock()
+	if connectClient == nil {
+		return &proto.DismissSessionWarningResponse{}, nil
+	}
+	if engine := connectClient.Engine(); engine != nil {
+		engine.DismissSessionWarning()
+	}
+	return &proto.DismissSessionWarningResponse{}, nil
 }
 
 // ExposeService exposes a local port via the NetBird reverse proxy.

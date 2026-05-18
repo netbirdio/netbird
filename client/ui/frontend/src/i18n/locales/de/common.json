@@ -3,6 +3,7 @@
     "tray.status.disconnected": "Getrennt",
     "tray.status.daemonUnavailable": "Nicht aktiv",
     "tray.status.error": "Fehler",
+    "tray.session.expiresIn": "Sitzung: {remaining}",
 
     "tray.menu.open": "NetBird öffnen",
     "tray.menu.connect": "Verbinden",
@@ -31,6 +32,14 @@
     "notify.error.switchProfile": "Wechsel zu {profile} fehlgeschlagen",
     "notify.sessionExpired.title": "NetBird-Sitzung abgelaufen",
     "notify.sessionExpired.body": "Ihre NetBird-Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.",
+    "notify.sessionWarning.title": "Sitzung läuft bald ab",
+    "notify.sessionWarning.body": "Ihre NetBird-Sitzung läuft in {remaining} ab. Klicken Sie auf Jetzt verlängern, um zu erneuern.",
+    "notify.sessionWarning.bodyGeneric": "Ihre NetBird-Sitzung läuft bald ab. Klicken Sie auf Jetzt verlängern, um zu erneuern.",
+    "notify.sessionWarning.extend": "Jetzt verlängern",
+    "notify.sessionWarning.dismiss": "Verwerfen",
+    "notify.sessionWarning.failed": "NetBird-Sitzung konnte nicht verlängert werden",
+    "notify.sessionWarning.successTitle": "NetBird-Sitzung verlängert",
+    "notify.sessionWarning.successBody": "Ihre Sitzung wurde erneuert.",
 
     "common.cancel": "Abbrechen",
     "common.save": "Speichern",
@@ -271,6 +280,7 @@
     "sessionAboutToExpire.stay": "Verbunden bleiben",
     "sessionAboutToExpire.logout": "Abmelden",
     "sessionAboutToExpire.expired": "Sitzung abgelaufen",
+    "sessionAboutToExpire.extendFailedTitle": "Sitzungsverlängerung fehlgeschlagen",
 
     "peers.search.placeholder": "Nach Peer-Name, DNS oder IP-Adresse suchen",
     "peers.filter.all": "Alle",
