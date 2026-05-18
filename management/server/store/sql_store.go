@@ -500,7 +500,7 @@ func (s *SqlStore) SavePeerStatus(ctx context.Context, accountID, peerID string,
 	fieldsToUpdate := []string{
 		"peer_status_last_seen", "peer_status_session_started_at",
 		"peer_status_connected", "peer_status_login_expired",
-		"peer_status_required_approval",
+		"peer_status_requires_approval",
 	}
 	result := s.db.Model(&nbpeer.Peer{}).
 		Select(fieldsToUpdate).
