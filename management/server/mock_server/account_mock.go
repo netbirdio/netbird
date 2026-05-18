@@ -228,7 +228,14 @@ func (am *MockAccountManager) SyncAndMarkPeer(ctx context.Context, accountID str
 	return nil, nil, nil, 0, status.Errorf(codes.Unimplemented, "method MarkPeerConnected is not implemented")
 }
 
-func (am *MockAccountManager) OnPeerDisconnected(_ context.Context, accountID string, peerPubKey string, streamStartTime time.Time) error {
+func (am *MockAccountManager) OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string, streamStartTime time.Time) error {
+	// Mirror DefaultAccountManager.OnPeerDisconnected: drive the fencing
+	// hook so tests that inject MarkPeerDisconnectedFunc actually observe
+	// disconnect events. Falls through to nil when no hook is set, which
+	// is the original behaviour.
+	if am.MarkPeerDisconnectedFunc != nil {
+		return am.MarkPeerDisconnectedFunc(ctx, peerPubKey, accountID, streamStartTime.UnixNano())
+	}
 	return nil
 }
 

@@ -386,10 +386,14 @@ func (p *Peer) EventMeta(dnsDomain string) map[string]any {
 	return meta
 }
 
-// Copy PeerStatus
+// Copy PeerStatus. SessionStartedAt must be propagated so clone-based
+// callers (Peer.Copy, MarkLoginExpired, UpdateLastLogin) don't silently
+// reset the fencing token to zero — that would let any subsequent
+// SavePeerStatus write reopen the optimistic-lock window.
 func (p *PeerStatus) Copy() *PeerStatus {
 	return &PeerStatus{
 		LastSeen:         p.LastSeen,
+		SessionStartedAt: p.SessionStartedAt,
 		Connected:        p.Connected,
 		LoginExpired:     p.LoginExpired,
 		RequiresApproval: p.RequiresApproval,

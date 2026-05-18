@@ -2017,20 +2017,29 @@ func TestDefaultAccountManager_MarkPeerConnected_ConcurrentRace(t *testing.T) {
 	var done sync.WaitGroup
 	done.Add(workers)
 
+	// require.* calls t.FailNow which is documented as unsafe from
+	// non-test goroutines (it calls runtime.Goexit on the wrong stack and
+	// races with the WaitGroup). Collect errors here and assert from the
+	// main goroutine after done.Wait().
+	errs := make(chan error, workers)
+
 	for i := 0; i < workers; i++ {
 		token := tokens[i]
 		go func() {
 			defer done.Done()
 			ready.Done()
 			start.Wait()
-			err := manager.MarkPeerConnected(context.Background(), peerPubKey, nil, accountID, token)
-			require.NoError(t, err, "MarkPeerConnected must not error under contention")
+			errs <- manager.MarkPeerConnected(context.Background(), peerPubKey, nil, accountID, token)
 		}()
 	}
 
 	ready.Wait()
 	start.Done()
 	done.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err, "MarkPeerConnected must not error under contention")
+	}
 
 	peer, err := manager.Store.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, peerPubKey)
 	require.NoError(t, err)

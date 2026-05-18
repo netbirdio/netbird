@@ -16,7 +16,6 @@ import (
 	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/idp"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
@@ -155,43 +154,6 @@ func (am *DefaultAccountManager) updatePeerLocationIfChanged(ctx context.Context
 	if err := am.Store.SavePeerLocation(ctx, accountID, peer); err != nil {
 		log.WithContext(ctx).Warnf("could not store location for peer %s: %s", peer.ID, err)
 	}
-}
-
-func updatePeerStatusAndLocation(ctx context.Context, geo geolocation.Geolocation, transaction store.Store, peer *nbpeer.Peer, connected bool, realIP net.IP, accountID string, syncTime time.Time) (bool, error) {
-	oldStatus := peer.Status.Copy()
-	newStatus := oldStatus
-	newStatus.LastSeen = syncTime
-	newStatus.Connected = connected
-	// whenever peer got connected that means that it logged in successfully
-	if newStatus.Connected {
-		newStatus.LoginExpired = false
-	}
-	peer.Status = newStatus
-
-	if geo != nil && realIP != nil {
-		location, err := geo.Lookup(realIP)
-		if err != nil {
-			log.WithContext(ctx).Warnf("failed to get location for peer %s realip: [%s]: %v", peer.ID, realIP.String(), err)
-		} else {
-			peer.Location.ConnectionIP = realIP
-			peer.Location.CountryCode = location.Country.ISOCode
-			peer.Location.CityName = location.City.Names.En
-			peer.Location.GeoNameID = location.City.GeonameID
-			err = transaction.SavePeerLocation(ctx, accountID, peer)
-			if err != nil {
-				log.WithContext(ctx).Warnf("could not store location for peer %s: %s", peer.ID, err)
-			}
-		}
-	}
-
-	log.WithContext(ctx).Debugf("saving peer status for peer %s is connected: %t", peer.ID, connected)
-
-	err := transaction.SavePeerStatus(ctx, accountID, peer.ID, *newStatus)
-	if err != nil {
-		return false, err
-	}
-
-	return oldStatus.LoginExpired, nil
 }
 
 // UpdatePeer updates peer. Only Peer.Name, Peer.SSHEnabled, Peer.LoginExpirationEnabled and Peer.InactivityExpirationEnabled can be updated.

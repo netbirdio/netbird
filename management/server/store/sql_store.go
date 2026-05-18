@@ -1787,9 +1787,10 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 	inactivity_expiration_enabled, last_login, created_at, ephemeral, extra_dns_labels, allow_extra_dns_labels, meta_hostname,
 	meta_go_os, meta_kernel, meta_core, meta_platform, meta_os, meta_os_version, meta_wt_version, meta_ui_version,
 	meta_kernel_version, meta_network_addresses, meta_system_serial_number, meta_system_product_name, meta_system_manufacturer,
-	meta_environment, meta_flags, meta_files, meta_capabilities, peer_status_last_seen, peer_status_connected, peer_status_login_expired,
-	peer_status_requires_approval, location_connection_ip, location_country_code, location_city_name,
-	location_geo_name_id, proxy_meta_embedded, proxy_meta_cluster, ipv6 FROM peers WHERE account_id = $1`
+	meta_environment, meta_flags, meta_files, meta_capabilities, peer_status_last_seen, peer_status_session_started_at,
+	peer_status_connected, peer_status_login_expired, peer_status_requires_approval, location_connection_ip,
+	location_country_code, location_city_name, location_geo_name_id, proxy_meta_embedded, proxy_meta_cluster, ipv6
+	FROM peers WHERE account_id = $1`
 	rows, err := s.pool.Query(ctx, query, accountID)
 	if err != nil {
 		return nil, err
@@ -1802,6 +1803,7 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			lastLogin, createdAt                                                                            sql.NullTime
 			sshEnabled, loginExpirationEnabled, inactivityExpirationEnabled, ephemeral, allowExtraDNSLabels sql.NullBool
 			peerStatusLastSeen                                                                              sql.NullTime
+			peerStatusSessionStartedAt                                                                      sql.NullInt64
 			peerStatusConnected, peerStatusLoginExpired, peerStatusRequiresApproval, proxyEmbedded          sql.NullBool
 			ip, extraDNS, netAddr, env, flags, files, capabilities, connIP, ipv6                            []byte
 			metaHostname, metaGoOS, metaKernel, metaCore, metaPlatform                                      sql.NullString
@@ -1816,8 +1818,9 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			&allowExtraDNSLabels, &metaHostname, &metaGoOS, &metaKernel, &metaCore, &metaPlatform,
 			&metaOS, &metaOSVersion, &metaWtVersion, &metaUIVersion, &metaKernelVersion, &netAddr,
 			&metaSystemSerialNumber, &metaSystemProductName, &metaSystemManufacturer, &env, &flags, &files, &capabilities,
-			&peerStatusLastSeen, &peerStatusConnected, &peerStatusLoginExpired, &peerStatusRequiresApproval, &connIP,
-			&locationCountryCode, &locationCityName, &locationGeoNameID, &proxyEmbedded, &proxyCluster, &ipv6)
+			&peerStatusLastSeen, &peerStatusSessionStartedAt, &peerStatusConnected, &peerStatusLoginExpired,
+			&peerStatusRequiresApproval, &connIP, &locationCountryCode, &locationCityName, &locationGeoNameID,
+			&proxyEmbedded, &proxyCluster, &ipv6)
 
 		if err == nil {
 			if lastLogin.Valid {
@@ -1843,6 +1846,9 @@ func (s *SqlStore) getPeers(ctx context.Context, accountID string) ([]nbpeer.Pee
 			}
 			if peerStatusLastSeen.Valid {
 				p.Status.LastSeen = peerStatusLastSeen.Time
+			}
+			if peerStatusSessionStartedAt.Valid {
+				p.Status.SessionStartedAt = peerStatusSessionStartedAt.Int64
 			}
 			if peerStatusConnected.Valid {
 				p.Status.Connected = peerStatusConnected.Bool
