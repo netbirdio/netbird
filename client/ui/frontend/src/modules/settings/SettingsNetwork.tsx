@@ -45,6 +45,12 @@ export function SettingsNetwork() {
                     label={"Enable Server Routes"}
                     helpText={"Advertise this host's local routes to other peers."}
                 />
+                <FancyToggleSwitch
+                    value={!config.disableIpv6}
+                    onChange={(v) => setField("disableIpv6", !v)}
+                    label={"Enable IPv6"}
+                    helpText={"Use IPv6 addressing for the NetBird overlay network."}
+                />
             </SectionGroup>
         </>
     );
