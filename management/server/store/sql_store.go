@@ -498,8 +498,9 @@ func (s *SqlStore) SavePeerStatus(ctx context.Context, accountID, peerID string,
 	peerCopy.Status = &peerStatus
 
 	fieldsToUpdate := []string{
-		"peer_status_last_seen", "peer_status_connected",
-		"peer_status_login_expired", "peer_status_required_approval",
+		"peer_status_last_seen", "peer_status_session_started_at",
+		"peer_status_connected", "peer_status_login_expired",
+		"peer_status_required_approval",
 	}
 	result := s.db.Model(&nbpeer.Peer{}).
 		Select(fieldsToUpdate).
@@ -514,6 +515,69 @@ func (s *SqlStore) SavePeerStatus(ctx context.Context, accountID, peerID string,
 	}
 
 	return nil
+}
+
+// MarkPeerConnectedIfNewerSession is an atomic optimistic-locked update.
+// The peer is marked connected with the given session token only when
+// the stored SessionStartedAt is strictly smaller than the incoming
+// one — equivalently, when no newer stream has already taken ownership.
+// The sentinel zero (set on peer creation or after a disconnect) counts
+// as the smallest possible token. This is the write half of the
+// fencing protocol described on PeerStatus.SessionStartedAt.
+//
+// The post-write side effects in the caller — geo lookup,
+// schedulePeerLoginExpiration, checkAndSchedulePeerInactivityExpiration,
+// OnPeersUpdated — all run AFTER this method returns and are deliberately
+// outside the database write so they cannot extend the row-lock window.
+//
+// LastSeen is set to the database's clock (CURRENT_TIMESTAMP) at the
+// moment the row is written. The caller never supplies LastSeen because
+// the value would otherwise drift under lock contention — a Go-side
+// time.Now() taken before the write can land minutes later than the
+// actual UPDATE under load, which previously caused real ordering bugs.
+func (s *SqlStore) MarkPeerConnectedIfNewerSession(ctx context.Context, accountID, peerID string, newSessionStartedAt int64) (bool, error) {
+	result := s.db.WithContext(ctx).
+		Model(&nbpeer.Peer{}).
+		Where(accountAndIDQueryCondition, accountID, peerID).
+		Where("peer_status_session_started_at < ?", newSessionStartedAt).
+		Updates(map[string]any{
+			"peer_status_connected":          true,
+			"peer_status_last_seen":          gorm.Expr("CURRENT_TIMESTAMP"),
+			"peer_status_session_started_at": newSessionStartedAt,
+			"peer_status_login_expired":      false,
+		})
+	if result.Error != nil {
+		return false, status.Errorf(status.Internal, "mark peer connected: %v", result.Error)
+	}
+	return result.RowsAffected > 0, nil
+}
+
+// MarkPeerDisconnectedIfSameSession is an atomic optimistic-locked update.
+// The peer is marked disconnected only when the stored SessionStartedAt
+// matches the incoming token — meaning the stream that owns the current
+// session is the one ending. If a newer stream has already replaced the
+// session, the update is skipped. LastSeen is set to CURRENT_TIMESTAMP at
+// write time; see MarkPeerConnectedIfNewerSession for the rationale.
+//
+// A zero sessionStartedAt is rejected at the call site; the underlying
+// WHERE on equality would otherwise match every never-connected peer.
+func (s *SqlStore) MarkPeerDisconnectedIfSameSession(ctx context.Context, accountID, peerID string, sessionStartedAt int64) (bool, error) {
+	if sessionStartedAt == 0 {
+		return false, nil
+	}
+	result := s.db.WithContext(ctx).
+		Model(&nbpeer.Peer{}).
+		Where(accountAndIDQueryCondition, accountID, peerID).
+		Where("peer_status_session_started_at = ?", sessionStartedAt).
+		Updates(map[string]any{
+			"peer_status_connected":          false,
+			"peer_status_last_seen":          gorm.Expr("CURRENT_TIMESTAMP"),
+			"peer_status_session_started_at": int64(0),
+		})
+	if result.Error != nil {
+		return false, status.Errorf(status.Internal, "mark peer disconnected: %v", result.Error)
+	}
+	return result.RowsAffected > 0, nil
 }
 
 func (s *SqlStore) SavePeerLocation(ctx context.Context, accountID string, peerWithLocation *nbpeer.Peer) error {

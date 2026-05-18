@@ -63,61 +63,98 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 	return am.Store.GetUserPeers(ctx, store.LockingStrengthNone, accountID, userID)
 }
 
-// MarkPeerConnected marks peer as connected (true) or disconnected (false)
-// syncTime is used as the LastSeen timestamp and for stale request detection
-func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubKey string, connected bool, realIP net.IP, accountID string, syncTime time.Time) error {
-	var peer *nbpeer.Peer
-	var settings *types.Settings
-	var expired bool
-	var err error
-	var skipped bool
-
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		peer, err = transaction.GetPeerByPeerPubKey(ctx, store.LockingStrengthUpdate, peerPubKey)
-		if err != nil {
-			return err
-		}
-
-		if connected && !syncTime.After(peer.Status.LastSeen) {
-			log.WithContext(ctx).Tracef("peer %s has newer activity (lastSeen=%s >= syncTime=%s), skipping connect",
-				peer.ID, peer.Status.LastSeen.Format(time.RFC3339), syncTime.Format(time.RFC3339))
-			skipped = true
-			return nil
-		}
-
-		expired, err = updatePeerStatusAndLocation(ctx, am.geo, transaction, peer, connected, realIP, accountID, syncTime)
-		return err
-	})
-	if skipped {
-		return nil
-	}
+// MarkPeerConnected marks a peer as connected with optimistic-locked
+// fencing on PeerStatus.SessionStartedAt. The sessionStartedAt argument
+// is the start time of the gRPC sync stream that owns this update,
+// expressed as Unix nanoseconds — only the call whose token is greater
+// than what's stored wins. LastSeen is written by the database itself;
+// we never pass it down.
+//
+// Disconnects use MarkPeerDisconnected and require the session to match
+// exactly; see PeerStatus.SessionStartedAt for the protocol.
+func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubKey string, realIP net.IP, accountID string, sessionStartedAt int64) error {
+	peer, err := am.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, peerPubKey)
 	if err != nil {
 		return err
 	}
 
+	updated, err := am.Store.MarkPeerConnectedIfNewerSession(ctx, accountID, peer.ID, sessionStartedAt)
+	if err != nil {
+		return err
+	}
+	if !updated {
+		log.WithContext(ctx).Tracef("peer %s already has a newer session in store, skipping connect", peer.ID)
+		return nil
+	}
+
+	if am.geo != nil && realIP != nil {
+		am.updatePeerLocationIfChanged(ctx, accountID, peer, realIP)
+	}
+
+	expired := peer.Status != nil && peer.Status.LoginExpired
+
 	if peer.AddedWithSSOLogin() {
-		settings, err = am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+		settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 		if err != nil {
 			return err
 		}
-
 		if peer.LoginExpirationEnabled && settings.PeerLoginExpirationEnabled {
 			am.schedulePeerLoginExpiration(ctx, accountID)
 		}
-
 		if peer.InactivityExpirationEnabled && settings.PeerInactivityExpirationEnabled {
 			am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
 		}
 	}
 
 	if expired {
-		err = am.networkMapController.OnPeersUpdated(ctx, accountID, []string{peer.ID})
-		if err != nil {
+		if err = am.networkMapController.OnPeersUpdated(ctx, accountID, []string{peer.ID}); err != nil {
 			return fmt.Errorf("notify network map controller of peer update: %w", err)
 		}
 	}
 
 	return nil
+}
+
+// MarkPeerDisconnected marks a peer as disconnected, but only when the
+// stored session token matches the one passed in. A mismatch means a
+// newer stream has already taken ownership of the peer — disconnects from
+// the older stream are ignored. LastSeen is written by the database.
+func (am *DefaultAccountManager) MarkPeerDisconnected(ctx context.Context, peerPubKey string, accountID string, sessionStartedAt int64) error {
+	peer, err := am.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, peerPubKey)
+	if err != nil {
+		return err
+	}
+
+	updated, err := am.Store.MarkPeerDisconnectedIfSameSession(ctx, accountID, peer.ID, sessionStartedAt)
+	if err != nil {
+		return err
+	}
+	if !updated {
+		log.WithContext(ctx).Tracef("peer %s session token mismatch on disconnect (token=%d), skipping",
+			peer.ID, sessionStartedAt)
+	}
+	return nil
+}
+
+// updatePeerLocationIfChanged refreshes the geolocation on a separate
+// row update, only when the connection IP actually changed. Geo lookups
+// are expensive so we skip same-IP reconnects.
+func (am *DefaultAccountManager) updatePeerLocationIfChanged(ctx context.Context, accountID string, peer *nbpeer.Peer, realIP net.IP) {
+	if peer.Location.ConnectionIP != nil && peer.Location.ConnectionIP.Equal(realIP) {
+		return
+	}
+	location, err := am.geo.Lookup(realIP)
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed to get location for peer %s realip: [%s]: %v", peer.ID, realIP.String(), err)
+		return
+	}
+	peer.Location.ConnectionIP = realIP
+	peer.Location.CountryCode = location.Country.ISOCode
+	peer.Location.CityName = location.City.Names.En
+	peer.Location.GeoNameID = location.City.GeonameID
+	if err := am.Store.SavePeerLocation(ctx, accountID, peer); err != nil {
+		log.WithContext(ctx).Warnf("could not store location for peer %s: %s", peer.ID, err)
+	}
 }
 
 func updatePeerStatusAndLocation(ctx context.Context, geo geolocation.Geolocation, transaction store.Store, peer *nbpeer.Peer, connected bool, realIP net.IP, accountID string, syncTime time.Time) (bool, error) {
