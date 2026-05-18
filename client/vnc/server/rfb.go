@@ -69,10 +69,9 @@ const (
 	pseudoEncDesktopName             = -307
 	pseudoEncExtendedDesktopSize     = -308
 
-	// Quality/Compression level pseudo-encodings (TightVNC extension). The
-	// client picks one value from each range to tune JPEG quality and zlib
-	// effort. 0 is lowest quality / fastest, 9 is highest quality / best
-	// compression.
+	// Quality/Compression level pseudo-encodings. The client picks one
+	// value from each range to tune JPEG quality and zlib effort. 0 is
+	// lowest quality / fastest, 9 is highest quality / best compression.
 	pseudoEncQualityLevelMin  = -32
 	pseudoEncQualityLevelMax  = -23
 	pseudoEncCompressLevelMin = -256
@@ -445,6 +444,12 @@ type tightState struct {
 	// whether a SetEncodings refresh needs to recreate the tight state.
 	qualityLevel  int
 	compressLevel int
+	// pendingZlibReset becomes true when this tightState replaces an
+	// in-use one (e.g. CompressLevel change mid-session). The next Basic
+	// rect we emit ORs the stream-0 reset bit into its sub-encoding byte
+	// so the client's inflater drops its now-stale dictionary; cleared
+	// after one emission.
+	pendingZlibReset bool
 }
 
 func newTightState() *tightState {
@@ -618,9 +623,15 @@ func encodeTightBasic(img *image.RGBA, x, y, w, h int, t *tightState) ([]byte, b
 		}
 	}
 
-	// Sub-encoding byte: stream 0, no resets, basic encoding (top nibble
-	// = 0x40 = explicit filter follows).
+	// Sub-encoding byte: stream 0, basic encoding (top nibble = 0x40 =
+	// explicit filter follows). The low nibble carries per-stream reset
+	// flags; bit 0 here tells the client to reset its stream-0 inflater
+	// when our deflater was just recreated.
 	subenc := byte(tightBasicFilter)
+	if t.pendingZlibReset {
+		subenc |= 0x01
+		t.pendingZlibReset = false
+	}
 	filter := byte(tightFilterCopy)
 
 	if pixelStream < 12 {

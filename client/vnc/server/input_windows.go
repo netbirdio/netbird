@@ -206,7 +206,7 @@ func (w *WindowsInputInjector) InjectKey(keysym uint32, down bool) {
 // InjectKeyScancode queues a raw-scancode key event. PC AT Set 1 maps
 // directly onto what SendInput's KEYEVENTF_SCANCODE flag wants, so the
 // only translation is splitting the optional 0xE0 prefix off into the
-// KEYEVENTF_EXTENDEDKEY flag. keysym is the noVNC-provided fallback we
+// KEYEVENTF_EXTENDEDKEY flag. keysym is the client-provided fallback we
 // reach for if the scancode is zero.
 func (w *WindowsInputInjector) InjectKeyScancode(scancode uint32, keysym uint32, down bool) {
 	if scancode == 0 {

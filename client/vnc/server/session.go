@@ -77,7 +77,7 @@ type session struct {
 
 	// captureErrLast throttles "capture (transient)" logs while the
 	// capturer is in a sustained failure state (e.g. X server died but a
-	// noVNC tab is still open). Owned by the encoder goroutine.
+	// client is still connected). Owned by the encoder goroutine.
 	captureErrLast time.Time
 	captureErrSeen bool
 
@@ -290,7 +290,15 @@ func (s *session) handleSetEncodings() error {
 	if s.useTight && (s.tight == nil ||
 		s.tight.qualityLevel != s.clientJPEGQuality ||
 		s.tight.compressLevel != s.clientZlibLevel) {
+		// When we replace an in-use tightState the client's stream-0
+		// inflater carries dictionary state from the old deflater. Carry
+		// the pending-reset flag so the next Basic rect tells the client
+		// to reset its inflater before decoding.
+		replacing := s.tight != nil
 		s.tight = newTightStateWithLevels(s.clientJPEGQuality, s.clientZlibLevel)
+		if replacing {
+			s.tight.pendingZlibReset = true
+		}
 	}
 	sendExtClipCaps := s.clientSupportsExtClipboard && !s.extClipCapsSent
 	if sendExtClipCaps {

@@ -32,7 +32,7 @@ const (
 )
 
 // RFB security-failure reason codes sent to the client. These prefixes are
-// stable so dashboard/noVNC integrations can branch on them without parsing
+// stable so dashboard integrations can branch on them without parsing
 // free text. Format: "CODE: human message".
 const (
 	RejectCodeJWTMissing    = "AUTH_JWT_MISSING"

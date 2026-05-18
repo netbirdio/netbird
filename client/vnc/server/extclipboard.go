@@ -54,11 +54,11 @@ const (
 
 // buildExtClipCaps emits the Caps payload. The flags word advertises every
 // action we support in the high byte (Caps + Request + Peek + Notify +
-// Provide) and every format we accept in the low 16 bits. noVNC uses these
-// action bits to decide whether to auto-Request on Notify; without
-// Request in our Caps it silently drops our Notify messages. After the
-// flags word we emit one uint32 max size per format bit set, in ascending
-// bit order.
+// Provide) and every format we accept in the low 16 bits. Clients use
+// these action bits to decide whether to auto-Request on Notify; without
+// Request in our Caps a conforming client silently drops our Notify
+// messages. After the flags word we emit one uint32 max size per format
+// bit set, in ascending bit order.
 func buildExtClipCaps() []byte {
 	flags := extClipActionCaps | extClipActionRequest | extClipActionPeek |
 		extClipActionNotify | extClipActionProvide | extClipFormatText

@@ -632,10 +632,10 @@ var specialKeyMap = map[uint32]uint16{
 	0xffea: 0x3D, // Alt_R (Option)
 	0xffe7: 0x37, // Meta_L (Command)
 	0xffe8: 0x36, // Meta_R (Command)
-	0xffeb: 0x37, // Super_L (Command) - noVNC sends this
+	0xffeb: 0x37, // Super_L (Command)
 	0xffec: 0x36, // Super_R (Command)
 
-	// Mode_switch / ISO_Level3_Shift (sent by noVNC for macOS Option remap)
+	// Mode_switch / ISO_Level3_Shift (for macOS Option remap on layouts)
 	0xff7e: 0x3A, // Mode_switch -> Option
 	0xfe03: 0x3D, // ISO_Level3_Shift -> Right Option
 
@@ -674,7 +674,7 @@ var specialKeyMap = map[uint32]uint16{
 	0x002e: 0x2F, // period .
 	0x002f: 0x2C, // slash /
 
-	// Shifted punctuation (noVNC sends these as separate keysyms)
+	// Shifted punctuation (clients sometimes send these as separate keysyms)
 	0x005f: 0x1B, // underscore _ (shift+minus)
 	0x002b: 0x18, // plus + (shift+equal)
 	0x007b: 0x21, // braceleft { (shift+[)
