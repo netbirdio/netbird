@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { AlertCircleIcon, AlertTriangle, BookText } from "lucide-react";
+import { AlertCircleIcon, BookText } from "lucide-react";
 import { Browser } from "@wailsio/runtime";
 import { Button } from "@/components/Button";
 import { useStatus } from "@/hooks/useStatus";
