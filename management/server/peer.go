@@ -1128,6 +1128,79 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 	return p, nmap, pc, err
 }
 
+// ExtendPeerSession refreshes the peer's SSO session deadline by updating
+// LastLogin after a successful JWT validation. The tunnel is untouched: no
+// network map sync, no peer reconnect.
+//
+// Preconditions enforced here:
+//   - userID must be present (caller validated the JWT and extracted the user ID).
+//   - The peer must exist and be SSO-registered (AddedWithSSOLogin) with
+//     LoginExpirationEnabled.
+//   - Account-level PeerLoginExpirationEnabled must be true.
+//   - The JWT user must match peer.UserID (mirrors LoginPeer at peer.go ~1028).
+//
+// Returns the new absolute UTC deadline.
+func (am *DefaultAccountManager) ExtendPeerSession(ctx context.Context, peerPubKey, userID string) (time.Time, error) {
+	if userID == "" {
+		return time.Time{}, status.Errorf(status.PermissionDenied, "session extend requires a JWT")
+	}
+
+	accountID, err := am.Store.GetAccountIDByPeerPubKey(ctx, peerPubKey)
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if !settings.PeerLoginExpirationEnabled {
+		return time.Time{}, status.Errorf(status.PreconditionFailed, "peer login expiration is disabled for the account")
+	}
+
+	var refreshed *nbpeer.Peer
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		peer, err := transaction.GetPeerByPeerPubKey(ctx, store.LockingStrengthUpdate, peerPubKey)
+		if err != nil {
+			return err
+		}
+
+		if !peer.AddedWithSSOLogin() || !peer.LoginExpirationEnabled {
+			return status.Errorf(status.PreconditionFailed, "peer is not eligible for session extension")
+		}
+
+		if peer.UserID != userID {
+			log.WithContext(ctx).Warnf("user mismatch when extending session for peer %s: peer user %s, jwt user %s", peer.ID, peer.UserID, userID)
+			return status.NewPeerLoginMismatchError()
+		}
+
+		peer = peer.UpdateLastLogin()
+		if err := transaction.SavePeer(ctx, accountID, peer); err != nil {
+			return err
+		}
+
+		if err := transaction.SaveUserLastLogin(ctx, accountID, userID, peer.GetLastLogin()); err != nil {
+			log.WithContext(ctx).Debugf("failed to update user last login during session extend: %v", err)
+		}
+
+		am.StoreEvent(ctx, userID, peer.ID, accountID, activity.UserLoggedInPeer, peer.EventMeta(am.networkMapController.GetDNSDomain(settings)))
+		refreshed = peer
+		return nil
+	})
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	// Reschedule the per-account expiration job. schedulePeerLoginExpiration
+	// is a no-op when a job is already running, but the running job will pick
+	// up the new LastLogin on its next tick. Calling it here is harmless and
+	// guarantees a job is in flight even if a prior one ended right before
+	// the extend.
+	am.schedulePeerLoginExpiration(ctx, accountID)
+
+	return refreshed.SessionExpiresAt(settings.PeerLoginExpirationEnabled, settings.PeerLoginExpiration), nil
+}
+
 // getPeerPostureChecks returns the posture checks for the peer.
 func getPeerPostureChecks(ctx context.Context, transaction store.Store, accountID, peerID string) ([]*posture.Checks, error) {
 	policies, err := transaction.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)

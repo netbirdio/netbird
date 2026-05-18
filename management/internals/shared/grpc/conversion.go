@@ -9,6 +9,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	goproto "google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
 
@@ -183,6 +184,12 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 			userIDClaim = httpConfig.AuthUserIDClaim
 		}
 		response.NetworkMap.SshAuth = &proto.SSHAuth{AuthorizedUsers: hashedUsers, MachineUsers: machineUsers, UserIDClaim: userIDClaim}
+	}
+
+	if settings != nil {
+		if deadline := peer.SessionExpiresAt(settings.PeerLoginExpirationEnabled, settings.PeerLoginExpiration); !deadline.IsZero() {
+			response.SessionExpiresAt = timestamppb.New(deadline)
+		}
 	}
 
 	return response

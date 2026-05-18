@@ -52,6 +52,14 @@ service ManagementService {
   // Executes a job on a target peer (e.g., debug bundle)
   rpc Job(stream EncryptedMessage) returns (stream EncryptedMessage) {}
 
+  // ExtendAuthSession refreshes the peer's session expiry deadline using a fresh JWT.
+  // Same JWT validation pipeline as Login (including jwt.UserID == peer.UserID check),
+  // but does not redo the network-map sync. Only valid for SSO-registered peers where
+  // login expiration is enabled. The tunnel remains up.
+  // EncryptedMessage of the request has a body of ExtendAuthSessionRequest.
+  // EncryptedMessage of the response has a body of ExtendAuthSessionResponse.
+  rpc ExtendAuthSession(EncryptedMessage) returns (EncryptedMessage) {}
+
   // CreateExpose creates a temporary reverse proxy service for a peer
   rpc CreateExpose(EncryptedMessage) returns (EncryptedMessage) {}
 
@@ -133,6 +141,12 @@ message SyncResponse {
 
   // Posture checks to be evaluated by client
   repeated Checks Checks = 6;
+
+  // Absolute UTC instant at which the peer's SSO session expires.
+  // Unset when the peer is not SSO-registered or login expiration is disabled.
+  // Carried on every Sync snapshot so admin-side changes propagate live without
+  // a client reconnect.
+  google.protobuf.Timestamp sessionExpiresAt = 7;
 }
 
 message  SyncMetaRequest {
@@ -244,6 +258,26 @@ message LoginResponse {
   PeerConfig peerConfig = 2;
   // Posture checks to be evaluated by client
   repeated Checks Checks = 3;
+
+  // Absolute UTC instant at which the peer's SSO session expires.
+  // Unset when the peer is not SSO-registered or login expiration is disabled.
+  google.protobuf.Timestamp sessionExpiresAt = 4;
+}
+
+// ExtendAuthSessionRequest carries a fresh JWT to refresh the peer's session deadline.
+// The encrypted body of an EncryptedMessage with this payload is sent to the
+// ExtendAuthSession RPC.
+message ExtendAuthSessionRequest {
+  // SSO token (must be a fresh, valid JWT for the peer's owning user)
+  string jwtToken = 1;
+  // Meta data of the peer (used for IdP user info refresh consistent with Login)
+  PeerSystemMeta meta = 2;
+}
+
+// ExtendAuthSessionResponse contains the refreshed session deadline.
+message ExtendAuthSessionResponse {
+  // Absolute UTC instant at which the peer's SSO session now expires.
+  google.protobuf.Timestamp sessionExpiresAt = 1;
 }
 
 message ServerKeyResponse {
