@@ -85,6 +85,13 @@ type session struct {
 	// encoder goroutine. Buffered size 1: RFB clients have one outstanding
 	// request at a time, so a new request always replaces any pending one.
 	encodeCh chan fbRequest
+
+	// pointerMu guards the cached last cursor position used by
+	// releaseStickyInput so the disconnect-time button-release event
+	// targets the cursor's current spot instead of warping to (0, 0).
+	pointerMu     sync.Mutex
+	lastPointerX  int
+	lastPointerY  int
 }
 
 type fbRequest struct {
@@ -106,6 +113,12 @@ func (s *session) serve() {
 		return
 	}
 	s.log.Infof("client connected: %s", s.addr())
+
+	// On any exit path (clean disconnect, transport error, panic) release
+	// modifier keys and mouse buttons so the host doesn't end up with
+	// Shift/Ctrl/Alt or a mouse button stuck because the client dropped
+	// while holding them.
+	defer s.releaseStickyInput()
 
 	done := make(chan struct{})
 	defer close(done)
@@ -470,6 +483,40 @@ func (s *session) handlePointerEvent() error {
 	buttonMask := data[0]
 	x := int(binary.BigEndian.Uint16(data[1:3]))
 	y := int(binary.BigEndian.Uint16(data[3:5]))
+	s.pointerMu.Lock()
+	s.lastPointerX = x
+	s.lastPointerY = y
+	s.pointerMu.Unlock()
 	s.injector.InjectPointer(buttonMask, x, y, s.serverW, s.serverH)
 	return nil
+}
+
+// stickyModifierKeysyms are the X11 keysyms we send "up" events for on
+// disconnect. Modifier-up while not held is a no-op on every supported
+// platform, so we can blanket-release without per-key tracking. This
+// covers the practical sticky-state bug: client drops while user is
+// holding Shift / Ctrl / Alt / Meta / Super.
+var stickyModifierKeysyms = [...]uint32{
+	0xffe1, 0xffe2, // Shift_L, Shift_R
+	0xffe3, 0xffe4, // Control_L, Control_R
+	0xffe9, 0xffea, // Alt_L, Alt_R
+	0xffe7, 0xffe8, // Meta_L, Meta_R
+	0xffeb, 0xffec, // Super_L, Super_R
+	0xff7e,         // Mode_switch
+	0xfe03,         // ISO_Level3_Shift (AltGr)
+	0xffe5,         // Caps_Lock (release if user dropped mid-press)
+}
+
+// releaseStickyInput synthesizes key-up for modifier keysyms and a
+// zero-button PointerEvent so the host doesn't end up with stuck input
+// when the client disconnects mid-press. Mouse coordinates are reused
+// from the last PointerEvent so we don't warp the cursor.
+func (s *session) releaseStickyInput() {
+	for _, ks := range stickyModifierKeysyms {
+		s.injector.InjectKey(ks, false)
+	}
+	s.pointerMu.Lock()
+	x, y := s.lastPointerX, s.lastPointerY
+	s.pointerMu.Unlock()
+	s.injector.InjectPointer(0, x, y, s.serverW, s.serverH)
 }
