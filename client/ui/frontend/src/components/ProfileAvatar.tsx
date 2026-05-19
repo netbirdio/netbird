@@ -1,11 +1,12 @@
 import { ButtonHTMLAttributes, forwardRef } from "react";
 import {
+    Beaker,
     Briefcase,
-    Building2,
+    Building,
     Gamepad2,
     GraduationCap,
     House,
-    Server,
+    Cloud,
     ServerCog,
     SquareCode,
     TestTube,
@@ -17,19 +18,21 @@ import {
 import { cn } from "@/lib/cn";
 
 const ICON_MAP: ReadonlyArray<[RegExp, LucideIcon]> = [
-    [/\b(default|user|me|personal)\b/i, UserCircle],
-    [/\b(work|business|office|company|corp|corporate)\b/i, Briefcase],
-    [/\b(home|house|private)\b/i, House],
-    [/\b(dev|development|developer|code|coding|engineering)\b/i, SquareCode],
-    [/\b(local|localhost|loopback)\b/i, SquareCode],
-    [/\b(test|testing|staging|qa|stage)\b/i, TestTube],
-    [/\b(prod|production|live)\b/i, Server],
-    [/\b(selfhosted|self-hosted|on-prem|onprem)\b/i, ServerCog],
-    [/\b(school|university|edu|study|student)\b/i, GraduationCap],
-    [/\b(client|customer)\b/i, Building2],
-    [/\b(family)\b/i, Users],
-    [/\b(gaming|game)\b/i, Gamepad2],
-    [/\b(guest)\b/i, UserPlus],
+    [/(default|personal)/i, UserCircle],
+    [/(work|business|office|company|corp|corporate)/i, Briefcase],
+    [/(home|house|private)/i, House],
+    [/(dev|development|developer|code|coding|engineering)/i, SquareCode],
+    [/(local|localhost|loopback)/i, SquareCode],
+    [/(stage|staging)/i, Beaker],
+    [/(test|testing|qa)/i, TestTube],
+    [/(prod|production)/i, Cloud],
+    [/(live)/i, Cloud],
+    [/(selfhosted|self-hosted|on-prem|onprem)/i, ServerCog],
+    [/(school|university|edu|study|student)/i, GraduationCap],
+    [/(client|customer)/i, Building],
+    [/(family)/i, Users],
+    [/(gaming|game)/i, Gamepad2],
+    [/(guest)/i, UserPlus],
 ];
 
 export const pickProfileIcon = (name: string | undefined): LucideIcon | null => {

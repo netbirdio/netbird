@@ -10,7 +10,7 @@ type Props = {
     onCreate: (name: string) => void;
 };
 
-export const NewProfileDialog = ({ open, onOpenChange, onCreate }: Props) => {
+export const NewProfileModal = ({ open, onOpenChange, onCreate }: Props) => {
     const { t } = useTranslation();
     const [name, setName] = useState("");
 
@@ -30,14 +30,11 @@ export const NewProfileDialog = ({ open, onOpenChange, onCreate }: Props) => {
 
     return (
         <Dialog.Root open={open} onOpenChange={onOpenChange}>
-            <Dialog.Content
-                maxWidthClass="max-w-md"
-                onOpenAutoFocus={(e) => e.preventDefault()}
-            >
+            <Dialog.Content maxWidthClass="max-w-md" onOpenAutoFocus={(e) => e.preventDefault()}>
                 <form onSubmit={handleSubmit}>
-                    <div className="px-8 pt-2">
+                    <div className="px-8">
                         <Dialog.Title>{t("profile.dialog.title")}</Dialog.Title>
-                        <Dialog.Description>
+                        <Dialog.Description className="mt-1">
                             {t("profile.dialog.description")}
                         </Dialog.Description>
                     </div>
@@ -51,20 +48,15 @@ export const NewProfileDialog = ({ open, onOpenChange, onCreate }: Props) => {
                         />
                     </div>
 
-                    <Dialog.Footer>
-                        <Button
-                            type="button"
-                            variant="secondary"
-                            onClick={() => onOpenChange(false)}
-                        >
-                            {t("common.cancel")}
-                        </Button>
+                    <Dialog.Footer separator={false} className="pt-4">
                         <Button
                             type="submit"
                             variant="primary"
+                            size={"md"}
                             disabled={!canSubmit}
+                            className="w-full"
                         >
-                            {t("common.create")}
+                            {t("profile.dialog.submit")}
                         </Button>
                     </Dialog.Footer>
                 </form>

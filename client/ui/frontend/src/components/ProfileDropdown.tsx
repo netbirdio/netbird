@@ -1,23 +1,23 @@
-import { forwardRef, useState } from "react";
+import { forwardRef, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Dialogs } from "@wailsio/runtime";
+import * as Popover from "@radix-ui/react-popover";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
+import { Command } from "cmdk";
 import { Check, ChevronDown, PlusCircle, Settings2, UserCircle } from "lucide-react";
 import { pickProfileIcon } from "@/components/ProfileAvatar";
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-} from "@/components/DropdownMenu";
-import { NewProfileDialog } from "@/components/NewProfileDialog";
+import type { Profile } from "@bindings/services/models.js";
+import { NewProfileModal } from "@/components/NewProfileModal";
+import { Tooltip } from "@/components/Tooltip";
 import { useProfile } from "@/modules/profile/ProfileContext";
 import { cn } from "@/lib/cn";
 
 type ProfileDropdownProps = {
     onManageProfiles?: () => void;
 };
+
+const ADD_VALUE = "__add_profile__";
+const MANAGE_VALUE = "__manage_profiles__";
 
 export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
     const { t } = useTranslation();
@@ -26,9 +26,11 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
     const [newProfileOpen, setNewProfileOpen] = useState(false);
     const [busy, setBusy] = useState(false);
 
-    const sortedProfiles = [...profiles].sort((a, b) =>
-        a.name.localeCompare(b.name),
-    );
+    const sortedProfiles = [...profiles].sort((a, b) => {
+        if (a.name === activeProfile) return -1;
+        if (b.name === activeProfile) return 1;
+        return a.name.localeCompare(b.name);
+    });
 
     const guarded = async (title: string, fn: () => Promise<void>) => {
         if (busy) return;
@@ -76,71 +78,96 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
 
     return (
         <>
-            <DropdownMenu modal={false} open={open} onOpenChange={setOpen}>
-                <DropdownMenuTrigger asChild>
+            <Popover.Root open={open} onOpenChange={setOpen}>
+                <Popover.Trigger asChild>
                     <ProfileTriggerButton name={displayName} />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent className="w-64" align="start">
-                    {sortedProfiles.length > 0 && (
-                        <>
-                            <ScrollArea.Root type="auto" className="overflow-hidden -mx-1">
-                                <ScrollArea.Viewport className="max-h-56 px-1">
-                                    {sortedProfiles.map((profile) => {
-                                        const isActive = profile.name === activeProfile;
-                                        const Icon = pickProfileIcon(profile.name) ?? UserCircle;
-                                        return (
-                                            <DropdownMenuItem
-                                                key={profile.name}
-                                                onClick={() => handleSelect(profile.name)}
-                                            >
-                                                <div className="flex items-center gap-3 w-full min-w-0">
-                                                    <Icon size={14} className="shrink-0" />
-                                                    <span className="capitalize truncate flex-1">
-                                                        {profile.name}
-                                                    </span>
-                                                    {isActive && (
-                                                        <Check
-                                                            size={14}
-                                                            className="shrink-0 text-nb-gray-200"
-                                                        />
-                                                    )}
-                                                </div>
-                                            </DropdownMenuItem>
-                                        );
-                                    })}
-                                </ScrollArea.Viewport>
-                                <ScrollArea.Scrollbar
-                                    orientation="vertical"
+                </Popover.Trigger>
+                <Popover.Portal>
+                    <Popover.Content
+                        align="center"
+                        sideOffset={8}
+                        collisionPadding={12}
+                        onOpenAutoFocus={(e) => e.preventDefault()}
+                        className={cn(
+                            "z-50 min-w-64 overflow-hidden rounded-xl border border-nb-gray-900 bg-nb-gray-935 text-nb-gray-200 shadow-lg",
+                            "data-[state=open]:animate-in data-[state=closed]:animate-out",
+                            "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+                            "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+                            "data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2",
+                            "data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+                        )}
+                    >
+                        <Command
+                            loop
+                            shouldFilter={false}
+                            onKeyDown={(e) => e.stopPropagation()}
+                        >
+                            {sortedProfiles.length > 0 && (
+                                <>
+                                    <ScrollArea.Root type="auto" className="overflow-hidden">
+                                        <ScrollArea.Viewport className="max-h-60 py-1.5">
+                                            <Command.List>
+                                                {sortedProfiles.map((profile) => (
+                                                    <ProfileRow
+                                                        key={profile.name}
+                                                        profile={profile}
+                                                        isActive={profile.name === activeProfile}
+                                                        onSelect={handleSelect}
+                                                    />
+                                                ))}
+                                            </Command.List>
+                                        </ScrollArea.Viewport>
+                                        <ScrollArea.Scrollbar
+                                            orientation="vertical"
+                                            className={cn(
+                                                "flex select-none touch-none transition-colors",
+                                                "w-1.5 bg-transparent",
+                                            )}
+                                        >
+                                            <ScrollArea.Thumb className="flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700 relative" />
+                                        </ScrollArea.Scrollbar>
+                                    </ScrollArea.Root>
+                                    <div className="h-px bg-nb-gray-910" />
+                                </>
+                            )}
+
+                            <div className="py-1">
+                                <Command.Item
+                                    value={ADD_VALUE}
+                                    onSelect={handleAdd}
                                     className={cn(
-                                        "flex select-none touch-none transition-colors",
-                                        "w-1.5 bg-transparent py-1",
+                                        "flex items-center gap-2 px-2 py-1.5 mx-1.5 my-0.5",
+                                        "rounded-md outline-none cursor-default text-sm",
+                                        "data-[selected=true]:bg-nb-gray-900",
                                     )}
                                 >
-                                    <ScrollArea.Thumb className="flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700 relative" />
-                                </ScrollArea.Scrollbar>
-                            </ScrollArea.Root>
-                            <DropdownMenuSeparator />
-                        </>
-                    )}
-
-                    <DropdownMenuItem onClick={handleAdd}>
-                        <div className="flex items-center gap-3">
-                            <PlusCircle size={14} />
-                            {t("profile.dropdown.addProfile")}
-                        </div>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                        onClick={handleManage}
-                        disabled={!onManageProfiles}
-                    >
-                        <div className="flex items-center gap-3">
-                            <Settings2 size={14} />
-                            {t("profile.dropdown.manageProfiles")}
-                        </div>
-                    </DropdownMenuItem>
-                </DropdownMenuContent>
-            </DropdownMenu>
-            <NewProfileDialog
+                                    <PlusCircle size={14} className="shrink-0" />
+                                    <span className="truncate flex-1">
+                                        {t("profile.dropdown.addProfile")}
+                                    </span>
+                                </Command.Item>
+                                <Command.Item
+                                    value={MANAGE_VALUE}
+                                    onSelect={handleManage}
+                                    disabled={!onManageProfiles}
+                                    className={cn(
+                                        "flex items-center gap-2 px-2 py-1.5 mx-1.5 my-0.5",
+                                        "rounded-md outline-none cursor-default text-sm",
+                                        "data-[selected=true]:bg-nb-gray-900",
+                                        "data-[disabled=true]:opacity-50 data-[disabled=true]:pointer-events-none",
+                                    )}
+                                >
+                                    <Settings2 size={14} className="shrink-0" />
+                                    <span className="truncate flex-1">
+                                        {t("profile.dropdown.manageProfiles")}
+                                    </span>
+                                </Command.Item>
+                            </div>
+                        </Command>
+                    </Popover.Content>
+                </Popover.Portal>
+            </Popover.Root>
+            <NewProfileModal
                 open={newProfileOpen}
                 onOpenChange={setNewProfileOpen}
                 onCreate={handleCreateProfile}
@@ -178,3 +205,57 @@ const ProfileTriggerButton = forwardRef<HTMLButtonElement, ProfileTriggerButtonP
         );
     },
 );
+
+type ProfileRowProps = {
+    profile: Profile;
+    isActive: boolean;
+    onSelect: (name: string) => void;
+};
+
+const ProfileRow = ({ profile, isActive, onSelect }: ProfileRowProps) => {
+    const showEmail = !!profile.email;
+    const Icon = pickProfileIcon(profile.name) ?? UserCircle;
+    return (
+        <Command.Item
+            value={profile.name}
+            onSelect={() => onSelect(profile.name)}
+            className={cn(
+                "flex gap-2 px-2 py-1.5 mx-1.5 my-0.5 w-auto",
+                "rounded-md outline-none cursor-default text-sm",
+                "data-[selected=true]:bg-nb-gray-900",
+                showEmail ? "items-start" : "items-center",
+            )}
+        >
+            <Icon size={14} className={cn("shrink-0", showEmail && "mt-0.5")} />
+            <div className="flex flex-col min-w-0 flex-1 leading-tight">
+                <span className="capitalize truncate">{profile.name}</span>
+                {showEmail && <TruncatedEmail email={profile.email!} />}
+            </div>
+            {isActive && (
+                <Check
+                    size={16}
+                    className={cn("shrink-0 text-netbird", showEmail && "mt-0.5")}
+                />
+            )}
+        </Command.Item>
+    );
+};
+
+const TruncatedEmail = ({ email }: { email: string }) => {
+    const ref = useRef<HTMLSpanElement>(null);
+    const [overflowing, setOverflowing] = useState(false);
+
+    useLayoutEffect(() => {
+        const el = ref.current;
+        if (!el) return;
+        setOverflowing(el.scrollWidth > el.clientWidth);
+    }, [email]);
+
+    const span = (
+        <span ref={ref} className="text-xs mt-0.5 text-nb-gray-300 truncate max-w-[180px]">
+            {email}
+        </span>
+    );
+    if (!overflowing) return span;
+    return <Tooltip content={email}>{span}</Tooltip>;
+};

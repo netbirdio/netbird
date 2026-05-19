@@ -9,7 +9,7 @@ import { ChevronDown, MoreVertical, PlusCircle, Search, Trash2, UserMinus } from
 import type { Profile } from "@bindings/services/models.js";
 import { cn } from "@/lib/cn";
 import { generateColorFromString } from "@/lib/color";
-import { NewProfileDialog } from "@/components/NewProfileDialog";
+import { NewProfileModal } from "@/components/NewProfileModal";
 import { useProfile } from "@/modules/profile/ProfileContext.tsx";
 
 const DEFAULT_PROFILE = "default";
@@ -233,7 +233,7 @@ export const ProfileSelector = () => {
                     </Popover.Content>
                 </Popover.Portal>
             </Popover.Root>
-            <NewProfileDialog
+            <NewProfileModal
                 open={newOpen}
                 onOpenChange={setNewOpen}
                 onCreate={handleCreateProfile}

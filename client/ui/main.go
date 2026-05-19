@@ -177,7 +177,7 @@ func main() {
 		MaximiseButtonState: application.ButtonHidden,
 		Mac: application.MacWindow{
 			InvisibleTitleBarHeight: 38,
-			Backdrop:                application.MacBackdropTranslucent,
+			Backdrop:                application.MacBackdropNormal,
 			TitleBar:                application.MacTitleBarHiddenInset,
 			CollectionBehavior:      application.MacWindowCollectionBehaviorFullScreenNone,
 		},
