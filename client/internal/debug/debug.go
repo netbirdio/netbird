@@ -32,6 +32,7 @@ import (
 	nbstatus "github.com/netbirdio/netbird/client/status"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/netiputil"
+	"github.com/netbirdio/netbird/version"
 )
 
 const readmeContent = `Netbird debug bundle
@@ -459,9 +460,12 @@ func (g *BundleGenerator) addStatus() error {
 		protoFullStatus := nbstatus.ToProtoFullStatus(fullStatus)
 		protoFullStatus.Events = g.statusRecorder.GetEventHistory()
 		overview := nbstatus.ConvertToStatusOutputOverview(protoFullStatus, nbstatus.ConvertOptions{
-			Anonymize:   g.anonymize,
-			ProfileName: profName,
+			Anonymize:     g.anonymize,
+			ProfileName:   profName,
+			DaemonVersion: version.NetbirdVersion(),
 		})
+		// It is always the daemon/engine that generates the bundle, we cannot know if the CLI and daemon version differs.
+		overview.CliVersion = "N/A"
 		statusOutput := overview.FullDetailSummary()
 
 		statusReader := strings.NewReader(statusOutput)
