@@ -78,7 +78,20 @@ type session struct {
 	clientSupportsLastRect            bool
 	clientSupportsQEMUKey             bool
 	clientSupportsExtClipboard        bool
+	clientSupportsCursor              bool
 	extClipCapsSent                   bool
+	// lastCursorSerial is the serial of the cursor sprite last emitted.
+	// The encoder re-queries the source each cycle and only emits when
+	// the serial changes.
+	lastCursorSerial uint64
+	// cursorSourceFailed latches a permanent failure from the cursor
+	// source so the encoder stops polling for the rest of the session.
+	// Reset on SetEncodings so a reconnect can retry.
+	cursorSourceFailed bool
+	// disableCursor suppresses the Cursor pseudo-encoding regardless of
+	// what the client advertises. Set for virtual sessions where no
+	// usable cursor source exists. Constant for the session lifetime.
+	disableCursor bool
 	// clientJPEGQuality and clientZlibLevel hold the 0..9 levels the client
 	// advertised via the QualityLevel / CompressLevel pseudo-encodings, or
 	// -1 when the client has not expressed a preference. Applied to the
@@ -362,6 +375,8 @@ func (s *session) resetEncodingCaps() {
 	s.clientSupportsLastRect = false
 	s.clientSupportsQEMUKey = false
 	s.clientSupportsExtClipboard = false
+	s.clientSupportsCursor = false
+	s.cursorSourceFailed = false
 	s.clientJPEGQuality = -1
 	s.clientZlibLevel = -1
 }
@@ -395,6 +410,12 @@ func (s *session) applyEncoding(enc int32) string {
 	case pseudoEncExtendedClipboard:
 		s.clientSupportsExtClipboard = true
 		return "ext-clipboard"
+	case pseudoEncCursor:
+		if s.disableCursor {
+			return ""
+		}
+		s.clientSupportsCursor = true
+		return "cursor"
 	case encTight:
 		s.useTight = true
 		return "tight"

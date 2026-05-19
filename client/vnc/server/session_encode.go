@@ -377,14 +377,22 @@ func (s *session) swapPrevCur() {
 	s.prevFrame, s.curFrame = s.curFrame, s.prevFrame
 }
 
-// sendEmptyUpdate sends a FramebufferUpdate with zero rectangles.
+// sendEmptyUpdate sends a FramebufferUpdate with zero pixel rectangles.
+// When the cursor source reports a fresh sprite we still slip the Cursor
+// pseudo-rect into the same message so a shape change (e.g. hovering onto
+// a resize handle) reaches the client without waiting for a dirty frame.
 func (s *session) sendEmptyUpdate() error {
-	var buf [4]byte
+	cursorRect := s.pendingCursorRect()
+	if cursorRect == nil {
+		var buf [4]byte
+		buf[0] = serverFramebufferUpdate
+		return s.writeFramed(buf[:])
+	}
+	buf := make([]byte, 4+len(cursorRect))
 	buf[0] = serverFramebufferUpdate
-	s.writeMu.Lock()
-	_, err := s.conn.Write(buf[:])
-	s.writeMu.Unlock()
-	return err
+	binary.BigEndian.PutUint16(buf[2:4], 1)
+	copy(buf[4:], cursorRect)
+	return s.writeFramed(buf)
 }
 
 func (s *session) sendFullUpdate(img *image.RGBA) error {
@@ -398,27 +406,40 @@ func (s *session) sendFullUpdate(img *image.RGBA) error {
 	zlib := s.zlib
 	s.encMu.RUnlock()
 
-	if useTight && tight != nil && pfIsTightCompatible(pf) {
-		rectBuf := encodeTightRect(img, pf, 0, 0, w, h, tight)
-		buf := make([]byte, 4+len(rectBuf))
-		buf[0] = serverFramebufferUpdate
-		binary.BigEndian.PutUint16(buf[2:4], 1)
-		copy(buf[4:], rectBuf)
-		s.writeMu.Lock()
-		_, err := s.conn.Write(buf)
-		s.writeMu.Unlock()
-		return err
+	cursorRect := s.pendingCursorRect()
+	rectCount := uint16(1)
+	if cursorRect != nil {
+		rectCount++
 	}
 
-	if useZlib && zlib != nil {
-		buf := encodeZlibRect(img, pf, 0, 0, w, h, zlib)
-		s.writeMu.Lock()
-		_, err := s.conn.Write(buf)
-		s.writeMu.Unlock()
-		return err
+	var rectBuf []byte
+	switch {
+	case useTight && tight != nil && pfIsTightCompatible(pf):
+		rectBuf = encodeTightRect(img, pf, 0, 0, w, h, tight)
+	case useZlib && zlib != nil:
+		// encodeZlibRect bakes in its own FBU header; reuse it for the
+		// single-rect path when there is no cursor to prepend.
+		if cursorRect == nil {
+			return s.writeFramed(encodeZlibRect(img, pf, 0, 0, w, h, zlib))
+		}
+		rectBuf = encodeZlibRect(img, pf, 0, 0, w, h, zlib)[4:]
+	default:
+		if cursorRect == nil {
+			return s.writeFramed(encodeRawRect(img, pf, 0, 0, w, h))
+		}
+		rectBuf = encodeRawRect(img, pf, 0, 0, w, h)[4:]
 	}
 
-	buf := encodeRawRect(img, pf, 0, 0, w, h)
+	buf := make([]byte, 4+len(cursorRect)+len(rectBuf))
+	buf[0] = serverFramebufferUpdate
+	binary.BigEndian.PutUint16(buf[2:4], rectCount)
+	off := 4
+	off += copy(buf[off:], cursorRect)
+	copy(buf[off:], rectBuf)
+	return s.writeFramed(buf)
+}
+
+func (s *session) writeFramed(buf []byte) error {
 	s.writeMu.Lock()
 	_, err := s.conn.Write(buf)
 	s.writeMu.Unlock()
@@ -430,11 +451,15 @@ func (s *session) sendFullUpdate(img *image.RGBA) error {
 // their source tiles are read from the client's pre-update framebuffer state,
 // before any subsequent rect overwrites them.
 func (s *session) sendDirtyAndMoves(img *image.RGBA, moves []copyRectMove, rects [][4]int) error {
-	if len(moves) == 0 && len(rects) == 0 {
+	cursorRect := s.pendingCursorRect()
+	if len(moves) == 0 && len(rects) == 0 && cursorRect == nil {
 		return nil
 	}
 
 	total := len(moves) + len(rects)
+	if cursorRect != nil {
+		total++
+	}
 	header := make([]byte, 4)
 	header[0] = serverFramebufferUpdate
 	binary.BigEndian.PutUint16(header[2:4], uint16(total))
@@ -444,6 +469,12 @@ func (s *session) sendDirtyAndMoves(img *image.RGBA, moves []copyRectMove, rects
 
 	if _, err := s.conn.Write(header); err != nil {
 		return err
+	}
+
+	if cursorRect != nil {
+		if _, err := s.conn.Write(cursorRect); err != nil {
+			return err
+		}
 	}
 
 	ts := tileSize

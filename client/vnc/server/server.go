@@ -72,6 +72,13 @@ type captureIntoer interface {
 	CaptureInto(dst *image.RGBA) error
 }
 
+// cursorSource is implemented by capturers that can report the platform
+// cursor sprite so the session can emit it via the Cursor pseudo-encoding
+// (RFB 7.7.4). serial bumps on shape changes; callers cache by serial.
+type cursorSource interface {
+	Cursor() (img *image.RGBA, hotX, hotY int, serial uint64, err error)
+}
+
 // errFrameUnchanged is returned by capturers that hash the raw source
 // bytes (currently macOS) when the new frame is byte-identical to the
 // last one, so the encoder can short-circuit to an empty update.
@@ -556,6 +563,10 @@ func (s *Server) handleConnection(conn net.Conn) {
 		serverW:  capturer.Width(),
 		serverH:  capturer.Height(),
 		log:      connLog,
+		// Virtual sessions run on Xvfb which has no usable cursor source,
+		// so we skip the Cursor pseudo-encoding and let the dashboard's
+		// local fallback show instead.
+		disableCursor: header.mode == ModeSession,
 	}
 	sess.serve()
 }

@@ -91,6 +91,11 @@ type CGCapturer struct {
 	hashSeed  maphash.Seed
 	lastHash  uint64
 	hasHash   bool
+	// cursor lazily binds the private CGSCreateCurrentCursorImage symbol
+	// so we can emit the Cursor pseudo-encoding without a per-frame cost
+	// on builds that never query it.
+	cursorOnce sync.Once
+	cursor     *cgCursor
 }
 
 // PrimeScreenCapturePermission triggers the macOS Screen Recording
