@@ -151,6 +151,7 @@ func (m *Metrics) initSyncMetrics(meter metric.Meter) error {
 		"proxy.sync.batch.duration.ms",
 		metric.WithUnit("milliseconds"),
 		metric.WithDescription("Duration to process a single mapping batch during initial snapshot sync"),
+		metric.WithExplicitBucketBoundaries(100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000, 120000, 300000),
 	)
 	if err != nil {
 		return err
