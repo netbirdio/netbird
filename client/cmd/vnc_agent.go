@@ -13,10 +13,10 @@ import (
 	vncserver "github.com/netbirdio/netbird/client/vnc/server"
 )
 
-var vncAgentPort string
+var vncAgentPort uint16
 
 func init() {
-	vncAgentCmd.Flags().StringVar(&vncAgentPort, "port", "15900", "Port for the VNC agent to listen on")
+	vncAgentCmd.Flags().Uint16Var(&vncAgentPort, "port", 15900, "Port for the VNC agent to listen on")
 	rootCmd.AddCommand(vncAgentCmd)
 }
 
@@ -35,7 +35,7 @@ var vncAgentCmd = &cobra.Command{
 		log.SetOutput(os.Stderr)
 
 		sessionID := vncserver.GetCurrentSessionID()
-		log.Infof("VNC agent starting on 127.0.0.1:%s (session %d)", vncAgentPort, sessionID)
+		log.Infof("VNC agent starting on 127.0.0.1:%d (session %d)", vncAgentPort, sessionID)
 
 		token := os.Getenv("NB_VNC_AGENT_TOKEN")
 		if token == "" {
@@ -48,16 +48,12 @@ var vncAgentCmd = &cobra.Command{
 		srv.SetDisableAuth(true)
 		srv.SetAgentToken(token)
 
-		port, err := netip.ParseAddrPort("127.0.0.1:" + vncAgentPort)
-		if err != nil {
-			return fmt.Errorf("parse listen addr: %w", err)
-		}
-
+		addr := netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), vncAgentPort)
 		loopback := netip.PrefixFrom(netip.AddrFrom4([4]byte{127, 0, 0, 0}), 8)
-		if err := srv.Start(cmd.Context(), port, loopback); err != nil {
+		if err := srv.Start(cmd.Context(), addr, loopback); err != nil {
 			return fmt.Errorf("start vnc server: %w", err)
 		}
-		log.Infof("vnc-agent listening on 127.0.0.1:%s, ready", vncAgentPort)
+		log.Infof("vnc-agent listening on 127.0.0.1:%d, ready", vncAgentPort)
 
 		<-cmd.Context().Done()
 		log.Info("vnc-agent context cancelled, shutting down")

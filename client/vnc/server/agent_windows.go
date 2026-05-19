@@ -4,17 +4,12 @@ package server
 
 import (
 	"bufio"
-	crand "crypto/rand"
 	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net"
 	"os"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -25,12 +20,6 @@ import (
 )
 
 const (
-	agentPort = "15900"
-
-	// agentTokenLen is the length of the random authentication token
-	// used to verify that connections to the agent come from the service.
-	agentTokenLen = 32
-
 	stillActive = 259
 
 	tokenPrimary          = 1
@@ -151,16 +140,11 @@ func getActiveSessionID() uint32 {
 	return getConsoleSessionID()
 }
 
-// reapOrphanOnPort finds any process listening on 127.0.0.1:portStr and,
-// if it's a netbird vnc-agent left over from a previous service instance,
+// reapOrphanOnPort finds any process listening on 127.0.0.1:port and, if
+// it's a netbird vnc-agent left over from a previous service instance,
 // terminates it. Verified by image-name match so we never kill an
 // unrelated process that happens to use the same port.
-func reapOrphanOnPort(portStr string) {
-	port64, err := strconv.ParseUint(portStr, 10, 16)
-	if err != nil {
-		return
-	}
-	port := uint16(port64)
+func reapOrphanOnPort(port uint16) {
 	pid := tcpListenerPID(port)
 	if pid == 0 || pid == uint32(windows.GetCurrentProcessId()) {
 		return
@@ -342,7 +326,7 @@ func injectEnvVar(envBlock uintptr, key, value string) []uint16 {
 	return newBlock
 }
 
-func spawnAgentInSession(sessionID uint32, port string, authToken string, jobHandle windows.Handle) (windows.Handle, error) {
+func spawnAgentInSession(sessionID uint32, port uint16, authToken string, jobHandle windows.Handle) (windows.Handle, error) {
 	token, err := getSystemTokenForSession(sessionID)
 	if err != nil {
 		return 0, fmt.Errorf("get SYSTEM token for session %d: %w", sessionID, err)
@@ -372,7 +356,7 @@ func spawnAgentInSession(sessionID uint32, port string, authToken string, jobHan
 		return 0, fmt.Errorf("get executable path: %w", err)
 	}
 
-	cmdLine := fmt.Sprintf(`"%s" vnc-agent --port %s`, exePath, port)
+	cmdLine := fmt.Sprintf(`"%s" vnc-agent --port %d`, exePath, port)
 	cmdLineW, err := windows.UTF16PtrFromString(cmdLine)
 	if err != nil {
 		return 0, fmt.Errorf("UTF16 cmdline: %w", err)
@@ -445,7 +429,7 @@ func spawnAgentInSession(sessionID uint32, port string, authToken string, jobHan
 	// Relog agent output in the service with a [vnc-agent] prefix.
 	go relogAgentOutput(stderrRead)
 
-	log.Infof("spawned agent PID=%d in session %d on port %s", pi.ProcessId, sessionID, port)
+	log.Infof("spawned agent PID=%d in session %d on port %d", pi.ProcessId, sessionID, port)
 	return pi.Process, nil
 }
 
@@ -453,7 +437,7 @@ func spawnAgentInSession(sessionID uint32, port string, authToken string, jobHan
 // process is running in it. When the session changes (e.g., user switch, RDP
 // connect/disconnect), it kills the old agent and spawns a new one.
 type sessionManager struct {
-	port           string
+	port           uint16
 	mu             sync.Mutex
 	agentProc      windows.Handle
 	everSpawned    bool
@@ -470,7 +454,7 @@ type sessionManager struct {
 	jobHandle windows.Handle
 }
 
-func newSessionManager(port string) *sessionManager {
+func newSessionManager(port uint16) *sessionManager {
 	m := &sessionManager{port: port, sessionID: ^uint32(0), done: make(chan struct{})}
 	if h, err := createKillOnCloseJob(); err != nil {
 		log.Warnf("create job object for vnc-agent (orphan agents possible after crash): %v", err)
@@ -526,16 +510,6 @@ func createKillOnCloseJob() (windows.Handle, error) {
 		return 0, fmt.Errorf("SetInformationJobObject(KILL_ON_JOB_CLOSE): %w", e)
 	}
 	return job, nil
-}
-
-// generateAuthToken creates a new random hex token for agent authentication.
-func generateAuthToken() string {
-	b := make([]byte, agentTokenLen)
-	if _, err := crand.Read(b); err != nil {
-		log.Warnf("generate agent auth token: %v", err)
-		return ""
-	}
-	return hex.EncodeToString(b)
 }
 
 // AuthToken returns the current agent authentication token.
@@ -744,48 +718,6 @@ func relogAgentOutput(pipe windows.Handle) {
 			e.Info(msg)
 		}
 	}
-}
-
-// proxyToAgent connects to the agent, sends the auth token, then proxies
-// the VNC client connection bidirectionally.
-func proxyToAgent(client net.Conn, port string, authToken string) {
-	defer client.Close()
-
-	addr := "127.0.0.1:" + port
-	var agentConn net.Conn
-	var err error
-	for range 50 {
-		agentConn, err = net.DialTimeout("tcp", addr, time.Second)
-		if err == nil {
-			break
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	if err != nil {
-		log.Warnf("proxy cannot reach agent at %s: %v", addr, err)
-		return
-	}
-	defer agentConn.Close()
-
-	// Send the auth token so the agent can verify this connection
-	// comes from the trusted service process.
-	tokenBytes, _ := hex.DecodeString(authToken)
-	if _, err := agentConn.Write(tokenBytes); err != nil {
-		log.Warnf("send auth token to agent: %v", err)
-		return
-	}
-
-	log.Debugf("proxy connected to agent, starting bidirectional copy")
-
-	done := make(chan struct{}, 2)
-	cp := func(label string, dst, src net.Conn) {
-		n, err := io.Copy(dst, src)
-		log.Debugf("proxy %s: %d bytes, err=%v", label, n, err)
-		done <- struct{}{}
-	}
-	go cp("client→agent", agentConn, client)
-	go cp("agent→client", client, agentConn)
-	<-done
 }
 
 // logCleanupCall invokes a Windows syscall used solely as a cleanup primitive
