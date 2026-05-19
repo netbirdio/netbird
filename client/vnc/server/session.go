@@ -32,6 +32,21 @@ const (
 	fullFramePromoteDen = 100
 )
 
+// bboxPromoteDensityPct collapses the coalesced rect list down to its
+// bounding box when the dirty pixels occupy at least this fraction of the
+// bbox. Catches the "windowed video" case where the player area dirties as
+// a dense block but is split into many sibling rects by overlays or by
+// non-uniform tile coverage. Sending one JPEG over the bbox beats sending
+// dozens of small JPEGs that each carry their own header and Tight stream
+// restart.
+const (
+	bboxPromoteDensityPct = 70
+	// bboxPromoteMinArea avoids promoting a handful of small scattered
+	// rects whose bbox would span most of the screen and pull in mostly
+	// clean pixels.
+	bboxPromoteMinArea = tileSize * tileSize * 16
+)
+
 type session struct {
 	conn        net.Conn
 	capturer    ScreenCapturer
