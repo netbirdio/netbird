@@ -266,6 +266,11 @@ type DesktopCapturer struct {
 	wake chan struct{}
 	// done is closed when Close is called, terminating the worker.
 	done chan struct{}
+
+	// cursorState holds the latest cursor sprite sampled by the worker.
+	// The worker calls GetCursorInfo every capture and decodes a new
+	// sprite only when the HCURSOR changes.
+	cursorState cursorState
 }
 
 // captureReq is a single capture request awaiting a reply. Reply channel is
@@ -439,6 +444,7 @@ type captureWorker struct {
 	desktopFails  int
 	lastDesktop   string
 	nextInitRetry time.Time
+	cursor        cursorSampler
 }
 
 // handleNextRequest waits for either shutdown or a capture request and runs
@@ -467,6 +473,11 @@ func (w *captureWorker) serveRequest(req captureReq) {
 		w.nextInitRetry = time.Now().Add(100 * time.Millisecond)
 		req.reply <- captureReply{err: err}
 		return
+	}
+	if snap, err := w.cursor.sample(); err != nil {
+		w.c.cursorState.store(&cursorSnapshot{err: err})
+	} else {
+		w.c.cursorState.store(snap)
 	}
 	req.reply <- captureReply{img: img}
 }

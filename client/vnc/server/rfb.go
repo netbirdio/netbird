@@ -63,6 +63,7 @@ const (
 	// Pseudo-encodings carried over wire as rects with a negative
 	// encoding value. The client advertises supported optional protocol
 	// extensions by listing these in SetEncodings.
+	pseudoEncCursor                  = -239
 	pseudoEncDesktopSize             = -223
 	pseudoEncLastRect                = -224
 	pseudoEncQEMUExtendedKeyEvent    = -258

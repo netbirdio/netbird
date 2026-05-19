@@ -34,6 +34,11 @@ type X11Capturer struct {
 	// happens on first use and on geometry change.
 	bufs [2]*image.RGBA
 	cur  int
+	// cursor is the XFixes binding used to report the current sprite.
+	// Allocated lazily on the first Cursor call. cursorInitErr latches
+	// a permanent init failure so we stop retrying every frame.
+	cursor        *xfixesCursor
+	cursorInitErr error
 }
 
 // detectX11Display finds the active X11 display and sets DISPLAY/XAUTHORITY
@@ -406,6 +411,18 @@ func (p *X11Poller) Height() int {
 	defer p.mu.Unlock()
 	_ = p.ensureCapturerLocked()
 	return p.h
+}
+
+// Cursor satisfies cursorSource by forwarding to the lazily-initialised
+// X11Capturer. Asking for the cursor on an idle poller triggers the same
+// lazy X11 connection setup as a capture would.
+func (p *X11Poller) Cursor() (*image.RGBA, int, int, uint64, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if err := p.ensureCapturerLocked(); err != nil {
+		return nil, 0, 0, 0, err
+	}
+	return p.capturer.Cursor()
 }
 
 // Capture returns a fresh frame, serving from the short-lived cache if a
