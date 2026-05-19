@@ -139,11 +139,16 @@ func (s *session) handleExtCutText(payloadLen uint32) error {
 	formats := flags & extClipFormatMask
 	rest := buf[4:]
 
-	switch action {
-	case extClipActionCaps:
+	// A Caps message sets the Caps bit alongside one bit per action the
+	// peer supports, so the action byte is multi-bit. Detect it first; the
+	// remaining actions are single-bit and are dispatched after.
+	if action&extClipActionCaps != 0 {
 		// Client max sizes are informational for us today: we only emit
 		// text and already cap it at extClipMaxText.
 		return nil
+	}
+
+	switch action {
 	case extClipActionRequest:
 		if formats&extClipFormatText != 0 {
 			return s.sendExtClipProvideText()
