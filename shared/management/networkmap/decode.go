@@ -80,6 +80,9 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 	// for peers (and never has).
 	peerIDByIndex := make([]string, len(full.Peers))
 	for idx, pc := range full.Peers {
+		if pc == nil {
+			return nil, fmt.Errorf("invalid envelope: peers[%d] is nil", idx)
+		}
 		peerID := synthPeerID(uint32(idx))
 		peer := decodePeerCompact(pc, peerID, full.AgentVersions)
 		c.Peers[peerID] = peer
@@ -88,7 +91,10 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 
 	// Phase 2: groups. AccountSeqID becomes both the synthesized string ID
 	// and the GroupCompact.id wire value.
-	for _, gc := range full.Groups {
+	for i, gc := range full.Groups {
+		if gc == nil {
+			return nil, fmt.Errorf("invalid envelope: groups[%d] is nil", i)
+		}
 		groupID := synthGroupID(gc.Id)
 		peerIDs := make([]string, 0, len(gc.PeerIndexes))
 		for _, idx := range gc.PeerIndexes {
@@ -108,23 +114,35 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 	// model is 1 rule per policy). Policy.ID is synthesized from the
 	// per-account seq id; proto.FirewallRule.PolicyID downstream carries
 	// the same synth string (no xid on the wire).
-	for _, pc := range full.Policies {
+	for i, pc := range full.Policies {
+		if pc == nil {
+			return nil, fmt.Errorf("invalid envelope: policies[%d] is nil", i)
+		}
 		policyID := synthPolicyID(pc.Id)
 		c.Policies = append(c.Policies, decodePolicyCompact(pc, policyID, peerIDByIndex))
 	}
 
 	// Phase 4: routes.
-	for _, rr := range full.Routes {
+	for i, rr := range full.Routes {
+		if rr == nil {
+			return nil, fmt.Errorf("invalid envelope: routes[%d] is nil", i)
+		}
 		c.Routes = append(c.Routes, decodeRouteRaw(rr, peerIDByIndex))
 	}
 
 	// Phase 5: NSGs.
-	for _, nsg := range full.NameserverGroups {
+	for i, nsg := range full.NameserverGroups {
+		if nsg == nil {
+			return nil, fmt.Errorf("invalid envelope: nameserver_groups[%d] is nil", i)
+		}
 		c.NameServerGroups = append(c.NameServerGroups, decodeNameServerGroupRaw(nsg))
 	}
 
 	// Phase 6: network resources.
-	for _, nr := range full.NetworkResources {
+	for i, nr := range full.NetworkResources {
+		if nr == nil {
+			return nil, fmt.Errorf("invalid envelope: network_resources[%d] is nil", i)
+		}
 		c.NetworkResources = append(c.NetworkResources, decodeNetworkResource(nr))
 	}
 
@@ -513,6 +531,9 @@ func portRangesFromProto(ranges []*proto.PortInfo_Range) []types.RulePortRange {
 	}
 	out := make([]types.RulePortRange, 0, len(ranges))
 	for _, r := range ranges {
+		if r == nil || r.Start > 65535 || r.End > 65535 {
+			continue
+		}
 		out = append(out, types.RulePortRange{
 			Start: uint16(r.Start),
 			End:   uint16(r.End),

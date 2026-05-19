@@ -91,6 +91,7 @@ func (p *Policy) Copy() *Policy {
 	c := &Policy{
 		ID:                  p.ID,
 		AccountID:           p.AccountID,
+		AccountSeqID:        p.AccountSeqID,
 		Name:                p.Name,
 		Description:         p.Description,
 		Enabled:             p.Enabled,

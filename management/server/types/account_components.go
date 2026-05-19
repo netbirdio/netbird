@@ -348,9 +348,11 @@ func (a *Account) getPeersGroupsPoliciesRoutes(
 		for _, groupID := range r.Groups {
 			relevantGroupIDs[groupID] = a.GetGroup(groupID)
 		}
-		for _, groupID := range r.AccessControlGroups {
-			relevantGroupIDs[groupID] = a.GetGroup(groupID)
-			routeAccessControlGroups[groupID] = struct{}{}
+		if r.Enabled {
+			for _, groupID := range r.AccessControlGroups {
+				relevantGroupIDs[groupID] = a.GetGroup(groupID)
+				routeAccessControlGroups[groupID] = struct{}{}
+			}
 		}
 		relevantRoutes = append(relevantRoutes, r)
 	}

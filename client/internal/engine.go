@@ -874,8 +874,12 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		return e.ctx.Err()
 	}
 
-	if update.NetworkMap != nil && update.NetworkMap.PeerConfig != nil {
-		e.handleAutoUpdateVersion(update.NetworkMap.PeerConfig.AutoUpdate)
+	// Envelope sync responses carry PeerConfig at the top level; legacy
+	// NetworkMap syncs carry it under NetworkMap.PeerConfig.
+	if pc := update.GetPeerConfig(); pc != nil {
+		e.handleAutoUpdateVersion(pc.GetAutoUpdate())
+	} else if nm := update.GetNetworkMap(); nm != nil && nm.GetPeerConfig() != nil {
+		e.handleAutoUpdateVersion(nm.GetPeerConfig().GetAutoUpdate())
 	}
 
 	if update.GetNetbirdConfig() != nil {

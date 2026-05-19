@@ -307,7 +307,7 @@ func BuildAuthorizedUsersProto(ctx context.Context, authorizedUsers map[string]m
 			if !exists {
 				hash, err := sshauth.HashUserID(userID)
 				if err != nil {
-					log.WithContext(ctx).Errorf("failed to hash user id %s: %v", userID, err)
+					log.WithContext(ctx).WithError(err).Error("failed to hash user id")
 					continue
 				}
 				idx = uint32(len(hashedUsers))

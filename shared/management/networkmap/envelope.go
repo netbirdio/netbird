@@ -52,8 +52,8 @@ func EnvelopeToNetworkMap(ctx context.Context, env *proto.NetworkMapEnvelope, lo
 	}
 	components.PeerID = localPeerID
 
-	includeIPv6 := localPeer != nil && localPeer.SupportsIPv6() && localPeer.IPv6.IsValid()
-	useSourcePrefixes := localPeer != nil && localPeer.SupportsSourcePrefixes()
+	includeIPv6 := localPeer.SupportsIPv6() && localPeer.IPv6.IsValid()
+	useSourcePrefixes := localPeer.SupportsSourcePrefixes()
 
 	typedNM := components.Calculate(ctx)
 
@@ -149,9 +149,15 @@ func appendUniquePeers(dst, extra []*proto.RemotePeerConfig) []*proto.RemotePeer
 	}
 	seen := make(map[string]struct{}, len(dst))
 	for _, p := range dst {
+		if p == nil {
+			continue
+		}
 		seen[p.WgPubKey] = struct{}{}
 	}
 	for _, p := range extra {
+		if p == nil {
+			continue
+		}
 		if _, ok := seen[p.WgPubKey]; ok {
 			continue
 		}

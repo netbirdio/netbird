@@ -81,14 +81,15 @@ func (n *NetworkRouter) FromAPIRequest(req *api.NetworkRouterRequest) {
 
 func (n *NetworkRouter) Copy() *NetworkRouter {
 	return &NetworkRouter{
-		ID:         n.ID,
-		NetworkID:  n.NetworkID,
-		AccountID:  n.AccountID,
-		Peer:       n.Peer,
-		PeerGroups: n.PeerGroups,
-		Masquerade: n.Masquerade,
-		Metric:     n.Metric,
-		Enabled:    n.Enabled,
+		ID:           n.ID,
+		NetworkID:    n.NetworkID,
+		AccountID:    n.AccountID,
+		AccountSeqID: n.AccountSeqID,
+		Peer:         n.Peer,
+		PeerGroups:   n.PeerGroups,
+		Masquerade:   n.Masquerade,
+		Metric:       n.Metric,
+		Enabled:      n.Enabled,
 	}
 }
 

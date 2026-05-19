@@ -96,17 +96,18 @@ func (n *NetworkResource) FromAPIRequest(req *api.NetworkResourceRequest) {
 
 func (n *NetworkResource) Copy() *NetworkResource {
 	return &NetworkResource{
-		ID:          n.ID,
-		AccountID:   n.AccountID,
-		NetworkID:   n.NetworkID,
-		Name:        n.Name,
-		Description: n.Description,
-		Type:        n.Type,
-		Address:     n.Address,
-		Domain:      n.Domain,
-		Prefix:      n.Prefix,
-		GroupIDs:    n.GroupIDs,
-		Enabled:     n.Enabled,
+		ID:           n.ID,
+		AccountID:    n.AccountID,
+		NetworkID:    n.NetworkID,
+		AccountSeqID: n.AccountSeqID,
+		Name:         n.Name,
+		Description:  n.Description,
+		Type:         n.Type,
+		Address:      n.Address,
+		Domain:       n.Domain,
+		Prefix:       n.Prefix,
+		GroupIDs:     n.GroupIDs,
+		Enabled:      n.Enabled,
 	}
 }
 

@@ -43,7 +43,7 @@ func populateAccountSeqIDs(account *types.Account) {
 }
 
 // assignValidWgKeys overwrites every peer's Key with a valid base64-encoded
-// 32-byte string. The default scalableTestAccount uses unparseable strings
+// 32-byte string. The default scalableTestAccount uses unparsable strings
 // like "key-peer-0", which makes the components encoder emit a nil WgPubKey
 // and the legacy encoder ship 10-char placeholders — both shrink the wire
 // size in unrealistic ways. Production peers always have valid 44-char base64
@@ -154,14 +154,20 @@ func BenchmarkNetworkMapWireSize(b *testing.B) {
 		settings := &types.Settings{}
 
 		legacyResp := mgmtgrpc.ToSyncResponse(ctx, nil, nil, nil, peer, nil, nil, networkMap, "netbird.cloud", nil, dnsCache, settings, nil, nil, 0)
-		legacyBytes, _ := goproto.Marshal(legacyResp.NetworkMap)
+		legacyBytes, err := goproto.Marshal(legacyResp.NetworkMap)
+		if err != nil {
+			b.Fatalf("marshal legacy networkmap: %v", err)
+		}
 
 		env := mgmtgrpc.EncodeNetworkMapEnvelope(mgmtgrpc.ComponentsEnvelopeInput{
 			Components: components,
 			PeerConfig: legacyResp.NetworkMap.PeerConfig,
 			DNSDomain:  "netbird.cloud",
 		})
-		envBytes, _ := goproto.Marshal(env)
+		envBytes, err := goproto.Marshal(env)
+		if err != nil {
+			b.Fatalf("marshal envelope: %v", err)
+		}
 
 		b.Run(fmt.Sprintf("size/%s", scale.name), func(b *testing.B) {
 			b.ReportMetric(float64(len(legacyBytes)), "legacy_bytes")

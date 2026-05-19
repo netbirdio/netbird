@@ -264,36 +264,45 @@ func (e *componentEncoder) encodePolicies(policies []*types.Policy) ([]*proto.Po
 			if r == nil || !r.Enabled {
 				continue
 			}
-			pc := &proto.PolicyCompact{
-				Id:                       pol.AccountSeqID,
-				Action:                   networkmap.GetProtoAction(string(r.Action)),
-				Protocol:                 networkmap.GetProtoProtocol(string(r.Protocol)),
-				Bidirectional:            r.Bidirectional,
-				Ports:                    portsToUint32(r.Ports),
-				PortRanges:               portRangesToProto(r.PortRanges),
-				SourceGroupIds:           make([]uint32, 0, len(r.Sources)),
-				DestinationGroupIds:      make([]uint32, 0, len(r.Destinations)),
-				AuthorizedUser:           r.AuthorizedUser,
-				AuthorizedGroups:         e.encodeAuthorizedGroups(r.AuthorizedGroups),
-				SourceResource:           e.resourceToProto(r.SourceResource),
-				DestinationResource:      e.resourceToProto(r.DestinationResource),
-				SourcePostureCheckSeqIds: e.postureCheckSeqs(pol.SourcePostureChecks),
-			}
-			for _, gid := range r.Sources {
-				if seq, ok := e.groupSeq(gid); ok {
-					pc.SourceGroupIds = append(pc.SourceGroupIds, seq)
-				}
-			}
-			for _, gid := range r.Destinations {
-				if seq, ok := e.groupSeq(gid); ok {
-					pc.DestinationGroupIds = append(pc.DestinationGroupIds, seq)
-				}
-			}
 			idxByPolicy[pol] = append(idxByPolicy[pol], uint32(len(out)))
-			out = append(out, pc)
+			out = append(out, e.encodePolicyRule(pol, r))
 		}
 	}
 	return out, idxByPolicy
+}
+
+// encodePolicyRule maps a single PolicyRule under pol to a PolicyCompact entry.
+func (e *componentEncoder) encodePolicyRule(pol *types.Policy, r *types.PolicyRule) *proto.PolicyCompact {
+	return &proto.PolicyCompact{
+		Id:                       pol.AccountSeqID,
+		Action:                   networkmap.GetProtoAction(string(r.Action)),
+		Protocol:                 networkmap.GetProtoProtocol(string(r.Protocol)),
+		Bidirectional:            r.Bidirectional,
+		Ports:                    portsToUint32(r.Ports),
+		PortRanges:               portRangesToProto(r.PortRanges),
+		SourceGroupIds:           e.groupSeqIDs(r.Sources),
+		DestinationGroupIds:      e.groupSeqIDs(r.Destinations),
+		AuthorizedUser:           r.AuthorizedUser,
+		AuthorizedGroups:         e.encodeAuthorizedGroups(r.AuthorizedGroups),
+		SourceResource:           e.resourceToProto(r.SourceResource),
+		DestinationResource:      e.resourceToProto(r.DestinationResource),
+		SourcePostureCheckSeqIds: e.postureCheckSeqs(pol.SourcePostureChecks),
+	}
+}
+
+// groupSeqIDs maps the xid group IDs in src to their per-account seq ids,
+// dropping any group that has no seq id assigned.
+func (e *componentEncoder) groupSeqIDs(src []string) []uint32 {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make([]uint32, 0, len(src))
+	for _, gid := range src {
+		if seq, ok := e.groupSeq(gid); ok {
+			out = append(out, seq)
+		}
+	}
+	return out
 }
 
 // unionPolicies merges c.Policies with every policy referenced by

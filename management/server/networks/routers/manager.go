@@ -173,10 +173,20 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 		}
 
 		oldRouter, err := transaction.GetNetworkRouterByID(ctx, store.LockingStrengthNone, router.AccountID, router.ID)
-		if err != nil {
+		if err == nil {
+			router.AccountSeqID = oldRouter.AccountSeqID
+		} else if e, ok := status.FromError(err); ok && e.Type() == status.NotFound {
+			// PUT-as-upsert: caller may target a brand-new router id (used by
+			// the dashboard's "save" flow). Allocate a fresh account_seq_id so
+			// the upsert behaves the same as Create().
+			seq, allocErr := transaction.AllocateAccountSeqID(ctx, router.AccountID, serverTypes.AccountSeqEntityNetworkRouter)
+			if allocErr != nil {
+				return fmt.Errorf("failed to allocate network router seq id: %w", allocErr)
+			}
+			router.AccountSeqID = seq
+		} else {
 			return fmt.Errorf("failed to get existing network router: %w", err)
 		}
-		router.AccountSeqID = oldRouter.AccountSeqID
 
 		err = transaction.SaveNetworkRouter(ctx, router)
 		if err != nil {

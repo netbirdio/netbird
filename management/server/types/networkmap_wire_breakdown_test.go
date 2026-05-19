@@ -3,6 +3,7 @@ package types_test
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 
 	goproto "google.golang.org/protobuf/proto"
@@ -22,6 +23,9 @@ import (
 func TestNetworkMapWireBreakdown(t *testing.T) {
 	if testing.Short() {
 		t.Skip("size diagnostic, skipped with -short")
+	}
+	if os.Getenv("NB_RUN_WIRE_BREAKDOWN") != "1" {
+		t.Skip("set NB_RUN_WIRE_BREAKDOWN=1 to run wire breakdown diagnostic")
 	}
 
 	const peerCount, groupCount = 5000, 100
@@ -74,6 +78,9 @@ func TestNetworkMapWireBreakdown(t *testing.T) {
 	}
 
 	full := envelope.GetFull()
+	if full == nil {
+		t.Fatalf("expected full network map envelope payload, got nil")
+	}
 	t.Logf("\n=== COMPONENTS NetworkMapEnvelope (%d peers, %d groups) ===", peerCount, groupCount)
 	t.Logf("  Total: %d bytes  (%.1f%% of legacy)\n", componentsTotal, pct(componentsTotal, legacyTotal))
 

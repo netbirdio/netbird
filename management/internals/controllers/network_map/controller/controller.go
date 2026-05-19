@@ -223,7 +223,7 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 
 			c.metrics.CountCalcPeerNetworkMapDuration(time.Since(start))
 
-			proxyNetworkMap := proxyNetworkMaps[peer.ID]
+			proxyNetworkMap := proxyNetworkMaps[p.ID]
 			if result.NetworkMap != nil && proxyNetworkMap != nil {
 				result.NetworkMap.Merge(proxyNetworkMap)
 			}

@@ -131,6 +131,7 @@ func (r *Route) Copy() *Route {
 	route := &Route{
 		ID:                  r.ID,
 		AccountID:           r.AccountID,
+		AccountSeqID:        r.AccountSeqID,
 		Description:         r.Description,
 		NetID:               r.NetID,
 		Network:             r.Network,
