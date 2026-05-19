@@ -50,9 +50,11 @@ var routesDeselectCmd = &cobra.Command{
 func init() {
 	routesSelectCmd.PersistentFlags().BoolVarP(&appendFlag, "append", "a", false, "Append to current network selection instead of replacing")
 
-	routesListCmd.PersistentFlags().BoolVarP(&jsonFlag, "json", "j", false, "display command result in json format")
-	routesListCmd.PersistentFlags().BoolVarP(&yamlFlag, "yaml", "y", false, "display command result in yaml format")
-	routesListCmd.MarkFlagsMutuallyExclusive("json", "yaml")
+	for _, c := range []*cobra.Command{routesListCmd, routesSelectCmd, routesDeselectCmd} {
+		c.PersistentFlags().BoolVarP(&jsonFlag, "json", "j", false, "display command result in json format")
+		c.PersistentFlags().BoolVarP(&yamlFlag, "yaml", "y", false, "display command result in yaml format")
+		c.MarkFlagsMutuallyExclusive("json", "yaml")
+	}
 }
 
 func networksList(cmd *cobra.Command, _ []string) error {
@@ -185,10 +187,9 @@ func networksSelect(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to select networks: %v", status.Convert(err).Message())
 	}
 
-	cmd.Println("Networks selected successfully.")
-
-	return nil
+	return emitNetworksMutation(cmd, "selected", req, "Networks selected successfully.")
 }
+
 
 func networksDeselect(cmd *cobra.Command, args []string) error {
 	conn, err := getClient(cmd)
@@ -210,7 +211,35 @@ func networksDeselect(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to deselect networks: %v", status.Convert(err).Message())
 	}
 
-	cmd.Println("Networks deselected successfully.")
+	return emitNetworksMutation(cmd, "deselected", req, "Networks deselected successfully.")
+}
 
+func emitNetworksMutation(cmd *cobra.Command, action string, req *proto.SelectNetworksRequest, textFallback string) error {
+	if !jsonFlag && !yamlFlag {
+		cmd.Println(textFallback)
+		return nil
+	}
+
+	out := &nbstatus.NetworksMutationOutput{
+		Status: action,
+		All:    req.GetAll(),
+	}
+	if !req.GetAll() {
+		out.Networks = req.GetNetworkIDs()
+	}
+
+	if jsonFlag {
+		s, err := out.JSON()
+		if err != nil {
+			return err
+		}
+		cmd.Println(s)
+		return nil
+	}
+	s, err := out.YAML()
+	if err != nil {
+		return err
+	}
+	cmd.Print(s)
 	return nil
 }

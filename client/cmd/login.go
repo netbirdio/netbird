@@ -28,6 +28,10 @@ func init() {
 	loginCmd.PersistentFlags().BoolVar(&showQR, showQRFlag, false, showQRDesc)
 	loginCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
 	loginCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "(DEPRECATED) Netbird config file location")
+
+	loginCmd.PersistentFlags().BoolVarP(&jsonFlag, "json", "j", false, "display command result in json format")
+	loginCmd.PersistentFlags().BoolVarP(&yamlFlag, "yaml", "y", false, "display command result in yaml format")
+	loginCmd.MarkFlagsMutuallyExclusive("json", "yaml")
 }
 
 var loginCmd = &cobra.Command{
@@ -74,10 +78,34 @@ var loginCmd = &cobra.Command{
 			return fmt.Errorf("daemon login failed: %v", err)
 		}
 
-		cmd.Println("Logging successfully")
-
-		return nil
+		return emitLoginOutput(cmd, activeProf.Name)
 	},
+}
+
+// emitLoginOutput writes the result of a successful login in the format
+// requested by the user (json, yaml, or human-readable text fallback).
+func emitLoginOutput(cmd *cobra.Command, profileName string) error {
+	out := &nbstatus.LoginOutput{
+		Status:      "logged_in",
+		ProfileName: profileName,
+	}
+	switch {
+	case jsonFlag:
+		s, err := out.JSON()
+		if err != nil {
+			return err
+		}
+		cmd.Println(s)
+	case yamlFlag:
+		s, err := out.YAML()
+		if err != nil {
+			return err
+		}
+		cmd.Print(s)
+	default:
+		cmd.Println("Logging successfully")
+	}
+	return nil
 }
 
 func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey string, activeProf *profilemanager.Profile, username string, pm *profilemanager.ProfileManager) error {
@@ -254,8 +282,7 @@ func doForegroundLogin(ctx context.Context, cmd *cobra.Command, setupKey string,
 	if err != nil {
 		return fmt.Errorf("foreground login failed: %v", err)
 	}
-	cmd.Println("Logging successfully")
-	return nil
+	return emitLoginOutput(cmd, activeProf.Name)
 }
 
 func handleSSOLogin(ctx context.Context, cmd *cobra.Command, loginResp *proto.LoginResponse, client proto.DaemonServiceClient, pm *profilemanager.ProfileManager) error {

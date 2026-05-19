@@ -17,6 +17,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/server"
+	nbstatus "github.com/netbirdio/netbird/client/status"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/upload-server/types"
 )
@@ -108,16 +109,41 @@ func debugBundle(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to bundle debug: %v", status.Convert(err).Message())
 	}
-	cmd.Printf("Local file:\n%s\n", resp.GetPath())
 
 	if resp.GetUploadFailureReason() != "" {
 		return fmt.Errorf("upload failed: %s", resp.GetUploadFailureReason())
 	}
 
-	if uploadBundleFlag {
-		cmd.Printf("Upload file key:\n%s\n", resp.GetUploadedKey())
+	return emitDebugBundle(cmd, resp.GetPath(), resp.GetUploadedKey())
+}
+
+func emitDebugBundle(cmd *cobra.Command, path, uploadedKey string) error {
+	if !jsonFlag && !yamlFlag {
+		cmd.Printf("Local file:\n%s\n", path)
+		if uploadBundleFlag {
+			cmd.Printf("Upload file key:\n%s\n", uploadedKey)
+		}
+		return nil
 	}
 
+	out := &nbstatus.DebugBundleOutput{Path: path}
+	if uploadBundleFlag {
+		out.UploadedKey = uploadedKey
+	}
+
+	if jsonFlag {
+		s, err := out.JSON()
+		if err != nil {
+			return err
+		}
+		cmd.Println(s)
+		return nil
+	}
+	s, err := out.YAML()
+	if err != nil {
+		return err
+	}
+	cmd.Print(s)
 	return nil
 }
 
@@ -451,6 +477,9 @@ func init() {
 	debugBundleCmd.Flags().BoolVarP(&systemInfoFlag, "system-info", "S", true, "Adds system information to the debug bundle")
 	debugBundleCmd.Flags().BoolVarP(&uploadBundleFlag, "upload-bundle", "U", false, "Uploads the debug bundle to a server")
 	debugBundleCmd.Flags().StringVar(&uploadBundleURLFlag, "upload-bundle-url", types.DefaultBundleURL, "Service URL to get an URL to upload the debug bundle")
+	debugBundleCmd.PersistentFlags().BoolVarP(&jsonFlag, "json", "j", false, "display command result in json format")
+	debugBundleCmd.PersistentFlags().BoolVarP(&yamlFlag, "yaml", "y", false, "display command result in yaml format")
+	debugBundleCmd.MarkFlagsMutuallyExclusive("json", "yaml")
 
 	forCmd.Flags().Uint32VarP(&logFileCount, "log-file-count", "C", 1, "Number of rotated log files to include in debug bundle")
 	forCmd.Flags().BoolVarP(&systemInfoFlag, "system-info", "S", true, "Adds system information to the debug bundle")

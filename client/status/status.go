@@ -564,6 +564,104 @@ func (o *StateListOutput) YAML() (string, error) {
 	return string(yamlBytes), nil
 }
 
+// DeregisterOutput is the structured result of `netbird deregister`.
+type DeregisterOutput struct {
+	Status      string `json:"status" yaml:"status"` // "deregistered"
+	ProfileName string `json:"profileName,omitempty" yaml:"profileName,omitempty"`
+}
+
+// JSON returns the DeregisterOutput as a JSON string.
+func (o *DeregisterOutput) JSON() (string, error) {
+	jsonBytes, err := json.Marshal(o)
+	if err != nil {
+		return "", fmt.Errorf("json marshal failed")
+	}
+	return string(jsonBytes), err
+}
+
+// YAML returns the DeregisterOutput as a YAML string.
+func (o *DeregisterOutput) YAML() (string, error) {
+	yamlBytes, err := yaml.Marshal(o)
+	if err != nil {
+		return "", fmt.Errorf("yaml marshal failed")
+	}
+	return string(yamlBytes), nil
+}
+
+// LoginOutput is the structured result of `netbird login` after successful auth.
+type LoginOutput struct {
+	Status      string `json:"status" yaml:"status"` // "logged_in"
+	ProfileName string `json:"profileName,omitempty" yaml:"profileName,omitempty"`
+}
+
+// JSON returns the LoginOutput as a JSON string.
+func (o *LoginOutput) JSON() (string, error) {
+	jsonBytes, err := json.Marshal(o)
+	if err != nil {
+		return "", fmt.Errorf("json marshal failed")
+	}
+	return string(jsonBytes), err
+}
+
+// YAML returns the LoginOutput as a YAML string.
+func (o *LoginOutput) YAML() (string, error) {
+	yamlBytes, err := yaml.Marshal(o)
+	if err != nil {
+		return "", fmt.Errorf("yaml marshal failed")
+	}
+	return string(yamlBytes), nil
+}
+
+// NetworksMutationOutput is the structured result of `netbird networks select`
+// or `netbird networks deselect`.
+type NetworksMutationOutput struct {
+	Status   string   `json:"status" yaml:"status"` // "selected" | "deselected"
+	Networks []string `json:"networks,omitempty" yaml:"networks,omitempty"`
+	All      bool     `json:"all,omitempty" yaml:"all,omitempty"`
+}
+
+// JSON returns the NetworksMutationOutput as a JSON string.
+func (o *NetworksMutationOutput) JSON() (string, error) {
+	jsonBytes, err := json.Marshal(o)
+	if err != nil {
+		return "", fmt.Errorf("json marshal failed")
+	}
+	return string(jsonBytes), err
+}
+
+// YAML returns the NetworksMutationOutput as a YAML string.
+func (o *NetworksMutationOutput) YAML() (string, error) {
+	yamlBytes, err := yaml.Marshal(o)
+	if err != nil {
+		return "", fmt.Errorf("yaml marshal failed")
+	}
+	return string(yamlBytes), nil
+}
+
+// DebugBundleOutput is the structured result of `netbird debug bundle`.
+type DebugBundleOutput struct {
+	Path        string `json:"path" yaml:"path"`
+	UploadedKey string `json:"uploadedKey,omitempty" yaml:"uploadedKey,omitempty"`
+}
+
+// JSON returns the DebugBundleOutput as a JSON string.
+func (o *DebugBundleOutput) JSON() (string, error) {
+	jsonBytes, err := json.Marshal(o)
+	if err != nil {
+		return "", fmt.Errorf("json marshal failed")
+	}
+	return string(jsonBytes), err
+}
+
+// YAML returns the DebugBundleOutput as a YAML string.
+func (o *DebugBundleOutput) YAML() (string, error) {
+	yamlBytes, err := yaml.Marshal(o)
+	if err != nil {
+		return "", fmt.Errorf("yaml marshal failed")
+	}
+	return string(yamlBytes), nil
+}
+
 // VersionOutput is the structured result of `netbird version`.
 type VersionOutput struct {
 	Version string `json:"version" yaml:"version"`

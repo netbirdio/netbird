@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/netbirdio/netbird/client/proto"
+	nbstatus "github.com/netbirdio/netbird/client/status"
 )
 
 var logoutCmd = &cobra.Command{
@@ -49,11 +50,33 @@ var logoutCmd = &cobra.Command{
 			return fmt.Errorf("deregister: %v", err)
 		}
 
-		cmd.Println("Deregistered successfully")
+		out := &nbstatus.DeregisterOutput{
+			Status:      "deregistered",
+			ProfileName: profileName,
+		}
+		switch {
+		case jsonFlag:
+			s, err := out.JSON()
+			if err != nil {
+				return err
+			}
+			cmd.Println(s)
+		case yamlFlag:
+			s, err := out.YAML()
+			if err != nil {
+				return err
+			}
+			cmd.Print(s)
+		default:
+			cmd.Println("Deregistered successfully")
+		}
 		return nil
 	},
 }
 
 func init() {
 	logoutCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
+	logoutCmd.PersistentFlags().BoolVarP(&jsonFlag, "json", "j", false, "display command result in json format")
+	logoutCmd.PersistentFlags().BoolVarP(&yamlFlag, "yaml", "y", false, "display command result in yaml format")
+	logoutCmd.MarkFlagsMutuallyExclusive("json", "yaml")
 }
