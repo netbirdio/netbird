@@ -49,6 +49,14 @@ const (
 	// The opcode is in the vendor-specific range (>=128).
 	clientNetbirdTypeText = 250
 
+	// clientNetbirdShowRemoteCursor toggles "show remote cursor" mode.
+	// When enabled the encoder composites the server cursor sprite into
+	// the captured framebuffer and suppresses the Cursor pseudo-encoding
+	// so the dashboard sees a single pointer at the remote position.
+	// Wire format: 1-byte msgType + 1-byte enable flag + 6 padding bytes
+	// reserved for future arguments (so the message is fixed-size).
+	clientNetbirdShowRemoteCursor = 251
+
 	// Server message types.
 	serverFramebufferUpdate = 0
 	serverCutText           = 3

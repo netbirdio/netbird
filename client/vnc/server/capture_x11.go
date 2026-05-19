@@ -425,6 +425,16 @@ func (p *X11Poller) Cursor() (*image.RGBA, int, int, uint64, error) {
 	return p.capturer.Cursor()
 }
 
+// CursorPos satisfies cursorPositionSource by forwarding to the X11Capturer.
+func (p *X11Poller) CursorPos() (int, int, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if err := p.ensureCapturerLocked(); err != nil {
+		return 0, 0, err
+	}
+	return p.capturer.CursorPos()
+}
+
 // Capture returns a fresh frame, serving from the short-lived cache if a
 // previous caller captured within freshWindow.
 func (p *X11Poller) Capture() (*image.RGBA, error) {

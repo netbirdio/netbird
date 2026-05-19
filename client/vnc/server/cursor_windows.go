@@ -86,6 +86,9 @@ type cursorSnapshot struct {
 	img    *image.RGBA
 	hotX   int
 	hotY   int
+	posX   int
+	posY   int
+	hasPos bool
 	serial uint64
 	err    error
 }
@@ -118,14 +121,26 @@ func (s *cursorSampler) sample() (*cursorSnapshot, error) {
 		// treating this as a hard failure that would latch us off for
 		// the session.
 		if s.lastHandle == hiddenHandle {
+			s.snapshot.posX = int(ci.PtPos.X)
+			s.snapshot.posY = int(ci.PtPos.Y)
+			s.snapshot.hasPos = true
 			return s.snapshot, nil
 		}
 		s.lastHandle = hiddenHandle
 		s.serial++
-		s.snapshot = &cursorSnapshot{img: transparentCursorImage(), serial: s.serial}
+		s.snapshot = &cursorSnapshot{
+			img:    transparentCursorImage(),
+			posX:   int(ci.PtPos.X),
+			posY:   int(ci.PtPos.Y),
+			hasPos: true,
+			serial: s.serial,
+		}
 		return s.snapshot, nil
 	}
 	if ci.Cursor == s.lastHandle && s.snapshot != nil {
+		s.snapshot.posX = int(ci.PtPos.X)
+		s.snapshot.posY = int(ci.PtPos.Y)
+		s.snapshot.hasPos = true
 		return s.snapshot, nil
 	}
 	img, hotX, hotY, err := decodeCursor(ci.Cursor)
@@ -134,7 +149,15 @@ func (s *cursorSampler) sample() (*cursorSnapshot, error) {
 	}
 	s.lastHandle = ci.Cursor
 	s.serial++
-	s.snapshot = &cursorSnapshot{img: img, hotX: hotX, hotY: hotY, serial: s.serial}
+	s.snapshot = &cursorSnapshot{
+		img:    img,
+		hotX:   hotX,
+		hotY:   hotY,
+		posX:   int(ci.PtPos.X),
+		posY:   int(ci.PtPos.Y),
+		hasPos: true,
+		serial: s.serial,
+	}
 	return s.snapshot, nil
 }
 
@@ -347,4 +370,21 @@ func (c *DesktopCapturer) Cursor() (*image.RGBA, int, int, uint64, error) {
 		return nil, 0, 0, 0, snap.err
 	}
 	return snap.img, snap.hotX, snap.hotY, snap.serial, nil
+}
+
+// CursorPos returns the cursor screen position observed by the worker on
+// its last sample. Errors out if the worker hasn't yet captured a frame
+// or the most recent sample failed.
+func (c *DesktopCapturer) CursorPos() (int, int, error) {
+	snap := c.cursorState.load()
+	if snap == nil {
+		return 0, 0, fmt.Errorf("cursor position not sampled yet")
+	}
+	if snap.err != nil {
+		return 0, 0, snap.err
+	}
+	if !snap.hasPos {
+		return 0, 0, fmt.Errorf("cursor position unavailable")
+	}
+	return snap.posX, snap.posY, nil
 }

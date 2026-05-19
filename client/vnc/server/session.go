@@ -92,6 +92,15 @@ type session struct {
 	// what the client advertises. Set for virtual sessions where no
 	// usable cursor source exists. Constant for the session lifetime.
 	disableCursor bool
+	// showRemoteCursor switches the encoder to compositing the server
+	// cursor sprite into the captured framebuffer at the remote position
+	// instead of emitting the Cursor pseudo-encoding. Toggled by the
+	// dashboard via clientNetbirdShowRemoteCursor.
+	showRemoteCursor bool
+	// cursorWarnOnce throttles the diagnostic emitted when remote-cursor
+	// compositing falls back to a no-op (capturer cannot supply a sprite
+	// or position). One line per session is enough to point at the cause.
+	cursorWarnOnce sync.Once
 	// clientJPEGQuality and clientZlibLevel hold the 0..9 levels the client
 	// advertised via the QualityLevel / CompressLevel pseudo-encodings, or
 	// -1 when the client has not expressed a preference. Applied to the
@@ -274,6 +283,8 @@ func (s *session) messageLoop() error {
 			err = s.handleQEMUMessage()
 		case clientNetbirdTypeText:
 			err = s.handleTypeText()
+		case clientNetbirdShowRemoteCursor:
+			err = s.handleShowRemoteCursor()
 		default:
 			return fmt.Errorf("unknown client message type: %d", msgType[0])
 		}

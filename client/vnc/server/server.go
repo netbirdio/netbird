@@ -79,6 +79,14 @@ type cursorSource interface {
 	Cursor() (img *image.RGBA, hotX, hotY int, serial uint64, err error)
 }
 
+// cursorPositionSource adds the cursor's current screen-space position to
+// cursorSource so the encoder can alpha-blend the sprite into the captured
+// framebuffer for "show remote cursor" mode. Implementations should be
+// cheap; most platforms already get the position alongside the sprite.
+type cursorPositionSource interface {
+	CursorPos() (x, y int, err error)
+}
+
 // errFrameUnchanged is returned by capturers that hash the raw source
 // bytes (currently macOS) when the new frame is byte-identical to the
 // last one, so the encoder can short-circuit to an empty update.

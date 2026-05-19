@@ -15,9 +15,10 @@ func (s *session) pendingCursorRect() []byte {
 	s.encMu.RLock()
 	supported := s.clientSupportsCursor
 	failed := s.cursorSourceFailed
+	composite := s.showRemoteCursor
 	lastSerial := s.lastCursorSerial
 	s.encMu.RUnlock()
-	if !supported || failed {
+	if !supported || failed || composite {
 		return nil
 	}
 	src, ok := s.capturer.(cursorSource)

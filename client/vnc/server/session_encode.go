@@ -67,6 +67,8 @@ func (s *session) processFBRequest(req fbRequest) error {
 	}
 	s.captureRecovered()
 
+	s.maybeCompositeCursor(img)
+
 	if req.incremental && s.prevFrame != nil {
 		return s.processIncremental(img)
 	}

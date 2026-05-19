@@ -156,6 +156,21 @@ func (c *CGCapturer) Cursor() (*image.RGBA, int, int, uint64, error) {
 	return c.cursor.Cursor()
 }
 
+// CursorPos returns the current global mouse location via CGEventCreate /
+// CGEventGetLocation. Coordinates are screen pixels in the main display.
+func (c *CGCapturer) CursorPos() (int, int, error) {
+	if cgEventCreate == nil || cgEventGetLocation == nil {
+		return 0, 0, fmt.Errorf("CGEvent location APIs unavailable")
+	}
+	ev := cgEventCreate(0)
+	if ev == 0 {
+		return 0, 0, fmt.Errorf("CGEventCreate returned nil")
+	}
+	defer cfRelease(ev)
+	pt := cgEventGetLocation(ev)
+	return int(pt.X), int(pt.Y), nil
+}
+
 // Cursor on MacPoller forwards to the lazy CGCapturer. ensureCapturerLocked
 // returns an error when Screen Recording permission has not been granted;
 // in that case there is no usable cursor source either.
@@ -166,4 +181,14 @@ func (p *MacPoller) Cursor() (*image.RGBA, int, int, uint64, error) {
 		return nil, 0, 0, 0, err
 	}
 	return p.capturer.Cursor()
+}
+
+// CursorPos forwards to the lazy CGCapturer.
+func (p *MacPoller) CursorPos() (int, int, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if err := p.ensureCapturerLocked(); err != nil {
+		return 0, 0, err
+	}
+	return p.capturer.CursorPos()
 }
