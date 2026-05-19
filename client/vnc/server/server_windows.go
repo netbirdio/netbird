@@ -240,7 +240,7 @@ func (s *Server) serviceAcceptLoop() {
 	sm := newSessionManager(agentPort)
 	go sm.run()
 
-	log.Infof("service mode, proxying connections to agent on 127.0.0.1:%s", agentPort)
+	log.Infof("service mode, proxying connections to agent on 127.0.0.1:%d", agentPort)
 
 	for {
 		conn, err := s.listener.Accept()
