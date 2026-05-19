@@ -141,6 +141,7 @@ func (m *Metrics) initSyncMetrics(meter metric.Meter) error {
 		"proxy.sync.snapshot.duration.ms",
 		metric.WithUnit("milliseconds"),
 		metric.WithDescription("Duration from management connect until the initial snapshot sync is complete"),
+		metric.WithExplicitBucketBoundaries(100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000, 120000, 300000),
 	)
 	if err != nil {
 		return err
