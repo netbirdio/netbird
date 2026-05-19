@@ -845,13 +845,21 @@ func (s *Server) ExtendAuthSession(ctx context.Context, req *proto.EncryptedMess
 	}
 
 	var userID string
-	for i := 0; i < 3; i++ {
+	const attempts = 3
+	for i := 0; i < attempts; i++ {
 		userID, err = s.validateToken(ctx, peerKey.String(), jwt)
 		if err == nil {
 			break
 		}
+		if i == attempts-1 {
+			break
+		}
 		log.WithContext(ctx).Warnf("failed validating JWT token while extending session for peer %s: %v. Retrying (idP cache).", peerKey.String(), err)
-		time.Sleep(200 * time.Millisecond)
+		select {
+		case <-time.After(200 * time.Millisecond):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 	if err != nil {
 		return nil, err
