@@ -51,12 +51,18 @@ type metricsConn struct {
 	maxFBUBytes uint64
 	maxFBURects uint64
 
-	tickMu       sync.Mutex
-	tickStart    time.Time
-	tickPrevB    uint64
-	tickPrevW    uint64
-	tickPrevF    uint64
-	tickPrevNS   uint64
+	tickMu     sync.Mutex
+	tickStart  time.Time
+	tickPrevB  uint64
+	tickPrevW  uint64
+	tickPrevF  uint64
+	tickPrevNS uint64
+
+	// busyMu guards the sliding window used by BusyFraction.
+	busyMu        sync.Mutex
+	busyLastTime  time.Time
+	busyLastNanos uint64
+	busyFraction  float64
 
 	closeOnce sync.Once
 	done      chan struct{}
@@ -129,6 +135,38 @@ func (m *metricsConn) flushTick(final bool) {
 		MaxWriteBytes: maxPkt,
 		WriteNanos:    dns,
 	})
+}
+
+// BusyFraction reports the fraction of recent wall time that Write spent
+// blocked in the underlying socket, as an exponentially smoothed value in
+// [0, 1]. Approximates downstream backpressure: persistent values near 1
+// mean the socket cannot keep up with the encoder's output. Callers can
+// throttle JPEG quality or skip frames in response.
+func (m *metricsConn) BusyFraction() float64 {
+	now := time.Now()
+	ns := atomic.LoadUint64(&m.writeNanos)
+
+	m.busyMu.Lock()
+	defer m.busyMu.Unlock()
+	if m.busyLastTime.IsZero() {
+		m.busyLastTime = now
+		m.busyLastNanos = ns
+		return 0
+	}
+	period := now.Sub(m.busyLastTime)
+	if period < 50*time.Millisecond {
+		return m.busyFraction
+	}
+	delta := ns - m.busyLastNanos
+	sample := float64(delta) / float64(period.Nanoseconds())
+	if sample > 1 {
+		sample = 1
+	}
+	const alpha = 0.4
+	m.busyFraction = alpha*sample + (1-alpha)*m.busyFraction
+	m.busyLastTime = now
+	m.busyLastNanos = ns
+	return m.busyFraction
 }
 
 // isFBUHeader reports whether the given Write payload is the 4-byte

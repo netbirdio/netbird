@@ -37,6 +37,11 @@ func (s *session) processFBRequest(req fbRequest) error {
 		return err
 	}
 
+	busy := s.applyBackpressure()
+	if busy >= backpressureSkipThreshold {
+		return s.sendEmptyUpdate()
+	}
+
 	img, err := s.captureFrame()
 	if errors.Is(err, errFrameUnchanged) {
 		// macOS hashes the raw capture bytes and short-circuits when the
@@ -121,6 +126,60 @@ func (s *session) processIncremental(img *image.RGBA) error {
 	s.swapPrevCur()
 	s.updateCopyRectIndex(dirty)
 	return nil
+}
+
+// backpressureSkipThreshold is the BusyFraction at and above which we drop
+// the next encode entirely and respond with an empty FramebufferUpdate.
+// Above this level the encoder would only stack more bytes behind a socket
+// that is already write-blocked, raising end-to-end latency.
+const backpressureSkipThreshold = 0.65
+
+// backpressureRampStart is where adaptive quality begins clipping. Below
+// this fraction the honoured client quality is used as-is.
+const backpressureRampStart = 0.2
+
+// backpressureMinQuality is the floor JPEG quality picked when the socket
+// is fully saturated short of the skip threshold.
+const backpressureMinQuality = 25
+
+// applyBackpressure samples the socket BusyFraction (if available) and, if
+// Tight is in use, ramps the active JPEG quality from the client-honoured
+// value down to backpressureMinQuality as the fraction climbs from
+// backpressureRampStart toward backpressureSkipThreshold. Returns the
+// observed fraction so the caller can decide whether to skip the frame.
+func (s *session) applyBackpressure() float64 {
+	type busyReporter interface{ BusyFraction() float64 }
+	bs, ok := s.conn.(busyReporter)
+	if !ok {
+		return 0
+	}
+	frac := bs.BusyFraction()
+
+	s.encMu.RLock()
+	tight := s.tight
+	s.encMu.RUnlock()
+	if tight == nil {
+		return frac
+	}
+
+	base := jpegQualityForLevel(tight.qualityLevel)
+	if base == 0 {
+		base = tightJPEGQuality
+	}
+	q := base
+	if frac > backpressureRampStart {
+		span := backpressureSkipThreshold - backpressureRampStart
+		t := (frac - backpressureRampStart) / span
+		if t > 1 {
+			t = 1
+		}
+		q = base - int(float64(base-backpressureMinQuality)*t)
+		if q < backpressureMinQuality {
+			q = backpressureMinQuality
+		}
+	}
+	tight.jpegQualityOverride = q
+	return frac
 }
 
 // captureErrorLog emits one log line on the first failure after success,
