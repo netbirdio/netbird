@@ -291,17 +291,24 @@ func (s *session) sendFullUpdate(img *image.RGBA) error {
 	pf := s.pf
 	useTight := s.useTight
 	tight := s.tight
+	useZlib := s.useZlib
+	zlib := s.zlib
 	s.encMu.RUnlock()
 
 	if useTight && tight != nil && pfIsTightCompatible(pf) {
-		// Tight encodes arbitrary sizes natively (Fill for uniform, JPEG
-		// for photo-like, Basic+zlib otherwise). Wrap the rect bytes with
-		// the 4-byte FramebufferUpdate header.
 		rectBuf := encodeTightRect(img, pf, 0, 0, w, h, tight)
 		buf := make([]byte, 4+len(rectBuf))
 		buf[0] = serverFramebufferUpdate
 		binary.BigEndian.PutUint16(buf[2:4], 1)
 		copy(buf[4:], rectBuf)
+		s.writeMu.Lock()
+		_, err := s.conn.Write(buf)
+		s.writeMu.Unlock()
+		return err
+	}
+
+	if useZlib && zlib != nil {
+		buf := encodeZlibRect(img, pf, 0, 0, w, h, zlib)
 		s.writeMu.Lock()
 		_, err := s.conn.Write(buf)
 		s.writeMu.Unlock()
@@ -366,12 +373,26 @@ func (s *session) sendDirtyAndMoves(img *image.RGBA, moves []copyRectMove, rects
 func (s *session) encodeTile(img *image.RGBA, x, y, w, h int) []byte {
 	s.encMu.RLock()
 	pf := s.pf
+	useHextile := s.useHextile
 	useTight := s.useTight
 	tight := s.tight
+	useZlib := s.useZlib
+	zlib := s.zlib
 	s.encMu.RUnlock()
 
+	if useHextile {
+		if pixel, uniform := tileIsUniform(img, x, y, w, h); uniform {
+			r := byte(pixel)
+			g := byte(pixel >> 8)
+			b := byte(pixel >> 16)
+			return encodeHextileSolidRect(r, g, b, pf, rect{x, y, w, h})
+		}
+	}
 	if useTight && tight != nil && pfIsTightCompatible(pf) {
 		return encodeTightRect(img, pf, x, y, w, h, tight)
+	}
+	if useZlib && zlib != nil {
+		return encodeZlibRect(img, pf, x, y, w, h, zlib)[4:]
 	}
 	return encodeRawRect(img, pf, x, y, w, h)[4:]
 }

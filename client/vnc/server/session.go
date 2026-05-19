@@ -50,7 +50,10 @@ type session struct {
 	pf          clientPixelFormat
 	useTight    bool
 	useCopyRect bool
+	useZlib     bool
+	useHextile  bool
 	tight       *tightState
+	zlib        *zlibState
 	copyRectDet *copyRectDetector
 	// Pseudo-encodings the client advertised support for. Updated under
 	// encMu by handleSetEncodings and read by the encoder goroutine.
@@ -336,6 +339,8 @@ func (s *session) handleSetEncodings() error {
 func (s *session) resetEncodingCaps() {
 	s.useTight = false
 	s.useCopyRect = false
+	s.useZlib = false
+	s.useHextile = false
 	s.clientSupportsDesktopSize = false
 	s.clientSupportsExtendedDesktopSize = false
 	s.clientSupportsDesktopName = false
@@ -378,6 +383,15 @@ func (s *session) applyEncoding(enc int32) string {
 	case encTight:
 		s.useTight = true
 		return "tight"
+	case encZlib:
+		s.useZlib = true
+		if s.zlib == nil {
+			s.zlib = newZlibStateLevel(zlibLevelFor(-1))
+		}
+		return "zlib"
+	case encHextile:
+		s.useHextile = true
+		return "hextile"
 	}
 	if enc >= pseudoEncQualityLevelMin && enc <= pseudoEncQualityLevelMax {
 		s.clientJPEGQuality = int(enc - pseudoEncQualityLevelMin)
