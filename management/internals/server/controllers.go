@@ -40,6 +40,7 @@ func (s *BaseServer) IntegratedValidator() integrated_validator.IntegratedValida
 	return Create(s, func() integrated_validator.IntegratedValidator {
 		integratedPeerValidator, err := integrations.NewIntegratedValidator(
 			context.Background(),
+			nil,
 			s.PeersManager(),
 			s.SettingsManager(),
 			s.EventStore(),

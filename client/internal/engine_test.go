@@ -66,8 +66,8 @@ import (
 	"github.com/netbirdio/netbird/route"
 	mgmt "github.com/netbirdio/netbird/shared/management/client"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
-	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	"github.com/netbirdio/netbird/shared/netiputil"
+	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 	"github.com/netbirdio/netbird/shared/signal/proto"
 	signalServer "github.com/netbirdio/netbird/signal/server"
@@ -1641,7 +1641,7 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 		return nil, "", err
 	}
 
-	ia, _ := integrations.NewIntegratedValidator(context.Background(), peersManager, nil, eventStore, cacheStore)
+	ia, _ := integrations.NewIntegratedValidator(context.Background(), nil, peersManager, nil, eventStore, cacheStore)
 
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)

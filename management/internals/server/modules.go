@@ -63,7 +63,7 @@ func (s *BaseServer) PermissionsManager() permissions.Manager {
 			manager.SetAccountManager(s.AccountManager())
 		})
 
-		return manager
+		return permissions.NewManager(s.Store())
 	})
 }
 
@@ -152,7 +152,6 @@ func (s *BaseServer) IdpManager() idp.Manager {
 
 			return idpManager
 		}
-
 
 		return nil
 	})
