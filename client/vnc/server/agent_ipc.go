@@ -3,8 +3,10 @@
 package server
 
 import (
+	"bufio"
 	crand "crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -23,6 +25,12 @@ const (
 
 	// agentTokenLen is the size of the random per-spawn token in bytes.
 	agentTokenLen = 32
+
+	// agentTokenEnvVar names the environment variable the daemon uses to
+	// hand the per-spawn token to the agent child. Out-of-band channels
+	// like this keep the secret out of the command line, where listings
+	// such as `ps` or Windows tasklist would expose it.
+	agentTokenEnvVar = "NB_VNC_AGENT_TOKEN" // #nosec G101 -- env var name, not a credential
 )
 
 // generateAuthToken returns a fresh hex-encoded random token for one
@@ -71,6 +79,60 @@ func proxyToAgent(client net.Conn, port uint16, authToken string) {
 	go cp("client→agent", agentConn, client)
 	go cp("agent→client", client, agentConn)
 	<-done
+}
+
+// relogAgentStream reads log lines from the agent's stderr and re-emits
+// them through the daemon's logrus, so the merged log keeps a single
+// format. JSON lines (the agent's normal output) are parsed and dispatched
+// by level; plain-text lines (cobra errors, panic traces) are forwarded
+// verbatim so early-startup failures stay visible.
+func relogAgentStream(r io.Reader) {
+	entry := log.WithField("component", "vnc-agent")
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		if line[0] != '{' {
+			entry.Warn(string(line))
+			continue
+		}
+		var m map[string]any
+		if err := json.Unmarshal(line, &m); err != nil {
+			entry.Warn(string(line))
+			continue
+		}
+		msg, _ := m["msg"].(string)
+		if msg == "" {
+			continue
+		}
+		fields := make(log.Fields)
+		for k, v := range m {
+			switch k {
+			case "msg", "level", "time", "func":
+				continue
+			case "caller":
+				fields["source"] = v
+			default:
+				fields[k] = v
+			}
+		}
+		e := entry.WithFields(fields)
+		switch m["level"] {
+		case "error":
+			e.Error(msg)
+		case "warning":
+			e.Warn(msg)
+		case "debug":
+			e.Debug(msg)
+		case "trace":
+			e.Trace(msg)
+		default:
+			e.Info(msg)
+		}
+	}
 }
 
 // dialAgentWithRetry retries the loopback connect for up to ~10 s so the

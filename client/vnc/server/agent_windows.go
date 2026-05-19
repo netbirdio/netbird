@@ -3,9 +3,7 @@
 package server
 
 import (
-	"bufio"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -285,7 +283,6 @@ func getSystemTokenForSession(sessionID uint32) (windows.Token, error) {
 	return dup, nil
 }
 
-const agentTokenEnvVar = "NB_VNC_AGENT_TOKEN" // #nosec G101 -- env var name, not a credential
 
 // injectEnvVar appends a KEY=VALUE entry to a Unicode environment block.
 // The block is a sequence of null-terminated UTF-16 strings, terminated by
@@ -661,63 +658,12 @@ func (m *sessionManager) killAgent() {
 }
 
 // relogAgentOutput reads log lines from the agent's stderr pipe and
-// relogs them with the service's formatter. Each line is tried as JSON
-// first (the agent's normal log format); plain-text lines (e.g. cobra
-// error output, panic stack traces) are forwarded verbatim so failures
-// during early agent startup remain visible.
+// relogs them with the service's formatter.
 func relogAgentOutput(pipe windows.Handle) {
 	defer func() { _ = windows.CloseHandle(pipe) }()
 	f := os.NewFile(uintptr(pipe), "vnc-agent-stderr")
 	defer f.Close()
-
-	entry := log.WithField("component", "vnc-agent")
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
-		}
-		if line[0] != '{' {
-			entry.Warn(string(line))
-			continue
-		}
-		var m map[string]any
-		if err := json.Unmarshal(line, &m); err != nil {
-			entry.Warn(string(line))
-			continue
-		}
-		msg, _ := m["msg"].(string)
-		if msg == "" {
-			continue
-		}
-
-		fields := make(log.Fields)
-		for k, v := range m {
-			switch k {
-			case "msg", "level", "time", "func":
-				continue
-			case "caller":
-				fields["source"] = v
-			default:
-				fields[k] = v
-			}
-		}
-		e := entry.WithFields(fields)
-
-		switch m["level"] {
-		case "error":
-			e.Error(msg)
-		case "warning":
-			e.Warn(msg)
-		case "debug":
-			e.Debug(msg)
-		case "trace":
-			e.Trace(msg)
-		default:
-			e.Info(msg)
-		}
-	}
+	relogAgentStream(f)
 }
 
 // logCleanupCall invokes a Windows syscall used solely as a cleanup primitive

@@ -44,6 +44,7 @@ const (
 	RejectCodeCapturerError = "CAPTURER_ERROR"
 	RejectCodeUnsupportedOS = "UNSUPPORTED"
 	RejectCodeBadRequest    = "BAD_REQUEST"
+	RejectCodeNoConsoleUser = "NO_CONSOLE_USER"
 )
 
 // EnvVNCDisableDownscale disables any platform-specific framebuffer
@@ -812,7 +813,14 @@ func (s *Server) verifyAgentToken(conn net.Conn, connLog *log.Entry) bool {
 		return false
 	}
 	if _, err := io.ReadFull(conn, buf); err != nil {
-		connLog.Warnf("agent auth: read token: %v", err)
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+			// Connect-then-close probes (port liveness checks) hit this
+			// path on every dial; logging them would just flood the
+			// daemon log without surfacing a real failure.
+			connLog.Tracef("agent auth: read token: %v", err)
+		} else {
+			connLog.Warnf("agent auth: read token: %v", err)
+		}
 		conn.Close()
 		return false
 	}

@@ -3,6 +3,8 @@
 package internal
 
 import (
+	"os"
+
 	log "github.com/sirupsen/logrus"
 
 	vncserver "github.com/netbirdio/netbird/client/vnc/server"
@@ -23,6 +25,10 @@ func newPlatformVNC() (vncserver.ScreenCapturer, vncserver.InputInjector, bool) 
 	return capturer, injector, true
 }
 
+// vncNeedsServiceMode reports whether the running process is a system
+// LaunchDaemon (root, parented by launchd). Daemons sit in the global
+// bootstrap namespace and cannot talk to WindowServer; we route capture
+// through a per-user agent in that case.
 func vncNeedsServiceMode() bool {
-	return false
+	return os.Geteuid() == 0 && os.Getppid() == 1
 }
