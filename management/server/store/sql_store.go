@@ -3684,6 +3684,14 @@ func (s *SqlStore) assignAccountSeqIDs(ctx context.Context, tx *gorm.DB, account
 			return err
 		}
 		g.AccountSeqID = seq
+		// Defensive: generateAccountSQLTypes currently aliases the same
+		// *Group pointer into GroupsG and Groups[id] (so this is a no-op
+		// today), but mirror the seq anyway so any future divergence in
+		// how the two collections are populated doesn't silently leave
+		// the canonical map view stale.
+		if original, ok := account.Groups[g.ID]; ok && original != nil && original != g {
+			original.AccountSeqID = seq
+		}
 	}
 	for _, p := range account.Policies {
 		if p == nil {
@@ -3710,6 +3718,13 @@ func (s *SqlStore) assignAccountSeqIDs(ctx context.Context, tx *gorm.DB, account
 			return err
 		}
 		r.AccountSeqID = seq
+		// Mirror the new seq onto the canonical map view so callers that
+		// hold the same in-memory account post-Save read a consistent
+		// AccountSeqID — without this, components/encoder code would see
+		// 0 for routes saved this transaction until the account is reloaded.
+		if original, ok := account.Routes[r.ID]; ok && original != nil {
+			original.AccountSeqID = seq
+		}
 	}
 	for i := range account.NameServerGroupsG {
 		ng := &account.NameServerGroupsG[i]
@@ -3722,6 +3737,9 @@ func (s *SqlStore) assignAccountSeqIDs(ctx context.Context, tx *gorm.DB, account
 			return err
 		}
 		ng.AccountSeqID = seq
+		if original, ok := account.NameServerGroups[ng.ID]; ok && original != nil {
+			original.AccountSeqID = seq
+		}
 	}
 	for _, nr := range account.NetworkResources {
 		if nr == nil {
