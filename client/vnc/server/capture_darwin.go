@@ -38,8 +38,17 @@ var (
 	cfRelease                      func(uintptr)
 	cgPreflightScreenCaptureAccess func() bool
 	cgRequestScreenCaptureAccess   func() bool
+	cgEventCreate                  func(uintptr) uintptr
+	cgEventGetLocation             func(uintptr) cgPoint
 	darwinCaptureReady             bool
 )
+
+// cgPoint mirrors CoreGraphics CGPoint: two doubles, 16 bytes, returned
+// in registers on Darwin amd64/arm64. Used to receive cursor coordinates
+// from CGEventGetLocation via purego.
+type cgPoint struct {
+	X, Y float64
+}
 
 func initDarwinCapture() {
 	darwinCaptureOnce.Do(func() {
@@ -75,6 +84,15 @@ func initDarwinCapture() {
 		}
 		if sym, err := purego.Dlsym(cg, "CGRequestScreenCaptureAccess"); err == nil {
 			purego.RegisterFunc(&cgRequestScreenCaptureAccess, sym)
+		}
+		// CGEventCreate / CGEventGetLocation feed the cursor position used
+		// by remote-cursor compositing. Optional; absence reports as a
+		// position-source error and disables that feature on this host.
+		if sym, err := purego.Dlsym(cg, "CGEventCreate"); err == nil {
+			purego.RegisterFunc(&cgEventCreate, sym)
+		}
+		if sym, err := purego.Dlsym(cg, "CGEventGetLocation"); err == nil {
+			purego.RegisterFunc(&cgEventGetLocation, sym)
 		}
 
 		darwinCaptureReady = true

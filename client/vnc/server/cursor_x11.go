@@ -21,6 +21,11 @@ type xfixesCursor struct {
 	// calls return quickly without another X round-trip. Some virtual
 	// displays advertise XFixes but reject GetCursorImage (Xvfb).
 	runtimeErr error
+	// lastPosX/lastPosY hold the cursor screen position observed on the
+	// most recent successful GetCursorImage. cursorPositionSource readers
+	// share this value so we do not pay a second X round-trip per frame.
+	lastPosX, lastPosY int
+	hasPos             bool
 }
 
 // newXFixesCursor initialises the XFixes extension on conn. Returns an
@@ -49,6 +54,7 @@ func (c *xfixesCursor) Cursor() (*image.RGBA, int, int, uint64, error) {
 		c.runtimeErr = fmt.Errorf("xfixes GetCursorImage: %w", err)
 		return nil, 0, 0, 0, c.runtimeErr
 	}
+	c.lastPosX, c.lastPosY, c.hasPos = int(reply.X), int(reply.Y), true
 	w, h := int(reply.Width), int(reply.Height)
 	if w <= 0 || h <= 0 {
 		return nil, 0, 0, 0, fmt.Errorf("cursor has zero extent")
@@ -84,4 +90,22 @@ func (x *X11Capturer) Cursor() (*image.RGBA, int, int, uint64, error) {
 		return nil, 0, 0, 0, initErr
 	}
 	return cur.Cursor()
+}
+
+// CursorPos on X11Capturer returns the screen position from the most
+// recent successful Cursor() call. Sessions call Cursor() once per encode
+// cycle, so this stays current without a second X round-trip.
+func (x *X11Capturer) CursorPos() (int, int, error) {
+	x.mu.Lock()
+	cur := x.cursor
+	x.mu.Unlock()
+	if cur == nil {
+		return 0, 0, fmt.Errorf("cursor source not initialised")
+	}
+	cur.mu.Lock()
+	defer cur.mu.Unlock()
+	if !cur.hasPos {
+		return 0, 0, fmt.Errorf("cursor position not sampled yet")
+	}
+	return cur.lastPosX, cur.lastPosY, nil
 }
