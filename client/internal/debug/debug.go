@@ -1043,7 +1043,8 @@ func (g *BundleGenerator) addRotatedLogFiles(logDir string) {
 		return
 	}
 
-	pattern := filepath.Join(logDir, "client-*.log.gz")
+	// This regex will match both logs rotated by us and logrotate on linux
+	pattern := filepath.Join(logDir, "client*.log*.gz")
 	files, err := filepath.Glob(pattern)
 	if err != nil {
 		log.Warnf("failed to glob rotated logs: %v", err)

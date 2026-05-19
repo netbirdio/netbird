@@ -59,7 +59,18 @@ func InitLogger(logger *log.Logger, logLevel string, logs ...string) error {
 		case "":
 			logger.Warnf("empty log path received: %#v", logPath)
 		default:
-			writers = append(writers, newRotatedOutput(logPath))
+			conflict, configPath := FindFirstLogrotateConflict()
+			if conflict {
+				logger.Warnf("logrotation conflict detected in: %#v, rotation is disabled", configPath)
+				file, err := openOrCreateFile(logPath)
+				if err != nil {
+					logger.Errorf("Failed opening log file: %s", err)
+					return err
+				}
+				writers = append(writers, file)
+			} else {
+				writers = append(writers, newRotatedOutput(logPath))
+			}
 		}
 	}
 
