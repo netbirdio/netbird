@@ -91,6 +91,11 @@
     "profile.error.createTitle": "Create Profile Failed",
     "profile.error.loadTitle": "Load Profiles Failed",
 
+    "profile.dropdown.activeProfile": "Active profile",
+    "profile.dropdown.addProfile": "Add Profile",
+    "profile.dropdown.manageProfiles": "Manage Profiles",
+    "profile.dropdown.settings": "Settings",
+
     "settings.error.loadTitle": "Load Settings Failed",
     "settings.error.saveTitle": "Save Settings Failed",
     "settings.error.debugBundleTitle": "Debug Bundle Failed",

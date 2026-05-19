@@ -167,15 +167,10 @@ func main() {
 	app.RegisterService(application.NewService(services.NewI18n(bundle)))
 	app.RegisterService(application.NewService(services.NewPreferences(prefStore)))
 
-	// Initial size matches AppearanceContext's default `expanded: false`
-	// (small / simple view). When the user has previously expanded the
-	// window, Header.tsx's mount effect resizes back up to 925 via
-	// Window.SetSize — that's a one-shot grow rather than a shrink, which
-	// reads better than starting wide and snapping narrow on every launch.
 	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:               "NetBird",
-		Width:               380,
-		Height:              615,
+		Width:               310,
+		Height:              420,
 		Hidden:              true,
 		BackgroundColour:    application.NewRGB(24, 26, 29),
 		URL:                 "/",

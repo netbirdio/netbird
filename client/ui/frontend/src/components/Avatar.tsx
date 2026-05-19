@@ -19,13 +19,19 @@ export const Avatar = forwardRef<HTMLButtonElement, Props>(function Avatar(
             ref={ref}
             type={type}
             className={cn(
-                "flex items-center justify-center rounded-full bg-nb-gray-900",
-                "text-xs font-semibold cursor-default outline-none",
+                "inline-grid place-items-center rounded-full bg-nb-gray-850 p-0 text-center",
+                "text-[0.9rem] font-semibold cursor-default outline-none",
                 "transition-colors duration-150 hover:bg-nb-gray-850",
                 "data-[state=open]:bg-nb-gray-850",
                 className,
             )}
-            style={{ width: size, height: size, color }}
+            style={{
+                width: size,
+                height: size,
+                color,
+                lineHeight: 0,
+                letterSpacing: 0,
+            }}
             {...props}
         >
             {initial}
