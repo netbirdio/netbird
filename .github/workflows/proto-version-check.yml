@@ -33,7 +33,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Setup protoc
-        uses: arduino/setup-protoc@v3
+        uses: arduino/setup-protoc@f4d5893b897028ff5739576ea0409746887fa536 # v3.0.0
         with:
           version: ${{ env.PROTOC_VERSION }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}

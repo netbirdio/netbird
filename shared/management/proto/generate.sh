@@ -17,7 +17,7 @@ repo_root=$(git rev-parse --show-toplevel)
 . "$repo_root/proto-tools.env"
 
 actual_protoc=$(protoc --version | awk '{print $2}')
-if [ "$actual_protoc" != "$PROTOC_VERSION" ]; then
+if [[ "$actual_protoc" != "$PROTOC_VERSION" ]]; then
   echo "ERROR: protoc version $actual_protoc differs from pinned $PROTOC_VERSION" >&2
   echo "Install protoc $PROTOC_VERSION from https://github.com/protocolbuffers/protobuf/releases" >&2
   exit 1
