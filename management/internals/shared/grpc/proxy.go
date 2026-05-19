@@ -552,15 +552,8 @@ func (s *ProxyServiceServer) sendSnapshotSync(ctx context.Context, conn *proxyCo
 			return fmt.Errorf("send snapshot batch: %w", err)
 		}
 
-		// Wait for ack before sending the next batch.
-		if end < len(mappings) {
-			msg, err := stream.Recv()
-			if err != nil {
-				return fmt.Errorf("receive ack: %w", err)
-			}
-			if msg.GetAck() == nil {
-				return fmt.Errorf("expected ack, got %T", msg.GetMsg())
-			}
+		if err := waitForAck(stream); err != nil {
+			return err
 		}
 	}
 
@@ -570,8 +563,23 @@ func (s *ProxyServiceServer) sendSnapshotSync(ctx context.Context, conn *proxyCo
 		}); err != nil {
 			return fmt.Errorf("send snapshot completion: %w", err)
 		}
+
+		if err := waitForAck(stream); err != nil {
+			return err
+		}
 	}
 
+	return nil
+}
+
+func waitForAck(stream proto.ProxyService_SyncMappingsServer) error {
+	msg, err := stream.Recv()
+	if err != nil {
+		return fmt.Errorf("receive ack: %w", err)
+	}
+	if msg.GetAck() == nil {
+		return fmt.Errorf("expected ack, got %T", msg.GetMsg())
+	}
 	return nil
 }
 
