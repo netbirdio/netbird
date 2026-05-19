@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"net/url"
 	"strings"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	goproto "google.golang.org/protobuf/proto"
@@ -186,13 +187,36 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 		response.NetworkMap.SshAuth = &proto.SSHAuth{AuthorizedUsers: hashedUsers, MachineUsers: machineUsers, UserIDClaim: userIDClaim}
 	}
 
+	// settings == nil → field stays nil → "no info in this snapshot", client
+	// preserves the deadline it already had. settings non-nil → emit either a
+	// valid deadline or the explicit-zero "disabled" sentinel via
+	// encodeSessionExpiresAt.
 	if settings != nil {
-		if deadline := peer.SessionExpiresAt(settings.PeerLoginExpirationEnabled, settings.PeerLoginExpiration); !deadline.IsZero() {
-			response.SessionExpiresAt = timestamppb.New(deadline)
-		}
+		response.SessionExpiresAt = encodeSessionExpiresAt(
+			peer.SessionExpiresAt(settings.PeerLoginExpirationEnabled, settings.PeerLoginExpiration),
+		)
 	}
 
 	return response
+}
+
+// encodeSessionExpiresAt encodes a server-side deadline into the 3-state wire
+// representation used on LoginResponse, SyncResponse and
+// ExtendAuthSessionResponse. See the proto comments on those messages.
+//
+//   - deadline.IsZero() → returns &Timestamp{} (seconds=0, nanos=0): the
+//     "expiry disabled or peer is not SSO-tracked" sentinel; the client clears
+//     its anchor.
+//   - deadline non-zero → returns timestamppb.New(deadline): the new absolute
+//     UTC deadline.
+//
+// Returning nil ("no info, preserve client's anchor") is the caller's job —
+// only meaningful on Sync builds where settings were not resolved.
+func encodeSessionExpiresAt(deadline time.Time) *timestamppb.Timestamp {
+	if deadline.IsZero() {
+		return &timestamppb.Timestamp{}
+	}
+	return timestamppb.New(deadline)
 }
 
 func buildAuthorizedUsersProto(ctx context.Context, authorizedUsers map[string]map[string]struct{}) ([][]byte, map[string]*proto.MachineUserIndexes) {

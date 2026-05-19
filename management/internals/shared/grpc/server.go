@@ -23,7 +23,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/netbirdio/netbird/shared/management/client/common"
 
@@ -867,9 +866,11 @@ func (s *Server) ExtendAuthSession(ctx context.Context, req *proto.EncryptedMess
 		return nil, mapError(ctx, err)
 	}
 
-	resp := &proto.ExtendAuthSessionResponse{}
-	if !deadline.IsZero() {
-		resp.SessionExpiresAt = timestamppb.New(deadline)
+	// Success path normally returns a non-zero deadline. A defensive zero
+	// would still encode as the explicit "disabled" sentinel rather than nil,
+	// so the client clears any stale anchor instead of preserving it.
+	resp := &proto.ExtendAuthSessionResponse{
+		SessionExpiresAt: encodeSessionExpiresAt(deadline),
 	}
 
 	wgKey, err := s.secretsManager.GetWGKey()
@@ -909,9 +910,11 @@ func (s *Server) prepareLoginResponse(ctx context.Context, peer *nbpeer.Peer, ne
 		Checks:        toProtocolChecks(ctx, postureChecks),
 	}
 
-	if deadline := peer.SessionExpiresAt(settings.PeerLoginExpirationEnabled, settings.PeerLoginExpiration); !deadline.IsZero() {
-		loginResp.SessionExpiresAt = timestamppb.New(deadline)
-	}
+	// settings is always non-nil here, so we never emit nil — encoder returns
+	// either a valid deadline or the explicit-zero "disabled" sentinel.
+	loginResp.SessionExpiresAt = encodeSessionExpiresAt(
+		peer.SessionExpiresAt(settings.PeerLoginExpirationEnabled, settings.PeerLoginExpiration),
+	)
 
 	return loginResp, nil
 }
