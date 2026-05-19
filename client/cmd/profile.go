@@ -11,8 +11,15 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
+	nbstatus "github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/util"
 )
+
+func init() {
+	profileListCmd.PersistentFlags().BoolVarP(&jsonFlag, "json", "j", false, "display command result in json format")
+	profileListCmd.PersistentFlags().BoolVarP(&yamlFlag, "yaml", "y", false, "display command result in yaml format")
+	profileListCmd.MarkFlagsMutuallyExclusive("json", "yaml")
+}
 
 var profileCmd = &cobra.Command{
 	Use:   "profile",
@@ -90,6 +97,10 @@ func listProfilesFunc(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
+	if jsonFlag || yamlFlag {
+		return emitProfileList(cmd, profiles.GetProfiles())
+	}
+
 	// list profiles, add a tick if the profile is active
 	cmd.Println("Found", len(profiles.Profiles), "profiles:")
 	for _, profile := range profiles.Profiles {
@@ -101,6 +112,31 @@ func listProfilesFunc(cmd *cobra.Command, _ []string) error {
 		cmd.Println(activeMarker, profile.Name)
 	}
 
+	return nil
+}
+
+func emitProfileList(cmd *cobra.Command, profiles []*proto.Profile) error {
+	out := &nbstatus.ProfileListOutput{Profiles: make([]nbstatus.ProfileOutput, 0, len(profiles))}
+	for _, p := range profiles {
+		out.Profiles = append(out.Profiles, nbstatus.ProfileOutput{
+			Name:   p.GetName(),
+			Active: p.GetIsActive(),
+		})
+	}
+
+	if jsonFlag {
+		s, err := out.JSON()
+		if err != nil {
+			return err
+		}
+		cmd.Println(s)
+		return nil
+	}
+	s, err := out.YAML()
+	if err != nil {
+		return err
+	}
+	cmd.Print(s)
 	return nil
 }
 

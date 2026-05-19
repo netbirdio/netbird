@@ -8,6 +8,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/proto"
+	nbstatus "github.com/netbirdio/netbird/client/status"
 )
 
 var (
@@ -75,6 +76,10 @@ func init() {
 
 	stateCleanCmd.Flags().BoolVarP(&allFlag, "all", "a", false, "Clean all states")
 	stateDeleteCmd.Flags().BoolVarP(&allFlag, "all", "a", false, "Delete all states")
+
+	stateListCmd.PersistentFlags().BoolVarP(&jsonFlag, "json", "j", false, "display command result in json format")
+	stateListCmd.PersistentFlags().BoolVarP(&yamlFlag, "yaml", "y", false, "display command result in yaml format")
+	stateListCmd.MarkFlagsMutuallyExclusive("json", "yaml")
 }
 
 func stateList(cmd *cobra.Command, _ []string) error {
@@ -94,11 +99,37 @@ func stateList(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to list states: %v", status.Convert(err).Message())
 	}
 
+	if jsonFlag || yamlFlag {
+		return emitStateList(cmd, resp.GetStates())
+	}
+
 	cmd.Printf("\nStored states:\n\n")
 	for _, state := range resp.States {
 		cmd.Printf("- %s\n", state.Name)
 	}
 
+	return nil
+}
+
+func emitStateList(cmd *cobra.Command, states []*proto.State) error {
+	out := &nbstatus.StateListOutput{States: make([]nbstatus.StateOutput, 0, len(states))}
+	for _, s := range states {
+		out.States = append(out.States, nbstatus.StateOutput{Name: s.GetName()})
+	}
+
+	if jsonFlag {
+		s, err := out.JSON()
+		if err != nil {
+			return err
+		}
+		cmd.Println(s)
+		return nil
+	}
+	s, err := out.YAML()
+	if err != nil {
+		return err
+	}
+	cmd.Print(s)
 	return nil
 }
 

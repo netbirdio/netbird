@@ -8,6 +8,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/proto"
+	nbstatus "github.com/netbirdio/netbird/client/status"
 )
 
 var forwardingRulesCmd = &cobra.Command{
@@ -25,6 +26,12 @@ var forwardingRulesListCmd = &cobra.Command{
 	RunE:    listForwardingRules,
 }
 
+func init() {
+	forwardingRulesListCmd.PersistentFlags().BoolVarP(&jsonFlag, "json", "j", false, "display command result in json format")
+	forwardingRulesListCmd.PersistentFlags().BoolVarP(&yamlFlag, "yaml", "y", false, "display command result in yaml format")
+	forwardingRulesListCmd.MarkFlagsMutuallyExclusive("json", "yaml")
+}
+
 func listForwardingRules(cmd *cobra.Command, _ []string) error {
 	conn, err := getClient(cmd)
 	if err != nil {
@@ -38,19 +45,23 @@ func listForwardingRules(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to list network: %v", status.Convert(err).Message())
 	}
 
-	if len(resp.GetRules()) == 0 {
+	rules := resp.GetRules()
+	sortForwardingRules(rules)
+
+	if jsonFlag || yamlFlag {
+		return emitForwardingList(cmd, rules)
+	}
+
+	if len(rules) == 0 {
 		cmd.Println("No forwarding rules available.")
 		return nil
 	}
 
-	printForwardingRules(cmd, resp.GetRules())
+	printForwardingRules(cmd, rules)
 	return nil
 }
 
-func printForwardingRules(cmd *cobra.Command, rules []*proto.ForwardingRule) {
-	cmd.Println("Available forwarding rules:")
-
-	// Sort rules by translated address
+func sortForwardingRules(rules []*proto.ForwardingRule) {
 	sort.Slice(rules, func(i, j int) bool {
 		if rules[i].GetTranslatedAddress() != rules[j].GetTranslatedAddress() {
 			return rules[i].GetTranslatedAddress() < rules[j].GetTranslatedAddress()
@@ -58,9 +69,40 @@ func printForwardingRules(cmd *cobra.Command, rules []*proto.ForwardingRule) {
 		if rules[i].GetProtocol() != rules[j].GetProtocol() {
 			return rules[i].GetProtocol() < rules[j].GetProtocol()
 		}
-
 		return getFirstPort(rules[i].GetDestinationPort()) < getFirstPort(rules[j].GetDestinationPort())
 	})
+}
+
+func emitForwardingList(cmd *cobra.Command, rules []*proto.ForwardingRule) error {
+	out := &nbstatus.ForwardingListOutput{Rules: make([]nbstatus.ForwardingRuleOutput, 0, len(rules))}
+	for _, rule := range rules {
+		out.Rules = append(out.Rules, nbstatus.ForwardingRuleOutput{
+			TranslatedAddress:  rule.GetTranslatedAddress(),
+			TranslatedHostname: rule.GetTranslatedHostname(),
+			Protocol:           rule.GetProtocol(),
+			DestinationPort:    portToString(rule.GetDestinationPort()),
+			TranslatedPort:     portToString(rule.GetTranslatedPort()),
+		})
+	}
+
+	if jsonFlag {
+		s, err := out.JSON()
+		if err != nil {
+			return err
+		}
+		cmd.Println(s)
+		return nil
+	}
+	s, err := out.YAML()
+	if err != nil {
+		return err
+	}
+	cmd.Print(s)
+	return nil
+}
+
+func printForwardingRules(cmd *cobra.Command, rules []*proto.ForwardingRule) {
+	cmd.Println("Available forwarding rules:")
 
 	var lastIP string
 	for _, rule := range rules {

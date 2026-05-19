@@ -440,6 +440,150 @@ func (e *SSOEvent) YAML() (string, error) {
 	return string(yamlBytes), nil
 }
 
+// NetworkOutput is one row of a networks-list response.
+type NetworkOutput struct {
+	ID          string              `json:"id" yaml:"id"`
+	Range       string              `json:"range,omitempty" yaml:"range,omitempty"`
+	Domains     []string            `json:"domains,omitempty" yaml:"domains,omitempty"`
+	ResolvedIPs map[string][]string `json:"resolvedIps,omitempty" yaml:"resolvedIps,omitempty"`
+	Selected    bool                `json:"selected" yaml:"selected"`
+}
+
+// NetworksListOutput is the structured result of `netbird networks list`.
+type NetworksListOutput struct {
+	Networks []NetworkOutput `json:"networks" yaml:"networks"`
+}
+
+// JSON returns the NetworksListOutput as a JSON string.
+func (o *NetworksListOutput) JSON() (string, error) {
+	jsonBytes, err := json.Marshal(o)
+	if err != nil {
+		return "", fmt.Errorf("json marshal failed")
+	}
+	return string(jsonBytes), err
+}
+
+// YAML returns the NetworksListOutput as a YAML string.
+func (o *NetworksListOutput) YAML() (string, error) {
+	yamlBytes, err := yaml.Marshal(o)
+	if err != nil {
+		return "", fmt.Errorf("yaml marshal failed")
+	}
+	return string(yamlBytes), nil
+}
+
+// ForwardingRuleOutput is one row of a forwarding-list response.
+type ForwardingRuleOutput struct {
+	TranslatedAddress  string `json:"translatedAddress" yaml:"translatedAddress"`
+	TranslatedHostname string `json:"translatedHostname,omitempty" yaml:"translatedHostname,omitempty"`
+	Protocol           string `json:"protocol" yaml:"protocol"`
+	DestinationPort    string `json:"destinationPort" yaml:"destinationPort"`
+	TranslatedPort     string `json:"translatedPort" yaml:"translatedPort"`
+}
+
+// ForwardingListOutput is the structured result of `netbird forwarding list`.
+type ForwardingListOutput struct {
+	Rules []ForwardingRuleOutput `json:"rules" yaml:"rules"`
+}
+
+// JSON returns the ForwardingListOutput as a JSON string.
+func (o *ForwardingListOutput) JSON() (string, error) {
+	jsonBytes, err := json.Marshal(o)
+	if err != nil {
+		return "", fmt.Errorf("json marshal failed")
+	}
+	return string(jsonBytes), err
+}
+
+// YAML returns the ForwardingListOutput as a YAML string.
+func (o *ForwardingListOutput) YAML() (string, error) {
+	yamlBytes, err := yaml.Marshal(o)
+	if err != nil {
+		return "", fmt.Errorf("yaml marshal failed")
+	}
+	return string(yamlBytes), nil
+}
+
+// ProfileOutput is one row of a profile-list response.
+type ProfileOutput struct {
+	Name   string `json:"name" yaml:"name"`
+	Active bool   `json:"active" yaml:"active"`
+}
+
+// ProfileListOutput is the structured result of `netbird profile list`.
+type ProfileListOutput struct {
+	Profiles []ProfileOutput `json:"profiles" yaml:"profiles"`
+}
+
+// JSON returns the ProfileListOutput as a JSON string.
+func (o *ProfileListOutput) JSON() (string, error) {
+	jsonBytes, err := json.Marshal(o)
+	if err != nil {
+		return "", fmt.Errorf("json marshal failed")
+	}
+	return string(jsonBytes), err
+}
+
+// YAML returns the ProfileListOutput as a YAML string.
+func (o *ProfileListOutput) YAML() (string, error) {
+	yamlBytes, err := yaml.Marshal(o)
+	if err != nil {
+		return "", fmt.Errorf("yaml marshal failed")
+	}
+	return string(yamlBytes), nil
+}
+
+// StateOutput is one row of a state-list response.
+type StateOutput struct {
+	Name string `json:"name" yaml:"name"`
+}
+
+// StateListOutput is the structured result of `netbird state list`.
+type StateListOutput struct {
+	States []StateOutput `json:"states" yaml:"states"`
+}
+
+// JSON returns the StateListOutput as a JSON string.
+func (o *StateListOutput) JSON() (string, error) {
+	jsonBytes, err := json.Marshal(o)
+	if err != nil {
+		return "", fmt.Errorf("json marshal failed")
+	}
+	return string(jsonBytes), err
+}
+
+// YAML returns the StateListOutput as a YAML string.
+func (o *StateListOutput) YAML() (string, error) {
+	yamlBytes, err := yaml.Marshal(o)
+	if err != nil {
+		return "", fmt.Errorf("yaml marshal failed")
+	}
+	return string(yamlBytes), nil
+}
+
+// VersionOutput is the structured result of `netbird version`.
+type VersionOutput struct {
+	Version string `json:"version" yaml:"version"`
+}
+
+// JSON returns the VersionOutput as a JSON string.
+func (o *VersionOutput) JSON() (string, error) {
+	jsonBytes, err := json.Marshal(o)
+	if err != nil {
+		return "", fmt.Errorf("json marshal failed")
+	}
+	return string(jsonBytes), err
+}
+
+// YAML returns the VersionOutput as a YAML string.
+func (o *VersionOutput) YAML() (string, error) {
+	yamlBytes, err := yaml.Marshal(o)
+	if err != nil {
+		return "", fmt.Errorf("yaml marshal failed")
+	}
+	return string(yamlBytes), nil
+}
+
 // JSON returns the DownOutput as a JSON string.
 func (o *DownOutput) JSON() (string, error) {
 	jsonBytes, err := json.Marshal(o)

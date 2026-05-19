@@ -8,6 +8,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/proto"
+	nbstatus "github.com/netbirdio/netbird/client/status"
 )
 
 var appendFlag bool
@@ -48,6 +49,10 @@ var routesDeselectCmd = &cobra.Command{
 
 func init() {
 	routesSelectCmd.PersistentFlags().BoolVarP(&appendFlag, "append", "a", false, "Append to current network selection instead of replacing")
+
+	routesListCmd.PersistentFlags().BoolVarP(&jsonFlag, "json", "j", false, "display command result in json format")
+	routesListCmd.PersistentFlags().BoolVarP(&yamlFlag, "yaml", "y", false, "display command result in yaml format")
+	routesListCmd.MarkFlagsMutuallyExclusive("json", "yaml")
 }
 
 func networksList(cmd *cobra.Command, _ []string) error {
@@ -63,6 +68,10 @@ func networksList(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to list network: %v", status.Convert(err).Message())
 	}
 
+	if jsonFlag || yamlFlag {
+		return emitNetworksList(cmd, resp)
+	}
+
 	if len(resp.Routes) == 0 {
 		cmd.Println("No networks available.")
 		return nil
@@ -70,6 +79,40 @@ func networksList(cmd *cobra.Command, _ []string) error {
 
 	printNetworks(cmd, resp)
 
+	return nil
+}
+
+func emitNetworksList(cmd *cobra.Command, resp *proto.ListNetworksResponse) error {
+	out := &nbstatus.NetworksListOutput{Networks: make([]nbstatus.NetworkOutput, 0, len(resp.GetRoutes()))}
+	for _, route := range resp.GetRoutes() {
+		row := nbstatus.NetworkOutput{
+			ID:       route.GetID(),
+			Range:    route.GetRange(),
+			Domains:  route.GetDomains(),
+			Selected: route.GetSelected(),
+		}
+		if resolved := route.GetResolvedIPs(); len(resolved) > 0 {
+			row.ResolvedIPs = make(map[string][]string, len(resolved))
+			for d, ipList := range resolved {
+				row.ResolvedIPs[d] = ipList.GetIps()
+			}
+		}
+		out.Networks = append(out.Networks, row)
+	}
+
+	if jsonFlag {
+		s, err := out.JSON()
+		if err != nil {
+			return err
+		}
+		cmd.Println(s)
+		return nil
+	}
+	s, err := out.YAML()
+	if err != nil {
+		return err
+	}
+	cmd.Print(s)
 	return nil
 }
 
