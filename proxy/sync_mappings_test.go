@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -86,8 +85,8 @@ func TestIntegration_SyncMappings_BackPressure(t *testing.T) {
 	setup := setupIntegrationTest(t)
 	defer setup.cleanup()
 
-	// Add more services so we get multiple batches.
-	addServicesToStore(t, setup, 20, "test.proxy.io")
+	// Add enough services to guarantee multiple batches (default batch size 500).
+	addServicesToStore(t, setup, 600, "test.proxy.io")
 
 	conn, err := grpc.NewClient(setup.grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
@@ -112,26 +111,40 @@ func TestIntegration_SyncMappings_BackPressure(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Record the ordering of events to verify back-pressure.
-	var mu sync.Mutex
-	var events []string
+	// Strategy: receive batch 1, then hold for a significant delay before
+	// acking. If back-pressure works, batch 2 cannot arrive until after
+	// the ack is sent — so its receive timestamp must be >= the ack
+	// timestamp. If management were fire-and-forget, all batches would
+	// already be buffered in the gRPC transport and batch 2 would arrive
+	// well before the ack time.
+	const ackDelay = 300 * time.Millisecond
+
+	type batchEvent struct {
+		recvAt time.Time
+		ackAt  time.Time
+		count  int
+	}
+	var batches []batchEvent
 	var totalMappings int
 
 	for {
 		msg, err := stream.Recv()
 		require.NoError(t, err)
 
-		mu.Lock()
-		events = append(events, "recv")
+		recvAt := time.Now()
 		totalMappings += len(msg.GetMapping())
-		mu.Unlock()
 
-		// Simulate processing delay.
-		time.Sleep(50 * time.Millisecond)
+		// Delay the ack on non-final batches to create a measurable gap.
+		if !msg.GetInitialSyncComplete() {
+			time.Sleep(ackDelay)
+		}
 
-		mu.Lock()
-		events = append(events, "ack")
-		mu.Unlock()
+		ackAt := time.Now()
+		batches = append(batches, batchEvent{
+			recvAt: recvAt,
+			ackAt:  ackAt,
+			count:  len(msg.GetMapping()),
+		})
 
 		err = stream.Send(&proto.SyncMappingsRequest{
 			Msg: &proto.SyncMappingsRequest_Ack{Ack: &proto.SyncMappingsAck{}},
@@ -143,18 +156,20 @@ func TestIntegration_SyncMappings_BackPressure(t *testing.T) {
 		}
 	}
 
-	// 2 original + 20 added = 22 services total.
-	assert.Equal(t, 22, totalMappings, "should receive all 22 mappings")
+	// 2 original + 600 added = 602 services total.
+	assert.Equal(t, 602, totalMappings, "should receive all 602 mappings")
+	require.GreaterOrEqual(t, len(batches), 2, "need at least 2 batches to verify back-pressure")
 
-	// Events should alternate recv/ack — no two recvs in a row
-	// (management waits for ack before sending next).
-	mu.Lock()
-	defer mu.Unlock()
-	for i := 0; i < len(events)-1; i += 2 {
-		assert.Equal(t, "recv", events[i], "event %d should be recv", i)
-		if i+1 < len(events) {
-			assert.Equal(t, "ack", events[i+1], "event %d should be ack", i+1)
-		}
+	// For every batch after the first, its receive time must be after the
+	// previous batch's ack time. This proves management waited for the ack
+	// before sending the next batch.
+	for i := 1; i < len(batches); i++ {
+		prevAckAt := batches[i-1].ackAt
+		thisRecvAt := batches[i].recvAt
+		assert.True(t, !thisRecvAt.Before(prevAckAt),
+			"batch %d received at %v, but batch %d was acked at %v — "+
+				"management sent the next batch before receiving the ack",
+			i, thisRecvAt, i-1, prevAckAt)
 	}
 }
 

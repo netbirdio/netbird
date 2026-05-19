@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -461,9 +462,11 @@ func (s *ProxyServiceServer) SyncMappings(stream proto.ProxyService_SyncMappings
 	errChan := make(chan error, 2)
 	go s.sender(conn, errChan)
 
-	// Drain acks from the proxy in the background so the stream stays healthy.
-	// After the snapshot phase, the proxy may still send acks for incremental
-	// updates; we simply discard them.
+	// Drain acks from the proxy in the background so the stream stays
+	// healthy. The proxy sends an ack for every message it receives
+	// (including incremental updates); we discard them here.
+	// EOF or context cancellation is a normal shutdown path and is
+	// forwarded so the select below can clean up.
 	go func() {
 		for {
 			if _, err := stream.Recv(); err != nil {
@@ -503,6 +506,10 @@ func (s *ProxyServiceServer) SyncMappings(stream proto.ProxyService_SyncMappings
 
 	select {
 	case err := <-errChan:
+		if isStreamClosed(err) {
+			log.WithContext(ctx).Infof("Proxy %s stream closed", proxyID)
+			return nil
+		}
 		log.WithContext(ctx).Warnf("Failed to send update: %v", err)
 		return fmt.Errorf("send update to proxy %s: %w", proxyID, err)
 	case <-connCtx.Done():
@@ -516,6 +523,9 @@ func (s *ProxyServiceServer) SyncMappings(stream proto.ProxyService_SyncMappings
 func (s *ProxyServiceServer) sendSnapshotSync(ctx context.Context, conn *proxyConnection, stream proto.ProxyService_SyncMappingsServer) error {
 	if !isProxyAddressValid(conn.address) {
 		return fmt.Errorf("proxy address is invalid")
+	}
+	if s.snapshotBatchSize <= 0 {
+		return fmt.Errorf("invalid snapshot batch size: %d", s.snapshotBatchSize)
 	}
 
 	mappings, err := s.snapshotServiceMappings(ctx, conn)
@@ -601,6 +611,9 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 	if !isProxyAddressValid(conn.address) {
 		return fmt.Errorf("proxy address is invalid")
 	}
+	if s.snapshotBatchSize <= 0 {
+		return fmt.Errorf("invalid snapshot batch size: %d", s.snapshotBatchSize)
+	}
 
 	mappings, err := s.snapshotServiceMappings(ctx, conn)
 	if err != nil {
@@ -678,6 +691,18 @@ func isProxyAddressValid(addr string) bool {
 	}
 	_, err := domain.ValidateDomains([]string{addr})
 	return err == nil
+}
+
+// isStreamClosed returns true for errors that indicate normal stream
+// termination: io.EOF, context cancellation, or gRPC Canceled.
+func isStreamClosed(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	return status.Code(err) == codes.Canceled
 }
 
 // sender handles sending messages to proxy.
