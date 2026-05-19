@@ -409,8 +409,12 @@ func drainRequests(ch chan fbRequest) int {
 }
 
 // pfIsTightCompatible reports whether the negotiated client pixel format
-// matches Tight's TPIXEL constraint: standard RGB shifts (R=16, G=8, B=0).
-// bpp/endianness/channel-max are already locked at SetPixelFormat time.
+// satisfies Tight's TPIXEL constraint (RFB 7.7.6): the three RGB shifts form
+// a permutation of {0, 8, 16} so the colour values live in the low 24 bits.
+// bpp, endianness, and 8-bit channels are already enforced at SetPixelFormat
+// time. Any permutation works because Tight always emits a three-byte R, G,
+// B triple regardless of where the client stores each channel.
 func pfIsTightCompatible(pf clientPixelFormat) bool {
-	return pf.rShift == 16 && pf.gShift == 8 && pf.bShift == 0
+	shifts := uint32(1)<<pf.rShift | uint32(1)<<pf.gShift | uint32(1)<<pf.bShift
+	return shifts == 1<<0|1<<8|1<<16
 }
