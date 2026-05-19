@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/netbirdio/netbird/client/proto"
+	nbstatus "github.com/netbirdio/netbird/client/status"
 )
 
 var downCmd = &cobra.Command{
@@ -44,7 +45,29 @@ var downCmd = &cobra.Command{
 			return err
 		}
 
-		cmd.Println("Disconnected")
+		out := &nbstatus.DownOutput{Status: "Disconnected"}
+		switch {
+		case jsonFlag:
+			s, err := out.JSON()
+			if err != nil {
+				return err
+			}
+			cmd.Println(s)
+		case yamlFlag:
+			s, err := out.YAML()
+			if err != nil {
+				return err
+			}
+			cmd.Print(s)
+		default:
+			cmd.Println(out.Status)
+		}
 		return nil
 	},
+}
+
+func init() {
+	downCmd.PersistentFlags().BoolVarP(&jsonFlag, "json", "j", false, "display command result in json format")
+	downCmd.PersistentFlags().BoolVarP(&yamlFlag, "yaml", "y", false, "display command result in yaml format")
+	downCmd.MarkFlagsMutuallyExclusive("json", "yaml")
 }

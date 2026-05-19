@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
+	nbstatus "github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/util"
 )
@@ -337,6 +338,11 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *pro
 }
 
 func openURL(cmd *cobra.Command, verificationURIComplete, userCode string, noBrowser, showQR bool) {
+	if jsonFlag || yamlFlag {
+		emitSSOEvent(cmd, verificationURIComplete, userCode)
+		return
+	}
+
 	var codeMsg string
 	if userCode != "" && !strings.Contains(verificationURIComplete, userCode) {
 		codeMsg = fmt.Sprintf("and enter the code %s to authenticate.", userCode)
@@ -364,6 +370,33 @@ func openURL(cmd *cobra.Command, verificationURIComplete, userCode string, noBro
 				"https://docs.netbird.io/how-to/register-machines-using-setup-keys")
 		}
 	}
+}
+
+// emitSSOEvent writes the verification URL/code as a structured event for
+// callers using --json or --yaml. The browser is intentionally not opened in
+// this mode since automation contexts (CI, scripts) typically run headless.
+func emitSSOEvent(cmd *cobra.Command, verificationURIComplete, userCode string) {
+	event := &nbstatus.SSOEvent{
+		Event:                   "sso_required",
+		VerificationURIComplete: verificationURIComplete,
+		UserCode:                userCode,
+	}
+	if jsonFlag {
+		s, err := event.JSON()
+		if err != nil {
+			log.Errorf("marshal sso event: %v", err)
+			return
+		}
+		cmd.Println(s)
+		return
+	}
+	s, err := event.YAML()
+	if err != nil {
+		log.Errorf("marshal sso event: %v", err)
+		return
+	}
+	cmd.Print(s)
+	cmd.Println("---")
 }
 
 // isUnixRunningDesktop checks if a Linux OS is running desktop environment

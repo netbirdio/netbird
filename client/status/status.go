@@ -384,6 +384,80 @@ func (o *OutputOverview) YAML() (string, error) {
 	return string(yamlBytes), nil
 }
 
+// DownOutput is the structured result of a `netbird down` command.
+type DownOutput struct {
+	Status string `json:"status" yaml:"status"`
+}
+
+// UpOutput is the final structured result of a `netbird up` command.
+type UpOutput struct {
+	Status      string `json:"status" yaml:"status"` // "connected" | "already_connected"
+	ProfileName string `json:"profileName,omitempty" yaml:"profileName,omitempty"`
+}
+
+// JSON returns the UpOutput as a JSON string.
+func (o *UpOutput) JSON() (string, error) {
+	jsonBytes, err := json.Marshal(o)
+	if err != nil {
+		return "", fmt.Errorf("json marshal failed")
+	}
+	return string(jsonBytes), err
+}
+
+// YAML returns the UpOutput as a YAML string.
+func (o *UpOutput) YAML() (string, error) {
+	yamlBytes, err := yaml.Marshal(o)
+	if err != nil {
+		return "", fmt.Errorf("yaml marshal failed")
+	}
+	return string(yamlBytes), nil
+}
+
+// SSOEvent is emitted before the final UpOutput when interactive SSO is required.
+// It carries the verification URL and user code so callers can surface them
+// (e.g. to a Slack channel) without parsing free-form text.
+type SSOEvent struct {
+	Event                   string `json:"event" yaml:"event"` // "sso_required"
+	VerificationURIComplete string `json:"verificationUriComplete" yaml:"verificationUriComplete"`
+	UserCode                string `json:"userCode,omitempty" yaml:"userCode,omitempty"`
+}
+
+// JSON returns the SSOEvent as a JSON string.
+func (e *SSOEvent) JSON() (string, error) {
+	jsonBytes, err := json.Marshal(e)
+	if err != nil {
+		return "", fmt.Errorf("json marshal failed")
+	}
+	return string(jsonBytes), err
+}
+
+// YAML returns the SSOEvent as a YAML string.
+func (e *SSOEvent) YAML() (string, error) {
+	yamlBytes, err := yaml.Marshal(e)
+	if err != nil {
+		return "", fmt.Errorf("yaml marshal failed")
+	}
+	return string(yamlBytes), nil
+}
+
+// JSON returns the DownOutput as a JSON string.
+func (o *DownOutput) JSON() (string, error) {
+	jsonBytes, err := json.Marshal(o)
+	if err != nil {
+		return "", fmt.Errorf("json marshal failed")
+	}
+	return string(jsonBytes), err
+}
+
+// YAML returns the DownOutput as a YAML string.
+func (o *DownOutput) YAML() (string, error) {
+	yamlBytes, err := yaml.Marshal(o)
+	if err != nil {
+		return "", fmt.Errorf("yaml marshal failed")
+	}
+	return string(yamlBytes), nil
+}
+
 // GeneralSummary returns a general summary of the status overview.
 func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameServers bool, showSSHSessions bool) string {
 	var managementConnString string

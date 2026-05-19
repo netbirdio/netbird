@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
+	nbstatus "github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/util"
@@ -88,6 +89,9 @@ func init() {
 	upCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
 	upCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "(DEPRECATED) NetBird config file location. ")
 
+	upCmd.PersistentFlags().BoolVarP(&jsonFlag, "json", "j", false, "display command result in json format")
+	upCmd.PersistentFlags().BoolVarP(&yamlFlag, "yaml", "y", false, "display command result in yaml format")
+	upCmd.MarkFlagsMutuallyExclusive("json", "yaml")
 }
 
 func upFunc(cmd *cobra.Command, args []string) error {
@@ -95,6 +99,10 @@ func upFunc(cmd *cobra.Command, args []string) error {
 	SetFlagsFromEnvVars(cmd)
 
 	cmd.SetOut(cmd.OutOrStdout())
+
+	if (jsonFlag || yamlFlag) && foregroundMode {
+		return fmt.Errorf("--json/--yaml is not supported with --foreground-mode; use daemon mode")
+	}
 
 	err := util.InitLog(logLevel, util.LogConsole)
 	if err != nil {
@@ -245,8 +253,10 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 
 	if status.Status == string(internal.StatusConnected) {
 		if !profileSwitched {
-			cmd.Println("Already connected")
-			return nil
+			return emitUpOutput(cmd, &nbstatus.UpOutput{
+				Status:      "already_connected",
+				ProfileName: activeProf.Name,
+			}, "Already connected")
 		}
 
 		if _, err := client.Down(ctx, &proto.DownRequest{}); err != nil {
@@ -273,7 +283,31 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 	if err := doDaemonUp(ctx, cmd, client, pm, activeProf, customDNSAddressConverted, username.Username); err != nil {
 		return fmt.Errorf("daemon up failed: %v", err)
 	}
-	cmd.Println("Connected")
+	return emitUpOutput(cmd, &nbstatus.UpOutput{
+		Status:      "connected",
+		ProfileName: activeProf.Name,
+	}, "Connected")
+}
+
+// emitUpOutput writes the result of an up command in the format requested by
+// the user (json, yaml, or human-readable text fallback).
+func emitUpOutput(cmd *cobra.Command, out *nbstatus.UpOutput, textFallback string) error {
+	switch {
+	case jsonFlag:
+		s, err := out.JSON()
+		if err != nil {
+			return err
+		}
+		cmd.Println(s)
+	case yamlFlag:
+		s, err := out.YAML()
+		if err != nil {
+			return err
+		}
+		cmd.Print(s)
+	default:
+		cmd.Println(textFallback)
+	}
 	return nil
 }
 
