@@ -77,6 +77,10 @@ const (
 	pseudoEncCompressLevelMin = -256
 	pseudoEncCompressLevelMax = -247
 
+	// Hextile sub-encoding bits used by the SolidFill fast path.
+	hextileBackgroundSpecified = 0x02
+	hextileSubSize             = 16
+
 	// Tight compression-control byte top nibble. Stream-reset bits 0-3
 	// (one per zlib stream) are unused while we run a single stream.
 	tightFillSubenc  = 0x80
@@ -245,6 +249,73 @@ func encodeRawRect(img *image.RGBA, pf clientPixelFormat, x, y, w, h int) []byte
 	binary.BigEndian.PutUint32(buf[12:16], uint32(encRaw))
 
 	writePixels(buf[16:], img, pf, rect{x, y, w, h})
+	return buf
+}
+
+// encodeZlibRect encodes a framebuffer region using the standalone Zlib
+// encoding. The zlib stream is continuous for the entire VNC session: the
+// client keeps a single inflate context and reuses it across rects. The
+// returned buffer includes the 4-byte FramebufferUpdate header.
+func encodeZlibRect(img *image.RGBA, pf clientPixelFormat, x, y, w, h int, z *zlibState) []byte {
+	zw, zbuf := z.w, z.buf
+	zbuf.Reset()
+
+	rowBytes := w * 4
+	total := rowBytes * h
+	if cap(z.scratch) < total {
+		z.scratch = make([]byte, total)
+	}
+	scratch := z.scratch[:total]
+	writePixels(scratch, img, pf, rect{x, y, w, h})
+	for row := 0; row < h; row++ {
+		if _, err := zw.Write(scratch[row*rowBytes : (row+1)*rowBytes]); err != nil {
+			log.Debugf("zlib write row %d: %v", row, err)
+			return nil
+		}
+	}
+	if err := zw.Flush(); err != nil {
+		log.Debugf("zlib flush: %v", err)
+		return nil
+	}
+	compressed := zbuf.Bytes()
+
+	buf := make([]byte, 4+12+4+len(compressed))
+	buf[0] = serverFramebufferUpdate
+	binary.BigEndian.PutUint16(buf[2:4], 1)
+	binary.BigEndian.PutUint16(buf[4:6], uint16(x))
+	binary.BigEndian.PutUint16(buf[6:8], uint16(y))
+	binary.BigEndian.PutUint16(buf[8:10], uint16(w))
+	binary.BigEndian.PutUint16(buf[10:12], uint16(h))
+	binary.BigEndian.PutUint32(buf[12:16], uint32(encZlib))
+	binary.BigEndian.PutUint32(buf[16:20], uint32(len(compressed)))
+	copy(buf[20:], compressed)
+	return buf
+}
+
+// encodeHextileSolidRect emits a Hextile-encoded rectangle whose every
+// pixel is the same colour. The first sub-tile carries the background
+// pixel; remaining sub-tiles inherit it via a zero sub-encoding byte,
+// collapsing a uniform 64×64 tile down to ~20 bytes. The returned buffer
+// starts with the 12-byte rect header; callers prepend a FramebufferUpdate
+// header.
+func encodeHextileSolidRect(r, g, b byte, pf clientPixelFormat, rc rect) []byte {
+	cols := (rc.w + hextileSubSize - 1) / hextileSubSize
+	rows := (rc.h + hextileSubSize - 1) / hextileSubSize
+	subs := cols * rows
+	// One sub-encoding byte plus a 32bpp pixel for the first sub-tile, then
+	// one zero byte per remaining sub-tile to inherit the background.
+	bodySize := 1 + 4 + (subs - 1)
+	buf := make([]byte, 12+bodySize)
+
+	binary.BigEndian.PutUint16(buf[0:2], uint16(rc.x))
+	binary.BigEndian.PutUint16(buf[2:4], uint16(rc.y))
+	binary.BigEndian.PutUint16(buf[4:6], uint16(rc.w))
+	binary.BigEndian.PutUint16(buf[6:8], uint16(rc.h))
+	binary.BigEndian.PutUint32(buf[8:12], uint32(encHextile))
+
+	buf[12] = hextileBackgroundSpecified
+	pixel := (uint32(r) << pf.rShift) | (uint32(g) << pf.gShift) | (uint32(b) << pf.bShift)
+	binary.LittleEndian.PutUint32(buf[13:17], pixel)
 	return buf
 }
 
@@ -719,6 +790,10 @@ func sampledColorCountInto(seen map[uint32]struct{}, img *image.RGBA, x, y, w, h
 type zlibState struct {
 	buf *bytes.Buffer
 	w   *zlib.Writer
+	// scratch stages the packed pixel stream for a rect before it is fed
+	// to the deflater. Grown to the largest rect seen in the session and
+	// reused to keep the steady-state encode allocation-free.
+	scratch []byte
 }
 
 func newZlibStateLevel(level int) *zlibState {
