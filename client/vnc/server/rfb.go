@@ -544,10 +544,9 @@ func newTightStateWithLevels(qualityLevel, compressLevel int) *tightState {
 
 // jpegQualityForLevel maps a 0..9 client preference to a JPEG quality value.
 // Returns 0 when no preference is set (-1), letting the encoder fall back
-// to the area-based tiers. The output is capped at jpegQualityClientCap
-// so a client asking for the highest quality does not push per-frame JPEG
-// byte counts into a regime that overwhelms bandwidth-constrained
-// transports. Within the cap the mapping is still linear.
+// to the area-based tiers. The encoder lowers this dynamically when the
+// socket is backpressured, so this routine emits the unclamped, client-
+// requested value.
 func jpegQualityForLevel(level int) int {
 	if level < 0 {
 		return 0
@@ -555,18 +554,8 @@ func jpegQualityForLevel(level int) int {
 	if level > 9 {
 		level = 9
 	}
-	q := 30 + level*7
-	if q > jpegQualityClientCap {
-		q = jpegQualityClientCap
-	}
-	return q
+	return 30 + level*7
 }
-
-// jpegQualityClientCap upper-bounds the JPEG quality we honour from the
-// client's QualityLevel pseudo-encoding. 50 keeps full-screen JPEGs in
-// the same byte range as the area-tiered defaults used when the client
-// does not express a preference.
-const jpegQualityClientCap = 50
 
 // zlibLevelFor maps a 0..9 client preference to a zlib compression level.
 // Level 0 ("no compression") would emit larger output than input on most
