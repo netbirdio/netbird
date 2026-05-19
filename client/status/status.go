@@ -612,6 +612,31 @@ func (o *LoginOutput) YAML() (string, error) {
 	return string(yamlBytes), nil
 }
 
+// ProfileMutationOutput is the structured result of `netbird profile add`,
+// `remove`, or `select`.
+type ProfileMutationOutput struct {
+	Status      string `json:"status" yaml:"status"` // "added" | "removed" | "selected"
+	ProfileName string `json:"profileName" yaml:"profileName"`
+}
+
+// JSON returns the ProfileMutationOutput as a JSON string.
+func (o *ProfileMutationOutput) JSON() (string, error) {
+	jsonBytes, err := json.Marshal(o)
+	if err != nil {
+		return "", fmt.Errorf("json marshal failed")
+	}
+	return string(jsonBytes), err
+}
+
+// YAML returns the ProfileMutationOutput as a YAML string.
+func (o *ProfileMutationOutput) YAML() (string, error) {
+	yamlBytes, err := yaml.Marshal(o)
+	if err != nil {
+		return "", fmt.Errorf("yaml marshal failed")
+	}
+	return string(yamlBytes), nil
+}
+
 // NetworksMutationOutput is the structured result of `netbird networks select`
 // or `netbird networks deselect`.
 type NetworksMutationOutput struct {

@@ -16,9 +16,11 @@ import (
 )
 
 func init() {
-	profileListCmd.PersistentFlags().BoolVarP(&jsonFlag, "json", "j", false, "display command result in json format")
-	profileListCmd.PersistentFlags().BoolVarP(&yamlFlag, "yaml", "y", false, "display command result in yaml format")
-	profileListCmd.MarkFlagsMutuallyExclusive("json", "yaml")
+	for _, c := range []*cobra.Command{profileListCmd, profileAddCmd, profileRemoveCmd, profileSelectCmd} {
+		c.PersistentFlags().BoolVarP(&jsonFlag, "json", "j", false, "display command result in json format")
+		c.PersistentFlags().BoolVarP(&yamlFlag, "yaml", "y", false, "display command result in yaml format")
+		c.MarkFlagsMutuallyExclusive("json", "yaml")
+	}
 }
 
 var profileCmd = &cobra.Command{
@@ -115,6 +117,33 @@ func listProfilesFunc(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
+func emitProfileMutation(cmd *cobra.Command, action, profile, textFallback string) error {
+	if !jsonFlag && !yamlFlag {
+		cmd.Println(textFallback)
+		return nil
+	}
+
+	out := &nbstatus.ProfileMutationOutput{
+		Status:      action,
+		ProfileName: profile,
+	}
+
+	if jsonFlag {
+		s, err := out.JSON()
+		if err != nil {
+			return err
+		}
+		cmd.Println(s)
+		return nil
+	}
+	s, err := out.YAML()
+	if err != nil {
+		return err
+	}
+	cmd.Print(s)
+	return nil
+}
+
 func emitProfileList(cmd *cobra.Command, profiles []*proto.Profile) error {
 	out := &nbstatus.ProfileListOutput{Profiles: make([]nbstatus.ProfileOutput, 0, len(profiles))}
 	for _, p := range profiles {
@@ -168,8 +197,7 @@ func addProfileFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	cmd.Println("Profile added successfully:", profileName)
-	return nil
+	return emitProfileMutation(cmd, "added", profileName, "Profile added successfully: "+profileName)
 }
 
 func removeProfileFunc(cmd *cobra.Command, args []string) error {
@@ -200,8 +228,7 @@ func removeProfileFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	cmd.Println("Profile removed successfully:", profileName)
-	return nil
+	return emitProfileMutation(cmd, "removed", profileName, "Profile removed successfully: "+profileName)
 }
 
 func selectProfileFunc(cmd *cobra.Command, args []string) error {
@@ -267,6 +294,5 @@ func selectProfileFunc(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	cmd.Println("Profile switched successfully to:", profileName)
-	return nil
+	return emitProfileMutation(cmd, "selected", profileName, "Profile switched successfully to: "+profileName)
 }
