@@ -1183,7 +1183,7 @@ func (am *DefaultAccountManager) ExtendPeerSession(ctx context.Context, peerPubK
 			log.WithContext(ctx).Debugf("failed to update user last login during session extend: %v", err)
 		}
 
-		am.StoreEvent(ctx, userID, peer.ID, accountID, activity.UserLoggedInPeer, peer.EventMeta(am.networkMapController.GetDNSDomain(settings)))
+		am.StoreEvent(ctx, userID, peer.ID, accountID, activity.UserExtendedPeerSession, peer.EventMeta(am.networkMapController.GetDNSDomain(settings)))
 		refreshed = peer
 		return nil
 	})
