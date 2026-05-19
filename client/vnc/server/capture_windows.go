@@ -528,7 +528,7 @@ func (w *captureWorker) createCapturer() (frameCapturer, error) {
 		log.Info("using DXGI Desktop Duplication for capture")
 		return dc, nil
 	}
-	log.Debugf("DXGI unavailable (%v), falling back to GDI", err)
+	log.Warnf("DXGI Desktop Duplication unavailable, falling back to slower GDI BitBlt: %v", err)
 	gc, err := newGDICapturer()
 	if err != nil {
 		return nil, err
