@@ -7,9 +7,9 @@ import (
 )
 
 // EphemeralPeersMetrics tracks the ephemeral peer cleanup pipeline: how
-// many peers are currently scheduled for deletion, how many tick runs
-// the cleaner has performed, how many peers it has removed, and how
-// many delete batches failed.
+// many accounts are currently being tracked for cleanup, how many sweep
+// runs deleted at least one peer, how many peers have been removed, and
+// how many delete batches failed.
 type EphemeralPeersMetrics struct {
 	ctx context.Context
 
@@ -21,16 +21,16 @@ type EphemeralPeersMetrics struct {
 
 // NewEphemeralPeersMetrics constructs the ephemeral cleanup counters.
 func NewEphemeralPeersMetrics(ctx context.Context, meter metric.Meter) (*EphemeralPeersMetrics, error) {
-	pending, err := meter.Int64UpDownCounter("management.ephemeral.peers.pending",
+	pending, err := meter.Int64UpDownCounter("management.ephemeral.accounts.tracked",
 		metric.WithUnit("1"),
-		metric.WithDescription("Number of ephemeral peers currently waiting to be cleaned up"))
+		metric.WithDescription("Number of accounts currently tracked for ephemeral peer cleanup"))
 	if err != nil {
 		return nil, err
 	}
 
 	cleanupRuns, err := meter.Int64Counter("management.ephemeral.cleanup.runs.counter",
 		metric.WithUnit("1"),
-		metric.WithDescription("Number of ephemeral cleanup ticks that processed at least one peer"))
+		metric.WithDescription("Number of ephemeral cleanup sweeps that deleted at least one peer"))
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +61,8 @@ func NewEphemeralPeersMetrics(ctx context.Context, meter metric.Meter) (*Ephemer
 // All methods are nil-receiver safe so callers that haven't wired metrics
 // (tests, self-hosted with metrics off) can invoke them unconditionally.
 
-// IncPending bumps the pending gauge when a peer is added to the cleanup list.
+// IncPending bumps the tracked-accounts gauge when a new account
+// becomes eligible for ephemeral cleanup tracking.
 func (m *EphemeralPeersMetrics) IncPending() {
 	if m == nil {
 		return
@@ -69,8 +70,8 @@ func (m *EphemeralPeersMetrics) IncPending() {
 	m.pending.Add(m.ctx, 1)
 }
 
-// AddPending bumps the pending gauge by n — used at startup when the
-// initial set of ephemeral peers is loaded from the store.
+// AddPending bumps the tracked-accounts gauge by n — used at startup
+// when the catch-up query seeds the tracker.
 func (m *EphemeralPeersMetrics) AddPending(n int64) {
 	if m == nil || n <= 0 {
 		return
@@ -78,9 +79,8 @@ func (m *EphemeralPeersMetrics) AddPending(n int64) {
 	m.pending.Add(m.ctx, n)
 }
 
-// DecPending decreases the pending gauge — used both when a peer reconnects
-// before its deadline (removed from the list) and when a cleanup tick
-// actually deletes it.
+// DecPending decreases the tracked-accounts gauge when an account is
+// dropped from the tracker (no more disconnects to chase).
 func (m *EphemeralPeersMetrics) DecPending(n int64) {
 	if m == nil || n <= 0 {
 		return
