@@ -120,6 +120,11 @@ func (s *session) processIncremental(img *image.RGBA) error {
 		s.refreshCopyRectIndex()
 		return nil
 	}
+	if len(moves) == 0 {
+		if bb, ok := promoteToBoundingBox(rects); ok {
+			rects = bb
+		}
+	}
 	if err := s.sendDirtyAndMoves(img, moves, rects); err != nil {
 		return err
 	}
@@ -309,6 +314,45 @@ func (s *session) captureFrame() (*image.RGBA, error) {
 	}
 	copy(s.curFrame.Pix, src.Pix)
 	return s.curFrame, nil
+}
+
+// promoteToBoundingBox replaces the rect list with a single rect covering
+// the bounding box of all inputs, provided the bbox is at least
+// bboxPromoteMinArea and the dirty pixels fill at least
+// bboxPromoteDensityPct of it. Returns the new rect list and true when the
+// promotion fires; otherwise returns nil, false and the caller keeps the
+// original list.
+func promoteToBoundingBox(rects [][4]int) ([][4]int, bool) {
+	if len(rects) < 2 {
+		return nil, false
+	}
+	x0, y0 := rects[0][0], rects[0][1]
+	x1, y1 := x0+rects[0][2], y0+rects[0][3]
+	dirty := 0
+	for _, r := range rects {
+		if r[0] < x0 {
+			x0 = r[0]
+		}
+		if r[1] < y0 {
+			y0 = r[1]
+		}
+		if r[0]+r[2] > x1 {
+			x1 = r[0] + r[2]
+		}
+		if r[1]+r[3] > y1 {
+			y1 = r[1] + r[3]
+		}
+		dirty += r[2] * r[3]
+	}
+	w, h := x1-x0, y1-y0
+	bbox := w * h
+	if bbox < bboxPromoteMinArea {
+		return nil, false
+	}
+	if dirty*100 < bbox*bboxPromoteDensityPct {
+		return nil, false
+	}
+	return [][4]int{{x0, y0, w, h}}, true
 }
 
 // shouldPromoteToFullFrame returns true when the dirty rect set covers a
