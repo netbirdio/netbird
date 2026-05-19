@@ -1,4 +1,4 @@
-//go:build windows
+//go:build windows || (darwin && !ios)
 
 package cmd
 
@@ -20,30 +20,30 @@ func init() {
 	rootCmd.AddCommand(vncAgentCmd)
 }
 
-// vncAgentCmd runs a VNC server in the current user session, listening on
-// localhost. It is spawned by the NetBird service (Session 0) via
-// CreateProcessAsUser into the interactive console session.
+// vncAgentCmd runs a VNC server inside the user's interactive session,
+// listening on localhost. The NetBird service spawns it: on Windows via
+// CreateProcessAsUser into the console session, on macOS via
+// launchctl asuser into the Aqua session.
 var vncAgentCmd = &cobra.Command{
 	Use:    "vnc-agent",
 	Short:  "Run VNC capture agent (internal, spawned by service)",
 	Hidden: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Agent's stderr is piped to the service which relogs it.
-		// Use JSON format with caller info for structured parsing.
 		log.SetReportCaller(true)
 		log.SetFormatter(&log.JSONFormatter{})
 		log.SetOutput(os.Stderr)
 
-		sessionID := vncserver.GetCurrentSessionID()
-		log.Infof("VNC agent starting on 127.0.0.1:%d (session %d)", vncAgentPort, sessionID)
+		log.Infof("VNC agent starting on 127.0.0.1:%d", vncAgentPort)
 
 		token := os.Getenv("NB_VNC_AGENT_TOKEN")
 		if token == "" {
 			return fmt.Errorf("NB_VNC_AGENT_TOKEN not set; agent requires a token from the service")
 		}
 
-		capturer := vncserver.NewDesktopCapturer()
-		injector := vncserver.NewWindowsInputInjector()
+		capturer, injector, err := newAgentResources()
+		if err != nil {
+			return err
+		}
 		srv := vncserver.New(capturer, injector)
 		srv.SetDisableAuth(true)
 		srv.SetAgentToken(token)
