@@ -1065,10 +1065,7 @@ func (s *Server) handleSyncMappingsStream(ctx context.Context, stream proto.Prox
 		return ctx.Err()
 	}
 
-	var snapshotIDs map[types.ServiceID]struct{}
-	if !*initialSyncDone {
-		snapshotIDs = make(map[types.ServiceID]struct{})
-	}
+	tracker := s.newSnapshotTracker(initialSyncDone, connectTime)
 
 	for {
 		select {
@@ -1087,34 +1084,12 @@ func (s *Server) handleSyncMappingsStream(ctx context.Context, stream proto.Prox
 			s.Logger.Debug("Received mapping update, starting processing")
 			s.processMappings(ctx, msg.GetMapping())
 			s.Logger.Debug("Processing mapping update completed")
+			tracker.recordBatch(ctx, s, msg.GetMapping(), msg.GetInitialSyncComplete(), batchStart)
 
-			if !*initialSyncDone && s.meter != nil {
-				s.meter.RecordSnapshotBatchDuration(time.Since(batchStart))
-			}
-
-			// Send ack so management knows we're ready for the next batch.
 			if err := stream.Send(&proto.SyncMappingsRequest{
 				Msg: &proto.SyncMappingsRequest_Ack{Ack: &proto.SyncMappingsAck{}},
 			}); err != nil {
 				return fmt.Errorf("send ack: %w", err)
-			}
-
-			if !*initialSyncDone {
-				for _, m := range msg.GetMapping() {
-					snapshotIDs[types.ServiceID(m.GetId())] = struct{}{}
-				}
-				if msg.GetInitialSyncComplete() {
-					s.reconcileSnapshot(ctx, snapshotIDs)
-					snapshotIDs = nil
-					if s.healthChecker != nil {
-						s.healthChecker.SetInitialSyncComplete()
-					}
-					*initialSyncDone = true
-					if s.meter != nil {
-						s.meter.RecordSnapshotSyncDuration(time.Since(connectTime))
-					}
-					s.Logger.Info("Initial mapping sync complete")
-				}
 			}
 		}
 	}
@@ -1127,25 +1102,18 @@ func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.Pr
 		return ctx.Err()
 	}
 
-	var snapshotIDs map[types.ServiceID]struct{}
-	if !*initialSyncDone {
-		snapshotIDs = make(map[types.ServiceID]struct{})
-	}
+	tracker := s.newSnapshotTracker(initialSyncDone, connectTime)
 
 	for {
-		// Check for context completion to gracefully shutdown.
 		select {
 		case <-ctx.Done():
-			// Shutting down.
 			return ctx.Err()
 		default:
 			msg, err := mappingClient.Recv()
 			switch {
 			case errors.Is(err, io.EOF):
-				// Mapping connection gracefully terminated by server.
 				return nil
 			case err != nil:
-				// Something has gone horribly wrong, return and hope the parent retries the connection.
 				return fmt.Errorf("receive msg: %w", err)
 			}
 
@@ -1153,30 +1121,54 @@ func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.Pr
 			s.Logger.Debug("Received mapping update, starting processing")
 			s.processMappings(ctx, msg.GetMapping())
 			s.Logger.Debug("Processing mapping update completed")
-
-			if !*initialSyncDone && s.meter != nil {
-				s.meter.RecordSnapshotBatchDuration(time.Since(batchStart))
-			}
-
-			if !*initialSyncDone {
-				for _, m := range msg.GetMapping() {
-					snapshotIDs[types.ServiceID(m.GetId())] = struct{}{}
-				}
-				if msg.GetInitialSyncComplete() {
-					s.reconcileSnapshot(ctx, snapshotIDs)
-					snapshotIDs = nil
-					if s.healthChecker != nil {
-						s.healthChecker.SetInitialSyncComplete()
-					}
-					*initialSyncDone = true
-					if s.meter != nil {
-						s.meter.RecordSnapshotSyncDuration(time.Since(connectTime))
-					}
-					s.Logger.Info("Initial mapping sync complete")
-				}
-			}
+			tracker.recordBatch(ctx, s, msg.GetMapping(), msg.GetInitialSyncComplete(), batchStart)
 		}
 	}
+}
+
+// snapshotTracker accumulates service IDs during the initial snapshot and
+// finalises sync state when the complete flag arrives.
+type snapshotTracker struct {
+	done        *bool
+	connectTime time.Time
+	snapshotIDs map[types.ServiceID]struct{}
+}
+
+func (s *Server) newSnapshotTracker(done *bool, connectTime time.Time) *snapshotTracker {
+	var ids map[types.ServiceID]struct{}
+	if !*done {
+		ids = make(map[types.ServiceID]struct{})
+	}
+	return &snapshotTracker{done: done, connectTime: connectTime, snapshotIDs: ids}
+}
+
+func (t *snapshotTracker) recordBatch(ctx context.Context, s *Server, mappings []*proto.ProxyMapping, syncComplete bool, batchStart time.Time) {
+	if *t.done {
+		return
+	}
+
+	if s.meter != nil {
+		s.meter.RecordSnapshotBatchDuration(time.Since(batchStart))
+	}
+
+	for _, m := range mappings {
+		t.snapshotIDs[types.ServiceID(m.GetId())] = struct{}{}
+	}
+
+	if !syncComplete {
+		return
+	}
+
+	s.reconcileSnapshot(ctx, t.snapshotIDs)
+	t.snapshotIDs = nil
+	if s.healthChecker != nil {
+		s.healthChecker.SetInitialSyncComplete()
+	}
+	*t.done = true
+	if s.meter != nil {
+		s.meter.RecordSnapshotSyncDuration(time.Since(t.connectTime))
+	}
+	s.Logger.Info("Initial mapping sync complete")
 }
 
 // reconcileSnapshot removes local mappings that are absent from the snapshot.
