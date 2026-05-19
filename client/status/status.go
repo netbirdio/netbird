@@ -473,12 +473,15 @@ func (o *NetworksListOutput) YAML() (string, error) {
 }
 
 // ForwardingRuleOutput is one row of a forwarding-list response.
+// DestinationPort and TranslatedPort are pointers so that absent port info
+// (oneof not set in the protobuf) surfaces as a missing field rather than a
+// human-readable sentinel string.
 type ForwardingRuleOutput struct {
-	TranslatedAddress  string `json:"translatedAddress" yaml:"translatedAddress"`
-	TranslatedHostname string `json:"translatedHostname,omitempty" yaml:"translatedHostname,omitempty"`
-	Protocol           string `json:"protocol" yaml:"protocol"`
-	DestinationPort    string `json:"destinationPort" yaml:"destinationPort"`
-	TranslatedPort     string `json:"translatedPort" yaml:"translatedPort"`
+	TranslatedAddress  string  `json:"translatedAddress" yaml:"translatedAddress"`
+	TranslatedHostname string  `json:"translatedHostname,omitempty" yaml:"translatedHostname,omitempty"`
+	Protocol           string  `json:"protocol" yaml:"protocol"`
+	DestinationPort    *string `json:"destinationPort,omitempty" yaml:"destinationPort,omitempty"`
+	TranslatedPort     *string `json:"translatedPort,omitempty" yaml:"translatedPort,omitempty"`
 }
 
 // ForwardingListOutput is the structured result of `netbird forwarding list`.

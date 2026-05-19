@@ -76,13 +76,18 @@ func sortForwardingRules(rules []*proto.ForwardingRule) {
 func emitForwardingList(cmd *cobra.Command, rules []*proto.ForwardingRule) error {
 	out := &nbstatus.ForwardingListOutput{Rules: make([]nbstatus.ForwardingRuleOutput, 0, len(rules))}
 	for _, rule := range rules {
-		out.Rules = append(out.Rules, nbstatus.ForwardingRuleOutput{
+		row := nbstatus.ForwardingRuleOutput{
 			TranslatedAddress:  rule.GetTranslatedAddress(),
 			TranslatedHostname: rule.GetTranslatedHostname(),
 			Protocol:           rule.GetProtocol(),
-			DestinationPort:    portToString(rule.GetDestinationPort()),
-			TranslatedPort:     portToString(rule.GetTranslatedPort()),
-		})
+		}
+		if s, ok := portToStringOpt(rule.GetDestinationPort()); ok {
+			row.DestinationPort = &s
+		}
+		if s, ok := portToStringOpt(rule.GetTranslatedPort()); ok {
+			row.TranslatedPort = &s
+		}
+		out.Rules = append(out.Rules, row)
 	}
 
 	if jsonFlag {
@@ -129,12 +134,22 @@ func getFirstPort(portInfo *proto.PortInfo) int {
 }
 
 func portToString(translatedPort *proto.PortInfo) string {
-	switch v := translatedPort.PortSelection.(type) {
+	if s, ok := portToStringOpt(translatedPort); ok {
+		return s
+	}
+	return "No port specified"
+}
+
+// portToStringOpt returns the formatted port string and whether port info was
+// actually present. Used by the structured (json/yaml) output so the absent
+// case becomes a missing field instead of a sentinel string.
+func portToStringOpt(p *proto.PortInfo) (string, bool) {
+	switch v := p.GetPortSelection().(type) {
 	case *proto.PortInfo_Port:
-		return fmt.Sprintf("%d", v.Port)
+		return fmt.Sprintf("%d", v.Port), true
 	case *proto.PortInfo_Range_:
-		return fmt.Sprintf("%d-%d", v.Range.GetStart(), v.Range.GetEnd())
+		return fmt.Sprintf("%d-%d", v.Range.GetStart(), v.Range.GetEnd()), true
 	default:
-		return "No port specified"
+		return "", false
 	}
 }
