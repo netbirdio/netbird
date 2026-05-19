@@ -79,7 +79,8 @@
     "profile.dialog.title": "Enter Profile Name",
     "profile.dialog.description": "Choose a memorable name.",
     "profile.dialog.placeholder": "e.g. Work",
-    "profile.dialog.submit": "Create Profile",
+    "profile.dialog.submit": "Add Profile",
+    "profile.dialog.required": "Please enter a profile name, e.g. Work, Home",
 
     "profile.deregister.title": "Deregister Profile",
     "profile.deregister.message": "Are you sure you want to deregister \"{name}\"? You will need to log in again to use it.",

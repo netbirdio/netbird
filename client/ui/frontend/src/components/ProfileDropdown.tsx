@@ -66,6 +66,7 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
     const handleCreateProfile = async (name: string) => {
         try {
             await addProfile(name);
+            await switchProfile(name);
         } catch (e) {
             await Dialogs.Error({
                 Title: t("profile.error.createTitle"),

@@ -1,5 +1,6 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { PlusCircle } from "lucide-react";
 import * as Dialog from "@/components/Dialog";
 import { Input } from "@/components/Input";
 import { Button } from "@/components/Button";
@@ -13,19 +14,31 @@ type Props = {
 export const NewProfileModal = ({ open, onOpenChange, onCreate }: Props) => {
     const { t } = useTranslation();
     const [name, setName] = useState("");
+    const [error, setError] = useState<string | null>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
-        if (!open) setName("");
+        if (!open) {
+            setName("");
+            setError(null);
+        }
     }, [open]);
-
-    const trimmed = name.trim();
-    const canSubmit = trimmed.length > 0;
 
     const handleSubmit = (e: FormEvent) => {
         e.preventDefault();
-        if (!canSubmit) return;
+        const trimmed = name.trim();
+        if (trimmed.length === 0) {
+            setError(t("profile.dialog.required"));
+            inputRef.current?.focus();
+            return;
+        }
         onCreate(trimmed);
         onOpenChange(false);
+    };
+
+    const handleChange = (value: string) => {
+        setName(value);
+        if (error) setError(null);
     };
 
     return (
@@ -41,10 +54,12 @@ export const NewProfileModal = ({ open, onOpenChange, onCreate }: Props) => {
 
                     <div className="px-8 pt-3">
                         <Input
+                            ref={inputRef}
                             autoFocus
                             placeholder={t("profile.dialog.placeholder")}
                             value={name}
-                            onChange={(e) => setName(e.target.value)}
+                            onChange={(e) => handleChange(e.target.value)}
+                            error={error ?? undefined}
                         />
                     </div>
 
@@ -53,9 +68,9 @@ export const NewProfileModal = ({ open, onOpenChange, onCreate }: Props) => {
                             type="submit"
                             variant="primary"
                             size={"md"}
-                            disabled={!canSubmit}
                             className="w-full"
                         >
+                            <PlusCircle size={14} />
                             {t("profile.dialog.submit")}
                         </Button>
                     </Dialog.Footer>
