@@ -59,6 +59,13 @@ func InitLogger(logger *log.Logger, logLevel string, logs ...string) error {
 		case "":
 			logger.Warnf("empty log path received: %#v", logPath)
 		default:
+			if dir := filepath.Dir(logPath); dir != "" && dir != "." {
+				if err := os.MkdirAll(dir, 0750); err != nil {
+					logger.Errorf("Failed creating log directory %s: %s", dir, err)
+					return err
+				}
+			}
+
 			conflict, configPath := FindFirstLogrotateConflict()
 			if conflict {
 				logger.Warnf("logrotation conflict detected in: %#v, rotation is disabled", configPath)
