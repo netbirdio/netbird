@@ -564,7 +564,7 @@ func (m *MacInputInjector) GetClipboard() string {
 	}
 	out, err := exec.Command(m.pbpastePath).Output()
 	if err != nil {
-		log.Tracef("get clipboard via pbpaste: %v", err)
+		// pbpaste exits 1 when the pasteboard has no string flavour.
 		return ""
 	}
 	return string(out)
