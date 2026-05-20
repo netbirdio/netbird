@@ -101,7 +101,7 @@ func newRouter(iptablesClient *iptables.IPTables, wgIface iFaceMapper, mtu uint1
 		wgIface:        wgIface,
 		mtu:            mtu,
 		v6:             iptablesClient.Proto() == iptables.ProtocolIPv6,
-		ipFwdState:     ipfwdstate.NewIPForwardingState(),
+		ipFwdState:     ipfwdstate.NewIPForwardingState(wgIface.Name()),
 	}
 
 	r.ipsetCounter = refcounter.New(
@@ -763,7 +763,7 @@ func (r *router) updateState() {
 }
 
 func (r *router) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
-	if err := r.ipFwdState.RequestForwarding(); err != nil {
+	if err := r.ipFwdState.RequestForwarding(r.v6); err != nil {
 		return nil, err
 	}
 
@@ -861,7 +861,7 @@ func (r *router) rollbackRules(rules map[string]ruleInfo) error {
 }
 
 func (r *router) DeleteDNATRule(rule firewall.Rule) error {
-	if err := r.ipFwdState.ReleaseForwarding(); err != nil {
+	if err := r.ipFwdState.ReleaseForwarding(r.v6); err != nil {
 		log.Errorf("%v", err)
 	}
 

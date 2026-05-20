@@ -93,7 +93,7 @@ func newRouter(workTable *nftables.Table, wgIface iFaceMapper, mtu uint16) (*rou
 		rules:      make(map[string]*nftables.Rule),
 		af:         familyForAddr(workTable.Family == nftables.TableFamilyIPv4),
 		wgIface:    wgIface,
-		ipFwdState: ipfwdstate.NewIPForwardingState(),
+		ipFwdState: ipfwdstate.NewIPForwardingState(wgIface.Name()),
 		mtu:        mtu,
 	}
 
@@ -1550,7 +1550,7 @@ func (r *router) refreshRulesMap() error {
 }
 
 func (r *router) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
-	if err := r.ipFwdState.RequestForwarding(); err != nil {
+	if err := r.ipFwdState.RequestForwarding(r.af.tableFamily == nftables.TableFamilyIPv6); err != nil {
 		return nil, err
 	}
 
@@ -1778,7 +1778,7 @@ func (r *router) addDnatMasq(rule firewall.ForwardRule, protoNum uint8, ruleKey 
 }
 
 func (r *router) DeleteDNATRule(rule firewall.Rule) error {
-	if err := r.ipFwdState.ReleaseForwarding(); err != nil {
+	if err := r.ipFwdState.ReleaseForwarding(r.af.tableFamily == nftables.TableFamilyIPv6); err != nil {
 		log.Errorf("%v", err)
 	}
 

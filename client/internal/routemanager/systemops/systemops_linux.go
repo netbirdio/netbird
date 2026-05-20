@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"strings"
 	"syscall"
 
 	"github.com/hashicorp/go-multierror"
@@ -55,6 +56,11 @@ const (
 	ipv4ForwardingPath = "net.ipv4.ip_forward"
 	// ipv6ForwardingPath is the path to the file containing the IPv6 forwarding setting.
 	ipv6ForwardingPath = "net.ipv6.conf.all.forwarding"
+	// acceptRAInterfacePath toggles per-interface IPv6 RA acceptance.
+	// 1 (kernel default) accepts RAs only when forwarding is off; 2 keeps
+	// RA processing enabled even when forwarding is on, so RA-installed host
+	// defaults survive our v6 forwarding flip.
+	acceptRAInterfacePath = "net.ipv6.conf.%s.accept_ra"
 )
 
 var ErrTableIDExists = errors.New("ID exists with different name")
@@ -763,14 +769,79 @@ func flushRoutes(tableID, family int) error {
 	return nberrors.FormatErrorOrNil(result)
 }
 
-func EnableIPForwarding() error {
+func EnableV4IPForwarding() error {
 	if _, err := sysctl.Set(ipv4ForwardingPath, 1, false); err != nil {
 		return err
 	}
-	if _, err := sysctl.Set(ipv6ForwardingPath, 1, false); err != nil {
-		log.Warnf("failed to enable IPv6 forwarding: %v", err)
-	}
 	return nil
+}
+
+// EnableV6IPForwarding bumps accept_ra=2 on every non-loopback v6 interface
+// before flipping forwarding=1, so RA-installed host defaults survive the flip.
+// wgIfaceName is excluded since the overlay interface doesn't carry upstream RAs.
+//
+// The returned map records prior sysctl values for entries we actually changed
+// (forwarding + per-interface accept_ra); DisableV6IPForwarding restores from
+// it. Entries we found already at the target value are omitted so another
+// process's sysctls aren't reset by our cleanup.
+func EnableV6IPForwarding(wgIfaceName string) (map[string]int, error) {
+	saved := map[string]int{}
+	bumpAcceptRA(saved, wgIfaceName)
+
+	oldVal, err := sysctl.Set(ipv6ForwardingPath, 1, false)
+	if err != nil {
+		return saved, err
+	}
+	if oldVal != 1 {
+		saved[ipv6ForwardingPath] = oldVal
+	}
+	return saved, nil
+}
+
+// DisableV6IPForwarding restores every sysctl value EnableV6IPForwarding
+// captured. v4 is intentionally not disabled: net.ipv4.ip_forward is a global
+// knob other tools (docker, k8s, libvirt) co-own.
+func DisableV6IPForwarding(saved map[string]int) error {
+	var result *multierror.Error
+	for key, value := range saved {
+		if _, err := sysctl.Set(key, value, false); err != nil {
+			result = multierror.Append(result, fmt.Errorf("restore %s: %w", key, err))
+		}
+	}
+	return nberrors.FormatErrorOrNil(result)
+}
+
+func bumpAcceptRA(saved map[string]int, wgIfaceName string) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		log.Warnf("list interfaces for accept_ra: %v", err)
+		return
+	}
+	for _, intf := range interfaces {
+		if intf.Name == "lo" || intf.Name == wgIfaceName {
+			continue
+		}
+		bumpAcceptRAForInterface(saved, intf.Name)
+	}
+}
+
+func bumpAcceptRAForInterface(saved map[string]int, name string) {
+	key := fmt.Sprintf(acceptRAInterfacePath, name)
+	procPath := "/proc/sys/" + strings.ReplaceAll(key, ".", "/")
+	if _, err := os.Stat(procPath); err != nil {
+		// No IPv6 stack on this interface.
+		return
+	}
+	// onlyIfOne=true: only bump from the kernel default; preserves admin
+	// overrides of 0 (don't accept RAs) or 2 (already what we want).
+	oldVal, err := sysctl.Set(key, 2, true)
+	if err != nil {
+		log.Warnf("bump %s: %v", key, err)
+		return
+	}
+	if oldVal != 2 {
+		saved[key] = oldVal
+	}
 }
 
 // entryExists checks if the specified ID or name already exists in the rt_tables file
