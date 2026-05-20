@@ -490,17 +490,19 @@ func (m *MacInputInjector) postButtonTransitions(src uintptr, buttonMask uint8, 
 
 func (m *MacInputInjector) postScrollWheel(src uintptr, buttonMask uint8) {
 	if buttonMask&0x08 != 0 {
-		m.postScroll(src, scrollLinesPerWheelTick)
+		m.postScroll(src, scrollPixelsPerWheelTick)
 	}
 	if buttonMask&0x10 != 0 {
-		m.postScroll(src, -scrollLinesPerWheelTick)
+		m.postScroll(src, -scrollPixelsPerWheelTick)
 	}
 }
 
-// scrollLinesPerWheelTick is what one wheel-button event (VNC button 4 / 5)
-// translates to in macOS line units. Three matches the default per-notch
-// scroll on macOS and what most VNC clients send for wheel events.
-const scrollLinesPerWheelTick int32 = 3
+// scrollPixelsPerWheelTick is the pixel delta we post for one VNC wheel
+// button event. noVNC accumulates the host wheel/trackpad deltaY and
+// emits one press+release per ~10 px, so a real gesture arrives as many
+// small events; 20 px per event keeps the resulting macOS scroll fluid
+// without overshooting on a single notch.
+const scrollPixelsPerWheelTick int32 = 20
 
 func (m *MacInputInjector) postMouse(src uintptr, eventType int32, x, y float64, button int32) {
 	if cgEventCreateMouseEvent == nil {
@@ -536,11 +538,11 @@ func (m *MacInputInjector) postScroll(src uintptr, deltaY int32) {
 		return
 	}
 	// CGEventCreateScrollWheelEvent(source, units, wheelCount, wheel1delta).
-	// Line units (1) give the user-facing "one notch = a few lines" feel;
-	// pixel units (0) would need ~60-80 pixels per notch to match, and
-	// that depends on screen density. Variadic C function, pass via SyscallN.
+	// Pixel units (0) feel smoother under noVNC's "one event per ~10 px of
+	// host wheel" emission than line units (1) where each event jumps a
+	// whole line. Variadic C function, pass via SyscallN.
 	r1, _, _ := purego.SyscallN(cgEventCreateScrollWheelEventAddr,
-		src, 1, 1, uintptr(uint32(deltaY)))
+		src, 0, 1, uintptr(uint32(deltaY)))
 	if r1 == 0 {
 		return
 	}
