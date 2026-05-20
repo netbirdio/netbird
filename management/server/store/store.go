@@ -472,6 +472,9 @@ func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 			return migration.MigrateNewField[types.User](ctx, db, "email", "")
 		},
 		func(db *gorm.DB) error {
+			return migration.MigrateNewField[nbpeer.Peer](ctx, db, "peer_status_session_started_at", int64(0))
+		},
+		func(db *gorm.DB) error {
 			return migration.RemoveDuplicatePeerKeys(ctx, db)
 		},
 		func(db *gorm.DB) error {
