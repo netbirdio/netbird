@@ -53,10 +53,16 @@ func NewWindowManager(app *application.App, mainWindow *application.WebviewWindo
 }
 
 // OpenSettings shows the settings window, creating it on first use (and
-// after the user has closed a previous instance).
-func (s *WindowManager) OpenSettings() {
+// after the user has closed a previous instance). If `tab` is non-empty the
+// settings React layer reads it from the start URL and selects that tab
+// (e.g. "profiles") instead of the default "general".
+func (s *WindowManager) OpenSettings(tab string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	startURL := "/#/settings"
+	if tab != "" {
+		startURL = "/#/settings?tab=" + url.QueryEscape(tab)
+	}
 	if s.settings == nil {
 		s.settings = s.app.Window.NewWithOptions(application.WebviewWindowOptions{
 			Name:                "settings",
@@ -68,7 +74,7 @@ func (s *WindowManager) OpenSettings() {
 			MaximiseButtonState: application.ButtonHidden,
 			CloseButtonState:    application.ButtonEnabled,
 			BackgroundColour:    application.NewRGB(24, 26, 29),
-			URL:                 "/#/settings",
+			URL:                 startURL,
 			Mac: application.MacWindow{
 				InvisibleTitleBarHeight: 38,
 				Backdrop:                application.MacBackdropTranslucent,
@@ -81,6 +87,9 @@ func (s *WindowManager) OpenSettings() {
 			s.settings = nil
 			s.mu.Unlock()
 		})
+	} else if tab != "" {
+		// Re-open onto a specific tab when the window is already alive.
+		s.settings.SetURL(startURL)
 	}
 	s.settings.Show()
 	s.settings.Focus()

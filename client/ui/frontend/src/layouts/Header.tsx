@@ -29,7 +29,11 @@ export const Header = () => {
 
     const openSettings = () => {
         setMenuOpen(false);
-        void WindowManager.OpenSettings().catch(() => {});
+        void WindowManager.OpenSettings("").catch(() => {});
+    };
+
+    const openManageProfiles = () => {
+        void WindowManager.OpenSettings("profiles").catch(() => {});
     };
 
     const selectMode = (mode: ViewMode) => {
@@ -48,7 +52,7 @@ export const Header = () => {
         >
             <div />
             <div className={"flex justify-center ml-3"}>
-                <ProfileDropdown />
+                <ProfileDropdown onManageProfiles={openManageProfiles} />
             </div>
             <div className={"flex justify-end"}>
                 <DropdownMenu modal={false} open={menuOpen} onOpenChange={setMenuOpen}>

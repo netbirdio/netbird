@@ -74,7 +74,7 @@
     "profile.selector.newProfile": "New Profile",
     "profile.selector.moreOptions": "More options",
     "profile.selector.deregister": "Deregister",
-    "profile.selector.delete": "Delete Profile",
+    "profile.selector.delete": "Delete",
 
     "profile.dialog.title": "Enter Profile Name",
     "profile.dialog.description": "Choose a memorable name.",
@@ -104,6 +104,13 @@
     "profile.dropdown.manageProfiles": "Manage Profiles",
     "profile.dropdown.settings": "Settings",
 
+    "settings.profiles.section.profiles": "Profiles",
+    "settings.profiles.intro": "Keep separate NetBird identities side by side, for example work and personal accounts, or different management servers. Add, deregister, or delete profiles below.",
+    "settings.profiles.addProfile": "Add Profile",
+    "settings.profiles.active": "Active",
+    "settings.profiles.emptyTitle": "No Profiles",
+    "settings.profiles.emptyDescription": "Create a profile to connect to a NetBird management server.",
+
     "settings.error.loadTitle": "Load Settings Failed",
     "settings.error.saveTitle": "Save Settings Failed",
     "settings.error.debugBundleTitle": "Debug Bundle Failed",
@@ -111,6 +118,7 @@
     "settings.tabs.general": "General",
     "settings.tabs.network": "Network",
     "settings.tabs.security": "Security",
+    "settings.tabs.profiles": "Profiles",
     "settings.tabs.ssh": "SSH",
     "settings.tabs.advanced": "Advanced",
     "settings.tabs.troubleshooting": "Troubleshooting",

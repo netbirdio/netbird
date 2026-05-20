@@ -304,7 +304,7 @@ func (t *Tray) buildMenu() *application.Menu {
 	// block-inbound, auto-connect, notifications) and profile switching
 	// all live in the in-window Settings page now. The tray menu only
 	// surfaces the day-to-day actions.
-	t.settingsItem = menu.Add(t.loc.T("tray.menu.settings")).OnClick(func(*application.Context) { t.svc.WindowManager.OpenSettings() })
+	t.settingsItem = menu.Add(t.loc.T("tray.menu.settings")).OnClick(func(*application.Context) { t.svc.WindowManager.OpenSettings("") })
 	t.debugItem = menu.Add(t.loc.T("tray.menu.debugBundle")).OnClick(func(*application.Context) { t.openRoute("/debug") })
 
 	menu.AddSeparator()

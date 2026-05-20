@@ -28,8 +28,7 @@ for (const path in FLAG_URLS) {
     if (match) flagByCode[match[1]] = FLAG_URLS[path];
 }
 
-const flagFor = (code: string): string | undefined =>
-    flagByCode[code.toLowerCase().split("-")[0]];
+const flagFor = (code: string): string | undefined => flagByCode[code.toLowerCase().split("-")[0]];
 
 function Flag({ code, label }: { code: string; label: string }) {
     const src = flagFor(code);
@@ -132,11 +131,11 @@ export function LanguagePicker() {
                     <Popover.Portal>
                         <Popover.Content
                             align={"start"}
-                            sideOffset={4}
+                            sideOffset={6}
                             onCloseAutoFocus={(e) => e.preventDefault()}
                             className={cn(
                                 "w-[var(--radix-popover-trigger-width)]",
-                                "rounded-md border border-nb-gray-700 bg-nb-gray-900 shadow-lg p-1 z-50",
+                                "rounded-md border border-nb-gray-850 bg-nb-gray-920 shadow-lg p-1 z-50",
                                 "origin-[var(--radix-popover-content-transform-origin)]",
                                 "data-[state=open]:animate-in data-[state=closed]:animate-out",
                                 "data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
@@ -188,11 +187,9 @@ export function LanguagePicker() {
                                                         value={`${lang.displayName} ${lang.englishName} ${lang.code}`}
                                                         onSelect={() => void select(lang.code)}
                                                         className={cn(
-                                                            "flex items-center gap-2 px-2 py-2 rounded-md cursor-default outline-none",
-                                                            "text-xs font-semibold text-nb-gray-100",
-                                                            "data-[selected=true]:bg-nb-gray-850 my-0.5",
-                                                            checked &&
-                                                                "bg-nb-gray-800 data-[selected=true]:bg-nb-gray-800",
+                                                            "flex items-center gap-2 px-2 py-2 rounded-md cursor-default outline-none my-0.5",
+                                                            "text-xs font-semibold text-nb-gray-200",
+                                                            "data-[selected=true]:bg-nb-gray-900 data-[selected=true]:text-nb-gray-50",
                                                         )}
                                                     >
                                                         <Flag
@@ -209,8 +206,8 @@ export function LanguagePicker() {
                                                         >
                                                             {checked && (
                                                                 <CheckIcon
-                                                                    size={12}
-                                                                    className={"text-white"}
+                                                                    size={14}
+                                                                    className={"text-netbird"}
                                                                 />
                                                             )}
                                                         </span>

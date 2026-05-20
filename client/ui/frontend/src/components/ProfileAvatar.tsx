@@ -1,15 +1,17 @@
 import { ButtonHTMLAttributes, forwardRef } from "react";
 import {
-    Beaker,
     Briefcase,
     Building,
+    Cloud,
+    Construction,
+    FlaskConical,
     Gamepad2,
     GraduationCap,
     House,
-    Cloud,
-    ServerCog,
+    Radio,
+    Server,
     SquareCode,
-    TestTube,
+    Terminal,
     UserCircle,
     UserPlus,
     Users,
@@ -17,17 +19,21 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 
+// Patterns match substrings, case-insensitive — "Proxytest" hits FlaskConical
+// just like "test" does. The list is scanned in order, so more-specific
+// tokens (e.g. "staging" before "stage") should come first when they share
+// roots.
 const ICON_MAP: ReadonlyArray<[RegExp, LucideIcon]> = [
     [/(default|personal)/i, UserCircle],
     [/(work|business|office|company|corp|corporate)/i, Briefcase],
     [/(home|house|private)/i, House],
     [/(dev|development|developer|code|coding|engineering)/i, SquareCode],
-    [/(local|localhost|loopback)/i, SquareCode],
-    [/(stage|staging)/i, Beaker],
-    [/(test|testing|qa)/i, TestTube],
+    [/(local|localhost|loopback)/i, Terminal],
+    [/(stage|staging|preprod|pre-prod)/i, Construction],
+    [/(test|testing|qa)/i, FlaskConical],
     [/(prod|production)/i, Cloud],
-    [/(live)/i, Cloud],
-    [/(selfhosted|self-hosted|on-prem|onprem)/i, ServerCog],
+    [/(live)/i, Radio],
+    [/(selfhosted|self-hosted|on-prem|onprem)/i, Server],
     [/(school|university|edu|study|student)/i, GraduationCap],
     [/(client|customer)/i, Building],
     [/(family)/i, Users],

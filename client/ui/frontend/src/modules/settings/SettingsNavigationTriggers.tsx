@@ -12,6 +12,7 @@ import {
     ShieldIcon,
     SlidersHorizontalIcon,
     SquareTerminalIcon,
+    UserCircleIcon,
 } from "lucide-react";
 
 export const SettingsNavigationTriggers = () => {
@@ -41,6 +42,11 @@ export const SettingsNavigationTriggers = () => {
                 value={"security"}
                 icon={ShieldIcon}
                 title={t("settings.tabs.security")}
+            />
+            <VerticalTabs.Trigger
+                value={"profiles"}
+                icon={UserCircleIcon}
+                title={t("settings.tabs.profiles")}
             />
             <VerticalTabs.Trigger
                 value={"ssh"}
