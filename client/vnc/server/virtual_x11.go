@@ -118,7 +118,7 @@ func (vs *VirtualSession) start() error {
 		return err
 	}
 
-	socketPath := fmt.Sprintf("/tmp/.X11-unix/X%s", vs.display[1:])
+	socketPath := fmt.Sprintf("%s/X%s", x11SocketDir, vs.display[1:])
 	if err := waitForPath(socketPath, 5*time.Second); err != nil {
 		vs.stopXvfb()
 		return fmt.Errorf("wait for X11 socket %s: %w", socketPath, err)
@@ -196,7 +196,7 @@ func (vs *VirtualSession) isAlive() bool {
 		return false
 	}
 	// Verify the X socket still exists on disk.
-	socketPath := fmt.Sprintf("/tmp/.X11-unix/X%s", display[1:])
+	socketPath := fmt.Sprintf("%s/X%s", x11SocketDir, display[1:])
 	if _, err := os.Stat(socketPath); err != nil {
 		return false
 	}
@@ -590,7 +590,7 @@ func bestSessionCandidate(candidates []sessionCandidate) sessionCandidate {
 func findFreeDisplay() (string, error) {
 	for n := 50; n < 200; n++ {
 		lockFile := fmt.Sprintf("/tmp/.X%d-lock", n)
-		socketFile := fmt.Sprintf("/tmp/.X11-unix/X%d", n)
+		socketFile := fmt.Sprintf("%s/X%d", x11SocketDir, n)
 		if _, err := os.Stat(lockFile); err == nil {
 			continue
 		}

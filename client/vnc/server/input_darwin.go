@@ -104,7 +104,9 @@ var (
 	userActivityID   uint32
 	preventSleepID   uint32
 	preventSleepHeld bool
-	preventSleepRef  int // refcount across concurrent injectors/sessions
+	// preventSleepRef tracks the refcount of held assertions across
+	// concurrent injectors and sessions.
+	preventSleepRef int
 
 	darwinInputReady  bool
 	darwinEventSource uintptr
@@ -503,10 +505,10 @@ func (m *MacInputInjector) postScrollWheel(src uintptr, buttonMask uint16) {
 }
 
 // scrollPixelsPerWheelTick is the pixel delta we post for one VNC wheel
-// button event. noVNC accumulates the host wheel/trackpad deltaY and
-// emits one press+release per ~10 px, so a real gesture arrives as many
-// small events; 20 px per event keeps the resulting macOS scroll fluid
-// without overshooting on a single notch.
+// button event. Browser-based RFB clients typically emit one press+release
+// per ~10 px of host wheel/trackpad motion, so a real gesture arrives as
+// many small events; ~20 px per event keeps the resulting macOS scroll
+// fluid without overshooting on a single notch.
 const scrollPixelsPerWheelTick int32 = 22
 
 func (m *MacInputInjector) postMouse(src uintptr, eventType int32, x, y float64, button int32) {
@@ -543,8 +545,8 @@ func (m *MacInputInjector) postScroll(src uintptr, deltaY int32) {
 		return
 	}
 	// CGEventCreateScrollWheelEvent(source, units, wheelCount, wheel1delta).
-	// Pixel units (0) feel smoother under noVNC's "one event per ~10 px of
-	// host wheel" emission than line units (1) where each event jumps a
+	// Pixel units (0) feel smoother given the small per-event deltas typical
+	// of RFB wheel events than line units (1) where each event jumps a
 	// whole line. Variadic C function, pass via SyscallN.
 	r1, _, _ := purego.SyscallN(cgEventCreateScrollWheelEventAddr,
 		src, 0, 1, uintptr(uint32(deltaY)))
@@ -568,10 +570,10 @@ func (m *MacInputInjector) SetClipboard(text string) {
 }
 
 // TypeText synthesizes the given text as keystrokes via Core Graphics.
-// Used by the dashboard's Paste button so the host clipboard reaches
-// the focused remote app even when the app doesn't honor pbpaste-style
-// clipboard sync (e.g. login screens, locked-down apps). ASCII printable
-// runes only; others are skipped.
+// Lets a client push host clipboard content to the focused remote app
+// even when the app doesn't honor pbpaste-style clipboard sync (e.g.
+// login screens, locked-down apps). ASCII printable runes only; others
+// are skipped.
 func (m *MacInputInjector) TypeText(text string) {
 	wakeDisplay()
 	src := ensureEventSource()

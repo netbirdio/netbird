@@ -227,4 +227,3 @@ func swizzleFB32(dst []byte, dstStride int, src []byte, srcStride, w, h int, shi
 		}
 	}
 }
-

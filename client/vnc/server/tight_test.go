@@ -101,12 +101,11 @@ func TestEncodeTightJPEG(t *testing.T) {
 
 func TestSampledColorCount(t *testing.T) {
 	uniform := makeUniformImage(64, 64, 0x10, 0x20, 0x30)
-	if c := sampledColorCountInto(map[uint32]struct{}{},uniform, 0, 0, 64, 64, 32); c != 1 {
+	if c := sampledColorCountInto(map[uint32]struct{}{}, uniform, 0, 0, 64, 64, 32); c != 1 {
 		t.Fatalf("uniform should be 1 colour, got %d", c)
 	}
 	rnd := makeBenchImage(128, 128, 1)
-	if c := sampledColorCountInto(map[uint32]struct{}{},rnd, 0, 0, 128, 128, 16); c <= 16 {
+	if c := sampledColorCountInto(map[uint32]struct{}{}, rnd, 0, 0, 128, 128, 16); c <= 16 {
 		t.Fatalf("random image should exceed colour cap, got %d", c)
 	}
 }
-

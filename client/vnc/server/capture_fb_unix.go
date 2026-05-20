@@ -109,7 +109,6 @@ func (p *FBPoller) ensureCapturerLocked() error {
 	return nil
 }
 
-
 var _ ScreenCapturer = (*FBPoller)(nil)
 var _ captureIntoer = (*FBPoller)(nil)
 

@@ -32,8 +32,8 @@ const (
 )
 
 // RFB security-failure reason codes sent to the client. These prefixes are
-// stable so dashboard integrations can branch on them without parsing
-// free text. Format: "CODE: human message".
+// stable so clients can branch on them without parsing free text.
+// Format: "CODE: human message".
 const (
 	RejectCodeJWTMissing    = "AUTH_JWT_MISSING"
 	RejectCodeJWTExpired    = "AUTH_JWT_EXPIRED"
@@ -114,10 +114,9 @@ type InputInjector interface {
 	// GetClipboard returns the current system clipboard text.
 	GetClipboard() string
 	// TypeText synthesizes the given text as keystrokes on the active
-	// desktop. Used by the dashboard's Paste button to push host clipboard
-	// content into a secure desktop (Winlogon/UAC) where the clipboard is
-	// isolated. On platforms or sessions without keystroke synthesis it
-	// may be a no-op.
+	// desktop. Used to push host clipboard content into a secure desktop
+	// (Winlogon/UAC) where the clipboard is isolated. On platforms or
+	// sessions without keystroke synthesis it may be a no-op.
 	TypeText(text string)
 }
 
@@ -132,10 +131,11 @@ type JWTConfig struct {
 // connectionHeader is sent by the client before the RFB handshake to specify
 // the VNC session mode and authenticate.
 type connectionHeader struct {
-	mode      byte
-	username  string
-	jwt       string
-	sessionID uint32 // Windows session ID (0 = console/auto)
+	mode     byte
+	username string
+	jwt      string
+	// sessionID is the Windows session ID; 0 selects the console session.
+	sessionID uint32
 	// width and height request the virtual display geometry for session mode.
 	// Zero means use the default.
 	width  uint16
@@ -159,9 +159,11 @@ type Server struct {
 	injector    InputInjector
 	serviceMode bool
 	disableAuth bool
-	localAddr   netip.Addr   // NetBird WireGuard IP this server is bound to
-	network     netip.Prefix // NetBird overlay network
-	log         *log.Entry
+	// localAddr is the NetBird WireGuard IP this server is bound to.
+	localAddr netip.Addr
+	// network is the NetBird overlay network.
+	network netip.Prefix
+	log     *log.Entry
 
 	mu           sync.Mutex
 	listener     net.Listener
@@ -173,7 +175,8 @@ type Server struct {
 	jwtExtractor *nbjwt.ClaimsExtractor
 	authorizer   *sshauth.Authorizer
 	netstackNet  *netstack.Net
-	agentToken   []byte // raw token bytes for agent-mode auth
+	// agentToken holds the raw token bytes for agent-mode auth.
+	agentToken []byte
 
 	sessionsMu   sync.Mutex
 	sessionSeq   uint64
@@ -212,14 +215,14 @@ type virtualSessionManager interface {
 }
 
 // New creates a VNC server with the given screen capturer and input injector.
-// Authentication is handled by the dashboard JWT exchange after the RFB
-// handshake; the protocol-level VNC password scheme is not supported.
+// Authentication uses a JWT supplied by the client in the connection
+// header; the protocol-level VNC password scheme is not supported.
 func New(capturer ScreenCapturer, injector InputInjector) *Server {
 	return &Server{
-		capturer:   capturer,
-		injector:   injector,
-		authorizer: sshauth.NewAuthorizer(),
-		log:        log.WithField("component", "vnc-server"),
+		capturer:     capturer,
+		injector:     injector,
+		authorizer:   sshauth.NewAuthorizer(),
+		log:          log.WithField("component", "vnc-server"),
 		sessions:     make(map[uint64]ActiveSessionInfo),
 		sessionConns: make(map[uint64]net.Conn),
 	}
@@ -576,7 +579,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 		serverH:  capturer.Height(),
 		log:      connLog,
 		// Virtual sessions run on Xvfb which has no usable cursor source,
-		// so we skip the Cursor pseudo-encoding and let the dashboard's
+		// so we skip the Cursor pseudo-encoding and let the client's
 		// local fallback show instead.
 		disableCursor: header.mode == ModeSession,
 	}

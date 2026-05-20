@@ -42,17 +42,17 @@ const (
 
 	// clientNetbirdTypeText is a NetBird-specific message that asks the
 	// server to synthesize the given text as keystrokes regardless of the
-	// active desktop. Used by the dashboard's Paste button to push host
-	// clipboard content into a Windows secure desktop (Winlogon, UAC),
-	// where the OS clipboard is isolated. Format mirrors clientCutText:
-	// 1-byte message type + 3-byte padding + 4-byte length + text bytes.
-	// The opcode is in the vendor-specific range (>=128).
+	// active desktop. Lets a client push host clipboard content into a
+	// Windows secure desktop (Winlogon, UAC), where the OS clipboard is
+	// isolated. Format mirrors clientCutText: 1-byte message type + 3-byte
+	// padding + 4-byte length + text bytes. The opcode is in the
+	// vendor-specific range (>=128).
 	clientNetbirdTypeText = 250
 
 	// clientNetbirdShowRemoteCursor toggles "show remote cursor" mode.
 	// When enabled the encoder composites the server cursor sprite into
 	// the captured framebuffer and suppresses the Cursor pseudo-encoding
-	// so the dashboard sees a single pointer at the remote position.
+	// so the client sees a single pointer at the remote position.
 	// Wire format: 1-byte msgType + 1-byte enable flag + 6 padding bytes
 	// reserved for future arguments (so the message is fixed-size).
 	clientNetbirdShowRemoteCursor = 251
@@ -71,13 +71,13 @@ const (
 	// Pseudo-encodings carried over wire as rects with a negative
 	// encoding value. The client advertises supported optional protocol
 	// extensions by listing these in SetEncodings.
-	pseudoEncCursor                  = -239
-	pseudoEncDesktopSize             = -223
-	pseudoEncLastRect                = -224
-	pseudoEncQEMUExtendedKeyEvent    = -258
-	pseudoEncDesktopName             = -307
-	pseudoEncExtendedDesktopSize     = -308
-	pseudoEncExtendedMouseButtons    = -316
+	pseudoEncCursor               = -239
+	pseudoEncDesktopSize          = -223
+	pseudoEncLastRect             = -224
+	pseudoEncQEMUExtendedKeyEvent = -258
+	pseudoEncDesktopName          = -307
+	pseudoEncExtendedDesktopSize  = -308
+	pseudoEncExtendedMouseButtons = -316
 
 	// Quality/Compression level pseudo-encodings. The client picks one
 	// value from each range to tune JPEG quality and zlib effort. 0 is
@@ -405,10 +405,10 @@ func coalesceRects(in [][4]int) [][4]int {
 // algorithm can be split across small methods without long parameter lists
 // and to keep each method's cognitive complexity below Sonar's threshold.
 type rectCoalescer struct {
-	out                        [][4]int
-	prevRowStart, prevRowEnd   int
-	curRowStart                int
-	curY                       int
+	out                      [][4]int
+	prevRowStart, prevRowEnd int
+	curRowStart              int
+	curY                     int
 }
 
 func newRectCoalescer(capacity int) *rectCoalescer {

@@ -22,24 +22,24 @@ import (
 var darwinCaptureOnce sync.Once
 
 var (
-	cgMainDisplayID                func() uint32
-	cgDisplayPixelsWide            func(uint32) uintptr
-	cgDisplayPixelsHigh            func(uint32) uintptr
-	cgDisplayCreateImage           func(uint32) uintptr
-	cgImageGetWidth                func(uintptr) uintptr
-	cgImageGetHeight               func(uintptr) uintptr
-	cgImageGetBytesPerRow          func(uintptr) uintptr
-	cgImageGetBitsPerPixel         func(uintptr) uintptr
-	cgImageGetDataProvider         func(uintptr) uintptr
-	cgDataProviderCopyData         func(uintptr) uintptr
-	cgImageRelease                 func(uintptr)
-	cfDataGetLength                func(uintptr) int64
-	cfDataGetBytePtr               func(uintptr) uintptr
-	cfRelease                      func(uintptr)
+	cgMainDisplayID              func() uint32
+	cgDisplayPixelsWide          func(uint32) uintptr
+	cgDisplayPixelsHigh          func(uint32) uintptr
+	cgDisplayCreateImage         func(uint32) uintptr
+	cgImageGetWidth              func(uintptr) uintptr
+	cgImageGetHeight             func(uintptr) uintptr
+	cgImageGetBytesPerRow        func(uintptr) uintptr
+	cgImageGetBitsPerPixel       func(uintptr) uintptr
+	cgImageGetDataProvider       func(uintptr) uintptr
+	cgDataProviderCopyData       func(uintptr) uintptr
+	cgImageRelease               func(uintptr)
+	cfDataGetLength              func(uintptr) int64
+	cfDataGetBytePtr             func(uintptr) uintptr
+	cfRelease                    func(uintptr)
 	cgRequestScreenCaptureAccess func() bool
-	cgEventCreate                  func(uintptr) uintptr
-	cgEventGetLocation             func(uintptr) cgPoint
-	darwinCaptureReady             bool
+	cgEventCreate                func(uintptr) uintptr
+	cgEventGetLocation           func(uintptr) cgPoint
+	darwinCaptureReady           bool
 )
 
 // cgPoint mirrors CoreGraphics CGPoint: two doubles, 16 bytes, returned
@@ -97,7 +97,6 @@ func initDarwinCapture() {
 		darwinCaptureReady = true
 	})
 }
-
 
 // CGCapturer captures the macOS main display using Core Graphics.
 type CGCapturer struct {

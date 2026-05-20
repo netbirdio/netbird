@@ -220,9 +220,10 @@ func (s *session) writeExtClipMessage(payload []byte) error {
 	return err
 }
 
-// handleTypeText handles the NetBird-specific PasteAndType message used by
-// the dashboard's Paste button. Wire format mirrors CutText: 3-byte
-// padding + 4-byte length + text bytes.
+// handleTypeText handles the NetBird-specific PasteAndType message that
+// pushes host clipboard content as synthesized keystrokes, used to reach
+// secure desktops where the clipboard is isolated. Wire format mirrors
+// CutText: 3-byte padding + 4-byte length + text bytes.
 func (s *session) handleTypeText() error {
 	var header [7]byte
 	if _, err := io.ReadFull(s.conn, header[:]); err != nil {
