@@ -77,6 +77,7 @@ const (
 	pseudoEncQEMUExtendedKeyEvent    = -258
 	pseudoEncDesktopName             = -307
 	pseudoEncExtendedDesktopSize     = -308
+	pseudoEncExtendedMouseButtons    = -316
 
 	// Quality/Compression level pseudo-encodings. The client picks one
 	// value from each range to tune JPEG quality and zlib effort. 0 is

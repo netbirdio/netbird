@@ -22,7 +22,7 @@ type X11InputInjector struct {
 	screen            *xproto.ScreenInfo
 	display           string
 	keysymMap         map[uint32]byte
-	lastButtons       uint8
+	lastButtons       uint16
 	clipboardTool     string
 	clipboardToolName string
 }
@@ -110,7 +110,7 @@ func (x *X11InputInjector) fakeKeyEvent(keycode byte, down bool) {
 }
 
 // InjectPointer simulates mouse movement and button events.
-func (x *X11InputInjector) InjectPointer(buttonMask uint8, px, py, serverW, serverH int) {
+func (x *X11InputInjector) InjectPointer(buttonMask uint16, px, py, serverW, serverH int) {
 	if serverW == 0 || serverH == 0 {
 		return
 	}
@@ -128,15 +128,19 @@ func (x *X11InputInjector) InjectPointer(buttonMask uint8, px, py, serverW, serv
 	// bit3=scrollUp, bit4=scrollDown. X11 buttons: 1=left, 2=middle, 3=right,
 	// 4=scrollUp, 5=scrollDown.
 	type btnMap struct {
-		rfbBit uint8
+		rfbBit uint16
 		x11Btn byte
 	}
+	// X11 button numbers: 1=left, 2=middle, 3=right, 4/5=scroll up/down,
+	// 6/7=scroll left/right (skipped), 8=back, 9=forward.
 	buttons := [...]btnMap{
-		{0x01, 1}, // left
-		{0x02, 2}, // middle
-		{0x04, 3}, // right
-		{0x08, 4}, // scroll up
-		{0x10, 5}, // scroll down
+		{0x01, 1},
+		{0x02, 2},
+		{0x04, 3},
+		{0x08, 4},
+		{0x10, 5},
+		{1 << 7, 8},
+		{1 << 8, 9},
 	}
 
 	for _, b := range buttons {

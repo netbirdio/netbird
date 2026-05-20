@@ -42,6 +42,8 @@ const (
 	btnLeft   = 0x110
 	btnRight  = 0x111
 	btnMiddle = 0x112
+	btnSide   = 0x113 // mouse-back (X1)
+	btnExtra  = 0x114 // mouse-forward (X2)
 )
 
 // inputEvent matches struct input_event for x86_64 (timeval is 16 bytes).
@@ -63,7 +65,7 @@ type UInputInjector struct {
 	fd          int
 	closeOnce   sync.Once
 	keysymToKey map[uint32]uint16
-	prevButtons uint8
+	prevButtons uint16
 	screenW     int
 	screenH     int
 }
@@ -233,7 +235,7 @@ func (u *UInputInjector) emitKeyCode(code uint16, down bool) {
 
 // InjectPointer moves the absolute pointer and presses/releases buttons
 // based on the RFB button mask delta against the previous mask.
-func (u *UInputInjector) InjectPointer(buttonMask uint8, x, y, serverW, serverH int) {
+func (u *UInputInjector) InjectPointer(buttonMask uint16, x, y, serverW, serverH int) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	if serverW <= 1 || serverH <= 1 {
@@ -245,13 +247,15 @@ func (u *UInputInjector) InjectPointer(buttonMask uint8, x, y, serverW, serverH 
 	_ = u.emit(evAbs, absY, absYVal)
 
 	type btnMap struct {
-		bit uint8
+		bit uint16
 		key uint16
 	}
 	for _, b := range []btnMap{
 		{0x01, btnLeft},
 		{0x02, btnMiddle},
 		{0x04, btnRight},
+		{1 << 7, btnSide},
+		{1 << 8, btnExtra},
 	} {
 		pressed := buttonMask&b.bit != 0
 		was := u.prevButtons&b.bit != 0
