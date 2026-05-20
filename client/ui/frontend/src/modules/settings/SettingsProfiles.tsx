@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Dialogs } from "@wailsio/runtime";
-import { LogOut, PlusCircle, Trash2, UserCircle } from "lucide-react";
+import { CircleMinus, PlusCircle, Trash2, UserCircle } from "lucide-react";
 import type { Profile } from "@bindings/services/models.js";
 import { Badge } from "@/components/Badge";
 import { Button } from "@/components/Button";
@@ -251,7 +251,7 @@ const RowActions = ({ canDeregister, canDelete, onDeregister, onDelete }: RowAct
         <div className={"inline-flex items-center gap-1"}>
             <ActionIconButton
                 label={t("profile.selector.deregister")}
-                icon={LogOut}
+                icon={CircleMinus}
                 onClick={onDeregister}
                 hidden={!canDeregister}
             />
@@ -268,7 +268,7 @@ const RowActions = ({ canDeregister, canDelete, onDeregister, onDelete }: RowAct
 
 type ActionIconButtonProps = {
     label: string;
-    icon: typeof LogOut;
+    icon: typeof CircleMinus;
     onClick: () => void;
     variant?: "default" | "danger";
     /** When true the button still occupies space (preserves row layout)

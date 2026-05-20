@@ -25,10 +25,13 @@ export function UpdateVersionCard() {
     const { updateVersion, enforced, triggerUpdate } = useClientVersion();
 
     if (updateVersion) {
+        const titleKey = enforced
+            ? "update.card.versionAvailableInstall"
+            : "update.card.versionAvailableDownload";
         return (
             <Card>
                 <div>
-                    <Title>{t("update.card.versionAvailable", { version: updateVersion })}</Title>
+                    <Title>{t(titleKey, { version: updateVersion })}</Title>
                     <Link
                         url={`https://github.com/netbirdio/netbird/releases/tag/v${updateVersion}`}
                     >

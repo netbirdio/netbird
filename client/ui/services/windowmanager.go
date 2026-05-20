@@ -36,6 +36,7 @@ type WindowManager struct {
 	browserLogin         *application.WebviewWindow
 	sessionExpired       *application.WebviewWindow
 	sessionAboutToExpire *application.WebviewWindow
+	installProgress      *application.WebviewWindow
 	// hiddenForLogin remembers windows that were visible when the
 	// BrowserLogin popup opened. They were Hide()n to keep focus on the
 	// SSO flow without resorting to AlwaysOnTop, and are restored when
@@ -319,6 +320,70 @@ func (s *WindowManager) CloseSessionAboutToExpire() {
 	s.mu.Lock()
 	w := s.sessionAboutToExpire
 	s.sessionAboutToExpire = nil
+	s.mu.Unlock()
+	if w != nil {
+		w.Close()
+	}
+}
+
+// OpenInstallProgress shows the install-progress window above all other
+// application windows for the duration of the auto-update install. The
+// daemon is unreliable mid-install (it gets restarted by the installer),
+// so this window owns its own polling loop against Update.GetInstallerResult
+// and treats a sustained gRPC failure as success.
+//
+// All other visible windows are hidden while the install runs — the ticket
+// requires that the user can't reach other menus during install — and are
+// restored when the window closes (cancel, error dismissal, success-quit
+// race). Singleton, destroyed on close. Created Hidden so the React side
+// can auto-size before paint.
+func (s *WindowManager) OpenInstallProgress(version string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	startURL := "/#/install-progress"
+	if version != "" {
+		startURL = "/#/install-progress?version=" + url.QueryEscape(version)
+	}
+	if s.installProgress == nil {
+		s.hideOtherWindowsLocked("install-progress")
+		s.installProgress = s.app.Window.NewWithOptions(application.WebviewWindowOptions{
+			Name:                "install-progress",
+			Title:               "NetBird",
+			Width:               360,
+			Height:              320,
+			DisableResize:       true,
+			AlwaysOnTop:         true,
+			Hidden:              true,
+			MinimiseButtonState: application.ButtonHidden,
+			MaximiseButtonState: application.ButtonHidden,
+			CloseButtonState:    application.ButtonEnabled,
+			BackgroundColour:    application.NewRGB(24, 26, 29),
+			URL:                 startURL,
+			Mac: application.MacWindow{
+				InvisibleTitleBarHeight: 38,
+				Backdrop:                application.MacBackdropTranslucent,
+				TitleBar:                application.MacTitleBarHiddenInset,
+				CollectionBehavior:      application.MacWindowCollectionBehaviorFullScreenNone,
+			},
+		})
+		s.installProgress.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
+			s.mu.Lock()
+			s.installProgress = nil
+			s.restoreHiddenWindowsLocked()
+			s.mu.Unlock()
+		})
+		return
+	}
+	s.installProgress.SetURL(startURL)
+	s.installProgress.Show()
+	s.installProgress.Focus()
+}
+
+// CloseInstallProgress destroys the install-progress window if open.
+func (s *WindowManager) CloseInstallProgress() {
+	s.mu.Lock()
+	w := s.installProgress
+	s.installProgress = nil
 	s.mu.Unlock()
 	if w != nil {
 		w.Close()

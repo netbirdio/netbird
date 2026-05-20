@@ -4,14 +4,13 @@ import {
     useContext,
     useEffect,
     useMemo,
+    useRef,
     useState,
     type ReactNode,
 } from "react";
 import { Events } from "@wailsio/runtime";
-import { Update as UpdateSvc } from "@bindings/services";
+import { Update as UpdateSvc, WindowManager } from "@bindings/services";
 import type { State as UpdateState } from "@bindings/updater/models.js";
-import { UpdateAvailableBanner } from "@/modules/auto-update/UpdateAvailableBanner";
-import { UpdatingOverlay } from "@/modules/auto-update/UpdatingOverlay";
 
 type ClientVersionContextValue = {
     updateAvailable: boolean;
@@ -20,41 +19,21 @@ type ClientVersionContextValue = {
     installing: boolean;
     triggerUpdate: () => void;
     updating: boolean;
-    updateError: string | null;
-    dismissUpdateError: () => void;
-};
-
-// Dev toggles — flip to preview UI states without triggering real flows.
-const FORCE_UPDATE_AVAILABLE = false;
-const FORCE_UPDATING = false;
-const FORCE_ENFORCED = true;
-const FORCE_VERSION = "0.65.0";
-// Hide all "update available" UI (header trigger, settings badge, banner)
-// regardless of what the daemon reports.
-const HIDE_UPDATE_AVAILABLE = false;
-// FORCE_ERROR options:
-//   null       → no error (loading state)
-//   "timeout"  → "Update timed out" state
-//   "cancel"   → "Update canceled" state
-//   "fail"     → generic "Update failed" state (uses FORCE_ERROR_MSG)
-type ForceError = "timeout" | "cancel" | "fail" | null;
-const FORCE_ERROR = null as ForceError;
-const FORCE_ERROR_MSG = "installer exited with code 1";
-
-const forcedErrorMessage = (): string | null => {
-    switch (FORCE_ERROR) {
-        case "timeout":
-            return "update timed out after 15m";
-        case "cancel":
-            return "update canceled by user";
-        case "fail":
-            return FORCE_ERROR_MSG;
-        default:
-            return null;
-    }
 };
 
 const EVENT_UPDATE_STATE = "netbird:update:state";
+
+// Dev tab in Settings emits this with { updateAvailable, enforced, version }.
+// Lives only in-memory in the main window for the session — losing it when
+// Settings closes is acceptable per the dev-toggle scope (no daemon write,
+// no persistence). See SettingsDevelopment.tsx.
+const EVENT_DEV_OVERRIDES = "netbird:dev:overrides";
+
+type DevOverrides = {
+    updateAvailable: boolean;
+    enforced: boolean;
+    version: string;
+};
 
 const emptyState: UpdateState = {
     available: false,
@@ -76,11 +55,8 @@ export const useClientVersion = () => {
 export const ClientVersionProvider = ({ children }: { children: ReactNode }) => {
     const [state, setState] = useState<UpdateState>(emptyState);
     const [updating, setUpdating] = useState(false);
-    const [updateError, setUpdateError] = useState<string | null>(null);
+    const [devOverride, setDevOverride] = useState<DevOverrides | null>(null);
 
-    // Pull the current state once on mount so a banner / overlay that
-    // re-renders later in the session still has the right baseline, then
-    // subscribe to the push channel for live updates.
     useEffect(() => {
         let cancelled = false;
         UpdateSvc.GetState()
@@ -100,40 +76,53 @@ export const ClientVersionProvider = ({ children }: { children: ReactNode }) => 
         };
     }, []);
 
-    // Merge the live state with dev overrides. The overrides win so designers
-    // can preview any branch without involving the daemon.
+    useEffect(() => {
+        const off = Events.On(EVENT_DEV_OVERRIDES, (ev: { data: DevOverrides }) => {
+            if (ev?.data) setDevOverride(ev.data);
+        });
+        return () => {
+            off?.();
+        };
+    }, []);
+
+    // Dev override only kicks in when it explicitly forces updateAvailable on.
+    // Otherwise daemon truth wins.
     const effective = useMemo<UpdateState>(() => {
-        if (HIDE_UPDATE_AVAILABLE) return emptyState;
-        if (FORCE_UPDATE_AVAILABLE || FORCE_UPDATING) {
+        if (devOverride && devOverride.updateAvailable) {
             return {
                 available: true,
-                version: FORCE_VERSION,
-                enforced: FORCE_ENFORCED,
-                installing: FORCE_UPDATING,
+                version: devOverride.version || "0.65.0",
+                enforced: devOverride.enforced,
+                installing: state.installing,
             };
         }
         return state;
-    }, [state]);
+    }, [state, devOverride]);
 
+    // Force-install branch: daemon's progress_window:show flipped installing
+    // to true while the UI was idle. Open the install window so the user
+    // sees the progress UI without having to click anything.
+    const prevInstallingRef = useRef(false);
+    useEffect(() => {
+        if (effective.installing && !prevInstallingRef.current) {
+            WindowManager.OpenInstallProgress(effective.version || "").catch(console.error);
+        }
+        prevInstallingRef.current = effective.installing;
+    }, [effective.installing, effective.version]);
+
+    // Enforced user-driven branch: kick Trigger() in the background, then
+    // hand off to the install window. The window owns the polling loop and
+    // the final Quit() — this provider just fires the trigger.
     const triggerUpdate = useCallback(() => {
-        setUpdateError(null);
         setUpdating(true);
+        WindowManager.OpenInstallProgress(effective.version || "").catch(console.error);
         UpdateSvc.Trigger()
-            .then((result) => {
-                if (!result?.success) {
-                    setUpdateError(result?.errorMsg || "Update failed");
-                    setUpdating(false);
-                }
+            .catch(() => {
+                // The daemon may already be down (force-install branch raced
+                // us). The install window's polling loop handles it.
             })
-            .catch((e: unknown) => {
-                setUpdateError(String(e));
-                setUpdating(false);
-            });
-    }, []);
-
-    const dismissUpdateError = useCallback(() => setUpdateError(null), []);
-
-    const showOverlay = updating || effective.installing || updateError || FORCE_ERROR;
+            .finally(() => setUpdating(false));
+    }, [effective.version]);
 
     const value = useMemo<ClientVersionContextValue>(
         () => ({
@@ -143,23 +132,13 @@ export const ClientVersionProvider = ({ children }: { children: ReactNode }) => 
             installing: effective.installing,
             triggerUpdate,
             updating,
-            updateError,
-            dismissUpdateError,
         }),
-        [effective, triggerUpdate, updating, updateError, dismissUpdateError],
+        [effective, triggerUpdate, updating],
     );
 
     return (
         <ClientVersionContext.Provider value={value}>
             {children}
-            <UpdateAvailableBanner />
-            {showOverlay && (
-                <UpdatingOverlay
-                    version={effective.version || null}
-                    error={updateError ?? forcedErrorMessage()}
-                    onDismiss={dismissUpdateError}
-                />
-            )}
         </ClientVersionContext.Provider>
     );
 };

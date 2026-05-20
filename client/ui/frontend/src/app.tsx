@@ -5,7 +5,7 @@ import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import QuickActions from "@/screens/QuickActions.tsx";
 import SessionExpiredDialog from "@/modules/authentication/SessionExpiredDialog.tsx";
 import SessionAboutToExpireDialog from "@/modules/authentication/SessionAboutToExpireDialog.tsx";
-import Update from "@/screens/Update.tsx";
+import InstallProgressDialog from "@/modules/auto-update/InstallProgressDialog.tsx";
 import { AppLayout } from "@/layouts/AppLayout.tsx";
 import { SettingsLayout } from "@/layouts/SettingsLayout.tsx";
 import { Main } from "@/layouts/Main.tsx";
@@ -33,7 +33,7 @@ initI18n()
                     <Routes>
                         <Route path="/quick" element={<QuickActions />} />
                         <Route path="/browser-login" element={<WaitingForBrowserDialog />} />
-                        <Route path="/update" element={<Update />} />
+                        <Route path="/install-progress" element={<InstallProgressDialog />} />
                         <Route path="/session-expired" element={<SessionExpiredDialog />} />
                         <Route path="/session-about-to-expire" element={<SessionAboutToExpireDialog />} />
                         <Route element={<SettingsLayout />}>

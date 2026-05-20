@@ -51,16 +51,13 @@ export const Header = () => {
             )}
         >
             <div />
-            <div className={"flex justify-center ml-3"}>
+            <div className={"flex justify-center ml-4"}>
                 <ProfileDropdown onManageProfiles={openManageProfiles} />
             </div>
             <div className={"flex justify-end"}>
                 <DropdownMenu modal={false} open={menuOpen} onOpenChange={setMenuOpen}>
                     <DropdownMenuTrigger asChild>
-                        <IconButton
-                            icon={MoreVertical}
-                            iconClassName={"text-nb-gray-200"}
-                        />
+                        <IconButton icon={MoreVertical} iconClassName={"text-nb-gray-200"} />
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" sideOffset={8} className="min-w-52">
                         <DropdownMenuItem onClick={openSettings}>
