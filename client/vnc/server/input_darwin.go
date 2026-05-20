@@ -36,6 +36,15 @@ const (
 
 	kCGHIDEventTap int32 = 0
 
+	// kCGEventFlagMaskSecondaryFn is the CGEventFlags bit Apple sets when
+	// a key was activated via the Fn modifier on internal keyboards. The
+	// navigation cluster (ForwardDelete, Home, End, PageUp, PageDown,
+	// Help/Insert, arrows) lives in the Fn-shifted region of an Apple
+	// keyboard, so synthesising those keycodes without this bit leaves the
+	// system in a confused "Fn implied" state where the next plain
+	// letter is treated as a menu accelerator.
+	kCGEventFlagMaskSecondaryFn uint64 = 0x00800000
+
 	// kCGMouseEventClickState (event field 1) tells macOS how many
 	// consecutive clicks of this button have happened. Without it, a
 	// double click looks like two independent single clicks and apps
@@ -64,6 +73,7 @@ var (
 	cgEventCreateMouseEvent     func(uintptr, int32, float64, float64, int32) uintptr
 	cgEventPost                 func(int32, uintptr)
 	cgEventSetIntegerValueField func(uintptr, int32, int64)
+	cgEventSetFlags             func(uintptr, uint64)
 
 	// CGEventCreateScrollWheelEvent is variadic, call via SyscallN.
 	cgEventCreateScrollWheelEventAddr uintptr
@@ -125,6 +135,7 @@ func initDarwinInput() {
 		purego.RegisterLibFunc(&cgEventCreateMouseEvent, cg, "CGEventCreateMouseEvent")
 		purego.RegisterLibFunc(&cgEventPost, cg, "CGEventPost")
 		purego.RegisterLibFunc(&cgEventSetIntegerValueField, cg, "CGEventSetIntegerValueField")
+		purego.RegisterLibFunc(&cgEventSetFlags, cg, "CGEventSetFlags")
 
 		sym, err := purego.Dlsym(cg, "CGEventCreateScrollWheelEvent")
 		if err == nil {
@@ -397,14 +408,39 @@ func (m *MacInputInjector) InjectKeyScancode(scancode, keysym uint32, down bool)
 	m.postMacKey(src, vk, down)
 }
 
-// postMacKey emits a single key down/up event via Core Graphics.
+// postMacKey emits a single key down/up event via Core Graphics. The
+// Fn flag is attached for keycodes that live in the Fn-shifted region of
+// an Apple keyboard so the system doesn't treat the next plain key as
+// Fn-modified.
 func (m *MacInputInjector) postMacKey(src uintptr, keycode uint16, down bool) {
 	event := cgEventCreateKeyboardEvent(src, keycode, down)
 	if event == 0 {
 		return
 	}
+	if isFnShiftedKeycode(keycode) && cgEventSetFlags != nil {
+		cgEventSetFlags(event, kCGEventFlagMaskSecondaryFn)
+	}
 	cgEventPost(kCGHIDEventTap, event)
 	cfRelease(event)
+}
+
+// isFnShiftedKeycode reports whether keycode is one of the Apple
+// navigation/edit keys that hardware produces with the Fn modifier held.
+func isFnShiftedKeycode(keycode uint16) bool {
+	switch keycode {
+	case 0x72, // Help / Insert
+		0x73, // Home
+		0x74, // PageUp
+		0x75, // ForwardDelete
+		0x77, // End
+		0x79, // PageDown
+		0x7B, // Left
+		0x7C, // Right
+		0x7D, // Down
+		0x7E: // Up
+		return true
+	}
+	return false
 }
 
 // InjectPointer simulates mouse movement and button events.
