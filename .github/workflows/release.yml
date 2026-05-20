@@ -580,6 +580,28 @@ jobs:
         if: matrix.arch == 'amd64'
         run: 7z x -o"${{ github.workspace }}/NSIS_Plugins" "${{ github.workspace }}/ShellExecAsUser_amd64-Unicode.7z"
 
+      - name: Set up Go for wails3 CLI
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: "go.mod"
+          cache: false
+
+      - name: Install wails3 CLI
+        # Version derived from go.mod so the bootstrapper payload always
+        # matches the wails runtime the binary links against.
+        shell: bash
+        run: |
+          WAILS_VERSION=$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v3)
+          go install github.com/wailsapp/wails/v3/cmd/wails3@$WAILS_VERSION
+
+      - name: Stage WebView2 bootstrapper for installers
+        # Both client/installer.nsis and client/netbird.wxs reference
+        # client/MicrosoftEdgeWebview2Setup.exe. wails3 writes it there.
+        # The signing pipeline (netbirdio/sign-pipelines) does the same
+        # step for release builds; this mirrors it for PR sanity testing.
+        shell: bash
+        run: wails3 generate webview2bootstrapper -dir client
+
       - name: Build NSIS installer
         uses: joncloud/makensis-action@v3.3
         with:
