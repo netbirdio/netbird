@@ -342,40 +342,7 @@ func (s *session) handleSetEncodings() error {
 		return err
 	}
 
-	var encs []string
-	s.encMu.Lock()
-	// Per RFC 6143 §7.5.3 each SetEncodings replaces the previous list, so
-	// reset all flags before re-applying. extClipCapsSent stays sticky so
-	// we don't re-emit Caps every refresh.
-	s.resetEncodingCaps()
-	for i := range int(numEnc) {
-		enc := int32(binary.BigEndian.Uint32(buf[i*4 : i*4+4]))
-		if name := s.applyEncoding(enc); name != "" {
-			encs = append(encs, name)
-		}
-	}
-	if s.useTight && (s.tight == nil ||
-		s.tight.qualityLevel != s.clientJPEGQuality ||
-		s.tight.compressLevel != s.clientZlibLevel) {
-		// When we replace an in-use tightState the client's stream-0
-		// inflater carries dictionary state from the old deflater. Carry
-		// the pending-reset flag so the next Basic rect tells the client
-		// to reset its inflater before decoding.
-		replacing := s.tight != nil
-		s.tight = newTightStateWithLevels(s.clientJPEGQuality, s.clientZlibLevel)
-		if replacing {
-			s.tight.pendingZlibReset = true
-		}
-	}
-	sendExtClipCaps := s.clientSupportsExtClipboard && !s.extClipCapsSent
-	if sendExtClipCaps {
-		s.extClipCapsSent = true
-	}
-	sendExtMouseAck := s.clientSupportsExtMouseButtons && !s.extMouseAckSent
-	if sendExtMouseAck {
-		s.extMouseAckSent = true
-	}
-	s.encMu.Unlock()
+	encs, sendExtClipCaps, sendExtMouseAck := s.applyEncodings(buf, int(numEnc))
 	if len(encs) > 0 {
 		s.log.Debugf("client supports encodings: %s", strings.Join(encs, ", "))
 	}
@@ -390,6 +357,57 @@ func (s *session) handleSetEncodings() error {
 		}
 	}
 	return nil
+}
+
+// applyEncodings parses the SetEncodings body, updates capability flags,
+// rebuilds the tight state if quality/level changed, and reports which
+// one-shot acknowledgements still need to be sent.
+func (s *session) applyEncodings(buf []byte, numEnc int) (names []string, sendExtClipCaps, sendExtMouseAck bool) {
+	s.encMu.Lock()
+	defer s.encMu.Unlock()
+	// Per RFC 6143 §7.5.3 each SetEncodings replaces the previous list, so
+	// reset all flags before re-applying. extClipCapsSent stays sticky so
+	// we don't re-emit Caps every refresh.
+	s.resetEncodingCaps()
+	for i := range numEnc {
+		enc := int32(binary.BigEndian.Uint32(buf[i*4 : i*4+4]))
+		if name := s.applyEncoding(enc); name != "" {
+			names = append(names, name)
+		}
+	}
+	s.refreshTightStateLocked()
+	sendExtClipCaps = s.clientSupportsExtClipboard && !s.extClipCapsSent
+	if sendExtClipCaps {
+		s.extClipCapsSent = true
+	}
+	sendExtMouseAck = s.clientSupportsExtMouseButtons && !s.extMouseAckSent
+	if sendExtMouseAck {
+		s.extMouseAckSent = true
+	}
+	return names, sendExtClipCaps, sendExtMouseAck
+}
+
+// refreshTightStateLocked reallocates s.tight when the requested quality
+// or compression level no longer matches the cached state. Caller holds
+// s.encMu.
+func (s *session) refreshTightStateLocked() {
+	if !s.useTight {
+		return
+	}
+	if s.tight != nil &&
+		s.tight.qualityLevel == s.clientJPEGQuality &&
+		s.tight.compressLevel == s.clientZlibLevel {
+		return
+	}
+	// When we replace an in-use tightState the client's stream-0
+	// inflater carries dictionary state from the old deflater. Carry
+	// the pending-reset flag so the next Basic rect tells the client
+	// to reset its inflater before decoding.
+	replacing := s.tight != nil
+	s.tight = newTightStateWithLevels(s.clientJPEGQuality, s.clientZlibLevel)
+	if replacing {
+		s.tight.pendingZlibReset = true
+	}
 }
 
 // resetEncodingCaps zeroes the encoding capability flags so the next pass

@@ -259,41 +259,48 @@ func decodeColorCursor(hbmColor, hbmMask windows.Handle) (*image.RGBA, error) {
 	if hbmMask != 0 {
 		mask, _ = dibCopy(hbmMask, w, h)
 	}
+	hasAlpha := colorHasAlpha(color)
 	img := image.NewRGBA(image.Rect(0, 0, int(w), int(h)))
-	hasAlpha := false
-	for i := 0; i < len(color); i += 4 {
-		if color[i+3] != 0 {
-			hasAlpha = true
-			break
-		}
-	}
 	for y := int32(0); y < h; y++ {
 		for x := int32(0); x < w; x++ {
 			si := (y*w + x) * 4
-			di := (y*w + x) * 4
 			b := color[si]
 			g := color[si+1]
 			r := color[si+2]
-			a := color[si+3]
-			if !hasAlpha {
-				a = 255
-				if mask != nil {
-					// AND mask: 1 = transparent, 0 = opaque. The DIB
-					// representation we requested is 32bpp so each "bit"
-					// is a 4-byte entry; we use the first byte as the
-					// effective AND value.
-					if mask[si] != 0 {
-						a = 0
-					}
-				}
-			}
-			img.Pix[di+0] = r
-			img.Pix[di+1] = g
-			img.Pix[di+2] = b
-			img.Pix[di+3] = a
+			a := pixelAlpha(color[si+3], si, mask, hasAlpha)
+			img.Pix[si+0] = r
+			img.Pix[si+1] = g
+			img.Pix[si+2] = b
+			img.Pix[si+3] = a
 		}
 	}
 	return img, nil
+}
+
+// colorHasAlpha reports whether any pixel of a 32bpp BGRA buffer has a
+// non-zero alpha. Cursors authored without alpha leave the channel at 0
+// and rely on hbmMask for transparency.
+func colorHasAlpha(color []byte) bool {
+	for i := 0; i < len(color); i += 4 {
+		if color[i+3] != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// pixelAlpha returns the effective alpha for a colour-cursor pixel. When
+// the source bitmap already has alpha we trust it; otherwise the AND mask
+// decides (1 = transparent, 0 = opaque). The 32bpp DIB stores each AND
+// bit as a 4-byte entry; the first byte carries the effective value.
+func pixelAlpha(colorA byte, si int32, mask []byte, hasAlpha bool) byte {
+	if hasAlpha {
+		return colorA
+	}
+	if mask != nil && mask[si] != 0 {
+		return 0
+	}
+	return 255
 }
 
 // decodeMonoCursor handles legacy 1bpp cursors where hbmMask is twice as

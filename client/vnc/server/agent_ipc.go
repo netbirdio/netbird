@@ -1,4 +1,4 @@
-//go:build !js && !ios && !android
+//go:build darwin || windows
 
 package server
 

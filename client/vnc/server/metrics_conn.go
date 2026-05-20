@@ -41,15 +41,15 @@ type metricsConn struct {
 
 	recorder func(SessionTick)
 
-	bytesOut    uint64
-	writes      uint64
-	writeNanos  uint64
-	largestPkt  uint64
-	fbus        uint64
-	fbuBytes    uint64
-	fbuRects    uint64
-	maxFBUBytes uint64
-	maxFBURects uint64
+	bytesOut    atomic.Uint64
+	writes      atomic.Uint64
+	writeNanos  atomic.Uint64
+	largestPkt  atomic.Uint64
+	fbus        atomic.Uint64
+	fbuBytes    atomic.Uint64
+	fbuRects    atomic.Uint64
+	maxFBUBytes atomic.Uint64
+	maxFBURects atomic.Uint64
 
 	tickMu     sync.Mutex
 	tickStart  time.Time
@@ -104,10 +104,10 @@ func (m *metricsConn) flushTick(final bool) {
 	m.tickMu.Lock()
 	defer m.tickMu.Unlock()
 
-	b := atomic.LoadUint64(&m.bytesOut)
-	w := atomic.LoadUint64(&m.writes)
-	f := atomic.LoadUint64(&m.fbus)
-	ns := atomic.LoadUint64(&m.writeNanos)
+	b := m.bytesOut.Load()
+	w := m.writes.Load()
+	f := m.fbus.Load()
+	ns := m.writeNanos.Load()
 
 	db := b - m.tickPrevB
 	dw := w - m.tickPrevW
@@ -115,9 +115,9 @@ func (m *metricsConn) flushTick(final bool) {
 	dns := ns - m.tickPrevNS
 	m.tickPrevB, m.tickPrevW, m.tickPrevF, m.tickPrevNS = b, w, f, ns
 
-	maxFBU := atomic.SwapUint64(&m.maxFBUBytes, 0)
-	maxRects := atomic.SwapUint64(&m.maxFBURects, 0)
-	maxPkt := atomic.SwapUint64(&m.largestPkt, 0)
+	maxFBU := m.maxFBUBytes.Swap(0)
+	maxRects := m.maxFBURects.Swap(0)
+	maxPkt := m.largestPkt.Swap(0)
 
 	period := time.Since(m.tickStart)
 	m.tickStart = time.Now()
@@ -144,7 +144,7 @@ func (m *metricsConn) flushTick(final bool) {
 // throttle JPEG quality or skip frames in response.
 func (m *metricsConn) BusyFraction() float64 {
 	now := time.Now()
-	ns := atomic.LoadUint64(&m.writeNanos)
+	ns := m.writeNanos.Load()
 
 	m.busyMu.Lock()
 	defer m.busyMu.Unlock()
@@ -179,30 +179,30 @@ func isFBUHeader(p []byte) bool {
 
 func (m *metricsConn) Write(p []byte) (int, error) {
 	if isFBUHeader(p) {
-		if b := atomic.SwapUint64(&m.fbuBytes, 0); b > 0 {
-			if b > atomic.LoadUint64(&m.maxFBUBytes) {
-				atomic.StoreUint64(&m.maxFBUBytes, b)
+		if b := m.fbuBytes.Swap(0); b > 0 {
+			if b > m.maxFBUBytes.Load() {
+				m.maxFBUBytes.Store(b)
 			}
 		}
-		if r := atomic.SwapUint64(&m.fbuRects, 0); r > 0 {
-			if r > atomic.LoadUint64(&m.maxFBURects) {
-				atomic.StoreUint64(&m.maxFBURects, r)
+		if r := m.fbuRects.Swap(0); r > 0 {
+			if r > m.maxFBURects.Load() {
+				m.maxFBURects.Store(r)
 			}
 		}
-		atomic.AddUint64(&m.fbus, 1)
+		m.fbus.Add(1)
 	}
 
 	t0 := time.Now()
 	n, err := m.Conn.Write(p)
-	atomic.AddUint64(&m.writeNanos, uint64(time.Since(t0).Nanoseconds()))
-	atomic.AddUint64(&m.bytesOut, uint64(n))
-	atomic.AddUint64(&m.writes, 1)
+	m.writeNanos.Add(uint64(time.Since(t0).Nanoseconds()))
+	m.bytesOut.Add(uint64(n))
+	m.writes.Add(1)
 	if !isFBUHeader(p) {
-		atomic.AddUint64(&m.fbuBytes, uint64(n))
-		atomic.AddUint64(&m.fbuRects, 1)
+		m.fbuBytes.Add(uint64(n))
+		m.fbuRects.Add(1)
 	}
-	if uint64(n) > atomic.LoadUint64(&m.largestPkt) {
-		atomic.StoreUint64(&m.largestPkt, uint64(n))
+	if uint64(n) > m.largestPkt.Load() {
+		m.largestPkt.Store(uint64(n))
 	}
 	return n, err
 }
@@ -213,11 +213,11 @@ func (m *metricsConn) Close() error {
 		if m.recorder == nil {
 			return
 		}
-		if b := atomic.SwapUint64(&m.fbuBytes, 0); b > atomic.LoadUint64(&m.maxFBUBytes) {
-			atomic.StoreUint64(&m.maxFBUBytes, b)
+		if b := m.fbuBytes.Swap(0); b > m.maxFBUBytes.Load() {
+			m.maxFBUBytes.Store(b)
 		}
-		if r := atomic.SwapUint64(&m.fbuRects, 0); r > atomic.LoadUint64(&m.maxFBURects) {
-			atomic.StoreUint64(&m.maxFBURects, r)
+		if r := m.fbuRects.Swap(0); r > m.maxFBURects.Load() {
+			m.maxFBURects.Store(r)
 		}
 		m.flushTick(true)
 	})
