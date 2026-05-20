@@ -269,6 +269,28 @@ func (s *session) sendDesktopSize(w, h int) error {
 	return err
 }
 
+// sendExtMouseAck emits the pseudo-rect that flips the client into
+// ExtendedMouseButtons mode, where mouse-back and mouse-forward are
+// carried in a second mask byte. The rect has zero geometry and no
+// body; the encoding number alone is the signal.
+func (s *session) sendExtMouseAck() error {
+	header := make([]byte, 4)
+	header[0] = serverFramebufferUpdate
+	binary.BigEndian.PutUint16(header[2:4], 1)
+
+	rect := make([]byte, 12)
+	enc := int32(pseudoEncExtendedMouseButtons)
+	binary.BigEndian.PutUint32(rect[8:12], uint32(enc))
+
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if _, err := s.conn.Write(header); err != nil {
+		return err
+	}
+	_, err := s.conn.Write(rect)
+	return err
+}
+
 // refreshCopyRectIndex does a full hash sweep of the just-swapped prevFrame.
 // Used after full-frame sends, where we don't have a per-tile dirty list to
 // drive an incremental update.

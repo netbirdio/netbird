@@ -79,7 +79,18 @@ type session struct {
 	clientSupportsQEMUKey             bool
 	clientSupportsExtClipboard        bool
 	clientSupportsCursor              bool
-	extClipCapsSent                   bool
+	// clientSupportsExtMouseButtons is set when the client advertises the
+	// ExtendedMouseButtons pseudo-encoding (-316). Once the server emits
+	// the ack rect, the client switches its pointer events to the 6-byte
+	// extended format that carries back/forward buttons in a second mask
+	// byte. Without this gate the byte after the type field would still
+	// be a standard 7-bit mask and our parser must not look further.
+	clientSupportsExtMouseButtons bool
+	// extMouseAckSent is set once we've emitted the pseudo-rect ack that
+	// flips the client into extended-pointer mode. Sticky for the
+	// session because the client only needs to see it once.
+	extMouseAckSent bool
+	extClipCapsSent bool
 	// lastCursorSerial is the serial of the cursor sprite last emitted.
 	// The encoder re-queries the source each cycle and only emits when
 	// the serial changes.
@@ -359,6 +370,10 @@ func (s *session) handleSetEncodings() error {
 	if sendExtClipCaps {
 		s.extClipCapsSent = true
 	}
+	sendExtMouseAck := s.clientSupportsExtMouseButtons && !s.extMouseAckSent
+	if sendExtMouseAck {
+		s.extMouseAckSent = true
+	}
 	s.encMu.Unlock()
 	if len(encs) > 0 {
 		s.log.Debugf("client supports encodings: %s", strings.Join(encs, ", "))
@@ -366,6 +381,11 @@ func (s *session) handleSetEncodings() error {
 	if sendExtClipCaps {
 		if err := s.writeExtClipMessage(buildExtClipCaps()); err != nil {
 			return fmt.Errorf("send ext clipboard caps: %w", err)
+		}
+	}
+	if sendExtMouseAck {
+		if err := s.sendExtMouseAck(); err != nil {
+			return fmt.Errorf("send ext mouse ack: %w", err)
 		}
 	}
 	return nil
@@ -387,6 +407,7 @@ func (s *session) resetEncodingCaps() {
 	s.clientSupportsQEMUKey = false
 	s.clientSupportsExtClipboard = false
 	s.clientSupportsCursor = false
+	s.clientSupportsExtMouseButtons = false
 	s.cursorSourceFailed = false
 	s.clientJPEGQuality = -1
 	s.clientZlibLevel = -1
@@ -427,6 +448,9 @@ func (s *session) applyEncoding(enc int32) string {
 		}
 		s.clientSupportsCursor = true
 		return "cursor"
+	case pseudoEncExtendedMouseButtons:
+		s.clientSupportsExtMouseButtons = true
+		return "ext-mouse-buttons"
 	case encTight:
 		s.useTight = true
 		return "tight"
@@ -541,14 +565,28 @@ func (s *session) handlePointerEvent() error {
 	if _, err := io.ReadFull(s.conn, data[:]); err != nil {
 		return fmt.Errorf("read PointerEvent: %w", err)
 	}
-	buttonMask := data[0]
+	mask := uint16(data[0])
 	x := int(binary.BigEndian.Uint16(data[1:3]))
 	y := int(binary.BigEndian.Uint16(data[3:5]))
+
+	s.encMu.RLock()
+	extended := s.clientSupportsExtMouseButtons && s.extMouseAckSent
+	s.encMu.RUnlock()
+	if extended && mask&0x80 != 0 {
+		var hi [1]byte
+		if _, err := io.ReadFull(s.conn, hi[:]); err != nil {
+			return fmt.Errorf("read ExtendedPointerEvent tail: %w", err)
+		}
+		// Strip the marker bit; bits 0..6 are the low part of the mask,
+		// hi byte holds bits 7..14 (back at bit 7, forward at bit 8).
+		mask = (mask & 0x7f) | uint16(hi[0])<<7
+	}
+
 	s.pointerMu.Lock()
 	s.lastPointerX = x
 	s.lastPointerY = y
 	s.pointerMu.Unlock()
-	s.injector.InjectPointer(buttonMask, x, y, s.serverW, s.serverH)
+	s.injector.InjectPointer(mask, x, y, s.serverW, s.serverH)
 	return nil
 }
 

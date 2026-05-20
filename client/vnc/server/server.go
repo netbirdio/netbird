@@ -105,7 +105,10 @@ type InputInjector interface {
 	// for the given code; that's strictly no worse than the legacy path.
 	InjectKeyScancode(scancode uint32, keysym uint32, down bool)
 	// InjectPointer simulates mouse movement and button state.
-	InjectPointer(buttonMask uint8, x, y, serverW, serverH int)
+	// buttonMask is the RFB ExtendedMouseButtons mask: bits 0-6 follow
+	// the standard PointerEvent layout (left/middle/right/wheel),
+	// bit 7 is mouse-back (X1), bit 8 is mouse-forward (X2).
+	InjectPointer(buttonMask uint16, x, y, serverW, serverH int)
 	// SetClipboard sets the system clipboard to the given text.
 	SetClipboard(text string)
 	// GetClipboard returns the current system clipboard text.

@@ -30,8 +30,15 @@ const (
 	mouseeventfRightUp    = 0x0010
 	mouseeventfMiddleDown = 0x0020
 	mouseeventfMiddleUp   = 0x0040
+	mouseeventfXDown      = 0x0080
+	mouseeventfXUp        = 0x0100
 	mouseeventfWheel      = 0x0800
 	mouseeventfAbsolute   = 0x8000
+
+	// X-button identifiers carried in the dwData field of MOUSEEVENTF_X*
+	// events. XBUTTON1 is mouse-back, XBUTTON2 is mouse-forward.
+	xButton1 = 0x0001
+	xButton2 = 0x0002
 
 	wheelDelta = 120
 
@@ -112,7 +119,7 @@ type inputCmd struct {
 	keysym      uint32
 	scancode    uint32
 	down        bool
-	buttonMask  uint8
+	buttonMask  uint16
 	x, y        int
 	serverW     int
 	serverH     int
@@ -127,7 +134,7 @@ type WindowsInputInjector struct {
 	ch             chan inputCmd
 	closed         chan struct{}
 	closeOnce      sync.Once
-	prevButtonMask uint8
+	prevButtonMask uint16
 	ctrlDown       bool
 	altDown        bool
 }
@@ -220,7 +227,7 @@ func (w *WindowsInputInjector) InjectKeyScancode(scancode uint32, keysym uint32,
 // thread. Pointer events coalesce: when the channel is full (slow desktop
 // switch, hung SendInput), drop the new sample so the read loop never
 // blocks. The next mouse event carries fresher position anyway.
-func (w *WindowsInputInjector) InjectPointer(buttonMask uint8, x, y, serverW, serverH int) {
+func (w *WindowsInputInjector) InjectPointer(buttonMask uint16, x, y, serverW, serverH int) {
 	w.tryEnqueue(inputCmd{buttonMask: buttonMask, x: x, y: y, serverW: serverW, serverH: serverH})
 }
 
@@ -303,7 +310,7 @@ func signalSAS() {
 	}
 }
 
-func (w *WindowsInputInjector) doInjectPointer(buttonMask uint8, x, y, serverW, serverH int) {
+func (w *WindowsInputInjector) doInjectPointer(buttonMask uint16, x, y, serverW, serverH int) {
 	if serverW == 0 || serverH == 0 {
 		return
 	}
@@ -317,7 +324,7 @@ func (w *WindowsInputInjector) doInjectPointer(buttonMask uint8, x, y, serverW, 
 	w.prevButtonMask = buttonMask
 
 	type btnMap struct {
-		bit  uint8
+		bit  uint16
 		down uint32
 		up   uint32
 	}
@@ -345,6 +352,26 @@ func (w *WindowsInputInjector) doInjectPointer(buttonMask uint8, x, y, serverW, 
 	}
 	if changed&0x10 != 0 && buttonMask&0x10 != 0 {
 		sendMouseInput(mouseeventfWheel|mouseeventfAbsolute, absX, absY, negWheelDelta)
+	}
+
+	// XBUTTON1/back at bit 7, XBUTTON2/forward at bit 8. SendInput
+	// MOUSEEVENTF_X{DOWN,UP} carries the X button number in dwData.
+	xbuttons := [...]struct {
+		bit  uint16
+		data uint32
+	}{
+		{1 << 7, xButton1},
+		{1 << 8, xButton2},
+	}
+	for _, b := range xbuttons {
+		if changed&b.bit == 0 {
+			continue
+		}
+		var flags uint32 = mouseeventfXUp
+		if buttonMask&b.bit != 0 {
+			flags = mouseeventfXDown
+		}
+		sendMouseInput(flags|mouseeventfAbsolute, absX, absY, b.data)
 	}
 }
 

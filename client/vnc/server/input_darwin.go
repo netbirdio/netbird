@@ -272,15 +272,15 @@ func ensureEventSource() uintptr {
 
 // MacInputInjector injects keyboard and mouse events via Core Graphics.
 type MacInputInjector struct {
-	lastButtons uint8
+	lastButtons uint16
 	pbcopyPath  string
 	pbpastePath string
 	// clickCount[i] / clickAt[i] track the multi-click sequence for
 	// button i (0=left, 1=right, 2=middle). macOS apps reconstruct
 	// double/triple click semantics from the kCGMouseEventClickState
 	// field on each posted event, not from event timing.
-	clickCount [3]int64
-	clickAt    [3]time.Time
+	clickCount [5]int64
+	clickAt    [5]time.Time
 }
 
 // NewMacInputInjector creates a macOS input injector.
@@ -406,7 +406,7 @@ func (m *MacInputInjector) postMacKey(src uintptr, keycode uint16, down bool) {
 }
 
 // InjectPointer simulates mouse movement and button events.
-func (m *MacInputInjector) InjectPointer(buttonMask uint8, px, py, serverW, serverH int) {
+func (m *MacInputInjector) InjectPointer(buttonMask uint16, px, py, serverW, serverH int) {
 	wakeDisplay()
 	if serverW == 0 || serverH == 0 {
 		return
@@ -438,7 +438,7 @@ func scalePxToLogical(px, py, serverW, serverH int) (float64, float64) {
 		float64(py) * float64(logicalH) / float64(serverH)
 }
 
-func (m *MacInputInjector) dispatchPointer(src uintptr, buttonMask uint8, x, y float64) {
+func (m *MacInputInjector) dispatchPointer(src uintptr, buttonMask uint16, x, y float64) {
 	leftDown := buttonMask&0x01 != 0
 	rightDown := buttonMask&0x04 != 0
 	middleDown := buttonMask&0x02 != 0
@@ -462,8 +462,8 @@ func (m *MacInputInjector) postMoveOrDrag(src uintptr, leftDown, rightDown bool,
 // postButtonTransitions emits the up/down events for each button whose
 // state changed against m.lastButtons, computing the click count so
 // macOS recognises double / triple clicks.
-func (m *MacInputInjector) postButtonTransitions(src uintptr, buttonMask uint8, x, y float64) {
-	emit := func(curBit, prevBit uint8, down, up int32, button int32, idx int) {
+func (m *MacInputInjector) postButtonTransitions(src uintptr, buttonMask uint16, x, y float64) {
+	emit := func(curBit, prevBit uint16, down, up int32, button int32, idx int) {
 		cur := buttonMask&curBit != 0
 		prev := m.lastButtons&prevBit != 0
 		if cur && !prev {
@@ -486,9 +486,14 @@ func (m *MacInputInjector) postButtonTransitions(src uintptr, buttonMask uint8, 
 	emit(0x01, 0x01, kCGEventLeftMouseDown, kCGEventLeftMouseUp, kCGMouseButtonLeft, 0)
 	emit(0x04, 0x04, kCGEventRightMouseDown, kCGEventRightMouseUp, kCGMouseButtonRight, 1)
 	emit(0x02, 0x02, kCGEventOtherMouseDown, kCGEventOtherMouseUp, kCGMouseButtonCenter, 2)
+	// CG mouse-button numbers 3 (back) and 4 (forward) are emitted as
+	// "other" events; macOS apps that swallow Browser nav (Finder, web
+	// views) react to these directly.
+	emit(1<<7, 1<<7, kCGEventOtherMouseDown, kCGEventOtherMouseUp, 3, 3)
+	emit(1<<8, 1<<8, kCGEventOtherMouseDown, kCGEventOtherMouseUp, 4, 4)
 }
 
-func (m *MacInputInjector) postScrollWheel(src uintptr, buttonMask uint8) {
+func (m *MacInputInjector) postScrollWheel(src uintptr, buttonMask uint16) {
 	if buttonMask&0x08 != 0 {
 		m.postScroll(src, scrollPixelsPerWheelTick)
 	}
