@@ -307,7 +307,6 @@ func (p *Preferences) SetBlockInbound(block bool) {
 	p.configInput.BlockInbound = &block
 }
 
-<<<<<<< HEAD
 // GetConnectionMode returns the locally configured connection-mode override
 // (canonical lower-kebab-case: "relay-forced", "p2p", "p2p-lazy",
 // "p2p-dynamic", "follow-server"), or empty string if no local override
