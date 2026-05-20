@@ -604,10 +604,6 @@ func (s *Server) handleConnection(conn net.Conn) {
 		serverW:  capturer.Width(),
 		serverH:  capturer.Height(),
 		log:      connLog,
-		// Virtual sessions run on Xvfb which has no usable cursor source,
-		// so we skip the Cursor pseudo-encoding and let the client's
-		// local fallback show instead.
-		disableCursor: header.mode == ModeSession,
 	}
 	sess.serve()
 }

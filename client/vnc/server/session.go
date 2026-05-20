@@ -99,10 +99,6 @@ type session struct {
 	// source so the encoder stops polling for the rest of the session.
 	// Reset on SetEncodings so a reconnect can retry.
 	cursorSourceFailed bool
-	// disableCursor suppresses the Cursor pseudo-encoding regardless of
-	// what the client advertises. Set for virtual sessions where no
-	// usable cursor source exists. Constant for the session lifetime.
-	disableCursor bool
 	// showRemoteCursor switches the encoder to compositing the server
 	// cursor sprite into the captured framebuffer at the remote position
 	// instead of emitting the Cursor pseudo-encoding. Toggled by the
@@ -462,9 +458,6 @@ func (s *session) applyEncoding(enc int32) string {
 		s.clientSupportsExtClipboard = true
 		return "ext-clipboard"
 	case pseudoEncCursor:
-		if s.disableCursor {
-			return ""
-		}
 		s.clientSupportsCursor = true
 		return "cursor"
 	case pseudoEncExtendedMouseButtons:
