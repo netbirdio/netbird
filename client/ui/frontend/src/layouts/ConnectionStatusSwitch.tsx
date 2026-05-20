@@ -230,6 +230,14 @@ export const ConnectionStatusSwitch = () => {
         // See connect() above — clear via the effect, not eagerly.
     };
 
+    // Tracks whether the daemon has entered Connecting during the
+    // current "connect" action. Lets us distinguish "still waiting for
+    // the daemon to start" (Idle → Idle) from "the connect flow was
+    // cancelled externally" (Connecting → Idle, e.g. tray Disconnect
+    // while the UI was Connecting). Reset whenever action returns to
+    // null.
+    const sawConnectingRef = useRef(false);
+
     // Release the action latch when the daemon settles on a terminal
     // state for the user's intent — and, in the connect → NeedsLogin
     // case, hand off to driveLogin so the user doesn't have to click
@@ -237,12 +245,27 @@ export const ConnectionStatusSwitch = () => {
     // .finally, not here: Login's internal Down makes the daemon flap
     // through Idle, which would otherwise look like a terminal state.
     useEffect(() => {
+        if (action === null) {
+            sawConnectingRef.current = false;
+            return;
+        }
+        if (daemonState === "Connecting") {
+            sawConnectingRef.current = true;
+        }
         if (action === "connect") {
             if (needsLogin) {
                 driveLogin();
                 return;
             }
             if (daemonState === "Connected" || unreachable) {
+                setAction(null);
+                return;
+            }
+            // Cancelled externally (e.g. tray Disconnect during our
+            // Connecting): the daemon went back to Idle after we'd
+            // observed Connecting. Clear the latch so the UI stops
+            // showing Connecting forever.
+            if (sawConnectingRef.current && daemonState === "Idle") {
                 setAction(null);
             }
             return;
