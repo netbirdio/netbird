@@ -32,7 +32,6 @@ import (
 	nbstatus "github.com/netbirdio/netbird/client/status"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/netiputil"
-	"github.com/netbirdio/netbird/version"
 )
 
 const readmeContent = `Netbird debug bundle
@@ -255,6 +254,8 @@ type BundleGenerator struct {
 	capturePath    string
 	refreshStatus  func() // Optional callback to refresh status before bundle generation
 	clientMetrics  MetricsExporter
+	daemonVersion  string
+	cliVersion     string
 
 	anonymize         bool
 	includeSystemInfo bool
@@ -279,6 +280,8 @@ type GeneratorDependencies struct {
 	CapturePath    string
 	RefreshStatus  func()
 	ClientMetrics  MetricsExporter
+	DaemonVersion  string
+	CliVersion     string
 }
 
 func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGenerator {
@@ -300,6 +303,8 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 		capturePath:    deps.CapturePath,
 		refreshStatus:  deps.RefreshStatus,
 		clientMetrics:  deps.ClientMetrics,
+		daemonVersion:  deps.DaemonVersion,
+		cliVersion:     deps.CliVersion,
 
 		anonymize:         cfg.Anonymize,
 		includeSystemInfo: cfg.IncludeSystemInfo,
@@ -462,10 +467,9 @@ func (g *BundleGenerator) addStatus() error {
 		overview := nbstatus.ConvertToStatusOutputOverview(protoFullStatus, nbstatus.ConvertOptions{
 			Anonymize:     g.anonymize,
 			ProfileName:   profName,
-			DaemonVersion: version.NetbirdVersion(),
+			DaemonVersion: g.daemonVersion,
 		})
-		// It is always the daemon/engine that generates the bundle, we cannot know if the CLI and daemon version differs.
-		overview.CliVersion = "N/A"
+		overview.CliVersion = g.cliVersion
 		statusOutput := overview.FullDetailSummary()
 
 		statusReader := strings.NewReader(statusOutput)
