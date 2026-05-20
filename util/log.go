@@ -1,6 +1,7 @@
 package util
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -59,25 +60,20 @@ func InitLogger(logger *log.Logger, logLevel string, logs ...string) error {
 		case "":
 			logger.Warnf("empty log path received: %#v", logPath)
 		default:
-			if dir := filepath.Dir(logPath); dir != "" && dir != "." {
-				if err := os.MkdirAll(dir, 0750); err != nil {
-					logger.Errorf("Failed creating log directory %s: %s", dir, err)
-					return err
-				}
-			}
-
 			conflict, configPath := FindFirstLogrotateConflict()
 			if conflict {
-				logger.Warnf("logrotation conflict detected in: %#v, rotation is disabled", configPath)
-				file, err := openOrCreateFile(logPath)
-				if err != nil {
-					logger.Errorf("Failed opening log file: %s", err)
-					return err
-				}
-				writers = append(writers, file)
-			} else {
-				writers = append(writers, newRotatedOutput(logPath))
+				logger.Warnf("log rotation conflict detected in: %#v, rotation is disabled", configPath)
 			}
+			rotationDisabled := isRotationDisabled()
+			if rotationDisabled {
+				logger.Warn("log rotation is disabled by env flag")
+			}
+			writer, err := setupLogFile(logPath, conflict || rotationDisabled)
+			if err != nil {
+				logger.Errorf("failed setting up log file: %s, %s", logPath, err)
+				return err
+			}
+			writers = append(writers, writer)
 		}
 	}
 
@@ -110,6 +106,30 @@ func FindFirstLogPath(logs []string) string {
 		}
 	}
 	return ""
+}
+
+func isRotationDisabled() bool {
+	v, ok := os.LookupEnv("NB_LOG_DISABLE_ROTATION")
+	if !ok {
+		return false
+	}
+	disabled, _ := strconv.ParseBool(v)
+	return disabled
+}
+
+func setupLogFile(logPath string, disableRotation bool) (io.Writer, error) {
+	dir, _, err := prepareConfigFileDir(logPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed creating log directory %s: %s", dir, err)
+	}
+	if disableRotation {
+		file, err := openOrCreateFile(logPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed opening log file: %s", err)
+		}
+		return file, nil
+	}
+	return newRotatedOutput(logPath), nil
 }
 
 func newRotatedOutput(logPath string) io.Writer {
