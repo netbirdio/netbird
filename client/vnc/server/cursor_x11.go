@@ -17,15 +17,20 @@ import (
 type xfixesCursor struct {
 	mu   sync.Mutex
 	conn *xgb.Conn
-	// runtimeErr latches the first GetCursorImage failure so subsequent
-	// calls return quickly without another X round-trip. Some virtual
-	// displays advertise XFixes but reject GetCursorImage (Xvfb).
-	runtimeErr error
 	// lastPosX/lastPosY hold the cursor screen position observed on the
 	// most recent successful GetCursorImage. cursorPositionSource readers
 	// share this value so we do not pay a second X round-trip per frame.
 	lastPosX, lastPosY int
 	hasPos             bool
+	// lastImg, lastHotX, lastHotY, lastSerial cache the most recent good
+	// GetCursorImage result so transient failures (cursor hidden, server
+	// briefly unresponsive) reuse the previous sprite instead of going
+	// dark. Without this the encoder's compositing path drops to no-op as
+	// soon as the cursor becomes momentarily unavailable.
+	lastImg    *image.RGBA
+	lastHotX   int
+	lastHotY   int
+	lastSerial uint64
 }
 
 // newXFixesCursor initialises the XFixes extension on conn. Returns an
@@ -42,24 +47,31 @@ func newXFixesCursor(conn *xgb.Conn) (*xfixesCursor, error) {
 }
 
 // Cursor returns the current cursor sprite as RGBA along with its hotspot
-// and serial. Callers should treat an unchanged serial as "no update".
+// and serial. Callers should treat an unchanged serial as "no update". On
+// a transient GetCursorImage failure the last cached sprite is returned
+// so compositing keeps painting the cursor instead of disappearing.
 func (c *xfixesCursor) Cursor() (*image.RGBA, int, int, uint64, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.runtimeErr != nil {
-		return nil, 0, 0, 0, c.runtimeErr
-	}
 	reply, err := xfixes.GetCursorImage(c.conn).Reply()
 	if err != nil {
-		c.runtimeErr = fmt.Errorf("xfixes GetCursorImage: %w", err)
-		return nil, 0, 0, 0, c.runtimeErr
+		if c.lastImg != nil {
+			return c.lastImg, c.lastHotX, c.lastHotY, c.lastSerial, nil
+		}
+		return nil, 0, 0, 0, fmt.Errorf("xfixes GetCursorImage: %w", err)
 	}
 	c.lastPosX, c.lastPosY, c.hasPos = int(reply.X), int(reply.Y), true
 	w, h := int(reply.Width), int(reply.Height)
 	if w <= 0 || h <= 0 {
+		if c.lastImg != nil {
+			return c.lastImg, c.lastHotX, c.lastHotY, c.lastSerial, nil
+		}
 		return nil, 0, 0, 0, fmt.Errorf("cursor has zero extent")
 	}
 	if len(reply.CursorImage) < w*h {
+		if c.lastImg != nil {
+			return c.lastImg, c.lastHotX, c.lastHotY, c.lastSerial, nil
+		}
 		return nil, 0, 0, 0, fmt.Errorf("cursor pixel buffer truncated: %d < %d", len(reply.CursorImage), w*h)
 	}
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
@@ -72,7 +84,11 @@ func (c *xfixesCursor) Cursor() (*image.RGBA, int, int, uint64, error) {
 		img.Pix[o+2] = byte(p)
 		img.Pix[o+3] = byte(p >> 24)
 	}
-	return img, int(reply.Xhot), int(reply.Yhot), uint64(reply.CursorSerial), nil
+	c.lastImg = img
+	c.lastHotX = int(reply.Xhot)
+	c.lastHotY = int(reply.Yhot)
+	c.lastSerial = uint64(reply.CursorSerial)
+	return img, c.lastHotX, c.lastHotY, c.lastSerial, nil
 }
 
 // Cursor on X11Capturer satisfies cursorSource. The XFixes binding is
