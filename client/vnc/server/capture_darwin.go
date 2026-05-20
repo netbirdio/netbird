@@ -36,8 +36,7 @@ var (
 	cfDataGetLength                func(uintptr) int64
 	cfDataGetBytePtr               func(uintptr) uintptr
 	cfRelease                      func(uintptr)
-	cgPreflightScreenCaptureAccess func() bool
-	cgRequestScreenCaptureAccess   func() bool
+	cgRequestScreenCaptureAccess func() bool
 	cgEventCreate                  func(uintptr) uintptr
 	cgEventGetLocation             func(uintptr) cgPoint
 	darwinCaptureReady             bool
@@ -78,10 +77,10 @@ func initDarwinCapture() {
 		purego.RegisterLibFunc(&cfDataGetBytePtr, cf, "CFDataGetBytePtr")
 		purego.RegisterLibFunc(&cfRelease, cf, "CFRelease")
 
-		// Screen capture permission APIs (macOS 11+). Might not exist on older versions.
-		if sym, err := purego.Dlsym(cg, "CGPreflightScreenCaptureAccess"); err == nil {
-			purego.RegisterFunc(&cgPreflightScreenCaptureAccess, sym)
-		}
+		// CGRequestScreenCaptureAccess (macOS 11+) prompts on first call and
+		// is a cheap no-op once granted. The Preflight companion is unreliable
+		// on Sequoia (returns false even when access is granted), so we drive
+		// the permission flow from actual capture failures instead.
 		if sym, err := purego.Dlsym(cg, "CGRequestScreenCaptureAccess"); err == nil {
 			purego.RegisterFunc(&cgRequestScreenCaptureAccess, sym)
 		}
@@ -117,24 +116,36 @@ type CGCapturer struct {
 }
 
 // PrimeScreenCapturePermission triggers the macOS Screen Recording
-// permission probe (and prompt, if not granted) without creating a full
-// capturer. The platform wiring calls this at VNC-server enable time so
-// the user sees the prompt the moment they turn the feature on, rather
-// than on first-client-connect when the cause may not be obvious.
+// permission prompt without creating a full capturer. The platform wiring
+// calls this at VNC-server enable time so the user sees the prompt the
+// moment they turn the feature on. CGRequestScreenCaptureAccess is a
+// no-op when the grant already exists, so calling it on every enable is
+// cheap and safe.
 func PrimeScreenCapturePermission() {
 	initDarwinCapture()
 	if !darwinCaptureReady {
 		return
 	}
-	if cgPreflightScreenCaptureAccess == nil || cgPreflightScreenCaptureAccess() {
-		return
-	}
 	if cgRequestScreenCaptureAccess != nil {
 		cgRequestScreenCaptureAccess()
 	}
-	openPrivacyPane("Privacy_ScreenCapture")
-	log.Warn("Screen Recording permission not granted. Approve the prompt " +
-		"or grant in System Settings > Privacy & Security > Screen Recording.")
+}
+
+// notifyScreenRecordingMissing nudges the user once per agent process to
+// approve Screen Recording. The capturer init retries on backoff when the
+// grant is missing; without the sync.Once we would reopen System Settings
+// every tick and flood the daemon log with the same warning.
+var screenRecordingNotifyOnce sync.Once
+
+func notifyScreenRecordingMissing() {
+	screenRecordingNotifyOnce.Do(func() {
+		if cgRequestScreenCaptureAccess != nil {
+			cgRequestScreenCaptureAccess()
+		}
+		openPrivacyPane("Privacy_ScreenCapture")
+		log.Warn("Screen Recording permission not granted. " +
+			"Opened System Settings > Privacy & Security > Screen Recording; enable netbird and restart.")
+	})
 }
 
 // NewCGCapturer creates a screen capturer for the main display.
@@ -144,24 +155,12 @@ func NewCGCapturer() (*CGCapturer, error) {
 		return nil, fmt.Errorf("CoreGraphics not available")
 	}
 
-	// Request Screen Recording permission (shows system dialog on macOS 11+).
-	if cgPreflightScreenCaptureAccess != nil && !cgPreflightScreenCaptureAccess() {
-		if cgRequestScreenCaptureAccess != nil {
-			cgRequestScreenCaptureAccess()
-		}
-		openPrivacyPane("Privacy_ScreenCapture")
-		log.Warn("Screen Recording permission not granted. " +
-			"Opened System Settings > Privacy & Security > Screen Recording; enable netbird and restart.")
-	}
-
 	displayID := cgMainDisplayID()
 	c := &CGCapturer{displayID: displayID, downscale: 1, hashSeed: maphash.MakeSeed()}
 
-	// Probe actual pixel dimensions via a test capture. CGDisplayPixelsWide/High
-	// returns logical points on Retina, but CGDisplayCreateImage produces native
-	// pixels (often 2x), so probing the image is the only reliable source.
 	img, err := c.Capture()
 	if err != nil {
+		notifyScreenRecordingMissing()
 		return nil, fmt.Errorf("probe capture: %w", err)
 	}
 	nativeW := img.Rect.Dx()
