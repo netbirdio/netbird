@@ -257,7 +257,11 @@ func (s *Server) serviceAcceptLoop() {
 
 		enableTCPKeepAlive(conn, s.log)
 		conn = newMetricsConn(conn, s.sessionRecorder)
-		go s.handleServiceConnection(conn, sm)
+		s.trackConn(conn)
+		go func(c net.Conn) {
+			defer s.untrackConn(c)
+			s.handleServiceConnection(c, sm)
+		}(conn)
 	}
 }
 

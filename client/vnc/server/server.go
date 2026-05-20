@@ -182,6 +182,12 @@ type Server struct {
 	sessionSeq   uint64
 	sessions     map[uint64]ActiveSessionInfo
 	sessionConns map[uint64]net.Conn
+	// acceptedConns tracks every connection between Accept() and handler
+	// return, including connections still in the connection-header /
+	// handshake phase that have not yet been registered in sessionConns.
+	// closeActiveSessions iterates this set so Stop() can interrupt
+	// handshaking peers, not just post-handshake sessions.
+	acceptedConns map[net.Conn]struct{}
 
 	// sessionRecorder, when non-nil, receives a SessionTick periodically
 	// during each VNC session and on session close. The engine wires
@@ -219,12 +225,13 @@ type virtualSessionManager interface {
 // header; the protocol-level VNC password scheme is not supported.
 func New(capturer ScreenCapturer, injector InputInjector) *Server {
 	return &Server{
-		capturer:     capturer,
-		injector:     injector,
-		authorizer:   sshauth.NewAuthorizer(),
-		log:          log.WithField("component", "vnc-server"),
-		sessions:     make(map[uint64]ActiveSessionInfo),
-		sessionConns: make(map[uint64]net.Conn),
+		capturer:      capturer,
+		injector:      injector,
+		authorizer:    sshauth.NewAuthorizer(),
+		log:           log.WithField("component", "vnc-server"),
+		sessions:      make(map[uint64]ActiveSessionInfo),
+		sessionConns:  make(map[uint64]net.Conn),
+		acceptedConns: make(map[net.Conn]struct{}),
 	}
 }
 
@@ -256,21 +263,36 @@ func (s *Server) removeSession(id uint64) {
 	delete(s.sessionConns, id)
 }
 
-// closeActiveSessions closes every active session's connection so the
-// per-session serve goroutines unblock from their Read loops and exit.
-// Called from Stop to make sure clients see an immediate disconnect when
-// the server is brought down, instead of waiting for the OS to reclaim
-// the sockets after process exit.
+// closeActiveSessions closes every accepted connection so per-connection
+// goroutines unblock from their Read loops and exit. Called from Stop to
+// make sure clients see an immediate disconnect when the server is brought
+// down. Iterates acceptedConns so handshaking connections that have not
+// yet registered in sessionConns are also closed.
 func (s *Server) closeActiveSessions() {
 	s.sessionsMu.Lock()
-	conns := make([]net.Conn, 0, len(s.sessionConns))
-	for _, c := range s.sessionConns {
+	conns := make([]net.Conn, 0, len(s.acceptedConns))
+	for c := range s.acceptedConns {
 		conns = append(conns, c)
 	}
 	s.sessionsMu.Unlock()
 	for _, c := range conns {
 		_ = c.Close()
 	}
+}
+
+// trackConn registers a freshly accepted connection so Stop() can close
+// it even before the session is registered in sessionConns.
+func (s *Server) trackConn(c net.Conn) {
+	s.sessionsMu.Lock()
+	s.acceptedConns[c] = struct{}{}
+	s.sessionsMu.Unlock()
+}
+
+// untrackConn forgets a connection once its handler is returning.
+func (s *Server) untrackConn(c net.Conn) {
+	s.sessionsMu.Lock()
+	delete(s.acceptedConns, c)
+	s.sessionsMu.Unlock()
 }
 
 // SetServiceMode enables proxy-to-agent mode for Windows service operation.
@@ -442,7 +464,11 @@ func (s *Server) acceptLoop() {
 		}
 
 		enableTCPKeepAlive(conn, s.log)
-		go s.handleConnection(conn)
+		s.trackConn(conn)
+		go func(c net.Conn) {
+			defer s.untrackConn(c)
+			s.handleConnection(c)
+		}(conn)
 	}
 }
 

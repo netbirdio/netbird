@@ -49,7 +49,11 @@ func (s *Server) serviceAcceptLoop() {
 
 		enableTCPKeepAlive(conn, s.log)
 		conn = newMetricsConn(conn, s.sessionRecorder)
-		go s.handleServiceConnectionDarwin(conn, mgr)
+		s.trackConn(conn)
+		go func(c net.Conn) {
+			defer s.untrackConn(c)
+			s.handleServiceConnectionDarwin(c, mgr)
+		}(conn)
 	}
 }
 
