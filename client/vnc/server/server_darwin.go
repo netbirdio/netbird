@@ -27,7 +27,7 @@ func (s *Server) platformSessionManager() virtualSessionManager {
 // connection to a per-user agent. The agent is spawned lazily on the
 // first connection (and respawned after a console-user change) via
 // launchctl asuser, which is the only mechanism that lands a child
-// inside the user's Aqua session — where WindowServer and TCC grants
+// inside the user's Aqua session, where WindowServer and TCC grants
 // for screen capture work.
 func (s *Server) serviceAcceptLoop() {
 	mgr := newDarwinAgentManager(s.ctx)

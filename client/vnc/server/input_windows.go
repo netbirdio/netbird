@@ -48,7 +48,6 @@ const (
 	keyeventfScanCode    = 0x0008
 )
 
-
 // maxTypedClipboardChars caps the number of characters we will synthesize as
 // keystrokes when falling back on the Winlogon desktop. Passwords are short;
 // a huge clipboard getting typed into the login screen would be surprising.

@@ -26,8 +26,8 @@ type SessionTick struct {
 }
 
 // sessionTickInterval is how often metricsConn emits a SessionTick. One
-// second matches noVNC's request cadence so each tick covers roughly one
-// FBU round-trip during steady-state activity.
+// second covers roughly one FBU round-trip at typical client request
+// cadences during steady-state activity.
 const sessionTickInterval = time.Second
 
 // metricsConn wraps a net.Conn and tracks per-session byte / write / FBU

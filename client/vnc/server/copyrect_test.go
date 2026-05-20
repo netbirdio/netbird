@@ -43,7 +43,7 @@ func TestCopyRectDetector_DetectsVerticalScroll(t *testing.T) {
 			fillTile(prev, tx*ts, ty*ts, ts, byte(tx*40), byte(ty*60), 0x80)
 		}
 	}
-	// cur: simulate a single-tile-row scroll upward — every tile copied from
+	// cur: simulate a single-tile-row scroll upward, every tile copied from
 	// the row below in prev, top row is new content.
 	for ty := 0; ty < 2; ty++ {
 		for tx := 0; tx < 4; tx++ {

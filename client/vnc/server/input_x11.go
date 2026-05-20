@@ -219,16 +219,15 @@ func (x *X11InputInjector) SetClipboard(text string) {
 	}
 }
 
-// TypeText synthesizes the given text as keystrokes via XTest. We can
-// no longer just stuff the host clipboard with xclip and expect Ctrl+V
-// to do the rest, because the Paste button is also used at places where
-// the focused application isn't a clipboard-aware one (e.g. a TTY login
-// in an X11 session, an SDDM/GDM password field that ignores XSelection,
-// or a kiosk app). Typing keystrokes covers all of those.
+// TypeText synthesizes the given text as keystrokes via XTest. Used in
+// places where the focused application isn't clipboard-aware (e.g. a TTY
+// login in an X11 session, an SDDM/GDM password field that ignores
+// XSelection, or a kiosk app), so stuffing the X clipboard and relying on
+// Ctrl+V would not reach the input.
 //
 // Limitation: only ASCII printable characters are typed. Non-ASCII runes
 // are skipped: a paste workflow for them needs Wayland-aware text input
-// or layout introspection that we don't have.
+// or layout introspection that this path does not implement.
 func (x *X11InputInjector) TypeText(text string) {
 	const maxChars = 4096
 	count := 0
@@ -289,7 +288,7 @@ func (x *X11InputInjector) GetClipboard() string {
 	out, err := cmd.Output()
 	if err != nil {
 		// Exit status 1 just means there is no STRING selection set yet,
-		// which is the steady state on a fresh Xvfb session — logging it
+		// which is the steady state on a fresh Xvfb session, logging it
 		// every clipboard poll (2s) floods the trace stream.
 		return ""
 	}

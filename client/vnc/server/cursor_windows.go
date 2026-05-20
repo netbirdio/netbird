@@ -42,10 +42,10 @@ type winPoint struct {
 }
 
 type winCursorInfo struct {
-	Size    uint32
-	Flags   uint32
-	Cursor  windows.Handle
-	PtPos   winPoint
+	Size   uint32
+	Flags  uint32
+	Cursor windows.Handle
+	PtPos  winPoint
 }
 
 type winIconInfo struct {

@@ -28,4 +28,3 @@ func swizzleBGRAtoRGBA(dst, src []byte) {
 		dp[i] = 0xFF000000 | (p & 0x0000FF00) | ((p & 0x00FF0000) >> 16) | ((p & 0x000000FF) << 16)
 	}
 }
-

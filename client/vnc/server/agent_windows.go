@@ -48,7 +48,7 @@ var (
 	procWTSFreeMemory              = wtsapi32.NewProc("WTSFreeMemory")
 	procWTSQuerySessionInformation = wtsapi32.NewProc("WTSQuerySessionInformationW")
 
-	iphlpapi              = windows.NewLazySystemDLL("iphlpapi.dll")
+	iphlpapi                = windows.NewLazySystemDLL("iphlpapi.dll")
 	procGetExtendedTcpTable = iphlpapi.NewProc("GetExtendedTcpTable")
 )
 
@@ -282,7 +282,6 @@ func getSystemTokenForSession(sessionID uint32) (windows.Token, error) {
 	}
 	return dup, nil
 }
-
 
 // injectEnvVar appends a KEY=VALUE entry to a Unicode environment block.
 // The block is a sequence of null-terminated UTF-16 strings, terminated by

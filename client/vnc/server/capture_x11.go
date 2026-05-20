@@ -18,6 +18,12 @@ import (
 	"github.com/jezek/xgb/xproto"
 )
 
+// x11SocketDir is the well-known directory where X servers create their
+// abstract UNIX-domain sockets, named "X<display>". Used both for
+// auto-detecting an existing display and for placing/probing sockets of
+// virtual sessions we spawn.
+const x11SocketDir = "/tmp/.X11-unix"
+
 // X11Capturer captures the screen from an X11 display using the MIT-SHM extension.
 type X11Capturer struct {
 	mu      sync.Mutex
@@ -26,7 +32,7 @@ type X11Capturer struct {
 	w, h    int
 	shmID   int
 	shmAddr []byte
-	shmSeg  uint32 // shm.Seg
+	shmSeg  uint32
 	useSHM  bool
 	// bufs double-buffers output images so the X11Poller's capture loop can
 	// overwrite one while the session is still encoding the other. Before
@@ -83,7 +89,7 @@ func detectX11FromProc() bool {
 // detectX11FromSockets checks /tmp/.X11-unix/ for X sockets and uses ps
 // to find the auth file. Works on FreeBSD and other systems without /proc.
 func detectX11FromSockets() bool {
-	entries, err := os.ReadDir("/tmp/.X11-unix")
+	entries, err := os.ReadDir(x11SocketDir)
 	if err != nil {
 		return false
 	}
@@ -96,12 +102,12 @@ func detectX11FromSockets() bool {
 		}
 		display := ":" + name[1:]
 		os.Setenv("DISPLAY", display)
-		log.Infof("auto-detected DISPLAY=%s (from socket)", display)
-
-		// Try to find -auth from ps output.
-		if auth := findXorgAuthFromPS(); auth != "" {
+		auth := findXorgAuthFromPS()
+		if auth != "" {
 			os.Setenv("XAUTHORITY", auth)
-			log.Infof("auto-detected XAUTHORITY=%s (from ps)", auth)
+			log.Infof("auto-detected DISPLAY=%s (from socket) XAUTHORITY=%s (from ps)", display, auth)
+		} else {
+			log.Infof("auto-detected DISPLAY=%s (from socket)", display)
 		}
 		return true
 	}
@@ -150,11 +156,12 @@ func parseXorgArgs(args []string) (display, auth string) {
 
 func setDisplayEnv(display, auth string) {
 	os.Setenv("DISPLAY", display)
-	log.Infof("auto-detected DISPLAY=%s", display)
 	if auth != "" {
 		os.Setenv("XAUTHORITY", auth)
-		log.Infof("auto-detected XAUTHORITY=%s", auth)
+		log.Infof("auto-detected DISPLAY=%s XAUTHORITY=%s", display, auth)
+		return
 	}
+	log.Infof("auto-detected DISPLAY=%s", display)
 }
 
 func splitCmdline(data []byte) []string {

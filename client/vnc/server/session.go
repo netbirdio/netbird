@@ -106,7 +106,7 @@ type session struct {
 	// showRemoteCursor switches the encoder to compositing the server
 	// cursor sprite into the captured framebuffer at the remote position
 	// instead of emitting the Cursor pseudo-encoding. Toggled by the
-	// dashboard via clientNetbirdShowRemoteCursor.
+	// client via clientNetbirdShowRemoteCursor.
 	showRemoteCursor bool
 	// cursorWarnOnce throttles the diagnostic emitted when remote-cursor
 	// compositing falls back to a no-op (capturer cannot supply a sprite
@@ -140,9 +140,9 @@ type session struct {
 	// pointerMu guards the cached last cursor position used by
 	// releaseStickyInput so the disconnect-time button-release event
 	// targets the cursor's current spot instead of warping to (0, 0).
-	pointerMu     sync.Mutex
-	lastPointerX  int
-	lastPointerY  int
+	pointerMu    sync.Mutex
+	lastPointerX int
+	lastPointerY int
 }
 
 type fbRequest struct {
@@ -226,8 +226,9 @@ func (s *session) handshake() error {
 }
 
 // sendSecurityTypes advertises only secNone. Authentication and access
-// control are layered on top by the dashboard JWT exchange after the RFB
-// handshake completes, not by the protocol-level password scheme.
+// control happen in the NetBird connection header (JWT, mode, username)
+// that precedes the RFB handshake, not via the protocol-level password
+// scheme.
 func (s *session) sendSecurityTypes() error {
 	_, err := s.conn.Write([]byte{1, secNone})
 	return err
@@ -502,9 +503,9 @@ func (s *session) handleFBUpdateRequest() error {
 }
 
 // SendDesktopName pushes a DesktopName pseudo-encoded update to the
-// client if it advertised support. Used by the server to keep the
-// dashboard title in sync with the active session (e.g. username
-// changes after login on a virtual session).
+// client if it advertised support. Lets the client keep its window title
+// in sync with the active session (e.g. username changes after login on
+// a virtual session).
 func (s *session) SendDesktopName(name string) error {
 	s.encMu.RLock()
 	supported := s.clientSupportsDesktopName
@@ -601,9 +602,9 @@ var stickyModifierKeysyms = [...]uint32{
 	0xffe9, 0xffea, // Alt_L, Alt_R
 	0xffe7, 0xffe8, // Meta_L, Meta_R
 	0xffeb, 0xffec, // Super_L, Super_R
-	0xff7e,         // Mode_switch
-	0xfe03,         // ISO_Level3_Shift (AltGr)
-	0xffe5,         // Caps_Lock (release if user dropped mid-press)
+	0xff7e, // Mode_switch
+	0xfe03, // ISO_Level3_Shift (AltGr)
+	0xffe5, // Caps_Lock (release if user dropped mid-press)
 }
 
 // releaseStickyInput synthesizes key-up for modifier keysyms and a

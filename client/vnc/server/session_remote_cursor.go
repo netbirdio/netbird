@@ -8,9 +8,9 @@ import (
 	"io"
 )
 
-// handleShowRemoteCursor handles the NetBird-specific RFB message used by
-// the dashboard to toggle "show remote cursor" mode. Wire format: 1-byte
-// enable flag (0/1) plus 6 padding bytes reserved for future arguments.
+// handleShowRemoteCursor handles the NetBird-specific RFB message that
+// toggles "show remote cursor" mode. Wire format: 1-byte enable flag
+// (0/1) plus 6 padding bytes reserved for future arguments.
 func (s *session) handleShowRemoteCursor() error {
 	var data [7]byte
 	if _, err := io.ReadFull(s.conn, data[:]); err != nil {
@@ -25,9 +25,8 @@ func (s *session) handleShowRemoteCursor() error {
 }
 
 // maybeCompositeCursor blends the current server cursor into img when the
-// dashboard has enabled "show remote cursor" mode. Returns silently in
-// every error path: a failed compositing must not stop the regular encode
-// flow.
+// client has enabled "show remote cursor" mode. Returns silently in every
+// error path: a failed compositing must not stop the regular encode flow.
 func (s *session) maybeCompositeCursor(img *image.RGBA) {
 	s.encMu.RLock()
 	enabled := s.showRemoteCursor

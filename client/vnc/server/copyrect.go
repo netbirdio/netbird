@@ -37,7 +37,7 @@ type copyRectDetector struct {
 	cols, rows int
 	// tileHash[ty*cols + tx] is the current hash of the tile at (tx, ty)
 	// in the previous frame. Lookup uses this to detect stale prevTiles
-	// entries — incremental updates may leave hash→pos entries pointing
+	// entries: incremental updates may leave hash→pos entries pointing
 	// at a tile whose content has since changed.
 	tileHash []uint64
 	// prevTiles maps a tile hash to a (x, y) origin in the previous frame.
