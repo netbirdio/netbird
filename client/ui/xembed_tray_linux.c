@@ -5,6 +5,7 @@
 #include <cairo/cairo-xlib.h>
 #include <cairo/cairo.h>
 #include <gtk/gtk.h>
+#include <gdk/x11/gdkx.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -241,7 +242,7 @@ int xembed_poll_event(Display *dpy, Window icon_win,
     return 0;
 }
 
-/* --- GTK3 popup window menu support --- */
+/* --- GTK4 popup window menu support --- */
 
 /* Implemented in Go via //export */
 extern void goMenuItemClicked(int id);
@@ -274,18 +275,19 @@ static void free_popup_data(popup_data *pd) {
     free(pd);
 }
 
+
 /* Close every popup window — top-level plus any open submenus.
    Called when the user clicks an actionable item or focus leaves the
-   top-level window. */
+   menu tree. */
 static void close_all_popups(void) {
     for (GList *l = submenu_popups; l; l = l->next) {
-        gtk_widget_destroy(GTK_WIDGET(l->data));
+        gtk_window_destroy(GTK_WINDOW(l->data));
     }
     g_list_free(submenu_popups);
     submenu_popups = NULL;
 
     if (popup_win) {
-        gtk_widget_hide(popup_win);
+        gtk_widget_set_visible(popup_win, FALSE);
     }
 }
 
@@ -296,24 +298,26 @@ static void on_button_clicked(GtkButton *btn, gpointer user_data) {
     goMenuItemClicked(id);
 }
 
-static void on_check_toggled(GtkToggleButton *btn, gpointer user_data) {
+static void on_check_toggled(GtkCheckButton *btn, gpointer user_data) {
     (void)btn;
     int id = GPOINTER_TO_INT(user_data);
     close_all_popups();
     goMenuItemClicked(id);
 }
 
-/* When any popup loses focus we want to close the entire popup tree —
-   unless focus moved to another window we own (e.g. opening a submenu).
-   focus-out fires before the corresponding focus-in on the new window,
-   so we defer the check to an idle callback: by then any sibling popup
-   has had a chance to grab focus. If none of our windows still has
-   toplevel focus, the user clicked outside the menu tree → tear down. */
+/* The popup is a regular WM-managed window (not override-redirect),
+   so the WM hands keyboard focus to it on map. When focus moves
+   elsewhere — the user clicked somewhere else, switched apps, etc. —
+   the focus controller's "leave" signal fires and we tear down the
+   menu tree. Submenus open from inside the top-level popup, so we
+   defer the actual close to an idle callback: that gives the new
+   submenu a chance to take focus first, and we only close if none of
+   our windows still has it. */
 static gboolean any_popup_has_focus(void) {
-    if (popup_win && gtk_window_has_toplevel_focus(GTK_WINDOW(popup_win)))
+    if (popup_win && gtk_window_is_active(GTK_WINDOW(popup_win)))
         return TRUE;
     for (GList *l = submenu_popups; l; l = l->next) {
-        if (gtk_window_has_toplevel_focus(GTK_WINDOW(l->data)))
+        if (gtk_window_is_active(GTK_WINDOW(l->data)))
             return TRUE;
     }
     return FALSE;
@@ -321,17 +325,90 @@ static gboolean any_popup_has_focus(void) {
 
 static gboolean focus_out_recheck(gpointer user_data) {
     (void)user_data;
-    if (!any_popup_has_focus()) {
+    if (!any_popup_has_focus())
         close_all_popups();
-    }
     return G_SOURCE_REMOVE;
 }
 
-static gboolean on_popup_focus_out(GtkWidget *widget, GdkEvent *event,
-                                    gpointer user_data) {
-    (void)widget; (void)event; (void)user_data;
+static void on_popup_focus_leave(GtkEventControllerFocus *ctrl,
+                                  gpointer user_data) {
+    (void)ctrl; (void)user_data;
     g_idle_add(focus_out_recheck, NULL);
-    return FALSE;
+}
+
+/* Attach a focus controller that fires close_all_popups on focus loss. */
+static void attach_outside_click_close(GtkWidget *win) {
+    GtkEventController *focus = gtk_event_controller_focus_new();
+    g_signal_connect(focus, "leave",
+                     G_CALLBACK(on_popup_focus_leave), NULL);
+    gtk_widget_add_controller(win, focus);
+}
+
+/* Move a GtkWindow at the X11 level. GTK4 removed gtk_window_move(); the
+   GdkSurface is mapped to a real X11 Window we can reposition with
+   XMoveWindow. Must be called after the window has been realized (i.e.
+   after gtk_widget_set_visible TRUE).
+
+   The popup is **not** override-redirect — the WM keeps managing it so
+   focus tracking still works (focus-out fires when the user clicks
+   elsewhere). We tag the window with a stack of EWMH hints that make
+   sane WMs (fluxbox, openbox, i3, kwin, mutter) render it like a
+   floating menu: above the tray panel, skipped from taskbar/pager,
+   no decorations. */
+static void x11_move_window(GtkWidget *win, int x, int y) {
+    GdkSurface *surface = gtk_native_get_surface(GTK_NATIVE(win));
+    if (!surface || !GDK_IS_X11_SURFACE(surface))
+        return;
+    Window xid = gdk_x11_surface_get_xid(surface);
+    GdkDisplay *display = gdk_surface_get_display(surface);
+    Display *xdpy = gdk_x11_display_get_xdisplay(GDK_X11_DISPLAY(display));
+
+    /* _NET_WM_WINDOW_TYPE_POPUP_MENU: makes fluxbox / openbox / etc
+       render the window above panels and skip decorations. Must be
+       set before the window is mapped to be honoured by some WMs;
+       on already-mapped windows it works for most modern WMs but a
+       few need an unmap/map cycle to re-read the property. */
+    Atom wm_type        = XInternAtom(xdpy, "_NET_WM_WINDOW_TYPE", False);
+    Atom wm_type_popup  = XInternAtom(xdpy, "_NET_WM_WINDOW_TYPE_POPUP_MENU", False);
+    XChangeProperty(xdpy, xid, wm_type, XA_ATOM, 32,
+                    PropModeReplace, (unsigned char *)&wm_type_popup, 1);
+
+    /* _NET_WM_STATE_ABOVE + SKIP_TASKBAR + SKIP_PAGER. Bundled into
+       one property write. */
+    Atom wm_state       = XInternAtom(xdpy, "_NET_WM_STATE", False);
+    Atom state_above    = XInternAtom(xdpy, "_NET_WM_STATE_ABOVE", False);
+    Atom state_skip_tb  = XInternAtom(xdpy, "_NET_WM_STATE_SKIP_TASKBAR", False);
+    Atom state_skip_pg  = XInternAtom(xdpy, "_NET_WM_STATE_SKIP_PAGER", False);
+    Atom states[3] = { state_above, state_skip_tb, state_skip_pg };
+    XChangeProperty(xdpy, xid, wm_state, XA_ATOM, 32,
+                    PropModeReplace, (unsigned char *)states, 3);
+
+    XMoveWindow(xdpy, xid, x, y);
+    XRaiseWindow(xdpy, xid);
+
+    /* POPUP_MENU windows aren't given keyboard focus by most WMs (the
+       spec says they're "menus", which traditionally use a grab rather
+       than focus). Without focus GtkEventControllerFocus's leave signal
+       never fires, so we'd have no way to notice the user clicking
+       elsewhere. Ask the WM to activate us via _NET_ACTIVE_WINDOW
+       (source=2 means "pager / pseudo-user request" which most WMs
+       honour without timestamp checks). This is safer than calling
+       XSetInputFocus directly — that races the X server with the
+       not-yet-fully-mapped window and trips BadMatch. */
+    Atom net_active = XInternAtom(xdpy, "_NET_ACTIVE_WINDOW", False);
+    XClientMessageEvent ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.type         = ClientMessage;
+    ev.window       = xid;
+    ev.message_type = net_active;
+    ev.format       = 32;
+    ev.data.l[0]    = 2;            /* source: pager */
+    ev.data.l[1]    = CurrentTime;
+    XSendEvent(xdpy, DefaultRootWindow(xdpy), False,
+               SubstructureRedirectMask | SubstructureNotifyMask,
+               (XEvent *)&ev);
+
+    XFlush(xdpy);
 }
 
 /* Forward declaration — submenu buttons need to schedule a child popup. */
@@ -346,55 +423,81 @@ typedef struct {
 static void on_submenu_button_clicked(GtkButton *btn, gpointer user_data) {
     submenu_open_data *sd = (submenu_open_data *)user_data;
 
-    GtkWidget *win = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    gtk_window_set_type_hint(GTK_WINDOW(win), GDK_WINDOW_TYPE_HINT_POPUP_MENU);
+    GtkWidget *win = gtk_window_new();
     gtk_window_set_decorated(GTK_WINDOW(win), FALSE);
     gtk_window_set_resizable(GTK_WINDOW(win), FALSE);
-    gtk_window_set_skip_taskbar_hint(GTK_WINDOW(win), TRUE);
-    gtk_window_set_skip_pager_hint(GTK_WINDOW(win), TRUE);
-    gtk_window_set_keep_above(GTK_WINDOW(win), TRUE);
 
-    g_signal_connect(win, "focus-out-event",
-                     G_CALLBACK(on_popup_focus_out), NULL);
+    attach_outside_click_close(win);
 
     GtkWidget *vbox = build_menu_box(sd->items, sd->count);
-    gtk_container_add(GTK_CONTAINER(win), vbox);
+    gtk_window_set_child(GTK_WINDOW(win), vbox);
 
-    /* GtkButton has no native GdkWindow of its own — gtk_widget_get_window
-       returns the parent popup's window. To get the button's screen-space
-       position we read the popup origin (ox, oy) and add the button's
-       allocation within the popup. */
-    gint ox, oy;
-    gdk_window_get_origin(gtk_widget_get_window(GTK_WIDGET(btn)), &ox, &oy);
-    GtkAllocation alloc;
-    gtk_widget_get_allocation(GTK_WIDGET(btn), &alloc);
-    int ax = ox + alloc.x;
-    int ay = oy + alloc.y;
+    /* Need the anchor button's position in root coordinates. GTK4
+       removed gtk_widget_translate_coordinates(); compute via the
+       button's bounds within its native widget plus the native
+       surface's screen origin via X11. */
+    graphene_rect_t bounds;
+    if (!gtk_widget_compute_bounds(GTK_WIDGET(btn),
+                                   GTK_WIDGET(gtk_widget_get_native(GTK_WIDGET(btn))),
+                                   &bounds)) {
+        bounds.origin.x = 0;
+        bounds.origin.y = 0;
+        bounds.size.width = 0;
+        bounds.size.height = 0;
+    }
+    GdkSurface *anchor_surface =
+        gtk_native_get_surface(gtk_widget_get_native(GTK_WIDGET(btn)));
+    int ox = 0, oy = 0;
+    if (anchor_surface && GDK_IS_X11_SURFACE(anchor_surface)) {
+        Window axid = gdk_x11_surface_get_xid(anchor_surface);
+        GdkDisplay *display = gdk_surface_get_display(anchor_surface);
+        Display *xdpy = gdk_x11_display_get_xdisplay(GDK_X11_DISPLAY(display));
+        Window child;
+        XTranslateCoordinates(xdpy, axid, DefaultRootWindow(xdpy),
+                              0, 0, &ox, &oy, &child);
+    }
+    int ax = ox + (int)bounds.origin.x;
+    int ay = oy + (int)bounds.origin.y;
 
-    gtk_widget_show_all(win);
-    gint sw, sh;
-    gtk_window_get_size(GTK_WINDOW(win), &sw, &sh);
+    gtk_widget_set_visible(win, TRUE);
+
+    int sw, sh;
+    gtk_window_get_default_size(GTK_WINDOW(win), &sw, &sh);
+    if (sw <= 0 || sh <= 0) {
+        /* default_size returns -1,-1 if never explicitly set; fall back
+           to the measured preferred size. */
+        GtkRequisition req;
+        gtk_widget_get_preferred_size(win, NULL, &req);
+        sw = req.width;
+        sh = req.height;
+    }
 
     /* The parent popup grows upward from the tray, so submenu items
        sit closer to the bottom of the screen than to the top. Align
        the submenu's BOTTOM to the anchor button's bottom: the popup
-       grows upward, level with the row that opened it. Don't clamp
-       to the monitor top — that would re-position the submenu next
-       to an unrelated sibling row above the anchor. */
-    int final_x = ax + alloc.width;
-    int final_y = ay + alloc.height - sh;
+       grows upward, level with the row that opened it. */
+    int final_x = ax + (int)bounds.size.width;
+    int final_y = ay + (int)bounds.size.height - sh;
 
     /* Horizontal flip against the monitor under the anchor button. */
     GdkDisplay *display = gtk_widget_get_display(win);
-    GdkMonitor *monitor = gdk_display_get_monitor_at_point(display, ax, ay);
-    if (monitor) {
+    GListModel *monitors = gdk_display_get_monitors(display);
+    guint n = g_list_model_get_n_items(monitors);
+    for (guint i = 0; i < n; i++) {
+        GdkMonitor *m = (GdkMonitor *)g_list_model_get_item(monitors, i);
         GdkRectangle geom;
-        gdk_monitor_get_geometry(monitor, &geom);
-        if (final_x + sw > geom.x + geom.width)
-            final_x = ax - sw;                        /* flip to the left */
+        gdk_monitor_get_geometry(m, &geom);
+        if (ax >= geom.x && ax < geom.x + geom.width &&
+            ay >= geom.y && ay < geom.y + geom.height) {
+            if (final_x + sw > geom.x + geom.width)
+                final_x = ax - sw;          /* flip to the left */
+            g_object_unref(m);
+            break;
+        }
+        g_object_unref(m);
     }
 
-    gtk_window_move(GTK_WINDOW(win), final_x, final_y);
+    x11_move_window(win, final_x, final_y);
     gtk_window_present(GTK_WINDOW(win));
 
     submenu_popups = g_list_prepend(submenu_popups, win);
@@ -402,8 +505,7 @@ static void on_submenu_button_clicked(GtkButton *btn, gpointer user_data) {
 
 /* Build a vbox of GtkWidgets for the supplied items. Used for both the
    top-level popup and each submenu popup. The submenu_open_data attached
-   to submenu buttons is freed when the submenu_popups list is cleared
-   (we use the button's "destroy" signal). */
+   to submenu buttons is freed when the button is destroyed. */
 static void on_button_destroy_free_data(GtkWidget *widget, gpointer user_data) {
     (void)widget;
     free(user_data);
@@ -417,19 +519,21 @@ static GtkWidget *build_menu_box(xembed_menu_item *items, int count) {
 
         if (mi->is_separator) {
             GtkWidget *sep = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
-            gtk_box_pack_start(GTK_BOX(vbox), sep, FALSE, FALSE, 2);
+            gtk_widget_set_margin_top(sep, 2);
+            gtk_widget_set_margin_bottom(sep, 2);
+            gtk_box_append(GTK_BOX(vbox), sep);
             continue;
         }
 
         if (mi->is_check) {
             GtkWidget *chk = gtk_check_button_new_with_label(
                 mi->label ? mi->label : "");
-            gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(chk), mi->checked);
+            gtk_check_button_set_active(GTK_CHECK_BUTTON(chk), mi->checked);
             gtk_widget_set_sensitive(chk, mi->enabled);
             g_signal_connect(chk, "toggled",
                              G_CALLBACK(on_check_toggled),
                              GINT_TO_POINTER(mi->id));
-            gtk_box_pack_start(GTK_BOX(vbox), chk, FALSE, FALSE, 0);
+            gtk_box_append(GTK_BOX(vbox), chk);
             continue;
         }
 
@@ -447,9 +551,10 @@ static GtkWidget *build_menu_box(xembed_menu_item *items, int count) {
 
         GtkWidget *btn = gtk_button_new_with_label(label_text);
         gtk_widget_set_sensitive(btn, mi->enabled);
-        gtk_button_set_relief(GTK_BUTTON(btn), GTK_RELIEF_NONE);
-        GtkWidget *lbl = gtk_bin_get_child(GTK_BIN(btn));
-        if (lbl) gtk_label_set_xalign(GTK_LABEL(lbl), 0.0);
+        gtk_button_set_has_frame(GTK_BUTTON(btn), FALSE);
+        GtkWidget *lbl = gtk_button_get_child(GTK_BUTTON(btn));
+        if (GTK_IS_LABEL(lbl))
+            gtk_label_set_xalign(GTK_LABEL(lbl), 0.0);
 
         free(display_label);
 
@@ -468,7 +573,7 @@ static GtkWidget *build_menu_box(xembed_menu_item *items, int count) {
                              G_CALLBACK(on_button_clicked),
                              GINT_TO_POINTER(mi->id));
         }
-        gtk_box_pack_start(GTK_BOX(vbox), btn, FALSE, FALSE, 0);
+        gtk_box_append(GTK_BOX(vbox), btn);
     }
 
     return vbox;
@@ -480,38 +585,35 @@ static gboolean popup_menu_idle(gpointer user_data) {
     /* Destroy old top-level (and orphan submenus) before rebuilding. */
     close_all_popups();
     if (popup_win) {
-        gtk_widget_destroy(popup_win);
+        gtk_window_destroy(GTK_WINDOW(popup_win));
         popup_win = NULL;
     }
 
-    popup_win = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    gtk_window_set_type_hint(GTK_WINDOW(popup_win),
-                             GDK_WINDOW_TYPE_HINT_POPUP_MENU);
+    popup_win = gtk_window_new();
     gtk_window_set_decorated(GTK_WINDOW(popup_win), FALSE);
     gtk_window_set_resizable(GTK_WINDOW(popup_win), FALSE);
-    gtk_window_set_skip_taskbar_hint(GTK_WINDOW(popup_win), TRUE);
-    gtk_window_set_skip_pager_hint(GTK_WINDOW(popup_win), TRUE);
-    gtk_window_set_keep_above(GTK_WINDOW(popup_win), TRUE);
 
-    /* Close on focus loss. */
-    g_signal_connect(popup_win, "focus-out-event",
-                     G_CALLBACK(on_popup_focus_out), NULL);
+    attach_outside_click_close(popup_win);
 
     GtkWidget *vbox = build_menu_box(pd->items, pd->count);
-    gtk_container_add(GTK_CONTAINER(popup_win), vbox);
+    gtk_window_set_child(GTK_WINDOW(popup_win), vbox);
 
-    gtk_widget_show_all(popup_win);
+    gtk_widget_set_visible(popup_win, TRUE);
 
-    /* Position the window above the click point (menu grows upward from tray). */
-    gint win_w, win_h;
-    gtk_window_get_size(GTK_WINDOW(popup_win), &win_w, &win_h);
+    /* Position the window above the click point (menu grows upward
+       from tray). Use measured preferred size — default_size is -1
+       until set. */
+    GtkRequisition req;
+    gtk_widget_get_preferred_size(popup_win, NULL, &req);
+    int win_w = req.width;
+    int win_h = req.height;
+
     int final_x = pd->x - win_w / 2;
     int final_y = pd->y - win_h;
     if (final_x < 0) final_x = 0;
     if (final_y < 0) final_y = pd->y;  /* fallback: below click */
-    gtk_window_move(GTK_WINDOW(popup_win), final_x, final_y);
+    x11_move_window(popup_win, final_x, final_y);
 
-    /* Grab focus so focus-out-event works. */
     gtk_window_present(GTK_WINDOW(popup_win));
 
     /* The vbox+children retain pointers into pd->items (via submenu
