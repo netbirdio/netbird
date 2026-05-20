@@ -117,7 +117,7 @@ func isRotationDisabled(logger *log.Logger) bool {
 
 func setupLogFile(logPath string, disableRotation bool) (io.Writer, error) {
 	if disableRotation {
-		file, err := openOrCreateFile(logPath)
+		file, err := os.OpenFile(logPath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o640)
 		if err != nil {
 			return nil, fmt.Errorf("failed opening log file: %s", err)
 		}

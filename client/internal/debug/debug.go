@@ -1060,10 +1060,10 @@ func (g *BundleGenerator) addRotatedLogFiles(logDir string) {
 			log.Warnf("failed to glob rotated logs: %v", err)
 			return
 		}
+		files = uncompressedFiles
 		if len(files) == 0 {
 			return
 		}
-		files = uncompressedFiles
 	}
 
 	// sort files by modification time (newest first)
