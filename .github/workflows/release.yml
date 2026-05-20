@@ -463,6 +463,12 @@ jobs:
         uses: pnpm/action-setup@v3
         with:
           version: 9
+      - name: Install wails3 CLI
+        # Version derived from go.mod so the binding generator always matches
+        # the wails runtime the binary links against.
+        run: |
+          WAILS_VERSION=$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v3)
+          go install github.com/wailsapp/wails/v3/cmd/wails3@$WAILS_VERSION
       - name: Run GoReleaser
         id: goreleaser
         uses: goreleaser/goreleaser-action@v4
