@@ -82,6 +82,10 @@
     "profile.dialog.submit": "Add Profile",
     "profile.dialog.required": "Please enter a profile name, e.g. Work, Home",
 
+    "header.menu.settings": "Settings",
+    "header.menu.defaultView": "Default View",
+    "header.menu.advancedView": "Advanced View",
+
     "profile.deregister.title": "Deregister Profile",
     "profile.deregister.message": "Are you sure you want to deregister \"{name}\"? You will need to log in again to use it.",
     "profile.deregister.confirm": "Deregister",
