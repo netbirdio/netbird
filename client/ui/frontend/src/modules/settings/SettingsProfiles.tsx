@@ -198,7 +198,7 @@ const ProfileRow = ({ profile, isActive, onDeregister, onDelete }: ProfileRowPro
                     />
                     <div className={"flex flex-col min-w-0 flex-1 leading-tight"}>
                         <div className={"flex items-center gap-2 min-w-0"}>
-                            <span className={"truncate font-medium text-nb-gray-100 capitalize"}>
+                            <span className={"truncate font-medium text-nb-gray-100"}>
                                 {profile.name}
                             </span>
                             {isActive && <Badge>{t("settings.profiles.active")}</Badge>}

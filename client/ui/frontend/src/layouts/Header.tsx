@@ -3,8 +3,8 @@ import { useTranslation } from "react-i18next";
 import {
     Check,
     MoreVertical,
-    PanelTop,
     PanelsRightBottom,
+    RectangleVertical,
     Settings,
     type LucideIcon,
 } from "lucide-react";
@@ -68,7 +68,7 @@ export const Header = () => {
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <ViewModeItem
-                            icon={PanelTop}
+                            icon={RectangleVertical}
                             label={t("header.menu.defaultView")}
                             selected={viewMode === "default"}
                             onSelect={() => selectMode("default")}

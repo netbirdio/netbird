@@ -194,7 +194,7 @@ const ProfileTriggerButton = forwardRef<HTMLButtonElement, ProfileTriggerButtonP
                 {...props}
             >
                 <Icon size={16} className={"text-nb-gray-200 shrink-0"} />
-                <span className={"text-sm font-medium capitalize truncate max-w-[140px]"}>
+                <span className={"text-sm font-medium truncate max-w-[140px]"}>
                     {name}
                 </span>
                 <ChevronDown size={14} className={"text-nb-gray-200 shrink-0"} />
@@ -225,7 +225,7 @@ const ProfileRow = ({ profile, isActive, onSelect }: ProfileRowProps) => {
         >
             <Icon size={14} className={cn("shrink-0", showEmail && "mt-0.5")} />
             <div className="flex flex-col min-w-0 flex-1 leading-tight">
-                <span className="capitalize truncate">{profile.name}</span>
+                <span className="truncate">{profile.name}</span>
                 {showEmail && <TruncatedEmail email={profile.email!} />}
             </div>
             {isActive && (
