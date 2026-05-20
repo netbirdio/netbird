@@ -81,6 +81,7 @@ type ClusterDeriver interface {
 type CapabilityProvider interface {
 	ClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
 	ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
+	ClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
 }
 
 type Manager struct {
@@ -112,8 +113,12 @@ func (m *Manager) StartExposeReaper(ctx context.Context) {
 	m.exposeReaper.StartExposeReaper(ctx)
 }
 
-// GetActiveClusters returns all active proxy clusters with their connected proxy count.
-func (m *Manager) GetActiveClusters(ctx context.Context, accountID, userID string) ([]proxy.Cluster, error) {
+// GetClusters returns every proxy cluster visible to the account
+// (shared + its own BYOP), regardless of whether any proxy in the
+// cluster is currently heartbeating. Each cluster is enriched with the
+// capability flags reported by its active proxies so the dashboard can
+// render feature support without a second round-trip.
+func (m *Manager) GetClusters(ctx context.Context, accountID, userID string) ([]proxy.Cluster, error) {
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
@@ -122,7 +127,18 @@ func (m *Manager) GetActiveClusters(ctx context.Context, accountID, userID strin
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	return m.store.GetActiveProxyClusters(ctx, accountID)
+	clusters, err := m.store.GetProxyClusters(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range clusters {
+		clusters[i].SupportsCustomPorts = m.capabilities.ClusterSupportsCustomPorts(ctx, clusters[i].Address)
+		clusters[i].RequireSubdomain = m.capabilities.ClusterRequireSubdomain(ctx, clusters[i].Address)
+		clusters[i].SupportsCrowdSec = m.capabilities.ClusterSupportsCrowdSec(ctx, clusters[i].Address)
+	}
+
+	return clusters, nil
 }
 
 // DeleteAccountCluster removes all proxy registrations for the given cluster address

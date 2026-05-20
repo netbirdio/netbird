@@ -878,6 +878,24 @@ func (e PolicyRuleUpdateProtocol) Valid() bool {
 	}
 }
 
+// Defines values for ProxyClusterType.
+const (
+	ProxyClusterTypeAccount ProxyClusterType = "account"
+	ProxyClusterTypeShared  ProxyClusterType = "shared"
+)
+
+// Valid indicates whether the value is a known member of the ProxyClusterType enum.
+func (e ProxyClusterType) Valid() bool {
+	switch e {
+	case ProxyClusterTypeAccount:
+		return true
+	case ProxyClusterTypeShared:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ResourceType.
 const (
 	ResourceTypeDomain ResourceType = "domain"
@@ -3795,15 +3813,32 @@ type ProxyCluster struct {
 	// Address Cluster address used for CNAME targets
 	Address string `json:"address"`
 
-	// ConnectedProxies Number of proxy nodes connected in this cluster
+	// ConnectedProxies Number of proxy nodes currently connected (heartbeat within the active window)
 	ConnectedProxies int `json:"connected_proxies"`
 
 	// Id Unique identifier of a proxy in this cluster
 	Id string `json:"id"`
 
-	// SelfHosted Whether this cluster is a self-hosted (BYOP) proxy managed by the account owner
-	SelfHosted bool `json:"self_hosted"`
+	// Online Whether at least one proxy in the cluster has heartbeated within the active window
+	Online bool `json:"online"`
+
+	// RequireSubdomain Whether services on this cluster must include a subdomain label
+	RequireSubdomain *bool `json:"require_subdomain,omitempty"`
+
+	// SupportsCrowdsec Whether all active proxies in the cluster have CrowdSec configured
+	SupportsCrowdsec *bool `json:"supports_crowdsec,omitempty"`
+
+	// SupportsCustomPorts Whether the cluster supports binding arbitrary TCP/UDP ports
+	SupportsCustomPorts *bool `json:"supports_custom_ports,omitempty"`
+
+	// Type Source of the proxy cluster. `account` clusters are owned and operated by the account (BYOP);
+	// `shared` clusters are operated by NetBird and shared across accounts.
+	Type ProxyClusterType `json:"type"`
 }
+
+// ProxyClusterType Source of the proxy cluster. `account` clusters are owned and operated by the account (BYOP);
+// `shared` clusters are operated by NetBird and shared across accounts.
+type ProxyClusterType string
 
 // ProxyToken defines model for ProxyToken.
 type ProxyToken struct {

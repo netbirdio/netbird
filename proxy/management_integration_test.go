@@ -366,7 +366,7 @@ func (m *storeBackedServiceManager) GetServiceByDomain(ctx context.Context, doma
 	return m.store.GetServiceByDomain(ctx, domain)
 }
 
-func (m *storeBackedServiceManager) GetActiveClusters(_ context.Context, _, _ string) ([]nbproxy.Cluster, error) {
+func (m *storeBackedServiceManager) GetClusters(_ context.Context, _, _ string) ([]nbproxy.Cluster, error) {
 	return nil, nil
 }
 
