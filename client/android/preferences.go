@@ -307,6 +307,7 @@ func (p *Preferences) SetBlockInbound(block bool) {
 	p.configInput.BlockInbound = &block
 }
 
+<<<<<<< HEAD
 // GetConnectionMode returns the locally configured connection-mode override
 // (canonical lower-kebab-case: "relay-forced", "p2p", "p2p-lazy",
 // "p2p-dynamic", "follow-server"), or empty string if no local override
@@ -390,6 +391,24 @@ func (p *Preferences) GetP2pRetryMaxSeconds() (int64, error) {
 func (p *Preferences) SetP2pRetryMaxSeconds(secs int64) {
 	v := uint32(secs)
 	p.configInput.P2pRetryMaxSeconds = &v
+}
+
+// GetDisableIPv6 reads disable IPv6 setting from config file
+func (p *Preferences) GetDisableIPv6() (bool, error) {
+	if p.configInput.DisableIPv6 != nil {
+		return *p.configInput.DisableIPv6, nil
+	}
+
+	cfg, err := profilemanager.ReadConfig(p.configInput.ConfigPath)
+	if err != nil {
+		return false, err
+	}
+	return cfg.DisableIPv6, err
+}
+
+// SetDisableIPv6 stores the given value and waits for commit
+func (p *Preferences) SetDisableIPv6(disable bool) {
+	p.configInput.DisableIPv6 = &disable
 }
 
 // Commit writes out the changes to the config file

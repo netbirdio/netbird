@@ -301,10 +301,11 @@ func (c *Client) PeersList() *PeerInfoArray {
 	peerInfos := make([]PeerInfo, len(fullStatus.Peers))
 	for n, p := range fullStatus.Peers {
 		pi := PeerInfo{
-			p.IP,
-			p.FQDN,
-			int(p.ConnStatus),
-			PeerRoutes{routes: maps.Keys(p.GetRoutes())},
+			IP:         p.IP,
+			IPv6:       p.IPv6,
+			FQDN:       p.FQDN,
+			ConnStatus: int(p.ConnStatus),
+			Routes:     PeerRoutes{routes: maps.Keys(p.GetRoutes())},
 		}
 		peerInfos[n] = pi
 	}
@@ -336,41 +337,82 @@ func (c *Client) Networks() *NetworkArray {
 		return nil
 	}
 
+	routesMap := routeManager.GetClientRoutesWithNetID()
+	v6Merged := route.V6ExitMergeSet(routesMap)
+	resolvedDomains := c.recorder.GetResolvedDomainsStates()
+
 	networkArray := &NetworkArray{
 		items: make([]Network, 0),
 	}
 
-	resolvedDomains := c.recorder.GetResolvedDomainsStates()
-
-	for id, routes := range routeManager.GetClientRoutesWithNetID() {
+	for id, routes := range routesMap {
 		if len(routes) == 0 {
 			continue
 		}
-
-		r := routes[0]
-		domains := c.getNetworkDomainsFromRoute(r, resolvedDomains)
-		netStr := r.Network.String()
-
-		if r.IsDynamic() {
-			netStr = r.Domains.SafeString()
-		}
-
-		routePeer, err := c.recorder.GetPeer(routes[0].Peer)
-		if err != nil {
-			log.Errorf("could not get peer info for %s: %v", routes[0].Peer, err)
+		if _, skip := v6Merged[id]; skip {
 			continue
 		}
-		network := Network{
-			Name:       string(id),
-			Network:    netStr,
-			Peer:       routePeer.FQDN,
-			Status:     routePeer.ConnStatus.String(),
-			IsSelected: routeSelector.IsSelected(id),
-			Domains:    domains,
+
+		network := c.buildNetwork(id, routes, routeSelector.IsSelected(id), resolvedDomains, v6Merged)
+		if network == nil {
+			continue
 		}
-		networkArray.Add(network)
+		networkArray.Add(*network)
 	}
 	return networkArray
+}
+
+func (c *Client) buildNetwork(id route.NetID, routes []*route.Route, selected bool, resolvedDomains map[domain.Domain]peer.ResolvedDomainInfo, v6Merged map[route.NetID]struct{}) *Network {
+	r := routes[0]
+	netStr := r.Network.String()
+	if r.IsDynamic() {
+		netStr = r.Domains.SafeString()
+	}
+
+	routePeer, err := c.findBestRoutePeer(routes)
+	if err != nil {
+		log.Errorf("could not get peer info for route %s: %v", id, err)
+		return nil
+	}
+
+	network := &Network{
+		Name:       string(id),
+		Network:    netStr,
+		Peer:       routePeer.FQDN,
+		Status:     routePeer.ConnStatus.String(),
+		IsSelected: selected,
+		Domains:    c.getNetworkDomainsFromRoute(r, resolvedDomains),
+	}
+
+	if route.IsV4DefaultRoute(r.Network) && route.HasV6ExitPair(id, v6Merged) {
+		network.Network = "0.0.0.0/0, ::/0"
+	}
+
+	return network
+}
+
+// findBestRoutePeer returns the peer actively routing traffic for the given
+// HA route group. Falls back to the first connected peer, then the first peer.
+func (c *Client) findBestRoutePeer(routes []*route.Route) (peer.State, error) {
+	netStr := routes[0].Network.String()
+
+	fullStatus := c.recorder.GetFullStatus()
+	for _, p := range fullStatus.Peers {
+		if _, ok := p.GetRoutes()[netStr]; ok {
+			return p, nil
+		}
+	}
+
+	for _, r := range routes {
+		p, err := c.recorder.GetPeer(r.Peer)
+		if err != nil {
+			continue
+		}
+		if p.ConnStatus == peer.StatusConnected {
+			return p, nil
+		}
+	}
+	return c.recorder.GetPeer(routes[0].Peer)
 }
 
 // OnUpdatedHostDNS update the DNS servers addresses for root zones

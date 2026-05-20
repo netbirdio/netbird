@@ -383,8 +383,136 @@ func TestNftablesManagerCompatibilityWithIptables(t *testing.T) {
 	err = manager.AddNatRule(pair)
 	require.NoError(t, err, "failed to add NAT rule")
 
+	dnatRule, err := manager.AddDNATRule(fw.ForwardRule{
+		Protocol:          fw.ProtocolTCP,
+		DestinationPort:   fw.Port{Values: []uint16{8080}},
+		TranslatedAddress: netip.MustParseAddr("100.96.0.2"),
+		TranslatedPort:    fw.Port{Values: []uint16{80}},
+	})
+	require.NoError(t, err, "failed to add DNAT rule")
+
+	t.Cleanup(func() {
+		require.NoError(t, manager.DeleteDNATRule(dnatRule), "failed to delete DNAT rule")
+	})
+
 	stdout, stderr = runIptablesSave(t)
 	verifyIptablesOutput(t, stdout, stderr)
+}
+
+func TestNftablesManagerIPv6CompatibilityWithIp6tables(t *testing.T) {
+	if check() != NFTABLES {
+		t.Skip("nftables not supported on this system")
+	}
+
+	for _, bin := range []string{"ip6tables", "ip6tables-save", "iptables-save"} {
+		if _, err := exec.LookPath(bin); err != nil {
+			t.Skipf("%s not available on this system: %v", bin, err)
+		}
+	}
+
+	// Seed ip6 tables in the nft backend. Docker may not create them.
+	seedIp6tables(t)
+
+	ifaceMockV6 := &iFaceMock{
+		NameFunc: func() string { return "wt-test" },
+		AddressFunc: func() wgaddr.Address {
+			return wgaddr.Address{
+				IP:      netip.MustParseAddr("100.96.0.1"),
+				Network: netip.MustParsePrefix("100.96.0.0/16"),
+				IPv6:    netip.MustParseAddr("fd00::1"),
+				IPv6Net: netip.MustParsePrefix("fd00::/64"),
+			}
+		},
+	}
+
+	manager, err := Create(ifaceMockV6, iface.DefaultMTU)
+	require.NoError(t, err, "create manager")
+	require.NoError(t, manager.Init(nil))
+
+	t.Cleanup(func() {
+		require.NoError(t, manager.Close(nil), "close manager")
+
+		stdout, stderr := runIp6tablesSave(t)
+		verifyIp6tablesOutput(t, stdout, stderr)
+	})
+
+	ip := netip.MustParseAddr("fd00::2")
+	_, err = manager.AddPeerFiltering(nil, ip.AsSlice(), fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{80}}, fw.ActionAccept, "")
+	require.NoError(t, err, "add v6 peer filtering rule")
+
+	_, err = manager.AddRouteFiltering(
+		nil,
+		[]netip.Prefix{netip.MustParsePrefix("fd00:1::/64")},
+		fw.Network{Prefix: netip.MustParsePrefix("2001:db8::/48")},
+		fw.ProtocolTCP,
+		nil,
+		&fw.Port{Values: []uint16{443}},
+		fw.ActionAccept,
+	)
+	require.NoError(t, err, "add v6 route filtering rule")
+
+	err = manager.AddNatRule(fw.RouterPair{
+		Source:      fw.Network{Prefix: netip.MustParsePrefix("fd00::/64")},
+		Destination: fw.Network{Prefix: netip.MustParsePrefix("2001:db8::/48")},
+		Masquerade:  true,
+	})
+	require.NoError(t, err, "add v6 NAT rule")
+
+	dnatRule, err := manager.AddDNATRule(fw.ForwardRule{
+		Protocol:          fw.ProtocolTCP,
+		DestinationPort:   fw.Port{Values: []uint16{8080}},
+		TranslatedAddress: netip.MustParseAddr("fd00::2"),
+		TranslatedPort:    fw.Port{Values: []uint16{80}},
+	})
+	require.NoError(t, err, "add v6 DNAT rule")
+
+	t.Cleanup(func() {
+		require.NoError(t, manager.DeleteDNATRule(dnatRule), "delete v6 DNAT rule")
+	})
+
+	stdout, stderr := runIptablesSave(t)
+	verifyIptablesOutput(t, stdout, stderr)
+
+	stdout, stderr = runIp6tablesSave(t)
+	verifyIp6tablesOutput(t, stdout, stderr)
+}
+
+func seedIp6tables(t *testing.T) {
+	t.Helper()
+	for _, tc := range []struct{ table, chain string }{
+		{"filter", "FORWARD"},
+		{"nat", "POSTROUTING"},
+		{"mangle", "FORWARD"},
+	} {
+		add := exec.Command("ip6tables", "-t", tc.table, "-A", tc.chain, "-j", "ACCEPT")
+		require.NoError(t, add.Run(), "seed ip6tables -t %s", tc.table)
+		del := exec.Command("ip6tables", "-t", tc.table, "-D", tc.chain, "-j", "ACCEPT")
+		require.NoError(t, del.Run(), "unseed ip6tables -t %s", tc.table)
+	}
+}
+
+func runIp6tablesSave(t *testing.T) (string, string) {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	cmd := exec.Command("ip6tables-save")
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	require.NoError(t, cmd.Run(), "ip6tables-save failed")
+	return stdout.String(), stderr.String()
+}
+
+func verifyIp6tablesOutput(t *testing.T, stdout, stderr string) {
+	t.Helper()
+	for _, msg := range []string{
+		"Table `nat' is incompatible",
+		"Table `mangle' is incompatible",
+		"Table `filter' is incompatible",
+	} {
+		require.NotContains(t, stdout, msg,
+			"ip6tables-save stdout reports incompatibility: %s", stdout)
+		require.NotContains(t, stderr, msg,
+			"ip6tables-save stderr reports incompatibility: %s", stderr)
+	}
 }
 
 func TestNftablesManagerCompatibilityWithIptablesFor6kPrefixes(t *testing.T) {

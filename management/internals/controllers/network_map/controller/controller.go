@@ -221,8 +221,12 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 	return nil
 }
 
-func (c *Controller) bufferSendUpdateAccountPeers(ctx context.Context, accountID string) error {
+func (c *Controller) bufferSendUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) error {
 	log.WithContext(ctx).Tracef("buffer sending update peers for account %s from %s", accountID, util.GetCallerName())
+
+	if c.accountManagerMetrics != nil {
+		c.accountManagerMetrics.CountUpdateAccountPeersTriggered(string(reason.Resource), string(reason.Operation))
+	}
 
 	bufUpd, _ := c.sendAccountUpdateLocks.LoadOrStore(accountID, &bufferUpdate{})
 	b := bufUpd.(*bufferUpdate)
@@ -570,7 +574,7 @@ func isPeerInPolicySourceGroups(account *types.Account, peerID string, policy *t
 }
 
 func (c *Controller) OnPeersUpdated(ctx context.Context, accountID string, peerIDs []string) error {
-	err := c.bufferSendUpdateAccountPeers(ctx, accountID)
+	err := c.bufferSendUpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourcePeer, Operation: types.UpdateOperationUpdate})
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to buffer update account peers for peer update in account %s: %v", accountID, err)
 	}
@@ -580,7 +584,7 @@ func (c *Controller) OnPeersUpdated(ctx context.Context, accountID string, peerI
 
 func (c *Controller) OnPeersAdded(ctx context.Context, accountID string, peerIDs []string) error {
 	log.WithContext(ctx).Debugf("OnPeersAdded call to add peers: %v", peerIDs)
-	return c.bufferSendUpdateAccountPeers(ctx, accountID)
+	return c.bufferSendUpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourcePeer, Operation: types.UpdateOperationCreate})
 }
 
 func (c *Controller) OnPeersDeleted(ctx context.Context, accountID string, peerIDs []string) error {
@@ -616,7 +620,7 @@ func (c *Controller) OnPeersDeleted(ctx context.Context, accountID string, peerI
 		c.peersUpdateManager.CloseChannel(ctx, peerID)
 	}
 
-	return c.bufferSendUpdateAccountPeers(ctx, accountID)
+	return c.bufferSendUpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourcePeer, Operation: types.UpdateOperationDelete})
 }
 
 // GetNetworkMap returns Network map for a given peer (omits original peer from the Peers result)

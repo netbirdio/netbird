@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"strings"
 
 	"github.com/coder/websocket"
 	log "github.com/sirupsen/logrus"
@@ -35,13 +34,7 @@ func (d Dialer) Dial(ctx context.Context, address, serverName string) (net.Conn,
 	var underlying net.Conn
 	opts := createDialOptions(serverName, &underlying)
 
-	parsedURL, err := url.Parse(wsURL)
-	if err != nil {
-		return nil, err
-	}
-	parsedURL.Path = relay.WebSocketURLPath
-
-	wsConn, resp, err := websocket.Dial(ctx, parsedURL.String(), opts)
+	wsConn, resp, err := websocket.Dial(ctx, wsURL, opts)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			return nil, err
@@ -57,12 +50,27 @@ func (d Dialer) Dial(ctx context.Context, address, serverName string) (net.Conn,
 	return conn, nil
 }
 
+// prepareURL rewrites a rel://host[:port] or rels://host[:port] address into a
+// ws://host[:port]/relay or wss://host[:port]/relay URL, preserving any
+// non-standard port from the input.
 func prepareURL(address string) (string, error) {
-	if !strings.HasPrefix(address, "rel:") && !strings.HasPrefix(address, "rels:") {
-		return "", fmt.Errorf("unsupported scheme: %s", address)
+	parsed, err := url.Parse(address)
+	if err != nil {
+		return "", fmt.Errorf("parse relay address %q: %w", address, err)
 	}
-
-	return strings.Replace(address, "rel", "ws", 1), nil
+	switch parsed.Scheme {
+	case "rel":
+		parsed.Scheme = "ws"
+	case "rels":
+		parsed.Scheme = "wss"
+	default:
+		return "", fmt.Errorf("unsupported scheme: %s", parsed.Scheme)
+	}
+	if parsed.Host == "" {
+		return "", fmt.Errorf("missing host in relay address %q", address)
+	}
+	parsed.Path = relay.WebSocketURLPath
+	return parsed.String(), nil
 }
 
 // httpClientNbDialer builds the http client used by the websocket library.
