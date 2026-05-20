@@ -126,7 +126,7 @@ func (vs *VirtualSession) start() error {
 
 	// Grant the target user access to the display via xhost.
 	xhostCmd := exec.Command("xhost", "+SI:localuser:"+vs.user.Username)
-	xhostCmd.Env = []string{"DISPLAY=" + vs.display}
+	xhostCmd.Env = []string{envDisplay + "=" + vs.display}
 	if out, err := xhostCmd.CombinedOutput(); err != nil {
 		vs.log.Debugf("xhost: %s (%v)", strings.TrimSpace(string(out)), err)
 	}
@@ -447,7 +447,7 @@ func (vs *VirtualSession) stopDesktop() {
 
 func (vs *VirtualSession) buildUserEnv() []string {
 	return []string{
-		"DISPLAY=" + vs.display,
+		envDisplay + "=" + vs.display,
 		"HOME=" + vs.user.HomeDir,
 		"USER=" + vs.user.Username,
 		"LOGNAME=" + vs.user.Username,
