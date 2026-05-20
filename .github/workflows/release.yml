@@ -360,7 +360,7 @@ jobs:
           version: 9
 
       - name: Install dependencies
-        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev libayatana-appindicator3-dev gcc-mingw-w64-x86-64
+        run: sudo apt update && sudo apt install -y -q libgtk-4-dev libwebkitgtk-6.0-dev libsoup-3.0-dev libayatana-appindicator3-dev gcc-mingw-w64-x86-64
 
       - name: Decode GPG signing key
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -463,6 +463,12 @@ jobs:
         uses: pnpm/action-setup@v3
         with:
           version: 9
+      - name: Install wails3 CLI
+        # Version derived from go.mod so the binding generator always matches
+        # the wails runtime the binary links against.
+        run: |
+          WAILS_VERSION=$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v3)
+          go install github.com/wailsapp/wails/v3/cmd/wails3@$WAILS_VERSION
       - name: Run GoReleaser
         id: goreleaser
         uses: goreleaser/goreleaser-action@v4
@@ -573,6 +579,28 @@ jobs:
       - name: Extract ShellExecAsUser plugin (amd64 only)
         if: matrix.arch == 'amd64'
         run: 7z x -o"${{ github.workspace }}/NSIS_Plugins" "${{ github.workspace }}/ShellExecAsUser_amd64-Unicode.7z"
+
+      - name: Set up Go for wails3 CLI
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: "go.mod"
+          cache: false
+
+      - name: Install wails3 CLI
+        # Version derived from go.mod so the bootstrapper payload always
+        # matches the wails runtime the binary links against.
+        shell: bash
+        run: |
+          WAILS_VERSION=$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v3)
+          go install github.com/wailsapp/wails/v3/cmd/wails3@$WAILS_VERSION
+
+      - name: Stage WebView2 bootstrapper for installers
+        # Both client/installer.nsis and client/netbird.wxs reference
+        # client/MicrosoftEdgeWebview2Setup.exe. wails3 writes it there.
+        # The signing pipeline (netbirdio/sign-pipelines) does the same
+        # step for release builds; this mirrors it for PR sanity testing.
+        shell: bash
+        run: wails3 generate webview2bootstrapper -dir client
 
       - name: Build NSIS installer
         uses: joncloud/makensis-action@v3.3
