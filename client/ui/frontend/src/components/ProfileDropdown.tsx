@@ -90,7 +90,7 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
                         collisionPadding={12}
                         onOpenAutoFocus={(e) => e.preventDefault()}
                         className={cn(
-                            "z-50 min-w-64 overflow-hidden rounded-xl border border-nb-gray-900 bg-nb-gray-935 text-nb-gray-200 shadow-lg",
+                            "z-50 min-w-64 overflow-hidden rounded-lg border border-nb-gray-900 bg-nb-gray-935 p-1 text-nb-gray-200 shadow-lg",
                             "data-[state=open]:animate-in data-[state=closed]:animate-out",
                             "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
                             "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
@@ -98,15 +98,11 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
                             "data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
                         )}
                     >
-                        <Command
-                            loop
-                            shouldFilter={false}
-                            onKeyDown={(e) => e.stopPropagation()}
-                        >
+                        <Command loop shouldFilter={false} onKeyDown={(e) => e.stopPropagation()}>
                             {sortedProfiles.length > 0 && (
                                 <>
-                                    <ScrollArea.Root type="auto" className="overflow-hidden">
-                                        <ScrollArea.Viewport className="max-h-60 py-1.5">
+                                    <ScrollArea.Root type="auto" className="overflow-hidden -mx-1">
+                                        <ScrollArea.Viewport className="max-h-60 px-1">
                                             <Command.List>
                                                 {sortedProfiles.map((profile) => (
                                                     <ProfileRow
@@ -128,16 +124,16 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
                                             <ScrollArea.Thumb className="flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700 relative" />
                                         </ScrollArea.Scrollbar>
                                     </ScrollArea.Root>
-                                    <div className="h-px bg-nb-gray-910" />
+                                    <div className="-mx-1 h-px bg-nb-gray-910" />
                                 </>
                             )}
 
-                            <div className="py-1">
+                            <div className={"pt-1"}>
                                 <Command.Item
                                     value={ADD_VALUE}
                                     onSelect={handleAdd}
                                     className={cn(
-                                        "flex items-center gap-2 px-2 py-1.5 mx-1.5 my-0.5",
+                                        "flex items-center gap-2 px-2 py-1.5 my-0.5",
                                         "rounded-md outline-none cursor-default text-sm",
                                         "data-[selected=true]:bg-nb-gray-900",
                                     )}
@@ -152,7 +148,7 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
                                     onSelect={handleManage}
                                     disabled={!onManageProfiles}
                                     className={cn(
-                                        "flex items-center gap-2 px-2 py-1.5 mx-1.5 my-0.5",
+                                        "flex items-center gap-2 px-2 py-1.5 my-0.5",
                                         "rounded-md outline-none cursor-default text-sm",
                                         "data-[selected=true]:bg-nb-gray-900",
                                         "data-[disabled=true]:opacity-50 data-[disabled=true]:pointer-events-none",
@@ -221,7 +217,7 @@ const ProfileRow = ({ profile, isActive, onSelect }: ProfileRowProps) => {
             value={profile.name}
             onSelect={() => onSelect(profile.name)}
             className={cn(
-                "flex gap-2 px-2 py-1.5 mx-1.5 my-0.5 w-auto",
+                "flex gap-2 px-2 py-2 pr-3 my-0.5 first:mt-0 last:mb-1 w-auto",
                 "rounded-md outline-none cursor-default text-sm",
                 "data-[selected=true]:bg-nb-gray-900",
                 showEmail ? "items-start" : "items-center",
@@ -233,10 +229,7 @@ const ProfileRow = ({ profile, isActive, onSelect }: ProfileRowProps) => {
                 {showEmail && <TruncatedEmail email={profile.email!} />}
             </div>
             {isActive && (
-                <Check
-                    size={16}
-                    className={cn("shrink-0 text-netbird", showEmail && "mt-0.5")}
-                />
+                <Check size={16} className={cn("shrink-0 text-netbird", showEmail && "mt-0.5")} />
             )}
         </Command.Item>
     );

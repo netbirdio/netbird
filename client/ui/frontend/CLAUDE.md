@@ -37,7 +37,7 @@ React 18 + TS 5.7 (`strict`, `noImplicitAny: false`) + Vite 6 + Tailwind 3 (`dar
 
 ## Directory layout (src/)
 
-The split between `pages/`, `screens/`, and `modules/` is historical and not load-bearing. **Today:** `modules/` owns the polished AppLayout-shell-driven UI, `pages/` owns the few routes that live outside that shell, and `screens/` is the unsorted legacy bucket. Don't add new code under `screens/` — pick `pages/` (own route, no shell) or `modules/<feature>/` (lives inside the shell). `lib/MainModuleContext.tsx` is exported but unused — candidate for deletion.
+The split between `pages/`, `screens/`, and `modules/` is historical and not load-bearing. **Today:** `modules/` owns the polished AppLayout-shell-driven UI, `pages/` owns the few routes that live outside that shell, and `screens/` is the unsorted legacy bucket. Don't add new code under `screens/` — pick `pages/` (own route, no shell) or `modules/<feature>/` (lives inside the shell).
 
 ## Wails event bus
 
@@ -164,7 +164,6 @@ Defined in `tailwind.config.ts`. `nb-gray` is the neutral palette (background = 
 - **`modules/authentication/SessionExpiredDialog.tsx`** and **`modules/authentication/SessionAboutToExpireDialog.tsx`** are the always-on-top auxiliary windows. Today they're only triggered via the DEV-only "Development" tab in Settings (`SettingsDevelopment.tsx`) — a daemon-status hook (status `SessionExpired`, plus a future "about-to-expire" signal) will drive them later. Sign-in / Stay-connected emit `EventTriggerLogin` so the main window's `startLogin()` orchestrator handles the SSO flow; Logout uses `Connection.Logout({profileName, username})`.
 - **`screens/QuickActions.tsx`** is wired to `/quick` in the route table but nothing on the Go side currently navigates there.
 - **`UpdateAvailableBanner`** is force-enabled via `FORCE_UPDATE_AVAILABLE = true` and additionally TODO-commented for the "only when management has auto updates enabled + force updates is disabled" case.
-- **`lib/MainModuleContext.tsx`** is exported but unused. Candidate for deletion.
 
 ## Wails Go API reference
 
