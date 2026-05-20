@@ -34,7 +34,7 @@ func (n *Notifier) SetInitialClientRoutes([]*route.Route, []*route.Route) {
 	// iOS doesn't care about initial routes
 }
 
-func (n *Notifier) SetFakeIPRoute(*route.Route) {
+func (n *Notifier) SetFakeIPRoutes([]*route.Route) {
 	// Not used on iOS
 }
 
@@ -65,19 +65,10 @@ func (n *Notifier) notify() {
 	}
 
 	go func(l listener.NetworkChangeListener) {
-		l.OnNetworkChanged(strings.Join(n.addIPv6RangeIfNeeded(n.currentPrefixes), ","))
+		l.OnNetworkChanged(strings.Join(n.currentPrefixes, ","))
 	}(n.listener)
 }
 
 func (n *Notifier) GetInitialRouteRanges() []string {
 	return nil
-}
-
-func (n *Notifier) addIPv6RangeIfNeeded(inputRanges []string) []string {
-	for _, r := range inputRanges {
-		if r == "0.0.0.0/0" {
-			return append(slices.Clone(inputRanges), "::/0")
-		}
-	}
-	return inputRanges
 }

@@ -4,12 +4,15 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"net"
 	"net/netip"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
+	"github.com/miekg/dns"
 )
 
 // TextWriter writes human-readable one-line-per-packet summaries.
@@ -91,9 +94,9 @@ func (tw *TextWriter) writeTCP(timeStr string, dir Direction, info *packetInfo, 
 	}
 
 	if !tw.verbose {
-		_, err := fmt.Fprintf(tw.w, "%s %s %s:%d > %s:%d [%s] length %d%s\n",
+		_, err := fmt.Fprintf(tw.w, "%s %s %s > %s [%s] length %d%s\n",
 			timeStr, tag(dir, "TCP"),
-			info.srcIP, info.srcPort, info.dstIP, info.dstPort,
+			net.JoinHostPort(info.srcIP.String(), strconv.Itoa(int(info.srcPort))), net.JoinHostPort(info.dstIP.String(), strconv.Itoa(int(info.dstPort))),
 			flags, plen, annotation)
 		if err != nil {
 			return err
@@ -125,9 +128,9 @@ func (tw *TextWriter) writeTCP(timeStr string, dir Direction, info *packetInfo, 
 
 	verbose := tw.verboseIP(data, info.family)
 
-	_, err := fmt.Fprintf(tw.w, "%s %s %s:%d > %s:%d [%s]%s%s, win %d%s, length %d%s%s\n",
+	_, err := fmt.Fprintf(tw.w, "%s %s %s > %s [%s]%s%s, win %d%s, length %d%s%s\n",
 		timeStr, tag(dir, "TCP"),
-		info.srcIP, info.srcPort, info.dstIP, info.dstPort,
+		net.JoinHostPort(info.srcIP.String(), strconv.Itoa(int(info.srcPort))), net.JoinHostPort(info.dstIP.String(), strconv.Itoa(int(info.dstPort))),
 		flags, seqStr, ackStr, tcp.Window, opts, plen, annotation, verbose)
 	if err != nil {
 		return err
@@ -153,9 +156,9 @@ func (tw *TextWriter) writeUDP(timeStr string, dir Direction, info *packetInfo, 
 			if tw.verbose {
 				verbose = tw.verboseIP(data, info.family)
 			}
-			_, err := fmt.Fprintf(tw.w, "%s %s %s:%d > %s:%d %s%s\n",
+			_, err := fmt.Fprintf(tw.w, "%s %s %s > %s %s%s\n",
 				timeStr, tag(dir, "UDP"),
-				info.srcIP, info.srcPort, info.dstIP, info.dstPort,
+				net.JoinHostPort(info.srcIP.String(), strconv.Itoa(int(info.srcPort))), net.JoinHostPort(info.dstIP.String(), strconv.Itoa(int(info.dstPort))),
 				s, verbose)
 			return err
 		}
@@ -165,9 +168,9 @@ func (tw *TextWriter) writeUDP(timeStr string, dir Direction, info *packetInfo, 
 	if tw.verbose {
 		verbose = tw.verboseIP(data, info.family)
 	}
-	_, err := fmt.Fprintf(tw.w, "%s %s %s:%d > %s:%d length %d%s\n",
+	_, err := fmt.Fprintf(tw.w, "%s %s %s > %s length %d%s\n",
 		timeStr, tag(dir, "UDP"),
-		info.srcIP, info.srcPort, info.dstIP, info.dstPort,
+		net.JoinHostPort(info.srcIP.String(), strconv.Itoa(int(info.srcPort))), net.JoinHostPort(info.dstIP.String(), strconv.Itoa(int(info.dstPort))),
 		plen, verbose)
 	if err != nil {
 		return err
@@ -216,9 +219,9 @@ func (tw *TextWriter) writeICMPv6(timeStr string, dir Direction, info *packetInf
 }
 
 func (tw *TextWriter) writeFallback(timeStr string, dir Direction, proto string, info *packetInfo, data []byte) error {
-	_, err := fmt.Fprintf(tw.w, "%s %s %s:%d > %s:%d length %d\n",
+	_, err := fmt.Fprintf(tw.w, "%s %s %s > %s length %d\n",
 		timeStr, tag(dir, proto),
-		info.srcIP, info.srcPort, info.dstIP, info.dstPort,
+		net.JoinHostPort(info.srcIP.String(), strconv.Itoa(int(info.srcPort))), net.JoinHostPort(info.dstIP.String(), strconv.Itoa(int(info.dstPort))),
 		len(data)-info.hdrLen)
 	return err
 }
@@ -592,19 +595,45 @@ func formatDNSResponse(d *layers.DNS, rd string, plen int) string {
 	anCount := d.ANCount
 	nsCount := d.NSCount
 	arCount := d.ARCount
+	ede := formatEDE(d)
 
 	if d.ResponseCode != layers.DNSResponseCodeNoErr {
-		return fmt.Sprintf("%04x %d/%d/%d %s (%d)", d.ID, anCount, nsCount, arCount, d.ResponseCode, plen)
+		return fmt.Sprintf("%04x %d/%d/%d %s%s (%d)", d.ID, anCount, nsCount, arCount, d.ResponseCode, ede, plen)
 	}
 
 	if anCount > 0 && len(d.Answers) > 0 {
 		rr := d.Answers[0]
 		if rdata := shortRData(&rr); rdata != "" {
-			return fmt.Sprintf("%04x %d/%d/%d %s %s (%d)", d.ID, anCount, nsCount, arCount, rr.Type, rdata, plen)
+			return fmt.Sprintf("%04x %d/%d/%d %s %s%s (%d)", d.ID, anCount, nsCount, arCount, rr.Type, rdata, ede, plen)
 		}
 	}
 
-	return fmt.Sprintf("%04x %d/%d/%d (%d)", d.ID, anCount, nsCount, arCount, plen)
+	return fmt.Sprintf("%04x %d/%d/%d%s (%d)", d.ID, anCount, nsCount, arCount, ede, plen)
+}
+
+// dnsOPTCodeEDE is the EDNS0 option code for Extended DNS Errors (RFC 8914).
+const dnsOPTCodeEDE layers.DNSOptionCode = layers.DNSOptionCode(dns.EDNS0EDE)
+
+// formatEDE returns " EDE=Name" for the first Extended DNS Error option
+// found in the response, or empty string if none is present.
+func formatEDE(d *layers.DNS) string {
+	for _, rr := range d.Additionals {
+		if rr.Type != layers.DNSTypeOPT {
+			continue
+		}
+		for _, opt := range rr.OPT {
+			if opt.Code != dnsOPTCodeEDE || len(opt.Data) < 2 {
+				continue
+			}
+			info := binary.BigEndian.Uint16(opt.Data[:2])
+			name, ok := dns.ExtendedErrorCodeToString[info]
+			if !ok {
+				name = fmt.Sprintf("%d", info)
+			}
+			return " EDE=" + name
+		}
+	}
+	return ""
 }
 
 func shortRData(rr *layers.DNSResourceRecord) string {

@@ -204,18 +204,20 @@ message LoginRequest {
   optional bool enableSSHRemotePortForwarding = 37;
   optional bool disableSSHAuth = 38;
   optional int32 sshJWTCacheTTL = 39;
+  optional bool disable_ipv6 = 40;
 
   // Phase 1 (#5989): peer-connection mode and idle timeouts.
   // connection_mode is a string (relay-forced, p2p, p2p-lazy, p2p-dynamic,
   // follow-server, or empty); parsed via connectionmode.ParseString at the
   // daemon side. Empty means "no client-side override, use server value".
-  optional string connection_mode = 40;
-  optional uint32 p2p_timeout_seconds = 41;
-  optional uint32 relay_timeout_seconds = 42;
+  // Tags 41-43 were 40-42 before upstream IPv6 took tag 40; renumbered +1.
+  optional string connection_mode = 41;
+  optional uint32 p2p_timeout_seconds = 42;
+  optional uint32 relay_timeout_seconds = 43;
 
   // Phase 3 (#5989): cap on the ICE-failure backoff schedule. 0 = use
-  // server-pushed value (or built-in default 15 min).
-  optional uint32 p2p_retry_max_seconds = 43;
+  // server-pushed value (or built-in default 15 min). Was tag 43; +1.
+  optional uint32 p2p_retry_max_seconds = 44;
 }
 
 message LoginResponse {
@@ -323,6 +325,8 @@ message GetConfigResponse {
   bool disableSSHAuth = 25;
 
   int32 sshJWTCacheTTL = 26;
+
+  bool disable_ipv6 = 27;
 }
 
 // PeerState contains the latest state of a peer
@@ -345,10 +349,12 @@ message PeerState {
   google.protobuf.Duration latency = 17;
   string relayAddress = 18;
   bytes sshHostKey = 19;
-  // Phase 3 (#5989): ICE-backoff state for p2p-dynamic mode.
-  int32  iceBackoffFailures  = 20;
-  google.protobuf.Timestamp iceBackoffNextRetry = 21;
-  bool   iceBackoffSuspended = 22;
+  string ipv6 = 20;
+  // Phase 3 (#5989): ICE-backoff state for p2p-dynamic mode. Tags 21-23
+  // were 20-22 before upstream IPv6 took tag 20; renumbered +1.
+  int32  iceBackoffFailures  = 21;
+  google.protobuf.Timestamp iceBackoffNextRetry = 22;
+  bool   iceBackoffSuspended = 23;
 }
 
 // LocalPeerState contains the latest state of the local peer
@@ -360,6 +366,7 @@ message LocalPeerState {
   bool rosenpassEnabled = 5;
   bool rosenpassPermissive = 6;
   repeated string networks = 7;
+  string ipv6 = 8;
 }
 
 // SignalState contains the latest state of a signal connection
@@ -688,11 +695,14 @@ message SetConfigRequest {
   optional bool enableSSHRemotePortForwarding = 32;
   optional bool disableSSHAuth = 33;
   optional int32 sshJWTCacheTTL = 34;
+  optional bool disable_ipv6 = 35;
 
   // Phase 1 (#5989): peer-connection mode and idle timeouts.
   // connection_mode is a string (relay-forced, p2p, p2p-lazy, p2p-dynamic,
   // follow-server, or empty); parsed via connectionmode.ParseString at the
   // daemon side. Empty means "no client-side override, use server value".
+  // SetConfigRequest message: tags 40-43 stay (no collision with upstream's
+  // tag-35 here).
   optional string connection_mode = 40;
   optional uint32 p2p_timeout_seconds = 41;
   optional uint32 relay_timeout_seconds = 42;

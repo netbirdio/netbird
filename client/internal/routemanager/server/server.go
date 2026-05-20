@@ -21,6 +21,7 @@ type Router struct {
 	firewall       firewall.Manager
 	wgInterface    iface.WGIface
 	statusRecorder *peer.Status
+	useNewDNSRoute bool
 }
 
 func NewRouter(ctx context.Context, wgInterface iface.WGIface, firewall firewall.Manager, statusRecorder *peer.Status) (*Router, error) {
@@ -37,6 +38,8 @@ func (r *Router) UpdateRoutes(routesMap map[route.ID]*route.Route, useNewDNSRout
 	r.mux.Lock()
 	defer r.mux.Unlock()
 
+	prevUseNewDNSRoute := r.useNewDNSRoute
+
 	serverRoutesToRemove := make([]route.ID, 0)
 
 	for routeID := range r.routes {
@@ -48,13 +51,15 @@ func (r *Router) UpdateRoutes(routesMap map[route.ID]*route.Route, useNewDNSRout
 
 	for _, routeID := range serverRoutesToRemove {
 		oldRoute := r.routes[routeID]
-		err := r.removeFromServerNetwork(oldRoute)
+		err := r.removeFromServerNetwork(oldRoute, prevUseNewDNSRoute)
 		if err != nil {
 			log.Errorf("Unable to remove route id: %s, network %s, from server, got: %v",
 				oldRoute.ID, oldRoute.Network, err)
 		}
 		delete(r.routes, routeID)
 	}
+
+	r.useNewDNSRoute = useNewDNSRoute
 
 	// If routing is to be disabled, do it after routes have been removed
 	// If routing is to be enabled, do it before adding new routes; addToServerNetwork needs routing to be enabled
@@ -85,13 +90,13 @@ func (r *Router) UpdateRoutes(routesMap map[route.ID]*route.Route, useNewDNSRout
 	return nil
 }
 
-func (r *Router) removeFromServerNetwork(route *route.Route) error {
+func (r *Router) removeFromServerNetwork(route *route.Route, useNewDNSRoute bool) error {
 	if r.ctx.Err() != nil {
 		log.Infof("Not removing from server network because context is done")
 		return r.ctx.Err()
 	}
 
-	routerPair := routeToRouterPair(route, false)
+	routerPair := routeToRouterPair(route, useNewDNSRoute)
 	if err := r.firewall.RemoveNatRule(routerPair); err != nil {
 		return fmt.Errorf("remove routing rules: %w", err)
 	}
@@ -124,7 +129,7 @@ func (r *Router) CleanUp() {
 	defer r.mux.Unlock()
 
 	for _, route := range r.routes {
-		routerPair := routeToRouterPair(route, false)
+		routerPair := routeToRouterPair(route, r.useNewDNSRoute)
 		if err := r.firewall.RemoveNatRule(routerPair); err != nil {
 			log.Errorf("Failed to remove cleanup route: %v", err)
 		}
@@ -146,8 +151,7 @@ func routeToRouterPair(route *route.Route, useNewDNSRoute bool) firewall.RouterP
 		if useNewDNSRoute {
 			destination.Set = firewall.NewDomainSet(route.Domains)
 		} else {
-			// TODO: add ipv6 additionally
-			destination = getDefaultPrefix(destination.Prefix)
+			destination = getDefaultPrefix(route.Network)
 		}
 	} else {
 		destination.Prefix = route.Network.Masked()
@@ -158,6 +162,7 @@ func routeToRouterPair(route *route.Route, useNewDNSRoute bool) firewall.RouterP
 		Source:      source,
 		Destination: destination,
 		Masquerade:  route.Masquerade,
+		Dynamic:     route.IsDynamic(),
 	}
 }
 

@@ -60,6 +60,7 @@ type ConvertOptions struct {
 type PeerStateDetailOutput struct {
 	FQDN                   string           `json:"fqdn" yaml:"fqdn"`
 	IP                     string           `json:"netbirdIp" yaml:"netbirdIp"`
+	IPv6                   string           `json:"netbirdIpv6,omitempty" yaml:"netbirdIpv6,omitempty"`
 	PubKey                 string           `json:"publicKey" yaml:"publicKey"`
 	Status                 string           `json:"status" yaml:"status"`
 	LastStatusUpdate       time.Time        `json:"lastStatusUpdate" yaml:"lastStatusUpdate"`
@@ -143,6 +144,7 @@ type OutputOverview struct {
 	SignalState             SignalStateOutput          `json:"signal" yaml:"signal"`
 	Relays                  RelayStateOutput           `json:"relays" yaml:"relays"`
 	IP                      string                     `json:"netbirdIp" yaml:"netbirdIp"`
+	IPv6                    string                     `json:"netbirdIpv6,omitempty" yaml:"netbirdIpv6,omitempty"`
 	PubKey                  string                     `json:"publicKey" yaml:"publicKey"`
 	KernelInterface         bool                       `json:"usesKernelInterface" yaml:"usesKernelInterface"`
 	FQDN                    string                     `json:"fqdn" yaml:"fqdn"`
@@ -186,6 +188,7 @@ func ConvertToStatusOutputOverview(pbFullStatus *proto.FullStatus, opts ConvertO
 		SignalState:             signalOverview,
 		Relays:                  relayOverview,
 		IP:                      pbFullStatus.GetLocalPeerState().GetIP(),
+		IPv6:                    pbFullStatus.GetLocalPeerState().GetIpv6(),
 		PubKey:                  pbFullStatus.GetLocalPeerState().GetPubKey(),
 		KernelInterface:         pbFullStatus.GetLocalPeerState().GetKernelInterface(),
 		FQDN:                    pbFullStatus.GetLocalPeerState().GetFqdn(),
@@ -321,6 +324,7 @@ func mapPeers(
 		timeLocal := pbPeerState.GetConnStatusUpdate().AsTime().Local()
 		peerState := PeerStateDetailOutput{
 			IP:               pbPeerState.GetIP(),
+			IPv6:             pbPeerState.GetIpv6(),
 			PubKey:           pbPeerState.GetPubKey(),
 			Status:           pbPeerState.GetConnStatus(),
 			LastStatusUpdate: timeLocal,
@@ -422,6 +426,11 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 	} else if o.IP == "" {
 		interfaceTypeString = "N/A"
 		interfaceIP = "N/A"
+	}
+
+	ipv6Line := ""
+	if o.IPv6 != "" {
+		ipv6Line = fmt.Sprintf("NetBird IPv6: %s\n", o.IPv6)
 	}
 
 	var relaysString string
@@ -556,6 +565,7 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 			"Nameservers: %s\n"+
 			"FQDN: %s\n"+
 			"NetBird IP: %s\n"+
+			"%s"+
 			"Interface type: %s\n"+
 			"Quantum resistance: %s\n"+
 			"Lazy connection: %s\n"+
@@ -573,6 +583,7 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		dnsServersString,
 		domain.Domain(o.FQDN).SafeString(),
 		interfaceIP,
+		ipv6Line,
 		interfaceTypeString,
 		rosenpassEnabledStatus,
 		lazyConnectionEnabledStatus,
@@ -623,6 +634,7 @@ func ToProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 	}
 
 	pbFullStatus.LocalPeerState.IP = fullStatus.LocalPeerState.IP
+	pbFullStatus.LocalPeerState.Ipv6 = fullStatus.LocalPeerState.IPv6
 	pbFullStatus.LocalPeerState.PubKey = fullStatus.LocalPeerState.PubKey
 	pbFullStatus.LocalPeerState.KernelInterface = fullStatus.LocalPeerState.KernelInterface
 	pbFullStatus.LocalPeerState.Fqdn = fullStatus.LocalPeerState.FQDN
@@ -635,6 +647,7 @@ func ToProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 	for _, peerState := range fullStatus.Peers {
 		pbPeerState := &proto.PeerState{
 			IP:                         peerState.IP,
+			Ipv6:                       peerState.IPv6,
 			PubKey:                     peerState.PubKey,
 			ConnStatus:                 peerState.ConnStatus.String(),
 			ConnStatusUpdate:           timestamppb.New(peerState.ConnStatusUpdate),
@@ -754,9 +767,15 @@ func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 			networks = strings.Join(peerState.Networks, ", ")
 		}
 
+		ipv6Line := ""
+		if peerState.IPv6 != "" {
+			ipv6Line = fmt.Sprintf("  NetBird IPv6: %s\n", peerState.IPv6)
+		}
+
 		peerString := fmt.Sprintf(
 			"\n %s:\n"+
 				"  NetBird IP: %s\n"+
+				"%s"+
 				"  Public key: %s\n"+
 				"  Status: %s\n"+
 				"  -- detail --\n"+
@@ -772,6 +791,7 @@ func parsePeers(peers PeersStateOutput, rosenpassEnabled, rosenpassPermissive bo
 				"  Latency: %s\n",
 			domain.Domain(peerState.FQDN).SafeString(),
 			peerState.IP,
+			ipv6Line,
 			peerState.PubKey,
 			peerState.Status,
 			peerState.ConnType,
@@ -823,6 +843,9 @@ func skipDetailByFilters(peerState *proto.PeerState, peerStatus string, statusFi
 
 	if len(ipsFilter) > 0 {
 		_, ok := ipsFilter[peerState.IP]
+		if !ok {
+			_, ok = ipsFilter[peerState.Ipv6]
+		}
 		if !ok {
 			ipEval = true
 		}
@@ -941,6 +964,7 @@ func anonymizePeerDetail(a *anonymize.Anonymizer, peer *PeerStateDetailOutput) {
 		peer.IceCandidateEndpoint.Remote = fmt.Sprintf("%s:%s", a.AnonymizeIPString(remoteIP), port)
 	}
 
+	peer.IPv6 = a.AnonymizeIPString(peer.IPv6)
 	peer.RelayAddress = a.AnonymizeURI(peer.RelayAddress)
 
 	for i, route := range peer.Networks {
@@ -965,6 +989,7 @@ func anonymizeOverview(a *anonymize.Anonymizer, overview *OutputOverview) {
 	overview.SignalState.Error = a.AnonymizeString(overview.SignalState.Error)
 
 	overview.IP = a.AnonymizeIPString(overview.IP)
+	overview.IPv6 = a.AnonymizeIPString(overview.IPv6)
 	for i, detail := range overview.Relays.Details {
 		detail.URI = a.AnonymizeURI(detail.URI)
 		detail.Error = a.AnonymizeString(detail.Error)

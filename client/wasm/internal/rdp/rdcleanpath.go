@@ -82,7 +82,7 @@ func NewRDCleanPathProxy(client interface {
 
 // CreateProxy creates a new proxy endpoint for the given destination
 func (p *RDCleanPathProxy) CreateProxy(hostname, port string) js.Value {
-	destination := fmt.Sprintf("%s:%s", hostname, port)
+	destination := net.JoinHostPort(hostname, port)
 
 	return js.Global().Get("Promise").New(js.FuncOf(func(_ js.Value, args []js.Value) any {
 		resolve := args[0]

@@ -8,7 +8,7 @@ There are many ways that you can contribute:
 - Sharing use cases in slack or Reddit
 - Bug fix or feature enhancement
 
-If you haven't already, join our slack workspace [here](https://join.slack.com/t/netbirdio/shared_invite/zt-vrahf41g-ik1v7fV8du6t0RwxSrJ96A), we would love to discuss topics that need community contribution and enhancements to existing features.
+If you haven't already, join our slack workspace [here](https://docs.netbird.io/slack-url), we would love to discuss topics that need community contribution and enhancements to existing features.
 
 ## Contents
 

@@ -522,10 +522,11 @@ func (s *Server) sendJob(ctx context.Context, peerKey wgtypes.Key, job *job.Even
 }
 
 func (s *Server) cancelPeerRoutines(ctx context.Context, accountID string, peer *nbpeer.Peer, streamStartTime time.Time) {
-	unlock := s.acquirePeerLockByUID(ctx, peer.Key)
+	uncanceledCTX := context.WithoutCancel(ctx)
+	unlock := s.acquirePeerLockByUID(uncanceledCTX, peer.Key)
 	defer unlock()
 
-	s.cancelPeerRoutinesWithoutLock(ctx, accountID, peer, streamStartTime)
+	s.cancelPeerRoutinesWithoutLock(uncanceledCTX, accountID, peer, streamStartTime)
 }
 
 func (s *Server) cancelPeerRoutinesWithoutLock(ctx context.Context, accountID string, peer *nbpeer.Peer, streamStartTime time.Time) {
@@ -680,9 +681,19 @@ func extractPeerMeta(ctx context.Context, meta *proto.PeerSystemMeta) nbpeer.Pee
 			BlockLANAccess:        meta.GetFlags().GetBlockLANAccess(),
 			BlockInbound:          meta.GetFlags().GetBlockInbound(),
 			LazyConnectionEnabled: meta.GetFlags().GetLazyConnectionEnabled(),
+			DisableIPv6:           meta.GetFlags().GetDisableIPv6(),
 		},
-		Files: files,
+		Files:        files,
+		Capabilities: capabilitiesToInt32(meta.GetCapabilities()),
 	}
+}
+
+func capabilitiesToInt32(caps []proto.PeerCapability) []int32 {
+	result := make([]int32, len(caps))
+	for i, c := range caps {
+		result[i] = int32(c)
+	}
+	return result
 }
 
 func (s *Server) parseRequest(ctx context.Context, req *proto.EncryptedMessage, parsed pb.Message) (wgtypes.Key, error) {

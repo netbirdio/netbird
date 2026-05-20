@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"os/user"
@@ -89,6 +90,7 @@ type ConfigInput struct {
 	DisableFirewall     *bool
 	BlockLANAccess      *bool
 	BlockInbound        *bool
+	DisableIPv6         *bool
 
 	DisableNotifications *bool
 
@@ -132,6 +134,7 @@ type Config struct {
 	DisableFirewall     bool
 	BlockLANAccess      bool
 	BlockInbound        bool
+	DisableIPv6         bool
 
 	DisableNotifications *bool
 
@@ -554,6 +557,12 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
+	if input.DisableIPv6 != nil && *input.DisableIPv6 != config.DisableIPv6 {
+		log.Infof("setting IPv6 overlay disabled=%v", *input.DisableIPv6)
+		config.DisableIPv6 = *input.DisableIPv6
+		updated = true
+	}
+
 	if input.DisableNotifications != nil && input.DisableNotifications != config.DisableNotifications {
 		if *input.DisableNotifications {
 			log.Infof("disabling notifications")
@@ -784,8 +793,7 @@ func UpdateOldManagementURL(ctx context.Context, config *Config, configPath stri
 		return config, nil
 	}
 
-	newURL, err := parseURL("Management URL", fmt.Sprintf("%s://%s:%d",
-		config.ManagementURL.Scheme, defaultManagementURL.Hostname(), 443))
+	newURL, err := parseURL("Management URL", fmt.Sprintf("%s://%s", config.ManagementURL.Scheme, net.JoinHostPort(defaultManagementURL.Hostname(), "443")))
 	if err != nil {
 		return nil, err
 	}

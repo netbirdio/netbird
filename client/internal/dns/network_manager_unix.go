@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
 	"strings"
 	"time"
 
@@ -32,6 +33,15 @@ const (
 	networkManagerDbusDeviceGetAppliedConnectionMethod                              = networkManagerDbusDeviceInterface + ".GetAppliedConnection"
 	networkManagerDbusDeviceReapplyMethod                                           = networkManagerDbusDeviceInterface + ".Reapply"
 	networkManagerDbusDeviceDeleteMethod                                            = networkManagerDbusDeviceInterface + ".Delete"
+	networkManagerDbusDeviceIp4ConfigProperty                                       = networkManagerDbusDeviceInterface + ".Ip4Config"
+	networkManagerDbusDeviceIp6ConfigProperty                                       = networkManagerDbusDeviceInterface + ".Ip6Config"
+	networkManagerDbusDeviceIfaceProperty                                           = networkManagerDbusDeviceInterface + ".Interface"
+	networkManagerDbusGetDevicesMethod                                              = networkManagerDest + ".GetDevices"
+	networkManagerDbusIp4ConfigInterface                                            = "org.freedesktop.NetworkManager.IP4Config"
+	networkManagerDbusIp6ConfigInterface                                            = "org.freedesktop.NetworkManager.IP6Config"
+	networkManagerDbusIp4ConfigNameserverDataProperty                               = networkManagerDbusIp4ConfigInterface + ".NameserverData"
+	networkManagerDbusIp4ConfigNameserversProperty                                  = networkManagerDbusIp4ConfigInterface + ".Nameservers"
+	networkManagerDbusIp6ConfigNameserversProperty                                  = networkManagerDbusIp6ConfigInterface + ".Nameservers"
 	networkManagerDbusDefaultBehaviorFlag              networkManagerConfigBehavior = 0
 	networkManagerDbusIPv4Key                                                       = "ipv4"
 	networkManagerDbusIPv6Key                                                       = "ipv6"
@@ -51,9 +61,10 @@ var supportedNetworkManagerVersionConstraints = []string{
 }
 
 type networkManagerDbusConfigurator struct {
-	dbusLinkObject dbus.ObjectPath
-	routingAll     bool
-	ifaceName      string
+	dbusLinkObject  dbus.ObjectPath
+	routingAll      bool
+	ifaceName       string
+	origNameservers []netip.Addr
 }
 
 // the types below are based on dbus specification, each field is mapped to a dbus type
@@ -92,10 +103,200 @@ func newNetworkManagerDbusConfigurator(wgInterface string) (*networkManagerDbusC
 
 	log.Debugf("got network manager dbus Link Object: %s from net interface %s", s, wgInterface)
 
-	return &networkManagerDbusConfigurator{
+	c := &networkManagerDbusConfigurator{
 		dbusLinkObject: dbus.ObjectPath(s),
 		ifaceName:      wgInterface,
-	}, nil
+	}
+
+	origNameservers, err := c.captureOriginalNameservers()
+	switch {
+	case err != nil:
+		log.Warnf("capture original nameservers from NetworkManager: %v", err)
+	case len(origNameservers) == 0:
+		log.Warnf("no original nameservers captured from non-WG NetworkManager devices; DNS fallback will be empty")
+	default:
+		log.Debugf("captured %d original nameservers from non-WG NetworkManager devices: %v", len(origNameservers), origNameservers)
+	}
+	c.origNameservers = origNameservers
+	return c, nil
+}
+
+// captureOriginalNameservers reads DNS servers from every NM device's
+// IP4Config / IP6Config except our WG device.
+func (n *networkManagerDbusConfigurator) captureOriginalNameservers() ([]netip.Addr, error) {
+	devices, err := networkManagerListDevices()
+	if err != nil {
+		return nil, fmt.Errorf("list devices: %w", err)
+	}
+
+	seen := make(map[netip.Addr]struct{})
+	var out []netip.Addr
+	for _, dev := range devices {
+		if dev == n.dbusLinkObject {
+			continue
+		}
+		ifaceName := readNetworkManagerDeviceInterface(dev)
+		for _, addr := range readNetworkManagerDeviceDNS(dev) {
+			addr = addr.Unmap()
+			if !addr.IsValid() || addr.IsUnspecified() {
+				continue
+			}
+			// IP6Config.Nameservers is a byte slice without zone info;
+			// reattach the device's interface name so a captured fe80::…
+			// stays routable.
+			if addr.IsLinkLocalUnicast() && ifaceName != "" {
+				addr = addr.WithZone(ifaceName)
+			}
+			if _, dup := seen[addr]; dup {
+				continue
+			}
+			seen[addr] = struct{}{}
+			out = append(out, addr)
+		}
+	}
+	return out, nil
+}
+
+func readNetworkManagerDeviceInterface(devicePath dbus.ObjectPath) string {
+	obj, closeConn, err := getDbusObject(networkManagerDest, devicePath)
+	if err != nil {
+		return ""
+	}
+	defer closeConn()
+	v, err := obj.GetProperty(networkManagerDbusDeviceIfaceProperty)
+	if err != nil {
+		return ""
+	}
+	s, _ := v.Value().(string)
+	return s
+}
+
+func networkManagerListDevices() ([]dbus.ObjectPath, error) {
+	obj, closeConn, err := getDbusObject(networkManagerDest, networkManagerDbusObjectNode)
+	if err != nil {
+		return nil, fmt.Errorf("dbus NetworkManager: %w", err)
+	}
+	defer closeConn()
+	var devs []dbus.ObjectPath
+	if err := obj.Call(networkManagerDbusGetDevicesMethod, dbusDefaultFlag).Store(&devs); err != nil {
+		return nil, err
+	}
+	return devs, nil
+}
+
+func readNetworkManagerDeviceDNS(devicePath dbus.ObjectPath) []netip.Addr {
+	obj, closeConn, err := getDbusObject(networkManagerDest, devicePath)
+	if err != nil {
+		return nil
+	}
+	defer closeConn()
+
+	var out []netip.Addr
+	if path := readNetworkManagerConfigPath(obj, networkManagerDbusDeviceIp4ConfigProperty); path != "" {
+		out = append(out, readIPv4ConfigDNS(path)...)
+	}
+	if path := readNetworkManagerConfigPath(obj, networkManagerDbusDeviceIp6ConfigProperty); path != "" {
+		out = append(out, readIPv6ConfigDNS(path)...)
+	}
+	return out
+}
+
+func readNetworkManagerConfigPath(obj dbus.BusObject, property string) dbus.ObjectPath {
+	v, err := obj.GetProperty(property)
+	if err != nil {
+		return ""
+	}
+	path, ok := v.Value().(dbus.ObjectPath)
+	if !ok || path == "/" {
+		return ""
+	}
+	return path
+}
+
+func readIPv4ConfigDNS(path dbus.ObjectPath) []netip.Addr {
+	obj, closeConn, err := getDbusObject(networkManagerDest, path)
+	if err != nil {
+		return nil
+	}
+	defer closeConn()
+
+	// NameserverData (NM 1.13+) carries strings; older NMs only expose the
+	// legacy uint32 Nameservers property.
+	if out := readIPv4NameserverData(obj); len(out) > 0 {
+		return out
+	}
+	return readIPv4LegacyNameservers(obj)
+}
+
+func readIPv4NameserverData(obj dbus.BusObject) []netip.Addr {
+	v, err := obj.GetProperty(networkManagerDbusIp4ConfigNameserverDataProperty)
+	if err != nil {
+		return nil
+	}
+	entries, ok := v.Value().([]map[string]dbus.Variant)
+	if !ok {
+		return nil
+	}
+	var out []netip.Addr
+	for _, entry := range entries {
+		addrVar, ok := entry["address"]
+		if !ok {
+			continue
+		}
+		s, ok := addrVar.Value().(string)
+		if !ok {
+			continue
+		}
+		if a, err := netip.ParseAddr(s); err == nil {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+func readIPv4LegacyNameservers(obj dbus.BusObject) []netip.Addr {
+	v, err := obj.GetProperty(networkManagerDbusIp4ConfigNameserversProperty)
+	if err != nil {
+		return nil
+	}
+	raw, ok := v.Value().([]uint32)
+	if !ok {
+		return nil
+	}
+	out := make([]netip.Addr, 0, len(raw))
+	for _, n := range raw {
+		var b [4]byte
+		binary.LittleEndian.PutUint32(b[:], n)
+		out = append(out, netip.AddrFrom4(b))
+	}
+	return out
+}
+
+func readIPv6ConfigDNS(path dbus.ObjectPath) []netip.Addr {
+	obj, closeConn, err := getDbusObject(networkManagerDest, path)
+	if err != nil {
+		return nil
+	}
+	defer closeConn()
+	v, err := obj.GetProperty(networkManagerDbusIp6ConfigNameserversProperty)
+	if err != nil {
+		return nil
+	}
+	raw, ok := v.Value().([][]byte)
+	if !ok {
+		return nil
+	}
+	out := make([]netip.Addr, 0, len(raw))
+	for _, b := range raw {
+		if a, ok := netip.AddrFromSlice(b); ok {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+func (n *networkManagerDbusConfigurator) getOriginalNameservers() []netip.Addr {
+	return slices.Clone(n.origNameservers)
 }
 
 func (n *networkManagerDbusConfigurator) supportCustomPort() bool {
@@ -110,8 +311,25 @@ func (n *networkManagerDbusConfigurator) applyDNSConfig(config HostDNSConfig, st
 
 	connSettings.cleanDeprecatedSettings()
 
-	convDNSIP := binary.LittleEndian.Uint32(config.ServerIP.AsSlice())
-	connSettings[networkManagerDbusIPv4Key][networkManagerDbusDNSKey] = dbus.MakeVariant([]uint32{convDNSIP})
+	ipKey := networkManagerDbusIPv4Key
+	staleKey := networkManagerDbusIPv6Key
+	if config.ServerIP.Is6() {
+		ipKey = networkManagerDbusIPv6Key
+		staleKey = networkManagerDbusIPv4Key
+		raw := config.ServerIP.As16()
+		connSettings[ipKey][networkManagerDbusDNSKey] = dbus.MakeVariant([][]byte{raw[:]})
+	} else {
+		convDNSIP := binary.LittleEndian.Uint32(config.ServerIP.AsSlice())
+		connSettings[ipKey][networkManagerDbusDNSKey] = dbus.MakeVariant([]uint32{convDNSIP})
+	}
+
+	// Clear stale DNS settings from the opposite address family to avoid
+	// leftover entries if the server IP family changed.
+	if staleSettings, ok := connSettings[staleKey]; ok {
+		delete(staleSettings, networkManagerDbusDNSKey)
+		delete(staleSettings, networkManagerDbusDNSPriorityKey)
+		delete(staleSettings, networkManagerDbusDNSSearchKey)
+	}
 	var (
 		searchDomains []string
 		matchDomains  []string
@@ -146,8 +364,8 @@ func (n *networkManagerDbusConfigurator) applyDNSConfig(config HostDNSConfig, st
 		n.routingAll = false
 	}
 
-	connSettings[networkManagerDbusIPv4Key][networkManagerDbusDNSPriorityKey] = dbus.MakeVariant(priority)
-	connSettings[networkManagerDbusIPv4Key][networkManagerDbusDNSSearchKey] = dbus.MakeVariant(newDomainList)
+	connSettings[ipKey][networkManagerDbusDNSPriorityKey] = dbus.MakeVariant(priority)
+	connSettings[ipKey][networkManagerDbusDNSSearchKey] = dbus.MakeVariant(newDomainList)
 
 	state := &ShutdownState{
 		ManagerType: networkManager,

@@ -53,6 +53,7 @@ type Manager interface {
 	GetRouteSelector() *routeselector.RouteSelector
 	GetClientRoutes() route.HAMap
 	GetSelectedClientRoutes() route.HAMap
+	GetActiveClientRoutes() route.HAMap
 	GetClientRoutesWithNetID() map[route.NetID][]*route.Route
 	SetRouteChangeListener(listener listener.NetworkChangeListener)
 	InitialRouteRange() []string
@@ -159,16 +160,24 @@ func (m *DefaultManager) setupAndroidRoutes(config ManagerConfig) {
 	if config.DNSFeatureFlag {
 		m.fakeIPManager = fakeip.NewManager()
 
-		id := uuid.NewString()
+		v4ID := uuid.NewString()
 		fakeIPRoute := &route.Route{
-			ID:          route.ID(id),
+			ID:          route.ID(v4ID),
 			Network:     m.fakeIPManager.GetFakeIPBlock(),
-			NetID:       route.NetID(id),
+			NetID:       route.NetID(v4ID),
 			Peer:        m.pubKey,
 			NetworkType: route.IPv4Network,
 		}
-		cr = append(cr, fakeIPRoute)
-		m.notifier.SetFakeIPRoute(fakeIPRoute)
+		v6ID := uuid.NewString()
+		fakeIPv6Route := &route.Route{
+			ID:          route.ID(v6ID),
+			Network:     m.fakeIPManager.GetFakeIPv6Block(),
+			NetID:       route.NetID(v6ID),
+			Peer:        m.pubKey,
+			NetworkType: route.IPv6Network,
+		}
+		cr = append(cr, fakeIPRoute, fakeIPv6Route)
+		m.notifier.SetFakeIPRoutes([]*route.Route{fakeIPRoute, fakeIPv6Route})
 	}
 
 	m.notifier.SetInitialClientRoutes(cr, routesForComparison)
@@ -477,6 +486,39 @@ func (m *DefaultManager) GetSelectedClientRoutes() route.HAMap {
 	return m.routeSelector.FilterSelectedExitNodes(maps.Clone(m.clientRoutes))
 }
 
+// GetActiveClientRoutes returns the subset of selected client routes
+// that are currently reachable: the route's peer is Connected and is
+// the one actively carrying the route (not just an HA sibling).
+func (m *DefaultManager) GetActiveClientRoutes() route.HAMap {
+	m.mux.Lock()
+	selected := m.routeSelector.FilterSelectedExitNodes(maps.Clone(m.clientRoutes))
+	recorder := m.statusRecorder
+	m.mux.Unlock()
+
+	if recorder == nil {
+		return selected
+	}
+
+	out := make(route.HAMap, len(selected))
+	for id, routes := range selected {
+		for _, r := range routes {
+			st, err := recorder.GetPeer(r.Peer)
+			if err != nil {
+				continue
+			}
+			if st.ConnStatus != peer.StatusConnected {
+				continue
+			}
+			if _, hasRoute := st.GetRoutes()[r.Network.String()]; !hasRoute {
+				continue
+			}
+			out[id] = routes
+			break
+		}
+	}
+	return out
+}
+
 // GetClientRoutesWithNetID returns the current routes from the route map, but the keys consist of the network ID only
 func (m *DefaultManager) GetClientRoutesWithNetID() map[route.NetID][]*route.Route {
 	m.mux.Lock()
@@ -696,7 +738,10 @@ func (m *DefaultManager) collectExitNodeInfo(clientRoutes route.HAMap) exitNodeI
 }
 
 func (m *DefaultManager) isExitNodeRoute(routes []*route.Route) bool {
-	return len(routes) > 0 && routes[0].Network.String() == vars.ExitNodeCIDR
+	if len(routes) == 0 {
+		return false
+	}
+	return route.IsV4DefaultRoute(routes[0].Network) || route.IsV6DefaultRoute(routes[0].Network)
 }
 
 func (m *DefaultManager) categorizeUserSelection(netID route.NetID, info *exitNodeInfo) {

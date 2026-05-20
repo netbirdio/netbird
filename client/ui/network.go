@@ -192,10 +192,22 @@ func getOverlappingNetworks(routes []*proto.Network) []*proto.Network {
 	return filteredRoutes
 }
 
+func isDefaultRoute(routeRange string) bool {
+	// routeRange is the merged display string from the daemon, e.g. "0.0.0.0/0",
+	// "::/0", or "0.0.0.0/0, ::/0" when a v4 exit node has a paired v6 entry.
+	for _, part := range strings.Split(routeRange, ",") {
+		switch strings.TrimSpace(part) {
+		case "0.0.0.0/0", "::/0":
+			return true
+		}
+	}
+	return false
+}
+
 func getExitNodeNetworks(routes []*proto.Network) []*proto.Network {
 	var filteredRoutes []*proto.Network
 	for _, route := range routes {
-		if route.Range == "0.0.0.0/0" {
+		if isDefaultRoute(route.Range) {
 			filteredRoutes = append(filteredRoutes, route)
 		}
 	}
@@ -499,7 +511,7 @@ func (s *serviceClient) getExitNodes(conn proto.DaemonServiceClient) ([]*proto.N
 
 	var exitNodes []*proto.Network
 	for _, network := range resp.Routes {
-		if network.Range == "0.0.0.0/0" {
+		if isDefaultRoute(network.Range) {
 			exitNodes = append(exitNodes, network)
 		}
 	}
