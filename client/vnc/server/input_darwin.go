@@ -502,7 +502,7 @@ func (m *MacInputInjector) postScrollWheel(src uintptr, buttonMask uint8) {
 // emits one press+release per ~10 px, so a real gesture arrives as many
 // small events; 20 px per event keeps the resulting macOS scroll fluid
 // without overshooting on a single notch.
-const scrollPixelsPerWheelTick int32 = 20
+const scrollPixelsPerWheelTick int32 = 22
 
 func (m *MacInputInjector) postMouse(src uintptr, eventType int32, x, y float64, button int32) {
 	if cgEventCreateMouseEvent == nil {

@@ -691,11 +691,13 @@ func (s *Server) ensureJWTValidator() error {
 		return fmt.Errorf("no JWT config")
 	}
 
+	// Enable IdP key refresh so JWKS rotations don't latch the validator
+	// off until daemon restart.
 	s.jwtValidator = nbjwt.NewValidator(
 		s.jwtConfig.Issuer,
 		s.jwtConfig.Audiences,
 		s.jwtConfig.KeysLocation,
-		false,
+		true,
 	)
 
 	var opts []nbjwt.ClaimsExtractorOption
