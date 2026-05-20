@@ -109,7 +109,7 @@ func TestUpdateZeroBeforeAnythingIsNoop(t *testing.T) {
 	w := newWatcher(50*time.Millisecond, r)
 	defer w.Close()
 
-	w.Update(time.Time{})
+	_ = w.Update(time.Time{})
 
 	if got := r.snapshot(); len(got) != 0 {
 		t.Fatalf("expected no events on initial zero, got %+v", got)
@@ -122,7 +122,7 @@ func TestUpdateNonZeroFiresStateChange(t *testing.T) {
 	defer w.Close()
 
 	d := time.Now().Add(time.Hour)
-	w.Update(d)
+	_ = w.Update(d)
 
 	events := waitForEvents(t, r, 1)
 	if events[0].kind != stateChange {
@@ -139,9 +139,9 @@ func TestSameDeadlineIsNoop(t *testing.T) {
 	defer w.Close()
 
 	d := time.Now().Add(time.Hour)
-	w.Update(d)
-	w.Update(d)
-	w.Update(d)
+	_ = w.Update(d)
+	_ = w.Update(d)
+	_ = w.Update(d)
 
 	events := waitForEvents(t, r, 1)
 	if len(events) != 1 {
@@ -157,7 +157,7 @@ func TestWarningFiresOnceWithinLeadWindow(t *testing.T) {
 
 	// Deadline 80ms out — warning should fire after ~30ms.
 	d := time.Now().Add(80 * time.Millisecond)
-	w.Update(d)
+	_ = w.Update(d)
 
 	events := waitForEvents(t, r, 2)
 	if events[0].kind != stateChange {
@@ -174,7 +174,7 @@ func TestWarningFiresImmediatelyWhenAlreadyInsideWindow(t *testing.T) {
 	defer w.Close()
 
 	d := time.Now().Add(10 * time.Millisecond)
-	w.Update(d)
+	_ = w.Update(d)
 
 	events := waitForEvents(t, r, 2)
 	if !events[1].isWarning() {
@@ -189,12 +189,12 @@ func TestNewDeadlineCancelsPriorTimer(t *testing.T) {
 	defer w.Close()
 
 	first := time.Now().Add(80 * time.Millisecond) // would fire warning ~30ms in
-	w.Update(first)
+	_ = w.Update(first)
 
 	// Replace with a far-future deadline before the warning fires.
 	time.Sleep(5 * time.Millisecond)
 	second := time.Now().Add(time.Hour)
-	w.Update(second)
+	_ = w.Update(second)
 
 	// Wait past when first's warning would have fired.
 	time.Sleep(80 * time.Millisecond)
@@ -211,14 +211,14 @@ func TestRefreshAfterFireArmsNewWarning(t *testing.T) {
 	defer w.Close()
 
 	first := time.Now().Add(50 * time.Millisecond)
-	w.Update(first)
+	_ = w.Update(first)
 
 	// Wait for stateChange + warning of the first cycle.
 	waitForEvents(t, r, 2)
 
 	// Simulate a successful extend: brand new deadline.
 	second := time.Now().Add(60 * time.Millisecond)
-	w.Update(second)
+	_ = w.Update(second)
 
 	// 4 events total: stateChange, warning (first), stateChange, warning (second).
 	events := waitForEvents(t, r, 4)
@@ -236,10 +236,10 @@ func TestUpdateZeroAfterNonZeroClearsState(t *testing.T) {
 	defer w.Close()
 
 	d := time.Now().Add(2 * time.Hour)
-	w.Update(d)
+	_ = w.Update(d)
 	waitForEvents(t, r, 1)
 
-	w.Update(time.Time{})
+	_ = w.Update(time.Time{})
 
 	events := waitForEvents(t, r, 2)
 	if events[1].kind != stateChange {
@@ -333,7 +333,7 @@ func TestCloseSilencesUpdates(t *testing.T) {
 	w := newWatcher(50*time.Millisecond, r)
 	w.Close()
 
-	w.Update(time.Now().Add(time.Hour))
+	_ = w.Update(time.Now().Add(time.Hour))
 
 	time.Sleep(20 * time.Millisecond)
 	if got := r.snapshot(); len(got) != 0 {
@@ -348,7 +348,7 @@ func TestFinalWarningFiresAfterRegularWarning(t *testing.T) {
 	defer w.Close()
 
 	d := time.Now().Add(100 * time.Millisecond)
-	w.Update(d)
+	_ = w.Update(d)
 
 	// Expect stateChange + warning + final-warning.
 	events := waitForEvents(t, r, 3)
@@ -384,7 +384,7 @@ func TestDismissSuppressesFinalWarning(t *testing.T) {
 	defer w.Close()
 
 	d := time.Now().Add(100 * time.Millisecond)
-	w.Update(d)
+	_ = w.Update(d)
 
 	// Wait for the warning publish so we know we're inside the warning
 	// window, then dismiss before the final timer would fire.
@@ -415,7 +415,7 @@ func TestDismissResetByNewDeadline(t *testing.T) {
 	defer w.Close()
 
 	first := time.Now().Add(100 * time.Millisecond)
-	w.Update(first)
+	_ = w.Update(first)
 
 	// Dismiss against the first deadline.
 	w.Dismiss()
@@ -423,7 +423,7 @@ func TestDismissResetByNewDeadline(t *testing.T) {
 	// Replace with a fresh deadline before the first's timers complete.
 	time.Sleep(10 * time.Millisecond)
 	second := time.Now().Add(100 * time.Millisecond)
-	w.Update(second)
+	_ = w.Update(second)
 
 	// The second cycle must publish a final-warning (the dismiss state
 	// did not carry over).
@@ -448,7 +448,7 @@ func TestDismissBeforeUpdateIsNoop(t *testing.T) {
 	w.Dismiss()
 
 	d := time.Now().Add(100 * time.Millisecond)
-	w.Update(d)
+	_ = w.Update(d)
 
 	// Final warning should still publish — Dismiss only acts on the current
 	// deadline, and there was none at the time of the call.

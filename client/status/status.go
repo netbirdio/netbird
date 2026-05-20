@@ -1048,16 +1048,16 @@ func HumaniseDuration(d time.Duration) string {
 	}
 
 	const (
-		day  = 24 * time.Hour
-		hour = time.Hour
-		min  = time.Minute
+		day    = 24 * time.Hour
+		hour   = time.Hour
+		minute = time.Minute
 	)
 
-	days := d / day
-	d -= days * day
-	hours := d / hour
-	d -= hours * hour
-	minutes := d / min
+	days := int64(d / day)
+	d -= time.Duration(days) * day
+	hours := int64(d / hour)
+	d -= time.Duration(hours) * hour
+	minutes := int64(d / minute)
 
 	switch {
 	case days > 0:
