@@ -125,7 +125,9 @@ func (f *udpForwarder) cleanup() {
 				delete(f.conns, idle.id)
 				f.Unlock()
 
-				f.logger.Trace1("forwarder: cleaned up idle UDP connection %v", epID(idle.id))
+				if f.logger.Enabled(nblog.LevelTrace) {
+					f.logger.Trace1("forwarder: cleaned up idle UDP connection %v", epID(idle.id))
+				}
 			}
 		}
 	}
@@ -144,7 +146,9 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) bool {
 	_, exists := f.udpForwarder.conns[id]
 	f.udpForwarder.RUnlock()
 	if exists {
-		f.logger.Trace1("forwarder: existing UDP connection for %v", epID(id))
+		if f.logger.Enabled(nblog.LevelTrace) {
+			f.logger.Trace1("forwarder: existing UDP connection for %v", epID(id))
+		}
 		return true
 	}
 
@@ -206,7 +210,9 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) bool {
 	f.udpForwarder.Unlock()
 
 	success = true
-	f.logger.Trace1("forwarder: established UDP connection %v", epID(id))
+	if f.logger.Enabled(nblog.LevelTrace) {
+		f.logger.Trace1("forwarder: established UDP connection %v", epID(id))
+	}
 
 	go f.proxyUDP(connCtx, pConn, id, ep)
 	return true
@@ -265,7 +271,9 @@ func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack
 		txPackets = udpStats.PacketsReceived.Value()
 	}
 
-	f.logger.Trace5("forwarder: Removed UDP connection %s [in: %d Pkts/%d B, out: %d Pkts/%d B]", epID(id), rxPackets, rxBytes, txPackets, txBytes)
+	if f.logger.Enabled(nblog.LevelTrace) {
+		f.logger.Trace5("forwarder: Removed UDP connection %s [in: %d Pkts/%d B, out: %d Pkts/%d B]", epID(id), rxPackets, rxBytes, txPackets, txBytes)
+	}
 
 	f.udpForwarder.Lock()
 	delete(f.udpForwarder.conns, id)

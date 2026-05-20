@@ -1,0 +1,44 @@
+{{ template "header.html" . }}
+
+<div class="nb-card">
+    <h1 class="nb-heading">Two-factor authentication</h1>
+    {{ if not (eq .QRCode "") }}
+    <p class="nb-subheading">Scan the QR code below using your authenticator app, then enter the code.</p>
+    <div style="text-align: center; margin: 1em 0;">
+        <img src="data:image/png;base64,{{ .QRCode }}" alt="QR code" width="200" height="200"/>
+    </div>
+    {{ else }}
+    <p class="nb-subheading">Enter the code from your authenticator app.</p>
+    {{ end }}
+
+    <form method="post" action="{{ .PostURL }}">
+        {{ if .Invalid }}
+        <div class="nb-error">
+            Invalid code. Please try again.
+        </div>
+        {{ end }}
+
+        <div class="nb-form-group">
+            <label class="nb-label" for="totp">One-time code</label>
+            <input
+                type="text"
+                id="totp"
+                name="totp"
+                class="nb-input"
+                inputmode="numeric"
+                pattern="[0-9]*"
+                maxlength="6"
+                autocomplete="one-time-code"
+                placeholder="000000"
+                autofocus
+                required
+            >
+        </div>
+
+        <button type="submit" id="submit-login" class="nb-btn">
+            Verify
+        </button>
+    </form>
+</div>
+
+{{ template "footer.html" . }}

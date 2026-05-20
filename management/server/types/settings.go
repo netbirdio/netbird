@@ -80,6 +80,10 @@ type Settings struct {
 	// LocalAuthDisabled indicates if local (email/password) authentication is disabled.
 	// This is a runtime-only field, not stored in the database.
 	LocalAuthDisabled bool `gorm:"-"`
+
+	// LocalMfaEnabled indicates if TOTP MFA is enabled for local users.
+	// Only applicable when the embedded IDP is enabled.
+	LocalMfaEnabled bool
 }
 
 // Copy copies the Settings struct
@@ -108,6 +112,7 @@ func (s *Settings) Copy() *Settings {
 		IPv6EnabledGroups:               slices.Clone(s.IPv6EnabledGroups),
 		EmbeddedIdpEnabled:              s.EmbeddedIdpEnabled,
 		LocalAuthDisabled:               s.LocalAuthDisabled,
+		LocalMfaEnabled:                 s.LocalMfaEnabled,
 	}
 	if s.Extra != nil {
 		settings.Extra = s.Extra.Copy()

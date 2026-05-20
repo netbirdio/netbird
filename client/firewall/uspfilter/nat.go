@@ -11,6 +11,7 @@ import (
 	"github.com/google/gopacket/layers"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
+	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 )
 
 var (
@@ -262,11 +263,15 @@ func (m *Manager) translateOutboundDNAT(packetData []byte, d *decoder) bool {
 	}
 
 	if err := m.rewritePacketIP(packetData, d, translatedIP, false); err != nil {
-		m.logger.Error1("failed to rewrite packet destination: %v", err)
+		if m.logger.Enabled(nblog.LevelError) {
+			m.logger.Error1("failed to rewrite packet destination: %v", err)
+		}
 		return false
 	}
 
-	m.logger.Trace2("DNAT: %s -> %s", dstIP, translatedIP)
+	if m.logger.Enabled(nblog.LevelTrace) {
+		m.logger.Trace2("DNAT: %s -> %s", dstIP, translatedIP)
+	}
 	return true
 }
 
@@ -283,11 +288,15 @@ func (m *Manager) translateInboundReverse(packetData []byte, d *decoder) bool {
 	}
 
 	if err := m.rewritePacketIP(packetData, d, originalIP, true); err != nil {
-		m.logger.Error1("failed to rewrite packet source: %v", err)
+		if m.logger.Enabled(nblog.LevelError) {
+			m.logger.Error1("failed to rewrite packet source: %v", err)
+		}
 		return false
 	}
 
-	m.logger.Trace2("Reverse DNAT: %s -> %s", srcIP, originalIP)
+	if m.logger.Enabled(nblog.LevelTrace) {
+		m.logger.Trace2("Reverse DNAT: %s -> %s", srcIP, originalIP)
+	}
 	return true
 }
 
@@ -612,7 +621,9 @@ func (m *Manager) applyPortRule(packetData []byte, d *decoder, srcIP, dstIP neti
 		}
 
 		if err := rewriteFn(packetData, d, rule.targetPort, destinationPortOffset); err != nil {
-			m.logger.Error1("failed to rewrite port: %v", err)
+			if m.logger.Enabled(nblog.LevelError) {
+				m.logger.Error1("failed to rewrite port: %v", err)
+			}
 			return false
 		}
 		d.dnatOrigPort = rule.origPort

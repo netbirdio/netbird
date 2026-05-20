@@ -598,28 +598,21 @@ func (a *Account) GetPeerGroups(peerID string) LookupMap {
 	return groupList
 }
 
-// PeerIPv6Allowed reports whether the given peer is in any of the account's IPv6 enabled groups.
+// PeerIPv6Allowed reports whether the given peer participates in the IPv6 overlay.
 // Returns false if IPv6 is disabled or no groups are configured.
 func (a *Account) PeerIPv6Allowed(peerID string) bool {
-	if len(a.Settings.IPv6EnabledGroups) == 0 {
-		return false
-	}
-
-	for _, groupID := range a.Settings.IPv6EnabledGroups {
-		group, ok := a.Groups[groupID]
-		if !ok {
-			continue
-		}
-		if slices.Contains(group.Peers, peerID) {
-			return true
-		}
-	}
-	return false
+	_, ok := a.peerIPv6AllowedSet()[peerID]
+	return ok
 }
 
-// peerIPv6AllowedSet returns a set of peer IDs that belong to any IPv6-enabled group.
+// peerIPv6AllowedSet returns the set of peer IDs that participate in the IPv6 overlay:
+// members of any IPv6-enabled group, plus every embedded proxy peer (which sit outside
+// regular group membership but must reach v6-enabled peers).
 func (a *Account) peerIPv6AllowedSet() map[string]struct{} {
 	result := make(map[string]struct{})
+	if len(a.Settings.IPv6EnabledGroups) == 0 {
+		return result
+	}
 	for _, groupID := range a.Settings.IPv6EnabledGroups {
 		group, ok := a.Groups[groupID]
 		if !ok {
@@ -627,6 +620,11 @@ func (a *Account) peerIPv6AllowedSet() map[string]struct{} {
 		}
 		for _, peerID := range group.Peers {
 			result[peerID] = struct{}{}
+		}
+	}
+	for id, p := range a.Peers {
+		if p != nil && p.ProxyMeta.Embedded {
+			result[id] = struct{}{}
 		}
 	}
 	return result
