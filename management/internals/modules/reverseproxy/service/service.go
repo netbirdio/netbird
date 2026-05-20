@@ -1,7 +1,10 @@
 package service
 
 import (
+	"bytes"
 	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"math/big"
@@ -100,11 +103,17 @@ type HeaderAuthConfig struct {
 	Value   string `json:"value"`
 }
 
+type MTLSAuthConfig struct {
+	Enabled   bool   `json:"enabled"`
+	CACertPEM string `json:"ca_cert_pem"`
+}
+
 type AuthConfig struct {
 	PasswordAuth *PasswordAuthConfig `json:"password_auth,omitempty" gorm:"serializer:json"`
 	PinAuth      *PINAuthConfig      `json:"pin_auth,omitempty" gorm:"serializer:json"`
 	BearerAuth   *BearerAuthConfig   `json:"bearer_auth,omitempty" gorm:"serializer:json"`
 	HeaderAuths  []*HeaderAuthConfig `json:"header_auths,omitempty" gorm:"serializer:json"`
+	MTLSAuth     *MTLSAuthConfig     `json:"mtls_auth,omitempty" gorm:"serializer:json"`
 }
 
 // AccessRestrictions controls who can connect to the service based on IP or geography.
@@ -168,6 +177,9 @@ func (a *AuthConfig) ClearSecrets() {
 		if h != nil {
 			h.Value = ""
 		}
+	}
+	if a.MTLSAuth != nil {
+		a.MTLSAuth.CACertPEM = ""
 	}
 }
 
@@ -247,6 +259,12 @@ func (s *Service) ToAPIResponse() *api.Service {
 			})
 		}
 		authConfig.HeaderAuths = &apiHeaders
+	}
+
+	if s.Auth.MTLSAuth != nil {
+		authConfig.MtlsAuth = &api.MTLSAuthConfig{
+			Enabled: s.Auth.MTLSAuth.Enabled,
+		}
 	}
 
 	// Convert internal targets to API targets
@@ -334,6 +352,12 @@ func (s *Service) ToProtoMapping(operation Operation, authToken string, oidcConf
 				Header:      h.Header,
 				HashedValue: h.Value,
 			})
+		}
+	}
+
+	if s.Auth.MTLSAuth != nil && s.Auth.MTLSAuth.Enabled {
+		auth.MtlsAuth = &proto.MTLSAuth{
+			CaCertPem: s.Auth.MTLSAuth.CACertPEM,
 		}
 	}
 
@@ -648,6 +672,12 @@ func authFromAPI(reqAuth *api.ServiceAuthConfig) AuthConfig {
 			})
 		}
 	}
+	if reqAuth.MtlsAuth != nil {
+		auth.MTLSAuth = &MTLSAuthConfig{
+			Enabled:   reqAuth.MtlsAuth.Enabled,
+			CACertPEM: reqAuth.MtlsAuth.CaCertPem,
+		}
+	}
 	return auth
 }
 
@@ -735,6 +765,9 @@ func (s *Service) Validate() error {
 	}
 
 	if err := validateHeaderAuths(s.Auth.HeaderAuths); err != nil {
+		return err
+	}
+	if err := validateMTLSAuth(s.Auth.MTLSAuth); err != nil {
 		return err
 	}
 	if err := validateAccessRestrictions(&s.Restrictions); err != nil {
@@ -1016,6 +1049,68 @@ func validateHeaderAuths(headers []*HeaderAuthConfig) error {
 	return nil
 }
 
+func validateMTLSAuth(config *MTLSAuthConfig) error {
+	if config == nil || !config.Enabled {
+		return nil
+	}
+	if strings.TrimSpace(config.CACertPEM) == "" {
+		return errors.New("mtls_auth: ca_cert_pem is required when enabled")
+	}
+	if _, err := parseClientCAPEM(config.CACertPEM); err != nil {
+		return fmt.Errorf("mtls_auth: %w", err)
+	}
+	return nil
+}
+
+func parseClientCAPEM(caCertPEM string) (*x509.CertPool, error) {
+	pool := x509.NewCertPool()
+	remaining := []byte(caCertPEM)
+	foundCertificate := false
+
+	for len(remaining) > 0 {
+		remaining = trimPEMCommentsAndWhitespace(remaining)
+		if len(remaining) == 0 {
+			break
+		}
+
+		var block *pem.Block
+		block, remaining = pem.Decode(remaining)
+		if block == nil {
+			return nil, errors.New("ca_cert_pem contains invalid PEM data")
+		}
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("parse certificate: %w", err)
+		}
+		pool.AddCert(cert)
+		foundCertificate = true
+	}
+
+	if !foundCertificate {
+		return nil, errors.New("ca_cert_pem must contain at least one certificate")
+	}
+
+	return pool, nil
+}
+
+func trimPEMCommentsAndWhitespace(data []byte) []byte {
+	for len(data) > 0 {
+		data = bytes.TrimLeft(data, " \t\r\n")
+		if len(data) == 0 || data[0] != '#' {
+			return data
+		}
+		if i := bytes.IndexByte(data, '\n'); i >= 0 {
+			data = data[i+1:]
+			continue
+		}
+		return nil
+	}
+	return data
+}
+
 const (
 	maxCIDREntries    = 200
 	maxCountryEntries = 50
@@ -1118,7 +1213,8 @@ func (s *Service) EventMeta() map[string]any {
 func (s *Service) isAuthEnabled() bool {
 	if (s.Auth.PasswordAuth != nil && s.Auth.PasswordAuth.Enabled) ||
 		(s.Auth.PinAuth != nil && s.Auth.PinAuth.Enabled) ||
-		(s.Auth.BearerAuth != nil && s.Auth.BearerAuth.Enabled) {
+		(s.Auth.BearerAuth != nil && s.Auth.BearerAuth.Enabled) ||
+		(s.Auth.MTLSAuth != nil && s.Auth.MTLSAuth.Enabled) {
 		return true
 	}
 	for _, h := range s.Auth.HeaderAuths {
@@ -1172,6 +1268,10 @@ func (s *Service) Copy() *Service {
 			hCopy := *h
 			authCopy.HeaderAuths[i] = &hCopy
 		}
+	}
+	if s.Auth.MTLSAuth != nil {
+		mtls := *s.Auth.MTLSAuth
+		authCopy.MTLSAuth = &mtls
 	}
 
 	return &Service{

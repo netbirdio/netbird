@@ -3243,6 +3243,8 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/HeaderAuthConfig'
+        mtls_auth:
+          $ref: '#/components/schemas/MTLSAuthConfig'
     HeaderAuthConfig:
       type: object
       description: Static header-value authentication. The proxy checks that the named header matches the configured value.
@@ -3346,6 +3348,30 @@ components:
           description: List of group IDs that can use bearer auth
       required:
         - enabled
+    MTLSAuthConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          description: Whether mTLS auth is enabled
+          example: true
+        ca_cert_pem:
+          type: string
+          description: Trusted client CA certificate bundle in PEM format. Required on create when mTLS is enabled. Cleared in responses.
+          example: |
+            -----BEGIN CERTIFICATE-----
+            MIIB...
+            -----END CERTIFICATE-----
+      required:
+        - enabled
+      allOf:
+        - if:
+            properties:
+              enabled:
+                const: true
+          then:
+            required:
+              - ca_cert_pem
     LinkAuthConfig:
       type: object
       properties:

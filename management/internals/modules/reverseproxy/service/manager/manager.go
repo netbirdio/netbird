@@ -703,6 +703,12 @@ func (m *Manager) preserveExistingAuthSecrets(svc, existingService *service.Serv
 		svc.Auth.PinAuth = existingService.Auth.PinAuth
 	}
 
+	if svc.Auth.MTLSAuth != nil && svc.Auth.MTLSAuth.Enabled &&
+		existingService.Auth.MTLSAuth != nil && existingService.Auth.MTLSAuth.Enabled &&
+		svc.Auth.MTLSAuth.CACertPEM == "" {
+		svc.Auth.MTLSAuth.CACertPEM = existingService.Auth.MTLSAuth.CACertPEM
+	}
+
 	preserveHeaderAuthHashes(svc.Auth.HeaderAuths, existingService.Auth.HeaderAuths)
 }
 

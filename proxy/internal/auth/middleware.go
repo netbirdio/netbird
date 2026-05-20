@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/x509"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -56,6 +57,7 @@ type DomainConfig struct {
 	AccountID         types.AccountID
 	ServiceID         types.ServiceID
 	IPRestrictions    *restrict.Filter
+	MTLS              *MTLSConfig
 }
 
 type validationResult struct {
@@ -111,7 +113,11 @@ func (mw *Middleware) Protect(next http.Handler) http.Handler {
 			return
 		}
 
-		// Domains with no authentication schemes pass through after IP checks.
+		if !mw.checkMTLS(w, r, config) {
+			return
+		}
+
+		// Domains with no authentication schemes pass through after IP and mTLS checks.
 		if len(config.Schemes) == 0 {
 			next.ServeHTTP(w, r)
 			return
@@ -138,6 +144,15 @@ func (mw *Middleware) getDomainConfig(host string) (DomainConfig, bool) {
 	defer mw.domainsMux.RUnlock()
 	config, exists := mw.domains[host]
 	return config, exists
+}
+
+// GetClientCAPool returns the configured mTLS client CA pool for the given host.
+func (mw *Middleware) GetClientCAPool(host string) (*x509.CertPool, bool) {
+	config, exists := mw.getDomainConfig(host)
+	if !exists || config.MTLS == nil || !config.MTLS.Enabled || config.MTLS.CAPool == nil {
+		return nil, false
+	}
+	return config.MTLS.CAPool, true
 }
 
 func setCapturedIDs(r *http.Request, config DomainConfig) {
@@ -213,6 +228,26 @@ func (mw *Middleware) blockIPRestriction(r *http.Request, reason string) {
 		cd.SetAuthMethod(reason)
 	}
 	mw.logger.Debugf("IP restriction: %s for %s", reason, r.RemoteAddr)
+}
+
+func (mw *Middleware) checkMTLS(w http.ResponseWriter, r *http.Request, config DomainConfig) bool {
+	if err := validateClientCertificate(r, config.MTLS); err != nil {
+		if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
+			cd.SetOrigin(proxy.OriginAuth)
+			cd.SetAuthMethod(auth.MethodMTLS.String())
+		}
+		mw.logger.Debugf("mTLS auth failed for %s: %v", r.Host, err)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return false
+	}
+
+	if config.MTLS != nil && config.MTLS.Enabled {
+		if cd := proxy.CapturedDataFromContext(r.Context()); cd != nil {
+			cd.SetAuthMethod(auth.MethodMTLS.String())
+		}
+	}
+
+	return true
 }
 
 // handleOAuthCallbackError checks for error query parameters from an OAuth
@@ -454,41 +489,46 @@ func wasCredentialSubmitted(r *http.Request, method auth.Method) bool {
 	return false
 }
 
+// AddDomainOptions groups the authentication and restriction settings for a domain.
+type AddDomainOptions struct {
+	Schemes             []Scheme
+	SessionPublicKeyB64 string
+	SessionExpiration   time.Duration
+	AccountID           types.AccountID
+	ServiceID           types.ServiceID
+	IPRestrictions      *restrict.Filter
+	MTLS                *MTLSConfig
+}
+
 // AddDomain registers authentication schemes for the given domain.
 // If schemes are provided, a valid session public key is required to sign/verify
 // session JWTs. Returns an error if the key is missing or invalid.
 // Callers must not serve the domain if this returns an error, to avoid
 // exposing an unauthenticated service.
-func (mw *Middleware) AddDomain(domain string, schemes []Scheme, publicKeyB64 string, expiration time.Duration, accountID types.AccountID, serviceID types.ServiceID, ipRestrictions *restrict.Filter) error {
-	if len(schemes) == 0 {
-		mw.domainsMux.Lock()
-		defer mw.domainsMux.Unlock()
-		mw.domains[domain] = DomainConfig{
-			AccountID:      accountID,
-			ServiceID:      serviceID,
-			IPRestrictions: ipRestrictions,
-		}
-		return nil
+func (mw *Middleware) AddDomain(domain string, opts AddDomainOptions) error {
+	config := DomainConfig{
+		Schemes:           opts.Schemes,
+		SessionExpiration: opts.SessionExpiration,
+		AccountID:         opts.AccountID,
+		ServiceID:         opts.ServiceID,
+		IPRestrictions:    opts.IPRestrictions,
+		MTLS:              opts.MTLS,
 	}
 
-	pubKeyBytes, err := base64.StdEncoding.DecodeString(publicKeyB64)
-	if err != nil {
-		return fmt.Errorf("decode session public key for domain %s: %w", domain, err)
-	}
-	if len(pubKeyBytes) != ed25519.PublicKeySize {
-		return fmt.Errorf("invalid session public key size for domain %s: got %d, want %d", domain, len(pubKeyBytes), ed25519.PublicKeySize)
+	if len(opts.Schemes) > 0 {
+		pubKeyBytes, err := base64.StdEncoding.DecodeString(opts.SessionPublicKeyB64)
+		if err != nil {
+			return fmt.Errorf("decode session public key for domain %s: %w", domain, err)
+		}
+		if len(pubKeyBytes) != ed25519.PublicKeySize {
+			return fmt.Errorf("invalid session public key size for domain %s: got %d, want %d", domain, len(pubKeyBytes), ed25519.PublicKeySize)
+		}
+		config.SessionPublicKey = pubKeyBytes
 	}
 
 	mw.domainsMux.Lock()
 	defer mw.domainsMux.Unlock()
-	mw.domains[domain] = DomainConfig{
-		Schemes:           schemes,
-		SessionPublicKey:  pubKeyBytes,
-		SessionExpiration: expiration,
-		AccountID:         accountID,
-		ServiceID:         serviceID,
-		IPRestrictions:    ipRestrictions,
-	}
+	mw.domains[domain] = config
 	return nil
 }
 

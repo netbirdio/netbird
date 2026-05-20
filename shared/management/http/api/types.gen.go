@@ -3096,6 +3096,15 @@ type OktaScimIntegration struct {
 	UserGroupPrefixes []string `json:"user_group_prefixes"`
 }
 
+// MTLSAuthConfig defines model for MTLSAuthConfig.
+type MTLSAuthConfig struct {
+	// CaCertPem Trusted client CA certificate bundle in PEM format. Required on create when mTLS is enabled. Cleared in responses.
+	CaCertPem string `json:"ca_cert_pem"`
+
+	// Enabled Whether mTLS auth is enabled
+	Enabled bool `json:"enabled"`
+}
+
 // PINAuthConfig defines model for PINAuthConfig.
 type PINAuthConfig struct {
 	// Enabled Whether PIN auth is enabled
@@ -4135,6 +4144,7 @@ type ServiceAuthConfig struct {
 	BearerAuth   *BearerAuthConfig   `json:"bearer_auth,omitempty"`
 	HeaderAuths  *[]HeaderAuthConfig `json:"header_auths,omitempty"`
 	LinkAuth     *LinkAuthConfig     `json:"link_auth,omitempty"`
+	MtlsAuth     *MTLSAuthConfig     `json:"mtls_auth,omitempty"`
 	PasswordAuth *PasswordAuthConfig `json:"password_auth,omitempty"`
 	PinAuth      *PINAuthConfig      `json:"pin_auth,omitempty"`
 }

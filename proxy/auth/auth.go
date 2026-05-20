@@ -18,6 +18,7 @@ const (
 	MethodPIN      Method = "pin"
 	MethodOIDC     Method = "oidc"
 	MethodHeader   Method = "header"
+	MethodMTLS     Method = "mtls"
 )
 
 func (m Method) String() string {
