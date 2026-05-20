@@ -86,6 +86,9 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if pt.RequestTimeout > 0 {
 		ctx = types.WithDialTimeout(ctx, pt.RequestTimeout)
 	}
+	if pt.DirectUpstream {
+		ctx = roundtrip.WithDirectUpstream(ctx)
+	}
 
 	rewriteMatchedPath := result.matchedPath
 	if pt.PathRewrite == PathRewritePreserve {
@@ -141,6 +144,8 @@ func (p *ReverseProxy) rewriteFunc(target *url.URL, matchedPath string, passHost
 		for k, v := range customHeaders {
 			r.Out.Header.Set(k, v)
 		}
+
+		stampNetBirdIdentity(r)
 
 		clientIP := extractHostIP(r.In.RemoteAddr)
 
@@ -425,4 +430,47 @@ func opErrorContains(err error, substr string) bool {
 		return strings.Contains(opErr.Err.Error(), substr)
 	}
 	return false
+}
+
+const (
+	// headerNetBirdUser carries the authenticated user's display identity
+	// (email when the peer is attached to a user, else peer name) onto
+	// upstream requests. Stripped from inbound requests before stamping
+	// so a client can't spoof identity by setting the header themselves.
+	headerNetBirdUser = "X-NetBird-User"
+	// headerNetBirdGroups carries the user's group display names as a
+	// comma-separated list. Falls back to group IDs at positions where a
+	// name wasn't available at session-mint time.
+	headerNetBirdGroups = "X-NetBird-Groups"
+)
+
+// stampNetBirdIdentity injects authenticated identity onto outbound
+// requests as X-NetBird-User and X-NetBird-Groups. Always strips any
+// client-sent values first (anti-spoof). Skips when the request didn't
+// carry CapturedData (early-path errors, internal endpoints).
+func stampNetBirdIdentity(r *httputil.ProxyRequest) {
+	r.Out.Header.Del(headerNetBirdUser)
+	r.Out.Header.Del(headerNetBirdGroups)
+
+	cd := CapturedDataFromContext(r.In.Context())
+	if cd == nil {
+		return
+	}
+	if email := cd.GetUserEmail(); email != "" {
+		r.Out.Header.Set(headerNetBirdUser, email)
+	}
+	groupIDs := cd.GetUserGroups()
+	if len(groupIDs) == 0 {
+		return
+	}
+	groupNames := cd.GetUserGroupNames()
+	labels := make([]string, len(groupIDs))
+	for i, id := range groupIDs {
+		if i < len(groupNames) && groupNames[i] != "" {
+			labels[i] = groupNames[i]
+			continue
+		}
+		labels[i] = id
+	}
+	r.Out.Header.Set(headerNetBirdGroups, strings.Join(labels, ","))
 }

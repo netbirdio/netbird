@@ -63,6 +63,22 @@ func TestUpdatePeerState(t *testing.T) {
 	assert.Equal(t, ip, state.IP, "ip should be equal")
 }
 
+func TestStatus_PeerStateByIP(t *testing.T) {
+	status := NewRecorder("https://mgm")
+	require := assert.New(t)
+
+	require.NoError(status.AddPeer("pk-1", "peer-1.netbird", "100.64.0.10", ""))
+	require.NoError(status.AddPeer("pk-2", "peer-2.netbird", "100.64.0.11", ""))
+
+	state, ok := status.PeerStateByIP("100.64.0.10")
+	require.True(ok, "known tunnel IP should resolve to a peer state")
+	require.Equal("pk-1", state.PubKey, "matching state must carry the right pub key")
+	require.Equal("peer-1.netbird", state.FQDN, "matching state must carry the right FQDN")
+
+	_, ok = status.PeerStateByIP("100.64.0.99")
+	require.False(ok, "unknown IP must report ok=false")
+}
+
 func TestStatus_UpdatePeerFQDN(t *testing.T) {
 	key := "abc"
 	fqdn := "peer-a.netbird.local"

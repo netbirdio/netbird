@@ -1344,3 +1344,40 @@ func TestValidateSubdomainRequirement(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateTargetReferences_ClusterTargetSkipsLookup(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	accountID := "test-account"
+
+	// No peer or resource lookups must be issued for cluster targets.
+	targets := []*rpservice.Target{
+		{TargetId: "eu.proxy.netbird.io", TargetType: rpservice.TargetTypeCluster},
+	}
+	require.NoError(t, validateTargetReferences(ctx, mockStore, accountID, targets), "cluster target must validate without store lookups")
+}
+
+func TestReplaceHostByLookup_SkipsClusterTarget(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	accountID := "test-account"
+
+	mgr := &Manager{store: mockStore}
+
+	svc := &rpservice.Service{
+		ID:        "svc-1",
+		AccountID: accountID,
+		Targets: []*rpservice.Target{
+			{
+				TargetId:   "eu.proxy.netbird.io",
+				TargetType: rpservice.TargetTypeCluster,
+				Host:       "127.0.0.1",
+			},
+		},
+	}
+
+	require.NoError(t, mgr.replaceHostByLookup(ctx, accountID, svc), "cluster target must not trigger peer/resource lookup")
+	assert.Equal(t, "127.0.0.1", svc.Targets[0].Host, "operator-supplied host must be preserved for cluster target")
+}

@@ -312,6 +312,7 @@ type Store interface {
 	GetClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
 	GetClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
+	GetClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool
 	CleanupStaleProxies(ctx context.Context, inactivityDuration time.Duration) error
 	GetProxyByAccountID(ctx context.Context, accountID string) (*proxy.Proxy, error)
 	CountProxiesByAccountID(ctx context.Context, accountID string) (int64, error)

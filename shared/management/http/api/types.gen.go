@@ -1063,15 +1063,18 @@ func (e ServiceTargetProtocol) Valid() bool {
 
 // Defines values for ServiceTargetTargetType.
 const (
-	ServiceTargetTargetTypeDomain ServiceTargetTargetType = "domain"
-	ServiceTargetTargetTypeHost   ServiceTargetTargetType = "host"
-	ServiceTargetTargetTypePeer   ServiceTargetTargetType = "peer"
-	ServiceTargetTargetTypeSubnet ServiceTargetTargetType = "subnet"
+	ServiceTargetTargetTypeCluster ServiceTargetTargetType = "cluster"
+	ServiceTargetTargetTypeDomain  ServiceTargetTargetType = "domain"
+	ServiceTargetTargetTypeHost    ServiceTargetTargetType = "host"
+	ServiceTargetTargetTypePeer    ServiceTargetTargetType = "peer"
+	ServiceTargetTargetTypeSubnet  ServiceTargetTargetType = "subnet"
 )
 
 // Valid indicates whether the value is a known member of the ServiceTargetTargetType enum.
 func (e ServiceTargetTargetType) Valid() bool {
 	switch e {
+	case ServiceTargetTargetTypeCluster:
+		return true
 	case ServiceTargetTargetTypeDomain:
 		return true
 	case ServiceTargetTargetTypeHost:
@@ -3783,6 +3786,9 @@ type ProxyAccessLog struct {
 	// Timestamp Timestamp when the request was made
 	Timestamp time.Time `json:"timestamp"`
 
+	// UserGroups Group IDs the user belonged to when the entry was written
+	UserGroups *[]string `json:"user_groups,omitempty"`
+
 	// UserId ID of the authenticated user, if applicable
 	UserId *string `json:"user_id,omitempty"`
 }
@@ -3818,6 +3824,9 @@ type ProxyCluster struct {
 
 	// Online Whether at least one proxy in the cluster has heartbeated within the active window
 	Online bool `json:"online"`
+
+	// Private True when at least one connected proxy in this cluster is running embedded in a netbird client (`netbird proxy`) and serving over a WireGuard tunnel. Lets the dashboard distinguish per-peer / private clusters from centralised ones.
+	Private *bool `json:"private,omitempty"`
 
 	// RequireSubdomain Whether services on this cluster must include a subdomain label
 	RequireSubdomain *bool `json:"require_subdomain,omitempty"`
@@ -3895,6 +3904,9 @@ type ReverseProxyDomain struct {
 
 	// SupportsCustomPorts Whether the cluster supports binding arbitrary TCP/UDP ports
 	SupportsCustomPorts *bool `json:"supports_custom_ports,omitempty"`
+
+	// SupportsPrivate Whether the proxy cluster supports private (NetBird-only) services. True when at least one connected proxy in the cluster runs embedded in a netbird client.
+	SupportsPrivate *bool `json:"supports_private,omitempty"`
 
 	// TargetCluster The proxy cluster this domain is validated against (only for custom domains)
 	TargetCluster *string `json:"target_cluster,omitempty"`
@@ -4085,6 +4097,9 @@ type SentinelOneMatchAttributesNetworkStatus string
 
 // Service defines model for Service.
 type Service struct {
+	// AccessGroups NetBird group IDs whose peers may reach this private service over the tunnel. Required when private=true; ignored otherwise. Mutually exclusive with bearer auth (SSO).
+	AccessGroups *[]string `json:"access_groups,omitempty"`
+
 	// AccessRestrictions Connection-level access restrictions based on IP address or geography. Applies to both HTTP and L4 services.
 	AccessRestrictions *AccessRestrictions `json:"access_restrictions,omitempty"`
 	Auth               ServiceAuthConfig   `json:"auth"`
@@ -4113,6 +4128,9 @@ type Service struct {
 
 	// PortAutoAssigned Whether the listen port was auto-assigned
 	PortAutoAssigned *bool `json:"port_auto_assigned,omitempty"`
+
+	// Private When true, the service is NetBird-only — its target points at a proxy cluster, inbound peers authenticate via their WireGuard tunnel identity (no OIDC), and an ACL policy is auto-generated from access_groups to the cluster's proxy-peer group. Requires mode=http.
+	Private *bool `json:"private,omitempty"`
 
 	// ProxyCluster The proxy cluster handling this service (derived from domain)
 	ProxyCluster *string `json:"proxy_cluster,omitempty"`
@@ -4156,6 +4174,9 @@ type ServiceMetaStatus string
 
 // ServiceRequest defines model for ServiceRequest.
 type ServiceRequest struct {
+	// AccessGroups NetBird group IDs whose peers may reach this private service over the tunnel. Required when private=true; ignored otherwise. Mutually exclusive with bearer auth (SSO).
+	AccessGroups *[]string `json:"access_groups,omitempty"`
+
 	// AccessRestrictions Connection-level access restrictions based on IP address or geography. Applies to both HTTP and L4 services.
 	AccessRestrictions *AccessRestrictions `json:"access_restrictions,omitempty"`
 	Auth               *ServiceAuthConfig  `json:"auth,omitempty"`
@@ -4177,6 +4198,9 @@ type ServiceRequest struct {
 
 	// PassHostHeader When true, the original client Host header is passed through to the backend instead of being rewritten to the backend's address
 	PassHostHeader *bool `json:"pass_host_header,omitempty"`
+
+	// Private When true, the service is NetBird-only — its target points at a proxy cluster, inbound peers authenticate via their WireGuard tunnel identity (no OIDC), and an ACL policy is auto-generated from access_groups to the cluster's proxy-peer group. Requires mode=http.
+	Private *bool `json:"private,omitempty"`
 
 	// RewriteRedirects When true, Location headers in backend responses are rewritten to replace the backend address with the public-facing domain
 	RewriteRedirects *bool `json:"rewrite_redirects,omitempty"`
@@ -4223,6 +4247,12 @@ type ServiceTargetTargetType string
 type ServiceTargetOptions struct {
 	// CustomHeaders Extra headers sent to the backend. Hop-by-hop and proxy-managed headers (Host, Connection, Transfer-Encoding, etc.) are rejected.
 	CustomHeaders *map[string]string `json:"custom_headers,omitempty"`
+
+	// DirectUpstream When true, the proxy dials this target via the host's network stack
+	// instead of through its embedded NetBird client. Use for upstreams
+	// reachable without WireGuard (public APIs, LAN services, localhost
+	// sidecars). Default false.
+	DirectUpstream *bool `json:"direct_upstream,omitempty"`
 
 	// PathRewrite Controls how the request path is rewritten before forwarding to the backend. Default strips the matched prefix. "preserve" keeps the full original request path.
 	PathRewrite *ServiceTargetOptionsPathRewrite `json:"path_rewrite,omitempty"`

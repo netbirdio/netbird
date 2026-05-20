@@ -305,6 +305,20 @@ func (d *Status) PeerByIP(ip string) (string, bool) {
 	return "", false
 }
 
+// PeerStateByIP returns the full peer State for the given tunnel IP.
+// Returns the zero State and false when no peer matches.
+func (d *Status) PeerStateByIP(ip string) (State, bool) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	for _, state := range d.peers {
+		if state.IP == ip {
+			return state, true
+		}
+	}
+	return State{}, false
+}
+
 // RemovePeer removes peer from Daemon status map
 func (d *Status) RemovePeer(peerPubKey string) error {
 	d.mux.Lock()

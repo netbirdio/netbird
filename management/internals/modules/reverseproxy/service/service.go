@@ -45,10 +45,11 @@ const (
 	StatusCertificateFailed  Status = "certificate_failed"
 	StatusError              Status = "error"
 
-	TargetTypePeer   TargetType = "peer"
-	TargetTypeHost   TargetType = "host"
-	TargetTypeDomain TargetType = "domain"
-	TargetTypeSubnet TargetType = "subnet"
+	TargetTypePeer    TargetType = "peer"
+	TargetTypeHost    TargetType = "host"
+	TargetTypeDomain  TargetType = "domain"
+	TargetTypeSubnet  TargetType = "subnet"
+	TargetTypeCluster TargetType = "cluster"
 
 	SourcePermanent = "permanent"
 	SourceEphemeral = "ephemeral"
@@ -60,14 +61,27 @@ type TargetOptions struct {
 	SessionIdleTimeout time.Duration     `json:"session_idle_timeout,omitempty"`
 	PathRewrite        PathRewriteMode   `json:"path_rewrite,omitempty"`
 	CustomHeaders      map[string]string `gorm:"serializer:json" json:"custom_headers,omitempty"`
+	// DirectUpstream bypasses the proxy's embedded NetBird client and dials
+	// the target via the proxy host's network stack. Useful for upstreams
+	// reachable without WireGuard (public APIs, LAN services, localhost
+	// sidecars). Default false.
+	DirectUpstream bool `json:"direct_upstream,omitempty"`
 }
 
 type Target struct {
-	ID            uint          `gorm:"primaryKey" json:"-"`
-	AccountID     string        `gorm:"index:idx_target_account;not null" json:"-"`
-	ServiceID     string        `gorm:"index:idx_service_targets;not null" json:"-"`
-	Path          *string       `json:"path,omitempty"`
-	Host          string        `json:"host"` // the Host field is only used for subnet targets, otherwise ignored
+	ID        uint    `gorm:"primaryKey" json:"-"`
+	AccountID string  `gorm:"index:idx_target_account;not null" json:"-"`
+	ServiceID string  `gorm:"index:idx_service_targets;not null" json:"-"`
+	Path      *string `json:"path,omitempty"`
+	// Host carries the upstream address. For TargetTypeSubnet it is the only
+	// source — operator-supplied. For TargetTypePeer / TargetTypeHost /
+	// TargetTypeDomain it is overwritten by replaceHostByLookup with the
+	// resolved peer IP / resource address, *unless* Options.DirectUpstream
+	// is true and the operator supplied a non-empty value — then the
+	// operator value is preserved so they can dial the upstream via the
+	// host's network stack at an address other than the WG tunnel IP
+	// (e.g. a LAN IP, localhost sidecar, or DNS name).
+	Host          string        `json:"host"`
 	Port          uint16        `gorm:"index:idx_target_port" json:"port"`
 	Protocol      string        `gorm:"index:idx_target_protocol" json:"protocol"`
 	TargetId      string        `gorm:"index:idx_target_id" json:"target_id"`
@@ -200,6 +214,10 @@ type Service struct {
 	Mode             string `gorm:"default:'http'"`
 	ListenPort       uint16
 	PortAutoAssigned bool
+	// Private marks the service as NetBird-only: auth via ValidateTunnelPeer against AccessGroups instead of SSO. HTTP-only.
+	Private bool
+	// AccessGroups is the group ID allowlist for inbound peers on private services. Mutually exclusive with bearer SSO.
+	AccessGroups []string `json:"access_groups,omitempty" gorm:"serializer:json"`
 }
 
 // InitNewRecord generates a new unique ID and resets metadata for a newly created
@@ -299,6 +317,12 @@ func (s *Service) ToAPIResponse() *api.Service {
 		Mode:               &mode,
 		ListenPort:         &listenPort,
 		PortAutoAssigned:   &s.PortAutoAssigned,
+		Private:            &s.Private,
+	}
+
+	if len(s.AccessGroups) > 0 {
+		groups := append([]string(nil), s.AccessGroups...)
+		resp.AccessGroups = &groups
 	}
 
 	if s.ProxyCluster != "" {
@@ -308,6 +332,7 @@ func (s *Service) ToAPIResponse() *api.Service {
 	return resp
 }
 
+// ToProtoMapping converts the service into the wire format the proxy consumes.
 func (s *Service) ToProtoMapping(operation Operation, authToken string, oidcConfig proxy.OIDCValidationConfig) *proto.ProxyMapping {
 	pathMappings := s.buildPathMappings()
 
@@ -349,6 +374,7 @@ func (s *Service) ToProtoMapping(operation Operation, authToken string, oidcConf
 		RewriteRedirects: s.RewriteRedirects,
 		Mode:             s.Mode,
 		ListenPort:       int32(s.ListenPort), //nolint:gosec
+		Private:          s.Private,
 	}
 
 	if r := restrictionsToProto(s.Restrictions); r != nil {
@@ -455,7 +481,8 @@ func pathRewriteToProto(mode PathRewriteMode) proto.PathRewriteMode {
 }
 
 func targetOptionsToAPI(opts TargetOptions) *api.ServiceTargetOptions {
-	if !opts.SkipTLSVerify && opts.RequestTimeout == 0 && opts.SessionIdleTimeout == 0 && opts.PathRewrite == "" && len(opts.CustomHeaders) == 0 {
+	if !opts.SkipTLSVerify && opts.RequestTimeout == 0 && opts.SessionIdleTimeout == 0 &&
+		opts.PathRewrite == "" && len(opts.CustomHeaders) == 0 && !opts.DirectUpstream {
 		return nil
 	}
 	apiOpts := &api.ServiceTargetOptions{}
@@ -477,17 +504,22 @@ func targetOptionsToAPI(opts TargetOptions) *api.ServiceTargetOptions {
 	if len(opts.CustomHeaders) > 0 {
 		apiOpts.CustomHeaders = &opts.CustomHeaders
 	}
+	if opts.DirectUpstream {
+		apiOpts.DirectUpstream = &opts.DirectUpstream
+	}
 	return apiOpts
 }
 
 func targetOptionsToProto(opts TargetOptions) *proto.PathTargetOptions {
-	if !opts.SkipTLSVerify && opts.PathRewrite == "" && opts.RequestTimeout == 0 && len(opts.CustomHeaders) == 0 {
+	if !opts.SkipTLSVerify && opts.PathRewrite == "" && opts.RequestTimeout == 0 &&
+		len(opts.CustomHeaders) == 0 && !opts.DirectUpstream {
 		return nil
 	}
 	popts := &proto.PathTargetOptions{
-		SkipTlsVerify: opts.SkipTLSVerify,
-		PathRewrite:   pathRewriteToProto(opts.PathRewrite),
-		CustomHeaders: opts.CustomHeaders,
+		SkipTlsVerify:  opts.SkipTLSVerify,
+		PathRewrite:    pathRewriteToProto(opts.PathRewrite),
+		CustomHeaders:  opts.CustomHeaders,
+		DirectUpstream: opts.DirectUpstream,
 	}
 	if opts.RequestTimeout != 0 {
 		popts.RequestTimeout = durationpb.New(opts.RequestTimeout)
@@ -537,6 +569,9 @@ func targetOptionsFromAPI(idx int, o *api.ServiceTargetOptions) (TargetOptions, 
 	if o.CustomHeaders != nil {
 		opts.CustomHeaders = *o.CustomHeaders
 	}
+	if o.DirectUpstream != nil {
+		opts.DirectUpstream = *o.DirectUpstream
+	}
 	return opts, nil
 }
 
@@ -550,6 +585,14 @@ func (s *Service) FromAPIRequest(req *api.ServiceRequest, accountID string) erro
 	}
 	if req.ListenPort != nil {
 		s.ListenPort = uint16(*req.ListenPort) //nolint:gosec
+	}
+	if req.Private != nil {
+		s.Private = *req.Private
+	}
+	if req.AccessGroups != nil {
+		s.AccessGroups = append([]string(nil), *req.AccessGroups...)
+	} else {
+		s.AccessGroups = nil
 	}
 
 	targets, err := targetsFromAPI(accountID, req.Targets)
@@ -740,6 +783,9 @@ func (s *Service) Validate() error {
 	if err := validateAccessRestrictions(&s.Restrictions); err != nil {
 		return err
 	}
+	if err := s.validatePrivateRequirements(); err != nil {
+		return err
+	}
 
 	switch s.Mode {
 	case ModeHTTP:
@@ -751,6 +797,23 @@ func (s *Service) Validate() error {
 	default:
 		return fmt.Errorf("unsupported mode %q", s.Mode)
 	}
+}
+
+// validatePrivateRequirements enforces the private-service contract: HTTP mode, ≥1 access group, no bearer auth.
+func (s *Service) validatePrivateRequirements() error {
+	if !s.Private {
+		return nil
+	}
+	if s.Mode != "" && s.Mode != ModeHTTP {
+		return fmt.Errorf("private services only support HTTP mode, got %q", s.Mode)
+	}
+	if len(s.AccessGroups) == 0 {
+		return errors.New("private services require at least one access group")
+	}
+	if s.Auth.BearerAuth != nil && s.Auth.BearerAuth.Enabled {
+		return errors.New("private services cannot enable bearer auth (SSO): NetBird-only access and SSO are mutually exclusive")
+	}
+	return nil
 }
 
 func (s *Service) validateHTTPMode() error {
@@ -799,11 +862,20 @@ func (s *Service) validateHTTPTargets() error {
 	for i, target := range s.Targets {
 		switch target.TargetType {
 		case TargetTypePeer, TargetTypeHost, TargetTypeDomain:
-			// host field will be ignored
+			// Host is normally overwritten by replaceHostByLookup with the
+			// resolved peer IP / resource address; operator-supplied values
+			// are honored only when DirectUpstream is set. Validate the
+			// override here so misconfigured hosts fail fast at API time.
+			if err := validateDirectUpstreamHost(i, target); err != nil {
+				return err
+			}
 		case TargetTypeSubnet:
 			if target.Host == "" {
 				return fmt.Errorf("target %d has empty host but target_type is %q", i, target.TargetType)
 			}
+		case TargetTypeCluster:
+			// target_id carries the cluster address; the proxy resolves
+			// the upstream at request time. Host/port may be empty.
 		default:
 			return fmt.Errorf("target %d has invalid target_type %q", i, target.TargetType)
 		}
@@ -821,25 +893,55 @@ func (s *Service) validateHTTPTargets() error {
 	return nil
 }
 
+// validateDirectUpstreamHost validates the operator-supplied Host on a
+// peer/host/domain target when DirectUpstream is set. Empty Host is
+// allowed — the lookup fills in the default peer IP / resource address.
+// Without DirectUpstream the Host value is silently overwritten by
+// replaceHostByLookup, so we don't validate it (preserves the historical
+// behaviour where APIs accepted any value and dropped it). Non-empty
+// Host with DirectUpstream must look like a hostname or IP and must
+// not carry a port (port lives on Target.Port).
+func validateDirectUpstreamHost(idx int, target *Target) error {
+	if !target.Options.DirectUpstream {
+		return nil
+	}
+	host := strings.TrimSpace(target.Host)
+	if host == "" {
+		return nil
+	}
+	if strings.ContainsAny(host, " \t/") {
+		return fmt.Errorf("target %d: host %q contains invalid characters", idx, host)
+	}
+	if _, _, err := net.SplitHostPort(host); err == nil {
+		return fmt.Errorf("target %d: host %q must not include a port (set target.port instead)", idx, host)
+	}
+	return nil
+}
+
 func (s *Service) validateL4Target(target *Target) error {
 	// L4 services have a single target; per-target disable is meaningless
 	// (use the service-level Enabled flag instead). Force it on so that
 	// buildPathMappings always includes the target in the proto.
 	target.Enabled = true
 
-	if target.Port == 0 {
-		return errors.New("target port is required for L4 services")
-	}
 	if target.TargetId == "" {
 		return errors.New("target_id is required for L4 services")
 	}
+	if target.TargetType != TargetTypeCluster && target.Port == 0 {
+		return errors.New("target port is required for L4 services")
+	}
 	switch target.TargetType {
 	case TargetTypePeer, TargetTypeHost, TargetTypeDomain:
-		// OK
+		if err := validateDirectUpstreamHost(0, target); err != nil {
+			return err
+		}
 	case TargetTypeSubnet:
 		if target.Host == "" {
 			return errors.New("target host is required for subnet targets")
 		}
+	case TargetTypeCluster:
+		// target_id carries the cluster address; the proxy resolves
+		// the upstream at request time.
 	default:
 		return fmt.Errorf("invalid target_type %q for L4 service", target.TargetType)
 	}
@@ -1174,6 +1276,11 @@ func (s *Service) Copy() *Service {
 		}
 	}
 
+	var accessGroups []string
+	if len(s.AccessGroups) > 0 {
+		accessGroups = append([]string(nil), s.AccessGroups...)
+	}
+
 	return &Service{
 		ID:                s.ID,
 		AccountID:         s.AccountID,
@@ -1195,6 +1302,8 @@ func (s *Service) Copy() *Service {
 		Mode:              s.Mode,
 		ListenPort:        s.ListenPort,
 		PortAutoAssigned:  s.PortAutoAssigned,
+		Private:           s.Private,
+		AccessGroups:      accessGroups,
 	}
 }
 

@@ -1067,3 +1067,67 @@ func TestClassifyProxyError(t *testing.T) {
 		})
 	}
 }
+
+func TestStampNetBirdIdentity_NoCapturedData_StripsOnly(t *testing.T) {
+	target, _ := url.Parse("http://backend.internal:8080")
+	p := &ReverseProxy{forwardedProto: "auto"}
+	rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
+
+	pr := newProxyRequest(t, "http://example.com/", "203.0.113.50:9999")
+	pr.In.Header.Set("X-NetBird-User", "spoofed@evil.io")
+	pr.In.Header.Set("X-NetBird-Groups", "admin")
+	pr.Out.Header = pr.In.Header.Clone()
+
+	rewrite(pr)
+
+	assert.Empty(t, pr.Out.Header.Get("X-NetBird-User"),
+		"client-supplied X-NetBird-User must be stripped when no captured identity is present")
+	assert.Empty(t, pr.Out.Header.Get("X-NetBird-Groups"),
+		"client-supplied X-NetBird-Groups must be stripped when no captured identity is present")
+}
+
+func TestStampNetBirdIdentity_StampsFromCapturedData(t *testing.T) {
+	target, _ := url.Parse("http://backend.internal:8080")
+	p := &ReverseProxy{forwardedProto: "auto"}
+	rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
+
+	pr := newProxyRequest(t, "http://example.com/", "203.0.113.50:9999")
+	pr.In.Header.Set("X-NetBird-User", "spoofed@evil.io")
+	pr.Out.Header = pr.In.Header.Clone()
+
+	cd := NewCapturedData("req-1")
+	cd.SetUserEmail("alice@netbird.io")
+	cd.SetUserGroups([]string{"grp-eng", "grp-ops"})
+	cd.SetUserGroupNames([]string{"engineering", "operations"})
+
+	withCD := pr.In.WithContext(WithCapturedData(pr.In.Context(), cd))
+	pr.In = withCD
+
+	rewrite(pr)
+
+	assert.Equal(t, "alice@netbird.io", pr.Out.Header.Get("X-NetBird-User"),
+		"captured email must overwrite any spoofed value")
+	assert.Equal(t, "engineering,operations", pr.Out.Header.Get("X-NetBird-Groups"),
+		"group display names must be CSV-joined in positional order")
+}
+
+func TestStampNetBirdIdentity_FallsBackToGroupIDsWhenNameMissing(t *testing.T) {
+	target, _ := url.Parse("http://backend.internal:8080")
+	p := &ReverseProxy{forwardedProto: "auto"}
+	rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
+
+	pr := newProxyRequest(t, "http://example.com/", "203.0.113.50:9999")
+
+	cd := NewCapturedData("req-1")
+	cd.SetUserEmail("bob@netbird.io")
+	cd.SetUserGroups([]string{"grp-a", "grp-b"})
+	cd.SetUserGroupNames([]string{"alpha"})
+
+	withCD := pr.In.WithContext(WithCapturedData(pr.In.Context(), cd))
+	pr.In = withCD
+
+	rewrite(pr)
+
+	assert.Equal(t, "alpha,grp-b", pr.Out.Header.Get("X-NetBird-Groups"),
+		"positions without a name must fall back to the group id")
+}

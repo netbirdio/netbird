@@ -208,6 +208,9 @@ func (m *Manager) replaceHostByLookup(ctx context.Context, accountID string, s *
 			target.Host = resource.Domain
 		case service.TargetTypeSubnet:
 			// For subnets we do not do any lookups on the resource
+		case service.TargetTypeCluster:
+			// Cluster targets carry the upstream address on target_id; the
+			// proxy resolves the destination at request time.
 		default:
 			return fmt.Errorf("unknown target type: %s", target.TargetType)
 		}
@@ -779,6 +782,8 @@ func validateTargetReferences(ctx context.Context, transaction store.Store, acco
 			if err := validateResourceTarget(ctx, transaction, accountID, target); err != nil {
 				return err
 			}
+		case service.TargetTypeCluster:
+			// Cluster targets are addressed by target_id; no peer/resource lookup.
 		default:
 			return status.Errorf(status.InvalidArgument, "unknown target type %q for target %q", target.TargetType, target.TargetId)
 		}
@@ -962,12 +967,14 @@ func (m *Manager) ReloadAllServicesForAccount(ctx context.Context, accountID str
 		return fmt.Errorf("failed to get services: %w", err)
 	}
 
+	oidcCfg := m.proxyController.GetOIDCValidationConfig()
+
 	for _, s := range services {
 		err = m.replaceHostByLookup(ctx, accountID, s)
 		if err != nil {
 			return fmt.Errorf("failed to replace host by lookup for service %s: %w", s.ID, err)
 		}
-		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Update, "", m.proxyController.GetOIDCValidationConfig()), s.ProxyCluster)
+		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Update, "", oidcCfg), s.ProxyCluster)
 	}
 
 	return nil

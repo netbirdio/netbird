@@ -3,6 +3,7 @@ package types
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/netip"
 	"testing"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/internals/modules/zones"
 	"github.com/netbirdio/netbird/management/internals/modules/zones/records"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
@@ -82,9 +84,9 @@ func setupTestAccount() *Account {
 		},
 		Groups: map[string]*Group{
 			"groupAll": {
-				ID:    "groupAll",
-				Name:  "All",
-				Peers: []string{"peer1", "peer2", "peer3", "peer11", "peer12", "peer21", "peer31", "peer32", "peer41", "peer51", "peer61"},
+				ID:     "groupAll",
+				Name:   "All",
+				Peers:  []string{"peer1", "peer2", "peer3", "peer11", "peer12", "peer21", "peer31", "peer32", "peer41", "peer51", "peer61"},
 				Issued: GroupIssuedAPI,
 			},
 			"group1": {
@@ -1582,4 +1584,204 @@ func Test_filterPeerAppliedZones(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestInjectPrivateServicePolicies_ProxyPeerGetsInboundRule(t *testing.T) {
+	ctx := context.Background()
+
+	userPeerIP := netip.MustParseAddr("100.64.0.10")
+	proxyPeerIP := netip.MustParseAddr("100.64.0.99")
+
+	account := &Account{
+		Id: "acct-1",
+		Network: &Network{
+			Identifier: "net-1",
+			Net:        net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.CIDRMask(10, 32)},
+		},
+		Peers: map[string]*nbpeer.Peer{
+			"user-peer": {
+				ID:        "user-peer",
+				AccountID: "acct-1",
+				Key:       "user-peer-key",
+				IP:        userPeerIP,
+			},
+			"proxy-peer": {
+				ID:        "proxy-peer",
+				AccountID: "acct-1",
+				Key:       "proxy-peer-key",
+				IP:        proxyPeerIP,
+				ProxyMeta: nbpeer.ProxyMeta{
+					Embedded: true,
+					Cluster:  "eu.proxy.netbird.io",
+				},
+			},
+		},
+		Groups: map[string]*Group{
+			"grp-admins": {
+				ID:    "grp-admins",
+				Name:  "admins",
+				Peers: []string{"user-peer"},
+			},
+		},
+		Services: []*service.Service{
+			{
+				ID:           "svc-1",
+				AccountID:    "acct-1",
+				Name:         "myapp",
+				Domain:       "myapp.eu.proxy.netbird.io",
+				ProxyCluster: "eu.proxy.netbird.io",
+				Enabled:      true,
+				Private:      true,
+				Mode:         service.ModeHTTP,
+				AccessGroups: []string{"grp-admins"},
+				Targets: []*service.Target{
+					{
+						TargetId:   "eu.proxy.netbird.io",
+						TargetType: service.TargetTypeCluster,
+						Protocol:   "http",
+						Host:       "127.0.0.1",
+						Port:       8080,
+						Enabled:    true,
+					},
+				},
+			},
+		},
+	}
+
+	account.InjectProxyPolicies(ctx)
+
+	var found *Policy
+	for _, p := range account.Policies {
+		if p != nil && p.ID == "private-access-svc-1-proxy-peer" {
+			found = p
+			break
+		}
+	}
+	require.NotNil(t, found, "expected synthesised private-access policy in account.Policies")
+	require.Len(t, found.Rules, 1, "policy should have exactly one rule")
+	rule := found.Rules[0]
+	assert.Equal(t, []string{"grp-admins"}, rule.Sources, "sources should be group IDs verbatim")
+	assert.Equal(t, "proxy-peer", rule.DestinationResource.ID, "destination resource should be the proxy peer ID")
+	assert.Equal(t, ResourceTypePeer, rule.DestinationResource.Type, "destination resource type should be peer")
+
+	validatedPeersMap := map[string]struct{}{
+		"user-peer":  {},
+		"proxy-peer": {},
+	}
+
+	proxyPeer := account.Peers["proxy-peer"]
+	aclPeers, firewallRules, _, _ := account.GetPeerConnectionResources(ctx, proxyPeer, validatedPeersMap, nil)
+
+	var sawUserAsAclPeer bool
+	for _, p := range aclPeers {
+		if p.ID == "user-peer" {
+			sawUserAsAclPeer = true
+			break
+		}
+	}
+	assert.True(t, sawUserAsAclPeer, "proxy peer should see the user peer as an ACL peer")
+
+	var inboundRules []*FirewallRule
+	for _, r := range firewallRules {
+		if r.Direction == FirewallRuleDirectionIN && r.PeerIP == userPeerIP.String() {
+			inboundRules = append(inboundRules, r)
+		}
+	}
+	assert.NotEmpty(t, inboundRules, "proxy peer should have inbound firewall rules from the user peer")
+}
+
+func TestInjectPrivateServicePolicies_NotPrivate_NoPolicy(t *testing.T) {
+	ctx := context.Background()
+	account := privateServiceTestAccount(t)
+	account.Services[0].Private = false
+
+	account.InjectProxyPolicies(ctx)
+	assert.False(t, hasPrivateAccessPolicy(account, "svc-1"), "non-private service must not synthesise an access policy")
+}
+
+func TestInjectPrivateServicePolicies_EmptyAccessGroups_NoPolicy(t *testing.T) {
+	ctx := context.Background()
+	account := privateServiceTestAccount(t)
+	account.Services[0].AccessGroups = nil
+
+	account.InjectProxyPolicies(ctx)
+	assert.False(t, hasPrivateAccessPolicy(account, "svc-1"), "private service with no access groups must not synthesise a policy")
+}
+
+func TestInjectPrivateServicePolicies_NoProxyPeers_NoPolicy(t *testing.T) {
+	ctx := context.Background()
+	account := privateServiceTestAccount(t)
+	delete(account.Peers, "proxy-peer")
+
+	account.InjectProxyPolicies(ctx)
+	assert.False(t, hasPrivateAccessPolicy(account, "svc-1"), "policy must not synthesise when the cluster has no proxy peers")
+}
+
+func privateServiceTestAccount(t *testing.T) *Account {
+	t.Helper()
+	return &Account{
+		Id: "acct-1",
+		Network: &Network{
+			Identifier: "net-1",
+			Net:        net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.CIDRMask(10, 32)},
+		},
+		Peers: map[string]*nbpeer.Peer{
+			"user-peer": {
+				ID:        "user-peer",
+				AccountID: "acct-1",
+				Key:       "user-peer-key",
+				IP:        netip.MustParseAddr("100.64.0.10"),
+			},
+			"proxy-peer": {
+				ID:        "proxy-peer",
+				AccountID: "acct-1",
+				Key:       "proxy-peer-key",
+				IP:        netip.MustParseAddr("100.64.0.99"),
+				ProxyMeta: nbpeer.ProxyMeta{
+					Embedded: true,
+					Cluster:  "eu.proxy.netbird.io",
+				},
+			},
+		},
+		Groups: map[string]*Group{
+			"grp-admins": {
+				ID:    "grp-admins",
+				Name:  "admins",
+				Peers: []string{"user-peer"},
+			},
+		},
+		Services: []*service.Service{
+			{
+				ID:           "svc-1",
+				AccountID:    "acct-1",
+				Name:         "myapp",
+				Domain:       "myapp.eu.proxy.netbird.io",
+				ProxyCluster: "eu.proxy.netbird.io",
+				Enabled:      true,
+				Private:      true,
+				Mode:         service.ModeHTTP,
+				AccessGroups: []string{"grp-admins"},
+				Targets: []*service.Target{
+					{
+						TargetId:   "eu.proxy.netbird.io",
+						TargetType: service.TargetTypeCluster,
+						Protocol:   "http",
+						Host:       "127.0.0.1",
+						Port:       8080,
+						Enabled:    true,
+					},
+				},
+			},
+		},
+	}
+}
+
+func hasPrivateAccessPolicy(account *Account, serviceID string) bool {
+	prefix := "private-access-" + serviceID + "-"
+	for _, p := range account.Policies {
+		if p != nil && len(p.ID) > len(prefix) && p.ID[:len(prefix)] == prefix {
+			return true
+		}
+	}
+	return false
 }

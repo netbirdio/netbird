@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"strings"
 	"time"
-
 )
 
 // StatusFilters contains filter options for status queries.
@@ -160,6 +159,49 @@ func (c *Client) printClients(data map[string]any) {
 	for _, item := range clients {
 		c.printClientRow(item)
 	}
+
+	c.printInboundListeners(clients)
+}
+
+func (c *Client) printInboundListeners(clients []any) {
+	type row struct {
+		accountID string
+		tunnelIP  string
+		httpsPort int
+		httpPort  int
+	}
+	var rows []row
+	for _, item := range clients {
+		client, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		inbound, ok := client["inbound_listener"].(map[string]any)
+		if !ok {
+			continue
+		}
+		tunnelIP, _ := inbound["tunnel_ip"].(string)
+		httpsPort, _ := inbound["https_port"].(float64)
+		httpPort, _ := inbound["http_port"].(float64)
+		accountID, _ := client["account_id"].(string)
+		rows = append(rows, row{
+			accountID: accountID,
+			tunnelIP:  tunnelIP,
+			httpsPort: int(httpsPort),
+			httpPort:  int(httpPort),
+		})
+	}
+	if len(rows) == 0 {
+		return
+	}
+
+	_, _ = fmt.Fprintln(c.out)
+	_, _ = fmt.Fprintln(c.out, "Inbound listeners (per-account):")
+	_, _ = fmt.Fprintf(c.out, "  %-38s %-20s %-7s %s\n", "ACCOUNT ID", "TUNNEL IP", "HTTPS", "HTTP")
+	_, _ = fmt.Fprintln(c.out, "  "+strings.Repeat("-", 78))
+	for _, r := range rows {
+		_, _ = fmt.Fprintf(c.out, "  %-38s %-20s %-7d %d\n", r.accountID, r.tunnelIP, r.httpsPort, r.httpPort)
+	}
 }
 
 func (c *Client) printClientRow(item any) {
@@ -219,7 +261,14 @@ func (c *Client) ClientStatus(ctx context.Context, accountID string, filters Sta
 }
 
 func (c *Client) printClientStatus(data map[string]any) {
-	_, _ = fmt.Fprintf(c.out, "Account: %v\n\n", data["account_id"])
+	_, _ = fmt.Fprintf(c.out, "Account: %v\n", data["account_id"])
+	if inbound, ok := data["inbound_listener"].(map[string]any); ok {
+		tunnelIP, _ := inbound["tunnel_ip"].(string)
+		httpsPort, _ := inbound["https_port"].(float64)
+		httpPort, _ := inbound["http_port"].(float64)
+		_, _ = fmt.Fprintf(c.out, "Inbound listener: %s (https=%d, http=%d)\n", tunnelIP, int(httpsPort), int(httpPort))
+	}
+	_, _ = fmt.Fprintln(c.out)
 	if status, ok := data["status"].(string); ok {
 		_, _ = fmt.Fprint(c.out, status)
 	}

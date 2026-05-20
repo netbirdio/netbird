@@ -5,6 +5,7 @@ package peers
 import (
 	"context"
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/rs/xid"
@@ -35,6 +36,14 @@ type Manager interface {
 	SetAccountManager(accountManager account.Manager)
 	GetPeerID(ctx context.Context, peerKey string) (string, error)
 	CreateProxyPeer(ctx context.Context, accountID string, peerKey string, cluster string) error
+	// GetPeerByTunnelIP looks up a peer in accountID by its WireGuard tunnel IP.
+	// Returns nil with an error when no match exists. No permission check;
+	// callers (the proxy's ValidateTunnelPeer RPC) are trusted server components.
+	GetPeerByTunnelIP(ctx context.Context, accountID string, ip net.IP) (*peer.Peer, error)
+	// GetPeerWithGroups returns the peer and the list of *types.Group it belongs
+	// to. Used by the proxy's auth path to authorise a request by the calling
+	// peer's group memberships.
+	GetPeerWithGroups(ctx context.Context, accountID, peerID string) (*peer.Peer, []*types.Group, error)
 }
 
 type managerImpl struct {
@@ -97,6 +106,24 @@ func (m *managerImpl) GetPeerAccountID(ctx context.Context, peerID string) (stri
 
 func (m *managerImpl) GetPeersByGroupIDs(ctx context.Context, accountID string, groupsIDs []string) ([]*peer.Peer, error) {
 	return m.store.GetPeersByGroupIDs(ctx, accountID, groupsIDs)
+}
+
+// GetPeerByTunnelIP delegates to the store's indexed lookup.
+func (m *managerImpl) GetPeerByTunnelIP(ctx context.Context, accountID string, ip net.IP) (*peer.Peer, error) {
+	return m.store.GetPeerByIP(ctx, store.LockingStrengthNone, accountID, ip)
+}
+
+// GetPeerWithGroups returns the peer plus its group memberships.
+func (m *managerImpl) GetPeerWithGroups(ctx context.Context, accountID, peerID string) (*peer.Peer, []*types.Group, error) {
+	p, err := m.store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
+	if err != nil {
+		return nil, nil, err
+	}
+	groups, err := m.store.GetPeerGroups(ctx, store.LockingStrengthNone, accountID, peerID)
+	if err != nil {
+		return p, nil, err
+	}
+	return p, groups, nil
 }
 
 func (m *managerImpl) DeletePeers(ctx context.Context, accountID string, peerIDs []string, userID string, checkConnected bool) error {
