@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import { Dialogs } from "@wailsio/runtime";
 import { Update as UpdateSvc } from "@bindings/services";
 import i18next from "@/lib/i18n";
+import { formatErrorMessage } from "@/lib/errors";
 
 const TIMEOUT_MS = 15 * 60 * 1000;
 
@@ -20,7 +21,7 @@ export default function Update() {
     UpdateSvc.Trigger().catch((e) => {
       if (cancelled) return;
       setFailed(true);
-      void showError(e instanceof Error ? e.message : String(e));
+      void showError(formatErrorMessage(e));
     });
 
     const start = Date.now();

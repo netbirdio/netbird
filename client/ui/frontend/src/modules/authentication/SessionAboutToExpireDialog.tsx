@@ -16,6 +16,7 @@ import {
     WindowManager,
 } from "@bindings/services";
 import { useAutoSizeWindow } from "@/lib/useAutoSizeWindow";
+import { formatErrorMessage } from "@/lib/errors.ts";
 
 const DEFAULT_SECONDS = 360;
 const WINDOW_WIDTH = 360;
@@ -63,7 +64,7 @@ export default function SessionAboutToExpireDialog() {
         if (busy) return;
         setBusy(true);
         try {
-            const start = await Session.RequestExtend({});
+            const start = await Session.RequestExtend({ hint: "" });
             const uri = start.verificationUriComplete || start.verificationUri;
             if (uri) {
                 try {
@@ -80,7 +81,7 @@ export default function SessionAboutToExpireDialog() {
         } catch (e) {
             await Dialogs.Error({
                 Title: t("sessionAboutToExpire.extendFailedTitle"),
-                Message: e instanceof Error ? e.message : String(e),
+                Message: formatErrorMessage(e),
             });
         } finally {
             setBusy(false);

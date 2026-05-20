@@ -293,5 +293,14 @@
 
     "daemon.unavailable.title": "NetBird-Dienst läuft nicht",
     "daemon.unavailable.description": "Die App stellt automatisch die Verbindung wieder her, sobald der Dienst läuft.",
-    "daemon.unavailable.docsLink": "Dokumentation"
+    "daemon.unavailable.docsLink": "Dokumentation",
+
+    "error.jwt_clock_skew": "Anmeldung fehlgeschlagen: Die Uhr dieses Geräts ist nicht mit dem Server synchron. Bitte synchronisieren Sie die Systemuhr und versuchen Sie es erneut.",
+    "error.jwt_expired": "Ihr Anmeldetoken ist abgelaufen. Bitte melden Sie sich erneut an.",
+    "error.jwt_signature_invalid": "Anmeldung fehlgeschlagen: Die Token-Signatur ist ungültig. Bitte wenden Sie sich an Ihren Administrator.",
+    "error.session_expired": "Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.",
+    "error.invalid_setup_key": "Der Setup-Schlüssel fehlt oder ist ungültig.",
+    "error.permission_denied": "Die Anmeldung wurde vom Server abgelehnt.",
+    "error.daemon_unreachable": "Der NetBird-Dienst antwortet nicht. Bitte prüfen Sie, ob der Dienst läuft.",
+    "error.unknown": "Vorgang fehlgeschlagen. Technische Details siehe unten."
 }

@@ -314,5 +314,14 @@
 
     "daemon.unavailable.title": "NetBird Service Is Not Running",
     "daemon.unavailable.description": "The app will reconnect automatically once the service is running.",
-    "daemon.unavailable.docsLink": "Documentation"
+    "daemon.unavailable.docsLink": "Documentation",
+
+    "error.jwt_clock_skew": "Sign-in failed: this device's clock is out of sync with the server. Please sync your system clock and try again.",
+    "error.jwt_expired": "Your sign-in token has expired. Please sign in again.",
+    "error.jwt_signature_invalid": "Sign-in failed: the token signature is invalid. Please contact your administrator.",
+    "error.session_expired": "Your session has expired. Please sign in again.",
+    "error.invalid_setup_key": "The setup key is missing or invalid.",
+    "error.permission_denied": "Sign-in was rejected by the server.",
+    "error.daemon_unreachable": "The NetBird daemon is not responding. Please check that the service is running.",
+    "error.unknown": "Operation failed. See details for the technical message."
 }

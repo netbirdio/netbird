@@ -7,6 +7,7 @@ import { ToggleSwitch } from "@/components/ToggleSwitch.tsx";
 import { useStatus } from "@/modules/daemon-status/StatusContext.tsx";
 import { useProfile } from "@/modules/profile/ProfileContext.tsx";
 import { cn } from "@/lib/cn.ts";
+import { formatErrorMessage } from "@/lib/errors.ts";
 import netbirdFullLogo from "@/assets/logos/netbird-full.svg";
 
 enum ConnectionState {
@@ -38,8 +39,7 @@ const NEEDS_LOGIN_STATES = new Set([
     "LoginFailed",
 ]);
 
-const errorMessage = (e: unknown) =>
-    e instanceof Error ? e.message : String(e);
+const errorMessage = formatErrorMessage;
 
 // startLogin drives the daemon's SSO login end-to-end. The BrowserLogin
 // popup window is the only login UI; errors surface as a native

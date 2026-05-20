@@ -13,9 +13,7 @@ import type { Config } from "@bindings/services/models.js";
 import i18next from "@/lib/i18n";
 import { useProfile } from "@/modules/profile/ProfileContext.tsx";
 import { SkeletonSettings } from "@/modules/skeletons/SkeletonSettings.tsx";
-
-const errorMessage = (e: unknown) =>
-    e instanceof Error ? e.message : String(e);
+import { formatErrorMessage as errorMessage } from "@/lib/errors.ts";
 
 const SAVE_DEBOUNCE_MS = 400;
 

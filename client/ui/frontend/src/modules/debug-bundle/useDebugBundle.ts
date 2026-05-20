@@ -6,6 +6,7 @@ import {
 } from "@bindings/services";
 import type { DebugBundleResult } from "@bindings/services/models.js";
 import i18next from "@/lib/i18n";
+import { formatErrorMessage } from "@/lib/errors.ts";
 import { useProfile } from "@/modules/profile/ProfileContext.tsx";
 
 const NETBIRD_UPLOAD_URL = "https://upload.debug.netbird.io/upload-url";
@@ -158,7 +159,7 @@ export const useDebugBundle = () => {
             setStage({ kind: "idle" });
             await Dialogs.Error({
                 Title: i18next.t("settings.error.debugBundleTitle"),
-                Message: e instanceof Error ? e.message : String(e),
+                Message: formatErrorMessage(e),
             });
         } finally {
             if (abortRef.current === ctrl) abortRef.current = null;

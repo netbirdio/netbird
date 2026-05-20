@@ -123,7 +123,6 @@ func main() {
 		},
 	})
 
-	connection := services.NewConnection(conn)
 	settings := services.NewSettings(conn)
 	profiles := services.NewProfiles(conn)
 	// updater.Holder owns the typed update State. Peers feeds the daemon
@@ -133,7 +132,6 @@ func main() {
 	update := services.NewUpdate(conn, updaterHolder)
 	peers := services.NewPeers(conn, app.Event, updaterHolder)
 	notifier := notifications.New()
-	profileSwitcher := services.NewProfileSwitcher(profiles, connection, peers)
 
 	// localesFS reroots the embedded tree at the locales directory itself
 	// so the bundle sees _index.json and <lang>/common.json at the top
@@ -155,6 +153,11 @@ func main() {
 		log.Fatalf("init preferences store: %v", err)
 	}
 	localizer := NewLocalizer(bundle, prefStore)
+
+	// Connection lives after bundle + prefStore so it can localise daemon
+	// errors (services.NewConnection takes both as dependencies).
+	connection := services.NewConnection(conn, bundle, prefStore)
+	profileSwitcher := services.NewProfileSwitcher(profiles, connection, peers)
 
 	app.RegisterService(application.NewService(connection))
 	// authsession.Session owns the full extend + dismiss surface; the tray

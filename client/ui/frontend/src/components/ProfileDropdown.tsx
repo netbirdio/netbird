@@ -11,6 +11,7 @@ import { NewProfileModal } from "@/components/NewProfileModal";
 import { Tooltip } from "@/components/Tooltip";
 import { useProfile } from "@/modules/profile/ProfileContext";
 import { cn } from "@/lib/cn";
+import { formatErrorMessage } from "@/lib/errors";
 
 type ProfileDropdownProps = {
     onManageProfiles?: () => void;
@@ -40,7 +41,7 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
         } catch (e) {
             await Dialogs.Error({
                 Title: title,
-                Message: e instanceof Error ? e.message : String(e),
+                Message: formatErrorMessage(e),
             });
         } finally {
             setBusy(false);
@@ -70,7 +71,7 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
         } catch (e) {
             await Dialogs.Error({
                 Title: t("profile.error.createTitle"),
-                Message: e instanceof Error ? e.message : String(e),
+                Message: formatErrorMessage(e),
             });
         }
     };
