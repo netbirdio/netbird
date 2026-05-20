@@ -60,15 +60,7 @@ func InitLogger(logger *log.Logger, logLevel string, logs ...string) error {
 		case "":
 			logger.Warnf("empty log path received: %#v", logPath)
 		default:
-			conflict, configPath := FindFirstLogrotateConflict()
-			if conflict {
-				logger.Warnf("log rotation conflict detected in: %#v, rotation is disabled", configPath)
-			}
-			rotationDisabled := isRotationDisabled()
-			if rotationDisabled {
-				logger.Warn("log rotation is disabled by env flag")
-			}
-			writer, err := setupLogFile(logPath, conflict || rotationDisabled)
+			writer, err := setupLogFile(logPath, isRotationDisabled(logger))
 			if err != nil {
 				logger.Errorf("failed setting up log file: %s, %s", logPath, err)
 				return err
@@ -108,13 +100,19 @@ func FindFirstLogPath(logs []string) string {
 	return ""
 }
 
-func isRotationDisabled() bool {
-	v, ok := os.LookupEnv("NB_LOG_DISABLE_ROTATION")
-	if !ok {
-		return false
-	}
+func isRotationDisabled(logger *log.Logger) bool {
+	v, _ := os.LookupEnv("NB_LOG_DISABLE_ROTATION")
 	disabled, _ := strconv.ParseBool(v)
-	return disabled
+	if disabled {
+		logger.Warnf("log rotation is disabled by env flag")
+		return true
+	}
+	conflict, configPath := FindFirstLogrotateConflict()
+	if conflict {
+		logger.Warnf("log rotation conflict detected in: %#v, rotation is disabled", configPath)
+		return true
+	}
+	return false
 }
 
 func setupLogFile(logPath string, disableRotation bool) (io.Writer, error) {
