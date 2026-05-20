@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -10,6 +11,10 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
+
+// ErrIPv6NotInitialized is returned when an IPv6 address is passed to a firewall
+// method but the IPv6 firewall components were not initialized.
+var ErrIPv6NotInitialized = errors.New("IPv6 firewall not initialized")
 
 const (
 	ForwardingFormatPrefix = "netbird-fwd-"
@@ -164,18 +169,16 @@ type Manager interface {
 	UpdateSet(hash Set, prefixes []netip.Prefix) error
 
 	// AddInboundDNAT adds an inbound DNAT rule redirecting traffic from NetBird peers to local services
-	AddInboundDNAT(localAddr netip.Addr, protocol Protocol, sourcePort, targetPort uint16) error
+	AddInboundDNAT(localAddr netip.Addr, protocol Protocol, originalPort, translatedPort uint16) error
 
 	// RemoveInboundDNAT removes inbound DNAT rule
-	RemoveInboundDNAT(localAddr netip.Addr, protocol Protocol, sourcePort, targetPort uint16) error
+	RemoveInboundDNAT(localAddr netip.Addr, protocol Protocol, originalPort, translatedPort uint16) error
 
 	// AddOutputDNAT adds an OUTPUT chain DNAT rule for locally-generated traffic.
-	// localAddr must be IPv4; the underlying iptables/nftables backends are IPv4-only.
-	AddOutputDNAT(localAddr netip.Addr, protocol Protocol, sourcePort, targetPort uint16) error
+	AddOutputDNAT(localAddr netip.Addr, protocol Protocol, originalPort, translatedPort uint16) error
 
 	// RemoveOutputDNAT removes an OUTPUT chain DNAT rule.
-	// localAddr must be IPv4; the underlying iptables/nftables backends are IPv4-only.
-	RemoveOutputDNAT(localAddr netip.Addr, protocol Protocol, sourcePort, targetPort uint16) error
+	RemoveOutputDNAT(localAddr netip.Addr, protocol Protocol, originalPort, translatedPort uint16) error
 
 	// SetupEBPFProxyNoTrack creates static notrack rules for eBPF proxy loopback traffic.
 	// This prevents conntrack from interfering with WireGuard proxy communication.

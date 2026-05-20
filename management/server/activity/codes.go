@@ -231,6 +231,15 @@ const (
 	DomainDeleted Activity = 119
 	// DomainValidated indicates that a custom domain was validated
 	DomainValidated Activity = 120
+	// AccountIPv6Enabled indicates that a user enabled IPv6 overlay for the account
+	AccountIPv6Enabled Activity = 121
+	// AccountIPv6Disabled indicates that a user disabled IPv6 overlay for the account
+	AccountIPv6Disabled Activity = 122
+
+	// AccountLocalMfaEnabled indicates that a user enabled TOTP MFA for local users
+	AccountLocalMfaEnabled Activity = 123
+	// AccountLocalMfaDisabled indicates that a user disabled TOTP MFA for local users
+	AccountLocalMfaDisabled Activity = 124
 
 	AccountDeleted Activity = 99999
 )
@@ -347,6 +356,9 @@ var activityMap = map[Activity]Code{
 	AccountAutoUpdateAlwaysEnabled:  {"Account auto-update always enabled", "account.setting.auto.update.always.enable"},
 	AccountAutoUpdateAlwaysDisabled: {"Account auto-update always disabled", "account.setting.auto.update.always.disable"},
 
+	AccountIPv6Enabled:  {"Account IPv6 overlay enabled", "account.setting.ipv6.enable"},
+	AccountIPv6Disabled: {"Account IPv6 overlay disabled", "account.setting.ipv6.disable"},
+
 	IdentityProviderCreated: {"Identity provider created", "identityprovider.create"},
 	IdentityProviderUpdated: {"Identity provider updated", "identityprovider.update"},
 	IdentityProviderDeleted: {"Identity provider deleted", "identityprovider.delete"},
@@ -378,6 +390,9 @@ var activityMap = map[Activity]Code{
 
 	AccountPeerExposeEnabled:  {"Account peer expose enabled", "account.setting.peer.expose.enable"},
 	AccountPeerExposeDisabled: {"Account peer expose disabled", "account.setting.peer.expose.disable"},
+
+	AccountLocalMfaEnabled:  {"Account local MFA enabled", "account.setting.local.mfa.enable"},
+	AccountLocalMfaDisabled: {"Account local MFA disabled", "account.setting.local.mfa.disable"},
 
 	DomainAdded:     {"Domain added", "domain.add"},
 	DomainDeleted:   {"Domain deleted", "domain.delete"},

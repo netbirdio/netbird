@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -91,7 +92,8 @@ type Manager struct {
 // PeerSSHInfo represents a peer's SSH configuration information
 type PeerSSHInfo struct {
 	Hostname string
-	IP       string
+	IP       netip.Addr
+	IPv6     netip.Addr
 	FQDN     string
 }
 
@@ -210,8 +212,11 @@ func (m *Manager) buildPeerConfig(allHostPatterns []string) (string, error) {
 
 func (m *Manager) buildHostPatterns(peer PeerSSHInfo) []string {
 	var hostPatterns []string
-	if peer.IP != "" {
-		hostPatterns = append(hostPatterns, peer.IP)
+	if peer.IP.IsValid() {
+		hostPatterns = append(hostPatterns, peer.IP.String())
+	}
+	if peer.IPv6.IsValid() {
+		hostPatterns = append(hostPatterns, peer.IPv6.String())
 	}
 	if peer.FQDN != "" {
 		hostPatterns = append(hostPatterns, peer.FQDN)
@@ -224,18 +229,35 @@ func (m *Manager) buildHostPatterns(peer PeerSSHInfo) []string {
 
 func (m *Manager) writeSSHConfig(sshConfig string) error {
 	sshConfigPath := filepath.Join(m.sshConfigDir, m.sshConfigFile)
-	sshConfigPathTmp := sshConfigPath + ".tmp"
 
 	if err := os.MkdirAll(m.sshConfigDir, 0755); err != nil {
 		return fmt.Errorf("create SSH config directory %s: %w", m.sshConfigDir, err)
 	}
 
-	if err := writeFileWithTimeout(sshConfigPathTmp, []byte(sshConfig), 0644); err != nil {
-		return fmt.Errorf("write SSH config file %s: %w", sshConfigPath, err)
+	tmp, err := os.CreateTemp(m.sshConfigDir, m.sshConfigFile+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp SSH config: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		if err := os.Remove(tmpPath); err != nil && !os.IsNotExist(err) {
+			log.Debugf("remove temp SSH config %s: %v", tmpPath, err)
+		}
+	}()
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temp SSH config %s: %w", tmpPath, err)
 	}
 
-	if err := os.Rename(sshConfigPathTmp, sshConfigPath); err != nil {
-		return fmt.Errorf("rename ssh config %s -> %s: %w", sshConfigPathTmp, sshConfigPath, err)
+	if err := writeFileWithTimeout(tmpPath, []byte(sshConfig), 0644); err != nil {
+		return fmt.Errorf("write SSH config file %s: %w", tmpPath, err)
+	}
+
+	if err := os.Chmod(tmpPath, 0644); err != nil {
+		return fmt.Errorf("chmod SSH config file %s: %w", tmpPath, err)
+	}
+
+	if err := os.Rename(tmpPath, sshConfigPath); err != nil {
+		return fmt.Errorf("rename SSH config %s -> %s: %w", tmpPath, sshConfigPath, err)
 	}
 
 	log.Infof("Created NetBird SSH client config: %s", sshConfigPath)

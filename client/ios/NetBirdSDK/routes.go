@@ -34,7 +34,34 @@ type DomainDetails struct {
 
 type DomainInfo struct {
 	Domain      string
-	ResolvedIPs string
+	resolvedIPs ResolvedIPs
+}
+
+func (d *DomainInfo) AddResolvedIP(ipAddress string) {
+	d.resolvedIPs.Add(ipAddress)
+}
+
+func (d *DomainInfo) GetResolvedIPs() *ResolvedIPs {
+	return &d.resolvedIPs
+}
+
+type ResolvedIPs struct {
+	items []string
+}
+
+func (r *ResolvedIPs) Add(ipAddress string) {
+	r.items = append(r.items, ipAddress)
+}
+
+func (r *ResolvedIPs) Get(i int) string {
+	if i < 0 || i >= len(r.items) {
+		return ""
+	}
+	return r.items[i]
+}
+
+func (r *ResolvedIPs) Size() int {
+	return len(r.items)
 }
 
 // Add new PeerInfo to the collection

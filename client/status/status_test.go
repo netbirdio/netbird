@@ -32,6 +32,7 @@ var resp = &proto.StatusResponse{
 		Peers: []*proto.PeerState{
 			{
 				IP:                         "192.168.178.101",
+				Ipv6:                       "fd00::1",
 				PubKey:                     "Pubkey1",
 				Fqdn:                       "peer-1.awesome-domain.com",
 				ConnStatus:                 "Connected",
@@ -90,6 +91,7 @@ var resp = &proto.StatusResponse{
 		},
 		LocalPeerState: &proto.LocalPeerState{
 			IP:              "192.168.178.100/16",
+			Ipv6:            "fd00::100",
 			PubKey:          "Some-Pub-Key",
 			KernelInterface: true,
 			Fqdn:            "some-localhost.awesome-domain.com",
@@ -130,6 +132,7 @@ var overview = OutputOverview{
 		Details: []PeerStateDetailOutput{
 			{
 				IP:               "192.168.178.101",
+				IPv6:             "fd00::1",
 				PubKey:           "Pubkey1",
 				FQDN:             "peer-1.awesome-domain.com",
 				Status:           "Connected",
@@ -204,6 +207,7 @@ var overview = OutputOverview{
 		},
 	},
 	IP:              "192.168.178.100/16",
+	IPv6:            "fd00::100",
 	PubKey:          "Some-Pub-Key",
 	KernelInterface: true,
 	FQDN:            "some-localhost.awesome-domain.com",
@@ -284,6 +288,7 @@ func TestParsingToJSON(t *testing.T) {
               {
                 "fqdn": "peer-1.awesome-domain.com",
                 "netbirdIp": "192.168.178.101",
+                "netbirdIpv6": "fd00::1",
                 "publicKey": "Pubkey1",
                 "status": "Connected",
                 "lastStatusUpdate": "2001-01-01T01:01:01Z",
@@ -361,6 +366,7 @@ func TestParsingToJSON(t *testing.T) {
             ]
           },
           "netbirdIp": "192.168.178.100/16",
+          "netbirdIpv6": "fd00::100",
           "publicKey": "Some-Pub-Key",
           "usesKernelInterface": true,
           "fqdn": "some-localhost.awesome-domain.com",
@@ -418,6 +424,7 @@ func TestParsingToYAML(t *testing.T) {
     details:
         - fqdn: peer-1.awesome-domain.com
           netbirdIp: 192.168.178.101
+          netbirdIpv6: fd00::1
           publicKey: Pubkey1
           status: Connected
           lastStatusUpdate: 2001-01-01T01:01:01Z
@@ -477,6 +484,7 @@ relays:
           available: false
           error: 'context: deadline exceeded'
 netbirdIp: 192.168.178.100/16
+netbirdIpv6: fd00::100
 publicKey: Some-Pub-Key
 usesKernelInterface: true
 fqdn: some-localhost.awesome-domain.com
@@ -523,6 +531,7 @@ func TestParsingToDetail(t *testing.T) {
 		`Peers detail:
  peer-1.awesome-domain.com:
   NetBird IP: 192.168.178.101
+  NetBird IPv6: fd00::1
   Public key: Pubkey1
   Status: Connected
   -- detail --
@@ -568,6 +577,7 @@ Nameservers:
   [1.1.1.1:53, 2.2.2.2:53] for [example.com, example.net] is Unavailable, reason: timeout
 FQDN: some-localhost.awesome-domain.com
 NetBird IP: 192.168.178.100/16
+NetBird IPv6: fd00::100
 Interface type: Kernel
 Quantum resistance: false
 Lazy connection: false
@@ -592,6 +602,7 @@ Relays: 1/2 Available
 Nameservers: 1/2 Available
 FQDN: some-localhost.awesome-domain.com
 NetBird IP: 192.168.178.100/16
+NetBird IPv6: fd00::100
 Interface type: Kernel
 Quantum resistance: false
 Lazy connection: false
