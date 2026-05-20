@@ -40,6 +40,7 @@ type aclManager struct {
 	entries         aclEntries
 	optionalEntries map[string][]entry
 	ipsetStore      *ipsetStore
+	v6              bool
 
 	stateManager *statemanager.Manager
 }
@@ -51,6 +52,7 @@ func newAclManager(iptablesClient *iptables.IPTables, wgIface iFaceMapper) (*acl
 		entries:         make(map[string][][]string),
 		optionalEntries: make(map[string][]entry),
 		ipsetStore:      newIpsetStore(),
+		v6:              iptablesClient.Proto() == iptables.ProtocolIPv6,
 	}, nil
 }
 
@@ -85,7 +87,11 @@ func (m *aclManager) AddPeerFiltering(
 	chain := chainNameInputRules
 
 	ipsetName = transformIPsetName(ipsetName, sPort, dPort, action)
-	specs := filterRuleSpecs(ip, string(protocol), sPort, dPort, action, ipsetName)
+	if m.v6 && ipsetName != "" {
+		ipsetName += "-v6"
+	}
+	proto := protoForFamily(protocol, m.v6)
+	specs := filterRuleSpecs(ip, proto, sPort, dPort, action, ipsetName)
 
 	mangleSpecs := slices.Clone(specs)
 	mangleSpecs = append(mangleSpecs,
@@ -109,6 +115,7 @@ func (m *aclManager) AddPeerFiltering(
 				ip:        ip.String(),
 				chain:     chain,
 				specs:     specs,
+				v6:        m.v6,
 			}}, nil
 		}
 
@@ -161,6 +168,7 @@ func (m *aclManager) AddPeerFiltering(
 		ipsetName:   ipsetName,
 		ip:          ip.String(),
 		chain:       chain,
+		v6:          m.v6,
 	}
 
 	m.updateState()
@@ -413,8 +421,13 @@ func (m *aclManager) updateState() {
 	currentState.Lock()
 	defer currentState.Unlock()
 
-	currentState.ACLEntries = m.entries
-	currentState.ACLIPsetStore = m.ipsetStore
+	if m.v6 {
+		currentState.ACLEntries6 = m.entries
+		currentState.ACLIPsetStore6 = m.ipsetStore
+	} else {
+		currentState.ACLEntries = m.entries
+		currentState.ACLIPsetStore = m.ipsetStore
+	}
 
 	if err := m.stateManager.UpdateState(currentState); err != nil {
 		log.Errorf("failed to update state: %v", err)
@@ -422,13 +435,22 @@ func (m *aclManager) updateState() {
 }
 
 // filterRuleSpecs returns the specs of a filtering rule
+// protoForFamily translates ICMP to ICMPv6 for ip6tables.
+// ip6tables requires "ipv6-icmp" (or "icmpv6") instead of "icmp".
+func protoForFamily(protocol firewall.Protocol, v6 bool) string {
+	if v6 && protocol == firewall.ProtocolICMP {
+		return "ipv6-icmp"
+	}
+	return string(protocol)
+}
+
 func filterRuleSpecs(ip net.IP, protocol string, sPort, dPort *firewall.Port, action firewall.Action, ipsetName string) (specs []string) {
 	// don't use IP matching if IP is 0.0.0.0
 	matchByIP := !ip.IsUnspecified()
 
 	if matchByIP {
 		if ipsetName != "" {
-			specs = append(specs, "-m", "set", "--set", ipsetName, "src")
+			specs = append(specs, "-m", "set", "--match-set", ipsetName, "src")
 		} else {
 			specs = append(specs, "-s", ip.String())
 		}
@@ -473,6 +495,9 @@ func transformIPsetName(ipsetName string, sPort, dPort *firewall.Port, action fi
 func (m *aclManager) createIPSet(name string) error {
 	opts := ipset.CreateOptions{
 		Replace: true,
+	}
+	if m.v6 {
+		opts.Family = ipset.FamilyIPV6
 	}
 
 	if err := ipset.Create(name, ipset.TypeHashNet, opts); err != nil {

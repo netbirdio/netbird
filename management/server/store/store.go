@@ -114,6 +114,9 @@ type Store interface {
 
 	GetProxyAccessTokenByHashedToken(ctx context.Context, lockStrength LockingStrength, hashedToken types.HashedProxyToken) (*types.ProxyAccessToken, error)
 	GetAllProxyAccessTokens(ctx context.Context, lockStrength LockingStrength) ([]*types.ProxyAccessToken, error)
+	GetProxyAccessTokensByAccountID(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*types.ProxyAccessToken, error)
+	GetProxyAccessTokenByID(ctx context.Context, lockStrength LockingStrength, tokenID string) (*types.ProxyAccessToken, error)
+	IsProxyAccessTokenValid(ctx context.Context, tokenID string) (bool, error)
 	SaveProxyAccessToken(ctx context.Context, token *types.ProxyAccessToken) error
 	RevokeProxyAccessToken(ctx context.Context, tokenID string) error
 	MarkProxyAccessTokenUsed(ctx context.Context, tokenID string) error
@@ -164,6 +167,21 @@ type Store interface {
 	GetAllEphemeralPeers(ctx context.Context, lockStrength LockingStrength) ([]*nbpeer.Peer, error)
 	SavePeer(ctx context.Context, accountID string, peer *nbpeer.Peer) error
 	SavePeerStatus(ctx context.Context, accountID, peerID string, status nbpeer.PeerStatus) error
+	// MarkPeerConnectedIfNewerSession sets the peer to connected with the
+	// given session token, but only when the stored SessionStartedAt is
+	// strictly less than newSessionStartedAt (the sentinel zero counts as
+	// "older"). LastSeen is recorded by the database at the moment the
+	// row is updated — never by the caller — so it always reflects the
+	// real write time even under lock contention.
+	// Returns true when the update happened, false when this stream lost
+	// the race against a newer session.
+	MarkPeerConnectedIfNewerSession(ctx context.Context, accountID, peerID string, newSessionStartedAt int64) (bool, error)
+	// MarkPeerDisconnectedIfSameSession sets the peer to disconnected and
+	// resets SessionStartedAt to zero, but only when the stored
+	// SessionStartedAt equals the given sessionStartedAt. LastSeen is
+	// recorded by the database. Returns true when the update happened,
+	// false when a newer session has taken over.
+	MarkPeerDisconnectedIfSameSession(ctx context.Context, accountID, peerID string, sessionStartedAt int64) (bool, error)
 	SavePeerLocation(ctx context.Context, accountID string, peer *nbpeer.Peer) error
 	ApproveAccountPeers(ctx context.Context, accountID string) (int, error)
 	DeletePeer(ctx context.Context, accountID string, peerID string) error
@@ -185,7 +203,7 @@ type Store interface {
 	SaveNameServerGroup(ctx context.Context, nameServerGroup *dns.NameServerGroup) error
 	DeleteNameServerGroup(ctx context.Context, accountID, nameServerGroupID string) error
 
-	GetTakenIPs(ctx context.Context, lockStrength LockingStrength, accountId string) ([]net.IP, error)
+	GetTakenIPs(ctx context.Context, lockStrength LockingStrength, accountId string) ([]netip.Addr, error)
 	IncrementNetworkSerial(ctx context.Context, accountId string) error
 	GetAccountNetwork(ctx context.Context, lockStrength LockingStrength, accountId string) (*types.Network, error)
 
@@ -225,6 +243,7 @@ type Store interface {
 	IsPrimaryAccount(ctx context.Context, accountID string) (bool, string, error)
 	MarkAccountPrimary(ctx context.Context, accountID string) error
 	UpdateAccountNetwork(ctx context.Context, accountID string, ipNet net.IPNet) error
+	UpdateAccountNetworkV6(ctx context.Context, accountID string, ipNet net.IPNet) error
 	GetPolicyRulesByResourceID(ctx context.Context, lockStrength LockingStrength, accountID string, peerID string) ([]*types.PolicyRule, error)
 
 	// SetFieldEncrypt sets the field encryptor for encrypting sensitive user data.
@@ -284,13 +303,19 @@ type Store interface {
 	DeleteServiceTargets(ctx context.Context, accountID string, serviceID string) error
 
 	SaveProxy(ctx context.Context, proxy *proxy.Proxy) error
-	UpdateProxyHeartbeat(ctx context.Context, proxyID, clusterAddress, ipAddress string) error
+	DisconnectProxy(ctx context.Context, proxyID, sessionID string) error
+	UpdateProxyHeartbeat(ctx context.Context, p *proxy.Proxy) error
 	GetActiveProxyClusterAddresses(ctx context.Context) ([]string, error)
-	GetActiveProxyClusters(ctx context.Context) ([]proxy.Cluster, error)
+	GetActiveProxyClusterAddressesForAccount(ctx context.Context, accountID string) ([]string, error)
+	GetProxyClusters(ctx context.Context, accountID string) ([]proxy.Cluster, error)
 	GetClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
 	GetClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
 	CleanupStaleProxies(ctx context.Context, inactivityDuration time.Duration) error
+	GetProxyByAccountID(ctx context.Context, accountID string) (*proxy.Proxy, error)
+	CountProxiesByAccountID(ctx context.Context, accountID string) (int64, error)
+	IsClusterAddressConflicting(ctx context.Context, clusterAddress, accountID string) (bool, error)
+	DeleteAccountCluster(ctx context.Context, clusterAddress, accountID string) error
 
 	GetCustomDomainsCounts(ctx context.Context) (total int64, validated int64, err error)
 
@@ -447,6 +472,9 @@ func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 			return migration.MigrateNewField[types.User](ctx, db, "email", "")
 		},
 		func(db *gorm.DB) error {
+			return migration.MigrateNewField[nbpeer.Peer](ctx, db, "peer_status_session_started_at", int64(0))
+		},
+		func(db *gorm.DB) error {
 			return migration.RemoveDuplicatePeerKeys(ctx, db)
 		},
 		func(db *gorm.DB) error {
@@ -493,6 +521,9 @@ func getMigrationsPostAuto(ctx context.Context) []migrationFunc {
 		},
 		func(db *gorm.DB) error {
 			return migration.CreateIndexIfNotExists[nbpeer.Peer](ctx, db, "idx_peers_key_unique", "key")
+		},
+		func(db *gorm.DB) error {
+			return migration.DropIndex[proxy.Proxy](ctx, db, "idx_proxy_account_id_unique")
 		},
 	}
 }

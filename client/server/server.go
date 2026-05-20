@@ -33,6 +33,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/internal/updater"
 	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/util/capture"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -89,7 +90,11 @@ type Server struct {
 	profileManager         *profilemanager.ServiceManager
 	profilesDisabled       bool
 	updateSettingsDisabled bool
-	networksDisabled       bool
+	captureEnabled         bool
+	bundleCapture          *bundleCapture
+	// activeCapture is the session currently installed on the engine; guarded by s.mutex.
+	activeCapture    *capture.Session
+	networksDisabled bool
 
 	sleepHandler *sleephandler.SleepHandler
 
@@ -106,7 +111,7 @@ type oauthAuthFlow struct {
 }
 
 // New server instance constructor.
-func New(ctx context.Context, logFile string, configFile string, profilesDisabled bool, updateSettingsDisabled bool, networksDisabled bool) *Server {
+func New(ctx context.Context, logFile string, configFile string, profilesDisabled bool, updateSettingsDisabled bool, captureEnabled bool, networksDisabled bool) *Server {
 	s := &Server{
 		rootCtx:                ctx,
 		logFile:                logFile,
@@ -115,11 +120,13 @@ func New(ctx context.Context, logFile string, configFile string, profilesDisable
 		profileManager:         profilemanager.NewServiceManager(configFile),
 		profilesDisabled:       profilesDisabled,
 		updateSettingsDisabled: updateSettingsDisabled,
+		captureEnabled:         captureEnabled,
 		networksDisabled:       networksDisabled,
 		jwtCache:               newJWTCache(),
 	}
 	agent := &serverAgent{s}
 	s.sleepHandler = sleephandler.New(agent)
+	s.startSleepDetector()
 
 	return s
 }
@@ -378,6 +385,7 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 	config.DisableNotifications = msg.DisableNotifications
 	config.LazyConnectionEnabled = msg.LazyConnectionEnabled
 	config.BlockInbound = msg.BlockInbound
+	config.DisableIPv6 = msg.DisableIpv6
 	config.EnableSSHRoot = msg.EnableSSHRoot
 	config.EnableSSHSFTP = msg.EnableSSHSFTP
 	config.EnableSSHLocalPortForwarding = msg.EnableSSHLocalPortForwarding
@@ -481,6 +489,11 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	}
 
 	s.mutex.Unlock()
+
+	if err := persistLoginOverrides(activeProf, msg.ManagementUrl, msg.OptionalPreSharedKey); err != nil {
+		log.Errorf("failed to persist login overrides: %v", err)
+		return nil, fmt.Errorf("persist login overrides: %w", err)
+	}
 
 	config, _, err := s.getConfig(activeProf)
 	if err != nil {
@@ -956,7 +969,7 @@ func (s *Server) handleActiveProfileLogout(ctx context.Context) (*proto.LogoutRe
 	return &proto.LogoutResponse{}, nil
 }
 
-// GetConfig reads config file and returns Config and whether the config file already existed. Errors out if it does not exist
+// getConfig reads config file and returns Config and whether the config file already existed. Errors out if it does not exist
 func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*profilemanager.Config, bool, error) {
 	cfgPath, err := activeProf.FilePath()
 	if err != nil {
@@ -1476,6 +1489,7 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 	disableDNS := cfg.DisableDNS
 	disableClientRoutes := cfg.DisableClientRoutes
 	disableServerRoutes := cfg.DisableServerRoutes
+	disableIPv6 := cfg.DisableIPv6
 	blockLANAccess := cfg.BlockLANAccess
 
 	enableSSHRoot := false
@@ -1526,6 +1540,7 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		DisableDns:                    disableDNS,
 		DisableClientRoutes:           disableClientRoutes,
 		DisableServerRoutes:           disableServerRoutes,
+		DisableIpv6:                   disableIPv6,
 		BlockLanAccess:                blockLANAccess,
 		EnableSSHRoot:                 enableSSHRoot,
 		EnableSSHSFTP:                 enableSSHSFTP,
@@ -1755,4 +1770,30 @@ func sendTerminalNotification() error {
 	}
 
 	return wallCmd.Wait()
+}
+
+// persistLoginOverrides writes management URL and pre-shared key from a LoginRequest to the
+// active profile config so that subsequent reads pick them up. Empty/nil values are ignored.
+func persistLoginOverrides(activeProf *profilemanager.ActiveProfileState, managementURL string, preSharedKey *string) error {
+	if preSharedKey != nil && *preSharedKey == "" {
+		preSharedKey = nil
+	}
+	if managementURL == "" && preSharedKey == nil {
+		return nil
+	}
+
+	cfgPath, err := activeProf.FilePath()
+	if err != nil {
+		return fmt.Errorf("active profile file path: %w", err)
+	}
+
+	input := profilemanager.ConfigInput{
+		ConfigPath:    cfgPath,
+		ManagementURL: managementURL,
+		PreSharedKey:  preSharedKey,
+	}
+	if _, err := profilemanager.UpdateOrCreateConfig(input); err != nil {
+		return fmt.Errorf("update config: %w", err)
+	}
+	return nil
 }

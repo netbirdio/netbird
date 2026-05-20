@@ -44,17 +44,17 @@ func (m *MockController) EXPECT() *MockControllerMockRecorder {
 }
 
 // BufferUpdateAccountPeers mocks base method.
-func (m *MockController) BufferUpdateAccountPeers(ctx context.Context, accountID string) error {
+func (m *MockController) BufferUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "BufferUpdateAccountPeers", ctx, accountID)
+	ret := m.ctrl.Call(m, "BufferUpdateAccountPeers", ctx, accountID, reason)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // BufferUpdateAccountPeers indicates an expected call of BufferUpdateAccountPeers.
-func (mr *MockControllerMockRecorder) BufferUpdateAccountPeers(ctx, accountID any) *gomock.Call {
+func (mr *MockControllerMockRecorder) BufferUpdateAccountPeers(ctx, accountID, reason any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BufferUpdateAccountPeers", reflect.TypeOf((*MockController)(nil).BufferUpdateAccountPeers), ctx, accountID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BufferUpdateAccountPeers", reflect.TypeOf((*MockController)(nil).BufferUpdateAccountPeers), ctx, accountID, reason)
 }
 
 // CountStreams mocks base method.
@@ -238,15 +238,15 @@ func (mr *MockControllerMockRecorder) UpdateAccountPeer(ctx, accountId, peerId a
 }
 
 // UpdateAccountPeers mocks base method.
-func (m *MockController) UpdateAccountPeers(ctx context.Context, accountID string) error {
+func (m *MockController) UpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateAccountPeers", ctx, accountID)
+	ret := m.ctrl.Call(m, "UpdateAccountPeers", ctx, accountID, reason)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // UpdateAccountPeers indicates an expected call of UpdateAccountPeers.
-func (mr *MockControllerMockRecorder) UpdateAccountPeers(ctx, accountID any) *gomock.Call {
+func (mr *MockControllerMockRecorder) UpdateAccountPeers(ctx, accountID, reason any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAccountPeers", reflect.TypeOf((*MockController)(nil).UpdateAccountPeers), ctx, accountID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAccountPeers", reflect.TypeOf((*MockController)(nil).UpdateAccountPeers), ctx, accountID, reason)
 }

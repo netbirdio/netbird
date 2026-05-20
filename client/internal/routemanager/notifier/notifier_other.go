@@ -23,7 +23,7 @@ func (n *Notifier) SetInitialClientRoutes([]*route.Route, []*route.Route) {
 	// Not used on non-mobile platforms
 }
 
-func (n *Notifier) SetFakeIPRoute(*route.Route) {
+func (n *Notifier) SetFakeIPRoutes([]*route.Route) {
 	// Not used on non-mobile platforms
 }
 

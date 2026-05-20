@@ -1,3 +1,32 @@
+// Package dns implements the client-side DNS stack: listener/service on the
+// peer's tunnel address, handler chain that routes questions by domain and
+// priority, and upstream resolvers that forward what remains to configured
+// nameservers.
+//
+// # Upstream resolution and the race model
+//
+// When two or more nameserver groups target the same domain, DefaultServer
+// merges them into one upstream handler whose state is:
+//
+//	upstreamResolverBase
+//	  └── upstreamServers []upstreamRace   // one entry per source NS group
+//	        └── []netip.AddrPort           // primary, fallback, ...
+//
+// Each source nameserver group contributes one upstreamRace. Within a race
+// upstreams are tried in order: the next is used only on failure (timeout,
+// SERVFAIL, REFUSED, no response). NXDOMAIN is a valid answer and stops
+// the walk. When more than one race exists, ServeDNS fans out one
+// goroutine per race and returns the first valid answer, cancelling the
+// rest. A handler with a single race skips the fan-out.
+//
+// # Health projection
+//
+// Query outcomes are recorded per-upstream in UpstreamHealth. The server
+// periodically merges these snapshots across handlers and projects them
+// into peer.NSGroupState. There is no active probing: a group is marked
+// unhealthy only when every seen upstream has a recent failure and none
+// has a recent success. Healthy→unhealthy fires a single
+// SystemEvent_WARNING; steady-state refreshes do not duplicate it.
 package dns
 
 import (
@@ -11,23 +40,49 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
-	"github.com/cenkalti/backoff/v4"
-	"github.com/hashicorp/go-multierror"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/dns/resutil"
 	"github.com/netbirdio/netbird/client/internal/dns/types"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 var currentMTU uint16 = iface.DefaultMTU
+
+// nonRetryableEDECodes lists EDE info codes (RFC 8914) for which a SERVFAIL
+// from one upstream means another upstream would return the same answer:
+// DNSSEC validation outcomes and policy-based blocks. Transient errors
+// (network, cached, not ready) are not included.
+var nonRetryableEDECodes = map[uint16]struct{}{
+	dns.ExtendedErrorCodeUnsupportedDNSKEYAlgorithm: {},
+	dns.ExtendedErrorCodeUnsupportedDSDigestType:    {},
+	dns.ExtendedErrorCodeDNSSECIndeterminate:        {},
+	dns.ExtendedErrorCodeDNSBogus:                   {},
+	dns.ExtendedErrorCodeSignatureExpired:           {},
+	dns.ExtendedErrorCodeSignatureNotYetValid:       {},
+	dns.ExtendedErrorCodeDNSKEYMissing:              {},
+	dns.ExtendedErrorCodeRRSIGsMissing:              {},
+	dns.ExtendedErrorCodeNoZoneKeyBitSet:            {},
+	dns.ExtendedErrorCodeNSECMissing:                {},
+	dns.ExtendedErrorCodeBlocked:                    {},
+	dns.ExtendedErrorCodeCensored:                   {},
+	dns.ExtendedErrorCodeFiltered:                   {},
+	dns.ExtendedErrorCodeProhibited:                 {},
+}
+
+// privateClientIface is the subset of the WireGuard interface needed by GetClientPrivate.
+type privateClientIface interface {
+	Name() string
+	Address() wgaddr.Address
+}
 
 func SetCurrentMTU(mtu uint16) {
 	currentMTU = mtu
@@ -39,15 +94,17 @@ const (
 	// Set longer than UpstreamTimeout to ensure context timeout takes precedence
 	ClientTimeout = 5 * time.Second
 
-	reactivatePeriod = 30 * time.Second
-	probeTimeout     = 2 * time.Second
-
 	// ipv6HeaderSize + udpHeaderSize, used to derive the maximum DNS UDP
 	// payload from the tunnel MTU.
 	ipUDPHeaderSize = 60 + 8
-)
 
-const testRecord = "com."
+	// raceMaxTotalTimeout caps the combined time spent walking all upstreams
+	// within one race, so a slow primary can't eat the whole race budget.
+	raceMaxTotalTimeout = 5 * time.Second
+	// raceMinPerUpstreamTimeout is the floor applied when dividing
+	// raceMaxTotalTimeout across upstreams within a race.
+	raceMinPerUpstreamTimeout = 2 * time.Second
+)
 
 const (
 	protoUDP = "udp"
@@ -55,6 +112,69 @@ const (
 )
 
 type dnsProtocolKey struct{}
+
+type upstreamProtocolKey struct{}
+
+// upstreamProtocolResult holds the protocol used for the upstream exchange.
+// Stored as a pointer in context so the exchange function can set it.
+type upstreamProtocolResult struct {
+	protocol string
+}
+
+type upstreamClient interface {
+	exchange(ctx context.Context, upstream string, r *dns.Msg) (*dns.Msg, time.Duration, error)
+}
+
+type UpstreamResolver interface {
+	serveDNS(r *dns.Msg) (*dns.Msg, time.Duration, error)
+	upstreamExchange(upstream string, r *dns.Msg) (*dns.Msg, time.Duration, error)
+}
+
+// upstreamRace is an ordered list of upstreams derived from one configured
+// nameserver group. Order matters: the first upstream is tried first, the
+// second only on failure, and so on. Multiple upstreamRace values coexist
+// inside one resolver when overlapping nameserver groups target the same
+// domain; those races run in parallel and the first valid answer wins.
+type upstreamRace []netip.AddrPort
+
+// UpstreamHealth is the last query-path outcome for a single upstream,
+// consumed by nameserver-group status projection.
+type UpstreamHealth struct {
+	LastOk   time.Time
+	LastFail time.Time
+	LastErr  string
+}
+
+type upstreamResolverBase struct {
+	ctx             context.Context
+	cancel          context.CancelFunc
+	upstreamClient  upstreamClient
+	upstreamServers []upstreamRace
+	domain          domain.Domain
+	upstreamTimeout time.Duration
+
+	healthMu sync.RWMutex
+	health   map[netip.AddrPort]*UpstreamHealth
+
+	statusRecorder *peer.Status
+	// selectedRoutes returns the current set of client routes the admin
+	// has enabled. Called lazily from the query hot path when an upstream
+	// might need a tunnel-bound client (iOS) and from health projection.
+	selectedRoutes func() route.HAMap
+}
+
+type upstreamFailure struct {
+	upstream netip.AddrPort
+	reason   string
+}
+
+type raceResult struct {
+	msg      *dns.Msg
+	upstream netip.AddrPort
+	protocol string
+	ede      string
+	failures []upstreamFailure
+}
 
 // contextWithDNSProtocol stores the inbound DNS protocol ("udp" or "tcp") in context.
 func contextWithDNSProtocol(ctx context.Context, network string) context.Context {
@@ -72,16 +192,8 @@ func dnsProtocolFromContext(ctx context.Context) string {
 	return ""
 }
 
-type upstreamProtocolKey struct{}
-
-// upstreamProtocolResult holds the protocol used for the upstream exchange.
-// Stored as a pointer in context so the exchange function can set it.
-type upstreamProtocolResult struct {
-	protocol string
-}
-
-// contextWithupstreamProtocolResult stores a mutable result holder in the context.
-func contextWithupstreamProtocolResult(ctx context.Context) (context.Context, *upstreamProtocolResult) {
+// contextWithUpstreamProtocolResult stores a mutable result holder in the context.
+func contextWithUpstreamProtocolResult(ctx context.Context) (context.Context, *upstreamProtocolResult) {
 	r := &upstreamProtocolResult{}
 	return context.WithValue(ctx, upstreamProtocolKey{}, r), r
 }
@@ -96,67 +208,37 @@ func setUpstreamProtocol(ctx context.Context, protocol string) {
 	}
 }
 
-type upstreamClient interface {
-	exchange(ctx context.Context, upstream string, r *dns.Msg) (*dns.Msg, time.Duration, error)
-}
-
-type UpstreamResolver interface {
-	serveDNS(r *dns.Msg) (*dns.Msg, time.Duration, error)
-	upstreamExchange(upstream string, r *dns.Msg) (*dns.Msg, time.Duration, error)
-}
-
-type upstreamResolverBase struct {
-	ctx              context.Context
-	cancel           context.CancelFunc
-	upstreamClient   upstreamClient
-	upstreamServers  []netip.AddrPort
-	domain           string
-	disabled         bool
-	successCount     atomic.Int32
-	mutex            sync.Mutex
-	reactivatePeriod time.Duration
-	upstreamTimeout  time.Duration
-	wg               sync.WaitGroup
-
-	deactivate     func(error)
-	reactivate     func()
-	statusRecorder *peer.Status
-	routeMatch     func(netip.Addr) bool
-}
-
-type upstreamFailure struct {
-	upstream netip.AddrPort
-	reason   string
-}
-
-func newUpstreamResolverBase(ctx context.Context, statusRecorder *peer.Status, domain string) *upstreamResolverBase {
+func newUpstreamResolverBase(ctx context.Context, statusRecorder *peer.Status, d domain.Domain) *upstreamResolverBase {
 	ctx, cancel := context.WithCancel(ctx)
 
 	return &upstreamResolverBase{
-		ctx:              ctx,
-		cancel:           cancel,
-		domain:           domain,
-		upstreamTimeout:  UpstreamTimeout,
-		reactivatePeriod: reactivatePeriod,
-		statusRecorder:   statusRecorder,
+		ctx:             ctx,
+		cancel:          cancel,
+		domain:          d,
+		upstreamTimeout: UpstreamTimeout,
+		statusRecorder:  statusRecorder,
 	}
 }
 
 // String returns a string representation of the upstream resolver
 func (u *upstreamResolverBase) String() string {
-	return fmt.Sprintf("Upstream %s", u.upstreamServers)
+	return fmt.Sprintf("Upstream %s", u.flatUpstreams())
 }
 
-// ID returns the unique handler ID
+// ID returns the unique handler ID. Race groupings and within-race
+// ordering are both part of the identity: [[A,B]] and [[A],[B]] query
+// the same servers but with different semantics (serial fallback vs
+// parallel race), so their handlers must not collide.
 func (u *upstreamResolverBase) ID() types.HandlerID {
-	servers := slices.Clone(u.upstreamServers)
-	slices.SortFunc(servers, func(a, b netip.AddrPort) int { return a.Compare(b) })
-
 	hash := sha256.New()
-	hash.Write([]byte(u.domain + ":"))
-	for _, s := range servers {
-		hash.Write([]byte(s.String()))
-		hash.Write([]byte("|"))
+	hash.Write([]byte(u.domain.PunycodeString() + ":"))
+	for _, race := range u.upstreamServers {
+		hash.Write([]byte("["))
+		for _, s := range race {
+			hash.Write([]byte(s.String()))
+			hash.Write([]byte("|"))
+		}
+		hash.Write([]byte("]"))
 	}
 	return types.HandlerID("upstream-" + hex.EncodeToString(hash.Sum(nil)[:8]))
 }
@@ -166,13 +248,31 @@ func (u *upstreamResolverBase) MatchSubdomains() bool {
 }
 
 func (u *upstreamResolverBase) Stop() {
-	log.Debugf("stopping serving DNS for upstreams %s", u.upstreamServers)
+	log.Debugf("stopping serving DNS for upstreams %s", u.flatUpstreams())
 	u.cancel()
+}
 
-	u.mutex.Lock()
-	u.wg.Wait()
-	u.mutex.Unlock()
+// flatUpstreams is for logging and ID hashing only, not for dispatch.
+func (u *upstreamResolverBase) flatUpstreams() []netip.AddrPort {
+	var out []netip.AddrPort
+	for _, g := range u.upstreamServers {
+		out = append(out, g...)
+	}
+	return out
+}
 
+// setSelectedRoutes swaps the accessor used to classify overlay-routed
+// upstreams. Called when route sources are wired after the handler was
+// built (permanent / iOS constructors).
+func (u *upstreamResolverBase) setSelectedRoutes(selected func() route.HAMap) {
+	u.selectedRoutes = selected
+}
+
+func (u *upstreamResolverBase) addRace(servers []netip.AddrPort) {
+	if len(servers) == 0 {
+		return
+	}
+	u.upstreamServers = append(u.upstreamServers, slices.Clone(servers))
 }
 
 // ServeDNS handles a DNS request
@@ -214,59 +314,226 @@ func (u *upstreamResolverBase) prepareRequest(r *dns.Msg) {
 }
 
 func (u *upstreamResolverBase) tryUpstreamServers(ctx context.Context, w dns.ResponseWriter, r *dns.Msg, logger *log.Entry) (bool, []upstreamFailure) {
-	timeout := u.upstreamTimeout
-	if len(u.upstreamServers) > 1 {
-		maxTotal := 5 * time.Second
-		minPerUpstream := 2 * time.Second
-		scaledTimeout := maxTotal / time.Duration(len(u.upstreamServers))
-		if scaledTimeout > minPerUpstream {
-			timeout = scaledTimeout
-		} else {
-			timeout = minPerUpstream
-		}
+	groups := u.upstreamServers
+	switch len(groups) {
+	case 0:
+		return false, nil
+	case 1:
+		return u.tryOnlyRace(ctx, w, r, groups[0], logger)
+	default:
+		return u.raceAll(ctx, w, r, groups, logger)
+	}
+}
+
+func (u *upstreamResolverBase) tryOnlyRace(ctx context.Context, w dns.ResponseWriter, r *dns.Msg, group upstreamRace, logger *log.Entry) (bool, []upstreamFailure) {
+	res := u.tryRace(ctx, r, group)
+	if res.msg == nil {
+		return false, res.failures
+	}
+	if res.ede != "" {
+		resutil.SetMeta(w, "ede", res.ede)
+	}
+	u.writeSuccessResponse(w, res.msg, res.upstream, r.Question[0].Name, res.protocol, logger)
+	return true, res.failures
+}
+
+// raceAll runs one worker per group in parallel, taking the first valid
+// answer and cancelling the rest.
+func (u *upstreamResolverBase) raceAll(ctx context.Context, w dns.ResponseWriter, r *dns.Msg, groups []upstreamRace, logger *log.Entry) (bool, []upstreamFailure) {
+	raceCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Buffer sized to len(groups) so workers never block on send, even
+	// after the coordinator has returned.
+	results := make(chan raceResult, len(groups))
+	for _, g := range groups {
+		// tryRace clones the request per attempt, so workers never share
+		// a *dns.Msg and concurrent EDNS0 mutations can't race.
+		go func(g upstreamRace) {
+			results <- u.tryRace(raceCtx, r, g)
+		}(g)
 	}
 
 	var failures []upstreamFailure
-	for _, upstream := range u.upstreamServers {
-		if failure := u.queryUpstream(ctx, w, r, upstream, timeout, logger); failure != nil {
-			failures = append(failures, *failure)
-		} else {
-			return true, failures
+	for range groups {
+		select {
+		case res := <-results:
+			failures = append(failures, res.failures...)
+			if res.msg != nil {
+				if res.ede != "" {
+					resutil.SetMeta(w, "ede", res.ede)
+				}
+				u.writeSuccessResponse(w, res.msg, res.upstream, r.Question[0].Name, res.protocol, logger)
+				return true, failures
+			}
+		case <-ctx.Done():
+			return false, failures
 		}
 	}
 	return false, failures
 }
 
-// queryUpstream queries a single upstream server. Returns nil on success, or failure info to try next upstream.
-func (u *upstreamResolverBase) queryUpstream(parentCtx context.Context, w dns.ResponseWriter, r *dns.Msg, upstream netip.AddrPort, timeout time.Duration, logger *log.Entry) *upstreamFailure {
-	var rm *dns.Msg
-	var t time.Duration
-	var err error
-
-	var startTime time.Time
-	var upstreamProto *upstreamProtocolResult
-	func() {
-		ctx, cancel := context.WithTimeout(parentCtx, timeout)
+func (u *upstreamResolverBase) tryRace(ctx context.Context, r *dns.Msg, group upstreamRace) raceResult {
+	timeout := u.upstreamTimeout
+	if len(group) > 1 {
+		// Cap the whole walk at raceMaxTotalTimeout: per-upstream timeouts
+		// still honor raceMinPerUpstreamTimeout as a floor for correctness
+		// on slow links, but the outer context ensures the combined walk
+		// cannot exceed the cap regardless of group size.
+		timeout = max(raceMaxTotalTimeout/time.Duration(len(group)), raceMinPerUpstreamTimeout)
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, raceMaxTotalTimeout)
 		defer cancel()
-		ctx, upstreamProto = contextWithupstreamProtocolResult(ctx)
-		startTime = time.Now()
-		rm, t, err = u.upstreamClient.exchange(ctx, upstream.String(), r)
-	}()
+	}
+
+	var failures []upstreamFailure
+	for _, upstream := range group {
+		if ctx.Err() != nil {
+			return raceResult{failures: failures}
+		}
+		// Clone the request per attempt: the exchange path mutates EDNS0
+		// options in-place, so reusing the same *dns.Msg across sequential
+		// upstreams would carry those mutations (e.g. a reduced UDP size)
+		// into the next attempt.
+		res, failure := u.queryUpstream(ctx, r.Copy(), upstream, timeout)
+		if failure != nil {
+			failures = append(failures, *failure)
+			continue
+		}
+		res.failures = failures
+		return res
+	}
+	return raceResult{failures: failures}
+}
+
+func (u *upstreamResolverBase) queryUpstream(parentCtx context.Context, r *dns.Msg, upstream netip.AddrPort, timeout time.Duration) (raceResult, *upstreamFailure) {
+	ctx, cancel := context.WithTimeout(parentCtx, timeout)
+	defer cancel()
+	ctx, upstreamProto := contextWithUpstreamProtocolResult(ctx)
+
+	// Advertise EDNS0 so the upstream may include Extended DNS Errors
+	// (RFC 8914) in failure responses; we use those to short-circuit
+	// failover for definitive answers like DNSSEC validation failures.
+	// The caller already passed a per-attempt copy, so we can mutate r
+	// directly; hadEdns reflects the original client request's state and
+	// controls whether we strip the OPT from the response.
+	hadEdns := r.IsEdns0() != nil
+	if !hadEdns {
+		r.SetEdns0(upstreamUDPSize(), false)
+	}
+
+	startTime := time.Now()
+	rm, _, err := u.upstreamClient.exchange(ctx, upstream.String(), r)
 
 	if err != nil {
-		return u.handleUpstreamError(err, upstream, startTime)
+		// A parent cancellation (e.g., another race won and the coordinator
+		// cancelled the losers) is not an upstream failure. Check both the
+		// error chain and the parent context: a transport may surface the
+		// cancellation as a read/deadline error rather than context.Canceled.
+		if errors.Is(err, context.Canceled) || errors.Is(parentCtx.Err(), context.Canceled) {
+			return raceResult{}, &upstreamFailure{upstream: upstream, reason: "canceled"}
+		}
+		failure := u.handleUpstreamError(err, upstream, startTime)
+		u.markUpstreamFail(upstream, failure.reason)
+		return raceResult{}, failure
 	}
 
 	if rm == nil || !rm.Response {
-		return &upstreamFailure{upstream: upstream, reason: "no response"}
+		u.markUpstreamFail(upstream, "no response")
+		return raceResult{}, &upstreamFailure{upstream: upstream, reason: "no response"}
+	}
+
+	proto := ""
+	if upstreamProto != nil {
+		proto = upstreamProto.protocol
 	}
 
 	if rm.Rcode == dns.RcodeServerFailure || rm.Rcode == dns.RcodeRefused {
-		return &upstreamFailure{upstream: upstream, reason: dns.RcodeToString[rm.Rcode]}
+		if code, ok := nonRetryableEDE(rm); ok {
+			if !hadEdns {
+				stripOPT(rm)
+			}
+			u.markUpstreamOk(upstream)
+			return raceResult{msg: rm, upstream: upstream, protocol: proto, ede: edeName(code)}, nil
+		}
+		reason := dns.RcodeToString[rm.Rcode]
+		u.markUpstreamFail(upstream, reason)
+		return raceResult{}, &upstreamFailure{upstream: upstream, reason: reason}
 	}
 
-	u.writeSuccessResponse(w, rm, upstream, r.Question[0].Name, t, upstreamProto, logger)
-	return nil
+	if !hadEdns {
+		stripOPT(rm)
+	}
+
+	u.markUpstreamOk(upstream)
+	return raceResult{msg: rm, upstream: upstream, protocol: proto}, nil
+}
+
+// healthEntry returns the mutable health record for addr, lazily creating
+// the map and the entry. Caller must hold u.healthMu.
+func (u *upstreamResolverBase) healthEntry(addr netip.AddrPort) *UpstreamHealth {
+	if u.health == nil {
+		u.health = make(map[netip.AddrPort]*UpstreamHealth)
+	}
+	h := u.health[addr]
+	if h == nil {
+		h = &UpstreamHealth{}
+		u.health[addr] = h
+	}
+	return h
+}
+
+func (u *upstreamResolverBase) markUpstreamOk(addr netip.AddrPort) {
+	u.healthMu.Lock()
+	defer u.healthMu.Unlock()
+	h := u.healthEntry(addr)
+	h.LastOk = time.Now()
+	h.LastFail = time.Time{}
+	h.LastErr = ""
+}
+
+func (u *upstreamResolverBase) markUpstreamFail(addr netip.AddrPort, reason string) {
+	u.healthMu.Lock()
+	defer u.healthMu.Unlock()
+	h := u.healthEntry(addr)
+	h.LastFail = time.Now()
+	h.LastErr = reason
+}
+
+// UpstreamHealth returns a snapshot of per-upstream query outcomes.
+func (u *upstreamResolverBase) UpstreamHealth() map[netip.AddrPort]UpstreamHealth {
+	u.healthMu.RLock()
+	defer u.healthMu.RUnlock()
+	out := make(map[netip.AddrPort]UpstreamHealth, len(u.health))
+	for k, v := range u.health {
+		out[k] = *v
+	}
+	return out
+}
+
+// upstreamUDPSize returns the EDNS0 UDP buffer size we advertise to upstreams,
+// derived from the tunnel MTU and bounded against underflow.
+func upstreamUDPSize() uint16 {
+	if currentMTU > ipUDPHeaderSize {
+		return currentMTU - ipUDPHeaderSize
+	}
+	return dns.MinMsgSize
+}
+
+// stripOPT removes any OPT pseudo-RRs from the response's Extra section so
+// the response complies with RFC 6891 when the client did not advertise EDNS0.
+func stripOPT(rm *dns.Msg) {
+	if len(rm.Extra) == 0 {
+		return
+	}
+	out := rm.Extra[:0]
+	for _, rr := range rm.Extra {
+		if _, ok := rr.(*dns.OPT); ok {
+			continue
+		}
+		out = append(out, rr)
+	}
+	rm.Extra = out
 }
 
 func (u *upstreamResolverBase) handleUpstreamError(err error, upstream netip.AddrPort, startTime time.Time) *upstreamFailure {
@@ -282,12 +549,23 @@ func (u *upstreamResolverBase) handleUpstreamError(err error, upstream netip.Add
 	return &upstreamFailure{upstream: upstream, reason: reason}
 }
 
-func (u *upstreamResolverBase) writeSuccessResponse(w dns.ResponseWriter, rm *dns.Msg, upstream netip.AddrPort, domain string, t time.Duration, upstreamProto *upstreamProtocolResult, logger *log.Entry) bool {
-	u.successCount.Add(1)
+func (u *upstreamResolverBase) debugUpstreamTimeout(upstream netip.AddrPort) string {
+	if u.statusRecorder == nil {
+		return ""
+	}
 
+	peerInfo := findPeerForIP(upstream.Addr(), u.statusRecorder)
+	if peerInfo == nil {
+		return ""
+	}
+
+	return fmt.Sprintf("(routes through NetBird peer %s)", FormatPeerStatus(peerInfo))
+}
+
+func (u *upstreamResolverBase) writeSuccessResponse(w dns.ResponseWriter, rm *dns.Msg, upstream netip.AddrPort, domain string, proto string, logger *log.Entry) {
 	resutil.SetMeta(w, "upstream", upstream.String())
-	if upstreamProto != nil && upstreamProto.protocol != "" {
-		resutil.SetMeta(w, "upstream_protocol", upstreamProto.protocol)
+	if proto != "" {
+		resutil.SetMeta(w, "upstream_protocol", proto)
 	}
 
 	// Clear Zero bit from external responses to prevent upstream servers from
@@ -296,14 +574,11 @@ func (u *upstreamResolverBase) writeSuccessResponse(w dns.ResponseWriter, rm *dn
 
 	if err := w.WriteMsg(rm); err != nil {
 		logger.Errorf("failed to write DNS response for question domain=%s: %s", domain, err)
-		return true
 	}
-
-	return true
 }
 
 func (u *upstreamResolverBase) logUpstreamFailures(domain string, failures []upstreamFailure, succeeded bool, logger *log.Entry) {
-	totalUpstreams := len(u.upstreamServers)
+	totalUpstreams := len(u.flatUpstreams())
 	failedCount := len(failures)
 	failureSummary := formatFailures(failures)
 
@@ -330,117 +605,32 @@ func formatFailures(failures []upstreamFailure) string {
 	return strings.Join(parts, ", ")
 }
 
-// ProbeAvailability tests all upstream servers simultaneously and
-// disables the resolver if none work
-func (u *upstreamResolverBase) ProbeAvailability(ctx context.Context) {
-	u.mutex.Lock()
-	defer u.mutex.Unlock()
-
-	// avoid probe if upstreams could resolve at least one query
-	if u.successCount.Load() > 0 {
-		return
+// nonRetryableEDE returns the first non-retryable EDE code carried in the
+// response, if any.
+func nonRetryableEDE(rm *dns.Msg) (uint16, bool) {
+	opt := rm.IsEdns0()
+	if opt == nil {
+		return 0, false
 	}
-
-	var success bool
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-
-	var errs *multierror.Error
-	for _, upstream := range u.upstreamServers {
-		wg.Add(1)
-		go func(upstream netip.AddrPort) {
-			defer wg.Done()
-			err := u.testNameserver(u.ctx, ctx, upstream, 500*time.Millisecond)
-			if err != nil {
-				mu.Lock()
-				errs = multierror.Append(errs, err)
-				mu.Unlock()
-				log.Warnf("probing upstream nameserver %s: %s", upstream, err)
-				return
-			}
-
-			mu.Lock()
-			success = true
-			mu.Unlock()
-		}(upstream)
-	}
-
-	wg.Wait()
-
-	select {
-	case <-ctx.Done():
-		return
-	case <-u.ctx.Done():
-		return
-	default:
-	}
-
-	// didn't find a working upstream server, let's disable and try later
-	if !success {
-		u.disable(errs.ErrorOrNil())
-
-		if u.statusRecorder == nil {
-			return
+	for _, o := range opt.Option {
+		ede, ok := o.(*dns.EDNS0_EDE)
+		if !ok {
+			continue
 		}
-
-		u.statusRecorder.PublishEvent(
-			proto.SystemEvent_WARNING,
-			proto.SystemEvent_DNS,
-			"All upstream servers failed (probe failed)",
-			"Unable to reach one or more DNS servers. This might affect your ability to connect to some services.",
-			map[string]string{"upstreams": u.upstreamServersString()},
-		)
+		if _, ok := nonRetryableEDECodes[ede.InfoCode]; ok {
+			return ede.InfoCode, true
+		}
 	}
+	return 0, false
 }
 
-// waitUntilResponse retries, in an exponential interval, querying the upstream servers until it gets a positive response
-func (u *upstreamResolverBase) waitUntilResponse() {
-	exponentialBackOff := &backoff.ExponentialBackOff{
-		InitialInterval:     500 * time.Millisecond,
-		RandomizationFactor: 0.5,
-		Multiplier:          1.1,
-		MaxInterval:         u.reactivatePeriod,
-		MaxElapsedTime:      0,
-		Stop:                backoff.Stop,
-		Clock:               backoff.SystemClock,
+// edeName returns a human-readable name for an EDE code, falling back to
+// the numeric code when unknown.
+func edeName(code uint16) string {
+	if name, ok := dns.ExtendedErrorCodeToString[code]; ok {
+		return name
 	}
-
-	operation := func() error {
-		select {
-		case <-u.ctx.Done():
-			return backoff.Permanent(fmt.Errorf("exiting upstream retry loop for upstreams %s: parent context has been canceled", u.upstreamServersString()))
-		default:
-		}
-
-		for _, upstream := range u.upstreamServers {
-			if err := u.testNameserver(u.ctx, nil, upstream, probeTimeout); err != nil {
-				log.Tracef("upstream check for %s: %s", upstream, err)
-			} else {
-				// at least one upstream server is available, stop probing
-				return nil
-			}
-		}
-
-		log.Tracef("checking connectivity with upstreams %s failed. Retrying in %s", u.upstreamServersString(), exponentialBackOff.NextBackOff())
-		return fmt.Errorf("upstream check call error")
-	}
-
-	err := backoff.Retry(operation, backoff.WithContext(exponentialBackOff, u.ctx))
-	if err != nil {
-		if errors.Is(err, context.Canceled) {
-			log.Debugf("upstream retry loop exited for upstreams %s", u.upstreamServersString())
-		} else {
-			log.Warnf("upstream retry loop exited for upstreams %s: %v", u.upstreamServersString(), err)
-		}
-		return
-	}
-
-	log.Infof("upstreams %s are responsive again. Adding them back to system", u.upstreamServersString())
-	u.successCount.Add(1)
-	u.reactivate()
-	u.mutex.Lock()
-	u.disabled = false
-	u.mutex.Unlock()
+	return fmt.Sprintf("EDE %d", code)
 }
 
 // isTimeout returns true if the given error is a network timeout error.
@@ -454,45 +644,6 @@ func isTimeout(err error) bool {
 	return false
 }
 
-func (u *upstreamResolverBase) disable(err error) {
-	if u.disabled {
-		return
-	}
-
-	log.Warnf("Upstream resolving is Disabled for %v", reactivatePeriod)
-	u.successCount.Store(0)
-	u.deactivate(err)
-	u.disabled = true
-	u.wg.Add(1)
-	go func() {
-		defer u.wg.Done()
-		u.waitUntilResponse()
-	}()
-}
-
-func (u *upstreamResolverBase) upstreamServersString() string {
-	var servers []string
-	for _, server := range u.upstreamServers {
-		servers = append(servers, server.String())
-	}
-	return strings.Join(servers, ", ")
-}
-
-func (u *upstreamResolverBase) testNameserver(baseCtx context.Context, externalCtx context.Context, server netip.AddrPort, timeout time.Duration) error {
-	mergedCtx, cancel := context.WithTimeout(baseCtx, timeout)
-	defer cancel()
-
-	if externalCtx != nil {
-		stop2 := context.AfterFunc(externalCtx, cancel)
-		defer stop2()
-	}
-
-	r := new(dns.Msg).SetQuestion(testRecord, dns.TypeSOA)
-
-	_, _, err := u.upstreamClient.exchange(mergedCtx, server.String(), r)
-	return err
-}
-
 // clientUDPMaxSize returns the maximum UDP response size the client accepts.
 func clientUDPMaxSize(r *dns.Msg) int {
 	if opt := r.IsEdns0(); opt != nil {
@@ -504,13 +655,10 @@ func clientUDPMaxSize(r *dns.Msg) int {
 // ExchangeWithFallback exchanges a DNS message with the upstream server.
 // It first tries to use UDP, and if it is truncated, it falls back to TCP.
 // If the inbound request came over TCP (via context), it skips the UDP attempt.
-// If the passed context is nil, this will use Exchange instead of ExchangeContext.
 func ExchangeWithFallback(ctx context.Context, client *dns.Client, r *dns.Msg, upstream string) (*dns.Msg, time.Duration, error) {
 	// If the request came in over TCP, go straight to TCP upstream.
 	if dnsProtocolFromContext(ctx) == protoTCP {
-		tcpClient := *client
-		tcpClient.Net = protoTCP
-		rm, t, err := tcpClient.ExchangeContext(ctx, r, upstream)
+		rm, t, err := toTCPClient(client).ExchangeContext(ctx, r, upstream)
 		if err != nil {
 			return nil, t, fmt.Errorf("with tcp: %w", err)
 		}
@@ -530,18 +678,7 @@ func ExchangeWithFallback(ctx context.Context, client *dns.Client, r *dns.Msg, u
 		opt.SetUDPSize(maxUDPPayload)
 	}
 
-	var (
-		rm  *dns.Msg
-		t   time.Duration
-		err error
-	)
-
-	if ctx == nil {
-		rm, t, err = client.Exchange(r, upstream)
-	} else {
-		rm, t, err = client.ExchangeContext(ctx, r, upstream)
-	}
-
+	rm, t, err := client.ExchangeContext(ctx, r, upstream)
 	if err != nil {
 		return nil, t, fmt.Errorf("with udp: %w", err)
 	}
@@ -555,15 +692,7 @@ func ExchangeWithFallback(ctx context.Context, client *dns.Client, r *dns.Msg, u
 	// data than the client's buffer, we could truncate locally and skip
 	// the TCP retry.
 
-	tcpClient := *client
-	tcpClient.Net = protoTCP
-
-	if ctx == nil {
-		rm, t, err = tcpClient.Exchange(r, upstream)
-	} else {
-		rm, t, err = tcpClient.ExchangeContext(ctx, r, upstream)
-	}
-
+	rm, t, err = toTCPClient(client).ExchangeContext(ctx, r, upstream)
 	if err != nil {
 		return nil, t, fmt.Errorf("with tcp: %w", err)
 	}
@@ -575,6 +704,25 @@ func ExchangeWithFallback(ctx context.Context, client *dns.Client, r *dns.Msg, u
 	}
 
 	return rm, t, nil
+}
+
+// toTCPClient returns a copy of c configured for TCP. If c's Dialer has a
+// *net.UDPAddr bound as LocalAddr (iOS does this to keep the source IP on
+// the tunnel interface), it is converted to the equivalent *net.TCPAddr
+// so net.Dialer doesn't reject the TCP dial with "mismatched local
+// address type".
+func toTCPClient(c *dns.Client) *dns.Client {
+	tcp := *c
+	tcp.Net = protoTCP
+	if tcp.Dialer == nil {
+		return &tcp
+	}
+	d := *tcp.Dialer
+	if ua, ok := d.LocalAddr.(*net.UDPAddr); ok {
+		d.LocalAddr = &net.TCPAddr{IP: ua.IP, Port: ua.Port, Zone: ua.Zone}
+	}
+	tcp.Dialer = &d
+	return &tcp
 }
 
 // ExchangeWithNetstack performs a DNS exchange using netstack for dialing.
@@ -718,15 +866,36 @@ func findPeerForIP(ip netip.Addr, statusRecorder *peer.Status) *peer.State {
 	return bestMatch
 }
 
-func (u *upstreamResolverBase) debugUpstreamTimeout(upstream netip.AddrPort) string {
-	if u.statusRecorder == nil {
-		return ""
+// haMapRouteCount returns the total number of routes across all HA
+// groups in the map. route.HAMap is keyed by HAUniqueID with slices of
+// routes per key, so len(hm) is the number of HA groups, not routes.
+func haMapRouteCount(hm route.HAMap) int {
+	total := 0
+	for _, routes := range hm {
+		total += len(routes)
 	}
+	return total
+}
 
-	peerInfo := findPeerForIP(upstream.Addr(), u.statusRecorder)
-	if peerInfo == nil {
-		return ""
+// haMapContains checks whether ip is covered by any concrete prefix in
+// the HA map. haveDynamic is reported separately: dynamic (domain-based)
+// routes carry a placeholder Network that can't be prefix-checked, so we
+// can't know at this point whether ip is reached through one. Callers
+// decide how to interpret the unknown: health projection treats it as
+// "possibly routed" to avoid emitting false-positive warnings during
+// startup, while iOS dial selection requires a concrete match before
+// binding to the tunnel.
+func haMapContains(hm route.HAMap, ip netip.Addr) (matched, haveDynamic bool) {
+	for _, routes := range hm {
+		for _, r := range routes {
+			if r.IsDynamic() {
+				haveDynamic = true
+				continue
+			}
+			if r.Network.Contains(ip) {
+				return true, haveDynamic
+			}
+		}
 	}
-
-	return fmt.Sprintf("(routes through NetBird peer %s)", FormatPeerStatus(peerInfo))
+	return false, haveDynamic
 }
