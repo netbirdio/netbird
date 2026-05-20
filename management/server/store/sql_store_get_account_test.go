@@ -148,7 +148,8 @@ func TestGetAccount_ComprehensiveFieldValidation(t *testing.T) {
 		AccountID: accountID,
 		Key:       "peer-key-1-AAAA",
 		Name:      "Peer 1",
-		IP:        net.ParseIP("100.64.0.1"),
+		IP:        netip.MustParseAddr("100.64.0.1"),
+		IPv6:      netip.MustParseAddr("fd00::1"),
 		Meta: nbpeer.PeerSystemMeta{
 			Hostname:      "peer1.example.com",
 			GoOS:          "linux",
@@ -195,7 +196,8 @@ func TestGetAccount_ComprehensiveFieldValidation(t *testing.T) {
 		AccountID: accountID,
 		Key:       "peer-key-2-BBBB",
 		Name:      "Peer 2",
-		IP:        net.ParseIP("100.64.0.2"),
+		IP:        netip.MustParseAddr("100.64.0.2"),
+		IPv6:      netip.MustParseAddr("fd00::2"),
 		Meta: nbpeer.PeerSystemMeta{
 			Hostname:  "peer2.example.com",
 			GoOS:      "darwin",
@@ -232,7 +234,8 @@ func TestGetAccount_ComprehensiveFieldValidation(t *testing.T) {
 		AccountID: accountID,
 		Key:       "peer-key-3-CCCC",
 		Name:      "Peer 3 (Ephemeral)",
-		IP:        net.ParseIP("100.64.0.3"),
+		IP:        netip.MustParseAddr("100.64.0.3"),
+		IPv6:      netip.MustParseAddr("fd00::3"),
 		Meta: nbpeer.PeerSystemMeta{
 			Hostname: "peer3.example.com",
 			GoOS:     "windows",
@@ -710,7 +713,7 @@ func TestGetAccount_ComprehensiveFieldValidation(t *testing.T) {
 		require.True(t, exists, "Peer 1 should exist")
 		assert.Equal(t, "Peer 1", p1.Name, "Peer 1 name mismatch")
 		assert.Equal(t, "peer-key-1-AAAA", p1.Key, "Peer 1 key mismatch")
-		assert.True(t, p1.IP.Equal(net.ParseIP("100.64.0.1")), "Peer 1 IP mismatch")
+		assert.Equal(t, netip.MustParseAddr("100.64.0.1"), p1.IP, "Peer 1 IP mismatch")
 		assert.Equal(t, userID1, p1.UserID, "Peer 1 user ID mismatch")
 		assert.True(t, p1.SSHEnabled, "Peer 1 SSH should be enabled")
 		assert.Equal(t, "ssh-rsa AAAAB3NzaC1...", p1.SSHKey, "Peer 1 SSH key mismatch")

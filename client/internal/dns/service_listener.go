@@ -188,11 +188,10 @@ func (s *serviceViaListener) RuntimeIP() netip.Addr {
 	return s.listenIP
 }
 
-
-// evalListenAddress figure out the listen address for the DNS server
-// first check the 53 port availability on WG interface or lo, if not success
-// pick a random port on WG interface for eBPF, if not success
-// check the 5053 port availability on WG interface or lo without eBPF usage,
+// evalListenAddress figures out the listen address for the DNS server.
+// IPv4-only: all peers have a v4 overlay address, and DNS config points to v4.
+// First checks port 53 on WG interface or lo, then tries eBPF on a random port,
+// then falls back to port 5053.
 func (s *serviceViaListener) evalListenAddress() (netip.Addr, uint16, error) {
 	if s.customAddr != nil {
 		return s.customAddr.Addr(), s.customAddr.Port(), nil
@@ -278,7 +277,7 @@ func (s *serviceViaListener) tryToUseeBPF() (ebpfMgr.Manager, uint16, bool) {
 	}
 
 	ebpfSrv := ebpf.GetEbpfManagerInstance()
-	err = ebpfSrv.LoadDNSFwd(s.wgInterface.Address().IP.String(), int(port))
+	err = ebpfSrv.LoadDNSFwd(s.wgInterface.Address().IP, int(port))
 	if err != nil {
 		log.Warnf("failed to load DNS forwarder eBPF program, error: %s", err)
 		return nil, 0, false

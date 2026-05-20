@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/netip"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -125,7 +125,9 @@ func (f *udpForwarder) cleanup() {
 				delete(f.conns, idle.id)
 				f.Unlock()
 
-				f.logger.Trace1("forwarder: cleaned up idle UDP connection %v", epID(idle.id))
+				if f.logger.Enabled(nblog.LevelTrace) {
+					f.logger.Trace1("forwarder: cleaned up idle UDP connection %v", epID(idle.id))
+				}
 			}
 		}
 	}
@@ -144,7 +146,9 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) bool {
 	_, exists := f.udpForwarder.conns[id]
 	f.udpForwarder.RUnlock()
 	if exists {
-		f.logger.Trace1("forwarder: existing UDP connection for %v", epID(id))
+		if f.logger.Enabled(nblog.LevelTrace) {
+			f.logger.Trace1("forwarder: existing UDP connection for %v", epID(id))
+		}
 		return true
 	}
 
@@ -158,7 +162,7 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) bool {
 		}
 	}()
 
-	dstAddr := fmt.Sprintf("%s:%d", f.determineDialAddr(id.LocalAddress), id.LocalPort)
+	dstAddr := net.JoinHostPort(f.determineDialAddr(id.LocalAddress).String(), strconv.Itoa(int(id.LocalPort)))
 	outConn, err := (&net.Dialer{}).DialContext(f.ctx, "udp", dstAddr)
 	if err != nil {
 		f.logger.Debug2("forwarder: UDP dial error for %v: %v", epID(id), err)
@@ -206,7 +210,9 @@ func (f *Forwarder) handleUDP(r *udp.ForwarderRequest) bool {
 	f.udpForwarder.Unlock()
 
 	success = true
-	f.logger.Trace1("forwarder: established UDP connection %v", epID(id))
+	if f.logger.Enabled(nblog.LevelTrace) {
+		f.logger.Trace1("forwarder: established UDP connection %v", epID(id))
+	}
 
 	go f.proxyUDP(connCtx, pConn, id, ep)
 	return true
@@ -265,7 +271,9 @@ func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack
 		txPackets = udpStats.PacketsReceived.Value()
 	}
 
-	f.logger.Trace5("forwarder: Removed UDP connection %s [in: %d Pkts/%d B, out: %d Pkts/%d B]", epID(id), rxPackets, rxBytes, txPackets, txBytes)
+	if f.logger.Enabled(nblog.LevelTrace) {
+		f.logger.Trace5("forwarder: Removed UDP connection %s [in: %d Pkts/%d B, out: %d Pkts/%d B]", epID(id), rxPackets, rxBytes, txPackets, txBytes)
+	}
 
 	f.udpForwarder.Lock()
 	delete(f.udpForwarder.conns, id)
@@ -276,15 +284,14 @@ func (f *Forwarder) proxyUDP(ctx context.Context, pConn *udpPacketConn, id stack
 
 // sendUDPEvent stores flow events for UDP connections
 func (f *Forwarder) sendUDPEvent(typ nftypes.Type, flowID uuid.UUID, id stack.TransportEndpointID, rxBytes, txBytes, rxPackets, txPackets uint64) {
-	srcIp := netip.AddrFrom4(id.RemoteAddress.As4())
-	dstIp := netip.AddrFrom4(id.LocalAddress.As4())
+	srcIp := addrToNetipAddr(id.RemoteAddress)
+	dstIp := addrToNetipAddr(id.LocalAddress)
 
 	fields := nftypes.EventFields{
-		FlowID:    flowID,
-		Type:      typ,
-		Direction: nftypes.Ingress,
-		Protocol:  nftypes.UDP,
-		// TODO: handle ipv6
+		FlowID:     flowID,
+		Type:       typ,
+		Direction:  nftypes.Ingress,
+		Protocol:   nftypes.UDP,
 		SourceIP:   srcIp,
 		DestIP:     dstIp,
 		SourcePort: id.RemotePort,

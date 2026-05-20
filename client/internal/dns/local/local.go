@@ -13,7 +13,6 @@ import (
 
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/exp/maps"
 
 	"github.com/netbirdio/netbird/client/internal/dns/resutil"
 	"github.com/netbirdio/netbird/client/internal/dns/types"
@@ -67,17 +66,15 @@ func (d *Resolver) Stop() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	maps.Clear(d.records)
-	maps.Clear(d.domains)
-	maps.Clear(d.zones)
+	clear(d.records)
+	clear(d.domains)
+	clear(d.zones)
 }
 
 // ID returns the unique handler ID
 func (d *Resolver) ID() types.HandlerID {
 	return "local-resolver"
 }
-
-func (d *Resolver) ProbeAvailability(context.Context) {}
 
 // ServeDNS handles a DNS request
 func (d *Resolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
@@ -444,9 +441,9 @@ func (d *Resolver) Update(customZones []nbdns.CustomZone) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	maps.Clear(d.records)
-	maps.Clear(d.domains)
-	maps.Clear(d.zones)
+	clear(d.records)
+	clear(d.domains)
+	clear(d.zones)
 
 	for _, zone := range customZones {
 		zoneDomain := domain.Domain(strings.ToLower(dns.Fqdn(zone.Domain)))

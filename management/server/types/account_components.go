@@ -115,7 +115,7 @@ func (a *Account) GetPeerNetworkMapComponents(
 	components.Groups = relevantGroups
 	components.Policies = relevantPolicies
 	components.Routes = relevantRoutes
-	components.AllDNSRecords = filterDNSRecordsByPeers(peersCustomZone.Records, relevantPeers)
+	components.AllDNSRecords = filterDNSRecordsByPeers(peersCustomZone.Records, relevantPeers, peer.SupportsIPv6() && peer.IPv6.IsValid())
 
 	peerGroups := a.GetPeerGroups(peerID)
 	components.AccountZones = filterPeerAppliedZones(ctx, accountZones, peerGroups)
@@ -539,15 +539,22 @@ func filterPostureFailedPeers(postureFailedPeers *map[string]map[string]struct{}
 	}
 }
 
-func filterDNSRecordsByPeers(records []nbdns.SimpleRecord, peers map[string]*nbpeer.Peer) []nbdns.SimpleRecord {
+func filterDNSRecordsByPeers(records []nbdns.SimpleRecord, peers map[string]*nbpeer.Peer, includeIPv6 bool) []nbdns.SimpleRecord {
 	if len(records) == 0 || len(peers) == 0 {
 		return nil
 	}
 
-	peerIPs := make(map[string]struct{}, len(peers))
+	// Include both v4 and v6 addresses so AAAA records (whose RData is an IPv6
+	// address) are not filtered out when peers have IPv6 assigned. When the
+	// requesting peer doesn't have IPv6, omit v6 IPs so AAAA records get dropped.
+	peerIPs := make(map[string]struct{}, len(peers)*2)
 	for _, peer := range peers {
-		if peer != nil {
-			peerIPs[peer.IP.String()] = struct{}{}
+		if peer == nil {
+			continue
+		}
+		peerIPs[peer.IP.String()] = struct{}{}
+		if includeIPv6 && peer.IPv6.IsValid() {
+			peerIPs[peer.IPv6.String()] = struct{}{}
 		}
 	}
 
