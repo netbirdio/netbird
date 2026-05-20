@@ -3421,19 +3421,43 @@ components:
           type: string
           description: Cluster address used for CNAME targets
           example: "eu.proxy.netbird.io"
+        type:
+          $ref: '#/components/schemas/ProxyClusterType'
+        online:
+          type: boolean
+          description: Whether at least one proxy in the cluster has heartbeated within the active window
+          example: true
         connected_proxies:
           type: integer
-          description: Number of proxy nodes connected in this cluster
+          description: Number of proxy nodes currently connected (heartbeat within the active window)
           example: 3
-        self_hosted:
+        supports_custom_ports:
           type: boolean
-          description: Whether this cluster is a self-hosted (BYOP) proxy managed by the account owner
+          description: Whether the cluster supports binding arbitrary TCP/UDP ports
+          example: true
+        require_subdomain:
+          type: boolean
+          description: Whether services on this cluster must include a subdomain label
+          example: false
+        supports_crowdsec:
+          type: boolean
+          description: Whether all active proxies in the cluster have CrowdSec configured
           example: false
       required:
         - id
         - address
+        - type
+        - online
         - connected_proxies
-        - self_hosted
+    ProxyClusterType:
+      type: string
+      description: |
+        Source of the proxy cluster. `account` clusters are owned and operated by the account (BYOP);
+        `shared` clusters are operated by NetBird and shared across accounts.
+      enum:
+        - account
+        - shared
+      example: shared
     ReverseProxyDomainType:
       type: string
       description: Type of Reverse Proxy Domain
