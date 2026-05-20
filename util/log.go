@@ -116,10 +116,6 @@ func isRotationDisabled(logger *log.Logger) bool {
 }
 
 func setupLogFile(logPath string, disableRotation bool) (io.Writer, error) {
-	dir, _, err := prepareConfigFileDir(logPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed creating log directory %s: %s", dir, err)
-	}
 	if disableRotation {
 		file, err := openOrCreateFile(logPath)
 		if err != nil {
