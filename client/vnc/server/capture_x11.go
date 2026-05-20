@@ -19,11 +19,19 @@ import (
 	"github.com/jezek/xgb/xproto"
 )
 
-// x11SocketDir is the well-known directory where X servers create their
-// abstract UNIX-domain sockets, named "X<display>". Used both for
-// auto-detecting an existing display and for placing/probing sockets of
-// virtual sessions we spawn.
-const x11SocketDir = "/tmp/.X11-unix"
+const (
+	// x11SocketDir is the well-known directory where X servers create
+	// their abstract UNIX-domain sockets, named "X<display>". Used both
+	// for auto-detecting an existing display and for placing/probing
+	// sockets of virtual sessions we spawn.
+	x11SocketDir = "/tmp/.X11-unix"
+
+	// envDisplay is the X11 display selector environment variable.
+	envDisplay = "DISPLAY"
+	// envXAuthority points X clients at the cookie file used to
+	// authenticate against the running X server.
+	envXAuthority = "XAUTHORITY"
+)
 
 // X11Capturer captures the screen from an X11 display using the MIT-SHM extension.
 type X11Capturer struct {
@@ -52,7 +60,7 @@ type X11Capturer struct {
 // environment variables if needed. This is required when running as a system
 // service where these vars aren't set.
 func detectX11Display() {
-	if os.Getenv("DISPLAY") != "" {
+	if os.Getenv(envDisplay) != "" {
 		return
 	}
 
@@ -115,10 +123,10 @@ func detectX11FromSockets() bool {
 		return false
 	}
 	display := ":" + strconv.Itoa(minDisplay)
-	os.Setenv("DISPLAY", display)
+	os.Setenv(envDisplay, display)
 	auth := findXorgAuthFromPS()
 	if auth != "" {
-		os.Setenv("XAUTHORITY", auth)
+		os.Setenv(envXAuthority, auth)
 		log.Infof("auto-detected DISPLAY=%s (from socket) XAUTHORITY=%s (from ps)", display, auth)
 	} else {
 		log.Infof("auto-detected DISPLAY=%s (from socket)", display)
@@ -167,9 +175,9 @@ func parseXorgArgs(args []string) (display, auth string) {
 }
 
 func setDisplayEnv(display, auth string) {
-	os.Setenv("DISPLAY", display)
+	os.Setenv(envDisplay, display)
 	if auth != "" {
-		os.Setenv("XAUTHORITY", auth)
+		os.Setenv(envXAuthority, auth)
 		log.Infof("auto-detected DISPLAY=%s XAUTHORITY=%s", display, auth)
 		return
 	}
@@ -205,7 +213,7 @@ func splitNull(data []byte) [][]byte {
 func NewX11Capturer(display string) (*X11Capturer, error) {
 	if display == "" {
 		detectX11Display()
-		display = os.Getenv("DISPLAY")
+		display = os.Getenv(envDisplay)
 	}
 	if display == "" {
 		return nil, fmt.Errorf("DISPLAY not set and no Xorg process found")

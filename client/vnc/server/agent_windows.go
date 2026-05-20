@@ -352,7 +352,7 @@ func spawnAgentInSession(sessionID uint32, port uint16, authToken string, jobHan
 		return 0, fmt.Errorf("get executable path: %w", err)
 	}
 
-	cmdLine := fmt.Sprintf(`"%s" vnc-agent --port %d`, exePath, port)
+	cmdLine := fmt.Sprintf(`"%s" %s --port %d`, exePath, vncAgentSubcommand, port)
 	cmdLineW, err := windows.UTF16PtrFromString(cmdLine)
 	if err != nil {
 		return 0, fmt.Errorf("UTF16 cmdline: %w", err)

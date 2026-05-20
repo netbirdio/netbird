@@ -31,6 +31,11 @@ const (
 	// like this keep the secret out of the command line, where listings
 	// such as `ps` or Windows tasklist would expose it.
 	agentTokenEnvVar = "NB_VNC_AGENT_TOKEN" // #nosec G101 -- env var name, not a credential
+
+	// vncAgentSubcommand is the CLI subcommand the daemon invokes to start
+	// the per-session agent process. Must match cmd.vncAgentCmd.Use in
+	// client/cmd/vnc_agent.go.
+	vncAgentSubcommand = "vnc-agent"
 )
 
 // generateAuthToken returns a fresh hex-encoded random token for one

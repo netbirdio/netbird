@@ -32,7 +32,7 @@ func NewX11InputInjector(display string) (*X11InputInjector, error) {
 	detectX11Display()
 
 	if display == "" {
-		display = os.Getenv("DISPLAY")
+		display = os.Getenv(envDisplay)
 	}
 	if display == "" {
 		return nil, fmt.Errorf("DISPLAY not set and no Xorg process found")
@@ -296,9 +296,9 @@ func (x *X11InputInjector) GetClipboard() string {
 }
 
 func (x *X11InputInjector) clipboardEnv() []string {
-	env := []string{"DISPLAY=" + x.display}
-	if auth := os.Getenv("XAUTHORITY"); auth != "" {
-		env = append(env, "XAUTHORITY="+auth)
+	env := []string{envDisplay + "=" + x.display}
+	if auth := os.Getenv(envXAuthority); auth != "" {
+		env = append(env, envXAuthority+"="+auth)
 	}
 	return env
 }

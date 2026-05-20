@@ -172,7 +172,7 @@ func spawnAgentForUser(uid uint32, port uint16, token string) error {
 	}
 	cmd := exec.Command(
 		"/bin/launchctl", "asuser", strconv.FormatUint(uint64(uid), 10),
-		exe, "vnc-agent", "--port", strconv.FormatUint(uint64(port), 10),
+		exe, vncAgentSubcommand, "--port", strconv.FormatUint(uint64(port), 10),
 	)
 	cmd.Env = append(os.Environ(), agentTokenEnvVar+"="+token)
 	stderr, err := cmd.StderrPipe()
@@ -323,7 +323,7 @@ func argvIsVNCAgent(argv []string, ownBase string) bool {
 		return false
 	}
 	for _, a := range argv[1:] {
-		if a == "vnc-agent" {
+		if a == vncAgentSubcommand {
 			return true
 		}
 	}
