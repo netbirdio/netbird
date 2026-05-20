@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/integration_reference"
 	"github.com/netbirdio/netbird/util/crypt"
 )
@@ -140,6 +141,59 @@ func (u *User) IsRegularUser() bool {
 // IsRestrictable checks whether a user is in a restrictable role.
 func (u *User) IsRestrictable() bool {
 	return u.Role == UserRoleUser || u.Role == UserRoleBillingAdmin
+}
+
+// ToUserInfo converts a User object to a UserInfo object.
+func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
+	autoGroups := u.AutoGroups
+	if autoGroups == nil {
+		autoGroups = []string{}
+	}
+
+	if userData == nil {
+
+		name := u.Name
+		if u.IsServiceUser {
+			name = u.ServiceUserName
+		}
+
+		return &UserInfo{
+			ID:              u.Id,
+			Email:           u.Email,
+			Name:            name,
+			Role:            string(u.Role),
+			AutoGroups:      u.AutoGroups,
+			Status:          string(UserStatusActive),
+			IsServiceUser:   u.IsServiceUser,
+			IsBlocked:       u.Blocked,
+			LastLogin:       u.GetLastLogin(),
+			Issued:          u.Issued,
+			PendingApproval: u.PendingApproval,
+		}, nil
+	}
+	if userData.ID != u.Id {
+		return nil, fmt.Errorf("wrong UserData provided for user %s", u.Id)
+	}
+
+	userStatus := UserStatusActive
+	if userData.AppMetadata.WTPendingInvite != nil && *userData.AppMetadata.WTPendingInvite {
+		userStatus = UserStatusInvited
+	}
+
+	return &UserInfo{
+		ID:              u.Id,
+		Email:           userData.Email,
+		Name:            userData.Name,
+		Role:            string(u.Role),
+		AutoGroups:      autoGroups,
+		Status:          string(userStatus),
+		IsServiceUser:   u.IsServiceUser,
+		IsBlocked:       u.Blocked,
+		LastLogin:       u.GetLastLogin(),
+		Issued:          u.Issued,
+		PendingApproval: u.PendingApproval,
+		Password:        userData.Password,
+	}, nil
 }
 
 // Copy the user
