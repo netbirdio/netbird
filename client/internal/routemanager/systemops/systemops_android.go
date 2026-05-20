@@ -39,7 +39,7 @@ func EnableV4IPForwarding() error {
 
 func EnableV6IPForwarding(string) (map[string]int, error) {
 	log.Infof("Enable IPv6 forwarding is not implemented on %s", runtime.GOOS)
-	return nil, nil
+	return map[string]int{}, nil
 }
 
 func DisableV6IPForwarding(map[string]int) error {

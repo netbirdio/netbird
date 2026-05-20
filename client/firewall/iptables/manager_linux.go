@@ -405,26 +405,30 @@ func (m *Manager) EnableRouting() error {
 	if err := m.router.ipFwdState.RequestForwarding(false); err != nil {
 		return fmt.Errorf("enable IPv4 forwarding: %w", err)
 	}
-	// Only flip v6 forwarding when the WG interface actually has v6, so that
-	// v4-only routing setups don't disable RA acceptance on the host.
-	if m.router6 != nil {
-		if err := m.router.ipFwdState.RequestForwarding(true); err != nil {
-			return fmt.Errorf("enable IPv6 forwarding: %w", err)
+	// v6 only when the overlay actually has v6.
+	if m.router6 == nil {
+		return nil
+	}
+	if err := m.router.ipFwdState.RequestForwarding(true); err != nil {
+		if rerr := m.router.ipFwdState.ReleaseForwarding(false); rerr != nil {
+			log.Warnf("rollback v4 forwarding: %v", rerr)
 		}
+		return fmt.Errorf("enable IPv6 forwarding: %w", err)
 	}
 	return nil
 }
 
 func (m *Manager) DisableRouting() error {
+	var merr *multierror.Error
 	if err := m.router.ipFwdState.ReleaseForwarding(false); err != nil {
-		return fmt.Errorf("disable IPv4 forwarding: %w", err)
+		merr = multierror.Append(merr, fmt.Errorf("disable IPv4 forwarding: %w", err))
 	}
 	if m.router6 != nil {
 		if err := m.router.ipFwdState.ReleaseForwarding(true); err != nil {
-			return fmt.Errorf("disable IPv6 forwarding: %w", err)
+			merr = multierror.Append(merr, fmt.Errorf("disable IPv6 forwarding: %w", err))
 		}
 	}
-	return nil
+	return nberrors.FormatErrorOrNil(merr)
 }
 
 // AddDNATRule adds a DNAT rule
