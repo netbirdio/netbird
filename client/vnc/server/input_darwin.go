@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 	"unsafe"
 
 	"github.com/ebitengine/purego"
@@ -35,6 +36,18 @@ const (
 
 	kCGHIDEventTap int32 = 0
 
+	// kCGMouseEventClickState (event field 1) tells macOS how many
+	// consecutive clicks of this button have happened. Without it, a
+	// double click looks like two independent single clicks and apps
+	// never see the dblclick (window-bar maximize, text word-select, ...).
+	kCGMouseEventClickState int32 = 1
+
+	// doubleClickWindow is the upper bound on the gap between two
+	// down events that still counts as a multi-click. macOS reads the
+	// user's setting from CGEventSourceGetDoubleClickInterval; 500ms is
+	// the default and works as a safe injection-side ceiling.
+	doubleClickWindow = 500 * time.Millisecond
+
 	// IOKit power management constants.
 	kIOPMUserActiveLocal  int32  = 0
 	kIOPMAssertionLevelOn uint32 = 255
@@ -48,8 +61,9 @@ var (
 	cgEventCreateKeyboardEvent func(uintptr, uint16, bool) uintptr
 	// CGEventCreateMouseEvent takes CGPoint as two separate float64 args.
 	// purego can't handle array/struct types but individual float64s work.
-	cgEventCreateMouseEvent func(uintptr, int32, float64, float64, int32) uintptr
-	cgEventPost             func(int32, uintptr)
+	cgEventCreateMouseEvent     func(uintptr, int32, float64, float64, int32) uintptr
+	cgEventPost                 func(int32, uintptr)
+	cgEventSetIntegerValueField func(uintptr, int32, int64)
 
 	// CGEventCreateScrollWheelEvent is variadic, call via SyscallN.
 	cgEventCreateScrollWheelEventAddr uintptr
@@ -108,6 +122,7 @@ func initDarwinInput() {
 		purego.RegisterLibFunc(&cgEventCreateKeyboardEvent, cg, "CGEventCreateKeyboardEvent")
 		purego.RegisterLibFunc(&cgEventCreateMouseEvent, cg, "CGEventCreateMouseEvent")
 		purego.RegisterLibFunc(&cgEventPost, cg, "CGEventPost")
+		purego.RegisterLibFunc(&cgEventSetIntegerValueField, cg, "CGEventSetIntegerValueField")
 
 		sym, err := purego.Dlsym(cg, "CGEventCreateScrollWheelEvent")
 		if err == nil {
@@ -260,6 +275,12 @@ type MacInputInjector struct {
 	lastButtons uint8
 	pbcopyPath  string
 	pbpastePath string
+	// clickCount[i] / clickAt[i] track the multi-click sequence for
+	// button i (0=left, 1=right, 2=middle). macOS apps reconstruct
+	// double/triple click semantics from the kCGMouseEventClickState
+	// field on each posted event, not from event timing.
+	clickCount [3]int64
+	clickAt    [3]time.Time
 }
 
 // NewMacInputInjector creates a macOS input injector.
@@ -438,31 +459,48 @@ func (m *MacInputInjector) postMoveOrDrag(src uintptr, leftDown, rightDown bool,
 	}
 }
 
-// postButtonTransitions emits the up/down events for each button whose state
-// changed against m.lastButtons.
+// postButtonTransitions emits the up/down events for each button whose
+// state changed against m.lastButtons, computing the click count so
+// macOS recognises double / triple clicks.
 func (m *MacInputInjector) postButtonTransitions(src uintptr, buttonMask uint8, x, y float64) {
-	emit := func(curBit, prevBit uint8, down, up int32, button int32) {
+	emit := func(curBit, prevBit uint8, down, up int32, button int32, idx int) {
 		cur := buttonMask&curBit != 0
 		prev := m.lastButtons&prevBit != 0
 		if cur && !prev {
-			m.postMouse(src, down, x, y, button)
+			now := time.Now()
+			if !m.clickAt[idx].IsZero() && now.Sub(m.clickAt[idx]) <= doubleClickWindow {
+				m.clickCount[idx]++
+			} else {
+				m.clickCount[idx] = 1
+			}
+			m.clickAt[idx] = now
+			m.postMouseClick(src, down, x, y, button, m.clickCount[idx])
 		} else if !cur && prev {
-			m.postMouse(src, up, x, y, button)
+			count := m.clickCount[idx]
+			if count == 0 {
+				count = 1
+			}
+			m.postMouseClick(src, up, x, y, button, count)
 		}
 	}
-	emit(0x01, 0x01, kCGEventLeftMouseDown, kCGEventLeftMouseUp, kCGMouseButtonLeft)
-	emit(0x04, 0x04, kCGEventRightMouseDown, kCGEventRightMouseUp, kCGMouseButtonRight)
-	emit(0x02, 0x02, kCGEventOtherMouseDown, kCGEventOtherMouseUp, kCGMouseButtonCenter)
+	emit(0x01, 0x01, kCGEventLeftMouseDown, kCGEventLeftMouseUp, kCGMouseButtonLeft, 0)
+	emit(0x04, 0x04, kCGEventRightMouseDown, kCGEventRightMouseUp, kCGMouseButtonRight, 1)
+	emit(0x02, 0x02, kCGEventOtherMouseDown, kCGEventOtherMouseUp, kCGMouseButtonCenter, 2)
 }
 
 func (m *MacInputInjector) postScrollWheel(src uintptr, buttonMask uint8) {
 	if buttonMask&0x08 != 0 {
-		m.postScroll(src, 3)
+		m.postScroll(src, scrollLinesPerWheelTick)
 	}
 	if buttonMask&0x10 != 0 {
-		m.postScroll(src, -3)
+		m.postScroll(src, -scrollLinesPerWheelTick)
 	}
 }
+
+// scrollLinesPerWheelTick is what one wheel-button event (VNC button 4 / 5)
+// translates to in macOS line units. Three matches the default per-notch
+// scroll on macOS and what most VNC clients send for wheel events.
+const scrollLinesPerWheelTick int32 = 3
 
 func (m *MacInputInjector) postMouse(src uintptr, eventType int32, x, y float64, button int32) {
 	if cgEventCreateMouseEvent == nil {
@@ -476,15 +514,33 @@ func (m *MacInputInjector) postMouse(src uintptr, eventType int32, x, y float64,
 	cfRelease(event)
 }
 
+// postMouseClick stamps the click count on the event before posting it.
+// Without this stamp macOS treats every press as a fresh single click.
+func (m *MacInputInjector) postMouseClick(src uintptr, eventType int32, x, y float64, button int32, clickCount int64) {
+	if cgEventCreateMouseEvent == nil {
+		return
+	}
+	event := cgEventCreateMouseEvent(src, eventType, x, y, button)
+	if event == 0 {
+		return
+	}
+	if cgEventSetIntegerValueField != nil && clickCount > 1 {
+		cgEventSetIntegerValueField(event, kCGMouseEventClickState, clickCount)
+	}
+	cgEventPost(kCGHIDEventTap, event)
+	cfRelease(event)
+}
+
 func (m *MacInputInjector) postScroll(src uintptr, deltaY int32) {
 	if cgEventCreateScrollWheelEventAddr == 0 {
 		return
 	}
-	// CGEventCreateScrollWheelEvent(source, units, wheelCount, wheel1delta)
-	// units=0 (pixel), wheelCount=1, wheel1delta=deltaY
-	// Variadic C function: pass args as uintptr via SyscallN.
+	// CGEventCreateScrollWheelEvent(source, units, wheelCount, wheel1delta).
+	// Line units (1) give the user-facing "one notch = a few lines" feel;
+	// pixel units (0) would need ~60-80 pixels per notch to match, and
+	// that depends on screen density. Variadic C function, pass via SyscallN.
 	r1, _, _ := purego.SyscallN(cgEventCreateScrollWheelEventAddr,
-		src, 0, 1, uintptr(uint32(deltaY)))
+		src, 1, 1, uintptr(uint32(deltaY)))
 	if r1 == 0 {
 		return
 	}
