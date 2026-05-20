@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"fyne.io/fyne/v2"
 	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -18,11 +17,17 @@ import (
 	"github.com/netbirdio/netbird/client/ui/desktop"
 )
 
+// Notifier sends desktop notifications. Defined here so the event package
+// does not depend on fyne or the platform-specific notifier implementation.
+type Notifier interface {
+	Send(title, body string)
+}
+
 type Handler func(*proto.SystemEvent)
 
 type Manager struct {
-	app  fyne.App
-	addr string
+	notifier Notifier
+	addr     string
 
 	mu       sync.Mutex
 	ctx      context.Context
@@ -31,10 +36,10 @@ type Manager struct {
 	handlers []Handler
 }
 
-func NewManager(app fyne.App, addr string) *Manager {
+func NewManager(notifier Notifier, addr string) *Manager {
 	return &Manager{
-		app:  app,
-		addr: addr,
+		notifier: notifier,
+		addr:     addr,
 	}
 }
 
@@ -107,14 +112,14 @@ func (e *Manager) handleEvent(event *proto.SystemEvent) {
 	handlers := slices.Clone(e.handlers)
 	e.mu.Unlock()
 
-	if event.UserMessage != "" && (enabled || event.Severity == proto.SystemEvent_CRITICAL) {
+	if event.UserMessage != "" && (enabled || event.Severity == proto.SystemEvent_CRITICAL) && !isV6DefaultRoutePartner(event) {
 		title := e.getEventTitle(event)
 		body := event.UserMessage
 		id := event.Metadata["id"]
 		if id != "" {
 			body += fmt.Sprintf(" ID: %s", id)
 		}
-		e.app.SendNotification(fyne.NewNotification(title, body))
+		e.notifier.Send(title, body)
 	}
 
 	for _, handler := range handlers {
@@ -126,6 +131,14 @@ func (e *Manager) AddHandler(handler Handler) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.handlers = append(e.handlers, handler)
+}
+
+// isV6DefaultRoutePartner reports whether the event is the IPv6 half of a
+// paired v4/v6 default-route event. Management always pairs ::/0 with 0.0.0.0/0
+// for exit nodes, so the v4 partner already drives the user-facing toast and
+// the v6 one is suppressed to avoid a duplicate notification.
+func isV6DefaultRoutePartner(event *proto.SystemEvent) bool {
+	return event.Category == proto.SystemEvent_NETWORK && event.Metadata["network"] == "::/0"
 }
 
 func (e *Manager) getEventTitle(event *proto.SystemEvent) string {

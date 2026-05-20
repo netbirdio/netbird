@@ -21,6 +21,7 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
 	nbnet "github.com/netbirdio/netbird/client/net"
 )
@@ -354,9 +355,13 @@ func TestAddRouteToNonVPNIntf(t *testing.T) {
 			require.NoError(t, err, "Should be able to get IPv4 default route")
 			t.Logf("Initial IPv4 next hop: %s", initialNextHopV4)
 
+			if testCase.prefix.Addr().Is6() && !testCase.expectError {
+				ensureIPv6DefaultRoute(t)
+			}
+
 			initialNextHopV6, err := GetNextHop(netip.IPv6Unspecified())
 			if testCase.prefix.Addr().Is6() &&
-				(errors.Is(err, vars.ErrRouteNotFound) || initialNextHopV6.Intf != nil && strings.HasPrefix(initialNextHopV6.Intf.Name, "utun")) {
+				initialNextHopV6.Intf != nil && strings.HasPrefix(initialNextHopV6.Intf.Name, "utun") {
 				t.Skip("Skipping test as no ipv6 default route is available")
 			}
 			if err != nil && !errors.Is(err, vars.ErrRouteNotFound) {
@@ -441,7 +446,7 @@ func createWGInterface(t *testing.T, interfaceName, ipAddressCIDR string, listen
 
 	opts := iface.WGIFaceOpts{
 		IFaceName:    interfaceName,
-		Address:      ipAddressCIDR,
+		Address:      wgaddr.MustParseWGAddress(ipAddressCIDR),
 		WGPrivKey:    peerPrivateKey.String(),
 		WGPort:       listenPort,
 		MTU:          iface.DefaultMTU,

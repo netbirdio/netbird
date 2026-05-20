@@ -38,10 +38,10 @@ import (
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
-	"github.com/netbirdio/netbird/client/internal/sleep"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ui/desktop"
 	"github.com/netbirdio/netbird/client/ui/event"
+	"github.com/netbirdio/netbird/client/ui/notifier"
 	"github.com/netbirdio/netbird/client/ui/process"
 	"github.com/netbirdio/netbird/util"
 
@@ -260,6 +260,7 @@ type serviceClient struct {
 
 	// application with main windows.
 	app                  fyne.App
+	notifier             notifier.Notifier
 	wSettings            fyne.Window
 	showAdvancedSettings bool
 	sendNotification     bool
@@ -278,6 +279,7 @@ type serviceClient struct {
 	sDisableDNS                 *widget.Check
 	sDisableClientRoutes        *widget.Check
 	sDisableServerRoutes        *widget.Check
+	sDisableIPv6                *widget.Check
 	sBlockLANAccess             *widget.Check
 	sEnableSSHRoot              *widget.Check
 	sEnableSSHSFTP              *widget.Check
@@ -298,6 +300,7 @@ type serviceClient struct {
 	disableDNS                 bool
 	disableClientRoutes        bool
 	disableServerRoutes        bool
+	disableIPv6                bool
 	blockLANAccess             bool
 	enableSSHRoot              bool
 	enableSSHSFTP              bool
@@ -364,6 +367,7 @@ func newServiceClient(args *newServiceClientArgs) *serviceClient {
 		cancel:           cancel,
 		addr:             args.addr,
 		app:              args.app,
+		notifier:         notifier.New(args.app),
 		logFile:          args.logFile,
 		sendNotification: false,
 
@@ -466,6 +470,7 @@ func (s *serviceClient) showSettingsUI() {
 	s.sDisableDNS = widget.NewCheck("Keeps system DNS settings unchanged", nil)
 	s.sDisableClientRoutes = widget.NewCheck("This peer won't route traffic to other peers", nil)
 	s.sDisableServerRoutes = widget.NewCheck("This peer won't act as router for others", nil)
+	s.sDisableIPv6 = widget.NewCheck("Disable IPv6 overlay addressing", nil)
 	s.sBlockLANAccess = widget.NewCheck("Blocks local network access when used as exit node", nil)
 	s.sEnableSSHRoot = widget.NewCheck("Enable SSH Root Login", nil)
 	s.sEnableSSHSFTP = widget.NewCheck("Enable SSH SFTP", nil)
@@ -583,6 +588,7 @@ func (s *serviceClient) hasSettingsChanged(iMngURL string, port, mtu int64) bool
 		s.disableDNS != s.sDisableDNS.Checked ||
 		s.disableClientRoutes != s.sDisableClientRoutes.Checked ||
 		s.disableServerRoutes != s.sDisableServerRoutes.Checked ||
+		s.disableIPv6 != s.sDisableIPv6.Checked ||
 		s.blockLANAccess != s.sBlockLANAccess.Checked ||
 		s.hasSSHChanges()
 }
@@ -635,6 +641,7 @@ func (s *serviceClient) buildSetConfigRequest(iMngURL string, port, mtu int64) (
 	req.DisableDns = &s.sDisableDNS.Checked
 	req.DisableClientRoutes = &s.sDisableClientRoutes.Checked
 	req.DisableServerRoutes = &s.sDisableServerRoutes.Checked
+	req.DisableIpv6 = &s.sDisableIPv6.Checked
 	req.BlockLanAccess = &s.sBlockLANAccess.Checked
 
 	req.EnableSSHRoot = &s.sEnableSSHRoot.Checked
@@ -674,24 +681,23 @@ func (s *serviceClient) sendConfigUpdate(req *proto.SetConfigRequest) error {
 		return fmt.Errorf("set config: %w", err)
 	}
 
-	// Reconnect if connected to apply the new settings
+	// Reconnect if connected to apply the new settings.
+	// Use a background context so the reconnect outlives the settings window.
 	go func() {
-		status, err := conn.Status(s.ctx, &proto.StatusRequest{})
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		status, err := conn.Status(ctx, &proto.StatusRequest{})
 		if err != nil {
-			log.Errorf("get service status: %v", err)
+			log.Errorf("failed to get service status: %v", err)
 			return
 		}
 		if status.Status == string(internal.StatusConnected) {
-			// run down & up
-			_, err = conn.Down(s.ctx, &proto.DownRequest{})
-			if err != nil {
-				log.Errorf("down service: %v", err)
+			if _, err = conn.Down(ctx, &proto.DownRequest{}); err != nil {
+				log.Errorf("failed to stop service: %v", err)
 			}
-
-			_, err = conn.Up(s.ctx, &proto.UpRequest{})
-			if err != nil {
-				log.Errorf("up service: %v", err)
-				return
+			// TODO: wait for the service to be idle before calling Up, or use a fresh connection
+			if _, err = conn.Up(ctx, &proto.UpRequest{}); err != nil {
+				log.Errorf("failed to start service: %v", err)
 			}
 		}
 	}()
@@ -728,6 +734,7 @@ func (s *serviceClient) getNetworkForm() *widget.Form {
 			{Text: "Disable DNS", Widget: s.sDisableDNS},
 			{Text: "Disable Client Routes", Widget: s.sDisableClientRoutes},
 			{Text: "Disable Server Routes", Widget: s.sDisableServerRoutes},
+			{Text: "Disable IPv6", Widget: s.sDisableIPv6},
 			{Text: "Disable LAN Access", Widget: s.sBlockLANAccess},
 		},
 	}
@@ -892,7 +899,7 @@ func (s *serviceClient) updateStatus() error {
 		if err != nil {
 			log.Errorf("get service status: %v", err)
 			if s.connected {
-				s.app.SendNotification(fyne.NewNotification("Error", "Connection to service lost"))
+				s.notifier.Send("Error", "Connection to service lost")
 			}
 			s.setDisconnectedStatus()
 			return err
@@ -1109,7 +1116,7 @@ func (s *serviceClient) onTrayReady() {
 		}
 	}()
 
-	s.eventManager = event.NewManager(s.app, s.addr)
+	s.eventManager = event.NewManager(s.notifier, s.addr)
 	s.eventManager.SetNotificationsEnabled(s.mNotifications.Checked())
 	s.eventManager.AddHandler(func(event *proto.SystemEvent) {
 		if event.Category == proto.SystemEvent_SYSTEM {
@@ -1146,9 +1153,6 @@ func (s *serviceClient) onTrayReady() {
 
 	go s.eventManager.Start(s.ctx)
 	go s.eventHandler.listen(s.ctx)
-
-	// Start sleep detection listener
-	go s.startSleepListener()
 }
 
 func (s *serviceClient) attachOutput(cmd *exec.Cmd) *os.File {
@@ -1207,62 +1211,6 @@ func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonService
 
 	s.conn = proto.NewDaemonServiceClient(conn)
 	return s.conn, nil
-}
-
-// startSleepListener initializes the sleep detection service and listens for sleep events
-func (s *serviceClient) startSleepListener() {
-	sleepService, err := sleep.New()
-	if err != nil {
-		log.Warnf("%v", err)
-		return
-	}
-
-	if err := sleepService.Register(s.handleSleepEvents); err != nil {
-		log.Errorf("failed to start sleep detection: %v", err)
-		return
-	}
-
-	log.Info("sleep detection service initialized")
-
-	// Cleanup on context cancellation
-	go func() {
-		<-s.ctx.Done()
-		log.Info("stopping sleep event listener")
-		if err := sleepService.Deregister(); err != nil {
-			log.Errorf("failed to deregister sleep detection: %v", err)
-		}
-	}()
-}
-
-// handleSleepEvents sends a sleep notification to the daemon via gRPC
-func (s *serviceClient) handleSleepEvents(event sleep.EventType) {
-	conn, err := s.getSrvClient(0)
-	if err != nil {
-		log.Errorf("failed to get daemon client for sleep notification: %v", err)
-		return
-	}
-
-	req := &proto.OSLifecycleRequest{}
-
-	switch event {
-	case sleep.EventTypeWakeUp:
-		log.Infof("handle wakeup event: %v", event)
-		req.Type = proto.OSLifecycleRequest_WAKEUP
-	case sleep.EventTypeSleep:
-		log.Infof("handle sleep event: %v", event)
-		req.Type = proto.OSLifecycleRequest_SLEEP
-	default:
-		log.Infof("unknown event: %v", event)
-		return
-	}
-
-	_, err = conn.NotifyOSLifecycle(s.ctx, req)
-	if err != nil {
-		log.Errorf("failed to notify daemon about os lifecycle notification: %v", err)
-		return
-	}
-
-	log.Info("successfully notified daemon about os lifecycle")
 }
 
 // setSettingsEnabled enables or disables the settings menu based on the provided state
@@ -1384,6 +1332,7 @@ func (s *serviceClient) getSrvConfig() {
 	s.disableDNS = cfg.DisableDNS
 	s.disableClientRoutes = cfg.DisableClientRoutes
 	s.disableServerRoutes = cfg.DisableServerRoutes
+	s.disableIPv6 = cfg.DisableIPv6
 	s.blockLANAccess = cfg.BlockLANAccess
 
 	if cfg.EnableSSHRoot != nil {
@@ -1424,6 +1373,7 @@ func (s *serviceClient) getSrvConfig() {
 		s.sDisableDNS.SetChecked(cfg.DisableDNS)
 		s.sDisableClientRoutes.SetChecked(cfg.DisableClientRoutes)
 		s.sDisableServerRoutes.SetChecked(cfg.DisableServerRoutes)
+		s.sDisableIPv6.SetChecked(cfg.DisableIPv6)
 		s.sBlockLANAccess.SetChecked(cfg.BlockLANAccess)
 		if cfg.EnableSSHRoot != nil {
 			s.sEnableSSHRoot.SetChecked(*cfg.EnableSSHRoot)
@@ -1511,6 +1461,7 @@ func protoConfigToConfig(cfg *proto.GetConfigResponse) *profilemanager.Config {
 	config.DisableDNS = cfg.DisableDns
 	config.DisableClientRoutes = cfg.DisableClientRoutes
 	config.DisableServerRoutes = cfg.DisableServerRoutes
+	config.DisableIPv6 = cfg.DisableIpv6
 	config.BlockLANAccess = cfg.BlockLanAccess
 
 	config.EnableSSHRoot = &cfg.EnableSSHRoot
@@ -1548,7 +1499,7 @@ func (s *serviceClient) onUpdateAvailable(newVersion string, enforced bool) {
 
 	if enforced && s.lastNotifiedVersion != newVersion {
 		s.lastNotifiedVersion = newVersion
-		s.app.SendNotification(fyne.NewNotification("Update available", "A new version "+newVersion+" is ready to install"))
+		s.notifier.Send("Update available", "A new version "+newVersion+" is ready to install")
 	}
 }
 

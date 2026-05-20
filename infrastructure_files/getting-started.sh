@@ -231,7 +231,20 @@ get_upstream_host() {
 
 wait_management_proxy() {
   local proxy_container="${1:-traefik}"
+  local use_docker_logs=false
   set +e
+
+  if [[ "$proxy_container" == "detect-traefik" ]]; then
+    proxy_container=$(docker ps --format "{{.ID}}\t{{.Image}}\t{{.Ports}}" \
+    | awk -F'\t' '$2 ~ /traefik/ && $3 ~ /:(80|443)->/ {print $1; exit}')
+
+    if [[ -z "$proxy_container" ]]; then
+      echo "Warning: could not auto-detect Traefik container, log output will be skipped on timeout." > /dev/stderr
+    else
+      use_docker_logs=true
+    fi
+  fi
+
   echo -n "Waiting for NetBird server to become ready"
   counter=1
   while true; do
@@ -242,7 +255,13 @@ wait_management_proxy() {
     if [[ $counter -eq 60 ]]; then
       echo ""
       echo "Taking too long. Checking logs..."
-      $DOCKER_COMPOSE_COMMAND logs --tail=20 "$proxy_container"
+      if [[ -n "$proxy_container" ]]; then
+        if [[ "$use_docker_logs" == "true" ]]; then
+          docker logs --tail=20 "$proxy_container"
+        else
+          $DOCKER_COMPOSE_COMMAND logs --tail=20 "$proxy_container"
+        fi
+      fi
       $DOCKER_COMPOSE_COMMAND logs --tail=20 netbird-server
     fi
     echo -n " ."
@@ -518,7 +537,7 @@ start_services_and_show_instructions() {
     $DOCKER_COMPOSE_COMMAND up -d
 
     sleep 3
-    wait_management_direct
+    wait_management_proxy detect-traefik
 
     echo -e "$MSG_DONE"
     print_post_setup_instructions

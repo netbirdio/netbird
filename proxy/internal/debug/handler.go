@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"html/template"
 	"maps"
+	"net"
 	"net/http"
 	"slices"
 	"strconv"
@@ -174,6 +175,8 @@ func (h *Handler) handleClientRoutes(w http.ResponseWriter, r *http.Request, pat
 		h.handleClientStart(w, r, accountID)
 	case "stop":
 		h.handleClientStop(w, r, accountID)
+	case "capture":
+		h.handleCapture(w, r, accountID)
 	default:
 		return false
 	}
@@ -525,13 +528,18 @@ func (h *Handler) handlePingTCP(w http.ResponseWriter, r *http.Request, accountI
 		}
 	}
 
+	network := "tcp"
+	if v := r.URL.Query().Get("ip_version"); v == "4" || v == "6" {
+		network += v
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 
-	address := fmt.Sprintf("%s:%d", host, port)
+	address := net.JoinHostPort(host, strconv.Itoa(port))
 	start := time.Now()
 
-	conn, err := client.Dial(ctx, "tcp", address)
+	conn, err := client.Dial(ctx, network, address)
 	if err != nil {
 		h.writeJSON(w, map[string]interface{}{
 			"success": false,
@@ -541,18 +549,22 @@ func (h *Handler) handlePingTCP(w http.ResponseWriter, r *http.Request, accountI
 		})
 		return
 	}
+
+	remote := conn.RemoteAddr().String()
 	if err := conn.Close(); err != nil {
 		h.logger.Debugf("close tcp ping connection: %v", err)
 	}
 
 	latency := time.Since(start)
-	h.writeJSON(w, map[string]interface{}{
+	resp := map[string]interface{}{
 		"success":    true,
 		"host":       host,
 		"port":       port,
+		"remote":     remote,
 		"latency_ms": latency.Milliseconds(),
 		"latency":    formatDuration(latency),
-	})
+	}
+	h.writeJSON(w, resp)
 }
 
 func (h *Handler) handleLogLevel(w http.ResponseWriter, r *http.Request, accountID types.AccountID) {
@@ -630,6 +642,81 @@ func (h *Handler) handleClientStop(w http.ResponseWriter, r *http.Request, accou
 		"success": true,
 		"message": "client stopped",
 	})
+}
+
+const maxCaptureDuration = 30 * time.Minute
+
+// handleCapture streams a pcap or text packet capture for the given client.
+//
+// Query params:
+//
+//	duration: capture duration (0 or absent = max, capped at 30m)
+//	format:   "text" for human-readable output (default: pcap)
+//	filter:   BPF-like filter expression (e.g. "host 10.0.0.1 and tcp port 443")
+func (h *Handler) handleCapture(w http.ResponseWriter, r *http.Request, accountID types.AccountID) {
+	client, ok := h.provider.GetClient(accountID)
+	if !ok {
+		http.Error(w, "client not found", http.StatusNotFound)
+		return
+	}
+
+	duration := maxCaptureDuration
+	if durationStr := r.URL.Query().Get("duration"); durationStr != "" {
+		d, err := time.ParseDuration(durationStr)
+		if err != nil {
+			http.Error(w, "invalid duration: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if d < 0 {
+			http.Error(w, "duration must not be negative", http.StatusBadRequest)
+			return
+		}
+		if d > 0 {
+			duration = min(d, maxCaptureDuration)
+		}
+	}
+
+	filter := r.URL.Query().Get("filter")
+	wantText := r.URL.Query().Get("format") == "text"
+	verbose := r.URL.Query().Get("verbose") == "true"
+	ascii := r.URL.Query().Get("ascii") == "true"
+
+	opts := nbembed.CaptureOptions{Filter: filter, Verbose: verbose, ASCII: ascii}
+	if wantText {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		opts.TextOutput = w
+	} else {
+		w.Header().Set("Content-Type", "application/vnd.tcpdump.pcap")
+		w.Header().Set("Content-Disposition",
+			fmt.Sprintf("attachment; filename=capture-%s.pcap", accountID))
+		opts.Output = w
+	}
+
+	cs, err := client.StartCapture(opts)
+	if err != nil {
+		http.Error(w, "start capture: "+err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	defer cs.Stop()
+
+	// Flush headers after setup succeeds so errors above can still set status codes.
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+
+	select {
+	case <-r.Context().Done():
+	case <-timer.C:
+	}
+
+	cs.Stop()
+
+	stats := cs.Stats()
+	h.logger.Infof("capture for %s finished: %d packets, %d bytes, %d dropped",
+		accountID, stats.Packets, stats.Bytes, stats.Dropped)
 }
 
 func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request, wantJSON bool) {

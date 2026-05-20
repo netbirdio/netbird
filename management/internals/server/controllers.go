@@ -6,6 +6,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/management-integrations/integrations"
+
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	proxymanager "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy/manager"
 
@@ -66,6 +67,12 @@ func (s *BaseServer) SecretsManager() grpc.SecretsManager {
 	})
 }
 
+func (s *BaseServer) SessionStore() *auth.SessionStore {
+	return Create(s, func() *auth.SessionStore {
+		return auth.NewSessionStore(s.CacheStore())
+	})
+}
+
 func (s *BaseServer) AuthManager() auth.Manager {
 	audiences := s.Config.GetAuthAudiences()
 	audience := s.Config.HttpConfig.AuthAudience
@@ -105,7 +112,11 @@ func (s *BaseServer) AuthManager() auth.Manager {
 
 func (s *BaseServer) EphemeralManager() ephemeral.Manager {
 	return Create(s, func() ephemeral.Manager {
-		return manager.NewEphemeralManager(s.Store(), s.PeersManager())
+		em := manager.NewEphemeralManager(s.Store(), s.PeersManager())
+		if metrics := s.Metrics(); metrics != nil {
+			em.SetMetrics(metrics.EphemeralPeersMetrics())
+		}
+		return em
 	})
 }
 

@@ -381,13 +381,14 @@ func (s *Service) buildPathMappings() []*proto.PathMapping {
 		}
 
 		// HTTP/HTTPS: build full URL
+		hostNoBrackets := strings.TrimSuffix(strings.TrimPrefix(target.Host, "["), "]")
 		targetURL := url.URL{
 			Scheme: target.Protocol,
-			Host:   target.Host,
+			Host:   bracketIPv6Host(hostNoBrackets),
 			Path:   "/",
 		}
 		if target.Port > 0 && !isDefaultPort(target.Protocol, target.Port) {
-			targetURL.Host = net.JoinHostPort(targetURL.Host, strconv.FormatUint(uint64(target.Port), 10))
+			targetURL.Host = net.JoinHostPort(hostNoBrackets, strconv.FormatUint(uint64(target.Port), 10))
 		}
 
 		path := "/"
@@ -403,6 +404,19 @@ func (s *Service) buildPathMappings() []*proto.PathMapping {
 		pathMappings = append(pathMappings, pm)
 	}
 	return pathMappings
+}
+
+// bracketIPv6Host wraps host in square brackets when it is an IPv6 literal, as
+// required for the Host field of net/url.URL (RFC 3986 §3.2.2). v4-mapped IPv6
+// addresses are bracketed too since their textual form contains colons.
+func bracketIPv6Host(host string) string {
+	if strings.HasPrefix(host, "[") {
+		return host
+	}
+	if addr, err := netip.ParseAddr(host); err == nil && addr.Is6() {
+		return "[" + host + "]"
+	}
+	return host
 }
 
 func operationToProtoType(op Operation) proto.ProxyMappingUpdateType {

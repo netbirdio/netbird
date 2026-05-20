@@ -3,44 +3,40 @@
 package iface
 
 import (
-	"fmt"
+	"errors"
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/device"
 	"github.com/netbirdio/netbird/client/iface/netstack"
-	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 )
 
 // NewWGIFace Creates a new WireGuard interface instance
 func NewWGIFace(opts WGIFaceOpts) (*WGIface, error) {
-	wgAddress, err := wgaddr.ParseWGAddress(opts.Address)
-	if err != nil {
-		return nil, err
-	}
-
-	wgIFace := &WGIface{}
-
 	if netstack.IsEnabled() {
-		iceBind := bind.NewICEBind(opts.TransportNet, opts.FilterFn, wgAddress, opts.MTU)
-		wgIFace.tun = device.NewNetstackDevice(opts.IFaceName, wgAddress, opts.WGPort, opts.WGPrivKey, opts.MTU, iceBind, netstack.ListenAddr())
-		wgIFace.userspaceBind = true
-		wgIFace.wgProxyFactory = wgproxy.NewUSPFactory(iceBind, opts.MTU)
-		return wgIFace, nil
+		iceBind := bind.NewICEBind(opts.TransportNet, opts.FilterFn, opts.Address, opts.MTU)
+		return &WGIface{
+			tun:            device.NewNetstackDevice(opts.IFaceName, opts.Address, opts.WGPort, opts.WGPrivKey, opts.MTU, iceBind, netstack.ListenAddr()),
+			userspaceBind:  true,
+			wgProxyFactory: wgproxy.NewUSPFactory(iceBind, opts.MTU),
+		}, nil
 	}
 
 	if device.WireGuardModuleIsLoaded() {
-		wgIFace.tun = device.NewKernelDevice(opts.IFaceName, wgAddress, opts.WGPort, opts.WGPrivKey, opts.MTU, opts.TransportNet)
-		wgIFace.wgProxyFactory = wgproxy.NewKernelFactory(opts.WGPort, opts.MTU)
-		return wgIFace, nil
-	}
-	if device.ModuleTunIsLoaded() {
-		iceBind := bind.NewICEBind(opts.TransportNet, opts.FilterFn, wgAddress, opts.MTU)
-		wgIFace.tun = device.NewUSPDevice(opts.IFaceName, wgAddress, opts.WGPort, opts.WGPrivKey, opts.MTU, iceBind)
-		wgIFace.userspaceBind = true
-		wgIFace.wgProxyFactory = wgproxy.NewUSPFactory(iceBind, opts.MTU)
-		return wgIFace, nil
+		return &WGIface{
+			tun:            device.NewKernelDevice(opts.IFaceName, opts.Address, opts.WGPort, opts.WGPrivKey, opts.MTU, opts.TransportNet),
+			wgProxyFactory: wgproxy.NewKernelFactory(opts.WGPort, opts.MTU),
+		}, nil
 	}
 
-	return nil, fmt.Errorf("couldn't check or load tun module")
+	if device.ModuleTunIsLoaded() {
+		iceBind := bind.NewICEBind(opts.TransportNet, opts.FilterFn, opts.Address, opts.MTU)
+		return &WGIface{
+			tun:            device.NewTunDevice(opts.IFaceName, opts.Address, opts.WGPort, opts.WGPrivKey, opts.MTU, iceBind),
+			userspaceBind:  true,
+			wgProxyFactory: wgproxy.NewUSPFactory(iceBind, opts.MTU),
+		}, nil
+	}
+
+	return nil, errors.New("tun module not available")
 }

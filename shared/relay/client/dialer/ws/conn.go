@@ -12,14 +12,24 @@ import (
 type Conn struct {
 	ctx context.Context
 	*websocket.Conn
-	remoteAddr WebsocketAddr
+	remoteAddr net.Addr
 }
 
-func NewConn(wsConn *websocket.Conn, serverAddress string) net.Conn {
+// NewConn builds a relay ws.Conn. underlying is the raw TCP/TLS conn captured
+// from the http transport's DialContext; when set, RemoteAddr returns its
+// peer address (an IP literal). When nil (e.g. wasm), RemoteAddr falls back
+// to the dial-time URL.
+func NewConn(wsConn *websocket.Conn, serverAddress string, underlying net.Conn) net.Conn {
+	var addr net.Addr = WebsocketAddr{serverAddress}
+	if underlying != nil {
+		if ra := underlying.RemoteAddr(); ra != nil {
+			addr = ra
+		}
+	}
 	return &Conn{
 		ctx:        context.Background(),
 		Conn:       wsConn,
-		remoteAddr: WebsocketAddr{serverAddress},
+		remoteAddr: addr,
 	}
 }
 

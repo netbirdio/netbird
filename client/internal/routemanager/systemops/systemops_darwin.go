@@ -89,8 +89,16 @@ func (r *SysOps) installScopedDefaultFor(unspec netip.Addr) (bool, error) {
 		return false, fmt.Errorf("unusable default nexthop for %s (no interface)", unspec)
 	}
 
+	reused := false
 	if err := r.addScopedDefault(unspec, nexthop); err != nil {
-		return false, fmt.Errorf("add scoped default on %s: %w", nexthop.Intf.Name, err)
+		if !errors.Is(err, unix.EEXIST) {
+			return false, fmt.Errorf("add scoped default on %s: %w", nexthop.Intf.Name, err)
+		}
+		// macOS installs its own RTF_IFSCOPE defaults for primary service
+		// selection on multi-NIC setups, so a route on this ifindex can
+		// already exist before we try. Binding to it via IP[V6]_BOUND_IF
+		// still produces the scoped lookup we need.
+		reused = true
 	}
 
 	af := unix.AF_INET
@@ -102,7 +110,11 @@ func (r *SysOps) installScopedDefaultFor(unspec netip.Addr) (bool, error) {
 	if nexthop.IP.IsValid() {
 		via = nexthop.IP.String()
 	}
-	log.Infof("installed scoped default route via %s on %s for %s", via, nexthop.Intf.Name, afOf(unspec))
+	verb := "installed"
+	if reused {
+		verb = "reused existing"
+	}
+	log.Infof("%s scoped default route via %s on %s for %s", verb, via, nexthop.Intf.Name, afOf(unspec))
 	return true, nil
 }
 

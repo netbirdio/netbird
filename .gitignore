@@ -35,3 +35,4 @@ vendor/
 client/netbird-electron/
 build/
 docs/superpowers/
+management/server/types/testdata/
