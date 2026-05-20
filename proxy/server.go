@@ -32,9 +32,11 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric"
 	"golang.org/x/exp/maps"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
+	grpcstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -1145,6 +1147,10 @@ func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.Pr
 		Clock:               backoff.SystemClock,
 	}
 
+	// syncSupported tracks whether management supports SyncMappings.
+	// Starts true; set to false on the first Unimplemented error so
+	// subsequent retries skip straight to GetMappingUpdate.
+	syncSupported := true
 	initialSyncDone := false
 
 	operation := func() error {
@@ -1156,40 +1162,24 @@ func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.Pr
 			s.healthChecker.SetManagementConnected(false)
 		}
 
-		supportsCrowdSec := s.crowdsecRegistry.Available()
-		privateCapability := s.Private
-		// Always true: this build enforces ProxyMapping.private via the auth middleware.
-		supportsPrivateService := true
-		mappingClient, err := client.GetMappingUpdate(ctx, &proto.GetMappingUpdateRequest{
-			ProxyId:   s.ID,
-			Version:   s.Version,
-			StartedAt: timestamppb.New(s.startTime),
-			Address:   s.ProxyURL,
-			Capabilities: &proto.ProxyCapabilities{
-				SupportsCustomPorts:    &s.SupportsCustomPorts,
-				RequireSubdomain:       &s.RequireSubdomain,
-				SupportsCrowdsec:       &supportsCrowdSec,
-				Private:                &privateCapability,
-				SupportsPrivateService: &supportsPrivateService,
-			},
-		})
-		if err != nil {
-			return fmt.Errorf("create mapping stream: %w", err)
+		var streamErr error
+		if syncSupported {
+			streamErr = s.trySyncMappings(ctx, client, &initialSyncDone)
+			if isSyncUnimplemented(streamErr) {
+				syncSupported = false
+				s.Logger.Info("management does not support SyncMappings, falling back to GetMappingUpdate")
+				streamErr = s.tryGetMappingUpdate(ctx, client, &initialSyncDone)
+			}
+		} else {
+			streamErr = s.tryGetMappingUpdate(ctx, client, &initialSyncDone)
 		}
-
-		if s.healthChecker != nil {
-			s.healthChecker.SetManagementConnected(true)
-		}
-		s.Logger.Debug("management mapping stream established")
-
-		// Stream established — reset backoff so the next failure retries quickly.
-		bo.Reset()
-
-		streamErr := s.handleMappingStream(ctx, mappingClient, &initialSyncDone, time.Now())
 
 		if s.healthChecker != nil {
 			s.healthChecker.SetManagementConnected(false)
 		}
+
+		// Stream established — reset backoff so the next failure retries quickly.
+		bo.Reset()
 
 		if streamErr == nil {
 			return fmt.Errorf("stream closed by server")
@@ -1204,6 +1194,134 @@ func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.Pr
 
 	if err := backoff.RetryNotify(operation, backoff.WithContext(bo, ctx), notify); err != nil {
 		s.Logger.WithError(err).Debug("management mapping worker exiting")
+	}
+}
+
+func (s *Server) proxyCapabilities() *proto.ProxyCapabilities {
+	supportsCrowdSec := s.crowdsecRegistry.Available()
+	privateCapability := s.Private
+	// Always true: this build enforces ProxyMapping.private via the auth middleware.
+	supportsPrivateService := true
+	return &proto.ProxyCapabilities{
+		SupportsCustomPorts:    &s.SupportsCustomPorts,
+		RequireSubdomain:       &s.RequireSubdomain,
+		SupportsCrowdsec:       &supportsCrowdSec,
+		Private:                &privateCapability,
+		SupportsPrivateService: &supportsPrivateService,
+	}
+}
+
+func (s *Server) tryGetMappingUpdate(ctx context.Context, client proto.ProxyServiceClient, initialSyncDone *bool) error {
+	connectTime := time.Now()
+	mappingClient, err := client.GetMappingUpdate(ctx, &proto.GetMappingUpdateRequest{
+		ProxyId:      s.ID,
+		Version:      s.Version,
+		StartedAt:    timestamppb.New(s.startTime),
+		Address:      s.ProxyURL,
+		Capabilities: s.proxyCapabilities(),
+	})
+	if err != nil {
+		return fmt.Errorf("create mapping stream: %w", err)
+	}
+
+	if s.healthChecker != nil {
+		s.healthChecker.SetManagementConnected(true)
+	}
+	s.Logger.Debug("management mapping stream established (GetMappingUpdate)")
+
+	return s.handleMappingStream(ctx, mappingClient, initialSyncDone, connectTime)
+}
+
+func (s *Server) trySyncMappings(ctx context.Context, client proto.ProxyServiceClient, initialSyncDone *bool) error {
+	connectTime := time.Now()
+	stream, err := client.SyncMappings(ctx)
+	if err != nil {
+		return fmt.Errorf("create sync stream: %w", err)
+	}
+
+	if err := stream.Send(&proto.SyncMappingsRequest{
+		Msg: &proto.SyncMappingsRequest_Init{
+			Init: &proto.SyncMappingsInit{
+				ProxyId:      s.ID,
+				Version:      s.Version,
+				StartedAt:    timestamppb.New(s.startTime),
+				Address:      s.ProxyURL,
+				Capabilities: s.proxyCapabilities(),
+			},
+		},
+	}); err != nil {
+		return fmt.Errorf("send sync init: %w", err)
+	}
+
+	if s.healthChecker != nil {
+		s.healthChecker.SetManagementConnected(true)
+	}
+	s.Logger.Debug("management mapping stream established (SyncMappings)")
+
+	return s.handleSyncMappingsStream(ctx, stream, initialSyncDone, connectTime)
+}
+
+func isSyncUnimplemented(err error) bool {
+	if err == nil {
+		return false
+	}
+	st, ok := grpcstatus.FromError(err)
+	return ok && st.Code() == codes.Unimplemented
+}
+
+// handleSyncMappingsStream consumes batches from a bidirectional SyncMappings
+// stream, sending an ack after each batch is fully processed. Management waits
+// for the ack before sending the next batch, providing application-level
+// back-pressure.
+func (s *Server) handleSyncMappingsStream(ctx context.Context, stream proto.ProxyService_SyncMappingsClient, initialSyncDone *bool, _ time.Time) error {
+	select {
+	case <-s.routerReady:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	var snapshotIDs map[types.ServiceID]struct{}
+	if !*initialSyncDone {
+		snapshotIDs = make(map[types.ServiceID]struct{})
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			msg, err := stream.Recv()
+			switch {
+			case errors.Is(err, io.EOF):
+				return nil
+			case err != nil:
+				return fmt.Errorf("receive msg: %w", err)
+			}
+			s.Logger.Debug("Received mapping update, starting processing")
+			s.processMappings(ctx, msg.GetMapping())
+			s.Logger.Debug("Processing mapping update completed")
+
+			if !*initialSyncDone {
+				for _, m := range msg.GetMapping() {
+					snapshotIDs[types.ServiceID(m.GetId())] = struct{}{}
+				}
+				if msg.GetInitialSyncComplete() {
+					s.reconcileSnapshot(ctx, snapshotIDs)
+					snapshotIDs = nil
+					if s.healthChecker != nil {
+						s.healthChecker.SetInitialSyncComplete()
+					}
+					*initialSyncDone = true
+					s.Logger.Info("Initial mapping sync complete")
+				}
+			}
+
+			if err := stream.Send(&proto.SyncMappingsRequest{
+				Msg: &proto.SyncMappingsRequest_Ack{Ack: &proto.SyncMappingsAck{}},
+			}); err != nil {
+				return fmt.Errorf("send ack: %w", err)
+			}
+		}
 	}
 }
 

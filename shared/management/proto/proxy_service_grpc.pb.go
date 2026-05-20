@@ -19,6 +19,14 @@ const _ = grpc.SupportPackageIsVersion7
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ProxyServiceClient interface {
 	GetMappingUpdate(ctx context.Context, in *GetMappingUpdateRequest, opts ...grpc.CallOption) (ProxyService_GetMappingUpdateClient, error)
+	// SyncMappings is a bidirectional stream that replaces GetMappingUpdate for
+	// new proxies. The proxy sends an initial SyncMappingsRequest to start the
+	// stream and then sends an ack after each batch is fully processed.
+	// Management waits for the ack before sending the next batch, providing
+	// application-level back-pressure during large initial syncs.
+	// Old proxies continue using GetMappingUpdate; old management servers
+	// return Unimplemented for this RPC and proxies fall back.
+	SyncMappings(ctx context.Context, opts ...grpc.CallOption) (ProxyService_SyncMappingsClient, error)
 	SendAccessLog(ctx context.Context, in *SendAccessLogRequest, opts ...grpc.CallOption) (*SendAccessLogResponse, error)
 	Authenticate(ctx context.Context, in *AuthenticateRequest, opts ...grpc.CallOption) (*AuthenticateResponse, error)
 	SendStatusUpdate(ctx context.Context, in *SendStatusUpdateRequest, opts ...grpc.CallOption) (*SendStatusUpdateResponse, error)
@@ -71,6 +79,37 @@ type proxyServiceGetMappingUpdateClient struct {
 
 func (x *proxyServiceGetMappingUpdateClient) Recv() (*GetMappingUpdateResponse, error) {
 	m := new(GetMappingUpdateResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (c *proxyServiceClient) SyncMappings(ctx context.Context, opts ...grpc.CallOption) (ProxyService_SyncMappingsClient, error) {
+	stream, err := c.cc.NewStream(ctx, &ProxyService_ServiceDesc.Streams[1], "/management.ProxyService/SyncMappings", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &proxyServiceSyncMappingsClient{stream}
+	return x, nil
+}
+
+type ProxyService_SyncMappingsClient interface {
+	Send(*SyncMappingsRequest) error
+	Recv() (*SyncMappingsResponse, error)
+	grpc.ClientStream
+}
+
+type proxyServiceSyncMappingsClient struct {
+	grpc.ClientStream
+}
+
+func (x *proxyServiceSyncMappingsClient) Send(m *SyncMappingsRequest) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *proxyServiceSyncMappingsClient) Recv() (*SyncMappingsResponse, error) {
+	m := new(SyncMappingsResponse)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
@@ -145,6 +184,14 @@ func (c *proxyServiceClient) ValidateTunnelPeer(ctx context.Context, in *Validat
 // for forward compatibility
 type ProxyServiceServer interface {
 	GetMappingUpdate(*GetMappingUpdateRequest, ProxyService_GetMappingUpdateServer) error
+	// SyncMappings is a bidirectional stream that replaces GetMappingUpdate for
+	// new proxies. The proxy sends an initial SyncMappingsRequest to start the
+	// stream and then sends an ack after each batch is fully processed.
+	// Management waits for the ack before sending the next batch, providing
+	// application-level back-pressure during large initial syncs.
+	// Old proxies continue using GetMappingUpdate; old management servers
+	// return Unimplemented for this RPC and proxies fall back.
+	SyncMappings(ProxyService_SyncMappingsServer) error
 	SendAccessLog(context.Context, *SendAccessLogRequest) (*SendAccessLogResponse, error)
 	Authenticate(context.Context, *AuthenticateRequest) (*AuthenticateResponse, error)
 	SendStatusUpdate(context.Context, *SendStatusUpdateRequest) (*SendStatusUpdateResponse, error)
@@ -170,6 +217,9 @@ type UnimplementedProxyServiceServer struct {
 
 func (UnimplementedProxyServiceServer) GetMappingUpdate(*GetMappingUpdateRequest, ProxyService_GetMappingUpdateServer) error {
 	return status.Errorf(codes.Unimplemented, "method GetMappingUpdate not implemented")
+}
+func (UnimplementedProxyServiceServer) SyncMappings(ProxyService_SyncMappingsServer) error {
+	return status.Errorf(codes.Unimplemented, "method SyncMappings not implemented")
 }
 func (UnimplementedProxyServiceServer) SendAccessLog(context.Context, *SendAccessLogRequest) (*SendAccessLogResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SendAccessLog not implemented")
@@ -224,6 +274,32 @@ type proxyServiceGetMappingUpdateServer struct {
 
 func (x *proxyServiceGetMappingUpdateServer) Send(m *GetMappingUpdateResponse) error {
 	return x.ServerStream.SendMsg(m)
+}
+
+func _ProxyService_SyncMappings_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(ProxyServiceServer).SyncMappings(&proxyServiceSyncMappingsServer{stream})
+}
+
+type ProxyService_SyncMappingsServer interface {
+	Send(*SyncMappingsResponse) error
+	Recv() (*SyncMappingsRequest, error)
+	grpc.ServerStream
+}
+
+type proxyServiceSyncMappingsServer struct {
+	grpc.ServerStream
+}
+
+func (x *proxyServiceSyncMappingsServer) Send(m *SyncMappingsResponse) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func (x *proxyServiceSyncMappingsServer) Recv() (*SyncMappingsRequest, error) {
+	m := new(SyncMappingsRequest)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
 }
 
 func _ProxyService_SendAccessLog_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -393,6 +469,12 @@ var ProxyService_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "GetMappingUpdate",
 			Handler:       _ProxyService_GetMappingUpdate_Handler,
 			ServerStreams: true,
+		},
+		{
+			StreamName:    "SyncMappings",
+			Handler:       _ProxyService_SyncMappings_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "proxy_service.proto",

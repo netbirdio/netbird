@@ -12,6 +12,15 @@ import "google/protobuf/timestamp.proto";
 service ProxyService {
   rpc GetMappingUpdate(GetMappingUpdateRequest) returns (stream GetMappingUpdateResponse);
 
+  // SyncMappings is a bidirectional stream that replaces GetMappingUpdate for
+  // new proxies. The proxy sends an initial SyncMappingsRequest to start the
+  // stream and then sends an ack after each batch is fully processed.
+  // Management waits for the ack before sending the next batch, providing
+  // application-level back-pressure during large initial syncs.
+  // Old proxies continue using GetMappingUpdate; old management servers
+  // return Unimplemented for this RPC and proxies fall back.
+  rpc SyncMappings(stream SyncMappingsRequest) returns (stream SyncMappingsResponse);
+
   rpc SendAccessLog(SendAccessLogRequest) returns (SendAccessLogResponse);
 
   rpc Authenticate(AuthenticateRequest) returns (AuthenticateResponse);
@@ -333,5 +342,37 @@ message ValidateTunnelPeerResponse {
   // Stamped onto upstream requests as X-NetBird-Groups so downstream
   // services can read names rather than opaque ids.
   repeated string peer_group_names = 7;
+}
+
+// SyncMappingsRequest is sent by the proxy on the bidirectional SyncMappings
+// stream. The first message MUST be an init; all subsequent messages MUST be
+// acks.
+message SyncMappingsRequest {
+  oneof msg {
+    SyncMappingsInit init = 1;
+    SyncMappingsAck ack = 2;
+  }
+}
+
+// SyncMappingsInit is the first message on the stream, carrying the same
+// identification fields as GetMappingUpdateRequest.
+message SyncMappingsInit {
+  string proxy_id = 1;
+  string version = 2;
+  google.protobuf.Timestamp started_at = 3;
+  string address = 4;
+  ProxyCapabilities capabilities = 5;
+}
+
+// SyncMappingsAck is sent by the proxy after it has fully processed a batch.
+// Management waits for this before sending the next batch.
+message SyncMappingsAck {}
+
+// SyncMappingsResponse is a batch of mappings sent by management.
+// Identical semantics to GetMappingUpdateResponse.
+message SyncMappingsResponse {
+  repeated ProxyMapping mapping = 1;
+  // initial_sync_complete is set on the last message of the initial snapshot.
+  bool initial_sync_complete = 2;
 }
 
