@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"syscall"
@@ -95,10 +96,13 @@ func (m *darwinAgentManager) ensure(ctx context.Context) (string, error) {
 		return m.authToken, nil
 	}
 	m.killLocked()
+	// Reap any stray external vnc-agent so the new token is the only one
+	// the freshly spawned agent will accept on the loopback port.
+	killAllVNCAgents()
 
-	token := generateAuthToken()
-	if token == "" {
-		return "", fmt.Errorf("generate agent auth token")
+	token, err := generateAuthToken()
+	if err != nil {
+		return "", fmt.Errorf("generate agent auth token: %w", err)
 	}
 	if err := spawnAgentForUser(consoleUID, m.port, token); err != nil {
 		return "", err
@@ -248,13 +252,16 @@ func killAllVNCAgents() {
 	}
 }
 
-// vncAgentPIDs returns the pids of every process whose argv contains
-// "vnc-agent". Skips pid 0 and 1 defensively.
+// vncAgentPIDs returns the pids of vnc-agent subprocesses spawned from
+// this binary. Matches on (argv[0] basename == our own basename) AND
+// argv contains the "vnc-agent" subcommand. Skips pid 0 and 1 defensively.
 func vncAgentPIDs() ([]int, error) {
 	procs, err := unix.SysctlKinfoProcSlice("kern.proc.all")
 	if err != nil {
 		return nil, fmt.Errorf("sysctl kern.proc.all: %w", err)
 	}
+	ownExe, _ := os.Executable()
+	ownBase := filepath.Base(ownExe)
 	var out []int
 	for i := range procs {
 		pid := int(procs[i].Proc.P_pid)
@@ -262,7 +269,7 @@ func vncAgentPIDs() ([]int, error) {
 			continue
 		}
 		argv, err := procArgv(pid)
-		if err != nil || !argvIsVNCAgent(argv) {
+		if err != nil || !argvIsVNCAgent(argv, ownBase) {
 			continue
 		}
 		out = append(out, pid)
@@ -305,8 +312,17 @@ func procArgv(pid int) ([]string, error) {
 	return args, nil
 }
 
-func argvIsVNCAgent(argv []string) bool {
-	for _, a := range argv {
+// argvIsVNCAgent reports whether argv belongs to a vnc-agent subprocess
+// spawned from our binary. Requires argv[0]'s basename to match ownBase
+// and the "vnc-agent" subcommand to appear among the positional args.
+func argvIsVNCAgent(argv []string, ownBase string) bool {
+	if len(argv) < 2 || ownBase == "" {
+		return false
+	}
+	if filepath.Base(argv[0]) != ownBase {
+		return false
+	}
+	for _, a := range argv[1:] {
 		if a == "vnc-agent" {
 			return true
 		}

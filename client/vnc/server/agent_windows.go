@@ -626,7 +626,12 @@ func (m *sessionManager) maybeSpawnAgent(sid uint32) bool {
 	if !m.everSpawned {
 		reapOrphanOnPort(m.port)
 	}
-	m.authToken = generateAuthToken()
+	token, err := generateAuthToken()
+	if err != nil {
+		log.Warnf("generate agent auth token: %v", err)
+		return true
+	}
+	m.authToken = token
 	h, err := spawnAgentInSession(sid, m.port, m.authToken, m.jobHandle)
 	if err != nil {
 		m.authToken = ""
@@ -657,11 +662,11 @@ func (m *sessionManager) killAgent() {
 }
 
 // relogAgentOutput reads log lines from the agent's stderr pipe and
-// relogs them with the service's formatter.
+// relogs them with the service's formatter. The *os.File owns the
+// underlying handle, so closing it suffices.
 func relogAgentOutput(pipe windows.Handle) {
-	defer func() { _ = windows.CloseHandle(pipe) }()
 	f := os.NewFile(uintptr(pipe), "vnc-agent-stderr")
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	relogAgentStream(f)
 }
 

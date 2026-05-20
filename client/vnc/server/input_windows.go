@@ -134,8 +134,15 @@ type WindowsInputInjector struct {
 	closed         chan struct{}
 	closeOnce      sync.Once
 	prevButtonMask uint16
-	ctrlDown       bool
-	altDown        bool
+	// lastQueuedButtonMask is the most recent buttonMask submitted to ch
+	// by InjectPointer. Compared against the incoming sample to decide
+	// whether the new event is move-only (lossy enqueue) or carries a
+	// button/wheel transition (reliable enqueue).
+	lastQueuedButtonMask uint16
+	lastQueuedMaskValid  bool
+	queueMu              sync.Mutex
+	ctrlDown             bool
+	altDown              bool
 }
 
 // NewWindowsInputInjector creates a desktop-aware input injector.
@@ -168,6 +175,21 @@ func (w *WindowsInputInjector) tryEnqueue(cmd inputCmd) {
 	select {
 	case w.ch <- cmd:
 	default:
+	}
+}
+
+// enqueueReliable posts a command and blocks until it's accepted or the
+// injector closes. Used for edge-triggered events (button/wheel) where a
+// drop would desynchronize prevButtonMask in dispatch().
+func (w *WindowsInputInjector) enqueueReliable(cmd inputCmd) {
+	select {
+	case <-w.closed:
+		return
+	default:
+	}
+	select {
+	case w.ch <- cmd:
+	case <-w.closed:
 	}
 }
 
@@ -223,11 +245,22 @@ func (w *WindowsInputInjector) InjectKeyScancode(scancode uint32, keysym uint32,
 }
 
 // InjectPointer queues a pointer event for injection on the input desktop
-// thread. Pointer events coalesce: when the channel is full (slow desktop
-// switch, hung SendInput), drop the new sample so the read loop never
-// blocks. The next mouse event carries fresher position anyway.
+// thread. Move-only updates use lossy enqueue (next sample carries fresher
+// position anyway), but any sample whose buttonMask differs from the last
+// queued mask is enqueued reliably so wheel ticks and button transitions
+// can't be dropped under backpressure.
 func (w *WindowsInputInjector) InjectPointer(buttonMask uint16, x, y, serverW, serverH int) {
-	w.tryEnqueue(inputCmd{buttonMask: buttonMask, x: x, y: y, serverW: serverW, serverH: serverH})
+	cmd := inputCmd{buttonMask: buttonMask, x: x, y: y, serverW: serverW, serverH: serverH}
+	w.queueMu.Lock()
+	transition := !w.lastQueuedMaskValid || w.lastQueuedButtonMask != buttonMask
+	w.lastQueuedButtonMask = buttonMask
+	w.lastQueuedMaskValid = true
+	w.queueMu.Unlock()
+	if transition {
+		w.enqueueReliable(cmd)
+		return
+	}
+	w.tryEnqueue(cmd)
 }
 
 // doInjectKeyScancode injects a key event using the QEMU scancode directly,

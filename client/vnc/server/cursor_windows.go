@@ -173,10 +173,10 @@ func decodeCursor(hCur windows.Handle) (*image.RGBA, int, int, error) {
 	}
 	defer func() {
 		if info.HbmMask != 0 {
-			procDeleteObject.Call(uintptr(info.HbmMask))
+			_, _, _ = procDeleteObject.Call(uintptr(info.HbmMask))
 		}
 		if info.HbmColor != 0 {
-			procDeleteObject.Call(uintptr(info.HbmColor))
+			_, _, _ = procDeleteObject.Call(uintptr(info.HbmColor))
 		}
 	}()
 	hotX, hotY := int(info.XHotspot), int(info.YHotspot)
@@ -212,12 +212,12 @@ func dibCopy(hbm windows.Handle, w, h int32) ([]byte, error) {
 	if hdcScreen == 0 {
 		return nil, fmt.Errorf("GetDC: failed")
 	}
-	defer procReleaseDC.Call(0, hdcScreen)
+	defer func() { _, _, _ = procReleaseDC.Call(0, hdcScreen) }()
 	hdcMem, _, _ := procCreateCompatDC.Call(hdcScreen)
 	if hdcMem == 0 {
 		return nil, fmt.Errorf("CreateCompatibleDC: failed")
 	}
-	defer procDeleteDC.Call(hdcMem)
+	defer func() { _, _, _ = procDeleteDC.Call(hdcMem) }()
 
 	var bih winBitmapInfoHeader
 	bih.BiSize = dibSectionBytes
@@ -268,6 +268,16 @@ func decodeColorCursor(hbmColor, hbmMask windows.Handle) (*image.RGBA, error) {
 			g := color[si+1]
 			r := color[si+2]
 			a := pixelAlpha(color[si+3], si, mask, hasAlpha)
+			// Premultiply so the shared compositor can use the same
+			// formula on every platform (X11 XFixes and macOS CG return
+			// premultiplied bytes natively).
+			if a != 255 && a != 0 {
+				r = byte(uint32(r) * uint32(a) / 255)
+				g = byte(uint32(g) * uint32(a) / 255)
+				b = byte(uint32(b) * uint32(a) / 255)
+			} else if a == 0 {
+				r, g, b = 0, 0, 0
+			}
 			img.Pix[si+0] = r
 			img.Pix[si+1] = g
 			img.Pix[si+2] = b

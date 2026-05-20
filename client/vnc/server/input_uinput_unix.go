@@ -110,7 +110,7 @@ func NewUInputInjector(w, h int) (*UInputInjector, error) {
 			return nil, fmt.Errorf("UI_SET_KEYBIT %d: %w", key, err)
 		}
 	}
-	for _, btn := range []uint16{btnLeft, btnRight, btnMiddle} {
+	for _, btn := range []uint16{btnLeft, btnRight, btnMiddle, btnSide, btnExtra} {
 		if err := setBit(fd, uiSetKeyBit, uint32(btn)); err != nil {
 			unix.Close(fd)
 			return nil, fmt.Errorf("UI_SET_KEYBIT btn %d: %w", btn, err)

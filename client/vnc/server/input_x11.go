@@ -146,7 +146,7 @@ func (x *X11InputInjector) InjectPointer(buttonMask uint16, px, py, serverW, ser
 	for _, b := range buttons {
 		pressed := buttonMask&b.rfbBit != 0
 		wasPressed := x.lastButtons&b.rfbBit != 0
-		if b.x11Btn >= 4 {
+		if b.x11Btn == 4 || b.x11Btn == 5 {
 			// Scroll: send press+release on each scroll event.
 			if pressed {
 				xtest.FakeInput(x.conn, xproto.ButtonPress, b.x11Btn, 0, x.root, 0, 0, 0)

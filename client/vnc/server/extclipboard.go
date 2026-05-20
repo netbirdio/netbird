@@ -91,8 +91,8 @@ func buildExtClipRequest(formats uint32) []byte {
 // per the extension spec. Rejects oversized input so a caller bug can't
 // produce a payload larger than the size advertised in our Caps.
 func buildExtClipProvideText(text string) ([]byte, error) {
-	if len(text) > extClipMaxText {
-		return nil, fmt.Errorf("clipboard text exceeds extClipMaxText (%d > %d)", len(text), extClipMaxText)
+	if len(text)+1 > extClipMaxText {
+		return nil, fmt.Errorf("clipboard text exceeds extClipMaxText (%d > %d)", len(text)+1, extClipMaxText)
 	}
 	body := make([]byte, 0, 4+len(text)+1)
 	var lenBuf [4]byte

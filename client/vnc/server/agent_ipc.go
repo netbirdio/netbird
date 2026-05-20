@@ -36,15 +36,13 @@ const (
 // generateAuthToken returns a fresh hex-encoded random token for one
 // daemon→agent session. The daemon hands this to the spawned agent
 // out-of-band (env var on Windows) and verifies it on every connection
-// the agent accepts. Returns the empty string on a randomness failure;
-// callers should treat that as an error.
-func generateAuthToken() string {
+// the agent accepts.
+func generateAuthToken() (string, error) {
 	b := make([]byte, agentTokenLen)
 	if _, err := crand.Read(b); err != nil {
-		log.Warnf("generate agent auth token: %v", err)
-		return ""
+		return "", fmt.Errorf("read random: %w", err)
 	}
-	return hex.EncodeToString(b)
+	return hex.EncodeToString(b), nil
 }
 
 // proxyToAgent dials the per-session agent on TCP loopback, writes the
@@ -63,7 +61,11 @@ func proxyToAgent(client net.Conn, port uint16, authToken string) {
 	}
 	defer agentConn.Close()
 
-	tokenBytes, _ := hex.DecodeString(authToken)
+	tokenBytes, err := hex.DecodeString(authToken)
+	if err != nil || len(tokenBytes) != agentTokenLen {
+		log.Warnf("invalid auth token (len=%d): %v", len(tokenBytes), err)
+		return
+	}
 	if _, err := agentConn.Write(tokenBytes); err != nil {
 		log.Warnf("send auth token to agent: %v", err)
 		return

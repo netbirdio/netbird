@@ -171,7 +171,11 @@ func (s *session) applyBackpressure() float64 {
 
 	base := jpegQualityForLevel(tight.qualityLevel)
 	if base == 0 {
-		base = tightJPEGQuality
+		// No client-negotiated quality; let tightQualityFor pick the
+		// area-based default and skip backpressure adjustments that
+		// would otherwise lock in a wrong starting point.
+		tight.jpegQualityOverride = 0
+		return frac
 	}
 	q := base
 	if frac > backpressureRampStart {

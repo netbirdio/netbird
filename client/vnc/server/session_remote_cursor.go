@@ -59,11 +59,12 @@ func (s *session) maybeCompositeCursor(img *image.RGBA) {
 	compositeCursor(img, cursorImg, posX-hotX, posY-hotY)
 }
 
-// compositeCursor alpha-blends sprite onto frame at (dstX, dstY) using
-// straight (non-premultiplied) alpha. Out-of-bounds destinations are
-// clipped. Frames captured by our X11/Windows/macOS paths all advertise
-// RGBA with a 255-only alpha channel, so the result keeps the framebuffer
-// invariant ("opaque pixels everywhere") that the encoder depends on.
+// compositeCursor alpha-blends sprite onto frame at (dstX, dstY).
+// sprite is assumed to use premultiplied RGBA, which is what every
+// cursorSource implementation in this package produces (X11 XFixes and
+// macOS CG return premultiplied bytes natively; the Windows path
+// premultiplies during decodeColorCursor). Out-of-bounds destinations are
+// clipped.
 func compositeCursor(frame, sprite *image.RGBA, dstX, dstY int) {
 	fw, fh := frame.Rect.Dx(), frame.Rect.Dy()
 	sw, sh := sprite.Rect.Dx(), sprite.Rect.Dy()
@@ -109,10 +110,11 @@ func compositeCursor(frame, sprite *image.RGBA, dstX, dstY int) {
 				frame.Pix[fbOff+2] = sprite.Pix[sOff+2]
 				continue
 			}
+			// Premultiplied compositing: dst = src + dst*(1-srcA).
 			inv := 255 - a
-			frame.Pix[fbOff+0] = byte((uint32(sprite.Pix[sOff+0])*a + uint32(frame.Pix[fbOff+0])*inv) / 255)
-			frame.Pix[fbOff+1] = byte((uint32(sprite.Pix[sOff+1])*a + uint32(frame.Pix[fbOff+1])*inv) / 255)
-			frame.Pix[fbOff+2] = byte((uint32(sprite.Pix[sOff+2])*a + uint32(frame.Pix[fbOff+2])*inv) / 255)
+			frame.Pix[fbOff+0] = sprite.Pix[sOff+0] + byte((uint32(frame.Pix[fbOff+0])*inv)/255)
+			frame.Pix[fbOff+1] = sprite.Pix[sOff+1] + byte((uint32(frame.Pix[fbOff+1])*inv)/255)
+			frame.Pix[fbOff+2] = sprite.Pix[sOff+2] + byte((uint32(frame.Pix[fbOff+2])*inv)/255)
 		}
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"image"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -94,24 +95,35 @@ func detectX11FromSockets() bool {
 		return false
 	}
 
-	// Find the lowest display number.
+	// Pick the lowest numeric display rather than the lexically first
+	// entry, so X10 doesn't win over X2.
+	minDisplay := -1
 	for _, e := range entries {
 		name := e.Name()
 		if len(name) < 2 || name[0] != 'X' {
 			continue
 		}
-		display := ":" + name[1:]
-		os.Setenv("DISPLAY", display)
-		auth := findXorgAuthFromPS()
-		if auth != "" {
-			os.Setenv("XAUTHORITY", auth)
-			log.Infof("auto-detected DISPLAY=%s (from socket) XAUTHORITY=%s (from ps)", display, auth)
-		} else {
-			log.Infof("auto-detected DISPLAY=%s (from socket)", display)
+		n, err := strconv.Atoi(name[1:])
+		if err != nil {
+			continue
 		}
-		return true
+		if minDisplay < 0 || n < minDisplay {
+			minDisplay = n
+		}
 	}
-	return false
+	if minDisplay < 0 {
+		return false
+	}
+	display := ":" + strconv.Itoa(minDisplay)
+	os.Setenv("DISPLAY", display)
+	auth := findXorgAuthFromPS()
+	if auth != "" {
+		os.Setenv("XAUTHORITY", auth)
+		log.Infof("auto-detected DISPLAY=%s (from socket) XAUTHORITY=%s (from ps)", display, auth)
+	} else {
+		log.Infof("auto-detected DISPLAY=%s (from socket)", display)
+	}
+	return true
 }
 
 // findXorgAuthFromPS runs ps to find Xorg and extract its -auth argument.
