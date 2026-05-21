@@ -38,9 +38,11 @@ func (s *BaseServer) JobManager() *job.Manager {
 
 func (s *BaseServer) IntegratedValidator() integrated_validator.IntegratedValidator {
 	return Create(s, func() integrated_validator.IntegratedValidator {
+		// TODO: Replace
 		integratedPeerValidator, err := integrations.NewIntegratedValidator(
 			context.Background(),
 			nil,
+			s.Store(),
 			s.PeersManager(),
 			s.SettingsManager(),
 			s.EventStore(),

@@ -57,12 +57,6 @@ func (s *BaseServer) GeoLocationManager() geolocation.Geolocation {
 
 func (s *BaseServer) PermissionsManager() permissions.Manager {
 	return Create(s, func() permissions.Manager {
-		manager := integrations.InitPermissionsManager(s.Store(), s.Metrics().GetMeter())
-
-		s.AfterInit(func(s *BaseServer) {
-			manager.SetAccountManager(s.AccountManager())
-		})
-
 		return permissions.NewManager(s.Store())
 	})
 }
@@ -233,4 +227,8 @@ func (s *BaseServer) ReverseProxyDomainManager() *manager.Manager {
 		m := manager.NewManager(s.Store(), s.ProxyManager(), s.PermissionsManager(), s.AccountManager())
 		return &m
 	})
+}
+
+func (s *BaseServer) IsValidChildAccount(_ context.Context, _, _, _ string) bool {
+	return false
 }
