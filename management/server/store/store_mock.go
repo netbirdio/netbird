@@ -2090,6 +2090,21 @@ func (mr *MockStoreMockRecorder) GetProxyClusters(ctx, accountID interface{}) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProxyClusters", reflect.TypeOf((*MockStore)(nil).GetProxyClusters), ctx, accountID)
 }
 
+// GetProxyMetrics mocks base method.
+func (m *MockStore) GetProxyMetrics(ctx context.Context) (ProxyMetrics, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetProxyMetrics", ctx)
+	ret0, _ := ret[0].(ProxyMetrics)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetProxyMetrics indicates an expected call of GetProxyMetrics.
+func (mr *MockStoreMockRecorder) GetProxyMetrics(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProxyMetrics", reflect.TypeOf((*MockStore)(nil).GetProxyMetrics), ctx)
+}
+
 // GetResourceGroups mocks base method.
 func (m *MockStore) GetResourceGroups(ctx context.Context, lockStrength LockingStrength, accountID, resourceID string) ([]*types2.Group, error) {
 	m.ctrl.T.Helper()

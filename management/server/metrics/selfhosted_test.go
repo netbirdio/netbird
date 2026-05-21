@@ -12,6 +12,7 @@ import (
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
 )
@@ -123,7 +124,7 @@ func (mockDatasource) GetAllAccounts(_ context.Context) []*types.Account {
 					Enabled: true,
 					Targets: []*rpservice.Target{
 						{TargetType: "peer"},
-						{TargetType: "host"},
+						{TargetType: "host", Options: rpservice.TargetOptions{DirectUpstream: true}},
 					},
 					Auth: rpservice.AuthConfig{
 						PasswordAuth: &rpservice.PasswordAuthConfig{Enabled: true},
@@ -140,6 +141,16 @@ func (mockDatasource) GetAllAccounts(_ context.Context) []*types.Account {
 						BearerAuth: &rpservice.BearerAuthConfig{Enabled: true},
 					},
 					Meta: rpservice.Meta{Status: string(rpservice.StatusPending)},
+				},
+				{
+					ID:           "svc3-private",
+					Enabled:      true,
+					Private:      true,
+					AccessGroups: []string{"grp-eng", "grp-ops"},
+					Targets: []*rpservice.Target{
+						{TargetType: "cluster", Options: rpservice.TargetOptions{DirectUpstream: true}},
+					},
+					Meta: rpservice.Meta{Status: string(rpservice.StatusActive)},
 				},
 			},
 		},
@@ -252,6 +263,18 @@ func (mockDatasource) GetStoreEngine() types.Engine {
 // GetCustomDomainsCounts returns test custom domain counts.
 func (mockDatasource) GetCustomDomainsCounts(_ context.Context) (int64, int64, error) {
 	return 3, 2, nil
+}
+
+// GetProxyMetrics returns canned proxy/cluster counts so the
+// generateProperties test can assert the BYOP signals end-to-end.
+func (mockDatasource) GetProxyMetrics(_ context.Context) (store.ProxyMetrics, error) {
+	return store.ProxyMetrics{
+		Clusters:         3,
+		ClustersBYOP:     1,
+		ClustersPrivate:  1,
+		Proxies:          4,
+		ProxiesConnected: 2,
+	}, nil
 }
 
 // TestGenerateProperties tests and validate the properties generation by using the mockDatasource for the Worker.generateProperties
@@ -393,17 +416,17 @@ func TestGenerateProperties(t *testing.T) {
 		t.Errorf("expected 3 embedded_idp_count, got %v", properties["embedded_idp_count"])
 	}
 
-	if properties["services"] != 2 {
-		t.Errorf("expected 2 services, got %v", properties["services"])
+	if properties["services"] != 3 {
+		t.Errorf("expected 3 services, got %v", properties["services"])
 	}
-	if properties["services_enabled"] != 1 {
-		t.Errorf("expected 1 services_enabled, got %v", properties["services_enabled"])
+	if properties["services_enabled"] != 2 {
+		t.Errorf("expected 2 services_enabled, got %v", properties["services_enabled"])
 	}
-	if properties["services_targets"] != 3 {
-		t.Errorf("expected 3 services_targets, got %v", properties["services_targets"])
+	if properties["services_targets"] != 4 {
+		t.Errorf("expected 4 services_targets, got %v", properties["services_targets"])
 	}
-	if properties["services_status_active"] != 1 {
-		t.Errorf("expected 1 services_status_active, got %v", properties["services_status_active"])
+	if properties["services_status_active"] != 2 {
+		t.Errorf("expected 2 services_status_active, got %v", properties["services_status_active"])
 	}
 	if properties["services_status_pending"] != 1 {
 		t.Errorf("expected 1 services_status_pending, got %v", properties["services_status_pending"])
@@ -420,6 +443,9 @@ func TestGenerateProperties(t *testing.T) {
 	if properties["services_target_type_domain"] != 1 {
 		t.Errorf("expected 1 services_target_type_domain, got %v", properties["services_target_type_domain"])
 	}
+	if properties["services_target_type_cluster"] != 1 {
+		t.Errorf("expected 1 services_target_type_cluster, got %v", properties["services_target_type_cluster"])
+	}
 	if properties["services_auth_password"] != 1 {
 		t.Errorf("expected 1 services_auth_password, got %v", properties["services_auth_password"])
 	}
@@ -428,6 +454,33 @@ func TestGenerateProperties(t *testing.T) {
 	}
 	if properties["services_auth_pin"] != 0 {
 		t.Errorf("expected 0 services_auth_pin, got %v", properties["services_auth_pin"])
+	}
+	if properties["services_private"] != 1 {
+		t.Errorf("expected 1 services_private, got %v", properties["services_private"])
+	}
+	if properties["services_private_with_access_groups"] != 1 {
+		t.Errorf("expected 1 services_private_with_access_groups, got %v", properties["services_private_with_access_groups"])
+	}
+	if properties["services_private_access_groups_sum"] != 2 {
+		t.Errorf("expected 2 services_private_access_groups_sum, got %v", properties["services_private_access_groups_sum"])
+	}
+	if properties["services_with_direct_upstream"] != 2 {
+		t.Errorf("expected 2 services_with_direct_upstream, got %v", properties["services_with_direct_upstream"])
+	}
+	if properties["proxy_clusters"] != int64(3) {
+		t.Errorf("expected 3 proxy_clusters, got %v", properties["proxy_clusters"])
+	}
+	if properties["proxy_clusters_byop"] != int64(1) {
+		t.Errorf("expected 1 proxy_clusters_byop, got %v", properties["proxy_clusters_byop"])
+	}
+	if properties["proxy_clusters_private"] != int64(1) {
+		t.Errorf("expected 1 proxy_clusters_private, got %v", properties["proxy_clusters_private"])
+	}
+	if properties["proxies"] != int64(4) {
+		t.Errorf("expected 4 proxies, got %v", properties["proxies"])
+	}
+	if properties["proxies_connected"] != int64(2) {
+		t.Errorf("expected 2 proxies_connected, got %v", properties["proxies_connected"])
 	}
 	if properties["custom_domains"] != int64(3) {
 		t.Errorf("expected 3 custom_domains, got %v", properties["custom_domains"])
