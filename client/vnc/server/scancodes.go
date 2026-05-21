@@ -23,7 +23,7 @@ package server
 //
 // Linux KEY_* codes. Only the ones we reference, since the full
 // linux/input-event-codes.h list isn't useful here. Naming mirrors the
-// existing constants in input_uinput_unix.go (mixed case, no underscores).
+// existing constants in input_uinput_linux.go (mixed case, no underscores).
 const (
 	keyEsc          = 1
 	key1            = 2

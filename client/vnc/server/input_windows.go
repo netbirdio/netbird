@@ -482,6 +482,7 @@ var (
 	procGlobalAlloc  = kernel32.NewProc("GlobalAlloc")
 	procGlobalLock   = kernel32.NewProc("GlobalLock")
 	procGlobalUnlock = kernel32.NewProc("GlobalUnlock")
+	procGlobalFree   = kernel32.NewProc("GlobalFree")
 )
 
 const (
@@ -522,6 +523,7 @@ func (w *WindowsInputInjector) doSetClipboard(text string) {
 	ptr, _, _ := procGlobalLock.Call(hMem)
 	if ptr == 0 {
 		log.Tracef("GlobalLock for clipboard: lock returned nil")
+		_, _, _ = procGlobalFree.Call(hMem)
 		return
 	}
 	copy(unsafe.Slice((*uint16)(unsafe.Pointer(ptr)), len(utf16)), utf16)
@@ -530,6 +532,7 @@ func (w *WindowsInputInjector) doSetClipboard(text string) {
 	r, _, lerr := procOpenClipboard.Call(0)
 	if r == 0 {
 		log.Tracef("OpenClipboard: %v", lerr)
+		_, _, _ = procGlobalFree.Call(hMem)
 		return
 	}
 	defer logCleanupCall("CloseClipboard", procCloseClipboard)
@@ -538,6 +541,9 @@ func (w *WindowsInputInjector) doSetClipboard(text string) {
 	r, _, lerr = procSetClipboardData.Call(cfUnicodeText, hMem)
 	if r == 0 {
 		log.Tracef("SetClipboardData: %v", lerr)
+		// Ownership only transfers to the OS on success; on failure we
+		// still own hMem and must free it.
+		_, _, _ = procGlobalFree.Call(hMem)
 	}
 }
 

@@ -418,11 +418,15 @@ func (s *Server) Stop() error {
 		s.cancel = nil
 	}
 
-	// Close active client connections before tearing down capturers and
-	// listeners. The per-session serve goroutines unblock from their Read
-	// loop with an error and run their deferred conn.Close, which surfaces
-	// a clean disconnect on the client side instead of leaving the
-	// connection hanging until the OS reclaims it on process exit.
+	// Close the listener first so the accept loop exits and cannot
+	// register any further connections in acceptedConns. Then close every
+	// already-accepted connection so per-session serve goroutines unblock
+	// and run their deferred conn.Close.
+	var listenerErr error
+	if s.listener != nil {
+		listenerErr = s.listener.Close()
+		s.listener = nil
+	}
 	s.closeActiveSessions()
 
 	if s.vmgr != nil {
@@ -437,12 +441,8 @@ func (s *Server) Stop() error {
 		c.Close()
 	}
 
-	if s.listener != nil {
-		err := s.listener.Close()
-		s.listener = nil
-		if err != nil {
-			return fmt.Errorf("close VNC listener: %w", err)
-		}
+	if listenerErr != nil {
+		return fmt.Errorf("close VNC listener: %w", listenerErr)
 	}
 
 	s.log.Info("stopped")
@@ -894,7 +894,8 @@ func (s *Server) acquireSessionResources(conn net.Conn, header *connectionHeader
 	case ModeSession:
 		return s.acquireVirtualSession(conn, header, connLog)
 	default:
-		return s.acquireAttachSession(), s.injector, attachSessionCleanup, true
+		capturer, cleanup := s.acquireAttachSession()
+		return capturer, s.injector, cleanup, true
 	}
 }
 
@@ -921,17 +922,21 @@ func (s *Server) acquireVirtualSession(conn net.Conn, header *connectionHeader, 
 	return vs.Capturer(), vs.Injector(), vs.ClientDisconnect, true
 }
 
-func (s *Server) acquireAttachSession() ScreenCapturer {
-	if cc, ok := s.capturer.(interface{ ClientConnect() }); ok {
-		cc.ClientConnect()
+// acquireAttachSession bumps the shared capturer's per-session refcount
+// (if it implements the optional ClientConnect/ClientDisconnect pair) and
+// returns a cleanup func that releases it. X11Poller and the Windows
+// capturer rely on the disconnect path to drop SHM/DXGI resources when no
+// client is active.
+func (s *Server) acquireAttachSession() (ScreenCapturer, func()) {
+	type connectDisconnect interface {
+		ClientConnect()
+		ClientDisconnect()
 	}
-	return s.capturer
-}
-
-// attachSessionCleanup is the no-op cleanup used by attach mode. Returned as a
-// named func rather than an inline closure so the empty body is unambiguous.
-func attachSessionCleanup() {
-	// Attach mode keeps the shared capturer; nothing to release per session.
+	if cc, ok := s.capturer.(connectDisconnect); ok {
+		cc.ClientConnect()
+		return s.capturer, cc.ClientDisconnect
+	}
+	return s.capturer, func() {}
 }
 
 // modeString returns a human-readable session mode name.
