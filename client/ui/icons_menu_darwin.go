@@ -4,20 +4,22 @@ package main
 
 import _ "embed"
 
-// 22x22 menu-row icons used on macOS. Apple's HIG recommends an 18–22 px
-// glyph for NSMenuItem leading images; 22 sits at the top of that range
-// and matches the visual weight of the surrounding row text. Windows
-// ships a 16x16 variant (Win32 SM_CXMENUCHECK slot) and Linux a 24x24
-// variant (GTK menu row supports the larger range) — see the sibling
-// icons_menu_*.go files.
+// 22x22 status dot icons used on macOS. Apple's HIG recommends an
+// 18–22 px glyph for NSMenuItem leading images; 22 matches the visual
+// weight of the surrounding row text. Windows ships a 16x16 variant
+// (Win32 SM_CXMENUCHECK slot) and Linux a 24x24 variant (GTK menu row
+// supports the larger range) — see the sibling icons_menu_*.go files.
 //
-// Regenerate the brand mark from assets/svg/netbird-menu.svg (vector
-// source — re-rendering keeps the strokes crisp at every target size):
-//   inkscape assets/svg/netbird-menu.svg -o netbird-menu-22.png -w 22 -h 22 \
-//     --export-background-opacity=0
+// iconMenuNetbird is intentionally empty on macOS. NSMenuItem.setImage
+// stretches the row height to the leading image's pixel size, which
+// makes the About row taller than the unadorned rows above and below
+// it regardless of the PNG size we ship. The brand mark is rendered
+// only on Windows and Linux (see those platforms' icons_menu_*.go
+// files); on macOS the About row stays text-only — the tray icon
+// itself already supplies the brand presence.
+//
 // Status dots are downscaled from the 24x24 originals with ImageMagick.
 
-//go:embed assets/netbird-menu-22.png
 var iconMenuNetbird []byte
 
 //go:embed assets/netbird-menu-dot-connected-22.png

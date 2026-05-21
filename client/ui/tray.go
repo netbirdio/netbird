@@ -383,7 +383,11 @@ func (t *Tray) buildMenu() *application.Menu {
 
 	aboutLabel := t.loc.T("tray.menu.about")
 	about := menu.AddSubmenu(aboutLabel)
-	if aboutItem := menu.FindByLabel(aboutLabel); aboutItem != nil {
+	// iconMenuNetbird is empty on macOS — NSMenuItem.setImage stretches
+	// the row to the leading image's pixel size, and the result looks
+	// out of place next to the unadorned rows above and below. Skip the
+	// brand mark there and keep the row text-only.
+	if aboutItem := menu.FindByLabel(aboutLabel); aboutItem != nil && len(iconMenuNetbird) > 0 {
 		aboutItem.SetBitmap(iconMenuNetbird)
 	}
 	about.Add(t.loc.T("tray.menu.github")).OnClick(func(*application.Context) {
