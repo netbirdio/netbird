@@ -306,13 +306,18 @@ func (d *Status) PeerByIP(ip string) (string, bool) {
 }
 
 // PeerStateByIP returns the full peer State for the given tunnel IP.
-// Returns the zero State and false when no peer matches.
+// Matches against either the IPv4 (State.IP) or IPv6 (State.IPv6) tunnel
+// address so dual-stack peers are reachable on either family. Returns the
+// zero State and false when no peer matches or the input is empty.
 func (d *Status) PeerStateByIP(ip string) (State, bool) {
+	if ip == "" {
+		return State{}, false
+	}
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
 	for _, state := range d.peers {
-		if state.IP == ip {
+		if (state.IP != "" && state.IP == ip) || (state.IPv6 != "" && state.IPv6 == ip) {
 			return state, true
 		}
 	}

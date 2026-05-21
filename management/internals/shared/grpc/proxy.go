@@ -1671,6 +1671,12 @@ func (s *ProxyServiceServer) ValidateTunnelPeer(ctx context.Context, req *proto.
 		}, nil
 	}
 
+	// Mirror ValidateSession: account-scoped (BYOP) proxy tokens may only
+	// validate and mint session cookies for their own account's domains.
+	if err := enforceAccountScope(ctx, service.AccountID); err != nil {
+		return nil, err
+	}
+
 	peer, err := s.peersManager.GetPeerByTunnelIP(ctx, service.AccountID, tunnelIP)
 	if err != nil || peer == nil {
 		log.WithFields(log.Fields{"domain": domain, "tunnel_ip": tunnelIPStr}).Debug("ValidateTunnelPeer: peer not found")
