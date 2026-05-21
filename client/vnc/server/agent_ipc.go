@@ -4,9 +4,11 @@ package server
 
 import (
 	"bufio"
+	"context"
 	crand "crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -55,11 +57,11 @@ func generateAuthToken() (string, error) {
 // side closes. The token has to land on the wire before any VNC byte so
 // the agent's listening Server can apply verifyAgentToken before letting
 // real RFB traffic through.
-func proxyToAgent(client net.Conn, port uint16, authToken string) {
+func proxyToAgent(ctx context.Context, client net.Conn, port uint16, authToken string) {
 	defer client.Close()
 
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
-	agentConn, err := dialAgentWithRetry(addr)
+	agentConn, err := dialAgentWithRetry(ctx, addr)
 	if err != nil {
 		log.Warnf("proxy cannot reach agent at %s: %v", addr, err)
 		return
@@ -144,16 +146,33 @@ func relogAgentStream(r io.Reader) {
 
 // dialAgentWithRetry retries the loopback connect for up to ~10 s so the
 // daemon does not race the agent's first listen. Returns the live conn or
-// the final error.
-func dialAgentWithRetry(addr string) (net.Conn, error) {
+// the final error. Aborts early when ctx is cancelled so a Stop() during
+// service-mode startup doesn't leave a goroutine sleeping for 10 s.
+func dialAgentWithRetry(ctx context.Context, addr string) (net.Conn, error) {
+	var d net.Dialer
 	var lastErr error
 	for range 50 {
-		c, err := net.DialTimeout("tcp", addr, time.Second)
+		if err := ctx.Err(); err != nil {
+			if lastErr == nil {
+				lastErr = err
+			}
+			return nil, lastErr
+		}
+		dialCtx, cancel := context.WithTimeout(ctx, time.Second)
+		c, err := d.DialContext(dialCtx, "tcp", addr)
+		cancel()
 		if err == nil {
 			return c, nil
 		}
 		lastErr = err
-		time.Sleep(200 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			if errors.Is(lastErr, context.Canceled) || errors.Is(lastErr, context.DeadlineExceeded) {
+				lastErr = ctx.Err()
+			}
+			return nil, lastErr
+		case <-time.After(200 * time.Millisecond):
+		}
 	}
 	return nil, lastErr
 }

@@ -106,7 +106,7 @@ func (s *Server) handleServiceConnectionDarwin(conn net.Conn, mgr *darwinAgentMa
 		Reader: io.MultiReader(&headerBuf, conn),
 		Conn:   conn,
 	}
-	proxyToAgent(replayConn, agentPort, token)
+	proxyToAgent(s.ctx, replayConn, agentPort, token)
 }
 
 // darwinPrefixConn replays the already-consumed connection-header bytes

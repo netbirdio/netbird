@@ -308,7 +308,7 @@ func (s *Server) handleServiceConnection(conn net.Conn, sm *sessionManager) {
 		Reader: io.MultiReader(&headerBuf, conn),
 		Conn:   conn,
 	}
-	proxyToAgent(replayConn, agentPort, sm.AuthToken())
+	proxyToAgent(s.ctx, replayConn, agentPort, sm.AuthToken())
 }
 
 // prefixConn wraps a net.Conn, overriding Read to use a different reader.
