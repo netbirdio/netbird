@@ -47,7 +47,7 @@ jobs:
       - name: Verify protoc version matches pin
         run: |
           actual=$(protoc --version | awk '{print $2}')
-          if [ "$actual" != "$PROTOC_VERSION" ]; then
+          if [[ "$actual" != "$PROTOC_VERSION" ]]; then
             echo "::error::protoc $actual does not match pinned $PROTOC_VERSION"
             exit 1
           fi
@@ -66,10 +66,11 @@ jobs:
             echo "::endgroup::"
           done
 
-      - name: Fail if regeneration changed any tracked file
+      - name: Fail if regeneration changed any tracked or untracked file
         run: |
-          if ! git diff --exit-code; then
+          if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
             echo "::error::Generated proto files drift from .proto sources or pinned tool versions."
             echo "Run the generate.sh scripts locally with the toolchain in proto-tools.env and commit the result."
+            git status --short
             exit 1
           fi
