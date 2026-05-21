@@ -26,7 +26,7 @@ import (
 // so per-account http.Servers don't leak idle connections.
 const httpInboundReadHeaderTimeout = 30 * time.Second
 
-// httpInboundIdleTimeout caps idle keep-alives on per-account inbound HTTP
+// httpInboundIdleTimeout caps idle keep-alive on per-account inbound HTTP
 // servers; matches the host listener.
 const httpInboundIdleTimeout = 90 * time.Second
 
