@@ -10,12 +10,6 @@ import (
 
 type Manager interface {
 	GetUser(ctx context.Context, userID string) (*types.User, error)
-	// GetUserWithGroups returns the user and the *types.Group
-	// records for the user's AutoGroups, in the same order as
-	// AutoGroups. Group ids that don't resolve to a stored group
-	// are skipped from the returned slice (the parallel id list is
-	// derivable from the returned User). Wraps two store calls
-	// today; can be optimised to a single JOIN later if needed.
 	GetUserWithGroups(ctx context.Context, userID string) (*types.User, []*types.Group, error)
 }
 
@@ -36,6 +30,9 @@ func (m *managerImpl) GetUser(ctx context.Context, userID string) (*types.User, 
 	return m.store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 }
 
+// GetUserWithGroups returns the user and the *types.Group records for the user's AutoGroups, in the same order as
+// AutoGroups. Group ids that don't resolve to a stored group are skipped from the returned slice (the parallel id list is
+// derivable from the returned User). Wraps two store calls today; can be optimised to a single JOIN later if needed.
 func (m *managerImpl) GetUserWithGroups(ctx context.Context, userID string) (*types.User, []*types.Group, error) {
 	user, err := m.store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 	if err != nil {

@@ -69,18 +69,10 @@ type TargetOptions struct {
 }
 
 type Target struct {
-	ID        uint    `gorm:"primaryKey" json:"-"`
-	AccountID string  `gorm:"index:idx_target_account;not null" json:"-"`
-	ServiceID string  `gorm:"index:idx_service_targets;not null" json:"-"`
-	Path      *string `json:"path,omitempty"`
-	// Host carries the upstream address. For TargetTypeSubnet it is the only
-	// source — operator-supplied. For TargetTypePeer / TargetTypeHost /
-	// TargetTypeDomain it is overwritten by replaceHostByLookup with the
-	// resolved peer IP / resource address, *unless* Options.DirectUpstream
-	// is true and the operator supplied a non-empty value — then the
-	// operator value is preserved so they can dial the upstream via the
-	// host's network stack at an address other than the WG tunnel IP
-	// (e.g. a LAN IP, localhost sidecar, or DNS name).
+	ID            uint          `gorm:"primaryKey" json:"-"`
+	AccountID     string        `gorm:"index:idx_target_account;not null" json:"-"`
+	ServiceID     string        `gorm:"index:idx_service_targets;not null" json:"-"`
+	Path          *string       `json:"path,omitempty"`
 	Host          string        `json:"host"`
 	Port          uint16        `gorm:"index:idx_target_port" json:"port"`
 	Protocol      string        `gorm:"index:idx_target_protocol" json:"protocol"`
@@ -874,8 +866,9 @@ func (s *Service) validateHTTPTargets() error {
 				return fmt.Errorf("target %d has empty host but target_type is %q", i, target.TargetType)
 			}
 		case TargetTypeCluster:
-			// target_id carries the cluster address; the proxy resolves
-			// the upstream at request time. Host/port may be empty.
+			if err := validateClusterTarget(i, target); err != nil {
+				return err
+			}
 		default:
 			return fmt.Errorf("target %d has invalid target_type %q", i, target.TargetType)
 		}
@@ -891,6 +884,18 @@ func (s *Service) validateHTTPTargets() error {
 	}
 
 	return nil
+}
+
+// validateClusterTarget cluster targets should not have empty hosts and should have direct upstream enabled.
+func validateClusterTarget(idx int, target *Target) error {
+	host := strings.TrimSpace(target.Host)
+	if host == "" {
+		return fmt.Errorf("target %d: has empty host", idx)
+	}
+	if !target.Options.DirectUpstream {
+		return fmt.Errorf("target %d: %s has direct upstream disabled", idx, target.Host)
+	}
+	return validateDirectUpstreamHost(idx, target)
 }
 
 // validateDirectUpstreamHost validates the operator-supplied Host on a

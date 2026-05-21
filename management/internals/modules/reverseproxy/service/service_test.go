@@ -1124,9 +1124,11 @@ func TestValidate_HTTPClusterTarget(t *testing.T) {
 		TargetId:   "eu.proxy.netbird.io",
 		TargetType: TargetTypeCluster,
 		Protocol:   "http",
+		Host:       "backend.lan",
+		Options:    TargetOptions{DirectUpstream: true},
 		Enabled:    true,
 	}}
-	require.NoError(t, rp.Validate(), "HTTP cluster target with target_id must validate without host or port")
+	require.NoError(t, rp.Validate(), "HTTP cluster target with target_id, host, and direct_upstream must validate")
 }
 
 func TestValidate_HTTPClusterTarget_RequiresTargetId(t *testing.T) {
@@ -1134,9 +1136,44 @@ func TestValidate_HTTPClusterTarget_RequiresTargetId(t *testing.T) {
 	rp.Targets = []*Target{{
 		TargetType: TargetTypeCluster,
 		Protocol:   "http",
+		Host:       "backend.lan",
+		Options:    TargetOptions{DirectUpstream: true},
 		Enabled:    true,
 	}}
 	assert.ErrorContains(t, rp.Validate(), "empty target_id", "cluster target must reject empty target_id")
+}
+
+// TestValidate_HTTPClusterTarget_RequiresHost pins the new cluster-target
+// rule that operator-supplied Host is mandatory: cluster targets dial the
+// upstream via the host network stack (direct_upstream is implied), so an
+// empty Host leaves the proxy with nothing to dial.
+func TestValidate_HTTPClusterTarget_RequiresHost(t *testing.T) {
+	rp := validProxy()
+	rp.Targets = []*Target{{
+		TargetId:   "eu.proxy.netbird.io",
+		TargetType: TargetTypeCluster,
+		Protocol:   "http",
+		Options:    TargetOptions{DirectUpstream: true},
+		Enabled:    true,
+	}}
+	assert.ErrorContains(t, rp.Validate(), "empty host", "cluster target must reject empty host")
+}
+
+// TestValidate_HTTPClusterTarget_RequiresDirectUpstream pins the second
+// half of the cluster-target rule: DirectUpstream must be true so the
+// stdlib transport branch in MultiTransport is taken. Without it the
+// embedded NetBird client would try to dial the cluster address through
+// the WG tunnel, which is the wrong network for a cluster upstream.
+func TestValidate_HTTPClusterTarget_RequiresDirectUpstream(t *testing.T) {
+	rp := validProxy()
+	rp.Targets = []*Target{{
+		TargetId:   "eu.proxy.netbird.io",
+		TargetType: TargetTypeCluster,
+		Protocol:   "http",
+		Host:       "backend.lan",
+		Enabled:    true,
+	}}
+	assert.ErrorContains(t, rp.Validate(), "direct upstream disabled", "cluster target must reject direct_upstream=false")
 }
 
 func TestValidate_L4ClusterTarget(t *testing.T) {
@@ -1207,6 +1244,8 @@ func TestValidate_Private_RequiresAccessGroups(t *testing.T) {
 		TargetId:   "eu.proxy.netbird.io",
 		TargetType: TargetTypeCluster,
 		Protocol:   "http",
+		Host:       "backend.lan",
+		Options:    TargetOptions{DirectUpstream: true},
 		Enabled:    true,
 	}}
 	assert.ErrorContains(t, rp.Validate(), "access group")
@@ -1224,6 +1263,8 @@ func TestValidate_Private_RejectsBearerAuth(t *testing.T) {
 		TargetId:   "eu.proxy.netbird.io",
 		TargetType: TargetTypeCluster,
 		Protocol:   "http",
+		Host:       "backend.lan",
+		Options:    TargetOptions{DirectUpstream: true},
 		Enabled:    true,
 	}}
 	assert.ErrorContains(t, rp.Validate(), "mutually exclusive")
@@ -1244,6 +1285,8 @@ func TestValidate_Private_AcceptsClusterTargetWithAccessGroups(t *testing.T) {
 		TargetId:   "eu.proxy.netbird.io",
 		TargetType: TargetTypeCluster,
 		Protocol:   "http",
+		Host:       "backend.lan",
+		Options:    TargetOptions{DirectUpstream: true},
 		Enabled:    true,
 	}}
 	require.NoError(t, rp.Validate())

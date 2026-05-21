@@ -15,7 +15,7 @@ import (
 // tunnelCacheTTL caps how long a positive ValidateTunnelPeer result is
 // reused before re-fetching from management. 5 minutes balances freshness
 // against management load on busy mesh networks.
-const tunnelCacheTTL = 30 * time.Second
+const tunnelCacheTTL = 300 * time.Second
 
 // tunnelCachePerAccount caps the number of cached identities per account.
 // Bounded eviction avoids memory growth in pathological cases (huge peer

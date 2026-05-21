@@ -126,16 +126,6 @@ func Execute() {
 	}
 }
 
-// NewRootCmd returns the proxy server cobra command for embedding under
-// another binary (for example as the "proxy" subcommand of the netbird
-// client). The returned command shares its flag set, RunE, and any
-// previously registered subcommands (e.g. "debug") with the standalone
-// binary, so flag and env-var contracts stay identical across both
-// invocations.
-func NewRootCmd() *cobra.Command {
-	return rootCmd
-}
-
 // SetVersionInfo sets version information for the CLI.
 func SetVersionInfo(version, commit, buildDate, goVersion string) {
 	Version = version

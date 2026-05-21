@@ -20,10 +20,8 @@ type Capabilities struct {
 	RequireSubdomain *bool
 	// SupportsCrowdsec indicates whether this proxy has CrowdSec configured.
 	SupportsCrowdsec *bool
-	// Private indicates whether this proxy is embedded in a netbird client
-	// and serves exclusively over the WireGuard tunnel (i.e. `netbird proxy`
-	// rather than the standalone netbird-proxy binary). Surfaces upstream
-	// so dashboards can distinguish per-peer / private clusters.
+	// Private indicates whether this proxy supports inbound access via Wireguard
+	// tunnel and netbird-only authentication policies
 	Private *bool
 }
 
@@ -76,6 +74,5 @@ type Cluster struct {
 	SupportsCustomPorts *bool
 	RequireSubdomain    *bool
 	SupportsCrowdSec    *bool
-	// Private is true when at least one connected proxy reported the embedded-`netbird proxy` capability.
-	Private *bool
+	Private             *bool
 }

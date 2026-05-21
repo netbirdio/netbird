@@ -1353,9 +1353,35 @@ func TestValidateTargetReferences_ClusterTargetSkipsLookup(t *testing.T) {
 
 	// No peer or resource lookups must be issued for cluster targets.
 	targets := []*rpservice.Target{
-		{TargetId: "eu.proxy.netbird.io", TargetType: rpservice.TargetTypeCluster},
+		{
+			TargetId:   "eu.proxy.netbird.io",
+			TargetType: rpservice.TargetTypeCluster,
+			Options:    rpservice.TargetOptions{DirectUpstream: true},
+		},
 	}
 	require.NoError(t, validateTargetReferences(ctx, mockStore, accountID, targets), "cluster target must validate without store lookups")
+}
+
+// TestValidateTargetReferences_ClusterTargetRequiresDirectUpstream pins the
+// store-side check that cluster targets must opt into the host-stack dial
+// path. Without DirectUpstream the proxy would route this target through
+// the embedded NetBird client and fail on every request.
+func TestValidateTargetReferences_ClusterTargetRequiresDirectUpstream(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	accountID := "test-account"
+
+	targets := []*rpservice.Target{
+		{
+			TargetId:   "eu.proxy.netbird.io",
+			TargetType: rpservice.TargetTypeCluster,
+			Host:       "backend.lan",
+		},
+	}
+	err := validateTargetReferences(ctx, mockStore, accountID, targets)
+	require.Error(t, err, "cluster target without direct_upstream must be rejected")
+	assert.ErrorContains(t, err, "direct upstream disabled")
 }
 
 func TestReplaceHostByLookup_SkipsClusterTarget(t *testing.T) {

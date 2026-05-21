@@ -783,10 +783,19 @@ func validateTargetReferences(ctx context.Context, transaction store.Store, acco
 				return err
 			}
 		case service.TargetTypeCluster:
-			// Cluster targets are addressed by target_id; no peer/resource lookup.
+			if err := validateClusterTarget(target); err != nil {
+				return err
+			}
 		default:
 			return status.Errorf(status.InvalidArgument, "unknown target type %q for target %q", target.TargetType, target.TargetId)
 		}
+	}
+	return nil
+}
+
+func validateClusterTarget(target *service.Target) error {
+	if !target.Options.DirectUpstream {
+		return status.Errorf(status.InvalidArgument, "cluster target %s has direct upstream disabled", target.Host)
 	}
 	return nil
 }
