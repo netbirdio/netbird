@@ -268,19 +268,20 @@ func TestNoise_TruncatedMsg1_ClosesConnection(t *testing.T) {
 
 	conn, err := net.Dial("tcp", addr.String())
 	require.NoError(t, err)
+	defer conn.Close()
 
 	writeHeaderPrefix(t, conn, ModeAttach)
 	_, err = conn.Write([]byte("NBV3"))
 	require.NoError(t, err)
 	_, err = conn.Write(make([]byte, 8))
 	require.NoError(t, err)
-	require.NoError(t, conn.Close())
+	require.NoError(t, conn.(*net.TCPConn).CloseWrite())
 
-	// Re-dial just to confirm the listener is alive (the previous
-	// connection terminated server-side without affecting the listener).
-	probe, err := net.Dial("tcp", addr.String())
-	require.NoError(t, err)
-	require.NoError(t, probe.Close())
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
+	buf := make([]byte, 64)
+	n, err := conn.Read(buf)
+	require.Equal(t, 0, n, "server must not emit RFB bytes after a truncated handshake")
+	require.ErrorIs(t, err, io.EOF, "server must close the connection on truncated msg1")
 }
 
 // TestNoise_AuthEnabled_NoHandshake_Rejected proves that with auth on,

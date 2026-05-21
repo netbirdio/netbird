@@ -1075,5 +1075,7 @@ func anonymizeServerSessions(a *anonymize.Anonymizer, overview *OutputOverview) 
 	}
 	for i, sess := range overview.VNCServerState.Sessions {
 		overview.VNCServerState.Sessions[i].RemoteAddress = anonymizeRemoteAddress(a, sess.RemoteAddress)
+		overview.VNCServerState.Sessions[i].Username = a.AnonymizeString(sess.Username)
+		overview.VNCServerState.Sessions[i].UserID = a.AnonymizeString(sess.UserID)
 	}
 }

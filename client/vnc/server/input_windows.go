@@ -169,10 +169,6 @@ func (w *WindowsInputInjector) Close() {
 func (w *WindowsInputInjector) tryEnqueue(cmd inputCmd) {
 	select {
 	case <-w.closed:
-		return
-	default:
-	}
-	select {
 	case w.ch <- cmd:
 	default:
 	}

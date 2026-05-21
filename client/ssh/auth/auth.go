@@ -117,12 +117,22 @@ func (a *Authorizer) Update(config *Config) {
 	a.machineUsers = machineUsers
 
 	sessionPubKeys := make(map[[sessionPubKeyLen]byte]sshuserhash.UserIDHash, len(config.SessionPubKeys))
+	conflicted := make(map[[sessionPubKeyLen]byte]struct{})
 	for _, e := range config.SessionPubKeys {
 		if len(e.PubKey) != sessionPubKeyLen {
 			continue
 		}
 		var key [sessionPubKeyLen]byte
 		copy(key[:], e.PubKey)
+		if _, bad := conflicted[key]; bad {
+			continue
+		}
+		if existing, ok := sessionPubKeys[key]; ok && existing != e.UserIDHash {
+			log.Warnf("SSH auth: session pubkey bound to conflicting user hashes; dropping binding")
+			delete(sessionPubKeys, key)
+			conflicted[key] = struct{}{}
+			continue
+		}
 		sessionPubKeys[key] = e.UserIDHash
 	}
 	a.sessionPubKeys = sessionPubKeys
