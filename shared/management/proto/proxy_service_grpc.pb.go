@@ -20,6 +20,7 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	ProxyService_GetMappingUpdate_FullMethodName = "/management.ProxyService/GetMappingUpdate"
+	ProxyService_SyncMappings_FullMethodName     = "/management.ProxyService/SyncMappings"
 	ProxyService_SendAccessLog_FullMethodName    = "/management.ProxyService/SendAccessLog"
 	ProxyService_Authenticate_FullMethodName     = "/management.ProxyService/Authenticate"
 	ProxyService_SendStatusUpdate_FullMethodName = "/management.ProxyService/SendStatusUpdate"
@@ -36,6 +37,14 @@ const (
 // Proxy initiates connection to management
 type ProxyServiceClient interface {
 	GetMappingUpdate(ctx context.Context, in *GetMappingUpdateRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GetMappingUpdateResponse], error)
+	// SyncMappings is a bidirectional stream that replaces GetMappingUpdate for
+	// new proxies. The proxy sends an initial SyncMappingsRequest to start the
+	// stream and then sends an ack after each batch is fully processed.
+	// Management waits for the ack before sending the next batch, providing
+	// application-level back-pressure during large initial syncs.
+	// Old proxies continue using GetMappingUpdate; old management servers
+	// return Unimplemented for this RPC and proxies fall back.
+	SyncMappings(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[SyncMappingsRequest, SyncMappingsResponse], error)
 	SendAccessLog(ctx context.Context, in *SendAccessLogRequest, opts ...grpc.CallOption) (*SendAccessLogResponse, error)
 	Authenticate(ctx context.Context, in *AuthenticateRequest, opts ...grpc.CallOption) (*AuthenticateResponse, error)
 	SendStatusUpdate(ctx context.Context, in *SendStatusUpdateRequest, opts ...grpc.CallOption) (*SendStatusUpdateResponse, error)
@@ -72,6 +81,19 @@ func (c *proxyServiceClient) GetMappingUpdate(ctx context.Context, in *GetMappin
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ProxyService_GetMappingUpdateClient = grpc.ServerStreamingClient[GetMappingUpdateResponse]
+
+func (c *proxyServiceClient) SyncMappings(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[SyncMappingsRequest, SyncMappingsResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &ProxyService_ServiceDesc.Streams[1], ProxyService_SyncMappings_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[SyncMappingsRequest, SyncMappingsResponse]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ProxyService_SyncMappingsClient = grpc.BidiStreamingClient[SyncMappingsRequest, SyncMappingsResponse]
 
 func (c *proxyServiceClient) SendAccessLog(ctx context.Context, in *SendAccessLogRequest, opts ...grpc.CallOption) (*SendAccessLogResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -141,6 +163,14 @@ func (c *proxyServiceClient) ValidateSession(ctx context.Context, in *ValidateSe
 // Proxy initiates connection to management
 type ProxyServiceServer interface {
 	GetMappingUpdate(*GetMappingUpdateRequest, grpc.ServerStreamingServer[GetMappingUpdateResponse]) error
+	// SyncMappings is a bidirectional stream that replaces GetMappingUpdate for
+	// new proxies. The proxy sends an initial SyncMappingsRequest to start the
+	// stream and then sends an ack after each batch is fully processed.
+	// Management waits for the ack before sending the next batch, providing
+	// application-level back-pressure during large initial syncs.
+	// Old proxies continue using GetMappingUpdate; old management servers
+	// return Unimplemented for this RPC and proxies fall back.
+	SyncMappings(grpc.BidiStreamingServer[SyncMappingsRequest, SyncMappingsResponse]) error
 	SendAccessLog(context.Context, *SendAccessLogRequest) (*SendAccessLogResponse, error)
 	Authenticate(context.Context, *AuthenticateRequest) (*AuthenticateResponse, error)
 	SendStatusUpdate(context.Context, *SendStatusUpdateRequest) (*SendStatusUpdateResponse, error)
@@ -161,6 +191,9 @@ type UnimplementedProxyServiceServer struct{}
 
 func (UnimplementedProxyServiceServer) GetMappingUpdate(*GetMappingUpdateRequest, grpc.ServerStreamingServer[GetMappingUpdateResponse]) error {
 	return status.Error(codes.Unimplemented, "method GetMappingUpdate not implemented")
+}
+func (UnimplementedProxyServiceServer) SyncMappings(grpc.BidiStreamingServer[SyncMappingsRequest, SyncMappingsResponse]) error {
+	return status.Error(codes.Unimplemented, "method SyncMappings not implemented")
 }
 func (UnimplementedProxyServiceServer) SendAccessLog(context.Context, *SendAccessLogRequest) (*SendAccessLogResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SendAccessLog not implemented")
@@ -211,6 +244,13 @@ func _ProxyService_GetMappingUpdate_Handler(srv interface{}, stream grpc.ServerS
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ProxyService_GetMappingUpdateServer = grpc.ServerStreamingServer[GetMappingUpdateResponse]
+
+func _ProxyService_SyncMappings_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(ProxyServiceServer).SyncMappings(&grpc.GenericServerStream[SyncMappingsRequest, SyncMappingsResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ProxyService_SyncMappingsServer = grpc.BidiStreamingServer[SyncMappingsRequest, SyncMappingsResponse]
 
 func _ProxyService_SendAccessLog_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SendAccessLogRequest)
@@ -357,6 +397,12 @@ var ProxyService_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "GetMappingUpdate",
 			Handler:       _ProxyService_GetMappingUpdate_Handler,
 			ServerStreams: true,
+		},
+		{
+			StreamName:    "SyncMappings",
+			Handler:       _ProxyService_SyncMappings_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "proxy_service.proto",

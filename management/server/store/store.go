@@ -167,6 +167,21 @@ type Store interface {
 	GetAllEphemeralPeers(ctx context.Context, lockStrength LockingStrength) ([]*nbpeer.Peer, error)
 	SavePeer(ctx context.Context, accountID string, peer *nbpeer.Peer) error
 	SavePeerStatus(ctx context.Context, accountID, peerID string, status nbpeer.PeerStatus) error
+	// MarkPeerConnectedIfNewerSession sets the peer to connected with the
+	// given session token, but only when the stored SessionStartedAt is
+	// strictly less than newSessionStartedAt (the sentinel zero counts as
+	// "older"). LastSeen is recorded by the database at the moment the
+	// row is updated — never by the caller — so it always reflects the
+	// real write time even under lock contention.
+	// Returns true when the update happened, false when this stream lost
+	// the race against a newer session.
+	MarkPeerConnectedIfNewerSession(ctx context.Context, accountID, peerID string, newSessionStartedAt int64) (bool, error)
+	// MarkPeerDisconnectedIfSameSession sets the peer to disconnected and
+	// resets SessionStartedAt to zero, but only when the stored
+	// SessionStartedAt equals the given sessionStartedAt. LastSeen is
+	// recorded by the database. Returns true when the update happened,
+	// false when a newer session has taken over.
+	MarkPeerDisconnectedIfSameSession(ctx context.Context, accountID, peerID string, sessionStartedAt int64) (bool, error)
 	SavePeerLocation(ctx context.Context, accountID string, peer *nbpeer.Peer) error
 	ApproveAccountPeers(ctx context.Context, accountID string) (int, error)
 	DeletePeer(ctx context.Context, accountID string, peerID string) error
@@ -213,7 +228,8 @@ type Store interface {
 	GetNetworkRoutersByNetID(ctx context.Context, lockStrength LockingStrength, accountID, netID string) ([]*routerTypes.NetworkRouter, error)
 	GetNetworkRoutersByAccountID(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*routerTypes.NetworkRouter, error)
 	GetNetworkRouterByID(ctx context.Context, lockStrength LockingStrength, accountID, routerID string) (*routerTypes.NetworkRouter, error)
-	SaveNetworkRouter(ctx context.Context, router *routerTypes.NetworkRouter) error
+	CreateNetworkRouter(ctx context.Context, router *routerTypes.NetworkRouter) error
+	UpdateNetworkRouter(ctx context.Context, router *routerTypes.NetworkRouter) error
 	DeleteNetworkRouter(ctx context.Context, accountID, routerID string) error
 
 	GetNetworkResourcesByNetID(ctx context.Context, lockStrength LockingStrength, accountID, netID string) ([]*resourceTypes.NetworkResource, error)
@@ -292,7 +308,7 @@ type Store interface {
 	UpdateProxyHeartbeat(ctx context.Context, p *proxy.Proxy) error
 	GetActiveProxyClusterAddresses(ctx context.Context) ([]string, error)
 	GetActiveProxyClusterAddressesForAccount(ctx context.Context, accountID string) ([]string, error)
-	GetActiveProxyClusters(ctx context.Context, accountID string) ([]proxy.Cluster, error)
+	GetProxyClusters(ctx context.Context, accountID string) ([]proxy.Cluster, error)
 	GetClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
 	GetClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	GetClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
@@ -455,6 +471,9 @@ func getMigrationsPreAuto(ctx context.Context) []migrationFunc {
 		},
 		func(db *gorm.DB) error {
 			return migration.MigrateNewField[types.User](ctx, db, "email", "")
+		},
+		func(db *gorm.DB) error {
+			return migration.MigrateNewField[nbpeer.Peer](ctx, db, "peer_status_session_started_at", int64(0))
 		},
 		func(db *gorm.DB) error {
 			return migration.RemoveDuplicatePeerKeys(ctx, db)

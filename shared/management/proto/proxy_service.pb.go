@@ -1904,6 +1904,262 @@ func (x *ValidateSessionResponse) GetDeniedReason() string {
 	return ""
 }
 
+// SyncMappingsRequest is sent by the proxy on the bidirectional SyncMappings
+// stream. The first message MUST be an init; all subsequent messages MUST be
+// acks.
+type SyncMappingsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Msg:
+	//
+	//	*SyncMappingsRequest_Init
+	//	*SyncMappingsRequest_Ack
+	Msg           isSyncMappingsRequest_Msg `protobuf_oneof:"msg"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SyncMappingsRequest) Reset() {
+	*x = SyncMappingsRequest{}
+	mi := &file_proxy_service_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SyncMappingsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SyncMappingsRequest) ProtoMessage() {}
+
+func (x *SyncMappingsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proxy_service_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SyncMappingsRequest.ProtoReflect.Descriptor instead.
+func (*SyncMappingsRequest) Descriptor() ([]byte, []int) {
+	return file_proxy_service_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *SyncMappingsRequest) GetMsg() isSyncMappingsRequest_Msg {
+	if x != nil {
+		return x.Msg
+	}
+	return nil
+}
+
+func (x *SyncMappingsRequest) GetInit() *SyncMappingsInit {
+	if x != nil {
+		if x, ok := x.Msg.(*SyncMappingsRequest_Init); ok {
+			return x.Init
+		}
+	}
+	return nil
+}
+
+func (x *SyncMappingsRequest) GetAck() *SyncMappingsAck {
+	if x != nil {
+		if x, ok := x.Msg.(*SyncMappingsRequest_Ack); ok {
+			return x.Ack
+		}
+	}
+	return nil
+}
+
+type isSyncMappingsRequest_Msg interface {
+	isSyncMappingsRequest_Msg()
+}
+
+type SyncMappingsRequest_Init struct {
+	Init *SyncMappingsInit `protobuf:"bytes,1,opt,name=init,proto3,oneof"`
+}
+
+type SyncMappingsRequest_Ack struct {
+	Ack *SyncMappingsAck `protobuf:"bytes,2,opt,name=ack,proto3,oneof"`
+}
+
+func (*SyncMappingsRequest_Init) isSyncMappingsRequest_Msg() {}
+
+func (*SyncMappingsRequest_Ack) isSyncMappingsRequest_Msg() {}
+
+// SyncMappingsInit is the first message on the stream, carrying the same
+// identification fields as GetMappingUpdateRequest.
+type SyncMappingsInit struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ProxyId       string                 `protobuf:"bytes,1,opt,name=proxy_id,json=proxyId,proto3" json:"proxy_id,omitempty"`
+	Version       string                 `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
+	StartedAt     *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	Address       string                 `protobuf:"bytes,4,opt,name=address,proto3" json:"address,omitempty"`
+	Capabilities  *ProxyCapabilities     `protobuf:"bytes,5,opt,name=capabilities,proto3" json:"capabilities,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SyncMappingsInit) Reset() {
+	*x = SyncMappingsInit{}
+	mi := &file_proxy_service_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SyncMappingsInit) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SyncMappingsInit) ProtoMessage() {}
+
+func (x *SyncMappingsInit) ProtoReflect() protoreflect.Message {
+	mi := &file_proxy_service_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SyncMappingsInit.ProtoReflect.Descriptor instead.
+func (*SyncMappingsInit) Descriptor() ([]byte, []int) {
+	return file_proxy_service_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *SyncMappingsInit) GetProxyId() string {
+	if x != nil {
+		return x.ProxyId
+	}
+	return ""
+}
+
+func (x *SyncMappingsInit) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *SyncMappingsInit) GetStartedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.StartedAt
+	}
+	return nil
+}
+
+func (x *SyncMappingsInit) GetAddress() string {
+	if x != nil {
+		return x.Address
+	}
+	return ""
+}
+
+func (x *SyncMappingsInit) GetCapabilities() *ProxyCapabilities {
+	if x != nil {
+		return x.Capabilities
+	}
+	return nil
+}
+
+// SyncMappingsAck is sent by the proxy after it has fully processed a batch.
+// Management waits for this before sending the next batch.
+type SyncMappingsAck struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SyncMappingsAck) Reset() {
+	*x = SyncMappingsAck{}
+	mi := &file_proxy_service_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SyncMappingsAck) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SyncMappingsAck) ProtoMessage() {}
+
+func (x *SyncMappingsAck) ProtoReflect() protoreflect.Message {
+	mi := &file_proxy_service_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SyncMappingsAck.ProtoReflect.Descriptor instead.
+func (*SyncMappingsAck) Descriptor() ([]byte, []int) {
+	return file_proxy_service_proto_rawDescGZIP(), []int{27}
+}
+
+// SyncMappingsResponse is a batch of mappings sent by management.
+// Identical semantics to GetMappingUpdateResponse.
+type SyncMappingsResponse struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Mapping []*ProxyMapping        `protobuf:"bytes,1,rep,name=mapping,proto3" json:"mapping,omitempty"`
+	// initial_sync_complete is set on the last message of the initial snapshot.
+	InitialSyncComplete bool `protobuf:"varint,2,opt,name=initial_sync_complete,json=initialSyncComplete,proto3" json:"initial_sync_complete,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *SyncMappingsResponse) Reset() {
+	*x = SyncMappingsResponse{}
+	mi := &file_proxy_service_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SyncMappingsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SyncMappingsResponse) ProtoMessage() {}
+
+func (x *SyncMappingsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proxy_service_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SyncMappingsResponse.ProtoReflect.Descriptor instead.
+func (*SyncMappingsResponse) Descriptor() ([]byte, []int) {
+	return file_proxy_service_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *SyncMappingsResponse) GetMapping() []*ProxyMapping {
+	if x != nil {
+		return x.Mapping
+	}
+	return nil
+}
+
+func (x *SyncMappingsResponse) GetInitialSyncComplete() bool {
+	if x != nil {
+		return x.InitialSyncComplete
+	}
+	return false
+}
+
 var File_proxy_service_proto protoreflect.FileDescriptor
 
 const file_proxy_service_proto_rawDesc = "" +
@@ -2062,7 +2318,22 @@ const file_proxy_service_proto_rawDesc = "" +
 	"\auser_id\x18\x02 \x01(\tR\x06userId\x12\x1d\n" +
 	"\n" +
 	"user_email\x18\x03 \x01(\tR\tuserEmail\x12#\n" +
-	"\rdenied_reason\x18\x04 \x01(\tR\fdeniedReason*d\n" +
+	"\rdenied_reason\x18\x04 \x01(\tR\fdeniedReason\"\x81\x01\n" +
+	"\x13SyncMappingsRequest\x122\n" +
+	"\x04init\x18\x01 \x01(\v2\x1c.management.SyncMappingsInitH\x00R\x04init\x12/\n" +
+	"\x03ack\x18\x02 \x01(\v2\x1b.management.SyncMappingsAckH\x00R\x03ackB\x05\n" +
+	"\x03msg\"\xdf\x01\n" +
+	"\x10SyncMappingsInit\x12\x19\n" +
+	"\bproxy_id\x18\x01 \x01(\tR\aproxyId\x12\x18\n" +
+	"\aversion\x18\x02 \x01(\tR\aversion\x129\n" +
+	"\n" +
+	"started_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\x12\x18\n" +
+	"\aaddress\x18\x04 \x01(\tR\aaddress\x12A\n" +
+	"\fcapabilities\x18\x05 \x01(\v2\x1d.management.ProxyCapabilitiesR\fcapabilities\"\x11\n" +
+	"\x0fSyncMappingsAck\"~\n" +
+	"\x14SyncMappingsResponse\x122\n" +
+	"\amapping\x18\x01 \x03(\v2\x18.management.ProxyMappingR\amapping\x122\n" +
+	"\x15initial_sync_complete\x18\x02 \x01(\bR\x13initialSyncComplete*d\n" +
 	"\x16ProxyMappingUpdateType\x12\x17\n" +
 	"\x13UPDATE_TYPE_CREATED\x10\x00\x12\x18\n" +
 	"\x14UPDATE_TYPE_MODIFIED\x10\x01\x12\x17\n" +
@@ -2076,9 +2347,10 @@ const file_proxy_service_proto_rawDesc = "" +
 	"\x1fPROXY_STATUS_TUNNEL_NOT_CREATED\x10\x02\x12$\n" +
 	" PROXY_STATUS_CERTIFICATE_PENDING\x10\x03\x12#\n" +
 	"\x1fPROXY_STATUS_CERTIFICATE_FAILED\x10\x04\x12\x16\n" +
-	"\x12PROXY_STATUS_ERROR\x10\x052\xfc\x04\n" +
+	"\x12PROXY_STATUS_ERROR\x10\x052\xd3\x05\n" +
 	"\fProxyService\x12_\n" +
-	"\x10GetMappingUpdate\x12#.management.GetMappingUpdateRequest\x1a$.management.GetMappingUpdateResponse0\x01\x12T\n" +
+	"\x10GetMappingUpdate\x12#.management.GetMappingUpdateRequest\x1a$.management.GetMappingUpdateResponse0\x01\x12U\n" +
+	"\fSyncMappings\x12\x1f.management.SyncMappingsRequest\x1a .management.SyncMappingsResponse(\x010\x01\x12T\n" +
 	"\rSendAccessLog\x12 .management.SendAccessLogRequest\x1a!.management.SendAccessLogResponse\x12Q\n" +
 	"\fAuthenticate\x12\x1f.management.AuthenticateRequest\x1a .management.AuthenticateResponse\x12]\n" +
 	"\x10SendStatusUpdate\x12#.management.SendStatusUpdateRequest\x1a$.management.SendStatusUpdateResponse\x12Z\n" +
@@ -2100,7 +2372,7 @@ func file_proxy_service_proto_rawDescGZIP() []byte {
 }
 
 var file_proxy_service_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_proxy_service_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
+var file_proxy_service_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
 var file_proxy_service_proto_goTypes = []any{
 	(ProxyMappingUpdateType)(0),      // 0: management.ProxyMappingUpdateType
 	(PathRewriteMode)(0),             // 1: management.PathRewriteMode
@@ -2130,19 +2402,23 @@ var file_proxy_service_proto_goTypes = []any{
 	(*GetOIDCURLResponse)(nil),       // 25: management.GetOIDCURLResponse
 	(*ValidateSessionRequest)(nil),   // 26: management.ValidateSessionRequest
 	(*ValidateSessionResponse)(nil),  // 27: management.ValidateSessionResponse
-	nil,                              // 28: management.PathTargetOptions.CustomHeadersEntry
-	nil,                              // 29: management.AccessLog.MetadataEntry
-	(*timestamppb.Timestamp)(nil),    // 30: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),      // 31: google.protobuf.Duration
+	(*SyncMappingsRequest)(nil),      // 28: management.SyncMappingsRequest
+	(*SyncMappingsInit)(nil),         // 29: management.SyncMappingsInit
+	(*SyncMappingsAck)(nil),          // 30: management.SyncMappingsAck
+	(*SyncMappingsResponse)(nil),     // 31: management.SyncMappingsResponse
+	nil,                              // 32: management.PathTargetOptions.CustomHeadersEntry
+	nil,                              // 33: management.AccessLog.MetadataEntry
+	(*timestamppb.Timestamp)(nil),    // 34: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),      // 35: google.protobuf.Duration
 }
 var file_proxy_service_proto_depIdxs = []int32{
-	30, // 0: management.GetMappingUpdateRequest.started_at:type_name -> google.protobuf.Timestamp
+	34, // 0: management.GetMappingUpdateRequest.started_at:type_name -> google.protobuf.Timestamp
 	3,  // 1: management.GetMappingUpdateRequest.capabilities:type_name -> management.ProxyCapabilities
 	11, // 2: management.GetMappingUpdateResponse.mapping:type_name -> management.ProxyMapping
-	31, // 3: management.PathTargetOptions.request_timeout:type_name -> google.protobuf.Duration
+	35, // 3: management.PathTargetOptions.request_timeout:type_name -> google.protobuf.Duration
 	1,  // 4: management.PathTargetOptions.path_rewrite:type_name -> management.PathRewriteMode
-	28, // 5: management.PathTargetOptions.custom_headers:type_name -> management.PathTargetOptions.CustomHeadersEntry
-	31, // 6: management.PathTargetOptions.session_idle_timeout:type_name -> google.protobuf.Duration
+	32, // 5: management.PathTargetOptions.custom_headers:type_name -> management.PathTargetOptions.CustomHeadersEntry
+	35, // 6: management.PathTargetOptions.session_idle_timeout:type_name -> google.protobuf.Duration
 	6,  // 7: management.PathMapping.options:type_name -> management.PathTargetOptions
 	8,  // 8: management.Authentication.header_auths:type_name -> management.HeaderAuth
 	0,  // 9: management.ProxyMapping.type:type_name -> management.ProxyMappingUpdateType
@@ -2150,31 +2426,38 @@ var file_proxy_service_proto_depIdxs = []int32{
 	9,  // 11: management.ProxyMapping.auth:type_name -> management.Authentication
 	10, // 12: management.ProxyMapping.access_restrictions:type_name -> management.AccessRestrictions
 	14, // 13: management.SendAccessLogRequest.log:type_name -> management.AccessLog
-	30, // 14: management.AccessLog.timestamp:type_name -> google.protobuf.Timestamp
-	29, // 15: management.AccessLog.metadata:type_name -> management.AccessLog.MetadataEntry
+	34, // 14: management.AccessLog.timestamp:type_name -> google.protobuf.Timestamp
+	33, // 15: management.AccessLog.metadata:type_name -> management.AccessLog.MetadataEntry
 	17, // 16: management.AuthenticateRequest.password:type_name -> management.PasswordRequest
 	18, // 17: management.AuthenticateRequest.pin:type_name -> management.PinRequest
 	16, // 18: management.AuthenticateRequest.header_auth:type_name -> management.HeaderAuthRequest
 	2,  // 19: management.SendStatusUpdateRequest.status:type_name -> management.ProxyStatus
-	4,  // 20: management.ProxyService.GetMappingUpdate:input_type -> management.GetMappingUpdateRequest
-	12, // 21: management.ProxyService.SendAccessLog:input_type -> management.SendAccessLogRequest
-	15, // 22: management.ProxyService.Authenticate:input_type -> management.AuthenticateRequest
-	20, // 23: management.ProxyService.SendStatusUpdate:input_type -> management.SendStatusUpdateRequest
-	22, // 24: management.ProxyService.CreateProxyPeer:input_type -> management.CreateProxyPeerRequest
-	24, // 25: management.ProxyService.GetOIDCURL:input_type -> management.GetOIDCURLRequest
-	26, // 26: management.ProxyService.ValidateSession:input_type -> management.ValidateSessionRequest
-	5,  // 27: management.ProxyService.GetMappingUpdate:output_type -> management.GetMappingUpdateResponse
-	13, // 28: management.ProxyService.SendAccessLog:output_type -> management.SendAccessLogResponse
-	19, // 29: management.ProxyService.Authenticate:output_type -> management.AuthenticateResponse
-	21, // 30: management.ProxyService.SendStatusUpdate:output_type -> management.SendStatusUpdateResponse
-	23, // 31: management.ProxyService.CreateProxyPeer:output_type -> management.CreateProxyPeerResponse
-	25, // 32: management.ProxyService.GetOIDCURL:output_type -> management.GetOIDCURLResponse
-	27, // 33: management.ProxyService.ValidateSession:output_type -> management.ValidateSessionResponse
-	27, // [27:34] is the sub-list for method output_type
-	20, // [20:27] is the sub-list for method input_type
-	20, // [20:20] is the sub-list for extension type_name
-	20, // [20:20] is the sub-list for extension extendee
-	0,  // [0:20] is the sub-list for field type_name
+	29, // 20: management.SyncMappingsRequest.init:type_name -> management.SyncMappingsInit
+	30, // 21: management.SyncMappingsRequest.ack:type_name -> management.SyncMappingsAck
+	34, // 22: management.SyncMappingsInit.started_at:type_name -> google.protobuf.Timestamp
+	3,  // 23: management.SyncMappingsInit.capabilities:type_name -> management.ProxyCapabilities
+	11, // 24: management.SyncMappingsResponse.mapping:type_name -> management.ProxyMapping
+	4,  // 25: management.ProxyService.GetMappingUpdate:input_type -> management.GetMappingUpdateRequest
+	28, // 26: management.ProxyService.SyncMappings:input_type -> management.SyncMappingsRequest
+	12, // 27: management.ProxyService.SendAccessLog:input_type -> management.SendAccessLogRequest
+	15, // 28: management.ProxyService.Authenticate:input_type -> management.AuthenticateRequest
+	20, // 29: management.ProxyService.SendStatusUpdate:input_type -> management.SendStatusUpdateRequest
+	22, // 30: management.ProxyService.CreateProxyPeer:input_type -> management.CreateProxyPeerRequest
+	24, // 31: management.ProxyService.GetOIDCURL:input_type -> management.GetOIDCURLRequest
+	26, // 32: management.ProxyService.ValidateSession:input_type -> management.ValidateSessionRequest
+	5,  // 33: management.ProxyService.GetMappingUpdate:output_type -> management.GetMappingUpdateResponse
+	31, // 34: management.ProxyService.SyncMappings:output_type -> management.SyncMappingsResponse
+	13, // 35: management.ProxyService.SendAccessLog:output_type -> management.SendAccessLogResponse
+	19, // 36: management.ProxyService.Authenticate:output_type -> management.AuthenticateResponse
+	21, // 37: management.ProxyService.SendStatusUpdate:output_type -> management.SendStatusUpdateResponse
+	23, // 38: management.ProxyService.CreateProxyPeer:output_type -> management.CreateProxyPeerResponse
+	25, // 39: management.ProxyService.GetOIDCURL:output_type -> management.GetOIDCURLResponse
+	27, // 40: management.ProxyService.ValidateSession:output_type -> management.ValidateSessionResponse
+	33, // [33:41] is the sub-list for method output_type
+	25, // [25:33] is the sub-list for method input_type
+	25, // [25:25] is the sub-list for extension type_name
+	25, // [25:25] is the sub-list for extension extendee
+	0,  // [0:25] is the sub-list for field type_name
 }
 
 func init() { file_proxy_service_proto_init() }
@@ -2190,13 +2473,17 @@ func file_proxy_service_proto_init() {
 	}
 	file_proxy_service_proto_msgTypes[17].OneofWrappers = []any{}
 	file_proxy_service_proto_msgTypes[20].OneofWrappers = []any{}
+	file_proxy_service_proto_msgTypes[25].OneofWrappers = []any{
+		(*SyncMappingsRequest_Init)(nil),
+		(*SyncMappingsRequest_Ack)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proxy_service_proto_rawDesc), len(file_proxy_service_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   27,
+			NumMessages:   31,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
