@@ -27,6 +27,7 @@ const (
 	kCGEventRightMouseDragged int32 = 7
 	kCGEventKeyDown           int32 = 10
 	kCGEventKeyUp             int32 = 11
+	kCGEventFlagsChanged      int32 = 12
 	kCGEventOtherMouseDown    int32 = 25
 	kCGEventOtherMouseUp      int32 = 26
 
@@ -74,6 +75,8 @@ var (
 	cgEventPost                 func(int32, uintptr)
 	cgEventSetIntegerValueField func(uintptr, int32, int64)
 	cgEventSetFlags             func(uintptr, uint64)
+	cgEventSetType              func(uintptr, int32)
+	cgEventCreateForInput       func(uintptr) uintptr
 
 	// CGEventCreateScrollWheelEvent is variadic, call via SyscallN.
 	cgEventCreateScrollWheelEventAddr uintptr
@@ -136,6 +139,8 @@ func initDarwinInput() {
 		purego.RegisterLibFunc(&cgEventPost, cg, "CGEventPost")
 		purego.RegisterLibFunc(&cgEventSetIntegerValueField, cg, "CGEventSetIntegerValueField")
 		purego.RegisterLibFunc(&cgEventSetFlags, cg, "CGEventSetFlags")
+		purego.RegisterLibFunc(&cgEventSetType, cg, "CGEventSetType")
+		purego.RegisterLibFunc(&cgEventCreateForInput, cg, "CGEventCreate")
 
 		sym, err := purego.Dlsym(cg, "CGEventCreateScrollWheelEvent")
 		if err == nil {
@@ -408,18 +413,54 @@ func (m *MacInputInjector) InjectKeyScancode(scancode, keysym uint32, down bool)
 	m.postMacKey(src, vk, down)
 }
 
-// postMacKey emits a single key down/up event via Core Graphics. The
-// Fn flag is attached for keycodes that live in the Fn-shifted region of
-// an Apple keyboard so the system doesn't treat the next plain key as
-// Fn-modified.
+// postMacKey emits a single key down/up event via Core Graphics. For
+// keycodes that live in the Fn-shifted region of an Apple keyboard we
+// also emit explicit flagsChanged events around the keypress: posting
+// the Fn flag on the key event alone leaves macOS's modifier state
+// machine without a matching transition, which manifests as "Fn stays
+// active" for the next key (e.g. the next letter activates a menu
+// accelerator).
 func (m *MacInputInjector) postMacKey(src uintptr, keycode uint16, down bool) {
+	fnShifted := isFnShiftedKeycode(keycode)
+	if fnShifted && down {
+		postFnFlagsChanged(src, true)
+	}
 	event := cgEventCreateKeyboardEvent(src, keycode, down)
+	if event == 0 {
+		if fnShifted && !down {
+			postFnFlagsChanged(src, false)
+		}
+		return
+	}
+	if fnShifted && cgEventSetFlags != nil {
+		cgEventSetFlags(event, kCGEventFlagMaskSecondaryFn)
+	}
+	cgEventPost(kCGHIDEventTap, event)
+	cfRelease(event)
+	if fnShifted && !down {
+		postFnFlagsChanged(src, false)
+	}
+}
+
+// postFnFlagsChanged emits a synthetic Fn modifier transition so the
+// system updates its global modifier state to match the key events we
+// post for the navigation cluster. Without this, posting a Fn-flagged
+// key event leaves macOS thinking Fn is still held after the key is
+// released.
+func postFnFlagsChanged(src uintptr, fnOn bool) {
+	if cgEventCreateForInput == nil || cgEventSetType == nil || cgEventSetFlags == nil {
+		return
+	}
+	event := cgEventCreateForInput(src)
 	if event == 0 {
 		return
 	}
-	if isFnShiftedKeycode(keycode) && cgEventSetFlags != nil {
-		cgEventSetFlags(event, kCGEventFlagMaskSecondaryFn)
+	cgEventSetType(event, kCGEventFlagsChanged)
+	var flags uint64
+	if fnOn {
+		flags = kCGEventFlagMaskSecondaryFn
 	}
+	cgEventSetFlags(event, flags)
 	cgEventPost(kCGHIDEventTap, event)
 	cfRelease(event)
 }
