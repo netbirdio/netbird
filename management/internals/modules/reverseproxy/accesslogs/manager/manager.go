@@ -63,6 +63,25 @@ func (m *managerImpl) SaveAccessLog(ctx context.Context, logEntry *accesslogs.Ac
 	return nil
 }
 
+// enrichUserGroups attaches the user's auto-group memberships to the entry.
+// Best-effort: errors are logged at debug and never block the save.
+func (m *managerImpl) enrichUserGroups(ctx context.Context, logEntry *accesslogs.AccessLogEntry) {
+	if logEntry.UserId == "" {
+		return
+	}
+
+	user, err := m.store.GetUserByUserID(ctx, store.LockingStrengthNone, logEntry.UserId)
+	if err != nil {
+		log.WithContext(ctx).Debugf("access log user-group enrichment skipped for user %s: %v", logEntry.UserId, err)
+		return
+	}
+	if user == nil {
+		return
+	}
+
+	logEntry.UserGroups = append([]string(nil), user.AutoGroups...)
+}
+
 // GetAllAccessLogs retrieves access logs for an account with pagination and filtering
 func (m *managerImpl) GetAllAccessLogs(ctx context.Context, accountID, userID string, filter *accesslogs.AccessLogFilter) ([]*accesslogs.AccessLogEntry, int64, error) {
 	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
@@ -161,25 +180,6 @@ func (m *managerImpl) StopPeriodicCleanup() {
 	if m.cleanupCancel != nil {
 		m.cleanupCancel()
 	}
-}
-
-// enrichUserGroups attaches the user's auto-group memberships to the entry.
-// Best-effort: errors are logged at debug and never block the save.
-func (m *managerImpl) enrichUserGroups(ctx context.Context, logEntry *accesslogs.AccessLogEntry) {
-	if logEntry.UserId == "" {
-		return
-	}
-
-	user, err := m.store.GetUserByUserID(ctx, store.LockingStrengthNone, logEntry.UserId)
-	if err != nil {
-		log.WithContext(ctx).Debugf("access log user-group enrichment skipped for user %s: %v", logEntry.UserId, err)
-		return
-	}
-	if user == nil {
-		return
-	}
-
-	logEntry.UserGroups = append([]string(nil), user.AutoGroups...)
 }
 
 // resolveUserFilters converts user email/name filters to user ID filter
