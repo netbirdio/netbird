@@ -284,7 +284,7 @@ func TestCollectGroupChange_NetworkRouterLinked(t *testing.T) {
 	err := manager.Store.SaveNetwork(ctx, net1)
 	require.NoError(t, err)
 
-	err = manager.Store.SaveNetworkRouter(ctx, &routerTypes.NetworkRouter{
+	err = manager.Store.CreateNetworkRouter(ctx, &routerTypes.NetworkRouter{
 		ID:         "router1",
 		NetworkID:  net1.ID,
 		AccountID:  accountID,
@@ -315,7 +315,7 @@ func TestCollectGroupChange_NetworkRouterPeerOnlyNoGroups(t *testing.T) {
 	require.NoError(t, err)
 
 	// Router with only a direct peer, no PeerGroups
-	err = manager.Store.SaveNetworkRouter(ctx, &routerTypes.NetworkRouter{
+	err = manager.Store.CreateNetworkRouter(ctx, &routerTypes.NetworkRouter{
 		ID:        "router-peer-only",
 		NetworkID: net1.ID,
 		AccountID: accountID,
@@ -840,7 +840,7 @@ func TestResolveAffectedPeers_NetworkRouter(t *testing.T) {
 	err := manager.Store.SaveNetwork(ctx, net1)
 	require.NoError(t, err)
 
-	err = manager.Store.SaveNetworkRouter(ctx, &routerTypes.NetworkRouter{
+	err = manager.Store.CreateNetworkRouter(ctx, &routerTypes.NetworkRouter{
 		ID:         "router-test",
 		NetworkID:  net1.ID,
 		AccountID:  accountID,
@@ -1629,7 +1629,7 @@ func TestAffectedPeers_NetworkRouter_UnrelatedPeerNoUpdate(t *testing.T) {
 	err = manager.Store.SaveNetwork(ctx, net1)
 	require.NoError(t, err)
 
-	err = manager.Store.SaveNetworkRouter(ctx, &routerTypes.NetworkRouter{
+	err = manager.Store.CreateNetworkRouter(ctx, &routerTypes.NetworkRouter{
 		ID:         "nr-router-test",
 		NetworkID:  net1.ID,
 		AccountID:  accountID,
