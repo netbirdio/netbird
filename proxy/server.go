@@ -78,7 +78,7 @@ type Server struct {
 	acme          *acme.Manager
 	auth          *auth.Middleware
 	http          *http.Server
-	https         *http.Server
+	httpAcme      *http.Server
 	debug         *http.Server
 	healthServer  *health.Server
 	healthChecker *health.Checker
@@ -148,6 +148,9 @@ type Server struct {
 	DebugEndpointEnabled bool
 	// DebugEndpointAddress is the address for the debug HTTP endpoint (default: ":8444").
 	DebugEndpointAddress string
+	// HTTPOnly disables the TLS/SNI listener and only serves plain HTTP on the main address.
+	// Intended for deployments where TLS termination is handled upstream.
+	HTTPOnly bool
 	// HealthAddress is the address for the health probe endpoint.
 	HealthAddress string
 	// ProxyToken is the access token for authenticating with the management server.
@@ -295,11 +298,6 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 
 	go s.newManagementMappingWorker(runCtx, s.mgmtClient)
 
-	tlsConfig, err := s.configureTLS(ctx)
-	if err != nil {
-		return err
-	}
-
 	// Configure the reverse proxy using NetBird's HTTP Client Transport for proxying.
 	s.proxy = proxy.NewReverseProxy(s.meter.RoundTripper(s.netbird), s.ForwardedProto, s.TrustedProxies, s.Logger)
 
@@ -346,6 +344,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 
 	// Start a raw TCP listener; the SNI router peeks at ClientHello
 	// and routes to either the HTTP handler or a TCP relay.
+	// HTTP-only mode skips the SNI router and serves the HTTP handler directly.
 	lc := net.ListenConfig{}
 	ln, err := lc.Listen(ctx, "tcp", addr)
 	if err != nil {
@@ -356,6 +355,20 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	}
 	s.mainPort = uint16(ln.Addr().(*net.TCPAddr).Port) //nolint:gosec // port from OS is always valid
 
+	if s.HTTPOnly {
+		if s.GenerateACMECertificates {
+			s.Logger.Warn("http-only mode is enabled; skipping ACME certificate generation")
+		}
+		// No SNI router needed
+		close(s.routerReady)
+		return s.startHTTPServer(ctx, addr, ln, handler, &startupOK)
+	}
+
+	tlsConfig, err := s.configureTLS(ctx)
+	if err != nil {
+		return err
+	}
+
 	// Set up the SNI router for TCP/HTTP multiplexing on the main port.
 	s.mainRouter = nbtcp.NewRouter(s.Logger, s.resolveDialFunc, ln.Addr())
 	s.mainRouter.SetObserver(s.meter)
@@ -363,7 +376,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	close(s.routerReady)
 
 	// The HTTP server uses the chanListener fed by the SNI router.
-	s.https = &http.Server{
+	s.http = &http.Server{
 		Addr:              addr,
 		Handler:           handler,
 		TLSConfig:         tlsConfig,
@@ -374,10 +387,10 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 
 	startupOK = true
 
-	httpsErr := make(chan error, 1)
+	httpErr := make(chan error, 1)
 	go func() {
 		s.Logger.Debug("starting HTTPS server on SNI router HTTP channel")
-		httpsErr <- s.https.ServeTLS(s.mainRouter.HTTPListener(), "", "")
+		httpErr <- s.http.ServeTLS(s.mainRouter.HTTPListener(), "", "")
 	}()
 
 	routerErr := make(chan error, 1)
@@ -387,7 +400,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 	}()
 
 	select {
-	case err := <-httpsErr:
+	case err := <-httpErr:
 		s.shutdownServices()
 		if !errors.Is(err, http.ErrServerClosed) {
 			return fmt.Errorf("https server: %w", err)
@@ -397,6 +410,37 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 		s.shutdownServices()
 		if err != nil {
 			return fmt.Errorf("SNI router: %w", err)
+		}
+		return nil
+	case <-ctx.Done():
+		s.gracefulShutdown()
+		return nil
+	}
+}
+
+// Start the HTTP-only server without SNI routing or TLS, only if HTTPOnly is true.
+func (s *Server) startHTTPServer(ctx context.Context, addr string, ln net.Listener, handler http.Handler, startupOK *bool) error {
+	s.http = &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: httpReadHeaderTimeout,
+		IdleTimeout:       httpIdleTimeout,
+		ErrorLog:          newHTTPServerLogger(s.Logger, logtagValueHTTP),
+	}
+
+	*startupOK = true
+
+	httpErr := make(chan error, 1)
+	go func() {
+		s.Logger.Debug("starting HTTP server")
+		httpErr <- s.http.Serve(ln)
+	}()
+
+	select {
+	case err := <-httpErr:
+		s.shutdownServices()
+		if !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("http server: %w", err)
 		}
 		return nil
 	case <-ctx.Done():
@@ -610,13 +654,13 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 	go s.acme.WatchWildcards(ctx)
 
 	if s.ACMEChallengeType == "http-01" {
-		s.http = &http.Server{
+		s.httpAcme = &http.Server{
 			Addr:     s.ACMEChallengeAddress,
 			Handler:  s.acme.HTTPHandler(nil),
 			ErrorLog: newHTTPServerLogger(s.Logger, logtagValueACME),
 		}
 		go func() {
-			if err := s.http.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			if err := s.httpAcme.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				s.Logger.WithError(err).Error("ACME HTTP-01 challenge server failed")
 			}
 		}()
@@ -661,8 +705,8 @@ func (s *Server) gracefulShutdown() {
 	defer drainCancel()
 
 	s.Logger.Info("draining in-flight connections")
-	if err := s.https.Shutdown(drainCtx); err != nil {
-		s.Logger.Warnf("https server drain: %v", err)
+	if err := s.http.Shutdown(drainCtx); err != nil {
+		s.Logger.Warnf("http server drain: %v", err)
 	}
 
 	// Step 4: Close hijacked connections (WebSocket) that Shutdown does not handle.
@@ -729,8 +773,8 @@ func (s *Server) shutdownServices() {
 	if s.debug != nil {
 		shutdownHTTP("debug endpoint", s.debug.Shutdown)
 	}
-	if s.http != nil {
-		shutdownHTTP("acme http", s.http.Shutdown)
+	if s.httpAcme != nil {
+		shutdownHTTP("acme http", s.httpAcme.Shutdown)
 	}
 
 	if s.netbird != nil {
@@ -834,8 +878,12 @@ func (s *Server) sendStatusUpdate(ctx context.Context, accountID types.AccountID
 // routerForPort returns the router that handles the given listen port. If port
 // is 0 or matches the main listener port, the main router is returned.
 // Otherwise a new per-port router is created and started.
+// In http-only mode, requesting the main port returns an error as the mainRouter is nil.
 func (s *Server) routerForPort(ctx context.Context, port uint16) (*nbtcp.Router, error) {
 	if port == 0 || port == s.mainPort {
+		if s.mainRouter == nil {
+			return nil, fmt.Errorf("SNI router is unavailable in http-only mode")
+		}
 		return s.mainRouter, nil
 	}
 	return s.getOrCreatePortRouter(ctx, port)
@@ -1353,12 +1401,14 @@ func (s *Server) setupHTTPMapping(ctx context.Context, mapping *proto.ProxyMappi
 	if s.acme != nil {
 		wildcardHit = s.acme.AddDomain(d, accountID, svcID)
 	}
-	s.mainRouter.AddRoute(nbtcp.SNIHost(mapping.GetDomain()), nbtcp.Route{
-		Type:      nbtcp.RouteHTTP,
-		AccountID: accountID,
-		ServiceID: svcID,
-		Domain:    mapping.GetDomain(),
-	})
+	if s.mainRouter != nil {
+		s.mainRouter.AddRoute(nbtcp.SNIHost(mapping.GetDomain()), nbtcp.Route{
+			Type:      nbtcp.RouteHTTP,
+			AccountID: accountID,
+			ServiceID: svcID,
+			Domain:    mapping.GetDomain(),
+		})
+	}
 	if err := s.updateMapping(ctx, mapping); err != nil {
 		return fmt.Errorf("update mapping for domain %q: %w", d, err)
 	}
@@ -1449,6 +1499,10 @@ func (s *Server) setupUDPMapping(ctx context.Context, mapping *proto.ProxyMappin
 
 // setupTLSMapping configures a TLS SNI-routed passthrough on the listen port.
 func (s *Server) setupTLSMapping(ctx context.Context, mapping *proto.ProxyMapping) error {
+	if s.HTTPOnly {
+		return fmt.Errorf("cannot configure TLS service in http-only mode")
+	}
+
 	svcID := types.ServiceID(mapping.GetId())
 	accountID := types.AccountID(mapping.GetAccountId())
 
@@ -1773,7 +1827,9 @@ func (s *Server) cleanupMappingRoutes(mapping *proto.ProxyMapping) {
 			s.Logger.Debugf("closed %d hijacked connection(s) for %s", n, host)
 		}
 		// Remove SNI route from the main router (covers both HTTP and main-port TLS).
-		s.mainRouter.RemoveRoute(nbtcp.SNIHost(host), svcID)
+		if s.mainRouter != nil {
+			s.mainRouter.RemoveRoute(nbtcp.SNIHost(host), svcID)
+		}
 	}
 
 	// Extract and delete tracked custom-port entries atomically.

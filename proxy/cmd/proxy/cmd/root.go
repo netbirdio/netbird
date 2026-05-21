@@ -51,6 +51,7 @@ var (
 	acmeChallengeType     string
 	debugEndpoint         bool
 	debugEndpointAddr     string
+	httpOnly              bool
 	healthAddr            string
 	forwardedProto        string
 	trustedProxies        string
@@ -93,6 +94,7 @@ func init() {
 	rootCmd.Flags().StringVar(&acmeChallengeType, "acme-challenge-type", envStringOrDefault("NB_PROXY_ACME_CHALLENGE_TYPE", "tls-alpn-01"), "ACME challenge type: tls-alpn-01 (default, port 443 only) or http-01 (requires port 80)")
 	rootCmd.Flags().BoolVar(&debugEndpoint, "debug-endpoint", envBoolOrDefault("NB_PROXY_DEBUG_ENDPOINT", false), "Enable debug HTTP endpoint")
 	rootCmd.Flags().StringVar(&debugEndpointAddr, "debug-endpoint-addr", envStringOrDefault("NB_PROXY_DEBUG_ENDPOINT_ADDRESS", "localhost:8444"), "Address for the debug HTTP endpoint")
+	rootCmd.Flags().BoolVar(&httpOnly, "http-only", envBoolOrDefault("NB_PROXY_HTTP_ONLY", false), "Serve plain HTTP only; disables TLS/SNI on the main port. Intended for deployments where TLS termination is handled upstream")
 	rootCmd.Flags().StringVar(&healthAddr, "health-addr", envStringOrDefault("NB_PROXY_HEALTH_ADDRESS", "localhost:8080"), "Address for the health probe endpoint (liveness/readiness/startup)")
 	rootCmd.Flags().StringVar(&forwardedProto, "forwarded-proto", envStringOrDefault("NB_PROXY_FORWARDED_PROTO", "auto"), "X-Forwarded-Proto value for backends: auto, http, or https")
 	rootCmd.Flags().StringVar(&trustedProxies, "trusted-proxies", envStringOrDefault("NB_PROXY_TRUSTED_PROXIES", ""), "Comma-separated list of trusted upstream proxy CIDR ranges (e.g. '10.0.0.0/8,192.168.1.1')")
@@ -178,6 +180,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 		ACMEChallengeType:        acmeChallengeType,
 		DebugEndpointEnabled:     debugEndpoint,
 		DebugEndpointAddress:     debugEndpointAddr,
+		HTTPOnly:                 httpOnly,
 		HealthAddress:            healthAddr,
 		ForwardedProto:           forwardedProto,
 		TrustedProxies:           parsedTrustedProxies,
