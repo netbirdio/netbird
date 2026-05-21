@@ -1008,7 +1008,7 @@ components:
             type: string
             example: "tcp/80"
         session_pub_key:
-          description: Ephemeral Ed25519 public key the requester will sign session-binding challenges with. Required for VNC rules; ignored for SSH and L4.
+          description: Ephemeral base64-encoded X25519 public key used with Noise_IK to bind the VNC session. Required for VNC rules; ignored for SSH and L4.
           type: string
           example: "n0r3pL4c3h0ld3rK3y=="
       required:

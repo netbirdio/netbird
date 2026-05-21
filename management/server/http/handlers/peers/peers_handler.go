@@ -2,6 +2,7 @@ package peers
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -518,6 +519,15 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) 
 			policy.Rules[0].AuthorizedUser = userAuth.UserId
 		}
 		if protocol == types.PolicyRuleProtocolNetbirdVNC && req.SessionPubKey != nil {
+			pub, err := base64.StdEncoding.DecodeString(*req.SessionPubKey)
+			if err != nil {
+				util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "session_pub_key is not valid base64: %v", err), w)
+				return
+			}
+			if len(pub) != 32 {
+				util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "session_pub_key must decode to 32 bytes, got %d", len(pub)), w)
+				return
+			}
 			policy.Rules[0].SessionPubKey = *req.SessionPubKey
 		}
 

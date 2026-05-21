@@ -58,20 +58,17 @@ func NewSessionKey() (string, []byte, error) {
 	return id, kp.Public, nil
 }
 
-// lookupSessionKey returns the keypair for id, or false if unknown.
-func lookupSessionKey(id string) (noise.DHKey, bool) {
+// consumeSessionKey atomically retrieves and removes the keypair for id.
+// A session handle is single-use; combining lookup and delete under one
+// critical section prevents concurrent callers from observing the same key.
+func consumeSessionKey(id string) (noise.DHKey, bool) {
 	sessionKeyStore.mu.Lock()
 	defer sessionKeyStore.mu.Unlock()
 	kp, ok := sessionKeyStore.keys[id]
+	if ok {
+		delete(sessionKeyStore.keys, id)
+	}
 	return kp, ok
-}
-
-// dropSessionKey removes the keypair for id. Called after the VNC
-// connection closes (or after a connect attempt fails terminally).
-func dropSessionKey(id string) {
-	sessionKeyStore.mu.Lock()
-	delete(sessionKeyStore.keys, id)
-	sessionKeyStore.mu.Unlock()
 }
 
 const (
@@ -190,13 +187,10 @@ func (p *VNCProxy) CreateProxy(req ProxyRequest) js.Value {
 		height:    height,
 	}
 	if req.KeySessionID != "" {
-		kp, ok := lookupSessionKey(req.KeySessionID)
+		kp, ok := consumeSessionKey(req.KeySessionID)
 		if !ok {
 			return rejectedPromise("unknown VNC session id")
 		}
-		// A session handle is single-use; drop it before the destination
-		// holds the private bytes so a leaked handle can't be replayed.
-		dropSessionKey(req.KeySessionID)
 		dest.sessionPriv = kp.Private
 		dest.sessionPub = kp.Public
 		pub, err := decodePeerPubKey(req.PeerPublicKey)
