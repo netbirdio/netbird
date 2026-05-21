@@ -4595,11 +4595,27 @@ func (s *SqlStore) GetNetworkRouterByID(ctx context.Context, lockStrength Lockin
 	return netRouter, nil
 }
 
-func (s *SqlStore) SaveNetworkRouter(ctx context.Context, router *routerTypes.NetworkRouter) error {
-	result := s.db.Save(router)
+func (s *SqlStore) CreateNetworkRouter(ctx context.Context, router *routerTypes.NetworkRouter) error {
+	if err := s.db.Create(router).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to create network router in store: %v", err)
+		return status.Errorf(status.Internal, "failed to create network router in store")
+	}
+
+	return nil
+}
+
+func (s *SqlStore) UpdateNetworkRouter(ctx context.Context, router *routerTypes.NetworkRouter) error {
+	result := s.db.
+		Select("*").
+		Where(accountAndIDQueryCondition, router.AccountID, router.ID).
+		Updates(router)
 	if result.Error != nil {
-		log.WithContext(ctx).Errorf("failed to save network router to store: %v", result.Error)
-		return status.Errorf(status.Internal, "failed to save network router to store")
+		log.WithContext(ctx).Errorf("failed to update network router in store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to update network router in store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.NewNetworkRouterNotFoundError(router.ID)
 	}
 
 	return nil

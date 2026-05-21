@@ -110,7 +110,7 @@ func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *t
 		}
 		router.AccountSeqID = seq
 
-		err = transaction.SaveNetworkRouter(ctx, router)
+		err = transaction.CreateNetworkRouter(ctx, router)
 		if err != nil {
 			return fmt.Errorf("failed to create network router: %w", err)
 		}
@@ -202,33 +202,31 @@ func (m *managerImpl) updateRouterInTransaction(ctx context.Context, transaction
 		return nil, nil, fmt.Errorf("failed to get network: %w", err)
 	}
 
-	if network.ID != router.NetworkID {
+	oldRouter, err := transaction.GetNetworkRouterByID(ctx, store.LockingStrengthUpdate, router.AccountID, router.ID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get network router: %w", err)
+	}
+
+	if oldRouter.AccountID != router.AccountID {
+		return nil, nil, status.NewNetworkRouterNotFoundError(router.ID)
+	}
+
+	if oldRouter.NetworkID != router.NetworkID {
 		return nil, nil, status.NewRouterNotPartOfNetworkError(router.ID, router.NetworkID)
 	}
 
-	allPeerGroups := router.PeerGroups
+	router.AccountSeqID = oldRouter.AccountSeqID
+
+	allPeerGroups := append(router.PeerGroups, oldRouter.PeerGroups...)
 	var directPeers []string
 	if router.Peer != "" {
 		directPeers = append(directPeers, router.Peer)
 	}
-	oldRouter, err := transaction.GetNetworkRouterByID(ctx, store.LockingStrengthNone, router.AccountID, router.ID)
-	if err == nil {
-		router.AccountSeqID = oldRouter.AccountSeqID
-		allPeerGroups = append(allPeerGroups, oldRouter.PeerGroups...)
-		if oldRouter.Peer != "" {
-			directPeers = append(directPeers, oldRouter.Peer)
-		}
-	} else if e, ok := status.FromError(err); ok && e.Type() == status.NotFound {
-		seq, allocErr := transaction.AllocateAccountSeqID(ctx, router.AccountID, nbtypes.AccountSeqEntityNetworkRouter)
-		if allocErr != nil {
-			return nil, nil, fmt.Errorf("failed to allocate network router seq id: %w", allocErr)
-		}
-		router.AccountSeqID = seq
-	} else {
-		return nil, nil, fmt.Errorf("failed to get existing network router: %w", err)
+	if oldRouter.Peer != "" {
+		directPeers = append(directPeers, oldRouter.Peer)
 	}
 
-	if err = transaction.SaveNetworkRouter(ctx, router); err != nil {
+	if err = transaction.UpdateNetworkRouter(ctx, router); err != nil {
 		return nil, nil, fmt.Errorf("failed to update network router: %w", err)
 	}
 

@@ -235,7 +235,8 @@ type Store interface {
 	GetNetworkRoutersByNetID(ctx context.Context, lockStrength LockingStrength, accountID, netID string) ([]*routerTypes.NetworkRouter, error)
 	GetNetworkRoutersByAccountID(ctx context.Context, lockStrength LockingStrength, accountID string) ([]*routerTypes.NetworkRouter, error)
 	GetNetworkRouterByID(ctx context.Context, lockStrength LockingStrength, accountID, routerID string) (*routerTypes.NetworkRouter, error)
-	SaveNetworkRouter(ctx context.Context, router *routerTypes.NetworkRouter) error
+	CreateNetworkRouter(ctx context.Context, router *routerTypes.NetworkRouter) error
+	UpdateNetworkRouter(ctx context.Context, router *routerTypes.NetworkRouter) error
 	DeleteNetworkRouter(ctx context.Context, accountID, routerID string) error
 
 	GetNetworkResourcesByNetID(ctx context.Context, lockStrength LockingStrength, accountID, netID string) ([]*resourceTypes.NetworkResource, error)
