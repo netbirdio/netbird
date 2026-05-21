@@ -59,24 +59,9 @@ var iconUpdateDisconnectedMacOS []byte
 //go:embed assets/netbird.png
 var iconWindow []byte
 
-// Small colored dots shown next to the status menu entry. Rendered as
-// regular NSImage/HBITMAP/GTK menu-item icons (not template), so the
-// colours stay intact on every platform.
-
-//go:embed assets/netbird-menu-dot-connected.png
-var iconMenuDotConnected []byte
-
-//go:embed assets/netbird-menu-dot-connecting.png
-var iconMenuDotConnecting []byte
-
-//go:embed assets/netbird-menu-dot-login.png
-var iconMenuDotLogin []byte
-
-//go:embed assets/netbird-menu-dot-error.png
-var iconMenuDotError []byte
-
-//go:embed assets/netbird-menu-dot-idle.png
-var iconMenuDotIdle []byte
-
-//go:embed assets/netbird-menu-dot-offline.png
-var iconMenuDotOffline []byte
+// Per-platform menu-row icons (status dots + NetBird brand mark) live in
+// icons_menu_windows.go and icons_menu_other.go. Windows installs them
+// into the Win32 check-mark slot, which expects SM_CXMENUCHECK-sized
+// bitmaps (~16x16 at 100% DPI) — anything bigger gets cropped, anything
+// smaller leaves blank space — so Windows ships its own 16x16 set
+// while macOS/Linux keep the larger 24x24 assets that fit their menus.

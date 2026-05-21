@@ -242,7 +242,7 @@ func (t *Tray) reapplyMenuState() {
 
 	if t.statusItem != nil && lastStatus != "" {
 		t.statusItem.SetLabel(t.loc.StatusLabel(lastStatus))
-		t.statusItem.SetEnabled(false)
+		t.statusItem.SetEnabled(statusRowEnabled())
 		t.applyStatusIndicator(lastStatus)
 	}
 	if t.sessionExpiresItem != nil {
@@ -314,13 +314,18 @@ func (t *Tray) ShowWindow() {
 func (t *Tray) buildMenu() *application.Menu {
 	menu := application.NewMenu()
 
-	// statusItem shows the daemon's current status. Disabled (and no
-	// OnClick handler) so clicks are no-ops — the row is informational
-	// only. The Connect entry below drives every actionable transition,
-	// including the SSO re-auth flow for NeedsLogin/SessionExpired
-	// (the daemon's Up RPC returns NeedsSSOLogin when applicable).
+	// statusItem shows the daemon's current status. Informational row
+	// with no OnClick handler — clicks are no-ops. Whether the row is
+	// kept enabled is platform-dependent (see statusRowEnabled): on
+	// Windows the disabled-state mask would desaturate the coloured
+	// status dot painted into the check-mark slot, so the row stays
+	// enabled there; macOS/Linux disable it so the greyed-out label
+	// signals that it is not clickable. The Connect entry below drives
+	// every actionable transition, including the SSO re-auth flow for
+	// NeedsLogin/SessionExpired (the daemon's Up RPC returns
+	// NeedsSSOLogin when applicable).
 	t.statusItem = menu.Add(t.loc.T("tray.status.disconnected")).
-		SetEnabled(false).
+		SetEnabled(statusRowEnabled()).
 		SetBitmap(iconMenuDotIdle)
 
 	// sessionExpiresItem sits directly below the status row so the
@@ -376,7 +381,11 @@ func (t *Tray) buildMenu() *application.Menu {
 
 	menu.AddSeparator()
 
-	about := menu.AddSubmenu(t.loc.T("tray.menu.about"))
+	aboutLabel := t.loc.T("tray.menu.about")
+	about := menu.AddSubmenu(aboutLabel)
+	if aboutItem := menu.FindByLabel(aboutLabel); aboutItem != nil {
+		aboutItem.SetBitmap(iconMenuNetbird)
+	}
 	about.Add(t.loc.T("tray.menu.github")).OnClick(func(*application.Context) {
 		_ = t.app.Browser.OpenURL(urlGitHubRepo)
 	})
@@ -621,11 +630,14 @@ func (t *Tray) applyStatus(st services.Status) {
 		daemonUnavailable := strings.EqualFold(st.Status, services.StatusDaemonUnavailable)
 		connecting := strings.EqualFold(st.Status, services.StatusConnecting)
 		if t.statusItem != nil {
-			// Label-only: kept disabled (informational row). Swap the
-			// displayed text so the user sees a familiar phrase instead
-			// of the raw daemon enum.
+			// Label-only: row is informational (no OnClick). Enablement
+			// is platform-dependent via statusRowEnabled — Windows
+			// keeps it enabled so the Win32 disabled-state mask does
+			// not desaturate the coloured dot; macOS/Linux disable it.
+			// Swap the displayed text so the user sees a familiar
+			// phrase instead of the raw daemon enum.
 			t.statusItem.SetLabel(t.loc.StatusLabel(st.Status))
-			t.statusItem.SetEnabled(false)
+			t.statusItem.SetEnabled(statusRowEnabled())
 			t.applyStatusIndicator(st.Status)
 		}
 		if t.upItem != nil {
