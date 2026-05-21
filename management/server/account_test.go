@@ -3285,7 +3285,10 @@ const peerUpdateTimeout = 5 * time.Second
 func drainPeerUpdates(ch <-chan *network_map.UpdateMessage) {
 	for {
 		select {
-		case <-ch:
+		case _, ok := <-ch:
+			if !ok {
+				return
+			}
 		case <-time.After(200 * time.Millisecond):
 			return
 		}
