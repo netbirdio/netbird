@@ -66,8 +66,7 @@ func (e *Engine) cleanupVNCPortRedirection() error {
 }
 
 // updateVNC handles starting/stopping the VNC server based on the config flag.
-// sshConf provides the JWT identity provider config (shared with SSH).
-func (e *Engine) updateVNC(sshConf *mgmProto.SSHConfig) error {
+func (e *Engine) updateVNC() error {
 	if !e.config.ServerVNCAllowed {
 		if e.vncSrv != nil {
 			log.Info("VNC server disabled, stopping")
@@ -81,15 +80,13 @@ func (e *Engine) updateVNC(sshConf *mgmProto.SSHConfig) error {
 	}
 
 	if e.vncSrv != nil {
-		// Update JWT config on existing server in case management sent new config.
-		e.updateVNCServerJWT(sshConf)
 		return nil
 	}
 
-	return e.startVNCServer(sshConf)
+	return e.startVNCServer()
 }
 
-func (e *Engine) startVNCServer(sshConf *mgmProto.SSHConfig) error {
+func (e *Engine) startVNCServer() error {
 	if e.wgInterface == nil {
 		return errors.New("wg interface not initialized")
 	}
@@ -102,7 +99,7 @@ func (e *Engine) startVNCServer(sshConf *mgmProto.SSHConfig) error {
 
 	netbirdIP := e.wgInterface.Address().IP
 
-	srv := vncserver.New(capturer, injector)
+	srv := vncserver.New(capturer, injector, e.config.WgPrivateKey[:])
 	if e.clientMetrics != nil {
 		srv.SetSessionRecorder(func(t vncserver.SessionTick) {
 			e.clientMetrics.RecordVNCSessionTick(e.ctx, metrics.VNCSessionTick{
@@ -120,20 +117,6 @@ func (e *Engine) startVNCServer(sshConf *mgmProto.SSHConfig) error {
 	if vncNeedsServiceMode() {
 		log.Info("VNC: running in Session 0, enabling service mode (agent proxy)")
 		srv.SetServiceMode(true)
-	}
-
-	if protoJWT := sshConf.GetJwtConfig(); protoJWT != nil {
-		audiences := protoJWT.GetAudiences()
-		if len(audiences) == 0 && protoJWT.GetAudience() != "" {
-			audiences = []string{protoJWT.GetAudience()}
-		}
-		srv.SetJWTConfig(&vncserver.JWTConfig{
-			Issuer:       protoJWT.GetIssuer(),
-			Audiences:    audiences,
-			KeysLocation: protoJWT.GetKeysLocation(),
-			MaxTokenAge:  protoJWT.GetMaxTokenAge(),
-		})
-		log.Debugf("VNC: JWT authentication configured (issuer=%s)", protoJWT.GetIssuer())
 	}
 
 	if netstackNet := e.wgInterface.GetNet(); netstackNet != nil {
@@ -165,35 +148,6 @@ func (e *Engine) startVNCServer(sshConf *mgmProto.SSHConfig) error {
 	return nil
 }
 
-// updateVNCServerJWT configures the JWT validation for the VNC server using
-// the same JWT config as SSH (same identity provider).
-func (e *Engine) updateVNCServerJWT(sshConf *mgmProto.SSHConfig) {
-	if e.vncSrv == nil {
-		return
-	}
-
-	vncSrv, ok := e.vncSrv.(*vncserver.Server)
-	if !ok {
-		return
-	}
-
-	protoJWT := sshConf.GetJwtConfig()
-	if protoJWT == nil {
-		return
-	}
-
-	audiences := protoJWT.GetAudiences()
-	if len(audiences) == 0 && protoJWT.GetAudience() != "" {
-		audiences = []string{protoJWT.GetAudience()}
-	}
-
-	vncSrv.SetJWTConfig(&vncserver.JWTConfig{
-		Issuer:       protoJWT.GetIssuer(),
-		Audiences:    audiences,
-		KeysLocation: protoJWT.GetKeysLocation(),
-		MaxTokenAge:  protoJWT.GetMaxTokenAge(),
-	})
-}
 
 // updateVNCServerAuth updates VNC fine-grained access control from management.
 func (e *Engine) updateVNCServerAuth(vncAuth *mgmProto.VNCAuth) {
@@ -221,10 +175,28 @@ func (e *Engine) updateVNCServerAuth(vncAuth *mgmProto.VNCAuth) {
 		machineUsers[osUser] = indexes.GetIndexes()
 	}
 
+	sessionPubKeys := make([]sshauth.SessionPubKey, 0, len(vncAuth.GetSessionPubKeys()))
+	for _, e := range vncAuth.GetSessionPubKeys() {
+		pub := e.GetPubKey()
+		if len(pub) != 32 {
+			log.Warnf("VNC session pubkey wrong length %d", len(pub))
+			continue
+		}
+		hash := e.GetUserIdHash()
+		if len(hash) != 16 {
+			log.Warnf("VNC session user id hash wrong length %d", len(hash))
+			continue
+		}
+		sessionPubKeys = append(sessionPubKeys, sshauth.SessionPubKey{
+			PubKey:     pub,
+			UserIDHash: sshuserhash.UserIDHash(hash),
+		})
+	}
+
 	vncSrv.UpdateVNCAuth(&sshauth.Config{
-		UserIDClaim:     vncAuth.GetUserIDClaim(),
 		AuthorizedUsers: authorizedUsers,
 		MachineUsers:    machineUsers,
+		SessionPubKeys:  sessionPubKeys,
 	})
 }
 

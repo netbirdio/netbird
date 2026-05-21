@@ -233,8 +233,9 @@ func (s *Server) platformInit() {
 	startSASListener(s.ctx)
 }
 
-// serviceAcceptLoop runs in Session 0. It validates source IP and
-// authenticates via JWT before proxying connections to the user-session agent.
+// serviceAcceptLoop runs in Session 0. It validates the source IP and
+// hands accepted connections to handleServiceConnection, which runs the
+// Noise_IK handshake before proxying to the user-session agent.
 func (s *Server) serviceAcceptLoop() {
 
 	sm := newSessionManager(agentPort)
@@ -255,18 +256,25 @@ func (s *Server) serviceAcceptLoop() {
 			continue
 		}
 
+		if !s.tryAcquireConnSlot() {
+			s.log.Warnf("rejecting VNC connection from %s: %d concurrent connections in flight", conn.RemoteAddr(), maxConcurrentVNCConns)
+			_ = conn.Close()
+			continue
+		}
 		enableTCPKeepAlive(conn, s.log)
 		conn = newMetricsConn(conn, s.sessionRecorder)
 		s.trackConn(conn)
 		go func(c net.Conn) {
+			defer s.releaseConnSlot()
 			defer s.untrackConn(c)
 			s.handleServiceConnection(c, sm)
 		}(conn)
 	}
 }
 
-// handleServiceConnection validates the source IP and JWT, then proxies
-// the connection (with header bytes replayed) to the agent.
+// handleServiceConnection runs the connection-header handshake (including
+// Noise_IK), then proxies the connection (with header bytes replayed) to
+// the agent listening on loopback.
 func (s *Server) handleServiceConnection(conn net.Conn, sm *sessionManager) {
 	connLog := s.log.WithField("remote", conn.RemoteAddr().String())
 
@@ -279,7 +287,7 @@ func (s *Server) handleServiceConnection(conn net.Conn, sm *sessionManager) {
 	tee := io.TeeReader(conn, &headerBuf)
 	teeConn := &prefixConn{Reader: tee, Conn: conn}
 
-	header, err := readConnectionHeader(teeConn)
+	header, err := s.readConnectionHeader(teeConn)
 	if err != nil {
 		connLog.Debugf("read connection header: %v", err)
 		conn.Close()
@@ -287,17 +295,13 @@ func (s *Server) handleServiceConnection(conn net.Conn, sm *sessionManager) {
 	}
 
 	if !s.disableAuth {
-		if s.jwtConfig == nil {
-			rejectConnection(conn, codeMessage(RejectCodeAuthConfig, "auth enabled but no identity provider configured"))
-			connLog.Warn("auth rejected: no identity provider configured")
-			return
-		}
-		if _, err := s.authenticateJWT(header); err != nil {
-			rejectConnection(conn, codeMessage(jwtErrorCode(err), err.Error()))
+		if _, err := s.authenticateSession(header); err != nil {
+			rejectConnection(conn, codeMessage(RejectCodeAuthForbidden, err.Error()))
 			connLog.Warnf("auth rejected: %v", err)
 			return
 		}
 	}
+	s.registerConnAuth(conn, header)
 
 	// Replay buffered header bytes + remaining stream to the agent.
 	replayConn := &prefixConn{

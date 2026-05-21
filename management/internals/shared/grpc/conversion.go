@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net/netip"
 	"net/url"
@@ -184,10 +185,45 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 
 	if networkMap.VNCAuthorizedUsers != nil {
 		hashedUsers, machineUsers := buildAuthorizedUsersProto(ctx, networkMap.VNCAuthorizedUsers)
-		response.NetworkMap.VncAuth = &proto.VNCAuth{AuthorizedUsers: hashedUsers, MachineUsers: machineUsers, UserIDClaim: userIDClaim}
+		response.NetworkMap.VncAuth = &proto.VNCAuth{
+			AuthorizedUsers: hashedUsers,
+			MachineUsers:    machineUsers,
+			SessionPubKeys:  buildSessionPubKeysProto(ctx, networkMap.VNCSessionPubKeys),
+		}
 	}
 
 	return response
+}
+
+// buildSessionPubKeysProto decodes base64 X25519 session pubkeys and
+// hashes the user IDs they belong to, emitting the proto entries the
+// daemon's authorizer indexes by pubkey.
+func buildSessionPubKeysProto(ctx context.Context, in []types.VNCSessionPubKey) []*proto.SessionPubKey {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]*proto.SessionPubKey, 0, len(in))
+	for _, e := range in {
+		pub, err := base64.StdEncoding.DecodeString(e.PubKey)
+		if err != nil {
+			log.WithContext(ctx).Warnf("decode VNC session pubkey: %v", err)
+			continue
+		}
+		if len(pub) != 32 {
+			log.WithContext(ctx).Warnf("VNC session pubkey wrong length: %d", len(pub))
+			continue
+		}
+		hash, err := sshauth.HashUserID(e.UserID)
+		if err != nil {
+			log.WithContext(ctx).Warnf("hash VNC session user id: %v", err)
+			continue
+		}
+		out = append(out, &proto.SessionPubKey{
+			PubKey:     pub,
+			UserIdHash: hash[:],
+		})
+	}
+	return out
 }
 
 func buildAuthorizedUsersProto(ctx context.Context, authorizedUsers map[string]map[string]struct{}) ([][]byte, map[string]*proto.MachineUserIndexes) {

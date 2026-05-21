@@ -225,6 +225,10 @@ func (s *session) handleResize() error {
 	if w <= 0 || h <= 0 {
 		return nil
 	}
+	if w > maxFramebufferDim || h > maxFramebufferDim {
+		s.log.Warnf("ignoring resize: %dx%d exceeds cap %d", w, h, maxFramebufferDim)
+		return nil
+	}
 	if w == s.serverW && h == s.serverH {
 		return nil
 	}

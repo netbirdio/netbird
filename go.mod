@@ -185,6 +185,7 @@ require (
 	github.com/docker/go-connections v0.6.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
+	github.com/flynn/noise v1.1.0 // indirect
 	github.com/fredbi/uri v1.1.1 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.1 // indirect
 	github.com/fyne-io/gl-js v0.2.0 // indirect

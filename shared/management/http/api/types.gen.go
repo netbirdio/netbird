@@ -3391,6 +3391,9 @@ type PeerTemporaryAccessRequest struct {
 	// Rules List of temporary access rules
 	Rules []string `json:"rules"`
 
+	// SessionPubKey Ephemeral Ed25519 public key the requester will sign session-binding challenges with. Required for VNC rules; ignored for SSH and L4.
+	SessionPubKey *string `json:"session_pub_key,omitempty"`
+
 	// WgPubKey Peer's WireGuard public key
 	WgPubKey string `json:"wg_pub_key"`
 }
@@ -3405,6 +3408,9 @@ type PeerTemporaryAccessResponse struct {
 
 	// Rules List of temporary access rules
 	Rules []string `json:"rules"`
+
+	// TargetPubKey Identity public key of the destination peer the temporary access was requested for. Used by the requester to verify the destination daemon's identity before transmitting credentials.
+	TargetPubKey string `json:"target_pub_key"`
 }
 
 // PersonalAccessToken defines model for PersonalAccessToken.

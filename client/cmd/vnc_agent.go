@@ -39,12 +39,22 @@ var vncAgentCmd = &cobra.Command{
 		if token == "" {
 			return fmt.Errorf("NB_VNC_AGENT_TOKEN not set; agent requires a token from the service")
 		}
+		// Drop the token from our process environment so any child the
+		// agent spawns does not inherit it, and casual debugging tools
+		// that dump /proc/<pid>/environ (or the Windows equivalent) on a
+		// running agent don't surface the loopback shared secret.
+		if err := os.Unsetenv("NB_VNC_AGENT_TOKEN"); err != nil {
+			log.Debugf("unset NB_VNC_AGENT_TOKEN: %v", err)
+		}
 
 		capturer, injector, err := newAgentResources()
 		if err != nil {
 			return err
 		}
-		srv := vncserver.New(capturer, injector)
+		// The per-user agent listens only on loopback and is gated by an
+		// agent token shared with the daemon, so no X25519 identity key
+		// is needed; auth is disabled at the RFB layer.
+		srv := vncserver.New(capturer, injector, nil)
 		srv.SetDisableAuth(true)
 		srv.SetAgentToken(token)
 

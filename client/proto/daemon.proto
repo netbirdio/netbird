@@ -403,7 +403,9 @@ message VNCSessionInfo {
   string remoteAddress = 1;
   string mode = 2;
   string username = 3;
-  string jwtUsername = 4;
+  // userID is the Noise-verified session identity (hashed user ID from
+  // the ACL session-key entry), empty when auth is disabled.
+  string userID = 4;
 }
 
 // VNCServerState contains the latest state of the VNC server

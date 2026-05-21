@@ -849,7 +849,7 @@ func (a *Account) UserGroupsRemoveFromPeers(userID string, groups ...string) map
 // GetPeerConnectionResources for a given peer
 //
 // This function returns the list of peers and firewall rules that are applicable to a given peer.
-func (a *Account) GetPeerConnectionResources(ctx context.Context, peer *nbpeer.Peer, validatedPeersMap map[string]struct{}, groupIDToUserIDs map[string][]string) ([]*nbpeer.Peer, []*FirewallRule, map[string]map[string]struct{}, map[string]map[string]struct{}, bool) {
+func (a *Account) GetPeerConnectionResources(ctx context.Context, peer *nbpeer.Peer, validatedPeersMap map[string]struct{}, groupIDToUserIDs map[string][]string) ([]*nbpeer.Peer, []*FirewallRule, map[string]map[string]struct{}, map[string]map[string]struct{}, []VNCSessionPubKey, bool) {
 	generateResources, getAccumulatedResources := a.connResourcesGenerator(ctx, peer)
 	ctxState := &peerConnResolveState{
 		authorizedUsers:    make(map[string]map[string]struct{}),
@@ -869,7 +869,7 @@ func (a *Account) GetPeerConnectionResources(ctx context.Context, peer *nbpeer.P
 	}
 
 	peers, fwRules := getAccumulatedResources()
-	return peers, fwRules, ctxState.authorizedUsers, ctxState.vncAuthorizedUsers, ctxState.sshEnabled
+	return peers, fwRules, ctxState.authorizedUsers, ctxState.vncAuthorizedUsers, ctxState.vncSessionPubKeys, ctxState.sshEnabled
 }
 
 func (a *Account) applyPolicyRule(

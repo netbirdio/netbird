@@ -167,6 +167,7 @@ func (c *NetworkMapComponents) Calculate(ctx context.Context) *NetworkMap {
 		RoutesFirewallRules: append(networkResourcesFirewallRules, routesFirewallRules...),
 		AuthorizedUsers:     connRes.authorizedUsers,
 		VNCAuthorizedUsers:  connRes.vncAuthorizedUsers,
+		VNCSessionPubKeys:   connRes.vncSessionPubKeys,
 		EnableSSH:           connRes.sshEnabled,
 	}
 }
@@ -177,6 +178,7 @@ type peerConnectionResult struct {
 	firewallRules      []*FirewallRule
 	authorizedUsers    map[string]map[string]struct{}
 	vncAuthorizedUsers map[string]map[string]struct{}
+	vncSessionPubKeys  []VNCSessionPubKey
 	sshEnabled         bool
 }
 
@@ -210,6 +212,7 @@ func (c *NetworkMapComponents) getPeerConnectionResources(targetPeerID string) p
 		firewallRules:      fwRules,
 		authorizedUsers:    state.authorizedUsers,
 		vncAuthorizedUsers: state.vncAuthorizedUsers,
+		vncSessionPubKeys:  state.vncSessionPubKeys,
 		sshEnabled:         state.sshEnabled,
 	}
 }

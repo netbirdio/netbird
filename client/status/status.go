@@ -135,7 +135,7 @@ type VNCSessionOutput struct {
 	RemoteAddress string `json:"remoteAddress" yaml:"remoteAddress"`
 	Mode          string `json:"mode" yaml:"mode"`
 	Username      string `json:"username,omitempty" yaml:"username,omitempty"`
-	JWTUsername   string `json:"jwtUsername,omitempty" yaml:"jwtUsername,omitempty"`
+	UserID        string `json:"userID,omitempty" yaml:"userID,omitempty"`
 }
 
 type VNCServerStateOutput struct {
@@ -296,7 +296,7 @@ func mapVNCServer(state *proto.VNCServerState) VNCServerStateOutput {
 			RemoteAddress: sess.GetRemoteAddress(),
 			Mode:          sess.GetMode(),
 			Username:      sess.GetUsername(),
-			JWTUsername:   sess.GetJwtUsername(),
+			UserID:        sess.GetUserID(),
 		})
 	}
 	return VNCServerStateOutput{
@@ -583,9 +583,9 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		if showSSHSessions && vncSessionCount > 0 {
 			for _, sess := range o.VNCServerState.Sessions {
 				var line string
-				if sess.JWTUsername != "" {
+				if sess.UserID != "" {
 					line = fmt.Sprintf("[%s@%s -> %s] mode=%s",
-						sess.JWTUsername, sess.RemoteAddress, sess.Username, sess.Mode)
+						sess.UserID, sess.RemoteAddress, sess.Username, sess.Mode)
 				} else {
 					line = fmt.Sprintf("[%s] mode=%s user=%s",
 						sess.RemoteAddress, sess.Mode, sess.Username)
