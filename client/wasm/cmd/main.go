@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net"
 	"strconv"
@@ -39,6 +40,7 @@ const (
 
 func main() {
 	js.Global().Set("NetBirdClient", js.FuncOf(netBirdClientConstructor))
+	js.Global().Set("netbirdGenerateVNCSessionKey", createGenerateVNCSessionKeyMethod())
 
 	select {}
 }
@@ -388,13 +390,31 @@ func createRDPProxyMethod(client *netbird.Client) js.Func {
 	})
 }
 
+// createGenerateVNCSessionKeyMethod returns a JS func that mints a fresh
+// X25519 keypair, stashes the private half inside wasm under a random
+// session id, and returns { publicKey, sessionId } to JS. The private
+// key never leaves the wasm heap.
+func createGenerateVNCSessionKeyMethod() js.Func {
+	return js.FuncOf(func(_ js.Value, _ []js.Value) any {
+		id, pub, err := vnc.NewSessionKey()
+		if err != nil {
+			return js.ValueOf(err.Error())
+		}
+		out := js.Global().Get("Object").New()
+		out.Set("sessionId", id)
+		out.Set("publicKey", base64.StdEncoding.EncodeToString(pub))
+		return out
+	})
+}
+
 // createVNCProxyMethod creates the VNC proxy method for raw TCP-over-WebSocket bridging.
-// JS signature: createVNCProxy(hostname, port, mode?, username?, jwt?, sessionID?, width?, height?)
-// mode: "attach" (default) or "session"
-// username: required when mode is "session"
-// jwt: authentication token (from OIDC session)
-// sessionID: Windows session ID (0 = console/auto)
-// width/height: requested viewport size for session mode (0 = server default)
+// JS signature: createVNCProxy(hostname, port, mode?, username?, keySessionID?, sessionID?, width?, height?, peerPublicKey?)
+//   mode:           "attach" (default) or "session"
+//   username:       required when mode is "session"
+//   keySessionID:   handle for the wasm-resident session keypair minted by netbirdGenerateVNCSessionKey
+//   sessionID:      Windows session ID (0 = console/auto)
+//   width/height:   requested viewport size for session mode (0 = server default)
+//   peerPublicKey:  base64 X25519 static pubkey of the destination peer (required for auth)
 func createVNCProxyMethod(client *netbird.Client) js.Func {
 	return js.FuncOf(func(_ js.Value, args []js.Value) any {
 		params, err := parseVNCProxyArgs(args)
@@ -408,14 +428,15 @@ func createVNCProxyMethod(client *netbird.Client) js.Func {
 		}
 		proxy := vnc.NewVNCProxy(client)
 		return proxy.CreateProxy(vnc.ProxyRequest{
-			Hostname:  params.hostname,
-			Port:      params.port,
-			Mode:      params.mode,
-			Username:  params.username,
-			JWT:       params.jwt,
-			SessionID: params.sessionID,
-			Width:     params.width,
-			Height:    params.height,
+			Hostname:      params.hostname,
+			Port:          params.port,
+			Mode:          params.mode,
+			Username:      params.username,
+			SessionID:     params.sessionID,
+			Width:         params.width,
+			Height:        params.height,
+			PeerPublicKey: params.peerPublicKey,
+			KeySessionID:  params.keySessionID,
 		})
 	})
 }
@@ -425,11 +446,12 @@ type vncProxyParams struct {
 	port             string
 	mode             string
 	username         string
-	jwt              string
+	keySessionID     string
 	sessionID        uint32
 	width            uint16
 	height           uint16
-	rejectViaPromise bool // true when the JS caller expects a rejected Promise instead of a plain string return
+	peerPublicKey    string
+	rejectViaPromise bool
 }
 
 // parseVNCProxyArgs validates JS args for createVNCProxyMethod and returns
@@ -480,7 +502,7 @@ func parseVNCProxyOptionalStrings(args []js.Value, p *vncProxyParams) error {
 		p.username = args[3].String()
 	}
 	if len(args) > 4 && args[4].Type() == js.TypeString {
-		p.jwt = args[4].String()
+		p.keySessionID = args[4].String()
 	}
 	return nil
 }
@@ -511,6 +533,9 @@ func parseVNCProxyOptionalNumbers(args []js.Value, p *vncProxyParams) error {
 			return fmt.Errorf("invalid height %d: must be 0..65535", v)
 		}
 		p.height = uint16(v)
+	}
+	if len(args) > 8 && args[8].Type() == js.TypeString {
+		p.peerPublicKey = args[8].String()
 	}
 	return nil
 }

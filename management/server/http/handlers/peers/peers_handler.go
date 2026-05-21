@@ -517,6 +517,9 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) 
 		if protocol == types.PolicyRuleProtocolNetbirdSSH || protocol == types.PolicyRuleProtocolNetbirdVNC {
 			policy.Rules[0].AuthorizedUser = userAuth.UserId
 		}
+		if protocol == types.PolicyRuleProtocolNetbirdVNC && req.SessionPubKey != nil {
+			policy.Rules[0].SessionPubKey = *req.SessionPubKey
+		}
 
 		_, err = h.accountManager.SavePolicy(r.Context(), userAuth.AccountId, userAuth.UserId, policy, true)
 		if err != nil {
@@ -526,9 +529,10 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) 
 	}
 
 	resp := &api.PeerTemporaryAccessResponse{
-		Id:    peer.ID,
-		Name:  peer.Name,
-		Rules: req.Rules,
+		Id:             peer.ID,
+		Name:           peer.Name,
+		Rules:          req.Rules,
+		TargetPubKey: targetPeer.Key,
 	}
 
 	util.WriteJSONObject(r.Context(), w, resp)

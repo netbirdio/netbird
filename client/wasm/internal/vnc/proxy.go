@@ -4,6 +4,8 @@ package vnc
 
 import (
 	"context"
+	crand "crypto/rand"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -13,8 +15,64 @@ import (
 	"syscall/js"
 	"time"
 
+	"github.com/flynn/noise"
 	log "github.com/sirupsen/logrus"
 )
+
+var cryptoRandRead = crand.Read
+
+// vncIdentityMagic mirrors the server side in client/vnc/server/server.go.
+var vncIdentityMagic = []byte("NBV3")
+
+// Noise_IK_25519_ChaChaPoly_SHA256 message sizes (with empty payloads).
+const (
+	noiseInitiatorMsgLen = 96
+	noiseResponderMsgLen = 48
+)
+
+var vncNoiseSuite = noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashSHA256)
+
+// sessionKeyStore retains per-session X25519 keypairs so the JS layer
+// only sees an opaque session id + the public key; the private key never
+// leaves wasm.
+var sessionKeyStore = struct {
+	mu   sync.Mutex
+	keys map[string]noise.DHKey
+}{keys: map[string]noise.DHKey{}}
+
+// NewSessionKey mints an X25519 keypair, stores the private half under a
+// fresh random session id, and returns (id, pubkey).
+func NewSessionKey() (string, []byte, error) {
+	kp, err := noise.DH25519.GenerateKeypair(nil)
+	if err != nil {
+		return "", nil, fmt.Errorf("generate keypair: %w", err)
+	}
+	idBytes := make([]byte, 16)
+	if _, err := cryptoRandRead(idBytes); err != nil {
+		return "", nil, fmt.Errorf("session id randomness: %w", err)
+	}
+	id := base64.RawURLEncoding.EncodeToString(idBytes)
+	sessionKeyStore.mu.Lock()
+	sessionKeyStore.keys[id] = kp
+	sessionKeyStore.mu.Unlock()
+	return id, kp.Public, nil
+}
+
+// lookupSessionKey returns the keypair for id, or false if unknown.
+func lookupSessionKey(id string) (noise.DHKey, bool) {
+	sessionKeyStore.mu.Lock()
+	defer sessionKeyStore.mu.Unlock()
+	kp, ok := sessionKeyStore.keys[id]
+	return kp, ok
+}
+
+// dropSessionKey removes the keypair for id. Called after the VNC
+// connection closes (or after a connect attempt fails terminally).
+func dropSessionKey(id string) {
+	sessionKeyStore.mu.Lock()
+	delete(sessionKeyStore.keys, id)
+	sessionKeyStore.mu.Unlock()
+}
 
 const (
 	vncProxyHost   = "vnc.proxy.local"
@@ -37,10 +95,12 @@ const (
 
 // VNCProxy bridges WebSocket connections from noVNC in the browser
 // to TCP VNC server connections through the NetBird tunnel.
+type vncNBClient interface {
+	Dial(ctx context.Context, network, address string) (net.Conn, error)
+}
+
 type VNCProxy struct {
-	nbClient interface {
-		Dial(ctx context.Context, network, address string) (net.Conn, error)
-	}
+	nbClient vncNBClient
 	activeConnections map[string]*vncConnection
 	destinations      map[string]vncDestination
 	// pendingHandlers holds the js.Func for handleVNCWebSocket_<id> between
@@ -52,13 +112,15 @@ type VNCProxy struct {
 }
 
 type vncDestination struct {
-	address   string
-	mode      byte
-	username  string
-	jwt       string
-	sessionID uint32 // Windows session ID (0 = auto/console)
-	width     uint16 // Requested viewport width for session mode (0 = default)
-	height    uint16 // Requested viewport height for session mode (0 = default)
+	address      string
+	mode         byte
+	username     string
+	sessionPriv  []byte
+	sessionPub   []byte
+	sessionID    uint32
+	width        uint16
+	height       uint16
+	peerPubKey []byte
 }
 
 type vncConnection struct {
@@ -78,9 +140,7 @@ type vncConnection struct {
 }
 
 // NewVNCProxy creates a new VNC proxy.
-func NewVNCProxy(client interface {
-	Dial(ctx context.Context, network, address string) (net.Conn, error)
-}) *VNCProxy {
+func NewVNCProxy(client vncNBClient) *VNCProxy {
 	return &VNCProxy{
 		nbClient:          client,
 		activeConnections: make(map[string]*vncConnection),
@@ -94,10 +154,16 @@ type ProxyRequest struct {
 	Port      string
 	Mode      string
 	Username  string
-	JWT       string
 	SessionID uint32
 	Width     uint16
 	Height    uint16
+	// PeerPublicKey is the destination peer's base64 X25519 public key,
+	// used as the responder static in the Noise_IK handshake.
+	PeerPublicKey string
+	// KeySessionID is the handle returned by generateVNCSessionKey. The
+	// matching private key is looked up inside wasm and never crosses
+	// the JS boundary.
+	KeySessionID string
 }
 
 // CreateProxy creates a new proxy endpoint for the given VNC destination.
@@ -106,7 +172,7 @@ type ProxyRequest struct {
 // virtual display geometry for session mode; 0 means use the server default.
 // Returns a JS Promise that resolves to the WebSocket proxy URL.
 func (p *VNCProxy) CreateProxy(req ProxyRequest) js.Value {
-	hostname, port, mode, username, jwt := req.Hostname, req.Port, req.Mode, req.Username, req.JWT
+	hostname, port, mode, username := req.Hostname, req.Port, req.Mode, req.Username
 	sessionID, width, height := req.SessionID, req.Width, req.Height
 	address := net.JoinHostPort(hostname, port)
 
@@ -119,12 +185,49 @@ func (p *VNCProxy) CreateProxy(req ProxyRequest) js.Value {
 		address:   address,
 		mode:      m,
 		username:  username,
-		jwt:       jwt,
 		sessionID: sessionID,
 		width:     width,
 		height:    height,
 	}
+	if req.KeySessionID != "" {
+		kp, ok := lookupSessionKey(req.KeySessionID)
+		if !ok {
+			return rejectedPromise("unknown VNC session id")
+		}
+		// A session handle is single-use; drop it before the destination
+		// holds the private bytes so a leaked handle can't be replayed.
+		dropSessionKey(req.KeySessionID)
+		dest.sessionPriv = kp.Private
+		dest.sessionPub = kp.Public
+		pub, err := decodePeerPubKey(req.PeerPublicKey)
+		if err != nil {
+			return rejectedPromise(fmt.Sprintf("invalid peer public key: %v", err))
+		}
+		dest.peerPubKey = pub
+	}
 	return p.newProxyPromise(address, mode, username, dest)
+}
+
+// decodePeerPubKey parses a base64-encoded 32-byte X25519 public key.
+func decodePeerPubKey(b64 string) ([]byte, error) {
+	if b64 == "" {
+		return nil, errors.New("peer public key missing")
+	}
+	raw, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		return nil, fmt.Errorf("base64 decode: %w", err)
+	}
+	if len(raw) != 32 {
+		return nil, fmt.Errorf("expected 32 bytes, got %d", len(raw))
+	}
+	return raw, nil
+}
+
+// rejectedPromise returns a resolved Promise carrying msg as an error
+// string, mirroring how CreateProxy reports earlier validation failures.
+func rejectedPromise(msg string) js.Value {
+	promise := js.Global().Get("Promise")
+	return promise.Call("resolve", js.ValueOf(msg))
 }
 
 // newProxyPromise wraps the JS Promise creation + executor lifecycle so
@@ -288,46 +391,95 @@ func (p *VNCProxy) connectToVNC(conn *vncConnection) {
 	p.cleanupConnection(conn)
 }
 
-// sendSessionHeader writes mode, username, JWT, Windows session ID, and the
-// requested viewport size to the VNC server.
-// Format: [mode:1] [username_len:2] [username:N] [jwt_len:2] [jwt:N]
-//
-//	[session_id:4] [width:2] [height:2]
+// sendSessionHeader writes the NetBird VNC connection header: mode +
+// username prefix, an optional Noise_IK handshake that authenticates the
+// client and the server, then the trailing sessionID / width / height
+// fields the daemon needs once auth is settled.
 func (p *VNCProxy) sendSessionHeader(conn net.Conn, dest vncDestination) error {
 	usernameBytes := []byte(dest.username)
-	jwtBytes := []byte(dest.jwt)
 	if len(usernameBytes) > 0xFFFF {
 		return fmt.Errorf("username too long: %d bytes (max %d)", len(usernameBytes), 0xFFFF)
 	}
-	if len(jwtBytes) > 0xFFFF {
-		return fmt.Errorf("jwt too long: %d bytes (max %d)", len(jwtBytes), 0xFFFF)
+	prefix := make([]byte, 3+len(usernameBytes))
+	prefix[0] = dest.mode
+	prefix[1] = byte(len(usernameBytes) >> 8)
+	prefix[2] = byte(len(usernameBytes))
+	copy(prefix[3:], usernameBytes)
+	if err := writeAll(conn, prefix); err != nil {
+		return fmt.Errorf("write header prefix: %w", err)
 	}
-	hdr := make([]byte, 3+len(usernameBytes)+2+len(jwtBytes)+4+4)
-	hdr[0] = dest.mode
-	hdr[1] = byte(len(usernameBytes) >> 8)
-	hdr[2] = byte(len(usernameBytes))
-	off := 3
-	copy(hdr[off:], usernameBytes)
-	off += len(usernameBytes)
-	hdr[off] = byte(len(jwtBytes) >> 8)
-	hdr[off+1] = byte(len(jwtBytes))
-	off += 2
-	copy(hdr[off:], jwtBytes)
-	off += len(jwtBytes)
-	hdr[off] = byte(dest.sessionID >> 24)
-	hdr[off+1] = byte(dest.sessionID >> 16)
-	hdr[off+2] = byte(dest.sessionID >> 8)
-	hdr[off+3] = byte(dest.sessionID)
-	off += 4
-	hdr[off] = byte(dest.width >> 8)
-	hdr[off+1] = byte(dest.width)
-	hdr[off+2] = byte(dest.height >> 8)
-	hdr[off+3] = byte(dest.height)
 
-	for off := 0; off < len(hdr); {
-		n, err := conn.Write(hdr[off:])
+	if dest.sessionPriv == nil {
+		return p.writeHeaderTail(conn, dest)
+	}
+	if err := p.runNoiseHandshake(conn, dest); err != nil {
+		return fmt.Errorf("noise handshake: %w", err)
+	}
+	return p.writeHeaderTail(conn, dest)
+}
+
+// writeHeaderTail writes the post-auth trailing fields (sessionID,
+// width, height) the daemon reads regardless of whether the Noise
+// handshake was performed.
+func (p *VNCProxy) writeHeaderTail(conn net.Conn, dest vncDestination) error {
+	tail := make([]byte, 4+4)
+	tail[0] = byte(dest.sessionID >> 24)
+	tail[1] = byte(dest.sessionID >> 16)
+	tail[2] = byte(dest.sessionID >> 8)
+	tail[3] = byte(dest.sessionID)
+	tail[4] = byte(dest.width >> 8)
+	tail[5] = byte(dest.width)
+	tail[6] = byte(dest.height >> 8)
+	tail[7] = byte(dest.height)
+	if err := writeAll(conn, tail); err != nil {
+		return fmt.Errorf("write header tail: %w", err)
+	}
+	return nil
+}
+
+// runNoiseHandshake performs the initiator side of a Noise_IK handshake
+// against the destination daemon. The session keypair authenticates the
+// client; the daemon's pre-known peer pubkey authenticates the server.
+func (p *VNCProxy) runNoiseHandshake(conn net.Conn, dest vncDestination) error {
+	state, err := noise.NewHandshakeState(noise.Config{
+		CipherSuite:   vncNoiseSuite,
+		Pattern:       noise.HandshakeIK,
+		Initiator:     true,
+		StaticKeypair: noise.DHKey{Private: dest.sessionPriv, Public: dest.sessionPub},
+		PeerStatic:    dest.peerPubKey,
+	})
+	if err != nil {
+		return fmt.Errorf("noise initiator init: %w", err)
+	}
+	msg1, _, _, err := state.WriteMessage(nil, nil)
+	if err != nil {
+		return fmt.Errorf("noise write msg1: %w", err)
+	}
+	out := make([]byte, 0, len(vncIdentityMagic)+len(msg1))
+	out = append(out, vncIdentityMagic...)
+	out = append(out, msg1...)
+	if err := writeAll(conn, out); err != nil {
+		return fmt.Errorf("send noise msg1: %w", err)
+	}
+	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		return fmt.Errorf("set noise deadline: %w", err)
+	}
+	defer conn.SetReadDeadline(time.Time{}) //nolint:errcheck
+	msg2 := make([]byte, noiseResponderMsgLen)
+	if _, err := io.ReadFull(conn, msg2); err != nil {
+		return fmt.Errorf("read noise msg2: %w", err)
+	}
+	if _, _, _, err := state.ReadMessage(nil, msg2); err != nil {
+		return fmt.Errorf("noise read msg2: %w", err)
+	}
+	return nil
+}
+
+func writeAll(conn net.Conn, buf []byte) error {
+	for off := 0; off < len(buf); {
+		n, err := conn.Write(buf[off:])
 		if err != nil {
-			return fmt.Errorf("write session header: %w", err)
+			return err
 		}
 		off += n
 	}

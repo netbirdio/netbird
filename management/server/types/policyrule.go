@@ -88,6 +88,12 @@ type PolicyRule struct {
 
 	// AuthorizedUser is a list of userIDs that are authorized to access local resources via ssh
 	AuthorizedUser string
+
+	// SessionPubKey is the base64 Ed25519 public key the AuthorizedUser
+	// will sign session-binding challenges with. Set together with
+	// AuthorizedUser when the rule was created via temporary-access for
+	// a VNC scope; empty otherwise.
+	SessionPubKey string
 }
 
 // Copy returns a copy of a policy rule
@@ -109,6 +115,7 @@ func (pm *PolicyRule) Copy() *PolicyRule {
 		PortRanges:          make([]RulePortRange, len(pm.PortRanges)),
 		AuthorizedGroups:    make(map[string][]string, len(pm.AuthorizedGroups)),
 		AuthorizedUser:      pm.AuthorizedUser,
+		SessionPubKey:       pm.SessionPubKey,
 	}
 	copy(rule.Destinations, pm.Destinations)
 	copy(rule.Sources, pm.Sources)
@@ -136,7 +143,8 @@ func (pm *PolicyRule) Equal(other *PolicyRule) bool {
 		pm.Protocol != other.Protocol ||
 		pm.SourceResource != other.SourceResource ||
 		pm.DestinationResource != other.DestinationResource ||
-		pm.AuthorizedUser != other.AuthorizedUser {
+		pm.AuthorizedUser != other.AuthorizedUser ||
+		pm.SessionPubKey != other.SessionPubKey {
 		return false
 	}
 

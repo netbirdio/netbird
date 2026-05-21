@@ -15,7 +15,19 @@ import (
 type peerConnResolveState struct {
 	authorizedUsers    map[string]map[string]struct{}
 	vncAuthorizedUsers map[string]map[string]struct{}
+	vncSessionPubKeys  []VNCSessionPubKey
 	sshEnabled         bool
+}
+
+// VNCSessionPubKey carries an ephemeral X25519 static public key the
+// dashboard registered via temporary-access. The daemon uses it as the
+// allowed-client side of a Noise_IK handshake; a successful handshake
+// authenticates the connection as UserID.
+type VNCSessionPubKey struct {
+	// PubKey is the base64-encoded 32-byte X25519 public key.
+	PubKey string
+	// UserID is the unhashed user identity the pubkey authenticates as.
+	UserID string
 }
 
 // ruleAuthCallbacks lets Account and NetworkMapComponents share the per-rule
@@ -57,6 +69,12 @@ func applyResolvedRuleToState(
 			return
 		}
 		cb.collectVNCUsers(rule, state.vncAuthorizedUsers)
+		if rule.SessionPubKey != "" && rule.AuthorizedUser != "" {
+			state.vncSessionPubKeys = append(state.vncSessionPubKeys, VNCSessionPubKey{
+				PubKey: rule.SessionPubKey,
+				UserID: rule.AuthorizedUser,
+			})
+		}
 	case policyRuleImpliesLegacySSH(rule) && targetPeerSSHEnabled:
 		if !peerInDestinations {
 			return

@@ -49,6 +49,7 @@ type NetworkMap struct {
 	ForwardingRules     []*ForwardingRule
 	AuthorizedUsers     map[string]map[string]struct{}
 	VNCAuthorizedUsers  map[string]map[string]struct{}
+	VNCSessionPubKeys   []VNCSessionPubKey
 	EnableSSH           bool
 }
 

@@ -428,9 +428,6 @@ message MachineUserIndexes {
 
 // VNCAuth represents VNC authorization configuration for a peer.
 message VNCAuth {
-  // UserIDClaim is the JWT claim to be used to get the users ID
-  string UserIDClaim = 1;
-
   // AuthorizedUsers is a list of hashed user IDs authorized to access this peer via VNC
   repeated bytes AuthorizedUsers = 2;
 
@@ -438,6 +435,24 @@ message VNCAuth {
   // Used in session mode to determine which OS user to create the virtual session as.
   // The wildcard "*" allows any OS user.
   map<string, MachineUserIndexes> machine_users = 3;
+
+  // SessionPubKeys are short-lived X25519 static keypairs the dashboard
+  // (or other temporary-access clients) registers per session. The
+  // daemon runs a Noise_IK handshake against the matching pubkey to
+  // authenticate the connection and resolve the pubkey back to a user.
+  repeated SessionPubKey session_pub_keys = 4;
+}
+
+// SessionPubKey binds an ephemeral X25519 static public key to a hashed
+// user identity so the daemon can authorize VNC connections that
+// complete a Noise_IK handshake with the matching private key.
+message SessionPubKey {
+  // PubKey is the 32-byte X25519 static public key.
+  bytes pub_key = 1;
+
+  // UserIDHash is the BLAKE2b-128 hash of the user ID this session
+  // belongs to, matching the entries in VNCAuth.AuthorizedUsers.
+  bytes user_id_hash = 2;
 }
 
 // RemotePeerConfig represents a configuration of a remote peer.

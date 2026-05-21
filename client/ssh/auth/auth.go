@@ -15,13 +15,16 @@ const (
 	DefaultUserIDClaim = "sub"
 	// Wildcard is a special user ID that matches all users
 	Wildcard = "*"
+	// sessionPubKeyLen is the size of an X25519 static public key in bytes.
+	sessionPubKeyLen = 32
 )
 
 var (
-	ErrEmptyUserID           = errors.New("JWT user ID is empty")
-	ErrUserNotAuthorized     = errors.New("user is not authorized to access this peer")
-	ErrNoMachineUserMapping  = errors.New("no authorization mapping for OS user")
-	ErrUserNotMappedToOSUser = errors.New("user is not authorized to login as OS user")
+	ErrEmptyUserID            = errors.New("JWT user ID is empty")
+	ErrUserNotAuthorized      = errors.New("user is not authorized to access this peer")
+	ErrNoMachineUserMapping   = errors.New("no authorization mapping for OS user")
+	ErrUserNotMappedToOSUser  = errors.New("user is not authorized to login as OS user")
+	ErrSessionKeyNotKnown = errors.New("session pubkey not registered")
 )
 
 // Authorizer handles SSH fine-grained access control authorization
@@ -34,6 +37,12 @@ type Authorizer struct {
 
 	// machineUsers maps OS login usernames to lists of authorized user indexes
 	machineUsers map[string][]uint32
+
+	// sessionPubKeys maps an X25519 static public key (as map-safe
+	// array) to the hashed user identity that key authenticates as.
+	// Populated from management's temporary-access flow; used by VNC to
+	// authenticate via the Noise_IK handshake.
+	sessionPubKeys map[[sessionPubKeyLen]byte]sshuserhash.UserIDHash
 
 	// mu protects the list of users
 	mu sync.RWMutex
@@ -50,13 +59,25 @@ type Config struct {
 	// MachineUsers maps OS login usernames to indexes in AuthorizedUsers
 	// If a user wants to login as a specific OS user, their index must be in the corresponding list
 	MachineUsers map[string][]uint32
+
+	// SessionPubKeys binds ephemeral X25519 static public keys to hashed
+	// user identities. Populated for VNC; ignored on the SSH side.
+	SessionPubKeys []SessionPubKey
+}
+
+// SessionPubKey is a single ephemeral-key entry: the 32-byte X25519
+// static public key plus the hashed user identity it authenticates as.
+type SessionPubKey struct {
+	PubKey     []byte
+	UserIDHash sshuserhash.UserIDHash
 }
 
 // NewAuthorizer creates a new SSH authorizer with empty configuration
 func NewAuthorizer() *Authorizer {
 	a := &Authorizer{
-		userIDClaim:  DefaultUserIDClaim,
-		machineUsers: make(map[string][]uint32),
+		userIDClaim:    DefaultUserIDClaim,
+		machineUsers:   make(map[string][]uint32),
+		sessionPubKeys: make(map[[sessionPubKeyLen]byte]sshuserhash.UserIDHash),
 	}
 
 	return a
@@ -72,6 +93,7 @@ func (a *Authorizer) Update(config *Config) {
 		a.userIDClaim = DefaultUserIDClaim
 		a.authorizedUsers = []sshuserhash.UserIDHash{}
 		a.machineUsers = make(map[string][]uint32)
+		a.sessionPubKeys = make(map[[sessionPubKeyLen]byte]sshuserhash.UserIDHash)
 		log.Info("SSH authorization cleared")
 		return
 	}
@@ -94,8 +116,19 @@ func (a *Authorizer) Update(config *Config) {
 	}
 	a.machineUsers = machineUsers
 
-	log.Debugf("SSH auth: updated with %d authorized users, %d machine user mappings",
-		len(config.AuthorizedUsers), len(machineUsers))
+	sessionPubKeys := make(map[[sessionPubKeyLen]byte]sshuserhash.UserIDHash, len(config.SessionPubKeys))
+	for _, e := range config.SessionPubKeys {
+		if len(e.PubKey) != sessionPubKeyLen {
+			continue
+		}
+		var key [sessionPubKeyLen]byte
+		copy(key[:], e.PubKey)
+		sessionPubKeys[key] = e.UserIDHash
+	}
+	a.sessionPubKeys = sessionPubKeys
+
+	log.Debugf("SSH auth: updated with %d authorized users, %d machine user mappings, %d session pubkeys",
+		len(config.AuthorizedUsers), len(machineUsers), len(sessionPubKeys))
 }
 
 // Authorize validates if a user is authorized to login as the specified OS user.
@@ -153,6 +186,38 @@ func (a *Authorizer) GetUserIDClaim() string {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return a.userIDClaim
+}
+
+// LookupSessionKey resolves a Noise-verified static public key to the
+// hashed user identity registered with it. Fails closed when the key is
+// unknown.
+func (a *Authorizer) LookupSessionKey(pubKey []byte) (sshuserhash.UserIDHash, error) {
+	var zero sshuserhash.UserIDHash
+	if len(pubKey) != sessionPubKeyLen {
+		return zero, fmt.Errorf("session pubkey wrong length: %d", len(pubKey))
+	}
+	var key [sessionPubKeyLen]byte
+	copy(key[:], pubKey)
+	a.mu.RLock()
+	hash, ok := a.sessionPubKeys[key]
+	a.mu.RUnlock()
+	if !ok {
+		return zero, ErrSessionKeyNotKnown
+	}
+	return hash, nil
+}
+
+// AuthorizeOSUserBySessionKey resolves the OS-user mapping for a session
+// key. Mirrors Authorize but skips the JWT-hash step since the key has
+// already been verified and the user identity hash is in hand.
+func (a *Authorizer) AuthorizeOSUserBySessionKey(userIDHash sshuserhash.UserIDHash, osUsername string) (string, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	userIndex, found := a.findUserIndex(userIDHash)
+	if !found {
+		return "", fmt.Errorf("session user (hash: %s) not in authorized list for OS user %q: %w", userIDHash, osUsername, ErrUserNotAuthorized)
+	}
+	return a.checkMachineUserMapping("session", osUsername, userIndex)
 }
 
 // findUserIndex finds the index of a hashed user ID in the authorized users list

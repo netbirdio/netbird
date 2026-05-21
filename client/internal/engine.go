@@ -1064,7 +1064,7 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 		}
 	}
 
-	if err := e.updateVNC(conf.GetSshConfig()); err != nil {
+	if err := e.updateVNC(); err != nil {
 		log.Warnf("failed handling VNC server setup: %v", err)
 	}
 

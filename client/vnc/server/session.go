@@ -222,9 +222,9 @@ func (s *session) handshake() error {
 }
 
 // sendSecurityTypes advertises only secNone. Authentication and access
-// control happen in the NetBird connection header (JWT, mode, username)
-// that precedes the RFB handshake, not via the protocol-level password
-// scheme.
+// control happen in the NetBird connection header (Noise_IK handshake,
+// mode, username) that precedes the RFB handshake; the protocol-level
+// password scheme is not supported.
 func (s *session) sendSecurityTypes() error {
 	_, err := s.conn.Write([]byte{1, secNone})
 	return err

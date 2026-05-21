@@ -2107,7 +2107,9 @@ type VNCSessionInfo struct {
 	RemoteAddress string                 `protobuf:"bytes,1,opt,name=remoteAddress,proto3" json:"remoteAddress,omitempty"`
 	Mode          string                 `protobuf:"bytes,2,opt,name=mode,proto3" json:"mode,omitempty"`
 	Username      string                 `protobuf:"bytes,3,opt,name=username,proto3" json:"username,omitempty"`
-	JwtUsername   string                 `protobuf:"bytes,4,opt,name=jwtUsername,proto3" json:"jwtUsername,omitempty"`
+	// userID is the Noise-verified session identity (hashed user ID from
+	// the ACL session-key entry), empty when auth is disabled.
+	UserID        string `protobuf:"bytes,4,opt,name=userID,proto3" json:"userID,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2163,9 +2165,9 @@ func (x *VNCSessionInfo) GetUsername() string {
 	return ""
 }
 
-func (x *VNCSessionInfo) GetJwtUsername() string {
+func (x *VNCSessionInfo) GetUserID() string {
 	if x != nil {
-		return x.JwtUsername
+		return x.UserID
 	}
 	return ""
 }
@@ -6582,12 +6584,12 @@ const file_daemon_proto_rawDesc = "" +
 	"\fportForwards\x18\x05 \x03(\tR\fportForwards\"^\n" +
 	"\x0eSSHServerState\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x122\n" +
-	"\bsessions\x18\x02 \x03(\v2\x16.daemon.SSHSessionInfoR\bsessions\"\x88\x01\n" +
+	"\bsessions\x18\x02 \x03(\v2\x16.daemon.SSHSessionInfoR\bsessions\"~\n" +
 	"\x0eVNCSessionInfo\x12$\n" +
 	"\rremoteAddress\x18\x01 \x01(\tR\rremoteAddress\x12\x12\n" +
 	"\x04mode\x18\x02 \x01(\tR\x04mode\x12\x1a\n" +
-	"\busername\x18\x03 \x01(\tR\busername\x12 \n" +
-	"\vjwtUsername\x18\x04 \x01(\tR\vjwtUsername\"^\n" +
+	"\busername\x18\x03 \x01(\tR\busername\x12\x16\n" +
+	"\x06userID\x18\x04 \x01(\tR\x06userID\"^\n" +
 	"\x0eVNCServerState\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x122\n" +
 	"\bsessions\x18\x02 \x03(\v2\x16.daemon.VNCSessionInfoR\bsessions\"\xef\x04\n" +

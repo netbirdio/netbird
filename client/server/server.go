@@ -1199,7 +1199,7 @@ func (s *Server) getVNCServerState() *proto.VNCServerState {
 			RemoteAddress: sess.RemoteAddress,
 			Mode:          sess.Mode,
 			Username:      sess.Username,
-			JwtUsername:   sess.JWTUsername,
+			UserID:        sess.UserID,
 		})
 	}
 	return &proto.VNCServerState{

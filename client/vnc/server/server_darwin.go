@@ -47,10 +47,16 @@ func (s *Server) serviceAcceptLoop() {
 			continue
 		}
 
+		if !s.tryAcquireConnSlot() {
+			s.log.Warnf("rejecting VNC connection from %s: %d concurrent connections in flight", conn.RemoteAddr(), maxConcurrentVNCConns)
+			_ = conn.Close()
+			continue
+		}
 		enableTCPKeepAlive(conn, s.log)
 		conn = newMetricsConn(conn, s.sessionRecorder)
 		s.trackConn(conn)
 		go func(c net.Conn) {
+			defer s.releaseConnSlot()
 			defer s.untrackConn(c)
 			s.handleServiceConnectionDarwin(c, mgr)
 		}(conn)
@@ -69,7 +75,7 @@ func (s *Server) handleServiceConnectionDarwin(conn net.Conn, mgr *darwinAgentMa
 	tee := io.TeeReader(conn, &headerBuf)
 	teeConn := &darwinPrefixConn{Reader: tee, Conn: conn}
 
-	header, err := readConnectionHeader(teeConn)
+	header, err := s.readConnectionHeader(teeConn)
 	if err != nil {
 		connLog.Debugf("read connection header: %v", err)
 		conn.Close()
@@ -77,17 +83,13 @@ func (s *Server) handleServiceConnectionDarwin(conn net.Conn, mgr *darwinAgentMa
 	}
 
 	if !s.disableAuth {
-		if s.jwtConfig == nil {
-			rejectConnection(conn, codeMessage(RejectCodeAuthConfig, "auth enabled but no identity provider configured"))
-			connLog.Warn("auth rejected: no identity provider configured")
-			return
-		}
-		if _, err := s.authenticateJWT(header); err != nil {
-			rejectConnection(conn, codeMessage(jwtErrorCode(err), err.Error()))
+		if _, err := s.authenticateSession(header); err != nil {
+			rejectConnection(conn, codeMessage(RejectCodeAuthForbidden, err.Error()))
 			connLog.Warnf("auth rejected: %v", err)
 			return
 		}
 	}
+	s.registerConnAuth(conn, header)
 
 	token, err := mgr.ensure(s.ctx)
 	if err != nil {
