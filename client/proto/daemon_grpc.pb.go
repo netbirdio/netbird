@@ -86,6 +86,22 @@ type DaemonServiceClient interface {
 	RequestJWTAuth(ctx context.Context, in *RequestJWTAuthRequest, opts ...grpc.CallOption) (*RequestJWTAuthResponse, error)
 	// WaitJWTToken waits for JWT authentication completion
 	WaitJWTToken(ctx context.Context, in *WaitJWTTokenRequest, opts ...grpc.CallOption) (*WaitJWTTokenResponse, error)
+	// RequestExtendAuthSession initiates an SSO session-extension flow.
+	// The daemon prepares a PKCE/device-code request against the IdP and
+	// returns the verification URI; the UI is expected to open it. The flow
+	// state is kept in the daemon until WaitExtendAuthSession completes it.
+	RequestExtendAuthSession(ctx context.Context, in *RequestExtendAuthSessionRequest, opts ...grpc.CallOption) (*RequestExtendAuthSessionResponse, error)
+	// WaitExtendAuthSession blocks until the user finishes the SSO step
+	// started by RequestExtendAuthSession, then forwards the resulting JWT
+	// to the management server's ExtendAuthSession RPC. Returns the new
+	// session expiry deadline. The tunnel stays up the entire time.
+	WaitExtendAuthSession(ctx context.Context, in *WaitExtendAuthSessionRequest, opts ...grpc.CallOption) (*WaitExtendAuthSessionResponse, error)
+	// DismissSessionWarning records that the user clicked "Dismiss" on the
+	// T-WarningLead interactive notification, suppressing the auto-opened
+	// SessionAboutToExpire dialog that would otherwise fire at
+	// T-FinalWarningLead for the current deadline. Idempotent and best-effort:
+	// a missed call only means the fallback dialog will still appear.
+	DismissSessionWarning(ctx context.Context, in *DismissSessionWarningRequest, opts ...grpc.CallOption) (*DismissSessionWarningResponse, error)
 	// StartCPUProfile starts CPU profiling in the daemon
 	StartCPUProfile(ctx context.Context, in *StartCPUProfileRequest, opts ...grpc.CallOption) (*StartCPUProfileResponse, error)
 	// StopCPUProfile stops CPU profiling in the daemon
@@ -496,6 +512,33 @@ func (c *daemonServiceClient) WaitJWTToken(ctx context.Context, in *WaitJWTToken
 	return out, nil
 }
 
+func (c *daemonServiceClient) RequestExtendAuthSession(ctx context.Context, in *RequestExtendAuthSessionRequest, opts ...grpc.CallOption) (*RequestExtendAuthSessionResponse, error) {
+	out := new(RequestExtendAuthSessionResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/RequestExtendAuthSession", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) WaitExtendAuthSession(ctx context.Context, in *WaitExtendAuthSessionRequest, opts ...grpc.CallOption) (*WaitExtendAuthSessionResponse, error) {
+	out := new(WaitExtendAuthSessionResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/WaitExtendAuthSession", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) DismissSessionWarning(ctx context.Context, in *DismissSessionWarningRequest, opts ...grpc.CallOption) (*DismissSessionWarningResponse, error) {
+	out := new(DismissSessionWarningResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/DismissSessionWarning", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *daemonServiceClient) StartCPUProfile(ctx context.Context, in *StartCPUProfileRequest, opts ...grpc.CallOption) (*StartCPUProfileResponse, error) {
 	out := new(StartCPUProfileResponse)
 	err := c.cc.Invoke(ctx, "/daemon.DaemonService/StartCPUProfile", in, out, opts...)
@@ -627,6 +670,22 @@ type DaemonServiceServer interface {
 	RequestJWTAuth(context.Context, *RequestJWTAuthRequest) (*RequestJWTAuthResponse, error)
 	// WaitJWTToken waits for JWT authentication completion
 	WaitJWTToken(context.Context, *WaitJWTTokenRequest) (*WaitJWTTokenResponse, error)
+	// RequestExtendAuthSession initiates an SSO session-extension flow.
+	// The daemon prepares a PKCE/device-code request against the IdP and
+	// returns the verification URI; the UI is expected to open it. The flow
+	// state is kept in the daemon until WaitExtendAuthSession completes it.
+	RequestExtendAuthSession(context.Context, *RequestExtendAuthSessionRequest) (*RequestExtendAuthSessionResponse, error)
+	// WaitExtendAuthSession blocks until the user finishes the SSO step
+	// started by RequestExtendAuthSession, then forwards the resulting JWT
+	// to the management server's ExtendAuthSession RPC. Returns the new
+	// session expiry deadline. The tunnel stays up the entire time.
+	WaitExtendAuthSession(context.Context, *WaitExtendAuthSessionRequest) (*WaitExtendAuthSessionResponse, error)
+	// DismissSessionWarning records that the user clicked "Dismiss" on the
+	// T-WarningLead interactive notification, suppressing the auto-opened
+	// SessionAboutToExpire dialog that would otherwise fire at
+	// T-FinalWarningLead for the current deadline. Idempotent and best-effort:
+	// a missed call only means the fallback dialog will still appear.
+	DismissSessionWarning(context.Context, *DismissSessionWarningRequest) (*DismissSessionWarningResponse, error)
 	// StartCPUProfile starts CPU profiling in the daemon
 	StartCPUProfile(context.Context, *StartCPUProfileRequest) (*StartCPUProfileResponse, error)
 	// StopCPUProfile stops CPU profiling in the daemon
@@ -748,6 +807,15 @@ func (UnimplementedDaemonServiceServer) RequestJWTAuth(context.Context, *Request
 }
 func (UnimplementedDaemonServiceServer) WaitJWTToken(context.Context, *WaitJWTTokenRequest) (*WaitJWTTokenResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method WaitJWTToken not implemented")
+}
+func (UnimplementedDaemonServiceServer) RequestExtendAuthSession(context.Context, *RequestExtendAuthSessionRequest) (*RequestExtendAuthSessionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RequestExtendAuthSession not implemented")
+}
+func (UnimplementedDaemonServiceServer) WaitExtendAuthSession(context.Context, *WaitExtendAuthSessionRequest) (*WaitExtendAuthSessionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method WaitExtendAuthSession not implemented")
+}
+func (UnimplementedDaemonServiceServer) DismissSessionWarning(context.Context, *DismissSessionWarningRequest) (*DismissSessionWarningResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DismissSessionWarning not implemented")
 }
 func (UnimplementedDaemonServiceServer) StartCPUProfile(context.Context, *StartCPUProfileRequest) (*StartCPUProfileResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method StartCPUProfile not implemented")
@@ -1431,6 +1499,60 @@ func _DaemonService_WaitJWTToken_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DaemonService_RequestExtendAuthSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RequestExtendAuthSessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).RequestExtendAuthSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/RequestExtendAuthSession",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).RequestExtendAuthSession(ctx, req.(*RequestExtendAuthSessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_WaitExtendAuthSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WaitExtendAuthSessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).WaitExtendAuthSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/WaitExtendAuthSession",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).WaitExtendAuthSession(ctx, req.(*WaitExtendAuthSessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_DismissSessionWarning_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DismissSessionWarningRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).DismissSessionWarning(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/DismissSessionWarning",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).DismissSessionWarning(ctx, req.(*DismissSessionWarningRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _DaemonService_StartCPUProfile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(StartCPUProfileRequest)
 	if err := dec(in); err != nil {
@@ -1644,6 +1766,18 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "WaitJWTToken",
 			Handler:    _DaemonService_WaitJWTToken_Handler,
+		},
+		{
+			MethodName: "RequestExtendAuthSession",
+			Handler:    _DaemonService_RequestExtendAuthSession_Handler,
+		},
+		{
+			MethodName: "WaitExtendAuthSession",
+			Handler:    _DaemonService_WaitExtendAuthSession_Handler,
+		},
+		{
+			MethodName: "DismissSessionWarning",
+			Handler:    _DaemonService_DismissSessionWarning_Handler,
 		},
 		{
 			MethodName: "StartCPUProfile",

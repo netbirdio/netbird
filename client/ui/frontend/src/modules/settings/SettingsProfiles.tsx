@@ -13,6 +13,7 @@ import i18next from "@/lib/i18n";
 import { useProfile } from "@/modules/profile/ProfileContext";
 import { SectionGroup } from "@/modules/settings/SettingsSection.tsx";
 import { cn } from "@/lib/cn";
+import { formatErrorMessage } from "@/lib/errors";
 
 const DEFAULT_PROFILE = "default";
 
@@ -45,7 +46,7 @@ export function SettingsProfiles() {
         } catch (e) {
             await Dialogs.Error({
                 Title: title,
-                Message: e instanceof Error ? e.message : String(e),
+                Message: formatErrorMessage(e),
             });
         } finally {
             setBusy(false);
@@ -90,7 +91,7 @@ export function SettingsProfiles() {
         } catch (e) {
             await Dialogs.Error({
                 Title: i18next.t("profile.error.createTitle"),
-                Message: e instanceof Error ? e.message : String(e),
+                Message: formatErrorMessage(e),
             });
         }
     };

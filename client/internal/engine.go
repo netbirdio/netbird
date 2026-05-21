@@ -35,6 +35,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/acl"
+	"github.com/netbirdio/netbird/client/internal/auth/sessionwatch"
 	"github.com/netbirdio/netbird/client/internal/debug"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
@@ -250,6 +251,8 @@ type Engine struct {
 	jobExecutorWG sync.WaitGroup
 
 	exposeManager *expose.Manager
+
+	sessionWatcher *sessionwatch.Watcher
 }
 
 // Peer is an instance of the Connection Peer
@@ -293,6 +296,17 @@ func NewEngine(
 		clientMetrics:      services.ClientMetrics,
 		updateManager:      services.UpdateManager,
 	}
+	// sessionWatcher keeps the SubscribeStatus consumers in sync with the
+	// session expiry deadline. Deadline-change ticks come for free via
+	// Status.SetSessionExpiresAt; the watcher exists to push a wake-up at
+	// T-WarningLead and T-FinalWarningLead so the UI repaints the remaining
+	// time / warning state even when nothing else changed, and to publish
+	// two SystemEvents (the warning composition lives in sessionwatch so
+	// the wire format stays owned by one package):
+	//   - T-WarningLead   → interactive "Extend now / Dismiss" notification
+	//   - T-FinalWarningLead → auto-opened SessionAboutToExpire dialog,
+	//     suppressed when the user dismissed the earlier warning
+	engine.sessionWatcher = sessionwatch.New(engine.statusRecorder)
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
 	return engine
@@ -331,6 +345,10 @@ func (e *Engine) Stop() error {
 
 	if e.srWatcher != nil {
 		e.srWatcher.Close()
+	}
+
+	if e.sessionWatcher != nil {
+		e.sessionWatcher.Close()
 	}
 
 	if e.updateManager != nil {
@@ -864,6 +882,8 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	if e.ctx.Err() != nil {
 		return e.ctx.Err()
 	}
+
+	e.ApplySessionDeadline(update.GetSessionExpiresAt())
 
 	if update.NetworkMap != nil && update.NetworkMap.PeerConfig != nil {
 		e.handleAutoUpdateVersion(update.NetworkMap.PeerConfig.AutoUpdate)

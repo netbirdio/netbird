@@ -393,6 +393,10 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			return wrapErr(err)
 		}
 
+		// Seed the session-expiry deadline from the LoginResponse. Subsequent
+		// changes flow in through SyncResponse and are applied in handleSync.
+		engine.ApplySessionDeadline(loginResp.GetSessionExpiresAt())
+
 		log.Infof("Netbird engine started, the IP is: %s", peerConfig.GetAddress())
 		state.Set(StatusConnected)
 

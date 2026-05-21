@@ -11,6 +11,7 @@ import { HelpText } from "@/components/HelpText";
 import { Label } from "@/components/Label";
 import { loadLanguages } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
+import { formatErrorMessage } from "@/lib/errors";
 
 // Flags live alongside the rest of the SVG flag library under
 // assets/flags/1x1 and are filename-matched to the language code
@@ -91,7 +92,7 @@ export function LanguagePicker() {
         } catch (e) {
             await Dialogs.Error({
                 Title: t("settings.error.saveTitle"),
-                Message: e instanceof Error ? e.message : String(e),
+                Message: formatErrorMessage(e),
             });
         } finally {
             setBusy(false);

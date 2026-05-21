@@ -3,7 +3,7 @@
 package main
 
 /*
-#cgo pkg-config: x11 gtk+-3.0 cairo cairo-xlib
+#cgo pkg-config: x11 gtk4 gtk4-x11 cairo cairo-xlib
 #cgo LDFLAGS: -lX11
 #include "xembed_tray_linux.h"
 #include <X11/Xlib.h>

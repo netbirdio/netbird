@@ -3,6 +3,7 @@
     "tray.status.disconnected": "Getrennt",
     "tray.status.daemonUnavailable": "Nicht aktiv",
     "tray.status.error": "Fehler",
+    "tray.session.expiresIn": "Sitzung: {remaining}",
 
     "tray.menu.open": "NetBird öffnen",
     "tray.menu.connect": "Verbinden",
@@ -31,6 +32,14 @@
     "notify.error.switchProfile": "Wechsel zu {profile} fehlgeschlagen",
     "notify.sessionExpired.title": "NetBird-Sitzung abgelaufen",
     "notify.sessionExpired.body": "Ihre NetBird-Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.",
+    "notify.sessionWarning.title": "Sitzung läuft bald ab",
+    "notify.sessionWarning.body": "Ihre NetBird-Sitzung läuft in {remaining} ab. Klicken Sie auf Jetzt verlängern, um zu erneuern.",
+    "notify.sessionWarning.bodyGeneric": "Ihre NetBird-Sitzung läuft bald ab. Klicken Sie auf Jetzt verlängern, um zu erneuern.",
+    "notify.sessionWarning.extend": "Jetzt verlängern",
+    "notify.sessionWarning.dismiss": "Verwerfen",
+    "notify.sessionWarning.failed": "NetBird-Sitzung konnte nicht verlängert werden",
+    "notify.sessionWarning.successTitle": "NetBird-Sitzung verlängert",
+    "notify.sessionWarning.successBody": "Ihre Sitzung wurde erneuert.",
 
     "common.cancel": "Abbrechen",
     "common.save": "Speichern",
@@ -272,6 +281,7 @@
     "sessionAboutToExpire.stay": "Verbunden bleiben",
     "sessionAboutToExpire.logout": "Abmelden",
     "sessionAboutToExpire.expired": "Sitzung abgelaufen",
+    "sessionAboutToExpire.extendFailedTitle": "Sitzungsverlängerung fehlgeschlagen",
 
     "peers.search.placeholder": "Nach Peer-Name, DNS oder IP-Adresse suchen",
     "peers.filter.all": "Alle",
@@ -284,5 +294,14 @@
 
     "daemon.unavailable.title": "NetBird-Dienst läuft nicht",
     "daemon.unavailable.description": "Die App stellt automatisch die Verbindung wieder her, sobald der Dienst läuft.",
-    "daemon.unavailable.docsLink": "Dokumentation"
+    "daemon.unavailable.docsLink": "Dokumentation",
+
+    "error.jwt_clock_skew": "Anmeldung fehlgeschlagen: Die Uhr dieses Geräts ist nicht mit dem Server synchron. Bitte synchronisieren Sie die Systemuhr und versuchen Sie es erneut.",
+    "error.jwt_expired": "Ihr Anmeldetoken ist abgelaufen. Bitte melden Sie sich erneut an.",
+    "error.jwt_signature_invalid": "Anmeldung fehlgeschlagen: Die Token-Signatur ist ungültig. Bitte wenden Sie sich an Ihren Administrator.",
+    "error.session_expired": "Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.",
+    "error.invalid_setup_key": "Der Setup-Schlüssel fehlt oder ist ungültig.",
+    "error.permission_denied": "Die Anmeldung wurde vom Server abgelehnt.",
+    "error.daemon_unreachable": "Der NetBird-Dienst antwortet nicht. Bitte prüfen Sie, ob der Dienst läuft.",
+    "error.unknown": "Vorgang fehlgeschlagen. Technische Details siehe unten."
 }

@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/client/ui/authsession"
 	"github.com/netbirdio/netbird/client/ui/updater"
 )
 
@@ -34,6 +35,14 @@ const (
 	// others without polling. The daemon itself does not emit a profile
 	// event, so this is the only signal that closes the gap.
 	EventProfileChanged = "netbird:profile:changed"
+	// EventSessionWarning is emitted on every session-warning watcher
+	// fire (T-WarningLead and T-FinalWarningLead) as a strongly-typed
+	// sibling of EventSystem so React / tray subscribers don't have to
+	// filter the firehose of EventSystem. Consumers branch on the
+	// SessionWarning.Final flag to tell the interactive T-10 event apart
+	// from the fallback T-2 event; the dialog auto-open lives in the
+	// tray (Go side) so the frontend stays passive on this flow.
+	EventSessionWarning = "netbird:session:warning"
 
 	// StatusDaemonUnavailable is the synthetic Status the UI emits when the
 	// daemon's gRPC socket is unreachable (daemon not running, socket
@@ -43,11 +52,11 @@ const (
 
 	// Daemon connection status strings — mirror internal.Status* in
 	// client/internal/state.go.
-	StatusConnected     = "Connected"
-	StatusConnecting    = "Connecting"
-	StatusIdle          = "Idle"
-	StatusNeedsLogin    = "NeedsLogin"
-	StatusLoginFailed   = "LoginFailed"
+	StatusConnected      = "Connected"
+	StatusConnecting     = "Connecting"
+	StatusIdle           = "Idle"
+	StatusNeedsLogin     = "NeedsLogin"
+	StatusLoginFailed    = "LoginFailed"
 	StatusSessionExpired = "SessionExpired"
 )
 
@@ -110,13 +119,19 @@ type LocalPeer struct {
 
 // Status is the snapshot the frontend renders on the dashboard.
 type Status struct {
-	Status        string       `json:"status"`
-	DaemonVersion string       `json:"daemonVersion"`
-	Management    PeerLink     `json:"management"`
-	Signal        PeerLink     `json:"signal"`
-	Local         LocalPeer    `json:"local"`
-	Peers         []PeerStatus `json:"peers"`
+	Status        string        `json:"status"`
+	DaemonVersion string        `json:"daemonVersion"`
+	Management    PeerLink      `json:"management"`
+	Signal        PeerLink      `json:"signal"`
+	Local         LocalPeer     `json:"local"`
+	Peers         []PeerStatus  `json:"peers"`
 	Events        []SystemEvent `json:"events"`
+	// SessionExpiresAt is the absolute UTC instant at which the peer's
+	// SSO session expires. nil when the peer is not SSO-tracked or login
+	// expiration is disabled (either server-side off, or peer not
+	// SSO-registered). The UI derives "warning active" from this value
+	// plus its own clock.
+	SessionExpiresAt *time.Time `json:"sessionExpiresAt,omitempty"`
 }
 
 // Peers serves the dashboard data: one polled Status RPC and a long-running
@@ -277,23 +292,6 @@ func (s *Peers) Get(ctx context.Context) (Status, error) {
 	return statusFromProto(resp), nil
 }
 
-// isDaemonUnreachable reports whether a gRPC stream error indicates the
-// daemon socket itself is not answering (process down, socket missing,
-// permission denied) versus the daemon responding with an application-level
-// error code. Only the former should flip the tray to "Not running" — a
-// daemon that returns FailedPrecondition (e.g. while it's retrying the
-// management connection) is alive and shouldn't be reported as down.
-func isDaemonUnreachable(err error) bool {
-	if err == nil {
-		return false
-	}
-	st, ok := status.FromError(err)
-	if !ok {
-		return true
-	}
-	return st.Code() == codes.Unavailable
-}
-
 // statusStreamLoop subscribes to the daemon's SubscribeStatus stream and
 // re-emits each FullStatus snapshot on the Wails event bus. The first
 // message is the current snapshot; subsequent messages fire on
@@ -406,6 +404,9 @@ func (s *Peers) toastStreamLoop(ctx context.Context) {
 			se := systemEventFromProto(ev)
 			log.Infof("backend event: system severity=%s category=%s msg=%q", se.Severity, se.Category, se.UserMessage)
 			s.emitter.Emit(EventSystem, se)
+			if warn, ok := authsession.WarningFromMetadata(se.Metadata); ok {
+				s.emitter.Emit(EventSessionWarning, warn)
+			}
 			if s.updater != nil {
 				s.updater.OnSystemEvent(ev)
 			}
@@ -468,6 +469,10 @@ func statusFromProto(resp *proto.StatusResponse) Status {
 	for _, e := range full.GetEvents() {
 		st.Events = append(st.Events, systemEventFromProto(e))
 	}
+	if ts := resp.GetSessionExpiresAt(); ts.IsValid() && !ts.AsTime().IsZero() {
+		t := ts.AsTime().UTC()
+		st.SessionExpiresAt = &t
+	}
 	return st
 }
 
@@ -487,4 +492,21 @@ func systemEventFromProto(e *proto.SystemEvent) SystemEvent {
 		out.Metadata[k] = v
 	}
 	return out
+}
+
+// isDaemonUnreachable reports whether a gRPC stream error indicates the
+// daemon socket itself is not answering (process down, socket missing,
+// permission denied) versus the daemon responding with an application-level
+// error code. Only the former should flip the tray to "Not running" — a
+// daemon that returns FailedPrecondition (e.g. while it's retrying the
+// management connection) is alive and shouldn't be reported as down.
+func isDaemonUnreachable(err error) bool {
+	if err == nil {
+		return false
+	}
+	st, ok := status.FromError(err)
+	if !ok {
+		return true
+	}
+	return st.Code() == codes.Unavailable
 }

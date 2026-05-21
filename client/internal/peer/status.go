@@ -202,6 +202,12 @@ type Status struct {
 	notifier              *notifier
 	rosenpassEnabled      bool
 	rosenpassPermissive   bool
+	// sessionExpiresAt is the absolute UTC instant at which the peer's SSO
+	// session expires. Zero when the peer is not SSO-tracked or login
+	// expiration is disabled. Populated from management LoginResponse /
+	// SyncResponse and exposed via the daemon's Status / SubscribeStatus RPC
+	// so the UI can show remaining time without itself talking to mgm.
+	sessionExpiresAt      time.Time
 	nsGroupStates         []NSGroupState
 	resolvedDomainsStates map[domain.Domain]ResolvedDomainInfo
 	lazyConnectionEnabled bool
@@ -737,6 +743,31 @@ func (d *Status) UpdateLocalPeerState(localPeerState LocalPeerState) {
 
 	d.notifier.localAddressChanged(fqdn, ip)
 	d.notifyStateChange()
+}
+
+// SetSessionExpiresAt records the absolute UTC instant at which the peer's
+// SSO session is set to expire. Pass the zero value to clear (e.g. when the
+// management server stops publishing a deadline because login expiration was
+// disabled or the peer is not SSO-tracked). Same-value updates are no-ops;
+// real changes fan out via notifyStateChange so SubscribeStatus consumers
+// pick up the new deadline on their next read.
+func (d *Status) SetSessionExpiresAt(deadline time.Time) {
+	d.mux.Lock()
+	if d.sessionExpiresAt.Equal(deadline) {
+		d.mux.Unlock()
+		return
+	}
+	d.sessionExpiresAt = deadline
+	d.mux.Unlock()
+	d.notifyStateChange()
+}
+
+// GetSessionExpiresAt returns the most recently recorded SSO session deadline,
+// or the zero value when no deadline is tracked.
+func (d *Status) GetSessionExpiresAt() time.Time {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	return d.sessionExpiresAt
 }
 
 // AddLocalPeerStateRoute adds a route to the local peer state

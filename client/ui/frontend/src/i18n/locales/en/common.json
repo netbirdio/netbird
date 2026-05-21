@@ -3,6 +3,7 @@
     "tray.status.disconnected": "Disconnected",
     "tray.status.daemonUnavailable": "Not running",
     "tray.status.error": "Error",
+    "tray.session.expiresIn": "Session: {remaining}",
 
     "tray.menu.open": "Open NetBird",
     "tray.menu.connect": "Connect",
@@ -31,6 +32,14 @@
     "notify.error.switchProfile": "Failed to switch to {profile}",
     "notify.sessionExpired.title": "NetBird session expired",
     "notify.sessionExpired.body": "Your NetBird session has expired. Please log in again.",
+    "notify.sessionWarning.title": "Session expires soon",
+    "notify.sessionWarning.body": "Your NetBird session expires in {remaining}. Click Extend now to renew.",
+    "notify.sessionWarning.bodyGeneric": "Your NetBird session is about to expire. Click Extend now to renew.",
+    "notify.sessionWarning.extend": "Extend now",
+    "notify.sessionWarning.dismiss": "Dismiss",
+    "notify.sessionWarning.failed": "Failed to extend NetBird session",
+    "notify.sessionWarning.successTitle": "NetBird session extended",
+    "notify.sessionWarning.successBody": "Your session has been refreshed.",
 
     "common.cancel": "Cancel",
     "common.save": "Save",
@@ -293,6 +302,7 @@
     "sessionAboutToExpire.stay": "Stay connected",
     "sessionAboutToExpire.logout": "Logout",
     "sessionAboutToExpire.expired": "Session expired",
+    "sessionAboutToExpire.extendFailedTitle": "Extend Session Failed",
 
     "peers.search.placeholder": "Search by peer name, DNS or IP address",
     "peers.filter.all": "All",
@@ -305,5 +315,14 @@
 
     "daemon.unavailable.title": "NetBird Service Is Not Running",
     "daemon.unavailable.description": "The app will reconnect automatically once the service is running.",
-    "daemon.unavailable.docsLink": "Documentation"
+    "daemon.unavailable.docsLink": "Documentation",
+
+    "error.jwt_clock_skew": "Sign-in failed: this device's clock is out of sync with the server. Please sync your system clock and try again.",
+    "error.jwt_expired": "Your sign-in token has expired. Please sign in again.",
+    "error.jwt_signature_invalid": "Sign-in failed: the token signature is invalid. Please contact your administrator.",
+    "error.session_expired": "Your session has expired. Please sign in again.",
+    "error.invalid_setup_key": "The setup key is missing or invalid.",
+    "error.permission_denied": "Sign-in was rejected by the server.",
+    "error.daemon_unreachable": "The NetBird daemon is not responding. Please check that the service is running.",
+    "error.unknown": "Operation failed. See details for the technical message."
 }

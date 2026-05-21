@@ -115,6 +115,25 @@ service DaemonService {
   // WaitJWTToken waits for JWT authentication completion
   rpc WaitJWTToken(WaitJWTTokenRequest) returns (WaitJWTTokenResponse) {}
 
+  // RequestExtendAuthSession initiates an SSO session-extension flow.
+  // The daemon prepares a PKCE/device-code request against the IdP and
+  // returns the verification URI; the UI is expected to open it. The flow
+  // state is kept in the daemon until WaitExtendAuthSession completes it.
+  rpc RequestExtendAuthSession(RequestExtendAuthSessionRequest) returns (RequestExtendAuthSessionResponse) {}
+
+  // WaitExtendAuthSession blocks until the user finishes the SSO step
+  // started by RequestExtendAuthSession, then forwards the resulting JWT
+  // to the management server's ExtendAuthSession RPC. Returns the new
+  // session expiry deadline. The tunnel stays up the entire time.
+  rpc WaitExtendAuthSession(WaitExtendAuthSessionRequest) returns (WaitExtendAuthSessionResponse) {}
+
+  // DismissSessionWarning records that the user clicked "Dismiss" on the
+  // T-WarningLead interactive notification, suppressing the auto-opened
+  // SessionAboutToExpire dialog that would otherwise fire at
+  // T-FinalWarningLead for the current deadline. Idempotent and best-effort:
+  // a missed call only means the fallback dialog will still appear.
+  rpc DismissSessionWarning(DismissSessionWarningRequest) returns (DismissSessionWarningResponse) {}
+
 // StartCPUProfile starts CPU profiling in the daemon
   rpc StartCPUProfile(StartCPUProfileRequest) returns (StartCPUProfileResponse) {}
 
@@ -256,6 +275,10 @@ message StatusResponse{
   FullStatus fullStatus = 2;
   // NetBird daemon version
   string daemonVersion = 3;
+  // Absolute UTC instant at which the peer's SSO session expires.
+  // Unset when the peer is not SSO-registered or login expiration is disabled.
+  // The UI derives "warning active" from this value and its own clock.
+  google.protobuf.Timestamp sessionExpiresAt = 4;
 }
 
 message DownRequest {}
@@ -809,6 +832,55 @@ message WaitJWTTokenResponse {
   // expiration time in seconds
   int64 expiresIn = 3;
 }
+
+// RequestExtendAuthSessionRequest kicks off the session-extension SSO flow.
+message RequestExtendAuthSessionRequest {
+  // Optional OIDC login_hint (typically the user's email) to pre-fill the
+  // IdP login form.
+  optional string hint = 1;
+}
+
+// RequestExtendAuthSessionResponse carries the verification URI the UI
+// should open in a browser. The daemon retains the flow state and resolves
+// it via WaitExtendAuthSession.
+message RequestExtendAuthSessionResponse {
+  // verification URI for the user to open in the browser
+  string verificationURI = 1;
+  // complete verification URI (with embedded user code)
+  string verificationURIComplete = 2;
+  // user code to enter on verification URI (for device-code flows)
+  string userCode = 3;
+  // device code for matching the WaitExtendAuthSession call to this flow
+  string deviceCode = 4;
+  // expiration time in seconds for the device code / PKCE flow
+  int64 expiresIn = 5;
+}
+
+// WaitExtendAuthSessionRequest is sent by the UI after it opens the
+// verification URI. The daemon blocks on this call until the user
+// completes (or aborts) the SSO step.
+message WaitExtendAuthSessionRequest {
+  // device code returned by RequestExtendAuthSession
+  string deviceCode = 1;
+  // user code for verification
+  string userCode = 2;
+}
+
+// WaitExtendAuthSessionResponse carries the refreshed deadline returned
+// by the management server. Unset when the management server reports the
+// peer is not eligible for session extension.
+message WaitExtendAuthSessionResponse {
+  google.protobuf.Timestamp sessionExpiresAt = 1;
+}
+
+// DismissSessionWarningRequest is sent by the UI when the user clicks
+// "Dismiss" on the T-WarningLead notification.
+message DismissSessionWarningRequest {}
+
+// DismissSessionWarningResponse acknowledges the dismissal. Carries no
+// payload — the daemon's only obligation is to silence the upcoming
+// T-FinalWarningLead fallback for the current deadline.
+message DismissSessionWarningResponse {}
 
 // StartCPUProfileRequest for starting CPU profiling
 message StartCPUProfileRequest {}

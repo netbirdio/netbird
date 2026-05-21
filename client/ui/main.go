@@ -15,6 +15,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/events"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 
+	"github.com/netbirdio/netbird/client/ui/authsession"
 	"github.com/netbirdio/netbird/client/ui/i18n"
 	"github.com/netbirdio/netbird/client/ui/preferences"
 	"github.com/netbirdio/netbird/client/ui/services"
@@ -60,6 +61,7 @@ func init() {
 	application.RegisterEvent[services.Status](services.EventStatus)
 	application.RegisterEvent[services.SystemEvent](services.EventSystem)
 	application.RegisterEvent[services.ProfileRef](services.EventProfileChanged)
+	application.RegisterEvent[authsession.Warning](services.EventSessionWarning)
 	application.RegisterEvent[updater.State](updater.EventStateChanged)
 	application.RegisterEvent[preferences.UIPreferences](preferences.EventPreferencesChanged)
 }
@@ -121,7 +123,6 @@ func main() {
 		},
 	})
 
-	connection := services.NewConnection(conn)
 	settings := services.NewSettings(conn)
 	profiles := services.NewProfiles(conn)
 	// updater.Holder owns the typed update State. Peers feeds the daemon
@@ -131,7 +132,6 @@ func main() {
 	update := services.NewUpdate(conn, updaterHolder)
 	peers := services.NewPeers(conn, app.Event, updaterHolder)
 	notifier := notifications.New()
-	profileSwitcher := services.NewProfileSwitcher(profiles, connection, peers)
 
 	// localesFS reroots the embedded tree at the locales directory itself
 	// so the bundle sees _index.json and <lang>/common.json at the top
@@ -154,7 +154,18 @@ func main() {
 	}
 	localizer := NewLocalizer(bundle, prefStore)
 
+	// Connection lives after bundle + prefStore so it can localise daemon
+	// errors (services.NewConnection takes both as dependencies).
+	connection := services.NewConnection(conn, bundle, prefStore)
+	profileSwitcher := services.NewProfileSwitcher(profiles, connection, peers)
+
 	app.RegisterService(application.NewService(connection))
+	// authsession.Session owns the full extend + dismiss surface; the tray
+	// drives the "Extend now" action from the T-10 OS notification through
+	// this directly. The Wails-bound services.Session wraps only the subset
+	// the React frontend calls, so the generated TS surface stays minimal.
+	authSession := authsession.NewSession(conn)
+	app.RegisterService(application.NewService(services.NewSession(authSession)))
 	app.RegisterService(application.NewService(settings))
 	app.RegisterService(application.NewService(services.NewNetworks(conn)))
 	app.RegisterService(application.NewService(services.NewForwarding(conn)))
@@ -215,6 +226,7 @@ func main() {
 		Update:          update,
 		ProfileSwitcher: profileSwitcher,
 		WindowManager:   windowManager,
+		Session:         authSession,
 		Localizer:       localizer,
 	})
 	listenForShowSignal(context.Background(), tray)

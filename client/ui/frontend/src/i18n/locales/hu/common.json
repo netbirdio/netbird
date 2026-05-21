@@ -3,6 +3,7 @@
     "tray.status.disconnected": "Lekapcsolva",
     "tray.status.daemonUnavailable": "Nem fut",
     "tray.status.error": "Hiba",
+    "tray.session.expiresIn": "Munkamenet: {remaining}",
 
     "tray.menu.open": "NetBird megnyitása",
     "tray.menu.connect": "Csatlakozás",
@@ -31,6 +32,14 @@
     "notify.error.switchProfile": "Átváltás sikertelen erre: {profile}",
     "notify.sessionExpired.title": "NetBird munkamenet lejárt",
     "notify.sessionExpired.body": "A NetBird munkamenet lejárt. Kérjük, jelentkezzen be újra.",
+    "notify.sessionWarning.title": "Munkamenet hamarosan lejár",
+    "notify.sessionWarning.body": "A NetBird munkamenet {remaining} múlva lejár. Kattints a Meghosszabbítás gombra a megújításhoz.",
+    "notify.sessionWarning.bodyGeneric": "A NetBird munkamenet hamarosan lejár. Kattints a Meghosszabbítás gombra a megújításhoz.",
+    "notify.sessionWarning.extend": "Meghosszabbítás",
+    "notify.sessionWarning.dismiss": "Elvetés",
+    "notify.sessionWarning.failed": "A NetBird munkamenet meghosszabbítása sikertelen",
+    "notify.sessionWarning.successTitle": "NetBird munkamenet meghosszabbítva",
+    "notify.sessionWarning.successBody": "A munkamenet frissítve.",
 
     "common.cancel": "Mégse",
     "common.save": "Mentés",
@@ -272,6 +281,7 @@
     "sessionAboutToExpire.stay": "Maradjon csatlakoztatva",
     "sessionAboutToExpire.logout": "Kijelentkezés",
     "sessionAboutToExpire.expired": "Munkamenet lejárt",
+    "sessionAboutToExpire.extendFailedTitle": "A munkamenet meghosszabbítása sikertelen",
 
     "peers.search.placeholder": "Keresés társ neve, DNS vagy IP-cím alapján",
     "peers.filter.all": "Összes",
@@ -284,5 +294,14 @@
 
     "daemon.unavailable.title": "A NetBird szolgáltatás nem fut",
     "daemon.unavailable.description": "Az alkalmazás automatikusan újracsatlakozik, amint a szolgáltatás újra elérhető.",
-    "daemon.unavailable.docsLink": "Dokumentáció"
+    "daemon.unavailable.docsLink": "Dokumentáció",
+
+    "error.jwt_clock_skew": "A bejelentkezés sikertelen: az eszköz órája eltér a szerverétől. Kérjük, szinkronizálja a rendszer óráját, majd próbálja újra.",
+    "error.jwt_expired": "A bejelentkezési token lejárt. Kérjük, jelentkezzen be újra.",
+    "error.jwt_signature_invalid": "A bejelentkezés sikertelen: a token aláírása érvénytelen. Kérjük, lépjen kapcsolatba a rendszergazdával.",
+    "error.session_expired": "A munkamenet lejárt. Kérjük, jelentkezzen be újra.",
+    "error.invalid_setup_key": "A telepítési kulcs hiányzik vagy érvénytelen.",
+    "error.permission_denied": "A szerver elutasította a bejelentkezést.",
+    "error.daemon_unreachable": "A NetBird szolgáltatás nem válaszol. Kérjük, ellenőrizze, hogy fut-e a szolgáltatás.",
+    "error.unknown": "A művelet meghiúsult. A technikai részleteket a Details mezőben találja."
 }
