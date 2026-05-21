@@ -1038,7 +1038,7 @@ func (s *Server) acquireAttachSession() (ScreenCapturer, func()) {
 		cc.ClientConnect()
 		return s.capturer, cc.ClientDisconnect
 	}
-	return s.capturer, func() {}
+	return s.capturer, func() { /* capturer has no per-client disconnect hook */ }
 }
 
 // modeString returns a human-readable session mode name.

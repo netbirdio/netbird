@@ -64,23 +64,28 @@ func applyResolvedRuleToState(
 		state.sshEnabled = true
 		cb.collectSSHUsers(rule, state.authorizedUsers)
 	case rule.Protocol == PolicyRuleProtocolNetbirdVNC:
-		// VNC bidirectional rules grant access in both directions.
-		if !peerInDestinations && !(rule.Bidirectional && peerInSources) {
-			return
-		}
-		cb.collectVNCUsers(rule, state.vncAuthorizedUsers)
-		if rule.SessionPubKey != "" && rule.AuthorizedUser != "" {
-			state.vncSessionPubKeys = append(state.vncSessionPubKeys, VNCSessionPubKey{
-				PubKey: rule.SessionPubKey,
-				UserID: rule.AuthorizedUser,
-			})
-		}
+		cb.handleVNCRule(rule, peerInSources, peerInDestinations, state)
 	case policyRuleImpliesLegacySSH(rule) && targetPeerSSHEnabled:
 		if !peerInDestinations {
 			return
 		}
 		state.sshEnabled = true
 		mergeWildcardUsers(state.authorizedUsers, cb.getAllowedUserIDs())
+	}
+}
+
+// handleVNCRule collects VNC authorized users and session pubkeys for a VNC
+// policy rule. Bidirectional rules grant access in both directions.
+func (cb ruleAuthCallbacks) handleVNCRule(rule *PolicyRule, peerInSources, peerInDestinations bool, state *peerConnResolveState) {
+	if !peerInDestinations && !(rule.Bidirectional && peerInSources) {
+		return
+	}
+	cb.collectVNCUsers(rule, state.vncAuthorizedUsers)
+	if rule.SessionPubKey != "" && rule.AuthorizedUser != "" {
+		state.vncSessionPubKeys = append(state.vncSessionPubKeys, VNCSessionPubKey{
+			PubKey: rule.SessionPubKey,
+			UserID: rule.AuthorizedUser,
+		})
 	}
 }
 
