@@ -1055,19 +1055,18 @@ func (g *BundleGenerator) addRotatedLogFiles(logDir string) {
 		return
 	}
 
+	// This regex will match plain logs rotated by logrotate on linux.
+	// We assume that logrotate is configured with nocompress or delaycompress.
+	pattern = filepath.Join(logDir, "client*.log.*")
+	uncompressedFiles, err := filepath.Glob(pattern)
+	if err != nil {
+		log.Warnf("failed to glob rotated logs: %v", err)
+		return
+	}
+	files = uncompressedFiles
+
 	if len(files) == 0 {
-		// We assume that logrotate is configured with nocompress.
-		// This regex will match plain logs rotated by logrotate on linux.
-		pattern := filepath.Join(logDir, "client*.log.*")
-		uncompressedFiles, err := filepath.Glob(pattern)
-		if err != nil {
-			log.Warnf("failed to glob rotated logs: %v", err)
-			return
-		}
-		files = uncompressedFiles
-		if len(files) == 0 {
-			return
-		}
+		return
 	}
 
 	// sort files by modification time (newest first)
