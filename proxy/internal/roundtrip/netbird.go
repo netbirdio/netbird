@@ -170,6 +170,11 @@ type NetBird struct {
 	// stopHandler runs when an account's last service is removed (or the
 	// transport is shutting down). Receives whatever readyHandler returned.
 	stopHandler func(accountID types.AccountID, state any)
+
+	// OnAddPeer, when set, is called after AddPeer completes for a new account
+	// (i.e. when a new client was actually created, not when an existing one
+	// was reused). The duration covers keygen + gRPC CreateProxyPeer + embed.New.
+	OnAddPeer func(d time.Duration, err error)
 }
 
 // ClientDebugInfo contains debug information about a client.
@@ -217,7 +222,11 @@ func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, key Se
 		return nil
 	}
 
+	createStart := time.Now()
 	entry, err := n.createClientEntry(ctx, accountID, key, authToken, si)
+	if n.OnAddPeer != nil {
+		n.OnAddPeer(time.Since(createStart), err)
+	}
 	if err != nil {
 		n.clientsMux.Unlock()
 		return err
