@@ -31,7 +31,7 @@ func (s *stubRoundTripper) RoundTrip(_ *http.Request) (*http.Response, error) {
 
 func TestMultiTransport_DispatchesByContextFlag(t *testing.T) {
 	embedded := &stubRoundTripper{body: "embedded"}
-	mt := NewMultiTransport(embedded, nil)
+	mt := NewMultiTransport(embedded)
 
 	t.Run("default routes to embedded", func(t *testing.T) {
 		embedded.called = false
@@ -64,7 +64,7 @@ func TestMultiTransport_DispatchesByContextFlag(t *testing.T) {
 }
 
 func TestMultiTransport_NilEmbeddedAlwaysDirects(t *testing.T) {
-	mt := NewMultiTransport(nil, nil)
+	mt := NewMultiTransport(nil)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, "ok")
 	}))
