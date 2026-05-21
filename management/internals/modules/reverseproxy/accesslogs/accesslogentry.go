@@ -39,10 +39,6 @@ type AccessLogEntry struct {
 	BytesDownload   int64             `gorm:"index"`
 	Protocol        AccessLogProtocol `gorm:"index"`
 	Metadata        map[string]string `gorm:"serializer:json"`
-	// UserGroups captures the group IDs the user (UserId) belonged to at
-	// the time the entry was written, so the dashboard can render group
-	// context without reverse-resolving stale memberships.
-	UserGroups []string `gorm:"serializer:json"`
 }
 
 // FromProto creates an AccessLogEntry from a proto.AccessLog
@@ -129,12 +125,6 @@ func (a *AccessLogEntry) ToAPIResponse() *api.ProxyAccessLog {
 		metadata = &a.Metadata
 	}
 
-	var userGroups *[]string
-	if len(a.UserGroups) > 0 {
-		groups := append([]string(nil), a.UserGroups...)
-		userGroups = &groups
-	}
-
 	return &api.ProxyAccessLog{
 		Id:              a.ID,
 		ServiceId:       a.ServiceID,
@@ -155,6 +145,5 @@ func (a *AccessLogEntry) ToAPIResponse() *api.ProxyAccessLog {
 		BytesDownload:   a.BytesDownload,
 		Protocol:        protocol,
 		Metadata:        metadata,
-		UserGroups:      userGroups,
 	}
 }

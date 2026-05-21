@@ -2896,11 +2896,6 @@ components:
           additionalProperties:
             type: string
           description: "Extra context about the request (e.g. crowdsec_verdict)"
-        user_groups:
-          type: array
-          items:
-            type: string
-          description: "Group IDs the user belonged to when the entry was written"
       required:
         - id
         - service_id

@@ -47,8 +47,6 @@ func (m *managerImpl) SaveAccessLog(ctx context.Context, logEntry *accesslogs.Ac
 		}
 	}
 
-	m.enrichUserGroups(ctx, logEntry)
-
 	if err := m.store.CreateAccessLog(ctx, logEntry); err != nil {
 		log.WithContext(ctx).WithFields(log.Fields{
 			"service_id": logEntry.ServiceID,
@@ -61,25 +59,6 @@ func (m *managerImpl) SaveAccessLog(ctx context.Context, logEntry *accesslogs.Ac
 	}
 
 	return nil
-}
-
-// enrichUserGroups attaches the user's auto-group memberships to the entry.
-// Best-effort: errors are logged at debug and never block the save.
-func (m *managerImpl) enrichUserGroups(ctx context.Context, logEntry *accesslogs.AccessLogEntry) {
-	if logEntry.UserId == "" {
-		return
-	}
-
-	user, err := m.store.GetUserByUserID(ctx, store.LockingStrengthNone, logEntry.UserId)
-	if err != nil {
-		log.WithContext(ctx).Debugf("access log user-group enrichment skipped for user %s: %v", logEntry.UserId, err)
-		return
-	}
-	if user == nil {
-		return
-	}
-
-	logEntry.UserGroups = append([]string(nil), user.AutoGroups...)
 }
 
 // GetAllAccessLogs retrieves access logs for an account with pagination and filtering

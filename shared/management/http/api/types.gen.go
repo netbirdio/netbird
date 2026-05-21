@@ -3786,9 +3786,6 @@ type ProxyAccessLog struct {
 	// Timestamp Timestamp when the request was made
 	Timestamp time.Time `json:"timestamp"`
 
-	// UserGroups Group IDs the user belonged to when the entry was written
-	UserGroups *[]string `json:"user_groups,omitempty"`
-
 	// UserId ID of the authenticated user, if applicable
 	UserId *string `json:"user_id,omitempty"`
 }
