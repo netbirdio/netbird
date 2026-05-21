@@ -1327,6 +1327,7 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 
 // UpdateAffectedPeers updates only the specified peers that belong to an account.
 func (am *DefaultAccountManager) UpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string) {
+	ctx = context.WithoutCancel(ctx)
 	log.WithContext(ctx).Tracef("UpdateAffectedPeers: %d peers for account %s", len(peerIDs), accountID)
 	_ = am.networkMapController.UpdateAffectedPeers(ctx, accountID, peerIDs)
 }
