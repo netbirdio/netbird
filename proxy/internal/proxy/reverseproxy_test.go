@@ -1074,15 +1074,15 @@ func TestStampNetBirdIdentity_NoCapturedData_StripsOnly(t *testing.T) {
 	rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
 
 	pr := newProxyRequest(t, "http://example.com/", "203.0.113.50:9999")
-	pr.In.Header.Set("X-NetBird-User", "spoofed@evil.io")
-	pr.In.Header.Set("X-NetBird-Groups", "admin")
+	pr.In.Header.Set(headerNetBirdUser, "spoofed@evil.io")
+	pr.In.Header.Set(headerNetBirdGroups, "admin")
 	pr.Out.Header = pr.In.Header.Clone()
 
 	rewrite(pr)
 
-	assert.Empty(t, pr.Out.Header.Get("X-NetBird-User"),
+	assert.Empty(t, pr.Out.Header.Get(headerNetBirdUser),
 		"client-supplied X-NetBird-User must be stripped when no captured identity is present")
-	assert.Empty(t, pr.Out.Header.Get("X-NetBird-Groups"),
+	assert.Empty(t, pr.Out.Header.Get(headerNetBirdGroups),
 		"client-supplied X-NetBird-Groups must be stripped when no captured identity is present")
 }
 
@@ -1092,7 +1092,7 @@ func TestStampNetBirdIdentity_StampsFromCapturedData(t *testing.T) {
 	rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
 
 	pr := newProxyRequest(t, "http://example.com/", "203.0.113.50:9999")
-	pr.In.Header.Set("X-NetBird-User", "spoofed@evil.io")
+	pr.In.Header.Set(headerNetBirdUser, "spoofed@evil.io")
 	pr.Out.Header = pr.In.Header.Clone()
 
 	cd := NewCapturedData("req-1")
@@ -1100,15 +1100,66 @@ func TestStampNetBirdIdentity_StampsFromCapturedData(t *testing.T) {
 	cd.SetUserGroups([]string{"grp-eng", "grp-ops"})
 	cd.SetUserGroupNames([]string{"engineering", "operations"})
 
-	withCD := pr.In.WithContext(WithCapturedData(pr.In.Context(), cd))
-	pr.In = withCD
+	pr.In = pr.In.WithContext(WithCapturedData(pr.In.Context(), cd))
 
 	rewrite(pr)
 
-	assert.Equal(t, "alice@netbird.io", pr.Out.Header.Get("X-NetBird-User"),
+	assert.Equal(t, "alice@netbird.io", pr.Out.Header.Get(headerNetBirdUser),
 		"captured email must overwrite any spoofed value")
-	assert.Equal(t, "engineering,operations", pr.Out.Header.Get("X-NetBird-Groups"),
+	assert.Equal(t, "engineering,operations", pr.Out.Header.Get(headerNetBirdGroups),
 		"group display names must be CSV-joined in positional order")
+}
+
+// TestStampNetBirdIdentity_GroupsOnlyWhenEmailEmpty covers the
+// tunnel-peer-without-user case (machine agents, unattached proxy peers).
+// The proxy must still stamp the peer's groups so downstream services can
+// authorise, but X-NetBird-User stays unset — only its inbound stripping
+// must happen.
+func TestStampNetBirdIdentity_GroupsOnlyWhenEmailEmpty(t *testing.T) {
+	target, _ := url.Parse("http://backend.internal:8080")
+	p := &ReverseProxy{forwardedProto: "auto"}
+	rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
+
+	pr := newProxyRequest(t, "http://example.com/", "203.0.113.50:9999")
+	pr.In.Header.Set(headerNetBirdUser, "spoofed@evil.io")
+	pr.Out.Header = pr.In.Header.Clone()
+
+	cd := NewCapturedData("req-1")
+	cd.SetUserGroups([]string{"grp-machines"})
+	cd.SetUserGroupNames([]string{"machines"})
+
+	pr.In = pr.In.WithContext(WithCapturedData(pr.In.Context(), cd))
+
+	rewrite(pr)
+
+	assert.Empty(t, pr.Out.Header.Get(headerNetBirdUser),
+		"X-NetBird-User must remain unset when CapturedData carries no email")
+	assert.Equal(t, "machines", pr.Out.Header.Get(headerNetBirdGroups),
+		"groups must still be stamped for peers without a user identity")
+}
+
+// TestStampNetBirdIdentity_EmailOnlyWhenGroupsEmpty covers the symmetric
+// case: identity-resolved user without resolved group memberships.
+func TestStampNetBirdIdentity_EmailOnlyWhenGroupsEmpty(t *testing.T) {
+	target, _ := url.Parse("http://backend.internal:8080")
+	p := &ReverseProxy{forwardedProto: "auto"}
+	rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
+
+	pr := newProxyRequest(t, "http://example.com/", "203.0.113.50:9999")
+	pr.In.Header.Set(headerNetBirdGroups, "spoofed-admin")
+	pr.Out.Header = pr.In.Header.Clone()
+
+	cd := NewCapturedData("req-1")
+	cd.SetUserEmail("carol@netbird.io")
+
+	pr.In = pr.In.WithContext(WithCapturedData(pr.In.Context(), cd))
+
+	rewrite(pr)
+
+	assert.Equal(t, "carol@netbird.io", pr.Out.Header.Get(headerNetBirdUser),
+		"email must be stamped even when no groups are captured")
+	assert.Empty(t, pr.Out.Header.Get(headerNetBirdGroups),
+		"X-NetBird-Groups must remain unset when CapturedData carries no groups")
 }
 
 func TestStampNetBirdIdentity_FallsBackToGroupIDsWhenNameMissing(t *testing.T) {
@@ -1120,14 +1171,40 @@ func TestStampNetBirdIdentity_FallsBackToGroupIDsWhenNameMissing(t *testing.T) {
 
 	cd := NewCapturedData("req-1")
 	cd.SetUserEmail("bob@netbird.io")
-	cd.SetUserGroups([]string{"grp-a", "grp-b"})
-	cd.SetUserGroupNames([]string{"alpha"})
+	cd.SetUserGroups([]string{"grp-a", "grp-b", "grp-c"})
+	// "grp-b" gets an explicit empty-string display name (not just a
+	// shorter slice). Both gap shapes must fall back to the id.
+	cd.SetUserGroupNames([]string{"alpha", "", ""})
 
-	withCD := pr.In.WithContext(WithCapturedData(pr.In.Context(), cd))
-	pr.In = withCD
+	pr.In = pr.In.WithContext(WithCapturedData(pr.In.Context(), cd))
 
 	rewrite(pr)
 
-	assert.Equal(t, "alpha,grp-b", pr.Out.Header.Get("X-NetBird-Groups"),
-		"positions without a name must fall back to the group id")
+	assert.Equal(t, "alpha,grp-b,grp-c", pr.Out.Header.Get(headerNetBirdGroups),
+		"empty-string and out-of-range name slots must both fall back to the group id")
+}
+
+// TestStampNetBirdIdentity_CapturedDataPresentButEmpty covers requests
+// that carry CapturedData with no identity fields populated (e.g. the
+// auth middleware ran but the request didn't authenticate). Both
+// headers must be cleared and neither stamped.
+func TestStampNetBirdIdentity_CapturedDataPresentButEmpty(t *testing.T) {
+	target, _ := url.Parse("http://backend.internal:8080")
+	p := &ReverseProxy{forwardedProto: "auto"}
+	rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
+
+	pr := newProxyRequest(t, "http://example.com/", "203.0.113.50:9999")
+	pr.In.Header.Set(headerNetBirdUser, "spoofed@evil.io")
+	pr.In.Header.Set(headerNetBirdGroups, "spoofed-admin")
+	pr.Out.Header = pr.In.Header.Clone()
+
+	cd := NewCapturedData("req-1")
+	pr.In = pr.In.WithContext(WithCapturedData(pr.In.Context(), cd))
+
+	rewrite(pr)
+
+	assert.Empty(t, pr.Out.Header.Get(headerNetBirdUser),
+		"X-NetBird-User must be stripped when CapturedData has no email")
+	assert.Empty(t, pr.Out.Header.Get(headerNetBirdGroups),
+		"X-NetBird-Groups must be stripped when CapturedData has no groups")
 }
