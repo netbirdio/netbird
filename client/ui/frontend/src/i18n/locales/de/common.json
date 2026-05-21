@@ -251,6 +251,8 @@
     "update.overlay.error.unknownMessage": "unbekannter Fehler",
     "update.overlay.error.targetVersion": "v{version}",
     "update.overlay.error.targetFallback": "die neue Version",
+    "update.error.loadStateTitle": "Laden des Update-Status fehlgeschlagen",
+    "update.error.triggerTitle": "Update-Start fehlgeschlagen",
 
     "update.page.versionLine": "Client wird aktualisiert auf: {version}.",
     "update.page.versionLineGeneric": "Client wird aktualisiert.",

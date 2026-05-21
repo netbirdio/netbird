@@ -272,6 +272,8 @@
     "update.overlay.error.unknownMessage": "unknown error",
     "update.overlay.error.targetVersion": "v{version}",
     "update.overlay.error.targetFallback": "the new version",
+    "update.error.loadStateTitle": "Load Update State Failed",
+    "update.error.triggerTitle": "Start Update Failed",
 
     "update.page.versionLine": "Updating client to: {version}.",
     "update.page.versionLineGeneric": "Updating client.",

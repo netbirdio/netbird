@@ -8,9 +8,20 @@ import {
     useState,
     type ReactNode,
 } from "react";
-import { Events } from "@wailsio/runtime";
+import { Dialogs, Events } from "@wailsio/runtime";
 import { Update as UpdateSvc, WindowManager } from "@bindings/services";
 import type { State as UpdateState } from "@bindings/updater/models.js";
+import i18next from "@/lib/i18n";
+import { formatErrorMessage } from "@/lib/errors";
+
+// Daemon-down is already surfaced globally by DaemonUnavailableOverlay and
+// (for Trigger) handled by the install window's polling-grace branch; a
+// second popup on top of those is pure noise. Every Update RPC routes
+// through the shared gRPC conn, so the Unavailable code is the marker.
+const isDaemonUnavailable = (e: unknown): boolean => {
+    const msg = e instanceof Error ? e.message : String(e);
+    return msg.includes("code = Unavailable");
+};
 
 type ClientVersionContextValue = {
     updateAvailable: boolean;
@@ -64,8 +75,12 @@ export const ClientVersionProvider = ({ children }: { children: ReactNode }) => 
                 if (cancelled || !s) return;
                 setState(s);
             })
-            .catch(() => {
-                /* daemon unreachable — leave defaults */
+            .catch((e) => {
+                if (cancelled || isDaemonUnavailable(e)) return;
+                void Dialogs.Error({
+                    Title: i18next.t("update.error.loadStateTitle"),
+                    Message: formatErrorMessage(e),
+                });
             });
         const off = Events.On(EVENT_UPDATE_STATE, (ev: { data: UpdateState }) => {
             if (ev?.data) setState(ev.data);
@@ -117,9 +132,18 @@ export const ClientVersionProvider = ({ children }: { children: ReactNode }) => 
         setUpdating(true);
         WindowManager.OpenInstallProgress(effective.version || "").catch(console.error);
         UpdateSvc.Trigger()
-            .catch(() => {
+            .catch(async (e) => {
                 // The daemon may already be down (force-install branch raced
-                // us). The install window's polling loop handles it.
+                // us). The install window's polling loop handles that case.
+                // Anything else is a real failure — close the install window
+                // (otherwise it spins forever on a daemon that won't ever
+                // produce a result) and surface the error.
+                if (isDaemonUnavailable(e)) return;
+                WindowManager.CloseInstallProgress().catch(console.error);
+                await Dialogs.Error({
+                    Title: i18next.t("update.error.triggerTitle"),
+                    Message: formatErrorMessage(e),
+                });
             })
             .finally(() => setUpdating(false));
     }, [effective.version]);

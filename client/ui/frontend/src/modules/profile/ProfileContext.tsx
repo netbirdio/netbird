@@ -14,6 +14,7 @@ import {
 } from "@bindings/services";
 import type { Profile } from "@bindings/services/models.js";
 import i18next from "@/lib/i18n";
+import { formatErrorMessage } from "@/lib/errors";
 
 const EVENT_PROFILE_CHANGED = "netbird:profile:changed";
 
@@ -66,7 +67,7 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
             }
             await Dialogs.Error({
                 Title: i18next.t("profile.error.loadTitle"),
-                Message: msg,
+                Message: formatErrorMessage(e),
             });
         } finally {
             setLoaded(true);

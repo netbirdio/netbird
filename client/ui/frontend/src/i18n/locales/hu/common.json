@@ -251,6 +251,8 @@
     "update.overlay.error.unknownMessage": "ismeretlen hiba",
     "update.overlay.error.targetVersion": "v{version}",
     "update.overlay.error.targetFallback": "az új verzió",
+    "update.error.loadStateTitle": "Frissítési állapot betöltése sikertelen",
+    "update.error.triggerTitle": "Frissítés indítása sikertelen",
 
     "update.page.versionLine": "Kliens frissítése erre: {version}.",
     "update.page.versionLineGeneric": "Kliens frissítése.",
