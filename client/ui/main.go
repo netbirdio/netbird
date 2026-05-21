@@ -192,6 +192,9 @@ func main() {
 			TitleBar:                application.MacTitleBarHiddenInset,
 			CollectionBehavior:      application.MacWindowCollectionBehaviorFullScreenNone,
 		},
+		Windows: application.WindowsWindow{
+			Theme: application.Dark,
+		},
 		Linux: application.LinuxWindow{
 			Icon: iconWindow,
 		},

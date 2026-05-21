@@ -82,6 +82,9 @@ func (s *WindowManager) OpenSettings(tab string) {
 				TitleBar:                application.MacTitleBarHiddenInset,
 				CollectionBehavior:      application.MacWindowCollectionBehaviorFullScreenNone,
 			},
+			Windows: application.WindowsWindow{
+				Theme: application.Dark,
+			},
 		})
 		s.settings.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
 			s.mu.Lock()
@@ -143,6 +146,9 @@ func (s *WindowManager) OpenBrowserLogin(uri string) {
 				Backdrop:                application.MacBackdropTranslucent,
 				TitleBar:                application.MacTitleBarHiddenInset,
 				CollectionBehavior:      application.MacWindowCollectionBehaviorFullScreenNone,
+			},
+			Windows: application.WindowsWindow{
+				Theme: application.Dark,
 			},
 		})
 		bl := s.browserLogin
@@ -250,6 +256,9 @@ func (s *WindowManager) OpenSessionExpired() {
 				TitleBar:                application.MacTitleBarHiddenInset,
 				CollectionBehavior:      application.MacWindowCollectionBehaviorFullScreenNone,
 			},
+			Windows: application.WindowsWindow{
+				Theme: application.Dark,
+			},
 		})
 		s.sessionExpired.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
 			s.mu.Lock()
@@ -301,6 +310,9 @@ func (s *WindowManager) OpenSessionAboutToExpire(seconds int) {
 				Backdrop:                application.MacBackdropTranslucent,
 				TitleBar:                application.MacTitleBarHiddenInset,
 				CollectionBehavior:      application.MacWindowCollectionBehaviorFullScreenNone,
+			},
+			Windows: application.WindowsWindow{
+				Theme: application.Dark,
 			},
 		})
 		s.sessionAboutToExpire.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
@@ -364,6 +376,9 @@ func (s *WindowManager) OpenInstallProgress(version string) {
 				Backdrop:                application.MacBackdropTranslucent,
 				TitleBar:                application.MacTitleBarHiddenInset,
 				CollectionBehavior:      application.MacWindowCollectionBehaviorFullScreenNone,
+			},
+			Windows: application.WindowsWindow{
+				Theme: application.Dark,
 			},
 		})
 		s.installProgress.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
