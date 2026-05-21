@@ -8,9 +8,9 @@ import (
 	"slices"
 	"strconv"
 
+	"github.com/DeRuina/timberjack"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/grpclog"
-	"gopkg.in/natefinch/lumberjack.v2"
 
 	"github.com/netbirdio/netbird/formatter"
 )
@@ -117,7 +117,7 @@ func isRotationDisabled(logger *log.Logger) bool {
 
 func setupLogFile(logPath string, disableRotation bool) (io.Writer, error) {
 	if disableRotation {
-		file, err := os.OpenFile(logPath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0750)
+		file, err := os.OpenFile(logPath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0640)
 		if err != nil {
 			return nil, fmt.Errorf("failed opening log file: %s", err)
 		}
@@ -128,15 +128,15 @@ func setupLogFile(logPath string, disableRotation bool) (io.Writer, error) {
 
 func newRotatedOutput(logPath string) io.Writer {
 	maxLogSize := getLogMaxSize()
-	lumberjackLogger := &lumberjack.Logger{
+	timberjackLogger := &timberjack.Logger{
 		// Log file absolute path, os agnostic
-		Filename:   filepath.ToSlash(logPath),
-		MaxSize:    maxLogSize, // MB
-		MaxBackups: 10,
-		MaxAge:     30, // days
-		Compress:   true,
+		Filename:    filepath.ToSlash(logPath),
+		MaxSize:     maxLogSize, // MB
+		MaxBackups:  10,
+		MaxAge:      30, // days
+		Compression: "gzip",
 	}
-	return lumberjackLogger
+	return timberjackLogger
 }
 
 func setGRPCLibLogger(logger *log.Logger) {
