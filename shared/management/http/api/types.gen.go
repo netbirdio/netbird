@@ -4248,7 +4248,7 @@ type ServiceTargetOptions struct {
 	// DirectUpstream When true, the proxy dials this target via the host's network stack
 	// instead of through its embedded NetBird client. Use for upstreams
 	// reachable without WireGuard (public APIs, LAN services, localhost
-	// sidecars). Default false.
+	// sidecars).
 	DirectUpstream *bool `json:"direct_upstream,omitempty"`
 
 	// PathRewrite Controls how the request path is rewritten before forwarding to the backend. Default strips the matched prefix. "preserve" keeps the full original request path.

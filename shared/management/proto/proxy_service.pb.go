@@ -2185,7 +2185,7 @@ func (x *ValidateTunnelPeerRequest) GetDomain() string {
 //	"no_user"        — peer exists but is not bound to a user
 //	"service_not_found"
 //	"account_mismatch"
-//	"not_in_group"   — user resolved but not in service.distribution_groups
+//	"not_in_group"   — peer resolved but not in service.access_groups
 type ValidateTunnelPeerResponse struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache

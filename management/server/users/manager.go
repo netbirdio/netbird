@@ -33,6 +33,7 @@ func (m *managerImpl) GetUser(ctx context.Context, userID string) (*types.User, 
 // GetUserWithGroups returns the user and the *types.Group records for the user's AutoGroups, in the same order as
 // AutoGroups. Group ids that don't resolve to a stored group are skipped from the returned slice (the parallel id list is
 // derivable from the returned User). Wraps two store calls today; can be optimised to a single JOIN later if needed.
+// Any store error returns (nil, nil, err) so callers never receive a valid user alongside a non-nil error.
 func (m *managerImpl) GetUserWithGroups(ctx context.Context, userID string) (*types.User, []*types.Group, error) {
 	user, err := m.store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
 	if err != nil {
@@ -43,7 +44,7 @@ func (m *managerImpl) GetUserWithGroups(ctx context.Context, userID string) (*ty
 	}
 	groupsMap, err := m.store.GetGroupsByIDs(ctx, store.LockingStrengthNone, user.AccountID, user.AutoGroups)
 	if err != nil {
-		return user, nil, err
+		return nil, nil, err
 	}
 	groups := make([]*types.Group, 0, len(user.AutoGroups))
 	for _, id := range user.AutoGroups {

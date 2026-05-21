@@ -113,7 +113,9 @@ func (m *managerImpl) GetPeerByTunnelIP(ctx context.Context, accountID string, i
 	return m.store.GetPeerByIP(ctx, store.LockingStrengthNone, accountID, ip)
 }
 
-// GetPeerWithGroups returns the peer plus its group memberships.
+// GetPeerWithGroups returns the peer plus its group memberships. Any store
+// error returns (nil, nil, err) so callers never receive a valid peer
+// alongside a non-nil error.
 func (m *managerImpl) GetPeerWithGroups(ctx context.Context, accountID, peerID string) (*peer.Peer, []*types.Group, error) {
 	p, err := m.store.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
 	if err != nil {
@@ -121,7 +123,7 @@ func (m *managerImpl) GetPeerWithGroups(ctx context.Context, accountID, peerID s
 	}
 	groups, err := m.store.GetPeerGroups(ctx, store.LockingStrengthNone, accountID, peerID)
 	if err != nil {
-		return p, nil, err
+		return nil, nil, err
 	}
 	return p, groups, nil
 }

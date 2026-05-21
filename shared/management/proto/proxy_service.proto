@@ -36,12 +36,12 @@ service ProxyService {
   rpc ValidateSession(ValidateSessionRequest) returns (ValidateSessionResponse);
 
   // ValidateTunnelPeer resolves an inbound peer by its WireGuard tunnel IP and
-  // checks the resolved user's access against the service's required groups.
+  // checks the resolved user's access against the service's access_groups.
   // Acts as a fast-path equivalent of OIDC for requests originating on the
   // netbird mesh: when the source IP maps to a known peer in the calling
-  // account and that peer's user is in the service's distribution_groups,
-  // the proxy can issue a session cookie without redirecting through the
-  // OIDC flow. Mirrors ValidateSession's response shape.
+  // account and that peer is in the service's access_groups, the proxy can
+  // issue a session cookie without redirecting through the OIDC flow.
+  // Mirrors ValidateSession's response shape.
   rpc ValidateTunnelPeer(ValidateTunnelPeerRequest) returns (ValidateTunnelPeerResponse);
 }
 
@@ -323,7 +323,7 @@ message ValidateTunnelPeerRequest {
 //   "no_user"        — peer exists but is not bound to a user
 //   "service_not_found"
 //   "account_mismatch"
-//   "not_in_group"   — user resolved but not in service.distribution_groups
+//   "not_in_group"   — peer resolved but not in service.access_groups
 message ValidateTunnelPeerResponse {
   bool valid = 1;
   string user_id = 2;

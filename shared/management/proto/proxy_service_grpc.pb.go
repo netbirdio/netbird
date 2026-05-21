@@ -36,12 +36,12 @@ type ProxyServiceClient interface {
 	// Called by the proxy after receiving a session token from OIDC callback.
 	ValidateSession(ctx context.Context, in *ValidateSessionRequest, opts ...grpc.CallOption) (*ValidateSessionResponse, error)
 	// ValidateTunnelPeer resolves an inbound peer by its WireGuard tunnel IP and
-	// checks the resolved user's access against the service's required groups.
+	// checks the resolved user's access against the service's access_groups.
 	// Acts as a fast-path equivalent of OIDC for requests originating on the
 	// netbird mesh: when the source IP maps to a known peer in the calling
-	// account and that peer's user is in the service's distribution_groups,
-	// the proxy can issue a session cookie without redirecting through the
-	// OIDC flow. Mirrors ValidateSession's response shape.
+	// account and that peer is in the service's access_groups, the proxy can
+	// issue a session cookie without redirecting through the OIDC flow.
+	// Mirrors ValidateSession's response shape.
 	ValidateTunnelPeer(ctx context.Context, in *ValidateTunnelPeerRequest, opts ...grpc.CallOption) (*ValidateTunnelPeerResponse, error)
 }
 
@@ -201,12 +201,12 @@ type ProxyServiceServer interface {
 	// Called by the proxy after receiving a session token from OIDC callback.
 	ValidateSession(context.Context, *ValidateSessionRequest) (*ValidateSessionResponse, error)
 	// ValidateTunnelPeer resolves an inbound peer by its WireGuard tunnel IP and
-	// checks the resolved user's access against the service's required groups.
+	// checks the resolved user's access against the service's access_groups.
 	// Acts as a fast-path equivalent of OIDC for requests originating on the
 	// netbird mesh: when the source IP maps to a known peer in the calling
-	// account and that peer's user is in the service's distribution_groups,
-	// the proxy can issue a session cookie without redirecting through the
-	// OIDC flow. Mirrors ValidateSession's response shape.
+	// account and that peer is in the service's access_groups, the proxy can
+	// issue a session cookie without redirecting through the OIDC flow.
+	// Mirrors ValidateSession's response shape.
 	ValidateTunnelPeer(context.Context, *ValidateTunnelPeerRequest) (*ValidateTunnelPeerResponse, error)
 	mustEmbedUnimplementedProxyServiceServer()
 }
