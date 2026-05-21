@@ -465,23 +465,26 @@ func postFnFlagsChanged(src uintptr, fnOn bool) {
 	cfRelease(event)
 }
 
+// fnShiftedKeycodes are the Apple navigation/edit keys that hardware produces
+// with the Fn modifier held.
+var fnShiftedKeycodes = map[uint16]struct{}{
+	0x72: {}, // Help / Insert
+	0x73: {}, // Home
+	0x74: {}, // PageUp
+	0x75: {}, // ForwardDelete
+	0x77: {}, // End
+	0x79: {}, // PageDown
+	0x7B: {}, // Left
+	0x7C: {}, // Right
+	0x7D: {}, // Down
+	0x7E: {}, // Up
+}
+
 // isFnShiftedKeycode reports whether keycode is one of the Apple
 // navigation/edit keys that hardware produces with the Fn modifier held.
 func isFnShiftedKeycode(keycode uint16) bool {
-	switch keycode {
-	case 0x72, // Help / Insert
-		0x73, // Home
-		0x74, // PageUp
-		0x75, // ForwardDelete
-		0x77, // End
-		0x79, // PageDown
-		0x7B, // Left
-		0x7C, // Right
-		0x7D, // Down
-		0x7E: // Up
-		return true
-	}
-	return false
+	_, ok := fnShiftedKeycodes[keycode]
+	return ok
 }
 
 // InjectPointer simulates mouse movement and button events.
