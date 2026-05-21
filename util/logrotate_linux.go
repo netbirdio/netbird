@@ -23,7 +23,11 @@ const (
 // indications of conflict with netbird. It returns true and the config file
 // path if a conflict was found.
 func FindFirstLogrotateConflict() (bool, string) {
-	for _, f := range listLogrotateConfigs() {
+	return findFirstLogrotateConflictIn(defaultLogrotateConfPath, defaultLogrotateConfDir)
+}
+
+func findFirstLogrotateConflictIn(confPath, confDir string) (bool, string) {
+	for _, f := range listLogrotateConfigs(confPath, confDir) {
 		present, err := scanLogrotateFile(f, netbirdString)
 		if err != nil {
 			if !errors.Is(err, fs.ErrNotExist) {
@@ -39,9 +43,9 @@ func FindFirstLogrotateConflict() (bool, string) {
 }
 
 // listLogrotateConfigs returns all config files for logrotate.
-func listLogrotateConfigs() []string {
-	files := []string{defaultLogrotateConfPath}
-	entries, err := os.ReadDir(defaultLogrotateConfDir)
+func listLogrotateConfigs(confPath, confDir string) []string {
+	files := []string{confPath}
+	entries, err := os.ReadDir(confDir)
 	if err != nil {
 		return files
 	}
@@ -49,7 +53,7 @@ func listLogrotateConfigs() []string {
 		if e.IsDir() {
 			continue
 		}
-		files = append(files, filepath.Join(defaultLogrotateConfDir, e.Name()))
+		files = append(files, filepath.Join(confDir, e.Name()))
 	}
 	return files
 }
