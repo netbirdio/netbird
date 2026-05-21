@@ -2399,7 +2399,7 @@ func TestSqlStore_GetNetworkRouterByID(t *testing.T) {
 	}
 }
 
-func TestSqlStore_SaveNetworkRouter(t *testing.T) {
+func TestSqlStore_CreateNetworkRouter(t *testing.T) {
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
@@ -2410,12 +2410,45 @@ func TestSqlStore_SaveNetworkRouter(t *testing.T) {
 	netRouter, err := routerTypes.NewNetworkRouter(accountID, networkID, "", []string{"net-router-grp"}, true, 0, true)
 	require.NoError(t, err)
 
-	err = store.SaveNetworkRouter(context.Background(), netRouter)
+	err = store.CreateNetworkRouter(context.Background(), netRouter)
 	require.NoError(t, err)
 
 	savedNetRouter, err := store.GetNetworkRouterByID(context.Background(), LockingStrengthNone, accountID, netRouter.ID)
 	require.NoError(t, err)
 	require.Equal(t, netRouter, savedNetRouter)
+}
+
+func TestSqlStore_UpdateNetworkRouter(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	networkID := "ct286bi7qv930dsrrug0"
+	routerID := "ctc20ji7qv9ck2sebc80"
+
+	netRouter := &routerTypes.NetworkRouter{
+		ID:         routerID,
+		AccountID:  accountID,
+		NetworkID:  networkID,
+		Peer:       "",
+		PeerGroups: []string{"net-router-grp"},
+		Masquerade: true,
+		Metric:     42,
+		Enabled:    true,
+	}
+
+	err = store.UpdateNetworkRouter(context.Background(), netRouter)
+	require.NoError(t, err)
+
+	savedNetRouter, err := store.GetNetworkRouterByID(context.Background(), LockingStrengthNone, accountID, routerID)
+	require.NoError(t, err)
+	require.Equal(t, netRouter, savedNetRouter)
+
+	// Updating a router under a different account must not match any row.
+	netRouter.AccountID = "non-existent-account"
+	err = store.UpdateNetworkRouter(context.Background(), netRouter)
+	require.Error(t, err)
 }
 
 func TestSqlStore_DeleteNetworkRouter(t *testing.T) {
