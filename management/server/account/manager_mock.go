@@ -122,6 +122,18 @@ func (mr *MockManagerMockRecorder) BufferUpdateAccountPeers(ctx, accountID, reas
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BufferUpdateAccountPeers", reflect.TypeOf((*MockManager)(nil).BufferUpdateAccountPeers), ctx, accountID, reason)
 }
 
+// BufferUpdateAffectedPeers mocks base method.
+func (m *MockManager) BufferUpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string, reason types.UpdateReason) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "BufferUpdateAffectedPeers", ctx, accountID, peerIDs, reason)
+}
+
+// BufferUpdateAffectedPeers indicates an expected call of BufferUpdateAffectedPeers.
+func (mr *MockManagerMockRecorder) BufferUpdateAffectedPeers(ctx, accountID, peerIDs, reason interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BufferUpdateAffectedPeers", reflect.TypeOf((*MockManager)(nil).BufferUpdateAffectedPeers), ctx, accountID, peerIDs, reason)
+}
+
 // BuildUserInfosForAccount mocks base method.
 func (m *MockManager) BuildUserInfosForAccount(ctx context.Context, accountID, initiatorUserID string, accountUsers []*types.User) (map[string]*types.UserInfo, error) {
 	m.ctrl.T.Helper()
@@ -1620,6 +1632,18 @@ func (m *MockManager) UpdateAccountPeers(ctx context.Context, accountID string, 
 func (mr *MockManagerMockRecorder) UpdateAccountPeers(ctx, accountID, reason interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAccountPeers", reflect.TypeOf((*MockManager)(nil).UpdateAccountPeers), ctx, accountID, reason)
+}
+
+// UpdateAffectedPeers mocks base method.
+func (m *MockManager) UpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "UpdateAffectedPeers", ctx, accountID, peerIDs)
+}
+
+// UpdateAffectedPeers indicates an expected call of UpdateAffectedPeers.
+func (mr *MockManagerMockRecorder) UpdateAffectedPeers(ctx, accountID, peerIDs interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAffectedPeers", reflect.TypeOf((*MockManager)(nil).UpdateAffectedPeers), ctx, accountID, peerIDs)
 }
 
 // UpdateAccountSettings mocks base method.

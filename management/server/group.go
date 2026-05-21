@@ -9,15 +9,12 @@ import (
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
-	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
-	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
-	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -79,7 +76,7 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 	}
 
 	var eventsToStore []func()
-	var updateAccountPeers bool
+	var affectedPeerIDs []string
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err = validateNewGroup(ctx, transaction, accountID, newGroup); err != nil {
@@ -90,11 +87,6 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 
 		events := am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
 		eventsToStore = append(eventsToStore, events...)
-
-		updateAccountPeers, err = areGroupChangesAffectPeers(ctx, transaction, accountID, []string{newGroup.ID})
-		if err != nil {
-			return err
-		}
 
 		seq, err := transaction.AllocateAccountSeqID(ctx, accountID, types.AccountSeqEntityGroup)
 		if err != nil {
@@ -112,6 +104,9 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 			}
 		}
 
+		groupIDs, directPeerIDs := collectGroupChangeAffectedGroups(ctx, transaction, accountID, []string{newGroup.ID})
+		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, groupIDs, directPeerIDs)
+
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
@@ -122,8 +117,11 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 		storeEvent()
 	}
 
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationCreate})
+	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("CreateGroup %s: updating %d affected peers: %v", newGroup.ID, len(affectedPeerIDs), affectedPeerIDs)
+		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("CreateGroup %s: no affected peers", newGroup.ID)
 	}
 
 	return nil
@@ -140,7 +138,7 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 	}
 
 	var eventsToStore []func()
-	var updateAccountPeers bool
+	var affectedPeerIDs []string
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err = validateNewGroup(ctx, transaction, accountID, newGroup); err != nil {
@@ -171,11 +169,6 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 			}
 		}
 
-		updateAccountPeers, err = areGroupChangesAffectPeers(ctx, transaction, accountID, []string{newGroup.ID})
-		if err != nil {
-			return err
-		}
-
 		newGroup.AccountSeqID = oldGroup.AccountSeqID
 
 		if err = transaction.UpdateGroup(ctx, newGroup); err != nil {
@@ -185,6 +178,9 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 		if err = am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, []string{newGroup.ID}); err != nil {
 			return err
 		}
+
+		groupIDs, directPeerIDs := collectGroupChangeAffectedGroups(ctx, transaction, accountID, []string{newGroup.ID})
+		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, groupIDs, directPeerIDs)
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
@@ -196,8 +192,11 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 		storeEvent()
 	}
 
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
+	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("UpdateGroup %s: updating %d affected peers: %v", newGroup.ID, len(affectedPeerIDs), affectedPeerIDs)
+		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("UpdateGroup %s: no affected peers", newGroup.ID)
 	}
 
 	return nil
@@ -217,7 +216,6 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 	}
 
 	var eventsToStore []func()
-	var updateAccountPeers bool
 
 	var globalErr error
 	groupIDs := make([]string, 0, len(groups))
@@ -261,17 +259,17 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 		}
 	}
 
-	updateAccountPeers, err = areGroupChangesAffectPeers(ctx, am.Store, accountID, groupIDs)
-	if err != nil {
-		return err
-	}
-
 	for _, storeEvent := range eventsToStore {
 		storeEvent()
 	}
 
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationCreate})
+	allGroupIDs, directPeerIDs := collectGroupChangeAffectedGroups(ctx, am.Store, accountID, groupIDs)
+	affectedPeerIDs := am.resolvePeerIDs(ctx, am.Store, accountID, allGroupIDs, directPeerIDs)
+	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("CreateGroups %v: updating %d affected peers: %v", groupIDs, len(affectedPeerIDs), affectedPeerIDs)
+		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("CreateGroups %v: no affected peers", groupIDs)
 	}
 
 	return globalErr
@@ -291,7 +289,6 @@ func (am *DefaultAccountManager) UpdateGroups(ctx context.Context, accountID, us
 	}
 
 	var eventsToStore []func()
-	var updateAccountPeers bool
 
 	var globalErr error
 	groupIDs := make([]string, 0, len(groups))
@@ -309,17 +306,17 @@ func (am *DefaultAccountManager) UpdateGroups(ctx context.Context, accountID, us
 		groupIDs = append(groupIDs, newGroup.ID)
 	}
 
-	updateAccountPeers, err = areGroupChangesAffectPeers(ctx, am.Store, accountID, groupIDs)
-	if err != nil {
-		return err
-	}
-
 	for _, storeEvent := range eventsToStore {
 		storeEvent()
 	}
 
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
+	allGroupIDs, directPeerIDs := collectGroupChangeAffectedGroups(ctx, am.Store, accountID, groupIDs)
+	affectedPeerIDs := am.resolvePeerIDs(ctx, am.Store, accountID, allGroupIDs, directPeerIDs)
+	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("UpdateGroups %v: updating %d affected peers: %v", groupIDs, len(affectedPeerIDs), affectedPeerIDs)
+		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("UpdateGroups %v: no affected peers", groupIDs)
 	}
 
 	return globalErr
@@ -508,15 +505,10 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 
 // GroupAddPeer appends peer to the group
 func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, groupID, peerID string) error {
-	var updateAccountPeers bool
+	var affectedPeerIDs []string
 	var err error
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		updateAccountPeers, err = areGroupChangesAffectPeers(ctx, transaction, accountID, []string{groupID})
-		if err != nil {
-			return err
-		}
-
 		if err = transaction.AddPeerToGroup(ctx, accountID, peerID, groupID); err != nil {
 			return err
 		}
@@ -525,14 +517,20 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 			return err
 		}
 
+		allGroupIDs, directPeerIDs := collectGroupChangeAffectedGroups(ctx, transaction, accountID, []string{groupID})
+		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, allGroupIDs, directPeerIDs)
+
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
 		return err
 	}
 
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
+	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("GroupAddPeer group=%s peer=%s: updating %d affected peers: %v", groupID, peerID, len(affectedPeerIDs), affectedPeerIDs)
+		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("GroupAddPeer group=%s peer=%s: no affected peers", groupID, peerID)
 	}
 
 	return nil
@@ -541,7 +539,7 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 // GroupAddResource appends resource to the group
 func (am *DefaultAccountManager) GroupAddResource(ctx context.Context, accountID, groupID string, resource types.Resource) error {
 	var group *types.Group
-	var updateAccountPeers bool
+	var affectedPeerIDs []string
 	var err error
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
@@ -554,14 +552,12 @@ func (am *DefaultAccountManager) GroupAddResource(ctx context.Context, accountID
 			return nil
 		}
 
-		updateAccountPeers, err = areGroupChangesAffectPeers(ctx, transaction, accountID, []string{groupID})
-		if err != nil {
-			return err
-		}
-
 		if err = transaction.UpdateGroup(ctx, group); err != nil {
 			return err
 		}
+
+		allGroupIDs, directPeerIDs := collectGroupChangeAffectedGroups(ctx, transaction, accountID, []string{groupID})
+		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, allGroupIDs, directPeerIDs)
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
@@ -569,8 +565,11 @@ func (am *DefaultAccountManager) GroupAddResource(ctx context.Context, accountID
 		return err
 	}
 
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
+	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("GroupAddResource group=%s resource=%s: updating %d affected peers: %v", groupID, resource.ID, len(affectedPeerIDs), affectedPeerIDs)
+		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("GroupAddResource group=%s resource=%s: no affected peers", groupID, resource.ID)
 	}
 
 	return nil
@@ -578,14 +577,13 @@ func (am *DefaultAccountManager) GroupAddResource(ctx context.Context, accountID
 
 // GroupDeletePeer removes peer from the group
 func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID, groupID, peerID string) error {
-	var updateAccountPeers bool
+	var affectedPeerIDs []string
 	var err error
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		updateAccountPeers, err = areGroupChangesAffectPeers(ctx, transaction, accountID, []string{groupID})
-		if err != nil {
-			return err
-		}
+		// Resolve before removing, so the peer being removed is still included
+		allGroupIDs, directPeerIDs := collectGroupChangeAffectedGroups(ctx, transaction, accountID, []string{groupID})
+		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, allGroupIDs, directPeerIDs)
 
 		if err = transaction.RemovePeerFromGroup(ctx, peerID, groupID); err != nil {
 			return err
@@ -601,8 +599,11 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 		return err
 	}
 
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
+	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("GroupDeletePeer group=%s peer=%s: updating %d affected peers: %v", groupID, peerID, len(affectedPeerIDs), affectedPeerIDs)
+		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("GroupDeletePeer group=%s peer=%s: no affected peers", groupID, peerID)
 	}
 
 	return nil
@@ -611,7 +612,7 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 // GroupDeleteResource removes resource from the group
 func (am *DefaultAccountManager) GroupDeleteResource(ctx context.Context, accountID, groupID string, resource types.Resource) error {
 	var group *types.Group
-	var updateAccountPeers bool
+	var affectedPeerIDs []string
 	var err error
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
@@ -624,14 +625,12 @@ func (am *DefaultAccountManager) GroupDeleteResource(ctx context.Context, accoun
 			return nil
 		}
 
-		updateAccountPeers, err = areGroupChangesAffectPeers(ctx, transaction, accountID, []string{groupID})
-		if err != nil {
-			return err
-		}
-
 		if err = transaction.UpdateGroup(ctx, group); err != nil {
 			return err
 		}
+
+		allGroupIDs, directPeerIDs := collectGroupChangeAffectedGroups(ctx, transaction, accountID, []string{groupID})
+		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, allGroupIDs, directPeerIDs)
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
@@ -639,8 +638,11 @@ func (am *DefaultAccountManager) GroupDeleteResource(ctx context.Context, accoun
 		return err
 	}
 
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceGroup, Operation: types.UpdateOperationUpdate})
+	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("GroupDeleteResource group=%s resource=%s: updating %d affected peers: %v", groupID, resource.ID, len(affectedPeerIDs), affectedPeerIDs)
+		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("GroupDeleteResource group=%s resource=%s: no affected peers", groupID, resource.ID)
 	}
 
 	return nil
@@ -670,231 +672,4 @@ func validateNewGroup(ctx context.Context, transaction store.Store, accountID st
 	}
 
 	return nil
-}
-
-func validateDeleteGroup(ctx context.Context, transaction store.Store, group *types.Group, userID string, flowGroups []string) error {
-	// disable a deleting integration group if the initiator is not an admin service user
-	if group.Issued == types.GroupIssuedIntegration {
-		executingUser, err := transaction.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
-		if err != nil {
-			return status.Errorf(status.Internal, "failed to get user")
-		}
-		if executingUser.Role != types.UserRoleAdmin || !executingUser.IsServiceUser {
-			return status.Errorf(status.PermissionDenied, "only service users with admin power can delete integration group")
-		}
-	}
-
-	if group.IsGroupAll() {
-		return status.Errorf(status.InvalidArgument, "deleting group ALL is not allowed")
-	}
-
-	if len(group.Resources) > 0 {
-		return &GroupLinkError{"network resource", group.Resources[0].ID}
-	}
-
-	if slices.Contains(flowGroups, group.ID) {
-		return &GroupLinkError{"settings", "traffic event logging"}
-	}
-
-	if isLinked, linkedRoute := isGroupLinkedToRoute(ctx, transaction, group.AccountID, group.ID); isLinked {
-		return &GroupLinkError{"route", string(linkedRoute.NetID)}
-	}
-
-	if isLinked, linkedDns := isGroupLinkedToDns(ctx, transaction, group.AccountID, group.ID); isLinked {
-		return &GroupLinkError{"name server groups", linkedDns.Name}
-	}
-
-	if isLinked, linkedPolicy := isGroupLinkedToPolicy(ctx, transaction, group.AccountID, group.ID); isLinked {
-		return &GroupLinkError{"policy", linkedPolicy.Name}
-	}
-
-	if isLinked, linkedSetupKey := isGroupLinkedToSetupKey(ctx, transaction, group.AccountID, group.ID); isLinked {
-		return &GroupLinkError{"setup key", linkedSetupKey.Name}
-	}
-
-	if isLinked, linkedUser := isGroupLinkedToUser(ctx, transaction, group.AccountID, group.ID); isLinked {
-		return &GroupLinkError{"user", linkedUser.Id}
-	}
-
-	if isLinked, linkedRouter := isGroupLinkedToNetworkRouter(ctx, transaction, group.AccountID, group.ID); isLinked {
-		return &GroupLinkError{"network router", linkedRouter.ID}
-	}
-
-	return checkGroupLinkedToSettings(ctx, transaction, group)
-}
-
-// checkGroupLinkedToSettings verifies if a group is linked to any settings in the account.
-func checkGroupLinkedToSettings(ctx context.Context, transaction store.Store, group *types.Group) error {
-	dnsSettings, err := transaction.GetAccountDNSSettings(ctx, store.LockingStrengthNone, group.AccountID)
-	if err != nil {
-		return status.Errorf(status.Internal, "failed to get DNS settings")
-	}
-
-	if slices.Contains(dnsSettings.DisabledManagementGroups, group.ID) {
-		return &GroupLinkError{"disabled DNS management groups", group.Name}
-	}
-
-	settings, err := transaction.GetAccountSettings(ctx, store.LockingStrengthNone, group.AccountID)
-	if err != nil {
-		return status.Errorf(status.Internal, "failed to get account settings")
-	}
-
-	if settings.Extra != nil && slices.Contains(settings.Extra.IntegratedValidatorGroups, group.ID) {
-		return &GroupLinkError{"integrated validator", group.Name}
-	}
-
-	return nil
-}
-
-// isGroupLinkedToRoute checks if a group is linked to any route in the account.
-func isGroupLinkedToRoute(ctx context.Context, transaction store.Store, accountID string, groupID string) (bool, *route.Route) {
-	routes, err := transaction.GetAccountRoutes(ctx, store.LockingStrengthNone, accountID)
-	if err != nil {
-		log.WithContext(ctx).Errorf("error retrieving routes while checking group linkage: %v", err)
-		return false, nil
-	}
-
-	for _, r := range routes {
-		isLinked := slices.Contains(r.Groups, groupID) ||
-			slices.Contains(r.PeerGroups, groupID) ||
-			slices.Contains(r.AccessControlGroups, groupID)
-		if isLinked {
-			return true, r
-		}
-	}
-
-	return false, nil
-}
-
-// isGroupLinkedToPolicy checks if a group is linked to any policy in the account.
-func isGroupLinkedToPolicy(ctx context.Context, transaction store.Store, accountID string, groupID string) (bool, *types.Policy) {
-	policies, err := transaction.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
-	if err != nil {
-		log.WithContext(ctx).Errorf("error retrieving policies while checking group linkage: %v", err)
-		return false, nil
-	}
-
-	for _, policy := range policies {
-		for _, rule := range policy.Rules {
-			if slices.Contains(rule.Sources, groupID) || slices.Contains(rule.Destinations, groupID) {
-				return true, policy
-			}
-		}
-	}
-	return false, nil
-}
-
-// isGroupLinkedToDns checks if a group is linked to any nameserver group in the account.
-func isGroupLinkedToDns(ctx context.Context, transaction store.Store, accountID string, groupID string) (bool, *nbdns.NameServerGroup) {
-	nameServerGroups, err := transaction.GetAccountNameServerGroups(ctx, store.LockingStrengthNone, accountID)
-	if err != nil {
-		log.WithContext(ctx).Errorf("error retrieving name server groups while checking group linkage: %v", err)
-		return false, nil
-	}
-
-	for _, dns := range nameServerGroups {
-		for _, g := range dns.Groups {
-			if g == groupID {
-				return true, dns
-			}
-		}
-	}
-
-	return false, nil
-}
-
-// isGroupLinkedToSetupKey checks if a group is linked to any setup key in the account.
-func isGroupLinkedToSetupKey(ctx context.Context, transaction store.Store, accountID string, groupID string) (bool, *types.SetupKey) {
-	setupKeys, err := transaction.GetAccountSetupKeys(ctx, store.LockingStrengthNone, accountID)
-	if err != nil {
-		log.WithContext(ctx).Errorf("error retrieving setup keys while checking group linkage: %v", err)
-		return false, nil
-	}
-
-	for _, setupKey := range setupKeys {
-		if slices.Contains(setupKey.AutoGroups, groupID) {
-			return true, setupKey
-		}
-	}
-	return false, nil
-}
-
-// isGroupLinkedToUser checks if a group is linked to any user in the account.
-func isGroupLinkedToUser(ctx context.Context, transaction store.Store, accountID string, groupID string) (bool, *types.User) {
-	users, err := transaction.GetAccountUsers(ctx, store.LockingStrengthNone, accountID)
-	if err != nil {
-		log.WithContext(ctx).Errorf("error retrieving users while checking group linkage: %v", err)
-		return false, nil
-	}
-
-	for _, user := range users {
-		if slices.Contains(user.AutoGroups, groupID) {
-			return true, user
-		}
-	}
-	return false, nil
-}
-
-// isGroupLinkedToNetworkRouter checks if a group is linked to any network router in the account.
-func isGroupLinkedToNetworkRouter(ctx context.Context, transaction store.Store, accountID string, groupID string) (bool, *routerTypes.NetworkRouter) {
-	routers, err := transaction.GetNetworkRoutersByAccountID(ctx, store.LockingStrengthNone, accountID)
-	if err != nil {
-		log.WithContext(ctx).Errorf("error retrieving network routers while checking group linkage: %v", err)
-		return false, nil
-	}
-
-	for _, router := range routers {
-		if slices.Contains(router.PeerGroups, groupID) {
-			return true, router
-		}
-	}
-	return false, nil
-}
-
-// areGroupChangesAffectPeers checks if any changes to the specified groups will affect peers.
-func areGroupChangesAffectPeers(ctx context.Context, transaction store.Store, accountID string, groupIDs []string) (bool, error) {
-	if len(groupIDs) == 0 {
-		return false, nil
-	}
-
-	dnsSettings, err := transaction.GetAccountDNSSettings(ctx, store.LockingStrengthNone, accountID)
-	if err != nil {
-		return false, err
-	}
-
-	for _, groupID := range groupIDs {
-		if slices.Contains(dnsSettings.DisabledManagementGroups, groupID) {
-			return true, nil
-		}
-		if linked, _ := isGroupLinkedToDns(ctx, transaction, accountID, groupID); linked {
-			return true, nil
-		}
-		if linked, _ := isGroupLinkedToPolicy(ctx, transaction, accountID, groupID); linked {
-			return true, nil
-		}
-		if linked, _ := isGroupLinkedToRoute(ctx, transaction, accountID, groupID); linked {
-			return true, nil
-		}
-		if linked, _ := isGroupLinkedToNetworkRouter(ctx, transaction, accountID, groupID); linked {
-			return true, nil
-		}
-	}
-
-	return false, nil
-}
-
-// anyGroupHasPeersOrResources checks if any of the given groups in the account have peers or resources.
-func anyGroupHasPeersOrResources(ctx context.Context, transaction store.Store, accountID string, groupIDs []string) (bool, error) {
-	groups, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthNone, accountID, groupIDs)
-	if err != nil {
-		return false, err
-	}
-
-	for _, group := range groups {
-		if group.HasPeers() || group.HasResources() {
-			return true, nil
-		}
-	}
-
-	return false, nil
 }

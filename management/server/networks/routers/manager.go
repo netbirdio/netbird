@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -15,7 +16,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
-	serverTypes "github.com/netbirdio/netbird/management/server/types"
+	nbtypes "github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -90,6 +91,7 @@ func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *t
 	}
 
 	var network *networkTypes.Network
+	var affectedData *routerAffectedPeersData
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		network, err = transaction.GetNetworkByID(ctx, store.LockingStrengthNone, router.AccountID, router.NetworkID)
 		if err != nil {
@@ -102,7 +104,7 @@ func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *t
 
 		router.ID = xid.New().String()
 
-		seq, err := transaction.AllocateAccountSeqID(ctx, router.AccountID, serverTypes.AccountSeqEntityNetworkRouter)
+		seq, err := transaction.AllocateAccountSeqID(ctx, router.AccountID, nbtypes.AccountSeqEntityNetworkRouter)
 		if err != nil {
 			return fmt.Errorf("failed to allocate network router seq id: %w", err)
 		}
@@ -118,6 +120,11 @@ func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *t
 			return fmt.Errorf("failed to increment network serial: %w", err)
 		}
 
+		affectedData, err = loadRouterAffectedPeersData(ctx, transaction, router.AccountID, router.NetworkID, router.PeerGroups, router.Peer)
+		if err != nil {
+			log.WithContext(ctx).Errorf("failed to load affected peers data: %v", err)
+		}
+
 		return nil
 	})
 	if err != nil {
@@ -126,7 +133,12 @@ func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *t
 
 	m.accountManager.StoreEvent(ctx, userID, router.ID, router.AccountID, activity.NetworkRouterCreated, router.EventMeta(network))
 
-	go m.accountManager.UpdateAccountPeers(ctx, router.AccountID, serverTypes.UpdateReason{Resource: serverTypes.UpdateResourceNetworkRouter, Operation: serverTypes.UpdateOperationCreate})
+	if affectedPeerIDs := m.resolveRouterAffectedPeers(ctx, router.AccountID, affectedData); len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("CreateRouter %s: updating %d affected peers: %v", router.ID, len(affectedPeerIDs), affectedPeerIDs)
+		go m.accountManager.UpdateAffectedPeers(ctx, router.AccountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("CreateRouter %s: no affected peers", router.ID)
+	}
 
 	return router, nil
 }
@@ -162,43 +174,11 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 	}
 
 	var network *networkTypes.Network
+	var affectedData *routerAffectedPeersData
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		network, err = transaction.GetNetworkByID(ctx, store.LockingStrengthNone, router.AccountID, router.NetworkID)
-		if err != nil {
-			return fmt.Errorf("failed to get network: %w", err)
-		}
-
-		if network.ID != router.NetworkID {
-			return status.NewRouterNotPartOfNetworkError(router.ID, router.NetworkID)
-		}
-
-		oldRouter, err := transaction.GetNetworkRouterByID(ctx, store.LockingStrengthNone, router.AccountID, router.ID)
-		if err == nil {
-			router.AccountSeqID = oldRouter.AccountSeqID
-		} else if e, ok := status.FromError(err); ok && e.Type() == status.NotFound {
-			// PUT-as-upsert: caller may target a brand-new router id (used by
-			// the dashboard's "save" flow). Allocate a fresh account_seq_id so
-			// the upsert behaves the same as Create().
-			seq, allocErr := transaction.AllocateAccountSeqID(ctx, router.AccountID, serverTypes.AccountSeqEntityNetworkRouter)
-			if allocErr != nil {
-				return fmt.Errorf("failed to allocate network router seq id: %w", allocErr)
-			}
-			router.AccountSeqID = seq
-		} else {
-			return fmt.Errorf("failed to get existing network router: %w", err)
-		}
-
-		err = transaction.SaveNetworkRouter(ctx, router)
-		if err != nil {
-			return fmt.Errorf("failed to update network router: %w", err)
-		}
-
-		err = transaction.IncrementNetworkSerial(ctx, router.AccountID)
-		if err != nil {
-			return fmt.Errorf("failed to increment network serial: %w", err)
-		}
-
-		return nil
+		var txErr error
+		network, affectedData, txErr = m.updateRouterInTransaction(ctx, transaction, router)
+		return txErr
 	})
 	if err != nil {
 		return nil, err
@@ -206,9 +186,62 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 
 	m.accountManager.StoreEvent(ctx, userID, router.ID, router.AccountID, activity.NetworkRouterUpdated, router.EventMeta(network))
 
-	go m.accountManager.UpdateAccountPeers(ctx, router.AccountID, serverTypes.UpdateReason{Resource: serverTypes.UpdateResourceNetworkRouter, Operation: serverTypes.UpdateOperationUpdate})
+	if affectedPeerIDs := m.resolveRouterAffectedPeers(ctx, router.AccountID, affectedData); len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("UpdateRouter %s: updating %d affected peers: %v", router.ID, len(affectedPeerIDs), affectedPeerIDs)
+		go m.accountManager.UpdateAffectedPeers(ctx, router.AccountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("UpdateRouter %s: no affected peers", router.ID)
+	}
 
 	return router, nil
+}
+
+func (m *managerImpl) updateRouterInTransaction(ctx context.Context, transaction store.Store, router *types.NetworkRouter) (*networkTypes.Network, *routerAffectedPeersData, error) {
+	network, err := transaction.GetNetworkByID(ctx, store.LockingStrengthNone, router.AccountID, router.NetworkID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get network: %w", err)
+	}
+
+	if network.ID != router.NetworkID {
+		return nil, nil, status.NewRouterNotPartOfNetworkError(router.ID, router.NetworkID)
+	}
+
+	allPeerGroups := router.PeerGroups
+	var directPeers []string
+	if router.Peer != "" {
+		directPeers = append(directPeers, router.Peer)
+	}
+	oldRouter, err := transaction.GetNetworkRouterByID(ctx, store.LockingStrengthNone, router.AccountID, router.ID)
+	if err == nil {
+		router.AccountSeqID = oldRouter.AccountSeqID
+		allPeerGroups = append(allPeerGroups, oldRouter.PeerGroups...)
+		if oldRouter.Peer != "" {
+			directPeers = append(directPeers, oldRouter.Peer)
+		}
+	} else if e, ok := status.FromError(err); ok && e.Type() == status.NotFound {
+		seq, allocErr := transaction.AllocateAccountSeqID(ctx, router.AccountID, nbtypes.AccountSeqEntityNetworkRouter)
+		if allocErr != nil {
+			return nil, nil, fmt.Errorf("failed to allocate network router seq id: %w", allocErr)
+		}
+		router.AccountSeqID = seq
+	} else {
+		return nil, nil, fmt.Errorf("failed to get existing network router: %w", err)
+	}
+
+	if err = transaction.SaveNetworkRouter(ctx, router); err != nil {
+		return nil, nil, fmt.Errorf("failed to update network router: %w", err)
+	}
+
+	if err = transaction.IncrementNetworkSerial(ctx, router.AccountID); err != nil {
+		return nil, nil, fmt.Errorf("failed to increment network serial: %w", err)
+	}
+
+	affectedData, err := loadRouterAffectedPeersData(ctx, transaction, router.AccountID, router.NetworkID, allPeerGroups, directPeers...)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to load affected peers data: %v", err)
+	}
+
+	return network, affectedData, nil
 }
 
 func (m *managerImpl) DeleteRouter(ctx context.Context, accountID, userID, networkID, routerID string) error {
@@ -221,7 +254,19 @@ func (m *managerImpl) DeleteRouter(ctx context.Context, accountID, userID, netwo
 	}
 
 	var event func()
+	var affectedData *routerAffectedPeersData
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		router, err := transaction.GetNetworkRouterByID(ctx, store.LockingStrengthNone, accountID, routerID)
+		if err != nil {
+			return fmt.Errorf("failed to get router: %w", err)
+		}
+
+		// load before delete so group memberships are still present
+		affectedData, err = loadRouterAffectedPeersData(ctx, transaction, accountID, networkID, router.PeerGroups, router.Peer)
+		if err != nil {
+			log.WithContext(ctx).Errorf("failed to load affected peers data: %v", err)
+		}
+
 		event, err = m.DeleteRouterInTransaction(ctx, transaction, accountID, userID, networkID, routerID)
 		if err != nil {
 			return fmt.Errorf("failed to delete network router: %w", err)
@@ -240,7 +285,12 @@ func (m *managerImpl) DeleteRouter(ctx context.Context, accountID, userID, netwo
 
 	event()
 
-	go m.accountManager.UpdateAccountPeers(ctx, accountID, serverTypes.UpdateReason{Resource: serverTypes.UpdateResourceNetworkRouter, Operation: serverTypes.UpdateOperationDelete})
+	if affectedPeerIDs := m.resolveRouterAffectedPeers(ctx, accountID, affectedData); len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("DeleteRouter %s: updating %d affected peers: %v", routerID, len(affectedPeerIDs), affectedPeerIDs)
+		go m.accountManager.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("DeleteRouter %s: no affected peers", routerID)
+	}
 
 	return nil
 }
@@ -270,6 +320,153 @@ func (m *managerImpl) DeleteRouterInTransaction(ctx context.Context, transaction
 	}
 
 	return event, nil
+}
+
+// routerAffectedPeersData holds data loaded inside a transaction for affected peer resolution.
+type routerAffectedPeersData struct {
+	routerPeerGroups []string
+	directPeerIDs    []string
+	resourceGroupIDs []string
+	policies         []*nbtypes.Policy
+}
+
+// loadRouterAffectedPeersData loads the data needed to determine affected peers within a transaction.
+func loadRouterAffectedPeersData(ctx context.Context, transaction store.Store, accountID, networkID string, routerPeerGroups []string, directPeers ...string) (*routerAffectedPeersData, error) {
+	var directPeerIDs []string
+	for _, p := range directPeers {
+		if p != "" {
+			directPeerIDs = append(directPeerIDs, p)
+		}
+	}
+
+	if len(routerPeerGroups) == 0 && len(directPeerIDs) == 0 {
+		return &routerAffectedPeersData{}, nil
+	}
+
+	resources, err := transaction.GetNetworkResourcesByNetID(ctx, store.LockingStrengthNone, accountID, networkID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get network resources: %w", err)
+	}
+
+	var resourceGroupIDs []string
+	for _, resource := range resources {
+		if !resource.Enabled {
+			continue
+		}
+		groups, err := transaction.GetResourceGroups(ctx, store.LockingStrengthNone, accountID, resource.ID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get groups for resource %s: %w", resource.ID, err)
+		}
+		for _, g := range groups {
+			resourceGroupIDs = append(resourceGroupIDs, g.ID)
+		}
+	}
+
+	var policies []*nbtypes.Policy
+	if len(resourceGroupIDs) > 0 {
+		policies, err = transaction.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get policies: %w", err)
+		}
+	}
+
+	return &routerAffectedPeersData{
+		routerPeerGroups: routerPeerGroups,
+		directPeerIDs:    directPeerIDs,
+		resourceGroupIDs: resourceGroupIDs,
+		policies:         policies,
+	}, nil
+}
+
+// resolveRouterAffectedPeers computes affected peer IDs from preloaded data outside the transaction.
+func (m *managerImpl) resolveRouterAffectedPeers(ctx context.Context, accountID string, data *routerAffectedPeersData) []string {
+	if data == nil {
+		return nil
+	}
+
+	log.WithContext(ctx).Tracef("resolveRouterAffectedPeers: routerPeerGroups=%v, directPeerIDs=%v, resourceGroupIDs=%v, policies=%d",
+		data.routerPeerGroups, data.directPeerIDs, data.resourceGroupIDs, len(data.policies))
+	groupSet := make(map[string]struct{})
+
+	for _, gID := range data.routerPeerGroups {
+		groupSet[gID] = struct{}{}
+	}
+
+	if len(data.resourceGroupIDs) > 0 {
+		collectPolicySourceGroups(data.policies, data.resourceGroupIDs, groupSet)
+	}
+
+	if len(groupSet) == 0 && len(data.directPeerIDs) == 0 {
+		return nil
+	}
+
+	peerIDs := resolveGroupsAndDirectPeers(ctx, m.store, accountID, groupSet, data.directPeerIDs)
+
+	log.WithContext(ctx).Tracef("resolveRouterAffectedPeers: result %d peers: %v", len(peerIDs), peerIDs)
+	return peerIDs
+}
+
+// collectPolicySourceGroups finds policies whose rules reference any of the destination group IDs
+// and adds their source groups to the groupSet.
+func collectPolicySourceGroups(policies []*nbtypes.Policy, destGroupIDs []string, groupSet map[string]struct{}) {
+	destSet := make(map[string]struct{}, len(destGroupIDs))
+	for _, gID := range destGroupIDs {
+		destSet[gID] = struct{}{}
+	}
+
+	for _, policy := range policies {
+		if policy == nil || !policy.Enabled {
+			continue
+		}
+		for _, rule := range policy.Rules {
+			if rule == nil || !rule.Enabled {
+				continue
+			}
+			if ruleMatchesDestinations(rule, destSet) {
+				for _, gID := range rule.Sources {
+					groupSet[gID] = struct{}{}
+				}
+			}
+		}
+	}
+}
+
+func ruleMatchesDestinations(rule *nbtypes.PolicyRule, destSet map[string]struct{}) bool {
+	for _, gID := range rule.Destinations {
+		if _, ok := destSet[gID]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func resolveGroupsAndDirectPeers(ctx context.Context, s store.Store, accountID string, groupSet map[string]struct{}, directPeerIDs []string) []string {
+	groupIDs := make([]string, 0, len(groupSet))
+	for gID := range groupSet {
+		groupIDs = append(groupIDs, gID)
+	}
+
+	peerIDs, err := s.GetPeerIDsByGroups(ctx, accountID, groupIDs)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to resolve peer IDs: %v", err)
+		return nil
+	}
+
+	if len(directPeerIDs) == 0 {
+		return peerIDs
+	}
+
+	seen := make(map[string]struct{}, len(peerIDs))
+	for _, id := range peerIDs {
+		seen[id] = struct{}{}
+	}
+	for _, id := range directPeerIDs {
+		if _, exists := seen[id]; !exists {
+			peerIDs = append(peerIDs, id)
+			seen[id] = struct{}{}
+		}
+	}
+	return peerIDs
 }
 
 func NewManagerMock() Manager {

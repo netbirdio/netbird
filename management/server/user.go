@@ -1161,7 +1161,8 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(ctx context.Context, accou
 		}
 	}
 
-	err = am.networkMapController.OnPeersUpdated(ctx, accountID, peerIDs)
+	affectedPeerIDs := am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, peerIDs)
+	err = am.networkMapController.OnPeersUpdated(ctx, accountID, peerIDs, affectedPeerIDs)
 	if err != nil {
 		return fmt.Errorf("notify network map controller of peer update: %w", err)
 	}
@@ -1277,6 +1278,7 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 	var userPeers []*nbpeer.Peer
 	var targetUser *types.User
 	var settings *types.Settings
+	var affectedPeerIDs []string
 	var err error
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
@@ -1297,6 +1299,14 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 
 		if len(userPeers) > 0 {
 			updateAccountPeers = true
+
+			var peerIDs []string
+			for _, peer := range userPeers {
+				peerIDs = append(peerIDs, peer.ID)
+			}
+			// Resolve before delete so group memberships are still present.
+			affectedPeerIDs = am.resolveAffectedPeersForPeerChanges(ctx, transaction, accountID, peerIDs)
+
 			addPeerRemovedEvents, err = deletePeers(ctx, am, transaction, accountID, targetUserInfo.ID, userPeers, settings)
 			if err != nil {
 				return fmt.Errorf("failed to delete user peers: %w", err)
@@ -1320,7 +1330,7 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 			log.WithContext(ctx).Errorf("failed to delete peer %s from integrated validator: %v", peer.ID, err)
 		}
 	}
-	if err := am.networkMapController.OnPeersDeleted(ctx, accountID, peerIDs); err != nil {
+	if err := am.networkMapController.OnPeersDeleted(ctx, accountID, peerIDs, affectedPeerIDs); err != nil {
 		log.WithContext(ctx).Errorf("failed to delete peers %s from network map: %v", peerIDs, err)
 	}
 

@@ -47,8 +47,8 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 		return status.NewPermissionDeniedError()
 	}
 
-	var updateAccountPeers bool
 	var eventsToStore []func()
+	var affectedPeerIDs []string
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err = validateDNSSettings(ctx, transaction, accountID, dnsSettingsToSave); err != nil {
@@ -63,17 +63,15 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 		addedGroups := util.Difference(dnsSettingsToSave.DisabledManagementGroups, oldSettings.DisabledManagementGroups)
 		removedGroups := util.Difference(oldSettings.DisabledManagementGroups, dnsSettingsToSave.DisabledManagementGroups)
 
-		updateAccountPeers, err = areDNSSettingChangesAffectPeers(ctx, transaction, accountID, addedGroups, removedGroups)
-		if err != nil {
-			return err
-		}
-
 		events := am.prepareDNSSettingsEvents(ctx, transaction, accountID, userID, addedGroups, removedGroups)
 		eventsToStore = append(eventsToStore, events...)
 
 		if err = transaction.SaveDNSSettings(ctx, accountID, dnsSettingsToSave); err != nil {
 			return err
 		}
+
+		allGroups := slices.Concat(addedGroups, removedGroups)
+		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, allGroups, nil)
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
@@ -85,8 +83,11 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 		storeEvent()
 	}
 
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourceDNSSettings, Operation: types.UpdateOperationUpdate})
+	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("SaveDNSSettings: updating %d affected peers: %v", len(affectedPeerIDs), affectedPeerIDs)
+		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("SaveDNSSettings: no affected peers")
 	}
 
 	return nil
@@ -131,20 +132,6 @@ func (am *DefaultAccountManager) prepareDNSSettingsEvents(ctx context.Context, t
 	}
 
 	return eventsToStore
-}
-
-// areDNSSettingChangesAffectPeers checks if the DNS settings changes affect any peers.
-func areDNSSettingChangesAffectPeers(ctx context.Context, transaction store.Store, accountID string, addedGroups, removedGroups []string) (bool, error) {
-	hasPeers, err := anyGroupHasPeersOrResources(ctx, transaction, accountID, addedGroups)
-	if err != nil {
-		return false, err
-	}
-
-	if hasPeers {
-		return true, nil
-	}
-
-	return anyGroupHasPeersOrResources(ctx, transaction, accountID, removedGroups)
 }
 
 // validateDNSSettings validates the DNS settings.

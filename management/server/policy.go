@@ -5,7 +5,7 @@ import (
 	_ "embed"
 
 	"github.com/rs/xid"
-	"github.com/sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
@@ -45,29 +45,25 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 	}
 
 	var isUpdate = policy.ID != ""
-	var updateAccountPeers bool
+	var existingPolicy *types.Policy
 	var action = activity.PolicyAdded
 	var unchanged bool
+	var affectedPeerIDs []string
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		existingPolicy, err := validatePolicy(ctx, transaction, accountID, policy)
+		existingPolicy, err = validatePolicy(ctx, transaction, accountID, policy)
 		if err != nil {
 			return err
 		}
 
 		if isUpdate {
 			if policy.Equal(existingPolicy) {
-				logrus.WithContext(ctx).Tracef("policy update skipped because equal to stored one - policy id %s", policy.ID)
+				log.WithContext(ctx).Tracef("policy update skipped because equal to stored one - policy id %s", policy.ID)
 				unchanged = true
 				return nil
 			}
 
 			action = activity.PolicyUpdated
-
-			updateAccountPeers, err = arePolicyChangesAffectPeersWithExisting(ctx, transaction, policy, existingPolicy)
-			if err != nil {
-				return err
-			}
 
 			policy.AccountSeqID = existingPolicy.AccountSeqID
 
@@ -75,11 +71,6 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 				return err
 			}
 		} else {
-			updateAccountPeers, err = arePolicyChangesAffectPeers(ctx, transaction, policy)
-			if err != nil {
-				return err
-			}
-
 			seq, err := transaction.AllocateAccountSeqID(ctx, accountID, types.AccountSeqEntityPolicy)
 			if err != nil {
 				return err
@@ -90,6 +81,9 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 				return err
 			}
 		}
+
+		groupIDs, directPeerIDs := collectPolicyAffectedGroupsAndPeers(ctx, policy, existingPolicy)
+		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, groupIDs, directPeerIDs)
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
@@ -103,12 +97,11 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 
 	am.StoreEvent(ctx, userID, policy.ID, accountID, action, policy.EventMeta())
 
-	if updateAccountPeers {
-		policyOp := types.UpdateOperationCreate
-		if isUpdate {
-			policyOp = types.UpdateOperationUpdate
-		}
-		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourcePolicy, Operation: policyOp})
+	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Tracef("SavePolicy %s: updating %d affected peers: %v", policy.ID, len(affectedPeerIDs), affectedPeerIDs)
+		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("SavePolicy %s: no affected peers", policy.ID)
 	}
 
 	return policy, nil
@@ -125,7 +118,7 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 	}
 
 	var policy *types.Policy
-	var updateAccountPeers bool
+	var affectedPeerIDs []string
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		policy, err = transaction.GetPolicyByID(ctx, store.LockingStrengthUpdate, accountID, policyID)
@@ -133,10 +126,8 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 			return err
 		}
 
-		updateAccountPeers, err = arePolicyChangesAffectPeers(ctx, transaction, policy)
-		if err != nil {
-			return err
-		}
+		groupIDs, directPeerIDs := collectPolicyAffectedGroupsAndPeers(ctx, policy)
+		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, groupIDs, directPeerIDs)
 
 		if err = transaction.DeletePolicy(ctx, accountID, policyID); err != nil {
 			return err
@@ -150,8 +141,11 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 
 	am.StoreEvent(ctx, userID, policyID, accountID, activity.PolicyRemoved, policy.EventMeta())
 
-	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourcePolicy, Operation: types.UpdateOperationDelete})
+	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("DeletePolicy %s: updating %d affected peers: %v", policyID, len(affectedPeerIDs), affectedPeerIDs)
+		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("DeletePolicy %s: no affected peers", policyID)
 	}
 
 	return nil
@@ -170,44 +164,28 @@ func (am *DefaultAccountManager) ListPolicies(ctx context.Context, accountID, us
 	return am.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
 }
 
-// arePolicyChangesAffectPeers checks if a policy (being created or deleted) will affect any associated peers.
-func arePolicyChangesAffectPeers(ctx context.Context, transaction store.Store, policy *types.Policy) (bool, error) {
-	for _, rule := range policy.Rules {
-		if rule.SourceResource.Type != "" || rule.DestinationResource.Type != "" {
-			return true, nil
+// collectPolicyAffectedGroupsAndPeers returns group IDs and direct peer IDs from the given policies.
+func collectPolicyAffectedGroupsAndPeers(ctx context.Context, policies ...*types.Policy) (groupIDs []string, directPeerIDs []string) {
+	for _, policy := range policies {
+		if policy == nil {
+			continue
+		}
+		ruleGroups := policy.RuleGroups()
+		log.WithContext(ctx).Tracef("collectPolicyAffectedGroupsAndPeers: policy %s (%s) ruleGroups=%v", policy.ID, policy.Name, ruleGroups)
+		groupIDs = append(groupIDs, ruleGroups...)
+		for _, rule := range policy.Rules {
+			if rule.SourceResource.Type == types.ResourceTypePeer && rule.SourceResource.ID != "" {
+				log.WithContext(ctx).Tracef("collectPolicyAffectedGroupsAndPeers: policy %s rule %s direct source peer %s", policy.ID, rule.ID, rule.SourceResource.ID)
+				directPeerIDs = append(directPeerIDs, rule.SourceResource.ID)
+			}
+			if rule.DestinationResource.Type == types.ResourceTypePeer && rule.DestinationResource.ID != "" {
+				log.WithContext(ctx).Tracef("collectPolicyAffectedGroupsAndPeers: policy %s rule %s direct destination peer %s", policy.ID, rule.ID, rule.DestinationResource.ID)
+				directPeerIDs = append(directPeerIDs, rule.DestinationResource.ID)
+			}
 		}
 	}
-
-	return anyGroupHasPeersOrResources(ctx, transaction, policy.AccountID, policy.RuleGroups())
-}
-
-func arePolicyChangesAffectPeersWithExisting(ctx context.Context, transaction store.Store, policy *types.Policy, existingPolicy *types.Policy) (bool, error) {
-	if !policy.Enabled && !existingPolicy.Enabled {
-		return false, nil
-	}
-
-	for _, rule := range existingPolicy.Rules {
-		if rule.SourceResource.Type != "" || rule.DestinationResource.Type != "" {
-			return true, nil
-		}
-	}
-
-	hasPeers, err := anyGroupHasPeersOrResources(ctx, transaction, policy.AccountID, existingPolicy.RuleGroups())
-	if err != nil {
-		return false, err
-	}
-
-	if hasPeers {
-		return true, nil
-	}
-
-	for _, rule := range policy.Rules {
-		if rule.SourceResource.Type != "" || rule.DestinationResource.Type != "" {
-			return true, nil
-		}
-	}
-
-	return anyGroupHasPeersOrResources(ctx, transaction, policy.AccountID, policy.RuleGroups())
+	log.WithContext(ctx).Tracef("collectPolicyAffectedGroupsAndPeers: result groupIDs=%v, directPeerIDs=%v", groupIDs, directPeerIDs)
+	return
 }
 
 // validatePolicy validates the policy and its rules. For updates it returns

@@ -266,7 +266,8 @@ func (s *SqlStore) AcquireGlobalLock(ctx context.Context) (unlock func()) {
 	return unlock
 }
 
-// Deprecated: Full account operations are no longer supported
+// Deprecated: Full
+// account operations are no longer supported
 func (s *SqlStore) SaveAccount(ctx context.Context, account *types.Account) error {
 	start := time.Now()
 	defer func() {
@@ -5111,6 +5112,40 @@ func (s *SqlStore) GetPeersByGroupIDs(ctx context.Context, accountID string, gro
 	return peers, nil
 }
 
+func (s *SqlStore) GetPeerIDsByGroups(ctx context.Context, accountID string, groupIDs []string) ([]string, error) {
+	if len(groupIDs) == 0 {
+		return nil, nil
+	}
+
+	var peerIDs []string
+	result := s.db.Model(&types.GroupPeer{}).
+		Select("DISTINCT peer_id").
+		Where("account_id = ? AND group_id IN ?", accountID, groupIDs).
+		Pluck("peer_id", &peerIDs)
+	if result.Error != nil {
+		return nil, status.Errorf(status.Internal, "failed to get peer IDs by groups: %s", result.Error)
+	}
+
+	return peerIDs, nil
+}
+
+func (s *SqlStore) GetGroupIDsByPeerIDs(ctx context.Context, accountID string, peerIDs []string) ([]string, error) {
+	if len(peerIDs) == 0 {
+		return nil, nil
+	}
+
+	var groupIDs []string
+	result := s.db.Model(&types.GroupPeer{}).
+		Select("DISTINCT group_id").
+		Where("account_id = ? AND peer_id IN ?", accountID, peerIDs).
+		Pluck("group_id", &groupIDs)
+	if result.Error != nil {
+		return nil, status.Errorf(status.Internal, "failed to get group IDs by peers: %s", result.Error)
+	}
+
+	return groupIDs, nil
+}
+
 func (s *SqlStore) GetUserIDByPeerKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (string, error) {
 	tx := s.db
 	if lockStrength != LockingStrengthNone {
@@ -6015,19 +6050,67 @@ func (s *SqlStore) DeleteAccountCluster(ctx context.Context, clusterAddress, acc
 	return nil
 }
 
-func (s *SqlStore) GetActiveProxyClusters(ctx context.Context, accountID string) ([]proxy.Cluster, error) {
-	var clusters []proxy.Cluster
+// GetProxyClusters returns every cluster the account can see (shared
+// plus its own BYOP), regardless of whether any proxy in the cluster
+// is currently heartbeating. Online and ConnectedProxies are derived
+// from the 2-min active window so the dashboard can render offline
+// clusters distinctly; the 1-hour heartbeat reaper still removes rows
+// that go quiet for too long.
+//
+// AccountOwned is determined by whether any proxy row in the group
+// carries a non-NULL account_id; the caller maps that to Cluster.Type.
+// Capability flags are NOT filled here — the handler enriches them via
+// the per-cluster capability lookups.
+func (s *SqlStore) GetProxyClusters(ctx context.Context, accountID string) ([]proxy.Cluster, error) {
+	activeCutoff := time.Now().Add(-proxyActiveThreshold)
 
+	type clusterRow struct {
+		ID               string
+		Address          string
+		ConnectedProxies int
+		Online           bool
+		AccountOwned     bool
+	}
+
+	var rows []clusterRow
 	result := s.db.Model(&proxy.Proxy{}).
-		Select("MIN(id) as id, cluster_address as address, COUNT(*) as connected_proxies, COUNT(account_id) > 0 as self_hosted").
-		Where("status = ? AND last_seen > ? AND (account_id IS NULL OR account_id = ?)",
-			proxy.StatusConnected, time.Now().Add(-proxyActiveThreshold), accountID).
+		Select(
+			"MIN(id) AS id, "+
+				"cluster_address AS address, "+
+				// COUNT(CASE WHEN ... THEN 1 END) counts only non-NULL — i.e. only
+				// rows that satisfy the predicate — so it works portably across
+				// sqlite/postgres/mysql without dialect-specific FILTER syntax.
+				"COUNT(CASE WHEN status = ? AND last_seen > ? THEN 1 END) AS connected_proxies, "+
+				// MAX(CASE …) > 0 expresses BOOL_OR in a way Postgres tolerates
+				// (Postgres can't MAX a boolean column).
+				"MAX(CASE WHEN status = ? AND last_seen > ? THEN 1 ELSE 0 END) > 0 AS online, "+
+				"MAX(CASE WHEN account_id IS NOT NULL THEN 1 ELSE 0 END) > 0 AS account_owned",
+			proxy.StatusConnected, activeCutoff,
+			proxy.StatusConnected, activeCutoff,
+		).
+		Where("account_id IS NULL OR account_id = ?", accountID).
 		Group("cluster_address").
-		Scan(&clusters)
+		Scan(&rows)
 
 	if result.Error != nil {
-		log.WithContext(ctx).Errorf("failed to get active proxy clusters: %v", result.Error)
-		return nil, status.Errorf(status.Internal, "get active proxy clusters")
+		log.WithContext(ctx).Errorf("failed to get proxy clusters: %v", result.Error)
+		return nil, status.Errorf(status.Internal, "get proxy clusters")
+	}
+
+	clusters := make([]proxy.Cluster, 0, len(rows))
+	for _, r := range rows {
+		c := proxy.Cluster{
+			ID:               r.ID,
+			Address:          r.Address,
+			Online:           r.Online,
+			ConnectedProxies: r.ConnectedProxies,
+		}
+		if r.AccountOwned {
+			c.Type = proxy.ClusterTypeAccount
+		} else {
+			c.Type = proxy.ClusterTypeShared
+		}
+		clusters = append(clusters, c)
 	}
 
 	return clusters, nil
