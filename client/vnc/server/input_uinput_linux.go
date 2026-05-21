@@ -1,4 +1,4 @@
-//go:build unix && !darwin && !ios && !android
+//go:build linux
 
 package server
 

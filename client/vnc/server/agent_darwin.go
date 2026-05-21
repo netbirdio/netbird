@@ -10,7 +10,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"sync"
 	"syscall"
@@ -253,15 +252,19 @@ func killAllVNCAgents() {
 }
 
 // vncAgentPIDs returns the pids of vnc-agent subprocesses spawned from
-// this binary. Matches on (argv[0] basename == our own basename) AND
-// argv contains the "vnc-agent" subcommand. Skips pid 0 and 1 defensively.
+// this binary. Matches exactly on argv[0] == our own executable path
+// AND argv[1] == "vnc-agent" so unrelated processes that happen to have
+// the same name elsewhere in argv are not targeted. Skips pid 0 and 1
+// defensively.
 func vncAgentPIDs() ([]int, error) {
 	procs, err := unix.SysctlKinfoProcSlice("kern.proc.all")
 	if err != nil {
 		return nil, fmt.Errorf("sysctl kern.proc.all: %w", err)
 	}
-	ownExe, _ := os.Executable()
-	ownBase := filepath.Base(ownExe)
+	ownExe, err := os.Executable()
+	if err != nil {
+		return nil, fmt.Errorf("resolve own executable: %w", err)
+	}
 	var out []int
 	for i := range procs {
 		pid := int(procs[i].Proc.P_pid)
@@ -269,7 +272,7 @@ func vncAgentPIDs() ([]int, error) {
 			continue
 		}
 		argv, err := procArgv(pid)
-		if err != nil || !argvIsVNCAgent(argv, ownBase) {
+		if err != nil || !argvIsVNCAgent(argv, ownExe) {
 			continue
 		}
 		out = append(out, pid)
@@ -313,19 +316,12 @@ func procArgv(pid int) ([]string, error) {
 }
 
 // argvIsVNCAgent reports whether argv belongs to a vnc-agent subprocess
-// spawned from our binary. Requires argv[0]'s basename to match ownBase
-// and the "vnc-agent" subcommand to appear among the positional args.
-func argvIsVNCAgent(argv []string, ownBase string) bool {
-	if len(argv) < 2 || ownBase == "" {
+// spawned from our binary. Requires argv[0] to match ownExe exactly and
+// argv[1] to be the vnc-agent subcommand. Matches the spawn shape in
+// spawnAgentForUser and rejects anything else.
+func argvIsVNCAgent(argv []string, ownExe string) bool {
+	if len(argv) < 2 || ownExe == "" {
 		return false
 	}
-	if filepath.Base(argv[0]) != ownBase {
-		return false
-	}
-	for _, a := range argv[1:] {
-		if a == vncAgentSubcommand {
-			return true
-		}
-	}
-	return false
+	return argv[0] == ownExe && argv[1] == vncAgentSubcommand
 }

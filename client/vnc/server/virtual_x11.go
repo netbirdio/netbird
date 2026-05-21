@@ -176,10 +176,19 @@ func (vs *VirtualSession) ClientDisconnect() {
 
 // idleExpired is called by the idle timer. It stops the session and
 // notifies the session manager via onIdle so it removes us from the map.
+// Bails out early if a client reconnected before the timer callback won
+// the race (Stop() doesn't cancel an already-firing AfterFunc, so the
+// state check has to happen here under vs.mu).
 func (vs *VirtualSession) idleExpired() {
+	vs.mu.Lock()
+	if vs.stopped || vs.clients > 0 {
+		vs.mu.Unlock()
+		return
+	}
+	vs.mu.Unlock()
+
 	vs.log.Info("idle timeout reached, destroying virtual session")
 	vs.Stop()
-	// onIdle acquires sessionManager.mu; safe because Stop() has released vs.mu.
 	if vs.onIdle != nil {
 		vs.onIdle()
 	}
@@ -230,6 +239,10 @@ func (vs *VirtualSession) Stop() {
 
 	if vs.injector != nil {
 		vs.injector.Close()
+	}
+	if vs.poller != nil {
+		vs.poller.Close()
+		vs.poller = nil
 	}
 
 	vs.stopDesktop()
