@@ -503,7 +503,7 @@ func (c *Client) VerifySSHHostKey(peerAddress string, key []byte) error {
 
 // SetPerformance retunes a running Client. Only PreallocatedBuffersPerPool
 // takes effect, and only when it was nonzero at construction;
-// MaxBatchSize is construction-only and is ignored here.
+// MaxBatchSize is construction-only and returns an error if set here.
 //
 // Returns ErrClientNotStarted / ErrEngineNotStarted if the Client is not
 // running yet.
