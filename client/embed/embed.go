@@ -512,7 +512,7 @@ func (c *Client) SetPerformance(t Performance) error {
 	if err != nil {
 		return err
 	}
-	return engine.SetWGTuning(internal.WGTuning{
+	return engine.SetPerformance(internal.Performance{
 		PreallocatedBuffersPerPool: t.PreallocatedBuffersPerPool,
 	})
 }

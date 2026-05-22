@@ -1979,14 +1979,14 @@ func (e *Engine) GetClientMetrics() *metrics.ClientMetrics {
 	return e.clientMetrics
 }
 
-// WGTuning bundles runtime-adjustable WireGuard pool knobs.
-// See Engine.SetWGTuning. Nil fields are ignored.
-type WGTuning struct {
+// Performance bundles runtime-adjustable tunnel pool knobs.
+// See Engine.SetPerformance. Nil fields are ignored.
+type Performance struct {
 	PreallocatedBuffersPerPool *uint32
 }
 
-// SetWGTuning applies the given tuning to this engine's live Device.
-func (e *Engine) SetWGTuning(t WGTuning) error {
+// SetPerformance applies the given tuning to this engine's live Device.
+func (e *Engine) SetPerformance(t Performance) error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 	if e.wgInterface == nil {
