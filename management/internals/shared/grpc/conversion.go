@@ -183,8 +183,12 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 		response.NetworkMap.SshAuth = &proto.SSHAuth{AuthorizedUsers: hashedUsers, MachineUsers: machineUsers, UserIDClaim: userIDClaim}
 	}
 
-	if networkMap.VNCAuthorizedUsers != nil {
-		hashedUsers, machineUsers := buildAuthorizedUsersProto(ctx, networkMap.VNCAuthorizedUsers)
+	if networkMap.VNCAuthorizedUsers != nil || len(networkMap.VNCSessionPubKeys) > 0 {
+		var hashedUsers [][]byte
+		var machineUsers map[string]*proto.MachineUserIndexes
+		if networkMap.VNCAuthorizedUsers != nil {
+			hashedUsers, machineUsers = buildAuthorizedUsersProto(ctx, networkMap.VNCAuthorizedUsers)
+		}
 		response.NetworkMap.VncAuth = &proto.VNCAuth{
 			AuthorizedUsers: hashedUsers,
 			MachineUsers:    machineUsers,
