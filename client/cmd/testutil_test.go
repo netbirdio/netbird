@@ -109,7 +109,7 @@ func startManagement(t *testing.T, config *config.Config, testFile string) (*grp
 		t.Fatal(err)
 	}
 
-	iv, _ := integrations.NewIntegratedValidator(ctx, nil, peersmanager, settingsManagerMock, eventStore, cacheStore)
+	iv, _ := integrations.NewIntegratedValidator(ctx, nil, nil, peersmanager, settingsManagerMock, eventStore, cacheStore)
 
 	metrics, err := telemetry.NewDefaultAppMetrics(ctx)
 	require.NoError(t, err)

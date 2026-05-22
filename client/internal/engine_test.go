@@ -1641,7 +1641,7 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 		return nil, "", err
 	}
 
-	ia, _ := integrations.NewIntegratedValidator(context.Background(), nil, peersManager, nil, eventStore, cacheStore)
+	ia, _ := integrations.NewIntegratedValidator(context.Background(), nil, nil, peersManager, nil, eventStore, cacheStore)
 
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)
