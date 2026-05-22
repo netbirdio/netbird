@@ -215,6 +215,11 @@ type Server struct {
 	// during each VNC session and on session close. The engine wires
 	// this to its metrics framework.
 	sessionRecorder func(SessionTick)
+
+	// preListener, when non-nil, replaces the TCP listener Start would
+	// open; addr/network args to Start are ignored. Used by the agent's
+	// Unix-socket path.
+	preListener net.Listener
 }
 
 // connAuthInfo captures the Noise_IK-verified identity bound to a live
@@ -254,11 +259,9 @@ type virtualSessionManager interface {
 	StopAll()
 }
 
-// Config bundles the values the VNC server needs at construction time.
-// Fields are read once by New; mutating them afterwards has no effect.
-// Optional fields are nil/zero when unused. The hex-encoded AgentTokenHex
-// is decoded internally and an invalid value is logged and treated as
-// empty, matching the legacy SetAgentToken behavior.
+// Config bundles the values the VNC server needs at construction time;
+// fields are read once by New. AgentTokenHex is decoded internally; an
+// invalid value is logged and treated as empty.
 type Config struct {
 	Capturer        ScreenCapturer
 	Injector        InputInjector
@@ -268,6 +271,10 @@ type Config struct {
 	DisableAuth     bool
 	AgentTokenHex   string
 	NetstackNet     *netstack.Net
+	// Listener, when set, is used instead of Start opening a TCP listener;
+	// addr/network args to Start are then ignored. The agent uses this to
+	// listen on a Unix socket.
+	Listener net.Listener
 }
 
 // New creates a VNC server from the provided Config. IdentityKey is the
@@ -282,6 +289,7 @@ func New(cfg Config) *Server {
 		sessionRecorder: cfg.SessionRecorder,
 		disableAuth:     cfg.DisableAuth,
 		netstackNet:     cfg.NetstackNet,
+		preListener:     cfg.Listener,
 		authorizer:      sshauth.NewAuthorizer(),
 		log:             log.WithField("component", "vnc-server"),
 		sessions:        make(map[uint64]ActiveSessionInfo),
@@ -446,6 +454,8 @@ func (s *Server) UpdateVNCAuth(config *sshauth.Config) {
 
 // Start begins listening for VNC connections on the given address.
 // network is the NetBird overlay prefix used to validate connection sources.
+// When Config.Listener was supplied, addr and network are ignored and the
+// pre-built listener is used (the per-session agent path).
 func (s *Server) Start(ctx context.Context, addr netip.AddrPort, network netip.Prefix) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -454,34 +464,37 @@ func (s *Server) Start(ctx context.Context, addr netip.AddrPort, network netip.P
 		return fmt.Errorf("server already running")
 	}
 
-	if !network.IsValid() {
-		return fmt.Errorf("invalid overlay network prefix")
-	}
-
 	s.ctx, s.cancel = context.WithCancel(ctx)
 	s.vmgr = s.platformSessionManager()
-	s.localAddr = addr.Addr()
-	s.network = network
 
-	var listener net.Listener
 	var listenDesc string
-	if s.netstackNet != nil {
-		ln, err := s.netstackNet.ListenTCPAddrPort(addr)
-		if err != nil {
-			return fmt.Errorf("listen on netstack %s: %w", addr, err)
+	switch {
+	case s.preListener != nil:
+		s.listener = s.preListener
+		listenDesc = s.preListener.Addr().String()
+	default:
+		if !network.IsValid() {
+			return fmt.Errorf("invalid overlay network prefix")
 		}
-		listener = ln
-		listenDesc = fmt.Sprintf("netstack %s", addr)
-	} else {
-		tcpAddr := net.TCPAddrFromAddrPort(addr)
-		ln, err := net.ListenTCP("tcp", tcpAddr)
-		if err != nil {
-			return fmt.Errorf("listen on %s: %w", addr, err)
+		s.localAddr = addr.Addr()
+		s.network = network
+		if s.netstackNet != nil {
+			ln, err := s.netstackNet.ListenTCPAddrPort(addr)
+			if err != nil {
+				return fmt.Errorf("listen on netstack %s: %w", addr, err)
+			}
+			s.listener = ln
+			listenDesc = fmt.Sprintf("netstack %s", addr)
+		} else {
+			tcpAddr := net.TCPAddrFromAddrPort(addr)
+			ln, err := net.ListenTCP("tcp", tcpAddr)
+			if err != nil {
+				return fmt.Errorf("listen on %s: %w", addr, err)
+			}
+			s.listener = ln
+			listenDesc = addr.String()
 		}
-		listener = ln
-		listenDesc = addr.String()
 	}
-	s.listener = listener
 
 	if s.serviceMode {
 		s.platformInit()
@@ -616,10 +629,11 @@ func (s *Server) validateCapturer(capturer ScreenCapturer) error {
 // and from the local WireGuard IP (prevents local privilege escalation).
 // Matches the SSH server's connectionValidator logic.
 func (s *Server) isAllowedSource(addr net.Addr) bool {
+	// Unix-socket remotes (the agent path) are local IPC, gated by the
+	// token, not by overlay membership.
 	tcpAddr, ok := addr.(*net.TCPAddr)
 	if !ok {
-		s.log.Warnf("connection rejected: non-TCP address %s", addr)
-		return false
+		return true
 	}
 
 	remoteIP, ok := netip.AddrFromSlice(tcpAddr.IP)
@@ -651,29 +665,34 @@ func (s *Server) isAllowedSource(addr net.Addr) bool {
 }
 
 func (s *Server) handleConnection(conn net.Conn) {
+	start := time.Now()
 	connLog := s.log.WithField("remote", conn.RemoteAddr().String())
 
 	if !s.isAllowedSource(conn.RemoteAddr()) {
-		conn.Close()
+		connLog.Info("VNC connection rejected: source not allowed")
+		_ = conn.Close()
 		return
 	}
 	if !s.verifyAgentToken(conn, connLog) {
+		connLog.Info("VNC connection rejected: agent token check failed")
 		return
 	}
 	header, err := s.readConnectionHeader(conn)
 	if err != nil {
-		connLog.Warnf("read connection header: %v", err)
-		conn.Close()
+		connLog.Infof("VNC connection rejected: header read failed: %v", err)
+		_ = conn.Close()
 		return
 	}
 	connLog, sessionUserID, ok := s.authorizeSession(conn, header, connLog)
 	if !ok {
+		connLog.Info("VNC connection rejected: auth failed")
 		return
 	}
 	s.registerConnAuth(conn, header)
 
 	capturer, injector, sessionCleanup, ok := s.acquireSessionResources(conn, header, &connLog)
 	if !ok {
+		connLog.Warn("VNC connection rejected: capturer/injector unavailable")
 		return
 	}
 	defer sessionCleanup()
@@ -688,14 +707,14 @@ func (s *Server) handleConnection(conn net.Conn) {
 
 	if err := s.validateCapturer(capturer); err != nil {
 		rejectConnection(conn, codeMessage(RejectCodeCapturerError, fmt.Sprintf("screen capturer: %v", err)))
-		connLog.Warnf("capturer not ready: %v", err)
+		connLog.Warnf("VNC connection rejected: capturer not ready: %v", err)
 		return
 	}
 
 	w, h := capturer.Width(), capturer.Height()
 	if w <= 0 || h <= 0 || w > maxFramebufferDim || h > maxFramebufferDim {
 		rejectConnection(conn, codeMessage(RejectCodeCapturerError, fmt.Sprintf("framebuffer dimensions out of range: %dx%d", w, h)))
-		connLog.Warnf("rejecting session: framebuffer %dx%d outside [1, %d]", w, h, maxFramebufferDim)
+		connLog.Warnf("VNC connection rejected: framebuffer %dx%d outside [1, %d]", w, h, maxFramebufferDim)
 		return
 	}
 
@@ -709,6 +728,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 		log:      connLog,
 	}
 	sess.serve()
+	connLog.Infof("VNC connection closed (%dms)", time.Since(start).Milliseconds())
 }
 
 // codeMessage formats a stable reject code with a human-readable message.

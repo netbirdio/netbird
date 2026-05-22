@@ -3,10 +3,8 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"net"
 	"unsafe"
 
@@ -238,10 +236,10 @@ func (s *Server) platformInit() {
 // Noise_IK handshake before proxying to the user-session agent.
 func (s *Server) serviceAcceptLoop() {
 
-	sm := newSessionManager(agentPort)
+	sm := newSessionManager()
 	go sm.run()
 
-	log.Infof("service mode, proxying connections to agent on 127.0.0.1:%d", agentPort)
+	log.Info("service mode, proxying connections to agent over Unix socket")
 
 	for {
 		conn, err := s.listener.Accept()
@@ -272,51 +270,3 @@ func (s *Server) serviceAcceptLoop() {
 	}
 }
 
-// handleServiceConnection runs the connection-header handshake (including
-// Noise_IK), then proxies the connection (with header bytes replayed) to
-// the agent listening on loopback.
-func (s *Server) handleServiceConnection(conn net.Conn, sm *sessionManager) {
-	connLog := s.log.WithField("remote", conn.RemoteAddr().String())
-
-	if !s.isAllowedSource(conn.RemoteAddr()) {
-		conn.Close()
-		return
-	}
-
-	var headerBuf bytes.Buffer
-	tee := io.TeeReader(conn, &headerBuf)
-	teeConn := &prefixConn{Reader: tee, Conn: conn}
-
-	header, err := s.readConnectionHeader(teeConn)
-	if err != nil {
-		connLog.Debugf("read connection header: %v", err)
-		conn.Close()
-		return
-	}
-
-	if !s.disableAuth {
-		if _, err := s.authenticateSession(header); err != nil {
-			rejectConnection(conn, codeMessage(RejectCodeAuthForbidden, err.Error()))
-			connLog.Warnf("auth rejected: %v", err)
-			return
-		}
-	}
-	s.registerConnAuth(conn, header)
-
-	// Replay buffered header bytes + remaining stream to the agent.
-	replayConn := &prefixConn{
-		Reader: io.MultiReader(&headerBuf, conn),
-		Conn:   conn,
-	}
-	proxyToAgent(s.ctx, replayConn, agentPort, sm.AuthToken())
-}
-
-// prefixConn wraps a net.Conn, overriding Read to use a different reader.
-type prefixConn struct {
-	io.Reader
-	net.Conn
-}
-
-func (p *prefixConn) Read(b []byte) (int, error) {
-	return p.Reader.Read(b)
-}

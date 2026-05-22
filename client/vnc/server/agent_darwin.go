@@ -30,18 +30,24 @@ import (
 // asuser + listen-readiness wait, ~hundreds of milliseconds in practice.
 // That cost only repeats on user switch.
 type darwinAgentManager struct {
-	mu        sync.Mutex
-	authToken string
-	port      uint16
-	uid       uint32
-	running   bool
+	mu         sync.Mutex
+	authToken  string
+	socketPath string
+	uid        uint32
+	running    bool
 }
 
 func newDarwinAgentManager(ctx context.Context) *darwinAgentManager {
-	m := &darwinAgentManager{port: agentPort}
+	m := &darwinAgentManager{}
 	go m.watchConsoleUser(ctx)
 	return m
 }
+
+// agentSocketPathFmt parameterizes the agent's loopback Unix-socket path
+// by the console uid: /tmp is writable in the launchctl-asuser context
+// and predictable to the daemon. The agent chmods the file 0600 after
+// bind so only its uid (plus root) can dial.
+const agentSocketPathFmt = "/tmp/netbird-vnc-%d.sock"
 
 // watchConsoleUser kills the cached agent whenever the console user
 // changes (logout, fast user switch, login window). Without it the daemon
@@ -80,41 +86,45 @@ func (m *darwinAgentManager) watchConsoleUser(ctx context.Context) {
 	}
 }
 
-// ensure returns a token good for proxyToAgent. It spawns or respawns the
-// per-user agent process as needed and waits until it is listening on the
-// loopback port. Each ensure call is serialized so concurrent VNC clients
-// share the same agent.
-func (m *darwinAgentManager) ensure(ctx context.Context) (string, error) {
+// Resolve spawns or respawns the per-user agent process as needed and
+// returns its Unix-socket path and shared token. Each call is serialized
+// so concurrent VNC clients share the same agent.
+func (m *darwinAgentManager) Resolve(ctx context.Context) (string, string, error) {
 	consoleUID, err := consoleUserID()
 	if err != nil {
-		return "", fmt.Errorf("no console user: %w", err)
+		return "", "", fmt.Errorf("no console user: %w", err)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.running && m.uid == consoleUID && vncAgentRunning() {
-		return m.authToken, nil
+		return m.socketPath, m.authToken, nil
 	}
 	m.killLocked()
-	// Reap any stray external vnc-agent so the new token is the only one
-	// the freshly spawned agent will accept on the loopback port.
+	// Reap stray agents so the new token is the only accepted one.
 	killAllVNCAgents()
+
+	socketPath := fmt.Sprintf(agentSocketPathFmt, consoleUID)
+	if err := os.Remove(socketPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Debugf("clear stale agent socket %s: %v", socketPath, err)
+	}
 
 	token, err := generateAuthToken()
 	if err != nil {
-		return "", fmt.Errorf("generate agent auth token: %w", err)
+		return "", "", fmt.Errorf("generate agent auth token: %w", err)
 	}
-	if err := spawnAgentForUser(consoleUID, m.port, token); err != nil {
-		return "", err
+	if err := spawnAgentForUser(consoleUID, socketPath, token); err != nil {
+		return "", "", err
 	}
-	if err := waitForAgent(ctx, m.port, 5*time.Second); err != nil {
+	if err := waitForAgent(ctx, socketPath, 5*time.Second); err != nil {
 		killAllVNCAgents()
-		return "", fmt.Errorf("agent did not start listening: %w", err)
+		return "", "", fmt.Errorf("agent did not start listening: %w", err)
 	}
 	m.authToken = token
+	m.socketPath = socketPath
 	m.uid = consoleUID
 	m.running = true
-	log.Infof("spawned VNC agent for console uid=%d on port %d", consoleUID, m.port)
-	return token, nil
+	log.Infof("spawned VNC agent for console uid=%d on %s", consoleUID, socketPath)
+	return socketPath, token, nil
 }
 
 // stop terminates the spawned agent, if any. Intended for daemon shutdown.
@@ -129,15 +139,16 @@ func (m *darwinAgentManager) killLocked() {
 		return
 	}
 	killAllVNCAgents()
+	if m.socketPath != "" {
+		if err := os.Remove(m.socketPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			log.Debugf("remove agent socket %s: %v", m.socketPath, err)
+		}
+	}
 	m.running = false
 	m.authToken = ""
+	m.socketPath = ""
 	m.uid = 0
 }
-
-// errNoConsoleUser is the sentinel callers use to recognise the
-// "login window showing, no user signed in" state and surface it as a
-// distinct condition to the VNC client.
-var errNoConsoleUser = errors.New("no user logged into console")
 
 // consoleUserID returns the uid of the user currently sitting at the
 // console (the one whose Aqua session is active). Returns
@@ -164,14 +175,14 @@ func consoleUserID() (uint32, error) {
 // WindowServer. The agent's stderr is relogged into the daemon log so
 // startup failures are not silently lost when the readiness check times
 // out.
-func spawnAgentForUser(uid uint32, port uint16, token string) error {
+func spawnAgentForUser(uid uint32, socketPath, token string) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("resolve own executable: %w", err)
 	}
 	cmd := exec.Command(
 		"/bin/launchctl", "asuser", strconv.FormatUint(uint64(uid), 10),
-		exe, vncAgentSubcommand, "--port", strconv.FormatUint(uint64(port), 10),
+		exe, vncAgentSubcommand, "--socket", socketPath,
 	)
 	cmd.Env = append(os.Environ(), agentTokenEnvVar+"="+token)
 	stderr, err := cmd.StderrPipe()
@@ -189,23 +200,25 @@ func spawnAgentForUser(uid uint32, port uint16, token string) error {
 	return nil
 }
 
-// waitForAgent dials the loopback port until the agent answers. Used to
+// waitForAgent dials the agent's Unix socket until it answers. Used to
 // gate proxy attempts until the spawned process has finished its Start.
-func waitForAgent(ctx context.Context, port uint16, wait time.Duration) error {
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
+func waitForAgent(ctx context.Context, socketPath string, wait time.Duration) error {
+	var d net.Dialer
 	deadline := time.Now().Add(wait)
 	for time.Now().Before(deadline) {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		c, err := net.DialTimeout("tcp", addr, 200*time.Millisecond)
+		dialCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+		c, err := d.DialContext(dialCtx, "unix", socketPath)
+		cancel()
 		if err == nil {
 			_ = c.Close()
 			return nil
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	return fmt.Errorf("timeout dialing %s", addr)
+	return fmt.Errorf("timeout dialing %s", socketPath)
 }
 
 // vncAgentRunning reports whether any vnc-agent process exists on the

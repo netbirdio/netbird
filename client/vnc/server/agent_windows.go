@@ -3,12 +3,12 @@
 package server
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
 	"runtime"
-	"strings"
 	"sync"
 	"time"
 	"unsafe"
@@ -49,7 +49,6 @@ var (
 	procWTSQuerySessionInformation = wtsapi32.NewProc("WTSQuerySessionInformationW")
 
 	iphlpapi                = windows.NewLazySystemDLL("iphlpapi.dll")
-	procGetExtendedTcpTable = iphlpapi.NewProc("GetExtendedTcpTable")
 )
 
 // GetCurrentSessionID returns the session ID of the current process.
@@ -136,97 +135,6 @@ func getActiveSessionID() uint32 {
 		return anyActive
 	}
 	return getConsoleSessionID()
-}
-
-// reapOrphanOnPort finds any process listening on 127.0.0.1:port and, if
-// it's a netbird vnc-agent left over from a previous service instance,
-// terminates it. Verified by image-name match so we never kill an
-// unrelated process that happens to use the same port.
-func reapOrphanOnPort(port uint16) {
-	pid := tcpListenerPID(port)
-	if pid == 0 || pid == uint32(windows.GetCurrentProcessId()) {
-		return
-	}
-	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.PROCESS_TERMINATE|windows.SYNCHRONIZE, false, pid)
-	if err != nil {
-		log.Warnf("reap on port %d: open PID=%d: %v", port, pid, err)
-		return
-	}
-	defer func() { _ = windows.CloseHandle(h) }()
-	if !isOurAgentProcess(h) {
-		log.Warnf("reap on port %d: PID=%d is not a netbird vnc-agent, leaving it alone", port, pid)
-		return
-	}
-	if err := windows.TerminateProcess(h, 0); err != nil {
-		log.Warnf("reap on port %d: terminate PID=%d: %v", port, pid, err)
-		return
-	}
-	log.Infof("reaped orphan vnc-agent PID=%d holding port %d", pid, port)
-}
-
-// isOurAgentProcess returns true if the given process handle points at a
-// netbird.exe binary at the same path as the current process. We compare
-// full paths (case-insensitive on Windows) so co-installed netbird binaries
-// from a different install dir or unrelated apps named netbird.exe don't
-// get killed.
-func isOurAgentProcess(h windows.Handle) bool {
-	var size uint32 = windows.MAX_PATH
-	buf := make([]uint16, size)
-	if err := windows.QueryFullProcessImageName(h, 0, &buf[0], &size); err != nil {
-		return false
-	}
-	target := strings.ToLower(windows.UTF16ToString(buf[:size]))
-	selfExe, err := os.Executable()
-	if err != nil {
-		return false
-	}
-	return target == strings.ToLower(selfExe)
-}
-
-// tcpListenerPID returns the PID of the process listening on 127.0.0.1:port,
-// or 0 if none. Uses GetExtendedTcpTable with TCP_TABLE_OWNER_PID_LISTENER.
-func tcpListenerPID(port uint16) uint32 {
-	const tcpTableOwnerPidListener = 3
-	const afInet = 2
-
-	// MIB_TCPROW_OWNER_PID layout: state(4) + localAddr(4) + localPort(4) +
-	// remoteAddr(4) + remotePort(4) + owningPid(4) = 24 bytes.
-	const rowSize = 24
-
-	var size uint32
-	_, _, _ = procGetExtendedTcpTable.Call(0, uintptr(unsafe.Pointer(&size)), 0, afInet, tcpTableOwnerPidListener, 0)
-	if size == 0 {
-		return 0
-	}
-	buf := make([]byte, size)
-	r, _, _ := procGetExtendedTcpTable.Call(
-		uintptr(unsafe.Pointer(&buf[0])),
-		uintptr(unsafe.Pointer(&size)),
-		0, afInet, tcpTableOwnerPidListener, 0,
-	)
-	if r != 0 {
-		return 0
-	}
-	count := binary.LittleEndian.Uint32(buf[:4])
-	for i := uint32(0); i < count; i++ {
-		off := 4 + int(i)*rowSize
-		if off+rowSize > len(buf) {
-			break
-		}
-		// localPort is stored big-endian in the high 16 bits of a 32-bit field.
-		localPort := uint16(buf[off+8])<<8 | uint16(buf[off+9])
-		if localPort != port {
-			continue
-		}
-		localAddr := binary.LittleEndian.Uint32(buf[off+4 : off+8])
-		// 0x0100007f == 127.0.0.1 in network byte order on little-endian.
-		// We accept 0.0.0.0 too in case the orphan bound to all interfaces.
-		if localAddr != 0x0100007f && localAddr != 0 {
-			continue
-		}
-		return binary.LittleEndian.Uint32(buf[off+20 : off+24])
-	}
-	return 0
 }
 
 // wtsSessionHasUser returns true if the session has a non-empty user name,
@@ -322,7 +230,7 @@ func injectEnvVar(envBlock uintptr, key, value string) []uint16 {
 	return newBlock
 }
 
-func spawnAgentInSession(sessionID uint32, port uint16, authToken string, jobHandle windows.Handle) (windows.Handle, error) {
+func spawnAgentInSession(sessionID uint32, socketPath, authToken string, jobHandle windows.Handle) (windows.Handle, error) {
 	token, err := getSystemTokenForSession(sessionID)
 	if err != nil {
 		return 0, fmt.Errorf("get SYSTEM token for session %d: %w", sessionID, err)
@@ -352,7 +260,7 @@ func spawnAgentInSession(sessionID uint32, port uint16, authToken string, jobHan
 		return 0, fmt.Errorf("get executable path: %w", err)
 	}
 
-	cmdLine := fmt.Sprintf(`"%s" %s --port %d`, exePath, vncAgentSubcommand, port)
+	cmdLine := fmt.Sprintf(`"%s" %s --socket %q`, exePath, vncAgentSubcommand, socketPath)
 	cmdLineW, err := windows.UTF16PtrFromString(cmdLine)
 	if err != nil {
 		return 0, fmt.Errorf("UTF16 cmdline: %w", err)
@@ -425,15 +333,16 @@ func spawnAgentInSession(sessionID uint32, port uint16, authToken string, jobHan
 	// Relog agent output in the service with a [vnc-agent] prefix.
 	go relogAgentOutput(stderrRead)
 
-	log.Infof("spawned agent PID=%d in session %d on port %d", pi.ProcessId, sessionID, port)
+	log.Infof("spawned agent PID=%d in session %d on %s", pi.ProcessId, sessionID, socketPath)
 	return pi.Process, nil
 }
 
 // sessionManager monitors the active console session and ensures a VNC agent
 // process is running in it. When the session changes (e.g., user switch, RDP
-// connect/disconnect), it kills the old agent and spawns a new one.
+// connect/disconnect), it kills the old agent and spawns a new one. Each
+// spawn picks a per-session Unix-socket path the agent binds and the
+// daemon dials over local IPC.
 type sessionManager struct {
-	port           uint16
 	mu             sync.Mutex
 	agentProc      windows.Handle
 	everSpawned    bool
@@ -442,16 +351,22 @@ type sessionManager struct {
 	nextSpawnAt    time.Time
 	sessionID      uint32
 	authToken      string
+	socketPath     string
 	done           chan struct{}
 	// jobHandle owns the agent processes via a Windows Job Object with
 	// JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE. When the service exits or crashes,
 	// the OS closes the handle and terminates every assigned agent: no
-	// orphaned listeners holding the agent port across restarts.
+	// orphaned agent processes holding a socket across restarts.
 	jobHandle windows.Handle
 }
 
-func newSessionManager(port uint16) *sessionManager {
-	m := &sessionManager{port: port, sessionID: ^uint32(0), done: make(chan struct{})}
+// agentSocketPathFmt parameterizes the per-session agent socket path by
+// the Windows session id. C:\Windows\Temp is writable to both the daemon
+// (SYSTEM) and the spawned agent (SYSTEM token impersonating the session).
+const agentSocketPathFmt = `C:\Windows\Temp\netbird-vnc-%d.sock`
+
+func newSessionManager() *sessionManager {
+	m := &sessionManager{sessionID: ^uint32(0), done: make(chan struct{})}
 	if h, err := createKillOnCloseJob(); err != nil {
 		log.Warnf("create job object for vnc-agent (orphan agents possible after crash): %v", err)
 	} else {
@@ -508,12 +423,21 @@ func createKillOnCloseJob() (windows.Handle, error) {
 	return job, nil
 }
 
-// AuthToken returns the current agent authentication token.
-func (m *sessionManager) AuthToken() string {
+// Resolve returns the current agent socket path and token. When no
+// agent is spawned yet (initial boot, between session switches, or
+// permanently disabled when SE_TCB_NAME is missing) it surfaces a
+// distinct error so the daemon can reject the connection with a
+// meaningful message instead of timing out the proxy dial.
+func (m *sessionManager) Resolve(_ context.Context) (string, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.authToken
+	if m.socketPath == "" {
+		return "", "", errAgentNotReady
+	}
+	return m.socketPath, m.authToken, nil
 }
+
+var errAgentNotReady = errors.New("VNC agent not running yet")
 
 // Stop signals the session manager to exit its polling loop and closes the
 // Job Object handle, which Windows uses as the trigger to terminate every
@@ -623,8 +547,10 @@ func (m *sessionManager) maybeSpawnAgent(sid uint32) bool {
 	// kill an unknown listener; if a kill+respawn races on port
 	// release, the spawn-failure backoff handles it without forcing
 	// a synchronous wait or duplicate kill.
-	if !m.everSpawned {
-		reapOrphanOnPort(m.port)
+	socketPath := fmt.Sprintf(agentSocketPathFmt, sid)
+	// Covers a previous-run crash that escaped Job Object kill-on-close.
+	if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
+		log.Debugf("clear stale agent socket %s: %v", socketPath, err)
 	}
 	token, err := generateAuthToken()
 	if err != nil {
@@ -632,9 +558,11 @@ func (m *sessionManager) maybeSpawnAgent(sid uint32) bool {
 		return true
 	}
 	m.authToken = token
-	h, err := spawnAgentInSession(sid, m.port, m.authToken, m.jobHandle)
+	m.socketPath = socketPath
+	h, err := spawnAgentInSession(sid, socketPath, m.authToken, m.jobHandle)
 	if err != nil {
 		m.authToken = ""
+		m.socketPath = ""
 		if errors.Is(err, windows.ERROR_PRIVILEGE_NOT_HELD) {
 			// SE_TCB_NAME (token-impersonation across sessions) is only
 			// granted to SYSTEM. Without it spawnAgent will fail every 2

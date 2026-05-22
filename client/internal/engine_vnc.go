@@ -116,7 +116,7 @@ func (e *Engine) startVNCServer() error {
 	}
 	serviceMode := vncNeedsServiceMode()
 	if serviceMode {
-		log.Info("VNC: running in Session 0, enabling service mode (agent proxy)")
+		log.Info("VNC: running as system service, enabling service mode (per-session agent proxy)")
 	}
 	srv := vncserver.New(vncserver.Config{
 		Capturer:        capturer,

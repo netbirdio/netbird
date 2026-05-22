@@ -4,6 +4,7 @@ package server
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	crand "crypto/rand"
 	"encoding/hex"
@@ -17,14 +18,84 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const (
-	// agentPort is the TCP loopback port on which a per-session VNC agent
-	// listens. The daemon dials this port and presents agentToken before
-	// proxying VNC bytes. The choice of TCP (rather than a Unix socket or
-	// named pipe) is intentional: it lets the same proxy/handshake code
-	// run on every platform; the token does the access control.
-	agentPort uint16 = 15900
+// errNoConsoleUser is the sentinel returned by sessionAgent.Resolve when
+// the platform has no interactive user to attach a capture agent to (the
+// macOS loginwindow state). Mapped to a distinct RFB reject code so the
+// browser can show a meaningful message.
+var errNoConsoleUser = errors.New("no user logged into console")
 
+// sessionAgent abstracts the per-platform manager that spawns and tracks
+// the user-session VNC agent. Resolve returns the agent's Unix-socket
+// path and shared token, possibly spawning lazily.
+type sessionAgent interface {
+	Resolve(ctx context.Context) (socketPath, token string, err error)
+}
+
+// prefixConn replays already-consumed header bytes ahead of the proxy
+// stream by swapping in a different Reader on the same underlying Conn.
+type prefixConn struct {
+	io.Reader
+	net.Conn
+}
+
+func (p *prefixConn) Read(b []byte) (int, error) { return p.Reader.Read(b) }
+
+// handleServiceConnection runs the connection-header handshake (source
+// check, Noise_IK auth) on conn, resolves the right per-session agent
+// via sa, and proxies to it. Every accepted connection emits exactly one
+// outcome line on the daemon log.
+func (s *Server) handleServiceConnection(conn net.Conn, sa sessionAgent) {
+	start := time.Now()
+	connLog := s.log.WithField("remote", conn.RemoteAddr().String())
+
+	if !s.isAllowedSource(conn.RemoteAddr()) {
+		connLog.Info("VNC connection rejected: source not allowed")
+		_ = conn.Close()
+		return
+	}
+
+	var headerBuf bytes.Buffer
+	tee := io.TeeReader(conn, &headerBuf)
+	teeConn := &prefixConn{Reader: tee, Conn: conn}
+
+	header, err := s.readConnectionHeader(teeConn)
+	if err != nil {
+		connLog.Infof("VNC connection rejected: header read failed: %v", err)
+		_ = conn.Close()
+		return
+	}
+
+	authedLog, _, ok := s.authorizeSession(conn, header, connLog)
+	if !ok {
+		authedLog.Info("VNC connection rejected: auth failed")
+		return
+	}
+	s.registerConnAuth(conn, header)
+
+	socketPath, token, err := sa.Resolve(s.ctx)
+	if err != nil {
+		code := RejectCodeCapturerError
+		if errors.Is(err, errNoConsoleUser) {
+			code = RejectCodeNoConsoleUser
+		}
+		rejectConnection(conn, codeMessage(code, err.Error()))
+		authedLog.Warnf("VNC connection rejected: agent unavailable: %v", err)
+		return
+	}
+
+	replayConn := &prefixConn{
+		Reader: io.MultiReader(&headerBuf, conn),
+		Conn:   conn,
+	}
+	if err := proxyToAgent(s.ctx, replayConn, socketPath, token); err != nil {
+		rejectConnection(conn, codeMessage(RejectCodeCapturerError, err.Error()))
+		authedLog.Warnf("VNC connection rejected: agent unreachable: %v", err)
+		return
+	}
+	authedLog.Infof("VNC connection closed (%dms)", time.Since(start).Milliseconds())
+}
+
+const (
 	// agentTokenLen is the size of the random per-spawn token in bytes.
 	agentTokenLen = 32
 
@@ -52,32 +123,30 @@ func generateAuthToken() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// proxyToAgent dials the per-session agent on TCP loopback, writes the
-// raw token bytes, and then copies bytes in both directions until either
-// side closes. The token has to land on the wire before any VNC byte so
-// the agent's listening Server can apply verifyAgentToken before letting
-// real RFB traffic through.
-func proxyToAgent(ctx context.Context, client net.Conn, port uint16, authToken string) {
-	defer client.Close()
-
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
-	agentConn, err := dialAgentWithRetry(ctx, addr)
-	if err != nil {
-		log.Warnf("proxy cannot reach agent at %s: %v", addr, err)
-		return
-	}
-	defer agentConn.Close()
-
+// proxyToAgent dials the per-session agent's Unix socket, writes the
+// raw token bytes, then copies bytes both ways until either side closes.
+// The token must precede any RFB byte so the agent's verifyAgentToken
+// can run first. Returns nil once a stream is established; the caller is
+// responsible for sending an RFB-level rejection on error so the client
+// sees a reason instead of a bare timeout.
+func proxyToAgent(ctx context.Context, client net.Conn, socketPath, authToken string) error {
 	tokenBytes, err := hex.DecodeString(authToken)
 	if err != nil || len(tokenBytes) != agentTokenLen {
-		log.Warnf("invalid auth token (len=%d): %v", len(tokenBytes), err)
-		return
-	}
-	if _, err := agentConn.Write(tokenBytes); err != nil {
-		log.Warnf("send auth token to agent: %v", err)
-		return
+		return fmt.Errorf("invalid auth token (len=%d): %w", len(tokenBytes), err)
 	}
 
+	agentConn, err := dialAgentWithRetry(ctx, socketPath)
+	if err != nil {
+		return fmt.Errorf("dial agent at %s: %w", socketPath, err)
+	}
+
+	if _, err := agentConn.Write(tokenBytes); err != nil {
+		_ = agentConn.Close()
+		return fmt.Errorf("send auth token to agent: %w", err)
+	}
+
+	defer client.Close()
+	defer agentConn.Close()
 	log.Debugf("proxy connected to agent, starting bidirectional copy")
 	done := make(chan struct{}, 2)
 	cp := func(label string, dst, src net.Conn) {
@@ -88,6 +157,7 @@ func proxyToAgent(ctx context.Context, client net.Conn, port uint16, authToken s
 	go cp("client→agent", agentConn, client)
 	go cp("agent→client", client, agentConn)
 	<-done
+	return nil
 }
 
 // relogAgentStream reads log lines from the agent's stderr and re-emits
@@ -159,7 +229,7 @@ func dialAgentWithRetry(ctx context.Context, addr string) (net.Conn, error) {
 			return nil, lastErr
 		}
 		dialCtx, cancel := context.WithTimeout(ctx, time.Second)
-		c, err := d.DialContext(dialCtx, "tcp", addr)
+		c, err := d.DialContext(dialCtx, "unix", addr)
 		cancel()
 		if err == nil {
 			return c, nil
