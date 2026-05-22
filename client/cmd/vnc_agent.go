@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"fmt"
+	"net"
 	"net/netip"
 	"os"
 
@@ -13,16 +14,16 @@ import (
 	vncserver "github.com/netbirdio/netbird/client/vnc/server"
 )
 
-var vncAgentPort uint16
+var vncAgentSocket string
 
 func init() {
-	vncAgentCmd.Flags().Uint16Var(&vncAgentPort, "port", 15900, "Port for the VNC agent to listen on")
+	vncAgentCmd.Flags().StringVar(&vncAgentSocket, "socket", "", "Unix-domain socket path the agent listens on (required)")
 	rootCmd.AddCommand(vncAgentCmd)
 }
 
 // vncAgentCmd runs a VNC server inside the user's interactive session,
-// listening on localhost. The NetBird service spawns it: on Windows via
-// CreateProcessAsUser into the console session, on macOS via
+// listening on a Unix-domain socket. The NetBird service spawns it: on
+// Windows via CreateProcessAsUser into the console session, on macOS via
 // launchctl asuser into the Aqua session.
 var vncAgentCmd = &cobra.Command{
 	Use:    "vnc-agent",
@@ -33,40 +34,47 @@ var vncAgentCmd = &cobra.Command{
 		log.SetFormatter(&log.JSONFormatter{})
 		log.SetOutput(os.Stderr)
 
-		log.Infof("VNC agent starting on 127.0.0.1:%d", vncAgentPort)
+		if vncAgentSocket == "" {
+			return fmt.Errorf("--socket is required")
+		}
 
 		token := os.Getenv("NB_VNC_AGENT_TOKEN")
 		if token == "" {
 			return fmt.Errorf("NB_VNC_AGENT_TOKEN not set; agent requires a token from the service")
 		}
-		// Drop the token from our process environment so any child the
-		// agent spawns does not inherit it, and casual debugging tools
-		// that dump /proc/<pid>/environ (or the Windows equivalent) on a
-		// running agent don't surface the loopback shared secret.
+		// Purge the token from env so it doesn't leak via /proc/<pid>/environ.
 		if err := os.Unsetenv("NB_VNC_AGENT_TOKEN"); err != nil {
 			log.Debugf("unset NB_VNC_AGENT_TOKEN: %v", err)
 		}
 
+		if err := os.Remove(vncAgentSocket); err != nil && !os.IsNotExist(err) {
+			log.Debugf("remove stale socket %s: %v", vncAgentSocket, err)
+		}
+		ln, err := net.Listen("unix", vncAgentSocket)
+		if err != nil {
+			return fmt.Errorf("listen on %s: %w", vncAgentSocket, err)
+		}
+		if err := os.Chmod(vncAgentSocket, 0o600); err != nil {
+			log.Debugf("chmod %s: %v", vncAgentSocket, err)
+		}
+
 		capturer, injector, err := newAgentResources()
 		if err != nil {
+			_ = ln.Close()
 			return err
 		}
-		// The per-user agent listens only on loopback and is gated by an
-		// agent token shared with the daemon, so no X25519 identity key
-		// is needed; auth is disabled at the RFB layer.
 		srv := vncserver.New(vncserver.Config{
 			Capturer:      capturer,
 			Injector:      injector,
 			DisableAuth:   true,
 			AgentTokenHex: token,
+			Listener:      ln,
 		})
 
-		addr := netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), vncAgentPort)
-		loopback := netip.PrefixFrom(netip.AddrFrom4([4]byte{127, 0, 0, 0}), 8)
-		if err := srv.Start(cmd.Context(), addr, loopback); err != nil {
+		if err := srv.Start(cmd.Context(), netip.AddrPort{}, netip.Prefix{}); err != nil {
 			return fmt.Errorf("start vnc server: %w", err)
 		}
-		log.Infof("vnc-agent listening on 127.0.0.1:%d, ready", vncAgentPort)
+		log.Infof("vnc-agent listening on %s, ready", vncAgentSocket)
 
 		<-cmd.Context().Done()
 		log.Info("vnc-agent context cancelled, shutting down")

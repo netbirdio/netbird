@@ -148,11 +148,13 @@ func TestIsAllowedSource(t *testing.T) {
 		want      bool
 	}{
 		{
-			name:      "non-tcp address rejected",
+			// Unix-domain remotes (per-session agent path) are local IPC,
+			// gated by the token, not by overlay membership.
+			name:      "non-tcp address allowed",
 			localAddr: netip.MustParseAddr("10.99.99.1"),
 			network:   netip.MustParsePrefix("10.99.0.0/16"),
-			remote:    &net.UDPAddr{IP: net.ParseIP("10.99.99.2"), Port: 1234},
-			want:      false,
+			remote:    &net.UnixAddr{Name: "/tmp/foo.sock", Net: "unix"},
+			want:      true,
 		},
 		{
 			name:      "own IP rejected",
