@@ -782,6 +782,8 @@ type ProxyMapping struct {
 	// For L4/TLS: the port the proxy listens on.
 	ListenPort         int32               `protobuf:"varint,11,opt,name=listen_port,json=listenPort,proto3" json:"listen_port,omitempty"`
 	AccessRestrictions *AccessRestrictions `protobuf:"bytes,12,opt,name=access_restrictions,json=accessRestrictions,proto3" json:"access_restrictions,omitempty"`
+	// Service visibility: "public" or "internal".
+	Visibility string `protobuf:"bytes,13,opt,name=visibility,proto3" json:"visibility,omitempty"`
 }
 
 func (x *ProxyMapping) Reset() {
@@ -898,6 +900,13 @@ func (x *ProxyMapping) GetAccessRestrictions() *AccessRestrictions {
 		return x.AccessRestrictions
 	}
 	return nil
+}
+
+func (x *ProxyMapping) GetVisibility() string {
+	if x != nil {
+		return x.Visibility
+	}
+	return ""
 }
 
 // SendAccessLogRequest consists of one or more AccessLogs from a Proxy.

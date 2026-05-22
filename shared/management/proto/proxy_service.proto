@@ -138,6 +138,8 @@ message ProxyMapping {
   // For L4/TLS: the port the proxy listens on.
   int32 listen_port = 11;
   AccessRestrictions access_restrictions = 12;
+  // Service visibility: "public" or "internal".
+  string visibility = 13;
 }
 
 // SendAccessLogRequest consists of one or more AccessLogs from a Proxy.

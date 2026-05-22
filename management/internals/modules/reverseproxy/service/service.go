@@ -52,6 +52,9 @@ const (
 
 	SourcePermanent = "permanent"
 	SourceEphemeral = "ephemeral"
+
+	VisibilityPublic   = "public"
+	VisibilityInternal = "internal"
 )
 
 type TargetOptions struct {
@@ -198,6 +201,8 @@ type Service struct {
 	SourcePeer        string             `gorm:"index:idx_service_source_peer"`
 	// Mode determines the service type: "http", "tcp", "udp", or "tls".
 	Mode             string `gorm:"default:'http'"`
+	// Visibility controls where the service is reachable: "public" or "internal".
+	Visibility       string `gorm:"default:'public'"`
 	ListenPort       uint16
 	PortAutoAssigned bool
 }
@@ -283,6 +288,7 @@ func (s *Service) ToAPIResponse() *api.Service {
 
 	mode := api.ServiceMode(s.Mode)
 	listenPort := int(s.ListenPort)
+	visibility := api.ServiceVisibility(s.Visibility)
 
 	resp := &api.Service{
 		Id:                 s.ID,
@@ -297,6 +303,7 @@ func (s *Service) ToAPIResponse() *api.Service {
 		AccessRestrictions: restrictionsToAPI(s.Restrictions),
 		Meta:               meta,
 		Mode:               &mode,
+		Visibility:         &visibility,
 		ListenPort:         &listenPort,
 		PortAutoAssigned:   &s.PortAutoAssigned,
 	}
@@ -349,6 +356,7 @@ func (s *Service) ToProtoMapping(operation Operation, authToken string, oidcConf
 		RewriteRedirects: s.RewriteRedirects,
 		Mode:             s.Mode,
 		ListenPort:       int32(s.ListenPort), //nolint:gosec
+		Visibility:       s.Visibility,
 	}
 
 	if r := restrictionsToProto(s.Restrictions); r != nil {
@@ -548,6 +556,9 @@ func (s *Service) FromAPIRequest(req *api.ServiceRequest, accountID string) erro
 	if req.Mode != nil {
 		s.Mode = string(*req.Mode)
 	}
+	if req.Visibility != nil {
+		s.Visibility = string(*req.Visibility)
+	}
 	if req.ListenPort != nil {
 		s.ListenPort = uint16(*req.ListenPort) //nolint:gosec
 	}
@@ -732,6 +743,19 @@ func (s *Service) Validate() error {
 
 	if s.Mode == "" {
 		s.Mode = ModeHTTP
+	}
+
+	if s.Visibility == "" {
+		s.Visibility = VisibilityPublic
+	}
+	switch s.Visibility {
+	case VisibilityPublic, VisibilityInternal:
+	default:
+		return fmt.Errorf("unsupported visibility %q", s.Visibility)
+	}
+
+	if s.Visibility == VisibilityInternal && IsL4Protocol(s.Mode) {
+		return fmt.Errorf("internal visibility is not yet supported for %s services", s.Mode)
 	}
 
 	if err := validateHeaderAuths(s.Auth.HeaderAuths); err != nil {
@@ -1193,6 +1217,7 @@ func (s *Service) Copy() *Service {
 		Source:            s.Source,
 		SourcePeer:        s.SourcePeer,
 		Mode:              s.Mode,
+		Visibility:        s.Visibility,
 		ListenPort:        s.ListenPort,
 		PortAutoAssigned:  s.PortAutoAssigned,
 	}
