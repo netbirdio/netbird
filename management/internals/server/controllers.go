@@ -21,7 +21,9 @@ import (
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/job"
+	"github.com/netbirdio/netbird/management/server/types"
 	nbjwt "github.com/netbirdio/netbird/shared/auth/jwt"
+	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
 func (s *BaseServer) PeersUpdateManager() network_map.PeersUpdateManager {
@@ -62,7 +64,7 @@ func (s *BaseServer) ProxyController() port_forwarding.Controller {
 
 func (s *BaseServer) SecretsManager() grpc.SecretsManager {
 	return Create(s, func() grpc.SecretsManager {
-		secretsManager, err := grpc.NewTimeBasedAuthSecretsManager(s.PeersUpdateManager(), s.Config.TURNConfig, s.Config.Relay, s.SettingsManager(), s.GroupsManager())
+		secretsManager, err := grpc.NewTimeBasedAuthSecretsManager(s.PeersUpdateManager(), s.Config.TURNConfig, s.Config.Relay, s.SettingsManager(), s.GroupsManager(), s.ExtendNetBirdConfig)
 		if err != nil {
 			log.Fatalf("failed to create secrets manager: %v", err)
 		}
@@ -125,7 +127,7 @@ func (s *BaseServer) EphemeralManager() ephemeral.Manager {
 
 func (s *BaseServer) NetworkMapController() network_map.Controller {
 	return Create(s, func() network_map.Controller {
-		return nmapcontroller.NewController(context.Background(), s.Store(), s.Metrics(), s.PeersUpdateManager(), s.AccountRequestBuffer(), s.IntegratedValidator(), s.SettingsManager(), s.DNSDomain(), s.ProxyController(), s.EphemeralManager(), s.Config)
+		return nmapcontroller.NewController(context.Background(), s.Store(), s.Metrics(), s.PeersUpdateManager(), s.AccountRequestBuffer(), s.IntegratedValidator(), s.SettingsManager(), s.DNSDomain(), s.ProxyController(), s.EphemeralManager(), s.Config, s.ExtendNetBirdConfig)
 	})
 }
 
@@ -147,4 +149,8 @@ func (s *BaseServer) AccountRequestBuffer() *server.AccountRequestBuffer {
 
 func (s *BaseServer) DNSDomain() string {
 	return s.dnsDomain
+}
+
+func (s *BaseServer) ExtendNetBirdConfig(_ string, _ []string, config *proto.NetbirdConfig, _ *types.ExtraSettings) *proto.NetbirdConfig {
+	return config
 }

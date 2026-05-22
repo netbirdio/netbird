@@ -10,8 +10,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	goproto "google.golang.org/protobuf/proto"
 
-	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
-
 	"github.com/netbirdio/netbird/client/ssh/auth"
 
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -25,6 +23,8 @@ import (
 	"github.com/netbirdio/netbird/shared/netiputil"
 	"github.com/netbirdio/netbird/shared/sshauth"
 )
+
+type ConfigExtender func(peerID string, peerGroups []string, config *proto.NetbirdConfig, extras *types.ExtraSettings) *proto.NetbirdConfig
 
 func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken *Token, extraSettings *types.ExtraSettings) *proto.NetbirdConfig {
 	if config == nil {
@@ -127,7 +127,7 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 	return peerConfig
 }
 
-func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *cache.DNSConfigCache, settings *types.Settings, extraSettings *types.ExtraSettings, peerGroups []string, dnsFwdPort int64) *proto.SyncResponse {
+func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *cache.DNSConfigCache, settings *types.Settings, extraSettings *types.ExtraSettings, peerGroups []string, dnsFwdPort int64, configExtender ConfigExtender) *proto.SyncResponse {
 	// IPv6 data in AllowedIPs and SourcePrefixes wildcard expansion depends on
 	// whether the target peer supports IPv6. Routes and firewall rules are already
 	// filtered at the source (network map builder).
@@ -146,8 +146,10 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 	}
 
 	nbConfig := toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings)
-	extendedConfig := integrationsConfig.ExtendNetBirdConfig(peer.ID, peerGroups, nbConfig, extraSettings)
-	response.NetbirdConfig = extendedConfig
+	if configExtender != nil {
+		nbConfig = configExtender(peer.ID, peerGroups, nbConfig, extraSettings)
+	}
+	response.NetbirdConfig = nbConfig
 
 	response.NetworkMap.PeerConfig = response.PeerConfig
 
@@ -331,7 +333,6 @@ func toProtocolFirewallRules(rules []*types.FirewallRule, includeIPv6, useSource
 	}
 	return result
 }
-
 
 // populateSourcePrefixes sets SourcePrefixes on fwRule and returns any
 // additional rules needed (e.g. a v6 wildcard clone when the peer IP is unspecified).
