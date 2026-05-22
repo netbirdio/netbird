@@ -519,20 +519,12 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) 
 			policy.Rules[0].AuthorizedUser = userAuth.UserId
 		}
 		if protocol == types.PolicyRuleProtocolNetbirdVNC {
-			if req.SessionPubKey == nil || *req.SessionPubKey == "" {
-				util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "session_pub_key is required for VNC temporary access"), w)
-				return
-			}
-			pub, err := base64.StdEncoding.DecodeString(*req.SessionPubKey)
+			pubKey, err := validateVNCSessionPubKey(req.SessionPubKey)
 			if err != nil {
-				util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "session_pub_key is not valid base64: %v", err), w)
+				util.WriteError(r.Context(), err, w)
 				return
 			}
-			if len(pub) != 32 {
-				util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "session_pub_key must decode to 32 bytes, got %d", len(pub)), w)
-				return
-			}
-			policy.Rules[0].SessionPubKey = *req.SessionPubKey
+			policy.Rules[0].SessionPubKey = pubKey
 		}
 
 		_, err = h.accountManager.SavePolicy(r.Context(), userAuth.AccountId, userAuth.UserId, policy, true)
@@ -550,6 +542,23 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) 
 	}
 
 	util.WriteJSONObject(r.Context(), w, resp)
+}
+
+// validateVNCSessionPubKey ensures the request carries a base64-encoded
+// 32-byte X25519 public key for VNC temporary access. Returns the original
+// base64 string on success.
+func validateVNCSessionPubKey(raw *string) (string, error) {
+	if raw == nil || *raw == "" {
+		return "", status.Errorf(status.InvalidArgument, "session_pub_key is required for VNC temporary access")
+	}
+	pub, err := base64.StdEncoding.DecodeString(*raw)
+	if err != nil {
+		return "", status.Errorf(status.InvalidArgument, "session_pub_key is not valid base64: %v", err)
+	}
+	if len(pub) != 32 {
+		return "", status.Errorf(status.InvalidArgument, "session_pub_key must decode to 32 bytes, got %d", len(pub))
+	}
+	return *raw, nil
 }
 
 func toAccessiblePeers(netMap *types.NetworkMap, dnsDomain string) []api.AccessiblePeer {
