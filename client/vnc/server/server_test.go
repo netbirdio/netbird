@@ -28,8 +28,11 @@ func (t *testCapturer) Capture() (*image.RGBA, error) {
 func startTestServer(t *testing.T, disableAuth bool) (net.Addr, *Server) {
 	t.Helper()
 
-	srv := New(&testCapturer{}, &StubInputInjector{}, nil)
-	srv.SetDisableAuth(disableAuth)
+	srv := New(Config{
+		Capturer:    &testCapturer{},
+		Injector:    &StubInputInjector{},
+		DisableAuth: disableAuth,
+	})
 
 	addr := netip.MustParseAddrPort("127.0.0.1:0")
 	network := netip.MustParsePrefix("127.0.0.0/8")
@@ -112,8 +115,11 @@ func TestAuthDisabled_AllowsConnection(t *testing.T) {
 // server must close immediately and the client must see EOF before any RFB
 // version greeting is written.
 func TestAuth_NoUnauthBytesPastHeader(t *testing.T) {
-	srv := New(&testCapturer{}, &StubInputInjector{}, nil)
-	srv.SetDisableAuth(true)
+	srv := New(Config{
+		Capturer:    &testCapturer{},
+		Injector:    &StubInputInjector{},
+		DisableAuth: true,
+	})
 	addr := netip.MustParseAddrPort("127.0.0.1:0")
 	// Tight overlay that excludes 127.0.0.0/8 and a non-loopback local IP, so
 	// the loopback short-circuit in isAllowedSource doesn't apply.
@@ -193,7 +199,7 @@ func TestIsAllowedSource(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			srv := New(&testCapturer{}, &StubInputInjector{}, nil)
+			srv := New(Config{Capturer: &testCapturer{}, Injector: &StubInputInjector{}})
 			srv.localAddr = tc.localAddr
 			srv.network = tc.network
 			assert.Equal(t, tc.want, srv.isAllowedSource(tc.remote))
@@ -202,7 +208,7 @@ func TestIsAllowedSource(t *testing.T) {
 }
 
 func TestStart_InvalidNetworkRejected(t *testing.T) {
-	srv := New(&testCapturer{}, &StubInputInjector{}, nil)
+	srv := New(Config{Capturer: &testCapturer{}, Injector: &StubInputInjector{}})
 	addr := netip.MustParseAddrPort("127.0.0.1:0")
 	err := srv.Start(t.Context(), addr, netip.Prefix{})
 	require.Error(t, err, "Start must refuse an invalid overlay prefix")
@@ -210,9 +216,12 @@ func TestStart_InvalidNetworkRejected(t *testing.T) {
 }
 
 func TestAgentToken_MismatchClosesConnection(t *testing.T) {
-	srv := New(&testCapturer{}, &StubInputInjector{}, nil)
-	srv.SetDisableAuth(true)
-	srv.SetAgentToken("deadbeefcafebabe")
+	srv := New(Config{
+		Capturer:      &testCapturer{},
+		Injector:      &StubInputInjector{},
+		DisableAuth:   true,
+		AgentTokenHex: "deadbeefcafebabe",
+	})
 
 	addr := netip.MustParseAddrPort("127.0.0.1:0")
 	network := netip.MustParsePrefix("127.0.0.0/8")
@@ -238,10 +247,13 @@ func TestAgentToken_MismatchClosesConnection(t *testing.T) {
 }
 
 func TestAgentToken_MatchAllowsHandshake(t *testing.T) {
-	srv := New(&testCapturer{}, &StubInputInjector{}, nil)
-	srv.SetDisableAuth(true)
 	const tokenHex = "deadbeefcafebabe"
-	srv.SetAgentToken(tokenHex)
+	srv := New(Config{
+		Capturer:      &testCapturer{},
+		Injector:      &StubInputInjector{},
+		DisableAuth:   true,
+		AgentTokenHex: tokenHex,
+	})
 	token, err := hex.DecodeString(tokenHex)
 	require.NoError(t, err)
 
@@ -275,8 +287,11 @@ func TestAgentToken_MatchAllowsHandshake(t *testing.T) {
 func TestSessionMode_RejectedWhenNoVMGR(t *testing.T) {
 	// Default platformSessionManager() on non-Linux returns nil, so ModeSession
 	// must be rejected with the UNSUPPORTED reason rather than crashing.
-	srv := New(&testCapturer{}, &StubInputInjector{}, nil)
-	srv.SetDisableAuth(true)
+	srv := New(Config{
+		Capturer:    &testCapturer{},
+		Injector:    &StubInputInjector{},
+		DisableAuth: true,
+	})
 
 	addr := netip.MustParseAddrPort("127.0.0.1:0")
 	network := netip.MustParsePrefix("127.0.0.0/8")

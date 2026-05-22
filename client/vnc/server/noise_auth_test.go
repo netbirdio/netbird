@@ -28,8 +28,11 @@ func noiseTestServer(t *testing.T) (net.Addr, *Server, []byte) {
 	kp, err := noise.DH25519.GenerateKeypair(nil)
 	require.NoError(t, err)
 
-	srv := New(&testCapturer{}, &StubInputInjector{}, kp.Private)
-	srv.SetDisableAuth(false)
+	srv := New(Config{
+		Capturer:    &testCapturer{},
+		Injector:    &StubInputInjector{},
+		IdentityKey: kp.Private,
+	})
 
 	addr := netip.MustParseAddrPort("127.0.0.1:0")
 	network := netip.MustParsePrefix("127.0.0.0/8")
@@ -338,8 +341,7 @@ func TestNoise_RevokedKey_RejectedAfterAuthUpdate(t *testing.T) {
 // without a static private key still rejects authenticated connections
 // fail-closed; it must not silently accept the client.
 func TestNoise_NoIdentityKey_FailsClosed(t *testing.T) {
-	srv := New(&testCapturer{}, &StubInputInjector{}, nil)
-	srv.SetDisableAuth(false)
+	srv := New(Config{Capturer: &testCapturer{}, Injector: &StubInputInjector{}})
 	addr := netip.MustParseAddrPort("127.0.0.1:0")
 	network := netip.MustParsePrefix("127.0.0.0/8")
 	require.NoError(t, srv.Start(t.Context(), addr, network))
@@ -384,7 +386,7 @@ func TestNoise_DerivedIdentityPublicMatchesPrivate(t *testing.T) {
 	for i := range priv {
 		priv[i] = byte(i + 1)
 	}
-	srv := New(&testCapturer{}, &StubInputInjector{}, priv)
+	srv := New(Config{Capturer: &testCapturer{}, Injector: &StubInputInjector{}, IdentityKey: priv})
 
 	expected, err := curve25519.X25519(priv, curve25519.Basepoint)
 	require.NoError(t, err)

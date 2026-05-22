@@ -99,9 +99,9 @@ func (e *Engine) startVNCServer() error {
 
 	netbirdIP := e.wgInterface.Address().IP
 
-	srv := vncserver.New(capturer, injector, e.config.WgPrivateKey[:])
+	var sessionRecorder func(vncserver.SessionTick)
 	if e.clientMetrics != nil {
-		srv.SetSessionRecorder(func(t vncserver.SessionTick) {
+		sessionRecorder = func(t vncserver.SessionTick) {
 			e.clientMetrics.RecordVNCSessionTick(e.ctx, metrics.VNCSessionTick{
 				Period:        t.Period,
 				BytesOut:      t.BytesOut,
@@ -112,16 +112,20 @@ func (e *Engine) startVNCServer() error {
 				MaxWriteBytes: t.MaxWriteBytes,
 				WriteNanos:    t.WriteNanos,
 			})
-		})
+		}
 	}
-	if vncNeedsServiceMode() {
+	serviceMode := vncNeedsServiceMode()
+	if serviceMode {
 		log.Info("VNC: running in Session 0, enabling service mode (agent proxy)")
-		srv.SetServiceMode(true)
 	}
-
-	if netstackNet := e.wgInterface.GetNet(); netstackNet != nil {
-		srv.SetNetstackNet(netstackNet)
-	}
+	srv := vncserver.New(vncserver.Config{
+		Capturer:        capturer,
+		Injector:        injector,
+		IdentityKey:     e.config.WgPrivateKey[:],
+		ServiceMode:     serviceMode,
+		SessionRecorder: sessionRecorder,
+		NetstackNet:     e.wgInterface.GetNet(),
+	})
 
 	listenAddr := netip.AddrPortFrom(netbirdIP, vncInternalPort)
 	network := e.wgInterface.Address().Network
