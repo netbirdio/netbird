@@ -15,7 +15,7 @@ import { SquareIcon } from "@/components/SquareIcon";
 import { cn } from "@/lib/cn";
 import type { DebugStage } from "@/modules/debug-bundle/useDebugBundle.ts";
 import { useDebugBundleContext } from "@/modules/debug-bundle/useDebugBundleContext.ts";
-import { SectionGroup } from "@/modules/settings/SettingsSection.tsx";
+import { SectionGroup, SettingsBottomBar } from "@/modules/settings/SettingsSection.tsx";
 
 export function SettingsTroubleshooting() {
     const { t } = useTranslation();
@@ -106,11 +106,11 @@ export function SettingsTroubleshooting() {
                 </div>
             </div>
 
-            <BottomBar>
+            <SettingsBottomBar>
                 <Button variant={"primary"} size={"md"} onClick={run}>
                     {t("settings.troubleshooting.create")}
                 </Button>
-            </BottomBar>
+            </SettingsBottomBar>
         </SectionGroup>
     );
 }
@@ -262,20 +262,6 @@ function DoneResult({
                 </Button>
             </DialogActions>
         </CenteredPanel>
-    );
-}
-
-function BottomBar({ children }: { children: ReactNode }) {
-    return (
-        <div className={"absolute bottom-0 left-0 w-full"}>
-            <div
-                className={
-                    "w-full flex justify-end gap-3 px-8 py-5 border-t border-nb-gray-900 bg-nb-gray-935"
-                }
-            >
-                {children}
-            </div>
-        </div>
     );
 }
 

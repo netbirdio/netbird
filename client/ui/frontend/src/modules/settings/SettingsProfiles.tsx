@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Dialogs } from "@wailsio/runtime";
 import { CircleMinus, PlusCircle, Trash2, UserCircle } from "lucide-react";
@@ -11,7 +11,7 @@ import { pickProfileIcon } from "@/components/ProfileAvatar";
 import { Tooltip } from "@/components/Tooltip";
 import i18next from "@/lib/i18n";
 import { useProfile } from "@/modules/profile/ProfileContext";
-import { SectionGroup } from "@/modules/settings/SettingsSection.tsx";
+import { SectionGroup, SettingsBottomBar } from "@/modules/settings/SettingsSection.tsx";
 import { cn } from "@/lib/cn";
 import { formatErrorMessage } from "@/lib/errors";
 
@@ -104,10 +104,6 @@ export function SettingsProfiles() {
                 <div
                     className={cn(
                         "bg-nb-gray-930/60 border border-nb-gray-900 rounded-xl overflow-hidden",
-                        // Leave room for the absolutely positioned BottomBar
-                        // (~76px) so the last row isn't hidden behind it when
-                        // the list fills the scroll area.
-                        "mb-20",
                     )}
                 >
                     <table className={"w-full text-sm"}>
@@ -141,30 +137,16 @@ export function SettingsProfiles() {
                     )}
                 </div>
 
-                <BottomBar>
+                <SettingsBottomBar>
                     <Button variant={"primary"} size={"md"} onClick={() => setNewOpen(true)}>
                         <PlusCircle size={14} />
                         {t("settings.profiles.addProfile")}
                     </Button>
-                </BottomBar>
+                </SettingsBottomBar>
             </SectionGroup>
 
             <NewProfileModal open={newOpen} onOpenChange={setNewOpen} onCreate={handleCreate} />
         </>
-    );
-}
-
-function BottomBar({ children }: { children: ReactNode }) {
-    return (
-        <div className={"absolute bottom-0 left-0 w-full"}>
-            <div
-                className={
-                    "w-full flex justify-end gap-3 px-8 py-5 border-t border-nb-gray-900 bg-nb-gray-935"
-                }
-            >
-                {children}
-            </div>
-        </div>
     );
 }
 

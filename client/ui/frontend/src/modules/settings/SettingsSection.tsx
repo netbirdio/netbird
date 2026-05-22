@@ -17,3 +17,22 @@ export const SectionGroup = ({
         <div className={"flex flex-col gap-5"}>{children}</div>
     </section>
 );
+
+// SettingsBottomBar renders the floating action bar at the bottom of a
+// settings tab (Save Changes / Add Profile / Create Bundle). It pairs the
+// absolutely positioned bar with an in-flow spacer of the same height so
+// scrollable content above doesn't end up hidden behind the bar.
+export const SettingsBottomBar = ({ children }: { children: ReactNode }) => (
+    <>
+        <div className={"h-[4.5rem] shrink-0"} aria-hidden />
+        <div className={"absolute bottom-0 left-0 w-full"}>
+            <div
+                className={
+                    "w-full flex justify-end gap-3 px-8 py-5 border-t border-nb-gray-900 bg-nb-gray-935"
+                }
+            >
+                {children}
+            </div>
+        </div>
+    </>
+);

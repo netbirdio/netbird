@@ -5,7 +5,7 @@ import Button from "@/components/Button";
 import { HelpText } from "@/components/HelpText";
 import { Input } from "@/components/Input";
 import { Label } from "@/components/Label";
-import { SectionGroup } from "@/modules/settings/SettingsSection.tsx";
+import { SectionGroup, SettingsBottomBar } from "@/modules/settings/SettingsSection.tsx";
 import { useSettings } from "@/modules/settings/SettingsContext.tsx";
 
 // macOS: the Darwin utun control socket parses the digits after "utun" as the
@@ -139,18 +139,16 @@ export function SettingsAdvanced() {
                 </div>
             </SectionGroup>
 
-            <div className={"absolute bottom-0 left-0 w-full"}>
-                <div className={"w-full flex justify-end px-8 py-5 border-t border-nb-gray-910"}>
-                    <Button
-                        variant={"primary"}
-                        size={"md"}
-                        disabled={!hasChanges || saving || hasErrors}
-                        onClick={handleSave}
-                    >
-                        {t("common.saveChanges")}
-                    </Button>
-                </div>
-            </div>
+            <SettingsBottomBar>
+                <Button
+                    variant={"primary"}
+                    size={"md"}
+                    disabled={!hasChanges || saving || hasErrors}
+                    onClick={handleSave}
+                >
+                    {t("common.saveChanges")}
+                </Button>
+            </SettingsBottomBar>
         </>
     );
 }
