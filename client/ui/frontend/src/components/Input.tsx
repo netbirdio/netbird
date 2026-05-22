@@ -176,7 +176,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
                             inputVariants({
                                 variant: error ? "error" : variant,
                             }),
-                            "flex h-[40px] w-full rounded-md bg-white px-3 py-2 text-sm",
+                            "flex h-[40px] w-full rounded-md bg-white px-3 py-2 text-sm select-text",
                             "file:bg-transparent file:text-sm file:font-medium file:border-0",
                             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
                             "disabled:cursor-not-allowed disabled:opacity-40",

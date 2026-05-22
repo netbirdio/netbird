@@ -89,6 +89,8 @@ export default function SessionAboutToExpireDialog() {
     }, [busy, t]);
 
     const logout = useCallback(async () => {
+        if (busy) return;
+        setBusy(true);
         try {
             const username = await ProfilesSvc.Username();
             const active = await ProfilesSvc.GetActive();
@@ -96,12 +98,16 @@ export default function SessionAboutToExpireDialog() {
                 profileName: active.profileName || "default",
                 username,
             });
-        } catch (e) {
-            console.error("logout from session-about-to-expire failed", e);
-        } finally {
             WindowManager.CloseSessionAboutToExpire().catch(console.error);
+        } catch (e) {
+            await Dialogs.Error({
+                Title: t("sessionAboutToExpire.logoutFailedTitle"),
+                Message: formatErrorMessage(e),
+            });
+        } finally {
+            setBusy(false);
         }
-    }, []);
+    }, [busy, t]);
 
     return (
         <ConfirmDialog ref={contentRef}>
@@ -129,6 +135,7 @@ export default function SessionAboutToExpireDialog() {
 
             <DialogActions>
                 <Button
+                    autoFocus
                     variant={"primary"}
                     size={"md"}
                     className={"w-full"}

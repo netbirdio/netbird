@@ -122,6 +122,7 @@ export default function InstallProgressDialog() {
             {isError && (
                 <DialogActions>
                     <Button
+                        autoFocus
                         variant={"secondary"}
                         size={"md"}
                         className={"w-full"}

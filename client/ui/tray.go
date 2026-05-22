@@ -295,6 +295,16 @@ func (t *Tray) reapplyMenuState() {
 // active app. Focus() additionally calls activateIgnoringOtherApps:YES on
 // macOS and SetForegroundWindow on Windows.
 func (t *Tray) ShowWindow() {
+	// While an auto-update install is running the install-progress window
+	// is the focal surface (all other windows hidden by WindowManager).
+	// Tray "Open" / SIGUSR1 / dock-reopen should bring it forward, not
+	// resurrect the main one mid-install. Checked before BrowserLogin
+	// because an install supersedes every other flow.
+	if w := t.svc.WindowManager.InstallProgressWindow(); w != nil {
+		w.Show()
+		w.Focus()
+		return
+	}
 	// While an SSO flow is in progress the BrowserLogin popup is the focal
 	// window — the main window was hidden by WindowManager so the user
 	// stays on the sign-in surface. Tray "Open" / SIGUSR1 / dock-reopen

@@ -179,8 +179,12 @@
     "settings.advanced.section.interface": "Interfész",
     "settings.advanced.section.security": "Biztonság",
     "settings.advanced.interfaceName.label": "Név",
+    "settings.advanced.interfaceName.error": "Használj 1–15 betűt, számot, pontot, kötőjelet vagy aláhúzást.",
+    "settings.advanced.interfaceName.errorMac": "„utun” után számmal kezdődjön (pl. utun100).",
     "settings.advanced.port.label": "Port",
+    "settings.advanced.port.error": "Adj meg egy portot {min} és {max} között.",
     "settings.advanced.mtu.label": "MTU",
+    "settings.advanced.mtu.error": "Adj meg egy MTU értéket {min} és {max} között.",
     "settings.advanced.psk.label": "Pre-shared kulcs",
     "settings.advanced.psk.help": "Opcionális WireGuard PSK további szimmetrikus titkosításhoz. Nem azonos a NetBird telepítőkulccsal. Csak olyan társakkal kommunikál, akik ugyanazt a pre-shared kulcsot használják.",
 
@@ -272,6 +276,7 @@
     "browserLogin.title": "Folytassa a böngészőben a bejelentkezés befejezéséhez",
     "browserLogin.notSeeing": "Nem látja a böngésző fülét?",
     "browserLogin.tryAgain": "Próbálja újra",
+    "browserLogin.openFailedTitle": "A böngésző megnyitása sikertelen",
 
     "sessionExpired.title": "Munkamenet lejárt",
     "sessionExpired.description": "A NetBird munkamenete lejárt. Jelentkezzen be újra, hogy az eszközei kapcsolatban maradjanak.",
@@ -284,6 +289,7 @@
     "sessionAboutToExpire.logout": "Kijelentkezés",
     "sessionAboutToExpire.expired": "Munkamenet lejárt",
     "sessionAboutToExpire.extendFailedTitle": "A munkamenet meghosszabbítása sikertelen",
+    "sessionAboutToExpire.logoutFailedTitle": "Kijelentkezés sikertelen",
 
     "peers.search.placeholder": "Keresés társ neve, DNS vagy IP-cím alapján",
     "peers.filter.all": "Összes",

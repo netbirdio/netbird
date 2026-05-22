@@ -322,7 +322,7 @@ export const ConnectionStatusSwitch = () => {
             <div className={"flex flex-col items-center"}>
                 <h1
                     className={
-                        "text-sm font-medium text-nb-gray-200 tracking-wide transition-colors duration-300 wails-no-draggable"
+                        "text-sm font-medium text-nb-gray-200 tracking-wide transition-colors duration-300 select-none wails-no-draggable"
                     }
                 >
                     {t(STATUS_KEY[connState])}

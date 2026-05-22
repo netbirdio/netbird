@@ -179,6 +179,7 @@ func main() {
 	app.RegisterService(application.NewService(services.NewPreferences(prefStore)))
 
 	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Name:                "main",
 		Title:               "NetBird",
 		Width:               380,
 		Height:              640,

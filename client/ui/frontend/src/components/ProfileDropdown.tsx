@@ -91,7 +91,7 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
                         collisionPadding={12}
                         onOpenAutoFocus={(e) => e.preventDefault()}
                         className={cn(
-                            "z-50 min-w-64 overflow-hidden rounded-lg border border-nb-gray-900 bg-nb-gray-935 p-1 text-nb-gray-200 shadow-lg wails-no-draggable",
+                            "z-50 min-w-64 overflow-hidden rounded-lg border border-nb-gray-900 bg-nb-gray-935 p-1 text-nb-gray-200 shadow-lg select-none wails-no-draggable",
                             "data-[state=open]:animate-in data-[state=closed]:animate-out",
                             "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
                             "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
@@ -186,7 +186,7 @@ const ProfileTriggerButton = forwardRef<HTMLButtonElement, ProfileTriggerButtonP
                 ref={ref}
                 type="button"
                 className={cn(
-                    "h-10 flex items-center gap-2 px-3 rounded-lg outline-none cursor-default wails-no-draggable",
+                    "h-10 flex items-center gap-2 px-3 rounded-lg outline-none cursor-default select-none wails-no-draggable",
                     "text-nb-gray-200 hover:bg-nb-gray-900",
                     "data-[state=open]:bg-nb-gray-900",
                     "transition-colors duration-150 wails-no-draggable",

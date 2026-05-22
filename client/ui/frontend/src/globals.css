@@ -2,7 +2,14 @@
   font-family: "Inter Variable";
   font-style: normal;
   font-weight: 100 900;
-  src: url("./assets/fonts/InterVariable.ttf") format("truetype");
+  src: url("./assets/fonts/inter-variable.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "JetBrains Mono Variable";
+  font-style: normal;
+  font-weight: 100 800;
+  src: url("./assets/fonts/jetbrains-mono-variable.ttf") format("truetype");
 }
 
 @tailwind base;
@@ -30,6 +37,7 @@ body {
 
 .wails-draggable {
   --wails-draggable: drag;
+  cursor: default;
 }
 
 .wails-no-draggable {

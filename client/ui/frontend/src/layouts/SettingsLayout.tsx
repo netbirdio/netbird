@@ -17,7 +17,7 @@ import { ProfileProvider } from "@/modules/profile/ProfileContext.tsx";
 // dragging it.
 export const SettingsLayout = () => {
     return (
-        <div className={"relative flex h-full flex-col"}>
+        <div className={"relative flex h-full flex-col select-none"}>
             <StatusProvider>
                 <ProfileProvider>
                     <DebugBundleProvider>

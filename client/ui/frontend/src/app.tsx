@@ -2,7 +2,6 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import "./globals.css";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
-import QuickActions from "@/screens/QuickActions.tsx";
 import SessionExpiredDialog from "@/modules/authentication/SessionExpiredDialog.tsx";
 import SessionAboutToExpireDialog from "@/modules/authentication/SessionAboutToExpireDialog.tsx";
 import InstallProgressDialog from "@/modules/auto-update/InstallProgressDialog.tsx";
@@ -31,7 +30,6 @@ initI18n()
             <SkeletonTheme baseColor={"#25282d"} highlightColor={"#33373e"}>
                 <HashRouter>
                     <Routes>
-                        <Route path="/quick" element={<QuickActions />} />
                         <Route path="/browser-login" element={<WaitingForBrowserDialog />} />
                         <Route path="/install-progress" element={<InstallProgressDialog />} />
                         <Route path="/session-expired" element={<SessionExpiredDialog />} />

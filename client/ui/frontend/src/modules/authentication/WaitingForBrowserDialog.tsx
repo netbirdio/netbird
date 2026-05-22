@@ -1,7 +1,7 @@
 import { useCallback, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
-import { Events } from "@wailsio/runtime";
+import { Dialogs, Events } from "@wailsio/runtime";
 import { Loader2 } from "lucide-react";
 import { Connection } from "@bindings/services";
 import { Button } from "@/components/Button";
@@ -11,6 +11,7 @@ import { DialogDescription } from "@/components/DialogDescription";
 import { DialogHeading } from "@/components/DialogHeading";
 import { SquareIcon } from "@/components/SquareIcon";
 import { useAutoSizeWindow } from "@/lib/useAutoSizeWindow";
+import { formatErrorMessage } from "@/lib/errors";
 
 const EVENT_CANCEL = "browser-login:cancel";
 const WINDOW_WIDTH = 360;
@@ -21,19 +22,29 @@ export default function WaitingForBrowserDialog() {
     const uri = params.get("uri") ?? "";
     const contentRef = useAutoSizeWindow<HTMLDivElement>(WINDOW_WIDTH);
 
+    const reportOpenFailure = useCallback(
+        (e: unknown) => {
+            void Dialogs.Error({
+                Title: t("browserLogin.openFailedTitle"),
+                Message: formatErrorMessage(e),
+            });
+        },
+        [t],
+    );
+
     // Open the system browser only after the dialog has mounted (which
     // means useAutoSizeWindow has called Window.Show). startLogin used to
     // fire OpenURL itself but the browser typically beat React's mount
     // and landed on top of the still-hidden NetBird popup.
     useEffect(() => {
         if (!uri) return;
-        Connection.OpenURL(uri).catch(console.error);
-    }, [uri]);
+        Connection.OpenURL(uri).catch(reportOpenFailure);
+    }, [uri, reportOpenFailure]);
 
     const tryAgain = useCallback(() => {
         if (!uri) return;
-        Connection.OpenURL(uri).catch(console.error);
-    }, [uri]);
+        Connection.OpenURL(uri).catch(reportOpenFailure);
+    }, [uri, reportOpenFailure]);
 
     const cancel = useCallback(() => {
         void Events.Emit(EVENT_CANCEL);
@@ -67,6 +78,7 @@ export default function WaitingForBrowserDialog() {
 
             <DialogActions>
                 <Button
+                    autoFocus
                     variant={"secondary"}
                     size={"md"}
                     className={"w-full"}

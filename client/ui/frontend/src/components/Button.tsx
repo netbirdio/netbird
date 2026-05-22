@@ -14,7 +14,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>, Bu
 export const buttonVariants = cva(
     [
         "relative",
-        "text-sm focus:z-10 focus:ring-2 font-semibold focus:outline-none whitespace-nowrap shadow-sm",
+        "text-sm focus:z-10 focus:ring-2 font-semibold focus:outline-none whitespace-nowrap shadow-sm select-none",
         "inline-flex gap-2 items-center justify-center transition-colors focus:ring-offset-1",
         "disabled:opacity-40 disabled:cursor-not-allowed disabled:dark:text-nb-gray-300 dark:ring-offset-neutral-950/50",
     ],

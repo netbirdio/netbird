@@ -179,8 +179,12 @@
     "settings.advanced.section.interface": "Schnittstelle",
     "settings.advanced.section.security": "Sicherheit",
     "settings.advanced.interfaceName.label": "Name",
+    "settings.advanced.interfaceName.error": "Verwende 1–15 Buchstaben, Ziffern, Punkt, Bindestrich oder Unterstrich.",
+    "settings.advanced.interfaceName.errorMac": "Muss mit „utun“ und einer Zahl beginnen (z. B. utun100).",
     "settings.advanced.port.label": "Port",
+    "settings.advanced.port.error": "Gib einen Port zwischen {min} und {max} ein.",
     "settings.advanced.mtu.label": "MTU",
+    "settings.advanced.mtu.error": "Gib eine MTU zwischen {min} und {max} ein.",
     "settings.advanced.psk.label": "Pre-shared Key",
     "settings.advanced.psk.help": "Optionaler WireGuard-PSK für zusätzliche symmetrische Verschlüsselung. Nicht identisch mit einem NetBird Setup Key. Sie kommunizieren nur mit Peers, die denselben Pre-shared Key verwenden.",
 
@@ -272,6 +276,7 @@
     "browserLogin.title": "Setzen Sie den Anmeldevorgang im Browser fort",
     "browserLogin.notSeeing": "Sehen Sie den Browser-Tab nicht?",
     "browserLogin.tryAgain": "Erneut versuchen",
+    "browserLogin.openFailedTitle": "Browser konnte nicht geöffnet werden",
 
     "sessionExpired.title": "Sitzung abgelaufen",
     "sessionExpired.description": "Ihre NetBird-Sitzung ist abgelaufen. Melden Sie sich erneut an, damit Ihre Geräte verbunden bleiben.",
@@ -284,6 +289,7 @@
     "sessionAboutToExpire.logout": "Abmelden",
     "sessionAboutToExpire.expired": "Sitzung abgelaufen",
     "sessionAboutToExpire.extendFailedTitle": "Sitzungsverlängerung fehlgeschlagen",
+    "sessionAboutToExpire.logoutFailedTitle": "Abmeldung fehlgeschlagen",
 
     "peers.search.placeholder": "Nach Peer-Name, DNS oder IP-Adresse suchen",
     "peers.filter.all": "Alle",

@@ -74,19 +74,20 @@ export const Header = () => {
             <div className={"flex justify-center ml-4"}>
                 <ProfileDropdown onManageProfiles={openManageProfiles} />
             </div>
-            <div className={"flex justify-end wails-no-draggable"}>
+            <div className={"flex justify-end"}>
                 <div className={"relative"}>
                     <DropdownMenu modal={false} open={menuOpen} onOpenChange={setMenuOpen}>
                         <DropdownMenuTrigger asChild className={"wails-no-draggable"}>
                             <IconButton
                                 icon={MoreVertical}
                                 iconClassName={"text-nb-gray-200 wails-no-draggable"}
+                                className={"select-none"}
                             />
                         </DropdownMenuTrigger>
                         <DropdownMenuContent
                             align="end"
                             sideOffset={8}
-                            className="min-w-52 data-[state=closed]:!animate-none data-[state=closed]:!duration-0"
+                            className="min-w-52 select-none data-[state=closed]:!animate-none data-[state=closed]:!duration-0"
                         >
                             {updateAvailable && (
                                 <>

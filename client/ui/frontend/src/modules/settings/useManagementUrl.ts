@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Dialogs } from "@wailsio/runtime";
 import i18next from "@/lib/i18n";
 import { useSettings } from "@/modules/settings/SettingsContext.tsx";
@@ -45,6 +45,11 @@ export function useManagementUrl() {
     const [url, setUrl] = useState(
         config.managementUrl === CLOUD_MANAGEMENT_URL ? "" : config.managementUrl,
     );
+    // Guard against double-showing the cloud-switch confirmation when the
+    // user toggles the segmented control multiple times before the prior
+    // Dialogs.Warning promise resolves. Without it each click queues a
+    // fresh native dialog and the user sees them stack up.
+    const switchConfirmOpenRef = useRef(false);
 
     useEffect(() => {
         setModeState(modeFromUrl(config.managementUrl));
@@ -61,6 +66,8 @@ export function useManagementUrl() {
             // Switching from a self-hosted management server to NetBird Cloud
             // re-points the client at a different deployment and forces a
             // reconnect/re-login. Confirm before applying.
+            if (switchConfirmOpenRef.current) return;
+            switchConfirmOpenRef.current = true;
             const cancelLabel = i18next.t("common.cancel");
             const confirmLabel = i18next.t("settings.general.management.switchCloudConfirm");
             void Dialogs.Warning({
@@ -70,11 +77,15 @@ export function useManagementUrl() {
                     { Label: cancelLabel, IsCancel: true, IsDefault: true },
                     { Label: confirmLabel },
                 ],
-            }).then((result) => {
-                if (result !== confirmLabel) return;
-                setModeState(ManagementMode.Cloud);
-                void saveField("managementUrl", CLOUD_MANAGEMENT_URL);
-            });
+            })
+                .then((result) => {
+                    if (result !== confirmLabel) return;
+                    setModeState(ManagementMode.Cloud);
+                    void saveField("managementUrl", CLOUD_MANAGEMENT_URL);
+                })
+                .finally(() => {
+                    switchConfirmOpenRef.current = false;
+                });
             return;
         }
         setModeState(next);

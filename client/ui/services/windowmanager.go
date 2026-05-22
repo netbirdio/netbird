@@ -213,6 +213,18 @@ func (s *WindowManager) BrowserLoginWindow() *application.WebviewWindow {
 	return s.browserLogin
 }
 
+// InstallProgressWindow returns the live install-progress window, or nil
+// if no install is in progress. Same contract as BrowserLoginWindow: while
+// it is non-nil it is the app's focal window — tray "Open" and dock /
+// taskbar activation route to it instead of the (currently hidden) main
+// window. Install supersedes every other surface, so callers should check
+// this before BrowserLoginWindow.
+func (s *WindowManager) InstallProgressWindow() *application.WebviewWindow {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.installProgress
+}
+
 // CloseBrowserLogin destroys the SSO popup window if it exists. Called from
 // startLogin() when the flow completes or cancels programmatically.
 func (s *WindowManager) CloseBrowserLogin() {

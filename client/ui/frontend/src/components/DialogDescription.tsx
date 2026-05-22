@@ -9,5 +9,5 @@ type DialogDescriptionProps = {
 };
 
 export const DialogDescription = ({ children, className }: DialogDescriptionProps) => (
-    <p className={cn("text-sm text-nb-gray-300", className)}>{children}</p>
+    <p className={cn("text-sm text-nb-gray-300 select-none", className)}>{children}</p>
 );

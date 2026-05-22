@@ -10,7 +10,7 @@ type DialogHeadingProps = {
 };
 
 export const DialogHeading = ({ children, className }: DialogHeadingProps) => (
-    <p className={cn("text-base font-semibold text-nb-gray-50", className)}>
+    <p className={cn("text-base font-semibold text-nb-gray-50 select-none", className)}>
         {children}
     </p>
 );

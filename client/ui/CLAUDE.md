@@ -59,7 +59,7 @@ Daemon connection status strings (`services/peers.go`) mirror `internal.Status*`
 
 ## Profile switching
 
-`services/profileswitcher.go` is the single source of truth for the reconnect policy. Both the tray (`tray.go switchProfile`) and the frontend's `screens/Profiles.tsx` call `ProfileSwitcher.SwitchActive`; identical inputs give identical state transitions.
+`services/profileswitcher.go` is the single source of truth for the reconnect policy. Both the tray (`tray.go switchProfile`) and the frontend (via `modules/profile/ProfileContext.tsx`'s `switchProfile`, which `modules/settings/SettingsProfiles.tsx` and the header `ProfileDropdown` go through) call `ProfileSwitcher.SwitchActive`; identical inputs give identical state transitions.
 
 Reconnect policy (driven by `prevStatus` from `Peers.Get`):
 
@@ -134,7 +134,7 @@ The tray uses Wails' built-in `notifications` service. One `notifications.Notifi
 
 ### Profile switching invariants
 
-`ProfileSwitcher.SwitchActive` is the only switch path on the TS side — `ProfileContext.switchProfile` and `screens/Profiles.tsx` both call it. The Go side captures `prevStatus`, drives the optimistic-Connecting paint via `Peers.BeginProfileSwitch`, mirrors into the user-side `profilemanager`, and conditionally fires Down/Up per the reconnect-policy table above.
+`ProfileSwitcher.SwitchActive` is the only switch path on the TS side — `ProfileContext.switchProfile` is the single TS wrapper, and `modules/settings/SettingsProfiles.tsx` + the header `ProfileDropdown` both go through it. The Go side captures `prevStatus`, drives the optimistic-Connecting paint via `Peers.BeginProfileSwitch`, mirrors into the user-side `profilemanager`, and conditionally fires Down/Up per the reconnect-policy table above.
 
 **Never call `Connection.Up` on an Idle/NeedsLogin daemon** — the daemon's internal 50s `waitForUp` blocks until `DeadlineExceeded`. `Connection.Up` from the frontend is reserved for the explicit Connect button (`ConnectionStatusSwitch.connect`) and the post-SSO resume inside `startLogin`; the gating for profile-switch reconnects lives Go-side in `ProfileSwitcher.SwitchActive`.
 

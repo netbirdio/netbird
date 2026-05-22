@@ -37,7 +37,13 @@ export default function SessionExpiredDialog() {
             </div>
 
             <DialogActions>
-                <Button variant={"primary"} size={"md"} className={"w-full"} onClick={signIn}>
+                <Button
+                    autoFocus
+                    variant={"primary"}
+                    size={"md"}
+                    className={"w-full"}
+                    onClick={signIn}
+                >
                     {t("sessionExpired.signIn")}
                 </Button>
                 <Button variant={"secondary"} size={"md"} className={"w-full"} onClick={later}>

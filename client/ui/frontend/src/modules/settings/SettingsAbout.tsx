@@ -34,7 +34,7 @@ export function SettingsAbout() {
             <img src={netbirdFull} alt={"NetBird"} className={"h-7 w-auto"} />
             <div className={"flex flex-col items-center gap-0.5 text-center"}>
                 <p
-                    className={"text-sm font-semibold text-nb-gray-100 cursor-default select-none"}
+                    className={"text-sm font-semibold text-nb-gray-100 cursor-text select-text"}
                     onClick={handleVersionClick}
                 >
                     {daemonVersion === "development" ? (
@@ -48,7 +48,7 @@ export function SettingsAbout() {
                         t("settings.about.client", { version: daemonVersion })
                     )}
                 </p>
-                <p className={"text-sm text-nb-gray-300"}>
+                <p className={"text-sm text-nb-gray-300 cursor-text select-text"}>
                     {t("settings.about.gui", { version: guiVersion })}
                 </p>
             </div>

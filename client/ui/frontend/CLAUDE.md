@@ -12,7 +12,7 @@ React 18 + TS 5.7 (`strict`, `noImplicitAny: false`) + Vite 6 + Tailwind 3 (`dar
 
 ## Path aliases & bindings
 
-`@/*` → `src/*`, `@bindings/*` → `bindings/github.com/netbirdio/netbird/client/ui/*` (set in both `tsconfig.json` and `vite.config.ts`). Canonical imports: `from "@bindings/services"` (functions) and `from "@bindings/services/models.js"` (types). A few legacy screens (`screens/Profiles.tsx`, `pages/Update.tsx`) still use deep `../../bindings/...` paths — treat as a smell.
+`@/*` → `src/*`, `@bindings/*` → `bindings/github.com/netbirdio/netbird/client/ui/*` (set in both `tsconfig.json` and `vite.config.ts`). Canonical imports: `from "@bindings/services"` (functions) and `from "@bindings/services/models.js"` (types).
 
 `bindings/` is gitignored and fully generated. A fresh clone has no `bindings/` on disk, so `pnpm typecheck` fails until you run `pnpm bindings` (or `wails3 generate bindings -clean=true -ts` from `client/ui/`) once. `wails3 dev` regenerates on its own.
 
@@ -23,7 +23,6 @@ React 18 + TS 5.7 (`strict`, `noImplicitAny: false`) + Vite 6 + Tailwind 3 (`dar
 | Path | Component | Layout | Where it opens |
 |---|---|---|---|
 | `/` | `Main` | `AppLayout` | Main window default route |
-| `/quick` | `QuickActions` | none | Standalone — **prototype**, not currently invoked by the Go side |
 | `/browser-login` | `WaitingForBrowserDialog` (modules/authentication) | none | Auxiliary window (Go `WindowManager.OpenBrowserLogin`) |
 | `/install-progress` | `InstallProgressDialog` (modules/auto-update) | none | Auxiliary window (Go `WindowManager.OpenInstallProgress(version)`, always-on-top). Owns the install-result polling + 5s daemon-down-grace; calls `Update.Quit()` on success. Opened by `ClientVersionContext.triggerUpdate` (enforced user-driven branch) and on the `installing` flip from `netbird:update:state` (force-install branch). Dev "Show updating dialog" button in `SettingsDevelopment` opens it directly. |
 | `/session-expired` | `SessionExpiredDialog` (modules/authentication) | none | Auxiliary window (Go `WindowManager.OpenSessionExpired`, always-on-top) |
@@ -37,7 +36,7 @@ React 18 + TS 5.7 (`strict`, `noImplicitAny: false`) + Vite 6 + Tailwind 3 (`dar
 
 ## Directory layout (src/)
 
-The split between `pages/`, `screens/`, and `modules/` is historical and not load-bearing. **Today:** `modules/` owns the polished AppLayout-shell-driven UI, `pages/` owns the few routes that live outside that shell, and `screens/` is the unsorted legacy bucket. Don't add new code under `screens/` — pick `pages/` (own route, no shell) or `modules/<feature>/` (lives inside the shell).
+`modules/<feature>/` owns the polished UI — both the AppLayout-shell-driven views and the standalone auxiliary windows (e.g. `modules/authentication/WaitingForBrowserDialog.tsx`, `modules/auto-update/InstallProgressDialog.tsx`). `screens/` is a residual legacy bucket — don't add new code there.
 
 ## Wails event bus
 
@@ -120,7 +119,7 @@ Compare against the variable, never against an English literal.
 
 **Bundle files.** Keys live in `src/i18n/locales/<code>/common.json` as a flat key→string map (`"settings.tabs.general": "General"`). Placeholders use single braces: `"Install version {version}"`. Adding a key: add to `en/common.json` first (the fallback), then every other locale. Missing keys fall back to English; if even that misses, i18next returns the key itself so the gap is visible in the UI rather than blank.
 
-**Adding a language.** Drop `src/i18n/locales/<code>/common.json` and append the row to `src/i18n/locales/_index.json`. That's it — `src/i18n/index.ts` discovers bundles via `import.meta.glob('./locales/*/common.json', { eager: true })`, so no code change is needed to wire the new locale in. Vite still inlines each bundle at build time, same chunk shape as static imports. The Go side reads the same tree (embedded via `client/ui/main.go`'s `embed.FS`), so the tray menu localises automatically off the same files.
+**Adding a language.** Drop `src/i18n/locales/<code>/common.json` and append the row to `src/i18n/locales/_index.json`. Also drop the matching `<code>.svg` into `src/assets/flags/1x1/` — source those from the NetBird dashboard repo's same-name folder so the icon set stays consistent: https://github.com/netbirdio/dashboard/tree/main/public/assets/flags/1x1 . **Only check in flags for languages we actually ship** — `LanguagePicker.tsx` eager-globs that directory at build time, so every SVG in it gets bundled into the Wails app whether referenced or not. `src/i18n/index.ts` discovers bundles via `import.meta.glob('./locales/*/common.json', { eager: true })`, so no code change is needed to wire the new locale in. Vite still inlines each bundle at build time, same chunk shape as static imports. The Go side reads the same tree (embedded via `client/ui/main.go`'s `embed.FS`), so the tray menu localises automatically off the same files.
 
 **Language picker.** `src/modules/settings/LanguagePicker.tsx` is mounted inside the Language section of `SettingsGeneral.tsx`. It populates from `I18n.Languages()` (matches `_index.json`) and calls `Preferences.SetLanguage(code)` on selection. The preference write triggers `netbird:preferences:changed`, which both the local i18next instance and every other open window listen to.
 
@@ -140,7 +139,7 @@ The SSO flow is centralised in a module-level `startLogin()` with a `loginInFlig
 
 Errors that aren't cancellations surface via `Dialogs.Error`.
 
-This is the only SSO entry point used by the polished Main UI. Legacy screens (`screens/Status.tsx`, `screens/Profiles.tsx`) link to a `/login` route that **does not exist** in `app.tsx` today — those navigations will fall through the `*` catch-all to `/`. Those screens are not part of the live route table, so it doesn't bite users, but don't add a new `useNavigate("/login")` without first wiring an actual route.
+This is the only SSO entry point used by the polished Main UI. There is no `/login` route in `app.tsx`; if you add one, wire it up here rather than introducing a parallel SSO flow.
 
 ## Components
 
@@ -164,10 +163,7 @@ Defined in `tailwind.config.ts`. `nb-gray` is the neutral palette (background = 
 ## Things in flight (don't be surprised by)
 
 - **`screens/Peers.tsx`** uses live `Peers.Get` data. **`modules/peers/Peers.tsx`** uses `mockPeers.ts`. The mock-driven one is mounted under `Main.tsx`'s `MainRightSide` and is what the user sees today; the real-data one isn't wired into the route table.
-- **`screens/Profiles.tsx`** still imports bindings via the deep relative path. It's the example of the preferred `ProfileSwitcher.SwitchActive` flow but otherwise pre-AppLayout.
-- **`pages/Debug.tsx`** is the legacy debug-bundle screen. The polished flow is in `modules/settings/SettingsTroubleshooting.tsx` (via `useDebugBundle`). `pages/Debug.tsx` isn't currently routed.
 - **`modules/authentication/SessionExpiredDialog.tsx`** and **`modules/authentication/SessionAboutToExpireDialog.tsx`** are the always-on-top auxiliary windows. Today they're only triggered via the DEV-only "Development" tab in Settings (`SettingsDevelopment.tsx`) — a daemon-status hook (status `SessionExpired`, plus a future "about-to-expire" signal) will drive them later. Sign-in / Stay-connected emit `EventTriggerLogin` so the main window's `startLogin()` orchestrator handles the SSO flow; Logout uses `Connection.Logout({profileName, username})`.
-- **`screens/QuickActions.tsx`** is wired to `/quick` in the route table but nothing on the Go side currently navigates there.
 
 ## Wails Go API reference
 

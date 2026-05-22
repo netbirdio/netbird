@@ -199,7 +199,7 @@ const ProfileRow = ({ profile, isActive, onDeregister, onDelete }: ProfileRowPro
                     />
                     <div className={"flex flex-col min-w-0 flex-1 leading-tight"}>
                         <div className={"flex items-center gap-2 min-w-0"}>
-                            <span className={"truncate font-medium text-nb-gray-100"}>
+                            <span className={"truncate font-medium text-nb-gray-100 select-text cursor-text"}>
                                 {profile.name}
                             </span>
                             {isActive && <Badge>{t("settings.profiles.active")}</Badge>}
@@ -231,7 +231,7 @@ const TruncatedEmail = ({ email }: { email: string }) => {
     }, [email]);
 
     const span = (
-        <span ref={ref} className={"text-xs text-nb-gray-300 truncate mt-0.5"}>
+        <span ref={ref} className={"text-xs text-nb-gray-300 truncate mt-0.5 select-text cursor-text"}>
             {email}
         </span>
     );

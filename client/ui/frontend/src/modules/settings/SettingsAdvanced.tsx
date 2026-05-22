@@ -1,11 +1,31 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { System } from "@wailsio/runtime";
 import Button from "@/components/Button";
 import { HelpText } from "@/components/HelpText";
 import { Input } from "@/components/Input";
 import { Label } from "@/components/Label";
 import { SectionGroup } from "@/modules/settings/SettingsSection.tsx";
 import { useSettings } from "@/modules/settings/SettingsContext.tsx";
+
+// macOS: the Darwin utun control socket parses the digits after "utun" as the
+// unit number, so the daemon (and the CLI's parseInterfaceName in
+// client/cmd/up.go) only accepts utun<N>.
+// Linux/Windows: no daemon-side validation; the Linux kernel caps names at
+// IFNAMSIZ-1 = 15 chars and the safe charset across both is [A-Za-z0-9._-].
+const IS_MAC = System.IsMac();
+const INTERFACE_NAME_RE = IS_MAC ? /^utun\d+$/ : /^[A-Za-z0-9._-]{1,15}$/;
+const INTERFACE_NAME_ERROR_KEY = IS_MAC
+    ? "settings.advanced.interfaceName.errorMac"
+    : "settings.advanced.interfaceName.error";
+const PORT_MIN = 1;
+const PORT_MAX = 65535;
+// Mirrors client/iface/iface.go MinMTU / MaxMTU. 576 is the IPv4 "every host
+// must accept" datagram size from RFC 791 — safe floor when IPv6 is off; for
+// IPv6 the daemon still needs 1280 on the path (RFC 8200), but that is not
+// the validator's job to enforce.
+const MTU_MIN = 576;
+const MTU_MAX = 8192;
 
 export function SettingsAdvanced() {
     const { t } = useTranslation();
@@ -19,6 +39,32 @@ export function SettingsAdvanced() {
     });
     const [saving, setSaving] = useState(false);
 
+    const errors = useMemo(() => {
+        const out: { interfaceName?: string; wireguardPort?: string; mtu?: string } = {};
+        if (!INTERFACE_NAME_RE.test(values.interfaceName)) {
+            out.interfaceName = t(INTERFACE_NAME_ERROR_KEY);
+        }
+        if (
+            !Number.isInteger(values.wireguardPort) ||
+            values.wireguardPort < PORT_MIN ||
+            values.wireguardPort > PORT_MAX
+        ) {
+            out.wireguardPort = t("settings.advanced.port.error", {
+                min: PORT_MIN,
+                max: PORT_MAX,
+            });
+        }
+        if (
+            !Number.isInteger(values.mtu) ||
+            values.mtu < MTU_MIN ||
+            values.mtu > MTU_MAX
+        ) {
+            out.mtu = t("settings.advanced.mtu.error", { min: MTU_MIN, max: MTU_MAX });
+        }
+        return out;
+    }, [values.interfaceName, values.wireguardPort, values.mtu, t]);
+
+    const hasErrors = Object.keys(errors).length > 0;
     const hasChanges =
         values.interfaceName !== config.interfaceName ||
         values.wireguardPort !== config.wireguardPort ||
@@ -26,7 +72,7 @@ export function SettingsAdvanced() {
         values.preSharedKey !== config.preSharedKey;
 
     const handleSave = async () => {
-        if (!hasChanges || saving) return;
+        if (!hasChanges || saving || hasErrors) return;
         setSaving(true);
         try {
             await saveFields(values);
@@ -41,6 +87,7 @@ export function SettingsAdvanced() {
                 <Input
                     label={t("settings.advanced.interfaceName.label")}
                     value={values.interfaceName}
+                    error={errors.interfaceName}
                     onChange={(e) =>
                         setValues((v) => ({ ...v, interfaceName: e.target.value }))
                     }
@@ -49,7 +96,10 @@ export function SettingsAdvanced() {
                     <Input
                         label={t("settings.advanced.port.label")}
                         type={"number"}
+                        min={PORT_MIN}
+                        max={PORT_MAX}
                         value={values.wireguardPort}
+                        error={errors.wireguardPort}
                         onChange={(e) =>
                             setValues((v) => ({
                                 ...v,
@@ -60,7 +110,10 @@ export function SettingsAdvanced() {
                     <Input
                         label={t("settings.advanced.mtu.label")}
                         type={"number"}
+                        min={MTU_MIN}
+                        max={MTU_MAX}
                         value={values.mtu}
+                        error={errors.mtu}
                         onChange={(e) =>
                             setValues((v) => ({ ...v, mtu: Number(e.target.value) }))
                         }
@@ -91,7 +144,7 @@ export function SettingsAdvanced() {
                     <Button
                         variant={"primary"}
                         size={"md"}
-                        disabled={!hasChanges || saving}
+                        disabled={!hasChanges || saving || hasErrors}
                         onClick={handleSave}
                     >
                         {t("common.saveChanges")}

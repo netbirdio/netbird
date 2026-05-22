@@ -1,14 +1,17 @@
 import type { ReactNode } from "react";
 import { Trans, useTranslation } from "react-i18next";
-import { FolderOpen } from "lucide-react";
+import { CircleCheckBig, FolderOpen, Loader2 } from "lucide-react";
 import { Debug as DebugSvc } from "@bindings/services";
 import type { DebugBundleResult } from "@bindings/services/models.js";
 import { Button } from "@/components/Button";
+import { DialogActions } from "@/components/DialogActions";
+import { DialogDescription } from "@/components/DialogDescription";
+import { DialogHeading } from "@/components/DialogHeading";
 import FancyToggleSwitch from "@/components/FancyToggleSwitch";
 import HelpText from "@/components/HelpText.tsx";
 import { Input } from "@/components/Input";
 import { Label } from "@/components/Label";
-import { StatusPanel } from "@/components/StatusPanel";
+import { SquareIcon } from "@/components/SquareIcon";
 import { cn } from "@/lib/cn";
 import type { DebugStage } from "@/modules/debug-bundle/useDebugBundle.ts";
 import { useDebugBundleContext } from "@/modules/debug-bundle/useDebugBundleContext.ts";
@@ -112,22 +115,47 @@ export function SettingsTroubleshooting() {
     );
 }
 
+function CenteredPanel({ children }: { children: ReactNode }) {
+    return (
+        <div
+            className={
+                "absolute inset-0 flex flex-col items-center justify-center gap-5 p-8 text-center"
+            }
+        >
+            {children}
+        </div>
+    );
+}
+
 function ProgressSection({ stage, onCancel }: { stage: DebugStage; onCancel: () => void }) {
     const { t } = useTranslation();
     const cancelling = stage.kind === "cancelling";
     return (
-        <StatusPanel
-            variant={"loading"}
-            title={stageLabel(stage, t)}
-            description={t("settings.troubleshooting.progress.description")}
-            actions={
-                <Button variant={"secondary"} size={"xs"} onClick={onCancel} disabled={cancelling}>
-                    {cancelling
-                        ? t("settings.troubleshooting.cancelling")
-                        : t("common.cancel")}
+        <CenteredPanel>
+            <SquareIcon icon={Loader2} className={"[&_svg]:animate-spin"} />
+
+            <div className={"flex flex-col items-center gap-2 max-w-xs"}>
+                <DialogHeading className={"text-balance"}>
+                    {stageLabel(stage, t)}
+                </DialogHeading>
+                <DialogDescription>
+                    {t("settings.troubleshooting.progress.description")}
+                </DialogDescription>
+            </div>
+
+            <DialogActions className={"max-w-[220px]"}>
+                <Button
+                    autoFocus
+                    variant={"secondary"}
+                    size={"md"}
+                    className={"w-full"}
+                    onClick={onCancel}
+                    disabled={cancelling}
+                >
+                    {t("common.cancel")}
                 </Button>
-            }
-        />
+            </DialogActions>
+        </CenteredPanel>
     );
 }
 
@@ -148,39 +176,23 @@ function DoneResult({
         void DebugSvc.RevealFile(result.path).catch(() => {});
     };
     return (
-        <StatusPanel
-            variant={"success"}
-            title={
-                showKey
-                    ? t("settings.troubleshooting.done.uploadedTitle")
-                    : t("settings.troubleshooting.done.savedTitle")
-            }
-            description={
-                showKey
-                    ? t("settings.troubleshooting.done.uploadedDescription")
-                    : t("settings.troubleshooting.done.savedDescription")
-            }
-            actions={
-                <>
-                    <Button variant={"secondary"} size={"xs"} onClick={onClose}>
-                        {t("common.close")}
-                    </Button>
-                    {showKey ? (
-                        <Button variant={"primary"} size={"xs"} copy={result.uploadedKey}>
-                            {t("settings.troubleshooting.done.copyKey")}
-                        </Button>
-                    ) : (
-                        result.path && (
-                            <Button variant={"primary"} size={"xs"} onClick={onRevealPath}>
-                                <FolderOpen size={12} />
-                                {t("settings.troubleshooting.done.openFolder")}
-                            </Button>
-                        )
-                    )}
-                </>
-            }
-        >
-            <div className={"w-full max-w-xs mx-auto flex flex-col gap-3"}>
+        <CenteredPanel>
+            <SquareIcon icon={CircleCheckBig} className={"[&_svg]:text-green-500"} />
+
+            <div className={"flex flex-col items-center gap-2 max-w-xs"}>
+                <DialogHeading className={"text-balance"}>
+                    {showKey
+                        ? t("settings.troubleshooting.done.uploadedTitle")
+                        : t("settings.troubleshooting.done.savedTitle")}
+                </DialogHeading>
+                <DialogDescription>
+                    {showKey
+                        ? t("settings.troubleshooting.done.uploadedDescription")
+                        : t("settings.troubleshooting.done.savedDescription")}
+                </DialogDescription>
+            </div>
+
+            <div className={"w-full max-w-xs flex flex-col gap-3"}>
                 {showKey && <Input value={result.uploadedKey} readOnly copy />}
 
                 {result.path && !showKey && (
@@ -214,7 +226,42 @@ function DoneResult({
                     </div>
                 )}
             </div>
-        </StatusPanel>
+
+            <DialogActions className={"max-w-[220px]"}>
+                {showKey ? (
+                    <Button
+                        autoFocus
+                        variant={"primary"}
+                        size={"md"}
+                        className={"w-full"}
+                        copy={result.uploadedKey}
+                    >
+                        {t("settings.troubleshooting.done.copyKey")}
+                    </Button>
+                ) : (
+                    result.path && (
+                        <Button
+                            autoFocus
+                            variant={"primary"}
+                            size={"md"}
+                            className={"w-full"}
+                            onClick={onRevealPath}
+                        >
+                            <FolderOpen size={14} />
+                            {t("settings.troubleshooting.done.openFolder")}
+                        </Button>
+                    )
+                )}
+                <Button
+                    variant={"secondary"}
+                    size={"md"}
+                    className={"w-full"}
+                    onClick={onClose}
+                >
+                    {t("common.close")}
+                </Button>
+            </DialogActions>
+        </CenteredPanel>
     );
 }
 
