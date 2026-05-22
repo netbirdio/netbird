@@ -1,0 +1,34 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    open-pull-requests-limit: 15
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "gomod"
+    directories:
+      - "/"
+    schedule:
+      interval: "daily"
+    open-pull-requests-limit: 15
+    groups:
+      aws-sdk:
+        patterns:
+          - "github.com/aws/aws-sdk-go-v2/*"
+      pion:
+        patterns:
+          - "github.com/pion/*"
+      gorm:
+        patterns:
+          - "gorm.io/*"
+      otel:
+        patterns:
+          - "go.opentelemetry.io/*"
+      testcontainers:
+        patterns:
+          - "github.com/testcontainers/testcontainers-go/*"

@@ -1,0 +1,46 @@
+name: Parse semver string
+description: Parse a refs/tags/vX.Y.Z[-prerelease][+build] ref into version components. Falls back to 0.0.0 when not run on a version tag.
+outputs:
+  major:
+    description: Major version number (e.g. "1" from v1.2.3).
+    value: ${{ steps.parse.outputs.major }}
+  minor:
+    description: Minor version number (e.g. "2" from v1.2.3).
+    value: ${{ steps.parse.outputs.minor }}
+  patch:
+    description: Patch version number (e.g. "3" from v1.2.3).
+    value: ${{ steps.parse.outputs.patch }}
+  prerelease:
+    description: Prerelease identifier (e.g. "rc.1" from v1.2.3-rc.1), empty when absent.
+    value: ${{ steps.parse.outputs.prerelease }}
+  build:
+    description: Build metadata (e.g. "build.7" from v1.2.3+build.7), empty when absent.
+    value: ${{ steps.parse.outputs.build }}
+  fullversion:
+    description: MAJOR.MINOR.PATCH joined (e.g. "1.2.3").
+    value: ${{ steps.parse.outputs.fullversion }}
+runs:
+  using: composite
+  steps:
+    - id: parse
+      shell: bash
+      run: |
+        set -euo pipefail
+        REF="${{ (startsWith(github.ref, 'refs/tags/v') && github.ref) || 'refs/tags/v0.0.0' }}"
+        if [[ "$REF" =~ ^refs/tags/v([0-9]+)\.([0-9]+)\.([0-9]+)(-([0-9A-Za-z.-]+))?(\+([0-9A-Za-z.-]+))?$ ]]; then
+          MAJOR="${BASH_REMATCH[1]}"
+          MINOR="${BASH_REMATCH[2]}"
+          PATCH="${BASH_REMATCH[3]}"
+          PRERELEASE="${BASH_REMATCH[5]}"
+          BUILD="${BASH_REMATCH[7]}"
+        else
+          MAJOR=0; MINOR=0; PATCH=0; PRERELEASE=""; BUILD=""
+        fi
+        {
+          echo "major=$MAJOR"
+          echo "minor=$MINOR"
+          echo "patch=$PATCH"
+          echo "prerelease=$PRERELEASE"
+          echo "build=$BUILD"
+          echo "fullversion=$MAJOR.$MINOR.$PATCH"
+        } >> "$GITHUB_OUTPUT"
