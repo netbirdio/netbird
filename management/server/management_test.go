@@ -216,7 +216,7 @@ func startServer(
 
 	updateManager := update_channel.NewPeersUpdateManager(metrics)
 	requestBuffer := server.NewAccountRequestBuffer(ctx, str)
-	networkMapController := controller.NewController(ctx, str, metrics, updateManager, requestBuffer, server.MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(str, peers.NewManager(str, permissionsManager)), config)
+	networkMapController := controller.NewController(ctx, str, metrics, updateManager, requestBuffer, server.MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(str, peers.NewManager(str, permissionsManager)), config, nil)
 
 	accountManager, err := server.BuildManager(
 		context.Background(),
@@ -241,7 +241,7 @@ func startServer(
 	}
 
 	groupsManager := groups.NewManager(str, permissionsManager, accountManager)
-	secretsManager, err := nbgrpc.NewTimeBasedAuthSecretsManager(updateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
+	secretsManager, err := nbgrpc.NewTimeBasedAuthSecretsManager(updateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager, nil)
 	if err != nil {
 		t.Fatalf("failed creating secrets manager: %v", err)
 	}
@@ -255,6 +255,7 @@ func startServer(
 		nil,
 		server.MockIntegratedValidator{},
 		networkMapController,
+		nil,
 		nil,
 		nil,
 	)
