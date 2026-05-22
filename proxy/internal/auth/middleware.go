@@ -311,12 +311,6 @@ func (mw *Middleware) forwardWithSessionCookie(w http.ResponseWriter, r *http.Re
 	if err != nil {
 		return false
 	}
-	if requestIsPlainHTTP(r) {
-		mw.logger.WithFields(log.Fields{
-			"host":   host,
-			"remote": r.RemoteAddr,
-		}).Warn("session cookie on plain HTTP path; cookie auth requires TLS — use port 443")
-	}
 	userID, email, method, groups, groupNames, err := auth.ValidateSessionJWT(cookie.Value, host, config.SessionPublicKey)
 	if err != nil {
 		return false
@@ -696,8 +690,6 @@ func (mw *Middleware) validateSessionToken(ctx context.Context, host, token stri
 				UserEmail:    resp.GetUserEmail(),
 				Valid:        false,
 				DeniedReason: resp.DeniedReason,
-				Groups:       resp.GetPeerGroupIds(),
-				GroupNames:   resp.GetPeerGroupNames(),
 			}, nil
 		}
 		return &validationResult{

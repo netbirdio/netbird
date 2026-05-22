@@ -5929,7 +5929,7 @@ func (s *SqlStore) getClusterCapability(ctx context.Context, clusterAddr, column
 		AnyTrue       bool
 	}
 
-	err := s.db.WithContext(ctx).
+	err := s.db.
 		Model(&proxy.Proxy{}).
 		Select("COUNT(CASE WHEN "+column+" IS NOT NULL THEN 1 END) > 0 AS has_capability, "+
 			"COALESCE(MAX(CASE WHEN "+column+" = true THEN 1 ELSE 0 END), 0) = 1 AS any_true").
