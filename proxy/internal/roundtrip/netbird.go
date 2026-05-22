@@ -112,6 +112,7 @@ type ClientConfig struct {
 	MgmtAddr     string
 	WGPort       uint16
 	PreSharedKey string
+	Performance  embed.Performance
 }
 
 type statusNotifier interface {
@@ -267,6 +268,7 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 		BlockInbound:  true,
 		WireguardPort: &wgPort,
 		PreSharedKey:  n.clientCfg.PreSharedKey,
+		Performance:   n.clientCfg.Performance,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create netbird client: %w", err)

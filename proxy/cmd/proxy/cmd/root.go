@@ -22,13 +22,13 @@ import (
 )
 
 const (
-	// envWGPreallocatedBuffers caps the per-Device WireGuard buffer pool
-	// size. Zero (unset) keeps the uncapped upstream default.
-	envWGPreallocatedBuffers = "NB_WG_PREALLOCATED_BUFFERS"
-	// envWGMaxBatchSize overrides the per-Device WireGuard batch size,
-	// which controls how many buffers each receive/TUN worker eagerly
-	// allocates. Zero (unset) keeps the bind+tun default.
-	envWGMaxBatchSize = "NB_WG_MAX_BATCH_SIZE"
+	// envPreallocatedBuffers caps the per-tunnel buffer pool. Zero (unset)
+	// keeps the upstream uncapped default.
+	envPreallocatedBuffers = "NB_PROXY_PREALLOCATED_BUFFERS"
+	// envMaxBatchSize overrides the per-tunnel batch size, which controls
+	// how many buffers each receive/TUN worker eagerly allocates. Zero
+	// (unset) keeps the platform default.
+	envMaxBatchSize = "NB_PROXY_MAX_BATCH_SIZE"
 )
 
 const DefaultManagementURL = "https://api.netbird.io:443"
@@ -157,23 +157,26 @@ func runServer(cmd *cobra.Command, args []string) error {
 	logger.Infof("configured log level: %s", level)
 
 	var wgPool, wgBatch uint64
-	if raw := os.Getenv(envWGPreallocatedBuffers); raw != "" {
+	var perf embed.Performance
+	if raw := os.Getenv(envPreallocatedBuffers); raw != "" {
 		n, err := strconv.ParseUint(raw, 10, 32)
 		if err != nil {
-			return fmt.Errorf("invalid %s %q: %w", envWGPreallocatedBuffers, raw, err)
+			return fmt.Errorf("invalid %s %q: %w", envPreallocatedBuffers, raw, err)
 		}
 		wgPool = n
-		embed.SetWGDefaultPreallocatedBuffersPerPool(uint32(n))
-		logger.Infof("wireguard preallocated buffers per pool: %d", n)
+		v := uint32(n)
+		perf.PreallocatedBuffersPerPool = &v
+		logger.Infof("tunnel preallocated buffers per pool: %d", n)
 	}
-	if raw := os.Getenv(envWGMaxBatchSize); raw != "" {
+	if raw := os.Getenv(envMaxBatchSize); raw != "" {
 		n, err := strconv.ParseUint(raw, 10, 32)
 		if err != nil {
-			return fmt.Errorf("invalid %s %q: %w", envWGMaxBatchSize, raw, err)
+			return fmt.Errorf("invalid %s %q: %w", envMaxBatchSize, raw, err)
 		}
 		wgBatch = n
-		embed.SetWGDefaultMaxBatchSize(uint32(n))
-		logger.Infof("wireguard max batch size override: %d", n)
+		v := uint32(n)
+		perf.MaxBatchSize = &v
+		logger.Infof("tunnel max batch size override: %d", n)
 	}
 	if wgPool > 0 {
 		// Each bind recv goroutine (IPv4 + IPv6 + ICE relay) plus
@@ -188,7 +191,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 		floor := batch * recvGoroutines
 		if wgPool < floor {
 			logger.Warnf("%s=%d is below the eager-allocation floor (~%d for batch=%d); startup may deadlock",
-				envWGPreallocatedBuffers, wgPool, floor, batch)
+				envPreallocatedBuffers, wgPool, floor, batch)
 		}
 	}
 
@@ -231,6 +234,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 		CertLockMethod:           nbacme.CertLockMethod(certLockMethod),
 		WildcardCertDir:          wildcardCertDir,
 		WireguardPort:            wgPort,
+		Performance:              perf,
 		ProxyProtocol:            proxyProtocol,
 		PreSharedKey:             preSharedKey,
 		SupportsCustomPorts:      supportsCustomPorts,

@@ -109,24 +109,11 @@ var debugStopCmd = &cobra.Command{
 	SilenceUsage: true,
 }
 
-var debugWGTuneCmd = &cobra.Command{
-	Use:   "wgtune",
-	Short: "Inspect and live-tune WireGuard pool settings",
-}
-
-var debugWGTuneGetCmd = &cobra.Command{
-	Use:          "get",
-	Short:        "Show pool cap and batch size defaults",
-	Args:         cobra.NoArgs,
-	RunE:         runDebugWGTuneGet,
-	SilenceUsage: true,
-}
-
-var debugWGTuneSetCmd = &cobra.Command{
-	Use:          "set <pool-cap>",
-	Short:        "Set the pool cap (new and live clients)",
+var debugPerfCmd = &cobra.Command{
+	Use:          "perf <pool-cap>",
+	Short:        "Live-retune the tunnel buffer pool cap on all running clients",
 	Args:         cobra.ExactArgs(1),
-	RunE:         runDebugWGTuneSet,
+	RunE:         runDebugPerfSet,
 	SilenceUsage: true,
 }
 
@@ -188,9 +175,7 @@ func init() {
 	debugCmd.AddCommand(debugLogCmd)
 	debugCmd.AddCommand(debugStartCmd)
 	debugCmd.AddCommand(debugStopCmd)
-	debugWGTuneCmd.AddCommand(debugWGTuneGetCmd)
-	debugWGTuneCmd.AddCommand(debugWGTuneSetCmd)
-	debugCmd.AddCommand(debugWGTuneCmd)
+	debugCmd.AddCommand(debugPerfCmd)
 	debugCmd.AddCommand(debugRuntimeCmd)
 	debugCmd.AddCommand(debugCaptureCmd)
 
@@ -253,16 +238,12 @@ func runDebugStop(cmd *cobra.Command, args []string) error {
 	return getDebugClient(cmd).StopClient(cmd.Context(), args[0])
 }
 
-func runDebugWGTuneGet(cmd *cobra.Command, _ []string) error {
-	return getDebugClient(cmd).WGTuneGet(cmd.Context())
-}
-
-func runDebugWGTuneSet(cmd *cobra.Command, args []string) error {
+func runDebugPerfSet(cmd *cobra.Command, args []string) error {
 	n, err := strconv.ParseUint(args[0], 10, 32)
 	if err != nil {
 		return fmt.Errorf("invalid value %q: %w", args[0], err)
 	}
-	return getDebugClient(cmd).WGTuneSet(cmd.Context(), uint32(n))
+	return getDebugClient(cmd).PerfSet(cmd.Context(), uint32(n))
 }
 
 func runDebugRuntime(cmd *cobra.Command, _ []string) error {

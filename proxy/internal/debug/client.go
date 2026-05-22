@@ -284,32 +284,21 @@ func (c *Client) printLogLevelResult(data map[string]any) {
 	}
 }
 
-// WGTuneGet fetches the current WireGuard pool cap.
-func (c *Client) WGTuneGet(ctx context.Context) error {
-	return c.fetchAndPrint(ctx, "/debug/wgtune", c.printWGTuneGet)
+// PerfSet live-retunes the tunnel buffer pool cap on all running embedded
+// clients. Batch size is not live-tunable; configure it at proxy startup.
+func (c *Client) PerfSet(ctx context.Context, value uint32) error {
+	path := fmt.Sprintf("/debug/perf?value=%d", value)
+	return c.fetchAndPrint(ctx, path, c.printPerfSet)
 }
 
-// WGTuneSet updates the WireGuard pool cap on the global default and all live clients.
-func (c *Client) WGTuneSet(ctx context.Context, value uint32) error {
-	path := fmt.Sprintf("/debug/wgtune?value=%d", value)
-	return c.fetchAndPrint(ctx, path, c.printWGTuneSet)
-}
-
-func (c *Client) printWGTuneGet(data map[string]any) {
-	def, _ := data["default"].(float64)
-	batch, _ := data["batch_size"].(float64)
-	_, _ = fmt.Fprintf(c.out, "Default:    %d\n", uint32(def))
-	_, _ = fmt.Fprintf(c.out, "Batch size: %d (0 = unset)\n", uint32(batch))
-}
-
-func (c *Client) printWGTuneSet(data map[string]any) {
+func (c *Client) printPerfSet(data map[string]any) {
 	if errMsg, ok := data["error"].(string); ok && errMsg != "" {
 		c.printError(data)
 		return
 	}
-	def, _ := data["default"].(float64)
+	val, _ := data["value"].(float64)
 	applied, _ := data["applied"].(float64)
-	_, _ = fmt.Fprintf(c.out, "Default set to: %d\n", uint32(def))
+	_, _ = fmt.Fprintf(c.out, "Pool cap set to: %d\n", uint32(val))
 	_, _ = fmt.Fprintf(c.out, "Applied to %d live clients\n", int(applied))
 	if failed, ok := data["failed"].(map[string]any); ok && len(failed) > 0 {
 		_, _ = fmt.Fprintln(c.out, "Failed:")

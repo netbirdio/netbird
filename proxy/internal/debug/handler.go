@@ -143,8 +143,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleListClients(w, r, wantJSON)
 	case "/debug/health":
 		h.handleHealth(w, r, wantJSON)
-	case "/debug/wgtune":
-		h.handleWGTune(w, r)
+	case "/debug/perf":
+		h.handlePerf(w, r)
 	case "/debug/runtime":
 		h.handleRuntime(w, r)
 	default:
@@ -650,33 +650,23 @@ func (h *Handler) handleClientStop(w http.ResponseWriter, r *http.Request, accou
 	})
 }
 
-func (h *Handler) handleWGTune(w http.ResponseWriter, r *http.Request) {
-	values, ok := r.URL.Query()["value"]
-	if !ok {
-		h.writeJSON(w, map[string]any{
-			"default":    nbembed.WGDefaultPreallocatedBuffersPerPool(),
-			"batch_size": nbembed.WGDefaultMaxBatchSize(),
-		})
+func (h *Handler) handlePerf(w http.ResponseWriter, r *http.Request) {
+	raw := r.URL.Query().Get("value")
+	if raw == "" {
+		http.Error(w, "value parameter is required", http.StatusBadRequest)
 		return
 	}
-	if len(values) == 0 || values[0] == "" {
-		http.Error(w, "value parameter must not be empty", http.StatusBadRequest)
-		return
-	}
-	raw := values[0]
-
 	n, err := strconv.ParseUint(raw, 10, 32)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("invalid value %q: %v", raw, err), http.StatusBadRequest)
 		return
 	}
-	nbembed.SetWGDefaultPreallocatedBuffersPerPool(uint32(n))
 
+	capN := uint32(n)
 	applied := 0
 	failed := map[string]string{}
 	for accountID, client := range h.provider.ListClientsForStartup() {
-		capN := uint32(n)
-		if err := client.SetWGTuning(nbembed.WGTuning{PreallocatedBuffersPerPool: &capN}); err != nil {
+		if err := client.SetPerformance(nbembed.Performance{PreallocatedBuffersPerPool: &capN}); err != nil {
 			failed[string(accountID)] = err.Error()
 			continue
 		}
@@ -684,10 +674,9 @@ func (h *Handler) handleWGTune(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := map[string]any{
-		"success":    true,
-		"default":    uint32(n),
-		"batch_size": nbembed.WGDefaultMaxBatchSize(),
-		"applied":    applied,
+		"success": true,
+		"value":   capN,
+		"applied": applied,
 	}
 	if len(failed) > 0 {
 		resp["failed"] = failed

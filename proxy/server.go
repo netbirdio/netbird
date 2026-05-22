@@ -37,6 +37,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/netbirdio/netbird/client/embed"
 	"github.com/netbirdio/netbird/proxy/internal/accesslog"
 	"github.com/netbirdio/netbird/proxy/internal/acme"
 	"github.com/netbirdio/netbird/proxy/internal/auth"
@@ -162,6 +163,9 @@ type Server struct {
 	// single-account deployments; multiple accounts will fail to bind
 	// the same port.
 	WireguardPort uint16
+	// Performance configures the tunnel pool/batch sizes for every
+	// embedded client this proxy spawns.
+	Performance embed.Performance
 	// ProxyProtocol enables PROXY protocol (v1/v2) on TCP listeners.
 	// When enabled, the real client IP is extracted from the PROXY header
 	// sent by upstream L4 proxies that support PROXY protocol.
@@ -281,6 +285,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 		MgmtAddr:     s.ManagementAddress,
 		WGPort:       s.WireguardPort,
 		PreSharedKey: s.PreSharedKey,
+		Performance:  s.Performance,
 	}, s.Logger, s, s.mgmtClient)
 
 	// Create health checker before the mapping worker so it can track

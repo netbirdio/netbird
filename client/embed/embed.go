@@ -95,6 +95,26 @@ type Options struct {
 	MTU *uint16
 	// DNSLabels defines additional DNS labels configured in the peer.
 	DNSLabels []string
+	// Performance configures the tunnel's buffer pool cap and batch size.
+	Performance Performance
+}
+
+// Performance configures the embedded client's tunnel memory/throughput knobs.
+//
+// These settings are process-global: any non-nil field also becomes the
+// default for Clients constructed by later embed.New calls in the same
+// process. Nil fields are ignored.
+type Performance struct {
+	// PreallocatedBuffersPerPool caps the per-tunnel buffer pool. Zero
+	// leaves the pool unbounded. Lower values trade throughput for a
+	// tighter memory ceiling. May also be changed on a running Client via
+	// Client.SetPerformance, provided this field was nonzero at construction.
+	PreallocatedBuffersPerPool *uint32
+	// MaxBatchSize overrides the number of packets the tunnel reads or
+	// writes per syscall, which also bounds eager buffer allocation per
+	// worker. Zero uses the platform default. Applied at construction
+	// only; ignored by Client.SetPerformance.
+	MaxBatchSize *uint32
 }
 
 // validateCredentials checks that exactly one credential type is provided
@@ -158,6 +178,13 @@ func New(opts Options) (*Client, error) {
 		if err := os.Setenv("NB_DNS_STATE_FILE", opts.StatePath); err != nil {
 			return nil, fmt.Errorf("setenv: %w", err)
 		}
+	}
+
+	if opts.Performance.PreallocatedBuffersPerPool != nil {
+		wgdevice.SetPreallocatedBuffersPerPool(*opts.Performance.PreallocatedBuffersPerPool)
+	}
+	if opts.Performance.MaxBatchSize != nil {
+		wgdevice.SetMaxBatchSizeOverride(*opts.Performance.MaxBatchSize)
 	}
 
 	var err error
@@ -474,19 +501,13 @@ func (c *Client) VerifySSHHostKey(peerAddress string, key []byte) error {
 	return sshcommon.VerifyHostKey(storedKey, key, peerAddress)
 }
 
-// WGTuning bundles runtime-adjustable WireGuard knobs exposed by the embed
-// client. Nil fields are left unchanged; set a non-nil pointer to apply.
-type WGTuning struct {
-	// PreallocatedBuffersPerPool caps each per-Device WaitPool.
-	// Zero means "unbounded" (no cap). Live-tunable only if the underlying
-	// Device was originally created with a nonzero cap.
-	PreallocatedBuffersPerPool *uint32
-}
-
-// SetWGTuning applies the given tuning to this client's live Device.
-// Startup-only knobs (batch size) must be set via the package-level
-// setters before Start.
-func (c *Client) SetWGTuning(t WGTuning) error {
+// SetPerformance retunes a running Client. Only PreallocatedBuffersPerPool
+// takes effect, and only when it was nonzero at construction;
+// MaxBatchSize is construction-only and is ignored here.
+//
+// Returns ErrClientNotStarted / ErrEngineNotStarted if the Client is not
+// running yet.
+func (c *Client) SetPerformance(t Performance) error {
 	engine, err := c.getEngine()
 	if err != nil {
 		return err
@@ -494,33 +515,6 @@ func (c *Client) SetWGTuning(t WGTuning) error {
 	return engine.SetWGTuning(internal.WGTuning{
 		PreallocatedBuffersPerPool: t.PreallocatedBuffersPerPool,
 	})
-}
-
-// SetWGDefaultPreallocatedBuffersPerPool sets the default WaitPool cap
-// applied to Devices created after this call. Zero disables the cap.
-// Existing Devices are unaffected; use Client.SetWGTuning for that.
-func SetWGDefaultPreallocatedBuffersPerPool(n uint32) {
-	wgdevice.SetPreallocatedBuffersPerPool(n)
-}
-
-// WGDefaultPreallocatedBuffersPerPool returns the current default WaitPool
-// cap applied to newly-created Devices.
-func WGDefaultPreallocatedBuffersPerPool() uint32 {
-	return wgdevice.PreallocatedBuffersPerPool
-}
-
-// SetWGDefaultMaxBatchSize sets the default per-Device batch size applied
-// to Devices created after this call. Zero means "use the bind+tun default"
-// (NOT unlimited). Must be called before Start to take effect for a new
-// Client.
-func SetWGDefaultMaxBatchSize(n uint32) {
-	wgdevice.SetMaxBatchSizeOverride(n)
-}
-
-// WGDefaultMaxBatchSize returns the current default batch-size override.
-// Zero means "no override".
-func WGDefaultMaxBatchSize() uint32 {
-	return wgdevice.MaxBatchSizeOverride
 }
 
 // StartCapture begins capturing packets on this client's tunnel device.
