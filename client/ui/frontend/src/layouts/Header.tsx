@@ -9,7 +9,6 @@ import {
     Settings,
     type LucideIcon,
 } from "lucide-react";
-import { Window } from "@wailsio/runtime";
 import { WindowManager } from "@bindings/services";
 import {
     DropdownMenu,
@@ -22,21 +21,12 @@ import { IconButton } from "@/components/IconButton";
 import { ProfileDropdown } from "@/components/ProfileDropdown";
 import { useClientVersion } from "@/modules/auto-update/ClientVersionContext";
 import { cn } from "@/lib/cn";
-
-type ViewMode = "default" | "advanced";
-
-// Window dimensions per view. Height matches the Settings window (640) so the
-// chrome height is identical across surfaces; width grows from the compact
-// 380 default to 900 in advanced.
-const VIEW_SIZE: Record<ViewMode, { width: number; height: number }> = {
-    default: { width: 380, height: 640 },
-    advanced: { width: 900, height: 640 },
-};
+import { useViewMode, type ViewMode } from "@/lib/viewMode";
 
 export const Header = () => {
     const { t } = useTranslation();
     const [menuOpen, setMenuOpen] = useState(false);
-    const [viewMode, setViewMode] = useState<ViewMode>("default");
+    const { viewMode, setViewMode } = useViewMode();
     const { updateAvailable } = useClientVersion();
 
     const openSettings = () => {
@@ -55,10 +45,7 @@ export const Header = () => {
 
     const selectMode = (mode: ViewMode) => {
         setMenuOpen(false);
-        if (mode === viewMode) return;
         setViewMode(mode);
-        const { width, height } = VIEW_SIZE[mode];
-        void Window.SetSize(width, height).catch(() => {});
     };
 
     return (

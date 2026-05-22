@@ -1,14 +1,19 @@
 import { useTranslation } from "react-i18next";
+import type { PeerStatus } from "@bindings/services/models.js";
 import { cn } from "@/lib/cn";
-import { Peer, PeerStatus } from "./types";
 
-const DOT: Record<PeerStatus, string> = {
-    connected: "bg-green-400",
-    connecting: "bg-yellow-300 animate-pulse-slow",
-    disconnected: "bg-nb-gray-500",
+const dotClass = (connStatus: string): string => {
+    switch (connStatus) {
+        case "Connected":
+            return "bg-green-400";
+        case "Connecting":
+            return "bg-yellow-300 animate-pulse-slow";
+        default:
+            return "bg-nb-gray-500";
+    }
 };
 
-export const PeersList = ({ data }: { data: Peer[] }) => {
+export const PeersList = ({ data }: { data: PeerStatus[] }) => {
     const { t } = useTranslation();
     if (data.length === 0) {
         return (
@@ -22,15 +27,15 @@ export const PeersList = ({ data }: { data: Peer[] }) => {
         <ul className={"flex flex-col"}>
             {data.map((peer) => (
                 <li
-                    key={peer.id}
+                    key={peer.pubKey}
                     className={"flex items-center gap-3 px-7 py-3 min-w-0"}
                 >
                     <span
                         className={cn(
                             "h-2 w-2 rounded-full shrink-0",
-                            DOT[peer.status],
+                            dotClass(peer.connStatus),
                         )}
-                        title={peer.status}
+                        title={peer.connStatus}
                     />
                     <span
                         className={
