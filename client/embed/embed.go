@@ -508,6 +508,9 @@ func (c *Client) VerifySSHHostKey(peerAddress string, key []byte) error {
 // Returns ErrClientNotStarted / ErrEngineNotStarted if the Client is not
 // running yet.
 func (c *Client) SetPerformance(t Performance) error {
+	if t.MaxBatchSize != nil {
+		return errors.New("MaxBatchSize is construction-only and cannot be changed at runtime")
+	}
 	engine, err := c.getEngine()
 	if err != nil {
 		return err
