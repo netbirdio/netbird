@@ -254,28 +254,55 @@ type virtualSessionManager interface {
 	StopAll()
 }
 
-// New creates a VNC server. identityKey is the 32-byte X25519 private
-// key used by the daemon in the Noise_IK handshake; nil disables auth.
-// The protocol-level VNC password scheme is not supported.
-func New(capturer ScreenCapturer, injector InputInjector, identityKey []byte) *Server {
+// Config bundles the values the VNC server needs at construction time.
+// Fields are read once by New; mutating them afterwards has no effect.
+// Optional fields are nil/zero when unused. The hex-encoded AgentTokenHex
+// is decoded internally and an invalid value is logged and treated as
+// empty, matching the legacy SetAgentToken behavior.
+type Config struct {
+	Capturer        ScreenCapturer
+	Injector        InputInjector
+	IdentityKey     []byte
+	ServiceMode     bool
+	SessionRecorder func(SessionTick)
+	DisableAuth     bool
+	AgentTokenHex   string
+	NetstackNet     *netstack.Net
+}
+
+// New creates a VNC server from the provided Config. IdentityKey is the
+// 32-byte X25519 private key used in the Noise_IK handshake; nil disables
+// auth. The protocol-level VNC password scheme is not supported.
+func New(cfg Config) *Server {
 	s := &Server{
-		capturer:      capturer,
-		injector:      injector,
-		identityKey:   identityKey,
-		authorizer:    sshauth.NewAuthorizer(),
-		log:           log.WithField("component", "vnc-server"),
-		sessions:      make(map[uint64]ActiveSessionInfo),
-		sessionConns:  make(map[uint64]net.Conn),
-		acceptedConns: make(map[net.Conn]struct{}),
-		connAuth:      make(map[net.Conn]connAuthInfo),
-		connSem:       make(chan struct{}, maxConcurrentVNCConns),
+		capturer:        cfg.Capturer,
+		injector:        cfg.Injector,
+		identityKey:     cfg.IdentityKey,
+		serviceMode:     cfg.ServiceMode,
+		sessionRecorder: cfg.SessionRecorder,
+		disableAuth:     cfg.DisableAuth,
+		netstackNet:     cfg.NetstackNet,
+		authorizer:      sshauth.NewAuthorizer(),
+		log:             log.WithField("component", "vnc-server"),
+		sessions:        make(map[uint64]ActiveSessionInfo),
+		sessionConns:    make(map[uint64]net.Conn),
+		acceptedConns:   make(map[net.Conn]struct{}),
+		connAuth:        make(map[net.Conn]connAuthInfo),
+		connSem:         make(chan struct{}, maxConcurrentVNCConns),
 	}
-	if len(identityKey) == 32 {
-		pub, err := curve25519.X25519(identityKey, curve25519.Basepoint)
+	if len(cfg.IdentityKey) == 32 {
+		pub, err := curve25519.X25519(cfg.IdentityKey, curve25519.Basepoint)
 		if err == nil {
 			s.identityPublic = pub
 		} else {
 			s.log.Warnf("derive identity public key: %v", err)
+		}
+	}
+	if cfg.AgentTokenHex != "" {
+		if b, err := hex.DecodeString(cfg.AgentTokenHex); err == nil {
+			s.agentToken = b
+		} else {
+			s.log.Warnf("invalid agent token: %v", err)
 		}
 	}
 	return s
@@ -405,47 +432,6 @@ func (s *Server) revokeUnauthorizedSessions() {
 	for _, c := range victims {
 		_ = c.Close()
 	}
-}
-
-// SetServiceMode enables proxy-to-agent mode for Windows service operation.
-func (s *Server) SetServiceMode(enabled bool) {
-	s.serviceMode = enabled
-}
-
-// SetSessionRecorder installs a callback that receives a SessionTick
-// each sessionTickInterval during a VNC session and one final tick on
-// session close. Pass nil to disable. Empty ticks (no wire activity)
-// are skipped.
-func (s *Server) SetSessionRecorder(recorder func(SessionTick)) {
-	s.sessionRecorder = recorder
-}
-
-// SetDisableAuth disables authentication entirely.
-func (s *Server) SetDisableAuth(disable bool) {
-	s.disableAuth = disable
-}
-
-// SetAgentToken sets a hex-encoded token that must be presented by incoming
-// connections before any VNC data. Used in agent mode to verify that only the
-// trusted service process connects.
-func (s *Server) SetAgentToken(hexToken string) {
-	if hexToken == "" {
-		return
-	}
-	b, err := hex.DecodeString(hexToken)
-	if err != nil {
-		s.log.Warnf("invalid agent token: %v", err)
-		return
-	}
-	s.agentToken = b
-}
-
-// SetNetstackNet sets the netstack network for userspace-only listening.
-// When set, the VNC server listens via netstack instead of a real OS socket.
-func (s *Server) SetNetstackNet(n *netstack.Net) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.netstackNet = n
 }
 
 // UpdateVNCAuth updates the fine-grained authorization configuration and

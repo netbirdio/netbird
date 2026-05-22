@@ -54,9 +54,12 @@ var vncAgentCmd = &cobra.Command{
 		// The per-user agent listens only on loopback and is gated by an
 		// agent token shared with the daemon, so no X25519 identity key
 		// is needed; auth is disabled at the RFB layer.
-		srv := vncserver.New(capturer, injector, nil)
-		srv.SetDisableAuth(true)
-		srv.SetAgentToken(token)
+		srv := vncserver.New(vncserver.Config{
+			Capturer:      capturer,
+			Injector:      injector,
+			DisableAuth:   true,
+			AgentTokenHex: token,
+		})
 
 		addr := netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), vncAgentPort)
 		loopback := netip.PrefixFrom(netip.AddrFrom4([4]byte{127, 0, 0, 0}), 8)
