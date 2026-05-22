@@ -17,17 +17,13 @@ enum ConnectionState {
     Disconnecting = "disconnecting",
 }
 
-// Only three user-visible labels: Disconnected, Connecting, Connected.
-// Disconnecting maps to "Disconnected" so the optimistic flip on click
-// reads as the user's intent (off) rather than naming an intermediate
-// state. NeedsLogin / SessionExpired / DaemonUnavailable never reach
-// this map — connState collapses them into Connecting or Disconnected
-// upstream.
+// NeedsLogin / SessionExpired / DaemonUnavailable never reach this map —
+// connState collapses them into Connecting or Disconnected upstream.
 const STATUS_KEY: Record<ConnectionState, string> = {
     [ConnectionState.Disconnected]: "connect.status.disconnected",
     [ConnectionState.Connecting]: "connect.status.connecting",
     [ConnectionState.Connected]: "connect.status.connected",
-    [ConnectionState.Disconnecting]: "connect.status.disconnected",
+    [ConnectionState.Disconnecting]: "connect.status.disconnecting",
 };
 
 const EVENT_BROWSER_LOGIN_CANCEL = "browser-login:cancel";
