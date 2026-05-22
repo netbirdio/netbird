@@ -871,8 +871,8 @@ func (s *Server) readConnectionHeader(conn net.Conn) (*connectionHeader, error) 
 // public key learned from the handshake. Any handshake failure is fatal
 // (fail closed).
 func (s *Server) maybeRunNoiseHandshake(conn net.Conn, br *bufio.Reader) ([]byte, bool, error) {
-	peek, err := br.Peek(len(vncIdentityMagic))
-	if err != nil || !bytes.Equal(peek, vncIdentityMagic) {
+	peek, _ := br.Peek(len(vncIdentityMagic))
+	if !bytes.Equal(peek, vncIdentityMagic) {
 		return nil, false, nil
 	}
 	if _, err := br.Discard(len(vncIdentityMagic)); err != nil {

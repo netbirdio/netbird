@@ -81,7 +81,7 @@ func (cb ruleAuthCallbacks) handleVNCRule(rule *PolicyRule, peerInSources, peerI
 		return
 	}
 	cb.collectVNCUsers(rule, state.vncAuthorizedUsers)
-	if rule.SessionPubKey != "" && rule.AuthorizedUser != "" {
+	if peerInDestinations && rule.SessionPubKey != "" && rule.AuthorizedUser != "" {
 		state.vncSessionPubKeys = append(state.vncSessionPubKeys, VNCSessionPubKey{
 			PubKey: rule.SessionPubKey,
 			UserID: rule.AuthorizedUser,
