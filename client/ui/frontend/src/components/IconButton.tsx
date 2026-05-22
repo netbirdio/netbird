@@ -19,7 +19,7 @@ export const IconButton = forwardRef<HTMLButtonElement, Props>(function IconButt
             className={cn(
                 "h-10 w-10 flex items-center justify-center rounded-lg cursor-default outline-none",
                 "text-nb-gray-400 hover:text-nb-gray-300 hover:bg-nb-gray-900",
-                "transition-colors duration-150",
+                "transition-colors duration-150 wails-no-draggable",
                 className,
             )}
             {...props}

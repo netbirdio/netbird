@@ -78,7 +78,7 @@ func (s *WindowManager) OpenSettings(tab string) {
 			URL:                 startURL,
 			Mac: application.MacWindow{
 				InvisibleTitleBarHeight: 38,
-				Backdrop:                application.MacBackdropTranslucent,
+				Backdrop:                application.MacBackdropNormal,
 				TitleBar:                application.MacTitleBarHiddenInset,
 				CollectionBehavior:      application.MacWindowCollectionBehaviorFullScreenNone,
 			},

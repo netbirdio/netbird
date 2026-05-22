@@ -33,11 +33,7 @@ const STATUS_KEY: Record<ConnectionState, string> = {
 const EVENT_BROWSER_LOGIN_CANCEL = "browser-login:cancel";
 const EVENT_TRIGGER_LOGIN = "trigger-login";
 
-const NEEDS_LOGIN_STATES = new Set([
-    "NeedsLogin",
-    "SessionExpired",
-    "LoginFailed",
-]);
+const NEEDS_LOGIN_STATES = new Set(["NeedsLogin", "SessionExpired", "LoginFailed"]);
 
 const errorMessage = formatErrorMessage;
 
@@ -164,10 +160,7 @@ export const ConnectionStatusSwitch = () => {
         if (action === "disconnect" && daemonState === "Connected") {
             return ConnectionState.Disconnecting;
         }
-        if (
-            (action === "connect" || action === "logging-in") &&
-            daemonState !== "Connected"
-        ) {
+        if ((action === "connect" || action === "logging-in") && daemonState !== "Connected") {
             return ConnectionState.Connecting;
         }
         switch (daemonState) {
@@ -271,11 +264,7 @@ export const ConnectionStatusSwitch = () => {
             return;
         }
         if (action === "disconnect") {
-            if (
-                daemonState === "Idle" ||
-                daemonState === "Disconnected" ||
-                unreachable
-            ) {
+            if (daemonState === "Idle" || daemonState === "Disconnected" || unreachable) {
                 setAction(null);
             }
         }
@@ -307,11 +296,9 @@ export const ConnectionStatusSwitch = () => {
     };
 
     const isTransitioning =
-        connState === ConnectionState.Connecting ||
-        connState === ConnectionState.Disconnecting;
+        connState === ConnectionState.Connecting || connState === ConnectionState.Disconnecting;
     const isOn =
-        connState === ConnectionState.Connected ||
-        connState === ConnectionState.Connecting;
+        connState === ConnectionState.Connected || connState === ConnectionState.Connecting;
     const showLocal = connState === ConnectionState.Connected;
     const fqdn = status?.local.fqdn || "";
     const ip = status?.local.ip || "";
@@ -321,7 +308,7 @@ export const ConnectionStatusSwitch = () => {
             <img
                 src={netbirdFullLogo}
                 alt={"NetBird"}
-                className={"h-7 w-auto select-none mb-4"}
+                className={"h-7 w-auto select-none mb-4 wails-no-draggable"}
                 draggable={false}
             />
 
@@ -330,23 +317,20 @@ export const ConnectionStatusSwitch = () => {
                 checked={isOn}
                 onCheckedChange={handleSwitch}
                 disabled={isTransitioning || unreachable}
-                className={cn(
-                    unreachable && "opacity-80",
-                    isTransitioning && "animate-pulse",
-                )}
+                className={cn(unreachable && "opacity-80", isTransitioning && "animate-pulse")}
             />
 
             <div className={"flex flex-col items-center"}>
                 <h1
                     className={
-                        "text-sm font-medium text-nb-gray-200 tracking-wide transition-colors duration-300"
+                        "text-sm font-medium text-nb-gray-200 tracking-wide transition-colors duration-300 wails-no-draggable"
                     }
                 >
                     {t(STATUS_KEY[connState])}
                 </h1>
                 <p
                     className={cn(
-                        "font-mono text-xs leading-tight min-h-[1em] text-nb-gray-300 mt-2 transition-opacity duration-300",
+                        "font-mono text-xs leading-tight min-h-[1em] text-nb-gray-300 mt-2 transition-opacity duration-300 wails-no-draggable",
                         showLocal && fqdn ? "opacity-100" : "opacity-0",
                     )}
                 >
@@ -354,7 +338,7 @@ export const ConnectionStatusSwitch = () => {
                 </p>
                 <p
                     className={cn(
-                        "font-mono text-xs leading-tight min-h-[1em] text-nb-gray-300 mt-0.5 transition-opacity duration-300",
+                        "font-mono text-xs leading-tight min-h-[1em] text-nb-gray-300 mt-0.5 transition-opacity duration-300 wails-no-draggable",
                         showLocal && ip ? "opacity-100" : "opacity-0",
                     )}
                 >

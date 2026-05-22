@@ -81,7 +81,7 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
     return (
         <>
             <Popover.Root open={open} onOpenChange={setOpen}>
-                <Popover.Trigger asChild>
+                <Popover.Trigger asChild className={"wails-no-draggable"}>
                     <ProfileTriggerButton name={displayName} />
                 </Popover.Trigger>
                 <Popover.Portal>
@@ -91,7 +91,7 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
                         collisionPadding={12}
                         onOpenAutoFocus={(e) => e.preventDefault()}
                         className={cn(
-                            "z-50 min-w-64 overflow-hidden rounded-lg border border-nb-gray-900 bg-nb-gray-935 p-1 text-nb-gray-200 shadow-lg",
+                            "z-50 min-w-64 overflow-hidden rounded-lg border border-nb-gray-900 bg-nb-gray-935 p-1 text-nb-gray-200 shadow-lg wails-no-draggable",
                             "data-[state=open]:animate-in data-[state=closed]:animate-out",
                             "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
                             "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
@@ -186,19 +186,19 @@ const ProfileTriggerButton = forwardRef<HTMLButtonElement, ProfileTriggerButtonP
                 ref={ref}
                 type="button"
                 className={cn(
-                    "h-10 flex items-center gap-2 px-3 rounded-lg outline-none cursor-default",
+                    "h-10 flex items-center gap-2 px-3 rounded-lg outline-none cursor-default wails-no-draggable",
                     "text-nb-gray-200 hover:bg-nb-gray-900",
                     "data-[state=open]:bg-nb-gray-900",
-                    "transition-colors duration-150",
+                    "transition-colors duration-150 wails-no-draggable",
                     className,
                 )}
                 {...props}
             >
-                <Icon size={16} className={"text-nb-gray-200 shrink-0"} />
-                <span className={"text-sm font-medium truncate max-w-[140px]"}>
+                <Icon size={16} className={"text-nb-gray-200 shrink-0 wails-no-draggable"} />
+                <span className={"text-sm font-medium truncate max-w-[140px] wails-no-draggable"}>
                     {name}
                 </span>
-                <ChevronDown size={14} className={"text-nb-gray-200 shrink-0"} />
+                <ChevronDown size={14} className={"text-nb-gray-200 shrink-0 wails-no-draggable"} />
             </button>
         );
     },

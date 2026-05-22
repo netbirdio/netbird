@@ -8,6 +8,7 @@ import {
     Settings,
     type LucideIcon,
 } from "lucide-react";
+import { Window } from "@wailsio/runtime";
 import { WindowManager } from "@bindings/services";
 import {
     DropdownMenu,
@@ -21,6 +22,14 @@ import { ProfileDropdown } from "@/components/ProfileDropdown";
 import { cn } from "@/lib/cn";
 
 type ViewMode = "default" | "advanced";
+
+// Window dimensions per view. Height matches the Settings window (640) so the
+// chrome height is identical across surfaces; width grows from the compact
+// 380 default to 900 in advanced.
+const VIEW_SIZE: Record<ViewMode, { width: number; height: number }> = {
+    default: { width: 380, height: 640 },
+    advanced: { width: 900, height: 640 },
+};
 
 export const Header = () => {
     const { t } = useTranslation();
@@ -38,7 +47,10 @@ export const Header = () => {
 
     const selectMode = (mode: ViewMode) => {
         setMenuOpen(false);
+        if (mode === viewMode) return;
         setViewMode(mode);
+        const { width, height } = VIEW_SIZE[mode];
+        void Window.SetSize(width, height).catch(() => {});
     };
 
     return (
@@ -54,12 +66,19 @@ export const Header = () => {
             <div className={"flex justify-center ml-4"}>
                 <ProfileDropdown onManageProfiles={openManageProfiles} />
             </div>
-            <div className={"flex justify-end"}>
+            <div className={"flex justify-end wails-no-draggable"}>
                 <DropdownMenu modal={false} open={menuOpen} onOpenChange={setMenuOpen}>
-                    <DropdownMenuTrigger asChild>
-                        <IconButton icon={MoreVertical} iconClassName={"text-nb-gray-200"} />
+                    <DropdownMenuTrigger asChild className={"wails-no-draggable"}>
+                        <IconButton
+                            icon={MoreVertical}
+                            iconClassName={"text-nb-gray-200 wails-no-draggable"}
+                        />
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" sideOffset={8} className="min-w-52">
+                    <DropdownMenuContent
+                        align="end"
+                        sideOffset={8}
+                        className="min-w-52 data-[state=closed]:!animate-none data-[state=closed]:!duration-0"
+                    >
                         <DropdownMenuItem onClick={openSettings}>
                             <div className="flex items-center gap-2">
                                 <Settings size={14} />

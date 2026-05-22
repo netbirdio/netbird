@@ -2,13 +2,7 @@ import { forwardRef, type ComponentType, type HTMLAttributes } from "react";
 import type { LucideProps } from "lucide-react";
 import { cn } from "@/lib/cn";
 
-export type BadgeVariant =
-    | "info"
-    | "neutral"
-    | "brand"
-    | "success"
-    | "warning"
-    | "danger";
+export type BadgeVariant = "info" | "neutral" | "brand" | "success" | "warning" | "danger";
 
 type Props = HTMLAttributes<HTMLSpanElement> & {
     /** Visual color scheme. Defaults to `info` (sky), used as the
@@ -34,22 +28,15 @@ const VARIANT_CLASSES: Record<BadgeVariant, string> = {
 // lets the small text sit flush in the pill without the line-height padding
 // inflating it.
 export const Badge = forwardRef<HTMLSpanElement, Props>(function Badge(
-    {
-        variant = "info",
-        icon: Icon,
-        iconSize = 10,
-        className,
-        children,
-        ...rest
-    },
+    { variant = "info", icon: Icon, iconSize = 10, className, children, ...rest },
     ref,
 ) {
     return (
         <span
             ref={ref}
             className={cn(
-                "relative top-px inline-flex items-center gap-1 rounded-full px-2 py-[0.2rem]",
-                "text-[0.65rem] leading-none font-semibold shrink-0",
+                "relative top-px inline-flex items-center gap-1 rounded-full px-1.5 py-[0.15rem]",
+                "text-[0.64rem] leading-none font-semibold shrink-0",
                 VARIANT_CLASSES[variant],
                 className,
             )}
