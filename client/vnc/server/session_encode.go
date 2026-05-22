@@ -450,11 +450,18 @@ func (s *session) sendFullUpdate(img *image.RGBA) error {
 		rectBuf = encodeTightRect(img, pf, 0, 0, w, h, tight)
 	case useZlib && zlib != nil:
 		// encodeZlibRect bakes in its own FBU header; reuse it for the
-		// single-rect path when there is no cursor to prepend.
-		if cursorRect == nil {
-			return s.writeFramed(encodeZlibRect(img, pf, 0, 0, w, h, zlib))
+		// single-rect path when there is no cursor to prepend. Fall back
+		// to Raw if the compressor errors out.
+		if zb, ok := encodeZlibRect(img, pf, 0, 0, w, h, zlib); ok {
+			if cursorRect == nil {
+				return s.writeFramed(zb)
+			}
+			rectBuf = zb[4:]
+		} else if cursorRect == nil {
+			return s.writeFramed(encodeRawRect(img, pf, 0, 0, w, h))
+		} else {
+			rectBuf = encodeRawRect(img, pf, 0, 0, w, h)[4:]
 		}
-		rectBuf = encodeZlibRect(img, pf, 0, 0, w, h, zlib)[4:]
 	default:
 		if cursorRect == nil {
 			return s.writeFramed(encodeRawRect(img, pf, 0, 0, w, h))
@@ -558,7 +565,9 @@ func (s *session) encodeTile(img *image.RGBA, x, y, w, h int) []byte {
 		return encodeTightRect(img, pf, x, y, w, h, tight)
 	}
 	if useZlib && zlib != nil {
-		return encodeZlibRect(img, pf, x, y, w, h, zlib)[4:]
+		if zb, ok := encodeZlibRect(img, pf, x, y, w, h, zlib); ok {
+			return zb[4:]
+		}
 	}
 	return encodeRawRect(img, pf, x, y, w, h)[4:]
 }
