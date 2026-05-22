@@ -180,13 +180,6 @@ func New(opts Options) (*Client, error) {
 		}
 	}
 
-	if opts.Performance.PreallocatedBuffersPerPool != nil {
-		wgdevice.SetPreallocatedBuffersPerPool(*opts.Performance.PreallocatedBuffersPerPool)
-	}
-	if opts.Performance.MaxBatchSize != nil {
-		wgdevice.SetMaxBatchSizeOverride(*opts.Performance.MaxBatchSize)
-	}
-
 	var err error
 	var parsedLabels domain.List
 	if parsedLabels, err = domain.FromStringList(opts.DNSLabels); err != nil {
@@ -218,6 +211,13 @@ func New(opts Options) (*Client, error) {
 
 	if opts.PrivateKey != "" {
 		config.PrivateKey = opts.PrivateKey
+	}
+
+	if opts.Performance.PreallocatedBuffersPerPool != nil {
+		wgdevice.SetPreallocatedBuffersPerPool(*opts.Performance.PreallocatedBuffersPerPool)
+	}
+	if opts.Performance.MaxBatchSize != nil {
+		wgdevice.SetMaxBatchSizeOverride(*opts.Performance.MaxBatchSize)
 	}
 
 	return &Client{
