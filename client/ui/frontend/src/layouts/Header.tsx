@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
+    ArrowUpCircleIcon,
     Check,
     MoreVertical,
     PanelsRightBottom,
@@ -19,6 +20,7 @@ import {
 } from "@/components/DropdownMenu";
 import { IconButton } from "@/components/IconButton";
 import { ProfileDropdown } from "@/components/ProfileDropdown";
+import { useClientVersion } from "@/modules/auto-update/ClientVersionContext";
 import { cn } from "@/lib/cn";
 
 type ViewMode = "default" | "advanced";
@@ -35,10 +37,16 @@ export const Header = () => {
     const { t } = useTranslation();
     const [menuOpen, setMenuOpen] = useState(false);
     const [viewMode, setViewMode] = useState<ViewMode>("default");
+    const { updateAvailable } = useClientVersion();
 
     const openSettings = () => {
         setMenuOpen(false);
         void WindowManager.OpenSettings("").catch(() => {});
+    };
+
+    const openAbout = () => {
+        setMenuOpen(false);
+        void WindowManager.OpenSettings("about").catch(() => {});
     };
 
     const openManageProfiles = () => {
@@ -67,39 +75,75 @@ export const Header = () => {
                 <ProfileDropdown onManageProfiles={openManageProfiles} />
             </div>
             <div className={"flex justify-end wails-no-draggable"}>
-                <DropdownMenu modal={false} open={menuOpen} onOpenChange={setMenuOpen}>
-                    <DropdownMenuTrigger asChild className={"wails-no-draggable"}>
-                        <IconButton
-                            icon={MoreVertical}
-                            iconClassName={"text-nb-gray-200 wails-no-draggable"}
-                        />
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                        align="end"
-                        sideOffset={8}
-                        className="min-w-52 data-[state=closed]:!animate-none data-[state=closed]:!duration-0"
-                    >
-                        <DropdownMenuItem onClick={openSettings}>
-                            <div className="flex items-center gap-2">
-                                <Settings size={14} />
-                                {t("header.menu.settings")}
-                            </div>
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <ViewModeItem
-                            icon={RectangleVertical}
-                            label={t("header.menu.defaultView")}
-                            selected={viewMode === "default"}
-                            onSelect={() => selectMode("default")}
-                        />
-                        <ViewModeItem
-                            icon={PanelsRightBottom}
-                            label={t("header.menu.advancedView")}
-                            selected={viewMode === "advanced"}
-                            onSelect={() => selectMode("advanced")}
-                        />
-                    </DropdownMenuContent>
-                </DropdownMenu>
+                <div className={"relative"}>
+                    <DropdownMenu modal={false} open={menuOpen} onOpenChange={setMenuOpen}>
+                        <DropdownMenuTrigger asChild className={"wails-no-draggable"}>
+                            <IconButton
+                                icon={MoreVertical}
+                                iconClassName={"text-nb-gray-200 wails-no-draggable"}
+                            />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                            align="end"
+                            sideOffset={8}
+                            className="min-w-52 data-[state=closed]:!animate-none data-[state=closed]:!duration-0"
+                        >
+                            {updateAvailable && (
+                                <>
+                                    <DropdownMenuItem onClick={openAbout}>
+                                        <div className="flex items-center gap-2">
+                                            <ArrowUpCircleIcon
+                                                size={14}
+                                                className={"text-netbird"}
+                                            />
+                                            <span className={"text-netbird"}>
+                                                {t("header.menu.updateAvailable")}
+                                            </span>
+                                        </div>
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                </>
+                            )}
+                            <DropdownMenuItem onClick={openSettings}>
+                                <div className="flex items-center gap-2">
+                                    <Settings size={14} />
+                                    {t("header.menu.settings")}
+                                </div>
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <ViewModeItem
+                                icon={RectangleVertical}
+                                label={t("header.menu.defaultView")}
+                                selected={viewMode === "default"}
+                                onSelect={() => selectMode("default")}
+                            />
+                            <ViewModeItem
+                                icon={PanelsRightBottom}
+                                label={t("header.menu.advancedView")}
+                                selected={viewMode === "advanced"}
+                                onSelect={() => selectMode("advanced")}
+                            />
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                    {updateAvailable && (
+                        <span
+                            className={
+                                "pointer-events-none absolute top-1.5 right-1.5 flex h-2.5 w-2.5 items-center justify-center"
+                            }
+                        >
+                            <span
+                                className={
+                                    "absolute inset-0 rounded-full bg-netbird opacity-60 animate-ping"
+                                }
+                            />
+                            <span
+                                className={
+                                    "relative h-1.5 w-1.5 rounded-full bg-netbird"
+                                }
+                            />
+                        </span>
+                    )}
+                </div>
             </div>
         </div>
     );

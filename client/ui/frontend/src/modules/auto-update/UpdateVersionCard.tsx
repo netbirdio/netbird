@@ -1,6 +1,7 @@
 import { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Browser } from "@wailsio/runtime";
+import { DownloadIcon, NotepadText } from "lucide-react";
 import { Button } from "@/components/Button";
 import { useClientVersion } from "@/modules/auto-update/ClientVersionContext";
 import { cn } from "@/lib/cn";
@@ -11,17 +12,8 @@ function openUrl(url: string) {
     void Browser.OpenURL(url).catch(() => window.open(url, "_blank"));
 }
 
-function formatLastChecked(date: Date, locale?: string) {
-    return date.toLocaleString(locale, {
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-    });
-}
-
 export function UpdateVersionCard() {
-    const { t, i18n } = useTranslation();
+    const { t } = useTranslation();
     const { updateVersion, enforced, triggerUpdate } = useClientVersion();
 
     if (updateVersion) {
@@ -29,7 +21,7 @@ export function UpdateVersionCard() {
             ? "update.card.versionAvailableInstall"
             : "update.card.versionAvailableDownload";
         return (
-            <Card>
+            <Card className={"max-w-lg"}>
                 <div>
                     <Title>{t(titleKey, { version: updateVersion })}</Title>
                     <Link
@@ -48,6 +40,7 @@ export function UpdateVersionCard() {
                         size={"xs"}
                         onClick={() => openUrl(GITHUB_RELEASES)}
                     >
+                        <DownloadIcon size={14} />
                         {t("update.card.getInstaller")}
                     </Button>
                 )}
@@ -56,17 +49,14 @@ export function UpdateVersionCard() {
     }
 
     return (
-        <Card className={"max-w-md"}>
+        <Card className={"max-w-lg"}>
             <div>
-                <Title>
-                    {t("update.card.lastChecked", {
-                        date: formatLastChecked(new Date(), i18n.language),
-                    })}
-                </Title>
-                <Link url={GITHUB_RELEASES}>{t("update.card.changelog")}</Link>
+                <Title>{t("update.card.onLatestVersion")}</Title>
+                <p className={"text-sm text-nb-gray-300"}>{t("update.card.autoCheckInterval")}</p>
             </div>
-            <Button variant={"primary"} size={"xs"} onClick={triggerUpdate}>
-                {t("update.card.checkForUpdates")}
+            <Button variant={"primary"} size={"xs"} onClick={() => openUrl(GITHUB_RELEASES)}>
+                <NotepadText size={14} />
+                {t("update.card.changelog")}
             </Button>
         </Card>
     );
@@ -76,7 +66,7 @@ function Card({ children, className }: { children: ReactNode; className?: string
     return (
         <div
             className={cn(
-                "w-full max-w-md flex items-center justify-between gap-4 rounded-md border border-nb-gray-800 bg-nb-gray-910 px-4 py-3",
+                "w-full flex items-center justify-between gap-4 rounded-md border border-nb-gray-800 bg-nb-gray-910 px-4 py-3",
                 className,
             )}
         >
