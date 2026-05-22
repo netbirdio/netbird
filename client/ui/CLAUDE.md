@@ -51,7 +51,7 @@ All services live in `services/` and assume a build tag `!android && !ios && !fr
 
 `main.go` registers five typed events for the frontend: `netbird:status` (`Status`), `netbird:event` (`SystemEvent`), `netbird:profile:changed` (`ProfileRef`), `netbird:update:available` (`UpdateAvailable`), `netbird:update:progress` (`UpdateProgress`). `netbird:profile:changed` fires from `ProfileSwitcher.SwitchActive` after a successful daemon-side switch — both the React `ProfileContext` and the tray subscribe so a flip driven from one surface paints in the others (the daemon itself does not emit a profile event). Plus three plain-string events:
 
-- `EventTriggerLogin = "trigger-login"` — tray asking the frontend's `startLogin()` to begin an SSO flow.
+- `EventTriggerLogin = "trigger-login"` — tray asking the frontend's `startLogin()` to begin an SSO flow. The tray does **not** show the main window when emitting — the hidden webview is alive and subscribed, so `startLogin` runs and the only visible surface is the BrowserLogin popup it opens.
 - `EventBrowserLoginCancel = "browser-login:cancel"` — the `BrowserLogin` window's Cancel button or red-X close. `startLogin()` listens and tears down the daemon's pending `WaitSSOLogin`.
 - `preferences.EventPreferencesChanged = "netbird:preferences:changed"` — emitted after every successful `SetLanguage` (payload `{language}`). Both the tray menu rebuild and the React `i18next.changeLanguage` subscribe so a flip from any window paints everywhere.
 

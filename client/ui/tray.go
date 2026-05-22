@@ -426,18 +426,17 @@ func (t *Tray) openRoute(route string) {
 func (t *Tray) handleConnect() {
 	// NeedsLogin/SessionExpired/LoginFailed mean the daemon won't honor a
 	// plain Up RPC ("up already in progress: current status NeedsLogin") —
-	// it needs the Login → WaitSSOLogin → Up sequence instead. Hand off
-	// to the React-side startLogin() (which owns the browser-login window
-	// and SSO orchestration) by showing the main window and emitting
-	// EventTriggerLogin. The frontend subscribes in
-	// layouts/ConnectionStatusSwitch.tsx.
+	// it needs the Login → WaitSSOLogin → Up sequence instead. Emit
+	// EventTriggerLogin so the React-side startLogin() (which owns the
+	// BrowserLogin popup) drives the flow. The main window's webview is
+	// alive even while hidden, so we don't surface it — only the popup
+	// appears.
 	t.mu.Lock()
 	needsLogin := strings.EqualFold(t.lastStatus, services.StatusNeedsLogin) ||
 		strings.EqualFold(t.lastStatus, services.StatusSessionExpired) ||
 		strings.EqualFold(t.lastStatus, services.StatusLoginFailed)
 	t.mu.Unlock()
 	if needsLogin {
-		t.ShowWindow()
 		t.app.Event.Emit(services.EventTriggerLogin)
 		return
 	}
@@ -625,7 +624,6 @@ func (t *Tray) applyStatus(st services.Status) {
 	t.mu.Unlock()
 
 	if triggerLogin {
-		t.ShowWindow()
 		t.app.Event.Emit(services.EventTriggerLogin)
 	}
 

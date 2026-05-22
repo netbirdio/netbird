@@ -132,8 +132,8 @@ The SSO flow is centralised in a module-level `startLogin()` with a `loginInFlig
 
 1. `Connection.Login({})` with empty fields — Go fills in active profile + OS user.
 2. If the daemon needs SSO (`needsSsoLogin`):
-   - `Connection.OpenURL(uri)` opens the verification page in the system browser (honors `$BROWSER`).
-   - `WindowManager.OpenBrowserLogin(uri)` opens the auxiliary "waiting for sign-in" window.
+   - `WindowManager.OpenBrowserLogin(uri)` opens the auxiliary "waiting for sign-in" window (Hidden until React mounts and `useAutoSizeWindow` calls `Window.Show`).
+   - `WaitingForBrowserDialog` mounts, gets shown by `useAutoSizeWindow`, then fires `Connection.OpenURL(uri)` from its mount effect — opens the verification page in the system browser (honors `$BROWSER`). Done from the dialog (not `startLogin`) so the browser doesn't race the still-hidden NetBird popup and land on top.
    - `Promise.race(WaitSSOLogin, EVENT_BROWSER_LOGIN_CANCEL)` — whichever resolves first.
    - On cancel: `Connection.Down()` to dislodge the daemon's pending `WaitSSOLogin` so the next Login starts fresh (see `services/connection.go:74`).
 3. `Connection.Up({})` to bring the new session up.

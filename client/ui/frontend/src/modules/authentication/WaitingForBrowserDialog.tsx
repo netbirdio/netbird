@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { Events } from "@wailsio/runtime";
@@ -20,6 +20,15 @@ export default function WaitingForBrowserDialog() {
     const [params] = useSearchParams();
     const uri = params.get("uri") ?? "";
     const contentRef = useAutoSizeWindow<HTMLDivElement>(WINDOW_WIDTH);
+
+    // Open the system browser only after the dialog has mounted (which
+    // means useAutoSizeWindow has called Window.Show). startLogin used to
+    // fire OpenURL itself but the browser typically beat React's mount
+    // and landed on top of the still-hidden NetBird popup.
+    useEffect(() => {
+        if (!uri) return;
+        Connection.OpenURL(uri).catch(console.error);
+    }, [uri]);
 
     const tryAgain = useCallback(() => {
         if (!uri) return;

@@ -62,16 +62,15 @@ async function startLogin(): Promise<void> {
         if (result.needsSsoLogin) {
             const uri = result.verificationUriComplete || result.verificationUri;
             if (uri) {
-                // Open the in-app sign-in popup first so it's already on
-                // screen when the system browser steals focus; otherwise
-                // the browser lands on top and the user has to dig the
-                // NetBird window back out.
+                // Open the in-app sign-in popup first; the dialog itself
+                // fires Connection.OpenURL after it's actually on screen
+                // (see WaitingForBrowserDialog) so the system browser
+                // doesn't land on top of a still-hidden NetBird window.
                 try {
                     await WindowManager.OpenBrowserLogin(uri);
                 } catch (e) {
                     console.error(e);
                 }
-                Connection.OpenURL(uri).catch(console.error);
             }
 
             const cancelPromise = new Promise<void>((resolve) => {
