@@ -518,7 +518,11 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) 
 		if protocol == types.PolicyRuleProtocolNetbirdSSH || protocol == types.PolicyRuleProtocolNetbirdVNC {
 			policy.Rules[0].AuthorizedUser = userAuth.UserId
 		}
-		if protocol == types.PolicyRuleProtocolNetbirdVNC && req.SessionPubKey != nil {
+		if protocol == types.PolicyRuleProtocolNetbirdVNC {
+			if req.SessionPubKey == nil || *req.SessionPubKey == "" {
+				util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "session_pub_key is required for VNC temporary access"), w)
+				return
+			}
 			pub, err := base64.StdEncoding.DecodeString(*req.SessionPubKey)
 			if err != nil {
 				util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "session_pub_key is not valid base64: %v", err), w)
