@@ -266,7 +266,7 @@ func encodeRawRect(img *image.RGBA, pf clientPixelFormat, x, y, w, h int) []byte
 // encoding. The zlib stream is continuous for the entire VNC session: the
 // client keeps a single inflate context and reuses it across rects. The
 // returned buffer includes the 4-byte FramebufferUpdate header.
-func encodeZlibRect(img *image.RGBA, pf clientPixelFormat, x, y, w, h int, z *zlibState) []byte {
+func encodeZlibRect(img *image.RGBA, pf clientPixelFormat, x, y, w, h int, z *zlibState) ([]byte, bool) {
 	zw, zbuf := z.w, z.buf
 	zbuf.Reset()
 
@@ -280,12 +280,12 @@ func encodeZlibRect(img *image.RGBA, pf clientPixelFormat, x, y, w, h int, z *zl
 	for row := 0; row < h; row++ {
 		if _, err := zw.Write(scratch[row*rowBytes : (row+1)*rowBytes]); err != nil {
 			log.Debugf("zlib write row %d: %v", row, err)
-			return nil
+			return nil, false
 		}
 	}
 	if err := zw.Flush(); err != nil {
 		log.Debugf("zlib flush: %v", err)
-		return nil
+		return nil, false
 	}
 	compressed := zbuf.Bytes()
 
@@ -299,7 +299,7 @@ func encodeZlibRect(img *image.RGBA, pf clientPixelFormat, x, y, w, h int, z *zl
 	binary.BigEndian.PutUint32(buf[12:16], uint32(encZlib))
 	binary.BigEndian.PutUint32(buf[16:20], uint32(len(compressed)))
 	copy(buf[20:], compressed)
-	return buf
+	return buf, true
 }
 
 // encodeHextileSolidRect emits a Hextile-encoded rectangle whose every
