@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/curve25519"
 
-	sshauth "github.com/netbirdio/netbird/client/ssh/auth"
+	sshauth "github.com/netbirdio/netbird/shared/sessionauth"
 	sshuserhash "github.com/netbirdio/netbird/shared/sshauth"
 )
 

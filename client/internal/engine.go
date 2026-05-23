@@ -35,6 +35,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/acl"
+	"github.com/netbirdio/netbird/client/internal/approval"
 	"github.com/netbirdio/netbird/client/internal/debug"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
@@ -124,6 +125,7 @@ type EngineConfig struct {
 
 	ServerSSHAllowed              bool
 	ServerVNCAllowed              bool
+	DisableVNCApproval            *bool
 	EnableSSHRoot                 *bool
 	EnableSSHSFTP                 *bool
 	EnableSSHLocalPortForwarding  *bool
@@ -205,8 +207,9 @@ type Engine struct {
 
 	networkMonitor *networkmonitor.NetworkMonitor
 
-	sshServer sshServer
-	vncSrv    vncServer
+	sshServer      sshServer
+	vncSrv         vncServer
+	approvalBroker *approval.Broker
 
 	statusRecorder *peer.Status
 
@@ -287,6 +290,7 @@ func NewEngine(
 		TURNs:              []*stun.URI{},
 		networkSerial:      0,
 		statusRecorder:     services.StatusRecorder,
+		approvalBroker:     approval.New(services.StatusRecorder),
 		stateManager:       services.StateManager,
 		portForwardManager: portforward.NewManager(),
 		checks:             services.Checks,
@@ -2607,4 +2611,17 @@ func decodeRelayIP(b []byte) netip.Addr {
 		return netip.Addr{}
 	}
 	return ip.Unmap()
+}
+
+// RespondApproval relays the user's decision for a pending approval to
+// the broker. viewOnly is honoured only when accept is true. Returns
+// true when the request_id matched a live prompt.
+func (e *Engine) RespondApproval(requestID string, accept, viewOnly bool) bool {
+	if e == nil || e.approvalBroker == nil {
+		return false
+	}
+	return e.approvalBroker.Respond(requestID, approval.Decision{
+		Accept:   accept,
+		ViewOnly: accept && viewOnly,
+	})
 }

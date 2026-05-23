@@ -119,6 +119,14 @@ service DaemonService {
 
   // ExposeService exposes a local port via the NetBird reverse proxy
   rpc ExposeService(ExposeServiceRequest) returns (stream ExposeServiceEvent) {}
+
+  // RespondApproval delivers the user's accept/deny decision for a
+  // pending user-approval prompt. The daemon pushes the prompt as a
+  // SystemEvent with category APPROVAL and metadata key "request_id";
+  // the UI calls this RPC with the same request_id to unblock whichever
+  // subsystem (VNC, SSH, ...) is waiting. The "kind" metadata key tells
+  // the UI which subsystem the prompt belongs to.
+  rpc RespondApproval(RespondApprovalRequest) returns (RespondApprovalResponse) {}
 }
 
 
@@ -207,6 +215,8 @@ message LoginRequest {
   optional bool disable_ipv6 = 40;
 
   optional bool serverVNCAllowed = 41;
+
+  optional bool disableVNCApproval = 42;
 }
 
 message LoginResponse {
@@ -318,6 +328,8 @@ message GetConfigResponse {
   bool disable_ipv6 = 27;
 
   bool serverVNCAllowed = 28;
+
+  bool disableVNCApproval = 29;
 }
 
 // PeerState contains the latest state of a peer
@@ -616,6 +628,7 @@ message SystemEvent {
     AUTHENTICATION = 2;
     CONNECTIVITY = 3;
     SYSTEM = 4;
+    APPROVAL = 5;
   }
 
   string id = 1;
@@ -701,6 +714,8 @@ message SetConfigRequest {
   optional bool disable_ipv6 = 35;
 
   optional bool serverVNCAllowed = 36;
+
+  optional bool disableVNCApproval = 37;
 }
 
 message SetConfigResponse{}
@@ -895,3 +910,18 @@ message StartBundleCaptureRequest {
 message StartBundleCaptureResponse {}
 message StopBundleCaptureRequest {}
 message StopBundleCaptureResponse {}
+
+message RespondApprovalRequest {
+  // request_id matches the SystemEvent metadata key emitted by the daemon
+  // when a subsystem awaits user approval for an inbound connection.
+  string request_id = 1;
+  // accept is true if the user approved the request, false if they
+  // denied it. A missing or unknown request_id is treated as a no-op.
+  bool accept = 2;
+  // view_only signals that the user granted the connection but withheld
+  // input control. Only meaningful when accept is true; ignored when
+  // accept is false.
+  bool view_only = 3;
+}
+
+message RespondApprovalResponse {}

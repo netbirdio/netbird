@@ -94,6 +94,13 @@ type PolicyRule struct {
 	// AuthorizedUser when the rule was created via temporary-access for a
 	// VNC scope; empty otherwise.
 	SessionPubKey string
+
+	// SessionDisplayName is a human-readable label for the user the
+	// SessionPubKey was issued to (typically display name, falling back
+	// to email or user id). The daemon surfaces it on the host's
+	// per-connection approval prompt so the user being asked can
+	// recognise who is requesting access.
+	SessionDisplayName string
 }
 
 // Copy returns a copy of a policy rule
@@ -116,6 +123,7 @@ func (pm *PolicyRule) Copy() *PolicyRule {
 		AuthorizedGroups:    make(map[string][]string, len(pm.AuthorizedGroups)),
 		AuthorizedUser:      pm.AuthorizedUser,
 		SessionPubKey:       pm.SessionPubKey,
+		SessionDisplayName:  pm.SessionDisplayName,
 	}
 	copy(rule.Destinations, pm.Destinations)
 	copy(rule.Sources, pm.Sources)
@@ -144,7 +152,8 @@ func (pm *PolicyRule) Equal(other *PolicyRule) bool {
 		pm.SourceResource != other.SourceResource ||
 		pm.DestinationResource != other.DestinationResource ||
 		pm.AuthorizedUser != other.AuthorizedUser ||
-		pm.SessionPubKey != other.SessionPubKey {
+		pm.SessionPubKey != other.SessionPubKey ||
+		pm.SessionDisplayName != other.SessionDisplayName {
 		return false
 	}
 

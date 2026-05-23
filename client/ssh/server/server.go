@@ -23,7 +23,7 @@ import (
 	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
-	sshauth "github.com/netbirdio/netbird/client/ssh/auth"
+	sshauth "github.com/netbirdio/netbird/shared/sessionauth"
 	"github.com/netbirdio/netbird/client/ssh/detection"
 	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/auth/jwt"

@@ -28,7 +28,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/proto"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
-	sshauth "github.com/netbirdio/netbird/client/ssh/auth"
+	sshauth "github.com/netbirdio/netbird/shared/sessionauth"
 	"github.com/netbirdio/netbird/client/ssh/server"
 	"github.com/netbirdio/netbird/client/ssh/testutil"
 	nbjwt "github.com/netbirdio/netbird/shared/auth/jwt"

@@ -364,6 +364,9 @@ func setupSetConfigReq(customDNSAddressConverted []byte, cmd *cobra.Command, pro
 	if cmd.Flag(serverVNCAllowedFlag).Changed {
 		req.ServerVNCAllowed = &serverVNCAllowed
 	}
+	if cmd.Flag(disableVNCApprovalFlag).Changed {
+		req.DisableVNCApproval = &disableVNCApproval
+	}
 	if cmd.Flag(enableSSHRootFlag).Changed {
 		req.EnableSSHRoot = &enableSSHRoot
 	}
@@ -472,6 +475,9 @@ func setupConfig(customDNSAddressConverted []byte, cmd *cobra.Command, configFil
 	}
 	if cmd.Flag(serverVNCAllowedFlag).Changed {
 		ic.ServerVNCAllowed = &serverVNCAllowed
+	}
+	if cmd.Flag(disableVNCApprovalFlag).Changed {
+		ic.DisableVNCApproval = &disableVNCApproval
 	}
 
 	if cmd.Flag(enableSSHRootFlag).Changed {
@@ -603,6 +609,9 @@ func setupLoginRequest(providedSetupKey string, customDNSAddressConverted []byte
 	}
 	if cmd.Flag(serverVNCAllowedFlag).Changed {
 		loginRequest.ServerVNCAllowed = &serverVNCAllowed
+	}
+	if cmd.Flag(disableVNCApprovalFlag).Changed {
+		loginRequest.DisableVNCApproval = &disableVNCApproval
 	}
 
 	if cmd.Flag(enableSSHRootFlag).Changed {

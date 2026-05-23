@@ -55,6 +55,11 @@ type session struct {
 	serverH     int
 	desktopName string
 	log         *log.Entry
+	// viewOnly drops KeyEvent / PointerEvent (legacy + QEMU + extended)
+	// without invoking the injector when the user approved the
+	// connection in view-only mode. The bytes are still consumed off the
+	// wire so the protocol stays in sync.
+	viewOnly bool
 
 	writeMu sync.Mutex
 	// encMu guards the negotiated pixel format and encoding state below.
@@ -161,6 +166,15 @@ func (s *session) serve() {
 	}
 	s.log.Infof("client connected: %s", s.addr())
 
+	// View-only clients can't move the pointer, so default to compositing
+	// the host cursor into the framebuffer. The client can still send
+	// ShowRemoteCursor to turn it off.
+	if s.viewOnly {
+		s.encMu.Lock()
+		s.showRemoteCursor = true
+		s.encMu.Unlock()
+	}
+
 	// On any exit path (clean disconnect, transport error, panic) release
 	// modifier keys and mouse buttons so the host doesn't end up with
 	// Shift/Ctrl/Alt or a mouse button stuck because the client dropped
@@ -226,8 +240,10 @@ func (s *session) handshake() error {
 // mode, username) that precedes the RFB handshake; the protocol-level
 // password scheme is not supported.
 func (s *session) sendSecurityTypes() error {
-	_, err := s.conn.Write([]byte{1, secNone})
-	return err
+	if _, err := s.conn.Write([]byte{1, secNone}); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *session) handleSecurity(secType byte) error {
@@ -237,10 +253,19 @@ func (s *session) handleSecurity(secType byte) error {
 	return binary.Write(s.conn, binary.BigEndian, uint32(0))
 }
 
+// ViewOnlyDesktopNamePrefix tags the RFB desktop name when the host
+// approved the connection in view-only mode, so a NetBird-aware client
+// can switch its UI into read-only state. NUL framing guarantees no
+// collision with a user-set name.
+const ViewOnlyDesktopNamePrefix = "\x00NB-VIEW-ONLY\x00"
+
 func (s *session) sendServerInit() error {
 	desktop := s.desktopName
 	if desktop == "" {
 		desktop = "NetBird VNC"
+	}
+	if s.viewOnly {
+		desktop = ViewOnlyDesktopNamePrefix + desktop
 	}
 	name := []byte(desktop)
 	buf := make([]byte, 0, 4+16+4+len(name))
@@ -259,8 +284,10 @@ func (s *session) sendServerInit() error {
 	)
 	buf = append(buf, name...)
 
-	_, err := s.conn.Write(buf)
-	return err
+	if _, err := s.conn.Write(buf); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *session) messageLoop() error {
@@ -536,14 +563,19 @@ func (s *session) SendDesktopName(name string) error {
 	if _, err := s.conn.Write(header); err != nil {
 		return err
 	}
-	_, err := s.conn.Write(body)
-	return err
+	if _, err := s.conn.Write(body); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *session) handleKeyEvent() error {
 	var data [7]byte
 	if _, err := io.ReadFull(s.conn, data[:]); err != nil {
 		return fmt.Errorf("read KeyEvent: %w", err)
+	}
+	if s.viewOnly {
+		return nil
 	}
 	down := data[0] == 1
 	keysym := binary.BigEndian.Uint32(data[3:7])
@@ -563,6 +595,9 @@ func (s *session) handleQEMUMessage() error {
 	subtype := data[0]
 	if subtype != qemuSubtypeExtendedKeyEvent {
 		s.log.Tracef("ignoring QEMU subtype %d", subtype)
+		return nil
+	}
+	if s.viewOnly {
 		return nil
 	}
 	down := binary.BigEndian.Uint16(data[1:3]) != 0
@@ -598,6 +633,9 @@ func (s *session) handlePointerEvent() error {
 	s.lastPointerX = x
 	s.lastPointerY = y
 	s.pointerMu.Unlock()
+	if s.viewOnly {
+		return nil
+	}
 	s.injector.InjectPointer(mask, x, y, s.serverW, s.serverH)
 	return nil
 }

@@ -1,4 +1,4 @@
-package auth
+package sessionauth
 
 import (
 	"errors"
@@ -43,6 +43,11 @@ type Authorizer struct {
 	// Populated from management's temporary-access flow; used by VNC to
 	// authenticate via the Noise_IK handshake.
 	sessionPubKeys map[[sessionPubKeyLen]byte]sshuserhash.UserIDHash
+	// sessionDisplayNames mirrors sessionPubKeys with the optional
+	// human-readable display name management associated with each
+	// session key. Used by the per-connection UI approval prompt; not
+	// consulted by any authorization decision.
+	sessionDisplayNames map[[sessionPubKeyLen]byte]string
 
 	// mu protects the list of users
 	mu sync.RWMutex
@@ -66,10 +71,13 @@ type Config struct {
 }
 
 // SessionPubKey is a single ephemeral-key entry: the 32-byte X25519
-// static public key plus the hashed user identity it authenticates as.
+// static public key plus the hashed user identity it authenticates as,
+// optionally plus a human-readable display name for the UI approval
+// prompt to identify the requester.
 type SessionPubKey struct {
-	PubKey     []byte
-	UserIDHash sshuserhash.UserIDHash
+	PubKey      []byte
+	UserIDHash  sshuserhash.UserIDHash
+	DisplayName string
 }
 
 // NewAuthorizer creates a new SSH authorizer with empty configuration
@@ -77,7 +85,8 @@ func NewAuthorizer() *Authorizer {
 	a := &Authorizer{
 		userIDClaim:    DefaultUserIDClaim,
 		machineUsers:   make(map[string][]uint32),
-		sessionPubKeys: make(map[[sessionPubKeyLen]byte]sshuserhash.UserIDHash),
+		sessionPubKeys:      make(map[[sessionPubKeyLen]byte]sshuserhash.UserIDHash),
+		sessionDisplayNames: make(map[[sessionPubKeyLen]byte]string),
 	}
 
 	return a
@@ -94,6 +103,7 @@ func (a *Authorizer) Update(config *Config) {
 		a.authorizedUsers = []sshuserhash.UserIDHash{}
 		a.machineUsers = make(map[string][]uint32)
 		a.sessionPubKeys = make(map[[sessionPubKeyLen]byte]sshuserhash.UserIDHash)
+		a.sessionDisplayNames = make(map[[sessionPubKeyLen]byte]string)
 		log.Info("SSH authorization cleared")
 		return
 	}
@@ -117,6 +127,7 @@ func (a *Authorizer) Update(config *Config) {
 	a.machineUsers = machineUsers
 
 	sessionPubKeys := make(map[[sessionPubKeyLen]byte]sshuserhash.UserIDHash, len(config.SessionPubKeys))
+	sessionDisplayNames := make(map[[sessionPubKeyLen]byte]string, len(config.SessionPubKeys))
 	conflicted := make(map[[sessionPubKeyLen]byte]struct{})
 	for _, e := range config.SessionPubKeys {
 		if len(e.PubKey) != sessionPubKeyLen {
@@ -130,12 +141,17 @@ func (a *Authorizer) Update(config *Config) {
 		if existing, ok := sessionPubKeys[key]; ok && existing != e.UserIDHash {
 			log.Warnf("SSH auth: session pubkey bound to conflicting user hashes; dropping binding")
 			delete(sessionPubKeys, key)
+			delete(sessionDisplayNames, key)
 			conflicted[key] = struct{}{}
 			continue
 		}
 		sessionPubKeys[key] = e.UserIDHash
+		if e.DisplayName != "" {
+			sessionDisplayNames[key] = e.DisplayName
+		}
 	}
 	a.sessionPubKeys = sessionPubKeys
+	a.sessionDisplayNames = sessionDisplayNames
 
 	log.Debugf("SSH auth: updated with %d authorized users, %d machine user mappings, %d session pubkeys",
 		len(config.AuthorizedUsers), len(machineUsers), len(sessionPubKeys))
@@ -215,6 +231,22 @@ func (a *Authorizer) LookupSessionKey(pubKey []byte) (sshuserhash.UserIDHash, er
 		return zero, ErrSessionKeyNotKnown
 	}
 	return hash, nil
+}
+
+// LookupSessionDisplayName returns the human-readable display name
+// management associated with a session pubkey, or empty string when none
+// is recorded. Never returns an error: a missing/unknown key reports as
+// "" and the caller falls back to other identifiers.
+func (a *Authorizer) LookupSessionDisplayName(pubKey []byte) string {
+	if len(pubKey) != sessionPubKeyLen {
+		return ""
+	}
+	var key [sessionPubKeyLen]byte
+	copy(key[:], pubKey)
+	a.mu.RLock()
+	name := a.sessionDisplayNames[key]
+	a.mu.RUnlock()
+	return name
 }
 
 // AuthorizeOSUserBySessionKey resolves the OS-user mapping for a session

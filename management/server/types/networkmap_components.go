@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/netbirdio/netbird/client/ssh/auth"
+	auth "github.com/netbirdio/netbird/shared/sessionauth"
 	nbdns "github.com/netbirdio/netbird/dns"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"

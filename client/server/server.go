@@ -377,6 +377,7 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 	config.DisableAutoConnect = msg.DisableAutoConnect
 	config.ServerSSHAllowed = msg.ServerSSHAllowed
 	config.ServerVNCAllowed = msg.ServerVNCAllowed
+	config.DisableVNCApproval = msg.DisableVNCApproval
 	config.NetworkMonitor = msg.NetworkMonitor
 	config.DisableClientRoutes = msg.DisableClientRoutes
 	config.DisableServerRoutes = msg.DisableServerRoutes
@@ -1448,6 +1449,27 @@ func (s *Server) ExposeService(req *proto.ExposeServiceRequest, srv proto.Daemon
 	return nil
 }
 
+// RespondApproval relays the user's accept/deny decision for a pending
+// approval prompt to the engine's broker. Unknown or already-resolved
+// request_ids are silently no-op'd so a slow UI cannot deny a prompt the
+// user already handled (or that already timed out).
+func (s *Server) RespondApproval(_ context.Context, msg *proto.RespondApprovalRequest) (*proto.RespondApprovalResponse, error) {
+	s.mutex.Lock()
+	connectClient := s.connectClient
+	s.mutex.Unlock()
+	if connectClient == nil {
+		return nil, gstatus.Errorf(codes.FailedPrecondition, "client not initialized")
+	}
+	engine := connectClient.Engine()
+	if engine == nil {
+		return nil, gstatus.Errorf(codes.FailedPrecondition, "engine not running")
+	}
+	if !engine.RespondApproval(msg.GetRequestId(), msg.GetAccept(), msg.GetViewOnly()) {
+		log.Debugf("approval response for unknown request_id %s", msg.GetRequestId())
+	}
+	return &proto.RespondApprovalResponse{}, nil
+}
+
 func isUnixRunningDesktop() bool {
 	if runtime.GOOS != "linux" && runtime.GOOS != "freebsd" {
 		return false
@@ -1565,6 +1587,7 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		DisableAutoConnect:            cfg.DisableAutoConnect,
 		ServerSSHAllowed:              *cfg.ServerSSHAllowed,
 		ServerVNCAllowed:              cfg.ServerVNCAllowed != nil && *cfg.ServerVNCAllowed,
+		DisableVNCApproval:            cfg.DisableVNCApproval != nil && *cfg.DisableVNCApproval,
 		RosenpassEnabled:              cfg.RosenpassEnabled,
 		RosenpassPermissive:           cfg.RosenpassPermissive,
 		LazyConnectionEnabled:         cfg.LazyConnectionEnabled,
