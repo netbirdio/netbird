@@ -449,19 +449,11 @@ func (s *session) sendFullUpdate(img *image.RGBA) error {
 	case useTight && tight != nil && pfIsTightCompatible(pf):
 		rectBuf = encodeTightRect(img, pf, 0, 0, w, h, tight)
 	case useZlib && zlib != nil:
-		// encodeZlibRect bakes in its own FBU header; reuse it for the
-		// single-rect path when there is no cursor to prepend. Fall back
-		// to Raw if the compressor errors out.
-		if zb, ok := encodeZlibRect(img, pf, 0, 0, w, h, zlib); ok {
-			if cursorRect == nil {
-				return s.writeFramed(zb)
-			}
-			rectBuf = zb[4:]
-		} else if cursorRect == nil {
-			return s.writeFramed(encodeRawRect(img, pf, 0, 0, w, h))
-		} else {
-			rectBuf = encodeRawRect(img, pf, 0, 0, w, h)[4:]
+		body, done, err := s.encodeZlibSingle(img, pf, w, h, zlib, cursorRect)
+		if done {
+			return err
 		}
+		rectBuf = body
 	default:
 		if cursorRect == nil {
 			return s.writeFramed(encodeRawRect(img, pf, 0, 0, w, h))
@@ -478,11 +470,37 @@ func (s *session) sendFullUpdate(img *image.RGBA) error {
 	return s.writeFramed(buf)
 }
 
+// encodeZlibSingle encodes one full-frame rect with Zlib. When cursorRect is
+// nil it writes the encodeZlibRect-baked FBU header directly and returns
+// done=true with the writeFramed error. Otherwise it returns the rect body
+// (header-stripped) so the caller can prepend a cursor rect. On compressor
+// failure it falls back to Raw.
+func (s *session) encodeZlibSingle(img *image.RGBA, pf clientPixelFormat, w, h int, zlib *zlibState, cursorRect []byte) (body []byte, done bool, err error) {
+	if zb, ok := encodeZlibRect(img, pf, 0, 0, w, h, zlib); ok {
+		if cursorRect == nil {
+			if werr := s.writeFramed(zb); werr != nil {
+				return nil, true, werr
+			}
+			return nil, true, nil
+		}
+		return zb[4:], false, nil
+	}
+	if cursorRect == nil {
+		if werr := s.writeFramed(encodeRawRect(img, pf, 0, 0, w, h)); werr != nil {
+			return nil, true, werr
+		}
+		return nil, true, nil
+	}
+	return encodeRawRect(img, pf, 0, 0, w, h)[4:], false, nil
+}
+
 func (s *session) writeFramed(buf []byte) error {
 	s.writeMu.Lock()
-	_, err := s.conn.Write(buf)
-	s.writeMu.Unlock()
-	return err
+	defer s.writeMu.Unlock()
+	if _, err := s.conn.Write(buf); err != nil {
+		return err
+	}
+	return nil
 }
 
 // sendDirtyAndMoves writes one FramebufferUpdate combining CopyRect moves
