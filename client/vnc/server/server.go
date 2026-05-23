@@ -422,20 +422,22 @@ func (s *Server) untrackConn(c net.Conn) {
 // gateApproval prompts the local user to accept or deny conn before any
 // session resources are allocated. On rejection the conn already received
 // an RFB reject reason; the gate does not close it.
-func (s *Server) gateApproval(conn net.Conn, header *connectionHeader, connLog *log.Entry) (bool, ApprovalDecision) {
+// gateApproval returns the user's decision when approval is enabled, or a
+// zero decision when it isn't. On rejection it writes the RFB rejection
+// message to conn and returns an error; the caller is responsible for
+// logging it (this function does not log on its own).
+func (s *Server) gateApproval(conn net.Conn, header *connectionHeader) (ApprovalDecision, error) {
 	if !s.requireApproval {
-		return true, ApprovalDecision{}
+		return ApprovalDecision{}, nil
 	}
 	if s.approver == nil {
 		rejectConnection(conn, codeMessage(RejectCodeNoApprover, "approval required but no approver configured"))
-		connLog.Warn("VNC connection rejected: approval required but no approver")
-		return false, ApprovalDecision{}
+		return ApprovalDecision{}, errors.New("approval required but no approver configured")
 	}
 	if s.serviceMode {
 		if err := interactiveUserError(); err != nil {
 			rejectConnection(conn, codeMessage(RejectCodeNoConsoleUser, "no interactive user session"))
-			connLog.Infof("VNC connection rejected: no interactive user session to approve: %v", err)
-			return false, ApprovalDecision{}
+			return ApprovalDecision{}, fmt.Errorf("no interactive user session: %w", err)
 		}
 	}
 	info := ApprovalInfo{
@@ -452,15 +454,9 @@ func (s *Server) gateApproval(conn net.Conn, header *connectionHeader, connLog *
 	decision, err := s.approver.Request(s.ctx, info)
 	if err != nil {
 		rejectConnection(conn, codeMessage(RejectCodeApprovalDenied, "approval denied"))
-		connLog.Infof("VNC connection rejected: approval %v", err)
-		return false, ApprovalDecision{}
+		return ApprovalDecision{}, fmt.Errorf("approval: %w", err)
 	}
-	if decision.ViewOnly {
-		connLog.Info("VNC connection approved by user (view-only)")
-	} else {
-		connLog.Info("VNC connection approved by user")
-	}
-	return true, decision
+	return decision, nil
 }
 
 // sourceIPString returns the IP portion of a remote address, or the full
@@ -804,9 +800,15 @@ func (s *Server) handleConnection(conn net.Conn) {
 	}
 	s.registerConnAuth(conn, header)
 
-	allow, decision := s.gateApproval(conn, header, connLog)
-	if !allow {
+	decision, err := s.gateApproval(conn, header)
+	if err != nil {
+		connLog.Infof("VNC connection rejected: %v", err)
 		return
+	}
+	if decision.ViewOnly {
+		connLog.Info("VNC connection approved by user (view-only)")
+	} else if s.requireApproval {
+		connLog.Info("VNC connection approved by user")
 	}
 
 	capturer, injector, sessionCleanup, ok := s.acquireSessionResources(conn, header, &connLog)

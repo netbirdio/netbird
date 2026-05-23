@@ -72,9 +72,15 @@ func (s *Server) handleServiceConnection(conn net.Conn, sa sessionAgent) {
 	}
 	s.registerConnAuth(conn, header)
 
-	allow, decision := s.gateApproval(conn, header, authedLog)
-	if !allow {
+	decision, err := s.gateApproval(conn, header)
+	if err != nil {
+		authedLog.Infof("VNC connection rejected: %v", err)
 		return
+	}
+	if decision.ViewOnly {
+		authedLog.Info("VNC connection approved by user (view-only)")
+	} else if s.requireApproval {
+		authedLog.Info("VNC connection approved by user")
 	}
 
 	socketPath, token, err := sa.Resolve(s.ctx)

@@ -405,7 +405,8 @@ func TestGateApproval_Disabled_NoApproverCall(t *testing.T) {
 	defer conn.Close()
 	header := &connectionHeader{mode: ModeAttach}
 
-	allowed, _ := srv.gateApproval(conn, header, srv.log)
+	_, err := srv.gateApproval(conn, header)
+		allowed := err == nil
 	assert.True(t, allowed, "gate must pass through when requireApproval is false")
 	assert.Equal(t, int32(0), app.calls.Load(), "approver must not be called when disabled")
 }
@@ -439,7 +440,8 @@ func TestGateApproval_Enabled_NilApproverDenies(t *testing.T) {
 	}()
 
 	header := &connectionHeader{mode: ModeAttach}
-	allowed, _ := srv.gateApproval(srvConn, header, srv.log)
+	_, err := srv.gateApproval(srvConn, header)
+	allowed := err == nil
 	assert.False(t, allowed, "missing approver MUST deny; never silently pass")
 
 	select {
@@ -472,7 +474,8 @@ func TestGateApproval_ApproverDenies(t *testing.T) {
 			defer conn.Close()
 
 			header := &connectionHeader{mode: ModeAttach}
-			allowed, _ := srv.gateApproval(conn, header, srv.log)
+			_, err := srv.gateApproval(conn, header)
+		allowed := err == nil
 			assert.False(t, allowed, "approver error %v must deny", tc.err)
 			assert.Equal(t, int32(1), app.calls.Load())
 		})
@@ -489,7 +492,8 @@ func TestGateApproval_ApproverAccepts(t *testing.T) {
 	defer conn.Close()
 
 	header := &connectionHeader{mode: ModeAttach, username: "alice"}
-	allowed, _ := srv.gateApproval(conn, header, srv.log)
+	_, err := srv.gateApproval(conn, header)
+		allowed := err == nil
 	assert.True(t, allowed, "approver returning nil must let the gate pass")
 	assert.Equal(t, int32(1), app.calls.Load())
 	assert.Equal(t, "alice", app.lastIn.Username, "header username must reach the approver")
@@ -510,7 +514,8 @@ func TestGateApproval_PassesPubKeyHex(t *testing.T) {
 		pub[i] = byte(i)
 	}
 	header := &connectionHeader{mode: ModeAttach, clientStatic: pub}
-	allowed, _ := srv.gateApproval(conn, header, srv.log)
+	_, err := srv.gateApproval(conn, header)
+		allowed := err == nil
 	assert.True(t, allowed)
 	assert.Equal(t, hex.EncodeToString(pub), app.lastIn.PeerPubKey)
 }
