@@ -431,6 +431,11 @@ func (s *Server) gateApproval(conn net.Conn, header *connectionHeader, connLog *
 		connLog.Warn("VNC connection rejected: approval required but no approver")
 		return false, ApprovalDecision{}
 	}
+	if s.serviceMode && !consoleHasInteractiveUser() {
+		rejectConnection(conn, codeMessage(RejectCodeNoConsoleUser, "no interactive user session"))
+		connLog.Info("VNC connection rejected: no interactive user session to approve")
+		return false, ApprovalDecision{}
+	}
 	info := ApprovalInfo{
 		SourceIP: sourceIPString(conn.RemoteAddr()),
 		Mode:     modeString(header.mode),
