@@ -3,10 +3,7 @@
 package server
 
 import (
-	"bufio"
-	"bytes"
 	"context"
-	"crypto/subtle"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -18,7 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/flynn/noise"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/curve25519"
 	"golang.zx2c4.com/wireguard/tun/netstack"
@@ -572,27 +568,12 @@ func (s *Server) Start(ctx context.Context, addr netip.AddrPort, network netip.P
 		s.listener = s.preListener
 		listenDesc = s.preListener.Addr().String()
 	default:
-		if !network.IsValid() {
-			return fmt.Errorf("invalid overlay network prefix")
+		ln, desc, err := s.openOverlayListener(addr, network)
+		if err != nil {
+			return err
 		}
-		s.localAddr = addr.Addr()
-		s.network = network
-		if s.netstackNet != nil {
-			ln, err := s.netstackNet.ListenTCPAddrPort(addr)
-			if err != nil {
-				return fmt.Errorf("listen on netstack %s: %w", addr, err)
-			}
-			s.listener = ln
-			listenDesc = fmt.Sprintf("netstack %s", addr)
-		} else {
-			tcpAddr := net.TCPAddrFromAddrPort(addr)
-			ln, err := net.ListenTCP("tcp", tcpAddr)
-			if err != nil {
-				return fmt.Errorf("listen on %s: %w", addr, err)
-			}
-			s.listener = ln
-			listenDesc = addr.String()
-		}
+		s.listener = ln
+		listenDesc = desc
 	}
 
 	if s.serviceMode {
@@ -607,6 +588,27 @@ func (s *Server) Start(ctx context.Context, addr netip.AddrPort, network netip.P
 
 	s.log.Infof("started on %s (service_mode=%v)", listenDesc, s.serviceMode)
 	return nil
+}
+
+func (s *Server) openOverlayListener(addr netip.AddrPort, network netip.Prefix) (net.Listener, string, error) {
+	if !network.IsValid() {
+		return nil, "", fmt.Errorf("invalid overlay network prefix")
+	}
+	s.localAddr = addr.Addr()
+	s.network = network
+	if s.netstackNet != nil {
+		ln, err := s.netstackNet.ListenTCPAddrPort(addr)
+		if err != nil {
+			return nil, "", fmt.Errorf("listen on netstack %s: %w", addr, err)
+		}
+		return ln, fmt.Sprintf("netstack %s", addr), nil
+	}
+	tcpAddr := net.TCPAddrFromAddrPort(addr)
+	ln, err := net.ListenTCP("tcp", tcpAddr)
+	if err != nil {
+		return nil, "", fmt.Errorf("listen on %s: %w", addr, err)
+	}
+	return ln, addr.String(), nil
 }
 
 // Stop shuts down the server and closes all connections.
@@ -867,240 +869,6 @@ func rejectConnection(conn net.Conn, reason string) {
 	binary.BigEndian.PutUint32(buf[1:5], uint32(len(msg)))
 	copy(buf[5:], msg)
 	_, _ = conn.Write(buf)
-}
-
-// authenticateSession resolves the Noise-verified client static public
-// key to a hashed user identity via the authorizer, and checks OS-user
-// mapping for session mode. Returns the hashed user identity on success.
-func (s *Server) authenticateSession(header *connectionHeader) (string, error) {
-	if !header.identityVerified {
-		return "", fmt.Errorf("identity proof missing")
-	}
-	if len(header.clientStatic) != 32 {
-		return "", fmt.Errorf("client static key missing")
-	}
-
-	userIDHash, err := s.authorizer.LookupSessionKey(header.clientStatic)
-	if err != nil {
-		return "", fmt.Errorf("lookup session pubkey: %w", err)
-	}
-
-	osUser := "*"
-	if header.mode == ModeSession {
-		osUser = header.username
-	}
-	if _, err := s.authorizer.AuthorizeOSUserBySessionKey(userIDHash, osUser); err != nil {
-		return "", fmt.Errorf("authorize OS user %q: %w", osUser, err)
-	}
-	return userIDHash.String(), nil
-}
-
-var vncIdentityMagic = []byte("NBV3")
-
-// Noise_IK_25519_ChaChaPoly_SHA256 message sizes (with empty payloads).
-//
-//	msg1 = e(32) + s_AEAD(32+16) + payload_AEAD(0+16) = 96 bytes
-//	msg2 = e(32) + payload_AEAD(0+16) = 48 bytes
-const (
-	noiseInitiatorMsgLen = 96
-	noiseResponderMsgLen = 48
-)
-
-// vncNoiseSuite pins the cipher suite for the VNC handshake. Changing
-// it requires bumping vncIdentityMagic so old clients fail closed.
-var vncNoiseSuite = noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashSHA256)
-
-// readConnectionHeader reads the NetBird VNC session header. Format:
-//
-//	[mode: 1] [username_len: 2 BE] [username: N]
-//	[opt magic "NBV3": 4] [noise_msg1: 96]
-//	  (server writes [noise_msg2: 48] here when the magic is present)
-//	[session_id: 4 BE] [width: 2 BE] [height: 2 BE]
-//
-// Standard VNC clients don't speak first, so they time out on the first
-// read and fall through to attach mode (which auth still rejects when
-// no Noise handshake completed).
-func (s *Server) readConnectionHeader(conn net.Conn) (*connectionHeader, error) {
-	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
-		return nil, fmt.Errorf("set deadline: %w", err)
-	}
-	defer conn.SetReadDeadline(time.Time{}) //nolint:errcheck
-
-	var hdr [3]byte
-	if _, err := io.ReadFull(conn, hdr[:]); err != nil {
-		return &connectionHeader{mode: ModeAttach}, nil
-	}
-
-	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
-		return nil, fmt.Errorf("set deadline: %w", err)
-	}
-
-	mode := hdr[0]
-	usernameLen := binary.BigEndian.Uint16(hdr[1:3])
-
-	var username string
-	if usernameLen > 0 {
-		if usernameLen > 256 {
-			return nil, fmt.Errorf("username too long: %d", usernameLen)
-		}
-		buf := make([]byte, usernameLen)
-		if _, err := io.ReadFull(conn, buf); err != nil {
-			return nil, fmt.Errorf("read username: %w", err)
-		}
-		username = string(buf)
-	}
-
-	br := bufio.NewReader(conn)
-	clientStatic, identityVerified, err := s.maybeRunNoiseHandshake(conn, br)
-	if err != nil {
-		return nil, err
-	}
-
-	var sessionID uint32
-	var sidBuf [4]byte
-	if _, err := io.ReadFull(br, sidBuf[:]); err == nil {
-		sessionID = binary.BigEndian.Uint32(sidBuf[:])
-	}
-
-	var width, height uint16
-	var geomBuf [4]byte
-	if _, err := io.ReadFull(br, geomBuf[:]); err == nil {
-		width = binary.BigEndian.Uint16(geomBuf[0:2])
-		height = binary.BigEndian.Uint16(geomBuf[2:4])
-	}
-
-	return &connectionHeader{
-		mode:             mode,
-		username:         username,
-		clientStatic:     clientStatic,
-		sessionID:        sessionID,
-		width:            width,
-		height:           height,
-		identityVerified: identityVerified,
-	}, nil
-}
-
-// maybeRunNoiseHandshake performs the responder side of a Noise_IK
-// handshake when the client sends the v3 magic. Returns the client static
-// public key learned from the handshake. Any handshake failure is fatal
-// (fail closed).
-func (s *Server) maybeRunNoiseHandshake(conn net.Conn, br *bufio.Reader) ([]byte, bool, error) {
-	peek, _ := br.Peek(len(vncIdentityMagic))
-	if !bytes.Equal(peek, vncIdentityMagic) {
-		return nil, false, nil
-	}
-	if _, err := br.Discard(len(vncIdentityMagic)); err != nil {
-		return nil, false, fmt.Errorf("discard identity magic: %w", err)
-	}
-
-	msg1 := make([]byte, noiseInitiatorMsgLen)
-	if _, err := io.ReadFull(br, msg1); err != nil {
-		return nil, false, fmt.Errorf("read noise msg1: %w", err)
-	}
-
-	// Agents on loopback authenticate via the agent token, not this
-	// handshake. Consume the replayed bytes and skip the response.
-	if s.disableAuth {
-		return nil, true, nil
-	}
-
-	if len(s.identityKey) != 32 || len(s.identityPublic) != 32 {
-		return nil, false, errors.New("identity key not configured")
-	}
-	state, err := noise.NewHandshakeState(noise.Config{
-		CipherSuite:   vncNoiseSuite,
-		Pattern:       noise.HandshakeIK,
-		Initiator:     false,
-		StaticKeypair: noise.DHKey{Private: s.identityKey, Public: s.identityPublic},
-	})
-	if err != nil {
-		return nil, false, fmt.Errorf("noise responder init: %w", err)
-	}
-	if _, _, _, err := state.ReadMessage(nil, msg1); err != nil {
-		return nil, false, fmt.Errorf("noise read msg1: %w", err)
-	}
-	msg2, _, _, err := state.WriteMessage(nil, nil)
-	if err != nil {
-		return nil, false, fmt.Errorf("noise write msg2: %w", err)
-	}
-	if len(msg2) != noiseResponderMsgLen {
-		return nil, false, fmt.Errorf("noise responder produced %d bytes, expected %d", len(msg2), noiseResponderMsgLen)
-	}
-	if _, err := conn.Write(msg2); err != nil {
-		return nil, false, fmt.Errorf("write noise msg2: %w", err)
-	}
-
-	clientStatic := state.PeerStatic()
-	if len(clientStatic) != 32 {
-		return nil, false, errors.New("noise peer static missing")
-	}
-	return clientStatic, true, nil
-}
-
-// verifyAgentToken validates the agent token prefix when configured and
-// reads the trailing view-only flag byte the daemon writes alongside it.
-// Returns (ok, viewOnly). ok=false closes the connection.
-func (s *Server) verifyAgentToken(conn net.Conn, connLog *log.Entry) (bool, bool) {
-	if len(s.agentToken) == 0 {
-		return true, false
-	}
-	buf := make([]byte, len(s.agentToken)+1)
-	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
-		connLog.Debugf("set agent token deadline: %v", err)
-		conn.Close()
-		return false, false
-	}
-	if _, err := io.ReadFull(conn, buf); err != nil {
-		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-			// Connect-then-close probes (port liveness checks) hit this
-			// path on every dial; logging them would just flood the
-			// daemon log without surfacing a real failure.
-			connLog.Tracef("agent auth: read preamble: %v", err)
-		} else {
-			connLog.Warnf("agent auth: read preamble: %v", err)
-		}
-		conn.Close()
-		return false, false
-	}
-	if err := conn.SetReadDeadline(time.Time{}); err != nil {
-		connLog.Debugf("clear agent token deadline: %v", err)
-	}
-	if subtle.ConstantTimeCompare(buf[:len(s.agentToken)], s.agentToken) != 1 {
-		connLog.Warn("agent auth: invalid token, rejecting")
-		conn.Close()
-		return false, false
-	}
-	return true, buf[len(s.agentToken)] != 0
-}
-
-// authorizeSession runs the Noise_IK handshake when auth is enabled.
-// Returns the enriched log entry, user identity hash (empty when auth
-// disabled), and ok=false if the connection was rejected.
-func (s *Server) authorizeSession(conn net.Conn, header *connectionHeader, connLog *log.Entry) (*log.Entry, string, bool) {
-	if s.disableAuth {
-		return connLog, "", true
-	}
-	userID, err := s.authenticateSession(header)
-	if err != nil {
-		rejectConnection(conn, codeMessage(RejectCodeAuthForbidden, err.Error()))
-		connLog.Warnf("auth rejected: %v", err)
-		return connLog, "", false
-	}
-	return connLog.WithFields(log.Fields{
-		"session_user": userID,
-		"session_key":  sessionKeyFingerprint(header.clientStatic),
-	}), userID, true
-}
-
-// sessionKeyFingerprint returns a short hex fingerprint of a client
-// static key for log correlation. Distinct VNC sessions of the same
-// user end up with distinct fingerprints because each session mints a
-// fresh keypair, so this lets an operator tell parallel sessions apart.
-func sessionKeyFingerprint(clientStatic []byte) string {
-	if len(clientStatic) < 4 {
-		return ""
-	}
-	return hex.EncodeToString(clientStatic[:4])
 }
 
 // acquireSessionResources returns the capturer/injector to use for this

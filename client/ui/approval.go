@@ -171,7 +171,7 @@ func (r approvalRequest) displayPeer() string {
 }
 
 // deadline returns the wall-clock auto-deny moment. Falls back to a short
-// local window when the daemon's expires_at is missing/unparseable, so a
+// local window when the daemon's expires_at is missing/unparsable, so a
 // stale value never leaves the dialog open indefinitely.
 func (r approvalRequest) deadline() time.Time {
 	if t, err := time.Parse(time.RFC3339, r.expiresAt); err == nil {
