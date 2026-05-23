@@ -2,6 +2,6 @@
 
 package server
 
-// consoleHasInteractiveUser is unused outside service mode (darwin/windows)
-// but the symbol must exist so gateApproval compiles on all platforms.
-func consoleHasInteractiveUser() bool { return true }
+// interactiveUserError is unused outside service mode (darwin/windows) but
+// the symbol must exist so gateApproval compiles on all platforms.
+func interactiveUserError() error { return nil }

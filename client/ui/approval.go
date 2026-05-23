@@ -113,15 +113,17 @@ func (s *serviceClient) showApprovalUI(req approvalRequest) {
 				decide(outcome{})
 				return
 			}
-			updateCountdown()
+			fyne.Do(updateCountdown)
 		}
 	}()
 
 	go func() {
 		o := <-decided
 		s.sendApprovalResponse(req.requestID, o.accept, o.viewOnly)
-		w.Close()
-		s.app.Quit()
+		fyne.Do(func() {
+			w.Close()
+			s.app.Quit()
+		})
 	}()
 
 	w.Show()

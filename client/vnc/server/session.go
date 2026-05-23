@@ -545,6 +545,9 @@ func (s *session) handleFBUpdateRequest() error {
 // in sync with the active session (e.g. username changes after login on
 // a virtual session).
 func (s *session) SendDesktopName(name string) error {
+	if s.viewOnly {
+		name = ViewOnlyDesktopNamePrefix + name
+	}
 	s.encMu.RLock()
 	supported := s.clientSupportsDesktopName
 	s.encMu.RUnlock()
@@ -629,13 +632,13 @@ func (s *session) handlePointerEvent() error {
 		mask = (mask & 0x7f) | uint16(hi[0])<<7
 	}
 
+	if s.viewOnly {
+		return nil
+	}
 	s.pointerMu.Lock()
 	s.lastPointerX = x
 	s.lastPointerY = y
 	s.pointerMu.Unlock()
-	if s.viewOnly {
-		return nil
-	}
 	s.injector.InjectPointer(mask, x, y, s.serverW, s.serverH)
 	return nil
 }
@@ -661,6 +664,9 @@ var stickyModifierKeysyms = [...]uint32{
 // when the client disconnects mid-press. Mouse coordinates are reused
 // from the last PointerEvent so we don't warp the cursor.
 func (s *session) releaseStickyInput() {
+	if s.viewOnly {
+		return
+	}
 	for _, ks := range stickyModifierKeysyms {
 		s.injector.InjectKey(ks, false)
 	}

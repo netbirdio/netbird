@@ -47,8 +47,6 @@ var (
 	procWTSEnumerateSessionsW      = wtsapi32.NewProc("WTSEnumerateSessionsW")
 	procWTSFreeMemory              = wtsapi32.NewProc("WTSFreeMemory")
 	procWTSQuerySessionInformation = wtsapi32.NewProc("WTSQuerySessionInformationW")
-
-	iphlpapi                = windows.NewLazySystemDLL("iphlpapi.dll")
 )
 
 // GetCurrentSessionID returns the session ID of the current process.
@@ -514,6 +512,8 @@ func (m *sessionManager) reapExitedAgent() {
 		log.Debugf("close agent handle: %v", err)
 	}
 	m.agentProc = 0
+	m.authToken = ""
+	m.socketPath = ""
 }
 
 // scheduleNextSpawn applies an exponential backoff on fast crashes (<5s) and
@@ -586,6 +586,8 @@ func (m *sessionManager) killAgent() {
 	_ = windows.TerminateProcess(m.agentProc, 0)
 	_ = windows.CloseHandle(m.agentProc)
 	m.agentProc = 0
+	m.authToken = ""
+	m.socketPath = ""
 	log.Info("killed old agent")
 }
 

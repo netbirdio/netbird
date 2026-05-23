@@ -93,8 +93,12 @@ type Server struct {
 	captureEnabled         bool
 	bundleCapture          *bundleCapture
 	// activeCapture is the session currently installed on the engine; guarded by s.mutex.
-	activeCapture    *capture.Session
-	networksDisabled bool
+	activeCapture *capture.Session
+	// activeCaptureCancel tears down the streaming pipe/cancel for the
+	// active streaming capture so eviction unblocks the StartCapture RPC
+	// handler. Nil for bundle captures (they own their own context).
+	activeCaptureCancel func()
+	networksDisabled    bool
 
 	sleepHandler *sleephandler.SleepHandler
 
