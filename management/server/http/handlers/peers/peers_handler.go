@@ -475,6 +475,37 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) 
 	newPeer := &nbpeer.Peer{}
 	newPeer.FromAPITemporaryAccessRequest(&req)
 
+	parsedRules := make([]struct {
+		raw       string
+		protocol  types.PolicyRuleProtocolType
+		portRange types.RulePortRange
+	}, 0, len(req.Rules))
+	needsVNCKey := false
+	for _, rule := range req.Rules {
+		protocol, portRange, err := types.ParseRuleString(rule)
+		if err != nil {
+			util.WriteError(r.Context(), err, w)
+			return
+		}
+		if protocol == types.PolicyRuleProtocolNetbirdVNC {
+			needsVNCKey = true
+		}
+		parsedRules = append(parsedRules, struct {
+			raw       string
+			protocol  types.PolicyRuleProtocolType
+			portRange types.RulePortRange
+		}{rule, protocol, portRange})
+	}
+
+	var vncSessionPubKey string
+	if needsVNCKey {
+		vncSessionPubKey, err = validateVNCSessionPubKey(req.SessionPubKey)
+		if err != nil {
+			util.WriteError(r.Context(), err, w)
+			return
+		}
+	}
+
 	targetPeer, err := h.accountManager.GetPeer(r.Context(), userAuth.AccountId, peerID, userAuth.UserId)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
@@ -487,12 +518,7 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	for _, rule := range req.Rules {
-		protocol, portRange, err := types.ParseRuleString(rule)
-		if err != nil {
-			util.WriteError(r.Context(), err, w)
-			return
-		}
+	for _, pr := range parsedRules {
 		policy := &types.Policy{
 			AccountID:   userAuth.AccountId,
 			Description: "Temporary access policy for peer " + peer.Name,
@@ -512,34 +538,28 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) 
 					ID:   targetPeer.ID,
 				},
 				Bidirectional: false,
-				Protocol:      protocol,
-				PortRanges:    []types.RulePortRange{portRange},
+				Protocol:      pr.protocol,
+				PortRanges:    []types.RulePortRange{pr.portRange},
 			}},
 		}
-		if protocol == types.PolicyRuleProtocolNetbirdSSH || protocol == types.PolicyRuleProtocolNetbirdVNC {
+		if pr.protocol == types.PolicyRuleProtocolNetbirdSSH || pr.protocol == types.PolicyRuleProtocolNetbirdVNC {
 			policy.Rules[0].AuthorizedUser = userAuth.UserId
 		}
-		if protocol == types.PolicyRuleProtocolNetbirdVNC {
-			pubKey, err := validateVNCSessionPubKey(req.SessionPubKey)
-			if err != nil {
-				util.WriteError(r.Context(), err, w)
-				return
-			}
-			policy.Rules[0].SessionPubKey = pubKey
+		if pr.protocol == types.PolicyRuleProtocolNetbirdVNC {
+			policy.Rules[0].SessionPubKey = vncSessionPubKey
 			policy.Rules[0].SessionDisplayName = h.displayNameForUser(r.Context(), userAuth)
 		}
 
-		_, err = h.accountManager.SavePolicy(r.Context(), userAuth.AccountId, userAuth.UserId, policy, true)
-		if err != nil {
+		if _, err = h.accountManager.SavePolicy(r.Context(), userAuth.AccountId, userAuth.UserId, policy, true); err != nil {
 			util.WriteError(r.Context(), err, w)
 			return
 		}
 	}
 
 	resp := &api.PeerTemporaryAccessResponse{
-		Id:             peer.ID,
-		Name:           peer.Name,
-		Rules:          req.Rules,
+		Id:           peer.ID,
+		Name:         peer.Name,
+		Rules:        req.Rules,
 		TargetPubKey: targetPeer.Key,
 	}
 

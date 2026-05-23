@@ -269,4 +269,3 @@ func (s *Server) serviceAcceptLoop() {
 		}(conn)
 	}
 }
-

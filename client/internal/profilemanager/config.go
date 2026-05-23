@@ -433,7 +433,7 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 			updated = true
 		}
 	} else if config.ServerVNCAllowed == nil {
-		config.ServerVNCAllowed = util.True()
+		config.ServerVNCAllowed = util.False()
 		updated = true
 	}
 

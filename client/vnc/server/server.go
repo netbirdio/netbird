@@ -431,10 +431,12 @@ func (s *Server) gateApproval(conn net.Conn, header *connectionHeader, connLog *
 		connLog.Warn("VNC connection rejected: approval required but no approver")
 		return false, ApprovalDecision{}
 	}
-	if s.serviceMode && !consoleHasInteractiveUser() {
-		rejectConnection(conn, codeMessage(RejectCodeNoConsoleUser, "no interactive user session"))
-		connLog.Info("VNC connection rejected: no interactive user session to approve")
-		return false, ApprovalDecision{}
+	if s.serviceMode {
+		if err := interactiveUserError(); err != nil {
+			rejectConnection(conn, codeMessage(RejectCodeNoConsoleUser, "no interactive user session"))
+			connLog.Infof("VNC connection rejected: no interactive user session to approve: %v", err)
+			return false, ApprovalDecision{}
+		}
 	}
 	info := ApprovalInfo{
 		SourceIP: sourceIPString(conn.RemoteAddr()),
@@ -449,7 +451,7 @@ func (s *Server) gateApproval(conn net.Conn, header *connectionHeader, connLog *
 	}
 	decision, err := s.approver.Request(s.ctx, info)
 	if err != nil {
-		rejectConnection(conn, codeMessage(RejectCodeApprovalDenied, err.Error()))
+		rejectConnection(conn, codeMessage(RejectCodeApprovalDenied, "approval denied"))
 		connLog.Infof("VNC connection rejected: approval %v", err)
 		return false, ApprovalDecision{}
 	}
@@ -737,9 +739,13 @@ func (s *Server) validateCapturer(capturer ScreenCapturer) error {
 func (s *Server) isAllowedSource(addr net.Addr) bool {
 	// Unix-socket remotes (the agent path) are local IPC, gated by the
 	// token, not by overlay membership.
+	if _, ok := addr.(*net.UnixAddr); ok {
+		return true
+	}
 	tcpAddr, ok := addr.(*net.TCPAddr)
 	if !ok {
-		return true
+		s.log.Warnf("connection rejected: unsupported remote address type %T", addr)
+		return false
 	}
 
 	remoteIP, ok := netip.AddrFromSlice(tcpAddr.IP)
