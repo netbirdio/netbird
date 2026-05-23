@@ -3,15 +3,19 @@
 package server
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"image"
 	"io"
 	"net"
 	"net/netip"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -332,4 +336,181 @@ func TestSessionMode_RejectedWhenNoVMGR(t *testing.T) {
 	_, err = io.ReadFull(conn, reason)
 	require.NoError(t, err)
 	assert.Contains(t, string(reason), RejectCodeUnsupportedOS)
+}
+
+// recordingApprover lets gate tests choose the outcome of the approval
+// prompt and verify how often (and with what info) the gate calls it.
+type recordingApprover struct {
+	calls    atomic.Int32
+	lastIn   ApprovalInfo
+	decision ApprovalDecision
+	respond  error
+}
+
+func (r *recordingApprover) Request(_ context.Context, info ApprovalInfo) (ApprovalDecision, error) {
+	r.calls.Add(1)
+	r.lastIn = info
+	if r.respond != nil {
+		return ApprovalDecision{}, r.respond
+	}
+	return r.decision, nil
+}
+
+// drainRejectClient simulates a remote VNC client just enough that
+// rejectConnection's handshake-half completes promptly: it reads the
+// server's "RFB 003.008\n", writes back a placeholder client version, and
+// drains until EOF. Without this the rejectConnection path would block
+// for up to two seconds on its SetReadDeadline.
+func drainRejectClient(t *testing.T, c net.Conn) {
+	t.Helper()
+	go func() {
+		defer c.Close()
+		var srvVer [12]byte
+		if _, err := io.ReadFull(c, srvVer[:]); err != nil {
+			return
+		}
+		_, _ = c.Write([]byte("RFB 003.008\n"))
+		_, _ = io.Copy(io.Discard, c)
+	}()
+}
+
+// newGateConn returns a server-side conn and a client-side conn linked by
+// net.Pipe, with the client-side already draining so gateApproval's
+// rejectConnection path completes without blocking the test.
+func newGateConn(t *testing.T) net.Conn {
+	t.Helper()
+	srv, cli := net.Pipe()
+	drainRejectClient(t, cli)
+	t.Cleanup(func() { _ = srv.Close() })
+	return srv
+}
+
+func gateTestServer(requireApproval bool, approver Approver) *Server {
+	return &Server{
+		log:             log.WithField("test", "gate"),
+		requireApproval: requireApproval,
+		approver:        approver,
+	}
+}
+
+// TestGateApproval_Disabled_NoApproverCall: when the feature is off the
+// gate must short-circuit before consulting any approver. A nil approver
+// must NOT mean "deny" here — that would break upgrades for peers that
+// haven't opted in yet.
+func TestGateApproval_Disabled_NoApproverCall(t *testing.T) {
+	app := &recordingApprover{}
+	srv := gateTestServer(false, app)
+
+	conn := newGateConn(t)
+	defer conn.Close()
+	header := &connectionHeader{mode: ModeAttach}
+
+	allowed, _ := srv.gateApproval(conn, header, srv.log)
+	assert.True(t, allowed, "gate must pass through when requireApproval is false")
+	assert.Equal(t, int32(0), app.calls.Load(), "approver must not be called when disabled")
+}
+
+// TestGateApproval_Enabled_NilApproverDenies is the most important
+// regression test for "no silent bypass": if the feature is enabled but
+// the broker wasn't wired (a misconfiguration), the gate must REJECT,
+// not pass through. The reject code must be the dedicated NO_APPROVER so
+// the failure is unambiguous in logs and on the client side.
+func TestGateApproval_Enabled_NilApproverDenies(t *testing.T) {
+	srv := gateTestServer(true, nil)
+
+	srvConn, cliConn := net.Pipe()
+	defer srvConn.Close()
+	defer cliConn.Close()
+
+	// Capture the reject reason the gate sends.
+	rejectReason := make(chan string, 1)
+	go func() {
+		var srvVer [12]byte
+		_, _ = io.ReadFull(cliConn, srvVer[:])
+		_, _ = cliConn.Write([]byte("RFB 003.008\n"))
+		// Server sends: 1 byte (numTypes=0), 4 bytes (reason len), reason.
+		var numTypes [1]byte
+		_, _ = io.ReadFull(cliConn, numTypes[:])
+		var lenBuf [4]byte
+		_, _ = io.ReadFull(cliConn, lenBuf[:])
+		reason := make([]byte, binary.BigEndian.Uint32(lenBuf[:]))
+		_, _ = io.ReadFull(cliConn, reason)
+		rejectReason <- string(reason)
+	}()
+
+	header := &connectionHeader{mode: ModeAttach}
+	allowed, _ := srv.gateApproval(srvConn, header, srv.log)
+	assert.False(t, allowed, "missing approver MUST deny; never silently pass")
+
+	select {
+	case reason := <-rejectReason:
+		assert.Contains(t, reason, RejectCodeNoApprover, "reject code must surface the misconfiguration cause")
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not observe rejection reason")
+	}
+}
+
+// TestGateApproval_ApproverDenies maps every approver error to a deny.
+// We assert against every Err* the broker can produce so a future caller
+// adding a new error doesn't accidentally fall into a default-allow.
+func TestGateApproval_ApproverDenies(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+	}{
+		{"denied", errors.New("user denied")},
+		{"timeout", errors.New("approval timed out")},
+		{"no_subscriber", errors.New("no UI subscriber connected for approval")},
+		{"ctx_canceled", context.Canceled},
+		{"misc", errors.New("anything else")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			app := &recordingApprover{respond: tc.err}
+			srv := gateTestServer(true, app)
+			conn := newGateConn(t)
+			defer conn.Close()
+
+			header := &connectionHeader{mode: ModeAttach}
+			allowed, _ := srv.gateApproval(conn, header, srv.log)
+			assert.False(t, allowed, "approver error %v must deny", tc.err)
+			assert.Equal(t, int32(1), app.calls.Load())
+		})
+	}
+}
+
+// TestGateApproval_ApproverAccepts confirms the happy path actually
+// returns true so we know the deny path is not the only outcome the
+// gate can produce.
+func TestGateApproval_ApproverAccepts(t *testing.T) {
+	app := &recordingApprover{respond: nil}
+	srv := gateTestServer(true, app)
+	conn := newGateConn(t)
+	defer conn.Close()
+
+	header := &connectionHeader{mode: ModeAttach, username: "alice"}
+	allowed, _ := srv.gateApproval(conn, header, srv.log)
+	assert.True(t, allowed, "approver returning nil must let the gate pass")
+	assert.Equal(t, int32(1), app.calls.Load())
+	assert.Equal(t, "alice", app.lastIn.Username, "header username must reach the approver")
+}
+
+// TestGateApproval_PassesPubKeyHex confirms the gate hex-encodes the
+// 32-byte client static key into ApprovalInfo.PeerPubKey so the prompt's
+// metadata identifies which peer is connecting. A wrong-length key must
+// NOT bypass the gate; it just won't populate the field.
+func TestGateApproval_PassesPubKeyHex(t *testing.T) {
+	app := &recordingApprover{respond: nil}
+	srv := gateTestServer(true, app)
+	conn := newGateConn(t)
+	defer conn.Close()
+
+	pub := make([]byte, 32)
+	for i := range pub {
+		pub[i] = byte(i)
+	}
+	header := &connectionHeader{mode: ModeAttach, clientStatic: pub}
+	allowed, _ := srv.gateApproval(conn, header, srv.log)
+	assert.True(t, allowed)
+	assert.Equal(t, hex.EncodeToString(pub), app.lastIn.PeerPubKey)
 }

@@ -23,7 +23,7 @@ import (
 	"golang.org/x/crypto/curve25519"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 
-	sshauth "github.com/netbirdio/netbird/client/ssh/auth"
+	sshauth "github.com/netbirdio/netbird/shared/sessionauth"
 )
 
 // Connection modes sent by the client in the session header.
@@ -36,12 +36,14 @@ const (
 // stable so clients can branch on them without parsing free text.
 // Format: "CODE: human message".
 const (
-	RejectCodeAuthForbidden = "AUTH_FORBIDDEN"
-	RejectCodeSessionError  = "SESSION_ERROR"
-	RejectCodeCapturerError = "CAPTURER_ERROR"
-	RejectCodeUnsupportedOS = "UNSUPPORTED"
-	RejectCodeBadRequest    = "BAD_REQUEST"
-	RejectCodeNoConsoleUser = "NO_CONSOLE_USER"
+	RejectCodeAuthForbidden  = "AUTH_FORBIDDEN"
+	RejectCodeSessionError   = "SESSION_ERROR"
+	RejectCodeCapturerError  = "CAPTURER_ERROR"
+	RejectCodeUnsupportedOS  = "UNSUPPORTED"
+	RejectCodeBadRequest     = "BAD_REQUEST"
+	RejectCodeNoConsoleUser  = "NO_CONSOLE_USER"
+	RejectCodeApprovalDenied = "APPROVAL_DENIED"
+	RejectCodeNoApprover     = "NO_APPROVER"
 )
 
 // EnvVNCDisableDownscale disables any platform-specific framebuffer
@@ -173,11 +175,11 @@ type Server struct {
 	network netip.Prefix
 	log     *log.Entry
 
-	mu           sync.Mutex
-	listener     net.Listener
-	ctx          context.Context
-	cancel       context.CancelFunc
-	vmgr         virtualSessionManager
+	mu          sync.Mutex
+	listener    net.Listener
+	ctx         context.Context
+	cancel      context.CancelFunc
+	vmgr        virtualSessionManager
 	authorizer  *sshauth.Authorizer
 	netstackNet *netstack.Net
 	// agentToken holds the raw token bytes for agent-mode auth.
@@ -215,6 +217,14 @@ type Server struct {
 	// during each VNC session and on session close. The engine wires
 	// this to its metrics framework.
 	sessionRecorder func(SessionTick)
+
+	// requireApproval enables the per-connection user-accept gate. When
+	// true and approver is nil (or returns an error), the connection is
+	// rejected before any agent or session work.
+	requireApproval bool
+	// approver prompts the local user (via the daemon→UI event channel)
+	// to accept or deny each incoming connection.
+	approver Approver
 
 	// preListener, when non-nil, replaces the TCP listener Start would
 	// open; addr/network args to Start are ignored. Used by the agent's
@@ -275,6 +285,40 @@ type Config struct {
 	// addr/network args to Start are then ignored. The agent uses this to
 	// listen on a Unix socket.
 	Listener net.Listener
+	// RequireApproval gates each accepted connection on a user-side accept
+	// prompt before the proxy/session starts. Requires Approver to be set;
+	// otherwise the gate fails closed.
+	RequireApproval bool
+	// Approver brokers the per-connection prompt to the local user via the
+	// daemon→UI event channel. Nil disables the gate.
+	Approver Approver
+}
+
+// Approver decouples the VNC server from the approval broker. A non-nil
+// error means "do not proceed".
+type Approver interface {
+	Request(ctx context.Context, info ApprovalInfo) (ApprovalDecision, error)
+}
+
+// ApprovalDecision carries the parts of the user's response the VNC
+// server acts on. Accept is implicit (errors signal deny). ViewOnly puts
+// the session into read-only mode: the server drops input events.
+type ApprovalDecision struct {
+	ViewOnly bool
+}
+
+// ApprovalInfo describes the pending connection passed to the approver.
+// Fields are best-effort; any may be empty.
+type ApprovalInfo struct {
+	PeerName   string
+	PeerPubKey string
+	SourceIP   string
+	Mode       string
+	Username   string
+	// Initiator is the display name of the user who initiated the
+	// connection (typically the dashboard user). Resolved from the
+	// Noise-verified client static pubkey.
+	Initiator string
 }
 
 // New creates a VNC server from the provided Config. IdentityKey is the
@@ -287,6 +331,8 @@ func New(cfg Config) *Server {
 		identityKey:     cfg.IdentityKey,
 		serviceMode:     cfg.ServiceMode,
 		sessionRecorder: cfg.SessionRecorder,
+		requireApproval: cfg.RequireApproval,
+		approver:        cfg.Approver,
 		disableAuth:     cfg.DisableAuth,
 		netstackNet:     cfg.NetstackNet,
 		preListener:     cfg.Listener,
@@ -375,6 +421,59 @@ func (s *Server) untrackConn(c net.Conn) {
 	delete(s.acceptedConns, c)
 	delete(s.connAuth, c)
 	s.sessionsMu.Unlock()
+}
+
+// gateApproval prompts the local user to accept or deny conn before any
+// session resources are allocated. On rejection the conn already received
+// an RFB reject reason; the gate does not close it.
+func (s *Server) gateApproval(conn net.Conn, header *connectionHeader, connLog *log.Entry) (bool, ApprovalDecision) {
+	if !s.requireApproval {
+		return true, ApprovalDecision{}
+	}
+	if s.approver == nil {
+		rejectConnection(conn, codeMessage(RejectCodeNoApprover, "approval required but no approver configured"))
+		connLog.Warn("VNC connection rejected: approval required but no approver")
+		return false, ApprovalDecision{}
+	}
+	info := ApprovalInfo{
+		SourceIP: sourceIPString(conn.RemoteAddr()),
+		Mode:     modeString(header.mode),
+		Username: header.username,
+	}
+	if len(header.clientStatic) == 32 {
+		info.PeerPubKey = hex.EncodeToString(header.clientStatic)
+		if s.authorizer != nil {
+			info.Initiator = s.authorizer.LookupSessionDisplayName(header.clientStatic)
+		}
+	}
+	decision, err := s.approver.Request(s.ctx, info)
+	if err != nil {
+		rejectConnection(conn, codeMessage(RejectCodeApprovalDenied, err.Error()))
+		connLog.Infof("VNC connection rejected: approval %v", err)
+		return false, ApprovalDecision{}
+	}
+	if decision.ViewOnly {
+		connLog.Info("VNC connection approved by user (view-only)")
+	} else {
+		connLog.Info("VNC connection approved by user")
+	}
+	return true, decision
+}
+
+// sourceIPString returns the IP portion of a remote address, or the full
+// string when no port is present (e.g. unix sockets).
+func sourceIPString(addr net.Addr) string {
+	if addr == nil {
+		return ""
+	}
+	if ta, ok := addr.(*net.TCPAddr); ok && ta != nil {
+		return ta.IP.String()
+	}
+	host, _, err := net.SplitHostPort(addr.String())
+	if err != nil {
+		return addr.String()
+	}
+	return host
 }
 
 // registerConnAuth records the verified Noise_IK identity for a live
@@ -673,7 +772,8 @@ func (s *Server) handleConnection(conn net.Conn) {
 		_ = conn.Close()
 		return
 	}
-	if !s.verifyAgentToken(conn, connLog) {
+	ok, agentViewOnly := s.verifyAgentToken(conn, connLog)
+	if !ok {
 		connLog.Info("VNC connection rejected: agent token check failed")
 		return
 	}
@@ -683,12 +783,18 @@ func (s *Server) handleConnection(conn net.Conn) {
 		_ = conn.Close()
 		return
 	}
-	connLog, sessionUserID, ok := s.authorizeSession(conn, header, connLog)
+	var sessionUserID string
+	connLog, sessionUserID, ok = s.authorizeSession(conn, header, connLog)
 	if !ok {
 		connLog.Info("VNC connection rejected: auth failed")
 		return
 	}
 	s.registerConnAuth(conn, header)
+
+	allow, decision := s.gateApproval(conn, header, connLog)
+	if !allow {
+		return
+	}
 
 	capturer, injector, sessionCleanup, ok := s.acquireSessionResources(conn, header, &connLog)
 	if !ok {
@@ -726,6 +832,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 		serverW:  w,
 		serverH:  h,
 		log:      connLog,
+		viewOnly: decision.ViewOnly || agentViewOnly,
 	}
 	sess.serve()
 	connLog.Infof("VNC connection closed (%dms)", time.Since(start).Milliseconds())
@@ -791,8 +898,9 @@ func (s *Server) authenticateSession(header *connectionHeader) (string, error) {
 var vncIdentityMagic = []byte("NBV3")
 
 // Noise_IK_25519_ChaChaPoly_SHA256 message sizes (with empty payloads).
-//   msg1 = e(32) + s_AEAD(32+16) + payload_AEAD(0+16) = 96 bytes
-//   msg2 = e(32) + payload_AEAD(0+16) = 48 bytes
+//
+//	msg1 = e(32) + s_AEAD(32+16) + payload_AEAD(0+16) = 96 bytes
+//	msg2 = e(32) + payload_AEAD(0+16) = 48 bytes
 const (
 	noiseInitiatorMsgLen = 96
 	noiseResponderMsgLen = 48
@@ -929,39 +1037,40 @@ func (s *Server) maybeRunNoiseHandshake(conn net.Conn, br *bufio.Reader) ([]byte
 	return clientStatic, true, nil
 }
 
-// verifyAgentToken validates the agent token prefix when configured. Returns
-// false when the token is invalid or unreadable; the connection is closed.
-func (s *Server) verifyAgentToken(conn net.Conn, connLog *log.Entry) bool {
+// verifyAgentToken validates the agent token prefix when configured and
+// reads the trailing view-only flag byte the daemon writes alongside it.
+// Returns (ok, viewOnly). ok=false closes the connection.
+func (s *Server) verifyAgentToken(conn net.Conn, connLog *log.Entry) (bool, bool) {
 	if len(s.agentToken) == 0 {
-		return true
+		return true, false
 	}
-	buf := make([]byte, len(s.agentToken))
+	buf := make([]byte, len(s.agentToken)+1)
 	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
 		connLog.Debugf("set agent token deadline: %v", err)
 		conn.Close()
-		return false
+		return false, false
 	}
 	if _, err := io.ReadFull(conn, buf); err != nil {
 		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 			// Connect-then-close probes (port liveness checks) hit this
 			// path on every dial; logging them would just flood the
 			// daemon log without surfacing a real failure.
-			connLog.Tracef("agent auth: read token: %v", err)
+			connLog.Tracef("agent auth: read preamble: %v", err)
 		} else {
-			connLog.Warnf("agent auth: read token: %v", err)
+			connLog.Warnf("agent auth: read preamble: %v", err)
 		}
 		conn.Close()
-		return false
+		return false, false
 	}
 	if err := conn.SetReadDeadline(time.Time{}); err != nil {
 		connLog.Debugf("clear agent token deadline: %v", err)
 	}
-	if subtle.ConstantTimeCompare(buf, s.agentToken) != 1 {
+	if subtle.ConstantTimeCompare(buf[:len(s.agentToken)], s.agentToken) != 1 {
 		connLog.Warn("agent auth: invalid token, rejecting")
 		conn.Close()
-		return false
+		return false, false
 	}
-	return true
+	return true, buf[len(s.agentToken)] != 0
 }
 
 // authorizeSession runs the Noise_IK handshake when auth is enabled.

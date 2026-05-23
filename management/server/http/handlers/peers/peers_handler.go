@@ -22,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -525,6 +526,7 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) 
 				return
 			}
 			policy.Rules[0].SessionPubKey = pubKey
+			policy.Rules[0].SessionDisplayName = h.displayNameForUser(r.Context(), userAuth)
 		}
 
 		_, err = h.accountManager.SavePolicy(r.Context(), userAuth.AccountId, userAuth.UserId, policy, true)
@@ -743,4 +745,31 @@ func peerIPv6String(peer *nbpeer.Peer) *string {
 	}
 	s := peer.IPv6.String()
 	return &s
+}
+
+// displayNameForUser returns a human-readable label for the requesting
+// user suitable for a VNC approval prompt. Tries the IdP-resolved
+// UserInfo first (carries name / email management caches from the
+// identity provider) and falls through to JWT claims, then user id.
+// Errors from the lookup don't fail the request; we just degrade.
+func (h *Handler) displayNameForUser(ctx context.Context, u auth.UserAuth) string {
+	if info, err := h.accountManager.GetCurrentUserInfo(ctx, u); err == nil && info != nil {
+		switch {
+		case info.UserInfo != nil && info.UserInfo.Name != "":
+			return info.UserInfo.Name
+		case info.UserInfo != nil && info.UserInfo.Email != "":
+			return info.UserInfo.Email
+		}
+	} else if err != nil {
+		log.WithContext(ctx).Debugf("display name: GetCurrentUserInfo: %v", err)
+	}
+	switch {
+	case u.PreferredName != "":
+		return u.PreferredName
+	case u.Name != "":
+		return u.Name
+	case u.Email != "":
+		return u.Email
+	}
+	return u.UserId
 }

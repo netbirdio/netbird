@@ -66,6 +66,7 @@ type ConfigInput struct {
 	PreSharedKey                  *string
 	ServerSSHAllowed              *bool
 	ServerVNCAllowed              *bool
+	DisableVNCApproval            *bool
 	EnableSSHRoot                 *bool
 	EnableSSHSFTP                 *bool
 	EnableSSHLocalPortForwarding  *bool
@@ -118,6 +119,7 @@ type Config struct {
 	RosenpassPermissive           bool
 	ServerSSHAllowed              *bool
 	ServerVNCAllowed              *bool
+	DisableVNCApproval            *bool
 	EnableSSHRoot                 *bool
 	EnableSSHSFTP                 *bool
 	EnableSSHLocalPortForwarding  *bool
@@ -433,6 +435,18 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 	} else if config.ServerVNCAllowed == nil {
 		config.ServerVNCAllowed = util.True()
 		updated = true
+	}
+
+	if input.DisableVNCApproval != nil {
+		if config.DisableVNCApproval == nil || *input.DisableVNCApproval != *config.DisableVNCApproval {
+			if *input.DisableVNCApproval {
+				log.Infof("disabling VNC connection approval prompt")
+			} else {
+				log.Infof("enabling VNC connection approval prompt")
+			}
+			config.DisableVNCApproval = input.DisableVNCApproval
+			updated = true
+		}
 	}
 
 	if input.EnableSSHRoot != nil && input.EnableSSHRoot != config.EnableSSHRoot {

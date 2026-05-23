@@ -203,6 +203,7 @@ const (
 	SystemEvent_AUTHENTICATION SystemEvent_Category = 2
 	SystemEvent_CONNECTIVITY   SystemEvent_Category = 3
 	SystemEvent_SYSTEM         SystemEvent_Category = 4
+	SystemEvent_APPROVAL       SystemEvent_Category = 5
 )
 
 // Enum value maps for SystemEvent_Category.
@@ -213,6 +214,7 @@ var (
 		2: "AUTHENTICATION",
 		3: "CONNECTIVITY",
 		4: "SYSTEM",
+		5: "APPROVAL",
 	}
 	SystemEvent_Category_value = map[string]int32{
 		"NETWORK":        0,
@@ -220,6 +222,7 @@ var (
 		"AUTHENTICATION": 2,
 		"CONNECTIVITY":   3,
 		"SYSTEM":         4,
+		"APPROVAL":       5,
 	}
 )
 
@@ -344,6 +347,7 @@ type LoginRequest struct {
 	SshJWTCacheTTL                *int32  `protobuf:"varint,39,opt,name=sshJWTCacheTTL,proto3,oneof" json:"sshJWTCacheTTL,omitempty"`
 	DisableIpv6                   *bool   `protobuf:"varint,40,opt,name=disable_ipv6,json=disableIpv6,proto3,oneof" json:"disable_ipv6,omitempty"`
 	ServerVNCAllowed              *bool   `protobuf:"varint,41,opt,name=serverVNCAllowed,proto3,oneof" json:"serverVNCAllowed,omitempty"`
+	DisableVNCApproval            *bool   `protobuf:"varint,42,opt,name=disableVNCApproval,proto3,oneof" json:"disableVNCApproval,omitempty"`
 	unknownFields                 protoimpl.UnknownFields
 	sizeCache                     protoimpl.SizeCache
 }
@@ -662,6 +666,13 @@ func (x *LoginRequest) GetDisableIpv6() bool {
 func (x *LoginRequest) GetServerVNCAllowed() bool {
 	if x != nil && x.ServerVNCAllowed != nil {
 		return *x.ServerVNCAllowed
+	}
+	return false
+}
+
+func (x *LoginRequest) GetDisableVNCApproval() bool {
+	if x != nil && x.DisableVNCApproval != nil {
+		return *x.DisableVNCApproval
 	}
 	return false
 }
@@ -1200,6 +1211,7 @@ type GetConfigResponse struct {
 	SshJWTCacheTTL                int32  `protobuf:"varint,26,opt,name=sshJWTCacheTTL,proto3" json:"sshJWTCacheTTL,omitempty"`
 	DisableIpv6                   bool   `protobuf:"varint,27,opt,name=disable_ipv6,json=disableIpv6,proto3" json:"disable_ipv6,omitempty"`
 	ServerVNCAllowed              bool   `protobuf:"varint,28,opt,name=serverVNCAllowed,proto3" json:"serverVNCAllowed,omitempty"`
+	DisableVNCApproval            bool   `protobuf:"varint,29,opt,name=disableVNCApproval,proto3" json:"disableVNCApproval,omitempty"`
 	unknownFields                 protoimpl.UnknownFields
 	sizeCache                     protoimpl.SizeCache
 }
@@ -1426,6 +1438,13 @@ func (x *GetConfigResponse) GetDisableIpv6() bool {
 func (x *GetConfigResponse) GetServerVNCAllowed() bool {
 	if x != nil {
 		return x.ServerVNCAllowed
+	}
+	return false
+}
+
+func (x *GetConfigResponse) GetDisableVNCApproval() bool {
+	if x != nil {
+		return x.DisableVNCApproval
 	}
 	return false
 }
@@ -4191,6 +4210,7 @@ type SetConfigRequest struct {
 	SshJWTCacheTTL                *int32               `protobuf:"varint,34,opt,name=sshJWTCacheTTL,proto3,oneof" json:"sshJWTCacheTTL,omitempty"`
 	DisableIpv6                   *bool                `protobuf:"varint,35,opt,name=disable_ipv6,json=disableIpv6,proto3,oneof" json:"disable_ipv6,omitempty"`
 	ServerVNCAllowed              *bool                `protobuf:"varint,36,opt,name=serverVNCAllowed,proto3,oneof" json:"serverVNCAllowed,omitempty"`
+	DisableVNCApproval            *bool                `protobuf:"varint,37,opt,name=disableVNCApproval,proto3,oneof" json:"disableVNCApproval,omitempty"`
 	unknownFields                 protoimpl.UnknownFields
 	sizeCache                     protoimpl.SizeCache
 }
@@ -4473,6 +4493,13 @@ func (x *SetConfigRequest) GetDisableIpv6() bool {
 func (x *SetConfigRequest) GetServerVNCAllowed() bool {
 	if x != nil && x.ServerVNCAllowed != nil {
 		return *x.ServerVNCAllowed
+	}
+	return false
+}
+
+func (x *SetConfigRequest) GetDisableVNCApproval() bool {
+	if x != nil && x.DisableVNCApproval != nil {
+		return *x.DisableVNCApproval
 	}
 	return false
 }
@@ -6325,6 +6352,109 @@ func (*StopBundleCaptureResponse) Descriptor() ([]byte, []int) {
 	return file_daemon_proto_rawDescGZIP(), []int{95}
 }
 
+type RespondApprovalRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// request_id matches the SystemEvent metadata key emitted by the daemon
+	// when a subsystem awaits user approval for an inbound connection.
+	RequestId string `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	// accept is true if the user approved the request, false if they
+	// denied it. A missing or unknown request_id is treated as a no-op.
+	Accept bool `protobuf:"varint,2,opt,name=accept,proto3" json:"accept,omitempty"`
+	// view_only signals that the user granted the connection but withheld
+	// input control. Only meaningful when accept is true; ignored when
+	// accept is false.
+	ViewOnly      bool `protobuf:"varint,3,opt,name=view_only,json=viewOnly,proto3" json:"view_only,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RespondApprovalRequest) Reset() {
+	*x = RespondApprovalRequest{}
+	mi := &file_daemon_proto_msgTypes[96]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RespondApprovalRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RespondApprovalRequest) ProtoMessage() {}
+
+func (x *RespondApprovalRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[96]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RespondApprovalRequest.ProtoReflect.Descriptor instead.
+func (*RespondApprovalRequest) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{96}
+}
+
+func (x *RespondApprovalRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *RespondApprovalRequest) GetAccept() bool {
+	if x != nil {
+		return x.Accept
+	}
+	return false
+}
+
+func (x *RespondApprovalRequest) GetViewOnly() bool {
+	if x != nil {
+		return x.ViewOnly
+	}
+	return false
+}
+
+type RespondApprovalResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RespondApprovalResponse) Reset() {
+	*x = RespondApprovalResponse{}
+	mi := &file_daemon_proto_msgTypes[97]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RespondApprovalResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RespondApprovalResponse) ProtoMessage() {}
+
+func (x *RespondApprovalResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[97]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RespondApprovalResponse.ProtoReflect.Descriptor instead.
+func (*RespondApprovalResponse) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{97}
+}
+
 type PortInfo_Range struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Start         uint32                 `protobuf:"varint,1,opt,name=start,proto3" json:"start,omitempty"`
@@ -6335,7 +6465,7 @@ type PortInfo_Range struct {
 
 func (x *PortInfo_Range) Reset() {
 	*x = PortInfo_Range{}
-	mi := &file_daemon_proto_msgTypes[97]
+	mi := &file_daemon_proto_msgTypes[99]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6347,7 +6477,7 @@ func (x *PortInfo_Range) String() string {
 func (*PortInfo_Range) ProtoMessage() {}
 
 func (x *PortInfo_Range) ProtoReflect() protoreflect.Message {
-	mi := &file_daemon_proto_msgTypes[97]
+	mi := &file_daemon_proto_msgTypes[99]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6382,7 +6512,7 @@ var File_daemon_proto protoreflect.FileDescriptor
 const file_daemon_proto_rawDesc = "" +
 	"\n" +
 	"\fdaemon.proto\x12\x06daemon\x1a google/protobuf/descriptor.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/duration.proto\"\x0e\n" +
-	"\fEmptyRequest\"\xb5\x13\n" +
+	"\fEmptyRequest\"\x81\x14\n" +
 	"\fLoginRequest\x12\x1a\n" +
 	"\bsetupKey\x18\x01 \x01(\tR\bsetupKey\x12&\n" +
 	"\fpreSharedKey\x18\x02 \x01(\tB\x02\x18\x01R\fpreSharedKey\x12$\n" +
@@ -6428,7 +6558,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x0edisableSSHAuth\x18& \x01(\bH\x19R\x0edisableSSHAuth\x88\x01\x01\x12+\n" +
 	"\x0esshJWTCacheTTL\x18' \x01(\x05H\x1aR\x0esshJWTCacheTTL\x88\x01\x01\x12&\n" +
 	"\fdisable_ipv6\x18( \x01(\bH\x1bR\vdisableIpv6\x88\x01\x01\x12/\n" +
-	"\x10serverVNCAllowed\x18) \x01(\bH\x1cR\x10serverVNCAllowed\x88\x01\x01B\x13\n" +
+	"\x10serverVNCAllowed\x18) \x01(\bH\x1cR\x10serverVNCAllowed\x88\x01\x01\x123\n" +
+	"\x12disableVNCApproval\x18* \x01(\bH\x1dR\x12disableVNCApproval\x88\x01\x01B\x13\n" +
 	"\x11_rosenpassEnabledB\x10\n" +
 	"\x0e_interfaceNameB\x10\n" +
 	"\x0e_wireguardPortB\x17\n" +
@@ -6457,7 +6588,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x0f_disableSSHAuthB\x11\n" +
 	"\x0f_sshJWTCacheTTLB\x0f\n" +
 	"\r_disable_ipv6B\x13\n" +
-	"\x11_serverVNCAllowed\"\xb5\x01\n" +
+	"\x11_serverVNCAllowedB\x15\n" +
+	"\x13_disableVNCApproval\"\xb5\x01\n" +
 	"\rLoginResponse\x12$\n" +
 	"\rneedsSSOLogin\x18\x01 \x01(\bR\rneedsSSOLogin\x12\x1a\n" +
 	"\buserCode\x18\x02 \x01(\tR\buserCode\x12(\n" +
@@ -6490,7 +6622,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\fDownResponse\"P\n" +
 	"\x10GetConfigRequest\x12 \n" +
 	"\vprofileName\x18\x01 \x01(\tR\vprofileName\x12\x1a\n" +
-	"\busername\x18\x02 \x01(\tR\busername\"\xaa\t\n" +
+	"\busername\x18\x02 \x01(\tR\busername\"\xda\t\n" +
 	"\x11GetConfigResponse\x12$\n" +
 	"\rmanagementUrl\x18\x01 \x01(\tR\rmanagementUrl\x12\x1e\n" +
 	"\n" +
@@ -6523,7 +6655,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x0edisableSSHAuth\x18\x19 \x01(\bR\x0edisableSSHAuth\x12&\n" +
 	"\x0esshJWTCacheTTL\x18\x1a \x01(\x05R\x0esshJWTCacheTTL\x12!\n" +
 	"\fdisable_ipv6\x18\x1b \x01(\bR\vdisableIpv6\x12*\n" +
-	"\x10serverVNCAllowed\x18\x1c \x01(\bR\x10serverVNCAllowed\"\x92\x06\n" +
+	"\x10serverVNCAllowed\x18\x1c \x01(\bR\x10serverVNCAllowed\x12.\n" +
+	"\x12disableVNCApproval\x18\x1d \x01(\bR\x12disableVNCApproval\"\x92\x06\n" +
 	"\tPeerState\x12\x0e\n" +
 	"\x02IP\x18\x01 \x01(\tR\x02IP\x12\x16\n" +
 	"\x06pubKey\x18\x02 \x01(\tR\x06pubKey\x12\x1e\n" +
@@ -6715,7 +6848,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\x13TracePacketResponse\x12*\n" +
 	"\x06stages\x18\x01 \x03(\v2\x12.daemon.TraceStageR\x06stages\x12+\n" +
 	"\x11final_disposition\x18\x02 \x01(\bR\x10finalDisposition\"\x12\n" +
-	"\x10SubscribeRequest\"\x93\x04\n" +
+	"\x10SubscribeRequest\"\xa1\x04\n" +
 	"\vSystemEvent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x128\n" +
 	"\bseverity\x18\x02 \x01(\x0e2\x1c.daemon.SystemEvent.SeverityR\bseverity\x128\n" +
@@ -6731,14 +6864,15 @@ const file_daemon_proto_rawDesc = "" +
 	"\x04INFO\x10\x00\x12\v\n" +
 	"\aWARNING\x10\x01\x12\t\n" +
 	"\x05ERROR\x10\x02\x12\f\n" +
-	"\bCRITICAL\x10\x03\"R\n" +
+	"\bCRITICAL\x10\x03\"`\n" +
 	"\bCategory\x12\v\n" +
 	"\aNETWORK\x10\x00\x12\a\n" +
 	"\x03DNS\x10\x01\x12\x12\n" +
 	"\x0eAUTHENTICATION\x10\x02\x12\x10\n" +
 	"\fCONNECTIVITY\x10\x03\x12\n" +
 	"\n" +
-	"\x06SYSTEM\x10\x04\"\x12\n" +
+	"\x06SYSTEM\x10\x04\x12\f\n" +
+	"\bAPPROVAL\x10\x05\"\x12\n" +
 	"\x10GetEventsRequest\"@\n" +
 	"\x11GetEventsResponse\x12+\n" +
 	"\x06events\x18\x01 \x03(\v2\x13.daemon.SystemEventR\x06events\"{\n" +
@@ -6747,7 +6881,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\busername\x18\x02 \x01(\tH\x01R\busername\x88\x01\x01B\x0e\n" +
 	"\f_profileNameB\v\n" +
 	"\t_username\"\x17\n" +
-	"\x15SwitchProfileResponse\"\xde\x11\n" +
+	"\x15SwitchProfileResponse\"\xaa\x12\n" +
 	"\x10SetConfigRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12 \n" +
 	"\vprofileName\x18\x02 \x01(\tR\vprofileName\x12$\n" +
@@ -6788,7 +6922,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x0edisableSSHAuth\x18! \x01(\bH\x16R\x0edisableSSHAuth\x88\x01\x01\x12+\n" +
 	"\x0esshJWTCacheTTL\x18\" \x01(\x05H\x17R\x0esshJWTCacheTTL\x88\x01\x01\x12&\n" +
 	"\fdisable_ipv6\x18# \x01(\bH\x18R\vdisableIpv6\x88\x01\x01\x12/\n" +
-	"\x10serverVNCAllowed\x18$ \x01(\bH\x19R\x10serverVNCAllowed\x88\x01\x01B\x13\n" +
+	"\x10serverVNCAllowed\x18$ \x01(\bH\x19R\x10serverVNCAllowed\x88\x01\x01\x123\n" +
+	"\x12disableVNCApproval\x18% \x01(\bH\x1aR\x12disableVNCApproval\x88\x01\x01B\x13\n" +
 	"\x11_rosenpassEnabledB\x10\n" +
 	"\x0e_interfaceNameB\x10\n" +
 	"\x0e_wireguardPortB\x17\n" +
@@ -6814,7 +6949,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x0f_disableSSHAuthB\x11\n" +
 	"\x0f_sshJWTCacheTTLB\x0f\n" +
 	"\r_disable_ipv6B\x13\n" +
-	"\x11_serverVNCAllowed\"\x13\n" +
+	"\x11_serverVNCAllowedB\x15\n" +
+	"\x13_disableVNCApproval\"\x13\n" +
 	"\x11SetConfigResponse\"Q\n" +
 	"\x11AddProfileRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12 \n" +
@@ -6925,7 +7061,13 @@ const file_daemon_proto_rawDesc = "" +
 	"\atimeout\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\atimeout\"\x1c\n" +
 	"\x1aStartBundleCaptureResponse\"\x1a\n" +
 	"\x18StopBundleCaptureRequest\"\x1b\n" +
-	"\x19StopBundleCaptureResponse*b\n" +
+	"\x19StopBundleCaptureResponse\"l\n" +
+	"\x16RespondApprovalRequest\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12\x16\n" +
+	"\x06accept\x18\x02 \x01(\bR\x06accept\x12\x1b\n" +
+	"\tview_only\x18\x03 \x01(\bR\bviewOnly\"\x19\n" +
+	"\x17RespondApprovalResponse*b\n" +
 	"\bLogLevel\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\t\n" +
 	"\x05PANIC\x10\x01\x12\t\n" +
@@ -6943,7 +7085,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\n" +
 	"EXPOSE_UDP\x10\x03\x12\x0e\n" +
 	"\n" +
-	"EXPOSE_TLS\x10\x042\xaf\x17\n" +
+	"EXPOSE_TLS\x10\x042\x85\x18\n" +
 	"\rDaemonService\x126\n" +
 	"\x05Login\x12\x14.daemon.LoginRequest\x1a\x15.daemon.LoginResponse\"\x00\x12K\n" +
 	"\fWaitSSOLogin\x12\x1b.daemon.WaitSSOLoginRequest\x1a\x1c.daemon.WaitSSOLoginResponse\"\x00\x12-\n" +
@@ -6986,7 +7128,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x0fStartCPUProfile\x12\x1e.daemon.StartCPUProfileRequest\x1a\x1f.daemon.StartCPUProfileResponse\"\x00\x12Q\n" +
 	"\x0eStopCPUProfile\x12\x1d.daemon.StopCPUProfileRequest\x1a\x1e.daemon.StopCPUProfileResponse\"\x00\x12W\n" +
 	"\x12GetInstallerResult\x12\x1e.daemon.InstallerResultRequest\x1a\x1f.daemon.InstallerResultResponse\"\x00\x12M\n" +
-	"\rExposeService\x12\x1c.daemon.ExposeServiceRequest\x1a\x1a.daemon.ExposeServiceEvent\"\x000\x01B\bZ\x06/protob\x06proto3"
+	"\rExposeService\x12\x1c.daemon.ExposeServiceRequest\x1a\x1a.daemon.ExposeServiceEvent\"\x000\x01\x12T\n" +
+	"\x0fRespondApproval\x12\x1e.daemon.RespondApprovalRequest\x1a\x1f.daemon.RespondApprovalResponse\"\x00B\bZ\x06/protob\x06proto3"
 
 var (
 	file_daemon_proto_rawDescOnce sync.Once
@@ -7001,7 +7144,7 @@ func file_daemon_proto_rawDescGZIP() []byte {
 }
 
 var file_daemon_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_daemon_proto_msgTypes = make([]protoimpl.MessageInfo, 99)
+var file_daemon_proto_msgTypes = make([]protoimpl.MessageInfo, 101)
 var file_daemon_proto_goTypes = []any{
 	(LogLevel)(0),                              // 0: daemon.LogLevel
 	(ExposeProtocol)(0),                        // 1: daemon.ExposeProtocol
@@ -7103,18 +7246,20 @@ var file_daemon_proto_goTypes = []any{
 	(*StartBundleCaptureResponse)(nil),         // 97: daemon.StartBundleCaptureResponse
 	(*StopBundleCaptureRequest)(nil),           // 98: daemon.StopBundleCaptureRequest
 	(*StopBundleCaptureResponse)(nil),          // 99: daemon.StopBundleCaptureResponse
-	nil,                                        // 100: daemon.Network.ResolvedIPsEntry
-	(*PortInfo_Range)(nil),                     // 101: daemon.PortInfo.Range
-	nil,                                        // 102: daemon.SystemEvent.MetadataEntry
-	(*durationpb.Duration)(nil),                // 103: google.protobuf.Duration
-	(*timestamppb.Timestamp)(nil),              // 104: google.protobuf.Timestamp
+	(*RespondApprovalRequest)(nil),             // 100: daemon.RespondApprovalRequest
+	(*RespondApprovalResponse)(nil),            // 101: daemon.RespondApprovalResponse
+	nil,                                        // 102: daemon.Network.ResolvedIPsEntry
+	(*PortInfo_Range)(nil),                     // 103: daemon.PortInfo.Range
+	nil,                                        // 104: daemon.SystemEvent.MetadataEntry
+	(*durationpb.Duration)(nil),                // 105: google.protobuf.Duration
+	(*timestamppb.Timestamp)(nil),              // 106: google.protobuf.Timestamp
 }
 var file_daemon_proto_depIdxs = []int32{
-	103, // 0: daemon.LoginRequest.dnsRouteInterval:type_name -> google.protobuf.Duration
+	105, // 0: daemon.LoginRequest.dnsRouteInterval:type_name -> google.protobuf.Duration
 	27,  // 1: daemon.StatusResponse.fullStatus:type_name -> daemon.FullStatus
-	104, // 2: daemon.PeerState.connStatusUpdate:type_name -> google.protobuf.Timestamp
-	104, // 3: daemon.PeerState.lastWireguardHandshake:type_name -> google.protobuf.Timestamp
-	103, // 4: daemon.PeerState.latency:type_name -> google.protobuf.Duration
+	106, // 2: daemon.PeerState.connStatusUpdate:type_name -> google.protobuf.Timestamp
+	106, // 3: daemon.PeerState.lastWireguardHandshake:type_name -> google.protobuf.Timestamp
+	105, // 4: daemon.PeerState.latency:type_name -> google.protobuf.Duration
 	23,  // 5: daemon.SSHServerState.sessions:type_name -> daemon.SSHSessionInfo
 	25,  // 6: daemon.VNCServerState.sessions:type_name -> daemon.VNCSessionInfo
 	20,  // 7: daemon.FullStatus.managementState:type_name -> daemon.ManagementState
@@ -7127,8 +7272,8 @@ var file_daemon_proto_depIdxs = []int32{
 	24,  // 14: daemon.FullStatus.sshServerState:type_name -> daemon.SSHServerState
 	26,  // 15: daemon.FullStatus.vncServerState:type_name -> daemon.VNCServerState
 	33,  // 16: daemon.ListNetworksResponse.routes:type_name -> daemon.Network
-	100, // 17: daemon.Network.resolvedIPs:type_name -> daemon.Network.ResolvedIPsEntry
-	101, // 18: daemon.PortInfo.range:type_name -> daemon.PortInfo.Range
+	102, // 17: daemon.Network.resolvedIPs:type_name -> daemon.Network.ResolvedIPsEntry
+	103, // 18: daemon.PortInfo.range:type_name -> daemon.PortInfo.Range
 	34,  // 19: daemon.ForwardingRule.destinationPort:type_name -> daemon.PortInfo
 	34,  // 20: daemon.ForwardingRule.translatedPort:type_name -> daemon.PortInfo
 	35,  // 21: daemon.ForwardingRulesResponse.rules:type_name -> daemon.ForwardingRule
@@ -7139,15 +7284,15 @@ var file_daemon_proto_depIdxs = []int32{
 	54,  // 26: daemon.TracePacketResponse.stages:type_name -> daemon.TraceStage
 	2,   // 27: daemon.SystemEvent.severity:type_name -> daemon.SystemEvent.Severity
 	3,   // 28: daemon.SystemEvent.category:type_name -> daemon.SystemEvent.Category
-	104, // 29: daemon.SystemEvent.timestamp:type_name -> google.protobuf.Timestamp
-	102, // 30: daemon.SystemEvent.metadata:type_name -> daemon.SystemEvent.MetadataEntry
+	106, // 29: daemon.SystemEvent.timestamp:type_name -> google.protobuf.Timestamp
+	104, // 30: daemon.SystemEvent.metadata:type_name -> daemon.SystemEvent.MetadataEntry
 	57,  // 31: daemon.GetEventsResponse.events:type_name -> daemon.SystemEvent
-	103, // 32: daemon.SetConfigRequest.dnsRouteInterval:type_name -> google.protobuf.Duration
+	105, // 32: daemon.SetConfigRequest.dnsRouteInterval:type_name -> google.protobuf.Duration
 	70,  // 33: daemon.ListProfilesResponse.profiles:type_name -> daemon.Profile
 	1,   // 34: daemon.ExposeServiceRequest.protocol:type_name -> daemon.ExposeProtocol
 	93,  // 35: daemon.ExposeServiceEvent.ready:type_name -> daemon.ExposeServiceReady
-	103, // 36: daemon.StartCaptureRequest.duration:type_name -> google.protobuf.Duration
-	103, // 37: daemon.StartBundleCaptureRequest.timeout:type_name -> google.protobuf.Duration
+	105, // 36: daemon.StartCaptureRequest.duration:type_name -> google.protobuf.Duration
+	105, // 37: daemon.StartBundleCaptureRequest.timeout:type_name -> google.protobuf.Duration
 	32,  // 38: daemon.Network.ResolvedIPsEntry.value:type_name -> daemon.IPList
 	5,   // 39: daemon.DaemonService.Login:input_type -> daemon.LoginRequest
 	7,   // 40: daemon.DaemonService.WaitSSOLogin:input_type -> daemon.WaitSSOLoginRequest
@@ -7188,47 +7333,49 @@ var file_daemon_proto_depIdxs = []int32{
 	87,  // 75: daemon.DaemonService.StopCPUProfile:input_type -> daemon.StopCPUProfileRequest
 	89,  // 76: daemon.DaemonService.GetInstallerResult:input_type -> daemon.InstallerResultRequest
 	91,  // 77: daemon.DaemonService.ExposeService:input_type -> daemon.ExposeServiceRequest
-	6,   // 78: daemon.DaemonService.Login:output_type -> daemon.LoginResponse
-	8,   // 79: daemon.DaemonService.WaitSSOLogin:output_type -> daemon.WaitSSOLoginResponse
-	10,  // 80: daemon.DaemonService.Up:output_type -> daemon.UpResponse
-	12,  // 81: daemon.DaemonService.Status:output_type -> daemon.StatusResponse
-	14,  // 82: daemon.DaemonService.Down:output_type -> daemon.DownResponse
-	16,  // 83: daemon.DaemonService.GetConfig:output_type -> daemon.GetConfigResponse
-	29,  // 84: daemon.DaemonService.ListNetworks:output_type -> daemon.ListNetworksResponse
-	31,  // 85: daemon.DaemonService.SelectNetworks:output_type -> daemon.SelectNetworksResponse
-	31,  // 86: daemon.DaemonService.DeselectNetworks:output_type -> daemon.SelectNetworksResponse
-	36,  // 87: daemon.DaemonService.ForwardingRules:output_type -> daemon.ForwardingRulesResponse
-	38,  // 88: daemon.DaemonService.DebugBundle:output_type -> daemon.DebugBundleResponse
-	40,  // 89: daemon.DaemonService.GetLogLevel:output_type -> daemon.GetLogLevelResponse
-	42,  // 90: daemon.DaemonService.SetLogLevel:output_type -> daemon.SetLogLevelResponse
-	45,  // 91: daemon.DaemonService.ListStates:output_type -> daemon.ListStatesResponse
-	47,  // 92: daemon.DaemonService.CleanState:output_type -> daemon.CleanStateResponse
-	49,  // 93: daemon.DaemonService.DeleteState:output_type -> daemon.DeleteStateResponse
-	51,  // 94: daemon.DaemonService.SetSyncResponsePersistence:output_type -> daemon.SetSyncResponsePersistenceResponse
-	55,  // 95: daemon.DaemonService.TracePacket:output_type -> daemon.TracePacketResponse
-	95,  // 96: daemon.DaemonService.StartCapture:output_type -> daemon.CapturePacket
-	97,  // 97: daemon.DaemonService.StartBundleCapture:output_type -> daemon.StartBundleCaptureResponse
-	99,  // 98: daemon.DaemonService.StopBundleCapture:output_type -> daemon.StopBundleCaptureResponse
-	57,  // 99: daemon.DaemonService.SubscribeEvents:output_type -> daemon.SystemEvent
-	59,  // 100: daemon.DaemonService.GetEvents:output_type -> daemon.GetEventsResponse
-	61,  // 101: daemon.DaemonService.SwitchProfile:output_type -> daemon.SwitchProfileResponse
-	63,  // 102: daemon.DaemonService.SetConfig:output_type -> daemon.SetConfigResponse
-	65,  // 103: daemon.DaemonService.AddProfile:output_type -> daemon.AddProfileResponse
-	67,  // 104: daemon.DaemonService.RemoveProfile:output_type -> daemon.RemoveProfileResponse
-	69,  // 105: daemon.DaemonService.ListProfiles:output_type -> daemon.ListProfilesResponse
-	72,  // 106: daemon.DaemonService.GetActiveProfile:output_type -> daemon.GetActiveProfileResponse
-	74,  // 107: daemon.DaemonService.Logout:output_type -> daemon.LogoutResponse
-	76,  // 108: daemon.DaemonService.GetFeatures:output_type -> daemon.GetFeaturesResponse
-	78,  // 109: daemon.DaemonService.TriggerUpdate:output_type -> daemon.TriggerUpdateResponse
-	80,  // 110: daemon.DaemonService.GetPeerSSHHostKey:output_type -> daemon.GetPeerSSHHostKeyResponse
-	82,  // 111: daemon.DaemonService.RequestJWTAuth:output_type -> daemon.RequestJWTAuthResponse
-	84,  // 112: daemon.DaemonService.WaitJWTToken:output_type -> daemon.WaitJWTTokenResponse
-	86,  // 113: daemon.DaemonService.StartCPUProfile:output_type -> daemon.StartCPUProfileResponse
-	88,  // 114: daemon.DaemonService.StopCPUProfile:output_type -> daemon.StopCPUProfileResponse
-	90,  // 115: daemon.DaemonService.GetInstallerResult:output_type -> daemon.InstallerResultResponse
-	92,  // 116: daemon.DaemonService.ExposeService:output_type -> daemon.ExposeServiceEvent
-	78,  // [78:117] is the sub-list for method output_type
-	39,  // [39:78] is the sub-list for method input_type
+	100, // 78: daemon.DaemonService.RespondApproval:input_type -> daemon.RespondApprovalRequest
+	6,   // 79: daemon.DaemonService.Login:output_type -> daemon.LoginResponse
+	8,   // 80: daemon.DaemonService.WaitSSOLogin:output_type -> daemon.WaitSSOLoginResponse
+	10,  // 81: daemon.DaemonService.Up:output_type -> daemon.UpResponse
+	12,  // 82: daemon.DaemonService.Status:output_type -> daemon.StatusResponse
+	14,  // 83: daemon.DaemonService.Down:output_type -> daemon.DownResponse
+	16,  // 84: daemon.DaemonService.GetConfig:output_type -> daemon.GetConfigResponse
+	29,  // 85: daemon.DaemonService.ListNetworks:output_type -> daemon.ListNetworksResponse
+	31,  // 86: daemon.DaemonService.SelectNetworks:output_type -> daemon.SelectNetworksResponse
+	31,  // 87: daemon.DaemonService.DeselectNetworks:output_type -> daemon.SelectNetworksResponse
+	36,  // 88: daemon.DaemonService.ForwardingRules:output_type -> daemon.ForwardingRulesResponse
+	38,  // 89: daemon.DaemonService.DebugBundle:output_type -> daemon.DebugBundleResponse
+	40,  // 90: daemon.DaemonService.GetLogLevel:output_type -> daemon.GetLogLevelResponse
+	42,  // 91: daemon.DaemonService.SetLogLevel:output_type -> daemon.SetLogLevelResponse
+	45,  // 92: daemon.DaemonService.ListStates:output_type -> daemon.ListStatesResponse
+	47,  // 93: daemon.DaemonService.CleanState:output_type -> daemon.CleanStateResponse
+	49,  // 94: daemon.DaemonService.DeleteState:output_type -> daemon.DeleteStateResponse
+	51,  // 95: daemon.DaemonService.SetSyncResponsePersistence:output_type -> daemon.SetSyncResponsePersistenceResponse
+	55,  // 96: daemon.DaemonService.TracePacket:output_type -> daemon.TracePacketResponse
+	95,  // 97: daemon.DaemonService.StartCapture:output_type -> daemon.CapturePacket
+	97,  // 98: daemon.DaemonService.StartBundleCapture:output_type -> daemon.StartBundleCaptureResponse
+	99,  // 99: daemon.DaemonService.StopBundleCapture:output_type -> daemon.StopBundleCaptureResponse
+	57,  // 100: daemon.DaemonService.SubscribeEvents:output_type -> daemon.SystemEvent
+	59,  // 101: daemon.DaemonService.GetEvents:output_type -> daemon.GetEventsResponse
+	61,  // 102: daemon.DaemonService.SwitchProfile:output_type -> daemon.SwitchProfileResponse
+	63,  // 103: daemon.DaemonService.SetConfig:output_type -> daemon.SetConfigResponse
+	65,  // 104: daemon.DaemonService.AddProfile:output_type -> daemon.AddProfileResponse
+	67,  // 105: daemon.DaemonService.RemoveProfile:output_type -> daemon.RemoveProfileResponse
+	69,  // 106: daemon.DaemonService.ListProfiles:output_type -> daemon.ListProfilesResponse
+	72,  // 107: daemon.DaemonService.GetActiveProfile:output_type -> daemon.GetActiveProfileResponse
+	74,  // 108: daemon.DaemonService.Logout:output_type -> daemon.LogoutResponse
+	76,  // 109: daemon.DaemonService.GetFeatures:output_type -> daemon.GetFeaturesResponse
+	78,  // 110: daemon.DaemonService.TriggerUpdate:output_type -> daemon.TriggerUpdateResponse
+	80,  // 111: daemon.DaemonService.GetPeerSSHHostKey:output_type -> daemon.GetPeerSSHHostKeyResponse
+	82,  // 112: daemon.DaemonService.RequestJWTAuth:output_type -> daemon.RequestJWTAuthResponse
+	84,  // 113: daemon.DaemonService.WaitJWTToken:output_type -> daemon.WaitJWTTokenResponse
+	86,  // 114: daemon.DaemonService.StartCPUProfile:output_type -> daemon.StartCPUProfileResponse
+	88,  // 115: daemon.DaemonService.StopCPUProfile:output_type -> daemon.StopCPUProfileResponse
+	90,  // 116: daemon.DaemonService.GetInstallerResult:output_type -> daemon.InstallerResultResponse
+	92,  // 117: daemon.DaemonService.ExposeService:output_type -> daemon.ExposeServiceEvent
+	101, // 118: daemon.DaemonService.RespondApproval:output_type -> daemon.RespondApprovalResponse
+	79,  // [79:119] is the sub-list for method output_type
+	39,  // [39:79] is the sub-list for method input_type
 	39,  // [39:39] is the sub-list for extension type_name
 	39,  // [39:39] is the sub-list for extension extendee
 	0,   // [0:39] is the sub-list for field type_name
@@ -7261,7 +7408,7 @@ func file_daemon_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_daemon_proto_rawDesc), len(file_daemon_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   99,
+			NumMessages:   101,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

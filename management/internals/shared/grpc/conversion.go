@@ -13,7 +13,7 @@ import (
 
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
 
-	"github.com/netbirdio/netbird/client/ssh/auth"
+	auth "github.com/netbirdio/netbird/shared/sessionauth"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
@@ -223,8 +223,9 @@ func buildSessionPubKeysProto(ctx context.Context, in []types.VNCSessionPubKey) 
 			continue
 		}
 		out = append(out, &proto.SessionPubKey{
-			PubKey:     pub,
-			UserIdHash: hash[:],
+			PubKey:      pub,
+			UserIdHash:  hash[:],
+			DisplayName: e.DisplayName,
 		})
 	}
 	return out

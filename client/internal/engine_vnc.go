@@ -11,9 +11,11 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/internal/approval"
 	"github.com/netbirdio/netbird/client/internal/metrics"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
-	sshauth "github.com/netbirdio/netbird/client/ssh/auth"
+	"github.com/netbirdio/netbird/client/internal/peer"
+	sshauth "github.com/netbirdio/netbird/shared/sessionauth"
 	vncserver "github.com/netbirdio/netbird/client/vnc/server"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	sshuserhash "github.com/netbirdio/netbird/shared/sshauth"
@@ -118,6 +120,7 @@ func (e *Engine) startVNCServer() error {
 	if serviceMode {
 		log.Info("VNC: running as system service, enabling service mode (per-session agent proxy)")
 	}
+	requireApproval := e.config.DisableVNCApproval == nil || !*e.config.DisableVNCApproval
 	srv := vncserver.New(vncserver.Config{
 		Capturer:        capturer,
 		Injector:        injector,
@@ -125,6 +128,8 @@ func (e *Engine) startVNCServer() error {
 		ServiceMode:     serviceMode,
 		SessionRecorder: sessionRecorder,
 		NetstackNet:     e.wgInterface.GetNet(),
+		RequireApproval: requireApproval,
+		Approver:        &vncApprover{broker: e.approvalBroker, statusRecorder: e.statusRecorder},
 	})
 
 	listenAddr := netip.AddrPortFrom(netbirdIP, vncInternalPort)
@@ -151,7 +156,6 @@ func (e *Engine) startVNCServer() error {
 	log.Info("VNC server enabled")
 	return nil
 }
-
 
 // updateVNCServerAuth updates VNC fine-grained access control from management.
 func (e *Engine) updateVNCServerAuth(vncAuth *mgmProto.VNCAuth) {
@@ -192,8 +196,9 @@ func (e *Engine) updateVNCServerAuth(vncAuth *mgmProto.VNCAuth) {
 			continue
 		}
 		sessionPubKeys = append(sessionPubKeys, sshauth.SessionPubKey{
-			PubKey:     pub,
-			UserIDHash: sshuserhash.UserIDHash(hash),
+			PubKey:      pub,
+			UserIDHash:  sshuserhash.UserIDHash(hash),
+			DisplayName: e.GetDisplayName(),
 		})
 	}
 
@@ -237,4 +242,53 @@ func (e *Engine) stopVNCServer() error {
 		return fmt.Errorf("stop VNC server: %w", err)
 	}
 	return nil
+}
+
+// vncApprover adapts the generic approval.Broker for the VNC server.
+type vncApprover struct {
+	broker         *approval.Broker
+	statusRecorder *peer.Status
+}
+
+func (a *vncApprover) Request(ctx context.Context, info vncserver.ApprovalInfo) (vncserver.ApprovalDecision, error) {
+	// Resolve the source overlay IP to a peer FQDN for the prompt label.
+	if info.PeerName == "" && info.SourceIP != "" && a.statusRecorder != nil {
+		if fqdn, ok := a.statusRecorder.PeerByIP(info.SourceIP); ok {
+			info.PeerName = fqdn
+		}
+	}
+	subject := fmt.Sprintf("VNC connection from %s", displayPeer(info))
+	meta := map[string]string{
+		"peer_name":   info.PeerName,
+		"peer_pubkey": info.PeerPubKey,
+		"source_ip":   info.SourceIP,
+		"mode":        info.Mode,
+		"username":    info.Username,
+		"initiator":   info.Initiator,
+	}
+	d, err := a.broker.Request(ctx, approval.Prompt{
+		Kind:     approval.KindVNC,
+		Subject:  subject,
+		Metadata: meta,
+	})
+	if err != nil {
+		return vncserver.ApprovalDecision{}, err
+	}
+	return vncserver.ApprovalDecision{ViewOnly: d.ViewOnly}, nil
+}
+
+func displayPeer(info vncserver.ApprovalInfo) string {
+	if info.Initiator != "" {
+		return info.Initiator
+	}
+	if info.PeerName != "" {
+		return info.PeerName
+	}
+	if info.SourceIP != "" {
+		return info.SourceIP
+	}
+	if info.PeerPubKey != "" {
+		return info.PeerPubKey
+	}
+	return "unknown peer"
 }

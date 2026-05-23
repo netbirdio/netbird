@@ -23,7 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	nbssh "github.com/netbirdio/netbird/client/ssh"
-	sshauth "github.com/netbirdio/netbird/client/ssh/auth"
+	sshauth "github.com/netbirdio/netbird/shared/sessionauth"
 	"github.com/netbirdio/netbird/client/ssh/client"
 	"github.com/netbirdio/netbird/client/ssh/detection"
 	"github.com/netbirdio/netbird/client/ssh/testutil"

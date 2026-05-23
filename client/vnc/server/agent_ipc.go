@@ -72,6 +72,11 @@ func (s *Server) handleServiceConnection(conn net.Conn, sa sessionAgent) {
 	}
 	s.registerConnAuth(conn, header)
 
+	allow, decision := s.gateApproval(conn, header, authedLog)
+	if !allow {
+		return
+	}
+
 	socketPath, token, err := sa.Resolve(s.ctx)
 	if err != nil {
 		code := RejectCodeCapturerError
@@ -87,7 +92,7 @@ func (s *Server) handleServiceConnection(conn net.Conn, sa sessionAgent) {
 		Reader: io.MultiReader(&headerBuf, conn),
 		Conn:   conn,
 	}
-	if err := proxyToAgent(s.ctx, replayConn, socketPath, token); err != nil {
+	if err := proxyToAgent(s.ctx, replayConn, socketPath, token, decision.ViewOnly); err != nil {
 		rejectConnection(conn, codeMessage(RejectCodeCapturerError, err.Error()))
 		authedLog.Warnf("VNC connection rejected: agent unreachable: %v", err)
 		return
@@ -124,12 +129,13 @@ func generateAuthToken() (string, error) {
 }
 
 // proxyToAgent dials the per-session agent's Unix socket, writes the
-// raw token bytes, then copies bytes both ways until either side closes.
-// The token must precede any RFB byte so the agent's verifyAgentToken
-// can run first. Returns nil once a stream is established; the caller is
-// responsible for sending an RFB-level rejection on error so the client
-// sees a reason instead of a bare timeout.
-func proxyToAgent(ctx context.Context, client net.Conn, socketPath, authToken string) error {
+// raw token bytes plus a single view-only flag byte, then copies bytes
+// both ways until either side closes. The token + flag prefix must
+// precede any RFB byte so the agent's verifyAgentToken can run first.
+// Returns nil once a stream is established; the caller is responsible
+// for sending an RFB-level rejection on error so the client sees a
+// reason instead of a bare timeout.
+func proxyToAgent(ctx context.Context, client net.Conn, socketPath, authToken string, viewOnly bool) error {
 	tokenBytes, err := hex.DecodeString(authToken)
 	if err != nil || len(tokenBytes) != agentTokenLen {
 		return fmt.Errorf("invalid auth token (len=%d): %w", len(tokenBytes), err)
@@ -140,9 +146,14 @@ func proxyToAgent(ctx context.Context, client net.Conn, socketPath, authToken st
 		return fmt.Errorf("dial agent at %s: %w", socketPath, err)
 	}
 
-	if _, err := agentConn.Write(tokenBytes); err != nil {
+	preamble := make([]byte, len(tokenBytes)+1)
+	copy(preamble, tokenBytes)
+	if viewOnly {
+		preamble[len(tokenBytes)] = 1
+	}
+	if _, err := agentConn.Write(preamble); err != nil {
 		_ = agentConn.Close()
-		return fmt.Errorf("send auth token to agent: %w", err)
+		return fmt.Errorf("send auth preamble to agent: %w", err)
 	}
 
 	defer client.Close()

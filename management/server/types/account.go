@@ -14,7 +14,7 @@ import (
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/ssh/auth"
+	auth "github.com/netbirdio/netbird/shared/sessionauth"
 	nbdns "github.com/netbirdio/netbird/dns"
 	proxydomain "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"

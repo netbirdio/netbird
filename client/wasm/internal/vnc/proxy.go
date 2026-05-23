@@ -58,16 +58,14 @@ func NewSessionKey() (string, []byte, error) {
 	return id, kp.Public, nil
 }
 
-// consumeSessionKey atomically retrieves and removes the keypair for id.
-// A session handle is single-use; combining lookup and delete under one
-// critical section prevents concurrent callers from observing the same key.
-func consumeSessionKey(id string) (noise.DHKey, bool) {
+// lookupSessionKey returns the keypair for id. Keys stay live for the
+// WASM lifetime so the same session handle can drive multiple VNC
+// connections (reconnect, multiple peers, etc.). The handle is just an
+// opaque map key; the private half never leaves wasm.
+func lookupSessionKey(id string) (noise.DHKey, bool) {
 	sessionKeyStore.mu.Lock()
 	defer sessionKeyStore.mu.Unlock()
 	kp, ok := sessionKeyStore.keys[id]
-	if ok {
-		delete(sessionKeyStore.keys, id)
-	}
 	return kp, ok
 }
 
@@ -187,7 +185,7 @@ func (p *VNCProxy) CreateProxy(req ProxyRequest) js.Value {
 		height:    height,
 	}
 	if req.KeySessionID != "" {
-		kp, ok := consumeSessionKey(req.KeySessionID)
+		kp, ok := lookupSessionKey(req.KeySessionID)
 		if !ok {
 			return rejectedPromise("unknown VNC session id")
 		}
@@ -217,11 +215,11 @@ func decodePeerPubKey(b64 string) ([]byte, error) {
 	return raw, nil
 }
 
-// rejectedPromise returns a resolved Promise carrying msg as an error
-// string, mirroring how CreateProxy reports earlier validation failures.
+// rejectedPromise returns a rejected Promise carrying msg as the
+// reason. Callers in JS see this via `await ...` throwing.
 func rejectedPromise(msg string) js.Value {
 	promise := js.Global().Get("Promise")
-	return promise.Call("resolve", js.ValueOf(msg))
+	return promise.Call("reject", js.ValueOf(msg))
 }
 
 // newProxyPromise wraps the JS Promise creation + executor lifecycle so

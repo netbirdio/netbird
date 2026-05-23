@@ -112,7 +112,7 @@ func (e *Manager) handleEvent(event *proto.SystemEvent) {
 	handlers := slices.Clone(e.handlers)
 	e.mu.Unlock()
 
-	if event.UserMessage != "" && (enabled || event.Severity == proto.SystemEvent_CRITICAL) && !isV6DefaultRoutePartner(event) {
+	if event.UserMessage != "" && (enabled || event.Severity == proto.SystemEvent_CRITICAL) && !isV6DefaultRoutePartner(event) && event.Category != proto.SystemEvent_APPROVAL {
 		title := e.getEventTitle(event)
 		body := event.UserMessage
 		id := event.Metadata["id"]

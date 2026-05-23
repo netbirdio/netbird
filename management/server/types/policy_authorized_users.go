@@ -6,7 +6,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/ssh/auth"
+	auth "github.com/netbirdio/netbird/shared/sessionauth"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 )
 
@@ -28,6 +28,9 @@ type VNCSessionPubKey struct {
 	PubKey string
 	// UserID is the unhashed user identity the pubkey authenticates as.
 	UserID string
+	// DisplayName is a human-readable label for UserID, used by the host
+	// peer's approval prompt. Empty when not provided.
+	DisplayName string
 }
 
 // ruleAuthCallbacks lets Account and NetworkMapComponents share the per-rule
@@ -83,8 +86,9 @@ func (cb ruleAuthCallbacks) handleVNCRule(rule *PolicyRule, peerInSources, peerI
 	cb.collectVNCUsers(rule, state.vncAuthorizedUsers)
 	if peerInDestinations && rule.SessionPubKey != "" && rule.AuthorizedUser != "" {
 		state.vncSessionPubKeys = append(state.vncSessionPubKeys, VNCSessionPubKey{
-			PubKey: rule.SessionPubKey,
-			UserID: rule.AuthorizedUser,
+			PubKey:      rule.SessionPubKey,
+			UserID:      rule.AuthorizedUser,
+			DisplayName: rule.SessionDisplayName,
 		})
 	}
 }

@@ -563,6 +563,7 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 		RosenpassPermissive:           config.RosenpassPermissive,
 		ServerSSHAllowed:              util.ReturnBoolWithDefaultTrue(config.ServerSSHAllowed),
 		ServerVNCAllowed:              config.ServerVNCAllowed != nil && *config.ServerVNCAllowed,
+		DisableVNCApproval:            config.DisableVNCApproval,
 		EnableSSHRoot:                 config.EnableSSHRoot,
 		EnableSSHSFTP:                 config.EnableSSHSFTP,
 		EnableSSHLocalPortForwarding:  config.EnableSSHLocalPortForwarding,
