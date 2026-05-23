@@ -222,8 +222,8 @@ func waitForAgent(ctx context.Context, socketPath string, wait time.Duration) er
 }
 
 // vncAgentRunning reports whether any vnc-agent process exists on the
-// system. The daemon owns the only port-15900 listener model, so any
-// match is "the" agent.
+// system. There is at most one agent per machine, so any match is "the"
+// agent.
 func vncAgentRunning() bool {
 	pids, err := vncAgentPIDs()
 	if err != nil {

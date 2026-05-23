@@ -190,10 +190,7 @@ func (s *Server) StartBundleCapture(_ context.Context, req *proto.StartBundleCap
 
 	s.stopBundleCaptureLocked()
 	s.cleanupBundleCapture()
-
-	if s.activeCapture != nil {
-		return nil, status.Error(codes.FailedPrecondition, "another capture is already running")
-	}
+	s.evictActiveCaptureLocked()
 
 	engine, err := s.getCaptureEngineLocked()
 	if err != nil {
@@ -304,21 +301,43 @@ func (s *Server) cleanupBundleCapture() {
 	s.bundleCapture = nil
 }
 
-// claimCapture reserves the engine's capture slot for sess. Returns
-// FailedPrecondition if another capture is already active.
+// claimCapture reserves the engine's capture slot for sess. If another
+// capture is already running it is evicted: a previous streaming session
+// whose gRPC client died and never freed the slot stays stuck otherwise,
+// and a bundle capture is just informational state.
 func (s *Server) claimCapture(sess *capture.Session) (*internal.Engine, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if s.activeCapture != nil {
-		return nil, status.Error(codes.FailedPrecondition, "another capture is already running")
-	}
+	s.evictActiveCaptureLocked()
 	engine, err := s.getCaptureEngineLocked()
 	if err != nil {
 		return nil, err
 	}
 	s.activeCapture = sess
 	return engine, nil
+}
+
+// evictActiveCaptureLocked tears down whatever capture currently owns
+// the engine slot so a fresh claim can succeed. Caller must hold mutex.
+func (s *Server) evictActiveCaptureLocked() {
+	if s.activeCapture == nil {
+		return
+	}
+	if s.bundleCapture != nil && s.bundleCapture.sess == s.activeCapture {
+		log.Infof("evicting running bundle capture to start a new capture")
+		s.stopBundleCaptureLocked()
+		return
+	}
+	log.Infof("evicting previous streaming capture to start a new one")
+	prev := s.activeCapture
+	if engine, err := s.getCaptureEngineLocked(); err == nil {
+		if err := engine.SetCapture(nil); err != nil {
+			log.Debugf("clear previous capture: %v", err)
+		}
+	}
+	s.activeCapture = nil
+	prev.Stop()
 }
 
 // releaseCapture clears the active-capture owner if it still matches sess.

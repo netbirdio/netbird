@@ -15,16 +15,13 @@ import (
 	"github.com/netbirdio/netbird/client/internal/metrics"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	sshauth "github.com/netbirdio/netbird/shared/sessionauth"
+	"github.com/netbirdio/netbird/client/vnc"
 	vncserver "github.com/netbirdio/netbird/client/vnc/server"
+	sshauth "github.com/netbirdio/netbird/shared/sessionauth"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	sshuserhash "github.com/netbirdio/netbird/shared/sshauth"
 )
 
-const (
-	vncExternalPort uint16 = 5900
-	vncInternalPort uint16 = 25900
-)
 
 type vncServer interface {
 	Start(ctx context.Context, addr netip.AddrPort, network netip.Prefix) error
@@ -42,10 +39,10 @@ func (e *Engine) setupVNCPortRedirection() error {
 		return errors.New("invalid local NetBird address")
 	}
 
-	if err := e.firewall.AddInboundDNAT(localAddr, firewallManager.ProtocolTCP, vncExternalPort, vncInternalPort); err != nil {
+	if err := e.firewall.AddInboundDNAT(localAddr, firewallManager.ProtocolTCP, vnc.ExternalPort, vnc.InternalPort); err != nil {
 		return fmt.Errorf("add VNC port redirection: %w", err)
 	}
-	log.Infof("VNC port redirection: %s:%d -> %s:%d", localAddr, vncExternalPort, localAddr, vncInternalPort)
+	log.Infof("VNC port redirection: %s:%d -> %s:%d", localAddr, vnc.ExternalPort, localAddr, vnc.InternalPort)
 
 	return nil
 }
@@ -60,7 +57,7 @@ func (e *Engine) cleanupVNCPortRedirection() error {
 		return errors.New("invalid local NetBird address")
 	}
 
-	if err := e.firewall.RemoveInboundDNAT(localAddr, firewallManager.ProtocolTCP, vncExternalPort, vncInternalPort); err != nil {
+	if err := e.firewall.RemoveInboundDNAT(localAddr, firewallManager.ProtocolTCP, vnc.ExternalPort, vnc.InternalPort); err != nil {
 		return fmt.Errorf("remove VNC port redirection: %w", err)
 	}
 
@@ -132,7 +129,7 @@ func (e *Engine) startVNCServer() error {
 		Approver:        &vncApprover{broker: e.approvalBroker, statusRecorder: e.statusRecorder},
 	})
 
-	listenAddr := netip.AddrPortFrom(netbirdIP, vncInternalPort)
+	listenAddr := netip.AddrPortFrom(netbirdIP, vnc.InternalPort)
 	network := e.wgInterface.Address().Network
 	if err := srv.Start(e.ctx, listenAddr, network); err != nil {
 		return fmt.Errorf("start VNC server: %w", err)
@@ -144,8 +141,8 @@ func (e *Engine) startVNCServer() error {
 		if registrar, ok := e.firewall.(interface {
 			RegisterNetstackService(protocol nftypes.Protocol, port uint16)
 		}); ok {
-			registrar.RegisterNetstackService(nftypes.TCP, vncInternalPort)
-			log.Debugf("registered VNC service with netstack for TCP:%d", vncInternalPort)
+			registrar.RegisterNetstackService(nftypes.TCP, vnc.InternalPort)
+			log.Debugf("registered VNC service with netstack for TCP:%d", vnc.InternalPort)
 		}
 	}
 
@@ -231,7 +228,7 @@ func (e *Engine) stopVNCServer() error {
 		if registrar, ok := e.firewall.(interface {
 			UnregisterNetstackService(protocol nftypes.Protocol, port uint16)
 		}); ok {
-			registrar.UnregisterNetstackService(nftypes.TCP, vncInternalPort)
+			registrar.UnregisterNetstackService(nftypes.TCP, vnc.InternalPort)
 		}
 	}
 
