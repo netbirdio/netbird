@@ -1205,6 +1205,7 @@ func (s *Server) getVNCServerState() *proto.VNCServerState {
 			Mode:          sess.Mode,
 			Username:      sess.Username,
 			UserID:        sess.UserID,
+			Initiator:     sess.Initiator,
 		})
 	}
 	return &proto.VNCServerState{

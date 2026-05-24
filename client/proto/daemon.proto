@@ -418,6 +418,9 @@ message VNCSessionInfo {
   // userID is the Noise-verified session identity (hashed user ID from
   // the ACL session-key entry), empty when auth is disabled.
   string userID = 4;
+  // initiator is the human-readable display name of the dashboard user
+  // who minted the SessionPubKey, when known.
+  string initiator = 5;
 }
 
 // VNCServerState contains the latest state of the VNC server

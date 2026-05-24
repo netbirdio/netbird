@@ -136,6 +136,7 @@ type VNCSessionOutput struct {
 	Mode          string `json:"mode" yaml:"mode"`
 	Username      string `json:"username,omitempty" yaml:"username,omitempty"`
 	UserID        string `json:"userID,omitempty" yaml:"userID,omitempty"`
+	Initiator     string `json:"initiator,omitempty" yaml:"initiator,omitempty"`
 }
 
 type VNCServerStateOutput struct {
@@ -297,6 +298,7 @@ func mapVNCServer(state *proto.VNCServerState) VNCServerStateOutput {
 			Mode:          sess.GetMode(),
 			Username:      sess.GetUsername(),
 			UserID:        sess.GetUserID(),
+			Initiator:     sess.GetInitiator(),
 		})
 	}
 	return VNCServerStateOutput{
@@ -582,15 +584,7 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 
 		if showSSHSessions && vncSessionCount > 0 {
 			for _, sess := range o.VNCServerState.Sessions {
-				var line string
-				if sess.UserID != "" {
-					line = fmt.Sprintf("[%s@%s -> %s] mode=%s",
-						sess.UserID, sess.RemoteAddress, sess.Username, sess.Mode)
-				} else {
-					line = fmt.Sprintf("[%s] mode=%s user=%s",
-						sess.RemoteAddress, sess.Mode, sess.Username)
-				}
-				vncServerStatus += "\n  " + line
+				vncServerStatus += "\n  " + formatVNCSessionLine(sess)
 			}
 		}
 	}
@@ -1004,6 +998,26 @@ func anonymizePeerDetail(a *anonymize.Anonymizer, peer *PeerStateDetailOutput) {
 	}
 }
 
+// formatVNCSessionLine renders a single VNC session row for the detailed
+// status output. The leading slot identifies the initiator (display name
+// when known, hashed UserID otherwise); the post-arrow slot is the OS
+// user the session targets and is omitted in attach mode where the
+// destination is the current console user (unknown to the daemon).
+func formatVNCSessionLine(sess VNCSessionOutput) string {
+	who := sess.Initiator
+	if who == "" {
+		who = sess.UserID
+	}
+	prefix := sess.RemoteAddress
+	if who != "" {
+		prefix = fmt.Sprintf("%s@%s", who, sess.RemoteAddress)
+	}
+	if sess.Username != "" {
+		return fmt.Sprintf("[%s -> %s] mode=%s", prefix, sess.Username, sess.Mode)
+	}
+	return fmt.Sprintf("[%s] mode=%s", prefix, sess.Mode)
+}
+
 func anonymizeOverview(a *anonymize.Anonymizer, overview *OutputOverview) {
 	for i, peer := range overview.Peers.Details {
 		peer := peer
@@ -1077,5 +1091,6 @@ func anonymizeServerSessions(a *anonymize.Anonymizer, overview *OutputOverview) 
 		overview.VNCServerState.Sessions[i].RemoteAddress = anonymizeRemoteAddress(a, sess.RemoteAddress)
 		overview.VNCServerState.Sessions[i].Username = a.AnonymizeString(sess.Username)
 		overview.VNCServerState.Sessions[i].UserID = a.AnonymizeString(sess.UserID)
+		overview.VNCServerState.Sessions[i].Initiator = a.AnonymizeString(sess.Initiator)
 	}
 }
