@@ -59,9 +59,10 @@ func applyResolvedRuleToState(
 ) {
 	emitRuleDirections(rule, sourcePeers, destPeers, peerInSources, peerInDestinations, generateResources)
 
+	receivingPeer := peerInDestinations || (rule.Bidirectional && peerInSources)
 	switch {
 	case rule.Protocol == PolicyRuleProtocolNetbirdSSH:
-		if !peerInDestinations {
+		if !receivingPeer {
 			return
 		}
 		state.sshEnabled = true
@@ -69,7 +70,7 @@ func applyResolvedRuleToState(
 	case rule.Protocol == PolicyRuleProtocolNetbirdVNC:
 		cb.handleVNCRule(rule, peerInSources, peerInDestinations, state)
 	case policyRuleImpliesLegacySSH(rule) && targetPeerSSHEnabled:
-		if !peerInDestinations {
+		if !receivingPeer {
 			return
 		}
 		state.sshEnabled = true

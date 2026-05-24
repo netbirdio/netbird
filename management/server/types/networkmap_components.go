@@ -243,7 +243,7 @@ func (c *NetworkMapComponents) resolveRuleEndpoint(
 	postureChecks []string,
 ) ([]*nbpeer.Peer, bool) {
 	if resource.Type == ResourceTypePeer && resource.ID != "" {
-		return c.getPeerFromResource(resource, peerID)
+		return c.getPeerFromResource(resource, peerID, postureChecks)
 	}
 	return c.getAllPeersFromGroups(groups, peerID, postureChecks)
 }
@@ -385,13 +385,19 @@ func (c *NetworkMapComponents) getUniquePeerIDsFromGroupsIDs(groups []string) []
 	return ids
 }
 
-func (c *NetworkMapComponents) getPeerFromResource(resource Resource, peerID string) ([]*nbpeer.Peer, bool) {
+func (c *NetworkMapComponents) getPeerFromResource(resource Resource, peerID string, postureChecks []string) ([]*nbpeer.Peer, bool) {
 	if resource.ID == peerID {
+		if len(postureChecks) > 0 && !c.ValidatePostureChecksOnPeer(peerID, postureChecks) {
+			return []*nbpeer.Peer{}, false
+		}
 		return []*nbpeer.Peer{}, true
 	}
 
 	peerInfo := c.GetPeerInfo(resource.ID)
 	if peerInfo == nil {
+		return []*nbpeer.Peer{}, false
+	}
+	if len(postureChecks) > 0 && !c.ValidatePostureChecksOnPeer(resource.ID, postureChecks) {
 		return []*nbpeer.Peer{}, false
 	}
 

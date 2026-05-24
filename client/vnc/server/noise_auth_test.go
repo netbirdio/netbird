@@ -243,6 +243,7 @@ func TestNoise_WrongServerStatic_HandshakeFails(t *testing.T) {
 		CipherSuite:   vncNoiseSuite,
 		Pattern:       noise.HandshakeIK,
 		Initiator:     true,
+		Prologue:      BuildVNCNoisePrologue(ModeAttach, ""),
 		StaticKeypair: clientKey,
 		PeerStatic:    bogusServerKey.Public,
 	})
@@ -382,6 +383,7 @@ func TestNoise_NoIdentityKey_FailsClosed(t *testing.T) {
 		CipherSuite:   vncNoiseSuite,
 		Pattern:       noise.HandshakeIK,
 		Initiator:     true,
+		Prologue:      BuildVNCNoisePrologue(ModeAttach, ""),
 		StaticKeypair: clientKey,
 		PeerStatic:    fakeServerKey.Public,
 	})

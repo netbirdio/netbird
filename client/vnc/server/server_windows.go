@@ -54,6 +54,11 @@ func sasSecurityAttributes() (*windows.SecurityAttributes, error) {
 type sasOriginalState struct {
 	had   bool   // true if the value existed before we wrote
 	value uint32 // its prior DWORD value, if had == true
+	// captured stays true once we have read the genuine pre-enable state
+	// for the first time, so a second enableSoftwareSAS call (e.g. after
+	// a daemon restart with no intervening disable) cannot overwrite the
+	// snapshot with our own forced value.
+	captured bool
 }
 
 var savedSASState sasOriginalState
@@ -74,10 +79,12 @@ func enableSoftwareSAS() {
 	}
 	defer key.Close()
 
-	if prev, _, err := key.GetIntegerValue("SoftwareSASGeneration"); err == nil {
-		savedSASState = sasOriginalState{had: true, value: uint32(prev)}
-	} else {
-		savedSASState = sasOriginalState{had: false}
+	if !savedSASState.captured {
+		if prev, _, err := key.GetIntegerValue("SoftwareSASGeneration"); err == nil {
+			savedSASState = sasOriginalState{had: true, value: uint32(prev), captured: true}
+		} else {
+			savedSASState = sasOriginalState{had: false, captured: true}
+		}
 	}
 
 	if err := key.SetDWordValue("SoftwareSASGeneration", 1); err != nil {

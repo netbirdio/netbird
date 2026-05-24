@@ -324,7 +324,11 @@ func spawnAgentInSession(sessionID uint32, socketPath, authToken string, jobHand
 	}
 
 	if _, err := windows.ResumeThread(pi.Thread); err != nil {
-		log.Warnf("resume agent main thread: %v", err)
+		_ = windows.CloseHandle(pi.Thread)
+		_ = windows.TerminateProcess(pi.Process, 1)
+		_ = windows.CloseHandle(pi.Process)
+		_ = windows.CloseHandle(stderrRead)
+		return 0, fmt.Errorf("ResumeThread: %w", err)
 	}
 	_ = windows.CloseHandle(pi.Thread)
 

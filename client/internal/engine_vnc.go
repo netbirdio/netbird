@@ -155,13 +155,20 @@ func (e *Engine) startVNCServer() error {
 }
 
 // updateVNCServerAuth updates VNC fine-grained access control from management.
+// A nil vncAuth clears all authorized users and session pubkeys so management
+// can revoke access by omitting the field on the next sync.
 func (e *Engine) updateVNCServerAuth(vncAuth *mgmProto.VNCAuth) {
-	if vncAuth == nil || e.vncSrv == nil {
+	if e.vncSrv == nil {
 		return
 	}
 
 	vncSrv, ok := e.vncSrv.(*vncserver.Server)
 	if !ok {
+		return
+	}
+
+	if vncAuth == nil {
+		vncSrv.UpdateVNCAuth(&sshauth.Config{})
 		return
 	}
 
@@ -207,12 +214,17 @@ func (e *Engine) updateVNCServerAuth(vncAuth *mgmProto.VNCAuth) {
 }
 
 // GetVNCServerStatus returns whether the VNC server is running and the list
-// of active VNC sessions.
+// of active VNC sessions. The pointer is captured under syncMsgMux so a
+// concurrent updateVNC/stopVNCServer cannot swap it out between the nil
+// check and the ActiveSessions call.
 func (e *Engine) GetVNCServerStatus() (enabled bool, sessions []vncserver.ActiveSessionInfo) {
-	if e.vncSrv == nil {
+	e.syncMsgMux.Lock()
+	vncSrv := e.vncSrv
+	e.syncMsgMux.Unlock()
+	if vncSrv == nil {
 		return false, nil
 	}
-	return true, e.vncSrv.ActiveSessions()
+	return true, vncSrv.ActiveSessions()
 }
 
 func (e *Engine) stopVNCServer() error {
