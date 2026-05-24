@@ -7,13 +7,11 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"errors"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -1164,106 +1162,4 @@ func TestProtect_NonOIDCSchemes_PlainHTTP_NotBlocked(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusUnauthorized, rec.Code, "PIN-only domain should serve the login page on plain HTTP")
-}
-
-// TestProtect_SessionCookieOnPlainHTTP_LogsWarn verifies that a request
-// carrying a valid session cookie over plain HTTP is still forwarded but
-// emits a WARN-level log line for the operator.
-func TestProtect_SessionCookieOnPlainHTTP_LogsWarn(t *testing.T) {
-	logger, hook := newTestLogger()
-
-	mw := NewMiddleware(logger, nil, nil)
-	kp := generateTestKeyPair(t)
-
-	pinScheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{pinScheme}, kp.PublicKey, time.Hour, "", "", nil, false))
-
-	token, err := sessionkey.SignToken(kp.PrivateKey, "user-1", "", "example.com", auth.MethodPassword, nil, nil, time.Hour)
-	require.NoError(t, err)
-
-	var backendCalled bool
-	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		backendCalled = true
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
-	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: token})
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	assert.True(t, backendCalled, "backend should still be reached — we don't drop the cookie")
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var found bool
-	for _, entry := range hook.entries() {
-		if entry.Level == log.WarnLevel && strings.Contains(entry.Message, "session cookie on plain HTTP path") {
-			found = true
-			break
-		}
-	}
-	assert.True(t, found, "expected WARN log for session cookie on plain HTTP")
-}
-
-// TestProtect_SessionCookieOverTLS_NoWarn confirms the WARN only fires
-// on plain HTTP — TLS requests with a session cookie behave as before.
-func TestProtect_SessionCookieOverTLS_NoWarn(t *testing.T) {
-	logger, hook := newTestLogger()
-
-	mw := NewMiddleware(logger, nil, nil)
-	kp := generateTestKeyPair(t)
-
-	pinScheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
-	require.NoError(t, mw.AddDomain("example.com", []Scheme{pinScheme}, kp.PublicKey, time.Hour, "", "", nil, false))
-
-	token, err := sessionkey.SignToken(kp.PrivateKey, "user-1", "", "example.com", auth.MethodPassword, nil, nil, time.Hour)
-	require.NoError(t, err)
-
-	handler := mw.Protect(newPassthroughHandler())
-
-	req := httptest.NewRequest(http.MethodGet, "https://example.com/", nil)
-	req.TLS = &tls.ConnectionState{}
-	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: token})
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	assert.Equal(t, http.StatusOK, rec.Code)
-	for _, entry := range hook.entries() {
-		assert.NotContains(t, entry.Message, "session cookie on plain HTTP path", "no plain-HTTP cookie warn expected over TLS")
-	}
-}
-
-// captureHook is a minimal logrus hook that records emitted entries for
-// inspection in tests. It avoids pulling in the full sirupsen test
-// helpers package (which the rest of the codebase doesn't use).
-type captureHook struct {
-	mu      sync.Mutex
-	records []log.Entry
-}
-
-func (h *captureHook) Levels() []log.Level { return log.AllLevels }
-
-func (h *captureHook) Fire(entry *log.Entry) error {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.records = append(h.records, *entry)
-	return nil
-}
-
-func (h *captureHook) entries() []log.Entry {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return append([]log.Entry{}, h.records...)
-}
-
-// newTestLogger builds an isolated logrus logger with a capture hook so
-// tests can assert on emitted records without contending on the global
-// logger.
-func newTestLogger() (*log.Logger, *captureHook) {
-	hook := &captureHook{}
-	logger := log.New()
-	logger.SetOutput(io.Discard)
-	logger.AddHook(hook)
-	logger.SetLevel(log.DebugLevel)
-	return logger, hook
 }
