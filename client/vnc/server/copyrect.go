@@ -156,9 +156,21 @@ func (d *copyRectDetector) findTileMatch(cur *image.RGBA, dstX, dstY int) (int, 
 	if pos[0] == dstX && pos[1] == dstY {
 		return 0, 0, false
 	}
+	// Reject source coords that fall outside the current framebuffer
+	// (frame may have shrunk since the source position was recorded). A
+	// CopyRect with an out-of-range source would have the client copy
+	// from undefined pixels, so drop the match and let the encoder send
+	// the rect normally.
+	if pos[0] < 0 || pos[1] < 0 || pos[0]+ts > cur.Rect.Dx() || pos[1]+ts > cur.Rect.Dy() {
+		return 0, 0, false
+	}
 	// Reject stale entries: the position the map points at must still
 	// carry the same hash according to our per-tile array.
-	if d.tileHash[(pos[1]/ts)*d.cols+(pos[0]/ts)] != sum {
+	hashIdx := (pos[1]/ts)*d.cols + pos[0]/ts
+	if hashIdx < 0 || hashIdx >= len(d.tileHash) {
+		return 0, 0, false
+	}
+	if d.tileHash[hashIdx] != sum {
 		return 0, 0, false
 	}
 	return pos[0], pos[1], true

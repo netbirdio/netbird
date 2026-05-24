@@ -28,6 +28,37 @@ const (
 	MetaExpiresAt = "expires_at"
 )
 
+// ShortKeyFingerprint formats a hex-encoded Noise_IK static pubkey as a
+// short, eyeball-able fingerprint to display in the approval dialog.
+// The dashboard-supplied display name attached to a SessionPubKey isn't
+// cryptographically asserted by the connecting client, so the prompt
+// must also show something that IS: the key fingerprint, a hash of
+// the static public key the client just proved possession of during the
+// Noise handshake. Returns the empty string when the input is too short
+// to plausibly be a hex pubkey, so the row is omitted rather than
+// rendered as a misleading partial.
+//
+// Output format: 16 hex chars grouped as XXXX-XXXX-XXXX-XXXX (64 bits of
+// fingerprint, resistant to random-prefix collisions and easy for a human
+// to compare with an out-of-band reference).
+func ShortKeyFingerprint(hexKey string) string {
+	if len(hexKey) < 8 {
+		return ""
+	}
+	src := hexKey
+	if len(src) > 16 {
+		src = src[:16]
+	}
+	var out []byte
+	for i, c := range src {
+		if i > 0 && i%4 == 0 {
+			out = append(out, '-')
+		}
+		out = append(out, byte(c))
+	}
+	return string(out)
+}
+
 // Kind values for the well-known prompt subjects. New subsystems should
 // add a constant here so the UI can dispatch on a known string.
 const (

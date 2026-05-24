@@ -43,11 +43,11 @@ func newDarwinAgentManager(ctx context.Context) *darwinAgentManager {
 	return m
 }
 
-// agentSocketPathFmt parameterizes the agent's loopback Unix-socket path
-// by the console uid: /tmp is writable in the launchctl-asuser context
-// and predictable to the daemon. The agent chmods the file 0600 after
-// bind so only its uid (plus root) can dial.
-const agentSocketPathFmt = "/tmp/netbird-vnc-%d.sock"
+// agentSocketName is the file name inside the per-uid socket directory
+// the agent binds. The directory itself is created and chowned by the
+// daemon (see prepareAgentSocketDir) so a non-root local user cannot
+// pre-create or symlink the path before the agent listens.
+const agentSocketName = "agent.sock"
 
 // watchConsoleUser kills the cached agent whenever the console user
 // changes (logout, fast user switch, login window). Without it the daemon
@@ -87,44 +87,112 @@ func (m *darwinAgentManager) watchConsoleUser(ctx context.Context) {
 }
 
 // Resolve spawns or respawns the per-user agent process as needed and
-// returns its Unix-socket path and shared token. Each call is serialized
-// so concurrent VNC clients share the same agent.
-func (m *darwinAgentManager) Resolve(ctx context.Context) (string, string, error) {
+// returns its Unix-socket path, shared token, and the uid the agent was
+// spawned under (so the daemon can validate peer credentials before
+// dispatching the token). Each call is serialized so concurrent VNC
+// clients share the same agent.
+func (m *darwinAgentManager) Resolve(ctx context.Context) (string, string, uint32, error) {
 	consoleUID, err := consoleUserID()
 	if err != nil {
-		return "", "", fmt.Errorf("no console user: %w", err)
+		return "", "", 0, fmt.Errorf("no console user: %w", err)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.running && m.uid == consoleUID && vncAgentRunning() {
-		return m.socketPath, m.authToken, nil
+		return m.socketPath, m.authToken, m.uid, nil
 	}
 	m.killLocked()
 	// Reap stray agents so the new token is the only accepted one.
 	killAllVNCAgents()
 
-	socketPath := fmt.Sprintf(agentSocketPathFmt, consoleUID)
+	socketDir, err := prepareAgentSocketDir(consoleUID)
+	if err != nil {
+		return "", "", 0, fmt.Errorf("prepare agent socket dir: %w", err)
+	}
+	socketPath := socketDir + "/" + agentSocketName
 	if err := os.Remove(socketPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		log.Debugf("clear stale agent socket %s: %v", socketPath, err)
 	}
 
 	token, err := generateAuthToken()
 	if err != nil {
-		return "", "", fmt.Errorf("generate agent auth token: %w", err)
+		return "", "", 0, fmt.Errorf("generate agent auth token: %w", err)
 	}
 	if err := spawnAgentForUser(consoleUID, socketPath, token); err != nil {
-		return "", "", err
+		return "", "", 0, err
 	}
 	if err := waitForAgent(ctx, socketPath, 5*time.Second); err != nil {
 		killAllVNCAgents()
-		return "", "", fmt.Errorf("agent did not start listening: %w", err)
+		return "", "", 0, fmt.Errorf("agent did not start listening: %w", err)
 	}
 	m.authToken = token
 	m.socketPath = socketPath
 	m.uid = consoleUID
 	m.running = true
 	log.Infof("spawned VNC agent for console uid=%d on %s", consoleUID, socketPath)
-	return socketPath, token, nil
+	return socketPath, token, consoleUID, nil
+}
+
+// agentSocketParentDir is the root the daemon creates (as root, mode 0755)
+// to hold per-uid agent-socket subdirectories. Keeping it under
+// /var/run/netbird-vnc (rather than /tmp) means a non-root local user
+// cannot squat the socket path: only root can create the parent, and
+// only the target user (plus root) can write inside the per-uid subdir.
+const agentSocketParentDir = "/var/run/netbird-vnc"
+
+// prepareAgentSocketDir creates (and tightens permissions on) a per-uid
+// subdirectory the agent will bind its socket inside, returning the
+// directory path. The subdirectory is owned by uid with mode 0700, so
+// the only writers are the target user and root. The parent is created
+// root-owned with mode 0755 if it doesn't already exist. Symlinks at
+// the per-uid level are refused (replaced with a fresh directory) to
+// avoid a low-priv user redirecting our chown.
+func prepareAgentSocketDir(uid uint32) (string, error) {
+	if err := os.MkdirAll(agentSocketParentDir, 0o755); err != nil {
+		return "", fmt.Errorf("mkdir %s: %w", agentSocketParentDir, err)
+	}
+	// Refuse to use the parent if it's a symlink or not owned by root.
+	pInfo, err := os.Lstat(agentSocketParentDir)
+	if err != nil {
+		return "", fmt.Errorf("lstat %s: %w", agentSocketParentDir, err)
+	}
+	if pInfo.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("%s is a symlink", agentSocketParentDir)
+	}
+	if st, ok := pInfo.Sys().(*syscall.Stat_t); ok && st.Uid != 0 {
+		return "", fmt.Errorf("%s not owned by root (uid=%d)", agentSocketParentDir, st.Uid)
+	}
+
+	subdir := fmt.Sprintf("%s/%d", agentSocketParentDir, uid)
+	// If a leftover entry exists, refuse it unless it's a real dir owned
+	// by the right uid with strict perms: otherwise remove and recreate
+	// from scratch under our control. Using os.Lstat (not Stat) so a
+	// symlink is detected and torn down.
+	if info, err := os.Lstat(subdir); err == nil {
+		bad := false
+		if info.Mode()&os.ModeSymlink != 0 {
+			bad = true
+		} else if !info.IsDir() {
+			bad = true
+		} else if st, ok := info.Sys().(*syscall.Stat_t); !ok || st.Uid != uid || info.Mode().Perm() != 0o700 {
+			bad = true
+		}
+		if bad {
+			if err := os.RemoveAll(subdir); err != nil {
+				return "", fmt.Errorf("remove stale %s: %w", subdir, err)
+			}
+		}
+	}
+	if err := os.Mkdir(subdir, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+		return "", fmt.Errorf("mkdir %s: %w", subdir, err)
+	}
+	if err := os.Chmod(subdir, 0o700); err != nil {
+		return "", fmt.Errorf("chmod %s: %w", subdir, err)
+	}
+	if err := os.Chown(subdir, int(uid), -1); err != nil {
+		return "", fmt.Errorf("chown %s -> uid %d: %w", subdir, uid, err)
+	}
+	return subdir, nil
 }
 
 // stop terminates the spawned agent, if any. Intended for daemon shutdown.
@@ -182,7 +250,14 @@ func spawnAgentForUser(uid uint32, socketPath, token string) error {
 	}
 	cmd := exec.Command(
 		"/bin/launchctl", "asuser", strconv.FormatUint(uint64(uid), 10),
-		exe, vncAgentSubcommand, "--socket", socketPath,
+		exe, vncAgentSubcommand,
+		"--socket", socketPath,
+		// Drop privs inside the agent: launchctl asuser preserves the
+		// daemon's uid (root), so without this the capture/input/
+		// encoder paths would run as root for the lifetime of the
+		// session. validateAgentPeer on the daemon side also relies on
+		// the agent's effective uid matching consoleUID.
+		"--target-uid", strconv.FormatUint(uint64(uid), 10),
 	)
 	cmd.Env = append(os.Environ(), agentTokenEnvVar+"="+token)
 	stderr, err := cmd.StderrPipe()

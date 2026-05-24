@@ -78,13 +78,17 @@ func applyResolvedRuleToState(
 }
 
 // handleVNCRule collects VNC authorized users and session pubkeys for a VNC
-// policy rule. Bidirectional rules grant access in both directions.
+// policy rule. Bidirectional rules grant access in both directions, so a
+// peer that appears in the rule's sources also needs the SessionPubKey
+// pushed (otherwise the Noise_IK handshake against that peer would fail
+// because its authorizer wouldn't know the client's static key).
 func (cb ruleAuthCallbacks) handleVNCRule(rule *PolicyRule, peerInSources, peerInDestinations bool, state *peerConnResolveState) {
-	if !peerInDestinations && !(rule.Bidirectional && peerInSources) {
+	receivingPeer := peerInDestinations || (rule.Bidirectional && peerInSources)
+	if !receivingPeer {
 		return
 	}
 	cb.collectVNCUsers(rule, state.vncAuthorizedUsers)
-	if peerInDestinations && rule.SessionPubKey != "" && rule.AuthorizedUser != "" {
+	if rule.SessionPubKey != "" && rule.AuthorizedUser != "" {
 		state.vncSessionPubKeys = append(state.vncSessionPubKeys, VNCSessionPubKey{
 			PubKey:      rule.SessionPubKey,
 			UserID:      rule.AuthorizedUser,

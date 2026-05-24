@@ -478,17 +478,30 @@ func sourceIPString(addr net.Addr) string {
 // registerConnAuth records the verified Noise_IK identity for a live
 // connection so UpdateVNCAuth can later revoke it if policy changes.
 // No-op when auth is disabled (e.g. agent-mode loopback connections).
-func (s *Server) registerConnAuth(c net.Conn, header *connectionHeader) {
+//
+// The original authorization check in authorizeSession and this
+// registration are not atomic, so a concurrent UpdateVNCAuth can revoke
+// the client's pubkey in between (revokeUnauthorizedSessions iterates
+// connAuth and would miss this connection because it isn't registered
+// yet). To close that window we re-run authenticateSession here under
+// the same sessionsMu that revokeUnauthorizedSessions holds; if the
+// caller's pubkey is no longer authorized at registration time, we
+// refuse the registration and the caller tears the connection down.
+func (s *Server) registerConnAuth(c net.Conn, header *connectionHeader) error {
 	if s.disableAuth || header == nil || len(header.clientStatic) != 32 {
-		return
+		return nil
 	}
 	s.sessionsMu.Lock()
+	defer s.sessionsMu.Unlock()
+	if _, err := s.authenticateSession(header); err != nil {
+		return fmt.Errorf("authorization revoked before session registration: %w", err)
+	}
 	s.connAuth[c] = connAuthInfo{
 		clientStatic: append([]byte(nil), header.clientStatic...),
 		mode:         header.mode,
 		username:     header.username,
 	}
-	s.sessionsMu.Unlock()
+	return nil
 }
 
 // tryAcquireConnSlot returns true when a connection slot was successfully
@@ -798,7 +811,11 @@ func (s *Server) handleConnection(conn net.Conn) {
 		connLog.Info("VNC connection rejected: auth failed")
 		return
 	}
-	s.registerConnAuth(conn, header)
+	if err := s.registerConnAuth(conn, header); err != nil {
+		rejectConnection(conn, codeMessage(RejectCodeAuthForbidden, err.Error()))
+		connLog.Warnf("VNC connection rejected: %v", err)
+		return
+	}
 
 	decision, err := s.gateApproval(conn, header)
 	if err != nil {
@@ -818,6 +835,23 @@ func (s *Server) handleConnection(conn net.Conn) {
 	}
 	defer sessionCleanup()
 
+	if err := s.validateCapturer(capturer); err != nil {
+		rejectConnection(conn, codeMessage(RejectCodeCapturerError, fmt.Sprintf("screen capturer: %v", err)))
+		connLog.Warnf("VNC connection rejected: capturer not ready: %v", err)
+		return
+	}
+
+	// Validate framebuffer dimensions BEFORE registering the active
+	// session: keeps a misbehaving capturer from briefly showing up in
+	// ActiveSessions output and ensures the rest of the pipeline only
+	// ever runs against an in-range frame.
+	w, h := capturer.Width(), capturer.Height()
+	if w <= 0 || h <= 0 || w > maxFramebufferDim || h > maxFramebufferDim {
+		rejectConnection(conn, codeMessage(RejectCodeCapturerError, fmt.Sprintf("framebuffer dimensions out of range: %dx%d", w, h)))
+		connLog.Warnf("VNC connection rejected: framebuffer %dx%d outside [1, %d]", w, h, maxFramebufferDim)
+		return
+	}
+
 	sessionID := s.addSession(ActiveSessionInfo{
 		RemoteAddress: conn.RemoteAddr().String(),
 		Mode:          modeString(header.mode),
@@ -825,19 +859,6 @@ func (s *Server) handleConnection(conn net.Conn) {
 		UserID:        sessionUserID,
 	}, conn)
 	defer s.removeSession(sessionID)
-
-	if err := s.validateCapturer(capturer); err != nil {
-		rejectConnection(conn, codeMessage(RejectCodeCapturerError, fmt.Sprintf("screen capturer: %v", err)))
-		connLog.Warnf("VNC connection rejected: capturer not ready: %v", err)
-		return
-	}
-
-	w, h := capturer.Width(), capturer.Height()
-	if w <= 0 || h <= 0 || w > maxFramebufferDim || h > maxFramebufferDim {
-		rejectConnection(conn, codeMessage(RejectCodeCapturerError, fmt.Sprintf("framebuffer dimensions out of range: %dx%d", w, h)))
-		connLog.Warnf("VNC connection rejected: framebuffer %dx%d outside [1, %d]", w, h, maxFramebufferDim)
-		return
-	}
 
 	conn = newMetricsConn(conn, s.sessionRecorder)
 	sess := &session{

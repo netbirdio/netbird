@@ -14,10 +14,14 @@ import (
 	vncserver "github.com/netbirdio/netbird/client/vnc/server"
 )
 
-var vncAgentSocket string
+var (
+	vncAgentSocket    string
+	vncAgentTargetUID uint32
+)
 
 func init() {
 	vncAgentCmd.Flags().StringVar(&vncAgentSocket, "socket", "", "Unix-domain socket path the agent listens on (required)")
+	vncAgentCmd.Flags().Uint32Var(&vncAgentTargetUID, "target-uid", 0, "uid the agent should drop privileges to before listening (darwin only; 0 = stay as current uid)")
 	rootCmd.AddCommand(vncAgentCmd)
 }
 
@@ -45,6 +49,18 @@ var vncAgentCmd = &cobra.Command{
 		// Purge the token from env so it doesn't leak via /proc/<pid>/environ.
 		if err := os.Unsetenv("NB_VNC_AGENT_TOKEN"); err != nil {
 			log.Debugf("unset NB_VNC_AGENT_TOKEN: %v", err)
+		}
+
+		// Drop root privileges to the target console user BEFORE creating
+		// the listening socket: keeps a post-auth bug in the encoder /
+		// input / capture paths confined to the user's own privileges
+		// rather than escalating to host root, and makes the daemon's
+		// LOCAL_PEERCRED check see the right uid. No-op on Windows
+		// (both processes run as SYSTEM) and when --target-uid is 0.
+		if vncAgentTargetUID != 0 {
+			if err := dropAgentPrivileges(vncAgentTargetUID); err != nil {
+				return fmt.Errorf("drop privileges to uid %d: %w", vncAgentTargetUID, err)
+			}
 		}
 
 		if err := os.Remove(vncAgentSocket); err != nil && !os.IsNotExist(err) {

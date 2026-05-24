@@ -32,6 +32,26 @@ const (
 
 var vncNoiseSuite = noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashSHA256)
 
+// vncNoisePrologueMagic must stay byte-identical to the server side
+// (see client/vnc/server/handshake.go). Any drift here breaks every VNC
+// handshake.
+var vncNoisePrologueMagic = []byte("NetBird/VNC/Noise/v1\x00")
+
+// buildVNCNoisePrologue mirrors server.BuildVNCNoisePrologue. Both sides
+// hash (magic || mode || u16len(username) || username) into the
+// handshake hash; a client that lies about its mode/username in the
+// cleartext header prefix produces a divergent prologue, the responder
+// computes the truthful prologue from what it just read, and the AEAD
+// MAC over the handshake state fails to verify.
+func buildVNCNoisePrologue(mode byte, username string) []byte {
+	out := make([]byte, 0, len(vncNoisePrologueMagic)+1+2+len(username))
+	out = append(out, vncNoisePrologueMagic...)
+	out = append(out, mode)
+	out = append(out, byte(len(username)>>8), byte(len(username)))
+	out = append(out, []byte(username)...)
+	return out
+}
+
 // sessionKeyStore retains per-session X25519 keypairs so the JS layer
 // only sees an opaque session id + the public key; the private key never
 // leaves wasm.
@@ -437,6 +457,7 @@ func (p *VNCProxy) runNoiseHandshake(conn net.Conn, dest vncDestination) error {
 		CipherSuite:   vncNoiseSuite,
 		Pattern:       noise.HandshakeIK,
 		Initiator:     true,
+		Prologue:      buildVNCNoisePrologue(dest.mode, dest.username),
 		StaticKeypair: noise.DHKey{Private: dest.sessionPriv, Public: dest.sessionPub},
 		PeerStatic:    dest.peerPubKey,
 	})

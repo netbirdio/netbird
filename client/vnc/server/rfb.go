@@ -488,14 +488,27 @@ func tileChanged(prev, cur *image.RGBA, x, y, w, h int) bool {
 // tileIsUniform reports whether every pixel in the given rectangle of img is
 // the same RGBA value, and returns that pixel packed as 0xRRGGBBAA when so.
 // Uses uint32 comparisons across rows; returns early on the first mismatch.
+// Returns (0, false) on any out-of-range rectangle so an unsafe pointer
+// deref can never reach past img.Pix even if a capturer reports stale
+// dimensions or a resize race produces inconsistent state.
 func tileIsUniform(img *image.RGBA, x, y, w, h int) (uint32, bool) {
-	if w <= 0 || h <= 0 {
+	if w <= 0 || h <= 0 || x < 0 || y < 0 {
+		return 0, false
+	}
+	bounds := img.Rect
+	if x+w > bounds.Dx() || y+h > bounds.Dy() {
 		return 0, false
 	}
 	stride := img.Stride
 	base := y*stride + x*4
-	first := *(*uint32)(unsafe.Pointer(&img.Pix[base]))
 	rowBytes := w * 4
+	// Final row's last pixel must be inside Pix; guard against any caller
+	// that managed to slip past the bounds check above (e.g. negative
+	// stride from a forged image).
+	if base < 0 || base+(h-1)*stride+rowBytes > len(img.Pix) {
+		return 0, false
+	}
+	first := *(*uint32)(unsafe.Pointer(&img.Pix[base]))
 	for row := 0; row < h; row++ {
 		p := base + row*stride
 		for col := 0; col < rowBytes; col += 4 {
@@ -621,10 +634,18 @@ func writeTightRectHeader(buf []byte, x, y, w, h int) {
 // appendTightLength encodes a Tight compact length prefix (1, 2, or 3 bytes
 // LE-ish, top bit of each byte signals continuation). Lengths exceeding
 // tightMaxLength would silently truncate the high byte; callers must clamp
-// or fall back before reaching here.
+// or fall back before reaching here. Out-of-range values are clamped and
+// logged instead of panicking so a malformed encode can't tear the whole
+// server down: callers already check the cap, so this branch is just a
+// defence-in-depth backstop.
 func appendTightLength(buf []byte, n int) []byte {
-	if n < 0 || n > tightMaxLength {
-		panic(fmt.Sprintf("tight length out of range: %d", n))
+	if n < 0 {
+		log.Warnf("tight length negative (%d); clamping to 0", n)
+		n = 0
+	}
+	if n > tightMaxLength {
+		log.Warnf("tight length %d exceeds cap %d; clamping (caller should have fallen back)", n, tightMaxLength)
+		n = tightMaxLength
 	}
 	b0 := byte(n & 0x7f)
 	if n <= 0x7f {
@@ -765,7 +786,19 @@ func tightQualityFor(pixels int) int {
 // per-rect Tight encoding stays alloc-free. Cheap O(maxColors) per call.
 func sampledColorCountInto(seen map[uint32]struct{}, img *image.RGBA, x, y, w, h, maxColors int) int {
 	clear(seen)
+	if w <= 0 || h <= 0 || x < 0 || y < 0 {
+		return 0
+	}
+	bounds := img.Rect
+	if x+w > bounds.Dx() || y+h > bounds.Dy() {
+		return 0
+	}
 	stride := img.Stride
+	// Defensive: refuse to dereference past the buffer end if stride math
+	// somehow disagrees with bounds (e.g. caller passed a SubImage).
+	if (y+h-1)*stride+(x+w)*4 > len(img.Pix) {
+		return 0
+	}
 	step := max((w*h)/(maxColors*4), 1)
 	var idx int
 	for row := 0; row < h; row++ {

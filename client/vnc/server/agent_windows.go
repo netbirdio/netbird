@@ -421,18 +421,20 @@ func createKillOnCloseJob() (windows.Handle, error) {
 	return job, nil
 }
 
-// Resolve returns the current agent socket path and token. When no
-// agent is spawned yet (initial boot, between session switches, or
-// permanently disabled when SE_TCB_NAME is missing) it surfaces a
-// distinct error so the daemon can reject the connection with a
-// meaningful message instead of timing out the proxy dial.
-func (m *sessionManager) Resolve(_ context.Context) (string, string, error) {
+// Resolve returns the current agent socket path, shared token, and the
+// uid the agent runs under (0 on Windows since the agent runs as
+// SYSTEM in the interactive session; validateAgentPeer is a no-op
+// there). When no agent is spawned yet (initial boot, between session
+// switches, or permanently disabled when SE_TCB_NAME is missing) it
+// surfaces a distinct error so the daemon can reject the connection
+// with a meaningful message instead of timing out the proxy dial.
+func (m *sessionManager) Resolve(_ context.Context) (string, string, uint32, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.socketPath == "" {
-		return "", "", errAgentNotReady
+		return "", "", 0, errAgentNotReady
 	}
-	return m.socketPath, m.authToken, nil
+	return m.socketPath, m.authToken, 0, nil
 }
 
 var errAgentNotReady = errors.New("VNC agent not running yet")

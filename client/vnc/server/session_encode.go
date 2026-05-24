@@ -13,10 +13,15 @@ import (
 // encoderLoop owns the capture → diff → encode → write pipeline. Running it
 // off the read loop prevents a slow encode (zlib full-frame, many dirty
 // tiles) from blocking inbound input events.
+//
+// Per-request panics are caught and turned into session teardown so a bug
+// in one encoder path (a malformed capture frame, a zlib corner case) can
+// only kill its own session, never the whole VNC server.
 func (s *session) encoderLoop(done chan<- struct{}) {
 	defer close(done)
 	for req := range s.encodeCh {
-		if err := s.processFBRequest(req); err != nil {
+		err := s.processFBRequestSafe(req)
+		if err != nil {
 			s.log.Debugf("encode: %v", err)
 			// On write/capture error, close the connection so messageLoop
 			// exits and the session terminates cleanly.
@@ -25,6 +30,25 @@ func (s *session) encoderLoop(done chan<- struct{}) {
 			return
 		}
 	}
+}
+
+// processFBRequestSafe wraps processFBRequest with a panic recover so a
+// crash in encode/diff/compress paths surfaces as a session-only error
+// instead of bringing down every peer's VNC sessions. The recover handler
+// avoids any further dereference of session state (the panic itself may
+// indicate a half-initialised session) so it can never re-panic.
+func (s *session) processFBRequestSafe(req fbRequest) (err error) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			return
+		}
+		err = fmt.Errorf("encoder panic: %v", r)
+		if s != nil && s.log != nil {
+			s.log.Errorf("encoder panic recovered: %v", r)
+		}
+	}()
+	return s.processFBRequest(req)
 }
 
 func (s *session) processFBRequest(req fbRequest) error {

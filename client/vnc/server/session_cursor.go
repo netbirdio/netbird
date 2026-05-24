@@ -37,21 +37,59 @@ func (s *session) pendingCursorRect() []byte {
 		return nil
 	}
 	buf := encodeCursorPseudoRect(img, hotX, hotY)
+	if buf == nil {
+		return nil
+	}
+	// Re-check the serial under the write lock so a concurrent update
+	// from another goroutine can't be silently overwritten with a stale
+	// value: if someone advanced it past `serial` while we were encoding,
+	// keep their value and drop this rect.
 	s.encMu.Lock()
+	if serial == s.lastCursorSerial {
+		s.encMu.Unlock()
+		return nil
+	}
+	if uint64(serial-s.lastCursorSerial) > 1<<63 {
+		// `serial` is older than the current value (wraparound-aware
+		// comparison). Drop it.
+		s.encMu.Unlock()
+		return nil
+	}
 	s.lastCursorSerial = serial
 	s.encMu.Unlock()
 	return buf
 }
 
+// maxCursorDim caps the cursor sprite size we'll encode. Real platform
+// cursors are tiny (<=256×256 on every supported OS); a value past this
+// almost certainly indicates a corrupted platform-API response, and
+// blindly multiplying it into a buffer size would overflow int and produce
+// an undersized allocation that the encode loop would then walk past.
+const maxCursorDim = 256
+
 // encodeCursorPseudoRect packs the cursor sprite into a Cursor pseudo
 // rectangle (RFB 7.7.4, pseudo-encoding -239). Layout: 12-byte rect header
 // followed by w*h*4 BGRX pixel bytes and a 1-bit mask of (w+7)/8 bytes per
-// row, MSB-first, with each row independently padded.
+// row, MSB-first, with each row independently padded. Returns nil when
+// the source image's dimensions are non-positive or exceed maxCursorDim;
+// callers treat nil as "skip the cursor rect this frame."
 func encodeCursorPseudoRect(img *image.RGBA, hotX, hotY int) []byte {
+	if img == nil {
+		return nil
+	}
 	w, h := img.Rect.Dx(), img.Rect.Dy()
+	if w <= 0 || h <= 0 || w > maxCursorDim || h > maxCursorDim {
+		return nil
+	}
 	pixelBytes := w * h * 4
 	maskStride := (w + 7) / 8
 	maskBytes := maskStride * h
+	// Defensive: ensure the source image is actually big enough for the
+	// access pattern below. A SubImage that misreports its dx/dy would
+	// otherwise be read past the end.
+	if (h-1)*img.Stride+w*4 > len(img.Pix) {
+		return nil
+	}
 	buf := make([]byte, 12+pixelBytes+maskBytes)
 
 	binary.BigEndian.PutUint16(buf[0:2], uint16(hotX))

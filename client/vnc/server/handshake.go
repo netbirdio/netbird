@@ -33,6 +33,29 @@ const (
 // it requires bumping vncIdentityMagic so old clients fail closed.
 var vncNoiseSuite = noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashSHA256)
 
+// vncNoisePrologueMagic prefixes the Noise prologue. Both sides mix the
+// magic + mode byte + length-prefixed username into the handshake hash
+// before any message is sent. Catches a client that lies about its
+// mode/username in the cleartext header prefix: the cleartext header
+// would say one thing and the Noise hash would expect another, so the
+// responder's AEAD MAC over the handshake state fails to verify and the
+// handshake collapses. Bumping the magic forces old clients to fail
+// closed because their prologue stops matching ours.
+var vncNoisePrologueMagic = []byte("NetBird/VNC/Noise/v1\x00")
+
+// BuildVNCNoisePrologue returns the deterministic byte sequence both
+// sides feed to noise.Config.Prologue for a VNC handshake. Exported so
+// the WASM proxy client computes the exact same bytes; any divergence
+// makes the handshake fail.
+func BuildVNCNoisePrologue(mode byte, username string) []byte {
+	out := make([]byte, 0, len(vncNoisePrologueMagic)+1+2+len(username))
+	out = append(out, vncNoisePrologueMagic...)
+	out = append(out, mode)
+	out = append(out, byte(len(username)>>8), byte(len(username)))
+	out = append(out, []byte(username)...)
+	return out
+}
+
 func (s *Server) authenticateSession(header *connectionHeader) (string, error) {
 	if !header.identityVerified {
 		return "", fmt.Errorf("identity proof missing")
@@ -97,7 +120,7 @@ func (s *Server) readConnectionHeader(conn net.Conn) (*connectionHeader, error) 
 	}
 
 	br := bufio.NewReader(conn)
-	clientStatic, identityVerified, err := s.maybeRunNoiseHandshake(conn, br)
+	clientStatic, identityVerified, err := s.maybeRunNoiseHandshake(conn, br, mode, username)
 	if err != nil {
 		return nil, err
 	}
@@ -129,8 +152,10 @@ func (s *Server) readConnectionHeader(conn net.Conn) (*connectionHeader, error) 
 // maybeRunNoiseHandshake performs the responder side of a Noise_IK
 // handshake when the client sends the v3 magic. Returns the client static
 // public key learned from the handshake. Any handshake failure is fatal
-// (fail closed).
-func (s *Server) maybeRunNoiseHandshake(conn net.Conn, br *bufio.Reader) ([]byte, bool, error) {
+// (fail closed). headerMode and headerUsername are mixed into the Noise
+// prologue so the client cannot lie in the cleartext header prefix
+// without making its own AEAD MAC verify-fail on the responder side.
+func (s *Server) maybeRunNoiseHandshake(conn net.Conn, br *bufio.Reader, headerMode byte, headerUsername string) ([]byte, bool, error) {
 	peek, _ := br.Peek(len(vncIdentityMagic))
 	if !bytes.Equal(peek, vncIdentityMagic) {
 		return nil, false, nil
@@ -145,9 +170,16 @@ func (s *Server) maybeRunNoiseHandshake(conn net.Conn, br *bufio.Reader) ([]byte
 	}
 
 	// Agents on loopback authenticate via the agent token, not this
-	// handshake. Consume the replayed bytes and skip the response.
+	// handshake: the daemon already ran Noise on the public side and
+	// is now proxying the replayed bytes through to us. Consume the
+	// bytes and report identityVerified=false: the agent's own
+	// authorizeSession short-circuits on disableAuth and never reaches
+	// authenticateSession, so this return value has no effect on the
+	// agent's accept path, but a future caller that forgets the
+	// short-circuit will see the truthful "no Noise identity proved
+	// here" rather than a stale true.
 	if s.disableAuth {
-		return nil, true, nil
+		return nil, false, nil
 	}
 
 	if len(s.identityKey) != 32 || len(s.identityPublic) != 32 {
@@ -157,6 +189,7 @@ func (s *Server) maybeRunNoiseHandshake(conn net.Conn, br *bufio.Reader) ([]byte
 		CipherSuite:   vncNoiseSuite,
 		Pattern:       noise.HandshakeIK,
 		Initiator:     false,
+		Prologue:      BuildVNCNoisePrologue(headerMode, headerUsername),
 		StaticKeypair: noise.DHKey{Private: s.identityKey, Public: s.identityPublic},
 	})
 	if err != nil {

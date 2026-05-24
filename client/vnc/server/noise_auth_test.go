@@ -65,11 +65,22 @@ func registerSessionKey(t *testing.T, srv *Server, userID string) noise.DHKey {
 	return kp
 }
 
-// writeHeaderPrefix writes the mode + zero-length-username prefix that
+// writeHeaderPrefix writes the mode + (optional) username prefix that
 // precedes the optional Noise handshake in the NetBird VNC header.
 func writeHeaderPrefix(t *testing.T, conn net.Conn, mode byte) {
 	t.Helper()
-	prefix := []byte{mode, 0, 0}
+	writeHeaderPrefixWithUser(t, conn, mode, "")
+}
+
+// writeHeaderPrefixWithUser is the username-aware variant used by tests
+// that need to verify the Noise prologue binds to the cleartext header.
+func writeHeaderPrefixWithUser(t *testing.T, conn net.Conn, mode byte, username string) {
+	t.Helper()
+	if len(username) > 0xFFFF {
+		t.Fatalf("test username too long: %d", len(username))
+	}
+	prefix := []byte{mode, byte(len(username) >> 8), byte(len(username))}
+	prefix = append(prefix, []byte(username)...)
 	_, err := conn.Write(prefix)
 	require.NoError(t, err)
 }
@@ -85,14 +96,22 @@ func writeHeaderTail(t *testing.T, conn net.Conn) {
 
 // performInitiator drives the initiator side of Noise_IK against the
 // server's identity public key, returns the resulting state. The Noise
-// msg2 produced by the server is read and consumed.
+// msg2 produced by the server is read and consumed. headerMode and
+// headerUsername are mixed into the prologue and MUST match what the
+// caller already wrote in the cleartext header prefix.
 func performInitiator(t *testing.T, conn net.Conn, clientKey noise.DHKey, serverPub []byte) {
+	t.Helper()
+	performInitiatorWithHeader(t, conn, clientKey, serverPub, ModeAttach, "")
+}
+
+func performInitiatorWithHeader(t *testing.T, conn net.Conn, clientKey noise.DHKey, serverPub []byte, headerMode byte, headerUsername string) {
 	t.Helper()
 
 	state, err := noise.NewHandshakeState(noise.Config{
 		CipherSuite:   vncNoiseSuite,
 		Pattern:       noise.HandshakeIK,
 		Initiator:     true,
+		Prologue:      BuildVNCNoisePrologue(headerMode, headerUsername),
 		StaticKeypair: clientKey,
 		PeerStatic:    serverPub,
 	})
@@ -414,18 +433,15 @@ func TestNoise_SessionMode_OSUserCheckRunsAfterHandshake(t *testing.T) {
 		},
 	})
 
-	// Request session for "bob" — Noise succeeds, OS-user check denies.
+	// Request session for "bob": Noise succeeds, OS-user check denies.
 	conn, err := net.Dial("tcp", addr.String())
 	require.NoError(t, err)
 	defer conn.Close()
 
-	bob := []byte("bob")
-	prefix := []byte{ModeSession, 0, byte(len(bob))}
-	prefix = append(prefix, bob...)
-	_, err = conn.Write(prefix)
-	require.NoError(t, err)
+	bob := "bob"
+	writeHeaderPrefixWithUser(t, conn, ModeSession, bob)
 
-	performInitiator(t, conn, clientKey, serverPub)
+	performInitiatorWithHeader(t, conn, clientKey, serverPub, ModeSession, bob)
 	writeHeaderTail(t, conn)
 
 	reason := readRFBFailure(t, conn)

@@ -465,6 +465,26 @@ func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Explicit defence-in-depth gate before any business logic: we already
+	// rely on AddPeer/SavePolicy to enforce the Peers.Create and
+	// Policies.Create permissions, but checking up-front means a future
+	// refactor that bypasses one of those calls can't silently widen the
+	// endpoint's authority.
+	if allowed, err := h.permissionsManager.ValidateUserPermissions(r.Context(), userAuth.AccountId, userAuth.UserId, modules.Peers, operations.Create); err != nil {
+		util.WriteError(r.Context(), status.NewPermissionValidationError(err), w)
+		return
+	} else if !allowed {
+		util.WriteError(r.Context(), status.NewPermissionDeniedError(), w)
+		return
+	}
+	if allowed, err := h.permissionsManager.ValidateUserPermissions(r.Context(), userAuth.AccountId, userAuth.UserId, modules.Policies, operations.Create); err != nil {
+		util.WriteError(r.Context(), status.NewPermissionValidationError(err), w)
+		return
+	} else if !allowed {
+		util.WriteError(r.Context(), status.NewPermissionDeniedError(), w)
+		return
+	}
+
 	var req api.PeerTemporaryAccessRequest
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {

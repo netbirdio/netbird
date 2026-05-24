@@ -26,9 +26,12 @@ var errNoConsoleUser = errors.New("no user logged into console")
 
 // sessionAgent abstracts the per-platform manager that spawns and tracks
 // the user-session VNC agent. Resolve returns the agent's Unix-socket
-// path and shared token, possibly spawning lazily.
+// path, the shared per-spawn token, and the uid the agent was spawned
+// under (used to validate peer credentials before the daemon hands the
+// token to whoever is on the other end of the socket). Resolve may spawn
+// the agent lazily.
 type sessionAgent interface {
-	Resolve(ctx context.Context) (socketPath, token string, err error)
+	Resolve(ctx context.Context) (socketPath, token string, peerUID uint32, err error)
 }
 
 // prefixConn replays already-consumed header bytes ahead of the proxy
@@ -70,7 +73,11 @@ func (s *Server) handleServiceConnection(conn net.Conn, sa sessionAgent) {
 		authedLog.Info("VNC connection rejected: auth failed")
 		return
 	}
-	s.registerConnAuth(conn, header)
+	if err := s.registerConnAuth(conn, header); err != nil {
+		rejectConnection(conn, codeMessage(RejectCodeAuthForbidden, err.Error()))
+		authedLog.Warnf("VNC connection rejected: %v", err)
+		return
+	}
 
 	decision, err := s.gateApproval(conn, header)
 	if err != nil {
@@ -83,7 +90,7 @@ func (s *Server) handleServiceConnection(conn net.Conn, sa sessionAgent) {
 		authedLog.Info("VNC connection approved by user")
 	}
 
-	socketPath, token, err := sa.Resolve(s.ctx)
+	socketPath, token, peerUID, err := sa.Resolve(s.ctx)
 	if err != nil {
 		code := RejectCodeCapturerError
 		if errors.Is(err, errNoConsoleUser) {
@@ -98,7 +105,7 @@ func (s *Server) handleServiceConnection(conn net.Conn, sa sessionAgent) {
 		Reader: io.MultiReader(&headerBuf, conn),
 		Conn:   conn,
 	}
-	if err := proxyToAgent(s.ctx, replayConn, socketPath, token, decision.ViewOnly); err != nil {
+	if err := proxyToAgent(s.ctx, replayConn, socketPath, token, peerUID, decision.ViewOnly, authedLog); err != nil {
 		rejectConnection(conn, codeMessage(RejectCodeCapturerError, err.Error()))
 		authedLog.Warnf("VNC connection rejected: agent unreachable: %v", err)
 		return
@@ -134,14 +141,18 @@ func generateAuthToken() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// proxyToAgent dials the per-session agent's Unix socket, writes the
-// raw token bytes plus a single view-only flag byte, then copies bytes
-// both ways until either side closes. The token + flag prefix must
-// precede any RFB byte so the agent's verifyAgentToken can run first.
-// Returns nil once a stream is established; the caller is responsible
-// for sending an RFB-level rejection on error so the client sees a
-// reason instead of a bare timeout.
-func proxyToAgent(ctx context.Context, client net.Conn, socketPath, authToken string, viewOnly bool) error {
+// proxyToAgent dials the per-session agent's Unix socket, validates the
+// peer's kernel-asserted uid (so the daemon never hands its per-spawn
+// token to an impostor that won the listen race), writes the raw token
+// bytes plus a single view-only flag byte, then copies bytes both ways
+// until either side closes. The token + flag prefix must precede any RFB
+// byte so the agent's verifyAgentToken can run first. Returns nil once a
+// stream is established; the caller is responsible for sending an
+// RFB-level rejection on error so the client sees a reason instead of a
+// bare timeout. authedLog receives one audit line per dispatched
+// preamble so an operator can correlate daemon→agent traffic with the
+// remote session that triggered it.
+func proxyToAgent(ctx context.Context, client net.Conn, socketPath, authToken string, peerUID uint32, viewOnly bool, authedLog *log.Entry) error {
 	tokenBytes, err := hex.DecodeString(authToken)
 	if err != nil || len(tokenBytes) != agentTokenLen {
 		return fmt.Errorf("invalid auth token (len=%d): %w", len(tokenBytes), err)
@@ -152,6 +163,11 @@ func proxyToAgent(ctx context.Context, client net.Conn, socketPath, authToken st
 		return fmt.Errorf("dial agent at %s: %w", socketPath, err)
 	}
 
+	if err := validateAgentPeer(agentConn, peerUID); err != nil {
+		_ = agentConn.Close()
+		return fmt.Errorf("agent peer validation failed: %w", err)
+	}
+
 	preamble := make([]byte, len(tokenBytes)+1)
 	copy(preamble, tokenBytes)
 	if viewOnly {
@@ -160,6 +176,17 @@ func proxyToAgent(ctx context.Context, client net.Conn, socketPath, authToken st
 	if _, err := agentConn.Write(preamble); err != nil {
 		_ = agentConn.Close()
 		return fmt.Errorf("send auth preamble to agent: %w", err)
+	}
+
+	// Audit: one line per successfully-dispatched daemon→agent preamble.
+	// Token printed as its first 8 hex chars (enough to correlate, not
+	// enough to use). Kept at Info so the default deployment captures it.
+	tokenFp := authToken
+	if len(tokenFp) > 8 {
+		tokenFp = tokenFp[:8]
+	}
+	if authedLog != nil {
+		authedLog.Infof("VNC IPC: dispatched preamble to agent socket=%s peer_uid=%d view_only=%v token_fp=%s", socketPath, peerUID, viewOnly, tokenFp)
 	}
 
 	defer client.Close()
