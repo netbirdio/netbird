@@ -2218,6 +2218,9 @@ func Test_IsUniqueConstraintError(t *testing.T) {
 		ID:        "test-peer-id",
 		AccountID: "bf1c8084-ba50-4ce7-9439-34653001fc3b",
 		DNSLabel:  "test-peer-dns-label",
+		Status: &nbpeer.PeerStatus{
+			LastSeen: time.Now(),
+		},
 	}
 
 	for _, tt := range tests {
