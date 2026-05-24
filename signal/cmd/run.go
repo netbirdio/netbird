@@ -18,7 +18,9 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
+	"github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/shared/metrics"
+	"github.com/netbirdio/netbird/shared/settingoverrider"
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/shared/signal/proto"
@@ -114,7 +116,24 @@ var (
 				}
 			}()
 
-			srv, err := server.NewServer(cmd.Context(), metricsServer.Meter)
+			overrider := settingoverrider.NewNoop()
+			if redisAddr := cache.GetAddrFromEnv(); redisAddr != "" {
+				overrider, err = settingoverrider.New(cmd.Context(), redisAddr)
+				if err != nil {
+					return fmt.Errorf("failed to create setting overrider: %w", err)
+				}
+				defer func() { _ = overrider.Close() }()
+			}
+			overrider.Poll(settingoverrider.DefaultInterval, "signalLogLevel", func(value string) error {
+				level, err := log.ParseLevel(value)
+				if err != nil {
+					return fmt.Errorf("parsing log level %q: %w", value, err)
+				}
+				log.SetLevel(level)
+				return nil
+			})
+
+			srv, err := server.NewServer(cmd.Context(), metricsServer.Meter, overrider)
 			if err != nil {
 				return fmt.Errorf("creating signal server: %v", err)
 			}

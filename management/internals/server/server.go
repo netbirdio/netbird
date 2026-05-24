@@ -23,6 +23,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/metrics"
 	"github.com/netbirdio/netbird/management/server/store"
+	"github.com/netbirdio/netbird/shared/settingoverrider"
 	"github.com/netbirdio/netbird/util/wsproxy"
 	wsproxyserver "github.com/netbirdio/netbird/util/wsproxy/server"
 	"github.com/netbirdio/netbird/version"
@@ -122,6 +123,15 @@ func (s *BaseServer) Start(ctx context.Context) error {
 
 	s.PeersManager()
 	s.GeoLocationManager()
+
+	s.SettingOverrider().Poll(settingoverrider.DefaultInterval, "managementLogLevel", func(value string) error {
+		level, err := log.ParseLevel(value)
+		if err != nil {
+			return fmt.Errorf("parsing log level %q: %w", value, err)
+		}
+		log.SetLevel(level)
+		return nil
+	})
 
 	err := s.Metrics().Expose(srvCtx, s.mgmtMetricsPort, "/metrics")
 	if err != nil {
@@ -235,6 +245,7 @@ func (s *BaseServer) Stop() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	_ = s.SettingOverrider().Close()
 	s.IntegratedValidator().Stop(ctx)
 	if s.GeoLocationManager() != nil {
 		_ = s.GeoLocationManager().Stop()

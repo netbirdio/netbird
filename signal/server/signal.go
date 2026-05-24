@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/netbirdio/signal-dispatcher/dispatcher"
 
+	"github.com/netbirdio/netbird/shared/settingoverrider"
 	"github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/signal/metrics"
 	"github.com/netbirdio/netbird/signal/peer"
@@ -59,10 +61,12 @@ type Server struct {
 	successHeader metadata.MD
 
 	sendTimeout time.Duration
+
+	sendTracker *sendRateTracker
 }
 
 // NewServer creates a new Signal server
-func NewServer(ctx context.Context, meter metric.Meter, metricsPrefix ...string) (*Server, error) {
+func NewServer(ctx context.Context, meter metric.Meter, overrider *settingoverrider.Overrider, metricsPrefix ...string) (*Server, error) {
 	appMetrics, err := metrics.NewAppMetrics(meter, metricsPrefix...)
 	if err != nil {
 		return nil, fmt.Errorf("creating app metrics: %v", err)
@@ -80,13 +84,35 @@ func NewServer(ctx context.Context, meter metric.Meter, metricsPrefix ...string)
 		sTimeout = parsed
 	}
 
+	tracker := newSendRateTracker()
+
 	s := &Server{
 		dispatcher:    d,
 		registry:      peer.NewRegistry(appMetrics),
 		metrics:       appMetrics,
 		successHeader: metadata.Pairs(proto.HeaderRegistered, "1"),
 		sendTimeout:   sTimeout,
+		sendTracker:   tracker,
 	}
+
+	overrider.Poll(settingoverrider.DefaultInterval, "signalSendRateLogInterval", func(value string) error {
+		parsed, err := time.ParseDuration(value)
+		if err != nil || parsed <= 0 {
+			return fmt.Errorf("invalid send rate log interval %q: %w", value, err)
+		}
+		tracker.setInterval(parsed)
+		return nil
+	})
+	overrider.Poll(settingoverrider.DefaultInterval, "signalSendRateTopPercent", func(value string) error {
+		parsed, err := strconv.ParseFloat(value, 64)
+		if err != nil || parsed <= 0 || parsed > 1 {
+			return fmt.Errorf("invalid send rate top percent %q: %w", value, err)
+		}
+		tracker.setTopPercent(parsed)
+		return nil
+	})
+
+	go tracker.logSendRates(ctx)
 
 	return s, nil
 }
@@ -94,6 +120,8 @@ func NewServer(ctx context.Context, meter metric.Meter, metricsPrefix ...string)
 // Send forwards a message to the signal peer
 func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
 	log.Tracef("received a new message to send from peer [%s] to peer [%s]", msg.Key, msg.RemoteKey)
+
+	s.sendTracker.increment(msg.Key)
 
 	if _, found := s.registry.Get(msg.RemoteKey); found {
 		s.forwardMessageToPeer(ctx, msg)
