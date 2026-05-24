@@ -38,6 +38,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 	grpcstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
+	goproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/netbirdio/netbird/proxy/internal/accesslog"
@@ -1417,12 +1418,41 @@ var mappingJSONMarshal = protojson.MarshalOptions{
 	UseProtoNames:   true,
 }
 
+// redactMappingForLog returns a deep copy of the mapping with sensitive fields
+// (auth_token, header-auth hashed values, custom upstream headers) replaced so
+// debug logs never carry credentials.
+func redactMappingForLog(m *proto.ProxyMapping) *proto.ProxyMapping {
+	const placeholder = "[REDACTED]"
+	c := goproto.Clone(m).(*proto.ProxyMapping)
+	if c.GetAuthToken() != "" {
+		c.AuthToken = placeholder
+	}
+	if c.Auth != nil {
+		for _, h := range c.Auth.GetHeaderAuths() {
+			if h.GetHashedValue() != "" {
+				h.HashedValue = placeholder
+			}
+		}
+	}
+	for _, p := range c.GetPath() {
+		opts := p.GetOptions()
+		if opts == nil || len(opts.CustomHeaders) == 0 {
+			continue
+		}
+		redacted := make(map[string]string, len(opts.CustomHeaders))
+		for k := range opts.CustomHeaders {
+			redacted[k] = placeholder
+		}
+		opts.CustomHeaders = redacted
+	}
+	return c
+}
+
 func (s *Server) processMappings(ctx context.Context, mappings []*proto.ProxyMapping) {
-	// The full proto dump carries auth_token and header-auth values; gate on debug.
 	debug := s.Logger != nil && s.Logger.IsLevelEnabled(log.DebugLevel)
 	for _, mapping := range mappings {
 		if debug {
-			raw, err := mappingJSONMarshal.Marshal(mapping)
+			raw, err := mappingJSONMarshal.Marshal(redactMappingForLog(mapping))
 			if err != nil {
 				raw = []byte(fmt.Sprintf("<marshal error: %v>", err))
 			}

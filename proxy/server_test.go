@@ -10,6 +10,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
 func TestDebugEndpointDisabledByDefault(t *testing.T) {
@@ -142,4 +144,61 @@ func TestStopSkipsShutdownWhenNeverStarted(t *testing.T) {
 
 	err := srv.Stop(ctx)
 	assert.NoError(t, err, "Stop on an unstarted server should not block on the cancelled ctx")
+}
+
+func TestRedactMappingForLog_ScrubsSensitiveFields(t *testing.T) {
+	original := &proto.ProxyMapping{
+		Id:        "svc-1",
+		Domain:    "example.com",
+		AuthToken: "super-secret-token",
+		Auth: &proto.Authentication{
+			SessionKey: "pubkey-not-secret",
+			HeaderAuths: []*proto.HeaderAuth{
+				{Header: "Authorization", HashedValue: "argon2-hash-1"},
+				{Header: "X-Api-Key", HashedValue: "argon2-hash-2"},
+			},
+		},
+		Path: []*proto.PathMapping{
+			{
+				Path:   "/api",
+				Target: "10.0.0.1:8080",
+				Options: &proto.PathTargetOptions{
+					CustomHeaders: map[string]string{
+						"Authorization": "Bearer upstream-token",
+						"X-Tenant":      "acme",
+					},
+				},
+			},
+		},
+	}
+
+	redacted := redactMappingForLog(original)
+
+	assert.Equal(t, "super-secret-token", original.AuthToken, "original must not be mutated")
+	assert.Equal(t, "argon2-hash-1", original.Auth.HeaderAuths[0].HashedValue, "original header hash must not be mutated")
+	assert.Equal(t, "Bearer upstream-token", original.Path[0].Options.CustomHeaders["Authorization"], "original custom header must not be mutated")
+
+	assert.Equal(t, "[REDACTED]", redacted.AuthToken, "auth_token must be redacted")
+	require.Len(t, redacted.Auth.HeaderAuths, 2, "header auths must be preserved in count")
+	assert.Equal(t, "Authorization", redacted.Auth.HeaderAuths[0].Header, "header name must be preserved")
+	assert.Equal(t, "[REDACTED]", redacted.Auth.HeaderAuths[0].HashedValue, "hashed_value must be redacted")
+	assert.Equal(t, "[REDACTED]", redacted.Auth.HeaderAuths[1].HashedValue, "hashed_value must be redacted for every header auth")
+	assert.Equal(t, "pubkey-not-secret", redacted.Auth.SessionKey, "session_key (public) must be preserved")
+
+	headers := redacted.Path[0].Options.CustomHeaders
+	require.Len(t, headers, 2, "custom header keys must be preserved")
+	assert.Equal(t, "[REDACTED]", headers["Authorization"], "custom header values must be redacted")
+	assert.Equal(t, "[REDACTED]", headers["X-Tenant"], "every custom header value must be redacted")
+
+	assert.Equal(t, "svc-1", redacted.Id, "non-sensitive fields must round-trip")
+	assert.Equal(t, "example.com", redacted.Domain, "non-sensitive fields must round-trip")
+}
+
+func TestRedactMappingForLog_HandlesEmptyOrNilFields(t *testing.T) {
+	empty := &proto.ProxyMapping{Id: "svc-empty"}
+	redacted := redactMappingForLog(empty)
+
+	assert.Equal(t, "", redacted.AuthToken, "empty auth_token must remain empty (no placeholder)")
+	assert.Nil(t, redacted.Auth, "nil Auth must remain nil")
+	assert.Empty(t, redacted.Path, "empty Path must remain empty")
 }
