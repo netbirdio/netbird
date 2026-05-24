@@ -445,6 +445,14 @@ type captureWorker struct {
 	lastDesktop   string
 	nextInitRetry time.Time
 	cursor        cursorSampler
+	// lastBackend records the last capturer kind that came out of
+	// createCapturer ("dxgi" or "gdi"); used to demote repeat "using X"
+	// and DXGI-unavailable logs to debug when nothing changed.
+	lastBackend string
+	// lastDXGIErr is the textual DXGI failure printed in the most recent
+	// fallback warning; suppresses repeat warns when DXGI keeps failing
+	// the same way across desktop changes (login -> lock -> login).
+	lastDXGIErr string
 }
 
 // handleNextRequest waits for either shutdown or a capture request and runs
@@ -503,9 +511,14 @@ func (w *captureWorker) prepCapturer() (frameCapturer, error) {
 	w.cap = fc
 	sw, sh := screenSize()
 	w.c.mu.Lock()
+	sizeChanged := w.c.w != sw || w.c.h != sh
 	w.c.w, w.c.h = sw, sh
 	w.c.mu.Unlock()
-	log.Infof("screen capturer ready: %dx%d", sw, sh)
+	if sizeChanged {
+		log.Infof("screen capturer ready: %dx%d", sw, sh)
+	} else {
+		log.Debugf("screen capturer ready: %dx%d", sw, sh)
+	}
 	return w.cap, nil
 }
 
@@ -536,15 +549,32 @@ func (w *captureWorker) refreshDesktop() error {
 func (w *captureWorker) createCapturer() (frameCapturer, error) {
 	dc, err := newDXGICapturer()
 	if err == nil {
-		log.Info("using DXGI Desktop Duplication for capture")
+		if w.lastBackend != "dxgi" {
+			log.Info("using DXGI Desktop Duplication for capture")
+		} else {
+			log.Debug("using DXGI Desktop Duplication for capture")
+		}
+		w.lastBackend = "dxgi"
+		w.lastDXGIErr = ""
 		return dc, nil
 	}
-	log.Warnf("DXGI Desktop Duplication unavailable, falling back to slower GDI BitBlt: %v", err)
+	errStr := err.Error()
+	if errStr != w.lastDXGIErr {
+		log.Warnf("DXGI Desktop Duplication unavailable, falling back to slower GDI BitBlt: %v", err)
+		w.lastDXGIErr = errStr
+	} else {
+		log.Debugf("DXGI Desktop Duplication still unavailable, falling back to slower GDI BitBlt: %v", err)
+	}
 	gc, err := newGDICapturer()
 	if err != nil {
 		return nil, err
 	}
-	log.Info("using GDI BitBlt for capture")
+	if w.lastBackend != "gdi" {
+		log.Info("using GDI BitBlt for capture")
+	} else {
+		log.Debug("using GDI BitBlt for capture")
+	}
+	w.lastBackend = "gdi"
 	return gc, nil
 }
 

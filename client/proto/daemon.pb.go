@@ -2128,7 +2128,10 @@ type VNCSessionInfo struct {
 	Username      string                 `protobuf:"bytes,3,opt,name=username,proto3" json:"username,omitempty"`
 	// userID is the Noise-verified session identity (hashed user ID from
 	// the ACL session-key entry), empty when auth is disabled.
-	UserID        string `protobuf:"bytes,4,opt,name=userID,proto3" json:"userID,omitempty"`
+	UserID string `protobuf:"bytes,4,opt,name=userID,proto3" json:"userID,omitempty"`
+	// initiator is the human-readable display name of the dashboard user
+	// who minted the SessionPubKey, when known.
+	Initiator     string `protobuf:"bytes,5,opt,name=initiator,proto3" json:"initiator,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2187,6 +2190,13 @@ func (x *VNCSessionInfo) GetUsername() string {
 func (x *VNCSessionInfo) GetUserID() string {
 	if x != nil {
 		return x.UserID
+	}
+	return ""
+}
+
+func (x *VNCSessionInfo) GetInitiator() string {
+	if x != nil {
+		return x.Initiator
 	}
 	return ""
 }
@@ -6717,12 +6727,13 @@ const file_daemon_proto_rawDesc = "" +
 	"\fportForwards\x18\x05 \x03(\tR\fportForwards\"^\n" +
 	"\x0eSSHServerState\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x122\n" +
-	"\bsessions\x18\x02 \x03(\v2\x16.daemon.SSHSessionInfoR\bsessions\"~\n" +
+	"\bsessions\x18\x02 \x03(\v2\x16.daemon.SSHSessionInfoR\bsessions\"\x9c\x01\n" +
 	"\x0eVNCSessionInfo\x12$\n" +
 	"\rremoteAddress\x18\x01 \x01(\tR\rremoteAddress\x12\x12\n" +
 	"\x04mode\x18\x02 \x01(\tR\x04mode\x12\x1a\n" +
 	"\busername\x18\x03 \x01(\tR\busername\x12\x16\n" +
-	"\x06userID\x18\x04 \x01(\tR\x06userID\"^\n" +
+	"\x06userID\x18\x04 \x01(\tR\x06userID\x12\x1c\n" +
+	"\tinitiator\x18\x05 \x01(\tR\tinitiator\"^\n" +
 	"\x0eVNCServerState\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x122\n" +
 	"\bsessions\x18\x02 \x03(\v2\x16.daemon.VNCSessionInfoR\bsessions\"\xef\x04\n" +

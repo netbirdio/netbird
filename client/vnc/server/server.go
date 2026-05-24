@@ -246,6 +246,10 @@ type ActiveSessionInfo struct {
 	// UserID is the authenticated session identity (hashed user ID from
 	// the Noise_IK static-key registration), empty when auth is disabled.
 	UserID string
+	// Initiator is the dashboard-supplied display name of the user who
+	// minted the SessionPubKey, when known. Empty when auth is disabled
+	// or the authorizer has no display-name mapping.
+	Initiator string
 }
 
 // vncSession provides capturer and injector for a virtual display session.
@@ -852,11 +856,16 @@ func (s *Server) handleConnection(conn net.Conn) {
 		return
 	}
 
+	var initiator string
+	if s.authorizer != nil {
+		initiator = s.authorizer.LookupSessionDisplayName(header.clientStatic)
+	}
 	sessionID := s.addSession(ActiveSessionInfo{
 		RemoteAddress: conn.RemoteAddr().String(),
 		Mode:          modeString(header.mode),
 		Username:      header.username,
 		UserID:        sessionUserID,
+		Initiator:     initiator,
 	}, conn)
 	defer s.removeSession(sessionID)
 

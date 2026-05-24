@@ -480,10 +480,10 @@ func (p *VNCProxy) runNoiseHandshake(conn net.Conn, dest vncDestination) error {
 	defer conn.SetReadDeadline(time.Time{}) //nolint:errcheck
 	msg2 := make([]byte, noiseResponderMsgLen)
 	if _, err := io.ReadFull(conn, msg2); err != nil {
-		return fmt.Errorf("read noise msg2: %w", err)
+		return fmt.Errorf("read noise msg2 from server: %w", err)
 	}
 	if _, _, _, err := state.ReadMessage(nil, msg2); err != nil {
-		return fmt.Errorf("noise read msg2: %w", err)
+		return fmt.Errorf("decrypt noise msg2 (peer pubkey mismatch or session revoked): %w", err)
 	}
 	return nil
 }

@@ -68,7 +68,7 @@ func (s *Server) handleServiceConnection(conn net.Conn, sa sessionAgent) {
 		return
 	}
 
-	authedLog, _, ok := s.authorizeSession(conn, header, connLog)
+	authedLog, sessionUserID, ok := s.authorizeSession(conn, header, connLog)
 	if !ok {
 		authedLog.Info("VNC connection rejected: auth failed")
 		return
@@ -100,6 +100,19 @@ func (s *Server) handleServiceConnection(conn net.Conn, sa sessionAgent) {
 		authedLog.Warnf("VNC connection rejected: agent unavailable: %v", err)
 		return
 	}
+
+	var initiator string
+	if s.authorizer != nil {
+		initiator = s.authorizer.LookupSessionDisplayName(header.clientStatic)
+	}
+	sessionID := s.addSession(ActiveSessionInfo{
+		RemoteAddress: conn.RemoteAddr().String(),
+		Mode:          modeString(header.mode),
+		Username:      header.username,
+		UserID:        sessionUserID,
+		Initiator:     initiator,
+	}, conn)
+	defer s.removeSession(sessionID)
 
 	replayConn := &prefixConn{
 		Reader: io.MultiReader(&headerBuf, conn),
@@ -198,8 +211,8 @@ func proxyToAgent(ctx context.Context, client net.Conn, socketPath, authToken st
 		log.Debugf("proxy %s: %d bytes, err=%v", label, n, err)
 		done <- struct{}{}
 	}
-	go cp("client→agent", agentConn, client)
-	go cp("agent→client", client, agentConn)
+	go cp("client->agent", agentConn, client)
+	go cp("agent->client", client, agentConn)
 	<-done
 	return nil
 }
