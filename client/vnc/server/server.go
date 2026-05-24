@@ -180,6 +180,10 @@ type Server struct {
 	netstackNet *netstack.Net
 	// agentToken holds the raw token bytes for agent-mode auth.
 	agentToken []byte
+	// invalidAgentToken latches when AgentTokenHex was provided but failed
+	// to decode. Start refuses to listen in that case so the daemon never
+	// silently downgrades the local IPC hop to unauthenticated access.
+	invalidAgentToken bool
 	// identityKey is the daemon's static X25519 private key used in the
 	// Noise_IK handshake. Nil disables the handshake.
 	identityKey []byte
@@ -356,6 +360,7 @@ func New(cfg Config) *Server {
 		if b, err := hex.DecodeString(cfg.AgentTokenHex); err == nil {
 			s.agentToken = b
 		} else {
+			s.invalidAgentToken = true
 			s.log.Warnf("invalid agent token: %v", err)
 		}
 	}
@@ -578,6 +583,9 @@ func (s *Server) Start(ctx context.Context, addr netip.AddrPort, network netip.P
 	if s.listener != nil {
 		return fmt.Errorf("server already running")
 	}
+	if s.invalidAgentToken {
+		return fmt.Errorf("invalid agent token configuration")
+	}
 
 	s.ctx, s.cancel = context.WithCancel(ctx)
 	s.vmgr = s.platformSessionManager()
@@ -686,13 +694,17 @@ func (s *Server) acceptLoop() {
 			continue
 		}
 
+		// Track before any early-reject path so a concurrent Stop's
+		// closeActiveSessions snapshot can never miss a just-accepted
+		// socket and let it survive shutdown.
+		s.trackConn(conn)
 		if !s.tryAcquireConnSlot() {
+			s.untrackConn(conn)
 			s.log.Warnf("rejecting VNC connection from %s: %d concurrent connections in flight", conn.RemoteAddr(), maxConcurrentVNCConns)
 			_ = conn.Close()
 			continue
 		}
 		enableTCPKeepAlive(conn, s.log)
-		s.trackConn(conn)
 		go func(c net.Conn) {
 			defer s.releaseConnSlot()
 			defer s.untrackConn(c)
