@@ -32,9 +32,11 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric"
 	"golang.org/x/exp/maps"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
+	grpcstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/netbirdio/netbird/proxy/internal/accesslog"
@@ -282,6 +284,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 		WGPort:       s.WireguardPort,
 		PreSharedKey: s.PreSharedKey,
 	}, s.Logger, s, s.mgmtClient)
+	s.netbird.OnAddPeer = s.meter.RecordAddPeerDuration
 
 	// Create health checker before the mapping worker so it can track
 	// management connectivity from the first stream connection.
@@ -938,6 +941,9 @@ func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.Pr
 		Clock:               backoff.SystemClock,
 	}
 
+	// syncSupported tracks whether management supports SyncMappings.
+	// Starts true; set to false on first Unimplemented error.
+	syncSupported := true
 	initialSyncDone := false
 
 	operation := func() error {
@@ -949,35 +955,24 @@ func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.Pr
 			s.healthChecker.SetManagementConnected(false)
 		}
 
-		supportsCrowdSec := s.crowdsecRegistry.Available()
-		mappingClient, err := client.GetMappingUpdate(ctx, &proto.GetMappingUpdateRequest{
-			ProxyId:   s.ID,
-			Version:   s.Version,
-			StartedAt: timestamppb.New(s.startTime),
-			Address:   s.ProxyURL,
-			Capabilities: &proto.ProxyCapabilities{
-				SupportsCustomPorts: &s.SupportsCustomPorts,
-				RequireSubdomain:    &s.RequireSubdomain,
-				SupportsCrowdsec:    &supportsCrowdSec,
-			},
-		})
-		if err != nil {
-			return fmt.Errorf("create mapping stream: %w", err)
+		var streamErr error
+		if syncSupported {
+			streamErr = s.trySyncMappings(ctx, client, &initialSyncDone)
+			if isSyncUnimplemented(streamErr) {
+				syncSupported = false
+				s.Logger.Info("management does not support SyncMappings, falling back to GetMappingUpdate")
+				streamErr = s.tryGetMappingUpdate(ctx, client, &initialSyncDone)
+			}
+		} else {
+			streamErr = s.tryGetMappingUpdate(ctx, client, &initialSyncDone)
 		}
-
-		if s.healthChecker != nil {
-			s.healthChecker.SetManagementConnected(true)
-		}
-		s.Logger.Debug("management mapping stream established")
-
-		// Stream established — reset backoff so the next failure retries quickly.
-		bo.Reset()
-
-		streamErr := s.handleMappingStream(ctx, mappingClient, &initialSyncDone)
 
 		if s.healthChecker != nil {
 			s.healthChecker.SetManagementConnected(false)
 		}
+
+		// Stream established — reset backoff so the next failure retries quickly.
+		bo.Reset()
 
 		if streamErr == nil {
 			return fmt.Errorf("stream closed by server")
@@ -995,54 +990,185 @@ func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.Pr
 	}
 }
 
-func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.ProxyService_GetMappingUpdateClient, initialSyncDone *bool) error {
+func (s *Server) proxyCapabilities() *proto.ProxyCapabilities {
+	supportsCrowdSec := s.crowdsecRegistry.Available()
+	return &proto.ProxyCapabilities{
+		SupportsCustomPorts: &s.SupportsCustomPorts,
+		RequireSubdomain:    &s.RequireSubdomain,
+		SupportsCrowdsec:    &supportsCrowdSec,
+	}
+}
+
+func (s *Server) tryGetMappingUpdate(ctx context.Context, client proto.ProxyServiceClient, initialSyncDone *bool) error {
+	connectTime := time.Now()
+	mappingClient, err := client.GetMappingUpdate(ctx, &proto.GetMappingUpdateRequest{
+		ProxyId:      s.ID,
+		Version:      s.Version,
+		StartedAt:    timestamppb.New(s.startTime),
+		Address:      s.ProxyURL,
+		Capabilities: s.proxyCapabilities(),
+	})
+	if err != nil {
+		return fmt.Errorf("create mapping stream: %w", err)
+	}
+
+	if s.healthChecker != nil {
+		s.healthChecker.SetManagementConnected(true)
+	}
+	s.Logger.Debug("management mapping stream established (GetMappingUpdate)")
+
+	return s.handleMappingStream(ctx, mappingClient, initialSyncDone, connectTime)
+}
+
+func (s *Server) trySyncMappings(ctx context.Context, client proto.ProxyServiceClient, initialSyncDone *bool) error {
+	connectTime := time.Now()
+	stream, err := client.SyncMappings(ctx)
+	if err != nil {
+		return fmt.Errorf("create sync stream: %w", err)
+	}
+
+	// Send init message.
+	if err := stream.Send(&proto.SyncMappingsRequest{
+		Msg: &proto.SyncMappingsRequest_Init{
+			Init: &proto.SyncMappingsInit{
+				ProxyId:      s.ID,
+				Version:      s.Version,
+				StartedAt:    timestamppb.New(s.startTime),
+				Address:      s.ProxyURL,
+				Capabilities: s.proxyCapabilities(),
+			},
+		},
+	}); err != nil {
+		return fmt.Errorf("send sync init: %w", err)
+	}
+
+	if s.healthChecker != nil {
+		s.healthChecker.SetManagementConnected(true)
+	}
+	s.Logger.Debug("management mapping stream established (SyncMappings)")
+
+	return s.handleSyncMappingsStream(ctx, stream, initialSyncDone, connectTime)
+}
+
+func isSyncUnimplemented(err error) bool {
+	if err == nil {
+		return false
+	}
+	st, ok := grpcstatus.FromError(err)
+	return ok && st.Code() == codes.Unimplemented
+}
+
+func (s *Server) handleSyncMappingsStream(ctx context.Context, stream proto.ProxyService_SyncMappingsClient, initialSyncDone *bool, connectTime time.Time) error {
 	select {
 	case <-s.routerReady:
 	case <-ctx.Done():
 		return ctx.Err()
 	}
 
-	var snapshotIDs map[types.ServiceID]struct{}
-	if !*initialSyncDone {
-		snapshotIDs = make(map[types.ServiceID]struct{})
-	}
+	tracker := s.newSnapshotTracker(initialSyncDone, connectTime)
 
 	for {
-		// Check for context completion to gracefully shutdown.
 		select {
 		case <-ctx.Done():
-			// Shutting down.
+			return ctx.Err()
+		default:
+			msg, err := stream.Recv()
+			switch {
+			case errors.Is(err, io.EOF):
+				return nil
+			case err != nil:
+				return fmt.Errorf("receive msg: %w", err)
+			}
+
+			batchStart := time.Now()
+			s.Logger.Debug("Received mapping update, starting processing")
+			s.processMappings(ctx, msg.GetMapping())
+			s.Logger.Debug("Processing mapping update completed")
+			tracker.recordBatch(ctx, s, msg.GetMapping(), msg.GetInitialSyncComplete(), batchStart)
+
+			if err := stream.Send(&proto.SyncMappingsRequest{
+				Msg: &proto.SyncMappingsRequest_Ack{Ack: &proto.SyncMappingsAck{}},
+			}); err != nil {
+				return fmt.Errorf("send ack: %w", err)
+			}
+		}
+	}
+}
+
+func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.ProxyService_GetMappingUpdateClient, initialSyncDone *bool, connectTime time.Time) error {
+	select {
+	case <-s.routerReady:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	tracker := s.newSnapshotTracker(initialSyncDone, connectTime)
+
+	for {
+		select {
+		case <-ctx.Done():
 			return ctx.Err()
 		default:
 			msg, err := mappingClient.Recv()
 			switch {
 			case errors.Is(err, io.EOF):
-				// Mapping connection gracefully terminated by server.
 				return nil
 			case err != nil:
-				// Something has gone horribly wrong, return and hope the parent retries the connection.
 				return fmt.Errorf("receive msg: %w", err)
 			}
+
+			batchStart := time.Now()
 			s.Logger.Debug("Received mapping update, starting processing")
 			s.processMappings(ctx, msg.GetMapping())
 			s.Logger.Debug("Processing mapping update completed")
-
-			if !*initialSyncDone {
-				for _, m := range msg.GetMapping() {
-					snapshotIDs[types.ServiceID(m.GetId())] = struct{}{}
-				}
-				if msg.GetInitialSyncComplete() {
-					s.reconcileSnapshot(ctx, snapshotIDs)
-					snapshotIDs = nil
-					if s.healthChecker != nil {
-						s.healthChecker.SetInitialSyncComplete()
-					}
-					*initialSyncDone = true
-					s.Logger.Info("Initial mapping sync complete")
-				}
-			}
+			tracker.recordBatch(ctx, s, msg.GetMapping(), msg.GetInitialSyncComplete(), batchStart)
 		}
 	}
+}
+
+// snapshotTracker accumulates service IDs during the initial snapshot and
+// finalises sync state when the complete flag arrives.
+type snapshotTracker struct {
+	done        *bool
+	connectTime time.Time
+	snapshotIDs map[types.ServiceID]struct{}
+}
+
+func (s *Server) newSnapshotTracker(done *bool, connectTime time.Time) *snapshotTracker {
+	var ids map[types.ServiceID]struct{}
+	if !*done {
+		ids = make(map[types.ServiceID]struct{})
+	}
+	return &snapshotTracker{done: done, connectTime: connectTime, snapshotIDs: ids}
+}
+
+func (t *snapshotTracker) recordBatch(ctx context.Context, s *Server, mappings []*proto.ProxyMapping, syncComplete bool, batchStart time.Time) {
+	if *t.done {
+		return
+	}
+
+	if s.meter != nil {
+		s.meter.RecordSnapshotBatchDuration(time.Since(batchStart))
+	}
+
+	for _, m := range mappings {
+		t.snapshotIDs[types.ServiceID(m.GetId())] = struct{}{}
+	}
+
+	if !syncComplete {
+		return
+	}
+
+	s.reconcileSnapshot(ctx, t.snapshotIDs)
+	t.snapshotIDs = nil
+	if s.healthChecker != nil {
+		s.healthChecker.SetInitialSyncComplete()
+	}
+	*t.done = true
+	if s.meter != nil {
+		s.meter.RecordSnapshotSyncDuration(time.Since(t.connectTime))
+	}
+	s.Logger.Info("Initial mapping sync complete")
 }
 
 // reconcileSnapshot removes local mappings that are absent from the snapshot.
@@ -1067,6 +1193,8 @@ func (s *Server) reconcileSnapshot(ctx context.Context, snapshotIDs map[types.Se
 }
 
 func (s *Server) processMappings(ctx context.Context, mappings []*proto.ProxyMapping) {
+	s.ensurePeers(ctx, mappings)
+
 	for _, mapping := range mappings {
 		s.Logger.WithFields(log.Fields{
 			"type":   mapping.GetType(),
@@ -1098,6 +1226,60 @@ func (s *Server) processMappings(ctx context.Context, mappings []*proto.ProxyMap
 			s.removeMapping(ctx, mapping)
 		}
 	}
+}
+
+// ensurePeers pre-creates NetBird peers for all unique accounts referenced by
+// CREATED mappings. Peers for different accounts are created concurrently,
+// which avoids serializing N×100ms gRPC round-trips during large initial syncs.
+func (s *Server) ensurePeers(ctx context.Context, mappings []*proto.ProxyMapping) {
+	// Collect one representative mapping per account that needs a new peer.
+	type peerReq struct {
+		accountID types.AccountID
+		svcKey    roundtrip.ServiceKey
+		authToken string
+		svcID     types.ServiceID
+	}
+	seen := make(map[types.AccountID]struct{})
+	var reqs []peerReq
+	for _, m := range mappings {
+		if m.GetType() != proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED {
+			continue
+		}
+		accountID := types.AccountID(m.GetAccountId())
+		if _, ok := seen[accountID]; ok {
+			continue
+		}
+		seen[accountID] = struct{}{}
+		if s.netbird.HasClient(accountID) {
+			continue
+		}
+		reqs = append(reqs, peerReq{
+			accountID: accountID,
+			svcKey:    s.serviceKeyForMapping(m),
+			authToken: m.GetAuthToken(),
+			svcID:     types.ServiceID(m.GetId()),
+		})
+	}
+
+	if len(reqs) <= 1 {
+		return
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(len(reqs))
+	for _, r := range reqs {
+		go func() {
+			defer wg.Done()
+			if err := s.netbird.AddPeer(ctx, r.accountID, r.svcKey, r.authToken, r.svcID); err != nil {
+				s.Logger.WithFields(log.Fields{
+					"account_id": r.accountID,
+					"service_id": r.svcID,
+					"error":      err,
+				}).Warn("failed to pre-create peer for account")
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 // addMapping registers a service mapping and starts the appropriate relay or routes.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"testing"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -139,7 +140,7 @@ func TestHandleMappingStream_BatchedSnapshotSyncComplete(t *testing.T) {
 	}
 
 	syncDone := false
-	err := s.handleMappingStream(context.Background(), stream, &syncDone)
+	err := s.handleMappingStream(context.Background(), stream, &syncDone, time.Time{})
 	assert.NoError(t, err)
 	assert.True(t, syncDone, "sync should be marked done after final batch")
 }
@@ -164,7 +165,7 @@ func TestHandleMappingStream_PostSyncDoesNotReconcile(t *testing.T) {
 	}
 
 	syncDone := true // sync already completed in a previous stream
-	err := s.handleMappingStream(context.Background(), stream, &syncDone)
+	err := s.handleMappingStream(context.Background(), stream, &syncDone, time.Time{})
 	require.NoError(t, err)
 
 	assert.Len(t, s.lastMappings, 2,
@@ -185,7 +186,7 @@ func TestHandleMappingStream_ImmediateEOF_NoReconciliation(t *testing.T) {
 	stream := &mockMappingStream{} // no messages → immediate EOF
 
 	syncDone := false
-	err := s.handleMappingStream(context.Background(), stream, &syncDone)
+	err := s.handleMappingStream(context.Background(), stream, &syncDone, time.Time{})
 	assert.NoError(t, err)
 	assert.False(t, syncDone, "sync should not be marked done on immediate EOF")
 
@@ -218,7 +219,7 @@ func TestHandleMappingStream_ErrorMidSync_NoReconciliation(t *testing.T) {
 	s.lastMappings["svc-stale"] = &proto.ProxyMapping{Id: "svc-stale", AccountId: "acct-1"}
 
 	syncDone := false
-	err := s.handleMappingStream(context.Background(), &mockErrRecvStream{}, &syncDone)
+	err := s.handleMappingStream(context.Background(), &mockErrRecvStream{}, &syncDone, time.Time{})
 	assert.Error(t, err)
 	assert.False(t, syncDone)
 
