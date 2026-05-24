@@ -227,6 +227,9 @@ func dibCopy(hbm windows.Handle, w, h int32) ([]byte, error) {
 	bih.BiBitCount = 32
 	bih.BiCompression = biRgb
 
+	if w <= 0 || h <= 0 || w > maxCursorDim || h > maxCursorDim {
+		return nil, fmt.Errorf("dibCopy: cursor dims %dx%d out of range (max %d)", w, h, maxCursorDim)
+	}
 	buf := make([]byte, int(w)*int(h)*4)
 	r, _, err := procGetDIBits.Call(
 		hdcMem,

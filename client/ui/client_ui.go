@@ -99,14 +99,15 @@ func main() {
 		showUpdateVersion: flags.showUpdateVersion,
 		showApproval:      flags.showApproval,
 		approvalRequest: approvalRequest{
-			requestID: flags.approvalRequestID,
-			kind:      flags.approvalKind,
-			initiator: flags.approvalInitiator,
-			peerName:  flags.approvalPeerName,
-			sourceIP:  flags.approvalSourceIP,
-			username:  flags.approvalUsername,
-			subject:   flags.approvalSubject,
-			expiresAt: flags.approvalExpiresAt,
+			requestID:      flags.approvalRequestID,
+			kind:           flags.approvalKind,
+			initiator:      flags.approvalInitiator,
+			peerName:       flags.approvalPeerName,
+			sourceIP:       flags.approvalSourceIP,
+			username:       flags.approvalUsername,
+			subject:        flags.approvalSubject,
+			expiresAt:      flags.approvalExpiresAt,
+			keyFingerprint: flags.approvalKeyFingerprint,
 		},
 	})
 
@@ -153,14 +154,15 @@ type cliFlags struct {
 	showUpdateVersion string
 	showApproval      bool
 
-	approvalRequestID string
-	approvalKind      string
-	approvalInitiator string
-	approvalPeerName  string
-	approvalSourceIP  string
-	approvalUsername  string
-	approvalSubject   string
-	approvalExpiresAt string
+	approvalRequestID      string
+	approvalKind           string
+	approvalInitiator      string
+	approvalPeerName       string
+	approvalSourceIP       string
+	approvalUsername       string
+	approvalSubject        string
+	approvalExpiresAt      string
+	approvalKeyFingerprint string
 }
 
 // parseFlags reads and returns all needed command-line flags.
@@ -191,6 +193,7 @@ func parseFlags() *cliFlags {
 	flag.StringVar(&flags.approvalUsername, "approval-username", "", "approval prompt: requested OS username")
 	flag.StringVar(&flags.approvalSubject, "approval-subject", "", "approval prompt: human-readable subject line")
 	flag.StringVar(&flags.approvalExpiresAt, "approval-expires-at", "", "approval prompt: RFC3339 deadline at which the daemon auto-denies")
+	flag.StringVar(&flags.approvalKeyFingerprint, "approval-key-fingerprint", "", "approval prompt: hex-encoded Noise static pubkey of the connecting client")
 	flag.Parse()
 	return &flags
 }

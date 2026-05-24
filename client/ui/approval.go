@@ -13,6 +13,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/internal/approval"
 	"github.com/netbirdio/netbird/client/proto"
 )
 
@@ -38,6 +39,7 @@ func (s *serviceClient) handleApprovalEvent(ev *proto.SystemEvent) {
 		"--approval-source-ip=" + ev.Metadata["source_ip"],
 		"--approval-username=" + ev.Metadata["username"],
 		"--approval-expires-at=" + ev.Metadata["expires_at"],
+		"--approval-key-fingerprint=" + ev.Metadata["peer_pubkey"],
 		"--approval-subject=" + ev.UserMessage,
 	}
 	go s.eventHandler.runSelfCommand(s.ctx, "approval", args...)
@@ -53,7 +55,16 @@ func (s *serviceClient) showApprovalUI(req approvalRequest) {
 
 	var rows []string
 	if req.initiator != "" {
+		// The display name comes from the management dashboard and is
+		// not cryptographically asserted by the connecting client. The
+		// key fingerprint that follows IS: it's the Noise_IK static
+		// public key the client just proved possession of. Show both
+		// so the user can sanity-check that "Alice" is really the
+		// Alice they trust.
 		rows = append(rows, "From user:  "+req.initiator)
+	}
+	if fp := approval.ShortKeyFingerprint(req.keyFingerprint); fp != "" {
+		rows = append(rows, "Key fp:     "+fp)
 	}
 	if req.peerName != "" {
 		rows = append(rows, "Via peer:   "+req.peerName)
@@ -149,14 +160,15 @@ func (s *serviceClient) sendApprovalResponse(requestID string, accept, viewOnly 
 // approvalRequest is the parsed --approval-* CLI args that the forked
 // dialog process consumes.
 type approvalRequest struct {
-	requestID string
-	kind      string
-	initiator string
-	peerName  string
-	sourceIP  string
-	username  string
-	subject   string
-	expiresAt string
+	requestID      string
+	kind           string
+	initiator      string
+	peerName       string
+	sourceIP       string
+	username       string
+	subject        string
+	expiresAt      string
+	keyFingerprint string
 }
 
 func (r approvalRequest) displayPeer() string {
