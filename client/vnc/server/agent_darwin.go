@@ -17,6 +17,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
+
+	"github.com/netbirdio/netbird/client/configs"
 )
 
 // darwinAgentManager spawns a per-user VNC agent on demand and keeps it
@@ -133,37 +135,32 @@ func (m *darwinAgentManager) Resolve(ctx context.Context) (string, string, uint3
 	return socketPath, token, consoleUID, nil
 }
 
-// agentSocketParentDir is the root the daemon creates (as root, mode 0755)
-// to hold per-uid agent-socket subdirectories. Keeping it under
-// /var/run/netbird-vnc (rather than /tmp) means a non-root local user
-// cannot squat the socket path: only root can create the parent, and
-// only the target user (plus root) can write inside the per-uid subdir.
-const agentSocketParentDir = "/var/run/netbird-vnc"
-
-// prepareAgentSocketDir creates (and tightens permissions on) a per-uid
-// subdirectory the agent will bind its socket inside, returning the
-// directory path. The subdirectory is owned by uid with mode 0700, so
-// the only writers are the target user and root. The parent is created
-// root-owned with mode 0755 if it doesn't already exist. Symlinks at
-// the per-uid level are refused (replaced with a fresh directory) to
-// avoid a low-priv user redirecting our chown.
+// prepareAgentSocketDir creates a per-uid subdirectory under the netbird
+// runtime directory where the agent will bind its Unix socket. The leaf is
+// owned by uid with mode 0700, so only the target user and root can write
+// there. The parent is created root-owned with mode 0755 if missing.
+// Symlinks at the per-uid level are refused (replaced with a fresh
+// directory) so a low-priv user cannot redirect the chown that follows.
 func prepareAgentSocketDir(uid uint32) (string, error) {
-	if err := os.MkdirAll(agentSocketParentDir, 0o755); err != nil {
-		return "", fmt.Errorf("mkdir %s: %w", agentSocketParentDir, err)
+	parent := configs.RuntimeDir
+	if parent == "" {
+		return "", fmt.Errorf("no runtime directory configured for this platform")
 	}
-	// Refuse to use the parent if it's a symlink or not owned by root.
-	pInfo, err := os.Lstat(agentSocketParentDir)
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return "", fmt.Errorf("mkdir %s: %w", parent, err)
+	}
+	pInfo, err := os.Lstat(parent)
 	if err != nil {
-		return "", fmt.Errorf("lstat %s: %w", agentSocketParentDir, err)
+		return "", fmt.Errorf("lstat %s: %w", parent, err)
 	}
 	if pInfo.Mode()&os.ModeSymlink != 0 {
-		return "", fmt.Errorf("%s is a symlink", agentSocketParentDir)
+		return "", fmt.Errorf("%s is a symlink", parent)
 	}
 	if st, ok := pInfo.Sys().(*syscall.Stat_t); ok && st.Uid != 0 {
-		return "", fmt.Errorf("%s not owned by root (uid=%d)", agentSocketParentDir, st.Uid)
+		return "", fmt.Errorf("%s not owned by root (uid=%d)", parent, st.Uid)
 	}
 
-	subdir := fmt.Sprintf("%s/%d", agentSocketParentDir, uid)
+	subdir := fmt.Sprintf("%s/vnc-%d", parent, uid)
 	// If a leftover entry exists, refuse it unless it's a real dir owned
 	// by the right uid with strict perms: otherwise remove and recreate
 	// from scratch under our control. Using os.Lstat (not Stat) so a
