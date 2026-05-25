@@ -188,8 +188,11 @@ func ensureAgentSocketParent(parent string) error {
 // owned by uid with mode 0700. Lstat (not Stat) so a symlink is detected.
 func purgeStaleAgentSubdir(subdir string, uid uint32) error {
 	info, err := os.Lstat(subdir)
-	if err != nil {
+	if errors.Is(err, os.ErrNotExist) {
 		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("lstat %s: %w", subdir, err)
 	}
 	if agentSubdirOK(info, uid) {
 		return nil
