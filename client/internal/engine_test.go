@@ -27,7 +27,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/management/server/job"
 
-	"github.com/netbirdio/management-integrations/integrations"
+	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator/validator"
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
@@ -1641,7 +1641,7 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 		return nil, "", err
 	}
 
-	ia, _ := integrations.NewIntegratedValidator(context.Background(), nil, nil, peersManager, nil, eventStore, cacheStore)
+	ia, _ := validator.NewIntegratedValidator(context.Background(), peersManager, nil, eventStore, cacheStore)
 
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)
