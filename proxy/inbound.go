@@ -139,18 +139,28 @@ func (m *inboundManager) bringUp(ctx context.Context, accountID types.AccountID,
 
 	scopedHandler := withTunnelLookup(m.handler, accountTunnelLookup(client))
 
+	// markOverlayOrigin stamps every connection accepted by an inbound
+	// listener with a context value middlewares can read to skip
+	// geo/CrowdSec checks (the source address is always inside the
+	// NetBird CGNAT range and won't match either dataset).
+	markOverlayOrigin := func(ctx context.Context, _ net.Conn) context.Context {
+		return types.WithOverlayOrigin(ctx)
+	}
+
 	httpsServer := &http.Server{
 		Handler:           scopedHandler,
 		TLSConfig:         m.tlsConfig,
 		ReadHeaderTimeout: httpInboundReadHeaderTimeout,
 		IdleTimeout:       httpInboundIdleTimeout,
 		ErrorLog:          newInboundErrorLog(m.logger, "https", accountID),
+		ConnContext:       markOverlayOrigin,
 	}
 	httpServer := &http.Server{
 		Handler:           scopedHandler,
 		ReadHeaderTimeout: httpInboundReadHeaderTimeout,
 		IdleTimeout:       httpInboundIdleTimeout,
 		ErrorLog:          newInboundErrorLog(m.logger, "http", accountID),
+		ConnContext:       markOverlayOrigin,
 	}
 
 	runCtx, cancel := context.WithCancel(ctx)

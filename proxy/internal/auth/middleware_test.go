@@ -24,6 +24,7 @@ import (
 	"github.com/netbirdio/netbird/proxy/auth"
 	"github.com/netbirdio/netbird/proxy/internal/proxy"
 	"github.com/netbirdio/netbird/proxy/internal/restrict"
+	"github.com/netbirdio/netbird/proxy/internal/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -802,6 +803,69 @@ func TestCheckIPRestrictions_NilGeoWithCountryRules(t *testing.T) {
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 	assert.Equal(t, http.StatusForbidden, rr.Code, "country restrictions with nil geo must deny")
+}
+
+// TestCheckIPRestrictions_OverlayOriginSkipsCountryRules covers the
+// inbound (WG) listener path: requests stamped with WithOverlayOrigin
+// must skip country lookups, even when no geo database is configured.
+// Without this short-circuit the inbound flow would fail-closed for
+// every overlay request whenever country rules are configured.
+func TestCheckIPRestrictions_OverlayOriginSkipsCountryRules(t *testing.T) {
+	mw := NewMiddleware(log.StandardLogger(), nil, nil)
+
+	err := mw.AddDomain("example.com", nil, "", 0, "acc1", "svc1",
+		restrict.ParseFilter(restrict.FilterConfig{
+			AllowedCIDRs:     []string{"100.64.0.0/10"},
+			AllowedCountries: []string{"US"},
+		}), false)
+	require.NoError(t, err)
+
+	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req.RemoteAddr = "100.64.5.6:5000"
+	req.Host = "example.com"
+	req = req.WithContext(types.WithOverlayOrigin(req.Context()))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusOK, rr.Code,
+		"overlay-origin requests must not be denied by country rules they would fail without geo data")
+
+	// Sanity check: the same filter without the overlay flag denies (no geo,
+	// country allowlist active → DenyGeoUnavailable).
+	req2 := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req2.RemoteAddr = "100.64.5.6:5000"
+	req2.Host = "example.com"
+	rr2 := httptest.NewRecorder()
+	handler.ServeHTTP(rr2, req2)
+	assert.Equal(t, http.StatusForbidden, rr2.Code,
+		"WAN-origin requests must still hit the full Check path and be denied without geo data")
+}
+
+// TestCheckIPRestrictions_OverlayOriginRespectsCIDR confirms CIDR
+// rules still apply on the overlay path so operators retain a way to
+// scope private services to specific peer subnets.
+func TestCheckIPRestrictions_OverlayOriginRespectsCIDR(t *testing.T) {
+	mw := NewMiddleware(log.StandardLogger(), nil, nil)
+
+	err := mw.AddDomain("example.com", nil, "", 0, "acc1", "svc1",
+		restrict.ParseFilter(restrict.FilterConfig{AllowedCIDRs: []string{"100.64.0.0/16"}}), false)
+	require.NoError(t, err)
+
+	handler := mw.Protect(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req.RemoteAddr = "100.65.5.6:5000" // outside 100.64.0.0/16
+	req.Host = "example.com"
+	req = req.WithContext(types.WithOverlayOrigin(req.Context()))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusForbidden, rr.Code,
+		"CIDR rules must still apply on the overlay path")
 }
 
 func TestProtect_OIDCOnlyRedirectsDirectly(t *testing.T) {
