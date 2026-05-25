@@ -25,6 +25,14 @@ func NewIPForwardingState(wgIfaceName string) *IPForwardingState {
 	return &IPForwardingState{wgIfaceName: wgIfaceName}
 }
 
+// Counts returns the current v4 and v6 refcounts. Intended for diagnostics
+// and tests.
+func (f *IPForwardingState) Counts() (v4, v6 int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.v4Count, f.v6Count
+}
+
 // RequestForwarding enables the family's forwarding sysctl on first request.
 func (f *IPForwardingState) RequestForwarding(v6 bool) error {
 	f.mu.Lock()

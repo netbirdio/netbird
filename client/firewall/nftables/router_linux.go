@@ -1550,10 +1550,6 @@ func (r *router) refreshRulesMap() error {
 }
 
 func (r *router) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
-	if err := r.ipFwdState.RequestForwarding(r.af.tableFamily == nftables.TableFamilyIPv6); err != nil {
-		return nil, err
-	}
-
 	ruleKey := rule.ID()
 	if _, exists := r.rules[ruleKey+dnatSuffix]; exists {
 		return rule, nil
@@ -1575,7 +1571,19 @@ func (r *router) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
 	// We also cannot just add "oif <iface> accept" there and filter in our own table as we don't know what is supposed to be allowed.
 	// TODO: find chains with drop policies and add rules there
 
+	v6 := r.af.tableFamily == nftables.TableFamilyIPv6
+	if err := r.ipFwdState.RequestForwarding(v6); err != nil {
+		delete(r.rules, ruleKey+dnatSuffix)
+		delete(r.rules, ruleKey+snatSuffix)
+		return nil, fmt.Errorf("enable forwarding: %w", err)
+	}
+
 	if err := r.conn.Flush(); err != nil {
+		if rerr := r.ipFwdState.ReleaseForwarding(v6); rerr != nil {
+			log.Warnf("rollback forwarding refcount: %v", rerr)
+		}
+		delete(r.rules, ruleKey+dnatSuffix)
+		delete(r.rules, ruleKey+snatSuffix)
 		return nil, fmt.Errorf("flush rules: %w", err)
 	}
 
@@ -1778,14 +1786,16 @@ func (r *router) addDnatMasq(rule firewall.ForwardRule, protoNum uint8, ruleKey 
 }
 
 func (r *router) DeleteDNATRule(rule firewall.Rule) error {
-	if err := r.ipFwdState.ReleaseForwarding(r.af.tableFamily == nftables.TableFamilyIPv6); err != nil {
-		log.Errorf("%v", err)
-	}
-
 	ruleKey := rule.ID()
 
 	if err := r.refreshRulesMap(); err != nil {
 		return fmt.Errorf(refreshRulesMapError, err)
+	}
+
+	_, hadDNAT := r.rules[ruleKey+dnatSuffix]
+	_, hadSNAT := r.rules[ruleKey+snatSuffix]
+	if !hadDNAT && !hadSNAT {
+		return nil
 	}
 
 	var merr *multierror.Error
@@ -1822,6 +1832,9 @@ func (r *router) DeleteDNATRule(rule firewall.Rule) error {
 	if merr == nil {
 		delete(r.rules, ruleKey+dnatSuffix)
 		delete(r.rules, ruleKey+snatSuffix)
+		if err := r.ipFwdState.ReleaseForwarding(r.af.tableFamily == nftables.TableFamilyIPv6); err != nil {
+			log.Errorf("%v", err)
+		}
 	}
 
 	return nberrors.FormatErrorOrNil(merr)

@@ -763,10 +763,6 @@ func (r *router) updateState() {
 }
 
 func (r *router) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
-	if err := r.ipFwdState.RequestForwarding(r.v6); err != nil {
-		return nil, err
-	}
-
 	ruleKey := rule.ID()
 	if _, exists := r.rules[ruleKey+dnatSuffix]; exists {
 		return rule, nil
@@ -841,6 +837,16 @@ func (r *router) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
 		r.rules[key] = ruleInfo.rule
 	}
 
+	if err := r.ipFwdState.RequestForwarding(r.v6); err != nil {
+		if rollbackErr := r.rollbackRules(rules); rollbackErr != nil {
+			log.Errorf("rollback failed: %v", rollbackErr)
+		}
+		for key := range rules {
+			delete(r.rules, key)
+		}
+		return nil, fmt.Errorf("enable forwarding: %w", err)
+	}
+
 	r.updateState()
 	return rule, nil
 }
@@ -861,11 +867,14 @@ func (r *router) rollbackRules(rules map[string]ruleInfo) error {
 }
 
 func (r *router) DeleteDNATRule(rule firewall.Rule) error {
-	if err := r.ipFwdState.ReleaseForwarding(r.v6); err != nil {
-		log.Errorf("%v", err)
-	}
-
 	ruleKey := rule.ID()
+
+	_, hadDNAT := r.rules[ruleKey+dnatSuffix]
+	_, hadSNAT := r.rules[ruleKey+snatSuffix]
+	_, hadFWD := r.rules[ruleKey+fwdSuffix]
+	if !hadDNAT && !hadSNAT && !hadFWD {
+		return nil
+	}
 
 	var merr *multierror.Error
 	if dnatRule, exists := r.rules[ruleKey+dnatSuffix]; exists {
@@ -887,6 +896,10 @@ func (r *router) DeleteDNATRule(rule firewall.Rule) error {
 			merr = multierror.Append(merr, fmt.Errorf("delete forward rule: %w", err))
 		}
 		delete(r.rules, ruleKey+fwdSuffix)
+	}
+
+	if err := r.ipFwdState.ReleaseForwarding(r.v6); err != nil {
+		log.Errorf("%v", err)
 	}
 
 	r.updateState()
