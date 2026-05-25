@@ -544,7 +544,7 @@ func (s *Server) initNetBirdClient() {
 // client. The split is needed so direct_upstream targets resolve DNS via the
 // proxy host's resolver instead of the tunnel's DNS.
 func (s *Server) initReverseProxy() {
-	upstreamRT := roundtrip.NewMultiTransport(s.netbird)
+	upstreamRT := roundtrip.NewMultiTransport(s.netbird, s.Logger)
 	s.proxy = proxy.NewReverseProxy(s.meter.RoundTripper(upstreamRT), s.ForwardedProto, s.TrustedProxies, s.Logger)
 }
 

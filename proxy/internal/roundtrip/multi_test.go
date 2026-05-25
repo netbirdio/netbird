@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,7 +32,7 @@ func (s *stubRoundTripper) RoundTrip(_ *http.Request) (*http.Response, error) {
 
 func TestMultiTransport_DispatchesByContextFlag(t *testing.T) {
 	embedded := &stubRoundTripper{body: "embedded"}
-	mt := NewMultiTransport(embedded)
+	mt := NewMultiTransport(embedded, nil)
 
 	t.Run("default routes to embedded", func(t *testing.T) {
 		embedded.called = false
@@ -63,8 +64,29 @@ func TestMultiTransport_DispatchesByContextFlag(t *testing.T) {
 	})
 }
 
+// TestMultiTransport_AppliesEnvOverridesToDirect verifies that the
+// NB_PROXY_* env vars consumed by loadTransportConfig flow into the
+// direct branches (previously they only applied to the embedded
+// roundtripper, so direct-upstream traffic ignored operator tuning).
+func TestMultiTransport_AppliesEnvOverridesToDirect(t *testing.T) {
+	t.Setenv(EnvMaxIdleConns, "42")
+	t.Setenv(EnvIdleConnTimeout, "11s")
+	t.Setenv(EnvTLSHandshakeTimeout, "7s")
+
+	mt := NewMultiTransport(&stubRoundTripper{body: "embedded"}, nil)
+
+	assert.Equal(t, 42, mt.direct.MaxIdleConns,
+		"NB_PROXY_MAX_IDLE_CONNS must propagate to the direct transport")
+	assert.Equal(t, 11*time.Second, mt.direct.IdleConnTimeout,
+		"NB_PROXY_IDLE_CONN_TIMEOUT must propagate to the direct transport")
+	assert.Equal(t, 7*time.Second, mt.direct.TLSHandshakeTimeout,
+		"NB_PROXY_TLS_HANDSHAKE_TIMEOUT must propagate to the direct transport")
+	assert.Equal(t, 42, mt.insecure.MaxIdleConns,
+		"env tuning must also apply to the insecure-skip-verify direct transport")
+}
+
 func TestMultiTransport_NilEmbeddedAlwaysDirects(t *testing.T) {
-	mt := NewMultiTransport(nil)
+	mt := NewMultiTransport(nil, nil)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, "ok")
 	}))

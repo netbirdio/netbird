@@ -5,6 +5,8 @@ import (
 	"net"
 	"net/http"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 // MultiTransport dispatches each request to either the embedded NetBird
@@ -25,12 +27,16 @@ type MultiTransport struct {
 }
 
 // NewMultiTransport wires both branches. embedded is the existing NetBird
-// roundtripper; the direct branches are constructed here with sensible
-// defaults that mirror Go's stdlib defaults plus a dial-timeout wrapper
-// honouring the per-request value attached via types.WithDialTimeout.
+// roundtripper; the direct branches honour the same NB_PROXY_* tuning
+// env vars as the embedded transport (see loadTransportConfig) plus a
+// dial-timeout wrapper that respects types.WithDialTimeout.
 // Pass embedded=nil to disable the WG branch entirely (every request
 // will route direct, regardless of the context flag).
-func NewMultiTransport(embedded http.RoundTripper) *MultiTransport {
+func NewMultiTransport(embedded http.RoundTripper, logger *log.Logger) *MultiTransport {
+	if logger == nil {
+		logger = log.StandardLogger()
+	}
+	cfg := loadTransportConfig(logger)
 	dialer := &net.Dialer{
 		Timeout:   30 * time.Second,
 		KeepAlive: 30 * time.Second,
@@ -38,10 +44,16 @@ func NewMultiTransport(embedded http.RoundTripper) *MultiTransport {
 	direct := &http.Transport{
 		DialContext:           dialWithTimeout(dialer.DialContext),
 		ForceAttemptHTTP2:     true,
-		MaxIdleConns:          100,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
+		MaxIdleConns:          cfg.maxIdleConns,
+		MaxIdleConnsPerHost:   cfg.maxIdleConnsPerHost,
+		MaxConnsPerHost:       cfg.maxConnsPerHost,
+		IdleConnTimeout:       cfg.idleConnTimeout,
+		TLSHandshakeTimeout:   cfg.tlsHandshakeTimeout,
+		ExpectContinueTimeout: cfg.expectContinueTimeout,
+		ResponseHeaderTimeout: cfg.responseHeaderTimeout,
+		WriteBufferSize:       cfg.writeBufferSize,
+		ReadBufferSize:        cfg.readBufferSize,
+		DisableCompression:    cfg.disableCompression,
 	}
 	insecure := direct.Clone()
 	insecure.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // matches the embedded NetBird transport's per-target opt-in
