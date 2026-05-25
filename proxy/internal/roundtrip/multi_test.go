@@ -85,17 +85,50 @@ func TestMultiTransport_AppliesEnvOverridesToDirect(t *testing.T) {
 		"env tuning must also apply to the insecure-skip-verify direct transport")
 }
 
-func TestMultiTransport_NilEmbeddedAlwaysDirects(t *testing.T) {
+// TestMultiTransport_NilEmbeddedErrorsWhenWGPathRequested guards
+// against the previous silent fallback: a MultiTransport constructed
+// without an embedded transport must reject requests that don't
+// explicitly opt into the direct branch, rather than routing them
+// over the host stack and bypassing WireGuard.
+func TestMultiTransport_NilEmbeddedErrorsWhenWGPathRequested(t *testing.T) {
 	mt := NewMultiTransport(nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.invalid", nil)
+	resp, err := mt.RoundTrip(req)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	require.Error(t, err, "nil embedded must surface as an explicit error, not a silent direct dispatch")
+	assert.Nil(t, resp)
+	assert.ErrorIs(t, err, errNoEmbeddedTransport,
+		"the error must be the sentinel so callers can distinguish misconfiguration from network failures")
+}
+
+// TestMultiTransport_DirectOnlyServesDirectBranch verifies NewDirectOnly
+// constructs a MultiTransport whose direct branch handles requests with
+// the direct-upstream flag set, and surfaces the explicit sentinel
+// when the embedded path is reached.
+func TestMultiTransport_DirectOnlyServesDirectBranch(t *testing.T) {
+	mt := NewDirectOnly(nil)
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, "ok")
 	}))
 	defer srv.Close()
 
-	req, err := http.NewRequest(http.MethodGet, srv.URL, nil)
+	req, err := http.NewRequestWithContext(WithDirectUpstream(context.Background()), http.MethodGet, srv.URL, nil)
 	require.NoError(t, err)
 	resp, err := mt.RoundTrip(req)
-	require.NoError(t, err, "nil embedded must fall through to direct without panic")
+	require.NoError(t, err, "direct-only must serve requests that opt into the direct branch")
 	_ = resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	wgReq := httptest.NewRequest(http.MethodGet, "http://example.invalid", nil)
+	resp, err = mt.RoundTrip(wgReq)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	require.Error(t, err, "direct-only must refuse requests that didn't opt into the direct branch")
+	assert.Nil(t, resp)
+	assert.ErrorIs(t, err, errNoEmbeddedTransport)
 }
