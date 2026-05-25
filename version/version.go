@@ -67,6 +67,10 @@ func NetbirdCommit() string {
 // a non-release / development build. It is the single source of truth for
 // "is this a dev build" checks across the codebase; use it instead of
 // comparing against the "development" literal or ad-hoc substring checks.
+//
+// Matches the bare DevelopmentVersion constant as well as any future
+// extension such as "development-<sha>" or "development-<sha>-dirty",
+// while excluding tagged prereleases like "v0.31.1-dev".
 func IsDevelopmentVersion(v string) bool {
-	return strings.Contains(v, "dev")
+	return strings.HasPrefix(v, DevelopmentVersion)
 }
