@@ -143,42 +143,12 @@ func (m *darwinAgentManager) Resolve(ctx context.Context) (string, string, uint3
 // directory) so a low-priv user cannot redirect the chown that follows.
 func prepareAgentSocketDir(uid uint32) (string, error) {
 	parent := configs.RuntimeDir
-	if parent == "" {
-		return "", fmt.Errorf("no runtime directory configured for this platform")
+	if err := ensureAgentSocketParent(parent); err != nil {
+		return "", err
 	}
-	if err := os.MkdirAll(parent, 0o755); err != nil {
-		return "", fmt.Errorf("mkdir %s: %w", parent, err)
-	}
-	pInfo, err := os.Lstat(parent)
-	if err != nil {
-		return "", fmt.Errorf("lstat %s: %w", parent, err)
-	}
-	if pInfo.Mode()&os.ModeSymlink != 0 {
-		return "", fmt.Errorf("%s is a symlink", parent)
-	}
-	if st, ok := pInfo.Sys().(*syscall.Stat_t); ok && st.Uid != 0 {
-		return "", fmt.Errorf("%s not owned by root (uid=%d)", parent, st.Uid)
-	}
-
 	subdir := fmt.Sprintf("%s/vnc-%d", parent, uid)
-	// If a leftover entry exists, refuse it unless it's a real dir owned
-	// by the right uid with strict perms: otherwise remove and recreate
-	// from scratch under our control. Using os.Lstat (not Stat) so a
-	// symlink is detected and torn down.
-	if info, err := os.Lstat(subdir); err == nil {
-		bad := false
-		if info.Mode()&os.ModeSymlink != 0 {
-			bad = true
-		} else if !info.IsDir() {
-			bad = true
-		} else if st, ok := info.Sys().(*syscall.Stat_t); !ok || st.Uid != uid || info.Mode().Perm() != 0o700 {
-			bad = true
-		}
-		if bad {
-			if err := os.RemoveAll(subdir); err != nil {
-				return "", fmt.Errorf("remove stale %s: %w", subdir, err)
-			}
-		}
+	if err := purgeStaleAgentSubdir(subdir, uid); err != nil {
+		return "", err
 	}
 	if err := os.Mkdir(subdir, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
 		return "", fmt.Errorf("mkdir %s: %w", subdir, err)
@@ -190,6 +160,55 @@ func prepareAgentSocketDir(uid uint32) (string, error) {
 		return "", fmt.Errorf("chown %s -> uid %d: %w", subdir, uid, err)
 	}
 	return subdir, nil
+}
+
+// ensureAgentSocketParent verifies the runtime parent dir exists, is not a
+// symlink, and is owned by root.
+func ensureAgentSocketParent(parent string) error {
+	if parent == "" {
+		return fmt.Errorf("no runtime directory configured for this platform")
+	}
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", parent, err)
+	}
+	info, err := os.Lstat(parent)
+	if err != nil {
+		return fmt.Errorf("lstat %s: %w", parent, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s is a symlink", parent)
+	}
+	if st, ok := info.Sys().(*syscall.Stat_t); ok && st.Uid != 0 {
+		return fmt.Errorf("%s not owned by root (uid=%d)", parent, st.Uid)
+	}
+	return nil
+}
+
+// purgeStaleAgentSubdir removes a leftover subdir unless it is a real dir
+// owned by uid with mode 0700. Lstat (not Stat) so a symlink is detected.
+func purgeStaleAgentSubdir(subdir string, uid uint32) error {
+	info, err := os.Lstat(subdir)
+	if err != nil {
+		return nil
+	}
+	if agentSubdirOK(info, uid) {
+		return nil
+	}
+	if err := os.RemoveAll(subdir); err != nil {
+		return fmt.Errorf("remove stale %s: %w", subdir, err)
+	}
+	return nil
+}
+
+func agentSubdirOK(info os.FileInfo, uid uint32) bool {
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return false
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return false
+	}
+	return st.Uid == uid && info.Mode().Perm() == 0o700
 }
 
 // stop terminates the spawned agent, if any. Intended for daemon shutdown.
