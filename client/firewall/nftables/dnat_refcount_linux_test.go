@@ -94,8 +94,9 @@ func TestNftablesDNAT_RefcountBalancedV4(t *testing.T) {
 	require.Equal(t, 0, v6, "v6 refcount unchanged")
 
 	require.NoError(t, m.DeleteDNATRule(r1), "delete v4 dnat 1")
-	v4, _ = state.Counts()
+	v4, v6 = state.Counts()
 	require.Equal(t, 1, v4, "v4 refcount after first delete")
+	require.Equal(t, 0, v6, "v6 refcount unchanged")
 
 	require.NoError(t, m.DeleteDNATRule(r2), "delete v4 dnat 2")
 	v4, v6 = state.Counts()
@@ -124,7 +125,8 @@ func TestNftablesDNAT_RefcountBalancedV6(t *testing.T) {
 	require.Equal(t, 2, v6, "v6 refcount after second add")
 
 	require.NoError(t, m.DeleteDNATRule(r1), "delete v6 dnat 1")
-	_, v6 = state.Counts()
+	v4, v6 = state.Counts()
+	require.Equal(t, 0, v4, "v4 refcount unchanged")
 	require.Equal(t, 1, v6, "v6 refcount after first delete")
 
 	require.NoError(t, m.DeleteDNATRule(r2), "delete v6 dnat 2")

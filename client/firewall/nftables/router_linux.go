@@ -1560,7 +1560,18 @@ func (r *router) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
 		return nil, fmt.Errorf("convert protocol to number: %w", err)
 	}
 
+	// Request forwarding before queueing rules: addDnatRedirect/addDnatMasq
+	// buffer netlink messages on r.conn that the next caller's Flush would
+	// commit if we returned without flushing them ourselves.
+	v6 := r.af.tableFamily == nftables.TableFamilyIPv6
+	if err := r.ipFwdState.RequestForwarding(v6); err != nil {
+		return nil, fmt.Errorf("enable forwarding: %w", err)
+	}
+
 	if err := r.addDnatRedirect(rule, protoNum, ruleKey); err != nil {
+		if rerr := r.ipFwdState.ReleaseForwarding(v6); rerr != nil {
+			log.Warnf("rollback forwarding refcount: %v", rerr)
+		}
 		return nil, err
 	}
 
@@ -1570,13 +1581,6 @@ func (r *router) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
 	// To overcome DROP policies in other chains, we'd have to add rules to the chains there.
 	// We also cannot just add "oif <iface> accept" there and filter in our own table as we don't know what is supposed to be allowed.
 	// TODO: find chains with drop policies and add rules there
-
-	v6 := r.af.tableFamily == nftables.TableFamilyIPv6
-	if err := r.ipFwdState.RequestForwarding(v6); err != nil {
-		delete(r.rules, ruleKey+dnatSuffix)
-		delete(r.rules, ruleKey+snatSuffix)
-		return nil, fmt.Errorf("enable forwarding: %w", err)
-	}
 
 	if err := r.conn.Flush(); err != nil {
 		if rerr := r.ipFwdState.ReleaseForwarding(v6); rerr != nil {
@@ -1832,9 +1836,10 @@ func (r *router) DeleteDNATRule(rule firewall.Rule) error {
 	if merr == nil {
 		delete(r.rules, ruleKey+dnatSuffix)
 		delete(r.rules, ruleKey+snatSuffix)
-		if err := r.ipFwdState.ReleaseForwarding(r.af.tableFamily == nftables.TableFamilyIPv6); err != nil {
-			log.Errorf("%v", err)
-		}
+	}
+
+	if err := r.ipFwdState.ReleaseForwarding(r.af.tableFamily == nftables.TableFamilyIPv6); err != nil {
+		log.Errorf("%v", err)
 	}
 
 	return nberrors.FormatErrorOrNil(merr)

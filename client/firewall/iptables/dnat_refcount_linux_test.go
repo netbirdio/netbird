@@ -85,12 +85,14 @@ func TestIptablesDNAT_RefcountBalancedV4(t *testing.T) {
 
 	r2, err := m.AddDNATRule(iptDnatV4(7082))
 	require.NoError(t, err, "add v4 dnat 2")
-	v4, _ = state.Counts()
+	v4, v6 = state.Counts()
 	require.Equal(t, 2, v4, "v4 refcount after second add")
+	require.Equal(t, 0, v6, "v6 refcount unchanged")
 
 	require.NoError(t, m.DeleteDNATRule(r1))
-	v4, _ = state.Counts()
+	v4, v6 = state.Counts()
 	require.Equal(t, 1, v4, "v4 refcount after first delete")
+	require.Equal(t, 0, v6, "v6 refcount unchanged")
 
 	require.NoError(t, m.DeleteDNATRule(r2))
 	v4, v6 = state.Counts()
@@ -114,11 +116,13 @@ func TestIptablesDNAT_RefcountBalancedV6(t *testing.T) {
 
 	r2, err := m.AddDNATRule(iptDnatV6(9082))
 	require.NoError(t, err, "add v6 dnat 2")
-	_, v6 = state.Counts()
+	v4, v6 = state.Counts()
+	require.Equal(t, 0, v4, "v4 refcount unchanged")
 	require.Equal(t, 2, v6, "v6 refcount after second add")
 
 	require.NoError(t, m.DeleteDNATRule(r1))
-	_, v6 = state.Counts()
+	v4, v6 = state.Counts()
+	require.Equal(t, 0, v4, "v4 refcount unchanged")
 	require.Equal(t, 1, v6, "v6 refcount after first delete")
 
 	require.NoError(t, m.DeleteDNATRule(r2))
