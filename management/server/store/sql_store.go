@@ -1090,6 +1090,38 @@ func (s *SqlStore) GetCustomDomainsCounts(ctx context.Context) (int64, int64, er
 	return total, validated, nil
 }
 
+// GetProxyMetrics aggregates per-cluster + per-proxy counts for the
+// self-hosted telemetry payload. Single round-trip via conditional
+// aggregations so a large proxies table doesn't fan out into multiple
+// queries.
+func (s *SqlStore) GetProxyMetrics(ctx context.Context) (ProxyMetrics, error) {
+	var m ProxyMetrics
+	activeCutoff := time.Now().Add(-proxyActiveThreshold)
+
+	// COUNT(DISTINCT ... CASE WHEN ...) is portable across sqlite/postgres
+	// (MySQL too) and keeps the round-trip to one. proxy.StatusConnected
+	// is the same string the cluster-capability queries use; the active
+	// window matches the cluster-capability semantics (only proxies
+	// heartbeating within ~2 * heartbeat interval count as connected).
+	row := s.db.WithContext(ctx).
+		Model(&proxy.Proxy{}).
+		Select(
+			"COUNT(DISTINCT cluster_address) AS clusters, "+
+				"COUNT(DISTINCT CASE WHEN account_id IS NOT NULL THEN cluster_address END) AS clusters_byop, "+
+				"COUNT(DISTINCT CASE WHEN private = ? THEN cluster_address END) AS clusters_private, "+
+				"COUNT(*) AS proxies, "+
+				"COUNT(CASE WHEN status = ? AND last_seen > ? THEN 1 END) AS proxies_connected",
+			true,
+			proxy.StatusConnected,
+			activeCutoff,
+		).
+		Row()
+	if err := row.Scan(&m.Clusters, &m.ClustersBYOP, &m.ClustersPrivate, &m.Proxies, &m.ProxiesConnected); err != nil {
+		return ProxyMetrics{}, fmt.Errorf("scan proxy metrics: %w", err)
+	}
+	return m, nil
+}
+
 func (s *SqlStore) GetAllAccounts(ctx context.Context) (all []*types.Account) {
 	var accounts []types.Account
 	result := s.db.Find(&accounts)
@@ -2178,7 +2210,8 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 	const serviceQuery = `SELECT id, account_id, name, domain, enabled, auth,
 		meta_created_at, meta_certificate_issued_at, meta_status, proxy_cluster,
 		pass_host_header, rewrite_redirects, session_private_key, session_public_key,
-		mode, listen_port, port_auto_assigned, source, source_peer, terminated
+		mode, listen_port, port_auto_assigned, source, source_peer, terminated,
+		private, access_groups
 		FROM services WHERE account_id = $1`
 
 	const targetsQuery = `SELECT id, account_id, service_id, path, host, port, protocol,
@@ -2193,10 +2226,11 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 	services, err := pgx.CollectRows(serviceRows, func(row pgx.CollectableRow) (*rpservice.Service, error) {
 		var s rpservice.Service
 		var auth []byte
+		var accessGroups []byte
 		var createdAt, certIssuedAt sql.NullTime
 		var status, proxyCluster, sessionPrivateKey, sessionPublicKey sql.NullString
 		var mode, source, sourcePeer sql.NullString
-		var terminated, portAutoAssigned sql.NullBool
+		var terminated, portAutoAssigned, private sql.NullBool
 		var listenPort sql.NullInt64
 		err := row.Scan(
 			&s.ID,
@@ -2219,6 +2253,8 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 			&source,
 			&sourcePeer,
 			&terminated,
+			&private,
+			&accessGroups,
 		)
 		if err != nil {
 			return nil, err
@@ -2228,6 +2264,16 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 			if err := json.Unmarshal(auth, &s.Auth); err != nil {
 				return nil, err
 			}
+		}
+
+		if len(accessGroups) > 0 {
+			if err := json.Unmarshal(accessGroups, &s.AccessGroups); err != nil {
+				return nil, fmt.Errorf("unmarshal access_groups: %w", err)
+			}
+		}
+
+		if private.Valid {
+			s.Private = private.Bool
 		}
 
 		s.Meta = rpservice.Meta{}
@@ -5826,6 +5872,7 @@ var validCapabilityColumns = map[string]struct{}{
 	"supports_custom_ports": {},
 	"require_subdomain":     {},
 	"supports_crowdsec":     {},
+	"private":               {},
 }
 
 // GetClusterSupportsCustomPorts returns whether any active proxy in the cluster
@@ -5838,6 +5885,12 @@ func (s *SqlStore) GetClusterSupportsCustomPorts(ctx context.Context, clusterAdd
 // requires a subdomain. Returns nil when no proxy reported the capability.
 func (s *SqlStore) GetClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool {
 	return s.getClusterCapability(ctx, clusterAddr, "require_subdomain")
+}
+
+// GetClusterSupportsPrivate reports whether any active proxy in the cluster
+// has the private capability (nil = unreported).
+func (s *SqlStore) GetClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool {
+	return s.getClusterCapability(ctx, clusterAddr, "private")
 }
 
 // GetClusterSupportsCrowdSec returns whether all active proxies in the cluster

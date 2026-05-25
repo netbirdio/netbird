@@ -1461,6 +1461,20 @@ func (mr *MockStoreMockRecorder) GetClusterSupportsCustomPorts(ctx, clusterAddr 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetClusterSupportsCustomPorts", reflect.TypeOf((*MockStore)(nil).GetClusterSupportsCustomPorts), ctx, clusterAddr)
 }
 
+// GetClusterSupportsPrivate mocks base method.
+func (m *MockStore) GetClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetClusterSupportsPrivate", ctx, clusterAddr)
+	ret0, _ := ret[0].(*bool)
+	return ret0
+}
+
+// GetClusterSupportsPrivate indicates an expected call of GetClusterSupportsPrivate.
+func (mr *MockStoreMockRecorder) GetClusterSupportsPrivate(ctx, clusterAddr interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetClusterSupportsPrivate", reflect.TypeOf((*MockStore)(nil).GetClusterSupportsPrivate), ctx, clusterAddr)
+}
+
 // GetCustomDomain mocks base method.
 func (m *MockStore) GetCustomDomain(ctx context.Context, accountID, domainID string) (*domain.Domain, error) {
 	m.ctrl.T.Helper()
@@ -2074,6 +2088,21 @@ func (m *MockStore) GetProxyClusters(ctx context.Context, accountID string) ([]p
 func (mr *MockStoreMockRecorder) GetProxyClusters(ctx, accountID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProxyClusters", reflect.TypeOf((*MockStore)(nil).GetProxyClusters), ctx, accountID)
+}
+
+// GetProxyMetrics mocks base method.
+func (m *MockStore) GetProxyMetrics(ctx context.Context) (ProxyMetrics, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetProxyMetrics", ctx)
+	ret0, _ := ret[0].(ProxyMetrics)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetProxyMetrics indicates an expected call of GetProxyMetrics.
+func (mr *MockStoreMockRecorder) GetProxyMetrics(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProxyMetrics", reflect.TypeOf((*MockStore)(nil).GetProxyMetrics), ctx)
 }
 
 // GetResourceGroups mocks base method.

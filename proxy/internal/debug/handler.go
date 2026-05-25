@@ -61,6 +61,23 @@ type clientProvider interface {
 	ListClientsForDebug() map[types.AccountID]roundtrip.ClientDebugInfo
 }
 
+// InboundListenerInfo describes a per-account inbound listener as
+// surfaced through the debug HTTP handler. Mirrors the proto sub-message
+// emitted with SendStatusUpdate so dashboards and CLI tooling see the
+// same shape.
+type InboundListenerInfo struct {
+	TunnelIP  string `json:"tunnel_ip"`
+	HTTPSPort uint16 `json:"https_port"`
+	HTTPPort  uint16 `json:"http_port"`
+}
+
+// InboundProvider exposes per-account inbound listener state. Optional;
+// when nil the debug endpoint omits the inbound section entirely so the
+// existing JSON shape stays additive.
+type InboundProvider interface {
+	InboundListeners() map[types.AccountID]InboundListenerInfo
+}
+
 // healthChecker provides health probe state.
 type healthChecker interface {
 	ReadinessProbe() bool
@@ -80,6 +97,7 @@ type Handler struct {
 	provider   clientProvider
 	health     healthChecker
 	certStatus certStatus
+	inbound    InboundProvider
 	logger     *log.Logger
 	startTime  time.Time
 	templates  *template.Template
@@ -106,6 +124,13 @@ func NewHandler(provider clientProvider, healthChecker healthChecker, logger *lo
 // SetCertStatus sets the certificate status provider for ACME prefetch observability.
 func (h *Handler) SetCertStatus(cs certStatus) {
 	h.certStatus = cs
+}
+
+// SetInboundProvider wires per-account inbound listener observability.
+// Pass nil (or skip the call) to keep the inbound section out of debug
+// responses on proxies that don't run --private-inbound.
+func (h *Handler) SetInboundProvider(p InboundProvider) {
+	h.inbound = p
 }
 
 func (h *Handler) loadTemplates() error {
@@ -323,23 +348,35 @@ func (h *Handler) handleListClients(w http.ResponseWriter, _ *http.Request, want
 	sortedIDs := sortedAccountIDs(clients)
 
 	if wantJSON {
+		var inboundAll map[types.AccountID]InboundListenerInfo
+		if h.inbound != nil {
+			inboundAll = h.inbound.InboundListeners()
+		}
 		clientsJSON := make([]map[string]interface{}, 0, len(clients))
 		for _, id := range sortedIDs {
 			info := clients[id]
-			clientsJSON = append(clientsJSON, map[string]interface{}{
+			row := map[string]interface{}{
 				"account_id":    info.AccountID,
 				"service_count": info.ServiceCount,
 				"service_keys":  info.ServiceKeys,
 				"has_client":    info.HasClient,
 				"created_at":    info.CreatedAt,
 				"age":           time.Since(info.CreatedAt).Round(time.Second).String(),
-			})
+			}
+			if inb, ok := inboundAll[id]; ok {
+				row["inbound_listener"] = inb
+			}
+			clientsJSON = append(clientsJSON, row)
 		}
-		h.writeJSON(w, map[string]interface{}{
+		resp := map[string]interface{}{
 			"uptime":       time.Since(h.startTime).Round(time.Second).String(),
 			"client_count": len(clients),
 			"clients":      clientsJSON,
-		})
+		}
+		if len(inboundAll) > 0 {
+			resp["inbound_listener_count"] = len(inboundAll)
+		}
+		h.writeJSON(w, resp)
 		return
 	}
 
@@ -421,10 +458,14 @@ func (h *Handler) handleClientStatus(w http.ResponseWriter, r *http.Request, acc
 	})
 
 	if wantJSON {
-		h.writeJSON(w, map[string]interface{}{
+		resp := map[string]interface{}{
 			"account_id": accountID,
 			"status":     overview.FullDetailSummary(),
-		})
+		}
+		if info, ok := h.inboundInfoFor(accountID); ok {
+			resp["inbound_listener"] = info
+		}
+		h.writeJSON(w, resp)
 		return
 	}
 
@@ -435,6 +476,18 @@ func (h *Handler) handleClientStatus(w http.ResponseWriter, r *http.Request, acc
 	}
 
 	h.renderTemplate(w, "clientDetail", data)
+}
+
+// inboundInfoFor returns the inbound listener info for an account, or
+// ok=false when no inbound provider is wired or the account has no live
+// listener.
+func (h *Handler) inboundInfoFor(accountID types.AccountID) (InboundListenerInfo, bool) {
+	if h.inbound == nil {
+		return InboundListenerInfo{}, false
+	}
+	all := h.inbound.InboundListeners()
+	info, ok := all[accountID]
+	return info, ok
 }
 
 func (h *Handler) handleClientSyncResponse(w http.ResponseWriter, _ *http.Request, accountID types.AccountID, wantJSON bool) {
