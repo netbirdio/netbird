@@ -86,8 +86,6 @@ type Server struct {
 
 	reverseProxyManager rpservice.Manager
 	reverseProxyMu      sync.RWMutex
-
-	configExtender ConfigExtender
 }
 
 // NewServer creates a new Management server
@@ -103,7 +101,6 @@ func NewServer(
 	networkMapController network_map.Controller,
 	oAuthConfigProvider idp.OAuthConfigProvider,
 	sessionStore *auth.SessionStore,
-	configExtender ConfigExtender,
 ) (*Server, error) {
 	if appMetrics != nil {
 		// update gauge based on number of connected peers which is equal to open gRPC streams
@@ -147,7 +144,6 @@ func NewServer(
 		networkMapController:     networkMapController,
 		oAuthConfigProvider:      oAuthConfigProvider,
 		sessionStore:             sessionStore,
-		configExtender:           configExtender,
 
 		loginFilter: newLoginFilter(),
 
@@ -936,7 +932,7 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 		return status.Errorf(codes.Internal, "failed to get peer groups %s", err)
 	}
 
-	plainResp := ToSyncResponse(ctx, s.config, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, peer, turnToken, relayToken, networkMap, s.networkMapController.GetDNSDomain(settings), postureChecks, nil, settings, settings.Extra, peerGroups, dnsFwdPort, s.configExtender)
+	plainResp := ToSyncResponse(ctx, s.config, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, peer, turnToken, relayToken, networkMap, s.networkMapController.GetDNSDomain(settings), postureChecks, nil, settings, settings.Extra, peerGroups, dnsFwdPort)
 
 	key, err := s.secretsManager.GetWGKey()
 	if err != nil {

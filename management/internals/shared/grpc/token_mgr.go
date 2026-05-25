@@ -12,6 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/groups"
@@ -45,12 +46,11 @@ type TimeBasedAuthSecretsManager struct {
 	turnCancelMap   map[string]chan struct{}
 	relayCancelMap  map[string]chan struct{}
 	wgKey           wgtypes.Key
-	configExtender  ConfigExtender
 }
 
 type Token auth.Token
 
-func NewTimeBasedAuthSecretsManager(updateManager network_map.PeersUpdateManager, turnCfg *nbconfig.TURNConfig, relayCfg *nbconfig.Relay, settingsManager settings.Manager, groupsManager groups.Manager, configExtender ConfigExtender) (*TimeBasedAuthSecretsManager, error) {
+func NewTimeBasedAuthSecretsManager(updateManager network_map.PeersUpdateManager, turnCfg *nbconfig.TURNConfig, relayCfg *nbconfig.Relay, settingsManager settings.Manager, groupsManager groups.Manager) (*TimeBasedAuthSecretsManager, error) {
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		return nil, err
@@ -65,7 +65,6 @@ func NewTimeBasedAuthSecretsManager(updateManager network_map.PeersUpdateManager
 		settingsManager: settingsManager,
 		groupsManager:   groupsManager,
 		wgKey:           key,
-		configExtender:  configExtender,
 	}
 
 	if turnCfg != nil {
@@ -287,7 +286,6 @@ func (m *TimeBasedAuthSecretsManager) extendNetbirdConfig(ctx context.Context, p
 		log.WithContext(ctx).Errorf("failed to get peer groups: %v", err)
 	}
 
-	if m.configExtender != nil {
-		update.NetbirdConfig = m.configExtender(peerID, peerGroups, update.NetbirdConfig, extraSettings)
-	}
+	extendedConfig := integrationsConfig.ExtendNetBirdConfig(peerID, peerGroups, update.NetbirdConfig, extraSettings)
+	update.NetbirdConfig = extendedConfig
 }

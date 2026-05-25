@@ -155,70 +155,66 @@ func (s *BaseServer) RateLimiter() *middleware.APIRateLimiter {
 
 func (s *BaseServer) GRPCServer() *grpc.Server {
 	return Create(s, func() *grpc.Server {
-		return s.BuildGRPCServer(s.ExtendNetBirdConfig)
+		trustedPeers := s.Config.ReverseProxy.TrustedPeers
+		defaultTrustedPeers := []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0"), netip.MustParsePrefix("::/0")}
+		if len(trustedPeers) == 0 || slices.Equal[[]netip.Prefix](trustedPeers, defaultTrustedPeers) {
+			log.WithContext(context.Background()).Warn("TrustedPeers are configured to default value '0.0.0.0/0', '::/0'. This allows connection IP spoofing.")
+			trustedPeers = defaultTrustedPeers
+		}
+		trustedHTTPProxies := s.Config.ReverseProxy.TrustedHTTPProxies
+		trustedProxiesCount := s.Config.ReverseProxy.TrustedHTTPProxiesCount
+		if len(trustedHTTPProxies) > 0 && trustedProxiesCount > 0 {
+			log.WithContext(context.Background()).Warn("TrustedHTTPProxies and TrustedHTTPProxiesCount both are configured. " +
+				"This is not recommended way to extract X-Forwarded-For. Consider using one of these options.")
+		}
+		realipOpts := []realip.Option{
+			realip.WithTrustedPeers(trustedPeers),
+			realip.WithTrustedProxies(trustedHTTPProxies),
+			realip.WithTrustedProxiesCount(trustedProxiesCount),
+			realip.WithHeaders([]string{realip.XForwardedFor, realip.XRealIp}),
+		}
+		proxyUnary, proxyStream, proxyAuthClose := nbgrpc.NewProxyAuthInterceptors(s.Store())
+		s.proxyAuthClose = proxyAuthClose
+		gRPCOpts := []grpc.ServerOption{
+			grpc.KeepaliveEnforcementPolicy(kaep),
+			grpc.KeepaliveParams(kasp),
+			grpc.ChainUnaryInterceptor(realip.UnaryServerInterceptorOpts(realipOpts...), unaryInterceptor, proxyUnary),
+			grpc.ChainStreamInterceptor(realip.StreamServerInterceptorOpts(realipOpts...), streamInterceptor, proxyStream),
+		}
+
+		if s.Config.HttpConfig.LetsEncryptDomain != "" {
+			certManager, err := encryption.CreateCertManager(s.Config.Datadir, s.Config.HttpConfig.LetsEncryptDomain)
+			if err != nil {
+				log.Fatalf("failed to create certificate service: %v", err)
+			}
+			transportCredentials := credentials.NewTLS(certManager.TLSConfig())
+			gRPCOpts = append(gRPCOpts, grpc.Creds(transportCredentials))
+		} else if s.Config.HttpConfig.CertFile != "" && s.Config.HttpConfig.CertKey != "" {
+			tlsConfig, err := loadTLSConfig(s.Config.HttpConfig.CertFile, s.Config.HttpConfig.CertKey)
+			if err != nil {
+				log.Fatalf("cannot load TLS credentials: %v", err)
+			}
+			transportCredentials := credentials.NewTLS(tlsConfig)
+			gRPCOpts = append(gRPCOpts, grpc.Creds(transportCredentials))
+		}
+
+		gRPCAPIHandler := grpc.NewServer(gRPCOpts...)
+		srv, err := nbgrpc.NewServer(s.Config, s.AccountManager(), s.SettingsManager(), s.JobManager(), s.SecretsManager(), s.Metrics(), s.AuthManager(), s.IntegratedValidator(), s.NetworkMapController(), s.OAuthConfigProvider(), s.SessionStore())
+		if err != nil {
+			log.Fatalf("failed to create management server: %v", err)
+		}
+		serviceMgr := s.ServiceManager()
+		srv.SetReverseProxyManager(serviceMgr)
+		if serviceMgr != nil {
+			serviceMgr.StartExposeReaper(context.Background())
+		}
+		mgmtProto.RegisterManagementServiceServer(gRPCAPIHandler, srv)
+
+		mgmtProto.RegisterProxyServiceServer(gRPCAPIHandler, s.ReverseProxyGRPCServer())
+		log.Info("ProxyService registered on gRPC server")
+
+		return gRPCAPIHandler
 	})
-}
-
-func (s *BaseServer) BuildGRPCServer(configExtender nbgrpc.ConfigExtender) *grpc.Server {
-	trustedPeers := s.Config.ReverseProxy.TrustedPeers
-	defaultTrustedPeers := []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0"), netip.MustParsePrefix("::/0")}
-	if len(trustedPeers) == 0 || slices.Equal(trustedPeers, defaultTrustedPeers) {
-		log.WithContext(context.Background()).Warn("TrustedPeers are configured to default value '0.0.0.0/0', '::/0'. This allows connection IP spoofing.")
-		trustedPeers = defaultTrustedPeers
-	}
-	trustedHTTPProxies := s.Config.ReverseProxy.TrustedHTTPProxies
-	trustedProxiesCount := s.Config.ReverseProxy.TrustedHTTPProxiesCount
-	if len(trustedHTTPProxies) > 0 && trustedProxiesCount > 0 {
-		log.WithContext(context.Background()).Warn("TrustedHTTPProxies and TrustedHTTPProxiesCount both are configured. " +
-			"This is not recommended way to extract X-Forwarded-For. Consider using one of these options.")
-	}
-	realipOpts := []realip.Option{
-		realip.WithTrustedPeers(trustedPeers),
-		realip.WithTrustedProxies(trustedHTTPProxies),
-		realip.WithTrustedProxiesCount(trustedProxiesCount),
-		realip.WithHeaders([]string{realip.XForwardedFor, realip.XRealIp}),
-	}
-	proxyUnary, proxyStream, proxyAuthClose := nbgrpc.NewProxyAuthInterceptors(s.Store())
-	s.proxyAuthClose = proxyAuthClose
-	gRPCOpts := []grpc.ServerOption{
-		grpc.KeepaliveEnforcementPolicy(kaep),
-		grpc.KeepaliveParams(kasp),
-		grpc.ChainUnaryInterceptor(realip.UnaryServerInterceptorOpts(realipOpts...), unaryInterceptor, proxyUnary),
-		grpc.ChainStreamInterceptor(realip.StreamServerInterceptorOpts(realipOpts...), streamInterceptor, proxyStream),
-	}
-
-	if s.Config.HttpConfig.LetsEncryptDomain != "" {
-		certManager, err := encryption.CreateCertManager(s.Config.Datadir, s.Config.HttpConfig.LetsEncryptDomain)
-		if err != nil {
-			log.Fatalf("failed to create certificate service: %v", err)
-		}
-		transportCredentials := credentials.NewTLS(certManager.TLSConfig())
-		gRPCOpts = append(gRPCOpts, grpc.Creds(transportCredentials))
-	} else if s.Config.HttpConfig.CertFile != "" && s.Config.HttpConfig.CertKey != "" {
-		tlsConfig, err := loadTLSConfig(s.Config.HttpConfig.CertFile, s.Config.HttpConfig.CertKey)
-		if err != nil {
-			log.Fatalf("cannot load TLS credentials: %v", err)
-		}
-		transportCredentials := credentials.NewTLS(tlsConfig)
-		gRPCOpts = append(gRPCOpts, grpc.Creds(transportCredentials))
-	}
-
-	gRPCAPIHandler := grpc.NewServer(gRPCOpts...)
-	srv, err := nbgrpc.NewServer(s.Config, s.AccountManager(), s.SettingsManager(), s.JobManager(), s.SecretsManager(), s.Metrics(), s.AuthManager(), s.IntegratedValidator(), s.NetworkMapController(), s.OAuthConfigProvider(), s.SessionStore(), configExtender)
-	if err != nil {
-		log.Fatalf("failed to create management server: %v", err)
-	}
-	serviceMgr := s.ServiceManager()
-	srv.SetReverseProxyManager(serviceMgr)
-	if serviceMgr != nil {
-		serviceMgr.StartExposeReaper(context.Background())
-	}
-	mgmtProto.RegisterManagementServiceServer(gRPCAPIHandler, srv)
-
-	mgmtProto.RegisterProxyServiceServer(gRPCAPIHandler, s.ReverseProxyGRPCServer())
-	log.Info("ProxyService registered on gRPC server")
-
-	return gRPCAPIHandler
 }
 
 func (s *BaseServer) ReverseProxyGRPCServer() *nbgrpc.ProxyServiceServer {
