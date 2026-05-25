@@ -1184,6 +1184,107 @@ func TestStampNetBirdIdentity_FallsBackToGroupIDsWhenNameMissing(t *testing.T) {
 		"empty-string and out-of-range name slots must both fall back to the group id")
 }
 
+// TestStampNetBirdIdentity_DropsLabelsWithComma covers the
+// comma-separator constraint: a group display name that itself contains
+// a comma is dropped from the header (rather than corrupting the list),
+// and the remaining labels are stamped.
+func TestStampNetBirdIdentity_DropsLabelsWithComma(t *testing.T) {
+	target, _ := url.Parse("http://backend.internal:8080")
+	p := &ReverseProxy{forwardedProto: "auto"}
+	rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
+
+	pr := newProxyRequest(t, "http://example.com/", "203.0.113.50:9999")
+
+	cd := NewCapturedData("req-1")
+	cd.SetUserEmail("alice@netbird.io")
+	cd.SetUserGroups([]string{"grp-a", "grp-b", "grp-c"})
+	cd.SetUserGroupNames([]string{"engineering", "EU, EMEA", "operations"})
+
+	pr.In = pr.In.WithContext(WithCapturedData(pr.In.Context(), cd))
+
+	rewrite(pr)
+
+	assert.Equal(t, "engineering,operations", pr.Out.Header.Get(headerNetBirdGroups),
+		"group label with embedded comma must be dropped, remaining labels stamped")
+}
+
+// TestStampNetBirdIdentity_RejectsControlCharsInEmail covers the
+// header-injection defence: an email value containing CR/LF/control
+// chars is omitted entirely (not partially stamped) so the upstream
+// request stays well-formed and no header injection is possible.
+func TestStampNetBirdIdentity_RejectsControlCharsInEmail(t *testing.T) {
+	target, _ := url.Parse("http://backend.internal:8080")
+	p := &ReverseProxy{forwardedProto: "auto"}
+	rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
+
+	pr := newProxyRequest(t, "http://example.com/", "203.0.113.50:9999")
+	pr.In.Header.Set(headerNetBirdUser, "spoofed@evil.io")
+	pr.Out.Header = pr.In.Header.Clone()
+
+	cd := NewCapturedData("req-1")
+	cd.SetUserEmail("alice@netbird.io\r\nX-Admin: yes")
+	cd.SetUserGroups([]string{"grp-a"})
+	cd.SetUserGroupNames([]string{"engineering"})
+
+	pr.In = pr.In.WithContext(WithCapturedData(pr.In.Context(), cd))
+
+	rewrite(pr)
+
+	assert.Empty(t, pr.Out.Header.Get(headerNetBirdUser),
+		"email with CR/LF must be dropped, not partially stamped")
+	assert.Equal(t, "engineering", pr.Out.Header.Get(headerNetBirdGroups),
+		"groups remain stampable even when email is invalid")
+}
+
+// TestStampNetBirdIdentity_RejectsControlCharsInGroup covers the
+// per-label defence: a group name with a control char is silently
+// dropped, the rest are stamped.
+func TestStampNetBirdIdentity_RejectsControlCharsInGroup(t *testing.T) {
+	target, _ := url.Parse("http://backend.internal:8080")
+	p := &ReverseProxy{forwardedProto: "auto"}
+	rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
+
+	pr := newProxyRequest(t, "http://example.com/", "203.0.113.50:9999")
+
+	cd := NewCapturedData("req-1")
+	cd.SetUserEmail("alice@netbird.io")
+	cd.SetUserGroups([]string{"grp-a", "grp-b"})
+	cd.SetUserGroupNames([]string{"engineering\r\nsneaky", "operations"})
+
+	pr.In = pr.In.WithContext(WithCapturedData(pr.In.Context(), cd))
+
+	rewrite(pr)
+
+	assert.Equal(t, "operations", pr.Out.Header.Get(headerNetBirdGroups),
+		"group label with control char must be dropped, valid ones kept")
+}
+
+// TestStampNetBirdIdentity_OmitsGroupsHeaderWhenAllInvalid covers the
+// edge case where every group label is rejected: the header must not be
+// set at all (rather than set to an empty string).
+func TestStampNetBirdIdentity_OmitsGroupsHeaderWhenAllInvalid(t *testing.T) {
+	target, _ := url.Parse("http://backend.internal:8080")
+	p := &ReverseProxy{forwardedProto: "auto"}
+	rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
+
+	pr := newProxyRequest(t, "http://example.com/", "203.0.113.50:9999")
+	pr.In.Header.Set(headerNetBirdGroups, "spoofed-admin")
+	pr.Out.Header = pr.In.Header.Clone()
+
+	cd := NewCapturedData("req-1")
+	cd.SetUserEmail("alice@netbird.io")
+	cd.SetUserGroups([]string{"grp-a", "grp-b"})
+	cd.SetUserGroupNames([]string{"with,comma", "with\nbreak"})
+
+	pr.In = pr.In.WithContext(WithCapturedData(pr.In.Context(), cd))
+
+	rewrite(pr)
+
+	_, present := pr.Out.Header[http.CanonicalHeaderKey(headerNetBirdGroups)]
+	assert.False(t, present,
+		"X-NetBird-Groups must not be set when every group label is rejected")
+}
+
 // TestStampNetBirdIdentity_CapturedDataPresentButEmpty covers requests
 // that carry CapturedData with no identity fields populated (e.g. the
 // auth middleware ran but the request didn't authenticate). Both

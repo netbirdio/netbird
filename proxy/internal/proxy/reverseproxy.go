@@ -440,9 +440,28 @@ const (
 	headerNetBirdUser = "X-NetBird-User"
 	// headerNetBirdGroups carries the user's group display names as a
 	// comma-separated list. Falls back to group IDs at positions where a
-	// name wasn't available at session-mint time.
+	// name wasn't available at session-mint time. Labels containing a
+	// comma or any non-printable byte are dropped at stamp time so the
+	// list is unambiguously splittable by consumers.
 	headerNetBirdGroups = "X-NetBird-Groups"
 )
+
+// isHeaderValueSafe reports whether v is a valid RFC 7230 field-value:
+// VCHAR (0x21-0x7E), SP (0x20), or HTAB (0x09). Empty values are
+// rejected; the caller decides whether to omit the header entirely.
+func isHeaderValueSafe(v string) bool {
+	if v == "" {
+		return false
+	}
+	for i := 0; i < len(v); i++ {
+		c := v[i]
+		if c == '\t' || (c >= 0x20 && c <= 0x7E) {
+			continue
+		}
+		return false
+	}
+	return true
+}
 
 // stampNetBirdIdentity injects authenticated identity onto outbound
 // requests as X-NetBird-User and X-NetBird-Groups. Always strips any
@@ -456,7 +475,7 @@ func stampNetBirdIdentity(r *httputil.ProxyRequest) {
 	if cd == nil {
 		return
 	}
-	if email := cd.GetUserEmail(); email != "" {
+	if email := cd.GetUserEmail(); isHeaderValueSafe(email) {
 		r.Out.Header.Set(headerNetBirdUser, email)
 	}
 	groupIDs := cd.GetUserGroups()
@@ -464,13 +483,18 @@ func stampNetBirdIdentity(r *httputil.ProxyRequest) {
 		return
 	}
 	groupNames := cd.GetUserGroupNames()
-	labels := make([]string, len(groupIDs))
+	labels := make([]string, 0, len(groupIDs))
 	for i, id := range groupIDs {
+		label := id
 		if i < len(groupNames) && groupNames[i] != "" {
-			labels[i] = groupNames[i]
+			label = groupNames[i]
+		}
+		if !isHeaderValueSafe(label) || strings.ContainsRune(label, ',') {
 			continue
 		}
-		labels[i] = id
+		labels = append(labels, label)
 	}
-	r.Out.Header.Set(headerNetBirdGroups, strings.Join(labels, ","))
+	if len(labels) > 0 {
+		r.Out.Header.Set(headerNetBirdGroups, strings.Join(labels, ","))
+	}
 }
