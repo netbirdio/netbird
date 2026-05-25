@@ -16,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/proxy/internal/accesslog"
 	"github.com/netbirdio/netbird/proxy/internal/restrict"
 	"github.com/netbirdio/netbird/proxy/internal/types"
+	"github.com/netbirdio/netbird/util/netrelay"
 )
 
 // defaultDialTimeout is the fallback dial timeout when no per-route
@@ -99,28 +100,50 @@ type Router struct {
 	// httpCh is immutable after construction: set only in NewRouter, nil in NewPortRouter.
 	httpCh       chan net.Conn
 	httpListener *chanListener
-	mu           sync.RWMutex
-	routes       map[SNIHost][]Route
-	fallback     *Route
-	draining     bool
-	dialResolve  DialResolver
-	activeConns  sync.WaitGroup
-	activeRelays sync.WaitGroup
-	relaySem     chan struct{}
-	drainDone    chan struct{}
-	observer     RelayObserver
-	accessLog    l4Logger
-	geo          restrict.GeoResolver
+	// httpPlainCh feeds non-TLS HTTP connections to a parallel http.Server.
+	// Set only when NewRouter is called with WithPlainHTTP option (used by
+	// per-account inbound listeners that accept both :80 and :443 traffic).
+	// Nil for the host SNI router and for port routers.
+	httpPlainCh       chan net.Conn
+	httpPlainListener *chanListener
+	mu                sync.RWMutex
+	routes            map[SNIHost][]Route
+	fallback          *Route
+	draining          bool
+	dialResolve       DialResolver
+	activeConns       sync.WaitGroup
+	activeRelays      sync.WaitGroup
+	relaySem          chan struct{}
+	drainDone         chan struct{}
+	observer          RelayObserver
+	accessLog         l4Logger
+	geo               restrict.GeoResolver
 	// svcCtxs tracks a context per service ID. All relay goroutines for a
 	// service derive from its context; canceling it kills them immediately.
 	svcCtxs    map[types.ServiceID]context.Context
 	svcCancels map[types.ServiceID]context.CancelFunc
 }
 
+// RouterOption customises Router construction.
+type RouterOption func(*Router)
+
+// WithPlainHTTP enables a parallel plain-HTTP channel on the router. When
+// set, connections whose first byte is not a TLS handshake are forwarded
+// to the plain channel returned by HTTPListenerPlain instead of the TLS
+// channel. Used by per-account inbound listeners that share both :80 and
+// :443 traffic on the same router.
+func WithPlainHTTP(addr net.Addr) RouterOption {
+	return func(r *Router) {
+		ch := make(chan net.Conn, httpChannelBuffer)
+		r.httpPlainCh = ch
+		r.httpPlainListener = newChanListener(ch, addr)
+	}
+}
+
 // NewRouter creates a new SNI-based connection router.
-func NewRouter(logger *log.Logger, dialResolve DialResolver, addr net.Addr) *Router {
+func NewRouter(logger *log.Logger, dialResolve DialResolver, addr net.Addr, opts ...RouterOption) *Router {
 	httpCh := make(chan net.Conn, httpChannelBuffer)
-	return &Router{
+	r := &Router{
 		logger:       logger,
 		httpCh:       httpCh,
 		httpListener: newChanListener(httpCh, addr),
@@ -130,6 +153,10 @@ func NewRouter(logger *log.Logger, dialResolve DialResolver, addr net.Addr) *Rou
 		svcCtxs:      make(map[types.ServiceID]context.Context),
 		svcCancels:   make(map[types.ServiceID]context.CancelFunc),
 	}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
 }
 
 // NewPortRouter creates a Router for a dedicated port without an HTTP
@@ -150,6 +177,16 @@ func NewPortRouter(logger *log.Logger, dialResolve DialResolver) *Router {
 // to the HTTP handler. Use this with http.Server.ServeTLS.
 func (r *Router) HTTPListener() net.Listener {
 	return r.httpListener
+}
+
+// HTTPListenerPlain returns a net.Listener yielding non-TLS connections
+// for use with a parallel plain http.Server. Returns nil when the router
+// was not constructed with WithPlainHTTP.
+func (r *Router) HTTPListenerPlain() net.Listener {
+	if r.httpPlainListener == nil {
+		return nil
+	}
+	return r.httpPlainListener
 }
 
 // AddRoute registers an SNI route. Multiple routes for the same host are
@@ -253,6 +290,9 @@ func (r *Router) Serve(ctx context.Context, ln net.Listener) error {
 			if r.httpListener != nil {
 				r.httpListener.Close()
 			}
+			if r.httpPlainListener != nil {
+				r.httpPlainListener.Close()
+			}
 		case <-done:
 		}
 	}()
@@ -269,6 +309,7 @@ func (r *Router) Serve(ctx context.Context, ln net.Listener) error {
 			r.logger.Debugf("SNI router accept: %v", err)
 			continue
 		}
+		r.logger.Debugf("SNI router accepted conn from %s on %s", conn.RemoteAddr(), conn.LocalAddr())
 		r.activeConns.Add(1)
 		go func() {
 			defer r.activeConns.Done()
@@ -277,13 +318,24 @@ func (r *Router) Serve(ctx context.Context, ln net.Listener) error {
 	}
 }
 
+// HandleConn lets external accept loops feed a connection through the
+// router's peek-and-dispatch logic. Use this when the same router serves
+// a secondary listener (for example, a per-account inbound :80 socket
+// alongside its :443 socket).
+func (r *Router) HandleConn(ctx context.Context, conn net.Conn) {
+	r.activeConns.Add(1)
+	defer r.activeConns.Done()
+	r.handleConn(ctx, conn)
+}
+
 // handleConn peeks at the TLS ClientHello and routes the connection.
 func (r *Router) handleConn(ctx context.Context, conn net.Conn) {
 	// Fast path: when no SNI routes and no HTTP channel exist (pure TCP
 	// fallback port), skip the TLS peek entirely to avoid read errors on
 	// non-TLS connections and reduce latency.
 	if r.isFallbackOnly() {
-		r.handleUnmatched(ctx, conn)
+		r.logger.Debugf("SNI router fallback-only mode for conn from %s; skipping ClientHello peek", conn.RemoteAddr())
+		r.handleUnmatched(ctx, conn, false)
 		return
 	}
 
@@ -293,11 +345,11 @@ func (r *Router) handleConn(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	sni, wrapped, err := PeekClientHello(conn)
+	sni, wrapped, isTLS, err := PeekClientHello(conn)
 	if err != nil {
-		r.logger.Debugf("SNI peek: %v", err)
+		r.logger.Debugf("SNI peek failed for conn from %s: %v", conn.RemoteAddr(), err)
 		if wrapped != nil {
-			r.handleUnmatched(ctx, wrapped)
+			r.handleUnmatched(ctx, wrapped, isTLS)
 		} else {
 			_ = conn.Close()
 		}
@@ -312,13 +364,20 @@ func (r *Router) handleConn(ctx context.Context, conn net.Conn) {
 
 	host := SNIHost(strings.ToLower(sni))
 	route, ok := r.lookupRoute(host)
+	r.logger.WithFields(log.Fields{
+		"remote": wrapped.RemoteAddr().String(),
+		"sni":    string(host),
+		"match":  ok,
+		"tls":    isTLS,
+	}).Debug("SNI route lookup")
 	if !ok {
-		r.handleUnmatched(ctx, wrapped)
+		r.handleUnmatched(ctx, wrapped, isTLS)
 		return
 	}
 
 	if route.Type == RouteHTTP {
-		r.sendToHTTP(wrapped)
+		r.logger.Debugf("SNI %q routed to HTTP handler (service_id=%s)", host, route.ServiceID)
+		r.sendToHTTP(wrapped, isTLS)
 		return
 	}
 
@@ -343,15 +402,17 @@ func (r *Router) isFallbackOnly() bool {
 }
 
 // handleUnmatched routes a connection that didn't match any SNI route.
-// This includes ECH/ESNI connections where the cleartext SNI is empty.
+// This includes ECH/ESNI connections where the cleartext SNI is empty,
+// and plain (non-TLS) HTTP connections when isTLS is false.
 // It tries the fallback relay first, then the HTTP channel, and closes
 // the connection if neither is available.
-func (r *Router) handleUnmatched(ctx context.Context, conn net.Conn) {
+func (r *Router) handleUnmatched(ctx context.Context, conn net.Conn, isTLS bool) {
 	r.mu.RLock()
 	fb := r.fallback
 	r.mu.RUnlock()
 
 	if fb != nil {
+		r.logger.Debugf("unmatched conn from %s relayed to TCP fallback (service_id=%s, target=%s)", conn.RemoteAddr(), fb.ServiceID, fb.Target)
 		if err := r.relayTCP(ctx, conn, SNIHost("fallback"), *fb); err != nil {
 			if !errors.Is(err, errAccessRestricted) {
 				r.logger.WithFields(log.Fields{
@@ -363,7 +424,8 @@ func (r *Router) handleUnmatched(ctx context.Context, conn net.Conn) {
 		}
 		return
 	}
-	r.sendToHTTP(conn)
+	r.logger.Debugf("unmatched conn from %s sent to HTTP channel (no TCP fallback configured)", conn.RemoteAddr())
+	r.sendToHTTP(conn, isTLS)
 }
 
 // lookupRoute returns the highest-priority route for the given SNI host.
@@ -385,10 +447,20 @@ func (r *Router) lookupRoute(host SNIHost) (Route, bool) {
 }
 
 // sendToHTTP feeds the connection to the HTTP handler via the channel.
-// If no HTTP channel is configured (port router), the router is
-// draining, or the channel is full, the connection is closed.
-func (r *Router) sendToHTTP(conn net.Conn) {
-	if r.httpCh == nil {
+// When isTLS is false and a plain channel is configured the connection
+// is forwarded to the plain channel; otherwise it lands on the TLS
+// channel. If no usable channel exists, the router is draining, or the
+// channel is full, the connection is closed.
+func (r *Router) sendToHTTP(conn net.Conn, isTLS bool) {
+	ch := r.httpCh
+	chanName := "HTTP"
+	if !isTLS && r.httpPlainCh != nil {
+		ch = r.httpPlainCh
+		chanName = "HTTP-plain"
+	}
+
+	if ch == nil {
+		r.logger.Debugf("%s channel nil; dropping conn from %s", chanName, conn.RemoteAddr())
 		_ = conn.Close()
 		return
 	}
@@ -398,14 +470,15 @@ func (r *Router) sendToHTTP(conn net.Conn) {
 	r.mu.RUnlock()
 
 	if draining {
+		r.logger.Debugf("router draining; dropping conn from %s", conn.RemoteAddr())
 		_ = conn.Close()
 		return
 	}
 
 	select {
-	case r.httpCh <- conn:
+	case ch <- conn:
 	default:
-		r.logger.Warnf("HTTP channel full, dropping connection from %s", conn.RemoteAddr())
+		r.logger.Warnf("%s channel full, dropping connection from %s", chanName, conn.RemoteAddr())
 		_ = conn.Close()
 	}
 }
@@ -528,11 +601,14 @@ func (r *Router) relayTCP(ctx context.Context, conn net.Conn, sni SNIHost, route
 
 	idleTimeout := route.SessionIdleTimeout
 	if idleTimeout <= 0 {
-		idleTimeout = DefaultIdleTimeout
+		idleTimeout = netrelay.DefaultIdleTimeout
 	}
 
 	start := time.Now()
-	s2d, d2s := Relay(svcCtx, entry, conn, backend, idleTimeout)
+	s2d, d2s := netrelay.Relay(svcCtx, conn, backend, netrelay.Options{
+		IdleTimeout: idleTimeout,
+		Logger:      entry,
+	})
 	elapsed := time.Since(start)
 
 	if obs != nil {

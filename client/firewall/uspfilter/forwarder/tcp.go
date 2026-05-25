@@ -1,11 +1,8 @@
 package forwarder
 
 import (
-	"context"
-	"io"
 	"net"
 	"strconv"
-	"sync"
 
 	"github.com/google/uuid"
 
@@ -15,7 +12,9 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
 	"gvisor.dev/gvisor/pkg/waiter"
 
+	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
+	"github.com/netbirdio/netbird/util/netrelay"
 )
 
 // handleTCP is called by the TCP forwarder for new connections.
@@ -37,7 +36,9 @@ func (f *Forwarder) handleTCP(r *tcp.ForwarderRequest) {
 	outConn, err := (&net.Dialer{}).DialContext(f.ctx, "tcp", dialAddr)
 	if err != nil {
 		r.Complete(true)
-		f.logger.Trace2("forwarder: dial error for %v: %v", epID(id), err)
+		if f.logger.Enabled(nblog.LevelTrace) {
+			f.logger.Trace2("forwarder: dial error for %v: %v", epID(id), err)
+		}
 		return
 	}
 
@@ -60,64 +61,22 @@ func (f *Forwarder) handleTCP(r *tcp.ForwarderRequest) {
 	inConn := gonet.NewTCPConn(&wq, ep)
 
 	success = true
-	f.logger.Trace1("forwarder: established TCP connection %v", epID(id))
+	if f.logger.Enabled(nblog.LevelTrace) {
+		f.logger.Trace1("forwarder: established TCP connection %v", epID(id))
+	}
 
 	go f.proxyTCP(id, inConn, outConn, ep, flowID)
 }
 
 func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn, outConn net.Conn, ep tcpip.Endpoint, flowID uuid.UUID) {
+	// netrelay.Relay copies bidirectionally with proper half-close propagation
+	// and fully closes both conns before returning.
+	bytesFromInToOut, bytesFromOutToIn := netrelay.Relay(f.ctx, inConn, outConn, netrelay.Options{
+		Logger: f.logger,
+	})
 
-	ctx, cancel := context.WithCancel(f.ctx)
-	defer cancel()
-
-	go func() {
-		<-ctx.Done()
-		// Close connections and endpoint.
-		if err := inConn.Close(); err != nil && !isClosedError(err) {
-			f.logger.Debug1("forwarder: inConn close error: %v", err)
-		}
-		if err := outConn.Close(); err != nil && !isClosedError(err) {
-			f.logger.Debug1("forwarder: outConn close error: %v", err)
-		}
-
-		ep.Close()
-	}()
-
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	var (
-		bytesFromInToOut int64 // bytes from client to server (tx for client)
-		bytesFromOutToIn int64 // bytes from server to client (rx for client)
-		errInToOut       error
-		errOutToIn       error
-	)
-
-	go func() {
-		bytesFromInToOut, errInToOut = io.Copy(outConn, inConn)
-		cancel()
-		wg.Done()
-	}()
-
-	go func() {
-
-		bytesFromOutToIn, errOutToIn = io.Copy(inConn, outConn)
-		cancel()
-		wg.Done()
-	}()
-
-	wg.Wait()
-
-	if errInToOut != nil {
-		if !isClosedError(errInToOut) {
-			f.logger.Error2("proxyTCP: copy error (in → out) for %s: %v", epID(id), errInToOut)
-		}
-	}
-	if errOutToIn != nil {
-		if !isClosedError(errOutToIn) {
-			f.logger.Error2("proxyTCP: copy error (out → in) for %s: %v", epID(id), errOutToIn)
-		}
-	}
+	// Close the netstack endpoint after both conns are drained.
+	ep.Close()
 
 	var rxPackets, txPackets uint64
 	if tcpStats, ok := ep.Stats().(*tcp.Stats); ok {
@@ -126,7 +85,9 @@ func (f *Forwarder) proxyTCP(id stack.TransportEndpointID, inConn *gonet.TCPConn
 		txPackets = tcpStats.SegmentsReceived.Value()
 	}
 
-	f.logger.Trace5("forwarder: Removed TCP connection %s [in: %d Pkts/%d B, out: %d Pkts/%d B]", epID(id), rxPackets, bytesFromOutToIn, txPackets, bytesFromInToOut)
+	if f.logger.Enabled(nblog.LevelTrace) {
+		f.logger.Trace5("forwarder: Removed TCP connection %s [in: %d Pkts/%d B, out: %d Pkts/%d B]", epID(id), rxPackets, bytesFromOutToIn, txPackets, bytesFromInToOut)
+	}
 
 	f.sendTCPEvent(nftypes.TypeEnd, flowID, id, uint64(bytesFromOutToIn), uint64(bytesFromInToOut), rxPackets, txPackets)
 }

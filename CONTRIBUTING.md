@@ -8,13 +8,14 @@ There are many ways that you can contribute:
 - Sharing use cases in slack or Reddit
 - Bug fix or feature enhancement
 
-If you haven't already, join our slack workspace [here](https://join.slack.com/t/netbirdio/shared_invite/zt-vrahf41g-ik1v7fV8du6t0RwxSrJ96A), we would love to discuss topics that need community contribution and enhancements to existing features.
+If you haven't already, join our slack workspace [here](https://docs.netbird.io/slack-url), we would love to discuss topics that need community contribution and enhancements to existing features.
 
 ## Contents
 
 - [Contributing to NetBird](#contributing-to-netbird)
     - [Contents](#contents)
     - [Code of conduct](#code-of-conduct)
+    - [Discuss changes with the NetBird team first](#discuss-changes-with-the-netbird-team-first)
     - [Directory structure](#directory-structure)
     - [Development setup](#development-setup)
         - [Requirements](#requirements)
@@ -32,6 +33,14 @@ This project and everyone participating in it are governed by the Code of
 Conduct which can be found in the file [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 By participating, you are expected to uphold this code. Please report
 unacceptable behavior to community@netbird.io.
+
+## Discuss changes with the NetBird team first
+
+Changes to the **public API**, **gRPC protocols**, **functionality behavior**, **CLI / service flags**, or **new features** should be discussed with the NetBird team before you start the work. These surfaces are part of NetBird's contract with operators, self-hosters, and downstream integrators, and changes to them have compatibility, security, and release-planning implications that benefit from an early conversation.
+
+Open an issue or reach out on [Slack](https://docs.netbird.io/slack-url) to talk through what you have in mind. We'll help shape the change, flag any constraints we know about, and confirm the direction so the PR review can focus on implementation rather than design.
+
+Typical bug fixes, internal refactors, documentation updates, and tests do not need pre-discussion — open the PR directly.
 
 ## Directory structure
 

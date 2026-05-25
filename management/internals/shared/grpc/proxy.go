@@ -9,6 +9,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -50,6 +52,11 @@ type ProxyOIDCConfig struct {
 	KeysLocation string
 }
 
+// ProxyTokenChecker checks whether a proxy access token is still valid.
+type ProxyTokenChecker interface {
+	IsProxyAccessTokenValid(ctx context.Context, tokenID string) (bool, error)
+}
+
 // ProxyServiceServer implements the ProxyService gRPC server
 type ProxyServiceServer struct {
 	proto.UnimplementedProxyServiceServer
@@ -77,6 +84,9 @@ type ProxyServiceServer struct {
 
 	// Store for one-time authentication tokens
 	tokenStore *OneTimeTokenStore
+
+	// Checker for proxy access token validity
+	tokenChecker ProxyTokenChecker
 
 	// OIDC configuration for proxy authentication
 	oidcConfig ProxyOIDCConfig
@@ -123,15 +133,31 @@ type proxyConnection struct {
 	proxyID      string
 	sessionID    string
 	address      string
+	accountID    *string
+	tokenID      string
 	capabilities *proto.ProxyCapabilities
 	stream       proto.ProxyService_GetMappingUpdateServer
-	sendChan     chan *proto.GetMappingUpdateResponse
-	ctx          context.Context
-	cancel       context.CancelFunc
+	// syncStream is set when the proxy connected via SyncMappings.
+	// When non-nil, the sender goroutine uses this instead of stream.
+	syncStream proto.ProxyService_SyncMappingsServer
+	sendChan   chan *proto.GetMappingUpdateResponse
+	ctx        context.Context
+	cancel     context.CancelFunc
+}
+
+func enforceAccountScope(ctx context.Context, requestAccountID string) error {
+	token := GetProxyTokenFromContext(ctx)
+	if token == nil || token.AccountID == nil {
+		return nil
+	}
+	if requestAccountID == "" || *token.AccountID != requestAccountID {
+		return status.Errorf(codes.PermissionDenied, "account-scoped token cannot access account %s", requestAccountID)
+	}
+	return nil
 }
 
 // NewProxyServiceServer creates a new proxy service server.
-func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeTokenStore, pkceStore *PKCEVerifierStore, oidcConfig ProxyOIDCConfig, peersManager peers.Manager, usersManager users.Manager, proxyMgr proxy.Manager) *ProxyServiceServer {
+func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeTokenStore, pkceStore *PKCEVerifierStore, oidcConfig ProxyOIDCConfig, peersManager peers.Manager, usersManager users.Manager, proxyMgr proxy.Manager, tokenChecker ProxyTokenChecker) *ProxyServiceServer {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &ProxyServiceServer{
 		accessLogManager:  accessLogMgr,
@@ -141,6 +167,7 @@ func NewProxyServiceServer(accessLogMgr accesslogs.Manager, tokenStore *OneTimeT
 		peersManager:      peersManager,
 		usersManager:      usersManager,
 		proxyManager:      proxyMgr,
+		tokenChecker:      tokenChecker,
 		snapshotBatchSize: snapshotBatchSizeFromEnv(),
 		cancel:            cancel,
 	}
@@ -183,123 +210,326 @@ func (s *ProxyServiceServer) SetProxyController(proxyController proxy.Controller
 	s.proxyController = proxyController
 }
 
+// proxyConnectParams holds the validated parameters extracted from either
+// a GetMappingUpdateRequest or a SyncMappingsInit message.
+type proxyConnectParams struct {
+	proxyID      string
+	address      string
+	capabilities *proto.ProxyCapabilities
+}
+
 // GetMappingUpdate handles the control stream with proxy clients
 func (s *ProxyServiceServer) GetMappingUpdate(req *proto.GetMappingUpdateRequest, stream proto.ProxyService_GetMappingUpdateServer) error {
-	ctx := stream.Context()
-
-	peerInfo := PeerIPFromContext(ctx)
-	log.Infof("New proxy connection from %s", peerInfo)
-
-	proxyID := req.GetProxyId()
-	if proxyID == "" {
-		return status.Errorf(codes.InvalidArgument, "proxy_id is required")
-	}
-
-	proxyAddress := req.GetAddress()
-	if !isProxyAddressValid(proxyAddress) {
-		return status.Errorf(codes.InvalidArgument, "proxy address is invalid")
-	}
-
-	sessionID := uuid.NewString()
-
-	if old, loaded := s.connectedProxies.Load(proxyID); loaded {
-		oldConn := old.(*proxyConnection)
-		log.WithFields(log.Fields{
-			"proxy_id":       proxyID,
-			"old_session_id": oldConn.sessionID,
-			"new_session_id": sessionID,
-		}).Info("Superseding existing proxy connection")
-		oldConn.cancel()
-	}
-
-	connCtx, cancel := context.WithCancel(ctx)
-	conn := &proxyConnection{
-		proxyID:      proxyID,
-		sessionID:    sessionID,
-		address:      proxyAddress,
-		capabilities: req.GetCapabilities(),
-		stream:       stream,
-		sendChan:     make(chan *proto.GetMappingUpdateResponse, 100),
-		ctx:          connCtx,
-		cancel:       cancel,
-	}
-
-	// Register proxy in database with capabilities
-	var caps *proxy.Capabilities
-	if c := req.GetCapabilities(); c != nil {
-		caps = &proxy.Capabilities{
-			SupportsCustomPorts: c.SupportsCustomPorts,
-			RequireSubdomain:    c.RequireSubdomain,
-			SupportsCrowdsec:    c.SupportsCrowdsec,
-		}
-	}
-	proxyRecord, err := s.proxyManager.Connect(ctx, proxyID, sessionID, proxyAddress, peerInfo, caps)
+	params, err := s.validateProxyConnect(req.GetProxyId(), req.GetAddress(), stream.Context())
 	if err != nil {
-		log.WithContext(ctx).Warnf("failed to register proxy %s in database: %v", proxyID, err)
-		cancel()
-		return status.Errorf(codes.Internal, "register proxy in database: %v", err)
+		return err
+	}
+	params.capabilities = req.GetCapabilities()
+
+	conn, proxyRecord, err := s.registerProxyConnection(stream.Context(), params, &proxyConnection{
+		stream: stream,
+	})
+	if err != nil {
+		return err
 	}
 
-	s.connectedProxies.Store(proxyID, conn)
-	if err := s.proxyController.RegisterProxyToCluster(ctx, conn.address, proxyID); err != nil {
-		log.WithContext(ctx).Warnf("Failed to register proxy %s in cluster: %v", proxyID, err)
-	}
-
-	if err := s.sendSnapshot(ctx, conn); err != nil {
-		if s.connectedProxies.CompareAndDelete(proxyID, conn) {
-			if unregErr := s.proxyController.UnregisterProxyFromCluster(context.Background(), conn.address, proxyID); unregErr != nil {
-				log.WithContext(ctx).Debugf("cleanup after snapshot failure for proxy %s: %v", proxyID, unregErr)
-			}
-		}
-		cancel()
-		if disconnErr := s.proxyManager.Disconnect(context.Background(), proxyID, sessionID); disconnErr != nil {
-			log.WithContext(ctx).Debugf("cleanup after snapshot failure for proxy %s: %v", proxyID, disconnErr)
-		}
-		return fmt.Errorf("send snapshot to proxy %s: %w", proxyID, err)
+	if err := s.sendSnapshot(stream.Context(), conn); err != nil {
+		s.cleanupFailedSnapshot(stream.Context(), conn)
+		return fmt.Errorf("send snapshot to proxy %s: %w", params.proxyID, err)
 	}
 
 	errChan := make(chan error, 2)
 	go s.sender(conn, errChan)
 
-	log.WithFields(log.Fields{
-		"proxy_id":      proxyID,
-		"session_id":    sessionID,
-		"address":       proxyAddress,
-		"cluster_addr":  proxyAddress,
-		"total_proxies": len(s.GetConnectedProxies()),
-	}).Info("Proxy registered in cluster")
-	defer func() {
-		if !s.connectedProxies.CompareAndDelete(proxyID, conn) {
-			log.Infof("Proxy %s session %s: skipping cleanup, superseded by new connection", proxyID, sessionID)
-			cancel()
-			return
-		}
+	return s.serveProxyConnection(conn, proxyRecord, errChan, false)
+}
 
-		if err := s.proxyController.UnregisterProxyFromCluster(context.Background(), conn.address, proxyID); err != nil {
-			log.Warnf("Failed to unregister proxy %s from cluster: %v", proxyID, err)
-		}
-		if err := s.proxyManager.Disconnect(context.Background(), proxyID, sessionID); err != nil {
-			log.Warnf("Failed to mark proxy %s as disconnected: %v", proxyID, err)
-		}
+// SyncMappings implements the bidirectional SyncMappings RPC.
+// It mirrors GetMappingUpdate but provides application-level back-pressure:
+// management waits for an ack from the proxy before sending the next batch.
+func (s *ProxyServiceServer) SyncMappings(stream proto.ProxyService_SyncMappingsServer) error {
+	init, err := recvSyncInit(stream)
+	if err != nil {
+		return err
+	}
 
+	params, err := s.validateProxyConnect(init.GetProxyId(), init.GetAddress(), stream.Context())
+	if err != nil {
+		return err
+	}
+	params.capabilities = init.GetCapabilities()
+
+	conn, proxyRecord, err := s.registerProxyConnection(stream.Context(), params, &proxyConnection{
+		syncStream: stream,
+	})
+	if err != nil {
+		return err
+	}
+
+	if err := s.sendSnapshotSync(stream.Context(), conn, stream); err != nil {
+		s.cleanupFailedSnapshot(stream.Context(), conn)
+		return fmt.Errorf("send snapshot to proxy %s: %w", params.proxyID, err)
+	}
+
+	errChan := make(chan error, 2)
+	go s.sender(conn, errChan)
+	go s.drainRecv(stream, errChan)
+
+	return s.serveProxyConnection(conn, proxyRecord, errChan, true)
+}
+
+// recvSyncInit receives and validates the first message on a SyncMappings stream.
+func recvSyncInit(stream proto.ProxyService_SyncMappingsServer) (*proto.SyncMappingsInit, error) {
+	firstMsg, err := stream.Recv()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "receive init: %v", err)
+	}
+	init := firstMsg.GetInit()
+	if init == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "first message must be init")
+	}
+	return init, nil
+}
+
+// validateProxyConnect validates the proxy ID and address, and checks cluster
+// address availability for account-scoped tokens.
+func (s *ProxyServiceServer) validateProxyConnect(proxyID, address string, ctx context.Context) (proxyConnectParams, error) {
+	if proxyID == "" {
+		return proxyConnectParams{}, status.Errorf(codes.InvalidArgument, "proxy_id is required")
+	}
+	if !isProxyAddressValid(address) {
+		return proxyConnectParams{}, status.Errorf(codes.InvalidArgument, "proxy address is invalid")
+	}
+
+	token := GetProxyTokenFromContext(ctx)
+	if token != nil && token.AccountID != nil {
+		available, err := s.proxyManager.IsClusterAddressAvailable(ctx, address, *token.AccountID)
+		if err != nil {
+			return proxyConnectParams{}, status.Errorf(codes.Internal, "check cluster address: %v", err)
+		}
+		if !available {
+			return proxyConnectParams{}, status.Errorf(codes.AlreadyExists, "cluster address %s is already in use", address)
+		}
+	}
+
+	return proxyConnectParams{proxyID: proxyID, address: address}, nil
+}
+
+// registerProxyConnection creates a proxyConnection, registers it with the
+// proxy manager and cluster, and stores it in connectedProxies. The caller
+// provides a partially initialised connSeed with stream-specific fields set;
+// the remaining fields are filled in here.
+func (s *ProxyServiceServer) registerProxyConnection(ctx context.Context, params proxyConnectParams, connSeed *proxyConnection) (*proxyConnection, *proxy.Proxy, error) {
+	peerInfo := PeerIPFromContext(ctx)
+
+	var accountID *string
+	var tokenID string
+	if token := GetProxyTokenFromContext(ctx); token != nil {
+		if token.AccountID != nil {
+			accountID = token.AccountID
+		}
+		tokenID = token.ID
+	}
+
+	sessionID := uuid.NewString()
+	s.supersedePriorConnection(params.proxyID, sessionID)
+
+	connCtx, cancel := context.WithCancel(ctx)
+	connSeed.proxyID = params.proxyID
+	connSeed.sessionID = sessionID
+	connSeed.address = params.address
+	connSeed.accountID = accountID
+	connSeed.tokenID = tokenID
+	connSeed.capabilities = params.capabilities
+	connSeed.sendChan = make(chan *proto.GetMappingUpdateResponse, 100)
+	connSeed.ctx = connCtx
+	connSeed.cancel = cancel
+
+	var caps *proxy.Capabilities
+	if c := params.capabilities; c != nil {
+		caps = &proxy.Capabilities{
+			SupportsCustomPorts: c.SupportsCustomPorts,
+			RequireSubdomain:    c.RequireSubdomain,
+			SupportsCrowdsec:    c.SupportsCrowdsec,
+			Private:             c.Private,
+		}
+	}
+
+	proxyRecord, err := s.proxyManager.Connect(ctx, params.proxyID, sessionID, params.address, peerInfo, accountID, caps)
+	if err != nil {
 		cancel()
-		log.Infof("Proxy %s session %s disconnected", proxyID, sessionID)
-	}()
+		if accountID != nil {
+			return nil, nil, status.Errorf(codes.Internal, "failed to register BYOP proxy: %v", err)
+		}
+		log.WithContext(ctx).Warnf("failed to register proxy %s in database: %v", params.proxyID, err)
+		return nil, nil, status.Errorf(codes.Internal, "register proxy in database: %v", err)
+	}
 
-	go s.heartbeat(connCtx, proxyRecord)
+	s.connectedProxies.Store(params.proxyID, connSeed)
+	if err := s.proxyController.RegisterProxyToCluster(ctx, params.address, params.proxyID); err != nil {
+		log.WithContext(ctx).Warnf("Failed to register proxy %s in cluster: %v", params.proxyID, err)
+	}
 
-	select {
-	case err := <-errChan:
-		log.WithContext(ctx).Warnf("Failed to send update: %v", err)
-		return fmt.Errorf("send update to proxy %s: %w", proxyID, err)
-	case <-connCtx.Done():
-		log.WithContext(ctx).Infof("Proxy %s context canceled", proxyID)
-		return connCtx.Err()
+	return connSeed, proxyRecord, nil
+}
+
+// supersedePriorConnection cancels any existing connection for the given proxy.
+func (s *ProxyServiceServer) supersedePriorConnection(proxyID, newSessionID string) {
+	if old, loaded := s.connectedProxies.Load(proxyID); loaded {
+		oldConn := old.(*proxyConnection)
+		log.WithFields(log.Fields{
+			"proxy_id":       proxyID,
+			"old_session_id": oldConn.sessionID,
+			"new_session_id": newSessionID,
+		}).Info("Superseding existing proxy connection")
+		oldConn.cancel()
 	}
 }
 
-// heartbeat updates the proxy's last_seen timestamp every minute
-func (s *ProxyServiceServer) heartbeat(ctx context.Context, p *proxy.Proxy) {
+// cleanupFailedSnapshot removes the connection from the cluster and store
+// after a snapshot send failure.
+func (s *ProxyServiceServer) cleanupFailedSnapshot(ctx context.Context, conn *proxyConnection) {
+	if s.connectedProxies.CompareAndDelete(conn.proxyID, conn) {
+		if err := s.proxyController.UnregisterProxyFromCluster(context.Background(), conn.address, conn.proxyID); err != nil {
+			log.WithContext(ctx).Debugf("cleanup after snapshot failure for proxy %s: %v", conn.proxyID, err)
+		}
+	}
+	conn.cancel()
+	if err := s.proxyManager.Disconnect(context.Background(), conn.proxyID, conn.sessionID); err != nil {
+		log.WithContext(ctx).Debugf("cleanup after snapshot failure for proxy %s: %v", conn.proxyID, err)
+	}
+}
+
+// drainRecv consumes and discards messages from a bidirectional stream.
+// The proxy sends an ack for every incremental update; we don't need them
+// after the snapshot phase. Recv errors are forwarded to errChan.
+func (s *ProxyServiceServer) drainRecv(stream proto.ProxyService_SyncMappingsServer, errChan chan<- error) {
+	for {
+		if _, err := stream.Recv(); err != nil {
+			errChan <- err
+			return
+		}
+	}
+}
+
+// serveProxyConnection runs the post-snapshot lifecycle: heartbeat, sender,
+// and wait for termination. When bidi is true, normal stream closure (EOF,
+// canceled) is treated as a clean disconnect rather than an error.
+func (s *ProxyServiceServer) serveProxyConnection(conn *proxyConnection, proxyRecord *proxy.Proxy, errChan <-chan error, bidi bool) error {
+	log.WithFields(log.Fields{
+		"proxy_id":      conn.proxyID,
+		"session_id":    conn.sessionID,
+		"address":       conn.address,
+		"cluster_addr":  conn.address,
+		"account_id":    conn.accountID,
+		"total_proxies": len(s.GetConnectedProxies()),
+	}).Info("Proxy registered in cluster")
+
+	defer s.disconnectProxy(conn)
+	go s.heartbeat(conn.ctx, conn, proxyRecord)
+
+	select {
+	case err := <-errChan:
+		if bidi && isStreamClosed(err) {
+			log.Infof("Proxy %s stream closed", conn.proxyID)
+			return nil
+		}
+		log.Warnf("Failed to send update: %v", err)
+		return fmt.Errorf("send update to proxy %s: %w", conn.proxyID, err)
+	case <-conn.ctx.Done():
+		log.Infof("Proxy %s context canceled", conn.proxyID)
+		return conn.ctx.Err()
+	}
+}
+
+// disconnectProxy removes the connection from cluster and store, unless it
+// has already been superseded by a newer connection.
+func (s *ProxyServiceServer) disconnectProxy(conn *proxyConnection) {
+	if !s.connectedProxies.CompareAndDelete(conn.proxyID, conn) {
+		log.Infof("Proxy %s session %s: skipping cleanup, superseded by new connection", conn.proxyID, conn.sessionID)
+		conn.cancel()
+		return
+	}
+
+	if err := s.proxyController.UnregisterProxyFromCluster(context.Background(), conn.address, conn.proxyID); err != nil {
+		log.Warnf("Failed to unregister proxy %s from cluster: %v", conn.proxyID, err)
+	}
+	if err := s.proxyManager.Disconnect(context.Background(), conn.proxyID, conn.sessionID); err != nil {
+		log.Warnf("Failed to mark proxy %s as disconnected: %v", conn.proxyID, err)
+	}
+
+	conn.cancel()
+	log.Infof("Proxy %s session %s disconnected", conn.proxyID, conn.sessionID)
+}
+
+// sendSnapshotSync sends the initial snapshot with back-pressure: it sends
+// one batch, then waits for the proxy to ack before sending the next.
+func (s *ProxyServiceServer) sendSnapshotSync(ctx context.Context, conn *proxyConnection, stream proto.ProxyService_SyncMappingsServer) error {
+	if !isProxyAddressValid(conn.address) {
+		return fmt.Errorf("proxy address is invalid")
+	}
+	if s.snapshotBatchSize <= 0 {
+		return fmt.Errorf("invalid snapshot batch size: %d", s.snapshotBatchSize)
+	}
+
+	mappings, err := s.snapshotServiceMappings(ctx, conn)
+	if err != nil {
+		return err
+	}
+
+	for i := 0; i < len(mappings); i += s.snapshotBatchSize {
+		end := i + s.snapshotBatchSize
+		if end > len(mappings) {
+			end = len(mappings)
+		}
+		for _, m := range mappings[i:end] {
+			token, err := s.tokenStore.GenerateToken(m.AccountId, m.Id, s.proxyTokenTTL())
+			if err != nil {
+				return fmt.Errorf("generate auth token for service %s: %w", m.Id, err)
+			}
+			m.AuthToken = token
+		}
+		if err := stream.Send(&proto.SyncMappingsResponse{
+			Mapping:             mappings[i:end],
+			InitialSyncComplete: end == len(mappings),
+		}); err != nil {
+			return fmt.Errorf("send snapshot batch: %w", err)
+		}
+
+		if err := waitForAck(stream); err != nil {
+			return err
+		}
+	}
+
+	if len(mappings) == 0 {
+		if err := stream.Send(&proto.SyncMappingsResponse{
+			InitialSyncComplete: true,
+		}); err != nil {
+			return fmt.Errorf("send snapshot completion: %w", err)
+		}
+
+		if err := waitForAck(stream); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func waitForAck(stream proto.ProxyService_SyncMappingsServer) error {
+	msg, err := stream.Recv()
+	if err != nil {
+		return fmt.Errorf("receive ack: %w", err)
+	}
+	if msg.GetAck() == nil {
+		return fmt.Errorf("expected ack, got %T", msg.GetMsg())
+	}
+	return nil
+}
+
+// heartbeat updates the proxy's last_seen timestamp every minute and
+// disconnects the proxy if its access token has been revoked.
+func (s *ProxyServiceServer) heartbeat(ctx context.Context, conn *proxyConnection, p *proxy.Proxy) {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
@@ -309,6 +539,19 @@ func (s *ProxyServiceServer) heartbeat(ctx context.Context, p *proxy.Proxy) {
 			if err := s.proxyManager.Heartbeat(ctx, p); err != nil {
 				log.WithContext(ctx).Debugf("Failed to update proxy %s heartbeat: %v", p.ID, err)
 			}
+
+			if conn.tokenID != "" && s.tokenChecker != nil {
+				valid, err := s.tokenChecker.IsProxyAccessTokenValid(ctx, conn.tokenID)
+				if err != nil {
+					log.WithContext(ctx).Warnf("failed to check token validity for proxy %s: %v", conn.proxyID, err)
+					continue
+				}
+				if !valid {
+					log.WithContext(ctx).Warnf("proxy %s token revoked or expired, disconnecting", conn.proxyID)
+					conn.cancel()
+					return
+				}
+			}
 		case <-ctx.Done():
 			log.WithContext(ctx).Infof("proxy %s heartbeat stopped: context canceled", p.ID)
 			return
@@ -316,11 +559,12 @@ func (s *ProxyServiceServer) heartbeat(ctx context.Context, p *proxy.Proxy) {
 	}
 }
 
-// sendSnapshot sends the initial snapshot of services to the connecting proxy.
-// Only entries matching the proxy's cluster address are sent.
 func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnection) error {
 	if !isProxyAddressValid(conn.address) {
 		return fmt.Errorf("proxy address is invalid")
+	}
+	if s.snapshotBatchSize <= 0 {
+		return fmt.Errorf("invalid snapshot batch size: %d", s.snapshotBatchSize)
 	}
 
 	mappings, err := s.snapshotServiceMappings(ctx, conn)
@@ -334,6 +578,13 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 		end := i + s.snapshotBatchSize
 		if end > len(mappings) {
 			end = len(mappings)
+		}
+		for _, m := range mappings[i:end] {
+			token, err := s.tokenStore.GenerateToken(m.AccountId, m.Id, s.proxyTokenTTL())
+			if err != nil {
+				return fmt.Errorf("generate auth token for service %s: %w", m.Id, err)
+			}
+			m.AuthToken = token
 		}
 		if err := conn.stream.Send(&proto.GetMappingUpdateResponse{
 			Mapping:             mappings[i:end],
@@ -355,23 +606,25 @@ func (s *ProxyServiceServer) sendSnapshot(ctx context.Context, conn *proxyConnec
 }
 
 func (s *ProxyServiceServer) snapshotServiceMappings(ctx context.Context, conn *proxyConnection) ([]*proto.ProxyMapping, error) {
-	services, err := s.serviceManager.GetGlobalServices(ctx)
+	var services []*rpservice.Service
+	var err error
+	if conn.accountID != nil {
+		services, err = s.serviceManager.GetAccountServices(ctx, *conn.accountID)
+	} else {
+		services, err = s.serviceManager.GetGlobalServices(ctx)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("get services from store: %w", err)
 	}
 
+	oidcCfg := s.GetOIDCValidationConfig()
 	var mappings []*proto.ProxyMapping
 	for _, service := range services {
 		if !service.Enabled || service.ProxyCluster == "" || service.ProxyCluster != conn.address {
 			continue
 		}
 
-		token, err := s.tokenStore.GenerateToken(service.AccountID, service.ID, s.proxyTokenTTL())
-		if err != nil {
-			return nil, fmt.Errorf("generate auth token for service %s: %w", service.ID, err)
-		}
-
-		m := service.ToProtoMapping(rpservice.Create, token, s.GetOIDCValidationConfig())
+		m := service.ToProtoMapping(rpservice.Create, "", oidcCfg)
 		if !proxyAcceptsMapping(conn, m) {
 			continue
 		}
@@ -380,18 +633,38 @@ func (s *ProxyServiceServer) snapshotServiceMappings(ctx context.Context, conn *
 	return mappings, nil
 }
 
-// isProxyAddressValid validates a proxy address
+// isProxyAddressValid validates a proxy address (domain name or IP address)
 func isProxyAddressValid(addr string) bool {
+	if addr == "" {
+		return false
+	}
+	if net.ParseIP(addr) != nil {
+		return true
+	}
 	_, err := domain.ValidateDomains([]string{addr})
 	return err == nil
 }
 
-// sender handles sending messages to proxy
+// isStreamClosed returns true for errors that indicate normal stream
+// termination: io.EOF, context cancellation, or gRPC Canceled.
+func isStreamClosed(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	return status.Code(err) == codes.Canceled
+}
+
+// sender handles sending messages to proxy.
+// When conn.syncStream is set the message is sent as SyncMappingsResponse;
+// otherwise the legacy GetMappingUpdateResponse stream is used.
 func (s *ProxyServiceServer) sender(conn *proxyConnection, errChan chan<- error) {
 	for {
 		select {
 		case resp := <-conn.sendChan:
-			if err := conn.stream.Send(resp); err != nil {
+			if err := conn.sendResponse(resp); err != nil {
 				errChan <- err
 				return
 			}
@@ -401,9 +674,24 @@ func (s *ProxyServiceServer) sender(conn *proxyConnection, errChan chan<- error)
 	}
 }
 
+// sendResponse sends a mapping update on whichever stream the proxy connected with.
+func (conn *proxyConnection) sendResponse(resp *proto.GetMappingUpdateResponse) error {
+	if conn.syncStream != nil {
+		return conn.syncStream.Send(&proto.SyncMappingsResponse{
+			Mapping:             resp.Mapping,
+			InitialSyncComplete: resp.InitialSyncComplete,
+		})
+	}
+	return conn.stream.Send(resp)
+}
+
 // SendAccessLog processes access log from proxy
 func (s *ProxyServiceServer) SendAccessLog(ctx context.Context, req *proto.SendAccessLogRequest) (*proto.SendAccessLogResponse, error) {
 	accessLog := req.GetLog()
+
+	if err := enforceAccountScope(ctx, accessLog.GetAccountId()); err != nil {
+		return nil, err
+	}
 
 	fields := log.Fields{
 		"service_id": accessLog.GetServiceId(),
@@ -442,11 +730,37 @@ func (s *ProxyServiceServer) SendAccessLog(ctx context.Context, req *proto.SendA
 // Management should call this when services are created/updated/removed.
 // For create/update operations a unique one-time auth token is generated per
 // proxy so that every replica can independently authenticate with management.
+// BYOP proxies only receive updates for their own account's services.
 func (s *ProxyServiceServer) SendServiceUpdate(update *proto.GetMappingUpdateResponse) {
 	log.Debugf("Broadcasting service update to all connected proxy servers")
+	updateAccountIDs := make(map[string]struct{})
+	for _, m := range update.Mapping {
+		if m.AccountId != "" {
+			updateAccountIDs[m.AccountId] = struct{}{}
+		}
+	}
 	s.connectedProxies.Range(func(key, value interface{}) bool {
 		conn := value.(*proxyConnection)
-		resp := s.perProxyMessage(update, conn.proxyID)
+		connUpdate := update
+		if conn.accountID != nil && len(updateAccountIDs) > 0 {
+			if _, ok := updateAccountIDs[*conn.accountID]; !ok {
+				return true
+			}
+			filtered := filterMappingsForAccount(update.Mapping, *conn.accountID)
+			if len(filtered) == 0 {
+				return true
+			}
+			connUpdate = &proto.GetMappingUpdateResponse{
+				Mapping:             filtered,
+				InitialSyncComplete: update.InitialSyncComplete,
+			}
+		}
+		// Drop mappings the proxy lacks capability for (e.g. private without SupportsPrivateService).
+		connUpdate = filterMappingsForProxy(conn, connUpdate)
+		if connUpdate == nil || len(connUpdate.Mapping) == 0 {
+			return true
+		}
+		resp := s.perProxyMessage(connUpdate, conn.proxyID)
 		if resp == nil {
 			log.Warnf("Token generation failed for proxy %s, disconnecting to force resync", conn.proxyID)
 			conn.cancel()
@@ -461,6 +775,26 @@ func (s *ProxyServiceServer) SendServiceUpdate(update *proto.GetMappingUpdateRes
 		}
 		return true
 	})
+}
+
+// ForceDisconnect cancels the gRPC stream for a connected proxy, causing it to disconnect.
+func (s *ProxyServiceServer) ForceDisconnect(proxyID string) {
+	if connVal, ok := s.connectedProxies.Load(proxyID); ok {
+		conn := connVal.(*proxyConnection)
+		conn.cancel()
+		s.connectedProxies.Delete(proxyID)
+		log.WithFields(log.Fields{"proxyID": proxyID}).Info("force disconnected proxy")
+	}
+}
+
+func filterMappingsForAccount(mappings []*proto.ProxyMapping, accountID string) []*proto.ProxyMapping {
+	var filtered []*proto.ProxyMapping
+	for _, m := range mappings {
+		if m.AccountId == accountID {
+			filtered = append(filtered, m)
+		}
+	}
+	return filtered
 }
 
 // GetConnectedProxies returns a list of connected proxy IDs
@@ -531,6 +865,9 @@ func (s *ProxyServiceServer) SendServiceUpdateToCluster(ctx context.Context, upd
 			continue
 		}
 		conn := connVal.(*proxyConnection)
+		if conn.accountID != nil && update.AccountId != "" && *conn.accountID != update.AccountId {
+			continue
+		}
 		if !proxyAcceptsMapping(conn, update) {
 			log.WithContext(ctx).Debugf("Skipping proxy %s: does not support custom ports for mapping %s", proxyID, update.Id)
 			continue
@@ -551,15 +888,19 @@ func (s *ProxyServiceServer) SendServiceUpdateToCluster(ctx context.Context, upd
 	}
 }
 
-// proxyAcceptsMapping returns whether the proxy should receive this mapping.
-// Old proxies that never reported capabilities are skipped for non-TLS L4
-// mappings with a custom listen port, since they don't understand the
-// protocol. Proxies that report capabilities (even SupportsCustomPorts=false)
-// are new enough to handle the mapping. TLS uses SNI routing and works on
-// any proxy. Delete operations are always sent so proxies can clean up.
+// proxyAcceptsMapping returns whether the proxy can receive this mapping.
+// Private mappings require SupportsPrivateService; custom-port L4 mappings
+// require SupportsCustomPorts. Remove operations always pass so proxies can
+// clean up.
 func proxyAcceptsMapping(conn *proxyConnection, mapping *proto.ProxyMapping) bool {
 	if mapping.Type == proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED {
 		return true
+	}
+	if mapping.GetPrivate() {
+		caps := conn.capabilities
+		if caps == nil || caps.SupportsPrivateService == nil || !*caps.SupportsPrivateService {
+			return false
+		}
 	}
 	if mapping.ListenPort == 0 || mapping.Mode == "tls" {
 		return true
@@ -567,6 +908,29 @@ func proxyAcceptsMapping(conn *proxyConnection, mapping *proto.ProxyMapping) boo
 	// Old proxies that never reported capabilities don't understand
 	// custom port mappings.
 	return conn.capabilities != nil && conn.capabilities.SupportsCustomPorts != nil
+}
+
+// filterMappingsForProxy drops mappings the proxy cannot safely receive
+// (e.g. private mappings to a proxy without SupportsPrivateService).
+// Returns the input unchanged when no filtering is needed.
+func filterMappingsForProxy(conn *proxyConnection, update *proto.GetMappingUpdateResponse) *proto.GetMappingUpdateResponse {
+	if update == nil || len(update.Mapping) == 0 {
+		return update
+	}
+	kept := make([]*proto.ProxyMapping, 0, len(update.Mapping))
+	for _, m := range update.Mapping {
+		if !proxyAcceptsMapping(conn, m) {
+			continue
+		}
+		kept = append(kept, m)
+	}
+	if len(kept) == len(update.Mapping) {
+		return update
+	}
+	return &proto.GetMappingUpdateResponse{
+		Mapping:             kept,
+		InitialSyncComplete: update.InitialSyncComplete,
+	}
 }
 
 // perProxyMessage returns a copy of update with a fresh one-time token for
@@ -618,6 +982,10 @@ func shallowCloneMapping(m *proto.ProxyMapping) *proto.ProxyMapping {
 }
 
 func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.AuthenticateRequest) (*proto.AuthenticateResponse, error) {
+	if err := enforceAccountScope(ctx, req.GetAccountId()); err != nil {
+		return nil, err
+	}
+
 	service, err := s.serviceManager.GetServiceByID(ctx, req.GetAccountId(), req.GetId())
 	if err != nil {
 		log.WithContext(ctx).Debugf("failed to get service from store: %v", err)
@@ -626,7 +994,10 @@ func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.Authen
 
 	authenticated, userId, method := s.authenticateRequest(ctx, req, service)
 
-	token, err := s.generateSessionToken(ctx, authenticated, service, userId, method)
+	// Non-OIDC schemes (PIN/Password/Header) authenticate against per-service
+	// secrets and have no user-level group context, so groups stay nil. Email
+	// is also empty — these schemes don't resolve a user record at sign time.
+	token, err := s.generateSessionToken(ctx, authenticated, service, userId, "", method, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -715,7 +1086,7 @@ func (s *ProxyServiceServer) logAuthenticationError(ctx context.Context, err err
 	}
 }
 
-func (s *ProxyServiceServer) generateSessionToken(ctx context.Context, authenticated bool, service *rpservice.Service, userId string, method proxyauth.Method) (string, error) {
+func (s *ProxyServiceServer) generateSessionToken(ctx context.Context, authenticated bool, service *rpservice.Service, userId, userEmail string, method proxyauth.Method, groupIDs, groupNames []string) (string, error) {
 	if !authenticated || service.SessionPrivateKey == "" {
 		return "", nil
 	}
@@ -723,8 +1094,11 @@ func (s *ProxyServiceServer) generateSessionToken(ctx context.Context, authentic
 	token, err := sessionkey.SignToken(
 		service.SessionPrivateKey,
 		userId,
+		userEmail,
 		service.Domain,
 		method,
+		groupIDs,
+		groupNames,
 		proxyauth.DefaultSessionExpiry,
 	)
 	if err != nil {
@@ -735,8 +1109,32 @@ func (s *ProxyServiceServer) generateSessionToken(ctx context.Context, authentic
 	return token, nil
 }
 
+// pairGroupIDsAndNames splits a slice of resolved *types.Group records
+// into parallel id and name slices. ids[i] and names[i] always pair to
+// the same group. nil entries (orphan ids the manager couldn't resolve)
+// are skipped so the consumer can rely on positional pairing.
+func pairGroupIDsAndNames(groups []*types.Group) (ids, names []string) {
+	if len(groups) == 0 {
+		return nil, nil
+	}
+	ids = make([]string, 0, len(groups))
+	names = make([]string, 0, len(groups))
+	for _, g := range groups {
+		if g == nil {
+			continue
+		}
+		ids = append(ids, g.ID)
+		names = append(names, g.Name)
+	}
+	return ids, names
+}
+
 // SendStatusUpdate handles status updates from proxy clients.
 func (s *ProxyServiceServer) SendStatusUpdate(ctx context.Context, req *proto.SendStatusUpdateRequest) (*proto.SendStatusUpdateResponse, error) {
+	if err := enforceAccountScope(ctx, req.GetAccountId()); err != nil {
+		return nil, err
+	}
+
 	accountID := req.GetAccountId()
 	serviceID := req.GetServiceId()
 	protoStatus := req.GetStatus()
@@ -807,6 +1205,10 @@ func protoStatusToInternal(protoStatus proto.ProxyStatus) rpservice.Status {
 
 // CreateProxyPeer handles proxy peer creation with one-time token authentication
 func (s *ProxyServiceServer) CreateProxyPeer(ctx context.Context, req *proto.CreateProxyPeerRequest) (*proto.CreateProxyPeerResponse, error) {
+	if err := enforceAccountScope(ctx, req.GetAccountId()); err != nil {
+		return nil, err
+	}
+
 	serviceID := req.GetServiceId()
 	accountID := req.GetAccountId()
 	token := req.GetToken()
@@ -861,6 +1263,10 @@ func strPtr(s string) *string {
 }
 
 func (s *ProxyServiceServer) GetOIDCURL(ctx context.Context, req *proto.GetOIDCURLRequest) (*proto.GetOIDCURLResponse, error) {
+	if err := enforceAccountScope(ctx, req.GetAccountId()); err != nil {
+		return nil, err
+	}
+
 	redirectURL, err := url.Parse(req.GetRedirectUrl())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "parse redirect url: %v", err)
@@ -987,34 +1393,42 @@ func (s *ProxyServiceServer) ValidateState(state string) (verifier, redirectURL 
 	return verifier, redirectURL, nil
 }
 
-// GenerateSessionToken creates a signed session JWT for the given domain and user.
+// GenerateSessionToken creates a signed session JWT for the given domain and
+// user. The user's group memberships are embedded in the token so policy-aware
+// middlewares on the proxy can authorise without an extra management round-trip.
 func (s *ProxyServiceServer) GenerateSessionToken(ctx context.Context, domain, userID string, method proxyauth.Method) (string, error) {
-	// Find the service by domain to get its signing key
-	services, err := s.serviceManager.GetGlobalServices(ctx)
+	service, err := s.getServiceByDomain(ctx, domain)
 	if err != nil {
-		return "", fmt.Errorf("get services: %w", err)
-	}
-
-	var service *rpservice.Service
-	for _, svc := range services {
-		if svc.Domain == domain {
-			service = svc
-			break
-		}
-	}
-	if service == nil {
-		return "", fmt.Errorf("service not found for domain: %s", domain)
+		return "", fmt.Errorf("service not found for domain %s: %w", domain, err)
 	}
 
 	if service.SessionPrivateKey == "" {
 		return "", fmt.Errorf("no session key configured for domain: %s", domain)
 	}
 
+	var (
+		email      string
+		groupIDs   []string
+		groupNames []string
+	)
+	if s.usersManager != nil {
+		user, userGroups, uerr := s.usersManager.GetUserWithGroups(ctx, userID)
+		if uerr != nil {
+			log.WithContext(ctx).Debugf("session token mint: lookup user %s: %v", userID, uerr)
+		} else if user != nil {
+			email = user.Email
+			groupIDs, groupNames = pairGroupIDsAndNames(userGroups)
+		}
+	}
+
 	return sessionkey.SignToken(
 		service.SessionPrivateKey,
 		userID,
+		email,
 		domain,
 		method,
+		groupIDs,
+		groupNames,
 		proxyauth.DefaultSessionExpiry,
 	)
 }
@@ -1101,6 +1515,10 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 		}, nil
 	}
 
+	if err := enforceAccountScope(ctx, service.AccountID); err != nil {
+		return nil, err
+	}
+
 	pubKeyBytes, err := base64.StdEncoding.DecodeString(service.SessionPublicKey)
 	if err != nil {
 		log.WithFields(log.Fields{
@@ -1114,7 +1532,7 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 		}, nil
 	}
 
-	userID, _, err := proxyauth.ValidateSessionJWT(sessionToken, domain, pubKeyBytes)
+	userID, _, _, _, _, err := proxyauth.ValidateSessionJWT(sessionToken, domain, pubKeyBytes)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"domain": domain,
@@ -1127,7 +1545,7 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 		}, nil
 	}
 
-	user, err := s.usersManager.GetUser(ctx, userID)
+	user, userGroups, err := s.usersManager.GetUserWithGroups(ctx, userID)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"domain":  domain,
@@ -1161,12 +1579,15 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 			"user_id": userID,
 			"error":   err.Error(),
 		}).Debug("ValidateSession: access denied")
+		groupIDs, groupNames := pairGroupIDsAndNames(userGroups)
 		//nolint:nilerr
 		return &proto.ValidateSessionResponse{
-			Valid:        false,
-			UserId:       user.Id,
-			UserEmail:    user.Email,
-			DeniedReason: "not_in_group",
+			Valid:          false,
+			UserId:         user.Id,
+			UserEmail:      user.Email,
+			DeniedReason:   "not_in_group",
+			PeerGroupIds:   groupIDs,
+			PeerGroupNames: groupNames,
 		}, nil
 	}
 
@@ -1176,26 +1597,18 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 		"email":   user.Email,
 	}).Debug("ValidateSession: access granted")
 
+	groupIDs, groupNames := pairGroupIDsAndNames(userGroups)
 	return &proto.ValidateSessionResponse{
-		Valid:     true,
-		UserId:    user.Id,
-		UserEmail: user.Email,
+		Valid:          true,
+		UserId:         user.Id,
+		UserEmail:      user.Email,
+		PeerGroupIds:   groupIDs,
+		PeerGroupNames: groupNames,
 	}, nil
 }
 
 func (s *ProxyServiceServer) getServiceByDomain(ctx context.Context, domain string) (*rpservice.Service, error) {
-	services, err := s.serviceManager.GetGlobalServices(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("get services: %w", err)
-	}
-
-	for _, service := range services {
-		if service.Domain == domain {
-			return service, nil
-		}
-	}
-
-	return nil, fmt.Errorf("service not found for domain: %s", domain)
+	return s.serviceManager.GetServiceByDomain(ctx, domain)
 }
 
 func (s *ProxyServiceServer) checkGroupAccess(service *rpservice.Service, user *types.User) error {
@@ -1223,3 +1636,154 @@ func (s *ProxyServiceServer) checkGroupAccess(service *rpservice.Service, user *
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// ValidateTunnelPeer resolves an inbound peer by its WireGuard tunnel IP and
+// checks the peer's group membership against the service's access groups.
+// Peers without a user (machine agents, automation workloads) are first-class
+// callers; authorisation runs off peer-group memberships rather than the
+// optional owning user's auto-groups. On success a session JWT is minted so
+// the proxy can install a cookie and skip subsequent management round-trips.
+func (s *ProxyServiceServer) ValidateTunnelPeer(ctx context.Context, req *proto.ValidateTunnelPeerRequest) (*proto.ValidateTunnelPeerResponse, error) {
+	domain := req.GetDomain()
+	tunnelIPStr := req.GetTunnelIp()
+
+	if domain == "" || tunnelIPStr == "" {
+		return &proto.ValidateTunnelPeerResponse{
+			Valid:        false,
+			DeniedReason: "missing domain or tunnel_ip",
+		}, nil
+	}
+
+	tunnelIP := net.ParseIP(tunnelIPStr)
+	if tunnelIP == nil {
+		return &proto.ValidateTunnelPeerResponse{
+			Valid:        false,
+			DeniedReason: "invalid_tunnel_ip",
+		}, nil
+	}
+
+	service, err := s.getServiceByDomain(ctx, domain)
+	if err != nil {
+		log.WithFields(log.Fields{"domain": domain, "error": err.Error()}).Debug("ValidateTunnelPeer: service not found")
+		//nolint:nilerr
+		return &proto.ValidateTunnelPeerResponse{
+			Valid:        false,
+			DeniedReason: "service_not_found",
+		}, nil
+	}
+
+	// Mirror ValidateSession: account-scoped (BYOP) proxy tokens may only
+	// validate and mint session cookies for their own account's domains.
+	if err := enforceAccountScope(ctx, service.AccountID); err != nil {
+		return nil, err
+	}
+
+	peer, err := s.peersManager.GetPeerByTunnelIP(ctx, service.AccountID, tunnelIP)
+	if err != nil || peer == nil {
+		log.WithFields(log.Fields{"domain": domain, "tunnel_ip": tunnelIPStr}).Debug("ValidateTunnelPeer: peer not found")
+		//nolint:nilerr
+		return &proto.ValidateTunnelPeerResponse{
+			Valid:        false,
+			DeniedReason: "peer_not_found",
+		}, nil
+	}
+
+	_, peerGroups, err := s.peersManager.GetPeerWithGroups(ctx, service.AccountID, peer.ID)
+	if err != nil {
+		log.WithFields(log.Fields{"domain": domain, "peer_id": peer.ID, "error": err.Error()}).Debug("ValidateTunnelPeer: peer groups lookup failed")
+		//nolint:nilerr
+		return &proto.ValidateTunnelPeerResponse{
+			Valid:        false,
+			DeniedReason: "peer_not_found",
+		}, nil
+	}
+
+	groupIDs, groupNames := pairGroupIDsAndNames(peerGroups)
+
+	// Resolve the principal: when the peer is linked to a user, the human
+	// is the principal so multiple peers owned by the same user share a
+	// single identity. Unlinked peers (machine agents) are their own
+	// principal keyed on peer.ID. displayIdentity is what upstream gateways
+	// tag spend with — user.Email when linked, peer.Name when not.
+	principalID := peer.ID
+	displayIdentity := peer.Name
+	if peer.UserID != "" {
+		if user, uerr := s.usersManager.GetUser(ctx, peer.UserID); uerr == nil && user != nil {
+			principalID = user.Id
+			if user.Email != "" {
+				displayIdentity = user.Email
+			}
+		}
+	}
+
+	if err := checkPeerGroupAccess(service, groupIDs); err != nil {
+		log.WithFields(log.Fields{"domain": domain, "peer_id": peer.ID, "error": err.Error()}).Debug("ValidateTunnelPeer: access denied")
+		//nolint:nilerr
+		return &proto.ValidateTunnelPeerResponse{
+			Valid:          false,
+			UserId:         principalID,
+			UserEmail:      displayIdentity,
+			DeniedReason:   "not_in_group",
+			PeerGroupIds:   groupIDs,
+			PeerGroupNames: groupNames,
+		}, nil
+	}
+
+	token, err := s.generateSessionToken(ctx, true, service, principalID, displayIdentity, proxyauth.MethodOIDC, groupIDs, groupNames)
+	if err != nil {
+		return nil, err
+	}
+
+	log.WithFields(log.Fields{
+		"domain":       domain,
+		"tunnel_ip":    tunnelIPStr,
+		"peer_id":      peer.ID,
+		"principal_id": principalID,
+	}).Debug("ValidateTunnelPeer: access granted")
+
+	return &proto.ValidateTunnelPeerResponse{
+		Valid:          true,
+		UserId:         principalID,
+		UserEmail:      displayIdentity,
+		SessionToken:   token,
+		PeerGroupIds:   groupIDs,
+		PeerGroupNames: groupNames,
+	}, nil
+}
+
+// checkPeerGroupAccess gates ValidateTunnelPeer by the service's required
+// groups. Private services authorise against AccessGroups (empty list fails
+// closed — Validate() rejects that at save time but the RPC is the security
+// boundary and must not trust upstream state). Bearer-auth services authorise
+// against DistributionGroups when populated. Non-private non-bearer services
+// are open.
+func checkPeerGroupAccess(service *rpservice.Service, peerGroupIDs []string) error {
+	if service.Private {
+		if len(service.AccessGroups) == 0 {
+			return fmt.Errorf("private service has no access groups")
+		}
+		return matchAnyGroup(service.AccessGroups, peerGroupIDs)
+	}
+	if service.Auth.BearerAuth != nil && service.Auth.BearerAuth.Enabled && len(service.Auth.BearerAuth.DistributionGroups) > 0 {
+		return matchAnyGroup(service.Auth.BearerAuth.DistributionGroups, peerGroupIDs)
+	}
+	return nil
+}
+
+// matchAnyGroup returns nil when peerGroupIDs intersects allowedGroups,
+// else a non-nil error.
+func matchAnyGroup(allowedGroups, peerGroupIDs []string) error {
+	if len(allowedGroups) == 0 {
+		return fmt.Errorf("no allowed groups configured")
+	}
+	allowed := make(map[string]struct{}, len(allowedGroups))
+	for _, g := range allowedGroups {
+		allowed[g] = struct{}{}
+	}
+	for _, g := range peerGroupIDs {
+		if _, ok := allowed[g]; ok {
+			return nil
+		}
+	}
+	return fmt.Errorf("peer not in allowed groups")
+}

@@ -119,6 +119,7 @@ func (a *Account) GetPeerNetworkMapComponents(
 
 	peerGroups := a.GetPeerGroups(peerID)
 	components.AccountZones = filterPeerAppliedZones(ctx, accountZones, peerGroups)
+	components.AccountZones = append(components.AccountZones, a.SynthesizePrivateServiceZones(peerID)...)
 
 	for _, nsGroup := range a.NameServerGroups {
 		if nsGroup.Enabled {

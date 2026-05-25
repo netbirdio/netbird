@@ -51,6 +51,70 @@ type YAMLConfig struct {
 	// StaticPasswords cause the server use this list of passwords rather than
 	// querying the storage.
 	StaticPasswords []Password `yaml:"staticPasswords" json:"staticPasswords"`
+
+	// Sessions holds authentication session configuration.
+	// Requires DEX_SESSIONS_ENABLED=true feature flag.
+	Sessions *Sessions `yaml:"sessions" json:"sessions"`
+
+	// MFA holds multi-factor authentication configuration.
+	MFA MFAConfig `yaml:"mfa" json:"mfa"`
+}
+
+type Sessions struct {
+	// CookieName is the name of the session cookie. Defaults to "dex_session".
+	CookieName string `yaml:"cookieName" json:"cookieName"`
+	// AbsoluteLifetime is the maximum session lifetime from creation. Defaults to "24h".
+	AbsoluteLifetime string `yaml:"absoluteLifetime" json:"absoluteLifetime"`
+	// ValidIfNotUsedFor is the idle timeout. Defaults to "1h".
+	ValidIfNotUsedFor string `yaml:"validIfNotUsedFor" json:"validIfNotUsedFor"`
+	// RememberMeCheckedByDefault controls the default state of the "remember me" checkbox.
+	RememberMeCheckedByDefault *bool `yaml:"rememberMeCheckedByDefault" json:"rememberMeCheckedByDefault"`
+	// CookieEncryptionKey is the AES key for encrypting session cookies.
+	// Must be 16, 24, or 32 bytes for AES-128, AES-192, or AES-256.
+	// If empty, cookies are not encrypted.
+	CookieEncryptionKey string `yaml:"cookieEncryptionKey" json:"cookieEncryptionKey"`
+	// SSOSharedWithDefault is the default SSO sharing policy for clients without explicit ssoSharedWith.
+	// "all" = share with all clients, "none" = share with no one (default: "none").
+	SSOSharedWithDefault string `yaml:"ssoSharedWithDefault" json:"ssoSharedWithDefault"`
+}
+
+type MFAConfig struct {
+	Authenticators []MFAAuthenticator `yaml:"authenticators" json:"authenticators"`
+}
+
+type MFAAuthenticator struct {
+	ID     string                 `yaml:"id" json:"id"`
+	Type   string                 `yaml:"type" json:"type"`
+	Config map[string]interface{} `yaml:"config" json:"config"`
+
+	ConnectorTypes []string `yaml:"connectorTypes" json:"connectorTypes"`
+}
+
+type TOTPConfig struct {
+	Issuer string `yaml:"issuer" json:"issuer"`
+}
+
+// WebAuthnConfig holds configuration for a WebAuthn authenticator.
+type WebAuthnConfig struct {
+	// RPDisplayName is the human-readable relying party name shown in the browser
+	// dialog during key registration and authentication (e.g., "My Company SSO").
+	RPDisplayName string `yaml:"rpDisplayName" json:"rpDisplayName"`
+	// RPID is the relying party identifier — must match the domain in the browser
+	// address bar. If empty, derived from the issuer URL hostname.
+	// Example: "auth.example.com"
+	RPID string `yaml:"rpID" json:"rpID"`
+	// RPOrigins is the list of allowed origins for WebAuthn ceremonies.
+	// If empty, derived from the issuer URL (scheme + host).
+	// Example: ["https://auth.example.com"]
+	RPOrigins []string `yaml:"rpOrigins" json:"rpOrigins"`
+	// AttestationPreference controls what attestation data the authenticator should provide:
+	//   "none"     — don't request attestation (simpler, more private)
+	//   "indirect" — authenticator may anonymize attestation (default)
+	//   "direct"   — request full attestation (for enterprise key model verification)
+	AttestationPreference string `yaml:"attestationPreference" json:"attestationPreference"`
+	// Timeout is the duration allowed for the browser WebAuthn ceremony
+	// (registration or login). Defaults to "60s".
+	Timeout string `yaml:"timeout" json:"timeout"`
 }
 
 // Web is the config format for the HTTP server.
@@ -116,7 +180,6 @@ type Storage struct {
 	Config map[string]interface{} `yaml:"config" json:"config"`
 }
 
-// Password represents a static user configuration
 type Password storage.Password
 
 func (p *Password) UnmarshalYAML(node *yaml.Node) error {
@@ -429,7 +492,96 @@ func (c *YAMLConfig) Validate() error {
 	if !c.EnablePasswordDB && len(c.StaticPasswords) != 0 {
 		return fmt.Errorf("cannot specify static passwords without enabling password db")
 	}
+
 	return nil
+}
+
+func buildTotpConfig(auth MFAAuthenticator) (*server.TOTPProvider, error) {
+	data, err := json.Marshal(auth.Config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal TOTP config id: %s - %w", auth.ID, err)
+	}
+
+	var cfg TOTPConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse TOTP config id: %s - %w", auth.ID, err)
+	}
+
+	return server.NewTOTPProvider(cfg.Issuer, auth.ConnectorTypes), nil
+}
+
+func buildWebAuthnConfig(auth MFAAuthenticator, issuerURL string) (*server.WebAuthnProvider, error) {
+	data, err := json.Marshal(auth.Config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal WebAuthn config id: %s - %w", auth.ID, err)
+	}
+
+	var cfg WebAuthnConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse WebAuthn config id: %s - %w", auth.ID, err)
+	}
+
+	provider, err := server.NewWebAuthnProvider(cfg.RPDisplayName, cfg.RPID, cfg.RPOrigins,
+		cfg.AttestationPreference, cfg.Timeout, issuerURL, auth.ConnectorTypes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create WebAuthn provider id: %s - err: %w", auth.ID, err)
+	}
+
+	return provider, nil
+}
+
+func buildMFAProviders(authenticators []MFAAuthenticator, issuerURL string, logger *slog.Logger) map[string]server.MFAProvider {
+	if len(authenticators) == 0 {
+		return nil
+	}
+
+	providers := make(map[string]server.MFAProvider, len(authenticators))
+	for _, auth := range authenticators {
+		switch auth.Type {
+		case "TOTP":
+			provider, err := buildTotpConfig(auth)
+			if err != nil {
+				logger.Error("failed to parse TOTP config", "id", auth.ID, "err", err)
+				continue
+			}
+			providers[auth.ID] = provider
+			logger.Info("MFA authenticator configured", "id", auth.ID, "type", auth.Type)
+		case "WebAuthn":
+			provider, err := buildWebAuthnConfig(auth, issuerURL)
+			if err != nil {
+				logger.Error("failed to parse WebAuthn config", "id", auth.ID, "err", err)
+				continue
+			}
+			providers[auth.ID] = provider
+			logger.Info("MFA authenticator configured", "id", auth.ID, "type", auth.Type)
+		default:
+			logger.Error("unknown MFA authenticator type, skipping", "id", auth.ID, "type", auth.Type)
+		}
+	}
+	return providers
+}
+
+func buildSessionsConfig(sessions *Sessions) *server.SessionConfig {
+	if sessions == nil {
+		return nil
+	}
+
+	if sessions.RememberMeCheckedByDefault == nil {
+		defaultRememberMeCheckedByDefault := false
+		sessions.RememberMeCheckedByDefault = &defaultRememberMeCheckedByDefault
+	}
+
+	absoluteLifetime, _ := parseDuration(sessions.AbsoluteLifetime)
+	validIfNotUsedFor, _ := parseDuration(sessions.ValidIfNotUsedFor)
+
+	return &server.SessionConfig{
+		CookieEncryptionKey:        []byte(sessions.CookieEncryptionKey),
+		CookieName:                 sessions.CookieName,
+		AbsoluteLifetime:           absoluteLifetime,
+		ValidIfNotUsedFor:          validIfNotUsedFor,
+		RememberMeCheckedByDefault: *sessions.RememberMeCheckedByDefault,
+		SSOSharedWithDefault:       sessions.SSOSharedWithDefault,
+	}
 }
 
 // ToServerConfig converts YAMLConfig to dex server.Config
@@ -448,6 +600,8 @@ func (c *YAMLConfig) ToServerConfig(stor storage.Storage, logger *slog.Logger) s
 			Dir:     c.Frontend.Dir,
 			Extra:   c.Frontend.Extra,
 		},
+		SessionConfig: buildSessionsConfig(c.Sessions),
+		MFAProviders:  buildMFAProviders(c.MFA.Authenticators, c.Issuer, logger),
 	}
 
 	// Use embedded NetBird-styled templates if no custom dir specified
@@ -460,11 +614,6 @@ func (c *YAMLConfig) ToServerConfig(stor storage.Storage, logger *slog.Logger) s
 	}
 
 	// Apply expiry settings
-	if c.Expiry.SigningKeys != "" {
-		if d, err := parseDuration(c.Expiry.SigningKeys); err == nil {
-			cfg.RotateKeysAfter = d
-		}
-	}
 	if c.Expiry.IDTokens != "" {
 		if d, err := parseDuration(c.Expiry.IDTokens); err == nil {
 			cfg.IDTokensValidFor = d

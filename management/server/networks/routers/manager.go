@@ -102,7 +102,7 @@ func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *t
 
 		router.ID = xid.New().String()
 
-		err = transaction.SaveNetworkRouter(ctx, router)
+		err = transaction.CreateNetworkRouter(ctx, router)
 		if err != nil {
 			return fmt.Errorf("failed to create network router: %w", err)
 		}
@@ -162,11 +162,20 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 			return fmt.Errorf("failed to get network: %w", err)
 		}
 
-		if network.ID != router.NetworkID {
+		existing, err := transaction.GetNetworkRouterByID(ctx, store.LockingStrengthUpdate, router.AccountID, router.ID)
+		if err != nil {
+			return fmt.Errorf("failed to get network router: %w", err)
+		}
+
+		if existing.AccountID != router.AccountID {
+			return status.NewNetworkRouterNotFoundError(router.ID)
+		}
+
+		if existing.NetworkID != router.NetworkID {
 			return status.NewRouterNotPartOfNetworkError(router.ID, router.NetworkID)
 		}
 
-		err = transaction.SaveNetworkRouter(ctx, router)
+		err = transaction.UpdateNetworkRouter(ctx, router)
 		if err != nil {
 			return fmt.Errorf("failed to update network router: %w", err)
 		}

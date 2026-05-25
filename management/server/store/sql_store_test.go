@@ -2399,7 +2399,7 @@ func TestSqlStore_GetNetworkRouterByID(t *testing.T) {
 	}
 }
 
-func TestSqlStore_SaveNetworkRouter(t *testing.T) {
+func TestSqlStore_CreateNetworkRouter(t *testing.T) {
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanup)
 	require.NoError(t, err)
@@ -2410,12 +2410,45 @@ func TestSqlStore_SaveNetworkRouter(t *testing.T) {
 	netRouter, err := routerTypes.NewNetworkRouter(accountID, networkID, "", []string{"net-router-grp"}, true, 0, true)
 	require.NoError(t, err)
 
-	err = store.SaveNetworkRouter(context.Background(), netRouter)
+	err = store.CreateNetworkRouter(context.Background(), netRouter)
 	require.NoError(t, err)
 
 	savedNetRouter, err := store.GetNetworkRouterByID(context.Background(), LockingStrengthNone, accountID, netRouter.ID)
 	require.NoError(t, err)
 	require.Equal(t, netRouter, savedNetRouter)
+}
+
+func TestSqlStore_UpdateNetworkRouter(t *testing.T) {
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
+	t.Cleanup(cleanup)
+	require.NoError(t, err)
+
+	accountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+	networkID := "ct286bi7qv930dsrrug0"
+	routerID := "ctc20ji7qv9ck2sebc80"
+
+	netRouter := &routerTypes.NetworkRouter{
+		ID:         routerID,
+		AccountID:  accountID,
+		NetworkID:  networkID,
+		Peer:       "",
+		PeerGroups: []string{"net-router-grp"},
+		Masquerade: true,
+		Metric:     42,
+		Enabled:    true,
+	}
+
+	err = store.UpdateNetworkRouter(context.Background(), netRouter)
+	require.NoError(t, err)
+
+	savedNetRouter, err := store.GetNetworkRouterByID(context.Background(), LockingStrengthNone, accountID, routerID)
+	require.NoError(t, err)
+	require.Equal(t, netRouter, savedNetRouter)
+
+	// Updating a router under a different account must not match any row.
+	netRouter.AccountID = "non-existent-account"
+	err = store.UpdateNetworkRouter(context.Background(), netRouter)
+	require.Error(t, err)
 }
 
 func TestSqlStore_DeleteNetworkRouter(t *testing.T) {
@@ -4591,4 +4624,56 @@ func TestSqlStore_DeleteZoneDNSRecords(t *testing.T) {
 	remainingRecords, err := store.GetZoneDNSRecords(context.Background(), LockingStrengthNone, accountID, zone.ID)
 	require.NoError(t, err)
 	assert.Equal(t, 0, len(remainingRecords))
+}
+
+// TestNewSqliteStore_BusyTimeoutApplied opens a fresh SQLite store and verifies
+// that the _busy_timeout DSN parameter took effect at the driver level. Without
+// this, lock contention on the single SQLite connection waits indefinitely on
+// the Go side and can be hidden behind the 5-minute transactionTimeout.
+func TestNewSqliteStore_BusyTimeoutApplied(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewSqliteStore(context.Background(), dir, nil, true)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = store.Close(context.Background())
+	})
+
+	sqlDB, err := store.db.DB()
+	require.NoError(t, err)
+	row := sqlDB.QueryRow("PRAGMA busy_timeout")
+	var busyTimeout int
+	require.NoError(t, row.Scan(&busyTimeout))
+	assert.Equal(t, 30000, busyTimeout, "SQLite busy_timeout must be set via DSN so it survives connection recycling")
+}
+
+// TestNewSqliteStore_BusyTimeoutRespectsUserOverride confirms that an operator
+// passing _busy_timeout or its mattn alias _timeout via NB_STORE_ENGINE_SQLITE_FILE
+// wins over our 30s default. This guards the DSN merge logic in NewSqliteStore.
+func TestNewSqliteStore_BusyTimeoutRespectsUserOverride(t *testing.T) {
+	cases := []struct {
+		name     string
+		envFile  string
+		expected int
+	}{
+		{name: "explicit _busy_timeout wins", envFile: "store.db?_busy_timeout=5000", expected: 5000},
+		{name: "alias _timeout wins", envFile: "store.db?_timeout=7000", expected: 7000},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("NB_STORE_ENGINE_SQLITE_FILE", tc.envFile)
+			dir := t.TempDir()
+			store, err := NewSqliteStore(context.Background(), dir, nil, true)
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				_ = store.Close(context.Background())
+			})
+
+			sqlDB, err := store.db.DB()
+			require.NoError(t, err)
+			row := sqlDB.QueryRow("PRAGMA busy_timeout")
+			var busyTimeout int
+			require.NoError(t, row.Scan(&busyTimeout))
+			assert.Equal(t, tc.expected, busyTimeout)
+		})
+	}
 }

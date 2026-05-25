@@ -31,9 +31,11 @@ type store interface {
 
 type proxyManager interface {
 	GetActiveClusterAddresses(ctx context.Context) ([]string, error)
+	GetActiveClusterAddressesForAccount(ctx context.Context, accountID string) ([]string, error)
 	ClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
 	ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	ClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
+	ClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool
 }
 
 type Manager struct {
@@ -71,8 +73,8 @@ func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*d
 	var ret []*domain.Domain
 
 	// Add connected proxy clusters as free domains.
-	// The cluster address itself is the free domain base (e.g., "eu.proxy.netbird.io").
-	allowList, err := m.proxyManager.GetActiveClusterAddresses(ctx)
+	// For BYOP accounts, only their own cluster is returned; otherwise shared clusters.
+	allowList, err := m.getClusterAllowList(ctx, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get active proxy cluster addresses: %v", err)
 		return nil, err
@@ -92,6 +94,7 @@ func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*d
 		d.SupportsCustomPorts = m.proxyManager.ClusterSupportsCustomPorts(ctx, cluster)
 		d.RequireSubdomain = m.proxyManager.ClusterRequireSubdomain(ctx, cluster)
 		d.SupportsCrowdSec = m.proxyManager.ClusterSupportsCrowdSec(ctx, cluster)
+		d.SupportsPrivate = m.proxyManager.ClusterSupportsPrivate(ctx, cluster)
 		ret = append(ret, d)
 	}
 
@@ -108,6 +111,7 @@ func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*d
 		if d.TargetCluster != "" {
 			cd.SupportsCustomPorts = m.proxyManager.ClusterSupportsCustomPorts(ctx, d.TargetCluster)
 			cd.SupportsCrowdSec = m.proxyManager.ClusterSupportsCrowdSec(ctx, d.TargetCluster)
+			cd.SupportsPrivate = m.proxyManager.ClusterSupportsPrivate(ctx, d.TargetCluster)
 		}
 		// Custom domains never require a subdomain by default since
 		// the account owns them and should be able to use the bare domain.
@@ -126,8 +130,8 @@ func (m Manager) CreateDomain(ctx context.Context, accountID, userID, domainName
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	// Verify the target cluster is in the available clusters
-	allowList, err := m.proxyManager.GetActiveClusterAddresses(ctx)
+	// Verify the target cluster is in the available clusters for this account
+	allowList, err := m.getClusterAllowList(ctx, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get active proxy cluster addresses: %w", err)
 	}
@@ -273,7 +277,7 @@ func (m Manager) GetClusterDomains() []string {
 // For free domains (those ending with a known cluster suffix), the cluster is extracted from the domain.
 // For custom domains, the cluster is determined by checking the registered custom domain's target cluster.
 func (m Manager) DeriveClusterFromDomain(ctx context.Context, accountID, domain string) (string, error) {
-	allowList, err := m.proxyManager.GetActiveClusterAddresses(ctx)
+	allowList, err := m.getClusterAllowList(ctx, accountID)
 	if err != nil {
 		return "", fmt.Errorf("failed to get active proxy cluster addresses: %w", err)
 	}
@@ -296,6 +300,34 @@ func (m Manager) DeriveClusterFromDomain(ctx context.Context, accountID, domain 
 	}
 
 	return "", fmt.Errorf("domain %s does not match any available proxy cluster", domain)
+}
+
+func (m Manager) getClusterAllowList(ctx context.Context, accountID string) ([]string, error) {
+	byopAddresses, err := m.proxyManager.GetActiveClusterAddressesForAccount(ctx, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("get BYOP cluster addresses: %w", err)
+	}
+	publicAddresses, err := m.proxyManager.GetActiveClusterAddresses(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get public cluster addresses: %w", err)
+	}
+	seen := make(map[string]struct{}, len(byopAddresses)+len(publicAddresses))
+	merged := make([]string, 0, len(byopAddresses)+len(publicAddresses))
+	for _, addr := range byopAddresses {
+		if _, ok := seen[addr]; ok {
+			continue
+		}
+		seen[addr] = struct{}{}
+		merged = append(merged, addr)
+	}
+	for _, addr := range publicAddresses {
+		if _, ok := seen[addr]; ok {
+			continue
+		}
+		seen[addr] = struct{}{}
+		merged = append(merged, addr)
+	}
+	return merged, nil
 }
 
 func extractClusterFromCustomDomains(serviceDomain string, customDomains []*domain.Domain) (string, bool) {

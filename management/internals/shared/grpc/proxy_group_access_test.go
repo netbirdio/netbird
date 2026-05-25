@@ -53,6 +53,10 @@ func (m *mockReverseProxyManager) DeleteService(ctx context.Context, accountID, 
 	return nil
 }
 
+func (m *mockReverseProxyManager) DeleteAccountCluster(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
 func (m *mockReverseProxyManager) SetCertificateIssuedAt(ctx context.Context, accountID, reverseProxyID string) error {
 	return nil
 }
@@ -91,7 +95,21 @@ func (m *mockReverseProxyManager) StopServiceFromPeer(_ context.Context, _, _, _
 
 func (m *mockReverseProxyManager) StartExposeReaper(_ context.Context) {}
 
-func (m *mockReverseProxyManager) GetActiveClusters(_ context.Context, _, _ string) ([]proxy.Cluster, error) {
+func (m *mockReverseProxyManager) GetServiceByDomain(_ context.Context, domain string) (*service.Service, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	for _, services := range m.proxiesByAccount {
+		for _, svc := range services {
+			if svc.Domain == domain {
+				return svc, nil
+			}
+		}
+	}
+	return nil, errors.New("service not found for domain: " + domain)
+}
+
+func (m *mockReverseProxyManager) GetClusters(_ context.Context, _, _ string) ([]proxy.Cluster, error) {
 	return nil, nil
 }
 
@@ -109,6 +127,14 @@ func (m *mockUsersManager) GetUser(ctx context.Context, userID string) (*types.U
 		return nil, errors.New("user not found")
 	}
 	return user, nil
+}
+
+func (m *mockUsersManager) GetUserWithGroups(ctx context.Context, userID string) (*types.User, []*types.Group, error) {
+	user, err := m.GetUser(ctx, userID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return user, nil, nil
 }
 
 func TestValidateUserGroupAccess(t *testing.T) {
@@ -401,4 +427,47 @@ func TestGetAccountProxyByDomain(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCheckPeerGroupAccess(t *testing.T) {
+	t.Run("private with empty AccessGroups denies", func(t *testing.T) {
+		svc := &service.Service{Private: true, AccessGroups: nil}
+		err := checkPeerGroupAccess(svc, []string{"grp-admins"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no access groups")
+	})
+
+	t.Run("private with peer in AccessGroups allows", func(t *testing.T) {
+		svc := &service.Service{Private: true, AccessGroups: []string{"grp-admins", "grp-ops"}}
+		assert.NoError(t, checkPeerGroupAccess(svc, []string{"grp-other", "grp-ops"}))
+	})
+
+	t.Run("private with peer outside AccessGroups denies", func(t *testing.T) {
+		svc := &service.Service{Private: true, AccessGroups: []string{"grp-admins"}}
+		assert.Error(t, checkPeerGroupAccess(svc, []string{"grp-other"}))
+	})
+
+	t.Run("bearer enabled with empty DistributionGroups allows", func(t *testing.T) {
+		svc := &service.Service{
+			Auth: service.AuthConfig{BearerAuth: &service.BearerAuthConfig{Enabled: true}},
+		}
+		assert.NoError(t, checkPeerGroupAccess(svc, []string{"grp-anyone"}))
+	})
+
+	t.Run("bearer enabled gates on DistributionGroups", func(t *testing.T) {
+		svc := &service.Service{
+			Auth: service.AuthConfig{
+				BearerAuth: &service.BearerAuthConfig{
+					Enabled:            true,
+					DistributionGroups: []string{"grp-allowed"},
+				},
+			},
+		}
+		assert.NoError(t, checkPeerGroupAccess(svc, []string{"grp-allowed"}))
+		assert.Error(t, checkPeerGroupAccess(svc, []string{"grp-other"}))
+	})
+
+	t.Run("non-private non-bearer is open", func(t *testing.T) {
+		assert.NoError(t, checkPeerGroupAccess(&service.Service{}, nil))
+	})
 }

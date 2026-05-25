@@ -193,7 +193,15 @@ func getOverlappingNetworks(routes []*proto.Network) []*proto.Network {
 }
 
 func isDefaultRoute(routeRange string) bool {
-	return routeRange == "0.0.0.0/0" || routeRange == "::/0"
+	// routeRange is the merged display string from the daemon, e.g. "0.0.0.0/0",
+	// "::/0", or "0.0.0.0/0, ::/0" when a v4 exit node has a paired v6 entry.
+	for _, part := range strings.Split(routeRange, ",") {
+		switch strings.TrimSpace(part) {
+		case "0.0.0.0/0", "::/0":
+			return true
+		}
+	}
+	return false
 }
 
 func getExitNodeNetworks(routes []*proto.Network) []*proto.Network {

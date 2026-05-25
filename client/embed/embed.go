@@ -85,6 +85,12 @@ type Options struct {
 	DisableIPv6 bool
 	// BlockInbound blocks all inbound connections from peers
 	BlockInbound bool
+	// BlockLANAccess blocks the embedded peer from reaching the host's
+	// LAN (RFC 1918, link-local, loopback) when it's used as a routing
+	// peer. Mirrors profilemanager.ConfigInput.BlockLANAccess. Useful
+	// when the embedded client must never act as a stepping stone into
+	// the host's local network (e.g. the proxy's overlay peer).
+	BlockLANAccess bool
 	// WireguardPort is the port for the tunnel interface. Use 0 for a random port.
 	WireguardPort *int
 	// MTU is the MTU for the tunnel interface.
@@ -196,6 +202,7 @@ func New(opts Options) (*Client, error) {
 		DisableClientRoutes: &opts.DisableClientRoutes,
 		DisableIPv6:         &opts.DisableIPv6,
 		BlockInbound:        &opts.BlockInbound,
+		BlockLANAccess:      &opts.BlockLANAccess,
 		WireguardPort:       opts.WireguardPort,
 		MTU:                 opts.MTU,
 		DNSLabels:           parsedLabels,
@@ -364,7 +371,7 @@ func (c *Client) ListenTCP(address string) (net.Listener, error) {
 	if err != nil {
 		return nil, fmt.Errorf("split host port: %w", err)
 	}
-	listenAddr := fmt.Sprintf("%s:%s", addr, port)
+	listenAddr := net.JoinHostPort(addr.String(), port)
 
 	tcpAddr, err := net.ResolveTCPAddr("tcp", listenAddr)
 	if err != nil {
@@ -385,7 +392,7 @@ func (c *Client) ListenUDP(address string) (net.PacketConn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("split host port: %w", err)
 	}
-	listenAddr := fmt.Sprintf("%s:%s", addr, port)
+	listenAddr := net.JoinHostPort(addr.String(), port)
 
 	udpAddr, err := net.ResolveUDPAddr("udp", listenAddr)
 	if err != nil {
@@ -431,6 +438,21 @@ func (c *Client) Expose(ctx context.Context, req ExposeRequest) (*ExposeSession,
 		ServiceURL:  resp.ServiceURL,
 		mgr:         mgr,
 	}, nil
+}
+
+// IdentityForIP looks up a remote peer by its tunnel IP using the
+// embedded client's status recorder. Returns the peer's WireGuard public
+// key and FQDN. ok=false means the IP isn't in this client's peer
+// roster — callers should treat that as "unknown peer".
+func (c *Client) IdentityForIP(ip netip.Addr) (pubKey, fqdn string, ok bool) {
+	if !ip.IsValid() || c.recorder == nil {
+		return "", "", false
+	}
+	state, found := c.recorder.PeerStateByIP(ip.String())
+	if !found {
+		return "", "", false
+	}
+	return state.PubKey, state.FQDN, true
 }
 
 // Status returns the current status of the client.
