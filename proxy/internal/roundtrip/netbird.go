@@ -307,8 +307,14 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 		PrivateKey:    privateKey.String(),
 		LogLevel:      log.WarnLevel.String(),
 		BlockInbound:  n.clientCfg.BlockInbound,
-		WireguardPort: &wgPort,
-		PreSharedKey:  n.clientCfg.PreSharedKey,
+		// The embedded proxy peer must never be a stepping stone into
+		// the proxy host's LAN: it only exists to reach NetBird mesh
+		// targets or, when direct_upstream is set, the host network
+		// stack via the MultiTransport's direct branch (which bypasses
+		// the engine routing entirely).
+		BlockLANAccess: true,
+		WireguardPort:  &wgPort,
+		PreSharedKey:   n.clientCfg.PreSharedKey,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create netbird client: %w", err)

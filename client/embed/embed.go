@@ -84,6 +84,12 @@ type Options struct {
 	DisableIPv6 bool
 	// BlockInbound blocks all inbound connections from peers
 	BlockInbound bool
+	// BlockLANAccess blocks the embedded peer from reaching the host's
+	// LAN (RFC 1918, link-local, loopback) when it's used as a routing
+	// peer. Mirrors profilemanager.ConfigInput.BlockLANAccess. Useful
+	// when the embedded client must never act as a stepping stone into
+	// the host's local network (e.g. the proxy's overlay peer).
+	BlockLANAccess bool
 	// WireguardPort is the port for the tunnel interface. Use 0 for a random port.
 	WireguardPort *int
 	// MTU is the MTU for the tunnel interface.
@@ -175,6 +181,7 @@ func New(opts Options) (*Client, error) {
 		DisableClientRoutes: &opts.DisableClientRoutes,
 		DisableIPv6:         &opts.DisableIPv6,
 		BlockInbound:        &opts.BlockInbound,
+		BlockLANAccess:      &opts.BlockLANAccess,
 		WireguardPort:       opts.WireguardPort,
 		MTU:                 opts.MTU,
 		DNSLabels:           parsedLabels,
