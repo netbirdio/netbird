@@ -376,7 +376,7 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 		return nil, nil, "", cleanup, err
 	}
 
-	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock(), ephemeralMgr, config, nil)
+	networkMapController := controller.NewController(ctx, store, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock(), ephemeralMgr, config)
 	accountManager, err := BuildManager(ctx, nil, store, networkMapController, jobManager, nil, "",
 		eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 
@@ -385,13 +385,13 @@ func startManagementForTest(t *testing.T, testFile string, config *config.Config
 		return nil, nil, "", cleanup, err
 	}
 
-	secretsManager, err := nbgrpc.NewTimeBasedAuthSecretsManager(updateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager, nil)
+	secretsManager, err := nbgrpc.NewTimeBasedAuthSecretsManager(updateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
 	if err != nil {
 		cleanup()
 		return nil, nil, "", cleanup, err
 	}
 
-	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, jobManager, secretsManager, nil, nil, MockIntegratedValidator{}, networkMapController, nil, nil, nil)
+	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, jobManager, secretsManager, nil, nil, MockIntegratedValidator{}, networkMapController, nil, nil)
 	if err != nil {
 		return nil, nil, "", cleanup, err
 	}

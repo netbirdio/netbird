@@ -51,7 +51,7 @@ func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 		Secret:               secret,
 		Turns:                []*config.Host{TurnTestHost},
 		TimeBasedCredentials: true,
-	}, rc, settingsMockManager, groupsManager, nil)
+	}, rc, settingsMockManager, groupsManager)
 	require.NoError(t, err)
 
 	turnCredentials, err := tested.GenerateTurnToken()
@@ -104,7 +104,7 @@ func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 		Secret:               secret,
 		Turns:                []*config.Host{TurnTestHost},
 		TimeBasedCredentials: true,
-	}, rc, settingsMockManager, groupsManager, nil)
+	}, rc, settingsMockManager, groupsManager)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -208,7 +208,7 @@ func TestTimeBasedAuthSecretsManager_CancelRefresh(t *testing.T) {
 		Secret:               secret,
 		Turns:                []*config.Host{TurnTestHost},
 		TimeBasedCredentials: true,
-	}, rc, settingsMockManager, groupsManager, nil)
+	}, rc, settingsMockManager, groupsManager)
 	require.NoError(t, err)
 
 	tested.SetupRefresh(context.Background(), "someAccountID", peer)
