@@ -188,7 +188,9 @@ func (d *Detector) triggerCallback(event EventType, cb func(event EventType), do
 	}
 
 	doneChan := make(chan struct{})
-	timeout := time.NewTimer(500 * time.Millisecond)
+	// macOS forces sleep ~30s after kIOMessageSystemWillSleep, so block long
+	// enough for teardown to finish while staying under that deadline.
+	timeout := time.NewTimer(20 * time.Second)
 	defer timeout.Stop()
 
 	go func() {
