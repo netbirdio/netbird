@@ -682,8 +682,14 @@ func (s *Server) Stop() error {
 
 // acceptLoop handles VNC connections directly (user session mode).
 func (s *Server) acceptLoop() {
+	s.mu.Lock()
+	ln := s.listener
+	s.mu.Unlock()
+	if ln == nil {
+		return
+	}
 	for {
-		conn, err := s.listener.Accept()
+		conn, err := ln.Accept()
 		if err != nil {
 			select {
 			case <-s.ctx.Done():
