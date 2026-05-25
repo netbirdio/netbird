@@ -30,8 +30,14 @@ func (s *Server) serviceAcceptLoop() {
 
 	log.Info("service mode, proxying connections to per-user agent over Unix socket")
 
+	s.mu.Lock()
+	ln := s.listener
+	s.mu.Unlock()
+	if ln == nil {
+		return
+	}
 	for {
-		conn, err := s.listener.Accept()
+		conn, err := ln.Accept()
 		if err != nil {
 			select {
 			case <-s.ctx.Done():
