@@ -25,10 +25,13 @@ type X11InputInjector struct {
 	lastButtons       uint16
 	clipboardTool     string
 	clipboardToolName string
+	// authFile points xclip/xsel at the per-session Xauthority via XAUTHORITY env.
+	authFile string
 }
 
 // NewX11InputInjector connects to the X11 display and initializes XTest.
-func NewX11InputInjector(display string) (*X11InputInjector, error) {
+// Empty cookieHex/authFile fall back to XAUTHORITY env lookup.
+func NewX11InputInjector(display, cookieHex, authFile string) (*X11InputInjector, error) {
 	detectX11Display()
 
 	if display == "" {
@@ -38,7 +41,13 @@ func NewX11InputInjector(display string) (*X11InputInjector, error) {
 		return nil, fmt.Errorf("DISPLAY not set and no Xorg process found")
 	}
 
-	conn, err := xgb.NewConnDisplay(display)
+	var conn *xgb.Conn
+	var err error
+	if cookieHex != "" {
+		conn, err = dialXUnixWithCookie(display, cookieHex)
+	} else {
+		conn, err = xgb.NewConnDisplay(display)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("connect to X11 display %s: %w", display, err)
 	}
@@ -56,10 +65,11 @@ func NewX11InputInjector(display string) (*X11InputInjector, error) {
 	screen := setup.Roots[0]
 
 	inj := &X11InputInjector{
-		conn:    conn,
-		root:    screen.Root,
-		screen:  &screen,
-		display: display,
+		conn:     conn,
+		root:     screen.Root,
+		screen:   &screen,
+		display:  display,
+		authFile: authFile,
 	}
 	inj.cacheKeyboardMapping()
 	inj.resolveClipboardTool()
@@ -297,8 +307,13 @@ func (x *X11InputInjector) GetClipboard() string {
 
 func (x *X11InputInjector) clipboardEnv() []string {
 	env := []string{envDisplay + "=" + x.display}
-	if auth := os.Getenv(envXAuthority); auth != "" {
-		env = append(env, envXAuthority+"="+auth)
+	switch {
+	case x.authFile != "":
+		env = append(env, envXAuthority+"="+x.authFile)
+	default:
+		if auth := os.Getenv(envXAuthority); auth != "" {
+			env = append(env, envXAuthority+"="+auth)
+		}
 	}
 	return env
 }

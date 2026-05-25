@@ -15,6 +15,8 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/configs"
 )
 
 // VirtualSession manages a virtual X11 display (Xvfb) with a desktop session
@@ -25,6 +27,9 @@ const (
 
 	defaultSessionWidth  uint16 = 1280
 	defaultSessionHeight uint16 = 800
+
+	vncXAuthSubdir  = "vnc-xauth"
+	vncXAuthNameFmt = "X%s-%d"
 )
 
 type VirtualSession struct {
@@ -44,7 +49,12 @@ type VirtualSession struct {
 	stopped   bool
 	clients   int
 	idleTimer *time.Timer
-	onIdle    func() // called when idle timeout fires or Xvfb dies
+	// onIdle fires when the idle timeout elapses or the X server dies.
+	onIdle func()
+	// cookieHex authenticates X clients against our Xvfb instance.
+	cookieHex string
+	// authFile backs cookieHex on disk for Xvfb (-auth) and the desktop env.
+	authFile string
 }
 
 // StartVirtualSession creates and starts a virtual X11 session for the given
@@ -114,28 +124,36 @@ func (vs *VirtualSession) start() error {
 	}
 	vs.display = display
 
+	if err := vs.prepareXAuth(); err != nil {
+		return fmt.Errorf("prepare xauth: %w", err)
+	}
+
 	if err := vs.startXvfb(); err != nil {
+		vs.cleanupXAuth()
 		return err
 	}
 
 	socketPath := fmt.Sprintf("%s/X%s", x11SocketDir, vs.display[1:])
 	if err := waitForPath(socketPath, 5*time.Second); err != nil {
 		vs.stopXvfb()
+		vs.cleanupXAuth()
 		return fmt.Errorf("wait for X11 socket %s: %w", socketPath, err)
 	}
 
-	// Grant the target user access to the display via xhost.
-	xhostCmd := exec.Command("xhost", "+SI:localuser:"+vs.user.Username)
-	xhostCmd.Env = []string{envDisplay + "=" + vs.display}
-	if out, err := xhostCmd.CombinedOutput(); err != nil {
-		vs.log.Debugf("xhost: %s (%v)", strings.TrimSpace(string(out)), err)
+	// Restrict the X socket to root and the target user.
+	if err := os.Chown(socketPath, int(vs.uid), int(vs.gid)); err != nil {
+		vs.log.Debugf("chown X socket: %v", err)
+	}
+	if err := os.Chmod(socketPath, 0700); err != nil {
+		vs.log.Debugf("chmod X socket: %v", err)
 	}
 
-	vs.poller = NewX11Poller(vs.display)
+	vs.poller = NewX11Poller(vs.display, vs.cookieHex)
 
-	injector, err := NewX11InputInjector(vs.display)
+	injector, err := NewX11InputInjector(vs.display, vs.cookieHex, vs.authFile)
 	if err != nil {
 		vs.stopXvfb()
+		vs.cleanupXAuth()
 		return fmt.Errorf("create X11 injector for %s: %w", vs.display, err)
 	}
 	vs.injector = injector
@@ -143,6 +161,7 @@ func (vs *VirtualSession) start() error {
 	if err := vs.startDesktop(); err != nil {
 		vs.injector.Close()
 		vs.stopXvfb()
+		vs.cleanupXAuth()
 		return fmt.Errorf("start desktop: %w", err)
 	}
 
@@ -247,6 +266,7 @@ func (vs *VirtualSession) Stop() {
 
 	vs.stopDesktop()
 	vs.stopXvfb()
+	vs.cleanupXAuth()
 
 	vs.log.Info("virtual session stopped")
 }
@@ -263,6 +283,7 @@ func (vs *VirtualSession) startXvfbDirect() error {
 	vs.xvfb = exec.Command("Xvfb", vs.display,
 		"-screen", "0", geom,
 		"-nolisten", "tcp",
+		"-auth", vs.authFile,
 	)
 	vs.xvfb.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Pdeathsig: syscall.SIGTERM}
 
@@ -318,6 +339,7 @@ EndSection
 		"-config", confPath,
 		"-noreset",
 		"-nolisten", "tcp",
+		"-auth", vs.authFile,
 	)
 	vs.xvfb.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Pdeathsig: syscall.SIGTERM}
 
@@ -357,6 +379,7 @@ func (vs *VirtualSession) monitorXvfb() {
 			vs.injector.Close()
 		}
 		vs.stopDesktop()
+		vs.cleanupXAuth()
 	}
 	onIdle := vs.onIdle
 	vs.mu.Unlock()
@@ -436,6 +459,7 @@ func (vs *VirtualSession) monitorDesktop() {
 			vs.injector.Close()
 		}
 		vs.stopXvfb()
+		vs.cleanupXAuth()
 	}
 	onIdle := vs.onIdle
 	vs.mu.Unlock()
@@ -459,7 +483,7 @@ func (vs *VirtualSession) stopDesktop() {
 }
 
 func (vs *VirtualSession) buildUserEnv() []string {
-	return []string{
+	env := []string{
 		envDisplay + "=" + vs.display,
 		"HOME=" + vs.user.HomeDir,
 		"USER=" + vs.user.Username,
@@ -469,6 +493,46 @@ func (vs *VirtualSession) buildUserEnv() []string {
 		"XDG_RUNTIME_DIR=/run/user/" + vs.user.Uid,
 		"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/" + vs.user.Uid + "/bus",
 	}
+	if vs.authFile != "" {
+		env = append(env, envXAuthority+"="+vs.authFile)
+	}
+	return env
+}
+
+// prepareXAuth generates a per-session cookie and writes it to an
+// Xauthority file owned by the target user.
+func (vs *VirtualSession) prepareXAuth() error {
+	if configs.RuntimeDir == "" {
+		return fmt.Errorf("no runtime directory configured for this platform")
+	}
+	cookie, hexStr, err := generateXAuthCookie()
+	if err != nil {
+		return err
+	}
+	hostname, err := os.Hostname()
+	if err != nil {
+		return fmt.Errorf("hostname: %w", err)
+	}
+	displayNum := strings.TrimPrefix(vs.display, ":")
+	authPath := filepath.Join(configs.RuntimeDir, vncXAuthSubdir, fmt.Sprintf(vncXAuthNameFmt, displayNum, vs.uid))
+	if err := writeXAuthFile(authPath, hostname, displayNum, cookie, vs.uid, vs.gid); err != nil {
+		return err
+	}
+	vs.cookieHex = hexStr
+	vs.authFile = authPath
+	return nil
+}
+
+// cleanupXAuth removes the Xauthority file written by prepareXAuth.
+func (vs *VirtualSession) cleanupXAuth() {
+	if vs.authFile == "" {
+		return
+	}
+	if err := os.Remove(vs.authFile); err != nil && !os.IsNotExist(err) {
+		vs.log.Debugf("remove xauth: %v", err)
+	}
+	vs.authFile = ""
+	vs.cookieHex = ""
 }
 
 // detectDesktopSession discovers available desktop sessions from the standard
@@ -667,9 +731,36 @@ type sessionManager struct {
 }
 
 func newSessionManager(logger *log.Entry) *sessionManager {
-	return &sessionManager{
+	sm := &sessionManager{
 		sessions: make(map[string]*VirtualSession),
 		log:      logger,
+	}
+	sm.sweepStaleXAuth()
+	return sm
+}
+
+// sweepStaleXAuth removes Xauthority files left over from a previous daemon
+// instance whose X servers are no longer running.
+func (sm *sessionManager) sweepStaleXAuth() {
+	if configs.RuntimeDir == "" {
+		return
+	}
+	dir := filepath.Join(configs.RuntimeDir, vncXAuthSubdir)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			sm.log.Debugf("scan stale xauth dir: %v", err)
+		}
+		return
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		p := filepath.Join(dir, e.Name())
+		if err := os.Remove(p); err != nil {
+			sm.log.Debugf("remove stale xauth %s: %v", p, err)
+		}
 	}
 }
 
