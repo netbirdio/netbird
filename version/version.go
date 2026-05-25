@@ -2,6 +2,7 @@ package version
 
 import (
 	"regexp"
+	"runtime/debug"
 	"strings"
 
 	v "github.com/hashicorp/go-version"
@@ -25,6 +26,41 @@ var (
 // exposed separately via NetbirdCommit so the wire format stays stable.
 func NetbirdVersion() string {
 	return version
+}
+
+// NetbirdCommit returns the VCS revision (truncated to 12 chars) of the
+// build, with a "-dirty" suffix when the working tree was modified.
+// Returns an empty string when no build info is embedded (e.g. release
+// builds compiled by goreleaser without -buildvcs).
+func NetbirdCommit() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return ""
+	}
+
+	var revision string
+	var modified bool
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			revision = s.Value
+		case "vcs.modified":
+			modified = s.Value == "true"
+		}
+	}
+
+	if revision == "" {
+		return ""
+	}
+
+	if len(revision) > 12 {
+		revision = revision[:12]
+	}
+
+	if modified {
+		revision += "-dirty"
+	}
+	return revision
 }
 
 // IsDevelopmentVersion reports whether the given version string identifies
