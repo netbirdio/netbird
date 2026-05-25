@@ -321,7 +321,36 @@ type Store interface {
 
 	GetCustomDomainsCounts(ctx context.Context) (total int64, validated int64, err error)
 
+	// GetProxyMetrics returns aggregated proxy / cluster counts for the
+	// self-hosted metrics worker. Self-hosted only — file-based stores
+	// return a zero-valued struct.
+	GetProxyMetrics(ctx context.Context) (ProxyMetrics, error)
+
 	GetRoutingPeerNetworks(ctx context.Context, accountID, peerID string) ([]string, error)
+}
+
+// ProxyMetrics aggregates self-hosted proxy + cluster usage signals
+// surfaced to the telemetry payload. Each field is best-effort: when a
+// store cannot answer (e.g. FileStore) all fields are zero.
+type ProxyMetrics struct {
+	// Clusters counts distinct cluster_address values across the proxies
+	// table — every cluster the management server has heard from, online or not.
+	Clusters int64
+	// ClustersBYOP counts distinct cluster_address values that are owned
+	// by an account (account_id IS NOT NULL). These are bring-your-own-proxy
+	// installations as opposed to NetBird-operated shared clusters.
+	ClustersBYOP int64
+	// ClustersPrivate counts distinct cluster_address values where at
+	// least one proxy reported the private capability (embedded
+	// `netbird proxy` running inside a client).
+	ClustersPrivate int64
+	// Proxies is the total number of proxy rows currently persisted.
+	Proxies int64
+	// ProxiesConnected is the subset of proxies whose status is
+	// "connected" AND last_seen falls within the active heartbeat window
+	// (~2 * heartbeat interval). Proxies the controller hasn't pruned
+	// yet but that are visibly stale don't count.
+	ProxiesConnected int64
 }
 
 const (

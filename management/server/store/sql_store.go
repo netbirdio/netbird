@@ -1090,6 +1090,38 @@ func (s *SqlStore) GetCustomDomainsCounts(ctx context.Context) (int64, int64, er
 	return total, validated, nil
 }
 
+// GetProxyMetrics aggregates per-cluster + per-proxy counts for the
+// self-hosted telemetry payload. Single round-trip via conditional
+// aggregations so a large proxies table doesn't fan out into multiple
+// queries.
+func (s *SqlStore) GetProxyMetrics(ctx context.Context) (ProxyMetrics, error) {
+	var m ProxyMetrics
+	activeCutoff := time.Now().Add(-proxyActiveThreshold)
+
+	// COUNT(DISTINCT ... CASE WHEN ...) is portable across sqlite/postgres
+	// (MySQL too) and keeps the round-trip to one. proxy.StatusConnected
+	// is the same string the cluster-capability queries use; the active
+	// window matches the cluster-capability semantics (only proxies
+	// heartbeating within ~2 * heartbeat interval count as connected).
+	row := s.db.WithContext(ctx).
+		Model(&proxy.Proxy{}).
+		Select(
+			"COUNT(DISTINCT cluster_address) AS clusters, "+
+				"COUNT(DISTINCT CASE WHEN account_id IS NOT NULL THEN cluster_address END) AS clusters_byop, "+
+				"COUNT(DISTINCT CASE WHEN private = ? THEN cluster_address END) AS clusters_private, "+
+				"COUNT(*) AS proxies, "+
+				"COUNT(CASE WHEN status = ? AND last_seen > ? THEN 1 END) AS proxies_connected",
+			true,
+			proxy.StatusConnected,
+			activeCutoff,
+		).
+		Row()
+	if err := row.Scan(&m.Clusters, &m.ClustersBYOP, &m.ClustersPrivate, &m.Proxies, &m.ProxiesConnected); err != nil {
+		return ProxyMetrics{}, fmt.Errorf("scan proxy metrics: %w", err)
+	}
+	return m, nil
+}
+
 func (s *SqlStore) GetAllAccounts(ctx context.Context) (all []*types.Account) {
 	var accounts []types.Account
 	result := s.db.Find(&accounts)
