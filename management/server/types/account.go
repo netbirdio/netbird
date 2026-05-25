@@ -29,6 +29,7 @@ import (
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/status"
+	"github.com/netbirdio/netbird/version"
 )
 
 const (
@@ -1804,7 +1805,7 @@ func shouldCheckRulesForNativeSSH(supportsNative bool, rule *PolicyRule, peer *n
 
 // peerSupportedFirewallFeatures checks if the peer version supports port ranges.
 func peerSupportedFirewallFeatures(peerVer string) supportedFeatures {
-	if strings.Contains(peerVer, "dev") {
+	if version.IsDevelopmentVersion(peerVer) {
 		return supportedFeatures{true, true}
 	}
 

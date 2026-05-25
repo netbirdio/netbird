@@ -30,6 +30,7 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/shared/management/status"
+	"github.com/netbirdio/netbird/version"
 )
 
 const remoteJobsMinVer = "0.64.0"
@@ -372,7 +373,7 @@ func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, p
 	}
 
 	meetMinVer, err := posture.MeetsMinVersion(remoteJobsMinVer, p.Meta.WtVersion)
-	if !strings.Contains(p.Meta.WtVersion, "dev") && (!meetMinVer || err != nil) {
+	if !version.IsDevelopmentVersion(p.Meta.WtVersion) && (!meetMinVer || err != nil) {
 		return status.Errorf(status.PreconditionFailed, "peer version %s does not meet the minimum required version %s for remote jobs", p.Meta.WtVersion, remoteJobsMinVer)
 	}
 
