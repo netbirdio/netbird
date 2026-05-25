@@ -11,9 +11,9 @@ import (
 func newPlatformVNC() (vncserver.ScreenCapturer, vncserver.InputInjector, bool) {
 	// Prefer X11 when an X server is reachable. NewX11InputInjector probes
 	// DISPLAY (and /proc) eagerly, so a non-nil error here means no X.
-	injector, err := vncserver.NewX11InputInjector("")
+	injector, err := vncserver.NewX11InputInjector("", "", "")
 	if err == nil {
-		return vncserver.NewX11Poller(""), injector, true
+		return vncserver.NewX11Poller("", ""), injector, true
 	}
 	log.Debugf("VNC: X11 not available: %v", err)
 

@@ -210,7 +210,8 @@ func splitNull(data []byte) [][]byte {
 }
 
 // NewX11Capturer connects to the X11 display and sets up shared memory capture.
-func NewX11Capturer(display string) (*X11Capturer, error) {
+// Empty cookieHex falls back to XAUTHORITY env lookup.
+func NewX11Capturer(display, cookieHex string) (*X11Capturer, error) {
 	if display == "" {
 		detectX11Display()
 		display = os.Getenv(envDisplay)
@@ -219,7 +220,13 @@ func NewX11Capturer(display string) (*X11Capturer, error) {
 		return nil, fmt.Errorf("DISPLAY not set and no Xorg process found")
 	}
 
-	conn, err := xgb.NewConnDisplay(display)
+	var conn *xgb.Conn
+	var err error
+	if cookieHex != "" {
+		conn, err = dialXUnixWithCookie(display, cookieHex)
+	} else {
+		conn, err = xgb.NewConnDisplay(display)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("connect to X11 display %s: %w", display, err)
 	}
@@ -370,6 +377,8 @@ type X11Poller struct {
 
 	clients atomic.Int32
 	display string
+	// cookieHex authenticates the X11 connection; empty falls back to XAUTHORITY env.
+	cookieHex string
 }
 
 // initRetryBackoff gates capturer re-init attempts after a failure so we
@@ -377,10 +386,12 @@ type X11Poller struct {
 const initRetryBackoff = 2 * time.Second
 
 // NewX11Poller creates a lazy on-demand capturer for the given X display.
-func NewX11Poller(display string) *X11Poller {
+// Empty cookieHex falls back to XAUTHORITY env lookup.
+func NewX11Poller(display, cookieHex string) *X11Poller {
 	return &X11Poller{
-		display: display,
-		done:    make(chan struct{}),
+		display:   display,
+		cookieHex: cookieHex,
+		done:      make(chan struct{}),
 	}
 }
 
@@ -521,7 +532,7 @@ func (p *X11Poller) ensureCapturerLocked() error {
 	if time.Now().Before(p.initBackoffUntil) {
 		return fmt.Errorf("x11 capturer unavailable (retry scheduled)")
 	}
-	c, err := NewX11Capturer(p.display)
+	c, err := NewX11Capturer(p.display, p.cookieHex)
 	if err != nil {
 		p.initBackoffUntil = time.Now().Add(initRetryBackoff)
 		log.Debugf("X11 capturer: %v", err)
