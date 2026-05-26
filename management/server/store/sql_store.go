@@ -4883,6 +4883,34 @@ func (s *SqlStore) GetGroupIDsByPeerIDs(ctx context.Context, accountID string, p
 	return groupIDs, nil
 }
 
+// GetEmbeddedProxyPeerIDsByCluster returns peer IDs of all embedded proxy peers
+// in the account, grouped by their ProxyCluster. The map is nil when no embedded
+// proxy peers exist.
+func (s *SqlStore) GetEmbeddedProxyPeerIDsByCluster(ctx context.Context, accountID string) (map[string][]string, error) {
+	type row struct {
+		ID      string
+		Cluster string
+	}
+	var rows []row
+	result := s.db.Model(&nbpeer.Peer{}).
+		Select("id, proxy_meta_cluster AS cluster").
+		Where("account_id = ? AND proxy_meta_embedded = ?", accountID, true).
+		Scan(&rows)
+	if result.Error != nil {
+		return nil, status.Errorf(status.Internal, "failed to get embedded proxy peers: %s", result.Error)
+	}
+
+	if len(rows) == 0 {
+		return nil, nil
+	}
+
+	out := make(map[string][]string, len(rows))
+	for _, r := range rows {
+		out[r.Cluster] = append(out[r.Cluster], r.ID)
+	}
+	return out, nil
+}
+
 func (s *SqlStore) GetUserIDByPeerKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (string, error) {
 	tx := s.db
 	if lockStrength != LockingStrengthNone {

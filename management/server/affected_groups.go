@@ -5,6 +5,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -30,6 +31,7 @@ func collectPeerChangeAffectedGroups(ctx context.Context, transaction store.Stor
 	collectAffectedFromNameServers(ctx, transaction, accountID, changedGroupSet, groupSet)
 	collectAffectedFromDNSSettings(ctx, transaction, accountID, changedGroupSet, groupSet)
 	collectAffectedFromNetworkRouters(ctx, transaction, accountID, changedGroupSet, changedPeerSet, groupSet, peerSet)
+	collectAffectedFromProxyServices(ctx, transaction, accountID, changedGroupSet, changedPeerSet, peerSet)
 
 	allGroupIDs = setToSlice(groupSet)
 	directPeerIDs = setToSlice(peerSet)
@@ -135,6 +137,113 @@ func collectAffectedFromNetworkRouters(ctx context.Context, transaction store.St
 		addAllToSet(groupSet, router.PeerGroups)
 		if router.Peer != "" {
 			peerSet[router.Peer] = struct{}{}
+		}
+	}
+}
+
+// collectAffectedFromProxyServices handles policies that are synthesized at
+// network-map computation time by Account.InjectProxyPolicies. Those policies
+// connect proxy peers (peer.ProxyMeta.Embedded == true) to service targets and
+// never reach the database, so the other collectors cannot see them.
+func collectAffectedFromProxyServices(ctx context.Context, transaction store.Store, accountID string, changedGroupSet, changedPeerSet map[string]struct{}, peerSet map[string]struct{}) {
+	if len(changedGroupSet) == 0 && len(changedPeerSet) == 0 {
+		return
+	}
+
+	services, err := transaction.GetAccountServices(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get services for affected group resolution: %v", err)
+		return
+	}
+	if len(services) == 0 {
+		return
+	}
+
+	proxyByCluster, err := transaction.GetEmbeddedProxyPeerIDsByCluster(ctx, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get embedded proxy peers for affected group resolution: %v", err)
+		return
+	}
+	if len(proxyByCluster) == 0 {
+		return
+	}
+
+	expandedPeerSet := changedPeerSet
+	expanded := false
+	expand := func() {
+		if expanded {
+			return
+		}
+		expanded = true
+		if len(changedGroupSet) == 0 {
+			return
+		}
+		ids, err := transaction.GetPeerIDsByGroups(ctx, accountID, setToSlice(changedGroupSet))
+		if err != nil {
+			log.WithContext(ctx).Errorf("failed to expand changed groups to peers for service resolution: %v", err)
+			return
+		}
+		if len(ids) == 0 {
+			return
+		}
+
+		merged := make(map[string]struct{}, len(changedPeerSet)+len(ids))
+		for id := range changedPeerSet {
+			merged[id] = struct{}{}
+		}
+		for _, id := range ids {
+			merged[id] = struct{}{}
+		}
+		expandedPeerSet = merged
+	}
+
+	for _, svc := range services {
+		if svc == nil {
+			continue
+		}
+
+		proxyPeers := proxyByCluster[svc.ProxyCluster]
+		if len(proxyPeers) == 0 {
+			continue
+		}
+
+		expand()
+
+		matched := false
+
+		for _, pid := range proxyPeers {
+			if _, ok := expandedPeerSet[pid]; ok {
+				matched = true
+				break
+			}
+		}
+
+		if !matched {
+			for _, target := range svc.Targets {
+				if target.TargetType != rpservice.TargetTypePeer || target.TargetId == "" {
+					continue
+				}
+				if _, ok := expandedPeerSet[target.TargetId]; ok {
+					matched = true
+					break
+				}
+			}
+		}
+
+		if !matched {
+			continue
+		}
+
+		log.WithContext(ctx).Tracef("collectAffectedFromProxyServices: service %s (cluster=%s) matched; folding %d proxy peers and target peers",
+			svc.ID, svc.ProxyCluster, len(proxyPeers))
+
+		for _, pid := range proxyPeers {
+			peerSet[pid] = struct{}{}
+		}
+		for _, target := range svc.Targets {
+			if target.TargetType == rpservice.TargetTypePeer && target.TargetId != "" {
+				peerSet[target.TargetId] = struct{}{}
+			}
 		}
 	}
 }

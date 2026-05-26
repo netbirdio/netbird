@@ -12,6 +12,7 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	nbdns "github.com/netbirdio/netbird/dns"
+	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -1975,4 +1976,142 @@ func addPeerToAccount(t *testing.T, manager *DefaultAccountManager, _, setupKeyK
 	}, false)
 	require.NoError(t, err)
 	return peer
+}
+
+// markPeerAsProxy flips an existing peer's ProxyMeta to mark it as an embedded
+// proxy peer in the given cluster.
+func markPeerAsProxy(t *testing.T, s store.Store, accountID, peerID, cluster string) {
+	t.Helper()
+	ctx := context.Background()
+	peer, err := s.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
+	require.NoError(t, err)
+	peer.ProxyMeta = nbpeer.ProxyMeta{Embedded: true, Cluster: cluster}
+	require.NoError(t, s.SavePeer(ctx, accountID, peer))
+}
+
+// createServiceWithTargets persists a service with the given cluster and targets
+// directly in the store, bypassing the proxy-service manager (which would also
+// run cluster derivation and trigger UpdateAccountPeers).
+func createServiceWithTargets(t *testing.T, s store.Store, accountID, cluster string, targets []*rpservice.Target) *rpservice.Service {
+	t.Helper()
+	svc := &rpservice.Service{
+		AccountID:    accountID,
+		Name:         fmt.Sprintf("svc-%s", cluster),
+		Domain:       fmt.Sprintf("%s.example.com", cluster),
+		ProxyCluster: cluster,
+		Enabled:      true,
+		Mode:         "tcp",
+		Targets:      targets,
+	}
+	svc.InitNewRecord()
+	for _, target := range targets {
+		target.AccountID = accountID
+		target.ServiceID = svc.ID
+	}
+	require.NoError(t, s.CreateService(context.Background(), svc))
+	return svc
+}
+
+func TestCollectAffectedFromProxyServices_TargetPeerChanged(t *testing.T) {
+	manager, s, accountID, peerIDs, _ := setupAffectedPeersTest(t)
+	ctx := context.Background()
+
+	cluster := "cluster-a"
+	markPeerAsProxy(t, s, accountID, peerIDs[0], cluster)
+
+	createServiceWithTargets(t, s, accountID, cluster, []*rpservice.Target{
+		{TargetType: rpservice.TargetTypePeer, TargetId: peerIDs[1], Enabled: true, Port: 80, Protocol: "tcp"},
+	})
+
+	_, directPeers := collectPeerChangeAffectedGroups(ctx, manager.Store, accountID, nil, []string{peerIDs[1]})
+	assert.Contains(t, directPeers, peerIDs[0], "proxy peer must be refreshed when its target peer changes")
+	assert.Contains(t, directPeers, peerIDs[1], "target peer must be refreshed")
+}
+
+func TestCollectAffectedFromProxyServices_ProxyPeerChanged(t *testing.T) {
+	manager, s, accountID, peerIDs, _ := setupAffectedPeersTest(t)
+	ctx := context.Background()
+
+	cluster := "cluster-a"
+	markPeerAsProxy(t, s, accountID, peerIDs[0], cluster)
+
+	createServiceWithTargets(t, s, accountID, cluster, []*rpservice.Target{
+		{TargetType: rpservice.TargetTypePeer, TargetId: peerIDs[1], Enabled: true, Port: 80, Protocol: "tcp"},
+		{TargetType: rpservice.TargetTypePeer, TargetId: peerIDs[2], Enabled: true, Port: 80, Protocol: "tcp"},
+	})
+
+	_, directPeers := collectPeerChangeAffectedGroups(ctx, manager.Store, accountID, nil, []string{peerIDs[0]})
+	assert.Contains(t, directPeers, peerIDs[0], "changed proxy peer is itself refreshed")
+	assert.Contains(t, directPeers, peerIDs[1], "target peer 1 must be refreshed when proxy peer changes")
+	assert.Contains(t, directPeers, peerIDs[2], "target peer 2 must be refreshed when proxy peer changes")
+}
+
+func TestCollectAffectedFromProxyServices_GroupContainingTargetPeerChanged(t *testing.T) {
+	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
+	ctx := context.Background()
+
+	cluster := "cluster-a"
+	markPeerAsProxy(t, s, accountID, peerIDs[0], cluster)
+
+	createServiceWithTargets(t, s, accountID, cluster, []*rpservice.Target{
+		{TargetType: rpservice.TargetTypePeer, TargetId: peerIDs[1], Enabled: true, Port: 80, Protocol: "tcp"},
+	})
+
+	_, directPeers := collectPeerChangeAffectedGroups(ctx, manager.Store, accountID, []string{groupIDs[1]}, nil)
+	assert.Contains(t, directPeers, peerIDs[0], "proxy peer must be refreshed when a group containing its target peer changes")
+	assert.Contains(t, directPeers, peerIDs[1], "target peer must be refreshed")
+}
+
+func TestCollectAffectedFromProxyServices_NoServices(t *testing.T) {
+	manager, _, accountID, peerIDs, _ := setupAffectedPeersTest(t)
+	ctx := context.Background()
+
+	_, directPeers := collectPeerChangeAffectedGroups(ctx, manager.Store, accountID, nil, []string{peerIDs[0]})
+	assert.NotContains(t, directPeers, peerIDs[0], "no services means no proxy contribution")
+}
+
+func TestCollectAffectedFromProxyServices_DisabledServiceStillMatches(t *testing.T) {
+	manager, s, accountID, peerIDs, _ := setupAffectedPeersTest(t)
+	ctx := context.Background()
+
+	cluster := "cluster-a"
+	markPeerAsProxy(t, s, accountID, peerIDs[0], cluster)
+
+	svc := &rpservice.Service{
+		AccountID:    accountID,
+		Name:         "disabled-svc",
+		Domain:       "disabled.example.com",
+		ProxyCluster: cluster,
+		Enabled:      false,
+		Mode:         "tcp",
+		Targets: []*rpservice.Target{
+			{TargetType: rpservice.TargetTypePeer, TargetId: peerIDs[1], Enabled: false, Port: 80, Protocol: "tcp"},
+		},
+	}
+	svc.InitNewRecord()
+	for _, target := range svc.Targets {
+		target.AccountID = accountID
+		target.ServiceID = svc.ID
+	}
+	require.NoError(t, s.CreateService(ctx, svc))
+
+	_, directPeers := collectPeerChangeAffectedGroups(ctx, manager.Store, accountID, nil, []string{peerIDs[1]})
+	assert.Contains(t, directPeers, peerIDs[0], "disabled service should still trigger a refresh so peers are ready when re-enabled")
+	assert.Contains(t, directPeers, peerIDs[1], "disabled target should still trigger a refresh")
+}
+
+func TestCollectAffectedFromProxyServices_NonPeerTargetType(t *testing.T) {
+	manager, s, accountID, peerIDs, _ := setupAffectedPeersTest(t)
+	ctx := context.Background()
+
+	cluster := "cluster-a"
+	markPeerAsProxy(t, s, accountID, peerIDs[0], cluster)
+
+	createServiceWithTargets(t, s, accountID, cluster, []*rpservice.Target{
+		{TargetType: rpservice.TargetTypeHost, TargetId: "10.0.0.1", Host: "10.0.0.1", Enabled: true, Port: 80, Protocol: "tcp"},
+	})
+
+	_, directPeers := collectPeerChangeAffectedGroups(ctx, manager.Store, accountID, nil, []string{peerIDs[0]})
+	assert.Contains(t, directPeers, peerIDs[0], "host target service still refreshes its proxy peer when the proxy peer changes")
+	assert.NotContains(t, directPeers, "10.0.0.1", "non-peer target ids must not appear as affected peer IDs")
 }
