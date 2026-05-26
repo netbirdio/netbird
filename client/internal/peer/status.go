@@ -763,10 +763,19 @@ func (d *Status) SetSessionExpiresAt(deadline time.Time) {
 }
 
 // GetSessionExpiresAt returns the most recently recorded SSO session deadline,
-// or the zero value when no deadline is tracked.
+// or the zero value when no deadline is tracked. A deadline that has already
+// slipped into the past reports as "none": once the session has expired it is
+// no longer a meaningful countdown, and the sessionwatch.Watcher does not
+// arm a timer at the deadline itself to clear it (only the two pre-expiry
+// warnings). Without this guard the UI would keep painting a stale
+// "expires in …" against a moment that has passed until the next login,
+// extend, or teardown rewrote the value.
 func (d *Status) GetSessionExpiresAt() time.Time {
 	d.mux.Lock()
 	defer d.mux.Unlock()
+	if !d.sessionExpiresAt.IsZero() && d.sessionExpiresAt.Before(time.Now()) {
+		return time.Time{}
+	}
 	return d.sessionExpiresAt
 }
 

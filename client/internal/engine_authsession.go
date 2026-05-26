@@ -36,19 +36,21 @@ func (e *Engine) ApplySessionDeadline(ts *timestamppb.Timestamp) {
 	var deadline time.Time
 	// Explicit zero (seconds=0 AND nanos=0) is the sentinel for "disabled".
 	// Everything else flows through Watcher.Update, whose sanity-checks
-	// reject out-of-range / pre-epoch / far-future / too-stale values; the
-	// catch-block below converts any rejection into a clear.
+	// reject out-of-range / pre-epoch / far-future / too-stale values and
+	// clear on rejection.
 	if ts.GetSeconds() != 0 || ts.GetNanos() != 0 {
 		deadline = ts.AsTime().UTC()
 	}
-	if e.sessionWatcher != nil {
-		if err := e.sessionWatcher.Update(deadline); err != nil {
-			log.Errorf("auth session deadline rejected: %v, clearing", err)
-			deadline = time.Time{}
-		}
+	if e.sessionWatcher == nil {
+		return
 	}
-	if e.statusRecorder != nil {
-		e.statusRecorder.SetSessionExpiresAt(deadline)
+	// Watcher.Update owns the propagation to the status recorder (the
+	// SubscribeStatus / Status snapshot the UI reads): a set writes the
+	// deadline, a clear or a sanity-check rejection writes the zero value.
+	// Keeping a single writer is what stops the recorder from drifting out
+	// of sync with the warning timers.
+	if err := e.sessionWatcher.Update(deadline); err != nil {
+		log.Errorf("auth session deadline rejected: %v, clearing", err)
 	}
 }
 

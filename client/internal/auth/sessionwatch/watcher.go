@@ -62,15 +62,25 @@ var (
 )
 
 // StatusRecorder is the side-effect surface the watcher drives on every
-// state transition. Production wires this to peer.Status (NotifyStateChange
+// state transition. Production wires this to peer.Status (SetSessionExpiresAt
 // for deadline change/clear, PublishEvent for the two warnings); tests pass
 // a fake recorder so the same surface is observable without an engine.
+//
+// The watcher is the single owner of the deadline propagated to the
+// recorder: every set, clear, sanity-check rejection and Close routes the
+// value through SetSessionExpiresAt, so the SubscribeStatus snapshot the UI
+// reads can never drift from the watcher's timer state. (SetSessionExpiresAt
+// fans out its own state-change notification, so no separate notify is
+// needed.) The recorder is server-scoped and outlives this engine-scoped
+// watcher — without the Close-time clear a teardown (Down, or the Down+Up of
+// a profile switch) would leave the next session showing the previous one's
+// stale "expires in" value.
 //
 // PublishEvent's signature mirrors peer.Status.PublishEvent: the watcher
 // composes the metadata internally so the wire format (MetaSession*) is
 // owned by sessionwatch, not the caller.
 type StatusRecorder interface {
-	NotifyStateChange()
+	SetSessionExpiresAt(deadline time.Time)
 	PublishEvent(
 		severity cProto.SystemEvent_Severity,
 		category cProto.SystemEvent_Category,
@@ -177,7 +187,7 @@ func (w *Watcher) Update(deadline time.Time) error {
 	recorder := w.recorder
 	w.mu.Unlock()
 	if recorder != nil {
-		recorder.NotifyStateChange()
+		recorder.SetSessionExpiresAt(deadline)
 	}
 	log.Infof("auth session deadline set to: %s (in %s)", deadline.Format(time.RFC3339), time.Until(deadline).Round(time.Second))
 	return nil
@@ -217,15 +227,30 @@ func (w *Watcher) Dismiss() {
 	log.Infof("auth session final-warning dismissed for deadline %s", w.current.Format(time.RFC3339))
 }
 
-// Close stops any pending timer. Update calls after Close are ignored.
+// Close stops any pending timer and drops the deadline on the status
+// recorder. Update calls after Close are ignored. Clearing the recorder
+// here is what keeps a teardown (Down, or the Down+Up of a profile switch)
+// from leaving the next session showing this one's stale "expires in"
+// value — the recorder is server-scoped and outlives this engine-scoped
+// watcher, so nothing else drops the anchor on teardown.
 func (w *Watcher) Close() {
 	w.mu.Lock()
-	defer w.mu.Unlock()
 	if w.closed {
+		w.mu.Unlock()
 		return
 	}
 	w.closed = true
 	w.stopTimerLocked()
+	hadDeadline := !w.current.IsZero()
+	w.current = time.Time{}
+	w.firedAt = time.Time{}
+	w.finalFiredAt = time.Time{}
+	w.dismissedAt = time.Time{}
+	recorder := w.recorder
+	w.mu.Unlock()
+	if recorder != nil && hadDeadline {
+		recorder.SetSessionExpiresAt(time.Time{})
+	}
 }
 
 // clearLocked drops the tracked deadline and notifies the recorder so
@@ -245,7 +270,7 @@ func (w *Watcher) clearLocked() {
 	recorder := w.recorder
 	w.mu.Unlock()
 	if recorder != nil {
-		recorder.NotifyStateChange()
+		recorder.SetSessionExpiresAt(time.Time{})
 	}
 	log.Infof("auth session deadline cleared")
 }

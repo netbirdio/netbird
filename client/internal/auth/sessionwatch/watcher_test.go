@@ -10,12 +10,15 @@ import (
 )
 
 // fakeRecorder satisfies StatusRecorder and records every call so tests
-// can observe what the watcher emits. NotifyStateChange and PublishEvent
+// can observe what the watcher emits. SetSessionExpiresAt and PublishEvent
 // land in the same ordered events slice (with the Kind distinguishing
-// them) so tests that care about ordering still work.
+// them) so tests that care about ordering still work. lastDeadline holds
+// the most recent value passed to SetSessionExpiresAt so tests can assert
+// the recorder ended up cleared/set as expected.
 type fakeRecorder struct {
-	mu     sync.Mutex
-	events []event
+	mu           sync.Mutex
+	events       []event
+	lastDeadline time.Time
 }
 
 type eventKind int
@@ -34,10 +37,25 @@ type event struct {
 	meta     map[string]string
 }
 
-func (r *fakeRecorder) NotifyStateChange() {
+// SetSessionExpiresAt mirrors peer.Status: a same-value write is a no-op,
+// a real change records the new value and fans out a state-change (the
+// production recorder calls notifyStateChange internally). The baseline
+// is the zero time, so an initial clear before any deadline is set emits
+// nothing — matching the real recorder.
+func (r *fakeRecorder) SetSessionExpiresAt(deadline time.Time) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.lastDeadline.Equal(deadline) {
+		return
+	}
+	r.lastDeadline = deadline
 	r.events = append(r.events, event{kind: stateChange})
+}
+
+func (r *fakeRecorder) deadline() time.Time {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.lastDeadline
 }
 
 func (r *fakeRecorder) PublishEvent(
@@ -338,6 +356,44 @@ func TestCloseSilencesUpdates(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	if got := r.snapshot(); len(got) != 0 {
 		t.Fatalf("expected no events after Close, got %+v", got)
+	}
+}
+
+// TestCloseClearsRecorderDeadline pins the profile-switch fix: a watcher
+// holding a live deadline must zero the recorder on Close so the next
+// engine's watcher (and the UI reading the shared server-scoped recorder)
+// doesn't start out showing the previous session's stale "expires in".
+func TestCloseClearsRecorderDeadline(t *testing.T) {
+	r := &fakeRecorder{}
+	w := newWatcher(time.Hour, r)
+
+	d := time.Now().Add(2 * time.Hour)
+	if err := w.Update(d); err != nil {
+		t.Fatalf("seed Update: %v", err)
+	}
+	if got := r.deadline(); !got.Equal(d) {
+		t.Fatalf("recorder deadline after Update = %v, want %v", got, d)
+	}
+
+	w.Close()
+
+	if got := r.deadline(); !got.IsZero() {
+		t.Fatalf("recorder deadline after Close = %v, want zero", got)
+	}
+}
+
+// TestCloseWithoutDeadlineLeavesRecorderUntouched guards the symmetric
+// case: closing a watcher that never held a deadline must not emit a
+// redundant clear (the recorder may legitimately hold a value written by
+// some other path; the watcher only owns what it set).
+func TestCloseWithoutDeadlineLeavesRecorderUntouched(t *testing.T) {
+	r := &fakeRecorder{}
+	w := newWatcher(time.Hour, r)
+
+	w.Close()
+
+	if got := r.snapshot(); len(got) != 0 {
+		t.Fatalf("expected no events from Close on an empty watcher, got %+v", got)
 	}
 }
 
