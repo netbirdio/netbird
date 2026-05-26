@@ -727,6 +727,18 @@ func (t *Tray) applyStatus(st services.Status) {
 		go t.loadProfiles()
 	}
 	if exitNodesChanged {
+		// Re-evaluate the parent item's enablement here too, not only in
+		// the iconChanged block above: the daemon ships peer routes in a
+		// later snapshot than the Connected status text (networks=[] first,
+		// then populated), so the candidate list can flip empty→non-empty
+		// while the status string is unchanged. Without this the parent
+		// "Exit Node" item stays greyed from when it was last set on the
+		// status transition and the freshly painted rows are unreachable.
+		// Set before rebuildExitNodes' SetMenu so the rebuild reads the
+		// updated enabled state at NSMenuItem construction time.
+		if t.exitNodeItem != nil {
+			t.exitNodeItem.SetEnabled(connected && len(exitNodes) > 0)
+		}
 		t.rebuildExitNodes(exitNodes)
 	}
 	if daemonVersionChanged && t.daemonVersionItem != nil {
