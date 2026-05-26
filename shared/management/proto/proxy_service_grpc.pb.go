@@ -35,6 +35,14 @@ type ProxyServiceClient interface {
 	// ValidateSession validates a session token and checks user access permissions.
 	// Called by the proxy after receiving a session token from OIDC callback.
 	ValidateSession(ctx context.Context, in *ValidateSessionRequest, opts ...grpc.CallOption) (*ValidateSessionResponse, error)
+	// ValidateTunnelPeer resolves an inbound peer by its WireGuard tunnel IP and
+	// checks the resolved user's access against the service's access_groups.
+	// Acts as a fast-path equivalent of OIDC for requests originating on the
+	// netbird mesh: when the source IP maps to a known peer in the calling
+	// account and that peer is in the service's access_groups, the proxy can
+	// issue a session cookie without redirecting through the OIDC flow.
+	// Mirrors ValidateSession's response shape.
+	ValidateTunnelPeer(ctx context.Context, in *ValidateTunnelPeerRequest, opts ...grpc.CallOption) (*ValidateTunnelPeerResponse, error)
 }
 
 type proxyServiceClient struct {
@@ -162,6 +170,15 @@ func (c *proxyServiceClient) ValidateSession(ctx context.Context, in *ValidateSe
 	return out, nil
 }
 
+func (c *proxyServiceClient) ValidateTunnelPeer(ctx context.Context, in *ValidateTunnelPeerRequest, opts ...grpc.CallOption) (*ValidateTunnelPeerResponse, error) {
+	out := new(ValidateTunnelPeerResponse)
+	err := c.cc.Invoke(ctx, "/management.ProxyService/ValidateTunnelPeer", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ProxyServiceServer is the server API for ProxyService service.
 // All implementations must embed UnimplementedProxyServiceServer
 // for forward compatibility
@@ -183,6 +200,14 @@ type ProxyServiceServer interface {
 	// ValidateSession validates a session token and checks user access permissions.
 	// Called by the proxy after receiving a session token from OIDC callback.
 	ValidateSession(context.Context, *ValidateSessionRequest) (*ValidateSessionResponse, error)
+	// ValidateTunnelPeer resolves an inbound peer by its WireGuard tunnel IP and
+	// checks the resolved user's access against the service's access_groups.
+	// Acts as a fast-path equivalent of OIDC for requests originating on the
+	// netbird mesh: when the source IP maps to a known peer in the calling
+	// account and that peer is in the service's access_groups, the proxy can
+	// issue a session cookie without redirecting through the OIDC flow.
+	// Mirrors ValidateSession's response shape.
+	ValidateTunnelPeer(context.Context, *ValidateTunnelPeerRequest) (*ValidateTunnelPeerResponse, error)
 	mustEmbedUnimplementedProxyServiceServer()
 }
 
@@ -213,6 +238,9 @@ func (UnimplementedProxyServiceServer) GetOIDCURL(context.Context, *GetOIDCURLRe
 }
 func (UnimplementedProxyServiceServer) ValidateSession(context.Context, *ValidateSessionRequest) (*ValidateSessionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ValidateSession not implemented")
+}
+func (UnimplementedProxyServiceServer) ValidateTunnelPeer(context.Context, *ValidateTunnelPeerRequest) (*ValidateTunnelPeerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ValidateTunnelPeer not implemented")
 }
 func (UnimplementedProxyServiceServer) mustEmbedUnimplementedProxyServiceServer() {}
 
@@ -382,6 +410,24 @@ func _ProxyService_ValidateSession_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ProxyService_ValidateTunnelPeer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ValidateTunnelPeerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProxyServiceServer).ValidateTunnelPeer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/management.ProxyService/ValidateTunnelPeer",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProxyServiceServer).ValidateTunnelPeer(ctx, req.(*ValidateTunnelPeerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ProxyService_ServiceDesc is the grpc.ServiceDesc for ProxyService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -412,6 +458,10 @@ var ProxyService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ValidateSession",
 			Handler:    _ProxyService_ValidateSession_Handler,
+		},
+		{
+			MethodName: "ValidateTunnelPeer",
+			Handler:    _ProxyService_ValidateTunnelPeer_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

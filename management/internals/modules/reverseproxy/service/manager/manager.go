@@ -82,6 +82,7 @@ type CapabilityProvider interface {
 	ClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
 	ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	ClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
+	ClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool
 }
 
 type Manager struct {
@@ -136,6 +137,7 @@ func (m *Manager) GetClusters(ctx context.Context, accountID, userID string) ([]
 		clusters[i].SupportsCustomPorts = m.capabilities.ClusterSupportsCustomPorts(ctx, clusters[i].Address)
 		clusters[i].RequireSubdomain = m.capabilities.ClusterRequireSubdomain(ctx, clusters[i].Address)
 		clusters[i].SupportsCrowdSec = m.capabilities.ClusterSupportsCrowdSec(ctx, clusters[i].Address)
+		clusters[i].Private = m.capabilities.ClusterSupportsPrivate(ctx, clusters[i].Address)
 	}
 
 	return clusters, nil
@@ -208,6 +210,9 @@ func (m *Manager) replaceHostByLookup(ctx context.Context, accountID string, s *
 			target.Host = resource.Domain
 		case service.TargetTypeSubnet:
 			// For subnets we do not do any lookups on the resource
+		case service.TargetTypeCluster:
+			// Cluster targets carry the upstream address on target_id; the
+			// proxy resolves the destination at request time.
 		default:
 			return fmt.Errorf("unknown target type: %s", target.TargetType)
 		}
@@ -779,9 +784,20 @@ func validateTargetReferences(ctx context.Context, transaction store.Store, acco
 			if err := validateResourceTarget(ctx, transaction, accountID, target); err != nil {
 				return err
 			}
+		case service.TargetTypeCluster:
+			if err := validateClusterTarget(target); err != nil {
+				return err
+			}
 		default:
 			return status.Errorf(status.InvalidArgument, "unknown target type %q for target %q", target.TargetType, target.TargetId)
 		}
+	}
+	return nil
+}
+
+func validateClusterTarget(target *service.Target) error {
+	if !target.Options.DirectUpstream {
+		return status.Errorf(status.InvalidArgument, "cluster target %s has direct upstream disabled", target.Host)
 	}
 	return nil
 }
@@ -962,12 +978,14 @@ func (m *Manager) ReloadAllServicesForAccount(ctx context.Context, accountID str
 		return fmt.Errorf("failed to get services: %w", err)
 	}
 
+	oidcCfg := m.proxyController.GetOIDCValidationConfig()
+
 	for _, s := range services {
 		err = m.replaceHostByLookup(ctx, accountID, s)
 		if err != nil {
 			return fmt.Errorf("failed to replace host by lookup for service %s: %w", s.ID, err)
 		}
-		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Update, "", m.proxyController.GetOIDCValidationConfig()), s.ProxyCluster)
+		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Update, "", oidcCfg), s.ProxyCluster)
 	}
 
 	return nil

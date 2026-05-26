@@ -128,6 +128,18 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 		}
 	}
 
+	// An embedded proxy peer flipping to connected is the trigger for
+	// SynthesizePrivateServiceZones to emit DNS A records pointing at its
+	// tunnel IP. Without an account-wide netmap recompute, user peers keep
+	// the stale synth (or no synth at all on first connect) until some
+	// other change pokes the controller. Fire OnPeersUpdated so the
+	// buffered recompute fans the new state out to every peer.
+	if peer.ProxyMeta.Embedded {
+		if err := am.networkMapController.OnPeersUpdated(ctx, accountID, []string{peer.ID}); err != nil {
+			log.WithContext(ctx).Warnf("notify network map controller of embedded proxy %s connect: %v", peer.ID, err)
+		}
+	}
+
 	return nil
 }
 
@@ -163,6 +175,17 @@ func (am *DefaultAccountManager) MarkPeerDisconnected(ctx context.Context, peerP
 		return nil
 	}
 	am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusDisconnect, telemetry.PeerStatusApplied)
+
+	// Symmetric with MarkPeerConnected: when an embedded proxy peer goes
+	// offline, drive an account-wide netmap recompute so the synthesized
+	// DNS records that pointed at it are pulled. Without this the records
+	// linger client-side at TTL until something else triggers a refresh.
+	if peer.ProxyMeta.Embedded {
+		if err := am.networkMapController.OnPeersUpdated(ctx, accountID, []string{peer.ID}); err != nil {
+			log.WithContext(ctx).Warnf("notify network map controller of embedded proxy %s disconnect: %v", peer.ID, err)
+		}
+	}
+
 	return nil
 }
 
