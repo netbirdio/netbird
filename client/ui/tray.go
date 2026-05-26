@@ -5,8 +5,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -51,6 +53,7 @@ const (
 
 	urlGitHubRepo     = "https://github.com/netbirdio/netbird"
 	urlGitHubReleases = "https://github.com/netbirdio/netbird/releases/latest"
+	urlDocs           = "https://docs.netbird.io"
 
 	// finalWarningCountdownSeconds is the countdown shown in the auto-opened
 	// SessionAboutToExpire dialog. Mirrors sessionwatch.FinalWarningLead
@@ -111,6 +114,7 @@ type Tray struct {
 	upItem             *application.MenuItem
 	downItem           *application.MenuItem
 	exitNodeItem       *application.MenuItem
+	exitNodeSubmenu    *application.Menu
 	profileSubmenu     *application.Menu
 	profileSubmenuItem *application.MenuItem
 	profileEmailItem   *application.MenuItem
@@ -269,7 +273,7 @@ func (t *Tray) reapplyMenuState() {
 		if sessionDeadline.IsZero() {
 			t.sessionExpiresItem.SetHidden(true)
 		} else {
-			remaining := nbstatus.FormatRemainingDuration(time.Until(sessionDeadline))
+			remaining := t.formatSessionRemaining(time.Until(sessionDeadline))
 			t.sessionExpiresItem.SetLabel(t.loc.T("tray.session.expiresIn", "remaining", remaining))
 			t.sessionExpiresItem.SetHidden(false)
 		}
@@ -283,7 +287,7 @@ func (t *Tray) reapplyMenuState() {
 		t.downItem.SetEnabled(connected || connecting)
 	}
 	if t.exitNodeItem != nil {
-		t.exitNodeItem.SetEnabled(connected)
+		t.exitNodeItem.SetEnabled(connected && len(exitNodes) > 0)
 	}
 	if t.settingsItem != nil {
 		t.settingsItem.SetEnabled(!daemonUnavailable)
@@ -297,9 +301,7 @@ func (t *Tray) reapplyMenuState() {
 	if t.updater != nil {
 		t.updater.applyLanguage()
 	}
-	if len(exitNodes) > 0 {
-		t.rebuildExitNodes(exitNodes)
-	}
+	t.rebuildExitNodes(exitNodes)
 	go t.loadProfiles()
 }
 
@@ -353,16 +355,16 @@ func (t *Tray) buildMenu() *application.Menu {
 		SetBitmap(iconMenuDotIdle)
 
 	menu.AddSeparator()
-	// The tray icon's left-click handler is intentionally unbound (see
-	// NewTray for the rationale), so expose the window through an explicit
-	// menu entry on every platform. iconMenuNetbird (the brand mark) is
-	// applied to this row — per-platform asset choice lives in the
-	// icons_menu_<os>.go files; an empty []byte opts the platform out.
-	openItem := menu.Add(t.loc.T("tray.menu.open")).OnClick(func(*application.Context) { t.ShowWindow() })
-	if len(iconMenuNetbird) > 0 {
-		openItem.SetBitmap(iconMenuNetbird)
-	}
+
+	// Only the action that applies to the current state is visible: Connect
+	// when disconnected, Disconnect when connected. applyStatus swaps them on
+	// each daemon status change.
+	t.upItem = menu.Add(t.loc.T("tray.menu.connect")).OnClick(func(*application.Context) { t.handleConnect() })
+	t.downItem = menu.Add(t.loc.T("tray.menu.disconnect")).OnClick(func(*application.Context) { t.handleDisconnect() })
+	t.downItem.SetHidden(true)
+
 	menu.AddSeparator()
+
 	// Profiles submenu is populated asynchronously once the application
 	// has started — Menu.Update() is a no-op before app.running is true,
 	// so the initial fill is gated on the ApplicationStarted hook.
@@ -389,21 +391,49 @@ func (t *Tray) buildMenu() *application.Menu {
 	t.sessionExpiresItem.SetHidden(true)
 
 	menu.AddSeparator()
+	// The tray icon's left-click handler is intentionally unbound (see
+	// NewTray for the rationale), so expose the window through an explicit
+	// menu entry on every platform.
+	menu.Add(t.loc.T("tray.menu.open")).OnClick(func(*application.Context) { t.ShowWindow() })
+
+	menu.AddSeparator()
+
+	// exitNodeSubmenu hosts one row per peer advertising a default
+	// route (0.0.0.0/0 or ::/0). Populated asynchronously by
+	// rebuildExitNodes on every Status push that changes the set;
+	// the parent row stays disabled until at least one candidate is
+	// known. We grab the parent MenuItem via FindByLabel (same
+	// pattern as the Profiles submenu) so applyStatus can flip its
+	// enabled state independently of the children.
+	exitNodeLabel := t.loc.T("tray.menu.exitNode")
+	t.exitNodeSubmenu = menu.AddSubmenu(exitNodeLabel)
+	t.exitNodeItem = menu.FindByLabel(exitNodeLabel)
+	t.exitNodeItem.SetEnabled(false)
+
+	menu.AddSeparator()
 
 	// Settings, runtime toggles (SSH, Quantum-Resistance, lazy connection,
 	// block-inbound, auto-connect, notifications) and profile switching
 	// all live in the in-window Settings page now. The tray menu only
-	// surfaces the day-to-day actions.
+	// surfaces the day-to-day actions. The trailing ellipsis on the label
+	// (i18n string) follows the macOS HIG convention for menu items that
+	// open a dialog/window rather than performing an inline action.
 	t.settingsItem = menu.Add(t.loc.T("tray.menu.settings")).OnClick(func(*application.Context) { t.svc.WindowManager.OpenSettings("") })
-
-	t.exitNodeItem = menu.Add(t.loc.T("tray.menu.exitNode")).SetEnabled(false)
 
 	aboutLabel := t.loc.T("tray.menu.about")
 	about := menu.AddSubmenu(aboutLabel)
 	about.Add(t.loc.T("tray.menu.github")).OnClick(func(*application.Context) {
 		_ = t.app.Browser.OpenURL(urlGitHubRepo)
 	})
-	about.Add(t.loc.T("tray.menu.documentation")).SetEnabled(false)
+	about.Add(t.loc.T("tray.menu.documentation")).OnClick(func(*application.Context) {
+		_ = t.app.Browser.OpenURL(urlDocs)
+	})
+	// Troubleshoot deep-links into the Settings window at the
+	// Troubleshooting tab, which hosts the debug-bundle flow that used
+	// to live as a top-level tray entry.
+	about.Add(t.loc.T("tray.menu.troubleshoot")).OnClick(func(*application.Context) {
+		t.svc.WindowManager.OpenSettings("troubleshooting")
+	})
 	// Disabled informational entries: the GUI version is baked in at
 	// build time via -ldflags, the daemon version comes from the first
 	// Status snapshot and is updated in applyStatus.
@@ -419,12 +449,6 @@ func (t *Tray) buildMenu() *application.Menu {
 	t.updater.attach(updateItem)
 
 	menu.AddSeparator()
-	// Only the action that applies to the current state is visible: Connect
-	// when disconnected, Disconnect when connected. applyStatus swaps them on
-	// each daemon status change.
-	t.upItem = menu.Add(t.loc.T("tray.menu.connect")).OnClick(func(*application.Context) { t.handleConnect() })
-	t.downItem = menu.Add(t.loc.T("tray.menu.disconnect")).OnClick(func(*application.Context) { t.handleDisconnect() })
-	t.downItem.SetHidden(true)
 	menu.Add(t.loc.T("tray.menu.quit")).OnClick(func(*application.Context) { t.app.Quit() })
 
 	return menu
@@ -677,10 +701,13 @@ func (t *Tray) applyStatus(st services.Status) {
 			t.downItem.SetEnabled(connected || connecting)
 		}
 		// Exit Node surfaces tunnel-routed state, so only expose it while
-		// the tunnel is up. Settings just needs the daemon socket
-		// reachable.
+		// the tunnel is up AND the account actually has at least one
+		// exit-node candidate (a peer advertising 0.0.0.0/0 or ::/0).
+		// The row stays visible but greyed when no candidate is around,
+		// so the user can tell the feature exists. Settings just needs
+		// the daemon socket reachable.
 		if t.exitNodeItem != nil {
-			t.exitNodeItem.SetEnabled(connected)
+			t.exitNodeItem.SetEnabled(connected && len(exitNodes) > 0)
 		}
 		if t.settingsItem != nil {
 			t.settingsItem.SetEnabled(!daemonUnavailable)
@@ -728,13 +755,24 @@ func (t *Tray) handleSessionExpired() {
 	}
 }
 
+// rebuildExitNodes paints one row per exit-node candidate into the
+// Exit Node submenu. The list is read-only for now — selection wiring
+// would need ListNetworks + a peer-FQDN → network-ID lookup, which the
+// PeerStatus stream doesn't ship. Rebuilds via Clear + Add so the row
+// set stays in sync with the daemon snapshot; SetMenu on the root menu
+// is required because Wails v3 alpha menu Update() builds a detached
+// NSMenu on darwin that never replaces the empty submenu attached at
+// initial setup (same workaround as loadProfiles).
 func (t *Tray) rebuildExitNodes(nodes []string) {
-	if t.exitNodeItem == nil || len(nodes) == 0 {
+	if t.exitNodeSubmenu == nil {
 		return
 	}
-	sub := application.NewMenu()
+	t.exitNodeSubmenu.Clear()
 	for _, fqdn := range nodes {
-		sub.AddCheckbox(fqdn, false)
+		t.exitNodeSubmenu.Add(fqdn).SetEnabled(false)
+	}
+	if t.menu != nil {
+		t.tray.SetMenu(t.menu)
 	}
 }
 
@@ -1030,6 +1068,16 @@ func (t *Tray) applySessionExpiry(deadline *time.Time, connected bool) {
 		d = *deadline
 	}
 
+	switch {
+	case deadline == nil:
+		log.Infof("tray applySessionExpiry: deadline=<nil> connected=%v → row hidden", connected)
+	case deadline.IsZero():
+		log.Infof("tray applySessionExpiry: deadline=<zero> connected=%v → row hidden", connected)
+	default:
+		log.Infof("tray applySessionExpiry: deadline=%s (in %s) connected=%v",
+			deadline.Format(time.RFC3339), time.Until(*deadline), connected)
+	}
+
 	t.mu.Lock()
 	t.sessionExpiresAt = d
 	t.mu.Unlock()
@@ -1041,15 +1089,15 @@ func (t *Tray) applySessionExpiry(deadline *time.Time, connected bool) {
 		t.sessionExpiresItem.SetHidden(true)
 		return
 	}
-	remaining := nbstatus.FormatRemainingDuration(time.Until(d))
+	remaining := t.formatSessionRemaining(time.Until(d))
 	t.sessionExpiresItem.SetLabel(t.loc.T("tray.session.expiresIn", "remaining", remaining))
 	t.sessionExpiresItem.SetHidden(false)
 }
 
-// refreshSessionExpiresLabel recomputes the "Expires in …" tray row
-// label from the cached SSO deadline. Triggered from the click handlers
-// just before the menu paints, so the countdown reads against wall time
-// instead of the value baked in by the last Status push.
+// refreshSessionExpiresLabel recomputes the "Session expires in …" tray
+// row label from the cached SSO deadline. Triggered from the click
+// handlers just before the menu paints, so the countdown reads against
+// wall time instead of the value baked in by the last Status push.
 func (t *Tray) refreshSessionExpiresLabel() {
 	if t.sessionExpiresItem == nil {
 		return
@@ -1060,8 +1108,41 @@ func (t *Tray) refreshSessionExpiresLabel() {
 	if deadline.IsZero() {
 		return
 	}
-	remaining := nbstatus.FormatRemainingDuration(time.Until(deadline))
+	remaining := t.formatSessionRemaining(time.Until(deadline))
 	t.sessionExpiresItem.SetLabel(t.loc.T("tray.session.expiresIn", "remaining", remaining))
+}
+
+// formatSessionRemaining renders the time-to-deadline as a localised
+// long-form string ("47 minutes", "2 hours", "1 day"). Picks the
+// largest unit that fits non-zero and keeps singular/plural distinct
+// — the unit name keys (`tray.session.unit.minute(s)|hour(s)|day(s)`)
+// are split per language so translators can spell each form properly.
+// Sub-minute deltas read as "less than a minute" so a countdown that
+// has rolled past zero between Status pushes still produces something
+// sensible.
+func (t *Tray) formatSessionRemaining(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return t.loc.T("tray.session.unit.lessThanMinute")
+	case d < time.Hour:
+		m := int(d / time.Minute)
+		if m == 1 {
+			return t.loc.T("tray.session.unit.minute")
+		}
+		return t.loc.T("tray.session.unit.minutes", "count", strconv.Itoa(m))
+	case d < 24*time.Hour:
+		h := int(d / time.Hour)
+		if h == 1 {
+			return t.loc.T("tray.session.unit.hour")
+		}
+		return t.loc.T("tray.session.unit.hours", "count", strconv.Itoa(h))
+	default:
+		days := int(d / (24 * time.Hour))
+		if days == 1 {
+			return t.loc.T("tray.session.unit.day")
+		}
+		return t.loc.T("tray.session.unit.days", "count", strconv.Itoa(days))
+	}
 }
 
 // notify wraps the Wails notification service with the tray's standard
@@ -1269,11 +1350,24 @@ func (t *Tray) notifyError(message string) {
 	t.notify(t.loc.T("notify.error.title"), message, notifyIDTrayError)
 }
 
+// exitNodesFromStatus returns the FQDNs of peers advertising an IPv4
+// or IPv6 default route (`0.0.0.0/0` or `::/0`) — the only candidates
+// the user can pick as an exit node. The daemon ships each peer's
+// route table as `maps.Keys(...)` of a CIDR-keyed map (see
+// client/internal/peer/status.go: pbPeerState.Networks = maps.Keys(
+// peerState.GetRoutes())), so we parse each entry with netip and
+// match by `Bits()==0 && Addr().IsUnspecified()` rather than
+// string-comparing "0.0.0.0/0" — that catches the v4/v6 partner
+// management pairs together for a dual-stack exit, and tolerates any
+// future canonicalisation of the prefix string.
 func exitNodesFromStatus(st services.Status) []string {
 	seen := map[string]struct{}{}
 	out := []string{}
 	for _, p := range st.Peers {
 		if p.Fqdn == "" {
+			continue
+		}
+		if !advertisesDefaultRoute(p.Networks) {
 			continue
 		}
 		if _, ok := seen[p.Fqdn]; ok {
@@ -1282,8 +1376,26 @@ func exitNodesFromStatus(st services.Status) []string {
 		seen[p.Fqdn] = struct{}{}
 		out = append(out, p.Fqdn)
 	}
-	sort.Strings(out)
+	// Case-insensitive sort so the submenu reads alphabetically the
+	// way a human would — sort.Strings alone would put every
+	// uppercase letter ahead of any lowercase one.
+	sort.Slice(out, func(i, j int) bool {
+		return strings.ToLower(out[i]) < strings.ToLower(out[j])
+	})
 	return out
+}
+
+func advertisesDefaultRoute(networks []string) bool {
+	for _, n := range networks {
+		pref, err := netip.ParsePrefix(n)
+		if err != nil {
+			continue
+		}
+		if pref.Bits() == 0 && pref.Addr().IsUnspecified() {
+			return true
+		}
+	}
+	return false
 }
 
 func equalStrings(a, b []string) bool {
