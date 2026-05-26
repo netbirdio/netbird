@@ -403,10 +403,10 @@ func (t *Tray) buildMenu() *application.Menu {
 
 	aboutLabel := t.loc.T("tray.menu.about")
 	about := menu.AddSubmenu(aboutLabel)
-	// iconMenuNetbird is empty on macOS — NSMenuItem.setImage stretches
-	// the row to the leading image's pixel size, and the result looks
-	// out of place next to the unadorned rows above and below. Skip the
-	// brand mark there and keep the row text-only.
+	// iconMenuNetbird is the brand mark painted in the leading-image slot
+	// of the About row. The icons_menu_<os>.go files own the per-platform
+	// asset choice — guard with len() so a platform that opts out (sets
+	// it to an empty []byte) still renders the row text-only.
 	if aboutItem := menu.FindByLabel(aboutLabel); aboutItem != nil && len(iconMenuNetbird) > 0 {
 		aboutItem.SetBitmap(iconMenuNetbird)
 	}

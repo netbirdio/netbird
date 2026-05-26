@@ -10,16 +10,15 @@ import _ "embed"
 // (Win32 SM_CXMENUCHECK slot) and Linux a 24x24 variant (GTK menu row
 // supports the larger range) — see the sibling icons_menu_*.go files.
 //
-// iconMenuNetbird is intentionally empty on macOS. NSMenuItem.setImage
-// stretches the row height to the leading image's pixel size, which
-// makes the About row taller than the unadorned rows above and below
-// it regardless of the PNG size we ship. The brand mark is rendered
-// only on Windows and Linux (see those platforms' icons_menu_*.go
-// files); on macOS the About row stays text-only — the tray icon
-// itself already supplies the brand presence.
-//
-// Status dots are downscaled from the 24x24 originals with ImageMagick.
+// iconMenuNetbird on macOS is an 18x18 downscale of the 256x256 brand
+// PNG (assets/netbird.png — the same file the legacy Fyne client used
+// for its About row). Sized to sit visually alongside the row text —
+// the full 256x256 source stretched the row vertically, 22x22 read
+// noticeably larger than the surrounding "A" of "About", and 14x14
+// shrank below the cap height. 18 keeps the brand mark legible without
+// dominating the row.
 
+//go:embed assets/netbird-menu-about-18.png
 var iconMenuNetbird []byte
 
 //go:embed assets/netbird-menu-dot-connected-22.png
