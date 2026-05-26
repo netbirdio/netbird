@@ -150,100 +150,101 @@ func collectAffectedFromProxyServices(ctx context.Context, transaction store.Sto
 		return
 	}
 
-	services, err := transaction.GetAccountServices(ctx, store.LockingStrengthNone, accountID)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get services for affected group resolution: %v", err)
-		return
-	}
-	if len(services) == 0 {
+	services, proxyByCluster, ok := loadProxyServiceContext(ctx, transaction, accountID)
+	if !ok {
 		return
 	}
 
-	proxyByCluster, err := transaction.GetEmbeddedProxyPeerIDsByCluster(ctx, accountID)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get embedded proxy peers for affected group resolution: %v", err)
-		return
-	}
-	if len(proxyByCluster) == 0 {
-		return
-	}
-
-	expandedPeerSet := changedPeerSet
-	expanded := false
-	expand := func() {
-		if expanded {
-			return
-		}
-		expanded = true
-		if len(changedGroupSet) == 0 {
-			return
-		}
-		ids, err := transaction.GetPeerIDsByGroups(ctx, accountID, setToSlice(changedGroupSet))
-		if err != nil {
-			log.WithContext(ctx).Errorf("failed to expand changed groups to peers for service resolution: %v", err)
-			return
-		}
-		if len(ids) == 0 {
-			return
-		}
-
-		merged := make(map[string]struct{}, len(changedPeerSet)+len(ids))
-		for id := range changedPeerSet {
-			merged[id] = struct{}{}
-		}
-		for _, id := range ids {
-			merged[id] = struct{}{}
-		}
-		expandedPeerSet = merged
-	}
+	expandedPeerSet := expandChangedPeersWithGroups(ctx, transaction, accountID, changedGroupSet, changedPeerSet)
 
 	for _, svc := range services {
 		if svc == nil {
 			continue
 		}
-
 		proxyPeers := proxyByCluster[svc.ProxyCluster]
 		if len(proxyPeers) == 0 {
 			continue
 		}
-
-		expand()
-
-		matched := false
-
-		for _, pid := range proxyPeers {
-			if _, ok := expandedPeerSet[pid]; ok {
-				matched = true
-				break
-			}
-		}
-
-		if !matched {
-			for _, target := range svc.Targets {
-				if target.TargetType != rpservice.TargetTypePeer || target.TargetId == "" {
-					continue
-				}
-				if _, ok := expandedPeerSet[target.TargetId]; ok {
-					matched = true
-					break
-				}
-			}
-		}
-
-		if !matched {
+		if !serviceMatchesChangedPeers(svc, proxyPeers, expandedPeerSet) {
 			continue
 		}
 
 		log.WithContext(ctx).Tracef("collectAffectedFromProxyServices: service %s (cluster=%s) matched; folding %d proxy peers and target peers",
 			svc.ID, svc.ProxyCluster, len(proxyPeers))
+		addServicePeersToSet(svc, proxyPeers, peerSet)
+	}
+}
 
-		for _, pid := range proxyPeers {
-			peerSet[pid] = struct{}{}
+func loadProxyServiceContext(ctx context.Context, transaction store.Store, accountID string) ([]*rpservice.Service, map[string][]string, bool) {
+	services, err := transaction.GetAccountServices(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get services for affected group resolution: %v", err)
+		return nil, nil, false
+	}
+	if len(services) == 0 {
+		return nil, nil, false
+	}
+
+	proxyByCluster, err := transaction.GetEmbeddedProxyPeerIDsByCluster(ctx, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get embedded proxy peers for affected group resolution: %v", err)
+		return nil, nil, false
+	}
+	if len(proxyByCluster) == 0 {
+		return nil, nil, false
+	}
+
+	return services, proxyByCluster, true
+}
+
+func expandChangedPeersWithGroups(ctx context.Context, transaction store.Store, accountID string, changedGroupSet, changedPeerSet map[string]struct{}) map[string]struct{} {
+	if len(changedGroupSet) == 0 {
+		return changedPeerSet
+	}
+
+	ids, err := transaction.GetPeerIDsByGroups(ctx, accountID, setToSlice(changedGroupSet))
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to expand changed groups to peers for service resolution: %v", err)
+		return changedPeerSet
+	}
+	if len(ids) == 0 {
+		return changedPeerSet
+	}
+
+	merged := make(map[string]struct{}, len(changedPeerSet)+len(ids))
+	for id := range changedPeerSet {
+		merged[id] = struct{}{}
+	}
+	for _, id := range ids {
+		merged[id] = struct{}{}
+	}
+	return merged
+}
+
+func serviceMatchesChangedPeers(svc *rpservice.Service, proxyPeers []string, changedPeers map[string]struct{}) bool {
+	for _, pid := range proxyPeers {
+		if _, ok := changedPeers[pid]; ok {
+			return true
 		}
-		for _, target := range svc.Targets {
-			if target.TargetType == rpservice.TargetTypePeer && target.TargetId != "" {
-				peerSet[target.TargetId] = struct{}{}
-			}
+	}
+	for _, target := range svc.Targets {
+		if target.TargetType != rpservice.TargetTypePeer || target.TargetId == "" {
+			continue
+		}
+		if _, ok := changedPeers[target.TargetId]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func addServicePeersToSet(svc *rpservice.Service, proxyPeers []string, peerSet map[string]struct{}) {
+	for _, pid := range proxyPeers {
+		peerSet[pid] = struct{}{}
+	}
+	for _, target := range svc.Targets {
+		if target.TargetType == rpservice.TargetTypePeer && target.TargetId != "" {
+			peerSet[target.TargetId] = struct{}{}
 		}
 	}
 }
