@@ -193,6 +193,7 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 	// nil-deref).
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		go t.loadProfiles()
+		go t.runSessionExpiryTicker()
 		// Notification-category registration must run after the Wails
 		// notifications service Startup has populated wn.appName /
 		// registry path on Windows; before app.Run() the category lookup
@@ -210,6 +211,38 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 
 	go t.loadConfig()
 	return t
+}
+
+// ShowWindow brings the main window forward — used by SIGUSR1 / Windows event.
+// Show() alone is not enough on macOS: makeKeyAndOrderFront skips app
+// activation, so a tray-style app's window pops up behind the currently
+// active app. Focus() additionally calls activateIgnoringOtherApps:YES on
+// macOS and SetForegroundWindow on Windows.
+func (t *Tray) ShowWindow() {
+	// While an auto-update install is running the install-progress window
+	// is the focal surface (all other windows hidden by WindowManager).
+	// Tray "Open" / SIGUSR1 / dock-reopen should bring it forward, not
+	// resurrect the main one mid-install. Checked before BrowserLogin
+	// because an install supersedes every other flow.
+	if w := t.svc.WindowManager.InstallProgressWindow(); w != nil {
+		w.Show()
+		w.Focus()
+		return
+	}
+	// While an SSO flow is in progress the BrowserLogin popup is the focal
+	// window — the main window was hidden by WindowManager so the user
+	// stays on the sign-in surface. Tray "Open" / SIGUSR1 / dock-reopen
+	// should bring that window forward, not resurrect the main one mid-flow.
+	if w := t.svc.WindowManager.BrowserLoginWindow(); w != nil {
+		w.Show()
+		w.Focus()
+		return
+	}
+	if t.window == nil {
+		return
+	}
+	t.window.Show()
+	t.window.Focus()
 }
 
 // applyLanguage re-renders every translated surface using the Localizer's
@@ -280,38 +313,6 @@ func (t *Tray) reapplyMenuState() {
 	}
 	t.rebuildExitNodes(exitNodes)
 	go t.loadProfiles()
-}
-
-// ShowWindow brings the main window forward — used by SIGUSR1 / Windows event.
-// Show() alone is not enough on macOS: makeKeyAndOrderFront skips app
-// activation, so a tray-style app's window pops up behind the currently
-// active app. Focus() additionally calls activateIgnoringOtherApps:YES on
-// macOS and SetForegroundWindow on Windows.
-func (t *Tray) ShowWindow() {
-	// While an auto-update install is running the install-progress window
-	// is the focal surface (all other windows hidden by WindowManager).
-	// Tray "Open" / SIGUSR1 / dock-reopen should bring it forward, not
-	// resurrect the main one mid-install. Checked before BrowserLogin
-	// because an install supersedes every other flow.
-	if w := t.svc.WindowManager.InstallProgressWindow(); w != nil {
-		w.Show()
-		w.Focus()
-		return
-	}
-	// While an SSO flow is in progress the BrowserLogin popup is the focal
-	// window — the main window was hidden by WindowManager so the user
-	// stays on the sign-in surface. Tray "Open" / SIGUSR1 / dock-reopen
-	// should bring that window forward, not resurrect the main one mid-flow.
-	if w := t.svc.WindowManager.BrowserLoginWindow(); w != nil {
-		w.Show()
-		w.Focus()
-		return
-	}
-	if t.window == nil {
-		return
-	}
-	t.window.Show()
-	t.window.Focus()
 }
 
 func (t *Tray) buildMenu() *application.Menu {
@@ -1074,10 +1075,18 @@ func (t *Tray) applySessionExpiry(deadline *time.Time, connected bool) {
 	t.sessionExpiresItem.SetHidden(false)
 }
 
+// runSessionExpiryTicker keeps the "Expires in …" countdown row fresh by
+// recomputing its label every 30 seconds for the app's lifetime. Started
+// once on ApplicationStarted; the goroutine lives until the process exits.
+func (t *Tray) runSessionExpiryTicker() {
+	tk := time.NewTicker(30 * time.Second)
+	for range tk.C {
+		t.refreshSessionExpiresLabel()
+	}
+}
+
 // refreshSessionExpiresLabel recomputes the "Session expires in …" tray
-// row label from the cached SSO deadline. Triggered from the click
-// handlers just before the menu paints, so the countdown reads against
-// wall time instead of the value baked in by the last Status push.
+// row label from the cached SSO deadline.
 func (t *Tray) refreshSessionExpiresLabel() {
 	if t.sessionExpiresItem == nil {
 		return
