@@ -99,9 +99,9 @@ The main window is **hidden** on close (the `WindowClosing` hook calls `e.Cancel
 
 ## Localisation (i18n)
 
-The locale tree under `frontend/src/i18n/locales/` is the single source of truth for both Go (tray, OS notifications) and React (every user-facing string). Layout: `_index.json` lists shipped languages (`code` / `displayName` / `englishName`); `<code>/common.json` per language. `en/common.json` must exist (the `Bundle` loader hard-fails without it); languages listed in `_index.json` without a bundle are skipped with a warning. Placeholders are single-braced (`"Install version {version}"`) — Go substitutes via `Bundle.Translate(lang, key, "name", value, ...)`; React uses i18next with `interpolation: { prefix: "{", suffix: "}" }`.
+The locale tree under `client/ui/i18n/locales/` is the single source of truth for both Go (tray, OS notifications) and React (every user-facing string). It sits next to the Go `i18n` package (the tray's consumer) so a single JSON tree drives both surfaces. Layout: `_index.json` lists shipped languages (`code` / `displayName` / `englishName`); `<code>/common.json` per language. `en/common.json` must exist (the `Bundle` loader hard-fails without it); languages listed in `_index.json` without a bundle are skipped with a warning. Placeholders are single-braced (`"Install version {version}"`) — Go substitutes via `Bundle.Translate(lang, key, "name", value, ...)`; React uses i18next with `interpolation: { prefix: "{", suffix: "}" }`.
 
-Adding a language: drop a `<code>/common.json`, append a row to `_index.json`, add the static import in `frontend/src/i18n/index.ts`, rebuild. Embed lives in `client/ui/main.go`'s `embed.FS`.
+Adding a language: drop a `<code>/common.json` under `client/ui/i18n/locales/`, append a row to `_index.json`, rebuild. Go reads the tree via `//go:embed all:i18n/locales` in `client/ui/main.go`; Vite reads it via the `../../../i18n/locales/*/common.json` glob in `frontend/src/lib/i18n.ts`, with `server.fs.allow` in `vite.config.ts` whitelisting the parent dir so the dev server can serve files outside `frontend/`.
 
 Package layout:
 - `client/ui/i18n/` — pure `LanguageCode` / `Language` / `Bundle` loader. No Wails / no daemon. Reads the tree from an `fs.FS` passed in by `main.go`.

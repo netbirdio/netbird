@@ -24,9 +24,9 @@ import (
 )
 
 // Translation keys for every user-facing string the tray paints. The text
-// itself lives in frontend/src/i18n/locales/<lang>/common.json — both the
-// tray and the React UI read from there so a single bundle drives the
-// whole product. Keys are referenced by the Tray.tr helper.
+// itself lives in i18n/locales/<lang>/common.json — both the tray and the
+// React UI read from there so a single bundle drives the whole product.
+// Keys are referenced by the Tray.tr helper.
 
 // Non-translated identifiers. Notification IDs coalesce duplicate toasts
 // (the OS uses them as dedup keys); statusError is a tray-only sentinel

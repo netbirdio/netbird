@@ -40,7 +40,7 @@ Subscribe with `Events.On(name, handler)` from `@wailsio/runtime`. Handlers rece
 | `netbird:status` | `Status` | Daemon SubscribeStatus snapshot — connection-state change, peer-list change, address change, mgmt/signal flip. Synthetic `StatusDaemonUnavailable` is emitted when the gRPC socket is unreachable, and a synthetic `Connecting` is emitted at the start of an active profile switch. |
 | `netbird:event` | `SystemEvent` | One push per daemon SubscribeEvents item (DNS / network / authentication / connectivity / system). Used by the tray for OS toasts; the TS side reads events through `Status.events` instead. |
 | `netbird:update:available` | `UpdateAvailable` | Daemon detected a new version (fan-out of the `new_version_available` metadata key). |
-| `netbird:preferences:changed` | `{ language: string }` | Fires after every successful `Preferences.SetLanguage` (including the caller's own window). `src/i18n/index.ts` subscribes and calls `i18next.changeLanguage`. |
+| `netbird:preferences:changed` | `{ language: string }` | Fires after every successful `Preferences.SetLanguage` (including the caller's own window). `src/lib/i18n.ts` subscribes and calls `i18next.changeLanguage`. |
 | `netbird:update:progress` | `UpdateProgress` | Daemon enforced-update install progress (`action: "show"` etc.). |
 | `browser-login:cancel` | (none) | Either the user closed the `BrowserLogin` window (Go-emitted) or the page's Cancel button (frontend-emitted). |
 | `trigger-login` | (none) | Reserved by the tray for asking the frontend to start an SSO flow. `layouts/ConnectionStatusSwitch.tsx` subscribes and runs `startLogin()`; no Go-side emitter today. |
@@ -177,7 +177,7 @@ I18n.Languages(): Promise<Language[]>                       // from _index.json
 I18n.Bundle(code: LanguageCode): Promise<Record<string,string>>  // full key→text map
 ```
 
-Source of truth is `frontend/src/i18n/locales/`. The frontend's i18next bootstrap doesn't need `I18n.Bundle` at runtime (bundles are statically imported by Vite), but the language picker reads `I18n.Languages()` so the list matches `_index.json` without duplicating it in TS.
+Source of truth is `client/ui/i18n/locales/` (shared with the Go tray). The frontend's i18next bootstrap doesn't need `I18n.Bundle` at runtime (bundles are statically imported by Vite via the glob in `src/lib/i18n.ts`), but the language picker reads `I18n.Languages()` so the list matches `_index.json` without duplicating it in TS.
 
 ## `Preferences`
 
@@ -186,7 +186,7 @@ Preferences.Get(): Promise<UIPreferences>                   // { language: strin
 Preferences.SetLanguage(code: LanguageCode): Promise<void>  // rejects on unknown code
 ```
 
-`SetLanguage` validates against the loaded `i18n.Bundle`, persists to `os.UserConfigDir()/netbird/ui-preferences.json`, and emits `netbird:preferences:changed`. The frontend's `src/i18n/index.ts` listens to that event and calls `i18next.changeLanguage` so a flip in any window paints in all of them. Missing preferences file → defaults to `en`, written on first read.
+`SetLanguage` validates against the loaded `i18n.Bundle`, persists to `os.UserConfigDir()/netbird/ui-preferences.json`, and emits `netbird:preferences:changed`. The frontend's `src/lib/i18n.ts` listens to that event and calls `i18next.changeLanguage` so a flip in any window paints in all of them. Missing preferences file → defaults to `en`, written on first read.
 
 ## Daemon `Status.status` values
 

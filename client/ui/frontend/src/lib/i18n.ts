@@ -4,14 +4,18 @@ import { Events } from "@wailsio/runtime";
 
 import { Preferences, I18n } from "@bindings/services";
 
-// Vite glob-imports every shipped bundle at build time. Adding a language
-// only requires dropping the new folder under src/i18n/locales/ and the
-// row in _index.json — no edit to this file. The `eager: true` import
-// keeps the bundles inlined in the main JS chunk, same shape as a static
-// import. Path is relative on purpose — alias-based globs (`@/…`) silently
-// resolve to an empty match in some Vite dev-mode setups.
+// Vite glob-imports every shipped bundle at build time. The locales tree
+// lives outside `frontend/` (at `client/ui/i18n/locales`) so the Go tray
+// and the React app share one JSON source. Adding a language only
+// requires dropping the new folder there and the row in `_index.json` —
+// no edit to this file. The `eager: true` import keeps the bundles
+// inlined in the main JS chunk, same shape as a static import. Path is
+// relative on purpose — alias-based globs (`@/…`) silently resolve to an
+// empty match in some Vite dev-mode setups. `server.fs.allow` in
+// `vite.config.ts` whitelists the parent directory so the dev server
+// serves the JSON.
 const bundleModules = import.meta.glob<Record<string, string>>(
-    "../i18n/locales/*/common.json",
+    "../../../i18n/locales/*/common.json",
     { eager: true, import: "default" },
 );
 

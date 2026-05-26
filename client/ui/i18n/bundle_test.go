@@ -11,7 +11,7 @@ import (
 )
 
 // fakeLocales returns an in-memory FS that mirrors the real
-// frontend/src/i18n/locales layout (root-level _index.json plus
+// client/ui/i18n/locales layout (root-level _index.json plus
 // <code>/common.json bundles). Used by every Bundle test so we don't
 // depend on the embedded production bundles staying stable.
 func fakeLocales() fstest.MapFS {

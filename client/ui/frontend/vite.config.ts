@@ -19,5 +19,10 @@ export default defineConfig({
     host: "127.0.0.1",
     port: 9245,
     strictPort: true,
+    fs: {
+      // The i18n bundles live at ../i18n/locales (shared with the Go tray).
+      // Whitelist the parent dir so Vite's dev server serves them.
+      allow: [path.resolve(__dirname, ".."), __dirname],
+    },
   },
 });

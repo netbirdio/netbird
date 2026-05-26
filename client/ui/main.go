@@ -32,7 +32,7 @@ var assets embed.FS
 // The `all:` prefix is required so _index.json is included — //go:embed
 // silently drops files whose names start with "_" or "." otherwise.
 //
-//go:embed all:frontend/src/i18n/locales
+//go:embed all:i18n/locales
 var localesRoot embed.FS
 
 // stringList is a flag.Value that collects repeated string flags. The first
@@ -137,7 +137,7 @@ func main() {
 	// so the bundle sees _index.json and <lang>/common.json at the top
 	// level (the //go:embed path is rooted at the package, not the leaf
 	// dir).
-	localesFS, err := fs.Sub(localesRoot, "frontend/src/i18n/locales")
+	localesFS, err := fs.Sub(localesRoot, "i18n/locales")
 	if err != nil {
 		log.Fatalf("locate locales fs: %v", err)
 	}
