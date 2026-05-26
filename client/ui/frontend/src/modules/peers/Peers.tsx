@@ -36,13 +36,21 @@ export const Peers = () => {
 
     const filtered = useMemo(() => {
         const q = search.trim().toLowerCase();
-        return peers.filter((p) => {
+        const matches = peers.filter((p) => {
             if (statusFilter === "online" && !isOnline(p.connStatus)) return false;
             if (statusFilter === "offline" && isOnline(p.connStatus)) return false;
             if (q && !p.fqdn.toLowerCase().includes(q) && !p.ip.includes(q)) {
                 return false;
             }
             return true;
+        });
+        return matches.sort((a, b) => {
+            const aOnline = isOnline(a.connStatus);
+            const bOnline = isOnline(b.connStatus);
+            if (aOnline !== bOnline) return aOnline ? -1 : 1;
+            const aName = (a.fqdn || a.ip).toLowerCase();
+            const bName = (b.fqdn || b.ip).toLowerCase();
+            return aName.localeCompare(bName);
         });
     }, [peers, search, statusFilter]);
 
