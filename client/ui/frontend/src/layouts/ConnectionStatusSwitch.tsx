@@ -328,7 +328,7 @@ export const ConnectionStatusSwitch = () => {
                     message={fqdn}
                     className={cn(
                         "min-h-[1em] transition-opacity duration-300",
-                        "relative left-2.5",
+                        "relative left-[0.55rem]",
                         showLocal && fqdn ? "opacity-100" : "opacity-0 pointer-events-none",
                     )}
                 >
@@ -340,7 +340,7 @@ export const ConnectionStatusSwitch = () => {
                     message={ip}
                     className={cn(
                         "min-h-[1em] transition-opacity duration-300 ",
-                        "relative left-2.5",
+                        "relative left-[0.55rem]",
                         showLocal && ip ? "opacity-100" : "opacity-0 pointer-events-none",
                     )}
                 >
