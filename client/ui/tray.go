@@ -454,15 +454,6 @@ func (t *Tray) buildMenu() *application.Menu {
 	return menu
 }
 
-func (t *Tray) openRoute(route string) {
-	if t.window == nil {
-		return
-	}
-	t.window.Show()
-	t.window.Focus()
-	t.window.SetURL("/#" + route)
-}
-
 func (t *Tray) handleConnect() {
 	// NeedsLogin/SessionExpired/LoginFailed mean the daemon won't honor a
 	// plain Up RPC ("up already in progress: current status NeedsLogin") —

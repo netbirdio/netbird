@@ -8,20 +8,12 @@ import _ "embed"
 // paints the HBITMAP into the check-mark slot, sized to SM_CXMENUCHECK /
 // SM_CYMENUCHECK (typically 16x16 at 100% DPI). Larger bitmaps overflow
 // the row visually, so Windows ships its own scaled set instead of the
-// 24x24 assets used on macOS/Linux. Regenerate the brand mark from
-// assets/svg/netbird-menu.svg (vector source — re-rendering keeps the
-// strokes crisp at every target size):
-//   inkscape assets/svg/netbird-menu.svg -o netbird-menu-16.png -w 16 -h 16 \
-//     --export-background-opacity=0
-// The status dots are downscaled from the 24x24 originals with
-// ImageMagick — simple solid-fill circles survive the bicubic resize
-// without visible quality loss:
+// 24x24 assets used on macOS/Linux. The status dots are downscaled from
+// the 24x24 originals with ImageMagick — simple solid-fill circles
+// survive the bicubic resize without visible quality loss:
 //   magick netbird-menu-dot-<state>.png -resize 16x16 \
 //     -background none -gravity center -extent 16x16 \
 //     netbird-menu-dot-<state>-16.png
-
-//go:embed assets/netbird-menu-16.png
-var iconMenuNetbird []byte
 
 //go:embed assets/netbird-menu-dot-connected-16.png
 var iconMenuDotConnected []byte

@@ -9,17 +9,8 @@ import _ "embed"
 // cleanly next to the row text across the GNOME / KDE / minimal-WM
 // flavours we ship to. Windows ships a 16x16 variant (Win32
 // SM_CXMENUCHECK slot) and macOS a 22x22 variant — see the sibling
-// icons_menu_*.go files.
-//
-// Regenerate the brand mark from assets/svg/netbird-menu.svg (vector
-// source — re-rendering keeps the strokes crisp at every target size):
-//   inkscape assets/svg/netbird-menu.svg -o netbird-menu-24.png -w 24 -h 24 \
-//     --export-background-opacity=0
-// Status dots are the canonical 24x24 originals used everywhere else
-// in the legacy Fyne tray.
-
-//go:embed assets/netbird-menu-24.png
-var iconMenuNetbird []byte
+// icons_menu_*.go files. Status dots are the canonical 24x24 originals
+// used everywhere else in the legacy Fyne tray.
 
 //go:embed assets/netbird-menu-dot-connected.png
 var iconMenuDotConnected []byte

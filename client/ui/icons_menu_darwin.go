@@ -9,17 +9,6 @@ import _ "embed"
 // weight of the surrounding row text. Windows ships a 16x16 variant
 // (Win32 SM_CXMENUCHECK slot) and Linux a 24x24 variant (GTK menu row
 // supports the larger range) — see the sibling icons_menu_*.go files.
-//
-// iconMenuNetbird on macOS is an 18x18 downscale of the 256x256 brand
-// PNG (assets/netbird.png — the same file the legacy Fyne client used
-// for its About row). Sized to sit visually alongside the row text —
-// the full 256x256 source stretched the row vertically, 22x22 read
-// noticeably larger than the surrounding "A" of "About", and 14x14
-// shrank below the cap height. 18 keeps the brand mark legible without
-// dominating the row.
-
-//go:embed assets/netbird-menu-about-18.png
-var iconMenuNetbird []byte
 
 //go:embed assets/netbird-menu-dot-connected-22.png
 var iconMenuDotConnected []byte
