@@ -32,3 +32,6 @@ updates:
       testcontainers:
         patterns:
           - "github.com/testcontainers/testcontainers-go/*"
+      wireguard:
+        patterns:
+          - "golang.zx2c4.com/wireguard*"
