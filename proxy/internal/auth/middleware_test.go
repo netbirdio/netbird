@@ -1227,3 +1227,93 @@ func TestProtect_NonOIDCSchemes_PlainHTTP_NotBlocked(t *testing.T) {
 
 	assert.Equal(t, http.StatusUnauthorized, rec.Code, "PIN-only domain should serve the login page on plain HTTP")
 }
+
+// stubTunnelValidator records ValidateTunnelPeer calls so a test can
+// assert whether the fast-path reached management.
+type stubTunnelValidator struct {
+	called bool
+	resp   *proto.ValidateTunnelPeerResponse
+}
+
+func (s *stubTunnelValidator) ValidateSession(context.Context, *proto.ValidateSessionRequest, ...grpc.CallOption) (*proto.ValidateSessionResponse, error) {
+	return nil, errors.New("not used in this test")
+}
+
+func (s *stubTunnelValidator) ValidateTunnelPeer(context.Context, *proto.ValidateTunnelPeerRequest, ...grpc.CallOption) (*proto.ValidateTunnelPeerResponse, error) {
+	s.called = true
+	return s.resp, nil
+}
+
+// TestProtect_TunnelPeerFastPath_RequiresInboundMarker guards the
+// anti-spoof gate: a request with an RFC1918 source IP arriving on the
+// public listener (no TunnelLookupFromContext attached) must not be
+// allowed to take the tunnel-peer fast-path. Without this gate a public
+// client whose source IP happens to fall inside an RFC1918 range could
+// bypass the configured auth scheme by colliding with a known tunnel
+// IP.
+func TestProtect_TunnelPeerFastPath_RequiresInboundMarker(t *testing.T) {
+	validator := &stubTunnelValidator{
+		resp: &proto.ValidateTunnelPeerResponse{
+			Valid:        true,
+			SessionToken: "should-not-be-used",
+			UserId:       "user-1",
+		},
+	}
+	mw := NewMiddleware(log.StandardLogger(), validator, nil)
+	kp := generateTestKeyPair(t)
+
+	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, false))
+
+	handler := mw.Protect(newPassthroughHandler())
+
+	// Request from an RFC1918 source IP on the public listener — no
+	// TunnelLookupFromContext attached. The fast-path must reject this
+	// and fall through to the PIN scheme (which renders 401 on plain
+	// HTTP for a non-authenticated request).
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req.RemoteAddr = "100.64.0.5:5000"
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.False(t, validator.called,
+		"ValidateTunnelPeer must not be invoked when the request lacks the inbound TunnelLookup marker")
+	assert.Equal(t, http.StatusUnauthorized, rec.Code,
+		"without the inbound marker the request must fall through to the operator auth scheme")
+}
+
+// TestProtect_TunnelPeerFastPath_TakesPathWithInboundMarker verifies
+// the positive side: a request marked as overlay-origin (carrying the
+// TunnelLookup context value) and matching a tunnel-IP range does take
+// the fast-path and reach management.
+func TestProtect_TunnelPeerFastPath_TakesPathWithInboundMarker(t *testing.T) {
+	validator := &stubTunnelValidator{
+		resp: &proto.ValidateTunnelPeerResponse{
+			Valid:        true,
+			SessionToken: "tunnel-session-token",
+			UserId:       "user-1",
+		},
+	}
+	mw := NewMiddleware(log.StandardLogger(), validator, nil)
+	kp := generateTestKeyPair(t)
+
+	scheme := &stubScheme{method: auth.MethodPIN, promptID: "pin"}
+	require.NoError(t, mw.AddDomain("example.com", []Scheme{scheme}, kp.PublicKey, time.Hour, "", "", nil, false))
+
+	handler := mw.Protect(newPassthroughHandler())
+
+	lookup := TunnelLookupFunc(func(_ netip.Addr) (PeerIdentity, bool) {
+		return PeerIdentity{}, true
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req.RemoteAddr = "100.64.0.5:5000"
+	req = req.WithContext(WithTunnelLookup(req.Context(), lookup))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.True(t, validator.called,
+		"ValidateTunnelPeer must run when the request carries the inbound TunnelLookup marker")
+	assert.Equal(t, http.StatusOK, rec.Code,
+		"a successful tunnel-peer validation must forward to the next handler")
+}
