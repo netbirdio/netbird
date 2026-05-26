@@ -3,7 +3,7 @@
     "tray.status.disconnected": "Getrennt",
     "tray.status.daemonUnavailable": "Nicht aktiv",
     "tray.status.error": "Fehler",
-    "tray.session.expiresIn": "Sitzung: {remaining}",
+    "tray.session.expiresIn": "Läuft ab in {remaining}",
 
     "tray.menu.open": "NetBird öffnen",
     "tray.menu.connect": "Verbinden",
