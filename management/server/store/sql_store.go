@@ -4946,10 +4946,6 @@ func (s *SqlStore) GetEmbeddedProxyPeerIDsByCluster(ctx context.Context, account
 		return nil, status.Errorf(status.Internal, "failed to get embedded proxy peers: %s", result.Error)
 	}
 
-	if len(rows) == 0 {
-		return nil, nil
-	}
-
 	out := make(map[string][]string, len(rows))
 	for _, r := range rows {
 		out[r.Cluster] = append(out[r.Cluster], r.ID)
