@@ -69,8 +69,8 @@
     "nav.peers.description": "{online} of {total} Online",
     "nav.resources.title": "Resources",
     "nav.resources.description": "{active} of {total} Active",
-    "nav.exitNode.title": "Exit Node {location}",
-    "nav.exitNode.flagAlt": "{country}",
+    "nav.exitNode.title": "Exit Node",
+    "nav.exitNode.none": "{total} available",
 
     "header.openSettings": "Open settings",
     "header.togglePanel": "Toggle side panel",
@@ -312,6 +312,19 @@
     "peers.filter.online": "Online",
     "peers.filter.offline": "Offline",
     "peers.empty": "No peers match the current filters.",
+
+    "networks.search.placeholder": "Search by network, range or domain",
+    "networks.filter.all": "All",
+    "networks.filter.selected": "Selected",
+    "networks.filter.overlapping": "Overlapping",
+    "networks.empty": "No networks match the current filters.",
+    "networks.selected": "Selected",
+    "networks.unselected": "Not selected",
+
+    "exitNodes.search.placeholder": "Search exit nodes",
+    "exitNodes.empty": "No exit nodes available.",
+    "exitNodes.active": "Active",
+    "exitNodes.inactive": "Inactive",
 
     "quickActions.connect": "Connect",
     "quickActions.disconnect": "Disconnect",

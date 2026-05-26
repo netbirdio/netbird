@@ -69,8 +69,8 @@
     "nav.peers.description": "{online} / {total} online",
     "nav.resources.title": "Erőforrások",
     "nav.resources.description": "{active} / {total} aktív",
-    "nav.exitNode.title": "Kilépő csomópont: {location}",
-    "nav.exitNode.flagAlt": "{country}",
+    "nav.exitNode.title": "Kilépő csomópont",
+    "nav.exitNode.none": "{total} elérhető",
 
     "header.openSettings": "Beállítások megnyitása",
     "header.togglePanel": "Oldalsó panel váltása",
@@ -296,6 +296,19 @@
     "peers.filter.online": "Online",
     "peers.filter.offline": "Offline",
     "peers.empty": "Egyetlen társ sem felel meg a jelenlegi szűrőknek.",
+
+    "networks.search.placeholder": "Keresés hálózat, tartomány vagy domain alapján",
+    "networks.filter.all": "Összes",
+    "networks.filter.selected": "Kiválasztott",
+    "networks.filter.overlapping": "Átfedő",
+    "networks.empty": "Egyetlen hálózat sem felel meg a jelenlegi szűrőknek.",
+    "networks.selected": "Kiválasztva",
+    "networks.unselected": "Nincs kiválasztva",
+
+    "exitNodes.search.placeholder": "Keresés a kilépő csomópontok között",
+    "exitNodes.empty": "Nincs elérhető kilépő csomópont.",
+    "exitNodes.active": "Aktív",
+    "exitNodes.inactive": "Inaktív",
 
     "quickActions.connect": "Csatlakozás",
     "quickActions.disconnect": "Bontás",
