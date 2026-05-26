@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Install Go
         uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
@@ -51,6 +53,7 @@ jobs:
           $dest = "${env:downloadPath}\wintun.zip"
           $expected = "07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51"
 
+          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dest) | Out-Null
           curl.exe --fail --location --retry 3 --retry-delay 2 -o $dest $url
           $actual = (Get-FileHash $dest -Algorithm SHA256).Hash.ToLower()
           if ($actual -ne $expected) {

@@ -16,6 +16,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
       - uses: git-town/action@670e1f4feb81fdef4226fc09deefe09018eb20d1 # v1.3.3
         with:
           skip-single-stacks: true

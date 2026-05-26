@@ -25,6 +25,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Generate FreeBSD port diff
         run: bash release_files/freebsd-port-diff.sh
@@ -135,6 +137,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0 # It is required for GoReleaser to work properly
+          persist-credentials: false
 
       - name: Parse semver string
         id: semver_parser
@@ -323,6 +326,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0 # It is required for GoReleaser to work properly
+          persist-credentials: false
 
       - name: Parse semver string
         id: semver_parser
@@ -424,6 +428,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0 # It is required for GoReleaser to work properly
+          persist-credentials: false
       - name: Set up Go
         uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
         with:
@@ -479,6 +484,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Parse semver string
         id: semver_parser
@@ -520,6 +527,7 @@ jobs:
           $url = "https://pkgs.netbird.io/wintun/wintun-0.14.1.zip"
           $dest = "${env:downloadPath}\wintun.zip"
           $expected = "07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51"
+          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dest) | Out-Null
           curl.exe --fail --location --retry 3 --retry-delay 2 -o $dest $url
           $actual = (Get-FileHash $dest -Algorithm SHA256).Hash.ToLower()
           if ($actual -ne $expected) {
@@ -541,6 +549,7 @@ jobs:
           $url = "https://downloads.fdossena.com/Projects/Mesa3D/Builds/MesaForWindows-x64-20.1.8.7z"
           $dest = "${env:downloadPath}\mesa3d.7z"
           $expected = "71c7cb64ec229a1d6b8d62fa08e1889ed2bd17c0eeede8689daf0f25cb31d6b9"
+          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dest) | Out-Null
           curl.exe --fail --location --retry 3 --retry-delay 2 -o $dest $url
           $actual = (Get-FileHash $dest -Algorithm SHA256).Hash.ToLower()
           if ($actual -ne $expected) {
