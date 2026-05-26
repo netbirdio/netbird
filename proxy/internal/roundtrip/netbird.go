@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -76,11 +77,29 @@ type clientEntry struct {
 	services          map[ServiceKey]serviceInfo
 	createdAt         time.Time
 	started           bool
+	// inbound is opaque per-account state owned by the NetBird parent's
+	// ReadyHandler. The roundtrip package never inspects this value; it
+	// only stores it so RemovePeer / StopAll can hand it back to the
+	// matching StopHandler. Nil when no inbound integration is active.
+	inbound any
 	// Per-backend in-flight limiting keyed by target host:port.
 	// TODO: clean up stale entries when backend targets change.
 	inflightMu  sync.Mutex
 	inflightMap map[backendKey]chan struct{}
 	maxInflight int
+}
+
+// IdentityForIP resolves a tunnel IP to the peer identity locally known by
+// this account's embedded client. Returns (pubKey, fqdn) on success.
+// ok=false means the IP is not in the account's roster — callers can use
+// that as a fast deny without round-tripping management. The returned
+// strings carry only what the embedded peerstore exposes; user identity
+// (UserID / Email / Groups) still flows through ValidateTunnelPeer.
+func (e *clientEntry) IdentityForIP(ip netip.Addr) (pubKey, fqdn string, ok bool) {
+	if e == nil || e.client == nil || !ip.IsValid() {
+		return "", "", false
+	}
+	return e.client.IdentityForIP(ip)
 }
 
 // acquireInflight attempts to acquire an in-flight slot for the given backend.
@@ -112,6 +131,13 @@ type ClientConfig struct {
 	MgmtAddr     string
 	WGPort       uint16
 	PreSharedKey string
+	Performance  embed.Performance
+	// BlockInbound mirrors embed.Options.BlockInbound. Set to true on the
+	// standalone proxy where the embedded client never accepts inbound;
+	// set to false on the private/embedded proxy so the engine creates
+	// the ACL manager and applies management's per-policy firewall rules
+	// (which is what gates per-account inbound listeners on the netstack).
+	BlockInbound bool
 }
 
 type statusNotifier interface {
@@ -137,6 +163,19 @@ type NetBird struct {
 	clients        map[types.AccountID]*clientEntry
 	initLogOnce    sync.Once
 	statusNotifier statusNotifier
+	// readyHandler runs after the embedded client for an account reports
+	// Ready. The opaque return value is stored on clientEntry and handed
+	// back to stopHandler when the entry is torn down. Nil disables the
+	// hook entirely (default for the standalone proxy).
+	readyHandler func(ctx context.Context, accountID types.AccountID, client *embed.Client) any
+	// stopHandler runs when an account's last service is removed (or the
+	// transport is shutting down). Receives whatever readyHandler returned.
+	stopHandler func(accountID types.AccountID, state any)
+
+	// OnAddPeer, when set, is called after AddPeer completes for a new account
+	// (i.e. when a new client was actually created, not when an existing one
+	// was reused). The duration covers keygen + gRPC CreateProxyPeer + embed.New.
+	OnAddPeer func(d time.Duration, err error)
 }
 
 // ClientDebugInfo contains debug information about a client.
@@ -184,7 +223,11 @@ func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, key Se
 		return nil
 	}
 
+	createStart := time.Now()
 	entry, err := n.createClientEntry(ctx, accountID, key, authToken, si)
+	if n.OnAddPeer != nil {
+		n.OnAddPeer(time.Since(createStart), err)
+	}
 	if err != nil {
 		n.clientsMux.Unlock()
 		return err
@@ -264,9 +307,16 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 		ManagementURL: n.clientCfg.MgmtAddr,
 		PrivateKey:    privateKey.String(),
 		LogLevel:      log.WarnLevel.String(),
-		BlockInbound:  true,
-		WireguardPort: &wgPort,
-		PreSharedKey:  n.clientCfg.PreSharedKey,
+		BlockInbound:   n.clientCfg.BlockInbound,
+		// The embedded proxy peer must never be a stepping stone into
+		// the proxy host's LAN: it only exists to reach NetBird mesh
+		// targets or, when direct_upstream is set, the host network
+		// stack via the MultiTransport's direct branch (which bypasses
+		// the engine routing entirely).
+		BlockLANAccess: true,
+		WireguardPort:  &wgPort,
+		PreSharedKey:   n.clientCfg.PreSharedKey,
+		Performance:    n.clientCfg.Performance,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create netbird client: %w", err)
@@ -331,7 +381,24 @@ func (n *NetBird) runClientStartup(ctx context.Context, accountID types.AccountI
 			toNotify = append(toNotify, serviceNotification{key: key, serviceID: info.serviceID})
 		}
 	}
+	readyHandler := n.readyHandler
 	n.clientsMux.Unlock()
+
+	if readyHandler != nil {
+		state := readyHandler(ctx, accountID, client)
+		n.clientsMux.Lock()
+		if e, ok := n.clients[accountID]; ok {
+			e.inbound = state
+		} else if state != nil && n.stopHandler != nil {
+			// Account was removed while readyHandler ran; tear down the
+			// resources it just brought up.
+			stop := n.stopHandler
+			n.clientsMux.Unlock()
+			stop(accountID, state)
+			n.clientsMux.Lock()
+		}
+		n.clientsMux.Unlock()
+	}
 
 	if n.statusNotifier == nil {
 		return
@@ -378,11 +445,15 @@ func (n *NetBird) RemovePeer(ctx context.Context, accountID types.AccountID, key
 	stopClient := len(entry.services) == 0
 	var client *embed.Client
 	var transport, insecureTransport *http.Transport
+	var inbound any
+	var stopHandler func(types.AccountID, any)
 	if stopClient {
 		n.logger.WithField("account_id", accountID).Info("stopping client, no more services")
 		client = entry.client
 		transport = entry.transport
 		insecureTransport = entry.insecureTransport
+		inbound = entry.inbound
+		stopHandler = n.stopHandler
 		delete(n.clients, accountID)
 	} else {
 		n.logger.WithFields(log.Fields{
@@ -396,6 +467,9 @@ func (n *NetBird) RemovePeer(ctx context.Context, accountID types.AccountID, key
 	n.notifyDisconnect(ctx, accountID, key, si.serviceID)
 
 	if stopClient {
+		if inbound != nil && stopHandler != nil {
+			stopHandler(accountID, inbound)
+		}
 		transport.CloseIdleConnections()
 		insecureTransport.CloseIdleConnections()
 		if err := client.Stop(ctx); err != nil {
@@ -482,8 +556,12 @@ func (n *NetBird) StopAll(ctx context.Context) error {
 	n.clientsMux.Lock()
 	defer n.clientsMux.Unlock()
 
+	stopHandler := n.stopHandler
 	var merr *multierror.Error
 	for accountID, entry := range n.clients {
+		if entry.inbound != nil && stopHandler != nil {
+			stopHandler(accountID, entry.inbound)
+		}
 		entry.transport.CloseIdleConnections()
 		entry.insecureTransport.CloseIdleConnections()
 		if err := entry.client.Stop(ctx); err != nil {
@@ -534,6 +612,19 @@ func (n *NetBird) GetClient(accountID types.AccountID) (*embed.Client, bool) {
 		return nil, false
 	}
 	return entry.client, true
+}
+
+// IdentityForIP resolves a tunnel IP to a peer identity local to the given
+// account. Delegates to clientEntry.IdentityForIP. Returns ok=false when
+// the account has no client or the IP is not in its peerstore.
+func (n *NetBird) IdentityForIP(accountID types.AccountID, ip netip.Addr) (pubKey, fqdn string, ok bool) {
+	n.clientsMux.RLock()
+	entry, exists := n.clients[accountID]
+	n.clientsMux.RUnlock()
+	if !exists {
+		return "", "", false
+	}
+	return entry.IdentityForIP(ip)
 }
 
 // ListClientsForDebug returns information about all clients for debug purposes.
@@ -591,6 +682,18 @@ func NewNetBird(proxyID, proxyAddr string, clientCfg ClientConfig, logger *log.L
 	}
 }
 
+// SetClientLifecycle registers callbacks that run when an embedded
+// client becomes ready and when its entry is torn down. The opaque value
+// returned by ready is stored on the entry and handed back to stop on
+// cleanup. Must be called before AddPeer. A nil pair leaves the
+// outbound-only behaviour intact.
+func (n *NetBird) SetClientLifecycle(ready func(ctx context.Context, accountID types.AccountID, client *embed.Client) any, stop func(accountID types.AccountID, state any)) {
+	n.clientsMux.Lock()
+	defer n.clientsMux.Unlock()
+	n.readyHandler = ready
+	n.stopHandler = stop
+}
+
 // dialWithTimeout wraps a DialContext function so that any dial timeout
 // stored in the context (via types.WithDialTimeout) is applied only to
 // the connection establishment phase, not the full request lifetime.
@@ -631,5 +734,24 @@ func WithSkipTLSVerify(ctx context.Context) context.Context {
 
 func skipTLSVerifyFromContext(ctx context.Context) bool {
 	v, _ := ctx.Value(skipTLSVerifyContextKey{}).(bool)
+	return v
+}
+
+// directUpstreamContextKey signals that the request should bypass the embedded
+// NetBird WireGuard client and dial via the host's network stack instead.
+// Set by the reverse-proxy rewrite step when the matched target carries
+// PathTarget.DirectUpstream; consumed by MultiTransport.
+type directUpstreamContextKey struct{}
+
+// WithDirectUpstream marks the context so MultiTransport routes the request
+// through its stdlib transport instead of the embedded NetBird roundtripper.
+func WithDirectUpstream(ctx context.Context) context.Context {
+	return context.WithValue(ctx, directUpstreamContextKey{}, true)
+}
+
+// DirectUpstreamFromContext reports whether the context has been marked to
+// bypass the embedded NetBird client.
+func DirectUpstreamFromContext(ctx context.Context) bool {
+	v, _ := ctx.Value(directUpstreamContextKey{}).(bool)
 	return v
 }

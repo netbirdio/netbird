@@ -102,7 +102,7 @@ func generateSessionKeyPair(t *testing.T) (string, string) {
 
 func createSessionToken(t *testing.T, privKeyB64, userID, domain string) string {
 	t.Helper()
-	token, err := sessionkey.SignToken(privKeyB64, userID, domain, auth.MethodOIDC, time.Hour)
+	token, err := sessionkey.SignToken(privKeyB64, userID, domain, auth.MethodOIDC, nil, time.Hour)
 	require.NoError(t, err)
 	return token
 }
@@ -125,6 +125,7 @@ func TestValidateSession_UserAllowed(t *testing.T) {
 	assert.True(t, resp.Valid, "User should be allowed access")
 	assert.Equal(t, "allowedUserId", resp.UserId)
 	assert.Empty(t, resp.DeniedReason)
+	assert.Equal(t, []string{"allowedGroupId"}, resp.GetPeerGroupIds(), "PeerGroupIds must mirror the resolved user's group memberships")
 }
 
 func TestValidateSession_UserNotInAllowedGroup(t *testing.T) {
@@ -145,6 +146,7 @@ func TestValidateSession_UserNotInAllowedGroup(t *testing.T) {
 	assert.False(t, resp.Valid, "User not in group should be denied")
 	assert.Equal(t, "not_in_group", resp.DeniedReason)
 	assert.Equal(t, "nonGroupUserId", resp.UserId)
+	assert.Empty(t, resp.GetPeerGroupIds(), "PeerGroupIds must mirror the resolved user's actual (empty) memberships on denial")
 }
 
 func TestValidateSession_UserInDifferentAccount(t *testing.T) {
@@ -322,7 +324,7 @@ func (m *testValidateSessionServiceManager) GetServiceByDomain(ctx context.Conte
 	return m.store.GetServiceByDomain(ctx, domain)
 }
 
-func (m *testValidateSessionServiceManager) GetActiveClusters(_ context.Context, _, _ string) ([]proxy.Cluster, error) {
+func (m *testValidateSessionServiceManager) GetClusters(_ context.Context, _, _ string) ([]proxy.Cluster, error) {
 	return nil, nil
 }
 

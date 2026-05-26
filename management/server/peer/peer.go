@@ -86,7 +86,7 @@ type PeerStatus struct { //nolint:revive
 	// active session". Integer nanoseconds are used so equality is
 	// precision-safe across drivers, and so the predicates compose to a
 	// single bigint comparison.
-	SessionStartedAt int64
+	SessionStartedAt int64 `gorm:"not null;default:0"`
 	// Connected indicates whether peer is connected to the management service or not
 	Connected bool
 	// LoginExpired
