@@ -646,46 +646,46 @@ func Test_ExpandPortsAndRanges_SSHRuleExpansion(t *testing.T) {
 			expectedPorts: []string{"20-25", "10-100", "22022"},
 		},
 		{
-			name: "dev suffix version supports all features",
-			peer: &nbpeer.Peer{
-				ID:         "peer1",
-				SSHEnabled: true,
-				Meta: nbpeer.PeerSystemMeta{
-					WtVersion: "0.50.0-dev",
-					Flags:     nbpeer.Flags{ServerSSHAllowed: true},
-				},
-			},
-			rule: &PolicyRule{
-				Protocol: PolicyRuleProtocolTCP,
-				Ports:    []string{"22"},
-			},
-			base:          FirewallRule{PeerIP: "10.0.0.1", Direction: 0, Action: "accept", Protocol: "tcp"},
-			expectedPorts: []string{"22", "22022"},
-		},
-		{
-			name: "dev suffix version supports all features",
-			peer: &nbpeer.Peer{
-				ID:         "peer1",
-				SSHEnabled: true,
-				Meta: nbpeer.PeerSystemMeta{
-					WtVersion: "dev",
-					Flags:     nbpeer.Flags{ServerSSHAllowed: true},
-				},
-			},
-			rule: &PolicyRule{
-				Protocol: PolicyRuleProtocolTCP,
-				Ports:    []string{"22"},
-			},
-			base:          FirewallRule{PeerIP: "10.0.0.1", Direction: 0, Action: "accept", Protocol: "tcp"},
-			expectedPorts: []string{"22", "22022"},
-		},
-		{
-			name: "development suffix version supports all features",
+			name: "development version supports all features",
 			peer: &nbpeer.Peer{
 				ID:         "peer1",
 				SSHEnabled: true,
 				Meta: nbpeer.PeerSystemMeta{
 					WtVersion: "development",
+					Flags:     nbpeer.Flags{ServerSSHAllowed: true},
+				},
+			},
+			rule: &PolicyRule{
+				Protocol: PolicyRuleProtocolTCP,
+				Ports:    []string{"22"},
+			},
+			base:          FirewallRule{PeerIP: "10.0.0.1", Direction: 0, Action: "accept", Protocol: "tcp"},
+			expectedPorts: []string{"22", "22022"},
+		},
+		{
+			name: "development version with commit suffix supports all features",
+			peer: &nbpeer.Peer{
+				ID:         "peer1",
+				SSHEnabled: true,
+				Meta: nbpeer.PeerSystemMeta{
+					WtVersion: "development-0823f3ff9ab1",
+					Flags:     nbpeer.Flags{ServerSSHAllowed: true},
+				},
+			},
+			rule: &PolicyRule{
+				Protocol: PolicyRuleProtocolTCP,
+				Ports:    []string{"22"},
+			},
+			base:          FirewallRule{PeerIP: "10.0.0.1", Direction: 0, Action: "accept", Protocol: "tcp"},
+			expectedPorts: []string{"22", "22022"},
+		},
+		{
+			name: "development version with dirty commit suffix supports all features",
+			peer: &nbpeer.Peer{
+				ID:         "peer1",
+				SSHEnabled: true,
+				Meta: nbpeer.PeerSystemMeta{
+					WtVersion: "development-0823f3ff9ab1-dirty",
 					Flags:     nbpeer.Flags{ServerSSHAllowed: true},
 				},
 			},
