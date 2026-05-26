@@ -528,7 +528,7 @@ jobs:
           $dest = "${env:downloadPath}\wintun.zip"
           $expected = "07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51"
           New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dest) | Out-Null
-          curl.exe --fail --location --retry 3 --retry-delay 2 -o $dest $url
+          Invoke-WebRequest $url -OutFile $dest 
           $actual = (Get-FileHash $dest -Algorithm SHA256).Hash.ToLower()
           if ($actual -ne $expected) {
             throw "wintun.zip checksum mismatch: expected $expected, got $actual"
@@ -550,7 +550,7 @@ jobs:
           $dest = "${env:downloadPath}\mesa3d.7z"
           $expected = "71c7cb64ec229a1d6b8d62fa08e1889ed2bd17c0eeede8689daf0f25cb31d6b9"
           New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dest) | Out-Null
-          curl.exe --fail --location --retry 3 --retry-delay 2 -o $dest $url
+          Invoke-WebRequest $url -OutFile $dest 
           $actual = (Get-FileHash $dest -Algorithm SHA256).Hash.ToLower()
           if ($actual -ne $expected) {
             throw "mesa3d.7z checksum mismatch: expected $expected, got $actual"
@@ -568,9 +568,8 @@ jobs:
       - name: Download EnVar plugin for NSIS
         shell: pwsh
         run: |
-          curl.exe --fail --location --retry 3 --retry-delay 2 `
-            -o "${{ github.workspace }}\envar_plugin.zip" `
-            "https://nsis.sourceforge.io/mediawiki/images/7/7f/EnVar_plugin.zip"
+          Invoke-WebRequest "https://nsis.sourceforge.io/mediawiki/images/7/7f/EnVar_plugin.zip" `
+            -OutFile "${{ github.workspace }}\envar_plugin.zip"
 
       - name: Extract EnVar plugin
         run: 7z x -o"${{ github.workspace }}/NSIS_Plugins" "${{ github.workspace }}/envar_plugin.zip"
@@ -579,9 +578,8 @@ jobs:
         if: matrix.arch == 'amd64'
         shell: pwsh
         run: |
-          curl.exe --fail --location --retry 3 --retry-delay 2 `
-            -o "${{ github.workspace }}\ShellExecAsUser_amd64-Unicode.7z" `
-            "https://nsis.sourceforge.io/mediawiki/images/6/68/ShellExecAsUser_amd64-Unicode.7z"
+          Invoke-WebRequest "https://nsis.sourceforge.io/mediawiki/images/6/68/ShellExecAsUser_amd64-Unicode.7z" `
+            -OutFile "${{ github.workspace }}\ShellExecAsUser_amd64-Unicode.7z"
 
       - name: Extract ShellExecAsUser plugin (amd64 only)
         if: matrix.arch == 'amd64'
