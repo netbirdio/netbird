@@ -437,7 +437,7 @@ func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wg
 				return nil
 			}
 
-			log.WithContext(ctx).Debugf("received an update for peer %s", peerKey.String())
+			log.WithContext(ctx).Tracef("received an update for peer %s", peerKey.String())
 			if debouncer.ProcessUpdate(update) {
 				// Send immediately (first update or after quiet period)
 				if err := s.sendUpdate(ctx, accountID, peerKey, peer, update, srv, streamStartTime); err != nil {
@@ -492,7 +492,7 @@ func (s *Server) sendUpdate(ctx context.Context, accountID string, peerKey wgtyp
 		s.cancelPeerRoutines(ctx, accountID, peer, streamStartTime)
 		return status.Errorf(codes.Internal, "failed sending update message")
 	}
-	log.WithContext(ctx).Debugf("sent an update to peer %s", peerKey.String())
+	log.WithContext(ctx).Tracef("sent an update to peer %s", peerKey.String())
 	return nil
 }
 
