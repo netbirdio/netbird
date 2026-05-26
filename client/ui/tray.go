@@ -62,7 +62,6 @@ const (
 	finalWarningCountdownSeconds = 120
 )
 
-
 // Tray builds and updates the systray menu. It mirrors the layout of the Fyne
 // systray 1:1 and routes clicks back to the gRPC services. Dynamic state
 // (status icon, exit-node submenu) is driven by the netbird:status event.
@@ -168,37 +167,15 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 	t.tray.SetTooltip(t.loc.T("tray.tooltip"))
 	t.menu = t.buildMenu()
 	t.tray.SetMenu(t.menu)
-	// Refresh the "Expires in …" countdown row each time the menu opens
-	// — the daemon's Status pushes are too coarse for a minute-grained
-	// countdown. Wails v3 alpha 95 does not expose a public NSMenu-
-	// needsUpdate hook, so we piggy-back on the click handlers, which
-	// fire just before (macOS / Windows right-click) or alongside (Linux
-	// dbusmenu `opened`) the menu becoming visible.
-	//
-	// Where binding the click handler suppresses the platform's native
-	// auto-show (macOS pre-click returns 0 instead of 1; Windows
-	// rightClickHandler defaults to ShowMenu and is replaced) we have to
-	// call OpenMenu() ourselves to restore the popup. Linux's dbusmenu
-	// host paints the menu independently, so the handler only refreshes
-	// the label. AttachWindow is still skipped — under GNOME Shell with
-	// the AppIndicator extension it pops the window alongside the menu,
-	// which is not the UX we want.
-	refresh := func() { t.refreshSessionExpiresLabel() }
-	refreshAndOpen := func() {
-		t.refreshSessionExpiresLabel()
-		t.tray.OpenMenu()
-	}
-	switch runtime.GOOS {
-	case "darwin":
-		t.tray.OnClick(refreshAndOpen)
-		t.tray.OnRightClick(refreshAndOpen)
-	case "windows":
-		t.tray.OnClick(refresh)
-		t.tray.OnRightClick(refreshAndOpen)
-	default:
-		t.tray.OnClick(refresh)
-		t.tray.OnRightClick(refresh)
-	}
+	// Left-click on the tray icon opens the menu on every platform. The
+	// window is reached through the explicit "Open NetBird" entry. This
+	// matches macOS NSStatusItem convention (click → menu), the Linux
+	// StatusNotifierItem spec, and the legacy Fyne client. On Linux,
+	// AttachWindow plus Wails3's applySmartDefaults would also pop the
+	// window alongside the menu on environments like GNOME Shell with the
+	// AppIndicator extension, so we intentionally skip both AttachWindow
+	// and OnClick here. Right-click still opens the menu through Wails'
+	// default rightClickHandler fallback.
 
 	app.Event.On(services.EventStatus, t.onStatusEvent)
 	app.Event.On(services.EventSystem, t.onSystemEvent)
