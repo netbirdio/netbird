@@ -41,6 +41,7 @@ import (
 	goproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/netbirdio/netbird/client/embed"
 	"github.com/netbirdio/netbird/proxy/internal/accesslog"
 	"github.com/netbirdio/netbird/proxy/internal/acme"
 	"github.com/netbirdio/netbird/proxy/internal/auth"
@@ -185,6 +186,9 @@ type Server struct {
 	// single-account deployments; multiple accounts will fail to bind
 	// the same port.
 	WireguardPort uint16
+	// Performance configures the tunnel pool/batch sizes for every
+	// embedded client this proxy spawns.
+	Performance embed.Performance
 	// ProxyProtocol enables PROXY protocol (v1/v2) on TCP listeners.
 	// When enabled, the real client IP is extracted from the PROXY header
 	// sent by upstream L4 proxies that support PROXY protocol.
@@ -333,6 +337,8 @@ func (s *Server) Start(ctx context.Context) error {
 	s.runCancel = runCancel
 
 	s.initNetBirdClient()
+	// Create health checker before the mapping worker so it can track
+	// management connectivity from the first stream connection.
 	s.healthChecker = health.NewChecker(s.Logger, s.netbird)
 
 	s.crowdsecRegistry = crowdsec.NewRegistry(s.CrowdSecAPIURL, s.CrowdSecAPIKey, log.NewEntry(s.Logger))
@@ -529,6 +535,7 @@ func (s *Server) initNetBirdClient() {
 		MgmtAddr:     s.ManagementAddress,
 		WGPort:       s.WireguardPort,
 		PreSharedKey: s.PreSharedKey,
+		Performance:  s.Performance,
 		// On --private the embedded client serves per-account inbound
 		// listeners and must apply management's ACL: keep BlockInbound off
 		// so the engine creates the ACL manager. On the standalone proxy

@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
+	wgdevice "golang.zx2c4.com/wireguard/device"
 	wgnetstack "golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/netbirdio/netbird/client/iface"
@@ -100,6 +101,26 @@ type Options struct {
 	MTU *uint16
 	// DNSLabels defines additional DNS labels configured in the peer.
 	DNSLabels []string
+	// Performance configures the tunnel's buffer pool cap and batch size.
+	Performance Performance
+}
+
+// Performance configures the embedded client's tunnel memory/throughput knobs.
+//
+// These settings are process-global: any non-nil field also becomes the
+// default for Clients constructed by later embed.New calls in the same
+// process. Nil fields are ignored.
+type Performance struct {
+	// PreallocatedBuffersPerPool caps the per-tunnel buffer pool. Zero
+	// leaves the pool unbounded. Lower values trade throughput for a
+	// tighter memory ceiling. May also be changed on a running Client via
+	// Client.SetPerformance, provided this field was nonzero at construction.
+	PreallocatedBuffersPerPool *uint32
+	// MaxBatchSize overrides the number of packets the tunnel reads or
+	// writes per syscall, which also bounds eager buffer allocation per
+	// worker. Zero uses the platform default. Applied at construction
+	// only; ignored by Client.SetPerformance.
+	MaxBatchSize *uint32
 }
 
 // validateCredentials checks that exactly one credential type is provided
@@ -197,6 +218,13 @@ func New(opts Options) (*Client, error) {
 
 	if opts.PrivateKey != "" {
 		config.PrivateKey = opts.PrivateKey
+	}
+
+	if opts.Performance.PreallocatedBuffersPerPool != nil {
+		wgdevice.SetPreallocatedBuffersPerPool(*opts.Performance.PreallocatedBuffersPerPool)
+	}
+	if opts.Performance.MaxBatchSize != nil {
+		wgdevice.SetMaxBatchSizeOverride(*opts.Performance.MaxBatchSize)
 	}
 
 	return &Client{
@@ -493,6 +521,25 @@ func (c *Client) VerifySSHHostKey(peerAddress string, key []byte) error {
 	}
 
 	return sshcommon.VerifyHostKey(storedKey, key, peerAddress)
+}
+
+// SetPerformance retunes a running Client. Only PreallocatedBuffersPerPool
+// takes effect, and only when it was nonzero at construction;
+// MaxBatchSize is construction-only and returns an error if set here.
+//
+// Returns ErrClientNotStarted / ErrEngineNotStarted if the Client is not
+// running yet.
+func (c *Client) SetPerformance(t Performance) error {
+	if t.MaxBatchSize != nil {
+		return errors.New("MaxBatchSize is construction-only and cannot be changed at runtime")
+	}
+	engine, err := c.getEngine()
+	if err != nil {
+		return err
+	}
+	return engine.SetPerformance(internal.Performance{
+		PreallocatedBuffersPerPool: t.PreallocatedBuffersPerPool,
+	})
 }
 
 // StartCapture begins capturing packets on this client's tunnel device.

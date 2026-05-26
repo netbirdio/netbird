@@ -6,6 +6,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/embed"
 	"github.com/netbirdio/netbird/proxy/internal/acme"
 )
 
@@ -89,6 +90,10 @@ type Config struct {
 	// PreSharedKey is the WireGuard pre-shared key used between the
 	// proxy's embedded clients and peers.
 	PreSharedKey string
+	// Performance configures the tunnel pool/batch sizes for every
+	// embedded client this proxy creates. Zero values fall back to
+	// upstream defaults.
+	Performance embed.Performance
 
 	// SupportsCustomPorts indicates whether the proxy can bind arbitrary
 	// ports for TCP/UDP/TLS services.
@@ -148,6 +153,7 @@ func New(cfg Config) *Server {
 		WireguardPort:            cfg.WireguardPort,
 		ProxyProtocol:            cfg.ProxyProtocol,
 		PreSharedKey:             cfg.PreSharedKey,
+		Performance:              cfg.Performance,
 		SupportsCustomPorts:      cfg.SupportsCustomPorts,
 		RequireSubdomain:         cfg.RequireSubdomain,
 		Private:                  cfg.Private,

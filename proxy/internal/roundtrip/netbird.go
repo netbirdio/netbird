@@ -131,6 +131,7 @@ type ClientConfig struct {
 	MgmtAddr     string
 	WGPort       uint16
 	PreSharedKey string
+	Performance  embed.Performance
 	// BlockInbound mirrors embed.Options.BlockInbound. Set to true on the
 	// standalone proxy where the embedded client never accepts inbound;
 	// set to false on the private/embedded proxy so the engine creates
@@ -306,7 +307,7 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 		ManagementURL: n.clientCfg.MgmtAddr,
 		PrivateKey:    privateKey.String(),
 		LogLevel:      log.WarnLevel.String(),
-		BlockInbound:  n.clientCfg.BlockInbound,
+		BlockInbound:   n.clientCfg.BlockInbound,
 		// The embedded proxy peer must never be a stepping stone into
 		// the proxy host's LAN: it only exists to reach NetBird mesh
 		// targets or, when direct_upstream is set, the host network
@@ -315,6 +316,7 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 		BlockLANAccess: true,
 		WireguardPort:  &wgPort,
 		PreSharedKey:   n.clientCfg.PreSharedKey,
+		Performance:    n.clientCfg.Performance,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create netbird client: %w", err)

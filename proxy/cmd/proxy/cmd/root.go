@@ -15,9 +15,20 @@ import (
 
 	"github.com/netbirdio/netbird/shared/management/domain"
 
+	"github.com/netbirdio/netbird/client/embed"
 	"github.com/netbirdio/netbird/proxy"
 	nbacme "github.com/netbirdio/netbird/proxy/internal/acme"
 	"github.com/netbirdio/netbird/util"
+)
+
+const (
+	// envPreallocatedBuffers caps the per-tunnel buffer pool. Zero (unset)
+	// keeps the upstream uncapped default.
+	envPreallocatedBuffers = "NB_PROXY_PREALLOCATED_BUFFERS"
+	// envMaxBatchSize overrides the per-tunnel batch size, which controls
+	// how many buffers each receive/TUN worker eagerly allocates. Zero
+	// (unset) keeps the platform default.
+	envMaxBatchSize = "NB_PROXY_MAX_BATCH_SIZE"
 )
 
 const DefaultManagementURL = "https://api.netbird.io:443"
@@ -148,6 +159,45 @@ func runServer(cmd *cobra.Command, args []string) error {
 
 	logger.Infof("configured log level: %s", level)
 
+	var wgPool, wgBatch uint64
+	var perf embed.Performance
+	if raw := os.Getenv(envPreallocatedBuffers); raw != "" {
+		n, err := strconv.ParseUint(raw, 10, 32)
+		if err != nil {
+			return fmt.Errorf("invalid %s %q: %w", envPreallocatedBuffers, raw, err)
+		}
+		wgPool = n
+		v := uint32(n)
+		perf.PreallocatedBuffersPerPool = &v
+		logger.Infof("tunnel preallocated buffers per pool: %d", n)
+	}
+	if raw := os.Getenv(envMaxBatchSize); raw != "" {
+		n, err := strconv.ParseUint(raw, 10, 32)
+		if err != nil {
+			return fmt.Errorf("invalid %s %q: %w", envMaxBatchSize, raw, err)
+		}
+		wgBatch = n
+		v := uint32(n)
+		perf.MaxBatchSize = &v
+		logger.Infof("tunnel max batch size override: %d", n)
+	}
+	if wgPool > 0 {
+		// Each bind recv goroutine (IPv4 + IPv6 + ICE relay) plus
+		// RoutineReadFromTUN eagerly reserves `batch` message buffers for
+		// the lifetime of the Device. A pool cap below that floor blocks
+		// the receive pipeline at startup.
+		batch := wgBatch
+		if batch == 0 {
+			batch = 128
+		}
+		const recvGoroutines = 4
+		floor := batch * recvGoroutines
+		if wgPool < floor {
+			logger.Warnf("%s=%d is below the eager-allocation floor (~%d for batch=%d); startup may deadlock",
+				envPreallocatedBuffers, wgPool, floor, batch)
+		}
+	}
+
 	switch forwardedProto {
 	case "auto", "http", "https":
 	default:
@@ -188,6 +238,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 		CertLockMethod:           nbacme.CertLockMethod(certLockMethod),
 		WildcardCertDir:          wildcardCertDir,
 		WireguardPort:            wgPort,
+		Performance:              perf,
 		ProxyProtocol:            proxyProtocol,
 		PreSharedKey:             preSharedKey,
 		SupportsCustomPorts:      supportsCustomPorts,
