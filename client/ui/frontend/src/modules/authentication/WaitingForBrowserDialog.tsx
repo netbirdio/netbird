@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { Dialogs, Events } from "@wailsio/runtime";
@@ -21,6 +21,7 @@ export default function WaitingForBrowserDialog() {
     const [params] = useSearchParams();
     const uri = params.get("uri") ?? "";
     const contentRef = useAutoSizeWindow<HTMLDivElement>(WINDOW_WIDTH);
+    const openedRef = useRef(false);
 
     const reportOpenFailure = useCallback(
         (e: unknown) => {
@@ -35,9 +36,12 @@ export default function WaitingForBrowserDialog() {
     // Open the system browser only after the dialog has mounted (which
     // means useAutoSizeWindow has called Window.Show). startLogin used to
     // fire OpenURL itself but the browser typically beat React's mount
-    // and landed on top of the still-hidden NetBird popup.
+    // and landed on top of the still-hidden NetBird popup. The ref guard
+    // keeps StrictMode's intentional double-invoke in dev (and any future
+    // remount) from launching two browser tabs.
     useEffect(() => {
-        if (!uri) return;
+        if (!uri || openedRef.current) return;
+        openedRef.current = true;
         Connection.OpenURL(uri).catch(reportOpenFailure);
     }, [uri, reportOpenFailure]);
 

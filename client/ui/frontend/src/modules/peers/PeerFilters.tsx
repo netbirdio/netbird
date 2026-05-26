@@ -28,9 +28,7 @@ export const PeerFilters = ({ value, onChange, counts }: Props) => {
             {filters.map((f) => (
                 <SwitchItem key={f.value} value={f.value} className={"flex-1"}>
                     {f.label}
-                    <span className={"font-normal text-nb-gray-200"}>
-                        {counts[f.value]}
-                    </span>
+                    <span className={"tabular-nums"}>({counts[f.value]})</span>
                 </SwitchItem>
             ))}
         </SwitchItemGroup>
