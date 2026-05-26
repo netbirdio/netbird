@@ -263,21 +263,26 @@ func (a *Account) GetPeerNetworkMapComponents(
 			components.ResourcePoliciesMap[resource.ID] = policies
 		}
 
-		components.RoutersMap[resource.NetworkID] = networkRoutingPeers
-		for peerIDKey := range networkRoutingPeers {
-			if p := a.Peers[peerIDKey]; p != nil {
-				if _, exists := components.RouterPeers[peerIDKey]; !exists {
-					components.RouterPeers[peerIDKey] = p
-				}
-				if _, exists := components.Peers[peerIDKey]; !exists {
-					if _, validated := validatedPeersMap[peerIDKey]; validated {
-						components.Peers[peerIDKey] = p
+		// Only expose router peers and the per-network routers_map when this
+		// target peer actually has access to the resource (either as a router
+		// itself or via a policy that includes it as a source). Without this
+		// gate, every peer's envelope was leaking router peers of every
+		// network in the account — accounts with many tenants/networks
+		// shipped tens of unrelated peers in `peers[]` and `routers_map`.
+		if addSourcePeers {
+			components.RoutersMap[resource.NetworkID] = networkRoutingPeers
+			for peerIDKey := range networkRoutingPeers {
+				if p := a.Peers[peerIDKey]; p != nil {
+					if _, exists := components.RouterPeers[peerIDKey]; !exists {
+						components.RouterPeers[peerIDKey] = p
+					}
+					if _, exists := components.Peers[peerIDKey]; !exists {
+						if _, validated := validatedPeersMap[peerIDKey]; validated {
+							components.Peers[peerIDKey] = p
+						}
 					}
 				}
 			}
-		}
-
-		if addSourcePeers {
 			components.NetworkResources = append(components.NetworkResources, resource)
 		}
 	}
@@ -352,6 +357,44 @@ func (a *Account) getPeersGroupsPoliciesRoutes(
 			for _, groupID := range r.AccessControlGroups {
 				relevantGroupIDs[groupID] = a.GetGroup(groupID)
 				routeAccessControlGroups[groupID] = struct{}{}
+			}
+		}
+
+		// Include route advertisers in relevantPeerIDs. The envelope
+		// encoder writes route.peer_index by looking up r.Peer in the
+		// shipped peers list; if the advertiser is policy-isolated from
+		// the target peer (no rule edge between them), it would otherwise
+		// be omitted and the decoder would fail to resolve r.Peer, leaving
+		// the client without a WG tunnel target for this route. Legacy
+		// NetworkMap.Routes shipped the WG public key inline, so the
+		// equivalence path doesn't surface this — but the dependency is
+		// real once a client actually tries to use the route.
+		// Gate by validatedPeersMap so non-validated advertisers stay out
+		// (matches the network-resource router behaviour at the bottom of
+		// this loop, and the legacy invariant that only validated peers
+		// reach a client's view).
+		if r.Peer != "" {
+			if _, ok := validatedPeersMap[r.Peer]; ok {
+				if p := a.GetPeer(r.Peer); p != nil {
+					relevantPeerIDs[r.Peer] = p
+				}
+			}
+		}
+		for _, groupID := range r.PeerGroups {
+			g := a.GetGroup(groupID)
+			if g == nil {
+				continue
+			}
+			for _, pid := range g.Peers {
+				if _, exists := relevantPeerIDs[pid]; exists {
+					continue
+				}
+				if _, ok := validatedPeersMap[pid]; !ok {
+					continue
+				}
+				if p := a.GetPeer(pid); p != nil {
+					relevantPeerIDs[pid] = p
+				}
 			}
 		}
 		relevantRoutes = append(relevantRoutes, r)
