@@ -130,12 +130,13 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 
 	// An embedded proxy peer flipping to connected is the trigger for
 	// SynthesizePrivateServiceZones to emit DNS A records pointing at its
-	// tunnel IP. Without an account-wide netmap recompute, user peers keep
-	// the stale synth (or no synth at all on first connect) until some
-	// other change pokes the controller. Fire OnPeersUpdated so the
-	// buffered recompute fans the new state out to every peer.
+	// tunnel IP. Fan the change out to every peer that has a synthesized
+	// policy or DNS-record edge from this proxy peer; otherwise their
+	// synth state stays stale until some other change pokes the controller.
 	if peer.ProxyMeta.Embedded {
-		if err := am.networkMapController.OnPeersUpdated(ctx, accountID, []string{peer.ID}); err != nil {
+		changedPeerIDs := []string{peer.ID}
+		affectedPeerIDs := am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, changedPeerIDs)
+		if err := am.networkMapController.OnPeersUpdated(ctx, accountID, changedPeerIDs, affectedPeerIDs); err != nil {
 			log.WithContext(ctx).Warnf("notify network map controller of embedded proxy %s connect: %v", peer.ID, err)
 		}
 	}
@@ -177,11 +178,12 @@ func (am *DefaultAccountManager) MarkPeerDisconnected(ctx context.Context, peerP
 	am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusDisconnect, telemetry.PeerStatusApplied)
 
 	// Symmetric with MarkPeerConnected: when an embedded proxy peer goes
-	// offline, drive an account-wide netmap recompute so the synthesized
-	// DNS records that pointed at it are pulled. Without this the records
-	// linger client-side at TTL until something else triggers a refresh.
+	// offline, refresh the peers that had synthesized records pointing at
+	// it so they pull the stale entries instead of waiting out TTL.
 	if peer.ProxyMeta.Embedded {
-		if err := am.networkMapController.OnPeersUpdated(ctx, accountID, []string{peer.ID}); err != nil {
+		changedPeerIDs := []string{peer.ID}
+		affectedPeerIDs := am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, changedPeerIDs)
+		if err := am.networkMapController.OnPeersUpdated(ctx, accountID, changedPeerIDs, affectedPeerIDs); err != nil {
 			log.WithContext(ctx).Warnf("notify network map controller of embedded proxy %s disconnect: %v", peer.ID, err)
 		}
 	}
