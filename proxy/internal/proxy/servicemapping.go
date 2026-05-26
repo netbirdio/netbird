@@ -28,6 +28,10 @@ type PathTarget struct {
 	RequestTimeout time.Duration
 	PathRewrite    PathRewriteMode
 	CustomHeaders  map[string]string
+	// DirectUpstream selects the stdlib HTTP transport (host network stack)
+	// over the embedded NetBird WireGuard client when forwarding requests
+	// to this target. Default false → embedded client (existing behaviour).
+	DirectUpstream bool
 }
 
 // Mapping describes how a domain is routed by the HTTP reverse proxy.

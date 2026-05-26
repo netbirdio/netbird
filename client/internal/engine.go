@@ -512,16 +512,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 
 	e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
 
-	e.dnsServer.SetRouteChecker(func(ip netip.Addr) bool {
-		for _, routes := range e.routeManager.GetSelectedClientRoutes() {
-			for _, r := range routes {
-				if r.Network.Contains(ip) {
-					return true
-				}
-			}
-		}
-		return false
-	})
+	e.dnsServer.SetRouteSources(e.routeManager.GetSelectedClientRoutes, e.routeManager.GetActiveClientRoutes)
 
 	if err = e.wgInterfaceCreate(); err != nil {
 		log.Errorf("failed creating tunnel interface %s: [%s]", e.config.WgIfaceName, err.Error())
@@ -1386,9 +1377,6 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 	e.networkSerial = serial
 
-	// Test received (upstream) servers for availability right away instead of upon usage.
-	// If no server of a server group responds this will disable the respective handler and retry later.
-	go e.dnsServer.ProbeAvailability()
 	return nil
 }
 
@@ -1932,7 +1920,7 @@ func (e *Engine) newDnsServer(dnsConfig *nbdns.Config) (dns.Server, error) {
 		return dnsServer, nil
 
 	case "ios":
-		dnsServer := dns.NewDefaultServerIos(e.ctx, e.wgInterface, e.mobileDep.DnsManager, e.mobileDep.HostDNSAddresses, e.statusRecorder, e.config.DisableDNS)
+		dnsServer := dns.NewDefaultServerIos(e.ctx, e.wgInterface, e.mobileDep.DnsManager, e.statusRecorder, e.config.DisableDNS)
 		return dnsServer, nil
 
 	default:
@@ -1977,6 +1965,29 @@ func (e *Engine) IsBlockInbound() bool {
 // GetClientMetrics returns the client metrics
 func (e *Engine) GetClientMetrics() *metrics.ClientMetrics {
 	return e.clientMetrics
+}
+
+// Performance bundles runtime-adjustable tunnel pool knobs.
+// See Engine.SetPerformance. Nil fields are ignored.
+type Performance struct {
+	PreallocatedBuffersPerPool *uint32
+}
+
+// SetPerformance applies the given tuning to this engine's live Device.
+func (e *Engine) SetPerformance(t Performance) error {
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
+	if e.wgInterface == nil {
+		return fmt.Errorf("wg interface not initialized")
+	}
+	dev := e.wgInterface.GetWGDevice()
+	if dev == nil {
+		return fmt.Errorf("wg device not initialized")
+	}
+	if t.PreallocatedBuffersPerPool != nil {
+		dev.SetPreallocatedBuffersPerPool(*t.PreallocatedBuffersPerPool)
+	}
+	return nil
 }
 
 func findIPFromInterfaceName(ifaceName string) (net.IP, error) {

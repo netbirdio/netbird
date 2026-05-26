@@ -762,7 +762,7 @@ func (am *DefaultAccountManager) processUserUpdate(ctx context.Context, transact
 		}
 
 		// Ensure the initiator still has admin privileges
-		if initiatorUser.HasAdminPower() && !freshInitiator.HasAdminPower() {
+		if !freshInitiator.HasAdminPower() {
 			return false, nil, nil, nil, status.Errorf(status.PermissionDenied, "initiator role was changed during request processing")
 		}
 		initiatorUser = freshInitiator
@@ -906,19 +906,23 @@ func validateUserUpdate(groupsMap map[string]*types.Group, initiatorUser, oldUse
 		return nil
 	}
 
+	if !initiatorUser.HasAdminPower() {
+		return status.Errorf(status.PermissionDenied, "only admins and owners can update users")
+	}
+
 	if initiatorUser.HasAdminPower() && initiatorUser.Id == update.Id && oldUser.Blocked != update.Blocked {
 		return status.Errorf(status.PermissionDenied, "admins can't block or unblock themselves")
 	}
 	if initiatorUser.HasAdminPower() && initiatorUser.Id == update.Id && update.Role != initiatorUser.Role {
 		return status.Errorf(status.PermissionDenied, "admins can't change their role")
 	}
-	if initiatorUser.Role == types.UserRoleAdmin && oldUser.Role == types.UserRoleOwner && update.Role != oldUser.Role {
+	if initiatorUser.Role != types.UserRoleOwner && oldUser.Role == types.UserRoleOwner && update.Role != oldUser.Role {
 		return status.Errorf(status.PermissionDenied, "only owners can remove owner role from their user")
 	}
-	if initiatorUser.Role == types.UserRoleAdmin && oldUser.Role == types.UserRoleOwner && update.IsBlocked() && !oldUser.IsBlocked() {
+	if oldUser.Role == types.UserRoleOwner && update.IsBlocked() && !oldUser.IsBlocked() {
 		return status.Errorf(status.PermissionDenied, "unable to block owner user")
 	}
-	if initiatorUser.Role == types.UserRoleAdmin && update.Role == types.UserRoleOwner && update.Role != oldUser.Role {
+	if initiatorUser.Role != types.UserRoleOwner && update.Role == types.UserRoleOwner && update.Role != oldUser.Role {
 		return status.Errorf(status.PermissionDenied, "only owners can add owner role to other users")
 	}
 	if oldUser.IsServiceUser && update.Role == types.UserRoleOwner {

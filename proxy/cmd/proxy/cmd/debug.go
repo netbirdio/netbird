@@ -109,6 +109,22 @@ var debugStopCmd = &cobra.Command{
 	SilenceUsage: true,
 }
 
+var debugPerfCmd = &cobra.Command{
+	Use:          "perf <pool-cap>",
+	Short:        "Live-retune the tunnel buffer pool cap on all running clients",
+	Args:         cobra.ExactArgs(1),
+	RunE:         runDebugPerfSet,
+	SilenceUsage: true,
+}
+
+var debugRuntimeCmd = &cobra.Command{
+	Use:          "runtime",
+	Short:        "Show runtime stats (heap, goroutines, RSS)",
+	Args:         cobra.NoArgs,
+	RunE:         runDebugRuntime,
+	SilenceUsage: true,
+}
+
 var debugCaptureCmd = &cobra.Command{
 	Use:   "capture <account-id> [filter expression]",
 	Short: "Capture packets on a client's WireGuard interface",
@@ -159,6 +175,8 @@ func init() {
 	debugCmd.AddCommand(debugLogCmd)
 	debugCmd.AddCommand(debugStartCmd)
 	debugCmd.AddCommand(debugStopCmd)
+	debugCmd.AddCommand(debugPerfCmd)
+	debugCmd.AddCommand(debugRuntimeCmd)
 	debugCmd.AddCommand(debugCaptureCmd)
 
 	rootCmd.AddCommand(debugCmd)
@@ -218,6 +236,18 @@ func runDebugStart(cmd *cobra.Command, args []string) error {
 
 func runDebugStop(cmd *cobra.Command, args []string) error {
 	return getDebugClient(cmd).StopClient(cmd.Context(), args[0])
+}
+
+func runDebugPerfSet(cmd *cobra.Command, args []string) error {
+	n, err := strconv.ParseUint(args[0], 10, 32)
+	if err != nil {
+		return fmt.Errorf("invalid value %q: %w", args[0], err)
+	}
+	return getDebugClient(cmd).PerfSet(cmd.Context(), uint32(n))
+}
+
+func runDebugRuntime(cmd *cobra.Command, _ []string) error {
+	return getDebugClient(cmd).Runtime(cmd.Context())
 }
 
 func runDebugCapture(cmd *cobra.Command, args []string) error {

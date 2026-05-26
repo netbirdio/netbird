@@ -232,3 +232,33 @@ func TestIPv6RecalculationOnGroupChange(t *testing.T) {
 		assert.True(t, account.PeerIPv6Allowed("peer3"), "peer3 now in infra")
 	})
 }
+
+func TestPeerIPv6AllowedEmbeddedProxy(t *testing.T) {
+	account := &Account{
+		Peers: map[string]*nbpeer.Peer{
+			"peer1": {ID: "peer1"},
+			"proxy": {ID: "proxy", ProxyMeta: nbpeer.ProxyMeta{Embedded: true, Cluster: "netbird.test"}},
+		},
+		Groups: map[string]*Group{
+			"group-devs": {ID: "group-devs", Peers: []string{"peer1"}},
+		},
+		Settings: &Settings{},
+	}
+
+	t.Run("embedded proxy allowed when any v6 group exists, without group membership", func(t *testing.T) {
+		account.Settings.IPv6EnabledGroups = []string{"group-devs"}
+		assert.True(t, account.PeerIPv6Allowed("proxy"), "embedded proxy participates in v6 overlay")
+		assert.True(t, account.PeerIPv6Allowed("peer1"), "regular peer in enabled group still allowed")
+	})
+
+	t.Run("embedded proxy denied when no v6 group enabled", func(t *testing.T) {
+		account.Settings.IPv6EnabledGroups = nil
+		assert.False(t, account.PeerIPv6Allowed("proxy"), "v6 disabled account-wide denies embedded proxies too")
+	})
+
+	t.Run("non-embedded peer outside any enabled group is not pulled in", func(t *testing.T) {
+		account.Settings.IPv6EnabledGroups = []string{"group-devs"}
+		account.Peers["lonely"] = &nbpeer.Peer{ID: "lonely"}
+		assert.False(t, account.PeerIPv6Allowed("lonely"), "embedded-proxy bypass must not leak to regular peers")
+	})
+}

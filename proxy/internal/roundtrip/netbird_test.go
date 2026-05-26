@@ -3,6 +3,7 @@ package roundtrip
 import (
 	"context"
 	"net/http"
+	"net/netip"
 	"sync"
 	"testing"
 
@@ -303,6 +304,36 @@ func TestNetBird_AddPeer_ExistingStartedClient_NotifiesStatus(t *testing.T) {
 	assert.Equal(t, accountID, calls[0].accountID)
 	assert.Equal(t, types.ServiceID("svc-2"), calls[0].serviceID)
 	assert.True(t, calls[0].connected)
+}
+
+// TestNetBird_IdentityForIP_UnknownAccountReturnsFalse confirms that the
+// public lookup short-circuits when no client has been registered for
+// the queried account. The auth middleware uses ok=false as a fast deny.
+func TestNetBird_IdentityForIP_UnknownAccountReturnsFalse(t *testing.T) {
+	nb := mockNetBird()
+	_, _, ok := nb.IdentityForIP("acct-missing", netip.MustParseAddr("100.64.0.10"))
+	assert.False(t, ok, "unknown account must yield ok=false")
+}
+
+// TestClientEntry_IdentityForIP_NilClientGuard ensures the receiver
+// methods stay safe when called on partially-initialized state, which
+// can happen briefly during AddPeer setup or test fixtures.
+func TestClientEntry_IdentityForIP_NilClientGuard(t *testing.T) {
+	var e *clientEntry
+	_, _, ok := e.IdentityForIP(netip.MustParseAddr("100.64.0.10"))
+	assert.False(t, ok, "nil clientEntry must yield ok=false")
+
+	e = &clientEntry{}
+	_, _, ok = e.IdentityForIP(netip.MustParseAddr("100.64.0.10"))
+	assert.False(t, ok, "clientEntry with nil embed.Client must yield ok=false")
+}
+
+// TestClientEntry_IdentityForIP_InvalidIPReturnsFalse covers the input
+// guard so callers don't have to repeat the check.
+func TestClientEntry_IdentityForIP_InvalidIPReturnsFalse(t *testing.T) {
+	e := &clientEntry{}
+	_, _, ok := e.IdentityForIP(netip.Addr{})
+	assert.False(t, ok, "invalid IP must yield ok=false")
 }
 
 func TestNetBird_RemovePeer_NotifiesDisconnection(t *testing.T) {

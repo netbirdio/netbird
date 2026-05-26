@@ -35,6 +35,7 @@ type proxyManager interface {
 	ClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
 	ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	ClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
+	ClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool
 }
 
 type Manager struct {
@@ -93,6 +94,7 @@ func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*d
 		d.SupportsCustomPorts = m.proxyManager.ClusterSupportsCustomPorts(ctx, cluster)
 		d.RequireSubdomain = m.proxyManager.ClusterRequireSubdomain(ctx, cluster)
 		d.SupportsCrowdSec = m.proxyManager.ClusterSupportsCrowdSec(ctx, cluster)
+		d.SupportsPrivate = m.proxyManager.ClusterSupportsPrivate(ctx, cluster)
 		ret = append(ret, d)
 	}
 
@@ -109,6 +111,7 @@ func (m Manager) GetDomains(ctx context.Context, accountID, userID string) ([]*d
 		if d.TargetCluster != "" {
 			cd.SupportsCustomPorts = m.proxyManager.ClusterSupportsCustomPorts(ctx, d.TargetCluster)
 			cd.SupportsCrowdSec = m.proxyManager.ClusterSupportsCrowdSec(ctx, d.TargetCluster)
+			cd.SupportsPrivate = m.proxyManager.ClusterSupportsPrivate(ctx, d.TargetCluster)
 		}
 		// Custom domains never require a subdomain by default since
 		// the account owns them and should be able to use the bare domain.
@@ -304,10 +307,27 @@ func (m Manager) getClusterAllowList(ctx context.Context, accountID string) ([]s
 	if err != nil {
 		return nil, fmt.Errorf("get BYOP cluster addresses: %w", err)
 	}
-	if len(byopAddresses) > 0 {
-		return byopAddresses, nil
+	publicAddresses, err := m.proxyManager.GetActiveClusterAddresses(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get public cluster addresses: %w", err)
 	}
-	return m.proxyManager.GetActiveClusterAddresses(ctx)
+	seen := make(map[string]struct{}, len(byopAddresses)+len(publicAddresses))
+	merged := make([]string, 0, len(byopAddresses)+len(publicAddresses))
+	for _, addr := range byopAddresses {
+		if _, ok := seen[addr]; ok {
+			continue
+		}
+		seen[addr] = struct{}{}
+		merged = append(merged, addr)
+	}
+	for _, addr := range publicAddresses {
+		if _, ok := seen[addr]; ok {
+			continue
+		}
+		seen[addr] = struct{}{}
+		merged = append(merged, addr)
+	}
+	return merged, nil
 }
 
 func extractClusterFromCustomDomains(serviceDomain string, customDomains []*domain.Domain) (string, bool) {
