@@ -116,7 +116,6 @@ type Tray struct {
 	// separators with nothing between them.
 	connectSeparator   *application.MenuItem
 	exitNodeItem       *application.MenuItem
-	networksItem       *application.MenuItem
 	profileSubmenu     *application.Menu
 	profileSubmenuItem *application.MenuItem
 	profileEmailItem   *application.MenuItem
@@ -276,9 +275,6 @@ func (t *Tray) reapplyMenuState() {
 	if t.exitNodeItem != nil {
 		t.exitNodeItem.SetEnabled(connected)
 	}
-	if t.networksItem != nil {
-		t.networksItem.SetEnabled(connected)
-	}
 	if t.settingsItem != nil {
 		t.settingsItem.SetEnabled(!daemonUnavailable)
 	}
@@ -374,8 +370,10 @@ func (t *Tray) buildMenu() *application.Menu {
 	// its account email, and the SSO session deadline read as a single block.
 	// Hidden until applyStatus sees a non-zero SessionExpiresAt on the daemon
 	// Status snapshot — peers without SSO tracking or with login expiry
-	// disabled never reveal this row.
-	t.sessionExpiresItem = menu.Add("").SetEnabled(false)
+	// disabled never reveal this row. Click opens the SessionAboutToExpire
+	// window so the user can extend the session ahead of the daemon's
+	// T-FinalWarningLead auto-prompt.
+	t.sessionExpiresItem = menu.Add("").OnClick(func(*application.Context) { t.openSessionExtendFlow() })
 	t.sessionExpiresItem.SetHidden(true)
 	// AddSeparator returns no reference, so capture the separator by walking
 	// ItemAt until it returns nil and grabbing the last index.
@@ -391,7 +389,6 @@ func (t *Tray) buildMenu() *application.Menu {
 	menu.AddSeparator()
 
 	t.exitNodeItem = menu.Add(t.loc.T("tray.menu.exitNode")).SetEnabled(false)
-	t.networksItem = menu.Add(t.loc.T("tray.menu.networks")).OnClick(func(*application.Context) { t.openRoute("/networks") })
 
 	menu.AddSeparator()
 
@@ -689,14 +686,11 @@ func (t *Tray) applyStatus(st services.Status) {
 			// two adjacent separators with nothing between them.
 			t.connectSeparator.SetHidden(daemonUnavailable)
 		}
-		// Exit Node and Resources surface tunnel-routed state, so only
-		// expose them while the tunnel is up. Settings/Debug-Bundle just
-		// need the daemon socket reachable.
+		// Exit Node surfaces tunnel-routed state, so only expose it while
+		// the tunnel is up. Settings/Debug-Bundle just need the daemon
+		// socket reachable.
 		if t.exitNodeItem != nil {
 			t.exitNodeItem.SetEnabled(connected)
-		}
-		if t.networksItem != nil {
-			t.networksItem.SetEnabled(connected)
 		}
 		if t.settingsItem != nil {
 			t.settingsItem.SetEnabled(!daemonUnavailable)
@@ -1238,6 +1232,29 @@ func (t *Tray) openSessionAboutToExpire() {
 		return
 	}
 	t.svc.WindowManager.OpenSessionAboutToExpire(finalWarningCountdownSeconds)
+}
+
+// openSessionExtendFlow opens the SessionAboutToExpire window seeded with
+// the actual remaining time on the cached SSO deadline. Triggered by a
+// click on the "Expires in …" tray row so the user can extend the session
+// proactively, instead of waiting for the daemon's T-FinalWarningLead
+// auto-prompt. Silently no-ops when the deadline is unknown or already
+// elapsed — the menu row is hidden in those states anyway.
+func (t *Tray) openSessionExtendFlow() {
+	if t.svc.WindowManager == nil {
+		return
+	}
+	t.mu.Lock()
+	deadline := t.sessionExpiresAt
+	t.mu.Unlock()
+	if deadline.IsZero() {
+		return
+	}
+	seconds := int(time.Until(deadline).Seconds())
+	if seconds <= 0 {
+		return
+	}
+	t.svc.WindowManager.OpenSessionAboutToExpire(seconds)
 }
 
 // notifyError fires a generic "Error" notification for tray-driven action
