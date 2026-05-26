@@ -213,7 +213,11 @@ func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, key Se
 		}).Debug("registered service with existing client")
 
 		if started && n.statusNotifier != nil {
-			if err := n.statusNotifier.NotifyStatus(ctx, accountID, serviceID, true); err != nil {
+			// Use a background context, not the caller's: the management
+			// connection notification must land even if the request /
+			// stream that triggered this registration is cancelled.
+			// Mirrors the async runClientStartup path.
+			if err := n.statusNotifier.NotifyStatus(context.Background(), accountID, serviceID, true); err != nil {
 				n.logger.WithFields(log.Fields{
 					"account_id":  accountID,
 					"service_key": key,

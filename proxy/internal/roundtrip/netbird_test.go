@@ -299,8 +299,12 @@ func TestNetBird_AddPeer_ExistingStartedClient_NotifiesStatus(t *testing.T) {
 	nb.clients[accountID].started = true
 	nb.clientsMux.Unlock()
 
-	// Add second service — should notify immediately since client is already started.
-	err = nb.AddPeer(context.Background(), accountID, "domain2.test", "key-1", types.ServiceID("svc-2"))
+	// Add second service with an already-cancelled caller context —
+	// should notify immediately (client is started) AND the notification
+	// must not inherit the cancelled ctx.
+	cancelledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err = nb.AddPeer(cancelledCtx, accountID, "domain2.test", "key-1", types.ServiceID("svc-2"))
 	require.NoError(t, err)
 
 	calls := notifier.calls()
@@ -308,6 +312,9 @@ func TestNetBird_AddPeer_ExistingStartedClient_NotifiesStatus(t *testing.T) {
 	assert.Equal(t, accountID, calls[0].accountID)
 	assert.Equal(t, types.ServiceID("svc-2"), calls[0].serviceID)
 	assert.True(t, calls[0].connected)
+	require.NotNil(t, calls[0].ctx, "NotifyStatus must receive a context")
+	require.NoError(t, calls[0].ctx.Err(),
+		"already-started NotifyStatus must use a background ctx, not the cancelled caller ctx")
 }
 
 // TestNetBird_IdentityForIP_UnknownAccountReturnsFalse confirms that the
