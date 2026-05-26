@@ -110,6 +110,11 @@ type Tray struct {
 	sessionExpiresItem *application.MenuItem
 	upItem             *application.MenuItem
 	downItem           *application.MenuItem
+	// connectSeparator sits between the profile block and the
+	// Connect/Disconnect rows. Hidden together with both action rows when
+	// the daemon is unavailable so the menu doesn't show two adjacent
+	// separators with nothing between them.
+	connectSeparator   *application.MenuItem
 	exitNodeItem       *application.MenuItem
 	networksItem       *application.MenuItem
 	profileSubmenu     *application.Menu
@@ -262,6 +267,12 @@ func (t *Tray) reapplyMenuState() {
 		t.downItem.SetHidden(!connected && !connecting)
 		t.downItem.SetEnabled(connected || connecting)
 	}
+	if t.connectSeparator != nil {
+		// Hide the separator above Connect/Disconnect when both rows are
+		// hidden (happens when the daemon is unavailable) — otherwise the
+		// menu shows two adjacent separators with nothing between them.
+		t.connectSeparator.SetHidden(daemonUnavailable)
+	}
 	if t.exitNodeItem != nil {
 		t.exitNodeItem.SetEnabled(connected)
 	}
@@ -338,14 +349,6 @@ func (t *Tray) buildMenu() *application.Menu {
 		SetEnabled(statusRowEnabled()).
 		SetBitmap(iconMenuDotIdle)
 
-	// sessionExpiresItem sits directly below the status row so the
-	// remaining-time label reads as a sub-line of "Connected" etc. Hidden
-	// until applyStatus sees a non-zero SessionExpiresAt on the daemon
-	// Status snapshot — peers without SSO tracking or with login expiry
-	// disabled never reveal this row.
-	t.sessionExpiresItem = menu.Add("").SetEnabled(false)
-	t.sessionExpiresItem.SetHidden(true)
-
 	menu.AddSeparator()
 	// The tray icon's left-click handler is intentionally unbound (see
 	// NewTray for the rationale), so expose the window through an explicit
@@ -367,7 +370,17 @@ func (t *Tray) buildMenu() *application.Menu {
 	// non-empty email for the active profile.
 	t.profileEmailItem = menu.Add("").SetEnabled(false)
 	t.profileEmailItem.SetHidden(true)
+	// sessionExpiresItem sits below the profile email so the active profile,
+	// its account email, and the SSO session deadline read as a single block.
+	// Hidden until applyStatus sees a non-zero SessionExpiresAt on the daemon
+	// Status snapshot — peers without SSO tracking or with login expiry
+	// disabled never reveal this row.
+	t.sessionExpiresItem = menu.Add("").SetEnabled(false)
+	t.sessionExpiresItem.SetHidden(true)
+	// AddSeparator returns no reference, so capture the separator by walking
+	// ItemAt until it returns nil and grabbing the last index.
 	menu.AddSeparator()
+	t.connectSeparator = lastMenuItem(menu)
 	// Only the action that applies to the current state is visible: Connect
 	// when disconnected, Disconnect when connected. applyStatus swaps them on
 	// each daemon status change.
@@ -669,6 +682,12 @@ func (t *Tray) applyStatus(st services.Status) {
 			// way to stop the loop short of killing the daemon.
 			t.downItem.SetHidden(!connected && !connecting)
 			t.downItem.SetEnabled(connected || connecting)
+		}
+		if t.connectSeparator != nil {
+			// Hide the separator above Connect/Disconnect when both rows
+			// are hidden (daemon unavailable) — otherwise the menu shows
+			// two adjacent separators with nothing between them.
+			t.connectSeparator.SetHidden(daemonUnavailable)
 		}
 		// Exit Node and Resources surface tunnel-routed state, so only
 		// expose them while the tunnel is up. Settings/Debug-Bundle just
@@ -1277,4 +1296,20 @@ func titleCase(s string) string {
 		return ""
 	}
 	return strings.ToUpper(s[:1]) + strings.ToLower(s[1:])
+}
+
+// lastMenuItem returns the menu's most recently appended *MenuItem. The Wails
+// AddSeparator helper doesn't return one, so to keep a handle on a separator
+// (e.g. to toggle SetHidden later) we call AddSeparator and then ask for the
+// item at the tail. Walks ItemAt(i) until it returns nil; cheap because menus
+// are short.
+func lastMenuItem(m *application.Menu) *application.MenuItem {
+	var last *application.MenuItem
+	for i := 0; ; i++ {
+		item := m.ItemAt(i)
+		if item == nil {
+			return last
+		}
+		last = item
+	}
 }

@@ -3,7 +3,7 @@
     "tray.status.disconnected": "Lekapcsolva",
     "tray.status.daemonUnavailable": "Nem fut",
     "tray.status.error": "Hiba",
-    "tray.session.expiresIn": "Munkamenet: {remaining}",
+    "tray.session.expiresIn": "Lejár {remaining} múlva",
 
     "tray.menu.open": "NetBird megnyitása",
     "tray.menu.connect": "Csatlakozás",
