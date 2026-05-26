@@ -172,7 +172,7 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 		}
 
 		groupIDs, directPeerIDs := collectGroupChangeAffectedGroups(ctx, transaction, accountID, []string{newGroup.ID})
-		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, groupIDs, directPeerIDs)
+		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, groupIDs, append(directPeerIDs, peersToRemove...))
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
