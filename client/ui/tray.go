@@ -110,17 +110,11 @@ type Tray struct {
 	sessionExpiresItem *application.MenuItem
 	upItem             *application.MenuItem
 	downItem           *application.MenuItem
-	// connectSeparator sits between the profile block and the
-	// Connect/Disconnect rows. Hidden together with both action rows when
-	// the daemon is unavailable so the menu doesn't show two adjacent
-	// separators with nothing between them.
-	connectSeparator   *application.MenuItem
 	exitNodeItem       *application.MenuItem
 	profileSubmenu     *application.Menu
 	profileSubmenuItem *application.MenuItem
 	profileEmailItem   *application.MenuItem
 	settingsItem       *application.MenuItem
-	debugItem          *application.MenuItem
 	daemonVersionItem  *application.MenuItem
 
 	updater *trayUpdater
@@ -170,15 +164,37 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 	t.tray.SetTooltip(t.loc.T("tray.tooltip"))
 	t.menu = t.buildMenu()
 	t.tray.SetMenu(t.menu)
-	// Left-click on the tray icon opens the menu on every platform. The
-	// window is reached through the explicit "Open NetBird" entry. This
-	// matches macOS NSStatusItem convention (click → menu), the Linux
-	// StatusNotifierItem spec, and the legacy Fyne client. On Linux,
-	// AttachWindow plus Wails3's applySmartDefaults would also pop the
-	// window alongside the menu on environments like GNOME Shell with the
-	// AppIndicator extension, so we intentionally skip both AttachWindow
-	// and OnClick here. Right-click still opens the menu through Wails'
-	// default rightClickHandler fallback.
+	// Refresh the "Expires in …" countdown row each time the menu opens
+	// — the daemon's Status pushes are too coarse for a minute-grained
+	// countdown. Wails v3 alpha 95 does not expose a public NSMenu-
+	// needsUpdate hook, so we piggy-back on the click handlers, which
+	// fire just before (macOS / Windows right-click) or alongside (Linux
+	// dbusmenu `opened`) the menu becoming visible.
+	//
+	// Where binding the click handler suppresses the platform's native
+	// auto-show (macOS pre-click returns 0 instead of 1; Windows
+	// rightClickHandler defaults to ShowMenu and is replaced) we have to
+	// call OpenMenu() ourselves to restore the popup. Linux's dbusmenu
+	// host paints the menu independently, so the handler only refreshes
+	// the label. AttachWindow is still skipped — under GNOME Shell with
+	// the AppIndicator extension it pops the window alongside the menu,
+	// which is not the UX we want.
+	refresh := func() { t.refreshSessionExpiresLabel() }
+	refreshAndOpen := func() {
+		t.refreshSessionExpiresLabel()
+		t.tray.OpenMenu()
+	}
+	switch runtime.GOOS {
+	case "darwin":
+		t.tray.OnClick(refreshAndOpen)
+		t.tray.OnRightClick(refreshAndOpen)
+	case "windows":
+		t.tray.OnClick(refresh)
+		t.tray.OnRightClick(refreshAndOpen)
+	default:
+		t.tray.OnClick(refresh)
+		t.tray.OnRightClick(refresh)
+	}
 
 	app.Event.On(services.EventStatus, t.onStatusEvent)
 	app.Event.On(services.EventSystem, t.onSystemEvent)
@@ -266,20 +282,11 @@ func (t *Tray) reapplyMenuState() {
 		t.downItem.SetHidden(!connected && !connecting)
 		t.downItem.SetEnabled(connected || connecting)
 	}
-	if t.connectSeparator != nil {
-		// Hide the separator above Connect/Disconnect when both rows are
-		// hidden (happens when the daemon is unavailable) — otherwise the
-		// menu shows two adjacent separators with nothing between them.
-		t.connectSeparator.SetHidden(daemonUnavailable)
-	}
 	if t.exitNodeItem != nil {
 		t.exitNodeItem.SetEnabled(connected)
 	}
 	if t.settingsItem != nil {
 		t.settingsItem.SetEnabled(!daemonUnavailable)
-	}
-	if t.debugItem != nil {
-		t.debugItem.SetEnabled(!daemonUnavailable)
 	}
 	if t.profileSubmenuItem != nil {
 		t.profileSubmenuItem.SetEnabled(!daemonUnavailable)
@@ -348,8 +355,13 @@ func (t *Tray) buildMenu() *application.Menu {
 	menu.AddSeparator()
 	// The tray icon's left-click handler is intentionally unbound (see
 	// NewTray for the rationale), so expose the window through an explicit
-	// menu entry on every platform.
-	menu.Add(t.loc.T("tray.menu.open")).OnClick(func(*application.Context) { t.ShowWindow() })
+	// menu entry on every platform. iconMenuNetbird (the brand mark) is
+	// applied to this row — per-platform asset choice lives in the
+	// icons_menu_<os>.go files; an empty []byte opts the platform out.
+	openItem := menu.Add(t.loc.T("tray.menu.open")).OnClick(func(*application.Context) { t.ShowWindow() })
+	if len(iconMenuNetbird) > 0 {
+		openItem.SetBitmap(iconMenuNetbird)
+	}
 	menu.AddSeparator()
 	// Profiles submenu is populated asynchronously once the application
 	// has started — Menu.Update() is a no-op before app.running is true,
@@ -375,20 +387,6 @@ func (t *Tray) buildMenu() *application.Menu {
 	// T-FinalWarningLead auto-prompt.
 	t.sessionExpiresItem = menu.Add("").OnClick(func(*application.Context) { t.openSessionExtendFlow() })
 	t.sessionExpiresItem.SetHidden(true)
-	// AddSeparator returns no reference, so capture the separator by walking
-	// ItemAt until it returns nil and grabbing the last index.
-	menu.AddSeparator()
-	t.connectSeparator = lastMenuItem(menu)
-	// Only the action that applies to the current state is visible: Connect
-	// when disconnected, Disconnect when connected. applyStatus swaps them on
-	// each daemon status change.
-	t.upItem = menu.Add(t.loc.T("tray.menu.connect")).OnClick(func(*application.Context) { t.handleConnect() })
-	t.downItem = menu.Add(t.loc.T("tray.menu.disconnect")).OnClick(func(*application.Context) { t.handleDisconnect() })
-	t.downItem.SetHidden(true)
-
-	menu.AddSeparator()
-
-	t.exitNodeItem = menu.Add(t.loc.T("tray.menu.exitNode")).SetEnabled(false)
 
 	menu.AddSeparator()
 
@@ -397,19 +395,11 @@ func (t *Tray) buildMenu() *application.Menu {
 	// all live in the in-window Settings page now. The tray menu only
 	// surfaces the day-to-day actions.
 	t.settingsItem = menu.Add(t.loc.T("tray.menu.settings")).OnClick(func(*application.Context) { t.svc.WindowManager.OpenSettings("") })
-	t.debugItem = menu.Add(t.loc.T("tray.menu.debugBundle")).OnClick(func(*application.Context) { t.openRoute("/debug") })
 
-	menu.AddSeparator()
+	t.exitNodeItem = menu.Add(t.loc.T("tray.menu.exitNode")).SetEnabled(false)
 
 	aboutLabel := t.loc.T("tray.menu.about")
 	about := menu.AddSubmenu(aboutLabel)
-	// iconMenuNetbird is the brand mark painted in the leading-image slot
-	// of the About row. The icons_menu_<os>.go files own the per-platform
-	// asset choice — guard with len() so a platform that opts out (sets
-	// it to an empty []byte) still renders the row text-only.
-	if aboutItem := menu.FindByLabel(aboutLabel); aboutItem != nil && len(iconMenuNetbird) > 0 {
-		aboutItem.SetBitmap(iconMenuNetbird)
-	}
 	about.Add(t.loc.T("tray.menu.github")).OnClick(func(*application.Context) {
 		_ = t.app.Browser.OpenURL(urlGitHubRepo)
 	})
@@ -429,6 +419,12 @@ func (t *Tray) buildMenu() *application.Menu {
 	t.updater.attach(updateItem)
 
 	menu.AddSeparator()
+	// Only the action that applies to the current state is visible: Connect
+	// when disconnected, Disconnect when connected. applyStatus swaps them on
+	// each daemon status change.
+	t.upItem = menu.Add(t.loc.T("tray.menu.connect")).OnClick(func(*application.Context) { t.handleConnect() })
+	t.downItem = menu.Add(t.loc.T("tray.menu.disconnect")).OnClick(func(*application.Context) { t.handleDisconnect() })
+	t.downItem.SetHidden(true)
 	menu.Add(t.loc.T("tray.menu.quit")).OnClick(func(*application.Context) { t.app.Quit() })
 
 	return menu
@@ -680,23 +676,14 @@ func (t *Tray) applyStatus(st services.Status) {
 			t.downItem.SetHidden(!connected && !connecting)
 			t.downItem.SetEnabled(connected || connecting)
 		}
-		if t.connectSeparator != nil {
-			// Hide the separator above Connect/Disconnect when both rows
-			// are hidden (daemon unavailable) — otherwise the menu shows
-			// two adjacent separators with nothing between them.
-			t.connectSeparator.SetHidden(daemonUnavailable)
-		}
 		// Exit Node surfaces tunnel-routed state, so only expose it while
-		// the tunnel is up. Settings/Debug-Bundle just need the daemon
-		// socket reachable.
+		// the tunnel is up. Settings just needs the daemon socket
+		// reachable.
 		if t.exitNodeItem != nil {
 			t.exitNodeItem.SetEnabled(connected)
 		}
 		if t.settingsItem != nil {
 			t.settingsItem.SetEnabled(!daemonUnavailable)
-		}
-		if t.debugItem != nil {
-			t.debugItem.SetEnabled(!daemonUnavailable)
 		}
 		if t.profileSubmenuItem != nil {
 			t.profileSubmenuItem.SetEnabled(!daemonUnavailable)
@@ -1059,6 +1046,24 @@ func (t *Tray) applySessionExpiry(deadline *time.Time, connected bool) {
 	t.sessionExpiresItem.SetHidden(false)
 }
 
+// refreshSessionExpiresLabel recomputes the "Expires in …" tray row
+// label from the cached SSO deadline. Triggered from the click handlers
+// just before the menu paints, so the countdown reads against wall time
+// instead of the value baked in by the last Status push.
+func (t *Tray) refreshSessionExpiresLabel() {
+	if t.sessionExpiresItem == nil {
+		return
+	}
+	t.mu.Lock()
+	deadline := t.sessionExpiresAt
+	t.mu.Unlock()
+	if deadline.IsZero() {
+		return
+	}
+	remaining := nbstatus.FormatRemainingDuration(time.Until(deadline))
+	t.sessionExpiresItem.SetLabel(t.loc.T("tray.session.expiresIn", "remaining", remaining))
+}
+
 // notify wraps the Wails notification service with the tray's standard
 // id-prefix scheme and swallows errors (notifications are best-effort).
 func (t *Tray) notify(title, body, id string) {
@@ -1313,20 +1318,4 @@ func titleCase(s string) string {
 		return ""
 	}
 	return strings.ToUpper(s[:1]) + strings.ToLower(s[1:])
-}
-
-// lastMenuItem returns the menu's most recently appended *MenuItem. The Wails
-// AddSeparator helper doesn't return one, so to keep a handle on a separator
-// (e.g. to toggle SetHidden later) we call AddSeparator and then ask for the
-// item at the tail. Walks ItemAt(i) until it returns nil; cheap because menus
-// are short.
-func lastMenuItem(m *application.Menu) *application.MenuItem {
-	var last *application.MenuItem
-	for i := 0; ; i++ {
-		item := m.ItemAt(i)
-		if item == nil {
-			return last
-		}
-		last = item
-	}
 }
