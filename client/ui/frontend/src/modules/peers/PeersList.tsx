@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import type { PeerStatus } from "@bindings/services/models.js";
 import { cn } from "@/lib/cn";
+import { CopyToClipboard } from "@/components/CopyToClipboard";
 
 const dotClass = (connStatus: string): string => {
     switch (connStatus) {
@@ -17,40 +18,29 @@ export const PeersList = ({ data }: { data: PeerStatus[] }) => {
     const { t } = useTranslation();
     if (data.length === 0) {
         return (
-            <div className={"py-12 text-center text-sm text-nb-gray-400"}>
-                {t("peers.empty")}
-            </div>
+            <div className={"py-12 text-center text-sm text-nb-gray-400"}>{t("peers.empty")}</div>
         );
     }
 
     return (
         <ul className={"flex flex-col"}>
             {data.map((peer) => (
-                <li
-                    key={peer.pubKey}
-                    className={"flex items-center gap-3 px-7 py-3 min-w-0"}
-                >
+                <li key={peer.pubKey} className={"flex items-center gap-3 px-7 py-3 min-w-0"}>
                     <span
-                        className={cn(
-                            "h-2 w-2 rounded-full shrink-0",
-                            dotClass(peer.connStatus),
-                        )}
+                        className={cn("h-2 w-2 rounded-full shrink-0", dotClass(peer.connStatus))}
                         title={peer.connStatus}
                     />
-                    <span
-                        className={
-                            "text-[0.81rem] font-medium text-nb-gray-100 truncate"
-                        }
+                    <CopyToClipboard message={peer.fqdn} className={"min-w-0 flex-1"}>
+                        <span className={"text-[0.81rem] font-medium text-nb-gray-100"}>
+                            {peer.fqdn}
+                        </span>
+                    </CopyToClipboard>
+                    <CopyToClipboard
+                        message={peer.ip}
+                        className={cn("ml-auto shrink-0", "relative left-2.5")}
                     >
-                        {peer.fqdn}
-                    </span>
-                    <span
-                        className={
-                            "ml-auto text-xs font-mono text-nb-gray-400 shrink-0"
-                        }
-                    >
-                        {peer.ip}
-                    </span>
+                        <span className={"text-xs font-mono text-nb-gray-400"}>{peer.ip}</span>
+                    </CopyToClipboard>
                 </li>
             ))}
         </ul>

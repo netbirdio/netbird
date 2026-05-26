@@ -8,6 +8,7 @@ import { useStatus } from "@/modules/daemon-status/StatusContext.tsx";
 import { useProfile } from "@/modules/profile/ProfileContext.tsx";
 import { cn } from "@/lib/cn.ts";
 import { formatErrorMessage } from "@/lib/errors.ts";
+import { CopyToClipboard } from "@/components/CopyToClipboard";
 import netbirdFullLogo from "@/assets/logos/netbird-full.svg";
 
 enum ConnectionState {
@@ -323,22 +324,30 @@ export const ConnectionStatusSwitch = () => {
                 >
                     {t(STATUS_KEY[connState])}
                 </h1>
-                <p
+                <CopyToClipboard
+                    message={fqdn}
                     className={cn(
-                        "font-mono text-xs leading-tight min-h-[1em] text-nb-gray-300 mt-2 transition-opacity duration-300 wails-no-draggable",
-                        showLocal && fqdn ? "opacity-100" : "opacity-0",
+                        "min-h-[1em] transition-opacity duration-300",
+                        "relative left-2.5",
+                        showLocal && fqdn ? "opacity-100" : "opacity-0 pointer-events-none",
                     )}
                 >
-                    {fqdn || " "}
-                </p>
-                <p
+                    <span className={"font-mono text-xs leading-tight text-nb-gray-300"}>
+                        {fqdn || " "}
+                    </span>
+                </CopyToClipboard>
+                <CopyToClipboard
+                    message={ip}
                     className={cn(
-                        "font-mono text-xs leading-tight min-h-[1em] text-nb-gray-300 mt-0.5 transition-opacity duration-300 wails-no-draggable",
-                        showLocal && ip ? "opacity-100" : "opacity-0",
+                        "min-h-[1em] transition-opacity duration-300 ",
+                        "relative left-2.5",
+                        showLocal && ip ? "opacity-100" : "opacity-0 pointer-events-none",
                     )}
                 >
-                    {ip || " "}
-                </p>
+                    <span className={"font-mono text-xs leading-tight text-nb-gray-300"}>
+                        {ip || " "}
+                    </span>
+                </CopyToClipboard>
             </div>
         </div>
     );
