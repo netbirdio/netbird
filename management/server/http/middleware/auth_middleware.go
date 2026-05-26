@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/metric"
 
@@ -25,7 +26,8 @@ type SyncUserJWTGroupsFunc func(ctx context.Context, userAuth auth.UserAuth) err
 
 type GetUserFromUserAuthFunc func(ctx context.Context, userAuth auth.UserAuth) (*types.User, error)
 
-type IsValidChildAccountFunc func(ctx context.Context, userID, accountID, childAccountID string) bool
+// jwtTokenCtxKey carries the parsed JWT token.
+type jwtTokenCtxKey struct{}
 
 // AuthMiddleware middleware to verify personal access tokens (PAT) and JWT tokens
 type AuthMiddleware struct {
@@ -35,7 +37,6 @@ type AuthMiddleware struct {
 	syncUserJWTGroups   SyncUserJWTGroupsFunc
 	rateLimiter         *APIRateLimiter
 	patUsageTracker     *PATUsageTracker
-	isValidChildAccount IsValidChildAccountFunc
 }
 
 // NewAuthMiddleware instance constructor
@@ -46,7 +47,6 @@ func NewAuthMiddleware(
 	getUserFromUserAuth GetUserFromUserAuthFunc,
 	rateLimiter *APIRateLimiter,
 	meter metric.Meter,
-	isValidChildAccount IsValidChildAccountFunc,
 ) *AuthMiddleware {
 	var patUsageTracker *PATUsageTracker
 	if meter != nil {
@@ -64,12 +64,18 @@ func NewAuthMiddleware(
 		getUserFromUserAuth: getUserFromUserAuth,
 		rateLimiter:         rateLimiter,
 		patUsageTracker:     patUsageTracker,
-		isValidChildAccount: isValidChildAccount,
 	}
 }
 
-// Handler method of the middleware which authenticates a user either by JWT claims or by PAT
+// Handler composes the full authentication chain by wrapping the given
+// handler with ValidationHandler followed by AccountAccessHandler.
 func (m *AuthMiddleware) Handler(h http.Handler) http.Handler {
+	return m.ValidationHandler(m.AccountAccessHandler(h))
+}
+
+// ValidationHandler authenticates the caller via JWT or PAT and stores the
+// resulting UserAuth in the request context. It performs no account-level work.
+func (m *AuthMiddleware) ValidationHandler(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if bypass.ShouldBypass(r.URL.Path, h, w, r) {
 			return
@@ -86,14 +92,14 @@ func (m *AuthMiddleware) Handler(h http.Handler) http.Handler {
 
 		switch authType {
 		case "bearer":
-			if err := m.checkJWTFromRequest(r, authHeader); err != nil {
+			if err := m.validateJWT(r, authHeader); err != nil {
 				log.WithContext(r.Context()).Errorf("Error when validating JWT: %s", err.Error())
 				util.WriteError(r.Context(), status.Errorf(status.Unauthorized, "token invalid"), w)
 				return
 			}
 			h.ServeHTTP(w, r)
 		case "token":
-			if err := m.checkPATFromRequest(r, authHeader); err != nil {
+			if err := m.validatePAT(r, authHeader); err != nil {
 				log.WithContext(r.Context()).Debugf("Error when validating PAT: %s", err.Error())
 				// Check if it's a status error, otherwise default to Unauthorized
 				if _, ok := status.FromError(err); !ok {
@@ -110,66 +116,55 @@ func (m *AuthMiddleware) Handler(h http.Handler) http.Handler {
 	})
 }
 
-// CheckJWTFromRequest checks if the JWT is valid
-func (m *AuthMiddleware) checkJWTFromRequest(r *http.Request, authHeaderParts []string) error {
-	token, err := getTokenFromJWTRequest(authHeaderParts)
+// AccountAccessHandler runs post-validation access checks for JWT-authenticated
+// requests. PAT requests pass through unchanged.
+func (m *AuthMiddleware) AccountAccessHandler(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if bypass.ShouldBypass(r.URL.Path, h, w, r) {
+			return
+		}
 
-	// If an error occurs, call the error handler and return an error
+		userAuth, err := nbcontext.GetUserAuthFromRequest(r)
+		if err != nil {
+			util.WriteError(r.Context(), status.Errorf(status.Unauthorized, "no valid authentication provided"), w)
+			return
+		}
+
+		if userAuth.IsPAT {
+			h.ServeHTTP(w, r)
+			return
+		}
+
+		validatedToken, _ := r.Context().Value(jwtTokenCtxKey{}).(*jwt.Token)
+
+		if err := m.applyAccountAccess(r, userAuth, validatedToken); err != nil {
+			log.WithContext(r.Context()).Errorf("Error applying JWT account access: %s", err.Error())
+			util.WriteError(r.Context(), status.Errorf(status.Unauthorized, "token invalid"), w)
+			return
+		}
+
+		h.ServeHTTP(w, r)
+	})
+}
+
+func (m *AuthMiddleware) validateJWT(r *http.Request, authHeaderParts []string) error {
+	token, err := getTokenFromJWTRequest(authHeaderParts)
 	if err != nil {
 		return fmt.Errorf("error extracting token: %w", err)
 	}
 
-	ctx := r.Context()
-
-	userAuth, validatedToken, err := m.authManager.ValidateAndParseToken(ctx, token)
+	userAuth, validatedToken, err := m.authManager.ValidateAndParseToken(r.Context(), token)
 	if err != nil {
-		return err
-	}
-
-	if impersonate, ok := r.URL.Query()["account"]; ok && len(impersonate) == 1 {
-		if m.isValidChildAccount(ctx, userAuth.UserId, userAuth.AccountId, impersonate[0]) {
-			userAuth.AccountId = impersonate[0]
-			userAuth.IsChild = true
-		}
-	}
-
-	// Email is now extracted in ToUserAuth (from claims or userinfo endpoint)
-	// Available as userAuth.Email
-
-	// we need to call this method because if user is new, we will automatically add it to existing or create a new account
-	accountId, _, err := m.ensureAccount(ctx, userAuth)
-	if err != nil {
-		return err
-	}
-
-	if userAuth.AccountId != accountId {
-		log.WithContext(ctx).Tracef("Auth middleware sets accountId from ensure, before %s, now %s", userAuth.AccountId, accountId)
-		userAuth.AccountId = accountId
-	}
-
-	userAuth, err = m.authManager.EnsureUserAccessByJWTGroups(ctx, userAuth, validatedToken)
-	if err != nil {
-		return err
-	}
-
-	err = m.syncUserJWTGroups(ctx, userAuth)
-	if err != nil {
-		log.WithContext(ctx).Errorf("HTTP server failed to sync user JWT groups: %s", err)
-	}
-
-	_, err = m.getUserFromUserAuth(ctx, userAuth)
-	if err != nil {
-		log.WithContext(ctx).Errorf("HTTP server failed to update user from user auth: %s", err)
 		return err
 	}
 
 	// propagates ctx change to upstream middleware
 	*r = *nbcontext.SetUserAuthInRequest(r, userAuth)
+	*r = *r.WithContext(context.WithValue(r.Context(), jwtTokenCtxKey{}, validatedToken))
 	return nil
 }
 
-// CheckPATFromRequest checks if the PAT is valid
-func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, authHeaderParts []string) error {
+func (m *AuthMiddleware) validatePAT(r *http.Request, authHeaderParts []string) error {
 	token, err := getTokenFromPATRequest(authHeaderParts)
 	if err != nil {
 		return fmt.Errorf("error extracting token: %w", err)
@@ -192,8 +187,7 @@ func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, authHeaderParts []
 		return fmt.Errorf("token expired")
 	}
 
-	err = m.authManager.MarkPATUsed(ctx, pat.ID)
-	if err != nil {
+	if err := m.authManager.MarkPATUsed(ctx, pat.ID); err != nil {
 		return err
 	}
 
@@ -205,11 +199,40 @@ func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, authHeaderParts []
 		IsPAT:          true,
 	}
 
-	if impersonate, ok := r.URL.Query()["account"]; ok && len(impersonate) == 1 {
-		if m.isValidChildAccount(r.Context(), userAuth.UserId, userAuth.AccountId, impersonate[0]) {
-			userAuth.AccountId = impersonate[0]
-			userAuth.IsChild = true
-		}
+	// propagates ctx change to upstream middleware
+	*r = *nbcontext.SetUserAuthInRequest(r, userAuth)
+	return nil
+}
+
+// applyAccountAccess executes account-level checks for an authenticated JWT
+// user: ensures the account exists, verifies access via JWT groups, syncs
+// groups, and fetches the user record.
+func (m *AuthMiddleware) applyAccountAccess(r *http.Request, userAuth auth.UserAuth, validatedToken *jwt.Token) error {
+	ctx := r.Context()
+
+	// we need to call this method because if user is new, we will automatically add it to existing or create a new account
+	accountId, _, err := m.ensureAccount(ctx, userAuth)
+	if err != nil {
+		return err
+	}
+
+	if userAuth.AccountId != accountId {
+		log.WithContext(ctx).Tracef("Auth middleware sets accountId from ensure, before %s, now %s", userAuth.AccountId, accountId)
+		userAuth.AccountId = accountId
+	}
+
+	userAuth, err = m.authManager.EnsureUserAccessByJWTGroups(ctx, userAuth, validatedToken)
+	if err != nil {
+		return err
+	}
+
+	if err := m.syncUserJWTGroups(ctx, userAuth); err != nil {
+		log.WithContext(ctx).Errorf("HTTP server failed to sync user JWT groups: %s", err)
+	}
+
+	if _, err := m.getUserFromUserAuth(ctx, userAuth); err != nil {
+		log.WithContext(ctx).Errorf("HTTP server failed to update user from user auth: %s", err)
+		return err
 	}
 
 	// propagates ctx change to upstream middleware

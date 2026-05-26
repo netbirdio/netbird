@@ -23,6 +23,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/management/server/instance"
 	"github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
 	"github.com/netbirdio/netbird/management/server/networks/routers"
@@ -151,6 +152,16 @@ func (s *BaseServer) IdpManager() idp.Manager {
 	})
 }
 
+func (s *BaseServer) InstanceManager() instance.Manager {
+	return Create(s, func() instance.Manager {
+		m, err := instance.NewManager(context.Background(), s.Store(), s.IdpManager())
+		if err != nil {
+			log.Fatalf("failed to create instance manager: %v", err)
+		}
+		return m
+	})
+}
+
 // OAuthConfigProvider is only relevant when we have an embedded IdP service. Otherwise must be nil
 func (s *BaseServer) OAuthConfigProvider() idp.OAuthConfigProvider {
 	if s.Config.EmbeddedIdP == nil || !s.Config.EmbeddedIdP.Enabled {
@@ -229,6 +240,3 @@ func (s *BaseServer) ReverseProxyDomainManager() *manager.Manager {
 	})
 }
 
-func (s *BaseServer) IsValidChildAccount(_ context.Context, _, _, _ string) bool {
-	return false
-}

@@ -211,7 +211,6 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 		},
 		disabledLimiter,
 		nil,
-		func(_ context.Context, _, _, _ string) bool { return false },
 	)
 
 	handlerToTest := authMiddleware.Handler(nextHandler)
@@ -271,7 +270,6 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			},
 			NewAPIRateLimiter(rateLimitConfig),
 			nil,
-			func(_ context.Context, _, _, _ string) bool { return false },
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -324,7 +322,6 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			},
 			NewAPIRateLimiter(rateLimitConfig),
 			nil,
-			func(_ context.Context, _, _, _ string) bool { return false },
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -368,7 +365,6 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			},
 			NewAPIRateLimiter(rateLimitConfig),
 			nil,
-			func(_ context.Context, _, _, _ string) bool { return false },
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -413,7 +409,6 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			},
 			NewAPIRateLimiter(rateLimitConfig),
 			nil,
-			func(_ context.Context, _, _, _ string) bool { return false },
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -478,7 +473,6 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			},
 			NewAPIRateLimiter(rateLimitConfig),
 			nil,
-			func(_ context.Context, _, _, _ string) bool { return false },
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -538,7 +532,6 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			},
 			NewAPIRateLimiter(rateLimitConfig),
 			nil,
-			func(_ context.Context, _, _, _ string) bool { return false },
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -594,7 +587,6 @@ func TestAuthMiddleware_RateLimiting(t *testing.T) {
 			},
 			NewAPIRateLimiter(rateLimitConfig),
 			nil,
-			func(_ context.Context, _, _, _ string) bool { return false },
 		)
 
 		handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -695,7 +687,6 @@ func TestAuthMiddleware_Handler_Child(t *testing.T) {
 		},
 		disabledLimiter,
 		nil,
-		func(_ context.Context, _, _, _ string) bool { return false },
 	)
 
 	for _, tc := range tt {
