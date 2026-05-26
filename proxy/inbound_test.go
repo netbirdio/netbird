@@ -140,7 +140,7 @@ func TestInboundManager_AddRouteAfterReady_RegistersDirectly(t *testing.T) {
 
 // TestPrivateCapability_DerivedFromPrivateOnly tests that the capability
 // bit reported upstream tracks --private exclusively. The previous
-// --private-inbound flag has been folded into --private.
+// --private flag has been folded into --private.
 func TestPrivateCapability_DerivedFromPrivateOnly(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -319,7 +319,7 @@ func TestInboundManager_ListenerInfo(t *testing.T) {
 }
 
 // TestInboundManager_NilManagerSafe ensures the observability accessors
-// are safe to call when --private-inbound is off (nil manager).
+// are safe to call when --private is off (nil manager).
 func TestInboundManager_NilManagerSafe(t *testing.T) {
 	var mgr *inboundManager
 	_, ok := mgr.ListenerInfo("anything")

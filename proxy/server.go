@@ -281,7 +281,7 @@ func (s *Server) NotifyCertificateIssued(ctx context.Context, accountID types.Ac
 }
 
 // inboundListenerProto resolves the per-account inbound listener state for
-// the SendStatusUpdate payload. Returns nil when --private-inbound is off
+// the SendStatusUpdate payload. Returns nil when --private is off
 // or the account has no live listener so management treats the field as
 // absent.
 func (s *Server) inboundListenerProto(accountID types.AccountID) *proto.ProxyInboundListener {
@@ -528,7 +528,7 @@ func (s *Server) initManagementClient() error {
 }
 
 // initNetBirdClient builds the multi-tenant embedded NetBird client used
-// for outbound RoundTripping and (when --private-inbound is on) per-account
+// for outbound RoundTripping and (when --private is on) per-account
 // inbound listeners.
 func (s *Server) initNetBirdClient() {
 	s.netbird = roundtrip.NewNetBird(s.ID, s.ProxyURL, roundtrip.ClientConfig{

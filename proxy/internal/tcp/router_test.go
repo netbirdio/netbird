@@ -1781,11 +1781,14 @@ func TestRouter_PlainHTTP_RoutesToPlainChannel(t *testing.T) {
 		}
 	}()
 
+	tlsListener, ok := router.HTTPListener().(*chanListener)
+	require.True(t, ok, "router.HTTPListener() must be the test's chanListener; the test relies on observing its channel directly")
+
 	select {
 	case conn := <-acceptDone:
 		require.NotNil(t, conn)
 		_ = conn.Close()
-	case <-router.HTTPListener().(*chanListener).ch:
+	case <-tlsListener.ch:
 		t.Fatal("plain HTTP request leaked into TLS channel")
 	case <-time.After(3 * time.Second):
 		t.Fatal("plain HTTP connection never reached plain channel")

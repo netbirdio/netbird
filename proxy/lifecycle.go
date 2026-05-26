@@ -20,14 +20,17 @@ import (
 type Config struct {
 	// ListenAddr is the TCP address the main listener binds. Required.
 	ListenAddr string
-	// ID identifies this proxy instance to management. Empty value lets
-	// New generate a timestamped default.
+	// ID identifies this proxy instance to management. Empty values are
+	// replaced with a timestamped default at Server.Start time (see
+	// initDefaults), not in New.
 	ID string
-	// Logger is the logrus logger used everywhere. Empty value falls back
-	// to log.StandardLogger().
+	// Logger is the logrus logger used everywhere. Empty values fall
+	// back to log.StandardLogger() at Server.Start time (see
+	// initDefaults), not in New.
 	Logger *log.Logger
 	// Version is the build version string reported to management. Empty
-	// becomes "dev".
+	// values are replaced with "dev" at Server.Start time (see
+	// initDefaults), not in New.
 	Version string
 	// ProxyURL is the public address operators use to reach this proxy.
 	ProxyURL string

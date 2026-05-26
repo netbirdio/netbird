@@ -43,7 +43,7 @@ const privateInboundPortHTTPS = 443
 const privateInboundPortHTTP = 80
 
 // inboundManager wires per-account inbound listeners into the proxy
-// pipeline when --private-inbound is enabled. When disabled the manager
+// pipeline when --private is enabled. When disabled the manager
 // is nil and every method on *Server that touches it short-circuits.
 type inboundManager struct {
 	logger    *log.Logger
@@ -390,7 +390,7 @@ func (m *inboundManager) ListenerInfo(accountID types.AccountID) (InboundListene
 }
 
 // Snapshot returns the inbound listener state for every account that has
-// a live listener at call time. Empty when --private-inbound is off or
+// a live listener at call time. Empty when --private is off or
 // no accounts have come up yet.
 func (m *inboundManager) Snapshot() map[types.AccountID]InboundListenerInfo {
 	if m == nil {
@@ -513,7 +513,7 @@ func accountTunnelLookup(client *embed.Client) auth.TunnelLookupFunc {
 // peerstore lookup to every request's context before delegating to next.
 // Calling on the host-level listener is a no-op because that path never
 // installs this wrapper, so the existing behaviour stays byte-for-byte
-// identical when --private-inbound is off or the request didn't arrive
+// identical when --private is off or the request didn't arrive
 // on a per-account listener.
 func withTunnelLookup(next http.Handler, lookup auth.TunnelLookupFunc) http.Handler {
 	if lookup == nil {
