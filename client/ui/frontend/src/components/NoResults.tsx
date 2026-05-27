@@ -9,17 +9,14 @@ type Props = {
     description?: string;
 };
 
-export const NoResults = ({
-    icon = FunnelXIcon,
-    title,
-    description,
-}: Props) => {
+export const NoResults = ({ icon = FunnelXIcon, title, description }: Props) => {
     const { t } = useTranslation();
     return (
         <EmptyState
             icon={icon}
             title={title ?? t("common.noResults.title")}
             description={description ?? t("common.noResults.description")}
+            className={"relative -top-3.5"}
         />
     );
 };

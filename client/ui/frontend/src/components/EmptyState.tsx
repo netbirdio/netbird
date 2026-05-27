@@ -35,7 +35,7 @@ export const EmptyState = ({
                 }
             >
                 <SquareIcon icon={icon} className={"mb-3"} />
-                <p className={"text-base font-semibold text-nb-gray-200 mb-1"}>{title}</p>
+                <p className={"text-base font-medium text-nb-gray-200 mb-1"}>{title}</p>
                 {description && <p className={"text-sm text-nb-gray-350"}>{description}</p>}
                 {learnMoreUrl && learnMoreTopic && (
                     <p className={"text-sm text-nb-gray-350"}>
