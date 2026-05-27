@@ -533,10 +533,9 @@ jobs:
           if ($actual -ne $expected) {
             throw "wintun.zip checksum mismatch: expected $expected, got $actual"
           }
-          "file-path=$dest" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - name: Decompress wintun files
-        run: tar -xvf "${{ steps.download-wintun.outputs.file-path }}" -C ${{ env.downloadPath }}
+        run: tar -xvf "${{ env.downloadPath }}\wintun.zip" -C ${{ env.downloadPath }}
 
       - name: Move wintun.dll into dist
         run: mv ${{ env.downloadPath }}\wintun\bin\${{ matrix.wintun_arch }}\wintun.dll ${{ github.workspace }}\dist\${{ env.PackageWorkdir }}\
@@ -546,7 +545,7 @@ jobs:
         if: matrix.arch == 'amd64'
         shell: pwsh
         run: |
-          $url = "https://downloads.fdossena.com/Projects/Mesa3D/Builds/MesaForWindows-x64-20.1.8.7z"
+          $url = "https://pkgs.netbird.io/mesa3d/MesaForWindows-x64-20.1.8.7z"
           $dest = "${env:downloadPath}\mesa3d.7z"
           $expected = "71c7cb64ec229a1d6b8d62fa08e1889ed2bd17c0eeede8689daf0f25cb31d6b9"
           New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dest) | Out-Null
@@ -555,7 +554,6 @@ jobs:
           if ($actual -ne $expected) {
             throw "mesa3d.7z checksum mismatch: expected $expected, got $actual"
           }
-          "file-path=$dest" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - name: Extract Mesa3D driver (amd64 only)
         if: matrix.arch == 'amd64'
@@ -568,8 +566,15 @@ jobs:
       - name: Download EnVar plugin for NSIS
         shell: pwsh
         run: |
-          Invoke-WebRequest "https://nsis.sourceforge.io/mediawiki/images/7/7f/EnVar_plugin.zip" `
-            -OutFile "${{ github.workspace }}\envar_plugin.zip"
+          $url = "https://pkgs.netbird.io/nsis/EnVar_plugin.zip"
+          $dest = "${{ github.workspace }}\envar_plugin.zip"
+          $expected = "e9aa92de351345ed82795251d838f1ae9041ba35af9d381a5780c7843b01f56a"
+          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dest) | Out-Null
+          Invoke-WebRequest $url -OutFile $dest 
+          $actual = (Get-FileHash $dest -Algorithm SHA256).Hash.ToLower()
+          if ($actual -ne $expected) {
+            throw "envar_plugin.zip checksum mismatch: expected $expected, got $actual"
+          }
 
       - name: Extract EnVar plugin
         run: 7z x -o"${{ github.workspace }}/NSIS_Plugins" "${{ github.workspace }}/envar_plugin.zip"
@@ -578,8 +583,15 @@ jobs:
         if: matrix.arch == 'amd64'
         shell: pwsh
         run: |
-          Invoke-WebRequest "https://nsis.sourceforge.io/mediawiki/images/6/68/ShellExecAsUser_amd64-Unicode.7z" `
-            -OutFile "${{ github.workspace }}\ShellExecAsUser_amd64-Unicode.7z"
+          $url = "https://pkgs.netbird.io/nsis/ShellExecAsUser_amd64-Unicode.7z"
+          $dest = "${{ github.workspace }}\ShellExecAsUser_amd64-Unicode.7z"
+          $expected = "0a55ea25c7330a92cec028eda8afcaf1b1a7092e0dfb77c21c8f654564b4ff9d"
+          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dest) | Out-Null
+          Invoke-WebRequest $url -OutFile $dest 
+          $actual = (Get-FileHash $dest -Algorithm SHA256).Hash.ToLower()
+          if ($actual -ne $expected) {
+            throw "ShellExecAsUser_amd64-Unicode.7z checksum mismatch: expected $expected, got $actual"
+          }
 
       - name: Extract ShellExecAsUser plugin (amd64 only)
         if: matrix.arch == 'amd64'
