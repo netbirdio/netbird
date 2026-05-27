@@ -11,15 +11,19 @@ import (
 
 // Manager defines the interface for proxy operations
 type Manager interface {
-	Connect(ctx context.Context, proxyID, sessionID, clusterAddress, ipAddress string, capabilities *Capabilities) (*Proxy, error)
+	Connect(ctx context.Context, proxyID, sessionID, clusterAddress, ipAddress string, accountID *string, capabilities *Capabilities) (*Proxy, error)
 	Disconnect(ctx context.Context, proxyID, sessionID string) error
 	Heartbeat(ctx context.Context, p *Proxy) error
 	GetActiveClusterAddresses(ctx context.Context) ([]string, error)
-	GetActiveClusters(ctx context.Context) ([]Cluster, error)
+	GetActiveClusterAddressesForAccount(ctx context.Context, accountID string) ([]string, error)
 	ClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
 	ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
 	ClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
 	CleanupStale(ctx context.Context, inactivityDuration time.Duration) error
+	GetAccountProxy(ctx context.Context, accountID string) (*Proxy, error)
+	CountAccountProxies(ctx context.Context, accountID string) (int64, error)
+	IsClusterAddressAvailable(ctx context.Context, clusterAddress, accountID string) (bool, error)
+	DeleteAccountCluster(ctx context.Context, clusterAddress, accountID string) error
 }
 
 // OIDCValidationConfig contains the OIDC configuration needed for token validation.

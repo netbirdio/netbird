@@ -3,12 +3,15 @@ package grpc
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
+	goproto "google.golang.org/protobuf/proto"
 
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
+
 	"github.com/netbirdio/netbird/client/ssh/auth"
 
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -17,8 +20,9 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/types"
-	"github.com/netbirdio/netbird/route"
+	nbroute "github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/netiputil"
 	"github.com/netbirdio/netbird/shared/sshauth"
 )
 
@@ -100,7 +104,7 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 		sshConfig.JwtConfig = buildJWTConfig(httpConfig, deviceFlowConfig)
 	}
 
-	return &proto.PeerConfig{
+	peerConfig := &proto.PeerConfig{
 		Address:                         fmt.Sprintf("%s/%d", peer.IP.String(), netmask),
 		SshConfig:                       sshConfig,
 		Fqdn:                            fqdn,
@@ -111,9 +115,25 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 			AlwaysUpdate: settings.AutoUpdateAlways,
 		},
 	}
+
+	if peer.SupportsIPv6() && peer.IPv6.IsValid() && network.NetV6.IP != nil {
+		ones, _ := network.NetV6.Mask.Size()
+		v6Prefix := netip.PrefixFrom(peer.IPv6.Unmap(), ones)
+		if b, err := netiputil.EncodePrefix(v6Prefix); err == nil {
+			peerConfig.AddressV6 = b
+		}
+	}
+
+	return peerConfig
 }
 
 func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, peer *nbpeer.Peer, turnCredentials *Token, relayCredentials *Token, networkMap *types.NetworkMap, dnsName string, checks []*posture.Checks, dnsCache *cache.DNSConfigCache, settings *types.Settings, extraSettings *types.ExtraSettings, peerGroups []string, dnsFwdPort int64) *proto.SyncResponse {
+	// IPv6 data in AllowedIPs and SourcePrefixes wildcard expansion depends on
+	// whether the target peer supports IPv6. Routes and firewall rules are already
+	// filtered at the source (network map builder).
+	includeIPv6 := peer.SupportsIPv6() && peer.IPv6.IsValid()
+	useSourcePrefixes := peer.SupportsSourcePrefixes()
+
 	response := &proto.SyncResponse{
 		PeerConfig: toPeerConfig(peer, networkMap.Network, dnsName, settings, httpConfig, deviceFlowConfig, networkMap.EnableSSH),
 		NetworkMap: &proto.NetworkMap{
@@ -132,15 +152,15 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 	response.NetworkMap.PeerConfig = response.PeerConfig
 
 	remotePeers := make([]*proto.RemotePeerConfig, 0, len(networkMap.Peers)+len(networkMap.OfflinePeers))
-	remotePeers = appendRemotePeerConfig(remotePeers, networkMap.Peers, dnsName)
+	remotePeers = appendRemotePeerConfig(remotePeers, networkMap.Peers, dnsName, includeIPv6)
 	response.RemotePeers = remotePeers
 	response.NetworkMap.RemotePeers = remotePeers
 	response.RemotePeersIsEmpty = len(remotePeers) == 0
 	response.NetworkMap.RemotePeersIsEmpty = response.RemotePeersIsEmpty
 
-	response.NetworkMap.OfflinePeers = appendRemotePeerConfig(nil, networkMap.OfflinePeers, dnsName)
+	response.NetworkMap.OfflinePeers = appendRemotePeerConfig(nil, networkMap.OfflinePeers, dnsName, includeIPv6)
 
-	firewallRules := toProtocolFirewallRules(networkMap.FirewallRules)
+	firewallRules := toProtocolFirewallRules(networkMap.FirewallRules, includeIPv6, useSourcePrefixes)
 	response.NetworkMap.FirewallRules = firewallRules
 	response.NetworkMap.FirewallRulesIsEmpty = len(firewallRules) == 0
 
@@ -195,11 +215,15 @@ func buildAuthorizedUsersProto(ctx context.Context, authorizedUsers map[string]m
 	return hashedUsers, machineUsers
 }
 
-func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer, dnsName string) []*proto.RemotePeerConfig {
+func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer, dnsName string, includeIPv6 bool) []*proto.RemotePeerConfig {
 	for _, rPeer := range peers {
+		allowedIPs := []string{rPeer.IP.String() + "/32"}
+		if includeIPv6 && rPeer.IPv6.IsValid() {
+			allowedIPs = append(allowedIPs, rPeer.IPv6.String()+"/128")
+		}
 		dst = append(dst, &proto.RemotePeerConfig{
 			WgPubKey:     rPeer.Key,
-			AllowedIps:   []string{rPeer.IP.String() + "/32"},
+			AllowedIps:   allowedIPs,
 			SshConfig:    &proto.SSHConfig{SshPubKey: []byte(rPeer.SSHKey)},
 			Fqdn:         rPeer.FQDN(dnsName),
 			AgentVersion: rPeer.Meta.WtVersion,
@@ -253,7 +277,7 @@ func ToResponseProto(configProto nbconfig.Protocol) proto.HostConfig_Protocol {
 	}
 }
 
-func toProtocolRoutes(routes []*route.Route) []*proto.Route {
+func toProtocolRoutes(routes []*nbroute.Route) []*proto.Route {
 	protoRoutes := make([]*proto.Route, 0, len(routes))
 	for _, r := range routes {
 		protoRoutes = append(protoRoutes, toProtocolRoute(r))
@@ -261,7 +285,7 @@ func toProtocolRoutes(routes []*route.Route) []*proto.Route {
 	return protoRoutes
 }
 
-func toProtocolRoute(route *route.Route) *proto.Route {
+func toProtocolRoute(route *nbroute.Route) *proto.Route {
 	return &proto.Route{
 		ID:            string(route.ID),
 		NetID:         string(route.NetID),
@@ -277,27 +301,68 @@ func toProtocolRoute(route *route.Route) *proto.Route {
 }
 
 // toProtocolFirewallRules converts the firewall rules to the protocol firewall rules.
-func toProtocolFirewallRules(rules []*types.FirewallRule) []*proto.FirewallRule {
-	result := make([]*proto.FirewallRule, len(rules))
+// When useSourcePrefixes is true, the compact SourcePrefixes field is populated
+// alongside the deprecated PeerIP for forward compatibility.
+// Wildcard rules ("0.0.0.0") are expanded into separate v4 and v6 SourcePrefixes
+// when includeIPv6 is true.
+func toProtocolFirewallRules(rules []*types.FirewallRule, includeIPv6, useSourcePrefixes bool) []*proto.FirewallRule {
+	result := make([]*proto.FirewallRule, 0, len(rules))
 	for i := range rules {
 		rule := rules[i]
 
 		fwRule := &proto.FirewallRule{
 			PolicyID:  []byte(rule.PolicyID),
-			PeerIP:    rule.PeerIP,
+			PeerIP:    rule.PeerIP, //nolint:staticcheck // populated for backward compatibility
 			Direction: getProtoDirection(rule.Direction),
 			Action:    getProtoAction(rule.Action),
 			Protocol:  getProtoProtocol(rule.Protocol),
 			Port:      rule.Port,
 		}
 
+		if useSourcePrefixes && rule.PeerIP != "" {
+			result = append(result, populateSourcePrefixes(fwRule, rule, includeIPv6)...)
+		}
+
 		if shouldUsePortRange(fwRule) {
 			fwRule.PortInfo = rule.PortRange.ToProto()
 		}
 
-		result[i] = fwRule
+		result = append(result, fwRule)
 	}
 	return result
+}
+
+
+// populateSourcePrefixes sets SourcePrefixes on fwRule and returns any
+// additional rules needed (e.g. a v6 wildcard clone when the peer IP is unspecified).
+func populateSourcePrefixes(fwRule *proto.FirewallRule, rule *types.FirewallRule, includeIPv6 bool) []*proto.FirewallRule {
+	addr, err := netip.ParseAddr(rule.PeerIP)
+	if err != nil {
+		return nil
+	}
+
+	if !addr.IsUnspecified() {
+		fwRule.SourcePrefixes = [][]byte{netiputil.EncodeAddr(addr.Unmap())}
+		return nil
+	}
+
+	// IPv4Unspecified/0 is always valid, error is impossible.
+	v4Wildcard, _ := netiputil.EncodePrefix(netip.PrefixFrom(netip.IPv4Unspecified(), 0))
+	fwRule.SourcePrefixes = [][]byte{v4Wildcard}
+
+	if !includeIPv6 {
+		return nil
+	}
+
+	v6Rule := goproto.Clone(fwRule).(*proto.FirewallRule)
+	v6Rule.PeerIP = "::" //nolint:staticcheck // populated for backward compatibility
+	// IPv6Unspecified/0 is always valid, error is impossible.
+	v6Wildcard, _ := netiputil.EncodePrefix(netip.PrefixFrom(netip.IPv6Unspecified(), 0))
+	v6Rule.SourcePrefixes = [][]byte{v6Wildcard}
+	if shouldUsePortRange(v6Rule) {
+		v6Rule.PortInfo = rule.PortRange.ToProto()
+	}
+	return []*proto.FirewallRule{v6Rule}
 }
 
 // getProtoDirection converts the direction to proto.RuleDirection.

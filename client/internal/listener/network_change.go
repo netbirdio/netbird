@@ -5,4 +5,5 @@ type NetworkChangeListener interface {
 	// OnNetworkChanged invoke when network settings has been changed
 	OnNetworkChanged(string)
 	SetInterfaceIP(string)
+	SetInterfaceIPv6(string)
 }

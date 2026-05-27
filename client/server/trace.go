@@ -24,14 +24,9 @@ func (s *Server) TracePacket(_ context.Context, req *proto.TracePacketRequest) (
 		return nil, err
 	}
 
-	srcAddr, err := s.parseAddress(req.GetSourceIp(), engine)
+	srcAddr, dstAddr, err := s.resolveTraceAddresses(req.GetSourceIp(), req.GetDestinationIp(), engine)
 	if err != nil {
-		return nil, fmt.Errorf("invalid source IP address: %w", err)
-	}
-
-	dstAddr, err := s.parseAddress(req.GetDestinationIp(), engine)
-	if err != nil {
-		return nil, fmt.Errorf("invalid destination IP address: %w", err)
+		return nil, err
 	}
 
 	protocol, err := s.parseProtocol(req.GetProtocol())
@@ -89,16 +84,73 @@ func (s *Server) getPacketTracer() (packetTracer, *internal.Engine, error) {
 	return tracer, engine, nil
 }
 
-func (s *Server) parseAddress(addr string, engine *internal.Engine) (netip.Addr, error) {
-	if addr == "self" {
-		return engine.GetWgAddr(), nil
+// resolveTraceAddresses parses src/dst, resolving "self" to the local overlay
+// address matching the peer's address family.
+func (s *Server) resolveTraceAddresses(src, dst string, engine *internal.Engine) (netip.Addr, netip.Addr, error) {
+	srcSelf := src == "self"
+	dstSelf := dst == "self"
+
+	if srcSelf && dstSelf {
+		return netip.Addr{}, netip.Addr{}, fmt.Errorf("both source and destination cannot be 'self'")
 	}
 
+	var srcAddr, dstAddr netip.Addr
+	var err error
+
+	// Parse the non-self address first so we know the family for self resolution.
+	if !srcSelf {
+		if srcAddr, err = parseAddr(src); err != nil {
+			return netip.Addr{}, netip.Addr{}, fmt.Errorf("invalid source IP: %w", err)
+		}
+	}
+	if !dstSelf {
+		if dstAddr, err = parseAddr(dst); err != nil {
+			return netip.Addr{}, netip.Addr{}, fmt.Errorf("invalid destination IP: %w", err)
+		}
+	}
+
+	// Determine the peer address to pick the right self address.
+	peer := srcAddr
+	if srcSelf {
+		peer = dstAddr
+	}
+
+	if srcSelf {
+		if srcAddr, err = selfAddr(engine, peer); err != nil {
+			return netip.Addr{}, netip.Addr{}, err
+		}
+	}
+	if dstSelf {
+		if dstAddr, err = selfAddr(engine, peer); err != nil {
+			return netip.Addr{}, netip.Addr{}, err
+		}
+	}
+
+	return srcAddr, dstAddr, nil
+}
+
+func selfAddr(engine *internal.Engine, peer netip.Addr) (netip.Addr, error) {
+	var addr netip.Addr
+	if peer.Is6() {
+		addr = engine.GetWgV6Addr()
+	} else {
+		addr = engine.GetWgAddr()
+	}
+	if !addr.IsValid() {
+		family := "IPv4"
+		if peer.Is6() {
+			family = "IPv6"
+		}
+		return netip.Addr{}, fmt.Errorf("no local %s overlay address configured", family)
+	}
+	return addr, nil
+}
+
+func parseAddr(addr string) (netip.Addr, error) {
 	a, err := netip.ParseAddr(addr)
 	if err != nil {
 		return netip.Addr{}, err
 	}
-
 	return a.Unmap(), nil
 }
 
