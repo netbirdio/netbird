@@ -69,7 +69,7 @@ jobs:
           envs: "GO_VERSION"
           prepare: |
             # Install required packages
-            pkg install -y git curl portlint go
+            pkg install -y git curl portlint
 
             # Install Go for building
             GO_TARBALL="go${GO_VERSION}.freebsd-amd64.tar.gz"
