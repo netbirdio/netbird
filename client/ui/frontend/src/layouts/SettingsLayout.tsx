@@ -9,12 +9,11 @@ import { ProfileProvider } from "@/modules/profile/ProfileContext.tsx";
 // settings window has its own native title bar and doesn't show the profile
 // selector / panel toggle / settings icon.
 //
-// The 38px placeholder strip at the top accounts for the macOS
+// The h-10 placeholder strip at the top accounts for the macOS
 // `MacTitleBarHiddenInset` setting in services/windowmanager.go: the native
 // title bar is invisible but the traffic-light buttons still float in the
-// top-left corner. Without this strip the buttons would overlap the settings
-// content. The strip is `wails-draggable` so users can move the window by
-// dragging it.
+// top-left corner. The height also mirrors the main window's Header so the
+// MainRightSide panel ends up the same height in both windows.
 export const SettingsLayout = () => {
     return (
         <div className={"relative flex h-full flex-col select-none"}>
@@ -24,7 +23,7 @@ export const SettingsLayout = () => {
                         <ClientVersionProvider>
                             <div
                                 className={
-                                    "wails-draggable cursor-default select-none h-[38px] shrink-0"
+                                    "wails-draggable cursor-default select-none h-12 shrink-0"
                                 }
                             />
                             <Outlet />

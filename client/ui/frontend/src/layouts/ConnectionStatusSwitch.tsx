@@ -319,7 +319,7 @@ export const ConnectionStatusSwitch = () => {
             <div className={"flex flex-col items-center"}>
                 <h1
                     className={
-                        "text-sm font-medium text-nb-gray-200 tracking-wide transition-colors duration-300 select-none wails-no-draggable"
+                        "text-sm font-medium text-nb-gray-200 tracking-wide transition-colors duration-300 select-none wails-no-draggable mb-1"
                     }
                 >
                     {t(STATUS_KEY[connState])}
@@ -339,7 +339,7 @@ export const ConnectionStatusSwitch = () => {
                 <CopyToClipboard
                     message={ip}
                     className={cn(
-                        "min-h-[1em] transition-opacity duration-300 ",
+                        "min-h-[1em] transition-opacity duration-300",
                         "relative left-[0.55rem]",
                         showLocal && ip ? "opacity-100" : "opacity-0 pointer-events-none",
                     )}

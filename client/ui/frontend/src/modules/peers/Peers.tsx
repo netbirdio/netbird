@@ -1,13 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
+import { LaptopIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { SearchInput } from "@/components/SearchInput";
+import { EmptyState } from "@/components/EmptyState";
+import { NoResults } from "@/components/NoResults";
+import { NotConnectedState } from "@/components/NotConnectedState";
 import { useStatus } from "@/modules/daemon-status/StatusContext";
+import {
+    formatShortcut,
+    useKeyboardShortcut,
+} from "@/lib/useKeyboardShortcut";
 import { PeerFilters, StatusFilter } from "./PeerFilters";
 import { PeersList } from "./PeersList";
 
 const isOnline = (connStatus: string) => connStatus === "Connected";
+
+const SEARCH_SHORTCUT = { key: "k", cmd: true } as const;
 
 export const Peers = () => {
     const { t } = useTranslation();
@@ -23,6 +33,12 @@ export const Peers = () => {
         searchRef.current?.focus();
     }, []);
 
+    useKeyboardShortcut(SEARCH_SHORTCUT, () => {
+        searchRef.current?.focus();
+        searchRef.current?.select();
+    });
+
+    const isConnected = status?.status === "Connected";
     const peers = status?.peers ?? [];
 
     const counts = useMemo<Record<StatusFilter, number>>(() => {
@@ -54,6 +70,32 @@ export const Peers = () => {
         });
     }, [peers, search, statusFilter]);
 
+    if (!isConnected) {
+        return (
+            <div className={"flex flex-col w-full h-full min-h-0"}>
+                <NotConnectedState />
+            </div>
+        );
+    }
+
+    if (peers.length === 0) {
+        return (
+            <div
+                className={
+                    "flex-1 flex items-center justify-center px-6 w-full h-full min-h-0"
+                }
+            >
+                <EmptyState
+                    icon={LaptopIcon}
+                    title={t("peers.empty.title")}
+                    description={t("peers.empty.description")}
+                    learnMoreUrl={"https://docs.netbird.io/how-to/getting-started"}
+                    learnMoreTopic={t("nav.peers.title")}
+                />
+            </div>
+        );
+    }
+
     return (
         <div className={"flex flex-col w-full h-full min-h-0 pt-4"}>
             <div className={"flex flex-col gap-3 px-6"}>
@@ -62,6 +104,7 @@ export const Peers = () => {
                     placeholder={t("peers.search.placeholder")}
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
+                    shortcut={formatShortcut(SEARCH_SHORTCUT)}
                 />
                 <PeerFilters
                     value={statusFilter}
@@ -74,7 +117,11 @@ export const Peers = () => {
                 className={"flex-1 min-h-0 overflow-hidden mt-3"}
             >
                 <ScrollArea.Viewport className={"h-full w-full"}>
-                    <PeersList data={filtered} />
+                    {filtered.length === 0 ? (
+                        <NoResults />
+                    ) : (
+                        <PeersList data={filtered} />
+                    )}
                 </ScrollArea.Viewport>
                 <ScrollArea.Scrollbar
                     orientation={"vertical"}

@@ -1,10 +1,9 @@
+import * as RadioGroup from "@radix-ui/react-radio-group";
 import { useTranslation } from "react-i18next";
 import type { Network } from "@bindings/services/models.js";
 import { cn } from "@/lib/cn";
-import { CopyToClipboard } from "@/components/CopyToClipboard";
 
-const dotClass = (selected: boolean): string =>
-    selected ? "bg-green-400" : "bg-nb-gray-500";
+const NONE_VALUE = "__none__";
 
 type Props = {
     data: Network[];
@@ -13,49 +12,64 @@ type Props = {
 
 export const ExitNodesList = ({ data, onToggle }: Props) => {
     const { t } = useTranslation();
-    if (data.length === 0) {
-        return (
-            <div className={"py-12 text-center text-sm text-nb-gray-400"}>
-                {t("exitNodes.empty")}
-            </div>
-        );
-    }
+    const active = data.find((n) => n.selected) ?? null;
+    const value = active?.id ?? NONE_VALUE;
+
+    const handleChange = (next: string) => {
+        if (next === value) return;
+        if (next === NONE_VALUE) {
+            if (active) onToggle(active.id, true);
+            return;
+        }
+        onToggle(next, false);
+    };
 
     return (
-        <ul className={"flex flex-col"}>
+        <RadioGroup.Root
+            value={value}
+            onValueChange={handleChange}
+            className={"flex flex-col"}
+        >
+            <Row value={NONE_VALUE} label={t("exitNodes.none")} />
             {data.map((n) => (
-                <li
-                    key={n.id}
-                    className={"flex items-center gap-3 px-7 py-3 min-w-0"}
-                >
-                    <button
-                        type={"button"}
-                        onClick={() => onToggle(n.id, n.selected)}
-                        className={cn(
-                            "h-2 w-2 rounded-full shrink-0 cursor-pointer",
-                            dotClass(n.selected),
-                        )}
-                        title={
-                            n.selected
-                                ? t("exitNodes.active")
-                                : t("exitNodes.inactive")
-                        }
-                    />
-                    <CopyToClipboard message={n.id} className={"min-w-0 flex-1"}>
-                        <span className={"text-[0.81rem] font-medium text-nb-gray-100"}>
-                            {n.id}
-                        </span>
-                    </CopyToClipboard>
-                    <CopyToClipboard
-                        message={n.range}
-                        className={cn("ml-auto shrink-0", "relative left-2.5")}
-                    >
-                        <span className={"text-xs font-mono text-nb-gray-400"}>
-                            {n.range}
-                        </span>
-                    </CopyToClipboard>
-                </li>
+                <Row key={n.id} value={n.id} label={n.id} />
             ))}
-        </ul>
+        </RadioGroup.Root>
     );
 };
+
+type RowProps = {
+    value: string;
+    label: string;
+};
+
+const Row = ({ value, label }: RowProps) => (
+    <RadioGroup.Item
+        value={value}
+        className={cn(
+            "group flex items-center gap-3 px-7 py-3 min-w-0 text-left outline-none",
+            "cursor-pointer wails-no-draggable",
+            "hover:bg-nb-gray-900/40",
+        )}
+    >
+        <span
+            className={cn(
+                "h-4 w-4 shrink-0 rounded-full border",
+                "border-nb-gray-700 bg-nb-gray-900",
+                "flex items-center justify-center",
+                "group-data-[state=checked]:border-netbird group-data-[state=checked]:bg-netbird",
+            )}
+        >
+            <RadioGroup.Indicator
+                className={"h-2 w-2 rounded-full bg-white"}
+            />
+        </span>
+        <span
+            className={
+                "text-[0.81rem] font-medium text-nb-gray-100 truncate min-w-0 flex-1"
+            }
+        >
+            {label}
+        </span>
+    </RadioGroup.Item>
+);

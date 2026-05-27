@@ -5,6 +5,7 @@ import { cn } from "@/lib/cn";
 type SwitchItemGroupContextValue = {
     value: string;
     layoutId: string;
+    disabled: boolean;
 };
 
 const SwitchItemGroupContext = createContext<SwitchItemGroupContextValue | null>(null);
@@ -22,18 +23,27 @@ type Props = {
     onChange: (value: string) => void;
     children: ReactNode;
     className?: string;
+    disabled?: boolean;
 };
 
-export const SwitchItemGroup = ({ value, onChange, children, className }: Props) => {
+export const SwitchItemGroup = ({
+    value,
+    onChange,
+    children,
+    className,
+    disabled = false,
+}: Props) => {
     const layoutId = useId();
 
     return (
-        <SwitchItemGroupContext.Provider value={{ value, layoutId }}>
+        <SwitchItemGroupContext.Provider value={{ value, layoutId, disabled }}>
             <RadioGroup.Root
                 value={value}
                 onValueChange={onChange}
+                disabled={disabled}
                 className={cn(
                     "flex shrink-0 rounded-lg border border-nb-gray-850 bg-nb-gray-910 p-1 overflow-hidden",
+                    disabled && "opacity-50 pointer-events-none",
                     className,
                 )}
             >

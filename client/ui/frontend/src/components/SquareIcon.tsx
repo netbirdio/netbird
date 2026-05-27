@@ -14,7 +14,7 @@ type SquareIconProps = {
 export const SquareIcon = ({ icon: Icon, iconSize = 20, className }: SquareIconProps) => (
     <div
         className={cn(
-            "h-11 w-11 rounded-xl flex items-center justify-center bg-nb-gray-920 border border-nb-gray-900 text-white",
+            "h-11 w-11 rounded-lg flex items-center justify-center bg-nb-gray-920 border border-nb-gray-900 text-white",
             className,
         )}
     >

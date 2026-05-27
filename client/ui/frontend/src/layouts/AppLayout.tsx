@@ -1,5 +1,6 @@
 import { Outlet } from "react-router-dom";
 import { Header } from "@/layouts/Header.tsx";
+import { NavSectionProvider } from "@/lib/navSection";
 import { ViewModeProvider } from "@/lib/viewMode";
 import { ClientVersionProvider } from "@/modules/auto-update/ClientVersionContext.tsx";
 import { StatusProvider } from "@/modules/daemon-status/StatusContext.tsx";
@@ -14,8 +15,10 @@ export const AppLayout = () => {
                     <DebugBundleProvider>
                         <ClientVersionProvider>
                             <ViewModeProvider>
-                                <Header />
-                                <Outlet />
+                                <NavSectionProvider>
+                                    <Header />
+                                    <Outlet />
+                                </NavSectionProvider>
                             </ViewModeProvider>
                         </ClientVersionProvider>
                     </DebugBundleProvider>

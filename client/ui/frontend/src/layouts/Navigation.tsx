@@ -1,75 +1,79 @@
-import { useMemo } from "react";
+import { ComponentType } from "react";
 import { useTranslation } from "react-i18next";
-import { Layers3Icon, MonitorSmartphoneIcon, SquareArrowUpRight } from "lucide-react";
-import { CardNavItem } from "@/components/CardNavItem.tsx";
+import { Layers3Icon, LucideProps, MonitorSmartphoneIcon, SquareArrowUpRight } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { useNavSection, type NavSection } from "@/lib/navSection";
 import { useStatus } from "@/modules/daemon-status/StatusContext";
-import { useNetworks } from "@/modules/networks/NetworksContext";
 
-export type NavSection = "peers" | "networks" | "exitNode";
-
-type Props = {
-    active: NavSection;
-    onSelect: (section: NavSection) => void;
+type TabEntry = {
+    value: NavSection;
+    label: string;
+    icon: ComponentType<LucideProps>;
 };
 
-export const Navigation = ({ active, onSelect }: Props) => {
+export const Navigation = () => {
     const { t } = useTranslation();
+    const { section, setSection } = useNavSection();
     const { status } = useStatus();
-    const { networkRoutes, exitNodes, activeExitNode } = useNetworks();
+    const isConnected = status?.status === "Connected";
 
-    const peerCounts = useMemo(() => {
-        const peers = status?.peers ?? [];
-        const online = peers.filter((p) => p.connStatus === "Connected").length;
-        return { online, total: peers.length };
-    }, [status?.peers]);
-
-    const networkCounts = useMemo(
-        () => ({
-            active: networkRoutes.filter((r) => r.selected).length,
-            total: networkRoutes.length,
-        }),
-        [networkRoutes],
-    );
-
-    const exitNodeDescription = activeExitNode
-        ? activeExitNode.id
-        : t("nav.exitNode.none", { total: exitNodes.length });
+    const tabs: TabEntry[] = [
+        {
+            value: "peers",
+            label: t("nav.peers.title"),
+            icon: MonitorSmartphoneIcon,
+        },
+        {
+            value: "networks",
+            label: t("nav.resources.title"),
+            icon: Layers3Icon,
+        },
+        {
+            value: "exitNode",
+            label: t("nav.exitNode.title"),
+            icon: ExitNodeIcon,
+        },
+    ];
 
     return (
-        <nav className={"w-full flex flex-col gap-1 mt-auto"}>
-            <CardNavItem
-                icon={MonitorSmartphoneIcon}
-                title={t("nav.peers.title")}
-                description={t("nav.peers.description", peerCounts)}
-                active={active === "peers"}
-                onClick={() => onSelect("peers")}
-            />
-            <CardNavItem
-                icon={Layers3Icon}
-                title={t("nav.resources.title")}
-                description={t("nav.resources.description", networkCounts)}
-                iconSize={14}
-                active={active === "networks"}
-                onClick={() => onSelect("networks")}
-            />
-            <CardNavItem
-                iconNode={
-                    <SquareArrowUpRight
-                        size={14}
+        <div className={"wails-no-draggable shrink-0 flex items-stretch"}>
+            {tabs.map((tab) => {
+                const isActive = tab.value === section;
+                const isDisabled = !isConnected && !isActive;
+                const Icon = tab.icon;
+                return (
+                    <button
+                        key={tab.value}
+                        type={"button"}
+                        onClick={() => setSection(tab.value)}
+                        disabled={isDisabled}
                         className={cn(
-                            "transition-colors duration-150 rotate-45",
-                            active === "exitNode"
-                                ? "text-nb-gray-200"
-                                : "text-nb-gray-400",
+                            "group relative flex flex-1 items-center justify-center",
+                            "gap-2.5 px-5 py-3",
+                            "outline-none transition-all",
+                            isActive ? "text-netbird" : "text-nb-gray-500 hover:text-nb-gray-400",
+                            isDisabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer",
                         )}
-                    />
-                }
-                title={t("nav.exitNode.title")}
-                description={exitNodeDescription}
-                active={active === "exitNode"}
-                onClick={() => onSelect("exitNode")}
-            />
-        </nav>
+                    >
+                        <Icon size={14} />
+                        <span className={"text-sm font-normal"}>{tab.label}</span>
+                        <span
+                            className={cn(
+                                "absolute inset-x-0 bottom-0 h-px transition-all",
+                                isActive
+                                    ? "bg-netbird"
+                                    : "bg-nb-gray-900 group-hover:bg-nb-gray-600",
+                            )}
+                        />
+                    </button>
+                );
+            })}
+        </div>
     );
 };
+
+const ExitNodeIcon = (props: LucideProps) => (
+    <SquareArrowUpRight {...props} className={cn("rotate-45", props.className)} />
+);
+
+export type { NavSection } from "@/lib/navSection";

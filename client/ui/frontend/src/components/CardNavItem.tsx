@@ -1,9 +1,13 @@
-import { ComponentType, forwardRef, ReactNode } from "react";
-import { motion, HTMLMotionProps } from "framer-motion";
+import {
+    ButtonHTMLAttributes,
+    ComponentType,
+    forwardRef,
+    ReactNode,
+} from "react";
 import { LucideProps } from "lucide-react";
 import { cn } from "@/lib/cn";
 
-type Props = HTMLMotionProps<"button"> & {
+type Props = ButtonHTMLAttributes<HTMLButtonElement> & {
     icon?: ComponentType<LucideProps>;
     iconNode?: ReactNode;
     title: string;
@@ -28,10 +32,9 @@ export const CardNavItem = forwardRef<HTMLButtonElement, Props>(
         ref,
     ) {
         return (
-            <motion.button
+            <button
                 ref={ref}
                 type={type}
-                whileTap={{ scale: 0.98 }}
                 className={cn(
                     "w-full flex items-center gap-3 p-1.5 rounded-lg cursor-default outline-none text-left",
                     "transition-colors duration-150",
@@ -77,7 +80,7 @@ export const CardNavItem = forwardRef<HTMLButtonElement, Props>(
                         </p>
                     )}
                 </div>
-            </motion.button>
+            </button>
         );
     },
 );

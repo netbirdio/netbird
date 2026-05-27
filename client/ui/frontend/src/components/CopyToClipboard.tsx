@@ -8,6 +8,7 @@ type CopyToClipboardProps = {
     size?: number;
     iconAlignment?: "left" | "right";
     className?: string;
+    iconClassName?: string;
     alwaysShowIcon?: boolean;
 };
 
@@ -17,6 +18,7 @@ export const CopyToClipboard = ({
     size = 10,
     iconAlignment = "right",
     className,
+    iconClassName,
     alwaysShowIcon = false,
 }: CopyToClipboardProps) => {
     const wrapperRef = useRef<HTMLDivElement>(null);
@@ -57,6 +59,7 @@ export const CopyToClipboard = ({
                 className={cn(
                     "shrink-0 inline-flex relative top-[2px] right-[1px]",
                     iconAlignment === "left" ? "order-first" : "order-last",
+                    iconClassName,
                 )}
             >
                 <Check
