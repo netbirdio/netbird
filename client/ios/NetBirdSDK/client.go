@@ -217,6 +217,7 @@ func (c *Client) DebugBundle(anonymize bool) (string, error) {
 		InternalConfig: cfg,
 		StatusRecorder: c.recorder,
 		TempDir:        c.cacheDir,
+		StatePath:      c.stateFile,
 	}
 
 	if cc != nil {
