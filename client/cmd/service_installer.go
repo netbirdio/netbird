@@ -67,6 +67,11 @@ func buildServiceArguments() []string {
 		args = append(args, "--disable-networks")
 	}
 
+	args = append(args, "--json-socket", jsonSocket)
+	if jsonSocketDisabled {
+		args = append(args, "--disable-json-socket")
+	}
+
 	return args
 }
 

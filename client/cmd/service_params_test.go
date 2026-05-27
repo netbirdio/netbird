@@ -530,6 +530,7 @@ func fieldToGlobalVar(field string) string {
 	m := map[string]string{
 		"LogLevel":              "logLevel",
 		"DaemonAddr":            "daemonAddr",
+		"JSONSocket":            "jsonSocket",
 		"ManagementURL":         "managementURL",
 		"ConfigPath":            "configPath",
 		"LogFiles":              "logFiles",
@@ -537,6 +538,7 @@ func fieldToGlobalVar(field string) string {
 		"DisableUpdateSettings": "updateSettingsDisabled",
 		"EnableCapture":         "captureEnabled",
 		"DisableNetworks":       "networksDisabled",
+		"DisableJSONSocket":     "jsonSocketDisabled",
 		"ServiceEnvVars":        "serviceEnvVars",
 	}
 	if v, ok := m[field]; ok {
