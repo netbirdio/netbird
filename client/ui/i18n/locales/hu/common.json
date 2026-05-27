@@ -38,6 +38,7 @@
     "notify.error.connect": "Csatlakozás sikertelen",
     "notify.error.disconnect": "Bontás sikertelen",
     "notify.error.switchProfile": "Átváltás sikertelen erre: {profile}",
+    "notify.error.exitNode": "A kilépő csomópont frissítése sikertelen: {name}",
     "notify.sessionExpired.title": "NetBird munkamenet lejárt",
     "notify.sessionExpired.body": "A NetBird munkamenet lejárt. Kérjük, jelentkezzen be újra.",
     "notify.sessionWarning.title": "Munkamenet hamarosan lejár",

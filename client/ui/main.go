@@ -167,7 +167,8 @@ func main() {
 	authSession := authsession.NewSession(conn)
 	app.RegisterService(application.NewService(services.NewSession(authSession)))
 	app.RegisterService(application.NewService(settings))
-	app.RegisterService(application.NewService(services.NewNetworks(conn)))
+	networks := services.NewNetworks(conn)
+	app.RegisterService(application.NewService(networks))
 	app.RegisterService(application.NewService(services.NewForwarding(conn)))
 	app.RegisterService(application.NewService(profiles))
 	app.RegisterService(application.NewService(services.NewDebug(conn)))
@@ -233,6 +234,7 @@ func main() {
 		Connection:      connection,
 		Settings:        settings,
 		Profiles:        profiles,
+		Networks:        networks,
 		Peers:           peers,
 		Notifier:        notifier,
 		Update:          update,

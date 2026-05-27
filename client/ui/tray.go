@@ -73,6 +73,7 @@ type TrayServices struct {
 	Connection      *services.Connection
 	Settings        *services.Settings
 	Profiles        *services.Profiles
+	Networks        *services.Networks
 	Peers           *services.Peers
 	Notifier        *notifications.NotificationService
 	Update          *services.Update
@@ -122,9 +123,18 @@ type Tray struct {
 
 	updater *trayUpdater
 
-	mu                   sync.Mutex
-	connected            bool
-	exitNodes            []string
+	mu        sync.Mutex
+	connected bool
+	// exitNodes are the rows currently painted into the Exit Node submenu,
+	// sourced from Networks.List() (NetID + selected state) so each row can be
+	// toggled. lastNetworksRevision is the daemon's routed-networks revision
+	// from the last Status snapshot; a bump in it — or a connect/disconnect
+	// transition — is what triggers a refreshExitNodes re-fetch, so we hit
+	// ListNetworks only when routes or their selection actually change rather
+	// than on every push. The peer-status route list can't be used here: it
+	// only carries actively-routed (chosen) routes, not candidate exit nodes.
+	exitNodes            []exitNodeEntry
+	lastNetworksRevision uint64
 	lastStatus           string
 	lastDaemonVersion    string
 	notificationsEnabled bool
@@ -148,6 +158,11 @@ type Tray struct {
 	// SetMenu, which the Wails menu API is not safe against concurrent
 	// callers.
 	profileLoadMu sync.Mutex
+	// exitNodesLoadMu serializes refreshExitNodes for the same reason: the
+	// Status stream can fire several pushes in quick succession and each may
+	// kick a refresh, but the ListNetworks fetch + submenu rebuild + SetMenu
+	// must not run concurrently with itself.
+	exitNodesLoadMu sync.Mutex
 }
 
 func NewTray(app *application.App, window *application.WebviewWindow, svc TrayServices) *Tray {
@@ -267,7 +282,7 @@ func (t *Tray) reapplyMenuState() {
 	connected := t.connected
 	lastStatus := t.lastStatus
 	daemonVersion := t.lastDaemonVersion
-	exitNodes := append([]string(nil), t.exitNodes...)
+	exitNodes := append([]exitNodeEntry(nil), t.exitNodes...)
 	sessionDeadline := t.sessionExpiresAt
 	t.mu.Unlock()
 
@@ -311,7 +326,13 @@ func (t *Tray) reapplyMenuState() {
 	if t.updater != nil {
 		t.updater.applyLanguage()
 	}
+	// buildMenu just recreated an empty Exit Node submenu, so repaint the
+	// cached rows unconditionally (a refreshExitNodes would skip the rebuild
+	// when the list is unchanged). Hold exitNodesLoadMu so this rebuild can't
+	// race a status-push-driven refreshExitNodes mutating the same submenu.
+	t.exitNodesLoadMu.Lock()
 	t.rebuildExitNodes(exitNodes)
+	t.exitNodesLoadMu.Unlock()
 	go t.loadProfiles()
 }
 
@@ -645,9 +666,8 @@ func (t *Tray) applyStatus(st services.Status) {
 		t.lastDaemonVersion = st.DaemonVersion
 	}
 
-	exitNodes := exitNodesFromStatus(st)
-	exitNodesChanged := !equalStrings(exitNodes, t.exitNodes)
-	t.exitNodes = exitNodes
+	revisionChanged := st.NetworksRevision != t.lastNetworksRevision
+	t.lastNetworksRevision = st.NetworksRevision
 	t.mu.Unlock()
 
 	if triggerLogin {
@@ -687,15 +707,10 @@ func (t *Tray) applyStatus(st services.Status) {
 			t.downItem.SetHidden(!connected && !connecting)
 			t.downItem.SetEnabled(connected || connecting)
 		}
-		// Exit Node surfaces tunnel-routed state, so only expose it while
-		// the tunnel is up AND the account actually has at least one
-		// exit-node candidate (a peer advertising 0.0.0.0/0 or ::/0).
-		// The row stays visible but greyed when no candidate is around,
-		// so the user can tell the feature exists. Settings just needs
-		// the daemon socket reachable.
-		if t.exitNodeItem != nil {
-			t.exitNodeItem.SetEnabled(connected && len(exitNodes) > 0)
-		}
+		// Exit Node parent-item enablement (greyed unless the tunnel is up
+		// AND at least one candidate exists) is owned by refreshExitNodes,
+		// triggered below on this same transition. Settings just needs the
+		// daemon socket reachable.
 		if t.settingsItem != nil {
 			t.settingsItem.SetEnabled(!daemonUnavailable)
 		}
@@ -713,20 +728,14 @@ func (t *Tray) applyStatus(st services.Status) {
 		// reads item.disabled/item.hidden at NSMenuItem construction time.
 		go t.loadProfiles()
 	}
-	if exitNodesChanged {
-		// Re-evaluate the parent item's enablement here too, not only in
-		// the iconChanged block above: the daemon ships peer routes in a
-		// later snapshot than the Connected status text (networks=[] first,
-		// then populated), so the candidate list can flip empty→non-empty
-		// while the status string is unchanged. Without this the parent
-		// "Exit Node" item stays greyed from when it was last set on the
-		// status transition and the freshly painted rows are unreachable.
-		// Set before rebuildExitNodes' SetMenu so the rebuild reads the
-		// updated enabled state at NSMenuItem construction time.
-		if t.exitNodeItem != nil {
-			t.exitNodeItem.SetEnabled(connected && len(exitNodes) > 0)
-		}
-		t.rebuildExitNodes(exitNodes)
+	// Re-fetch the selectable exit-node list whenever the daemon's routed-
+	// networks revision bumps (a route candidate added/removed, or a selection
+	// applied from any surface) or the tunnel flips state (iconChanged). The
+	// revision is the only reliable signal: candidate routes never appear in
+	// the peer-status snapshot, so a removed exit node would otherwise go
+	// unnoticed. The refresh owns the parent item's enablement and the rebuild.
+	if iconChanged || revisionChanged {
+		go t.refreshExitNodes()
 	}
 	if daemonVersionChanged && t.daemonVersionItem != nil {
 		t.daemonVersionItem.SetLabel(t.loc.T("tray.menu.daemonVersion", "version", st.DaemonVersion))
@@ -754,25 +763,112 @@ func (t *Tray) handleSessionExpired() {
 	}
 }
 
-// rebuildExitNodes paints one row per exit-node candidate into the
-// Exit Node submenu. The list is read-only for now — selection wiring
-// would need ListNetworks + a peer-FQDN → network-ID lookup, which the
-// PeerStatus stream doesn't ship. Rebuilds via Clear + Add so the row
-// set stays in sync with the daemon snapshot; SetMenu on the root menu
-// is required because Wails v3 alpha menu Update() builds a detached
-// NSMenu on darwin that never replaces the empty submenu attached at
-// initial setup (same workaround as loadProfiles).
-func (t *Tray) rebuildExitNodes(nodes []string) {
+// rebuildExitNodes paints one clickable row per exit-node candidate into the
+// Exit Node submenu. Each row carries the network's NetID and its selected
+// state from ListNetworks; clicking toggles it via toggleExitNode. The active
+// node is marked with a "✓ " prefix using a plain Add rather than AddCheckbox
+// for the same reason as loadProfiles — Wails auto-toggles a checkbox's state
+// on click before the OnClick handler runs, so the deselect/select round-trip
+// would briefly show two checked rows. Rebuilds via Clear + Add so the row set
+// stays in sync; SetMenu on the root menu is required because Wails v3 alpha
+// menu Update() builds a detached NSMenu on darwin that never replaces the
+// empty submenu attached at initial setup (same workaround as loadProfiles).
+// Callers must hold exitNodesLoadMu so concurrent rebuilds can't race the
+// submenu's item slice.
+func (t *Tray) rebuildExitNodes(nodes []exitNodeEntry) {
 	if t.exitNodeSubmenu == nil {
 		return
 	}
 	t.exitNodeSubmenu.Clear()
-	for _, fqdn := range nodes {
-		t.exitNodeSubmenu.Add(fqdn).SetEnabled(false)
+	for _, n := range nodes {
+		id := n.ID
+		selected := n.Selected
+		label := id
+		if selected {
+			label = "✓ " + id
+		}
+		t.exitNodeSubmenu.Add(label).OnClick(func(*application.Context) {
+			t.toggleExitNode(id, selected)
+		})
 	}
 	if t.menu != nil {
 		t.tray.SetMenu(t.menu)
 	}
+}
+
+// refreshExitNodes re-fetches the routed-network list from the daemon and
+// repaints the Exit Node submenu. Sourcing the rows from Networks.List() (not
+// the Status stream) is what makes them selectable: the stream only ships peer
+// FQDNs, whereas ListNetworks returns the NetID + selected state the
+// Select/Deselect RPCs need. Serialized by exitNodesLoadMu so overlapping
+// Status pushes can't race the submenu rebuild. Owns the parent item's
+// enablement: greyed unless the tunnel is up and at least one candidate exists.
+func (t *Tray) refreshExitNodes() {
+	t.exitNodesLoadMu.Lock()
+	defer t.exitNodesLoadMu.Unlock()
+
+	t.mu.Lock()
+	connected := t.connected
+	t.mu.Unlock()
+
+	var nodes []exitNodeEntry
+	if connected {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		list, err := t.svc.Networks.List(ctx)
+		cancel()
+		if err != nil {
+			log.Debugf("tray list networks: %v", err)
+			return
+		}
+		nodes = exitNodesFromNetworks(list)
+	}
+
+	log.Infof("tray refreshExitNodes: %d exit node(s)", len(nodes))
+	for _, n := range nodes {
+		log.Infof("tray exit node: id=%q selected=%v", n.ID, n.Selected)
+	}
+
+	t.mu.Lock()
+	changed := !equalExitNodes(nodes, t.exitNodes)
+	t.exitNodes = nodes
+	t.mu.Unlock()
+
+	// Set enablement before rebuildExitNodes' SetMenu so the rebuild reads the
+	// updated state at NSMenuItem construction time (Wails v3 alpha reads
+	// item.disabled at build time, not lazily).
+	if t.exitNodeItem != nil {
+		t.exitNodeItem.SetEnabled(connected && len(nodes) > 0)
+	}
+	if changed {
+		t.rebuildExitNodes(nodes)
+	}
+}
+
+// toggleExitNode activates or deactivates one exit node by NetID. Exit nodes
+// are mutually exclusive, so Select uses append=false to clear any other
+// active node before turning this one on; deselecting an active node turns
+// routing off entirely. Mirrors the frontend's toggleExitNode semantics. Runs
+// the RPC off the menu-click goroutine and re-fetches so the ✓ moves to the
+// new selection.
+func (t *Tray) toggleExitNode(id string, selected bool) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		params := services.SelectNetworksParams{NetworkIDs: []string{id}, Append: false, All: false}
+		var err error
+		if selected {
+			err = t.svc.Networks.Deselect(ctx, params)
+		} else {
+			err = t.svc.Networks.Select(ctx, params)
+		}
+		if err != nil {
+			log.Errorf("tray toggle exit node %q: %v", id, err)
+			t.notifyError(t.loc.T("notify.error.exitNode", "name", id))
+			return
+		}
+		t.refreshExitNodes()
+	}()
 }
 
 // applyStatusIndicator sets the small coloured dot shown on the status
@@ -955,13 +1051,11 @@ func (t *Tray) loadProfiles() {
 	}
 	sort.Slice(profiles, func(i, j int) bool { return profiles[i].Name < profiles[j].Name })
 
-	log.Infof("tray loadProfiles: received %d profile(s) for user %q", len(profiles), username)
 	t.profileSubmenu.Clear()
 	var activeName, activeEmail string
 	for _, p := range profiles {
 		name := p.Name
 		active := p.IsActive
-		log.Infof("tray loadProfiles: profile=%q active=%v", name, active)
 		// Use Add instead of AddCheckbox: Wails auto-toggles a checkbox's
 		// checked state on click (before the OnClick handler fires), so with
 		// AddCheckbox both the old and the new profile would briefly show as
@@ -984,6 +1078,7 @@ func (t *Tray) loadProfiles() {
 			activeEmail = p.Email
 		}
 	}
+	log.Infof("tray loadProfiles: received %d profile(s) for user %q, active=%q", len(profiles), username, activeName)
 	if t.profileSubmenuItem != nil && activeName != "" {
 		t.profileSubmenuItem.SetLabel(activeName)
 	}
@@ -1357,44 +1452,38 @@ func (t *Tray) notifyError(message string) {
 	t.notify(t.loc.T("notify.error.title"), message, notifyIDTrayError)
 }
 
-// exitNodesFromStatus returns the FQDNs of peers advertising an IPv4
-// or IPv6 default route (`0.0.0.0/0` or `::/0`) — the only candidates
-// the user can pick as an exit node. The daemon ships each peer's
-// route table as `maps.Keys(...)` of a CIDR-keyed map (see
-// client/internal/peer/status.go: pbPeerState.Networks = maps.Keys(
-// peerState.GetRoutes())), so we parse each entry with netip and
-// match by `Bits()==0 && Addr().IsUnspecified()` rather than
-// string-comparing "0.0.0.0/0" — that catches the v4/v6 partner
-// management pairs together for a dual-stack exit, and tolerates any
-// future canonicalisation of the prefix string.
-func exitNodesFromStatus(st services.Status) []string {
-	seen := map[string]struct{}{}
-	out := []string{}
-	for _, p := range st.Peers {
-		if p.Fqdn == "" {
+// exitNodeEntry is one selectable row in the Exit Node submenu. ID is the
+// network's NetID — both the row label and the argument the Select/Deselect
+// RPCs take; Selected drives the ✓ prefix.
+type exitNodeEntry struct {
+	ID       string
+	Selected bool
+}
+
+// exitNodesFromNetworks filters the daemon's routed-network list down to
+// exit-node candidates (a default-route range) and maps them to selectable
+// rows. Sorted case-insensitively by ID so the submenu reads alphabetically.
+func exitNodesFromNetworks(networks []services.Network) []exitNodeEntry {
+	out := []exitNodeEntry{}
+	for _, n := range networks {
+		if !rangeIsDefaultRoute(n.Range) {
 			continue
 		}
-		if !advertisesDefaultRoute(p.Networks) {
-			continue
-		}
-		if _, ok := seen[p.Fqdn]; ok {
-			continue
-		}
-		seen[p.Fqdn] = struct{}{}
-		out = append(out, p.Fqdn)
+		out = append(out, exitNodeEntry{ID: n.ID, Selected: n.Selected})
 	}
-	// Case-insensitive sort so the submenu reads alphabetically the
-	// way a human would — sort.Strings alone would put every
-	// uppercase letter ahead of any lowercase one.
 	sort.Slice(out, func(i, j int) bool {
-		return strings.ToLower(out[i]) < strings.ToLower(out[j])
+		return strings.ToLower(out[i].ID) < strings.ToLower(out[j].ID)
 	})
 	return out
 }
 
-func advertisesDefaultRoute(networks []string) bool {
-	for _, n := range networks {
-		pref, err := netip.ParsePrefix(n)
+// rangeIsDefaultRoute reports whether a Network.Range string contains an IPv4
+// or IPv6 default route. The daemon may merge a v4+v6 exit pair into a single
+// comma-joined range ("0.0.0.0/0, ::/0"), so we split and check each part,
+// matching by Bits()==0 && unspecified rather than a literal string compare.
+func rangeIsDefaultRoute(r string) bool {
+	for _, part := range strings.Split(r, ",") {
+		pref, err := netip.ParsePrefix(strings.TrimSpace(part))
 		if err != nil {
 			continue
 		}
@@ -1405,7 +1494,7 @@ func advertisesDefaultRoute(networks []string) bool {
 	return false
 }
 
-func equalStrings(a, b []string) bool {
+func equalExitNodes(a, b []exitNodeEntry) bool {
 	if len(a) != len(b) {
 		return false
 	}

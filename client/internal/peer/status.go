@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -190,21 +191,21 @@ func (s *StatusChangeSubscription) Events() chan map[string]RouterState {
 // every private-service request) don't contend against each other.
 // Pure read methods take RLock; anything that mutates state takes Lock.
 type Status struct {
-	mux                   sync.RWMutex
-	peers                 map[string]State
-	changeNotify          map[string]map[string]*StatusChangeSubscription // map[peerID]map[subscriptionID]*StatusChangeSubscription
-	signalState           bool
-	signalError           error
-	managementState       bool
-	managementError       error
-	relayStates           []relay.ProbeResult
-	localPeer             LocalPeerState
-	offlinePeers          []State
-	mgmAddress            string
-	signalAddress         string
-	notifier              *notifier
-	rosenpassEnabled      bool
-	rosenpassPermissive   bool
+	mux                 sync.RWMutex
+	peers               map[string]State
+	changeNotify        map[string]map[string]*StatusChangeSubscription // map[peerID]map[subscriptionID]*StatusChangeSubscription
+	signalState         bool
+	signalError         error
+	managementState     bool
+	managementError     error
+	relayStates         []relay.ProbeResult
+	localPeer           LocalPeerState
+	offlinePeers        []State
+	mgmAddress          string
+	signalAddress       string
+	notifier            *notifier
+	rosenpassEnabled    bool
+	rosenpassPermissive bool
 	// sessionExpiresAt is the absolute UTC instant at which the peer's SSO
 	// session expires. Zero when the peer is not SSO-tracked or login
 	// expiration is disabled. Populated from management LoginResponse /
@@ -233,6 +234,13 @@ type Status struct {
 	// consumer can never stall the daemon.
 	stateChangeMux     sync.Mutex
 	stateChangeStreams map[string]chan struct{}
+
+	// networksRevision bumps whenever the routed-networks set or their
+	// selected state changes (driven by the route manager). Surfaced in the
+	// status snapshot so the UI can fingerprint on it and re-fetch
+	// ListNetworks only on a real change. Atomic so the snapshot builder can
+	// read it without taking mux.
+	networksRevision atomic.Uint64
 
 	ingressGwMgr *ingressgw.Manager
 
@@ -1353,6 +1361,23 @@ func (d *Status) notifyStateChange() {
 // out of sync with the daemon.
 func (d *Status) NotifyStateChange() {
 	d.notifyStateChange()
+}
+
+// BumpNetworksRevision increments the routed-networks revision and wakes every
+// SubscribeStatus subscriber. The route manager calls it when a network map
+// changes the available routes or when a selection is applied — the peer
+// status itself only records actively-routed (chosen) networks, so without
+// this bump a candidate route appearing/disappearing would never reach the UI.
+func (d *Status) BumpNetworksRevision() {
+	d.networksRevision.Add(1)
+	d.notifyStateChange()
+}
+
+// GetNetworksRevision returns the current routed-networks revision, surfaced in
+// the status snapshot so the UI can detect route/selection changes (see
+// BumpNetworksRevision).
+func (d *Status) GetNetworksRevision() uint64 {
+	return d.networksRevision.Load()
 }
 
 func (d *Status) SetWgIface(wgInterface WGIfaceStatus) {

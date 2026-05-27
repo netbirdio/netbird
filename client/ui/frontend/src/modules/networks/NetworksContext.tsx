@@ -9,6 +9,7 @@ import {
 } from "react";
 import { Networks as NetworksSvc } from "@bindings/services";
 import type { Network } from "@bindings/services/models.js";
+import { useStatus } from "@/modules/daemon-status/StatusContext";
 
 // A range is treated as an exit-node candidate when any of its CIDRs is a
 // default route (v4 or v6). The daemon may merge a v4+v6 pair into a single
@@ -40,6 +41,7 @@ export const useNetworks = () => {
 };
 
 export const NetworksProvider = ({ children }: { children: ReactNode }) => {
+    const { status } = useStatus();
     const [routes, setRoutes] = useState<Network[]>([]);
 
     const refresh = useCallback(async () => {
@@ -51,9 +53,15 @@ export const NetworksProvider = ({ children }: { children: ReactNode }) => {
         }
     }, []);
 
+    // The daemon bumps networksRevision whenever the routed-network set or a
+    // selection changes (from any surface) and pushes it on the status stream.
+    // Refetch on every bump so the list stays live without polling — and on
+    // mount, since the revision is already defined by the time this provider
+    // renders (StatusProvider only mounts children once the daemon is reachable).
+    const networksRevision = status?.networksRevision;
     useEffect(() => {
         void refresh();
-    }, [refresh]);
+    }, [refresh, networksRevision]);
 
     const toggleNetwork = useCallback(
         async (id: string, selected: boolean) => {
@@ -120,7 +128,5 @@ export const NetworksProvider = ({ children }: { children: ReactNode }) => {
         };
     }, [routes, refresh, toggleNetwork, toggleExitNode]);
 
-    return (
-        <NetworksContext.Provider value={value}>{children}</NetworksContext.Provider>
-    );
+    return <NetworksContext.Provider value={value}>{children}</NetworksContext.Provider>;
 };

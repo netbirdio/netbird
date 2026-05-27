@@ -38,6 +38,7 @@
     "notify.error.connect": "Verbindung fehlgeschlagen",
     "notify.error.disconnect": "Trennen fehlgeschlagen",
     "notify.error.switchProfile": "Wechsel zu {profile} fehlgeschlagen",
+    "notify.error.exitNode": "Exit-Node {name} konnte nicht aktualisiert werden",
     "notify.sessionExpired.title": "NetBird-Sitzung abgelaufen",
     "notify.sessionExpired.body": "Ihre NetBird-Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.",
     "notify.sessionWarning.title": "Sitzung läuft bald ab",

@@ -126,6 +126,10 @@ type Status struct {
 	Local         LocalPeer     `json:"local"`
 	Peers         []PeerStatus  `json:"peers"`
 	Events        []SystemEvent `json:"events"`
+	// NetworksRevision bumps whenever the daemon's routed-networks set or their
+	// selected state changes. Consumers fingerprint on it to know when to
+	// re-fetch ListNetworks instead of polling every snapshot.
+	NetworksRevision uint64 `json:"networksRevision"`
 	// SessionExpiresAt is the absolute UTC instant at which the peer's
 	// SSO session expires. nil when the peer is not SSO-tracked or login
 	// expiration is disabled (either server-side off, or peer not
@@ -425,8 +429,9 @@ func statusFromProto(resp *proto.StatusResponse) Status {
 	local := full.GetLocalPeerState()
 
 	st := Status{
-		Status:        resp.GetStatus(),
-		DaemonVersion: resp.GetDaemonVersion(),
+		Status:           resp.GetStatus(),
+		DaemonVersion:    resp.GetDaemonVersion(),
+		NetworksRevision: full.GetNetworksRevision(),
 		Management: PeerLink{
 			URL:       mgmt.GetURL(),
 			Connected: mgmt.GetConnected(),

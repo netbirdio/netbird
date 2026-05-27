@@ -443,6 +443,12 @@ message FullStatus {
 
   bool lazyConnectionEnabled = 9;
   SSHServerState sshServerState = 10;
+
+  // networksRevision bumps whenever the set of routed networks (route and
+  // exit-node candidates) or their selected state changes. The UI fingerprints
+  // on it to know when to re-fetch ListNetworks via the push stream, instead
+  // of polling on every status snapshot.
+  uint64 networksRevision = 11;
 }
 
 // Networks

@@ -38,6 +38,7 @@
     "notify.error.connect": "Failed to connect",
     "notify.error.disconnect": "Failed to disconnect",
     "notify.error.switchProfile": "Failed to switch to {profile}",
+    "notify.error.exitNode": "Failed to update exit node {name}",
     "notify.sessionExpired.title": "NetBird session expired",
     "notify.sessionExpired.body": "Your NetBird session has expired. Please log in again.",
     "notify.sessionWarning.title": "Session expires soon",

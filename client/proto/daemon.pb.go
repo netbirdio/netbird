@@ -2122,8 +2122,13 @@ type FullStatus struct {
 	Events                  []*SystemEvent         `protobuf:"bytes,7,rep,name=events,proto3" json:"events,omitempty"`
 	LazyConnectionEnabled   bool                   `protobuf:"varint,9,opt,name=lazyConnectionEnabled,proto3" json:"lazyConnectionEnabled,omitempty"`
 	SshServerState          *SSHServerState        `protobuf:"bytes,10,opt,name=sshServerState,proto3" json:"sshServerState,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	// networksRevision bumps whenever the set of routed networks (route and
+	// exit-node candidates) or their selected state changes. The UI fingerprints
+	// on it to know when to re-fetch ListNetworks via the push stream, instead
+	// of polling on every status snapshot.
+	NetworksRevision uint64 `protobuf:"varint,11,opt,name=networksRevision,proto3" json:"networksRevision,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *FullStatus) Reset() {
@@ -2224,6 +2229,13 @@ func (x *FullStatus) GetSshServerState() *SSHServerState {
 		return x.SshServerState
 	}
 	return nil
+}
+
+func (x *FullStatus) GetNetworksRevision() uint64 {
+	if x != nil {
+		return x.NetworksRevision
+	}
+	return 0
 }
 
 // Networks
@@ -6763,7 +6775,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\fportForwards\x18\x05 \x03(\tR\fportForwards\"^\n" +
 	"\x0eSSHServerState\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x122\n" +
-	"\bsessions\x18\x02 \x03(\v2\x16.daemon.SSHSessionInfoR\bsessions\"\xaf\x04\n" +
+	"\bsessions\x18\x02 \x03(\v2\x16.daemon.SSHSessionInfoR\bsessions\"\xdb\x04\n" +
 	"\n" +
 	"FullStatus\x12A\n" +
 	"\x0fmanagementState\x18\x01 \x01(\v2\x17.daemon.ManagementStateR\x0fmanagementState\x125\n" +
@@ -6777,7 +6789,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x06events\x18\a \x03(\v2\x13.daemon.SystemEventR\x06events\x124\n" +
 	"\x15lazyConnectionEnabled\x18\t \x01(\bR\x15lazyConnectionEnabled\x12>\n" +
 	"\x0esshServerState\x18\n" +
-	" \x01(\v2\x16.daemon.SSHServerStateR\x0esshServerState\"\x15\n" +
+	" \x01(\v2\x16.daemon.SSHServerStateR\x0esshServerState\x12*\n" +
+	"\x10networksRevision\x18\v \x01(\x04R\x10networksRevision\"\x15\n" +
 	"\x13ListNetworksRequest\"?\n" +
 	"\x14ListNetworksResponse\x12'\n" +
 	"\x06routes\x18\x01 \x03(\v2\x0f.daemon.NetworkR\x06routes\"a\n" +

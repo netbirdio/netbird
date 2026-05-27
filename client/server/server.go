@@ -1242,6 +1242,7 @@ func (s *Server) buildStatusResponse(msg *proto.StatusRequest) (*proto.StatusRes
 		pbFullStatus := fullStatus.ToProto()
 		pbFullStatus.Events = s.statusRecorder.GetEventHistory()
 		pbFullStatus.SshServerState = s.getSSHServerState()
+		pbFullStatus.NetworksRevision = s.statusRecorder.GetNetworksRevision()
 		statusResponse.FullStatus = pbFullStatus
 	}
 
