@@ -175,7 +175,9 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 			continue
 		}
 
-		c.accountManagerMetrics.CountNmapTriggered(string(reason.Resource), string(reason.Operation))
+		if c.accountManagerMetrics != nil {
+			c.accountManagerMetrics.CountNmapTriggered(string(reason.Resource), string(reason.Operation))
+		}
 
 		wg.Add(1)
 		semaphore <- struct{}{}
