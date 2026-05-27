@@ -36,11 +36,40 @@ const preferencesFileName = "ui-preferences.json"
 // Wails registers this name in init() so the React frontend can subscribe.
 const EventPreferencesChanged = "netbird:preferences:changed"
 
+// ViewMode is the user's preferred Main-window layout. "default" is the
+// compact 380-wide layout shown on first launch; "advanced" is the wider
+// 900-px layout that matches the Settings window. Persisted so the next
+// launch comes up in the same mode the user last picked.
+type ViewMode string
+
+const (
+	ViewModeDefault  ViewMode = "default"
+	ViewModeAdvanced ViewMode = "advanced"
+)
+
+// DefaultViewMode is the value served when no preferences file exists yet
+// or the on-disk file has an empty view-mode field.
+const DefaultViewMode = ViewModeDefault
+
+// ErrUnsupportedViewMode is returned by SetViewMode when the caller passes
+// a value outside the known set.
+var ErrUnsupportedViewMode = errors.New("unsupported view mode")
+
+// IsValid reports whether v is one of the known ViewMode constants.
+func (v ViewMode) IsValid() bool {
+	switch v {
+	case ViewModeDefault, ViewModeAdvanced:
+		return true
+	}
+	return false
+}
+
 // UIPreferences is the user-scope UI state mirrored to disk and to the
 // frontend. Pointer-free because the whole document is rewritten on every
 // change — there are no per-field partial updates.
 type UIPreferences struct {
 	Language i18n.LanguageCode `json:"language"`
+	ViewMode ViewMode          `json:"viewMode"`
 }
 
 // LanguageValidator is the dependency Store needs to reject SetLanguage
@@ -86,7 +115,7 @@ func NewStore(validator LanguageValidator, emitter Emitter) (*Store, error) {
 		path:      path,
 		validator: validator,
 		emitter:   emitter,
-		current:   UIPreferences{Language: i18n.DefaultLanguage},
+		current:   UIPreferences{Language: i18n.DefaultLanguage, ViewMode: DefaultViewMode},
 	}
 
 	if err := s.load(); err != nil {
@@ -101,6 +130,31 @@ func (s *Store) Get() UIPreferences {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.current
+}
+
+// SetViewMode validates and persists the user's Main-window view choice,
+// then broadcasts the change so any other open window can react.
+func (s *Store) SetViewMode(mode ViewMode) error {
+	if !mode.IsValid() {
+		return fmt.Errorf("%w: %q", ErrUnsupportedViewMode, mode)
+	}
+
+	s.mu.Lock()
+	if s.current.ViewMode == mode {
+		s.mu.Unlock()
+		return nil
+	}
+	next := s.current
+	next.ViewMode = mode
+	if err := s.persistLocked(next); err != nil {
+		s.mu.Unlock()
+		return fmt.Errorf("persist preferences: %w", err)
+	}
+	s.current = next
+	s.mu.Unlock()
+
+	s.broadcast(next)
+	return nil
 }
 
 // SetLanguage validates and persists a new language preference, then
@@ -170,6 +224,9 @@ func (s *Store) load() error {
 
 	if loaded.Language == "" {
 		loaded.Language = i18n.DefaultLanguage
+	}
+	if !loaded.ViewMode.IsValid() {
+		loaded.ViewMode = DefaultViewMode
 	}
 
 	s.mu.Lock()

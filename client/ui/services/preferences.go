@@ -30,3 +30,9 @@ func (s *Preferences) Get(_ context.Context) (preferences.UIPreferences, error) 
 func (s *Preferences) SetLanguage(_ context.Context, lang i18n.LanguageCode) error {
 	return s.store.SetLanguage(lang)
 }
+
+// SetViewMode validates and persists the Main-window view choice
+// ("default" or "advanced").
+func (s *Preferences) SetViewMode(_ context.Context, mode preferences.ViewMode) error {
+	return s.store.SetViewMode(mode)
+}
