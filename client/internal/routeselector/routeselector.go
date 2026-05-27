@@ -124,6 +124,16 @@ func (rs *RouteSelector) IsSelected(routeID route.NetID) bool {
 	return rs.isSelectedLocked(routeID)
 }
 
+// IsDeselectAllActive reports whether the global "deselect all" flag is set,
+// i.e. the user disabled every route. Callers enforcing per-route invariants
+// (e.g. single exit node) should leave the selection untouched when it is.
+func (rs *RouteSelector) IsDeselectAllActive() bool {
+	rs.mu.RLock()
+	defer rs.mu.RUnlock()
+
+	return rs.deselectAll
+}
+
 // FilterSelected removes unselected routes from the provided map.
 func (rs *RouteSelector) FilterSelected(routes route.HAMap) route.HAMap {
 	rs.mu.RLock()

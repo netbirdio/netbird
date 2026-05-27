@@ -87,8 +87,9 @@ export const NetworksProvider = ({ children }: { children: ReactNode }) => {
         [refresh],
     );
 
-    // Exit nodes are mutually exclusive — Select with append=false clears any
-    // other selection before activating the new one.
+    // Exit nodes are mutually exclusive, but the daemon enforces that now —
+    // selecting one deselects the other exit nodes. Append so activating an
+    // exit node doesn't wipe the user's network-route selections.
     const toggleExitNode = useCallback(
         async (id: string, selected: boolean) => {
             try {
@@ -101,7 +102,7 @@ export const NetworksProvider = ({ children }: { children: ReactNode }) => {
                 } else {
                     await NetworksSvc.Select({
                         networkIds: [id],
-                        append: false,
+                        append: true,
                         all: false,
                     });
                 }
