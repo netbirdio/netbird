@@ -186,6 +186,7 @@ func main() {
 		Hidden:              true,
 		BackgroundColour:    application.NewRGB(24, 26, 29),
 		URL:                 "/",
+		DisableResize:       true,
 		MaximiseButtonState: application.ButtonHidden,
 		Mac: application.MacWindow{
 			InvisibleTitleBarHeight: 38,
