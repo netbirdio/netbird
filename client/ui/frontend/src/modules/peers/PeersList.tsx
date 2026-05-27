@@ -28,7 +28,7 @@ export const PeersList = ({ data }: { data: PeerStatus[] }) => {
                         key={peer.pubKey}
                         onClick={() => setSelected(peer)}
                         className={cn(
-                            "group flex items-start gap-2.5 px-7 py-3 min-w-0",
+                            "group flex items-start gap-2.5 px-7 py-3 min-w-0 first:mt-2",
                             "hover:bg-nb-gray-900/40 transition-colors",
                             "wails-no-draggable cursor-pointer",
                         )}

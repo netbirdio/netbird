@@ -7,12 +7,6 @@ import { SearchInput } from "@/components/SearchInput";
 import { EmptyState } from "@/components/EmptyState";
 import { NoResults } from "@/components/NoResults";
 import { useStatus } from "@/modules/daemon-status/StatusContext";
-import {
-    formatShortcut,
-    useKeyboardShortcut,
-} from "@/lib/useKeyboardShortcut";
-
-const SEARCH_SHORTCUT = { key: "k", cmd: true } as const;
 import { useNetworks } from "@/modules/networks/NetworksContext";
 import { ExitNodesList } from "./ExitNodesList";
 
@@ -27,11 +21,6 @@ export const ExitNodes = () => {
     useEffect(() => {
         searchRef.current?.focus();
     }, []);
-
-    useKeyboardShortcut(SEARCH_SHORTCUT, () => {
-        searchRef.current?.focus();
-        searchRef.current?.select();
-    });
 
     const filtered = useMemo(() => {
         const q = search.trim().toLowerCase();
@@ -64,28 +53,23 @@ export const ExitNodes = () => {
     }
 
     return (
-        <div className={"flex flex-col w-full h-full min-h-0 pt-4"}>
-            <div className={"flex flex-col gap-3 px-6"}>
-                <SearchInput
-                    ref={searchRef}
-                    placeholder={t("exitNodes.search.placeholder")}
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    shortcut={formatShortcut(SEARCH_SHORTCUT)}
-                />
+        <div className={"flex flex-col w-full h-full min-h-0"}>
+            <div className={"flex items-center gap-2 px-6 py-2.5 border-b border-nb-gray-910"}>
+                <div className={"flex-1 min-w-0"}>
+                    <SearchInput
+                        ref={searchRef}
+                        placeholder={t("exitNodes.search.placeholder")}
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                    />
+                </div>
             </div>
-            <ScrollArea.Root
-                type={"auto"}
-                className={"flex-1 min-h-0 overflow-hidden mt-3"}
-            >
+            <ScrollArea.Root type={"auto"} className={"flex-1 min-h-0 overflow-hidden"}>
                 <ScrollArea.Viewport className={"h-full w-full"}>
                     {filtered.length === 0 ? (
                         <NoResults />
                     ) : (
-                        <ExitNodesList
-                            data={filtered}
-                            onToggle={toggleExitNode}
-                        />
+                        <ExitNodesList data={filtered} onToggle={toggleExitNode} />
                     )}
                 </ScrollArea.Viewport>
                 <ScrollArea.Scrollbar

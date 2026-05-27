@@ -326,7 +326,7 @@
     "sessionAboutToExpire.expired": "Session expired",
     "sessionAboutToExpire.extendFailedTitle": "Extend Session Failed",
 
-    "peers.search.placeholder": "Search by peer name, DNS or IP address",
+    "peers.search.placeholder": "Search by name or IP",
     "peers.filter.all": "All",
     "peers.filter.online": "Online",
     "peers.filter.offline": "Offline",
@@ -351,7 +351,7 @@
     "peers.details.p2p": "P2P",
     "peers.details.rosenpass": "Rosenpass enabled",
 
-    "networks.search.placeholder": "Search by network, range or domain",
+    "networks.search.placeholder": "Search by network or domain",
     "networks.filter.all": "All",
     "networks.filter.active": "Active",
     "networks.filter.overlapping": "Overlapping",

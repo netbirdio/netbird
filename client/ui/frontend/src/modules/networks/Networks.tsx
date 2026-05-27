@@ -7,12 +7,6 @@ import { SearchInput } from "@/components/SearchInput";
 import { EmptyState } from "@/components/EmptyState";
 import { NoResults } from "@/components/NoResults";
 import { useStatus } from "@/modules/daemon-status/StatusContext";
-import {
-    formatShortcut,
-    useKeyboardShortcut,
-} from "@/lib/useKeyboardShortcut";
-
-const SEARCH_SHORTCUT = { key: "k", cmd: true } as const;
 import { NetworkFilter, NetworkFilters } from "./NetworkFilters";
 import { NetworksList } from "./NetworksList";
 import { useNetworks } from "./NetworksContext";
@@ -50,15 +44,7 @@ export const Networks = () => {
         searchRef.current?.focus();
     }, []);
 
-    useKeyboardShortcut(SEARCH_SHORTCUT, () => {
-        searchRef.current?.focus();
-        searchRef.current?.select();
-    });
-
-    const overlapGroups = useMemo(
-        () => buildOverlapMap(networkRoutes),
-        [networkRoutes],
-    );
+    const overlapGroups = useMemo(() => buildOverlapMap(networkRoutes), [networkRoutes]);
 
     const overlapById = useMemo(() => {
         const map = new Map<string, string[]>();
@@ -83,9 +69,7 @@ export const Networks = () => {
             if (filter === "active" && !r.selected) return false;
             if (filter === "overlapping" && !overlapById.has(r.id)) return false;
             if (q) {
-                const haystack = [r.id, r.range, ...r.domains]
-                    .join(" ")
-                    .toLowerCase();
+                const haystack = [r.id, r.range, ...r.domains].join(" ").toLowerCase();
                 if (!haystack.includes(q)) return false;
             }
             return true;
@@ -115,33 +99,24 @@ export const Networks = () => {
     }
 
     return (
-        <div className={"flex flex-col w-full h-full min-h-0 pt-4"}>
-            <div className={"flex flex-col gap-3 px-6"}>
-                <SearchInput
-                    ref={searchRef}
-                    placeholder={t("networks.search.placeholder")}
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    shortcut={formatShortcut(SEARCH_SHORTCUT)}
-                />
-                <NetworkFilters
-                    value={filter}
-                    onChange={setFilter}
-                    counts={counts}
-                />
+        <div className={"flex flex-col w-full h-full min-h-0"}>
+            <div className={"flex items-center gap-2 px-6 py-2.5 border-b border-nb-gray-910"}>
+                <div className={"flex-1 min-w-0"}>
+                    <SearchInput
+                        ref={searchRef}
+                        placeholder={t("networks.search.placeholder")}
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                    />
+                </div>
+                <NetworkFilters value={filter} onChange={setFilter} counts={counts} />
             </div>
-            <ScrollArea.Root
-                type={"auto"}
-                className={"flex-1 min-h-0 overflow-hidden mt-3"}
-            >
+            <ScrollArea.Root type={"auto"} className={"flex-1 min-h-0 overflow-hidden"}>
                 <ScrollArea.Viewport className={"h-full w-full"}>
                     {filtered.length === 0 ? (
                         <NoResults />
                     ) : (
-                        <NetworksList
-                            data={filtered}
-                            onToggle={toggleNetwork}
-                        />
+                        <NetworksList data={filtered} onToggle={toggleNetwork} />
                     )}
                 </ScrollArea.Viewport>
                 <ScrollArea.Scrollbar

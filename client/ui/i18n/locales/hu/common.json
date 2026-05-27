@@ -310,7 +310,7 @@
     "sessionAboutToExpire.extendFailedTitle": "A munkamenet meghosszabbítása sikertelen",
     "sessionAboutToExpire.logoutFailedTitle": "Kijelentkezés sikertelen",
 
-    "peers.search.placeholder": "Keresés társ neve, DNS vagy IP-cím alapján",
+    "peers.search.placeholder": "Keresés név vagy IP alapján",
     "peers.filter.all": "Összes",
     "peers.filter.online": "Online",
     "peers.filter.offline": "Offline",
@@ -335,7 +335,7 @@
     "peers.details.p2p": "P2P",
     "peers.details.rosenpass": "Rosenpass engedélyezve",
 
-    "networks.search.placeholder": "Keresés hálózat, tartomány vagy domain alapján",
+    "networks.search.placeholder": "Keresés hálózat vagy domain alapján",
     "networks.filter.all": "Összes",
     "networks.filter.active": "Aktív",
     "networks.filter.overlapping": "Átfedő",

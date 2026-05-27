@@ -310,7 +310,7 @@
     "sessionAboutToExpire.extendFailedTitle": "Sitzungsverlängerung fehlgeschlagen",
     "sessionAboutToExpire.logoutFailedTitle": "Abmeldung fehlgeschlagen",
 
-    "peers.search.placeholder": "Nach Peer-Name, DNS oder IP-Adresse suchen",
+    "peers.search.placeholder": "Nach Name oder IP suchen",
     "peers.filter.all": "Alle",
     "peers.filter.online": "Online",
     "peers.filter.offline": "Offline",
@@ -335,7 +335,7 @@
     "peers.details.p2p": "P2P",
     "peers.details.rosenpass": "Rosenpass aktiviert",
 
-    "networks.search.placeholder": "Nach Netzwerk, Bereich oder Domain suchen",
+    "networks.search.placeholder": "Nach Netzwerk oder Domain suchen",
     "networks.filter.all": "Alle",
     "networks.filter.active": "Aktiv",
     "networks.filter.overlapping": "Überlappend",

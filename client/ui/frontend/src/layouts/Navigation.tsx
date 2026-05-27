@@ -36,7 +36,7 @@ export const Navigation = () => {
     ];
 
     return (
-        <div className={"wails-no-draggable shrink-0 flex items-stretch"}>
+        <div className={"wails-no-draggable shrink-0 flex items-stretch "}>
             {tabs.map((tab) => {
                 const isActive = tab.value === section;
                 const isDisabled = !isConnected && !isActive;
@@ -49,7 +49,7 @@ export const Navigation = () => {
                         disabled={isDisabled}
                         className={cn(
                             "group relative flex flex-1 items-center justify-center",
-                            "gap-2.5 px-5 py-3",
+                            "gap-2.5 px-5 py-3.5",
                             "outline-none transition-all",
                             isActive ? "text-netbird" : "text-nb-gray-400 hover:text-nb-gray-300",
                             isDisabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer",
