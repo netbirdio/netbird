@@ -76,6 +76,9 @@ type Client struct {
 	dnsManager            dns.IosDnsManager
 	loginComplete         bool
 	connectClient         *internal.ConnectClient
+	// config holds the active configuration once Run has loaded it. Consumed by
+	// the in-app SSH client for the NetBird SSH key and the OAuth flow.
+	config *profilemanager.Config
 	// preloadedConfig holds config loaded from JSON (used on tvOS where file writes are blocked)
 	preloadedConfig *profilemanager.Config
 }
@@ -160,6 +163,7 @@ func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
 	ctx = internal.CtxInitState(ctx)
 	c.onHostDnsFn = func([]string) {}
 	cfg.WgIface = interfaceName
+	c.config = cfg
 
 	c.connectClient = internal.NewConnectClient(ctx, cfg, c.recorder)
 	return c.connectClient.RunOniOS(fd, c.networkChangeListener, c.dnsManager, c.stateFile)
@@ -525,6 +529,13 @@ func (c *Client) DeselectRoute(id string) error {
 	}
 	routeManager.TriggerSelection(routeManager.GetClientRoutes())
 	return nil
+}
+
+// sshState returns the active config and the running connect client for the
+// in-app SSH client. Both are nil until Run has loaded the config and started
+// the tunnel.
+func (c *Client) sshState() (*profilemanager.Config, *internal.ConnectClient) {
+	return c.config, c.connectClient
 }
 
 func formatDuration(d time.Duration) string {
