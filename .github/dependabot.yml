@@ -9,6 +9,14 @@ updates:
       actions:
         patterns:
           - "*"
+    ignore:
+      # git-town/action v1.3.x crashes on cyclic PR graphs (self-loop main->main
+      # fork PRs) via its topological-sort visualization. Pinned to v1.2.1 in
+      # git-town.yml; block v1.3.x until upstream tolerates cyclic edges.
+      - dependency-name: "git-town/action"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-major"
 
   - package-ecosystem: "gomod"
     directories:
