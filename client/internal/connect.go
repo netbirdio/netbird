@@ -115,6 +115,7 @@ func (c *ConnectClient) RunOniOS(
 	dnsManager dns.IosDnsManager,
 	dnsAddresses []netip.AddrPort,
 	stateFilePath string,
+	cacheDir string,
 ) error {
 	// Set GC percent to 5% to reduce memory usage as iOS only allows 50MB of memory for the extension.
 	debug.SetGCPercent(5)
@@ -125,6 +126,7 @@ func (c *ConnectClient) RunOniOS(
 		DnsManager:            dnsManager,
 		HostDNSAddresses:      dnsAddresses,
 		StateFilePath:         stateFilePath,
+		TempDir:               cacheDir,
 	}
 	return c.run(mobileDependency, nil, "")
 }
