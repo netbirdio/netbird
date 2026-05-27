@@ -187,7 +187,7 @@ func (h *handler) getClusters(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clusters, err := h.manager.GetActiveClusters(r.Context(), userAuth.AccountId, userAuth.UserId)
+	clusters, err := h.manager.GetClusters(r.Context(), userAuth.AccountId, userAuth.UserId)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return
@@ -196,10 +196,15 @@ func (h *handler) getClusters(w http.ResponseWriter, r *http.Request) {
 	apiClusters := make([]api.ProxyCluster, 0, len(clusters))
 	for _, c := range clusters {
 		apiClusters = append(apiClusters, api.ProxyCluster{
-			Id:               c.ID,
-			Address:          c.Address,
-			ConnectedProxies: c.ConnectedProxies,
-			SelfHosted:       c.SelfHosted,
+			Id:                  c.ID,
+			Address:             c.Address,
+			Type:                api.ProxyClusterType(c.Type),
+			Online:              c.Online,
+			ConnectedProxies:    c.ConnectedProxies,
+			SupportsCustomPorts: c.SupportsCustomPorts,
+			RequireSubdomain:    c.RequireSubdomain,
+			SupportsCrowdsec:    c.SupportsCrowdSec,
+			Private:             c.Private,
 		})
 	}
 

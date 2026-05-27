@@ -260,23 +260,15 @@ WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "Publisher" "${COMP_NAME}"
 
 WriteRegStr ${REG_ROOT} "${UI_REG_APP_PATH}" "" "$INSTDIR\${UI_APP_EXE}"
 
-; Drop Run, App Paths and Uninstall entries left in the 32-bit registry view
-; or HKCU by legacy installers.
-DetailPrint "Cleaning legacy 32-bit / HKCU entries..."
-DeleteRegValue HKCU "${AUTOSTART_REG_KEY}" "${APP_NAME}"
-SetRegView 32
-DeleteRegValue HKLM "${AUTOSTART_REG_KEY}" "${APP_NAME}"
-DeleteRegKey HKLM "${REG_APP_PATH}"
-DeleteRegKey HKLM "${UI_REG_APP_PATH}"
-DeleteRegKey HKLM "${UNINSTALL_PATH}"
-SetRegView 64
-
+; Create autostart registry entry based on checkbox
 DetailPrint "Autostart enabled: $AutostartEnabled"
 ${If} $AutostartEnabled == "1"
     WriteRegStr HKLM "${AUTOSTART_REG_KEY}" "${APP_NAME}" '"$INSTDIR\${UI_APP_EXE}.exe"'
     DetailPrint "Added autostart registry entry: $INSTDIR\${UI_APP_EXE}.exe"
 ${Else}
     DeleteRegValue HKLM "${AUTOSTART_REG_KEY}" "${APP_NAME}"
+    ; Legacy: pre-HKLM installs wrote to HKCU; clean that up too.
+    DeleteRegValue HKCU "${AUTOSTART_REG_KEY}" "${APP_NAME}"
     DetailPrint "Autostart not enabled by user"
 ${EndIf}
 
@@ -307,16 +299,11 @@ ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service uninstall'
 DetailPrint "Terminating Netbird UI process..."
 ExecWait `taskkill /im ${UI_APP_EXE}.exe /f`
 
-; Remove autostart entries from every view a previous installer may have used.
+; Remove autostart registry entry
 DetailPrint "Removing autostart registry entry if exists..."
 DeleteRegValue HKLM "${AUTOSTART_REG_KEY}" "${APP_NAME}"
+; Legacy: pre-HKLM installs wrote to HKCU; clean that up too.
 DeleteRegValue HKCU "${AUTOSTART_REG_KEY}" "${APP_NAME}"
-SetRegView 32
-DeleteRegValue HKLM "${AUTOSTART_REG_KEY}" "${APP_NAME}"
-DeleteRegKey HKLM "${REG_APP_PATH}"
-DeleteRegKey HKLM "${UI_REG_APP_PATH}"
-DeleteRegKey HKLM "${UNINSTALL_PATH}"
-SetRegView 64
 
 ; Handle data deletion based on checkbox
 DetailPrint "Checking if user requested data deletion..."

@@ -2027,6 +2027,29 @@ func (e *Engine) GetClientMetrics() *metrics.ClientMetrics {
 	return e.clientMetrics
 }
 
+// Performance bundles runtime-adjustable tunnel pool knobs.
+// See Engine.SetPerformance. Nil fields are ignored.
+type Performance struct {
+	PreallocatedBuffersPerPool *uint32
+}
+
+// SetPerformance applies the given tuning to this engine's live Device.
+func (e *Engine) SetPerformance(t Performance) error {
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
+	if e.wgInterface == nil {
+		return fmt.Errorf("wg interface not initialized")
+	}
+	dev := e.wgInterface.GetWGDevice()
+	if dev == nil {
+		return fmt.Errorf("wg device not initialized")
+	}
+	if t.PreallocatedBuffersPerPool != nil {
+		dev.SetPreallocatedBuffersPerPool(*t.PreallocatedBuffersPerPool)
+	}
+	return nil
+}
+
 func findIPFromInterfaceName(ifaceName string) (net.IP, error) {
 	iface, err := net.InterfaceByName(ifaceName)
 	if err != nil {

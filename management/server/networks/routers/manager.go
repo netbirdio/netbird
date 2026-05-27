@@ -108,7 +108,7 @@ func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *t
 		}
 		router.AccountSeqID = seq
 
-		err = transaction.SaveNetworkRouter(ctx, router)
+		err = transaction.CreateNetworkRouter(ctx, router)
 		if err != nil {
 			return fmt.Errorf("failed to create network router: %w", err)
 		}
@@ -168,27 +168,28 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 			return fmt.Errorf("failed to get network: %w", err)
 		}
 
-		if network.ID != router.NetworkID {
+		existing, err := transaction.GetNetworkRouterByID(ctx, store.LockingStrengthUpdate, router.AccountID, router.ID)
+		if err != nil {
+			return fmt.Errorf("failed to get network router: %w", err)
+		}
+
+		if existing.AccountID != router.AccountID {
+			return status.NewNetworkRouterNotFoundError(router.ID)
+		}
+
+		if existing.NetworkID != router.NetworkID {
 			return status.NewRouterNotPartOfNetworkError(router.ID, router.NetworkID)
 		}
 
-		oldRouter, err := transaction.GetNetworkRouterByID(ctx, store.LockingStrengthNone, router.AccountID, router.ID)
-		if err == nil {
-			router.AccountSeqID = oldRouter.AccountSeqID
-		} else if e, ok := status.FromError(err); ok && e.Type() == status.NotFound {
-			// PUT-as-upsert: caller may target a brand-new router id (used by
-			// the dashboard's "save" flow). Allocate a fresh account_seq_id so
-			// the upsert behaves the same as Create().
-			seq, allocErr := transaction.AllocateAccountSeqID(ctx, router.AccountID, serverTypes.AccountSeqEntityNetworkRouter)
-			if allocErr != nil {
-				return fmt.Errorf("failed to allocate network router seq id: %w", allocErr)
-			}
-			router.AccountSeqID = seq
-		} else {
-			return fmt.Errorf("failed to get existing network router: %w", err)
-		}
+		// Preserve AccountSeqID from the existing router so the upstream
+		// UpdateNetworkRouter (which does Updates(router) with Select("*"))
+		// doesn't clobber it with the request's zero value. Main's split of
+		// Save → Create/Update removed the PUT-as-upsert path that the
+		// earlier branch carried, so callers must always pass a real router
+		// id — UpdateNetworkRouter returns NotFound otherwise.
+		router.AccountSeqID = existing.AccountSeqID
 
-		err = transaction.SaveNetworkRouter(ctx, router)
+		err = transaction.UpdateNetworkRouter(ctx, router)
 		if err != nil {
 			return fmt.Errorf("failed to update network router: %w", err)
 		}

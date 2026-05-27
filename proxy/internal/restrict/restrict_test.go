@@ -514,6 +514,34 @@ func TestFilter_CrowdSec_Observe_NilChecker(t *testing.T) {
 	assert.Equal(t, Allow, f.Check(netip.MustParseAddr("1.2.3.4"), nil))
 }
 
+func TestFilter_CheckCIDR_AllowsWithoutCountryOrCrowdSec(t *testing.T) {
+	cs := &mockCrowdSec{ready: true, decisions: map[string]*CrowdSecDecision{
+		"100.64.5.6": {Type: DecisionBan},
+	}}
+	f := ParseFilter(FilterConfig{
+		AllowedCIDRs:     []string{"100.64.0.0/10"},
+		AllowedCountries: []string{"US"},
+		CrowdSec:         cs,
+		CrowdSecMode:     CrowdSecEnforce,
+	})
+
+	// CheckCIDR skips country + CrowdSec evaluation: an address inside
+	// the allowed CIDR passes even when it would be denied by CrowdSec
+	// or by the country allowlist (CGNAT addresses have no geo data).
+	assert.Equal(t, Allow, f.CheckCIDR(netip.MustParseAddr("100.64.5.6")),
+		"CheckCIDR must not run CrowdSec lookups on overlay traffic")
+
+	// CIDR denials still fire.
+	assert.Equal(t, DenyCIDR, f.CheckCIDR(netip.MustParseAddr("198.51.100.1")),
+		"CheckCIDR must still reject addresses outside the allow list")
+}
+
+func TestFilter_CheckCIDR_NilFilter(t *testing.T) {
+	var f *Filter
+	assert.Equal(t, Allow, f.CheckCIDR(netip.MustParseAddr("100.64.5.6")),
+		"CheckCIDR on a nil filter must allow")
+}
+
 func TestFilter_HasRestrictions_CrowdSec(t *testing.T) {
 	cs := &mockCrowdSec{ready: true}
 	f := ParseFilter(FilterConfig{CrowdSec: cs, CrowdSecMode: CrowdSecEnforce})
