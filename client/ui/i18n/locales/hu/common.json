@@ -244,6 +244,11 @@
     "settings.about.links.privacy": "Adatvédelem",
     "settings.about.links.cla": "CLA",
     "settings.about.links.terms": "Felhasználási feltételek",
+    "settings.about.community.github": "GitHub",
+    "settings.about.community.slack": "Slack",
+    "settings.about.community.forum": "Fórum",
+    "settings.about.community.documentation": "Dokumentáció",
+    "settings.about.community.feedback": "Visszajelzés",
 
     "update.banner.message": "A NetBird {version} telepítésre kész.",
     "update.banner.later": "Később",

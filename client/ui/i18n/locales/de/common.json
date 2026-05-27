@@ -244,6 +244,11 @@
     "settings.about.links.privacy": "Datenschutz",
     "settings.about.links.cla": "CLA",
     "settings.about.links.terms": "Nutzungsbedingungen",
+    "settings.about.community.github": "GitHub",
+    "settings.about.community.slack": "Slack",
+    "settings.about.community.forum": "Forum",
+    "settings.about.community.documentation": "Dokumentation",
+    "settings.about.community.feedback": "Feedback",
 
     "update.banner.message": "NetBird {version} ist installationsbereit.",
     "update.banner.later": "Später",

@@ -105,7 +105,7 @@
     "profile.dialog.submit": "Add Profile",
     "profile.dialog.required": "Please enter a profile name, e.g. Work, Home",
 
-    "header.menu.settings": "Settings",
+    "header.menu.settings": "Settings...",
     "header.menu.defaultView": "Default View",
     "header.menu.advancedView": "Advanced View",
     "header.menu.updateAvailable": "Update Available",
@@ -262,6 +262,11 @@
     "settings.about.links.privacy": "Privacy",
     "settings.about.links.cla": "CLA",
     "settings.about.links.terms": "Terms of Service",
+    "settings.about.community.github": "GitHub",
+    "settings.about.community.slack": "Slack",
+    "settings.about.community.forum": "Forum",
+    "settings.about.community.documentation": "Documentation",
+    "settings.about.community.feedback": "Feedback",
 
     "update.banner.message": "NetBird {version} is ready to install.",
     "update.banner.later": "Later",

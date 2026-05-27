@@ -1,5 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { Browser } from "@wailsio/runtime";
+import { BookOpen, Github, MessageSquareText, MessagesSquare, Slack } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import netbirdFull from "@/assets/logos/netbird-full.svg";
 import pkg from "../../../package.json";
 import { useStatus } from "@/modules/daemon-status/StatusContext.tsx";
@@ -17,6 +19,34 @@ export function SettingsAbout() {
     const daemonVersion = status?.daemonVersion ?? "—";
 
     const handleVersionClick = useAccentTrigger();
+
+    const COMMUNITY_LINKS: { label: string; url: string; Icon: LucideIcon }[] = [
+        {
+            label: t("settings.about.community.github"),
+            url: "https://github.com/netbirdio/netbird",
+            Icon: Github,
+        },
+        {
+            label: t("settings.about.community.slack"),
+            url: "https://docs.netbird.io/slack-url",
+            Icon: Slack,
+        },
+        {
+            label: t("settings.about.community.forum"),
+            url: "https://forum.netbird.io",
+            Icon: MessagesSquare,
+        },
+        {
+            label: t("settings.about.community.documentation"),
+            url: "https://docs.netbird.io",
+            Icon: BookOpen,
+        },
+        {
+            label: t("settings.about.community.feedback"),
+            url: "https://forms.gle/TeLw2zrXEdw6RcQ36",
+            Icon: MessageSquareText,
+        },
+    ];
 
     const LEGAL_LINKS: { label: string; url: string }[] = [
         { label: t("settings.about.links.imprint"), url: "https://netbird.io/imprint" },
@@ -55,9 +85,26 @@ export function SettingsAbout() {
 
             <UpdateVersionCard />
 
-            <p className={"text-sm text-nb-gray-300 text-center"}>
+            <p className={"text-sm text-nb-gray-300 text-center mt-2"}>
                 {t("settings.about.copyright", { year: new Date().getFullYear() })}
             </p>
+            <div
+                className={"flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-nb-gray-200"}
+            >
+                {COMMUNITY_LINKS.map(({ label, url, Icon }) => (
+                    <button
+                        key={url}
+                        type={"button"}
+                        onClick={() => openUrl(url)}
+                        className={
+                            "inline-flex items-center gap-1.5 decoration-[0.5px] underline-offset-4 hover:text-nb-gray-100 hover:underline transition"
+                        }
+                    >
+                        <Icon className={"h-3.5 w-3.5"} />
+                        <span>{label}</span>
+                    </button>
+                ))}
+            </div>
             <div
                 className={"flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-nb-gray-200"}
             >
