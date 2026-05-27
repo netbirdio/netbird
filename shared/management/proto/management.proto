@@ -734,8 +734,8 @@ message StopExposeResponse {}
 // NetworkMap from the server.
 // =====================================================================
 
-// NetworkMapEnvelope wraps either a full snapshot or a delta. Step 2 ships
-// only Full; Delta is reserved for the incremental-update work.
+// NetworkMapEnvelope wraps either a full snapshot or a delta. Only Full is
+// emitted today; Delta is reserved for the incremental-update work.
 message NetworkMapEnvelope {
   oneof payload {
     NetworkMapComponentsFull full = 1;
@@ -898,9 +898,9 @@ message AccountNetwork {
   uint64 serial = 5;
 }
 
-// NetworkMapComponentsDelta is reserved for the incremental update protocol
-// (Step 3 of the migration plan). Field numbers 1–100 are pre-allocated to
-// keep room for the planned event types without needing a renumber.
+// NetworkMapComponentsDelta is reserved for the incremental update
+// protocol. Field numbers 1–100 are pre-allocated to keep room for the
+// planned event types without needing a renumber.
 message NetworkMapComponentsDelta {
   reserved 1 to 100;
 }
@@ -984,7 +984,7 @@ message PeerCompact {
 message PolicyCompact {
   // Per-account integer id (matches policies.account_seq_id). Used as a
   // stable reference for ResourcePoliciesMap.indexes and future delta
-  // updates (Step 3).
+  // updates.
   uint32 id = 1;
 
   RuleAction action = 2;

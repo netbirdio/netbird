@@ -19,8 +19,8 @@ import (
 //     running Calculate() locally + converting back through the shared
 //     proto helpers + merging the optional ProxyPatch.
 //   - Components is the *types.NetworkMapComponents the engine retains so
-//     future incremental delta updates (Step 3) have a base to apply
-//     changes against. The client keeps it under its sync lock.
+//     future incremental delta updates have a base to apply changes
+//     against. The client keeps it under its sync lock.
 type EnvelopeResult struct {
 	NetworkMap *proto.NetworkMap
 	Components *types.NetworkMapComponents

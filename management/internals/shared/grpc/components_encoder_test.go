@@ -814,8 +814,8 @@ func TestToProxyPatch_PopulatesAllFields(t *testing.T) {
 
 // TestEncodeNetworkMapEnvelope_ProxyPatchPropagated covers the ProxyPatch
 // pass-through in both encoder branches (normal path + nil-Components
-// graceful-degrade). Without this test a regression that drops `ProxyPatch:`
-// from one of the struct literals in components_encoder.go would slip past CI.
+// graceful-degrade). Guards against a regression that drops `ProxyPatch:`
+// from one of the envelope struct literals.
 func TestEncodeNetworkMapEnvelope_ProxyPatchPropagated(t *testing.T) {
 	patch := &proto.ProxyPatch{
 		ForwardingRules: []*proto.ForwardingRule{{
@@ -850,7 +850,7 @@ func TestEncodeNetworkMapEnvelope_ProxyPatchPropagated(t *testing.T) {
 
 func TestEncodeNetworkMapEnvelope_NilComponentsGracefulDegrade(t *testing.T) {
 	// nil Components → minimal envelope, no crash. Matches the legacy
-	// account_components.go:43 behaviour for missing/unvalidated peers.
+	// behaviour for missing/unvalidated peers.
 	env := EncodeNetworkMapEnvelope(ComponentsEnvelopeInput{
 		Components: nil,
 		DNSDomain:  "netbird.cloud",

@@ -4511,8 +4511,8 @@ func (*StopExposeResponse) Descriptor() ([]byte, []int) {
 	return file_management_proto_rawDescGZIP(), []int{52}
 }
 
-// NetworkMapEnvelope wraps either a full snapshot or a delta. Step 2 ships
-// only Full; Delta is reserved for the incremental-update work.
+// NetworkMapEnvelope wraps either a full snapshot or a delta. Only Full is
+// emitted today; Delta is reserved for the incremental-update work.
 type NetworkMapEnvelope struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -5121,9 +5121,9 @@ func (x *AccountNetwork) GetSerial() uint64 {
 	return 0
 }
 
-// NetworkMapComponentsDelta is reserved for the incremental update protocol
-// (Step 3 of the migration plan). Field numbers 1–100 are pre-allocated to
-// keep room for the planned event types without needing a renumber.
+// NetworkMapComponentsDelta is reserved for the incremental update
+// protocol. Field numbers 1–100 are pre-allocated to keep room for the
+// planned event types without needing a renumber.
 type NetworkMapComponentsDelta struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -5358,7 +5358,7 @@ type PolicyCompact struct {
 
 	// Per-account integer id (matches policies.account_seq_id). Used as a
 	// stable reference for ResourcePoliciesMap.indexes and future delta
-	// updates (Step 3).
+	// updates.
 	Id            uint32       `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
 	Action        RuleAction   `protobuf:"varint,2,opt,name=action,proto3,enum=management.RuleAction" json:"action,omitempty"`
 	Protocol      RuleProtocol `protobuf:"varint,3,opt,name=protocol,proto3,enum=management.RuleProtocol" json:"protocol,omitempty"`

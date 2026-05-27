@@ -128,8 +128,7 @@ func toProxyPatch(nm *types.NetworkMap, dnsName string, includeIPv6, useSourcePr
 // that's the destination of an SSH-enabling policy without having
 // peer.SSHEnabled set locally.
 //
-// Mirrors the two activation paths in Calculate() (`networkmap_components.go`
-// `getPeerConnectionResources`):
+// Mirrors the two activation paths Calculate() uses:
 //  1. Explicit: rule.Protocol == NetbirdSSH and peer is in the rule's
 //     destinations.
 //  2. Legacy implicit: rule covers TCP/22 or TCP/22022 (or ALL), peer is in

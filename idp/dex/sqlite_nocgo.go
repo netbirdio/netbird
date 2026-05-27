@@ -7,12 +7,9 @@ import (
 )
 
 // newSQLite3 for non-CGO builds. The dex SQLite3 stub has no fields and its
-// Open() returns an error documenting the missing CGO support, which is the
-// right behaviour for the cross-compiled artefacts (linux/arm, wasm, etc.)
-// — those targets never actually run the embedded IdP.
-//
-// The `file` argument is ignored intentionally; keeping the signature
-// matched with sqlite_cgo.go lets the call sites stay identical.
+// Open() returns an error documenting the missing CGO support — correct
+// behaviour for cross-compiled artefacts that never actually run the
+// embedded IdP. The `file` argument is ignored.
 func newSQLite3(_ string) *sql.SQLite3 {
 	return &sql.SQLite3{}
 }

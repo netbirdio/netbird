@@ -21,9 +21,7 @@ import (
 // TestEnvelopeToNetworkMap_RoundTrip exercises the full client-side pipeline:
 // build a small components struct, encode an envelope, marshal/unmarshal the
 // wire bytes, decode back via EnvelopeToNetworkMap, and verify the result is
-// non-empty and consistent. Deeper per-field semantic equivalence with the
-// legacy server path is covered by the prod-DB equivalence test in
-// management/server/store/networkmap_envelope_equivalence_test.go.
+// non-empty and consistent.
 func TestEnvelopeToNetworkMap_RoundTrip(t *testing.T) {
 	c, localPeerKey := buildSmokeComponents(t)
 
@@ -51,10 +49,9 @@ func TestEnvelopeToNetworkMap_RoundTrip(t *testing.T) {
 // TestCalculate_FirewallRuleProtocol_NeverNetbirdSSH guards against the
 // scenario where a rule with Protocol=NetbirdSSH leaks the enum value into
 // proto.FirewallRule.Protocol. Calculate() must rewrite NetbirdSSH → TCP
-// before forming firewall rules (see networkmap_components.go:282 and
-// account.go:868). Without that rewrite, agents fall into UNKNOWN-protocol
-// handling, which on some platforms downgrades to allow-all — a real
-// security regression.
+// before forming firewall rules. Without that rewrite, agents fall into
+// UNKNOWN-protocol handling, which on some platforms downgrades to
+// allow-all — a real security regression.
 func TestCalculate_FirewallRuleProtocol_NeverNetbirdSSH(t *testing.T) {
 	c, localPeerKey := buildSmokeComponents(t)
 	// Replace the smoke policy with a NetbirdSSH-protocol allow.

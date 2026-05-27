@@ -12,9 +12,7 @@ import (
 // TestComputeSSHEnabledForPeer covers both Calculate-mirroring branches:
 // explicit NetbirdSSH protocol, and the legacy implicit case where a
 // TCP/22 (or 22022 / ALL / port-range-covering-22) rule activates SSH when
-// the destination peer has SSHEnabled=true locally. Belt-and-suspenders for
-// the B1 fix that the prod-DB equivalence test alone wouldn't have caught
-// if no account had this combination.
+// the destination peer has SSHEnabled=true locally.
 func TestComputeSSHEnabledForPeer(t *testing.T) {
 	const targetPeerID = "target"
 	const targetGroupID = "g_dst"

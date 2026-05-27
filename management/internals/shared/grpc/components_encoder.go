@@ -18,9 +18,9 @@ import (
 const wgKeyRawLen = 32
 
 // ComponentsEnvelopeInput bundles the data the component-format encoder needs.
-// In Step 2 the envelope is fully self-contained — every field needed by the
-// client's local Calculate() comes from the components struct itself. The
-// only externally-supplied data is the receiving peer's PeerConfig (which is
+// The envelope is fully self-contained — every field needed by the client's
+// local Calculate() comes from the components struct itself. The only
+// externally-supplied data is the receiving peer's PeerConfig (which is
 // computed alongside the components in the network_map controller and reused
 // from the legacy proto path) and the dns_domain string.
 type ComponentsEnvelopeInput struct {
@@ -48,21 +48,19 @@ type ComponentsEnvelopeInput struct {
 // not byte-equal.
 //
 // Callers must NOT concatenate or merge envelopes from different encodes —
-// index spaces are local to a single envelope. Delta sync (Step 3+) will
-// use a different shape for the same reason.
+// index spaces are local to a single envelope.
 func EncodeNetworkMapEnvelope(in ComponentsEnvelopeInput) *proto.NetworkMapEnvelope {
 	c := in.Components
 
 	// Graceful degrade when components is nil — matches the legacy path's
-	// account_components.go:43 behaviour for missing/unvalidated peers
-	// (return a NetworkMap with only Network populated). The receiver gets
-	// an envelope it can decode without crashing; AccountSettings stays
-	// non-nil so client-side dereferences are safe.
+	// behaviour for missing/unvalidated peers (return a NetworkMap with only
+	// Network populated). The receiver gets an envelope it can decode
+	// without crashing; AccountSettings stays non-nil so client-side
+	// dereferences are safe.
 	if c == nil {
 		// Match legacy missing-peer minimum: a NetworkMap with only Network
-		// populated (account_components.go:43). The receiver gets enough to
-		// bootstrap (Network identifier, dns_domain, account_settings) and
-		// nothing else.
+		// populated. The receiver gets enough to bootstrap (Network
+		// identifier, dns_domain, account_settings) and nothing else.
 		return &proto.NetworkMapEnvelope{
 			Payload: &proto.NetworkMapEnvelope_Full{
 				Full: &proto.NetworkMapComponentsFull{
@@ -129,8 +127,8 @@ func EncodeNetworkMapEnvelope(in ComponentsEnvelopeInput) *proto.NetworkMapEnvel
 }
 
 // networkSerial returns c.Network.CurrentSerial() with a nil guard. The
-// production path always populates c.Network (account_components.go:86), but
-// the encoder is exported and a hand-built components struct may omit it.
+// production path always populates c.Network, but the encoder is exported
+// and a hand-built components struct may omit it.
 func networkSerial(n *types.Network) uint64 {
 	if n == nil {
 		return 0

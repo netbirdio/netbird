@@ -15,9 +15,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
-// wireBenchScales mirrors the scales used by networkmap_benchmark_test.go but
-// trimmed: encoding+marshal are linear, so we don't need the 30k peer extreme
-// to see the trend.
+// wireBenchScales — trimmed scale set for wire-size measurements. Encoding
+// and marshalling are linear, so the largest extremes don't add signal.
 var wireBenchScales = []benchmarkScale{
 	{"100peers_5groups", 100, 5},
 	{"500peers_20groups", 500, 20},

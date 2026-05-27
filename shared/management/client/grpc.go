@@ -952,10 +952,7 @@ func peerCapabilities(info system.Info) []proto.PeerCapability {
 		proto.PeerCapability_PeerCapabilitySourcePrefixes,
 		// PeerCapabilityComponentNetworkMap signals that this client can
 		// decode the components-format SyncResponse.NetworkMapEnvelope and
-		// run Calculate() locally. Always advertised by Step-4-capable
-		// builds — there's no opt-out flag because the server-side kill
-		// switch (NB_NETWORK_MAP_COMPONENTS_DISABLE) covers emergency
-		// rollback and the client decoder is built in.
+		// run Calculate() locally.
 		proto.PeerCapability_PeerCapabilityComponentNetworkMap,
 	}
 	if !info.DisableIPv6 {

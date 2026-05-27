@@ -206,7 +206,7 @@ type Engine struct {
 
 	// latestComponents is the most-recent NetworkMapComponents decoded from
 	// a NetworkMapEnvelope (capability=3 peers only). Held alongside the
-	// NetworkMap that Calculate() produced from it so Step 3 incremental
+	// NetworkMap that Calculate() produced from it so future incremental
 	// updates have a base to apply changes against. nil for legacy-format
 	// peers. Guarded by syncMsgMux.
 	latestComponents *types.NetworkMapComponents
@@ -928,8 +928,8 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		// Components-format peer: decode the envelope back to typed
 		// components, run Calculate() locally, and convert to the wire
 		// NetworkMap shape the rest of the engine consumes. Components are
-		// retained so future incremental updates (Step 3) can apply deltas
-		// instead of doing a full reconstruction.
+		// retained so future incremental updates can apply deltas instead
+		// of doing a full reconstruction.
 		localKey := e.config.WgPrivateKey.PublicKey().String()
 		dnsName := ""
 		if pc := update.GetPeerConfig(); pc != nil {
@@ -953,7 +953,7 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 
 	// Only retain the components view when the server sent the envelope
 	// path. A legacy proto.NetworkMap means components == nil; writing it
-	// here would clobber a previously-cached snapshot, breaking the Step 3
+	// here would clobber a previously-cached snapshot, breaking the
 	// incremental-delta base on a future envelope sync.
 	if components != nil {
 		e.latestComponents = components

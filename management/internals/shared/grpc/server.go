@@ -943,11 +943,11 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 		// (network_map.Controller.UpdateAccountPeers) skips this duplication
 		// because it dispatches by capability before computing.
 		//
-		// TODO(step-4-sync): refactor SyncPeer / SyncAndMarkPeer / their
-		// mocks + manager interfaces to return PeerNetworkMapResult so the
-		// initial-sync path stops doing duplicate work. ~13 files of churn,
-		// deferred until the client-side decoder lands and there's a real
-		// deployment of capability=3 peers worth optimizing for.
+		// TODO: refactor SyncPeer / SyncAndMarkPeer / their mocks + manager
+		// interfaces to return PeerNetworkMapResult so the initial-sync path
+		// stops doing duplicate work. Deferred until the client-side
+		// decoder lands and there's a real deployment of capability=3 peers
+		// worth optimizing for.
 		_, components, proxyPatch, _, _, err := s.networkMapController.GetValidatedPeerWithComponents(ctx, false, peer.AccountID, peer)
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed to build components for peer %s on initial sync: %v", peer.ID, err)

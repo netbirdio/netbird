@@ -56,13 +56,10 @@ type Controller struct {
 
 	integratedPeerValidator integrated_validator.IntegratedValidator
 
-	// componentsDisabled is the kill switch for the component-based wire
-	// format. When true the controller emits legacy proto.NetworkMap to every
-	// peer regardless of capability — used to roll back instantly via a
-	// management restart from a bad components encoder.
-	//
-	// Set once in NewController from NB_NETWORK_MAP_COMPONENTS_DISABLE and
-	// never written after — readers race-free without a mutex.
+	// componentsDisabled, when true, forces the controller to emit legacy
+	// proto.NetworkMap to every peer regardless of capability. Set once at
+	// construction and never written after — readers race-free without a
+	// mutex.
 	componentsDisabled bool
 }
 
@@ -98,17 +95,14 @@ func NewController(ctx context.Context, store store.Store, metrics telemetry.App
 }
 
 // PeerNeedsComponents reports whether the gRPC layer should emit the
-// component-based wire format for this peer. Combines the peer's advertised
-// capability with the controller-level kill switch — callers ask exactly
-// this question, so encapsulating it removes accidental double-checks.
+// component-based wire format for this peer.
 func (c *Controller) PeerNeedsComponents(p *nbpeer.Peer) bool {
 	return p != nil && p.SupportsComponentNetworkMap() && !c.componentsDisabled
 }
 
 // parseBoolEnv reads an env var via strconv.ParseBool so callers accept the
 // usual "1/t/T/TRUE/true/True" set instead of being strict about a single
-// literal — matches the convention used elsewhere in the codebase
-// (e.g. event.go's NB_TRAFFIC_EVENT_*) and reduces operator surprises.
+// literal.
 func parseBoolEnv(key string) bool {
 	v, _ := strconv.ParseBool(os.Getenv(key))
 	return v
@@ -420,9 +414,8 @@ func (c *Controller) BufferUpdateAccountPeers(ctx context.Context, accountID str
 // GetValidatedPeerWithMap. It returns raw NetworkMapComponents for capable
 // peers along with the proxy NetworkMap fragment (BYOP / port-forwarding
 // data the legacy server folds in via NetworkMap.Merge). The gRPC layer
-// encodes both into the wire envelope. The caller is responsible for
-// checking peer capability + componentsDisabled before dispatching here —
-// this method does NOT branch on capability itself.
+// encodes both into the wire envelope. Callers must gate on capability
+// themselves before dispatching here — this method does NOT branch on it.
 func (c *Controller) GetValidatedPeerWithComponents(ctx context.Context, isRequiresApproval bool, accountID string, peer *nbpeer.Peer) (*nbpeer.Peer, *types.NetworkMapComponents, *types.NetworkMap, []*posture.Checks, int64, error) {
 	if isRequiresApproval {
 		network, err := c.repo.GetAccountNetwork(ctx, accountID)
