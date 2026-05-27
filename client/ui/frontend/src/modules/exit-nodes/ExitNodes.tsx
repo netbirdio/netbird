@@ -6,7 +6,6 @@ import { cn } from "@/lib/cn";
 import { SearchInput } from "@/components/SearchInput";
 import { EmptyState } from "@/components/EmptyState";
 import { NoResults } from "@/components/NoResults";
-import { NotConnectedState } from "@/components/NotConnectedState";
 import { useStatus } from "@/modules/daemon-status/StatusContext";
 import {
     formatShortcut,
@@ -46,19 +45,11 @@ export const ExitNodes = () => {
         });
     }, [exitNodes, search]);
 
-    if (!isConnected) {
-        return (
-            <div className={"flex flex-col w-full h-full min-h-0"}>
-                <NotConnectedState />
-            </div>
-        );
-    }
-
-    if (exitNodes.length === 0) {
+    if (isConnected && exitNodes.length === 0) {
         return (
             <div
                 className={
-                    "flex-1 flex items-center justify-center px-6 w-full h-full min-h-0"
+                    "flex-1 flex items-center justify-center px-6 pb-20 w-full h-full min-h-0"
                 }
             >
                 <EmptyState
@@ -91,7 +82,10 @@ export const ExitNodes = () => {
                     {filtered.length === 0 ? (
                         <NoResults />
                     ) : (
-                        <ExitNodesList data={filtered} onToggle={toggleExitNode} />
+                        <ExitNodesList
+                            data={filtered}
+                            onToggle={toggleExitNode}
+                        />
                     )}
                 </ScrollArea.Viewport>
                 <ScrollArea.Scrollbar

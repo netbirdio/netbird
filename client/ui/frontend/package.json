@@ -33,7 +33,7 @@
     "cmdk": "^1.1.1",
     "framer-motion": "^12.38.0",
     "i18next": "^26.2.0",
-    "lucide-react": "^0.535.0",
+    "lucide-react": "^0.566.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-i18next": "^17.0.8",

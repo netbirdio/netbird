@@ -5,12 +5,16 @@ import { ViewMode as ViewModePref } from "@bindings/preferences/models.js";
 
 export type ViewMode = "default" | "advanced";
 
-// Window dimensions per view. Height matches the Settings window (640) so
-// the chrome height is identical across surfaces; width grows from the
-// compact 380 default to 900 in advanced.
-export const VIEW_SIZE: Record<ViewMode, { width: number; height: number }> = {
-    default: { width: 380, height: 640 },
-    advanced: { width: 900, height: 640 },
+// Window widths per view. Height stays at whatever the window was first
+// created with — we deliberately don't pass a fixed height to
+// Window.SetSize because Wails' macOS implementation interprets it as the
+// outer frame (windowSetSize → setFrame:), while the initial creation
+// uses initWithContentRect:. The two differ by one title-bar height
+// (~28px), so re-asserting 640 here would chop ~28px off the content
+// area on the first switch and visually shift everything inside.
+export const VIEW_WIDTH: Record<ViewMode, number> = {
+    default: 380,
+    advanced: 900,
 };
 
 type ViewModeContextValue = {
@@ -46,8 +50,15 @@ export const ViewModeProvider = ({ children }: { children: ReactNode }) => {
         (mode: ViewMode) => {
             setMode((prev) => {
                 if (prev === mode) return prev;
-                const { width, height } = VIEW_SIZE[mode];
-                void Window.SetSize(width, height).catch(() => {});
+                void (async () => {
+                    // Reuse the live frame height instead of asserting a
+                    // constant — keeps content area stable across switches
+                    // (see VIEW_WIDTH comment above).
+                    const size = await Window.Size().catch(() => null);
+                    const width = VIEW_WIDTH[mode];
+                    const height = size?.height ?? 640;
+                    await Window.SetSize(width, height).catch(() => {});
+                })();
                 void Preferences.SetViewMode(mode as unknown as ViewModePref).catch(() => {});
                 return mode;
             });

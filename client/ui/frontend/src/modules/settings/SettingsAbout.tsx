@@ -78,7 +78,7 @@ export function SettingsAbout() {
                         t("settings.about.client", { version: daemonVersion })
                     )}
                 </p>
-                <p className={"text-sm text-nb-gray-300 cursor-text select-text"}>
+                <p className={"text-sm text-nb-gray-250 cursor-text select-text font-medium"}>
                     {t("settings.about.gui", { version: guiVersion })}
                 </p>
             </div>

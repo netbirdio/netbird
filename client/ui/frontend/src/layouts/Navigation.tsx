@@ -51,7 +51,7 @@ export const Navigation = () => {
                             "group relative flex flex-1 items-center justify-center",
                             "gap-2.5 px-5 py-3",
                             "outline-none transition-all",
-                            isActive ? "text-netbird" : "text-nb-gray-500 hover:text-nb-gray-400",
+                            isActive ? "text-netbird" : "text-nb-gray-400 hover:text-nb-gray-300",
                             isDisabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer",
                         )}
                     >
@@ -62,7 +62,7 @@ export const Navigation = () => {
                                 "absolute inset-x-0 bottom-0 h-px transition-all",
                                 isActive
                                     ? "bg-netbird"
-                                    : "bg-nb-gray-900 group-hover:bg-nb-gray-600",
+                                    : "bg-nb-gray-910 group-hover:bg-nb-gray-700",
                             )}
                         />
                     </button>
@@ -72,8 +72,12 @@ export const Navigation = () => {
     );
 };
 
-const ExitNodeIcon = (props: LucideProps) => (
-    <SquareArrowUpRight {...props} className={cn("rotate-45", props.className)} />
+const ExitNodeIcon = ({ size, ...props }: LucideProps) => (
+    <SquareArrowUpRight
+        {...props}
+        size={typeof size === "number" ? size - 2 : size}
+        className={cn("rotate-45", props.className)}
+    />
 );
 
 export type { NavSection } from "@/lib/navSection";

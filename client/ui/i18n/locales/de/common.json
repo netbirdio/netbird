@@ -64,8 +64,8 @@
     "common.learnMoreAbout": "Mehr erfahren über",
     "common.noResults.title": "Keine Ergebnisse gefunden",
     "common.noResults.description": "Es konnten keine Ergebnisse gefunden werden. Bitte versuchen Sie es mit einem anderen Suchbegriff oder ändern Sie Ihre Filter.",
-    "notConnected.title": "Nicht verbunden",
-    "notConnected.description": "Verbinden Sie sich mit NetBird, um Peers, Netzwerke und Exit Nodes anzuzeigen.",
+    "notConnected.title": "Getrennt",
+    "notConnected.description": "Verbinden Sie sich zuerst mit NetBird, um detaillierte Informationen zu Ihren Peers, Netzwerkressourcen und Exit Nodes einzusehen.",
 
     "connect.status.disconnected": "Getrennt",
     "connect.status.connecting": "Verbindet…",

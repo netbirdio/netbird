@@ -31,16 +31,12 @@ export const EmptyState = ({
         <div className={cn("py-12 text-center", className)}>
             <div
                 className={
-                    "flex flex-col items-center justify-center max-w-sm mx-auto"
+                    "flex flex-col items-center justify-center max-w-sm mx-auto relative top-7"
                 }
             >
                 <SquareIcon icon={icon} className={"mb-3"} />
-                <p className={"text-base font-semibold text-nb-gray-200 mb-1"}>
-                    {title}
-                </p>
-                {description && (
-                    <p className={"text-sm text-nb-gray-350"}>{description}</p>
-                )}
+                <p className={"text-base font-semibold text-nb-gray-200 mb-1"}>{title}</p>
+                {description && <p className={"text-sm text-nb-gray-350"}>{description}</p>}
                 {learnMoreUrl && learnMoreTopic && (
                     <p className={"text-sm text-nb-gray-350"}>
                         {t("common.learnMoreAbout")}{" "}
@@ -57,10 +53,7 @@ export const EmptyState = ({
                             )}
                         >
                             {learnMoreTopic}
-                            <ExternalLinkIcon
-                                size={12}
-                                className={"shrink-0"}
-                            />
+                            <ExternalLinkIcon size={12} className={"shrink-0"} />
                         </a>
                     </p>
                 )}

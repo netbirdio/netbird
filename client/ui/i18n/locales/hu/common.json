@@ -64,8 +64,8 @@
     "common.learnMoreAbout": "Tudjon meg többet erről:",
     "common.noResults.title": "Nincs találat",
     "common.noResults.description": "Nem találtunk eredményt. Próbáljon meg másik keresési kifejezést, vagy módosítsa a szűrőket.",
-    "notConnected.title": "Nincs csatlakozva",
-    "notConnected.description": "Csatlakozzon a NetBirdhöz a társak, hálózatok és kilépő csomópontok megtekintéséhez.",
+    "notConnected.title": "Lecsatlakozva",
+    "notConnected.description": "Csatlakozz először a NetBirdhöz, hogy részletes információkat láthass a társakról, hálózati erőforrásokról és kilépő csomópontokról.",
 
     "connect.status.disconnected": "Lekapcsolva",
     "connect.status.connecting": "Csatlakozás…",

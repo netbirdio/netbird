@@ -64,8 +64,8 @@
     "common.learnMoreAbout": "Learn more about",
     "common.noResults.title": "Could not find any results",
     "common.noResults.description": "We couldn't find any results. Please try a different search term or change your filters.",
-    "notConnected.title": "Not connected",
-    "notConnected.description": "Connect to NetBird to view peers, networks, and exit nodes.",
+    "notConnected.title": "Disconnected",
+    "notConnected.description": "Connect to NetBird first to view detailed information about your peers, network resources, and exit nodes.",
 
     "connect.status.disconnected": "Disconnected",
     "connect.status.connecting": "Connecting...",
@@ -145,7 +145,7 @@
     "settings.tabs.profiles": "Profiles",
     "settings.tabs.ssh": "SSH",
     "settings.tabs.advanced": "Advanced",
-    "settings.tabs.troubleshooting": "Troubleshooting",
+    "settings.tabs.troubleshooting": "Troubleshoot",
     "settings.tabs.about": "About",
     "settings.tabs.updateAvailable": "Update Available",
 

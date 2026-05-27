@@ -143,7 +143,7 @@ export const Header = () => {
         <div
             className={cn(
                 "shrink-0 cursor-default wails-draggable relative",
-                "flex items-center h-12 px-3 top-2",
+                "flex items-center h-12 px-3 top-2.5",
             )}
         >
             <div className={"grid grid-cols-3 items-center w-[356px] shrink-0"}>
@@ -151,7 +151,9 @@ export const Header = () => {
                 <div className={"flex justify-center ml-4"}>{profileSlot}</div>
                 <div />
             </div>
-            <div className={"absolute right-3 top-1/2 -translate-y-1/2"}>{settingsSlot}</div>
+            <div className={"absolute right-[0.98rem] top-1/2 -translate-y-1/2"}>
+                {settingsSlot}
+            </div>
         </div>
     );
 };

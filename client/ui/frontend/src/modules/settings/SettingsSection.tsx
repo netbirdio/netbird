@@ -28,7 +28,7 @@ export const SettingsBottomBar = ({ children }: { children: ReactNode }) => (
         <div className={"absolute bottom-0 left-0 w-full"}>
             <div
                 className={
-                    "w-full flex justify-end gap-3 px-8 py-5 border-t border-nb-gray-900 bg-nb-gray-935"
+                    "w-full flex justify-end gap-3 px-8 py-5 border-t border-nb-gray-920 bg-nb-gray-940"
                 }
             >
                 {children}
