@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
     ArrowUpCircleIcon,
@@ -15,13 +15,17 @@ import {
     DropdownMenuContent,
     DropdownMenuItem,
     DropdownMenuSeparator,
+    DropdownMenuShortcut,
     DropdownMenuTrigger,
 } from "@/components/DropdownMenu";
 import { IconButton } from "@/components/IconButton";
 import { ProfileDropdown } from "@/components/ProfileDropdown";
 import { useClientVersion } from "@/modules/auto-update/ClientVersionContext";
 import { cn } from "@/lib/cn";
+import { formatShortcut, useKeyboardShortcut } from "@/lib/useKeyboardShortcut";
 import { useViewMode, type ViewMode } from "@/lib/viewMode";
+
+const SETTINGS_SHORTCUT = { key: ",", cmd: true } as const;
 
 export const Header = () => {
     const { t } = useTranslation();
@@ -29,10 +33,16 @@ export const Header = () => {
     const { viewMode, setViewMode } = useViewMode();
     const { updateAvailable } = useClientVersion();
 
-    const openSettings = () => {
+    const openSettings = useCallback(() => {
         setMenuOpen(false);
         void WindowManager.OpenSettings("").catch(() => {});
-    };
+    }, []);
+
+    // Mirror the tray's Settings accelerator so the keystroke works while
+    // the main window has focus too. The tray's SetAccelerator paints the
+    // glyph on macOS/Linux but only fires the menu item — it can't reach the
+    // webview's input loop, hence the parallel React-side listener.
+    useKeyboardShortcut(SETTINGS_SHORTCUT, openSettings);
 
     const openAbout = () => {
         setMenuOpen(false);
@@ -79,9 +89,12 @@ export const Header = () => {
                         </>
                     )}
                     <DropdownMenuItem onClick={openSettings}>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 w-full">
                             <Settings size={14} />
-                            {t("header.menu.settings")}
+                            <span className="flex-1">{t("header.menu.settings")}</span>
+                            <DropdownMenuShortcut>
+                                {formatShortcut(SETTINGS_SHORTCUT)}
+                            </DropdownMenuShortcut>
                         </div>
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />

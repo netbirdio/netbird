@@ -372,6 +372,20 @@ func (t *Tray) buildMenu() *application.Menu {
 	// The tray icon's left-click handler is intentionally unbound (see
 	// NewTray for the rationale), so expose the window through an explicit
 	// menu entry on every platform.
+	//
+	// Accelerators are wired on the Settings and Quit entries below.
+	// Cross-platform behaviour in Wails v3 alpha.95:
+	//   - macOS: SetAccelerator calls NSMenuItem.setKeyEquivalent — the
+	//     glyph row paints to the right of the label and the combo fires
+	//     when the menu is open OR while the app is the frontmost app.
+	//   - Linux (GTK): SetAccelerator binds the GTK accel — the combo
+	//     fires while the menu is open and the label paints the row. On
+	//     XEmbed/AppIndicator hosts the visual hint may not render but
+	//     activation through the keyboard still resolves.
+	//   - Windows: SetAccelerator is a no-op in alpha.95 (the impl is
+	//     commented out in menuitem_windows.go), so the row is plain
+	//     text. We still call it for forward compatibility — a future
+	//     Wails release picks the labels up without churn here.
 	menu.Add(t.loc.T("tray.menu.open")).OnClick(func(*application.Context) { t.ShowWindow() })
 
 	menu.AddSeparator()
@@ -396,7 +410,9 @@ func (t *Tray) buildMenu() *application.Menu {
 	// surfaces the day-to-day actions. The trailing ellipsis on the label
 	// (i18n string) follows the macOS HIG convention for menu items that
 	// open a dialog/window rather than performing an inline action.
-	t.settingsItem = menu.Add(t.loc.T("tray.menu.settings")).OnClick(func(*application.Context) { t.svc.WindowManager.OpenSettings("") })
+	t.settingsItem = menu.Add(t.loc.T("tray.menu.settings")).
+		SetAccelerator("CmdOrCtrl+,").
+		OnClick(func(*application.Context) { t.svc.WindowManager.OpenSettings("") })
 
 	aboutLabel := t.loc.T("tray.menu.about")
 	about := menu.AddSubmenu(aboutLabel)
@@ -427,7 +443,9 @@ func (t *Tray) buildMenu() *application.Menu {
 	t.updater.attach(updateItem)
 
 	menu.AddSeparator()
-	menu.Add(t.loc.T("tray.menu.quit")).OnClick(func(*application.Context) { t.app.Quit() })
+	menu.Add(t.loc.T("tray.menu.quit")).
+		SetAccelerator("CmdOrCtrl+Q").
+		OnClick(func(*application.Context) { t.app.Quit() })
 
 	return menu
 }
