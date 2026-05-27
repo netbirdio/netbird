@@ -178,10 +178,17 @@ func main() {
 	app.RegisterService(application.NewService(services.NewI18n(bundle)))
 	app.RegisterService(application.NewService(services.NewPreferences(prefStore)))
 
+	// Open the main window at the width matching the user's last view
+	// choice so an Advanced-mode user doesn't see the window pop from 380px
+	// to 900px on every launch. Height is the same in both modes.
+	initialWidth := 380
+	if prefStore.Get().ViewMode == preferences.ViewModeAdvanced {
+		initialWidth = 900
+	}
 	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:                "main",
 		Title:               "NetBird",
-		Width:               380,
+		Width:               initialWidth,
 		Height:              640,
 		Hidden:              true,
 		BackgroundColour:    application.NewRGB(24, 26, 29),
