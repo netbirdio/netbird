@@ -449,6 +449,7 @@ func (t *Tray) buildMenu() *application.Menu {
 	about.Add(t.loc.T("tray.menu.troubleshoot")).OnClick(func(*application.Context) {
 		t.svc.WindowManager.OpenSettings("troubleshooting")
 	})
+	about.AddSeparator()
 	// Disabled informational entries: the GUI version is baked in at
 	// build time via -ldflags, the daemon version comes from the first
 	// Status snapshot and is updated in applyStatus.
