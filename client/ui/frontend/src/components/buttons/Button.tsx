@@ -1,7 +1,8 @@
 import { cva, VariantProps } from "class-variance-authority";
-import classNames from "classnames";
 import { Check, Copy } from "lucide-react";
 import { ButtonHTMLAttributes, forwardRef, useState } from "react";
+
+import { cn } from "@/lib/cn";
 
 type ButtonVariants = VariantProps<typeof buttonVariants>;
 
@@ -134,7 +135,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
             ref={ref}
             type={type}
             disabled={disabled}
-            className={classNames(
+            className={cn(
                 buttonVariants({
                     variant,
                     rounded,

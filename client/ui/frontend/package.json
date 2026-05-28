@@ -25,9 +25,7 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "@radix-ui/react-visually-hidden": "^1.2.4",
     "@wailsio/runtime": "latest",
-    "chroma-js": "^3.2.0",
     "class-variance-authority": "^0.7.1",
-    "classnames": "^2.5.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "framer-motion": "^12.38.0",
@@ -41,7 +39,6 @@
     "tailwind-merge": "^2.6.0"
   },
   "devDependencies": {
-    "@types/chroma-js": "^3.1.2",
     "@types/node": "^25.6.0",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
