@@ -63,7 +63,7 @@ tasks:
     vars:
       # Identical to build:native's flags except no -H windowsgui, so the
       # binary attaches to the launching console.
-      BUILD_FLAGS: '-tags production{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -buildvcs=false -ldflags="-w -s"'
+      BUILD_FLAGS: '-tags production{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -ldflags="-w -s"'
       CGO_ENABLED: '{{.CGO_ENABLED | default "0"}}'
       CC: '{{.CC | default "x86_64-w64-mingw32-gcc"}}'
     env:
@@ -97,7 +97,7 @@ tasks:
       - cmd: rm -f *.syso
         platforms: [linux, darwin]
     vars:
-      BUILD_FLAGS: '{{if eq .DEV "true"}}{{if .EXTRA_TAGS}}-tags {{.EXTRA_TAGS}} {{end}}-buildvcs=false -gcflags=all="-l"{{else}}-tags production{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -buildvcs=false -ldflags="-w -s -H windowsgui"{{end}}'
+      BUILD_FLAGS: '{{if eq .DEV "true"}}{{if .EXTRA_TAGS}}-tags {{.EXTRA_TAGS}} {{end}}-gcflags=all="-l"{{else}}-tags production{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -ldflags="-w -s -H windowsgui"{{end}}'
       CGO_ENABLED: '{{.CGO_ENABLED | default "0"}}'
       CC: '{{.CC | default "x86_64-w64-mingw32-gcc"}}'
     env:
