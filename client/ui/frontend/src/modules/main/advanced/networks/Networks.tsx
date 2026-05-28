@@ -1,0 +1,455 @@
+import { useEffect, useMemo, useRef, useState, type ComponentType } from "react";
+import { useTranslation } from "react-i18next";
+import * as Popover from "@radix-ui/react-popover";
+import * as ScrollArea from "@radix-ui/react-scroll-area";
+import { GlobeIcon, type LucideProps, NetworkIcon, WorkflowIcon } from "lucide-react";
+import type { Network } from "@bindings/services/models.js";
+import { cn } from "@/lib/cn";
+import { CopyToClipboard } from "@/components/CopyToClipboard";
+import { SearchInput } from "@/components/inputs/SearchInput";
+import { EmptyState } from "@/components/empty-state/EmptyState";
+import { NoResults } from "@/components/empty-state/NoResults";
+import { useStatus } from "@/contexts/StatusContext";
+import { useNetworks } from "@/contexts/NetworksContext";
+import { NetworkFilter, NetworkFilters } from "./NetworkFilters";
+
+// The daemon stringifies route.Network via netip.Prefix.String(). For
+// DNS-based routes the prefix is the zero value, which Go renders as
+// "invalid Prefix". Those rows render their domain + resolved IPs instead.
+const INVALID_PREFIX = "invalid Prefix";
+
+const isDnsRoute = (n: Network): boolean =>
+    n.domains.length > 0 && (!n.range || n.range === INVALID_PREFIX);
+
+// Mirror management's NetworkResourceType (resource.go GetResourceType):
+// a CIDR is a host when its prefix length equals the address width
+// (32 for IPv4, 128 for IPv6); anything broader is a subnet. Routes with
+// domains attached are domain resources.
+type ResourceType = "host" | "subnet" | "domain";
+
+const isHostCidr = (cidr: string): boolean => {
+    const [addr, bitsStr] = cidr.split("/");
+    if (!addr || !bitsStr) return false;
+    const bits = Number(bitsStr);
+    // IPv6 prefixes always contain ':'; IPv4 prefixes always contain '.'.
+    const isV6 = addr.includes(":");
+    return isV6 ? bits === 128 : bits === 32;
+};
+
+const resourceTypeOf = (n: Network): ResourceType => {
+    if (isDnsRoute(n)) return "domain";
+    // n.range is a single CIDR for resource routes. Exit-node v4+v6 pairs
+    // come comma-joined, but those are filtered out upstream — guard
+    // defensively by inspecting only the first segment.
+    const primary = n.range.split(",")[0].trim();
+    return isHostCidr(primary) ? "host" : "subnet";
+};
+
+const resourceIconFor = (type: ResourceType): ComponentType<LucideProps> => {
+    if (type === "host") return WorkflowIcon;
+    if (type === "domain") return GlobeIcon;
+    return NetworkIcon;
+};
+
+// Map every range string -> ids of CIDR routes that share it. Domain routes
+// are skipped (they overlap on domain, not prefix). Single-entry buckets
+// aren't overlaps.
+const buildOverlapMap = (
+    routes: { id: string; range: string; domains: string[] }[],
+): Map<string, string[]> => {
+    const byRange = new Map<string, string[]>();
+    for (const r of routes) {
+        if (r.domains.length > 0) continue;
+        const arr = byRange.get(r.range) ?? [];
+        arr.push(r.id);
+        byRange.set(r.range, arr);
+    }
+    const out = new Map<string, string[]>();
+    for (const [range, ids] of byRange) {
+        if (ids.length > 1) out.set(range, ids);
+    }
+    return out;
+};
+
+export const Networks = () => {
+    const { t } = useTranslation();
+    const { status } = useStatus();
+    const isConnected = status?.status === "Connected";
+    const { networkRoutes, toggleNetwork, setNetworksSelected } = useNetworks();
+    const [search, setSearch] = useState("");
+    const [filter, setFilter] = useState<NetworkFilter>("all");
+    const searchRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        searchRef.current?.focus();
+    }, []);
+
+    const overlapGroups = useMemo(() => buildOverlapMap(networkRoutes), [networkRoutes]);
+
+    const overlapById = useMemo(() => {
+        const map = new Map<string, string[]>();
+        for (const ids of overlapGroups.values()) {
+            for (const id of ids) map.set(id, ids);
+        }
+        return map;
+    }, [overlapGroups]);
+
+    const counts = useMemo<Record<NetworkFilter, number>>(
+        () => ({
+            all: networkRoutes.length,
+            active: networkRoutes.filter((r) => r.selected).length,
+            overlapping: overlapById.size,
+        }),
+        [networkRoutes, overlapById],
+    );
+
+    // Initial order: active-first, then by id. After that, positions are sticky
+    // — toggling a row doesn't move it, and newly discovered routes append at
+    // the end (sorted active-first / by-id among themselves). The ref carries
+    // the previous order across renders so the reconciliation is synchronous
+    // with networkRoutes updates (no useEffect lag → no visual hop).
+    const orderRef = useRef<string[]>([]);
+    const ordered = useMemo(() => {
+        const byId = new Map(networkRoutes.map((r) => [r.id, r]));
+        const kept = orderRef.current.filter((id) => byId.has(id));
+        const known = new Set(kept);
+        const fresh = networkRoutes
+            .filter((r) => !known.has(r.id))
+            .sort((a, b) => {
+                if (a.selected !== b.selected) return a.selected ? -1 : 1;
+                return a.id.localeCompare(b.id);
+            })
+            .map((r) => r.id);
+        const next = [...kept, ...fresh];
+        orderRef.current = next;
+        return next.map((id) => byId.get(id)!);
+    }, [networkRoutes]);
+
+    const filtered = useMemo(() => {
+        const q = search.trim().toLowerCase();
+        return ordered.filter((r) => {
+            if (filter === "active" && !r.selected) return false;
+            if (filter === "overlapping" && !overlapById.has(r.id)) return false;
+            if (q) {
+                const haystack = [r.id, r.range, ...r.domains].join(" ").toLowerCase();
+                if (!haystack.includes(q)) return false;
+            }
+            return true;
+        });
+    }, [ordered, search, filter, overlapById]);
+
+    if (isConnected && networkRoutes.length === 0) {
+        return (
+            <div
+                className={
+                    "flex-1 flex items-center justify-center px-6 pb-20 w-full h-full min-h-0"
+                }
+            >
+                <EmptyState
+                    icon={NetworkIcon}
+                    title={t("networks.empty.title")}
+                    description={t("networks.empty.description")}
+                    learnMoreUrl={"https://docs.netbird.io/how-to/networks"}
+                    learnMoreTopic={t("nav.resources.title")}
+                />
+            </div>
+        );
+    }
+
+    const selectedInView = filtered.filter((r) => r.selected).length;
+    const allSelected = filtered.length > 0 && selectedInView === filtered.length;
+    const bulkLabel = allSelected
+        ? t("networks.bulk.disableAll")
+        : t("networks.bulk.enableAll");
+
+    const onBulkClick = () => {
+        if (filtered.length === 0) return;
+        if (allSelected) {
+            void setNetworksSelected(
+                filtered.map((r) => r.id),
+                false,
+            );
+        } else {
+            const ids = filtered.filter((r) => !r.selected).map((r) => r.id);
+            void setNetworksSelected(ids, true);
+        }
+    };
+
+    return (
+        <div className={"flex flex-col w-full h-full min-h-0"}>
+            <div className={"flex items-center gap-2 px-6 py-2.5 border-b border-nb-gray-910"}>
+                <div className={"flex-1 min-w-0"}>
+                    <SearchInput
+                        ref={searchRef}
+                        placeholder={t("networks.search.placeholder")}
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                    />
+                </div>
+                <NetworkFilters value={filter} onChange={setFilter} counts={counts} />
+            </div>
+            <ScrollArea.Root type={"auto"} className={"flex-1 min-h-0 overflow-hidden"}>
+                <ScrollArea.Viewport className={"h-full w-full"}>
+                    {filtered.length === 0 ? (
+                        <NoResults />
+                    ) : (
+                        <NetworksList data={filtered} onToggle={toggleNetwork} />
+                    )}
+                </ScrollArea.Viewport>
+                <ScrollArea.Scrollbar
+                    orientation={"vertical"}
+                    className={cn(
+                        "flex select-none touch-none transition-colors",
+                        "w-1.5 bg-transparent py-1",
+                    )}
+                >
+                    <ScrollArea.Thumb
+                        className={
+                            "flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700 relative"
+                        }
+                    />
+                </ScrollArea.Scrollbar>
+            </ScrollArea.Root>
+            {filtered.length > 0 && (
+                <div
+                    className={cn(
+                        "flex items-center gap-3 px-6 py-3.5",
+                        "border-t border-nb-gray-910",
+                    )}
+                >
+                    <span className={"flex-1 text-xs font-medium text-nb-gray-300 tabular-nums"}>
+                        {t("networks.bulk.selectionCount", {
+                            selected: selectedInView,
+                            total: filtered.length,
+                        })}
+                    </span>
+                    <button
+                        type={"button"}
+                        onClick={onBulkClick}
+                        className={cn(
+                            "inline-flex items-center h-8 px-3 rounded-md",
+                            "text-xs font-medium text-nb-gray-100",
+                            "bg-nb-gray-920 hover:bg-nb-gray-910 border border-nb-gray-900 hover:border-nb-gray-850",
+                            "transition-colors outline-none wails-no-draggable cursor-pointer",
+                        )}
+                    >
+                        {bulkLabel}
+                    </button>
+                </div>
+            )}
+        </div>
+    );
+};
+
+type NetworksListProps = {
+    data: Network[];
+    onToggle: (id: string, selected: boolean) => void;
+};
+
+const NetworksList = ({ data, onToggle }: NetworksListProps) => {
+    const { t } = useTranslation();
+
+    return (
+        <ul className={"flex flex-col"}>
+            {data.map((n) => (
+                <li
+                    key={n.id}
+                    onClick={() => onToggle(n.id, n.selected)}
+                    className={cn(
+                        "group flex items-start gap-2.5 pl-6 pr-8 py-3 min-w-0 first:mt-2",
+                        "hover:bg-nb-gray-900/40 transition-colors",
+                        "wails-no-draggable cursor-pointer",
+                    )}
+                >
+                    <ResourceIconBadge type={resourceTypeOf(n)} />
+                    <div className={"min-w-0 flex-1 flex flex-col leading-tight"}>
+                        <div>
+                            <CopyToClipboard message={n.id}>
+                                <span
+                                    className={
+                                        "text-[0.81rem] font-medium text-nb-gray-100 truncate"
+                                    }
+                                >
+                                    {n.id}
+                                </span>
+                            </CopyToClipboard>
+                        </div>
+                        <Subtitle network={n} />
+                    </div>
+                    <div
+                        className={"shrink-0 self-center"}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <NetworkToggle
+                            checked={n.selected}
+                            onChange={() => onToggle(n.id, n.selected)}
+                            label={
+                                n.selected
+                                    ? t("networks.selected")
+                                    : t("networks.unselected")
+                            }
+                        />
+                    </div>
+                </li>
+            ))}
+        </ul>
+    );
+};
+
+const ResourceIconBadge = ({ type }: { type: ResourceType }) => {
+    const Icon = resourceIconFor(type);
+    return (
+        <div
+            className={cn(
+                "h-8 w-8 shrink-0 rounded-md flex items-center justify-center mt-[0.3125rem]",
+                "bg-nb-gray-920 border border-nb-gray-900 text-nb-gray-300",
+            )}
+        >
+            <Icon size={14} />
+        </div>
+    );
+};
+
+const Subtitle = ({ network }: { network: Network }) => {
+    if (isDnsRoute(network)) {
+        const domain = network.domains[0];
+        const ips = network.resolvedIps[domain] ?? [];
+        return <DomainSubtitle domain={domain} ips={ips} />;
+    }
+
+    if (network.range && network.range !== INVALID_PREFIX) {
+        return (
+            <div>
+                <CopyToClipboard message={network.range}>
+                    <span className={"text-xs font-mono text-nb-gray-400 truncate"}>
+                        {network.range}
+                    </span>
+                </CopyToClipboard>
+            </div>
+        );
+    }
+
+    return null;
+};
+
+const DomainSubtitle = ({ domain, ips }: { domain: string; ips: string[] }) => {
+    const first = ips[0];
+    const extra = ips.length - 1;
+
+    return (
+        <>
+            <div>
+                <CopyToClipboard message={domain}>
+                    <span className={"text-xs font-mono text-nb-gray-400 truncate"}>
+                        {domain}
+                    </span>
+                </CopyToClipboard>
+            </div>
+            {first && (
+                <div className={"flex items-center gap-1.5 min-w-0"}>
+                    <CopyToClipboard message={first}>
+                        <span className={"text-xs font-mono text-nb-gray-500 truncate"}>
+                            {first}
+                        </span>
+                    </CopyToClipboard>
+                    {extra > 0 && <ResolvedIpsPopover ips={ips} />}
+                </div>
+            )}
+        </>
+    );
+};
+
+const ResolvedIpsPopover = ({ ips }: { ips: string[] }) => {
+    const { t } = useTranslation();
+    const extra = ips.length - 1;
+
+    return (
+        <Popover.Root>
+            <Popover.Trigger asChild>
+                <button
+                    type={"button"}
+                    onClick={(e) => e.stopPropagation()}
+                    className={cn(
+                        "shrink-0 rounded bg-nb-gray-900 hover:bg-nb-gray-850",
+                        "px-1.5 py-0.5 text-[10px] font-medium text-nb-gray-300",
+                        "wails-no-draggable cursor-pointer outline-none",
+                    )}
+                >
+                    {t("networks.ips.more", { count: extra })}
+                </button>
+            </Popover.Trigger>
+            <Popover.Portal>
+                <Popover.Content
+                    side={"bottom"}
+                    align={"start"}
+                    sideOffset={6}
+                    className={cn(
+                        "z-50 w-64 max-h-72 overflow-auto",
+                        "rounded-lg border border-nb-gray-900 bg-nb-gray-935",
+                        "p-2 shadow-lg outline-none",
+                    )}
+                >
+                    <div
+                        className={
+                            "px-1 pb-1 text-[10px] uppercase tracking-wide text-nb-gray-500"
+                        }
+                    >
+                        {t("networks.ips.heading")}
+                    </div>
+                    <ul className={"flex flex-col"}>
+                        {ips.map((ip) => (
+                            <li key={ip}>
+                                <CopyToClipboard
+                                    message={ip}
+                                    className={"px-1 py-0.5"}
+                                >
+                                    <span
+                                        className={
+                                            "font-mono text-[0.72rem] text-nb-gray-200 break-all"
+                                        }
+                                    >
+                                        {ip}
+                                    </span>
+                                </CopyToClipboard>
+                            </li>
+                        ))}
+                    </ul>
+                </Popover.Content>
+            </Popover.Portal>
+        </Popover.Root>
+    );
+};
+
+type ToggleProps = {
+    checked: boolean;
+    onChange: () => void;
+    label: string;
+    mixed?: boolean;
+};
+
+const NetworkToggle = ({ checked, onChange, label, mixed }: ToggleProps) => (
+    <button
+        type={"button"}
+        role={"switch"}
+        aria-checked={mixed ? "mixed" : checked}
+        aria-label={label}
+        onClick={onChange}
+        className={cn(
+            "shrink-0 inline-flex h-5 w-9 items-center rounded-full",
+            "transition-colors cursor-pointer wails-no-draggable",
+            checked || mixed ? "bg-netbird" : "bg-nb-gray-700",
+            mixed && "opacity-60",
+        )}
+    >
+        <span
+            className={cn(
+                "inline-block h-4 w-4 rounded-full bg-white transition-transform",
+                mixed
+                    ? "translate-x-2.5"
+                    : checked
+                      ? "translate-x-[1.125rem]"
+                      : "translate-x-0.5",
+            )}
+        />
+    </button>
+);

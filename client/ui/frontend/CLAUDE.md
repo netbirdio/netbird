@@ -22,21 +22,53 @@ React 18 + TS 5.7 (`strict`, `noImplicitAny: false`) + Vite 6 + Tailwind 3 (`dar
 
 | Path | Component | Layout | Where it opens |
 |---|---|---|---|
-| `/` | `Main` | `AppLayout` | Main window default route |
-| `/browser-login` | `WaitingForBrowserDialog` (modules/authentication) | none | Auxiliary window (Go `WindowManager.OpenBrowserLogin`) |
-| `/install-progress` | `InstallProgressDialog` (modules/auto-update) | none | Auxiliary window (Go `WindowManager.OpenInstallProgress(version)`, always-on-top). Owns the install-result polling + 5s daemon-down-grace; calls `Update.Quit()` on success. Opened by `ClientVersionContext.triggerUpdate` (enforced user-driven branch) and on the `installing` flip from `netbird:update:state` (force-install branch). Dev "Show updating dialog" button in `SettingsDevelopment` opens it directly. |
-| `/session-expired` | `SessionExpiredDialog` (modules/authentication) | none | Auxiliary window (Go `WindowManager.OpenSessionExpired`, always-on-top) |
-| `/session-about-to-expire` | `SessionAboutToExpireDialog` (modules/authentication) | none | Auxiliary window (Go `WindowManager.OpenSessionAboutToExpire(seconds)`, always-on-top, mm:ss countdown via `?seconds=`) |
-| `/settings` | `Settings` | `SettingsLayout` | Auxiliary window (Go `WindowManager.OpenSettings(tab)`). The `Profiles` tab (`modules/settings/SettingsProfiles.tsx`, `UserCircle` icon, between Security and SSH) lists profiles in a table with Deregister/Delete in a per-row kebab and an Add Profile button. The header `ProfileDropdown`'s "Manage Profiles" entry calls `OpenSettings("profiles")` — `Settings.tsx` reads `?tab=` via `useSearchParams` so the window opens at that tab. |
+| `/` |  `MainPage` (modules/main/) | `AppLayout` | Main window default route |
+| `/dialog/browser-login` | `LoginWaitingForBrowserDialog` (modules/login/) | none | Auxiliary window (Go `WindowManager.OpenBrowserLogin`) |
+| `/dialog/install-progress` | `UpdateInProgressDialog` (modules/auto-update/) | none | Auxiliary window (Go `WindowManager.OpenInstallProgress(version)`, always-on-top). Owns the install-result polling + 5s daemon-down-grace; calls `Update.Quit()` on success. Opened by `ClientVersionContext.triggerUpdate` (enforced user-driven branch) and on the `installing` flip from `netbird:update:state` (force-install branch). |
+| `/dialog/session-expired` | `SessionExpiredDialog` (modules/session/) | none | Auxiliary window (Go `WindowManager.OpenSessionExpired`, always-on-top) |
+| `/dialog/session-about-to-expire` | `SessionAboutToExpireDialog` (modules/session/) | none | Auxiliary window (Go `WindowManager.OpenSessionAboutToExpire(seconds)`, always-on-top, mm:ss countdown via `?seconds=`) |
+| `/settings` |  `SettingsPage` (modules/settings/) | `AppLayout` | Auxiliary window (Go `WindowManager.OpenSettings(tab)`). Inherits the shared provider stack from `AppLayout`; the page itself adds the draggable strip + tabs. The `Profiles` tab (`modules/profiles/ProfilesTab.tsx`, `UserCircle` icon, between Security and SSH) lists profiles in a table with Deregister/Delete in a per-row kebab and an Add Profile button. The header `ProfileDropdown`'s "Manage Profiles" entry calls `OpenSettings("profiles")` — `Settings.tsx` reads `?tab=` via `useSearchParams` so the window opens at that tab. |
 | `*` | `<Navigate to="/">` | `AppLayout` | Catch-all |
 
-`AppLayout` wraps `Header + <Outlet/>` in this provider order: `StatusProvider → ProfileProvider → DebugBundleProvider → ClientVersionProvider`. `StatusProvider` (in `modules/daemon-status/StatusContext.tsx`) owns the single `Peers.Get` + `netbird:status` subscription, exposes `{ status, error, refresh, isReady, isDaemonAvailable, isDaemonUnavailable }`, **and only renders its children when the daemon is reachable** — until the first `Peers.Get` resolves and on `DaemonUnavailable` it short-circuits to just the `<DaemonUnavailableOverlay/>` (also owned by the provider). The consequence: every context downstream (`ProfileProvider`, `DebugBundleProvider`, `ClientVersionProvider`) can assume the daemon is reachable at mount time — no per-context `useStatus` gating. When the daemon flips back to unavailable the whole downstream subtree unmounts and remounts fresh once it returns. `ClientVersionProvider` no longer paints any inline overlay; install progress lives in its own auxiliary window (see `/install-progress` route). The view-mode (Default 380×640 vs Advanced 900×640) lives as `useState` inside `Header.tsx`, which calls `Window.SetSize` directly on change — no shared shell context for it.
+In `app.tsx` the four dialog routes are nested under a parent `<Route path="dialog">` so the table reads as a tree, not a flat list. The Go side mirrors the prefix — `WindowManager` opens windows at `/#/dialog/<name>`. The `dialog` group has no shared layout component; it's purely a URL grouping.
 
-`SettingsLayout` uses the same provider stack minus the `Header`. It also reserves a 38px `wails-draggable` strip at the top so the macOS traffic-light buttons (the window uses `MacTitleBarHiddenInset`) don't overlap content.
+`AppLayout` is the only in-window layout. It mounts the shared provider stack (`StatusProvider → ProfileProvider → DebugBundleProvider → ClientVersionProvider`) inside a `relative flex h-full flex-col` shell and renders `<Outlet/>`. Both `Main` (route `/`) and `Settings` (route `/settings`) sit under it. Order matters: `SettingsContext` depends on `ProfileContext`, `ClientVersionContext` reads `StatusContext` events. `StatusProvider` (in `contexts/StatusContext.tsx`) owns the single `Peers.Get` + `netbird:status` subscription, exposes `{ status, error, refresh, isReady, isDaemonAvailable, isDaemonUnavailable }`, **and only renders its children when the daemon is reachable** — until the first `Peers.Get` resolves and on `DaemonUnavailable` it short-circuits to just the `<DaemonUnavailableOverlay/>` (also owned by the provider). The consequence: every context downstream (`ProfileProvider`, `DebugBundleProvider`, `ClientVersionProvider`) can assume the daemon is reachable at mount time — no per-context `useStatus` gating. When the daemon flips back to unavailable the whole downstream subtree unmounts and remounts fresh once it returns. `ClientVersionProvider` no longer paints any inline overlay; install progress lives in its own auxiliary window (see `/install-progress` route).
+
+Page-specific chrome lives next to the page, not in the layout:
+- **`pages/main/Main.tsx`** owns the `Header`, `ViewModeProvider`, and `NavSectionProvider`. All three are main-window-only:
+  - `Header` reads `useViewMode` (view-mode dropdown) and `useClientVersion` (update badge).
+  - `ViewModeProvider` wraps the whole of `Main` because both `Header` and `MainBody` read view mode. It calls `Window.SetSize` on the current Wails window, so it must not be visible to the Settings window.
+  - `NavSectionProvider` is mounted only inside the advanced-mode branch (`MainBody → AdvancedRightPanel`) — the default-mode view has no Peers/Resources/Exit Nodes tabs and no consumer of `useNavSection`. Default mode therefore skips the provider entirely.
+  - `Header.tsx`, `Navigation.tsx`, and `ConnectionStatusSwitch.tsx` are siblings of `Main.tsx` in `pages/main/` because nothing else uses them.
+- **`pages/Settings.tsx`** owns the `h-12` `wails-draggable` strip at the top (so the macOS traffic-light buttons that float over the `MacTitleBarHiddenInset` window don't overlap content), then renders the vertical tabs — no view-mode, no nav, no header.
 
 ## Directory layout (src/)
 
-`modules/<feature>/` owns the polished UI — both the AppLayout-shell-driven views and the standalone auxiliary windows (e.g. `modules/authentication/WaitingForBrowserDialog.tsx`, `modules/auto-update/InstallProgressDialog.tsx`). `screens/` is a residual legacy bucket — don't add new code there.
+- `app.tsx` — root render + route table. The canonical registry of every route; scan this file to enumerate pages.
+- `layouts/AppLayout.tsx` — the router-level layout. Mounts the shared provider stack (`StatusProvider → ProfileProvider → DebugBundleProvider → ClientVersionProvider`) and renders `<Outlet/>`. (`layouts/` also holds `AppRightPanel.tsx`, see below.)
+- `modules/<feature>/` — every feature owns its own folder: page entry (named `<Feature>Page.tsx`), local components, and everything else it needs:
+  - `modules/main/` — `MainPage.tsx` + main-window chrome (`Header.tsx`, `ConnectionStatusSwitch.tsx`).
+    - `modules/main/advanced/` — advanced-mode-only surfaces. `Navigation.tsx` plus the three feature sub-modules whose tabs only render here: `peers/`, `networks/`, `exit-nodes/`.
+  - `modules/settings/` — `SettingsPage.tsx`, shared helpers (`SettingsSection.tsx`, `SettingsNavigation.tsx`, `SettingsSkeleton.tsx`), and all tab files flat (`SettingsGeneral`, `SettingsNetwork`, `SettingsSSH`, `SettingsSecurity`, `SettingsAdvanced`, `SettingsTroubleshooting`, `SettingsAbout`, `SettingsAccent`). `ManagementServerSwitch` and `LanguagePicker` are shared in `components/`; `useManagementUrl` is in `hooks/`.
+  - `modules/login/` — `LoginWaitingForBrowserDialog.tsx` (the SSO browser-wait window).
+  - `modules/session/` — `SessionExpiredDialog.tsx` and `SessionAboutToExpireDialog.tsx` (session lifecycle dialog windows).
+  - `modules/auto-update/` — `UpdateInProgressDialog.tsx`, `UpdateBadge.tsx`, `UpdateVersionCard.tsx`. Context lives in `contexts/`.
+  - `modules/profiles/` — `ProfileAvatar.tsx`, `ProfileDropdown.tsx`, `ProfileCreationModal.tsx`, `ProfilesTab.tsx`. Context lives in `contexts/`.
+
+  Note: there's no `modules/daemon-status/` or `modules/debug-bundle/` folder. The daemon-status overlay is a generic presentational component (`components/empty-state/DaemonUnavailableOverlay.tsx`) and `useDebugBundle` is inlined into `contexts/DebugBundleContext.tsx` — both folders would be empty otherwise.
+- `contexts/` — every React context in the app lives here as a flat file (`StatusContext`, `ProfileContext`, `DebugBundleContext`, `ClientVersionContext`, `SettingsContext`, `NetworksContext`, `PeerDetailContext`, `ViewModeContext`, `NavSectionContext`). Single mental model: "where is the X context? `contexts/XContext.tsx`."
+- `components/` — presentational primitives, no domain coupling. Grouped by family:
+  - `components/buttons/` — `Button`, `IconButton`.
+  - `components/inputs/` — `Input`, `SearchInput`.
+  - `components/dialog/` — `Dialog`, `DialogActions`, `DialogDescription`, `DialogHeading`, `ConfirmDialog`.
+  - `components/switches/` — `SwitchItem`, `SwitchItemGroup`, `ToggleSwitch`, `FancyToggleSwitch`.
+  - `components/typography/` — `Label`, `HelpText`.
+  - `components/empty-state/` — `EmptyState`, `NoResults`, `NotConnectedState`.
+  - Flat at root: `Badge.tsx`, `CopyToClipboard.tsx`, `DropdownMenu.tsx`, `SquareIcon.tsx`, `Tooltip.tsx`, `VerticalTabs.tsx` (one-of-a-kind primitives).
+- `layouts/` — `AppLayout.tsx` (the only router-level layout) plus the shared content shell `AppRightPanel.tsx` used by both `MainPage` and `SettingsPage`.
+- `hooks/` — reusable React hooks (`useAutoSizeWindow.ts`, `useKeyboardShortcut.ts`).
+- `lib/` — pure utilities (no JSX, no React state): `cn.ts`, `errors.ts`, `formatters.ts` (byte/latency/relative-time helpers), `i18n.ts`, `welcome.ts`.
+- `assets/` — fonts, logos, flags. `screens/` is a residual legacy bucket — don't add new code there.
 
 ## Wails event bus
 
@@ -44,15 +76,14 @@ Subscribe with `Events.On(name, handler)`. The handler receives `{ data: <typed 
 
 | Event name (string) | Payload | Emitted by | Consumed by |
 |---|---|---|---|
-| `netbird:status` | `Status` | `services/peers.go statusStreamLoop` | `modules/daemon-status/StatusContext` (`useStatus`) |
+| `netbird:status` | `Status` | `services/peers.go statusStreamLoop` | `contexts/StatusContext` (`useStatus`) |
 | `netbird:event` | `SystemEvent` | `services/peers.go toastStreamLoop` | Not currently subscribed on the TS side — Status is read via `useStatus().status.events` instead. The tray (Go) consumes it for OS notifications. |
-| `netbird:profile:changed` | `ProfileRef` | `services/profileswitcher.go SwitchActive` | `modules/profile/ProfileContext` refreshes so a tray-initiated switch paints in the React UI. |
+| `netbird:profile:changed` | `ProfileRef` | `services/profileswitcher.go SwitchActive` | `contexts/ProfileContext` refreshes so a tray-initiated switch paints in the React UI. |
 | `netbird:update:available` | `UpdateAvailable` | `services/peers.go fanOutUpdateEvents` | Not directly subscribed on the TS side; `ClientVersionContext` derives `updateVersion` from `status.events` metadata instead. |
 | `netbird:update:progress` | `UpdateProgress` | same | Drives the tray. UI side: `WindowManager.OpenInstallProgress` is what opens the install window; the React listener for `installing` flips lives in `ClientVersionContext`. |
 | `netbird:update:state` | `UpdateState` | `services/peers.go fanOutUpdateEvents` + the updater's `progress_window:show` translator | `modules/auto-update/ClientVersionContext` — single source of truth for `updateAvailable / version / enforced / installing`. |
-| `netbird:dev:overrides` | `{updateAvailable, enforced, version}` | `modules/settings/SettingsDevelopment.tsx` toggles | `modules/auto-update/ClientVersionContext` listens and overrides daemon-reported update state when the dev toggle is on. In-memory only; resets when Settings window closes. |
-| `browser-login:cancel` | (no payload) | `BrowserLogin` page (frontend) when user clicks Cancel **or** Go `services/windowmanager.go` when user closes the BrowserLogin window | `layouts/ConnectionStatusSwitch.tsx`'s `startLogin()` to abort the in-flight `WaitSSOLogin` |
-| `trigger-login` | (no payload) | Reserved (`services.EventTriggerLogin`); `layouts/ConnectionStatusSwitch.tsx` subscribes and runs `startLogin()` when fired. No Go-side emitter today. |
+| `browser-login:cancel` | (no payload) | `BrowserLogin` page (frontend) when user clicks Cancel **or** Go `services/windowmanager.go` when user closes the BrowserLogin window | `pages/main/ConnectionStatusSwitch.tsx`'s `startLogin()` to abort the in-flight `WaitSSOLogin` |
+| `trigger-login` | (no payload) | Reserved (`services.EventTriggerLogin`); `pages/main/ConnectionStatusSwitch.tsx` subscribes and runs `startLogin()` when fired. No Go-side emitter today. |
 
 If you wire a new daemon-event subscriber on the TS side, prefer subscribing once at the context level rather than per-screen — the Wails event bus is process-wide and each `Events.On` adds an emit-time fan-out.
 
@@ -60,19 +91,18 @@ If you wire a new daemon-event subscriber on the TS side, prefer subscribing onc
 
 State that crosses screens / windows lives in context. Each provider is mounted exactly once inside `AppLayout` or `SettingsLayout`.
 
-- **`useStatus`** (`modules/daemon-status/StatusContext.tsx`) — `{ status, error, refresh, isReady, isDaemonAvailable, isDaemonUnavailable }`. The provider owns a single `Peers.Get()` + `netbird:status` subscription and renders `<DaemonUnavailableOverlay/>`. `refresh()` after Connect/Disconnect to dodge a few hundred ms of event-stream lag. Other contexts (e.g. `ProfileContext`) read the boolean flags to skip RPCs while the daemon socket is down.
+- **`useStatus`** (`contexts/StatusContext.tsx`) — `{ status, error, refresh, isReady, isDaemonAvailable, isDaemonUnavailable }`. The provider owns a single `Peers.Get()` + `netbird:status` subscription and renders `<DaemonUnavailableOverlay/>`. `refresh()` after Connect/Disconnect to dodge a few hundred ms of event-stream lag. Other contexts (e.g. `ProfileContext`) read the boolean flags to skip RPCs while the daemon socket is down.
 
-- **`ProfileContext`** (`modules/profile/`) — `username`, `activeProfile`, `profiles`, plus `refresh` / `switchProfile` / `addProfile` / `removeProfile` / `logoutProfile`. `switchProfile` delegates to `ProfileSwitcher.SwitchActive` (the Go-side single source of truth — drives the optimistic-Connecting paint and `Peers` suppression). The other methods are thin wrappers over `Profiles.*` / `Connection.Logout` plus a `refresh()`.
+- **`ProfileContext`** (`modules/profiles/`) — `username`, `activeProfile`, `profiles`, plus `refresh` / `switchProfile` / `addProfile` / `removeProfile` / `logoutProfile`. `switchProfile` delegates to `ProfileSwitcher.SwitchActive` (the Go-side single source of truth — drives the optimistic-Connecting paint and `Peers` suppression). The other methods are thin wrappers over `Profiles.*` / `Connection.Logout` plus a `refresh()`.
 
-- **`SettingsContext`** (`modules/settings/`) — `setField` / `saveField` / `saveFields` / `saveNow` over `SettingsSvc.GetConfig|SetConfig` with 400ms debounce. Renders `<SkeletonSettings/>` while `config === null` so tabs never see null. **PSK mask quirk:** `GetConfig` returns existing PSKs as `"**********"`; sending the mask back round-trips it into storage and `wgtypes.ParseKey` fails on the next connect. `save` drops the field when it equals `"**********"`.
+- **`SettingsContext`** (`modules/settings/`) — `setField` / `saveField` / `saveFields` / `saveNow` over `SettingsSvc.GetConfig|SetConfig` with 400ms debounce. Renders `<SettingsSkeleton/>` while `config === null` so tabs never see null. **PSK mask quirk:** `GetConfig` returns existing PSKs as `"**********"`; sending the mask back round-trips it into storage and `wgtypes.ParseKey` fails on the next connect. `save` drops the field when it equals `"**********"`.
 
-- **`DebugBundleProvider` + `useDebugBundle`** (`modules/debug-bundle/`) — stages: `idle → preparing-trace → reconnecting → capturing → restoring-level → bundling → uploading → done`. Cancellable via `AbortController` at any stage; cancel restores the original log level best-effort. Wrapped in a context so the troubleshooting tab keeps stage across navigation. Upload URL is the hardcoded `NETBIRD_UPLOAD_URL`.
+- **`DebugBundleProvider` + `useDebugBundle`** (`contexts/DebugBundleContext.tsx`) — stages: `idle → preparing-trace → reconnecting → capturing → restoring-level → bundling → uploading → done`. Cancellable via `AbortController` at any stage; cancel restores the original log level best-effort. Wrapped in a context so the troubleshooting tab keeps stage across navigation. Upload URL is the hardcoded `NETBIRD_UPLOAD_URL`.
 
 - **`ClientVersionContext`** (`modules/auto-update/`) — seeds from `Update.GetState()` and subscribes to `netbird:update:state`; exposes `{ updateAvailable, updateVersion, enforced, installing, triggerUpdate, updating }`. **Three branches**:
   1. `available && !enforced` — download-only. `UpdateVersionCard` shows "Version X is available for download" + "Download installer" → opens GitHub releases.
   2. `available && enforced && !installing` — user-driven enforced. `UpdateVersionCard` shows "Version X is available for install" + "Install now" → `triggerUpdate` opens `/install-progress` window then calls `Update.Trigger()`.
   3. `available && enforced && installing` — daemon already installing (force-install). The `installing` flip auto-opens `/install-progress` via `WindowManager.OpenInstallProgress`.
-  Dev preview: `SettingsDevelopment` toggles emit `netbird:dev:overrides`, which this provider listens for and overrides `available / enforced / version`. No more module-level `FORCE_*` constants.
 
 ### Default/Advanced view + no client-side persistence
 
@@ -121,7 +151,7 @@ Compare against the variable, never against an English literal.
 
 **Adding a language.** Drop `client/ui/i18n/locales/<code>/common.json` and append the row to `client/ui/i18n/locales/_index.json`. Also drop the matching `<code>.svg` into `src/assets/flags/1x1/` — source those from the NetBird dashboard repo's same-name folder so the icon set stays consistent: https://github.com/netbirdio/dashboard/tree/main/public/assets/flags/1x1 . **Only check in flags for languages we actually ship** — `LanguagePicker.tsx` eager-globs that directory at build time, so every SVG in it gets bundled into the Wails app whether referenced or not. `src/lib/i18n.ts` discovers bundles via `import.meta.glob('../../../i18n/locales/*/common.json', { eager: true })` (the locales tree lives outside `frontend/`, so `vite.config.ts` whitelists the parent dir under `server.fs.allow`), so no code change is needed to wire the new locale in. Vite still inlines each bundle at build time, same chunk shape as static imports. The Go side reads the same tree (embedded via `client/ui/main.go`'s `embed.FS`), so the tray menu localises automatically off the same files.
 
-**Language picker.** `src/modules/settings/LanguagePicker.tsx` is mounted inside the Language section of `SettingsGeneral.tsx`. It populates from `I18n.Languages()` (matches `_index.json`) and calls `Preferences.SetLanguage(code)` on selection. The preference write triggers `netbird:preferences:changed`, which both the local i18next instance and every other open window listen to.
+**Language picker.** `src/components/LanguagePicker.tsx` is mounted inside the Language section of `SettingsGeneral.tsx`. It populates from `I18n.Languages()` (matches `_index.json`) and calls `Preferences.SetLanguage(code)` on selection. The preference write triggers `netbird:preferences:changed`, which both the local i18next instance and every other open window listen to.
 
 **What gets translated.** Every user-facing string in the polished AppLayout/Settings/Update/BrowserLogin/SessionExpired/Peers surfaces. Don't add hard-coded user-facing English to new code — add the key, then `t()`. Internal log strings, dev-only forced-state strings in `ClientVersionContext`, and the `Update failed` fallback fed into `classifyError()` (which then renders a translated description) are not translated.
 
@@ -132,7 +162,7 @@ The SSO flow is centralised in a module-level `startLogin()` with a `loginInFlig
 1. `Connection.Login({})` with empty fields — Go fills in active profile + OS user.
 2. If the daemon needs SSO (`needsSsoLogin`):
    - `WindowManager.OpenBrowserLogin(uri)` opens the auxiliary "waiting for sign-in" window (Hidden until React mounts and `useAutoSizeWindow` calls `Window.Show`).
-   - `WaitingForBrowserDialog` mounts, gets shown by `useAutoSizeWindow`, then fires `Connection.OpenURL(uri)` from its mount effect — opens the verification page in the system browser (honors `$BROWSER`). Done from the dialog (not `startLogin`) so the browser doesn't race the still-hidden NetBird popup and land on top.
+   - `LoginWaitingForBrowserDialog` mounts, gets shown by `useAutoSizeWindow`, then fires `Connection.OpenURL(uri)` from its mount effect — opens the verification page in the system browser (honors `$BROWSER`). Done from the dialog (not `startLogin`) so the browser doesn't race the still-hidden NetBird popup and land on top.
    - `Promise.race(WaitSSOLogin, EVENT_BROWSER_LOGIN_CANCEL)` — whichever resolves first.
    - On cancel: `Connection.Down()` to dislodge the daemon's pending `WaitSSOLogin` so the next Login starts fresh (see `services/connection.go:74`).
 3. `Connection.Up({})` to bring the new session up.
@@ -162,8 +192,8 @@ Defined in `tailwind.config.ts`. `nb-gray` is the neutral palette (background = 
 
 ## Things in flight (don't be surprised by)
 
-- **`screens/Peers.tsx`** uses live `Peers.Get` data. **`modules/peers/Peers.tsx`** uses `mockPeers.ts`. The mock-driven one is mounted under `Main.tsx`'s `MainRightSide` and is what the user sees today; the real-data one isn't wired into the route table.
-- **`modules/authentication/SessionExpiredDialog.tsx`** and **`modules/authentication/SessionAboutToExpireDialog.tsx`** are the always-on-top auxiliary windows. Today they're only triggered via the DEV-only "Development" tab in Settings (`SettingsDevelopment.tsx`) — a daemon-status hook (status `SessionExpired`, plus a future "about-to-expire" signal) will drive them later. Sign-in / Stay-connected emit `EventTriggerLogin` so the main window's `startLogin()` orchestrator handles the SSO flow; Logout uses `Connection.Logout({profileName, username})`.
+- **`screens/Peers.tsx`** uses live `Peers.Get` data. **`modules/peers/Peers.tsx`** uses `mockPeers.ts`. The mock-driven one is mounted under `Main.tsx`'s `AppRightPanel` and is what the user sees today; the real-data one isn't wired into the route table.
+- **`modules/session/SessionExpiredDialog.tsx`** and **`modules/session/SessionAboutToExpireDialog.tsx`** are the always-on-top auxiliary windows. No triggers wired today — a daemon-status hook (status `SessionExpired`, plus a future "about-to-expire" signal) will drive them later. Sign-in / Stay-connected emit `EventTriggerLogin` so the main window's `startLogin()` orchestrator handles the SSO flow; Logout uses `Connection.Logout({profileName, username})`.
 
 ## Wails Go API reference
 

@@ -3,18 +3,18 @@ import { Trans, useTranslation } from "react-i18next";
 import { CircleCheckBig, FolderOpen, Loader2 } from "lucide-react";
 import { Debug as DebugSvc } from "@bindings/services";
 import type { DebugBundleResult } from "@bindings/services/models.js";
-import { Button } from "@/components/Button";
-import { DialogActions } from "@/components/DialogActions";
-import { DialogDescription } from "@/components/DialogDescription";
-import { DialogHeading } from "@/components/DialogHeading";
-import FancyToggleSwitch from "@/components/FancyToggleSwitch";
-import HelpText from "@/components/HelpText.tsx";
-import { Input } from "@/components/Input";
-import { Label } from "@/components/Label";
+import { Button } from "@/components/buttons/Button";
+import { DialogActions } from "@/components/dialog/DialogActions";
+import { DialogDescription } from "@/components/dialog/DialogDescription";
+import { DialogHeading } from "@/components/dialog/DialogHeading";
+import FancyToggleSwitch from "@/components/switches/FancyToggleSwitch";
+import HelpText from "@/components/typography/HelpText.tsx";
+import { Input } from "@/components/inputs/Input";
+import { Label } from "@/components/typography/Label";
 import { SquareIcon } from "@/components/SquareIcon";
 import { cn } from "@/lib/cn";
-import type { DebugStage } from "@/modules/debug-bundle/useDebugBundle.ts";
-import { useDebugBundleContext } from "@/modules/debug-bundle/useDebugBundleContext.ts";
+import type { DebugStage } from "@/contexts/DebugBundleContext";
+import { useDebugBundleContext } from "@/contexts/DebugBundleContext";
 import { SectionGroup, SettingsBottomBar } from "@/modules/settings/SettingsSection.tsx";
 
 export function SettingsTroubleshooting() {

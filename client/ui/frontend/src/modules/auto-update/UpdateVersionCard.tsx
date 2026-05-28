@@ -2,8 +2,8 @@ import { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Browser } from "@wailsio/runtime";
 import { DownloadIcon, NotepadText } from "lucide-react";
-import { Button } from "@/components/Button";
-import { useClientVersion } from "@/modules/auto-update/ClientVersionContext";
+import { Button } from "@/components/buttons/Button";
+import { useClientVersion } from "@/contexts/ClientVersionContext";
 import { cn } from "@/lib/cn";
 
 const GITHUB_RELEASES = "https://github.com/netbirdio/netbird/releases/latest";

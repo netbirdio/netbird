@@ -106,9 +106,9 @@ func (s *WindowManager) OpenBrowserLogin(uri string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.browserLogin == nil {
-		startURL := "/#/browser-login"
+		startURL := "/#/dialog/browser-login"
 		if uri != "" {
-			startURL = "/#/browser-login?uri=" + url.QueryEscape(uri)
+			startURL = "/#/dialog/browser-login?uri=" + url.QueryEscape(uri)
 		}
 		s.hideOtherWindowsLocked("browser-login")
 		// Prefer the screen the main window is on so the sign-in popup
@@ -169,7 +169,7 @@ func (s *WindowManager) OpenBrowserLogin(uri string) {
 		return
 	}
 	if uri != "" {
-		s.browserLogin.SetURL("/#/browser-login?uri=" + url.QueryEscape(uri))
+		s.browserLogin.SetURL("/#/dialog/browser-login?uri=" + url.QueryEscape(uri))
 	}
 	s.browserLogin.Show()
 	s.browserLogin.Focus()
@@ -261,7 +261,7 @@ func (s *WindowManager) OpenSessionExpired() {
 			MaximiseButtonState: application.ButtonHidden,
 			CloseButtonState:    application.ButtonEnabled,
 			BackgroundColour:    application.NewRGB(24, 26, 29),
-			URL:                 "/#/session-expired",
+			URL:                 "/#/dialog/session-expired",
 			Mac: application.MacWindow{
 				InvisibleTitleBarHeight: 38,
 				Backdrop:                application.MacBackdropTranslucent,
@@ -302,7 +302,7 @@ func (s *WindowManager) CloseSessionExpired() {
 func (s *WindowManager) OpenSessionAboutToExpire(seconds int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	startURL := "/#/session-about-to-expire?seconds=" + strconv.Itoa(seconds)
+	startURL := "/#/dialog/session-about-to-expire?seconds=" + strconv.Itoa(seconds)
 	if s.sessionAboutToExpire == nil {
 		s.sessionAboutToExpire = s.app.Window.NewWithOptions(application.WebviewWindowOptions{
 			Name:                "session-about-to-expire",
@@ -364,9 +364,9 @@ func (s *WindowManager) CloseSessionAboutToExpire() {
 func (s *WindowManager) OpenInstallProgress(version string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	startURL := "/#/install-progress"
+	startURL := "/#/dialog/install-progress"
 	if version != "" {
-		startURL = "/#/install-progress?version=" + url.QueryEscape(version)
+		startURL = "/#/dialog/install-progress?version=" + url.QueryEscape(version)
 	}
 	if s.installProgress == nil {
 		s.hideOtherWindowsLocked("install-progress")

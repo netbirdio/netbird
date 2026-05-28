@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
-import FancyToggleSwitch from "@/components/FancyToggleSwitch";
+import FancyToggleSwitch from "@/components/switches/FancyToggleSwitch";
 import { SectionGroup } from "@/modules/settings/SettingsSection.tsx";
-import { useSettings } from "@/modules/settings/SettingsContext.tsx";
+import { useSettings } from "@/contexts/SettingsContext.tsx";
 
 export function SettingsNetwork() {
     const { t } = useTranslation();

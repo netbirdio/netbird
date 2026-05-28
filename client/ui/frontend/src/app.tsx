@@ -2,17 +2,16 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import "./globals.css";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
-import SessionExpiredDialog from "@/modules/authentication/SessionExpiredDialog.tsx";
-import SessionAboutToExpireDialog from "@/modules/authentication/SessionAboutToExpireDialog.tsx";
-import InstallProgressDialog from "@/modules/auto-update/InstallProgressDialog.tsx";
+import SessionExpiredDialog from "@/modules/session/SessionExpiredDialog.tsx";
+import SessionAboutToExpireDialog from "@/modules/session/SessionAboutToExpireDialog.tsx";
+import UpdateInProgressDialog from "@/modules/auto-update/UpdateInProgressDialog.tsx";
 import { AppLayout } from "@/layouts/AppLayout.tsx";
-import { SettingsLayout } from "@/layouts/SettingsLayout.tsx";
-import { Main } from "@/layouts/Main.tsx";
-import { Settings } from "@/modules/settings/Settings.tsx";
+import { MainPage } from "@/modules/main/MainPage.tsx";
+import { SettingsPage } from "@/modules/settings/SettingsPage.tsx";
 import { SkeletonTheme } from "react-loading-skeleton";
 import "react-loading-skeleton/dist/skeleton.css";
 import { welcome } from "@/lib/welcome";
-import WaitingForBrowserDialog from "@/modules/authentication/WaitingForBrowserDialog.tsx";
+import LoginWaitingForBrowserDialog from "@/modules/login/LoginWaitingForBrowserDialog.tsx";
 import { initI18n } from "@/lib/i18n";
 
 welcome();
@@ -30,15 +29,15 @@ initI18n()
             <SkeletonTheme baseColor={"#25282d"} highlightColor={"#33373e"}>
                 <HashRouter>
                     <Routes>
-                        <Route path="/browser-login" element={<WaitingForBrowserDialog />} />
-                        <Route path="/install-progress" element={<InstallProgressDialog />} />
-                        <Route path="/session-expired" element={<SessionExpiredDialog />} />
-                        <Route path="/session-about-to-expire" element={<SessionAboutToExpireDialog />} />
-                        <Route element={<SettingsLayout />}>
-                            <Route path="settings" element={<Settings />} />
+                        <Route path="dialog">
+                            <Route path="browser-login" element={<LoginWaitingForBrowserDialog />} />
+                            <Route path="install-progress" element={<UpdateInProgressDialog />} />
+                            <Route path="session-expired" element={<SessionExpiredDialog />} />
+                            <Route path="session-about-to-expire" element={<SessionAboutToExpireDialog />} />
                         </Route>
                         <Route element={<AppLayout />}>
-                            <Route index element={<Main />} />
+                            <Route index element={<MainPage />} />
+                            <Route path="settings" element={<SettingsPage />} />
                             <Route
                                 path="*"
                                 element={<Navigate to={"/"} replace />}

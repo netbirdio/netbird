@@ -1,12 +1,12 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { System } from "@wailsio/runtime";
-import Button from "@/components/Button";
-import { HelpText } from "@/components/HelpText";
-import { Input } from "@/components/Input";
-import { Label } from "@/components/Label";
+import Button from "@/components/buttons/Button";
+import { HelpText } from "@/components/typography/HelpText";
+import { Input } from "@/components/inputs/Input";
+import { Label } from "@/components/typography/Label";
 import { SectionGroup, SettingsBottomBar } from "@/modules/settings/SettingsSection.tsx";
-import { useSettings } from "@/modules/settings/SettingsContext.tsx";
+import { useSettings } from "@/contexts/SettingsContext.tsx";
 
 // macOS: the Darwin utun control socket parses the digits after "utun" as the
 // unit number, so the daemon (and the CLI's parseInterfaceName in

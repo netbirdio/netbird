@@ -1,15 +1,15 @@
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { Button } from "@/components/Button";
-import FancyToggleSwitch from "@/components/FancyToggleSwitch";
-import { HelpText } from "@/components/HelpText";
-import { Input } from "@/components/Input";
-import { Label } from "@/components/Label";
+import { Button } from "@/components/buttons/Button";
+import FancyToggleSwitch from "@/components/switches/FancyToggleSwitch";
+import { HelpText } from "@/components/typography/HelpText";
+import { Input } from "@/components/inputs/Input";
+import { Label } from "@/components/typography/Label";
 import { SectionGroup } from "@/modules/settings/SettingsSection.tsx";
-import { useSettings } from "@/modules/settings/SettingsContext.tsx";
-import { ManagementServerSwitch } from "@/modules/settings/ManagementServerSwitch.tsx";
-import { ManagementMode, useManagementUrl } from "@/modules/settings/useManagementUrl.ts";
-import { LanguagePicker } from "@/modules/settings/LanguagePicker.tsx";
+import { useSettings } from "@/contexts/SettingsContext.tsx";
+import { ManagementServerSwitch } from "@/components/ManagementServerSwitch.tsx";
+import { ManagementMode, useManagementUrl } from "@/hooks/useManagementUrl.ts";
+import { LanguagePicker } from "@/components/LanguagePicker.tsx";
 
 export function SettingsGeneral() {
     const { t } = useTranslation();

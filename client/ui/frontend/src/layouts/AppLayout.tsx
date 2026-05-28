@@ -1,12 +1,16 @@
 import { Outlet } from "react-router-dom";
-import { Header } from "@/layouts/Header.tsx";
-import { NavSectionProvider } from "@/lib/navSection";
-import { ViewModeProvider } from "@/lib/viewMode";
-import { ClientVersionProvider } from "@/modules/auto-update/ClientVersionContext.tsx";
-import { StatusProvider } from "@/modules/daemon-status/StatusContext.tsx";
-import { DebugBundleProvider } from "@/modules/debug-bundle/DebugBundleContext.tsx";
-import { ProfileProvider } from "@/modules/profile/ProfileContext.tsx";
+import { ClientVersionProvider } from "@/contexts/ClientVersionContext.tsx";
+import { StatusProvider } from "@/contexts/StatusContext.tsx";
+import { DebugBundleProvider } from "@/contexts/DebugBundleContext.tsx";
+import { ProfileProvider } from "@/contexts/ProfileContext.tsx";
 
+// Shared shell for every in-window route (main + settings). Owns the daemon-
+// availability gate (via StatusProvider) and the providers every page needs.
+// Order matters: SettingsContext depends on ProfileContext; ClientVersionContext
+// reads StatusContext events.
+//
+// Page-specific surface (the main Header, the settings draggable strip,
+// view-mode + nav-section providers) lives inside the page components, not here.
 export const AppLayout = () => {
     return (
         <div className={"relative flex h-full flex-col"}>
@@ -14,12 +18,7 @@ export const AppLayout = () => {
                 <ProfileProvider>
                     <DebugBundleProvider>
                         <ClientVersionProvider>
-                            <ViewModeProvider>
-                                <NavSectionProvider>
-                                    <Header />
-                                    <Outlet />
-                                </NavSectionProvider>
-                            </ViewModeProvider>
+                            <Outlet />
                         </ClientVersionProvider>
                     </DebugBundleProvider>
                 </ProfileProvider>

@@ -1,11 +1,11 @@
 import { useTranslation } from "react-i18next";
-import FancyToggleSwitch from "@/components/FancyToggleSwitch";
-import { HelpText } from "@/components/HelpText";
-import { Input } from "@/components/Input";
-import { Label } from "@/components/Label";
+import FancyToggleSwitch from "@/components/switches/FancyToggleSwitch";
+import { HelpText } from "@/components/typography/HelpText";
+import { Input } from "@/components/inputs/Input";
+import { Label } from "@/components/typography/Label";
 import { cn } from "@/lib/cn";
 import { SectionGroup } from "@/modules/settings/SettingsSection.tsx";
-import { useSettings } from "@/modules/settings/SettingsContext.tsx";
+import { useSettings } from "@/contexts/SettingsContext.tsx";
 import { type ChangeEvent, useEffect, useState } from "react";
 
 export function SettingsSSH() {
