@@ -83,7 +83,7 @@
     "nav.peers.description": "{connected} / {total} csatlakoztatva",
     "nav.resources.title": "Erőforrások",
     "nav.resources.description": "{active} / {total} aktív",
-    "nav.exitNode.title": "Kilépő csomópont",
+    "nav.exitNode.title": "Kilépő csomópontok",
     "nav.exitNode.none": "Nem aktív",
     "nav.exitNode.using": "Ezen át: {name}",
 

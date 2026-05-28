@@ -83,7 +83,7 @@
     "nav.peers.description": "{connected} von {total} verbunden",
     "nav.resources.title": "Ressourcen",
     "nav.resources.description": "{active} von {total} aktiv",
-    "nav.exitNode.title": "Exit-Node",
+    "nav.exitNode.title": "Exit-Nodes",
     "nav.exitNode.none": "Nicht aktiv",
     "nav.exitNode.using": "Über {name}",
 
