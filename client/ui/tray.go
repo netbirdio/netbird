@@ -1079,6 +1079,10 @@ func (t *Tray) loadProfiles() {
 			activeEmail = p.Email
 		}
 	}
+	t.profileSubmenu.AddSeparator()
+	t.profileSubmenu.Add(t.loc.T("tray.menu.manageProfiles")).OnClick(func(*application.Context) {
+		t.svc.WindowManager.OpenSettings("profiles")
+	})
 	log.Infof("tray loadProfiles: received %d profile(s) for user %q, active=%q", len(profiles), username, activeName)
 	if t.profileSubmenuItem != nil && activeName != "" {
 		t.profileSubmenuItem.SetLabel(activeName)

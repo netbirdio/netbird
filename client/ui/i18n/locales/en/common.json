@@ -18,6 +18,7 @@
     "tray.menu.exitNode": "Exit Node",
     "tray.menu.networks": "Resources",
     "tray.menu.profiles": "Profiles",
+    "tray.menu.manageProfiles": "Manage Profiles",
     "tray.menu.settings": "Settings...",
     "tray.menu.debugBundle": "Create Debug Bundle",
     "tray.menu.about": "Help & Support",

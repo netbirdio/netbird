@@ -18,6 +18,7 @@
     "tray.menu.exitNode": "Kilépő csomópont",
     "tray.menu.networks": "Erőforrások",
     "tray.menu.profiles": "Profilok",
+    "tray.menu.manageProfiles": "Profilok kezelése",
     "tray.menu.settings": "Beállítások...",
     "tray.menu.debugBundle": "Hibakeresési csomag készítése",
     "tray.menu.about": "Súgó és támogatás",
