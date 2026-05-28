@@ -30,7 +30,7 @@ export const ExitNodesList = ({ data, onToggle }: Props) => {
             onValueChange={handleChange}
             className={"flex flex-col"}
         >
-            <Row value={NONE_VALUE} label={t("exitNodes.none")} />
+            <Row value={NONE_VALUE} label={t("exitNodes.none")} first />
             {data.map((n) => (
                 <Row key={n.id} value={n.id} label={n.id} />
             ))}
@@ -41,17 +41,26 @@ export const ExitNodesList = ({ data, onToggle }: Props) => {
 type RowProps = {
     value: string;
     label: string;
+    first?: boolean;
 };
 
-const Row = ({ value, label }: RowProps) => (
+const Row = ({ value, label, first }: RowProps) => (
     <RadioGroup.Item
         value={value}
         className={cn(
-            "group flex items-center gap-3 px-7 py-3 min-w-0 text-left outline-none",
-            "cursor-pointer wails-no-draggable",
-            "hover:bg-nb-gray-900/40",
+            "group flex items-center gap-2.5 pl-6 pr-8 py-3 min-w-0 w-full",
+            first && "mt-2",
+            "hover:bg-nb-gray-900/40 transition-colors",
+            "wails-no-draggable cursor-pointer outline-none text-left",
         )}
     >
+        <span
+            className={
+                "min-w-0 flex-1 text-[0.81rem] font-medium text-nb-gray-100 truncate"
+            }
+        >
+            {label}
+        </span>
         <span
             className={cn(
                 "h-4 w-4 shrink-0 rounded-full border",
@@ -63,13 +72,6 @@ const Row = ({ value, label }: RowProps) => (
             <RadioGroup.Indicator
                 className={"h-2 w-2 rounded-full bg-white"}
             />
-        </span>
-        <span
-            className={
-                "text-[0.81rem] font-medium text-nb-gray-100 truncate min-w-0 flex-1"
-            }
-        >
-            {label}
         </span>
     </RadioGroup.Item>
 );

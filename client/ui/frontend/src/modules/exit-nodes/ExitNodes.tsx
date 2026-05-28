@@ -22,17 +22,32 @@ export const ExitNodes = () => {
         searchRef.current?.focus();
     }, []);
 
+    // Initial order: active-first, then by id. After that, positions are sticky
+    // — toggling a row doesn't move it. Mirrors the networks-list behavior so
+    // the optimistic radio flip paints in place instead of the row jumping to
+    // the top.
+    const orderRef = useRef<string[]>([]);
+    const ordered = useMemo(() => {
+        const byId = new Map(exitNodes.map((n) => [n.id, n]));
+        const kept = orderRef.current.filter((id) => byId.has(id));
+        const known = new Set(kept);
+        const fresh = exitNodes
+            .filter((n) => !known.has(n.id))
+            .sort((a, b) => {
+                if (a.selected !== b.selected) return a.selected ? -1 : 1;
+                return a.id.localeCompare(b.id);
+            })
+            .map((n) => n.id);
+        const next = [...kept, ...fresh];
+        orderRef.current = next;
+        return next.map((id) => byId.get(id)!);
+    }, [exitNodes]);
+
     const filtered = useMemo(() => {
         const q = search.trim().toLowerCase();
-        const matches = exitNodes.filter((r) => {
-            if (!q) return true;
-            return r.id.toLowerCase().includes(q);
-        });
-        return matches.sort((a, b) => {
-            if (a.selected !== b.selected) return a.selected ? -1 : 1;
-            return a.id.localeCompare(b.id);
-        });
-    }, [exitNodes, search]);
+        if (!q) return ordered;
+        return ordered.filter((r) => r.id.toLowerCase().includes(q));
+    }, [ordered, search]);
 
     if (isConnected && exitNodes.length === 0) {
         return (
