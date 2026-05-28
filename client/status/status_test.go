@@ -309,7 +309,10 @@ func TestParsingToJSON(t *testing.T) {
                 "quantumResistance": false,
                 "networks": [
                   "10.1.0.0/24"
-                ]
+                ],
+                "iceBackoffFailures": 0,
+                "iceBackoffNextRetry": "0001-01-01T00:00:00Z",
+                "iceBackoffSuspended": false
               },
               {
                 "fqdn": "peer-2.awesome-domain.com",
@@ -332,7 +335,10 @@ func TestParsingToJSON(t *testing.T) {
                 "transferSent": 1000,
 				"latency": 10000000,
                 "quantumResistance": false,
-                "networks": null
+                "networks": null,
+                "iceBackoffFailures": 0,
+                "iceBackoffNextRetry": "0001-01-01T00:00:00Z",
+                "iceBackoffSuspended": false
               }
             ]
           },
@@ -443,6 +449,9 @@ func TestParsingToYAML(t *testing.T) {
           quantumResistance: false
           networks:
             - 10.1.0.0/24
+          iceBackoffFailures: 0
+          iceBackoffNextRetry: 0001-01-01T00:00:00Z
+          iceBackoffSuspended: false
         - fqdn: peer-2.awesome-domain.com
           netbirdIp: 192.168.178.102
           publicKey: Pubkey2
@@ -462,6 +471,9 @@ func TestParsingToYAML(t *testing.T) {
           latency: 10ms
           quantumResistance: false
           networks: []
+          iceBackoffFailures: 0
+          iceBackoffNextRetry: 0001-01-01T00:00:00Z
+          iceBackoffSuspended: false
 cliVersion: development
 daemonVersion: 0.14.1
 daemonStatus: Connected

@@ -11,6 +11,7 @@ import (
 	goproto "google.golang.org/protobuf/proto"
 
 	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
+	"github.com/netbirdio/netbird/shared/connectionmode"
 
 	"github.com/netbirdio/netbird/client/ssh/auth"
 
@@ -25,6 +26,11 @@ import (
 	"github.com/netbirdio/netbird/shared/netiputil"
 	"github.com/netbirdio/netbird/shared/sshauth"
 )
+
+// p2pRetryMaxDisabledSentinel is the wire-format value that signals
+// "user-explicit disable backoff" (uint32-max). The 0 wire-value is
+// reserved for "not set, use daemon default". Phase 3 of #5989.
+const p2pRetryMaxDisabledSentinel = ^uint32(0)
 
 func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken *Token, extraSettings *types.ExtraSettings) *proto.NetbirdConfig {
 	if config == nil {
@@ -104,12 +110,49 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 		sshConfig.JwtConfig = buildJWTConfig(httpConfig, deviceFlowConfig)
 	}
 
+	// Resolve the effective ConnectionMode for this peer.
+	// Phase 1: account-wide settings only (per-peer / per-group resolution
+	// follows in Phase 3 / issue #5990). The new ConnectionMode field wins
+	// over the legacy LazyConnectionEnabled boolean. UNSPECIFIED in Settings
+	// (i.e. ConnectionMode == nil) falls back to the legacy bool.
+	resolvedMode := connectionmode.ResolveLegacyLazyBool(settings.LazyConnectionEnabled)
+	if settings.ConnectionMode != nil {
+		if m, err := connectionmode.ParseString(*settings.ConnectionMode); err == nil && m != connectionmode.ModeUnspecified {
+			resolvedMode = m
+		}
+	}
+
+	relayTO := uint32(0)
+	if settings.RelayTimeoutSeconds != nil {
+		relayTO = *settings.RelayTimeoutSeconds
+	}
+	p2pTO := uint32(0)
+	if settings.P2pTimeoutSeconds != nil {
+		p2pTO = *settings.P2pTimeoutSeconds
+	}
+	p2pRetryMax := uint32(0)
+	if settings.P2pRetryMaxSeconds != nil {
+		if *settings.P2pRetryMaxSeconds == 0 {
+			p2pRetryMax = p2pRetryMaxDisabledSentinel
+		} else {
+			p2pRetryMax = *settings.P2pRetryMaxSeconds
+		}
+	}
+
 	peerConfig := &proto.PeerConfig{
 		Address:                         fmt.Sprintf("%s/%d", peer.IP.String(), netmask),
 		SshConfig:                       sshConfig,
 		Fqdn:                            fqdn,
 		RoutingPeerDnsResolutionEnabled: settings.RoutingPeerDNSResolutionEnabled,
-		LazyConnectionEnabled:           settings.LazyConnectionEnabled,
+		// Send BOTH the new enum (for new clients) and the legacy boolean
+		// (for old clients). New clients prefer the explicit enum and
+		// ignore the bool; old clients ignore the unknown enum field
+		// (proto3 default behaviour) and fall back to the bool.
+		LazyConnectionEnabled: resolvedMode.ToLazyConnectionEnabled(),
+		ConnectionMode:        resolvedMode.ToProto(),
+		P2PTimeoutSeconds:     p2pTO,
+		P2PRetryMaxSeconds:    p2pRetryMax,
+		RelayTimeoutSeconds:   relayTO,
 		AutoUpdate: &proto.AutoUpdateSettings{
 			Version:      settings.AutoUpdateVersion,
 			AlwaysUpdate: settings.AutoUpdateAlways,

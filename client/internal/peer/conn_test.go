@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/client/iface"
@@ -278,6 +280,137 @@ func TestConn_presharedKey(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestConn_AttachICE_NilHandshaker verifies AttachICE errors when called
+// before Open() has wired up the handshaker.
+func TestConn_AttachICE_NilHandshaker(t *testing.T) {
+	c := &Conn{Log: log.WithField("peer", "test")}
+	if err := c.AttachICE(); err == nil {
+		t.Fatal("AttachICE on Conn with nil handshaker should return error")
+	}
+}
+
+// TestConn_AttachICE_NilWorkerICE verifies AttachICE errors when the conn
+// is in relay-forced mode (workerICE was never created).
+func TestConn_AttachICE_NilWorkerICE(t *testing.T) {
+	c := &Conn{
+		Log:        log.WithField("peer", "test"),
+		handshaker: &Handshaker{},
+	}
+	if err := c.AttachICE(); err == nil {
+		t.Fatal("AttachICE with nil workerICE should return error (relay-forced mode)")
+	}
+}
+
+// TestConn_DetachICE_NoHandshaker is a no-op idempotency check: calling
+// DetachICE before Open() must not panic and must not error.
+func TestConn_DetachICE_NoHandshaker(t *testing.T) {
+	c := &Conn{Log: log.WithField("peer", "test")}
+	if err := c.DetachICE(); err != nil {
+		t.Fatalf("DetachICE with nil handshaker should be no-op, got error: %v", err)
+	}
+}
+
+// TestConn_DetachICE_ClearsListener verifies DetachICE removes the ICE
+// listener from the handshaker. workerICE is left nil so Close() is skipped.
+func TestConn_DetachICE_ClearsListener(t *testing.T) {
+	h := &Handshaker{}
+	h.AddICEListener(func(o *OfferAnswer) {})
+	c := &Conn{
+		Log:        log.WithField("peer", "test"),
+		handshaker: h,
+	}
+
+	if h.readICEListener() == nil {
+		t.Fatal("precondition: handshaker should have a listener")
+	}
+
+	if err := c.DetachICE(); err != nil {
+		t.Fatalf("DetachICE returned error: %v", err)
+	}
+
+	if h.readICEListener() != nil {
+		t.Fatal("DetachICE should clear the ICE listener")
+	}
+
+	// Idempotent: second call is a no-op.
+	if err := c.DetachICE(); err != nil {
+		t.Fatalf("DetachICE second call should be no-op, got: %v", err)
+	}
+}
+
+func TestConn_AttachICE_NoOpWhenSuspended(t *testing.T) {
+	c := &Conn{
+		Log:        log.WithField("peer", "test"),
+		handshaker: &Handshaker{},
+		iceBackoff: newIceBackoff(15 * time.Minute),
+	}
+	c.iceBackoff.markFailure() // suspend it
+
+	// AttachICE should return nil but not actually attach
+	err := c.AttachICE()
+	if err != nil {
+		t.Fatalf("expected nil error during backoff, got %v", err)
+	}
+	if c.handshaker.readICEListener() != nil {
+		t.Fatal("AttachICE during backoff must NOT register a listener")
+	}
+}
+
+func TestConn_AttachICE_AfterBackoffExpiry(t *testing.T) {
+	c := &Conn{
+		Log:        log.WithField("peer", "test"),
+		handshaker: &Handshaker{},
+		iceBackoff: newIceBackoff(15 * time.Minute),
+	}
+	c.iceBackoff.markFailure()
+	// Force nextRetry into the past
+	c.iceBackoff.mu.Lock()
+	c.iceBackoff.nextRetry = time.Now().Add(-1 * time.Second)
+	c.iceBackoff.mu.Unlock()
+
+	// Without workerICE, AttachICE returns the "nil workerICE" error
+	// -- but we only care that the backoff gate is NOT engaged anymore.
+	err := c.AttachICE()
+	if err == nil {
+		t.Fatal("expected the relay-forced error path (nil workerICE)")
+	}
+	// The error should be about workerICE, not "suspended":
+	if errMsg := err.Error(); !strings.Contains(errMsg, "workerICE") {
+		t.Fatalf("after backoff expiry, error should be about workerICE not suspend; got %q", errMsg)
+	}
+}
+
+func TestConn_OnICEFailed_MarksBackoffFailure(t *testing.T) {
+	c := &Conn{
+		Log:        log.WithField("peer", "test"),
+		iceBackoff: newIceBackoff(15 * time.Minute),
+	}
+	if c.iceBackoff.IsSuspended() {
+		t.Fatal("precondition: not suspended")
+	}
+	c.onICEFailed()
+	if !c.iceBackoff.IsSuspended() {
+		t.Fatal("after onICEFailed, must be suspended")
+	}
+	if c.iceBackoff.Snapshot().Failures != 1 {
+		t.Fatalf("failures must be 1, got %d", c.iceBackoff.Snapshot().Failures)
+	}
+}
+
+func TestConn_OnICEConnected_ResetsBackoff(t *testing.T) {
+	c := &Conn{
+		Log:        log.WithField("peer", "test"),
+		iceBackoff: newIceBackoff(15 * time.Minute),
+	}
+	c.iceBackoff.markFailure()
+	c.iceBackoff.markFailure()
+	c.onICEConnected()
+	snap := c.iceBackoff.Snapshot()
+	if snap.Failures != 0 || snap.Suspended {
+		t.Fatalf("after onICEConnected: %+v", snap)
 	}
 }
 

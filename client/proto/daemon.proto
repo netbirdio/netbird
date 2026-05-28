@@ -205,6 +205,15 @@ message LoginRequest {
   optional bool disableSSHAuth = 38;
   optional int32 sshJWTCacheTTL = 39;
   optional bool disable_ipv6 = 40;
+
+  // Phase 1 (#5989): peer-connection mode and idle timeouts.
+  // Tags 41-43 were 40-42 before upstream IPv6 took tag 40; renumbered +1.
+  optional string connection_mode = 41;
+  optional uint32 p2p_timeout_seconds = 42;
+  optional uint32 relay_timeout_seconds = 43;
+
+  // Phase 3 (#5989): cap on the ICE-failure backoff schedule. Was tag 43; +1.
+  optional uint32 p2p_retry_max_seconds = 44;
 }
 
 message LoginResponse {
@@ -314,6 +323,22 @@ message GetConfigResponse {
   int32 sshJWTCacheTTL = 26;
 
   bool disable_ipv6 = 27;
+
+  // Phase 1 (#5989): peer-connection mode and idle timeouts.
+  // Tags 28-31 were 27-30 before upstream IPv6 took tag 27; renumbered +1.
+  string connection_mode = 28;
+  uint32 p2p_timeout_seconds = 29;
+  uint32 relay_timeout_seconds = 30;
+  // Phase 3 (#5989): cap on the ICE-failure backoff schedule.
+  uint32 p2p_retry_max_seconds = 31;
+
+  // Phase 3.7h: values most recently pushed by the management server's
+  // PeerConfig (independent of any local override). Tags 32-35 were
+  // 31-34 before upstream IPv6 shift; renumbered +1.
+  string server_pushed_connection_mode = 32;
+  uint32 server_pushed_relay_timeout_seconds = 33;
+  uint32 server_pushed_p2p_timeout_seconds = 34;
+  uint32 server_pushed_p2p_retry_max_seconds = 35;
 }
 
 // PeerState contains the latest state of a peer
@@ -337,6 +362,11 @@ message PeerState {
   string relayAddress = 18;
   bytes sshHostKey = 19;
   string ipv6 = 20;
+  // Phase 3 (#5989): ICE-backoff state. Tags 21-23 were 20-22 before
+  // upstream IPv6 took tag 20; renumbered +1.
+  int32  iceBackoffFailures  = 21;
+  google.protobuf.Timestamp iceBackoffNextRetry = 22;
+  bool   iceBackoffSuspended = 23;
 }
 
 // LocalPeerState contains the latest state of the local peer
@@ -678,6 +708,15 @@ message SetConfigRequest {
   optional bool disableSSHAuth = 33;
   optional int32 sshJWTCacheTTL = 34;
   optional bool disable_ipv6 = 35;
+
+  // Phase 1 (#5989): peer-connection mode and idle timeouts.
+  // (No tag collision with upstream's tag-35 disable_ipv6.)
+  optional string connection_mode = 40;
+  optional uint32 p2p_timeout_seconds = 41;
+  optional uint32 relay_timeout_seconds = 42;
+
+  // Phase 3 (#5989): cap on the ICE-failure backoff schedule.
+  optional uint32 p2p_retry_max_seconds = 43;
 }
 
 message SetConfigResponse{}

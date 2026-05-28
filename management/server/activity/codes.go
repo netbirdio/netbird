@@ -241,6 +241,19 @@ const (
 	// AccountLocalMfaDisabled indicates that a user disabled TOTP MFA for local users
 	AccountLocalMfaDisabled Activity = 124
 
+	// AccountConnectionModeChanged indicates the account-wide ConnectionMode
+	// setting was changed (Phase 1 of issue #5989).
+	AccountConnectionModeChanged Activity = 125
+	// AccountRelayTimeoutChanged indicates the account-wide RelayTimeoutSeconds
+	// setting was changed.
+	AccountRelayTimeoutChanged Activity = 126
+	// AccountP2pTimeoutChanged indicates the account-wide P2pTimeoutSeconds
+	// setting was changed.
+	AccountP2pTimeoutChanged Activity = 127
+	// AccountP2pRetryMaxChanged indicates the account-wide P2pRetryMaxSeconds
+	// setting was modified (Phase 3 of #5989).
+	AccountP2pRetryMaxChanged Activity = 128
+
 	AccountDeleted Activity = 99999
 )
 
@@ -343,6 +356,11 @@ var activityMap = map[Activity]Code{
 
 	AccountLazyConnectionEnabled:  {"Account lazy connection enabled", "account.setting.lazy.connection.enable"},
 	AccountLazyConnectionDisabled: {"Account lazy connection disabled", "account.setting.lazy.connection.disable"},
+
+	AccountConnectionModeChanged: {"Account connection mode changed", "account.setting.connection_mode.change"},
+	AccountRelayTimeoutChanged:   {"Account relay timeout changed", "account.setting.relay_timeout.change"},
+	AccountP2pTimeoutChanged:     {"Account p2p timeout changed", "account.setting.p2p_timeout.change"},
+	AccountP2pRetryMaxChanged:    {"Account p2p retry max changed", "account.setting.p2p_retry_max.change"},
 
 	AccountNetworkRangeUpdated: {"Account network range updated", "account.network.range.update"},
 

@@ -22,30 +22,89 @@ type WgInterface interface {
 	LastActivities() map[string]monotime.Time
 }
 
+// Manager watches per-peer activity timestamps from the WireGuard
+// interface and notifies via channels when peers cross inactivity
+// thresholds.
+//
+// Phase 2 (#5989) introduced TWO independent thresholds per peer:
+//   - iceTimeout fires the iceInactiveChan (consumer detaches the ICE
+//     worker but keeps the relay-tunnel up).
+//   - relayTimeout fires the relayInactiveChan (consumer tears down
+//     the whole connection).
+//
+// Threshold == 0 disables that channel for all peers (the corresponding
+// teardown never fires). Phase-1 p2p-lazy is expressed as
+// iceTimeout=0 + relayTimeout=X; the legacy InactivePeersChan is the
+// same as RelayInactiveChan for backwards compat.
 type Manager struct {
-	inactivePeersChan chan map[string]struct{}
+	iface WgInterface
 
-	iface               WgInterface
-	interestedPeers     map[string]*lazyconn.PeerConfig
+	// Two-timer thresholds (Phase 2). Both 0 = manager is effectively
+	// inert (peers register but no channel ever fires).
+	iceTimeout   time.Duration
+	relayTimeout time.Duration
+
+	interestedPeers map[string]*lazyconn.PeerConfig
+
+	iceInactiveChan   chan map[string]struct{}
+	relayInactiveChan chan map[string]struct{}
+
+	// inactivityThreshold + inactivePeersChan are kept for the
+	// Phase-1 NewManager API. Internally they alias to the relay
+	// timeout / channel.
 	inactivityThreshold time.Duration
+	inactivePeersChan   chan map[string]struct{}
 }
 
+// NewManager is the Phase-1 single-timer constructor. Pass a *time.Duration
+// to override the default DefaultInactivityThreshold; nil uses the default.
+//
+// Deprecated: use NewManagerWithTwoTimers. NewManager remains the entry
+// point for callers that haven't been migrated; it constructs a manager
+// with iceTimeout=0 (= ICE always-on, p2p-lazy semantics).
 func NewManager(iface WgInterface, configuredThreshold *time.Duration) *Manager {
-	inactivityThreshold, err := validateInactivityThreshold(configuredThreshold)
+	threshold, err := validateInactivityThreshold(configuredThreshold)
 	if err != nil {
-		inactivityThreshold = DefaultInactivityThreshold
+		threshold = DefaultInactivityThreshold
 		log.Warnf("invalid inactivity threshold configured: %v, using default: %v", err, DefaultInactivityThreshold)
 	}
 
-	log.Infof("inactivity threshold configured: %v", inactivityThreshold)
+	log.Infof("inactivity threshold configured: %v", threshold)
+	return newManager(iface, 0, threshold)
+}
+
+// NewManagerWithTwoTimers is the Phase-2 constructor. Pass 0 for either
+// timeout to disable that teardown path. Both 0 leaves the manager
+// running but inert (no channel ever fires) -- used by p2p / relay-forced
+// modes that don't tear down workers.
+func NewManagerWithTwoTimers(iface WgInterface, iceTimeout, relayTimeout time.Duration) *Manager {
+	if iceTimeout > 0 {
+		log.Infof("ICE inactivity timeout: %v", iceTimeout)
+	}
+	if relayTimeout > 0 {
+		log.Infof("relay inactivity timeout: %v", relayTimeout)
+	}
+	return newManager(iface, iceTimeout, relayTimeout)
+}
+
+func newManager(iface WgInterface, iceTimeout, relayTimeout time.Duration) *Manager {
+	relayCh := make(chan map[string]struct{}, 1)
 	return &Manager{
-		inactivePeersChan:   make(chan map[string]struct{}, 1),
 		iface:               iface,
+		iceTimeout:          iceTimeout,
+		relayTimeout:        relayTimeout,
 		interestedPeers:     make(map[string]*lazyconn.PeerConfig),
-		inactivityThreshold: inactivityThreshold,
+		iceInactiveChan:     make(chan map[string]struct{}, 1),
+		relayInactiveChan:   relayCh,
+		inactivityThreshold: relayTimeout,
+		inactivePeersChan:   relayCh, // Phase-1 alias: same channel as relayInactiveChan
 	}
 }
 
+// InactivePeersChan is the Phase-1 channel for whole-tunnel teardown.
+// In the Phase-2 internal model this is the same channel as
+// RelayInactiveChan -- existing callers (engine.go p2p-lazy path) keep
+// working unchanged.
 func (m *Manager) InactivePeersChan() chan map[string]struct{} {
 	if m == nil {
 		// return a nil channel that blocks forever
@@ -53,6 +112,26 @@ func (m *Manager) InactivePeersChan() chan map[string]struct{} {
 	}
 
 	return m.inactivePeersChan
+}
+
+// ICEInactiveChan returns the channel that signals ICE-worker-only
+// inactivity per peer (consumer typically calls Conn.DetachICE).
+// Always returns a valid channel; if iceTimeout is 0, the channel
+// just never fires.
+func (m *Manager) ICEInactiveChan() chan map[string]struct{} {
+	if m == nil {
+		return nil
+	}
+	return m.iceInactiveChan
+}
+
+// RelayInactiveChan returns the channel that signals relay-worker
+// (and thus whole-tunnel) inactivity per peer.
+func (m *Manager) RelayInactiveChan() chan map[string]struct{} {
+	if m == nil {
+		return nil
+	}
+	return m.relayInactiveChan
 }
 
 func (m *Manager) AddPeer(peerCfg *lazyconn.PeerConfig) {
@@ -95,24 +174,25 @@ func (m *Manager) Start(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C():
-			idlePeers, err := m.checkStats()
+			iceIdle, relayIdle, err := m.checkStats()
 			if err != nil {
 				log.Errorf("error checking stats: %v", err)
 				return
 			}
 
-			if len(idlePeers) == 0 {
-				continue
+			if len(iceIdle) > 0 {
+				m.notifyChan(ctx, m.iceInactiveChan, iceIdle)
 			}
-
-			m.notifyInactivePeers(ctx, idlePeers)
+			if len(relayIdle) > 0 {
+				m.notifyChan(ctx, m.relayInactiveChan, relayIdle)
+			}
 		}
 	}
 }
 
-func (m *Manager) notifyInactivePeers(ctx context.Context, inactivePeers map[string]struct{}) {
+func (m *Manager) notifyChan(ctx context.Context, ch chan map[string]struct{}, peers map[string]struct{}) {
 	select {
-	case m.inactivePeersChan <- inactivePeers:
+	case ch <- peers:
 	case <-ctx.Done():
 		return
 	default:
@@ -120,10 +200,24 @@ func (m *Manager) notifyInactivePeers(ctx context.Context, inactivePeers map[str
 	}
 }
 
-func (m *Manager) checkStats() (map[string]struct{}, error) {
+// checkStats walks the per-peer activity-since values and groups peers
+// into two sets:
+//   - iceIdle: peers idle longer than iceTimeout (only populated when
+//     iceTimeout > 0; otherwise this set is always empty)
+//   - relayIdle: peers idle longer than relayTimeout (only populated
+//     when relayTimeout > 0)
+//
+// Both sets are returned independently so consumers can act on each
+// without coupling. A peer that has crossed both thresholds appears in
+// both sets and the consumer is expected to handle them in order
+// (first DetachICE on the iceIdle set, then full Close on the relayIdle
+// set; the order is fine because Close on a peer where ICE is already
+// detached is still correct).
+func (m *Manager) checkStats() (iceIdle, relayIdle map[string]struct{}, err error) {
 	lastActivities := m.iface.LastActivities()
 
-	idlePeers := make(map[string]struct{})
+	iceIdle = make(map[string]struct{})
+	relayIdle = make(map[string]struct{})
 
 	checkTime := time.Now()
 	for peerID, peerCfg := range m.interestedPeers {
@@ -135,13 +229,18 @@ func (m *Manager) checkStats() (map[string]struct{}, error) {
 		}
 
 		since := monotime.Since(lastActive)
-		if since > m.inactivityThreshold {
-			peerCfg.Log.Infof("peer is inactive since time: %s", checkTime.Add(-since).String())
-			idlePeers[peerID] = struct{}{}
+
+		if m.iceTimeout > 0 && since > m.iceTimeout {
+			peerCfg.Log.Debugf("peer ICE idle since: %s", checkTime.Add(-since).String())
+			iceIdle[peerID] = struct{}{}
+		}
+		if m.relayTimeout > 0 && since > m.relayTimeout {
+			peerCfg.Log.Infof("peer relay idle since: %s", checkTime.Add(-since).String())
+			relayIdle[peerID] = struct{}{}
 		}
 	}
 
-	return idlePeers, nil
+	return iceIdle, relayIdle, nil
 }
 
 func validateInactivityThreshold(configuredThreshold *time.Duration) (time.Duration, error) {
