@@ -119,7 +119,7 @@ func (c *Controller) CountStreams() int {
 	return c.peersUpdateManager.CountStreams()
 }
 
-func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID string) error {
+func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) error {
 	log.WithContext(ctx).Tracef("updating peers for account %s from %s", accountID, util.GetCallerName())
 	account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
@@ -182,6 +182,10 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 			continue
 		}
 
+		if c.accountManagerMetrics != nil {
+			c.accountManagerMetrics.CountNmapTriggered(string(reason.Resource), string(reason.Operation))
+		}
+
 		wg.Add(1)
 		semaphore <- struct{}{}
 		go func(p *nbpeer.Peer) {
@@ -234,7 +238,7 @@ func (c *Controller) UpdateAccountPeers(ctx context.Context, accountID string, r
 	if c.accountManagerMetrics != nil {
 		c.accountManagerMetrics.CountUpdateAccountPeersTriggered(string(reason.Resource), string(reason.Operation))
 	}
-	return c.sendUpdateAccountPeers(ctx, accountID)
+	return c.sendUpdateAccountPeers(ctx, accountID, reason)
 }
 
 // UpdateAffectedPeers updates only the specified peers that belong to an account.
@@ -465,14 +469,14 @@ func (c *Controller) BufferUpdateAccountPeers(ctx context.Context, accountID str
 
 	go func() {
 		defer b.mu.Unlock()
-		_ = c.sendUpdateAccountPeers(ctx, accountID)
+		_ = c.sendUpdateAccountPeers(ctx, accountID, reason)
 		if !b.update.Load() {
 			return
 		}
 		b.update.Store(false)
 		if b.next == nil {
 			b.next = time.AfterFunc(time.Duration(c.updateAccountPeersBufferInterval.Load()), func() {
-				_ = c.sendUpdateAccountPeers(ctx, accountID)
+				_ = c.sendUpdateAccountPeers(ctx, accountID, reason)
 			})
 			return
 		}
