@@ -112,7 +112,7 @@ func (c *Controller) CountStreams() int {
 	return c.peersUpdateManager.CountStreams()
 }
 
-func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID string) error {
+func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) error {
 	log.WithContext(ctx).Tracef("updating peers for account %s from %s", accountID, util.GetCallerName())
 	account, err := c.requestBuffer.GetAccountWithBackpressure(ctx, accountID)
 	if err != nil {
@@ -173,6 +173,10 @@ func (c *Controller) sendUpdateAccountPeers(ctx context.Context, accountID strin
 		if !c.peersUpdateManager.HasChannel(peer.ID) {
 			log.WithContext(ctx).Tracef("peer %s doesn't have a channel, skipping network map update", peer.ID)
 			continue
+		}
+
+		if c.accountManagerMetrics != nil {
+			c.accountManagerMetrics.CountNmapTriggered(string(reason.Resource), string(reason.Operation))
 		}
 
 		wg.Add(1)
@@ -242,14 +246,14 @@ func (c *Controller) bufferSendUpdateAccountPeers(ctx context.Context, accountID
 
 	go func() {
 		defer b.mu.Unlock()
-		_ = c.sendUpdateAccountPeers(ctx, accountID)
+		_ = c.sendUpdateAccountPeers(ctx, accountID, reason)
 		if !b.update.Load() {
 			return
 		}
 		b.update.Store(false)
 		if b.next == nil {
 			b.next = time.AfterFunc(time.Duration(c.updateAccountPeersBufferInterval.Load()), func() {
-				_ = c.sendUpdateAccountPeers(ctx, accountID)
+				_ = c.sendUpdateAccountPeers(ctx, accountID, reason)
 			})
 			return
 		}
@@ -265,7 +269,7 @@ func (c *Controller) UpdateAccountPeers(ctx context.Context, accountID string, r
 	if c.accountManagerMetrics != nil {
 		c.accountManagerMetrics.CountUpdateAccountPeersTriggered(string(reason.Resource), string(reason.Operation))
 	}
-	return c.sendUpdateAccountPeers(ctx, accountID)
+	return c.sendUpdateAccountPeers(ctx, accountID, reason)
 }
 
 func (c *Controller) UpdateAccountPeer(ctx context.Context, accountId string, peerId string) error {
@@ -359,14 +363,14 @@ func (c *Controller) BufferUpdateAccountPeers(ctx context.Context, accountID str
 
 	go func() {
 		defer b.mu.Unlock()
-		_ = c.sendUpdateAccountPeers(ctx, accountID)
+		_ = c.sendUpdateAccountPeers(ctx, accountID, reason)
 		if !b.update.Load() {
 			return
 		}
 		b.update.Store(false)
 		if b.next == nil {
 			b.next = time.AfterFunc(time.Duration(c.updateAccountPeersBufferInterval.Load()), func() {
-				_ = c.sendUpdateAccountPeers(ctx, accountID)
+				_ = c.sendUpdateAccountPeers(ctx, accountID, reason)
 			})
 			return
 		}
