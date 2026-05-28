@@ -13,6 +13,7 @@ type AccountManagerMetrics struct {
 	ctx                          context.Context
 	updateAccountPeersDurationMs metric.Float64Histogram
 	updateAccountPeersCounter    metric.Int64Counter
+	nmapCounter                  metric.Int64Counter
 	getPeerNetworkMapDurationMs  metric.Float64Histogram
 	networkMapObjectCount        metric.Int64Histogram
 	peerMetaUpdateCount          metric.Int64Counter
@@ -59,6 +60,13 @@ func NewAccountManagerMetrics(ctx context.Context, meter metric.Meter) (*Account
 		return nil, err
 	}
 
+	nmapCounter, err := meter.Int64Counter("management.network.map.counter",
+		metric.WithUnit("1"),
+		metric.WithDescription("Number of network maps computed, labeled by resource and operation trigger"))
+	if err != nil {
+		return nil, err
+	}
+
 	peerMetaUpdateCount, err := meter.Int64Counter("management.account.peer.meta.update.counter",
 		metric.WithUnit("1"),
 		metric.WithDescription("Number of updates with new meta data from the peers"))
@@ -93,6 +101,7 @@ func NewAccountManagerMetrics(ctx context.Context, meter metric.Meter) (*Account
 		peerMetaUpdateCount:          peerMetaUpdateCount,
 		peerStatusUpdateCounter:      peerStatusUpdateCounter,
 		peerStatusUpdateDurationMs:   peerStatusUpdateDurationMs,
+		nmapCounter:                  nmapCounter,
 	}, nil
 
 }
@@ -138,6 +147,16 @@ func (metrics *AccountManagerMetrics) CountNetworkMapObjects(count int64) {
 // CountUpdateAccountPeersTriggered increments the counter for account peers updates with resource and operation labels.
 func (metrics *AccountManagerMetrics) CountUpdateAccountPeersTriggered(resource, operation string) {
 	metrics.updateAccountPeersCounter.Add(metrics.ctx, 1,
+		metric.WithAttributes(
+			attribute.String("resource", resource),
+			attribute.String("operation", operation),
+		),
+	)
+}
+
+// CountNmapTriggered increments the counter for calculated network maps with resource and operation labels.
+func (metrics *AccountManagerMetrics) CountNmapTriggered(resource, operation string) {
+	metrics.nmapCounter.Add(metrics.ctx, 1,
 		metric.WithAttributes(
 			attribute.String("resource", resource),
 			attribute.String("operation", operation),
