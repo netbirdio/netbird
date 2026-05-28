@@ -1,5 +1,6 @@
+import type { ComponentType } from "react";
 import * as Popover from "@radix-ui/react-popover";
-import { GlobeIcon, NetworkIcon, WorkflowIcon } from "lucide-react";
+import { GlobeIcon, type LucideProps, NetworkIcon, WorkflowIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Network } from "@bindings/services/models.js";
 import { cn } from "@/lib/cn";
@@ -37,10 +38,24 @@ const resourceTypeOf = (n: Network): ResourceType => {
     return isHostCidr(primary) ? "host" : "subnet";
 };
 
-const ResourceIcon = ({ type }: { type: ResourceType }) => {
-    if (type === "host") return <WorkflowIcon size={15} />;
-    if (type === "domain") return <GlobeIcon size={15} />;
-    return <NetworkIcon size={15} />;
+const resourceIconFor = (type: ResourceType): ComponentType<LucideProps> => {
+    if (type === "host") return WorkflowIcon;
+    if (type === "domain") return GlobeIcon;
+    return NetworkIcon;
+};
+
+const ResourceIconBadge = ({ type }: { type: ResourceType }) => {
+    const Icon = resourceIconFor(type);
+    return (
+        <div
+            className={cn(
+                "h-8 w-8 shrink-0 rounded-md flex items-center justify-center mt-[0.3125rem]",
+                "bg-nb-gray-920 border border-nb-gray-900 text-nb-gray-300",
+            )}
+        >
+            <Icon size={14} />
+        </div>
+    );
 };
 
 type Props = {
@@ -56,31 +71,41 @@ export const NetworksList = ({ data, onToggle }: Props) => {
             {data.map((n) => (
                 <li
                     key={n.id}
-                    className={"flex items-center gap-3 px-7 py-3 min-w-0"}
+                    onClick={() => onToggle(n.id, n.selected)}
+                    className={cn(
+                        "group flex items-start gap-2.5 pl-6 pr-8 py-3 min-w-0 first:mt-2",
+                        "hover:bg-nb-gray-900/40 transition-colors",
+                        "wails-no-draggable cursor-pointer",
+                    )}
                 >
-                    <NetworkToggle
-                        checked={n.selected}
-                        onChange={() => onToggle(n.id, n.selected)}
-                        label={
-                            n.selected
-                                ? t("networks.selected")
-                                : t("networks.unselected")
-                        }
-                    />
-                    <span className={"shrink-0 text-nb-gray-400"}>
-                        <ResourceIcon type={resourceTypeOf(n)} />
-                    </span>
-                    <div className={"min-w-0 flex-1 flex flex-col gap-0.5"}>
-                        <CopyToClipboard message={n.id}>
-                            <span
-                                className={
-                                    "text-[0.81rem] font-medium text-nb-gray-100"
-                                }
-                            >
-                                {n.id}
-                            </span>
-                        </CopyToClipboard>
+                    <ResourceIconBadge type={resourceTypeOf(n)} />
+                    <div className={"min-w-0 flex-1 flex flex-col leading-tight"}>
+                        <div>
+                            <CopyToClipboard message={n.id}>
+                                <span
+                                    className={
+                                        "text-[0.81rem] font-medium text-nb-gray-100 truncate"
+                                    }
+                                >
+                                    {n.id}
+                                </span>
+                            </CopyToClipboard>
+                        </div>
                         <Subtitle network={n} />
+                    </div>
+                    <div
+                        className={"shrink-0 self-center"}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <NetworkToggle
+                            checked={n.selected}
+                            onChange={() => onToggle(n.id, n.selected)}
+                            label={
+                                n.selected
+                                    ? t("networks.selected")
+                                    : t("networks.unselected")
+                            }
+                        />
                     </div>
                 </li>
             ))}
@@ -97,15 +122,13 @@ const Subtitle = ({ network }: { network: Network }) => {
 
     if (network.range && network.range !== INVALID_PREFIX) {
         return (
-            <CopyToClipboard message={network.range}>
-                <span
-                    className={
-                        "text-xs font-mono text-nb-gray-400 truncate"
-                    }
-                >
-                    {network.range}
-                </span>
-            </CopyToClipboard>
+            <div>
+                <CopyToClipboard message={network.range}>
+                    <span className={"text-xs font-mono text-nb-gray-400 truncate"}>
+                        {network.range}
+                    </span>
+                </CopyToClipboard>
+            </div>
         );
     }
 
@@ -122,26 +145,25 @@ const DomainSubtitle = ({ domain, ips }: DomainSubtitleProps) => {
     const extra = ips.length - 1;
 
     return (
-        <div className={"flex items-center gap-1.5 text-xs min-w-0"}>
-            <CopyToClipboard message={domain}>
-                <span className={"font-mono text-nb-gray-400 truncate"}>
-                    {domain}
-                </span>
-            </CopyToClipboard>
+        <>
+            <div>
+                <CopyToClipboard message={domain}>
+                    <span className={"text-xs font-mono text-nb-gray-400 truncate"}>
+                        {domain}
+                    </span>
+                </CopyToClipboard>
+            </div>
             {first && (
-                <>
-                    <span className={"text-nb-gray-600"}>·</span>
+                <div className={"flex items-center gap-1.5 min-w-0"}>
                     <CopyToClipboard message={first}>
-                        <span
-                            className={"font-mono text-nb-gray-500 truncate"}
-                        >
+                        <span className={"text-xs font-mono text-nb-gray-500 truncate"}>
                             {first}
                         </span>
                     </CopyToClipboard>
                     {extra > 0 && <ResolvedIpsPopover ips={ips} />}
-                </>
+                </div>
             )}
-        </div>
+        </>
     );
 };
 
@@ -154,6 +176,7 @@ const ResolvedIpsPopover = ({ ips }: { ips: string[] }) => {
             <Popover.Trigger asChild>
                 <button
                     type={"button"}
+                    onClick={(e) => e.stopPropagation()}
                     className={cn(
                         "shrink-0 rounded bg-nb-gray-900 hover:bg-nb-gray-850",
                         "px-1.5 py-0.5 text-[10px] font-medium text-nb-gray-300",
@@ -209,25 +232,31 @@ type ToggleProps = {
     checked: boolean;
     onChange: () => void;
     label: string;
+    mixed?: boolean;
 };
 
-const NetworkToggle = ({ checked, onChange, label }: ToggleProps) => (
+export const NetworkToggle = ({ checked, onChange, label, mixed }: ToggleProps) => (
     <button
         type={"button"}
         role={"switch"}
-        aria-checked={checked}
+        aria-checked={mixed ? "mixed" : checked}
         aria-label={label}
         onClick={onChange}
         className={cn(
-            "shrink-0 inline-flex h-4 w-7 items-center rounded-full",
+            "shrink-0 inline-flex h-5 w-9 items-center rounded-full",
             "transition-colors cursor-pointer wails-no-draggable",
-            checked ? "bg-netbird" : "bg-nb-gray-700",
+            checked || mixed ? "bg-netbird" : "bg-nb-gray-700",
+            mixed && "opacity-60",
         )}
     >
         <span
             className={cn(
-                "inline-block h-3 w-3 rounded-full bg-white transition-transform",
-                checked ? "translate-x-3.5" : "translate-x-0.5",
+                "inline-block h-4 w-4 rounded-full bg-white transition-transform",
+                mixed
+                    ? "translate-x-2.5"
+                    : checked
+                      ? "translate-x-[1.125rem]"
+                      : "translate-x-0.5",
             )}
         />
     </button>

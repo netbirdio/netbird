@@ -35,7 +35,7 @@ export const Networks = () => {
     const { t } = useTranslation();
     const { status } = useStatus();
     const isConnected = status?.status === "Connected";
-    const { networkRoutes, toggleNetwork } = useNetworks();
+    const { networkRoutes, toggleNetwork, setNetworksSelected } = useNetworks();
     const [search, setSearch] = useState("");
     const [filter, setFilter] = useState<NetworkFilter>("all");
     const searchRef = useRef<HTMLInputElement>(null);
@@ -63,9 +63,31 @@ export const Networks = () => {
         [networkRoutes, overlapById],
     );
 
+    // Initial order: active-first, then by id. After that, positions are sticky
+    // — toggling a row doesn't move it, and newly discovered routes append at
+    // the end (sorted active-first / by-id among themselves). The ref carries
+    // the previous order across renders so the reconciliation is synchronous
+    // with networkRoutes updates (no useEffect lag → no visual hop).
+    const orderRef = useRef<string[]>([]);
+    const ordered = useMemo(() => {
+        const byId = new Map(networkRoutes.map((r) => [r.id, r]));
+        const kept = orderRef.current.filter((id) => byId.has(id));
+        const known = new Set(kept);
+        const fresh = networkRoutes
+            .filter((r) => !known.has(r.id))
+            .sort((a, b) => {
+                if (a.selected !== b.selected) return a.selected ? -1 : 1;
+                return a.id.localeCompare(b.id);
+            })
+            .map((r) => r.id);
+        const next = [...kept, ...fresh];
+        orderRef.current = next;
+        return next.map((id) => byId.get(id)!);
+    }, [networkRoutes]);
+
     const filtered = useMemo(() => {
         const q = search.trim().toLowerCase();
-        const matches = networkRoutes.filter((r) => {
+        return ordered.filter((r) => {
             if (filter === "active" && !r.selected) return false;
             if (filter === "overlapping" && !overlapById.has(r.id)) return false;
             if (q) {
@@ -74,11 +96,7 @@ export const Networks = () => {
             }
             return true;
         });
-        return matches.sort((a, b) => {
-            if (a.selected !== b.selected) return a.selected ? -1 : 1;
-            return a.id.localeCompare(b.id);
-        });
-    }, [networkRoutes, search, filter, overlapById]);
+    }, [ordered, search, filter, overlapById]);
 
     if (isConnected && networkRoutes.length === 0) {
         return (
@@ -97,6 +115,25 @@ export const Networks = () => {
             </div>
         );
     }
+
+    const selectedInView = filtered.filter((r) => r.selected).length;
+    const allSelected = filtered.length > 0 && selectedInView === filtered.length;
+    const bulkLabel = allSelected
+        ? t("networks.bulk.disableAll")
+        : t("networks.bulk.enableAll");
+
+    const onBulkClick = () => {
+        if (filtered.length === 0) return;
+        if (allSelected) {
+            void setNetworksSelected(
+                filtered.map((r) => r.id),
+                false,
+            );
+        } else {
+            const ids = filtered.filter((r) => !r.selected).map((r) => r.id);
+            void setNetworksSelected(ids, true);
+        }
+    };
 
     return (
         <div className={"flex flex-col w-full h-full min-h-0"}>
@@ -133,6 +170,33 @@ export const Networks = () => {
                     />
                 </ScrollArea.Scrollbar>
             </ScrollArea.Root>
+            {filtered.length > 0 && (
+                <div
+                    className={cn(
+                        "flex items-center gap-3 px-6 py-3.5",
+                        "border-t border-nb-gray-910",
+                    )}
+                >
+                    <span className={"flex-1 text-xs font-medium text-nb-gray-300 tabular-nums"}>
+                        {t("networks.bulk.selectionCount", {
+                            selected: selectedInView,
+                            total: filtered.length,
+                        })}
+                    </span>
+                    <button
+                        type={"button"}
+                        onClick={onBulkClick}
+                        className={cn(
+                            "inline-flex items-center h-8 px-3 rounded-md",
+                            "text-xs font-medium text-nb-gray-100",
+                            "bg-nb-gray-920 hover:bg-nb-gray-910 border border-nb-gray-900 hover:border-nb-gray-850",
+                            "transition-colors outline-none wails-no-draggable cursor-pointer",
+                        )}
+                    >
+                        {bulkLabel}
+                    </button>
+                </div>
+            )}
         </div>
     );
 };

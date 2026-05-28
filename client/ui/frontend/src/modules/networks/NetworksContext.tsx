@@ -4,6 +4,7 @@ import {
     useContext,
     useEffect,
     useMemo,
+    useRef,
     useState,
     type ReactNode,
 } from "react";
@@ -28,6 +29,7 @@ type NetworksContextValue = {
     refresh: () => Promise<void>;
     toggleNetwork: (id: string, selected: boolean) => Promise<void>;
     toggleExitNode: (id: string, selected: boolean) => Promise<void>;
+    setNetworksSelected: (ids: string[], selected: boolean) => Promise<void>;
 };
 
 const NetworksContext = createContext<NetworksContextValue | null>(null);
@@ -43,13 +45,41 @@ export const useNetworks = () => {
 export const NetworksProvider = ({ children }: { children: ReactNode }) => {
     const { status } = useStatus();
     const [routes, setRoutes] = useState<Network[]>([]);
+    // Optimistic overrides: id → expected `selected` value. Applied on top of
+    // the server-side `routes` so toggles paint instantly. Entries are cleared
+    // either when the next server snapshot agrees (success path) or when the
+    // RPC throws (rollback). Linear-style optimistic mutation tracking.
+    const [pending, setPending] = useState<Map<string, boolean>>(new Map());
+    // Mirror of `pending` for use inside async callbacks without re-binding
+    // them on every change.
+    const pendingRef = useRef(pending);
+    useEffect(() => {
+        pendingRef.current = pending;
+    }, [pending]);
+
+    const setPendingFor = useCallback((updates: Array<[string, boolean]>) => {
+        setPending((prev) => {
+            const next = new Map(prev);
+            for (const [id, sel] of updates) next.set(id, sel);
+            return next;
+        });
+    }, []);
+
+    const clearPendingFor = useCallback((ids: string[]) => {
+        setPending((prev) => {
+            if (ids.every((id) => !prev.has(id))) return prev;
+            const next = new Map(prev);
+            for (const id of ids) next.delete(id);
+            return next;
+        });
+    }, []);
 
     const refresh = useCallback(async () => {
         try {
             const list = await NetworksSvc.List();
             setRoutes(list);
         } catch (e) {
-            console.error(e);
+            console.error("[NetworksContext] refresh failed", e);
         }
     }, []);
 
@@ -63,71 +93,124 @@ export const NetworksProvider = ({ children }: { children: ReactNode }) => {
         void refresh();
     }, [refresh, networksRevision]);
 
-    const toggleNetwork = useCallback(
-        async (id: string, selected: boolean) => {
+    // When the server snapshot agrees with a pending optimistic value, the
+    // mutation is confirmed — drop the override so the row tracks the server
+    // again. Runs whenever routes change.
+    useEffect(() => {
+        if (pendingRef.current.size === 0) return;
+        const confirmed: string[] = [];
+        for (const r of routes) {
+            const expected = pendingRef.current.get(r.id);
+            if (expected !== undefined && r.selected === expected) {
+                confirmed.push(r.id);
+            }
+        }
+        if (confirmed.length > 0) clearPendingFor(confirmed);
+    }, [routes, clearPendingFor]);
+
+    const mutate = useCallback(
+        async (ids: string[], selected: boolean, rollback: Array<[string, boolean]>) => {
             try {
                 if (selected) {
-                    await NetworksSvc.Deselect({
-                        networkIds: [id],
-                        append: false,
-                        all: false,
-                    });
+                    await NetworksSvc.Select({ networkIds: ids, append: true, all: false });
                 } else {
-                    await NetworksSvc.Select({
-                        networkIds: [id],
-                        append: true,
-                        all: false,
-                    });
+                    await NetworksSvc.Deselect({ networkIds: ids, append: false, all: false });
                 }
+                // Don't clear pending here — let the revision-driven refresh
+                // confirm via the snapshot-match effect. That avoids a flash
+                // back to old state if the refresh races the RPC return.
                 await refresh();
             } catch (e) {
                 console.error(e);
+                // Roll back to the last server-observed value for each id.
+                setPending((prev) => {
+                    const next = new Map(prev);
+                    for (const [id] of rollback) next.delete(id);
+                    return next;
+                });
+                throw e;
             }
         },
         [refresh],
+    );
+
+    const toggleNetwork = useCallback(
+        async (id: string, selected: boolean) => {
+            const target = !selected;
+            setPendingFor([[id, target]]);
+            await mutate([id], target, [[id, selected]]).catch(() => {});
+        },
+        [mutate, setPendingFor],
+    );
+
+    // Batch toggle for the bottom-bar select-all switch. The daemon's
+    // Select/Deselect RPCs accept an ID list natively, so we don't fan out
+    // per-ID calls — one round-trip + one refresh.
+    const setNetworksSelected = useCallback(
+        async (ids: string[], selected: boolean) => {
+            if (ids.length === 0) return;
+            const prevById = new Map(routes.map((r) => [r.id, r.selected]));
+            const rollback: Array<[string, boolean]> = ids.map((id) => [
+                id,
+                prevById.get(id) ?? !selected,
+            ]);
+            setPendingFor(ids.map((id) => [id, selected]));
+            await mutate(ids, selected, rollback).catch(() => {});
+        },
+        [mutate, setPendingFor, routes],
     );
 
     // Exit nodes are mutually exclusive, but the daemon enforces that now —
     // selecting one deselects the other exit nodes. Append so activating an
-    // exit node doesn't wipe the user's network-route selections.
+    // exit node doesn't wipe the user's network-route selections. We also
+    // mirror that mutual-exclusion locally so the optimistic paint matches
+    // the daemon's eventual state.
     const toggleExitNode = useCallback(
         async (id: string, selected: boolean) => {
-            try {
-                if (selected) {
-                    await NetworksSvc.Deselect({
-                        networkIds: [id],
-                        append: false,
-                        all: false,
-                    });
-                } else {
-                    await NetworksSvc.Select({
-                        networkIds: [id],
-                        append: true,
-                        all: false,
-                    });
+            const target = !selected;
+            const updates: Array<[string, boolean]> = [[id, target]];
+            const rollback: Array<[string, boolean]> = [[id, selected]];
+            if (target) {
+                for (const r of routes) {
+                    if (r.id !== id && isDefaultRoute(r.range) && r.selected) {
+                        updates.push([r.id, false]);
+                        rollback.push([r.id, true]);
+                    }
                 }
-                await refresh();
-            } catch (e) {
-                console.error(e);
             }
+            setPendingFor(updates);
+            await mutate([id], target, rollback).catch(() => {});
         },
-        [refresh],
+        [mutate, setPendingFor, routes],
     );
 
     const value = useMemo<NetworksContextValue>(() => {
-        const networkRoutes = routes.filter((r) => !isDefaultRoute(r.range));
-        const exitNodes = routes.filter((r) => isDefaultRoute(r.range));
+        // Apply pending overrides on top of the server snapshot. The override
+        // map is usually empty or tiny (one entry per in-flight toggle), so
+        // the per-route lookup is effectively free.
+        const effective =
+            pending.size === 0
+                ? routes
+                : routes.map((r) => {
+                      const override = pending.get(r.id);
+                      return override === undefined || override === r.selected
+                          ? r
+                          : { ...r, selected: override };
+                  });
+        const networkRoutes = effective.filter((r) => !isDefaultRoute(r.range));
+        const exitNodes = effective.filter((r) => isDefaultRoute(r.range));
         const activeExitNode = exitNodes.find((r) => r.selected) ?? null;
         return {
-            routes,
+            routes: effective,
             networkRoutes,
             exitNodes,
             activeExitNode,
             refresh,
             toggleNetwork,
             toggleExitNode,
+            setNetworksSelected,
         };
-    }, [routes, refresh, toggleNetwork, toggleExitNode]);
+    }, [routes, pending, refresh, toggleNetwork, toggleExitNode, setNetworksSelected]);
 
     return <NetworksContext.Provider value={value}>{children}</NetworksContext.Provider>;
 };

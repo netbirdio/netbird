@@ -346,6 +346,9 @@
     "networks.unselected": "Nincs kiválasztva",
     "networks.ips.more": "+{count} további",
     "networks.ips.heading": "Feloldott IP-címek",
+    "networks.bulk.selectionCount": "{selected} / {total} aktív",
+    "networks.bulk.enableAll": "Összes engedélyezése",
+    "networks.bulk.disableAll": "Összes letiltása",
 
     "exitNodes.search.placeholder": "Keresés a kilépő csomópontok között",
     "exitNodes.none": "Egyik sem",

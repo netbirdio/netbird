@@ -346,6 +346,9 @@
     "networks.unselected": "Nicht ausgewählt",
     "networks.ips.more": "+{count} weitere",
     "networks.ips.heading": "Aufgelöste IPs",
+    "networks.bulk.selectionCount": "{selected} von {total} aktiv",
+    "networks.bulk.enableAll": "Alle aktivieren",
+    "networks.bulk.disableAll": "Alle deaktivieren",
 
     "exitNodes.search.placeholder": "Exit Nodes suchen",
     "exitNodes.none": "Keiner",

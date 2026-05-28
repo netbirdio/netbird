@@ -362,6 +362,9 @@
     "networks.unselected": "Not selected",
     "networks.ips.more": "+{count} more",
     "networks.ips.heading": "Resolved IPs",
+    "networks.bulk.selectionCount": "{selected} of {total} Active",
+    "networks.bulk.enableAll": "Enable all",
+    "networks.bulk.disableAll": "Disable all",
 
     "exitNodes.search.placeholder": "Search exit nodes",
     "exitNodes.none": "None",
