@@ -902,7 +902,7 @@ func statusIndicatorBitmap(status string) []byte {
 		return iconMenuDotConnecting
 	case strings.EqualFold(status, services.StatusNeedsLogin),
 		strings.EqualFold(status, services.StatusSessionExpired):
-		return iconMenuDotLogin
+		return iconMenuDotConnecting
 	case strings.EqualFold(status, services.StatusLoginFailed),
 		strings.EqualFold(status, statusError):
 		return iconMenuDotError

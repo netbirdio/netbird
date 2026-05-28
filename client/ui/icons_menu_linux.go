@@ -18,9 +18,6 @@ var iconMenuDotConnected []byte
 //go:embed assets/netbird-menu-dot-connecting.png
 var iconMenuDotConnecting []byte
 
-//go:embed assets/netbird-menu-dot-login.png
-var iconMenuDotLogin []byte
-
 //go:embed assets/netbird-menu-dot-error.png
 var iconMenuDotError []byte
 
