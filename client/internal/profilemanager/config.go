@@ -103,6 +103,10 @@ type ConfigInput struct {
 
 // Config Configuration type
 type Config struct {
+	// Name is the human-readable profile name shown in CLI/UI listings.
+	// It is independent of the profile's on-disk filename (which is the ID).
+	Name string
+
 	// Wireguard private key of local peer
 	PrivateKey                    string
 	PreSharedKey                  string

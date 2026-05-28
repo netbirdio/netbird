@@ -3931,9 +3931,11 @@ func (x *GetEventsResponse) GetEvents() []*SystemEvent {
 }
 
 type SwitchProfileRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ProfileName   *string                `protobuf:"bytes,1,opt,name=profileName,proto3,oneof" json:"profileName,omitempty"`
-	Username      *string                `protobuf:"bytes,2,opt,name=username,proto3,oneof" json:"username,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// profileName is treated as a handle: exact ID, unique ID prefix, or
+	// unique display name. The daemon resolves it server-side.
+	ProfileName   *string `protobuf:"bytes,1,opt,name=profileName,proto3,oneof" json:"profileName,omitempty"`
+	Username      *string `protobuf:"bytes,2,opt,name=username,proto3,oneof" json:"username,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3983,7 +3985,11 @@ func (x *SwitchProfileRequest) GetUsername() string {
 }
 
 type SwitchProfileResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// id is the resolved on-disk ID of the profile that became active.
+	// Lets CLI clients update their local active-profile state without
+	// duplicating the resolution logic.
+	Id            string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4016,6 +4022,13 @@ func (x *SwitchProfileResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SwitchProfileResponse.ProtoReflect.Descriptor instead.
 func (*SwitchProfileResponse) Descriptor() ([]byte, []int) {
 	return file_daemon_proto_rawDescGZIP(), []int{55}
+}
+
+func (x *SwitchProfileResponse) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
 }
 
 type SetConfigRequest struct {
@@ -4374,9 +4387,11 @@ func (*SetConfigResponse) Descriptor() ([]byte, []int) {
 }
 
 type AddProfileRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Username      string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
-	ProfileName   string                 `protobuf:"bytes,2,opt,name=profileName,proto3" json:"profileName,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Username string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
+	// profileName carries the human-readable display name for the new
+	// profile. The on-disk filename is a separately-generated ID.
+	ProfileName   string `protobuf:"bytes,2,opt,name=profileName,proto3" json:"profileName,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4426,7 +4441,10 @@ func (x *AddProfileRequest) GetProfileName() string {
 }
 
 type AddProfileResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// id is the generated on-disk ID of the new profile. CLI clients
+	// display a truncated form; UI clients can ignore it.
+	Id            string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4461,10 +4479,19 @@ func (*AddProfileResponse) Descriptor() ([]byte, []int) {
 	return file_daemon_proto_rawDescGZIP(), []int{59}
 }
 
+func (x *AddProfileResponse) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
 type RemoveProfileRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Username      string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
-	ProfileName   string                 `protobuf:"bytes,2,opt,name=profileName,proto3" json:"profileName,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Username string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
+	// profileName is treated as a handle: an exact ID, a unique ID
+	// prefix, or a unique display name. Resolution happens server-side.
+	ProfileName   string `protobuf:"bytes,2,opt,name=profileName,proto3" json:"profileName,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4514,7 +4541,10 @@ func (x *RemoveProfileRequest) GetProfileName() string {
 }
 
 type RemoveProfileResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// id is the full resolved ID of the removed profile, so callers can
+	// confirm exactly which profile a name/prefix handle resolved to.
+	Id            string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4547,6 +4577,13 @@ func (x *RemoveProfileResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use RemoveProfileResponse.ProtoReflect.Descriptor instead.
 func (*RemoveProfileResponse) Descriptor() ([]byte, []int) {
 	return file_daemon_proto_rawDescGZIP(), []int{61}
+}
+
+func (x *RemoveProfileResponse) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
 }
 
 type ListProfilesRequest struct {
@@ -4638,9 +4675,12 @@ func (x *ListProfilesResponse) GetProfiles() []*Profile {
 }
 
 type Profile struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	IsActive      bool                   `protobuf:"varint,2,opt,name=is_active,json=isActive,proto3" json:"is_active,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Name     string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	IsActive bool                   `protobuf:"varint,2,opt,name=is_active,json=isActive,proto3" json:"is_active,omitempty"`
+	// id is the on-disk filename stem of the profile. Always set by the
+	// server; older clients that ignore it continue to work via name.
+	Id            string `protobuf:"bytes,3,opt,name=id,proto3" json:"id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4689,6 +4729,13 @@ func (x *Profile) GetIsActive() bool {
 	return false
 }
 
+func (x *Profile) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
 type GetActiveProfileRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -4726,9 +4773,13 @@ func (*GetActiveProfileRequest) Descriptor() ([]byte, []int) {
 }
 
 type GetActiveProfileResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ProfileName   string                 `protobuf:"bytes,1,opt,name=profileName,proto3" json:"profileName,omitempty"`
-	Username      string                 `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// profileName carries the display name for backwards compatibility
+	// with UI clients. New callers should prefer id, which is unique.
+	ProfileName string `protobuf:"bytes,1,opt,name=profileName,proto3" json:"profileName,omitempty"`
+	Username    string `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
+	// id is the on-disk filename stem of the active profile.
+	Id            string `protobuf:"bytes,3,opt,name=id,proto3" json:"id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4773,6 +4824,13 @@ func (x *GetActiveProfileResponse) GetProfileName() string {
 func (x *GetActiveProfileResponse) GetUsername() string {
 	if x != nil {
 		return x.Username
+	}
+	return ""
+}
+
+func (x *GetActiveProfileResponse) GetId() string {
+	if x != nil {
+		return x.Id
 	}
 	return ""
 }
@@ -6598,8 +6656,9 @@ const file_daemon_proto_rawDesc = "" +
 	"\vprofileName\x18\x01 \x01(\tH\x00R\vprofileName\x88\x01\x01\x12\x1f\n" +
 	"\busername\x18\x02 \x01(\tH\x01R\busername\x88\x01\x01B\x0e\n" +
 	"\f_profileNameB\v\n" +
-	"\t_username\"\x17\n" +
-	"\x15SwitchProfileResponse\"\x98\x11\n" +
+	"\t_username\"'\n" +
+	"\x15SwitchProfileResponse\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x98\x11\n" +
 	"\x10SetConfigRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12 \n" +
 	"\vprofileName\x18\x02 \x01(\tR\vprofileName\x12$\n" +
@@ -6668,23 +6727,27 @@ const file_daemon_proto_rawDesc = "" +
 	"\x11SetConfigResponse\"Q\n" +
 	"\x11AddProfileRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12 \n" +
-	"\vprofileName\x18\x02 \x01(\tR\vprofileName\"\x14\n" +
-	"\x12AddProfileResponse\"T\n" +
+	"\vprofileName\x18\x02 \x01(\tR\vprofileName\"$\n" +
+	"\x12AddProfileResponse\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"T\n" +
 	"\x14RemoveProfileRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12 \n" +
-	"\vprofileName\x18\x02 \x01(\tR\vprofileName\"\x17\n" +
-	"\x15RemoveProfileResponse\"1\n" +
+	"\vprofileName\x18\x02 \x01(\tR\vprofileName\"'\n" +
+	"\x15RemoveProfileResponse\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"1\n" +
 	"\x13ListProfilesRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\"C\n" +
 	"\x14ListProfilesResponse\x12+\n" +
-	"\bprofiles\x18\x01 \x03(\v2\x0f.daemon.ProfileR\bprofiles\":\n" +
+	"\bprofiles\x18\x01 \x03(\v2\x0f.daemon.ProfileR\bprofiles\"J\n" +
 	"\aProfile\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1b\n" +
-	"\tis_active\x18\x02 \x01(\bR\bisActive\"\x19\n" +
-	"\x17GetActiveProfileRequest\"X\n" +
+	"\tis_active\x18\x02 \x01(\bR\bisActive\x12\x0e\n" +
+	"\x02id\x18\x03 \x01(\tR\x02id\"\x19\n" +
+	"\x17GetActiveProfileRequest\"h\n" +
 	"\x18GetActiveProfileResponse\x12 \n" +
 	"\vprofileName\x18\x01 \x01(\tR\vprofileName\x12\x1a\n" +
-	"\busername\x18\x02 \x01(\tR\busername\"t\n" +
+	"\busername\x18\x02 \x01(\tR\busername\x12\x0e\n" +
+	"\x02id\x18\x03 \x01(\tR\x02id\"t\n" +
 	"\rLogoutRequest\x12%\n" +
 	"\vprofileName\x18\x01 \x01(\tH\x00R\vprofileName\x88\x01\x01\x12\x1f\n" +
 	"\busername\x18\x02 \x01(\tH\x01R\busername\x88\x01\x01B\x0e\n" +

@@ -88,7 +88,7 @@ func (s *serviceClient) showProfilesUI() {
 							return
 						}
 						// switch
-						err = s.switchProfile(profile.Name)
+						err = s.switchProfile(profile.ID)
 						if err != nil {
 							log.Errorf("failed to switch profile: %v", err)
 							dialog.ShowError(errors.New("failed to select profile"), s.wProfiles)
@@ -130,7 +130,7 @@ func (s *serviceClient) showProfilesUI() {
 			logoutBtn.Show()
 			logoutBtn.SetText("Deregister")
 			logoutBtn.OnTapped = func() {
-				s.handleProfileLogout(profile.Name, refresh)
+				s.handleProfileLogout(profile, refresh)
 			}
 
 			// Remove profile
@@ -144,7 +144,7 @@ func (s *serviceClient) showProfilesUI() {
 							return
 						}
 
-						err = s.removeProfile(profile.Name)
+						err = s.removeProfile(profile.ID)
 						if err != nil {
 							log.Errorf("failed to remove profile: %v", err)
 							dialog.ShowError(fmt.Errorf("failed to remove profile"), s.wProfiles)
@@ -250,7 +250,7 @@ func (s *serviceClient) addProfile(profileName string) error {
 	return nil
 }
 
-func (s *serviceClient) switchProfile(profileName string) error {
+func (s *serviceClient) switchProfile(handle string) error {
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
 		return fmt.Errorf(getClientFMT, err)
@@ -261,15 +261,15 @@ func (s *serviceClient) switchProfile(profileName string) error {
 		return fmt.Errorf("get current user: %w", err)
 	}
 
-	if _, err := conn.SwitchProfile(s.ctx, &proto.SwitchProfileRequest{
-		ProfileName: &profileName,
+	resp, err := conn.SwitchProfile(s.ctx, &proto.SwitchProfileRequest{
+		ProfileName: &handle,
 		Username:    &currUser.Username,
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("switch profile failed: %w", err)
 	}
 
-	err = s.profileManager.SwitchProfile(profileName)
-	if err != nil {
+	if err := s.profileManager.SwitchProfile(resp.Id); err != nil {
 		return fmt.Errorf("switch profile: %w", err)
 	}
 
@@ -299,6 +299,7 @@ func (s *serviceClient) removeProfile(profileName string) error {
 }
 
 type Profile struct {
+	ID       string
 	Name     string
 	IsActive bool
 }
@@ -324,6 +325,7 @@ func (s *serviceClient) getProfiles() ([]Profile, error) {
 
 	for _, profile := range profilesResp.Profiles {
 		profiles = append(profiles, Profile{
+			ID:       profile.Id,
 			Name:     profile.Name,
 			IsActive: profile.IsActive,
 		})
@@ -332,10 +334,10 @@ func (s *serviceClient) getProfiles() ([]Profile, error) {
 	return profiles, nil
 }
 
-func (s *serviceClient) handleProfileLogout(profileName string, refreshCallback func()) {
+func (s *serviceClient) handleProfileLogout(profile Profile, refreshCallback func()) {
 	dialog.ShowConfirm(
 		"Deregister",
-		fmt.Sprintf("Are you sure you want to deregister from '%s'?", profileName),
+		fmt.Sprintf("Are you sure you want to deregister from '%s'?", profile.Name),
 		func(confirm bool) {
 			if !confirm {
 				return
@@ -356,8 +358,10 @@ func (s *serviceClient) handleProfileLogout(profileName string, refreshCallback 
 			}
 
 			username := currUser.Username
+			// ProfileName is treated as a handle; send the ID so the
+			// daemon resolves to exactly this profile.
 			_, err = conn.Logout(s.ctx, &proto.LogoutRequest{
-				ProfileName: &profileName,
+				ProfileName: &profile.ID,
 				Username:    &username,
 			})
 			if err != nil {
@@ -368,7 +372,7 @@ func (s *serviceClient) handleProfileLogout(profileName string, refreshCallback 
 
 			dialog.ShowInformation(
 				"Deregistered",
-				fmt.Sprintf("Successfully deregistered from '%s'", profileName),
+				fmt.Sprintf("Successfully deregistered from '%s'", profile.Name),
 				s.wProfiles,
 			)
 
@@ -461,6 +465,7 @@ func (p *profileMenu) getProfiles() ([]Profile, error) {
 
 	for _, profile := range profilesResp.Profiles {
 		profiles = append(profiles, Profile{
+			ID:       profile.Id,
 			Name:     profile.Name,
 			IsActive: profile.IsActive,
 		})
@@ -501,7 +506,7 @@ func (p *profileMenu) refresh() {
 	}
 
 	if activeProf.ProfileName == "default" || activeProf.Username == currUser.Username {
-		activeProfState, err := p.profileManager.GetProfileState(activeProf.ProfileName)
+		activeProfState, err := p.profileManager.GetProfileState(activeProf.Id)
 		if err != nil {
 			log.Warnf("failed to get active profile state: %v", err)
 			p.emailMenuItem.Hide()
@@ -541,8 +546,8 @@ func (p *profileMenu) refresh() {
 						return
 					}
 
-					_, err = conn.SwitchProfile(ctx, &proto.SwitchProfileRequest{
-						ProfileName: &profile.Name,
+					switchResp, err := conn.SwitchProfile(ctx, &proto.SwitchProfileRequest{
+						ProfileName: &profile.ID,
 						Username:    &currUser.Username,
 					})
 					if err != nil {
@@ -552,7 +557,7 @@ func (p *profileMenu) refresh() {
 						return
 					}
 
-					err = p.profileManager.SwitchProfile(profile.Name)
+					err = p.profileManager.SwitchProfile(switchResp.Id)
 					if err != nil {
 						log.Errorf("failed to switch profile '%s': %v", profile.Name, err)
 						return

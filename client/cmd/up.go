@@ -128,13 +128,12 @@ func upFunc(cmd *cobra.Command, args []string) error {
 	var profileSwitched bool
 	// switch profile if provided
 	if profileName != "" {
-		err = switchProfile(cmd.Context(), profileName, username.Username)
+		resolvedID, err := switchProfile(cmd.Context(), profileName, username.Username)
 		if err != nil {
 			return fmt.Errorf("switch profile: %v", err)
 		}
 
-		err = pm.SwitchProfile(profileName)
-		if err != nil {
+		if err := pm.SwitchProfile(resolvedID); err != nil {
 			return fmt.Errorf("switch profile: %v", err)
 		}
 
@@ -261,10 +260,10 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 	}
 
 	// set the new config
-	req := setupSetConfigReq(customDNSAddressConverted, cmd, activeProf.Name, username.Username)
+	req := setupSetConfigReq(customDNSAddressConverted, cmd, activeProf.ID, username.Username)
 	if _, err := client.SetConfig(ctx, req); err != nil {
 		if st, ok := gstatus.FromError(err); ok && st.Code() == codes.Unavailable {
-			log.Warnf("setConfig method is not available in the daemon")
+			log.Warnf("setConfig method is not available in the daemon: %s", st.Message())
 		} else {
 			return fmt.Errorf("call service setConfig method: %v", err)
 		}
@@ -289,10 +288,10 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 		return fmt.Errorf("setup login request: %v", err)
 	}
 
-	loginRequest.ProfileName = &activeProf.Name
+	loginRequest.ProfileName = &activeProf.ID
 	loginRequest.Username = &username
 
-	profileState, err := pm.GetProfileState(activeProf.Name)
+	profileState, err := pm.GetProfileState(activeProf.ID)
 	if err != nil {
 		log.Debugf("failed to get profile state for login hint: %v", err)
 	} else if profileState.Email != "" {
@@ -329,7 +328,7 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 	}
 
 	if _, err := client.Up(ctx, &proto.UpRequest{
-		ProfileName: &activeProf.Name,
+		ProfileName: &activeProf.ID,
 		Username:    &username,
 	}); err != nil {
 		return fmt.Errorf("call service up method: %v", err)

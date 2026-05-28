@@ -47,7 +47,7 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 
 	pm := profilemanager.ServiceManager{}
 	err = pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
-		Name:     profName,
+		ID:       profName,
 		Username: currUser.Username,
 	})
 	require.NoError(t, err)
@@ -112,7 +112,7 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	require.NoError(t, err)
 
 	profState := profilemanager.ActiveProfileState{
-		Name:     profName,
+		ID:       profName,
 		Username: currUser.Username,
 	}
 	cfgPath, err := profState.FilePath()
