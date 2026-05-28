@@ -6,6 +6,9 @@ import (
 	"context"
 	"time"
 
+	"google.golang.org/grpc/codes"
+	gstatus "google.golang.org/grpc/status"
+
 	"github.com/netbirdio/netbird/client/proto"
 )
 
@@ -34,9 +37,12 @@ type ExtendWaitParams struct {
 
 // ExtendResult carries the refreshed deadline. ExpiresAt is nil when the
 // management server reported the peer is not eligible for session
-// extension.
+// extension. Preempted is true when a newer WaitExtend (e.g. started from
+// another UI surface for the same deadline) took over the IdP poll —
+// callers should treat the call as a no-op rather than a failure.
 type ExtendResult struct {
 	ExpiresAt *time.Time `json:"sessionExpiresAt,omitempty"`
+	Preempted bool       `json:"preempted,omitempty"`
 }
 
 // DaemonConn yields a lazy daemon gRPC client. Mirrors services.DaemonConn
@@ -101,6 +107,9 @@ func (s *Session) WaitExtend(ctx context.Context, p ExtendWaitParams) (ExtendRes
 		UserCode:   p.UserCode,
 	})
 	if err != nil {
+		if st, ok := gstatus.FromError(err); ok && st.Code() == codes.Canceled {
+			return ExtendResult{Preempted: true}, nil
+		}
 		return ExtendResult{}, err
 	}
 

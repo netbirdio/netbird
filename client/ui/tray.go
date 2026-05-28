@@ -1391,12 +1391,20 @@ func (t *Tray) runExtendSession() {
 		}
 	}
 
-	if _, err := t.svc.Session.WaitExtend(ctx, services.ExtendWaitParams{
+	result, err := t.svc.Session.WaitExtend(ctx, services.ExtendWaitParams{
 		DeviceCode: start.DeviceCode,
 		UserCode:   start.UserCode,
-	}); err != nil {
+	})
+	if err != nil {
 		log.Warnf("session-warning: WaitExtend failed: %v", err)
 		t.notifyError(t.loc.T("notify.sessionWarning.failed"))
+		return
+	}
+	if result.Preempted {
+		// Another UI surface (e.g. the about-to-expire dialog) started a
+		// flow for the same deadline and took over. Stay silent so the
+		// user only sees the outcome of the surviving flow.
+		log.Debugf("session-warning: WaitExtend preempted by a newer flow")
 		return
 	}
 	t.notify(t.loc.T("notify.sessionWarning.successTitle"), t.loc.T("notify.sessionWarning.successBody"), notifyIDSessionWarning)

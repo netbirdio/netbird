@@ -73,10 +73,20 @@ export default function SessionAboutToExpireDialog() {
                     console.debug("OpenURL failed during extend", e);
                 }
             }
-            await Session.WaitExtend({
+            const result = await Session.WaitExtend({
                 deviceCode: start.deviceCode,
                 userCode: start.userCode,
             });
+            if (result.preempted) {
+                // Another UI surface (e.g. the tray "Extend now"
+                // notification action) started a flow for the same
+                // deadline and took over. Keep the dialog open so the
+                // user can re-trigger if the other flow also fails;
+                // a successful extend elsewhere refreshes the deadline
+                // and this window auto-closes when it's no longer
+                // relevant.
+                return;
+            }
             WindowManager.CloseSessionAboutToExpire().catch(console.error);
         } catch (e) {
             await Dialogs.Error({

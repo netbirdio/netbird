@@ -1539,8 +1539,21 @@ func (s *Server) WaitExtendAuthSession(
 		return nil, gstatus.Errorf(codes.InvalidArgument, "invalid device code or no active extend-session flow")
 	}
 
-	tokenInfo, err := oAuthFlow.WaitToken(ctx, authInfo)
+	// Preempt a previous WaitExtendAuthSession (e.g. when the tray
+	// notification and the about-to-expire dialog both start a flow on
+	// the same deadline). The older waiter exits via context.Canceled;
+	// the new one takes over the IdP poll.
+	s.extendAuthSessionFlow.CancelWait()
+
+	waitCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	s.extendAuthSessionFlow.SetWaitCancel(cancel)
+
+	tokenInfo, err := oAuthFlow.WaitToken(waitCtx, authInfo)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return nil, gstatus.Errorf(codes.Canceled, "extend-session flow preempted")
+		}
 		return nil, gstatus.Errorf(codes.Internal, "failed to obtain JWT token: %v", err)
 	}
 
