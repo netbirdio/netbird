@@ -1,19 +1,19 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { Events } from "@wailsio/runtime";
-import { Peers } from "@bindings/services";
+import { DaemonFeed } from "@bindings/services";
 import type { Status } from "@bindings/services/models.js";
 import { DaemonUnavailableOverlay } from "@/components/empty-state/DaemonUnavailableOverlay.tsx";
 
 const EVENT_STATUS = "netbird:status";
 
 // StatusContext is the single subscription point for the daemon status
-// stream. It owns the initial Peers.Get, the netbird:status event listener,
+// stream. It owns the initial DaemonFeed.Get, the netbird:status event listener,
 // and the synthetic DaemonUnavailable handling. The provider also renders
 // the DaemonUnavailableOverlay so every layout that mounts it inherits the
 // same blocker without re-importing the component.
 //
 // Boolean flags consumers should prefer over hand-rolled checks:
-//   - isReady              first Peers.Get has resolved
+//   - isReady              first DaemonFeed.Get has resolved
 //   - isDaemonUnavailable  ready and status === "DaemonUnavailable"
 //   - isDaemonAvailable    ready and status !== "DaemonUnavailable"
 type StatusContextValue = {
@@ -41,11 +41,11 @@ export const StatusProvider = ({ children }: { children: ReactNode }) => {
 
     const refresh = useCallback(async () => {
         try {
-            const s = await Peers.Get();
+            const s = await DaemonFeed.Get();
             setStatus(s);
             setError(null);
         } catch (e) {
-            // Peers.Get returns a gRPC error when the socket itself is
+            // DaemonFeed.Get returns a gRPC error when the socket itself is
             // unreachable (daemon not running, missing socket, etc.); only
             // the streaming path synthesizes a DaemonUnavailable status.
             // Synthesize one here too so the overlay paints on cold start
@@ -72,7 +72,7 @@ export const StatusProvider = ({ children }: { children: ReactNode }) => {
     const isDaemonUnavailable = isReady && status.status === "DaemonUnavailable";
     const isDaemonAvailable = isReady && !isDaemonUnavailable;
 
-    // Don't mount children until the first Peers.Get has resolved and the
+    // Don't mount children until the first DaemonFeed.Get has resolved and the
     // daemon is reachable. Consumers (ProfileContext, SettingsContext, …)
     // can then assume any daemon RPC they make at mount will reach the
     // socket — no per-context availability gating. When the daemon flips
