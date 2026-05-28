@@ -38,6 +38,30 @@ func (e AccessRestrictionsCrowdsecMode) Valid() bool {
 	}
 }
 
+// Defines values for AccountSettingsConnectionMode.
+const (
+	AccountSettingsConnectionModeP2p         AccountSettingsConnectionMode = "p2p"
+	AccountSettingsConnectionModeP2pDynamic  AccountSettingsConnectionMode = "p2p-dynamic"
+	AccountSettingsConnectionModeP2pLazy     AccountSettingsConnectionMode = "p2p-lazy"
+	AccountSettingsConnectionModeRelayForced AccountSettingsConnectionMode = "relay-forced"
+)
+
+// Valid indicates whether the value is a known member of the AccountSettingsConnectionMode enum.
+func (e AccountSettingsConnectionMode) Valid() bool {
+	switch e {
+	case AccountSettingsConnectionModeP2p:
+		return true
+	case AccountSettingsConnectionModeP2pDynamic:
+		return true
+	case AccountSettingsConnectionModeP2pLazy:
+		return true
+	case AccountSettingsConnectionModeRelayForced:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateAzureIntegrationRequestHost.
 const (
 	CreateAzureIntegrationRequestHostMicrosoftCom CreateAzureIntegrationRequestHost = "microsoft.com"
@@ -1479,6 +1503,13 @@ type AccountSettings struct {
 	// AutoUpdateVersion Set Clients auto-update version. "latest", "disabled", or a specific version (e.g "0.50.1")
 	AutoUpdateVersion *string `json:"auto_update_version,omitempty"`
 
+	// ConnectionMode Account-wide default peer-connection mode. NULL means
+	// "fall back to lazy_connection_enabled" for backwards compatibility.
+	// Phase 1 of issue #5989: relay-forced, p2p, and p2p-lazy are
+	// functional. p2p-dynamic is reserved (passes through as p2p in
+	// Phase 1; will become functional in Phase 2).
+	ConnectionMode *AccountSettingsConnectionMode `json:"connection_mode,omitempty"`
+
 	// DnsDomain Allows to define a custom dns domain for the account
 	DnsDomain *string `json:"dns_domain,omitempty"`
 
@@ -1516,6 +1547,17 @@ type AccountSettings struct {
 	// NetworkRangeV6 Allows to define a custom IPv6 network range for the account in CIDR format.
 	NetworkRangeV6 *string `json:"network_range_v6,omitempty"`
 
+	// P2pRetryMaxSeconds Maximum interval between P2P retry attempts after consecutive
+	// ICE failures, in seconds. Default 900 (= 15 min). Set to 0 to
+	// disable backoff (always retry immediately, Phase-2 behavior).
+	// Effective only in p2p-dynamic mode (added in Phase 3).
+	P2pRetryMaxSeconds *int64 `json:"p2p_retry_max_seconds,omitempty"`
+
+	// P2pTimeoutSeconds Default ICE-worker idle timeout in seconds. 0 = never tear down.
+	// Effective only in p2p-dynamic mode (added in Phase 2).
+	// NULL means "use built-in default" (180 minutes).
+	P2pTimeoutSeconds *int64 `json:"p2p_timeout_seconds,omitempty"`
+
 	// PeerExposeEnabled Enables or disables peer expose. If enabled, peers can expose local services through the reverse proxy using the CLI.
 	PeerExposeEnabled bool `json:"peer_expose_enabled"`
 
@@ -1537,9 +1579,22 @@ type AccountSettings struct {
 	// RegularUsersViewBlocked Allows blocking regular users from viewing parts of the system.
 	RegularUsersViewBlocked bool `json:"regular_users_view_blocked"`
 
+	// RelayTimeoutSeconds Default relay-worker idle timeout in seconds. 0 = never tear
+	// down. Effective in p2p-lazy and p2p-dynamic modes. Backwards-
+	// compat alias for NB_LAZY_CONN_INACTIVITY_THRESHOLD on the
+	// client. NULL means "use built-in default" (5 minutes).
+	RelayTimeoutSeconds *int64 `json:"relay_timeout_seconds,omitempty"`
+
 	// RoutingPeerDnsResolutionEnabled Enables or disables DNS resolution on the routing peers
 	RoutingPeerDnsResolutionEnabled *bool `json:"routing_peer_dns_resolution_enabled,omitempty"`
 }
+
+// AccountSettingsConnectionMode Account-wide default peer-connection mode. NULL means
+// "fall back to lazy_connection_enabled" for backwards compatibility.
+// Phase 1 of issue #5989: relay-forced, p2p, and p2p-lazy are
+// functional. p2p-dynamic is reserved (passes through as p2p in
+// Phase 1; will become functional in Phase 2).
+type AccountSettingsConnectionMode string
 
 // AvailablePorts defines model for AvailablePorts.
 type AvailablePorts struct {

@@ -71,6 +71,10 @@ type State struct {
 	RosenpassEnabled           bool
 	SSHHostKey                 []byte
 	routes                     map[string]struct{}
+	// Phase 3 (#5989): ICE-backoff state for p2p-dynamic mode.
+	IceBackoffFailures  int
+	IceBackoffNextRetry time.Time
+	IceBackoffSuspended bool
 }
 
 // AddRoute add a single route to routes map
@@ -383,6 +387,23 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 		d.dispatchRouterPeers(receivedState.PubKey, routerSnapshot)
 	}
 	return nil
+}
+
+// UpdatePeerIceBackoff updates the ICE-backoff snapshot for a peer.
+// Called by Conn.onICEFailed / onICEConnected so that the daemon
+// status reflects current backoff state. Phase 3 of #5989.
+func (d *Status) UpdatePeerIceBackoff(pubKey string, snap BackoffSnapshot) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	peerState, ok := d.peers[pubKey]
+	if !ok {
+		return
+	}
+	peerState.IceBackoffFailures = snap.Failures
+	peerState.IceBackoffNextRetry = snap.NextRetry
+	peerState.IceBackoffSuspended = snap.Suspended
+	d.peers[pubKey] = peerState
 }
 
 func (d *Status) AddPeerStateRoute(peer string, route string, resourceId route.ResID) error {
@@ -1378,6 +1399,9 @@ func (fs FullStatus) ToProto() *proto.FullStatus {
 			Networks:                   networks,
 			Latency:                    durationpb.New(peerState.Latency),
 			SshHostKey:                 peerState.SSHHostKey,
+			IceBackoffFailures:         int32(peerState.IceBackoffFailures),
+			IceBackoffNextRetry:        timestamppb.New(peerState.IceBackoffNextRetry),
+			IceBackoffSuspended:        peerState.IceBackoffSuspended,
 		}
 		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)
 	}

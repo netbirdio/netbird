@@ -351,7 +351,48 @@ message PeerConfig {
   AutoUpdateSettings autoUpdate = 8;
 
   // IPv6 overlay address as compact bytes: 16 bytes IP + 1 byte prefix length.
+  // Added by upstream IPv6 overlay work (#5631).
   bytes address_v6 = 9;
+
+  // Tag 10 reserved for future small additions.
+  reserved 10;
+
+  // Connection-mode resolved by the management server. UNSPECIFIED = use
+  // legacy LazyConnectionEnabled fallback. Added in Phase 1 (#5989).
+  ConnectionMode ConnectionMode = 11;
+
+  // Idle timeout for the ICE worker in seconds. 0 = never tear down.
+  // Effective in p2p-dynamic mode (added in Phase 2). Sent unconditionally
+  // for forward-compat. Added in Phase 1 (#5989).
+  uint32 P2pTimeoutSeconds = 12;
+
+  // Idle timeout for the relay worker in seconds. 0 = never tear down.
+  // Effective in p2p-lazy and p2p-dynamic modes. Backwards-compat alias for
+  // NB_LAZY_CONN_INACTIVITY_THRESHOLD. Added in Phase 1 (#5989).
+  uint32 RelayTimeoutSeconds = 13;
+
+  // P2pRetryMaxSeconds is the maximum interval between P2P retry attempts
+  // after consecutive ICE failures, in seconds. Effective only in
+  // p2p-dynamic mode (added in Phase 3 of #5989).
+  //
+  // Wire-format semantics:
+  //   0    -> "not set"; daemon uses built-in default (15 min)
+  //   max  -> "user explicitly disabled backoff"; daemon disables backoff
+  //   else -> seconds, capped at this value in the cenkalti/backoff schedule
+  uint32 P2pRetryMaxSeconds = 14;
+}
+
+// ConnectionMode controls how a peer establishes connections to other peers.
+// Added in Phase 1 of the connection-mode consolidation (see issue #5989).
+// CONNECTION_MODE_UNSPECIFIED is the proto default and means "fall back to
+// the legacy LazyConnectionEnabled boolean field" -- required for backwards
+// compatibility with old management servers that don't set this field.
+enum ConnectionMode {
+  CONNECTION_MODE_UNSPECIFIED = 0;
+  CONNECTION_MODE_RELAY_FORCED = 1;
+  CONNECTION_MODE_P2P = 2;
+  CONNECTION_MODE_P2P_LAZY = 3;
+  CONNECTION_MODE_P2P_DYNAMIC = 4;
 }
 
 message AutoUpdateSettings {

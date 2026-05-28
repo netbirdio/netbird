@@ -46,6 +46,7 @@ import (
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/networkmonitor"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/shared/connectionmode"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/peerstore"
@@ -140,6 +141,26 @@ type EngineConfig struct {
 	DisableIPv6         bool
 
 	LazyConnectionEnabled bool
+
+	// ConnectionMode is the resolved peer-connection mode for this daemon
+	// session. ModeUnspecified means "fall back to LazyConnectionEnabled".
+	// Set by the caller of NewEngine; usually populated from
+	// profilemanager.Config.ConnectionMode in connect.go.
+	ConnectionMode connectionmode.Mode
+
+	// RelayTimeoutSeconds, when > 0, overrides the server-pushed relay
+	// timeout. 0 means "follow server-pushed value".
+	RelayTimeoutSeconds uint32
+
+	// P2pTimeoutSeconds, when > 0, overrides the server-pushed p2p timeout.
+	// 0 means "follow server-pushed value". Reserved for Phase 2 -- has no
+	// effect in Phase 1.
+	P2pTimeoutSeconds uint32
+
+	// P2pRetryMaxSeconds, when > 0, overrides the server-pushed
+	// p2p_retry_max_seconds. 0 = use server-pushed value (or built-in
+	// default 15 min). Phase 3 of #5989.
+	P2pRetryMaxSeconds uint32
 
 	MTU uint16
 
@@ -570,7 +591,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	e.connMgr.Start(e.ctx)
 
 	e.srWatcher = guard.NewSRWatcher(e.signal, e.relayManager, e.mobileDep.IFaceDiscover, iceCfg)
-	e.srWatcher.Start(peer.IsForceRelayed())
+	e.srWatcher.Start(peer.IsForceRelayed()) //nolint:staticcheck // intentionally retained for Phase-1 backwards compat
 
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()
@@ -1263,8 +1284,8 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		return nil
 	}
 
-	if err := e.connMgr.UpdatedRemoteFeatureFlag(e.ctx, networkMap.GetPeerConfig().GetLazyConnectionEnabled()); err != nil {
-		log.Errorf("failed to update lazy connection feature flag: %v", err)
+	if err := e.connMgr.UpdatedRemotePeerConfig(e.ctx, networkMap.GetPeerConfig()); err != nil {
+		log.Errorf("failed to update connection mode from PeerConfig: %v", err)
 	}
 
 	if e.firewall != nil {
@@ -1636,6 +1657,8 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 			PermissiveMode: e.config.RosenpassPermissive,
 		},
 		ICEConfig: e.createICEConfig(),
+		Mode:      e.connMgr.Mode(),
+		P2pRetryMaxSeconds: e.connMgr.P2pRetryMax(),
 	}
 
 	serviceDependencies := peer.ServiceDependencies{

@@ -28,6 +28,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/listener"
 	"github.com/netbirdio/netbird/client/internal/metrics"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/shared/connectionmode"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
@@ -579,6 +580,11 @@ func createEngineConfig(key wgtypes.Key, config *profilemanager.Config, peerConf
 
 		LazyConnectionEnabled: config.LazyConnectionEnabled,
 
+		ConnectionMode:      parseConnectionMode(config.ConnectionMode),
+		RelayTimeoutSeconds: config.RelayTimeoutSeconds,
+		P2pTimeoutSeconds:   config.P2pTimeoutSeconds,
+		P2pRetryMaxSeconds:  config.P2pRetryMaxSeconds,
+
 		MTU:     selectMTU(config.MTU, peerConfig.Mtu),
 		LogPath: logPath,
 
@@ -708,4 +714,17 @@ func closeConnWithLog(conn *net.UDPConn) {
 	if time.Since(startClosing) > time.Second {
 		log.Warnf("closing the testing port %d took %s. Usually it is safe to ignore, but continuous warnings may indicate a problem.", conn.LocalAddr().(*net.UDPAddr).Port, time.Since(startClosing))
 	}
+}
+
+// parseConnectionMode is a tolerant wrapper used by the EngineConfig builder.
+// An invalid string in the persisted profile (e.g. left over from a
+// downgrade-then-upgrade cycle) is logged and treated as Unspecified so the
+// daemon falls through to env / server resolution rather than panicking.
+func parseConnectionMode(s string) connectionmode.Mode {
+	m, err := connectionmode.ParseString(s)
+	if err != nil {
+		log.Warnf("ignoring invalid connection_mode %q in profile config: %v", s, err)
+		return connectionmode.ModeUnspecified
+	}
+	return m
 }

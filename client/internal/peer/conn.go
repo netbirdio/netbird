@@ -16,6 +16,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 	"github.com/netbirdio/netbird/client/internal/metrics"
+	"github.com/netbirdio/netbird/shared/connectionmode"
 	"github.com/netbirdio/netbird/client/internal/peer/conntype"
 	"github.com/netbirdio/netbird/client/internal/peer/dispatcher"
 	"github.com/netbirdio/netbird/client/internal/peer/guard"
@@ -86,11 +87,24 @@ type ConnConfig struct {
 
 	// ICEConfig ICE protocol configuration
 	ICEConfig icemaker.Config
+
+	// Mode is the resolved connection mode for this peer (forwarded
+	// from the engine, which got it from the conn_mgr precedence chain).
+	// Phase 1 uses it to pick the skip-ICE branch when ModeRelayForced.
+	Mode connectionmode.Mode
+
+	// P2pRetryMaxSeconds is the cap for the ICE-failure backoff schedule
+	// in p2p-dynamic mode. 0 = use built-in default (DefaultP2PRetryMax).
+	// Wire-format sentinel uint32-max (= ^uint32(0)) means "user-explicit
+	// disable", which the resolver translates to time.Duration(0) at
+	// engine.go before passing it here. Phase 3 of #5989.
+	P2pRetryMaxSeconds uint32
 }
 
 type Conn struct {
 	Log                *log.Entry
 	mu                 sync.Mutex
+	iceBackoff         *iceBackoffState
 	ctx                context.Context
 	ctxCancel          context.CancelFunc
 	config             ConnConfig
@@ -185,8 +199,24 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 
 	conn.workerRelay = NewWorkerRelay(conn.ctx, conn.Log, isController(conn.config), conn.config, conn, conn.relayManager)
 
-	forceRelay := IsForceRelayed()
-	if !forceRelay {
+	// Phase 3: initialize per-peer ICE-failure backoff. The cap comes
+	// from the resolved P2pRetryMaxSeconds. 0 means "use built-in default".
+	backoffCap := time.Duration(conn.config.P2pRetryMaxSeconds) * time.Second
+	if backoffCap == 0 {
+		backoffCap = DefaultP2PRetryMax
+	}
+	if conn.iceBackoff == nil {
+		conn.iceBackoff = newIceBackoff(backoffCap)
+	} else {
+		conn.iceBackoff.SetMaxBackoff(backoffCap)
+	}
+
+	// Mode-driven branching. ModeRelayForced skips ICE entirely; all
+	// other modes (P2P, P2PLazy, P2PDynamic) construct workerICE
+	// eagerly in Phase 1. Phase 2 will branch P2PDynamic separately
+	// to defer the OnNewOffer registration.
+	skipICE := conn.config.Mode == connectionmode.ModeRelayForced
+	if !skipICE {
 		relayIsSupportedLocally := conn.workerRelay.RelayIsSupportedLocally()
 		workerICE, err := NewWorkerICE(conn.ctx, conn.Log, conn.config, conn, conn.signaler, conn.iFaceDiscover, conn.statusRecorder, relayIsSupportedLocally)
 		if err != nil {
@@ -198,7 +228,16 @@ func (conn *Conn) Open(engineCtx context.Context) error {
 	conn.handshaker = NewHandshaker(conn.Log, conn.config, conn.signaler, conn.workerICE, conn.workerRelay, conn.metricsStages)
 
 	conn.handshaker.AddRelayListener(conn.workerRelay.OnNewOffer)
-	if !forceRelay {
+
+	// ICE-listener registration depends on mode:
+	// - ModeRelayForced: skipICE=true, no workerICE, no listener.
+	// - ModeP2P, ModeP2PLazy: workerICE constructed, listener registered eagerly.
+	//   P2PLazy's whole-tunnel deferral happens at the conn_mgr level, not here.
+	// - ModeP2PDynamic: workerICE constructed eagerly so it's ready, but the
+	//   listener registration is deferred. The inactivity manager calls
+	//   Conn.AttachICE() once activity is observed on the relay tunnel.
+	deferICEListener := conn.config.Mode == connectionmode.ModeP2PDynamic
+	if !skipICE && !deferICEListener {
 		conn.handshaker.AddICEListener(conn.workerICE.OnNewOffer)
 	}
 
@@ -740,7 +779,7 @@ func (conn *Conn) isConnectedOnAllWay() (status guard.ConnStatus) {
 	}
 
 	return evalConnStatus(connStatusInputs{
-		forceRelay:          IsForceRelayed(),
+		forceRelay:          conn.config.Mode == connectionmode.ModeRelayForced,
 		peerUsesRelay:       conn.workerRelay.IsRelayConnectionSupportedWithPeer(),
 		relayConnected:      conn.statusRelay.Get() == worker.StatusConnected,
 		remoteSupportsICE:   conn.handshaker.RemoteICESupported(),
@@ -974,4 +1013,130 @@ func boolToConnStatus(connected bool) guard.ConnStatus {
 		return guard.ConnStatusConnected
 	}
 	return guard.ConnStatusDisconnected
+}
+
+// AttachICE registers the ICE-offer listener on the handshaker after the
+// activity-detector observes traffic on the relay tunnel. Idempotent: if
+// the listener is already attached, it is a no-op. Triggers a fresh offer
+// so the remote side learns we are now ICE-capable.
+//
+// Used by p2p-dynamic mode: workerICE is created in Open() but the
+// handshaker dispatch is deferred until traffic activity is seen.
+func (conn *Conn) AttachICE() error {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+
+	if conn.iceBackoff != nil && conn.iceBackoff.IsSuspended() {
+		snap := conn.iceBackoff.Snapshot()
+		conn.Log.Debugf("ICE backoff active (failure #%d, retry at %s), staying on relay",
+			snap.Failures,
+			snap.NextRetry.Format("15:04:05"))
+		return nil
+	}
+
+	if conn.handshaker == nil {
+		return fmt.Errorf("AttachICE: handshaker not initialized (Open not called)")
+	}
+	if conn.workerICE == nil {
+		return fmt.Errorf("AttachICE: workerICE is nil (relay-forced mode)")
+	}
+	if conn.handshaker.readICEListener() != nil {
+		return nil
+	}
+
+	conn.handshaker.AddICEListener(conn.workerICE.OnNewOffer)
+	conn.Log.Debugf("ICE listener attached (p2p-dynamic activity-trigger)")
+
+	if err := conn.handshaker.SendOffer(); err != nil {
+		conn.Log.Warnf("AttachICE: SendOffer failed: %v", err)
+	}
+	return nil
+}
+
+// DetachICE removes the ICE-offer listener and tears down the ICE worker.
+// Idempotent: if no listener is attached, it is a no-op. Used by
+// p2p-dynamic mode when the inactivity manager fires the iceTimeout but
+// the relay tunnel should stay up.
+func (conn *Conn) DetachICE() error {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+
+	if conn.handshaker == nil {
+		return nil
+	}
+	if conn.handshaker.readICEListener() == nil {
+		return nil
+	}
+
+	conn.handshaker.RemoveICEListener()
+	if conn.workerICE != nil {
+		conn.workerICE.Close()
+	}
+	conn.Log.Debugf("ICE listener detached (p2p-dynamic teardown)")
+	return nil
+}
+
+// onICEFailed is invoked when pion's ICE agent reports
+// ConnectionStateFailed. Increments the backoff counter and tears
+// down the ICE worker. Phase 3 of #5989.
+func (conn *Conn) onICEFailed() {
+	if conn.iceBackoff == nil {
+		return
+	}
+	delay := conn.iceBackoff.markFailure()
+	snap := conn.iceBackoff.Snapshot()
+	if delay > 0 {
+		conn.Log.Infof("ICE failure #%d, suspending for %s, next retry at %s",
+			snap.Failures,
+			delay.Round(time.Second),
+			snap.NextRetry.Format("15:04:05"))
+	}
+	if conn.statusRecorder != nil {
+		conn.statusRecorder.UpdatePeerIceBackoff(conn.config.Key, snap)
+	}
+	// Tear down ICE. Idempotent. Conn stays on relay.
+	if err := conn.DetachICE(); err != nil {
+		conn.Log.Warnf("DetachICE after onICEFailed: %v", err)
+	}
+}
+
+// onICEConnected is invoked when pion's ICE agent reports
+// ConnectionStateConnected. Resets the backoff. Phase 3 of #5989.
+func (conn *Conn) onICEConnected() {
+	if conn.iceBackoff == nil {
+		return
+	}
+	if conn.iceBackoff.Snapshot().Failures > 0 {
+		conn.Log.Infof("ICE success, resetting backoff (was %d failures)",
+			conn.iceBackoff.Snapshot().Failures)
+	}
+	conn.iceBackoff.markSuccess()
+	if conn.statusRecorder != nil {
+		conn.statusRecorder.UpdatePeerIceBackoff(conn.config.Key, conn.iceBackoff.Snapshot())
+	}
+}
+
+// SetIceBackoffMax updates the per-peer backoff cap. Called by ConnMgr
+// when the server pushes a new p2p_retry_max_seconds value. If the
+// iceBackoff is not yet initialized (Conn not opened yet), the value
+// is stored in config so Open() picks it up. Phase 3 of #5989.
+func (conn *Conn) SetIceBackoffMax(d time.Duration) {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	conn.config.P2pRetryMaxSeconds = uint32(d / time.Second)
+	if conn.iceBackoff != nil {
+		conn.iceBackoff.SetMaxBackoff(d)
+	}
+}
+
+// IceBackoffSnapshot exposes the read-only backoff state for the
+// status output (Task E1). Returns zero-value snapshot if no backoff
+// is active. Phase 3 of #5989.
+func (conn *Conn) IceBackoffSnapshot() BackoffSnapshot {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	if conn.iceBackoff == nil {
+		return BackoffSnapshot{}
+	}
+	return conn.iceBackoff.Snapshot()
 }
