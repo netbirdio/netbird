@@ -58,8 +58,8 @@ func (s *stringList) Set(v string) error {
 }
 
 func init() {
-	application.RegisterEvent[services.Status](services.EventStatus)
-	application.RegisterEvent[services.SystemEvent](services.EventSystem)
+	application.RegisterEvent[services.Status](services.EventStatusSnapshot)
+	application.RegisterEvent[services.SystemEvent](services.EventDaemonNotification)
 	application.RegisterEvent[services.ProfileRef](services.EventProfileChanged)
 	application.RegisterEvent[authsession.Warning](services.EventSessionWarning)
 	application.RegisterEvent[updater.State](updater.EventStateChanged)
@@ -125,12 +125,12 @@ func main() {
 
 	settings := services.NewSettings(conn)
 	profiles := services.NewProfiles(conn)
-	// updater.Holder owns the typed update State. Peers feeds the daemon
-	// SubscribeEvents stream into it; the Update service is a thin
+	// updater.Holder owns the typed update State. DaemonFeed pipes the
+	// daemon SubscribeEvents stream into it; the Update service is a thin
 	// Wails-bound facade over the holder plus the install RPCs.
 	updaterHolder := updater.NewHolder(app.Event)
 	update := services.NewUpdate(conn, updaterHolder)
-	peers := services.NewPeers(conn, app.Event, updaterHolder)
+	daemonFeed := services.NewDaemonFeed(conn, app.Event, updaterHolder)
 	notifier := notifications.New()
 
 	// localesFS reroots the embedded tree at the locales directory itself
@@ -157,7 +157,7 @@ func main() {
 	// Connection lives after bundle + prefStore so it can localise daemon
 	// errors (services.NewConnection takes both as dependencies).
 	connection := services.NewConnection(conn, bundle, prefStore)
-	profileSwitcher := services.NewProfileSwitcher(profiles, connection, peers)
+	profileSwitcher := services.NewProfileSwitcher(profiles, connection, daemonFeed)
 
 	app.RegisterService(application.NewService(connection))
 	// authsession.Session owns the full extend + dismiss surface; the tray
@@ -173,7 +173,7 @@ func main() {
 	app.RegisterService(application.NewService(profiles))
 	app.RegisterService(application.NewService(services.NewDebug(conn)))
 	app.RegisterService(application.NewService(update))
-	app.RegisterService(application.NewService(peers))
+	app.RegisterService(application.NewService(daemonFeed))
 	app.RegisterService(application.NewService(notifier))
 	app.RegisterService(application.NewService(profileSwitcher))
 	app.RegisterService(application.NewService(services.NewI18n(bundle)))
@@ -235,7 +235,7 @@ func main() {
 		Settings:        settings,
 		Profiles:        profiles,
 		Networks:        networks,
-		Peers:           peers,
+		DaemonFeed:      daemonFeed,
 		Notifier:        notifier,
 		Update:          update,
 		ProfileSwitcher: profileSwitcher,
@@ -245,7 +245,7 @@ func main() {
 	})
 	listenForShowSignal(context.Background(), tray)
 
-	peers.Watch(context.Background())
+	daemonFeed.Watch(context.Background())
 
 	if err := app.Run(); err != nil {
 		log.Fatal(err)

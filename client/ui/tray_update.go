@@ -51,7 +51,7 @@ func newTrayUpdater(app *application.App, window *application.WebviewWindow, upd
 	}
 	app.Event.On(updater.EventStateChanged, u.onStateEvent)
 	// Seed from the cached state so we don't miss an event that fired
-	// before NewTray finished wiring (Peers.Watch starts after tray
+	// before NewTray finished wiring (DaemonFeed.Watch starts after tray
 	// construction today, but treat that as an implementation detail).
 	u.state = update.GetState()
 	return u

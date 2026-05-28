@@ -20,14 +20,15 @@ import (
 )
 
 const (
-	// EventStatus is emitted to the frontend whenever a fresh Status snapshot
-	// is captured (from a poll or a stream-driven refresh).
-	EventStatus = "netbird:status"
-	// EventSystem is emitted for each SubscribeEvents message (DNS, network,
-	// auth, connectivity categories). Auto-update SystemEvents are also
-	// forwarded here to updater.Holder.OnSystemEvent so the typed update
-	// state can be maintained without a second daemon subscription.
-	EventSystem = "netbird:event"
+	// EventStatusSnapshot is emitted to the frontend whenever a fresh
+	// Status snapshot is captured (from a poll or a stream-driven refresh).
+	EventStatusSnapshot = "netbird:status"
+	// EventDaemonNotification is emitted for each SubscribeEvents message
+	// (DNS, network, auth, connectivity categories). Auto-update
+	// SystemEvents are also forwarded here to updater.Holder.OnSystemEvent
+	// so the typed update state can be maintained without a second daemon
+	// subscription.
+	EventDaemonNotification = "netbird:event"
 	// EventProfileChanged fires after ProfileSwitcher.SwitchActive completes
 	// a daemon-side switch. The payload is the new ProfileRef. Both tray
 	// and React subscribers refresh their profile views off this so a flip
@@ -37,8 +38,9 @@ const (
 	EventProfileChanged = "netbird:profile:changed"
 	// EventSessionWarning is emitted on every session-warning watcher
 	// fire (T-WarningLead and T-FinalWarningLead) as a strongly-typed
-	// sibling of EventSystem so React / tray subscribers don't have to
-	// filter the firehose of EventSystem. Consumers branch on the
+	// sibling of EventDaemonNotification so React / tray subscribers
+	// don't have to filter the firehose of EventDaemonNotification.
+	// Consumers branch on the
 	// SessionWarning.Final flag to tell the interactive T-10 event apart
 	// from the fallback T-2 event; the dialog auto-open lives in the
 	// tray (Go side) so the frontend stays passive on this flow.
@@ -60,7 +62,7 @@ const (
 	StatusSessionExpired = "SessionExpired"
 )
 
-// Emitter is what peers.Watch needs from the host application: a simple
+// Emitter is what DaemonFeed.Watch needs from the host application: a simple
 // "send this name and payload to the frontend" hook.  The Wails app.Event
 // satisfies this with its Emit method.
 type Emitter interface {
@@ -138,8 +140,11 @@ type Status struct {
 	SessionExpiresAt *time.Time `json:"sessionExpiresAt,omitempty"`
 }
 
-// Peers serves the dashboard data: one polled Status RPC and a long-running
-// SubscribeEvents stream that re-emits every event over the Wails event bus.
+// DaemonFeed fans the daemon's two long-running gRPC streams out to the
+// frontend and the tray: SubscribeStatus snapshots (per state change) and
+// SubscribeEvents system notifications (per DNS / network / auth / etc.
+// event). Also exposes a one-shot Status RPC for callers that want the
+// current snapshot without subscribing.
 //
 // Profile-switch suppression: ProfileSwitcher calls BeginProfileSwitch
 // before tearing down the old profile when it would otherwise be followed
@@ -160,7 +165,7 @@ type Status struct {
 //	│   DaemonUnavailable                        │   "Up won't run" terminal state) │
 //	│ (timeout elapsed)                          │ Clear flag, emit normally        │
 //	└────────────────────────────────────────────┴──────────────────────────────────┘
-type Peers struct {
+type DaemonFeed struct {
 	conn    DaemonConn
 	emitter Emitter
 	updater *updater.Holder
@@ -174,8 +179,8 @@ type Peers struct {
 	switchInProgressUntil time.Time
 }
 
-func NewPeers(conn DaemonConn, emitter Emitter, updaterHolder *updater.Holder) *Peers {
-	return &Peers{conn: conn, emitter: emitter, updater: updaterHolder}
+func NewDaemonFeed(conn DaemonConn, emitter Emitter, updaterHolder *updater.Holder) *DaemonFeed {
+	return &DaemonFeed{conn: conn, emitter: emitter, updater: updaterHolder}
 }
 
 // BeginProfileSwitch is called by ProfileSwitcher at the start of a switch
@@ -186,25 +191,89 @@ func NewPeers(conn DaemonConn, emitter Emitter, updaterHolder *updater.Holder) *
 // Connecting snapshot is emitted right away so both consumers (tray and
 // React) paint the optimistic state immediately. A 30s safety timeout
 // clears the flag if the daemon never emits a follow-up status.
-func (s *Peers) BeginProfileSwitch() {
+func (s *DaemonFeed) BeginProfileSwitch() {
 	s.switchMu.Lock()
 	s.switchInProgress = true
 	s.switchInProgressUntil = time.Now().Add(30 * time.Second)
 	s.switchMu.Unlock()
-	s.emitter.Emit(EventStatus, Status{Status: StatusConnecting})
+	s.emitter.Emit(EventStatusSnapshot, Status{Status: StatusConnecting})
 }
 
 // CancelProfileSwitch is called by callers that abort the switch midway
 // (the tray's Disconnect click while Connecting). Clears the suppression
 // flag so the next daemon Idle paints through immediately instead of
 // being swallowed.
-func (s *Peers) CancelProfileSwitch() {
+func (s *DaemonFeed) CancelProfileSwitch() {
 	s.switchMu.Lock()
 	s.switchInProgress = false
 	s.switchMu.Unlock()
 }
 
-func (s *Peers) shouldSuppress(st Status) bool {
+// Watch starts the background loops that feed the frontend:
+//   - statusStreamLoop: push-driven snapshots on connection-state change
+//     (Connected/Disconnected/Connecting, peer list, address). Drives the
+//     tray icon, Status page, and Peers page.
+//   - toastStreamLoop:   DNS / network / auth / connectivity / update
+//     SystemEvent stream. Drives OS notifications, the Recent Events
+//     list, and the update-overlay flag. The daemon-side RPC is named
+//     SubscribeEvents — only the loop's local alias differs to keep the
+//     two streams distinguishable in this file.
+//
+// Safe to call once at boot; both loops self-restart on stream errors
+// via exponential backoff.
+func (s *DaemonFeed) Watch(ctx context.Context) {
+	s.mu.Lock()
+	if s.cancel != nil {
+		s.mu.Unlock()
+		return
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	s.cancel = cancel
+	s.mu.Unlock()
+
+	s.streamWg.Add(2)
+	go s.statusStreamLoop(ctx)
+	go s.toastStreamLoop(ctx)
+}
+
+// ServiceShutdown is the Wails service hook fired on app exit.
+func (s *DaemonFeed) ServiceShutdown() error {
+	s.mu.Lock()
+	cancel := s.cancel
+	s.cancel = nil
+	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	s.streamWg.Wait()
+	return nil
+}
+
+// Get returns the current daemon status snapshot. When the daemon socket
+// is unreachable (process down, socket missing, permission denied) it
+// returns Status{Status: StatusDaemonUnavailable} instead of an error so
+// the frontend's initial useStatus().refresh() picks up the same string
+// the live event stream emits — the React overlay and per-screen gating
+// then key off a single status enum without a parallel "error" path.
+func (s *DaemonFeed) Get(ctx context.Context) (Status, error) {
+	cli, err := s.conn.Client()
+	if err != nil {
+		if isDaemonUnreachable(err) {
+			return Status{Status: StatusDaemonUnavailable}, nil
+		}
+		return Status{}, err
+	}
+	resp, err := cli.Status(ctx, &proto.StatusRequest{GetFullPeerStatus: true})
+	if err != nil {
+		if isDaemonUnreachable(err) {
+			return Status{Status: StatusDaemonUnavailable}, nil
+		}
+		return Status{}, err
+	}
+	return statusFromProto(resp), nil
+}
+
+func (s *DaemonFeed) shouldSuppress(st Status) bool {
 	s.switchMu.Lock()
 	defer s.switchMu.Unlock()
 	if !s.switchInProgress {
@@ -232,77 +301,13 @@ func (s *Peers) shouldSuppress(st Status) bool {
 	}
 }
 
-// Watch starts the background loops that feed the frontend:
-//   - statusStreamLoop: push-driven snapshots on connection-state change
-//     (Connected/Disconnected/Connecting, peer list, address). Drives the
-//     tray icon, Status page, and Peers page.
-//   - toastStreamLoop:   DNS / network / auth / connectivity / update
-//     SystemEvent stream. Drives OS notifications, the Recent Events
-//     list, and the update-overlay flag. The daemon-side RPC is named
-//     SubscribeEvents — only the loop's local alias differs to keep the
-//     two streams distinguishable in this file.
-//
-// Safe to call once at boot; both loops self-restart on stream errors
-// via exponential backoff.
-func (s *Peers) Watch(ctx context.Context) {
-	s.mu.Lock()
-	if s.cancel != nil {
-		s.mu.Unlock()
-		return
-	}
-	ctx, cancel := context.WithCancel(ctx)
-	s.cancel = cancel
-	s.mu.Unlock()
-
-	s.streamWg.Add(2)
-	go s.statusStreamLoop(ctx)
-	go s.toastStreamLoop(ctx)
-}
-
-// ServiceShutdown is the Wails service hook fired on app exit.
-func (s *Peers) ServiceShutdown() error {
-	s.mu.Lock()
-	cancel := s.cancel
-	s.cancel = nil
-	s.mu.Unlock()
-	if cancel != nil {
-		cancel()
-	}
-	s.streamWg.Wait()
-	return nil
-}
-
-// Get returns the current daemon status snapshot. When the daemon socket
-// is unreachable (process down, socket missing, permission denied) it
-// returns Status{Status: StatusDaemonUnavailable} instead of an error so
-// the frontend's initial useStatus().refresh() picks up the same string
-// the live event stream emits — the React overlay and per-screen gating
-// then key off a single status enum without a parallel "error" path.
-func (s *Peers) Get(ctx context.Context) (Status, error) {
-	cli, err := s.conn.Client()
-	if err != nil {
-		if isDaemonUnreachable(err) {
-			return Status{Status: StatusDaemonUnavailable}, nil
-		}
-		return Status{}, err
-	}
-	resp, err := cli.Status(ctx, &proto.StatusRequest{GetFullPeerStatus: true})
-	if err != nil {
-		if isDaemonUnreachable(err) {
-			return Status{Status: StatusDaemonUnavailable}, nil
-		}
-		return Status{}, err
-	}
-	return statusFromProto(resp), nil
-}
-
 // statusStreamLoop subscribes to the daemon's SubscribeStatus stream and
 // re-emits each FullStatus snapshot on the Wails event bus. The first
 // message is the current snapshot; subsequent messages fire on
 // connection-state changes only — no fixed-interval polling, no idle
 // chatter. Reconnects with exponential backoff if the stream drops
 // (daemon restart, socket break).
-func (s *Peers) statusStreamLoop(ctx context.Context) {
+func (s *DaemonFeed) statusStreamLoop(ctx context.Context) {
 	defer s.streamWg.Done()
 
 	bo := backoff.WithContext(&backoff.ExponentialBackOff{
@@ -325,7 +330,7 @@ func (s *Peers) statusStreamLoop(ctx context.Context) {
 			return
 		}
 		unavailable = true
-		s.emitter.Emit(EventStatus, Status{Status: StatusDaemonUnavailable})
+		s.emitter.Emit(EventStatusSnapshot, Status{Status: StatusDaemonUnavailable})
 	}
 
 	op := func() error {
@@ -359,7 +364,7 @@ func (s *Peers) statusStreamLoop(ctx context.Context) {
 				log.Debugf("suppressing status=%q during profile switch", st.Status)
 				continue
 			}
-			s.emitter.Emit(EventStatus, st)
+			s.emitter.Emit(EventStatusSnapshot, st)
 		}
 	}
 
@@ -375,7 +380,7 @@ func (s *Peers) statusStreamLoop(ctx context.Context) {
 // "new_version_available" metadata to flip the tray's update overlay.
 // Local name differs from the RPC ("SubscribeEvents") so the file's
 // two streams aren't both called streamLoop.
-func (s *Peers) toastStreamLoop(ctx context.Context) {
+func (s *DaemonFeed) toastStreamLoop(ctx context.Context) {
 	defer s.streamWg.Done()
 
 	bo := backoff.WithContext(&backoff.ExponentialBackOff{
@@ -407,7 +412,7 @@ func (s *Peers) toastStreamLoop(ctx context.Context) {
 			}
 			se := systemEventFromProto(ev)
 			log.Infof("backend event: system severity=%s category=%s msg=%q", se.Severity, se.Category, se.UserMessage)
-			s.emitter.Emit(EventSystem, se)
+			s.emitter.Emit(EventDaemonNotification, se)
 			if warn, ok := authsession.WarningFromMetadata(se.Metadata); ok {
 				s.emitter.Emit(EventSessionWarning, warn)
 			}

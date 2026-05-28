@@ -16,7 +16,7 @@ import (
 // so both the tray and the React frontend use identical logic.
 //
 // Reconnect policy + optimistic-feedback table (driven by prevStatus
-// captured from Peers.Get at SwitchActive entry):
+// captured from DaemonFeed.Get at SwitchActive entry):
 //
 //	┌─────────────────┬──────────────────────┬──────────────────────────┬────────────────────┐
 //	│ Previous status │ Action               │ Optimistic UI label      │ Suppressed events  │
@@ -31,10 +31,10 @@ import (
 //	└─────────────────┴──────────────────────┴──────────────────────────┴────────────────────┘
 //
 // Only Connected/Connecting trigger the optimistic Connecting paint
-// (via Peers.BeginProfileSwitch): they're the only prevStatuses where
+// (via DaemonFeed.BeginProfileSwitch): they're the only prevStatuses where
 // the daemon emits stale Connected updates (peer count drops as the
 // engine tears down) and then Idle, before the new profile's Up
-// resumes the stream. Both are swallowed by Peers.shouldSuppress
+// resumes the stream. Both are swallowed by DaemonFeed.shouldSuppress
 // until a status that signals the new flow has begun (Connecting, or
 // any of the "Up won't run" terminal states: NeedsLogin / LoginFailed /
 // SessionExpired / DaemonUnavailable). The other prevStatuses either
@@ -53,15 +53,15 @@ import (
 type ProfileSwitcher struct {
 	profiles   *Profiles
 	connection *Connection
-	peers      *Peers
+	feed       *DaemonFeed
 }
 
 // NewProfileSwitcher creates a ProfileSwitcher backed by the given services.
-// EventProfileChanged is emitted via peers.emitter (same package), so React
+// EventProfileChanged is emitted via feed.emitter (same package), so React
 // refreshes after a tray-driven switch and vice versa — the daemon does
 // not emit a dedicated profile event.
-func NewProfileSwitcher(profiles *Profiles, connection *Connection, peers *Peers) *ProfileSwitcher {
-	return &ProfileSwitcher{profiles: profiles, connection: connection, peers: peers}
+func NewProfileSwitcher(profiles *Profiles, connection *Connection, feed *DaemonFeed) *ProfileSwitcher {
+	return &ProfileSwitcher{profiles: profiles, connection: connection, feed: feed}
 }
 
 // SwitchActive switches to the named profile applying the reconnect policy.
@@ -70,7 +70,7 @@ func NewProfileSwitcher(profiles *Profiles, connection *Connection, peers *Peers
 // SubscribeStatus stream.
 func (s *ProfileSwitcher) SwitchActive(ctx context.Context, p ProfileRef) error {
 	prevStatus := ""
-	if st, err := s.peers.Get(ctx); err == nil {
+	if st, err := s.feed.Get(ctx); err == nil {
 		prevStatus = st.Status
 	} else {
 		log.Warnf("profileswitcher: get status: %v", err)
@@ -89,11 +89,11 @@ func (s *ProfileSwitcher) SwitchActive(ctx context.Context, p ProfileRef) error 
 	// Optimistic Connecting feedback for tray + React Status page: only
 	// when wasActive — those are the prevStatuses where the daemon will
 	// emit stale Connected + transient Idle pushes during Down before
-	// the new profile's Up resumes the stream (see Peers godoc for the
+	// the new profile's Up resumes the stream (see DaemonFeed godoc for the
 	// suppression table). Other prevStatuses already terminate cleanly
 	// on Idle, no suppression needed.
 	if wasActive {
-		s.peers.BeginProfileSwitch()
+		s.feed.BeginProfileSwitch()
 	}
 
 	if err := s.profiles.Switch(ctx, p); err != nil {
@@ -132,8 +132,8 @@ func (s *ProfileSwitcher) SwitchActive(ctx context.Context, p ProfileRef) error 
 	// old profile after a tray-initiated switch (and the tray's profile
 	// submenu would lag a React-initiated one, except the tray rebuilds on
 	// every status transition).
-	if s.peers != nil && s.peers.emitter != nil {
-		s.peers.emitter.Emit(EventProfileChanged, p)
+	if s.feed != nil && s.feed.emitter != nil {
+		s.feed.emitter.Emit(EventProfileChanged, p)
 	}
 
 	return nil

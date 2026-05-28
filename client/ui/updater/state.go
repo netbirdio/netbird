@@ -51,7 +51,7 @@ type Emitter interface {
 }
 
 // Holder caches the latest update State and broadcasts changes. Fed by
-// services.Peers, which forwards every daemon SystemEvent here via
+// services.DaemonFeed, which forwards every daemon SystemEvent here via
 // OnSystemEvent. The state is read by the Wails-bound services.Update
 // facade (Get) and pushed to subscribers via the Emitter.
 type Holder struct {
