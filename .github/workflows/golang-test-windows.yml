@@ -47,19 +47,11 @@ jobs:
 
       - name: Download wintun
         id: download-wintun
-        shell: pwsh
-        run: |
-          $url = "https://pkgs.netbird.io/wintun/wintun-0.14.1.zip"
-          $dest = "${env:downloadPath}\wintun.zip"
-          $expected = "07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51"
-
-          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dest) | Out-Null
-          Invoke-WebRequest $url -OutFile $dest 
-          $actual = (Get-FileHash $dest -Algorithm SHA256).Hash.ToLower()
-          if ($actual -ne $expected) {
-          throw "wintun.zip checksum mismatch: expected $expected, got $actual"
-          }
-          "file-path=$dest" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+        uses: netbirdio/shared-actions/actions/win-download-and-verify@be5df6047383da2236e02243cceb857d8567c27e # v0.0.2
+        with:
+          url: https://pkgs.netbird.io/wintun/wintun-0.14.1.zip
+          destination: ${{ env.downloadPath }}\wintun.zip
+          sha256: 07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51
 
       - name: Decompressing wintun files
         run: tar -xvf "${{ steps.download-wintun.outputs.file-path }}" -C ${{ env.downloadPath }}
