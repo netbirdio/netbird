@@ -357,7 +357,7 @@ jobs:
       - name: Set up pnpm
         uses: pnpm/action-setup@v3
         with:
-          version: 9
+          version: 11
 
       - name: Install dependencies
         run: sudo apt update && sudo apt install -y -q libgtk-4-dev libwebkitgtk-6.0-dev libsoup-3.0-dev libayatana-appindicator3-dev gcc-mingw-w64-x86-64
@@ -462,7 +462,7 @@ jobs:
       - name: Set up pnpm
         uses: pnpm/action-setup@v3
         with:
-          version: 9
+          version: 11
       - name: Install wails3 CLI
         # Version derived from go.mod so the binding generator always matches
         # the wails runtime the binary links against.
