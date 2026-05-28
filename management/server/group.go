@@ -32,7 +32,7 @@ func (e *GroupLinkError) Error() string {
 
 // CheckGroupPermissions validates if a user has the necessary permissions to view groups
 func (am *DefaultAccountManager) CheckGroupPermissions(ctx context.Context, accountID, userID string) error {
-	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Read)
+	allowed, _, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Read)
 	if err != nil {
 		return err
 	}

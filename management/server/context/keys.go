@@ -22,5 +22,6 @@ func RoleFromContext(ctx context.Context) (string, bool) {
 
 // WithRole returns a new context carrying the given role.
 func WithRole(ctx context.Context, role string) context.Context {
+	//nolint
 	return context.WithValue(ctx, RoleKey, role)
 }

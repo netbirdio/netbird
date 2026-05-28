@@ -643,14 +643,13 @@ func (am *DefaultAccountManager) handleUserAddedPeer(ctx context.Context, accoun
 	}
 
 	if temporary {
-		allowed, newCtx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Create)
+		allowed, _, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Create)
 		if err != nil {
 			return status.NewPermissionValidationError(err)
 		}
 		if !allowed {
 			return status.NewPermissionDeniedError()
 		}
-		ctx = newCtx
 	} else {
 		config.AccountID = user.AccountID
 		config.GroupsToAdd = user.AutoGroups

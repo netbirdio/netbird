@@ -187,7 +187,7 @@ func (m Manager) DeleteDomain(ctx context.Context, accountID, userID, domainID s
 }
 
 func (m Manager) ValidateDomain(ctx context.Context, accountID, userID, domainID string) {
-	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Create)
+	ok, _, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Create)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"accountID": accountID,
