@@ -28,7 +28,7 @@
         <key>LSUIElement</key>
             <string>1</string>
         <key>NSHumanReadableCopyright</key>
-            <string>© 2026, My Company</string>
+            <string>NetBird GmbH</string>
         <key>NSAppTransportSecurity</key>
         <dict>
             <key>NSAllowsLocalNetworking</key>

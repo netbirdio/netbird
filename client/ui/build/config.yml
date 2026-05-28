@@ -5,11 +5,11 @@ version: '3'
 
 # This information is used to generate the build assets.
 info:
-  companyName: "My Company" # The name of the company
-  productName: "My Product" # The name of the application
-  productIdentifier: "com.mycompany.myproduct" # The unique product identifier
-  description: "A program that does X" # The application description
-  copyright: "(c) 2025, My Company" # Copyright text
+  companyName: "NetBird GmbH" # The name of the company
+  productName: "NetBird" # The name of the application
+  productIdentifier: "io.netbird.client" # The unique product identifier
+  description: "NetBird desktop client" # The application description
+  copyright: "NetBird GmbH" # Copyright text
   comments: "Some Product Comments" # Comments
   version: "0.0.1" # The application version
   # cfBundleIconName: "appicon" # The macOS icon name in Assets.car icon bundles (optional)
