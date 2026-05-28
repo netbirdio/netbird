@@ -25,10 +25,9 @@ import (
 // components struct round-trips through Calculate exactly the way the
 // server-side typed components would.
 //
-// Synthetic ID scheme (underscore-separated, visually distinct from the xid
-// format Calculate would put in log lines under the legacy path):
+// ID scheme on the client side:
 //
-//	Peers              "p_<wire_index>"            // envelope.peers is index-addressed
+//	Peers              base64(wg_pub_key)          // stable across snapshots
 //	Groups             "g_<account_seq_id>"
 //	Policies           "pol_<account_seq_id>"      // 1 rule per policy
 //	Routes             "r_<account_seq_id>"
@@ -74,16 +73,20 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 		c.DNSSettings = &types.DNSSettings{}
 	}
 
-	// Phase 1: peers. The envelope's peers slice is index-addressed; we
-	// build a peerOrder lookup for downstream references. Peer.ID is
-	// synthesized from the peer's wire index — wire format ships no xid
-	// for peers (and never has).
+	// Phase 1: peers. The envelope's peers slice is index-addressed on the
+	// wire; we re-key by the peer's WireGuard public key (base64) so the
+	// in-memory components struct uses a stable identifier across
+	// snapshots. peerIDByIndex lets downstream phases resolve wire indexes
+	// back to that key.
 	peerIDByIndex := make([]string, len(full.Peers))
 	for idx, pc := range full.Peers {
 		if pc == nil {
 			return nil, fmt.Errorf("invalid envelope: peers[%d] is nil", idx)
 		}
-		peerID := synthPeerID(uint32(idx))
+		if len(pc.WgPubKey) == 0 {
+			return nil, fmt.Errorf("invalid envelope: peers[%d] missing wg_pub_key", idx)
+		}
+		peerID := encodeWgKeyBase64(pc.WgPubKey)
 		peer := decodePeerCompact(pc, peerID, full.AgentVersions)
 		c.Peers[peerID] = peer
 		peerIDByIndex[idx] = peerID
@@ -494,7 +497,6 @@ func synthID(prefix string, n uint32) string {
 	return string(buf)
 }
 
-func synthPeerID(idx uint32) string            { return synthID("p_", idx) }
 func synthGroupID(seq uint32) string           { return synthID("g_", seq) }
 func synthPolicyID(seq uint32) string          { return synthID("pol_", seq) }
 func synthRouteID(seq uint32) string           { return synthID("r_", seq) }

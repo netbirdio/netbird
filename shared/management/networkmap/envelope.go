@@ -1,12 +1,10 @@
 package networkmap
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
 
-	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
@@ -43,14 +41,18 @@ func EnvelopeToNetworkMap(ctx context.Context, env *proto.NetworkMapEnvelope, lo
 		return nil, fmt.Errorf("decode envelope: %w", err)
 	}
 
-	// Find the receiving peer in the decoded components by WG key so we can
-	// derive its capabilities and set components.PeerID for Calculate(). The
-	// envelope.peers list is index-addressed; we synthesized IDs as "p<idx>".
-	localPeerID, localPeer := findPeerByWgKey(components, localPeerKey)
+	// Find the receiving peer in the decoded components by WG key.
+	// c.Peers is keyed by canonical base64 of the raw 32-byte pub key
+	// (decoder re-encodes the bytes off the wire). The caller may pass a
+	// non-canonical encoding (some persisted production keys carry
+	// non-zero trailing padding bits that survived a legacy import), so
+	// round-trip through raw bytes once to canonicalize before lookup.
+	canonicalKey := canonicalizeWgKey(localPeerKey)
+	localPeer := components.Peers[canonicalKey]
 	if localPeer == nil {
 		return nil, fmt.Errorf("receiving peer (wg_key prefix %q) not found among %d decoded peers — components have no PeerID, Calculate would return empty", trimKey(localPeerKey), len(components.Peers))
 	}
-	components.PeerID = localPeerID
+	components.PeerID = canonicalKey
 
 	includeIPv6 := localPeer.SupportsIPv6() && localPeer.IPv6.IsValid()
 	useSourcePrefixes := localPeer.SupportsSourcePrefixes()
@@ -174,37 +176,15 @@ func trimKey(s string) string {
 	return s
 }
 
-// findPeerByWgKey locates the receiving peer in the decoded components by
-// matching its WireGuard public key. Compares raw 32-byte decode output —
-// not the base64 string — because production data has occasional non-canonical
-// padding bits that round-trip through the envelope's `bytes wg_pub_key`
-// field, canonicalising the encoding (semantically equivalent key, different
-// string). Decodes `wgKey` once up front and reuses a stack buffer in the
-// loop so an N-peer search is ~zero-alloc.
-func findPeerByWgKey(c *types.NetworkMapComponents, wgKey string) (string, *nbpeer.Peer) {
-	const wgKeyRawLen = 32
-	var (
-		targetRaw [wgKeyRawLen]byte
-		haveRaw   bool
-	)
-	if n, err := base64.StdEncoding.Decode(targetRaw[:], []byte(wgKey)); err == nil && n == wgKeyRawLen {
-		haveRaw = true
+// canonicalizeWgKey normalises a base64-encoded WireGuard public key so it
+// matches the canonical encoding emitted by the envelope decoder. Returns
+// the input unchanged when it does not decode to 32 raw bytes (caller will
+// hit a miss in the peer map and surface the error).
+func canonicalizeWgKey(s string) string {
+	raw, err := base64.StdEncoding.DecodeString(s)
+	if err != nil || len(raw) != 32 {
+		return s
 	}
-	var peerRaw [wgKeyRawLen]byte
-	for id, p := range c.Peers {
-		if p == nil {
-			continue
-		}
-		if p.Key == wgKey {
-			return id, p
-		}
-		if !haveRaw {
-			continue
-		}
-		n, err := base64.StdEncoding.Decode(peerRaw[:], []byte(p.Key))
-		if err == nil && n == wgKeyRawLen && bytes.Equal(peerRaw[:], targetRaw[:]) {
-			return id, p
-		}
-	}
-	return "", nil
+	return base64.StdEncoding.EncodeToString(raw)
 }
+
