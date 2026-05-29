@@ -15,7 +15,7 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>, ButtonVar
 const buttonVariants = cva(
     [
         "relative",
-        "text-sm focus:z-10 focus:ring-2 font-semibold focus:outline-none whitespace-nowrap shadow-sm select-none",
+        "text-sm focus:z-10 focus:ring-2 font-medium focus:outline-none whitespace-nowrap shadow-sm select-none",
         "inline-flex gap-2 items-center justify-center transition-colors focus:ring-offset-1",
         "disabled:opacity-40 disabled:cursor-not-allowed disabled:dark:text-nb-gray-300 dark:ring-offset-neutral-950/50",
     ],
@@ -95,7 +95,7 @@ const buttonVariants = cva(
                 xs: "text-xs py-2.5 px-3.5",
                 xs2: "text-[0.78rem] py-2 px-4",
                 sm: "text-sm py-[9px] px-4",
-                md: "text-md py-[9px] px-4",
+                md: "py-[9px] px-4",
                 lg: "text-lg py-[9px] px-4",
             },
             rounded: {
