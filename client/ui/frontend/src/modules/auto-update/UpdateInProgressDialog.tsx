@@ -86,10 +86,10 @@ export default function UpdateInProgressDialog() {
             {isError ? (
                 <SquareIcon
                     icon={XCircle}
-                    className={"mt-4 bg-red-500 [&_svg]:text-white"}
+                    className={"bg-red-500 [&_svg]:text-white"}
                 />
             ) : (
-                <SquareIcon icon={Loader2} className={"mt-4 [&_svg]:animate-spin"} />
+                <SquareIcon icon={Loader2} className={"[&_svg]:animate-spin"} />
             )}
 
             <div className={"flex flex-col items-center gap-2"}>

@@ -121,7 +121,7 @@ export default function SessionAboutToExpireDialog() {
 
     return (
         <ConfirmDialog ref={contentRef}>
-            <SquareIcon icon={ClockIcon} className={"mt-4"} />
+            <SquareIcon icon={ClockIcon} />
 
             <div className={"flex flex-col items-center gap-1"}>
                 <DialogHeading>

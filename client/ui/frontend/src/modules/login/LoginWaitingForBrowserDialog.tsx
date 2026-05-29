@@ -58,7 +58,7 @@ export default function LoginWaitingForBrowserDialog() {
         <ConfirmDialog ref={contentRef}>
             <SquareIcon
                 icon={Loader2}
-                className={"mt-4 [&_svg]:animate-spin"}
+                className={"[&_svg]:animate-spin"}
             />
 
             <div className={"flex flex-col items-center gap-2"}>

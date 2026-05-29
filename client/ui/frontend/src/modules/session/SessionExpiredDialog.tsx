@@ -29,7 +29,7 @@ export default function SessionExpiredDialog() {
 
     return (
         <ConfirmDialog ref={contentRef}>
-            <SquareIcon icon={AlertCircleIcon} className={"mt-4"} />
+            <SquareIcon icon={AlertCircleIcon} />
 
             <div className={"flex flex-col items-center gap-1"}>
                 <DialogHeading>{t("sessionExpired.title")}</DialogHeading>
