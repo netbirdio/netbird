@@ -437,7 +437,7 @@ func (s *Server) handleUpdates(ctx context.Context, accountID string, peerKey wg
 				return nil
 			}
 
-			log.WithContext(ctx).Debugf("received an update for peer %s", peerKey.String())
+			log.WithContext(ctx).Tracef("received an update for peer %s", peerKey.String())
 			if debouncer.ProcessUpdate(update) {
 				// Send immediately (first update or after quiet period)
 				if err := s.sendUpdate(ctx, accountID, peerKey, peer, update, srv, streamStartTime); err != nil {
@@ -492,7 +492,7 @@ func (s *Server) sendUpdate(ctx context.Context, accountID string, peerKey wgtyp
 		s.cancelPeerRoutines(ctx, accountID, peer, streamStartTime)
 		return status.Errorf(codes.Internal, "failed sending update message")
 	}
-	log.WithContext(ctx).Debugf("sent an update to peer %s", peerKey.String())
+	log.WithContext(ctx).Tracef("sent an update to peer %s", peerKey.String())
 	return nil
 }
 
@@ -821,6 +821,80 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 	}, nil
 }
 
+// ExtendAuthSession refreshes the peer's SSO session expiry deadline using a
+// fresh JWT. The same JWT validation pipeline as Login is used. The tunnel
+// stays up; no network map sync is performed. The new deadline is returned
+// in ExtendAuthSessionResponse.SessionExpiresAt.
+func (s *Server) ExtendAuthSession(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+	extendReq := &proto.ExtendAuthSessionRequest{}
+	peerKey, err := s.parseRequest(ctx, req, extendReq)
+	if err != nil {
+		return nil, err
+	}
+
+	//nolint
+	ctx = context.WithValue(ctx, nbContext.PeerIDKey, peerKey.String())
+	if accountID, accErr := s.accountManager.GetAccountIDForPeerKey(ctx, peerKey.String()); accErr == nil {
+		//nolint
+		ctx = context.WithValue(ctx, nbContext.AccountIDKey, accountID)
+	}
+
+	jwt := extendReq.GetJwtToken()
+	if jwt == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "jwt token is required")
+	}
+
+	var userID string
+	const attempts = 3
+	for i := 0; i < attempts; i++ {
+		userID, err = s.validateToken(ctx, peerKey.String(), jwt)
+		if err == nil {
+			break
+		}
+		if i == attempts-1 {
+			break
+		}
+		log.WithContext(ctx).Warnf("failed validating JWT token while extending session for peer %s: %v. Retrying (idP cache).", peerKey.String(), err)
+		select {
+		case <-time.After(200 * time.Millisecond):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	if userID == "" {
+		return nil, status.Errorf(codes.Unauthenticated, "jwt token did not yield a user id")
+	}
+
+	deadline, err := s.accountManager.ExtendPeerSession(ctx, peerKey.String(), userID)
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed extending session for peer %s: %v", peerKey.String(), err)
+		return nil, mapError(ctx, err)
+	}
+
+	// Success path normally returns a non-zero deadline. A defensive zero
+	// would still encode as the explicit "disabled" sentinel rather than nil,
+	// so the client clears any stale anchor instead of preserving it.
+	resp := &proto.ExtendAuthSessionResponse{
+		SessionExpiresAt: encodeSessionExpiresAt(deadline),
+	}
+
+	wgKey, err := s.secretsManager.GetWGKey()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed processing request")
+	}
+	encrypted, err := encryption.EncryptMessage(peerKey, wgKey, resp)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed encrypting response")
+	}
+	return &proto.EncryptedMessage{
+		WgPubKey: wgKey.PublicKey().String(),
+		Body:     encrypted,
+	}, nil
+}
+
 func (s *Server) prepareLoginResponse(ctx context.Context, peer *nbpeer.Peer, netMap *types.NetworkMap, postureChecks []*posture.Checks) (*proto.LoginResponse, error) {
 	var relayToken *Token
 	var err error
@@ -843,6 +917,12 @@ func (s *Server) prepareLoginResponse(ctx context.Context, peer *nbpeer.Peer, ne
 		PeerConfig:    toPeerConfig(peer, netMap.Network, s.networkMapController.GetDNSDomain(settings), settings, s.config.HttpConfig, s.config.DeviceAuthorizationFlow, netMap.EnableSSH),
 		Checks:        toProtocolChecks(ctx, postureChecks),
 	}
+
+	// settings is always non-nil here, so we never emit nil — encoder returns
+	// either a valid deadline or the explicit-zero "disabled" sentinel.
+	loginResp.SessionExpiresAt = encodeSessionExpiresAt(
+		peer.SessionExpiresAt(settings.PeerLoginExpirationEnabled, settings.PeerLoginExpiration),
+	)
 
 	return loginResp, nil
 }

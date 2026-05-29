@@ -355,7 +355,17 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			oldSettings.LazyConnectionEnabled != newSettings.LazyConnectionEnabled ||
 			oldSettings.DNSDomain != newSettings.DNSDomain ||
 			oldSettings.AutoUpdateVersion != newSettings.AutoUpdateVersion ||
-			oldSettings.AutoUpdateAlways != newSettings.AutoUpdateAlways {
+			oldSettings.AutoUpdateAlways != newSettings.AutoUpdateAlways ||
+			oldSettings.PeerLoginExpirationEnabled != newSettings.PeerLoginExpirationEnabled ||
+			oldSettings.PeerLoginExpiration != newSettings.PeerLoginExpiration {
+			// Session deadline is derived from LastLogin + PeerLoginExpiration
+			// on every Login/Sync response. Without a fan-out push, connected
+			// peers keep the deadline they received at login time and only see
+			// the new value after the next unrelated NetworkMap change. Add
+			// these two fields to the trigger list so admin-side expiry tweaks
+			// (e.g. shortening from 24h to 1h) reach every connected peer
+			// within seconds, which is what the proactive-warning feature
+			// relies on (see client/internal/auth/sessionwatch).
 			updateAccountPeers = true
 		}
 
