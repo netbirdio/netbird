@@ -4,10 +4,9 @@ import { Dialogs } from "@wailsio/runtime";
 import * as Popover from "@radix-ui/react-popover";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { Command } from "cmdk";
-import { Check, ChevronDown, PlusCircle, Settings2, UserCircle } from "lucide-react";
+import { Check, ChevronDown, Settings2, UserCircle } from "lucide-react";
 import { pickProfileIcon } from "@/modules/profiles/ProfileAvatar";
 import type { Profile } from "@bindings/services/models.js";
-import { ProfileCreationModal } from "@/modules/profiles/ProfileCreationModal";
 import { Tooltip } from "@/components/Tooltip";
 import { useProfile } from "@/contexts/ProfileContext";
 import { cn } from "@/lib/cn";
@@ -17,14 +16,12 @@ type ProfileDropdownProps = {
     onManageProfiles?: () => void;
 };
 
-const ADD_VALUE = "__add_profile__";
 const MANAGE_VALUE = "__manage_profiles__";
 
 export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
     const { t } = useTranslation();
-    const { activeProfile, profiles, addProfile, switchProfile } = useProfile();
+    const { activeProfile, profiles, switchProfile } = useProfile();
     const [open, setOpen] = useState(false);
-    const [newProfileOpen, setNewProfileOpen] = useState(false);
     const [busy, setBusy] = useState(false);
 
     const sortedProfiles = [...profiles].sort((a, b) => {
@@ -54,26 +51,9 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
         void guarded(t("profile.error.switchTitle"), () => switchProfile(name));
     };
 
-    const handleAdd = () => {
-        setOpen(false);
-        setNewProfileOpen(true);
-    };
-
     const handleManage = () => {
         setOpen(false);
         onManageProfiles?.();
-    };
-
-    const handleCreateProfile = async (name: string) => {
-        try {
-            await addProfile(name);
-            await switchProfile(name);
-        } catch (e) {
-            await Dialogs.Error({
-                Title: t("profile.error.createTitle"),
-                Message: formatErrorMessage(e),
-            });
-        }
     };
 
     const displayName = activeProfile || t("profile.selector.loading");
@@ -131,20 +111,6 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
 
                             <div className={"pt-1"}>
                                 <Command.Item
-                                    value={ADD_VALUE}
-                                    onSelect={handleAdd}
-                                    className={cn(
-                                        "flex items-center gap-2 px-2 py-1.5 my-0.5",
-                                        "rounded-md outline-none cursor-default text-sm",
-                                        "data-[selected=true]:bg-nb-gray-900",
-                                    )}
-                                >
-                                    <PlusCircle size={14} className="shrink-0" />
-                                    <span className="truncate flex-1">
-                                        {t("profile.dropdown.addProfile")}
-                                    </span>
-                                </Command.Item>
-                                <Command.Item
                                     value={MANAGE_VALUE}
                                     onSelect={handleManage}
                                     disabled={!onManageProfiles}
@@ -165,11 +131,6 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
                     </Popover.Content>
                 </Popover.Portal>
             </Popover.Root>
-            <ProfileCreationModal
-                open={newProfileOpen}
-                onOpenChange={setNewProfileOpen}
-                onCreate={handleCreateProfile}
-            />
         </>
     );
 };

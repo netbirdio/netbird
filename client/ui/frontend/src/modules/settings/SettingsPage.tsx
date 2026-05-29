@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { useLocation, useSearchParams } from "react-router-dom";
+import { useLocation } from "react-router-dom";
+import { Events } from "@wailsio/runtime";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { cn } from "@/lib/cn";
 import { AppRightPanel } from "@/layouts/AppRightPanel.tsx";
@@ -15,11 +16,18 @@ import { SettingsAdvanced } from "@/modules/settings/SettingsAdvanced.tsx";
 import { SettingsTroubleshooting } from "@/modules/settings/SettingsTroubleshooting.tsx";
 import { SettingsAbout } from "@/modules/settings/SettingsAbout.tsx";
 
-// The settings window opens at General by default. Navigation state (e.g. the
-// update-available header trigger jumps to About) or a `?tab=` query param
-// in the window's start URL (e.g. WindowManager.OpenSettings("profiles") from
-// the profile dropdown) override the default. No persistence across opens —
-// a user who wants to revisit a deep tab gets there in two clicks.
+const EVENT_SETTINGS_OPEN = "netbird:settings:open";
+
+// The settings window mounts once at app startup (hidden) and stays at the
+// single URL `/#/settings` forever — no SetURL between opens, so the
+// `AppLayout` provider stack never re-mounts and we never see the
+// `SettingsSkeleton` flash mid-reload. Tab is local state, driven by:
+//   - the `netbird:settings:open` Wails event from `WindowManager.OpenSettings`
+//     (sets the target tab, then Go calls `Show`/`Focus`); and
+//   - the same event with payload `"general"` from the close hook, so the
+//     window is already on General the next time Show fires (common case).
+// In-window navigation state (e.g. the update-available header jump to About)
+// still wins for that one render.
 //
 // The `h-12` draggable strip at the top accounts for the macOS
 // `MacTitleBarHiddenInset` setting in services/windowmanager.go (traffic-light
@@ -27,16 +35,18 @@ import { SettingsAbout } from "@/modules/settings/SettingsAbout.tsx";
 // Header height so AppRightPanel ends up the same height in both windows.
 export const SettingsPage = () => {
     const location = useLocation();
-    const [searchParams] = useSearchParams();
-    const queryTab = searchParams.get("tab");
     const navState = location.state as { tab?: string } | null;
-    const [active, setActive] = useState(
-        () => navState?.tab ?? queryTab ?? "general",
-    );
+    const [active, setActive] = useState(() => navState?.tab ?? "general");
 
     useEffect(() => {
         if (navState?.tab) setActive(navState.tab);
     }, [navState?.tab, location.key]);
+
+    useEffect(() => {
+        return Events.On(EVENT_SETTINGS_OPEN, (e: { data: string }) => {
+            setActive(e.data || "general");
+        });
+    }, []);
 
     return (
         <>

@@ -21,6 +21,13 @@ const EventTriggerLogin = "trigger-login"
 // and tears down the daemon's pending SSO wait.
 const EventBrowserLoginCancel = "browser-login:cancel"
 
+// EventSettingsOpen tells the (already-mounted, currently-hidden) settings
+// window which tab to land on, then drives Window.Show()/Focus() from the
+// React side. Routing the open through the React layer avoids the
+// SetURL-on-every-open path that re-mounted the entire provider tree and
+// flashed the SettingsSkeleton between opens.
+const EventSettingsOpen = "netbird:settings:open"
+
 // WindowManager opens auxiliary application windows on demand from the
 // frontend. The main window is created up-front in main.go; this service is
 // for secondary surfaces (Settings, BrowserLogin, Session*, InstallProgress).
@@ -82,25 +89,34 @@ func NewWindowManager(app *application.App, mainWindow *application.WebviewWindo
 		},
 	})
 	// Hide on close instead of destroying — preserves in-window React state
-	// across reopens. Mirrors the main window's close behaviour.
+	// across reopens. Mirrors the main window's close behaviour. Resetting
+	// the active tab to General on hide means the *next* OpenSettings("")
+	// finds the window already on General, so showing it is a single Show()
+	// with nothing to update first — no flash.
 	s.settings.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		e.Cancel()
+		s.app.Event.Emit(EventSettingsOpen, "general")
 		s.settings.Hide()
 	})
 	return s
 }
 
-// OpenSettings shows the settings window (created hidden at startup). If
-// `tab` is non-empty the settings React layer reads it from the start URL
-// and selects that tab (e.g. "profiles") instead of whatever tab was active
-// when the user last closed the window. Passing an empty tab keeps the
-// existing in-window state.
+// OpenSettings asks the (already-mounted, currently-hidden) settings window
+// to land on `tab` and bring itself to front. Empty `tab` lands on General.
+//
+// The window stays at a single URL (`/#/settings`) for its entire lifetime:
+// calling SetURL on every open re-loaded the WKWebView, which re-mounted the
+// `AppLayout` provider stack and visibly flashed the `SettingsSkeleton` while
+// `SettingsContext` re-fetched config. Instead, the React side keeps tab in
+// local state and listens for `EventSettingsOpen` to switch it. The close
+// hook (above) already resets state to "general", so the common-case
+// reopen-on-gear path has nothing to update — Show is a no-op repaint.
 func (s *WindowManager) OpenSettings(tab string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if tab != "" {
-		s.settings.SetURL("/#/settings?tab=" + url.QueryEscape(tab))
+	target := tab
+	if target == "" {
+		target = "general"
 	}
+	s.app.Event.Emit(EventSettingsOpen, target)
 	s.settings.Show()
 	s.settings.Focus()
 }
