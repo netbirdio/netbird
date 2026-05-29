@@ -20,7 +20,11 @@ jobs:
         uses: codespell-project/actions-codespell@v2
         with:
           ignore_words_list: erro,clienta,hastable,iif,groupd,testin,groupe,cros,ans,deriver,te,userA,ede,additionals
-          skip: go.mod,go.sum,**/proxy/web/**,**/pnpm-lock.yaml,**/package-lock.json
+          # Non-English UI translations trip codespell on real foreign words
+          # (de: "Sie", "oder", "ist"). Only en/common.json is the source of
+          # truth that should be spell-checked. Add each new locale dir here
+          # when a language is added under client/ui/i18n/locales/.
+          skip: go.mod,go.sum,**/proxy/web/**,**/pnpm-lock.yaml,**/package-lock.json,client/ui/i18n/locales/de/**,client/ui/i18n/locales/hu/**
   golangci:
     strategy:
       fail-fast: false

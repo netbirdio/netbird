@@ -51,8 +51,6 @@ type dbusMenuLayout struct {
 	Children   []dbus.Variant
 }
 
-
-
 // xembedHost manages one XEmbed tray icon for an SNI item.
 type xembedHost struct {
 	conn    *dbus.Conn
@@ -314,64 +312,49 @@ func (h *xembedHost) flattenMenu(layout dbusMenuLayout) []menuItemInfo {
 		if err := dbus.Store([]interface{}{childVar.Value()}, &child); err != nil {
 			continue
 		}
-
-		mi := menuItemInfo{
-			id:      child.ID,
-			enabled: true,
+		if mi, ok := h.menuItemFromLayout(child); ok {
+			items = append(items, mi)
 		}
-
-		if v, ok := child.Properties["type"]; ok {
-			if s, ok := v.Value().(string); ok && s == "separator" {
-				mi.isSeparator = true
-				items = append(items, mi)
-				continue
-			}
-		}
-
-		if v, ok := child.Properties["label"]; ok {
-			if s, ok := v.Value().(string); ok {
-				mi.label = s
-			}
-		}
-
-		if v, ok := child.Properties["enabled"]; ok {
-			if b, ok := v.Value().(bool); ok {
-				mi.enabled = b
-			}
-		}
-
-		if v, ok := child.Properties["visible"]; ok {
-			if b, ok := v.Value().(bool); ok && !b {
-				continue // skip hidden items
-			}
-		}
-
-		if v, ok := child.Properties["toggle-type"]; ok {
-			if s, ok := v.Value().(string); ok && s == "checkmark" {
-				mi.isCheck = true
-			}
-		}
-
-		if v, ok := child.Properties["toggle-state"]; ok {
-			if n, ok := v.Value().(int32); ok && n == 1 {
-				mi.checked = true
-			}
-		}
-
-		// Recurse into nested submenus. The dbusmenu spec marks a folder
-		// item with children-display=="submenu"; the children are already
-		// in child.Children because GetLayout was called with
-		// recursionDepth=-1 (all levels).
-		if v, ok := child.Properties["children-display"]; ok {
-			if s, ok := v.Value().(string); ok && s == "submenu" {
-				mi.children = h.flattenMenu(child)
-			}
-		}
-
-		items = append(items, mi)
 	}
 
 	return items
+}
+
+// menuItemFromLayout decodes one dbusmenu child node into a menuItemInfo,
+// recursing into submenus. The bool return is false when the item is hidden
+// (visible=false) and should be dropped from the parent's list.
+func (h *xembedHost) menuItemFromLayout(child dbusMenuLayout) (menuItemInfo, bool) {
+	mi := menuItemInfo{id: child.ID, enabled: true}
+
+	if propString(child.Properties, "type") == "separator" {
+		mi.isSeparator = true
+		return mi, true
+	}
+
+	if vis, ok := propBool(child.Properties, "visible"); ok && !vis {
+		return menuItemInfo{}, false
+	}
+
+	mi.label = propString(child.Properties, "label")
+	if en, ok := propBool(child.Properties, "enabled"); ok {
+		mi.enabled = en
+	}
+	if propString(child.Properties, "toggle-type") == "checkmark" {
+		mi.isCheck = true
+	}
+	if n, ok := propInt32(child.Properties, "toggle-state"); ok && n == 1 {
+		mi.checked = true
+	}
+
+	// Recurse into nested submenus. The dbusmenu spec marks a folder
+	// item with children-display=="submenu"; the children are already
+	// in child.Children because GetLayout was called with
+	// recursionDepth=-1 (all levels).
+	if propString(child.Properties, "children-display") == "submenu" {
+		mi.children = h.flattenMenu(child)
+	}
+
+	return mi, true
 }
 
 func (h *xembedHost) sendMenuEvent(id int32) {
@@ -441,4 +424,37 @@ func boolToInt(b bool) C.int {
 		return 1
 	}
 	return 0
+}
+
+// propString returns the string value of a dbusmenu property, or "" when the
+// property is absent or not a string.
+func propString(props map[string]dbus.Variant, key string) string {
+	if v, ok := props[key]; ok {
+		if s, ok := v.Value().(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
+// propBool returns the bool value of a dbusmenu property; ok is false when the
+// property is absent or not a bool.
+func propBool(props map[string]dbus.Variant, key string) (value, ok bool) {
+	if v, present := props[key]; present {
+		if b, isBool := v.Value().(bool); isBool {
+			return b, true
+		}
+	}
+	return false, false
+}
+
+// propInt32 returns the int32 value of a dbusmenu property; ok is false when
+// the property is absent or not an int32.
+func propInt32(props map[string]dbus.Variant, key string) (value int32, ok bool) {
+	if v, present := props[key]; present {
+		if n, isInt := v.Value().(int32); isInt {
+			return n, true
+		}
+	}
+	return 0, false
 }

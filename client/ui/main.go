@@ -57,6 +57,22 @@ func (s *stringList) Set(v string) error {
 	return nil
 }
 
+// registeredServices bundles the constructed services that registerServices
+// binds to the Wails app, keeping the call site readable.
+type registeredServices struct {
+	connection      *services.Connection
+	authSession     *authsession.Session
+	settings        *services.Settings
+	networks        *services.Networks
+	profiles        *services.Profiles
+	update          *services.Update
+	daemonFeed      *services.DaemonFeed
+	notifier        *notifications.NotificationService
+	profileSwitcher *services.ProfileSwitcher
+	bundle          *i18n.Bundle
+	prefStore       *preferences.Store
+}
+
 func init() {
 	application.RegisterEvent[services.Status](services.EventStatusSnapshot)
 	application.RegisterEvent[services.SystemEvent](services.EventDaemonNotification)
@@ -67,6 +83,98 @@ func init() {
 }
 
 func main() {
+	daemonAddr := parseFlagsAndInitLog()
+	conn := NewConn(daemonAddr)
+
+	// tray is captured in the SingleInstance callback below; the var is
+	// declared before app.New so the closure has a stable reference.
+	var tray *Tray
+	app := newApplication(func() {
+		if tray != nil {
+			tray.ShowWindow()
+		}
+	})
+
+	settings := services.NewSettings(conn)
+	profiles := services.NewProfiles(conn)
+	// updater.Holder owns the typed update State. DaemonFeed pipes the
+	// daemon SubscribeEvents stream into it; the Update service is a thin
+	// Wails-bound facade over the holder plus the install RPCs.
+	updaterHolder := updater.NewHolder(app.Event)
+	update := services.NewUpdate(conn, updaterHolder)
+	daemonFeed := services.NewDaemonFeed(conn, app.Event, updaterHolder)
+	notifier := notifications.New()
+
+	bundle, prefStore, localizer := buildI18n(app)
+
+	// Connection lives after bundle + prefStore so it can localise daemon
+	// errors (services.NewConnection takes both as dependencies).
+	connection := services.NewConnection(conn, bundle, prefStore)
+	profileSwitcher := services.NewProfileSwitcher(profiles, connection, daemonFeed)
+	// authsession.Session owns the full extend + dismiss surface; the tray
+	// drives the "Extend now" action from the T-10 OS notification through
+	// this directly. The Wails-bound services.Session wraps only the subset
+	// the React frontend calls, so the generated TS surface stays minimal.
+	authSession := authsession.NewSession(conn)
+	networks := services.NewNetworks(conn)
+
+	registerServices(app, conn, registeredServices{
+		connection:      connection,
+		authSession:     authSession,
+		settings:        settings,
+		networks:        networks,
+		profiles:        profiles,
+		update:          update,
+		daemonFeed:      daemonFeed,
+		notifier:        notifier,
+		profileSwitcher: profileSwitcher,
+		bundle:          bundle,
+		prefStore:       prefStore,
+	})
+
+	window := newMainWindow(app, prefStore)
+
+	// Settings is created eagerly (hidden) inside NewWindowManager so the
+	// first click on the gear paints instantly and the React side keeps
+	// per-tab state across reopens. The other auxiliary windows
+	// (BrowserLogin, Session*, InstallProgress) stay lazy + destroy-on-close
+	// so they don't linger as hidden windows that Wails's macOS dock-reopen
+	// handler would pop back up.
+	windowManager := services.NewWindowManager(app, window)
+	app.RegisterService(application.NewService(windowManager))
+
+	// Register an in-process StatusNotifierWatcher so the tray works on
+	// minimal WMs (Fluxbox, OpenBox, i3, dwm, vanilla GNOME without the
+	// AppIndicator extension) that don't ship one themselves. No-op on
+	// non-Linux platforms. Must run before NewTray so the Wails systray's
+	// RegisterStatusNotifierItem call hits a watcher we control.
+	startStatusNotifierWatcher()
+
+	tray = NewTray(app, window, TrayServices{
+		Connection:      connection,
+		Settings:        settings,
+		Profiles:        profiles,
+		Networks:        networks,
+		DaemonFeed:      daemonFeed,
+		Notifier:        notifier,
+		Update:          update,
+		ProfileSwitcher: profileSwitcher,
+		WindowManager:   windowManager,
+		Session:         authSession,
+		Localizer:       localizer,
+	})
+	listenForShowSignal(context.Background(), tray)
+
+	daemonFeed.Watch(context.Background())
+
+	if err := app.Run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// parseFlagsAndInitLog parses the CLI flags, initialises the logger, and
+// returns the resolved daemon gRPC address.
+func parseFlagsAndInitLog() string {
 	daemonAddr := flag.String("daemon-addr", DaemonAddr(), "Daemon gRPC address: unix:///path or tcp://host:port")
 	logFiles := &stringList{values: []string{"console"}}
 	flag.Var(logFiles, "log-file", "Log destination. Repeat to log to multiple targets at once, e.g. `--log-file console --log-file Y:/netbird-ui.log`. Each value is one of: console, syslog, or a file path. File destinations are rotated by lumberjack (same as the daemon). Defaults to console.")
@@ -76,13 +184,12 @@ func main() {
 	if err := util.InitLog(*logLevel, logFiles.values...); err != nil {
 		log.Fatalf("init log: %v", err)
 	}
+	return *daemonAddr
+}
 
-	conn := NewConn(*daemonAddr)
-
-	// tray is captured in the SingleInstance callback below; the var is
-	// declared before app.New so the closure has a stable reference.
-	var tray *Tray
-
+// newApplication constructs the Wails application. onSecondInstance is invoked
+// when a second process launches under the same SingleInstance UniqueID.
+func newApplication(onSecondInstance func()) *application.App {
 	// On macOS, application.Options.Icon is fed into NSApplication's
 	// setApplicationIconImage at startup, which would override the bundle
 	// icon (Assets.car / icons.icns) the OS already picked. We want the
@@ -92,7 +199,7 @@ func main() {
 		appIcon = nil
 	}
 
-	app := application.New(application.Options{
+	return application.New(application.Options{
 		// Windows uses Name as the AppUserModelID for toast notifications
 		// (see notifications_windows.go: cfg.Name -> wn.appName -> AppID)
 		// and as the registry path under HKCU\Software\Classes\AppUserModelId\.
@@ -116,23 +223,16 @@ func main() {
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID: "io.netbird.ui",
 			OnSecondInstanceLaunch: func(_ application.SecondInstanceData) {
-				if tray != nil {
-					tray.ShowWindow()
-				}
+				onSecondInstance()
 			},
 		},
 	})
+}
 
-	settings := services.NewSettings(conn)
-	profiles := services.NewProfiles(conn)
-	// updater.Holder owns the typed update State. DaemonFeed pipes the
-	// daemon SubscribeEvents stream into it; the Update service is a thin
-	// Wails-bound facade over the holder plus the install RPCs.
-	updaterHolder := updater.NewHolder(app.Event)
-	update := services.NewUpdate(conn, updaterHolder)
-	daemonFeed := services.NewDaemonFeed(conn, app.Event, updaterHolder)
-	notifier := notifications.New()
-
+// buildI18n constructs the domain-layer i18n bundle, the preferences store,
+// and the tray localizer. The Bundle satisfies preferences.LanguageValidator
+// so SetLanguage rejects codes that have no shipped translation.
+func buildI18n(app *application.App) (*i18n.Bundle, *preferences.Store, *Localizer) {
 	// localesFS reroots the embedded tree at the locales directory itself
 	// so the bundle sees _index.json and <lang>/common.json at the top
 	// level (the //go:embed path is rooted at the package, not the leaf
@@ -141,9 +241,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("locate locales fs: %v", err)
 	}
-	// Build the domain layer first, then wrap it in the Wails-bound
-	// services. The Bundle satisfies preferences.LanguageValidator so
-	// SetLanguage rejects codes that have no shipped translation.
 	bundle, err := i18n.NewBundle(localesFS)
 	if err != nil {
 		log.Fatalf("init i18n bundle: %v", err)
@@ -152,33 +249,32 @@ func main() {
 	if err != nil {
 		log.Fatalf("init preferences store: %v", err)
 	}
-	localizer := NewLocalizer(bundle, prefStore)
+	return bundle, prefStore, NewLocalizer(bundle, prefStore)
+}
 
-	// Connection lives after bundle + prefStore so it can localise daemon
-	// errors (services.NewConnection takes both as dependencies).
-	connection := services.NewConnection(conn, bundle, prefStore)
-	profileSwitcher := services.NewProfileSwitcher(profiles, connection, daemonFeed)
-
-	app.RegisterService(application.NewService(connection))
-	// authsession.Session owns the full extend + dismiss surface; the tray
-	// drives the "Extend now" action from the T-10 OS notification through
-	// this directly. The Wails-bound services.Session wraps only the subset
-	// the React frontend calls, so the generated TS surface stays minimal.
-	authSession := authsession.NewSession(conn)
-	app.RegisterService(application.NewService(services.NewSession(authSession)))
-	app.RegisterService(application.NewService(settings))
-	networks := services.NewNetworks(conn)
-	app.RegisterService(application.NewService(networks))
+// registerServices binds every Wails-facing service onto the application.
+// Services constructed inline here (Session, Forwarding, Debug, I18n,
+// Preferences) have no other caller; the rest arrive already built so the
+// tray and feed loops can share the same instances.
+func registerServices(app *application.App, conn *Conn, s registeredServices) {
+	app.RegisterService(application.NewService(s.connection))
+	app.RegisterService(application.NewService(services.NewSession(s.authSession)))
+	app.RegisterService(application.NewService(s.settings))
+	app.RegisterService(application.NewService(s.networks))
 	app.RegisterService(application.NewService(services.NewForwarding(conn)))
-	app.RegisterService(application.NewService(profiles))
+	app.RegisterService(application.NewService(s.profiles))
 	app.RegisterService(application.NewService(services.NewDebug(conn)))
-	app.RegisterService(application.NewService(update))
-	app.RegisterService(application.NewService(daemonFeed))
-	app.RegisterService(application.NewService(notifier))
-	app.RegisterService(application.NewService(profileSwitcher))
-	app.RegisterService(application.NewService(services.NewI18n(bundle)))
-	app.RegisterService(application.NewService(services.NewPreferences(prefStore)))
+	app.RegisterService(application.NewService(s.update))
+	app.RegisterService(application.NewService(s.daemonFeed))
+	app.RegisterService(application.NewService(s.notifier))
+	app.RegisterService(application.NewService(s.profileSwitcher))
+	app.RegisterService(application.NewService(services.NewI18n(s.bundle)))
+	app.RegisterService(application.NewService(services.NewPreferences(s.prefStore)))
+}
 
+// newMainWindow creates the hidden main window, sized to the user's last view
+// mode, and installs the hide-on-close and macOS dock-reopen hooks.
+func newMainWindow(app *application.App, prefStore *preferences.Store) *application.WebviewWindow {
 	// Open the main window at the width matching the user's last view
 	// choice so an Advanced-mode user doesn't see the window pop from 380px
 	// to 900px on every launch. Height is the same in both modes.
@@ -228,40 +324,5 @@ func main() {
 		})
 	}
 
-	// Settings is created eagerly (hidden) inside NewWindowManager so the
-	// first click on the gear paints instantly and the React side keeps
-	// per-tab state across reopens. The other auxiliary windows
-	// (BrowserLogin, Session*, InstallProgress) stay lazy + destroy-on-close
-	// so they don't linger as hidden windows that Wails's macOS dock-reopen
-	// handler would pop back up.
-	windowManager := services.NewWindowManager(app, window)
-	app.RegisterService(application.NewService(windowManager))
-
-	// Register an in-process StatusNotifierWatcher so the tray works on
-	// minimal WMs (Fluxbox, OpenBox, i3, dwm, vanilla GNOME without the
-	// AppIndicator extension) that don't ship one themselves. No-op on
-	// non-Linux platforms. Must run before NewTray so the Wails systray's
-	// RegisterStatusNotifierItem call hits a watcher we control.
-	startStatusNotifierWatcher()
-
-	tray = NewTray(app, window, TrayServices{
-		Connection:      connection,
-		Settings:        settings,
-		Profiles:        profiles,
-		Networks:        networks,
-		DaemonFeed:      daemonFeed,
-		Notifier:        notifier,
-		Update:          update,
-		ProfileSwitcher: profileSwitcher,
-		WindowManager:   windowManager,
-		Session:         authSession,
-		Localizer:       localizer,
-	})
-	listenForShowSignal(context.Background(), tray)
-
-	daemonFeed.Watch(context.Background())
-
-	if err := app.Run(); err != nil {
-		log.Fatal(err)
-	}
+	return window
 }

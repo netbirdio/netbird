@@ -334,43 +334,64 @@ func (s *DaemonFeed) statusStreamLoop(ctx context.Context) {
 	}
 
 	op := func() error {
-		cli, err := s.conn.Client()
-		if err != nil {
-			emitUnavailable()
-			return fmt.Errorf("get client: %w", err)
-		}
-		stream, err := cli.SubscribeStatus(ctx, &proto.StatusRequest{GetFullPeerStatus: true})
-		if err != nil {
-			if isDaemonUnreachable(err) {
-				emitUnavailable()
-			}
-			return fmt.Errorf("subscribe status: %w", err)
-		}
-		for {
-			resp, err := stream.Recv()
-			if err != nil {
-				if ctx.Err() != nil {
-					return ctx.Err()
-				}
-				if isDaemonUnreachable(err) {
-					emitUnavailable()
-				}
-				return fmt.Errorf("status stream recv: %w", err)
-			}
-			unavailable = false
-			st := statusFromProto(resp)
-			log.Infof("backend event: status status=%q peers=%d", st.Status, len(st.Peers))
-			if s.shouldSuppress(st) {
-				log.Debugf("suppressing status=%q during profile switch", st.Status)
-				continue
-			}
-			s.emitter.Emit(EventStatusSnapshot, st)
-		}
+		return s.subscribeAndStreamStatus(ctx, &unavailable, emitUnavailable)
 	}
 
 	if err := backoff.Retry(op, bo); err != nil && ctx.Err() == nil {
 		log.Errorf("status stream ended: %v", err)
 	}
+}
+
+// subscribeAndStreamStatus is one attempt of the status backoff loop: open the
+// SubscribeStatus stream and re-emit every snapshot until it errors. Returns a
+// wrapped error so backoff retries; a daemon-unreachable failure also flips the
+// synthetic-unavailable signal (once per outage, guarded by *unavailable).
+func (s *DaemonFeed) subscribeAndStreamStatus(ctx context.Context, unavailable *bool, emitUnavailable func()) error {
+	cli, err := s.conn.Client()
+	if err != nil {
+		emitUnavailable()
+		return fmt.Errorf("get client: %w", err)
+	}
+	stream, err := cli.SubscribeStatus(ctx, &proto.StatusRequest{GetFullPeerStatus: true})
+	if err != nil {
+		if isDaemonUnreachable(err) {
+			emitUnavailable()
+		}
+		return fmt.Errorf("subscribe status: %w", err)
+	}
+	for {
+		resp, err := stream.Recv()
+		if err != nil {
+			return s.handleStatusRecvErr(ctx, err, emitUnavailable)
+		}
+		*unavailable = false
+		s.emitStatus(statusFromProto(resp))
+	}
+}
+
+// handleStatusRecvErr maps a SubscribeStatus stream.Recv error into the
+// backoff loop's return value: ctx cancellation stops the loop, an
+// unreachable socket flips the synthetic-unavailable signal, everything
+// else is a retryable wrapped error.
+func (s *DaemonFeed) handleStatusRecvErr(ctx context.Context, err error, emitUnavailable func()) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if isDaemonUnreachable(err) {
+		emitUnavailable()
+	}
+	return fmt.Errorf("status stream recv: %w", err)
+}
+
+// emitStatus pushes a fresh snapshot to the frontend, dropping the transient
+// stale-Connected / Idle pushes that occur mid profile switch.
+func (s *DaemonFeed) emitStatus(st Status) {
+	log.Infof("backend event: status status=%q peers=%d", st.Status, len(st.Peers))
+	if s.shouldSuppress(st) {
+		log.Debugf("suppressing status=%q during profile switch", st.Status)
+		return
+	}
+	s.emitter.Emit(EventStatusSnapshot, st)
 }
 
 // toastStreamLoop subscribes to the daemon's SubscribeEvents RPC and
@@ -394,36 +415,50 @@ func (s *DaemonFeed) toastStreamLoop(ctx context.Context) {
 	}, ctx)
 
 	op := func() error {
-		cli, err := s.conn.Client()
-		if err != nil {
-			return fmt.Errorf("get client: %w", err)
-		}
-		stream, err := cli.SubscribeEvents(ctx, &proto.SubscribeRequest{})
-		if err != nil {
-			return fmt.Errorf("subscribe: %w", err)
-		}
-		for {
-			ev, err := stream.Recv()
-			if err != nil {
-				if ctx.Err() != nil {
-					return ctx.Err()
-				}
-				return fmt.Errorf("stream recv: %w", err)
-			}
-			se := systemEventFromProto(ev)
-			log.Infof("backend event: system severity=%s category=%s msg=%q", se.Severity, se.Category, se.UserMessage)
-			s.emitter.Emit(EventDaemonNotification, se)
-			if warn, ok := authsession.WarningFromMetadata(se.Metadata); ok {
-				s.emitter.Emit(EventSessionWarning, warn)
-			}
-			if s.updater != nil {
-				s.updater.OnSystemEvent(ev)
-			}
-		}
+		return s.subscribeAndStreamEvents(ctx)
 	}
 
 	if err := backoff.Retry(op, bo); err != nil && ctx.Err() == nil {
 		log.Errorf("event stream ended: %v", err)
+	}
+}
+
+// subscribeAndStreamEvents is one attempt of the event backoff loop: open the
+// SubscribeEvents stream and fan out every SystemEvent until it errors. ctx
+// cancellation stops the loop; any other error is wrapped so backoff retries.
+func (s *DaemonFeed) subscribeAndStreamEvents(ctx context.Context) error {
+	cli, err := s.conn.Client()
+	if err != nil {
+		return fmt.Errorf("get client: %w", err)
+	}
+	stream, err := cli.SubscribeEvents(ctx, &proto.SubscribeRequest{})
+	if err != nil {
+		return fmt.Errorf("subscribe: %w", err)
+	}
+	for {
+		ev, err := stream.Recv()
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return fmt.Errorf("stream recv: %w", err)
+		}
+		s.dispatchSystemEvent(ev)
+	}
+}
+
+// dispatchSystemEvent fans one daemon SystemEvent out to the frontend
+// notification stream, the typed session-warning event (when the metadata
+// carries one), and the updater holder (when present).
+func (s *DaemonFeed) dispatchSystemEvent(ev *proto.SystemEvent) {
+	se := systemEventFromProto(ev)
+	log.Infof("backend event: system severity=%s category=%s msg=%q", se.Severity, se.Category, se.UserMessage)
+	s.emitter.Emit(EventDaemonNotification, se)
+	if warn, ok := authsession.WarningFromMetadata(se.Metadata); ok {
+		s.emitter.Emit(EventSessionWarning, warn)
+	}
+	if s.updater != nil {
+		s.updater.OnSystemEvent(ev)
 	}
 }
 

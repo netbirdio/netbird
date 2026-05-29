@@ -35,7 +35,6 @@ import (
 	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/acl"
-	"github.com/netbirdio/netbird/client/internal/auth/sessionwatch"
 	"github.com/netbirdio/netbird/client/internal/debug"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	dnsconfig "github.com/netbirdio/netbird/client/internal/dns/config"
@@ -252,7 +251,19 @@ type Engine struct {
 
 	exposeManager *expose.Manager
 
-	sessionWatcher *sessionwatch.Watcher
+	sessionWatcher sessionDeadlineWatcher
+}
+
+// sessionDeadlineWatcher is the engine-facing surface of the SSO session
+// expiry watcher. The concrete implementation (sessionwatch.Watcher) is wired
+// in via newSessionWatcher, which is build-tagged so the js/wasm build links a
+// no-op stub instead of pulling the full sessionwatch package (and its timer
+// machinery) into the binary — the wasm client never runs the engine's
+// session-warning flow.
+type sessionDeadlineWatcher interface {
+	Update(deadline time.Time) error
+	Dismiss()
+	Close()
 }
 
 // Peer is an instance of the Connection Peer
@@ -306,7 +317,7 @@ func NewEngine(
 	//   - T-WarningLead   → interactive "Extend now / Dismiss" notification
 	//   - T-FinalWarningLead → auto-opened SessionAboutToExpire dialog,
 	//     suppressed when the user dismissed the earlier warning
-	engine.sessionWatcher = sessionwatch.New(engine.statusRecorder)
+	engine.sessionWatcher = newSessionWatcher(engine.statusRecorder)
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
 	return engine
