@@ -349,28 +349,41 @@ func (s *DaemonFeed) statusStreamLoop(ctx context.Context) {
 		for {
 			resp, err := stream.Recv()
 			if err != nil {
-				if ctx.Err() != nil {
-					return ctx.Err()
-				}
-				if isDaemonUnreachable(err) {
-					emitUnavailable()
-				}
-				return fmt.Errorf("status stream recv: %w", err)
+				return s.handleStatusRecvErr(ctx, err, emitUnavailable)
 			}
 			unavailable = false
-			st := statusFromProto(resp)
-			log.Infof("backend event: status status=%q peers=%d", st.Status, len(st.Peers))
-			if s.shouldSuppress(st) {
-				log.Debugf("suppressing status=%q during profile switch", st.Status)
-				continue
-			}
-			s.emitter.Emit(EventStatusSnapshot, st)
+			s.emitStatus(statusFromProto(resp))
 		}
 	}
 
 	if err := backoff.Retry(op, bo); err != nil && ctx.Err() == nil {
 		log.Errorf("status stream ended: %v", err)
 	}
+}
+
+// handleStatusRecvErr maps a SubscribeStatus stream.Recv error into the
+// backoff loop's return value: ctx cancellation stops the loop, an
+// unreachable socket flips the synthetic-unavailable signal, everything
+// else is a retryable wrapped error.
+func (s *DaemonFeed) handleStatusRecvErr(ctx context.Context, err error, emitUnavailable func()) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if isDaemonUnreachable(err) {
+		emitUnavailable()
+	}
+	return fmt.Errorf("status stream recv: %w", err)
+}
+
+// emitStatus pushes a fresh snapshot to the frontend, dropping the transient
+// stale-Connected / Idle pushes that occur mid profile switch.
+func (s *DaemonFeed) emitStatus(st Status) {
+	log.Infof("backend event: status status=%q peers=%d", st.Status, len(st.Peers))
+	if s.shouldSuppress(st) {
+		log.Debugf("suppressing status=%q during profile switch", st.Status)
+		return
+	}
+	s.emitter.Emit(EventStatusSnapshot, st)
 }
 
 // toastStreamLoop subscribes to the daemon's SubscribeEvents RPC and
