@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 
+	"github.com/netbirdio/netbird/client/internal/owner"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/server"
 	"github.com/netbirdio/netbird/client/system"
@@ -28,9 +29,6 @@ func (p *program) Start(svc service.Service) error {
 
 	// Collect static system and platform information
 	system.UpdateStaticInfoAsync()
-
-	// in any case, even if configuration does not exists we run daemon to serve CLI gRPC API.
-	p.serv = grpc.NewServer()
 
 	split := strings.Split(daemonAddr, "://")
 	switch split[0] {
@@ -46,6 +44,12 @@ func (p *program) Start(svc service.Service) error {
 	default:
 		return fmt.Errorf("unsupported daemon address protocol: %v", split[0])
 	}
+
+	// Set up owner enforcement for Unix sockets.
+	configAdapter := &owner.ConfigAdapter{}
+	serverOpts := ownerServerOpts(split[0], configAdapter)
+
+	p.serv = grpc.NewServer(serverOpts...)
 
 	listen, err := net.Listen(split[0], split[1])
 	if err != nil {
@@ -65,6 +69,8 @@ func (p *program) Start(svc service.Service) error {
 		if err := serverInstance.Start(); err != nil {
 			log.Fatalf("failed to start daemon: %v", err)
 		}
+
+		configAdapter.SetBackend(serverInstance)
 		proto.RegisterDaemonServiceServer(p.serv, serverInstance)
 
 		p.serverInstanceMu.Lock()
@@ -77,6 +83,32 @@ func (p *program) Start(svc service.Service) error {
 		}
 	}()
 	return nil
+}
+
+// ownerServerOpts returns gRPC server options for owner enforcement.
+// On Unix socket platforms, this includes transport credentials for peer credential
+// extraction and interceptors that check the caller's UID. On other platforms or TCP,
+// no owner enforcement is applied and a warning is logged so operators know the daemon
+// is running without per-user authorization.
+func ownerServerOpts(protocol string, configAdapter *owner.ConfigAdapter) []grpc.ServerOption {
+	if protocol != "unix" {
+		log.Warnf("daemon socket owner enforcement is not applied for protocol %q", protocol)
+		return nil
+	}
+
+	creds := owner.NewUnixTransportCredentials()
+	if creds == nil {
+		log.Warnf("daemon socket owner enforcement unavailable on this platform; daemon will accept any local connection")
+		return nil
+	}
+
+	interceptor := owner.NewInterceptor(configAdapter)
+
+	return []grpc.ServerOption{
+		grpc.Creds(creds),
+		grpc.ChainUnaryInterceptor(interceptor.UnaryInterceptor()),
+		grpc.ChainStreamInterceptor(interceptor.StreamInterceptor()),
+	}
 }
 
 func (p *program) Stop(srv service.Service) error {

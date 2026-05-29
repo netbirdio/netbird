@@ -23,6 +23,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	daddr "github.com/netbirdio/netbird/client/internal/daemonaddr"
+	"github.com/netbirdio/netbird/client/internal/owner"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
 
@@ -156,7 +157,11 @@ func init() {
 	rootCmd.AddCommand(forwardingRulesCmd)
 	rootCmd.AddCommand(debugCmd)
 	rootCmd.AddCommand(profileCmd)
+	rootCmd.AddCommand(ownerCmd)
 	rootCmd.AddCommand(exposeCmd)
+
+	ownerCmd.AddCommand(ownerAddCmd)
+	ownerCmd.AddCommand(ownerResetCmd)
 
 	networksCMD.AddCommand(routesListCmd)
 	networksCMD.AddCommand(routesSelectCmd, routesDeselectCmd)
@@ -250,9 +255,22 @@ func DialClientGRPCServer(ctx context.Context, addr string) (*grpc.ClientConn, e
 	return grpc.DialContext(
 		ctx,
 		strings.TrimPrefix(addr, "tcp://"),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		daemonDialTransportOption(addr),
 		grpc.WithBlock(),
 	)
+}
+
+// daemonDialTransportOption returns the appropriate transport credentials for connecting
+// to the daemon. On Unix socket platforms, uses Unix transport credentials so the server
+// can extract the caller's UID for owner verification. Otherwise, uses insecure credentials.
+func daemonDialTransportOption(addr string) grpc.DialOption {
+	if strings.HasPrefix(addr, "unix://") {
+		creds := owner.NewUnixTransportCredentials()
+		if creds != nil {
+			return grpc.WithTransportCredentials(creds)
+		}
+	}
+	return grpc.WithTransportCredentials(insecure.NewCredentials())
 }
 
 // WithBackOff execute function in backoff cycle.

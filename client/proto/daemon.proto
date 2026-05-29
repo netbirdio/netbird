@@ -91,6 +91,15 @@ service DaemonService {
 
   rpc GetActiveProfile(GetActiveProfileRequest) returns (GetActiveProfileResponse) {}
 
+  // AddOwner adds a UID to the active profile's owner list. Requires
+  // root or an existing owner.
+  rpc AddOwner(AddOwnerRequest) returns (AddOwnerResponse) {}
+
+  // ResetOwner clears the active profile's owner list, returning it to
+  // the unconfigured state. The next call from the active console-session
+  // user will then re-claim ownership. Requires root.
+  rpc ResetOwner(ResetOwnerRequest) returns (ResetOwnerResponse) {}
+
   // Logout disconnects from the network and deletes the peer from the management server
   rpc Logout(LogoutRequest) returns (LogoutResponse) {}
 
@@ -227,6 +236,10 @@ message UpRequest {
   optional string profileName = 1;
   optional string username = 2;
   reserved 3;
+  // When true, the caller claims owner privileges for this profile.
+  // Requires root or current owner; for new installs (root-only mode),
+  // the calling UID becomes an owner.
+  bool claimOwner = 4;
 }
 
 message UpResponse {}
@@ -688,6 +701,16 @@ message AddProfileRequest {
 }
 
 message AddProfileResponse {}
+
+message AddOwnerRequest {
+  uint32 uid = 1;
+}
+
+message AddOwnerResponse {}
+
+message ResetOwnerRequest {}
+
+message ResetOwnerResponse {}
 
 message RemoveProfileRequest {
   string username = 1;

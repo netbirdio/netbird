@@ -21,6 +21,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/internal/owner"
 	"github.com/netbirdio/netbird/client/internal/routemanager/dynamic"
 	"github.com/netbirdio/netbird/client/ssh"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
@@ -99,6 +100,10 @@ type ConfigInput struct {
 	LazyConnectionEnabled *bool
 
 	MTU *uint16
+
+	// OwnerUIDs sets the UIDs of users allowed to control the daemon.
+	// When non-nil, replaces the config's OwnerUIDs.
+	OwnerUIDs []owner.UID
 }
 
 // Config Configuration type
@@ -174,6 +179,12 @@ type Config struct {
 	LazyConnectionEnabled bool
 
 	MTU uint16
+
+	// OwnerUIDs controls who can perform privileged daemon operations via the gRPC socket.
+	// nil (absent from JSON): TOFU mode, first privileged caller claims ownership (backward compat for existing installs).
+	// [] (empty slice): root-only, no non-root owners until explicitly set via "netbird up --owner".
+	// [uid1, uid2, ...]: these UIDs plus root can perform privileged operations.
+	OwnerUIDs []owner.UID `json:"OwnerUIDs"`
 }
 
 var ConfigDirOverride string
@@ -234,10 +245,18 @@ func fileExists(path string) (bool, error) {
 
 // createNewConfig creates a new config generating a new Wireguard key and saving to file
 func createNewConfig(input ConfigInput) (*Config, error) {
+	// Seed owner UIDs from environment if set (for MDM deployments),
+	// otherwise default to root-only (empty slice).
+	ownerUIDs := owner.OwnerUIDsFromEnv()
+	if ownerUIDs == nil {
+		ownerUIDs = []owner.UID{}
+	}
+
 	config := &Config{
 		// defaults to false only for new (post 0.26) configurations
 		ServerSSHAllowed: util.False(),
 		WgPort:           iface.DefaultWgPort,
+		OwnerUIDs:        ownerUIDs,
 	}
 
 	if _, err := config.apply(input); err != nil {
@@ -610,6 +629,14 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		config.MTU = iface.DefaultMTU
 		log.Infof("using default MTU %d", config.MTU)
 		updated = true
+	}
+
+	if input.OwnerUIDs != nil {
+		if !slices.Equal(config.OwnerUIDs, input.OwnerUIDs) {
+			log.Infof("updating owner UIDs to %v", input.OwnerUIDs)
+			config.OwnerUIDs = input.OwnerUIDs
+			updated = true
+		}
 	}
 
 	return updated, nil

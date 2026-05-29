@@ -22,6 +22,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/internal/expose"
+	"github.com/netbirdio/netbird/client/internal/owner"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	sleephandler "github.com/netbirdio/netbird/client/internal/sleep/handler"
 	"github.com/netbirdio/netbird/client/system"
@@ -735,6 +736,18 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	}
 	s.config = config
 
+	// An explicit --owner claim locks the active profile to the calling user
+	// (plus root). Root has no specific UID to claim, so only non-root callers
+	// take effect here; the interceptor has already authorized the call.
+	if msg != nil && msg.ClaimOwner {
+		if uid, ok := owner.UIDFromContext(callerCtx); ok && uid != 0 {
+			if err := s.addOwnerUIDLocked(uid); err != nil {
+				s.mutex.Unlock()
+				return nil, fmt.Errorf("claim owner: %w", err)
+			}
+		}
+	}
+
 	s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 
@@ -800,6 +813,18 @@ func (s *Server) switchProfileIfNeeded(profileName string, userName *string, act
 
 // SwitchProfile switches the active profile in the daemon.
 func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfileRequest) (*proto.SwitchProfileResponse, error) {
+	// Switching downs the current session and starts another, so the caller
+	// must own the target profile (or be root).
+	if msg != nil && msg.ProfileName != nil {
+		username := ""
+		if msg.Username != nil {
+			username = *msg.Username
+		}
+		if err := s.authorizeTargetProfile(callerCtx, *msg.ProfileName, username); err != nil {
+			return nil, err
+		}
+	}
+
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -1564,7 +1589,17 @@ func (s *Server) AddProfile(ctx context.Context, msg *proto.AddProfileRequest) (
 		return nil, gstatus.Errorf(codes.InvalidArgument, "profile name and username must be provided")
 	}
 
-	if err := s.profileManager.AddProfile(msg.ProfileName, msg.Username); err != nil {
+	// New profiles auto-claim the caller as their sole owner so the user who
+	// just created the profile retains control (and other local users can't
+	// touch it via SwitchProfile/RemoveProfile). When called by root, leave
+	// OwnerUIDs at the default (empty/env-seeded); root explicitly didn't
+	// claim ownership for any specific user.
+	var initialOwners []owner.UID
+	if uid, ok := owner.UIDFromContext(ctx); ok && uid != 0 {
+		initialOwners = []owner.UID{uid}
+	}
+
+	if err := s.profileManager.AddProfile(msg.ProfileName, msg.Username, initialOwners); err != nil {
 		log.Errorf("failed to create profile: %v", err)
 		return nil, fmt.Errorf("failed to create profile: %w", err)
 	}
@@ -1574,6 +1609,10 @@ func (s *Server) AddProfile(ctx context.Context, msg *proto.AddProfileRequest) (
 
 // RemoveProfile removes a profile from the daemon.
 func (s *Server) RemoveProfile(ctx context.Context, msg *proto.RemoveProfileRequest) (*proto.RemoveProfileResponse, error) {
+	if err := s.authorizeTargetProfile(ctx, msg.ProfileName, msg.Username); err != nil {
+		return nil, err
+	}
+
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 

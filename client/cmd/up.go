@@ -44,6 +44,9 @@ const (
 
 	profileNameFlag = "profile"
 	profileNameDesc = "profile name to use for the login. If not specified, the last used profile will be used."
+
+	claimOwnerFlag = "owner"
+	claimOwnerDesc = "claim owner privileges for this profile, restricting daemon control to the current user and root"
 )
 
 var (
@@ -54,6 +57,7 @@ var (
 	showQR             bool
 	profileName        string
 	configPath         string
+	claimOwner         bool
 
 	upCmd = &cobra.Command{
 		Use:   "up",
@@ -87,6 +91,7 @@ func init() {
 	upCmd.PersistentFlags().BoolVar(&showQR, showQRFlag, false, showQRDesc)
 	upCmd.PersistentFlags().StringVar(&profileName, profileNameFlag, "", profileNameDesc)
 	upCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "(DEPRECATED) NetBird config file location. ")
+	upCmd.PersistentFlags().BoolVar(&claimOwner, claimOwnerFlag, false, claimOwnerDesc)
 
 }
 
@@ -331,6 +336,7 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 	if _, err := client.Up(ctx, &proto.UpRequest{
 		ProfileName: &activeProf.Name,
 		Username:    &username,
+		ClaimOwner:  claimOwner,
 	}); err != nil {
 		return fmt.Errorf("call service up method: %v", err)
 	}

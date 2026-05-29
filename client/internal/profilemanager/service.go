@@ -13,6 +13,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/internal/owner"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -243,7 +244,10 @@ func (s *ServiceManager) DefaultProfilePath() string {
 	return DefaultConfigPath
 }
 
-func (s *ServiceManager) AddProfile(profileName, username string) error {
+// AddProfile creates a new profile with the given name. inheritOwnerUIDs is
+// applied to the new profile's OwnerUIDs (pass the active profile's owners so
+// the caller stays authorized; pass nil to leave the default empty/env-seeded).
+func (s *ServiceManager) AddProfile(profileName, username string, inheritOwnerUIDs []owner.UID) error {
 	configDir, err := s.getConfigDir(username)
 	if err != nil {
 		return fmt.Errorf("failed to get config directory: %w", err)
@@ -264,7 +268,7 @@ func (s *ServiceManager) AddProfile(profileName, username string) error {
 		return ErrProfileAlreadyExists
 	}
 
-	cfg, err := createNewConfig(ConfigInput{ConfigPath: profPath})
+	cfg, err := createNewConfig(ConfigInput{ConfigPath: profPath, OwnerUIDs: inheritOwnerUIDs})
 	if err != nil {
 		return fmt.Errorf("failed to create new config: %w", err)
 	}
