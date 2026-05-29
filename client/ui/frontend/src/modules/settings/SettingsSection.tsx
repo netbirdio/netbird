@@ -24,7 +24,7 @@ export const SectionGroup = ({
 // scrollable content above doesn't end up hidden behind the bar.
 export const SettingsBottomBar = ({ children }: { children: ReactNode }) => (
     <>
-        <div className={"h-[4.5rem] shrink-0"} aria-hidden />
+        <div className={"h-[4.1rem] shrink-0"} aria-hidden />
         <div className={"absolute bottom-0 left-0 w-full"}>
             <div
                 className={
