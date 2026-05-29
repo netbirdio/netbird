@@ -143,10 +143,10 @@ export const MainHeader = () => {
         <div
             className={cn(
                 "shrink-0 cursor-default wails-draggable relative",
-                "flex items-center h-12 px-3 top-2.5",
+                "flex items-center h-12 top-2.5",
             )}
         >
-            <div className={"grid grid-cols-3 items-center w-[356px] shrink-0"}>
+            <div className={"grid grid-cols-3 items-center w-[364px] shrink-0"}>
                 <div />
                 <div className={"flex justify-center ml-4"}>{profileSlot}</div>
                 <div />

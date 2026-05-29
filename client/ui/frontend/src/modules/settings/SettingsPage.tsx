@@ -3,6 +3,7 @@ import { useLocation } from "react-router-dom";
 import { Events } from "@wailsio/runtime";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { cn } from "@/lib/cn";
+import { isMacOS } from "@/lib/platform";
 import { AppRightPanel } from "@/layouts/AppRightPanel.tsx";
 import { VerticalTabs } from "@/components/VerticalTabs.tsx";
 import { SettingsNavigation } from "@/modules/settings/SettingsNavigation.tsx";
@@ -50,15 +51,18 @@ export const SettingsPage = () => {
 
     return (
         <>
-            <div
-                className={
-                    "wails-draggable cursor-default select-none h-12 shrink-0"
-                }
-            />
+            {isMacOS() ? (
+                <div
+                    className={
+                        "wails-draggable cursor-default select-none h-12 shrink-0"
+                    }
+                />
+            ) : (
+                <div className={"h-px shrink-0 bg-nb-gray-920/0"} />
+            )}
             <VerticalTabs
                 value={active}
                 onValueChange={setActive}
-                className={"p-4"}
             >
                 <SettingsNavigation />
                 <AppRightPanel>

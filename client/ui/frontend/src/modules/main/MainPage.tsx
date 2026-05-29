@@ -35,9 +35,9 @@ const MainBody = () => {
     const isAdvanced = viewMode === "advanced";
 
     return (
-        <div className={"wails-draggable flex flex-1 min-h-0 p-4 gap-4"}>
+        <div className={"wails-draggable flex flex-1 min-h-0 gap-4r"}>
             <div
-                className={"flex flex-col items-center shrink-0 w-[348px]"}
+                className={"flex flex-col items-center shrink-0 w-[364px]"}
             >
                 <MainConnectionStatusSwitch />
             </div>

@@ -192,19 +192,13 @@ func main() {
 		Width:               initialWidth,
 		Height:              640,
 		Hidden:              true,
-		BackgroundColour:    application.NewRGB(24, 26, 29),
+		BackgroundColour:    services.WindowBackgroundColour,
 		URL:                 "/",
 		DisableResize:       true,
+		MinimiseButtonState: application.ButtonHidden,
 		MaximiseButtonState: application.ButtonHidden,
-		Mac: application.MacWindow{
-			InvisibleTitleBarHeight: 38,
-			Backdrop:                application.MacBackdropNormal,
-			TitleBar:                application.MacTitleBarHiddenInset,
-			CollectionBehavior:      application.MacWindowCollectionBehaviorFullScreenNone,
-		},
-		Windows: application.WindowsWindow{
-			Theme: application.Dark,
-		},
+		Mac: services.AppleMacOSAppearanceOptions(),
+		Windows: services.MicrosoftWindowsAppearanceOptions(),
 		Linux: application.LinuxWindow{
 			Icon: iconWindow,
 		},

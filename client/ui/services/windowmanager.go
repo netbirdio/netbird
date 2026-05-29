@@ -28,6 +28,81 @@ const EventBrowserLoginCancel = "browser-login:cancel"
 // flashed the SettingsSkeleton between opens.
 const EventSettingsOpen = "netbird:settings:open"
 
+// WindowBackgroundColour is the shared in-window background for every
+// NetBird webview (matches the bg-nb-gray utility in the Tailwind config
+// at #181A1D / nb-gray-950, used by AppLayout's <html> background).
+var WindowBackgroundColour = application.NewRGB(24, 26, 29)
+
+// Wails reads CustomTheme colours as 0x00BBGGRR (RGB byte order reversed).
+// Border + title bar match AppRightPanel's bg-nb-gray-940 (#1C1E21);
+// title text matches text-nb-gray-100 (#E4E7E9). u32ptr exists only
+// because WindowTheme fields are *uint32 and Go has no literal address-of.
+func u32ptr(v uint32) *uint32 { return &v }
+
+var microsoftWindowsTheme = &application.WindowTheme{
+	BorderColour:    u32ptr(0x00211E1C),
+	TitleBarColour:  u32ptr(0x00211E1C),
+	TitleTextColour: u32ptr(0x00E9E7E4),
+}
+
+// MicrosoftWindowsAppearanceOptions is the per-window Microsoft Windows OS
+// chrome shared by every NetBird webview window. Mica backdrop (no-op on
+// pre-22621), dark theme, custom title bar/border colours so the chrome
+// reads as an extension of the in-window AppRightPanel.
+func MicrosoftWindowsAppearanceOptions() application.WindowsWindow {
+	return application.WindowsWindow{
+		BackdropType: application.Mica,
+		Theme:        application.Dark,
+		CustomTheme: application.ThemeSettings{
+			DarkModeActive:    microsoftWindowsTheme,
+			DarkModeInactive:  microsoftWindowsTheme,
+			LightModeActive:   microsoftWindowsTheme,
+			LightModeInactive: microsoftWindowsTheme,
+		},
+	}
+}
+
+// AppleMacOSAppearanceOptions is the per-window macOS chrome shared by
+// every NetBird webview window. The hidden title bar inset clears space
+// for the traffic-light buttons; the FullScreenNone collection behavior
+// keeps the green button from offering a full-screen mode that breaks
+// our fixed-size layouts.
+func AppleMacOSAppearanceOptions() application.MacWindow {
+	return application.MacWindow{
+		InvisibleTitleBarHeight: 38,
+		Backdrop:                application.MacBackdropNormal,
+		TitleBar:                application.MacTitleBarHiddenInset,
+		CollectionBehavior:      application.MacWindowCollectionBehaviorFullScreenNone,
+	}
+}
+
+// DialogWindowOptions is the baseline for every auxiliary dialog window
+// (BrowserLogin, SessionExpired, SessionAboutToExpire, InstallProgress).
+// All four share size (360x320), the no-resize / no-min / no-max chrome,
+// Hidden-on-create (so the React side can auto-size before first paint),
+// AlwaysOnTop (the dialogs interrupt the user, the SSO popup overrides
+// this), and the shared background/Mac/Windows appearance. Callers fill
+// in per-dialog overrides (URL params, screen targeting, etc.) on the
+// returned value before passing it to Window.NewWithOptions.
+func DialogWindowOptions(name, title, url string) application.WebviewWindowOptions {
+	return application.WebviewWindowOptions{
+		Name:                name,
+		Title:               title,
+		Width:               360,
+		Height:              320,
+		DisableResize:       true,
+		AlwaysOnTop:         true,
+		Hidden:              true,
+		MinimiseButtonState: application.ButtonHidden,
+		MaximiseButtonState: application.ButtonHidden,
+		CloseButtonState:    application.ButtonEnabled,
+		BackgroundColour:    WindowBackgroundColour,
+		URL:                 url,
+		Mac:                 AppleMacOSAppearanceOptions(),
+		Windows:             MicrosoftWindowsAppearanceOptions(),
+	}
+}
+
 // WindowManager opens auxiliary application windows on demand from the
 // frontend. The main window is created up-front in main.go; this service is
 // for secondary surfaces (Settings, BrowserLogin, Session*, InstallProgress).
@@ -68,7 +143,7 @@ func NewWindowManager(app *application.App, mainWindow *application.WebviewWindo
 	s := &WindowManager{app: app, mainWindow: mainWindow}
 	s.settings = app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:                "settings",
-		Title:               "NetBird Settings",
+		Title:               "Settings",
 		Width:               900,
 		Height:              640,
 		Hidden:              true,
@@ -76,17 +151,10 @@ func NewWindowManager(app *application.App, mainWindow *application.WebviewWindo
 		MinimiseButtonState: application.ButtonHidden,
 		MaximiseButtonState: application.ButtonHidden,
 		CloseButtonState:    application.ButtonEnabled,
-		BackgroundColour:    application.NewRGB(24, 26, 29),
+		BackgroundColour:    WindowBackgroundColour,
 		URL:                 "/#/settings",
-		Mac: application.MacWindow{
-			InvisibleTitleBarHeight: 38,
-			Backdrop:                application.MacBackdropNormal,
-			TitleBar:                application.MacTitleBarHiddenInset,
-			CollectionBehavior:      application.MacWindowCollectionBehaviorFullScreenNone,
-		},
-		Windows: application.WindowsWindow{
-			Theme: application.Dark,
-		},
+		Mac: AppleMacOSAppearanceOptions(),
+		Windows: MicrosoftWindowsAppearanceOptions(),
 	})
 	// Hide on close instead of destroying — preserves in-window React state
 	// across reopens. Mirrors the main window's close behaviour. Resetting
@@ -143,36 +211,17 @@ func (s *WindowManager) OpenBrowserLogin(uri string) {
 				screen = sc
 			}
 		}
-		s.browserLogin = s.app.Window.NewWithOptions(application.WebviewWindowOptions{
-			Name:                "browser-login",
-			Title:               "NetBird Sign-in",
-			Width:               360,
-			Height:              320,
-			DisableResize:       true,
-			// Hidden so the React side can measure its content via
-			// useAutoSizeWindow and call Window.SetSize + Show before the
-			// user sees the placeholder snapping to the measured height,
-			// matching the Session* windows.
-			Hidden:              true,
-			// WindowCentered + Screen centers on the chosen display's
-			// WorkArea (see WebviewWindowOptions.Screen docs).
-			InitialPosition:     application.WindowCentered,
-			Screen:              screen,
-			MinimiseButtonState: application.ButtonHidden,
-			MaximiseButtonState: application.ButtonHidden,
-			CloseButtonState:    application.ButtonEnabled,
-			BackgroundColour:    application.NewRGB(24, 26, 29),
-			URL:                 startURL,
-			Mac: application.MacWindow{
-				InvisibleTitleBarHeight: 38,
-				Backdrop:                application.MacBackdropTranslucent,
-				TitleBar:                application.MacTitleBarHiddenInset,
-				CollectionBehavior:      application.MacWindowCollectionBehaviorFullScreenNone,
-			},
-			Windows: application.WindowsWindow{
-				Theme: application.Dark,
-			},
-		})
+		opts := DialogWindowOptions("browser-login", "NetBird Sign-in", startURL)
+		// SSO popup deliberately is NOT always-on-top — the user moves
+		// between the browser tab and our popup; pinning it would obscure
+		// the browser at the moment they need to interact with it.
+		opts.AlwaysOnTop = false
+		// WindowCentered + Screen centers on the chosen display's
+		// WorkArea (see WebviewWindowOptions.Screen docs) so the popup
+		// follows the user onto the screen they're already looking at.
+		opts.InitialPosition = application.WindowCentered
+		opts.Screen = screen
+		s.browserLogin = s.app.Window.NewWithOptions(opts)
 		bl := s.browserLogin
 		// User-initiated close (red X) means cancel. Emit the event so
 		// startLogin() can tear the SSO wait down, then let the window
@@ -271,29 +320,9 @@ func (s *WindowManager) OpenSessionExpired() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.sessionExpired == nil {
-		s.sessionExpired = s.app.Window.NewWithOptions(application.WebviewWindowOptions{
-			Name:                "session-expired",
-			Title:               "NetBird",
-			Width:               360,
-			Height:              320,
-			DisableResize:       true,
-			AlwaysOnTop:         true,
-			Hidden:              true,
-			MinimiseButtonState: application.ButtonHidden,
-			MaximiseButtonState: application.ButtonHidden,
-			CloseButtonState:    application.ButtonEnabled,
-			BackgroundColour:    application.NewRGB(24, 26, 29),
-			URL:                 "/#/dialog/session-expired",
-			Mac: application.MacWindow{
-				InvisibleTitleBarHeight: 38,
-				Backdrop:                application.MacBackdropTranslucent,
-				TitleBar:                application.MacTitleBarHiddenInset,
-				CollectionBehavior:      application.MacWindowCollectionBehaviorFullScreenNone,
-			},
-			Windows: application.WindowsWindow{
-				Theme: application.Dark,
-			},
-		})
+		s.sessionExpired = s.app.Window.NewWithOptions(
+			DialogWindowOptions("session-expired", "NetBird", "/#/dialog/session-expired"),
+		)
 		s.sessionExpired.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
 			s.mu.Lock()
 			s.sessionExpired = nil
@@ -326,29 +355,9 @@ func (s *WindowManager) OpenSessionAboutToExpire(seconds int) {
 	defer s.mu.Unlock()
 	startURL := "/#/dialog/session-about-to-expire?seconds=" + strconv.Itoa(seconds)
 	if s.sessionAboutToExpire == nil {
-		s.sessionAboutToExpire = s.app.Window.NewWithOptions(application.WebviewWindowOptions{
-			Name:                "session-about-to-expire",
-			Title:               "NetBird",
-			Width:               360,
-			Height:              320,
-			DisableResize:       true,
-			AlwaysOnTop:         true,
-			Hidden:              true,
-			MinimiseButtonState: application.ButtonHidden,
-			MaximiseButtonState: application.ButtonHidden,
-			CloseButtonState:    application.ButtonEnabled,
-			BackgroundColour:    application.NewRGB(24, 26, 29),
-			URL:                 startURL,
-			Mac: application.MacWindow{
-				InvisibleTitleBarHeight: 38,
-				Backdrop:                application.MacBackdropTranslucent,
-				TitleBar:                application.MacTitleBarHiddenInset,
-				CollectionBehavior:      application.MacWindowCollectionBehaviorFullScreenNone,
-			},
-			Windows: application.WindowsWindow{
-				Theme: application.Dark,
-			},
-		})
+		s.sessionAboutToExpire = s.app.Window.NewWithOptions(
+			DialogWindowOptions("session-about-to-expire", "NetBird", startURL),
+		)
 		s.sessionAboutToExpire.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
 			s.mu.Lock()
 			s.sessionAboutToExpire = nil
@@ -392,29 +401,9 @@ func (s *WindowManager) OpenInstallProgress(version string) {
 	}
 	if s.installProgress == nil {
 		s.hideOtherWindowsLocked("install-progress")
-		s.installProgress = s.app.Window.NewWithOptions(application.WebviewWindowOptions{
-			Name:                "install-progress",
-			Title:               "NetBird",
-			Width:               360,
-			Height:              320,
-			DisableResize:       true,
-			AlwaysOnTop:         true,
-			Hidden:              true,
-			MinimiseButtonState: application.ButtonHidden,
-			MaximiseButtonState: application.ButtonHidden,
-			CloseButtonState:    application.ButtonEnabled,
-			BackgroundColour:    application.NewRGB(24, 26, 29),
-			URL:                 startURL,
-			Mac: application.MacWindow{
-				InvisibleTitleBarHeight: 38,
-				Backdrop:                application.MacBackdropTranslucent,
-				TitleBar:                application.MacTitleBarHiddenInset,
-				CollectionBehavior:      application.MacWindowCollectionBehaviorFullScreenNone,
-			},
-			Windows: application.WindowsWindow{
-				Theme: application.Dark,
-			},
-		})
+		s.installProgress = s.app.Window.NewWithOptions(
+			DialogWindowOptions("install-progress", "NetBird", startURL),
+		)
 		s.installProgress.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
 			s.mu.Lock()
 			s.installProgress = nil

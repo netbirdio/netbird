@@ -11,7 +11,7 @@ const Root = forwardRef<
         <Tabs.Root
             ref={ref}
             orientation={"vertical"}
-            className={cn("flex flex-1 min-h-0 gap-4", className)}
+            className={cn("flex flex-1 min-h-0", className)}
             {...props}
         />
     );
@@ -22,7 +22,7 @@ const List = forwardRef<HTMLDivElement, Tabs.TabsListProps>(
         return (
             <Tabs.List
                 ref={ref}
-                className={cn("w-full flex flex-col gap-1", className)}
+                className={cn("w-full flex flex-col gap-1 p-4 pr-0", className)}
                 {...props}
             />
         );
