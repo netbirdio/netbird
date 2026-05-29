@@ -71,20 +71,20 @@ func setupServerWithProfile(t *testing.T) (s *Server, ctx context.Context, profN
 	return s, ctx, profName, currUser.Username, cfgPath
 }
 
-// extractViolation pulls the ManagedFieldsViolation detail from a
+// extractViolation pulls the MDMManagedFieldsViolation detail from a
 // FailedPrecondition error. Fails the test if absent or malformed.
-func extractViolation(t *testing.T, err error) *proto.ManagedFieldsViolation {
+func extractViolation(t *testing.T, err error) *proto.MDMManagedFieldsViolation {
 	t.Helper()
 	require.Error(t, err)
 	st, ok := gstatus.FromError(err)
 	require.True(t, ok, "error must be a gRPC status: %v", err)
 	require.Equal(t, codes.FailedPrecondition, st.Code(), "expected FailedPrecondition, got %s", st.Code())
 	for _, d := range st.Details() {
-		if v, ok := d.(*proto.ManagedFieldsViolation); ok {
+		if v, ok := d.(*proto.MDMManagedFieldsViolation); ok {
 			return v
 		}
 	}
-	t.Fatalf("ManagedFieldsViolation detail not found on status; details: %v", st.Details())
+	t.Fatalf("MDMManagedFieldsViolation detail not found on status; details: %v", st.Details())
 	return nil
 }
 

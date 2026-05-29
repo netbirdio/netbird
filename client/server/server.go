@@ -309,10 +309,10 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 	}
 
 	// MDM gate: refuse the whole request if any of its fields is enforced
-	// by the active MDM policy. The error carries a ManagedFieldsViolation
-	// detail listing the offending key names. Non-conflicting fields in
-	// the same request are not applied either.
-	if err := rejectManagedFieldConflicts(loadMDMPolicy(), requestedManagedKeys(msg)); err != nil {
+	// by the active MDM policy. The error carries an MDMManagedFields-
+	// Violation detail listing the offending key names. Non-conflicting
+	// fields in the same request are not applied either.
+	if err := rejectMDMManagedFieldConflicts(loadMDMPolicy(), requestedMDMManagedKeys(msg)); err != nil {
 		return nil, err
 	}
 
@@ -1556,7 +1556,7 @@ func (s *Server) GetConfig(ctx context.Context, req *proto.GetConfigRequest) (*p
 		EnableSSHRemotePortForwarding: enableSSHRemotePortForwarding,
 		DisableSSHAuth:                disableSSHAuth,
 		SshJWTCacheTTL:                sshJWTCacheTTL,
-		ManagedFields:                 cfg.Policy().ManagedKeys(),
+		MDMManagedFields:              cfg.Policy().ManagedKeys(),
 	}, nil
 }
 

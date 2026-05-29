@@ -14,10 +14,10 @@ import (
 // active MDM policy. Tests override this to inject a fake policy.
 var loadMDMPolicy = mdm.LoadPolicy
 
-// requestedManagedKeys returns the names of MDM-managed keys whose
+// requestedMDMManagedKeys returns the names of MDM-managed keys whose
 // corresponding field is set in the SetConfigRequest. Only keys with an
 // MDM mapping are considered; other fields are ignored.
-func requestedManagedKeys(msg *proto.SetConfigRequest) []string {
+func requestedMDMManagedKeys(msg *proto.SetConfigRequest) []string {
 	if msg == nil {
 		return nil
 	}
@@ -52,12 +52,12 @@ func requestedManagedKeys(msg *proto.SetConfigRequest) []string {
 	return keys
 }
 
-// rejectManagedFieldConflicts returns a FailedPrecondition gRPC error with a
-// ManagedFieldsViolation detail when any of the requested keys is MDM-
-// enforced, and nil otherwise. The whole request is rejected on any
-// conflict; non-conflicting fields in the same request are not applied
-// either (no partial apply).
-func rejectManagedFieldConflicts(policy *mdm.Policy, requested []string) error {
+// rejectMDMManagedFieldConflicts returns a FailedPrecondition gRPC error
+// with an MDMManagedFieldsViolation detail when any of the requested keys
+// is MDM-enforced, and nil otherwise. The whole request is rejected on
+// any conflict; non-conflicting fields in the same request are not
+// applied either (no partial apply).
+func rejectMDMManagedFieldConflicts(policy *mdm.Policy, requested []string) error {
 	if policy.IsEmpty() || len(requested) == 0 {
 		return nil
 	}
@@ -74,7 +74,7 @@ func rejectManagedFieldConflicts(policy *mdm.Policy, requested []string) error {
 		codes.FailedPrecondition,
 		fmt.Sprintf("fields managed by MDM cannot be modified: %v", conflicts),
 	)
-	detailed, err := st.WithDetails(&proto.ManagedFieldsViolation{Fields: conflicts})
+	detailed, err := st.WithDetails(&proto.MDMManagedFieldsViolation{Fields: conflicts})
 	if err != nil {
 		// Detail attachment is best-effort; fall back to the plain status
 		// so the caller still gets a usable FailedPrecondition.
