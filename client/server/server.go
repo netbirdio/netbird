@@ -308,6 +308,14 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 		return nil, gstatus.Errorf(codes.Unavailable, errUpdateSettingsDisabled)
 	}
 
+	// MDM gate: refuse the whole request if any of its fields is enforced
+	// by the active MDM policy. The error carries a ManagedFieldsViolation
+	// detail listing the offending key names. Non-conflicting fields in
+	// the same request are not applied either.
+	if err := rejectManagedFieldConflicts(loadMDMPolicy(), requestedManagedKeys(msg)); err != nil {
+		return nil, err
+	}
+
 	profState := profilemanager.ActiveProfileState{
 		Name:     msg.ProfileName,
 		Username: msg.Username,
