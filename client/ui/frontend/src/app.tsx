@@ -13,16 +13,21 @@ import "react-loading-skeleton/dist/skeleton.css";
 import { welcome } from "@/lib/welcome";
 import LoginWaitingForBrowserDialog from "@/modules/login/LoginWaitingForBrowserDialog.tsx";
 import { initI18n } from "@/lib/i18n";
+import { initPlatform } from "@/lib/platform";
 
 welcome();
 
-initI18n()
-    .catch((e) => {
+Promise.all([
+    initI18n().catch((e) => {
         // Surface init failures in the console so a misconfigured glob
         // doesn't quietly blank the UI; render anyway with i18next in
         // whatever state it ended up in (t() will fall back to keys).
         console.error("i18n init failed:", e);
-    })
+    }),
+    initPlatform().catch((e) => {
+        console.error("platform init failed:", e);
+    }),
+])
     .finally(() => {
         ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
         <React.StrictMode>
