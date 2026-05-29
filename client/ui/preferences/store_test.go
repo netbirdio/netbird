@@ -79,7 +79,8 @@ func TestStore_DefaultsWhenFileMissing(t *testing.T) {
 	require.NoError(t, err)
 
 	got := s.Get()
-	assert.Equal(t, i18n.DefaultLanguage, got.Language, "default language should be served when no file is on disk")
+	assert.Equal(t, i18n.LanguageCode(""), got.Language, "language must be empty when no file is on disk so the frontend can detect the browser locale")
+	assert.Equal(t, DefaultViewMode, got.ViewMode, "view-mode default should still apply")
 }
 
 func TestStore_SetLanguagePersistsAndBroadcasts(t *testing.T) {
@@ -153,13 +154,17 @@ func TestStore_SetLanguageIdempotent(t *testing.T) {
 	s, err := NewStore(fakeValidator{ok: map[i18n.LanguageCode]bool{"en": true}}, emitter)
 	require.NoError(t, err)
 
+	// First call goes from "" (unset) to "en" — real change, one broadcast.
 	require.NoError(t, s.SetLanguage("en"))
+	require.Len(t, emitter.calledWith(EventPreferencesChanged), 1,
+		"first SetLanguage from unset should broadcast")
 
-	// SetLanguage to the current value is a no-op — no disk write, no
-	// broadcast. Without this guard the tray would re-render the menu on
-	// every cosmetic re-save of the preferences file.
-	assert.Empty(t, emitter.calledWith(EventPreferencesChanged),
-		"setting the current language should not broadcast")
+	// Second call is a no-op — no disk write, no broadcast. Without this
+	// guard the tray would re-render the menu on every cosmetic re-save of
+	// the preferences file.
+	require.NoError(t, s.SetLanguage("en"))
+	assert.Len(t, emitter.calledWith(EventPreferencesChanged), 1,
+		"re-setting the current language should not broadcast again")
 }
 
 func TestStore_CorruptFileFallsBackToDefault(t *testing.T) {
@@ -173,7 +178,7 @@ func TestStore_CorruptFileFallsBackToDefault(t *testing.T) {
 	require.NoError(t, err, "corrupt file should not fail construction")
 
 	got := s.Get()
-	assert.Equal(t, i18n.DefaultLanguage, got.Language, "corrupt JSON should leave the default in place")
+	assert.Equal(t, i18n.LanguageCode(""), got.Language, "corrupt JSON should leave the empty (unset) default in place so the frontend can re-detect")
 }
 
 func TestStore_UnsubscribeStopsUpdates(t *testing.T) {

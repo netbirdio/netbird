@@ -3,6 +3,7 @@ import { initReactI18next } from "react-i18next";
 import { Events } from "@wailsio/runtime";
 
 import { Preferences, I18n } from "@bindings/services";
+import { LanguageCode } from "@bindings/i18n/models.js";
 
 // Vite glob-imports every shipped bundle at build time. The locales tree
 // lives outside `frontend/` (at `client/ui/i18n/locales`) so the Go tray
@@ -27,19 +28,49 @@ for (const path in bundleModules) {
     }
 }
 
+// detectBrowserLanguage walks navigator.language + navigator.languages
+// and returns the first base code ("de" from "de-DE") that has a shipped
+// bundle. Returns null when none match, so the caller can fall back to
+// English. We only ever match against the lowercased base — region tags
+// don't have separate bundles today.
+function detectBrowserLanguage(available: string[]): string | null {
+    const tags = [navigator.language, ...(navigator.languages ?? [])].filter(
+        (tag): tag is string => typeof tag === "string" && tag.length > 0,
+    );
+    for (const tag of tags) {
+        const base = tag.toLowerCase().split("-")[0];
+        if (available.includes(base)) return base;
+    }
+    return null;
+}
+
 // initI18n is awaited from app.tsx before the first render. The Go-side
-// preferences.Store returns the in-memory default "en" when no on-disk
-// preferences file exists; if Get() rejects (daemon unreachable) we also
-// fall through with "en" so the UI still renders.
+// preferences.Store returns an empty language code when no preference has
+// ever been persisted — that's the signal for first-run browser-locale
+// detection. We pick a shipped bundle that matches navigator.language /
+// navigator.languages (falling back to "en" when nothing matches) and
+// fire-and-forget the persist via Preferences.SetLanguage so subsequent
+// launches read the value back without re-detecting.
 export async function initI18n(): Promise<void> {
+    const available = Object.keys(resources);
     let language = "en";
+    let firstRun = false;
     try {
         const prefs = await Preferences.Get();
         if (prefs?.language) {
             language = prefs.language;
+        } else {
+            firstRun = true;
+            language = detectBrowserLanguage(available) ?? "en";
         }
     } catch {
         // Daemon / preferences store unreachable — fall through with "en".
+    }
+
+    if (firstRun) {
+        // Fire-and-forget: the chosen language already drives this session;
+        // persisting just locks it in so the next launch skips detection.
+        void Preferences.SetLanguage(language as LanguageCode).catch(() => {});
     }
 
     await i18next.use(initReactI18next).init({

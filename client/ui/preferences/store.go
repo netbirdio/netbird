@@ -111,11 +111,16 @@ func NewStore(validator LanguageValidator, emitter Emitter) (*Store, error) {
 		return nil, fmt.Errorf("resolve preferences path: %w", err)
 	}
 
+	// Language starts empty — the absence of a value is the signal the
+	// frontend uses on first launch to detect the browser locale and call
+	// SetLanguage. Consumers that need an effective language (tray
+	// Localizer, i18n.Bundle.Translate) already fall back to
+	// i18n.DefaultLanguage when the code is empty.
 	s := &Store{
 		path:      path,
 		validator: validator,
 		emitter:   emitter,
-		current:   UIPreferences{Language: i18n.DefaultLanguage, ViewMode: DefaultViewMode},
+		current:   UIPreferences{ViewMode: DefaultViewMode},
 	}
 
 	if err := s.load(); err != nil {
@@ -222,9 +227,6 @@ func (s *Store) load() error {
 		return err
 	}
 
-	if loaded.Language == "" {
-		loaded.Language = i18n.DefaultLanguage
-	}
 	if !loaded.ViewMode.IsValid() {
 		loaded.ViewMode = DefaultViewMode
 	}
