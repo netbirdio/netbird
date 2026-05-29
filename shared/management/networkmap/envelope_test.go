@@ -97,6 +97,37 @@ func TestEnvelopeToNetworkMap_FullPayloadMissing(t *testing.T) {
 	require.Error(t, err, "envelope with no Full payload must produce an error")
 }
 
+// TestDecodeEnvelope_MalformedWgKeyPeerSkipped feeds an envelope where one
+// peer has a wg_pub_key that is not 32 bytes long. The decoder must skip
+// that peer (keeping the rest of the snapshot usable) instead of aborting
+// the whole sync — mirrors legacy behaviour that tolerates an occasional
+// bad row.
+func TestDecodeEnvelope_MalformedWgKeyPeerSkipped(t *testing.T) {
+	c, localPeerKey := buildSmokeComponents(t)
+	envelope := mgmtgrpc.EncodeNetworkMapEnvelope(mgmtgrpc.ComponentsEnvelopeInput{
+		Components: c,
+		DNSDomain:  "netbird.cloud",
+	})
+	require.NotNil(t, envelope.GetFull())
+
+	full := envelope.GetFull()
+	require.Len(t, full.Peers, 2, "smoke fixture should have two peers")
+
+	// Truncate the second peer's wg_pub_key so it fails the length gate.
+	full.Peers[1].WgPubKey = full.Peers[1].WgPubKey[:31]
+
+	wire, err := goproto.Marshal(envelope)
+	require.NoError(t, err, "marshal envelope")
+	var decoded proto.NetworkMapEnvelope
+	require.NoError(t, goproto.Unmarshal(wire, &decoded), "unmarshal envelope")
+
+	result, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), &decoded, localPeerKey, "netbird.cloud")
+	require.NoError(t, err, "EnvelopeToNetworkMap must tolerate one bad peer key")
+	require.NotNil(t, result)
+	require.NotNil(t, result.Components)
+	require.Len(t, result.Components.Peers, 1, "the well-formed peer survives, the malformed one is dropped")
+}
+
 // buildSmokeComponents returns a minimal NetworkMapComponents (2 peers, 1
 // group, 1 allow policy) plus the receiving peer's WG public key. Sufficient
 // to validate the encode → marshal → decode → Calculate pipeline produces

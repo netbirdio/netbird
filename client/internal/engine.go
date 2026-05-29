@@ -61,7 +61,7 @@ import (
 	cProto "github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/server/types"
+	types "github.com/netbirdio/netbird/shared/management/types"
 	"github.com/netbirdio/netbird/route"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/management/domain"

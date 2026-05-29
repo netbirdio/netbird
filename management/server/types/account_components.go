@@ -477,7 +477,7 @@ func (a *Account) getPeersGroupsPoliciesRoutes(
 					default:
 						sshReqs.needAllowedUserIDs = true
 					}
-				} else if policyRuleImpliesLegacySSH(rule) && peerSSHEnabled {
+				} else if PolicyRuleImpliesLegacySSH(rule) && peerSSHEnabled {
 					sshReqs.needAllowedUserIDs = true
 				}
 			}

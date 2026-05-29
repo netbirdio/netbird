@@ -5,7 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 
-	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 

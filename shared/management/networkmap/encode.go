@@ -21,7 +21,7 @@ import (
 	"net/netip"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/types"
 	nbroute "github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/netiputil"

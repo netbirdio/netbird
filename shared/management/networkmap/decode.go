@@ -8,14 +8,16 @@ import (
 	"strconv"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+
 	nbdns "github.com/netbirdio/netbird/dns"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
-	"github.com/netbirdio/netbird/management/server/types"
 	nbroute "github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/management/types"
 )
 
 // DecodeEnvelope converts a NetworkMapEnvelope into a NetworkMapComponents
@@ -77,16 +79,22 @@ func DecodeEnvelope(env *proto.NetworkMapEnvelope) (*types.NetworkMapComponents,
 	// wire; we re-key by the peer's WireGuard public key (base64) so the
 	// in-memory components struct uses a stable identifier across
 	// snapshots. peerIDByIndex lets downstream phases resolve wire indexes
-	// back to that key.
+	// back to that key. A peer with a missing or malformed wg_pub_key is
+	// skipped (and its index keeps "" so any cross-reference falls into the
+	// same missing-peer branch downstream) — matches legacy behaviour, which
+	// degrades gracefully rather than aborting the whole sync on a single
+	// bad row.
 	peerIDByIndex := make([]string, len(full.Peers))
 	for idx, pc := range full.Peers {
 		if pc == nil {
-			return nil, fmt.Errorf("invalid envelope: peers[%d] is nil", idx)
+			log.Warnf("envelope: peers[%d] is nil, skipping", idx)
+			continue
 		}
-		if len(pc.WgPubKey) == 0 {
-			return nil, fmt.Errorf("invalid envelope: peers[%d] missing wg_pub_key", idx)
+		if len(pc.WgPubKey) != 32 {
+			log.Warnf("envelope: peers[%d] wg_pub_key length %d (want 32), skipping", idx, len(pc.WgPubKey))
+			continue
 		}
-		peerID := encodeWgKeyBase64(pc.WgPubKey)
+		peerID := base64.StdEncoding.EncodeToString(pc.WgPubKey)
 		peer := decodePeerCompact(pc, peerID, full.AgentVersions)
 		c.Peers[peerID] = peer
 		peerIDByIndex[idx] = peerID
@@ -273,7 +281,7 @@ func decodePeerCompact(pc *proto.PeerCompact, peerID string, agentVersions []str
 	}
 	peer := &nbpeer.Peer{
 		ID:                     peerID,
-		Key:                    encodeWgKeyBase64(pc.WgPubKey),
+		Key:                    peerID,
 		SSHKey:                 string(pc.SshPubKey),
 		SSHEnabled:             pc.SshEnabled,
 		DNSLabel:               pc.DnsLabel,
@@ -566,13 +574,6 @@ func protocolFromProto(p proto.RuleProtocol) types.PolicyRuleProtocolType {
 	default:
 		return types.PolicyRuleProtocolALL
 	}
-}
-
-func encodeWgKeyBase64(raw []byte) string {
-	if len(raw) != 32 {
-		return ""
-	}
-	return base64.StdEncoding.EncodeToString(raw)
 }
 
 func lookupAgentVersion(table []string, idx uint32) string {
