@@ -334,30 +334,38 @@ func (s *DaemonFeed) statusStreamLoop(ctx context.Context) {
 	}
 
 	op := func() error {
-		cli, err := s.conn.Client()
-		if err != nil {
-			emitUnavailable()
-			return fmt.Errorf("get client: %w", err)
-		}
-		stream, err := cli.SubscribeStatus(ctx, &proto.StatusRequest{GetFullPeerStatus: true})
-		if err != nil {
-			if isDaemonUnreachable(err) {
-				emitUnavailable()
-			}
-			return fmt.Errorf("subscribe status: %w", err)
-		}
-		for {
-			resp, err := stream.Recv()
-			if err != nil {
-				return s.handleStatusRecvErr(ctx, err, emitUnavailable)
-			}
-			unavailable = false
-			s.emitStatus(statusFromProto(resp))
-		}
+		return s.subscribeAndStreamStatus(ctx, &unavailable, emitUnavailable)
 	}
 
 	if err := backoff.Retry(op, bo); err != nil && ctx.Err() == nil {
 		log.Errorf("status stream ended: %v", err)
+	}
+}
+
+// subscribeAndStreamStatus is one attempt of the status backoff loop: open the
+// SubscribeStatus stream and re-emit every snapshot until it errors. Returns a
+// wrapped error so backoff retries; a daemon-unreachable failure also flips the
+// synthetic-unavailable signal (once per outage, guarded by *unavailable).
+func (s *DaemonFeed) subscribeAndStreamStatus(ctx context.Context, unavailable *bool, emitUnavailable func()) error {
+	cli, err := s.conn.Client()
+	if err != nil {
+		emitUnavailable()
+		return fmt.Errorf("get client: %w", err)
+	}
+	stream, err := cli.SubscribeStatus(ctx, &proto.StatusRequest{GetFullPeerStatus: true})
+	if err != nil {
+		if isDaemonUnreachable(err) {
+			emitUnavailable()
+		}
+		return fmt.Errorf("subscribe status: %w", err)
+	}
+	for {
+		resp, err := stream.Recv()
+		if err != nil {
+			return s.handleStatusRecvErr(ctx, err, emitUnavailable)
+		}
+		*unavailable = false
+		s.emitStatus(statusFromProto(resp))
 	}
 }
 
