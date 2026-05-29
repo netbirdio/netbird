@@ -22,6 +22,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal/routemanager/dynamic"
+	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/ssh"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -629,7 +630,67 @@ func (config *Config) apply(input ConfigInput) (updated bool, err error) {
 		updated = true
 	}
 
+	// MDM is the last override layer: any key present in the policy
+	// supersedes defaults, on-disk config, env vars and CLI input.
+	config.applyMDMPolicy(loadMDMPolicy())
+
 	return updated, nil
+}
+
+// loadMDMPolicy is the package-level indirection used by apply() to read the
+// active MDM policy. Tests override this to inject a fake policy.
+var loadMDMPolicy = mdm.LoadPolicy
+
+// applyMDMPolicy overlays MDM-supplied values on top of the resolved Config.
+// The provided Policy is also stored on the Config so callers can later query
+// which fields are enforced. Invalid values (e.g. malformed URLs) are logged
+// and skipped to avoid bricking the client; the field keeps its previous
+// resolved value but is still marked as managed (Policy.HasKey returns true
+// for the key, so per-field rejection of user writes still applies).
+func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
+	config.policy = policy
+	if policy.IsEmpty() {
+		return
+	}
+
+	if v, ok := policy.GetString(mdm.KeyManagementURL); ok {
+		if u, err := parseURL("Management URL", v); err != nil {
+			log.Warnf("MDM management URL %q invalid: %v; keeping previous value", v, err)
+		} else {
+			config.ManagementURL = u
+		}
+	}
+
+	if v, ok := policy.GetString(mdm.KeyPreSharedKey); ok {
+		// Defensive: refuse the redaction mask in case it round-tripped
+		// through a manifest by mistake.
+		if !isPreSharedKeyHidden(&v) {
+			config.PreSharedKey = v
+		}
+	}
+
+	if v, ok := policy.GetBool(mdm.KeyAllowServerSSH); ok {
+		bv := v
+		config.ServerSSHAllowed = &bv
+	}
+	if v, ok := policy.GetBool(mdm.KeyDisableClientRoutes); ok {
+		config.DisableClientRoutes = v
+	}
+	if v, ok := policy.GetBool(mdm.KeyDisableServerRoutes); ok {
+		config.DisableServerRoutes = v
+	}
+	if v, ok := policy.GetBool(mdm.KeyBlockInbound); ok {
+		config.BlockInbound = v
+	}
+	if v, ok := policy.GetBool(mdm.KeyDisableAutoConnect); ok {
+		config.DisableAutoConnect = v
+	}
+	if v, ok := policy.GetBool(mdm.KeyRosenpassEnabled); ok {
+		config.RosenpassEnabled = v
+	}
+	if v, ok := policy.GetBool(mdm.KeyRosenpassPermissive); ok {
+		config.RosenpassPermissive = v
+	}
 }
 
 // parseURL parses and validates a service URL
