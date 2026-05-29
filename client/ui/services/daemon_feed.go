@@ -415,36 +415,50 @@ func (s *DaemonFeed) toastStreamLoop(ctx context.Context) {
 	}, ctx)
 
 	op := func() error {
-		cli, err := s.conn.Client()
-		if err != nil {
-			return fmt.Errorf("get client: %w", err)
-		}
-		stream, err := cli.SubscribeEvents(ctx, &proto.SubscribeRequest{})
-		if err != nil {
-			return fmt.Errorf("subscribe: %w", err)
-		}
-		for {
-			ev, err := stream.Recv()
-			if err != nil {
-				if ctx.Err() != nil {
-					return ctx.Err()
-				}
-				return fmt.Errorf("stream recv: %w", err)
-			}
-			se := systemEventFromProto(ev)
-			log.Infof("backend event: system severity=%s category=%s msg=%q", se.Severity, se.Category, se.UserMessage)
-			s.emitter.Emit(EventDaemonNotification, se)
-			if warn, ok := authsession.WarningFromMetadata(se.Metadata); ok {
-				s.emitter.Emit(EventSessionWarning, warn)
-			}
-			if s.updater != nil {
-				s.updater.OnSystemEvent(ev)
-			}
-		}
+		return s.subscribeAndStreamEvents(ctx)
 	}
 
 	if err := backoff.Retry(op, bo); err != nil && ctx.Err() == nil {
 		log.Errorf("event stream ended: %v", err)
+	}
+}
+
+// subscribeAndStreamEvents is one attempt of the event backoff loop: open the
+// SubscribeEvents stream and fan out every SystemEvent until it errors. ctx
+// cancellation stops the loop; any other error is wrapped so backoff retries.
+func (s *DaemonFeed) subscribeAndStreamEvents(ctx context.Context) error {
+	cli, err := s.conn.Client()
+	if err != nil {
+		return fmt.Errorf("get client: %w", err)
+	}
+	stream, err := cli.SubscribeEvents(ctx, &proto.SubscribeRequest{})
+	if err != nil {
+		return fmt.Errorf("subscribe: %w", err)
+	}
+	for {
+		ev, err := stream.Recv()
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return fmt.Errorf("stream recv: %w", err)
+		}
+		s.dispatchSystemEvent(ev)
+	}
+}
+
+// dispatchSystemEvent fans one daemon SystemEvent out to the frontend
+// notification stream, the typed session-warning event (when the metadata
+// carries one), and the updater holder (when present).
+func (s *DaemonFeed) dispatchSystemEvent(ev *proto.SystemEvent) {
+	se := systemEventFromProto(ev)
+	log.Infof("backend event: system severity=%s category=%s msg=%q", se.Severity, se.Category, se.UserMessage)
+	s.emitter.Emit(EventDaemonNotification, se)
+	if warn, ok := authsession.WarningFromMetadata(se.Metadata); ok {
+		s.emitter.Emit(EventSessionWarning, warn)
+	}
+	if s.updater != nil {
+		s.updater.OnSystemEvent(ev)
 	}
 }
 
