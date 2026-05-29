@@ -274,3 +274,9 @@ func (s *FileStore) SetFieldEncrypt(_ *crypt.FieldEncrypt) {
 func (s *FileStore) GetCustomDomainsCounts(_ context.Context) (int64, int64, error) {
 	return 0, 0, nil
 }
+
+// GetProxyMetrics is a no-op for FileStore — proxy/cluster state isn't
+// persisted in the JSON file format.
+func (s *FileStore) GetProxyMetrics(_ context.Context) (ProxyMetrics, error) {
+	return ProxyMetrics{}, nil
+}

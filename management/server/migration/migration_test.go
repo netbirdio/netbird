@@ -198,7 +198,11 @@ func TestMigrateNetIPFieldFromBlobToJSON_WithJSONData(t *testing.T) {
 	require.NoError(t, err, "Failed to insert account")
 
 	account.PeersG = []nbpeer.Peer{
-		{AccountID: "1234", Location: nbpeer.Location{ConnectionIP: net.IP{10, 0, 0, 1}}},
+		{
+			AccountID: "1234",
+			Location:  nbpeer.Location{ConnectionIP: net.IP{10, 0, 0, 1}},
+			Status:    &nbpeer.PeerStatus{LastSeen: time.Now()},
+		},
 	}
 
 	err = db.Save(account).Error

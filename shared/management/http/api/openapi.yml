@@ -3067,6 +3067,17 @@ components:
           $ref: '#/components/schemas/AccessRestrictions'
         meta:
           $ref: '#/components/schemas/ServiceMeta'
+        private:
+          type: boolean
+          description: When true, the service is NetBird-only — its target points at a proxy cluster, inbound peers authenticate via their WireGuard tunnel identity (no OIDC), and an ACL policy is auto-generated from access_groups to the cluster's proxy-peer group. Requires mode=http.
+          default: false
+          example: false
+        access_groups:
+          type: array
+          items:
+            type: string
+          description: NetBird group IDs whose peers may reach this private service over the tunnel. Required when private=true; ignored otherwise. Mutually exclusive with bearer auth (SSO).
+          example: ["group-engineering"]
       required:
         - id
         - name
@@ -3147,6 +3158,17 @@ components:
           $ref: '#/components/schemas/ServiceAuthConfig'
         access_restrictions:
           $ref: '#/components/schemas/AccessRestrictions'
+        private:
+          type: boolean
+          description: When true, the service is NetBird-only — its target points at a proxy cluster, inbound peers authenticate via their WireGuard tunnel identity (no OIDC), and an ACL policy is auto-generated from access_groups to the cluster's proxy-peer group. Requires mode=http.
+          default: false
+          example: false
+        access_groups:
+          type: array
+          items:
+            type: string
+          description: NetBird group IDs whose peers may reach this private service over the tunnel. Required when private=true; ignored otherwise. Mutually exclusive with bearer auth (SSO).
+          example: ["group-engineering"]
       required:
         - name
         - domain
@@ -3185,6 +3207,15 @@ components:
           type: string
           description: Idle timeout before a UDP session is reaped, as a Go duration string (e.g. "30s", "2m").
           example: "2m"
+        direct_upstream:
+          type: boolean
+          description: |
+            When true, the proxy dials this target via the host's network stack
+            instead of through its embedded NetBird client. Use for upstreams
+            reachable without WireGuard (public APIs, LAN services, localhost
+            sidecars).
+          default: false
+          example: false
     ServiceTarget:
       type: object
       properties:
@@ -3195,7 +3226,7 @@ components:
         target_type:
           type: string
           description: Target type
-          enum: [peer, host, domain, subnet]
+          enum: [peer, host, domain, subnet, cluster]
           example: "subnet"
         path:
           type: string
@@ -3417,19 +3448,47 @@ components:
           type: string
           description: Cluster address used for CNAME targets
           example: "eu.proxy.netbird.io"
+        type:
+          $ref: '#/components/schemas/ProxyClusterType'
+        online:
+          type: boolean
+          description: Whether at least one proxy in the cluster has heartbeated within the active window
+          example: true
         connected_proxies:
           type: integer
-          description: Number of proxy nodes connected in this cluster
+          description: Number of proxy nodes currently connected (heartbeat within the active window)
           example: 3
-        self_hosted:
+        supports_custom_ports:
           type: boolean
-          description: Whether this cluster is a self-hosted (BYOP) proxy managed by the account owner
+          description: Whether the cluster supports binding arbitrary TCP/UDP ports
+          example: true
+        require_subdomain:
+          type: boolean
+          description: Whether services on this cluster must include a subdomain label
+          example: false
+        supports_crowdsec:
+          type: boolean
+          description: Whether all active proxies in the cluster have CrowdSec configured
+          example: false
+        private:
+          type: boolean
+          description: True when at least one connected proxy in this cluster is running embedded in a netbird client (`netbird proxy`) and serving over a WireGuard tunnel. Lets the dashboard distinguish per-peer / private clusters from centralised ones.
           example: false
       required:
         - id
         - address
+        - type
+        - online
         - connected_proxies
-        - self_hosted
+    ProxyClusterType:
+      type: string
+      description: |
+        Source of the proxy cluster. `account` clusters are owned and operated by the account (BYOP);
+        `shared` clusters are operated by NetBird and shared across accounts.
+      enum:
+        - account
+        - shared
+      example: shared
     ReverseProxyDomainType:
       type: string
       description: Type of Reverse Proxy Domain
@@ -3469,6 +3528,10 @@ components:
         supports_crowdsec:
           type: boolean
           description: Whether the proxy cluster has CrowdSec configured
+          example: false
+        supports_private:
+          type: boolean
+          description: Whether the proxy cluster supports private (NetBird-only) services. True when at least one connected proxy in the cluster runs embedded in a netbird client.
           example: false
       required:
         - id

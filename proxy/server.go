@@ -32,11 +32,16 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric"
 	"golang.org/x/exp/maps"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
+	grpcstatus "google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
+	goproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/netbirdio/netbird/client/embed"
 	"github.com/netbirdio/netbird/proxy/internal/accesslog"
 	"github.com/netbirdio/netbird/proxy/internal/acme"
 	"github.com/netbirdio/netbird/proxy/internal/auth"
@@ -112,9 +117,28 @@ type Server struct {
 	// The mapping worker waits on this before processing updates.
 	routerReady chan struct{}
 
+	// inbound, when non-nil, manages per-account inbound listeners. Set by
+	// initPrivateInbound only when Private is true so the standalone
+	// proxy keeps its zero-overhead default path.
+	inbound *inboundManager
+
+	// Lifecycle state — populated by Start, consumed by Stop. The fields
+	// stay zero on a fresh Server until Start runs so direct struct
+	// construction (`&Server{...}`) used by tests still works.
+	runCancel context.CancelFunc
+	mgmtConn  *grpc.ClientConn
+	runErr    error
+	runErrCh  chan struct{}
+	startMu   sync.Mutex
+	started   bool
+	stopOnce  sync.Once
+
 	// Mostly used for debugging on management.
 	startTime time.Time
 
+	// ListenAddr is the address the main TCP listener binds. Populated by
+	// New from Config or by ListenAndServe from its addr argument.
+	ListenAddr               string
 	ID                       string
 	Logger                   *log.Logger
 	Version                  string
@@ -162,6 +186,9 @@ type Server struct {
 	// single-account deployments; multiple accounts will fail to bind
 	// the same port.
 	WireguardPort uint16
+	// Performance configures the tunnel pool/batch sizes for every
+	// embedded client this proxy spawns.
+	Performance embed.Performance
 	// ProxyProtocol enables PROXY protocol (v1/v2) on TCP listeners.
 	// When enabled, the real client IP is extracted from the PROXY header
 	// sent by upstream L4 proxies that support PROXY protocol.
@@ -175,6 +202,14 @@ type Server struct {
 	// in front of this proxy's cluster domain. When true, accounts cannot
 	// create services on the bare cluster domain.
 	RequireSubdomain bool
+	// Private flags this proxy as embedded in a netbird client and serving
+	// exclusively over the WireGuard tunnel (i.e. `netbird proxy`). Reported
+	// upstream as a capability so dashboards can distinguish per-peer
+	// clusters from centralised ones, and turns on per-account inbound
+	// listeners on each embedded client's netstack: every account that
+	// registers a service exposes :80 + :443 inside its own WG tunnel,
+	// scoped to that account's services only.
+	Private bool
 	// MaxDialTimeout caps the per-service backend dial timeout.
 	// When the API sends a timeout, it is clamped to this value.
 	// When the API sends no timeout, this value is used as the default.
@@ -220,12 +255,16 @@ func (s *Server) NotifyStatus(ctx context.Context, accountID types.AccountID, se
 		status = proto.ProxyStatus_PROXY_STATUS_ACTIVE
 	}
 
-	_, err := s.mgmtClient.SendStatusUpdate(ctx, &proto.SendStatusUpdateRequest{
+	req := &proto.SendStatusUpdateRequest{
 		ServiceId:         string(serviceID),
 		AccountId:         string(accountID),
 		Status:            status,
 		CertificateIssued: false,
-	})
+	}
+	if connected {
+		req.InboundListener = s.inboundListenerProto(accountID)
+	}
+	_, err := s.mgmtClient.SendStatusUpdate(ctx, req)
 	return err
 }
 
@@ -236,53 +275,68 @@ func (s *Server) NotifyCertificateIssued(ctx context.Context, accountID types.Ac
 		AccountId:         string(accountID),
 		Status:            proto.ProxyStatus_PROXY_STATUS_ACTIVE,
 		CertificateIssued: true,
+		InboundListener:   s.inboundListenerProto(accountID),
 	})
 	return err
 }
 
-func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
-	s.initDefaults()
-	s.routerReady = make(chan struct{})
-	s.udpRelays = make(map[types.ServiceID]*udprelay.Relay)
-	s.portRouters = make(map[uint16]*portRouter)
-	s.svcPorts = make(map[types.ServiceID][]uint16)
-	s.lastMappings = make(map[types.ServiceID]*proto.ProxyMapping)
-
-	exporter, err := prometheus.New()
-	if err != nil {
-		return fmt.Errorf("create prometheus exporter: %w", err)
+// inboundListenerProto resolves the per-account inbound listener state for
+// the SendStatusUpdate payload. Returns nil when --private-inbound is off
+// or the account has no live listener so management treats the field as
+// absent.
+func (s *Server) inboundListenerProto(accountID types.AccountID) *proto.ProxyInboundListener {
+	if s.inbound == nil {
+		return nil
 	}
-
-	provider := metric.NewMeterProvider(metric.WithReader(exporter))
-	pkg := reflect.TypeOf(Server{}).PkgPath()
-	meter := provider.Meter(pkg)
-
-	s.meter, err = proxymetrics.New(ctx, meter)
-	if err != nil {
-		return fmt.Errorf("create metrics: %w", err)
+	info, ok := s.inbound.ListenerInfo(accountID)
+	if !ok || info.TunnelIP == "" {
+		return nil
 	}
+	return &proto.ProxyInboundListener{
+		TunnelIp:  info.TunnelIP,
+		HttpsPort: uint32(info.HTTPSPort),
+		HttpPort:  uint32(info.HTTPPort),
+	}
+}
 
-	mgmtConn, err := s.dialManagement()
-	if err != nil {
+// ListenAndServe is the standalone entrypoint. It binds the listener, runs
+// the proxy until ctx is cancelled or a background goroutine fails, then
+// drains and stops. Library callers should prefer New + Start + Stop and
+// own their own shutdown signalling.
+func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
+	s.ListenAddr = addr
+	if err := s.Start(ctx); err != nil {
 		return err
 	}
-	defer func() {
-		if err := mgmtConn.Close(); err != nil {
-			s.Logger.Debugf("management connection close: %v", err)
-		}
-	}()
-	s.mgmtClient = proto.NewProxyServiceClient(mgmtConn)
+	return s.waitAndStop(ctx)
+}
+
+// Start brings the proxy up: dials management, configures TLS, binds the
+// main listener, and spawns the SNI router and HTTPS server goroutines. It
+// returns once the listener is bound; background errors are surfaced
+// through Stop's return value. Start is not safe to call twice.
+func (s *Server) Start(ctx context.Context) error {
+	s.startMu.Lock()
+	if s.started {
+		s.startMu.Unlock()
+		return errors.New("proxy already started")
+	}
+	s.started = true
+	s.startMu.Unlock()
+
+	s.initLifecycleState()
+	if err := s.initMetrics(ctx); err != nil {
+		return err
+	}
+
+	if err := s.initManagementClient(); err != nil {
+		return err
+	}
+
 	runCtx, runCancel := context.WithCancel(ctx)
-	defer runCancel()
+	s.runCancel = runCancel
 
-	// Initialize the netbird client, this is required to build peer connections
-	// to proxy over.
-	s.netbird = roundtrip.NewNetBird(s.ID, s.ProxyURL, roundtrip.ClientConfig{
-		MgmtAddr:     s.ManagementAddress,
-		WGPort:       s.WireguardPort,
-		PreSharedKey: s.PreSharedKey,
-	}, s.Logger, s, s.mgmtClient)
-
+	s.initNetBirdClient()
 	// Create health checker before the mapping worker so it can track
 	// management connectivity from the first stream connection.
 	s.healthChecker = health.NewChecker(s.Logger, s.netbird)
@@ -297,34 +351,25 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 		return err
 	}
 
-	// Configure the reverse proxy using NetBird's HTTP Client Transport for proxying.
-	s.proxy = proxy.NewReverseProxy(s.meter.RoundTripper(s.netbird), s.ForwardedProto, s.TrustedProxies, s.Logger)
+	s.initReverseProxy()
 
-	geoLookup, err := geolocation.NewLookup(s.Logger, s.GeoDataDir)
-	if err != nil {
-		return fmt.Errorf("initialize geolocation: %w", err)
-	}
-	s.geoRaw = geoLookup
-	if geoLookup != nil {
-		s.geo = geoLookup
+	if err := s.initGeoLookup(); err != nil {
+		return err
 	}
 
-	var startupOK bool
+	startupOK := false
 	defer func() {
 		if startupOK {
 			return
 		}
 		if s.geoRaw != nil {
-			if err := s.geoRaw.Close(); err != nil {
-				s.Logger.Debugf("close geolocation on startup failure: %v", err)
+			if closeErr := s.geoRaw.Close(); closeErr != nil {
+				s.Logger.Debugf("close geolocation on startup failure: %v", closeErr)
 			}
 		}
 	}()
 
-	// Configure the authentication middleware with session validator for OIDC group checks.
 	s.auth = auth.NewMiddleware(s.Logger, s.mgmtClient, s.geo)
-
-	// Configure Access logs to management server.
 	s.accessLog = accesslog.NewLogger(s.mgmtClient, s.Logger, s.TrustedProxies)
 
 	s.startDebugEndpoint()
@@ -333,35 +378,21 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 		return err
 	}
 
-	// Build the handler chain from inside out.
-	handler := http.Handler(s.proxy)
-	handler = s.auth.Protect(handler)
-	handler = web.AssetHandler(handler)
-	handler = s.accessLog.Middleware(handler)
-	handler = s.meter.Middleware(handler)
-	handler = s.hijackTracker.Middleware(handler)
+	handler := s.buildHandlerChain()
+	s.initPrivateInbound(handler, tlsConfig)
 
-	// Start a raw TCP listener; the SNI router peeks at ClientHello
-	// and routes to either the HTTP handler or a TCP relay.
-	lc := net.ListenConfig{}
-	ln, err := lc.Listen(ctx, "tcp", addr)
+	ln, err := s.bindMainListener(ctx)
 	if err != nil {
-		return fmt.Errorf("listen on %s: %w", addr, err)
+		return err
 	}
-	if s.ProxyProtocol {
-		ln = s.wrapProxyProtocol(ln)
-	}
-	s.mainPort = uint16(ln.Addr().(*net.TCPAddr).Port) //nolint:gosec // port from OS is always valid
 
-	// Set up the SNI router for TCP/HTTP multiplexing on the main port.
 	s.mainRouter = nbtcp.NewRouter(s.Logger, s.resolveDialFunc, ln.Addr())
 	s.mainRouter.SetObserver(s.meter)
 	s.mainRouter.SetAccessLogger(s.accessLog)
 	close(s.routerReady)
 
-	// The HTTP server uses the chanListener fed by the SNI router.
 	s.https = &http.Server{
-		Addr:              addr,
+		Addr:              s.ListenAddr,
 		Handler:           handler,
 		TLSConfig:         tlsConfig,
 		ReadHeaderTimeout: httpReadHeaderTimeout,
@@ -371,35 +402,202 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) (err error) {
 
 	startupOK = true
 
-	httpsErr := make(chan error, 1)
 	go func() {
 		s.Logger.Debug("starting HTTPS server on SNI router HTTP channel")
-		httpsErr <- s.https.ServeTLS(s.mainRouter.HTTPListener(), "", "")
+		if serveErr := s.https.ServeTLS(s.mainRouter.HTTPListener(), "", ""); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			s.recordRunErr(fmt.Errorf("https server: %w", serveErr))
+		}
 	}()
 
-	routerErr := make(chan error, 1)
 	go func() {
-		s.Logger.Debugf("starting SNI router on %s", addr)
-		routerErr <- s.mainRouter.Serve(runCtx, ln)
+		s.Logger.Debugf("starting SNI router on %s", s.ListenAddr)
+		if serveErr := s.mainRouter.Serve(runCtx, ln); serveErr != nil {
+			s.recordRunErr(fmt.Errorf("SNI router: %w", serveErr))
+		}
 	}()
 
+	return nil
+}
+
+// Stop drains in-flight connections, shuts down all background services,
+// and releases resources. Idempotent; calling it before Start is a no-op.
+// Returns the first fatal error reported by a background goroutine, if
+// any. The provided ctx bounds the total wait time; once it is cancelled
+// Stop returns even if drain is still in flight.
+func (s *Server) Stop(ctx context.Context) error {
+	s.stopOnce.Do(func() {
+		s.startMu.Lock()
+		started := s.started
+		s.startMu.Unlock()
+		if !started {
+			return
+		}
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			s.gracefulShutdown()
+			if s.runCancel != nil {
+				s.runCancel()
+			}
+			if s.mgmtConn != nil {
+				if err := s.mgmtConn.Close(); err != nil {
+					s.Logger.Debugf("management connection close: %v", err)
+				}
+			}
+		}()
+
+		select {
+		case <-done:
+		case <-ctx.Done():
+			s.Logger.Warnf("proxy stop deadline exceeded: %v", ctx.Err())
+		}
+	})
+
+	s.startMu.Lock()
+	defer s.startMu.Unlock()
+	return s.runErr
+}
+
+// waitAndStop blocks until ctx is cancelled or a background goroutine
+// reports a fatal error, then drains and stops. Used by ListenAndServe.
+func (s *Server) waitAndStop(ctx context.Context) error {
 	select {
-	case err := <-httpsErr:
-		s.shutdownServices()
-		if !errors.Is(err, http.ErrServerClosed) {
-			return fmt.Errorf("https server: %w", err)
-		}
-		return nil
-	case err := <-routerErr:
-		s.shutdownServices()
-		if err != nil {
-			return fmt.Errorf("SNI router: %w", err)
-		}
-		return nil
 	case <-ctx.Done():
-		s.gracefulShutdown()
-		return nil
+	case <-s.runErrCh:
 	}
+	stopCtx, cancel := context.WithTimeout(context.Background(), shutdownDrainTimeout+shutdownServiceTimeout)
+	defer cancel()
+	return s.Stop(stopCtx)
+}
+
+// recordRunErr stores the first fatal background error and signals
+// waitAndStop. Subsequent errors are logged at debug level so the first
+// cause is preserved.
+func (s *Server) recordRunErr(err error) {
+	s.startMu.Lock()
+	defer s.startMu.Unlock()
+	if s.runErr != nil {
+		s.Logger.Debugf("background error after first failure: %v", err)
+		return
+	}
+	s.runErr = err
+	if s.runErrCh != nil {
+		close(s.runErrCh)
+	}
+}
+
+// initLifecycleState seeds the maps and channels Start needs to wire up
+// background goroutines. Called once at the top of Start.
+func (s *Server) initLifecycleState() {
+	s.initDefaults()
+	s.routerReady = make(chan struct{})
+	s.runErrCh = make(chan struct{})
+	s.udpRelays = make(map[types.ServiceID]*udprelay.Relay)
+	s.portRouters = make(map[uint16]*portRouter)
+	s.svcPorts = make(map[types.ServiceID][]uint16)
+	s.lastMappings = make(map[types.ServiceID]*proto.ProxyMapping)
+}
+
+// initMetrics builds the prometheus exporter and meter bundle.
+func (s *Server) initMetrics(ctx context.Context) error {
+	exporter, err := prometheus.New()
+	if err != nil {
+		return fmt.Errorf("create prometheus exporter: %w", err)
+	}
+	provider := metric.NewMeterProvider(metric.WithReader(exporter))
+	pkg := reflect.TypeOf(Server{}).PkgPath()
+	meter := provider.Meter(pkg)
+	s.meter, err = proxymetrics.New(ctx, meter)
+	if err != nil {
+		return fmt.Errorf("create metrics: %w", err)
+	}
+	return nil
+}
+
+// initManagementClient dials management and stashes the connection so
+// Stop can close it deterministically.
+func (s *Server) initManagementClient() error {
+	conn, err := s.dialManagement()
+	if err != nil {
+		return err
+	}
+	s.mgmtConn = conn
+	s.mgmtClient = proto.NewProxyServiceClient(conn)
+	return nil
+}
+
+// initNetBirdClient builds the multi-tenant embedded NetBird client used
+// for outbound RoundTripping and (when --private-inbound is on) per-account
+// inbound listeners.
+func (s *Server) initNetBirdClient() {
+	s.netbird = roundtrip.NewNetBird(s.ID, s.ProxyURL, roundtrip.ClientConfig{
+		MgmtAddr:     s.ManagementAddress,
+		WGPort:       s.WireguardPort,
+		PreSharedKey: s.PreSharedKey,
+		Performance:  s.Performance,
+		// On --private the embedded client serves per-account inbound
+		// listeners and must apply management's ACL: keep BlockInbound off
+		// so the engine creates the ACL manager. On the standalone proxy
+		// the embedded client never accepts inbound, so block.
+		BlockInbound: !s.Private,
+	}, s.Logger, s, s.mgmtClient)
+	s.netbird.OnAddPeer = s.meter.RecordAddPeerDuration
+}
+
+// initReverseProxy builds the meter-instrumented reverse proxy. MultiTransport
+// routes targets opted into direct_upstream through the host's network stack
+// (stdlib transport); everything else falls through to the embedded NetBird
+// client. The split is needed so direct_upstream targets resolve DNS via the
+// proxy host's resolver instead of the tunnel's DNS.
+func (s *Server) initReverseProxy() {
+	upstreamRT := roundtrip.NewMultiTransport(s.netbird, s.Logger)
+	s.proxy = proxy.NewReverseProxy(s.meter.RoundTripper(upstreamRT), s.ForwardedProto, s.TrustedProxies, s.Logger)
+}
+
+// initGeoLookup configures the GeoLite2 lookup used for country-based
+// access restrictions and access-log enrichment.
+func (s *Server) initGeoLookup() error {
+	geoLookup, err := geolocation.NewLookup(s.Logger, s.GeoDataDir)
+	if err != nil {
+		return fmt.Errorf("initialize geolocation: %w", err)
+	}
+	s.geoRaw = geoLookup
+	if geoLookup != nil {
+		s.geo = geoLookup
+	}
+	return nil
+}
+
+// buildHandlerChain wires the request middlewares from inside out.
+func (s *Server) buildHandlerChain() http.Handler {
+	handler := http.Handler(s.proxy)
+	handler = s.auth.Protect(handler)
+	handler = web.AssetHandler(handler)
+	handler = s.accessLog.Middleware(handler)
+	handler = s.meter.Middleware(handler)
+	return s.hijackTracker.Middleware(handler)
+}
+
+// bindMainListener binds the main TCP listener and wraps it with PROXY
+// protocol when configured.
+func (s *Server) bindMainListener(ctx context.Context) (net.Listener, error) {
+	lc := net.ListenConfig{}
+	ln, err := lc.Listen(ctx, "tcp", s.ListenAddr)
+	if err != nil {
+		return nil, fmt.Errorf("listen on %s: %w", s.ListenAddr, err)
+	}
+	if s.ProxyProtocol {
+		ln = s.wrapProxyProtocol(ln)
+	}
+	s.mainPort = uint16(ln.Addr().(*net.TCPAddr).Port) //nolint:gosec // port from OS is always valid
+	s.Logger.WithFields(log.Fields{
+		"requested_addr": s.ListenAddr,
+		"bound_addr":     ln.Addr().String(),
+		"private":        s.Private,
+		"proxy_protocol": s.ProxyProtocol,
+	}).Info("proxy main listener bound")
+	return ln, nil
 }
 
 // initDefaults sets fallback values for optional Server fields.
@@ -431,6 +629,9 @@ func (s *Server) startDebugEndpoint() {
 	if s.acme != nil {
 		debugHandler.SetCertStatus(s.acme)
 	}
+	if s.inbound != nil {
+		debugHandler.SetInboundProvider(inboundDebugAdapter{mgr: s.inbound})
+	}
 	s.debug = &http.Server{
 		Addr:     debugAddr,
 		Handler:  debugHandler,
@@ -444,16 +645,18 @@ func (s *Server) startDebugEndpoint() {
 	}()
 }
 
-// startHealthServer launches the health probe and metrics server.
+// startHealthServer launches the health probe and metrics server. Empty
+// HealthAddress disables the probe entirely (intended for library callers
+// that want to manage their own health surface).
 func (s *Server) startHealthServer() error {
-	healthAddr := s.HealthAddress
-	if healthAddr == "" {
-		healthAddr = defaultHealthAddr
+	if s.HealthAddress == "" {
+		s.Logger.Debug("health probe disabled (empty HealthAddress)")
+		return nil
 	}
-	s.healthServer = health.NewServer(healthAddr, s.healthChecker, s.Logger, promhttp.HandlerFor(prometheus2.DefaultGatherer, promhttp.HandlerOpts{EnableOpenMetrics: true}))
-	healthListener, err := net.Listen("tcp", healthAddr)
+	s.healthServer = health.NewServer(s.HealthAddress, s.healthChecker, s.Logger, promhttp.HandlerFor(prometheus2.DefaultGatherer, promhttp.HandlerOpts{EnableOpenMetrics: true}))
+	healthListener, err := net.Listen("tcp", s.HealthAddress)
 	if err != nil {
-		return fmt.Errorf("health probe server listen on %s: %w", healthAddr, err)
+		return fmt.Errorf("health probe server listen on %s: %w", s.HealthAddress, err)
 	}
 	go func() {
 		if err := s.healthServer.Serve(healthListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -504,8 +707,9 @@ func (s *Server) proxyProtocolPolicy(opts proxyproto.ConnPolicyOptions) (proxypr
 }
 
 const (
-	defaultHealthAddr = "localhost:8080"
-	defaultDebugAddr  = "localhost:8444"
+	// defaultDebugAddr is the localhost-bound fallback for the debug endpoint
+	// when DebugEndpointAddress is empty.
+	defaultDebugAddr = "localhost:8444"
 
 	// proxyProtoHeaderTimeout is the deadline for reading the PROXY protocol
 	// header after accepting a connection.
@@ -658,8 +862,10 @@ func (s *Server) gracefulShutdown() {
 	defer drainCancel()
 
 	s.Logger.Info("draining in-flight connections")
-	if err := s.https.Shutdown(drainCtx); err != nil {
-		s.Logger.Warnf("https server drain: %v", err)
+	if s.https != nil {
+		if err := s.https.Shutdown(drainCtx); err != nil {
+			s.Logger.Warnf("https server drain: %v", err)
+		}
 	}
 
 	// Step 4: Close hijacked connections (WebSocket) that Shutdown does not handle.
@@ -806,6 +1012,18 @@ func (s *Server) resolveDialFunc(accountID types.AccountID) (types.DialContextFu
 	return client.DialContext, nil
 }
 
+// initPrivateInbound wires per-account inbound listeners when --private
+// is set. When the flag is off this is a no-op and the standalone proxy keeps
+// its byte-for-byte previous behaviour.
+func (s *Server) initPrivateInbound(handler http.Handler, tlsConfig *tls.Config) {
+	if !s.Private {
+		return
+	}
+	s.inbound = newInboundManager(s.Logger, handler, tlsConfig)
+	s.netbird.SetClientLifecycle(s.inbound.onClientReady, s.inbound.onClientStop)
+	s.Logger.Info("private inbound listeners enabled (per-account :80 + :443)")
+}
+
 // notifyError reports a resource error back to management so it can be
 // surfaced to the user (e.g. port bind failure, dialer resolution error).
 func (s *Server) notifyError(ctx context.Context, mapping *proto.ProxyMapping, err error) {
@@ -938,6 +1156,10 @@ func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.Pr
 		Clock:               backoff.SystemClock,
 	}
 
+	// syncSupported tracks whether management supports SyncMappings.
+	// Starts true; set to false on the first Unimplemented error so
+	// subsequent retries skip straight to GetMappingUpdate.
+	syncSupported := true
 	initialSyncDone := false
 
 	operation := func() error {
@@ -949,35 +1171,24 @@ func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.Pr
 			s.healthChecker.SetManagementConnected(false)
 		}
 
-		supportsCrowdSec := s.crowdsecRegistry.Available()
-		mappingClient, err := client.GetMappingUpdate(ctx, &proto.GetMappingUpdateRequest{
-			ProxyId:   s.ID,
-			Version:   s.Version,
-			StartedAt: timestamppb.New(s.startTime),
-			Address:   s.ProxyURL,
-			Capabilities: &proto.ProxyCapabilities{
-				SupportsCustomPorts: &s.SupportsCustomPorts,
-				RequireSubdomain:    &s.RequireSubdomain,
-				SupportsCrowdsec:    &supportsCrowdSec,
-			},
-		})
-		if err != nil {
-			return fmt.Errorf("create mapping stream: %w", err)
+		var streamErr error
+		if syncSupported {
+			streamErr = s.trySyncMappings(ctx, client, &initialSyncDone)
+			if isSyncUnimplemented(streamErr) {
+				syncSupported = false
+				s.Logger.Info("management does not support SyncMappings, falling back to GetMappingUpdate")
+				streamErr = s.tryGetMappingUpdate(ctx, client, &initialSyncDone)
+			}
+		} else {
+			streamErr = s.tryGetMappingUpdate(ctx, client, &initialSyncDone)
 		}
-
-		if s.healthChecker != nil {
-			s.healthChecker.SetManagementConnected(true)
-		}
-		s.Logger.Debug("management mapping stream established")
-
-		// Stream established — reset backoff so the next failure retries quickly.
-		bo.Reset()
-
-		streamErr := s.handleMappingStream(ctx, mappingClient, &initialSyncDone)
 
 		if s.healthChecker != nil {
 			s.healthChecker.SetManagementConnected(false)
 		}
+
+		// Stream established — reset backoff so the next failure retries quickly.
+		bo.Reset()
 
 		if streamErr == nil {
 			return fmt.Errorf("stream closed by server")
@@ -995,52 +1206,193 @@ func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.Pr
 	}
 }
 
-func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.ProxyService_GetMappingUpdateClient, initialSyncDone *bool) error {
+func (s *Server) proxyCapabilities() *proto.ProxyCapabilities {
+	supportsCrowdSec := s.crowdsecRegistry.Available()
+	privateCapability := s.Private
+	// Always true: this build enforces ProxyMapping.private via the auth middleware.
+	supportsPrivateService := true
+	return &proto.ProxyCapabilities{
+		SupportsCustomPorts:    &s.SupportsCustomPorts,
+		RequireSubdomain:       &s.RequireSubdomain,
+		SupportsCrowdsec:       &supportsCrowdSec,
+		Private:                &privateCapability,
+		SupportsPrivateService: &supportsPrivateService,
+	}
+}
+
+func (s *Server) tryGetMappingUpdate(ctx context.Context, client proto.ProxyServiceClient, initialSyncDone *bool) error {
+	connectTime := time.Now()
+	mappingClient, err := client.GetMappingUpdate(ctx, &proto.GetMappingUpdateRequest{
+		ProxyId:      s.ID,
+		Version:      s.Version,
+		StartedAt:    timestamppb.New(s.startTime),
+		Address:      s.ProxyURL,
+		Capabilities: s.proxyCapabilities(),
+	})
+	if err != nil {
+		return fmt.Errorf("create mapping stream: %w", err)
+	}
+
+	if s.healthChecker != nil {
+		s.healthChecker.SetManagementConnected(true)
+	}
+	s.Logger.Debug("management mapping stream established (GetMappingUpdate)")
+
+	return s.handleMappingStream(ctx, mappingClient, initialSyncDone, connectTime)
+}
+
+func (s *Server) trySyncMappings(ctx context.Context, client proto.ProxyServiceClient, initialSyncDone *bool) error {
+	connectTime := time.Now()
+	stream, err := client.SyncMappings(ctx)
+	if err != nil {
+		return fmt.Errorf("create sync stream: %w", err)
+	}
+
+	if err := stream.Send(&proto.SyncMappingsRequest{
+		Msg: &proto.SyncMappingsRequest_Init{
+			Init: &proto.SyncMappingsInit{
+				ProxyId:      s.ID,
+				Version:      s.Version,
+				StartedAt:    timestamppb.New(s.startTime),
+				Address:      s.ProxyURL,
+				Capabilities: s.proxyCapabilities(),
+			},
+		},
+	}); err != nil {
+		return fmt.Errorf("send sync init: %w", err)
+	}
+
+	if s.healthChecker != nil {
+		s.healthChecker.SetManagementConnected(true)
+	}
+	s.Logger.Debug("management mapping stream established (SyncMappings)")
+
+	return s.handleSyncMappingsStream(ctx, stream, initialSyncDone, connectTime)
+}
+
+func isSyncUnimplemented(err error) bool {
+	if err == nil {
+		return false
+	}
+	st, ok := grpcstatus.FromError(err)
+	return ok && st.Code() == codes.Unimplemented
+}
+
+// handleSyncMappingsStream consumes batches from a bidirectional SyncMappings
+// stream, sending an ack after each batch is fully processed. Management waits
+// for the ack before sending the next batch, providing application-level
+// back-pressure.
+func (s *Server) handleSyncMappingsStream(ctx context.Context, stream proto.ProxyService_SyncMappingsClient, initialSyncDone *bool, connectTime time.Time) error {
 	select {
 	case <-s.routerReady:
 	case <-ctx.Done():
 		return ctx.Err()
 	}
 
-	var snapshotIDs map[types.ServiceID]struct{}
-	if !*initialSyncDone {
-		snapshotIDs = make(map[types.ServiceID]struct{})
-	}
+	tracker := s.newSnapshotTracker(initialSyncDone, connectTime)
 
 	for {
-		// Check for context completion to gracefully shutdown.
 		select {
 		case <-ctx.Done():
-			// Shutting down.
+			return ctx.Err()
+		default:
+			msg, err := stream.Recv()
+			switch {
+			case errors.Is(err, io.EOF):
+				return nil
+			case err != nil:
+				return fmt.Errorf("receive msg: %w", err)
+			}
+
+			batchStart := time.Now()
+			s.Logger.Debug("Received mapping update, starting processing")
+			s.processMappings(ctx, msg.GetMapping())
+			s.Logger.Debug("Processing mapping update completed")
+			tracker.recordBatch(ctx, s, msg.GetMapping(), msg.GetInitialSyncComplete(), batchStart)
+
+			if err := stream.Send(&proto.SyncMappingsRequest{
+				Msg: &proto.SyncMappingsRequest_Ack{Ack: &proto.SyncMappingsAck{}},
+			}); err != nil {
+				return fmt.Errorf("send ack: %w", err)
+			}
+		}
+	}
+}
+
+// snapshotTracker accumulates service IDs during the initial snapshot and
+// finalises sync state when the complete flag arrives. Used by both
+// handleMappingStream and handleSyncMappingsStream so metric emission and
+// reconciliation behave identically on either RPC.
+type snapshotTracker struct {
+	done        *bool
+	connectTime time.Time
+	snapshotIDs map[types.ServiceID]struct{}
+}
+
+func (s *Server) newSnapshotTracker(done *bool, connectTime time.Time) *snapshotTracker {
+	var ids map[types.ServiceID]struct{}
+	if !*done {
+		ids = make(map[types.ServiceID]struct{})
+	}
+	return &snapshotTracker{done: done, connectTime: connectTime, snapshotIDs: ids}
+}
+
+func (t *snapshotTracker) recordBatch(ctx context.Context, s *Server, mappings []*proto.ProxyMapping, syncComplete bool, batchStart time.Time) {
+	if *t.done {
+		return
+	}
+
+	if s.meter != nil {
+		s.meter.RecordSnapshotBatchDuration(time.Since(batchStart))
+	}
+
+	for _, m := range mappings {
+		t.snapshotIDs[types.ServiceID(m.GetId())] = struct{}{}
+	}
+
+	if !syncComplete {
+		return
+	}
+
+	s.reconcileSnapshot(ctx, t.snapshotIDs)
+	t.snapshotIDs = nil
+	if s.healthChecker != nil {
+		s.healthChecker.SetInitialSyncComplete()
+	}
+	*t.done = true
+	if s.meter != nil {
+		s.meter.RecordSnapshotSyncDuration(time.Since(t.connectTime))
+	}
+	s.Logger.Info("Initial mapping sync complete")
+}
+
+func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.ProxyService_GetMappingUpdateClient, initialSyncDone *bool, connectTime time.Time) error {
+	select {
+	case <-s.routerReady:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	tracker := s.newSnapshotTracker(initialSyncDone, connectTime)
+
+	for {
+		select {
+		case <-ctx.Done():
 			return ctx.Err()
 		default:
 			msg, err := mappingClient.Recv()
 			switch {
 			case errors.Is(err, io.EOF):
-				// Mapping connection gracefully terminated by server.
 				return nil
 			case err != nil:
-				// Something has gone horribly wrong, return and hope the parent retries the connection.
 				return fmt.Errorf("receive msg: %w", err)
 			}
+
+			batchStart := time.Now()
 			s.Logger.Debug("Received mapping update, starting processing")
 			s.processMappings(ctx, msg.GetMapping())
 			s.Logger.Debug("Processing mapping update completed")
-
-			if !*initialSyncDone {
-				for _, m := range msg.GetMapping() {
-					snapshotIDs[types.ServiceID(m.GetId())] = struct{}{}
-				}
-				if msg.GetInitialSyncComplete() {
-					s.reconcileSnapshot(ctx, snapshotIDs)
-					snapshotIDs = nil
-					if s.healthChecker != nil {
-						s.healthChecker.SetInitialSyncComplete()
-					}
-					*initialSyncDone = true
-					s.Logger.Info("Initial mapping sync complete")
-				}
-			}
+			tracker.recordBatch(ctx, s, msg.GetMapping(), msg.GetInitialSyncComplete(), batchStart)
 		}
 	}
 }
@@ -1066,15 +1418,58 @@ func (s *Server) reconcileSnapshot(ctx context.Context, snapshotIDs map[types.Se
 	}
 }
 
+// mappingJSONMarshal dumps mappings on one line with zero-value fields visible for debug logs.
+var mappingJSONMarshal = protojson.MarshalOptions{
+	Multiline:       false,
+	EmitUnpopulated: true,
+	UseProtoNames:   true,
+}
+
+// redactMappingForLog returns a deep copy of the mapping with sensitive fields
+// (auth_token, header-auth hashed values, custom upstream headers) replaced so
+// debug logs never carry credentials.
+func redactMappingForLog(m *proto.ProxyMapping) *proto.ProxyMapping {
+	const placeholder = "[REDACTED]"
+	c := goproto.Clone(m).(*proto.ProxyMapping)
+	if c.GetAuthToken() != "" {
+		c.AuthToken = placeholder
+	}
+	if c.Auth != nil {
+		for _, h := range c.Auth.GetHeaderAuths() {
+			if h.GetHashedValue() != "" {
+				h.HashedValue = placeholder
+			}
+		}
+	}
+	for _, p := range c.GetPath() {
+		opts := p.GetOptions()
+		if opts == nil || len(opts.CustomHeaders) == 0 {
+			continue
+		}
+		redacted := make(map[string]string, len(opts.CustomHeaders))
+		for k := range opts.CustomHeaders {
+			redacted[k] = placeholder
+		}
+		opts.CustomHeaders = redacted
+	}
+	return c
+}
+
 func (s *Server) processMappings(ctx context.Context, mappings []*proto.ProxyMapping) {
+	debug := s.Logger != nil && s.Logger.IsLevelEnabled(log.DebugLevel)
 	for _, mapping := range mappings {
-		s.Logger.WithFields(log.Fields{
-			"type":   mapping.GetType(),
-			"domain": mapping.GetDomain(),
-			"mode":   mapping.GetMode(),
-			"port":   mapping.GetListenPort(),
-			"id":     mapping.GetId(),
-		}).Debug("Processing mapping update")
+		if debug {
+			raw, err := mappingJSONMarshal.Marshal(redactMappingForLog(mapping))
+			if err != nil {
+				raw = []byte(fmt.Sprintf("<marshal error: %v>", err))
+			}
+			s.Logger.WithFields(log.Fields{
+				"type":    mapping.GetType(),
+				"domain":  mapping.GetDomain(),
+				"id":      mapping.GetId(),
+				"mapping": string(raw),
+			}).Debug("Processing mapping update")
+		}
 		switch mapping.GetType() {
 		case proto.ProxyMappingUpdateType_UPDATE_TYPE_CREATED:
 			if err := s.addMapping(ctx, mapping); err != nil {
@@ -1171,12 +1566,16 @@ func (s *Server) setupHTTPMapping(ctx context.Context, mapping *proto.ProxyMappi
 	if s.acme != nil {
 		wildcardHit = s.acme.AddDomain(d, accountID, svcID)
 	}
-	s.mainRouter.AddRoute(nbtcp.SNIHost(mapping.GetDomain()), nbtcp.Route{
+	httpRoute := nbtcp.Route{
 		Type:      nbtcp.RouteHTTP,
 		AccountID: accountID,
 		ServiceID: svcID,
 		Domain:    mapping.GetDomain(),
-	})
+	}
+	s.mainRouter.AddRoute(nbtcp.SNIHost(mapping.GetDomain()), httpRoute)
+	if s.inbound != nil {
+		s.inbound.AddRoute(accountID, nbtcp.SNIHost(mapping.GetDomain()), httpRoute)
+	}
 	if err := s.updateMapping(ctx, mapping); err != nil {
 		return fmt.Errorf("update mapping for domain %q: %w", d, err)
 	}
@@ -1536,7 +1935,7 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 	s.warnIfGeoUnavailable(mapping.GetDomain(), mapping.GetAccessRestrictions())
 
 	maxSessionAge := time.Duration(mapping.GetAuth().GetMaxSessionAgeSeconds()) * time.Second
-	if err := s.auth.AddDomain(mapping.GetDomain(), schemes, mapping.GetAuth().GetSessionKey(), maxSessionAge, accountID, svcID, ipRestrictions); err != nil {
+	if err := s.auth.AddDomain(mapping.GetDomain(), schemes, mapping.GetAuth().GetSessionKey(), maxSessionAge, accountID, svcID, ipRestrictions, mapping.GetPrivate()); err != nil {
 		return fmt.Errorf("auth setup for domain %s: %w", mapping.GetDomain(), err)
 	}
 	m := s.protoToMapping(ctx, mapping)
@@ -1592,6 +1991,9 @@ func (s *Server) cleanupMappingRoutes(mapping *proto.ProxyMapping) {
 		}
 		// Remove SNI route from the main router (covers both HTTP and main-port TLS).
 		s.mainRouter.RemoveRoute(nbtcp.SNIHost(host), svcID)
+		if s.inbound != nil {
+			s.inbound.RemoveRoute(types.AccountID(mapping.GetAccountId()), nbtcp.SNIHost(host), svcID)
+		}
 	}
 
 	// Extract and delete tracked custom-port entries atomically.
@@ -1679,6 +2081,7 @@ func (s *Server) protoToMapping(ctx context.Context, mapping *proto.ProxyMapping
 			if d := opts.GetRequestTimeout(); d != nil {
 				pt.RequestTimeout = d.AsDuration()
 			}
+			pt.DirectUpstream = opts.GetDirectUpstream()
 		}
 		pt.RequestTimeout = s.clampDialTimeout(pt.RequestTimeout)
 		paths[pathMapping.GetPath()] = pt
