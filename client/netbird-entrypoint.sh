@@ -51,8 +51,8 @@ wait_for_daemon_startup() {
 }
 
 connect() {
-  info "running 'netbird up'..."
-  "${NETBIRD_BIN}" up
+  info "running: netbird up $*"
+  "${NETBIRD_BIN}" up "$@"
   return $?
 }
 
@@ -63,7 +63,7 @@ main() {
   info "registered new service process 'netbird service run', currently running: ${service_pids[@]@Q}"
 
   wait_for_daemon_startup "${NB_ENTRYPOINT_SERVICE_TIMEOUT}"
-  connect
+  connect "$@"
 
   wait "${service_pids[@]}"
 }
