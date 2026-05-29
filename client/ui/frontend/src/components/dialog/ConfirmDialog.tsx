@@ -1,4 +1,6 @@
 import { ReactNode, forwardRef } from "react";
+import {cn} from "@/lib/cn.ts";
+import {isMacOS} from "@/lib/platform.ts";
 
 // ConfirmDialog is the shared layout wrapper used by dialog-style window
 // surfaces (SessionExpired, SessionAboutToExpire, …). Purely a layout
@@ -23,7 +25,7 @@ export const ConfirmDialog = forwardRef<HTMLDivElement, ConfirmDialogProps>(
             >
                 <div
                     ref={ref}
-                    className={"flex flex-col items-center gap-5 p-8 text-center"}
+                    className={cn("flex flex-col items-center gap-5 p-8 text-center", !isMacOS() && "pt-4")}
                 >
                     {children}
                 </div>

@@ -312,6 +312,12 @@
     "update.page.complete": "Update complete",
     "update.page.failed": "Update failed",
 
+    "window.title.settings": "Settings",
+    "window.title.signIn": "Sign-in",
+    "window.title.sessionExpired": "Session Expired",
+    "window.title.sessionExpiring": "Session Expiring",
+    "window.title.updating": "Updating",
+
     "browserLogin.title": "Continue in your browser to complete the login",
     "browserLogin.notSeeing": "Not seeing the browser tab?",
     "browserLogin.tryAgain": "Try again",

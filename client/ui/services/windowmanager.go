@@ -9,7 +9,19 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
+
+	"github.com/netbirdio/netbird/client/ui/i18n"
+	"github.com/netbirdio/netbird/client/ui/preferences"
 )
+
+// LanguageSubscriber delivers UI preference changes (currently only the
+// language flip; reusing preferences.UIPreferences keeps the channel
+// payload identical to preferences.Store.Subscribe). The runtime
+// implementation is *preferences.Store. WindowManager uses this to keep
+// the long-lived Settings window title in the active language.
+type LanguageSubscriber interface {
+	Subscribe() (<-chan preferences.UIPreferences, func())
+}
 
 // EventTriggerLogin asks the frontend's startLogin() orchestrator to begin
 // an SSO flow. Emitted by the tray (Login menu item, session expired) since
@@ -118,6 +130,8 @@ func DialogWindowOptions(name, title, url string) application.WebviewWindowOptio
 type WindowManager struct {
 	app                  *application.App
 	mainWindow           *application.WebviewWindow
+	translator           ErrorTranslator
+	prefs                LanguagePreference
 	settings             *application.WebviewWindow
 	browserLogin         *application.WebviewWindow
 	sessionExpired       *application.WebviewWindow
@@ -131,19 +145,39 @@ type WindowManager struct {
 	mu             sync.Mutex
 }
 
+// title resolves a window-title i18n key in the user's current language.
+// Falls back to the raw key when the translator or prefs are missing
+// (mirrors services.Connection.translateShort) — a deliberate fail-loud
+// signal that a key is missing from the bundle.
+func (s *WindowManager) title(key string) string {
+	if s.translator == nil {
+		return key
+	}
+	lang := i18n.DefaultLanguage
+	if s.prefs != nil {
+		if pref := s.prefs.Get().Language; pref != "" {
+			lang = pref
+		}
+	}
+	return s.translator.Translate(lang, key)
+}
+
 // NewWindowManager wires the manager to the main app. `mainWindow` is the
 // up-front-created webview the user interacts with from the tray — used to
 // pick the BrowserLogin window's display so the sign-in popup follows the
-// user onto the screen they're already looking at.
+// user onto the screen they're already looking at. `translator` + `prefs`
+// resolve the user-facing window titles in the active UI language; both
+// may be nil (callers in tests can omit them), in which case title() falls
+// back to the raw i18n key.
 //
 // The Settings window is created here, hidden, so the first OpenSettings
 // call paints instantly instead of paying webview construction + asset load
 // at click time.
-func NewWindowManager(app *application.App, mainWindow *application.WebviewWindow) *WindowManager {
-	s := &WindowManager{app: app, mainWindow: mainWindow}
+func NewWindowManager(app *application.App, mainWindow *application.WebviewWindow, translator ErrorTranslator, prefs LanguagePreference) *WindowManager {
+	s := &WindowManager{app: app, mainWindow: mainWindow, translator: translator, prefs: prefs}
 	s.settings = app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:                "settings",
-		Title:               "Settings",
+		Title:               s.title("window.title.settings"),
 		Width:               900,
 		Height:              640,
 		Hidden:              true,
@@ -167,6 +201,56 @@ func NewWindowManager(app *application.App, mainWindow *application.WebviewWindo
 		s.settings.Hide()
 	})
 	return s
+}
+
+// WatchLanguage subscribes to UI preference changes and re-applies the
+// localised title to every live auxiliary window whenever the language
+// flips. The eagerly-created Settings window outlives its first paint, so
+// without this its title would stay frozen in the language it was created
+// in; the on-demand dialog windows (BrowserLogin, Session*, InstallProgress)
+// can also coexist with a Settings-driven language change. Safe to call
+// once at startup; subsequent calls overwrite the previous subscription.
+// No-op when sub is nil.
+func (s *WindowManager) WatchLanguage(sub LanguageSubscriber) {
+	if sub == nil {
+		return
+	}
+	ch, _ := sub.Subscribe()
+	go func() {
+		var last i18n.LanguageCode
+		for p := range ch {
+			if p.Language == "" || p.Language == last {
+				continue
+			}
+			last = p.Language
+			s.retitleAll()
+		}
+	}()
+}
+
+// retitleAll re-applies the localised title to every currently-alive
+// auxiliary window. Reads the window pointers under s.mu so a concurrent
+// Open*/Close* can't observe a torn slice. SetTitle itself dispatches to
+// the OS UI thread, so calling it from this goroutine is safe.
+func (s *WindowManager) retitleAll() {
+	s.mu.Lock()
+	type pair struct {
+		win *application.WebviewWindow
+		key string
+	}
+	wins := []pair{
+		{s.settings, "window.title.settings"},
+		{s.browserLogin, "window.title.signIn"},
+		{s.sessionExpired, "window.title.sessionExpired"},
+		{s.sessionAboutToExpire, "window.title.sessionExpiring"},
+		{s.installProgress, "window.title.updating"},
+	}
+	s.mu.Unlock()
+	for _, p := range wins {
+		if p.win != nil {
+			p.win.SetTitle(s.title(p.key))
+		}
+	}
 }
 
 // OpenSettings asks the (already-mounted, currently-hidden) settings window
@@ -211,7 +295,7 @@ func (s *WindowManager) OpenBrowserLogin(uri string) {
 				screen = sc
 			}
 		}
-		opts := DialogWindowOptions("browser-login", "NetBird Sign-in", startURL)
+		opts := DialogWindowOptions("browser-login", s.title("window.title.signIn"), startURL)
 		// SSO popup deliberately is NOT always-on-top — the user moves
 		// between the browser tab and our popup; pinning it would obscure
 		// the browser at the moment they need to interact with it.
@@ -321,7 +405,7 @@ func (s *WindowManager) OpenSessionExpired() {
 	defer s.mu.Unlock()
 	if s.sessionExpired == nil {
 		s.sessionExpired = s.app.Window.NewWithOptions(
-			DialogWindowOptions("session-expired", "NetBird", "/#/dialog/session-expired"),
+			DialogWindowOptions("session-expired", s.title("window.title.sessionExpired"), "/#/dialog/session-expired"),
 		)
 		s.sessionExpired.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
 			s.mu.Lock()
@@ -356,7 +440,7 @@ func (s *WindowManager) OpenSessionAboutToExpire(seconds int) {
 	startURL := "/#/dialog/session-about-to-expire?seconds=" + strconv.Itoa(seconds)
 	if s.sessionAboutToExpire == nil {
 		s.sessionAboutToExpire = s.app.Window.NewWithOptions(
-			DialogWindowOptions("session-about-to-expire", "NetBird", startURL),
+			DialogWindowOptions("session-about-to-expire", s.title("window.title.sessionExpiring"), startURL),
 		)
 		s.sessionAboutToExpire.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
 			s.mu.Lock()
@@ -402,7 +486,7 @@ func (s *WindowManager) OpenInstallProgress(version string) {
 	if s.installProgress == nil {
 		s.hideOtherWindowsLocked("install-progress")
 		s.installProgress = s.app.Window.NewWithOptions(
-			DialogWindowOptions("install-progress", "NetBird", startURL),
+			DialogWindowOptions("install-progress", s.title("window.title.updating"), startURL),
 		)
 		s.installProgress.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
 			s.mu.Lock()

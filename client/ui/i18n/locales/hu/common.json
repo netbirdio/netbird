@@ -294,6 +294,12 @@
     "update.page.complete": "Frissítés kész",
     "update.page.failed": "Frissítés sikertelen",
 
+    "window.title.settings": "Beállítások",
+    "window.title.signIn": "Bejelentkezés",
+    "window.title.sessionExpired": "Munkamenet lejárt",
+    "window.title.sessionExpiring": "Munkamenet lejár",
+    "window.title.updating": "Frissítés",
+
     "browserLogin.title": "Folytassa a böngészőben a bejelentkezés befejezéséhez",
     "browserLogin.notSeeing": "Nem látja a böngésző fülét?",
     "browserLogin.tryAgain": "Próbálja újra",

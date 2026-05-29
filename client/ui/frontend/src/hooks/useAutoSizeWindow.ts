@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef } from "react";
 import { Window } from "@wailsio/runtime";
+import {isMacOS} from "@/lib/platform.ts";
 
 // useAutoSizeWindow resizes the current Wails window so its height matches
 // the measured height of the content element the returned ref is attached
@@ -21,7 +22,8 @@ export function useAutoSizeWindow<T extends HTMLElement>(width: number) {
         if (!el) return;
         let shown = false;
         const apply = () => {
-            const h = Math.ceil(el.getBoundingClientRect().height);
+            let h = Math.ceil(el.getBoundingClientRect().height);
+            h = isMacOS() ? h : h - el.getBoundingClientRect().height;
             if (h <= 0) return;
             void Window.SetSize(width, h)
                 .then(() => {

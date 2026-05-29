@@ -294,6 +294,12 @@
     "update.page.complete": "Update abgeschlossen",
     "update.page.failed": "Update fehlgeschlagen",
 
+    "window.title.settings": "Einstellungen",
+    "window.title.signIn": "Anmeldung",
+    "window.title.sessionExpired": "Sitzung abgelaufen",
+    "window.title.sessionExpiring": "Sitzung läuft ab",
+    "window.title.updating": "Aktualisierung",
+
     "browserLogin.title": "Setzen Sie den Anmeldevorgang im Browser fort",
     "browserLogin.notSeeing": "Sehen Sie den Browser-Tab nicht?",
     "browserLogin.tryAgain": "Erneut versuchen",
