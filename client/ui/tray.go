@@ -189,15 +189,19 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 	t.tray.SetTooltip(t.loc.T("tray.tooltip"))
 	t.menu = t.buildMenu()
 	t.tray.SetMenu(t.menu)
-	// Left-click on the tray icon opens the menu on every platform. The
-	// window is reached through the explicit "Open NetBird" entry. This
-	// matches macOS NSStatusItem convention (click → menu), the Linux
-	// StatusNotifierItem spec, and the legacy Fyne client. On Linux,
-	// AttachWindow plus Wails3's applySmartDefaults would also pop the
-	// window alongside the menu on environments like GNOME Shell with the
-	// AppIndicator extension, so we intentionally skip both AttachWindow
-	// and OnClick here. Right-click still opens the menu through Wails'
-	// default rightClickHandler fallback.
+	// Left-click on the tray icon opens the menu, and the window is reached
+	// through the explicit "Open NetBird" entry. This matches macOS
+	// NSStatusItem convention (click → menu), the Linux StatusNotifierItem
+	// spec, and the legacy Fyne client. macOS and Linux give us click→menu
+	// natively, so bindTrayClick is a no-op there (binding OnClick→OpenMenu
+	// on macOS would freeze the tray — see tray_click_other.go). Windows has
+	// no native left-click handler, so bindTrayClick wires one explicitly
+	// (see tray_click_windows.go). On Linux we deliberately skip AttachWindow:
+	// it plus Wails3's applySmartDefaults would pop the window alongside the
+	// menu on environments like GNOME Shell with the AppIndicator extension.
+	// Right-click opens the menu through Wails' default rightClickHandler on
+	// every platform.
+	bindTrayClick(t)
 
 	app.Event.On(services.EventStatusSnapshot, t.onStatusEvent)
 	app.Event.On(services.EventDaemonNotification, t.onSystemEvent)
