@@ -174,6 +174,23 @@ type Config struct {
 	LazyConnectionEnabled bool
 
 	MTU uint16
+
+	// policy is the MDM policy that produced the currently-set values for
+	// any MDM-enforced fields. Set by applyMDMPolicy at the tail of apply()
+	// and reset on every apply() invocation. Never persisted to disk.
+	// Callers query enforcement state via Policy() and the mdm.Policy API
+	// (HasKey, ManagedKeys, IsEmpty).
+	policy *mdm.Policy `json:"-"`
+}
+
+// Policy returns the MDM policy applied to this Config. Returns a non-nil
+// empty Policy when MDM enforcement is inactive; callers can always invoke
+// HasKey / ManagedKeys / IsEmpty without a nil check.
+func (config *Config) Policy() *mdm.Policy {
+	if config == nil || config.policy == nil {
+		return mdm.NewPolicy(nil)
+	}
+	return config.policy
 }
 
 var ConfigDirOverride string

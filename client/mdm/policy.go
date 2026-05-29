@@ -1,0 +1,211 @@
+// Package mdm reads MDM-managed configuration from platform-native sources
+// (plist on macOS, registry on Windows, UserDefaults on iOS,
+// RestrictionsManager on Android). The returned Policy is consumed by
+// profilemanager.Config.apply() as the highest-priority override layer.
+//
+// An empty Policy (no source present, or source present with zero keys)
+// means no MDM enforcement is active and the client behaves as if the
+// feature did not exist.
+package mdm
+
+import (
+	"sort"
+
+	log "github.com/sirupsen/logrus"
+)
+
+// Well-known policy keys. Names mirror the corresponding ConfigInput Go field
+// names (lowerCamelCase) so the daemon can map a Policy key directly to a
+// configuration field.
+const (
+	KeyManagementURL            = "managementURL"
+	KeySetupKey                 = "setupKey"
+	KeyDisableAdvancedSettings  = "disableAdvancedSettings"
+	KeyDisableUpdateSettings    = "disableUpdateSettings"
+	KeyDisableProfiles          = "disableProfiles"
+	KeyDisableClientRoutes      = "disableClientRoutes"
+	KeyDisableServerRoutes      = "disableServerRoutes"
+	KeyBlockInbound             = "blockInbound"
+	KeyDisableMetricsCollection = "disableMetricsCollection"
+	KeyAllowServerSSH           = "allowServerSSH"
+	KeyDisableAutoConnect       = "disableAutoConnect"
+	KeyPreSharedKey             = "preSharedKey"
+	KeyRosenpassEnabled         = "rosenpassEnabled"
+	KeyRosenpassPermissive      = "rosenpassPermissive"
+	KeySplitTunnelAllowApps     = "splitTunnelAllowApps"
+	KeySplitTunnelDisallowApps  = "splitTunnelDisallowApps"
+)
+
+// AllKeys is the set of recognised MDM keys. Unknown keys in a managed
+// configuration are ignored but logged.
+var AllKeys = []string{
+	KeyManagementURL,
+	KeySetupKey,
+	KeyDisableAdvancedSettings,
+	KeyDisableUpdateSettings,
+	KeyDisableProfiles,
+	KeyDisableClientRoutes,
+	KeyDisableServerRoutes,
+	KeyBlockInbound,
+	KeyDisableMetricsCollection,
+	KeyAllowServerSSH,
+	KeyDisableAutoConnect,
+	KeyPreSharedKey,
+	KeyRosenpassEnabled,
+	KeyRosenpassPermissive,
+	KeySplitTunnelAllowApps,
+	KeySplitTunnelDisallowApps,
+}
+
+// SecretKeys lists keys whose values must be redacted in logs.
+var SecretKeys = map[string]struct{}{
+	KeySetupKey:     {},
+	KeyPreSharedKey: {},
+}
+
+// Policy holds MDM-managed settings read from the platform source. A nil or
+// empty Policy means no enforcement is active.
+type Policy struct {
+	values map[string]any
+}
+
+// NewPolicy constructs a Policy from a key→value map. Pass nil or an empty
+// map to construct an empty (no-enforcement) Policy.
+func NewPolicy(values map[string]any) *Policy {
+	if values == nil {
+		values = map[string]any{}
+	}
+	return &Policy{values: values}
+}
+
+// LoadPolicy reads the platform-native MDM configuration. Returns an empty
+// (but non-nil) Policy when no source is present, the source is empty, or
+// the platform is unsupported.
+//
+// Diagnostic logging differentiates the three states:
+//   - source absent / unsupported platform: trace log only
+//   - source present, zero keys:             info "MDM enrolled (no managed keys)"
+//   - source present, N keys:                info "MDM enrolled with N managed keys: [...]"
+func LoadPolicy() *Policy {
+	values, err := loadPlatformPolicy()
+	if err != nil {
+		log.Tracef("MDM policy load: %v", err)
+		return &Policy{values: map[string]any{}}
+	}
+	if values == nil {
+		return &Policy{values: map[string]any{}}
+	}
+	if len(values) == 0 {
+		log.Info("MDM enrolled (no managed keys)")
+	} else {
+		log.Infof("MDM enrolled with %d managed key(s): %v", len(values), sortedKeys(values))
+	}
+	return &Policy{values: values}
+}
+
+// IsEmpty reports whether the Policy has no managed keys.
+func (p *Policy) IsEmpty() bool {
+	return p == nil || len(p.values) == 0
+}
+
+// HasKey reports whether the given key is MDM-managed.
+func (p *Policy) HasKey(key string) bool {
+	if p == nil {
+		return false
+	}
+	_, ok := p.values[key]
+	return ok
+}
+
+// ManagedKeys returns the sorted list of managed key names. Returns an empty
+// slice (not nil) on an empty Policy.
+func (p *Policy) ManagedKeys() []string {
+	if p == nil {
+		return []string{}
+	}
+	return sortedKeys(p.values)
+}
+
+// GetString returns the managed value for key coerced to string, and whether
+// the key was set. A non-string value returns ("", false).
+func (p *Policy) GetString(key string) (string, bool) {
+	if p == nil {
+		return "", false
+	}
+	v, ok := p.values[key]
+	if !ok {
+		return "", false
+	}
+	s, ok := v.(string)
+	if !ok || s == "" {
+		return "", false
+	}
+	return s, true
+}
+
+// GetBool returns the managed value for key coerced to bool, and whether the
+// key was set. Accepts native bool and string literals "true"/"false"/"1"/"0".
+func (p *Policy) GetBool(key string) (bool, bool) {
+	if p == nil {
+		return false, false
+	}
+	v, ok := p.values[key]
+	if !ok {
+		return false, false
+	}
+	switch t := v.(type) {
+	case bool:
+		return t, true
+	case string:
+		switch t {
+		case "true", "1", "yes":
+			return true, true
+		case "false", "0", "no":
+			return false, true
+		}
+	case int:
+		return t != 0, true
+	case int64:
+		return t != 0, true
+	}
+	return false, false
+}
+
+// GetStringSlice returns the managed value for key as []string, and whether
+// the key was set. Accepts []string, []any (of strings), and a single string
+// (treated as a one-element list).
+func (p *Policy) GetStringSlice(key string) ([]string, bool) {
+	if p == nil {
+		return nil, false
+	}
+	v, ok := p.values[key]
+	if !ok {
+		return nil, false
+	}
+	switch t := v.(type) {
+	case []string:
+		return append([]string(nil), t...), true
+	case []any:
+		out := make([]string, 0, len(t))
+		for _, item := range t {
+			s, ok := item.(string)
+			if !ok {
+				return nil, false
+			}
+			out = append(out, s)
+		}
+		return out, true
+	case string:
+		return []string{t}, true
+	}
+	return nil, false
+}
+
+func sortedKeys(m map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
