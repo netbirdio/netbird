@@ -23,12 +23,16 @@ const EventBrowserLoginCancel = "browser-login:cancel"
 
 // WindowManager opens auxiliary application windows on demand from the
 // frontend. The main window is created up-front in main.go; this service is
-// for secondary, on-demand surfaces (Settings, BrowserLogin).
+// for secondary surfaces (Settings, BrowserLogin, Session*, InstallProgress).
 //
-// Secondary windows are created on first open and destroyed on close —
-// the Wails-recommended singleton pattern (see Multiple Windows docs:
-// "Cleanup on close"). Destroying rather than hiding means the dock-reopen
-// handler doesn't find a hidden window to resurrect.
+// Settings is created eagerly (hidden) at construction and hides — rather
+// than destroys — on close, so reopens are instant and the React side keeps
+// whatever in-window state the user left behind (selected tab, scroll
+// position, unsaved form fields). All other auxiliary windows are created
+// on first open and destroyed on close — the Wails-recommended singleton
+// pattern (see Multiple Windows docs: "Cleanup on close"). Destroying rather
+// than hiding means the macOS dock-reopen handler doesn't find a hidden
+// window to resurrect.
 type WindowManager struct {
 	app                  *application.App
 	mainWindow           *application.WebviewWindow
@@ -49,51 +53,53 @@ type WindowManager struct {
 // up-front-created webview the user interacts with from the tray — used to
 // pick the BrowserLogin window's display so the sign-in popup follows the
 // user onto the screen they're already looking at.
+//
+// The Settings window is created here, hidden, so the first OpenSettings
+// call paints instantly instead of paying webview construction + asset load
+// at click time.
 func NewWindowManager(app *application.App, mainWindow *application.WebviewWindow) *WindowManager {
-	return &WindowManager{app: app, mainWindow: mainWindow}
+	s := &WindowManager{app: app, mainWindow: mainWindow}
+	s.settings = app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Name:                "settings",
+		Title:               "NetBird Settings",
+		Width:               900,
+		Height:              640,
+		Hidden:              true,
+		DisableResize:       true,
+		MinimiseButtonState: application.ButtonHidden,
+		MaximiseButtonState: application.ButtonHidden,
+		CloseButtonState:    application.ButtonEnabled,
+		BackgroundColour:    application.NewRGB(24, 26, 29),
+		URL:                 "/#/settings",
+		Mac: application.MacWindow{
+			InvisibleTitleBarHeight: 38,
+			Backdrop:                application.MacBackdropNormal,
+			TitleBar:                application.MacTitleBarHiddenInset,
+			CollectionBehavior:      application.MacWindowCollectionBehaviorFullScreenNone,
+		},
+		Windows: application.WindowsWindow{
+			Theme: application.Dark,
+		},
+	})
+	// Hide on close instead of destroying — preserves in-window React state
+	// across reopens. Mirrors the main window's close behaviour.
+	s.settings.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+		e.Cancel()
+		s.settings.Hide()
+	})
+	return s
 }
 
-// OpenSettings shows the settings window, creating it on first use (and
-// after the user has closed a previous instance). If `tab` is non-empty the
-// settings React layer reads it from the start URL and selects that tab
-// (e.g. "profiles") instead of the default "general".
+// OpenSettings shows the settings window (created hidden at startup). If
+// `tab` is non-empty the settings React layer reads it from the start URL
+// and selects that tab (e.g. "profiles") instead of whatever tab was active
+// when the user last closed the window. Passing an empty tab keeps the
+// existing in-window state.
 func (s *WindowManager) OpenSettings(tab string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	startURL := "/#/settings"
 	if tab != "" {
-		startURL = "/#/settings?tab=" + url.QueryEscape(tab)
-	}
-	if s.settings == nil {
-		s.settings = s.app.Window.NewWithOptions(application.WebviewWindowOptions{
-			Name:                "settings",
-			Title:               "NetBird Settings",
-			Width:               900,
-			Height:              640,
-			DisableResize:       true,
-			MinimiseButtonState: application.ButtonHidden,
-			MaximiseButtonState: application.ButtonHidden,
-			CloseButtonState:    application.ButtonEnabled,
-			BackgroundColour:    application.NewRGB(24, 26, 29),
-			URL:                 startURL,
-			Mac: application.MacWindow{
-				InvisibleTitleBarHeight: 38,
-				Backdrop:                application.MacBackdropNormal,
-				TitleBar:                application.MacTitleBarHiddenInset,
-				CollectionBehavior:      application.MacWindowCollectionBehaviorFullScreenNone,
-			},
-			Windows: application.WindowsWindow{
-				Theme: application.Dark,
-			},
-		})
-		s.settings.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
-			s.mu.Lock()
-			s.settings = nil
-			s.mu.Unlock()
-		})
-	} else if tab != "" {
-		// Re-open onto a specific tab when the window is already alive.
-		s.settings.SetURL(startURL)
+		s.settings.SetURL("/#/settings?tab=" + url.QueryEscape(tab))
 	}
 	s.settings.Show()
 	s.settings.Focus()

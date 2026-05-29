@@ -217,9 +217,29 @@ func main() {
 		window.Hide()
 	})
 
-	// The settings and browser-login windows are created lazily and
-	// destroyed on close, so they don't linger as hidden windows that
-	// Wails's macOS dock-reopen handler would pop back up.
+	// On macOS, replace Wails' default applicationShouldHandleReopen handler
+	// (events_common_darwin.go setupCommonEvents) which calls Show() on
+	// every hidden window when the dock icon is clicked. That resurrects
+	// hide-on-close auxiliary surfaces like Settings. Cancel the event in
+	// a hook (hooks run synchronously, before listeners) and bring up only
+	// the main window. No-op on other platforms — the event never fires.
+	if runtime.GOOS == "darwin" {
+		app.Event.RegisterApplicationEventHook(events.Mac.ApplicationShouldHandleReopen, func(e *application.ApplicationEvent) {
+			e.Cancel()
+			if e.Context().HasVisibleWindows() {
+				return
+			}
+			window.Show()
+			window.Focus()
+		})
+	}
+
+	// Settings is created eagerly (hidden) inside NewWindowManager so the
+	// first click on the gear paints instantly and the React side keeps
+	// per-tab state across reopens. The other auxiliary windows
+	// (BrowserLogin, Session*, InstallProgress) stay lazy + destroy-on-close
+	// so they don't linger as hidden windows that Wails's macOS dock-reopen
+	// handler would pop back up.
 	windowManager := services.NewWindowManager(app, window)
 	app.RegisterService(application.NewService(windowManager))
 
