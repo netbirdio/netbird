@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/sirupsen/logrus"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
@@ -104,6 +105,13 @@ func main() {
 	update := services.NewUpdate(conn, updaterHolder)
 	daemonFeed := services.NewDaemonFeed(conn, app.Event, updaterHolder)
 	notifier := notifications.New()
+	// macOS won't surface any toast until the app has requested permission;
+	// the request runs after ApplicationStarted so the notifier's Startup has
+	// initialised the notification-center delegate. Linux/Windows stubs return
+	// authorized, so this is a no-op there.
+	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		go requestNotificationAuthorization(notifier)
+	})
 
 	bundle, prefStore, localizer := buildI18n(app)
 
@@ -170,6 +178,25 @@ func main() {
 
 	if err := app.Run(); err != nil {
 		log.Fatal(err)
+	}
+}
+
+// requestNotificationAuthorization prompts for macOS notification permission
+// when the app first runs unauthorized. RequestNotificationAuthorization
+// blocks until the user responds (up to 3 minutes on macOS), so callers run
+// it in a goroutine. On Linux/Windows the Wails notifier stubs report
+// authorized, making this a no-op.
+func requestNotificationAuthorization(notifier *notifications.NotificationService) {
+	authorized, err := notifier.CheckNotificationAuthorization()
+	if err != nil {
+		logrus.Debugf("check notification authorization: %v", err)
+		return
+	}
+	if authorized {
+		return
+	}
+	if _, err := notifier.RequestNotificationAuthorization(); err != nil {
+		logrus.Debugf("request notification authorization: %v", err)
 	}
 }
 
@@ -294,8 +321,8 @@ func newMainWindow(app *application.App, prefStore *preferences.Store) *applicat
 		DisableResize:       true,
 		MinimiseButtonState: application.ButtonHidden,
 		MaximiseButtonState: application.ButtonHidden,
-		Mac: services.AppleMacOSAppearanceOptions(),
-		Windows: services.MicrosoftWindowsAppearanceOptions(),
+		Mac:                 services.AppleMacOSAppearanceOptions(),
+		Windows:             services.MicrosoftWindowsAppearanceOptions(),
 		Linux: application.LinuxWindow{
 			Icon: iconWindow,
 		},
