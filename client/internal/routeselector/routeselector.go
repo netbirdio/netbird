@@ -124,6 +124,17 @@ func (rs *RouteSelector) IsSelected(routeID route.NetID) bool {
 	return rs.isSelectedLocked(routeID)
 }
 
+// IsSelectedForExitNode checks if an exit-node route is selected, mirroring the
+// v4/v6 pair: a synthesized "-v6" entry with no explicit state of its own inherits
+// its v4 base's selection, so a deselect on the v4 base also deselects the v6 entry.
+// Only call this from exit-node code paths (see effectiveNetID).
+func (rs *RouteSelector) IsSelectedForExitNode(routeID route.NetID) bool {
+	rs.mu.RLock()
+	defer rs.mu.RUnlock()
+
+	return rs.isSelectedLocked(rs.effectiveNetID(routeID))
+}
+
 // FilterSelected removes unselected routes from the provided map.
 func (rs *RouteSelector) FilterSelected(routes route.HAMap) route.HAMap {
 	rs.mu.RLock()

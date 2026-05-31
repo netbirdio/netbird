@@ -359,6 +359,30 @@ func TestRouteSelector_V6ExitPairInherits(t *testing.T) {
 		assert.True(t, rs.IsSelected("corp-v6"), "non-exit *-v6 routes must not inherit unrelated v4 state")
 	})
 
+	t.Run("IsSelectedForExitNode mirrors deselected v4 base", func(t *testing.T) {
+		rs := routeselector.NewRouteSelector()
+		require.NoError(t, rs.DeselectRoutes([]route.NetID{"exit1"}, all))
+
+		// Regression: deselecting the v4 exit node must also report the synthesized
+		// "-v6" pair as not selected, otherwise the ::/0 route leaks into the tunnel.
+		assert.False(t, rs.IsSelectedForExitNode("exit1"))
+		assert.False(t, rs.IsSelectedForExitNode("exit1-v6"), "v6 pair inherits v4 base deselect")
+
+		// An exit node with no user selection at all stays selected by default.
+		assert.True(t, rs.IsSelectedForExitNode("exit2"))
+		assert.True(t, rs.IsSelectedForExitNode("exit2-v6"))
+	})
+
+	t.Run("IsSelectedForExitNode respects explicit v6 state", func(t *testing.T) {
+		rs := routeselector.NewRouteSelector()
+		require.NoError(t, rs.DeselectRoutes([]route.NetID{"exit1"}, all))
+		require.NoError(t, rs.SelectRoutes([]route.NetID{"exit1-v6"}, true, all))
+
+		// Explicit selection on the v6 entry overrides the v4 base's deselect.
+		assert.False(t, rs.IsSelectedForExitNode("exit1"))
+		assert.True(t, rs.IsSelectedForExitNode("exit1-v6"), "explicit v6 select wins over v4 base")
+	})
+
 	t.Run("explicit v6 state overrides v4 base in filter", func(t *testing.T) {
 		rs := routeselector.NewRouteSelector()
 		require.NoError(t, rs.DeselectRoutes([]route.NetID{"exit1"}, all))

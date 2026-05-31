@@ -745,7 +745,10 @@ func (m *DefaultManager) isExitNodeRoute(routes []*route.Route) bool {
 }
 
 func (m *DefaultManager) categorizeUserSelection(netID route.NetID, info *exitNodeInfo) {
-	if m.routeSelector.IsSelected(netID) {
+	// Use the exit-node-aware check so a synthesized "-v6" route inherits the v4
+	// base's selection: deselecting the v4 exit node must also drop its ::/0 pair,
+	// otherwise the v6 default route leaks into the tunnel despite the deselect.
+	if m.routeSelector.IsSelectedForExitNode(netID) {
 		info.userSelected = append(info.userSelected, netID)
 	} else {
 		info.userDeselected = append(info.userDeselected, netID)
