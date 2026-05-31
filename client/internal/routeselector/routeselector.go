@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/hashicorp/go-multierror"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/route"
@@ -135,6 +136,13 @@ func (rs *RouteSelector) IsSelectedForExitNode(routeID route.NetID) bool {
 	return rs.isSelectedLocked(rs.effectiveNetID(routeID))
 }
 
+// MarshalSummary returns a short human-readable description of the selector state for diagnostics.
+func (rs *RouteSelector) MarshalSummary() string {
+	rs.mu.RLock()
+	defer rs.mu.RUnlock()
+	return fmt.Sprintf("deselectAll=%v selected=%v deselected=%v", rs.deselectAll, keysOf(rs.selectedRoutes), keysOf(rs.deselectedRoutes))
+}
+
 // FilterSelected removes unselected routes from the provided map.
 func (rs *RouteSelector) FilterSelected(routes route.HAMap) route.HAMap {
 	rs.mu.RLock()
@@ -172,22 +180,45 @@ func (rs *RouteSelector) FilterSelectedExitNodes(routes route.HAMap) route.HAMap
 		return route.HAMap{}
 	}
 
+	log.Debugf("DIAG FilterSelectedExitNodes: incoming %d networks, deselected=%v selected=%v deselectAll=%v",
+		len(routes), keysOf(rs.deselectedRoutes), keysOf(rs.selectedRoutes), rs.deselectAll)
+
 	filtered := make(route.HAMap, len(routes))
 	for id, rt := range routes {
 		netID := id.NetID()
 		if rs.isDeselectedLocked(netID) {
+			log.Debugf("DIAG FilterSelectedExitNodes: SKIP id=%q netID=%q (literally deselected)", id, netID)
 			continue
 		}
 
 		if !isExitNode(rt) {
+			log.Debugf("DIAG FilterSelectedExitNodes: KEEP id=%q netID=%q (not an exit node)", id, netID)
 			filtered[id] = rt
 			continue
 		}
 
+		log.Debugf("DIAG FilterSelectedExitNodes: EXITNODE id=%q netID=%q -> applyExitNodeFilter", id, netID)
 		rs.applyExitNodeFilter(id, netID, rt, filtered)
 	}
 
+	log.Debugf("DIAG FilterSelectedExitNodes: result keeps %d networks: %v", len(filtered), haKeysOf(filtered))
 	return filtered
+}
+
+func keysOf(m map[route.NetID]struct{}) []route.NetID {
+	out := make([]route.NetID, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+func haKeysOf(m route.HAMap) []route.HAUniqueID {
+	out := make([]route.HAUniqueID, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }
 
 // effectiveNetID returns the v4 base for a "-v6" exit pair entry that has no explicit
@@ -243,15 +274,22 @@ func (rs *RouteSelector) applyExitNodeFilter(
 	// Exit-node path: apply the v4/v6 pair mirror so a deselect on the v4 base also
 	// drops the synthesized v6 entry that lacks its own explicit state.
 	effective := rs.effectiveNetID(netID)
+	log.Debugf("DIAG applyExitNodeFilter: id=%q netID=%q effective=%q hasUserSel=%v isSelected=%v",
+		id, netID, effective, rs.hasUserSelectionForRouteLocked(effective), rs.isSelectedLocked(effective))
 	if rs.hasUserSelectionForRouteLocked(effective) {
 		if rs.isSelectedLocked(effective) {
+			log.Debugf("DIAG applyExitNodeFilter: KEEP id=%q (effective %q is selected)", id, effective)
 			out[id] = rt
+		} else {
+			log.Debugf("DIAG applyExitNodeFilter: DROP id=%q (effective %q is deselected)", id, effective)
 		}
 		return
 	}
 
 	// no explicit selection for this route: defer to management's SkipAutoApply flag
 	sel := collectSelected(rt)
+	log.Debugf("DIAG applyExitNodeFilter: no user selection for effective %q; SkipAutoApply filter kept %d/%d routes for id=%q",
+		effective, len(sel), len(rt), id)
 	if len(sel) > 0 {
 		out[id] = sel
 	}

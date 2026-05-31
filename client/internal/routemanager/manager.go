@@ -428,10 +428,16 @@ func (m *DefaultManager) UpdateRoutes(
 	var merr *multierror.Error
 	if !m.disableClientRoutes {
 
+		log.Debugf("DIAG UpdateRoutes: incoming %d client networks: %v", len(clientRoutes), haKeysList(clientRoutes))
+		log.Debugf("DIAG UpdateRoutes: selector BEFORE management update: %s", m.routeSelector.MarshalSummary())
+
 		// Update route selector based on management server's isSelected status
 		m.updateRouteSelectorFromManagement(clientRoutes)
 
+		log.Debugf("DIAG UpdateRoutes: selector AFTER management update: %s", m.routeSelector.MarshalSummary())
+
 		filteredClientRoutes := m.routeSelector.FilterSelectedExitNodes(clientRoutes)
+		log.Debugf("DIAG UpdateRoutes: AFTER filter, %d networks remain: %v", len(filteredClientRoutes), haKeysList(filteredClientRoutes))
 
 		if err := m.updateSystemRoutes(filteredClientRoutes); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("update system routes: %w", err))
@@ -766,6 +772,8 @@ func (m *DefaultManager) checkManagementSelection(routes []*route.Route, netID r
 
 func (m *DefaultManager) updateExitNodeSelections(info exitNodeInfo) {
 	routesToDeselect := m.getRoutesToDeselect(info.allIDs)
+	log.Debugf("DIAG updateExitNodeSelections: allIDs=%v userSelected=%v userDeselected=%v selectedByManagement=%v -> routesToDeselect(no user selection)=%v",
+		info.allIDs, info.userSelected, info.userDeselected, info.selectedByManagement, routesToDeselect)
 	m.deselectExitNodes(routesToDeselect)
 	m.selectExitNodesByManagement(info.selectedByManagement, info.allIDs)
 }
@@ -805,4 +813,14 @@ func (m *DefaultManager) selectExitNodesByManagement(selectedByManagement []rout
 func (m *DefaultManager) logExitNodeUpdate(info exitNodeInfo) {
 	log.Debugf("Updated route selector: %d exit nodes available, %d selected by management, %d user-selected, %d user-deselected",
 		len(info.allIDs), len(info.selectedByManagement), len(info.userSelected), len(info.userDeselected))
+	log.Debugf("DIAG logExitNodeUpdate: allIDs=%v selectedByManagement=%v userSelected=%v userDeselected=%v",
+		info.allIDs, info.selectedByManagement, info.userSelected, info.userDeselected)
+}
+
+func haKeysList(m route.HAMap) []route.HAUniqueID {
+	out := make([]route.HAUniqueID, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }
