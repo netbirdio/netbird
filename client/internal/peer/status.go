@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"runtime"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -1340,6 +1341,9 @@ func (d *Status) UnsubscribeFromStateChanges(id string) {
 // is already going to fetch the latest snapshot, so multiple pending ticks
 // would be redundant.
 func (d *Status) notifyStateChange() {
+	if _, file, line, ok := runtime.Caller(1); ok {
+		log.Infof("--- notifyStateChange from %s:%d", file, line)
+	}
 	d.stateChangeMux.Lock()
 	defer d.stateChangeMux.Unlock()
 
