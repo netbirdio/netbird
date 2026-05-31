@@ -555,6 +555,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		if s.oauthAuthFlow.flow != nil && s.oauthAuthFlow.flow.GetClientID(ctx) == oAuthFlow.GetClientID(ctx) {
 			if s.oauthAuthFlow.expiresAt.After(time.Now().Add(90 * time.Second)) {
 				log.Debugf("using previous oauth flow info")
+				state.Set(internal.StatusNeedsLogin)
 				return &proto.LoginResponse{
 					NeedsSSOLogin:           true,
 					VerificationURI:         s.oauthAuthFlow.info.VerificationURI,
@@ -602,21 +603,29 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 // WaitSSOLogin validates the supplied userCode against the in-flight OAuth
 // device/PKCE flow and blocks until the user finishes the browser leg.
 //
+// The daemon holds StatusNeedsLogin for the whole browser wait (set on
+// entry): the login is not done until the token returns, so a client that
+// (re)attaches mid-wait — a restarted UI, a second `netbird up` — reads
+// "login required" and offers the affordance, instead of a Connecting that
+// never resolves. The wait is also tied to the caller's context (see the
+// goroutine below), so a client that goes away cancels the wait instead of
+// orphaning it on rootCtx until the device-code window expires.
+//
 // State transitions on exit:
 //
 //	┌──────────────────────────────────────────┬──────────────────────────────────┐
 //	│ Outcome                                  │ contextState                     │
 //	├──────────────────────────────────────────┼──────────────────────────────────┤
-//	│ Success → loginAttempt → Connected       │ StatusConnected (loginAttempt)   │
+//	│ Success → loginAttempt ok                │ NeedsLogin held; the caller's Up │
+//	│                                          │   drives Connecting → Connected  │
 //	│ Success → loginAttempt → still-NeedsLogin│ StatusNeedsLogin (loginAttempt)  │
 //	│ Success → loginAttempt error             │ StatusLoginFailed (loginAttempt) │
 //	│ UserCode mismatch                        │ StatusLoginFailed                │
-//	│ WaitToken: context.Canceled (external    │ defer runs: status untouched if  │
-//	│   abort — profile switch invokes         │   already NeedsLogin/LoginFailed,│
-//	│   actCancel/waitCancel, app quit,        │   else StatusIdle. Keeps the     │
-//	│   another WaitSSOLogin started)          │   cancel from leaking as a       │
-//	│                                          │   spurious LoginFailed on the    │
-//	│                                          │   next profile's Up.             │
+//	│ WaitToken: context.Canceled              │ NeedsLogin held. Caller gone     │
+//	│   (caller went away — UI restart /       │   (UI/CLI) → a fresh client      │
+//	│   Ctrl+C — or internal abort: profile    │   shows the login affordance;    │
+//	│   switch / app quit / another            │   internal aborts are            │
+//	│   WaitSSOLogin via actCancel/waitCancel) │   overwritten by the next Up.    │
 //	│ WaitToken: context.DeadlineExceeded      │ StatusNeedsLogin                 │
 //	│   (OAuth device-code window expired      │   (retryable; the UI's "Connect" │
 //	│   while waiting on the browser leg)      │   re-enters the Login flow)      │
@@ -625,15 +634,30 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 //	│   failure, token validation rejection)   │   surfaced verbatim to caller)   │
 //	└──────────────────────────────────────────┴──────────────────────────────────┘
 //
-// The defer at the top of the function applies the Idle fallback so callers
-// that bypass the explicit Set calls (the Canceled branch above, the success
-// path before loginAttempt) still land on a sensible terminal status.
+// The defer still applies a StatusIdle fallback for the early
+// oauth-flow-not-initialized return (before the entry Set), so a half state
+// doesn't leak when there is nothing to wait on.
 func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLoginRequest) (*proto.WaitSSOLoginResponse, error) {
 	s.mutex.Lock()
 	if s.actCancel != nil {
 		s.actCancel()
 	}
 	ctx, cancel := context.WithCancel(s.rootCtx)
+
+	// Tie the in-flight browser wait to the caller. ctx stays rooted in
+	// rootCtx so CtxGetState resolves the daemon's contextState, but if the
+	// UI window or CLI that drove the login goes away mid-flow (restart,
+	// Ctrl+C) the gRPC callerCtx cancels and we cancel the wait instead of
+	// orphaning it on rootCtx until the OAuth device-code window expires.
+	// The goroutine exits as soon as either context completes, so it can't
+	// outlive the RPC.
+	go func() {
+		select {
+		case <-callerCtx.Done():
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
 
 	md, ok := metadata.FromIncomingContext(callerCtx)
 	if ok {
@@ -660,7 +684,11 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 		}
 	}()
 
-	state.Set(internal.StatusConnecting)
+	// Hold NeedsLogin for the whole browser wait — the login is not done
+	// until the token returns, so a client that (re)attaches mid-wait
+	// (restarted UI, second `netbird up`) reads "login required" and offers
+	// the affordance instead of a Connecting that never resolves.
+	state.Set(internal.StatusNeedsLogin)
 
 	s.mutex.Lock()
 	flowInfo := s.oauthAuthFlow.info
