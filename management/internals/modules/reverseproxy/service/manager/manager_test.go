@@ -1172,7 +1172,7 @@ func TestDeleteService_DeletesTargets(t *testing.T) {
 
 	mockPerms.EXPECT().
 		ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Delete).
-		Return(true, nil)
+		Return(true, ctx, nil)
 	mockAcct.EXPECT().
 		StoreEvent(ctx, userID, service.ID, accountID, activity.ServiceDeleted, gomock.Any())
 	mockAcct.EXPECT().
