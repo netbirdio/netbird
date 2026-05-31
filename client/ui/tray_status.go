@@ -26,7 +26,7 @@ func (t *Tray) onStatusEvent(ev *application.CustomEvent) {
 // otherwise spam Shell_NotifyIcon and the log.
 //
 // Profile-switch suppression lives one layer up in services/daemon_feed.go
-// (DaemonFeed.BeginProfileSwitch / shouldSuppress) so the optimistic
+// (DaemonFeed.BeginProfileSwitch / consumeForSwitch) so the optimistic
 // Connecting paint and the suppressed Idle/Connected events are shared
 // with the React Status page rather than being a tray-only behaviour.
 func (t *Tray) applyStatus(st services.Status) {

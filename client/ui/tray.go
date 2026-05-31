@@ -125,6 +125,12 @@ type Tray struct {
 	// SSO-tracked and has no cached token; applyStatus consumes this
 	// flag on that transition to automatically open the browser-login
 	// flow, saving the user a second Connect click.
+	//
+	// Profile-switch reconnects (which also fire an Up) are handled
+	// centrally by DaemonFeed.statusStreamLoop — see DaemonFeed's
+	// switchInProgress transitions and its EventTriggerLogin emit, so
+	// that the React UI's profile dropdown gets the same auto-handoff
+	// without going through this tray flag.
 	pendingConnectLogin bool
 
 	// sessionMu guards the cached SSO deadline used by the "Session: 47m"

@@ -154,16 +154,28 @@ type Status struct {
 // and the React Status page both see Connecting → new-profile-state
 // instead of Connected → Connected → Idle → Connecting → new-state.
 //
-// Suppression transition (applied by shouldSuppress before each emit):
+// Two flags govern the switch lifecycle, evaluated independently by
+// consumeForSwitch on every push (lifetimes differ — see godoc):
+//
+//	switchInProgress (suppression): clears on the first real push from
+//	    the new Up. The daemon-side StatusConnecting comes BEFORE any
+//	    NeedsLogin, so suppression has to release here even though the
+//	    final terminal hasn't arrived yet.
+//	switchLoginWatch (trigger):     outlives suppression. Watches for
+//	    NeedsLogin / LoginFailed / SessionExpired anywhere along the
+//	    Up's retry loop and emits EventTriggerLogin so the React
+//	    orchestrator opens the browser-login flow.
 //
 //	┌────────────────────────────────────────────┬──────────────────────────────────┐
 //	│ Incoming daemon status                     │ Action                           │
 //	├────────────────────────────────────────────┼──────────────────────────────────┤
-//	│ Connected, Idle                            │ Suppress (the blink we hide)     │
-//	│ Connecting                                 │ Emit, clear flag (new Up began)  │
-//	│ NeedsLogin, LoginFailed, SessionExpired,   │ Emit, clear flag (new profile's  │
-//	│   DaemonUnavailable                        │   "Up won't run" terminal state) │
-//	│ (timeout elapsed)                          │ Clear flag, emit normally        │
+//	│ Connected, Idle (while switchInProgress)   │ Suppress (the blink we hide)     │
+//	│ Connecting                                 │ Emit, clear switchInProgress     │
+//	│ NeedsLogin, LoginFailed, SessionExpired    │ Emit, clear both flags, also     │
+//	│                                            │   emit EventTriggerLogin         │
+//	│ Connected, Idle (while only login-watch)   │ Emit, clear switchLoginWatch     │
+//	│ DaemonUnavailable                          │ Emit, clear both flags           │
+//	│ (timeout elapsed)                          │ Clear flags, emit normally       │
 //	└────────────────────────────────────────────┴──────────────────────────────────┘
 type DaemonFeed struct {
 	conn    DaemonConn
@@ -177,6 +189,15 @@ type DaemonFeed struct {
 	switchMu              sync.Mutex
 	switchInProgress      bool
 	switchInProgressUntil time.Time
+	// switchLoginWatch outlives switchInProgress: the suppression flag
+	// clears on Connecting (first real push from the new Up) but the
+	// trigger-login watcher must survive past that to catch the eventual
+	// NeedsLogin / LoginFailed / SessionExpired terminal. Cleared on
+	// Connected (success), Idle (the new profile is offline), or
+	// DaemonUnavailable (daemon went away mid-switch) — and on a 30s
+	// timeout for safety.
+	switchLoginWatch      bool
+	switchLoginWatchUntil time.Time
 }
 
 func NewDaemonFeed(conn DaemonConn, emitter Emitter, updaterHolder *updater.Holder) *DaemonFeed {
@@ -192,9 +213,12 @@ func NewDaemonFeed(conn DaemonConn, emitter Emitter, updaterHolder *updater.Hold
 // React) paint the optimistic state immediately. A 30s safety timeout
 // clears the flag if the daemon never emits a follow-up status.
 func (s *DaemonFeed) BeginProfileSwitch() {
+	now := time.Now()
 	s.switchMu.Lock()
 	s.switchInProgress = true
-	s.switchInProgressUntil = time.Now().Add(30 * time.Second)
+	s.switchInProgressUntil = now.Add(30 * time.Second)
+	s.switchLoginWatch = true
+	s.switchLoginWatchUntil = now.Add(30 * time.Second)
 	s.switchMu.Unlock()
 	s.emitter.Emit(EventStatusSnapshot, Status{Status: StatusConnecting})
 }
@@ -202,10 +226,12 @@ func (s *DaemonFeed) BeginProfileSwitch() {
 // CancelProfileSwitch is called by callers that abort the switch midway
 // (the tray's Disconnect click while Connecting). Clears the suppression
 // flag so the next daemon Idle paints through immediately instead of
-// being swallowed.
+// being swallowed, and disarms the login-watch so the abort doesn't pop
+// a browser-login window after the user explicitly cancelled.
 func (s *DaemonFeed) CancelProfileSwitch() {
 	s.switchMu.Lock()
 	s.switchInProgress = false
+	s.switchLoginWatch = false
 	s.switchMu.Unlock()
 }
 
@@ -273,32 +299,75 @@ func (s *DaemonFeed) Get(ctx context.Context) (Status, error) {
 	return statusFromProto(resp), nil
 }
 
-func (s *DaemonFeed) shouldSuppress(st Status) bool {
+// consumeForSwitch decides whether the incoming status push should be
+// suppressed during an in-progress profile switch and whether the switch
+// landed in a state that warrants kicking the SSO flow (NeedsLogin,
+// SessionExpired, LoginFailed — the three "Up won't proceed without a
+// fresh token" states the React UI collapses under NEEDS_LOGIN_STATES).
+// The triggerLogin signal centralises the auto-handoff for both
+// tray-initiated and React-initiated profile switches, mirroring the
+// tray's pendingConnectLogin path for the plain Connect button.
+//
+// The suppression and trigger flags are evaluated independently because
+// they have different lifetimes: suppression clears on the first real
+// push from the new Up (Connecting), but the trigger watcher must survive
+// past Connecting to catch the eventual NeedsLogin terminal —
+// daemon-side state.Set(StatusConnecting) at connect.go:246 fires before
+// loginToManagement, which is what may then set StatusNeedsLogin at :297.
+func (s *DaemonFeed) consumeForSwitch(st Status) (suppress, triggerLogin bool) {
 	s.switchMu.Lock()
 	defer s.switchMu.Unlock()
-	if !s.switchInProgress {
-		return false
-	}
-	if time.Now().After(s.switchInProgressUntil) {
+
+	now := time.Now()
+	if s.switchInProgress && now.After(s.switchInProgressUntil) {
 		s.switchInProgress = false
-		return false
 	}
-	switch {
-	case strings.EqualFold(st.Status, StatusConnecting),
-		strings.EqualFold(st.Status, StatusNeedsLogin),
-		strings.EqualFold(st.Status, StatusLoginFailed),
-		strings.EqualFold(st.Status, StatusSessionExpired),
-		strings.EqualFold(st.Status, StatusDaemonUnavailable):
-		// New profile's flow has officially begun (Up started, or daemon
-		// refused to start it). Clear the guard and let it through.
-		s.switchInProgress = false
-		return false
-	default:
-		// Connected (stale carryover from old profile's teardown) or Idle
-		// (transient between Down and Up). Suppress so the optimistic
-		// Connecting from BeginProfileSwitch stays painted.
-		return true
+	if s.switchLoginWatch && now.After(s.switchLoginWatchUntil) {
+		s.switchLoginWatch = false
 	}
+
+	if s.switchInProgress {
+		switch {
+		case strings.EqualFold(st.Status, StatusConnecting),
+			strings.EqualFold(st.Status, StatusNeedsLogin),
+			strings.EqualFold(st.Status, StatusLoginFailed),
+			strings.EqualFold(st.Status, StatusSessionExpired),
+			strings.EqualFold(st.Status, StatusDaemonUnavailable):
+			// New profile's flow has officially begun (Up started, or
+			// daemon refused to start it). Clear the suppression guard
+			// and let it through.
+			s.switchInProgress = false
+		default:
+			// Connected (stale carryover from old profile's teardown) or
+			// Idle (transient between Down and Up). Suppress so the
+			// optimistic Connecting from BeginProfileSwitch stays
+			// painted. Login-watch stays armed for the eventual
+			// terminal.
+			return true, false
+		}
+	}
+
+	if s.switchLoginWatch {
+		switch {
+		case strings.EqualFold(st.Status, StatusNeedsLogin),
+			strings.EqualFold(st.Status, StatusLoginFailed),
+			strings.EqualFold(st.Status, StatusSessionExpired):
+			// Up landed on an "SSO needed" terminal: clear the watch and
+			// ask the React orchestrator to drive the browser-login flow
+			// without the user having to click Connect a second time.
+			s.switchLoginWatch = false
+			return false, true
+		case strings.EqualFold(st.Status, StatusConnected),
+			strings.EqualFold(st.Status, StatusIdle),
+			strings.EqualFold(st.Status, StatusDaemonUnavailable):
+			// Terminal but not SSO — switch finished without needing
+			// re-auth (Connected) or with no new flow to await (Idle /
+			// DaemonUnavailable). Disarm without triggering.
+			s.switchLoginWatch = false
+		}
+	}
+
+	return false, false
 }
 
 // statusStreamLoop subscribes to the daemon's SubscribeStatus stream and
@@ -387,11 +456,15 @@ func (s *DaemonFeed) handleStatusRecvErr(ctx context.Context, err error, emitUna
 // stale-Connected / Idle pushes that occur mid profile switch.
 func (s *DaemonFeed) emitStatus(st Status) {
 	log.Infof("backend event: status status=%q peers=%d", st.Status, len(st.Peers))
-	if s.shouldSuppress(st) {
+	suppress, triggerLogin := s.consumeForSwitch(st)
+	if suppress {
 		log.Debugf("suppressing status=%q during profile switch", st.Status)
 		return
 	}
 	s.emitter.Emit(EventStatusSnapshot, st)
+	if triggerLogin {
+		s.emitter.Emit(EventTriggerLogin)
+	}
 }
 
 // toastStreamLoop subscribes to the daemon's SubscribeEvents RPC and

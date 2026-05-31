@@ -34,10 +34,13 @@ import (
 // (via DaemonFeed.BeginProfileSwitch): they're the only prevStatuses where
 // the daemon emits stale Connected updates (peer count drops as the
 // engine tears down) and then Idle, before the new profile's Up
-// resumes the stream. Both are swallowed by DaemonFeed.shouldSuppress
+// resumes the stream. Both are swallowed by DaemonFeed.consumeForSwitch
 // until a status that signals the new flow has begun (Connecting, or
 // any of the "Up won't run" terminal states: NeedsLogin / LoginFailed /
-// SessionExpired / DaemonUnavailable). The other prevStatuses either
+// SessionExpired / DaemonUnavailable). The NeedsLogin / LoginFailed /
+// SessionExpired exits additionally cause DaemonFeed to emit EventTriggerLogin
+// so the React orchestrator opens the browser-login flow automatically.
+// The other prevStatuses either
 // don't drive Down/Up at all (Idle) or stop after Down (NeedsLogin /
 // LoginFailed / SessionExpired) — the resulting Idle is the correct
 // terminal state, so no suppression is needed.
