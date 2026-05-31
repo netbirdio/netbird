@@ -2,7 +2,10 @@ package internal
 
 import (
 	"context"
+	"runtime"
 	"sync"
+
+	log "github.com/sirupsen/logrus"
 )
 
 type StatusType string
@@ -52,6 +55,9 @@ func (c *contextState) SetOnChange(fn func()) {
 }
 
 func (c *contextState) Set(update StatusType) {
+	if _, file, line, ok := runtime.Caller(1); ok {
+		log.Infof("--- state.Set(%s) from %s:%d", update, file, line)
+	}
 	c.mutex.Lock()
 	c.status = update
 	c.err = nil
