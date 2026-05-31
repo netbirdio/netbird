@@ -1696,10 +1696,10 @@ func TestBuildUpstreamHandler_MergesGroupsPerDomain(t *testing.T) {
 
 	handler := muxUpdates[0].handler.(*upstreamResolver)
 	require.Len(t, handler.upstreamServers, 2, "handler should have two groups")
-	assert.Equal(t, upstreamRace{netip.MustParseAddrPort("192.0.2.1:53")}, handler.upstreamServers[0])
+	assert.Equal(t, upstreamRace{udpUpstreamTarget(netip.MustParseAddrPort("192.0.2.1:53"))}, handler.upstreamServers[0])
 	assert.Equal(t, upstreamRace{
-		netip.MustParseAddrPort("192.0.2.2:53"),
-		netip.MustParseAddrPort("192.0.2.3:53"),
+		udpUpstreamTarget(netip.MustParseAddrPort("192.0.2.2:53")),
+		udpUpstreamTarget(netip.MustParseAddrPort("192.0.2.3:53")),
 	}, handler.upstreamServers[1])
 }
 
@@ -1715,8 +1715,8 @@ func TestBuildUpstreamHandler_MergesGroupsPerDomain(t *testing.T) {
 // fresh-working → Unhealthy; otherwise Undecided.
 func TestEvaluateNSGroupHealth(t *testing.T) {
 	now := time.Now()
-	a := netip.MustParseAddrPort("192.0.2.1:53")
-	b := netip.MustParseAddrPort("192.0.2.2:53")
+	a := udpUpstreamTarget(netip.MustParseAddrPort("192.0.2.1:53"))
+	b := udpUpstreamTarget(netip.MustParseAddrPort("192.0.2.2:53"))
 
 	recentOk := UpstreamHealth{LastOk: now.Add(-2 * time.Second)}
 	recentFail := UpstreamHealth{LastFail: now.Add(-1 * time.Second), LastErr: "timeout"}
@@ -1735,79 +1735,79 @@ func TestEvaluateNSGroupHealth(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		health       map[netip.AddrPort]UpstreamHealth
-		servers      []netip.AddrPort
+		health       map[upstreamTarget]UpstreamHealth
+		servers      []upstreamTarget
 		wantVerdict  nsGroupVerdict
 		wantErrSubst string
 	}{
 		{
 			name:        "no record, undecided",
-			servers:     []netip.AddrPort{a},
+			servers:     []upstreamTarget{a},
 			wantVerdict: nsVerdictUndecided,
 		},
 		{
 			name:        "fresh success, healthy",
-			health:      map[netip.AddrPort]UpstreamHealth{a: recentOk},
-			servers:     []netip.AddrPort{a},
+			health:      map[upstreamTarget]UpstreamHealth{a: recentOk},
+			servers:     []upstreamTarget{a},
 			wantVerdict: nsVerdictHealthy,
 		},
 		{
 			name:         "fresh failure, unhealthy",
-			health:       map[netip.AddrPort]UpstreamHealth{a: recentFail},
-			servers:      []netip.AddrPort{a},
+			health:       map[upstreamTarget]UpstreamHealth{a: recentFail},
+			servers:      []upstreamTarget{a},
 			wantVerdict:  nsVerdictUnhealthy,
 			wantErrSubst: "timeout",
 		},
 		{
 			name:        "only stale success, undecided",
-			health:      map[netip.AddrPort]UpstreamHealth{a: staleOk},
-			servers:     []netip.AddrPort{a},
+			health:      map[upstreamTarget]UpstreamHealth{a: staleOk},
+			servers:     []upstreamTarget{a},
 			wantVerdict: nsVerdictUndecided,
 		},
 		{
 			name:        "only stale failure, undecided",
-			health:      map[netip.AddrPort]UpstreamHealth{a: staleFail},
-			servers:     []netip.AddrPort{a},
+			health:      map[upstreamTarget]UpstreamHealth{a: staleFail},
+			servers:     []upstreamTarget{a},
 			wantVerdict: nsVerdictUndecided,
 		},
 		{
 			name:         "both fresh, fail newer, unhealthy",
-			health:       map[netip.AddrPort]UpstreamHealth{a: okThenFail},
-			servers:      []netip.AddrPort{a},
+			health:       map[upstreamTarget]UpstreamHealth{a: okThenFail},
+			servers:      []upstreamTarget{a},
 			wantVerdict:  nsVerdictUnhealthy,
 			wantErrSubst: "timeout",
 		},
 		{
 			name:        "both fresh, ok newer, healthy",
-			health:      map[netip.AddrPort]UpstreamHealth{a: failThenOk},
-			servers:     []netip.AddrPort{a},
+			health:      map[upstreamTarget]UpstreamHealth{a: failThenOk},
+			servers:     []upstreamTarget{a},
 			wantVerdict: nsVerdictHealthy,
 		},
 		{
 			name: "two upstreams, one success wins",
-			health: map[netip.AddrPort]UpstreamHealth{
+			health: map[upstreamTarget]UpstreamHealth{
 				a: recentFail,
 				b: recentOk,
 			},
-			servers:     []netip.AddrPort{a, b},
+			servers:     []upstreamTarget{a, b},
 			wantVerdict: nsVerdictHealthy,
 		},
 		{
 			name: "two upstreams, one fail one unseen, unhealthy",
-			health: map[netip.AddrPort]UpstreamHealth{
+			health: map[upstreamTarget]UpstreamHealth{
 				a: recentFail,
 			},
-			servers:      []netip.AddrPort{a, b},
+			servers:      []upstreamTarget{a, b},
 			wantVerdict:  nsVerdictUnhealthy,
 			wantErrSubst: "timeout",
 		},
 		{
 			name: "two upstreams, all recent failures, unhealthy",
-			health: map[netip.AddrPort]UpstreamHealth{
+			health: map[upstreamTarget]UpstreamHealth{
 				a: {LastFail: now.Add(-5 * time.Second), LastErr: "timeout"},
 				b: {LastFail: now.Add(-1 * time.Second), LastErr: "SERVFAIL"},
 			},
-			servers:      []netip.AddrPort{a, b},
+			servers:      []upstreamTarget{a, b},
 			wantVerdict:  nsVerdictUnhealthy,
 			wantErrSubst: "SERVFAIL",
 		},
@@ -1831,13 +1831,13 @@ func TestEvaluateNSGroupHealth(t *testing.T) {
 // UpstreamHealth snapshot, letting tests drive recomputeNSGroupStates
 // without spinning up real handlers.
 type healthStubHandler struct {
-	health map[netip.AddrPort]UpstreamHealth
+	health map[upstreamTarget]UpstreamHealth
 }
 
 func (h *healthStubHandler) ServeDNS(dns.ResponseWriter, *dns.Msg) {}
 func (h *healthStubHandler) Stop()                                 {}
 func (h *healthStubHandler) ID() types.HandlerID                   { return "health-stub" }
-func (h *healthStubHandler) UpstreamHealth() map[netip.AddrPort]UpstreamHealth {
+func (h *healthStubHandler) UpstreamHealth() map[upstreamTarget]UpstreamHealth {
 	return h.health
 }
 
@@ -1892,7 +1892,7 @@ func newProjTestFixture(t *testing.T) *projTestFixture {
 		t:        t,
 		recorder: recorder,
 		events:   sub.Events(),
-		stub:     &healthStubHandler{health: map[netip.AddrPort]UpstreamHealth{}},
+		stub:     &healthStubHandler{health: map[upstreamTarget]UpstreamHealth{}},
 		srv:      srv,
 		group: &nbdns.NameServerGroup{
 			Domains:     []string{"example.com"},
@@ -1916,7 +1916,7 @@ func newProjTestFixture(t *testing.T) *projTestFixture {
 }
 
 func (f *projTestFixture) setHealth(h UpstreamHealth) {
-	f.stub.health = map[netip.AddrPort]UpstreamHealth{f.srv: h}
+	f.stub.health = map[upstreamTarget]UpstreamHealth{udpUpstreamTarget(f.srv): h}
 }
 
 func (f *projTestFixture) tick() []peer.NSGroupState {
@@ -2022,8 +2022,8 @@ func TestProjection_OverlayAddrNoRouteDelaysWarning(t *testing.T) {
 		Domains:     []string{"example.com"},
 		NameServers: []nbdns.NameServer{{IP: overlayPeer.Addr(), NSType: nbdns.UDPNameServerType, Port: int(overlayPeer.Port())}},
 	}
-	stub := &healthStubHandler{health: map[netip.AddrPort]UpstreamHealth{
-		overlayPeer: {LastFail: time.Now(), LastErr: "timeout"},
+	stub := &healthStubHandler{health: map[upstreamTarget]UpstreamHealth{
+		udpUpstreamTarget(overlayPeer): {LastFail: time.Now(), LastErr: "timeout"},
 	}}
 	server.dnsMuxHandlers = []handlerWrapper{{domain: "example.com", handler: stub, priority: PriorityUpstream}}
 
@@ -2039,7 +2039,7 @@ func TestProjection_OverlayAddrNoRouteDelaysWarning(t *testing.T) {
 	}
 
 	time.Sleep(60 * time.Millisecond)
-	stub.health = map[netip.AddrPort]UpstreamHealth{overlayPeer: {LastFail: time.Now(), LastErr: "timeout"}}
+	stub.health = map[upstreamTarget]UpstreamHealth{udpUpstreamTarget(overlayPeer): {LastFail: time.Now(), LastErr: "timeout"}}
 	server.refreshHealth()
 
 	select {
@@ -2075,7 +2075,7 @@ func TestProjection_StopClearsHealthState(t *testing.T) {
 		Domains:     []string{"example.com"},
 		NameServers: []nbdns.NameServer{{IP: srv.Addr(), NSType: nbdns.UDPNameServerType, Port: int(srv.Port())}},
 	}
-	stub := &healthStubHandler{health: map[netip.AddrPort]UpstreamHealth{srv: {LastOk: time.Now()}}}
+	stub := &healthStubHandler{health: map[upstreamTarget]UpstreamHealth{udpUpstreamTarget(srv): {LastOk: time.Now()}}}
 	server.dnsMuxHandlers = []handlerWrapper{{domain: "example.com", handler: stub, priority: PriorityUpstream}}
 
 	server.mux.Lock()
@@ -2250,9 +2250,9 @@ func TestProjection_MixedGroupEmitsImmediately(t *testing.T) {
 		},
 	}
 	stub := &healthStubHandler{
-		health: map[netip.AddrPort]UpstreamHealth{
-			public:  {LastFail: time.Now(), LastErr: "servfail"},
-			overlay: {LastFail: time.Now(), LastErr: "timeout"},
+		health: map[upstreamTarget]UpstreamHealth{
+			udpUpstreamTarget(public):  {LastFail: time.Now(), LastErr: "servfail"},
+			udpUpstreamTarget(overlay): {LastFail: time.Now(), LastErr: "timeout"},
 		},
 	}
 	server.dnsMuxHandlers = []handlerWrapper{{domain: "example.com", handler: stub, priority: PriorityUpstream}}
@@ -2372,14 +2372,14 @@ func TestDNSLoopPrevention(t *testing.T) {
 
 				if tt.shouldFilterOwnIP {
 					for _, upstream := range flat {
-						assert.NotEqual(t, dnsServerIP, upstream.Addr())
+						assert.NotEqual(t, dnsServerIP, upstream.AddrPort.Addr())
 					}
 				}
 
 				for _, expected := range tt.expectedServers {
 					found := false
 					for _, upstream := range flat {
-						if upstream.Addr() == expected {
+						if upstream.AddrPort.Addr() == expected {
 							found = true
 							break
 						}

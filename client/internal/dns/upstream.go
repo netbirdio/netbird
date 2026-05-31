@@ -51,6 +51,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/dns/resutil"
 	"github.com/netbirdio/netbird/client/internal/dns/types"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
 )
@@ -130,12 +131,34 @@ type UpstreamResolver interface {
 	upstreamExchange(upstream string, r *dns.Msg) (*dns.Msg, time.Duration, error)
 }
 
+// upstreamTarget identifies a single upstream nameserver and how to reach
+// it. It carries the protocol so a single resolver can host mixed UDP /
+// DoH / NextDNS upstreams within the same nameserver group.
+type upstreamTarget struct {
+	NSType   nbdns.NameServerType
+	AddrPort netip.AddrPort // populated for UDP-style upstreams
+	URL      string         // populated for URL-style upstreams (DoH/NextDNS)
+}
+
+func udpUpstreamTarget(ap netip.AddrPort) upstreamTarget {
+	return upstreamTarget{NSType: nbdns.UDPNameServerType, AddrPort: ap}
+}
+
+// String returns the human-readable form of the target. AddrPort for UDP,
+// URL for everything else. Also used as a map key for per-target health.
+func (t upstreamTarget) String() string {
+	if t.URL != "" {
+		return t.URL
+	}
+	return t.AddrPort.String()
+}
+
 // upstreamRace is an ordered list of upstreams derived from one configured
 // nameserver group. Order matters: the first upstream is tried first, the
 // second only on failure, and so on. Multiple upstreamRace values coexist
 // inside one resolver when overlapping nameserver groups target the same
 // domain; those races run in parallel and the first valid answer wins.
-type upstreamRace []netip.AddrPort
+type upstreamRace []upstreamTarget
 
 // UpstreamHealth is the last query-path outcome for a single upstream,
 // consumed by nameserver-group status projection.
@@ -154,7 +177,7 @@ type upstreamResolverBase struct {
 	upstreamTimeout time.Duration
 
 	healthMu sync.RWMutex
-	health   map[netip.AddrPort]*UpstreamHealth
+	health   map[upstreamTarget]*UpstreamHealth
 
 	statusRecorder *peer.Status
 	// selectedRoutes returns the current set of client routes the admin
@@ -164,13 +187,13 @@ type upstreamResolverBase struct {
 }
 
 type upstreamFailure struct {
-	upstream netip.AddrPort
+	upstream upstreamTarget
 	reason   string
 }
 
 type raceResult struct {
 	msg      *dns.Msg
-	upstream netip.AddrPort
+	upstream upstreamTarget
 	protocol string
 	ede      string
 	failures []upstreamFailure
@@ -253,8 +276,8 @@ func (u *upstreamResolverBase) Stop() {
 }
 
 // flatUpstreams is for logging and ID hashing only, not for dispatch.
-func (u *upstreamResolverBase) flatUpstreams() []netip.AddrPort {
-	var out []netip.AddrPort
+func (u *upstreamResolverBase) flatUpstreams() []upstreamTarget {
+	var out []upstreamTarget
 	for _, g := range u.upstreamServers {
 		out = append(out, g...)
 	}
@@ -268,7 +291,7 @@ func (u *upstreamResolverBase) setSelectedRoutes(selected func() route.HAMap) {
 	u.selectedRoutes = selected
 }
 
-func (u *upstreamResolverBase) addRace(servers []netip.AddrPort) {
+func (u *upstreamResolverBase) addRace(servers []upstreamTarget) {
 	if len(servers) == 0 {
 		return
 	}
@@ -406,7 +429,7 @@ func (u *upstreamResolverBase) tryRace(ctx context.Context, r *dns.Msg, group up
 	return raceResult{failures: failures}
 }
 
-func (u *upstreamResolverBase) queryUpstream(parentCtx context.Context, r *dns.Msg, upstream netip.AddrPort, timeout time.Duration) (raceResult, *upstreamFailure) {
+func (u *upstreamResolverBase) queryUpstream(parentCtx context.Context, r *dns.Msg, upstream upstreamTarget, timeout time.Duration) (raceResult, *upstreamFailure) {
 	ctx, cancel := context.WithTimeout(parentCtx, timeout)
 	defer cancel()
 	ctx, upstreamProto := contextWithUpstreamProtocolResult(ctx)
@@ -423,7 +446,7 @@ func (u *upstreamResolverBase) queryUpstream(parentCtx context.Context, r *dns.M
 	}
 
 	startTime := time.Now()
-	rm, _, err := u.upstreamClient.exchange(ctx, upstream.String(), r)
+	rm, _, err := u.upstreamClient.exchange(ctx, upstream.AddrPort.String(), r)
 
 	if err != nil {
 		// A parent cancellation (e.g., another race won and the coordinator
@@ -474,40 +497,40 @@ func (u *upstreamResolverBase) queryUpstream(parentCtx context.Context, r *dns.M
 
 // healthEntry returns the mutable health record for addr, lazily creating
 // the map and the entry. Caller must hold u.healthMu.
-func (u *upstreamResolverBase) healthEntry(addr netip.AddrPort) *UpstreamHealth {
+func (u *upstreamResolverBase) healthEntry(target upstreamTarget) *UpstreamHealth {
 	if u.health == nil {
-		u.health = make(map[netip.AddrPort]*UpstreamHealth)
+		u.health = make(map[upstreamTarget]*UpstreamHealth)
 	}
-	h := u.health[addr]
+	h := u.health[target]
 	if h == nil {
 		h = &UpstreamHealth{}
-		u.health[addr] = h
+		u.health[target] = h
 	}
 	return h
 }
 
-func (u *upstreamResolverBase) markUpstreamOk(addr netip.AddrPort) {
+func (u *upstreamResolverBase) markUpstreamOk(target upstreamTarget) {
 	u.healthMu.Lock()
 	defer u.healthMu.Unlock()
-	h := u.healthEntry(addr)
+	h := u.healthEntry(target)
 	h.LastOk = time.Now()
 	h.LastFail = time.Time{}
 	h.LastErr = ""
 }
 
-func (u *upstreamResolverBase) markUpstreamFail(addr netip.AddrPort, reason string) {
+func (u *upstreamResolverBase) markUpstreamFail(target upstreamTarget, reason string) {
 	u.healthMu.Lock()
 	defer u.healthMu.Unlock()
-	h := u.healthEntry(addr)
+	h := u.healthEntry(target)
 	h.LastFail = time.Now()
 	h.LastErr = reason
 }
 
 // UpstreamHealth returns a snapshot of per-upstream query outcomes.
-func (u *upstreamResolverBase) UpstreamHealth() map[netip.AddrPort]UpstreamHealth {
+func (u *upstreamResolverBase) UpstreamHealth() map[upstreamTarget]UpstreamHealth {
 	u.healthMu.RLock()
 	defer u.healthMu.RUnlock()
-	out := make(map[netip.AddrPort]UpstreamHealth, len(u.health))
+	out := make(map[upstreamTarget]UpstreamHealth, len(u.health))
 	for k, v := range u.health {
 		out[k] = *v
 	}
@@ -523,7 +546,7 @@ func upstreamUDPSize() uint16 {
 	return dns.MinMsgSize
 }
 
-func (u *upstreamResolverBase) handleUpstreamError(err error, upstream netip.AddrPort, startTime time.Time) *upstreamFailure {
+func (u *upstreamResolverBase) handleUpstreamError(err error, upstream upstreamTarget, startTime time.Time) *upstreamFailure {
 	if !errors.Is(err, context.DeadlineExceeded) && !isTimeout(err) {
 		return &upstreamFailure{upstream: upstream, reason: err.Error()}
 	}
@@ -536,12 +559,17 @@ func (u *upstreamResolverBase) handleUpstreamError(err error, upstream netip.Add
 	return &upstreamFailure{upstream: upstream, reason: reason}
 }
 
-func (u *upstreamResolverBase) debugUpstreamTimeout(upstream netip.AddrPort) string {
+func (u *upstreamResolverBase) debugUpstreamTimeout(upstream upstreamTarget) string {
 	if u.statusRecorder == nil {
 		return ""
 	}
 
-	peerInfo := findPeerForIP(upstream.Addr(), u.statusRecorder)
+	// Only IP-based upstreams can be matched against peer-routed prefixes.
+	if !upstream.AddrPort.IsValid() {
+		return ""
+	}
+
+	peerInfo := findPeerForIP(upstream.AddrPort.Addr(), u.statusRecorder)
 	if peerInfo == nil {
 		return ""
 	}
@@ -549,7 +577,7 @@ func (u *upstreamResolverBase) debugUpstreamTimeout(upstream netip.AddrPort) str
 	return fmt.Sprintf("(routes through NetBird peer %s)", FormatPeerStatus(peerInfo))
 }
 
-func (u *upstreamResolverBase) writeSuccessResponse(w dns.ResponseWriter, rm *dns.Msg, upstream netip.AddrPort, domain string, proto string, logger *log.Entry) {
+func (u *upstreamResolverBase) writeSuccessResponse(w dns.ResponseWriter, rm *dns.Msg, upstream upstreamTarget, domain string, proto string, logger *log.Entry) {
 	resutil.SetMeta(w, "upstream", upstream.String())
 	if proto != "" {
 		resutil.SetMeta(w, "upstream_protocol", proto)

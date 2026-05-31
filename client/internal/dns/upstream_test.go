@@ -67,11 +67,11 @@ func TestUpstreamResolver_ServeDNS(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.TODO())
 			resolver, _ := newUpstreamResolver(ctx, &mockNetstackProvider{}, nil, nil, ".")
-			// Convert test servers to netip.AddrPort
-			var servers []netip.AddrPort
+			// Convert test servers to upstreamTarget
+			var servers []upstreamTarget
 			for _, server := range testCase.InputServers {
 				if addrPort, err := netip.ParseAddrPort(server); err == nil {
-					servers = append(servers, netip.AddrPortFrom(addrPort.Addr().Unmap(), addrPort.Port()))
+					servers = append(servers, udpUpstreamTarget(netip.AddrPortFrom(addrPort.Addr().Unmap(), addrPort.Port())))
 				}
 			}
 			resolver.addRace(servers)
@@ -288,7 +288,7 @@ func TestUpstreamResolver_Failover(t *testing.T) {
 				upstreamClient:  trackingClient,
 				upstreamTimeout: UpstreamTimeout,
 			}
-			resolver.addRace([]netip.AddrPort{upstream1, upstream2})
+			resolver.addRace([]upstreamTarget{udpUpstreamTarget(upstream1), udpUpstreamTarget(upstream2)})
 
 			var responseMSG *dns.Msg
 			responseWriter := &test.MockResponseWriter{
@@ -370,7 +370,7 @@ func TestUpstreamResolver_SingleUpstreamFailure(t *testing.T) {
 		upstreamClient:  mockClient,
 		upstreamTimeout: UpstreamTimeout,
 	}
-	resolver.addRace([]netip.AddrPort{upstream})
+	resolver.addRace([]upstreamTarget{udpUpstreamTarget(upstream)})
 
 	var responseMSG *dns.Msg
 	responseWriter := &test.MockResponseWriter{
@@ -416,8 +416,8 @@ func TestUpstreamResolver_RaceAcrossGroups(t *testing.T) {
 		upstreamClient:  mockClient,
 		upstreamTimeout: 250 * time.Millisecond,
 	}
-	resolver.addRace([]netip.AddrPort{broken})
-	resolver.addRace([]netip.AddrPort{working})
+	resolver.addRace([]upstreamTarget{udpUpstreamTarget(broken)})
+	resolver.addRace([]upstreamTarget{udpUpstreamTarget(working)})
 
 	var responseMSG *dns.Msg
 	responseWriter := &test.MockResponseWriter{
@@ -463,8 +463,8 @@ func TestUpstreamResolver_AllGroupsFail(t *testing.T) {
 		upstreamClient:  mockClient,
 		upstreamTimeout: UpstreamTimeout,
 	}
-	resolver.addRace([]netip.AddrPort{a})
-	resolver.addRace([]netip.AddrPort{b})
+	resolver.addRace([]upstreamTarget{udpUpstreamTarget(a)})
+	resolver.addRace([]upstreamTarget{udpUpstreamTarget(b)})
 
 	var responseMSG *dns.Msg
 	responseWriter := &test.MockResponseWriter{
@@ -502,19 +502,21 @@ func TestUpstreamResolver_HealthTracking(t *testing.T) {
 		upstreamClient:  mockClient,
 		upstreamTimeout: UpstreamTimeout,
 	}
-	resolver.addRace([]netip.AddrPort{ok, bad})
+	okTarget := udpUpstreamTarget(ok)
+	badTarget := udpUpstreamTarget(bad)
+	resolver.addRace([]upstreamTarget{okTarget, badTarget})
 
 	responseWriter := &test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { return nil }}
 	resolver.ServeDNS(responseWriter, new(dns.Msg).SetQuestion("example.com.", dns.TypeA))
 
 	health := resolver.UpstreamHealth()
-	require.Contains(t, health, ok)
-	assert.False(t, health[ok].LastOk.IsZero(), "ok upstream should have LastOk set")
-	assert.Empty(t, health[ok].LastErr)
+	require.Contains(t, health, okTarget)
+	assert.False(t, health[okTarget].LastOk.IsZero(), "ok upstream should have LastOk set")
+	assert.Empty(t, health[okTarget].LastErr)
 
 	// bad upstream was never tried because ok answered first; its health
 	// should remain unset.
-	assert.NotContains(t, health, bad, "sibling upstream should not be queried when primary answers")
+	assert.NotContains(t, health, badTarget, "sibling upstream should not be queried when primary answers")
 }
 
 // TestUpstreamResolver_HealthTracking_ResponseMeansReachable verifies that an
@@ -570,20 +572,20 @@ func TestUpstreamResolver_HealthTracking_ResponseMeansReachable(t *testing.T) {
 				upstreamClient:  mockClient,
 				upstreamTimeout: UpstreamTimeout,
 			}
-			resolver.addRace([]netip.AddrPort{a, b})
+			resolver.addRace([]upstreamTarget{udpUpstreamTarget(a), udpUpstreamTarget(b)})
 
 			responseWriter := &test.MockResponseWriter{WriteMsgFunc: func(m *dns.Msg) error { return nil }}
 			resolver.ServeDNS(responseWriter, new(dns.Msg).SetQuestion("example.com.", dns.TypeA))
 
 			health := resolver.UpstreamHealth()
-			require.Contains(t, health, a, "primary upstream should have a health record")
+			require.Contains(t, health, udpUpstreamTarget(a), "primary upstream should have a health record")
 			if tc.wantHealthy {
-				assert.False(t, health[a].LastOk.IsZero(), "responding upstream should have LastOk set")
-				assert.True(t, health[a].LastFail.IsZero(), "responding upstream should not be marked failed")
-				assert.Empty(t, health[a].LastErr, "responding upstream should have no error")
+				assert.False(t, health[udpUpstreamTarget(a)].LastOk.IsZero(), "responding upstream should have LastOk set")
+				assert.True(t, health[udpUpstreamTarget(a)].LastFail.IsZero(), "responding upstream should not be marked failed")
+				assert.Empty(t, health[udpUpstreamTarget(a)].LastErr, "responding upstream should have no error")
 			} else {
-				assert.False(t, health[a].LastFail.IsZero(), "timed-out upstream should be marked failed")
-				assert.NotEmpty(t, health[a].LastErr, "timed-out upstream should record an error")
+				assert.False(t, health[udpUpstreamTarget(a)].LastFail.IsZero(), "timed-out upstream should be marked failed")
+				assert.NotEmpty(t, health[udpUpstreamTarget(a)].LastErr, "timed-out upstream should record an error")
 			}
 		})
 	}
@@ -603,15 +605,15 @@ func TestFormatFailures(t *testing.T) {
 		{
 			name: "single failure",
 			failures: []upstreamFailure{
-				{upstream: netip.MustParseAddrPort("8.8.8.8:53"), reason: "SERVFAIL"},
+				{upstream: udpUpstreamTarget(netip.MustParseAddrPort("8.8.8.8:53")), reason: "SERVFAIL"},
 			},
 			expected: "8.8.8.8:53=SERVFAIL",
 		},
 		{
 			name: "multiple failures",
 			failures: []upstreamFailure{
-				{upstream: netip.MustParseAddrPort("8.8.8.8:53"), reason: "SERVFAIL"},
-				{upstream: netip.MustParseAddrPort("8.8.4.4:53"), reason: "timeout after 2s"},
+				{upstream: udpUpstreamTarget(netip.MustParseAddrPort("8.8.8.8:53")), reason: "SERVFAIL"},
+				{upstream: udpUpstreamTarget(netip.MustParseAddrPort("8.8.4.4:53")), reason: "timeout after 2s"},
 			},
 			expected: "8.8.8.8:53=SERVFAIL, 8.8.4.4:53=timeout after 2s",
 		},
@@ -1010,7 +1012,7 @@ func TestUpstreamResolver_NonRetryableEDEShortCircuits(t *testing.T) {
 	resolver := &upstreamResolverBase{
 		ctx:             ctx,
 		upstreamClient:  tracking,
-		upstreamServers: []upstreamRace{{upstream1, upstream2}},
+		upstreamServers: []upstreamRace{{udpUpstreamTarget(upstream1), udpUpstreamTarget(upstream2)}},
 		upstreamTimeout: UpstreamTimeout,
 	}
 

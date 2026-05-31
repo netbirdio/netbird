@@ -98,7 +98,7 @@ type nsGroupID string
 // s.mux so projection runs lock-free.
 type nsHealthSnapshot struct {
 	groups   []*nbdns.NameServerGroup
-	merged   map[netip.AddrPort]UpstreamHealth
+	merged   map[upstreamTarget]UpstreamHealth
 	selected route.HAMap
 	active   route.HAMap
 }
@@ -196,7 +196,7 @@ type handlerWithStop interface {
 }
 
 type upstreamHealthReporter interface {
-	UpstreamHealth() map[netip.AddrPort]UpstreamHealth
+	UpstreamHealth() map[upstreamTarget]UpstreamHealth
 }
 
 type handlerWrapper struct {
@@ -795,13 +795,13 @@ func (s *DefaultServer) registerFallback() {
 	originalNameservers := s.hostManager.getOriginalNameservers()
 
 	serverIP := s.service.RuntimeIP()
-	var servers []netip.AddrPort
+	var servers []upstreamTarget
 	for _, ns := range originalNameservers {
 		if ns == serverIP {
 			log.Debugf("skipping original nameserver %s as it is the same as the server IP %s", ns, serverIP)
 			continue
 		}
-		servers = append(servers, netip.AddrPortFrom(ns, DefaultPort))
+		servers = append(servers, udpUpstreamTarget(netip.AddrPortFrom(ns, DefaultPort)))
 	}
 
 	if len(servers) == 0 {
@@ -954,8 +954,8 @@ func (s *DefaultServer) buildMergedDomainHandler(domainGroup nsGroupsByDomain, p
 	}, nil
 }
 
-func (s *DefaultServer) filterNameServers(nameServers []nbdns.NameServer) []netip.AddrPort {
-	var out []netip.AddrPort
+func (s *DefaultServer) filterNameServers(nameServers []nbdns.NameServer) []upstreamTarget {
+	var out []upstreamTarget
 	for _, ns := range nameServers {
 		if ns.NSType != nbdns.UDPNameServerType {
 			log.Warnf("skipping nameserver %s with type %s, this peer supports only %s",
@@ -966,7 +966,7 @@ func (s *DefaultServer) filterNameServers(nameServers []nbdns.NameServer) []neti
 			log.Warnf("skipping nameserver %s as it matches our DNS server IP, preventing potential loop", ns.IP)
 			continue
 		}
-		out = append(out, ns.AddrPort())
+		out = append(out, udpUpstreamTarget(ns.AddrPort()))
 	}
 	return out
 }
@@ -974,12 +974,12 @@ func (s *DefaultServer) filterNameServers(nameServers []nbdns.NameServer) []neti
 // usableNameServers returns the subset of nameServers the handler would
 // actually query. Matches filterNameServers without the warning logs, so
 // it's safe to call on every health-projection tick.
-func (s *DefaultServer) usableNameServers(nameServers []nbdns.NameServer) []netip.AddrPort {
+func (s *DefaultServer) usableNameServers(nameServers []nbdns.NameServer) []upstreamTarget {
 	var runtimeIP netip.Addr
 	if s.service != nil {
 		runtimeIP = s.service.RuntimeIP()
 	}
-	var out []netip.AddrPort
+	var out []upstreamTarget
 	for _, ns := range nameServers {
 		if ns.NSType != nbdns.UDPNameServerType {
 			continue
@@ -987,7 +987,7 @@ func (s *DefaultServer) usableNameServers(nameServers []nbdns.NameServer) []neti
 		if runtimeIP.IsValid() && ns.IP == runtimeIP {
 			continue
 		}
-		out = append(out, ns.AddrPort())
+		out = append(out, udpUpstreamTarget(ns.AddrPort()))
 	}
 	return out
 }
@@ -1112,7 +1112,7 @@ func (s *DefaultServer) projectNSGroupHealth(snap nsHealthSnapshot) {
 
 		states = append(states, peer.NSGroupState{
 			ID:      string(id),
-			Servers: servers,
+			Servers: targetsToAddrPorts(servers),
 			Domains: group.Domains,
 			Enabled: enabled,
 			Error:   groupErr,
@@ -1129,19 +1129,19 @@ func (s *DefaultServer) projectNSGroupHealth(snap nsHealthSnapshot) {
 // projectHealthy records a healthy tick on p and publishes a recovery
 // event iff a warning was active for the current streak. Returns the
 // Enabled flag to record in NSGroupState.
-func (s *DefaultServer) projectHealthy(p *nsGroupProj, servers []netip.AddrPort) bool {
+func (s *DefaultServer) projectHealthy(p *nsGroupProj, servers []upstreamTarget) bool {
 	p.everHealthy = true
 	p.unhealthySince = time.Time{}
 	if !p.warningActive {
 		return true
 	}
-	log.Debugf("DNS health: group [%s] recovered, emitting event", joinAddrPorts(servers))
+	log.Debugf("DNS health: group [%s] recovered, emitting event", joinUpstreams(servers))
 	s.statusRecorder.PublishEvent(
 		proto.SystemEvent_INFO,
 		proto.SystemEvent_DNS,
 		"Nameserver group recovered",
 		"DNS servers are reachable again.",
-		map[string]string{"upstreams": joinAddrPorts(servers)},
+		map[string]string{"upstreams": joinUpstreams(servers)},
 	)
 	p.warningActive = false
 	return true
@@ -1150,7 +1150,7 @@ func (s *DefaultServer) projectHealthy(p *nsGroupProj, servers []netip.AddrPort)
 // projectUnhealthy records an unhealthy tick on p, publishes the
 // warning when the emission rules fire, and returns the Enabled flag
 // to record in NSGroupState.
-func (s *DefaultServer) projectUnhealthy(p *nsGroupProj, servers []netip.AddrPort, immediate bool, now time.Time, delay time.Duration) bool {
+func (s *DefaultServer) projectUnhealthy(p *nsGroupProj, servers []upstreamTarget, immediate bool, now time.Time, delay time.Duration) bool {
 	streakStart := p.unhealthySince.IsZero()
 	if streakStart {
 		p.unhealthySince = now
@@ -1158,18 +1158,18 @@ func (s *DefaultServer) projectUnhealthy(p *nsGroupProj, servers []netip.AddrPor
 	reason := unhealthyEmitReason(immediate, p.everHealthy, now.Sub(p.unhealthySince), delay)
 	switch {
 	case reason != "" && !p.warningActive:
-		log.Debugf("DNS health: group [%s] unreachable, emitting event (reason=%s)", joinAddrPorts(servers), reason)
+		log.Debugf("DNS health: group [%s] unreachable, emitting event (reason=%s)", joinUpstreams(servers), reason)
 		s.statusRecorder.PublishEvent(
 			proto.SystemEvent_WARNING,
 			proto.SystemEvent_DNS,
 			"Nameserver group unreachable",
 			"Unable to reach one or more DNS servers. This might affect your ability to connect to some services.",
-			map[string]string{"upstreams": joinAddrPorts(servers)},
+			map[string]string{"upstreams": joinUpstreams(servers)},
 		)
 		p.warningActive = true
 	case streakStart && reason == "":
 		// One line per streak, not per tick.
-		log.Debugf("DNS health: group [%s] unreachable but holding warning for up to %v (overlay-routed, no connected peer)", joinAddrPorts(servers), delay)
+		log.Debugf("DNS health: group [%s] unreachable but holding warning for up to %v (overlay-routed, no connected peer)", joinUpstreams(servers), delay)
 	}
 	return false
 }
@@ -1215,13 +1215,18 @@ func (s *DefaultServer) warningDelay(routeCount int) time.Duration {
 // Connected peer.
 //
 // TODO(ipv6): include the v6 overlay prefix once it's plumbed in.
-func (s *DefaultServer) groupHasImmediateUpstream(servers []netip.AddrPort, snap nsHealthSnapshot) bool {
+func (s *DefaultServer) groupHasImmediateUpstream(servers []upstreamTarget, snap nsHealthSnapshot) bool {
 	var overlayV4 netip.Prefix
 	if s.wgInterface != nil {
 		overlayV4 = s.wgInterface.Address().Network
 	}
 	for _, srv := range servers {
-		addr := srv.Addr().Unmap()
+		// Non-IP targets (DoH, NextDNS) are always public Internet endpoints
+		// reached out-of-tunnel; they short-circuit the grace window.
+		if !srv.AddrPort.IsValid() {
+			return true
+		}
+		addr := srv.AddrPort.Addr().Unmap()
 		overlay := overlayV4.IsValid() && overlayV4.Contains(addr)
 		selMatched, selDynamic := haMapContains(snap.selected, addr)
 		// Treat an unknown (dynamic selected route) as possibly routed:
@@ -1242,8 +1247,8 @@ func (s *DefaultServer) groupHasImmediateUpstream(servers []netip.AddrPort, snap
 // collectUpstreamHealth merges health snapshots across handlers, keeping
 // the most recent success and failure per upstream when an address appears
 // in more than one handler.
-func (s *DefaultServer) collectUpstreamHealth() map[netip.AddrPort]UpstreamHealth {
-	merged := make(map[netip.AddrPort]UpstreamHealth)
+func (s *DefaultServer) collectUpstreamHealth() map[upstreamTarget]UpstreamHealth {
+	merged := make(map[upstreamTarget]UpstreamHealth)
 	for _, entry := range s.dnsMuxHandlers {
 		reporter, ok := entry.handler.(upstreamHealthReporter)
 		if !ok {
@@ -1290,7 +1295,7 @@ func (s *DefaultServer) startHealthRefresher() {
 // alone. Per upstream, the most-recent-in-lookback observation wins.
 // Group is Healthy if any upstream is fresh-working, Unhealthy if any
 // is fresh-broken with no fresh-working sibling, Undecided otherwise.
-func evaluateNSGroupHealth(merged map[netip.AddrPort]UpstreamHealth, servers []netip.AddrPort, now time.Time) (nsGroupVerdict, error) {
+func evaluateNSGroupHealth(merged map[upstreamTarget]UpstreamHealth, servers []upstreamTarget, now time.Time) (nsGroupVerdict, error) {
 	anyWorking := false
 	anyBroken := false
 	var mostRecentFail time.Time
@@ -1354,12 +1359,27 @@ func classifyUpstreamHealth(h UpstreamHealth, now time.Time) upstreamClassificat
 	return upstreamStale
 }
 
-func joinAddrPorts(servers []netip.AddrPort) string {
+func joinUpstreams(servers []upstreamTarget) string {
 	parts := make([]string, 0, len(servers))
 	for _, s := range servers {
 		parts = append(parts, s.String())
 	}
 	return strings.Join(parts, ", ")
+}
+
+// targetsToAddrPorts projects the IP-based subset of targets for callers
+// that still expect a flat []netip.AddrPort (NSGroupState, overlay/route
+// classification). Non-IP targets (DoH, NextDNS) are dropped because the
+// caller's logic — peer-status display, overlay-prefix checks — assumes
+// an addressable upstream.
+func targetsToAddrPorts(targets []upstreamTarget) []netip.AddrPort {
+	out := make([]netip.AddrPort, 0, len(targets))
+	for _, t := range targets {
+		if t.AddrPort.IsValid() {
+			out = append(out, t.AddrPort)
+		}
+	}
+	return out
 }
 
 // generateGroupKey returns a stable identity for an NS group so health
