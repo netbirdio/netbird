@@ -128,6 +128,16 @@ func (l *Localizer) StatusLabel(status string) string {
 		return l.T("tray.status.disconnected")
 	case strings.EqualFold(status, services.StatusDaemonUnavailable):
 		return l.T("tray.status.daemonUnavailable")
+	case strings.EqualFold(status, services.StatusConnected):
+		return l.T("tray.status.connected")
+	case strings.EqualFold(status, services.StatusConnecting):
+		return l.T("tray.status.connecting")
+	case strings.EqualFold(status, services.StatusNeedsLogin):
+		return l.T("tray.status.needsLogin")
+	case strings.EqualFold(status, services.StatusLoginFailed):
+		return l.T("tray.status.loginFailed")
+	case strings.EqualFold(status, services.StatusSessionExpired):
+		return l.T("tray.status.sessionExpired")
 	}
 	return status
 }
