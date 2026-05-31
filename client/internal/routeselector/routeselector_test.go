@@ -423,6 +423,45 @@ func TestRouteSelector_V6ExitPairInherits(t *testing.T) {
 		assert.Empty(t, filtered, "deselecting v4 base must also drop the v6 pair")
 	})
 
+	// Regression for the observed bug: a stale explicit selection on the "-v6"
+	// sibling (e.g. persisted from an earlier select where the pair was expanded)
+	// must not survive a later deselect of the v4 base. Without clearing the orphan,
+	// effectiveNetID sees the v6's own explicit "selected" state and the ::/0 route
+	// leaks into the tunnel despite the user disabling the exit node.
+	t.Run("deselect v4 base clears orphaned explicit v6 selection", func(t *testing.T) {
+		rs := routeselector.NewRouteSelector()
+
+		// Prior state: both v4 and v6 explicitly selected (pair was expanded once).
+		require.NoError(t, rs.SelectRoutes([]route.NetID{"exit1", "exit1-v6"}, true, all))
+		require.True(t, rs.IsSelected("exit1-v6"))
+
+		// User later deselects only the v4 base (v6 not expanded into this batch).
+		require.NoError(t, rs.DeselectRoutes([]route.NetID{"exit1"}, all))
+
+		// The orphaned explicit v6 selection must be gone, so the v6 inherits the
+		// v4 deselect via effectiveNetID instead of staying selected.
+		assert.False(t, rs.IsSelectedForExitNode("exit1-v6"), "v6 must inherit v4 deselect after orphan cleared")
+
+		v4Route := &route.Route{NetID: "exit1", Network: netip.MustParsePrefix("0.0.0.0/0")}
+		v6Route := &route.Route{NetID: "exit1-v6", Network: netip.MustParsePrefix("::/0")}
+		routes := route.HAMap{
+			"exit1|0.0.0.0/0": {v4Route},
+			"exit1-v6|::/0":   {v6Route},
+		}
+		filtered := rs.FilterSelectedExitNodes(routes)
+		assert.Empty(t, filtered, "deselecting v4 base must drop the v6 pair even if it was explicitly selected before")
+	})
+
+	// The inverse: an explicit v6 selection made in the SAME batch as the v4 (the
+	// deliberate ExpandV6ExitPairs case) must be preserved, not wiped by the pair sync.
+	t.Run("explicit v6 select in same batch is preserved", func(t *testing.T) {
+		rs := routeselector.NewRouteSelector()
+		require.NoError(t, rs.SelectRoutes([]route.NetID{"exit1", "exit1-v6"}, true, all))
+
+		assert.True(t, rs.IsSelectedForExitNode("exit1"))
+		assert.True(t, rs.IsSelectedForExitNode("exit1-v6"), "v6 selected in the same batch must survive")
+	})
+
 	t.Run("non-exit *-v6 routes pass through FilterSelectedExitNodes", func(t *testing.T) {
 		rs := routeselector.NewRouteSelector()
 		require.NoError(t, rs.DeselectRoutes([]route.NetID{"corp"}, all))

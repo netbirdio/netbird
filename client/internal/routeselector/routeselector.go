@@ -56,6 +56,11 @@ func (rs *RouteSelector) SelectRoutes(routes []route.NetID, appendRoute bool, al
 		}
 		delete(rs.deselectedRoutes, route)
 		rs.selectedRoutes[route] = struct{}{}
+		// Keep the v4/v6 exit pair consistent: clear any orphaned explicit state on
+		// the "-v6" sibling so it inherits the v4 base via effectiveNetID. Skip when
+		// the pair is itself part of this batch (callers expand it deliberately when
+		// it should diverge).
+		rs.clearPairedV6Locked(route, routes)
 	}
 
 	rs.deselectAll = false
@@ -96,9 +101,30 @@ func (rs *RouteSelector) DeselectRoutes(routes []route.NetID, allRoutes []route.
 		}
 		rs.deselectedRoutes[route] = struct{}{}
 		delete(rs.selectedRoutes, route)
+		// Keep the v4/v6 exit pair consistent: clear any orphaned explicit selection
+		// on the "-v6" sibling so it falls back to inheriting the v4 base's state
+		// (via effectiveNetID) instead of staying stuck as explicitly selected.
+		rs.clearPairedV6Locked(route, routes)
 	}
 
 	return errors.FormatErrorOrNil(err)
+}
+
+// clearPairedV6Locked removes any explicit selected/deselected state on the "-v6"
+// sibling of a v4 exit-node NetID, so the synthesized v6 entry resolves through
+// effectiveNetID to its v4 base. No-op for IDs that already carry the "-v6" suffix,
+// or when the sibling is itself part of the current batch (the caller is setting it
+// deliberately, e.g. via ExpandV6ExitPairs). Must be called with rs.mu held.
+func (rs *RouteSelector) clearPairedV6Locked(id route.NetID, batch []route.NetID) {
+	if strings.HasSuffix(string(id), route.V6ExitSuffix) {
+		return
+	}
+	v6ID := route.NetID(string(id) + route.V6ExitSuffix)
+	if slices.Contains(batch, v6ID) {
+		return
+	}
+	delete(rs.selectedRoutes, v6ID)
+	delete(rs.deselectedRoutes, v6ID)
 }
 
 // DeselectAllRoutes deselects all routes, effectively disabling route selection.
