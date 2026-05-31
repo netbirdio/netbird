@@ -539,8 +539,6 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		return &proto.LoginResponse{}, nil
 	}
 
-	state.Set(internal.StatusConnecting)
-
 	if msg.SetupKey == "" {
 		hint := ""
 		if msg.Hint != nil {
@@ -591,6 +589,11 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 			UserCode:                authInfo.UserCode,
 		}, nil
 	}
+
+	// Setup-key path: we are about to dial Management with the key, so the
+	// Connecting paint is meaningful here — unlike the SSO branch above,
+	// which returns NeedsLogin and parks on the browser leg.
+	state.Set(internal.StatusConnecting)
 
 	if loginStatus, err := s.loginAttempt(ctx, msg.SetupKey, ""); err != nil {
 		state.Set(loginStatus)
@@ -717,10 +720,19 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 		s.mutex.Unlock()
 		switch {
 		case errors.Is(err, context.Canceled):
-			// External abort (profile switch, app quit, another
-			// WaitSSOLogin started). Not a login failure — let the
-			// top-level defer fall through to StatusIdle so the next
-			// flow starts from a clean state.
+			// External abort. If our caller cancelled (the client closed
+			// the browser-login popup, or the UI went away — callerCtx is
+			// done), clear the abandoned OAuth flow so a fresh Login starts
+			// a new device code instead of reusing this one. The entry
+			// NeedsLogin stays in place, so a reattaching client shows the
+			// login affordance. An internal abort (actCancel from a new
+			// Login/WaitSSOLogin, callerCtx still live) leaves the flow for
+			// the new owner — don't clobber it.
+			if callerCtx.Err() != nil {
+				s.mutex.Lock()
+				s.oauthAuthFlow = oauthAuthFlow{}
+				s.mutex.Unlock()
+			}
 		case errors.Is(err, context.DeadlineExceeded):
 			// OAuth device-code window expired with no user action.
 			// Retryable — leave the daemon in NeedsLogin so the UI

@@ -89,13 +89,14 @@ async function startLogin(): Promise<void> {
             }
 
             if (cancelled) {
-                // Tell the daemon to drop the in-flight WaitSSOLogin so a
-                // future Login starts fresh; see services/connection.go:74.
-                try {
-                    await Connection.Down();
-                } catch (e) {
-                    console.error(e);
-                }
+                // Cancel the in-flight WaitSSOLogin gRPC instead of a heavy
+                // Down. The daemon ties the wait to this call's context
+                // (server.go WaitSSOLogin), so cancelling ends the wait and
+                // clears the abandoned OAuth flow — a fresh Login then starts
+                // a new device code, with no Idle blink on the tray. Swallow
+                // the cancellation rejection on the abandoned promise.
+                waitPromise.cancel?.();
+                void waitPromise.catch(() => {});
                 return;
             }
         }
