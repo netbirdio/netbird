@@ -88,6 +88,25 @@ func goMenuItemClicked(id C.int) {
 }
 
 // newXembedHost creates an XEmbed tray icon for the given SNI item.
+// xembedTrayAvailable reports whether an XEmbed system tray manager
+// (_NET_SYSTEM_TRAY_S0) currently owns its selection on the default screen.
+// It is a cheap, side-effect-free probe — it only queries the selection
+// owner, creating no windows. Used to decide whether the in-process
+// StatusNotifierWatcher is needed at all: the watcher exists solely to
+// bridge SNI items into an XEmbed tray on minimal WMs, so when no XEmbed
+// tray is present (e.g. Wayland compositors with a real SNI host like
+// Waybar) we must not claim org.kde.StatusNotifierWatcher and shadow the
+// real one. Returns false when there is no X display (pure Wayland).
+func xembedTrayAvailable() bool {
+	dpy := C.XOpenDisplay(nil)
+	if dpy == nil {
+		return false
+	}
+	defer C.XCloseDisplay(dpy)
+	screen := C.xembed_default_screen(dpy)
+	return C.xembed_find_tray(dpy, screen) != 0
+}
+
 // Returns an error if no XEmbed tray manager is available (graceful fallback).
 func newXembedHost(conn *dbus.Conn, busName string, objPath dbus.ObjectPath) (*xembedHost, error) {
 	dpy := C.XOpenDisplay(nil)
