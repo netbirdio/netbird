@@ -6,7 +6,8 @@ import {
     useState,
     type ReactNode,
 } from "react";
-import { Dialogs, Events } from "@wailsio/runtime";
+import { Events } from "@wailsio/runtime";
+import { errorDialog } from "@/lib/dialogs.ts";
 import {
     Connection,
     ProfileSwitcher,
@@ -65,7 +66,7 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
             if (msg.includes("code = Unavailable")) {
                 return;
             }
-            await Dialogs.Error({
+            await errorDialog({
                 Title: i18next.t("profile.error.loadTitle"),
                 Message: formatErrorMessage(e),
             });

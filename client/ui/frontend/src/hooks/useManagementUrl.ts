@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Dialogs } from "@wailsio/runtime";
+import { warningDialog } from "@/lib/dialogs.ts";
 import i18next from "@/lib/i18n";
 import { useSettings } from "@/contexts/SettingsContext.tsx";
 
@@ -70,7 +70,7 @@ export function useManagementUrl() {
             switchConfirmOpenRef.current = true;
             const cancelLabel = i18next.t("common.cancel");
             const confirmLabel = i18next.t("settings.general.management.switchCloudConfirm");
-            void Dialogs.Warning({
+            void warningDialog({
                 Title: i18next.t("settings.general.management.switchCloudTitle"),
                 Message: i18next.t("settings.general.management.switchCloudMessage"),
                 Buttons: [

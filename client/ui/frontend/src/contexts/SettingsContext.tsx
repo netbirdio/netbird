@@ -7,7 +7,7 @@ import {
     useState,
     type ReactNode,
 } from "react";
-import { Dialogs } from "@wailsio/runtime";
+import { errorDialog } from "@/lib/dialogs.ts";
 import { Autostart, Settings as SettingsSvc } from "@bindings/services";
 import type { Config } from "@bindings/services/models.js";
 import i18next from "@/lib/i18n";
@@ -68,7 +68,7 @@ const useSettingsState = () => {
                 });
                 setConfig(c);
             } catch (e) {
-                await Dialogs.Error({
+                await errorDialog({
                     Title: i18next.t("settings.error.loadTitle"),
                     Message: errorMessage(e),
                 });
@@ -98,7 +98,7 @@ const useSettingsState = () => {
                     username,
                 });
             } catch (e) {
-                await Dialogs.Error({
+                await errorDialog({
                     Title: i18next.t("settings.error.saveTitle"),
                     Message: errorMessage(e),
                 });
@@ -211,7 +211,7 @@ export const AutostartSettingsProvider = ({ children }: { children: ReactNode })
             await Autostart.SetEnabled(enabled);
         } catch (e) {
             setAutostart((s) => (s ? { ...s, enabled: !enabled } : s));
-            await Dialogs.Error({
+            await errorDialog({
                 Title: i18next.t("settings.general.autostart.errorTitle"),
                 Message: errorMessage(e),
             });

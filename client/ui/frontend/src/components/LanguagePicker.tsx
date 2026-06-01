@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import * as Popover from "@radix-ui/react-popover";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { Command } from "cmdk";
-import { Dialogs } from "@wailsio/runtime";
+import { errorDialog } from "@/lib/dialogs.ts";
 import { CheckIcon, ChevronDown, Search } from "lucide-react";
 import { Preferences } from "@bindings/services";
 import { LanguageCode, type Language } from "@bindings/i18n/models.js";
@@ -90,7 +90,7 @@ export function LanguagePicker() {
         try {
             await Preferences.SetLanguage(code as LanguageCode);
         } catch (e) {
-            await Dialogs.Error({
+            await errorDialog({
                 Title: t("settings.error.saveTitle"),
                 Message: formatErrorMessage(e),
             });
