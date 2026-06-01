@@ -3,12 +3,14 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os/user"
 	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/netbirdio/netbird/client/internal"
@@ -83,6 +85,55 @@ var persistenceCmd = &cobra.Command{
 	Example: "  netbird debug persistence on",
 	Args:    cobra.ExactArgs(1),
 	RunE:    setSyncResponsePersistence,
+}
+
+var debugConfigCmd = &cobra.Command{
+	Use:     "config",
+	Example: "  netbird debug config",
+	Short:   "Dump the effective configuration",
+	Long:    "Prints the daemon's resolved configuration (after applying defaults, file, env, CLI input, and MDM policy overrides) as JSON. Includes the list of MDM-managed fields.",
+	RunE:    debugConfigDump,
+}
+
+func debugConfigDump(cmd *cobra.Command, _ []string) error {
+	pm := profilemanager.NewProfileManager()
+	activeProf, err := pm.GetActiveProfile()
+	if err != nil {
+		return fmt.Errorf("get active profile: %v", err)
+	}
+	currUser, err := user.Current()
+	if err != nil {
+		return fmt.Errorf("get current user: %v", err)
+	}
+
+	conn, err := getClient(cmd)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := conn.Close(); err != nil {
+			log.Errorf(errCloseConnection, err)
+		}
+	}()
+
+	client := proto.NewDaemonServiceClient(conn)
+	resp, err := client.GetConfig(cmd.Context(), &proto.GetConfigRequest{
+		ProfileName: activeProf.Name,
+		Username:    currUser.Username,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get config: %v", status.Convert(err).Message())
+	}
+
+	// Use protojson so well-known fields render correctly; emit defaults so
+	// the operator sees every field even when zero/empty.
+	m := protojson.MarshalOptions{Multiline: true, Indent: "  ", EmitUnpopulated: true}
+	out, err := m.Marshal(resp)
+	if err != nil {
+		return fmt.Errorf("marshal config: %w", err)
+	}
+	cmd.Println(string(out))
+	return nil
 }
 
 func debugBundle(cmd *cobra.Command, _ []string) error {

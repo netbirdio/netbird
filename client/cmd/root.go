@@ -168,6 +168,7 @@ func init() {
 	logCmd.AddCommand(logLevelCmd)
 	debugCmd.AddCommand(forCmd)
 	debugCmd.AddCommand(persistenceCmd)
+	debugCmd.AddCommand(debugConfigCmd)
 
 	// profile commands
 	profileCmd.AddCommand(profileListCmd)
