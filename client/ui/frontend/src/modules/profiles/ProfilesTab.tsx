@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Dialogs } from "@wailsio/runtime";
+import { errorDialog, warningDialog } from "@/lib/dialogs.ts";
 import { CircleMinus, PlusCircle, Trash2, UserCircle } from "lucide-react";
 import type { Profile } from "@bindings/services/models.js";
 import { Badge } from "@/components/Badge";
@@ -44,7 +44,7 @@ export function ProfilesTab() {
         try {
             await fn();
         } catch (e) {
-            await Dialogs.Error({
+            await errorDialog({
                 Title: title,
                 Message: formatErrorMessage(e),
             });
@@ -56,7 +56,7 @@ export function ProfilesTab() {
     const handleDeregister = async (name: string) => {
         const cancelLabel = i18next.t("common.cancel");
         const confirmLabel = i18next.t("profile.deregister.confirm");
-        const result = await Dialogs.Warning({
+        const result = await warningDialog({
             Title: i18next.t("profile.deregister.title"),
             Message: i18next.t("profile.deregister.message", { name }),
             Buttons: [
@@ -72,7 +72,7 @@ export function ProfilesTab() {
         if (name === DEFAULT_PROFILE) return;
         const cancelLabel = i18next.t("common.cancel");
         const confirmLabel = i18next.t("common.delete");
-        const result = await Dialogs.Warning({
+        const result = await warningDialog({
             Title: i18next.t("profile.delete.title"),
             Message: i18next.t("profile.delete.message", { name }),
             Buttons: [
@@ -89,7 +89,7 @@ export function ProfilesTab() {
             await addProfile(name);
             await switchProfile(name);
         } catch (e) {
-            await Dialogs.Error({
+            await errorDialog({
                 Title: i18next.t("profile.error.createTitle"),
                 Message: formatErrorMessage(e),
             });

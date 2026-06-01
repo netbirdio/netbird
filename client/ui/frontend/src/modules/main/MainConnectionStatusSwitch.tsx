@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Dialogs, Events } from "@wailsio/runtime";
+import { Events } from "@wailsio/runtime";
 import { Connection, WindowManager } from "@bindings/services";
 import i18next from "@/lib/i18n";
+import { errorDialog } from "@/lib/dialogs.ts";
 import { ToggleSwitch } from "@/components/switches/ToggleSwitch.tsx";
 import { useStatus } from "@/contexts/StatusContext.tsx";
 import { useProfile } from "@/contexts/ProfileContext.tsx";
@@ -109,7 +110,7 @@ async function startLogin(): Promise<void> {
     } catch (e) {
         WindowManager.CloseBrowserLogin().catch(console.error);
         if (cancelled) return;
-        await Dialogs.Error({
+        await errorDialog({
             Title: i18next.t("connect.error.loginTitle"),
             Message: errorMessage(e),
         });
@@ -196,7 +197,7 @@ export const MainConnectionStatusSwitch = () => {
         } catch (e) {
             setAction(null);
             await refresh();
-            await Dialogs.Error({
+            await errorDialog({
                 Title: t("connect.error.connectTitle"),
                 Message: errorMessage(e),
             });
@@ -216,7 +217,7 @@ export const MainConnectionStatusSwitch = () => {
         } catch (e) {
             setAction(null);
             await refresh();
-            await Dialogs.Error({
+            await errorDialog({
                 Title: t("connect.error.disconnectTitle"),
                 Message: errorMessage(e),
             });

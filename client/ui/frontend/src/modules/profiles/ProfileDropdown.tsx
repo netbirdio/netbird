@@ -1,6 +1,6 @@
 import { forwardRef, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Dialogs } from "@wailsio/runtime";
+import { errorDialog } from "@/lib/dialogs.ts";
 import * as Popover from "@radix-ui/react-popover";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { Command } from "cmdk";
@@ -36,7 +36,7 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
         try {
             await fn();
         } catch (e) {
-            await Dialogs.Error({
+            await errorDialog({
                 Title: title,
                 Message: formatErrorMessage(e),
             });

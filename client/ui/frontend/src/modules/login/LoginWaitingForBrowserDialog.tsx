@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
-import { Dialogs, Events } from "@wailsio/runtime";
+import { Events } from "@wailsio/runtime";
+import { errorDialog } from "@/lib/dialogs.ts";
 import { Loader2 } from "lucide-react";
 import { Connection } from "@bindings/services";
 import { Button } from "@/components/buttons/Button";
@@ -25,7 +26,7 @@ export default function LoginWaitingForBrowserDialog() {
 
     const reportOpenFailure = useCallback(
         (e: unknown) => {
-            void Dialogs.Error({
+            void errorDialog({
                 Title: t("browserLogin.openFailedTitle"),
                 Message: formatErrorMessage(e),
             });

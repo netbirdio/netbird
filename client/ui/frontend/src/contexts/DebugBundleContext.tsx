@@ -5,7 +5,7 @@ import {
     useState,
     type ReactNode,
 } from "react";
-import { Dialogs } from "@wailsio/runtime";
+import { errorDialog } from "@/lib/dialogs.ts";
 import {
     Connection as ConnectionSvc,
     Debug as DebugSvc,
@@ -163,7 +163,7 @@ const useDebugBundle = () => {
                 return;
             }
             setStage({ kind: "idle" });
-            await Dialogs.Error({
+            await errorDialog({
                 Title: i18next.t("settings.error.debugBundleTitle"),
                 Message: formatErrorMessage(e),
             });
