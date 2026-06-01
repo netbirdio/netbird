@@ -1,12 +1,15 @@
 package server
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
+	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/proto"
 )
@@ -17,25 +20,87 @@ var loadMDMPolicy = mdm.LoadPolicy
 
 // onMDMPolicyChange is invoked by the MDM reload ticker every time the
 // OS-native managed-config store reports a diff vs the last observation.
-// The handler cancels the active engine context (if any) so the
-// connectWithRetryRuns goroutine re-resolves the profile config —
-// re-running profilemanager.Config.apply() picks up the freshly-loaded
-// policy as the highest-priority override layer, and the engine restarts
-// with the new values.
 //
-// The callback runs in the ticker's own goroutine; it must not block on
-// long-running work nor take s.mutex for longer than the cancel call.
-// Ticker has already logged the per-key diff before invoking this hook.
+// Restart sequence:
+//   1. Cancel the active engine context (terminates connectWithRetryRuns).
+//   2. Wait briefly for that goroutine to exit (giveUpChan is closed on exit).
+//   3. Re-resolve Config from disk + MDM policy (Config.apply re-runs
+//      applyMDMPolicy with the freshly loaded Policy).
+//   4. Spawn a fresh connectWithRetryRuns with the new context and config.
+//
+// The callback runs in the ticker's own goroutine. Ticker has already
+// logged the per-key diff before invoking this hook.
 func (s *Server) onMDMPolicyChange(_, _ *mdm.Policy) {
-	log.Warn("MDM policy changed; cancelling engine context so connectWithRetryRuns re-resolves config")
+	log.Warn("MDM policy changed; restarting engine to apply new configuration")
 
 	s.mutex.Lock()
 	cancel := s.actCancel
+	giveUpChan := s.clientGiveUpChan
 	s.mutex.Unlock()
 
 	if cancel != nil {
 		cancel()
 	}
+
+	// Wait for previous connectWithRetryRuns to exit so we don't end up
+	// with two goroutines fighting over the same status recorder + engine.
+	if giveUpChan != nil {
+		select {
+		case <-giveUpChan:
+		case <-time.After(5 * time.Second):
+			log.Warn("MDM restart: timeout waiting for previous engine goroutine; proceeding anyway")
+		}
+	}
+
+	if err := s.restartEngineForMDM(); err != nil {
+		log.Errorf("MDM restart failed: %v", err)
+	}
+}
+
+// restartEngineForMDM re-resolves the active profile config (re-running
+// applyMDMPolicy via Config.apply) and re-spawns connectWithRetryRuns.
+// Mirrors the tail of Server.Start so a runtime MDM change behaves
+// identically to a fresh boot under the new policy.
+func (s *Server) restartEngineForMDM() error {
+	activeProf, err := s.profileManager.GetActiveProfileState()
+	if err != nil {
+		return fmt.Errorf("get active profile state: %w", err)
+	}
+	config, existingConfig, err := s.getConfig(activeProf)
+	if err != nil {
+		return fmt.Errorf("get active profile config: %w", err)
+	}
+
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	s.config = config
+	s.statusRecorder.UpdateManagementAddress(config.ManagementURL.String())
+	s.statusRecorder.UpdateRosenpass(config.RosenpassEnabled, config.RosenpassPermissive)
+	s.statusRecorder.UpdateLazyConnection(config.LazyConnectionEnabled)
+
+	state := internal.CtxGetState(s.rootCtx)
+	if config.DisableAutoConnect {
+		log.Info("MDM restart: DisableAutoConnect=true; staying idle")
+		state.Set(internal.StatusIdle)
+		s.actCancel = nil
+		return nil
+	}
+	if !existingConfig {
+		log.Warn("MDM restart: config absent; not reconnecting")
+		state.Set(internal.StatusNeedsLogin)
+		s.actCancel = nil
+		return nil
+	}
+
+	ctx, cancel := context.WithCancel(s.rootCtx)
+	s.actCancel = cancel
+	s.clientRunning = true
+	s.clientRunningChan = make(chan struct{})
+	s.clientGiveUpChan = make(chan struct{})
+	log.Info("MDM restart: spawning connectWithRetryRuns with re-resolved config")
+	go s.connectWithRetryRuns(ctx, config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
+	return nil
 }
 
 // requestedMDMManagedKeys returns the names of MDM-managed keys whose
