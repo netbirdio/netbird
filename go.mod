@@ -47,7 +47,7 @@ require (
 	github.com/crowdsecurity/go-cs-bouncer v0.0.21
 	github.com/dexidp/dex v2.13.0+incompatible
 	github.com/dexidp/dex/api/v2 v2.4.0
-	github.com/ebitengine/purego v0.8.4
+	github.com/ebitengine/purego v0.10.1
 	github.com/eko/gocache/lib/v4 v4.2.0
 	github.com/eko/gocache/store/go_cache/v4 v4.2.2
 	github.com/eko/gocache/store/redis/v4 v4.2.2
