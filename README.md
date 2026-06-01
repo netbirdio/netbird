@@ -1,5 +1,5 @@
 
-<div align="center">
+<div align="center" >
   <p align="center">
     <img width="234" src="docs/media/logo-full.png" alt="NetBird logo"/>
   </p>
