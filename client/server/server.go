@@ -24,6 +24,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/expose"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	sleephandler "github.com/netbirdio/netbird/client/internal/sleep/handler"
+	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/system"
 	mgm "github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/management/domain"
@@ -98,6 +99,11 @@ type Server struct {
 
 	sleepHandler *sleephandler.SleepHandler
 
+	// mdmTicker periodically re-reads the OS-native MDM policy and triggers
+	// an engine restart when the policy changes. Launched once by Start;
+	// stopped by the rootCtx cancellation.
+	mdmTicker *mdm.Ticker
+
 	updateManager *updater.Manager
 
 	jwtCache *jwtCache
@@ -153,6 +159,17 @@ func (s *Server) Start() error {
 		stateMgr := statemanager.New(s.profileManager.GetStatePath())
 		s.updateManager = updater.NewManager(s.statusRecorder, stateMgr)
 		s.updateManager.CheckUpdateSuccess(s.rootCtx)
+	}
+
+	// MDM policy reload ticker: every minute the desktop daemon re-reads
+	// the OS-native managed-config store and, on diff vs the previous
+	// observation, cancels the active engine context so connectWithRetry-
+	// Runs re-resolves Config (re-running profilemanager.Config.apply which
+	// applies the freshly-read MDM policy as the last layer) and brings
+	// the engine back with the new values.
+	if s.mdmTicker == nil {
+		s.mdmTicker = mdm.NewTicker(mdm.DefaultReloadInterval, s.onMDMPolicyChange)
+		go s.mdmTicker.Run(s.rootCtx)
 	}
 
 	// if current state contains any error, return it

@@ -15,6 +15,29 @@ import (
 // active MDM policy. Tests override this to inject a fake policy.
 var loadMDMPolicy = mdm.LoadPolicy
 
+// onMDMPolicyChange is invoked by the MDM reload ticker every time the
+// OS-native managed-config store reports a diff vs the last observation.
+// The handler cancels the active engine context (if any) so the
+// connectWithRetryRuns goroutine re-resolves the profile config —
+// re-running profilemanager.Config.apply() picks up the freshly-loaded
+// policy as the highest-priority override layer, and the engine restarts
+// with the new values.
+//
+// The callback runs in the ticker's own goroutine; it must not block on
+// long-running work nor take s.mutex for longer than the cancel call.
+// Ticker has already logged the per-key diff before invoking this hook.
+func (s *Server) onMDMPolicyChange(_, _ *mdm.Policy) {
+	log.Warn("MDM policy changed; cancelling engine context so connectWithRetryRuns re-resolves config")
+
+	s.mutex.Lock()
+	cancel := s.actCancel
+	s.mutex.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+}
+
 // requestedMDMManagedKeys returns the names of MDM-managed keys whose
 // corresponding field is set in the SetConfigRequest. Only keys with an
 // MDM mapping are considered; other fields are ignored.
