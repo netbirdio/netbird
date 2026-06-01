@@ -1,3 +1,11 @@
+// This file is intentionally named test.go (not test_test.go) so the exported
+// StartTestServer helper is visible to the ssh/proxy and ssh/client external
+// test packages, not just this package's own tests. The //go:build !js tag
+// keeps its "testing" import — and the whole testing/flag/regexp transitive
+// chain it drags in — out of the wasm client, which links ssh/server through
+// the engine but never runs Go tests under GOOS=js.
+//go:build !js
+
 package server
 
 import (

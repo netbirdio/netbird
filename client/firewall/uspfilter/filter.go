@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"net"
 	"net/netip"
 	"os"
 	"slices"
@@ -72,12 +71,14 @@ const (
 
 var errNatNotSupported = errors.New("nat not supported with userspace firewall")
 
-// RuleSet is a set of rules grouped by a string key
-type RuleSet map[string]PeerRule
+// peerRules is the canonical list-based storage for peer ACL rules.
+// Match order is significant: drop rules come before accept rules so
+// callers should consult the slice in order.
+type peerRules []*PeerRule
 
-type RouteRules []*RouteRule
+type routeRules []*RouteRule
 
-func (r RouteRules) Sort() {
+func (r routeRules) Sort() {
 	slices.SortStableFunc(r, func(a, b *RouteRule) int {
 		// Deny rules come first
 		if a.action == firewall.ActionDrop && b.action != firewall.ActionDrop {
@@ -86,22 +87,44 @@ func (r RouteRules) Sort() {
 		if a.action != firewall.ActionDrop && b.action == firewall.ActionDrop {
 			return 1
 		}
-		return strings.Compare(a.id, b.id)
+		return strings.Compare(string(a.id), string(b.id))
 	})
+}
+
+// peerRuleSpec carries the parameters that define a peer filter rule,
+// threaded together through the build path so the builders take a single
+// argument instead of a long parameter list.
+type peerRuleSpec struct {
+	mgmtID   []byte
+	sources  []netip.Prefix
+	ipLayer  gopacket.LayerType
+	matchAny bool
+	proto    firewall.Protocol
+	sPort    *firewall.Port
+	dPort    *firewall.Port
+	action   firewall.Action
 }
 
 // Manager userspace firewall manager
 type Manager struct {
-	outgoingRules     map[netip.Addr]RuleSet
-	incomingDenyRules map[netip.Addr]RuleSet
-	incomingRules     map[netip.Addr]RuleSet
-	routeRules        RouteRules
-	routeRulesMap     map[nbid.RuleID]*RouteRule
-	decoders          sync.Pool
-	wgIface           common.IFaceMapper
-	nativeFirewall    firewall.Manager
+	decoders sync.Pool
+	wgIface  common.IFaceMapper
+	// nativeFirewall is the kernel firewall (nftables/iptables) used for
+	// the split case where peer ACLs run in userspace here but routing
+	// stays in the kernel: when the userspace firewall is forced yet the
+	// router keeps using the kernel, route NAT/ACLs and DNAT are
+	// delegated to it. It is nil when no native backend is available.
+	nativeFirewall firewall.Manager
+	mutex          sync.RWMutex
 
-	mutex sync.RWMutex
+	incomingDenyRules   peerRules
+	incomingAcceptRules peerRules
+	incomingDenyIndex   peerRuleIndex
+	incomingAcceptIndex peerRuleIndex
+	peerRulesMap        map[nbid.RuleID]*PeerRule
+
+	routeRules    routeRules
+	routeRulesMap map[nbid.RuleID]*RouteRule
 
 	// indicates whether server routes are disabled
 	disableServerRoutes bool
@@ -183,24 +206,6 @@ func (d *decoder) decodePacket(data []byte) error {
 	}
 }
 
-// Create userspace firewall manager constructor
-func Create(iface common.IFaceMapper, disableServerRoutes bool, flowLogger nftypes.FlowLogger, mtu uint16) (*Manager, error) {
-	return create(iface, nil, disableServerRoutes, flowLogger, mtu)
-}
-
-func CreateWithNativeFirewall(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableServerRoutes bool, flowLogger nftypes.FlowLogger, mtu uint16) (*Manager, error) {
-	if nativeFirewall == nil {
-		return nil, errors.New("native firewall is nil")
-	}
-
-	mgr, err := create(iface, nativeFirewall, disableServerRoutes, flowLogger, mtu)
-	if err != nil {
-		return nil, err
-	}
-
-	return mgr, nil
-}
-
 func parseCreateEnv() (bool, bool, bool) {
 	var disableConntrack, enableLocalForwarding, disableMSSClamping bool
 	var err error
@@ -231,7 +236,7 @@ func parseCreateEnv() (bool, bool, bool) {
 	return disableConntrack, enableLocalForwarding, disableMSSClamping
 }
 
-func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableServerRoutes bool, flowLogger nftypes.FlowLogger, mtu uint16) (*Manager, error) {
+func Create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableServerRoutes bool, flowLogger nftypes.FlowLogger, mtu uint16) (*Manager, error) {
 	disableConntrack, enableLocalForwarding, disableMSSClamping := parseCreateEnv()
 
 	m := &Manager{
@@ -254,11 +259,8 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 				return d
 			},
 		},
-		nativeFirewall:      nativeFirewall,
-		outgoingRules:       make(map[netip.Addr]RuleSet),
-		incomingDenyRules:   make(map[netip.Addr]RuleSet),
-		incomingRules:       make(map[netip.Addr]RuleSet),
 		wgIface:             iface,
+		nativeFirewall:      nativeFirewall,
 		localipmanager:      newLocalIPManager(),
 		disableServerRoutes: disableServerRoutes,
 		stateful:            !disableConntrack,
@@ -266,6 +268,7 @@ func create(iface common.IFaceMapper, nativeFirewall firewall.Manager, disableSe
 		flowLogger:          flowLogger,
 		netstack:            netstack.IsEnabled(),
 		localForwarding:     enableLocalForwarding,
+		peerRulesMap:        make(map[nbid.RuleID]*PeerRule),
 		routeRulesMap:       make(map[nbid.RuleID]*RouteRule),
 		dnatMappings:        make(map[netip.Addr]netip.Addr),
 		portDNATRules:       []portDNATRule{},
@@ -320,7 +323,7 @@ func (m *Manager) blockInvalidRouted(iface common.IFaceMapper) ([]firewall.Rule,
 	}
 
 	var rules []firewall.Rule
-	v4Rule, err := m.addRouteFiltering(
+	v4Rule, err := m.addRouteRule(
 		nil,
 		sources,
 		firewall.Network{Prefix: wgPrefix},
@@ -336,7 +339,7 @@ func (m *Manager) blockInvalidRouted(iface common.IFaceMapper) ([]firewall.Rule,
 
 	if v6Net.IsValid() {
 		log.Debugf("blocking invalid routed traffic for %s", v6Net)
-		v6Rule, err := m.addRouteFiltering(
+		v6Rule, err := m.addRouteRule(
 			nil,
 			sources,
 			firewall.Network{Prefix: v6Net},
@@ -488,64 +491,136 @@ func (m *Manager) RemoveNatRule(pair firewall.RouterPair) error {
 	return nil
 }
 
-// AddPeerFiltering rule to the firewall
-//
-// If comment argument is empty firewall manager should set
-// rule ID as comment for the rule
-func (m *Manager) AddPeerFiltering(
+// addPeerRule installs an input-chain rule that matches packets
+// by source only. Called from AddFilterRule when the caller doesn't
+// specify a destination. Mixed-family inputs are split: each family
+// gets its own rule with a family-correct ipLayer so packet decoding
+// matches what the matcher expects.
+func (m *Manager) addPeerRule(
 	id []byte,
-	ip net.IP,
+	sources []netip.Prefix,
 	proto firewall.Protocol,
 	sPort *firewall.Port,
 	dPort *firewall.Port,
 	action firewall.Action,
-	_ string,
-) ([]firewall.Rule, error) {
-	// TODO: fix in upper layers
-	i, ok := netip.AddrFromSlice(ip)
-	if !ok {
-		return nil, fmt.Errorf("invalid IP: %s", ip)
-	}
-
-	i = i.Unmap()
-	r := PeerRule{
-		id:        uuid.New().String(),
-		mgmtId:    id,
-		ip:        i,
-		ipLayer:   layers.LayerTypeIPv6,
-		matchByIP: true,
-		drop:      action == firewall.ActionDrop,
-	}
-	if i.Is4() {
-		r.ipLayer = layers.LayerTypeIPv4
-	}
-
-	if s := r.ip.String(); s == "0.0.0.0" || s == "::" {
-		r.matchByIP = false
-	}
-
-	r.sPort = sPort
-	r.dPort = dPort
-
-	r.protoLayer = protoToLayer(proto, r.ipLayer)
-
+) (firewall.Rule, error) {
 	m.mutex.Lock()
-	var targetMap map[netip.Addr]RuleSet
-	if r.drop {
-		targetMap = m.incomingDenyRules
-	} else {
-		targetMap = m.incomingRules
+	defer m.mutex.Unlock()
+
+	if sourcesMatchAny(sources) {
+		spec := peerRuleSpec{
+			mgmtID:   id,
+			sources:  sources,
+			ipLayer:  layerTypeAll,
+			matchAny: true,
+			proto:    proto,
+			sPort:    sPort,
+			dPort:    dPort,
+			action:   action,
+		}
+		return m.addOnePeerRule(spec), nil
 	}
 
-	if _, ok := targetMap[r.ip]; !ok {
-		targetMap[r.ip] = make(RuleSet)
+	// Sources are a single family; normalize v4-mapped prefixes to plain
+	// v4 and pick the matching IP layer.
+	normalized := make([]netip.Prefix, len(sources))
+	ipLayer := layers.LayerTypeIPv4
+	for i, p := range sources {
+		normalized[i] = firewall.UnmapPrefix(p)
+		if normalized[i].Addr().Is6() {
+			ipLayer = layers.LayerTypeIPv6
+		}
 	}
-	targetMap[r.ip][r.id] = r
-	m.mutex.Unlock()
-	return []firewall.Rule{&r}, nil
+	spec := peerRuleSpec{
+		mgmtID:   id,
+		sources:  normalized,
+		ipLayer:  ipLayer,
+		matchAny: false,
+		proto:    proto,
+		sPort:    sPort,
+		dPort:    dPort,
+		action:   action,
+	}
+	return m.addOnePeerRule(spec), nil
 }
 
-func (m *Manager) AddRouteFiltering(
+// addOnePeerRule builds and registers a single-family peer rule, or
+// returns the existing rule when one with the same content key is
+// already installed. The caller must hold m.mutex. The content key is
+// the shared GenerateRuleID with an empty destination, so peer
+// rules dedup the same way route rules and the kernel backends do.
+//
+// There is no refcount: a content key is installed once and deleted on
+// the first DeleteFilterRule for that key. The caller must therefore
+// key its own tracking by the returned rule id so add and delete stay
+// balanced per content key; the acl manager does this via
+// peerRulesPairs. The content key is order-independent, so callers
+// passing the same sources in any order dedup to one rule.
+func (m *Manager) addOnePeerRule(spec peerRuleSpec) *PeerRule {
+	ruleID := nbid.GenerateRuleID(spec.sources, firewall.Network{}, spec.proto, spec.sPort, spec.dPort, spec.action)
+	if existing, ok := m.peerRulesMap[ruleID]; ok {
+		return existing
+	}
+
+	rule := m.buildPeerRule(ruleID, spec)
+	m.registerPeerRule(rule)
+	return rule
+}
+
+func (m *Manager) buildPeerRule(ruleID nbid.RuleID, spec peerRuleSpec) *PeerRule {
+	r := &PeerRule{
+		id:       ruleID,
+		mgmtId:   spec.mgmtID,
+		sources:  spec.sources,
+		matchAny: spec.matchAny,
+		action:   spec.action,
+		srcPort:  spec.sPort,
+		dstPort:  spec.dPort,
+	}
+	if !spec.matchAny {
+		r.sourceAddrs = make(map[netip.Addr]struct{}, len(spec.sources))
+		for _, p := range spec.sources {
+			if p.Bits() == p.Addr().BitLen() {
+				r.sourceAddrs[p.Addr()] = struct{}{}
+			}
+		}
+	}
+	r.protoLayer = protoToLayer(spec.proto, spec.ipLayer)
+	return r
+}
+
+// registerPeerRule records a freshly built peer rule in the matching
+// slice, index, and dedup map. The caller must hold m.mutex.
+func (m *Manager) registerPeerRule(r *PeerRule) {
+	if r.action == firewall.ActionDrop {
+		m.incomingDenyRules = append(m.incomingDenyRules, r)
+		m.incomingDenyIndex.add(r)
+	} else {
+		m.incomingAcceptRules = append(m.incomingAcceptRules, r)
+		m.incomingAcceptIndex.add(r)
+	}
+	m.peerRulesMap[r.id] = r
+}
+
+// sourcesMatchAny reports whether the source list matches every source,
+// i.e. contains an explicit /0 prefix. An empty list does not qualify:
+// AddFilterRule rejects it with ErrNoSources, so "match any" is always
+// the deliberate /0 case.
+func sourcesMatchAny(sources []netip.Prefix) bool {
+	for _, p := range sources {
+		if p.Bits() == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// AddFilterRule is the unified entry point for both peer (input chain)
+// and route (forward chain) filtering rules. The destination
+// distinguishes the two semantics: a zero Network installs an
+// input-side rule that matches by source only; a set Network installs
+// a forward-side rule that also matches the destination.
+func (m *Manager) AddFilterRule(
 	id []byte,
 	sources []netip.Prefix,
 	destination firewall.Network,
@@ -553,13 +628,37 @@ func (m *Manager) AddRouteFiltering(
 	sPort, dPort *firewall.Port,
 	action firewall.Action,
 ) (firewall.Rule, error) {
+	if len(sources) == 0 {
+		return nil, firewall.ErrNoSources
+	}
+
+	if destination.IsZero() {
+		return m.addPeerRule(id, sources, proto, sPort, dPort, action)
+	}
+
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	return m.addRouteRule(id, sources, destination, proto, sPort, dPort, action)
+}
+
+// DeleteFilterRule deletes a filtering rule. The rule's underlying type
+// is used to route to the correct internal path.
+func (m *Manager) DeleteFilterRule(rule firewall.Rule) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	return m.addRouteFiltering(id, sources, destination, proto, sPort, dPort, action)
+	if r, ok := rule.(*PeerRule); ok {
+		return m.deletePeerRuleLocked(r)
+	}
+
+	// Either our *RouteRule or, under native delegation, a native
+	// route-rule object that implements firewall.Rule but isn't one of
+	// our concrete types. The route path forwards the latter to the
+	// native firewall.
+	return m.deleteRouteRule(rule)
 }
 
-func (m *Manager) addRouteFiltering(
+func (m *Manager) addRouteRule(
 	id []byte,
 	sources []netip.Prefix,
 	destination firewall.Network,
@@ -568,18 +667,17 @@ func (m *Manager) addRouteFiltering(
 	action firewall.Action,
 ) (firewall.Rule, error) {
 	if m.nativeRouter.Load() && m.nativeFirewall != nil {
-		return m.nativeFirewall.AddRouteFiltering(id, sources, destination, proto, sPort, dPort, action)
+		return m.nativeFirewall.AddFilterRule(id, sources, destination, proto, sPort, dPort, action)
 	}
 
-	ruleKey := nbid.GenerateRouteRuleKey(sources, destination, proto, sPort, dPort, action)
+	ruleID := nbid.GenerateRuleID(sources, destination, proto, sPort, dPort, action)
 
-	if existingRule, ok := m.routeRulesMap[ruleKey]; ok {
+	if existingRule, ok := m.routeRulesMap[ruleID]; ok {
 		return existingRule, nil
 	}
 
 	rule := RouteRule{
-		// TODO: consolidate these IDs
-		id:         string(ruleKey),
+		id:         ruleID,
 		mgmtId:     id,
 		sources:    sources,
 		dstSet:     destination.Set,
@@ -594,70 +692,55 @@ func (m *Manager) addRouteFiltering(
 
 	m.routeRules = append(m.routeRules, &rule)
 	m.routeRules.Sort()
-	m.routeRulesMap[ruleKey] = &rule
+	m.routeRulesMap[ruleID] = &rule
 
 	return &rule, nil
 }
 
-func (m *Manager) DeleteRouteRule(rule firewall.Rule) error {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
-	return m.deleteRouteRule(rule)
-}
-
 func (m *Manager) deleteRouteRule(rule firewall.Rule) error {
 	if m.nativeRouter.Load() && m.nativeFirewall != nil {
-		return m.nativeFirewall.DeleteRouteRule(rule)
+		return m.nativeFirewall.DeleteFilterRule(rule)
 	}
 
-	ruleKey := nbid.RuleID(rule.ID())
-	if _, ok := m.routeRulesMap[ruleKey]; !ok {
-		return fmt.Errorf("route rule not found: %s", ruleKey)
+	ruleID := rule.ID()
+	trimmed, _, ok := removeRuleByID(m.routeRules, ruleID)
+	if !ok {
+		return fmt.Errorf("route rule not found: %s", ruleID)
 	}
-
-	idx := slices.IndexFunc(m.routeRules, func(r *RouteRule) bool {
-		return r.id == string(ruleKey)
-	})
-	if idx < 0 {
-		return fmt.Errorf("route rule not found in slice: %s", ruleKey)
-	}
-
-	m.routeRules = slices.Delete(m.routeRules, idx, idx+1)
-	delete(m.routeRulesMap, ruleKey)
+	m.routeRules = trimmed
+	delete(m.routeRulesMap, ruleID)
 	return nil
 }
 
-// DeletePeerRule from the firewall by rule definition
-func (m *Manager) DeletePeerRule(rule firewall.Rule) error {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
+// deletePeerRuleLocked removes a peer rule from the matching slice,
+// index, and dedup map. The caller must hold m.mutex.
+func (m *Manager) deletePeerRuleLocked(r *PeerRule) error {
+	target, index := &m.incomingAcceptRules, &m.incomingAcceptIndex
+	if r.action == firewall.ActionDrop {
+		target, index = &m.incomingDenyRules, &m.incomingDenyIndex
+	}
 
-	r, ok := rule.(*PeerRule)
+	trimmed, stored, ok := removeRuleByID(*target, r.id)
 	if !ok {
-		return fmt.Errorf("delete rule: invalid rule type: %T", rule)
-	}
-
-	var sourceMap map[netip.Addr]RuleSet
-	if r.drop {
-		sourceMap = m.incomingDenyRules
-	} else {
-		sourceMap = m.incomingRules
-	}
-
-	if ruleset, ok := sourceMap[r.ip]; ok {
-		if _, exists := ruleset[r.id]; !exists {
-			return fmt.Errorf("delete rule: no rule with such id: %v", r.id)
-		}
-		delete(ruleset, r.id)
-		if len(ruleset) == 0 {
-			delete(sourceMap, r.ip)
-		}
-	} else {
 		return fmt.Errorf("delete rule: no rule with such id: %v", r.id)
 	}
-
+	*target = trimmed
+	index.remove(stored)
+	delete(m.peerRulesMap, r.id)
 	return nil
+}
+
+// removeRuleByID removes the first rule whose id matches ruleID from
+// rules, preserving order. It returns the trimmed slice, the removed
+// rule, and whether a match was found.
+func removeRuleByID[S ~[]T, T firewall.Rule](rules S, ruleID firewall.RuleID) (S, T, bool) {
+	idx := slices.IndexFunc(rules, func(r T) bool { return r.ID() == ruleID })
+	var removed T
+	if idx < 0 {
+		return rules, removed, false
+	}
+	removed = rules[idx]
+	return slices.Delete(rules, idx, idx+1), removed, true
 }
 
 // SetLegacyManagement doesn't need to be implemented for this manager
@@ -674,9 +757,11 @@ func (m *Manager) Flush() error { return nil }
 // resetState clears all firewall rules and closes connection trackers.
 // Must be called with m.mutex held.
 func (m *Manager) resetState() {
-	clear(m.outgoingRules)
-	clear(m.incomingDenyRules)
-	clear(m.incomingRules)
+	m.incomingDenyRules = m.incomingDenyRules[:0]
+	m.incomingAcceptRules = m.incomingAcceptRules[:0]
+	m.incomingDenyIndex.reset()
+	m.incomingAcceptIndex.reset()
+	clear(m.peerRulesMap)
 	clear(m.routeRulesMap)
 	m.routeRules = m.routeRules[:0]
 	m.udpHookOut.Store(nil)
@@ -820,11 +905,11 @@ func (m *Manager) extractIPs(d *decoder) (srcIP, dstIP netip.Addr) {
 	case layers.LayerTypeIPv4:
 		src, _ := netip.AddrFromSlice(d.ip4.SrcIP)
 		dst, _ := netip.AddrFromSlice(d.ip4.DstIP)
-		return src, dst
+		return src.Unmap(), dst.Unmap()
 	case layers.LayerTypeIPv6:
 		src, _ := netip.AddrFromSlice(d.ip6.SrcIP)
 		dst, _ := netip.AddrFromSlice(d.ip6.DstIP)
-		return src, dst
+		return src.Unmap(), dst.Unmap()
 	default:
 		return netip.Addr{}, netip.Addr{}
 	}
@@ -1404,20 +1489,12 @@ func (m *Manager) peerACLsBlock(srcIP netip.Addr, d *decoder, packetData []byte)
 		return nil, false
 	}
 
-	if mgmtId, filter, ok := validateRule(srcIP, packetData, m.incomingDenyRules[srcIP], d); ok {
+	if mgmtId, filter, ok := m.incomingDenyIndex.match(srcIP, d); ok {
 		return mgmtId, filter
 	}
-
-	if mgmtId, filter, ok := validateRule(srcIP, packetData, m.incomingRules[srcIP], d); ok {
+	if mgmtId, filter, ok := m.incomingAcceptIndex.match(srcIP, d); ok {
 		return mgmtId, filter
 	}
-	if mgmtId, filter, ok := validateRule(srcIP, packetData, m.incomingRules[netip.IPv4Unspecified()], d); ok {
-		return mgmtId, filter
-	}
-	if mgmtId, filter, ok := validateRule(srcIP, packetData, m.incomingRules[netip.IPv6Unspecified()], d); ok {
-		return mgmtId, filter
-	}
-
 	return nil, true
 }
 
@@ -1436,39 +1513,6 @@ func portsMatch(rulePort *firewall.Port, packetPort uint16) bool {
 		}
 	}
 	return false
-}
-
-func validateRule(ip netip.Addr, packetData []byte, rules map[string]PeerRule, d *decoder) ([]byte, bool, bool) {
-	payloadLayer := d.decoded[1]
-
-	for _, rule := range rules {
-		if rule.matchByIP && ip.Compare(rule.ip) != 0 {
-			continue
-		}
-
-		if rule.protoLayer == layerTypeAll {
-			return rule.mgmtId, rule.drop, true
-		}
-
-		if !protoLayerMatches(rule.protoLayer, payloadLayer) {
-			continue
-		}
-
-		switch payloadLayer {
-		case layers.LayerTypeTCP:
-			if portsMatch(rule.sPort, uint16(d.tcp.SrcPort)) && portsMatch(rule.dPort, uint16(d.tcp.DstPort)) {
-				return rule.mgmtId, rule.drop, true
-			}
-		case layers.LayerTypeUDP:
-			if portsMatch(rule.sPort, uint16(d.udp.SrcPort)) && portsMatch(rule.dPort, uint16(d.udp.DstPort)) {
-				return rule.mgmtId, rule.drop, true
-			}
-		case layers.LayerTypeICMPv4, layers.LayerTypeICMPv6:
-			return rule.mgmtId, rule.drop, true
-		}
-	}
-
-	return nil, false, false
 }
 
 // routeACLsPass returns true if the packet is allowed by the route ACLs

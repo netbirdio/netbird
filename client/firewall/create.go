@@ -21,7 +21,7 @@ func NewFirewall(iface IFaceMapper, _ *statemanager.Manager, flowLogger nftypes.
 	}
 
 	// use userspace packet filtering firewall
-	fm, err := uspfilter.Create(iface, disableServerRoutes, flowLogger, mtu)
+	fm, err := uspfilter.Create(iface, nil, disableServerRoutes, flowLogger, mtu)
 	if err != nil {
 		return nil, err
 	}

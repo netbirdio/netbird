@@ -66,7 +66,7 @@ func BenchmarkDNATTranslation(b *testing.B) {
 		b.Run(sc.name, func(b *testing.B) {
 			manager, err := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false, flowLogger, iface.DefaultMTU)
+			}, nil, false, flowLogger, iface.DefaultMTU)
 			require.NoError(b, err)
 			defer func() {
 				require.NoError(b, manager.Close(nil))
@@ -126,7 +126,7 @@ func BenchmarkDNATTranslation(b *testing.B) {
 func BenchmarkDNATConcurrency(b *testing.B) {
 	manager, err := Create(&IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false, flowLogger, iface.DefaultMTU)
+	}, nil, false, flowLogger, iface.DefaultMTU)
 	require.NoError(b, err)
 	defer func() {
 		require.NoError(b, manager.Close(nil))
@@ -198,7 +198,7 @@ func BenchmarkDNATScaling(b *testing.B) {
 		b.Run(fmt.Sprintf("mappings_%d", count), func(b *testing.B) {
 			manager, err := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false, flowLogger, iface.DefaultMTU)
+			}, nil, false, flowLogger, iface.DefaultMTU)
 			require.NoError(b, err)
 			defer func() {
 				require.NoError(b, manager.Close(nil))
@@ -310,7 +310,7 @@ func BenchmarkChecksumUpdate(b *testing.B) {
 func BenchmarkDNATMemoryAllocations(b *testing.B) {
 	manager, err := Create(&IFaceMock{
 		SetFilterFunc: func(device.PacketFilter) error { return nil },
-	}, false, flowLogger, iface.DefaultMTU)
+	}, nil, false, flowLogger, iface.DefaultMTU)
 	require.NoError(b, err)
 	defer func() {
 		require.NoError(b, manager.Close(nil))
@@ -483,7 +483,7 @@ func BenchmarkPortDNAT(b *testing.B) {
 		b.Run(sc.name, func(b *testing.B) {
 			manager, err := Create(&IFaceMock{
 				SetFilterFunc: func(device.PacketFilter) error { return nil },
-			}, false, flowLogger, iface.DefaultMTU)
+			}, nil, false, flowLogger, iface.DefaultMTU)
 			require.NoError(b, err)
 			defer func() {
 				require.NoError(b, manager.Close(nil))
