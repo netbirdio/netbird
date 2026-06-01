@@ -215,18 +215,17 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 	}
 	t.menu = t.buildMenu()
 	t.tray.SetMenu(t.menu)
-	// Left-click on the tray icon opens the menu, and the window is reached
-	// through the explicit "Open NetBird" entry. This matches macOS
-	// NSStatusItem convention (click → menu), the Linux StatusNotifierItem
-	// spec, and the legacy Fyne client. macOS and Linux give us click→menu
-	// natively, so bindTrayClick is a no-op there (binding OnClick→OpenMenu
-	// on macOS would freeze the tray — see tray_click_other.go). Windows has
-	// no native left-click handler, so bindTrayClick wires one explicitly
-	// (see tray_click_windows.go). On Linux we deliberately skip AttachWindow:
-	// it plus Wails3's applySmartDefaults would pop the window alongside the
-	// menu on environments like GNOME Shell with the AppIndicator extension.
-	// Right-click opens the menu through Wails' default rightClickHandler on
-	// every platform.
+	// Tray click handling is platform-specific (see the tray_click_*.go
+	// files): macOS auto-shows the menu on left-click natively, so its
+	// bindTrayClick is a no-op (binding OnClick→OpenMenu would freeze the
+	// tray — see tray_click_other.go). Windows has no native left-click
+	// handler, so it wires left→OpenMenu + double→ShowWindow. Linux hosts
+	// disagree on left-click (KDE routes it to Activate, which was unwired
+	// and appeared dead), so Linux binds left→ShowWindow. The context menu
+	// stays reachable via right-click on every platform, plus the explicit
+	// "Open NetBird" entry. AttachWindow is deliberately skipped everywhere:
+	// with Wails3's applySmartDefaults it would pop the window alongside the
+	// menu on GNOME Shell + AppIndicator.
 	bindTrayClick(t)
 
 	app.Event.On(services.EventStatusSnapshot, t.onStatusEvent)
