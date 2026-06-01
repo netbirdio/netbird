@@ -115,7 +115,7 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
                                     onSelect={handleManage}
                                     disabled={!onManageProfiles}
                                     className={cn(
-                                        "flex items-center gap-2 px-2 py-1.5 my-0.5",
+                                        "flex items-center gap-2 px-2 py-1.5",
                                         "rounded-md outline-none cursor-default text-sm",
                                         "data-[selected=true]:bg-nb-gray-900",
                                         "data-[disabled=true]:opacity-50 data-[disabled=true]:pointer-events-none",
@@ -173,19 +173,17 @@ type ProfileRowProps = {
 
 const ProfileRow = ({ profile, isActive, onSelect }: ProfileRowProps) => {
     const showEmail = !!profile.email;
-    const Icon = pickProfileIcon(profile.name) ?? UserCircle;
     return (
         <Command.Item
             value={profile.name}
             onSelect={() => onSelect(profile.name)}
             className={cn(
-                "flex gap-2 px-2 py-2 pr-3 my-0.5 first:mt-0 last:mb-1 w-auto",
+                "flex gap-2 px-2 py-2 pr-3 w-auto last:mb-1",
                 "rounded-md outline-none cursor-default text-sm",
                 "data-[selected=true]:bg-nb-gray-900",
                 showEmail ? "items-start" : "items-center",
             )}
         >
-            <Icon size={14} className={cn("shrink-0", showEmail && "mt-0.5")} />
             <div className="flex flex-col min-w-0 flex-1 leading-tight">
                 <span className="truncate">{profile.name}</span>
                 {showEmail && <TruncatedEmail email={profile.email!} />}
