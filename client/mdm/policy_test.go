@@ -17,7 +17,7 @@ func TestPolicy_NilSafe(t *testing.T) {
 	assert.False(t, ok)
 	_, ok = p.GetBool(KeyDisableProfiles)
 	assert.False(t, ok)
-	_, ok = p.GetStringSlice(KeySplitTunnelAllowApps)
+	_, ok = p.GetStringSlice(KeySplitTunnelApps)
 	assert.False(t, ok)
 }
 
@@ -110,42 +110,42 @@ func TestPolicy_GetBool(t *testing.T) {
 func TestPolicy_GetStringSlice(t *testing.T) {
 	t.Run("native string slice", func(t *testing.T) {
 		p := NewPolicy(map[string]any{
-			KeySplitTunnelAllowApps: []string{"com.a", "com.b"},
+			KeySplitTunnelApps: []string{"com.a", "com.b"},
 		})
-		got, ok := p.GetStringSlice(KeySplitTunnelAllowApps)
+		got, ok := p.GetStringSlice(KeySplitTunnelApps)
 		assert.True(t, ok)
 		assert.Equal(t, []string{"com.a", "com.b"}, got)
 	})
 
 	t.Run("any slice of strings", func(t *testing.T) {
 		p := NewPolicy(map[string]any{
-			KeySplitTunnelAllowApps: []any{"com.a", "com.b"},
+			KeySplitTunnelApps: []any{"com.a", "com.b"},
 		})
-		got, ok := p.GetStringSlice(KeySplitTunnelAllowApps)
+		got, ok := p.GetStringSlice(KeySplitTunnelApps)
 		assert.True(t, ok)
 		assert.Equal(t, []string{"com.a", "com.b"}, got)
 	})
 
 	t.Run("single string lifts to one-element slice", func(t *testing.T) {
 		p := NewPolicy(map[string]any{
-			KeySplitTunnelAllowApps: "com.a",
+			KeySplitTunnelApps: "com.a",
 		})
-		got, ok := p.GetStringSlice(KeySplitTunnelAllowApps)
+		got, ok := p.GetStringSlice(KeySplitTunnelApps)
 		assert.True(t, ok)
 		assert.Equal(t, []string{"com.a"}, got)
 	})
 
 	t.Run("mixed any slice rejected", func(t *testing.T) {
 		p := NewPolicy(map[string]any{
-			KeySplitTunnelAllowApps: []any{"com.a", 1},
+			KeySplitTunnelApps: []any{"com.a", 1},
 		})
-		_, ok := p.GetStringSlice(KeySplitTunnelAllowApps)
+		_, ok := p.GetStringSlice(KeySplitTunnelApps)
 		assert.False(t, ok)
 	})
 
 	t.Run("missing key", func(t *testing.T) {
 		p := NewPolicy(nil)
-		_, ok := p.GetStringSlice(KeySplitTunnelAllowApps)
+		_, ok := p.GetStringSlice(KeySplitTunnelApps)
 		assert.False(t, ok)
 	})
 }

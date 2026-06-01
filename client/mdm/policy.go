@@ -33,8 +33,20 @@ const (
 	KeyRosenpassEnabled         = "rosenpassEnabled"
 	KeyRosenpassPermissive      = "rosenpassPermissive"
 	KeyWireguardPort            = "wireguardPort"
-	KeySplitTunnelAllowApps     = "splitTunnelAllowApps"
-	KeySplitTunnelDisallowApps  = "splitTunnelDisallowApps"
+
+	// Split tunnel is modeled as a single conceptual policy with two
+	// registry/plist values. KeySplitTunnelMode is the discriminator
+	// ("allow" or "disallow"); KeySplitTunnelApps is a comma-separated
+	// list of package names. The values are mutually exclusive by
+	// construction — only one mode can be set at a time.
+	KeySplitTunnelMode = "splitTunnelMode"
+	KeySplitTunnelApps = "splitTunnelApps"
+)
+
+// Split-tunnel mode literals (KeySplitTunnelMode values).
+const (
+	SplitTunnelModeAllow    = "allow"
+	SplitTunnelModeDisallow = "disallow"
 )
 
 // AllKeys is the set of recognised MDM keys. Unknown keys in a managed
@@ -54,8 +66,8 @@ var AllKeys = []string{
 	KeyRosenpassEnabled,
 	KeyRosenpassPermissive,
 	KeyWireguardPort,
-	KeySplitTunnelAllowApps,
-	KeySplitTunnelDisallowApps,
+	KeySplitTunnelMode,
+	KeySplitTunnelApps,
 }
 
 // SecretKeys lists keys whose values must be redacted in logs.
