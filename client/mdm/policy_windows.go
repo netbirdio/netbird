@@ -55,7 +55,7 @@ func loadPlatformPolicy() (map[string]any, error) {
 	}
 	defer func() {
 		if closeErr := k.Close(); closeErr != nil {
-			log.Warnf("mdm: close registry key %s: %v", policyRegistryPath, closeErr)
+			log.Warnf("MDM close registry key %s: %v", policyRegistryPath, closeErr)
 		}
 	}()
 
@@ -72,13 +72,13 @@ func loadPlatformPolicy() (map[string]any, error) {
 		// `reg add` command.
 		canonical, known := canonicalKey[strings.ToLower(name)]
 		if !known {
-			log.Warnf("mdm: ignoring unknown registry value %s\\%s", policyRegistryPath, name)
+			log.Warnf("MDM ignoring unknown registry value %s\\%s", policyRegistryPath, name)
 			continue
 		}
 
 		_, valType, err := k.GetValue(name, nil)
 		if err != nil {
-			log.Warnf("mdm: stat %s\\%s: %v", policyRegistryPath, name, err)
+			log.Warnf("MDM stat %s\\%s: %v", policyRegistryPath, name, err)
 			continue
 		}
 		switch valType {
@@ -86,7 +86,7 @@ func loadPlatformPolicy() (map[string]any, error) {
 			if v, _, err := k.GetStringValue(name); err == nil {
 				out[canonical] = v
 			} else {
-				log.Warnf("mdm: read string %s\\%s: %v", policyRegistryPath, name, err)
+				log.Warnf("MDM read string %s\\%s: %v", policyRegistryPath, name, err)
 			}
 		case registry.DWORD, registry.QWORD:
 			if v, _, err := k.GetIntegerValue(name); err == nil {
@@ -94,16 +94,16 @@ func loadPlatformPolicy() (map[string]any, error) {
 				// helpers consume int64, so narrow safely.
 				out[canonical] = int64(v)
 			} else {
-				log.Warnf("mdm: read int %s\\%s: %v", policyRegistryPath, name, err)
+				log.Warnf("MDM read int %s\\%s: %v", policyRegistryPath, name, err)
 			}
 		case registry.MULTI_SZ:
 			if v, _, err := k.GetStringsValue(name); err == nil {
 				out[canonical] = v
 			} else {
-				log.Warnf("mdm: read multi-string %s\\%s: %v", policyRegistryPath, name, err)
+				log.Warnf("MDM read multi-string %s\\%s: %v", policyRegistryPath, name, err)
 			}
 		default:
-			log.Warnf("mdm: ignoring unsupported registry value type %d at %s\\%s",
+			log.Warnf("MDM ignoring unsupported registry value type %d at %s\\%s",
 				valType, policyRegistryPath, name)
 		}
 	}
