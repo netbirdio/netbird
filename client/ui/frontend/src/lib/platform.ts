@@ -1,33 +1,34 @@
 import { System } from "@wailsio/runtime";
 
 export type Platform = {
-  isWindows11: boolean;
+  isWindows: boolean;
   isMacOS: boolean;
-  isOtherOS: boolean;
 };
 
 let cached: Platform | null = null;
 
-// Windows 11 is Windows NT 10.0 with build number >= 22000.
-function parseWindows11(version: string): boolean {
-  const match = version.match(/(\d+)\.(\d+)\.(\d+)/);
-  if (!match) return false;
-  return parseInt(match[3], 10) >= 22000;
-}
-
 export async function initPlatform(): Promise<void> {
   if (cached) return;
-  const isMacOS = System.IsMac();
-  const isWindows = System.IsWindows();
-  let isWindows11 = false;
-  if (isWindows) {
-    const env = await System.Environment();
-    isWindows11 = parseWindows11(env.OSInfo?.Version ?? "");
+
+  // Sync getters read the page-injected `window._wails.environment`, which can
+  // be empty if the injection hasn't landed yet — keep them only as a fallback.
+  const syncIsMac = System.IsMac();
+  const syncIsWindows = System.IsWindows();
+
+  // The async Environment() call round-trips to the Go backend and is the
+  // authoritative source for OS.
+  let env: Awaited<ReturnType<typeof System.Environment>> | null = null;
+  try {
+    env = await System.Environment();
+  } catch (e) {
+    console.error("[platform] System.Environment() threw:", e);
   }
+
+  // Prefer the async env.OS; fall back to the sync getters if it's missing.
+  const os = (env?.OS ?? "").toLowerCase();
   cached = {
-    isWindows11,
-    isMacOS,
-    isOtherOS: !isMacOS && !isWindows11,
+    isWindows: os ? os === "windows" : syncIsWindows,
+    isMacOS: os ? os === "darwin" : syncIsMac,
   };
 }
 
@@ -38,7 +39,5 @@ function get(): Platform {
   return cached;
 }
 
-export const getPlatform = (): Platform => get();
-export const isWindows11 = (): boolean => get().isWindows11;
+export const isWindows = (): boolean => get().isWindows;
 export const isMacOS = (): boolean => get().isMacOS;
-export const isOtherOS = (): boolean => get().isOtherOS;

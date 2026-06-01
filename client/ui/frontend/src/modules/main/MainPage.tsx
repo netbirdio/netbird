@@ -13,6 +13,7 @@ import { ExitNodes } from "@/modules/main/advanced/exit-nodes/ExitNodes";
 import { NetworksProvider } from "@/contexts/NetworksContext";
 import { PeerDetailProvider, usePeerDetail } from "@/contexts/PeerDetailContext";
 import { PeerDetailPanel } from "@/modules/main/advanced/peers/PeerDetailPanel";
+import {isWindows} from "@/lib/platform.ts";
 
 export const MainPage = () => {
     return (
@@ -33,7 +34,10 @@ const MainBody = () => {
 
     return (
         <div className={"wails-draggable flex flex-1 min-h-0"}>
-            <div className={"flex flex-col items-center shrink-0 w-[380px]"}>
+            {/* Windows gets a narrower width to compensate for the OS window frame/border that Wails
+                counts differently than macOS, so the visible content area lines up on both platforms.
+                See https://github.com/wailsapp/wails/issues/3260 */}
+            <div className={cn("flex flex-col items-center shrink-0 ", isWindows() ? "w-[364px]" : "w-[380px]")}>
                 <MainConnectionStatusSwitch />
             </div>
             {isAdvanced && (
