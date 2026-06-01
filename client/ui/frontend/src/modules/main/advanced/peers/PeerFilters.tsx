@@ -42,7 +42,7 @@ export const PeerFilters = ({ value, onChange, counts, disabled }: Props) => {
                     "text-sm text-nb-gray-100",
                     "outline-none hover:bg-nb-gray-900 data-[state=open]:bg-nb-gray-900 transition-colors duration-150",
                     "disabled:opacity-50 disabled:pointer-events-none",
-                    "wails-no-draggable",
+                    "wails-no-draggable cursor-default",
                 )}
             >
                 <ListFilter size={14} className={"shrink-0"} />

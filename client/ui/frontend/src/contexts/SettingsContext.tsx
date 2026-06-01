@@ -8,7 +8,7 @@ import {
     type ReactNode,
 } from "react";
 import { Dialogs } from "@wailsio/runtime";
-import { Autostart, Settings as SettingsSvc } from "@bindings/services";
+import { Autostart, Settings as SettingsSvc, Version } from "@bindings/services";
 import type { Config } from "@bindings/services/models.js";
 import i18next from "@/lib/i18n";
 import { useProfile } from "@/contexts/ProfileContext.tsx";
@@ -21,6 +21,7 @@ export type AutostartState = { supported: boolean; enabled: boolean };
 
 type SettingsContextValue = {
     config: Config;
+    guiVersion: string;
     setField: <K extends keyof Config>(k: K, v: Config[K]) => void;
     saveField: <K extends keyof Config>(k: K, v: Config[K]) => Promise<void>;
     saveFields: (partial: Partial<Config>) => Promise<void>;
@@ -56,6 +57,7 @@ export const useAutostartSetting = () => {
 const useSettingsState = () => {
     const { username, activeProfile, loaded: profileLoaded } = useProfile();
     const [config, setConfig] = useState<Config | null>(null);
+    const [guiVersion, setGuiVersion] = useState<string>("—");
     const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
@@ -75,6 +77,16 @@ const useSettingsState = () => {
             }
         })();
     }, [profileLoaded, activeProfile, username]);
+
+    useEffect(() => {
+        let cancelled = false;
+        Version.GUI().then((v) => {
+            if (!cancelled) setGuiVersion(v);
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     useEffect(
         () => () => {
@@ -159,11 +171,12 @@ const useSettingsState = () => {
         [config, save],
     );
 
-    return { config, setField, saveField, saveFields, saveNow };
+    return { config, guiVersion, setField, saveField, saveFields, saveNow };
 };
 
 export const SettingsProvider = ({ children }: { children: ReactNode }) => {
-    const { config, setField, saveField, saveFields, saveNow } = useSettingsState();
+    const { config, guiVersion, setField, saveField, saveFields, saveNow } =
+        useSettingsState();
 
     return (
         <div className={"flex-1 min-h-0 overflow-y-auto"}>
@@ -173,6 +186,7 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
                 <SettingsContext.Provider
                     value={{
                         config,
+                        guiVersion,
                         setField,
                         saveField,
                         saveFields,

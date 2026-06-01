@@ -1,6 +1,15 @@
-import { ComponentType, ReactNode, useEffect } from "react";
+import {
+    ComponentType,
+    ReactNode,
+    useCallback,
+    useEffect,
+    useLayoutEffect,
+    useRef,
+    useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { AnimatePresence, motion, type Transition } from "framer-motion";
+import * as Popover from "@radix-ui/react-popover";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import {
     ArrowDownIcon,
@@ -18,14 +27,18 @@ import {
     MonitorIcon,
     NetworkIcon,
     Radio,
+    RefreshCwIcon,
     ZapIcon,
 } from "lucide-react";
 import type { PeerStatus } from "@bindings/services/models.js";
 import { cn } from "@/lib/cn";
 import { CopyToClipboard } from "@/components/CopyToClipboard";
+import { Tooltip } from "@/components/Tooltip";
 import { formatBytes, formatRelative, latencyColor } from "@/lib/formatters";
 import { useStatus } from "@/contexts/StatusContext";
 import { usePeerDetail } from "@/contexts/PeerDetailContext";
+import { mockOr, mockPeers } from "@/lib/mock";
+import { peerStatusLabelKey } from "./Peers";
 
 const DEFAULT_TRANSITION: Transition = {
     duration: 0.32,
@@ -52,14 +65,14 @@ type Props = {
 export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
     const { t } = useTranslation();
     const { selected, setSelected } = usePeerDetail();
-    const { status } = useStatus();
+    const { status, refresh } = useStatus();
 
     // Keep `selected` in sync with the live peer list so the panel reflects
     // status / latency / byte updates without re-opening. If the peer
     // disappears, close the panel.
     useEffect(() => {
         if (!selected) return;
-        const peers = status?.peers ?? [];
+        const peers = mockOr(status?.peers ?? [], mockPeers);
         const fresh = peers.find((p) => p.pubKey === selected.pubKey);
         if (!fresh) {
             setSelected(null);
@@ -67,6 +80,34 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
         }
         if (fresh !== selected) setSelected(fresh);
     }, [status, selected, setSelected]);
+
+    // Re-render every second so the relative timestamps in PeerDetails
+    // ("Xs ago", "Xm ago") tick. The daemon updates latency/bytes/handshake
+    // silently without pushing a fresh status snapshot — see
+    // status.go UpdateLatency / UpdateWireGuardPeerState — so without this
+    // the displayed age would freeze for a stably-Connected peer.
+    const [now, setNow] = useState(() => Date.now());
+    useEffect(() => {
+        if (!selected) return;
+        const id = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(id);
+    }, [selected]);
+
+    const [refreshing, setRefreshing] = useState(false);
+    const onRefresh = useCallback(async () => {
+        if (refreshing) return;
+        setRefreshing(true);
+        // Refresh over the unix socket usually completes in <50ms, faster
+        // than the spin animation can show. Hold the spinning state for at
+        // least one full rotation so the click feels responsive.
+        const MIN_SPIN_MS = 600;
+        const minDelay = new Promise<void>((r) => setTimeout(r, MIN_SPIN_MS));
+        try {
+            await Promise.all([refresh(), minDelay]);
+        } finally {
+            setRefreshing(false);
+        }
+    }, [refresh, refreshing]);
 
     // Esc closes the panel.
     useEffect(() => {
@@ -107,20 +148,48 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                         >
                             <ArrowLeftIcon size={16} />
                         </button>
-                        <span
-                            className={cn(
-                                "h-2 w-2 rounded-full shrink-0",
-                                dotClass(selected.connStatus),
-                            )}
-                            title={selected.connStatus}
-                        />
-                        <span className={"min-w-0 text-sm font-medium text-nb-gray-100 truncate"}>
-                            {selected.fqdn || selected.ip}
-                        </span>
+                        <Tooltip content={t(peerStatusLabelKey(selected.connStatus))} side={"top"}>
+                            <span
+                                className={cn(
+                                    "h-2 w-2 rounded-full shrink-0",
+                                    dotClass(selected.connStatus),
+                                )}
+                            />
+                        </Tooltip>
+                        <CopyToClipboard
+                            message={selected.fqdn || selected.ip}
+                            size={11}
+                            className={"flex-1 min-w-0"}
+                            iconClassName={"top-[2px]"}
+                        >
+                            <span className={"text-sm font-medium text-nb-gray-100 truncate"}>
+                                {selected.fqdn || selected.ip}
+                            </span>
+                        </CopyToClipboard>
+                        <Tooltip content={t("peers.details.refresh")}>
+                            <button
+                                type={"button"}
+                                onClick={onRefresh}
+                                disabled={refreshing}
+                                aria-label={t("peers.details.refresh")}
+                                className={cn(
+                                    "shrink-0 h-8 w-8 rounded-md flex items-center justify-center",
+                                    "text-nb-gray-300 hover:bg-nb-gray-910 hover:text-nb-gray-100",
+                                    "transition-colors outline-none cursor-default",
+                                    "wails-no-draggable",
+                                    "disabled:opacity-50 disabled:hover:bg-transparent",
+                                )}
+                            >
+                                <RefreshCwIcon
+                                    size={14}
+                                    className={refreshing ? "animate-spin" : undefined}
+                                />
+                            </button>
+                        </Tooltip>
                     </div>
                     <ScrollArea.Root type={"auto"} className={"flex-1 min-h-0 overflow-hidden"}>
                         <ScrollArea.Viewport className={"h-full w-full"}>
-                            <PeerDetails peer={selected} />
+                            <PeerDetails peer={selected} now={now} />
                         </ScrollArea.Viewport>
                         <ScrollArea.Scrollbar
                             orientation={"vertical"}
@@ -142,10 +211,16 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
     );
 };
 
-const PeerDetails = ({ peer }: { peer: PeerStatus }) => {
+const PeerDetails = ({ peer, now }: { peer: PeerStatus; now: number }) => {
     const { t } = useTranslation();
-    const lastHandshake = formatRelative(peer.lastHandshakeUnix) ?? t("peers.details.never");
-    const statusSince = formatRelative(peer.connStatusUpdateUnix) ?? DASH;
+    const formatAge = (unix: number, fallback: string): string => {
+        if (!Number.isFinite(unix) || unix <= 0) return fallback;
+        const diff = Math.floor(now / 1000 - unix);
+        if (diff < 1) return t("peers.details.justNow");
+        return formatRelative(unix, now) ?? fallback;
+    };
+    const lastHandshake = formatAge(peer.lastHandshakeUnix, t("peers.details.never"));
+    const statusSince = formatAge(peer.connStatusUpdateUnix, DASH);
     const isConnected = peer.connStatus === "Connected";
     const ConnectionIcon = peer.relayed ? NetworkIcon : ZapIcon;
     const connectionLabel = peer.relayed ? t("peers.details.relayed") : t("peers.details.p2p");
@@ -225,10 +300,10 @@ const PeerDetails = ({ peer }: { peer: PeerStatus }) => {
                         <CopyToClipboard
                             message={peer.relayAddress}
                             alwaysShowIcon
-                            className={"max-w-full"}
+                            className={"max-w-full min-w-0"}
                             iconClassName={"top-0"}
                         >
-                            <span className={"font-mono truncate"}>{peer.relayAddress}</span>
+                            <TruncatedRowValue value={peer.relayAddress} mono />
                         </CopyToClipboard>
                     ) : (
                         DASH
@@ -237,7 +312,7 @@ const PeerDetails = ({ peer }: { peer: PeerStatus }) => {
             )}
             {peer.networks.length > 0 && (
                 <Row icon={Layers3Icon} label={t("peers.details.networks")}>
-                    <span className={"break-words"}>{peer.networks.join(", ")}</span>
+                    <ResourcesValue networks={peer.networks} />
                 </Row>
             )}
             <Row icon={KeyRoundIcon} label={t("peers.details.publicKey")}>
@@ -245,10 +320,10 @@ const PeerDetails = ({ peer }: { peer: PeerStatus }) => {
                     <CopyToClipboard
                         message={peer.pubKey}
                         alwaysShowIcon
-                        className={"max-w-full"}
+                        className={"max-w-full min-w-0"}
                         iconClassName={"top-0"}
                     >
-                        <span className={"font-mono truncate"}>{peer.pubKey}</span>
+                        <TruncatedRowValue value={peer.pubKey} mono />
                     </CopyToClipboard>
                 ) : (
                     DASH
@@ -283,15 +358,145 @@ const IceRow = ({ icon, baseLabel, type, endpoint }: IceRowProps) => {
                 <CopyToClipboard
                     message={endpoint}
                     alwaysShowIcon
-                    className={"max-w-full"}
+                    className={"max-w-full min-w-0"}
                     iconClassName={"top-0"}
                 >
-                    <span className={"font-mono truncate"}>{endpoint}</span>
+                    <TruncatedRowValue value={endpoint} mono />
                 </CopyToClipboard>
             ) : (
                 <span className={"truncate"}>{capitalize(type)}</span>
             )}
         </Row>
+    );
+};
+
+// "{N} Resources" trigger that opens a hover popover listing each routed
+// network on its own line with a click-to-copy entry. Mirrors the resolved-IPs
+// popover in the Resources tab (Networks.tsx ResolvedIpsPopover).
+// Row value: first network inline, plus a "+N more" hover pill opening a
+// popover with the full list. Mirrors the resolved-IPs pattern in
+// Networks.tsx so the Resources tab and the peer detail row look consistent.
+const ResourcesValue = ({ networks }: { networks: string[] }) => {
+    const first = networks[0];
+    const extra = networks.length - 1;
+    return (
+        <div className={"flex items-center gap-1.5 min-w-0 justify-end"}>
+            <CopyToClipboard message={first}>
+                <TruncatedRowValue value={first} mono />
+            </CopyToClipboard>
+            {extra > 0 && <ResourcesMorePopover networks={networks} extra={extra} />}
+        </div>
+    );
+};
+
+const ResourcesMorePopover = ({
+    networks,
+    extra,
+}: {
+    networks: string[];
+    extra: number;
+}) => {
+    const { t } = useTranslation();
+    const [open, setOpen] = useState(false);
+    const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const cancelClose = () => {
+        if (closeTimer.current) {
+            clearTimeout(closeTimer.current);
+            closeTimer.current = null;
+        }
+    };
+    // Close with a small delay so the mouse can cross the sideOffset gap
+    // between trigger and content without the popover snapping shut.
+    const scheduleClose = () => {
+        cancelClose();
+        closeTimer.current = setTimeout(() => setOpen(false), 300);
+    };
+    useEffect(() => () => cancelClose(), []);
+
+    return (
+        <Popover.Root open={open} onOpenChange={setOpen}>
+            <Popover.Trigger asChild>
+                <button
+                    type={"button"}
+                    onMouseEnter={() => {
+                        cancelClose();
+                        setOpen(true);
+                    }}
+                    onMouseLeave={scheduleClose}
+                    className={cn(
+                        "shrink-0 rounded bg-nb-gray-900 hover:bg-nb-gray-850",
+                        "px-1.5 py-0.5 text-[10px] font-medium text-nb-gray-300",
+                        "wails-no-draggable cursor-default outline-none",
+                    )}
+                >
+                    {t("peers.details.more", { count: extra })}
+                </button>
+            </Popover.Trigger>
+            <Popover.Portal>
+                <Popover.Content
+                    side={"bottom"}
+                    align={"end"}
+                    sideOffset={6}
+                    onMouseEnter={cancelClose}
+                    onMouseLeave={scheduleClose}
+                    onOpenAutoFocus={(e) => e.preventDefault()}
+                    className={cn(
+                        "z-50 w-64 max-h-72 overflow-auto",
+                        "rounded-lg border border-nb-gray-900 bg-nb-gray-935",
+                        "p-2 shadow-lg outline-none",
+                    )}
+                >
+                    <ul className={"flex flex-col"}>
+                        {networks.map((n) => (
+                            <li key={n}>
+                                <CopyToClipboard message={n} className={"px-1 py-0.5"}>
+                                    <span
+                                        className={
+                                            "font-mono text-[0.72rem] text-nb-gray-200 break-all"
+                                        }
+                                    >
+                                        {n}
+                                    </span>
+                                </CopyToClipboard>
+                            </li>
+                        ))}
+                    </ul>
+                </Popover.Content>
+            </Popover.Portal>
+        </Popover.Root>
+    );
+};
+
+// Truncates the value to one line with the row's available width; on hover,
+// shows the full string in a tooltip — but only when actually clipped. Same
+// pattern as TruncatedName in Peers.tsx / TruncatedEmail in ProfileDropdown.
+const TruncatedRowValue = ({ value, mono }: { value: string; mono?: boolean }) => {
+    const ref = useRef<HTMLSpanElement>(null);
+    const [overflowing, setOverflowing] = useState(false);
+
+    useLayoutEffect(() => {
+        const el = ref.current;
+        if (!el) return;
+        setOverflowing(el.scrollWidth > el.clientWidth);
+    }, [value]);
+
+    const span = (
+        <span
+            ref={ref}
+            className={cn(
+                "inline-block truncate align-middle min-w-0 max-w-[260px]",
+                mono && "font-mono",
+            )}
+        >
+            {value}
+        </span>
+    );
+    if (!overflowing) return span;
+    return (
+        <Tooltip content={value} delayDuration={600}>
+            {span}
+        </Tooltip>
     );
 };
 

@@ -3,7 +3,7 @@ import { Browser } from "@wailsio/runtime";
 import { BookOpen, Github, MessageSquareText, MessagesSquare, Slack } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import netbirdFull from "@/assets/logos/netbird-full.svg";
-import pkg from "../../../package.json";
+import { useSettings } from "@/contexts/SettingsContext.tsx";
 import { useStatus } from "@/contexts/StatusContext.tsx";
 import { UpdateVersionCard } from "@/modules/auto-update/UpdateVersionCard";
 import { useAccentTrigger } from "@/modules/settings/SettingsAccent";
@@ -15,7 +15,7 @@ function openUrl(url: string) {
 export function SettingsAbout() {
     const { t } = useTranslation();
     const { status } = useStatus();
-    const guiVersion = pkg.version;
+    const { guiVersion } = useSettings();
     const daemonVersion = status?.daemonVersion ?? "—";
 
     const handleVersionClick = useAccentTrigger();
@@ -79,7 +79,16 @@ export function SettingsAbout() {
                     )}
                 </p>
                 <p className={"text-sm text-nb-gray-250 cursor-text select-text font-medium"}>
-                    {t("settings.about.gui", { version: guiVersion })}
+                    {guiVersion === "development" ? (
+                        <span>
+                            {t("settings.about.guiName")}{" "}
+                            <span className={" text-yellow-400 font-mono"}>
+                                {t("settings.about.development")}
+                            </span>
+                        </span>
+                    ) : (
+                        t("settings.about.gui", { version: guiVersion })
+                    )}
                 </p>
             </div>
 

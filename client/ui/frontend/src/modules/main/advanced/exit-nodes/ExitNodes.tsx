@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/empty-state/EmptyState";
 import { NoResults } from "@/components/empty-state/NoResults";
 import { useStatus } from "@/contexts/StatusContext";
 import { useNetworks } from "@/contexts/NetworksContext";
+import { mockExitNodes, mockOr } from "@/lib/mock";
 
 const NONE_VALUE = "__none__";
 
@@ -17,7 +18,8 @@ export const ExitNodes = () => {
     const { t } = useTranslation();
     const { status } = useStatus();
     const isConnected = status?.status === "Connected";
-    const { exitNodes, toggleExitNode } = useNetworks();
+    const { exitNodes: realExitNodes, toggleExitNode } = useNetworks();
+    const exitNodes = mockOr(realExitNodes, mockExitNodes);
     const [search, setSearch] = useState("");
     const searchRef = useRef<HTMLInputElement>(null);
 

@@ -52,7 +52,7 @@ export const Navigation = () => {
                             "gap-2.5 px-5 py-3.5",
                             "outline-none transition-all",
                             isActive ? "text-netbird" : "text-nb-gray-400 hover:text-nb-gray-300",
-                            isDisabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer",
+                            isDisabled ? "opacity-50 cursor-not-allowed" : "cursor-default",
                         )}
                     >
                         <Icon size={14} />

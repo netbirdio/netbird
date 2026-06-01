@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/empty-state/EmptyState";
 import { NoResults } from "@/components/empty-state/NoResults";
 import { useStatus } from "@/contexts/StatusContext";
 import { useNetworks } from "@/contexts/NetworksContext";
+import { mockNetworkRoutes, mockOr } from "@/lib/mock";
 import { NetworkFilter, NetworkFilters } from "./NetworkFilters";
 
 // The daemon stringifies route.Network via netip.Prefix.String(). For
@@ -75,7 +76,12 @@ export const Networks = () => {
     const { t } = useTranslation();
     const { status } = useStatus();
     const isConnected = status?.status === "Connected";
-    const { networkRoutes, toggleNetwork, setNetworksSelected } = useNetworks();
+    const {
+        networkRoutes: realNetworkRoutes,
+        toggleNetwork,
+        setNetworksSelected,
+    } = useNetworks();
+    const networkRoutes = mockOr(realNetworkRoutes, mockNetworkRoutes);
     const [search, setSearch] = useState("");
     const [filter, setFilter] = useState<NetworkFilter>("all");
     const searchRef = useRef<HTMLInputElement>(null);
