@@ -98,9 +98,27 @@ func (w *statusNotifierWatcher) tryStartXembedHost(busName string, objPath dbus.
 }
 
 // startStatusNotifierWatcher claims org.kde.StatusNotifierWatcher on the
-// session bus if it is not already provided by another process.
-// Safe to call unconditionally — it does nothing when a real watcher is present.
+// session bus, but ONLY as a bridge to an XEmbed system tray on minimal WMs.
+//
+// The in-process watcher is a stub: its RegisterStatusNotifierItem only
+// tracks items so it can mirror them into an XEmbed tray icon — it does
+// NOT relay them to any other StatusNotifierHost. So if we claim the name
+// on a desktop that has a real watcher/host (e.g. Hyprland + Waybar), every
+// other tray app (Slack, etc.) registers into our dead-end watcher and its
+// icon never reaches the real host. We won that name purely by starting
+// first; a GetNameOwner check doesn't help against a login-order race.
+//
+// The correct discriminator is whether an XEmbed tray actually exists. If
+// one does, we are the bridge of last resort and should claim the watcher.
+// If not (pure Wayland, or any environment already running a real watcher),
+// we have nothing to bridge and must stay off the bus entirely so the real
+// watcher owns the name. Safe to call unconditionally.
 func startStatusNotifierWatcher() {
+	if !xembedTrayAvailable() {
+		log.Debugf("StatusNotifierWatcher: no XEmbed tray present, leaving the watcher to the desktop")
+		return
+	}
+
 	conn, err := dbus.SessionBusPrivate()
 	if err != nil {
 		log.Debugf("StatusNotifierWatcher: cannot open private session bus: %v", err)
