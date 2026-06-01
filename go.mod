@@ -12,7 +12,7 @@ require (
 	github.com/kardianos/service v1.2.3-0.20240613133416-becf2eb62b83
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.27.6
-	github.com/rs/cors v1.8.0
+	github.com/rs/cors v1.11.1
 	github.com/sirupsen/logrus v1.9.4
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.9
