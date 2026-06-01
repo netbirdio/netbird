@@ -56,6 +56,55 @@ var iconUpdateConnectedMacOS []byte
 //go:embed assets/netbird-systemtray-update-disconnected-macos.png
 var iconUpdateDisconnectedMacOS []byte
 
+// Linux monochrome tray icons. Linux's SNI tray has no template-recoloring
+// (unlike macOS's SetTemplateIcon), so we ship an explicit black/white pair:
+// the black silhouette (*-mono.png) goes to SetIcon for light panels, the
+// white one (*-mono-dark.png) goes to SetDarkModeIcon for dark panels, and
+// the SNI host picks per panel theme. Generated from the macOS template
+// silhouettes — states differ by shape, not color.
+
+//go:embed assets/netbird-systemtray-connected-mono.png
+var iconConnectedMono []byte
+
+//go:embed assets/netbird-systemtray-connected-mono-dark.png
+var iconConnectedMonoDark []byte
+
+//go:embed assets/netbird-systemtray-connecting-mono.png
+var iconConnectingMono []byte
+
+//go:embed assets/netbird-systemtray-connecting-mono-dark.png
+var iconConnectingMonoDark []byte
+
+//go:embed assets/netbird-systemtray-disconnected-mono.png
+var iconDisconnectedMono []byte
+
+//go:embed assets/netbird-systemtray-disconnected-mono-dark.png
+var iconDisconnectedMonoDark []byte
+
+//go:embed assets/netbird-systemtray-error-mono.png
+var iconErrorMono []byte
+
+//go:embed assets/netbird-systemtray-error-mono-dark.png
+var iconErrorMonoDark []byte
+
+//go:embed assets/netbird-systemtray-needs-login-mono.png
+var iconNeedsLoginMono []byte
+
+//go:embed assets/netbird-systemtray-needs-login-mono-dark.png
+var iconNeedsLoginMonoDark []byte
+
+//go:embed assets/netbird-systemtray-update-connected-mono.png
+var iconUpdateConnectedMono []byte
+
+//go:embed assets/netbird-systemtray-update-connected-mono-dark.png
+var iconUpdateConnectedMonoDark []byte
+
+//go:embed assets/netbird-systemtray-update-disconnected-mono.png
+var iconUpdateDisconnectedMono []byte
+
+//go:embed assets/netbird-systemtray-update-disconnected-mono-dark.png
+var iconUpdateDisconnectedMonoDark []byte
+
 //go:embed assets/netbird.png
 var iconWindow []byte
 

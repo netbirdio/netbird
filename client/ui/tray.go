@@ -76,6 +76,12 @@ type Tray struct {
 	tray   *application.SystemTray
 	window *application.WebviewWindow
 	svc    TrayServices
+	// panelDark reports whether the desktop panel uses a dark colour
+	// scheme, so iconForState can pick the black vs white monochrome tray
+	// icon on Linux. Set by startTrayTheme (Linux only); nil on macOS and
+	// Windows, where the OS/Wails handles light-vs-dark icon selection and
+	// panelIsDark falls back to its default.
+	panelDark func() bool
 	// loc owns the active language plus the preference subscription. The
 	// tray talks to it for every translated label (t.loc.T(...)) and
 	// registers a callback in NewTray that re-renders the menu on a
@@ -192,6 +198,10 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 	}
 	t.updater = newTrayUpdater(app, window, svc.Update, svc.Notifier, t.loc, func() { t.applyIcon() })
 	t.tray = app.SystemTray.New()
+	// Seed panel-theme detection (Linux only) before the first paint so the
+	// initial icon already matches the panel's light/dark scheme; repaints
+	// on live theme switches.
+	t.startTrayTheme()
 	t.applyIcon()
 	t.tray.SetTooltip(t.loc.T("tray.tooltip"))
 	// On Linux the SNI hover tooltip is sourced from the systray *Label*
