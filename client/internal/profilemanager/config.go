@@ -653,11 +653,22 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 		return
 	}
 
+	// Helper: log the application of a single MDM-managed key. Values for
+	// keys in mdm.SecretKeys are redacted.
+	logApplied := func(key string, displayValue any) {
+		if _, secret := mdm.SecretKeys[key]; secret {
+			log.Infof("MDM override %s = ********** (secret)", key)
+			return
+		}
+		log.Infof("MDM override %s = %v", key, displayValue)
+	}
+
 	if v, ok := policy.GetString(mdm.KeyManagementURL); ok {
 		if u, err := parseURL("Management URL", v); err != nil {
 			log.Warnf("MDM management URL %q invalid: %v; keeping previous value", v, err)
 		} else {
 			config.ManagementURL = u
+			logApplied(mdm.KeyManagementURL, u.String())
 		}
 	}
 
@@ -666,30 +677,38 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 		// through a manifest by mistake.
 		if !isPreSharedKeyHidden(&v) {
 			config.PreSharedKey = v
+			logApplied(mdm.KeyPreSharedKey, "")
 		}
 	}
 
 	if v, ok := policy.GetBool(mdm.KeyAllowServerSSH); ok {
 		bv := v
 		config.ServerSSHAllowed = &bv
+		logApplied(mdm.KeyAllowServerSSH, bv)
 	}
 	if v, ok := policy.GetBool(mdm.KeyDisableClientRoutes); ok {
 		config.DisableClientRoutes = v
+		logApplied(mdm.KeyDisableClientRoutes, v)
 	}
 	if v, ok := policy.GetBool(mdm.KeyDisableServerRoutes); ok {
 		config.DisableServerRoutes = v
+		logApplied(mdm.KeyDisableServerRoutes, v)
 	}
 	if v, ok := policy.GetBool(mdm.KeyBlockInbound); ok {
 		config.BlockInbound = v
+		logApplied(mdm.KeyBlockInbound, v)
 	}
 	if v, ok := policy.GetBool(mdm.KeyDisableAutoConnect); ok {
 		config.DisableAutoConnect = v
+		logApplied(mdm.KeyDisableAutoConnect, v)
 	}
 	if v, ok := policy.GetBool(mdm.KeyRosenpassEnabled); ok {
 		config.RosenpassEnabled = v
+		logApplied(mdm.KeyRosenpassEnabled, v)
 	}
 	if v, ok := policy.GetBool(mdm.KeyRosenpassPermissive); ok {
 		config.RosenpassPermissive = v
+		logApplied(mdm.KeyRosenpassPermissive, v)
 	}
 
 	if v, ok := policy.GetInt(mdm.KeyWireguardPort); ok {
@@ -698,6 +717,7 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 		// engine binding to an unusable port if the admin pushes garbage.
 		if v >= 1 && v <= 65535 {
 			config.WgPort = int(v)
+			logApplied(mdm.KeyWireguardPort, v)
 		} else {
 			log.Warnf("MDM wireguard port %d out of range [1,65535]; keeping previous value", v)
 		}

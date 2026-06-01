@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
@@ -73,6 +74,8 @@ func rejectMDMManagedFieldConflicts(policy *mdm.Policy, requested []string) erro
 	if len(conflicts) == 0 {
 		return nil
 	}
+	log.Warnf("MDM rejected request: tried to modify %d managed key(s): %v",
+		len(conflicts), conflicts)
 	st := gstatus.New(
 		codes.FailedPrecondition,
 		fmt.Sprintf("fields managed by MDM cannot be modified: %v", conflicts),
