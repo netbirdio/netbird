@@ -1,7 +1,7 @@
 
 <div align="center">
   <p align="center">
-    <img width="234" src="docs/media/logo-full.png" alt="NetBird logo"/>
+    <img width="234" src="docs/media/logo-full.png" alt="NetBird logo" />
   </p>
   <p align="center">
     <a href="https://sonarcloud.io/dashboard?id=netbirdio_netbird">
