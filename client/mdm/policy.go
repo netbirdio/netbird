@@ -20,7 +20,6 @@ import (
 // configuration field.
 const (
 	KeyManagementURL            = "managementURL"
-	KeySetupKey                 = "setupKey"
 	KeyDisableAdvancedSettings  = "disableAdvancedSettings"
 	KeyDisableUpdateSettings    = "disableUpdateSettings"
 	KeyDisableProfiles          = "disableProfiles"
@@ -42,7 +41,6 @@ const (
 // configuration are ignored but logged.
 var AllKeys = []string{
 	KeyManagementURL,
-	KeySetupKey,
 	KeyDisableAdvancedSettings,
 	KeyDisableUpdateSettings,
 	KeyDisableProfiles,
@@ -62,7 +60,6 @@ var AllKeys = []string{
 
 // SecretKeys lists keys whose values must be redacted in logs.
 var SecretKeys = map[string]struct{}{
-	KeySetupKey:     {},
 	KeyPreSharedKey: {},
 }
 

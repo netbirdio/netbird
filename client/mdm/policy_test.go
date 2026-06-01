@@ -37,7 +37,7 @@ func TestPolicy_HasKey(t *testing.T) {
 	assert.False(t, p.IsEmpty())
 	assert.True(t, p.HasKey(KeyManagementURL))
 	assert.True(t, p.HasKey(KeyDisableProfiles))
-	assert.False(t, p.HasKey(KeySetupKey))
+	assert.False(t, p.HasKey(KeyPreSharedKey))
 }
 
 func TestPolicy_ManagedKeysSorted(t *testing.T) {
@@ -54,7 +54,7 @@ func TestPolicy_GetString(t *testing.T) {
 	p := NewPolicy(map[string]any{
 		KeyManagementURL:   "https://corp.example.com",
 		KeyDisableProfiles: true,            // wrong type for GetString
-		KeySetupKey:        "",              // empty rejected
+		KeyPreSharedKey:        "",              // empty rejected
 	})
 	v, ok := p.GetString(KeyManagementURL)
 	assert.True(t, ok)
@@ -63,7 +63,7 @@ func TestPolicy_GetString(t *testing.T) {
 	_, ok = p.GetString(KeyDisableProfiles)
 	assert.False(t, ok, "non-string value must not be reported as string")
 
-	_, ok = p.GetString(KeySetupKey)
+	_, ok = p.GetString(KeyPreSharedKey)
 	assert.False(t, ok, "empty string treated as unset")
 
 	_, ok = p.GetString("nonexistent")
