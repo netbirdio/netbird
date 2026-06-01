@@ -7,7 +7,10 @@ import { isMacOS } from "@/lib/platform";
 import { AppRightPanel } from "@/layouts/AppRightPanel.tsx";
 import { VerticalTabs } from "@/components/VerticalTabs.tsx";
 import { SettingsNavigation } from "@/modules/settings/SettingsNavigation.tsx";
-import { SettingsProvider } from "@/contexts/SettingsContext.tsx";
+import {
+    AutostartSettingsProvider,
+    SettingsProvider,
+} from "@/contexts/SettingsContext.tsx";
 import { SettingsGeneral } from "@/modules/settings/SettingsGeneral.tsx";
 import { SettingsNetwork } from "@/modules/settings/SettingsNetwork.tsx";
 import { SettingsSecurity } from "@/modules/settings/SettingsSecurity.tsx";
@@ -66,6 +69,7 @@ export const SettingsPage = () => {
             >
                 <SettingsNavigation />
                 <AppRightPanel>
+                    <AutostartSettingsProvider>
                     <ScrollArea.Root
                         key={active}
                         type={"auto"}
@@ -117,6 +121,7 @@ export const SettingsPage = () => {
                             />
                         </ScrollArea.Scrollbar>
                     </ScrollArea.Root>
+                    </AutostartSettingsProvider>
                 </AppRightPanel>
             </VerticalTabs>
         </>

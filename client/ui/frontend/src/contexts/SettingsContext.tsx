@@ -8,7 +8,7 @@ import {
     type ReactNode,
 } from "react";
 import { Dialogs } from "@wailsio/runtime";
-import { Settings as SettingsSvc } from "@bindings/services";
+import { Autostart, Settings as SettingsSvc } from "@bindings/services";
 import type { Config } from "@bindings/services/models.js";
 import i18next from "@/lib/i18n";
 import { useProfile } from "@/contexts/ProfileContext.tsx";
@@ -16,6 +16,8 @@ import { SettingsSkeleton } from "@/modules/settings/SettingsSkeleton.tsx";
 import { formatErrorMessage as errorMessage } from "@/lib/errors.ts";
 
 const SAVE_DEBOUNCE_MS = 400;
+
+export type AutostartState = { supported: boolean; enabled: boolean };
 
 type SettingsContextValue = {
     config: Config;
@@ -25,12 +27,28 @@ type SettingsContextValue = {
     saveNow: () => Promise<void>;
 };
 
+type AutostartContextValue = {
+    autostart: AutostartState | null;
+    setAutostartEnabled: (enabled: boolean) => Promise<void>;
+};
+
 const SettingsContext = createContext<SettingsContextValue | null>(null);
+const AutostartContext = createContext<AutostartContextValue | null>(null);
 
 export const useSettings = () => {
     const ctx = useContext(SettingsContext);
     if (!ctx) {
         throw new Error("useSettings must be used inside SettingsProvider");
+    }
+    return ctx;
+};
+
+export const useAutostartSetting = () => {
+    const ctx = useContext(AutostartContext);
+    if (!ctx) {
+        throw new Error(
+            "useAutostartSetting must be used inside AutostartSettingsProvider",
+        );
     }
     return ctx;
 };
@@ -165,5 +183,44 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
                 </SettingsContext.Provider>
             )}
         </div>
+    );
+};
+
+export const AutostartSettingsProvider = ({ children }: { children: ReactNode }) => {
+    const [autostart, setAutostart] = useState<AutostartState | null>(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            const supported = await Autostart.Supported();
+            const enabled = supported ? await Autostart.IsEnabled() : false;
+            if (cancelled) return;
+            setAutostart({ supported, enabled });
+        })().catch(() => {
+            if (cancelled) return;
+            setAutostart({ supported: false, enabled: false });
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    const setAutostartEnabled = useCallback(async (enabled: boolean) => {
+        setAutostart((s) => (s ? { ...s, enabled } : s));
+        try {
+            await Autostart.SetEnabled(enabled);
+        } catch (e) {
+            setAutostart((s) => (s ? { ...s, enabled: !enabled } : s));
+            await Dialogs.Error({
+                Title: i18next.t("settings.general.autostart.errorTitle"),
+                Message: errorMessage(e),
+            });
+        }
+    }, []);
+
+    return (
+        <AutostartContext.Provider value={{ autostart, setAutostartEnabled }}>
+            {children}
+        </AutostartContext.Provider>
     );
 };
