@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -193,6 +194,15 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 	t.tray = app.SystemTray.New()
 	t.applyIcon()
 	t.tray.SetTooltip(t.loc.T("tray.tooltip"))
+	// On Linux the SNI hover tooltip is sourced from the systray *Label*
+	// (the StatusNotifierItem Title/ToolTip props), not SetTooltip —
+	// SetTooltip is a no-op on Linux. With no label set, Wails falls back
+	// to the literal "Wails", so set it explicitly here. macOS is skipped
+	// because its setLabel paints visible text next to the icon; Windows
+	// is skipped because its tooltip comes from SetTooltip above.
+	if runtime.GOOS == "linux" {
+		t.tray.SetLabel(t.loc.T("tray.tooltip"))
+	}
 	t.menu = t.buildMenu()
 	t.tray.SetMenu(t.menu)
 	// Left-click on the tray icon opens the menu, and the window is reached
@@ -284,6 +294,11 @@ func (t *Tray) ShowWindow() {
 // rebuild.
 func (t *Tray) applyLanguage() {
 	t.tray.SetTooltip(t.loc.T("tray.tooltip"))
+	// Mirror the Linux label fix from NewTray — the SNI hover tooltip
+	// rides on the label, so refresh it on language change too.
+	if runtime.GOOS == "linux" {
+		t.tray.SetLabel(t.loc.T("tray.tooltip"))
+	}
 	t.menu = t.buildMenu()
 	t.tray.SetMenu(t.menu)
 	t.reapplyMenuState()
