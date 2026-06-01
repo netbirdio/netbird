@@ -337,7 +337,9 @@
     "sessionExpired.signIn": "Sign in",
 
     "sessionAboutToExpire.title": "Session expiring soon",
+    "sessionAboutToExpire.titleLater": "Session will expire",
     "sessionAboutToExpire.description": "Your NetBird session will expire shortly. Stay connected to keep your devices online.",
+    "sessionAboutToExpire.descriptionLater": "Your NetBird session will expire. Extend now to keep your devices online.",
     "sessionAboutToExpire.stay": "Stay connected",
     "sessionAboutToExpire.logout": "Logout",
     "sessionAboutToExpire.expired": "Session expired",

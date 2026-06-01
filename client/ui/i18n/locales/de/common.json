@@ -320,7 +320,9 @@
     "sessionExpired.signIn": "Anmelden",
 
     "sessionAboutToExpire.title": "Sitzung läuft bald ab",
+    "sessionAboutToExpire.titleLater": "Sitzung läuft ab",
     "sessionAboutToExpire.description": "Ihre NetBird-Sitzung läuft in Kürze ab. Bleiben Sie verbunden, damit Ihre Geräte online bleiben.",
+    "sessionAboutToExpire.descriptionLater": "Ihre NetBird-Sitzung läuft ab. Verlängern Sie jetzt, damit Ihre Geräte online bleiben.",
     "sessionAboutToExpire.stay": "Verbunden bleiben",
     "sessionAboutToExpire.logout": "Abmelden",
     "sessionAboutToExpire.expired": "Sitzung abgelaufen",

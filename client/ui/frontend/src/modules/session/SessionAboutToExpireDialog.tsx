@@ -20,12 +20,24 @@ import { formatErrorMessage } from "@/lib/errors.ts";
 
 const DEFAULT_SECONDS = 360;
 const WINDOW_WIDTH = 360;
+// Below this, the situation is genuinely "soon" and the title/description
+// uses the urgent wording. Above it (e.g. opened with hours remaining), the
+// "later" variant drops the urgency cue so it doesn't read absurdly.
+const SOON_THRESHOLD_SECONDS = 60 * 60;
 
-function formatMMSS(seconds: number): string {
+// Renders the countdown with only the units that matter: mm:ss under an
+// hour, hh:mm:ss under a day, dd:hh:mm:ss otherwise. Two-digit zero pad
+// throughout so columns don't jump as digits roll over.
+function formatRemaining(seconds: number): string {
     const s = Math.max(0, seconds | 0);
-    const m = Math.floor(s / 60);
-    const r = s % 60;
-    return `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
+    const days = Math.floor(s / 86400);
+    const hours = Math.floor((s % 86400) / 3600);
+    const minutes = Math.floor((s % 3600) / 60);
+    const secs = s % 60;
+    const pad = (n: number) => String(n).padStart(2, "0");
+    if (days > 0) return `${pad(days)}:${pad(hours)}:${pad(minutes)}:${pad(secs)}`;
+    if (hours > 0) return `${pad(hours)}:${pad(minutes)}:${pad(secs)}`;
+    return `${pad(minutes)}:${pad(secs)}`;
 }
 
 export default function SessionAboutToExpireDialog() {
@@ -42,6 +54,7 @@ export default function SessionAboutToExpireDialog() {
     const [remaining, setRemaining] = useState(initialSeconds);
     const [busy, setBusy] = useState(false);
     const expired = remaining <= 0;
+    const soon = remaining <= SOON_THRESHOLD_SECONDS;
 
     useEffect(() => {
         setRemaining(initialSeconds);
@@ -127,10 +140,14 @@ export default function SessionAboutToExpireDialog() {
                 <DialogHeading>
                     {expired
                         ? t("sessionAboutToExpire.expired")
-                        : t("sessionAboutToExpire.title")}
+                        : soon
+                          ? t("sessionAboutToExpire.title")
+                          : t("sessionAboutToExpire.titleLater")}
                 </DialogHeading>
                 <DialogDescription>
-                    {t("sessionAboutToExpire.description")}
+                    {soon
+                        ? t("sessionAboutToExpire.description")
+                        : t("sessionAboutToExpire.descriptionLater")}
                 </DialogDescription>
             </div>
 
@@ -140,7 +157,7 @@ export default function SessionAboutToExpireDialog() {
                 }
                 aria-live={"polite"}
             >
-                {formatMMSS(remaining)}
+                {formatRemaining(remaining)}
             </div>
 
             <DialogActions>
