@@ -8,7 +8,8 @@ import {
     useState,
     type ReactNode,
 } from "react";
-import { Dialogs, Events } from "@wailsio/runtime";
+import { Events } from "@wailsio/runtime";
+import { errorDialog } from "@/lib/dialogs.ts";
 
 
 import { Update as UpdateSvc, WindowManager } from "@bindings/services";
@@ -66,7 +67,7 @@ export const ClientVersionProvider = ({ children }: { children: ReactNode }) => 
             })
             .catch((e) => {
                 if (cancelled || isDaemonUnavailable(e)) return;
-                void Dialogs.Error({
+                void errorDialog({
                     Title: i18next.t("update.error.loadStateTitle"),
                     Message: formatErrorMessage(e),
                 });
@@ -106,7 +107,7 @@ export const ClientVersionProvider = ({ children }: { children: ReactNode }) => 
                 // produce a result) and surface the error.
                 if (isDaemonUnavailable(e)) return;
                 WindowManager.CloseInstallProgress().catch(console.error);
-                await Dialogs.Error({
+                await errorDialog({
                     Title: i18next.t("update.error.triggerTitle"),
                     Message: formatErrorMessage(e),
                 });

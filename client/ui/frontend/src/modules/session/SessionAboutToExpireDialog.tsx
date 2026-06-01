@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
-import { Dialogs } from "@wailsio/runtime";
+import { errorDialog } from "@/lib/dialogs.ts";
 import { ClockIcon } from "lucide-react";
 import { Button } from "@/components/buttons/Button";
 import { ConfirmDialog } from "@/components/dialog/ConfirmDialog";
@@ -89,7 +89,7 @@ export default function SessionAboutToExpireDialog() {
             }
             WindowManager.CloseSessionAboutToExpire().catch(console.error);
         } catch (e) {
-            await Dialogs.Error({
+            await errorDialog({
                 Title: t("sessionAboutToExpire.extendFailedTitle"),
                 Message: formatErrorMessage(e),
             });
@@ -110,7 +110,7 @@ export default function SessionAboutToExpireDialog() {
             });
             WindowManager.CloseSessionAboutToExpire().catch(console.error);
         } catch (e) {
-            await Dialogs.Error({
+            await errorDialog({
                 Title: t("sessionAboutToExpire.logoutFailedTitle"),
                 Message: formatErrorMessage(e),
             });

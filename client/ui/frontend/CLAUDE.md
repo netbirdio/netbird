@@ -178,7 +178,9 @@ This is the only SSO entry point used by the polished Main UI. There is no `/log
 
 ## Dialogs convention
 
-Errors → `Dialogs.Error` with action-named title ("Save Settings Failed", not "Error"). Confirmations → `Dialogs.Warning` with explicit `Buttons` — compare against the **Label string**, not an index. **Skip** native dialogs for inline form validation, transient link errors on the dashboard, and "partial success" notes inside an otherwise-OK flow. Full API + per-OS notes in `../WAILS-DIALOGS.md`; full convention rationale in `../CLAUDE.md`.
+**Always go through `src/lib/dialogs.ts`** — `errorDialog` / `warningDialog` / `infoDialog` / `questionDialog`, not `Dialogs.*` from `@wailsio/runtime` directly. These thin wrappers force `Detached: true` on Windows (no-op elsewhere, and any caller-supplied `Detached` wins). A native Windows `MessageBox` attached to a parent window sets that window `WS_DISABLED` for its lifetime and re-enables it on dismissal; when the parent is the main window — whose `WindowClosing` hook hides instead of closes (`main.go`) — the enable/hide sequence races and leaves the window unable to process its close (X) button afterwards. Detaching gives the box a NULL owner so no window is ever disabled. macOS keeps the attached sheet-style presentation. The wrappers re-export the same option shape, so call sites are otherwise unchanged.
+
+Errors → `errorDialog` with action-named title ("Save Settings Failed", not "Error"). Confirmations → `warningDialog` with explicit `Buttons` — compare against the **Label string**, not an index. **Skip** native dialogs for inline form validation, transient link errors on the dashboard, and "partial success" notes inside an otherwise-OK flow. Full API + per-OS notes in `../WAILS-DIALOGS.md`; full convention rationale in `../CLAUDE.md`.
 
 ## Tailwind tokens
 
