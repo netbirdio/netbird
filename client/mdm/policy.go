@@ -10,6 +10,7 @@ package mdm
 
 import (
 	"sort"
+	"strconv"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -32,6 +33,7 @@ const (
 	KeyPreSharedKey             = "preSharedKey"
 	KeyRosenpassEnabled         = "rosenpassEnabled"
 	KeyRosenpassPermissive      = "rosenpassPermissive"
+	KeyWireguardPort            = "wireguardPort"
 	KeySplitTunnelAllowApps     = "splitTunnelAllowApps"
 	KeySplitTunnelDisallowApps  = "splitTunnelDisallowApps"
 )
@@ -53,6 +55,7 @@ var AllKeys = []string{
 	KeyPreSharedKey,
 	KeyRosenpassEnabled,
 	KeyRosenpassPermissive,
+	KeyWireguardPort,
 	KeySplitTunnelAllowApps,
 	KeySplitTunnelDisallowApps,
 }
@@ -169,6 +172,36 @@ func (p *Policy) GetBool(key string) (bool, bool) {
 		return t != 0, true
 	}
 	return false, false
+}
+
+// GetInt returns the managed value for key as int64, and whether the key
+// was set. Accepts native int / int64 (as produced by the Windows registry
+// loader for REG_DWORD/REG_QWORD) and numeric strings (decimal).
+func (p *Policy) GetInt(key string) (int64, bool) {
+	if p == nil {
+		return 0, false
+	}
+	v, ok := p.values[key]
+	if !ok {
+		return 0, false
+	}
+	switch t := v.(type) {
+	case int64:
+		return t, true
+	case int:
+		return int64(t), true
+	case int32:
+		return int64(t), true
+	case uint64:
+		return int64(t), true
+	case float64:
+		return int64(t), true
+	case string:
+		if n, err := strconv.ParseInt(t, 10, 64); err == nil {
+			return n, true
+		}
+	}
+	return 0, false
 }
 
 // GetStringSlice returns the managed value for key as []string, and whether

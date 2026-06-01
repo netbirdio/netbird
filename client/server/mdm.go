@@ -49,6 +49,9 @@ func requestedMDMManagedKeys(msg *proto.SetConfigRequest) []string {
 	if msg.BlockInbound != nil {
 		keys = append(keys, mdm.KeyBlockInbound)
 	}
+	if msg.WireguardPort != nil {
+		keys = append(keys, mdm.KeyWireguardPort)
+	}
 	return keys
 }
 

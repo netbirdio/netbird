@@ -691,6 +691,17 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 	if v, ok := policy.GetBool(mdm.KeyRosenpassPermissive); ok {
 		config.RosenpassPermissive = v
 	}
+
+	if v, ok := policy.GetInt(mdm.KeyWireguardPort); ok {
+		// REG_DWORD is 32-bit; UDP port range is 1-65535. Clamp at the
+		// upper bound and reject obviously-invalid values to avoid the
+		// engine binding to an unusable port if the admin pushes garbage.
+		if v >= 1 && v <= 65535 {
+			config.WgPort = int(v)
+		} else {
+			log.Warnf("MDM wireguard port %d out of range [1,65535]; keeping previous value", v)
+		}
+	}
 }
 
 // parseURL parses and validates a service URL
