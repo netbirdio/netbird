@@ -59,7 +59,7 @@ func (m *managerImpl) GetExtraSettingsManager() extra_settings.Manager {
 
 func (m *managerImpl) GetSettings(ctx context.Context, accountID, userID string) (*types.Settings, error) {
 	if userID != activity.SystemInitiator {
-		ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Settings, operations.Read)
+		ok, _, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Settings, operations.Read)
 		if err != nil {
 			return nil, status.NewPermissionValidationError(err)
 		}

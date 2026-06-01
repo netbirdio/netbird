@@ -37,7 +37,7 @@ func (h *handler) createToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ok, err := h.permissionsManager.ValidateUserPermissions(r.Context(), userAuth.AccountId, userAuth.UserId, modules.Services, operations.Create)
+	ok, ctx, err := h.permissionsManager.ValidateUserPermissions(r.Context(), userAuth.AccountId, userAuth.UserId, modules.Services, operations.Create)
 	if err != nil {
 		util.WriteErrorResponse("failed to validate permissions", http.StatusInternalServerError, w)
 		return
@@ -76,13 +76,13 @@ func (h *handler) createToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.store.SaveProxyAccessToken(r.Context(), &generated.ProxyAccessToken); err != nil {
+	if err := h.store.SaveProxyAccessToken(ctx, &generated.ProxyAccessToken); err != nil {
 		util.WriteErrorResponse("failed to save token", http.StatusInternalServerError, w)
 		return
 	}
 
 	resp := toProxyTokenCreatedResponse(generated)
-	util.WriteJSONObject(r.Context(), w, resp)
+	util.WriteJSONObject(ctx, w, resp)
 }
 
 func (h *handler) listTokens(w http.ResponseWriter, r *http.Request) {
@@ -92,7 +92,7 @@ func (h *handler) listTokens(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ok, err := h.permissionsManager.ValidateUserPermissions(r.Context(), userAuth.AccountId, userAuth.UserId, modules.Services, operations.Read)
+	ok, ctx, err := h.permissionsManager.ValidateUserPermissions(r.Context(), userAuth.AccountId, userAuth.UserId, modules.Services, operations.Read)
 	if err != nil {
 		util.WriteErrorResponse("failed to validate permissions", http.StatusInternalServerError, w)
 		return
@@ -102,7 +102,7 @@ func (h *handler) listTokens(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tokens, err := h.store.GetProxyAccessTokensByAccountID(r.Context(), store.LockingStrengthNone, userAuth.AccountId)
+	tokens, err := h.store.GetProxyAccessTokensByAccountID(ctx, store.LockingStrengthNone, userAuth.AccountId)
 	if err != nil {
 		util.WriteErrorResponse("failed to list tokens", http.StatusInternalServerError, w)
 		return
@@ -113,7 +113,7 @@ func (h *handler) listTokens(w http.ResponseWriter, r *http.Request) {
 		resp = append(resp, toProxyTokenResponse(token))
 	}
 
-	util.WriteJSONObject(r.Context(), w, resp)
+	util.WriteJSONObject(ctx, w, resp)
 }
 
 func (h *handler) revokeToken(w http.ResponseWriter, r *http.Request) {
@@ -123,7 +123,7 @@ func (h *handler) revokeToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ok, err := h.permissionsManager.ValidateUserPermissions(r.Context(), userAuth.AccountId, userAuth.UserId, modules.Services, operations.Delete)
+	ok, ctx, err := h.permissionsManager.ValidateUserPermissions(r.Context(), userAuth.AccountId, userAuth.UserId, modules.Services, operations.Delete)
 	if err != nil {
 		util.WriteErrorResponse("failed to validate permissions", http.StatusInternalServerError, w)
 		return
@@ -139,7 +139,7 @@ func (h *handler) revokeToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := h.store.GetProxyAccessTokenByID(r.Context(), store.LockingStrengthNone, tokenID)
+	token, err := h.store.GetProxyAccessTokenByID(ctx, store.LockingStrengthNone, tokenID)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.ErrorType == status.NotFound {
 			util.WriteErrorResponse("token not found", http.StatusNotFound, w)
@@ -154,12 +154,12 @@ func (h *handler) revokeToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.store.RevokeProxyAccessToken(r.Context(), tokenID); err != nil {
+	if err := h.store.RevokeProxyAccessToken(ctx, tokenID); err != nil {
 		util.WriteErrorResponse("failed to revoke token", http.StatusInternalServerError, w)
 		return
 	}
 
-	util.WriteJSONObject(r.Context(), w, util.EmptyObject{})
+	util.WriteJSONObject(ctx, w, util.EmptyObject{})
 }
 
 func toProxyTokenResponse(token *types.ProxyAccessToken) api.ProxyToken {
