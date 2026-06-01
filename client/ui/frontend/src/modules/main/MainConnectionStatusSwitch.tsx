@@ -332,7 +332,7 @@ export const MainConnectionStatusSwitch = () => {
         } catch (e) {
             setAction(null);
             await refresh();
-            await Dialogs.Error({
+            await errorDialog({
                 Title: t("connect.error.disconnectTitle"),
                 Message: errorMessage(e),
             });
