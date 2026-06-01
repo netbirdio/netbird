@@ -36,7 +36,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.31.6
 	github.com/aws/aws-sdk-go-v2/credentials v1.18.10
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.87.3
-	github.com/c-robinson/iplib v1.0.3
+	github.com/c-robinson/iplib v1.0.8
 	github.com/caddyserver/certmagic v0.21.3
 	github.com/cilium/ebpf v0.19.0
 	github.com/coder/websocket v1.8.14
