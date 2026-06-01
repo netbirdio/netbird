@@ -459,7 +459,7 @@ func (t *Tray) buildMenu() *application.Menu {
 		SetAccelerator("CmdOrCtrl+,").
 		OnClick(func(*application.Context) { t.svc.WindowManager.OpenSettings("") })
 
-	aboutLabel := t.loc.T("tray.menu.about")
+	aboutLabel := menuLabel(t.loc.T("tray.menu.about"))
 	about := menu.AddSubmenu(aboutLabel)
 	about.Add(t.loc.T("tray.menu.github")).OnClick(func(*application.Context) {
 		_ = t.app.Browser.OpenURL(urlGitHubRepo)
