@@ -429,16 +429,10 @@ func (m *DefaultManager) UpdateRoutes(
 	var merr *multierror.Error
 	if !m.disableClientRoutes {
 
-		log.Debugf("DIAG UpdateRoutes: incoming %d client networks: %v", len(clientRoutes), haKeysList(clientRoutes))
-		log.Debugf("DIAG UpdateRoutes: selector BEFORE management update: %s", m.routeSelector.MarshalSummary())
-
 		// Update route selector based on management server's isSelected status
 		m.updateRouteSelectorFromManagement(clientRoutes)
 
-		log.Debugf("DIAG UpdateRoutes: selector AFTER management update: %s", m.routeSelector.MarshalSummary())
-
 		filteredClientRoutes := m.routeSelector.FilterSelectedExitNodes(clientRoutes)
-		log.Debugf("DIAG UpdateRoutes: AFTER filter, %d networks remain: %v", len(filteredClientRoutes), haKeysList(filteredClientRoutes))
 
 		if err := m.updateSystemRoutes(filteredClientRoutes); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("update system routes: %w", err))
@@ -730,36 +724,10 @@ func (m *DefaultManager) mirrorV6ExitPairSelections(clientRoutes route.HAMap) {
 		routesByNetID[haID.NetID()] = routes
 	}
 
-	v6Pairs := route.V6ExitMergeSet(routesByNetID)
-	log.Debugf("DIAG mirrorV6ExitPairSelections: netIDs=%v v6Pairs=%v", netIDKeysList(routesByNetID), netIDSetList(v6Pairs))
-	for v6ID := range v6Pairs {
+	for v6ID := range route.V6ExitMergeSet(routesByNetID) {
 		baseID := route.NetID(strings.TrimSuffix(string(v6ID), route.V6ExitSuffix))
 		m.routeSelector.SyncPairedSelection(baseID, v6ID)
 	}
-}
-
-func netIDKeysList(m map[route.NetID][]*route.Route) []route.NetID {
-	out := make([]route.NetID, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	return out
-}
-
-func netIDSetList(m map[route.NetID]struct{}) []route.NetID {
-	out := make([]route.NetID, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	return out
-}
-
-func haKeysList(m route.HAMap) []route.HAUniqueID {
-	out := make([]route.HAUniqueID, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	return out
 }
 
 type exitNodeInfo struct {
@@ -816,8 +784,6 @@ func (m *DefaultManager) checkManagementSelection(routes []*route.Route, netID r
 
 func (m *DefaultManager) updateExitNodeSelections(info exitNodeInfo) {
 	routesToDeselect := m.getRoutesToDeselect(info.allIDs)
-	log.Debugf("DIAG updateExitNodeSelections: allIDs=%v userSelected=%v userDeselected=%v selectedByManagement=%v -> routesToDeselect(no user selection)=%v",
-		info.allIDs, info.userSelected, info.userDeselected, info.selectedByManagement, routesToDeselect)
 	m.deselectExitNodes(routesToDeselect)
 	m.selectExitNodesByManagement(info.selectedByManagement, info.allIDs)
 }
@@ -857,6 +823,4 @@ func (m *DefaultManager) selectExitNodesByManagement(selectedByManagement []rout
 func (m *DefaultManager) logExitNodeUpdate(info exitNodeInfo) {
 	log.Debugf("Updated route selector: %d exit nodes available, %d selected by management, %d user-selected, %d user-deselected",
 		len(info.allIDs), len(info.selectedByManagement), len(info.userSelected), len(info.userDeselected))
-	log.Debugf("DIAG logExitNodeUpdate: allIDs=%v selectedByManagement=%v userSelected=%v userDeselected=%v",
-		info.allIDs, info.selectedByManagement, info.userSelected, info.userDeselected)
 }
