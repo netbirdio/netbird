@@ -60,19 +60,22 @@ func (t *Tray) applySessionExpiry(deadline *time.Time, connected bool) {
 		d = *deadline
 	}
 
-	switch {
-	case deadline == nil:
-		log.Infof("tray applySessionExpiry: deadline=<nil> connected=%v → row hidden", connected)
-	case deadline.IsZero():
-		log.Infof("tray applySessionExpiry: deadline=<zero> connected=%v → row hidden", connected)
-	default:
-		log.Infof("tray applySessionExpiry: deadline=%s (in %s) connected=%v",
-			deadline.Format(time.RFC3339), time.Until(*deadline), connected)
-	}
-
 	t.sessionMu.Lock()
+	changed := !t.sessionExpiresAt.Equal(d)
 	t.sessionExpiresAt = d
 	t.sessionMu.Unlock()
+
+	if changed {
+		switch {
+		case deadline == nil:
+			log.Infof("tray applySessionExpiry: deadline=<nil> connected=%v → row hidden", connected)
+		case deadline.IsZero():
+			log.Infof("tray applySessionExpiry: deadline=<zero> connected=%v → row hidden", connected)
+		default:
+			log.Infof("tray applySessionExpiry: deadline=%s (in %s) connected=%v",
+				deadline.Format(time.RFC3339), time.Until(*deadline), connected)
+		}
+	}
 
 	if t.sessionExpiresItem == nil {
 		return
