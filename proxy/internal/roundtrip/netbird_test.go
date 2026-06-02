@@ -52,7 +52,7 @@ func (m *mockStatusNotifier) calls() []statusCall {
 // mockNetBird creates a NetBird instance for testing without actually connecting.
 // It uses an invalid management URL to prevent real connections.
 func mockNetBird() *NetBird {
-	return NewNetBird("test-proxy", "invalid.test", ClientConfig{
+	return NewNetBird(context.Background(), "test-proxy", "invalid.test", ClientConfig{
 		MgmtAddr:     "http://invalid.test:9999",
 		WGPort:       0,
 		PreSharedKey: "",
@@ -283,7 +283,7 @@ func TestNetBird_RoundTrip_RequiresExistingClient(t *testing.T) {
 
 func TestNetBird_AddPeer_ExistingStartedClient_NotifiesStatus(t *testing.T) {
 	notifier := &mockStatusNotifier{}
-	nb := NewNetBird("test-proxy", "invalid.test", ClientConfig{
+	nb := NewNetBird(context.Background(), "test-proxy", "invalid.test", ClientConfig{
 		MgmtAddr:     "http://invalid.test:9999",
 		WGPort:       0,
 		PreSharedKey: "",
@@ -349,7 +349,7 @@ func TestClientEntry_IdentityForIP_InvalidIPReturnsFalse(t *testing.T) {
 
 func TestNetBird_RemovePeer_NotifiesDisconnection(t *testing.T) {
 	notifier := &mockStatusNotifier{}
-	nb := NewNetBird("test-proxy", "invalid.test", ClientConfig{
+	nb := NewNetBird(context.Background(), "test-proxy", "invalid.test", ClientConfig{
 		MgmtAddr:     "http://invalid.test:9999",
 		WGPort:       0,
 		PreSharedKey: "",
@@ -381,7 +381,7 @@ func TestNetBird_RemovePeer_NotifiesDisconnection(t *testing.T) {
 // account in a half-connected state.
 func TestNotifyClientReady_UsesBackgroundCtx(t *testing.T) {
 	notifier := &mockStatusNotifier{}
-	nb := NewNetBird("test-proxy", "invalid.test", ClientConfig{
+	nb := NewNetBird(context.Background(), "test-proxy", "invalid.test", ClientConfig{
 		MgmtAddr: "http://invalid.test:9999",
 	}, nil, notifier, &mockMgmtClient{})
 

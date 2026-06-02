@@ -64,7 +64,7 @@ func quietLifecycleLogger() *log.Logger {
 }
 
 func TestStopBeforeStartIsNoOp(t *testing.T) {
-	srv := New(Config{Logger: quietLifecycleLogger()})
+	srv := New(t.Context(), Config{Logger: quietLifecycleLogger()})
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -77,7 +77,7 @@ func TestStopBeforeStartIsNoOp(t *testing.T) {
 }
 
 func TestStartFailsWithoutManagement(t *testing.T) {
-	srv := New(Config{
+	srv := New(t.Context(), Config{
 		Logger:            quietLifecycleLogger(),
 		ListenAddr:        "127.0.0.1:0",
 		ManagementAddress: "://broken-url",
@@ -137,7 +137,7 @@ func TestRecordRunErrPreservesFirstFailure(t *testing.T) {
 }
 
 func TestStopSkipsShutdownWhenNeverStarted(t *testing.T) {
-	srv := New(Config{Logger: quietLifecycleLogger()})
+	srv := New(t.Context(), Config{Logger: quietLifecycleLogger()})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

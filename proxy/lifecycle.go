@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"net/netip"
 	"time"
 
@@ -128,8 +129,9 @@ type Config struct {
 // bound — call Start to bring the proxy up. Returning a fully-formed
 // Server keeps the standalone code path (which still constructs Server
 // directly) byte-for-byte equivalent.
-func New(cfg Config) *Server {
+func New(ctx context.Context, cfg Config) *Server {
 	return &Server{
+		ctx:                      ctx,
 		ListenAddr:               cfg.ListenAddr,
 		ID:                       cfg.ID,
 		Logger:                   cfg.Logger,

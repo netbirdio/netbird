@@ -152,6 +152,7 @@ type managementClient interface {
 // backed by underlying NetBird connections.
 // Clients are keyed by AccountID, allowing multiple services to share the same connection.
 type NetBird struct {
+	ctx          context.Context
 	proxyID      string
 	proxyAddr    string
 	clientCfg    ClientConfig
@@ -313,7 +314,7 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 		ManagementURL: n.clientCfg.MgmtAddr,
 		PrivateKey:    privateKey.String(),
 		LogLevel:      log.WarnLevel.String(),
-		BlockInbound:   n.clientCfg.BlockInbound,
+		BlockInbound:  n.clientCfg.BlockInbound,
 		// The embedded proxy peer must never be a stepping stone into
 		// the proxy host's LAN: it only exists to reach NetBird mesh
 		// targets or, when direct_upstream is set, the host network
@@ -406,10 +407,8 @@ func (n *NetBird) notifyClientReady(accountID types.AccountID, client *embed.Cli
 	readyHandler := n.readyHandler
 	n.clientsMux.Unlock()
 
-	bgCtx := context.Background()
-
 	if readyHandler != nil {
-		state := readyHandler(bgCtx, accountID, client)
+		state := readyHandler(n.ctx, accountID, client)
 		n.clientsMux.Lock()
 		if e, ok := n.clients[accountID]; ok {
 			e.inbound = state
@@ -428,7 +427,7 @@ func (n *NetBird) notifyClientReady(accountID types.AccountID, client *embed.Cli
 		return
 	}
 	for _, sn := range toNotify {
-		if err := n.statusNotifier.NotifyStatus(bgCtx, accountID, sn.serviceID, true); err != nil {
+		if err := n.statusNotifier.NotifyStatus(n.ctx, accountID, sn.serviceID, true); err != nil {
 			n.logger.WithFields(log.Fields{
 				"account_id":  accountID,
 				"service_key": sn.key,
@@ -690,11 +689,12 @@ func (n *NetBird) ListClientsForStartup() map[types.AccountID]*embed.Client {
 // NewNetBird creates a new NetBird transport. Set clientCfg.WGPort to 0 for a random
 // OS-assigned port. A fixed port only works with single-account deployments;
 // multiple accounts will fail to bind the same port.
-func NewNetBird(proxyID, proxyAddr string, clientCfg ClientConfig, logger *log.Logger, notifier statusNotifier, mgmtClient managementClient) *NetBird {
+func NewNetBird(ctx context.Context, proxyID, proxyAddr string, clientCfg ClientConfig, logger *log.Logger, notifier statusNotifier, mgmtClient managementClient) *NetBird {
 	if logger == nil {
 		logger = log.StandardLogger()
 	}
 	return &NetBird{
+		ctx:            ctx,
 		proxyID:        proxyID,
 		proxyAddr:      proxyAddr,
 		clientCfg:      clientCfg,

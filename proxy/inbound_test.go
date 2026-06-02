@@ -111,7 +111,7 @@ func TestServer_PrivateInbound_Enabled_WiresLifecycle(t *testing.T) {
 	// Construct a NetBird transport. We can't actually start the embedded
 	// client here (that needs a real management server), but we can
 	// confirm that the lifecycle callbacks are registered.
-	s.netbird = roundtrip.NewNetBird("test", "test", roundtrip.ClientConfig{
+	s.netbird = roundtrip.NewNetBird(t.Context(), "test", "test", roundtrip.ClientConfig{
 		MgmtAddr: "http://invalid.test",
 	}, quietLogger(), nil, fakeMgmtClient{})
 
