@@ -4443,7 +4443,7 @@ func (x *AddProfileRequest) GetProfileName() string {
 type AddProfileResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// id is the generated on-disk ID of the new profile. CLI clients
-	// display a truncated form; UI clients can ignore it.
+	// display a truncated form, UI clients can ignore it.
 	Id            string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -4675,12 +4675,10 @@ func (x *ListProfilesResponse) GetProfiles() []*Profile {
 }
 
 type Profile struct {
-	state    protoimpl.MessageState `protogen:"open.v1"`
-	Name     string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	IsActive bool                   `protobuf:"varint,2,opt,name=is_active,json=isActive,proto3" json:"is_active,omitempty"`
-	// id is the on-disk filename stem of the profile. Always set by the
-	// server; older clients that ignore it continue to work via name.
-	Id            string `protobuf:"bytes,3,opt,name=id,proto3" json:"id,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	IsActive      bool                   `protobuf:"varint,2,opt,name=is_active,json=isActive,proto3" json:"is_active,omitempty"`
+	Id            string                 `protobuf:"bytes,3,opt,name=id,proto3" json:"id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4773,13 +4771,10 @@ func (*GetActiveProfileRequest) Descriptor() ([]byte, []int) {
 }
 
 type GetActiveProfileResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// profileName carries the display name for backwards compatibility
-	// with UI clients. New callers should prefer id, which is unique.
-	ProfileName string `protobuf:"bytes,1,opt,name=profileName,proto3" json:"profileName,omitempty"`
-	Username    string `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
-	// id is the on-disk filename stem of the active profile.
-	Id            string `protobuf:"bytes,3,opt,name=id,proto3" json:"id,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ProfileName   string                 `protobuf:"bytes,1,opt,name=profileName,proto3" json:"profileName,omitempty"`
+	Username      string                 `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
+	Id            string                 `protobuf:"bytes,3,opt,name=id,proto3" json:"id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }

@@ -83,9 +83,7 @@ func NewProfileManager() *ProfileManager {
 }
 
 // GetActiveProfile returns the active profile as recorded in the local
-// user state file. Only ID is populated; the display Name is not known
-// at this layer — callers that need it should query the daemon's
-// ListProfiles RPC.
+// user state file. Only ID is populated.
 func (pm *ProfileManager) GetActiveProfile() (*Profile, error) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
@@ -95,9 +93,7 @@ func (pm *ProfileManager) GetActiveProfile() (*Profile, error) {
 }
 
 // SwitchProfile records the given profile ID as active in the local user
-// state file. The CLI calls this after the daemon has resolved the user-
-// supplied handle to a concrete ID, so the value written here is always a
-// valid profile filename stem.
+// state file.
 func (pm *ProfileManager) SwitchProfile(id string) error {
 	if id != defaultProfileName && !IsValidProfileFilenameStem(id) {
 		return fmt.Errorf("invalid profile ID: %q", id)

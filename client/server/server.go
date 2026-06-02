@@ -1011,8 +1011,6 @@ func (s *Server) canRemoveProfile(id string) error {
 	return nil
 }
 
-// validateProfileOperation runs the common preconditions for add/remove/
-// logout flows. `id` is the resolved profile ID (never user input).
 func (s *Server) validateProfileOperation(id string, allowActiveProfile bool) error {
 	if s.checkProfilesDisabled() {
 		return gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
@@ -1031,8 +1029,6 @@ func (s *Server) validateProfileOperation(id string, allowActiveProfile bool) er
 	return nil
 }
 
-// logoutFromProfile logs out from a specific (already-resolved) profile
-// by loading its config and sending a logout request.
 func (s *Server) logoutFromProfile(ctx context.Context, profile *profilemanager.Profile) error {
 	activeProf, err := s.profileManager.GetActiveProfileState()
 	if err == nil && activeProf.ID == profile.ID && s.connectClient != nil {
@@ -1639,7 +1635,7 @@ func (s *Server) ListProfiles(ctx context.Context, msg *proto.ListProfilesReques
 
 // GetActiveProfile returns the active profile in the daemon. The
 // ProfileName field carries the display name for backwards compatibility
-// with UI clients; new callers should prefer Id.
+// with UI clients, new callers should prefer Id.
 func (s *Server) GetActiveProfile(ctx context.Context, msg *proto.GetActiveProfileRequest) (*proto.GetActiveProfileResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()

@@ -46,9 +46,8 @@ const (
 	AmbiguityKindName
 )
 
-// profileMeta is the minimal slice of a profile JSON we need for the list.
-// Using a private struct here avoids running the full Config.apply()
-// pipeline (which can rewrite the file) on every list operation.
+// profileMeta is the minimal slice of a profile JSON we need, so we avoid
+// reading all fields
 type profileMeta struct {
 	Name string
 }
@@ -87,11 +86,11 @@ func init() {
 }
 
 type ActiveProfileState struct {
-	// ID is the on-disk filename stem of the active profile. The JSON
-	// tag stays as "name" for backwards compatibility with active state
-	// files written before the ID-keyed layout. Legacy values were
-	// profile names, which were also the legacy filename stems, so they
-	// still resolve to the correct file on disk.
+	// ID is the on-disk filename stem of the active profile. The JSON tag stays
+	// as "name" for backwards compatibility with active state files written
+	// before the ID-based config files. Legacy values were profile names, which
+	// were also the legacy filename stems, so they still resolve to the correct
+	// file on disk.
 	ID       string `json:"name"`
 	Username string `json:"username"`
 }
@@ -373,8 +372,6 @@ func (s *ServiceManager) RemoveProfile(id, username string) error {
 		return fmt.Errorf("failed to remove profile config: %w", err)
 	}
 
-	// Best-effort state file cleanup. Missing is fine — state files are
-	// only created on demand.
 	stateFile := filepath.Join(filepath.Dir(target.Path), id+".state.json")
 	if err := os.Remove(stateFile); err != nil && !os.IsNotExist(err) {
 		log.Warnf("failed to remove profile state file %s: %v", stateFile, err)
@@ -436,8 +433,8 @@ func (s *ServiceManager) getConfigDir(username string) (string, error) {
 // by ID for a stable display order.
 //
 // Each Profile is fully populated: ID is the filename stem, Name comes
-// from the JSON's "name" field (falling back to the ID when absent), and
-// Path is built from a basename read off disk (path-traversal safe).
+// from the JSON's "name" field (falling back to the filename stem when absent)
+// and Path is built from a basename read off disk.
 func (s *ServiceManager) loadAllProfiles(username string) ([]Profile, error) {
 	activeID, activeIsDefault := s.activeProfileID()
 
@@ -545,15 +542,13 @@ func (s *ServiceManager) ResolveProfile(handle, username string) (*Profile, erro
 		return nil, err
 	}
 
-	// Exact ID match wins outright — covers the default profile and any
-	// legacy profile whose ID is its name.
 	for i := range profiles {
 		if profiles[i].ID == handle {
 			return &profiles[i], nil
 		}
 	}
 
-	// ID prefix match. Skip the default profile so a `select d` does not
+	// ID prefix match. Skip the default profile so `select d` does not
 	// accidentally pick it via prefix.
 	var prefixMatches []Profile
 	for i := range profiles {
@@ -575,7 +570,6 @@ func (s *ServiceManager) ResolveProfile(handle, username string) (*Profile, erro
 		}
 	}
 
-	// Exact name match.
 	var nameMatches []Profile
 	for i := range profiles {
 		if profiles[i].Name == handle {
