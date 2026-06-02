@@ -24,6 +24,7 @@ type sshServer interface {
 	Stop() error
 	GetStatus() (bool, []sshserver.SessionInfo)
 	UpdateSSHAuth(config *sshauth.Config)
+	UpdateJWTConfig(config *sshserver.JWTConfig)
 }
 
 func (e *Engine) setupSSHPortRedirection() error {
@@ -70,12 +71,12 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 		return e.stopSSHServer()
 	}
 
-	if e.sshServer != nil {
-		log.Debug("SSH server is already running")
-		return nil
-	}
-
 	if e.config.DisableSSHAuth != nil && *e.config.DisableSSHAuth {
+		if e.sshServer != nil {
+			log.Debug("SSH server is already running without JWT authentication")
+			return nil
+		}
+
 		log.Info("starting SSH server without JWT authentication (authentication disabled by config)")
 		return e.startSSHServer(nil)
 	}
@@ -86,16 +87,25 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 			audiences = []string{protoJWT.GetAudience()}
 		}
 
-		log.Debugf("starting SSH server with JWT authentication: audiences=%v", audiences)
-
 		jwtConfig := &sshserver.JWTConfig{
 			Issuer:       protoJWT.GetIssuer(),
 			Audiences:    audiences,
 			KeysLocation: protoJWT.GetKeysLocation(),
 			MaxTokenAge:  protoJWT.GetMaxTokenAge(),
 		}
+		if e.sshServer != nil {
+			log.Debugf("updating SSH server JWT authentication config: audiences=%v", jwtConfig.Audiences)
+			e.sshServer.UpdateJWTConfig(jwtConfig)
+			return nil
+		}
 
+		log.Debugf("starting SSH server with JWT authentication: audiences=%v", jwtConfig.Audiences)
 		return e.startSSHServer(jwtConfig)
+	}
+
+	if e.sshServer != nil {
+		log.Debug("SSH server is already running")
+		return nil
 	}
 
 	return errors.New("SSH server requires valid JWT configuration")
