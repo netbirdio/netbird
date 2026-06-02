@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorDialog, warningDialog } from "@/lib/dialogs.ts";
-import { CircleMinus, PlusCircle, Trash2, UserCircle } from "lucide-react";
+import { CircleMinus, LogIn, PlusCircle, Trash2, UserCircle } from "lucide-react";
 import type { Profile } from "@bindings/services/models.js";
 import { Badge } from "@/components/Badge";
 import { Button } from "@/components/buttons/Button";
@@ -31,6 +31,20 @@ export function ProfilesTab() {
 
     const [newOpen, setNewOpen] = useState(false);
     const [busy, setBusy] = useState(false);
+    const tabRootRef = useRef<HTMLDivElement>(null);
+
+    // After a successful switch we want to bring the user back to the top of
+    // the tab — the table re-sorts the new active profile to the row 0 and a
+    // user who scrolled to find a target down the list would otherwise lose
+    // visual anchoring. Settings is hosted inside a Radix ScrollArea so we
+    // walk up to the viewport (it owns the actual overflow) instead of
+    // `window.scrollTo`, which is a no-op here.
+    const scrollTabToTop = () => {
+        const el = tabRootRef.current?.closest<HTMLElement>(
+            "[data-radix-scroll-area-viewport]",
+        );
+        el?.scrollTo({ top: 0, behavior: "smooth" });
+    };
 
     const sorted = [...profiles].sort((a, b) => {
         if (a.name === activeProfile) return -1;
@@ -51,6 +65,22 @@ export function ProfilesTab() {
         } finally {
             setBusy(false);
         }
+    };
+
+    const handleSwitch = async (name: string) => {
+        const cancelLabel = i18next.t("common.cancel");
+        const confirmLabel = i18next.t("profile.switch.confirm");
+        const result = await warningDialog({
+            Title: i18next.t("profile.switch.title"),
+            Message: i18next.t("profile.switch.message", { name }),
+            Buttons: [
+                { Label: cancelLabel, IsCancel: true },
+                { Label: confirmLabel, IsDefault: true },
+            ],
+        });
+        if (result !== confirmLabel) return;
+        await guarded(i18next.t("profile.error.switchTitle"), () => switchProfile(name));
+        scrollTabToTop();
     };
 
     const handleDeregister = async (name: string) => {
@@ -97,7 +127,7 @@ export function ProfilesTab() {
     };
 
     return (
-        <>
+        <div ref={tabRootRef}>
             <SectionGroup title={t("settings.profiles.section.profiles")}>
                 <HelpText className={"-mt-2 mb-0"}>{t("settings.profiles.intro")}</HelpText>
 
@@ -113,6 +143,7 @@ export function ProfilesTab() {
                                     key={profile.name}
                                     profile={profile}
                                     isActive={profile.name === activeProfile}
+                                    onSwitch={() => handleSwitch(profile.name)}
                                     onDeregister={() => handleDeregister(profile.name)}
                                     onDelete={() => handleDelete(profile.name)}
                                 />
@@ -146,18 +177,19 @@ export function ProfilesTab() {
             </SectionGroup>
 
             <ProfileCreationModal open={newOpen} onOpenChange={setNewOpen} onCreate={handleCreate} />
-        </>
+        </div>
     );
 }
 
 type ProfileRowProps = {
     profile: Profile;
     isActive: boolean;
+    onSwitch: () => void;
     onDeregister: () => void;
     onDelete: () => void;
 };
 
-const ProfileRow = ({ profile, isActive, onDeregister, onDelete }: ProfileRowProps) => {
+const ProfileRow = ({ profile, isActive, onSwitch, onDeregister, onDelete }: ProfileRowProps) => {
     const { t } = useTranslation();
     const Icon = pickProfileIcon(profile.name) ?? UserCircle;
     const showEmail = !!profile.email;
@@ -192,8 +224,11 @@ const ProfileRow = ({ profile, isActive, onDeregister, onDelete }: ProfileRowPro
             </td>
             <td className={"px-4 py-2.5 text-right align-middle"}>
                 <RowActions
+                    canSwitch={!isActive}
                     canDeregister={!!profile.email}
-                    canDelete={profile.name !== DEFAULT_PROFILE}
+                    isDefault={profile.name === DEFAULT_PROFILE}
+                    isActive={isActive}
+                    onSwitch={onSwitch}
                     onDeregister={onDeregister}
                     onDelete={onDelete}
                 />
@@ -222,14 +257,31 @@ const TruncatedEmail = ({ email }: { email: string }) => {
 };
 
 type RowActionsProps = {
+    canSwitch: boolean;
     canDeregister: boolean;
-    canDelete: boolean;
+    isDefault: boolean;
+    isActive: boolean;
+    onSwitch: () => void;
     onDeregister: () => void;
     onDelete: () => void;
 };
 
-const RowActions = ({ canDeregister, canDelete, onDeregister, onDelete }: RowActionsProps) => {
+const RowActions = ({
+    canSwitch,
+    canDeregister,
+    isDefault,
+    isActive,
+    onSwitch,
+    onDeregister,
+    onDelete,
+}: RowActionsProps) => {
     const { t } = useTranslation();
+    const deleteDisabled = isDefault || isActive;
+    const deleteLabel = isDefault
+        ? t("profile.delete.disabledDefault")
+        : isActive
+          ? t("profile.delete.disabledActive")
+          : t("profile.selector.delete");
     return (
         <div className={"inline-flex items-center gap-1"}>
             <ActionIconButton
@@ -239,11 +291,17 @@ const RowActions = ({ canDeregister, canDelete, onDeregister, onDelete }: RowAct
                 hidden={!canDeregister}
             />
             <ActionIconButton
-                label={t("profile.selector.delete")}
+                label={deleteLabel}
                 icon={Trash2}
                 onClick={onDelete}
                 variant={"danger"}
-                hidden={!canDelete}
+                disabled={deleteDisabled}
+            />
+            <ActionIconButton
+                label={t("profile.selector.switchTo")}
+                icon={LogIn}
+                onClick={onSwitch}
+                hidden={!canSwitch}
             />
         </div>
     );
@@ -257,6 +315,8 @@ type ActionIconButtonProps = {
     /** When true the button still occupies space (preserves row layout)
      *  but is invisible and non-interactive. */
     hidden?: boolean;
+    /** When true the button is visible but non-interactive (greyed out). */
+    disabled?: boolean;
 };
 
 const ActionIconButton = ({
@@ -265,13 +325,15 @@ const ActionIconButton = ({
     onClick,
     variant = "default",
     hidden = false,
+    disabled = false,
 }: ActionIconButtonProps) => {
     const button = (
         <button
             type={"button"}
-            onClick={onClick}
+            onClick={disabled ? undefined : onClick}
             aria-label={label}
             aria-hidden={hidden || undefined}
+            aria-disabled={disabled || undefined}
             tabIndex={hidden ? -1 : undefined}
             className={cn(
                 "h-9 w-9 inline-flex items-center justify-center rounded-md cursor-default outline-none",
@@ -280,6 +342,7 @@ const ActionIconButton = ({
                     ? "text-nb-gray-400 hover:text-red-500 hover:bg-red-500/10"
                     : "text-nb-gray-400 hover:text-nb-gray-100 hover:bg-nb-gray-900",
                 hidden && "opacity-0 pointer-events-none",
+                disabled && "opacity-40 cursor-not-allowed hover:!text-nb-gray-400 hover:!bg-transparent",
             )}
         >
             <Icon size={16} />
@@ -287,7 +350,12 @@ const ActionIconButton = ({
     );
     if (hidden) return button;
     return (
-        <Tooltip content={label} side={"top"}>
+        <Tooltip
+            content={
+                <span className={"block max-w-[260px] leading-snug"}>{label}</span>
+            }
+            side={"top"}
+        >
             {button}
         </Tooltip>
     );

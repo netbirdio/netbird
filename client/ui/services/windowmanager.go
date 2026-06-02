@@ -88,6 +88,17 @@ func AppleMacOSAppearanceOptions() application.MacWindow {
 	}
 }
 
+// LinuxAppearanceOptions is the per-window Linux chrome shared by every
+// NetBird webview window. Icon shows up in the WM task list / minimised
+// state; WindowIsTranslucent is left off so the opaque background colour
+// paints reliably on compositors that fake translucency badly.
+func LinuxAppearanceOptions(icon []byte) application.LinuxWindow {
+	return application.LinuxWindow{
+		Icon:                icon,
+		WindowIsTranslucent: false,
+	}
+}
+
 // DialogWindowOptions is the baseline for every auxiliary dialog window
 // (BrowserLogin, SessionExpired, SessionAboutToExpire, InstallProgress).
 // All four share size (360x320), the no-resize / no-min / no-max chrome,
@@ -96,7 +107,7 @@ func AppleMacOSAppearanceOptions() application.MacWindow {
 // this), and the shared background/Mac/Windows appearance. Callers fill
 // in per-dialog overrides (URL params, screen targeting, etc.) on the
 // returned value before passing it to Window.NewWithOptions.
-func DialogWindowOptions(name, title, url string) application.WebviewWindowOptions {
+func DialogWindowOptions(name, title, url string, linuxIcon []byte) application.WebviewWindowOptions {
 	return application.WebviewWindowOptions{
 		Name:                name,
 		Title:               title,
@@ -112,6 +123,7 @@ func DialogWindowOptions(name, title, url string) application.WebviewWindowOptio
 		URL:                 url,
 		Mac:                 AppleMacOSAppearanceOptions(),
 		Windows:             MicrosoftWindowsAppearanceOptions(),
+		Linux:               LinuxAppearanceOptions(linuxIcon),
 	}
 }
 
@@ -132,6 +144,7 @@ type WindowManager struct {
 	mainWindow           *application.WebviewWindow
 	translator           ErrorTranslator
 	prefs                LanguagePreference
+	linuxIcon            []byte
 	settings             *application.WebviewWindow
 	browserLogin         *application.WebviewWindow
 	sessionExpired       *application.WebviewWindow
@@ -173,8 +186,8 @@ func (s *WindowManager) title(key string) string {
 // The Settings window is created here, hidden, so the first OpenSettings
 // call paints instantly instead of paying webview construction + asset load
 // at click time.
-func NewWindowManager(app *application.App, mainWindow *application.WebviewWindow, translator ErrorTranslator, prefs LanguagePreference) *WindowManager {
-	s := &WindowManager{app: app, mainWindow: mainWindow, translator: translator, prefs: prefs}
+func NewWindowManager(app *application.App, mainWindow *application.WebviewWindow, translator ErrorTranslator, prefs LanguagePreference, linuxIcon []byte) *WindowManager {
+	s := &WindowManager{app: app, mainWindow: mainWindow, translator: translator, prefs: prefs, linuxIcon: linuxIcon}
 	s.settings = app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:                "settings",
 		Title:               s.title("window.title.settings"),
@@ -187,8 +200,9 @@ func NewWindowManager(app *application.App, mainWindow *application.WebviewWindo
 		CloseButtonState:    application.ButtonEnabled,
 		BackgroundColour:    WindowBackgroundColour,
 		URL:                 "/#/settings",
-		Mac: AppleMacOSAppearanceOptions(),
-		Windows: MicrosoftWindowsAppearanceOptions(),
+		Mac:                 AppleMacOSAppearanceOptions(),
+		Windows:             MicrosoftWindowsAppearanceOptions(),
+		Linux:               LinuxAppearanceOptions(linuxIcon),
 	})
 	// Hide on close instead of destroying — preserves in-window React state
 	// across reopens. Mirrors the main window's close behaviour. Resetting
@@ -295,7 +309,7 @@ func (s *WindowManager) OpenBrowserLogin(uri string) {
 				screen = sc
 			}
 		}
-		opts := DialogWindowOptions("browser-login", s.title("window.title.signIn"), startURL)
+		opts := DialogWindowOptions("browser-login", s.title("window.title.signIn"), startURL, s.linuxIcon)
 		// SSO popup deliberately is NOT always-on-top — the user moves
 		// between the browser tab and our popup; pinning it would obscure
 		// the browser at the moment they need to interact with it.
@@ -405,7 +419,7 @@ func (s *WindowManager) OpenSessionExpired() {
 	defer s.mu.Unlock()
 	if s.sessionExpired == nil {
 		s.sessionExpired = s.app.Window.NewWithOptions(
-			DialogWindowOptions("session-expired", s.title("window.title.sessionExpired"), "/#/dialog/session-expired"),
+			DialogWindowOptions("session-expired", s.title("window.title.sessionExpired"), "/#/dialog/session-expired", s.linuxIcon),
 		)
 		s.sessionExpired.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
 			s.mu.Lock()
@@ -440,7 +454,7 @@ func (s *WindowManager) OpenSessionAboutToExpire(seconds int) {
 	startURL := "/#/dialog/session-about-to-expire?seconds=" + strconv.Itoa(seconds)
 	if s.sessionAboutToExpire == nil {
 		s.sessionAboutToExpire = s.app.Window.NewWithOptions(
-			DialogWindowOptions("session-about-to-expire", s.title("window.title.sessionExpiring"), startURL),
+			DialogWindowOptions("session-about-to-expire", s.title("window.title.sessionExpiring"), startURL, s.linuxIcon),
 		)
 		s.sessionAboutToExpire.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
 			s.mu.Lock()
@@ -486,7 +500,7 @@ func (s *WindowManager) OpenInstallProgress(version string) {
 	if s.installProgress == nil {
 		s.hideOtherWindowsLocked("install-progress")
 		s.installProgress = s.app.Window.NewWithOptions(
-			DialogWindowOptions("install-progress", s.title("window.title.updating"), startURL),
+			DialogWindowOptions("install-progress", s.title("window.title.updating"), startURL, s.linuxIcon),
 		)
 		s.installProgress.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
 			s.mu.Lock()

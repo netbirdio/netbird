@@ -148,7 +148,7 @@ func main() {
 	// (BrowserLogin, Session*, InstallProgress) stay lazy + destroy-on-close
 	// so they don't linger as hidden windows that Wails's macOS dock-reopen
 	// handler would pop back up.
-	windowManager := services.NewWindowManager(app, window, bundle, prefStore)
+	windowManager := services.NewWindowManager(app, window, bundle, prefStore, iconWindow)
 	windowManager.WatchLanguage(prefStore)
 	app.RegisterService(application.NewService(windowManager))
 
