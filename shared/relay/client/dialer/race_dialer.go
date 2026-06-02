@@ -14,7 +14,9 @@ const (
 )
 
 type DialeFn interface {
-	Dial(ctx context.Context, address string) (net.Conn, error)
+	// Dial connects to address. serverName, when non-empty, overrides the TLS
+	// ServerName used for SNI/cert validation. Empty means derive from address.
+	Dial(ctx context.Context, address, serverName string) (net.Conn, error)
 	Protocol() string
 }
 
@@ -27,6 +29,7 @@ type dialResult struct {
 type RaceDial struct {
 	log               *log.Entry
 	serverURL         string
+	serverName        string
 	dialerFns         []DialeFn
 	connectionTimeout time.Duration
 }
@@ -40,10 +43,20 @@ func NewRaceDial(log *log.Entry, connectionTimeout time.Duration, serverURL stri
 	}
 }
 
-func (r *RaceDial) Dial() (net.Conn, error) {
+// WithServerName sets a TLS SNI/cert validation override. Used when serverURL
+// contains an IP literal but the cert is issued for a different hostname.
+//
+// Mutates the receiver and is not safe for concurrent reconfiguration; a
+// RaceDial is intended to be constructed per dial and discarded.
+func (r *RaceDial) WithServerName(serverName string) *RaceDial {
+	r.serverName = serverName
+	return r
+}
+
+func (r *RaceDial) Dial(ctx context.Context) (net.Conn, error) {
 	connChan := make(chan dialResult, len(r.dialerFns))
 	winnerConn := make(chan net.Conn, 1)
-	abortCtx, abort := context.WithCancel(context.Background())
+	abortCtx, abort := context.WithCancel(ctx)
 	defer abort()
 
 	for _, dfn := range r.dialerFns {
@@ -64,7 +77,7 @@ func (r *RaceDial) dial(dfn DialeFn, abortCtx context.Context, connChan chan dia
 	defer cancel()
 
 	r.log.Infof("dialing Relay server via %s", dfn.Protocol())
-	conn, err := dfn.Dial(ctx, r.serverURL)
+	conn, err := dfn.Dial(ctx, r.serverURL, r.serverName)
 	connChan <- dialResult{Conn: conn, Protocol: dfn.Protocol(), Err: err}
 }
 

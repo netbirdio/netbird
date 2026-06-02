@@ -10,19 +10,17 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"sync"
 	"time"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
-	"github.com/google/gopacket/routing"
-	"github.com/libp2p/go-netroute"
 	"github.com/mdlayher/socket"
 	log "github.com/sirupsen/logrus"
+	"github.com/vishvananda/netlink"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
 
-	nbnet "github.com/netbirdio/netbird/util/net"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 // ErrSharedSockStopped indicates that shared socket has been stopped
@@ -37,8 +35,6 @@ type SharedSocket struct {
 	conn6       *socket.Conn
 	port        int
 	mtu         uint16
-	routerMux   sync.RWMutex
-	router      routing.Router
 	packetDemux chan rcvdPacket
 	cancel      context.CancelFunc
 }
@@ -82,18 +78,13 @@ func Listen(port int, filter BPFFilter, mtu uint16) (_ net.PacketConn, err error
 		}
 	}()
 
-	rawSock.router, err = netroute.New()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create raw socket router: %w", err)
-	}
-
 	rawSock.conn4, err = socket.Socket(unix.AF_INET, unix.SOCK_RAW, unix.IPPROTO_UDP, "raw_udp4", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ipv4 raw socket: %w", err)
 	}
 
 	if err = nbnet.SetSocketMark(rawSock.conn4); err != nil {
-		return nil, fmt.Errorf("failed to set SO_MARK on ipv4 socket: %w", err)
+		return nil, fmt.Errorf("set SO_MARK on ipv4 socket: %w", err)
 	}
 
 	var sockErr error
@@ -102,7 +93,7 @@ func Listen(port int, filter BPFFilter, mtu uint16) (_ net.PacketConn, err error
 		log.Errorf("Failed to create ipv6 raw socket: %v", err)
 	} else {
 		if err = nbnet.SetSocketMark(rawSock.conn6); err != nil {
-			return nil, fmt.Errorf("failed to set SO_MARK on ipv6 socket: %w", err)
+			return nil, fmt.Errorf("set SO_MARK on ipv6 socket: %w", err)
 		}
 	}
 
@@ -127,36 +118,42 @@ func Listen(port int, filter BPFFilter, mtu uint16) (_ net.PacketConn, err error
 		go rawSock.read(rawSock.conn6.Recvfrom)
 	}
 
-	go rawSock.updateRouter()
-
 	return rawSock, nil
 }
 
-// updateRouter updates the listener routing table client
-// this is needed to avoid outdated information across different client networks
-func (s *SharedSocket) updateRouter() {
-	ticker := time.NewTicker(15 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-s.ctx.Done():
-			return
-		case <-ticker.C:
-			router, err := netroute.New()
-			if err != nil {
-				log.Errorf("Failed to create and update packet router for stunListener: %s", err)
-				continue
-			}
-			s.routerMux.Lock()
-			s.router = router
-			s.routerMux.Unlock()
+// resolveSrc returns the source IP the kernel will pick for a packet sent to
+// dst by these raw sockets, mirroring the fwmark the kernel will see on send.
+func (s *SharedSocket) resolveSrc(dst net.IP) (net.IP, error) {
+	opts := &netlink.RouteGetOptions{}
+	if nbnet.AdvancedRouting() {
+		opts.Mark = nbnet.ControlPlaneMark
+	}
+	routes, err := netlink.RouteGetWithOptions(dst, opts)
+	if err != nil {
+		return nil, fmt.Errorf("route get %s: %w", dst, err)
+	}
+	for _, r := range routes {
+		if r.Src != nil {
+			return r.Src, nil
 		}
 	}
+	return nil, fmt.Errorf("no source IP for %s", dst)
 }
 
-// LocalAddr returns an IPv4 address using the supplied port
+// LocalAddr returns the local address, preferring IPv4 for backward compatibility.
 func (s *SharedSocket) LocalAddr() net.Addr {
-	// todo check impact on ipv6 discovery
+	if s.conn4 != nil {
+		return &net.UDPAddr{
+			IP:   net.IPv4zero,
+			Port: s.port,
+		}
+	}
+	if s.conn6 != nil {
+		return &net.UDPAddr{
+			IP:   net.IPv6zero,
+			Port: s.port,
+		}
+	}
 	return &net.UDPAddr{
 		IP:   net.IPv4zero,
 		Port: s.port,
@@ -299,15 +296,15 @@ func (s *SharedSocket) WriteTo(buf []byte, rAddr net.Addr) (n int, err error) {
 		DstPort: layers.UDPPort(rUDPAddr.Port),
 	}
 
-	s.routerMux.RLock()
-	defer s.routerMux.RUnlock()
-
-	_, _, src, err := s.router.Route(rUDPAddr.IP)
+	src, err := s.resolveSrc(rUDPAddr.IP)
 	if err != nil {
-		return 0, fmt.Errorf("got an error while checking route, err: %w", err)
+		return 0, fmt.Errorf("resolve source for %s: %w", rUDPAddr.IP, err)
 	}
 
 	rSockAddr, conn, nwLayer := s.getWriterObjects(src, rUDPAddr.IP)
+	if conn == nil {
+		return 0, fmt.Errorf("no raw socket for %s", rUDPAddr.IP)
+	}
 
 	if err := udp.SetNetworkLayerForChecksum(nwLayer); err != nil {
 		return -1, fmt.Errorf("failed to set network layer for checksum: %w", err)

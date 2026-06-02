@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -10,6 +11,10 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
+
+// ErrIPv6NotInitialized is returned when an IPv6 address is passed to a firewall
+// method but the IPv6 firewall components were not initialized.
+var ErrIPv6NotInitialized = errors.New("IPv6 firewall not initialized")
 
 const (
 	ForwardingFormatPrefix = "netbird-fwd-"
@@ -100,6 +105,9 @@ type Manager interface {
 	//
 	// If comment argument is empty firewall manager should set
 	// rule ID as comment for the rule
+	//
+	// Note: Callers should call Flush() after adding rules to ensure
+	// they are applied to the kernel and rule handles are refreshed.
 	AddPeerFiltering(
 		id []byte,
 		ip net.IP,
@@ -151,14 +159,30 @@ type Manager interface {
 
 	DisableRouting() error
 
-	// AddDNATRule adds a DNAT rule
+	// AddDNATRule adds outbound DNAT rule for forwarding external traffic to the NetBird network.
 	AddDNATRule(ForwardRule) (Rule, error)
 
-	// DeleteDNATRule deletes a DNAT rule
+	// DeleteDNATRule deletes the outbound DNAT rule.
 	DeleteDNATRule(Rule) error
 
 	// UpdateSet updates the set with the given prefixes
 	UpdateSet(hash Set, prefixes []netip.Prefix) error
+
+	// AddInboundDNAT adds an inbound DNAT rule redirecting traffic from NetBird peers to local services
+	AddInboundDNAT(localAddr netip.Addr, protocol Protocol, originalPort, translatedPort uint16) error
+
+	// RemoveInboundDNAT removes inbound DNAT rule
+	RemoveInboundDNAT(localAddr netip.Addr, protocol Protocol, originalPort, translatedPort uint16) error
+
+	// AddOutputDNAT adds an OUTPUT chain DNAT rule for locally-generated traffic.
+	AddOutputDNAT(localAddr netip.Addr, protocol Protocol, originalPort, translatedPort uint16) error
+
+	// RemoveOutputDNAT removes an OUTPUT chain DNAT rule.
+	RemoveOutputDNAT(localAddr netip.Addr, protocol Protocol, originalPort, translatedPort uint16) error
+
+	// SetupEBPFProxyNoTrack creates static notrack rules for eBPF proxy loopback traffic.
+	// This prevents conntrack from interfering with WireGuard proxy communication.
+	SetupEBPFProxyNoTrack(proxyPort, wgPort uint16) error
 }
 
 func GenKey(format string, pair RouterPair) string {

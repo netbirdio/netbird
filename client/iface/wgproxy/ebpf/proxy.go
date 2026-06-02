@@ -6,21 +6,18 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
 	"sync"
-	"syscall"
 
-	"github.com/google/gopacket"
-	"github.com/google/gopacket/layers"
 	"github.com/hashicorp/go-multierror"
 	"github.com/pion/transport/v3"
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/iface/bufsize"
+	"github.com/netbirdio/netbird/client/iface/wgproxy/rawsocket"
 	"github.com/netbirdio/netbird/client/internal/ebpf"
 	ebpfMgr "github.com/netbirdio/netbird/client/internal/ebpf/manager"
-	nbnet "github.com/netbirdio/netbird/util/net"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 const (
@@ -30,6 +27,7 @@ const (
 // WGEBPFProxy definition for proxy with EBPF support
 type WGEBPFProxy struct {
 	localWGListenPort int
+	proxyPort         int
 	mtu               uint16
 
 	ebpfManager   ebpfMgr.Manager
@@ -37,7 +35,8 @@ type WGEBPFProxy struct {
 	turnConnMutex sync.Mutex
 
 	lastUsedPort uint16
-	rawConn      net.PacketConn
+	rawConnIPv4  net.PacketConn
+	rawConnIPv6  net.PacketConn
 	conn         transport.UDPConn
 
 	ctx       context.Context
@@ -59,23 +58,39 @@ func NewWGEBPFProxy(wgPort int, mtu uint16) *WGEBPFProxy {
 // Listen load ebpf program and listen the proxy
 func (p *WGEBPFProxy) Listen() error {
 	pl := portLookup{}
-	wgPorxyPort, err := pl.searchFreePort()
+	proxyPort, err := pl.searchFreePort()
+	if err != nil {
+		return err
+	}
+	p.proxyPort = proxyPort
+
+	// Prepare IPv4 raw socket (required)
+	p.rawConnIPv4, err = rawsocket.PrepareSenderRawSocketIPv4()
 	if err != nil {
 		return err
 	}
 
-	p.rawConn, err = p.prepareSenderRawSocket()
+	// Prepare IPv6 raw socket (optional)
+	p.rawConnIPv6, err = rawsocket.PrepareSenderRawSocketIPv6()
 	if err != nil {
-		return err
+		log.Warnf("failed to prepare IPv6 raw socket, continuing with IPv4 only: %v", err)
 	}
 
-	err = p.ebpfManager.LoadWgProxy(wgPorxyPort, p.localWGListenPort)
+	err = p.ebpfManager.LoadWgProxy(proxyPort, p.localWGListenPort)
 	if err != nil {
+		if closeErr := p.rawConnIPv4.Close(); closeErr != nil {
+			log.Warnf("failed to close IPv4 raw socket: %v", closeErr)
+		}
+		if p.rawConnIPv6 != nil {
+			if closeErr := p.rawConnIPv6.Close(); closeErr != nil {
+				log.Warnf("failed to close IPv6 raw socket: %v", closeErr)
+			}
+		}
 		return err
 	}
 
 	addr := net.UDPAddr{
-		Port: wgPorxyPort,
+		Port: proxyPort,
 		IP:   net.ParseIP(loopbackAddr),
 	}
 
@@ -91,7 +106,7 @@ func (p *WGEBPFProxy) Listen() error {
 	p.conn = conn
 
 	go p.proxyToRemote()
-	log.Infof("local wg proxy listening on: %d", wgPorxyPort)
+	log.Infof("local wg proxy listening on: %d", proxyPort)
 	return nil
 }
 
@@ -132,10 +147,23 @@ func (p *WGEBPFProxy) Free() error {
 		result = multierror.Append(result, err)
 	}
 
-	if err := p.rawConn.Close(); err != nil {
-		result = multierror.Append(result, err)
+	if p.rawConnIPv4 != nil {
+		if err := p.rawConnIPv4.Close(); err != nil {
+			result = multierror.Append(result, err)
+		}
+	}
+
+	if p.rawConnIPv6 != nil {
+		if err := p.rawConnIPv6.Close(); err != nil {
+			result = multierror.Append(result, err)
+		}
 	}
 	return nberrors.FormatErrorOrNil(result)
+}
+
+// GetProxyPort returns the proxy listening port.
+func (p *WGEBPFProxy) GetProxyPort() uint16 {
+	return uint16(p.proxyPort)
 }
 
 // proxyToRemote read messages from local WireGuard interface and forward it to remote conn
@@ -212,75 +240,4 @@ generatePort:
 		goto generatePort
 	}
 	return p.lastUsedPort, nil
-}
-
-func (p *WGEBPFProxy) prepareSenderRawSocket() (net.PacketConn, error) {
-	// Create a raw socket.
-	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_RAW)
-	if err != nil {
-		return nil, fmt.Errorf("creating raw socket failed: %w", err)
-	}
-
-	// Set the IP_HDRINCL option on the socket to tell the kernel that headers are included in the packet.
-	err = syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, syscall.IP_HDRINCL, 1)
-	if err != nil {
-		return nil, fmt.Errorf("setting IP_HDRINCL failed: %w", err)
-	}
-
-	// Bind the socket to the "lo" interface.
-	err = syscall.SetsockoptString(fd, syscall.SOL_SOCKET, syscall.SO_BINDTODEVICE, "lo")
-	if err != nil {
-		return nil, fmt.Errorf("binding to lo interface failed: %w", err)
-	}
-
-	// Set the fwmark on the socket.
-	err = nbnet.SetSocketOpt(fd)
-	if err != nil {
-		return nil, fmt.Errorf("setting fwmark failed: %w", err)
-	}
-
-	// Convert the file descriptor to a PacketConn.
-	file := os.NewFile(uintptr(fd), fmt.Sprintf("fd %d", fd))
-	if file == nil {
-		return nil, fmt.Errorf("converting fd to file failed")
-	}
-	packetConn, err := net.FilePacketConn(file)
-	if err != nil {
-		return nil, fmt.Errorf("converting file to packet conn failed: %w", err)
-	}
-
-	return packetConn, nil
-}
-
-func (p *WGEBPFProxy) sendPkg(data []byte, port int) error {
-	localhost := net.ParseIP("127.0.0.1")
-
-	payload := gopacket.Payload(data)
-	ipH := &layers.IPv4{
-		DstIP:    localhost,
-		SrcIP:    localhost,
-		Version:  4,
-		TTL:      64,
-		Protocol: layers.IPProtocolUDP,
-	}
-	udpH := &layers.UDP{
-		SrcPort: layers.UDPPort(port),
-		DstPort: layers.UDPPort(p.localWGListenPort),
-	}
-
-	err := udpH.SetNetworkLayerForChecksum(ipH)
-	if err != nil {
-		return fmt.Errorf("set network layer for checksum: %w", err)
-	}
-
-	layerBuffer := gopacket.NewSerializeBuffer()
-
-	err = gopacket.SerializeLayers(layerBuffer, gopacket.SerializeOptions{ComputeChecksums: true, FixLengths: true}, ipH, udpH, payload)
-	if err != nil {
-		return fmt.Errorf("serialize layers: %w", err)
-	}
-	if _, err = p.rawConn.WriteTo(layerBuffer.Bytes(), &net.IPAddr{IP: localhost}); err != nil {
-		return fmt.Errorf("write to raw conn: %w", err)
-	}
-	return nil
 }

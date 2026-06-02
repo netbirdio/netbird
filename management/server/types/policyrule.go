@@ -1,6 +1,8 @@
 package types
 
 import (
+	"slices"
+
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -80,6 +82,12 @@ type PolicyRule struct {
 
 	// PortRanges a list of port ranges.
 	PortRanges []RulePortRange `gorm:"serializer:json"`
+
+	// AuthorizedGroups is a map of groupIDs and their respective access to local users via ssh
+	AuthorizedGroups map[string][]string `gorm:"serializer:json"`
+
+	// AuthorizedUser is a list of userIDs that are authorized to access local resources via ssh
+	AuthorizedUser string
 }
 
 // Copy returns a copy of a policy rule
@@ -99,10 +107,119 @@ func (pm *PolicyRule) Copy() *PolicyRule {
 		Protocol:            pm.Protocol,
 		Ports:               make([]string, len(pm.Ports)),
 		PortRanges:          make([]RulePortRange, len(pm.PortRanges)),
+		AuthorizedGroups:    make(map[string][]string, len(pm.AuthorizedGroups)),
+		AuthorizedUser:      pm.AuthorizedUser,
 	}
 	copy(rule.Destinations, pm.Destinations)
 	copy(rule.Sources, pm.Sources)
 	copy(rule.Ports, pm.Ports)
 	copy(rule.PortRanges, pm.PortRanges)
+	for k, v := range pm.AuthorizedGroups {
+		rule.AuthorizedGroups[k] = make([]string, len(v))
+		copy(rule.AuthorizedGroups[k], v)
+	}
 	return rule
+}
+
+func (pm *PolicyRule) Equal(other *PolicyRule) bool {
+	if pm == nil || other == nil {
+		return pm == other
+	}
+
+	if pm.ID != other.ID ||
+		pm.PolicyID != other.PolicyID ||
+		pm.Name != other.Name ||
+		pm.Description != other.Description ||
+		pm.Enabled != other.Enabled ||
+		pm.Action != other.Action ||
+		pm.Bidirectional != other.Bidirectional ||
+		pm.Protocol != other.Protocol ||
+		pm.SourceResource != other.SourceResource ||
+		pm.DestinationResource != other.DestinationResource ||
+		pm.AuthorizedUser != other.AuthorizedUser {
+		return false
+	}
+
+	if !stringSlicesEqualUnordered(pm.Sources, other.Sources) {
+		return false
+	}
+	if !stringSlicesEqualUnordered(pm.Destinations, other.Destinations) {
+		return false
+	}
+	if !stringSlicesEqualUnordered(pm.Ports, other.Ports) {
+		return false
+	}
+	if !portRangeSlicesEqualUnordered(pm.PortRanges, other.PortRanges) {
+		return false
+	}
+	if !authorizedGroupsEqual(pm.AuthorizedGroups, other.AuthorizedGroups) {
+		return false
+	}
+
+	return true
+}
+
+func stringSlicesEqualUnordered(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	if len(a) == 0 {
+		return true
+	}
+	sorted1 := make([]string, len(a))
+	sorted2 := make([]string, len(b))
+	copy(sorted1, a)
+	copy(sorted2, b)
+	slices.Sort(sorted1)
+	slices.Sort(sorted2)
+	return slices.Equal(sorted1, sorted2)
+}
+
+func portRangeSlicesEqualUnordered(a, b []RulePortRange) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	if len(a) == 0 {
+		return true
+	}
+	cmp := func(x, y RulePortRange) int {
+		if x.Start != y.Start {
+			if x.Start < y.Start {
+				return -1
+			}
+			return 1
+		}
+		if x.End != y.End {
+			if x.End < y.End {
+				return -1
+			}
+			return 1
+		}
+		return 0
+	}
+	sorted1 := make([]RulePortRange, len(a))
+	sorted2 := make([]RulePortRange, len(b))
+	copy(sorted1, a)
+	copy(sorted2, b)
+	slices.SortFunc(sorted1, cmp)
+	slices.SortFunc(sorted2, cmp)
+	return slices.EqualFunc(sorted1, sorted2, func(x, y RulePortRange) bool {
+		return x.Start == y.Start && x.End == y.End
+	})
+}
+
+func authorizedGroupsEqual(a, b map[string][]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, va := range a {
+		vb, ok := b[k]
+		if !ok {
+			return false
+		}
+		if !stringSlicesEqualUnordered(va, vb) {
+			return false
+		}
+	}
+	return true
 }

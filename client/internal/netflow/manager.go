@@ -24,6 +24,7 @@ import (
 // Manager handles netflow tracking and logging
 type Manager struct {
 	mux            sync.Mutex
+	shutdownWg     sync.WaitGroup
 	logger         nftypes.FlowLogger
 	flowConfig     *nftypes.FlowConfig
 	conntrack      nftypes.ConnTracker
@@ -34,11 +35,12 @@ type Manager struct {
 
 // NewManager creates a new netflow manager
 func NewManager(iface nftypes.IFaceMapper, publicKey []byte, statusRecorder *peer.Status) *Manager {
-	var prefix netip.Prefix
+	var prefix, prefixV6 netip.Prefix
 	if iface != nil {
 		prefix = iface.Address().Network
+		prefixV6 = iface.Address().IPv6Net
 	}
-	flowLogger := logger.New(statusRecorder, prefix)
+	flowLogger := logger.New(statusRecorder, prefix, prefixV6)
 
 	var ct nftypes.ConnTracker
 	if runtime.GOOS == "linux" && iface != nil && !iface.IsUserspaceBind() {
@@ -105,8 +107,15 @@ func (m *Manager) resetClient() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 
-	go m.receiveACKs(ctx, flowClient)
-	go m.startSender(ctx)
+	m.shutdownWg.Add(2)
+	go func() {
+		defer m.shutdownWg.Done()
+		m.receiveACKs(ctx, flowClient)
+	}()
+	go func() {
+		defer m.shutdownWg.Done()
+		m.startSender(ctx)
+	}()
 
 	return nil
 }
@@ -176,11 +185,12 @@ func (m *Manager) Update(update *nftypes.FlowConfig) error {
 // Close cleans up all resources
 func (m *Manager) Close() {
 	m.mux.Lock()
-	defer m.mux.Unlock()
-
 	if err := m.disableFlow(); err != nil {
 		log.Warnf("failed to disable flow manager: %v", err)
 	}
+	m.mux.Unlock()
+
+	m.shutdownWg.Wait()
 }
 
 // GetLogger returns the flow logger
@@ -260,7 +270,7 @@ func toProtoEvent(publicKey []byte, event *nftypes.Event) *proto.FlowEvent {
 		},
 	}
 
-	if event.Protocol == nftypes.ICMP {
+	if event.Protocol == nftypes.ICMP || event.Protocol == nftypes.ICMPv6 {
 		protoEvent.FlowFields.ConnectionInfo = &proto.FlowFields_IcmpInfo{
 			IcmpInfo: &proto.ICMPInfo{
 				IcmpType: uint32(event.ICMPType),

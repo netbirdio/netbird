@@ -18,4 +18,5 @@ type WGIface interface {
 	GetStats() (map[string]configurer.WGStats, error)
 	GetProxy() wgproxy.Proxy
 	Address() wgaddr.Address
+	RemoveEndpointAddress(key string) error
 }

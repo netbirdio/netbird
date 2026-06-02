@@ -26,9 +26,11 @@ type mockHTTPClient struct {
 }
 
 func (c *mockHTTPClient) Do(req *http.Request) (*http.Response, error) {
-	body, err := io.ReadAll(req.Body)
-	if err == nil {
-		c.reqBody = string(body)
+	if req.Body != nil {
+		body, err := io.ReadAll(req.Body)
+		if err == nil {
+			c.reqBody = string(body)
+		}
 	}
 	return &http.Response{
 		StatusCode: c.code,

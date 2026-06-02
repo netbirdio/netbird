@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 
+	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/groups"
@@ -34,22 +37,24 @@ type managerImpl struct {
 	permissionsManager permissions.Manager
 	groupsManager      groups.Manager
 	accountManager     account.Manager
+	serviceManager     service.Manager
 }
 
 type mockManager struct {
 }
 
-func NewManager(store store.Store, permissionsManager permissions.Manager, groupsManager groups.Manager, accountManager account.Manager) Manager {
+func NewManager(store store.Store, permissionsManager permissions.Manager, groupsManager groups.Manager, accountManager account.Manager, reverseproxyManager service.Manager) Manager {
 	return &managerImpl{
 		store:              store,
 		permissionsManager: permissionsManager,
 		groupsManager:      groupsManager,
 		accountManager:     accountManager,
+		serviceManager:     reverseproxyManager,
 	}
 }
 
 func (m *managerImpl) GetAllResourcesInNetwork(ctx context.Context, accountID, userID, networkID string) ([]*types.NetworkResource, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Networks, operations.Read)
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Networks, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -61,7 +66,7 @@ func (m *managerImpl) GetAllResourcesInNetwork(ctx context.Context, accountID, u
 }
 
 func (m *managerImpl) GetAllResourcesInAccount(ctx context.Context, accountID, userID string) ([]*types.NetworkResource, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Networks, operations.Read)
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Networks, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -73,7 +78,7 @@ func (m *managerImpl) GetAllResourcesInAccount(ctx context.Context, accountID, u
 }
 
 func (m *managerImpl) GetAllResourceIDsInAccount(ctx context.Context, accountID, userID string) (map[string][]string, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Networks, operations.Read)
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Networks, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -95,7 +100,7 @@ func (m *managerImpl) GetAllResourceIDsInAccount(ctx context.Context, accountID,
 }
 
 func (m *managerImpl) CreateResource(ctx context.Context, userID string, resource *types.NetworkResource) (*types.NetworkResource, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, resource.AccountID, userID, modules.Networks, operations.Create)
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, resource.AccountID, userID, modules.Networks, operations.Create)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -132,7 +137,7 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 
 		res := nbtypes.Resource{
 			ID:   resource.ID,
-			Type: resource.Type.String(),
+			Type: nbtypes.ResourceType(resource.Type.String()),
 		}
 		for _, groupID := range resource.GroupIDs {
 			event, err := m.groupsManager.AddResourceToGroupInTransaction(ctx, transaction, resource.AccountID, userID, groupID, &res)
@@ -157,13 +162,13 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 		event()
 	}
 
-	go m.accountManager.UpdateAccountPeers(ctx, resource.AccountID)
+	go m.accountManager.UpdateAccountPeers(ctx, resource.AccountID, nbtypes.UpdateReason{Resource: nbtypes.UpdateResourceNetworkResource, Operation: nbtypes.UpdateOperationCreate})
 
 	return resource, nil
 }
 
 func (m *managerImpl) GetResource(ctx context.Context, accountID, userID, networkID, resourceID string) (*types.NetworkResource, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Networks, operations.Read)
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Networks, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -184,7 +189,7 @@ func (m *managerImpl) GetResource(ctx context.Context, accountID, userID, networ
 }
 
 func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resource *types.NetworkResource) (*types.NetworkResource, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, resource.AccountID, userID, modules.Networks, operations.Update)
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, resource.AccountID, userID, modules.Networks, operations.Update)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -257,7 +262,15 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 		event()
 	}
 
-	go m.accountManager.UpdateAccountPeers(ctx, resource.AccountID)
+	// TODO: optimize to only reload reverse proxies that are affected by the resource update instead of all of them
+	go func() {
+		err := m.serviceManager.ReloadAllServicesForAccount(ctx, resource.AccountID)
+		if err != nil {
+			log.WithContext(ctx).Warnf("failed to reload all proxies for account: %v", err)
+		}
+	}()
+
+	go m.accountManager.UpdateAccountPeers(ctx, resource.AccountID, nbtypes.UpdateReason{Resource: nbtypes.UpdateResourceNetworkResource, Operation: nbtypes.UpdateOperationUpdate})
 
 	return resource, nil
 }
@@ -265,7 +278,7 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 func (m *managerImpl) updateResourceGroups(ctx context.Context, transaction store.Store, userID string, newResource, oldResource *types.NetworkResource) ([]func(), error) {
 	res := nbtypes.Resource{
 		ID:   newResource.ID,
-		Type: newResource.Type.String(),
+		Type: nbtypes.ResourceType(newResource.Type.String()),
 	}
 
 	oldResourceGroups, err := m.groupsManager.GetResourceGroupsInTransaction(ctx, transaction, store.LockingStrengthUpdate, oldResource.AccountID, oldResource.ID)
@@ -301,12 +314,20 @@ func (m *managerImpl) updateResourceGroups(ctx context.Context, transaction stor
 }
 
 func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, networkID, resourceID string) error {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Networks, operations.Delete)
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Networks, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
 	if !ok {
 		return status.NewPermissionDeniedError()
+	}
+
+	serviceID, err := m.serviceManager.GetServiceIDByTargetID(ctx, accountID, resourceID)
+	if err != nil {
+		return fmt.Errorf("failed to check if resource is used by service: %w", err)
+	}
+	if serviceID != "" {
+		return status.NewResourceInUseError(resourceID, serviceID)
 	}
 
 	var events []func()
@@ -331,7 +352,7 @@ func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, net
 		event()
 	}
 
-	go m.accountManager.UpdateAccountPeers(ctx, accountID)
+	go m.accountManager.UpdateAccountPeers(ctx, accountID, nbtypes.UpdateReason{Resource: nbtypes.UpdateResourceNetworkResource, Operation: nbtypes.UpdateOperationDelete})
 
 	return nil
 }

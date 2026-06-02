@@ -1,9 +1,12 @@
+//go:build ios
+
 package NetBirdSDK
 
 import (
 	"context"
 	"fmt"
 	"net/netip"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -20,8 +23,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
-	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 // ConnectionListener export internal Listener for mobile
@@ -47,10 +50,11 @@ type CustomLogger interface {
 }
 
 type selectRoute struct {
-	NetID    string
-	Network  netip.Prefix
-	Domains  domain.List
-	Selected bool
+	NetID         string
+	Network       netip.Prefix
+	Domains       domain.List
+	Selected      bool
+	extraNetworks []netip.Prefix
 }
 
 func init() {
@@ -72,6 +76,8 @@ type Client struct {
 	dnsManager            dns.IosDnsManager
 	loginComplete         bool
 	connectClient         *internal.ConnectClient
+	// preloadedConfig holds config loaded from JSON (used on tvOS where file writes are blocked)
+	preloadedConfig *profilemanager.Config
 }
 
 // NewClient instantiate a new Client
@@ -89,16 +95,44 @@ func NewClient(cfgFile, stateFile, deviceName string, osVersion string, osName s
 	}
 }
 
+// SetConfigFromJSON loads config from a JSON string into memory.
+// This is used on tvOS where file writes to App Group containers are blocked.
+// When set, IsLoginRequired() and Run() will use this preloaded config instead of reading from file.
+func (c *Client) SetConfigFromJSON(jsonStr string) error {
+	cfg, err := profilemanager.ConfigFromJSON(jsonStr)
+	if err != nil {
+		log.Errorf("SetConfigFromJSON: failed to parse config JSON: %v", err)
+		return err
+	}
+	c.preloadedConfig = cfg
+	log.Infof("SetConfigFromJSON: config loaded successfully from JSON")
+	return nil
+}
+
 // Run start the internal client. It is a blocker function
-func (c *Client) Run(fd int32, interfaceName string) error {
+func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
+	exportEnvList(envList)
 	log.Infof("Starting NetBird client")
 	log.Debugf("Tunnel uses interface: %s", interfaceName)
-	cfg, err := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
-		ConfigPath:    c.cfgFile,
-		StateFilePath: c.stateFile,
-	})
-	if err != nil {
-		return err
+
+	var cfg *profilemanager.Config
+	var err error
+
+	// Use preloaded config if available (tvOS where file writes are blocked)
+	if c.preloadedConfig != nil {
+		log.Infof("Run: using preloaded config from memory")
+		cfg = c.preloadedConfig
+	} else {
+		log.Infof("Run: loading config from file")
+		// Use DirectUpdateOrCreateConfig to avoid atomic file operations (temp file + rename)
+		// which are blocked by the tvOS sandbox in App Group containers
+		cfg, err = profilemanager.DirectUpdateOrCreateConfig(profilemanager.ConfigInput{
+			ConfigPath:    c.cfgFile,
+			StateFilePath: c.stateFile,
+		})
+		if err != nil {
+			return err
+		}
 	}
 	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
 	c.recorder.UpdateRosenpass(cfg.RosenpassEnabled, cfg.RosenpassPermissive)
@@ -116,7 +150,7 @@ func (c *Client) Run(fd int32, interfaceName string) error {
 	c.ctxCancelLock.Unlock()
 
 	auth := NewAuthWithConfig(ctx, cfg)
-	err = auth.Login()
+	err = auth.LoginSync()
 	if err != nil {
 		return err
 	}
@@ -161,6 +195,7 @@ func (c *Client) GetStatusDetails() *StatusDetails {
 		}
 		pi := PeerInfo{
 			IP:                         p.IP,
+			IPv6:                       p.IPv6,
 			FQDN:                       p.FQDN,
 			LocalIceCandidateEndpoint:  p.LocalIceCandidateEndpoint,
 			RemoteIceCandidateEndpoint: p.RemoteIceCandidateEndpoint,
@@ -179,7 +214,7 @@ func (c *Client) GetStatusDetails() *StatusDetails {
 		}
 		peerInfos[n] = pi
 	}
-	return &StatusDetails{items: peerInfos, fqdn: fullStatus.LocalPeerState.FQDN, ip: fullStatus.LocalPeerState.IP}
+	return &StatusDetails{items: peerInfos, fqdn: fullStatus.LocalPeerState.FQDN, ip: fullStatus.LocalPeerState.IP, ipv6: fullStatus.LocalPeerState.IPv6}
 }
 
 // SetConnectionListener set the network connection listener
@@ -204,13 +239,51 @@ func (c *Client) IsLoginRequired() bool {
 	defer c.ctxCancelLock.Unlock()
 	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
 
-	cfg, _ := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
-		ConfigPath: c.cfgFile,
-	})
+	var cfg *profilemanager.Config
+	var err error
 
-	needsLogin, _ := internal.IsLoginRequired(ctx, cfg)
+	// Use preloaded config if available (tvOS where file writes are blocked)
+	if c.preloadedConfig != nil {
+		log.Infof("IsLoginRequired: using preloaded config from memory")
+		cfg = c.preloadedConfig
+	} else {
+		log.Infof("IsLoginRequired: loading config from file")
+		// Use DirectUpdateOrCreateConfig to avoid atomic file operations (temp file + rename)
+		// which are blocked by the tvOS sandbox in App Group containers
+		cfg, err = profilemanager.DirectUpdateOrCreateConfig(profilemanager.ConfigInput{
+			ConfigPath: c.cfgFile,
+		})
+		if err != nil {
+			log.Errorf("IsLoginRequired: failed to load config: %v", err)
+			// If we can't load config, assume login is required
+			return true
+		}
+	}
+
+	if cfg == nil {
+		log.Errorf("IsLoginRequired: config is nil")
+		return true
+	}
+
+	authClient, err := auth.NewAuth(ctx, cfg.PrivateKey, cfg.ManagementURL, cfg)
+	if err != nil {
+		log.Errorf("IsLoginRequired: failed to create auth client: %v", err)
+		return true // Assume login is required if we can't create auth client
+	}
+	defer authClient.Close()
+
+	needsLogin, err := authClient.IsLoginRequired(ctx)
+	if err != nil {
+		log.Errorf("IsLoginRequired: check failed: %v", err)
+		// If the check fails, assume login is required to be safe
+		return true
+	}
+	log.Infof("IsLoginRequired: needsLogin=%v", needsLogin)
 	return needsLogin
 }
+
+// loginForMobileAuthTimeout is the timeout for requesting auth info from the server
+const loginForMobileAuthTimeout = 30 * time.Second
 
 func (c *Client) LoginForMobile() string {
 	var ctx context.Context
@@ -224,31 +297,48 @@ func (c *Client) LoginForMobile() string {
 	defer c.ctxCancelLock.Unlock()
 	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
 
-	cfg, _ := profilemanager.UpdateOrCreateConfig(profilemanager.ConfigInput{
+	// Use DirectUpdateOrCreateConfig to avoid atomic file operations (temp file + rename)
+	// which are blocked by the tvOS sandbox in App Group containers
+	cfg, err := profilemanager.DirectUpdateOrCreateConfig(profilemanager.ConfigInput{
 		ConfigPath: c.cfgFile,
 	})
+	if err != nil {
+		log.Errorf("LoginForMobile: failed to load config: %v", err)
+		return fmt.Sprintf("failed to load config: %v", err)
+	}
 
-	oAuthFlow, err := auth.NewOAuthFlow(ctx, cfg, false)
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, cfg, false, false, "")
 	if err != nil {
 		return err.Error()
 	}
 
-	flowInfo, err := oAuthFlow.RequestAuthInfo(context.TODO())
+	// Use a bounded timeout for the auth info request to prevent indefinite hangs
+	authInfoCtx, authInfoCancel := context.WithTimeout(ctx, loginForMobileAuthTimeout)
+	defer authInfoCancel()
+
+	flowInfo, err := oAuthFlow.RequestAuthInfo(authInfoCtx)
 	if err != nil {
 		return err.Error()
 	}
 
 	// This could cause a potential race condition with loading the extension which need to be handled on swift side
 	go func() {
-		waitTimeout := time.Duration(flowInfo.ExpiresIn) * time.Second
-		waitCTX, cancel := context.WithTimeout(ctx, waitTimeout)
-		defer cancel()
-		tokenInfo, err := oAuthFlow.WaitToken(waitCTX, flowInfo)
+		tokenInfo, err := oAuthFlow.WaitToken(ctx, flowInfo)
 		if err != nil {
+			log.Errorf("LoginForMobile: WaitToken failed: %v", err)
 			return
 		}
 		jwtToken := tokenInfo.GetTokenToUse()
-		_ = internal.Login(ctx, cfg, "", jwtToken)
+		authClient, err := auth.NewAuth(ctx, cfg.PrivateKey, cfg.ManagementURL, cfg)
+		if err != nil {
+			log.Errorf("LoginForMobile: failed to create auth client: %v", err)
+			return
+		}
+		defer authClient.Close()
+		if err, _ := authClient.Login(ctx, "", jwtToken); err != nil {
+			log.Errorf("LoginForMobile: Login failed: %v", err)
+			return
+		}
 		c.loginComplete = true
 	}()
 
@@ -274,72 +364,102 @@ func (c *Client) GetRoutesSelectionDetails() (*RoutesSelectionDetails, error) {
 	}
 
 	routeManager := engine.GetRouteManager()
-	routesMap := routeManager.GetClientRoutesWithNetID()
 	if routeManager == nil {
 		return nil, fmt.Errorf("could not get route manager")
 	}
+	routesMap := routeManager.GetClientRoutesWithNetID()
 	routeSelector := routeManager.GetRouteSelector()
 	if routeSelector == nil {
 		return nil, fmt.Errorf("could not get route selector")
 	}
 
+	v6ExitMerged := route.V6ExitMergeSet(routesMap)
+	routes := buildSelectRoutes(routesMap, routeSelector.IsSelected, v6ExitMerged)
+	resolvedDomains := c.recorder.GetResolvedDomainsStates()
+
+	return prepareRouteSelectionDetails(routes, resolvedDomains), nil
+}
+
+func buildSelectRoutes(routesMap map[route.NetID][]*route.Route, isSelected func(route.NetID) bool, v6Merged map[route.NetID]struct{}) []*selectRoute {
 	var routes []*selectRoute
 	for id, rt := range routesMap {
 		if len(rt) == 0 {
 			continue
 		}
-		route := &selectRoute{
+		if _, ok := v6Merged[id]; ok {
+			continue
+		}
+
+		r := &selectRoute{
 			NetID:    string(id),
 			Network:  rt[0].Network,
 			Domains:  rt[0].Domains,
-			Selected: routeSelector.IsSelected(id),
+			Selected: isSelected(id),
 		}
-		routes = append(routes, route)
+
+		v6ID := route.NetID(string(id) + route.V6ExitSuffix)
+		if _, ok := v6Merged[v6ID]; ok {
+			r.extraNetworks = []netip.Prefix{routesMap[v6ID][0].Network}
+		}
+
+		routes = append(routes, r)
 	}
 
 	sort.Slice(routes, func(i, j int) bool {
-		iPrefix := routes[i].Network.Bits()
-		jPrefix := routes[j].Network.Bits()
-
-		if iPrefix == jPrefix {
-			iAddr := routes[i].Network.Addr()
-			jAddr := routes[j].Network.Addr()
-			if iAddr == jAddr {
-				return routes[i].NetID < routes[j].NetID
-			}
-			return iAddr.String() < jAddr.String()
+		iBits, jBits := routes[i].Network.Bits(), routes[j].Network.Bits()
+		if iBits != jBits {
+			return iBits < jBits
 		}
-		return iPrefix < jPrefix
+		iAddr, jAddr := routes[i].Network.Addr(), routes[j].Network.Addr()
+		if iAddr != jAddr {
+			return iAddr.Less(jAddr)
+		}
+		return routes[i].NetID < routes[j].NetID
 	})
 
-	resolvedDomains := c.recorder.GetResolvedDomainsStates()
-
-	return prepareRouteSelectionDetails(routes, resolvedDomains), nil
-
+	return routes
 }
 
 func prepareRouteSelectionDetails(routes []*selectRoute, resolvedDomains map[domain.Domain]peer.ResolvedDomainInfo) *RoutesSelectionDetails {
 	var routeSelection []RoutesSelectionInfo
 	for _, r := range routes {
-		domainList := make([]DomainInfo, 0)
+		// resolvedDomains is keyed by the resolved domain (e.g. api.ipify.org),
+		// not the configured pattern (e.g. *.ipify.org). Group entries whose
+		// ParentDomain belongs to this route, mirroring the daemon logic in
+		// client/server/network.go.
+		domainList := make([]DomainInfo, 0, len(r.Domains))
+		domainIndex := make(map[domain.Domain]int, len(r.Domains))
 		for _, d := range r.Domains {
-			domainResp := DomainInfo{
-				Domain: d.SafeString(),
-			}
-
-			if info, exists := resolvedDomains[d]; exists {
-				var ipStrings []string
-				for _, prefix := range info.Prefixes {
-					ipStrings = append(ipStrings, prefix.Addr().String())
-				}
-				domainResp.ResolvedIPs = strings.Join(ipStrings, ", ")
-			}
-			domainList = append(domainList, domainResp)
+			domainIndex[d] = len(domainList)
+			domainList = append(domainList, DomainInfo{Domain: d.SafeString()})
 		}
+
+		for _, info := range resolvedDomains {
+			idx, ok := domainIndex[info.ParentDomain]
+			if !ok {
+				continue
+			}
+			for _, prefix := range info.Prefixes {
+				domainList[idx].AddResolvedIP(prefix.Addr().String())
+			}
+		}
+
 		domainDetails := DomainDetails{items: domainList}
+
+		// For dynamic (DNS) routes, expose the joined domain pattern as the
+		// Network value so it matches the peer.routes entries on the Swift
+		// side (mirroring the Android bridge in client/android/client.go).
+		netStr := r.Network.String()
+		if len(r.Domains) > 0 {
+			netStr = r.Domains.SafeString()
+		}
+		for _, extra := range r.extraNetworks {
+			netStr += ", " + extra.String()
+		}
+
 		routeSelection = append(routeSelection, RoutesSelectionInfo{
 			ID:       r.NetID,
-			Network:  r.Network.String(),
+			Network:  netStr,
 			Domains:  &domainDetails,
 			Selected: r.Selected,
 		})
@@ -367,7 +487,9 @@ func (c *Client) SelectRoute(id string) error {
 	} else {
 		log.Debugf("select route with id: %s", id)
 		routes := toNetIDs([]string{id})
-		if err := routeSelector.SelectRoutes(routes, true, maps.Keys(routeManager.GetClientRoutesWithNetID())); err != nil {
+		routesMap := routeManager.GetClientRoutesWithNetID()
+		routes = route.ExpandV6ExitPairs(routes, routesMap)
+		if err := routeSelector.SelectRoutes(routes, true, maps.Keys(routesMap)); err != nil {
 			log.Debugf("error when selecting routes: %s", err)
 			return fmt.Errorf("select routes: %w", err)
 		}
@@ -394,7 +516,9 @@ func (c *Client) DeselectRoute(id string) error {
 	} else {
 		log.Debugf("deselect route with id: %s", id)
 		routes := toNetIDs([]string{id})
-		if err := routeSelector.DeselectRoutes(routes, maps.Keys(routeManager.GetClientRoutesWithNetID())); err != nil {
+		routesMap := routeManager.GetClientRoutesWithNetID()
+		routes = route.ExpandV6ExitPairs(routes, routesMap)
+		if err := routeSelector.DeselectRoutes(routes, maps.Keys(routesMap)); err != nil {
 			log.Debugf("error when deselecting routes: %s", err)
 			return fmt.Errorf("deselect routes: %w", err)
 		}
@@ -432,4 +556,20 @@ func toNetIDs(routes []string) []route.NetID {
 		netIDs = append(netIDs, route.NetID(rt))
 	}
 	return netIDs
+}
+
+func exportEnvList(list *EnvList) {
+	if list == nil {
+		return
+	}
+	for k, v := range list.AllItems() {
+		log.Debugf("Env variable %s's value is currently: %s", k, os.Getenv(k))
+		log.Debugf("Setting env variable %s: %s", k, v)
+
+		if err := os.Setenv(k, v); err != nil {
+			log.Errorf("could not set env variable %s: %v", k, err)
+		} else {
+			log.Debugf("Env variable %s was set successfully", k)
+		}
+	}
 }

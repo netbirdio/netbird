@@ -9,6 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/lazyconn"
 	peerid "github.com/netbirdio/netbird/client/internal/peer/id"
 )
@@ -30,16 +31,26 @@ func (m MocWGIface) RemovePeer(string) error {
 
 func (m MocWGIface) UpdatePeer(string, []netip.Prefix, time.Duration, *net.UDPAddr, *wgtypes.Key) error {
 	return nil
-
 }
 
-// Add this method to the Manager struct
-func (m *Manager) GetPeerListener(peerConnID peerid.ConnID) (*Listener, bool) {
+func (m MocWGIface) IsUserspaceBind() bool {
+	return false
+}
+
+func (m MocWGIface) Address() wgaddr.Address {
+	return wgaddr.Address{
+		IP:      netip.MustParseAddr("100.64.0.1"),
+		Network: netip.MustParsePrefix("100.64.0.0/16"),
+	}
+}
+
+// GetPeerListener is a test helper to access listeners
+func (m *Manager) GetPeerListener(peerConnID peerid.ConnID) (listener, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	listener, exists := m.peers[peerConnID]
-	return listener, exists
+	l, exists := m.peers[peerConnID]
+	return l, exists
 }
 
 func TestManager_MonitorPeerActivity(t *testing.T) {
@@ -65,7 +76,12 @@ func TestManager_MonitorPeerActivity(t *testing.T) {
 		t.Fatalf("peer listener not found")
 	}
 
-	if err := trigger(listener.conn.LocalAddr().String()); err != nil {
+	// Get the UDP listener's address for triggering
+	udpListener, ok := listener.(*UDPListener)
+	if !ok {
+		t.Fatalf("expected UDPListener")
+	}
+	if err := trigger(udpListener.conn.LocalAddr().String()); err != nil {
 		t.Fatalf("failed to trigger activity: %v", err)
 	}
 
@@ -97,7 +113,9 @@ func TestManager_RemovePeerActivity(t *testing.T) {
 		t.Fatalf("failed to monitor peer activity: %v", err)
 	}
 
-	addr := mgr.peers[peerCfg1.PeerConnID].conn.LocalAddr().String()
+	listener, _ := mgr.GetPeerListener(peerCfg1.PeerConnID)
+	udpListener, _ := listener.(*UDPListener)
+	addr := udpListener.conn.LocalAddr().String()
 
 	mgr.RemovePeer(peerCfg1.Log, peerCfg1.PeerConnID)
 
@@ -147,7 +165,8 @@ func TestManager_MultiPeerActivity(t *testing.T) {
 		t.Fatalf("peer listener for peer1 not found")
 	}
 
-	if err := trigger(listener.conn.LocalAddr().String()); err != nil {
+	udpListener1, _ := listener.(*UDPListener)
+	if err := trigger(udpListener1.conn.LocalAddr().String()); err != nil {
 		t.Fatalf("failed to trigger activity: %v", err)
 	}
 
@@ -156,7 +175,8 @@ func TestManager_MultiPeerActivity(t *testing.T) {
 		t.Fatalf("peer listener for peer2 not found")
 	}
 
-	if err := trigger(listener.conn.LocalAddr().String()); err != nil {
+	udpListener2, _ := listener.(*UDPListener)
+	if err := trigger(udpListener2.conn.LocalAddr().String()); err != nil {
 		t.Fatalf("failed to trigger activity: %v", err)
 	}
 

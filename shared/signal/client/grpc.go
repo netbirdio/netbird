@@ -16,11 +16,14 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
+	nbgrpc "github.com/netbirdio/netbird/client/grpc"
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/shared/management/client"
 	"github.com/netbirdio/netbird/shared/signal/proto"
-	nbgrpc "github.com/netbirdio/netbird/util/grpc"
+	"github.com/netbirdio/netbird/util/wsproxy"
 )
+
+const healthCheckTimeout = 5 * time.Second
 
 // ConnStateNotifier is a wrapper interface of the status recorder
 type ConnStateNotifier interface {
@@ -57,10 +60,9 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 
 	operation := func() error {
 		var err error
-		conn, err = nbgrpc.CreateConnection(addr, tlsEnabled)
+		conn, err = nbgrpc.CreateConnection(ctx, addr, tlsEnabled, wsproxy.SignalComponent)
 		if err != nil {
-			log.Printf("createConnection error: %v", err)
-			return err
+			return fmt.Errorf("create connection: %w", err)
 		}
 		return nil
 	}
@@ -165,7 +167,7 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 		// start receiving messages from the Signal stream (from other peers through signal)
 		err = c.receive(stream)
 		if err != nil {
-			if s, ok := status.FromError(err); ok && s.Code() == codes.Canceled {
+			if ctx.Err() != nil {
 				log.Debugf("signal connection context has been canceled, this usually indicates shutdown")
 				return nil
 			}
@@ -263,7 +265,7 @@ func (c *GrpcClient) IsHealthy() bool {
 	case connectivity.Ready:
 	}
 
-	ctx, cancel := context.WithTimeout(c.ctx, 1*time.Second)
+	ctx, cancel := context.WithTimeout(c.ctx, healthCheckTimeout)
 	defer cancel()
 	_, err := c.realClient.Send(ctx, &proto.EncryptedMessage{
 		Key:       c.key.PublicKey().String(),

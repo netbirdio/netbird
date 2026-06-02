@@ -3,7 +3,9 @@ package peer
 import (
 	"context"
 	"errors"
+	"net/netip"
 	"sync"
+	"sync/atomic"
 
 	log "github.com/sirupsen/logrus"
 
@@ -39,18 +41,37 @@ type OfferAnswer struct {
 
 	// relay server address
 	RelaySrvAddress string
+	// RelaySrvIP is the IP the remote peer is connected to on its
+	// relay server. Used as a dial target if DNS for RelaySrvAddress
+	// fails. Zero value if the peer did not advertise an IP.
+	RelaySrvIP netip.Addr
 	// SessionID is the unique identifier of the session, used to discard old messages
 	SessionID *ICESessionID
 }
 
+func (o *OfferAnswer) hasICECredentials() bool {
+	return o.IceCredentials.UFrag != "" && o.IceCredentials.Pwd != ""
+}
+
 type Handshaker struct {
-	mu                  sync.Mutex
-	log                 *log.Entry
-	config              ConnConfig
-	signaler            *Signaler
-	ice                 *WorkerICE
-	relay               *WorkerRelay
-	onNewOfferListeners []*OfferListener
+	mu            sync.Mutex
+	log           *log.Entry
+	config        ConnConfig
+	signaler      *Signaler
+	ice           *WorkerICE
+	relay         *WorkerRelay
+	metricsStages *MetricsStages
+	// relayListener is not blocking because the listener is using a goroutine to process the messages
+	// and it will only keep the latest message if multiple offers are received in a short time
+	// this is to avoid blocking the handshaker if the listener is doing some heavy processing
+	// and also to avoid processing old offers if multiple offers are received in a short time
+	// the listener will always process the latest offer
+	relayListener *AsyncOfferListener
+	iceListener   func(remoteOfferAnswer *OfferAnswer)
+
+	// remoteICESupported tracks whether the remote peer includes ICE credentials in its offers/answers.
+	// When false, the local side skips ICE listener dispatch and suppresses ICE credentials in responses.
+	remoteICESupported atomic.Bool
 
 	// remoteOffersCh is a channel used to wait for remote credentials to proceed with the connection
 	remoteOffersCh chan OfferAnswer
@@ -58,40 +79,75 @@ type Handshaker struct {
 	remoteAnswerCh chan OfferAnswer
 }
 
-func NewHandshaker(log *log.Entry, config ConnConfig, signaler *Signaler, ice *WorkerICE, relay *WorkerRelay) *Handshaker {
-	return &Handshaker{
+func NewHandshaker(log *log.Entry, config ConnConfig, signaler *Signaler, ice *WorkerICE, relay *WorkerRelay, metricsStages *MetricsStages) *Handshaker {
+	h := &Handshaker{
 		log:            log,
 		config:         config,
 		signaler:       signaler,
 		ice:            ice,
 		relay:          relay,
+		metricsStages:  metricsStages,
 		remoteOffersCh: make(chan OfferAnswer),
 		remoteAnswerCh: make(chan OfferAnswer),
 	}
+	// assume remote supports ICE until we learn otherwise from received offers
+	h.remoteICESupported.Store(ice != nil)
+	return h
 }
 
-func (h *Handshaker) AddOnNewOfferListener(offer func(remoteOfferAnswer *OfferAnswer)) {
-	l := NewOfferListener(offer)
-	h.onNewOfferListeners = append(h.onNewOfferListeners, l)
+func (h *Handshaker) RemoteICESupported() bool {
+	return h.remoteICESupported.Load()
+}
+
+func (h *Handshaker) AddRelayListener(offer func(remoteOfferAnswer *OfferAnswer)) {
+	h.relayListener = NewAsyncOfferListener(offer)
+}
+
+func (h *Handshaker) AddICEListener(offer func(remoteOfferAnswer *OfferAnswer)) {
+	h.iceListener = offer
 }
 
 func (h *Handshaker) Listen(ctx context.Context) {
 	for {
 		select {
 		case remoteOfferAnswer := <-h.remoteOffersCh:
-			// received confirmation from the remote peer -> ready to proceed
+			h.log.Infof("received offer, running version %s, remote WireGuard listen port %d, session id: %s, remote ICE supported: %t", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString(), remoteOfferAnswer.hasICECredentials())
+
+			// Record signaling received for reconnection attempts
+			if h.metricsStages != nil {
+				h.metricsStages.RecordSignalingReceived()
+			}
+
+			h.updateRemoteICEState(&remoteOfferAnswer)
+
+			if h.relayListener != nil {
+				h.relayListener.Notify(&remoteOfferAnswer)
+			}
+
+			if h.iceListener != nil && h.RemoteICESupported() {
+				h.iceListener(&remoteOfferAnswer)
+			}
+
 			if err := h.sendAnswer(); err != nil {
 				h.log.Errorf("failed to send remote offer confirmation: %s", err)
 				continue
 			}
-			for _, listener := range h.onNewOfferListeners {
-				listener.Notify(&remoteOfferAnswer)
-			}
-			h.log.Infof("received offer, running version %s, remote WireGuard listen port %d, session id: %s", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString())
 		case remoteOfferAnswer := <-h.remoteAnswerCh:
-			h.log.Infof("received answer, running version %s, remote WireGuard listen port %d, session id: %s", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString())
-			for _, listener := range h.onNewOfferListeners {
-				listener.Notify(&remoteOfferAnswer)
+			h.log.Infof("received answer, running version %s, remote WireGuard listen port %d, session id: %s, remote ICE supported: %t", remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort, remoteOfferAnswer.SessionIDString(), remoteOfferAnswer.hasICECredentials())
+
+			// Record signaling received for reconnection attempts
+			if h.metricsStages != nil {
+				h.metricsStages.RecordSignalingReceived()
+			}
+
+			h.updateRemoteICEState(&remoteOfferAnswer)
+
+			if h.relayListener != nil {
+				h.relayListener.Notify(&remoteOfferAnswer)
+			}
+
+			if h.iceListener != nil && h.RemoteICESupported() {
+				h.iceListener(&remoteOfferAnswer)
 			}
 		case <-ctx.Done():
 			h.log.Infof("stop listening for remote offers and answers")
@@ -152,20 +208,39 @@ func (h *Handshaker) sendAnswer() error {
 }
 
 func (h *Handshaker) buildOfferAnswer() OfferAnswer {
-	uFrag, pwd := h.ice.GetLocalUserCredentials()
-	sid := h.ice.SessionID()
 	answer := OfferAnswer{
-		IceCredentials:  IceCredentials{uFrag, pwd},
 		WgListenPort:    h.config.LocalWgPort,
 		Version:         version.NetbirdVersion(),
 		RosenpassPubKey: h.config.RosenpassConfig.PubKey,
 		RosenpassAddr:   h.config.RosenpassConfig.Addr,
-		SessionID:       &sid,
 	}
 
-	if addr, err := h.relay.RelayInstanceAddress(); err == nil {
+	if h.ice != nil && h.RemoteICESupported() {
+		uFrag, pwd := h.ice.GetLocalUserCredentials()
+		sid := h.ice.SessionID()
+		answer.IceCredentials = IceCredentials{uFrag, pwd}
+		answer.SessionID = &sid
+	}
+
+	if addr, ip, err := h.relay.RelayInstanceAddress(); err == nil {
 		answer.RelaySrvAddress = addr
+		answer.RelaySrvIP = ip
 	}
 
 	return answer
+}
+
+func (h *Handshaker) updateRemoteICEState(offer *OfferAnswer) {
+	hasICE := offer.hasICECredentials()
+	prev := h.remoteICESupported.Swap(hasICE)
+	if prev != hasICE {
+		if hasICE {
+			h.log.Infof("remote peer started sending ICE credentials")
+		} else {
+			h.log.Infof("remote peer stopped sending ICE credentials")
+			if h.ice != nil {
+				h.ice.Close()
+			}
+		}
+	}
 }

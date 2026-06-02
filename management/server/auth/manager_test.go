@@ -17,10 +17,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/server/auth"
-	nbjwt "github.com/netbirdio/netbird/management/server/auth/jwt"
-	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	nbauth "github.com/netbirdio/netbird/shared/auth"
+	nbjwt "github.com/netbirdio/netbird/shared/auth/jwt"
 )
 
 func TestAuthManager_GetAccountInfoFromPAT(t *testing.T) {
@@ -52,7 +52,7 @@ func TestAuthManager_GetAccountInfoFromPAT(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
-	manager := auth.NewManager(store, "", "", "", "", []string{}, false)
+	manager := auth.NewManager(store, "", "", "", "", []string{}, false, nil)
 
 	user, pat, _, _, err := manager.GetPATInfo(context.Background(), token)
 	if err != nil {
@@ -92,7 +92,7 @@ func TestAuthManager_MarkPATUsed(t *testing.T) {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
-	manager := auth.NewManager(store, "", "", "", "", []string{}, false)
+	manager := auth.NewManager(store, "", "", "", "", []string{}, false, nil)
 
 	err = manager.MarkPATUsed(context.Background(), "tokenId")
 	if err != nil {
@@ -131,7 +131,7 @@ func TestAuthManager_EnsureUserAccessByJWTGroups(t *testing.T) {
 	}
 
 	// this has been validated and parsed by ValidateAndParseToken
-	userAuth := nbcontext.UserAuth{
+	userAuth := nbauth.UserAuth{
 		AccountId:      account.Id,
 		Domain:         domain,
 		UserId:         userId,
@@ -142,7 +142,7 @@ func TestAuthManager_EnsureUserAccessByJWTGroups(t *testing.T) {
 	// these tests only assert groups are parsed from token as per account settings
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"idp-groups": []interface{}{"group1", "group2"}})
 
-	manager := auth.NewManager(store, "", "", "", "", []string{}, false)
+	manager := auth.NewManager(store, "", "", "", "", []string{}, false, nil)
 
 	t.Run("JWT groups disabled", func(t *testing.T) {
 		userAuth, err := manager.EnsureUserAccessByJWTGroups(context.Background(), userAuth, token)
@@ -225,7 +225,7 @@ func TestAuthManager_ValidateAndParseToken(t *testing.T) {
 	keyId := "test-key"
 
 	// note, we can use a nil store because ValidateAndParseToken does not use it in it's flow
-	manager := auth.NewManager(nil, issuer, audience, server.URL, userIdClaim, []string{audience}, false)
+	manager := auth.NewManager(nil, issuer, audience, server.URL, userIdClaim, []string{audience}, false, nil)
 
 	customClaim := func(name string) string {
 		return fmt.Sprintf("%s/%s", audience, name)
@@ -236,7 +236,7 @@ func TestAuthManager_ValidateAndParseToken(t *testing.T) {
 	tests := []struct {
 		name      string
 		tokenFunc func() string
-		expected  *nbcontext.UserAuth // nil indicates expected error
+		expected  *nbauth.UserAuth // nil indicates expected error
 	}{
 		{
 			name: "Valid with custom claims",
@@ -258,7 +258,7 @@ func TestAuthManager_ValidateAndParseToken(t *testing.T) {
 				tokenString, _ := token.SignedString(key)
 				return tokenString
 			},
-			expected: &nbcontext.UserAuth{
+			expected: &nbauth.UserAuth{
 				UserId:         "user-id|123",
 				AccountId:      "account-id|567",
 				Domain:         "http://localhost",
@@ -282,7 +282,7 @@ func TestAuthManager_ValidateAndParseToken(t *testing.T) {
 				tokenString, _ := token.SignedString(key)
 				return tokenString
 			},
-			expected: &nbcontext.UserAuth{
+			expected: &nbauth.UserAuth{
 				UserId: "user-id|123",
 			},
 		},

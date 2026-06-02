@@ -19,15 +19,7 @@ import (
 )
 
 var (
-	hmacTokenStore   = &hmac.TokenStore{}
-	serverListenAddr = "127.0.0.1:1234"
-	serverURL        = "rel://127.0.0.1:1234"
-	serverCfg        = server.Config{
-		Meter:          otel.Meter(""),
-		ExposedAddress: serverURL,
-		TLSSupport:     false,
-		AuthValidator:  &allow.Auth{},
-	}
+	hmacTokenStore = &hmac.TokenStore{}
 )
 
 func TestMain(m *testing.M) {
@@ -36,8 +28,20 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+// newClientTestServerConfig creates a new server config for client testing with the given address
+func newClientTestServerConfig(address string) server.Config {
+	return server.Config{
+		Meter:          otel.Meter(""),
+		ExposedAddress: "rel://" + address,
+		TLSSupport:     false,
+		AuthValidator:  &allow.Auth{},
+	}
+}
+
 func TestClient(t *testing.T) {
 	ctx := context.Background()
+	serverListenAddr := "127.0.0.1:50001"
+	serverCfg := newClientTestServerConfig(serverListenAddr)
 
 	srv, err := server.NewServer(serverCfg)
 	if err != nil {
@@ -64,7 +68,7 @@ func TestClient(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 	t.Log("alice connecting to server")
-	clientAlice := NewClient(serverURL, hmacTokenStore, "alice", iface.DefaultMTU)
+	clientAlice := NewClient(serverCfg.ExposedAddress, hmacTokenStore, "alice", iface.DefaultMTU)
 	err = clientAlice.Connect(ctx)
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
@@ -72,7 +76,7 @@ func TestClient(t *testing.T) {
 	defer clientAlice.Close()
 
 	t.Log("placeholder connecting to server")
-	clientPlaceHolder := NewClient(serverURL, hmacTokenStore, "clientPlaceHolder", iface.DefaultMTU)
+	clientPlaceHolder := NewClient(serverCfg.ExposedAddress, hmacTokenStore, "clientPlaceHolder", iface.DefaultMTU)
 	err = clientPlaceHolder.Connect(ctx)
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
@@ -80,7 +84,7 @@ func TestClient(t *testing.T) {
 	defer clientPlaceHolder.Close()
 
 	t.Log("Bob connecting to server")
-	clientBob := NewClient(serverURL, hmacTokenStore, "bob", iface.DefaultMTU)
+	clientBob := NewClient(serverCfg.ExposedAddress, hmacTokenStore, "bob", iface.DefaultMTU)
 	err = clientBob.Connect(ctx)
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
@@ -120,6 +124,8 @@ func TestClient(t *testing.T) {
 
 func TestRegistration(t *testing.T) {
 	ctx := context.Background()
+	serverListenAddr := "127.0.0.1:50101"
+	serverCfg := newClientTestServerConfig(serverListenAddr)
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
 	srv, err := server.NewServer(serverCfg)
 	if err != nil {
@@ -138,7 +144,7 @@ func TestRegistration(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 
-	clientAlice := NewClient(serverURL, hmacTokenStore, "alice", iface.DefaultMTU)
+	clientAlice := NewClient(serverCfg.ExposedAddress, hmacTokenStore, "alice", iface.DefaultMTU)
 	err = clientAlice.Connect(ctx)
 	if err != nil {
 		_ = srv.Shutdown(ctx)
@@ -157,7 +163,7 @@ func TestRegistration(t *testing.T) {
 func TestRegistrationTimeout(t *testing.T) {
 	ctx := context.Background()
 	fakeUDPListener, err := net.ListenUDP("udp", &net.UDPAddr{
-		Port: 1234,
+		Port: 50201,
 		IP:   net.ParseIP("0.0.0.0"),
 	})
 	if err != nil {
@@ -168,7 +174,7 @@ func TestRegistrationTimeout(t *testing.T) {
 	}(fakeUDPListener)
 
 	fakeTCPListener, err := net.ListenTCP("tcp", &net.TCPAddr{
-		Port: 1234,
+		Port: 50201,
 		IP:   net.ParseIP("0.0.0.0"),
 	})
 	if err != nil {
@@ -178,7 +184,7 @@ func TestRegistrationTimeout(t *testing.T) {
 		_ = fakeTCPListener.Close()
 	}(fakeTCPListener)
 
-	clientAlice := NewClient("127.0.0.1:1234", hmacTokenStore, "alice", iface.DefaultMTU)
+	clientAlice := NewClient("127.0.0.1:50201", hmacTokenStore, "alice", iface.DefaultMTU)
 	err = clientAlice.Connect(ctx)
 	if err == nil {
 		t.Errorf("failed to connect to server: %s", err)
@@ -192,6 +198,8 @@ func TestRegistrationTimeout(t *testing.T) {
 
 func TestEcho(t *testing.T) {
 	ctx := context.Background()
+	serverListenAddr := "127.0.0.1:50301"
+	serverCfg := newClientTestServerConfig(serverListenAddr)
 	idAlice := "alice"
 	idBob := "bob"
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
@@ -219,7 +227,7 @@ func TestEcho(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 
-	clientAlice := NewClient(serverURL, hmacTokenStore, idAlice, iface.DefaultMTU)
+	clientAlice := NewClient(serverCfg.ExposedAddress, hmacTokenStore, idAlice, iface.DefaultMTU)
 	err = clientAlice.Connect(ctx)
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
@@ -231,7 +239,7 @@ func TestEcho(t *testing.T) {
 		}
 	}()
 
-	clientBob := NewClient(serverURL, hmacTokenStore, idBob, iface.DefaultMTU)
+	clientBob := NewClient(serverCfg.ExposedAddress, hmacTokenStore, idBob, iface.DefaultMTU)
 	err = clientBob.Connect(ctx)
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
@@ -282,6 +290,8 @@ func TestEcho(t *testing.T) {
 
 func TestBindToUnavailabePeer(t *testing.T) {
 	ctx := context.Background()
+	serverListenAddr := "127.0.0.1:50401"
+	serverCfg := newClientTestServerConfig(serverListenAddr)
 
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
 	srv, err := server.NewServer(serverCfg)
@@ -309,7 +319,7 @@ func TestBindToUnavailabePeer(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 
-	clientAlice := NewClient(serverURL, hmacTokenStore, "alice", iface.DefaultMTU)
+	clientAlice := NewClient(serverCfg.ExposedAddress, hmacTokenStore, "alice", iface.DefaultMTU)
 	err = clientAlice.Connect(ctx)
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
@@ -328,6 +338,8 @@ func TestBindToUnavailabePeer(t *testing.T) {
 
 func TestBindReconnect(t *testing.T) {
 	ctx := context.Background()
+	serverListenAddr := "127.0.0.1:50501"
+	serverCfg := newClientTestServerConfig(serverListenAddr)
 
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
 	srv, err := server.NewServer(serverCfg)
@@ -355,13 +367,13 @@ func TestBindReconnect(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 
-	clientAlice := NewClient(serverURL, hmacTokenStore, "alice", iface.DefaultMTU)
+	clientAlice := NewClient(serverCfg.ExposedAddress, hmacTokenStore, "alice", iface.DefaultMTU)
 	err = clientAlice.Connect(ctx)
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
 	}
 
-	clientBob := NewClient(serverURL, hmacTokenStore, "bob", iface.DefaultMTU)
+	clientBob := NewClient(serverCfg.ExposedAddress, hmacTokenStore, "bob", iface.DefaultMTU)
 	err = clientBob.Connect(ctx)
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
@@ -383,7 +395,7 @@ func TestBindReconnect(t *testing.T) {
 		t.Errorf("failed to close client: %s", err)
 	}
 
-	clientAlice = NewClient(serverURL, hmacTokenStore, "alice", iface.DefaultMTU)
+	clientAlice = NewClient(serverCfg.ExposedAddress, hmacTokenStore, "alice", iface.DefaultMTU)
 	err = clientAlice.Connect(ctx)
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
@@ -429,6 +441,8 @@ func TestBindReconnect(t *testing.T) {
 
 func TestCloseConn(t *testing.T) {
 	ctx := context.Background()
+	serverListenAddr := "127.0.0.1:50601"
+	serverCfg := newClientTestServerConfig(serverListenAddr)
 
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
 	srv, err := server.NewServer(serverCfg)
@@ -456,13 +470,13 @@ func TestCloseConn(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 
-	bob := NewClient(serverURL, hmacTokenStore, "bob", iface.DefaultMTU)
+	bob := NewClient(serverCfg.ExposedAddress, hmacTokenStore, "bob", iface.DefaultMTU)
 	err = bob.Connect(ctx)
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
 	}
 
-	clientAlice := NewClient(serverURL, hmacTokenStore, "alice", iface.DefaultMTU)
+	clientAlice := NewClient(serverCfg.ExposedAddress, hmacTokenStore, "alice", iface.DefaultMTU)
 	err = clientAlice.Connect(ctx)
 	if err != nil {
 		t.Errorf("failed to connect to server: %s", err)
@@ -492,6 +506,8 @@ func TestCloseConn(t *testing.T) {
 
 func TestCloseRelayConn(t *testing.T) {
 	ctx := context.Background()
+	serverListenAddr := "127.0.0.1:50701"
+	serverCfg := newClientTestServerConfig(serverListenAddr)
 
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
 	srv, err := server.NewServer(serverCfg)
@@ -518,13 +534,13 @@ func TestCloseRelayConn(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 
-	bob := NewClient(serverURL, hmacTokenStore, "bob", iface.DefaultMTU)
+	bob := NewClient(serverCfg.ExposedAddress, hmacTokenStore, "bob", iface.DefaultMTU)
 	err = bob.Connect(ctx)
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
 	}
 
-	clientAlice := NewClient(serverURL, hmacTokenStore, "alice", iface.DefaultMTU)
+	clientAlice := NewClient(serverCfg.ExposedAddress, hmacTokenStore, "alice", iface.DefaultMTU)
 	err = clientAlice.Connect(ctx)
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
@@ -550,6 +566,8 @@ func TestCloseRelayConn(t *testing.T) {
 
 func TestCloseByServer(t *testing.T) {
 	ctx := context.Background()
+	serverListenAddr := "127.0.0.1:50801"
+	serverCfg := newClientTestServerConfig(serverListenAddr)
 
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
 	srv1, err := server.NewServer(serverCfg)
@@ -572,7 +590,7 @@ func TestCloseByServer(t *testing.T) {
 
 	idAlice := "alice"
 	log.Debugf("connect by alice")
-	relayClient := NewClient(serverURL, hmacTokenStore, idAlice, iface.DefaultMTU)
+	relayClient := NewClient(serverCfg.ExposedAddress, hmacTokenStore, idAlice, iface.DefaultMTU)
 	if err = relayClient.Connect(ctx); err != nil {
 		log.Fatalf("failed to connect to server: %s", err)
 	}
@@ -607,6 +625,8 @@ func TestCloseByServer(t *testing.T) {
 
 func TestCloseByClient(t *testing.T) {
 	ctx := context.Background()
+	serverListenAddr := "127.0.0.1:50901"
+	serverCfg := newClientTestServerConfig(serverListenAddr)
 
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
 	srv, err := server.NewServer(serverCfg)
@@ -628,7 +648,7 @@ func TestCloseByClient(t *testing.T) {
 
 	idAlice := "alice"
 	log.Debugf("connect by alice")
-	relayClient := NewClient(serverURL, hmacTokenStore, idAlice, iface.DefaultMTU)
+	relayClient := NewClient(serverCfg.ExposedAddress, hmacTokenStore, idAlice, iface.DefaultMTU)
 	err = relayClient.Connect(ctx)
 	if err != nil {
 		log.Fatalf("failed to connect to server: %s", err)
@@ -652,6 +672,8 @@ func TestCloseByClient(t *testing.T) {
 
 func TestCloseNotDrainedChannel(t *testing.T) {
 	ctx := context.Background()
+	serverListenAddr := "127.0.0.1:51001"
+	serverCfg := newClientTestServerConfig(serverListenAddr)
 	idAlice := "alice"
 	idBob := "bob"
 	srvCfg := server.ListenerConfig{Address: serverListenAddr}
@@ -679,7 +701,7 @@ func TestCloseNotDrainedChannel(t *testing.T) {
 		t.Fatalf("failed to start server: %s", err)
 	}
 
-	clientAlice := NewClient(serverURL, hmacTokenStore, idAlice, iface.DefaultMTU)
+	clientAlice := NewClient(serverCfg.ExposedAddress, hmacTokenStore, idAlice, iface.DefaultMTU)
 	err = clientAlice.Connect(ctx)
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)
@@ -691,7 +713,7 @@ func TestCloseNotDrainedChannel(t *testing.T) {
 		}
 	}()
 
-	clientBob := NewClient(serverURL, hmacTokenStore, idBob, iface.DefaultMTU)
+	clientBob := NewClient(serverCfg.ExposedAddress, hmacTokenStore, idBob, iface.DefaultMTU)
 	err = clientBob.Connect(ctx)
 	if err != nil {
 		t.Fatalf("failed to connect to server: %s", err)

@@ -8,11 +8,10 @@ jobs:
   post:
     runs-on: ubuntu-latest
     steps:
-      - uses: roots/discourse-topic-github-release-action@main
+      - uses: roots/discourse-topic-github-release-action@557d74ea05b6cc0c47f555c1d5d28a89d904005b # v1.1.0
         with:
           discourse-api-key: ${{ secrets.DISCOURSE_RELEASES_API_KEY }}
           discourse-base-url: https://forum.netbird.io
           discourse-author-username: NetBird
           discourse-category: 17
-          discourse-tags:
-            releases
+          discourse-tags: releases

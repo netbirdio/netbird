@@ -5,12 +5,12 @@ import (
 	_ "embed"
 
 	"github.com/rs/xid"
+	"github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
-	"github.com/netbirdio/netbird/shared/management/proto"
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/posture"
@@ -19,7 +19,7 @@ import (
 
 // GetPolicy from the store
 func (am *DefaultAccountManager) GetPolicy(ctx context.Context, accountID, policyID, userID string) (*types.Policy, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Read)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -36,7 +36,7 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 	if !create {
 		operation = operations.Update
 	}
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operation)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operation)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -47,25 +47,40 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 	var isUpdate = policy.ID != ""
 	var updateAccountPeers bool
 	var action = activity.PolicyAdded
+	var unchanged bool
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		if err = validatePolicy(ctx, transaction, accountID, policy); err != nil {
-			return err
-		}
-
-		updateAccountPeers, err = arePolicyChangesAffectPeers(ctx, transaction, accountID, policy, isUpdate)
+		existingPolicy, err := validatePolicy(ctx, transaction, accountID, policy)
 		if err != nil {
 			return err
 		}
 
-		saveFunc := transaction.CreatePolicy
 		if isUpdate {
-			action = activity.PolicyUpdated
-			saveFunc = transaction.SavePolicy
-		}
+			if policy.Equal(existingPolicy) {
+				logrus.WithContext(ctx).Tracef("policy update skipped because equal to stored one - policy id %s", policy.ID)
+				unchanged = true
+				return nil
+			}
 
-		if err = saveFunc(ctx, policy); err != nil {
-			return err
+			action = activity.PolicyUpdated
+
+			updateAccountPeers, err = arePolicyChangesAffectPeersWithExisting(ctx, transaction, policy, existingPolicy)
+			if err != nil {
+				return err
+			}
+
+			if err = transaction.SavePolicy(ctx, policy); err != nil {
+				return err
+			}
+		} else {
+			updateAccountPeers, err = arePolicyChangesAffectPeers(ctx, transaction, policy)
+			if err != nil {
+				return err
+			}
+
+			if err = transaction.CreatePolicy(ctx, policy); err != nil {
+				return err
+			}
 		}
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
@@ -74,10 +89,18 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 		return nil, err
 	}
 
+	if unchanged {
+		return policy, nil
+	}
+
 	am.StoreEvent(ctx, userID, policy.ID, accountID, action, policy.EventMeta())
 
 	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+		policyOp := types.UpdateOperationCreate
+		if isUpdate {
+			policyOp = types.UpdateOperationUpdate
+		}
+		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourcePolicy, Operation: policyOp})
 	}
 
 	return policy, nil
@@ -85,7 +108,7 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 
 // DeletePolicy from the store
 func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, policyID, userID string) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Delete)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -102,7 +125,7 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 			return err
 		}
 
-		updateAccountPeers, err = arePolicyChangesAffectPeers(ctx, transaction, accountID, policy, false)
+		updateAccountPeers, err = arePolicyChangesAffectPeers(ctx, transaction, policy)
 		if err != nil {
 			return err
 		}
@@ -120,7 +143,7 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 	am.StoreEvent(ctx, userID, policyID, accountID, activity.PolicyRemoved, policy.EventMeta())
 
 	if updateAccountPeers {
-		am.UpdateAccountPeers(ctx, accountID)
+		am.UpdateAccountPeers(ctx, accountID, types.UpdateReason{Resource: types.UpdateResourcePolicy, Operation: types.UpdateOperationDelete})
 	}
 
 	return nil
@@ -128,7 +151,7 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 
 // ListPolicies from the store.
 func (am *DefaultAccountManager) ListPolicies(ctx context.Context, accountID, userID string) ([]*types.Policy, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Read)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Policies, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -139,24 +162,10 @@ func (am *DefaultAccountManager) ListPolicies(ctx context.Context, accountID, us
 	return am.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
 }
 
-// arePolicyChangesAffectPeers checks if changes to a policy will affect any associated peers.
-func arePolicyChangesAffectPeers(ctx context.Context, transaction store.Store, accountID string, policy *types.Policy, isUpdate bool) (bool, error) {
-	if isUpdate {
-		existingPolicy, err := transaction.GetPolicyByID(ctx, store.LockingStrengthNone, accountID, policy.ID)
-		if err != nil {
-			return false, err
-		}
-
-		if !policy.Enabled && !existingPolicy.Enabled {
-			return false, nil
-		}
-
-		hasPeers, err := anyGroupHasPeersOrResources(ctx, transaction, policy.AccountID, existingPolicy.RuleGroups())
-		if err != nil {
-			return false, err
-		}
-
-		if hasPeers {
+// arePolicyChangesAffectPeers checks if a policy (being created or deleted) will affect any associated peers.
+func arePolicyChangesAffectPeers(ctx context.Context, transaction store.Store, policy *types.Policy) (bool, error) {
+	for _, rule := range policy.Rules {
+		if rule.SourceResource.Type != "" || rule.DestinationResource.Type != "" {
 			return true, nil
 		}
 	}
@@ -164,12 +173,56 @@ func arePolicyChangesAffectPeers(ctx context.Context, transaction store.Store, a
 	return anyGroupHasPeersOrResources(ctx, transaction, policy.AccountID, policy.RuleGroups())
 }
 
-// validatePolicy validates the policy and its rules.
-func validatePolicy(ctx context.Context, transaction store.Store, accountID string, policy *types.Policy) error {
+func arePolicyChangesAffectPeersWithExisting(ctx context.Context, transaction store.Store, policy *types.Policy, existingPolicy *types.Policy) (bool, error) {
+	if !policy.Enabled && !existingPolicy.Enabled {
+		return false, nil
+	}
+
+	for _, rule := range existingPolicy.Rules {
+		if rule.SourceResource.Type != "" || rule.DestinationResource.Type != "" {
+			return true, nil
+		}
+	}
+
+	hasPeers, err := anyGroupHasPeersOrResources(ctx, transaction, policy.AccountID, existingPolicy.RuleGroups())
+	if err != nil {
+		return false, err
+	}
+
+	if hasPeers {
+		return true, nil
+	}
+
+	for _, rule := range policy.Rules {
+		if rule.SourceResource.Type != "" || rule.DestinationResource.Type != "" {
+			return true, nil
+		}
+	}
+
+	return anyGroupHasPeersOrResources(ctx, transaction, policy.AccountID, policy.RuleGroups())
+}
+
+// validatePolicy validates the policy and its rules. For updates it returns
+// the existing policy loaded from the store so callers can avoid a second read.
+func validatePolicy(ctx context.Context, transaction store.Store, accountID string, policy *types.Policy) (*types.Policy, error) {
+	var existingPolicy *types.Policy
 	if policy.ID != "" {
-		_, err := transaction.GetPolicyByID(ctx, store.LockingStrengthNone, accountID, policy.ID)
+		var err error
+		existingPolicy, err = transaction.GetPolicyByID(ctx, store.LockingStrengthNone, accountID, policy.ID)
 		if err != nil {
-			return err
+			return nil, err
+		}
+
+		// TODO: Refactor to support multiple rules per policy
+		existingRuleIDs := make(map[string]bool)
+		for _, rule := range existingPolicy.Rules {
+			existingRuleIDs[rule.ID] = true
+		}
+
+		for _, rule := range policy.Rules {
+			if rule.ID != "" && !existingRuleIDs[rule.ID] {
+				return nil, status.Errorf(status.InvalidArgument, "invalid rule ID: %s", rule.ID)
+			}
 		}
 	} else {
 		policy.ID = xid.New().String()
@@ -178,12 +231,12 @@ func validatePolicy(ctx context.Context, transaction store.Store, accountID stri
 
 	groups, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthNone, accountID, policy.RuleGroups())
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	postureChecks, err := transaction.GetPostureChecksByIDs(ctx, store.LockingStrengthNone, accountID, policy.SourcePostureChecks)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	for i, rule := range policy.Rules {
@@ -202,7 +255,7 @@ func validatePolicy(ctx context.Context, transaction store.Store, accountID stri
 		policy.SourcePostureChecks = getValidPostureCheckIDs(postureChecks, policy.SourcePostureChecks)
 	}
 
-	return nil
+	return existingPolicy, nil
 }
 
 // getValidPostureCheckIDs filters and returns only the valid posture check IDs from the provided list.
@@ -227,32 +280,4 @@ func getValidGroupIDs(groups map[string]*types.Group, groupIDs []string) []strin
 	}
 
 	return validIDs
-}
-
-// toProtocolFirewallRules converts the firewall rules to the protocol firewall rules.
-func toProtocolFirewallRules(rules []*types.FirewallRule) []*proto.FirewallRule {
-	result := make([]*proto.FirewallRule, len(rules))
-	for i := range rules {
-		rule := rules[i]
-
-		fwRule := &proto.FirewallRule{
-			PolicyID:  []byte(rule.PolicyID),
-			PeerIP:    rule.PeerIP,
-			Direction: getProtoDirection(rule.Direction),
-			Action:    getProtoAction(rule.Action),
-			Protocol:  getProtoProtocol(rule.Protocol),
-			Port:      rule.Port,
-		}
-
-		if shouldUsePortRange(fwRule) {
-			fwRule.PortInfo = rule.PortRange.ToProto()
-		}
-
-		result[i] = fwRule
-	}
-	return result
-}
-
-func shouldUsePortRange(rule *proto.FirewallRule) bool {
-	return rule.Port == "" && (rule.Protocol == proto.RuleProtocol_UDP || rule.Protocol == proto.RuleProtocol_TCP)
 }

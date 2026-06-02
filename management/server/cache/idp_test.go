@@ -33,7 +33,7 @@ func TestNewIDPCacheManagers(t *testing.T) {
 				t.Cleanup(cleanup)
 				t.Setenv(cache.RedisStoreEnvVar, redisURL)
 			}
-			cacheStore, err := cache.NewStore(context.Background(), cache.DefaultIDPCacheExpirationMax, cache.DefaultIDPCacheCleanupInterval)
+			cacheStore, err := cache.NewStore(context.Background(), cache.DefaultIDPCacheExpirationMax, cache.DefaultIDPCacheCleanupInterval, cache.DefaultIDPCacheOpenConn)
 			if err != nil {
 				t.Fatalf("couldn't create cache store: %s", err)
 			}

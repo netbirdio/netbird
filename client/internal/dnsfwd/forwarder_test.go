@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -297,7 +298,7 @@ func TestDNSForwarder_UnauthorizedDomainAccess(t *testing.T) {
 				mockResolver.On("LookupNetIP", mock.Anything, "ip4", dns.Fqdn(tt.queryDomain)).Return([]netip.Addr{fakeIP}, nil)
 			}
 
-			forwarder := NewDNSForwarder("127.0.0.1:0", 300, mockFirewall, &peer.Status{})
+			forwarder := NewDNSForwarder(netip.MustParseAddrPort("127.0.0.1:0"), 300, mockFirewall, &peer.Status{}, nil)
 			forwarder.resolver = mockResolver
 
 			d, err := domain.FromString(tt.configuredDomain)
@@ -317,8 +318,9 @@ func TestDNSForwarder_UnauthorizedDomainAccess(t *testing.T) {
 			query.SetQuestion(dns.Fqdn(tt.queryDomain), dns.TypeA)
 
 			mockWriter := &test.MockResponseWriter{}
-			resp := forwarder.handleDNSQuery(mockWriter, query)
+			forwarder.handleDNSQuery(log.NewEntry(log.StandardLogger()), mockWriter, query, time.Now())
 
+			resp := mockWriter.GetLastResponse()
 			if tt.shouldResolve {
 				require.NotNil(t, resp, "Expected response for authorized domain")
 				require.Equal(t, dns.RcodeSuccess, resp.Rcode, "Expected successful response")
@@ -328,10 +330,9 @@ func TestDNSForwarder_UnauthorizedDomainAccess(t *testing.T) {
 				mockFirewall.AssertExpectations(t)
 				mockResolver.AssertExpectations(t)
 			} else {
-				if resp != nil {
-					assert.True(t, len(resp.Answer) == 0 || resp.Rcode != dns.RcodeSuccess,
-						"Unauthorized domain should not return successful answers")
-				}
+				require.NotNil(t, resp, "Expected response")
+				assert.True(t, len(resp.Answer) == 0 || resp.Rcode != dns.RcodeSuccess,
+					"Unauthorized domain should not return successful answers")
 				mockFirewall.AssertNotCalled(t, "UpdateSet")
 				mockResolver.AssertNotCalled(t, "LookupNetIP")
 			}
@@ -402,7 +403,7 @@ func TestDNSForwarder_FirewallSetUpdates(t *testing.T) {
 			mockResolver := &MockResolver{}
 
 			// Set up forwarder
-			forwarder := NewDNSForwarder("127.0.0.1:0", 300, mockFirewall, &peer.Status{})
+			forwarder := NewDNSForwarder(netip.MustParseAddrPort("127.0.0.1:0"), 300, mockFirewall, &peer.Status{}, nil)
 			forwarder.resolver = mockResolver
 
 			// Create entries and track sets
@@ -465,14 +466,16 @@ func TestDNSForwarder_FirewallSetUpdates(t *testing.T) {
 			dnsQuery.SetQuestion(dns.Fqdn(tt.query), dns.TypeA)
 
 			mockWriter := &test.MockResponseWriter{}
-			resp := forwarder.handleDNSQuery(mockWriter, dnsQuery)
+			forwarder.handleDNSQuery(log.NewEntry(log.StandardLogger()), mockWriter, dnsQuery, time.Now())
 
 			// Verify response
+			resp := mockWriter.GetLastResponse()
 			if tt.shouldResolve {
 				require.NotNil(t, resp, "Expected response for authorized domain")
 				require.Equal(t, dns.RcodeSuccess, resp.Rcode)
 				require.NotEmpty(t, resp.Answer)
-			} else if resp != nil {
+			} else {
+				require.NotNil(t, resp, "Expected response")
 				assert.True(t, resp.Rcode == dns.RcodeRefused || len(resp.Answer) == 0,
 					"Unauthorized domain should be refused or have no answers")
 			}
@@ -489,7 +492,7 @@ func TestDNSForwarder_MultipleIPsInSingleUpdate(t *testing.T) {
 	mockFirewall := &MockFirewall{}
 	mockResolver := &MockResolver{}
 
-	forwarder := NewDNSForwarder("127.0.0.1:0", 300, mockFirewall, &peer.Status{})
+	forwarder := NewDNSForwarder(netip.MustParseAddrPort("127.0.0.1:0"), 300, mockFirewall, &peer.Status{}, nil)
 	forwarder.resolver = mockResolver
 
 	// Configure a single domain
@@ -527,9 +530,10 @@ func TestDNSForwarder_MultipleIPsInSingleUpdate(t *testing.T) {
 	query.SetQuestion("example.com.", dns.TypeA)
 
 	mockWriter := &test.MockResponseWriter{}
-	resp := forwarder.handleDNSQuery(mockWriter, query)
+	forwarder.handleDNSQuery(log.NewEntry(log.StandardLogger()), mockWriter, query, time.Now())
 
 	// Verify response contains all IPs
+	resp := mockWriter.GetLastResponse()
 	require.NotNil(t, resp)
 	require.Equal(t, dns.RcodeSuccess, resp.Rcode)
 	require.Len(t, resp.Answer, 3, "Should have 3 answer records")
@@ -584,7 +588,7 @@ func TestDNSForwarder_ResponseCodes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			forwarder := NewDNSForwarder("127.0.0.1:0", 300, nil, &peer.Status{})
+			forwarder := NewDNSForwarder(netip.MustParseAddrPort("127.0.0.1:0"), 300, nil, &peer.Status{}, nil)
 
 			d, err := domain.FromString(tt.configured)
 			require.NoError(t, err)
@@ -604,7 +608,7 @@ func TestDNSForwarder_ResponseCodes(t *testing.T) {
 				},
 			}
 
-			_ = forwarder.handleDNSQuery(mockWriter, query)
+			forwarder.handleDNSQuery(log.NewEntry(log.StandardLogger()), mockWriter, query, time.Now())
 
 			// Check the response written to the writer
 			require.NotNil(t, writtenResp, "Expected response to be written")
@@ -616,7 +620,7 @@ func TestDNSForwarder_ResponseCodes(t *testing.T) {
 func TestDNSForwarder_TCPTruncation(t *testing.T) {
 	// Test that large UDP responses are truncated with TC bit set
 	mockResolver := &MockResolver{}
-	forwarder := NewDNSForwarder("127.0.0.1:0", 300, nil, &peer.Status{})
+	forwarder := NewDNSForwarder(netip.MustParseAddrPort("127.0.0.1:0"), 300, nil, &peer.Status{}, nil)
 	forwarder.resolver = mockResolver
 
 	d, _ := domain.FromString("example.com")
@@ -648,12 +652,103 @@ func TestDNSForwarder_TCPTruncation(t *testing.T) {
 	assert.LessOrEqual(t, writtenResp.Len(), dns.MinMsgSize, "Response should fit in minimum UDP size")
 }
 
+// Ensures that when the first query succeeds and populates the cache,
+// a subsequent upstream failure still returns a successful response from cache.
+func TestDNSForwarder_ServeFromCacheOnUpstreamFailure(t *testing.T) {
+	mockResolver := &MockResolver{}
+	forwarder := NewDNSForwarder(netip.MustParseAddrPort("127.0.0.1:0"), 300, nil, &peer.Status{}, nil)
+	forwarder.resolver = mockResolver
+
+	d, err := domain.FromString("example.com")
+	require.NoError(t, err)
+	entries := []*ForwarderEntry{{Domain: d, ResID: "res-cache"}}
+	forwarder.UpdateDomains(entries)
+
+	ip := netip.MustParseAddr("1.2.3.4")
+
+	// First call resolves successfully and populates cache
+	mockResolver.On("LookupNetIP", mock.Anything, "ip4", dns.Fqdn("example.com")).
+		Return([]netip.Addr{ip}, nil).Once()
+
+	// Second call fails upstream; forwarder should serve from cache
+	mockResolver.On("LookupNetIP", mock.Anything, "ip4", dns.Fqdn("example.com")).
+		Return([]netip.Addr{}, &net.DNSError{Err: "temporary failure"}).Once()
+
+	// First query: populate cache
+	q1 := &dns.Msg{}
+	q1.SetQuestion(dns.Fqdn("example.com"), dns.TypeA)
+	w1 := &test.MockResponseWriter{}
+	forwarder.handleDNSQuery(log.NewEntry(log.StandardLogger()), w1, q1, time.Now())
+	resp1 := w1.GetLastResponse()
+	require.NotNil(t, resp1)
+	require.Equal(t, dns.RcodeSuccess, resp1.Rcode)
+	require.Len(t, resp1.Answer, 1)
+
+	// Second query: serve from cache after upstream failure
+	q2 := &dns.Msg{}
+	q2.SetQuestion(dns.Fqdn("example.com"), dns.TypeA)
+	w2 := &test.MockResponseWriter{}
+	forwarder.handleDNSQuery(log.NewEntry(log.StandardLogger()), w2, q2, time.Now())
+
+	resp2 := w2.GetLastResponse()
+	require.NotNil(t, resp2, "expected response to be written")
+	require.Equal(t, dns.RcodeSuccess, resp2.Rcode)
+	require.Len(t, resp2.Answer, 1)
+
+	mockResolver.AssertExpectations(t)
+}
+
+// Verifies that cache normalization works across casing and trailing dot variations.
+func TestDNSForwarder_CacheNormalizationCasingAndDot(t *testing.T) {
+	mockResolver := &MockResolver{}
+	forwarder := NewDNSForwarder(netip.MustParseAddrPort("127.0.0.1:0"), 300, nil, &peer.Status{}, nil)
+	forwarder.resolver = mockResolver
+
+	d, err := domain.FromString("ExAmPlE.CoM")
+	require.NoError(t, err)
+	entries := []*ForwarderEntry{{Domain: d, ResID: "res-norm"}}
+	forwarder.UpdateDomains(entries)
+
+	ip := netip.MustParseAddr("9.8.7.6")
+
+	// Initial resolution with mixed case to populate cache
+	mixedQuery := "ExAmPlE.CoM"
+	mockResolver.On("LookupNetIP", mock.Anything, "ip4", dns.Fqdn(strings.ToLower(mixedQuery))).
+		Return([]netip.Addr{ip}, nil).Once()
+
+	q1 := &dns.Msg{}
+	q1.SetQuestion(mixedQuery+".", dns.TypeA)
+	w1 := &test.MockResponseWriter{}
+	forwarder.handleDNSQuery(log.NewEntry(log.StandardLogger()), w1, q1, time.Now())
+	resp1 := w1.GetLastResponse()
+	require.NotNil(t, resp1)
+	require.Equal(t, dns.RcodeSuccess, resp1.Rcode)
+	require.Len(t, resp1.Answer, 1)
+
+	// Subsequent query without dot and upper case should hit cache even if upstream fails
+	// Forwarder lowercases and uses the question name as-is (no trailing dot here)
+	mockResolver.On("LookupNetIP", mock.Anything, "ip4", strings.ToLower("EXAMPLE.COM")).
+		Return([]netip.Addr{}, &net.DNSError{Err: "temporary failure"}).Once()
+
+	q2 := &dns.Msg{}
+	q2.SetQuestion("EXAMPLE.COM", dns.TypeA)
+	w2 := &test.MockResponseWriter{}
+	forwarder.handleDNSQuery(log.NewEntry(log.StandardLogger()), w2, q2, time.Now())
+
+	resp2 := w2.GetLastResponse()
+	require.NotNil(t, resp2)
+	require.Equal(t, dns.RcodeSuccess, resp2.Rcode)
+	require.Len(t, resp2.Answer, 1)
+
+	mockResolver.AssertExpectations(t)
+}
+
 func TestDNSForwarder_MultipleOverlappingPatterns(t *testing.T) {
 	// Test complex overlapping pattern scenarios
 	mockFirewall := &MockFirewall{}
 	mockResolver := &MockResolver{}
 
-	forwarder := NewDNSForwarder("127.0.0.1:0", 300, mockFirewall, &peer.Status{})
+	forwarder := NewDNSForwarder(netip.MustParseAddrPort("127.0.0.1:0"), 300, mockFirewall, &peer.Status{}, nil)
 	forwarder.resolver = mockResolver
 
 	// Set up complex overlapping patterns
@@ -694,8 +789,9 @@ func TestDNSForwarder_MultipleOverlappingPatterns(t *testing.T) {
 	query.SetQuestion("smtp.mail.example.com.", dns.TypeA)
 
 	mockWriter := &test.MockResponseWriter{}
-	resp := forwarder.handleDNSQuery(mockWriter, query)
+	forwarder.handleDNSQuery(log.NewEntry(log.StandardLogger()), mockWriter, query, time.Now())
 
+	resp := mockWriter.GetLastResponse()
 	require.NotNil(t, resp)
 	assert.Equal(t, dns.RcodeSuccess, resp.Rcode)
 
@@ -715,7 +811,7 @@ func TestDNSForwarder_NodataVsNxdomain(t *testing.T) {
 	mockFirewall := &MockFirewall{}
 	mockResolver := &MockResolver{}
 
-	forwarder := NewDNSForwarder("127.0.0.1:0", 300, mockFirewall, &peer.Status{})
+	forwarder := NewDNSForwarder(netip.MustParseAddrPort("127.0.0.1:0"), 300, mockFirewall, &peer.Status{}, nil)
 	forwarder.resolver = mockResolver
 
 	d, err := domain.FromString("example.com")
@@ -807,26 +903,15 @@ func TestDNSForwarder_NodataVsNxdomain(t *testing.T) {
 			query := &dns.Msg{}
 			query.SetQuestion(dns.Fqdn("example.com"), tt.queryType)
 
-			var writtenResp *dns.Msg
-			mockWriter := &test.MockResponseWriter{
-				WriteMsgFunc: func(m *dns.Msg) error {
-					writtenResp = m
-					return nil
-				},
-			}
+			mockWriter := &test.MockResponseWriter{}
+			forwarder.handleDNSQuery(log.NewEntry(log.StandardLogger()), mockWriter, query, time.Now())
 
-			resp := forwarder.handleDNSQuery(mockWriter, query)
-
-			// If a response was returned, it means it should be written (happens in wrapper functions)
-			if resp != nil && writtenResp == nil {
-				writtenResp = resp
-			}
-
-			require.NotNil(t, writtenResp, "Expected response to be written")
-			assert.Equal(t, tt.expectedCode, writtenResp.Rcode, tt.description)
+			resp := mockWriter.GetLastResponse()
+			require.NotNil(t, resp, "Expected response to be written")
+			assert.Equal(t, tt.expectedCode, resp.Rcode, tt.description)
 
 			if tt.expectNoAnswer {
-				assert.Empty(t, writtenResp.Answer, "Response should have no answer records")
+				assert.Empty(t, resp.Answer, "Response should have no answer records")
 			}
 
 			mockResolver.AssertExpectations(t)
@@ -836,20 +921,13 @@ func TestDNSForwarder_NodataVsNxdomain(t *testing.T) {
 
 func TestDNSForwarder_EmptyQuery(t *testing.T) {
 	// Test handling of malformed query with no questions
-	forwarder := NewDNSForwarder("127.0.0.1:0", 300, nil, &peer.Status{})
+	forwarder := NewDNSForwarder(netip.MustParseAddrPort("127.0.0.1:0"), 300, nil, &peer.Status{}, nil)
 
 	query := &dns.Msg{}
 	// Don't set any question
 
-	writeCalled := false
-	mockWriter := &test.MockResponseWriter{
-		WriteMsgFunc: func(m *dns.Msg) error {
-			writeCalled = true
-			return nil
-		},
-	}
-	resp := forwarder.handleDNSQuery(mockWriter, query)
+	mockWriter := &test.MockResponseWriter{}
+	forwarder.handleDNSQuery(log.NewEntry(log.StandardLogger()), mockWriter, query, time.Now())
 
-	assert.Nil(t, resp, "Should return nil for empty query")
-	assert.False(t, writeCalled, "Should not write response for empty query")
+	assert.Nil(t, mockWriter.GetLastResponse(), "Should not write response for empty query")
 }

@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -25,12 +24,21 @@ import (
 	"golang.org/x/exp/maps"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
+	"github.com/netbirdio/netbird/management/internals/modules/peers"
+	ephemeral_manager "github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
 	"github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/internals/shared/grpc"
+	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/http/testing/testing_tools"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
-	"github.com/netbirdio/netbird/management/server/mock_server"
+	"github.com/netbirdio/netbird/management/server/job"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
+	"github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/management/status"
 
 	"github.com/netbirdio/netbird/management/server/util"
@@ -168,7 +176,11 @@ func TestPeer_SessionExpired(t *testing.T) {
 }
 
 func TestAccountManager_GetNetworkMap(t *testing.T) {
-	manager, err := createManager(t)
+	testGetNetworkMapGeneral(t)
+}
+
+func testGetNetworkMapGeneral(t *testing.T) {
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -193,10 +205,10 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 		return
 	}
 
-	peer1, _, _, err := manager.AddPeer(context.Background(), setupKey.Key, "", &nbpeer.Peer{
+	peer1, _, _, err := manager.AddPeer(context.Background(), "", setupKey.Key, "", &nbpeer.Peer{
 		Key:  peerKey1.PublicKey().String(),
 		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-1"},
-	})
+	}, false)
 	if err != nil {
 		t.Errorf("expecting peer to be added, got failure %v", err)
 		return
@@ -207,10 +219,10 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
-	_, _, _, err = manager.AddPeer(context.Background(), setupKey.Key, "", &nbpeer.Peer{
+	_, _, _, err = manager.AddPeer(context.Background(), "", setupKey.Key, "", &nbpeer.Peer{
 		Key:  peerKey2.PublicKey().String(),
 		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-2"},
-	})
+	}, false)
 
 	if err != nil {
 		t.Errorf("expecting peer to be added, got failure %v", err)
@@ -240,7 +252,7 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 	// TODO: disable until we start use policy again
 	t.Skip()
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -266,10 +278,10 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 		return
 	}
 
-	peer1, _, _, err := manager.AddPeer(context.Background(), setupKey.Key, "", &nbpeer.Peer{
+	peer1, _, _, err := manager.AddPeer(context.Background(), "", setupKey.Key, "", &nbpeer.Peer{
 		Key:  peerKey1.PublicKey().String(),
 		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-1"},
-	})
+	}, false)
 	if err != nil {
 		t.Errorf("expecting peer to be added, got failure %v", err)
 		return
@@ -280,10 +292,10 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
-	peer2, _, _, err := manager.AddPeer(context.Background(), setupKey.Key, "", &nbpeer.Peer{
+	peer2, _, _, err := manager.AddPeer(context.Background(), "", setupKey.Key, "", &nbpeer.Peer{
 		Key:  peerKey2.PublicKey().String(),
 		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-2"},
-	})
+	}, false)
 	if err != nil {
 		t.Errorf("expecting peer to be added, got failure %v", err)
 		return
@@ -417,7 +429,7 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 }
 
 func TestAccountManager_GetPeerNetwork(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -442,10 +454,10 @@ func TestAccountManager_GetPeerNetwork(t *testing.T) {
 		return
 	}
 
-	peer1, _, _, err := manager.AddPeer(context.Background(), setupKey.Key, "", &nbpeer.Peer{
+	peer1, _, _, err := manager.AddPeer(context.Background(), "", setupKey.Key, "", &nbpeer.Peer{
 		Key:  peerKey1.PublicKey().String(),
 		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-1"},
-	})
+	}, false)
 	if err != nil {
 		t.Errorf("expecting peer to be added, got failure %v", err)
 		return
@@ -456,10 +468,10 @@ func TestAccountManager_GetPeerNetwork(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
-	_, _, _, err = manager.AddPeer(context.Background(), setupKey.Key, "", &nbpeer.Peer{
+	_, _, _, err = manager.AddPeer(context.Background(), "", setupKey.Key, "", &nbpeer.Peer{
 		Key:  peerKey2.PublicKey().String(),
 		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-2"},
-	})
+	}, false)
 
 	if err != nil {
 		t.Errorf("expecting peer to be added, got failure %v", err)
@@ -478,7 +490,7 @@ func TestAccountManager_GetPeerNetwork(t *testing.T) {
 }
 
 func TestDefaultAccountManager_GetPeer(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -488,7 +500,7 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 	accountID := "test_account"
 	adminUser := "account_creator"
 	someUser := "some_user"
-	account := newAccountWithId(context.Background(), accountID, adminUser, "", false)
+	account := newAccountWithId(context.Background(), accountID, adminUser, "", "", "", false)
 	account.Users[someUser] = &types.User{
 		Id:   someUser,
 		Role: types.UserRoleUser,
@@ -514,10 +526,10 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 		return
 	}
 
-	peer1, _, _, err := manager.AddPeer(context.Background(), "", someUser, &nbpeer.Peer{
+	peer1, _, _, err := manager.AddPeer(context.Background(), "", "", someUser, &nbpeer.Peer{
 		Key:  peerKey1.PublicKey().String(),
 		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-2"},
-	})
+	}, false)
 	if err != nil {
 		t.Errorf("expecting peer to be added, got failure %v", err)
 		return
@@ -530,10 +542,10 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 	}
 
 	// the second peer added with a setup key
-	peer2, _, _, err := manager.AddPeer(context.Background(), setupKey.Key, "", &nbpeer.Peer{
+	peer2, _, _, err := manager.AddPeer(context.Background(), "", setupKey.Key, "", &nbpeer.Peer{
 		Key:  peerKey2.PublicKey().String(),
 		Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-2"},
-	})
+	}, false)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -547,25 +559,9 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 	}
 	assert.NotNil(t, peer)
 
-	// the user can see peer2 because peer1 of the user has access to peer2 due to the All group and the default rule 0 all-to-all access
-	peer, err = manager.GetPeer(context.Background(), accountID, peer2.ID, someUser)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-	assert.NotNil(t, peer)
-
-	// delete the all-to-all policy so that user's peer1 has no access to peer2
-	for _, policy := range account.Policies {
-		err = manager.DeletePolicy(context.Background(), accountID, policy.ID, adminUser)
-		if err != nil {
-			t.Fatal(err)
-			return
-		}
-	}
-
-	// at this point the user can't see the details of peer2
-	peer, err = manager.GetPeer(context.Background(), accountID, peer2.ID, someUser) //nolint
+	// the user can NOT see peer2 because it is not owned by them.
+	// Regular users only see peers they directly own.
+	_, err = manager.GetPeer(context.Background(), accountID, peer2.ID, someUser)
 	assert.Error(t, err)
 
 	// admin users can always access all the peers
@@ -665,7 +661,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			manager, err := createManager(t)
+			manager, _, err := createManager(t)
 			if err != nil {
 				t.Fatal(err)
 				return
@@ -675,7 +671,7 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 			accountID := "test_account"
 			adminUser := "account_creator"
 			someUser := "some_user"
-			account := newAccountWithId(context.Background(), accountID, adminUser, "", false)
+			account := newAccountWithId(context.Background(), accountID, adminUser, "", "", "", false)
 			account.Users[someUser] = &types.User{
 				Id:            someUser,
 				Role:          testCase.role,
@@ -702,19 +698,19 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 				return
 			}
 
-			_, _, _, err = manager.AddPeer(context.Background(), "", someUser, &nbpeer.Peer{
+			_, _, _, err = manager.AddPeer(context.Background(), "", "", someUser, &nbpeer.Peer{
 				Key:  peerKey1.PublicKey().String(),
 				Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-1"},
-			})
+			}, false)
 			if err != nil {
 				t.Errorf("expecting peer to be added, got failure %v", err)
 				return
 			}
 
-			_, _, _, err = manager.AddPeer(context.Background(), "", adminUser, &nbpeer.Peer{
+			_, _, _, err = manager.AddPeer(context.Background(), "", "", adminUser, &nbpeer.Peer{
 				Key:  peerKey2.PublicKey().String(),
 				Meta: nbpeer.PeerSystemMeta{Hostname: "test-peer-2"},
-			})
+			}, false)
 			if err != nil {
 				t.Errorf("expecting peer to be added, got failure %v", err)
 				return
@@ -733,19 +729,19 @@ func TestDefaultAccountManager_GetPeers(t *testing.T) {
 	}
 }
 
-func setupTestAccountManager(b testing.TB, peers int, groups int) (*DefaultAccountManager, string, string, error) {
+func setupTestAccountManager(b testing.TB, peers int, groups int) (*DefaultAccountManager, *update_channel.PeersUpdateManager, string, string, error) {
 	b.Helper()
 
-	manager, err := createManager(b)
+	manager, updateManager, err := createManager(b)
 	if err != nil {
-		return nil, "", "", err
+		return nil, nil, "", "", err
 	}
 
 	accountID := "test_account"
 	adminUser := "account_creator"
 	regularUser := "regular_user"
 
-	account := newAccountWithId(context.Background(), accountID, adminUser, "", false)
+	account := newAccountWithId(context.Background(), accountID, adminUser, "", "", "", false)
 	account.Users[regularUser] = &types.User{
 		Id:   regularUser,
 		Role: types.UserRoleUser,
@@ -758,7 +754,8 @@ func setupTestAccountManager(b testing.TB, peers int, groups int) (*DefaultAccou
 			ID:       fmt.Sprintf("peer-%d", i),
 			DNSLabel: fmt.Sprintf("peer-%d", i),
 			Key:      peerKey.PublicKey().String(),
-			IP:       net.ParseIP(fmt.Sprintf("100.64.%d.%d", i/256, i%256)),
+			IP:       netip.MustParseAddr(fmt.Sprintf("100.64.%d.%d", i/256, i%256)),
+			IPv6:     netip.MustParseAddr(fmt.Sprintf("fd00::%d", i+1)),
 			Status:   &nbpeer.PeerStatus{LastSeen: time.Now().UTC(), Connected: true},
 			UserID:   regularUser,
 		}
@@ -787,9 +784,17 @@ func setupTestAccountManager(b testing.TB, peers int, groups int) (*DefaultAccou
 		account.Networks = append(account.Networks, network)
 
 		ips := account.GetTakenIPs()
-		peerIP, err := types.AllocatePeerIP(account.Network.Net, ips)
+		peerIP, err := types.AllocatePeerIP(netip.MustParsePrefix(account.Network.Net.String()), ips)
 		if err != nil {
-			return nil, "", "", err
+			return nil, nil, "", "", err
+		}
+		v6Prefix, err := netip.ParsePrefix(account.Network.NetV6.String())
+		if err != nil {
+			return nil, nil, "", "", err
+		}
+		peerIPv6, err := types.AllocateRandomPeerIPv6(v6Prefix)
+		if err != nil {
+			return nil, nil, "", "", err
 		}
 
 		peerKey, _ := wgtypes.GeneratePrivateKey()
@@ -798,6 +803,7 @@ func setupTestAccountManager(b testing.TB, peers int, groups int) (*DefaultAccou
 			DNSLabel: fmt.Sprintf("peer-nr-%d", len(account.Peers)+1),
 			Key:      peerKey.PublicKey().String(),
 			IP:       peerIP,
+			IPv6:     peerIPv6,
 			Status:   &nbpeer.PeerStatus{LastSeen: time.Now().UTC(), Connected: true},
 			UserID:   regularUser,
 			Meta: nbpeer.PeerSystemMeta{
@@ -895,10 +901,10 @@ func setupTestAccountManager(b testing.TB, peers int, groups int) (*DefaultAccou
 
 	err = manager.Store.SaveAccount(context.Background(), account)
 	if err != nil {
-		return nil, "", "", err
+		return nil, nil, "", "", err
 	}
 
-	return manager, accountID, regularUser, nil
+	return manager, updateManager, accountID, regularUser, nil
 }
 
 func BenchmarkGetPeers(b *testing.B) {
@@ -919,7 +925,7 @@ func BenchmarkGetPeers(b *testing.B) {
 	defer log.SetOutput(os.Stderr)
 	for _, bc := range benchCases {
 		b.Run(bc.name, func(b *testing.B) {
-			manager, accountID, userID, err := setupTestAccountManager(b, bc.peers, bc.groups)
+			manager, _, accountID, userID, err := setupTestAccountManager(b, bc.peers, bc.groups)
 			if err != nil {
 				b.Fatalf("Failed to setup test account manager: %v", err)
 			}
@@ -959,7 +965,7 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 
 	for _, bc := range benchCases {
 		b.Run(bc.name, func(b *testing.B) {
-			manager, accountID, _, err := setupTestAccountManager(b, bc.peers, bc.groups)
+			manager, updateManager, accountID, _, err := setupTestAccountManager(b, bc.peers, bc.groups)
 			if err != nil {
 				b.Fatalf("Failed to setup test account manager: %v", err)
 			}
@@ -971,19 +977,15 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 				b.Fatalf("Failed to get account: %v", err)
 			}
 
-			peerChannels := make(map[string]chan *UpdateMessage)
-
 			for peerID := range account.Peers {
-				peerChannels[peerID] = make(chan *UpdateMessage, channelBufferSize)
+				updateManager.CreateChannel(ctx, peerID)
 			}
-
-			manager.peersUpdateManager.peerChannels = peerChannels
 
 			b.ResetTimer()
 			start := time.Now()
 
 			for i := 0; i < b.N; i++ {
-				manager.UpdateAccountPeers(ctx, account.Id)
+				manager.UpdateAccountPeers(ctx, account.Id, types.UpdateReason{})
 			}
 
 			duration := time.Since(start)
@@ -1004,6 +1006,10 @@ func BenchmarkUpdateAccountPeers(b *testing.B) {
 }
 
 func TestUpdateAccountPeers(t *testing.T) {
+	testUpdateAccountPeers(t)
+}
+
+func testUpdateAccountPeers(t *testing.T) {
 	testCases := []struct {
 		name   string
 		peers  int
@@ -1019,7 +1025,7 @@ func TestUpdateAccountPeers(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			manager, accountID, _, err := setupTestAccountManager(t, tc.peers, tc.groups)
+			manager, updateManager, accountID, _, err := setupTestAccountManager(t, tc.peers, tc.groups)
 			if err != nil {
 				t.Fatalf("Failed to setup test account manager: %v", err)
 			}
@@ -1031,20 +1037,19 @@ func TestUpdateAccountPeers(t *testing.T) {
 				t.Fatalf("Failed to get account: %v", err)
 			}
 
-			peerChannels := make(map[string]chan *UpdateMessage)
+			peerChannels := make(map[string]chan *network_map.UpdateMessage)
 
 			for peerID := range account.Peers {
-				peerChannels[peerID] = make(chan *UpdateMessage, channelBufferSize)
+				peerChannels[peerID] = updateManager.CreateChannel(ctx, peerID)
 			}
 
-			manager.peersUpdateManager.peerChannels = peerChannels
-			manager.UpdateAccountPeers(ctx, account.Id)
+			manager.UpdateAccountPeers(ctx, account.Id, types.UpdateReason{})
 
 			for _, channel := range peerChannels {
 				update := <-channel
 				assert.Nil(t, update.Update.NetbirdConfig)
-				assert.Equal(t, tc.peers, len(update.NetworkMap.Peers))
-				assert.Equal(t, tc.peers*2, len(update.NetworkMap.FirewallRules))
+				assert.Equal(t, tc.peers, len(update.Update.NetworkMap.RemotePeers))
+				assert.Equal(t, tc.peers*2, len(update.Update.NetworkMap.FirewallRules))
 			}
 		})
 	}
@@ -1073,20 +1078,33 @@ func TestToSyncResponse(t *testing.T) {
 		},
 	}
 	peer := &nbpeer.Peer{
-		IP:         net.ParseIP("192.168.1.1"),
+		IP:         netip.MustParseAddr("192.168.1.1"),
+		IPv6:       netip.MustParseAddr("fd00::1"),
 		SSHEnabled: true,
 		Key:        "peer-key",
 		DNSLabel:   "peer1",
 		SSHKey:     "peer1-ssh-key",
 	}
-	turnRelayToken := &Token{
+	turnRelayToken := &grpc.Token{
 		Payload:   "turn-user",
 		Signature: "turn-pass",
 	}
 	networkMap := &types.NetworkMap{
-		Network:      &types.Network{Net: *ipnet, Serial: 1000},
-		Peers:        []*nbpeer.Peer{{IP: net.ParseIP("192.168.1.2"), Key: "peer2-key", DNSLabel: "peer2", SSHEnabled: true, SSHKey: "peer2-ssh-key"}},
-		OfflinePeers: []*nbpeer.Peer{{IP: net.ParseIP("192.168.1.3"), Key: "peer3-key", DNSLabel: "peer3", SSHEnabled: true, SSHKey: "peer3-ssh-key"}},
+		Network: &types.Network{Net: *ipnet, Serial: 1000},
+		Peers: []*nbpeer.Peer{{
+			IP:         netip.MustParseAddr("192.168.1.2"),
+			IPv6:       netip.MustParseAddr("fd00::2"),
+			Key:        "peer2-key",
+			DNSLabel:   "peer2",
+			SSHEnabled: true,
+			SSHKey:     "peer2-ssh-key"}},
+		OfflinePeers: []*nbpeer.Peer{{
+			IP:         netip.MustParseAddr("192.168.1.3"),
+			IPv6:       netip.MustParseAddr("fd00::3"),
+			Key:        "peer3-key",
+			DNSLabel:   "peer3",
+			SSHEnabled: true,
+			SSHKey:     "peer3-ssh-key"}},
 		Routes: []*nbroute.Route{
 			{
 				ID:          "route1",
@@ -1159,9 +1177,9 @@ func TestToSyncResponse(t *testing.T) {
 			},
 		},
 	}
-	dnsCache := &DNSConfigCache{}
+	dnsCache := &cache.DNSConfigCache{}
 	accountSettings := &types.Settings{RoutingPeerDNSResolutionEnabled: true}
-	response := toSyncResponse(context.Background(), config, peer, turnRelayToken, turnRelayToken, networkMap, dnsName, checks, dnsCache, accountSettings, nil, []string{})
+	response := grpc.ToSyncResponse(context.Background(), config, config.HttpConfig, config.DeviceAuthorizationFlow, peer, turnRelayToken, turnRelayToken, networkMap, dnsName, checks, dnsCache, accountSettings, nil, []string{}, int64(dnsForwarderPort))
 
 	assert.NotNil(t, response)
 	// assert peer config
@@ -1212,6 +1230,8 @@ func TestToSyncResponse(t *testing.T) {
 	assert.Equal(t, "route1", response.NetworkMap.Routes[0].NetID)
 	// assert network map DNSConfig
 	assert.Equal(t, true, response.NetworkMap.DNSConfig.ServiceEnable)
+	//nolint
+	assert.Equal(t, int64(dnsForwarderPort), response.NetworkMap.DNSConfig.ForwarderPort)
 	assert.Equal(t, 1, len(response.NetworkMap.DNSConfig.CustomZones))
 	assert.Equal(t, 2, len(response.NetworkMap.DNSConfig.NameServerGroups))
 	// assert network map DNSConfig.CustomZones
@@ -1231,6 +1251,7 @@ func TestToSyncResponse(t *testing.T) {
 	assert.Equal(t, int64(53), response.NetworkMap.DNSConfig.NameServerGroups[0].NameServers[0].GetPort())
 	// assert network map Firewall
 	assert.Equal(t, 1, len(response.NetworkMap.FirewallRules))
+	//nolint:staticcheck // testing backward-compatible field
 	assert.Equal(t, "192.168.1.2", response.NetworkMap.FirewallRules[0].PeerIP)
 	assert.Equal(t, proto.RuleDirection_IN, response.NetworkMap.FirewallRules[0].Direction)
 	assert.Equal(t, proto.RuleAction_ACCEPT, response.NetworkMap.FirewallRules[0].Action)
@@ -1269,8 +1290,18 @@ func Test_RegisterPeerByUser(t *testing.T) {
 	t.Cleanup(ctrl.Finish)
 	settingsMockManager := settings.NewMockManager(ctrl)
 	permissionsManager := permissions.NewManager(s)
+	peersManager := peers.NewManager(s, permissionsManager)
 
-	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	ctx := context.Background()
+
+	cacheStore, err := nbcache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
+	require.NoError(t, err)
+
+	updateManager := update_channel.NewPeersUpdateManager(metrics)
+	requestBuffer := NewAccountRequestBuffer(ctx, s)
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{})
+
+	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1283,7 +1314,8 @@ func Test_RegisterPeerByUser(t *testing.T) {
 		ID:        xid.New().String(),
 		AccountID: existingAccountID,
 		Key:       "newPeerKey",
-		IP:        net.IP{123, 123, 123, 123},
+		IP:        netip.AddrFrom4([4]byte{123, 123, 123, 123}),
+		IPv6:      netip.MustParseAddr("fd00::7b:7b:7b:7b"),
 		Meta: nbpeer.PeerSystemMeta{
 			Hostname: "newPeer",
 			GoOS:     "linux",
@@ -1300,7 +1332,7 @@ func Test_RegisterPeerByUser(t *testing.T) {
 		},
 	}
 
-	addedPeer, _, _, err := am.AddPeer(context.Background(), "", existingUserID, newPeer)
+	addedPeer, _, _, err := am.AddPeer(context.Background(), "", "", existingUserID, newPeer, false)
 	require.NoError(t, err)
 	assert.Equal(t, newPeer.ExtraDNSLabels, addedPeer.ExtraDNSLabels)
 
@@ -1349,8 +1381,18 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 		Return(&types.ExtraSettings{}, nil).
 		AnyTimes()
 	permissionsManager := permissions.NewManager(s)
+	peersManager := peers.NewManager(s, permissionsManager)
 
-	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	ctx := context.Background()
+
+	cacheStore, err := nbcache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
+	require.NoError(t, err)
+
+	updateManager := update_channel.NewPeersUpdateManager(metrics)
+	requestBuffer := NewAccountRequestBuffer(ctx, s)
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{})
+
+	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1361,7 +1403,8 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 	newPeerTemplate := &nbpeer.Peer{
 		AccountID: existingAccountID,
 		UserID:    "",
-		IP:        net.IP{123, 123, 123, 123},
+		IP:        netip.AddrFrom4([4]byte{123, 123, 123, 123}),
+		IPv6:      netip.MustParseAddr("fd00::7b:7b:7b:7b"),
 		Meta: nbpeer.PeerSystemMeta{
 			Hostname: "newPeer",
 			GoOS:     "linux",
@@ -1422,7 +1465,7 @@ func Test_RegisterPeerBySetupKey(t *testing.T) {
 				ExtraDNSLabels: newPeerTemplate.ExtraDNSLabels,
 			}
 
-			addedPeer, _, _, err := am.AddPeer(context.Background(), tc.existingSetupKeyID, "", currentPeer)
+			addedPeer, _, _, err := am.AddPeer(context.Background(), "", tc.existingSetupKeyID, "", currentPeer, false)
 
 			if tc.expectAddPeerError {
 				require.Error(t, err, "Expected an error when adding peer with setup key: %s", tc.existingSetupKeyID)
@@ -1497,8 +1540,18 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 	settingsMockManager := settings.NewMockManager(ctrl)
 
 	permissionsManager := permissions.NewManager(s)
+	peersManager := peers.NewManager(s, permissionsManager)
 
-	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	ctx := context.Background()
+
+	cacheStore, err := nbcache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
+	require.NoError(t, err)
+
+	updateManager := update_channel.NewPeersUpdateManager(metrics)
+	requestBuffer := NewAccountRequestBuffer(ctx, s)
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{})
+
+	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1512,7 +1565,8 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 		AccountID: existingAccountID,
 		Key:       "newPeerKey",
 		UserID:    "",
-		IP:        net.IP{123, 123, 123, 123},
+		IP:        netip.AddrFrom4([4]byte{123, 123, 123, 123}),
+		IPv6:      netip.MustParseAddr("fd00::7b:7b:7b:7b"),
 		Meta: nbpeer.PeerSystemMeta{
 			Hostname: "newPeer",
 			GoOS:     "linux",
@@ -1523,7 +1577,7 @@ func Test_RegisterPeerRollbackOnFailure(t *testing.T) {
 		SSHEnabled: false,
 	}
 
-	_, _, _, err = am.AddPeer(context.Background(), faultyKey, "", newPeer)
+	_, _, _, err = am.AddPeer(context.Background(), "", faultyKey, "", newPeer, false)
 	require.Error(t, err)
 
 	_, err = s.GetPeerByPeerPubKey(context.Background(), store.LockingStrengthNone, newPeer.Key)
@@ -1571,8 +1625,18 @@ func Test_LoginPeer(t *testing.T) {
 		Return(&types.ExtraSettings{}, nil).
 		AnyTimes()
 	permissionsManager := permissions.NewManager(s)
+	peersManager := peers.NewManager(s, permissionsManager)
 
-	am, err := BuildManager(context.Background(), s, NewPeersUpdateManager(nil), nil, "", "netbird.cloud", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	ctx := context.Background()
+
+	cacheStore, err := nbcache.NewStore(ctx, 100*time.Millisecond, 300*time.Millisecond, 100)
+	require.NoError(t, err)
+
+	updateManager := update_channel.NewPeersUpdateManager(metrics)
+	requestBuffer := NewAccountRequestBuffer(ctx, s)
+	networkMapController := controller.NewController(ctx, s, metrics, updateManager, requestBuffer, MockIntegratedValidator{}, settingsMockManager, "netbird.cloud", port_forwarding.NewControllerMock(), ephemeral_manager.NewEphemeralManager(s, peers.NewManager(s, permissionsManager)), &config.Config{})
+
+	am, err := BuildManager(context.Background(), nil, s, networkMapController, job.NewJobManager(nil, s, peersManager), nil, "", eventStore, nil, false, MockIntegratedValidator{}, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 	assert.NoError(t, err)
 
 	existingAccountID := "bf1c8084-ba50-4ce7-9439-34653001fc3b"
@@ -1587,7 +1651,8 @@ func Test_LoginPeer(t *testing.T) {
 	newPeerTemplate := &nbpeer.Peer{
 		AccountID: existingAccountID,
 		UserID:    "",
-		IP:        net.IP{123, 123, 123, 123},
+		IP:        netip.AddrFrom4([4]byte{123, 123, 123, 123}),
+		IPv6:      netip.MustParseAddr("fd00::7b:7b:7b:7b"),
 		Meta: nbpeer.PeerSystemMeta{
 			Hostname: "newPeer",
 			GoOS:     "linux",
@@ -1658,7 +1723,7 @@ func Test_LoginPeer(t *testing.T) {
 			if sk.AllowExtraDNSLabels {
 				currentPeer.ExtraDNSLabels = newPeerTemplate.ExtraDNSLabels
 			}
-			_, _, _, err = am.AddPeer(context.Background(), tc.setupKey, "", currentPeer)
+			_, _, _, err = am.AddPeer(context.Background(), "", tc.setupKey, "", currentPeer, false)
 			require.NoError(t, err, "Expected no error when adding peer with setup key: %s", tc.setupKey)
 
 			loginInput := types.PeerLogin{
@@ -1705,7 +1770,7 @@ func Test_LoginPeer(t *testing.T) {
 }
 
 func TestPeerAccountPeersUpdate(t *testing.T) {
-	manager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
+	manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 
 	err := manager.DeletePolicy(context.Background(), account.Id, account.Policies[0].ID, userID)
 	require.NoError(t, err)
@@ -1762,13 +1827,14 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	var peer5 *nbpeer.Peer
 	var peer6 *nbpeer.Peer
 
-	updMsg := manager.peersUpdateManager.CreateChannel(context.Background(), peer1.ID)
+	updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
 	t.Cleanup(func() {
-		manager.peersUpdateManager.CloseChannel(context.Background(), peer1.ID)
+		updateManager.CloseChannel(context.Background(), peer1.ID)
 	})
 
 	// Updating not expired peer and peer expiration is enabled should not update account peers and not send peer update
 	t.Run("updating not expired peer and peer expiration is enabled", func(t *testing.T) {
+		t.Skip("Currently all updates will trigger a network map")
 		done := make(chan struct{})
 		go func() {
 			peerShouldNotReceiveUpdate(t, updMsg)
@@ -1789,7 +1855,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	t.Run("adding peer to unlinked group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg) //
+			peerShouldReceiveUpdate(t, updMsg) //
 			close(done)
 		}()
 
@@ -1797,10 +1863,10 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 		require.NoError(t, err)
 
 		expectedPeerKey := key.PublicKey().String()
-		peer4, _, _, err = manager.AddPeer(context.Background(), "", "regularUser1", &nbpeer.Peer{
+		peer4, _, _, err = manager.AddPeer(context.Background(), "", "", "regularUser1", &nbpeer.Peer{
 			Key:  expectedPeerKey,
 			Meta: nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
-		})
+		}, false)
 		require.NoError(t, err)
 
 		select {
@@ -1814,7 +1880,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 	t.Run("deleting peer with unlinked group", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
-			peerShouldNotReceiveUpdate(t, updMsg)
+			peerShouldReceiveUpdate(t, updMsg)
 			close(done)
 		}()
 
@@ -1842,7 +1908,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -1864,12 +1930,14 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
 
 	t.Run("validator requires no update", func(t *testing.T) {
+		t.Skip("Currently all updates will trigger a network map")
+
 		requireNoUpdateFunc := func(_ context.Context, update *nbpeer.Peer, peer *nbpeer.Peer, userID string, accountID string, dnsDomain string, peersGroup []string, extraSettings *types.ExtraSettings) (*nbpeer.Peer, bool, error) {
 			return update, false, nil
 		}
@@ -1918,16 +1986,16 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 		require.NoError(t, err)
 
 		expectedPeerKey := key.PublicKey().String()
-		peer4, _, _, err = manager.AddPeer(context.Background(), "", "regularUser1", &nbpeer.Peer{
+		peer4, _, _, err = manager.AddPeer(context.Background(), "", "", "regularUser1", &nbpeer.Peer{
 			Key:                    expectedPeerKey,
 			LoginExpirationEnabled: true,
 			Meta:                   nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
-		})
+		}, false)
 		require.NoError(t, err)
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -1945,7 +2013,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -1982,16 +2050,16 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 		require.NoError(t, err)
 
 		expectedPeerKey := key.PublicKey().String()
-		peer5, _, _, err = manager.AddPeer(context.Background(), "", "regularUser2", &nbpeer.Peer{
+		peer5, _, _, err = manager.AddPeer(context.Background(), "", "", "regularUser2", &nbpeer.Peer{
 			Key:                    expectedPeerKey,
 			LoginExpirationEnabled: true,
 			Meta:                   nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
-		})
+		}, false)
 		require.NoError(t, err)
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -2009,7 +2077,7 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -2037,16 +2105,16 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 		require.NoError(t, err)
 
 		expectedPeerKey := key.PublicKey().String()
-		peer6, _, _, err = manager.AddPeer(context.Background(), "", "regularUser3", &nbpeer.Peer{
+		peer6, _, _, err = manager.AddPeer(context.Background(), "", "", "regularUser3", &nbpeer.Peer{
 			Key:                    expectedPeerKey,
 			LoginExpirationEnabled: true,
 			Meta:                   nbpeer.PeerSystemMeta{Hostname: expectedPeerKey},
-		})
+		}, false)
 		require.NoError(t, err)
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
@@ -2064,14 +2132,14 @@ func TestPeerAccountPeersUpdate(t *testing.T) {
 
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(peerUpdateTimeout):
 			t.Error("timeout waiting for peerShouldReceiveUpdate")
 		}
 	})
 }
 
 func Test_DeletePeer(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -2080,18 +2148,22 @@ func Test_DeletePeer(t *testing.T) {
 	// account with an admin and a regular user
 	accountID := "test_account"
 	adminUser := "account_creator"
-	account := newAccountWithId(context.Background(), accountID, adminUser, "", false)
+	account := newAccountWithId(context.Background(), accountID, adminUser, "", "", "", false)
 	account.Peers = map[string]*nbpeer.Peer{
 		"peer1": {
 			ID:        "peer1",
 			AccountID: accountID,
-			IP:        net.IP{1, 1, 1, 1},
+			Key:       "key1",
+			IP:        netip.AddrFrom4([4]byte{1, 1, 1, 1}),
+			IPv6:      netip.MustParseAddr("fd00::1"),
 			DNSLabel:  "peer1.test",
 		},
 		"peer2": {
 			ID:        "peer2",
 			AccountID: accountID,
-			IP:        net.IP{2, 2, 2, 2},
+			Key:       "key2",
+			IP:        netip.AddrFrom4([4]byte{2, 2, 2, 2}),
+			IPv6:      netip.MustParseAddr("fd00::2"),
 			DNSLabel:  "peer2.test",
 		},
 	}
@@ -2146,6 +2218,9 @@ func Test_IsUniqueConstraintError(t *testing.T) {
 		ID:        "test-peer-id",
 		AccountID: "bf1c8084-ba50-4ce7-9439-34653001fc3b",
 		DNSLabel:  "test-peer-dns-label",
+		Status: &nbpeer.PeerStatus{
+			LastSeen: time.Now(),
+		},
 	}
 
 	for _, tt := range tests {
@@ -2168,7 +2243,7 @@ func Test_IsUniqueConstraintError(t *testing.T) {
 }
 
 func Test_AddPeer(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -2208,7 +2283,7 @@ func Test_AddPeer(t *testing.T) {
 
 			<-start
 
-			_, _, _, err := manager.AddPeer(context.Background(), setupKey.Key, "", newPeer)
+			_, _, _, err := manager.AddPeer(context.Background(), "", setupKey.Key, "", newPeer, false)
 			if err != nil {
 				errs <- fmt.Errorf("AddPeer failed for peer %d: %w", i, err)
 				return
@@ -2256,147 +2331,19 @@ func Test_AddPeer(t *testing.T) {
 	assert.Equal(t, uint64(totalPeers), account.Network.Serial)
 }
 
-func TestBufferUpdateAccountPeers(t *testing.T) {
-	const (
-		peersCount            = 1000
-		updateAccountInterval = 50 * time.Millisecond
-	)
-
-	var (
-		deletedPeers, updatePeersDeleted, updatePeersRuns atomic.Int32
-		uapLastRun, dpLastRun                             atomic.Int64
-
-		totalNewRuns, totalOldRuns int
-	)
-
-	uap := func(ctx context.Context, accountID string) {
-		updatePeersDeleted.Store(deletedPeers.Load())
-		updatePeersRuns.Add(1)
-		uapLastRun.Store(time.Now().UnixMilli())
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	t.Run("new approach", func(t *testing.T) {
-		updatePeersRuns.Store(0)
-		updatePeersDeleted.Store(0)
-		deletedPeers.Store(0)
-
-		var mustore sync.Map
-		bufupd := func(ctx context.Context, accountID string) {
-			mu, _ := mustore.LoadOrStore(accountID, &bufferUpdate{})
-			b := mu.(*bufferUpdate)
-
-			if !b.mu.TryLock() {
-				b.update.Store(true)
-				return
-			}
-
-			if b.next != nil {
-				b.next.Stop()
-			}
-
-			go func() {
-				defer b.mu.Unlock()
-				uap(ctx, accountID)
-				if !b.update.Load() {
-					return
-				}
-				b.update.Store(false)
-				b.next = time.AfterFunc(updateAccountInterval, func() {
-					uap(ctx, accountID)
-				})
-			}()
-		}
-		dp := func(ctx context.Context, accountID, peerID, userID string) error {
-			deletedPeers.Add(1)
-			dpLastRun.Store(time.Now().UnixMilli())
-			time.Sleep(10 * time.Millisecond)
-			bufupd(ctx, accountID)
-			return nil
-		}
-
-		am := mock_server.MockAccountManager{
-			UpdateAccountPeersFunc:       uap,
-			BufferUpdateAccountPeersFunc: bufupd,
-			DeletePeerFunc:               dp,
-		}
-		empty := ""
-		for range peersCount {
-			//nolint
-			am.DeletePeer(context.Background(), empty, empty, empty)
-		}
-		time.Sleep(100 * time.Millisecond)
-
-		assert.Equal(t, peersCount, int(deletedPeers.Load()), "Expected all peers to be deleted")
-		assert.Equal(t, peersCount, int(updatePeersDeleted.Load()), "Expected all peers to be updated in the buffer")
-		assert.GreaterOrEqual(t, uapLastRun.Load(), dpLastRun.Load(), "Expected update account peers to run after delete peer")
-
-		totalNewRuns = int(updatePeersRuns.Load())
-	})
-
-	t.Run("old approach", func(t *testing.T) {
-		updatePeersRuns.Store(0)
-		updatePeersDeleted.Store(0)
-		deletedPeers.Store(0)
-
-		var mustore sync.Map
-		bufupd := func(ctx context.Context, accountID string) {
-			mu, _ := mustore.LoadOrStore(accountID, &sync.Mutex{})
-			b := mu.(*sync.Mutex)
-
-			if !b.TryLock() {
-				return
-			}
-
-			go func() {
-				time.Sleep(updateAccountInterval)
-				b.Unlock()
-				uap(ctx, accountID)
-			}()
-		}
-		dp := func(ctx context.Context, accountID, peerID, userID string) error {
-			deletedPeers.Add(1)
-			dpLastRun.Store(time.Now().UnixMilli())
-			time.Sleep(10 * time.Millisecond)
-			bufupd(ctx, accountID)
-			return nil
-		}
-
-		am := mock_server.MockAccountManager{
-			UpdateAccountPeersFunc:       uap,
-			BufferUpdateAccountPeersFunc: bufupd,
-			DeletePeerFunc:               dp,
-		}
-		empty := ""
-		for range peersCount {
-			//nolint
-			am.DeletePeer(context.Background(), empty, empty, empty)
-		}
-		time.Sleep(100 * time.Millisecond)
-
-		assert.Equal(t, peersCount, int(deletedPeers.Load()), "Expected all peers to be deleted")
-		assert.Equal(t, peersCount, int(updatePeersDeleted.Load()), "Expected all peers to be updated in the buffer")
-		assert.GreaterOrEqual(t, uapLastRun.Load(), dpLastRun.Load(), "Expected update account peers to run after delete peer")
-
-		totalOldRuns = int(updatePeersRuns.Load())
-	})
-	assert.Less(t, totalNewRuns, totalOldRuns, "Expected new approach to run less than old approach. New runs: %d, Old runs: %d", totalNewRuns, totalOldRuns)
-	t.Logf("New runs: %d, Old runs: %d", totalNewRuns, totalOldRuns)
-}
-
 func TestAddPeer_UserPendingApprovalBlocked(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Create account
-	account := newAccountWithId(context.Background(), "test-account", "owner", "", false)
+	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
 	err = manager.Store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	// Create user pending approval
-	pendingUser := types.NewRegularUser("pending-user")
+	pendingUser := types.NewRegularUser("pending-user", "", "")
 	pendingUser.AccountID = account.Id
 	pendingUser.Blocked = true
 	pendingUser.PendingApproval = true
@@ -2416,24 +2363,24 @@ func TestAddPeer_UserPendingApprovalBlocked(t *testing.T) {
 		},
 	}
 
-	_, _, _, err = manager.AddPeer(context.Background(), "", pendingUser.Id, peer)
+	_, _, _, err = manager.AddPeer(context.Background(), "", "", pendingUser.Id, peer, false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "user pending approval cannot add peers")
 }
 
 func TestAddPeer_ApprovedUserCanAddPeers(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Create account
-	account := newAccountWithId(context.Background(), "test-account", "owner", "", false)
+	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
 	err = manager.Store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	// Create regular user (not pending approval)
-	regularUser := types.NewRegularUser("regular-user")
+	regularUser := types.NewRegularUser("regular-user", "", "")
 	regularUser.AccountID = account.Id
 	err = manager.Store.SaveUser(context.Background(), regularUser)
 	require.NoError(t, err)
@@ -2451,23 +2398,23 @@ func TestAddPeer_ApprovedUserCanAddPeers(t *testing.T) {
 		},
 	}
 
-	_, _, _, err = manager.AddPeer(context.Background(), "", regularUser.Id, peer)
+	_, _, _, err = manager.AddPeer(context.Background(), "", "", regularUser.Id, peer, false)
 	require.NoError(t, err, "Regular user should be able to add peers")
 }
 
 func TestLoginPeer_UserPendingApprovalBlocked(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Create account
-	account := newAccountWithId(context.Background(), "test-account", "owner", "", false)
+	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
 	err = manager.Store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	// Create user pending approval
-	pendingUser := types.NewRegularUser("pending-user")
+	pendingUser := types.NewRegularUser("pending-user", "", "")
 	pendingUser.AccountID = account.Id
 	pendingUser.Blocked = true
 	pendingUser.PendingApproval = true
@@ -2494,7 +2441,7 @@ func TestLoginPeer_UserPendingApprovalBlocked(t *testing.T) {
 			WtVersion: "0.28.0",
 		},
 	}
-	existingPeer, _, _, err := manager.AddPeer(context.Background(), "", pendingUser.Id, newPeer)
+	existingPeer, _, _, err := manager.AddPeer(context.Background(), "", "", pendingUser.Id, newPeer, false)
 	require.NoError(t, err)
 
 	// Now set the user back to pending approval after peer was created
@@ -2521,18 +2468,18 @@ func TestLoginPeer_UserPendingApprovalBlocked(t *testing.T) {
 }
 
 func TestLoginPeer_ApprovedUserCanLogin(t *testing.T) {
-	manager, err := createManager(t)
+	manager, _, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Create account
-	account := newAccountWithId(context.Background(), "test-account", "owner", "", false)
+	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
 	err = manager.Store.SaveAccount(context.Background(), account)
 	require.NoError(t, err)
 
 	// Create regular user (not pending approval)
-	regularUser := types.NewRegularUser("regular-user")
+	regularUser := types.NewRegularUser("regular-user", "", "")
 	regularUser.AccountID = account.Id
 	err = manager.Store.SaveUser(context.Background(), regularUser)
 	require.NoError(t, err)
@@ -2550,7 +2497,7 @@ func TestLoginPeer_ApprovedUserCanLogin(t *testing.T) {
 			WtVersion: "0.28.0",
 		},
 	}
-	existingPeer, _, _, err := manager.AddPeer(context.Background(), "", regularUser.Id, newPeer)
+	existingPeer, _, _, err := manager.AddPeer(context.Background(), "", "", regularUser.Id, newPeer, false)
 	require.NoError(t, err)
 
 	// Try to login with regular user
@@ -2565,4 +2512,381 @@ func TestLoginPeer_ApprovedUserCanLogin(t *testing.T) {
 
 	_, _, _, err = manager.LoginPeer(context.Background(), login)
 	require.NoError(t, err, "Regular user should be able to login peers")
+}
+
+func TestHandleUserAddedPeer(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
+	err = manager.Store.SaveAccount(context.Background(), account)
+	require.NoError(t, err)
+
+	t.Run("regular user can add peer", func(t *testing.T) {
+		regularUser := types.NewRegularUser("regular-user-1", "", "")
+		regularUser.AccountID = account.Id
+		regularUser.AutoGroups = []string{"group1", "group2"}
+		err = manager.Store.SaveUser(context.Background(), regularUser)
+		require.NoError(t, err)
+
+		opEvent := &activity.Event{}
+		config := &peerAddAuthConfig{}
+
+		err = manager.handleUserAddedPeer(context.Background(), account.Id, regularUser.Id, false, opEvent, config)
+		require.NoError(t, err)
+		assert.Equal(t, account.Id, config.AccountID)
+		assert.Equal(t, regularUser.AutoGroups, config.GroupsToAdd)
+		assert.Equal(t, regularUser.Id, opEvent.InitiatorID)
+		assert.Equal(t, activity.PeerAddedByUser, opEvent.Activity)
+	})
+
+	t.Run("pending approval user cannot add peer", func(t *testing.T) {
+		pendingUser := types.NewRegularUser("pending-user", "", "")
+		pendingUser.AccountID = account.Id
+		pendingUser.PendingApproval = true
+		err = manager.Store.SaveUser(context.Background(), pendingUser)
+		require.NoError(t, err)
+
+		opEvent := &activity.Event{}
+		config := &peerAddAuthConfig{}
+
+		err = manager.handleUserAddedPeer(context.Background(), account.Id, pendingUser.Id, false, opEvent, config)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "user pending approval cannot add peers")
+	})
+
+	t.Run("user not found", func(t *testing.T) {
+		opEvent := &activity.Event{}
+		config := &peerAddAuthConfig{}
+
+		err = manager.handleUserAddedPeer(context.Background(), account.Id, "non-existent-user", false, opEvent, config)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "user not found")
+	})
+
+	t.Run("temporary peer requires permissions", func(t *testing.T) {
+		regularUser := types.NewRegularUser("regular-user-2", "", "")
+		regularUser.AccountID = account.Id
+		err = manager.Store.SaveUser(context.Background(), regularUser)
+		require.NoError(t, err)
+
+		opEvent := &activity.Event{}
+		config := &peerAddAuthConfig{}
+
+		// Should fail because user doesn't have permissions for temporary peers
+		err = manager.handleUserAddedPeer(context.Background(), account.Id, regularUser.Id, true, opEvent, config)
+		require.Error(t, err)
+	})
+}
+
+func TestHandleSetupKeyAddedPeer(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
+	err = manager.Store.SaveAccount(context.Background(), account)
+	require.NoError(t, err)
+
+	// Create admin user for setup key creation
+	adminUser := types.NewAdminUser("admin-user")
+	adminUser.AccountID = account.Id
+	err = manager.Store.SaveUser(context.Background(), adminUser)
+	require.NoError(t, err)
+
+	t.Run("valid setup key", func(t *testing.T) {
+		setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "test-key", types.SetupKeyReusable, time.Hour, []string{}, 0, adminUser.Id, false, false)
+		require.NoError(t, err)
+
+		upperKey := strings.ToUpper(setupKey.Key)
+		hashedKey := sha256.Sum256([]byte(upperKey))
+		encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
+
+		opEvent := &activity.Event{}
+		config := &peerAddAuthConfig{}
+		peer := &nbpeer.Peer{ExtraDNSLabels: []string{}}
+
+		err = manager.handleSetupKeyAddedPeer(context.Background(), encodedHashedKey, peer, opEvent, config)
+		require.NoError(t, err)
+		assert.Equal(t, setupKey.Id, config.SetupKeyID)
+		assert.Equal(t, setupKey.Name, config.SetupKeyName)
+		assert.Equal(t, setupKey.AutoGroups, config.GroupsToAdd)
+		assert.Equal(t, setupKey.Ephemeral, config.Ephemeral)
+		assert.Equal(t, setupKey.Id, opEvent.InitiatorID)
+		assert.Equal(t, activity.PeerAddedWithSetupKey, opEvent.Activity)
+	})
+
+	t.Run("invalid setup key", func(t *testing.T) {
+		invalidKey := "invalid-key"
+		hashedKey := sha256.Sum256([]byte(invalidKey))
+		encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
+
+		opEvent := &activity.Event{}
+		config := &peerAddAuthConfig{}
+		peer := &nbpeer.Peer{}
+
+		err = manager.handleSetupKeyAddedPeer(context.Background(), encodedHashedKey, peer, opEvent, config)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "setup key is invalid")
+	})
+
+	t.Run("expired setup key", func(t *testing.T) {
+		setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "expired-key", types.SetupKeyReusable, time.Millisecond, []string{}, 0, adminUser.Id, false, false)
+		require.NoError(t, err)
+
+		// Wait for key to expire
+		time.Sleep(10 * time.Millisecond)
+
+		upperKey := strings.ToUpper(setupKey.Key)
+		hashedKey := sha256.Sum256([]byte(upperKey))
+		encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
+
+		opEvent := &activity.Event{}
+		config := &peerAddAuthConfig{}
+		peer := &nbpeer.Peer{}
+
+		err = manager.handleSetupKeyAddedPeer(context.Background(), encodedHashedKey, peer, opEvent, config)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "setup key is invalid")
+	})
+
+	t.Run("extra DNS labels not allowed", func(t *testing.T) {
+		setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "no-dns-key", types.SetupKeyReusable, time.Hour, []string{}, 0, adminUser.Id, false, false)
+		require.NoError(t, err)
+
+		upperKey := strings.ToUpper(setupKey.Key)
+		hashedKey := sha256.Sum256([]byte(upperKey))
+		encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
+
+		opEvent := &activity.Event{}
+		config := &peerAddAuthConfig{}
+		peer := &nbpeer.Peer{ExtraDNSLabels: []string{"custom.label"}}
+
+		err = manager.handleSetupKeyAddedPeer(context.Background(), encodedHashedKey, peer, opEvent, config)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "doesn't allow extra DNS labels")
+	})
+
+	t.Run("extra DNS labels allowed", func(t *testing.T) {
+		setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "dns-key", types.SetupKeyReusable, time.Hour, []string{}, 0, adminUser.Id, false, true)
+		require.NoError(t, err)
+
+		upperKey := strings.ToUpper(setupKey.Key)
+		hashedKey := sha256.Sum256([]byte(upperKey))
+		encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
+
+		opEvent := &activity.Event{}
+		config := &peerAddAuthConfig{}
+		peer := &nbpeer.Peer{ExtraDNSLabels: []string{"custom.label"}}
+
+		err = manager.handleSetupKeyAddedPeer(context.Background(), encodedHashedKey, peer, opEvent, config)
+		require.NoError(t, err)
+		assert.True(t, config.AllowExtraDNSLabels)
+	})
+}
+
+func TestProcessPeerAddAuth(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err)
+
+	account := newAccountWithId(context.Background(), "test-account", "owner", "", "", "", false)
+	err = manager.Store.SaveAccount(context.Background(), account)
+	require.NoError(t, err)
+
+	adminUser := types.NewAdminUser("admin")
+	adminUser.AccountID = account.Id
+	err = manager.Store.SaveUser(context.Background(), adminUser)
+	require.NoError(t, err)
+
+	t.Run("user authentication flow", func(t *testing.T) {
+		regularUser := types.NewRegularUser("user-auth-test", "", "")
+		regularUser.AccountID = account.Id
+		regularUser.AutoGroups = []string{"group1"}
+		err = manager.Store.SaveUser(context.Background(), regularUser)
+		require.NoError(t, err)
+
+		opEvent := &activity.Event{Timestamp: time.Now()}
+		peer := &nbpeer.Peer{Ephemeral: false}
+
+		config, err := manager.processPeerAddAuth(context.Background(), account.Id, regularUser.Id, "", peer, false, true, false, opEvent)
+		require.NoError(t, err)
+		assert.Equal(t, account.Id, config.AccountID)
+		assert.False(t, config.Ephemeral)
+		assert.Equal(t, regularUser.AutoGroups, config.GroupsToAdd)
+		assert.Equal(t, account.Id, opEvent.AccountID)
+	})
+
+	t.Run("setup key authentication flow", func(t *testing.T) {
+		setupKey, err := manager.CreateSetupKey(context.Background(), account.Id, "auth-test-key", types.SetupKeyReusable, time.Hour, []string{}, 0, adminUser.Id, true, false)
+		require.NoError(t, err)
+
+		upperKey := strings.ToUpper(setupKey.Key)
+		hashedKey := sha256.Sum256([]byte(upperKey))
+		encodedHashedKey := b64.StdEncoding.EncodeToString(hashedKey[:])
+
+		opEvent := &activity.Event{Timestamp: time.Now()}
+		peer := &nbpeer.Peer{Ephemeral: false}
+
+		config, err := manager.processPeerAddAuth(context.Background(), account.Id, "", encodedHashedKey, peer, false, false, true, opEvent)
+		require.NoError(t, err)
+		assert.Equal(t, account.Id, config.AccountID)
+		assert.True(t, config.Ephemeral) // setupKey.Ephemeral is true
+		assert.Equal(t, setupKey.AutoGroups, config.GroupsToAdd)
+		assert.Equal(t, account.Id, opEvent.AccountID)
+	})
+
+	t.Run("temporary flag overrides ephemeral", func(t *testing.T) {
+		regularUser := types.NewRegularUser("temp-user", "", "")
+		regularUser.AccountID = account.Id
+		err = manager.Store.SaveUser(context.Background(), regularUser)
+		require.NoError(t, err)
+
+		opEvent := &activity.Event{Timestamp: time.Now()}
+		peer := &nbpeer.Peer{Ephemeral: false}
+
+		config, err := manager.processPeerAddAuth(context.Background(), account.Id, regularUser.Id, "", peer, true, true, false, opEvent)
+		require.Error(t, err) // Will fail permission check but that's expected
+		_ = config            // avoid unused warning
+	})
+
+	t.Run("proxy embedded peer (no auth)", func(t *testing.T) {
+		opEvent := &activity.Event{Timestamp: time.Now()}
+		peer := &nbpeer.Peer{
+			Ephemeral: false,
+			ProxyMeta: nbpeer.ProxyMeta{Embedded: true},
+		}
+
+		config, err := manager.processPeerAddAuth(context.Background(), account.Id, "", "", peer, false, false, false, opEvent)
+		require.NoError(t, err)
+		assert.Equal(t, account.Id, config.AccountID)
+		assert.False(t, config.Ephemeral)
+		assert.Empty(t, config.GroupsToAdd)
+	})
+}
+
+func TestPeerWillHaveIPv6(t *testing.T) {
+	settings := &types.Settings{
+		IPv6EnabledGroups: []string{"all-group-id", "group-a"},
+	}
+
+	assert.True(t, peerWillHaveIPv6(settings, nil, "all-group-id"), "peer in All group should get IPv6")
+	assert.True(t, peerWillHaveIPv6(settings, []string{"group-a"}, ""), "peer with matching auto-group should get IPv6")
+	assert.False(t, peerWillHaveIPv6(settings, []string{"group-b"}, "other-all"), "peer with no matching groups should not get IPv6")
+	assert.False(t, peerWillHaveIPv6(settings, nil, ""), "embedded peer with no groups should not get IPv6")
+
+	emptySettings := &types.Settings{IPv6EnabledGroups: []string{}}
+	assert.False(t, peerWillHaveIPv6(emptySettings, []string{"group-a"}, "all-group-id"), "no IPv6 groups means no IPv6")
+}
+
+// TestSyncPeer_IPv6CapabilityChangePropagates ensures that when a peer reports
+// a new IPv6 overlay capability via SyncPeer (e.g. after a client upgrade or
+// flipping --disable-ipv6) without bumping its WtVersion, other account peers
+// receive a fresh network map so their AAAA records for it become unstale.
+func TestSyncPeer_IPv6CapabilityChangePropagates(t *testing.T) {
+	manager, updateManager, _, peer1, peer2, _ := setupNetworkMapTest(t)
+
+	updMsg := updateManager.CreateChannel(context.Background(), peer1.ID)
+	t.Cleanup(func() {
+		updateManager.CloseChannel(context.Background(), peer1.ID)
+	})
+
+	// Drain any initial updates from setup.
+	drain := func() {
+		for {
+			select {
+			case <-updMsg:
+			case <-time.After(200 * time.Millisecond):
+				return
+			}
+		}
+	}
+	drain()
+
+	t.Run("no propagation when capabilities are unchanged", func(t *testing.T) {
+		_, _, _, _, err := manager.SyncPeer(context.Background(), types.PeerSync{
+			WireGuardPubKey: peer2.Key,
+			Meta:            peer2.Meta,
+		}, peer2.AccountID)
+		require.NoError(t, err)
+		peerShouldNotReceiveUpdate(t, updMsg)
+	})
+
+	t.Run("propagation when IPv6 capability is added", func(t *testing.T) {
+		newMeta := peer2.Meta
+		newMeta.Capabilities = append([]int32{}, peer2.Meta.Capabilities...)
+		newMeta.Capabilities = append(newMeta.Capabilities, nbpeer.PeerCapabilityIPv6Overlay)
+
+		_, _, _, _, err := manager.SyncPeer(context.Background(), types.PeerSync{
+			WireGuardPubKey: peer2.Key,
+			Meta:            newMeta,
+		}, peer2.AccountID)
+		require.NoError(t, err)
+		peerShouldReceiveUpdate(t, updMsg)
+	})
+}
+
+func TestUpdatePeer_DnsLabelCollisionWithFQDN(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
+	require.NoError(t, err, "unable to create an account")
+
+	// Add first peer with hostname that produces DNS label "netbird1"
+	key1, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+	peer1, _, _, err := manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
+		Key:  key1.PublicKey().String(),
+		Meta: nbpeer.PeerSystemMeta{Hostname: "netbird1.netbird.cloud"},
+	}, false)
+	require.NoError(t, err, "unable to add first peer")
+	assert.Equal(t, "netbird1", peer1.DNSLabel)
+
+	// Add second peer with a different hostname
+	key2, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+	peer2, _, _, err := manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
+		Key:  key2.PublicKey().String(),
+		Meta: nbpeer.PeerSystemMeta{Hostname: "ip-10-29-5-130"},
+	}, false)
+	require.NoError(t, err)
+
+	update := peer2.Copy()
+	update.Name = "netbird1.demo.netbird.cloud"
+	updated, err := manager.UpdatePeer(context.Background(), accountID, userID, update)
+	require.NoError(t, err, "renaming peer should not fail with duplicate DNS label error")
+	assert.Equal(t, "netbird1.demo.netbird.cloud", updated.Name)
+	assert.NotEqual(t, "netbird1", updated.DNSLabel, "DNS label should not collide with existing peer")
+	assert.Contains(t, updated.DNSLabel, "netbird1-", "DNS label should be IP-based fallback")
+}
+
+func TestUpdatePeer_DnsLabelUniqueName(t *testing.T) {
+	manager, _, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	accountID, err := manager.GetAccountIDByUserID(context.Background(), auth.UserAuth{UserId: userID})
+	require.NoError(t, err, "unable to create an account")
+
+	key1, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+	peer1, _, _, err := manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
+		Key:  key1.PublicKey().String(),
+		Meta: nbpeer.PeerSystemMeta{Hostname: "web-server"},
+	}, false)
+	require.NoError(t, err)
+	assert.Equal(t, "web-server", peer1.DNSLabel)
+
+	// Add second peer and rename it to a unique FQDN whose first label doesn't collide
+	key2, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+	peer2, _, _, err := manager.AddPeer(context.Background(), "", "", userID, &nbpeer.Peer{
+		Key:  key2.PublicKey().String(),
+		Meta: nbpeer.PeerSystemMeta{Hostname: "old-name"},
+	}, false)
+	require.NoError(t, err)
+
+	update := peer2.Copy()
+	update.Name = "api-server.example.com"
+	updated, err := manager.UpdatePeer(context.Background(), accountID, userID, update)
+	require.NoError(t, err, "renaming to unique FQDN should succeed")
+	assert.Equal(t, "api-server", updated.DNSLabel, "DNS label should be first label of FQDN")
 }

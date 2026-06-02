@@ -15,13 +15,15 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/pion/transport/v3/stdnet"
+	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 type dialer interface {
@@ -142,11 +144,12 @@ func TestAddVPNRoute(t *testing.T) {
 
 			wgInterface := createWGInterface(t, fmt.Sprintf("utun53%d", n), "100.65.75.2/24", 33100+n)
 
-			r := NewSysOps(wgInterface, nil)
-			err := r.SetupRouting(nil, nil)
+			r := New(wgInterface, nil)
+			advancedRouting := nbnet.AdvancedRouting()
+			err := r.SetupRouting(nil, nil, advancedRouting)
 			require.NoError(t, err)
 			t.Cleanup(func() {
-				assert.NoError(t, r.CleanupRouting(nil))
+				assert.NoError(t, r.CleanupRouting(nil, advancedRouting))
 			})
 
 			intf, err := net.InterfaceByName(wgInterface.Name())
@@ -340,20 +343,25 @@ func TestAddRouteToNonVPNIntf(t *testing.T) {
 
 			wgInterface := createWGInterface(t, fmt.Sprintf("utun54%d", n), "100.65.75.2/24", 33200+n)
 
-			r := NewSysOps(wgInterface, nil)
-			err := r.SetupRouting(nil, nil)
+			r := New(wgInterface, nil)
+			advancedRouting := nbnet.AdvancedRouting()
+			err := r.SetupRouting(nil, nil, advancedRouting)
 			require.NoError(t, err)
 			t.Cleanup(func() {
-				assert.NoError(t, r.CleanupRouting(nil))
+				assert.NoError(t, r.CleanupRouting(nil, advancedRouting))
 			})
 
 			initialNextHopV4, err := GetNextHop(netip.IPv4Unspecified())
 			require.NoError(t, err, "Should be able to get IPv4 default route")
 			t.Logf("Initial IPv4 next hop: %s", initialNextHopV4)
 
+			if testCase.prefix.Addr().Is6() && !testCase.expectError {
+				ensureIPv6DefaultRoute(t)
+			}
+
 			initialNextHopV6, err := GetNextHop(netip.IPv6Unspecified())
 			if testCase.prefix.Addr().Is6() &&
-				(errors.Is(err, vars.ErrRouteNotFound) || initialNextHopV6.Intf != nil && strings.HasPrefix(initialNextHopV6.Intf.Name, "utun")) {
+				initialNextHopV6.Intf != nil && strings.HasPrefix(initialNextHopV6.Intf.Name, "utun") {
 				t.Skip("Skipping test as no ipv6 default route is available")
 			}
 			if err != nil && !errors.Is(err, vars.ErrRouteNotFound) {
@@ -433,12 +441,12 @@ func createWGInterface(t *testing.T, interfaceName, ipAddressCIDR string, listen
 	peerPrivateKey, err := wgtypes.GeneratePrivateKey()
 	require.NoError(t, err)
 
-	newNet, err := stdnet.NewNet()
+	newNet, err := stdnet.NewNet(context.Background(), nil)
 	require.NoError(t, err)
 
 	opts := iface.WGIFaceOpts{
 		IFaceName:    interfaceName,
-		Address:      ipAddressCIDR,
+		Address:      wgaddr.MustParseWGAddress(ipAddressCIDR),
 		WGPrivKey:    peerPrivateKey.String(),
 		WGPort:       listenPort,
 		MTU:          iface.DefaultMTU,
@@ -483,11 +491,12 @@ func setupTestEnv(t *testing.T) {
 		assert.NoError(t, wgInterface.Close())
 	})
 
-	r := NewSysOps(wgInterface, nil)
-	err := r.SetupRouting(nil, nil)
+	r := New(wgInterface, nil)
+	advancedRouting := nbnet.AdvancedRouting()
+	err := r.SetupRouting(nil, nil, advancedRouting)
 	require.NoError(t, err, "setupRouting should not return err")
 	t.Cleanup(func() {
-		assert.NoError(t, r.CleanupRouting(nil))
+		assert.NoError(t, r.CleanupRouting(nil, advancedRouting))
 	})
 
 	index, err := net.InterfaceByName(wgInterface.Name())

@@ -32,6 +32,7 @@ var resp = &proto.StatusResponse{
 		Peers: []*proto.PeerState{
 			{
 				IP:                         "192.168.178.101",
+				Ipv6:                       "fd00::1",
 				PubKey:                     "Pubkey1",
 				Fqdn:                       "peer-1.awesome-domain.com",
 				ConnStatus:                 "Connected",
@@ -90,6 +91,7 @@ var resp = &proto.StatusResponse{
 		},
 		LocalPeerState: &proto.LocalPeerState{
 			IP:              "192.168.178.100/16",
+			Ipv6:            "fd00::100",
 			PubKey:          "Some-Pub-Key",
 			KernelInterface: true,
 			Fqdn:            "some-localhost.awesome-domain.com",
@@ -130,6 +132,7 @@ var overview = OutputOverview{
 		Details: []PeerStateDetailOutput{
 			{
 				IP:               "192.168.178.101",
+				IPv6:             "fd00::1",
 				PubKey:           "Pubkey1",
 				FQDN:             "peer-1.awesome-domain.com",
 				Status:           "Connected",
@@ -176,6 +179,7 @@ var overview = OutputOverview{
 	Events:        []SystemEventOutput{},
 	CliVersion:    version.NetbirdVersion(),
 	DaemonVersion: "0.14.1",
+	DaemonStatus:  DaemonStatusConnected,
 	ManagementState: ManagementStateOutput{
 		URL:       "my-awesome-management.com:443",
 		Connected: true,
@@ -203,6 +207,7 @@ var overview = OutputOverview{
 		},
 	},
 	IP:              "192.168.178.100/16",
+	IPv6:            "fd00::100",
 	PubKey:          "Some-Pub-Key",
 	KernelInterface: true,
 	FQDN:            "some-localhost.awesome-domain.com",
@@ -231,10 +236,17 @@ var overview = OutputOverview{
 	Networks: []string{
 		"10.10.0.0/24",
 	},
+	SSHServerState: SSHServerStateOutput{
+		Enabled:  false,
+		Sessions: []SSHSessionOutput{},
+	},
 }
 
 func TestConversionFromFullStatusToOutputOverview(t *testing.T) {
-	convertedResult := ConvertToStatusOutputOverview(resp, false, "", nil, nil, nil, "", "")
+	convertedResult := ConvertToStatusOutputOverview(resp.GetFullStatus(), ConvertOptions{
+		DaemonVersion: resp.GetDaemonVersion(),
+		DaemonStatus:  ParseDaemonStatus(resp.GetStatus()),
+	})
 
 	assert.Equal(t, overview, convertedResult)
 }
@@ -264,7 +276,7 @@ func TestSortingOfPeers(t *testing.T) {
 }
 
 func TestParsingToJSON(t *testing.T) {
-	jsonString, _ := ParseToJSON(overview)
+	jsonString, _ := overview.JSON()
 
 	//@formatter:off
 	expectedJSONString := `
@@ -276,6 +288,7 @@ func TestParsingToJSON(t *testing.T) {
               {
                 "fqdn": "peer-1.awesome-domain.com",
                 "netbirdIp": "192.168.178.101",
+                "netbirdIpv6": "fd00::1",
                 "publicKey": "Pubkey1",
                 "status": "Connected",
                 "lastStatusUpdate": "2001-01-01T01:01:01Z",
@@ -325,6 +338,7 @@ func TestParsingToJSON(t *testing.T) {
           },
           "cliVersion": "development",
           "daemonVersion": "0.14.1",
+          "daemonStatus": "Connected",
           "management": {
             "url": "my-awesome-management.com:443",
             "connected": true,
@@ -352,6 +366,7 @@ func TestParsingToJSON(t *testing.T) {
             ]
           },
           "netbirdIp": "192.168.178.100/16",
+          "netbirdIpv6": "fd00::100",
           "publicKey": "Some-Pub-Key",
           "usesKernelInterface": true,
           "fqdn": "some-localhost.awesome-domain.com",
@@ -385,7 +400,11 @@ func TestParsingToJSON(t *testing.T) {
           ],
           "events": [],
           "lazyConnectionEnabled": false,
-		  "profileName":""
+		  "profileName":"",
+		  "sshServer":{
+		    "enabled":false,
+			"sessions":[]
+		  }
         }`
 	// @formatter:on
 
@@ -396,7 +415,7 @@ func TestParsingToJSON(t *testing.T) {
 }
 
 func TestParsingToYAML(t *testing.T) {
-	yaml, _ := ParseToYAML(overview)
+	yaml, _ := overview.YAML()
 
 	expectedYAML :=
 		`peers:
@@ -405,6 +424,7 @@ func TestParsingToYAML(t *testing.T) {
     details:
         - fqdn: peer-1.awesome-domain.com
           netbirdIp: 192.168.178.101
+          netbirdIpv6: fd00::1
           publicKey: Pubkey1
           status: Connected
           lastStatusUpdate: 2001-01-01T01:01:01Z
@@ -444,6 +464,7 @@ func TestParsingToYAML(t *testing.T) {
           networks: []
 cliVersion: development
 daemonVersion: 0.14.1
+daemonStatus: Connected
 management:
     url: my-awesome-management.com:443
     connected: true
@@ -463,6 +484,7 @@ relays:
           available: false
           error: 'context: deadline exceeded'
 netbirdIp: 192.168.178.100/16
+netbirdIpv6: fd00::100
 publicKey: Some-Pub-Key
 usesKernelInterface: true
 fqdn: some-localhost.awesome-domain.com
@@ -488,6 +510,9 @@ dnsServers:
 events: []
 lazyConnectionEnabled: false
 profileName: ""
+sshServer:
+    enabled: false
+    sessions: []
 `
 
 	assert.Equal(t, expectedYAML, yaml)
@@ -500,12 +525,13 @@ func TestParsingToDetail(t *testing.T) {
 	lastConnectionUpdate2 := timeAgo(overview.Peers.Details[1].LastStatusUpdate)
 	lastHandshake2 := timeAgo(overview.Peers.Details[1].LastWireguardHandshake)
 
-	detail := ParseToFullDetailSummary(overview)
+	detail := overview.FullDetailSummary()
 
 	expectedDetail := fmt.Sprintf(
 		`Peers detail:
  peer-1.awesome-domain.com:
   NetBird IP: 192.168.178.101
+  NetBird IPv6: fd00::1
   Public key: Pubkey1
   Status: Connected
   -- detail --
@@ -551,11 +577,12 @@ Nameservers:
   [1.1.1.1:53, 2.2.2.2:53] for [example.com, example.net] is Unavailable, reason: timeout
 FQDN: some-localhost.awesome-domain.com
 NetBird IP: 192.168.178.100/16
+NetBird IPv6: fd00::100
 Interface type: Kernel
 Quantum resistance: false
 Lazy connection: false
+SSH Server: Disabled
 Networks: 10.10.0.0/24
-Forwarding rules: 0
 Peers count: 2/2 Connected
 `, lastConnectionUpdate1, lastHandshake1, lastConnectionUpdate2, lastHandshake2, runtime.GOOS, runtime.GOARCH, overview.CliVersion)
 
@@ -563,7 +590,7 @@ Peers count: 2/2 Connected
 }
 
 func TestParsingToShortVersion(t *testing.T) {
-	shortVersion := ParseGeneralSummary(overview, false, false, false)
+	shortVersion := overview.GeneralSummary(false, false, false, false)
 
 	expectedString := fmt.Sprintf("OS: %s/%s", runtime.GOOS, runtime.GOARCH) + `
 Daemon version: 0.14.1
@@ -575,11 +602,12 @@ Relays: 1/2 Available
 Nameservers: 1/2 Available
 FQDN: some-localhost.awesome-domain.com
 NetBird IP: 192.168.178.100/16
+NetBird IPv6: fd00::100
 Interface type: Kernel
 Quantum resistance: false
 Lazy connection: false
+SSH Server: Disabled
 Networks: 10.10.0.0/24
-Forwarding rules: 0
 Peers count: 2/2 Connected
 `
 

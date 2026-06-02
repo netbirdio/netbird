@@ -11,8 +11,9 @@ import (
 	"github.com/quic-go/quic-go"
 	log "github.com/sirupsen/logrus"
 
+	nbnet "github.com/netbirdio/netbird/client/net"
+	nbRelay "github.com/netbirdio/netbird/shared/relay"
 	quictls "github.com/netbirdio/netbird/shared/relay/tls"
-	nbnet "github.com/netbirdio/netbird/util/net"
 )
 
 type Dialer struct {
@@ -22,7 +23,7 @@ func (d Dialer) Protocol() string {
 	return Network
 }
 
-func (d Dialer) Dial(ctx context.Context, address string) (net.Conn, error) {
+func (d Dialer) Dial(ctx context.Context, address, serverName string) (net.Conn, error) {
 	quicURL, err := prepareURL(address)
 	if err != nil {
 		return nil, err
@@ -31,21 +32,24 @@ func (d Dialer) Dial(ctx context.Context, address string) (net.Conn, error) {
 	// Get the base TLS config
 	tlsClientConfig := quictls.ClientQUICTLSConfig()
 
-	// Set ServerName to hostname if not an IP address
-	host, _, splitErr := net.SplitHostPort(quicURL)
-	if splitErr == nil && net.ParseIP(host) == nil {
-		// It's a hostname, not an IP - modify directly
-		tlsClientConfig.ServerName = host
+	switch {
+	case serverName != "" && net.ParseIP(serverName) == nil:
+		tlsClientConfig.ServerName = serverName
+	default:
+		host, _, splitErr := net.SplitHostPort(quicURL)
+		if splitErr == nil && net.ParseIP(host) == nil {
+			tlsClientConfig.ServerName = host
+		}
 	}
 
 	quicConfig := &quic.Config{
 		KeepAlivePeriod:   30 * time.Second,
 		MaxIdleTimeout:    4 * time.Minute,
 		EnableDatagrams:   true,
-		InitialPacketSize: 1452,
+		InitialPacketSize: nbRelay.QUICInitialPacketSize,
 	}
 
-	udpConn, err := nbnet.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
+	udpConn, err := nbnet.ListenUDP("udp", &net.UDPAddr{Port: 0})
 	if err != nil {
 		log.Errorf("failed to listen on UDP: %s", err)
 		return nil, err
@@ -88,12 +92,12 @@ func prepareURL(address string) (string, error) {
 	finalHost, finalPort, err := net.SplitHostPort(host)
 	if err != nil {
 		if strings.Contains(err.Error(), "missing port") {
-			return host + ":" + defaultPort, nil
+			return net.JoinHostPort(strings.Trim(host, "[]"), defaultPort), nil
 		}
 
 		// return any other split error as is
 		return "", err
 	}
 
-	return finalHost + ":" + finalPort, nil
+	return net.JoinHostPort(finalHost, finalPort), nil
 }

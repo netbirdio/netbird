@@ -17,6 +17,8 @@ import (
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/firewall/test"
+	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/internal/acl/id"
 )
 
 const (
@@ -36,7 +38,7 @@ func TestNftablesManager_AddNatRule(t *testing.T) {
 	for _, testCase := range test.InsertRuleTestCases {
 		t.Run(testCase.Name, func(t *testing.T) {
 			// need fw manager to init both acl mgr and router for all chains to be present
-			manager, err := Create(ifaceMock)
+			manager, err := Create(ifaceMock, iface.DefaultMTU)
 			t.Cleanup(func() {
 				require.NoError(t, manager.Close(nil))
 			})
@@ -88,8 +90,9 @@ func TestNftablesManager_AddNatRule(t *testing.T) {
 				}
 
 				// Build CIDR matching expressions
-				sourceExp := applyPrefix(testCase.InputPair.Source.Prefix, true)
-				destExp := applyPrefix(testCase.InputPair.Destination.Prefix, false)
+				testRouter := &router{af: afIPv4}
+				sourceExp := testRouter.applyPrefix(testCase.InputPair.Source.Prefix, true)
+				destExp := testRouter.applyPrefix(testCase.InputPair.Destination.Prefix, false)
 
 				// Combine all expressions in the correct order
 				// nolint:gocritic
@@ -125,7 +128,7 @@ func TestNftablesManager_RemoveNatRule(t *testing.T) {
 
 	for _, testCase := range test.RemoveRuleTestCases {
 		t.Run(testCase.Name, func(t *testing.T) {
-			manager, err := Create(ifaceMock)
+			manager, err := Create(ifaceMock, iface.DefaultMTU)
 			t.Cleanup(func() {
 				require.NoError(t, manager.Close(nil))
 			})
@@ -197,7 +200,7 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 
 	defer deleteWorkTable()
 
-	r, err := newRouter(workTable, ifaceMock)
+	r, err := newRouter(workTable, ifaceMock, iface.DefaultMTU)
 	require.NoError(t, err, "Failed to create router")
 	require.NoError(t, r.init(workTable))
 
@@ -364,7 +367,7 @@ func TestNftablesCreateIpSet(t *testing.T) {
 
 	defer deleteWorkTable()
 
-	r, err := newRouter(workTable, ifaceMock)
+	r, err := newRouter(workTable, ifaceMock, iface.DefaultMTU)
 	require.NoError(t, err, "Failed to create router")
 	require.NoError(t, r.init(workTable))
 
@@ -506,6 +509,136 @@ func TestNftablesCreateIpSet(t *testing.T) {
 	}
 }
 
+func TestNftablesCreateIpSet_IPv6(t *testing.T) {
+	if check() != NFTABLES {
+		t.Skip("nftables not supported on this system")
+	}
+
+	workTable, err := createWorkTableIPv6()
+	require.NoError(t, err, "Failed to create v6 work table")
+	defer deleteWorkTableIPv6()
+
+	r, err := newRouter(workTable, ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err, "Failed to create router")
+	require.NoError(t, r.init(workTable))
+	defer func() {
+		require.NoError(t, r.Reset(), "Failed to reset router")
+	}()
+
+	tests := []struct {
+		name     string
+		sources  []netip.Prefix
+		expected []netip.Prefix
+	}{
+		{
+			name:    "Single IPv6",
+			sources: []netip.Prefix{netip.MustParsePrefix("2001:db8::1/128")},
+		},
+		{
+			name: "Multiple IPv6 Subnets",
+			sources: []netip.Prefix{
+				netip.MustParsePrefix("fd00::/64"),
+				netip.MustParsePrefix("2001:db8::/48"),
+				netip.MustParsePrefix("fe80::/10"),
+			},
+		},
+		{
+			name: "Overlapping IPv6",
+			sources: []netip.Prefix{
+				netip.MustParsePrefix("fd00::/48"),
+				netip.MustParsePrefix("fd00::/64"),
+				netip.MustParsePrefix("fd00::1/128"),
+			},
+			expected: []netip.Prefix{
+				netip.MustParsePrefix("fd00::/48"),
+			},
+		},
+		{
+			name: "Mixed prefix lengths",
+			sources: []netip.Prefix{
+				netip.MustParsePrefix("2001:db8:1::/48"),
+				netip.MustParsePrefix("2001:db8:2::1/128"),
+				netip.MustParsePrefix("fd00:abcd::/32"),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setName := firewall.NewPrefixSet(tt.sources).HashedName()
+			set, err := r.createIpSet(setName, setInput{prefixes: tt.sources})
+			require.NoError(t, err, "Failed to create IPv6 set")
+			require.NotNil(t, set)
+
+			assert.Equal(t, setName, set.Name)
+			assert.True(t, set.Interval)
+			assert.Equal(t, nftables.TypeIP6Addr, set.KeyType)
+
+			fetchedSet, err := r.conn.GetSetByName(r.workTable, setName)
+			require.NoError(t, err, "Failed to fetch created set")
+
+			elements, err := r.conn.GetSetElements(fetchedSet)
+			require.NoError(t, err, "Failed to get set elements")
+
+			uniquePrefixes := make(map[string]bool)
+			for _, elem := range elements {
+				if !elem.IntervalEnd && len(elem.Key) == 16 {
+					ip := netip.AddrFrom16([16]byte(elem.Key))
+					uniquePrefixes[ip.String()] = true
+				}
+			}
+
+			expectedCount := len(tt.expected)
+			if expectedCount == 0 {
+				expectedCount = len(tt.sources)
+			}
+			assert.Equal(t, expectedCount, len(uniquePrefixes), "unique prefix count mismatch")
+
+			r.conn.DelSet(set)
+			require.NoError(t, r.conn.Flush())
+		})
+	}
+}
+
+func createWorkTableIPv6() (*nftables.Table, error) {
+	sConn, err := nftables.New(nftables.AsLasting())
+	if err != nil {
+		return nil, err
+	}
+
+	tables, err := sConn.ListTablesOfFamily(nftables.TableFamilyIPv6)
+	if err != nil {
+		return nil, err
+	}
+	for _, t := range tables {
+		if t.Name == tableNameNetbird {
+			sConn.DelTable(t)
+		}
+	}
+
+	table := sConn.AddTable(&nftables.Table{Name: tableNameNetbird, Family: nftables.TableFamilyIPv6})
+	err = sConn.Flush()
+	return table, err
+}
+
+func deleteWorkTableIPv6() {
+	sConn, err := nftables.New(nftables.AsLasting())
+	if err != nil {
+		return
+	}
+
+	tables, err := sConn.ListTablesOfFamily(nftables.TableFamilyIPv6)
+	if err != nil {
+		return
+	}
+	for _, t := range tables {
+		if t.Name == tableNameNetbird {
+			sConn.DelTable(t)
+			_ = sConn.Flush()
+		}
+	}
+}
+
 func verifyRule(t *testing.T, rule *nftables.Rule, sources []netip.Prefix, destination netip.Prefix, proto firewall.Protocol, sPort, dPort *firewall.Port, direction firewall.RuleDirection, action firewall.Action, expectSet bool) {
 	t.Helper()
 
@@ -625,7 +758,7 @@ func containsPort(exprs []expr.Any, port *firewall.Port, isSource bool) bool {
 
 func containsProtocol(exprs []expr.Any, proto firewall.Protocol) bool {
 	var metaFound, cmpFound bool
-	expectedProto, _ := protoToInt(proto)
+	expectedProto, _ := afIPv4.protoNum(proto)
 	for _, e := range exprs {
 		switch ex := e.(type) {
 		case *expr.Meta:
@@ -717,4 +850,190 @@ func deleteWorkTable() {
 			sConn.DelTable(t)
 		}
 	}
+}
+
+func TestRouter_RefreshRulesMap_RemovesStaleEntries(t *testing.T) {
+	if check() != NFTABLES {
+		t.Skip("nftables not supported on this system")
+	}
+
+	workTable, err := createWorkTable()
+	require.NoError(t, err)
+	defer deleteWorkTable()
+
+	r, err := newRouter(workTable, ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err)
+	require.NoError(t, r.init(workTable))
+	defer func() { require.NoError(t, r.Reset()) }()
+
+	// Add a real rule to the kernel
+	ruleKey, err := r.AddRouteFiltering(
+		nil,
+		[]netip.Prefix{netip.MustParsePrefix("192.168.1.0/24")},
+		firewall.Network{Prefix: netip.MustParsePrefix("10.0.0.0/24")},
+		firewall.ProtocolTCP,
+		nil,
+		&firewall.Port{Values: []uint16{80}},
+		firewall.ActionAccept,
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, r.DeleteRouteRule(ruleKey))
+	})
+
+	// Inject a stale entry with Handle=0 (simulates store-before-flush failure)
+	staleKey := "stale-rule-that-does-not-exist"
+	r.rules[staleKey] = &nftables.Rule{
+		Table:    r.workTable,
+		Chain:    r.chains[chainNameRoutingFw],
+		Handle:   0,
+		UserData: []byte(staleKey),
+	}
+
+	require.Contains(t, r.rules, staleKey, "stale entry should be in map before refresh")
+
+	err = r.refreshRulesMap()
+	require.NoError(t, err)
+
+	assert.NotContains(t, r.rules, staleKey, "stale entry should be removed after refresh")
+
+	realRule, ok := r.rules[ruleKey.ID()]
+	assert.True(t, ok, "real rule should still exist after refresh")
+	assert.NotZero(t, realRule.Handle, "real rule should have a valid handle")
+}
+
+func TestRouter_DeleteRouteRule_StaleHandle(t *testing.T) {
+	if check() != NFTABLES {
+		t.Skip("nftables not supported on this system")
+	}
+
+	workTable, err := createWorkTable()
+	require.NoError(t, err)
+	defer deleteWorkTable()
+
+	r, err := newRouter(workTable, ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err)
+	require.NoError(t, r.init(workTable))
+	defer func() { require.NoError(t, r.Reset()) }()
+
+	// Inject a stale entry with Handle=0
+	staleKey := "stale-route-rule"
+	r.rules[staleKey] = &nftables.Rule{
+		Table:    r.workTable,
+		Chain:    r.chains[chainNameRoutingFw],
+		Handle:   0,
+		UserData: []byte(staleKey),
+	}
+
+	// DeleteRouteRule should not return an error for stale handles
+	err = r.DeleteRouteRule(id.RuleID(staleKey))
+	assert.NoError(t, err, "deleting a stale rule should not error")
+	assert.NotContains(t, r.rules, staleKey, "stale entry should be cleaned up")
+}
+
+func TestRouter_AddNatRule_WithStaleEntry(t *testing.T) {
+	if check() != NFTABLES {
+		t.Skip("nftables not supported on this system")
+	}
+
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
+	t.Cleanup(func() {
+		require.NoError(t, manager.Close(nil))
+	})
+
+	pair := firewall.RouterPair{
+		ID:          "staletest",
+		Source:      firewall.Network{Prefix: netip.MustParsePrefix("100.100.100.1/32")},
+		Destination: firewall.Network{Prefix: netip.MustParsePrefix("100.100.200.0/24")},
+		Masquerade:  true,
+	}
+
+	rtr := manager.router
+
+	// First add succeeds
+	err = rtr.AddNatRule(pair)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, rtr.RemoveNatRule(pair))
+	})
+
+	// Corrupt the handle to simulate stale state
+	natRuleKey := firewall.GenKey(firewall.PreroutingFormat, pair)
+	if rule, exists := rtr.rules[natRuleKey]; exists {
+		rule.Handle = 0
+	}
+	inverseKey := firewall.GenKey(firewall.PreroutingFormat, firewall.GetInversePair(pair))
+	if rule, exists := rtr.rules[inverseKey]; exists {
+		rule.Handle = 0
+	}
+
+	// Adding the same rule again should succeed despite stale handles
+	err = rtr.AddNatRule(pair)
+	assert.NoError(t, err, "AddNatRule should succeed even with stale entries")
+
+	// Verify rules exist in kernel
+	rules, err := rtr.conn.GetRules(rtr.workTable, rtr.chains[chainNameManglePrerouting])
+	require.NoError(t, err)
+
+	found := 0
+	for _, rule := range rules {
+		if len(rule.UserData) > 0 && string(rule.UserData) == natRuleKey {
+			found++
+		}
+	}
+	assert.Equal(t, 1, found, "NAT rule should exist in kernel")
+}
+
+func TestCalculateLastIP(t *testing.T) {
+	tests := []struct {
+		prefix string
+		want   string
+	}{
+		{"10.0.0.0/24", "10.0.0.255"},
+		{"10.0.0.0/32", "10.0.0.0"},
+		{"0.0.0.0/0", "255.255.255.255"},
+		{"192.168.1.0/28", "192.168.1.15"},
+		{"fd00::/64", "fd00::ffff:ffff:ffff:ffff"},
+		{"fd00::/128", "fd00::"},
+		{"2001:db8::/48", "2001:db8:0:ffff:ffff:ffff:ffff:ffff"},
+		{"::/0", "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.prefix, func(t *testing.T) {
+			prefix := netip.MustParsePrefix(tt.prefix)
+			got := calculateLastIP(prefix)
+			assert.Equal(t, tt.want, got.String())
+		})
+	}
+}
+
+func TestConvertPrefixesToSet_IPv6(t *testing.T) {
+	r := &router{af: afIPv6}
+	prefixes := []netip.Prefix{
+		netip.MustParsePrefix("fd00::/64"),
+		netip.MustParsePrefix("2001:db8::1/128"),
+	}
+
+	elements := r.convertPrefixesToSet(prefixes)
+
+	// Each prefix produces 2 elements (start + end)
+	require.Len(t, elements, 4)
+
+	// fd00::/64 start
+	assert.Equal(t, netip.MustParseAddr("fd00::").As16(), [16]byte(elements[0].Key))
+	assert.False(t, elements[0].IntervalEnd)
+
+	// fd00::/64 end (fd00:0:0:1::, one past the last)
+	assert.Equal(t, netip.MustParseAddr("fd00:0:0:1::").As16(), [16]byte(elements[1].Key))
+	assert.True(t, elements[1].IntervalEnd)
+
+	// 2001:db8::1/128 start
+	assert.Equal(t, netip.MustParseAddr("2001:db8::1").As16(), [16]byte(elements[2].Key))
+	assert.False(t, elements[2].IntervalEnd)
+
+	// 2001:db8::1/128 end (2001:db8::2)
+	assert.Equal(t, netip.MustParseAddr("2001:db8::2").As16(), [16]byte(elements[3].Key))
+	assert.True(t, elements[3].IntervalEnd)
 }

@@ -22,6 +22,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	daddr "github.com/netbirdio/netbird/client/internal/daemonaddr"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 )
 
@@ -35,7 +36,6 @@ const (
 	wireguardPortFlag        = "wireguard-port"
 	networkMonitorFlag       = "network-monitor"
 	disableAutoConnectFlag   = "disable-auto-connect"
-	serverSSHAllowedFlag     = "allow-server-ssh"
 	extraIFaceBlackListFlag  = "extra-iface-blacklist"
 	dnsRouteIntervalFlag     = "dns-router-interval"
 	enableLazyConnectionFlag = "enable-lazy-connection"
@@ -64,7 +64,6 @@ var (
 	customDNSAddress        string
 	rosenpassEnabled        bool
 	rosenpassPermissive     bool
-	serverSSHAllowed        bool
 	interfaceName           string
 	wireguardPort           uint16
 	networkMonitor          bool
@@ -76,17 +75,31 @@ var (
 	mtu                     uint16
 	profilesDisabled        bool
 	updateSettingsDisabled  bool
+	captureEnabled          bool
+	networksDisabled        bool
 
 	rootCmd = &cobra.Command{
 		Use:          "netbird",
 		Short:        "",
 		Long:         "",
 		SilenceUsage: true,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			SetFlagsFromEnvVars(cmd.Root())
+
+			// Don't resolve for service commands — they create the socket, not connect to it.
+			if !isServiceCmd(cmd) {
+				daemonAddr = daddr.ResolveUnixDaemonAddr(daemonAddr)
+			}
+			return nil
+		},
 	}
 )
 
 // Execute executes the root command.
 func Execute() error {
+	if isUpdateBinary() {
+		return updateCmd.Execute()
+	}
 	return rootCmd.Execute()
 }
 
@@ -130,7 +143,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&preSharedKey, preSharedKeyFlag, "", "Sets WireGuard PreSharedKey property. If set, then only peers that have the same key can communicate.")
 	rootCmd.PersistentFlags().StringVarP(&hostName, "hostname", "n", "", "Sets a custom hostname for the device")
 	rootCmd.PersistentFlags().BoolVarP(&anonymizeFlag, "anonymize", "A", false, "anonymize IP addresses and non-netbird.io domains in logs and status output")
-	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", defaultConfigPath, "Overrides the default profile file location")
+	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", profilemanager.DefaultConfigPath, "Overrides the default profile file location")
 
 	rootCmd.AddCommand(upCmd)
 	rootCmd.AddCommand(downCmd)
@@ -143,6 +156,7 @@ func init() {
 	rootCmd.AddCommand(forwardingRulesCmd)
 	rootCmd.AddCommand(debugCmd)
 	rootCmd.AddCommand(profileCmd)
+	rootCmd.AddCommand(exposeCmd)
 
 	networksCMD.AddCommand(routesListCmd)
 	networksCMD.AddCommand(routesSelectCmd, routesDeselectCmd)
@@ -176,7 +190,6 @@ func init() {
 	)
 	upCmd.PersistentFlags().BoolVar(&rosenpassEnabled, enableRosenpassFlag, false, "[Experimental] Enable Rosenpass feature. If enabled, the connection will be post-quantum secured via Rosenpass.")
 	upCmd.PersistentFlags().BoolVar(&rosenpassPermissive, rosenpassPermissiveFlag, false, "[Experimental] Enable Rosenpass in permissive mode to allow this peer to accept WireGuard connections without requiring Rosenpass functionality from peers that do not have Rosenpass enabled.")
-	upCmd.PersistentFlags().BoolVar(&serverSSHAllowed, serverSSHAllowedFlag, false, "Allow SSH server on peer. If enabled, the SSH server will be permitted")
 	upCmd.PersistentFlags().BoolVar(&autoConnectDisabled, disableAutoConnectFlag, false, "Disables auto-connect feature. If enabled, then the client won't connect automatically when the service starts.")
 	upCmd.PersistentFlags().BoolVar(&lazyConnEnabled, enableLazyConnectionFlag, false, "[Experimental] Enable the lazy connection feature. If enabled, the client will establish connections on-demand. Note: this setting may be overridden by management configuration.")
 
@@ -231,7 +244,7 @@ func FlagNameToEnvVar(cmdFlag string, prefix string) string {
 
 // DialClientGRPCServer returns client connection to the daemon server.
 func DialClientGRPCServer(ctx context.Context, addr string) (*grpc.ClientConn, error) {
-	ctx, cancel := context.WithTimeout(ctx, time.Second*3)
+	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
 	defer cancel()
 
 	return grpc.DialContext(
@@ -385,15 +398,25 @@ func migrateToNetbird(oldPath, newPath string) bool {
 }
 
 func getClient(cmd *cobra.Command) (*grpc.ClientConn, error) {
-	SetFlagsFromEnvVars(rootCmd)
 	cmd.SetOut(cmd.OutOrStdout())
 
 	conn, err := DialClientGRPCServer(cmd.Context(), daemonAddr)
 	if err != nil {
+		//nolint
 		return nil, fmt.Errorf("failed to connect to daemon error: %v\n"+
 			"If the daemon is not running please run: "+
 			"\nnetbird service install \nnetbird service start\n", err)
 	}
 
 	return conn, nil
+}
+
+// isServiceCmd returns true if cmd is the "service" command or a child of it.
+func isServiceCmd(cmd *cobra.Command) bool {
+	for c := cmd; c != nil; c = c.Parent() {
+		if c.Name() == "service" {
+			return true
+		}
+	}
+	return false
 }

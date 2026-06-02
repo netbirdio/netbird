@@ -1,9 +1,7 @@
-//go:build ios
-// +build ios
-
 package device
 
 import (
+	"fmt"
 	"os"
 
 	log "github.com/sirupsen/logrus"
@@ -14,6 +12,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
+	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
@@ -28,7 +27,7 @@ type TunDevice struct {
 
 	device         *device.Device
 	filteredDevice *FilteredDevice
-	udpMux         *bind.UniversalUDPMuxDefault
+	udpMux         *udpmux.UniversalUDPMuxDefault
 	configurer     WGConfigurer
 }
 
@@ -44,10 +43,31 @@ func NewTunDevice(name string, address wgaddr.Address, port int, key string, mtu
 	}
 }
 
+// ErrInvalidTunnelFD is returned when the tunnel file descriptor is invalid (0).
+// This typically means the Swift code couldn't find the utun control socket.
+var ErrInvalidTunnelFD = fmt.Errorf("invalid tunnel file descriptor: fd is 0 (Swift failed to locate utun socket)")
+
 func (t *TunDevice) Create() (WGConfigurer, error) {
 	log.Infof("create tun interface")
 
-	dupTunFd, err := unix.Dup(t.tunFd)
+	var tunDevice tun.Device
+	var err error
+
+	// Validate the tunnel file descriptor.
+	// On iOS/tvOS, the FD must be provided by the NEPacketTunnelProvider.
+	// A value of 0 means the Swift code couldn't find the utun control socket
+	// (the low-level APIs like ctl_info, sockaddr_ctl may not be exposed in
+	// tvOS SDK headers). This is a hard error - there's no viable fallback
+	// since tun.CreateTUN() cannot work within the iOS/tvOS sandbox.
+	if t.tunFd == 0 {
+		log.Errorf("Tunnel file descriptor is 0 - Swift code failed to locate the utun control socket. " +
+			"On tvOS, ensure the NEPacketTunnelProvider is properly configured and the tunnel is started.")
+		return nil, ErrInvalidTunnelFD
+	}
+
+	// Normal iOS/tvOS path: use the provided file descriptor from NEPacketTunnelProvider
+	var dupTunFd int
+	dupTunFd, err = unix.Dup(t.tunFd)
 	if err != nil {
 		log.Errorf("Unable to dup tun fd: %v", err)
 		return nil, err
@@ -59,7 +79,7 @@ func (t *TunDevice) Create() (WGConfigurer, error) {
 		_ = unix.Close(dupTunFd)
 		return nil, err
 	}
-	tunDevice, err := tun.CreateTUNFromFile(os.NewFile(uintptr(dupTunFd), "/dev/tun"), 0)
+	tunDevice, err = tun.CreateTUNFromFile(os.NewFile(uintptr(dupTunFd), "/dev/tun"), 0)
 	if err != nil {
 		log.Errorf("Unable to create new tun device from fd: %v", err)
 		_ = unix.Close(dupTunFd)
@@ -83,7 +103,7 @@ func (t *TunDevice) Create() (WGConfigurer, error) {
 	return t.configurer, nil
 }
 
-func (t *TunDevice) Up() (*bind.UniversalUDPMuxDefault, error) {
+func (t *TunDevice) Up() (*udpmux.UniversalUDPMuxDefault, error) {
 	err := t.device.Up()
 	if err != nil {
 		return nil, err
@@ -131,8 +151,11 @@ func (t *TunDevice) MTU() uint16 {
 	return t.mtu
 }
 
-func (t *TunDevice) UpdateAddr(_ wgaddr.Address) error {
-	// todo implement
+// UpdateAddr updates the device address. On iOS the tunnel is managed by the
+// NetworkExtension, so we only store the new value. The extension picks up the
+// change on the next tunnel reconfiguration.
+func (t *TunDevice) UpdateAddr(addr wgaddr.Address) error {
+	t.address = addr
 	return nil
 }
 
@@ -142,4 +165,9 @@ func (t *TunDevice) FilteredDevice() *FilteredDevice {
 
 func (t *TunDevice) GetNet() *netstack.Net {
 	return nil
+}
+
+// GetICEBind returns the ICEBind instance
+func (t *TunDevice) GetICEBind() EndpointManager {
+	return t.iceBind
 }

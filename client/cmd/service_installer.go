@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"runtime"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/kardianos/service"
 	"github.com/spf13/cobra"
 
@@ -57,6 +59,14 @@ func buildServiceArguments() []string {
 		args = append(args, "--disable-update-settings")
 	}
 
+	if captureEnabled {
+		args = append(args, "--enable-capture")
+	}
+
+	if networksDisabled {
+		args = append(args, "--disable-networks")
+	}
+
 	return args
 }
 
@@ -80,6 +90,10 @@ func configurePlatformSpecificSettings(svcConfig *service.Config) error {
 				svcConfig.Option["LogOutput"] = true
 				svcConfig.Option["LogDirectory"] = dir
 			}
+		}
+
+		if err := configureSystemdNetworkd(); err != nil {
+			log.Warnf("failed to configure systemd-networkd: %v", err)
 		}
 	}
 
@@ -113,6 +127,10 @@ var installCmd = &cobra.Command{
 			return err
 		}
 
+		if err := loadAndApplyServiceParams(cmd); err != nil {
+			cmd.PrintErrf("Warning: failed to load saved service params: %v\n", err)
+		}
+
 		svcConfig, err := createServiceConfigForInstall()
 		if err != nil {
 			return err
@@ -128,6 +146,10 @@ var installCmd = &cobra.Command{
 
 		if err := s.Install(); err != nil {
 			return fmt.Errorf("install service: %w", err)
+		}
+
+		if err := saveServiceParams(currentServiceParams()); err != nil {
+			cmd.PrintErrf("Warning: failed to save service params: %v\n", err)
 		}
 
 		cmd.Println("NetBird service has been installed")
@@ -160,6 +182,12 @@ var uninstallCmd = &cobra.Command{
 			return fmt.Errorf("uninstall service: %w", err)
 		}
 
+		if runtime.GOOS == "linux" {
+			if err := cleanupSystemdNetworkd(); err != nil {
+				log.Warnf("failed to cleanup systemd-networkd configuration: %v", err)
+			}
+		}
+
 		cmd.Println("NetBird service has been uninstalled")
 		return nil
 	},
@@ -173,6 +201,10 @@ This command will temporarily stop the service, update its configuration, and re
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := setupServiceCommand(cmd); err != nil {
 			return err
+		}
+
+		if err := loadAndApplyServiceParams(cmd); err != nil {
+			cmd.PrintErrf("Warning: failed to load saved service params: %v\n", err)
 		}
 
 		wasRunning, err := isServiceRunning()
@@ -210,6 +242,10 @@ This command will temporarily stop the service, update its configuration, and re
 			return fmt.Errorf("install service with new config: %w", err)
 		}
 
+		if err := saveServiceParams(currentServiceParams()); err != nil {
+			cmd.PrintErrf("Warning: failed to save service params: %v\n", err)
+		}
+
 		if wasRunning {
 			cmd.Println("Starting NetBird service...")
 			if err := s.Start(); err != nil {
@@ -244,4 +280,51 @@ func isServiceRunning() (bool, error) {
 	}
 
 	return status == service.StatusRunning, nil
+}
+
+const (
+	networkdConf        = "/etc/systemd/networkd.conf"
+	networkdConfDir     = "/etc/systemd/networkd.conf.d"
+	networkdConfFile    = "/etc/systemd/networkd.conf.d/99-netbird.conf"
+	networkdConfContent = `# Created by NetBird to prevent systemd-networkd from removing
+# routes and policy rules managed by NetBird.
+
+[Network]
+ManageForeignRoutes=no
+ManageForeignRoutingPolicyRules=no
+`
+)
+
+// configureSystemdNetworkd creates a drop-in configuration file to prevent
+// systemd-networkd from removing NetBird's routes and policy rules.
+func configureSystemdNetworkd() error {
+	if _, err := os.Stat(networkdConf); os.IsNotExist(err) {
+		log.Debug("systemd-networkd not in use, skipping configuration")
+		return nil
+	}
+
+	// nolint:gosec // standard networkd permissions
+	if err := os.MkdirAll(networkdConfDir, 0755); err != nil {
+		return fmt.Errorf("create networkd.conf.d directory: %w", err)
+	}
+
+	// nolint:gosec // standard networkd permissions
+	if err := os.WriteFile(networkdConfFile, []byte(networkdConfContent), 0644); err != nil {
+		return fmt.Errorf("write networkd configuration: %w", err)
+	}
+
+	return nil
+}
+
+// cleanupSystemdNetworkd removes the NetBird systemd-networkd configuration file.
+func cleanupSystemdNetworkd() error {
+	if _, err := os.Stat(networkdConfFile); os.IsNotExist(err) {
+		return nil
+	}
+
+	if err := os.Remove(networkdConfFile); err != nil {
+		return fmt.Errorf("remove networkd configuration: %w", err)
+	}
+
+	return nil
 }

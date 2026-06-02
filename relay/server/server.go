@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"net/url"
 	"sync"
 
 	"github.com/hashicorp/go-multierror"
@@ -28,10 +29,8 @@ type ListenerConfig struct {
 // It is the gate between the WebSocket listener and the Relay server logic.
 // In a new HTTP connection, the server will accept the connection and pass it to the Relay server via the Accept method.
 type Server struct {
-	listenAddr string
-
 	relay       *Relay
-	listeners   []listener.Listener
+	listeners   []Listener
 	listenerMux sync.Mutex
 }
 
@@ -41,7 +40,7 @@ type Server struct {
 //
 //	config: A Config struct containing the necessary configuration:
 //	  - Meter: An OpenTelemetry metric.Meter used for recording metrics. If nil, a default no-op meter is used.
-//	  - ExposedAddress: The public address (in domain:port format) used as the server's instance URL. Required.
+//	  - InstanceURL: The public address (in domain:port format) used as the server's instance URL. Required.
 //	  - TLSSupport: A boolean indicating whether TLS is enabled for the server.
 //	  - AuthValidator: A Validator used to authenticate peers. Required.
 //
@@ -56,14 +55,12 @@ func NewServer(config Config) (*Server, error) {
 	}
 	return &Server{
 		relay:     relay,
-		listeners: make([]listener.Listener, 0, 2),
+		listeners: make([]Listener, 0, 2),
 	}, nil
 }
 
 // Listen starts the relay server.
 func (r *Server) Listen(cfg ListenerConfig) error {
-	r.listenAddr = cfg.Address
-
 	wSListener := &ws.Listener{
 		Address:   cfg.Address,
 		TLSConfig: cfg.TLSConfig,
@@ -88,7 +85,7 @@ func (r *Server) Listen(cfg ListenerConfig) error {
 	wg := sync.WaitGroup{}
 	for _, l := range r.listeners {
 		wg.Add(1)
-		go func(listener listener.Listener) {
+		go func(listener Listener) {
 			defer wg.Done()
 			errChan <- listener.Listen(r.relay.Accept)
 		}(l)
@@ -123,11 +120,6 @@ func (r *Server) Shutdown(ctx context.Context) error {
 	return nberrors.FormatErrorOrNil(multiErr)
 }
 
-// InstanceURL returns the instance URL of the relay server.
-func (r *Server) InstanceURL() string {
-	return r.relay.instanceURL
-}
-
 func (r *Server) ListenerProtocols() []protocol.Protocol {
 	result := make([]protocol.Protocol, 0)
 
@@ -139,6 +131,13 @@ func (r *Server) ListenerProtocols() []protocol.Protocol {
 	return result
 }
 
-func (r *Server) ListenAddress() string {
-	return r.listenAddr
+func (r *Server) InstanceURL() url.URL {
+	return r.relay.InstanceURL()
+}
+
+// RelayAccept returns the relay's Accept function for handling incoming connections.
+// This allows external HTTP handlers to route connections to the relay without
+// starting the relay's own listeners.
+func (r *Server) RelayAccept() func(conn listener.Conn) {
+	return r.relay.Accept
 }

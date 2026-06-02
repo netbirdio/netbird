@@ -15,8 +15,6 @@ import (
 	"github.com/netbirdio/netbird/monotime"
 )
 
-var zeroKey wgtypes.Key
-
 type KernelConfigurer struct {
 	deviceName string
 }
@@ -48,6 +46,18 @@ func (c *KernelConfigurer) ConfigureInterface(privateKey string, port int) error
 	return nil
 }
 
+// SetPresharedKey sets the preshared key for a peer.
+// If updateOnly is true, only updates the existing peer; if false, creates or updates.
+func (c *KernelConfigurer) SetPresharedKey(peerKey string, psk wgtypes.Key, updateOnly bool) error {
+	parsedPeerKey, err := wgtypes.ParseKey(peerKey)
+	if err != nil {
+		return err
+	}
+
+	cfg := buildPresharedKeyConfig(parsedPeerKey, psk, updateOnly)
+	return c.configure(cfg)
+}
+
 func (c *KernelConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
@@ -70,6 +80,44 @@ func (c *KernelConfigurer) UpdatePeer(peerKey string, allowedIps []netip.Prefix,
 	if err != nil {
 		return fmt.Errorf(`received error "%w" while updating peer on interface %s with settings: allowed ips %s, endpoint %s`, err, c.deviceName, allowedIps, endpoint.String())
 	}
+	return nil
+}
+
+func (c *KernelConfigurer) RemoveEndpointAddress(peerKey string) error {
+	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
+	if err != nil {
+		return err
+	}
+
+	// Get the existing peer to preserve its allowed IPs
+	existingPeer, err := c.getPeer(c.deviceName, peerKey)
+	if err != nil {
+		return fmt.Errorf("get peer: %w", err)
+	}
+
+	removePeerCfg := wgtypes.PeerConfig{
+		PublicKey: peerKeyParsed,
+		Remove:    true,
+	}
+
+	if err := c.configure(wgtypes.Config{Peers: []wgtypes.PeerConfig{removePeerCfg}}); err != nil {
+		return fmt.Errorf(`error removing peer %s from interface %s: %w`, peerKey, c.deviceName, err)
+	}
+
+	//Re-add the peer without the endpoint but same AllowedIPs
+	reAddPeerCfg := wgtypes.PeerConfig{
+		PublicKey:         peerKeyParsed,
+		AllowedIPs:        existingPeer.AllowedIPs,
+		ReplaceAllowedIPs: true,
+	}
+
+	if err := c.configure(wgtypes.Config{Peers: []wgtypes.PeerConfig{reAddPeerCfg}}); err != nil {
+		return fmt.Errorf(
+			`error re-adding peer %s to interface %s with allowed IPs %v: %w`,
+			peerKey, c.deviceName, existingPeer.AllowedIPs, err,
+		)
+	}
+
 	return nil
 }
 
@@ -241,7 +289,7 @@ func (c *KernelConfigurer) FullStats() (*Stats, error) {
 			TxBytes:       p.TransmitBytes,
 			RxBytes:       p.ReceiveBytes,
 			LastHandshake: p.LastHandshakeTime,
-			PresharedKey:  p.PresharedKey != zeroKey,
+			PresharedKey:  [32]byte(p.PresharedKey),
 		}
 		if p.Endpoint != nil {
 			peer.Endpoint = *p.Endpoint

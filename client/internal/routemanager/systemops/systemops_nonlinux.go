@@ -1,4 +1,4 @@
-//go:build !linux && !ios
+//go:build !linux && !ios && !js
 
 package systemops
 
@@ -46,10 +46,6 @@ func (r *SysOps) RemoveVPNRoute(prefix netip.Prefix, intf *net.Interface) error 
 func EnableIPForwarding() error {
 	log.Infof("Enable IP forwarding is not implemented on %s", runtime.GOOS)
 	return nil
-}
-
-func hasSeparateRouting() ([]netip.Prefix, error) {
-	return GetRoutesFromTable()
 }
 
 // GetIPRules returns IP rules for debugging (not supported on non-Linux platforms)

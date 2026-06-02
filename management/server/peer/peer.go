@@ -8,6 +8,13 @@ import (
 	"time"
 
 	"github.com/netbirdio/netbird/management/server/util"
+	"github.com/netbirdio/netbird/shared/management/http/api"
+)
+
+// Peer capability constants mirror the proto enum values.
+const (
+	PeerCapabilitySourcePrefixes int32 = 1
+	PeerCapabilityIPv6Overlay    int32 = 2
 )
 
 // Peer represents a machine connected to the network.
@@ -18,11 +25,15 @@ type Peer struct {
 	// AccountID is a reference to Account that this object belongs
 	AccountID string `json:"-" gorm:"index"`
 	// WireGuard public key
-	Key string `gorm:"index"`
+	Key string // uniqueness index (check migrations)
 	// IP address of the Peer
-	IP net.IP `gorm:"serializer:json"` // uniqueness index per accountID (check migrations)
+	IP netip.Addr `gorm:"serializer:json"` // uniqueness index per accountID (check migrations)
+	// IPv6 overlay address of the Peer, zero value if IPv6 is not enabled for the account.
+	IPv6 netip.Addr `gorm:"serializer:json"`
 	// Meta is a Peer system meta data
 	Meta PeerSystemMeta `gorm:"embedded;embeddedPrefix:meta_"`
+	// ProxyMeta is metadata related to proxy peers
+	ProxyMeta ProxyMeta `gorm:"embedded;embeddedPrefix:proxy_meta_"`
 	// Name is peer's name (machine name)
 	Name string `gorm:"index"`
 	// DNSLabel is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's
@@ -47,6 +58,7 @@ type Peer struct {
 	CreatedAt time.Time
 	// Indicate ephemeral peer attribute
 	Ephemeral bool `gorm:"index"`
+
 	// Geo location based on connection IP
 	Location Location `gorm:"embedded;embeddedPrefix:location_"`
 
@@ -56,9 +68,25 @@ type Peer struct {
 	AllowExtraDNSLabels bool
 }
 
+type ProxyMeta struct {
+	Embedded bool   `gorm:"index"`
+	Cluster  string `gorm:"index"`
+}
+
 type PeerStatus struct { //nolint:revive
-	// LastSeen is the last time peer was connected to the management service
+	// LastSeen is the last time the peer status was updated (i.e. the last
+	// time we observed the peer being alive on a sync stream). Written by
+	// the database (CURRENT_TIMESTAMP) — callers do not supply it.
 	LastSeen time.Time
+	// SessionStartedAt records when the currently-active sync stream began,
+	// stored as Unix nanoseconds. It acts as the optimistic-locking token
+	// for status updates: a stream is only allowed to mutate the peer's
+	// status when its own token strictly exceeds the stored token (when connecting)
+	// or matches it exactly (for disconnects). Zero means "no
+	// active session". Integer nanoseconds are used so equality is
+	// precision-safe across drivers, and so the predicates compose to a
+	// single bigint comparison.
+	SessionStartedAt int64 `gorm:"not null;default:0"`
 	// Connected indicates whether peer is connected to the management service or not
 	Connected bool
 	// LoginExpired
@@ -106,6 +134,7 @@ type Flags struct {
 	DisableFirewall     bool
 	BlockLANAccess      bool
 	BlockInbound        bool
+	DisableIPv6         bool
 
 	LazyConnectionEnabled bool
 }
@@ -129,6 +158,7 @@ type PeerSystemMeta struct { //nolint:revive
 	Environment        Environment `gorm:"serializer:json"`
 	Flags              Flags       `gorm:"serializer:json"`
 	Files              []File      `gorm:"serializer:json"`
+	Capabilities       []int32     `gorm:"serializer:json"`
 }
 
 func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
@@ -173,7 +203,8 @@ func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
 		p.SystemManufacturer == other.SystemManufacturer &&
 		p.Environment.Cloud == other.Environment.Cloud &&
 		p.Environment.Platform == other.Environment.Platform &&
-		p.Flags.isEqual(other.Flags)
+		p.Flags.isEqual(other.Flags) &&
+		capabilitiesEqual(p.Capabilities, other.Capabilities)
 }
 
 func (p PeerSystemMeta) isEmpty() bool {
@@ -201,6 +232,37 @@ func (p *Peer) AddedWithSSOLogin() bool {
 	return p.UserID != ""
 }
 
+// HasCapability reports whether the peer has the given capability.
+func (p *Peer) HasCapability(capability int32) bool {
+	return slices.Contains(p.Meta.Capabilities, capability)
+}
+
+// SupportsIPv6 reports whether the peer supports IPv6 overlay.
+func (p *Peer) SupportsIPv6() bool {
+	return !p.Meta.Flags.DisableIPv6 && p.HasCapability(PeerCapabilityIPv6Overlay)
+}
+
+// SupportsSourcePrefixes reports whether the peer reads SourcePrefixes.
+func (p *Peer) SupportsSourcePrefixes() bool {
+	return p.HasCapability(PeerCapabilitySourcePrefixes)
+}
+
+func capabilitiesEqual(a, b []int32) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	set := make(map[int32]struct{}, len(a))
+	for _, c := range a {
+		set[c] = struct{}{}
+	}
+	for _, c := range b {
+		if _, ok := set[c]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
 // Copy copies Peer object
 func (p *Peer) Copy() *Peer {
 	peerStatus := p.Status
@@ -212,6 +274,7 @@ func (p *Peer) Copy() *Peer {
 		AccountID:                   p.AccountID,
 		Key:                         p.Key,
 		IP:                          p.IP,
+		IPv6:                        p.IPv6,
 		Meta:                        p.Meta,
 		Name:                        p.Name,
 		DNSLabel:                    p.DNSLabel,
@@ -223,6 +286,7 @@ func (p *Peer) Copy() *Peer {
 		LastLogin:                   p.LastLogin,
 		CreatedAt:                   p.CreatedAt,
 		Ephemeral:                   p.Ephemeral,
+		ProxyMeta:                   p.ProxyMeta,
 		Location:                    p.Location,
 		InactivityExpirationEnabled: p.InactivityExpirationEnabled,
 		ExtraDNSLabels:              slices.Clone(p.ExtraDNSLabels),
@@ -232,10 +296,12 @@ func (p *Peer) Copy() *Peer {
 
 // UpdateMetaIfNew updates peer's system metadata if new information is provided
 // returns true if meta was updated, false otherwise
-func (p *Peer) UpdateMetaIfNew(meta PeerSystemMeta) bool {
+func (p *Peer) UpdateMetaIfNew(meta PeerSystemMeta) (updated, versionChanged bool) {
 	if meta.isEmpty() {
-		return false
+		return updated, versionChanged
 	}
+
+	versionChanged = p.Meta.WtVersion != meta.WtVersion
 
 	// Avoid overwriting UIVersion if the update was triggered sole by the CLI client
 	if meta.UIVersion == "" {
@@ -243,10 +309,11 @@ func (p *Peer) UpdateMetaIfNew(meta PeerSystemMeta) bool {
 	}
 
 	if p.Meta.isEqual(meta) {
-		return false
+		return updated, versionChanged
 	}
 	p.Meta = meta
-	return true
+	updated = true
+	return updated, versionChanged
 }
 
 // GetLastLogin returns the last login time of the peer.
@@ -300,6 +367,22 @@ func (p *Peer) LoginExpired(expiresIn time.Duration) (bool, time.Duration) {
 	return timeLeft <= 0, timeLeft
 }
 
+// SessionExpiresAt returns the absolute UTC instant at which the peer's SSO
+// session expires, derived from LastLogin and the account-level
+// PeerLoginExpiration setting. Returns the zero value when login expiration
+// does not apply (peer not SSO-registered, peer-level toggle off, or account
+// expiry disabled). Callers should treat the zero value as "no deadline".
+func (p *Peer) SessionExpiresAt(accountExpirationEnabled bool, expiresIn time.Duration) time.Time {
+	if !accountExpirationEnabled || !p.AddedWithSSOLogin() || !p.LoginExpirationEnabled {
+		return time.Time{}
+	}
+	last := p.GetLastLogin()
+	if last.IsZero() {
+		return time.Time{}
+	}
+	return last.Add(expiresIn).UTC()
+}
+
 // FQDN returns peers FQDN combined of the peer's DNS label and the system's DNS domain
 func (p *Peer) FQDN(dnsDomain string) string {
 	if dnsDomain == "" {
@@ -310,15 +393,23 @@ func (p *Peer) FQDN(dnsDomain string) string {
 
 // EventMeta returns activity event meta related to the peer
 func (p *Peer) EventMeta(dnsDomain string) map[string]any {
-	return map[string]any{"name": p.Name, "fqdn": p.FQDN(dnsDomain), "ip": p.IP, "created_at": p.CreatedAt,
+	meta := map[string]any{"name": p.Name, "fqdn": p.FQDN(dnsDomain), "ip": p.IP, "created_at": p.CreatedAt,
 		"location_city_name": p.Location.CityName, "location_country_code": p.Location.CountryCode,
 		"location_geo_name_id": p.Location.GeoNameID, "location_connection_ip": p.Location.ConnectionIP}
+	if p.IPv6.IsValid() {
+		meta["ipv6"] = p.IPv6.String()
+	}
+	return meta
 }
 
-// Copy PeerStatus
+// Copy PeerStatus. SessionStartedAt must be propagated so clone-based
+// callers (Peer.Copy, MarkLoginExpired, UpdateLastLogin) don't silently
+// reset the fencing token to zero — that would let any subsequent
+// SavePeerStatus write reopen the optimistic-lock window.
 func (p *PeerStatus) Copy() *PeerStatus {
 	return &PeerStatus{
 		LastSeen:         p.LastSeen,
+		SessionStartedAt: p.SessionStartedAt,
 		Connected:        p.Connected,
 		LoginExpired:     p.LoginExpired,
 		RequiresApproval: p.RequiresApproval,
@@ -334,6 +425,18 @@ func (p *Peer) UpdateLastLogin() *Peer {
 	return p
 }
 
+func (p *Peer) FromAPITemporaryAccessRequest(a *api.PeerTemporaryAccessRequest) {
+	p.Ephemeral = true
+	p.Name = a.Name
+	p.Key = a.WgPubKey
+	p.Meta = PeerSystemMeta{
+		Hostname:      a.Name,
+		GoOS:          "js",
+		OS:            "js",
+		KernelVersion: "wasm",
+	}
+}
+
 func (f Flags) isEqual(other Flags) bool {
 	return f.RosenpassEnabled == other.RosenpassEnabled &&
 		f.RosenpassPermissive == other.RosenpassPermissive &&
@@ -344,5 +447,6 @@ func (f Flags) isEqual(other Flags) bool {
 		f.DisableFirewall == other.DisableFirewall &&
 		f.BlockLANAccess == other.BlockLANAccess &&
 		f.BlockInbound == other.BlockInbound &&
-		f.LazyConnectionEnabled == other.LazyConnectionEnabled
+		f.LazyConnectionEnabled == other.LazyConnectionEnabled &&
+		f.DisableIPv6 == other.DisableIPv6
 }

@@ -18,8 +18,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/iface"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/client/internal/routemanager/util"
-	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared/management/domain"
 )
 
 const (
@@ -50,10 +50,10 @@ type Route struct {
 	cancel               context.CancelFunc
 	statusRecorder       *peer.Status
 	wgInterface          iface.WGIface
-	resolverAddr         string
+	resolverAddr         netip.AddrPort
 }
 
-func NewRoute(params common.HandlerParams, resolverAddr string) *Route {
+func NewRoute(params common.HandlerParams, resolverAddr netip.AddrPort) *Route {
 	return &Route{
 		route:                params.Route,
 		routeRefCounter:      params.RouteRefCounter,

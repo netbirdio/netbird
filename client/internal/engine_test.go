@@ -14,7 +14,6 @@ import (
 
 	"github.com/golang/mock/gomock"
 	"github.com/google/uuid"
-	"github.com/pion/transport/v3/stdnet"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,11 +24,24 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 
-	"github.com/netbirdio/management-integrations/integrations"
+	"github.com/netbirdio/netbird/client/internal/stdnet"
+	"github.com/netbirdio/netbird/management/server/job"
+
+	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator/validator"
+
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
+	"github.com/netbirdio/netbird/management/internals/modules/peers"
+	"github.com/netbirdio/netbird/management/internals/modules/peers/ephemeral/manager"
+	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
+
+	"github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/server/groups"
+
 	"github.com/netbirdio/netbird/client/iface"
-	"github.com/netbirdio/netbird/client/iface/bind"
 	"github.com/netbirdio/netbird/client/iface/configurer"
 	"github.com/netbirdio/netbird/client/iface/device"
+	"github.com/netbirdio/netbird/client/iface/udpmux"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/iface/wgproxy"
 	"github.com/netbirdio/netbird/client/internal/dns"
@@ -38,15 +50,13 @@ import (
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
-	"github.com/netbirdio/netbird/client/ssh"
+	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/groups"
+	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
-	"github.com/netbirdio/netbird/management/server/peers"
 	"github.com/netbirdio/netbird/management/server/permissions"
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -56,6 +66,7 @@ import (
 	"github.com/netbirdio/netbird/route"
 	mgmt "github.com/netbirdio/netbird/shared/management/client"
 	mgmtProto "github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/shared/netiputil"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 	"github.com/netbirdio/netbird/shared/signal/proto"
@@ -84,8 +95,8 @@ type MockWGIface struct {
 	NameFunc                   func() string
 	AddressFunc                func() wgaddr.Address
 	ToInterfaceFunc            func() *net.Interface
-	UpFunc                     func() (*bind.UniversalUDPMuxDefault, error)
-	UpdateAddrFunc             func(newAddr string) error
+	UpFunc                     func() (*udpmux.UniversalUDPMuxDefault, error)
+	UpdateAddrFunc             func(newAddr wgaddr.Address) error
 	UpdatePeerFunc             func(peerKey string, allowedIps []netip.Prefix, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error
 	RemovePeerFunc             func(peerKey string) error
 	AddAllowedIPFunc           func(peerKey string, allowedIP netip.Prefix) error
@@ -98,8 +109,17 @@ type MockWGIface struct {
 	GetStatsFunc               func() (map[string]configurer.WGStats, error)
 	GetInterfaceGUIDStringFunc func() (string, error)
 	GetProxyFunc               func() wgproxy.Proxy
+	GetProxyPortFunc           func() uint16
 	GetNetFunc                 func() *netstack.Net
 	LastActivitiesFunc         func() map[string]monotime.Time
+}
+
+func (m *MockWGIface) RenewTun(_ int) error {
+	return nil
+}
+
+func (m *MockWGIface) RemoveEndpointAddress(_ string) error {
+	return nil
 }
 
 func (m *MockWGIface) FullStats() (*configurer.Stats, error) {
@@ -134,11 +154,11 @@ func (m *MockWGIface) ToInterface() *net.Interface {
 	return m.ToInterfaceFunc()
 }
 
-func (m *MockWGIface) Up() (*bind.UniversalUDPMuxDefault, error) {
+func (m *MockWGIface) Up() (*udpmux.UniversalUDPMuxDefault, error) {
 	return m.UpFunc()
 }
 
-func (m *MockWGIface) UpdateAddr(newAddr string) error {
+func (m *MockWGIface) UpdateAddr(newAddr wgaddr.Address) error {
 	return m.UpdateAddrFunc(newAddr)
 }
 
@@ -186,6 +206,13 @@ func (m *MockWGIface) GetProxy() wgproxy.Proxy {
 	return m.GetProxyFunc()
 }
 
+func (m *MockWGIface) GetProxyPort() uint16 {
+	if m.GetProxyPortFunc != nil {
+		return m.GetProxyPortFunc()
+	}
+	return 0
+}
+
 func (m *MockWGIface) GetNet() *netstack.Net {
 	return m.GetNetFunc()
 }
@@ -197,6 +224,10 @@ func (m *MockWGIface) LastActivities() map[string]monotime.Time {
 	return nil
 }
 
+func (m *MockWGIface) SetPresharedKey(peerKey string, psk wgtypes.Key, updateOnly bool) error {
+	return nil
+}
+
 func TestMain(m *testing.M) {
 	_ = util.InitLog("debug", util.LogConsole)
 	code := m.Run()
@@ -204,11 +235,13 @@ func TestMain(m *testing.M) {
 }
 
 func TestEngine_SSH(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("skipping TestEngine_SSH")
+	key, err := wgtypes.GeneratePrivateKey()
+	if err != nil {
+		t.Fatal(err)
+		return
 	}
 
-	key, err := wgtypes.GeneratePrivateKey()
+	sshKey, err := nbssh.GeneratePrivateKey(nbssh.ED25519)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -220,55 +253,30 @@ func TestEngine_SSH(t *testing.T) {
 	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
 	engine := NewEngine(
 		ctx, cancel,
-		&signal.MockClient{},
-		&mgmt.MockClient{},
-		relayMgr,
 		&EngineConfig{
 			WgIfaceName:      "utun101",
-			WgAddr:           "100.64.0.1/24",
+			WgAddr:           wgaddr.MustParseWGAddress("100.64.0.1/24"),
 			WgPrivateKey:     key,
 			WgPort:           33100,
 			ServerSSHAllowed: true,
 			MTU:              iface.DefaultMTU,
+			SSHKey:           sshKey,
+		},
+		EngineServices{
+			SignalClient:   &signal.MockClient{},
+			MgmClient:      &mgmt.MockClient{},
+			RelayManager:   relayMgr,
+			StatusRecorder: peer.NewRecorder("https://mgm"),
 		},
 		MobileDependency{},
-		peer.NewRecorder("https://mgm"),
-		nil,
 	)
 
 	engine.dnsServer = &dns.MockServer{
 		UpdateDNSServerFunc: func(serial uint64, update nbdns.Config) error { return nil },
 	}
 
-	var sshKeysAdded []string
-	var sshPeersRemoved []string
-
-	sshCtx, cancel := context.WithCancel(context.Background())
-
-	engine.sshServerFunc = func(hostKeyPEM []byte, addr string) (ssh.Server, error) {
-		return &ssh.MockServer{
-			Ctx: sshCtx,
-			StopFunc: func() error {
-				cancel()
-				return nil
-			},
-			StartFunc: func() error {
-				<-ctx.Done()
-				return ctx.Err()
-			},
-			AddAuthorizedKeyFunc: func(peer, newKey string) error {
-				sshKeysAdded = append(sshKeysAdded, newKey)
-				return nil
-			},
-			RemoveAuthorizedKeyFunc: func(peer string) {
-				sshPeersRemoved = append(sshPeersRemoved, peer)
-			},
-		}, nil
-	}
 	err = engine.Start(nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	defer func() {
 		err := engine.Stop()
@@ -294,9 +302,7 @@ func TestEngine_SSH(t *testing.T) {
 	}
 
 	err = engine.updateNetworkMap(networkMap)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	assert.Nil(t, engine.sshServer)
 
@@ -304,19 +310,24 @@ func TestEngine_SSH(t *testing.T) {
 	networkMap = &mgmtProto.NetworkMap{
 		Serial: 7,
 		PeerConfig: &mgmtProto.PeerConfig{Address: "100.64.0.1/24",
-			SshConfig: &mgmtProto.SSHConfig{SshEnabled: true}},
+			SshConfig: &mgmtProto.SSHConfig{
+				SshEnabled: true,
+				JwtConfig: &mgmtProto.JWTConfig{
+					Issuer:       "test-issuer",
+					Audience:     "test-audience",
+					KeysLocation: "test-keys",
+					MaxTokenAge:  3600,
+				},
+			}},
 		RemotePeers:        []*mgmtProto.RemotePeerConfig{peerWithSSH},
 		RemotePeersIsEmpty: false,
 	}
 
 	err = engine.updateNetworkMap(networkMap)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	time.Sleep(250 * time.Millisecond)
 	assert.NotNil(t, engine.sshServer)
-	assert.Contains(t, sshKeysAdded, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFATYCqaQw/9id1Qkq3n16JYhDhXraI6Pc1fgB8ynEfQ")
 
 	// now remove peer
 	networkMap = &mgmtProto.NetworkMap{
@@ -326,13 +337,10 @@ func TestEngine_SSH(t *testing.T) {
 	}
 
 	err = engine.updateNetworkMap(networkMap)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	// time.Sleep(250 * time.Millisecond)
 	assert.NotNil(t, engine.sshServer)
-	assert.Contains(t, sshPeersRemoved, "MNHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=")
 
 	// now disable SSH server
 	networkMap = &mgmtProto.NetworkMap{
@@ -344,12 +352,70 @@ func TestEngine_SSH(t *testing.T) {
 	}
 
 	err = engine.updateNetworkMap(networkMap)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	assert.Nil(t, engine.sshServer)
+}
 
+func TestEngine_SSHUpdateLogic(t *testing.T) {
+	// Test that SSH server start/stop logic works based on config
+	engine := &Engine{
+		config: &EngineConfig{
+			ServerSSHAllowed: false, // Start with SSH disabled
+		},
+		syncMsgMux: &sync.Mutex{},
+	}
+
+	// Test SSH disabled config
+	sshConfig := &mgmtProto.SSHConfig{SshEnabled: false}
+	err := engine.updateSSH(sshConfig)
+	assert.NoError(t, err)
+	assert.Nil(t, engine.sshServer)
+
+	// Test inbound blocked
+	engine.config.BlockInbound = true
+	err = engine.updateSSH(&mgmtProto.SSHConfig{SshEnabled: true})
+	assert.NoError(t, err)
+	assert.Nil(t, engine.sshServer)
+	engine.config.BlockInbound = false
+
+	// Test with server SSH not allowed
+	err = engine.updateSSH(&mgmtProto.SSHConfig{SshEnabled: true})
+	assert.NoError(t, err)
+	assert.Nil(t, engine.sshServer)
+}
+
+func TestEngine_SSHServerConsistency(t *testing.T) {
+
+	t.Run("server set only on successful creation", func(t *testing.T) {
+		engine := &Engine{
+			config: &EngineConfig{
+				ServerSSHAllowed: true,
+				SSHKey:           []byte("test-key"),
+			},
+			syncMsgMux: &sync.Mutex{},
+		}
+
+		engine.wgInterface = nil
+
+		err := engine.updateSSH(&mgmtProto.SSHConfig{SshEnabled: true})
+
+		assert.Error(t, err)
+		assert.Nil(t, engine.sshServer)
+	})
+
+	t.Run("cleanup handles nil gracefully", func(t *testing.T) {
+		engine := &Engine{
+			config: &EngineConfig{
+				ServerSSHAllowed: false,
+			},
+			syncMsgMux: &sync.Mutex{},
+		}
+
+		err := engine.stopSSHServer()
+		assert.NoError(t, err)
+		assert.Nil(t, engine.sshServer)
+	})
 }
 
 func TestEngine_UpdateNetworkMap(t *testing.T) {
@@ -364,21 +430,18 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	defer cancel()
 
 	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
-	engine := NewEngine(
-		ctx, cancel,
-		&signal.MockClient{},
-		&mgmt.MockClient{},
-		relayMgr,
-		&EngineConfig{
-			WgIfaceName:  "utun102",
-			WgAddr:       "100.64.0.1/24",
-			WgPrivateKey: key,
-			WgPort:       33100,
-			MTU:          iface.DefaultMTU,
-		},
-		MobileDependency{},
-		peer.NewRecorder("https://mgm"),
-		nil)
+	engine := NewEngine(ctx, cancel, &EngineConfig{
+		WgIfaceName:  "utun102",
+		WgAddr:       wgaddr.MustParseWGAddress("100.64.0.1/24"),
+		WgPrivateKey: key,
+		WgPort:       33100,
+		MTU:          iface.DefaultMTU,
+	}, EngineServices{
+		SignalClient:   &signal.MockClient{},
+		MgmClient:      &mgmt.MockClient{},
+		RelayManager:   relayMgr,
+		StatusRecorder: peer.NewRecorder("https://mgm"),
+	}, MobileDependency{})
 
 	wgIface := &MockWGIface{
 		NameFunc: func() string { return "utun102" },
@@ -413,7 +476,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine.udpMux = bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: conn, MTU: 1280})
+	engine.udpMux = udpmux.NewUniversalUDPMuxDefault(udpmux.UniversalUDPMuxParams{UDPConn: conn, MTU: 1280})
 	engine.ctx = ctx
 	engine.srWatcher = guard.NewSRWatcher(nil, nil, nil, icemaker.Config{})
 	engine.connMgr = NewConnMgr(engine.config, engine.statusRecorder, engine.peerStore, wgIface)
@@ -591,13 +654,18 @@ func TestEngine_Sync(t *testing.T) {
 		return nil
 	}
 	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
-	engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{SyncFunc: syncFunc}, relayMgr, &EngineConfig{
+	engine := NewEngine(ctx, cancel, &EngineConfig{
 		WgIfaceName:  "utun103",
-		WgAddr:       "100.64.0.1/24",
+		WgAddr:       wgaddr.MustParseWGAddress("100.64.0.1/24"),
 		WgPrivateKey: key,
 		WgPort:       33100,
 		MTU:          iface.DefaultMTU,
-	}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil)
+	}, EngineServices{
+		SignalClient:   &signal.MockClient{},
+		MgmClient:      &mgmt.MockClient{SyncFunc: syncFunc},
+		RelayManager:   relayMgr,
+		StatusRecorder: peer.NewRecorder("https://mgm"),
+	}, MobileDependency{})
 	engine.ctx = ctx
 
 	engine.dnsServer = &dns.MockServer{
@@ -756,22 +824,27 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 			wgAddr := fmt.Sprintf("100.66.%d.1/24", n)
 
 			relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
-			engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, relayMgr, &EngineConfig{
+			engine := NewEngine(ctx, cancel, &EngineConfig{
 				WgIfaceName:  wgIfaceName,
-				WgAddr:       wgAddr,
+				WgAddr:       wgaddr.MustParseWGAddress(wgAddr),
 				WgPrivateKey: key,
 				WgPort:       33100,
 				MTU:          iface.DefaultMTU,
-			}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil)
+			}, EngineServices{
+				SignalClient:   &signal.MockClient{},
+				MgmClient:      &mgmt.MockClient{},
+				RelayManager:   relayMgr,
+				StatusRecorder: peer.NewRecorder("https://mgm"),
+			}, MobileDependency{})
 			engine.ctx = ctx
-			newNet, err := stdnet.NewNet()
+			newNet, err := stdnet.NewNet(context.Background(), nil)
 			if err != nil {
 				t.Fatal(err)
 			}
 
 			opts := iface.WGIFaceOpts{
 				IFaceName:    wgIfaceName,
-				Address:      wgAddr,
+				Address:      wgaddr.MustParseWGAddress(wgAddr),
 				WGPort:       engine.config.WgPort,
 				WGPrivKey:    key.String(),
 				MTU:          iface.DefaultMTU,
@@ -958,22 +1031,27 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			wgAddr := fmt.Sprintf("100.66.%d.1/24", n)
 
 			relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
-			engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, relayMgr, &EngineConfig{
+			engine := NewEngine(ctx, cancel, &EngineConfig{
 				WgIfaceName:  wgIfaceName,
-				WgAddr:       wgAddr,
+				WgAddr:       wgaddr.MustParseWGAddress(wgAddr),
 				WgPrivateKey: key,
 				WgPort:       33100,
 				MTU:          iface.DefaultMTU,
-			}, MobileDependency{}, peer.NewRecorder("https://mgm"), nil)
+			}, EngineServices{
+				SignalClient:   &signal.MockClient{},
+				MgmClient:      &mgmt.MockClient{},
+				RelayManager:   relayMgr,
+				StatusRecorder: peer.NewRecorder("https://mgm"),
+			}, MobileDependency{})
 			engine.ctx = ctx
 
-			newNet, err := stdnet.NewNet()
+			newNet, err := stdnet.NewNet(context.Background(), nil)
 			if err != nil {
 				t.Fatal(err)
 			}
 			opts := iface.WGIFaceOpts{
 				IFaceName:    wgIfaceName,
-				Address:      wgAddr,
+				Address:      wgaddr.MustParseWGAddress(wgAddr),
 				WGPort:       33100,
 				WGPrivKey:    key.String(),
 				MTU:          iface.DefaultMTU,
@@ -1462,13 +1540,8 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 		return nil, err
 	}
 
-	publicKey, err := mgmtClient.GetServerPublicKey()
-	if err != nil {
-		return nil, err
-	}
-
 	info := system.GetInfo(ctx)
-	resp, err := mgmtClient.Register(*publicKey, setupKey, "", info, nil, nil)
+	resp, err := mgmtClient.Register(setupKey, "", info, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1483,14 +1556,19 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 	wgPort := 33100 + i
 	conf := &EngineConfig{
 		WgIfaceName:  ifaceName,
-		WgAddr:       resp.PeerConfig.Address,
+		WgAddr:       wgaddr.MustParseWGAddress(resp.PeerConfig.Address),
 		WgPrivateKey: key,
 		WgPort:       wgPort,
 		MTU:          iface.DefaultMTU,
 	}
 
 	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
-	e, err := NewEngine(ctx, cancel, signalClient, mgmtClient, relayMgr, conf, MobileDependency{}, peer.NewRecorder("https://mgm"), nil), nil
+	e, err := NewEngine(ctx, cancel, conf, EngineServices{
+		SignalClient:   signalClient,
+		MgmClient:      mgmtClient,
+		RelayManager:   relayMgr,
+		StatusRecorder: peer.NewRecorder("https://mgm"),
+	}, MobileDependency{}), nil
 	e.ctx = ctx
 	return e, err
 }
@@ -1549,7 +1627,6 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 	}
 	t.Cleanup(cleanUp)
 
-	peersUpdateManager := server.NewPeersUpdateManager(nil)
 	eventStore := &activity.InMemoryEventStore{}
 	if err != nil {
 		return nil, "", err
@@ -1557,8 +1634,14 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 
 	permissionsManager := permissions.NewManager(store)
 	peersManager := peers.NewManager(store, permissionsManager)
+	jobManager := job.NewJobManager(nil, store, peersManager)
 
-	ia, _ := integrations.NewIntegratedValidator(context.Background(), peersManager, nil, eventStore)
+	cacheStore, err := nbcache.NewStore(context.Background(), 100*time.Millisecond, 300*time.Millisecond, 100)
+	if err != nil {
+		return nil, "", err
+	}
+
+	ia, _ := validator.NewIntegratedValidator(context.Background(), peersManager, nil, eventStore, cacheStore)
 
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)
@@ -1577,13 +1660,19 @@ func startManagement(t *testing.T, dataDir, testFile string) (*grpc.Server, stri
 
 	groupsManager := groups.NewManagerMock()
 
-	accountManager, err := server.BuildManager(context.Background(), store, peersUpdateManager, nil, "", "netbird.selfhosted", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false)
+	updateManager := update_channel.NewPeersUpdateManager(metrics)
+	requestBuffer := server.NewAccountRequestBuffer(context.Background(), store)
+	networkMapController := controller.NewController(context.Background(), store, metrics, updateManager, requestBuffer, server.MockIntegratedValidator{}, settingsMockManager, "netbird.selfhosted", port_forwarding.NewControllerMock(), manager.NewEphemeralManager(store, peersManager), config)
+	accountManager, err := server.BuildManager(context.Background(), config, store, networkMapController, jobManager, nil, "", eventStore, nil, false, ia, metrics, port_forwarding.NewControllerMock(), settingsMockManager, permissionsManager, false, cacheStore)
 	if err != nil {
 		return nil, "", err
 	}
 
-	secretsManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
-	mgmtServer, err := server.NewServer(context.Background(), config, accountManager, settingsMockManager, peersUpdateManager, secretsManager, nil, nil, nil, &server.MockIntegratedValidator{})
+	secretsManager, err := nbgrpc.NewTimeBasedAuthSecretsManager(updateManager, config.TURNConfig, config.Relay, settingsMockManager, groupsManager)
+	if err != nil {
+		return nil, "", err
+	}
+	mgmtServer, err := nbgrpc.NewServer(config, accountManager, settingsMockManager, jobManager, secretsManager, nil, nil, &server.MockIntegratedValidator{}, networkMapController, nil, nil)
 	if err != nil {
 		return nil, "", err
 	}
@@ -1616,4 +1705,225 @@ func getPeers(e *Engine) int {
 	defer e.syncMsgMux.Unlock()
 
 	return len(e.peerStore.PeersPubKey())
+}
+
+func mustEncodePrefix(t *testing.T, p netip.Prefix) []byte {
+	t.Helper()
+	b, err := netiputil.EncodePrefix(p)
+	require.NoError(t, err)
+	return b
+}
+
+func TestEngine_hasIPv6Changed(t *testing.T) {
+	v4Only := wgaddr.MustParseWGAddress("100.64.0.1/16")
+
+	v4v6 := wgaddr.MustParseWGAddress("100.64.0.1/16")
+	v4v6.IPv6 = netip.MustParseAddr("fd00::1")
+	v4v6.IPv6Net = netip.MustParsePrefix("fd00::1/64").Masked()
+
+	tests := []struct {
+		name     string
+		current  wgaddr.Address
+		confV6   []byte
+		expected bool
+	}{
+		{
+			name:     "no v6 before, no v6 now",
+			current:  v4Only,
+			confV6:   nil,
+			expected: false,
+		},
+		{
+			name:     "no v6 before, v6 added",
+			current:  v4Only,
+			confV6:   mustEncodePrefix(t, netip.MustParsePrefix("fd00::1/64")),
+			expected: true,
+		},
+		{
+			name:     "had v6, now removed",
+			current:  v4v6,
+			confV6:   nil,
+			expected: true,
+		},
+		{
+			name:     "had v6, same v6",
+			current:  v4v6,
+			confV6:   mustEncodePrefix(t, netip.MustParsePrefix("fd00::1/64")),
+			expected: false,
+		},
+		{
+			name:     "had v6, different v6",
+			current:  v4v6,
+			confV6:   mustEncodePrefix(t, netip.MustParsePrefix("fd00::2/64")),
+			expected: true,
+		},
+		{
+			name:     "same v6 addr, different prefix length",
+			current:  v4v6,
+			confV6:   mustEncodePrefix(t, netip.MustParsePrefix("fd00::1/80")),
+			expected: true,
+		},
+		{
+			name:     "decode error keeps status quo",
+			current:  v4Only,
+			confV6:   []byte{1, 2, 3},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			engine := &Engine{
+				config: &EngineConfig{WgAddr: tt.current},
+			}
+			conf := &mgmtProto.PeerConfig{
+				AddressV6: tt.confV6,
+			}
+			assert.Equal(t, tt.expected, engine.hasIPv6Changed(conf))
+		})
+	}
+}
+
+func TestFilterAllowedIPs(t *testing.T) {
+	v4v6Addr := wgaddr.MustParseWGAddress("100.64.0.1/16")
+	v4v6Addr.IPv6 = netip.MustParseAddr("fd00::1")
+	v4v6Addr.IPv6Net = netip.MustParsePrefix("fd00::1/64").Masked()
+
+	v4OnlyAddr := wgaddr.MustParseWGAddress("100.64.0.1/16")
+
+	tests := []struct {
+		name     string
+		addr     wgaddr.Address
+		input    []string
+		expected []string
+	}{
+		{
+			name:     "interface has v6, keep all",
+			addr:     v4v6Addr,
+			input:    []string{"100.64.0.1/32", "fd00::1/128"},
+			expected: []string{"100.64.0.1/32", "fd00::1/128"},
+		},
+		{
+			name:     "no v6, strip v6",
+			addr:     v4OnlyAddr,
+			input:    []string{"100.64.0.1/32", "fd00::1/128"},
+			expected: []string{"100.64.0.1/32"},
+		},
+		{
+			name:     "no v6, only v4",
+			addr:     v4OnlyAddr,
+			input:    []string{"100.64.0.1/32", "10.0.0.0/8"},
+			expected: []string{"100.64.0.1/32", "10.0.0.0/8"},
+		},
+		{
+			name:     "no v6, only v6 input",
+			addr:     v4OnlyAddr,
+			input:    []string{"fd00::1/128", "::/0"},
+			expected: []string{},
+		},
+		{
+			name:     "no v6, invalid prefix preserved",
+			addr:     v4OnlyAddr,
+			input:    []string{"100.64.0.1/32", "garbage"},
+			expected: []string{"100.64.0.1/32", "garbage"},
+		},
+		{
+			name:     "no v6, empty input",
+			addr:     v4OnlyAddr,
+			input:    []string{},
+			expected: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			addr := tt.addr
+			engine := &Engine{
+				config: &EngineConfig{},
+				wgInterface: &MockWGIface{
+					AddressFunc: func() wgaddr.Address { return addr },
+				},
+			}
+			result := engine.filterAllowedIPs(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestOverlayAddrsFromAllowedIPs(t *testing.T) {
+	ourV6Net := netip.MustParsePrefix("fd00:1234:5678:abcd::/64")
+
+	tests := []struct {
+		name       string
+		allowedIPs []string
+		ourV6Net   netip.Prefix
+		wantV4     string
+		wantV6     string
+	}{
+		{
+			name:       "v4 only",
+			allowedIPs: []string{"100.64.0.1/32"},
+			ourV6Net:   ourV6Net,
+			wantV4:     "100.64.0.1",
+			wantV6:     "",
+		},
+		{
+			name:       "v4 and v6 overlay",
+			allowedIPs: []string{"100.64.0.1/32", "fd00:1234:5678:abcd::1/128"},
+			ourV6Net:   ourV6Net,
+			wantV4:     "100.64.0.1",
+			wantV6:     "fd00:1234:5678:abcd::1",
+		},
+		{
+			name:       "v4, routed v6, overlay v6",
+			allowedIPs: []string{"100.64.0.1/32", "2001:db8::1/128", "fd00:1234:5678:abcd::1/128"},
+			ourV6Net:   ourV6Net,
+			wantV4:     "100.64.0.1",
+			wantV6:     "fd00:1234:5678:abcd::1",
+		},
+		{
+			name:       "routed v6 /128 outside our subnet is ignored",
+			allowedIPs: []string{"100.64.0.1/32", "2001:db8::1/128"},
+			ourV6Net:   ourV6Net,
+			wantV4:     "100.64.0.1",
+			wantV6:     "",
+		},
+		{
+			name:       "routed v6 prefix is ignored",
+			allowedIPs: []string{"100.64.0.1/32", "fd00:1234:5678:abcd::/64"},
+			ourV6Net:   ourV6Net,
+			wantV4:     "100.64.0.1",
+			wantV6:     "",
+		},
+		{
+			name:       "no v6 subnet configured",
+			allowedIPs: []string{"100.64.0.1/32", "fd00:1234:5678:abcd::1/128"},
+			ourV6Net:   netip.Prefix{},
+			wantV4:     "100.64.0.1",
+			wantV6:     "",
+		},
+		{
+			name:       "v4 /24 route is ignored",
+			allowedIPs: []string{"100.64.0.0/24", "100.64.0.1/32"},
+			ourV6Net:   ourV6Net,
+			wantV4:     "100.64.0.1",
+			wantV6:     "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v4, v6 := overlayAddrsFromAllowedIPs(tt.allowedIPs, tt.ourV6Net)
+			if tt.wantV4 == "" {
+				assert.False(t, v4.IsValid(), "expected no v4")
+			} else {
+				assert.Equal(t, tt.wantV4, v4.String(), "v4")
+			}
+			if tt.wantV6 == "" {
+				assert.False(t, v6.IsValid(), "expected no v6")
+			} else {
+				assert.Equal(t, tt.wantV6, v6.String(), "v6")
+			}
+		})
+	}
 }

@@ -10,7 +10,7 @@ import (
 
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/hashicorp/go-multierror"
-	"github.com/nadoo/ipset"
+	ipset "github.com/lrh3321/ipset-go"
 	log "github.com/sirupsen/logrus"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
@@ -19,7 +19,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager/ipfwdstate"
 	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
-	nbnet "github.com/netbirdio/netbird/util/net"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 // constants needed to manage and create iptable rules
@@ -30,17 +30,22 @@ const (
 
 	chainPOSTROUTING        = "POSTROUTING"
 	chainPREROUTING         = "PREROUTING"
+	chainFORWARD            = "FORWARD"
 	chainRTNAT              = "NETBIRD-RT-NAT"
 	chainRTFWDIN            = "NETBIRD-RT-FWD-IN"
 	chainRTFWDOUT           = "NETBIRD-RT-FWD-OUT"
 	chainRTPRE              = "NETBIRD-RT-PRE"
 	chainRTRDR              = "NETBIRD-RT-RDR"
+	chainNATOutput          = "NETBIRD-NAT-OUTPUT"
+	chainRTMSSCLAMP         = "NETBIRD-RT-MSSCLAMP"
 	routingFinalForwardJump = "ACCEPT"
 	routingFinalNatJump     = "MASQUERADE"
 
 	jumpManglePre  = "jump-mangle-pre"
 	jumpNatPre     = "jump-nat-pre"
 	jumpNatPost    = "jump-nat-post"
+	jumpNatOutput  = "jump-nat-output"
+	jumpMSSClamp   = "jump-mss-clamp"
 	markManglePre  = "mark-mangle-pre"
 	markManglePost = "mark-mangle-post"
 	matchSet       = "--match-set"
@@ -48,6 +53,11 @@ const (
 	dnatSuffix = "_dnat"
 	snatSuffix = "_snat"
 	fwdSuffix  = "_fwd"
+
+	// ipv4TCPHeaderSize is the minimum IPv4 (20) + TCP (20) header size for MSS calculation.
+	ipv4TCPHeaderSize = 40
+	// ipv6TCPHeaderSize is the minimum IPv6 (40) + TCP (20) header size for MSS calculation.
+	ipv6TCPHeaderSize = 60
 )
 
 type ruleInfo struct {
@@ -77,16 +87,20 @@ type router struct {
 	ipsetCounter     *ipsetCounter
 	wgIface          iFaceMapper
 	legacyManagement bool
+	mtu              uint16
+	v6               bool
 
 	stateManager *statemanager.Manager
 	ipFwdState   *ipfwdstate.IPForwardingState
 }
 
-func newRouter(iptablesClient *iptables.IPTables, wgIface iFaceMapper) (*router, error) {
+func newRouter(iptablesClient *iptables.IPTables, wgIface iFaceMapper, mtu uint16) (*router, error) {
 	r := &router{
 		iptablesClient: iptablesClient,
 		rules:          make(map[string][]string),
 		wgIface:        wgIface,
+		mtu:            mtu,
+		v6:             iptablesClient.Proto() == iptables.ProtocolIPv6,
 		ipFwdState:     ipfwdstate.NewIPForwardingState(),
 	}
 
@@ -98,10 +112,6 @@ func newRouter(iptablesClient *iptables.IPTables, wgIface iFaceMapper) (*router,
 			return r.deleteIpSet(name)
 		},
 	)
-
-	if err := ipset.Init(); err != nil {
-		return nil, fmt.Errorf("init ipset: %w", err)
-	}
 
 	return r, nil
 }
@@ -180,6 +190,11 @@ func (r *router) AddRouteFiltering(
 	return ruleKey, nil
 }
 
+func (r *router) hasRule(id string) bool {
+	_, ok := r.rules[id]
+	return ok
+}
+
 func (r *router) DeleteRouteRule(rule firewall.Rule) error {
 	ruleKey := rule.ID()
 
@@ -224,12 +239,12 @@ func (r *router) findSets(rule []string) []string {
 }
 
 func (r *router) createIpSet(setName string, sources []netip.Prefix) error {
-	if err := ipset.Create(setName, ipset.OptTimeout(0)); err != nil {
+	if err := r.createIPSet(setName); err != nil {
 		return fmt.Errorf("create set %s: %w", setName, err)
 	}
 
 	for _, prefix := range sources {
-		if err := ipset.AddPrefix(setName, prefix); err != nil {
+		if err := r.addPrefixToIPSet(setName, prefix); err != nil {
 			return fmt.Errorf("add element to set %s: %w", setName, err)
 		}
 	}
@@ -238,7 +253,7 @@ func (r *router) createIpSet(setName string, sources []netip.Prefix) error {
 }
 
 func (r *router) deleteIpSet(setName string) error {
-	if err := ipset.Destroy(setName); err != nil {
+	if err := r.destroyIPSet(setName); err != nil {
 		return fmt.Errorf("destroy set %s: %w", setName, err)
 	}
 
@@ -383,6 +398,18 @@ func (r *router) cleanUpDefaultForwardRules() error {
 	}
 
 	log.Debug("flushing routing related tables")
+
+	// Remove jump rules from built-in chains before deleting custom chains,
+	// otherwise the chain deletion fails with "device or resource busy".
+	if ok, err := r.iptablesClient.ChainExists(tableNat, chainNATOutput); err != nil {
+		return fmt.Errorf("check chain %s: %w", chainNATOutput, err)
+	} else if ok {
+		jumpRule := []string{"-j", chainNATOutput}
+		if err := r.iptablesClient.Delete(tableNat, "OUTPUT", jumpRule...); err != nil {
+			log.Debugf("clean OUTPUT jump rule: %v", err)
+		}
+	}
+
 	for _, chainInfo := range []struct {
 		chain string
 		table string
@@ -392,6 +419,8 @@ func (r *router) cleanUpDefaultForwardRules() error {
 		{chainRTPRE, tableMangle},
 		{chainRTNAT, tableNat},
 		{chainRTRDR, tableNat},
+		{chainNATOutput, tableNat},
+		{chainRTMSSCLAMP, tableMangle},
 	} {
 		ok, err := r.iptablesClient.ChainExists(chainInfo.table, chainInfo.chain)
 		if err != nil {
@@ -416,7 +445,14 @@ func (r *router) createContainers() error {
 		{chainRTPRE, tableMangle},
 		{chainRTNAT, tableNat},
 		{chainRTRDR, tableNat},
+		{chainRTMSSCLAMP, tableMangle},
 	} {
+		// Fallback: clear chains that survived an unclean shutdown.
+		if ok, _ := r.iptablesClient.ChainExists(chainInfo.table, chainInfo.chain); ok {
+			if err := r.iptablesClient.ClearAndDeleteChain(chainInfo.table, chainInfo.chain); err != nil {
+				log.Warnf("clear stale chain %s in %s: %v", chainInfo.chain, chainInfo.table, err)
+			}
+		}
 		if err := r.iptablesClient.NewChain(chainInfo.table, chainInfo.chain); err != nil {
 			return fmt.Errorf("create chain %s in table %s: %w", chainInfo.chain, chainInfo.table, err)
 		}
@@ -436,6 +472,10 @@ func (r *router) createContainers() error {
 
 	if err := r.addJumpRules(); err != nil {
 		return fmt.Errorf("add jump rules: %w", err)
+	}
+
+	if err := r.addMSSClampingRules(); err != nil {
+		log.Errorf("failed to add MSS clamping rules: %s", err)
 	}
 
 	return nil
@@ -518,6 +558,38 @@ func (r *router) addPostroutingRules() error {
 	return nil
 }
 
+// addMSSClampingRules adds MSS clamping rules to prevent fragmentation for forwarded traffic.
+func (r *router) addMSSClampingRules() error {
+	overhead := uint16(ipv4TCPHeaderSize)
+	if r.v6 {
+		overhead = ipv6TCPHeaderSize
+	}
+	mss := r.mtu - overhead
+
+	// Add jump rule from FORWARD chain in mangle table to our custom chain
+	jumpRule := []string{
+		"-j", chainRTMSSCLAMP,
+	}
+	if err := r.iptablesClient.Insert(tableMangle, chainFORWARD, 1, jumpRule...); err != nil {
+		return fmt.Errorf("add jump to MSS clamp chain: %w", err)
+	}
+	r.rules[jumpMSSClamp] = jumpRule
+
+	ruleOut := []string{
+		"-o", r.wgIface.Name(),
+		"-p", "tcp",
+		"--tcp-flags", "SYN,RST", "SYN",
+		"-j", "TCPMSS",
+		"--set-mss", fmt.Sprintf("%d", mss),
+	}
+	if err := r.iptablesClient.Append(tableMangle, chainRTMSSCLAMP, ruleOut...); err != nil {
+		return fmt.Errorf("add outbound MSS clamp rule: %w", err)
+	}
+	r.rules["mss-clamp-out"] = ruleOut
+
+	return nil
+}
+
 func (r *router) insertEstablishedRule(chain string) error {
 	establishedRule := getConntrackEstablished()
 
@@ -558,7 +630,7 @@ func (r *router) addJumpRules() error {
 }
 
 func (r *router) cleanJumpRules() error {
-	for _, ruleKey := range []string{jumpNatPost, jumpManglePre, jumpNatPre} {
+	for _, ruleKey := range []string{jumpNatPost, jumpManglePre, jumpNatPre, jumpMSSClamp} {
 		if rule, exists := r.rules[ruleKey]; exists {
 			var table, chain string
 			switch ruleKey {
@@ -571,6 +643,9 @@ func (r *router) cleanJumpRules() error {
 			case jumpNatPre:
 				table = tableNat
 				chain = chainPREROUTING
+			case jumpMSSClamp:
+				table = tableMangle
+				chain = chainFORWARD
 			default:
 				return fmt.Errorf("unknown jump rule: %s", ruleKey)
 			}
@@ -674,8 +749,13 @@ func (r *router) updateState() {
 	currentState.Lock()
 	defer currentState.Unlock()
 
-	currentState.RouteRules = r.rules
-	currentState.RouteIPsetCounter = r.ipsetCounter
+	if r.v6 {
+		currentState.RouteRules6 = r.rules
+		currentState.RouteIPsetCounter6 = r.ipsetCounter
+	} else {
+		currentState.RouteRules = r.rules
+		currentState.RouteIPsetCounter = r.ipsetCounter
+	}
 
 	if err := r.stateManager.UpdateState(currentState); err != nil {
 		log.Errorf("failed to update state: %v", err)
@@ -803,7 +883,7 @@ func (r *router) DeleteDNATRule(rule firewall.Rule) error {
 	}
 
 	if fwdRule, exists := r.rules[ruleKey+fwdSuffix]; exists {
-		if err := r.iptablesClient.Delete(tableFilter, chainRTFWDIN, fwdRule...); err != nil {
+		if err := r.iptablesClient.Delete(tableFilter, chainRTFWDOUT, fwdRule...); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("delete forward rule: %w", err))
 		}
 		delete(r.rules, ruleKey+fwdSuffix)
@@ -830,7 +910,7 @@ func (r *router) genRouteRuleSpec(params routeFilteringRuleParams, sources []net
 	rule = append(rule, destExp...)
 
 	if params.Proto != firewall.ProtocolALL {
-		rule = append(rule, "-p", strings.ToLower(string(params.Proto)))
+		rule = append(rule, "-p", strings.ToLower(protoForFamily(params.Proto, r.v6)))
 		rule = append(rule, applyPort("--sport", params.SPort)...)
 		rule = append(rule, applyPort("--dport", params.DPort)...)
 	}
@@ -847,11 +927,12 @@ func (r *router) applyNetwork(flag string, network firewall.Network, prefixes []
 	}
 
 	if network.IsSet() {
-		if _, err := r.ipsetCounter.Increment(network.Set.HashedName(), prefixes); err != nil {
+		name := r.ipsetName(network.Set.HashedName())
+		if _, err := r.ipsetCounter.Increment(name, prefixes); err != nil {
 			return nil, fmt.Errorf("create or get ipset: %w", err)
 		}
 
-		return []string{"-m", "set", matchSet, network.Set.HashedName(), direction}, nil
+		return []string{"-m", "set", matchSet, name, direction}, nil
 	}
 	if network.IsPrefix() {
 		return []string{flag, network.Prefix.String()}, nil
@@ -862,22 +943,141 @@ func (r *router) applyNetwork(flag string, network firewall.Network, prefixes []
 }
 
 func (r *router) UpdateSet(set firewall.Set, prefixes []netip.Prefix) error {
+	name := r.ipsetName(set.HashedName())
 	var merr *multierror.Error
 	for _, prefix := range prefixes {
-		// TODO: Implement IPv6 support
-		if prefix.Addr().Is6() {
-			log.Tracef("skipping IPv6 prefix %s: IPv6 support not yet implemented", prefix)
-			continue
-		}
-		if err := ipset.AddPrefix(set.HashedName(), prefix); err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("increment ipset counter: %w", err))
+		if err := r.addPrefixToIPSet(name, prefix); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("add prefix to ipset: %w", err))
 		}
 	}
 	if merr == nil {
-		log.Debugf("updated set %s with prefixes %v", set.HashedName(), prefixes)
+		log.Debugf("updated set %s with prefixes %v", name, prefixes)
 	}
 
 	return nberrors.FormatErrorOrNil(merr)
+}
+
+// AddInboundDNAT adds an inbound DNAT rule redirecting traffic from NetBird peers to local services.
+func (r *router) AddInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol, originalPort, translatedPort uint16) error {
+	ruleID := fmt.Sprintf("inbound-dnat-%s-%s-%d-%d", localAddr.String(), protocol, originalPort, translatedPort)
+
+	if _, exists := r.rules[ruleID]; exists {
+		return nil
+	}
+
+	dnatRule := []string{
+		"-i", r.wgIface.Name(),
+		"-p", strings.ToLower(protoForFamily(protocol, r.v6)),
+		"--dport", strconv.Itoa(int(originalPort)),
+		"-d", localAddr.String(),
+		"-m", "addrtype", "--dst-type", "LOCAL",
+		"-j", "DNAT",
+		"--to-destination", ":" + strconv.Itoa(int(translatedPort)),
+	}
+
+	ruleInfo := ruleInfo{
+		table: tableNat,
+		chain: chainRTRDR,
+		rule:  dnatRule,
+	}
+
+	if err := r.iptablesClient.Append(ruleInfo.table, ruleInfo.chain, ruleInfo.rule...); err != nil {
+		return fmt.Errorf("add inbound DNAT rule: %w", err)
+	}
+	r.rules[ruleID] = ruleInfo.rule
+
+	r.updateState()
+	return nil
+}
+
+// RemoveInboundDNAT removes an inbound DNAT rule.
+func (r *router) RemoveInboundDNAT(localAddr netip.Addr, protocol firewall.Protocol, originalPort, translatedPort uint16) error {
+	ruleID := fmt.Sprintf("inbound-dnat-%s-%s-%d-%d", localAddr.String(), protocol, originalPort, translatedPort)
+
+	if dnatRule, exists := r.rules[ruleID]; exists {
+		if err := r.iptablesClient.Delete(tableNat, chainRTRDR, dnatRule...); err != nil {
+			return fmt.Errorf("delete inbound DNAT rule: %w", err)
+		}
+		delete(r.rules, ruleID)
+	}
+
+	r.updateState()
+	return nil
+}
+
+// ensureNATOutputChain lazily creates the OUTPUT NAT chain and jump rule on first use.
+func (r *router) ensureNATOutputChain() error {
+	if _, exists := r.rules[jumpNatOutput]; exists {
+		return nil
+	}
+
+	chainExists, err := r.iptablesClient.ChainExists(tableNat, chainNATOutput)
+	if err != nil {
+		return fmt.Errorf("check chain %s: %w", chainNATOutput, err)
+	}
+	if !chainExists {
+		if err := r.iptablesClient.NewChain(tableNat, chainNATOutput); err != nil {
+			return fmt.Errorf("create chain %s: %w", chainNATOutput, err)
+		}
+	}
+
+	jumpRule := []string{"-j", chainNATOutput}
+	if err := r.iptablesClient.Insert(tableNat, "OUTPUT", 1, jumpRule...); err != nil {
+		if !chainExists {
+			if delErr := r.iptablesClient.ClearAndDeleteChain(tableNat, chainNATOutput); delErr != nil {
+				log.Warnf("failed to rollback chain %s: %v", chainNATOutput, delErr)
+			}
+		}
+		return fmt.Errorf("add OUTPUT jump rule: %w", err)
+	}
+	r.rules[jumpNatOutput] = jumpRule
+
+	r.updateState()
+	return nil
+}
+
+// AddOutputDNAT adds an OUTPUT chain DNAT rule for locally-generated traffic.
+func (r *router) AddOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, originalPort, translatedPort uint16) error {
+	ruleID := fmt.Sprintf("output-dnat-%s-%s-%d-%d", localAddr.String(), protocol, originalPort, translatedPort)
+
+	if _, exists := r.rules[ruleID]; exists {
+		return nil
+	}
+
+	if err := r.ensureNATOutputChain(); err != nil {
+		return err
+	}
+
+	dnatRule := []string{
+		"-p", strings.ToLower(protoForFamily(protocol, localAddr.Is6())),
+		"--dport", strconv.Itoa(int(originalPort)),
+		"-d", localAddr.String(),
+		"-j", "DNAT",
+		"--to-destination", ":" + strconv.Itoa(int(translatedPort)),
+	}
+
+	if err := r.iptablesClient.Append(tableNat, chainNATOutput, dnatRule...); err != nil {
+		return fmt.Errorf("add output DNAT rule: %w", err)
+	}
+	r.rules[ruleID] = dnatRule
+
+	r.updateState()
+	return nil
+}
+
+// RemoveOutputDNAT removes an OUTPUT chain DNAT rule.
+func (r *router) RemoveOutputDNAT(localAddr netip.Addr, protocol firewall.Protocol, originalPort, translatedPort uint16) error {
+	ruleID := fmt.Sprintf("output-dnat-%s-%s-%d-%d", localAddr.String(), protocol, originalPort, translatedPort)
+
+	if dnatRule, exists := r.rules[ruleID]; exists {
+		if err := r.iptablesClient.Delete(tableNat, chainNATOutput, dnatRule...); err != nil {
+			return fmt.Errorf("delete output DNAT rule: %w", err)
+		}
+		delete(r.rules, ruleID)
+	}
+
+	r.updateState()
+	return nil
 }
 
 func applyPort(flag string, port *firewall.Port) []string {
@@ -898,4 +1098,50 @@ func applyPort(flag string, port *firewall.Port) []string {
 	}
 
 	return []string{flag, strconv.Itoa(int(port.Values[0]))}
+}
+
+// ipsetName returns the ipset name, suffixed with "-v6" for the v6 router
+// to avoid collisions since ipsets are global in the kernel.
+func (r *router) ipsetName(name string) string {
+	if r.v6 {
+		return name + "-v6"
+	}
+	return name
+}
+
+func (r *router) createIPSet(name string) error {
+	opts := ipset.CreateOptions{
+		Replace: true,
+	}
+	if r.v6 {
+		opts.Family = ipset.FamilyIPV6
+	}
+
+	if err := ipset.Create(name, ipset.TypeHashNet, opts); err != nil {
+		return fmt.Errorf("create ipset %s: %w", name, err)
+	}
+
+	log.Debugf("created ipset %s with type hash:net", name)
+	return nil
+}
+
+func (r *router) addPrefixToIPSet(name string, prefix netip.Prefix) error {
+	addr := prefix.Addr()
+	ip := addr.AsSlice()
+
+	entry := &ipset.Entry{
+		IP:      ip,
+		CIDR:    uint8(prefix.Bits()),
+		Replace: true,
+	}
+
+	if err := ipset.Add(name, entry); err != nil {
+		return fmt.Errorf("add prefix to ipset %s: %w", name, err)
+	}
+
+	return nil
+}
+
+func (r *router) destroyIPSet(name string) error {
+	return ipset.Destroy(name)
 }

@@ -12,14 +12,14 @@ import (
 	"github.com/netbirdio/netbird/client/internal/statemanager"
 )
 
-func (r *SysOps) SetupRouting([]net.IP, *statemanager.Manager) error {
+func (r *SysOps) SetupRouting([]net.IP, *statemanager.Manager, bool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.prefixes = make(map[netip.Prefix]struct{})
 	return nil
 }
 
-func (r *SysOps) CleanupRouting(*statemanager.Manager) error {
+func (r *SysOps) CleanupRouting(*statemanager.Manager, bool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

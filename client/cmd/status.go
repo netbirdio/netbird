@@ -20,6 +20,7 @@ import (
 var (
 	detailFlag           bool
 	ipv4Flag             bool
+	ipv6Flag             bool
 	jsonFlag             bool
 	yamlFlag             bool
 	ipsFilter            []string
@@ -28,6 +29,7 @@ var (
 	ipsFilterMap         map[string]struct{}
 	prefixNamesFilterMap map[string]struct{}
 	connectionTypeFilter string
+	checkFlag            string
 )
 
 var statusCmd = &cobra.Command{
@@ -41,20 +43,26 @@ func init() {
 	ipsFilterMap = make(map[string]struct{})
 	prefixNamesFilterMap = make(map[string]struct{})
 	statusCmd.PersistentFlags().BoolVarP(&detailFlag, "detail", "d", false, "display detailed status information in human-readable format")
-	statusCmd.PersistentFlags().BoolVar(&jsonFlag, "json", false, "display detailed status information in json format")
-	statusCmd.PersistentFlags().BoolVar(&yamlFlag, "yaml", false, "display detailed status information in yaml format")
-	statusCmd.PersistentFlags().BoolVar(&ipv4Flag, "ipv4", false, "display only NetBird IPv4 of this peer, e.g., --ipv4 will output 100.64.0.33")
-	statusCmd.MarkFlagsMutuallyExclusive("detail", "json", "yaml", "ipv4")
-	statusCmd.PersistentFlags().StringSliceVar(&ipsFilter, "filter-by-ips", []string{}, "filters the detailed output by a list of one or more IPs, e.g., --filter-by-ips 100.64.0.100,100.64.0.200")
-	statusCmd.PersistentFlags().StringSliceVar(&prefixNamesFilter, "filter-by-names", []string{}, "filters the detailed output by a list of one or more peer FQDN or hostnames, e.g., --filter-by-names peer-a,peer-b.netbird.cloud")
-	statusCmd.PersistentFlags().StringVar(&statusFilter, "filter-by-status", "", "filters the detailed output by connection status(idle|connecting|connected), e.g., --filter-by-status connected")
-	statusCmd.PersistentFlags().StringVar(&connectionTypeFilter, "filter-by-connection-type", "", "filters the detailed output by connection type (P2P|Relayed), e.g., --filter-by-connection-type P2P")
+	statusCmd.PersistentFlags().BoolVarP(&jsonFlag, "json", "j", false, "display detailed status information in json format")
+	statusCmd.PersistentFlags().BoolVarP(&yamlFlag, "yaml", "y", false, "display detailed status information in yaml format")
+	statusCmd.PersistentFlags().BoolVarP(&ipv4Flag, "ipv4", "4", false, "display only NetBird IPv4 of this peer, e.g., --ipv4 will output 100.64.0.33")
+	statusCmd.PersistentFlags().BoolVarP(&ipv6Flag, "ipv6", "6", false, "display only NetBird IPv6 of this peer")
+	statusCmd.MarkFlagsMutuallyExclusive("detail", "json", "yaml", "ipv4", "ipv6")
+	statusCmd.PersistentFlags().StringSliceVarP(&ipsFilter, "filter-by-ips", "I", []string{}, "filters the detailed output by a list of one or more IPs (v4 or v6), e.g., --filter-by-ips 100.64.0.100,fd00::1")
+	statusCmd.PersistentFlags().StringSliceVarP(&prefixNamesFilter, "filter-by-names", "N", []string{}, "filters the detailed output by a list of one or more peer FQDN or hostnames, e.g., --filter-by-names peer-a,peer-b.netbird.cloud")
+	statusCmd.PersistentFlags().StringVarP(&statusFilter, "filter-by-status", "S", "", "filters the detailed output by connection status(idle|connecting|connected), e.g., --filter-by-status connected")
+	statusCmd.PersistentFlags().StringVarP(&connectionTypeFilter, "filter-by-connection-type", "T", "", "filters the detailed output by connection type (P2P|Relayed), e.g., --filter-by-connection-type P2P")
+	statusCmd.PersistentFlags().StringVarP(&checkFlag, "check", "C", "", "run a health check and exit with code 0 on success, 1 on failure (live|ready|startup)")
 }
 
 func statusFunc(cmd *cobra.Command, args []string) error {
 	SetFlagsFromEnvVars(rootCmd)
 
 	cmd.SetOut(cmd.OutOrStdout())
+
+	if checkFlag != "" {
+		return runHealthCheck(cmd)
+	}
 
 	err := parseFilters()
 	if err != nil {
@@ -68,15 +76,17 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 
 	ctx := internal.CtxInitState(cmd.Context())
 
-	resp, err := getStatus(ctx)
+	resp, err := getStatus(ctx, true, false)
 	if err != nil {
 		return err
 	}
 
 	status := resp.GetStatus()
 
-	if status == string(internal.StatusNeedsLogin) || status == string(internal.StatusLoginFailed) ||
-		status == string(internal.StatusSessionExpired) {
+	needsAuth := status == string(internal.StatusNeedsLogin) || status == string(internal.StatusLoginFailed) ||
+		status == string(internal.StatusSessionExpired)
+
+	if needsAuth && !jsonFlag && !yamlFlag {
 		cmd.Printf("Daemon status: %s\n\n"+
 			"Run UP command to log in with SSO (interactive login):\n\n"+
 			" netbird up \n\n"+
@@ -93,23 +103,41 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	if ipv6Flag {
+		ipv6 := resp.GetFullStatus().GetLocalPeerState().GetIpv6()
+		if ipv6 != "" {
+			cmd.Print(parseInterfaceIP(ipv6))
+		}
+		return nil
+	}
+
 	pm := profilemanager.NewProfileManager()
 	var profName string
 	if activeProf, err := pm.GetActiveProfile(); err == nil {
 		profName = activeProf.Name
 	}
 
-	var outputInformationHolder = nbstatus.ConvertToStatusOutputOverview(resp, anonymizeFlag, statusFilter, prefixNamesFilter, prefixNamesFilterMap, ipsFilterMap, connectionTypeFilter, profName)
+	var outputInformationHolder = nbstatus.ConvertToStatusOutputOverview(resp.GetFullStatus(), nbstatus.ConvertOptions{
+		Anonymize:            anonymizeFlag,
+		DaemonVersion:        resp.GetDaemonVersion(),
+		DaemonStatus:         nbstatus.ParseDaemonStatus(status),
+		StatusFilter:         statusFilter,
+		PrefixNamesFilter:    prefixNamesFilter,
+		PrefixNamesFilterMap: prefixNamesFilterMap,
+		IPsFilter:            ipsFilterMap,
+		ConnectionTypeFilter: connectionTypeFilter,
+		ProfileName:          profName,
+	})
 	var statusOutputString string
 	switch {
 	case detailFlag:
-		statusOutputString = nbstatus.ParseToFullDetailSummary(outputInformationHolder)
+		statusOutputString = outputInformationHolder.FullDetailSummary()
 	case jsonFlag:
-		statusOutputString, err = nbstatus.ParseToJSON(outputInformationHolder)
+		statusOutputString, err = outputInformationHolder.JSON()
 	case yamlFlag:
-		statusOutputString, err = nbstatus.ParseToYAML(outputInformationHolder)
+		statusOutputString, err = outputInformationHolder.YAML()
 	default:
-		statusOutputString = nbstatus.ParseGeneralSummary(outputInformationHolder, false, false, false)
+		statusOutputString = outputInformationHolder.GeneralSummary(false, false, false, false)
 	}
 
 	if err != nil {
@@ -121,16 +149,17 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func getStatus(ctx context.Context) (*proto.StatusResponse, error) {
+func getStatus(ctx context.Context, fullPeerStatus bool, shouldRunProbes bool) (*proto.StatusResponse, error) {
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
+		//nolint
 		return nil, fmt.Errorf("failed to connect to daemon error: %v\n"+
 			"If the daemon is not running please run: "+
 			"\nnetbird service install \nnetbird service start\n", err)
 	}
 	defer conn.Close()
 
-	resp, err := proto.NewDaemonServiceClient(conn).Status(ctx, &proto.StatusRequest{GetFullPeerStatus: true, ShouldRunProbes: true})
+	resp, err := proto.NewDaemonServiceClient(conn).Status(ctx, &proto.StatusRequest{GetFullPeerStatus: fullPeerStatus, ShouldRunProbes: shouldRunProbes})
 	if err != nil {
 		return nil, fmt.Errorf("status failed: %v", status.Convert(err).Message())
 	}
@@ -182,6 +211,83 @@ func enableDetailFlagWhenFilterFlag() {
 	if !detailFlag && !jsonFlag && !yamlFlag {
 		detailFlag = true
 	}
+}
+
+func runHealthCheck(cmd *cobra.Command) error {
+	check := strings.ToLower(checkFlag)
+	switch check {
+	case "live", "ready", "startup":
+	default:
+		return fmt.Errorf("unknown check %q, must be one of: live, ready, startup", checkFlag)
+	}
+
+	if err := util.InitLog(logLevel, util.LogConsole); err != nil {
+		return fmt.Errorf("init log: %w", err)
+	}
+
+	ctx := internal.CtxInitState(cmd.Context())
+
+	isStartup := check == "startup"
+	resp, err := getStatus(ctx, isStartup, false)
+	if err != nil {
+		return err
+	}
+
+	switch check {
+	case "live":
+		return nil
+	case "ready":
+		return checkReadiness(resp)
+	case "startup":
+		return checkStartup(resp)
+	default:
+		return nil
+	}
+}
+
+func checkReadiness(resp *proto.StatusResponse) error {
+	daemonStatus := internal.StatusType(resp.GetStatus())
+	switch daemonStatus {
+	case internal.StatusIdle, internal.StatusConnecting, internal.StatusConnected:
+		return nil
+	case internal.StatusNeedsLogin, internal.StatusLoginFailed, internal.StatusSessionExpired:
+		return fmt.Errorf("readiness check: daemon status is %s", daemonStatus)
+	default:
+		return fmt.Errorf("readiness check: unexpected daemon status %q", daemonStatus)
+	}
+}
+
+func checkStartup(resp *proto.StatusResponse) error {
+	fullStatus := resp.GetFullStatus()
+	if fullStatus == nil {
+		return fmt.Errorf("startup check: no full status available")
+	}
+
+	if !fullStatus.GetManagementState().GetConnected() {
+		return fmt.Errorf("startup check: management not connected")
+	}
+
+	if !fullStatus.GetSignalState().GetConnected() {
+		return fmt.Errorf("startup check: signal not connected")
+	}
+
+	var relayCount, relaysConnected int
+	for _, r := range fullStatus.GetRelays() {
+		uri := r.GetURI()
+		if !strings.HasPrefix(uri, "rel://") && !strings.HasPrefix(uri, "rels://") {
+			continue
+		}
+		relayCount++
+		if r.GetAvailable() {
+			relaysConnected++
+		}
+	}
+
+	if relayCount > 0 && relaysConnected == 0 {
+		return fmt.Errorf("startup check: no relay servers available (0/%d connected)", relayCount)
+	}
+
+	return nil
 }
 
 func parseInterfaceIP(interfaceIP string) string {

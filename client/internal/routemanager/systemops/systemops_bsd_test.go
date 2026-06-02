@@ -42,7 +42,7 @@ func TestConcurrentRoutes(t *testing.T) {
 	_, intf = setupDummyInterface(t)
 	nexthop = Nexthop{netip.Addr{}, intf}
 
-	r := NewSysOps(nil, nil)
+	r := New(nil, nil)
 
 	var wg sync.WaitGroup
 	for i := 0; i < 1024; i++ {
@@ -146,7 +146,7 @@ func createAndSetupDummyInterface(t *testing.T, intf string, ipAddressCIDR strin
 
 	nexthop := Nexthop{netip.Addr{}, netIntf}
 
-	r := NewSysOps(nil, nil)
+	r := New(nil, nil)
 	err = r.addToRouteTable(prefix, nexthop)
 	require.NoError(t, err, "Failed to add route to table")
 

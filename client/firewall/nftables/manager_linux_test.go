@@ -16,6 +16,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	fw "github.com/netbirdio/netbird/client/firewall/manager"
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 )
 
@@ -51,12 +52,10 @@ func (i *iFaceMock) Address() wgaddr.Address {
 	panic("AddressFunc is not set")
 }
 
-func (i *iFaceMock) IsUserspaceBind() bool { return false }
-
 func TestNftablesManager(t *testing.T) {
 
 	// just check on the local interface
-	manager, err := Create(ifaceMock)
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
 	require.NoError(t, err)
 	require.NoError(t, manager.Init(nil))
 	time.Sleep(time.Second * 3)
@@ -168,7 +167,7 @@ func TestNftablesManager(t *testing.T) {
 func TestNftablesManagerRuleOrder(t *testing.T) {
 	// This test verifies rule insertion order in nftables peer ACLs
 	// We add accept rule first, then deny rule to test ordering behavior
-	manager, err := Create(ifaceMock)
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
 	require.NoError(t, err)
 	require.NoError(t, manager.Init(nil))
 
@@ -197,7 +196,7 @@ func TestNftablesManagerRuleOrder(t *testing.T) {
 	t.Logf("Found %d rules in nftables chain", len(rules))
 
 	// Find the accept and deny rules and verify deny comes before accept
-	var acceptRuleIndex, denyRuleIndex int = -1, -1
+	var acceptRuleIndex, denyRuleIndex = -1, -1
 	for i, rule := range rules {
 		hasAcceptHTTPSet := false
 		hasDenyHTTPSet := false
@@ -207,11 +206,13 @@ func TestNftablesManagerRuleOrder(t *testing.T) {
 		for _, e := range rule.Exprs {
 			// Check for set lookup
 			if lookup, ok := e.(*expr.Lookup); ok {
-				if lookup.SetName == "accept-http" {
+				switch lookup.SetName {
+				case "accept-http":
 					hasAcceptHTTPSet = true
-				} else if lookup.SetName == "deny-http" {
+				case "deny-http":
 					hasDenyHTTPSet = true
 				}
+
 			}
 			// Check for port 80
 			if cmp, ok := e.(*expr.Cmp); ok {
@@ -221,9 +222,10 @@ func TestNftablesManagerRuleOrder(t *testing.T) {
 			}
 			// Check for verdict
 			if verdict, ok := e.(*expr.Verdict); ok {
-				if verdict.Kind == expr.VerdictAccept {
+				switch verdict.Kind {
+				case expr.VerdictAccept:
 					action = "ACCEPT"
-				} else if verdict.Kind == expr.VerdictDrop {
+				case expr.VerdictDrop:
 					action = "DROP"
 				}
 			}
@@ -261,7 +263,7 @@ func TestNFtablesCreatePerformance(t *testing.T) {
 	for _, testMax := range []int{10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000} {
 		t.Run(fmt.Sprintf("Testing %d rules", testMax), func(t *testing.T) {
 			// just check on the local interface
-			manager, err := Create(mock)
+			manager, err := Create(mock, iface.DefaultMTU)
 			require.NoError(t, err)
 			require.NoError(t, manager.Init(nil))
 			time.Sleep(time.Second * 3)
@@ -345,7 +347,7 @@ func TestNftablesManagerCompatibilityWithIptables(t *testing.T) {
 	stdout, stderr := runIptablesSave(t)
 	verifyIptablesOutput(t, stdout, stderr)
 
-	manager, err := Create(ifaceMock)
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
 	require.NoError(t, err, "failed to create manager")
 	require.NoError(t, manager.Init(nil))
 
@@ -380,6 +382,225 @@ func TestNftablesManagerCompatibilityWithIptables(t *testing.T) {
 	}
 	err = manager.AddNatRule(pair)
 	require.NoError(t, err, "failed to add NAT rule")
+
+	dnatRule, err := manager.AddDNATRule(fw.ForwardRule{
+		Protocol:          fw.ProtocolTCP,
+		DestinationPort:   fw.Port{Values: []uint16{8080}},
+		TranslatedAddress: netip.MustParseAddr("100.96.0.2"),
+		TranslatedPort:    fw.Port{Values: []uint16{80}},
+	})
+	require.NoError(t, err, "failed to add DNAT rule")
+
+	t.Cleanup(func() {
+		require.NoError(t, manager.DeleteDNATRule(dnatRule), "failed to delete DNAT rule")
+	})
+
+	stdout, stderr = runIptablesSave(t)
+	verifyIptablesOutput(t, stdout, stderr)
+}
+
+func TestNftablesManagerIPv6CompatibilityWithIp6tables(t *testing.T) {
+	if check() != NFTABLES {
+		t.Skip("nftables not supported on this system")
+	}
+
+	for _, bin := range []string{"ip6tables", "ip6tables-save", "iptables-save"} {
+		if _, err := exec.LookPath(bin); err != nil {
+			t.Skipf("%s not available on this system: %v", bin, err)
+		}
+	}
+
+	// Seed ip6 tables in the nft backend. Docker may not create them.
+	seedIp6tables(t)
+
+	ifaceMockV6 := &iFaceMock{
+		NameFunc: func() string { return "wt-test" },
+		AddressFunc: func() wgaddr.Address {
+			return wgaddr.Address{
+				IP:      netip.MustParseAddr("100.96.0.1"),
+				Network: netip.MustParsePrefix("100.96.0.0/16"),
+				IPv6:    netip.MustParseAddr("fd00::1"),
+				IPv6Net: netip.MustParsePrefix("fd00::/64"),
+			}
+		},
+	}
+
+	manager, err := Create(ifaceMockV6, iface.DefaultMTU)
+	require.NoError(t, err, "create manager")
+	require.NoError(t, manager.Init(nil))
+
+	t.Cleanup(func() {
+		require.NoError(t, manager.Close(nil), "close manager")
+
+		stdout, stderr := runIp6tablesSave(t)
+		verifyIp6tablesOutput(t, stdout, stderr)
+	})
+
+	ip := netip.MustParseAddr("fd00::2")
+	_, err = manager.AddPeerFiltering(nil, ip.AsSlice(), fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{80}}, fw.ActionAccept, "")
+	require.NoError(t, err, "add v6 peer filtering rule")
+
+	_, err = manager.AddRouteFiltering(
+		nil,
+		[]netip.Prefix{netip.MustParsePrefix("fd00:1::/64")},
+		fw.Network{Prefix: netip.MustParsePrefix("2001:db8::/48")},
+		fw.ProtocolTCP,
+		nil,
+		&fw.Port{Values: []uint16{443}},
+		fw.ActionAccept,
+	)
+	require.NoError(t, err, "add v6 route filtering rule")
+
+	err = manager.AddNatRule(fw.RouterPair{
+		Source:      fw.Network{Prefix: netip.MustParsePrefix("fd00::/64")},
+		Destination: fw.Network{Prefix: netip.MustParsePrefix("2001:db8::/48")},
+		Masquerade:  true,
+	})
+	require.NoError(t, err, "add v6 NAT rule")
+
+	dnatRule, err := manager.AddDNATRule(fw.ForwardRule{
+		Protocol:          fw.ProtocolTCP,
+		DestinationPort:   fw.Port{Values: []uint16{8080}},
+		TranslatedAddress: netip.MustParseAddr("fd00::2"),
+		TranslatedPort:    fw.Port{Values: []uint16{80}},
+	})
+	require.NoError(t, err, "add v6 DNAT rule")
+
+	t.Cleanup(func() {
+		require.NoError(t, manager.DeleteDNATRule(dnatRule), "delete v6 DNAT rule")
+	})
+
+	stdout, stderr := runIptablesSave(t)
+	verifyIptablesOutput(t, stdout, stderr)
+
+	stdout, stderr = runIp6tablesSave(t)
+	verifyIp6tablesOutput(t, stdout, stderr)
+}
+
+func seedIp6tables(t *testing.T) {
+	t.Helper()
+	for _, tc := range []struct{ table, chain string }{
+		{"filter", "FORWARD"},
+		{"nat", "POSTROUTING"},
+		{"mangle", "FORWARD"},
+	} {
+		add := exec.Command("ip6tables", "-t", tc.table, "-A", tc.chain, "-j", "ACCEPT")
+		require.NoError(t, add.Run(), "seed ip6tables -t %s", tc.table)
+		del := exec.Command("ip6tables", "-t", tc.table, "-D", tc.chain, "-j", "ACCEPT")
+		require.NoError(t, del.Run(), "unseed ip6tables -t %s", tc.table)
+	}
+}
+
+func runIp6tablesSave(t *testing.T) (string, string) {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	cmd := exec.Command("ip6tables-save")
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	require.NoError(t, cmd.Run(), "ip6tables-save failed")
+	return stdout.String(), stderr.String()
+}
+
+func verifyIp6tablesOutput(t *testing.T, stdout, stderr string) {
+	t.Helper()
+	for _, msg := range []string{
+		"Table `nat' is incompatible",
+		"Table `mangle' is incompatible",
+		"Table `filter' is incompatible",
+	} {
+		require.NotContains(t, stdout, msg,
+			"ip6tables-save stdout reports incompatibility: %s", stdout)
+		require.NotContains(t, stderr, msg,
+			"ip6tables-save stderr reports incompatibility: %s", stderr)
+	}
+}
+
+func TestNftablesManagerCompatibilityWithIptablesFor6kPrefixes(t *testing.T) {
+	if check() != NFTABLES {
+		t.Skip("nftables not supported on this system")
+	}
+
+	if _, err := exec.LookPath("iptables-save"); err != nil {
+		t.Skipf("iptables-save not available on this system: %v", err)
+	}
+
+	// First ensure iptables-nft tables exist by running iptables-save
+	stdout, stderr := runIptablesSave(t)
+	verifyIptablesOutput(t, stdout, stderr)
+
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err, "failed to create manager")
+	require.NoError(t, manager.Init(nil))
+
+	t.Cleanup(func() {
+		err := manager.Close(nil)
+		require.NoError(t, err, "failed to reset manager state")
+
+		// Verify iptables output after reset
+		stdout, stderr := runIptablesSave(t)
+		verifyIptablesOutput(t, stdout, stderr)
+	})
+
+	const octet2Count = 25
+	const octet3Count = 255
+	prefixes := make([]netip.Prefix, 0, (octet2Count-1)*(octet3Count-1))
+	for i := 1; i < octet2Count; i++ {
+		for j := 1; j < octet3Count; j++ {
+			addr := netip.AddrFrom4([4]byte{192, byte(j), byte(i), 0})
+			prefixes = append(prefixes, netip.PrefixFrom(addr, 24))
+		}
+	}
+	_, err = manager.AddRouteFiltering(
+		nil,
+		prefixes,
+		fw.Network{Prefix: netip.MustParsePrefix("10.2.0.0/24")},
+		fw.ProtocolTCP,
+		nil,
+		&fw.Port{Values: []uint16{443}},
+		fw.ActionAccept,
+	)
+	require.NoError(t, err, "failed to add route filtering rule")
+
+	stdout, stderr = runIptablesSave(t)
+	verifyIptablesOutput(t, stdout, stderr)
+}
+
+func TestNftablesManagerCompatibilityWithIptablesForEmptyPrefixes(t *testing.T) {
+	if check() != NFTABLES {
+		t.Skip("nftables not supported on this system")
+	}
+
+	if _, err := exec.LookPath("iptables-save"); err != nil {
+		t.Skipf("iptables-save not available on this system: %v", err)
+	}
+
+	// First ensure iptables-nft tables exist by running iptables-save
+	stdout, stderr := runIptablesSave(t)
+	verifyIptablesOutput(t, stdout, stderr)
+
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err, "failed to create manager")
+	require.NoError(t, manager.Init(nil))
+
+	t.Cleanup(func() {
+		err := manager.Close(nil)
+		require.NoError(t, err, "failed to reset manager state")
+
+		// Verify iptables output after reset
+		stdout, stderr := runIptablesSave(t)
+		verifyIptablesOutput(t, stdout, stderr)
+	})
+
+	_, err = manager.AddRouteFiltering(
+		nil,
+		[]netip.Prefix{},
+		fw.Network{Prefix: netip.MustParsePrefix("10.2.0.0/24")},
+		fw.ProtocolTCP,
+		nil,
+		&fw.Port{Values: []uint16{443}},
+		fw.ActionAccept,
+	)
+	require.NoError(t, err, "failed to add route filtering rule")
 
 	stdout, stderr = runIptablesSave(t)
 	verifyIptablesOutput(t, stdout, stderr)

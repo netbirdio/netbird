@@ -14,6 +14,9 @@ type WGIface interface {
 }
 
 func (g *BundleGenerator) addWgShow() error {
+	if g.statusRecorder == nil {
+		return fmt.Errorf("no status recorder available for wg show")
+	}
 	result, err := g.statusRecorder.PeersStatus()
 	if err != nil {
 		return err
@@ -57,7 +60,7 @@ func (g *BundleGenerator) toWGShowFormat(s *configurer.Stats) string {
 		}
 		sb.WriteString(fmt.Sprintf("  latest handshake: %s\n", peer.LastHandshake.Format(time.RFC1123)))
 		sb.WriteString(fmt.Sprintf("  transfer: %d B received, %d B sent\n", peer.RxBytes, peer.TxBytes))
-		if peer.PresharedKey {
+		if peer.PresharedKey != [32]byte{} {
 			sb.WriteString("  preshared key: (hidden)\n")
 		}
 	}

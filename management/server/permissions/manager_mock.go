@@ -9,6 +9,7 @@ import (
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
+	account "github.com/netbirdio/netbird/management/server/account"
 	modules "github.com/netbirdio/netbird/management/server/permissions/modules"
 	operations "github.com/netbirdio/netbird/management/server/permissions/operations"
 	roles "github.com/netbirdio/netbird/management/server/permissions/roles"
@@ -53,12 +54,25 @@ func (mr *MockManagerMockRecorder) GetPermissionsByRole(ctx, role interface{}) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPermissionsByRole", reflect.TypeOf((*MockManager)(nil).GetPermissionsByRole), ctx, role)
 }
 
+// SetAccountManager mocks base method.
+func (m *MockManager) SetAccountManager(accountManager account.Manager) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetAccountManager", accountManager)
+}
+
+// SetAccountManager indicates an expected call of SetAccountManager.
+func (mr *MockManagerMockRecorder) SetAccountManager(accountManager interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetAccountManager", reflect.TypeOf((*MockManager)(nil).SetAccountManager), accountManager)
+}
+
 // ValidateAccountAccess mocks base method.
-func (m *MockManager) ValidateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) error {
+func (m *MockManager) ValidateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) (context.Context, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ValidateAccountAccess", ctx, accountID, user, allowOwnerAndAdmin)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(context.Context)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // ValidateAccountAccess indicates an expected call of ValidateAccountAccess.
@@ -82,12 +96,13 @@ func (mr *MockManagerMockRecorder) ValidateRoleModuleAccess(ctx, accountID, role
 }
 
 // ValidateUserPermissions mocks base method.
-func (m *MockManager) ValidateUserPermissions(ctx context.Context, accountID, userID string, module modules.Module, operation operations.Operation) (bool, error) {
+func (m *MockManager) ValidateUserPermissions(ctx context.Context, accountID, userID string, module modules.Module, operation operations.Operation) (bool, context.Context, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ValidateUserPermissions", ctx, accountID, userID, module, operation)
 	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	ret1, _ := ret[1].(context.Context)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
 }
 
 // ValidateUserPermissions indicates an expected call of ValidateUserPermissions.

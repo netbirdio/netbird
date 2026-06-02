@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,8 +18,17 @@ const (
 	maxBatchSize         = 1024 * 16
 	maxMessageSize       = 1024 * 2
 	defaultFlushInterval = 2 * time.Second
-	logChannelSize       = 1000
+	defaultLogChanSize   = 1000
 )
+
+func getLogChannelSize() int {
+	if v := os.Getenv("NB_USPFILTER_LOG_BUFFER"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return defaultLogChanSize
+}
 
 type Level uint32
 
@@ -42,14 +53,17 @@ var levelStrings = map[Level]string{
 }
 
 type logMessage struct {
-	level  Level
-	format string
-	arg1   any
-	arg2   any
-	arg3   any
-	arg4   any
-	arg5   any
-	arg6   any
+	level    Level
+	argCount uint8
+	format   string
+	arg1     any
+	arg2     any
+	arg3     any
+	arg4     any
+	arg5     any
+	arg6     any
+	arg7     any
+	arg8     any
 }
 
 // Logger is a high-performance, non-blocking logger
@@ -67,7 +81,7 @@ type Logger struct {
 func NewFromLogrus(logrusLogger *log.Logger) *Logger {
 	l := &Logger{
 		output:     logrusLogger.Out,
-		msgChannel: make(chan logMessage, logChannelSize),
+		msgChannel: make(chan logMessage, getLogChannelSize()),
 		shutdown:   make(chan struct{}),
 		bufPool: sync.Pool{
 			New: func() any {
@@ -94,6 +108,12 @@ func (l *Logger) SetLevel(level Level) {
 	log.Debugf("Set uspfilter logger loglevel to %v", levelStrings[level])
 }
 
+// Enabled reports whether the given level is currently logged. Callers on the
+// hot path should guard log sites with this to avoid boxing arguments into
+// any when the level is off.
+func (l *Logger) Enabled(level Level) bool {
+	return l.level.Load() >= uint32(level)
+}
 
 func (l *Logger) Error(format string) {
 	if l.level.Load() >= uint32(LevelError) {
@@ -143,7 +163,7 @@ func (l *Logger) Trace(format string) {
 func (l *Logger) Error1(format string, arg1 any) {
 	if l.level.Load() >= uint32(LevelError) {
 		select {
-		case l.msgChannel <- logMessage{level: LevelError, format: format, arg1: arg1}:
+		case l.msgChannel <- logMessage{level: LevelError, argCount: 1, format: format, arg1: arg1}:
 		default:
 		}
 	}
@@ -152,7 +172,16 @@ func (l *Logger) Error1(format string, arg1 any) {
 func (l *Logger) Error2(format string, arg1, arg2 any) {
 	if l.level.Load() >= uint32(LevelError) {
 		select {
-		case l.msgChannel <- logMessage{level: LevelError, format: format, arg1: arg1, arg2: arg2}:
+		case l.msgChannel <- logMessage{level: LevelError, argCount: 2, format: format, arg1: arg1, arg2: arg2}:
+		default:
+		}
+	}
+}
+
+func (l *Logger) Warn2(format string, arg1, arg2 any) {
+	if l.level.Load() >= uint32(LevelWarn) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelWarn, argCount: 2, format: format, arg1: arg1, arg2: arg2}:
 		default:
 		}
 	}
@@ -161,7 +190,16 @@ func (l *Logger) Error2(format string, arg1, arg2 any) {
 func (l *Logger) Warn3(format string, arg1, arg2, arg3 any) {
 	if l.level.Load() >= uint32(LevelWarn) {
 		select {
-		case l.msgChannel <- logMessage{level: LevelWarn, format: format, arg1: arg1, arg2: arg2, arg3: arg3}:
+		case l.msgChannel <- logMessage{level: LevelWarn, argCount: 3, format: format, arg1: arg1, arg2: arg2, arg3: arg3}:
+		default:
+		}
+	}
+}
+
+func (l *Logger) Warn4(format string, arg1, arg2, arg3, arg4 any) {
+	if l.level.Load() >= uint32(LevelWarn) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelWarn, argCount: 4, format: format, arg1: arg1, arg2: arg2, arg3: arg3, arg4: arg4}:
 		default:
 		}
 	}
@@ -170,7 +208,7 @@ func (l *Logger) Warn3(format string, arg1, arg2, arg3 any) {
 func (l *Logger) Debug1(format string, arg1 any) {
 	if l.level.Load() >= uint32(LevelDebug) {
 		select {
-		case l.msgChannel <- logMessage{level: LevelDebug, format: format, arg1: arg1}:
+		case l.msgChannel <- logMessage{level: LevelDebug, argCount: 1, format: format, arg1: arg1}:
 		default:
 		}
 	}
@@ -179,16 +217,68 @@ func (l *Logger) Debug1(format string, arg1 any) {
 func (l *Logger) Debug2(format string, arg1, arg2 any) {
 	if l.level.Load() >= uint32(LevelDebug) {
 		select {
-		case l.msgChannel <- logMessage{level: LevelDebug, format: format, arg1: arg1, arg2: arg2}:
+		case l.msgChannel <- logMessage{level: LevelDebug, argCount: 2, format: format, arg1: arg1, arg2: arg2}:
 		default:
 		}
+	}
+}
+
+func (l *Logger) Debug3(format string, arg1, arg2, arg3 any) {
+	if l.level.Load() >= uint32(LevelDebug) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelDebug, argCount: 3, format: format, arg1: arg1, arg2: arg2, arg3: arg3}:
+		default:
+		}
+	}
+}
+
+// Debugf is the variadic shape. Dispatches to Debug/Debug1/Debug2/Debug3
+// to avoid allocating an args slice on the fast path when the arg count is
+// known (0-3). Args beyond 3 land on the general variadic path; callers on
+// the hot path should prefer DebugN for known counts.
+func (l *Logger) Debugf(format string, args ...any) {
+	if l.level.Load() < uint32(LevelDebug) {
+		return
+	}
+	switch len(args) {
+	case 0:
+		l.Debug(format)
+	case 1:
+		l.Debug1(format, args[0])
+	case 2:
+		l.Debug2(format, args[0], args[1])
+	case 3:
+		l.Debug3(format, args[0], args[1], args[2])
+	default:
+		l.sendVariadic(LevelDebug, format, args)
+	}
+}
+
+// sendVariadic packs a slice of arguments into a logMessage and non-blocking
+// enqueues it. Used for arg counts beyond the fixed-arity fast paths. Args
+// beyond the 8-arg slot limit are dropped so callers don't produce silently
+// empty log lines via uint8 wraparound in argCount.
+func (l *Logger) sendVariadic(level Level, format string, args []any) {
+	const maxArgs = 8
+	n := len(args)
+	if n > maxArgs {
+		n = maxArgs
+	}
+	msg := logMessage{level: level, argCount: uint8(n), format: format}
+	slots := [maxArgs]*any{&msg.arg1, &msg.arg2, &msg.arg3, &msg.arg4, &msg.arg5, &msg.arg6, &msg.arg7, &msg.arg8}
+	for i := 0; i < n; i++ {
+		*slots[i] = args[i]
+	}
+	select {
+	case l.msgChannel <- msg:
+	default:
 	}
 }
 
 func (l *Logger) Trace1(format string, arg1 any) {
 	if l.level.Load() >= uint32(LevelTrace) {
 		select {
-		case l.msgChannel <- logMessage{level: LevelTrace, format: format, arg1: arg1}:
+		case l.msgChannel <- logMessage{level: LevelTrace, argCount: 1, format: format, arg1: arg1}:
 		default:
 		}
 	}
@@ -197,7 +287,7 @@ func (l *Logger) Trace1(format string, arg1 any) {
 func (l *Logger) Trace2(format string, arg1, arg2 any) {
 	if l.level.Load() >= uint32(LevelTrace) {
 		select {
-		case l.msgChannel <- logMessage{level: LevelTrace, format: format, arg1: arg1, arg2: arg2}:
+		case l.msgChannel <- logMessage{level: LevelTrace, argCount: 2, format: format, arg1: arg1, arg2: arg2}:
 		default:
 		}
 	}
@@ -206,7 +296,7 @@ func (l *Logger) Trace2(format string, arg1, arg2 any) {
 func (l *Logger) Trace3(format string, arg1, arg2, arg3 any) {
 	if l.level.Load() >= uint32(LevelTrace) {
 		select {
-		case l.msgChannel <- logMessage{level: LevelTrace, format: format, arg1: arg1, arg2: arg2, arg3: arg3}:
+		case l.msgChannel <- logMessage{level: LevelTrace, argCount: 3, format: format, arg1: arg1, arg2: arg2, arg3: arg3}:
 		default:
 		}
 	}
@@ -215,7 +305,7 @@ func (l *Logger) Trace3(format string, arg1, arg2, arg3 any) {
 func (l *Logger) Trace4(format string, arg1, arg2, arg3, arg4 any) {
 	if l.level.Load() >= uint32(LevelTrace) {
 		select {
-		case l.msgChannel <- logMessage{level: LevelTrace, format: format, arg1: arg1, arg2: arg2, arg3: arg3, arg4: arg4}:
+		case l.msgChannel <- logMessage{level: LevelTrace, argCount: 4, format: format, arg1: arg1, arg2: arg2, arg3: arg3, arg4: arg4}:
 		default:
 		}
 	}
@@ -224,7 +314,7 @@ func (l *Logger) Trace4(format string, arg1, arg2, arg3, arg4 any) {
 func (l *Logger) Trace5(format string, arg1, arg2, arg3, arg4, arg5 any) {
 	if l.level.Load() >= uint32(LevelTrace) {
 		select {
-		case l.msgChannel <- logMessage{level: LevelTrace, format: format, arg1: arg1, arg2: arg2, arg3: arg3, arg4: arg4, arg5: arg5}:
+		case l.msgChannel <- logMessage{level: LevelTrace, argCount: 5, format: format, arg1: arg1, arg2: arg2, arg3: arg3, arg4: arg4, arg5: arg5}:
 		default:
 		}
 	}
@@ -233,7 +323,17 @@ func (l *Logger) Trace5(format string, arg1, arg2, arg3, arg4, arg5 any) {
 func (l *Logger) Trace6(format string, arg1, arg2, arg3, arg4, arg5, arg6 any) {
 	if l.level.Load() >= uint32(LevelTrace) {
 		select {
-		case l.msgChannel <- logMessage{level: LevelTrace, format: format, arg1: arg1, arg2: arg2, arg3: arg3, arg4: arg4, arg5: arg5, arg6: arg6}:
+		case l.msgChannel <- logMessage{level: LevelTrace, argCount: 6, format: format, arg1: arg1, arg2: arg2, arg3: arg3, arg4: arg4, arg5: arg5, arg6: arg6}:
+		default:
+		}
+	}
+}
+
+// Trace8 logs a trace message with 8 arguments (8 placeholder in format string)
+func (l *Logger) Trace8(format string, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8 any) {
+	if l.level.Load() >= uint32(LevelTrace) {
+		select {
+		case l.msgChannel <- logMessage{level: LevelTrace, argCount: 8, format: format, arg1: arg1, arg2: arg2, arg3: arg3, arg4: arg4, arg5: arg5, arg6: arg6, arg7: arg7, arg8: arg8}:
 		default:
 		}
 	}
@@ -246,29 +346,8 @@ func (l *Logger) formatMessage(buf *[]byte, msg logMessage) {
 	*buf = append(*buf, levelStrings[msg.level]...)
 	*buf = append(*buf, ' ')
 
-	// Count non-nil arguments for switch
-	argCount := 0
-	if msg.arg1 != nil {
-		argCount++
-		if msg.arg2 != nil {
-			argCount++
-			if msg.arg3 != nil {
-				argCount++
-				if msg.arg4 != nil {
-					argCount++
-					if msg.arg5 != nil {
-						argCount++
-						if msg.arg6 != nil {
-							argCount++
-						}
-					}
-				}
-			}
-		}
-	}
-
 	var formatted string
-	switch argCount {
+	switch msg.argCount {
 	case 0:
 		formatted = msg.format
 	case 1:
@@ -283,6 +362,10 @@ func (l *Logger) formatMessage(buf *[]byte, msg logMessage) {
 		formatted = fmt.Sprintf(msg.format, msg.arg1, msg.arg2, msg.arg3, msg.arg4, msg.arg5)
 	case 6:
 		formatted = fmt.Sprintf(msg.format, msg.arg1, msg.arg2, msg.arg3, msg.arg4, msg.arg5, msg.arg6)
+	case 7:
+		formatted = fmt.Sprintf(msg.format, msg.arg1, msg.arg2, msg.arg3, msg.arg4, msg.arg5, msg.arg6, msg.arg7)
+	case 8:
+		formatted = fmt.Sprintf(msg.format, msg.arg1, msg.arg2, msg.arg3, msg.arg4, msg.arg5, msg.arg6, msg.arg7, msg.arg8)
 	}
 
 	*buf = append(*buf, formatted...)

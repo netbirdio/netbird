@@ -16,7 +16,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
-	nbnet "github.com/netbirdio/netbird/util/net"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 const (
@@ -29,21 +29,16 @@ const (
 	chainNameForwardFilter     = "netbird-acl-forward-filter"
 	chainNameManglePrerouting  = "netbird-mangle-prerouting"
 	chainNameManglePostrouting = "netbird-mangle-postrouting"
-
-	allowNetbirdInputRuleID = "allow Netbird incoming traffic"
 )
 
 const flushError = "flush: %w"
-
-var (
-	anyIP = []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-)
 
 type AclManager struct {
 	rConn              *nftables.Conn
 	sConn              *nftables.Conn
 	wgIface            iFaceMapper
 	routingFwChainName string
+	af                 addrFamily
 
 	workTable       *nftables.Table
 	chainInputRules *nftables.Chain
@@ -69,6 +64,7 @@ func newAclManager(table *nftables.Table, wgIface iFaceMapper, routingFwChainNam
 		wgIface:            wgIface,
 		workTable:          table,
 		routingFwChainName: routingFwChainName,
+		af:                 familyForAddr(table.Family == nftables.TableFamilyIPv4),
 
 		ipsetStore: newIpsetStore(),
 		rules:      make(map[string]*Rule),
@@ -147,7 +143,7 @@ func (m *AclManager) DeletePeerRule(rule firewall.Rule) error {
 	}
 
 	if _, ok := ips[r.ip.String()]; ok {
-		err := m.sConn.SetDeleteElements(r.nftSet, []nftables.SetElement{{Key: r.ip.To4()}})
+		err := m.sConn.SetDeleteElements(r.nftSet, []nftables.SetElement{{Key: ipToBytes(r.ip, m.af)}})
 		if err != nil {
 			log.Errorf("delete elements for set %q: %v", r.nftSet.Name, err)
 		}
@@ -195,25 +191,6 @@ func (m *AclManager) DeletePeerRule(rule firewall.Rule) error {
 // createDefaultAllowRules creates default allow rules for the input and output chains
 func (m *AclManager) createDefaultAllowRules() error {
 	expIn := []expr.Any{
-		&expr.Payload{
-			DestRegister: 1,
-			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       12,
-			Len:          4,
-		},
-		// mask
-		&expr.Bitwise{
-			SourceRegister: 1,
-			DestRegister:   1,
-			Len:            4,
-			Mask:           []byte{0, 0, 0, 0},
-			Xor:            []byte{0, 0, 0, 0},
-		},
-		// net address
-		&expr.Cmp{
-			Register: 1,
-			Data:     []byte{0, 0, 0, 0},
-		},
 		&expr.Verdict{
 			Kind: expr.VerdictAccept,
 		},
@@ -258,7 +235,7 @@ func (m *AclManager) addIOFiltering(
 	action firewall.Action,
 	ipset *nftables.Set,
 ) (*Rule, error) {
-	ruleId := generatePeerRuleId(ip, sPort, dPort, action, ipset)
+	ruleId := generatePeerRuleId(ip, proto, sPort, dPort, action, ipset)
 	if r, ok := m.rules[ruleId]; ok {
 		return &Rule{
 			nftRule:    r.nftRule,
@@ -275,11 +252,11 @@ func (m *AclManager) addIOFiltering(
 		expressions = append(expressions, &expr.Payload{
 			DestRegister: 1,
 			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       uint32(9),
+			Offset:       m.af.protoOffset,
 			Len:          uint32(1),
 		})
 
-		protoData, err := protoToInt(proto)
+		protoData, err := m.af.protoNum(proto)
 		if err != nil {
 			return nil, fmt.Errorf("convert protocol to number: %v", err)
 		}
@@ -291,19 +268,16 @@ func (m *AclManager) addIOFiltering(
 		})
 	}
 
-	rawIP := ip.To4()
+	rawIP := ipToBytes(ip, m.af)
 	// check if rawIP contains zeroed IPv4 0.0.0.0 value
 	// in that case not add IP match expression into the rule definition
-	if !bytes.HasPrefix(anyIP, rawIP) {
-		// source address position
-		addrOffset := uint32(12)
-
+	if slices.ContainsFunc(rawIP, func(v byte) bool { return v != 0 }) {
 		expressions = append(expressions,
 			&expr.Payload{
 				DestRegister: 1,
 				Base:         expr.PayloadBaseNetworkHeader,
-				Offset:       addrOffset,
-				Len:          4,
+				Offset:       m.af.srcAddrOffset,
+				Len:          m.af.addrLen,
 			},
 		)
 		// add individual IP for match if no ipset defined
@@ -357,11 +331,12 @@ func (m *AclManager) addIOFiltering(
 	}
 
 	if err := m.rConn.Flush(); err != nil {
-		return nil, fmt.Errorf(flushError, err)
+		return nil, fmt.Errorf("flush input rule %s: %v", ruleId, err)
 	}
 
 	ruleStruct := &Rule{
-		nftRule:    nftRule,
+		nftRule: nftRule,
+		// best effort mangle rule
 		mangleRule: m.createPreroutingRule(expressions, userData),
 		nftSet:     ipset,
 		ruleID:     ruleId,
@@ -420,12 +395,19 @@ func (m *AclManager) createPreroutingRule(expressions []expr.Any, userData []byt
 		},
 	)
 
-	return m.rConn.AddRule(&nftables.Rule{
+	nfRule := m.rConn.AddRule(&nftables.Rule{
 		Table:    m.workTable,
 		Chain:    m.chainPrerouting,
 		Exprs:    preroutingExprs,
 		UserData: userData,
 	})
+
+	if err := m.rConn.Flush(); err != nil {
+		log.Errorf("failed to flush mangle rule %s: %v", string(userData), err)
+		return nil
+	}
+
+	return nfRule
 }
 
 func (m *AclManager) createDefaultChains() (err error) {
@@ -600,7 +582,7 @@ func (m *AclManager) addJumpRule(chain *nftables.Chain, to string, ifaceKey expr
 
 func (m *AclManager) addIpToSet(ipsetName string, ip net.IP) (*nftables.Set, error) {
 	ipset, err := m.rConn.GetSetByName(m.workTable, ipsetName)
-	rawIP := ip.To4()
+	rawIP := ipToBytes(ip, m.af)
 	if err != nil {
 		if ipset, err = m.createSet(m.workTable, ipsetName); err != nil {
 			return nil, fmt.Errorf("get set name: %v", err)
@@ -632,7 +614,7 @@ func (m *AclManager) createSet(table *nftables.Table, name string) (*nftables.Se
 		Name:    name,
 		Table:   table,
 		Dynamic: true,
-		KeyType: nftables.TypeIPAddr,
+		KeyType: m.af.setKeyType,
 	}
 
 	if err := m.rConn.AddSet(ipset, nil); err != nil {
@@ -697,8 +679,8 @@ func (m *AclManager) refreshRuleHandles(chain *nftables.Chain, mangle bool) erro
 	return nil
 }
 
-func generatePeerRuleId(ip net.IP, sPort *firewall.Port, dPort *firewall.Port, action firewall.Action, ipset *nftables.Set) string {
-	rulesetID := ":"
+func generatePeerRuleId(ip net.IP, proto firewall.Protocol, sPort *firewall.Port, dPort *firewall.Port, action firewall.Action, ipset *nftables.Set) string {
+	rulesetID := ":" + string(proto) + ":"
 	if sPort != nil {
 		rulesetID += sPort.String()
 	}
@@ -720,15 +702,12 @@ func ifname(n string) []byte {
 	return b
 }
 
-func protoToInt(protocol firewall.Protocol) (uint8, error) {
-	switch protocol {
-	case firewall.ProtocolTCP:
-		return unix.IPPROTO_TCP, nil
-	case firewall.ProtocolUDP:
-		return unix.IPPROTO_UDP, nil
-	case firewall.ProtocolICMP:
-		return unix.IPPROTO_ICMP, nil
-	}
 
-	return 0, fmt.Errorf("unsupported protocol: %s", protocol)
+// ipToBytes converts net.IP to the correct byte length for the address family.
+func ipToBytes(ip net.IP, af addrFamily) []byte {
+	if af.addrLen == 4 {
+		return ip.To4()
+	}
+	return ip.To16()
 }
+

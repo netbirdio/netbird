@@ -2,6 +2,18 @@ version: 2
 
 project_name: netbird
 builds:
+  - id: netbird-wasm
+    dir: client/wasm/cmd
+    binary: netbird
+    env: [GOOS=js, GOARCH=wasm, CGO_ENABLED=0]
+    goos:
+      - js
+    goarch:
+      - wasm
+    ldflags:
+      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
   - id: netbird
     dir: client
     binary: netbird
@@ -94,10 +106,64 @@ builds:
       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: "{{ .CommitTimestamp }}"
 
+  - id: netbird-server
+    dir: combined
+    env:
+      - CGO_ENABLED=1
+      - >-
+        {{- if eq .Runtime.Goos "linux" }}
+          {{- if eq .Arch "arm64"}}CC=aarch64-linux-gnu-gcc{{- end }}
+          {{- if eq .Arch "arm"}}CC=arm-linux-gnueabihf-gcc{{- end }}
+        {{- end }}
+    binary: netbird-server
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    ldflags:
+      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
   - id: netbird-upload
     dir: upload-server
     env: [CGO_ENABLED=0]
     binary: netbird-upload
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    ldflags:
+      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+  - id: netbird-proxy
+    dir: proxy/cmd/proxy
+    env: [CGO_ENABLED=0]
+    binary: netbird-proxy
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    ldflags:
+      - -s -w -X main.Version={{.Version}} -X main.Commit={{.Commit}} -X main.BuildDate={{.CommitDate}}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+  - id: netbird-idp-migrate
+    dir: tools/idp-migrate
+    env:
+      - CGO_ENABLED=1
+      - >-
+        {{- if eq .Runtime.Goos "linux" }}
+          {{- if eq .Arch "arm64"}}CC=aarch64-linux-gnu-gcc{{- end }}
+          {{- if eq .Arch "arm"}}CC=arm-linux-gnueabihf-gcc{{- end }}
+        {{- end }}
+    binary: netbird-idp-migrate
     goos:
       - linux
     goarch:
@@ -115,18 +181,27 @@ archives:
   - builds:
       - netbird
       - netbird-static
+  - id: netbird-wasm
+    builds:
+      - netbird-wasm
+    name_template: "{{ .ProjectName }}_{{ .Version }}"
+    format: binary
+  - id: netbird-idp-migrate
+    builds:
+      - netbird-idp-migrate
+    name_template: "netbird-idp-migrate_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
 nfpms:
   - maintainer: Netbird <dev@netbird.io>
     description: Netbird client.
     homepage: https://netbird.io/
-    id: netbird-deb
+    license: BSD-3-Clause
+    id: netbird_deb
     bindir: /usr/bin
     builds:
       - netbird
     formats:
       - deb
-
     scripts:
       postinstall: "release_files/post_install.sh"
       preremove: "release_files/pre_remove.sh"
@@ -134,16 +209,19 @@ nfpms:
   - maintainer: Netbird <dev@netbird.io>
     description: Netbird client.
     homepage: https://netbird.io/
-    id: netbird-rpm
+    license: BSD-3-Clause
+    id: netbird_rpm
     bindir: /usr/bin
     builds:
       - netbird
     formats:
       - rpm
-
     scripts:
       postinstall: "release_files/post_install.sh"
       preremove: "release_files/pre_remove.sh"
+    rpm:
+      signature:
+        key_file: '{{ if index .Env "GPG_RPM_KEY_FILE" }}{{ .Env.GPG_RPM_KEY_FILE }}{{ end }}'
 dockers:
   - image_templates:
       - netbirdio/netbird:{{ .Version }}-amd64
@@ -503,6 +581,104 @@ dockers:
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
       - "--label=maintainer=dev@netbird.io"
+  - image_templates:
+      - netbirdio/netbird-server:{{ .Version }}-amd64
+      - ghcr.io/netbirdio/netbird-server:{{ .Version }}-amd64
+    ids:
+      - netbird-server
+    goarch: amd64
+    use: buildx
+    dockerfile: combined/Dockerfile
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
+      - "--label=maintainer=dev@netbird.io"
+  - image_templates:
+      - netbirdio/netbird-server:{{ .Version }}-arm64v8
+      - ghcr.io/netbirdio/netbird-server:{{ .Version }}-arm64v8
+    ids:
+      - netbird-server
+    goarch: arm64
+    use: buildx
+    dockerfile: combined/Dockerfile
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
+      - "--label=maintainer=dev@netbird.io"
+  - image_templates:
+      - netbirdio/netbird-server:{{ .Version }}-arm
+      - ghcr.io/netbirdio/netbird-server:{{ .Version }}-arm
+    ids:
+      - netbird-server
+    goarch: arm
+    goarm: 6
+    use: buildx
+    dockerfile: combined/Dockerfile
+    build_flag_templates:
+      - "--platform=linux/arm"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
+      - "--label=maintainer=dev@netbird.io"
+  - image_templates:
+      - netbirdio/reverse-proxy:{{ .Version }}-amd64
+      - ghcr.io/netbirdio/reverse-proxy:{{ .Version }}-amd64
+    ids:
+      - netbird-proxy
+    goarch: amd64
+    use: buildx
+    dockerfile: proxy/Dockerfile
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
+      - "--label=maintainer=dev@netbird.io"
+  - image_templates:
+      - netbirdio/reverse-proxy:{{ .Version }}-arm64v8
+      - ghcr.io/netbirdio/reverse-proxy:{{ .Version }}-arm64v8
+    ids:
+      - netbird-proxy
+    goarch: arm64
+    use: buildx
+    dockerfile: proxy/Dockerfile
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
+      - "--label=maintainer=dev@netbird.io"
+  - image_templates:
+      - netbirdio/reverse-proxy:{{ .Version }}-arm
+      - ghcr.io/netbirdio/reverse-proxy:{{ .Version }}-arm
+    ids:
+      - netbird-proxy
+    goarch: arm
+    goarm: 6
+    use: buildx
+    dockerfile: proxy/Dockerfile
+    build_flag_templates:
+      - "--platform=linux/arm"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.source=https://github.com/netbirdio/{{.ProjectName}}"
+      - "--label=maintainer=dev@netbird.io"
 docker_manifests:
   - name_template: netbirdio/netbird:{{ .Version }}
     image_templates:
@@ -581,6 +757,18 @@ docker_manifests:
       - netbirdio/upload:{{ .Version }}-arm
       - netbirdio/upload:{{ .Version }}-amd64
 
+  - name_template: netbirdio/netbird-server:{{ .Version }}
+    image_templates:
+      - netbirdio/netbird-server:{{ .Version }}-arm64v8
+      - netbirdio/netbird-server:{{ .Version }}-arm
+      - netbirdio/netbird-server:{{ .Version }}-amd64
+
+  - name_template: netbirdio/netbird-server:latest
+    image_templates:
+      - netbirdio/netbird-server:{{ .Version }}-arm64v8
+      - netbirdio/netbird-server:{{ .Version }}-arm
+      - netbirdio/netbird-server:{{ .Version }}-amd64
+
   - name_template: ghcr.io/netbirdio/netbird:{{ .Version }}
     image_templates:
       - ghcr.io/netbirdio/netbird:{{ .Version }}-arm64v8
@@ -658,6 +846,43 @@ docker_manifests:
       - ghcr.io/netbirdio/upload:{{ .Version }}-arm64v8
       - ghcr.io/netbirdio/upload:{{ .Version }}-arm
       - ghcr.io/netbirdio/upload:{{ .Version }}-amd64
+
+  - name_template: ghcr.io/netbirdio/netbird-server:{{ .Version }}
+    image_templates:
+      - ghcr.io/netbirdio/netbird-server:{{ .Version }}-arm64v8
+      - ghcr.io/netbirdio/netbird-server:{{ .Version }}-arm
+      - ghcr.io/netbirdio/netbird-server:{{ .Version }}-amd64
+
+  - name_template: ghcr.io/netbirdio/netbird-server:latest
+    image_templates:
+      - ghcr.io/netbirdio/netbird-server:{{ .Version }}-arm64v8
+      - ghcr.io/netbirdio/netbird-server:{{ .Version }}-arm
+      - ghcr.io/netbirdio/netbird-server:{{ .Version }}-amd64
+
+  - name_template: netbirdio/reverse-proxy:{{ .Version }}
+    image_templates:
+      - netbirdio/reverse-proxy:{{ .Version }}-arm64v8
+      - netbirdio/reverse-proxy:{{ .Version }}-arm
+      - netbirdio/reverse-proxy:{{ .Version }}-amd64
+
+  - name_template: netbirdio/reverse-proxy:latest
+    image_templates:
+      - netbirdio/reverse-proxy:{{ .Version }}-arm64v8
+      - netbirdio/reverse-proxy:{{ .Version }}-arm
+      - netbirdio/reverse-proxy:{{ .Version }}-amd64
+
+  - name_template: ghcr.io/netbirdio/reverse-proxy:{{ .Version }}
+    image_templates:
+      - ghcr.io/netbirdio/reverse-proxy:{{ .Version }}-arm64v8
+      - ghcr.io/netbirdio/reverse-proxy:{{ .Version }}-arm
+      - ghcr.io/netbirdio/reverse-proxy:{{ .Version }}-amd64
+
+  - name_template: ghcr.io/netbirdio/reverse-proxy:latest
+    image_templates:
+      - ghcr.io/netbirdio/reverse-proxy:{{ .Version }}-arm64v8
+      - ghcr.io/netbirdio/reverse-proxy:{{ .Version }}-arm
+      - ghcr.io/netbirdio/reverse-proxy:{{ .Version }}-amd64
+
 brews:
   - ids:
       - default
@@ -678,7 +903,7 @@ brews:
 uploads:
   - name: debian
     ids:
-      - netbird-deb
+      - netbird_deb
     mode: archive
     target: https://pkgs.wiretrustee.com/debian/pool/{{ .ArtifactName }};deb.distribution=stable;deb.component=main;deb.architecture={{ if .Arm }}armhf{{ else }}{{ .Arch }}{{ end }};deb.package=
     username: dev@wiretrustee.com
@@ -686,7 +911,7 @@ uploads:
 
   - name: yum
     ids:
-      - netbird-rpm
+      - netbird_rpm
     mode: archive
     target: https://pkgs.wiretrustee.com/yum/{{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}
     username: dev@wiretrustee.com
@@ -696,8 +921,10 @@ checksum:
   extra_files:
     - glob: ./infrastructure_files/getting-started-with-zitadel.sh
     - glob: ./release_files/install.sh
+    - glob: ./infrastructure_files/getting-started.sh
 
 release:
   extra_files:
     - glob: ./infrastructure_files/getting-started-with-zitadel.sh
     - glob: ./release_files/install.sh
+    - glob: ./infrastructure_files/getting-started.sh

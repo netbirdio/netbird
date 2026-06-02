@@ -11,10 +11,10 @@ import (
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 
+	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/http/util"
 	"github.com/netbirdio/netbird/shared/management/status"
-	"github.com/netbirdio/netbird/management/server/types"
 )
 
 // handler is a handler that returns groups of the account
@@ -48,6 +48,29 @@ func (h *handler) getAllGroups(w http.ResponseWriter, r *http.Request) {
 	}
 	accountID, userID := userAuth.AccountId, userAuth.UserId
 
+	// Check if filtering by name
+	groupName := r.URL.Query().Get("name")
+	if groupName != "" {
+		// Get single group by name
+		group, err := h.accountManager.GetGroupByName(r.Context(), groupName, accountID, userID)
+		if err != nil {
+			util.WriteError(r.Context(), err, w)
+			return
+		}
+
+		accountPeers, err := h.accountManager.GetPeers(r.Context(), accountID, userID, "", "")
+		if err != nil {
+			util.WriteError(r.Context(), err, w)
+			return
+		}
+
+		// Return as array with single element to maintain API consistency
+		groupsResponse := []*api.Group{toGroupResponse(accountPeers, group)}
+		util.WriteJSONObject(r.Context(), w, groupsResponse)
+		return
+	}
+
+	// Get all groups
 	groups, err := h.accountManager.GetAllGroups(r.Context(), accountID, userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
@@ -95,7 +118,7 @@ func (h *handler) updateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	allGroup, err := h.accountManager.GetGroupByName(r.Context(), "All", accountID)
+	allGroup, err := h.accountManager.GetGroupByName(r.Context(), "All", accountID, userID)
 	if err != nil {
 		util.WriteError(r.Context(), err, w)
 		return

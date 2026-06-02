@@ -2,18 +2,19 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
+	"net/netip"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/iface"
 	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 	"github.com/netbirdio/netbird/shared/relay/client/dialer"
-	"github.com/netbirdio/netbird/shared/relay/client/dialer/quic"
-	"github.com/netbirdio/netbird/shared/relay/client/dialer/ws"
 	"github.com/netbirdio/netbird/shared/relay/healthcheck"
 	"github.com/netbirdio/netbird/shared/relay/messages"
 )
@@ -21,6 +22,7 @@ import (
 const (
 	bufferSize            = 8820
 	serverResponseTimeout = 8 * time.Second
+	connChannelSize       = 100
 )
 
 var (
@@ -72,15 +74,37 @@ type connContainer struct {
 	cancel      context.CancelFunc
 }
 
-func newConnContainer(log *log.Entry, conn *Conn, messages chan Msg) *connContainer {
+func newConnContainer(log *log.Entry, c *Client, peerID messages.PeerID, instanceURL *RelayAddr) *connContainer {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &connContainer{
+	msgChan := make(chan Msg, connChannelSize)
+	cn := &Conn{
+		dstID:       peerID,
+		messageChan: msgChan,
+		instanceURL: instanceURL,
+	}
+	cc := &connContainer{
 		log:      log,
-		conn:     conn,
-		messages: messages,
+		conn:     cn,
+		messages: msgChan,
 		ctx:      ctx,
 		cancel:   cancel,
 	}
+
+	// bind conn to client
+	cn.writeFn = func(dstID messages.PeerID, payload []byte) (int, error) {
+		return c.writeTo(cc, dstID, payload)
+	}
+	cn.closeFn = func(dstID messages.PeerID) error {
+		return c.closeConn(cc, dstID)
+	}
+	cn.localAddrFn = func() net.Addr {
+		return c.relayConn.LocalAddr()
+	}
+	return cc
+}
+
+func (cc *connContainer) netConn() net.Conn {
+	return cc.conn
 }
 
 func (cc *connContainer) writeMsg(msg Msg) {
@@ -126,6 +150,7 @@ func (cc *connContainer) close() {
 type Client struct {
 	log            *log.Entry
 	connectionURL  string
+	serverIP       netip.Addr
 	authTokenStore *auth.TokenStore
 	hashedID       messages.PeerID
 
@@ -133,6 +158,7 @@ type Client struct {
 
 	relayConn        net.Conn
 	conns            map[messages.PeerID]*connContainer
+	earlyMsgs        *earlyMsgBuffer
 	serviceIsRunning bool
 	mu               sync.Mutex // protect serviceIsRunning and conns
 	readLoopMutex    sync.Mutex
@@ -149,13 +175,22 @@ type Client struct {
 }
 
 // NewClient creates a new client for the relay server. The client is not connected to the server until the Connect
+// is called.
 func NewClient(serverURL string, authTokenStore *auth.TokenStore, peerID string, mtu uint16) *Client {
+	return NewClientWithServerIP(serverURL, netip.Addr{}, authTokenStore, peerID, mtu)
+}
+
+// NewClientWithServerIP creates a new client for the relay server with a known server IP. serverIP, when valid, is
+// dialed directly first; the FQDN is only attempted if the IP-based dial fails. TLS verification still uses the
+// FQDN from serverURL via SNI.
+func NewClientWithServerIP(serverURL string, serverIP netip.Addr, authTokenStore *auth.TokenStore, peerID string, mtu uint16) *Client {
 	hashedID := messages.HashID(peerID)
 	relayLog := log.WithFields(log.Fields{"relay": serverURL})
 
 	c := &Client{
 		log:            relayLog,
 		connectionURL:  serverURL,
+		serverIP:       serverIP,
 		authTokenStore: authTokenStore,
 		hashedID:       hashedID,
 		mtu:            mtu,
@@ -167,6 +202,8 @@ func NewClient(serverURL string, authTokenStore *auth.TokenStore, peerID string,
 		},
 		conns: make(map[messages.PeerID]*connContainer),
 	}
+
+	c.earlyMsgs = newEarlyMsgBuffer()
 
 	c.log.Infof("create new relay connection: local peerID: %s, local peer hashedID: %s", peerID, hashedID)
 	return c
@@ -228,36 +265,47 @@ func (c *Client) OpenConn(ctx context.Context, dstPeerID string) (net.Conn, erro
 		c.mu.Unlock()
 		return nil, ErrConnAlreadyExists
 	}
-	c.mu.Unlock()
 
-	if err := c.stateSubscription.WaitToBeOnlineAndSubscribe(ctx, peerID); err != nil {
-		c.log.Errorf("peer not available: %s, %s", peerID, err)
-		return nil, err
-	}
-
-	c.log.Infof("remote peer is available, prepare the relayed connection: %s", peerID)
-	msgChannel := make(chan Msg, 100)
-
-	c.mu.Lock()
-	if !c.serviceIsRunning {
-		c.mu.Unlock()
-		return nil, fmt.Errorf("relay connection is not established")
-	}
+	c.log.Infof("prepare the relayed connection, waiting for remote peer: %s", peerID)
 
 	c.muInstanceURL.Lock()
 	instanceURL := c.instanceURL
 	c.muInstanceURL.Unlock()
-	conn := NewConn(c, peerID, msgChannel, instanceURL)
 
-	_, ok = c.conns[peerID]
-	if ok {
-		c.mu.Unlock()
-		_ = conn.Close()
-		return nil, ErrConnAlreadyExists
-	}
-	c.conns[peerID] = newConnContainer(c.log, conn, msgChannel)
+	container := newConnContainer(c.log, c, peerID, instanceURL)
+	c.conns[peerID] = container
+	earlyMsg, hasEarly := c.earlyMsgs.pop(peerID)
 	c.mu.Unlock()
-	return conn, nil
+
+	if hasEarly {
+		container.writeMsg(earlyMsg)
+		c.log.Tracef("flushed buffered early message for peer: %s", peerID)
+	}
+
+	if err := c.stateSubscription.WaitToBeOnlineAndSubscribe(ctx, peerID); err != nil {
+		c.log.Errorf("peer not available: %s, %s", peerID, err)
+		c.mu.Lock()
+		if savedContainer, ok := c.conns[peerID]; ok && savedContainer == container {
+			delete(c.conns, peerID)
+		}
+		c.mu.Unlock()
+		container.close()
+		return nil, err
+	}
+
+	c.mu.Lock()
+	if !c.serviceIsRunning {
+		if savedContainer, ok := c.conns[peerID]; ok && savedContainer == container {
+			delete(c.conns, peerID)
+		}
+		c.mu.Unlock()
+		container.close()
+		return nil, fmt.Errorf("relay connection is not established")
+	}
+	c.mu.Unlock()
+
+	c.log.Infof("remote peer is available: %s", peerID)
+	return container.netConn(), nil
 }
 
 // ServerInstanceURL returns the address of the relay server. It could change after the close and reopen the connection.
@@ -268,6 +316,23 @@ func (c *Client) ServerInstanceURL() (string, error) {
 		return "", fmt.Errorf("relay connection is not established")
 	}
 	return c.instanceURL.String(), nil
+}
+
+// ConnectedIP returns the IP address of the live relay-server connection,
+// extracted from the underlying socket's RemoteAddr. Zero value if not
+// connected or if the address is not an IP literal.
+func (c *Client) ConnectedIP() netip.Addr {
+	c.mu.Lock()
+	conn := c.relayConn
+	c.mu.Unlock()
+	if conn == nil {
+		return netip.Addr{}
+	}
+	addr := conn.RemoteAddr()
+	if addr == nil {
+		return netip.Addr{}
+	}
+	return extractIPLiteral(addr.String())
 }
 
 // SetOnDisconnectListener sets a function that will be called when the connection to the relay server is closed.
@@ -296,19 +361,25 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
-	// Force WebSocket for MTUs larger than default to avoid QUIC DATAGRAM frame size issues
-	var dialers []dialer.DialeFn
-	if c.mtu > 0 && c.mtu > iface.DefaultMTU {
-		c.log.Infof("MTU %d exceeds default (%d), forcing WebSocket transport to avoid DATAGRAM frame size issues", c.mtu, iface.DefaultMTU)
-		dialers = []dialer.DialeFn{ws.Dialer{}}
-	} else {
-		dialers = []dialer.DialeFn{quic.Dialer{}, ws.Dialer{}}
+	dialers := c.getDialers()
+
+	var conn net.Conn
+	if c.serverIP.IsValid() {
+		var err error
+		conn, err = c.dialRaceDirect(ctx, dialers)
+		if err != nil {
+			c.log.Infof("dial via server IP %s failed, falling back to FQDN: %v", c.serverIP, err)
+			conn = nil
+		}
 	}
 
-	rd := dialer.NewRaceDial(c.log, dialer.DefaultConnectionTimeout, c.connectionURL, dialers...)
-	conn, err := rd.Dial()
-	if err != nil {
-		return nil, err
+	if conn == nil {
+		rd := dialer.NewRaceDial(c.log, dialer.DefaultConnectionTimeout, c.connectionURL, dialers...)
+		var err error
+		conn, err = rd.Dial(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("dial via FQDN: %w", err)
+		}
 	}
 	c.relayConn = conn
 
@@ -322,6 +393,52 @@ func (c *Client) connect(ctx context.Context) (*RelayAddr, error) {
 	}
 
 	return instanceURL, nil
+}
+
+// dialRaceDirect dials c.serverIP, preserving the original FQDN as the TLS ServerName for SNI.
+func (c *Client) dialRaceDirect(ctx context.Context, dialers []dialer.DialeFn) (net.Conn, error) {
+	directURL, serverName, err := substituteHost(c.connectionURL, c.serverIP)
+	if err != nil {
+		return nil, fmt.Errorf("substitute host: %w", err)
+	}
+
+	c.log.Debugf("dialing via server IP %s (SNI=%s)", c.serverIP, serverName)
+
+	rd := dialer.NewRaceDial(c.log, dialer.DefaultConnectionTimeout, directURL, dialers...).
+		WithServerName(serverName)
+	return rd.Dial(ctx)
+}
+
+// substituteHost replaces the host portion of a rel/rels URL with ip,
+// preserving the scheme and port. Returns the rewritten URL and the
+// original host to use as the TLS ServerName, or empty if the original
+// host is itself an IP literal (SNI requires a DNS name).
+func substituteHost(serverURL string, ip netip.Addr) (string, string, error) {
+	u, err := url.Parse(serverURL)
+	if err != nil {
+		return "", "", fmt.Errorf("parse %q: %w", serverURL, err)
+	}
+	if u.Scheme == "" || u.Host == "" {
+		return "", "", fmt.Errorf("invalid relay URL %q", serverURL)
+	}
+	if !ip.IsValid() {
+		return "", "", errors.New("invalid server IP")
+	}
+	origHost := u.Hostname()
+	if _, err := netip.ParseAddr(origHost); err == nil {
+		origHost = ""
+	}
+	ip = ip.Unmap()
+	newHost := ip.String()
+	if ip.Is6() {
+		newHost = "[" + newHost + "]"
+	}
+	if port := u.Port(); port != "" {
+		u.Host = newHost + ":" + port
+	} else {
+		u.Host = newHost
+	}
+	return u.String(), origHost, nil
 }
 
 func (c *Client) handShake(ctx context.Context) (*RelayAddr, error) {
@@ -469,10 +586,20 @@ func (c *Client) handleTransportMsg(buf []byte, bufPtr *[]byte, internallyStoppe
 		return false
 	}
 	container, ok := c.conns[*peerID]
+	earlyBuf := c.earlyMsgs
 	c.mu.Unlock()
 	if !ok {
-		c.log.Errorf("peer not found: %s", peerID.String())
-		c.bufPool.Put(bufPtr)
+		msg := Msg{
+			bufPool: c.bufPool,
+			bufPtr:  bufPtr,
+			Payload: payload,
+		}
+		if earlyBuf == nil || !earlyBuf.put(*peerID, msg) {
+			c.log.Warnf("failed to buffer early message for peer: %s", peerID.String())
+			c.bufPool.Put(bufPtr)
+		} else {
+			c.log.Debugf("buffered early transport message for peer: %s", peerID.String())
+		}
 		return true
 	}
 	msg := Msg{
@@ -484,15 +611,15 @@ func (c *Client) handleTransportMsg(buf []byte, bufPtr *[]byte, internallyStoppe
 	return true
 }
 
-func (c *Client) writeTo(connReference *Conn, dstID messages.PeerID, payload []byte) (int, error) {
+func (c *Client) writeTo(containerRef *connContainer, dstID messages.PeerID, payload []byte) (int, error) {
 	c.mu.Lock()
-	conn, ok := c.conns[dstID]
+	current, ok := c.conns[dstID]
 	c.mu.Unlock()
 	if !ok {
 		return 0, net.ErrClosed
 	}
 
-	if conn.conn != connReference {
+	if current != containerRef {
 		return 0, net.ErrClosed
 	}
 
@@ -540,6 +667,9 @@ func (c *Client) closeAllConns() {
 		container.close()
 	}
 	c.conns = make(map[messages.PeerID]*connContainer)
+
+	c.earlyMsgs.close()
+	c.earlyMsgs = newEarlyMsgBuffer()
 }
 
 func (c *Client) closeConnsByPeerID(peerIDs []messages.PeerID) {
@@ -563,26 +693,26 @@ func (c *Client) closeConnsByPeerID(peerIDs []messages.PeerID) {
 	}
 }
 
-func (c *Client) closeConn(connReference *Conn, id messages.PeerID) error {
+func (c *Client) closeConn(containerRef *connContainer, id messages.PeerID) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	container, ok := c.conns[id]
+	current, ok := c.conns[id]
 	if !ok {
 		return net.ErrClosed
 	}
 
-	if container.conn != connReference {
+	if current != containerRef {
 		return fmt.Errorf("conn reference mismatch")
 	}
 
 	if err := c.stateSubscription.UnsubscribeStateChange([]messages.PeerID{id}); err != nil {
-		container.log.Errorf("failed to unsubscribe from peer state change: %s", err)
+		current.log.Errorf("failed to unsubscribe from peer state change: %s", err)
 	}
 
 	c.log.Infof("free up connection to peer: %s", id)
 	delete(c.conns, id)
-	container.close()
+	current.close()
 
 	return nil
 }
@@ -675,4 +805,22 @@ func (c *Client) handlePeersWentOfflineMsg(buf []byte) {
 		return
 	}
 	c.stateSubscription.OnPeersWentOffline(peersID)
+}
+
+// extractIPLiteral returns the IP from address forms produced by the relay
+// dialers (URL or host:port). Zero value if the host is not an IP.
+func extractIPLiteral(s string) netip.Addr {
+	if u, err := url.Parse(s); err == nil && u.Host != "" {
+		s = u.Host
+	}
+	host, _, err := net.SplitHostPort(s)
+	if err != nil {
+		host = s
+	}
+	host = strings.Trim(host, "[]")
+	ip, err := netip.ParseAddr(host)
+	if err != nil {
+		return netip.Addr{}
+	}
+	return ip.Unmap()
 }

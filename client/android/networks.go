@@ -3,10 +3,16 @@
 package android
 
 type Network struct {
-	Name    string
-	Network string
-	Peer    string
-	Status  string
+	Name       string
+	Network    string
+	Peer       string
+	Status     string
+	IsSelected bool
+	Domains    NetworkDomains
+}
+
+func (n Network) GetNetworkDomains() *NetworkDomains {
+	return &n.Domains
 }
 
 type NetworkArray struct {

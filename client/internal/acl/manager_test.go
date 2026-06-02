@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/client/firewall"
+	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/acl/mocks"
 	"github.com/netbirdio/netbird/client/internal/netflow"
@@ -18,6 +19,9 @@ import (
 var flowLogger = netflow.NewManager(nil, []byte{}, nil).GetLogger()
 
 func TestDefaultManager(t *testing.T) {
+	t.Setenv("NB_WG_KERNEL_DISABLED", "true")
+	t.Setenv(firewall.EnvForceUserspaceFirewall, "true")
+
 	networkMap := &mgmProto.NetworkMap{
 		FirewallRules: []*mgmProto.FirewallRule{
 			{
@@ -52,7 +56,7 @@ func TestDefaultManager(t *testing.T) {
 	}).AnyTimes()
 	ifaceMock.EXPECT().GetWGDevice().Return(nil).AnyTimes()
 
-	fw, err := firewall.NewFirewall(ifaceMock, nil, flowLogger, false)
+	fw, err := firewall.NewFirewall(ifaceMock, nil, flowLogger, false, iface.DefaultMTU)
 	require.NoError(t, err)
 	defer func() {
 		err = fw.Close(nil)
@@ -134,6 +138,7 @@ func TestDefaultManager(t *testing.T) {
 func TestDefaultManagerStateless(t *testing.T) {
 	// stateless currently only in userspace, so we have to disable kernel
 	t.Setenv("NB_WG_KERNEL_DISABLED", "true")
+	t.Setenv(firewall.EnvForceUserspaceFirewall, "true")
 	t.Setenv("NB_DISABLE_CONNTRACK", "true")
 
 	networkMap := &mgmProto.NetworkMap{
@@ -170,7 +175,7 @@ func TestDefaultManagerStateless(t *testing.T) {
 	}).AnyTimes()
 	ifaceMock.EXPECT().GetWGDevice().Return(nil).AnyTimes()
 
-	fw, err := firewall.NewFirewall(ifaceMock, nil, flowLogger, false)
+	fw, err := firewall.NewFirewall(ifaceMock, nil, flowLogger, false, iface.DefaultMTU)
 	require.NoError(t, err)
 	defer func() {
 		err = fw.Close(nil)
@@ -188,490 +193,213 @@ func TestDefaultManagerStateless(t *testing.T) {
 	})
 }
 
-func TestDefaultManagerSquashRules(t *testing.T) {
+// TestDenyRulesNotAccumulatedOnRepeatedApply verifies that applying the same
+// deny rules repeatedly does not accumulate duplicate rules in the uspfilter.
+// This tests the full ACL manager -> uspfilter integration.
+func TestDenyRulesNotAccumulatedOnRepeatedApply(t *testing.T) {
+	t.Setenv("NB_WG_KERNEL_DISABLED", "true")
+	t.Setenv(firewall.EnvForceUserspaceFirewall, "true")
+
 	networkMap := &mgmProto.NetworkMap{
-		RemotePeers: []*mgmProto.RemotePeerConfig{
-			{AllowedIps: []string{"10.93.0.1"}},
-			{AllowedIps: []string{"10.93.0.2"}},
-			{AllowedIps: []string{"10.93.0.3"}},
-			{AllowedIps: []string{"10.93.0.4"}},
-		},
 		FirewallRules: []*mgmProto.FirewallRule{
 			{
 				PeerIP:    "10.93.0.1",
 				Direction: mgmProto.RuleDirection_IN,
-				Action:    mgmProto.RuleAction_ACCEPT,
-				Protocol:  mgmProto.RuleProtocol_ALL,
+				Action:    mgmProto.RuleAction_DROP,
+				Protocol:  mgmProto.RuleProtocol_TCP,
+				Port:      "22",
 			},
 			{
 				PeerIP:    "10.93.0.2",
 				Direction: mgmProto.RuleDirection_IN,
-				Action:    mgmProto.RuleAction_ACCEPT,
-				Protocol:  mgmProto.RuleProtocol_ALL,
+				Action:    mgmProto.RuleAction_DROP,
+				Protocol:  mgmProto.RuleProtocol_TCP,
+				Port:      "80",
 			},
 			{
 				PeerIP:    "10.93.0.3",
-				Direction: mgmProto.RuleDirection_IN,
-				Action:    mgmProto.RuleAction_ACCEPT,
-				Protocol:  mgmProto.RuleProtocol_ALL,
-			},
-			{
-				PeerIP:    "10.93.0.4",
-				Direction: mgmProto.RuleDirection_IN,
-				Action:    mgmProto.RuleAction_ACCEPT,
-				Protocol:  mgmProto.RuleProtocol_ALL,
-			},
-			{
-				PeerIP:    "10.93.0.1",
-				Direction: mgmProto.RuleDirection_OUT,
-				Action:    mgmProto.RuleAction_ACCEPT,
-				Protocol:  mgmProto.RuleProtocol_ALL,
-			},
-			{
-				PeerIP:    "10.93.0.2",
-				Direction: mgmProto.RuleDirection_OUT,
-				Action:    mgmProto.RuleAction_ACCEPT,
-				Protocol:  mgmProto.RuleProtocol_ALL,
-			},
-			{
-				PeerIP:    "10.93.0.3",
-				Direction: mgmProto.RuleDirection_OUT,
-				Action:    mgmProto.RuleAction_ACCEPT,
-				Protocol:  mgmProto.RuleProtocol_ALL,
-			},
-			{
-				PeerIP:    "10.93.0.4",
-				Direction: mgmProto.RuleDirection_OUT,
-				Action:    mgmProto.RuleAction_ACCEPT,
-				Protocol:  mgmProto.RuleProtocol_ALL,
-			},
-		},
-	}
-
-	manager := &DefaultManager{}
-	rules, _ := manager.squashAcceptRules(networkMap)
-	assert.Equal(t, 2, len(rules))
-
-	r := rules[0]
-	assert.Equal(t, "0.0.0.0", r.PeerIP)
-	assert.Equal(t, mgmProto.RuleDirection_IN, r.Direction)
-	assert.Equal(t, mgmProto.RuleProtocol_ALL, r.Protocol)
-	assert.Equal(t, mgmProto.RuleAction_ACCEPT, r.Action)
-
-	r = rules[1]
-	assert.Equal(t, "0.0.0.0", r.PeerIP)
-	assert.Equal(t, mgmProto.RuleDirection_OUT, r.Direction)
-	assert.Equal(t, mgmProto.RuleProtocol_ALL, r.Protocol)
-	assert.Equal(t, mgmProto.RuleAction_ACCEPT, r.Action)
-}
-
-func TestDefaultManagerSquashRulesNoAffect(t *testing.T) {
-	networkMap := &mgmProto.NetworkMap{
-		RemotePeers: []*mgmProto.RemotePeerConfig{
-			{AllowedIps: []string{"10.93.0.1"}},
-			{AllowedIps: []string{"10.93.0.2"}},
-			{AllowedIps: []string{"10.93.0.3"}},
-			{AllowedIps: []string{"10.93.0.4"}},
-		},
-		FirewallRules: []*mgmProto.FirewallRule{
-			{
-				PeerIP:    "10.93.0.1",
-				Direction: mgmProto.RuleDirection_IN,
-				Action:    mgmProto.RuleAction_ACCEPT,
-				Protocol:  mgmProto.RuleProtocol_ALL,
-			},
-			{
-				PeerIP:    "10.93.0.2",
-				Direction: mgmProto.RuleDirection_IN,
-				Action:    mgmProto.RuleAction_ACCEPT,
-				Protocol:  mgmProto.RuleProtocol_ALL,
-			},
-			{
-				PeerIP:    "10.93.0.3",
-				Direction: mgmProto.RuleDirection_IN,
-				Action:    mgmProto.RuleAction_ACCEPT,
-				Protocol:  mgmProto.RuleProtocol_ALL,
-			},
-			{
-				PeerIP:    "10.93.0.4",
 				Direction: mgmProto.RuleDirection_IN,
 				Action:    mgmProto.RuleAction_ACCEPT,
 				Protocol:  mgmProto.RuleProtocol_TCP,
+				Port:      "443",
 			},
+		},
+		FirewallRulesIsEmpty: false,
+	}
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ifaceMock := mocks.NewMockIFaceMapper(ctrl)
+	ifaceMock.EXPECT().IsUserspaceBind().Return(true).AnyTimes()
+	ifaceMock.EXPECT().SetFilter(gomock.Any())
+	network := netip.MustParsePrefix("172.0.0.1/32")
+	ifaceMock.EXPECT().Name().Return("lo").AnyTimes()
+	ifaceMock.EXPECT().Address().Return(wgaddr.Address{
+		IP:      network.Addr(),
+		Network: network,
+	}).AnyTimes()
+	ifaceMock.EXPECT().GetWGDevice().Return(nil).AnyTimes()
+
+	fw, err := firewall.NewFirewall(ifaceMock, nil, flowLogger, false, iface.DefaultMTU)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, fw.Close(nil))
+	}()
+
+	acl := NewDefaultManager(fw)
+
+	// Apply the same rules 5 times (simulating repeated network map updates)
+	for i := 0; i < 5; i++ {
+		acl.ApplyFiltering(networkMap, false)
+	}
+
+	// The ACL manager should track exactly 3 rule pairs (2 deny + 1 accept inbound)
+	assert.Equal(t, 3, len(acl.peerRulesPairs),
+		"Should have exactly 3 rule pairs after 5 identical updates")
+}
+
+// TestDenyRulesCleanedUpOnRemoval verifies that deny rules are properly cleaned
+// up when they're removed from the network map in a subsequent update.
+func TestDenyRulesCleanedUpOnRemoval(t *testing.T) {
+	t.Setenv("NB_WG_KERNEL_DISABLED", "true")
+	t.Setenv(firewall.EnvForceUserspaceFirewall, "true")
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ifaceMock := mocks.NewMockIFaceMapper(ctrl)
+	ifaceMock.EXPECT().IsUserspaceBind().Return(true).AnyTimes()
+	ifaceMock.EXPECT().SetFilter(gomock.Any())
+	network := netip.MustParsePrefix("172.0.0.1/32")
+	ifaceMock.EXPECT().Name().Return("lo").AnyTimes()
+	ifaceMock.EXPECT().Address().Return(wgaddr.Address{
+		IP:      network.Addr(),
+		Network: network,
+	}).AnyTimes()
+	ifaceMock.EXPECT().GetWGDevice().Return(nil).AnyTimes()
+
+	fw, err := firewall.NewFirewall(ifaceMock, nil, flowLogger, false, iface.DefaultMTU)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, fw.Close(nil))
+	}()
+
+	acl := NewDefaultManager(fw)
+
+	// First update: add deny and accept rules
+	networkMap1 := &mgmProto.NetworkMap{
+		FirewallRules: []*mgmProto.FirewallRule{
 			{
 				PeerIP:    "10.93.0.1",
-				Direction: mgmProto.RuleDirection_OUT,
-				Action:    mgmProto.RuleAction_ACCEPT,
-				Protocol:  mgmProto.RuleProtocol_ALL,
+				Direction: mgmProto.RuleDirection_IN,
+				Action:    mgmProto.RuleAction_DROP,
+				Protocol:  mgmProto.RuleProtocol_TCP,
+				Port:      "22",
 			},
 			{
 				PeerIP:    "10.93.0.2",
-				Direction: mgmProto.RuleDirection_OUT,
+				Direction: mgmProto.RuleDirection_IN,
 				Action:    mgmProto.RuleAction_ACCEPT,
-				Protocol:  mgmProto.RuleProtocol_ALL,
-			},
-			{
-				PeerIP:    "10.93.0.3",
-				Direction: mgmProto.RuleDirection_OUT,
-				Action:    mgmProto.RuleAction_ACCEPT,
-				Protocol:  mgmProto.RuleProtocol_ALL,
-			},
-			{
-				PeerIP:    "10.93.0.4",
-				Direction: mgmProto.RuleDirection_OUT,
-				Action:    mgmProto.RuleAction_ACCEPT,
-				Protocol:  mgmProto.RuleProtocol_UDP,
+				Protocol:  mgmProto.RuleProtocol_TCP,
+				Port:      "443",
 			},
 		},
+		FirewallRulesIsEmpty: false,
 	}
 
-	manager := &DefaultManager{}
-	rules, _ := manager.squashAcceptRules(networkMap)
-	assert.Equal(t, len(networkMap.FirewallRules), len(rules))
+	acl.ApplyFiltering(networkMap1, false)
+	assert.Equal(t, 2, len(acl.peerRulesPairs), "Should have 2 rules after first update")
+
+	// Second update: remove the deny rule, keep only accept
+	networkMap2 := &mgmProto.NetworkMap{
+		FirewallRules: []*mgmProto.FirewallRule{
+			{
+				PeerIP:    "10.93.0.2",
+				Direction: mgmProto.RuleDirection_IN,
+				Action:    mgmProto.RuleAction_ACCEPT,
+				Protocol:  mgmProto.RuleProtocol_TCP,
+				Port:      "443",
+			},
+		},
+		FirewallRulesIsEmpty: false,
+	}
+
+	acl.ApplyFiltering(networkMap2, false)
+	assert.Equal(t, 1, len(acl.peerRulesPairs),
+		"Should have 1 rule after removing deny rule")
+
+	// Third update: remove all rules
+	networkMap3 := &mgmProto.NetworkMap{
+		FirewallRules:        []*mgmProto.FirewallRule{},
+		FirewallRulesIsEmpty: true,
+	}
+
+	acl.ApplyFiltering(networkMap3, false)
+	assert.Equal(t, 0, len(acl.peerRulesPairs),
+		"Should have 0 rules after removing all rules")
 }
 
-func TestDefaultManagerSquashRulesWithPortRestrictions(t *testing.T) {
-	tests := []struct {
-		name          string
-		rules         []*mgmProto.FirewallRule
-		expectedCount int
-		description   string
-	}{
-		{
-			name: "should not squash rules with port ranges",
-			rules: []*mgmProto.FirewallRule{
-				{
-					PeerIP:    "10.93.0.1",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_ACCEPT,
-					Protocol:  mgmProto.RuleProtocol_TCP,
-					PortInfo: &mgmProto.PortInfo{
-						PortSelection: &mgmProto.PortInfo_Range_{
-							Range: &mgmProto.PortInfo_Range{
-								Start: 8080,
-								End:   8090,
-							},
-						},
-					},
-				},
-				{
-					PeerIP:    "10.93.0.2",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_ACCEPT,
-					Protocol:  mgmProto.RuleProtocol_TCP,
-					PortInfo: &mgmProto.PortInfo{
-						PortSelection: &mgmProto.PortInfo_Range_{
-							Range: &mgmProto.PortInfo_Range{
-								Start: 8080,
-								End:   8090,
-							},
-						},
-					},
-				},
-				{
-					PeerIP:    "10.93.0.3",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_ACCEPT,
-					Protocol:  mgmProto.RuleProtocol_TCP,
-					PortInfo: &mgmProto.PortInfo{
-						PortSelection: &mgmProto.PortInfo_Range_{
-							Range: &mgmProto.PortInfo_Range{
-								Start: 8080,
-								End:   8090,
-							},
-						},
-					},
-				},
-				{
-					PeerIP:    "10.93.0.4",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_ACCEPT,
-					Protocol:  mgmProto.RuleProtocol_TCP,
-					PortInfo: &mgmProto.PortInfo{
-						PortSelection: &mgmProto.PortInfo_Range_{
-							Range: &mgmProto.PortInfo_Range{
-								Start: 8080,
-								End:   8090,
-							},
-						},
-					},
-				},
+// TestRuleUpdateChangingAction verifies that when a rule's action changes from
+// accept to deny (or vice versa), the old rule is properly removed and the new
+// one added without leaking.
+func TestRuleUpdateChangingAction(t *testing.T) {
+	t.Setenv("NB_WG_KERNEL_DISABLED", "true")
+	t.Setenv(firewall.EnvForceUserspaceFirewall, "true")
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ifaceMock := mocks.NewMockIFaceMapper(ctrl)
+	ifaceMock.EXPECT().IsUserspaceBind().Return(true).AnyTimes()
+	ifaceMock.EXPECT().SetFilter(gomock.Any())
+	network := netip.MustParsePrefix("172.0.0.1/32")
+	ifaceMock.EXPECT().Name().Return("lo").AnyTimes()
+	ifaceMock.EXPECT().Address().Return(wgaddr.Address{
+		IP:      network.Addr(),
+		Network: network,
+	}).AnyTimes()
+	ifaceMock.EXPECT().GetWGDevice().Return(nil).AnyTimes()
+
+	fw, err := firewall.NewFirewall(ifaceMock, nil, flowLogger, false, iface.DefaultMTU)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, fw.Close(nil))
+	}()
+
+	acl := NewDefaultManager(fw)
+
+	// First update: accept rule
+	networkMap := &mgmProto.NetworkMap{
+		FirewallRules: []*mgmProto.FirewallRule{
+			{
+				PeerIP:    "10.93.0.1",
+				Direction: mgmProto.RuleDirection_IN,
+				Action:    mgmProto.RuleAction_ACCEPT,
+				Protocol:  mgmProto.RuleProtocol_TCP,
+				Port:      "22",
 			},
-			expectedCount: 4,
-			description:   "Rules with port ranges should not be squashed even if they cover all peers",
 		},
+		FirewallRulesIsEmpty: false,
+	}
+	acl.ApplyFiltering(networkMap, false)
+	assert.Equal(t, 1, len(acl.peerRulesPairs))
+
+	// Second update: change to deny (same IP/port/proto, different action)
+	networkMap.FirewallRules = []*mgmProto.FirewallRule{
 		{
-			name: "should not squash rules with specific ports",
-			rules: []*mgmProto.FirewallRule{
-				{
-					PeerIP:    "10.93.0.1",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_ACCEPT,
-					Protocol:  mgmProto.RuleProtocol_TCP,
-					PortInfo: &mgmProto.PortInfo{
-						PortSelection: &mgmProto.PortInfo_Port{
-							Port: 80,
-						},
-					},
-				},
-				{
-					PeerIP:    "10.93.0.2",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_ACCEPT,
-					Protocol:  mgmProto.RuleProtocol_TCP,
-					PortInfo: &mgmProto.PortInfo{
-						PortSelection: &mgmProto.PortInfo_Port{
-							Port: 80,
-						},
-					},
-				},
-				{
-					PeerIP:    "10.93.0.3",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_ACCEPT,
-					Protocol:  mgmProto.RuleProtocol_TCP,
-					PortInfo: &mgmProto.PortInfo{
-						PortSelection: &mgmProto.PortInfo_Port{
-							Port: 80,
-						},
-					},
-				},
-				{
-					PeerIP:    "10.93.0.4",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_ACCEPT,
-					Protocol:  mgmProto.RuleProtocol_TCP,
-					PortInfo: &mgmProto.PortInfo{
-						PortSelection: &mgmProto.PortInfo_Port{
-							Port: 80,
-						},
-					},
-				},
-			},
-			expectedCount: 4,
-			description:   "Rules with specific ports should not be squashed even if they cover all peers",
-		},
-		{
-			name: "should not squash rules with legacy port field",
-			rules: []*mgmProto.FirewallRule{
-				{
-					PeerIP:    "10.93.0.1",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_ACCEPT,
-					Protocol:  mgmProto.RuleProtocol_TCP,
-					Port:      "443",
-				},
-				{
-					PeerIP:    "10.93.0.2",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_ACCEPT,
-					Protocol:  mgmProto.RuleProtocol_TCP,
-					Port:      "443",
-				},
-				{
-					PeerIP:    "10.93.0.3",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_ACCEPT,
-					Protocol:  mgmProto.RuleProtocol_TCP,
-					Port:      "443",
-				},
-				{
-					PeerIP:    "10.93.0.4",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_ACCEPT,
-					Protocol:  mgmProto.RuleProtocol_TCP,
-					Port:      "443",
-				},
-			},
-			expectedCount: 4,
-			description:   "Rules with legacy port field should not be squashed",
-		},
-		{
-			name: "should not squash rules with DROP action",
-			rules: []*mgmProto.FirewallRule{
-				{
-					PeerIP:    "10.93.0.1",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_DROP,
-					Protocol:  mgmProto.RuleProtocol_TCP,
-				},
-				{
-					PeerIP:    "10.93.0.2",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_DROP,
-					Protocol:  mgmProto.RuleProtocol_TCP,
-				},
-				{
-					PeerIP:    "10.93.0.3",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_DROP,
-					Protocol:  mgmProto.RuleProtocol_TCP,
-				},
-				{
-					PeerIP:    "10.93.0.4",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_DROP,
-					Protocol:  mgmProto.RuleProtocol_TCP,
-				},
-			},
-			expectedCount: 4,
-			description:   "Rules with DROP action should not be squashed",
-		},
-		{
-			name: "should squash rules without port restrictions",
-			rules: []*mgmProto.FirewallRule{
-				{
-					PeerIP:    "10.93.0.1",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_ACCEPT,
-					Protocol:  mgmProto.RuleProtocol_TCP,
-				},
-				{
-					PeerIP:    "10.93.0.2",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_ACCEPT,
-					Protocol:  mgmProto.RuleProtocol_TCP,
-				},
-				{
-					PeerIP:    "10.93.0.3",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_ACCEPT,
-					Protocol:  mgmProto.RuleProtocol_TCP,
-				},
-				{
-					PeerIP:    "10.93.0.4",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_ACCEPT,
-					Protocol:  mgmProto.RuleProtocol_TCP,
-				},
-			},
-			expectedCount: 1,
-			description:   "Rules without port restrictions should be squashed into a single 0.0.0.0 rule",
-		},
-		{
-			name: "mixed rules should not squash protocol with port restrictions",
-			rules: []*mgmProto.FirewallRule{
-				{
-					PeerIP:    "10.93.0.1",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_ACCEPT,
-					Protocol:  mgmProto.RuleProtocol_TCP,
-				},
-				{
-					PeerIP:    "10.93.0.2",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_ACCEPT,
-					Protocol:  mgmProto.RuleProtocol_TCP,
-					PortInfo: &mgmProto.PortInfo{
-						PortSelection: &mgmProto.PortInfo_Port{
-							Port: 80,
-						},
-					},
-				},
-				{
-					PeerIP:    "10.93.0.3",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_ACCEPT,
-					Protocol:  mgmProto.RuleProtocol_TCP,
-				},
-				{
-					PeerIP:    "10.93.0.4",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_ACCEPT,
-					Protocol:  mgmProto.RuleProtocol_TCP,
-				},
-			},
-			expectedCount: 4,
-			description:   "TCP should not be squashed because one rule has port restrictions",
-		},
-		{
-			name: "should squash UDP but not TCP when TCP has port restrictions",
-			rules: []*mgmProto.FirewallRule{
-				// TCP rules with port restrictions - should NOT be squashed
-				{
-					PeerIP:    "10.93.0.1",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_ACCEPT,
-					Protocol:  mgmProto.RuleProtocol_TCP,
-					Port:      "443",
-				},
-				{
-					PeerIP:    "10.93.0.2",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_ACCEPT,
-					Protocol:  mgmProto.RuleProtocol_TCP,
-					Port:      "443",
-				},
-				{
-					PeerIP:    "10.93.0.3",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_ACCEPT,
-					Protocol:  mgmProto.RuleProtocol_TCP,
-					Port:      "443",
-				},
-				{
-					PeerIP:    "10.93.0.4",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_ACCEPT,
-					Protocol:  mgmProto.RuleProtocol_TCP,
-					Port:      "443",
-				},
-				// UDP rules without port restrictions - SHOULD be squashed
-				{
-					PeerIP:    "10.93.0.1",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_ACCEPT,
-					Protocol:  mgmProto.RuleProtocol_UDP,
-				},
-				{
-					PeerIP:    "10.93.0.2",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_ACCEPT,
-					Protocol:  mgmProto.RuleProtocol_UDP,
-				},
-				{
-					PeerIP:    "10.93.0.3",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_ACCEPT,
-					Protocol:  mgmProto.RuleProtocol_UDP,
-				},
-				{
-					PeerIP:    "10.93.0.4",
-					Direction: mgmProto.RuleDirection_IN,
-					Action:    mgmProto.RuleAction_ACCEPT,
-					Protocol:  mgmProto.RuleProtocol_UDP,
-				},
-			},
-			expectedCount: 5, // 4 TCP rules + 1 squashed UDP rule (0.0.0.0)
-			description:   "UDP should be squashed to 0.0.0.0 rule, but TCP should remain as individual rules due to port restrictions",
+			PeerIP:    "10.93.0.1",
+			Direction: mgmProto.RuleDirection_IN,
+			Action:    mgmProto.RuleAction_DROP,
+			Protocol:  mgmProto.RuleProtocol_TCP,
+			Port:      "22",
 		},
 	}
+	acl.ApplyFiltering(networkMap, false)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			networkMap := &mgmProto.NetworkMap{
-				RemotePeers: []*mgmProto.RemotePeerConfig{
-					{AllowedIps: []string{"10.93.0.1"}},
-					{AllowedIps: []string{"10.93.0.2"}},
-					{AllowedIps: []string{"10.93.0.3"}},
-					{AllowedIps: []string{"10.93.0.4"}},
-				},
-				FirewallRules: tt.rules,
-			}
-
-			manager := &DefaultManager{}
-			rules, _ := manager.squashAcceptRules(networkMap)
-
-			assert.Equal(t, tt.expectedCount, len(rules), tt.description)
-
-			// For squashed rules, verify we get the expected 0.0.0.0 rule
-			if tt.expectedCount == 1 {
-				assert.Equal(t, "0.0.0.0", rules[0].PeerIP)
-				assert.Equal(t, mgmProto.RuleDirection_IN, rules[0].Direction)
-				assert.Equal(t, mgmProto.RuleAction_ACCEPT, rules[0].Action)
-			}
-		})
-	}
+	// Should still have exactly 1 rule (the old accept removed, new deny added)
+	assert.Equal(t, 1, len(acl.peerRulesPairs),
+		"Changing action should result in exactly 1 rule, not 2")
 }
 
 func TestPortInfoEmpty(t *testing.T) {
@@ -756,71 +484,4 @@ func TestPortInfoEmpty(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
-}
-
-func TestDefaultManagerEnableSSHRules(t *testing.T) {
-	networkMap := &mgmProto.NetworkMap{
-		PeerConfig: &mgmProto.PeerConfig{
-			SshConfig: &mgmProto.SSHConfig{
-				SshEnabled: true,
-			},
-		},
-		RemotePeers: []*mgmProto.RemotePeerConfig{
-			{AllowedIps: []string{"10.93.0.1"}},
-			{AllowedIps: []string{"10.93.0.2"}},
-			{AllowedIps: []string{"10.93.0.3"}},
-		},
-		FirewallRules: []*mgmProto.FirewallRule{
-			{
-				PeerIP:    "10.93.0.1",
-				Direction: mgmProto.RuleDirection_IN,
-				Action:    mgmProto.RuleAction_ACCEPT,
-				Protocol:  mgmProto.RuleProtocol_TCP,
-			},
-			{
-				PeerIP:    "10.93.0.2",
-				Direction: mgmProto.RuleDirection_IN,
-				Action:    mgmProto.RuleAction_ACCEPT,
-				Protocol:  mgmProto.RuleProtocol_TCP,
-			},
-			{
-				PeerIP:    "10.93.0.3",
-				Direction: mgmProto.RuleDirection_OUT,
-				Action:    mgmProto.RuleAction_ACCEPT,
-				Protocol:  mgmProto.RuleProtocol_UDP,
-			},
-		},
-	}
-
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	ifaceMock := mocks.NewMockIFaceMapper(ctrl)
-	ifaceMock.EXPECT().IsUserspaceBind().Return(true).AnyTimes()
-	ifaceMock.EXPECT().SetFilter(gomock.Any())
-	network := netip.MustParsePrefix("172.0.0.1/32")
-
-	ifaceMock.EXPECT().Name().Return("lo").AnyTimes()
-	ifaceMock.EXPECT().Address().Return(wgaddr.Address{
-		IP:      network.Addr(),
-		Network: network,
-	}).AnyTimes()
-	ifaceMock.EXPECT().GetWGDevice().Return(nil).AnyTimes()
-
-	fw, err := firewall.NewFirewall(ifaceMock, nil, flowLogger, false)
-	require.NoError(t, err)
-	defer func() {
-		err = fw.Close(nil)
-		require.NoError(t, err)
-	}()
-
-	acl := NewDefaultManager(fw)
-
-	acl.ApplyFiltering(networkMap, false)
-
-	expectedRules := 3
-	if fw.IsStateful() {
-		expectedRules = 3 // 2 inbound rules + SSH rule
-	}
-	assert.Equal(t, expectedRules, len(acl.peerRulesPairs))
 }

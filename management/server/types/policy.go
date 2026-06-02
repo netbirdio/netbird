@@ -1,5 +1,12 @@
 package types
 
+import (
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
+)
+
 const (
 	// PolicyTrafficActionAccept indicates that the traffic is accepted
 	PolicyTrafficActionAccept = PolicyTrafficActionType("accept")
@@ -16,6 +23,8 @@ const (
 	PolicyRuleProtocolUDP = PolicyRuleProtocolType("udp")
 	// PolicyRuleProtocolICMP type of traffic
 	PolicyRuleProtocolICMP = PolicyRuleProtocolType("icmp")
+	// PolicyRuleProtocolNetbirdSSH type of traffic
+	PolicyRuleProtocolNetbirdSSH = PolicyRuleProtocolType("netbird-ssh")
 )
 
 const (
@@ -84,6 +93,44 @@ func (p *Policy) Copy() *Policy {
 	return c
 }
 
+func (p *Policy) Equal(other *Policy) bool {
+	if p == nil || other == nil {
+		return p == other
+	}
+
+	if p.ID != other.ID ||
+		p.AccountID != other.AccountID ||
+		p.Name != other.Name ||
+		p.Description != other.Description ||
+		p.Enabled != other.Enabled {
+		return false
+	}
+
+	if !stringSlicesEqualUnordered(p.SourcePostureChecks, other.SourcePostureChecks) {
+		return false
+	}
+
+	if len(p.Rules) != len(other.Rules) {
+		return false
+	}
+
+	otherRules := make(map[string]*PolicyRule, len(other.Rules))
+	for _, r := range other.Rules {
+		otherRules[r.ID] = r
+	}
+	for _, r := range p.Rules {
+		otherRule, ok := otherRules[r.ID]
+		if !ok {
+			return false
+		}
+		if !r.Equal(otherRule) {
+			return false
+		}
+	}
+
+	return true
+}
+
 // EventMeta returns activity event meta related to this policy
 func (p *Policy) EventMeta() map[string]any {
 	return map[string]any{"name": p.Name}
@@ -133,4 +180,86 @@ func (p *Policy) SourceGroups() []string {
 	}
 
 	return groupIDs
+}
+
+func ParseRuleString(rule string) (PolicyRuleProtocolType, RulePortRange, error) {
+	rule = strings.TrimSpace(strings.ToLower(rule))
+	if rule == "all" {
+		return PolicyRuleProtocolALL, RulePortRange{}, nil
+	}
+	if rule == "icmp" {
+		return PolicyRuleProtocolICMP, RulePortRange{}, nil
+	}
+
+	split := strings.Split(rule, "/")
+	if len(split) != 2 {
+		return "", RulePortRange{}, errors.New("invalid rule format: expected protocol/port or protocol/port-range")
+	}
+
+	protoStr := strings.TrimSpace(split[0])
+	portStr := strings.TrimSpace(split[1])
+
+	var protocol PolicyRuleProtocolType
+	switch protoStr {
+	case "tcp":
+		protocol = PolicyRuleProtocolTCP
+	case "udp":
+		protocol = PolicyRuleProtocolUDP
+	case "icmp":
+		return "", RulePortRange{}, errors.New("icmp does not accept ports; use 'icmp' without '/…'")
+	case "netbird-ssh":
+		return PolicyRuleProtocolNetbirdSSH, RulePortRange{Start: nativeSSHPortNumber, End: nativeSSHPortNumber}, nil
+	default:
+		return "", RulePortRange{}, fmt.Errorf("invalid protocol: %q", protoStr)
+	}
+
+	portRange, err := parsePortRange(portStr)
+	if err != nil {
+		return "", RulePortRange{}, err
+	}
+
+	return protocol, portRange, nil
+}
+
+func parsePortRange(portStr string) (RulePortRange, error) {
+	if strings.Contains(portStr, "-") {
+		rangeParts := strings.Split(portStr, "-")
+		if len(rangeParts) != 2 {
+			return RulePortRange{}, fmt.Errorf("invalid port range %q", portStr)
+		}
+		start, err := parsePort(strings.TrimSpace(rangeParts[0]))
+		if err != nil {
+			return RulePortRange{}, err
+		}
+		end, err := parsePort(strings.TrimSpace(rangeParts[1]))
+		if err != nil {
+			return RulePortRange{}, err
+		}
+		if start > end {
+			return RulePortRange{}, fmt.Errorf("invalid port range: start %d > end %d", start, end)
+		}
+		return RulePortRange{Start: uint16(start), End: uint16(end)}, nil
+	}
+
+	p, err := parsePort(portStr)
+	if err != nil {
+		return RulePortRange{}, err
+	}
+
+	return RulePortRange{Start: uint16(p), End: uint16(p)}, nil
+}
+
+func parsePort(portStr string) (int, error) {
+
+	if portStr == "" {
+		return 0, errors.New("empty port")
+	}
+	p, err := strconv.Atoi(portStr)
+	if err != nil {
+		return 0, fmt.Errorf("invalid port %q: %w", portStr, err)
+	}
+	if p < 1 || p > 65535 {
+		return 0, fmt.Errorf("port out of range (1–65535): %d", p)
+	}
+	return p, nil
 }

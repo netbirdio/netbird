@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/netip"
 	"os/exec"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -17,6 +18,7 @@ import (
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	"github.com/netbirdio/netbird/client/internal/winregistry"
 )
 
 var (
@@ -41,9 +43,13 @@ const (
 	dnsPolicyConfigConfigOptionsKey     = "ConfigOptions"
 	dnsPolicyConfigConfigOptionsValue   = 0x8
 
-	interfaceConfigPath          = `SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces`
-	interfaceConfigNameServerKey = "NameServer"
-	interfaceConfigSearchListKey = "SearchList"
+	nrptMaxDomainsPerRule = 50
+
+	interfaceConfigPath           = `SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces`
+	interfaceConfigPathV6         = `SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters\Interfaces`
+	interfaceConfigNameServerKey  = "NameServer"
+	interfaceConfigDhcpNameSrvKey = "DhcpNameServer"
+	interfaceConfigSearchListKey  = "SearchList"
 
 	// Network interface DNS registration settings
 	disableDynamicUpdateKey           = "DisableDynamicUpdate"
@@ -64,10 +70,11 @@ const (
 )
 
 type registryConfigurator struct {
-	guid           string
-	routingAll     bool
-	gpo            bool
-	nrptEntryCount int
+	guid            string
+	routingAll      bool
+	gpo             bool
+	nrptEntryCount  int
+	origNameservers []netip.Addr
 }
 
 func newHostManager(wgInterface WGIface) (*registryConfigurator, error) {
@@ -91,11 +98,114 @@ func newHostManager(wgInterface WGIface) (*registryConfigurator, error) {
 		gpo:  useGPO,
 	}
 
+	origNameservers, err := configurator.captureOriginalNameservers()
+	switch {
+	case err != nil:
+		log.Warnf("capture original nameservers from non-WG adapters: %v", err)
+	case len(origNameservers) == 0:
+		log.Warnf("no original nameservers captured from non-WG adapters; DNS fallback will be empty")
+	default:
+		log.Debugf("captured %d original nameservers from non-WG adapters: %v", len(origNameservers), origNameservers)
+	}
+	configurator.origNameservers = origNameservers
+
 	if err := configurator.configureInterface(); err != nil {
 		log.Errorf("failed to configure interface settings: %v", err)
 	}
 
 	return configurator, nil
+}
+
+// captureOriginalNameservers reads DNS addresses from every Tcpip(6) interface
+// registry key except the WG adapter. v4 and v6 servers live in separate
+// hives (Tcpip vs Tcpip6) keyed by the same interface GUID.
+func (r *registryConfigurator) captureOriginalNameservers() ([]netip.Addr, error) {
+	seen := make(map[netip.Addr]struct{})
+	var out []netip.Addr
+	var merr *multierror.Error
+	for _, root := range []string{interfaceConfigPath, interfaceConfigPathV6} {
+		addrs, err := r.captureFromTcpipRoot(root)
+		if err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("%s: %w", root, err))
+			continue
+		}
+		for _, addr := range addrs {
+			if _, dup := seen[addr]; dup {
+				continue
+			}
+			seen[addr] = struct{}{}
+			out = append(out, addr)
+		}
+	}
+	return out, nberrors.FormatErrorOrNil(merr)
+}
+
+func (r *registryConfigurator) captureFromTcpipRoot(rootPath string) ([]netip.Addr, error) {
+	root, err := registry.OpenKey(registry.LOCAL_MACHINE, rootPath, registry.READ)
+	if err != nil {
+		return nil, fmt.Errorf("open key: %w", err)
+	}
+	defer closer(root)
+
+	guids, err := root.ReadSubKeyNames(-1)
+	if err != nil {
+		return nil, fmt.Errorf("read subkeys: %w", err)
+	}
+
+	var out []netip.Addr
+	for _, guid := range guids {
+		if strings.EqualFold(guid, r.guid) {
+			continue
+		}
+		out = append(out, readInterfaceNameservers(rootPath, guid)...)
+	}
+	return out, nil
+}
+
+func readInterfaceNameservers(rootPath, guid string) []netip.Addr {
+	keyPath := rootPath + "\\" + guid
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, keyPath, registry.QUERY_VALUE)
+	if err != nil {
+		return nil
+	}
+	defer closer(k)
+
+	// Static NameServer wins over DhcpNameServer for actual resolution.
+	for _, name := range []string{interfaceConfigNameServerKey, interfaceConfigDhcpNameSrvKey} {
+		raw, _, err := k.GetStringValue(name)
+		if err != nil || raw == "" {
+			continue
+		}
+		if out := parseRegistryNameservers(raw); len(out) > 0 {
+			return out
+		}
+	}
+	return nil
+}
+
+func parseRegistryNameservers(raw string) []netip.Addr {
+	var out []netip.Addr
+	for _, field := range strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' }) {
+		addr, err := netip.ParseAddr(strings.TrimSpace(field))
+		if err != nil {
+			continue
+		}
+		addr = addr.Unmap()
+		if !addr.IsValid() || addr.IsUnspecified() {
+			continue
+		}
+		// Drop unzoned link-local: not routable without a scope id. If
+		// the user wrote "fe80::1%eth0" ParseAddr preserves the zone.
+		if addr.IsLinkLocalUnicast() && addr.Zone() == "" {
+			continue
+		}
+		out = append(out, addr)
+	}
+	return out
+}
+
+func (r *registryConfigurator) getOriginalNameservers() []netip.Addr {
+	return slices.Clone(r.origNameservers)
 }
 
 func (r *registryConfigurator) supportCustomPort() bool {
@@ -178,13 +288,7 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 		log.Infof("removed %s as main DNS forwarder for this peer", config.ServerIP)
 	}
 
-	if err := stateManager.UpdateState(&ShutdownState{
-		Guid:           r.guid,
-		GPO:            r.gpo,
-		NRPTEntryCount: r.nrptEntryCount,
-	}); err != nil {
-		log.Errorf("failed to update shutdown state: %s", err)
-	}
+	r.updateState(stateManager)
 
 	var searchDomains, matchDomains []string
 	for _, dConf := range config.Domains {
@@ -197,26 +301,22 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 		matchDomains = append(matchDomains, "."+strings.TrimSuffix(dConf.Domain, "."))
 	}
 
+	if err := r.removeDNSMatchPolicies(); err != nil {
+		log.Errorf("cleanup old dns match policies: %s", err)
+	}
+
 	if len(matchDomains) != 0 {
 		count, err := r.addDNSMatchPolicy(matchDomains, config.ServerIP)
+		// Update count even on error to ensure cleanup covers partially created rules
+		r.nrptEntryCount = count
 		if err != nil {
 			return fmt.Errorf("add dns match policy: %w", err)
 		}
-		r.nrptEntryCount = count
 	} else {
-		if err := r.removeDNSMatchPolicies(); err != nil {
-			return fmt.Errorf("remove dns match policies: %w", err)
-		}
 		r.nrptEntryCount = 0
 	}
 
-	if err := stateManager.UpdateState(&ShutdownState{
-		Guid:           r.guid,
-		GPO:            r.gpo,
-		NRPTEntryCount: r.nrptEntryCount,
-	}); err != nil {
-		log.Errorf("failed to update shutdown state: %s", err)
-	}
+	r.updateState(stateManager)
 
 	if err := r.updateSearchDomains(searchDomains); err != nil {
 		return fmt.Errorf("update search domains: %w", err)
@@ -225,6 +325,16 @@ func (r *registryConfigurator) applyDNSConfig(config HostDNSConfig, stateManager
 	go r.flushDNSCache()
 
 	return nil
+}
+
+func (r *registryConfigurator) updateState(stateManager *statemanager.Manager) {
+	if err := stateManager.UpdateState(&ShutdownState{
+		Guid:           r.guid,
+		GPO:            r.gpo,
+		NRPTEntryCount: r.nrptEntryCount,
+	}); err != nil {
+		log.Errorf("failed to update shutdown state: %s", err)
+	}
 }
 
 func (r *registryConfigurator) addDNSSetupForAll(ip netip.Addr) error {
@@ -239,19 +349,33 @@ func (r *registryConfigurator) addDNSSetupForAll(ip netip.Addr) error {
 func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip netip.Addr) (int, error) {
 	// if the gpo key is present, we need to put our DNS settings there, otherwise our config might be ignored
 	// see https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpnrpt/8cc31cb9-20cb-4140-9e85-3e08703b4745
-	for i, domain := range domains {
-		policyPath := fmt.Sprintf("%s-%d", dnsPolicyConfigMatchPath, i)
+
+	// We need to batch domains into chunks and create one NRPT rule per batch.
+	ruleIndex := 0
+	for i := 0; i < len(domains); i += nrptMaxDomainsPerRule {
+		end := i + nrptMaxDomainsPerRule
+		if end > len(domains) {
+			end = len(domains)
+		}
+		batchDomains := domains[i:end]
+
+		localPath := fmt.Sprintf("%s-%d", dnsPolicyConfigMatchPath, ruleIndex)
+		gpoPath := fmt.Sprintf("%s-%d", gpoDnsPolicyConfigMatchPath, ruleIndex)
+
+		if err := r.configureDNSPolicy(localPath, batchDomains, ip); err != nil {
+			return ruleIndex, fmt.Errorf("configure DNS Local policy for rule %d: %w", ruleIndex, err)
+		}
+
+		// Increment immediately so the caller's cleanup path knows about this rule
+		ruleIndex++
+
 		if r.gpo {
-			policyPath = fmt.Sprintf("%s-%d", gpoDnsPolicyConfigMatchPath, i)
+			if err := r.configureDNSPolicy(gpoPath, batchDomains, ip); err != nil {
+				return ruleIndex, fmt.Errorf("configure gpo DNS policy for rule %d: %w", ruleIndex-1, err)
+			}
 		}
 
-		singleDomain := []string{domain}
-
-		if err := r.configureDNSPolicy(policyPath, singleDomain, ip); err != nil {
-			return i, fmt.Errorf("configure DNS policy for domain %s: %w", domain, err)
-		}
-
-		log.Debugf("added NRPT entry for domain: %s", domain)
+		log.Debugf("added NRPT rule %d with %d domains", ruleIndex-1, len(batchDomains))
 	}
 
 	if r.gpo {
@@ -260,8 +384,8 @@ func (r *registryConfigurator) addDNSMatchPolicy(domains []string, ip netip.Addr
 		}
 	}
 
-	log.Infof("added %d separate NRPT entries. Domain list: %s", len(domains), domains)
-	return len(domains), nil
+	log.Infof("added %d NRPT rules for %d domains", ruleIndex, len(domains))
+	return ruleIndex, nil
 }
 
 func (r *registryConfigurator) configureDNSPolicy(policyPath string, domains []string, ip netip.Addr) error {
@@ -269,9 +393,9 @@ func (r *registryConfigurator) configureDNSPolicy(policyPath string, domains []s
 		return fmt.Errorf("remove existing dns policy: %w", err)
 	}
 
-	regKey, _, err := registry.CreateKey(registry.LOCAL_MACHINE, policyPath, registry.SET_VALUE)
+	regKey, _, err := winregistry.CreateVolatileKey(registry.LOCAL_MACHINE, policyPath, registry.SET_VALUE)
 	if err != nil {
-		return fmt.Errorf("create registry key HKEY_LOCAL_MACHINE\\%s: %w", policyPath, err)
+		return fmt.Errorf("create volatile registry key HKEY_LOCAL_MACHINE\\%s: %w", policyPath, err)
 	}
 	defer closer(regKey)
 
@@ -401,6 +525,7 @@ func (r *registryConfigurator) removeDNSMatchPolicies() error {
 	if err := removeRegistryKeyFromDNSPolicyConfig(dnsPolicyConfigMatchPath); err != nil {
 		merr = multierror.Append(merr, fmt.Errorf("remove local base entry: %w", err))
 	}
+
 	if err := removeRegistryKeyFromDNSPolicyConfig(gpoDnsPolicyConfigMatchPath); err != nil {
 		merr = multierror.Append(merr, fmt.Errorf("remove GPO base entry: %w", err))
 	}
@@ -412,6 +537,7 @@ func (r *registryConfigurator) removeDNSMatchPolicies() error {
 		if err := removeRegistryKeyFromDNSPolicyConfig(localPath); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("remove local entry %d: %w", i, err))
 		}
+
 		if err := removeRegistryKeyFromDNSPolicyConfig(gpoPath); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("remove GPO entry %d: %w", i, err))
 		}

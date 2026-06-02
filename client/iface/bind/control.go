@@ -3,7 +3,7 @@ package bind
 import (
 	wireguard "golang.zx2c4.com/wireguard/conn"
 
-	nbnet "github.com/netbirdio/netbird/util/net"
+	nbnet "github.com/netbirdio/netbird/client/net"
 )
 
 // TODO: This is most likely obsolete since the control fns should be called by the wrapped udpconn (ice_bind.go)

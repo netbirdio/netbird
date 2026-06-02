@@ -48,6 +48,26 @@ service ManagementService {
 
   // Logout logs out the peer and removes it from the management server
   rpc Logout(EncryptedMessage) returns (Empty) {}
+
+  // Executes a job on a target peer (e.g., debug bundle)
+  rpc Job(stream EncryptedMessage) returns (stream EncryptedMessage) {}
+
+  // ExtendAuthSession refreshes the peer's session expiry deadline using a fresh JWT.
+  // Same JWT validation pipeline as Login (including jwt.UserID == peer.UserID check),
+  // but does not redo the network-map sync. Only valid for SSO-registered peers where
+  // login expiration is enabled. The tunnel remains up.
+  // EncryptedMessage of the request has a body of ExtendAuthSessionRequest.
+  // EncryptedMessage of the response has a body of ExtendAuthSessionResponse.
+  rpc ExtendAuthSession(EncryptedMessage) returns (EncryptedMessage) {}
+
+  // CreateExpose creates a temporary reverse proxy service for a peer
+  rpc CreateExpose(EncryptedMessage) returns (EncryptedMessage) {}
+
+  // RenewExpose extends the TTL of an active expose session
+  rpc RenewExpose(EncryptedMessage) returns (EncryptedMessage) {}
+
+  // StopExpose terminates an active expose session
+  rpc StopExpose(EncryptedMessage) returns (EncryptedMessage) {}
 }
 
 message EncryptedMessage {
@@ -58,6 +78,42 @@ message EncryptedMessage {
   bytes body = 2;
   // Version of the Netbird Management Service protocol
   int32 version = 3;
+}
+
+message JobRequest {
+  bytes ID = 1;
+
+  oneof workload_parameters {
+    BundleParameters bundle = 10;
+    //OtherParameters other = 11;
+  }
+}
+
+enum JobStatus {
+  unknown_status = 0; //placeholder
+  succeeded = 1;
+  failed = 2;
+}
+
+message JobResponse{
+  bytes ID = 1;
+  JobStatus status=2;
+  bytes Reason=3;
+  oneof workload_results {
+    BundleResult bundle = 10;
+    //OtherResult other = 11;
+  }
+}
+
+message BundleParameters {
+  bool   bundle_for       = 1;
+  int64  bundle_for_time  = 2;
+  int32  log_file_count   = 3;
+  bool   anonymize        = 4;
+}
+
+message BundleResult {
+  string upload_key = 1;
 }
 
 message SyncRequest {
@@ -85,6 +141,15 @@ message SyncResponse {
 
   // Posture checks to be evaluated by client
   repeated Checks Checks = 6;
+
+  // 3-state session deadline. Carried on every Sync snapshot so admin-side
+  // changes propagate live without a client reconnect.
+  //   field unset (nil)        → snapshot carries no info; client keeps the
+  //                              deadline it already had
+  //   set, seconds=0 nanos=0   → explicit "expiry disabled" or peer is not
+  //                              SSO-registered; client clears its anchor
+  //   set, valid timestamp     → new absolute UTC deadline
+  google.protobuf.Timestamp sessionExpiresAt = 7;
 }
 
 message  SyncMetaRequest {
@@ -146,6 +211,24 @@ message Flags {
   bool blockInbound = 9;
 
   bool lazyConnectionEnabled = 10;
+
+  bool enableSSHRoot = 11;
+  bool enableSSHSFTP = 12;
+  bool enableSSHLocalPortForwarding = 13;
+  bool enableSSHRemotePortForwarding = 14;
+  bool disableSSHAuth = 15;
+
+  bool disableIPv6 = 16;
+}
+
+// PeerCapability represents a feature the client binary supports.
+// Reported in PeerSystemMeta.capabilities on every login/sync.
+enum PeerCapability {
+  PeerCapabilityUnknown = 0;
+  // Client reads SourcePrefixes instead of the deprecated PeerIP string.
+  PeerCapabilitySourcePrefixes = 1;
+  // Client handles IPv6 overlay addresses and firewall rules.
+  PeerCapabilityIPv6Overlay = 2;
 }
 
 // PeerSystemMeta is machine meta data like OS and version.
@@ -167,6 +250,8 @@ message PeerSystemMeta {
   Environment environment = 15;
   repeated File files = 16;
   Flags flags = 17;
+
+  repeated PeerCapability capabilities = 18;
 }
 
 message LoginResponse {
@@ -176,6 +261,31 @@ message LoginResponse {
   PeerConfig peerConfig = 2;
   // Posture checks to be evaluated by client
   repeated Checks Checks = 3;
+
+  // 3-state session deadline; same encoding as SyncResponse.sessionExpiresAt.
+  //   field unset (nil)        → no info; client keeps any deadline it had
+  //   set, seconds=0 nanos=0   → explicit "expiry disabled" / non-SSO peer
+  //   set, valid timestamp     → new absolute UTC deadline
+  google.protobuf.Timestamp sessionExpiresAt = 4;
+}
+
+// ExtendAuthSessionRequest carries a fresh JWT to refresh the peer's session deadline.
+// The encrypted body of an EncryptedMessage with this payload is sent to the
+// ExtendAuthSession RPC.
+message ExtendAuthSessionRequest {
+  // SSO token (must be a fresh, valid JWT for the peer's owning user)
+  string jwtToken = 1;
+  // Meta data of the peer (used for IdP user info refresh consistent with Login)
+  PeerSystemMeta meta = 2;
+}
+
+// ExtendAuthSessionResponse contains the refreshed session deadline.
+message ExtendAuthSessionResponse {
+  // 3-state session deadline; same encoding as SyncResponse.sessionExpiresAt.
+  // In practice ExtendAuthSession only succeeds for SSO peers with expiry
+  // enabled, so this carries a valid timestamp on the success path. The
+  // 3-state encoding is documented here for symmetry with Login/Sync.
+  google.protobuf.Timestamp sessionExpiresAt = 1;
 }
 
 message ServerKeyResponse {
@@ -240,6 +350,18 @@ message FlowConfig {
   bool dnsCollection = 8;
 }
 
+// JWTConfig represents JWT authentication configuration for validating tokens.
+message JWTConfig {
+  string issuer = 1;
+  // Deprecated: audience is kept for backwards compatibility only. Use audiences instead in the client code but populate this field.
+  string audience = 2;
+  string keysLocation = 3;
+  int64 maxTokenAge = 4;
+  // audiences contains the list of valid audiences for JWT validation.
+  // Tokens matching any audience in this list are considered valid.
+  repeated string audiences = 5;
+}
+
 // ProtectedHostConfig is similar to HostConfig but has additional user and password
 // Mostly used for TURN servers
 message ProtectedHostConfig {
@@ -266,6 +388,21 @@ message PeerConfig {
   bool LazyConnectionEnabled = 6;
 
   int32 mtu = 7;
+
+  // Auto-update config
+  AutoUpdateSettings autoUpdate = 8;
+
+  // IPv6 overlay address as compact bytes: 16 bytes IP + 1 byte prefix length.
+  bytes address_v6 = 9;
+}
+
+message AutoUpdateSettings {
+  string version = 1;
+  /*
+    alwaysUpdate = true → Updates are installed automatically in the background
+    alwaysUpdate = false → Updates require user interaction from the UI
+   */
+  bool alwaysUpdate = 2;
 }
 
 // NetworkMap represents a network state of the peer with the corresponding configuration parameters to establish peer-to-peer connections
@@ -306,6 +443,24 @@ message NetworkMap {
   bool routesFirewallRulesIsEmpty = 11;
 
   repeated ForwardingRule forwardingRules = 12;
+
+  // SSHAuth represents SSH authorization configuration
+  SSHAuth sshAuth = 13;
+}
+
+message SSHAuth {
+  // UserIDClaim is the JWT claim to be used to get the users ID
+  string UserIDClaim = 1;
+
+  // AuthorizedUsers is a list of hashed user IDs authorized to access this peer via SSH
+  repeated bytes AuthorizedUsers = 2;
+
+  // MachineUsers is a map of machine user names to their corresponding indexes in the AuthorizedUsers list
+  map<string, MachineUserIndexes> machine_users = 3;
+}
+
+message MachineUserIndexes {
+  repeated uint32 indexes = 1;
 }
 
 // RemotePeerConfig represents a configuration of a remote peer.
@@ -335,6 +490,8 @@ message SSHConfig {
   // sshPubKey is a SSH public key of a peer to be added to authorized_hosts.
   // This property should be ignore if SSHConfig comes from PeerConfig.
   bytes sshPubKey = 2;
+
+  JWTConfig jwtConfig = 3;
 }
 
 // DeviceAuthorizationFlowRequest empty struct for future expansion
@@ -366,8 +523,8 @@ message PKCEAuthorizationFlow {
 message ProviderConfig {
   // An IDP application client id
   string ClientID = 1;
-  // An IDP application client secret
-  string ClientSecret = 2;
+  // Deprecated: use embedded IdP for providers that require a client secret (e.g. Google Workspace).
+  string ClientSecret = 2 [deprecated = true];
   // An IDP API domain
   // Deprecated. Use a DeviceAuthEndpoint and TokenEndpoint
   string Domain = 3;
@@ -410,12 +567,17 @@ message DNSConfig {
   bool ServiceEnable = 1;
   repeated NameServerGroup NameServerGroups = 2;
   repeated CustomZone CustomZones = 3;
+  int64 ForwarderPort = 4 [deprecated = true];
 }
 
 // CustomZone represents a dns.CustomZone
 message CustomZone {
   string Domain = 1;
   repeated SimpleRecord Records = 2;
+  bool SearchDomainDisabled = 3;
+  // NonAuthoritative indicates this is a user-created zone (not the built-in peer DNS zone).
+  // Non-authoritative zones will fallthrough to lower-priority handlers on NXDOMAIN and skip PTR processing.
+  bool NonAuthoritative = 4;
 }
 
 // SimpleRecord represents a dns.SimpleRecord
@@ -464,7 +626,8 @@ enum RuleAction {
 
 // FirewallRule represents a firewall rule
 message FirewallRule {
-  string PeerIP = 1;
+  // Use sourcePrefixes instead.
+  string PeerIP = 1 [deprecated = true];
   RuleDirection Direction = 2;
   RuleAction Action = 3;
   RuleProtocol Protocol = 4;
@@ -473,6 +636,13 @@ message FirewallRule {
 
   // PolicyID is the ID of the policy that this rule belongs to
   bytes PolicyID = 7;
+
+  // CustomProtocol is a custom protocol ID when Protocol is CUSTOM.
+  uint32 customProtocol = 8;
+
+  // Compact source IP prefixes for this rule, supersedes PeerIP.
+  // Each entry is 5 bytes (v4) or 17 bytes (v6): [IP bytes][1 byte prefix_len].
+  repeated bytes sourcePrefixes = 9;
 }
 
 message NetworkAddress {
@@ -543,3 +713,41 @@ message ForwardingRule {
   // Translated port information, where the traffic should be forwarded to
   PortInfo translatedPort = 4;
 }
+
+enum ExposeProtocol {
+  EXPOSE_HTTP = 0;
+  EXPOSE_HTTPS = 1;
+  EXPOSE_TCP = 2;
+  EXPOSE_UDP = 3;
+  EXPOSE_TLS = 4;
+}
+
+message ExposeServiceRequest {
+  uint32 port = 1;
+  ExposeProtocol protocol = 2;
+  string pin = 3;
+  string password = 4;
+  repeated string user_groups = 5;
+  string domain = 6;
+  string name_prefix = 7;
+  uint32 listen_port = 8;
+}
+
+message ExposeServiceResponse {
+  string service_name = 1;
+  string service_url = 2;
+  string domain = 3;
+  bool port_auto_assigned = 4;
+}
+
+message RenewExposeRequest {
+  string domain = 1;
+}
+
+message RenewExposeResponse {}
+
+message StopExposeRequest {
+  string domain = 1;
+}
+
+message StopExposeResponse {}

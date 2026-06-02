@@ -1,0 +1,71 @@
+name: Wasm
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
+  cancel-in-progress: true
+
+jobs:
+  js_lint:
+    name: "JS / Lint"
+    runs-on: ubuntu-latest
+    env:
+      GOOS: js
+      GOARCH: wasm
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Install Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: "go.mod"
+      - name: Install dependencies
+        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev libpcap-dev
+      - name: Install golangci-lint
+        uses: golangci/golangci-lint-action@82606bf257cbaff209d206a39f5134f0cfbfd2ee #v9.2.1
+        with:
+          version: latest
+          install-mode: binary
+          skip-cache: true
+          skip-save-cache: true
+          cache-invalidation-interval: 0
+          working-directory: ./client
+        continue-on-error: true
+
+  js_build:
+    name: "JS / Build"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Install Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: "go.mod"
+      - name: Build Wasm client
+        run: GOOS=js GOARCH=wasm go build -o netbird.wasm ./client/wasm/cmd
+        env:
+          CGO_ENABLED: 0
+      - name: Check Wasm build size
+        run: |
+          echo "Wasm build size:"
+          ls -lh netbird.wasm
+
+          SIZE=$(stat -c%s netbird.wasm)
+          SIZE_MB=$((SIZE / 1024 / 1024))
+
+          echo "Size: ${SIZE} bytes (${SIZE_MB} MB)"
+
+          if [ ${SIZE} -gt 58720256 ]; then
+            echo "Wasm binary size (${SIZE_MB}MB) exceeds 56MB limit!"
+            exit 1
+          fi

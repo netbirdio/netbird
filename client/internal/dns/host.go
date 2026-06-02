@@ -11,16 +11,15 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 )
 
-const (
-	ipv4ReverseZone = ".in-addr.arpa."
-	ipv6ReverseZone = ".ip6.arpa."
-)
-
 type hostManager interface {
 	applyDNSConfig(config HostDNSConfig, stateManager *statemanager.Manager) error
 	restoreHostDNS() error
 	supportCustomPort() bool
 	string() string
+	// getOriginalNameservers returns the OS-side resolvers used as PriorityFallback
+	// upstreams: pre-takeover snapshots on desktop, the OS-pushed list on Android,
+	// hardcoded Quad9 on iOS, nil for noop / mock.
+	getOriginalNameservers() []netip.Addr
 }
 
 type SystemDNSSettings struct {
@@ -110,10 +109,9 @@ func dnsConfigToHostDNSConfig(dnsConfig nbdns.Config, ip netip.Addr, port int) H
 	}
 
 	for _, customZone := range dnsConfig.CustomZones {
-		matchOnly := strings.HasSuffix(customZone.Domain, ipv4ReverseZone) || strings.HasSuffix(customZone.Domain, ipv6ReverseZone)
 		config.Domains = append(config.Domains, DomainConfig{
 			Domain:    strings.ToLower(dns.Fqdn(customZone.Domain)),
-			MatchOnly: matchOnly,
+			MatchOnly: customZone.SearchDomainDisabled,
 		})
 	}
 
@@ -136,4 +134,12 @@ func (n noopHostConfigurator) supportCustomPort() bool {
 
 func (n noopHostConfigurator) string() string {
 	return "noop"
+}
+
+func (n noopHostConfigurator) getOriginalNameservers() []netip.Addr {
+	return nil
+}
+
+func (m *mockHostConfigurator) getOriginalNameservers() []netip.Addr {
+	return nil
 }

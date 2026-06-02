@@ -5,13 +5,25 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	"github.com/netbirdio/netbird/client/iface"
+	"github.com/netbirdio/netbird/client/internal/routemanager/dynamic"
 	"github.com/netbirdio/netbird/util"
 )
+
+type mockMgmProber struct{}
+
+func (m *mockMgmProber) HealthCheck() error {
+	return nil
+}
+
+func (m *mockMgmProber) Close() error { return nil }
 
 func TestGetConfig(t *testing.T) {
 	// case 1: new default config has to be generated
@@ -141,7 +153,102 @@ func TestHiddenPreSharedKey(t *testing.T) {
 	}
 }
 
+func TestNewProfileDefaults(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+
+	config, err := UpdateOrCreateConfig(ConfigInput{
+		ConfigPath: configPath,
+	})
+	require.NoError(t, err, "should create new config")
+
+	assert.Equal(t, DefaultManagementURL, config.ManagementURL.String(), "ManagementURL should have default")
+	assert.Equal(t, DefaultAdminURL, config.AdminURL.String(), "AdminURL should have default")
+	assert.NotEmpty(t, config.PrivateKey, "PrivateKey should be generated")
+	assert.NotEmpty(t, config.SSHKey, "SSHKey should be generated")
+	assert.Equal(t, iface.WgInterfaceDefault, config.WgIface, "WgIface should have default")
+	assert.Equal(t, iface.DefaultWgPort, config.WgPort, "WgPort should default to 51820")
+	assert.Equal(t, uint16(iface.DefaultMTU), config.MTU, "MTU should have default")
+	assert.Equal(t, dynamic.DefaultInterval, config.DNSRouteInterval, "DNSRouteInterval should have default")
+	assert.NotNil(t, config.ServerSSHAllowed, "ServerSSHAllowed should be set")
+	assert.NotNil(t, config.DisableNotifications, "DisableNotifications should be set")
+	assert.NotEmpty(t, config.IFaceBlackList, "IFaceBlackList should have defaults")
+
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		assert.NotNil(t, config.NetworkMonitor, "NetworkMonitor should be set on Windows/macOS")
+		assert.True(t, *config.NetworkMonitor, "NetworkMonitor should be enabled by default on Windows/macOS")
+	}
+}
+
+func TestWireguardPortZeroExplicit(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+
+	// Create a new profile with explicit port 0 (random port)
+	explicitZero := 0
+	config, err := UpdateOrCreateConfig(ConfigInput{
+		ConfigPath:    configPath,
+		WireguardPort: &explicitZero,
+	})
+	require.NoError(t, err, "should create config with explicit port 0")
+
+	assert.Equal(t, 0, config.WgPort, "WgPort should be 0 when explicitly set by user")
+
+	// Verify it persists
+	readConfig, err := GetConfig(configPath)
+	require.NoError(t, err)
+	assert.Equal(t, 0, readConfig.WgPort, "WgPort should remain 0 after reading from file")
+}
+
+func TestWireguardPortDefaultVsExplicit(t *testing.T) {
+	tests := []struct {
+		name          string
+		wireguardPort *int
+		expectedPort  int
+		description   string
+	}{
+		{
+			name:          "no port specified uses default",
+			wireguardPort: nil,
+			expectedPort:  iface.DefaultWgPort,
+			description:   "When user doesn't specify port, default to 51820",
+		},
+		{
+			name:          "explicit zero for random port",
+			wireguardPort: func() *int { v := 0; return &v }(),
+			expectedPort:  0,
+			description:   "When user explicitly sets 0, use 0 for random port",
+		},
+		{
+			name:          "explicit custom port",
+			wireguardPort: func() *int { v := 52000; return &v }(),
+			expectedPort:  52000,
+			description:   "When user sets custom port, use that port",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			configPath := filepath.Join(tempDir, "config.json")
+
+			config, err := UpdateOrCreateConfig(ConfigInput{
+				ConfigPath:    configPath,
+				WireguardPort: tt.wireguardPort,
+			})
+			require.NoError(t, err, tt.description)
+			assert.Equal(t, tt.expectedPort, config.WgPort, tt.description)
+		})
+	}
+}
+
 func TestUpdateOldManagementURL(t *testing.T) {
+	origProber := newMgmProber
+	newMgmProber = func(_ context.Context, _ string, _ wgtypes.Key, _ bool) (mgmProber, error) {
+		return &mockMgmProber{}, nil
+	}
+	t.Cleanup(func() { newMgmProber = origProber })
+
 	tests := []struct {
 		name                  string
 		previousManagementURL string
@@ -181,18 +288,17 @@ func TestUpdateOldManagementURL(t *testing.T) {
 				ConfigPath:    configPath,
 			})
 			require.NoError(t, err, "failed to create testing config")
-			previousStats, err := os.Stat(configPath)
-			require.NoError(t, err, "failed to create testing config stats")
+			previousContent, err := os.ReadFile(configPath)
+			require.NoError(t, err, "failed to read initial config")
 			resultConfig, err := UpdateOldManagementURL(context.TODO(), config, configPath)
 			require.NoError(t, err, "got error when updating old management url")
 			require.Equal(t, tt.expectedManagementURL, resultConfig.ManagementURL.String())
-			newStats, err := os.Stat(configPath)
-			require.NoError(t, err, "failed to create testing config stats")
-			switch tt.fileShouldNotChange {
-			case true:
-				require.Equal(t, previousStats.ModTime(), newStats.ModTime(), "file should not change")
-			case false:
-				require.NotEqual(t, previousStats.ModTime(), newStats.ModTime(), "file should have changed")
+			newContent, err := os.ReadFile(configPath)
+			require.NoError(t, err, "failed to read updated config")
+			if tt.fileShouldNotChange {
+				require.Equal(t, string(previousContent), string(newContent), "file should not change")
+			} else {
+				require.NotEqual(t, string(previousContent), string(newContent), "file should have changed")
 			}
 		})
 	}

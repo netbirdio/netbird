@@ -1,0 +1,94 @@
+name: Proto Version Check
+
+on:
+  pull_request:
+    paths:
+      - "**/*.pb.go"
+
+jobs:
+  check-proto-versions:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for proto tool version changes
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              per_page: 100,
+            });
+
+            const modifiedPbFiles = files.filter(
+              f => f.filename.endsWith('.pb.go') && f.status === 'modified'
+            );
+            if (modifiedPbFiles.length === 0) {
+              console.log('No modified .pb.go files to check');
+              return;
+            }
+
+            const versionPattern = /^\s*\/\/\s+protoc(?:-gen-go)?\s+v[\d.]+/;
+            const baseSha = context.payload.pull_request.base.sha;
+            const headSha = context.payload.pull_request.head.sha;
+
+            async function getVersionHeader(path, ref) {
+              try {
+                const res = await github.rest.repos.getContent({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  path,
+                  ref,
+                });
+                if (!res.data.content) {
+                  return { ok: false, reason: 'no inline content (file too large)' };
+                }
+                const content = Buffer.from(res.data.content, 'base64').toString('utf8');
+                const lines = content
+                  .split('\n')
+                  .slice(0, 20)
+                  .filter(line => versionPattern.test(line));
+                return { ok: true, lines };
+              } catch (e) {
+                return { ok: false, reason: e.message };
+              }
+            }
+
+            const violations = [];
+            for (const file of modifiedPbFiles) {
+              const [base, head] = await Promise.all([
+                getVersionHeader(file.filename, baseSha),
+                getVersionHeader(file.filename, headSha),
+              ]);
+              if (!base.ok || !head.ok) {
+                core.warning(
+                  `Skipping ${file.filename}: base=${base.ok ? 'ok' : base.reason}, head=${head.ok ? 'ok' : head.reason}`
+                );
+                continue;
+              }
+              if (base.lines.join('\n') !== head.lines.join('\n')) {
+                violations.push({
+                  file: file.filename,
+                  base: base.lines,
+                  head: head.lines,
+                });
+              }
+            }
+
+            if (violations.length > 0) {
+              const details = violations.map(v =>
+                `${v.file}:\n` +
+                `  base:\n${v.base.map(l => '    ' + l).join('\n') || '    (none)'}\n` +
+                `  head:\n${v.head.map(l => '    ' + l).join('\n') || '    (none)'}`
+              ).join('\n\n');
+
+              core.setFailed(
+                `Proto version strings changed in generated files.\n` +
+                `This usually means the wrong protoc or protoc-gen-go version was used.\n` +
+                `Regenerate with the matching tool versions.\n\n` +
+                details
+              );
+              return;
+            }
+
+            console.log('No proto version string changes detected');
