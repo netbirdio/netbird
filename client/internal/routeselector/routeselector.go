@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
-	"strings"
 	"sync"
 
 	"github.com/hashicorp/go-multierror"
@@ -55,11 +54,6 @@ func (rs *RouteSelector) SelectRoutes(routes []route.NetID, appendRoute bool, al
 		}
 		delete(rs.deselectedRoutes, route)
 		rs.selectedRoutes[route] = struct{}{}
-		// Keep the v4/v6 exit pair consistent: clear any orphaned explicit state on
-		// the "-v6" sibling so it inherits the v4 base via effectiveNetID. Skip when
-		// the pair is itself part of this batch (callers expand it deliberately when
-		// it should diverge).
-		rs.clearPairedV6Locked(route, routes)
 	}
 
 	rs.deselectAll = false
@@ -100,10 +94,6 @@ func (rs *RouteSelector) DeselectRoutes(routes []route.NetID, allRoutes []route.
 		}
 		rs.deselectedRoutes[route] = struct{}{}
 		delete(rs.selectedRoutes, route)
-		// Keep the v4/v6 exit pair consistent: clear any orphaned explicit selection
-		// on the "-v6" sibling so it falls back to inheriting the v4 base's state
-		// (via effectiveNetID) instead of staying stuck as explicitly selected.
-		rs.clearPairedV6Locked(route, routes)
 	}
 
 	return errors.FormatErrorOrNil(err)
@@ -133,15 +123,31 @@ func (rs *RouteSelector) IsSelected(routeID route.NetID) bool {
 	return rs.isSelectedLocked(routeID)
 }
 
-// IsSelectedForExitNode checks if an exit-node route is selected, mirroring the
-// v4/v6 pair: a synthesized "-v6" entry with no explicit state of its own inherits
-// its v4 base's selection, so a deselect on the v4 base also deselects the v6 entry.
-// Only call this from exit-node code paths (see effectiveNetID).
-func (rs *RouteSelector) IsSelectedForExitNode(routeID route.NetID) bool {
-	rs.mu.RLock()
-	defer rs.mu.RUnlock()
+// SyncPairedSelection forces pairedID's explicit selection state to match baseID's,
+// so a synthesized "-v6" exit route always follows its v4 base: selecting or
+// deselecting the v4 exit node governs the ::/0 pair, and any stale (orphaned)
+// explicit state on the v6 entry is reset. The v4/v6 exit pair is treated as a single
+// toggle, so the v6 entry carries no independent selection of its own.
+func (rs *RouteSelector) SyncPairedSelection(baseID, pairedID route.NetID) {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
 
-	return rs.isSelectedLocked(rs.effectiveNetID(routeID))
+	if rs.deselectAll {
+		return
+	}
+
+	_, baseSelected := rs.selectedRoutes[baseID]
+	_, baseDeselected := rs.deselectedRoutes[baseID]
+
+	delete(rs.selectedRoutes, pairedID)
+	delete(rs.deselectedRoutes, pairedID)
+
+	switch {
+	case baseSelected:
+		rs.selectedRoutes[pairedID] = struct{}{}
+	case baseDeselected:
+		rs.deselectedRoutes[pairedID] = struct{}{}
+	}
 }
 
 // FilterSelected removes unselected routes from the provided map.
@@ -163,14 +169,13 @@ func (rs *RouteSelector) FilterSelected(routes route.HAMap) route.HAMap {
 }
 
 // HasUserSelectionForRoute returns true if the user has explicitly selected or deselected this route.
-// Intended for exit-node code paths: a v6 exit-node pair (e.g. "MyExit-v6") with no explicit state of
-// its own inherits its v4 base's state, so legacy persisted selections that predate v6 pairing
-// transparently apply to the synthesized v6 entry.
+// The lookup is literal; v4/v6 exit pairs are kept consistent at write time via SyncPairedSelection,
+// so a synthesized "-v6" entry carries the same explicit state as its v4 base.
 func (rs *RouteSelector) HasUserSelectionForRoute(routeID route.NetID) bool {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
 
-	return rs.hasUserSelectionForRouteLocked(rs.effectiveNetID(routeID))
+	return rs.hasUserSelectionForRouteLocked(routeID)
 }
 
 func (rs *RouteSelector) FilterSelectedExitNodes(routes route.HAMap) route.HAMap {
@@ -253,24 +258,6 @@ func (rs *RouteSelector) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// effectiveNetID returns the v4 base for a "-v6" exit pair entry that has no explicit
-// state of its own, so selections made on the v4 entry govern the v6 entry automatically.
-// Only call this from exit-node-specific code paths: applying it to a non-exit "-v6" route
-// would make it inherit unrelated v4 state. Must be called with rs.mu held.
-func (rs *RouteSelector) effectiveNetID(id route.NetID) route.NetID {
-	name := string(id)
-	if !strings.HasSuffix(name, route.V6ExitSuffix) {
-		return id
-	}
-	if _, ok := rs.selectedRoutes[id]; ok {
-		return id
-	}
-	if _, ok := rs.deselectedRoutes[id]; ok {
-		return id
-	}
-	return route.NetID(strings.TrimSuffix(name, route.V6ExitSuffix))
-}
-
 func (rs *RouteSelector) isSelectedLocked(routeID route.NetID) bool {
 	if rs.deselectAll {
 		return false
@@ -293,34 +280,14 @@ func (rs *RouteSelector) hasUserSelectionForRouteLocked(routeID route.NetID) boo
 	return selected || deselected
 }
 
-// clearPairedV6Locked removes any explicit selected/deselected state on the "-v6"
-// sibling of a v4 exit-node NetID, so the synthesized v6 entry resolves through
-// effectiveNetID to its v4 base. No-op for IDs that already carry the "-v6" suffix,
-// or when the sibling is itself part of the current batch (the caller is setting it
-// deliberately, e.g. via ExpandV6ExitPairs). Must be called with rs.mu held.
-func (rs *RouteSelector) clearPairedV6Locked(id route.NetID, batch []route.NetID) {
-	if strings.HasSuffix(string(id), route.V6ExitSuffix) {
-		return
-	}
-	v6ID := route.NetID(string(id) + route.V6ExitSuffix)
-	if slices.Contains(batch, v6ID) {
-		return
-	}
-	delete(rs.selectedRoutes, v6ID)
-	delete(rs.deselectedRoutes, v6ID)
-}
-
 func (rs *RouteSelector) applyExitNodeFilter(
 	id route.HAUniqueID,
 	netID route.NetID,
 	rt []*route.Route,
 	out route.HAMap,
 ) {
-	// Exit-node path: apply the v4/v6 pair mirror so a deselect on the v4 base also
-	// drops the synthesized v6 entry that lacks its own explicit state.
-	effective := rs.effectiveNetID(netID)
-	if rs.hasUserSelectionForRouteLocked(effective) {
-		if rs.isSelectedLocked(effective) {
+	if rs.hasUserSelectionForRouteLocked(netID) {
+		if rs.isSelectedLocked(netID) {
 			out[id] = rt
 		}
 		return
