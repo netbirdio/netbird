@@ -16,7 +16,7 @@ type ProfileState struct {
 // GetProfileState reads the per-profile state file keyed by profile ID.
 // The state file lives in the user's config directory. Legacy state files
 // keyed by the old profile name remain readable.
-func (pm *ProfileManager) GetProfileState(id string) (*ProfileState, error) {
+func (pm *ProfileManager) GetProfileState(id ID) (*ProfileState, error) {
 	configDir, err := getConfigDir()
 	if err != nil {
 		return nil, fmt.Errorf("get config directory: %w", err)
@@ -26,7 +26,7 @@ func (pm *ProfileManager) GetProfileState(id string) (*ProfileState, error) {
 		return nil, fmt.Errorf("invalid profile ID: %q", id)
 	}
 
-	stateFile := filepath.Join(configDir, id+".state.json")
+	stateFile := filepath.Join(configDir, id.String()+".state.json")
 	stateFileExists, err := fileExists(stateFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check if profile state file exists: %w", err)
@@ -63,7 +63,7 @@ func (pm *ProfileManager) SetActiveProfileState(state *ProfileState) error {
 		return fmt.Errorf("invalid active profile ID: %q", id)
 	}
 
-	stateFile := filepath.Join(configDir, id+".state.json")
+	stateFile := filepath.Join(configDir, id.String()+".state.json")
 	err = util.WriteJsonWithRestrictedPermission(context.Background(), stateFile, state)
 	if err != nil {
 		return fmt.Errorf("write profile state: %w", err)

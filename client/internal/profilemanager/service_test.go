@@ -35,7 +35,7 @@ func TestServiceProfile_ExactID(t *testing.T) {
 		created, err := sm.AddProfile("work", username)
 		require.NoError(t, err)
 
-		got, err := sm.ResolveProfile(created.ID, username)
+		got, err := sm.ResolveProfile(created.ID.String(), username)
 		require.NoError(t, err)
 		assert.Equal(t, created.ID, got.ID)
 		assert.Equal(t, "work", got.Name)
@@ -48,7 +48,7 @@ func TestServiceProfile_IDPrefix(t *testing.T) {
 		require.NoError(t, err)
 
 		prefix := created.ID[:4]
-		got, err := sm.ResolveProfile(prefix, username)
+		got, err := sm.ResolveProfile(prefix.String(), username)
 		require.NoError(t, err)
 		assert.Equal(t, created.ID, got.ID)
 	})
@@ -208,7 +208,7 @@ func TestIsValidProfileFilenameStem(t *testing.T) {
 		{strings.Repeat("a", maxProfileIDLen+1), false},
 	}
 	for _, tc := range cases {
-		got := IsValidProfileFilenameStem(tc.in)
+		got := IsValidProfileFilenameStem(ID(tc.in))
 		assert.Equal(t, tc.want, got, "case %q", tc.in)
 	}
 }
@@ -220,7 +220,7 @@ func TestRemoveProfile_DeletesStateFile(t *testing.T) {
 
 		configDir, err := sm.getConfigDir(username)
 		require.NoError(t, err)
-		statePath := filepath.Join(configDir, created.ID+".state.json")
+		statePath := filepath.Join(configDir, created.ID.String()+".state.json")
 		require.NoError(t, os.WriteFile(statePath, []byte(`{"email":"a@b"}`), 0600))
 
 		require.NoError(t, sm.RemoveProfile(created.ID, username))

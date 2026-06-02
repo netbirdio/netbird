@@ -31,18 +31,21 @@ const (
 	maxProfileIDLen = 64
 )
 
+type ID string
+
 // generateProfileID returns a new random hex ID for a profile file.
-func generateProfileID() (string, error) {
+func generateProfileID() (ID, error) {
 	buf := make([]byte, profileIDByteLen)
 	if _, err := rand.Read(buf); err != nil {
 		return "", fmt.Errorf("read random bytes: %w", err)
 	}
-	return hex.EncodeToString(buf), nil
+	return ID(hex.EncodeToString(buf)), nil
 }
 
-// IsValidProfileFilenameStem reports whether s is safe to use as the stem
+// IsValidProfileFilenameStem reports whether id is safe to use as the stem
 // of a profile JSON filename.
-func IsValidProfileFilenameStem(s string) bool {
+func IsValidProfileFilenameStem(id ID) bool {
+	s := id.String()
 	if s == "" || len(s) > maxProfileIDLen {
 		return false
 	}
@@ -99,12 +102,16 @@ func StripCtrlChars(name string) string {
 }
 
 // ShortID truncates an ID for display.
-func ShortID(id string) string {
+func (id ID) ShortID() string {
 	if id == DefaultProfileName {
-		return id
+		return DefaultProfileName
 	}
 	if len(id) <= shortIDLen {
-		return id
+		return id.String()
 	}
-	return id[:shortIDLen]
+	return id.String()[:shortIDLen]
+}
+
+func (id ID) String() string {
+	return string(id)
 }

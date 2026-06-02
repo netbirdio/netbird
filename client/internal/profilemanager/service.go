@@ -91,7 +91,7 @@ type ActiveProfileState struct {
 	// before the ID-based config files. Legacy values were profile names, which
 	// were also the legacy filename stems, so they still resolve to the correct
 	// file on disk.
-	ID       string `json:"name"`
+	ID       ID     `json:"name"`
 	Username string `json:"username"`
 }
 
@@ -113,7 +113,7 @@ func (a *ActiveProfileState) FilePath() (string, error) {
 		return "", fmt.Errorf("failed to get config directory for user %s: %w", a.Username, err)
 	}
 
-	return filepath.Join(configDir, a.ID+".json"), nil
+	return filepath.Join(configDir, a.ID.String()+".json"), nil
 }
 
 type ServiceManager struct {
@@ -315,7 +315,7 @@ func (s *ServiceManager) AddProfile(displayName, username string) (*Profile, err
 		return nil, fmt.Errorf("generate profile id: %w", err)
 	}
 
-	profPath := filepath.Join(configDir, id+".json")
+	profPath := filepath.Join(configDir, id.String()+".json")
 	cfg, err := createNewConfig(ConfigInput{ConfigPath: profPath})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new config: %w", err)
@@ -336,7 +336,7 @@ func (s *ServiceManager) AddProfile(displayName, username string) (*Profile, err
 // RemoveProfile deletes the profile identified by id. Callers must have
 // already resolved any user-supplied handle to a concrete ID via
 // ResolveProfile.
-func (s *ServiceManager) RemoveProfile(id, username string) error {
+func (s *ServiceManager) RemoveProfile(id ID, username string) error {
 	if id == defaultProfileName {
 		return fmt.Errorf("cannot remove profile with reserved name: %s", defaultProfileName)
 	}
@@ -372,7 +372,7 @@ func (s *ServiceManager) RemoveProfile(id, username string) error {
 		return fmt.Errorf("failed to remove profile config: %w", err)
 	}
 
-	stateFile := filepath.Join(filepath.Dir(target.Path), id+".state.json")
+	stateFile := filepath.Join(filepath.Dir(target.Path), id.String()+".state.json")
 	if err := os.Remove(stateFile); err != nil && !os.IsNotExist(err) {
 		log.Warnf("failed to remove profile state file %s: %v", stateFile, err)
 	}
@@ -416,7 +416,7 @@ func (s *ServiceManager) GetStatePath() string {
 		return defaultStatePath
 	}
 
-	return filepath.Join(configDir, activeProf.ID+".state.json")
+	return filepath.Join(configDir, activeProf.ID.String()+".state.json")
 }
 
 // getConfigDir returns the profiles directory, using profilesDir if set, otherwise getConfigDirForUser
@@ -470,24 +470,24 @@ func (s *ServiceManager) loadAllProfiles(username string) ([]Profile, error) {
 		if strings.HasSuffix(base, ".state.json") {
 			continue
 		}
-		stem := strings.TrimSuffix(base, ".json")
+		stem := ID(strings.TrimSuffix(base, ".json"))
 		if stem == defaultProfileName {
 			// default lives at the top-level config dir, not under /<user>
 			continue
 		}
-		if !IsValidProfileFilenameStem(stem) {
+		if !IsValidProfileFilenameStem(ID(stem)) {
 			continue
 		}
 		path := filepath.Join(configDir, base)
 		name := readProfileName(path)
 		if name == "" {
-			name = stem
+			name = stem.String()
 		}
 		fileProfiles = append(fileProfiles, Profile{
 			ID:       stem,
 			Name:     name,
 			Path:     path,
-			IsActive: stem == activeID,
+			IsActive: stem == ID(activeID),
 		})
 	}
 
@@ -517,7 +517,7 @@ func readProfileName(path string) string {
 
 // activeProfileID returns the currently-active profile's ID. The second
 // return value is true when the active profile is the default one.
-func (s *ServiceManager) activeProfileID() (string, bool) {
+func (s *ServiceManager) activeProfileID() (ID, bool) {
 	state, err := s.GetActiveProfileState()
 	if err != nil || state == nil {
 		return defaultProfileName, true
@@ -543,7 +543,7 @@ func (s *ServiceManager) ResolveProfile(handle, username string) (*Profile, erro
 	}
 
 	for i := range profiles {
-		if profiles[i].ID == handle {
+		if profiles[i].ID == ID(handle) {
 			return &profiles[i], nil
 		}
 	}
@@ -555,7 +555,7 @@ func (s *ServiceManager) ResolveProfile(handle, username string) (*Profile, erro
 		if profiles[i].ID == defaultProfileName {
 			continue
 		}
-		if strings.HasPrefix(profiles[i].ID, handle) {
+		if strings.HasPrefix(profiles[i].ID.String(), handle) {
 			prefixMatches = append(prefixMatches, profiles[i])
 		}
 	}

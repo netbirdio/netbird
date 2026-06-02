@@ -23,7 +23,7 @@ type Profile struct {
 	// it is a 32-char hex string; legacy profiles created before the
 	// ID-keyed layout keep their original name as their ID. The reserved
 	// value "default" identifies the special default profile.
-	ID string
+	ID ID
 	// Name is the human-readable display name. Falls back to ID when the
 	// underlying JSON has no "name" field set.
 	Name string
@@ -40,7 +40,7 @@ func (p *Profile) FilePath() (string, error) {
 
 	id := p.ID
 	if id == "" {
-		id = p.Name
+		id = ID(p.Name)
 	}
 	if id == "" {
 		return "", fmt.Errorf("profile ID is empty")
@@ -64,7 +64,7 @@ func (p *Profile) FilePath() (string, error) {
 		return "", fmt.Errorf("failed to get config directory for user %s: %w", username.Username, err)
 	}
 
-	return filepath.Join(configDir, id+".json"), nil
+	return filepath.Join(configDir, id.String()+".json"), nil
 }
 
 func (p *Profile) IsDefault() bool {
@@ -94,7 +94,7 @@ func (pm *ProfileManager) GetActiveProfile() (*Profile, error) {
 
 // SwitchProfile records the given profile ID as active in the local user
 // state file.
-func (pm *ProfileManager) SwitchProfile(id string) error {
+func (pm *ProfileManager) SwitchProfile(id ID) error {
 	if id != defaultProfileName && !IsValidProfileFilenameStem(id) {
 		return fmt.Errorf("invalid profile ID: %q", id)
 	}
@@ -116,7 +116,7 @@ func sanitizeProfileName(name string) string {
 	}, name)
 }
 
-func (pm *ProfileManager) getActiveProfileState() string {
+func (pm *ProfileManager) getActiveProfileState() ID {
 
 	configDir, err := getConfigDir()
 	if err != nil {
@@ -144,10 +144,10 @@ func (pm *ProfileManager) getActiveProfileState() string {
 		return defaultProfileName
 	}
 
-	return profileName
+	return ID(profileName)
 }
 
-func (pm *ProfileManager) setActiveProfileState(profileName string) error {
+func (pm *ProfileManager) setActiveProfileState(id ID) error {
 
 	configDir, err := getConfigDir()
 	if err != nil {
@@ -156,7 +156,7 @@ func (pm *ProfileManager) setActiveProfileState(profileName string) error {
 
 	statePath := filepath.Join(configDir, activeProfileStateFilename)
 
-	err = os.WriteFile(statePath, []byte(profileName), 0600)
+	err = os.WriteFile(statePath, []byte(id), 0600)
 	if err != nil {
 		return fmt.Errorf("failed to write active profile state: %w", err)
 	}

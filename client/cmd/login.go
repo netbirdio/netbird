@@ -96,13 +96,15 @@ func doDaemonLogin(ctx context.Context, cmd *cobra.Command, providedSetupKey str
 		dnsLabelsReq = dnsLabelsValidated.ToSafeStringList()
 	}
 
+	handle := activeProf.ID.String()
+
 	loginRequest := proto.LoginRequest{
 		SetupKey:            providedSetupKey,
 		ManagementUrl:       managementURL,
 		IsUnixDesktopClient: isUnixRunningDesktop(),
 		Hostname:            hostName,
 		DnsLabels:           dnsLabelsReq,
-		ProfileName:         &activeProf.ID,
+		ProfileName:         &handle,
 		Username:            &username,
 	}
 
@@ -208,7 +210,7 @@ func switchProfileOnDaemon(ctx context.Context, pm *profilemanager.ProfileManage
 // handle (a name, ID, or unique ID prefix). Returns the resolved profile
 // ID so the caller can update the local active-profile state without
 // re-resolving the handle.
-func switchProfile(ctx context.Context, handle string, username string) (string, error) {
+func switchProfile(ctx context.Context, handle string, username string) (profilemanager.ID, error) {
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
 		//nolint
@@ -228,7 +230,7 @@ func switchProfile(ctx context.Context, handle string, username string) (string,
 		return "", fmt.Errorf("switch profile failed: %v", err)
 	}
 
-	return resp.Id, nil
+	return profilemanager.ID(resp.Id), nil
 }
 
 func doForegroundLogin(ctx context.Context, cmd *cobra.Command, setupKey string, activeProf *profilemanager.Profile) error {
@@ -280,7 +282,7 @@ func handleSSOLogin(ctx context.Context, cmd *cobra.Command, loginResp *proto.Lo
 	return nil
 }
 
-func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *profilemanager.Config, setupKey, profileName string) error {
+func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *profilemanager.Config, setupKey string, profileID profilemanager.ID) error {
 	authClient, err := auth.NewAuth(ctx, config.PrivateKey, config.ManagementURL, config)
 	if err != nil {
 		return fmt.Errorf("failed to create auth client: %v", err)
@@ -294,7 +296,7 @@ func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *profileman
 
 	jwtToken := ""
 	if setupKey == "" && needsLogin {
-		tokenInfo, err := foregroundGetTokenInfo(ctx, cmd, config, profileName)
+		tokenInfo, err := foregroundGetTokenInfo(ctx, cmd, config, profileID)
 		if err != nil {
 			return fmt.Errorf("interactive sso login failed: %v", err)
 		}
@@ -309,10 +311,10 @@ func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *profileman
 	return nil
 }
 
-func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *profilemanager.Config, profileName string) (*auth.TokenInfo, error) {
+func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *profilemanager.Config, profileID profilemanager.ID) (*auth.TokenInfo, error) {
 	hint := ""
 	pm := profilemanager.NewProfileManager()
-	profileState, err := pm.GetProfileState(profileName)
+	profileState, err := pm.GetProfileState(profileID)
 	if err != nil {
 		log.Debugf("failed to get profile state for login hint: %v", err)
 	} else if profileState.Email != "" {

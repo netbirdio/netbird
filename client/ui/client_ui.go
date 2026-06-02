@@ -622,7 +622,7 @@ func (s *serviceClient) buildSetConfigRequest(iMngURL string, port, mtu int64) (
 	}
 
 	req := &proto.SetConfigRequest{
-		ProfileName: activeProf.ID,
+		ProfileName: activeProf.ID.String(),
 		Username:    currUser.Username,
 	}
 
@@ -787,9 +787,11 @@ func (s *serviceClient) login(ctx context.Context, openURL bool) (*proto.LoginRe
 		return nil, fmt.Errorf("get current user: %w", err)
 	}
 
+	handle := activeProf.ID.String()
+
 	loginReq := &proto.LoginRequest{
 		IsUnixDesktopClient: runtime.GOOS == "linux" || runtime.GOOS == "freebsd",
-		ProfileName:         &activeProf.ID,
+		ProfileName:         &handle,
 		Username:            &currUser.Username,
 	}
 
@@ -1309,7 +1311,7 @@ func (s *serviceClient) getSrvConfig() {
 	}
 
 	srvCfg, err := conn.GetConfig(s.ctx, &proto.GetConfigRequest{
-		ProfileName: activeProf.ID,
+		ProfileName: activeProf.ID.String(),
 		Username:    currUser.Username,
 	})
 	if err != nil {
@@ -1533,7 +1535,7 @@ func (s *serviceClient) loadSettings() {
 	}
 
 	cfg, err := conn.GetConfig(s.ctx, &proto.GetConfigRequest{
-		ProfileName: activeProf.ID,
+		ProfileName: activeProf.ID.String(),
 		Username:    currUser.Username,
 	})
 	if err != nil {
@@ -1610,7 +1612,7 @@ func (s *serviceClient) updateConfig() error {
 	}
 
 	req := proto.SetConfigRequest{
-		ProfileName:           activeProf.ID,
+		ProfileName:           activeProf.ID.String(),
 		Username:              currUser.Username,
 		DisableAutoConnect:    &disableAutoStart,
 		ServerSSHAllowed:      &sshAllowed,

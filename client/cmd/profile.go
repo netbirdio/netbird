@@ -115,8 +115,9 @@ func listProfilesFunc(cmd *cobra.Command, _ []string) error {
 			marker = "✓"
 		}
 		name := profilemanager.StripCtrlChars(profile.Name)
+		id := profilemanager.ID(profile.Id)
 		if profileListShowID {
-			fmt.Fprintf(tw, "%s\t%s\t%s\n", profilemanager.ShortID(profile.Id), name, marker)
+			fmt.Fprintf(tw, "%s\t%s\t%s\n", id.ShortID(), name, marker)
 		} else {
 			fmt.Fprintf(tw, "%s\t%s\n", name, marker)
 		}
@@ -147,8 +148,9 @@ func addProfileFunc(cmd *cobra.Command, args []string) error {
 		ProfileName: profileName,
 		Username:    currUser.Username,
 	})
+	id := profilemanager.ID(resp.Id)
 	if err == nil {
-		cmd.Printf("Profile added: %s  %s\n", profilemanager.ShortID(resp.Id), profilemanager.StripCtrlChars(profileName))
+		cmd.Printf("Profile added: %s  %s\n", id.ShortID(), profilemanager.StripCtrlChars(profileName))
 		return nil
 	}
 
@@ -165,7 +167,8 @@ func addProfileFunc(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		cmd.Printf("Profile added: %s  %s\n", profilemanager.ShortID(resp.Id), profilemanager.StripCtrlChars(profileName))
+		id = profilemanager.ID(resp.Id)
+		cmd.Printf("Profile added: %s  %s\n", id.ShortID(), profilemanager.StripCtrlChars(profileName))
 		return nil
 	}
 
@@ -248,7 +251,7 @@ func selectProfileFunc(cmd *cobra.Command, args []string) error {
 		return wrapAmbiguityError(err, handle)
 	}
 
-	if err := profileManager.SwitchProfile(switchResp.Id); err != nil {
+	if err := profileManager.SwitchProfile(profilemanager.ID(switchResp.Id)); err != nil {
 		return err
 	}
 
@@ -263,7 +266,8 @@ func selectProfileFunc(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	cmd.Printf("Profile switched to: %s\n", profilemanager.ShortID(switchResp.Id))
+	id := profilemanager.ID(switchResp.Id)
+	cmd.Printf("Profile switched to: %s\n", id.ShortID())
 	return nil
 }
 

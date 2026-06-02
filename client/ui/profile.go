@@ -269,7 +269,7 @@ func (s *serviceClient) switchProfile(handle string) error {
 		return fmt.Errorf("switch profile failed: %w", err)
 	}
 
-	if err := s.profileManager.SwitchProfile(resp.Id); err != nil {
+	if err := s.profileManager.SwitchProfile(profilemanager.ID(resp.Id)); err != nil {
 		return fmt.Errorf("switch profile: %w", err)
 	}
 
@@ -506,7 +506,7 @@ func (p *profileMenu) refresh() {
 	}
 
 	if activeProf.ProfileName == "default" || activeProf.Username == currUser.Username {
-		activeProfState, err := p.profileManager.GetProfileState(activeProf.Id)
+		activeProfState, err := p.profileManager.GetProfileState(profilemanager.ID(activeProf.Id))
 		if err != nil {
 			log.Warnf("failed to get active profile state: %v", err)
 			p.emailMenuItem.Hide()
@@ -557,7 +557,7 @@ func (p *profileMenu) refresh() {
 						return
 					}
 
-					err = p.profileManager.SwitchProfile(switchResp.Id)
+					err = p.profileManager.SwitchProfile(profilemanager.ID(switchResp.Id))
 					if err != nil {
 						log.Errorf("failed to switch profile '%s': %v", profile.Name, err)
 						return

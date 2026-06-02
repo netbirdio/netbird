@@ -158,7 +158,7 @@ func TestServer_Up(t *testing.T) {
 
 	pm := profilemanager.ServiceManager{}
 	err = pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
-		ID:       profName,
+		ID:       profilemanager.ID(profName),
 		Username: currUser.Username,
 	})
 	if err != nil {

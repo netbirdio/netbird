@@ -832,7 +832,7 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 
 	s.config = config
 
-	return &proto.SwitchProfileResponse{Id: activeProf.ID}, nil
+	return &proto.SwitchProfileResponse{Id: activeProf.ID.String()}, nil
 }
 
 // Down engine work in the daemon.
@@ -998,7 +998,7 @@ func (s *Server) getConfig(activeProf *profilemanager.ActiveProfileState) (*prof
 	return config, configExisted, nil
 }
 
-func (s *Server) canRemoveProfile(id string) error {
+func (s *Server) canRemoveProfile(id profilemanager.ID) error {
 	if id == profilemanager.DefaultProfileName {
 		return fmt.Errorf("remove profile with reserved name: %s", profilemanager.DefaultProfileName)
 	}
@@ -1011,7 +1011,7 @@ func (s *Server) canRemoveProfile(id string) error {
 	return nil
 }
 
-func (s *Server) validateProfileOperation(id string, allowActiveProfile bool) error {
+func (s *Server) validateProfileOperation(id profilemanager.ID, allowActiveProfile bool) error {
 	if s.checkProfilesDisabled() {
 		return gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
 	}
@@ -1571,7 +1571,7 @@ func (s *Server) AddProfile(ctx context.Context, msg *proto.AddProfileRequest) (
 		return nil, fmt.Errorf("failed to create profile: %w", err)
 	}
 
-	return &proto.AddProfileResponse{Id: created.ID}, nil
+	return &proto.AddProfileResponse{Id: created.ID.String()}, nil
 }
 
 // RemoveProfile removes a profile from the daemon.
@@ -1601,7 +1601,7 @@ func (s *Server) RemoveProfile(ctx context.Context, msg *proto.RemoveProfileRequ
 		return nil, fmt.Errorf("failed to remove profile: %w", err)
 	}
 
-	return &proto.RemoveProfileResponse{Id: resolved.ID}, nil
+	return &proto.RemoveProfileResponse{Id: resolved.ID.String()}, nil
 }
 
 // ListProfiles lists all profiles in the daemon.
@@ -1624,7 +1624,7 @@ func (s *Server) ListProfiles(ctx context.Context, msg *proto.ListProfilesReques
 	}
 	for i, profile := range profiles {
 		response.Profiles[i] = &proto.Profile{
-			Id:       profile.ID,
+			Id:       profile.ID.String(),
 			Name:     profile.Name,
 			IsActive: profile.IsActive,
 		}
@@ -1633,9 +1633,9 @@ func (s *Server) ListProfiles(ctx context.Context, msg *proto.ListProfilesReques
 	return response, nil
 }
 
-// GetActiveProfile returns the active profile in the daemon. The
-// ProfileName field carries the display name for backwards compatibility
-// with UI clients, new callers should prefer Id.
+// GetActiveProfile returns the active profile in the daemon. The ProfileName
+// field carries the display name for backwards compatibility with UI clients,
+// new callers should prefer Id.
 func (s *Server) GetActiveProfile(ctx context.Context, msg *proto.GetActiveProfileRequest) (*proto.GetActiveProfileResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
@@ -1646,7 +1646,8 @@ func (s *Server) GetActiveProfile(ctx context.Context, msg *proto.GetActiveProfi
 		return nil, fmt.Errorf("failed to get active profile state: %w", err)
 	}
 
-	displayName := activeProfile.ID
+	// Fallback to legacy name == ID
+	displayName := activeProfile.ID.String()
 	if activeProfile.ID != profilemanager.DefaultProfileName {
 		if profiles, lerr := s.profileManager.ListProfiles(activeProfile.Username); lerr == nil {
 			for _, p := range profiles {
@@ -1661,7 +1662,7 @@ func (s *Server) GetActiveProfile(ctx context.Context, msg *proto.GetActiveProfi
 	return &proto.GetActiveProfileResponse{
 		ProfileName: displayName,
 		Username:    activeProfile.Username,
-		Id:          activeProfile.ID,
+		Id:          activeProfile.ID.String(),
 	}, nil
 }
 

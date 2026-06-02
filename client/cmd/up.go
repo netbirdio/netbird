@@ -189,7 +189,7 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command, activeProf *pr
 
 	_, _ = profilemanager.UpdateOldManagementURL(ctx, config, configFilePath)
 
-	err = foregroundLogin(ctx, cmd, config, providedSetupKey, activeProf.Name)
+	err = foregroundLogin(ctx, cmd, config, providedSetupKey, activeProf.ID)
 	if err != nil {
 		return fmt.Errorf("foreground login failed: %v", err)
 	}
@@ -260,7 +260,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command, pm *profilemanager
 	}
 
 	// set the new config
-	req := setupSetConfigReq(customDNSAddressConverted, cmd, activeProf.ID, username.Username)
+	req := setupSetConfigReq(customDNSAddressConverted, cmd, activeProf.ID.String(), username.Username)
 	if _, err := client.SetConfig(ctx, req); err != nil {
 		if st, ok := gstatus.FromError(err); ok && st.Code() == codes.Unavailable {
 			log.Warnf("setConfig method is not available in the daemon: %s", st.Message())
@@ -288,7 +288,8 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 		return fmt.Errorf("setup login request: %v", err)
 	}
 
-	loginRequest.ProfileName = &activeProf.ID
+	handle := activeProf.ID.String()
+	loginRequest.ProfileName = &handle
 	loginRequest.Username = &username
 
 	profileState, err := pm.GetProfileState(activeProf.ID)
@@ -328,7 +329,7 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 	}
 
 	if _, err := client.Up(ctx, &proto.UpRequest{
-		ProfileName: &activeProf.ID,
+		ProfileName: &profileName,
 		Username:    &username,
 	}); err != nil {
 		return fmt.Errorf("call service up method: %v", err)
