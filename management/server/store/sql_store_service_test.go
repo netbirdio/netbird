@@ -13,7 +13,7 @@ import (
 )
 
 func TestSqlStore_GetAccount_PrivateServiceRoundtrip(t *testing.T) {
-	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
+	if os.Getenv("CI") == "true" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
 		t.Skip("skip CI tests on darwin and windows")
 	}
 
