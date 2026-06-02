@@ -194,7 +194,7 @@ func TestBuildJWTConfig_Audiences(t *testing.T) {
 				CLIAuthAudience: tc.cliAuthAudience,
 			}
 
-			result := buildJWTConfig(config, nil, nil)
+			result := buildJWTConfig(config, nil, &types.Settings{})
 
 			assert.NotNil(t, result)
 			assert.Equal(t, tc.expectedAudiences, result.Audiences, "audiences should match expected")
@@ -299,5 +299,28 @@ func TestToNetbirdConfig_RelayInvariant(t *testing.T) {
 		assert.Equal(t, relayToken.Signature, nbCfg.Relay.TokenSignature, "relay token signature should be set")
 		require.NotNil(t, nbCfg.Metrics)
 		assert.True(t, nbCfg.Metrics.Enabled, "metrics flag should carry the settings value")
+	})
+}
+
+func TestBuildJWTConfig_MaxTokenAge(t *testing.T) {
+	config := &nbconfig.HttpServerConfig{
+		AuthIssuer:   "https://issuer.example.com",
+		AuthAudience: "dashboard-aud",
+	}
+
+	t.Run("unset leaves max token age zero", func(t *testing.T) {
+		result := buildJWTConfig(config, nil, &types.Settings{})
+
+		require.NotNil(t, result)
+		assert.Equal(t, int64(0), result.MaxTokenAge)
+	})
+
+	t.Run("explicit duration is sent as seconds", func(t *testing.T) {
+		result := buildJWTConfig(config, nil, &types.Settings{
+			SSHJWTMaxTokenAge: 10 * time.Minute,
+		})
+
+		require.NotNil(t, result)
+		assert.Equal(t, int64(600), result.MaxTokenAge)
 	})
 }
