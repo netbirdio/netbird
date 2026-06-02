@@ -6,3 +6,4 @@ Type=Application
 Terminal=false
 Categories=Utility;
 Keywords=netbird;
+StartupWMClass=org.wails.netbird
