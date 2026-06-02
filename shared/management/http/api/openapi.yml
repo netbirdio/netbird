@@ -310,6 +310,7 @@ components:
         ssh_jwt_max_token_age:
           description: Maximum period of time of inactivity after which SSH JWT tokens expires (seconds). A value of 0 uses the default client enforcement window.
           type: integer
+          minimum: 0
           example: 300
         regular_users_view_blocked:
           description: Allows blocking regular users from viewing parts of the system.
