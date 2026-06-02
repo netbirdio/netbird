@@ -1173,7 +1173,7 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 		TempDir:        e.config.TempDir,
 		ClientMetrics:  e.clientMetrics,
 		RefreshStatus: func() {
-			e.RunHealthProbes(true)
+			e.RunHealthProbes(e.ctx, true)
 		},
 	}
 
@@ -2058,7 +2058,20 @@ func (e *Engine) getRosenpassAddr() string {
 
 // RunHealthProbes executes health checks for Signal, Management, Relay, and WireGuard services
 // and updates the status recorder with the latest states.
-func (e *Engine) RunHealthProbes(waitForResult bool) bool {
+//
+// ctx scopes the (potentially slow) STUN/TURN probing: a caller that gives up —
+// e.g. a Status RPC whose client disconnected — cancels its ctx and the probe
+// returns instead of running to its per-component timeout. The engine's own
+// lifetime ctx still applies independently, so an engine shutdown aborts the
+// probe even if the caller's ctx is context.Background().
+func (e *Engine) RunHealthProbes(ctx context.Context, waitForResult bool) bool {
+	// Tie the caller's ctx to the engine lifetime: either cancelling aborts
+	// the probe below.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stop := context.AfterFunc(e.ctx, cancel)
+	defer stop()
+
 	e.syncMsgMux.Lock()
 
 	signalHealthy := e.signal.IsHealthy()
@@ -2081,9 +2094,9 @@ func (e *Engine) RunHealthProbes(waitForResult bool) bool {
 	if runtime.GOOS != "js" {
 		var results []relay.ProbeResult
 		if waitForResult {
-			results = e.probeStunTurn.ProbeAllWaitResult(e.ctx, stuns, turns)
+			results = e.probeStunTurn.ProbeAllWaitResult(ctx, stuns, turns)
 		} else {
-			results = e.probeStunTurn.ProbeAll(e.ctx, stuns, turns)
+			results = e.probeStunTurn.ProbeAll(ctx, stuns, turns)
 		}
 		e.statusRecorder.UpdateRelayStates(results)
 

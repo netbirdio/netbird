@@ -52,7 +52,10 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 		if engine != nil {
 			refreshStatus = func() {
 				log.Debug("refreshing system health status for debug bundle")
-				engine.RunHealthProbes(true)
+				// Background ctx: the bundle wants a full, fresh probe regardless
+				// of the DebugBundle RPC client's lifetime. The engine's own ctx
+				// still aborts it on shutdown.
+				engine.RunHealthProbes(context.Background(), true)
 			}
 		}
 	}

@@ -87,7 +87,7 @@ type Server struct {
 	statusRecorder *peer.Status
 	sessionWatcher *internal.SessionWatcher
 
-	lastProbe           time.Time
+	probeThrottle       *probeThrottle
 	persistSyncResponse bool
 	isSessionActive     atomic.Bool
 
@@ -131,6 +131,7 @@ func New(ctx context.Context, logFile string, configFile string, profilesDisable
 		networksDisabled:       networksDisabled,
 		jwtCache:               newJWTCache(),
 		extendAuthSessionFlow:  auth.NewPendingFlow(),
+		probeThrottle:          newProbeThrottle(probeThreshold),
 	}
 	agent := &serverAgent{s}
 	s.sleepHandler = sleephandler.New(agent)
@@ -1242,13 +1243,14 @@ func (s *Server) Status(
 		}
 	}
 
-	return s.buildStatusResponse(msg)
+	return s.buildStatusResponse(ctx, msg)
 }
 
 // buildStatusResponse composes a StatusResponse from the current daemon
 // state. Shared between the unary Status RPC and the SubscribeStatus
-// stream so both paths return identical snapshots.
-func (s *Server) buildStatusResponse(msg *proto.StatusRequest) (*proto.StatusResponse, error) {
+// stream so both paths return identical snapshots. ctx scopes the health
+// probe runProbes may trigger — a caller that disconnects cancels it.
+func (s *Server) buildStatusResponse(ctx context.Context, msg *proto.StatusRequest) (*proto.StatusResponse, error) {
 	state := internal.CtxGetState(s.rootCtx)
 	status, err := state.Status()
 	if err != nil {
@@ -1277,7 +1279,7 @@ func (s *Server) buildStatusResponse(msg *proto.StatusRequest) (*proto.StatusRes
 	s.statusRecorder.UpdateRosenpass(s.config.RosenpassEnabled, s.config.RosenpassPermissive)
 
 	if msg.GetFullPeerStatus {
-		s.runProbes(msg.ShouldRunProbes)
+		s.runProbes(ctx, msg.ShouldRunProbes)
 		fullStatus := s.statusRecorder.GetFullStatus()
 		pbFullStatus := fullStatus.ToProto()
 		pbFullStatus.Events = s.statusRecorder.GetEventHistory()
@@ -1707,7 +1709,7 @@ func isUnixRunningDesktop() bool {
 	return os.Getenv("DESKTOP_SESSION") != "" || os.Getenv("XDG_CURRENT_DESKTOP") != ""
 }
 
-func (s *Server) runProbes(waitForProbeResult bool) {
+func (s *Server) runProbes(ctx context.Context, waitForProbeResult bool) {
 	if s.connectClient == nil {
 		return
 	}
@@ -1717,15 +1719,7 @@ func (s *Server) runProbes(waitForProbeResult bool) {
 		return
 	}
 
-	if time.Since(s.lastProbe) > probeThreshold {
-		if engine.RunHealthProbes(waitForProbeResult) {
-			s.lastProbe = time.Now()
-		}
-	} else {
-		if err := s.statusRecorder.RefreshWireGuardStats(); err != nil {
-			log.Debugf("failed to refresh WireGuard stats: %v", err)
-		}
-	}
+	s.probeThrottle.Run(ctx, engine, s.statusRecorder, waitForProbeResult)
 }
 
 // GetConfig of the daemon.

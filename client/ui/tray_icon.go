@@ -29,10 +29,30 @@ func (t *Tray) applyIcon() {
 		t.tray.SetTemplateIcon(icon)
 		return
 	}
+	if runtime.GOOS == "linux" {
+		// Wails' Linux SNI backend ignores SetDarkModeIcon (its
+		// setDarkModeIcon just calls setIcon, last-write-wins), so we pick
+		// the black-vs-white silhouette ourselves in iconForState based on
+		// the panel theme and push a single SetIcon. Calling
+		// SetDarkModeIcon here would only clobber that choice.
+		t.tray.SetIcon(icon)
+		return
+	}
 	t.tray.SetIcon(icon)
 	if dark != nil {
 		t.tray.SetDarkModeIcon(dark)
 	}
+}
+
+// panelIsDark reports whether the desktop panel uses a dark colour scheme, so
+// the Linux branch of iconForState can choose the white silhouette. Defaults
+// to true when no detector is wired (panelDark nil — non-Linux, or the
+// freedesktop portal was unavailable), matching the common dark Linux panel.
+func (t *Tray) panelIsDark() bool {
+	if t.panelDark == nil {
+		return true
+	}
+	return t.panelDark()
 }
 
 func (t *Tray) iconForState() (icon, dark []byte) {
@@ -71,6 +91,38 @@ func (t *Tray) iconForState() (icon, dark []byte) {
 		}
 	}
 
+	if runtime.GOOS == "linux" {
+		// Linux: monochrome silhouette chosen by panel theme. Wails' SNI
+		// backend can't switch icons per theme itself (see applyIcon), so we
+		// resolve black (light panel) vs white (dark panel) here and the
+		// caller pushes a single SetIcon. The second return is unused on
+		// Linux.
+		dark := t.panelIsDark()
+		pick := func(black, white []byte) ([]byte, []byte) {
+			if dark {
+				return white, nil
+			}
+			return black, nil
+		}
+		switch {
+		case connecting:
+			return pick(iconConnectingMono, iconConnectingMonoDark)
+		case errored:
+			return pick(iconErrorMono, iconErrorMonoDark)
+		case needsLogin:
+			return pick(iconNeedsLoginMono, iconNeedsLoginMonoDark)
+		case connected && hasUpdate:
+			return pick(iconUpdateConnectedMono, iconUpdateConnectedMonoDark)
+		case connected:
+			return pick(iconConnectedMono, iconConnectedMonoDark)
+		case hasUpdate:
+			return pick(iconUpdateDisconnectedMono, iconUpdateDisconnectedMonoDark)
+		default:
+			return pick(iconDisconnectedMono, iconDisconnectedMonoDark)
+		}
+	}
+
+	// Windows: colored PNGs.
 	switch {
 	case connecting:
 		return iconConnecting, nil

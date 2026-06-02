@@ -18,6 +18,7 @@ package main
 
 import (
 	"sync"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 	log "github.com/sirupsen/logrus"
@@ -27,6 +28,16 @@ const (
 	watcherName  = "org.kde.StatusNotifierWatcher"
 	watcherPath  = "/StatusNotifierWatcher"
 	watcherIface = "org.kde.StatusNotifierWatcher"
+
+	// watcherProbeInterval / watcherProbeTimeout bound how long we keep
+	// re-probing for an XEmbed tray before giving up. The UI is commonly
+	// autostarted *before* the panel/tray on minimal WMs, so a single probe
+	// at startup would miss a tray that comes up a second or two later and
+	// the icon would silently never appear. ~10s of polling covers a slow
+	// panel launch while staying short enough that a headless / pure-Wayland
+	// session (no XEmbed tray ever) winds down quickly.
+	watcherProbeInterval = 500 * time.Millisecond
+	watcherProbeTimeout  = 10 * time.Second
 )
 
 type statusNotifierWatcher struct {
@@ -98,9 +109,49 @@ func (w *statusNotifierWatcher) tryStartXembedHost(busName string, objPath dbus.
 }
 
 // startStatusNotifierWatcher claims org.kde.StatusNotifierWatcher on the
-// session bus if it is not already provided by another process.
-// Safe to call unconditionally — it does nothing when a real watcher is present.
+// session bus, but ONLY as a bridge to an XEmbed system tray on minimal WMs.
+//
+// The in-process watcher is a stub: its RegisterStatusNotifierItem only
+// tracks items so it can mirror them into an XEmbed tray icon — it does
+// NOT relay them to any other StatusNotifierHost. So if we claim the name
+// on a desktop that has a real watcher/host (e.g. Hyprland + Waybar), every
+// other tray app (Slack, etc.) registers into our dead-end watcher and its
+// icon never reaches the real host. We won that name purely by starting
+// first; a GetNameOwner check doesn't help against a login-order race.
+//
+// The correct discriminator is whether an XEmbed tray actually exists. If
+// one does, we are the bridge of last resort and should claim the watcher.
+// If not (pure Wayland, or any environment already running a real watcher),
+// we have nothing to bridge and must stay off the bus entirely so the real
+// watcher owns the name. Safe to call unconditionally.
+//
+// The XEmbed tray may come up *after* the UI (the panel and the autostarted
+// app race at login), so we re-probe for a short grace period instead of
+// deciding once at startup. The probing runs in a goroutine so it never
+// blocks the caller's startup path.
 func startStatusNotifierWatcher() {
+	go func() {
+		deadline := time.Now().Add(watcherProbeTimeout)
+		for {
+			if xembedTrayAvailable() {
+				claimStatusNotifierWatcher()
+				return
+			}
+			if time.Now().After(deadline) {
+				log.Debugf("StatusNotifierWatcher: no XEmbed tray appeared within %s, leaving the watcher to the desktop", watcherProbeTimeout)
+				return
+			}
+			time.Sleep(watcherProbeInterval)
+		}
+	}()
+}
+
+// claimStatusNotifierWatcher opens a private session-bus connection and takes
+// ownership of org.kde.StatusNotifierWatcher, exporting the in-process stub
+// watcher. The caller has already confirmed an XEmbed tray is present, so we
+// genuinely have an item to bridge. The GetNameOwner / DoNotQueue guards still
+// back off if a real watcher already holds the name.
+func claimStatusNotifierWatcher() {
 	conn, err := dbus.SessionBusPrivate()
 	if err != nil {
 		log.Debugf("StatusNotifierWatcher: cannot open private session bus: %v", err)

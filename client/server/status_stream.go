@@ -44,7 +44,7 @@ func (s *Server) SubscribeStatus(req *proto.StatusRequest, stream proto.DaemonSe
 }
 
 func (s *Server) sendStatusSnapshot(req *proto.StatusRequest, stream proto.DaemonService_SubscribeStatusServer) error {
-	resp, err := s.buildStatusResponse(req)
+	resp, err := s.buildStatusResponse(stream.Context(), req)
 	if err != nil {
 		log.Warnf("build status snapshot for stream: %v", err)
 		return err

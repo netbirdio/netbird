@@ -882,6 +882,13 @@ func (d *Status) CleanLocalPeerState() {
 // MarkManagementDisconnected sets ManagementState to disconnected
 func (d *Status) MarkManagementDisconnected(err error) {
 	d.mux.Lock()
+	// Health checks re-mark the same state on every probe; skip the fan-out
+	// when nothing actually changed so we don't flood SubscribeStatus
+	// consumers with identical snapshots.
+	if !d.managementState && errors.Is(d.managementError, err) {
+		d.mux.Unlock()
+		return
+	}
 	d.managementState = false
 	d.managementError = err
 	mgm := d.managementState
@@ -895,6 +902,10 @@ func (d *Status) MarkManagementDisconnected(err error) {
 // MarkManagementConnected sets ManagementState to connected
 func (d *Status) MarkManagementConnected() {
 	d.mux.Lock()
+	if d.managementState && d.managementError == nil {
+		d.mux.Unlock()
+		return
+	}
 	d.managementState = true
 	d.managementError = nil
 	mgm := d.managementState
@@ -936,6 +947,10 @@ func (d *Status) UpdateLazyConnection(enabled bool) {
 // MarkSignalDisconnected sets SignalState to disconnected
 func (d *Status) MarkSignalDisconnected(err error) {
 	d.mux.Lock()
+	if !d.signalState && errors.Is(d.signalError, err) {
+		d.mux.Unlock()
+		return
+	}
 	d.signalState = false
 	d.signalError = err
 	mgm := d.managementState
@@ -949,6 +964,10 @@ func (d *Status) MarkSignalDisconnected(err error) {
 // MarkSignalConnected sets SignalState to connected
 func (d *Status) MarkSignalConnected() {
 	d.mux.Lock()
+	if d.signalState && d.signalError == nil {
+		d.mux.Unlock()
+		return
+	}
 	d.signalState = true
 	d.signalError = nil
 	mgm := d.managementState

@@ -8,18 +8,19 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
-// Version is the Wails-bound facade exposing the GUI version baked in at
-// build time via -ldflags. The tray reads version.NetbirdVersion() directly;
-// this service exists so the React layer can show the same string instead
-// of the static placeholder in frontend/package.json.
+// Version is the Wails-bound facade exposing build/version metadata to the
+// frontend. Today it only reports the GUI's own version (the daemon version is
+// surfaced separately through the status feed's DaemonVersion field).
 type Version struct{}
 
+// NewVersion constructs the Version service.
 func NewVersion() *Version {
 	return &Version{}
 }
 
-// GUI returns the GUI version string (e.g. "0.65.0" in release builds,
-// "development" in dev builds).
-func (s *Version) GUI(_ context.Context) (string, error) {
-	return version.NetbirdVersion(), nil
+// GUI returns the version of the running UI binary, baked in at build time via
+// the version package's ldflags. Falls back to "development" for un-stamped
+// builds (see version.NetbirdVersion).
+func (v *Version) GUI(_ context.Context) string {
+	return version.NetbirdVersion()
 }
