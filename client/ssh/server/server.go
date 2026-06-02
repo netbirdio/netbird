@@ -473,9 +473,12 @@ func (s *Server) UpdateSSHAuth(config *sshauth.Config) {
 
 // JWTConfig returns the JWT authentication this server was built with, or nil
 // when JWT authentication is disabled.
-func (s *Server) JWTConfig() *JWTConfig {
+func (s *Server) JWTConfig(config *JWTConfig) *JWTConfig {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	s.jwtConfig = config
+	s.jwtValidator = nil
+	s.jwtExtractor = nil
 	return s.jwtConfig
 }
 
