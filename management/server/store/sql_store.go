@@ -1605,7 +1605,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 			settings_jwt_groups_enabled, settings_jwt_groups_claim_name, settings_jwt_allow_groups,
 			settings_routing_peer_dns_resolution_enabled, settings_dns_domain, settings_network_range,
 			settings_network_range_v6, settings_ipv6_enabled_groups, settings_lazy_connection_enabled,
-			settings_local_mfa_enabled, settings_metrics_push_enabled, settings_agent_network_only,
+			settings_local_mfa_enabled, settings_metrics_push_enabled, settings_ssh_jwt_max_token_age, settings_agent_network_only,
 			settings_dashboard_features, settings_auto_update_version, settings_auto_update_always,
 			settings_peer_expose_enabled, settings_peer_expose_groups,
 			-- Embedded ExtraSettings
@@ -1631,6 +1631,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		sLazyConnectionEnabled           sql.NullBool
 		sLocalMFAEnabled                 sql.NullBool
 		sMetricsPushEnabled              sql.NullBool
+		sSSHJWTMaxTokenAge               sql.NullInt64
 		sAgentNetworkOnly                sql.NullBool
 		sDashboardFeatures               sql.NullString
 		autoUpdateVersion                sql.NullString
@@ -1659,7 +1660,7 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		&sJWTGroupsEnabled, &sJWTGroupsClaimName, &sJWTAllowGroups,
 		&sRoutingPeerDNSResolutionEnabled, &sDNSDomain, &sNetworkRange,
 		&sNetworkRangeV6, &sIPv6EnabledGroups, &sLazyConnectionEnabled,
-		&sLocalMFAEnabled, &sMetricsPushEnabled, &sAgentNetworkOnly,
+		&sLocalMFAEnabled, &sMetricsPushEnabled, &sSSHJWTMaxTokenAge, &sAgentNetworkOnly,
 		&sDashboardFeatures, &autoUpdateVersion, &autoUpdateAlways,
 		&peerExposeEnabled, &peerExposeGroups,
 		&sExtraPeerApprovalEnabled, &sExtraUserApprovalRequired,
@@ -1737,6 +1738,9 @@ func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Acc
 		if err := json.Unmarshal([]byte(sDashboardFeatures.String), &account.Settings.DashboardFeatures); err != nil {
 			log.WithContext(ctx).Warnf("failed to unmarshal dashboard features for account %s: %v", accountID, err)
 		}
+	}
+	if sSSHJWTMaxTokenAge.Valid {
+		account.Settings.SSHJWTMaxTokenAge = time.Duration(sSSHJWTMaxTokenAge.Int64)
 	}
 	if sJWTAllowGroups.Valid {
 		_ = json.Unmarshal([]byte(sJWTAllowGroups.String), &account.Settings.JWTAllowGroups)
