@@ -10,6 +10,7 @@ import (
 // init runs before Wails' own init(), so the env vars are set in time.
 func init() {
 	disableDMABUFRenderer()
+	disableCompositingMode()
 	disableWebKitSandboxIfNeeded()
 }
 
@@ -24,6 +25,23 @@ func disableDMABUFRenderer() {
 	// broader. Always disable it — software rendering works fine for a
 	// small UI like this.
 	_ = os.Setenv("WEBKIT_DISABLE_DMABUF_RENDERER", "1")
+}
+
+// disableCompositingMode turns off WebKitGTK's accelerated (GL) compositing
+// path. Disabling the DMA-BUF renderer alone is not enough on some Intel
+// setups: WebKitGTK 2.52 still drives the GPU through the GL compositor, and
+// Mesa's anv/i965 hits unimplemented DRM-format-modifier code paths
+// ("FINISHME: support YUV colorspace with DRM format modifiers" /
+// "...multi-planar formats...") that crash with a SIGSEGV inside
+// g_application_run before the first frame paints. Forcing compositing off
+// makes WebKit render on the CPU, which is fine for a small UI like this and
+// sidesteps the broken modifier path. The user can re-enable it by setting
+// WEBKIT_DISABLE_COMPOSITING_MODE themselves (e.g. to "0").
+func disableCompositingMode() {
+	if os.Getenv("WEBKIT_DISABLE_COMPOSITING_MODE") != "" {
+		return
+	}
+	_ = os.Setenv("WEBKIT_DISABLE_COMPOSITING_MODE", "1")
 }
 
 // disableWebKitSandboxIfNeeded works around WebKitGTK crashing at startup when
