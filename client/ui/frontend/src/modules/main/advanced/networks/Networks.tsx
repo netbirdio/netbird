@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { useTranslation } from "react-i18next";
-import * as Popover from "@radix-ui/react-popover";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { GlobeIcon, type LucideProps, NetworkIcon, WorkflowIcon } from "lucide-react";
 import type { Network } from "@bindings/services/models.js";
 import { cn } from "@/lib/cn";
 import { CopyToClipboard } from "@/components/CopyToClipboard";
+import { Tooltip } from "@/components/Tooltip";
+import { TruncatedText } from "@/components/TruncatedText";
 import { SearchInput } from "@/components/inputs/SearchInput";
 import { EmptyState } from "@/components/empty-state/EmptyState";
 import { NoResults } from "@/components/empty-state/NoResults";
@@ -76,11 +77,7 @@ export const Networks = () => {
     const { t } = useTranslation();
     const { status } = useStatus();
     const isConnected = status?.status === "Connected";
-    const {
-        networkRoutes: realNetworkRoutes,
-        toggleNetwork,
-        setNetworksSelected,
-    } = useNetworks();
+    const { networkRoutes: realNetworkRoutes, toggleNetwork, setNetworksSelected } = useNetworks();
     const networkRoutes = mockOr(realNetworkRoutes, mockNetworkRoutes);
     const [search, setSearch] = useState("");
     const [filter, setFilter] = useState<NetworkFilter>("all");
@@ -164,9 +161,7 @@ export const Networks = () => {
 
     const selectedInView = filtered.filter((r) => r.selected).length;
     const allSelected = filtered.length > 0 && selectedInView === filtered.length;
-    const bulkLabel = allSelected
-        ? t("networks.bulk.disableAll")
-        : t("networks.bulk.enableAll");
+    const bulkLabel = allSelected ? t("networks.bulk.disableAll") : t("networks.bulk.enableAll");
 
     const onBulkClick = () => {
         if (filtered.length === 0) return;
@@ -262,7 +257,7 @@ const NetworksList = ({ data, onToggle }: NetworksListProps) => {
                     key={n.id}
                     onClick={() => onToggle(n.id, n.selected)}
                     className={cn(
-                        "group flex items-start gap-2.5 pl-6 pr-8 py-3 min-w-0 first:mt-2",
+                        "group flex items-start gap-2.5 pl-6 pr-9 py-3 min-w-0 first:mt-2",
                         "hover:bg-nb-gray-900/40 transition-colors",
                         "wails-no-draggable cursor-pointer",
                     )}
@@ -271,29 +266,21 @@ const NetworksList = ({ data, onToggle }: NetworksListProps) => {
                     <div className={"min-w-0 flex-1 flex flex-col leading-tight"}>
                         <div>
                             <CopyToClipboard message={n.id}>
-                                <span
+                                <TruncatedText
+                                    text={n.id}
                                     className={
-                                        "text-[0.81rem] font-medium text-nb-gray-100 truncate"
+                                        "block text-[0.81rem] font-medium text-nb-gray-100 truncate max-w-[300px]"
                                     }
-                                >
-                                    {n.id}
-                                </span>
+                                />
                             </CopyToClipboard>
                         </div>
                         <Subtitle network={n} />
                     </div>
-                    <div
-                        className={"shrink-0 self-center"}
-                        onClick={(e) => e.stopPropagation()}
-                    >
+                    <div className={"shrink-0 self-center"} onClick={(e) => e.stopPropagation()}>
                         <NetworkToggle
                             checked={n.selected}
                             onChange={() => onToggle(n.id, n.selected)}
-                            label={
-                                n.selected
-                                    ? t("networks.selected")
-                                    : t("networks.unselected")
-                            }
+                            label={n.selected ? t("networks.selected") : t("networks.unselected")}
                         />
                     </div>
                 </li>
@@ -307,7 +294,7 @@ const ResourceIconBadge = ({ type }: { type: ResourceType }) => {
     return (
         <div
             className={cn(
-                "h-8 w-8 shrink-0 rounded-md flex items-center justify-center mt-[0.3125rem]",
+                "h-9 w-9 shrink-0 rounded-md flex items-center justify-center mt-[0.25rem]",
                 "bg-nb-gray-920 border border-nb-gray-900 text-nb-gray-300",
             )}
         >
@@ -327,9 +314,12 @@ const Subtitle = ({ network }: { network: Network }) => {
         return (
             <div>
                 <CopyToClipboard message={network.range}>
-                    <span className={"text-xs font-mono text-nb-gray-400 truncate"}>
-                        {network.range}
-                    </span>
+                    <TruncatedText
+                        text={network.range}
+                        className={
+                            "block text-xs font-mono text-nb-gray-400 truncate max-w-[300px]"
+                        }
+                    />
                 </CopyToClipboard>
             </div>
         );
@@ -339,90 +329,63 @@ const Subtitle = ({ network }: { network: Network }) => {
 };
 
 const DomainSubtitle = ({ domain, ips }: { domain: string; ips: string[] }) => {
-    const first = ips[0];
-    const extra = ips.length - 1;
-
+    const span = (
+        <span className={"block text-xs font-mono text-nb-gray-400 truncate max-w-[300px]"}>
+            {domain}
+        </span>
+    );
     return (
-        <>
-            <div>
-                <CopyToClipboard message={domain}>
-                    <span className={"text-xs font-mono text-nb-gray-400 truncate"}>
-                        {domain}
-                    </span>
-                </CopyToClipboard>
-            </div>
-            {first && (
-                <div className={"flex items-center gap-1.5 min-w-0"}>
-                    <CopyToClipboard message={first}>
-                        <span className={"text-xs font-mono text-nb-gray-500 truncate"}>
-                            {first}
-                        </span>
-                    </CopyToClipboard>
-                    {extra > 0 && <ResolvedIpsPopover ips={ips} />}
-                </div>
-            )}
-        </>
+        <div>
+            <CopyToClipboard message={domain}>
+                {ips.length > 0 ? (
+                    <Tooltip
+                        content={<ResolvedIpsTooltip ips={ips} />}
+                        delayDuration={300}
+                        closeDelay={300}
+                        side={"right"}
+                        align={"start"}
+                        alignOffset={-8}
+                        interactive
+                        keepOpenOnClick
+                        contentClassName={cn(
+                            "max-w-[18rem] max-h-72 overflow-auto",
+                            "rounded-lg border border-nb-gray-900 bg-nb-gray-935",
+                            "p-2 pr-4",
+                        )}
+                    >
+                        {span}
+                    </Tooltip>
+                ) : (
+                    span
+                )}
+            </CopyToClipboard>
+        </div>
     );
 };
 
-const ResolvedIpsPopover = ({ ips }: { ips: string[] }) => {
+const ResolvedIpsTooltip = ({ ips }: { ips: string[] }) => {
     const { t } = useTranslation();
-    const extra = ips.length - 1;
-
     return (
-        <Popover.Root>
-            <Popover.Trigger asChild>
-                <button
-                    type={"button"}
-                    onClick={(e) => e.stopPropagation()}
-                    className={cn(
-                        "shrink-0 rounded bg-nb-gray-900 hover:bg-nb-gray-850",
-                        "px-1.5 py-0.5 text-[10px] font-medium text-nb-gray-300",
-                        "wails-no-draggable cursor-pointer outline-none",
-                    )}
-                >
-                    {t("networks.ips.more", { count: extra })}
-                </button>
-            </Popover.Trigger>
-            <Popover.Portal>
-                <Popover.Content
-                    side={"bottom"}
-                    align={"start"}
-                    sideOffset={6}
-                    className={cn(
-                        "z-50 w-64 max-h-72 overflow-auto",
-                        "rounded-lg border border-nb-gray-900 bg-nb-gray-935",
-                        "p-2 shadow-lg outline-none",
-                    )}
-                >
-                    <div
-                        className={
-                            "px-1 pb-1 text-[10px] uppercase tracking-wide text-nb-gray-500"
-                        }
-                    >
-                        {t("networks.ips.heading")}
-                    </div>
-                    <ul className={"flex flex-col"}>
-                        {ips.map((ip) => (
-                            <li key={ip}>
-                                <CopyToClipboard
-                                    message={ip}
-                                    className={"px-1 py-0.5"}
-                                >
-                                    <span
-                                        className={
-                                            "font-mono text-[0.72rem] text-nb-gray-200 break-all"
-                                        }
-                                    >
-                                        {ip}
-                                    </span>
-                                </CopyToClipboard>
-                            </li>
-                        ))}
-                    </ul>
-                </Popover.Content>
-            </Popover.Portal>
-        </Popover.Root>
+        <>
+            <div className={"px-1 pb-1 text-[10px] uppercase tracking-wide text-nb-gray-300"}>
+                {t("networks.ips.heading")}
+            </div>
+            <ul className={"flex flex-col"}>
+                {ips.map((ip) => (
+                    <li key={ip}>
+                        <CopyToClipboard message={ip} className={"px-1 py-0.5"}>
+                            <span
+                                className={
+                                    "font-mono text-[0.72rem] text-nb-gray-100 whitespace-nowrap"
+                                }
+                            >
+                                {ip}
+                            </span>
+                        </CopyToClipboard>
+                    </li>
+                ))}
+            </ul>
+        </>
     );
 };
 
@@ -450,11 +413,7 @@ const NetworkToggle = ({ checked, onChange, label, mixed }: ToggleProps) => (
         <span
             className={cn(
                 "inline-block h-4 w-4 rounded-full bg-white transition-transform",
-                mixed
-                    ? "translate-x-2.5"
-                    : checked
-                      ? "translate-x-[1.125rem]"
-                      : "translate-x-0.5",
+                mixed ? "translate-x-2.5" : checked ? "translate-x-[1.125rem]" : "translate-x-0.5",
             )}
         />
     </button>

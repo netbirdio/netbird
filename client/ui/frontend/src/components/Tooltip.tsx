@@ -1,4 +1,4 @@
-import { ReactNode, useRef, useState } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import * as RTooltip from "@radix-ui/react-tooltip";
 import { cn } from "@/lib/cn";
 
@@ -9,8 +9,15 @@ type Props = {
     align?: RTooltip.TooltipContentProps["align"];
     delayDuration?: number;
     sideOffset?: number;
+    alignOffset?: number;
     interactive?: boolean;
     keepOpenOnClick?: boolean;
+    // Overrides the default tooltip-content chrome (background, padding,
+    // border, radius). Use when a richer body needs popover-style layout.
+    contentClassName?: string;
+    // Ms to wait after pointer-leave before closing. Lets the user cross
+    // a gap between trigger and content without the tooltip snapping shut.
+    closeDelay?: number;
 };
 
 export const Tooltip = ({
@@ -20,14 +27,35 @@ export const Tooltip = ({
     align = "center",
     delayDuration = 200,
     sideOffset = 6,
+    alignOffset = 0,
     interactive = false,
     keepOpenOnClick = true,
+    contentClassName,
+    closeDelay = 0,
 }: Props) => {
     const [open, setOpen] = useState(false);
     const hoveringRef = useRef(false);
+    const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const cancelClose = () => {
+        if (closeTimer.current) {
+            clearTimeout(closeTimer.current);
+            closeTimer.current = null;
+        }
+    };
+    const scheduleClose = () => {
+        cancelClose();
+        if (closeDelay <= 0) {
+            setOpen(false);
+            return;
+        }
+        closeTimer.current = setTimeout(() => setOpen(false), closeDelay);
+    };
+    useEffect(() => () => cancelClose(), []);
 
     const handleOpenChange = (next: boolean) => {
         if (!next && keepOpenOnClick && hoveringRef.current) return;
+        if (next) cancelClose();
         setOpen(next);
     };
 
@@ -41,10 +69,11 @@ export const Tooltip = ({
                     asChild
                     onPointerEnter={() => {
                         hoveringRef.current = true;
+                        cancelClose();
                     }}
                     onPointerLeave={() => {
                         hoveringRef.current = false;
-                        setOpen(false);
+                        scheduleClose();
                     }}
                 >
                     {children}
@@ -54,15 +83,19 @@ export const Tooltip = ({
                         side={side}
                         align={align}
                         sideOffset={sideOffset}
+                        alignOffset={alignOffset}
+                        onPointerEnter={interactive ? cancelClose : undefined}
+                        onPointerLeave={interactive ? scheduleClose : undefined}
                         onPointerDownOutside={
                             interactive ? undefined : (e) => e.preventDefault()
                         }
                         className={cn(
-                            "z-50 select-none rounded-md border border-nb-gray-850 bg-nb-gray-900 px-2 py-1",
-                            "text-xs text-nb-gray-100 shadow-lg",
+                            "z-50 select-none text-xs text-nb-gray-100 shadow-lg",
                             "data-[state=delayed-open]:animate-in data-[state=closed]:animate-out",
                             "data-[state=closed]:fade-out-0 data-[state=delayed-open]:fade-in-0",
                             !interactive && "pointer-events-none",
+                            contentClassName ??
+                                "rounded-md border border-nb-gray-850 bg-nb-gray-900 px-2 py-1",
                         )}
                     >
                         {content}
