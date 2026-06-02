@@ -105,7 +105,7 @@ func (a *ActiveProfileState) FilePath() (string, error) {
 		return DefaultConfigPath, nil
 	}
 
-	if !isValidProfileFilenameStem(a.ID) {
+	if !IsValidProfileFilenameStem(a.ID) {
 		return "", fmt.Errorf("invalid profile ID: %q", a.ID)
 	}
 
@@ -266,7 +266,7 @@ func (s *ServiceManager) SetActiveProfileState(a *ActiveProfileState) error {
 		return fmt.Errorf("username must be set for non-default profiles, got: %s", a.ID)
 	}
 
-	if a.ID != defaultProfileName && !isValidProfileFilenameStem(a.ID) {
+	if a.ID != defaultProfileName && !IsValidProfileFilenameStem(a.ID) {
 		return fmt.Errorf("invalid profile ID: %q", a.ID)
 	}
 
@@ -341,7 +341,7 @@ func (s *ServiceManager) RemoveProfile(id, username string) error {
 	if id == defaultProfileName {
 		return fmt.Errorf("cannot remove profile with reserved name: %s", defaultProfileName)
 	}
-	if !isValidProfileFilenameStem(id) {
+	if !IsValidProfileFilenameStem(id) {
 		return fmt.Errorf("invalid profile ID: %q", id)
 	}
 
@@ -408,7 +408,7 @@ func (s *ServiceManager) GetStatePath() string {
 		return defaultStatePath
 	}
 
-	if !isValidProfileFilenameStem(activeProf.ID) {
+	if !IsValidProfileFilenameStem(activeProf.ID) {
 		log.Warnf("invalid active profile ID %q, using default state path", activeProf.ID)
 		return defaultStatePath
 	}
@@ -478,7 +478,7 @@ func (s *ServiceManager) loadAllProfiles(username string) ([]Profile, error) {
 			// default lives at the top-level config dir, not under /<user>
 			continue
 		}
-		if !isValidProfileFilenameStem(stem) {
+		if !IsValidProfileFilenameStem(stem) {
 			continue
 		}
 		path := filepath.Join(configDir, base)
@@ -498,8 +498,7 @@ func (s *ServiceManager) loadAllProfiles(username string) ([]Profile, error) {
 		if fileProfiles[i].Name != fileProfiles[j].Name {
 			return fileProfiles[i].Name < fileProfiles[j].Name
 		}
-		// Stable tie-break on ID so duplicate names always render in
-		// the same order across calls.
+		// Sort tie-break on ID so duplicate names always render in the same order.
 		return fileProfiles[i].ID < fileProfiles[j].ID
 	})
 	profiles = append(profiles, fileProfiles...)

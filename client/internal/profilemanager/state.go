@@ -22,7 +22,7 @@ func (pm *ProfileManager) GetProfileState(id string) (*ProfileState, error) {
 		return nil, fmt.Errorf("get config directory: %w", err)
 	}
 
-	if id != defaultProfileName && !isValidProfileFilenameStem(id) {
+	if id != defaultProfileName && !IsValidProfileFilenameStem(id) {
 		return nil, fmt.Errorf("invalid profile ID: %q", id)
 	}
 
@@ -59,7 +59,7 @@ func (pm *ProfileManager) SetActiveProfileState(state *ProfileState) error {
 	}
 
 	id := activeProf.ID
-	if id != defaultProfileName && !isValidProfileFilenameStem(id) {
+	if id != defaultProfileName && !IsValidProfileFilenameStem(id) {
 		return fmt.Errorf("invalid active profile ID: %q", id)
 	}
 

@@ -50,7 +50,7 @@ func (p *Profile) FilePath() (string, error) {
 		return DefaultConfigPath, nil
 	}
 
-	if !isValidProfileFilenameStem(id) {
+	if !IsValidProfileFilenameStem(id) {
 		return "", fmt.Errorf("invalid profile ID: %q", id)
 	}
 
@@ -99,7 +99,7 @@ func (pm *ProfileManager) GetActiveProfile() (*Profile, error) {
 // supplied handle to a concrete ID, so the value written here is always a
 // valid profile filename stem.
 func (pm *ProfileManager) SwitchProfile(id string) error {
-	if id != defaultProfileName && !isValidProfileFilenameStem(id) {
+	if id != defaultProfileName && !IsValidProfileFilenameStem(id) {
 		return fmt.Errorf("invalid profile ID: %q", id)
 	}
 

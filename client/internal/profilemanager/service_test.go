@@ -218,7 +218,7 @@ func TestIsValidProfileFilenameStem(t *testing.T) {
 		{strings.Repeat("a", maxProfileIDLen+1), false},
 	}
 	for _, tc := range cases {
-		got := isValidProfileFilenameStem(tc.in)
+		got := IsValidProfileFilenameStem(tc.in)
 		assert.Equal(t, tc.want, got, "case %q", tc.in)
 	}
 }

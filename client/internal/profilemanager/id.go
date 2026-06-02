@@ -40,9 +40,9 @@ func generateProfileID() (string, error) {
 	return hex.EncodeToString(buf), nil
 }
 
-// isValidProfileFilenameStem reports whether s is safe to use as the stem
+// IsValidProfileFilenameStem reports whether s is safe to use as the stem
 // of a profile JSON filename.
-func isValidProfileFilenameStem(s string) bool {
+func IsValidProfileFilenameStem(s string) bool {
 	if s == "" || len(s) > maxProfileIDLen {
 		return false
 	}
