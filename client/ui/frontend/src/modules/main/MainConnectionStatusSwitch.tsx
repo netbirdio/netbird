@@ -343,7 +343,11 @@ export const MainConnectionStatusSwitch = () => {
     const ip = status?.local.ip || "";
 
     return (
-        <div className={cn("flex flex-col h-full w-full items-center justify-center gap-4 -mt-4")}>
+        <div
+            className={cn(
+                "flex flex-col h-full w-full items-center justify-center gap-4 relative -top-5",
+            )}
+        >
             <img
                 src={netbirdFullLogo}
                 alt={"NetBird"}

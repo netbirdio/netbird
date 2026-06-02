@@ -22,7 +22,7 @@ const List = forwardRef<HTMLDivElement, Tabs.TabsListProps>(
         return (
             <Tabs.List
                 ref={ref}
-                className={cn("w-full flex flex-col gap-1 p-4 pr-0", className)}
+                className={cn("w-full flex flex-col gap-1 p-5 pr-0", className)}
                 {...props}
             />
         );

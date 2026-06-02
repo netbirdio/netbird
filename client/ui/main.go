@@ -316,7 +316,7 @@ func newMainWindow(app *application.App, prefStore *preferences.Store) *applicat
 		Name:                "main",
 		Title:               "NetBird",
 		Width:               initialWidth,
-		Height:              640,
+		Height:              services.WindowHeight,
 		Hidden:              true,
 		BackgroundColour:    services.WindowBackgroundColour,
 		URL:                 "/",

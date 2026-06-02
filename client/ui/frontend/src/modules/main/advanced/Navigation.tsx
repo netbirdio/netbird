@@ -1,6 +1,6 @@
 import { ComponentType } from "react";
 import { useTranslation } from "react-i18next";
-import { Layers3Icon, LucideProps, MonitorSmartphoneIcon, SquareArrowUpRight } from "lucide-react";
+import { Layers3Icon, LucideProps, MonitorSmartphoneIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useNavSection, type NavSection } from "@/contexts/NavSectionContext";
 import { useStatus } from "@/contexts/StatusContext";
@@ -27,11 +27,6 @@ export const Navigation = () => {
             value: "networks",
             label: t("nav.resources.title"),
             icon: Layers3Icon,
-        },
-        {
-            value: "exitNode",
-            label: t("nav.exitNode.title"),
-            icon: ExitNodeIcon,
         },
     ];
 
@@ -71,13 +66,5 @@ export const Navigation = () => {
         </div>
     );
 };
-
-const ExitNodeIcon = ({ size, ...props }: LucideProps) => (
-    <SquareArrowUpRight
-        {...props}
-        size={typeof size === "number" ? size - 2 : size}
-        className={cn("rotate-45", props.className)}
-    />
-);
 
 export type { NavSection } from "@/contexts/NavSectionContext";

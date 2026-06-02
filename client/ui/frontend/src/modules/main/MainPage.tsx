@@ -1,4 +1,5 @@
 import { MainConnectionStatusSwitch } from "@/modules/main/MainConnectionStatusSwitch.tsx";
+import { MainExitNodeSwitcher } from "@/modules/main/MainExitNodeSwitcher.tsx";
 import { MainHeader } from "@/modules/main/MainHeader.tsx";
 import { AppRightPanel } from "@/layouts/AppRightPanel.tsx";
 import { Navigation } from "@/modules/main/advanced/Navigation.tsx";
@@ -9,7 +10,6 @@ import { NotConnectedState } from "@/components/empty-state/NotConnectedState";
 import { useStatus } from "@/contexts/StatusContext";
 import { Peers } from "@/modules/main/advanced/peers/Peers";
 import { Networks } from "@/modules/main/advanced/networks/Networks";
-import { ExitNodes } from "@/modules/main/advanced/exit-nodes/ExitNodes";
 import { NetworksProvider } from "@/contexts/NetworksContext";
 import { PeerDetailProvider, usePeerDetail } from "@/contexts/PeerDetailContext";
 import { PeerDetailPanel } from "@/modules/main/advanced/peers/PeerDetailPanel";
@@ -37,8 +37,11 @@ const MainBody = () => {
             {/* Windows gets a narrower width to compensate for the OS window frame/border that Wails
                 counts differently than macOS, so the visible content area lines up on both platforms.
                 See https://github.com/wailsapp/wails/issues/3260 */}
-            <div className={cn("flex flex-col items-center shrink-0 ", isWindows() ? "w-[364px]" : "w-[380px]")}>
+            <div className={cn("relative flex flex-col items-center shrink-0 ", isWindows() ? "w-[364px]" : "w-[380px]")}>
                 <MainConnectionStatusSwitch />
+                <div className={"absolute left-5 right-5 bottom-5 wails-no-draggable"}>
+                    <MainExitNodeSwitcher />
+                </div>
             </div>
             {isAdvanced && (
                 <NavSectionProvider>
@@ -56,7 +59,11 @@ const AdvancedAppRightPanel = () => {
     const isConnected = status?.status === "Connected";
 
     return (
-        <AppRightPanel overlay={<PeerDetailPanel />} overlayOpen={selected !== null}>
+        <AppRightPanel
+            overlay={<PeerDetailPanel />}
+            overlayOpen={selected !== null}
+            className={"m-5 ml-0"}
+        >
             <div
                 className={cn(
                     "flex-1 min-h-0 min-w-0 flex flex-col",
@@ -68,7 +75,6 @@ const AdvancedAppRightPanel = () => {
                 <div className={"flex-1 min-h-0 flex flex-col"}>
                     {section === "peers" && <Peers />}
                     {section === "networks" && <Networks />}
-                    {section === "exitNode" && <ExitNodes />}
                 </div>
             </div>
             {!isConnected && (

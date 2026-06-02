@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 
-export type NavSection = "peers" | "networks" | "exitNode";
+export type NavSection = "peers" | "networks";
 
 type NavSectionContextValue = {
     section: NavSection;

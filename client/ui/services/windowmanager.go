@@ -45,6 +45,10 @@ const EventSettingsOpen = "netbird:settings:open"
 // at #181A1D / nb-gray-950, used by AppLayout's <html> background).
 var WindowBackgroundColour = application.NewRGB(24, 26, 29)
 
+// WindowHeight is the shared frame height for the main window and the
+// Settings window so the right panel inside both ends up the same size.
+const WindowHeight = 660
+
 // Wails reads CustomTheme colours as 0x00BBGGRR (RGB byte order reversed).
 // Border + title bar match AppRightPanel's bg-nb-gray-940 (#1C1E21);
 // title text matches text-nb-gray-100 (#E4E7E9). u32ptr exists only
@@ -192,7 +196,7 @@ func NewWindowManager(app *application.App, mainWindow *application.WebviewWindo
 		Name:                "settings",
 		Title:               s.title("window.title.settings"),
 		Width:               900,
-		Height:              640,
+		Height:              WindowHeight,
 		Hidden:              true,
 		DisableResize:       true,
 		MinimiseButtonState: application.ButtonHidden,

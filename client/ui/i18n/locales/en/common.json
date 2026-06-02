@@ -398,6 +398,11 @@
     "exitNodes.none": "None",
     "exitNodes.empty.title": "No exit nodes available",
     "exitNodes.empty.description": "No exit nodes have been shared with this peer.",
+    "exitNodes.card.title": "Exit Node",
+    "exitNodes.card.statusActive": "Active",
+    "exitNodes.card.statusInactive": "Inactive",
+    "exitNodes.dropdown.noneTitle": "None",
+    "exitNodes.dropdown.noneDescription": "Direct connection without an exit node",
 
     "quickActions.connect": "Connect",
     "quickActions.disconnect": "Disconnect",

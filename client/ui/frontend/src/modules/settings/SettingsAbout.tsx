@@ -58,7 +58,7 @@ export function SettingsAbout() {
     return (
         <div
             className={
-                "flex flex-col items-center justify-center gap-4 max-w-2xl mx-auto min-h-[calc(100vh-10rem)]"
+                "flex flex-col items-center justify-center gap-4 max-w-2xl mx-auto min-h-[calc(100vh-12rem)]"
             }
         >
             <img src={netbirdFull} alt={"NetBird"} className={"h-7 w-auto"} />

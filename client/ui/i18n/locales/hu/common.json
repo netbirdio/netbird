@@ -381,6 +381,11 @@
     "exitNodes.none": "Egyik sem",
     "exitNodes.empty.title": "Nincs elérhető kilépő csomópont",
     "exitNodes.empty.description": "Ehhez a társhoz nem osztottak meg kilépő csomópontokat.",
+    "exitNodes.card.title": "Kilépő csomópont",
+    "exitNodes.card.statusActive": "Aktív",
+    "exitNodes.card.statusInactive": "Inaktív",
+    "exitNodes.dropdown.noneTitle": "Egyik sem",
+    "exitNodes.dropdown.noneDescription": "Közvetlen kapcsolat kilépő csomópont nélkül",
 
     "quickActions.connect": "Csatlakozás",
     "quickActions.disconnect": "Bontás",

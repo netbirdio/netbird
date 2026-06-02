@@ -381,6 +381,11 @@
     "exitNodes.none": "Keiner",
     "exitNodes.empty.title": "Keine Exit Nodes verfügbar",
     "exitNodes.empty.description": "Für diesen Peer wurden keine Exit Nodes freigegeben.",
+    "exitNodes.card.title": "Exit Node",
+    "exitNodes.card.statusActive": "Aktiv",
+    "exitNodes.card.statusInactive": "Inaktiv",
+    "exitNodes.dropdown.noneTitle": "Keiner",
+    "exitNodes.dropdown.noneDescription": "Direkte Verbindung ohne Exit Node",
 
     "quickActions.connect": "Verbinden",
     "quickActions.disconnect": "Trennen",

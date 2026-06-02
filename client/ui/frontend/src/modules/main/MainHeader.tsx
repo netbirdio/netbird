@@ -24,7 +24,7 @@ import { useClientVersion } from "@/contexts/ClientVersionContext";
 import { cn } from "@/lib/cn";
 import { formatShortcut, useKeyboardShortcut } from "@/hooks/useKeyboardShortcut";
 import { useViewMode, type ViewMode } from "@/contexts/ViewModeContext";
-import {isWindows} from "@/lib/platform.ts";
+import { isWindows } from "@/lib/platform.ts";
 
 const SETTINGS_SHORTCUT = { key: ",", cmd: true } as const;
 
@@ -143,21 +143,24 @@ export const MainHeader = () => {
     return (
         <div
             className={cn(
-                "shrink-0 cursor-default wails-draggable relative",
-                "flex items-center h-12 top-2.5",
+                "shrink-0 cursor-default wails-draggable relative z-10",
+                "flex items-center h-12 top-3",
             )}
         >
             {/* Windows gets a narrower width to compensate for the OS window frame/border that Wails
                 counts differently than macOS, so the visible content area lines up on both platforms.
                 See https://github.com/wailsapp/wails/issues/3260 */}
-            <div className={cn("grid grid-cols-3 items-center shrink-0", isWindows() ? "w-[364px]" : "w-[380px]")}>
+            <div
+                className={cn(
+                    "grid grid-cols-3 items-center shrink-0",
+                    isWindows() ? "w-[364px]" : "w-[380px]",
+                )}
+            >
                 <div />
                 <div className={"flex justify-center ml-4"}>{profileSlot}</div>
                 <div />
             </div>
-            <div className={"absolute right-[0.98rem] top-1/2 -translate-y-1/2"}>
-                {settingsSlot}
-            </div>
+            <div className={"absolute right-[1.3rem] top-1/2 -translate-y-1/2"}>{settingsSlot}</div>
         </div>
     );
 };
