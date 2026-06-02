@@ -249,6 +249,98 @@ func addServicePeersToSet(svc *rpservice.Service, proxyPeers []string, peerSet m
 	}
 }
 
+// collectPolicyRouterBridge folds in the routing peers that serve any network
+// resource targeted by the given policies. A policy granting a source access to
+// a resource makes the resource's routing peers serve that source at network-map
+// compute time, so those routing peers must be refreshed alongside the rule's
+// literal groups and peers. The routing peer is reachable only through the
+// resource's network, never through the policy's groups, so it is collected here.
+//
+// Enabled is intentionally not consulted on resources or routers: toggling it is
+// itself a change the routing peer must observe.
+func collectPolicyRouterBridge(ctx context.Context, transaction store.Store, accountID string, groupSet, peerSet map[string]struct{}, policies ...*types.Policy) {
+	resourceIDs := policyDestinationResourceIDs(ctx, transaction, accountID, policies...)
+	if len(resourceIDs) == 0 {
+		return
+	}
+
+	networkIDs := resourceNetworkIDs(ctx, transaction, accountID, resourceIDs)
+	if len(networkIDs) == 0 {
+		return
+	}
+
+	routers, err := transaction.GetNetworkRoutersByAccountID(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get network routers for policy router bridge: %v", err)
+		return
+	}
+
+	for _, router := range routers {
+		if _, ok := networkIDs[router.NetworkID]; !ok {
+			continue
+		}
+		addAllToSet(groupSet, router.PeerGroups)
+		if router.Peer != "" {
+			peerSet[router.Peer] = struct{}{}
+		}
+	}
+}
+
+// policyDestinationResourceIDs collects the network resource IDs targeted by the
+// policies' destinations, both via destination groups and via DestinationResource.
+func policyDestinationResourceIDs(ctx context.Context, transaction store.Store, accountID string, policies ...*types.Policy) map[string]struct{} {
+	destGroupSet := make(map[string]struct{})
+	resourceIDs := make(map[string]struct{})
+
+	for _, policy := range policies {
+		if policy == nil {
+			continue
+		}
+		for _, rule := range policy.Rules {
+			for _, gID := range rule.Destinations {
+				destGroupSet[gID] = struct{}{}
+			}
+			if rule.DestinationResource.Type != types.ResourceTypePeer && rule.DestinationResource.ID != "" {
+				resourceIDs[rule.DestinationResource.ID] = struct{}{}
+			}
+		}
+	}
+
+	if len(destGroupSet) > 0 {
+		groups, err := transaction.GetGroupsByIDs(ctx, store.LockingStrengthNone, accountID, setToSlice(destGroupSet))
+		if err != nil {
+			log.WithContext(ctx).Errorf("failed to get destination groups for policy router bridge: %v", err)
+		} else {
+			for _, group := range groups {
+				for _, res := range group.Resources {
+					if res.ID != "" {
+						resourceIDs[res.ID] = struct{}{}
+					}
+				}
+			}
+		}
+	}
+
+	return resourceIDs
+}
+
+// resourceNetworkIDs maps the given resource IDs to the set of network IDs that own them.
+func resourceNetworkIDs(ctx context.Context, transaction store.Store, accountID string, resourceIDs map[string]struct{}) map[string]struct{} {
+	resources, err := transaction.GetNetworkResourcesByAccountID(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get network resources for policy router bridge: %v", err)
+		return nil
+	}
+
+	networkIDs := make(map[string]struct{})
+	for _, resource := range resources {
+		if _, ok := resourceIDs[resource.ID]; ok {
+			networkIDs[resource.NetworkID] = struct{}{}
+		}
+	}
+	return networkIDs
+}
+
 func collectPolicyDirectPeers(policy *types.Policy, peerSet map[string]struct{}) {
 	for _, rule := range policy.Rules {
 		if rule.SourceResource.Type == types.ResourceTypePeer && rule.SourceResource.ID != "" {

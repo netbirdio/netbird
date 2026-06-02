@@ -74,8 +74,7 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 			}
 		}
 
-		groupIDs, directPeerIDs := collectPolicyAffectedGroupsAndPeers(ctx, policy, existingPolicy)
-		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, groupIDs, directPeerIDs)
+		affectedPeerIDs = am.resolvePolicyAffectedPeers(ctx, transaction, accountID, policy, existingPolicy)
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
@@ -118,8 +117,7 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 			return err
 		}
 
-		groupIDs, directPeerIDs := collectPolicyAffectedGroupsAndPeers(ctx, policy)
-		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, groupIDs, directPeerIDs)
+		affectedPeerIDs = am.resolvePolicyAffectedPeers(ctx, transaction, accountID, policy)
 
 		if err = transaction.DeletePolicy(ctx, accountID, policyID); err != nil {
 			return err
@@ -178,6 +176,19 @@ func collectPolicyAffectedGroupsAndPeers(ctx context.Context, policies ...*types
 	}
 	log.WithContext(ctx).Tracef("collectPolicyAffectedGroupsAndPeers: result groupIDs=%v, directPeerIDs=%v", groupIDs, directPeerIDs)
 	return
+}
+
+// resolvePolicyAffectedPeers resolves the peers affected by the given policies into
+// a deduplicated peer ID list. It combines the policies' literal rule groups and
+// direct peers with the routing peers that serve any targeted network resource.
+func (am *DefaultAccountManager) resolvePolicyAffectedPeers(ctx context.Context, transaction store.Store, accountID string, policies ...*types.Policy) []string {
+	groupIDs, directPeerIDs := collectPolicyAffectedGroupsAndPeers(ctx, policies...)
+
+	groupSet := toSet(groupIDs)
+	peerSet := toSet(directPeerIDs)
+	collectPolicyRouterBridge(ctx, transaction, accountID, groupSet, peerSet, policies...)
+
+	return am.resolvePeerIDs(ctx, transaction, accountID, setToSlice(groupSet), setToSlice(peerSet))
 }
 
 // validatePolicy validates the policy and its rules. For updates it returns
