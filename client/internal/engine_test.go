@@ -31,6 +31,8 @@ import (
 	icemaker "github.com/netbirdio/netbird/client/internal/peer/ice"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
+	sshauth "github.com/netbirdio/netbird/client/ssh/auth"
+	sshserver "github.com/netbirdio/netbird/client/ssh/server"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/monotime"
 	"github.com/netbirdio/netbird/route"
@@ -41,6 +43,35 @@ import (
 	signal "github.com/netbirdio/netbird/shared/signal/client"
 	"github.com/netbirdio/netbird/util"
 )
+
+type mockSSHServer struct {
+	jwtConfig      *sshserver.JWTConfig
+	updateJWTCalls int
+	stopCalls      int
+	authConfig     *sshauth.Config
+}
+
+func (m *mockSSHServer) Start(context.Context, netip.AddrPort) error {
+	return nil
+}
+
+func (m *mockSSHServer) Stop() error {
+	m.stopCalls++
+	return nil
+}
+
+func (m *mockSSHServer) GetStatus() (bool, []sshserver.SessionInfo) {
+	return true, nil
+}
+
+func (m *mockSSHServer) UpdateSSHAuth(config *sshauth.Config) {
+	m.authConfig = config
+}
+
+func (m *mockSSHServer) UpdateJWTConfig(config *sshserver.JWTConfig) {
+	m.updateJWTCalls++
+	m.jwtConfig = config
+}
 
 type MockWGIface struct {
 	CreateFunc                 func() error
@@ -218,6 +249,36 @@ func TestEngine_SSHUpdateLogic(t *testing.T) {
 	err = engine.updateSSH(&mgmtProto.SSHConfig{SshEnabled: true})
 	assert.NoError(t, err)
 	assert.Nil(t, engine.sshServer)
+}
+
+func TestEngine_UpdateSSHReconfiguresRunningSSHServerJWT(t *testing.T) {
+	sshServer := &mockSSHServer{}
+	engine := &Engine{
+		config: &EngineConfig{
+			ServerSSHAllowed: true,
+		},
+		sshServer:  sshServer,
+		syncMsgMux: &sync.Mutex{},
+	}
+
+	err := engine.updateSSH(&mgmtProto.SSHConfig{
+		SshEnabled: true,
+		JwtConfig: &mgmtProto.JWTConfig{
+			Issuer:       "test-issuer",
+			Audiences:    []string{"dashboard-audience", "cli-audience"},
+			KeysLocation: "test-keys",
+			MaxTokenAge:  600,
+		},
+	})
+	require.NoError(t, err)
+
+	require.NotNil(t, sshServer.jwtConfig)
+	assert.Equal(t, "test-issuer", sshServer.jwtConfig.Issuer)
+	assert.Equal(t, []string{"dashboard-audience", "cli-audience"}, sshServer.jwtConfig.Audiences)
+	assert.Equal(t, "test-keys", sshServer.jwtConfig.KeysLocation)
+	assert.Equal(t, int64(600), sshServer.jwtConfig.MaxTokenAge)
+	assert.Equal(t, 1, sshServer.updateJWTCalls)
+	assert.Zero(t, sshServer.stopCalls)
 }
 
 func TestEngine_SSHServerConsistency(t *testing.T) {
