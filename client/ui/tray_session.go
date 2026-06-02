@@ -134,13 +134,13 @@ func (t *Tray) formatSessionRemaining(d time.Duration) string {
 		}
 		return t.loc.T("tray.session.unit.minutes", "count", strconv.Itoa(m))
 	case d < 24*time.Hour:
-		h := int(d / time.Hour)
+		h := int((d + 30*time.Minute) / time.Hour)
 		if h == 1 {
 			return t.loc.T("tray.session.unit.hour")
 		}
 		return t.loc.T("tray.session.unit.hours", "count", strconv.Itoa(h))
 	default:
-		days := int(d / (24 * time.Hour))
+		days := int((d + 12*time.Hour) / (24 * time.Hour))
 		if days == 1 {
 			return t.loc.T("tray.session.unit.day")
 		}
