@@ -171,7 +171,7 @@ func getActiveProfile(ctx context.Context, pm *profilemanager.ProfileManager, pr
 }
 
 func switchProfileOnDaemon(ctx context.Context, pm *profilemanager.ProfileManager, handle string, username string) error {
-	resolvedID, err := switchProfile(context.Background(), handle, username)
+	resolvedID, err := switchProfile(ctx, handle, username)
 	if err != nil {
 		return fmt.Errorf("switch profile on daemon: %v", err)
 	}

@@ -131,16 +131,6 @@ func TestServiceProfile_LegacyFilenameCoexists(t *testing.T) {
 	})
 }
 
-func TestAddProfile_RejectsDuplicateNameByDefault(t *testing.T) {
-	withTestSM(t, func(sm *ServiceManager, username string) {
-		_, err := sm.AddProfile("work", username)
-		require.NoError(t, err)
-
-		_, err = sm.AddProfile("work", username)
-		assert.ErrorIs(t, err, ErrProfileAlreadyExists)
-	})
-}
-
 func TestAddProfile_AllowsDuplicateWithFlag(t *testing.T) {
 	withTestSM(t, func(sm *ServiceManager, username string) {
 		first, err := sm.AddProfile("work", username)

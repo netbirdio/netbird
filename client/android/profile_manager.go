@@ -213,10 +213,10 @@ func (pm *ProfileManager) getProfileConfigPath(id string) (string, error) {
 	return filepath.Join(profilesDir, id+".json"), nil
 }
 
-// GetConfigPath returns the config file path for a given profile
+// GetConfigPath returns the config file path for a given profile id
 // Java should call this instead of constructing paths with Preferences.configFile()
-func (pm *ProfileManager) GetConfigPath(profileName string) (string, error) {
-	return pm.getProfileConfigPath(profileName)
+func (pm *ProfileManager) GetConfigPath(id string) (string, error) {
+	return pm.getProfileConfigPath(id)
 }
 
 // GetStateFilePath returns the state file path for a given profile

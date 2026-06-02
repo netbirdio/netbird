@@ -493,7 +493,7 @@ func (s *serviceClient) getConnectionForm() *widget.Form {
 	if err != nil {
 		log.Errorf("get active profile: %v", err)
 	} else {
-		activeProfName = activeProf.ID
+		activeProfName = activeProf.Name
 	}
 	return &widget.Form{
 		Items: []*widget.FormItem{

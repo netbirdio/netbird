@@ -442,7 +442,7 @@ func (s *ServiceManager) loadAllProfiles(username string) ([]Profile, error) {
 		ID:       defaultProfileName,
 		Name:     defaultProfileName,
 		Path:     DefaultConfigPath,
-		IsActive: activeIsDefault || activeID == defaultProfileName,
+		IsActive: activeIsDefault,
 	}}
 
 	configDir, err := s.getConfigDir(username)
@@ -487,7 +487,7 @@ func (s *ServiceManager) loadAllProfiles(username string) ([]Profile, error) {
 			ID:       stem,
 			Name:     name,
 			Path:     path,
-			IsActive: stem == activeID && !activeIsDefault,
+			IsActive: stem == activeID,
 		})
 	}
 
