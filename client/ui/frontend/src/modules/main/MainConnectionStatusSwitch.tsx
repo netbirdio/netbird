@@ -375,7 +375,7 @@ export const MainConnectionStatusSwitch = () => {
                         showLocal && fqdn ? "opacity-100" : "opacity-0 pointer-events-none",
                     )}
                 >
-                    <span className={"font-mono text-xs leading-tight text-nb-gray-300"}>
+                    <span className={"font-mono text-[0.8rem] leading-tight text-nb-gray-300"}>
                         {fqdn || " "}
                     </span>
                 </CopyToClipboard>
@@ -387,7 +387,7 @@ export const MainConnectionStatusSwitch = () => {
                         showLocal && ip ? "opacity-100" : "opacity-0 pointer-events-none",
                     )}
                 >
-                    <span className={"font-mono text-xs leading-tight text-nb-gray-300"}>
+                    <span className={"font-mono text-[0.8rem] leading-tight text-nb-gray-300"}>
                         {ip || " "}
                     </span>
                 </CopyToClipboard>

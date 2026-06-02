@@ -7,7 +7,7 @@ export const NotConnectedState = () => {
     return (
         <div
             className={
-                "h-full min-h-[260px] flex-1 flex items-center justify-center px-6 pb-20 top-1 relative"
+                "h-full flex-1 flex items-start justify-center pt-36 top-[0.6rem] px-6 relative"
             }
         >
             <EmptyState

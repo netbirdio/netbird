@@ -8,8 +8,8 @@ import {
     ArrowLeftIcon,
     ArrowUpDownIcon,
     ArrowUpIcon,
-    CableIcon,
     ChevronDownIcon,
+    ChevronsLeftRightEllipsisIcon,
     ClockIcon,
     GaugeIcon,
     HandshakeIcon,
@@ -18,10 +18,9 @@ import {
     LucideProps,
     MapPinIcon,
     MonitorIcon,
-    NetworkIcon,
     Radio,
     RefreshCwIcon,
-    ZapIcon,
+    WaypointsIcon,
 } from "lucide-react";
 import type { PeerStatus } from "@bindings/services/models.js";
 import { cn } from "@/lib/cn";
@@ -216,7 +215,6 @@ const PeerDetails = ({ peer, now }: { peer: PeerStatus; now: number }) => {
     const lastHandshake = formatAge(peer.lastHandshakeUnix, t("peers.details.never"));
     const statusSince = formatAge(peer.connStatusUpdateUnix, DASH);
     const isConnected = peer.connStatus === "Connected";
-    const ConnectionIcon = peer.relayed ? NetworkIcon : ZapIcon;
     const connectionLabel = peer.relayed ? t("peers.details.relayed") : t("peers.details.p2p");
 
     return (
@@ -236,15 +234,12 @@ const PeerDetails = ({ peer, now }: { peer: PeerStatus; now: number }) => {
                 )}
             </Row>
             {isConnected && (
-                <Row icon={CableIcon} label={t("peers.details.connection")}>
-                    <span className={"inline-flex items-center gap-1.5 whitespace-nowrap"}>
-                        <ConnectionIcon size={13} />
-                        {connectionLabel}
-                    </span>
+                <Row icon={ChevronsLeftRightEllipsisIcon} label={t("peers.details.connection")}>
+                    <span className={"whitespace-nowrap"}>{connectionLabel}</span>
                 </Row>
             )}
             {peer.relayed && (
-                <Row icon={NetworkIcon} label={t("peers.details.relayAddress")}>
+                <Row icon={WaypointsIcon} label={t("peers.details.relayAddress")}>
                     {peer.relayAddress ? (
                         <CopyToClipboard
                             message={peer.relayAddress}

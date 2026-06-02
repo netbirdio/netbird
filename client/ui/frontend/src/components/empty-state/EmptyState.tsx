@@ -31,11 +31,11 @@ export const EmptyState = ({
         <div className={cn("py-12 text-center", className)}>
             <div
                 className={
-                    "flex flex-col items-center justify-center max-w-sm mx-auto relative top-7"
+                    "flex flex-col items-center justify-start max-w-sm mx-auto relative top-6"
                 }
             >
                 <SquareIcon icon={icon} className={"mb-3"} />
-                <p className={"text-base font-medium text-nb-gray-200 mb-1"}>{title}</p>
+                <p className={"text-[0.95rem] font-medium text-nb-gray-200 mb-1"}>{title}</p>
                 {description && <p className={"text-sm text-nb-gray-350"}>{description}</p>}
                 {learnMoreUrl && learnMoreTopic && (
                     <p className={"text-sm text-nb-gray-350"}>
