@@ -1,6 +1,6 @@
 {
     "languages": [
-        {"code": "en", "displayName": "English", "englishName": "English"},
+        {"code": "en", "displayName": "English (US)", "englishName": "English (US)"},
         {"code": "de", "displayName": "Deutsch", "englishName": "German"},
         {"code": "hu", "displayName": "Magyar", "englishName": "Hungarian"}
     ]

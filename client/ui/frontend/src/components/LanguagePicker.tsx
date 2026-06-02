@@ -4,7 +4,7 @@ import * as Popover from "@radix-ui/react-popover";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { Command } from "cmdk";
 import { errorDialog } from "@/lib/dialogs.ts";
-import { CheckIcon, ChevronDown, Search } from "lucide-react";
+import { CheckIcon, ChevronDown, LanguagesIcon, Search } from "lucide-react";
 import { Preferences } from "@bindings/services";
 import { LanguageCode, type Language } from "@bindings/i18n/models.js";
 import { HelpText } from "@/components/typography/HelpText";
@@ -13,43 +13,17 @@ import { loadLanguages } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { formatErrorMessage } from "@/lib/errors";
 
-// Flags live alongside the rest of the SVG flag library under
-// assets/flags/1x1 and are filename-matched to the language code
-// (de → de.svg, en → en.svg, hu → hu.svg). Vite eager-globs them at
-// build time; the JS bundle only holds URL refs, not the SVG bytes.
-const FLAG_URLS = import.meta.glob<string>("@/assets/flags/1x1/*.svg", {
-    eager: true,
-    import: "default",
-    query: "?url",
-});
+// Intentionally no flag icons here: flags represent countries, not
+// languages (German is spoken across DE/AT/CH; English across US/UK/AU/
+// etc.). Each label shows the endonym followed by the englishName in
+// parentheses when the two differ (e.g. "Deutsch (German)"), in both
+// the trigger and the dropdown rows.
+// See: https://www.flagsarenotlanguages.com/blog/
 
-const flagByCode: Record<string, string> = {};
-for (const path in FLAG_URLS) {
-    const match = path.match(/1x1\/([^/]+)\.svg$/);
-    if (match) flagByCode[match[1]] = FLAG_URLS[path];
-}
-
-const flagFor = (code: string): string | undefined => flagByCode[code.toLowerCase().split("-")[0]];
-
-function Flag({ code, label }: { code: string; label: string }) {
-    const src = flagFor(code);
-    if (!src) {
-        return (
-            <span
-                className={"h-3.5 w-3.5 rounded-full bg-nb-gray-800 shrink-0 inline-block"}
-                aria-hidden
-            />
-        );
-    }
-    return (
-        <img
-            src={src}
-            alt={label}
-            className={"h-3.5 w-3.5 rounded-full object-cover shrink-0 select-none"}
-            draggable={false}
-        />
-    );
-}
+const labelFor = (lang: Language): string =>
+    lang.englishName && lang.englishName !== lang.displayName
+        ? `${lang.displayName} (${lang.englishName})`
+        : lang.displayName;
 
 export function LanguagePicker() {
     const { t, i18n } = useTranslation();
@@ -121,9 +95,9 @@ export function LanguagePicker() {
                                 "disabled:opacity-50",
                             )}
                         >
-                            {current && <Flag code={current.code} label={current.displayName} />}
+                            <LanguagesIcon size={16} className={"text-nb-gray-200 shrink-0"} />
                             <span className={"truncate flex-1 text-left"}>
-                                {current?.displayName ?? "—"}
+                                {current ? labelFor(current) : "—"}
                             </span>
                             <ChevronDown size={12} className={"text-nb-gray-400 shrink-0"} />
                         </button>
@@ -193,12 +167,8 @@ export function LanguagePicker() {
                                                             "data-[selected=true]:bg-nb-gray-850 data-[selected=true]:text-nb-gray-50",
                                                         )}
                                                     >
-                                                        <Flag
-                                                            code={lang.code}
-                                                            label={lang.displayName}
-                                                        />
-                                                        <span className={"flex-1 truncate"}>
-                                                            {lang.displayName}
+                                                        <span className={"flex-1 min-w-0 truncate"}>
+                                                            {labelFor(lang)}
                                                         </span>
                                                         <span
                                                             className={

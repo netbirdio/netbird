@@ -29,17 +29,21 @@ for (const path in bundleModules) {
 }
 
 // detectBrowserLanguage walks navigator.language + navigator.languages
-// and returns the first base code ("de" from "de-DE") that has a shipped
-// bundle. Returns null when none match, so the caller can fall back to
-// English. We only ever match against the lowercased base — region tags
-// don't have separate bundles today.
+// and returns the first shipped bundle that matches. We try an exact
+// case-insensitive match first (so "en-GB" picks the en-GB bundle when
+// shipped), then fall back to the base code ("de" from "de-DE"). Returns
+// null when nothing matches, so the caller can fall back to English.
 function detectBrowserLanguage(available: string[]): string | null {
     const tags = [navigator.language, ...(navigator.languages ?? [])].filter(
         (tag): tag is string => typeof tag === "string" && tag.length > 0,
     );
+    const byLower = new Map(available.map((code) => [code.toLowerCase(), code]));
     for (const tag of tags) {
-        const base = tag.toLowerCase().split("-")[0];
-        if (available.includes(base)) return base;
+        const lower = tag.toLowerCase();
+        const exact = byLower.get(lower);
+        if (exact) return exact;
+        const base = byLower.get(lower.split("-")[0]);
+        if (base) return base;
     }
     return null;
 }

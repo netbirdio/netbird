@@ -245,7 +245,7 @@
     "settings.troubleshooting.duration.suffix": "Minute(s)",
     "settings.troubleshooting.create": "Create Bundle",
     "settings.troubleshooting.progress.description": "Collecting logs, system details, and connection state. This usually takes a moment — keep this window open until it completes.",
-    "settings.troubleshooting.cancelling": "Cancelling…",
+    "settings.troubleshooting.cancelling": "Canceling…",
     "settings.troubleshooting.done.uploadedTitle": "Debug bundle successfully uploaded!",
     "settings.troubleshooting.done.savedTitle": "Bundle saved",
     "settings.troubleshooting.done.uploadedDescription": "Share the upload key below with NetBird support. A local copy was also saved on your device.",
@@ -261,7 +261,7 @@
     "settings.troubleshooting.stage.restoring": "Restoring previous log level…",
     "settings.troubleshooting.stage.bundling": "Generating debug bundle…",
     "settings.troubleshooting.stage.uploading": "Uploading to NetBird…",
-    "settings.troubleshooting.stage.cancelling": "Cancelling…",
+    "settings.troubleshooting.stage.cancelling": "Canceling…",
 
     "settings.about.client": "NetBird Client v{version}",
     "settings.about.clientName": "NetBird Client",
