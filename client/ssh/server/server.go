@@ -461,6 +461,16 @@ func (s *Server) UpdateSSHAuth(config *sshauth.Config) {
 	s.authorizer.Update(config)
 }
 
+// UpdateJWTConfig updates the JWT authentication settings used by new SSH auth attempts.
+func (s *Server) UpdateJWTConfig(config *JWTConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.jwtConfig = config
+	s.jwtValidator = nil
+	s.jwtExtractor = nil
+}
+
 // ensureJWTValidator initializes the JWT validator and extractor if not already initialized
 func (s *Server) ensureJWTValidator() error {
 	s.mu.RLock()
