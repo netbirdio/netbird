@@ -196,7 +196,7 @@ func TestBuildJWTConfig_Audiences(t *testing.T) {
 				CLIAuthAudience: tc.cliAuthAudience,
 			}
 
-			result := buildJWTConfig(config, nil, nil)
+			result := buildJWTConfig(config, nil, &types.Settings{})
 
 			assert.NotNil(t, result)
 			assert.Equal(t, tc.expectedAudiences, result.Audiences, "audiences should match expected")
@@ -334,4 +334,27 @@ func TestToPeerConfig_RoutingPeerDNSResolution(t *testing.T) {
 				"RoutingPeerDnsResolutionEnabled should reflect global || embedded || forced")
 		})
 	}
+}
+
+func TestBuildJWTConfig_MaxTokenAge(t *testing.T) {
+	config := &nbconfig.HttpServerConfig{
+		AuthIssuer:   "https://issuer.example.com",
+		AuthAudience: "dashboard-aud",
+	}
+
+	t.Run("unset leaves max token age zero", func(t *testing.T) {
+		result := buildJWTConfig(config, nil, &types.Settings{})
+
+		require.NotNil(t, result)
+		assert.Equal(t, int64(0), result.MaxTokenAge)
+	})
+
+	t.Run("explicit duration is sent as seconds", func(t *testing.T) {
+		result := buildJWTConfig(config, nil, &types.Settings{
+			SSHJWTMaxTokenAge: 10 * time.Minute,
+		})
+
+		require.NotNil(t, result)
+		assert.Equal(t, int64(600), result.MaxTokenAge)
+	})
 }
