@@ -39,7 +39,7 @@ export const PeerFilters = ({ value, onChange, counts, disabled }: Props) => {
                 disabled={disabled}
                 className={cn(
                     "inline-flex items-center gap-1.5 h-9 px-2 rounded-md",
-                    "text-sm text-nb-gray-100",
+                    "text-sm text-nb-gray-200",
                     "outline-none hover:bg-nb-gray-900 data-[state=open]:bg-nb-gray-900 transition-colors duration-150",
                     "disabled:opacity-50 disabled:pointer-events-none",
                     "wails-no-draggable cursor-default",
@@ -47,15 +47,9 @@ export const PeerFilters = ({ value, onChange, counts, disabled }: Props) => {
             >
                 <ListFilter size={14} className={"shrink-0"} />
                 <span>
-                    {active.label}{" "}
-                    <span className={"tabular-nums"}>
-                        ({counts[active.value]})
-                    </span>
+                    {active.label} <span className={"tabular-nums"}>({counts[active.value]})</span>
                 </span>
-                <ChevronDown
-                    size={14}
-                    className={"text-nb-gray-400 ml-0.5 shrink-0"}
-                />
+                <ChevronDown size={14} className={"ml-0.5 shrink-0"} />
             </DropdownMenuTrigger>
             <DropdownMenuContent align={"end"} className={"min-w-[10rem]"}>
                 {filters.map((f) => {
@@ -68,21 +62,10 @@ export const PeerFilters = ({ value, onChange, counts, disabled }: Props) => {
                         >
                             <span className={"flex-1 truncate"}>
                                 {f.label}{" "}
-                                <span className={"tabular-nums"}>
-                                    ({counts[f.value]})
-                                </span>
+                                <span className={"tabular-nums"}>({counts[f.value]})</span>
                             </span>
-                            <span
-                                className={
-                                    "w-4 shrink-0 flex items-center justify-center"
-                                }
-                            >
-                                {checked && (
-                                    <CheckIcon
-                                        size={14}
-                                        className={"text-netbird"}
-                                    />
-                                )}
+                            <span className={"w-4 shrink-0 flex items-center justify-center"}>
+                                {checked && <CheckIcon size={14} className={"text-netbird"} />}
                             </span>
                         </DropdownMenuItem>
                     );

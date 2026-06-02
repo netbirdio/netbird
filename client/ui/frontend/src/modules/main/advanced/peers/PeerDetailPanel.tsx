@@ -1,12 +1,4 @@
-import {
-    ComponentType,
-    ReactNode,
-    useCallback,
-    useEffect,
-    useLayoutEffect,
-    useRef,
-    useState,
-} from "react";
+import { ComponentType, ReactNode, useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AnimatePresence, motion, type Transition } from "framer-motion";
 import * as Popover from "@radix-ui/react-popover";
@@ -17,6 +9,7 @@ import {
     ArrowUpDownIcon,
     ArrowUpIcon,
     CableIcon,
+    ChevronDownIcon,
     ClockIcon,
     GaugeIcon,
     HandshakeIcon,
@@ -34,6 +27,7 @@ import type { PeerStatus } from "@bindings/services/models.js";
 import { cn } from "@/lib/cn";
 import { CopyToClipboard } from "@/components/CopyToClipboard";
 import { Tooltip } from "@/components/Tooltip";
+import { TruncatedText } from "@/components/TruncatedText";
 import { formatBytes, formatRelative, latencyColor } from "@/lib/formatters";
 import { useStatus } from "@/contexts/StatusContext";
 import { usePeerDetail } from "@/contexts/PeerDetailContext";
@@ -249,6 +243,22 @@ const PeerDetails = ({ peer, now }: { peer: PeerStatus; now: number }) => {
                     </span>
                 </Row>
             )}
+            {peer.relayed && (
+                <Row icon={NetworkIcon} label={t("peers.details.relayAddress")}>
+                    {peer.relayAddress ? (
+                        <CopyToClipboard
+                            message={peer.relayAddress}
+                            alwaysShowIcon
+                            className={"max-w-full min-w-0"}
+                            iconClassName={"top-0"}
+                        >
+                            <TruncatedRowValue value={peer.relayAddress} mono />
+                        </CopyToClipboard>
+                    ) : (
+                        DASH
+                    )}
+                </Row>
+            )}
             {peer.latencyMs > 0 && (
                 <Row icon={GaugeIcon} label={t("peers.details.latency")}>
                     <span className={cn("tabular-nums", latencyColor(peer.latencyMs))}>
@@ -282,6 +292,11 @@ const PeerDetails = ({ peer, now }: { peer: PeerStatus; now: number }) => {
             <Row icon={ClockIcon} label={t("peers.details.statusSince")}>
                 {statusSince}
             </Row>
+            {peer.networks.length > 0 && (
+                <Row icon={Layers3Icon} label={t("peers.details.networks")}>
+                    <ResourcesValue networks={peer.networks} />
+                </Row>
+            )}
             <IceRow
                 icon={MonitorIcon}
                 baseLabel={t("peers.details.localIce")}
@@ -294,27 +309,6 @@ const PeerDetails = ({ peer, now }: { peer: PeerStatus; now: number }) => {
                 type={peer.remoteIceCandidateType}
                 endpoint={peer.remoteIceCandidateEndpoint}
             />
-            {peer.relayed && (
-                <Row icon={NetworkIcon} label={t("peers.details.relayAddress")}>
-                    {peer.relayAddress ? (
-                        <CopyToClipboard
-                            message={peer.relayAddress}
-                            alwaysShowIcon
-                            className={"max-w-full min-w-0"}
-                            iconClassName={"top-0"}
-                        >
-                            <TruncatedRowValue value={peer.relayAddress} mono />
-                        </CopyToClipboard>
-                    ) : (
-                        DASH
-                    )}
-                </Row>
-            )}
-            {peer.networks.length > 0 && (
-                <Row icon={Layers3Icon} label={t("peers.details.networks")}>
-                    <ResourcesValue networks={peer.networks} />
-                </Row>
-            )}
             <Row icon={KeyRoundIcon} label={t("peers.details.publicKey")}>
                 {peer.pubKey ? (
                     <CopyToClipboard
@@ -370,67 +364,35 @@ const IceRow = ({ icon, baseLabel, type, endpoint }: IceRowProps) => {
     );
 };
 
-// "{N} Resources" trigger that opens a hover popover listing each routed
-// network on its own line with a click-to-copy entry. Mirrors the resolved-IPs
-// popover in the Resources tab (Networks.tsx ResolvedIpsPopover).
-// Row value: first network inline, plus a "+N more" hover pill opening a
-// popover with the full list. Mirrors the resolved-IPs pattern in
-// Networks.tsx so the Resources tab and the peer detail row look consistent.
-const ResourcesValue = ({ networks }: { networks: string[] }) => {
-    const first = networks[0];
-    const extra = networks.length - 1;
-    return (
-        <div className={"flex items-center gap-1.5 min-w-0 justify-end"}>
-            <CopyToClipboard message={first}>
-                <TruncatedRowValue value={first} mono />
-            </CopyToClipboard>
-            {extra > 0 && <ResourcesMorePopover networks={networks} extra={extra} />}
-        </div>
-    );
-};
+// Single "View {n}" badge with a chevron that opens a click popover listing
+// each routed resource on its own line with a click-to-copy entry. Avoids
+// the repetitive "first item + N more" pattern given the row already has a
+// "Resources" label and Layers icon.
+const ResourcesValue = ({ networks }: { networks: string[] }) => (
+    <ResourcesPopover networks={networks} />
+);
 
-const ResourcesMorePopover = ({
-    networks,
-    extra,
-}: {
-    networks: string[];
-    extra: number;
-}) => {
-    const { t } = useTranslation();
+const ResourcesPopover = ({ networks }: { networks: string[] }) => {
     const [open, setOpen] = useState(false);
-    const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-    const cancelClose = () => {
-        if (closeTimer.current) {
-            clearTimeout(closeTimer.current);
-            closeTimer.current = null;
-        }
-    };
-    // Close with a small delay so the mouse can cross the sideOffset gap
-    // between trigger and content without the popover snapping shut.
-    const scheduleClose = () => {
-        cancelClose();
-        closeTimer.current = setTimeout(() => setOpen(false), 300);
-    };
-    useEffect(() => () => cancelClose(), []);
 
     return (
         <Popover.Root open={open} onOpenChange={setOpen}>
             <Popover.Trigger asChild>
                 <button
                     type={"button"}
-                    onMouseEnter={() => {
-                        cancelClose();
-                        setOpen(true);
-                    }}
-                    onMouseLeave={scheduleClose}
                     className={cn(
-                        "shrink-0 rounded bg-nb-gray-900 hover:bg-nb-gray-850",
-                        "px-1.5 py-0.5 text-[10px] font-medium text-nb-gray-300",
-                        "wails-no-draggable cursor-default outline-none",
+                        "shrink-0 inline-flex items-center gap-1 rounded",
+                        "bg-nb-gray-930 hover:bg-nb-gray-910/80 data-[state=open]:bg-nb-gray-910",
+                        "border border-nb-gray-900",
+                        "px-2 py-1 text-xs font-medium text-nb-gray-300",
+                        "wails-no-draggable cursor-default outline-none transition-all",
                     )}
                 >
-                    {t("peers.details.more", { count: extra })}
+                    {networks.length}
+                    <ChevronDownIcon
+                        size={12}
+                        className={cn("transition-transform duration-150", open && "rotate-180")}
+                    />
                 </button>
             </Popover.Trigger>
             <Popover.Portal>
@@ -438,13 +400,11 @@ const ResourcesMorePopover = ({
                     side={"bottom"}
                     align={"end"}
                     sideOffset={6}
-                    onMouseEnter={cancelClose}
-                    onMouseLeave={scheduleClose}
                     onOpenAutoFocus={(e) => e.preventDefault()}
                     className={cn(
-                        "z-50 w-64 max-h-72 overflow-auto",
+                        "z-50 max-w-[18rem] max-h-72 overflow-auto",
                         "rounded-lg border border-nb-gray-900 bg-nb-gray-935",
-                        "p-2 shadow-lg outline-none",
+                        "p-2 pr-4 shadow-lg outline-none",
                     )}
                 >
                     <ul className={"flex flex-col"}>
@@ -453,7 +413,7 @@ const ResourcesMorePopover = ({
                                 <CopyToClipboard message={n} className={"px-1 py-0.5"}>
                                     <span
                                         className={
-                                            "font-mono text-[0.72rem] text-nb-gray-200 break-all"
+                                            "font-mono text-[0.72rem] text-nb-gray-200 whitespace-nowrap"
                                         }
                                     >
                                         {n}
@@ -468,37 +428,15 @@ const ResourcesMorePopover = ({
     );
 };
 
-// Truncates the value to one line with the row's available width; on hover,
-// shows the full string in a tooltip — but only when actually clipped. Same
-// pattern as TruncatedName in Peers.tsx / TruncatedEmail in ProfileDropdown.
-const TruncatedRowValue = ({ value, mono }: { value: string; mono?: boolean }) => {
-    const ref = useRef<HTMLSpanElement>(null);
-    const [overflowing, setOverflowing] = useState(false);
-
-    useLayoutEffect(() => {
-        const el = ref.current;
-        if (!el) return;
-        setOverflowing(el.scrollWidth > el.clientWidth);
-    }, [value]);
-
-    const span = (
-        <span
-            ref={ref}
-            className={cn(
-                "inline-block truncate align-middle min-w-0 max-w-[260px]",
-                mono && "font-mono",
-            )}
-        >
-            {value}
-        </span>
-    );
-    if (!overflowing) return span;
-    return (
-        <Tooltip content={value} delayDuration={600}>
-            {span}
-        </Tooltip>
-    );
-};
+const TruncatedRowValue = ({ value, mono }: { value: string; mono?: boolean }) => (
+    <TruncatedText
+        text={value}
+        className={cn(
+            "inline-block truncate align-middle min-w-0 max-w-[260px]",
+            mono && "font-mono",
+        )}
+    />
+);
 
 const Row = ({ icon: Icon, iconClassName, label, children }: RowProps) => (
     <li className={"flex items-center gap-2 px-5 py-4 text-xs text-nb-gray-100 min-w-0"}>

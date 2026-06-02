@@ -6,6 +6,7 @@ import { WaypointsIcon } from "lucide-react";
 import type { Network } from "@bindings/services/models.js";
 import { cn } from "@/lib/cn";
 import { SearchInput } from "@/components/inputs/SearchInput";
+import { TruncatedText } from "@/components/TruncatedText";
 import { EmptyState } from "@/components/empty-state/EmptyState";
 import { NoResults } from "@/components/empty-state/NoResults";
 import { useStatus } from "@/contexts/StatusContext";
@@ -159,13 +160,14 @@ const Row = ({ value, label, first }: RowProps) => (
             "wails-no-draggable cursor-pointer outline-none text-left",
         )}
     >
-        <span
-            className={
-                "min-w-0 flex-1 text-[0.81rem] font-medium text-nb-gray-100 truncate"
-            }
-        >
-            {label}
-        </span>
+        <div className={"min-w-0 flex-1"}>
+            <TruncatedText
+                text={label}
+                className={
+                    "block text-[0.81rem] font-medium text-nb-gray-100 truncate max-w-full"
+                }
+            />
+        </div>
         <span
             className={cn(
                 "h-4 w-4 shrink-0 rounded-full border",

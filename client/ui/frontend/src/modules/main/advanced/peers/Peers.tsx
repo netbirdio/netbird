@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { ChevronRightIcon, LaptopIcon } from "lucide-react";
@@ -12,6 +12,7 @@ import { latencyColor } from "@/lib/formatters";
 import { useStatus } from "@/contexts/StatusContext";
 import { usePeerDetail } from "@/contexts/PeerDetailContext";
 import { Tooltip } from "@/components/Tooltip";
+import { TruncatedText } from "@/components/TruncatedText";
 import { mockOr, mockPeers } from "@/lib/mock";
 import { PeerFilters, StatusFilter } from "./PeerFilters";
 
@@ -67,27 +68,55 @@ export const Peers = () => {
         };
     }, [peers]);
 
-    // Initial order: online-first, then alphabetically by fqdn / ip. After
-    // that, positions are sticky — a peer flipping Connected→Connecting→Idle
-    // no longer jumps groups. Newly discovered peers append at the end
-    // (sorted online-first / by-name among themselves). Mirrors the
-    // networks-list and exit-nodes-list orderRef pattern.
+    // Initial order: online-first, then alphabetically by fqdn / ip. Once
+    // peers have settled, positions become sticky — a peer flipping
+    // Connected→Connecting→Idle no longer jumps groups. Newly discovered
+    // peers append at the end (sorted online-first / by-name among
+    // themselves). Mirrors the networks-list and exit-nodes-list orderRef
+    // pattern.
+    //
+    // Stay in live-sort mode until every peer has reached a stable state
+    // (Connected or Idle). The daemon emits all peers as "Connecting" right
+    // after Up, which collapses the online-first sort into pure
+    // alphabetical — committing then would lock that incorrect order and
+    // the list would stay alphabetical even after every peer becomes
+    // Connected. Once nothing is Connecting we commit and go sticky.
     const orderRef = useRef<string[]>([]);
+    const stickyRef = useRef(false);
     const ordered = useMemo(() => {
-        const byKey = new Map(peers.map((p) => [p.pubKey, p]));
-        const kept = orderRef.current.filter((k) => byKey.has(k));
-        const known = new Set(kept);
-        const fresh = peers
-            .filter((p) => !known.has(p.pubKey))
-            .sort((a, b) => {
+        const sortOnlineFirst = (list: PeerStatus[]) =>
+            [...list].sort((a, b) => {
                 const aOnline = isOnline(a.connStatus);
                 const bOnline = isOnline(b.connStatus);
                 if (aOnline !== bOnline) return aOnline ? -1 : 1;
                 const aName = (a.fqdn || a.ip).toLowerCase();
                 const bName = (b.fqdn || b.ip).toLowerCase();
                 return aName.localeCompare(bName);
-            })
-            .map((p) => p.pubKey);
+            });
+
+        // Reset on empty (Disconnect → reconnect) so the next session
+        // re-sorts from scratch instead of replaying the stale orderRef.
+        if (peers.length === 0) {
+            orderRef.current = [];
+            stickyRef.current = false;
+            return [];
+        }
+
+        if (!stickyRef.current) {
+            const sorted = sortOnlineFirst(peers);
+            if (peers.every((p) => p.connStatus !== "Connecting")) {
+                orderRef.current = sorted.map((p) => p.pubKey);
+                stickyRef.current = true;
+            }
+            return sorted;
+        }
+
+        const byKey = new Map(peers.map((p) => [p.pubKey, p]));
+        const kept = orderRef.current.filter((k) => byKey.has(k));
+        const known = new Set(kept);
+        const fresh = sortOnlineFirst(peers.filter((p) => !known.has(p.pubKey))).map(
+            (p) => p.pubKey,
+        );
         const next = [...kept, ...fresh];
         orderRef.current = next;
         return next.map((k) => byKey.get(k)!);
@@ -171,15 +200,12 @@ const PeersList = ({ data }: { data: PeerStatus[] }) => {
                         key={peer.pubKey}
                         onClick={() => setSelected(peer)}
                         className={cn(
-                            "group flex items-start gap-2.5 px-7 py-3 min-w-0 first:mt-2",
+                            "group flex items-start gap-2.5 pl-6 pr-4 py-3 min-w-0 first:mt-2",
                             "hover:bg-nb-gray-900/40 transition-colors",
                             "wails-no-draggable cursor-default",
                         )}
                     >
-                        <Tooltip
-                            content={t(peerStatusLabelKey(peer.connStatus))}
-                            side={"left"}
-                        >
+                        <Tooltip content={t(peerStatusLabelKey(peer.connStatus))} side={"left"}>
                             <span
                                 className={cn(
                                     "h-2 w-2 rounded-full shrink-0 mt-2",
@@ -190,7 +216,12 @@ const PeersList = ({ data }: { data: PeerStatus[] }) => {
                         <div className={"min-w-0 flex-1 flex flex-col leading-tight"}>
                             <div>
                                 <CopyToClipboard message={peer.fqdn}>
-                                    <TruncatedName name={peer.fqdn} />
+                                    <TruncatedText
+                                        text={peer.fqdn}
+                                        className={
+                                            "block text-[0.81rem] font-medium text-nb-gray-100 truncate max-w-[300px]"
+                                        }
+                                    />
                                 </CopyToClipboard>
                             </div>
                             <div>
@@ -222,37 +253,5 @@ const PeersList = ({ data }: { data: PeerStatus[] }) => {
                 );
             })}
         </ul>
-    );
-};
-
-// Same pattern as TruncatedEmail in ProfileDropdown: render the span with a
-// fixed max-width + truncate, measure scrollWidth vs clientWidth after layout,
-// and wrap in a Tooltip only when the text actually overflows. Avoids the
-// "tooltip on hover even though everything fits" annoyance.
-const TruncatedName = ({ name }: { name: string }) => {
-    const ref = useRef<HTMLSpanElement>(null);
-    const [overflowing, setOverflowing] = useState(false);
-
-    useLayoutEffect(() => {
-        const el = ref.current;
-        if (!el) return;
-        setOverflowing(el.scrollWidth > el.clientWidth);
-    }, [name]);
-
-    const span = (
-        <span
-            ref={ref}
-            className={
-                "block text-[0.81rem] font-medium text-nb-gray-100 truncate max-w-[300px]"
-            }
-        >
-            {name}
-        </span>
-    );
-    if (!overflowing) return span;
-    return (
-        <Tooltip content={name} delayDuration={600}>
-            {span}
-        </Tooltip>
     );
 };
