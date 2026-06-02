@@ -96,6 +96,12 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 			return err
 		}
 
+		seq, err := transaction.AllocateAccountSeqID(ctx, accountID, types.AccountSeqEntityGroup)
+		if err != nil {
+			return status.Errorf(status.Internal, "failed to allocate group seq id: %v", err)
+		}
+		newGroup.AccountSeqID = seq
+
 		if err := transaction.CreateGroup(ctx, newGroup); err != nil {
 			return status.Errorf(status.Internal, "failed to create group: %v", err)
 		}
@@ -170,6 +176,8 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 			return err
 		}
 
+		newGroup.AccountSeqID = oldGroup.AccountSeqID
+
 		if err = transaction.UpdateGroup(ctx, newGroup); err != nil {
 			return err
 		}
@@ -220,6 +228,12 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 			}
 
 			newGroup.AccountID = accountID
+
+			seq, err := transaction.AllocateAccountSeqID(ctx, accountID, types.AccountSeqEntityGroup)
+			if err != nil {
+				return err
+			}
+			newGroup.AccountSeqID = seq
 
 			if err = transaction.CreateGroup(ctx, newGroup); err != nil {
 				return err
@@ -319,6 +333,12 @@ func (am *DefaultAccountManager) updateSingleGroup(ctx context.Context, accountI
 		}
 
 		newGroup.AccountID = accountID
+
+		oldGroup, err := transaction.GetGroupByID(ctx, store.LockingStrengthNone, accountID, newGroup.ID)
+		if err != nil {
+			return err
+		}
+		newGroup.AccountSeqID = oldGroup.AccountSeqID
 
 		if err := transaction.UpdateGroup(ctx, newGroup); err != nil {
 			return err

@@ -19,6 +19,10 @@ type Group struct {
 	// AccountID is a reference to Account that this object belongs
 	AccountID string `json:"-" gorm:"index"`
 
+	// AccountSeqID is a per-account monotonically increasing identifier used as the
+	// compact wire id when sending NetworkMap components to capable peers.
+	AccountSeqID uint32 `json:"-" gorm:"index:idx_groups_account_seq_id;not null;default:0"`
+
 	// Name visible in the UI
 	Name string
 
@@ -39,6 +43,14 @@ type GroupPeer struct {
 	AccountID string `gorm:"index"`
 	GroupID   string `gorm:"primaryKey"`
 	PeerID    string `gorm:"primaryKey"`
+}
+
+// HasSeqID reports whether the group has been persisted long enough to have a
+// per-account sequence id allocated. Wire encoders that key off AccountSeqID
+// must skip groups that return false here — otherwise multiple unpersisted
+// groups would collide on id 0.
+func (g *Group) HasSeqID() bool {
+	return g != nil && g.AccountSeqID != 0
 }
 
 func (g *Group) LoadGroupPeers() {
@@ -74,6 +86,7 @@ func (g *Group) Copy() *Group {
 	group := &Group{
 		ID:                   g.ID,
 		AccountID:            g.AccountID,
+		AccountSeqID:         g.AccountSeqID,
 		Name:                 g.Name,
 		Issued:               g.Issued,
 		Peers:                make([]string, len(g.Peers)),

@@ -102,6 +102,12 @@ func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *t
 
 		router.ID = xid.New().String()
 
+		seq, err := transaction.AllocateAccountSeqID(ctx, router.AccountID, serverTypes.AccountSeqEntityNetworkRouter)
+		if err != nil {
+			return fmt.Errorf("failed to allocate network router seq id: %w", err)
+		}
+		router.AccountSeqID = seq
+
 		err = transaction.CreateNetworkRouter(ctx, router)
 		if err != nil {
 			return fmt.Errorf("failed to create network router: %w", err)
@@ -174,6 +180,14 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 		if existing.NetworkID != router.NetworkID {
 			return status.NewRouterNotPartOfNetworkError(router.ID, router.NetworkID)
 		}
+
+		// Preserve AccountSeqID from the existing router so the upstream
+		// UpdateNetworkRouter (which does Updates(router) with Select("*"))
+		// doesn't clobber it with the request's zero value. Main's split of
+		// Save → Create/Update removed the PUT-as-upsert path that the
+		// earlier branch carried, so callers must always pass a real router
+		// id — UpdateNetworkRouter returns NotFound otherwise.
+		router.AccountSeqID = existing.AccountSeqID
 
 		err = transaction.UpdateNetworkRouter(ctx, router)
 		if err != nil {

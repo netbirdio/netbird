@@ -13,6 +13,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/controller/cache"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/shared/management/networkmap"
 )
 
 func TestToProtocolDNSConfigWithCache(t *testing.T) {
@@ -62,13 +63,13 @@ func TestToProtocolDNSConfigWithCache(t *testing.T) {
 	}
 
 	// First run with config1
-	result1 := toProtocolDNSConfig(config1, &cache, int64(network_map.DnsForwarderPort))
+	result1 := networkmap.ToProtocolDNSConfig(config1, &cache, int64(network_map.DnsForwarderPort))
 
 	// Second run with config2
-	result2 := toProtocolDNSConfig(config2, &cache, int64(network_map.DnsForwarderPort))
+	result2 := networkmap.ToProtocolDNSConfig(config2, &cache, int64(network_map.DnsForwarderPort))
 
 	// Third run with config1 again
-	result3 := toProtocolDNSConfig(config1, &cache, int64(network_map.DnsForwarderPort))
+	result3 := networkmap.ToProtocolDNSConfig(config1, &cache, int64(network_map.DnsForwarderPort))
 
 	// Verify that result1 and result3 are identical
 	if !reflect.DeepEqual(result1, result3) {
@@ -100,7 +101,7 @@ func BenchmarkToProtocolDNSConfig(b *testing.B) {
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				toProtocolDNSConfig(testData, cache, int64(network_map.DnsForwarderPort))
+				networkmap.ToProtocolDNSConfig(testData, cache, int64(network_map.DnsForwarderPort))
 			}
 		})
 
@@ -108,7 +109,7 @@ func BenchmarkToProtocolDNSConfig(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				cache := &cache.DNSConfigCache{}
-				toProtocolDNSConfig(testData, cache, int64(network_map.DnsForwarderPort))
+				networkmap.ToProtocolDNSConfig(testData, cache, int64(network_map.DnsForwarderPort))
 			}
 		})
 	}

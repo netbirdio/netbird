@@ -316,25 +316,72 @@ func TestClient_Sync(t *testing.T) {
 
 	select {
 	case resp := <-ch:
-		if resp.GetPeerConfig() == nil {
+		if resp.GetPeerConfig() == nil && resp.GetNetworkMap().GetPeerConfig() == nil {
 			t.Error("expecting non nil PeerConfig got nil")
 		}
 		if resp.GetNetbirdConfig() == nil {
 			t.Error("expecting non nil NetbirdConfig got nil")
 		}
-		if len(resp.GetRemotePeers()) != 1 {
-			t.Errorf("expecting RemotePeers size %d got %d", 1, len(resp.GetRemotePeers()))
+		// Component-capable clients receive a NetworkMapEnvelope; the
+		// remote-peers list is encoded inside it. Decode it and check the
+		// envelope's peers slice. Legacy peers populate the top-level
+		// RemotePeers; both shapes must surface exactly one remote peer.
+		remotePeerKeys := remotePeerKeysFromSync(resp, testKey.PublicKey().String())
+		if len(remotePeerKeys) != 1 {
+			t.Errorf("expecting RemotePeers size %d got %d", 1, len(remotePeerKeys))
 			return
 		}
-		if resp.GetRemotePeersIsEmpty() == true {
+		if resp.GetNetworkMap() != nil && resp.GetRemotePeersIsEmpty() {
 			t.Error("expecting RemotePeers property to be false, got true")
 		}
-		if resp.GetRemotePeers()[0].GetWgPubKey() != remoteKey.PublicKey().String() {
-			t.Errorf("expecting RemotePeer public key %s got %s", remoteKey.PublicKey().String(), resp.GetRemotePeers()[0].GetWgPubKey())
+		if remotePeerKeys[0] != remoteKey.PublicKey().String() {
+			t.Errorf("expecting RemotePeer public key %s got %s", remoteKey.PublicKey().String(), remotePeerKeys[0])
 		}
 	case <-time.After(3 * time.Second):
 		t.Error("timeout waiting for test to finish")
 	}
+}
+
+// remotePeerKeysFromSync extracts the remote-peer WG keys from either the
+// legacy NetworkMap.RemotePeers list or the components NetworkMapEnvelope's
+// inner peers slice (filtering out the local receiving peer identified by
+// localKey, since the envelope's peers list is index-addressed and includes
+// the local peer alongside remotes).
+func remotePeerKeysFromSync(resp *mgmtProto.SyncResponse, localKey string) []string {
+	if rp := resp.GetRemotePeers(); len(rp) > 0 {
+		out := make([]string, 0, len(rp))
+		for _, p := range rp {
+			out = append(out, p.GetWgPubKey())
+		}
+		return out
+	}
+	env := resp.GetNetworkMapEnvelope().GetFull()
+	if env == nil {
+		return nil
+	}
+	out := make([]string, 0, len(env.GetPeers()))
+	for _, p := range env.GetPeers() {
+		key := wgKeyFromBytes(p.GetWgPubKey())
+		if key == "" || key == localKey {
+			continue
+		}
+		out = append(out, key)
+	}
+	return out
+}
+
+// wgKeyFromBytes mirrors the client-side decoder: the envelope ships raw 32
+// bytes; reconstruct the standard base64 key the test compares against.
+func wgKeyFromBytes(raw []byte) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var k wgtypes.Key
+	if len(raw) != len(k) {
+		return ""
+	}
+	copy(k[:], raw)
+	return k.String()
 }
 
 func Test_SystemMetaDataFromClient(t *testing.T) {

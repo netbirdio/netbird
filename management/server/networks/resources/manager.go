@@ -125,6 +125,12 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 			return fmt.Errorf("failed to get network: %w", err)
 		}
 
+		seq, err := transaction.AllocateAccountSeqID(ctx, resource.AccountID, nbtypes.AccountSeqEntityNetworkResource)
+		if err != nil {
+			return fmt.Errorf("failed to allocate network resource seq id: %w", err)
+		}
+		resource.AccountSeqID = seq
+
 		err = transaction.SaveNetworkResource(ctx, resource)
 		if err != nil {
 			return fmt.Errorf("failed to save network resource: %w", err)
@@ -231,6 +237,7 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 		if err != nil {
 			return fmt.Errorf("failed to get network resource: %w", err)
 		}
+		resource.AccountSeqID = oldResource.AccountSeqID
 
 		err = transaction.SaveNetworkResource(ctx, resource)
 		if err != nil {
