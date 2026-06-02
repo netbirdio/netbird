@@ -192,7 +192,7 @@ func TestBuildJWTConfig_Audiences(t *testing.T) {
 				CLIAuthAudience: tc.cliAuthAudience,
 			}
 
-			result := buildJWTConfig(config, nil)
+			result := buildJWTConfig(config, nil, nil)
 
 			assert.NotNil(t, result)
 			assert.Equal(t, tc.expectedAudiences, result.Audiences, "audiences should match expected")
