@@ -128,7 +128,7 @@ func toPeerConfig(peer *nbpeer.Peer, network *types.Network, dnsName string, set
 	}
 
 	if sshConfig.SshEnabled {
-		sshConfig.JwtConfig = buildJWTConfig(httpConfig, deviceFlowConfig)
+		sshConfig.JwtConfig = buildJWTConfig(httpConfig, deviceFlowConfig, settings)
 	}
 
 	peerConfig := &proto.PeerConfig{
@@ -279,8 +279,8 @@ func ToResponseProto(configProto nbconfig.Protocol) proto.HostConfig_Protocol {
 }
 
 // buildJWTConfig constructs JWT configuration for SSH servers from management server config
-func buildJWTConfig(config *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow) *proto.JWTConfig {
-	if config == nil || config.AuthAudience == "" {
+func buildJWTConfig(config *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfig.DeviceAuthorizationFlow, settings *types.Settings) *proto.JWTConfig {
+	if config == nil || config.AuthAudience == "" || settings == nil {
 		return nil
 	}
 
@@ -309,12 +309,17 @@ func buildJWTConfig(config *nbconfig.HttpServerConfig, deviceFlowConfig *nbconfi
 		audiences = append(audiences, config.CLIAuthAudience)
 	}
 
-	return &proto.JWTConfig{
+	jwtConfig := proto.JWTConfig{
 		Issuer:       issuer,
 		Audience:     audience,
 		Audiences:    audiences,
 		KeysLocation: keysLocation,
 	}
+
+	if settings.SSHJWTMaxTokenAge > 0 {
+		jwtConfig.MaxTokenAge = int64(settings.SSHJWTMaxTokenAge.Seconds())
+	}
+	return &jwtConfig
 }
 
 // deriveIssuerFromTokenEndpoint extracts the issuer URL from a token endpoint
