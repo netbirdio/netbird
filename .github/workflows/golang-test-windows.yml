@@ -68,8 +68,15 @@ jobs:
         run: |
           $packages = go list ./... | Where-Object { $_ -notmatch '/management' } | Where-Object { $_ -notmatch '/relay' } | Where-Object { $_ -notmatch '/signal' } | Where-Object { $_ -notmatch '/proxy' } | Where-Object { $_ -notmatch '/combined' }
           $goExe = "C:\hostedtoolcache\windows\go\${{ steps.go.outputs.go-version }}\x64\bin\go.exe"
-          $cmd = "$goExe test -tags=devcert -timeout 10m -p 1 $($packages -join ' ') > test-out.txt 2>&1"
+          $cmd = "$goExe test -tags=devcert -coverprofile=coverage.txt -timeout 10m -p 1 $($packages -join ' ') > test-out.txt 2>&1"
           Set-Content -Path "${{ github.workspace }}\run-tests.cmd" -Value $cmd
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 #v6.0.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: netbirdio/netbird
+          flags: unit,client
 
       - name: test
         run: PsExec64 -s -w ${{ github.workspace }} cmd.exe /c "${{ github.workspace }}\run-tests.cmd"
