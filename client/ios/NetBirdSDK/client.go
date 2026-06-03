@@ -227,6 +227,16 @@ func (c *Client) RemoveConnectionListener() {
 	c.recorder.RemoveConnectionListener()
 }
 
+// IsLoginRequiredCached reports whether the LAST observed management error was an
+// auth failure (PermissionDenied/InvalidArgument), using the in-memory status
+// recorder. Unlike IsLoginRequired() it performs NO network call, so it is safe to
+// call from the connection listener during teardown (e.g. onDisconnected) without
+// blocking on a slow or unavailable network. Returns false while connected to
+// management or when the last error was not auth-related.
+func (c *Client) IsLoginRequiredCached() bool {
+	return c.recorder.IsLoginRequired()
+}
+
 func (c *Client) IsLoginRequired() bool {
 	var ctx context.Context
 	//nolint
