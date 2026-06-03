@@ -15,6 +15,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/posture"
@@ -134,6 +135,7 @@ type MockAccountManager struct {
 	UpdateAccountPeersFunc         func(ctx context.Context, accountID string, reason types.UpdateReason)
 	UpdateAffectedPeersFunc        func(ctx context.Context, accountID string, peerIDs []string)
 	BufferUpdateAffectedPeersFunc  func(ctx context.Context, accountID string, peerIDs []string, reason types.UpdateReason)
+	ResolveAffectedPeersFunc       func(ctx context.Context, s store.Store, accountID string, change affectedpeers.Change) []string
 	BufferUpdateAccountPeersFunc   func(ctx context.Context, accountID string, reason types.UpdateReason)
 	RecalculateNetworkMapCacheFunc func(ctx context.Context, accountId string) error
 
@@ -215,6 +217,13 @@ func (am *MockAccountManager) UpdateAffectedPeers(ctx context.Context, accountID
 	if am.UpdateAffectedPeersFunc != nil {
 		am.UpdateAffectedPeersFunc(ctx, accountID, peerIDs)
 	}
+}
+
+func (am *MockAccountManager) ResolveAffectedPeers(ctx context.Context, s store.Store, accountID string, change affectedpeers.Change) []string {
+	if am.ResolveAffectedPeersFunc != nil {
+		return am.ResolveAffectedPeersFunc(ctx, s, accountID, change)
+	}
+	return nil
 }
 
 func (am *MockAccountManager) BufferUpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string, reason types.UpdateReason) {

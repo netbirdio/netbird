@@ -8,6 +8,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/posture"
@@ -53,8 +54,7 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 		if isUpdate {
 			action = activity.PostureCheckUpdated
 
-			groupIDs, directPeerIDs := collectPostureCheckAffectedGroupsAndPeers(ctx, transaction, accountID, postureChecks.ID)
-			affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, groupIDs, directPeerIDs)
+			affectedPeerIDs = am.ResolveAffectedPeers(ctx, transaction, accountID, affectedpeers.Change{PostureCheckIDs: []string{postureChecks.ID}})
 		}
 
 		postureChecks.AccountID = accountID
@@ -132,27 +132,6 @@ func (am *DefaultAccountManager) ListPostureChecks(ctx context.Context, accountI
 	}
 
 	return am.Store.GetAccountPostureChecks(ctx, store.LockingStrengthNone, accountID)
-}
-
-// collectPostureCheckAffectedGroupsAndPeers returns group IDs and peer IDs from policies referencing the posture check.
-func collectPostureCheckAffectedGroupsAndPeers(ctx context.Context, transaction store.Store, accountID, postureCheckID string) (groupIDs []string, directPeerIDs []string) {
-	policies, err := transaction.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get policies for posture check affected peers resolution: %v", err)
-		return nil, nil
-	}
-
-	for _, policy := range policies {
-		if slices.Contains(policy.SourcePostureChecks, postureCheckID) {
-			log.WithContext(ctx).Tracef("collectPostureCheckAffectedGroupsAndPeers: posture check %s referenced by policy %s (%s)", postureCheckID, policy.ID, policy.Name)
-			gIDs, pIDs := collectPolicyAffectedGroupsAndPeers(ctx, policy)
-			groupIDs = append(groupIDs, gIDs...)
-			directPeerIDs = append(directPeerIDs, pIDs...)
-		}
-	}
-
-	log.WithContext(ctx).Tracef("collectPostureCheckAffectedGroupsAndPeers: postureCheck=%s -> groupIDs=%v, directPeerIDs=%v", postureCheckID, groupIDs, directPeerIDs)
-	return groupIDs, directPeerIDs
 }
 
 // validatePostureChecks validates the posture checks.

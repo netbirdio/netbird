@@ -11,6 +11,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -178,8 +179,7 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 			return err
 		}
 
-		groupIDs, directPeerIDs := collectRouteAffectedGroupsAndPeers(ctx, newRoute)
-		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, groupIDs, directPeerIDs)
+		affectedPeerIDs = am.ResolveAffectedPeers(ctx, transaction, accountID, affectedpeers.Change{Routes: []*route.Route{newRoute}})
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
@@ -228,8 +228,7 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 			return err
 		}
 
-		groupIDs, directPeerIDs := collectRouteAffectedGroupsAndPeers(ctx, routeToSave, oldRoute)
-		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, groupIDs, directPeerIDs)
+		affectedPeerIDs = am.ResolveAffectedPeers(ctx, transaction, accountID, affectedpeers.Change{Routes: []*route.Route{routeToSave, oldRoute}})
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
@@ -268,8 +267,7 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 			return err
 		}
 
-		groupIDs, directPeerIDs := collectRouteAffectedGroupsAndPeers(ctx, rt)
-		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, groupIDs, directPeerIDs)
+		affectedPeerIDs = am.ResolveAffectedPeers(ctx, transaction, accountID, affectedpeers.Change{Routes: []*route.Route{rt}})
 
 		if err = transaction.DeleteRoute(ctx, accountID, string(routeID)); err != nil {
 			return err
@@ -374,25 +372,6 @@ func validateRouteGroups(ctx context.Context, transaction store.Store, accountID
 func getPlaceholderIP() netip.Prefix {
 	// Using an IP from the documentation range to minimize impact in case older clients try to set a route
 	return netip.PrefixFrom(netip.AddrFrom4([4]byte{192, 0, 2, 0}), 32)
-}
-
-// collectRouteAffectedGroupsAndPeers returns group IDs and direct peer IDs from the given routes.
-func collectRouteAffectedGroupsAndPeers(ctx context.Context, routes ...*route.Route) (groupIDs []string, directPeerIDs []string) {
-	for _, r := range routes {
-		if r == nil {
-			continue
-		}
-		log.WithContext(ctx).Tracef("collectRouteAffectedGroupsAndPeers: route %s groups=%v peerGroups=%v accessControlGroups=%v peer=%q",
-			r.ID, r.Groups, r.PeerGroups, r.AccessControlGroups, r.Peer)
-		groupIDs = append(groupIDs, r.Groups...)
-		groupIDs = append(groupIDs, r.PeerGroups...)
-		groupIDs = append(groupIDs, r.AccessControlGroups...)
-		if r.Peer != "" {
-			directPeerIDs = append(directPeerIDs, r.Peer)
-		}
-	}
-	log.WithContext(ctx).Tracef("collectRouteAffectedGroupsAndPeers: result groupIDs=%v, directPeerIDs=%v", groupIDs, directPeerIDs)
-	return
 }
 
 // GetRoutesByPrefixOrDomains return list of routes by account and route prefix

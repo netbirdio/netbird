@@ -27,6 +27,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/shared/management/status"
@@ -1463,6 +1464,18 @@ func (am *DefaultAccountManager) BufferUpdateAffectedPeers(ctx context.Context, 
 	_ = am.networkMapController.BufferUpdateAffectedPeers(ctx, accountID, peerIDs, reason)
 }
 
+// ResolveAffectedPeers resolves a description of what changed into the peer IDs
+// whose network map may have changed. It is the single entry point shared by the
+// server package and the networks managers (via the account.Manager interface).
+func (am *DefaultAccountManager) ResolveAffectedPeers(ctx context.Context, s store.Store, accountID string, change affectedpeers.Change) []string {
+	peerIDs, err := affectedpeers.Resolve(ctx, s, accountID, change)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to resolve affected peers: %v", err)
+		return nil
+	}
+	return peerIDs
+}
+
 // resolveAffectedPeersForPeerChanges resolves changed peer IDs into the full set of affected peer IDs.
 func (am *DefaultAccountManager) resolveAffectedPeersForPeerChanges(ctx context.Context, s store.Store, accountID string, changedPeerIDs []string) []string {
 	groupIDs, err := s.GetGroupIDsByPeerIDs(ctx, accountID, changedPeerIDs)
@@ -1471,14 +1484,10 @@ func (am *DefaultAccountManager) resolveAffectedPeersForPeerChanges(ctx context.
 		return nil
 	}
 
-	log.WithContext(ctx).Tracef("resolveAffectedPeersForPeerChanges: changedPeers=%v -> groups=%v", changedPeerIDs, groupIDs)
-
-	// Single pass: find entities referencing the changed groups OR the changed peers directly
-	allGroupIDs, directPeerIDs := collectPeerChangeAffectedGroups(ctx, s, accountID, groupIDs, changedPeerIDs)
-	result := am.resolvePeerIDs(ctx, s, accountID, allGroupIDs, directPeerIDs)
-
-	log.WithContext(ctx).Tracef("resolveAffectedPeersForPeerChanges: changedPeers=%v -> %d affected peers", changedPeerIDs, len(result))
-	return result
+	return am.ResolveAffectedPeers(ctx, s, accountID, affectedpeers.Change{
+		ChangedGroupIDs: groupIDs,
+		ChangedPeerIDs:  changedPeerIDs,
+	})
 }
 
 func (am *DefaultAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) {

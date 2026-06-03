@@ -10,6 +10,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -98,8 +99,7 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 			}
 		}
 
-		groupIDs, directPeerIDs := collectGroupChangeAffectedGroups(ctx, transaction, accountID, []string{newGroup.ID})
-		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, groupIDs, directPeerIDs)
+		affectedPeerIDs = am.ResolveAffectedPeers(ctx, transaction, accountID, affectedpeers.Change{ChangedGroupIDs: []string{newGroup.ID}})
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
@@ -171,8 +171,7 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 			return err
 		}
 
-		groupIDs, directPeerIDs := collectGroupChangeAffectedGroups(ctx, transaction, accountID, []string{newGroup.ID})
-		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, groupIDs, append(directPeerIDs, peersToRemove...))
+		affectedPeerIDs = am.ResolveAffectedPeers(ctx, transaction, accountID, affectedpeers.Change{ChangedGroupIDs: []string{newGroup.ID}, ChangedPeerIDs: peersToRemove})
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
@@ -249,8 +248,7 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 		storeEvent()
 	}
 
-	allGroupIDs, directPeerIDs := collectGroupChangeAffectedGroups(ctx, am.Store, accountID, groupIDs)
-	affectedPeerIDs := am.resolvePeerIDs(ctx, am.Store, accountID, allGroupIDs, directPeerIDs)
+	affectedPeerIDs := am.ResolveAffectedPeers(ctx, am.Store, accountID, affectedpeers.Change{ChangedGroupIDs: groupIDs})
 	if len(affectedPeerIDs) > 0 {
 		log.WithContext(ctx).Debugf("CreateGroups %v: updating %d affected peers: %v", groupIDs, len(affectedPeerIDs), affectedPeerIDs)
 		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
@@ -296,8 +294,7 @@ func (am *DefaultAccountManager) UpdateGroups(ctx context.Context, accountID, us
 		storeEvent()
 	}
 
-	allGroupIDs, directPeerIDs := collectGroupChangeAffectedGroups(ctx, am.Store, accountID, groupIDs)
-	affectedPeerIDs := am.resolvePeerIDs(ctx, am.Store, accountID, allGroupIDs, directPeerIDs)
+	affectedPeerIDs := am.ResolveAffectedPeers(ctx, am.Store, accountID, affectedpeers.Change{ChangedGroupIDs: groupIDs})
 	if len(affectedPeerIDs) > 0 {
 		log.WithContext(ctx).Debugf("UpdateGroups %v: updating %d affected peers: %v", groupIDs, len(affectedPeerIDs), affectedPeerIDs)
 		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
@@ -435,6 +432,7 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 	var allErrors error
 	var groupIDsToDelete []string
 	var deletedGroups []*types.Group
+	var affectedPeerIDs []string
 
 	extraSettings, err := am.settingsManager.GetExtraSettings(ctx, accountID)
 	if err != nil {
@@ -462,6 +460,8 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 			return allErrors
 		}
 
+		affectedPeerIDs = am.ResolveAffectedPeers(ctx, transaction, accountID, affectedpeers.Change{ChangedGroupIDs: groupIDsToDelete})
+
 		if err = transaction.DeleteGroups(ctx, accountID, groupIDsToDelete); err != nil {
 			return err
 		}
@@ -478,6 +478,13 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 
 	for _, group := range deletedGroups {
 		am.StoreEvent(ctx, userID, group.ID, accountID, activity.GroupDeleted, group.EventMeta())
+	}
+
+	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("DeleteGroups %v: updating %d affected peers: %v", groupIDsToDelete, len(affectedPeerIDs), affectedPeerIDs)
+		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("DeleteGroups %v: no affected peers", groupIDsToDelete)
 	}
 
 	return allErrors
@@ -497,8 +504,7 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 			return err
 		}
 
-		allGroupIDs, directPeerIDs := collectGroupChangeAffectedGroups(ctx, transaction, accountID, []string{groupID})
-		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, allGroupIDs, directPeerIDs)
+		affectedPeerIDs = am.ResolveAffectedPeers(ctx, transaction, accountID, affectedpeers.Change{ChangedGroupIDs: []string{groupID}})
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
@@ -536,8 +542,7 @@ func (am *DefaultAccountManager) GroupAddResource(ctx context.Context, accountID
 			return err
 		}
 
-		allGroupIDs, directPeerIDs := collectGroupChangeAffectedGroups(ctx, transaction, accountID, []string{groupID})
-		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, allGroupIDs, directPeerIDs)
+		affectedPeerIDs = am.ResolveAffectedPeers(ctx, transaction, accountID, affectedpeers.Change{ChangedGroupIDs: []string{groupID}})
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
@@ -562,8 +567,7 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		// Resolve before removing, so the peer being removed is still included
-		allGroupIDs, directPeerIDs := collectGroupChangeAffectedGroups(ctx, transaction, accountID, []string{groupID})
-		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, allGroupIDs, directPeerIDs)
+		affectedPeerIDs = am.ResolveAffectedPeers(ctx, transaction, accountID, affectedpeers.Change{ChangedGroupIDs: []string{groupID}})
 
 		if err = transaction.RemovePeerFromGroup(ctx, peerID, groupID); err != nil {
 			return err
@@ -609,8 +613,7 @@ func (am *DefaultAccountManager) GroupDeleteResource(ctx context.Context, accoun
 			return err
 		}
 
-		allGroupIDs, directPeerIDs := collectGroupChangeAffectedGroups(ctx, transaction, accountID, []string{groupID})
-		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, allGroupIDs, directPeerIDs)
+		affectedPeerIDs = am.ResolveAffectedPeers(ctx, transaction, accountID, affectedpeers.Change{ChangedGroupIDs: []string{groupID}})
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})

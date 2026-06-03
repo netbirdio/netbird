@@ -13,6 +13,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
@@ -74,7 +75,7 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 			}
 		}
 
-		affectedPeerIDs = am.resolvePolicyAffectedPeers(ctx, transaction, accountID, policy, existingPolicy)
+		affectedPeerIDs = am.ResolveAffectedPeers(ctx, transaction, accountID, affectedpeers.Change{Policies: []*types.Policy{policy, existingPolicy}})
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
@@ -117,7 +118,7 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 			return err
 		}
 
-		affectedPeerIDs = am.resolvePolicyAffectedPeers(ctx, transaction, accountID, policy)
+		affectedPeerIDs = am.ResolveAffectedPeers(ctx, transaction, accountID, affectedpeers.Change{Policies: []*types.Policy{policy}})
 
 		if err = transaction.DeletePolicy(ctx, accountID, policyID); err != nil {
 			return err
@@ -152,43 +153,6 @@ func (am *DefaultAccountManager) ListPolicies(ctx context.Context, accountID, us
 	}
 
 	return am.Store.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
-}
-
-// collectPolicyAffectedGroupsAndPeers returns group IDs and direct peer IDs from the given policies.
-func collectPolicyAffectedGroupsAndPeers(ctx context.Context, policies ...*types.Policy) (groupIDs []string, directPeerIDs []string) {
-	for _, policy := range policies {
-		if policy == nil {
-			continue
-		}
-		ruleGroups := policy.RuleGroups()
-		log.WithContext(ctx).Tracef("collectPolicyAffectedGroupsAndPeers: policy %s (%s) ruleGroups=%v", policy.ID, policy.Name, ruleGroups)
-		groupIDs = append(groupIDs, ruleGroups...)
-		for _, rule := range policy.Rules {
-			if rule.SourceResource.Type == types.ResourceTypePeer && rule.SourceResource.ID != "" {
-				log.WithContext(ctx).Tracef("collectPolicyAffectedGroupsAndPeers: policy %s rule %s direct source peer %s", policy.ID, rule.ID, rule.SourceResource.ID)
-				directPeerIDs = append(directPeerIDs, rule.SourceResource.ID)
-			}
-			if rule.DestinationResource.Type == types.ResourceTypePeer && rule.DestinationResource.ID != "" {
-				log.WithContext(ctx).Tracef("collectPolicyAffectedGroupsAndPeers: policy %s rule %s direct destination peer %s", policy.ID, rule.ID, rule.DestinationResource.ID)
-				directPeerIDs = append(directPeerIDs, rule.DestinationResource.ID)
-			}
-		}
-	}
-	log.WithContext(ctx).Tracef("collectPolicyAffectedGroupsAndPeers: result groupIDs=%v, directPeerIDs=%v", groupIDs, directPeerIDs)
-	return
-}
-
-// resolvePolicyAffectedPeers resolves the peers affected by the given policies into
-// a deduplicated peer ID list. It combines the policies' literal rule groups and
-// direct peers with the routing peers that serve any targeted network resource.
-func (am *DefaultAccountManager) resolvePolicyAffectedPeers(ctx context.Context, transaction store.Store, accountID string, policies ...*types.Policy) []string {
-	groupIDs, directPeerIDs := collectPolicyAffectedGroupsAndPeers(ctx, policies...)
-
-	groupSet := toSet(groupIDs)
-	peerSet := toSet(directPeerIDs)
-	collectPolicyRouterBridge(ctx, transaction, accountID, groupSet, peerSet, policies...)
-
-	return am.resolvePeerIDs(ctx, transaction, accountID, setToSlice(groupSet), setToSlice(peerSet))
 }
 
 // validatePolicy validates the policy and its rules. For updates it returns

@@ -285,3 +285,12 @@ func networkRoutersReferenceGroups(ctx context.Context, transaction store.Store,
 	}
 	return false, nil
 }
+
+func anyInSet(ids []string, set map[string]struct{}) bool {
+	for _, id := range ids {
+		if _, ok := set[id]; ok {
+			return true
+		}
+	}
+	return false
+}

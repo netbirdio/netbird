@@ -10,6 +10,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
 	"github.com/netbirdio/netbird/management/internals/controllers/network_map/update_channel"
+	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/networks"
 	"github.com/netbirdio/netbird/management/server/networks/resources"
@@ -199,10 +200,10 @@ func peerToResourcePolicyByResource(sourceGroupID, resourceID string) *types.Pol
 // routing peer is expected to be in the affected set but is not.
 // ---------------------------------------------------------------------------
 
-// resolvePolicyAffected mirrors SavePolicy's resolution: collect groups/peers
-// from the policy, then expand to concrete peer IDs.
+// resolvePolicyAffected mirrors SavePolicy's resolution: resolve the affected
+// peers for the given policy.
 func (s *routerScenario) resolvePolicyAffected(ctx context.Context, policy *types.Policy) []string {
-	return s.manager.resolvePolicyAffectedPeers(ctx, s.manager.Store, s.accountID, policy)
+	return s.manager.ResolveAffectedPeers(ctx, s.manager.Store, s.accountID, affectedpeers.Change{Policies: []*types.Policy{policy}})
 }
 
 func TestAffectedPeers_PolicyToResourceByGroup_IncludesSourcePeer_DirectRouter(t *testing.T) {

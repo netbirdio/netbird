@@ -15,6 +15,7 @@ import (
 	dns "github.com/netbirdio/netbird/dns"
 	service "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	activity "github.com/netbirdio/netbird/management/server/activity"
+	affectedpeers "github.com/netbirdio/netbird/management/server/affectedpeers"
 	idp "github.com/netbirdio/netbird/management/server/idp"
 	peer "github.com/netbirdio/netbird/management/server/peer"
 	posture "github.com/netbirdio/netbird/management/server/posture"
@@ -1659,6 +1660,20 @@ func (m *MockManager) UpdateAffectedPeers(ctx context.Context, accountID string,
 func (mr *MockManagerMockRecorder) UpdateAffectedPeers(ctx, accountID, peerIDs interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAffectedPeers", reflect.TypeOf((*MockManager)(nil).UpdateAffectedPeers), ctx, accountID, peerIDs)
+}
+
+// ResolveAffectedPeers mocks base method.
+func (m *MockManager) ResolveAffectedPeers(ctx context.Context, s store.Store, accountID string, change affectedpeers.Change) []string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ResolveAffectedPeers", ctx, s, accountID, change)
+	ret0, _ := ret[0].([]string)
+	return ret0
+}
+
+// ResolveAffectedPeers indicates an expected call of ResolveAffectedPeers.
+func (mr *MockManagerMockRecorder) ResolveAffectedPeers(ctx, s, accountID, change interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolveAffectedPeers", reflect.TypeOf((*MockManager)(nil).ResolveAffectedPeers), ctx, s, accountID, change)
 }
 
 // UpdateAccountSettings mocks base method.

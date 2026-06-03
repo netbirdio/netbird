@@ -13,6 +13,7 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
+	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -21,6 +22,20 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
 )
+
+// Thin test adapters over affectedpeers.Collect, preserving the (groups, peers)
+// shape these tests assert on after the resolver was unified.
+func collectGroupChangeAffectedGroups(ctx context.Context, s store.Store, accountID string, changedGroupIDs []string) ([]string, []string) {
+	return affectedpeers.Collect(ctx, s, accountID, affectedpeers.Change{ChangedGroupIDs: changedGroupIDs})
+}
+
+func collectPeerChangeAffectedGroups(ctx context.Context, s store.Store, accountID string, changedGroupIDs, changedPeerIDs []string) ([]string, []string) {
+	return affectedpeers.Collect(ctx, s, accountID, affectedpeers.Change{ChangedGroupIDs: changedGroupIDs, ChangedPeerIDs: changedPeerIDs})
+}
+
+func collectPostureCheckAffectedGroupsAndPeers(ctx context.Context, s store.Store, accountID, postureCheckID string) ([]string, []string) {
+	return affectedpeers.Collect(ctx, s, accountID, affectedpeers.Change{PostureCheckIDs: []string{postureCheckID}})
+}
 
 // setupAffectedPeersTest creates a manager with a clean account (default policy deleted)
 // and 5 peers, each in its own group: peer0->group0, peer1->group1, ..., peer4->group4.
@@ -425,219 +440,8 @@ func TestCollectGroupChange_MultipleNameServerGroups_OnlyLinkedAffected(t *testi
 	assert.Empty(t, groups)
 }
 
-// ---------------------------------------------------------------------------
-// collectPolicyAffectedGroupsAndPeers unit tests
-// ---------------------------------------------------------------------------
-
-func TestCollectPolicyAffectedGroups_Basic(t *testing.T) {
-	policy := &types.Policy{
-		Rules: []*types.PolicyRule{
-			{
-				Sources:      []string{"g1", "g2"},
-				Destinations: []string{"g3"},
-			},
-		},
-	}
-	groups, directPeers := collectPolicyAffectedGroupsAndPeers(context.Background(), policy)
-	assert.ElementsMatch(t, []string{"g1", "g2", "g3"}, groups)
-	assert.Empty(t, directPeers)
-}
-
-func TestCollectPolicyAffectedGroups_WithPeerResources(t *testing.T) {
-	policy := &types.Policy{
-		Rules: []*types.PolicyRule{
-			{
-				Sources:             []string{"g1"},
-				SourceResource:      types.Resource{ID: "p1", Type: types.ResourceTypePeer},
-				Destinations:        []string{"g2"},
-				DestinationResource: types.Resource{ID: "p2", Type: types.ResourceTypePeer},
-			},
-		},
-	}
-	groups, directPeers := collectPolicyAffectedGroupsAndPeers(context.Background(), policy)
-	assert.ElementsMatch(t, []string{"g1", "g2"}, groups)
-	assert.ElementsMatch(t, []string{"p1", "p2"}, directPeers)
-}
-
-func TestCollectPolicyAffectedGroups_NilPolicy(t *testing.T) {
-	groups, directPeers := collectPolicyAffectedGroupsAndPeers(context.Background(), nil)
-	assert.Nil(t, groups)
-	assert.Nil(t, directPeers)
-}
-
-func TestCollectPolicyAffectedGroups_MultipleRules(t *testing.T) {
-	policy := &types.Policy{
-		Rules: []*types.PolicyRule{
-			{Sources: []string{"g1"}, Destinations: []string{"g2"}},
-			{Sources: []string{"g3"}, Destinations: []string{"g4"}},
-		},
-	}
-	groups, _ := collectPolicyAffectedGroupsAndPeers(context.Background(), policy)
-	assert.ElementsMatch(t, []string{"g1", "g2", "g3", "g4"}, groups)
-}
-
-func TestCollectPolicyAffectedGroups_MultiplePolicies(t *testing.T) {
-	old := &types.Policy{
-		Rules: []*types.PolicyRule{
-			{Sources: []string{"g1"}, Destinations: []string{"g2"}},
-		},
-	}
-	updated := &types.Policy{
-		Rules: []*types.PolicyRule{
-			{Sources: []string{"g3"}, Destinations: []string{"g4"}},
-		},
-	}
-	groups, _ := collectPolicyAffectedGroupsAndPeers(context.Background(), updated, old)
-	assert.ElementsMatch(t, []string{"g1", "g2", "g3", "g4"}, groups)
-}
-
-func TestCollectPolicyAffectedGroups_EmptyRules(t *testing.T) {
-	policy := &types.Policy{Rules: []*types.PolicyRule{}}
-	groups, directPeers := collectPolicyAffectedGroupsAndPeers(context.Background(), policy)
-	assert.Empty(t, groups)
-	assert.Empty(t, directPeers)
-}
-
-func TestCollectPolicyAffectedGroups_NonPeerResource(t *testing.T) {
-	policy := &types.Policy{
-		Rules: []*types.PolicyRule{
-			{
-				Sources:        []string{"g1"},
-				SourceResource: types.Resource{ID: "domain-1", Type: types.ResourceTypeDomain},
-				Destinations:   []string{"g2"},
-			},
-		},
-	}
-	groups, directPeers := collectPolicyAffectedGroupsAndPeers(context.Background(), policy)
-	assert.ElementsMatch(t, []string{"g1", "g2"}, groups)
-	assert.Empty(t, directPeers, "domain resource type should not produce direct peer IDs")
-}
-
-// ---------------------------------------------------------------------------
-// collectRouteAffectedGroupsAndPeers unit tests
-// ---------------------------------------------------------------------------
-
-func TestCollectRouteAffectedGroups_Basic(t *testing.T) {
-	r := &route.Route{
-		Groups:              []string{"g1"},
-		PeerGroups:          []string{"g2"},
-		AccessControlGroups: []string{"g3"},
-	}
-	groups, directPeers := collectRouteAffectedGroupsAndPeers(context.Background(), r)
-	assert.ElementsMatch(t, []string{"g1", "g2", "g3"}, groups)
-	assert.Empty(t, directPeers)
-}
-
-func TestCollectRouteAffectedGroups_WithDirectPeer(t *testing.T) {
-	r := &route.Route{
-		Groups: []string{"g1"},
-		Peer:   "p1",
-	}
-	groups, directPeers := collectRouteAffectedGroupsAndPeers(context.Background(), r)
-	assert.ElementsMatch(t, []string{"g1"}, groups)
-	assert.ElementsMatch(t, []string{"p1"}, directPeers)
-}
-
-func TestCollectRouteAffectedGroups_NilRoute(t *testing.T) {
-	groups, directPeers := collectRouteAffectedGroupsAndPeers(context.Background(), nil)
-	assert.Nil(t, groups)
-	assert.Nil(t, directPeers)
-}
-
-func TestCollectRouteAffectedGroups_MultipleRoutes(t *testing.T) {
-	old := &route.Route{
-		Groups: []string{"g1"},
-		Peer:   "p1",
-	}
-	updated := &route.Route{
-		Groups:     []string{"g2"},
-		PeerGroups: []string{"g3"},
-	}
-	groups, directPeers := collectRouteAffectedGroupsAndPeers(context.Background(), updated, old)
-	assert.ElementsMatch(t, []string{"g1", "g2", "g3"}, groups)
-	assert.ElementsMatch(t, []string{"p1"}, directPeers)
-}
-
-// ---------------------------------------------------------------------------
-// policyReferencesGroups / routeReferencesGroups / routerReferencesGroups
-// ---------------------------------------------------------------------------
-
-func TestPolicyReferencesGroups(t *testing.T) {
-	policy := &types.Policy{
-		Rules: []*types.PolicyRule{
-			{
-				Sources:      []string{"g1", "g2"},
-				Destinations: []string{"g3"},
-			},
-		},
-	}
-
-	tests := []struct {
-		name     string
-		groupSet map[string]struct{}
-		want     bool
-	}{
-		{"matches source", map[string]struct{}{"g1": {}}, true},
-		{"matches destination", map[string]struct{}{"g3": {}}, true},
-		{"no match", map[string]struct{}{"g4": {}}, false},
-		{"empty set", map[string]struct{}{}, false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := policyReferencesGroups(policy, tt.groupSet)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
-
-func TestRouteReferencesGroups(t *testing.T) {
-	r := &route.Route{
-		Groups:              []string{"g1"},
-		PeerGroups:          []string{"g2"},
-		AccessControlGroups: []string{"g3"},
-	}
-
-	tests := []struct {
-		name     string
-		groupSet map[string]struct{}
-		want     bool
-	}{
-		{"matches groups", map[string]struct{}{"g1": {}}, true},
-		{"matches peerGroups", map[string]struct{}{"g2": {}}, true},
-		{"matches accessControl", map[string]struct{}{"g3": {}}, true},
-		{"no match", map[string]struct{}{"g4": {}}, false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := routeReferencesGroups(r, tt.groupSet)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
-
-func TestRouterReferencesGroups(t *testing.T) {
-	router := &routerTypes.NetworkRouter{
-		PeerGroups: []string{"g1", "g2"},
-	}
-
-	tests := []struct {
-		name     string
-		groupSet map[string]struct{}
-		want     bool
-	}{
-		{"matches", map[string]struct{}{"g1": {}}, true},
-		{"no match", map[string]struct{}{"g3": {}}, false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := routerReferencesGroups(router, tt.groupSet)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
+// Pure policy/route/router extraction unit tests moved to the affectedpeers
+// package (management/server/affectedpeers) along with the logic they cover.
 
 // ---------------------------------------------------------------------------
 // resolvePeerIDs tests

@@ -13,6 +13,7 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
@@ -109,7 +110,7 @@ type Manager interface {
 	UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Settings, error)
 	UpdateAccountOnboarding(ctx context.Context, accountID, userID string, newOnboarding *types.AccountOnboarding) (*types.AccountOnboarding, error)
 	LoginPeer(ctx context.Context, login types.PeerLogin) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)                       // used by peer gRPC API
-	ExtendPeerSession(ctx context.Context, peerPubKey, userID string) (time.Time, error)                                                   // used by peer gRPC API for ExtendAuthSession
+	ExtendPeerSession(ctx context.Context, peerPubKey, userID string) (time.Time, error)                                                    // used by peer gRPC API for ExtendAuthSession
 	SyncPeer(ctx context.Context, sync types.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error) // used by peer gRPC API
 	GetExternalCacheManager() ExternalCacheManager
 	GetPostureChecks(ctx context.Context, accountID, postureChecksID, userID string) (*posture.Checks, error)
@@ -130,6 +131,7 @@ type Manager interface {
 	UpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason)
 	UpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string)
 	BufferUpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string, reason types.UpdateReason)
+	ResolveAffectedPeers(ctx context.Context, s store.Store, accountID string, change affectedpeers.Change) []string
 	BufferUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason)
 	BuildUserInfosForAccount(ctx context.Context, accountID, initiatorUserID string, accountUsers []*types.User) (map[string]*types.UserInfo, error)
 	SyncUserJWTGroups(ctx context.Context, userAuth auth.UserAuth) error

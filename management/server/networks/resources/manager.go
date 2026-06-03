@@ -10,6 +10,7 @@ import (
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	"github.com/netbirdio/netbird/management/server/groups"
 	"github.com/netbirdio/netbird/management/server/networks/resources/types"
 	"github.com/netbirdio/netbird/management/server/permissions"
@@ -114,10 +115,10 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 	}
 
 	var eventsToStore []func()
-	var affectedData *resourceAffectedPeersData
+	var affectedPeerIDs []string
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		var txErr error
-		eventsToStore, affectedData, txErr = m.createResourceInTransaction(ctx, transaction, userID, resource)
+		eventsToStore, affectedPeerIDs, txErr = m.createResourceInTransaction(ctx, transaction, userID, resource)
 		return txErr
 	})
 	if err != nil {
@@ -128,7 +129,7 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 		event()
 	}
 
-	if affectedPeerIDs := m.resolveResourceAffectedPeers(ctx, resource.AccountID, affectedData); len(affectedPeerIDs) > 0 {
+	if len(affectedPeerIDs) > 0 {
 		log.WithContext(ctx).Debugf("CreateResource %s: updating %d affected peers: %v", resource.ID, len(affectedPeerIDs), affectedPeerIDs)
 		go m.accountManager.UpdateAffectedPeers(ctx, resource.AccountID, affectedPeerIDs)
 	} else {
@@ -138,7 +139,7 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 	return resource, nil
 }
 
-func (m *managerImpl) createResourceInTransaction(ctx context.Context, transaction store.Store, userID string, resource *types.NetworkResource) ([]func(), *resourceAffectedPeersData, error) {
+func (m *managerImpl) createResourceInTransaction(ctx context.Context, transaction store.Store, userID string, resource *types.NetworkResource) ([]func(), []string, error) {
 	_, err := transaction.GetNetworkResourceByName(ctx, store.LockingStrengthNone, resource.AccountID, resource.Name)
 	if err == nil {
 		return nil, nil, status.Errorf(status.InvalidArgument, "resource with name %s already exists", resource.Name)
@@ -174,12 +175,9 @@ func (m *managerImpl) createResourceInTransaction(ctx context.Context, transacti
 		return nil, nil, fmt.Errorf("failed to increment network serial: %w", err)
 	}
 
-	affectedData, err := loadResourceAffectedPeersData(ctx, transaction, resource.AccountID, resource.NetworkID, resource.GroupIDs)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to load affected peers data: %v", err)
-	}
+	affectedPeerIDs := m.accountManager.ResolveAffectedPeers(ctx, transaction, resource.AccountID, affectedpeers.Change{ResourceIDs: []string{resource.ID}})
 
-	return eventsToStore, affectedData, nil
+	return eventsToStore, affectedPeerIDs, nil
 }
 
 func (m *managerImpl) GetResource(ctx context.Context, accountID, userID, networkID, resourceID string) (*types.NetworkResource, error) {
@@ -222,7 +220,7 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 	resource.Prefix = prefix
 
 	var eventsToStore []func()
-	var affectedData *resourceAffectedPeersData
+	var affectedPeerIDs []string
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		network, err := transaction.GetNetworkByID(ctx, store.LockingStrengthUpdate, resource.AccountID, resource.NetworkID)
 		if err != nil {
@@ -248,7 +246,7 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 			return fmt.Errorf("failed to get network resource: %w", err)
 		}
 
-		oldGroups, err := m.groupsManager.GetResourceGroupsInTransaction(ctx, transaction, store.LockingStrengthNone, oldResource.AccountID, oldResource.ID)
+		oldGroups, err := m.groupsManager.GetResourceGroupsInTransaction(ctx, transaction, store.LockingStrengthNone, resource.AccountID, resource.ID)
 		if err != nil {
 			return fmt.Errorf("failed to get old resource groups: %w", err)
 		}
@@ -272,10 +270,12 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 			m.accountManager.StoreEvent(ctx, userID, resource.ID, resource.AccountID, activity.NetworkResourceUpdated, resource.EventMeta(network))
 		})
 
-		affectedData, err = loadResourceAffectedPeersData(ctx, transaction, resource.AccountID, resource.NetworkID, append(resource.GroupIDs, oldGroupIDs...))
-		if err != nil {
-			log.WithContext(ctx).Errorf("failed to load affected peers data: %v", err)
-		}
+		// Pass both old and new resource group IDs so policies that targeted the
+		// resource via a now-detached group still refresh their source peers.
+		affectedPeerIDs = m.accountManager.ResolveAffectedPeers(ctx, transaction, resource.AccountID, affectedpeers.Change{
+			ResourceIDs:     []string{resource.ID},
+			ChangedGroupIDs: append(oldGroupIDs, resource.GroupIDs...),
+		})
 
 		err = transaction.IncrementNetworkSerial(ctx, resource.AccountID)
 		if err != nil {
@@ -300,7 +300,7 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 		}
 	}()
 
-	if affectedPeerIDs := m.resolveResourceAffectedPeers(ctx, resource.AccountID, affectedData); len(affectedPeerIDs) > 0 {
+	if len(affectedPeerIDs) > 0 {
 		log.WithContext(ctx).Debugf("UpdateResource %s: updating %d affected peers: %v", resource.ID, len(affectedPeerIDs), affectedPeerIDs)
 		go m.accountManager.UpdateAffectedPeers(ctx, resource.AccountID, affectedPeerIDs)
 	} else {
@@ -366,21 +366,9 @@ func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, net
 	}
 
 	var events []func()
-	var affectedData *resourceAffectedPeersData
+	var affectedPeerIDs []string
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		groups, err := m.groupsManager.GetResourceGroupsInTransaction(ctx, transaction, store.LockingStrengthNone, accountID, resourceID)
-		if err != nil {
-			return fmt.Errorf("failed to get resource groups: %w", err)
-		}
-		var resourceGroupIDs []string
-		for _, g := range groups {
-			resourceGroupIDs = append(resourceGroupIDs, g.ID)
-		}
-
-		affectedData, err = loadResourceAffectedPeersData(ctx, transaction, accountID, networkID, resourceGroupIDs)
-		if err != nil {
-			log.WithContext(ctx).Errorf("failed to load affected peers data: %v", err)
-		}
+		affectedPeerIDs = m.accountManager.ResolveAffectedPeers(ctx, transaction, accountID, affectedpeers.Change{ResourceIDs: []string{resourceID}})
 
 		events, err = m.DeleteResourceInTransaction(ctx, transaction, accountID, userID, networkID, resourceID)
 		if err != nil {
@@ -402,7 +390,7 @@ func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, net
 		event()
 	}
 
-	if affectedPeerIDs := m.resolveResourceAffectedPeers(ctx, accountID, affectedData); len(affectedPeerIDs) > 0 {
+	if len(affectedPeerIDs) > 0 {
 		log.WithContext(ctx).Debugf("DeleteResource %s: updating %d affected peers: %v", resourceID, len(affectedPeerIDs), affectedPeerIDs)
 		go m.accountManager.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
 	} else {
@@ -452,151 +440,6 @@ func (m *managerImpl) DeleteResourceInTransaction(ctx context.Context, transacti
 	})
 
 	return eventsToStore, nil
-}
-
-// resourceAffectedPeersData holds data loaded inside a transaction for affected peer resolution.
-type resourceAffectedPeersData struct {
-	resourceGroupIDs  []string
-	policies          []*nbtypes.Policy
-	routerPeerGroups  []string
-	routerDirectPeers []string
-}
-
-// loadResourceAffectedPeersData loads the data needed to determine affected peers within a transaction.
-func loadResourceAffectedPeersData(ctx context.Context, transaction store.Store, accountID, networkID string, resourceGroupIDs []string) (*resourceAffectedPeersData, error) {
-	if len(resourceGroupIDs) == 0 {
-		return &resourceAffectedPeersData{}, nil
-	}
-
-	policies, err := transaction.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get policies: %w", err)
-	}
-
-	routers, err := transaction.GetNetworkRoutersByNetID(ctx, store.LockingStrengthNone, accountID, networkID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get routers: %w", err)
-	}
-
-	var routerPeerGroups []string
-	var routerDirectPeers []string
-	for _, router := range routers {
-		if !router.Enabled {
-			continue
-		}
-		routerPeerGroups = append(routerPeerGroups, router.PeerGroups...)
-		if router.Peer != "" {
-			routerDirectPeers = append(routerDirectPeers, router.Peer)
-		}
-	}
-
-	return &resourceAffectedPeersData{
-		resourceGroupIDs:  resourceGroupIDs,
-		policies:          policies,
-		routerPeerGroups:  routerPeerGroups,
-		routerDirectPeers: routerDirectPeers,
-	}, nil
-}
-
-// resolveResourceAffectedPeers computes affected peer IDs from preloaded data outside the transaction.
-func (m *managerImpl) resolveResourceAffectedPeers(ctx context.Context, accountID string, data *resourceAffectedPeersData) []string {
-	if data == nil {
-		return nil
-	}
-
-	log.WithContext(ctx).Tracef("resolveResourceAffectedPeers: resourceGroupIDs=%v, routerPeerGroups=%v, routerDirectPeers=%v, policies=%d",
-		data.resourceGroupIDs, data.routerPeerGroups, data.routerDirectPeers, len(data.policies))
-
-	groupSet := make(map[string]struct{})
-	directPeerIDs := collectResourcePolicySourceGroups(data.policies, data.resourceGroupIDs, groupSet)
-
-	for _, gID := range data.routerPeerGroups {
-		groupSet[gID] = struct{}{}
-	}
-	directPeerIDs = append(directPeerIDs, data.routerDirectPeers...)
-
-	if len(groupSet) == 0 && len(directPeerIDs) == 0 {
-		return nil
-	}
-
-	peerIDs := resolveGroupsAndDirectPeers(ctx, m.store, accountID, groupSet, directPeerIDs)
-
-	log.WithContext(ctx).Tracef("resolveResourceAffectedPeers: result %d peers: %v", len(peerIDs), peerIDs)
-	return peerIDs
-}
-
-// collectResourcePolicySourceGroups finds policies whose rules reference the resource destination groups,
-// adds their source groups to groupSet, and returns any direct peer IDs from source resources.
-func collectResourcePolicySourceGroups(policies []*nbtypes.Policy, destGroupIDs []string, groupSet map[string]struct{}) []string {
-	destSet := make(map[string]struct{}, len(destGroupIDs))
-	for _, gID := range destGroupIDs {
-		destSet[gID] = struct{}{}
-	}
-
-	var directPeerIDs []string
-	for _, policy := range policies {
-		if policy == nil || !policy.Enabled {
-			continue
-		}
-		directPeerIDs = collectSourcesFromPolicyRules(policy.Rules, destSet, groupSet, directPeerIDs)
-	}
-	return directPeerIDs
-}
-
-func collectSourcesFromPolicyRules(rules []*nbtypes.PolicyRule, destSet map[string]struct{}, groupSet map[string]struct{}, directPeerIDs []string) []string {
-	for _, rule := range rules {
-		if rule == nil || !rule.Enabled {
-			continue
-		}
-		if !ruleMatchesDestinations(rule, destSet) {
-			continue
-		}
-		for _, gID := range rule.Sources {
-			groupSet[gID] = struct{}{}
-		}
-		if rule.SourceResource.Type == nbtypes.ResourceTypePeer && rule.SourceResource.ID != "" {
-			directPeerIDs = append(directPeerIDs, rule.SourceResource.ID)
-		}
-	}
-	return directPeerIDs
-}
-
-func ruleMatchesDestinations(rule *nbtypes.PolicyRule, destSet map[string]struct{}) bool {
-	for _, gID := range rule.Destinations {
-		if _, ok := destSet[gID]; ok {
-			return true
-		}
-	}
-	return false
-}
-
-func resolveGroupsAndDirectPeers(ctx context.Context, s store.Store, accountID string, groupSet map[string]struct{}, directPeerIDs []string) []string {
-	groupIDs := make([]string, 0, len(groupSet))
-	for gID := range groupSet {
-		groupIDs = append(groupIDs, gID)
-	}
-
-	peerIDs, err := s.GetPeerIDsByGroups(ctx, accountID, groupIDs)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to resolve peer IDs: %v", err)
-		return nil
-	}
-
-	if len(directPeerIDs) == 0 {
-		return peerIDs
-	}
-
-	seen := make(map[string]struct{}, len(peerIDs))
-	for _, id := range peerIDs {
-		seen[id] = struct{}{}
-	}
-	for _, id := range directPeerIDs {
-		if _, exists := seen[id]; !exists {
-			peerIDs = append(peerIDs, id)
-			seen[id] = struct{}{}
-		}
-	}
-	return peerIDs
 }
 
 func NewManagerMock() Manager {
