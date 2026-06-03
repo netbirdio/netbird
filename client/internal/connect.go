@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -346,6 +347,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			return wrapErr(err)
 		}
 		engineConfig.TempDir = mobileDependency.TempDir
+		engineConfig.StateDir = filepath.Dir(path)
 
 		relayManager := relayClient.NewManager(engineCtx, relayURLs, myPrivateKey.PublicKey().String(), engineConfig.MTU)
 		c.statusRecorder.SetRelayMgr(relayManager)
