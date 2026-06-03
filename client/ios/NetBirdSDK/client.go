@@ -170,6 +170,10 @@ func (c *Client) Run(fd int32, interfaceName string, envList *EnvList) error {
 
 	connectClient := internal.NewConnectClient(ctx, cfg, c.recorder)
 	c.setState(cfg, connectClient)
+	// Persist the latest sync response so DebugBundle can include the network
+	// map. On iOS this is backed by disk to keep it out of the constrained
+	// process memory (see the syncstore package).
+	connectClient.SetSyncResponsePersistence(true)
 	return connectClient.RunOniOS(fd, c.networkChangeListener, c.dnsManager, c.stateFile, c.cacheDir)
 }
 
