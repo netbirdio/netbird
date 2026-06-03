@@ -1820,7 +1820,7 @@ func (s *Server) getJWTCacheTTL() time.Duration {
 
 // cachedJWT returns the cached SSH JWT to the identity that obtained it, and a
 // miss on a control channel that carries no caller identity.
-func (s *Server) cachedJWT(ctx context.Context) (string, bool) {
+func (s *Server) cachedJWT(ctx context.Context, jwtCacheTtl time.Duration) (string, bool) {
 	caller, ok := ipcauth.CallerIdentity(ctx)
 	if !ok {
 		// Expected and handled on a control channel with no peer identity: the
@@ -1829,7 +1829,7 @@ func (s *Server) cachedJWT(ctx context.Context) (string, bool) {
 		log.Debug("not serving the cached SSH JWT: the caller's identity cannot be verified on this control channel")
 		return "", false
 	}
-	return s.jwtCache.get(caller)
+	return s.jwtCache.get(caller, jwtCacheTtl)
 }
 
 // RequestJWTAuth initiates JWT authentication flow for SSH
@@ -1857,7 +1857,7 @@ func (s *Server) RequestJWTAuth(
 
 	jwtCacheTTL := s.getJWTCacheTTL()
 	if jwtCacheTTL > 0 {
-		if cachedToken, found := s.cachedJWT(ctx); found {
+		if cachedToken, found := s.cachedJWT(ctx, jwtCacheTTL); found {
 			log.Debugf("JWT token found in cache, returning cached token for SSH authentication")
 
 			return &proto.RequestJWTAuthResponse{
