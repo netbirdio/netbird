@@ -2216,7 +2216,7 @@ func (e *Engine) updateDNSForwarder(
 	enabled bool,
 	fwdEntries []*dnsfwd.ForwarderEntry,
 ) {
-	if e.config.DisableServerRoutes {
+	if e.config.DisableServerRoutes || e.config.BlockInbound {
 		return
 	}
 
