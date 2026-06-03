@@ -40,11 +40,19 @@ check_docker_sock_perms() {
     echo "Socket permissions:" > /dev/stderr
     ls -l "$sock" > /dev/stderr
     echo "" > /dev/stderr
-    echo "Your user may need to be added to the '$group' group:" > /dev/stderr
-    echo "  sudo usermod -aG $group \"$USER\"" > /dev/stderr
-    echo "Then log out and back in, or run this for the current shell:" > /dev/stderr
-    echo "  newgrp $group" > /dev/stderr
-    echo "Note: newgrp is temporary; usermod is the permanent group change." > /dev/stderr
+
+    if [[ "$group" == "docker" ]]; then
+      echo "Your user may need to be added to the '$group' group:" > /dev/stderr
+      echo "  sudo usermod -aG $group \"$USER\"" > /dev/stderr
+      echo "Then log out and back in, or run this for the current shell:" > /dev/stderr
+      echo "  newgrp $group" > /dev/stderr
+      echo "Note: newgrp is temporary; usermod is the permanent group change." > /dev/stderr
+    else
+      echo "The Docker socket is owned by the '$group' group, which is not the standard 'docker' group." > /dev/stderr
+      echo "For safety, this script will not suggest adding your user to '$group'." > /dev/stderr
+      echo "Instead, either run this script with appropriate privileges (for example, via sudo) or follow Docker's post-install steps to configure access via the 'docker' group:" > /dev/stderr
+      echo "  https://docs.docker.com/engine/install/linux-postinstall/" > /dev/stderr
+    fi
 
     exit 1
   fi
