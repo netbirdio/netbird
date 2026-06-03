@@ -60,20 +60,46 @@ func (s *Server) onMDMPolicyChange(_, curr *mdm.Policy) {
 		return
 	}
 
-	// Notify any active gRPC SubscribeEvents subscriber (typically the UI
-	// tray) that the daemon's effective configuration has changed.
-	// Reusing the SYSTEM category keeps the proto enum stable for
-	// backwards-compat; metadata["source"]="mdm" + ["type"]="policy_changed"
-	// disambiguates the trigger for handler routing on the client side.
-	managed := curr.ManagedKeys()
+	// publishConfigChangedEvent has already fired inside
+	// restartEngineForMDM with source="mdm". Here we additionally emit an
+	// MDM-specific user-visible toast so the operator knows their IT
+	// policy was applied (UserMessage != "" triggers the GUI notifier).
+	_ = curr
 	s.statusRecorder.PublishEvent(
 		proto.SystemEvent_INFO,
 		proto.SystemEvent_SYSTEM,
-		fmt.Sprintf("MDM policy applied; engine restarted with %d managed key(s)", len(managed)),
+		"MDM policy applied",
 		"NetBird configuration was updated by your IT policy.",
+		map[string]string{"source": "mdm", "type": "policy_applied"},
+	)
+}
+
+// publishConfigChangedEvent broadcasts a SystemEvent informing any active
+// SubscribeEvents subscriber (typically the GUI tray) that the daemon's
+// effective Config has been replaced and any cached client-side view
+// should be refreshed. Callers pass a stable `source` label so the GUI
+// can distinguish a startup spawn from a user-triggered Up or an
+// MDM-driven restart. Reusing the SYSTEM category keeps the proto enum
+// stable; metadata.type="config_changed" routes to the GUI's refresh
+// handler. UserMessage is left empty so the system tray does not toast
+// for every internal restart; the MDM path emits a separate
+// "policy_applied" event (with UserMessage) for that purpose.
+func (s *Server) publishConfigChangedEvent(source string) {
+	if s.statusRecorder == nil {
+		return
+	}
+	var managed []string
+	if s.config != nil {
+		managed = s.config.Policy().ManagedKeys()
+	}
+	s.statusRecorder.PublishEvent(
+		proto.SystemEvent_INFO,
+		proto.SystemEvent_SYSTEM,
+		fmt.Sprintf("daemon config changed (source=%s)", source),
+		"",
 		map[string]string{
-			"source":         "mdm",
-			"type":           "policy_changed",
+			"source":         source,
+			"type":           "config_changed",
 			"managed_fields": strings.Join(managed, ","),
 		},
 	)
@@ -122,6 +148,7 @@ func (s *Server) restartEngineForMDM() error {
 	s.clientGiveUpChan = make(chan struct{})
 	log.Info("MDM restart: spawning connectWithRetryRuns with re-resolved config")
 	go s.connectWithRetryRuns(ctx, config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
+	s.publishConfigChangedEvent("mdm")
 	return nil
 }
 

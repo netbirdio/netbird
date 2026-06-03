@@ -230,6 +230,7 @@ func (s *Server) Start() error {
 	s.clientRunningChan = make(chan struct{})
 	s.clientGiveUpChan = make(chan struct{})
 	go s.connectWithRetryRuns(ctx, config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
+	s.publishConfigChangedEvent("startup")
 	return nil
 }
 
@@ -768,6 +769,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	s.clientGiveUpChan = make(chan struct{})
 
 	go s.connectWithRetryRuns(ctx, s.config, s.statusRecorder, s.clientRunningChan, s.clientGiveUpChan)
+	s.publishConfigChangedEvent("up_rpc")
 
 	s.mutex.Unlock()
 	return s.waitForUp(callerCtx)

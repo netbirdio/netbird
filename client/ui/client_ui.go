@@ -1150,6 +1150,17 @@ func (s *serviceClient) onTrayReady() {
 			s.onUpdateAvailable(newVersion, enforced)
 		}
 	})
+	s.eventManager.AddHandler(func(event *proto.SystemEvent) {
+		// Daemon emits a config_changed event after every engine spawn
+		// (Server.Start, Server.Up, MDM ticker restart). Re-sync the
+		// tray submenu checkboxes from the fresh daemon-side config so
+		// the user does not have to restart the tray to see CLI- or
+		// MDM-driven changes.
+		if event.Category == proto.SystemEvent_SYSTEM && event.Metadata["type"] == "config_changed" {
+			log.Infof("config_changed event received (source=%s); refreshing settings", event.Metadata["source"])
+			s.loadSettings()
+		}
+	})
 
 	go s.eventManager.Start(s.ctx)
 	go s.eventHandler.listen(s.ctx)
