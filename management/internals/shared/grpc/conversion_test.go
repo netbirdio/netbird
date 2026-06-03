@@ -5,6 +5,7 @@ import (
 	"net/netip"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 
@@ -199,4 +200,30 @@ func TestBuildJWTConfig_Audiences(t *testing.T) {
 			assert.Equal(t, tc.expectedAudience, result.Audience, "audience should match expected")
 		})
 	}
+}
+
+// TestEncodeSessionExpiresAt pins the wire encoding the client's
+// applySessionDeadline depends on:
+//
+//   - zero deadline  → &Timestamp{} (seconds=0, nanos=0): the explicit
+//     "expiry disabled or peer is not SSO-tracked" sentinel.
+//   - non-zero       → timestamppb.New(deadline): the absolute UTC deadline.
+//
+// The third state (nil pointer = "no info in this snapshot") is the caller's
+// responsibility on the Sync path when settings could not be resolved; the
+// helper itself never returns nil.
+func TestEncodeSessionExpiresAt(t *testing.T) {
+	t.Run("zero deadline encodes as explicit-zero sentinel", func(t *testing.T) {
+		got := encodeSessionExpiresAt(time.Time{})
+		assert.NotNil(t, got, "must not return nil; nil means 'no info', not 'disabled'")
+		assert.Equal(t, int64(0), got.GetSeconds())
+		assert.Equal(t, int32(0), got.GetNanos())
+	})
+
+	t.Run("non-zero deadline round-trips", func(t *testing.T) {
+		deadline := time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC)
+		got := encodeSessionExpiresAt(deadline)
+		assert.NotNil(t, got)
+		assert.True(t, got.AsTime().Equal(deadline))
+	})
 }

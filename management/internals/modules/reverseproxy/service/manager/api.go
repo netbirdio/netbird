@@ -204,6 +204,7 @@ func (h *handler) getClusters(w http.ResponseWriter, r *http.Request) {
 			SupportsCustomPorts: c.SupportsCustomPorts,
 			RequireSubdomain:    c.RequireSubdomain,
 			SupportsCrowdsec:    c.SupportsCrowdSec,
+			Private:             c.Private,
 		})
 	}
 

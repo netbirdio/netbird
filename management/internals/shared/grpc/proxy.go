@@ -351,6 +351,7 @@ func (s *ProxyServiceServer) registerProxyConnection(ctx context.Context, params
 			SupportsCustomPorts: c.SupportsCustomPorts,
 			RequireSubdomain:    c.RequireSubdomain,
 			SupportsCrowdsec:    c.SupportsCrowdsec,
+			Private:             c.Private,
 		}
 	}
 
@@ -754,6 +755,11 @@ func (s *ProxyServiceServer) SendServiceUpdate(update *proto.GetMappingUpdateRes
 				InitialSyncComplete: update.InitialSyncComplete,
 			}
 		}
+		// Drop mappings the proxy lacks capability for (e.g. private without SupportsPrivateService).
+		connUpdate = filterMappingsForProxy(conn, connUpdate)
+		if connUpdate == nil || len(connUpdate.Mapping) == 0 {
+			return true
+		}
 		resp := s.perProxyMessage(connUpdate, conn.proxyID)
 		if resp == nil {
 			log.Warnf("Token generation failed for proxy %s, disconnecting to force resync", conn.proxyID)
@@ -882,15 +888,19 @@ func (s *ProxyServiceServer) SendServiceUpdateToCluster(ctx context.Context, upd
 	}
 }
 
-// proxyAcceptsMapping returns whether the proxy should receive this mapping.
-// Old proxies that never reported capabilities are skipped for non-TLS L4
-// mappings with a custom listen port, since they don't understand the
-// protocol. Proxies that report capabilities (even SupportsCustomPorts=false)
-// are new enough to handle the mapping. TLS uses SNI routing and works on
-// any proxy. Delete operations are always sent so proxies can clean up.
+// proxyAcceptsMapping returns whether the proxy can receive this mapping.
+// Private mappings require SupportsPrivateService; custom-port L4 mappings
+// require SupportsCustomPorts. Remove operations always pass so proxies can
+// clean up.
 func proxyAcceptsMapping(conn *proxyConnection, mapping *proto.ProxyMapping) bool {
 	if mapping.Type == proto.ProxyMappingUpdateType_UPDATE_TYPE_REMOVED {
 		return true
+	}
+	if mapping.GetPrivate() {
+		caps := conn.capabilities
+		if caps == nil || caps.SupportsPrivateService == nil || !*caps.SupportsPrivateService {
+			return false
+		}
 	}
 	if mapping.ListenPort == 0 || mapping.Mode == "tls" {
 		return true
@@ -898,6 +908,29 @@ func proxyAcceptsMapping(conn *proxyConnection, mapping *proto.ProxyMapping) boo
 	// Old proxies that never reported capabilities don't understand
 	// custom port mappings.
 	return conn.capabilities != nil && conn.capabilities.SupportsCustomPorts != nil
+}
+
+// filterMappingsForProxy drops mappings the proxy cannot safely receive
+// (e.g. private mappings to a proxy without SupportsPrivateService).
+// Returns the input unchanged when no filtering is needed.
+func filterMappingsForProxy(conn *proxyConnection, update *proto.GetMappingUpdateResponse) *proto.GetMappingUpdateResponse {
+	if update == nil || len(update.Mapping) == 0 {
+		return update
+	}
+	kept := make([]*proto.ProxyMapping, 0, len(update.Mapping))
+	for _, m := range update.Mapping {
+		if !proxyAcceptsMapping(conn, m) {
+			continue
+		}
+		kept = append(kept, m)
+	}
+	if len(kept) == len(update.Mapping) {
+		return update
+	}
+	return &proto.GetMappingUpdateResponse{
+		Mapping:             kept,
+		InitialSyncComplete: update.InitialSyncComplete,
+	}
 }
 
 // perProxyMessage returns a copy of update with a fresh one-time token for
@@ -961,7 +994,10 @@ func (s *ProxyServiceServer) Authenticate(ctx context.Context, req *proto.Authen
 
 	authenticated, userId, method := s.authenticateRequest(ctx, req, service)
 
-	token, err := s.generateSessionToken(ctx, authenticated, service, userId, method)
+	// Non-OIDC schemes (PIN/Password/Header) authenticate against per-service
+	// secrets and have no user-level group context, so groups stay nil. Email
+	// is also empty — these schemes don't resolve a user record at sign time.
+	token, err := s.generateSessionToken(ctx, authenticated, service, userId, "", method, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1050,7 +1086,7 @@ func (s *ProxyServiceServer) logAuthenticationError(ctx context.Context, err err
 	}
 }
 
-func (s *ProxyServiceServer) generateSessionToken(ctx context.Context, authenticated bool, service *rpservice.Service, userId string, method proxyauth.Method) (string, error) {
+func (s *ProxyServiceServer) generateSessionToken(ctx context.Context, authenticated bool, service *rpservice.Service, userId, userEmail string, method proxyauth.Method, groupIDs, groupNames []string) (string, error) {
 	if !authenticated || service.SessionPrivateKey == "" {
 		return "", nil
 	}
@@ -1058,8 +1094,11 @@ func (s *ProxyServiceServer) generateSessionToken(ctx context.Context, authentic
 	token, err := sessionkey.SignToken(
 		service.SessionPrivateKey,
 		userId,
+		userEmail,
 		service.Domain,
 		method,
+		groupIDs,
+		groupNames,
 		proxyauth.DefaultSessionExpiry,
 	)
 	if err != nil {
@@ -1068,6 +1107,26 @@ func (s *ProxyServiceServer) generateSessionToken(ctx context.Context, authentic
 	}
 
 	return token, nil
+}
+
+// pairGroupIDsAndNames splits a slice of resolved *types.Group records
+// into parallel id and name slices. ids[i] and names[i] always pair to
+// the same group. nil entries (orphan ids the manager couldn't resolve)
+// are skipped so the consumer can rely on positional pairing.
+func pairGroupIDsAndNames(groups []*types.Group) (ids, names []string) {
+	if len(groups) == 0 {
+		return nil, nil
+	}
+	ids = make([]string, 0, len(groups))
+	names = make([]string, 0, len(groups))
+	for _, g := range groups {
+		if g == nil {
+			continue
+		}
+		ids = append(ids, g.ID)
+		names = append(names, g.Name)
+	}
+	return ids, names
 }
 
 // SendStatusUpdate handles status updates from proxy clients.
@@ -1334,7 +1393,9 @@ func (s *ProxyServiceServer) ValidateState(state string) (verifier, redirectURL 
 	return verifier, redirectURL, nil
 }
 
-// GenerateSessionToken creates a signed session JWT for the given domain and user.
+// GenerateSessionToken creates a signed session JWT for the given domain and
+// user. The user's group memberships are embedded in the token so policy-aware
+// middlewares on the proxy can authorise without an extra management round-trip.
 func (s *ProxyServiceServer) GenerateSessionToken(ctx context.Context, domain, userID string, method proxyauth.Method) (string, error) {
 	service, err := s.getServiceByDomain(ctx, domain)
 	if err != nil {
@@ -1345,11 +1406,29 @@ func (s *ProxyServiceServer) GenerateSessionToken(ctx context.Context, domain, u
 		return "", fmt.Errorf("no session key configured for domain: %s", domain)
 	}
 
+	var (
+		email      string
+		groupIDs   []string
+		groupNames []string
+	)
+	if s.usersManager != nil {
+		user, userGroups, uerr := s.usersManager.GetUserWithGroups(ctx, userID)
+		if uerr != nil {
+			log.WithContext(ctx).Debugf("session token mint: lookup user %s: %v", userID, uerr)
+		} else if user != nil {
+			email = user.Email
+			groupIDs, groupNames = pairGroupIDsAndNames(userGroups)
+		}
+	}
+
 	return sessionkey.SignToken(
 		service.SessionPrivateKey,
 		userID,
+		email,
 		domain,
 		method,
+		groupIDs,
+		groupNames,
 		proxyauth.DefaultSessionExpiry,
 	)
 }
@@ -1453,7 +1532,7 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 		}, nil
 	}
 
-	userID, _, err := proxyauth.ValidateSessionJWT(sessionToken, domain, pubKeyBytes)
+	userID, _, _, _, _, err := proxyauth.ValidateSessionJWT(sessionToken, domain, pubKeyBytes)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"domain": domain,
@@ -1466,7 +1545,7 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 		}, nil
 	}
 
-	user, err := s.usersManager.GetUser(ctx, userID)
+	user, userGroups, err := s.usersManager.GetUserWithGroups(ctx, userID)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"domain":  domain,
@@ -1500,12 +1579,15 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 			"user_id": userID,
 			"error":   err.Error(),
 		}).Debug("ValidateSession: access denied")
+		groupIDs, groupNames := pairGroupIDsAndNames(userGroups)
 		//nolint:nilerr
 		return &proto.ValidateSessionResponse{
-			Valid:        false,
-			UserId:       user.Id,
-			UserEmail:    user.Email,
-			DeniedReason: "not_in_group",
+			Valid:          false,
+			UserId:         user.Id,
+			UserEmail:      user.Email,
+			DeniedReason:   "not_in_group",
+			PeerGroupIds:   groupIDs,
+			PeerGroupNames: groupNames,
 		}, nil
 	}
 
@@ -1515,10 +1597,13 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 		"email":   user.Email,
 	}).Debug("ValidateSession: access granted")
 
+	groupIDs, groupNames := pairGroupIDsAndNames(userGroups)
 	return &proto.ValidateSessionResponse{
-		Valid:     true,
-		UserId:    user.Id,
-		UserEmail: user.Email,
+		Valid:          true,
+		UserId:         user.Id,
+		UserEmail:      user.Email,
+		PeerGroupIds:   groupIDs,
+		PeerGroupNames: groupNames,
 	}, nil
 }
 
@@ -1551,3 +1636,154 @@ func (s *ProxyServiceServer) checkGroupAccess(service *rpservice.Service, user *
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// ValidateTunnelPeer resolves an inbound peer by its WireGuard tunnel IP and
+// checks the peer's group membership against the service's access groups.
+// Peers without a user (machine agents, automation workloads) are first-class
+// callers; authorisation runs off peer-group memberships rather than the
+// optional owning user's auto-groups. On success a session JWT is minted so
+// the proxy can install a cookie and skip subsequent management round-trips.
+func (s *ProxyServiceServer) ValidateTunnelPeer(ctx context.Context, req *proto.ValidateTunnelPeerRequest) (*proto.ValidateTunnelPeerResponse, error) {
+	domain := req.GetDomain()
+	tunnelIPStr := req.GetTunnelIp()
+
+	if domain == "" || tunnelIPStr == "" {
+		return &proto.ValidateTunnelPeerResponse{
+			Valid:        false,
+			DeniedReason: "missing domain or tunnel_ip",
+		}, nil
+	}
+
+	tunnelIP := net.ParseIP(tunnelIPStr)
+	if tunnelIP == nil {
+		return &proto.ValidateTunnelPeerResponse{
+			Valid:        false,
+			DeniedReason: "invalid_tunnel_ip",
+		}, nil
+	}
+
+	service, err := s.getServiceByDomain(ctx, domain)
+	if err != nil {
+		log.WithFields(log.Fields{"domain": domain, "error": err.Error()}).Debug("ValidateTunnelPeer: service not found")
+		//nolint:nilerr
+		return &proto.ValidateTunnelPeerResponse{
+			Valid:        false,
+			DeniedReason: "service_not_found",
+		}, nil
+	}
+
+	// Mirror ValidateSession: account-scoped (BYOP) proxy tokens may only
+	// validate and mint session cookies for their own account's domains.
+	if err := enforceAccountScope(ctx, service.AccountID); err != nil {
+		return nil, err
+	}
+
+	peer, err := s.peersManager.GetPeerByTunnelIP(ctx, service.AccountID, tunnelIP)
+	if err != nil || peer == nil {
+		log.WithFields(log.Fields{"domain": domain, "tunnel_ip": tunnelIPStr}).Debug("ValidateTunnelPeer: peer not found")
+		//nolint:nilerr
+		return &proto.ValidateTunnelPeerResponse{
+			Valid:        false,
+			DeniedReason: "peer_not_found",
+		}, nil
+	}
+
+	_, peerGroups, err := s.peersManager.GetPeerWithGroups(ctx, service.AccountID, peer.ID)
+	if err != nil {
+		log.WithFields(log.Fields{"domain": domain, "peer_id": peer.ID, "error": err.Error()}).Debug("ValidateTunnelPeer: peer groups lookup failed")
+		//nolint:nilerr
+		return &proto.ValidateTunnelPeerResponse{
+			Valid:        false,
+			DeniedReason: "peer_not_found",
+		}, nil
+	}
+
+	groupIDs, groupNames := pairGroupIDsAndNames(peerGroups)
+
+	// Resolve the principal: when the peer is linked to a user, the human
+	// is the principal so multiple peers owned by the same user share a
+	// single identity. Unlinked peers (machine agents) are their own
+	// principal keyed on peer.ID. displayIdentity is what upstream gateways
+	// tag spend with — user.Email when linked, peer.Name when not.
+	principalID := peer.ID
+	displayIdentity := peer.Name
+	if peer.UserID != "" {
+		if user, uerr := s.usersManager.GetUser(ctx, peer.UserID); uerr == nil && user != nil {
+			principalID = user.Id
+			if user.Email != "" {
+				displayIdentity = user.Email
+			}
+		}
+	}
+
+	if err := checkPeerGroupAccess(service, groupIDs); err != nil {
+		log.WithFields(log.Fields{"domain": domain, "peer_id": peer.ID, "error": err.Error()}).Debug("ValidateTunnelPeer: access denied")
+		//nolint:nilerr
+		return &proto.ValidateTunnelPeerResponse{
+			Valid:          false,
+			UserId:         principalID,
+			UserEmail:      displayIdentity,
+			DeniedReason:   "not_in_group",
+			PeerGroupIds:   groupIDs,
+			PeerGroupNames: groupNames,
+		}, nil
+	}
+
+	token, err := s.generateSessionToken(ctx, true, service, principalID, displayIdentity, proxyauth.MethodOIDC, groupIDs, groupNames)
+	if err != nil {
+		return nil, err
+	}
+
+	log.WithFields(log.Fields{
+		"domain":       domain,
+		"tunnel_ip":    tunnelIPStr,
+		"peer_id":      peer.ID,
+		"principal_id": principalID,
+	}).Debug("ValidateTunnelPeer: access granted")
+
+	return &proto.ValidateTunnelPeerResponse{
+		Valid:          true,
+		UserId:         principalID,
+		UserEmail:      displayIdentity,
+		SessionToken:   token,
+		PeerGroupIds:   groupIDs,
+		PeerGroupNames: groupNames,
+	}, nil
+}
+
+// checkPeerGroupAccess gates ValidateTunnelPeer by the service's required
+// groups. Private services authorise against AccessGroups (empty list fails
+// closed — Validate() rejects that at save time but the RPC is the security
+// boundary and must not trust upstream state). Bearer-auth services authorise
+// against DistributionGroups when populated. Non-private non-bearer services
+// are open.
+func checkPeerGroupAccess(service *rpservice.Service, peerGroupIDs []string) error {
+	if service.Private {
+		if len(service.AccessGroups) == 0 {
+			return fmt.Errorf("private service has no access groups")
+		}
+		return matchAnyGroup(service.AccessGroups, peerGroupIDs)
+	}
+	if service.Auth.BearerAuth != nil && service.Auth.BearerAuth.Enabled && len(service.Auth.BearerAuth.DistributionGroups) > 0 {
+		return matchAnyGroup(service.Auth.BearerAuth.DistributionGroups, peerGroupIDs)
+	}
+	return nil
+}
+
+// matchAnyGroup returns nil when peerGroupIDs intersects allowedGroups,
+// else a non-nil error.
+func matchAnyGroup(allowedGroups, peerGroupIDs []string) error {
+	if len(allowedGroups) == 0 {
+		return fmt.Errorf("no allowed groups configured")
+	}
+	allowed := make(map[string]struct{}, len(allowedGroups))
+	for _, g := range allowedGroups {
+		allowed[g] = struct{}{}
+	}
+	for _, g := range peerGroupIDs {
+		if _, ok := allowed[g]; ok {
+			return nil
+		}
+	}
+	return fmt.Errorf("peer not in allowed groups")
+}

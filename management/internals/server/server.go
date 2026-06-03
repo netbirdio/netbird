@@ -34,6 +34,8 @@ const (
 	ManagementLegacyPort = 33073
 	// DefaultSelfHostedDomain is the default domain used for self-hosted fresh installs.
 	DefaultSelfHostedDomain = "netbird.selfhosted"
+
+	ContainerKeyBaseServer = "baseServer"
 )
 
 type Server interface {
@@ -91,7 +93,7 @@ type Config struct {
 
 // NewServer initializes and configures a new Server instance
 func NewServer(cfg *Config) *BaseServer {
-	return &BaseServer{
+	s := &BaseServer{
 		Config:                      cfg.NbConfig,
 		container:                   make(map[string]any),
 		dnsDomain:                   cfg.DNSDomain,
@@ -104,6 +106,9 @@ func NewServer(cfg *Config) *BaseServer {
 		mgmtMetricsPort:             cfg.MgmtMetricsPort,
 		autoResolveDomains:          cfg.AutoResolveDomains,
 	}
+	s.container[ContainerKeyBaseServer] = s
+
+	return s
 }
 
 func (s *BaseServer) AfterInit(fn func(s *BaseServer)) {
@@ -188,7 +193,7 @@ func (s *BaseServer) Start(ctx context.Context) error {
 		log.WithContext(srvCtx).Infof("running gRPC backward compatibility server: %s", compatListener.Addr().String())
 	}
 
-	rootHandler := s.handlerFunc(srvCtx, s.GRPCServer(), s.APIHandler(), s.Metrics().GetMeter())
+	rootHandler := s.handlerFunc(srvCtx, s.GRPCServer(), s.APIHandler(), s.IDPHandler(), s.Metrics().GetMeter())
 	switch {
 	case s.certManager != nil:
 		// a call to certManager.Listener() always creates a new listener so we do it once
@@ -299,7 +304,7 @@ func (s *BaseServer) SetHandlerFunc(handler http.Handler) {
 	log.Tracef("custom handler set successfully")
 }
 
-func (s *BaseServer) handlerFunc(_ context.Context, gRPCHandler *grpc.Server, httpHandler http.Handler, meter metric.Meter) http.Handler {
+func (s *BaseServer) handlerFunc(_ context.Context, gRPCHandler *grpc.Server, httpHandler http.Handler, idpHandler http.Handler, meter metric.Meter) http.Handler {
 	// Check if a custom handler was set (for multiplexing additional services)
 	if customHandler, ok := s.GetContainer("customHandler"); ok {
 		if handler, ok := customHandler.(http.Handler); ok {
@@ -318,6 +323,8 @@ func (s *BaseServer) handlerFunc(_ context.Context, gRPCHandler *grpc.Server, ht
 			gRPCHandler.ServeHTTP(writer, request)
 		case request.URL.Path == wsproxy.ProxyPath+wsproxy.ManagementComponent:
 			wsProxy.Handler().ServeHTTP(writer, request)
+		case idpHandler != nil && strings.HasPrefix(request.URL.Path, "/oauth2"):
+			idpHandler.ServeHTTP(writer, request)
 		default:
 			httpHandler.ServeHTTP(writer, request)
 		}
