@@ -288,8 +288,8 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 		return fmt.Errorf("setup login request: %v", err)
 	}
 
-	handle := activeProf.ID.String()
-	loginRequest.ProfileName = &handle
+	profileID := activeProf.ID.String()
+	loginRequest.ProfileName = &profileID
 	loginRequest.Username = &username
 
 	profileState, err := pm.GetProfileState(activeProf.ID)
@@ -329,7 +329,7 @@ func doDaemonUp(ctx context.Context, cmd *cobra.Command, client proto.DaemonServ
 	}
 
 	if _, err := client.Up(ctx, &proto.UpRequest{
-		ProfileName: &profileName,
+		ProfileName: &profileID,
 		Username:    &username,
 	}); err != nil {
 		return fmt.Errorf("call service up method: %v", err)

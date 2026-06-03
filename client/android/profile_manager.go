@@ -53,10 +53,10 @@ func (p *ProfileArray) Get(i int) *Profile {
 ├── state.json                                  ← Default profile state
 ├── active_profile.json                         ← Active profile tracker (JSON with Name + Username)
 └── profiles/                                   ← Subdirectory for non-default profiles
-    ├── work.json                              ← Work profile config
-    ├── work.state.json                        ← Work profile state
-    ├── personal.json                          ← Personal profile config
-    └── personal.state.json                    ← Personal profile state
+    ├── work.json                              			← Legacy work profile config
+    ├── work.state.json                        			← Legacy work profile state
+    ├── 4c5f5c8198c3989cffb5b5394f5a7ae0.json  			← ID profile config
+    ├── 4c5f5c8198c3989cffb5b5394f5a7ae0.state.json ← ID profile state
 */
 
 // ProfileManager manages profiles for Android
