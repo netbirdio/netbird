@@ -106,10 +106,11 @@ func (id ID) ShortID() string {
 	if id == DefaultProfileName {
 		return DefaultProfileName
 	}
-	if len(id) <= shortIDLen {
+	runes := []rune(id)
+	if len(runes) <= shortIDLen {
 		return id.String()
 	}
-	return id.String()[:shortIDLen]
+	return string(runes[:shortIDLen])
 }
 
 func (id ID) String() string {

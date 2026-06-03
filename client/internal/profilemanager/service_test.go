@@ -110,7 +110,7 @@ func TestServiceProfile_DefaultByExactID(t *testing.T) {
 	withTestSM(t, func(sm *ServiceManager, username string) {
 		got, err := sm.ResolveProfile(defaultProfileName, username)
 		require.NoError(t, err)
-		assert.Equal(t, defaultProfileName, got.ID)
+		assert.Equal(t, defaultProfileName, got.ID.String())
 	})
 }
 
@@ -125,7 +125,7 @@ func TestServiceProfile_LegacyFilenameCoexists(t *testing.T) {
 
 		got, err := sm.ResolveProfile("legacy", username)
 		require.NoError(t, err)
-		assert.Equal(t, "legacy", got.ID)
+		assert.Equal(t, "legacy", got.ID.String())
 		// Name falls back to the filename stem when JSON omits it.
 		assert.Equal(t, "legacy", got.Name)
 	})

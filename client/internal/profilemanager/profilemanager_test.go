@@ -50,14 +50,14 @@ func TestServiceManager_CreateAndGetDefaultProfile(t *testing.T) {
 
 			state, err := sm.GetActiveProfileState()
 			assert.NoError(t, err)
-			assert.Equal(t, defaultProfileName, state.ID) // No active profile state yet
+			assert.Equal(t, defaultProfileName, state.ID.String()) // No active profile state yet
 
 			err = sm.SetActiveProfileStateToDefault()
 			assert.NoError(t, err)
 
 			active, err := sm.GetActiveProfileState()
 			assert.NoError(t, err)
-			assert.Equal(t, "default", active.ID)
+			assert.Equal(t, "default", active.ID.String())
 		})
 	})
 }
