@@ -115,9 +115,6 @@ func (d Network) IsZero() bool {
 type Manager interface {
 	Init(stateManager *statemanager.Manager) error
 
-	// AllowNetbird allows netbird interface traffic
-	AllowNetbird() error
-
 	// AddFilterRule adds a packet-filtering rule to the firewall.
 	//
 	// If destination is the zero Network, the rule applies to traffic

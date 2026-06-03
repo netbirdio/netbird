@@ -88,10 +88,13 @@ func runPeerACLBench(b *testing.B, m, k int, hit, v6 bool) {
 			IPv6Net: netip.PrefixFrom(dstIP, bits),
 		}
 	}
-	manager, _ := Create(&IFaceMock{
-		SetFilterFunc: func(device.PacketFilter) error { return nil },
-		AddressFunc:   func() wgaddr.Address { return mockAddr },
-	}, nil, false, flowLogger, iface.DefaultMTU)
+	manager, err := Create(Config{
+		IFace: &IFaceMock{
+			SetFilterFunc: func(device.PacketFilter) error { return nil },
+			AddressFunc:   func() wgaddr.Address { return mockAddr },
+		},
+		FlowLogger: flowLogger, MTU: iface.DefaultMTU})
+	require.NoError(b, err)
 	b.Cleanup(func() { require.NoError(b, manager.Close(nil)) })
 
 	// Generate M policies × K source peers, all distinct.
@@ -169,9 +172,12 @@ func BenchmarkPeerACLIndexMemory(b *testing.B) {
 		b.Run(c.name, func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				mgr, _ := Create(&IFaceMock{
-					SetFilterFunc: func(device.PacketFilter) error { return nil },
-				}, nil, false, flowLogger, iface.DefaultMTU)
+				mgr, err := Create(Config{
+					IFace: &IFaceMock{
+						SetFilterFunc: func(device.PacketFilter) error { return nil },
+					},
+					FlowLogger: flowLogger, MTU: iface.DefaultMTU})
+				require.NoError(b, err)
 
 				populateIndexedRules(b, mgr, c.M, c.K, c.overlapFrac)
 

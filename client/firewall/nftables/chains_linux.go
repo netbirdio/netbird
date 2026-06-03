@@ -83,8 +83,9 @@ func (r *family) createContainers() error {
 		log.Errorf("failed to add MSS clamping rules: %s", err)
 	}
 
-	if err := r.acceptForwardRules(); err != nil {
-		log.Errorf("failed to add accept rules for the forward chain: %s", err)
+	// Kernel routing opens both INPUT and FORWARD.
+	if err := r.openInterface(true); err != nil {
+		log.Errorf("failed to open interface in foreign chains: %s", err)
 	}
 
 	if err := firewalld.TrustInterface(r.wgIface.Name()); err != nil {
@@ -174,21 +175,26 @@ func (r *family) setupDataPlaneMark() error {
 	return nil
 }
 
-func (r *family) acceptForwardRules() error {
+// openInterface adds passthrough accept rules for the NetBird interface to the
+// kernel's filter table and external chains so they don't drop our traffic.
+// includeForward also opens the FORWARD chains (kernel routing); when false only
+// INPUT is opened, which is all the userspace router needs since it never
+// forwards in the kernel.
+func (r *family) openInterface(includeForward bool) error {
 	var merr *multierror.Error
 
-	if err := r.acceptFilterTableRules(); err != nil {
+	if err := r.acceptFilterTableRules(includeForward); err != nil {
 		merr = multierror.Append(merr, err)
 	}
 
-	if err := r.acceptExternalChainsRules(); err != nil {
+	if err := r.acceptExternalChainsRules(includeForward); err != nil {
 		merr = multierror.Append(merr, fmt.Errorf("add accept rules to external chains: %w", err))
 	}
 
 	return nberrors.FormatErrorOrNil(merr)
 }
 
-func (r *family) acceptFilterTableRules() error {
+func (r *family) acceptFilterTableRules(includeForward bool) error {
 	if r.filterTable == nil {
 		return nil
 	}
@@ -196,7 +202,7 @@ func (r *family) acceptFilterTableRules() error {
 	fw := "iptables"
 
 	defer func() {
-		log.Debugf("Used %s to add accept forward and input rules", fw)
+		log.Debugf("Used %s to add accept input/forward rules", fw)
 	}()
 
 	// Try iptables first and fallback to nftables if iptables is not available.
@@ -206,25 +212,27 @@ func (r *family) acceptFilterTableRules() error {
 		log.Warnf("Will use nftables to manipulate the filter table because iptables is not available: %v", err)
 
 		fw = "nftables"
-		return r.acceptFilterRulesNftables(r.filterTable)
+		return r.acceptFilterRulesNftables(r.filterTable, includeForward)
 	}
 
-	if err := r.acceptFilterRulesIptables(ipt); err != nil {
+	if err := r.acceptFilterRulesIptables(ipt, includeForward); err != nil {
 		log.Warnf("iptables failed (table may be incompatible), falling back to nftables: %v", err)
 		fw = "nftables"
-		return r.acceptFilterRulesNftables(r.filterTable)
+		return r.acceptFilterRulesNftables(r.filterTable, includeForward)
 	}
 	return nil
 }
 
-func (r *family) acceptFilterRulesIptables(ipt *iptables.IPTables) error {
+func (r *family) acceptFilterRulesIptables(ipt *iptables.IPTables, includeForward bool) error {
 	var merr *multierror.Error
 
-	for _, rule := range r.getAcceptForwardRules() {
-		if err := ipt.Insert("filter", chainNameForward, 1, rule...); err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("add iptables forward rule: %v", err))
-		} else {
-			log.Debugf("added iptables forward rule: %v", rule)
+	if includeForward {
+		for _, rule := range r.getAcceptForwardRules() {
+			if err := ipt.Insert("filter", chainNameForward, 1, rule...); err != nil {
+				merr = multierror.Append(merr, fmt.Errorf("add iptables forward rule: %v", err))
+			} else {
+				log.Debugf("added iptables forward rule: %v", rule)
+			}
 		}
 	}
 
@@ -252,17 +260,19 @@ func (r *family) getAcceptInputRule() []string {
 
 // acceptFilterRulesNftables adds accept rules to the ip filter table using nftables.
 // This is used when iptables is not available.
-func (r *family) acceptFilterRulesNftables(table *nftables.Table) error {
+func (r *family) acceptFilterRulesNftables(table *nftables.Table, includeForward bool) error {
 	intf := ifname(r.wgIface.Name())
 
-	forwardChain := &nftables.Chain{
-		Name:     chainNameForward,
-		Table:    table,
-		Type:     nftables.ChainTypeFilter,
-		Hooknum:  nftables.ChainHookForward,
-		Priority: nftables.ChainPriorityFilter,
+	if includeForward {
+		forwardChain := &nftables.Chain{
+			Name:     chainNameForward,
+			Table:    table,
+			Type:     nftables.ChainTypeFilter,
+			Hooknum:  nftables.ChainHookForward,
+			Priority: nftables.ChainPriorityFilter,
+		}
+		r.insertForwardAcceptRules(forwardChain, intf)
 	}
-	r.insertForwardAcceptRules(forwardChain, intf)
 
 	inputChain := &nftables.Chain{
 		Name:     chainNameInput,
@@ -278,7 +288,7 @@ func (r *family) acceptFilterRulesNftables(table *nftables.Table) error {
 
 // acceptExternalChainsRules adds accept rules to external chains (non-netbird, non-iptables tables).
 // It dynamically finds chains at call time to handle chains that may have been created after startup.
-func (r *family) acceptExternalChainsRules() error {
+func (r *family) acceptExternalChainsRules(includeForward bool) error {
 	chains := r.findExternalChains()
 	if len(chains) == 0 {
 		return nil
@@ -286,7 +296,7 @@ func (r *family) acceptExternalChainsRules() error {
 
 	intf := ifname(r.wgIface.Name())
 	for _, chain := range chains {
-		r.applyExternalChainAccept(chain, intf)
+		r.applyExternalChainAccept(chain, intf, includeForward)
 	}
 
 	if err := r.conn.Flush(); err != nil {
@@ -295,7 +305,7 @@ func (r *family) acceptExternalChainsRules() error {
 	return nil
 }
 
-func (r *family) applyExternalChainAccept(chain *nftables.Chain, intf []byte) {
+func (r *family) applyExternalChainAccept(chain *nftables.Chain, intf []byte, includeForward bool) {
 	if chain.Hooknum == nil {
 		log.Debugf("skipping external chain %s/%s: hooknum is nil", chain.Table.Name, chain.Name)
 		return
@@ -306,7 +316,9 @@ func (r *family) applyExternalChainAccept(chain *nftables.Chain, intf []byte) {
 
 	switch *chain.Hooknum {
 	case *nftables.ChainHookForward:
-		r.insertForwardAcceptRules(chain, intf)
+		if includeForward {
+			r.insertForwardAcceptRules(chain, intf)
+		}
 	case *nftables.ChainHookInput:
 		r.insertInputAcceptRule(chain, intf)
 	}
@@ -574,26 +586,6 @@ func (r *family) removeAcceptFilterRulesIptables(ipt *iptables.IPTables) error {
 	}
 
 	return nberrors.FormatErrorOrNil(merr)
-}
-
-func (r *family) createDefaultAllowRules() error {
-	expIn := []expr.Any{
-		&expr.Verdict{
-			Kind: expr.VerdictAccept,
-		},
-	}
-
-	_ = r.conn.InsertRule(&nftables.Rule{
-		Table:    r.workTable,
-		Chain:    r.chainInputRules,
-		Position: 0,
-		Exprs:    expIn,
-	})
-
-	if err := r.conn.Flush(); err != nil {
-		return fmt.Errorf(flushError, err)
-	}
-	return nil
 }
 
 // Flush rule/chain/set operations from the buffer

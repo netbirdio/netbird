@@ -187,7 +187,7 @@ func TestBlockInvalidRoutedDualStack(t *testing.T) {
 		},
 	}
 
-	manager, err := Create(ifaceMock, nil, false, flowLogger, iface.DefaultMTU)
+	manager, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, manager.Close(nil))
@@ -235,7 +235,7 @@ func TestBlockInvalidRoutedIdempotent(t *testing.T) {
 		},
 	}
 
-	manager, err := Create(ifaceMock, nil, false, flowLogger, iface.DefaultMTU)
+	manager, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, manager.Close(nil))
@@ -298,7 +298,7 @@ func TestBlockRuleNotAccumulatedOnRepeatedEnableRouting(t *testing.T) {
 		},
 	}
 
-	manager, err := Create(ifaceMock, nil, false, flowLogger, iface.DefaultMTU)
+	manager, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, manager.Close(nil))
@@ -417,7 +417,7 @@ func setupTestManager(t *testing.T) *Manager {
 		},
 	}
 
-	manager, err := Create(ifaceMock, nil, false, flowLogger, iface.DefaultMTU)
+	manager, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 	require.NoError(t, err)
 	require.NoError(t, manager.EnableRouting())
 

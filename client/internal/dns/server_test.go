@@ -900,7 +900,7 @@ func createWgInterfaceWithBind(t *testing.T) (*iface.WGIface, error) {
 		return nil, err
 	}
 
-	pf, err := uspfilter.Create(wgIface, nil, false, flowLogger, iface.DefaultMTU)
+	pf, err := uspfilter.Create(uspfilter.Config{IFace: wgIface, FlowLogger: flowLogger, MTU: iface.DefaultMTU})
 	if err != nil {
 		t.Fatalf("failed to create uspfilter: %v", err)
 		return nil, err

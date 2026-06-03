@@ -22,16 +22,14 @@ func (r *family) AddNatRule(pair firewall.RouterPair) error {
 		}
 	}
 
-	if !pair.Masquerade {
-		return nil
-	}
+	if pair.Masquerade {
+		if err := r.addNatRule(pair); err != nil {
+			return fmt.Errorf("add nat rule: %w", err)
+		}
 
-	if err := r.addNatRule(pair); err != nil {
-		return fmt.Errorf("add nat rule: %w", err)
-	}
-
-	if err := r.addNatRule(firewall.GetInversePair(pair)); err != nil {
-		return fmt.Errorf("add inverse nat rule: %w", err)
+		if err := r.addNatRule(firewall.GetInversePair(pair)); err != nil {
+			return fmt.Errorf("add inverse nat rule: %w", err)
+		}
 	}
 
 	r.updateState()
@@ -244,7 +242,6 @@ func (r *family) addNatRule(pair firewall.RouterPair) error {
 
 	r.rules[ruleID] = rule
 
-	r.updateState()
 	return nil
 }
 
@@ -264,6 +261,5 @@ func (r *family) removeNatRule(pair firewall.RouterPair) error {
 		log.Debugf("marking rule %s not found", ruleID)
 	}
 
-	r.updateState()
 	return nil
 }

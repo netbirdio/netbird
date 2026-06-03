@@ -312,27 +312,6 @@ func (m *Manager) Close(stateManager *statemanager.Manager) error {
 	return nberrors.FormatErrorOrNil(merr)
 }
 
-// AllowNetbird allows netbird interface traffic.
-// This is called when USPFilter wraps the native firewall, adding blanket accept
-// rules so that packet filtering is handled in userspace instead of by netfilter.
-func (m *Manager) AllowNetbird() error {
-	var merr *multierror.Error
-	if _, err := m.AddFilterRule(nil, []netip.Prefix{netip.PrefixFrom(netip.IPv4Unspecified(), 0)}, firewall.Network{}, firewall.ProtocolALL, nil, nil, firewall.ActionAccept); err != nil {
-		merr = multierror.Append(merr, fmt.Errorf("allow netbird v4 interface traffic: %w", err))
-	}
-	if m.hasIPv6() {
-		if _, err := m.AddFilterRule(nil, []netip.Prefix{netip.PrefixFrom(netip.IPv6Unspecified(), 0)}, firewall.Network{}, firewall.ProtocolALL, nil, nil, firewall.ActionAccept); err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("allow netbird v6 interface traffic: %w", err))
-		}
-	}
-
-	if err := firewalld.TrustInterface(m.wgIface.Name()); err != nil {
-		log.Warnf("failed to trust interface in firewalld: %v", err)
-	}
-
-	return nberrors.FormatErrorOrNil(merr)
-}
-
 // Flush doesn't need to be implemented for this manager
 func (m *Manager) Flush() error { return nil }
 

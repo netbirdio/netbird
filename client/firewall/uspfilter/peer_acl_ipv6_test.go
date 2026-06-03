@@ -29,7 +29,7 @@ func newV6TestManager(t *testing.T, localV6 string) *Manager {
 			}
 		},
 	}
-	m, err := Create(ifaceMock, nil, false, flowLogger, nbiface.DefaultMTU)
+	m, err := Create(Config{IFace: ifaceMock, FlowLogger: flowLogger, MTU: nbiface.DefaultMTU})
 	require.NoError(t, err, "create manager")
 	t.Cleanup(func() { require.NoError(t, m.Close(nil)) })
 	return m

@@ -15,7 +15,6 @@ import (
 	"golang.org/x/sys/unix"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
-	"github.com/netbirdio/netbird/client/firewall/firewalld"
 	firewall "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
@@ -140,19 +139,20 @@ func (m *Manager) Init(stateManager *statemanager.Manager) error {
 
 // reconcileExternalChains re-applies passthrough accept rules to external
 // filter chains for both IPv4 and IPv6 routers. Called by the monitor when
-// tables or chains appear (e.g. after firewalld reloads).
+// tables or chains appear (e.g. after firewalld reloads). Kernel routing opens
+// both INPUT and FORWARD.
 func (m *Manager) reconcileExternalChains() error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
 	var merr *multierror.Error
 	if m.family4 != nil {
-		if err := m.family4.acceptExternalChainsRules(); err != nil {
+		if err := m.family4.acceptExternalChainsRules(true); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("v4: %w", err))
 		}
 	}
 	if m.hasIPv6() {
-		if err := m.family6.acceptExternalChainsRules(); err != nil {
+		if err := m.family6.acceptExternalChainsRules(true); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("v6: %w", err))
 		}
 	}
@@ -368,39 +368,6 @@ func (m *Manager) RemoveNatRule(pair firewall.RouterPair) error {
 	}
 
 	return nberrors.FormatErrorOrNil(merr)
-}
-
-// AllowNetbird allows netbird interface traffic.
-// This is called when USPFilter wraps the native firewall, adding blanket accept
-// rules so that packet filtering is handled in userspace instead of by netfilter.
-//
-// TODO: In USP mode this only adds ACCEPT to the netbird table's own chains,
-// which doesn't override DROP rules in external tables (e.g. firewalld).
-// Should add passthrough rules to external chains (like the native mode router's
-// addExternalChainsRules does) for both the netbird table family and inet tables.
-// The netbird table itself is fine (routing chains already exist there), but
-// non-netbird tables with INPUT/FORWARD hooks can still DROP our WG traffic.
-func (m *Manager) AllowNetbird() error {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
-	if err := m.family4.createDefaultAllowRules(); err != nil {
-		return fmt.Errorf("create default allow rules: %w", err)
-	}
-	if m.hasIPv6() {
-		if err := m.family6.createDefaultAllowRules(); err != nil {
-			return fmt.Errorf("create v6 default allow rules: %w", err)
-		}
-	}
-	if err := m.rConn.Flush(); err != nil {
-		return fmt.Errorf("flush allow input netbird rules: %w", err)
-	}
-
-	if err := firewalld.TrustInterface(m.wgIface.Name()); err != nil {
-		log.Warnf("failed to trust interface in firewalld: %v", err)
-	}
-
-	return nil
 }
 
 // SetLegacyManagement sets the route manager to use legacy management

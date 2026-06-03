@@ -10,6 +10,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	wgdevice "golang.zx2c4.com/wireguard/device"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -20,9 +21,9 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
 	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
 
-	"github.com/netbirdio/netbird/client/firewall/uspfilter/common"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter/conntrack"
 	nblog "github.com/netbirdio/netbird/client/firewall/uspfilter/log"
+	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 )
 
@@ -32,6 +33,12 @@ const (
 	iosReceiveWindow     = 16384
 	iosMaxInFlight       = 256
 )
+
+// IFace provides the WireGuard device and overlay addresses the forwarder needs.
+type IFace interface {
+	GetWGDevice() *wgdevice.Device
+	Address() wgaddr.Address
+}
 
 type Forwarder struct {
 	logger     *nblog.Logger
@@ -51,7 +58,7 @@ type Forwarder struct {
 	pingSemaphore      chan struct{}
 }
 
-func New(iface common.IFaceMapper, logger *nblog.Logger, flowLogger nftypes.FlowLogger, netstack bool, mtu uint16) (*Forwarder, error) {
+func New(iface IFace, logger *nblog.Logger, flowLogger nftypes.FlowLogger, netstack bool, mtu uint16) (*Forwarder, error) {
 	s := stack.New(stack.Options{
 		NetworkProtocols: []stack.NetworkProtocolFactory{
 			ipv4.NewProtocol,
