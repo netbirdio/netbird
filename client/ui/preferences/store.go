@@ -68,8 +68,9 @@ func (v ViewMode) IsValid() bool {
 // frontend. Pointer-free because the whole document is rewritten on every
 // change — there are no per-field partial updates.
 type UIPreferences struct {
-	Language i18n.LanguageCode `json:"language"`
-	ViewMode ViewMode          `json:"viewMode"`
+	Language            i18n.LanguageCode `json:"language"`
+	ViewMode            ViewMode          `json:"viewMode"`
+	OnboardingCompleted bool              `json:"onboardingCompleted"`
 }
 
 // LanguageValidator is the dependency Store needs to reject SetLanguage
@@ -151,6 +152,28 @@ func (s *Store) SetViewMode(mode ViewMode) error {
 	}
 	next := s.current
 	next.ViewMode = mode
+	if err := s.persistLocked(next); err != nil {
+		s.mu.Unlock()
+		return fmt.Errorf("persist preferences: %w", err)
+	}
+	s.current = next
+	s.mu.Unlock()
+
+	s.broadcast(next)
+	return nil
+}
+
+// SetOnboardingCompleted persists the welcome-window dismissal so the
+// welcome flow doesn't run again on subsequent launches. Idempotent — a
+// repeat of the current value is a no-op (no disk write, no broadcast).
+func (s *Store) SetOnboardingCompleted(done bool) error {
+	s.mu.Lock()
+	if s.current.OnboardingCompleted == done {
+		s.mu.Unlock()
+		return nil
+	}
+	next := s.current
+	next.OnboardingCompleted = done
 	if err := s.persistLocked(next); err != nil {
 		s.mu.Unlock()
 		return fmt.Errorf("persist preferences: %w", err)

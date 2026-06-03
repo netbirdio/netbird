@@ -149,8 +149,18 @@ func main() {
 	// so they don't linger as hidden windows that Wails's macOS dock-reopen
 	// handler would pop back up.
 	windowManager := services.NewWindowManager(app, window, bundle, prefStore, iconWindow)
-	windowManager.WatchLanguage(prefStore)
 	app.RegisterService(application.NewService(windowManager))
+
+	// Welcome / onboarding window. First launch only — the Continue
+	// button in the dialog flips OnboardingCompleted=true via the
+	// Preferences service before closing, so subsequent launches skip
+	// straight to the tray-only flow. ApplicationStarted hook so the
+	// Wails window machinery is fully up before the window is created.
+	if !prefStore.Get().OnboardingCompleted {
+		app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+			windowManager.OpenWelcome()
+		})
+	}
 
 	// Register an in-process StatusNotifierWatcher so the tray works on
 	// minimal WMs (Fluxbox, OpenBox, i3, dwm, vanilla GNOME without the

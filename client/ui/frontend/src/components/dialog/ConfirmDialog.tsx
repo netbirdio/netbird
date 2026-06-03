@@ -24,7 +24,7 @@ export const ConfirmDialog = forwardRef<HTMLDivElement, ConfirmDialogProps>(func
             <div
                 ref={ref}
                 className={cn(
-                    "flex flex-col items-center gap-5 text-center px-8 py-6",
+                    "flex flex-col items-center gap-5 text-center px-8 pt-6 pb-7",
                     isMacOS() && "pt-10",
                 )}
             >

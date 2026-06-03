@@ -1,0 +1,61 @@
+import { useTranslation } from "react-i18next";
+import { Button } from "@/components/buttons/Button";
+import { DialogActions } from "@/components/dialog/DialogActions";
+import { DialogDescription } from "@/components/dialog/DialogDescription";
+import { DialogHeading } from "@/components/dialog/DialogHeading";
+import { isMacOS, isWindows } from "@/lib/platform";
+import trayScreenshotDarwin from "@/assets/img/tray-darwin.png";
+import trayScreenshotWindows from "@/assets/img/tray-windows.png";
+import trayScreenshotLinux from "@/assets/img/tray-linux.png";
+
+// trayScreenshotForOS picks the marketing screenshot that shows the
+// NetBird tray icon in its native menu/task bar — so the onboarding pitch
+// matches the chrome the user will actually be hunting for. Evaluated
+// inside the component so initPlatform() has finished by the time
+// isMacOS/isWindows run (the static imports above only load the bytes,
+// no platform check).
+function trayScreenshotForOS(): string {
+    if (isMacOS()) return trayScreenshotDarwin;
+    if (isWindows()) return trayScreenshotWindows;
+    return trayScreenshotLinux;
+}
+
+type WelcomeStepTrayProps = {
+    onContinue: () => void;
+};
+
+export function WelcomeStepTray({ onContinue }: WelcomeStepTrayProps) {
+    const { t } = useTranslation();
+    const trayScreenshot = trayScreenshotForOS();
+
+    return (
+        <>
+            <div className={"px-1.5"}>
+                <img
+                    src={trayScreenshot}
+                    alt={""}
+                    className={"w-full h-auto select-none pointer-events-none rounded-2xl"}
+                    draggable={false}
+                />
+            </div>
+
+            <div className={"flex flex-col w-full gap-1"}>
+                <DialogHeading align={"left"}>{t("welcome.title")}</DialogHeading>
+                <DialogDescription align={"left"}>{t("welcome.description")}</DialogDescription>
+            </div>
+
+            <DialogActions>
+                <Button
+                    autoFocus
+                    variant={"primary"}
+                    size={"md"}
+                    tabIndex={0}
+                    className={"w-full"}
+                    onClick={onContinue}
+                >
+                    {t("welcome.continue")}
+                </Button>
+            </DialogActions>
+        </>
+    );
+}

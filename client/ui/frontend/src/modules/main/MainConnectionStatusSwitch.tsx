@@ -12,37 +12,36 @@ import { formatErrorMessage } from "@/lib/errors.ts";
 import { CopyToClipboard } from "@/components/CopyToClipboard";
 import netbirdFullLogo from "@/assets/logos/netbird-full.svg";
 
-enum ConnectionState {
-    Disconnected = "disconnected",
-    Connecting = "connecting",
-    Connected = "connected",
-    Disconnecting = "disconnecting",
-}
-
-// NeedsLogin / SessionExpired / DaemonUnavailable never reach this map —
-// connState collapses them into Connecting or Disconnected upstream.
-const STATUS_KEY: Record<ConnectionState, string> = {
-    [ConnectionState.Disconnected]: "connect.status.disconnected",
-    [ConnectionState.Connecting]: "connect.status.connecting",
-    [ConnectionState.Connected]: "connect.status.connected",
-    [ConnectionState.Disconnecting]: "connect.status.disconnecting",
-};
-
+// EVENT_BROWSER_LOGIN_CANCEL is emitted by the BrowserLogin window's close
+// button (Go side) and by the in-dialog Cancel button. startLogin uses it
+// to break the WaitSSOLogin race so the daemon doesn't hang on a stale
+// device code.
 const EVENT_BROWSER_LOGIN_CANCEL = "browser-login:cancel";
+
+// EVENT_TRIGGER_LOGIN lets any window ask the main window's connect-toggle
+// to drive a login flow. Mirrors services.EventTriggerLogin on the Go side.
+// The tray emits it from menu items so the React UI (which owns the SSO
+// orchestration and the browser-login window) takes over.
 const EVENT_TRIGGER_LOGIN = "trigger-login";
 
-const NEEDS_LOGIN_STATES = new Set(["NeedsLogin", "SessionExpired", "LoginFailed"]);
-
-// Re-enable the switch after this long in a transitioning state so the user
-// can force a Connection.Down on a stuck Connecting/Disconnecting flow.
-const FORCE_TOGGLE_DELAY_MS = 7000;
-
-const errorMessage = formatErrorMessage;
-
-// startLogin drives the daemon's SSO login end-to-end. The BrowserLogin
-// popup window is the only login UI; errors surface as a native
-// Dialogs.Error. Concurrent calls are dropped via the inFlight guard.
+// loginInFlight is a module-level guard. SSO login involves multiple async
+// hops (Login → BrowserLogin window → WaitSSOLogin → Up); a second concurrent
+// call would race on the daemon's pending device code and on the popup
+// window's singleton, leading to confusing UX. Calls past the first are
+// dropped silently — the first invocation owns the flow until it settles.
 let loginInFlight = false;
+
+// startLogin drives the daemon's SSO login end-to-end:
+//   1. Connection.Login — daemon returns a verification URI if SSO is needed.
+//   2. WindowManager.OpenBrowserLogin — show the in-app sign-in popup.
+//   3. Race WaitSSOLogin vs the user clicking Cancel.
+//   4. On success: Connection.Up.
+//   5. On cancel: cancel the in-flight WaitSSOLogin gRPC so the daemon
+//      drops the abandoned device code (avoids an Idle blink on the tray).
+//
+// Errors that aren't user cancellations surface via errorDialog. Concurrent
+// calls are dropped via loginInFlight. The BrowserLogin window is closed in
+// all exit paths so a stray popup doesn't outlive the flow.
 async function startLogin(): Promise<void> {
     if (loginInFlight) return;
     loginInFlight = true;
@@ -64,10 +63,6 @@ async function startLogin(): Promise<void> {
         if (result.needsSsoLogin) {
             const uri = result.verificationUriComplete || result.verificationUri;
             if (uri) {
-                // Open the in-app sign-in popup first; the dialog itself
-                // fires Connection.OpenURL after it's actually on screen
-                // (see WaitingForBrowserDialog) so the system browser
-                // doesn't land on top of a still-hidden NetBird window.
                 try {
                     await WindowManager.OpenBrowserLogin(uri);
                 } catch (e) {
@@ -94,12 +89,6 @@ async function startLogin(): Promise<void> {
             }
 
             if (cancelled) {
-                // Cancel the in-flight WaitSSOLogin gRPC instead of a heavy
-                // Down. The daemon ties the wait to this call's context
-                // (server.go WaitSSOLogin), so cancelling ends the wait and
-                // clears the abandoned OAuth flow — a fresh Login then starts
-                // a new device code, with no Idle blink on the tray. Swallow
-                // the cancellation rejection on the abandoned promise.
                 waitPromise.cancel?.();
                 void waitPromise.catch(() => {});
                 return;
@@ -112,13 +101,37 @@ async function startLogin(): Promise<void> {
         if (cancelled) return;
         await errorDialog({
             Title: i18next.t("connect.error.loginTitle"),
-            Message: errorMessage(e),
+            Message: formatErrorMessage(e),
         });
     } finally {
         offCancel?.();
         loginInFlight = false;
     }
 }
+
+enum ConnectionState {
+    Disconnected = "disconnected",
+    Connecting = "connecting",
+    Connected = "connected",
+    Disconnecting = "disconnecting",
+}
+
+// NeedsLogin / SessionExpired / DaemonUnavailable never reach this map —
+// connState collapses them into Connecting or Disconnected upstream.
+const STATUS_KEY: Record<ConnectionState, string> = {
+    [ConnectionState.Disconnected]: "connect.status.disconnected",
+    [ConnectionState.Connecting]: "connect.status.connecting",
+    [ConnectionState.Connected]: "connect.status.connected",
+    [ConnectionState.Disconnecting]: "connect.status.disconnecting",
+};
+
+const NEEDS_LOGIN_STATES = new Set(["NeedsLogin", "SessionExpired", "LoginFailed"]);
+
+// Re-enable the switch after this long in a transitioning state so the user
+// can force a Connection.Down on a stuck Connecting/Disconnecting flow.
+const FORCE_TOGGLE_DELAY_MS = 7000;
+
+const errorMessage = formatErrorMessage;
 
 export const MainConnectionStatusSwitch = () => {
     const { t } = useTranslation();

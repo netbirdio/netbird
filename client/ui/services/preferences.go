@@ -36,3 +36,8 @@ func (s *Preferences) SetLanguage(_ context.Context, lang i18n.LanguageCode) err
 func (s *Preferences) SetViewMode(_ context.Context, mode preferences.ViewMode) error {
 	return s.store.SetViewMode(mode)
 }
+
+// SetOnboardingCompleted persists the welcome-flow dismissal flag.
+func (s *Preferences) SetOnboardingCompleted(_ context.Context, done bool) error {
+	return s.store.SetOnboardingCompleted(done)
+}

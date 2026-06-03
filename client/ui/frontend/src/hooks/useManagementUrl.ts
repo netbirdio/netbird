@@ -3,21 +3,12 @@ import { warningDialog } from "@/lib/dialogs.ts";
 import i18next from "@/lib/i18n";
 import { useSettings } from "@/contexts/SettingsContext.tsx";
 
-export enum ManagementMode {
-    Cloud = "cloud",
-    SelfHosted = "selfhosted",
-}
-
 export const CLOUD_MANAGEMENT_URL = "https://api.netbird.io:443";
 
-function normalizeManagementUrl(input: string): string {
-    const trimmed = input.trim();
-    if (!trimmed) return "";
-    if (/^https?:\/\//i.test(trimmed)) return trimmed;
-    return `https://${trimmed}`;
-}
-
-const URL_PATTERN = new RegExp(
+// URL_PATTERN matches http(s)://host[:port][/path][?query][#fragment].
+// Host is domain, localhost, or IPv4. Used for syntactic validation only —
+// reachability is checked separately via checkManagementUrlReachable.
+export const URL_PATTERN = new RegExp(
     "^(https?:\\/\\/)?" +
         "((([a-z\\d]([a-z\\d-]*[a-z\\d])*)\\.)+[a-z]{2,}|localhost|" +
         "((\\d{1,3}\\.){3}\\d{1,3}))" +
@@ -27,10 +18,58 @@ const URL_PATTERN = new RegExp(
     "i",
 );
 
-function isValidManagementUrl(input: string): boolean {
+// normalizeManagementUrl prefixes an https:// scheme when the user omits
+// it. Empty input stays empty.
+export function normalizeManagementUrl(input: string): string {
+    const trimmed = input.trim();
+    if (!trimmed) return "";
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+    return `https://${trimmed}`;
+}
+
+// isValidManagementUrl is a syntactic check via URL_PATTERN. Does not
+// touch the network.
+export function isValidManagementUrl(input: string): boolean {
     const trimmed = input.trim();
     if (!trimmed) return false;
     return URL_PATTERN.test(trimmed);
+}
+
+// isCloudManagementUrl reports whether the stored URL is the NetBird
+// Cloud default (or an empty/unset URL, which the daemon also treats as
+// cloud-defaulting on first boot).
+export function isCloudManagementUrl(url: string): boolean {
+    if (!url || url.trim() === "") return true;
+    return url === CLOUD_MANAGEMENT_URL;
+}
+
+// checkManagementUrlReachable does a best-effort no-cors GET against the
+// URL with a short timeout. A resolved fetch (even opaque) means DNS +
+// TCP + TLS landed; any rejection (network error, DNS, abort) is treated
+// as unreachable. Self-hosted deployments behind internal-only DNS or
+// with self-signed certs may return false positives — callers should
+// surface this as a soft warning, not a hard block.
+export async function checkManagementUrlReachable(
+    url: string,
+    timeoutMs: number = 5000,
+): Promise<boolean> {
+    const target = normalizeManagementUrl(url);
+    if (!target) return false;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        await fetch(target, { method: "GET", mode: "no-cors", signal: controller.signal });
+        return true;
+    } catch {
+        return false;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+export enum ManagementMode {
+    Cloud = "cloud",
+    SelfHosted = "selfhosted",
 }
 
 function modeFromUrl(url: string): ManagementMode {
