@@ -507,7 +507,10 @@ func transformIPsetName(ipsetName string, sPort, dPort *firewall.Port, action fi
 // empty and silently drop all policy-permitted inbound traffic. When unsupported,
 // the manager falls back to per-IP iptables rules.
 func (m *aclManager) probeIPSetSupport() bool {
-	const probeName = "nb-probe"
+	// Use a unique name so concurrent processes don't collide and we only ever
+	// destroy the set we created ourselves. ipset names are limited to 31 chars,
+	// so use a short random suffix.
+	probeName := "nb-probe-" + uuid.New().String()[:8]
 
 	opts := ipset.CreateOptions{
 		Replace: true,
@@ -523,9 +526,11 @@ func (m *aclManager) probeIPSetSupport() bool {
 		return false
 	}
 
-	if err := ipset.Destroy(probeName); err != nil {
-		log.Debugf("destroy ipset probe set %q: %v", probeName, err)
-	}
+	defer func() {
+		if err := ipset.Destroy(probeName); err != nil {
+			log.Debugf("destroy ipset probe set %q: %v", probeName, err)
+		}
+	}()
 
 	return true
 }
