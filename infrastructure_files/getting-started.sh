@@ -771,7 +771,7 @@ $traefik_dynamic_volume
     labels:
       - traefik.enable=true
       # gRPC router (needs h2c backend for HTTP/2 cleartext)
-      - traefik.http.routers.netbird-grpc.rule=Host(\`$NETBIRD_DOMAIN\`) && (PathPrefix(\`/signalexchange.SignalExchange/\`) || PathPrefix(\`/management.ManagementService/\`))
+      - traefik.http.routers.netbird-grpc.rule=Host(\`$NETBIRD_DOMAIN\`) && (PathPrefix(\`/signalexchange.SignalExchange/\`) || PathPrefix(\`/management.ManagementService/\`) || PathPrefix(\`/management.ProxyService/\`))
       - traefik.http.routers.netbird-grpc.entrypoints=websecure
       - traefik.http.routers.netbird-grpc.tls=true
       - traefik.http.routers.netbird-grpc.tls.certresolver=letsencrypt
