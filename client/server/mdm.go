@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -27,10 +28,12 @@ var loadMDMPolicy = mdm.LoadPolicy
 //   3. Re-resolve Config from disk + MDM policy (Config.apply re-runs
 //      applyMDMPolicy with the freshly loaded Policy).
 //   4. Spawn a fresh connectWithRetryRuns with the new context and config.
+//   5. Broadcast a SystemEvent so any GUI / CLI subscriber (SubscribeEvents
+//      RPC) can refresh its cached config view without polling.
 //
 // The callback runs in the ticker's own goroutine. Ticker has already
 // logged the per-key diff before invoking this hook.
-func (s *Server) onMDMPolicyChange(_, _ *mdm.Policy) {
+func (s *Server) onMDMPolicyChange(_, curr *mdm.Policy) {
 	log.Warn("MDM policy changed; restarting engine to apply new configuration")
 
 	s.mutex.Lock()
@@ -54,7 +57,26 @@ func (s *Server) onMDMPolicyChange(_, _ *mdm.Policy) {
 
 	if err := s.restartEngineForMDM(); err != nil {
 		log.Errorf("MDM restart failed: %v", err)
+		return
 	}
+
+	// Notify any active gRPC SubscribeEvents subscriber (typically the UI
+	// tray) that the daemon's effective configuration has changed.
+	// Reusing the SYSTEM category keeps the proto enum stable for
+	// backwards-compat; metadata["source"]="mdm" + ["type"]="policy_changed"
+	// disambiguates the trigger for handler routing on the client side.
+	managed := curr.ManagedKeys()
+	s.statusRecorder.PublishEvent(
+		proto.SystemEvent_INFO,
+		proto.SystemEvent_SYSTEM,
+		fmt.Sprintf("MDM policy applied; engine restarted with %d managed key(s)", len(managed)),
+		"NetBird configuration was updated by your IT policy.",
+		map[string]string{
+			"source":         "mdm",
+			"type":           "policy_changed",
+			"managed_fields": strings.Join(managed, ","),
+		},
+	)
 }
 
 // restartEngineForMDM re-resolves the active profile config (re-running
