@@ -935,14 +935,18 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		am.StoreEvent(ctx, opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
 	}
 
+	p, nmap, pc, _, err := am.networkMapController.GetValidatedPeerWithMap(ctx, false, accountID, newPeer)
+	if err != nil {
+		return p, nmap, pc, err
+	}
+
 	changedPeerIDs := []string{newPeer.ID}
-	affectedPeerIDs := am.resolveAffectedPeersForPeerChanges(ctx, am.Store, accountID, changedPeerIDs)
+	affectedPeerIDs := affectedPeerIDsFromNetworkMap(nmap, newPeer.ID)
 	if err := am.networkMapController.OnPeersAdded(ctx, accountID, changedPeerIDs, affectedPeerIDs); err != nil {
 		log.WithContext(ctx).Errorf("failed to update network map cache for peer %s: %v", newPeer.ID, err)
 	}
 
-	p, nmap, pc, _, err := am.networkMapController.GetValidatedPeerWithMap(ctx, false, accountID, newPeer)
-	return p, nmap, pc, err
+	return p, nmap, pc, nil
 }
 
 func getPeerIPDNSLabel(ip netip.Addr, peerHostName string) (string, error) {
@@ -1474,6 +1478,33 @@ func (am *DefaultAccountManager) ResolveAffectedPeers(ctx context.Context, s sto
 		return nil
 	}
 	return peerIDs
+}
+
+// affectedPeerIDsFromNetworkMap returns the peer IDs referenced by a peer's
+// network map (its connected and offline peers, which include routing and proxy
+// peers), excluding the peer itself. For a freshly added peer these are, by ACL
+// symmetry, exactly the peers its addition affects.
+func affectedPeerIDsFromNetworkMap(nmap *types.NetworkMap, selfPeerID string) []string {
+	if nmap == nil {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(nmap.Peers)+len(nmap.OfflinePeers))
+	ids := make([]string, 0, len(nmap.Peers)+len(nmap.OfflinePeers))
+	add := func(peers []*nbpeer.Peer) {
+		for _, p := range peers {
+			if p == nil || p.ID == "" || p.ID == selfPeerID {
+				continue
+			}
+			if _, ok := seen[p.ID]; ok {
+				continue
+			}
+			seen[p.ID] = struct{}{}
+			ids = append(ids, p.ID)
+		}
+	}
+	add(nmap.Peers)
+	add(nmap.OfflinePeers)
+	return ids
 }
 
 // resolveAffectedPeersForPeerChanges resolves changed peer IDs into the full set of affected peer IDs.
