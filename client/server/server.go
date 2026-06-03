@@ -793,6 +793,22 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 		return nil, err
 	}
 
+	// StatusNeedsLogin is a legitimate fresh-start entry state: a successful
+	// WaitSSOLogin deliberately leaves the daemon in NeedsLogin (the login is
+	// done, the token is in hand, but the engine hasn't been brought up yet —
+	// see WaitSSOLogin's state-transition table). The same holds after a
+	// mid-session expiry tore the engine down (clientRunning == false) and the
+	// user re-authenticated. In both cases the caller's Up is expected to drive
+	// the connection; treat NeedsLogin like Idle and reset to Idle so the
+	// engine's own StatusConnecting → StatusConnected progression starts from a
+	// clean slate. Without this, the first Up after an SSO login fails with
+	// "up already in progress" and the user has to trigger Up a second time
+	// (CLI: re-run `netbird up`; GUI: click Connect again).
+	if status == internal.StatusNeedsLogin {
+		status = internal.StatusIdle
+		state.Set(internal.StatusIdle)
+	}
+
 	if status != internal.StatusIdle {
 		s.mutex.Unlock()
 		return nil, fmt.Errorf("up already in progress: current status %s", status)
