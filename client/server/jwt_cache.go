@@ -22,6 +22,7 @@ type jwtCache struct {
 	// polled cannot land in the cache the new session is using.
 	generation uint64
 
+	issuedAt     time.Time
 	expiresAt    time.Time
 	timer        *time.Timer
 	maxTokenSize int
@@ -50,20 +51,71 @@ func (c *jwtCache) store(token string, owner ipcauth.Identity, maxAge time.Durat
 		return false
 	}
 
-	c.cleanup()
-
 	if c.timer != nil {
 		c.timer.Stop()
+		c.timer = nil
+	}
+	c.cleanup()
+
+	if maxAge <= 0 {
+		return
+	}
+
+	jwtToken, _, err := gojwt.NewParser().ParseUnverified(token, gojwt.MapClaims{})
+	if err != nil {
+		log.Debugf("Failed to parse JWT token claims for cache: %v", err)
+		return
+	}
+	claims, ok := jwtToken.Claims.(gojwt.MapClaims)
+	if !ok {
+		log.Debug("JWT token has invalid claims format, not caching")
+		return
+	}
+
+	now := time.Now()
+	exp, err := claims.GetExpirationTime()
+	if err != nil {
+		log.Debugf("JWT token has invalid exp claim, not caching: %v", err)
+		return
+	}
+	if exp != nil && !now.Before(exp.Time) {
+		log.Debug("JWT token expired by exp claim, not caching")
+		return
+	}
+
+	iat, err := claims.GetIssuedAt()
+	if err != nil {
+		log.Debugf("JWT token has invalid iat claim, not caching: %v", err)
+		return
+	}
+	if iat == nil {
+		log.Debug("JWT token missing iat claim, not caching")
+		return
+	}
+	tokenAge := now.Sub(iat.Time)
+	if tokenAge > maxAge {
+		log.Debugf("JWT token exceeded cache TTL by iat claim, not caching: age=%v, max=%v", tokenAge, maxAge)
+		return
 	}
 
 	tokenBytes := []byte(token)
 	c.enclave = memguard.NewEnclave(tokenBytes)
-
 	c.owner = &owner
-	c.expiresAt = time.Now().Add(maxAge)
+	c.issuedAt = iat.Time
+	if exp != nil {
+		c.expiresAt = exp.Time
+	}
+
+	cleanupAfter := maxAge - tokenAge
+	if exp != nil {
+		expiresIn := time.Until(exp.Time)
+		if expiresIn < cleanupAfter {
+			cleanupAfter = expiresIn
+		}
+	}
 
 	var timer *time.Timer
-	timer = time.AfterFunc(maxAge, func() {
+	timer = time.AfterFunc(cleanupAfter, func() {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		if c.timer != timer {
@@ -71,7 +123,7 @@ func (c *jwtCache) store(token string, owner ipcauth.Identity, maxAge time.Durat
 		}
 		c.cleanup()
 		c.timer = nil
-		log.Debugf("JWT token cache expired after %v, securely wiped from memory", maxAge)
+		log.Debugf("JWT token cache expired after %v, securely wiped from memory", cleanupAfter)
 	})
 	c.timer = timer
 
@@ -111,39 +163,18 @@ func (c *jwtCache) get(caller ipcauth.Identity, maxAge time.Duration) (string, b
 		return "", false
 	}
 
-	jwtToken, _, err := gojwt.NewParser().ParseUnverified(token, gojwt.MapClaims{})
-	if err != nil {
-		log.Debugf("Failed to parse cached JWT token claims: %v", err)
-		return "", false
-	}
-	claims, ok := jwtToken.Claims.(gojwt.MapClaims)
-	if !ok {
-		log.Debug("Cached JWT token has invalid claims format")
-		return "", false
-	}
-
 	now := time.Now()
-	exp, err := claims.GetExpirationTime()
-	if err != nil {
-		log.Debugf("Cached JWT token has invalid exp claim: %v", err)
-		return "", false
-	}
-	if exp != nil && !now.Before(exp.Time) {
+	if !c.expiresAt.IsZero() && !now.Before(c.expiresAt) {
 		log.Debug("Cached JWT token expired by exp claim")
 		return "", false
 	}
 
-	iat, err := claims.GetIssuedAt()
-	if err != nil {
-		log.Debugf("Cached JWT token has invalid iat claim: %v", err)
-		return "", false
-	}
-	if iat == nil {
+	if c.issuedAt.IsZero() {
 		log.Debug("Cached JWT token missing iat claim")
 		return "", false
 	}
-	if now.Sub(iat.Time) > maxAge {
-		log.Debugf("Cached JWT token exceeded cache TTL by iat claim: age=%v, max=%v", now.Sub(iat.Time), maxAge)
+	if now.Sub(c.issuedAt) > maxAge {
+		log.Debugf("Cached JWT token exceeded cache TTL by iat claim: age=%v, max=%v", now.Sub(c.issuedAt), maxAge)
 		return "", false
 	}
 
@@ -169,5 +200,6 @@ func (c *jwtCache) cleanup() {
 		c.enclave = nil
 	}
 	c.owner = nil
+	c.issuedAt = time.Time{}
 	c.expiresAt = time.Time{}
 }
