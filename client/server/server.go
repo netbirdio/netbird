@@ -1382,7 +1382,7 @@ func (s *Server) RequestJWTAuth(
 
 	jwtCacheTTL := s.getJWTCacheTTL()
 	if jwtCacheTTL > 0 {
-		if cachedToken, found := s.jwtCache.get(); found {
+		if cachedToken, found := s.jwtCache.get(jwtCacheTTL); found {
 			log.Debugf("JWT token found in cache, returning cached token for SSH authentication")
 
 			return &proto.RequestJWTAuthResponse{
