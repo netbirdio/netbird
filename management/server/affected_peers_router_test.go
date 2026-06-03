@@ -150,14 +150,6 @@ func setupRouterScenario(t *testing.T, directRouterPeer bool) *routerScenario {
 	}
 }
 
-// routingPeerID returns the peer ID expected to act as router for the scenario.
-func (s *routerScenario) routingPeerID(directRouterPeer bool) string {
-	if directRouterPeer {
-		return s.routerPeerID
-	}
-	return s.routerGroupPeerID
-}
-
 // peerToResourcePolicy builds a policy granting the source group access to the
 // resource, referencing the resource by its group in the rule destination.
 func peerToResourcePolicyByGroup(sourceGroupID, resourceGroupID string) *types.Policy {
