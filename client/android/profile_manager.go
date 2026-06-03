@@ -23,7 +23,7 @@ const (
 
 // Profile represents a profile for gomobile
 type Profile struct {
-	ID       profilemanager.ID
+	ID       string
 	Name     string
 	IsActive bool
 }
@@ -99,7 +99,7 @@ func (pm *ProfileManager) ListProfiles() (*ProfileArray, error) {
 	var profiles []*Profile
 	for _, p := range internalProfiles {
 		profiles = append(profiles, &Profile{
-			ID:       p.ID,
+			ID:       p.ID.String(),
 			Name:     p.Name,
 			IsActive: p.IsActive,
 		})
@@ -123,15 +123,15 @@ func (pm *ProfileManager) GetActiveProfile() (*Profile, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve active profile %q: %w", activeState.ID, err)
 	}
-	return &Profile{ID: prof.ID, Name: prof.Name, IsActive: true}, nil
+	return &Profile{ID: prof.ID.String(), Name: prof.Name, IsActive: true}, nil
 }
 
 // SwitchProfile switches to a different profile
-func (pm *ProfileManager) SwitchProfile(id profilemanager.ID) error {
+func (pm *ProfileManager) SwitchProfile(id string) error {
 	// Use ServiceManager to stay consistent with ListProfiles
 	// ServiceManager uses active_profile.json
 	err := pm.serviceMgr.SetActiveProfileState(&profilemanager.ActiveProfileState{
-		ID:       id,
+		ID:       profilemanager.ID(id),
 		Username: androidUsername,
 	})
 	if err != nil {
@@ -155,13 +155,13 @@ func (pm *ProfileManager) AddProfile(profileName string) error {
 }
 
 // LogoutProfile logs out from a profile (clears authentication)
-func (pm *ProfileManager) LogoutProfile(id profilemanager.ID) error {
+func (pm *ProfileManager) LogoutProfile(id string) error {
 	configPath, err := pm.getProfileConfigPath(id)
 	if err != nil {
 		return err
 	}
 
-	if !profilemanager.IsValidProfileFilenameStem(id) {
+	if !profilemanager.IsValidProfileFilenameStem(profilemanager.ID(id)) {
 		return fmt.Errorf("id '%s' is not valid", id)
 	}
 
@@ -190,9 +190,9 @@ func (pm *ProfileManager) LogoutProfile(id profilemanager.ID) error {
 }
 
 // RemoveProfile deletes a profile
-func (pm *ProfileManager) RemoveProfile(id profilemanager.ID) error {
+func (pm *ProfileManager) RemoveProfile(id string) error {
 	// Use ServiceManager (removes profile from profiles/ directory)
-	if err := pm.serviceMgr.RemoveProfile(id, androidUsername); err != nil {
+	if err := pm.serviceMgr.RemoveProfile(profilemanager.ID(id), androidUsername); err != nil {
 		return fmt.Errorf("failed to remove profile: %w", err)
 	}
 
@@ -202,7 +202,7 @@ func (pm *ProfileManager) RemoveProfile(id profilemanager.ID) error {
 
 // getProfileConfigPath returns the config file path for a profile
 // This is needed for Android-specific path handling (netbird.cfg for default profile)
-func (pm *ProfileManager) getProfileConfigPath(id profilemanager.ID) (string, error) {
+func (pm *ProfileManager) getProfileConfigPath(id string) (string, error) {
 	if id == "" || id == profilemanager.DefaultProfileName {
 		// Android uses netbird.cfg for default profile instead of default.json
 		// Default profile is stored in root configDir, not in profiles/
@@ -210,24 +210,24 @@ func (pm *ProfileManager) getProfileConfigPath(id profilemanager.ID) (string, er
 	}
 
 	profilesDir := filepath.Join(pm.configDir, profilesSubdir)
-	return filepath.Join(profilesDir, id.String()+".json"), nil
+	return filepath.Join(profilesDir, id+".json"), nil
 }
 
 // GetConfigPath returns the config file path for a given profile id
 // Java should call this instead of constructing paths with Preferences.configFile()
-func (pm *ProfileManager) GetConfigPath(id profilemanager.ID) (string, error) {
+func (pm *ProfileManager) GetConfigPath(id string) (string, error) {
 	return pm.getProfileConfigPath(id)
 }
 
 // GetStateFilePath returns the state file path for a given profile
 // Java should call this instead of constructing paths with Preferences.stateFile()
-func (pm *ProfileManager) GetStateFilePath(id profilemanager.ID) (string, error) {
+func (pm *ProfileManager) GetStateFilePath(id string) (string, error) {
 	if id == "" || id == profilemanager.DefaultProfileName {
 		return filepath.Join(pm.configDir, "state.json"), nil
 	}
 
 	profilesDir := filepath.Join(pm.configDir, profilesSubdir)
-	return filepath.Join(profilesDir, id.String()+".state.json"), nil
+	return filepath.Join(profilesDir, id+".state.json"), nil
 }
 
 // GetActiveConfigPath returns the config file path for the currently active profile
