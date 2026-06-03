@@ -35,6 +35,7 @@ func (s *memoryStore) Get() (*mgmProto.SyncResponse, error) {
 	s.mu.RUnlock()
 
 	if latest == nil {
+		//nolint:nilnil // nil,nil means "nothing stored", per the Store contract; preserve the original behaviour
 		return nil, nil
 	}
 

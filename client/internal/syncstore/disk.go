@@ -73,6 +73,7 @@ func (s *diskStore) Get() (*mgmProto.SyncResponse, error) {
 	bs, err := os.ReadFile(s.path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
+			//nolint:nilnil // nil,nil means "nothing stored", per the Store contract; preserve the original behaviour
 			return nil, nil
 		}
 		return nil, fmt.Errorf("read sync response from %s: %w", s.path, err)
