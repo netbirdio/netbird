@@ -923,18 +923,18 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	}
 
 	// Persist sync response under the dedicated lock (syncRespMux), not under syncMsgMux.
-	// A non-nil syncStore is what marks persistence as enabled.
+	// A non-nil syncStore is what marks persistence as enabled. Hold the lock for
+	// the whole Set so the store cannot be cleared (disabled / engine close)
+	// mid-call and have this write resurrect a file that was just removed.
 	e.syncRespMux.RLock()
-	store := e.syncStore
-	e.syncRespMux.RUnlock()
-
-	if store != nil {
-		if err := store.Set(update); err != nil {
+	if e.syncStore != nil {
+		if err := e.syncStore.Set(update); err != nil {
 			log.Errorf("failed to persist sync response: %v", err)
 		} else {
 			log.Debugf("sync response persisted with serial %d", nm.GetSerial())
 		}
 	}
+	e.syncRespMux.RUnlock()
 
 	// only apply new changes and ignore old ones
 	if err := e.updateNetworkMap(nm); err != nil {
@@ -2188,16 +2188,17 @@ func (e *Engine) SetSyncResponsePersistence(enabled bool) {
 
 // GetLatestSyncResponse returns the stored sync response if persistence is enabled
 func (e *Engine) GetLatestSyncResponse() (*mgmProto.SyncResponse, error) {
+	// Hold the lock for the whole Get so the store cannot be cleared
+	// (disabled / engine close) mid-call.
 	e.syncRespMux.RLock()
-	store := e.syncStore
-	e.syncRespMux.RUnlock()
+	defer e.syncRespMux.RUnlock()
 
-	if store == nil {
+	if e.syncStore == nil {
 		return nil, errors.New("sync response persistence is disabled")
 	}
 
 	//nolint:nilnil
-	return store.Get()
+	return e.syncStore.Get()
 }
 
 // GetWgAddr returns the wireguard address
