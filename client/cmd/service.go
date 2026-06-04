@@ -5,6 +5,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"runtime"
 	"strings"
 	"sync"
@@ -22,15 +23,21 @@ var serviceCmd = &cobra.Command{
 	Short: "Manage the NetBird daemon service",
 }
 
+const defaultJSONSocket = "unix:///var/run/netbird-http.sock"
+
 var (
-	serviceName    string
-	serviceEnvVars []string
+	serviceName        string
+	serviceEnvVars     []string
+	jsonSocket         string
+	jsonSocketDisabled bool
 )
 
 type program struct {
 	ctx              context.Context
 	cancel           context.CancelFunc
 	serv             *grpc.Server
+	jsonServ         *http.Server
+	jsonServMu       sync.Mutex
 	serverInstance   *server.Server
 	serverInstanceMu sync.Mutex
 }
@@ -46,6 +53,8 @@ func init() {
 	serviceCmd.PersistentFlags().BoolVar(&updateSettingsDisabled, "disable-update-settings", false, "Disables update settings feature. If enabled, the client will not be able to change or edit any settings. To persist this setting, use: netbird service install --disable-update-settings")
 	serviceCmd.PersistentFlags().BoolVar(&captureEnabled, "enable-capture", false, "Enables packet capture via 'netbird debug capture'. To persist, use: netbird service install --enable-capture")
 	serviceCmd.PersistentFlags().BoolVar(&networksDisabled, "disable-networks", false, "Disables network selection. If enabled, the client will not allow listing, selecting, or deselecting networks. To persist, use: netbird service install --disable-networks")
+	serviceCmd.PersistentFlags().StringVar(&jsonSocket, "json-socket", defaultJSONSocket, "HTTP/JSON API socket address served by grpc-gateway [unix|tcp]://[path|host:port]. To persist, use: netbird service install --json-socket")
+	serviceCmd.PersistentFlags().BoolVar(&jsonSocketDisabled, "disable-json-socket", false, "Disables the HTTP/JSON API socket. To persist, use: netbird service install --disable-json-socket")
 
 	rootCmd.PersistentFlags().StringVarP(&serviceName, "service", "s", defaultServiceName, "Netbird system service name")
 	serviceEnvDesc := `Sets extra environment variables for the service. ` +

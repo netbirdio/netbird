@@ -5,9 +5,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"net"
-	"os"
-	"strings"
 	"time"
 
 	"github.com/kardianos/service"
@@ -32,31 +29,35 @@ func (p *program) Start(svc service.Service) error {
 	// in any case, even if configuration does not exists we run daemon to serve CLI gRPC API.
 	p.serv = grpc.NewServer()
 
-	split := strings.Split(daemonAddr, "://")
-	switch split[0] {
-	case "unix":
-		// cleanup failed close
-		stat, err := os.Stat(split[1])
-		if err == nil && !stat.IsDir() {
-			if err := os.Remove(split[1]); err != nil {
-				log.Debugf("remove socket file: %v", err)
-			}
-		}
-	case "tcp":
-	default:
-		return fmt.Errorf("unsupported daemon address protocol: %v", split[0])
-	}
-
-	listen, err := net.Listen(split[0], split[1])
+	daemonListener, err := listenOnAddress(daemonAddr)
 	if err != nil {
 		return fmt.Errorf("listen daemon interface: %w", err)
 	}
-	go func() {
-		defer listen.Close()
 
-		if split[0] == "unix" {
-			if err := os.Chmod(split[1], 0666); err != nil {
-				log.Errorf("failed setting daemon permissions: %v", split[1])
+	var jsonListener *socketListener
+	if !jsonSocketDisabled {
+		jsonListener, err = listenOnAddress(jsonSocket)
+		if err != nil {
+			_ = daemonListener.Close()
+			return fmt.Errorf("listen daemon JSON interface: %w", err)
+		}
+	} else {
+		removeStaleUnixSocketForAddress(jsonSocket)
+	}
+
+	go func() {
+		defer daemonListener.Close()
+		if jsonListener != nil {
+			defer jsonListener.Close()
+		}
+
+		if err := daemonListener.chmodUnixSocket("daemon"); err != nil {
+			log.Error(err)
+			return
+		}
+		if jsonListener != nil {
+			if err := jsonListener.chmodUnixSocket("daemon JSON"); err != nil {
+				log.Error(err)
 				return
 			}
 		}
@@ -71,8 +72,16 @@ func (p *program) Start(svc service.Service) error {
 		p.serverInstance = serverInstance
 		p.serverInstanceMu.Unlock()
 
-		log.Printf("started daemon server: %v", split[1])
-		if err := p.serv.Serve(listen); err != nil {
+		if jsonListener != nil {
+			if err := p.startJSONGateway(jsonListener, daemonAddr); err != nil {
+				log.Fatalf("failed to start daemon JSON server: %v", err)
+			}
+		} else {
+			log.Debug("daemon JSON socket disabled")
+		}
+
+		log.Printf("started daemon server: %v", daemonListener.address)
+		if err := p.serv.Serve(daemonListener.Listener); err != nil {
 			log.Errorf("failed to serve daemon requests: %v", err)
 		}
 	}()
@@ -91,6 +100,20 @@ func (p *program) Stop(srv service.Service) error {
 	p.serverInstanceMu.Unlock()
 
 	p.cancel()
+
+	p.jsonServMu.Lock()
+	jsonServ := p.jsonServ
+	p.jsonServMu.Unlock()
+	if jsonServ != nil {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		if err := jsonServ.Shutdown(shutdownCtx); err != nil {
+			log.Errorf("failed to stop daemon JSON server gracefully: %v", err)
+			if err := jsonServ.Close(); err != nil {
+				log.Errorf("failed to close daemon JSON server: %v", err)
+			}
+		}
+		shutdownCancel()
+	}
 
 	if p.serv != nil {
 		p.serv.Stop()
