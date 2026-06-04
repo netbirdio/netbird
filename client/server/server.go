@@ -1864,6 +1864,8 @@ func (s *Server) AddProfile(ctx context.Context, msg *proto.AddProfileRequest) (
 		return nil, fmt.Errorf("failed to create profile: %w", err)
 	}
 
+	s.publishProfileListChanged(msg.ProfileName)
+
 	return &proto.AddProfileResponse{}, nil
 }
 
@@ -1885,7 +1887,30 @@ func (s *Server) RemoveProfile(ctx context.Context, msg *proto.RemoveProfileRequ
 		return nil, fmt.Errorf("failed to remove profile: %w", err)
 	}
 
+	s.publishProfileListChanged(msg.ProfileName)
+
 	return &proto.RemoveProfileResponse{}, nil
+}
+
+// publishProfileListChanged nudges the desktop UI to refresh its profile list
+// after a CLI-driven add/remove. The daemon exposes no dedicated
+// profile-changed RPC event, and a profile add/remove doesn't move the
+// connection status, so the UI's SubscribeStatus path never fires for it (and
+// the tray's status-string guard would swallow it anyway). Instead we publish
+// a marked INFO/SYSTEM event over SubscribeEvents: the UI's dispatchSystemEvent
+// recognises the metadata "kind" marker and translates it into its internal
+// profile-changed signal that both the tray menu and the React profile views
+// already subscribe to (see client/ui/services/daemon_feed.go,
+// MetadataKindProfileListChanged). userMessage is intentionally empty so this
+// stays a silent refresh signal rather than a user-facing notification.
+func (s *Server) publishProfileListChanged(profileName string) {
+	s.statusRecorder.PublishEvent(
+		proto.SystemEvent_INFO,
+		proto.SystemEvent_SYSTEM,
+		"Profile list changed",
+		"",
+		map[string]string{"kind": "profile-list-changed", "profile": profileName},
+	)
 }
 
 // ListProfiles lists all profiles in the daemon.

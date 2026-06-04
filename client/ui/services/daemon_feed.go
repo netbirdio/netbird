@@ -46,6 +46,21 @@ const (
 	// tray (Go side) so the frontend stays passive on this flow.
 	EventSessionWarning = "netbird:session:warning"
 
+	// MetadataKindProfileListChanged is the SystemEvent.metadata["kind"]
+	// marker the daemon stamps on the INFO/SYSTEM event it publishes after a
+	// CLI-driven AddProfile / RemoveProfile (the daemon emits no dedicated
+	// profile RPC event). dispatchSystemEvent recognises it and re-emits the
+	// existing EventProfileChanged so the tray and React profile views refresh
+	// — closing the gap the SubscribeStatus path can't, since a profile
+	// add/remove doesn't change the daemon's status string (the tray's
+	// iconChanged guard would swallow it). The daemon side hard-codes the same
+	// string literal in client/server/server.go (client/server cannot import
+	// this UI package).
+	MetadataKindProfileListChanged = "profile-list-changed"
+	// metadataKindKey is the SystemEvent.metadata key the "kind" marker lives
+	// under. Kept in sync with the daemon-side literal in client/server.
+	metadataKindKey = "kind"
+
 	// StatusDaemonUnavailable is the synthetic Status the UI emits when the
 	// daemon's gRPC socket is unreachable (daemon not running, socket
 	// permission, etc.). Real daemon statuses come straight from
@@ -526,6 +541,16 @@ func (s *DaemonFeed) subscribeAndStreamEvents(ctx context.Context) error {
 func (s *DaemonFeed) dispatchSystemEvent(ev *proto.SystemEvent) {
 	se := systemEventFromProto(ev)
 	log.Infof("backend event: system severity=%s category=%s msg=%q", se.Severity, se.Category, se.UserMessage)
+	// A CLI-driven profile add/remove publishes a marked SYSTEM event purely
+	// to nudge the UI's profile views. Translate it into the existing
+	// EventProfileChanged (which the tray's loadProfiles and React's
+	// ProfileContext.refresh already subscribe to) and stop — it's an internal
+	// refresh signal, not a user-facing notification, so it must not reach the
+	// Recent Events list or fire an OS toast.
+	if se.Metadata[metadataKindKey] == MetadataKindProfileListChanged {
+		s.emitter.Emit(EventProfileChanged, ProfileRef{})
+		return
+	}
 	s.emitter.Emit(EventDaemonNotification, se)
 	if warn, ok := authsession.WarningFromMetadata(se.Metadata); ok {
 		s.emitter.Emit(EventSessionWarning, warn)
