@@ -207,6 +207,105 @@ func mdmManagedFieldConflicts(msg *proto.SetConfigRequest, policy *mdm.Policy) [
 	return conflicts
 }
 
+// loginRequestHasConfigOverrides reports whether the LoginRequest
+// carries ANY field that would mutate persisted daemon configuration
+// (as opposed to pure-auth fields like setupKey, hostname, hint,
+// profileName, username). Used by the Login handler to decide whether
+// the `--disable-update-settings` / MDM gates must run: a re-auth that
+// changes nothing about the configuration is always allowed.
+func loginRequestHasConfigOverrides(msg *proto.LoginRequest) bool {
+	if msg == nil {
+		return false
+	}
+	return msg.ManagementUrl != "" ||
+		msg.AdminURL != "" ||
+		msg.PreSharedKey != "" ||
+		msg.OptionalPreSharedKey != nil ||
+		len(msg.CustomDNSAddress) > 0 ||
+		len(msg.NatExternalIPs) > 0 || msg.CleanNATExternalIPs ||
+		msg.RosenpassEnabled != nil ||
+		msg.InterfaceName != nil ||
+		msg.WireguardPort != nil ||
+		msg.DisableAutoConnect != nil ||
+		msg.ServerSSHAllowed != nil ||
+		msg.RosenpassPermissive != nil ||
+		len(msg.ExtraIFaceBlacklist) > 0 ||
+		msg.NetworkMonitor != nil ||
+		msg.DnsRouteInterval != nil ||
+		msg.DisableClientRoutes != nil ||
+		msg.DisableServerRoutes != nil ||
+		msg.DisableDns != nil ||
+		msg.DisableFirewall != nil ||
+		msg.BlockLanAccess != nil ||
+		msg.DisableNotifications != nil ||
+		len(msg.DnsLabels) > 0 || msg.CleanDNSLabels ||
+		msg.LazyConnectionEnabled != nil ||
+		msg.BlockInbound != nil
+}
+
+// loginRequestMDMConflicts mirrors mdmManagedFieldConflicts but for the
+// LoginRequest surface. Same value-aware semantics: a field set to the
+// MDM-enforced value is a no-op echo, not a conflict; only a divergent
+// value is flagged. PSK has two proto fields (PreSharedKey deprecated
+// and OptionalPreSharedKey current); both routes are checked, and the
+// "**********" redaction sentinel is accepted as a no-op.
+func loginRequestMDMConflicts(msg *proto.LoginRequest, policy *mdm.Policy) []string {
+	if msg == nil || policy.IsEmpty() {
+		return nil
+	}
+	var conflicts []string
+	mark := func(key string) { conflicts = append(conflicts, key) }
+
+	if msg.ManagementUrl != "" && policy.HasKey(mdm.KeyManagementURL) {
+		if want, ok := policy.GetString(mdm.KeyManagementURL); !ok || want != msg.ManagementUrl {
+			mark(mdm.KeyManagementURL)
+		}
+	}
+
+	// PSK: PreSharedKey (deprecated) and OptionalPreSharedKey are both
+	// accepted by Login; either trips the gate if it diverges from the
+	// MDM-enforced PSK.
+	if policy.HasKey(mdm.KeyPreSharedKey) {
+		psk := ""
+		set := false
+		if msg.OptionalPreSharedKey != nil {
+			psk = *msg.OptionalPreSharedKey
+			set = true
+		} else if msg.PreSharedKey != "" {
+			psk = msg.PreSharedKey
+			set = true
+		}
+		if set && psk != "**********" {
+			if want, ok := policy.GetString(mdm.KeyPreSharedKey); !ok || want != psk {
+				mark(mdm.KeyPreSharedKey)
+			}
+		}
+	}
+
+	checkBool := func(key string, p *bool) {
+		if p == nil || !policy.HasKey(key) {
+			return
+		}
+		if want, ok := policy.GetBool(key); !ok || want != *p {
+			mark(key)
+		}
+	}
+	checkBool(mdm.KeyRosenpassEnabled, msg.RosenpassEnabled)
+	checkBool(mdm.KeyRosenpassPermissive, msg.RosenpassPermissive)
+	checkBool(mdm.KeyDisableAutoConnect, msg.DisableAutoConnect)
+	checkBool(mdm.KeyAllowServerSSH, msg.ServerSSHAllowed)
+	checkBool(mdm.KeyDisableClientRoutes, msg.DisableClientRoutes)
+	checkBool(mdm.KeyDisableServerRoutes, msg.DisableServerRoutes)
+	checkBool(mdm.KeyBlockInbound, msg.BlockInbound)
+
+	if msg.WireguardPort != nil && policy.HasKey(mdm.KeyWireguardPort) {
+		if want, ok := policy.GetInt(mdm.KeyWireguardPort); !ok || want != *msg.WireguardPort {
+			mark(mdm.KeyWireguardPort)
+		}
+	}
+	return conflicts
+}
+
 // rejectMDMManagedFieldConflicts returns a FailedPrecondition gRPC error
 // with an MDMManagedFieldsViolation detail when any of the requested
 // fields tries to change an MDM-enforced value to something else, and

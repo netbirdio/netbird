@@ -440,6 +440,22 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 
 // Login uses setup key to prepare configuration for the daemon.
 func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*proto.LoginResponse, error) {
+	// Config-override gates. LoginRequest carries the same surface as
+	// SetConfigRequest (managementUrl, PSK, ssh/rosenpass/port toggles,
+	// ...), so the same protections must apply. Without these the CLI
+	// command `netbird up --management-url=X` (which falls through to
+	// Login when SetConfig is rejected — see cmd/up.go) would silently
+	// bypass `--disable-update-settings` and any MDM policy.
+	if loginRequestHasConfigOverrides(msg) {
+		if s.checkUpdateSettingsDisabled() {
+			return nil, gstatus.Errorf(codes.Unavailable, errUpdateSettingsDisabled)
+		}
+		policy := loadMDMPolicy()
+		if err := rejectMDMManagedFieldConflicts(policy, loginRequestMDMConflicts(msg, policy)); err != nil {
+			return nil, err
+		}
+	}
+
 	s.mutex.Lock()
 	if s.actCancel != nil {
 		s.actCancel()
