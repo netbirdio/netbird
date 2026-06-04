@@ -7,6 +7,8 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/shared/relay/client/dialer"
 )
 
 // EnvRelayTransport pins the relay transport. Valid values: "auto" (default,
@@ -18,8 +20,8 @@ import (
 const EnvRelayTransport = "NB_RELAY_TRANSPORT"
 
 const (
-	// transportFallbackBase is the initial window a relay server is pinned to
-	// WebSocket after a QUIC datagram is rejected as too large.
+	// transportFallbackBase is the initial window a relay server avoids
+	// datagram-sized transports after a datagram is rejected as too large.
 	transportFallbackBase = 10 * time.Minute
 	// transportFallbackMax caps the pinned window when failures repeat.
 	transportFallbackMax = 60 * time.Minute
@@ -62,11 +64,12 @@ func (m TransportMode) sequential() bool {
 	return m == TransportModePreferQUIC || m == TransportModePreferWS
 }
 
-// transportFallback tracks relay servers that have failed to carry QUIC
-// datagrams and should temporarily use WebSocket instead. It is shared across
-// the relay manager so the preference survives client recreation (foreign relay
-// clients are evicted and rebuilt on disconnect). Entries are keyed by server
-// URL and expire after a window that grows on repeated failures.
+// transportFallback tracks relay servers that have rejected a datagram-sized
+// transport (a write too large for the path) and should temporarily avoid such
+// transports. It is shared across the relay manager so the preference survives
+// client recreation (foreign relay clients are evicted and rebuilt on
+// disconnect). Entries are keyed by server URL and expire after a window that
+// grows on repeated failures.
 type transportFallback struct {
 	mu      sync.Mutex
 	entries map[string]*fallbackEntry
@@ -81,18 +84,31 @@ func newTransportFallback() *transportFallback {
 	return &transportFallback{entries: make(map[string]*fallbackEntry)}
 }
 
-// preferWS reports whether serverURL is currently within a WebSocket fallback
-// window.
-func (f *transportFallback) preferWS(serverURL string) bool {
+// nonDatagramSized returns the dialers from in that are not datagram-sized,
+// preserving order.
+func nonDatagramSized(in []dialer.DialeFn) []dialer.DialeFn {
+	out := make([]dialer.DialeFn, 0, len(in))
+	for _, d := range in {
+		if !dialer.IsDatagramSized(d) {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// avoidDatagramSized reports whether serverURL is currently within a window
+// where datagram-sized transports should be avoided.
+func (f *transportFallback) avoidDatagramSized(serverURL string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	e := f.entries[serverURL]
 	return e != nil && time.Now().Before(e.until)
 }
 
-// recordFailure pins serverURL to WebSocket for a window: transportFallbackBase
-// on the first failure, doubling up to transportFallbackMax when QUIC fails
-// again after a previous window expired. It returns the active window duration.
+// recordFailure makes serverURL avoid datagram-sized transports for a window:
+// transportFallbackBase on the first failure, doubling up to transportFallbackMax
+// when a datagram transport fails again after a previous window expired. It
+// returns the active window duration.
 func (f *transportFallback) recordFailure(serverURL string) time.Duration {
 	f.mu.Lock()
 	defer f.mu.Unlock()

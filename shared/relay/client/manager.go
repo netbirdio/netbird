@@ -81,7 +81,7 @@ type Manager struct {
 	keepUnusedServerTime time.Duration
 
 	// transportFallback is shared across home and foreign relay clients so a
-	// QUIC datagram failure pins WebSocket for that server across reconnects.
+	// datagram-too-large failure makes that server avoid datagram-sized transports across reconnects.
 	transportFallback *transportFallback
 }
 

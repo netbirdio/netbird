@@ -12,7 +12,16 @@ import (
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/shared/relay/client/dialer"
 	netErr "github.com/netbirdio/netbird/shared/relay/client/dialer/net"
+	"github.com/netbirdio/netbird/shared/relay/client/dialer/quic"
+	"github.com/netbirdio/netbird/shared/relay/client/dialer/ws"
 )
+
+// TestDatagramSizedCapability locks the capability the generic fallback relies
+// on: QUIC is datagram-sized, WebSocket is not.
+func TestDatagramSizedCapability(t *testing.T) {
+	assert.True(t, dialer.IsDatagramSized(quic.Dialer{}), "QUIC must advertise datagram-sized")
+	assert.False(t, dialer.IsDatagramSized(ws.Dialer{}), "WebSocket must not advertise datagram-sized")
+}
 
 func protocols(dialers []dialer.DialeFn) []string {
 	out := make([]string, len(dialers))

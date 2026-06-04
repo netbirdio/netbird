@@ -175,15 +175,16 @@ type Client struct {
 
 	mtu uint16
 
-	// transportFallback, when set, records QUIC datagram failures so the relay
-	// is dialed over WebSocket on subsequent connects. Shared via the manager.
+	// transportFallback, when set, records datagram-too-large failures so a
+	// datagram-sized transport is avoided on subsequent connects. Shared via
+	// the manager.
 	transportFallback *transportFallback
 	// datagramFallbackTriggered guards a single fallback per connection so a
 	// burst of oversized datagrams triggers one reconnect, not many.
 	datagramFallbackTriggered atomic.Bool
 }
 
-// SetTransportFallback wires the shared QUIC-to-WebSocket fallback tracker.
+// SetTransportFallback wires the shared datagram-transport fallback tracker.
 func (c *Client) SetTransportFallback(tf *transportFallback) {
 	c.transportFallback = tf
 }
@@ -665,21 +666,24 @@ func (c *Client) writeTo(containerRef *connContainer, dstID messages.PeerID, pay
 	return len(payload), err
 }
 
-// onDatagramTooLarge reacts to a QUIC datagram rejected as too large for the
-// path. Unless the transport is pinned to QUIC, it records a WebSocket fallback
-// for this server and closes the connection so the reconnect dials WebSocket.
-// A single fallback is triggered per connection regardless of how many
-// oversized datagrams arrive. cause carries the datagram size and path budget.
+// onDatagramTooLarge reacts to a datagram rejected as too large for the path.
+// When a non-datagram transport is available, it records a fallback for this
+// server and closes the connection so the reconnect avoids datagram-sized
+// transports. A single fallback is triggered per connection regardless of how
+// many oversized datagrams arrive. cause carries the datagram size and budget.
 func (c *Client) onDatagramTooLarge(conn net.Conn, cause error) {
-	if transportModeFromEnv() == TransportModeQUIC {
+	// If the selected mode offers no non-datagram transport (e.g. pinned to a
+	// datagram-sized transport), reconnecting would just re-fail, so leave the
+	// connection up rather than loop.
+	if len(nonDatagramSized(c.baseDialers(transportModeFromEnv()))) == 0 {
 		if c.datagramFallbackTriggered.CompareAndSwap(false, true) {
-			c.log.Warnf("%s, but %s=quic pins QUIC, not falling back", cause, EnvRelayTransport)
+			c.log.Warnf("%s, but no non-datagram transport is available, not falling back", cause)
 		}
 		return
 	}
 
-	// Without the shared tracker a reconnect would just race QUIC again and
-	// re-fail, so leave the connection up rather than loop.
+	// Without the shared tracker a reconnect would just select the same
+	// transport again and re-fail, so leave the connection up rather than loop.
 	if c.transportFallback == nil {
 		if c.datagramFallbackTriggered.CompareAndSwap(false, true) {
 			c.log.Debugf("%s, but no transport fallback configured, leaving connection up", cause)
@@ -692,7 +696,7 @@ func (c *Client) onDatagramTooLarge(conn net.Conn, cause error) {
 	}
 
 	window := c.transportFallback.recordFailure(c.connectionURL)
-	c.log.Warnf("%s, falling back to WebSocket for %s", cause, window)
+	c.log.Warnf("%s, avoiding datagram-sized transport for %s", cause, window)
 
 	if err := conn.Close(); err != nil {
 		c.log.Debugf("close relay connection for transport fallback: %s", err)
