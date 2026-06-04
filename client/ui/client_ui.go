@@ -1664,6 +1664,23 @@ func (s *serviceClient) applyMDMLocksToSettingsForm(set map[string]bool) {
 			t.entry.Enable()
 		}
 	}
+	type checkTarget struct {
+		check *widget.Check
+		key   string
+	}
+	for _, t := range []checkTarget{
+		{s.sDisableClientRoutes, mdm.KeyDisableClientRoutes},
+		{s.sDisableServerRoutes, mdm.KeyDisableServerRoutes},
+	} {
+		if t.check == nil {
+			continue
+		}
+		if set[t.key] {
+			t.check.Disable()
+		} else {
+			t.check.Enable()
+		}
+	}
 	if s.sRosenpassPermissive != nil {
 		if set[mdm.KeyRosenpassPermissive] {
 			s.sRosenpassPermissive.Disable()
