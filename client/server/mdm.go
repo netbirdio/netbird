@@ -207,6 +207,50 @@ func mdmManagedFieldConflicts(msg *proto.SetConfigRequest, policy *mdm.Policy) [
 	return conflicts
 }
 
+// setConfigRequestHasConfigOverrides reports whether the SetConfigRequest
+// carries ANY field that would actually mutate the persisted config. The
+// CLI builds the request unconditionally on every `netbird up` (see
+// setupSetConfigReq in cmd/up.go), so a plain `netbird up` results in a
+// SetConfig call with every field at its zero value; the gate must skip
+// such no-op invocations or it would always fire even when the user did
+// not pass any --flag.
+func setConfigRequestHasConfigOverrides(msg *proto.SetConfigRequest) bool {
+	if msg == nil {
+		return false
+	}
+	return msg.ManagementUrl != "" ||
+		msg.AdminURL != "" ||
+		msg.OptionalPreSharedKey != nil ||
+		len(msg.CustomDNSAddress) > 0 ||
+		len(msg.NatExternalIPs) > 0 || msg.CleanNATExternalIPs ||
+		len(msg.ExtraIFaceBlacklist) > 0 ||
+		len(msg.DnsLabels) > 0 || msg.CleanDNSLabels ||
+		msg.DnsRouteInterval != nil ||
+		msg.RosenpassEnabled != nil ||
+		msg.RosenpassPermissive != nil ||
+		msg.InterfaceName != nil ||
+		msg.WireguardPort != nil ||
+		msg.Mtu != nil ||
+		msg.DisableAutoConnect != nil ||
+		msg.ServerSSHAllowed != nil ||
+		msg.NetworkMonitor != nil ||
+		msg.DisableClientRoutes != nil ||
+		msg.DisableServerRoutes != nil ||
+		msg.DisableDns != nil ||
+		msg.DisableFirewall != nil ||
+		msg.BlockLanAccess != nil ||
+		msg.DisableNotifications != nil ||
+		msg.LazyConnectionEnabled != nil ||
+		msg.BlockInbound != nil ||
+		msg.DisableIpv6 != nil ||
+		msg.EnableSSHRoot != nil ||
+		msg.EnableSSHSFTP != nil ||
+		msg.EnableSSHLocalPortForwarding != nil ||
+		msg.EnableSSHRemotePortForwarding != nil ||
+		msg.DisableSSHAuth != nil ||
+		msg.SshJWTCacheTTL != nil
+}
+
 // loginRequestHasConfigOverrides reports whether the LoginRequest
 // carries ANY field that would mutate persisted daemon configuration
 // (as opposed to pure-auth fields like setupKey, hostname, hint,

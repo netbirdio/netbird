@@ -322,8 +322,16 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if s.checkUpdateSettingsDisabled() {
-		return nil, gstatus.Errorf(codes.Unavailable, errUpdateSettingsDisabled)
+	// Skip the update-settings gate when the request carries no actual
+	// overrides: the CLI builds a SetConfigRequest unconditionally on
+	// every `netbird up` (setupSetConfigReq in cmd/up.go), so a plain
+	// `netbird up` would otherwise always trip the gate and surface a
+	// misleading "setConfig method is not available" warning, even when
+	// the user did not pass any config flag.
+	if setConfigRequestHasConfigOverrides(msg) {
+		if s.checkUpdateSettingsDisabled() {
+			return nil, gstatus.Errorf(codes.Unavailable, errUpdateSettingsDisabled)
+		}
 	}
 
 	// MDM gate: refuse the whole request if any of its fields is enforced
