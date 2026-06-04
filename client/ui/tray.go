@@ -112,7 +112,7 @@ type Tray struct {
 	// connected, the last status string, the daemon version, the
 	// routed-networks revision, and the post-connect login-trigger flag.
 	// These are all written by applyStatus and read by the menu painters
-	// (applyIcon, reapplyMenuState, refreshExitNodes' connected sample,
+	// (applyIcon, relayoutMenu, refreshExitNodes' connected sample,
 	// etc.). One mutex covers them because they change together on every
 	// Status push.
 	statusMu          sync.Mutex
@@ -170,8 +170,24 @@ type Tray struct {
 	// callers.
 	profileLoadMu sync.Mutex
 
+	// profilesMu guards the cached profile rows that relayoutMenu repaints
+	// into a freshly built Profiles submenu. loadProfiles fetches and stores
+	// them here; fillProfileSubmenu reads them. Kept separate from the live
+	// submenu so a relayout (which throws the old submenu away) always has a
+	// source of truth to repaint from without re-hitting the daemon.
+	profilesMu   sync.Mutex
+	profiles     []services.Profile
+	profilesUser string
+
+	// menuMu serialises relayoutMenu — the full buildMenu + SetMenu cycle.
+	// loadProfiles (under profileLoadMu) and refreshExitNodes (under
+	// exitNodesRebuildMu) both drive a relayout from independent mutexes, and
+	// applyLanguage drives one from the Localizer goroutine; without this guard
+	// two relayouts could interleave their t.menu swap and SetMenu push.
+	menuMu sync.Mutex
+
 	// exitNodesMu guards the t.exitNodes row cache so reading the cached
-	// rows in reapplyMenuState (and tearing a copy off the slice for
+	// rows in relayoutMenu (and tearing a copy off the slice for
 	// Repaint) doesn't contend with status-push readers of statusMu.
 	exitNodesMu sync.Mutex
 	// exitNodes are the rows currently painted into the Exit Node
@@ -196,7 +212,7 @@ func NewTray(app *application.App, window *application.WebviewWindow, svc TraySe
 		// the right locale — no English flash followed by a re-paint.
 		loc: svc.Localizer,
 	}
-	t.updater = newTrayUpdater(app, window, svc.Update, svc.Notifier, t.loc, func() { t.applyIcon() })
+	t.updater = newTrayUpdater(app, window, svc.Update, svc.Notifier, t.loc, func() { t.applyIcon() }, func() { t.relayoutMenu() })
 	t.tray = app.SystemTray.New()
 	// Seed panel-theme detection (Linux only) before the first paint so the
 	// initial icon already matches the panel's light/dark scheme; repaints
@@ -309,17 +325,36 @@ func (t *Tray) applyLanguage() {
 	if runtime.GOOS == "linux" {
 		t.tray.SetLabel(t.loc.T("tray.tooltip"))
 	}
-	t.menu = t.buildMenu()
-	t.tray.SetMenu(t.menu)
-	t.reapplyMenuState()
+	t.relayoutMenu()
 }
 
-// reapplyMenuState walks cached state and re-applies the visibility,
-// enablement and label mutations that applyStatus would have performed
-// since the last menu rebuild. Required after buildMenu because that
-// constructor returns items in their default (disconnected) shape. The
-// update menu item is re-applied by trayUpdater.applyLanguage.
-func (t *Tray) reapplyMenuState() {
+// relayoutMenu rebuilds the ENTIRE tray menu from scratch (buildMenu), repaints
+// the cached status/session/profile/exit-node state into the fresh items, and
+// pushes the whole tree with a single SetMenu. It is the only Linux path that
+// reliably propagates submenu changes.
+//
+// Why a full rebuild rather than mutating the existing submenu in place: on
+// KDE/Plasma the StatusNotifierItem host caches a submenu's layout the first
+// time it is opened (GetLayout for that submenu id) and never re-fetches it on
+// a LayoutUpdated(parent=0) signal — so Clear()+Add() into the same submenu
+// container left the visible menu (and, worse, the click→id mapping) frozen on
+// the first snapshot: clicks sent the stale ids, which the freshly-rebuilt
+// itemMap no longer knew, so they silently no-op'd. buildMenu allocates a brand
+// new submenu container id every time, which Plasma treats as an unseen menu
+// and re-queries on next open — both the labels and the click ids stay live.
+// (Confirmed via dbus-monitor: a re-opened submenu issued no GetLayout until
+// its container id changed.) The darwin detached-NSMenu workaround that the old
+// per-submenu SetMenu addressed is also covered, since this rebuilds the whole
+// tree against the cached top-level pointer.
+//
+// Pulls profile/exit-node rows from their caches (profilesMu / exitNodes) so it
+// never re-hits the daemon and never recurses back into loadProfiles.
+func (t *Tray) relayoutMenu() {
+	t.menuMu.Lock()
+	defer t.menuMu.Unlock()
+
+	t.menu = t.buildMenu()
+
 	t.statusMu.Lock()
 	connected := t.connected
 	lastStatus := t.lastStatus
@@ -374,15 +409,19 @@ func (t *Tray) reapplyMenuState() {
 	if t.updater != nil {
 		t.updater.applyLanguage()
 	}
-	// buildMenu just recreated an empty Exit Node submenu, so repaint the
-	// cached rows unconditionally (a refreshExitNodes would skip the rebuild
-	// when the list is unchanged). Hold exitNodesRebuildMu so this rebuild
-	// can't race a status-push-driven refreshExitNodes mutating the same
-	// submenu.
-	t.exitNodesRebuildMu.Lock()
-	t.rebuildExitNodes(exitNodeEntries)
-	t.exitNodesRebuildMu.Unlock()
-	go t.loadProfiles()
+	// buildMenu just recreated empty Profiles + Exit Node submenus, so repaint
+	// both from their caches before the single SetMenu below. fillExitNodeSubmenu
+	// uses the entries snapshotted above; fillProfileSubmenu reads profilesMu.
+	// Neither re-fetches, so relayoutMenu never recurses back into
+	// loadProfiles/refreshExitNodes. (We must NOT re-take exitNodesRebuildMu
+	// here — refreshExitNodes already holds it when it calls relayoutMenu.)
+	t.fillExitNodeSubmenu(exitNodeEntries)
+	t.fillProfileSubmenu()
+
+	// Single push of the whole tree. On Linux this emits one LayoutUpdated with
+	// fresh submenu container ids; on darwin it rebuilds the NSMenu against the
+	// cached top-level pointer.
+	t.tray.SetMenu(t.menu)
 }
 
 func (t *Tray) buildMenu() *application.Menu {
@@ -462,7 +501,7 @@ func (t *Tray) buildMenu() *application.Menu {
 
 	// exitNodeSubmenu hosts one row per peer advertising a default
 	// route (0.0.0.0/0 or ::/0). Populated asynchronously by
-	// rebuildExitNodes on every Status push that changes the set;
+	// refreshExitNodes (via relayoutMenu) on every Status push that changes the set;
 	// the parent row stays disabled until at least one candidate is
 	// known. We grab the parent MenuItem via FindByLabel (same
 	// pattern as the Profiles submenu) so applyStatus can flip its

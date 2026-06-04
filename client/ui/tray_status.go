@@ -72,7 +72,11 @@ func (t *Tray) applyStatus(st services.Status) {
 		go t.refreshExitNodes()
 	}
 	if daemonVersionChanged && t.daemonVersionItem != nil {
-		t.daemonVersionItem.SetLabel(t.loc.T("tray.menu.daemonVersion", "version", st.DaemonVersion))
+		// The version row lives in the About submenu, which KDE/Plasma caches on
+		// first open and never re-fetches on a plain SetLabel (see relayoutMenu's
+		// doc comment). Drive a full relayout so the new version actually paints.
+		// relayoutMenu repaints the label from the cached lastDaemonVersion.
+		t.relayoutMenu()
 	}
 	if sessionExpiredEnter {
 		t.handleSessionExpired()
@@ -155,12 +159,11 @@ func (t *Tray) refreshMenuItemsForStatus(st services.Status, connected bool) {
 	// Refresh the Profiles submenu on every status-text transition: the
 	// daemon does not emit an active-profile event, so the startup race
 	// (UI loads profiles before autoconnect picks the persisted profile)
-	// and a CLI "profile select && up" both surface here. Fired AFTER
-	// all SetHidden/SetEnabled writes on the static menu items above so
-	// loadProfiles' SetMenu rebuild (which clearMenu+processMenu the
-	// entire NSMenu and re-assigns item.impl) cannot race those
-	// writes — the Wails 3 alpha menu API is not goroutine-safe and
-	// reads item.disabled/item.hidden at NSMenuItem construction time.
+	// and a CLI "profile select && up" both surface here. loadProfiles
+	// fetches the rows and drives a full relayoutMenu (serialised by menuMu),
+	// so it cannot race the SetHidden/SetEnabled writes on the static items
+	// above — the Wails 3 alpha menu API is not goroutine-safe and reads
+	// item.disabled/item.hidden at NSMenuItem construction time.
 	go t.loadProfiles()
 }
 

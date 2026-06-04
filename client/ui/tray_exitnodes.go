@@ -23,19 +23,17 @@ type exitNodeEntry struct {
 	Selected bool
 }
 
-// rebuildExitNodes paints one clickable row per exit-node candidate into the
-// Exit Node submenu. Each row carries the network's NetID and its selected
-// state from ListNetworks; clicking toggles it via toggleExitNode. The active
-// node is marked with a "✓ " prefix using a plain Add rather than AddCheckbox
-// for the same reason as loadProfiles — Wails auto-toggles a checkbox's state
-// on click before the OnClick handler runs, so the deselect/select round-trip
-// would briefly show two checked rows. Rebuilds via Clear + Add so the row set
-// stays in sync; SetMenu on the root menu is required because Wails v3 alpha
-// menu Update() builds a detached NSMenu on darwin that never replaces the
-// empty submenu attached at initial setup (same workaround as loadProfiles).
-// Callers must hold exitNodesRebuildMu so concurrent rebuilds can't race the
-// submenu's item slice.
-func (t *Tray) rebuildExitNodes(nodes []exitNodeEntry) {
+// fillExitNodeSubmenu paints one clickable row per exit-node candidate into
+// the (freshly built) Exit Node submenu. Each row carries the network's NetID
+// and its selected state from ListNetworks; clicking toggles it via
+// toggleExitNode. The active node is marked with a "✓ " prefix using a plain
+// Add rather than AddCheckbox for the same reason as fillProfileSubmenu —
+// Wails auto-toggles a checkbox's state on click before the OnClick handler
+// runs, so the deselect/select round-trip would briefly show two checked rows.
+// Pure UI: it never calls SetMenu — relayoutMenu owns the single SetMenu that
+// pushes the whole tree. Callers must hold exitNodesRebuildMu so concurrent
+// rebuilds can't race the submenu's item slice.
+func (t *Tray) fillExitNodeSubmenu(nodes []exitNodeEntry) {
 	if t.exitNodeSubmenu == nil {
 		return
 	}
@@ -50,9 +48,6 @@ func (t *Tray) rebuildExitNodes(nodes []exitNodeEntry) {
 		t.exitNodeSubmenu.Add(label).OnClick(func(*application.Context) {
 			t.toggleExitNode(id, selected)
 		})
-	}
-	if t.menu != nil {
-		t.tray.SetMenu(t.menu)
 	}
 }
 
@@ -93,14 +88,11 @@ func (t *Tray) refreshExitNodes() {
 	t.exitNodes = nodes
 	t.exitNodesMu.Unlock()
 
-	// Set enablement before rebuildExitNodes' SetMenu so the rebuild reads the
-	// updated state at NSMenuItem construction time (Wails v3 alpha reads
-	// item.disabled at build time, not lazily).
-	if t.exitNodeItem != nil {
-		t.exitNodeItem.SetEnabled(connected && len(nodes) > 0)
-	}
+	// relayoutMenu rebuilds the whole tree (allocating a fresh exitNodeItem) and
+	// repaints the parent's enablement from the cached entries we just stored,
+	// so there is no need to poke the old exitNodeItem here.
 	if changed {
-		t.rebuildExitNodes(nodes)
+		t.relayoutMenu()
 	}
 }
 

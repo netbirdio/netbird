@@ -32,6 +32,13 @@ type trayUpdater struct {
 	// transitions, so the tray can repaint its icon (the small badge
 	// overlay differs between has-update / no-update).
 	onIconChange func()
+	// onMenuChange drives a full tray relayout (Tray.relayoutMenu) after an
+	// event-driven update-state change. The update row lives in the About
+	// submenu, which KDE/Plasma caches on first open and never re-fetches on a
+	// plain SetLabel/SetHidden — so a newly-available update would never paint
+	// there. relayoutMenu rebuilds the whole tree (fresh submenu ids) and
+	// re-attaches this item from the cached state via attach → refreshMenuItem.
+	onMenuChange func()
 
 	mu                 sync.Mutex
 	item               *application.MenuItem
@@ -40,7 +47,7 @@ type trayUpdater struct {
 	progressWindowOpen bool   // last installing value we acted on
 }
 
-func newTrayUpdater(app *application.App, window *application.WebviewWindow, update *services.Update, notifier *notifications.NotificationService, loc *Localizer, onIconChange func()) *trayUpdater {
+func newTrayUpdater(app *application.App, window *application.WebviewWindow, update *services.Update, notifier *notifications.NotificationService, loc *Localizer, onIconChange func(), onMenuChange func()) *trayUpdater {
 	u := &trayUpdater{
 		app:          app,
 		window:       window,
@@ -48,6 +55,7 @@ func newTrayUpdater(app *application.App, window *application.WebviewWindow, upd
 		notifier:     notifier,
 		loc:          loc,
 		onIconChange: onIconChange,
+		onMenuChange: onMenuChange,
 	}
 	app.Event.On(updater.EventStateChanged, u.onStateEvent)
 	// Seed from the cached state so we don't miss an event that fired
@@ -142,7 +150,16 @@ func (u *trayUpdater) applyState(st updater.State) {
 	}
 	u.mu.Unlock()
 
-	u.refreshMenuItem(st)
+	// Drive a full relayout rather than mutating u.item in place: on KDE the
+	// About submenu is layout-cached, so a direct SetLabel/SetHidden here would
+	// not paint the newly-available update. relayoutMenu re-attaches the item
+	// from u.state, which re-runs refreshMenuItem. Fall back to the in-place
+	// refresh if no relayout hook was wired (defensive — always set today).
+	if u.onMenuChange != nil {
+		u.onMenuChange()
+	} else {
+		u.refreshMenuItem(st)
+	}
 	if prev.Available != st.Available && u.onIconChange != nil {
 		u.onIconChange()
 	}

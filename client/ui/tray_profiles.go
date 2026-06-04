@@ -43,14 +43,16 @@ func (t *Tray) loadConfig() {
 	t.profileMu.Unlock()
 }
 
-// loadProfiles refreshes the Profiles submenu from the daemon. Each
-// entry is a checkbox showing the active profile and switches on click.
-// Called on ApplicationStarted, after a successful switchProfile, and
-// from applyStatus whenever the daemon's status text changes — the
-// last case catches profile flips driven by another channel (CLI
-// "netbird profile select", autoconnect picking the persisted profile
-// after the UI's first ListProfiles, etc.) since the daemon does not
-// emit a dedicated active-profile event.
+// loadProfiles fetches the profile list from the daemon, caches it under
+// profilesMu, and drives a full tray relayout (relayoutMenu) so the Profiles
+// submenu repaints. Called on ApplicationStarted, after a successful
+// switchProfile, and from applyStatus whenever the daemon's status text
+// changes — the last case catches profile flips driven by another channel
+// (CLI "netbird profile select", autoconnect picking the persisted profile
+// after the UI's first ListProfiles, etc.) since the daemon does not emit a
+// dedicated active-profile event. The relayout (rather than a Clear()+Add()
+// into the live submenu) is what makes KDE/Plasma actually repaint and keep
+// the click→id mapping live — see relayoutMenu's doc comment.
 func (t *Tray) loadProfiles() {
 	if t.profileSubmenu == nil {
 		return
@@ -69,6 +71,29 @@ func (t *Tray) loadProfiles() {
 		log.Debugf("list profiles: %v", err)
 		return
 	}
+
+	t.profilesMu.Lock()
+	t.profiles = profiles
+	t.profilesUser = username
+	t.profilesMu.Unlock()
+
+	t.relayoutMenu()
+}
+
+// fillProfileSubmenu paints the cached profile rows into the (freshly built)
+// Profiles submenu and updates the parent label + email row. Pure UI: it
+// never fetches and never calls SetMenu — relayoutMenu owns the single
+// SetMenu that pushes the whole tree. Reads the rows captured by loadProfiles
+// under profilesMu.
+func (t *Tray) fillProfileSubmenu() {
+	if t.profileSubmenu == nil {
+		return
+	}
+	t.profilesMu.Lock()
+	profiles := append([]services.Profile(nil), t.profiles...)
+	username := t.profilesUser
+	t.profilesMu.Unlock()
+
 	sort.Slice(profiles, func(i, j int) bool { return profiles[i].Name < profiles[j].Name })
 
 	t.profileSubmenu.Clear()
@@ -102,7 +127,7 @@ func (t *Tray) loadProfiles() {
 	t.profileSubmenu.Add(t.loc.T("tray.menu.manageProfiles")).OnClick(func(*application.Context) {
 		t.svc.WindowManager.OpenSettings("profiles")
 	})
-	log.Infof("tray loadProfiles: received %d profile(s) for user %q, active=%q", len(profiles), username, activeName)
+	log.Infof("tray fillProfileSubmenu: %d profile(s) for user %q, active=%q", len(profiles), username, activeName)
 	if t.profileSubmenuItem != nil && activeName != "" {
 		t.profileSubmenuItem.SetLabel(activeName)
 	}
@@ -113,17 +138,6 @@ func (t *Tray) loadProfiles() {
 		} else {
 			t.profileEmailItem.SetHidden(true)
 		}
-	}
-	// Wails v3 alpha's submenu.Update() builds a fresh, detached NSMenu on
-	// darwin that never replaces the empty NSMenu attached to the parent
-	// menu item at initial setup — so the visible Profiles menu stays
-	// frozen on the snapshot taken when the tray was registered. Re-running
-	// SetMenu on the top-level rebuilds the entire NSMenu tree against the
-	// cached pointer and is the only path that propagates submenu changes.
-	if t.menu != nil {
-		t.tray.SetMenu(t.menu)
-	} else {
-		t.profileSubmenu.Update()
 	}
 }
 
