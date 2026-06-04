@@ -330,7 +330,8 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 	// by the active MDM policy. The error carries an MDMManagedFields-
 	// Violation detail listing the offending key names. Non-conflicting
 	// fields in the same request are not applied either.
-	if err := rejectMDMManagedFieldConflicts(loadMDMPolicy(), requestedMDMManagedKeys(msg)); err != nil {
+	policy := loadMDMPolicy()
+	if err := rejectMDMManagedFieldConflicts(policy, mdmManagedFieldConflicts(msg, policy)); err != nil {
 		return nil, err
 	}
 

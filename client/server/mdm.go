@@ -152,65 +152,72 @@ func (s *Server) restartEngineForMDM() error {
 	return nil
 }
 
-// requestedMDMManagedKeys returns the names of MDM-managed keys whose
-// corresponding field is set in the SetConfigRequest. Only keys with an
-// MDM mapping are considered; other fields are ignored.
-func requestedMDMManagedKeys(msg *proto.SetConfigRequest) []string {
-	if msg == nil {
-		return nil
-	}
-	var keys []string
-	if msg.ManagementUrl != "" {
-		keys = append(keys, mdm.KeyManagementURL)
-	}
-	if msg.OptionalPreSharedKey != nil {
-		keys = append(keys, mdm.KeyPreSharedKey)
-	}
-	if msg.RosenpassEnabled != nil {
-		keys = append(keys, mdm.KeyRosenpassEnabled)
-	}
-	if msg.RosenpassPermissive != nil {
-		keys = append(keys, mdm.KeyRosenpassPermissive)
-	}
-	if msg.DisableAutoConnect != nil {
-		keys = append(keys, mdm.KeyDisableAutoConnect)
-	}
-	if msg.ServerSSHAllowed != nil {
-		keys = append(keys, mdm.KeyAllowServerSSH)
-	}
-	if msg.DisableClientRoutes != nil {
-		keys = append(keys, mdm.KeyDisableClientRoutes)
-	}
-	if msg.DisableServerRoutes != nil {
-		keys = append(keys, mdm.KeyDisableServerRoutes)
-	}
-	if msg.BlockInbound != nil {
-		keys = append(keys, mdm.KeyBlockInbound)
-	}
-	if msg.WireguardPort != nil {
-		keys = append(keys, mdm.KeyWireguardPort)
-	}
-	return keys
-}
-
-// rejectMDMManagedFieldConflicts returns a FailedPrecondition gRPC error
-// with an MDMManagedFieldsViolation detail when any of the requested keys
-// is MDM-enforced, and nil otherwise. The whole request is rejected on
-// any conflict; non-conflicting fields in the same request are not
-// applied either (no partial apply).
-func rejectMDMManagedFieldConflicts(policy *mdm.Policy, requested []string) error {
-	if policy.IsEmpty() || len(requested) == 0 {
+// mdmManagedFieldConflicts returns the names of MDM-managed keys whose
+// requested value in the SetConfigRequest differs from the MDM-enforced
+// value. A field set to the same value the policy already enforces is
+// treated as a no-op echo (the GUI tray sends a full Config snapshot on
+// every toggle, so most fields in a typical request match the policy
+// exactly and must NOT be flagged as conflicts).
+//
+// The redacted PreSharedKey sentinel ("**********") that GetConfig
+// returns is recognised and treated as no-op so the UI can safely round-
+// trip it without tripping the gate.
+func mdmManagedFieldConflicts(msg *proto.SetConfigRequest, policy *mdm.Policy) []string {
+	if msg == nil || policy.IsEmpty() {
 		return nil
 	}
 	var conflicts []string
-	for _, k := range requested {
-		if policy.HasKey(k) {
-			conflicts = append(conflicts, k)
+	mark := func(key string) { conflicts = append(conflicts, key) }
+
+	if msg.ManagementUrl != "" && policy.HasKey(mdm.KeyManagementURL) {
+		if want, ok := policy.GetString(mdm.KeyManagementURL); !ok || want != msg.ManagementUrl {
+			mark(mdm.KeyManagementURL)
 		}
 	}
+	if msg.OptionalPreSharedKey != nil && policy.HasKey(mdm.KeyPreSharedKey) {
+		// "**********" is the redacted echo from GetConfig — never a real
+		// override attempt regardless of what the policy holds.
+		if *msg.OptionalPreSharedKey != "**********" {
+			if want, ok := policy.GetString(mdm.KeyPreSharedKey); !ok || want != *msg.OptionalPreSharedKey {
+				mark(mdm.KeyPreSharedKey)
+			}
+		}
+	}
+	checkBool := func(key string, p *bool) {
+		if p == nil || !policy.HasKey(key) {
+			return
+		}
+		if want, ok := policy.GetBool(key); !ok || want != *p {
+			mark(key)
+		}
+	}
+	checkBool(mdm.KeyRosenpassEnabled, msg.RosenpassEnabled)
+	checkBool(mdm.KeyRosenpassPermissive, msg.RosenpassPermissive)
+	checkBool(mdm.KeyDisableAutoConnect, msg.DisableAutoConnect)
+	checkBool(mdm.KeyAllowServerSSH, msg.ServerSSHAllowed)
+	checkBool(mdm.KeyDisableClientRoutes, msg.DisableClientRoutes)
+	checkBool(mdm.KeyDisableServerRoutes, msg.DisableServerRoutes)
+	checkBool(mdm.KeyBlockInbound, msg.BlockInbound)
+
+	if msg.WireguardPort != nil && policy.HasKey(mdm.KeyWireguardPort) {
+		if want, ok := policy.GetInt(mdm.KeyWireguardPort); !ok || want != *msg.WireguardPort {
+			mark(mdm.KeyWireguardPort)
+		}
+	}
+	return conflicts
+}
+
+// rejectMDMManagedFieldConflicts returns a FailedPrecondition gRPC error
+// with an MDMManagedFieldsViolation detail when any of the requested
+// fields tries to change an MDM-enforced value to something else, and
+// nil otherwise. The whole request is rejected on any conflict; non-
+// conflicting fields in the same request are not applied either (no
+// partial apply).
+func rejectMDMManagedFieldConflicts(policy *mdm.Policy, conflicts []string) error {
 	if len(conflicts) == 0 {
 		return nil
 	}
+	_ = policy
 	log.Warnf("MDM rejected request: tried to modify %d managed key(s): %v",
 		len(conflicts), conflicts)
 	st := gstatus.New(
