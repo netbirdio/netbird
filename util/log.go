@@ -38,8 +38,7 @@ func InitLog(logLevel string, logs ...string) error {
 func InitLogger(logger *log.Logger, logLevel string, logs ...string) error {
 	level, err := log.ParseLevel(logLevel)
 	if err != nil {
-		logger.Errorf("Failed parsing log-level %s: %s", logLevel, err)
-		return err
+		return fmt.Errorf("failed parsing log-level %s: %w", logLevel, err)
 	}
 	var writers []io.Writer
 	logFmt := os.Getenv("NB_LOG_FORMAT")
@@ -62,8 +61,7 @@ func InitLogger(logger *log.Logger, logLevel string, logs ...string) error {
 		default:
 			writer, err := setupLogFile(logPath, isRotationDisabled(logger))
 			if err != nil {
-				logger.Errorf("failed setting up log file: %s, %s", logPath, err)
-				return err
+				return fmt.Errorf("failed setting up log file: %s, %w", logPath, err)
 			}
 			writers = append(writers, writer)
 		}
@@ -119,7 +117,7 @@ func setupLogFile(logPath string, disableRotation bool) (io.Writer, error) {
 	if disableRotation {
 		file, err := os.OpenFile(logPath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0600)
 		if err != nil {
-			return nil, fmt.Errorf("failed opening log file: %s", err)
+			return nil, err
 		}
 		return file, nil
 	}
@@ -159,7 +157,7 @@ func getLogMaxSize() int {
 	if sizeVar, ok := os.LookupEnv("NB_LOG_MAX_SIZE_MB"); ok {
 		size, err := strconv.ParseInt(sizeVar, 10, 64)
 		if err != nil {
-			log.Errorf("Failed parsing log-size %s: %s. Should be just an integer", sizeVar, err)
+			log.Errorf("failed parsing log-size %s: %s. Should be just an integer", sizeVar, err)
 			return defaultLogSize
 		}
 
