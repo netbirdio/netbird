@@ -1708,20 +1708,32 @@ func (s *Server) connect(ctx context.Context, config *profilemanager.Config, sta
 }
 
 func (s *Server) checkProfilesDisabled() bool {
-	// Check if the environment variable is set to disable profiles
+	// CLI flag set at service install time wins.
 	if s.profilesDisabled {
 		return true
 	}
-
+	// MDM kill switch: either source can disable the feature; neither
+	// can re-enable a switch the other has set.
+	if s.config != nil {
+		if v, ok := s.config.Policy().GetBool(mdm.KeyDisableProfiles); ok && v {
+			return true
+		}
+	}
 	return false
 }
 
 func (s *Server) checkUpdateSettingsDisabled() bool {
-	// Check if the environment variable is set to disable profiles
+	// CLI flag set at service install time wins.
 	if s.updateSettingsDisabled {
 		return true
 	}
-
+	// MDM kill switch: either source can disable the feature; neither
+	// can re-enable a switch the other has set.
+	if s.config != nil {
+		if v, ok := s.config.Policy().GetBool(mdm.KeyDisableUpdateSettings); ok && v {
+			return true
+		}
+	}
 	return false
 }
 
