@@ -297,15 +297,18 @@ func TestIptablesACLIPSetFallback(t *testing.T) {
 	ipv4Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	require.NoError(t, err)
 
-	aclMgr, err := newAclManager(ipv4Client, ifaceMock)
+	// Use Create()/Init() so the router-owned chains (chainRTFWDIN/OUT) are
+	// created before the ACL manager's createDefaultChains() references them.
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
 	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
 
-	require.NoError(t, aclMgr.init(nil))
+	aclMgr := manager.aclMgr
 	// Simulate a kernel without the ipset hash module.
 	aclMgr.ipsetSupported = false
 
 	defer func() {
-		require.NoError(t, aclMgr.Reset())
+		require.NoError(t, manager.Close(nil))
 	}()
 
 	ip := netip.MustParseAddr("10.20.0.42")
