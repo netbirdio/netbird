@@ -91,6 +91,9 @@ func (r *RaceDial) Dial(ctx context.Context) (net.Conn, error) {
 // falling back to the next on failure.
 func (r *RaceDial) dialSequential(ctx context.Context) (net.Conn, error) {
 	for _, dfn := range r.dialerFns {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		attemptCtx, cancel := context.WithTimeout(ctx, r.connectionTimeout)
 		r.log.Infof("dialing Relay server via %s", dfn.Protocol())
 		conn, err := dfn.Dial(attemptCtx, r.serverURL, r.serverName)

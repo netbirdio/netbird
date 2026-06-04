@@ -681,6 +681,9 @@ func (c *Client) onDatagramTooLarge(conn net.Conn, cause error) {
 	// Without the shared tracker a reconnect would just race QUIC again and
 	// re-fail, so leave the connection up rather than loop.
 	if c.transportFallback == nil {
+		if c.datagramFallbackTriggered.CompareAndSwap(false, true) {
+			c.log.Debugf("%s, but no transport fallback configured, leaving connection up", cause)
+		}
 		return
 	}
 
