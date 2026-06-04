@@ -10,6 +10,7 @@ import (
 
 	"github.com/netbirdio/netbird/formatter/hook"
 	admincmd "github.com/netbirdio/netbird/management/cmd/admin"
+	tokencmd "github.com/netbirdio/netbird/management/cmd/token"
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/util"
@@ -17,15 +18,40 @@ import (
 
 var adminDatadir string
 
-// newAdminCommands creates the admin command tree with management-specific resource opener.
+// newAdminCommands creates the admin command tree with management-specific resource openers.
 func newAdminCommands() *cobra.Command {
 	cmd := admincmd.NewCommands(withAdminResources)
 	cmd.PersistentFlags().StringVar(&adminDatadir, "datadir", "", "Override the data directory from config (used for store.db and the default idp.db)")
+	cmd.AddCommand(tokencmd.NewCommands(withAdminTokenStore))
 	return cmd
 }
 
-// withAdminResources initializes logging, loads config, opens the management store and embedded IdP storage, and calls fn.
+// withAdminResources initializes logging, loads config, opens the management store
+// and embedded IdP storage, and calls fn.
 func withAdminResources(cmd *cobra.Command, fn func(ctx context.Context, resources admincmd.Resources) error) error {
+	return withAdminStore(cmd, func(ctx context.Context, managementStore store.Store, config *nbconfig.Config) error {
+		idpStorage, err := admincmd.OpenEmbeddedIDPStorage(config.EmbeddedIdP)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			if err := idpStorage.Close(); err != nil {
+				log.Debugf("close embedded IdP storage: %v", err)
+			}
+		}()
+
+		return fn(ctx, admincmd.Resources{Store: managementStore, IDPStorage: idpStorage})
+	})
+}
+
+// withAdminTokenStore opens only the management store for admin token commands.
+func withAdminTokenStore(cmd *cobra.Command, fn func(ctx context.Context, s store.Store) error) error {
+	return withAdminStore(cmd, func(ctx context.Context, managementStore store.Store, _ *nbconfig.Config) error {
+		return fn(ctx, managementStore)
+	})
+}
+
+func withAdminStore(cmd *cobra.Command, fn func(ctx context.Context, s store.Store, config *nbconfig.Config) error) error {
 	if err := util.InitLog("error", "console"); err != nil {
 		return fmt.Errorf("init log: %w", err)
 	}
@@ -59,15 +85,5 @@ func withAdminResources(cmd *cobra.Command, fn func(ctx context.Context, resourc
 		}
 	}()
 
-	idpStorage, err := admincmd.OpenEmbeddedIDPStorage(config.EmbeddedIdP)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err := idpStorage.Close(); err != nil {
-			log.Debugf("close embedded IdP storage: %v", err)
-		}
-	}()
-
-	return fn(ctx, admincmd.Resources{Store: managementStore, IDPStorage: idpStorage})
+	return fn(ctx, managementStore, config)
 }
