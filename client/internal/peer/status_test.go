@@ -90,6 +90,28 @@ func TestStatus_PeerStateByIP_MatchesIPv6(t *testing.T) {
 	req.Equal("pk-1", state.PubKey, "matching state must carry the right pub key")
 }
 
+// TestStatus_PeerStateByIP_MatchesOfflinePeers covers peers that have
+// been moved into the offline slice via ReplaceOfflinePeers. Callers
+// (DNS filter, embed.Client.IdentityForIP) need to treat them as known
+// rather than unknown — otherwise authentication / DNS filtering treats
+// known-but-offline peers as foreign IPs.
+func TestStatus_PeerStateByIP_MatchesOfflinePeers(t *testing.T) {
+	status := NewRecorder("https://mgm")
+	req := require.New(t)
+
+	status.ReplaceOfflinePeers([]State{
+		{PubKey: "pk-offline", FQDN: "offline.netbird", IP: "100.64.0.20", IPv6: "fd00::20"},
+	})
+
+	state, ok := status.PeerStateByIP("100.64.0.20")
+	req.True(ok, "offline peer must resolve by IPv4 tunnel address")
+	req.Equal("pk-offline", state.PubKey, "matching state must carry the offline peer's pub key")
+
+	state, ok = status.PeerStateByIP("fd00::20")
+	req.True(ok, "offline peer must resolve by IPv6 tunnel address")
+	req.Equal("pk-offline", state.PubKey, "IPv6 match must carry the offline peer's pub key")
+}
+
 func TestStatus_UpdatePeerFQDN(t *testing.T) {
 	key := "abc"
 	fqdn := "peer-a.netbird.local"

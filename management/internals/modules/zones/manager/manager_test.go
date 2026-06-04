@@ -79,7 +79,7 @@ func TestManagerImpl_GetAllZones(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Read).
-			Return(true, nil)
+			Return(true, ctx, nil)
 
 		result, err := manager.GetAllZones(ctx, testAccountID, testUserID)
 		require.NoError(t, err)
@@ -95,7 +95,7 @@ func TestManagerImpl_GetAllZones(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Read).
-			Return(false, nil)
+			Return(false, ctx, nil)
 
 		result, err := manager.GetAllZones(ctx, testAccountID, testUserID)
 		require.Error(t, err)
@@ -112,7 +112,7 @@ func TestManagerImpl_GetAllZones(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Read).
-			Return(false, status.Errorf(status.Internal, "permission check failed"))
+			Return(false, ctx, status.Errorf(status.Internal, "permission check failed"))
 
 		result, err := manager.GetAllZones(ctx, testAccountID, testUserID)
 		require.Error(t, err)
@@ -134,7 +134,7 @@ func TestManagerImpl_GetZone(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Read).
-			Return(true, nil)
+			Return(true, ctx, nil)
 
 		result, err := manager.GetZone(ctx, testAccountID, testUserID, zone.ID)
 		require.NoError(t, err)
@@ -150,7 +150,7 @@ func TestManagerImpl_GetZone(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Read).
-			Return(false, nil)
+			Return(false, ctx, nil)
 
 		result, err := manager.GetZone(ctx, testAccountID, testUserID, testZoneID)
 		require.Error(t, err)
@@ -179,7 +179,7 @@ func TestManagerImpl_CreateZone(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Create).
-			Return(true, nil)
+			Return(true, ctx, nil)
 
 		mockAccountManager.StoreEventFunc = func(ctx context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any) {
 			assert.Equal(t, testUserID, initiatorID)
@@ -212,7 +212,7 @@ func TestManagerImpl_CreateZone(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Create).
-			Return(false, nil)
+			Return(false, ctx, nil)
 
 		result, err := manager.CreateZone(ctx, testAccountID, testUserID, inputZone)
 		require.Error(t, err)
@@ -235,7 +235,7 @@ func TestManagerImpl_CreateZone(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Create).
-			Return(true, nil)
+			Return(true, ctx, nil)
 
 		result, err := manager.CreateZone(ctx, testAccountID, testUserID, inputZone)
 		require.Error(t, err)
@@ -261,7 +261,7 @@ func TestManagerImpl_CreateZone(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Create).
-			Return(true, nil)
+			Return(true, ctx, nil)
 
 		result, err := manager.CreateZone(ctx, testAccountID, testUserID, inputZone)
 		require.Error(t, err)
@@ -293,7 +293,7 @@ func TestManagerImpl_CreateZone(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Create).
-			Return(true, nil)
+			Return(true, ctx, nil)
 
 		result, err := manager.CreateZone(ctx, testAccountID, testUserID, inputZone)
 		require.Error(t, err)
@@ -319,7 +319,7 @@ func TestManagerImpl_CreateZone(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Create).
-			Return(true, nil)
+			Return(true, ctx, nil)
 
 		result, err := manager.CreateZone(ctx, testAccountID, testUserID, inputZone)
 		require.Error(t, err)
@@ -354,7 +354,7 @@ func TestManagerImpl_UpdateZone(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Update).
-			Return(true, nil)
+			Return(true, ctx, nil)
 
 		storeEventCalled := false
 		mockAccountManager.StoreEventFunc = func(ctx context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any) {
@@ -394,7 +394,7 @@ func TestManagerImpl_UpdateZone(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Update).
-			Return(true, nil)
+			Return(true, ctx, nil)
 
 		result, err := manager.UpdateZone(ctx, testAccountID, testUserID, updatedZone)
 		require.Error(t, err)
@@ -418,7 +418,7 @@ func TestManagerImpl_UpdateZone(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Update).
-			Return(false, nil)
+			Return(false, ctx, nil)
 
 		result, err := manager.UpdateZone(ctx, testAccountID, testUserID, updatedZone)
 		require.Error(t, err)
@@ -441,7 +441,7 @@ func TestManagerImpl_UpdateZone(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Update).
-			Return(true, nil)
+			Return(true, ctx, nil)
 
 		result, err := manager.UpdateZone(ctx, testAccountID, testUserID, updatedZone)
 		require.Error(t, err)
@@ -471,7 +471,7 @@ func TestManagerImpl_DeleteZone(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Delete).
-			Return(true, nil)
+			Return(true, ctx, nil)
 
 		storeEventCallCount := 0
 		mockAccountManager.StoreEventFunc = func(ctx context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any) {
@@ -503,7 +503,7 @@ func TestManagerImpl_DeleteZone(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Delete).
-			Return(true, nil)
+			Return(true, ctx, nil)
 
 		storeEventCalled := false
 		mockAccountManager.StoreEventFunc = func(ctx context.Context, initiatorID, targetID, accountID string, activityID activity.ActivityDescriber, meta map[string]any) {
@@ -529,7 +529,7 @@ func TestManagerImpl_DeleteZone(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Delete).
-			Return(false, nil)
+			Return(false, ctx, nil)
 
 		err := manager.DeleteZone(ctx, testAccountID, testUserID, testZoneID)
 		require.Error(t, err)
@@ -545,7 +545,7 @@ func TestManagerImpl_DeleteZone(t *testing.T) {
 
 		mockPermissionsManager.EXPECT().
 			ValidateUserPermissions(ctx, testAccountID, testUserID, modules.Dns, operations.Delete).
-			Return(true, nil)
+			Return(true, ctx, nil)
 
 		err := manager.DeleteZone(ctx, testAccountID, testUserID, "non-existent-zone")
 		require.Error(t, err)

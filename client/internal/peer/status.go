@@ -111,6 +111,7 @@ type LocalPeerState struct {
 	PubKey          string
 	KernelInterface bool
 	FQDN            string
+	WgPort          int
 	Routes          map[string]struct{}
 }
 
@@ -310,8 +311,12 @@ func (d *Status) PeerByIP(ip string) (string, bool) {
 
 // PeerStateByIP returns the full peer State for the given tunnel IP.
 // Matches against either the IPv4 (State.IP) or IPv6 (State.IPv6) tunnel
-// address so dual-stack peers are reachable on either family. Returns the
-// zero State and false when no peer matches or the input is empty.
+// address so dual-stack peers are reachable on either family. Searches
+// both d.peers and d.offlinePeers — peers that have been moved into
+// the offline slice by ReplaceOfflinePeers are still part of the
+// account's roster and callers (DNS filter, embed.Client.IdentityForIP)
+// need to recognise them rather than treating them as unknown. Returns
+// the zero State and false when no peer matches or the input is empty.
 func (d *Status) PeerStateByIP(ip string) (State, bool) {
 	if ip == "" {
 		return State{}, false
@@ -320,6 +325,11 @@ func (d *Status) PeerStateByIP(ip string) (State, bool) {
 	defer d.mux.RUnlock()
 
 	for _, state := range d.peers {
+		if (state.IP != "" && state.IP == ip) || (state.IPv6 != "" && state.IPv6 == ip) {
+			return state, true
+		}
+	}
+	for _, state := range d.offlinePeers {
 		if (state.IP != "" && state.IP == ip) || (state.IPv6 != "" && state.IPv6 == ip) {
 			return state, true
 		}
@@ -1348,6 +1358,7 @@ func (fs FullStatus) ToProto() *proto.FullStatus {
 	pbFullStatus.LocalPeerState.PubKey = fs.LocalPeerState.PubKey
 	pbFullStatus.LocalPeerState.KernelInterface = fs.LocalPeerState.KernelInterface
 	pbFullStatus.LocalPeerState.Fqdn = fs.LocalPeerState.FQDN
+	pbFullStatus.LocalPeerState.WgPort = int32(fs.LocalPeerState.WgPort)
 	pbFullStatus.LocalPeerState.RosenpassPermissive = fs.RosenpassState.Permissive
 	pbFullStatus.LocalPeerState.RosenpassEnabled = fs.RosenpassState.Enabled
 	pbFullStatus.NumberOfForwardingRules = int32(fs.NumOfForwardingRules)
