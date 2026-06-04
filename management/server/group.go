@@ -152,18 +152,9 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 			return status.Errorf(status.NotFound, "group with ID %s not found", newGroup.ID)
 		}
 
-		peersToAdd := util.Difference(newGroup.Peers, oldGroup.Peers)
 		peersToRemove := util.Difference(oldGroup.Peers, newGroup.Peers)
-
-		for _, peerID := range peersToAdd {
-			if err := transaction.AddPeerToGroup(ctx, accountID, peerID, newGroup.ID); err != nil {
-				return status.Errorf(status.Internal, "failed to add peer %s to group %s: %v", peerID, newGroup.ID, err)
-			}
-		}
-		for _, peerID := range peersToRemove {
-			if err := transaction.RemovePeerFromGroup(ctx, peerID, newGroup.ID); err != nil {
-				return status.Errorf(status.Internal, "failed to remove peer %s from group %s: %v", peerID, newGroup.ID, err)
-			}
+		if err = syncGroupMembership(ctx, transaction, accountID, newGroup.ID, util.Difference(newGroup.Peers, oldGroup.Peers), peersToRemove); err != nil {
+			return err
 		}
 
 		if err = transaction.UpdateGroup(ctx, newGroup); err != nil {
@@ -193,6 +184,21 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 		log.WithContext(ctx).Tracef("UpdateGroup %s: no affected peers", newGroup.ID)
 	}
 
+	return nil
+}
+
+// syncGroupMembership applies the peer membership delta for a group within a transaction.
+func syncGroupMembership(ctx context.Context, transaction store.Store, accountID, groupID string, peersToAdd, peersToRemove []string) error {
+	for _, peerID := range peersToAdd {
+		if err := transaction.AddPeerToGroup(ctx, accountID, peerID, groupID); err != nil {
+			return status.Errorf(status.Internal, "failed to add peer %s to group %s: %v", peerID, groupID, err)
+		}
+	}
+	for _, peerID := range peersToRemove {
+		if err := transaction.RemovePeerFromGroup(ctx, peerID, groupID); err != nil {
+			return status.Errorf(status.Internal, "failed to remove peer %s from group %s: %v", peerID, groupID, err)
+		}
+	}
 	return nil
 }
 
@@ -443,20 +449,9 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 	}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		for _, groupID := range groupIDs {
-			group, err := transaction.GetGroupByID(ctx, store.LockingStrengthNone, accountID, groupID)
-			if err != nil {
-				allErrors = errors.Join(allErrors, err)
-				continue
-			}
-
-			if err = validateDeleteGroup(ctx, transaction, group, userID, extraSettings.FlowGroups); err != nil {
-				allErrors = errors.Join(allErrors, err)
-				continue
-			}
-
-			groupIDsToDelete = append(groupIDsToDelete, groupID)
-			deletedGroups = append(deletedGroups, group)
+		deletedGroups, allErrors = collectDeletableGroups(ctx, transaction, accountID, userID, groupIDs, extraSettings.FlowGroups)
+		for _, group := range deletedGroups {
+			groupIDsToDelete = append(groupIDsToDelete, group.ID)
 		}
 
 		if len(groupIDsToDelete) == 0 {
@@ -491,6 +486,26 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 	}
 
 	return allErrors
+}
+
+// collectDeletableGroups loads and validates each group for deletion, returning
+// the groups that may be deleted and the joined validation errors for the rest.
+func collectDeletableGroups(ctx context.Context, transaction store.Store, accountID, userID string, groupIDs, flowGroups []string) ([]*types.Group, error) {
+	var deletable []*types.Group
+	var allErrors error
+	for _, groupID := range groupIDs {
+		group, err := transaction.GetGroupByID(ctx, store.LockingStrengthNone, accountID, groupID)
+		if err != nil {
+			allErrors = errors.Join(allErrors, err)
+			continue
+		}
+		if err = validateDeleteGroup(ctx, transaction, group, userID, flowGroups); err != nil {
+			allErrors = errors.Join(allErrors, err)
+			continue
+		}
+		deletable = append(deletable, group)
+	}
+	return deletable, allErrors
 }
 
 // GroupAddPeer appends peer to the group

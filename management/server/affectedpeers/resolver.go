@@ -415,7 +415,7 @@ func (r *resolver) collectResourceRouterBridge() {
 }
 
 func (r *resolver) bridgeSourceToRouters() {
-	resourceIDs := policyDestinationResourceIDs(r.ctx, r.store, r.accountID, r.matchedPolicies...)
+	resourceIDs := r.policyDestinationResourceIDs(r.matchedPolicies...)
 	for id := range r.resourceIDs {
 		resourceIDs[id] = struct{}{}
 	}
@@ -514,40 +514,48 @@ func (r *resolver) policyTargetsResources(policy *types.Policy, resourceIDs map[
 	return false
 }
 
-func policyDestinationResourceIDs(ctx context.Context, s store.Store, accountID string, policies ...*types.Policy) map[string]struct{} {
-	destGroupSet := make(map[string]struct{})
+func (r *resolver) policyDestinationResourceIDs(policies ...*types.Policy) map[string]struct{} {
 	resourceIDs := make(map[string]struct{})
+	destGroupSet := collectPolicyDestinations(resourceIDs, policies...)
+	r.addGroupResourceIDs(destGroupSet, resourceIDs)
+	return resourceIDs
+}
 
+// collectPolicyDestinations adds each rule's direct destination resource IDs to
+// resourceIDs and returns the set of destination group IDs referenced.
+func collectPolicyDestinations(resourceIDs map[string]struct{}, policies ...*types.Policy) map[string]struct{} {
+	destGroupSet := make(map[string]struct{})
 	for _, policy := range policies {
 		if policy == nil {
 			continue
 		}
 		for _, rule := range policy.Rules {
-			for _, gID := range rule.Destinations {
-				destGroupSet[gID] = struct{}{}
-			}
+			addAll(destGroupSet, rule.Destinations)
 			if rule.DestinationResource.Type != types.ResourceTypePeer && rule.DestinationResource.ID != "" {
 				resourceIDs[rule.DestinationResource.ID] = struct{}{}
 			}
 		}
 	}
+	return destGroupSet
+}
 
-	if len(destGroupSet) > 0 {
-		groups, err := s.GetGroupsByIDs(ctx, store.LockingStrengthNone, accountID, setToSlice(destGroupSet))
-		if err != nil {
-			log.WithContext(ctx).Errorf("failed to get destination groups for resource router bridge: %v", err)
-		} else {
-			for _, group := range groups {
-				for _, res := range group.Resources {
-					if res.ID != "" {
-						resourceIDs[res.ID] = struct{}{}
-					}
-				}
+// addGroupResourceIDs folds the resource IDs of the given groups into resourceIDs.
+func (r *resolver) addGroupResourceIDs(groupIDs map[string]struct{}, resourceIDs map[string]struct{}) {
+	if len(groupIDs) == 0 {
+		return
+	}
+	groups, err := r.store.GetGroupsByIDs(r.ctx, store.LockingStrengthNone, r.accountID, setToSlice(groupIDs))
+	if err != nil {
+		log.WithContext(r.ctx).Errorf("failed to get destination groups for resource router bridge: %v", err)
+		return
+	}
+	for _, group := range groups {
+		for _, res := range group.Resources {
+			if res.ID != "" {
+				resourceIDs[res.ID] = struct{}{}
 			}
 		}
 	}
-
-	return resourceIDs
 }
 
 func collectPolicyDirectPeers(policy *types.Policy, peerSet map[string]struct{}) {
