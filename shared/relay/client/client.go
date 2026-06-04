@@ -672,26 +672,24 @@ func (c *Client) writeTo(containerRef *connContainer, dstID messages.PeerID, pay
 // transports. A single fallback is triggered per connection regardless of how
 // many oversized datagrams arrive. cause carries the datagram size and budget.
 func (c *Client) onDatagramTooLarge(conn net.Conn, cause error) {
+	// Handle one oversized datagram per connection; a burst triggers a single
+	// fallback (and a single log line), not many.
+	if !c.datagramFallbackTriggered.CompareAndSwap(false, true) {
+		return
+	}
+
 	// If the selected mode offers no non-datagram transport (e.g. pinned to a
 	// datagram-sized transport), reconnecting would just re-fail, so leave the
 	// connection up rather than loop.
 	if len(nonDatagramSized(c.baseDialers(transportModeFromEnv()))) == 0 {
-		if c.datagramFallbackTriggered.CompareAndSwap(false, true) {
-			c.log.Warnf("%s, but no non-datagram transport is available, not falling back", cause)
-		}
+		c.log.Warnf("%s, but no non-datagram transport is available, not falling back", cause)
 		return
 	}
 
 	// Without the shared tracker a reconnect would just select the same
 	// transport again and re-fail, so leave the connection up rather than loop.
 	if c.transportFallback == nil {
-		if c.datagramFallbackTriggered.CompareAndSwap(false, true) {
-			c.log.Debugf("%s, but no transport fallback configured, leaving connection up", cause)
-		}
-		return
-	}
-
-	if !c.datagramFallbackTriggered.CompareAndSwap(false, true) {
+		c.log.Debugf("%s, but no transport fallback configured, leaving connection up", cause)
 		return
 	}
 

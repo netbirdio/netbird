@@ -26,7 +26,9 @@ func (d Dialer) Protocol() string {
 
 // DatagramSized marks QUIC as a datagram-sized transport: relay traffic is
 // carried in QUIC DATAGRAM frames, which must fit a single packet.
-func (d Dialer) DatagramSized() {}
+func (d Dialer) DatagramSized() {
+	// Intentional marker method; presence is the capability signal.
+}
 
 func (d Dialer) Dial(ctx context.Context, address, serverName string) (net.Conn, error) {
 	quicURL, err := prepareURL(address)
