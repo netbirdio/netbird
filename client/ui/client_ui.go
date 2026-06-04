@@ -1268,6 +1268,20 @@ func (s *serviceClient) checkAndUpdateFeatures() {
 		s.setSettingsEnabled(settingsEnabled)
 	}
 
+	// MDM kill switch on the Advanced Settings submenu item: when the
+	// daemon reports disableAdvancedSettings=true the user must not be
+	// able to open the settings window at all. Title gets the "(MDM)"
+	// suffix to match the convention used for individual locked fields.
+	if s.mAdvancedSettings != nil {
+		if features != nil && features.DisableAdvancedSettings {
+			s.mAdvancedSettings.SetTitle("Advanced Settings (MDM)")
+			s.mAdvancedSettings.Disable()
+		} else {
+			s.mAdvancedSettings.SetTitle("Advanced Settings")
+			s.mAdvancedSettings.Enable()
+		}
+	}
+
 	// Update profile menu based on current features
 	if s.mProfile != nil {
 		profilesEnabled := features == nil || !features.DisableProfiles
@@ -1707,13 +1721,11 @@ func (s *serviceClient) applyMDMLocksToSettingsForm(set map[string]bool) {
 				t.entry.SetText(t.entry.Text + mdmFieldSuffix)
 			}
 			t.entry.Disable()
-			t.entry.Refresh()
 		} else {
 			if t.inlineTag {
 				t.entry.SetText(strings.TrimSuffix(t.entry.Text, mdmFieldSuffix))
 			}
 			t.entry.Enable()
-			t.entry.Refresh()
 		}
 	}
 	type checkTarget struct {
