@@ -371,7 +371,7 @@ func TestParsingToJSON(t *testing.T) {
           "netbirdIpv6": "fd00::100",
           "publicKey": "Some-Pub-Key",
           "usesKernelInterface": true,
-					"wireguardPort": 51820,
+          "wireguardPort": 51820,
           "fqdn": "some-localhost.awesome-domain.com",
           "quantumResistance": false,
           "quantumResistancePermissive": false,
