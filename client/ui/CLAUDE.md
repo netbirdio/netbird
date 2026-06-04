@@ -148,6 +148,8 @@ The tray uses Wails' built-in `notifications` service. One `notifications.Notifi
 
 `task dev` (Wails dev, live reload), `task build` (prod build for the current OS, dispatches to `build/{darwin,linux,windows}/Taskfile.yml`), `task build:server` / `run:server` / `build:docker` / `run:docker` (server-mode variants in `build/Taskfile.yml`). **No** `task generate:bindings` alias — run `wails3 generate bindings -clean=true -ts` directly from this directory. CLI flags + log-target semantics are documented in the `main.go` bullet under "Layout".
 
+Both `windows:build` and `windows:build:console` (the latter outputs `bin/netbird-ui-console.exe` linked against the console subsystem, so Go stdout/stderr/logrus print to the launching terminal) honour `DEV=true`, which drops the `-tags production` flag. The `production` tag is what disables the WebKit/WebView2 DevTools inspector — so `DEV=true` is the only way to get a Windows binary where the frontend JS console is reachable (right-click → Inspect / F12). Cross-compile from Linux with `CGO_ENABLED=1 task windows:build:console DEV=true`.
+
 ## Useful references
 - `WAILS-DIALOGS.md` (sibling) — full `@wailsio/runtime` `Dialogs` API + per-OS behaviour + frameless-window pattern.
 - `LINUX-TRAY.md` (sibling) — StatusNotifierWatcher + XEmbed host details.

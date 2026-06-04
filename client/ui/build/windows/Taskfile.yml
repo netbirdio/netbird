@@ -41,6 +41,11 @@ tasks:
 
       Cross-compile from Linux works the same way:
         CGO_ENABLED=1 task windows:build:console
+
+      Pass DEV=true to drop the `production` build tag so the WebKit/WebView2
+      DevTools inspector (right-click → Inspect, or F12) stays enabled and the
+      frontend JS console is reachable — same DEV handling as windows:build:
+        CGO_ENABLED=1 task windows:build:console DEV=true
     deps:
       - task: common:go:mod:tidy
       - task: common:build:frontend
@@ -61,9 +66,11 @@ tasks:
       - cmd: rm -f *.syso
         platforms: [linux, darwin]
     vars:
-      # Identical to build:native's flags except no -H windowsgui, so the
-      # binary attaches to the launching console.
-      BUILD_FLAGS: '-tags production{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -ldflags="-w -s"'
+      # Identical to build:native's flags (including DEV handling) except no
+      # -H windowsgui, so the binary attaches to the launching console. With
+      # DEV=true the `production` tag is dropped, keeping the WebKit/WebView2
+      # DevTools inspector enabled so the frontend JS console is reachable.
+      BUILD_FLAGS: '{{if eq .DEV "true"}}{{if .EXTRA_TAGS}}-tags {{.EXTRA_TAGS}} {{end}}-gcflags=all="-l"{{else}}-tags production{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -ldflags="-w -s"{{end}}'
       CGO_ENABLED: '{{.CGO_ENABLED | default "0"}}'
       CC: '{{.CC | default "x86_64-w64-mingw32-gcc"}}'
     env:
