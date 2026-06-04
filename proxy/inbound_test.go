@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -110,7 +111,7 @@ func TestServer_PrivateInbound_Enabled_WiresLifecycle(t *testing.T) {
 	// Construct a NetBird transport. We can't actually start the embedded
 	// client here (that needs a real management server), but we can
 	// confirm that the lifecycle callbacks are registered.
-	s.netbird = roundtrip.NewNetBird("test", "test", roundtrip.ClientConfig{
+	s.netbird = roundtrip.NewNetBird(t.Context(), "test", "test", roundtrip.ClientConfig{
 		MgmtAddr: "http://invalid.test",
 	}, quietLogger(), nil, fakeMgmtClient{})
 
@@ -139,7 +140,7 @@ func TestInboundManager_AddRouteAfterReady_RegistersDirectly(t *testing.T) {
 
 // TestPrivateCapability_DerivedFromPrivateOnly tests that the capability
 // bit reported upstream tracks --private exclusively. The previous
-// --private-inbound flag has been folded into --private.
+// --private flag has been folded into --private.
 func TestPrivateCapability_DerivedFromPrivateOnly(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -318,7 +319,7 @@ func TestInboundManager_ListenerInfo(t *testing.T) {
 }
 
 // TestInboundManager_NilManagerSafe ensures the observability accessors
-// are safe to call when --private-inbound is off (nil manager).
+// are safe to call when --private is off (nil manager).
 func TestInboundManager_NilManagerSafe(t *testing.T) {
 	var mgr *inboundManager
 	_, ok := mgr.ListenerInfo("anything")
@@ -480,6 +481,38 @@ func selfSignedTLSConfig(t *testing.T) *tls.Config {
 	cert, err := tls.X509KeyPair(testCertPEM, testKeyPEM)
 	require.NoError(t, err, "load static self-signed cert")
 	return &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12} //nolint:gosec
+}
+
+// TestNewInboundErrorLog_WriterIsCloseable guards the close path on the
+// logrus PipeWriter that backs each per-account http.Server's ErrorLog.
+// logrus.Entry.WriterLevel returns an *io.PipeWriter that owns a pipe +
+// scanner goroutine; the caller must Close() it on teardown or the
+// resources leak per account. The contract is verified two ways:
+//
+//   - the constructor returns a non-nil writer the caller can keep,
+//   - writing to the writer after Close() fails with io.ErrClosedPipe,
+//     which is the only externally observable sign that Close was wired.
+//
+// A leaking refactor (forgetting to thread the writer to tearDown, or
+// dropping the Close call) would still pass this test individually but
+// fail an integration goleak check; this unit test is the cheap first
+// line of defence.
+func TestNewInboundErrorLog_WriterIsCloseable(t *testing.T) {
+	logger := quietLogger()
+	stdLog, writer := newInboundErrorLog(logger, "https", types.AccountID("acct-1"))
+
+	require.NotNil(t, stdLog, "newInboundErrorLog must return a non-nil *log.Logger")
+	require.NotNil(t, writer, "newInboundErrorLog must return the underlying PipeWriter so tearDown can Close it")
+
+	// First Close succeeds.
+	require.NoError(t, writer.Close(), "PipeWriter.Close should succeed the first time")
+
+	// After Close, the writer must refuse new writes — that's the only
+	// behavioural signal that the pipe (and its scanner goroutine) has
+	// shut down.
+	_, err := writer.Write([]byte("post-close write\n"))
+	require.ErrorIs(t, err, io.ErrClosedPipe,
+		"writes after Close must surface io.ErrClosedPipe so callers know the writer is gone")
 }
 
 // testCertPEM / testKeyPEM are a minimal RSA self-signed cert for

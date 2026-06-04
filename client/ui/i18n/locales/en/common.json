@@ -232,7 +232,10 @@
     "settings.advanced.section.security": "Security",
     "settings.advanced.interfaceName.label": "Name",
     "settings.advanced.port.label": "Port",
+    "settings.advanced.port.error": "Enter a port between {min} and {max}.",
+    "settings.advanced.port.help": "If set to 0, a random free port will be used.",
     "settings.advanced.mtu.label": "MTU",
+    "settings.advanced.mtu.error": "Enter an MTU value between {min} and {max}.",
     "settings.advanced.psk.label": "Pre-shared Key",
     "settings.advanced.psk.help": "Optional WireGuard PSK for extra symmetric encryption. Not the same as a NetBird Setup Key. You will only communicate with peers that use the same pre-shared key.",
 

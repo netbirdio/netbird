@@ -152,6 +152,7 @@ type managementClient interface {
 // backed by underlying NetBird connections.
 // Clients are keyed by AccountID, allowing multiple services to share the same connection.
 type NetBird struct {
+	ctx          context.Context
 	proxyID      string
 	proxyAddr    string
 	clientCfg    ClientConfig
@@ -213,7 +214,11 @@ func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, key Se
 		}).Debug("registered service with existing client")
 
 		if started && n.statusNotifier != nil {
-			if err := n.statusNotifier.NotifyStatus(ctx, accountID, serviceID, true); err != nil {
+			// Use a background context, not the caller's: the management
+			// connection notification must land even if the request /
+			// stream that triggered this registration is cancelled.
+			// Mirrors the async runClientStartup path.
+			if err := n.statusNotifier.NotifyStatus(context.Background(), accountID, serviceID, true); err != nil {
 				n.logger.WithFields(log.Fields{
 					"account_id":  accountID,
 					"service_key": key,
@@ -242,8 +247,10 @@ func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, key Se
 	}).Info("created new client for account")
 
 	// Attempt to start the client in the background; if this fails we will
-	// retry on the first request via RoundTrip.
-	go n.runClientStartup(ctx, accountID, entry.client)
+	// retry on the first request via RoundTrip. runClientStartup uses its
+	// own background context so the caller's request-scoped ctx can't
+	// cancel the inbound bring-up.
+	go n.runClientStartup(accountID, entry.client)
 
 	return nil
 }
@@ -307,7 +314,7 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 		ManagementURL: n.clientCfg.MgmtAddr,
 		PrivateKey:    privateKey.String(),
 		LogLevel:      log.WarnLevel.String(),
-		BlockInbound:   n.clientCfg.BlockInbound,
+		BlockInbound:  n.clientCfg.BlockInbound,
 		// The embedded proxy peer must never be a stepping stone into
 		// the proxy host's LAN: it only exists to reach NetBird mesh
 		// targets or, when direct_upstream is set, the host network
@@ -355,8 +362,14 @@ func (n *NetBird) createClientEntry(ctx context.Context, accountID types.Account
 	}, nil
 }
 
-// runClientStartup starts the client and notifies registered services on success.
-func (n *NetBird) runClientStartup(ctx context.Context, accountID types.AccountID, client *embed.Client) {
+// runClientStartup starts the client and notifies registered services on
+// success. This function runs in a goroutine launched from AddPeer, so it
+// must never inherit the caller's request-scoped context — a canceled
+// request must not abort the inbound listener bring-up or the management
+// status notification. The embedded client.Start gets its own bounded
+// startCtx; once Start succeeds, notifyClientReady takes over with a
+// fresh context.Background() (see that function for the contract).
+func (n *NetBird) runClientStartup(accountID types.AccountID, client *embed.Client) {
 	startCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -369,7 +382,17 @@ func (n *NetBird) runClientStartup(ctx context.Context, accountID types.AccountI
 		return
 	}
 
-	// Mark client as started and collect services to notify outside the lock.
+	n.notifyClientReady(accountID, client)
+}
+
+// notifyClientReady marks the account's client as started, fires the
+// readyHandler hook, and notifies management of the new tunnel
+// connection for every registered service. It is split out of
+// runClientStartup so a regression test can drive the post-Start tail
+// without needing a live embedded client. The contract that the
+// hooks/notifier see context.Background() — never the AddPeer caller's
+// ctx — lives here.
+func (n *NetBird) notifyClientReady(accountID types.AccountID, client *embed.Client) {
 	n.clientsMux.Lock()
 	entry, exists := n.clients[accountID]
 	if exists {
@@ -385,7 +408,7 @@ func (n *NetBird) runClientStartup(ctx context.Context, accountID types.AccountI
 	n.clientsMux.Unlock()
 
 	if readyHandler != nil {
-		state := readyHandler(ctx, accountID, client)
+		state := readyHandler(n.ctx, accountID, client)
 		n.clientsMux.Lock()
 		if e, ok := n.clients[accountID]; ok {
 			e.inbound = state
@@ -404,7 +427,7 @@ func (n *NetBird) runClientStartup(ctx context.Context, accountID types.AccountI
 		return
 	}
 	for _, sn := range toNotify {
-		if err := n.statusNotifier.NotifyStatus(ctx, accountID, sn.serviceID, true); err != nil {
+		if err := n.statusNotifier.NotifyStatus(n.ctx, accountID, sn.serviceID, true); err != nil {
 			n.logger.WithFields(log.Fields{
 				"account_id":  accountID,
 				"service_key": sn.key,
@@ -666,11 +689,12 @@ func (n *NetBird) ListClientsForStartup() map[types.AccountID]*embed.Client {
 // NewNetBird creates a new NetBird transport. Set clientCfg.WGPort to 0 for a random
 // OS-assigned port. A fixed port only works with single-account deployments;
 // multiple accounts will fail to bind the same port.
-func NewNetBird(proxyID, proxyAddr string, clientCfg ClientConfig, logger *log.Logger, notifier statusNotifier, mgmtClient managementClient) *NetBird {
+func NewNetBird(ctx context.Context, proxyID, proxyAddr string, clientCfg ClientConfig, logger *log.Logger, notifier statusNotifier, mgmtClient managementClient) *NetBird {
 	if logger == nil {
 		logger = log.StandardLogger()
 	}
 	return &NetBird{
+		ctx:            ctx,
 		proxyID:        proxyID,
 		proxyAddr:      proxyAddr,
 		clientCfg:      clientCfg,

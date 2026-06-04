@@ -147,6 +147,7 @@ type OutputOverview struct {
 	IPv6                    string                     `json:"netbirdIpv6,omitempty" yaml:"netbirdIpv6,omitempty"`
 	PubKey                  string                     `json:"publicKey" yaml:"publicKey"`
 	KernelInterface         bool                       `json:"usesKernelInterface" yaml:"usesKernelInterface"`
+	WgPort                  int                        `json:"wireguardPort" yaml:"wireguardPort"`
 	FQDN                    string                     `json:"fqdn" yaml:"fqdn"`
 	RosenpassEnabled        bool                       `json:"quantumResistance" yaml:"quantumResistance"`
 	RosenpassPermissive     bool                       `json:"quantumResistancePermissive" yaml:"quantumResistancePermissive"`
@@ -196,6 +197,7 @@ func ConvertToStatusOutputOverview(pbFullStatus *proto.FullStatus, opts ConvertO
 		IPv6:                    pbFullStatus.GetLocalPeerState().GetIpv6(),
 		PubKey:                  pbFullStatus.GetLocalPeerState().GetPubKey(),
 		KernelInterface:         pbFullStatus.GetLocalPeerState().GetKernelInterface(),
+		WgPort:                  int(pbFullStatus.GetLocalPeerState().GetWgPort()),
 		FQDN:                    pbFullStatus.GetLocalPeerState().GetFqdn(),
 		RosenpassEnabled:        pbFullStatus.GetLocalPeerState().GetRosenpassEnabled(),
 		RosenpassPermissive:     pbFullStatus.GetLocalPeerState().GetRosenpassPermissive(),
@@ -569,6 +571,11 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		goarm = fmt.Sprintf(" (ARMv%s)", os.Getenv("GOARM"))
 	}
 
+	wgPortString := "N/A"
+	if o.WgPort > 0 {
+		wgPortString = fmt.Sprintf("%d", o.WgPort)
+	}
+
 	summary := fmt.Sprintf(
 		"OS: %s\n"+
 			"Daemon version: %s\n"+
@@ -582,6 +589,7 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 			"NetBird IP: %s\n"+
 			"%s"+
 			"Interface type: %s\n"+
+			"Wireguard port: %s\n"+
 			"Quantum resistance: %s\n"+
 			"Lazy connection: %s\n"+
 			"SSH Server: %s\n"+
@@ -601,6 +609,7 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		interfaceIP,
 		ipv6Line,
 		interfaceTypeString,
+		wgPortString,
 		rosenpassEnabledStatus,
 		lazyConnectionEnabledStatus,
 		sshServerStatus,

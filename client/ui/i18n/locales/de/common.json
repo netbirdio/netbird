@@ -212,6 +212,7 @@
     "settings.advanced.interfaceName.errorMac": "Muss mit „utun“ und einer Zahl beginnen (z. B. utun100).",
     "settings.advanced.port.label": "Port",
     "settings.advanced.port.error": "Gib einen Port zwischen {min} und {max} ein.",
+    "settings.advanced.port.help": "Wenn auf 0 gesetzt, wird ein zufälliger freier Port verwendet.",
     "settings.advanced.mtu.label": "MTU",
     "settings.advanced.mtu.error": "Gib eine MTU zwischen {min} und {max} ein.",
     "settings.advanced.psk.label": "Pre-shared Key",

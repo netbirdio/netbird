@@ -18,7 +18,8 @@ const INTERFACE_NAME_RE = IS_MAC ? /^utun\d+$/ : /^[A-Za-z0-9._-]{1,15}$/;
 const INTERFACE_NAME_ERROR_KEY = IS_MAC
     ? "settings.advanced.interfaceName.errorMac"
     : "settings.advanced.interfaceName.error";
-const PORT_MIN = 1;
+// Port 0 means "let the daemon pick a random free port" (see the hint text).
+const PORT_MIN = 0;
 const PORT_MAX = 65535;
 // Mirrors client/iface/iface.go MinMTU / MaxMTU. 576 is the IPv4 "every host
 // must accept" datagram size from RFC 791 — safe floor when IPv6 is off; for
@@ -93,20 +94,23 @@ export function SettingsAdvanced() {
                     }
                 />
                 <div className={"grid grid-cols-2 gap-4"}>
-                    <Input
-                        label={t("settings.advanced.port.label")}
-                        type={"number"}
-                        min={PORT_MIN}
-                        max={PORT_MAX}
-                        value={values.wireguardPort}
-                        error={errors.wireguardPort}
-                        onChange={(e) =>
-                            setValues((v) => ({
-                                ...v,
-                                wireguardPort: Number(e.target.value),
-                            }))
-                        }
-                    />
+                    <div>
+                        <Input
+                            label={t("settings.advanced.port.label")}
+                            type={"number"}
+                            min={PORT_MIN}
+                            max={PORT_MAX}
+                            value={values.wireguardPort}
+                            error={errors.wireguardPort}
+                            onChange={(e) =>
+                                setValues((v) => ({
+                                    ...v,
+                                    wireguardPort: Number(e.target.value),
+                                }))
+                            }
+                        />
+                        <HelpText>{t("settings.advanced.port.help")}</HelpText>
+                    </div>
                     <Input
                         label={t("settings.advanced.mtu.label")}
                         type={"number"}

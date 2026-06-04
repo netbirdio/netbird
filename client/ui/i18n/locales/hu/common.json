@@ -212,6 +212,7 @@
     "settings.advanced.interfaceName.errorMac": "„utun” után számmal kezdődjön (pl. utun100).",
     "settings.advanced.port.label": "Port",
     "settings.advanced.port.error": "Adj meg egy portot {min} és {max} között.",
+    "settings.advanced.port.help": "Ha 0-ra állítod, egy véletlenszerű szabad portot használ.",
     "settings.advanced.mtu.label": "MTU",
     "settings.advanced.mtu.error": "Adj meg egy MTU értéket {min} és {max} között.",
     "settings.advanced.psk.label": "Pre-shared kulcs",

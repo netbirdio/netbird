@@ -2,6 +2,7 @@ package rest
 
 import (
 	"context"
+	"errors"
 	"net/url"
 
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -33,6 +34,12 @@ func (a *ReverseProxyClustersAPI) List(ctx context.Context) ([]api.ProxyCluster,
 // NetBird cannot be deleted via this endpoint; the server returns 404 / 400
 // for cluster addresses the account does not own.
 func (a *ReverseProxyClustersAPI) Delete(ctx context.Context, clusterAddress string) error {
+	// Guard against the empty input: url.PathEscape("") returns "" which
+	// would collapse the request URL onto the collection endpoint and
+	// silently delete nothing (or 405 depending on routing).
+	if clusterAddress == "" {
+		return errors.New("clusterAddress is required")
+	}
 	resp, err := a.c.NewRequest(ctx, "DELETE", "/api/reverse-proxies/clusters/"+url.PathEscape(clusterAddress), nil, nil)
 	if err != nil {
 		return err

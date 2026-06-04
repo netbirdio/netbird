@@ -66,6 +66,22 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Loop guard for private services: a peer that hosts the target
+	// dialing its own service URL would round-trip its own traffic
+	// through the proxy and back over WG to itself. Refuse the request
+	// with 421 (Misdirected Request) so the caller sees an explicit
+	// error instead of silently doubling tunnel traffic.
+	if p.isSelfTargetLoop(r, result.target.URL) {
+		if cd := CapturedDataFromContext(r.Context()); cd != nil {
+			cd.SetOrigin(OriginNoRoute)
+		}
+		requestID := getRequestID(r)
+		web.ServeErrorPage(w, r, http.StatusMisdirectedRequest, "Loop Detected",
+			"This peer is the target of the requested service. Reach the backend directly instead of dialing the public service URL from the same machine.",
+			requestID, web.ErrorStatus{Proxy: true, Destination: false})
+		return
+	}
+
 	ctx := r.Context()
 	// Set the account ID in the context for the roundtripper to use.
 	ctx = roundtrip.WithAccountID(ctx, result.accountID)
@@ -105,6 +121,32 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		rp.ModifyResponse = p.rewriteLocationFunc(pt.URL, rewriteMatchedPath, r) //nolint:bodyclose
 	}
 	rp.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// isSelfTargetLoop reports whether an overlay-origin request is about to
+// be forwarded back to the very peer that initiated it. The detection
+// is intentionally narrow: it only fires when the request arrived on
+// the per-account inbound (overlay) listener (so we're confident the
+// source address is the caller's tunnel IP), and only when the resolved
+// target host matches that tunnel IP. Catching this here returns 421 to
+// the caller instead of letting the proxy round-trip its own traffic
+// over WG twice.
+func (p *ReverseProxy) isSelfTargetLoop(r *http.Request, target *url.URL) bool {
+	if target == nil {
+		return false
+	}
+	if !types.IsOverlayOrigin(r.Context()) {
+		return false
+	}
+	srcIP := extractHostIP(r.RemoteAddr)
+	if !srcIP.IsValid() {
+		return false
+	}
+	targetIP, err := netip.ParseAddr(target.Hostname())
+	if err != nil {
+		return false
+	}
+	return srcIP.Unmap() == targetIP.Unmap()
 }
 
 // rewriteFunc returns a Rewrite function for httputil.ReverseProxy that rewrites
