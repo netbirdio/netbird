@@ -72,6 +72,7 @@ import (
 	sProto "github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/util/capture"
+	"github.com/netbirdio/netbird/version"
 )
 
 // PeerConnectionTimeoutMax is a timeout of an initial connection attempt to a remote peer.
@@ -1072,6 +1073,7 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	state.PubKey = e.config.WgPrivateKey.PublicKey().String()
 	state.KernelInterface = !e.wgInterface.IsUserspaceBind()
 	state.FQDN = conf.GetFqdn()
+	state.WgPort = e.config.WgPort
 
 	e.statusRecorder.UpdateLocalPeerState(state)
 
@@ -1150,6 +1152,7 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 		LogPath:        e.config.LogPath,
 		TempDir:        e.config.TempDir,
 		ClientMetrics:  e.clientMetrics,
+		DaemonVersion:  version.NetbirdVersion(),
 		RefreshStatus: func() {
 			e.RunHealthProbes(true)
 		},
