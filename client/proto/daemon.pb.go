@@ -1614,6 +1614,7 @@ type LocalPeerState struct {
 	RosenpassPermissive bool                   `protobuf:"varint,6,opt,name=rosenpassPermissive,proto3" json:"rosenpassPermissive,omitempty"`
 	Networks            []string               `protobuf:"bytes,7,rep,name=networks,proto3" json:"networks,omitempty"`
 	Ipv6                string                 `protobuf:"bytes,8,opt,name=ipv6,proto3" json:"ipv6,omitempty"`
+	WgPort              int32                  `protobuf:"varint,9,opt,name=wgPort,proto3" json:"wgPort,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -1702,6 +1703,13 @@ func (x *LocalPeerState) GetIpv6() string {
 		return x.Ipv6
 	}
 	return ""
+}
+
+func (x *LocalPeerState) GetWgPort() int32 {
+	if x != nil {
+		return x.WgPort
+	}
+	return 0
 }
 
 // SignalState contains the latest state of a signal connection
@@ -6389,7 +6397,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\n" +
 	"sshHostKey\x18\x13 \x01(\fR\n" +
 	"sshHostKey\x12\x12\n" +
-	"\x04ipv6\x18\x14 \x01(\tR\x04ipv6\"\x84\x02\n" +
+	"\x04ipv6\x18\x14 \x01(\tR\x04ipv6\"\x9c\x02\n" +
 	"\x0eLocalPeerState\x12\x0e\n" +
 	"\x02IP\x18\x01 \x01(\tR\x02IP\x12\x16\n" +
 	"\x06pubKey\x18\x02 \x01(\tR\x06pubKey\x12(\n" +
@@ -6398,7 +6406,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x10rosenpassEnabled\x18\x05 \x01(\bR\x10rosenpassEnabled\x120\n" +
 	"\x13rosenpassPermissive\x18\x06 \x01(\bR\x13rosenpassPermissive\x12\x1a\n" +
 	"\bnetworks\x18\a \x03(\tR\bnetworks\x12\x12\n" +
-	"\x04ipv6\x18\b \x01(\tR\x04ipv6\"S\n" +
+	"\x04ipv6\x18\b \x01(\tR\x04ipv6\x12\x16\n" +
+	"\x06wgPort\x18\t \x01(\x05R\x06wgPort\"S\n" +
 	"\vSignalState\x12\x10\n" +
 	"\x03URL\x18\x01 \x01(\tR\x03URL\x12\x1c\n" +
 	"\tconnected\x18\x02 \x01(\bR\tconnected\x12\x14\n" +

@@ -1072,6 +1072,7 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	state.PubKey = e.config.WgPrivateKey.PublicKey().String()
 	state.KernelInterface = !e.wgInterface.IsUserspaceBind()
 	state.FQDN = conf.GetFqdn()
+	state.WgPort = e.config.WgPort
 
 	e.statusRecorder.UpdateLocalPeerState(state)
 
