@@ -42,12 +42,35 @@ let loginInFlight = false;
 // Errors that aren't user cancellations surface via errorDialog. Concurrent
 // calls are dropped via loginInFlight. The BrowserLogin window is closed in
 // all exit paths so a stray popup doesn't outlive the flow.
-async function startLogin(): Promise<void> {
-    if (loginInFlight) return;
+// startLogin drives the SSO flow. onSettled is invoked exactly once, the
+// instant the flow itself is over (success, cancel, or error) — BEFORE the
+// error dialog is shown. Every guard that gates re-arming the login path
+// (the module-level loginInFlight here, and the caller's React-level
+// loginGuard via onSettled) must be released at that point, never gated on
+// the dialog.
+//
+// Why the dialog must be outside the guards: the native Windows MessageBox
+// disables its parent for its whole lifetime, and the main window's
+// WindowClosing hook hides instead of closing — the two race and the dialog
+// promise can hang indefinitely (see WAILS-DIALOGS notes). If any guard's
+// release awaited the dialog, that guard would stay held for as long as the
+// box is open (or forever if it hangs), and every later Connect / tray
+// trigger-login would be silently dropped at the guard check until the
+// client is restarted. That was the original "can't log in again until
+// restart" bug.
+async function startLogin(onSettled?: () => void): Promise<void> {
+    if (loginInFlight) {
+        // The caller's guard must still be released — it was set before this
+        // call. Without this the React-level loginGuard would wedge on a
+        // dropped concurrent invocation.
+        onSettled?.();
+        return;
+    }
     loginInFlight = true;
 
     let cancelled = false;
     let offCancel: (() => void) | undefined;
+    let loginError: unknown;
 
     try {
         const result = await Connection.Login({
@@ -98,14 +121,21 @@ async function startLogin(): Promise<void> {
         await Connection.Up({ profileName: "", username: "" });
     } catch (e) {
         WindowManager.CloseBrowserLogin().catch(console.error);
-        if (cancelled) return;
-        await errorDialog({
-            Title: i18next.t("connect.error.loginTitle"),
-            Message: formatErrorMessage(e),
-        });
+        if (!cancelled) loginError = e;
     } finally {
         offCancel?.();
+        // Release every guard before any UI work below — never gate re-arming
+        // the login path on a dialog that can hang. loginInFlight is ours;
+        // onSettled releases the caller's React-level loginGuard.
         loginInFlight = false;
+        onSettled?.();
+    }
+
+    if (loginError !== undefined) {
+        await errorDialog({
+            Title: i18next.t("connect.error.loginTitle"),
+            Message: formatErrorMessage(loginError),
+        });
     }
 }
 
@@ -164,7 +194,12 @@ export const MainConnectionStatusSwitch = () => {
         if (loginGuard.current) return;
         loginGuard.current = true;
         setAction("logging-in");
-        void startLogin().finally(() => {
+        // Release the React-level guard via onSettled — fired the instant the
+        // flow ends, before startLogin's error dialog. Gating it on the full
+        // startLogin() promise would keep loginGuard wedged for the whole
+        // dialog lifetime, leaving the tray's trigger-login dropped at the
+        // guard check until the client is restarted.
+        void startLogin(() => {
             loginGuard.current = false;
             setAction(null);
             void refresh();
