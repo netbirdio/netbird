@@ -70,6 +70,11 @@ func (c *jwtCache) store(token string, maxAge time.Duration) {
 		return
 	}
 	tokenAge := now.Sub(iat.Time)
+	if tokenAge < 0 {
+		log.Debugf("JWT token has future iat claim, not caching: iat=%v, now=%v", iat.Time, now)
+		return
+	}
+
 	if tokenAge > maxAge {
 		log.Debugf("JWT token exceeded cache TTL by iat claim, not caching: age=%v, max=%v", tokenAge, maxAge)
 		return
@@ -121,32 +126,38 @@ func (c *jwtCache) get(maxAge time.Duration) (string, bool) {
 	buffer, err := c.enclave.Open()
 	if err != nil {
 		log.Debugf("Failed to open JWT token enclave: %v", err)
-		return "", false
+		return "", found
 	}
 	defer buffer.Destroy()
 
 	token := string(buffer.Bytes())
 	if maxAge <= 0 {
-		return "", false
+		return "", found
 	}
 
 	now := time.Now()
 	if !c.expiresAt.IsZero() && !now.Before(c.expiresAt) {
 		log.Debug("Cached JWT token expired by exp claim")
-		return "", false
+		return "", found
 	}
 
 	if c.issuedAt.IsZero() {
 		log.Debug("Cached JWT token missing iat claim")
-		return "", false
+		return "", found
 	}
-	if now.Sub(c.issuedAt) > maxAge {
+
+	tokenAge := now.Sub(c.issuedAt)
+	if tokenAge < 0 {
+		log.Debugf("JWT token has future iat claim, not caching: iat=%v, now=%v", c.issuedAt, now)
+		return "", found
+	}
+	if tokenAge > maxAge {
 		log.Debugf("Cached JWT token exceeded cache TTL by iat claim: age=%v, max=%v", now.Sub(c.issuedAt), maxAge)
-		return "", false
+		return "", found
 	}
 
 	found = true
-	return token, true
+	return token, found
 }
 
 // cleanup destroys the secure enclave, must be called with lock held
