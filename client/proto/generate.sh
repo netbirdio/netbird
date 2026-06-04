@@ -8,7 +8,7 @@ if ! which realpath >/dev/null 2>&1; then
 fi
 
 old_pwd=$(pwd)
-script_path=$(dirname $(realpath "$0"))
+script_path=$(dirname "$(realpath "$0")")
 cd "$script_path"
 go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.6
 go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1

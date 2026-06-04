@@ -549,6 +549,16 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 		goarm = fmt.Sprintf(" (ARMv%s)", os.Getenv("GOARM"))
 	}
 
+	daemonVersion := "N/A"
+	if o.DaemonVersion != "" {
+		daemonVersion = o.DaemonVersion
+	}
+
+	cliVersion := version.NetbirdVersion()
+	if o.CliVersion != "" {
+		cliVersion = o.CliVersion
+	}
+
 	wgPortString := "N/A"
 	if o.WgPort > 0 {
 		wgPortString = fmt.Sprintf("%d", o.WgPort)
@@ -575,8 +585,8 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 			"%s"+
 			"Peers count: %s\n",
 		fmt.Sprintf("%s/%s%s", goos, goarch, goarm),
-		o.DaemonVersion,
-		version.NetbirdVersion(),
+		daemonVersion,
+		cliVersion,
 		o.ProfileName,
 		managementConnString,
 		signalConnString,
