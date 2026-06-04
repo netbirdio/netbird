@@ -323,6 +323,12 @@ type serviceClient struct {
 	isEnforcedUpdate     bool
 	lastNotifiedVersion  string
 	settingsEnabled      bool
+	// advancedSettingsLocked caches the last applied MDM lock state for
+	// the "Advanced Settings" submenu item. Calling Enable/Disable +
+	// SetTitle on a systray item every 2 s drops the ClickedCh
+	// subscription, so we only touch the item on transition. Zero value
+	// (false) matches the default enabled state at AddSubMenuItem time.
+	advancedSettingsLocked bool
 	profilesEnabled      bool
 	networksEnabled      bool
 	showNetworks         bool
@@ -455,15 +461,12 @@ func (s *serviceClient) updateIcon() {
 }
 
 func (s *serviceClient) showSettingsUI() {
-	// Check if update settings are disabled by daemon
-	features, err := s.getFeatures()
-	if err != nil {
-		log.Errorf("failed to get features from daemon: %v", err)
-		// Continue with default behavior if features can't be retrieved
-	} else if features != nil && features.DisableUpdateSettings {
-		log.Warn("Update settings are disabled by daemon")
-		return
-	}
+	// DisableUpdateSettings no longer gates the window from opening:
+	// the daemon blocks every actual mutation at SetConfig / Login,
+	// so the window is safe to show as a read-only view. The previous
+	// early-return also blocked Advanced Settings whenever update
+	// editing was off, which conflated two distinct kill switches
+	// (see comment in checkAndUpdateFeatures).
 
 	// add settings window UI elements.
 	s.wSettings = s.app.NewWindow("NetBird Settings")
@@ -1069,18 +1072,17 @@ func (s *serviceClient) onTrayReady() {
 	s.mCreateDebugBundle = s.mSettings.AddSubMenuItem("Create Debug Bundle", debugBundleMenuDescr)
 	s.loadSettings()
 
-	// Disable settings menu if update settings are disabled by daemon
+	// Disable profile menu if profiles are disabled by daemon.
+	// DisableUpdateSettings is enforced at the daemon's SetConfig /
+	// Login gates, not by hiding the UI — so the Settings menu (and
+	// its Advanced Settings submenu, which has its own kill switch)
+	// stays visible and the user can still inspect current values.
 	features, err := s.getFeatures()
 	if err != nil {
 		log.Errorf("failed to get features from daemon: %v", err)
 		// Continue with default behavior if features can't be retrieved
-	} else {
-		if features != nil && features.DisableUpdateSettings {
-			s.setSettingsEnabled(false)
-		}
-		if features != nil && features.DisableProfiles {
-			s.mProfile.setEnabled(false)
-		}
+	} else if features != nil && features.DisableProfiles {
+		s.mProfile.setEnabled(false)
 	}
 
 	s.exitNodeMu.Lock()
@@ -1261,24 +1263,30 @@ func (s *serviceClient) checkAndUpdateFeatures() {
 	s.updateIndicationLock.Lock()
 	defer s.updateIndicationLock.Unlock()
 
-	// Update settings menu based on current features
-	settingsEnabled := features == nil || !features.DisableUpdateSettings
-	if s.settingsEnabled != settingsEnabled {
-		s.settingsEnabled = settingsEnabled
-		s.setSettingsEnabled(settingsEnabled)
-	}
+	// DisableUpdateSettings is enforced server-side by the daemon gates
+	// on SetConfig + Login: any attempt to mutate config from UI or
+	// CLI is rejected at that layer. The UI deliberately keeps the
+	// Settings menu visible so the user can still inspect current
+	// values — read-only by virtue of the daemon refusing edits.
+	// Hiding the menu here would also hide the Advanced Settings
+	// submenu, which has its own dedicated kill switch
+	// (DisableAdvancedSettings); the two concerns must not be coupled.
 
-	// MDM kill switch on the Advanced Settings submenu item: when the
-	// daemon reports disableAdvancedSettings=true the user must not be
-	// able to open the settings window at all. Title gets the "(MDM)"
-	// suffix to match the convention used for individual locked fields.
+	// MDM kill switch on the Advanced Settings submenu item.
+	// Only flip on transition — calling Enable/SetTitle on every 2 s
+	// loop tick drops the systray ClickedCh subscription on some
+	// platforms, breaking the click handler entirely.
 	if s.mAdvancedSettings != nil {
-		if features != nil && features.DisableAdvancedSettings {
-			s.mAdvancedSettings.SetTitle("Advanced Settings (MDM)")
-			s.mAdvancedSettings.Disable()
-		} else {
-			s.mAdvancedSettings.SetTitle("Advanced Settings")
-			s.mAdvancedSettings.Enable()
+		desired := features != nil && features.DisableAdvancedSettings
+		if desired != s.advancedSettingsLocked {
+			s.advancedSettingsLocked = desired
+			if desired {
+				s.mAdvancedSettings.SetTitle("Advanced Settings (MDM)")
+				s.mAdvancedSettings.Disable()
+			} else {
+				s.mAdvancedSettings.SetTitle("Advanced Settings")
+				s.mAdvancedSettings.Enable()
+			}
 		}
 	}
 
