@@ -557,6 +557,8 @@ func (o *OutputOverview) GeneralSummary(showURL bool, showRelays bool, showNameS
 	cliVersion := version.NetbirdVersion()
 	if o.CliVersion != "" {
 		cliVersion = o.CliVersion
+	}
+
 	wgPortString := "N/A"
 	if o.WgPort > 0 {
 		wgPortString = fmt.Sprintf("%d", o.WgPort)
