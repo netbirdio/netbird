@@ -38,6 +38,7 @@ import (
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/profilemanager"
+	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ui/desktop"
 	"github.com/netbirdio/netbird/client/ui/event"
@@ -336,6 +337,13 @@ type serviceClient struct {
 	updateContextCancel  context.CancelFunc
 
 	connectCancel context.CancelFunc
+
+	// mdmManagedFields caches the names of MDM-enforced policy keys
+	// surfaced by the daemon in GetConfigResponse. Each refresh of
+	// daemon config (loadSettings, getSrvConfig, config_changed event)
+	// updates this set and re-applies the lock/badge to the affected
+	// menu items and settings-form widgets.
+	mdmManagedFields map[string]bool
 }
 
 type menuHandler struct {
@@ -1417,6 +1425,7 @@ func (s *serviceClient) getSrvConfig() {
 	if s.eventManager != nil {
 		s.eventManager.SetNotificationsEnabled(s.mNotifications.Checked())
 	}
+	s.applyMDMLocks(srvCfg.MDMManagedFields)
 }
 
 func protoConfigToConfig(cfg *proto.GetConfigResponse) *profilemanager.Config {
@@ -1589,6 +1598,81 @@ func (s *serviceClient) loadSettings() {
 	}
 	if s.eventManager != nil {
 		s.eventManager.SetNotificationsEnabled(s.mNotifications.Checked())
+	}
+	s.applyMDMLocks(cfg.MDMManagedFields)
+}
+
+// applyMDMLocks disables and badges any tray submenu item or settings-
+// form widget whose underlying field is enforced by the active MDM
+// policy. Called from loadSettings (submenu refresh) and from
+// getSrvConfig (settings-window refresh). Locked items keep their value
+// already set by the surrounding refresh code — this routine only
+// flips the enabled state and the title suffix, never the value.
+func (s *serviceClient) applyMDMLocks(managed []string) {
+	set := make(map[string]bool, len(managed))
+	for _, k := range managed {
+		set[k] = true
+	}
+	s.mdmManagedFields = set
+
+	type submenuTarget struct {
+		item  *systray.MenuItem
+		title string
+		key   string
+	}
+	for _, t := range []submenuTarget{
+		{s.mAllowSSH, "Allow SSH", mdm.KeyAllowServerSSH},
+		{s.mAutoConnect, "Connect on Startup", mdm.KeyDisableAutoConnect},
+		{s.mEnableRosenpass, "Enable Quantum-Resistance", mdm.KeyRosenpassEnabled},
+		{s.mBlockInbound, "Block Inbound Connections", mdm.KeyBlockInbound},
+	} {
+		if t.item == nil {
+			continue
+		}
+		if set[t.key] {
+			t.item.SetTitle(t.title + " (MDM)")
+			t.item.Disable()
+		} else {
+			t.item.SetTitle(t.title)
+			t.item.Enable()
+		}
+	}
+
+	s.applyMDMLocksToSettingsForm(set)
+}
+
+// applyMDMLocksToSettingsForm disables the per-field input widgets in
+// the advanced Settings window when the corresponding MDM key is set.
+// The widgets are created lazily by showSettingsUI, so guard each ref
+// against nil for the case where the user has not opened the window yet.
+func (s *serviceClient) applyMDMLocksToSettingsForm(set map[string]bool) {
+	type entryTarget struct {
+		entry *widget.Entry
+		key   string
+	}
+	for _, t := range []entryTarget{
+		{s.iMngURL, mdm.KeyManagementURL},
+		{s.iPreSharedKey, mdm.KeyPreSharedKey},
+		{s.iInterfacePort, mdm.KeyWireguardPort},
+	} {
+		if t.entry == nil {
+			continue
+		}
+		if set[t.key] {
+			t.entry.Disable()
+		} else {
+			t.entry.Enable()
+		}
+	}
+	if s.sRosenpassPermissive != nil {
+		if set[mdm.KeyRosenpassPermissive] {
+			s.sRosenpassPermissive.Disable()
+		}
+		// Re-enable is NOT issued here: the existing code path in
+		// getSrvConfig disables sRosenpassPermissive whenever
+		// RosenpassEnabled is false (it cannot be permissive without
+		// being enabled). Leave that gating intact and only override
+		// when MDM forces a lock.
 	}
 }
 
