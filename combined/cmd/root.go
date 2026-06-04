@@ -65,6 +65,7 @@ func init() {
 	_ = rootCmd.MarkPersistentFlagRequired("config")
 
 	rootCmd.AddCommand(newTokenCommands())
+	rootCmd.AddCommand(newAdminCommands())
 }
 
 func RootCmd() *cobra.Command {
