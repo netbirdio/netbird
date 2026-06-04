@@ -953,7 +953,14 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		return nil
 	}
 
-	// Persist sync response under the dedicated lock (syncRespMux), not under syncMsgMux.
+	// only apply new changes and ignore old ones
+	if err := e.updateNetworkMap(nm); err != nil {
+		return err
+	}
+
+	// Persist sync response only after updateNetworkMap accepted and applied the update,
+	// so GetLatestSyncResponse() never returns state the engine did not actually apply.
+	// Done under the dedicated lock (syncRespMux), not under syncMsgMux.
 	// A non-nil syncStore is what marks persistence as enabled. Hold the lock for
 	// the whole Set so the store cannot be cleared (disabled / engine close)
 	// mid-call and have this write resurrect a file that was just removed.
@@ -966,11 +973,6 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		}
 	}
 	e.syncRespMux.RUnlock()
-
-	// only apply new changes and ignore old ones
-	if err := e.updateNetworkMap(nm); err != nil {
-		return err
-	}
 
 	e.statusRecorder.PublishEvent(cProto.SystemEvent_INFO, cProto.SystemEvent_SYSTEM, "Network map updated", "", nil)
 
