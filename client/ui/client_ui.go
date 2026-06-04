@@ -680,7 +680,15 @@ func (s *serviceClient) buildSetConfigRequest(iMngURL string, port, mtu int64) (
 		req.SshJWTCacheTTL = &sshJWTCacheTTL32
 	}
 
-	if s.iPreSharedKey.Text != censoredPreSharedKey {
+	// Only attach the PSK when the user actually typed something:
+	// - "" means the field was left untouched (we deliberately render
+	//   an empty Text + placeholder hint to avoid leaking the daemon's
+	//   "**********" redaction through the password reveal toggle);
+	//   sending an empty pointer would tell the daemon to clear / overwrite
+	//   the on-disk or MDM-enforced PSK, which then trips the MDM
+	//   conflict gate when PSK is policy-managed.
+	// - "**********" is the redacted echo (legacy non-MDM path); also a no-op.
+	if s.iPreSharedKey.Text != "" && s.iPreSharedKey.Text != censoredPreSharedKey {
 		req.OptionalPreSharedKey = &s.iPreSharedKey.Text
 	}
 
