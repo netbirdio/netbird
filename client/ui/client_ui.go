@@ -57,6 +57,12 @@ const (
 const (
 	censoredPreSharedKey = "**********"
 	maxSSHJWTCacheTTL    = 86_400 // 24 hours in seconds
+	// mdmFieldSuffix is appended to plain-text Entry widgets in the
+	// advanced Settings window when the underlying field is enforced
+	// by MDM, so the user sees the lock indicator inline next to the
+	// value. Stripped before any read site that feeds the value back
+	// into a SetConfig request (saveSettings / parseNumericSettings).
+	mdmFieldSuffix = " (MDM)"
 )
 
 func main() {
@@ -540,7 +546,7 @@ func (s *serviceClient) saveSettings() {
 		return
 	}
 
-	iMngURL := strings.TrimSpace(s.iMngURL.Text)
+	iMngURL := strings.TrimSpace(strings.TrimSuffix(s.iMngURL.Text, mdmFieldSuffix))
 
 	if s.hasSettingsChanged(iMngURL, port, mtu) {
 		if err := s.applySettingsChanges(iMngURL, port, mtu); err != nil {
@@ -562,7 +568,7 @@ func (s *serviceClient) validateSettings() error {
 }
 
 func (s *serviceClient) parseNumericSettings() (int64, int64, error) {
-	port, err := strconv.ParseInt(s.iInterfacePort.Text, 10, 64)
+	port, err := strconv.ParseInt(strings.TrimSpace(strings.TrimSuffix(s.iInterfacePort.Text, mdmFieldSuffix)), 10, 64)
 	if err != nil {
 		return 0, 0, errors.New("invalid interface port")
 	}
@@ -1375,13 +1381,14 @@ func (s *serviceClient) getSrvConfig() {
 
 	if s.showAdvancedSettings {
 		s.iMngURL.SetText(s.managementURL)
-		// Show the raw daemon-side value (which is the redacted
-		// "**********" sentinel when the daemon has a PSK on disk or
-		// applied via MDM). protoConfigToConfig strips the sentinel so
-		// hasSettingsChanged / saveSettings see an empty field, but the
-		// visual indicator must remain so the user knows a PSK is in
-		// effect.
-		s.iPreSharedKey.SetText(srvCfg.PreSharedKey)
+		// PSK is rendered with an empty Text and a hint via the
+		// placeholder so the eye toggle never reveals literal asterisks
+		// (the daemon returns the "**********" sentinel — writing that
+		// into a PasswordEntry would surface the literal sentinel when
+		// the user unmasks the field). The placeholder communicates the
+		// configured / MDM-managed state without exposing any value.
+		s.iPreSharedKey.SetText("")
+		s.iPreSharedKey.SetPlaceHolder(preSharedKeyPlaceholder(srvCfg))
 		s.iInterfaceName.SetText(cfg.WgIface)
 		s.iInterfacePort.SetText(strconv.Itoa(cfg.WgPort))
 		if cfg.MTU != 0 {
@@ -1420,6 +1427,13 @@ func (s *serviceClient) getSrvConfig() {
 		}
 	}
 
+	// MDM locks must run before the mNotifications-nil early return:
+	// the Settings window is rendered by a separate UI process launched
+	// with --settings (see handleAdvancedSettingsClick), and that child
+	// process does NOT run onReady — so its mNotifications is nil and
+	// the early return below skipped the lock pass entirely.
+	s.applyMDMLocks(srvCfg.MDMManagedFields)
+
 	if s.mNotifications == nil {
 		return
 	}
@@ -1431,7 +1445,6 @@ func (s *serviceClient) getSrvConfig() {
 	if s.eventManager != nil {
 		s.eventManager.SetNotificationsEnabled(s.mNotifications.Checked())
 	}
-	s.applyMDMLocks(srvCfg.MDMManagedFields)
 }
 
 func protoConfigToConfig(cfg *proto.GetConfigResponse) *profilemanager.Config {
@@ -1620,6 +1633,9 @@ func (s *serviceClient) applyMDMLocks(managed []string) {
 		set[k] = true
 	}
 	s.mdmManagedFields = set
+	if len(managed) > 0 {
+		log.Infof("MDM-managed UI fields: %v", managed)
+	}
 
 	type submenuTarget struct {
 		item  *systray.MenuItem
@@ -1647,27 +1663,57 @@ func (s *serviceClient) applyMDMLocks(managed []string) {
 	s.applyMDMLocksToSettingsForm(set)
 }
 
+// preSharedKeyPlaceholder returns the hint string shown in the PSK
+// Entry's placeholder slot. The placeholder is the only signal the user
+// gets that a PSK is configured, because the entry's Text is forced to
+// empty to keep the password reveal toggle from leaking the
+// "**********" sentinel.
+func preSharedKeyPlaceholder(cfg *proto.GetConfigResponse) string {
+	if cfg == nil || cfg.PreSharedKey == "" {
+		return ""
+	}
+	for _, k := range cfg.MDMManagedFields {
+		if k == mdm.KeyPreSharedKey {
+			return "MDM-managed"
+		}
+	}
+	return "configured"
+}
+
 // applyMDMLocksToSettingsForm disables the per-field input widgets in
 // the advanced Settings window when the corresponding MDM key is set.
-// The widgets are created lazily by showSettingsUI, so guard each ref
-// against nil for the case where the user has not opened the window yet.
+// For plain-text entries (Management URL, Interface Port) the visible
+// value is suffixed with " (MDM)" so the user sees the lock indicator
+// inline; for the password entry the suffix is skipped (a password
+// widget renders every char as a dot and the indicator would not be
+// readable). The widgets are created lazily by showSettingsUI, so
+// guard each ref against nil.
 func (s *serviceClient) applyMDMLocksToSettingsForm(set map[string]bool) {
 	type entryTarget struct {
-		entry *widget.Entry
-		key   string
+		entry     *widget.Entry
+		key       string
+		inlineTag bool
 	}
 	for _, t := range []entryTarget{
-		{s.iMngURL, mdm.KeyManagementURL},
-		{s.iPreSharedKey, mdm.KeyPreSharedKey},
-		{s.iInterfacePort, mdm.KeyWireguardPort},
+		{s.iMngURL, mdm.KeyManagementURL, true},
+		{s.iPreSharedKey, mdm.KeyPreSharedKey, false},
+		{s.iInterfacePort, mdm.KeyWireguardPort, true},
 	} {
 		if t.entry == nil {
 			continue
 		}
 		if set[t.key] {
+			if t.inlineTag && t.entry.Text != "" && !strings.HasSuffix(t.entry.Text, mdmFieldSuffix) {
+				t.entry.SetText(t.entry.Text + mdmFieldSuffix)
+			}
 			t.entry.Disable()
+			t.entry.Refresh()
 		} else {
+			if t.inlineTag {
+				t.entry.SetText(strings.TrimSuffix(t.entry.Text, mdmFieldSuffix))
+			}
 			t.entry.Enable()
+			t.entry.Refresh()
 		}
 	}
 	type checkTarget struct {
