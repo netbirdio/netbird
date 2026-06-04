@@ -1375,7 +1375,13 @@ func (s *serviceClient) getSrvConfig() {
 
 	if s.showAdvancedSettings {
 		s.iMngURL.SetText(s.managementURL)
-		s.iPreSharedKey.SetText(cfg.PreSharedKey)
+		// Show the raw daemon-side value (which is the redacted
+		// "**********" sentinel when the daemon has a PSK on disk or
+		// applied via MDM). protoConfigToConfig strips the sentinel so
+		// hasSettingsChanged / saveSettings see an empty field, but the
+		// visual indicator must remain so the user knows a PSK is in
+		// effect.
+		s.iPreSharedKey.SetText(srvCfg.PreSharedKey)
 		s.iInterfaceName.SetText(cfg.WgIface)
 		s.iInterfacePort.SetText(strconv.Itoa(cfg.WgPort))
 		if cfg.MTU != 0 {
