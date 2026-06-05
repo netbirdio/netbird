@@ -4,6 +4,7 @@ package iptables
 
 import (
 	"fmt"
+	"maps"
 	"net/netip"
 
 	"github.com/coreos/go-iptables/iptables"
@@ -33,17 +34,17 @@ const (
 	// rules that prevent external DNAT from bypassing ACL rules.
 	mangleForwardKey chainKey = "MANGLE-FORWARD"
 
-	chainInput              = "INPUT"
-	chainPostrouting        = "POSTROUTING"
-	chainPrerouting         = "PREROUTING"
-	chainForward            = "FORWARD"
-	chainRTNAT              = "NETBIRD-RT-NAT"
-	chainRTFwdIn            = "NETBIRD-RT-FWD-IN"
-	chainRTFwdOut           = "NETBIRD-RT-FWD-OUT"
-	chainRTPre              = "NETBIRD-RT-PRE"
-	chainRTRdr              = "NETBIRD-RT-RDR"
-	chainNATOutput          = "NETBIRD-NAT-OUTPUT"
-	chainRTMSSClamp         = "NETBIRD-RT-MSSCLAMP"
+	chainInput       = "INPUT"
+	chainPostrouting = "POSTROUTING"
+	chainPrerouting  = "PREROUTING"
+	chainForward     = "FORWARD"
+	chainRTNAT       = "NETBIRD-RT-NAT"
+	chainRTFwdIn     = "NETBIRD-RT-FWD-IN"
+	chainRTFwdOut    = "NETBIRD-RT-FWD-OUT"
+	chainRTPre       = "NETBIRD-RT-PRE"
+	chainRTRdr       = "NETBIRD-RT-RDR"
+	chainNATOutput   = "NETBIRD-NAT-OUTPUT"
+	chainRTMSSClamp  = "NETBIRD-RT-MSSCLAMP"
 
 	jumpManglePre  = "jump-mangle-pre"
 	jumpNATPre     = "jump-nat-pre"
@@ -230,14 +231,20 @@ func (r *family) updateState() {
 	currentState.Lock()
 	defer currentState.Unlock()
 
+	// Clone the rule maps so the persisted state holds a private snapshot.
+	// The live maps keep being mutated by subsequent rule operations while
+	// the state manager marshals the state from its periodic-save goroutine.
+	// Sharing the maps by reference races the two and aborts the process with
+	// a concurrent map iteration and write. The ipset counter guards itself
+	// during marshaling, so it can be shared directly.
 	if r.v6 {
-		currentState.RouteRules6 = r.rules
+		currentState.RouteRules6 = maps.Clone(r.rules)
 		currentState.RouteIPsetCounter6 = r.ipsetCounter
-		currentState.ACLEntries6 = r.entries
+		currentState.ACLEntries6 = maps.Clone(r.entries)
 	} else {
-		currentState.RouteRules = r.rules
+		currentState.RouteRules = maps.Clone(r.rules)
 		currentState.RouteIPsetCounter = r.ipsetCounter
-		currentState.ACLEntries = r.entries
+		currentState.ACLEntries = maps.Clone(r.entries)
 	}
 
 	if err := r.stateManager.UpdateState(currentState); err != nil {
