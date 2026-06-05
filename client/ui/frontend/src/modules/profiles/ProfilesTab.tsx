@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { errorDialog, warningDialog } from "@/lib/dialogs.ts";
+import { errorDialog } from "@/lib/dialogs.ts";
 import { CircleMinus, LogIn, PlusCircle, Trash2, UserCircle } from "lucide-react";
 import type { Profile } from "@bindings/services/models.js";
 import { Badge } from "@/components/Badge";
@@ -11,6 +11,7 @@ import { pickProfileIcon } from "@/modules/profiles/ProfileAvatar";
 import { Tooltip } from "@/components/Tooltip";
 import i18next from "@/lib/i18n";
 import { useProfile } from "@/contexts/ProfileContext";
+import { useConfirm } from "@/contexts/DialogContext";
 import { SectionGroup, SettingsBottomBar } from "@/modules/settings/SettingsSection.tsx";
 import { cn } from "@/lib/cn";
 import { formatErrorMessage } from "@/lib/errors";
@@ -29,6 +30,7 @@ export function ProfilesTab() {
         logoutProfile,
     } = useProfile();
 
+    const confirm = useConfirm();
     const [newOpen, setNewOpen] = useState(false);
     const [busy, setBusy] = useState(false);
     const tabRootRef = useRef<HTMLDivElement>(null);
@@ -68,49 +70,35 @@ export function ProfilesTab() {
     };
 
     const handleSwitch = async (name: string) => {
-        const cancelLabel = i18next.t("common.cancel");
-        const confirmLabel = i18next.t("profile.switch.confirm");
-        const result = await warningDialog({
-            Title: i18next.t("profile.switch.title"),
-            Message: i18next.t("profile.switch.message", { name }),
-            Buttons: [
-                { Label: cancelLabel, IsCancel: true },
-                { Label: confirmLabel, IsDefault: true },
-            ],
+        const ok = await confirm({
+            title: t("profile.switch.title", { name }),
+            description: t("profile.switch.message", { name }),
+            confirmLabel: t("profile.switch.confirm"),
         });
-        if (result !== confirmLabel) return;
+        if (!ok) return;
         await guarded(i18next.t("profile.error.switchTitle"), () => switchProfile(name));
         scrollTabToTop();
     };
 
     const handleDeregister = async (name: string) => {
-        const cancelLabel = i18next.t("common.cancel");
-        const confirmLabel = i18next.t("profile.deregister.confirm");
-        const result = await warningDialog({
-            Title: i18next.t("profile.deregister.title"),
-            Message: i18next.t("profile.deregister.message", { name }),
-            Buttons: [
-                { Label: cancelLabel, IsCancel: true },
-                { Label: confirmLabel, IsDefault: true },
-            ],
+        const ok = await confirm({
+            title: t("profile.deregister.title", { name }),
+            description: t("profile.deregister.message", { name }),
+            confirmLabel: t("profile.deregister.confirm"),
         });
-        if (result !== confirmLabel) return;
+        if (!ok) return;
         void guarded(i18next.t("profile.error.deregisterTitle"), () => logoutProfile(name));
     };
 
     const handleDelete = async (name: string) => {
         if (name === DEFAULT_PROFILE) return;
-        const cancelLabel = i18next.t("common.cancel");
-        const confirmLabel = i18next.t("common.delete");
-        const result = await warningDialog({
-            Title: i18next.t("profile.delete.title"),
-            Message: i18next.t("profile.delete.message", { name }),
-            Buttons: [
-                { Label: cancelLabel, IsCancel: true },
-                { Label: confirmLabel, IsDefault: true },
-            ],
+        const ok = await confirm({
+            title: t("profile.delete.title", { name }),
+            description: t("profile.delete.message", { name }),
+            confirmLabel: t("common.delete"),
+            danger: true,
         });
-        if (result !== confirmLabel) return;
+        if (!ok) return;
         void guarded(i18next.t("profile.error.deleteTitle"), () => removeProfile(name));
     };
 

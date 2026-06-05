@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
-import { warningDialog } from "@/lib/dialogs.ts";
-import i18next from "@/lib/i18n";
+import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useSettings } from "@/contexts/SettingsContext.tsx";
+import { useConfirm } from "@/contexts/DialogContext.tsx";
 
 export const CLOUD_MANAGEMENT_URL = "https://api.netbird.io:443";
 
@@ -77,6 +77,8 @@ function modeFromUrl(url: string): ManagementMode {
 }
 
 export function useManagementUrl() {
+    const { t } = useTranslation();
+    const confirm = useConfirm();
     const { config, saveField } = useSettings();
     const [mode, setModeState] = useState<ManagementMode>(
         modeFromUrl(config.managementUrl),
@@ -84,11 +86,6 @@ export function useManagementUrl() {
     const [url, setUrl] = useState(
         config.managementUrl === CLOUD_MANAGEMENT_URL ? "" : config.managementUrl,
     );
-    // Guard against double-showing the cloud-switch confirmation when the
-    // user toggles the segmented control multiple times before the prior
-    // Dialogs.Warning promise resolves. Without it each click queues a
-    // fresh native dialog and the user sees them stack up.
-    const switchConfirmOpenRef = useRef(false);
 
     useEffect(() => {
         setModeState(modeFromUrl(config.managementUrl));
@@ -97,34 +94,22 @@ export function useManagementUrl() {
         }
     }, [config.managementUrl]);
 
-    const setMode = (next: ManagementMode) => {
+    const setMode = async (next: ManagementMode) => {
         if (
             next === ManagementMode.Cloud &&
             config.managementUrl !== CLOUD_MANAGEMENT_URL
         ) {
             // Switching from a self-hosted management server to NetBird Cloud
             // re-points the client at a different deployment and forces a
-            // reconnect/re-login. Confirm before applying.
-            if (switchConfirmOpenRef.current) return;
-            switchConfirmOpenRef.current = true;
-            const cancelLabel = i18next.t("common.cancel");
-            const confirmLabel = i18next.t("settings.general.management.switchCloudConfirm");
-            void warningDialog({
-                Title: i18next.t("settings.general.management.switchCloudTitle"),
-                Message: i18next.t("settings.general.management.switchCloudMessage"),
-                Buttons: [
-                    { Label: cancelLabel, IsCancel: true, IsDefault: true },
-                    { Label: confirmLabel },
-                ],
-            })
-                .then((result) => {
-                    if (result !== confirmLabel) return;
-                    setModeState(ManagementMode.Cloud);
-                    void saveField("managementUrl", CLOUD_MANAGEMENT_URL);
-                })
-                .finally(() => {
-                    switchConfirmOpenRef.current = false;
-                });
+            // reconnect/re-login. Confirm via the in-app modal before applying.
+            const ok = await confirm({
+                title: t("settings.general.management.switchCloudTitle"),
+                description: t("settings.general.management.switchCloudMessage"),
+                confirmLabel: t("settings.general.management.switchCloudConfirm"),
+            });
+            if (!ok) return;
+            setModeState(ManagementMode.Cloud);
+            void saveField("managementUrl", CLOUD_MANAGEMENT_URL);
             return;
         }
         setModeState(next);

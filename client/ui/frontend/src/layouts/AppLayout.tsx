@@ -3,6 +3,7 @@ import { ClientVersionProvider } from "@/contexts/ClientVersionContext.tsx";
 import { StatusProvider } from "@/contexts/StatusContext.tsx";
 import { DebugBundleProvider } from "@/contexts/DebugBundleContext.tsx";
 import { ProfileProvider } from "@/contexts/ProfileContext.tsx";
+import { DialogProvider } from "@/contexts/DialogContext.tsx";
 
 // Shared shell for every in-window route (main + settings). Owns the daemon-
 // availability gate (via StatusProvider) and the providers every page needs.
@@ -14,15 +15,17 @@ import { ProfileProvider } from "@/contexts/ProfileContext.tsx";
 export const AppLayout = () => {
     return (
         <div className={"relative flex h-full flex-col"}>
-            <StatusProvider>
-                <ProfileProvider>
-                    <DebugBundleProvider>
-                        <ClientVersionProvider>
-                            <Outlet />
-                        </ClientVersionProvider>
-                    </DebugBundleProvider>
-                </ProfileProvider>
-            </StatusProvider>
+            <DialogProvider>
+                <StatusProvider>
+                    <ProfileProvider>
+                        <DebugBundleProvider>
+                            <ClientVersionProvider>
+                                <Outlet />
+                            </ClientVersionProvider>
+                        </DebugBundleProvider>
+                    </ProfileProvider>
+                </StatusProvider>
+            </DialogProvider>
         </div>
     );
 };

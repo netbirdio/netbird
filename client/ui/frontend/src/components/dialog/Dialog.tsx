@@ -15,7 +15,7 @@ const Overlay = forwardRef<
             ref={ref}
             className={cn(
                 "fixed inset-0 z-50 grid items-center justify-items-center overflow-y-auto px-10 py-16",
-                "bg-black/40 backdrop-blur-sm",
+                "bg-black/60",
                 "data-[state=open]:animate-in data-[state=closed]:animate-out",
                 "data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
                 "duration-150 ease-out",
