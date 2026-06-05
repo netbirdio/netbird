@@ -10,6 +10,7 @@ import (
 	"runtime"
 
 	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/version"
 )
 
 // DebugBundleParams configures what the daemon collects when generating a
@@ -55,6 +56,7 @@ func (s *Debug) Bundle(ctx context.Context, p DebugBundleParams) (DebugBundleRes
 		SystemInfo:   p.SystemInfo,
 		UploadURL:    p.UploadURL,
 		LogFileCount: p.LogFileCount,
+		CliVersion:   version.NetbirdVersion(),
 	})
 	if err != nil {
 		return DebugBundleResult{}, err
