@@ -349,6 +349,7 @@ message LocalPeerState {
   bool rosenpassPermissive = 6;
   repeated string networks = 7;
   string ipv6 = 8;
+  int32 wgPort = 9;
 }
 
 // SignalState contains the latest state of a signal connection
@@ -471,6 +472,7 @@ message DebugBundleRequest {
   bool systemInfo = 3;
   string uploadURL = 4;
   uint32 logFileCount = 5;
+  string cliVersion = 6;
 }
 
 message DebugBundleResponse {
