@@ -84,18 +84,6 @@ func newTransportFallback() *transportFallback {
 	return &transportFallback{entries: make(map[string]*fallbackEntry)}
 }
 
-// nonDatagramSized returns the dialers from in that are not datagram-sized,
-// preserving order.
-func nonDatagramSized(in []dialer.DialeFn) []dialer.DialeFn {
-	out := make([]dialer.DialeFn, 0, len(in))
-	for _, d := range in {
-		if !dialer.IsDatagramSized(d) {
-			out = append(out, d)
-		}
-	}
-	return out
-}
-
 // avoidDatagramSized reports whether serverURL is currently within a window
 // where datagram-sized transports should be avoided.
 func (f *transportFallback) avoidDatagramSized(serverURL string) bool {
@@ -126,4 +114,16 @@ func (f *transportFallback) recordFailure(serverURL string) time.Duration {
 	}
 	e.until = now.Add(e.duration)
 	return e.duration
+}
+
+// nonDatagramSized returns the dialers from in that are not datagram-sized,
+// preserving order.
+func nonDatagramSized(in []dialer.DialeFn) []dialer.DialeFn {
+	out := make([]dialer.DialeFn, 0, len(in))
+	for _, d := range in {
+		if !dialer.IsDatagramSized(d) {
+			out = append(out, d)
+		}
+	}
+	return out
 }
