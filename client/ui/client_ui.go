@@ -1061,6 +1061,15 @@ func (s *serviceClient) onTrayReady() {
 	}
 
 	s.mProfile = newProfileMenu(*newProfileMenuArgs)
+	// Seed the transition cache to match the actual default menu
+	// state (visible / enabled). Without this, the first
+	// checkAndUpdateFeatures tick that observes DisableProfiles=true
+	// is a no-op (cache zero-value == desired-false) and the menu
+	// never gets hidden — symptom: MDM enforces the kill switch but
+	// the profile menu stays clickable. Same pattern caveat as
+	// advancedSettingsLocked, with inverted polarity because the
+	// existing field tracks "enabled" not "locked".
+	s.profilesEnabled = true
 
 	systray.AddSeparator()
 	s.mUp = systray.AddMenuItem("Connect", "Connect")
@@ -1091,6 +1100,7 @@ func (s *serviceClient) onTrayReady() {
 		// Continue with default behavior if features can't be retrieved
 	} else if features != nil && features.DisableProfiles {
 		s.mProfile.setEnabled(false)
+		s.profilesEnabled = false
 	}
 
 	s.exitNodeMu.Lock()
