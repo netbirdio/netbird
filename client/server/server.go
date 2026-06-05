@@ -1699,7 +1699,7 @@ func (s *Server) GetFeatures(ctx context.Context, msg *proto.GetFeaturesRequest)
 	features := &proto.GetFeaturesResponse{
 		DisableProfiles:       s.checkProfilesDisabled(),
 		DisableUpdateSettings: s.checkUpdateSettingsDisabled(),
-		DisableNetworks:       s.networksDisabled,
+		DisableNetworks:       s.checkNetworksDisabled(),
 	}
 
 	// MDM kill switch: read the value from the active policy on the
@@ -1740,6 +1740,21 @@ func (s *Server) checkProfilesDisabled() bool {
 	// can re-enable a switch the other has set.
 	if s.config != nil {
 		if v, ok := s.config.Policy().GetBool(mdm.KeyDisableProfiles); ok && v {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) checkNetworksDisabled() bool {
+	// CLI flag set at service install time wins.
+	if s.networksDisabled {
+		return true
+	}
+	// MDM kill switch: either source can disable the feature; neither
+	// can re-enable a switch the other has set.
+	if s.config != nil {
+		if v, ok := s.config.Policy().GetBool(mdm.KeyDisableNetworks); ok && v {
 			return true
 		}
 	}

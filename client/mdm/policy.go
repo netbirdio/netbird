@@ -23,6 +23,7 @@ const (
 	KeyDisableAdvancedSettings  = "disableAdvancedSettings"
 	KeyDisableUpdateSettings    = "disableUpdateSettings"
 	KeyDisableProfiles          = "disableProfiles"
+	KeyDisableNetworks          = "disableNetworks"
 	KeyDisableClientRoutes      = "disableClientRoutes"
 	KeyDisableServerRoutes      = "disableServerRoutes"
 	KeyBlockInbound             = "blockInbound"
@@ -56,6 +57,7 @@ var AllKeys = []string{
 	KeyDisableAdvancedSettings,
 	KeyDisableUpdateSettings,
 	KeyDisableProfiles,
+	KeyDisableNetworks,
 	KeyDisableClientRoutes,
 	KeyDisableServerRoutes,
 	KeyBlockInbound,
