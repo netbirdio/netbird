@@ -1,5 +1,5 @@
 import { cva, VariantProps } from "class-variance-authority";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, Loader2 } from "lucide-react";
 import { ButtonHTMLAttributes, forwardRef, useState } from "react";
 
 import { cn } from "@/lib/cn";
@@ -10,6 +10,10 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>, ButtonVar
     disabled?: boolean;
     stopPropagation?: boolean;
     copy?: string;
+    // When true, the content is replaced by a centered spinner while keeping
+    // the button's rendered width/height (the content stays in the layout,
+    // just hidden). Also disables the button.
+    loading?: boolean;
 }
 
 const buttonVariants = cva(
@@ -93,7 +97,7 @@ const buttonVariants = cva(
             },
             size: {
                 xs: "text-xs py-2.5 px-3.5",
-                xs2: "text-[0.78rem] py-[1.1rem] px-5 leading-[0]",
+                xs2: "text-[0.78rem] py-[1.1rem] px-4 leading-[0]",
                 sm: "text-sm py-[9px] px-4",
                 md: "py-[9px] px-4",
                 lg: "text-lg py-[9px] px-4",
@@ -124,6 +128,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
         onClick,
         disabled,
         copy,
+        loading = false,
         ...props
     },
     ref,
@@ -134,7 +139,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
         <button
             ref={ref}
             type={type}
-            disabled={disabled}
+            disabled={disabled || loading}
             className={cn(
                 buttonVariants({
                     variant,
@@ -159,8 +164,16 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
             }}
             {...props}
         >
-            {copy !== undefined && (copied ? <Check size={iconSize} /> : <Copy size={iconSize} />)}
-            {children}
+            {loading && (
+                <span className={"absolute inset-0 flex items-center justify-center"}>
+                    <Loader2 size={iconSize} className={"animate-spin"} />
+                </span>
+            )}
+            <span className={cn("contents", loading && "invisible")}>
+                {copy !== undefined &&
+                    (copied ? <Check size={iconSize} /> : <Copy size={iconSize} />)}
+                {children}
+            </span>
         </button>
     );
 });

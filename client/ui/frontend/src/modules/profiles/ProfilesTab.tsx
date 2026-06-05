@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorDialog } from "@/lib/dialogs.ts";
 import { CircleMinus, LogIn, PlusCircle, Trash2, UserCircle } from "lucide-react";
@@ -12,6 +12,9 @@ import { Tooltip } from "@/components/Tooltip";
 import i18next from "@/lib/i18n";
 import { useProfile } from "@/contexts/ProfileContext";
 import { useConfirm } from "@/contexts/DialogContext";
+import { Settings as SettingsSvc } from "@bindings/services";
+import { SetConfigParams } from "@bindings/services/models.js";
+import { CLOUD_MANAGEMENT_URL } from "@/hooks/useManagementUrl.ts";
 import { SectionGroup, SettingsBottomBar } from "@/modules/settings/SettingsSection.tsx";
 import { cn } from "@/lib/cn";
 import { formatErrorMessage } from "@/lib/errors";
@@ -24,6 +27,7 @@ export function ProfilesTab() {
         profiles,
         activeProfile,
         loaded,
+        username,
         switchProfile,
         addProfile,
         removeProfile,
@@ -33,26 +37,40 @@ export function ProfilesTab() {
     const confirm = useConfirm();
     const [newOpen, setNewOpen] = useState(false);
     const [busy, setBusy] = useState(false);
-    const tabRootRef = useRef<HTMLDivElement>(null);
 
-    // After a successful switch we want to bring the user back to the top of
-    // the tab — the table re-sorts the new active profile to the row 0 and a
-    // user who scrolled to find a target down the list would otherwise lose
-    // visual anchoring. Settings is hosted inside a Radix ScrollArea so we
-    // walk up to the viewport (it owns the actual overflow) instead of
-    // `window.scrollTo`, which is a no-op here.
-    const scrollTabToTop = () => {
-        const el = tabRootRef.current?.closest<HTMLElement>(
-            "[data-radix-scroll-area-viewport]",
-        );
-        el?.scrollTo({ top: 0, behavior: "smooth" });
-    };
-
-    const sorted = [...profiles].sort((a, b) => {
-        if (a.name === activeProfile) return -1;
-        if (b.name === activeProfile) return 1;
-        return a.name.localeCompare(b.name);
-    });
+    // The display order is established once — the active profile first, then
+    // the rest alphabetically — and then held stable for the lifetime of the
+    // window. Switching profiles must only flip the "active" badge, never
+    // reorder the rows (otherwise the row the user just clicked jumps to the
+    // top under their cursor). New profiles append at the end; removed ones
+    // drop out. `orderRef` is the source of truth for row order; the active
+    // badge is derived live from `activeProfile`.
+    const orderRef = useRef<string[]>([]);
+    const ordered = useMemo(() => {
+        const present = new Set(profiles.map((p) => p.name));
+        if (orderRef.current.length === 0) {
+            // First population: active-first, then alphabetical.
+            orderRef.current = [...profiles]
+                .sort((a, b) => {
+                    if (a.name === activeProfile) return -1;
+                    if (b.name === activeProfile) return 1;
+                    return a.name.localeCompare(b.name);
+                })
+                .map((p) => p.name);
+        } else {
+            // Preserve the established order; drop removed, append added.
+            const kept = orderRef.current.filter((n) => present.has(n));
+            const added = profiles
+                .map((p) => p.name)
+                .filter((n) => !orderRef.current.includes(n))
+                .sort((a, b) => a.localeCompare(b));
+            orderRef.current = [...kept, ...added];
+        }
+        const byName = new Map(profiles.map((p) => [p.name, p]));
+        return orderRef.current
+            .map((n) => byName.get(n))
+            .filter((p): p is Profile => p !== undefined);
+    }, [profiles, activeProfile]);
 
     const guarded = async (title: string, fn: () => Promise<void>) => {
         if (busy) return;
@@ -77,7 +95,6 @@ export function ProfilesTab() {
         });
         if (!ok) return;
         await guarded(i18next.t("profile.error.switchTitle"), () => switchProfile(name));
-        scrollTabToTop();
     };
 
     const handleDeregister = async (name: string) => {
@@ -102,9 +119,21 @@ export function ProfilesTab() {
         void guarded(i18next.t("profile.error.deleteTitle"), () => removeProfile(name));
     };
 
-    const handleCreate = async (name: string) => {
+    const handleCreate = async (name: string, managementUrl: string) => {
         try {
             await addProfile(name);
+            // Only persist a management URL for self-hosted; a fresh profile
+            // already defaults to NetBird Cloud, so writing the cloud URL
+            // would be a no-op. Do it before switching so any reconnect the
+            // switch triggers already targets the right deployment. SetConfig
+            // is keyed by profile name, so it writes the new profile even
+            // though it isn't active yet (adminUrl left empty — the daemon
+            // keeps its loaded value).
+            if (managementUrl !== CLOUD_MANAGEMENT_URL) {
+                await SettingsSvc.SetConfig(
+                    new SetConfigParams({ profileName: name, username, managementUrl }),
+                );
+            }
             await switchProfile(name);
         } catch (e) {
             await errorDialog({
@@ -115,7 +144,7 @@ export function ProfilesTab() {
     };
 
     return (
-        <div ref={tabRootRef}>
+        <div>
             <SectionGroup title={t("settings.profiles.section.profiles")}>
                 <HelpText className={"-mt-2 mb-0"}>{t("settings.profiles.intro")}</HelpText>
 
@@ -126,7 +155,7 @@ export function ProfilesTab() {
                 >
                     <table className={"w-full text-sm"}>
                         <tbody>
-                            {sorted.map((profile) => (
+                            {ordered.map((profile) => (
                                 <ProfileRow
                                     key={profile.name}
                                     profile={profile}
@@ -139,7 +168,7 @@ export function ProfilesTab() {
                         </tbody>
                     </table>
 
-                    {loaded && sorted.length === 0 && (
+                    {loaded && ordered.length === 0 && (
                         <div
                             className={
                                 "flex flex-col items-center justify-center py-10 text-center"

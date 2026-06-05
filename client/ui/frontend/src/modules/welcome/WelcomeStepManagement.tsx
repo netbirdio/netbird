@@ -90,11 +90,13 @@ export function WelcomeStepManagement({ initialUrl, onContinue }: WelcomeStepMan
         }
     }, [checking, mode, syntaxValid, trimmedUrl, unreachable, onContinue, t]);
 
-    const inputError = useMemo(() => {
-        if (syntaxError) return syntaxError;
-        if (unreachable) return t("welcome.management.urlUnreachable");
-        return undefined;
-    }, [syntaxError, unreachable, t]);
+    // Syntax problems are hard errors (red); an unreachable-but-valid URL is
+    // a soft, non-blocking caveat (orange).
+    const inputError = syntaxError ?? undefined;
+    const inputWarning = useMemo(
+        () => (!syntaxError && unreachable ? t("welcome.management.urlUnreachable") : undefined),
+        [syntaxError, unreachable, t],
+    );
 
     return (
         <>
@@ -117,6 +119,7 @@ export function WelcomeStepManagement({ initialUrl, onContinue }: WelcomeStepMan
                         value={url}
                         onChange={(e) => setUrl(e.target.value)}
                         error={inputError}
+                        warning={inputWarning}
                         autoFocus
                     />
                 </div>

@@ -13,6 +13,10 @@ export interface InputProps extends InputHTMLAttributes<HTMLInputElement>, Input
     maxWidthClass?: string;
     icon?: ReactNode;
     error?: string;
+    // A soft, non-blocking caveat rendered in orange (vs. error's red). Used
+    // e.g. for "couldn't reach this server" where the value is syntactically
+    // fine and the user may still proceed. `error` takes precedence.
+    warning?: string;
     prefixClassName?: string;
     showPasswordToggle?: boolean;
     copy?: boolean;
@@ -32,6 +36,10 @@ const inputVariants = cva("", {
             error: [
                 "dark:bg-nb-gray-900 dark:placeholder:text-neutral-400/70 placeholder:text-neutral-500 border-neutral-200 dark:border-red-500 text-red-500",
                 "ring-offset-red-500/10 dark:ring-offset-red-500/10 dark:focus-visible:ring-red-500/10 focus-visible:ring-red-500/10",
+            ],
+            warning: [
+                "dark:bg-nb-gray-900 dark:placeholder:text-neutral-400/70 placeholder:text-neutral-500 border-neutral-200 dark:border-orange-400 text-orange-400",
+                "ring-offset-orange-400/10 dark:ring-offset-orange-400/10 dark:focus-visible:ring-orange-400/10 focus-visible:ring-orange-400/10",
             ],
         },
         prefixSuffixVariant: {
@@ -53,6 +61,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         icon,
         maxWidthClass = "",
         error,
+        warning,
         variant = "default",
         prefixClassName,
         showPasswordToggle = false,
@@ -174,7 +183,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
                         {...props}
                         className={cn(
                             inputVariants({
-                                variant: error ? "error" : variant,
+                                variant: error ? "error" : warning ? "warning" : variant,
                             }),
                             "flex h-[40px] w-full rounded-md bg-white px-3 py-2 text-sm select-text",
                             "file:bg-transparent file:text-sm file:font-medium file:border-0",
@@ -238,9 +247,14 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
                     </div>
                 )}
             </div>
-            {error && (
-                <span className="text-xs text-red-500 mt-2 inline-flex items-center gap-1">
-                    {error}
+            {(error || warning) && (
+                <span
+                    className={cn(
+                        "text-xs mt-2 inline-flex items-center gap-1",
+                        error ? "text-red-500" : "text-orange-400",
+                    )}
+                >
+                    {error ?? warning}
                 </span>
             )}
         </div>

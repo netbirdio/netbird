@@ -86,6 +86,11 @@ export function useManagementUrl() {
     const [url, setUrl] = useState(
         config.managementUrl === CLOUD_MANAGEMENT_URL ? "" : config.managementUrl,
     );
+    // Self-hosted reachability soft-check, mirrored from the onboarding /
+    // profile-creation flows: a failed probe is a non-blocking orange warning,
+    // and a second Save with the same URL goes through regardless.
+    const [checking, setChecking] = useState(false);
+    const [unreachable, setUnreachable] = useState(false);
 
     useEffect(() => {
         setModeState(modeFromUrl(config.managementUrl));
@@ -93,6 +98,11 @@ export function useManagementUrl() {
             setUrl(config.managementUrl);
         }
     }, [config.managementUrl]);
+
+    // Clear the stale warning whenever the target changes.
+    useEffect(() => {
+        setUnreachable(false);
+    }, [url, mode]);
 
     const setMode = async (next: ManagementMode) => {
         if (
@@ -125,7 +135,22 @@ export function useManagementUrl() {
     const canSave = dirty && (mode === ManagementMode.Cloud || urlValid);
     const displayUrl = mode === ManagementMode.Cloud ? CLOUD_MANAGEMENT_URL : url;
 
-    const save = () => saveField("managementUrl", targetUrl);
+    const save = async () => {
+        // Self-hosted: probe the server first. A failed probe surfaces a soft
+        // warning and bails; a second Save (unreachable already set) skips the
+        // re-check and saves anyway, so the user can override a false negative.
+        if (mode === ManagementMode.SelfHosted && !unreachable) {
+            setChecking(true);
+            const reachable = await checkManagementUrlReachable(targetUrl);
+            setChecking(false);
+            if (!reachable) {
+                setUnreachable(true);
+                return;
+            }
+        }
+        await saveField("managementUrl", targetUrl);
+        setUnreachable(false);
+    };
 
     return {
         mode,
@@ -136,5 +161,7 @@ export function useManagementUrl() {
         showError,
         canSave,
         save,
+        checking,
+        unreachable,
     };
 }

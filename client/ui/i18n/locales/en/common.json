@@ -108,10 +108,13 @@
     "profile.selector.switchTo": "Switch to this profile",
 
     "profile.dialog.title": "Enter Profile Name",
-    "profile.dialog.description": "Choose a memorable name.",
+    "profile.dialog.nameLabel": "Profile Name",
+    "profile.dialog.description": "Set an easily identifiable name for your profile.",
     "profile.dialog.placeholder": "e.g. work",
     "profile.dialog.submit": "Add Profile",
     "profile.dialog.required": "Please enter a profile name, e.g. work, home",
+    "profile.dialog.managementHelp": "Use NetBird Cloud or your own server.",
+    "profile.dialog.urlUnreachable": "Couldn't reach this server. Check the URL, or add the profile anyway if you're sure it's correct.",
 
     "header.menu.settings": "Settings...",
     "header.menu.defaultView": "Default View",
@@ -120,7 +123,7 @@
 
     "profile.switch.title": "Switch Profile to \"{name}\"?",
     "profile.switch.message": "Are you sure you want to switch profiles?\nYour current profile will be disconnected.",
-    "profile.switch.confirm": "Switch",
+    "profile.switch.confirm": "Confirm",
     "profile.deregister.title": "Deregister Profile \"{name}\"?",
     "profile.deregister.message": "Are you sure you want to deregister this profile?\nYou will need to log in again to use it.",
     "profile.deregister.confirm": "Deregister",
@@ -181,6 +184,7 @@
     "settings.general.management.selfHosted": "Self-hosted",
     "settings.general.management.urlPlaceholder": "https://netbird.selfhosted.com:443",
     "settings.general.management.urlError": "Please enter a valid URL, e.g., https://netbird.selfhosted.com:443",
+    "settings.general.management.urlUnreachable": "Couldn't reach this server. Check the URL, or save anyway if you're sure it's correct.",
     "settings.general.management.switchCloudTitle": "Switch to NetBird Cloud?",
     "settings.general.management.switchCloudMessage": "This disconnects your self-hosted server.\nYou may need to log in again.",
     "settings.general.management.switchCloudConfirm": "Switch to Cloud",
@@ -350,7 +354,7 @@
     "welcome.management.urlLabel": "Management server URL",
     "welcome.management.urlPlaceholder": "https://netbird.selfhosted.com:443",
     "welcome.management.urlInvalid": "Please enter a valid URL, e.g., https://netbird.selfhosted.com:443",
-    "welcome.management.urlUnreachable": "We couldn't reach this server. Check the URL or your network and try again — you can also continue if you're sure it's correct.",
+    "welcome.management.urlUnreachable": "Couldn't reach this server. Check the URL or your network, then continue if you're sure it's correct.",
     "welcome.management.checking": "Checking…",
 
     "browserLogin.title": "Continue in your browser to complete the login",

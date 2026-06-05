@@ -15,7 +15,17 @@ export function SettingsGeneral() {
     const { t } = useTranslation();
     const { config, setField } = useSettings();
     const { autostart, setAutostartEnabled } = useAutostartSetting();
-    const { mode, setMode, setUrl, displayUrl, showError, canSave, save } = useManagementUrl();
+    const {
+        mode,
+        setMode,
+        setUrl,
+        displayUrl,
+        showError,
+        canSave,
+        save,
+        checking,
+        unreachable,
+    } = useManagementUrl();
 
     const inputRef = useRef<HTMLInputElement>(null);
     const prevMode = useRef(mode);
@@ -79,11 +89,17 @@ export function SettingsGeneral() {
                                         ? t("settings.general.management.urlError")
                                         : undefined
                                 }
+                                warning={
+                                    unreachable
+                                        ? t("settings.general.management.urlUnreachable")
+                                        : undefined
+                                }
                             />
                             <Button
                                 variant={"primary"}
                                 size={"md"}
                                 disabled={!canSave}
+                                loading={checking}
                                 onClick={() => save()}
                             >
                                 {t("common.save")}
