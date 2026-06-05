@@ -129,7 +129,7 @@ func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, netw
 
 	var eventsToStore []func()
 	var snap *affectedpeers.Snapshot
-	change := affectedpeers.Change{NetworkIDs: []string{networkID}}
+	change := affectedpeers.Change{Networks: []*types.Network{network}}
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		// Load before the cascade deletes: pre-state still references the network.
 		var lerr error

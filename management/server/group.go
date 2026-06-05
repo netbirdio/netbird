@@ -221,10 +221,14 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 	}
 
 	var eventsToStore []func()
+	var snaps []*affectedpeers.Snapshot
+	var changes []affectedpeers.Change
 
 	var globalErr error
-	groupIDs := make([]string, 0, len(groups))
+	createdCount := 0
 	for _, newGroup := range groups {
+		change := affectedpeers.Change{ChangedGroupIDs: []string{newGroup.ID}}
+		var snap *affectedpeers.Snapshot
 		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 			if err = validateNewGroup(ctx, transaction, accountID, newGroup); err != nil {
 				return err
@@ -241,34 +245,31 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 				return err
 			}
 
-			groupIDs = append(groupIDs, newGroup.ID)
-
 			events := am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
 			eventsToStore = append(eventsToStore, events...)
 
-			return nil
+			snap, err = affectedpeers.Load(ctx, transaction, accountID, change)
+			return err
 		})
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed to update group %s: %v", newGroup.ID, err)
-			if len(groupIDs) == 1 {
+			if createdCount == 0 {
 				return err
 			}
 			globalErr = errors.Join(globalErr, err)
 			// continue updating other groups
+			continue
 		}
+		createdCount++
+		snaps = append(snaps, snap)
+		changes = append(changes, change)
 	}
 
 	for _, storeEvent := range eventsToStore {
 		storeEvent()
 	}
 
-	affectedPeerIDs := am.ResolveAffectedPeers(ctx, am.Store, accountID, affectedpeers.Change{ChangedGroupIDs: groupIDs})
-	if len(affectedPeerIDs) > 0 {
-		log.WithContext(ctx).Debugf("CreateGroups %v: updating %d affected peers: %v", groupIDs, len(affectedPeerIDs), affectedPeerIDs)
-		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
-	} else {
-		log.WithContext(ctx).Tracef("CreateGroups %v: no affected peers", groupIDs)
-	}
+	am.dispatchAffected(ctx, accountID, snaps, changes)
 
 	return globalErr
 }
@@ -287,11 +288,13 @@ func (am *DefaultAccountManager) UpdateGroups(ctx context.Context, accountID, us
 	}
 
 	var eventsToStore []func()
+	var snaps []*affectedpeers.Snapshot
+	var changes []affectedpeers.Change
 
 	var globalErr error
-	groupIDs := make([]string, 0, len(groups))
 	for _, newGroup := range groups {
-		events, err := am.updateSingleGroup(ctx, accountID, userID, newGroup)
+		change := affectedpeers.Change{ChangedGroupIDs: []string{newGroup.ID}}
+		events, snap, err := am.updateSingleGroup(ctx, accountID, userID, newGroup, change)
 		if err != nil {
 			log.WithContext(ctx).Errorf("failed to update group %s: %v", newGroup.ID, err)
 			if len(groups) == 1 {
@@ -301,26 +304,22 @@ func (am *DefaultAccountManager) UpdateGroups(ctx context.Context, accountID, us
 			continue
 		}
 		eventsToStore = append(eventsToStore, events...)
-		groupIDs = append(groupIDs, newGroup.ID)
+		snaps = append(snaps, snap)
+		changes = append(changes, change)
 	}
 
 	for _, storeEvent := range eventsToStore {
 		storeEvent()
 	}
 
-	affectedPeerIDs := am.ResolveAffectedPeers(ctx, am.Store, accountID, affectedpeers.Change{ChangedGroupIDs: groupIDs})
-	if len(affectedPeerIDs) > 0 {
-		log.WithContext(ctx).Debugf("UpdateGroups %v: updating %d affected peers: %v", groupIDs, len(affectedPeerIDs), affectedPeerIDs)
-		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
-	} else {
-		log.WithContext(ctx).Tracef("UpdateGroups %v: no affected peers", groupIDs)
-	}
+	am.dispatchAffected(ctx, accountID, snaps, changes)
 
 	return globalErr
 }
 
-func (am *DefaultAccountManager) updateSingleGroup(ctx context.Context, accountID, userID string, newGroup *types.Group) ([]func(), error) {
+func (am *DefaultAccountManager) updateSingleGroup(ctx context.Context, accountID, userID string, newGroup *types.Group, change affectedpeers.Change) ([]func(), *affectedpeers.Snapshot, error) {
 	var events []func()
+	var snap *affectedpeers.Snapshot
 	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err := validateNewGroup(ctx, transaction, accountID, newGroup); err != nil {
 			return err
@@ -341,9 +340,12 @@ func (am *DefaultAccountManager) updateSingleGroup(ctx context.Context, accountI
 		}
 
 		events = am.prepareGroupEvents(ctx, transaction, accountID, userID, newGroup)
-		return nil
+
+		var err error
+		snap, err = affectedpeers.Load(ctx, transaction, accountID, change)
+		return err
 	})
-	return events, err
+	return events, snap, err
 }
 
 // prepareGroupEvents prepares a list of event functions to be stored.

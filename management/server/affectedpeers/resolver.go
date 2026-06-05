@@ -24,6 +24,7 @@ import (
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
@@ -60,8 +61,11 @@ func Load(ctx context.Context, s store.Store, accountID string, c Change) (*Snap
 		return snap, nil
 	}
 
-	hasGroupOrPeerChange := len(c.ChangedGroupIDs) > 0 || len(c.ChangedPeerIDs) > 0
-	needsPolicies := hasGroupOrPeerChange || len(c.PostureCheckIDs) > 0 || len(c.Policies) > 0 || len(c.ResourceIDs) > 0 || len(c.NetworkIDs) > 0
+	// Changed resources contribute their group IDs to the changed-group set during
+	// the walk (see collectFromExplicitResources), so they drive the group walkers.
+	hasGroupOrPeerChange := len(c.ChangedGroupIDs) > 0 || len(c.ChangedPeerIDs) > 0 || len(c.Resources) > 0
+	hasNetworkObject := len(c.ResourceIDs) > 0 || len(c.NetworkIDs) > 0 || len(c.Routers) > 0 || len(c.Resources) > 0 || len(c.Networks) > 0
+	needsPolicies := hasGroupOrPeerChange || len(c.PostureCheckIDs) > 0 || len(c.Policies) > 0 || hasNetworkObject
 	needsRoutersResources := needsPolicies // the resource<->router bridge can fire whenever policies/resources/networks are in play
 
 	var err error
@@ -127,6 +131,9 @@ type Change struct {
 	ChangedPeerIDs  []string
 	Policies        []*types.Policy
 	Routes          []*route.Route
+	Routers         []*routerTypes.NetworkRouter
+	Resources       []*resourceTypes.NetworkResource
+	Networks        []*networkTypes.Network
 	PostureCheckIDs []string
 	ResourceIDs     []string
 	NetworkIDs      []string
@@ -147,6 +154,9 @@ func (c Change) isEmpty() bool {
 		len(c.ChangedPeerIDs) == 0 &&
 		len(c.Policies) == 0 &&
 		len(c.Routes) == 0 &&
+		len(c.Routers) == 0 &&
+		len(c.Resources) == 0 &&
+		len(c.Networks) == 0 &&
 		len(c.PostureCheckIDs) == 0 &&
 		len(c.ResourceIDs) == 0 &&
 		len(c.NetworkIDs) == 0 &&
@@ -165,8 +175,8 @@ func (snap *Snapshot) Expand(ctx context.Context, accountID string, c Change) []
 		return nil
 	}
 	r := newResolver(ctx, snap, accountID, c)
-	log.WithContext(ctx).Tracef("affectedpeers expand start: account=%s changedGroups=%v changedPeers=%v policies=%d routes=%d postureChecks=%v resources=%v networks=%v",
-		accountID, c.ChangedGroupIDs, c.ChangedPeerIDs, len(c.Policies), len(c.Routes), c.PostureCheckIDs, c.ResourceIDs, c.NetworkIDs)
+	log.WithContext(ctx).Tracef("affectedpeers expand start: account=%s changedGroups=%v changedPeers=%v policies=%d routes=%d routers=%d resources=%d networks=%d postureChecks=%v resourceIDs=%v networkIDs=%v",
+		accountID, c.ChangedGroupIDs, c.ChangedPeerIDs, len(c.Policies), len(c.Routes), len(c.Routers), len(c.Resources), len(c.Networks), c.PostureCheckIDs, c.ResourceIDs, c.NetworkIDs)
 	r.walk()
 	return r.expand()
 }
@@ -222,6 +232,9 @@ func newResolver(ctx context.Context, snap *Snapshot, accountID string, c Change
 func (r *resolver) walk() {
 	r.collectFromExplicitPolicies()
 	r.collectFromExplicitRoutes(r.change.Routes)
+	r.collectFromExplicitRouters(r.change.Routers)
+	r.collectFromExplicitResources(r.change.Resources)
+	r.collectFromExplicitNetworks(r.change.Networks)
 	r.collectFromPostureChecks(r.change.PostureCheckIDs)
 
 	if len(r.changedGroupSet) > 0 || len(r.changedPeerSet) > 0 {
@@ -335,6 +348,62 @@ func (r *resolver) collectFromExplicitRoutes(routes []*route.Route) {
 		addAll(r.groupSet, rt.Groups, rt.PeerGroups, rt.AccessControlGroups)
 		if rt.Peer != "" {
 			r.peerSet[rt.Peer] = struct{}{}
+		}
+	}
+}
+
+// collectFromExplicitRouters folds the routing peers carried by changed router
+// objects (old and/or new state) directly, and marks their networks so the
+// router<->source bridge folds the source peers of policies serving them. Carrying
+// the old router object here is how a repointed router's previous routing peers
+// stay affected without a post-commit read.
+func (r *resolver) collectFromExplicitRouters(routers []*routerTypes.NetworkRouter) {
+	for _, router := range routers {
+		if router == nil {
+			continue
+		}
+		log.WithContext(r.ctx).Tracef("collectFromExplicitRouters: changed router %s on network %s -> folding peerGroups=%v peer=%q and marking network for source bridge",
+			router.ID, router.NetworkID, router.PeerGroups, router.Peer)
+		addAll(r.groupSet, router.PeerGroups)
+		if router.Peer != "" {
+			r.peerSet[router.Peer] = struct{}{}
+		}
+		if router.NetworkID != "" {
+			r.networkIDs[router.NetworkID] = struct{}{}
+		}
+	}
+}
+
+// collectFromExplicitResources marks the networks of changed resource objects
+// (old and/or new state) so the bridge folds their routers and the source peers
+// of policies targeting them, and treats each resource's group IDs as changed
+// groups so policies targeting the resource through a now-detached (old) group —
+// which the post-update group.Resources no longer links — still refresh.
+func (r *resolver) collectFromExplicitResources(resources []*resourceTypes.NetworkResource) {
+	for _, resource := range resources {
+		if resource == nil {
+			continue
+		}
+		log.WithContext(r.ctx).Tracef("collectFromExplicitResources: changed resource %s on network %s -> marking network for bridge and treating groups %v as changed",
+			resource.ID, resource.NetworkID, resource.GroupIDs)
+		addAll(r.changedGroupSet, resource.GroupIDs)
+		if resource.NetworkID != "" {
+			r.networkIDs[resource.NetworkID] = struct{}{}
+		}
+	}
+}
+
+// collectFromExplicitNetworks marks changed network objects (old and/or new
+// state) so the bridge folds their routers and the source peers of policies
+// serving their resources. A network has no groups/peers of its own.
+func (r *resolver) collectFromExplicitNetworks(networks []*networkTypes.Network) {
+	for _, network := range networks {
+		if network == nil {
+			continue
+		}
+		log.WithContext(r.ctx).Tracef("collectFromExplicitNetworks: changed network %s -> marking for bridge", network.ID)
+		if network.ID != "" {
+			r.networkIDs[network.ID] = struct{}{}
 		}
 	}
 }

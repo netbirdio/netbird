@@ -1478,6 +1478,33 @@ func (am *DefaultAccountManager) expandAndUpdateAffected(ctx context.Context, ac
 	}
 }
 
+// dispatchAffected expands a set of (snapshot, change) pairs collected across
+// several transactions, unions their affected peers, and dispatches one update.
+// Used by batch operations that commit per-item transactions but want a single
+// affected-peers pass — each snapshot is still loaded inside its own transaction.
+func (am *DefaultAccountManager) dispatchAffected(ctx context.Context, accountID string, snaps []*affectedpeers.Snapshot, changes []affectedpeers.Change) {
+	seen := make(map[string]struct{})
+	var affectedPeerIDs []string
+	for i, snap := range snaps {
+		if snap == nil {
+			continue
+		}
+		for _, id := range snap.Expand(ctx, accountID, changes[i]) {
+			if _, ok := seen[id]; !ok {
+				seen[id] = struct{}{}
+				affectedPeerIDs = append(affectedPeerIDs, id)
+			}
+		}
+	}
+
+	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("dispatchAffected: account %s updating %d affected peers: %v", accountID, len(affectedPeerIDs), affectedPeerIDs)
+		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("dispatchAffected: account %s no affected peers", accountID)
+	}
+}
+
 // resolvePeerIDs resolves group IDs and direct peer IDs into a deduplicated peer ID list.
 func (am *DefaultAccountManager) resolvePeerIDs(ctx context.Context, s store.Store, accountID string, groupIDs []string, directPeerIDs []string) []string {
 	peerIDs, err := s.GetPeerIDsByGroups(ctx, accountID, groupIDs)

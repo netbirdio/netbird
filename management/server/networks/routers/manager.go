@@ -92,7 +92,7 @@ func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *t
 
 	var network *networkTypes.Network
 	var snap *affectedpeers.Snapshot
-	change := affectedpeers.Change{NetworkIDs: []string{router.NetworkID}}
+	change := affectedpeers.Change{Routers: []*types.NetworkRouter{router}}
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		network, err = transaction.GetNetworkByID(ctx, store.LockingStrengthNone, router.AccountID, router.NetworkID)
 		if err != nil {
@@ -171,10 +171,9 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 	var network *networkTypes.Network
 	var snap *affectedpeers.Snapshot
 	var change affectedpeers.Change
-	var oldRouting []string
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		var txErr error
-		network, snap, change, oldRouting, txErr = m.updateRouterInTransaction(ctx, transaction, router)
+		network, snap, change, txErr = m.updateRouterInTransaction(ctx, transaction, router)
 		return txErr
 	})
 	if err != nil {
@@ -183,9 +182,7 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 
 	m.accountManager.StoreEvent(ctx, userID, router.ID, router.AccountID, activity.NetworkRouterUpdated, router.EventMeta(network))
 
-	// The previous routing peers lose their routing role and are no longer reachable
-	// from the post-update state, so union them as directly affected after Expand.
-	affectedPeerIDs := append(snap.Expand(ctx, router.AccountID, change), oldRouting...)
+	affectedPeerIDs := snap.Expand(ctx, router.AccountID, change)
 	if len(affectedPeerIDs) > 0 {
 		log.WithContext(ctx).Debugf("UpdateRouter %s: updating %d affected peers: %v", router.ID, len(affectedPeerIDs), affectedPeerIDs)
 		go m.accountManager.UpdateAffectedPeers(ctx, router.AccountID, affectedPeerIDs)
@@ -196,66 +193,43 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 	return router, nil
 }
 
-func (m *managerImpl) updateRouterInTransaction(ctx context.Context, transaction store.Store, router *types.NetworkRouter) (*networkTypes.Network, *affectedpeers.Snapshot, affectedpeers.Change, []string, error) {
+func (m *managerImpl) updateRouterInTransaction(ctx context.Context, transaction store.Store, router *types.NetworkRouter) (*networkTypes.Network, *affectedpeers.Snapshot, affectedpeers.Change, error) {
 	network, err := transaction.GetNetworkByID(ctx, store.LockingStrengthNone, router.AccountID, router.NetworkID)
 	if err != nil {
-		return nil, nil, affectedpeers.Change{}, nil, fmt.Errorf("failed to get network: %w", err)
+		return nil, nil, affectedpeers.Change{}, fmt.Errorf("failed to get network: %w", err)
 	}
 
 	existing, err := transaction.GetNetworkRouterByID(ctx, store.LockingStrengthUpdate, router.AccountID, router.ID)
 	if err != nil {
-		return nil, nil, affectedpeers.Change{}, nil, fmt.Errorf("failed to get network router: %w", err)
+		return nil, nil, affectedpeers.Change{}, fmt.Errorf("failed to get network router: %w", err)
 	}
 
 	if existing.AccountID != router.AccountID {
-		return nil, nil, affectedpeers.Change{}, nil, status.NewNetworkRouterNotFoundError(router.ID)
+		return nil, nil, affectedpeers.Change{}, status.NewNetworkRouterNotFoundError(router.ID)
 	}
 
 	if existing.NetworkID != router.NetworkID {
-		return nil, nil, affectedpeers.Change{}, nil, status.NewRouterNotPartOfNetworkError(router.ID, router.NetworkID)
+		return nil, nil, affectedpeers.Change{}, status.NewRouterNotPartOfNetworkError(router.ID, router.NetworkID)
 	}
 
-	// Capture the previous routing peers before persisting the update.
-	oldRouting := oldRoutingPeerIDs(ctx, transaction, router.AccountID, existing)
-
 	if err = transaction.UpdateNetworkRouter(ctx, router); err != nil {
-		return nil, nil, affectedpeers.Change{}, nil, fmt.Errorf("failed to update network router: %w", err)
+		return nil, nil, affectedpeers.Change{}, fmt.Errorf("failed to update network router: %w", err)
 	}
 
 	if err = transaction.IncrementNetworkSerial(ctx, router.AccountID); err != nil {
-		return nil, nil, affectedpeers.Change{}, nil, fmt.Errorf("failed to increment network serial: %w", err)
+		return nil, nil, affectedpeers.Change{}, fmt.Errorf("failed to increment network serial: %w", err)
 	}
 
-	networkIDs := []string{router.NetworkID}
-	if existing.NetworkID != router.NetworkID {
-		networkIDs = append(networkIDs, existing.NetworkID)
-	}
-
-	change := affectedpeers.Change{NetworkIDs: networkIDs}
+	// Carry both the previous and updated router so the bridge folds the old and
+	// new routing peers; a repoint loses the old peers' routing role and the
+	// post-update state can no longer reach them.
+	change := affectedpeers.Change{Routers: []*types.NetworkRouter{existing, router}}
 	snap, err := affectedpeers.Load(ctx, transaction, router.AccountID, change)
 	if err != nil {
-		return nil, nil, affectedpeers.Change{}, nil, err
+		return nil, nil, affectedpeers.Change{}, err
 	}
 
-	return network, snap, change, oldRouting, nil
-}
-
-// oldRoutingPeerIDs returns the peer IDs that served as the router's routing peers
-// before an update (direct Peer plus PeerGroups members).
-func oldRoutingPeerIDs(ctx context.Context, transaction store.Store, accountID string, existing *types.NetworkRouter) []string {
-	var ids []string
-	if existing.Peer != "" {
-		ids = append(ids, existing.Peer)
-	}
-	if len(existing.PeerGroups) > 0 {
-		groupPeers, err := transaction.GetPeerIDsByGroups(ctx, accountID, existing.PeerGroups)
-		if err != nil {
-			log.WithContext(ctx).Errorf("failed to get old router peer-group members for affected peers: %v", err)
-		} else {
-			ids = append(ids, groupPeers...)
-		}
-	}
-	return ids
+	return network, snap, change, nil
 }
 
 func (m *managerImpl) DeleteRouter(ctx context.Context, accountID, userID, networkID, routerID string) error {
@@ -269,9 +243,15 @@ func (m *managerImpl) DeleteRouter(ctx context.Context, accountID, userID, netwo
 
 	var event func()
 	var snap *affectedpeers.Snapshot
-	change := affectedpeers.Change{NetworkIDs: []string{networkID}}
+	var change affectedpeers.Change
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		// Load before delete: pre-state still references the router and its peers.
+		// Capture the router before delete: its peers lose their routing role and
+		// the post-delete state can no longer reach them.
+		existing, err := transaction.GetNetworkRouterByID(ctx, store.LockingStrengthUpdate, accountID, routerID)
+		if err != nil {
+			return fmt.Errorf("failed to get network router: %w", err)
+		}
+		change = affectedpeers.Change{Routers: []*types.NetworkRouter{existing}}
 		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
 			return err
 		}
