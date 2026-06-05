@@ -12,8 +12,6 @@ import (
 	goproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	integrationsConfig "github.com/netbirdio/management-integrations/integrations/config"
-
 	"github.com/netbirdio/netbird/client/ssh/auth"
 
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -147,9 +145,7 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 		Checks: toProtocolChecks(ctx, checks),
 	}
 
-	nbConfig := toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings)
-	extendedConfig := integrationsConfig.ExtendNetBirdConfig(peer.ID, peerGroups, nbConfig, extraSettings)
-	response.NetbirdConfig = extendedConfig
+	response.NetbirdConfig = toNetbirdConfig(config, turnCredentials, relayCredentials, extraSettings)
 
 	response.NetworkMap.PeerConfig = response.PeerConfig
 
@@ -362,7 +358,6 @@ func toProtocolFirewallRules(rules []*types.FirewallRule, includeIPv6, useSource
 	}
 	return result
 }
-
 
 // populateSourcePrefixes sets SourcePrefixes on fwRule and returns any
 // additional rules needed (e.g. a v6 wildcard clone when the peer IP is unspecified).
