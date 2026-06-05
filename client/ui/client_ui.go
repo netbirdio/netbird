@@ -331,6 +331,11 @@ type serviceClient struct {
 	advancedSettingsLocked bool
 	profilesEnabled      bool
 	networksEnabled      bool
+	// networksMenuEnabled caches the last applied enabled-state of the
+	// mNetworks + mExitNode submenu items. Combines features.DisableNetworks
+	// AND s.connected — both must be true for the menus to be active.
+	// Zero value (false) matches the Disable() call at AddMenuItem time.
+	networksMenuEnabled  bool
 	showNetworks         bool
 	wNetworks            fyne.Window
 	wProfiles            fyne.Window
@@ -1317,14 +1322,23 @@ func (s *serviceClient) checkAndUpdateFeatures() {
 		}
 	}
 
-	// Update networks and exit node menus based on current features
+	// Update networks and exit node menus based on current features.
+	// `networksEnabled` is the bare feature flag (read elsewhere, e.g. at
+	// connection-status transitions). `networksMenuEnabled` is the
+	// transition-cached state actually applied to the menu items —
+	// it folds in the connection state so a Connected client with the
+	// kill switch off shows the menus active, and only flips on diff.
 	s.networksEnabled = features == nil || !features.DisableNetworks
-	if s.networksEnabled && s.connected {
-		s.mNetworks.Enable()
-		s.mExitNode.Enable()
-	} else {
-		s.mNetworks.Disable()
-		s.mExitNode.Disable()
+	desiredNetworksMenu := s.networksEnabled && s.connected
+	if desiredNetworksMenu != s.networksMenuEnabled {
+		s.networksMenuEnabled = desiredNetworksMenu
+		if desiredNetworksMenu {
+			s.mNetworks.Enable()
+			s.mExitNode.Enable()
+		} else {
+			s.mNetworks.Disable()
+			s.mExitNode.Disable()
+		}
 	}
 }
 
