@@ -842,10 +842,6 @@ func (s *ProxyServiceServer) SendServiceUpdateToCluster(ctx context.Context, upd
 		Mapping: []*proto.ProxyMapping{update},
 	}
 
-	log.Infof("xxxx Sending service update to cluster %#v", update)
-	log.Infof("xxxx Sending service %s with auth %#v", update.GetDomain(), update.GetAuth())
-	log.Infof("xxxx Sending service %s with access restrictions %#v", update.GetDomain(), update.GetAccessRestrictions())
-
 	if clusterAddr == "" {
 		s.SendServiceUpdate(updateResponse)
 		return
