@@ -738,11 +738,6 @@ message GetFeaturesResponse{
   bool disable_profiles = 1;
   bool disable_update_settings = 2;
   bool disable_networks = 3;
-  // disable_advanced_settings reflects the MDM-managed kill switch
-  // (mdm.KeyDisableAdvancedSettings). When true, the GUI must lock the
-  // "Advanced Settings" submenu item so the user cannot open the
-  // settings window and edit any field.
-  bool disable_advanced_settings = 4;
 }
 
 // MDMManagedFieldsViolation is attached as a gRPC error detail on a

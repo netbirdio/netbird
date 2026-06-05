@@ -4919,13 +4919,8 @@ type GetFeaturesResponse struct {
 	DisableProfiles       bool                   `protobuf:"varint,1,opt,name=disable_profiles,json=disableProfiles,proto3" json:"disable_profiles,omitempty"`
 	DisableUpdateSettings bool                   `protobuf:"varint,2,opt,name=disable_update_settings,json=disableUpdateSettings,proto3" json:"disable_update_settings,omitempty"`
 	DisableNetworks       bool                   `protobuf:"varint,3,opt,name=disable_networks,json=disableNetworks,proto3" json:"disable_networks,omitempty"`
-	// disable_advanced_settings reflects the MDM-managed kill switch
-	// (mdm.KeyDisableAdvancedSettings). When true, the GUI must lock the
-	// "Advanced Settings" submenu item so the user cannot open the
-	// settings window and edit any field.
-	DisableAdvancedSettings bool `protobuf:"varint,4,opt,name=disable_advanced_settings,json=disableAdvancedSettings,proto3" json:"disable_advanced_settings,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *GetFeaturesResponse) Reset() {
@@ -4975,13 +4970,6 @@ func (x *GetFeaturesResponse) GetDisableUpdateSettings() bool {
 func (x *GetFeaturesResponse) GetDisableNetworks() bool {
 	if x != nil {
 		return x.DisableNetworks
-	}
-	return false
-}
-
-func (x *GetFeaturesResponse) GetDisableAdvancedSettings() bool {
-	if x != nil {
-		return x.DisableAdvancedSettings
 	}
 	return false
 }
@@ -6766,12 +6754,11 @@ const file_daemon_proto_rawDesc = "" +
 	"\f_profileNameB\v\n" +
 	"\t_username\"\x10\n" +
 	"\x0eLogoutResponse\"\x14\n" +
-	"\x12GetFeaturesRequest\"\xdf\x01\n" +
+	"\x12GetFeaturesRequest\"\xa3\x01\n" +
 	"\x13GetFeaturesResponse\x12)\n" +
 	"\x10disable_profiles\x18\x01 \x01(\bR\x0fdisableProfiles\x126\n" +
 	"\x17disable_update_settings\x18\x02 \x01(\bR\x15disableUpdateSettings\x12)\n" +
-	"\x10disable_networks\x18\x03 \x01(\bR\x0fdisableNetworks\x12:\n" +
-	"\x19disable_advanced_settings\x18\x04 \x01(\bR\x17disableAdvancedSettings\"3\n" +
+	"\x10disable_networks\x18\x03 \x01(\bR\x0fdisableNetworks\"3\n" +
 	"\x19MDMManagedFieldsViolation\x12\x16\n" +
 	"\x06fields\x18\x01 \x03(\tR\x06fields\"\x16\n" +
 	"\x14TriggerUpdateRequest\"M\n" +
