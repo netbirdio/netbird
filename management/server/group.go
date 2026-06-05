@@ -80,7 +80,8 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 	}
 
 	var eventsToStore []func()
-	var affectedPeerIDs []string
+	var snap *affectedpeers.Snapshot
+	change := affectedpeers.Change{ChangedGroupIDs: []string{newGroup.ID}}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err = validateNewGroup(ctx, transaction, accountID, newGroup); err != nil {
@@ -102,7 +103,10 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 			}
 		}
 
-		affectedPeerIDs = am.ResolveAffectedPeers(ctx, transaction, accountID, affectedpeers.Change{ChangedGroupIDs: []string{newGroup.ID}})
+		snap, err = affectedpeers.Load(ctx, transaction, accountID, change)
+		if err != nil {
+			return err
+		}
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
@@ -114,12 +118,7 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 		storeEvent()
 	}
 
-	if len(affectedPeerIDs) > 0 {
-		log.WithContext(ctx).Debugf("CreateGroup %s: updating %d affected peers: %v", newGroup.ID, len(affectedPeerIDs), affectedPeerIDs)
-		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
-	} else {
-		log.WithContext(ctx).Tracef("CreateGroup %s: no affected peers", newGroup.ID)
-	}
+	am.expandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }
@@ -135,7 +134,8 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 	}
 
 	var eventsToStore []func()
-	var affectedPeerIDs []string
+	var snap *affectedpeers.Snapshot
+	change := affectedpeers.Change{ChangedGroupIDs: []string{newGroup.ID}}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err = validateNewGroup(ctx, transaction, accountID, newGroup); err != nil {
@@ -152,8 +152,9 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 			return status.Errorf(status.NotFound, "group with ID %s not found", newGroup.ID)
 		}
 
+		peersToAdd := util.Difference(newGroup.Peers, oldGroup.Peers)
 		peersToRemove := util.Difference(oldGroup.Peers, newGroup.Peers)
-		if err = syncGroupMembership(ctx, transaction, accountID, newGroup.ID, util.Difference(newGroup.Peers, oldGroup.Peers), peersToRemove); err != nil {
+		if err = syncGroupMembership(ctx, transaction, accountID, newGroup.ID, peersToAdd, peersToRemove); err != nil {
 			return err
 		}
 
@@ -165,7 +166,16 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 			return err
 		}
 
-		affectedPeerIDs = am.ResolveAffectedPeers(ctx, transaction, accountID, affectedpeers.Change{ChangedGroupIDs: []string{newGroup.ID}, ChangedPeerIDs: peersToRemove})
+		// A membership change does not alter which entities reference the group, so
+		// the dependency walk runs once against the post-change snapshot. The new
+		// members are already in the snapshot's index; the removed members are
+		// carried separately and folded in only when the group is linked.
+		if len(peersToRemove) > 0 {
+			change.RemovedPeersByGroup = map[string][]string{newGroup.ID: peersToRemove}
+		}
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
+			return err
+		}
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
@@ -177,12 +187,7 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 		storeEvent()
 	}
 
-	if len(affectedPeerIDs) > 0 {
-		log.WithContext(ctx).Debugf("UpdateGroup %s: updating %d affected peers: %v", newGroup.ID, len(affectedPeerIDs), affectedPeerIDs)
-		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
-	} else {
-		log.WithContext(ctx).Tracef("UpdateGroup %s: no affected peers", newGroup.ID)
-	}
+	am.expandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }
@@ -441,7 +446,8 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 	var allErrors error
 	var groupIDsToDelete []string
 	var deletedGroups []*types.Group
-	var affectedPeerIDs []string
+	var snap *affectedpeers.Snapshot
+	var change affectedpeers.Change
 
 	extraSettings, err := am.settingsManager.GetExtraSettings(ctx, accountID)
 	if err != nil {
@@ -458,7 +464,13 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 			return allErrors
 		}
 
-		affectedPeerIDs = am.ResolveAffectedPeers(ctx, transaction, accountID, affectedpeers.Change{ChangedGroupIDs: groupIDsToDelete})
+		// Delete: compute affected peers from the PRE-delete state. The groups,
+		// their members and the entities referencing them still exist, so a plain
+		// Load+Expand captures everyone — no removed-peer folding needed.
+		change = affectedpeers.Change{ChangedGroupIDs: groupIDsToDelete}
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
+			return err
+		}
 
 		if err = transaction.DeleteGroups(ctx, accountID, groupIDsToDelete); err != nil {
 			return err
@@ -478,12 +490,7 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 		am.StoreEvent(ctx, userID, group.ID, accountID, activity.GroupDeleted, group.EventMeta())
 	}
 
-	if len(affectedPeerIDs) > 0 {
-		log.WithContext(ctx).Debugf("DeleteGroups %v: updating %d affected peers: %v", groupIDsToDelete, len(affectedPeerIDs), affectedPeerIDs)
-		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
-	} else {
-		log.WithContext(ctx).Tracef("DeleteGroups %v: no affected peers", groupIDsToDelete)
-	}
+	am.expandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return allErrors
 }
@@ -510,19 +517,22 @@ func collectDeletableGroups(ctx context.Context, transaction store.Store, accoun
 
 // GroupAddPeer appends peer to the group
 func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, groupID, peerID string) error {
-	var affectedPeerIDs []string
-	var err error
+	var snap *affectedpeers.Snapshot
+	change := affectedpeers.Change{ChangedGroupIDs: []string{groupID}}
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		if err = transaction.AddPeerToGroup(ctx, accountID, peerID, groupID); err != nil {
+	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		if err := transaction.AddPeerToGroup(ctx, accountID, peerID, groupID); err != nil {
 			return err
 		}
 
-		if err = am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, []string{groupID}); err != nil {
+		if err := am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, []string{groupID}); err != nil {
 			return err
 		}
 
-		affectedPeerIDs = am.ResolveAffectedPeers(ctx, transaction, accountID, affectedpeers.Change{ChangedGroupIDs: []string{groupID}})
+		var err error
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
+			return err
+		}
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
@@ -530,12 +540,7 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 		return err
 	}
 
-	if len(affectedPeerIDs) > 0 {
-		log.WithContext(ctx).Debugf("GroupAddPeer group=%s peer=%s: updating %d affected peers: %v", groupID, peerID, len(affectedPeerIDs), affectedPeerIDs)
-		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
-	} else {
-		log.WithContext(ctx).Tracef("GroupAddPeer group=%s peer=%s: no affected peers", groupID, peerID)
-	}
+	am.expandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }
@@ -543,8 +548,9 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 // GroupAddResource appends resource to the group
 func (am *DefaultAccountManager) GroupAddResource(ctx context.Context, accountID, groupID string, resource types.Resource) error {
 	var group *types.Group
-	var affectedPeerIDs []string
+	var snap *affectedpeers.Snapshot
 	var err error
+	change := affectedpeers.Change{ChangedGroupIDs: []string{groupID}}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		group, err = transaction.GetGroupByID(context.Background(), store.LockingStrengthUpdate, accountID, groupID)
@@ -560,7 +566,9 @@ func (am *DefaultAccountManager) GroupAddResource(ctx context.Context, accountID
 			return err
 		}
 
-		affectedPeerIDs = am.ResolveAffectedPeers(ctx, transaction, accountID, affectedpeers.Change{ChangedGroupIDs: []string{groupID}})
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
+			return err
+		}
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
@@ -568,30 +576,32 @@ func (am *DefaultAccountManager) GroupAddResource(ctx context.Context, accountID
 		return err
 	}
 
-	if len(affectedPeerIDs) > 0 {
-		log.WithContext(ctx).Debugf("GroupAddResource group=%s resource=%s: updating %d affected peers: %v", groupID, resource.ID, len(affectedPeerIDs), affectedPeerIDs)
-		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
-	} else {
-		log.WithContext(ctx).Tracef("GroupAddResource group=%s resource=%s: no affected peers", groupID, resource.ID)
-	}
+	am.expandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }
 
 // GroupDeletePeer removes peer from the group
 func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID, groupID, peerID string) error {
-	var affectedPeerIDs []string
-	var err error
+	var snap *affectedpeers.Snapshot
+	change := affectedpeers.Change{
+		ChangedGroupIDs:     []string{groupID},
+		RemovedPeersByGroup: map[string][]string{groupID: {peerID}},
+	}
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		// Resolve before removing, so the peer being removed is still included
-		affectedPeerIDs = am.ResolveAffectedPeers(ctx, transaction, accountID, affectedpeers.Change{ChangedGroupIDs: []string{groupID}})
-
-		if err = transaction.RemovePeerFromGroup(ctx, peerID, groupID); err != nil {
+	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		if err := transaction.RemovePeerFromGroup(ctx, peerID, groupID); err != nil {
 			return err
 		}
 
-		if err = am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, []string{groupID}); err != nil {
+		if err := am.reconcileIPv6ForGroupChanges(ctx, transaction, accountID, []string{groupID}); err != nil {
+			return err
+		}
+
+		// The removed peer is carried in change.RemovedPeersByGroup and folded in
+		// only when the group is linked, so loading post-removal is correct.
+		var err error
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
 			return err
 		}
 
@@ -601,12 +611,7 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 		return err
 	}
 
-	if len(affectedPeerIDs) > 0 {
-		log.WithContext(ctx).Debugf("GroupDeletePeer group=%s peer=%s: updating %d affected peers: %v", groupID, peerID, len(affectedPeerIDs), affectedPeerIDs)
-		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
-	} else {
-		log.WithContext(ctx).Tracef("GroupDeletePeer group=%s peer=%s: no affected peers", groupID, peerID)
-	}
+	am.expandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }
@@ -614,8 +619,9 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 // GroupDeleteResource removes resource from the group
 func (am *DefaultAccountManager) GroupDeleteResource(ctx context.Context, accountID, groupID string, resource types.Resource) error {
 	var group *types.Group
-	var affectedPeerIDs []string
+	var snap *affectedpeers.Snapshot
 	var err error
+	change := affectedpeers.Change{ChangedGroupIDs: []string{groupID}}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		group, err = transaction.GetGroupByID(context.Background(), store.LockingStrengthUpdate, accountID, groupID)
@@ -627,11 +633,15 @@ func (am *DefaultAccountManager) GroupDeleteResource(ctx context.Context, accoun
 			return nil
 		}
 
-		if err = transaction.UpdateGroup(ctx, group); err != nil {
+		// Load before persisting the removal, so the snapshot still maps the group
+		// to the resource and the bridge can reach its routing peers.
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
 			return err
 		}
 
-		affectedPeerIDs = am.ResolveAffectedPeers(ctx, transaction, accountID, affectedpeers.Change{ChangedGroupIDs: []string{groupID}})
+		if err = transaction.UpdateGroup(ctx, group); err != nil {
+			return err
+		}
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
@@ -639,12 +649,7 @@ func (am *DefaultAccountManager) GroupDeleteResource(ctx context.Context, accoun
 		return err
 	}
 
-	if len(affectedPeerIDs) > 0 {
-		log.WithContext(ctx).Debugf("GroupDeleteResource group=%s resource=%s: updating %d affected peers: %v", groupID, resource.ID, len(affectedPeerIDs), affectedPeerIDs)
-		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
-	} else {
-		log.WithContext(ctx).Tracef("GroupDeleteResource group=%s resource=%s: no affected peers", groupID, resource.ID)
-	}
+	am.expandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }

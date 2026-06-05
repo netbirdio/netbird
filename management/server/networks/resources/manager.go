@@ -115,10 +115,11 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 	}
 
 	var eventsToStore []func()
-	var affectedPeerIDs []string
+	var snap *affectedpeers.Snapshot
+	change := affectedpeers.Change{ResourceIDs: []string{resource.ID}}
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		var txErr error
-		eventsToStore, affectedPeerIDs, txErr = m.createResourceInTransaction(ctx, transaction, userID, resource)
+		eventsToStore, snap, txErr = m.createResourceInTransaction(ctx, transaction, userID, resource, change)
 		return txErr
 	})
 	if err != nil {
@@ -129,6 +130,7 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 		event()
 	}
 
+	affectedPeerIDs := snap.Expand(ctx, resource.AccountID, change)
 	if len(affectedPeerIDs) > 0 {
 		log.WithContext(ctx).Debugf("CreateResource %s: updating %d affected peers: %v", resource.ID, len(affectedPeerIDs), affectedPeerIDs)
 		go m.accountManager.UpdateAffectedPeers(ctx, resource.AccountID, affectedPeerIDs)
@@ -139,7 +141,7 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 	return resource, nil
 }
 
-func (m *managerImpl) createResourceInTransaction(ctx context.Context, transaction store.Store, userID string, resource *types.NetworkResource) ([]func(), []string, error) {
+func (m *managerImpl) createResourceInTransaction(ctx context.Context, transaction store.Store, userID string, resource *types.NetworkResource, change affectedpeers.Change) ([]func(), *affectedpeers.Snapshot, error) {
 	_, err := transaction.GetNetworkResourceByName(ctx, store.LockingStrengthNone, resource.AccountID, resource.Name)
 	if err == nil {
 		return nil, nil, status.Errorf(status.InvalidArgument, "resource with name %s already exists", resource.Name)
@@ -175,9 +177,12 @@ func (m *managerImpl) createResourceInTransaction(ctx context.Context, transacti
 		return nil, nil, fmt.Errorf("failed to increment network serial: %w", err)
 	}
 
-	affectedPeerIDs := m.accountManager.ResolveAffectedPeers(ctx, transaction, resource.AccountID, affectedpeers.Change{ResourceIDs: []string{resource.ID}})
+	snap, err := affectedpeers.Load(ctx, transaction, resource.AccountID, change)
+	if err != nil {
+		return nil, nil, err
+	}
 
-	return eventsToStore, affectedPeerIDs, nil
+	return eventsToStore, snap, nil
 }
 
 func (m *managerImpl) GetResource(ctx context.Context, accountID, userID, networkID, resourceID string) (*types.NetworkResource, error) {
@@ -220,7 +225,8 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 	resource.Prefix = prefix
 
 	var eventsToStore []func()
-	var affectedPeerIDs []string
+	var snap *affectedpeers.Snapshot
+	var change affectedpeers.Change
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		network, err := transaction.GetNetworkByID(ctx, store.LockingStrengthUpdate, resource.AccountID, resource.NetworkID)
 		if err != nil {
@@ -272,10 +278,13 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 
 		// Pass both old and new resource group IDs so policies that targeted the
 		// resource via a now-detached group still refresh their source peers.
-		affectedPeerIDs = m.accountManager.ResolveAffectedPeers(ctx, transaction, resource.AccountID, affectedpeers.Change{
+		change = affectedpeers.Change{
 			ResourceIDs:     []string{resource.ID},
 			ChangedGroupIDs: append(oldGroupIDs, resource.GroupIDs...),
-		})
+		}
+		if snap, err = affectedpeers.Load(ctx, transaction, resource.AccountID, change); err != nil {
+			return err
+		}
 
 		err = transaction.IncrementNetworkSerial(ctx, resource.AccountID)
 		if err != nil {
@@ -300,6 +309,7 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 		}
 	}()
 
+	affectedPeerIDs := snap.Expand(ctx, resource.AccountID, change)
 	if len(affectedPeerIDs) > 0 {
 		log.WithContext(ctx).Debugf("UpdateResource %s: updating %d affected peers: %v", resource.ID, len(affectedPeerIDs), affectedPeerIDs)
 		go m.accountManager.UpdateAffectedPeers(ctx, resource.AccountID, affectedPeerIDs)
@@ -366,9 +376,13 @@ func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, net
 	}
 
 	var events []func()
-	var affectedPeerIDs []string
+	var snap *affectedpeers.Snapshot
+	change := affectedpeers.Change{ResourceIDs: []string{resourceID}}
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		affectedPeerIDs = m.accountManager.ResolveAffectedPeers(ctx, transaction, accountID, affectedpeers.Change{ResourceIDs: []string{resourceID}})
+		// Load before delete: pre-state snapshot still references the resource.
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
+			return err
+		}
 
 		events, err = m.DeleteResourceInTransaction(ctx, transaction, accountID, userID, networkID, resourceID)
 		if err != nil {
@@ -390,6 +404,7 @@ func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, net
 		event()
 	}
 
+	affectedPeerIDs := snap.Expand(ctx, accountID, change)
 	if len(affectedPeerIDs) > 0 {
 		log.WithContext(ctx).Debugf("DeleteResource %s: updating %d affected peers: %v", resourceID, len(affectedPeerIDs), affectedPeerIDs)
 		go m.accountManager.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)

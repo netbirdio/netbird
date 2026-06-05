@@ -49,7 +49,8 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 	var existingPolicy *types.Policy
 	var action = activity.PolicyAdded
 	var unchanged bool
-	var affectedPeerIDs []string
+	var snap *affectedpeers.Snapshot
+	var change affectedpeers.Change
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		existingPolicy, err = validatePolicy(ctx, transaction, accountID, policy)
@@ -75,7 +76,10 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 			}
 		}
 
-		affectedPeerIDs = am.ResolveAffectedPeers(ctx, transaction, accountID, affectedpeers.Change{Policies: []*types.Policy{policy, existingPolicy}})
+		change = affectedpeers.Change{Policies: []*types.Policy{policy, existingPolicy}}
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
+			return err
+		}
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
@@ -89,12 +93,7 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 
 	am.StoreEvent(ctx, userID, policy.ID, accountID, action, policy.EventMeta())
 
-	if len(affectedPeerIDs) > 0 {
-		log.WithContext(ctx).Tracef("SavePolicy %s: updating %d affected peers: %v", policy.ID, len(affectedPeerIDs), affectedPeerIDs)
-		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
-	} else {
-		log.WithContext(ctx).Tracef("SavePolicy %s: no affected peers", policy.ID)
-	}
+	am.expandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return policy, nil
 }
@@ -110,7 +109,8 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 	}
 
 	var policy *types.Policy
-	var affectedPeerIDs []string
+	var snap *affectedpeers.Snapshot
+	change := affectedpeers.Change{}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		policy, err = transaction.GetPolicyByID(ctx, store.LockingStrengthUpdate, accountID, policyID)
@@ -118,7 +118,11 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 			return err
 		}
 
-		affectedPeerIDs = am.ResolveAffectedPeers(ctx, transaction, accountID, affectedpeers.Change{Policies: []*types.Policy{policy}})
+		// Load before delete: pre-state still references the policy.
+		change = affectedpeers.Change{Policies: []*types.Policy{policy}}
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
+			return err
+		}
 
 		if err = transaction.DeletePolicy(ctx, accountID, policyID); err != nil {
 			return err
@@ -132,12 +136,7 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 
 	am.StoreEvent(ctx, userID, policyID, accountID, activity.PolicyRemoved, policy.EventMeta())
 
-	if len(affectedPeerIDs) > 0 {
-		log.WithContext(ctx).Debugf("DeletePolicy %s: updating %d affected peers: %v", policyID, len(affectedPeerIDs), affectedPeerIDs)
-		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
-	} else {
-		log.WithContext(ctx).Tracef("DeletePolicy %s: no affected peers", policyID)
-	}
+	am.expandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }

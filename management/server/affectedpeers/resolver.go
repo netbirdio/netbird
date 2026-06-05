@@ -1,3 +1,18 @@
+// Package affectedpeers computes the set of peers whose network map may have
+// changed as the result of an account change, so only those peers are refreshed
+// instead of the whole account.
+//
+// Resolution is split into two phases so the expensive dependency walk never
+// holds a write transaction open:
+//   - Load reads the account collections it needs from the store. Call it INSIDE
+//     the mutating transaction, so the data is consistent and read under the tx.
+//     For deletes/removals, Load (or the captured Change) must run while the old
+//     state still exists, since the post-commit store can no longer reach it.
+//   - Snapshot.Expand walks the loaded data in memory and returns the affected
+//     peer IDs. It performs NO store access, so it is run AFTER the tx commits.
+//
+// The resolver never consults an object's Enabled flag: toggling Enabled is
+// itself a change the affected peers must observe.
 package affectedpeers
 
 import (
@@ -5,6 +20,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	nbdns "github.com/netbirdio/netbird/dns"
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
@@ -12,6 +28,97 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
 )
+
+// Snapshot is a consistent, in-memory view of the account collections needed to
+// expand a Change into affected peers. It is loaded from the store INSIDE the
+// caller's write transaction (so the data is consistent and read under the tx),
+// and then Expand runs over it as pure in-memory computation AFTER the tx commits
+// — keeping the expensive fan-out walk off the held write lock.
+//
+// Only the collections a given Change can actually touch are loaded; the rest are
+// left nil (see Load).
+type Snapshot struct {
+	policies       []*types.Policy
+	routes         []*route.Route
+	nsGroups       []*nbdns.NameServerGroup
+	dnsSettings    *types.DNSSettings
+	routers        []*routerTypes.NetworkRouter
+	resources      []*resourceTypes.NetworkResource
+	services       []*rpservice.Service
+	proxyByCluster map[string][]string
+	groups         map[string]*types.Group        // all groups (for group.Resources lookups)
+	groupPeers     map[string]map[string]struct{} // groupID -> member peer IDs
+}
+
+// Load reads the collections a Change requires from the store, inside the caller's
+// transaction. It mirrors Expand's walker preconditions so it loads only what the
+// change can touch (e.g. nameserver/DNS only for group changes; services only when
+// the account has embedded proxy peers).
+func Load(ctx context.Context, s store.Store, accountID string, c Change) (*Snapshot, error) {
+	snap := &Snapshot{}
+	if c.isEmpty() {
+		return snap, nil
+	}
+
+	hasGroupOrPeerChange := len(c.ChangedGroupIDs) > 0 || len(c.ChangedPeerIDs) > 0
+	needsPolicies := hasGroupOrPeerChange || len(c.PostureCheckIDs) > 0 || len(c.Policies) > 0 || len(c.ResourceIDs) > 0 || len(c.NetworkIDs) > 0
+	needsRoutersResources := needsPolicies // the resource<->router bridge can fire whenever policies/resources/networks are in play
+
+	var err error
+	if needsPolicies {
+		if snap.policies, err = s.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID); err != nil {
+			return nil, err
+		}
+	}
+	if hasGroupOrPeerChange {
+		if snap.routes, err = s.GetAccountRoutes(ctx, store.LockingStrengthNone, accountID); err != nil {
+			return nil, err
+		}
+	}
+	if len(c.ChangedGroupIDs) > 0 {
+		if snap.nsGroups, err = s.GetAccountNameServerGroups(ctx, store.LockingStrengthNone, accountID); err != nil {
+			return nil, err
+		}
+		if snap.dnsSettings, err = s.GetAccountDNSSettings(ctx, store.LockingStrengthNone, accountID); err != nil {
+			return nil, err
+		}
+	}
+	if needsRoutersResources {
+		if snap.routers, err = s.GetNetworkRoutersByAccountID(ctx, store.LockingStrengthNone, accountID); err != nil {
+			return nil, err
+		}
+		if snap.resources, err = s.GetNetworkResourcesByAccountID(ctx, store.LockingStrengthNone, accountID); err != nil {
+			return nil, err
+		}
+	}
+	if hasGroupOrPeerChange {
+		if snap.proxyByCluster, err = s.GetEmbeddedProxyPeerIDsByCluster(ctx, accountID); err != nil {
+			return nil, err
+		}
+		if len(snap.proxyByCluster) > 0 {
+			if snap.services, err = s.GetAccountServices(ctx, store.LockingStrengthNone, accountID); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	// Groups (for group.Resources) and the group->peers index are always needed:
+	// the bridge resolves group.Resources, and the final expansion maps groups to
+	// member peers.
+	groups, err := s.GetAccountGroups(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return nil, err
+	}
+	snap.groups = make(map[string]*types.Group, len(groups))
+	for _, g := range groups {
+		snap.groups[g.ID] = g
+	}
+	if snap.groupPeers, err = s.GetAccountGroupPeers(ctx, store.LockingStrengthNone, accountID); err != nil {
+		return nil, err
+	}
+
+	return snap, nil
+}
 
 // Change describes what changed in an account. The resolver never consults the
 // Enabled flag of any object: toggling Enabled is itself an observable change.
@@ -23,6 +130,16 @@ type Change struct {
 	PostureCheckIDs []string
 	ResourceIDs     []string
 	NetworkIDs      []string
+
+	// RemovedPeersByGroup carries peers that left a group during this change,
+	// keyed by the group they left. A membership change does not alter which
+	// entities reference the group, so the dependency walk runs once against the
+	// post-change snapshot; these removed peers are no longer in the group's
+	// member index but still lose the group's reachability. They are folded into
+	// the affected set ONLY when their group is referenced (linked) — an unlinked
+	// group has no network-map impact, matching the included-when-linked semantics
+	// of current members.
+	RemovedPeersByGroup map[string][]string
 }
 
 func (c Change) isEmpty() bool {
@@ -32,24 +149,41 @@ func (c Change) isEmpty() bool {
 		len(c.Routes) == 0 &&
 		len(c.PostureCheckIDs) == 0 &&
 		len(c.ResourceIDs) == 0 &&
-		len(c.NetworkIDs) == 0
+		len(c.NetworkIDs) == 0 &&
+		len(c.RemovedPeersByGroup) == 0
 }
 
-// Resolve returns the deduplicated peer IDs whose network map may have changed by
-// the given Change. Safe to call inside or after a transaction.
+// Expand computes the deduplicated peer IDs whose network map may have changed by
+// the given Change, using only the preloaded Snapshot — no store access. Run it
+// AFTER the transaction that produced the Snapshot has committed.
 //
 // At trace level it logs the full reasoning — which inputs drove which graph
 // walks to which groups/peers, including the resource<->router bridge hops — so a
 // miscalculation can be diagnosed from the logs alone.
+func (snap *Snapshot) Expand(ctx context.Context, accountID string, c Change) []string {
+	if c.isEmpty() {
+		return nil
+	}
+	r := newResolver(ctx, snap, accountID, c)
+	log.WithContext(ctx).Tracef("affectedpeers expand start: account=%s changedGroups=%v changedPeers=%v policies=%d routes=%d postureChecks=%v resources=%v networks=%v",
+		accountID, c.ChangedGroupIDs, c.ChangedPeerIDs, len(c.Policies), len(c.Routes), c.PostureCheckIDs, c.ResourceIDs, c.NetworkIDs)
+	r.walk()
+	return r.expand()
+}
+
+// Resolve loads a Snapshot and expands it in one call. Convenience for callers
+// that are not inside a transaction (and tests). Transaction-bound callers should
+// use Load (inside the tx) + Snapshot.Expand (after commit) so the walk does not
+// hold the write lock.
 func Resolve(ctx context.Context, s store.Store, accountID string, c Change) ([]string, error) {
 	if c.isEmpty() {
 		return nil, nil
 	}
-	r := newResolver(ctx, s, accountID, c)
-	log.WithContext(ctx).Tracef("affectedpeers resolve start: account=%s changedGroups=%v changedPeers=%v policies=%d routes=%d postureChecks=%v resources=%v networks=%v",
-		accountID, c.ChangedGroupIDs, c.ChangedPeerIDs, len(c.Policies), len(c.Routes), c.PostureCheckIDs, c.ResourceIDs, c.NetworkIDs)
-	r.walk()
-	return r.expand()
+	snap, err := Load(ctx, s, accountID, c)
+	if err != nil {
+		return nil, err
+	}
+	return snap.Expand(ctx, accountID, c), nil
 }
 
 // Collect returns the affected group IDs and direct peer IDs without expanding
@@ -58,15 +192,20 @@ func Collect(ctx context.Context, s store.Store, accountID string, c Change) (gr
 	if c.isEmpty() {
 		return nil, nil
 	}
-	r := newResolver(ctx, s, accountID, c)
+	snap, err := Load(ctx, s, accountID, c)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to load snapshot for affected peers collect: %v", err)
+		return nil, nil
+	}
+	r := newResolver(ctx, snap, accountID, c)
 	r.walk()
 	return setToSlice(r.groupSet), setToSlice(r.peerSet)
 }
 
-func newResolver(ctx context.Context, s store.Store, accountID string, c Change) *resolver {
+func newResolver(ctx context.Context, snap *Snapshot, accountID string, c Change) *resolver {
 	r := &resolver{
 		ctx:             ctx,
-		store:           s,
+		snap:            snap,
 		accountID:       accountID,
 		change:          c,
 		changedGroupSet: toSet(c.ChangedGroupIDs),
@@ -99,7 +238,7 @@ func (r *resolver) walk() {
 
 type resolver struct {
 	ctx       context.Context
-	store     store.Store
+	snap      *Snapshot
 	accountID string
 	change    Change
 
@@ -112,72 +251,36 @@ type resolver struct {
 	matchedPolicies []*types.Policy
 	resourceIDs     map[string]struct{}
 	networkIDs      map[string]struct{}
-
-	// Memoized per-account collections: each is loaded from the store at most
-	// once per Resolve and only when a walker actually needs it.
-	cachedPolicies  []*types.Policy
-	policiesLoaded  bool
-	cachedResources []*resourceTypes.NetworkResource
-	resourcesLoaded bool
-	cachedRouters   []*routerTypes.NetworkRouter
-	routersLoaded   bool
 }
 
-func (r *resolver) policies() []*types.Policy {
-	if r.policiesLoaded {
-		return r.cachedPolicies
-	}
-	r.policiesLoaded = true
-	policies, err := r.store.GetAccountPolicies(r.ctx, store.LockingStrengthNone, r.accountID)
-	if err != nil {
-		log.WithContext(r.ctx).Errorf("failed to get policies for affected peers resolution: %v", err)
-		return nil
-	}
-	r.cachedPolicies = policies
-	return r.cachedPolicies
-}
+func (r *resolver) policies() []*types.Policy { return r.snap.policies }
 
-func (r *resolver) networkResources() []*resourceTypes.NetworkResource {
-	if r.resourcesLoaded {
-		return r.cachedResources
-	}
-	r.resourcesLoaded = true
-	resources, err := r.store.GetNetworkResourcesByAccountID(r.ctx, store.LockingStrengthNone, r.accountID)
-	if err != nil {
-		log.WithContext(r.ctx).Errorf("failed to get network resources for affected peers resolution: %v", err)
-		return nil
-	}
-	r.cachedResources = resources
-	return r.cachedResources
-}
+func (r *resolver) networkResources() []*resourceTypes.NetworkResource { return r.snap.resources }
 
-func (r *resolver) networkRouters() []*routerTypes.NetworkRouter {
-	if r.routersLoaded {
-		return r.cachedRouters
-	}
-	r.routersLoaded = true
-	routers, err := r.store.GetNetworkRoutersByAccountID(r.ctx, store.LockingStrengthNone, r.accountID)
-	if err != nil {
-		log.WithContext(r.ctx).Errorf("failed to get network routers for affected peers resolution: %v", err)
-		return nil
-	}
-	r.cachedRouters = routers
-	return r.cachedRouters
-}
+func (r *resolver) networkRouters() []*routerTypes.NetworkRouter { return r.snap.routers }
 
-func (r *resolver) expand() ([]string, error) {
-	groupIDs := setToSlice(r.groupSet)
-	var peerIDs []string
-	if len(groupIDs) > 0 {
-		ids, err := r.store.GetPeerIDsByGroups(r.ctx, r.accountID, groupIDs)
-		if err != nil {
-			return nil, err
+// peerIDsForGroups maps a group set to its member peer IDs using the preloaded
+// group->peers index (no store access).
+func (r *resolver) peerIDsForGroups(groupSet map[string]struct{}) []string {
+	seen := make(map[string]struct{})
+	var ids []string
+	for gID := range groupSet {
+		for pID := range r.snap.groupPeers[gID] {
+			if _, ok := seen[pID]; ok {
+				continue
+			}
+			seen[pID] = struct{}{}
+			ids = append(ids, pID)
 		}
-		peerIDs = ids
 	}
+	return ids
+}
 
-	log.WithContext(r.ctx).Tracef("affectedpeers resolve expand: account=%s affectedGroups=%v -> %d group-member peers; direct peers=%v",
-		r.accountID, groupIDs, len(peerIDs), setToSlice(r.peerSet))
+func (r *resolver) expand() []string {
+	peerIDs := r.peerIDsForGroups(r.groupSet)
+
+	log.WithContext(r.ctx).Tracef("affectedpeers expand: account=%s affectedGroups=%v -> %d group-member peers; direct peers=%v",
+		r.accountID, setToSlice(r.groupSet), len(peerIDs), setToSlice(r.peerSet))
 
 	seen := make(map[string]struct{}, len(peerIDs))
 	for _, id := range peerIDs {
@@ -190,8 +293,24 @@ func (r *resolver) expand() ([]string, error) {
 		}
 	}
 
-	log.WithContext(r.ctx).Tracef("affectedpeers resolve done: account=%s -> %d affected peers: %v", r.accountID, len(peerIDs), peerIDs)
-	return peerIDs, nil
+	// Fold in peers removed from a group, but only when that group was referenced
+	// (folded into groupSet) — i.e. the group is linked. An unlinked group has no
+	// map impact, so its removed members are not affected.
+	for groupID, removed := range r.change.RemovedPeersByGroup {
+		if _, linked := r.groupSet[groupID]; !linked {
+			continue
+		}
+		for _, id := range removed {
+			if _, ok := seen[id]; !ok {
+				peerIDs = append(peerIDs, id)
+				seen[id] = struct{}{}
+				log.WithContext(r.ctx).Tracef("affectedpeers expand: removed peer %s from linked group %s -> affected", id, groupID)
+			}
+		}
+	}
+
+	log.WithContext(r.ctx).Tracef("affectedpeers expand done: account=%s -> %d affected peers: %v", r.accountID, len(peerIDs), peerIDs)
+	return peerIDs
 }
 
 func (r *resolver) collectFromExplicitPolicies() {
@@ -253,12 +372,7 @@ func (r *resolver) collectFromPolicies() {
 }
 
 func (r *resolver) collectFromRoutes() {
-	routes, err := r.store.GetAccountRoutes(r.ctx, store.LockingStrengthNone, r.accountID)
-	if err != nil {
-		log.WithContext(r.ctx).Errorf("failed to get routes for affected peers resolution: %v", err)
-		return
-	}
-	for _, rt := range routes {
+	for _, rt := range r.snap.routes {
 		matchedByGroup := anyInSet(rt.Groups, r.changedGroupSet) || anyInSet(rt.PeerGroups, r.changedGroupSet) || anyInSet(rt.AccessControlGroups, r.changedGroupSet)
 		matchedByPeer := rt.Peer != "" && len(r.changedPeerSet) > 0 && isInSet(rt.Peer, r.changedPeerSet)
 		if !matchedByGroup && !matchedByPeer {
@@ -277,12 +391,7 @@ func (r *resolver) collectFromNameServers() {
 	if len(r.changedGroupSet) == 0 {
 		return
 	}
-	nsGroups, err := r.store.GetAccountNameServerGroups(r.ctx, store.LockingStrengthNone, r.accountID)
-	if err != nil {
-		log.WithContext(r.ctx).Errorf("failed to get nameserver groups for affected peers resolution: %v", err)
-		return
-	}
-	for _, ns := range nsGroups {
+	for _, ns := range r.snap.nsGroups {
 		if anyInSet(ns.Groups, r.changedGroupSet) {
 			log.WithContext(r.ctx).Tracef("collectFromNameServers: nameserver group %s references a changed group -> folding its groups %v", ns.ID, ns.Groups)
 			addAll(r.groupSet, ns.Groups)
@@ -291,15 +400,10 @@ func (r *resolver) collectFromNameServers() {
 }
 
 func (r *resolver) collectFromDNSSettings() {
-	if len(r.changedGroupSet) == 0 {
+	if len(r.changedGroupSet) == 0 || r.snap.dnsSettings == nil {
 		return
 	}
-	dnsSettings, err := r.store.GetAccountDNSSettings(r.ctx, store.LockingStrengthNone, r.accountID)
-	if err != nil {
-		log.WithContext(r.ctx).Errorf("failed to get DNS settings for affected peers resolution: %v", err)
-		return
-	}
-	for _, gID := range dnsSettings.DisabledManagementGroups {
+	for _, gID := range r.snap.dnsSettings.DisabledManagementGroups {
 		if _, ok := r.changedGroupSet[gID]; ok {
 			log.WithContext(r.ctx).Tracef("collectFromDNSSettings: changed group %s is in DisabledManagementGroups -> folding it", gID)
 			r.groupSet[gID] = struct{}{}
@@ -325,10 +429,10 @@ func (r *resolver) collectFromNetworkRouters() {
 }
 
 func (r *resolver) collectFromProxyServices() {
-	services, proxyByCluster, ok := r.loadProxyServiceContext()
-	if !ok {
+	if len(r.snap.proxyByCluster) == 0 || len(r.snap.services) == 0 {
 		return
 	}
+	services, proxyByCluster := r.snap.services, r.snap.proxyByCluster
 
 	expanded := r.expandChangedPeersWithGroups()
 
@@ -359,38 +463,11 @@ func (r *resolver) collectFromProxyServices() {
 	}
 }
 
-func (r *resolver) loadProxyServiceContext() ([]*rpservice.Service, map[string][]string, bool) {
-	// Embedded proxy peers are the prerequisite for any synthesized proxy policy.
-	// Probe that first (a narrow, indexed lookup) and skip the services table load
-	// entirely when the account has no embedded proxy peers.
-	proxyByCluster, err := r.store.GetEmbeddedProxyPeerIDsByCluster(r.ctx, r.accountID)
-	if err != nil {
-		log.WithContext(r.ctx).Errorf("failed to get embedded proxy peers for affected peers resolution: %v", err)
-		return nil, nil, false
-	}
-	if len(proxyByCluster) == 0 {
-		return nil, nil, false
-	}
-	services, err := r.store.GetAccountServices(r.ctx, store.LockingStrengthNone, r.accountID)
-	if err != nil {
-		log.WithContext(r.ctx).Errorf("failed to get services for affected peers resolution: %v", err)
-		return nil, nil, false
-	}
-	if len(services) == 0 {
-		return nil, nil, false
-	}
-	return services, proxyByCluster, true
-}
-
 func (r *resolver) expandChangedPeersWithGroups() map[string]struct{} {
 	if len(r.changedGroupSet) == 0 {
 		return r.changedPeerSet
 	}
-	ids, err := r.store.GetPeerIDsByGroups(r.ctx, r.accountID, setToSlice(r.changedGroupSet))
-	if err != nil {
-		log.WithContext(r.ctx).Errorf("failed to expand changed groups to peers for service resolution: %v", err)
-		return r.changedPeerSet
-	}
+	ids := r.peerIDsForGroups(r.changedGroupSet)
 	if len(ids) == 0 {
 		return r.changedPeerSet
 	}
@@ -499,12 +576,11 @@ func (r *resolver) policyTargetsResources(policy *types.Policy, resourceIDs map[
 	if len(destGroupSet) == 0 {
 		return false
 	}
-	groups, err := r.store.GetGroupsByIDs(r.ctx, store.LockingStrengthNone, r.accountID, setToSlice(destGroupSet))
-	if err != nil {
-		log.WithContext(r.ctx).Errorf("failed to get destination groups for router policy bridge: %v", err)
-		return false
-	}
-	for _, group := range groups {
+	for gID := range destGroupSet {
+		group := r.snap.groups[gID]
+		if group == nil {
+			continue
+		}
 		for _, res := range group.Resources {
 			if isInSet(res.ID, resourceIDs) {
 				return true
@@ -541,15 +617,11 @@ func collectPolicyDestinations(resourceIDs map[string]struct{}, policies ...*typ
 
 // addGroupResourceIDs folds the resource IDs of the given groups into resourceIDs.
 func (r *resolver) addGroupResourceIDs(groupIDs map[string]struct{}, resourceIDs map[string]struct{}) {
-	if len(groupIDs) == 0 {
-		return
-	}
-	groups, err := r.store.GetGroupsByIDs(r.ctx, store.LockingStrengthNone, r.accountID, setToSlice(groupIDs))
-	if err != nil {
-		log.WithContext(r.ctx).Errorf("failed to get destination groups for resource router bridge: %v", err)
-		return
-	}
-	for _, group := range groups {
+	for gID := range groupIDs {
+		group := r.snap.groups[gID]
+		if group == nil {
+			continue
+		}
 		for _, res := range group.Resources {
 			if res.ID != "" {
 				resourceIDs[res.ID] = struct{}{}

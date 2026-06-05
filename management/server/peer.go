@@ -512,7 +512,8 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 	var peer *nbpeer.Peer
 	var settings *types.Settings
 	var eventsToStore []func()
-	var affectedPeerIDs []string
+	var snap *affectedpeers.Snapshot
+	var change affectedpeers.Change
 
 	serviceID, err := am.serviceManager.GetServiceIDByTargetID(ctx, accountID, peerID)
 	if err != nil {
@@ -537,7 +538,15 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 			return err
 		}
 
-		affectedPeerIDs = am.resolveAffectedPeersForPeerChanges(ctx, transaction, accountID, []string{peerID})
+		// Load before delete: pre-state still has the peer's group memberships.
+		groupIDs, err := transaction.GetGroupIDsByPeerIDs(ctx, accountID, []string{peerID})
+		if err != nil {
+			return fmt.Errorf("failed to get group IDs for peer: %w", err)
+		}
+		change = affectedpeers.Change{ChangedGroupIDs: groupIDs}
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
+			return err
+		}
 
 		eventsToStore, err = deletePeers(ctx, am, transaction, accountID, userID, []*nbpeer.Peer{peer}, settings)
 		if err != nil {
@@ -562,6 +571,7 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 		log.WithContext(ctx).Errorf("failed to delete peer %s from integrated validator: %v", peerID, err)
 	}
 
+	affectedPeerIDs := snap.Expand(ctx, accountID, change)
 	if err = am.networkMapController.OnPeersDeleted(ctx, accountID, []string{peerID}, affectedPeerIDs); err != nil {
 		log.WithContext(ctx).Errorf("failed to delete peer %s from network map: %v", peerID, err)
 	}
@@ -1433,6 +1443,39 @@ func (am *DefaultAccountManager) UpdateAffectedPeers(ctx context.Context, accoun
 	ctx = context.WithoutCancel(ctx)
 	log.WithContext(ctx).Tracef("UpdateAffectedPeers: %d peers for account %s", len(peerIDs), accountID)
 	_ = am.networkMapController.UpdateAffectedPeers(ctx, accountID, peerIDs)
+}
+
+// expandAndUpdateAffected expands a Snapshot (loaded INSIDE the now-committed
+// transaction) into the affected peers and dispatches the update. It is pure
+// in-memory work plus the dispatch, so it must run AFTER the transaction commits —
+// the fan-out walk never holds the write lock, and the data is the consistent
+// in-tx snapshot. directlyAffected are peers whose OWN map changed and that the
+// walk cannot rediscover post-mutation (notably peers removed from a group); they
+// are unioned into the result.
+func (am *DefaultAccountManager) expandAndUpdateAffected(ctx context.Context, accountID string, snap *affectedpeers.Snapshot, change affectedpeers.Change, directlyAffected ...string) {
+	if snap == nil {
+		return
+	}
+	affectedPeerIDs := snap.Expand(ctx, accountID, change)
+	if len(directlyAffected) > 0 {
+		seen := make(map[string]struct{}, len(affectedPeerIDs))
+		for _, id := range affectedPeerIDs {
+			seen[id] = struct{}{}
+		}
+		for _, id := range directlyAffected {
+			if _, ok := seen[id]; !ok {
+				affectedPeerIDs = append(affectedPeerIDs, id)
+				seen[id] = struct{}{}
+			}
+		}
+	}
+
+	if len(affectedPeerIDs) > 0 {
+		log.WithContext(ctx).Debugf("expandAndUpdateAffected: account %s updating %d affected peers: %v", accountID, len(affectedPeerIDs), affectedPeerIDs)
+		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	} else {
+		log.WithContext(ctx).Tracef("expandAndUpdateAffected: account %s no affected peers", accountID)
+	}
 }
 
 // resolvePeerIDs resolves group IDs and direct peer IDs into a deduplicated peer ID list.

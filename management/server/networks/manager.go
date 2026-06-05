@@ -128,9 +128,14 @@ func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, netw
 	}
 
 	var eventsToStore []func()
-	var affectedPeerIDs []string
+	var snap *affectedpeers.Snapshot
+	change := affectedpeers.Change{NetworkIDs: []string{networkID}}
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		affectedPeerIDs = m.accountManager.ResolveAffectedPeers(ctx, transaction, accountID, affectedpeers.Change{NetworkIDs: []string{networkID}})
+		// Load before the cascade deletes: pre-state still references the network.
+		var lerr error
+		if snap, lerr = affectedpeers.Load(ctx, transaction, accountID, change); lerr != nil {
+			return lerr
+		}
 
 		resources, err := transaction.GetNetworkResourcesByNetID(ctx, store.LockingStrengthUpdate, accountID, networkID)
 		if err != nil {
@@ -182,6 +187,7 @@ func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, netw
 		event()
 	}
 
+	affectedPeerIDs := snap.Expand(ctx, accountID, change)
 	if len(affectedPeerIDs) > 0 {
 		log.WithContext(ctx).Debugf("DeleteNetwork %s: updating %d affected peers: %v", networkID, len(affectedPeerIDs), affectedPeerIDs)
 		go m.accountManager.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)

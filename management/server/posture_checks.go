@@ -5,7 +5,6 @@ import (
 	"slices"
 
 	"github.com/rs/xid"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/affectedpeers"
@@ -44,7 +43,8 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 
 	var isUpdate = postureChecks.ID != ""
 	var action = activity.PostureCheckCreated
-	var affectedPeerIDs []string
+	var snap *affectedpeers.Snapshot
+	change := affectedpeers.Change{PostureCheckIDs: []string{postureChecks.ID}}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err = validatePostureChecks(ctx, transaction, accountID, postureChecks); err != nil {
@@ -53,8 +53,6 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 
 		if isUpdate {
 			action = activity.PostureCheckUpdated
-
-			affectedPeerIDs = am.ResolveAffectedPeers(ctx, transaction, accountID, affectedpeers.Change{PostureCheckIDs: []string{postureChecks.ID}})
 		}
 
 		postureChecks.AccountID = accountID
@@ -63,6 +61,11 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 		}
 
 		if isUpdate {
+			// Editing a posture check does not change which policies reference it,
+			// so loading after the save is fine.
+			if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
+				return err
+			}
 			return transaction.IncrementNetworkSerial(ctx, accountID)
 		}
 
@@ -74,12 +77,7 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 
 	am.StoreEvent(ctx, userID, postureChecks.ID, accountID, action, postureChecks.EventMeta())
 
-	if len(affectedPeerIDs) > 0 {
-		log.WithContext(ctx).Debugf("SavePostureChecks %s: updating %d affected peers: %v", postureChecks.ID, len(affectedPeerIDs), affectedPeerIDs)
-		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
-	} else {
-		log.WithContext(ctx).Tracef("SavePostureChecks %s: no affected peers", postureChecks.ID)
-	}
+	am.expandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return postureChecks, nil
 }

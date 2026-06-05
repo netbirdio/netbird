@@ -8,7 +8,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/rs/xid"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/affectedpeers"
@@ -149,7 +148,8 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 	}
 
 	var newRoute *route.Route
-	var affectedPeerIDs []string
+	var snap *affectedpeers.Snapshot
+	var change affectedpeers.Change
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		newRoute = &route.Route{
@@ -179,7 +179,10 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 			return err
 		}
 
-		affectedPeerIDs = am.ResolveAffectedPeers(ctx, transaction, accountID, affectedpeers.Change{Routes: []*route.Route{newRoute}})
+		change = affectedpeers.Change{Routes: []*route.Route{newRoute}}
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
+			return err
+		}
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
@@ -189,12 +192,7 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 
 	am.StoreEvent(ctx, userID, string(newRoute.ID), accountID, activity.RouteCreated, newRoute.EventMeta())
 
-	if len(affectedPeerIDs) > 0 {
-		log.WithContext(ctx).Debugf("CreateRoute %s: updating %d affected peers: %v", newRoute.ID, len(affectedPeerIDs), affectedPeerIDs)
-		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
-	} else {
-		log.WithContext(ctx).Tracef("CreateRoute %s: no affected peers", newRoute.ID)
-	}
+	am.expandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return newRoute, nil
 }
@@ -210,7 +208,8 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 	}
 
 	var oldRoute *route.Route
-	var affectedPeerIDs []string
+	var snap *affectedpeers.Snapshot
+	var change affectedpeers.Change
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err = validateRoute(ctx, transaction, accountID, routeToSave); err != nil {
@@ -228,7 +227,10 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 			return err
 		}
 
-		affectedPeerIDs = am.ResolveAffectedPeers(ctx, transaction, accountID, affectedpeers.Change{Routes: []*route.Route{routeToSave, oldRoute}})
+		change = affectedpeers.Change{Routes: []*route.Route{routeToSave, oldRoute}}
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
+			return err
+		}
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
@@ -238,12 +240,7 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 
 	am.StoreEvent(ctx, userID, string(routeToSave.ID), accountID, activity.RouteUpdated, routeToSave.EventMeta())
 
-	if len(affectedPeerIDs) > 0 {
-		log.WithContext(ctx).Debugf("SaveRoute %s: updating %d affected peers: %v", routeToSave.ID, len(affectedPeerIDs), affectedPeerIDs)
-		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
-	} else {
-		log.WithContext(ctx).Tracef("SaveRoute %s: no affected peers", routeToSave.ID)
-	}
+	am.expandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }
@@ -259,7 +256,8 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 	}
 
 	var rt *route.Route
-	var affectedPeerIDs []string
+	var snap *affectedpeers.Snapshot
+	var change affectedpeers.Change
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		rt, err = transaction.GetRouteByID(ctx, store.LockingStrengthUpdate, accountID, string(routeID))
@@ -267,7 +265,11 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 			return err
 		}
 
-		affectedPeerIDs = am.ResolveAffectedPeers(ctx, transaction, accountID, affectedpeers.Change{Routes: []*route.Route{rt}})
+		// Load before delete: pre-state captures everyone referencing the route.
+		change = affectedpeers.Change{Routes: []*route.Route{rt}}
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
+			return err
+		}
 
 		if err = transaction.DeleteRoute(ctx, accountID, string(routeID)); err != nil {
 			return err
@@ -281,12 +283,7 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 
 	am.StoreEvent(ctx, userID, string(rt.ID), accountID, activity.RouteRemoved, rt.EventMeta())
 
-	if len(affectedPeerIDs) > 0 {
-		log.WithContext(ctx).Debugf("DeleteRoute %s: updating %d affected peers: %v", routeID, len(affectedPeerIDs), affectedPeerIDs)
-		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
-	} else {
-		log.WithContext(ctx).Tracef("DeleteRoute %s: no affected peers", routeID)
-	}
+	am.expandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }

@@ -43,6 +43,16 @@ func (c *countingStore) count(name string) int {
 	return c.counts[name]
 }
 
+func (c *countingStore) total() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := 0
+	for _, v := range c.counts {
+		n += v
+	}
+	return n
+}
+
 func (c *countingStore) GetAccountPolicies(ctx context.Context, ls store.LockingStrength, accountID string) ([]*types.Policy, error) {
 	c.bump("policies")
 	return c.Store.GetAccountPolicies(ctx, ls, accountID)
@@ -122,4 +132,30 @@ func TestAffectedPeers_QueryCount_NarrowChangeSkipsLoads(t *testing.T) {
 	assert.Equal(t, 0, cs.count("nameservers"), "nameservers must not be loaded for a network-only change")
 	assert.Equal(t, 0, cs.count("dnssettings"), "dnssettings must not be loaded for a network-only change")
 	assert.Equal(t, 0, cs.count("services"), "services must not be loaded for a network-only change")
+}
+
+// TestAffectedPeers_QueryCount_ExpandReadsNothing is the core invariant of the
+// Load/Expand split: Load (run inside the transaction) does all store reads;
+// Expand (run after commit) must touch the store ZERO times, so it never holds
+// the write lock and never reads post-commit state.
+func TestAffectedPeers_QueryCount_ExpandReadsNothing(t *testing.T) {
+	s := setupRouterScenario(t, true)
+	ctx := context.Background()
+
+	_, err := s.manager.SavePolicy(ctx, s.accountID, userID, peerToResourcePolicyByGroup(s.sourceGroupID, s.resourceGroupID), true)
+	require.NoError(t, err)
+
+	change := affectedpeers.Change{ChangedGroupIDs: []string{s.sourceGroupID}}
+
+	cs := newCountingStore(s.manager.Store)
+	snap, err := affectedpeers.Load(ctx, cs, s.accountID, change)
+	require.NoError(t, err)
+	require.Greater(t, cs.total(), 0, "Load must read the store")
+
+	// Any store access during Expand would increment the same counter. Expand
+	// operates purely on the snapshot, so the count must not move.
+	readsAfterLoad := cs.total()
+	affected := snap.Expand(ctx, s.accountID, change)
+	assert.Contains(t, affected, s.routerPeerID, "Expand must still produce the affected peers from the snapshot")
+	assert.Equal(t, readsAfterLoad, cs.total(), "Expand must perform zero store reads — it operates purely on the loaded snapshot")
 }

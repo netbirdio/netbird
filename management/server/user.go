@@ -18,6 +18,7 @@ import (
 	"github.com/netbirdio/netbird/idp/dex"
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	"github.com/netbirdio/netbird/management/server/idp"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
@@ -1274,7 +1275,8 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 	var userPeers []*nbpeer.Peer
 	var targetUser *types.User
 	var settings *types.Settings
-	var affectedPeerIDs []string
+	var snap *affectedpeers.Snapshot
+	var change affectedpeers.Change
 	var err error
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
@@ -1300,8 +1302,15 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 			for _, peer := range userPeers {
 				peerIDs = append(peerIDs, peer.ID)
 			}
-			// Resolve before delete so group memberships are still present.
-			affectedPeerIDs = am.resolveAffectedPeersForPeerChanges(ctx, transaction, accountID, peerIDs)
+			// Load before delete: pre-state still has the peers' group memberships.
+			groupIDs, err := transaction.GetGroupIDsByPeerIDs(ctx, accountID, peerIDs)
+			if err != nil {
+				return fmt.Errorf("failed to get group IDs for user peers: %w", err)
+			}
+			change = affectedpeers.Change{ChangedGroupIDs: groupIDs}
+			if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
+				return err
+			}
 
 			addPeerRemovedEvents, err = deletePeers(ctx, am, transaction, accountID, targetUserInfo.ID, userPeers, settings)
 			if err != nil {
@@ -1326,6 +1335,7 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 			log.WithContext(ctx).Errorf("failed to delete peer %s from integrated validator: %v", peer.ID, err)
 		}
 	}
+	affectedPeerIDs := snap.Expand(ctx, accountID, change)
 	if err := am.networkMapController.OnPeersDeleted(ctx, accountID, peerIDs, affectedPeerIDs); err != nil {
 		log.WithContext(ctx).Errorf("failed to delete peers %s from network map: %v", peerIDs, err)
 	}
