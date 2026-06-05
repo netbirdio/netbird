@@ -12,8 +12,10 @@ import (
 	"runtime"
 	"strings"
 
+	log "github.com/sirupsen/logrus"
 	gstatus "google.golang.org/grpc/status"
 
+	"github.com/netbirdio/netbird/client/internal/profilemanager"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/ui/i18n"
 	"github.com/netbirdio/netbird/client/ui/preferences"
@@ -339,5 +341,17 @@ func (s *Connection) Logout(ctx context.Context, p LogoutParams) error {
 	if _, err = cli.Logout(ctx, req); err != nil {
 		return s.classifyDaemonError(err)
 	}
+
+	// The daemon runs as root and can't reach the user-owned per-profile state
+	// file that holds the account email (see Profiles.List). Drop it here from
+	// the UI process so a logged-out profile no longer shows a stale email; the
+	// next SSO login recreates it.
+	if p.ProfileName != "" {
+		if err := profilemanager.NewProfileManager().RemoveProfileState(p.ProfileName); err != nil {
+			// Non-fatal: the logout itself succeeded.
+			log.Warnf("failed to remove profile state for %s: %v", p.ProfileName, err)
+		}
+	}
+
 	return nil
 }

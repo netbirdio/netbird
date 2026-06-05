@@ -1210,7 +1210,19 @@ func (s *Server) sendLogoutRequestWithConfig(ctx context.Context, config *profil
 		}
 	}()
 
-	return mgmClient.Logout()
+	if err := mgmClient.Logout(); err != nil {
+		// The peer is already gone from the management server (e.g. deleted
+		// from the dashboard). The logout's goal — deregistering this peer —
+		// is therefore already satisfied, so treat NotFound as success rather
+		// than blocking the logout/profile-removal flow.
+		if logoutPeerGone(err) {
+			log.Infof("peer already removed from management server, treating logout as successful")
+			return nil
+		}
+		return err
+	}
+
+	return nil
 }
 
 // Status returns the daemon status
@@ -2116,4 +2128,16 @@ func persistLoginOverrides(activeProf *profilemanager.ActiveProfileState, manage
 		return fmt.Errorf("update config: %w", err)
 	}
 	return nil
+}
+
+// logoutPeerGone reports whether a management Logout failed because the peer
+// no longer exists server-side (gRPC NotFound), walking the wrap chain since
+// the client wraps the gRPC status with fmt.Errorf.
+func logoutPeerGone(err error) bool {
+	for e := err; e != nil; e = errors.Unwrap(e) {
+		if s, ok := gstatus.FromError(e); ok && s.Code() == codes.NotFound {
+			return true
+		}
+	}
+	return false
 }
