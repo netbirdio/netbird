@@ -8,6 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/server/affectedpeers"
+	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
+	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	"github.com/netbirdio/netbird/management/server/posture"
 	"github.com/netbirdio/netbird/management/server/types"
 )
@@ -63,7 +65,9 @@ func TestAffectedPeers_DependencyCoverageMatrix(t *testing.T) {
 			build: func(t *testing.T, s *routerScenario, ctx context.Context) (affectedpeers.Change, []string, []string) {
 				_, err := s.manager.SavePolicy(ctx, s.accountID, userID, peerToResourcePolicyByGroup(s.sourceGroupID, s.resourceGroupID), true)
 				require.NoError(t, err)
-				return affectedpeers.Change{ResourceIDs: []string{s.resourceID}},
+				return affectedpeers.Change{Resources: []*resourceTypes.NetworkResource{
+						{ID: s.resourceID, NetworkID: s.networkID, GroupIDs: []string{s.resourceGroupID}},
+					}},
 					[]string{s.sourcePeerID, s.routerPeerID}, []string{s.unrelatedPeerID}
 			},
 		},
@@ -72,7 +76,7 @@ func TestAffectedPeers_DependencyCoverageMatrix(t *testing.T) {
 			build: func(t *testing.T, s *routerScenario, ctx context.Context) (affectedpeers.Change, []string, []string) {
 				_, err := s.manager.SavePolicy(ctx, s.accountID, userID, peerToResourcePolicyByGroup(s.sourceGroupID, s.resourceGroupID), true)
 				require.NoError(t, err)
-				return affectedpeers.Change{NetworkIDs: []string{s.networkID}},
+				return affectedpeers.Change{Networks: []*networkTypes.Network{{ID: s.networkID}}},
 					[]string{s.sourcePeerID, s.routerPeerID}, []string{s.unrelatedPeerID}
 			},
 		},

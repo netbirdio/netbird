@@ -76,7 +76,13 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 			}
 		}
 
-		change = affectedpeers.Change{Policies: []*types.Policy{policy, existingPolicy}}
+		// On update carry both the old and new policy so peers losing access via a
+		// removed rule still refresh; on create there is no prior policy.
+		if isUpdate {
+			change = affectedpeers.Change{Policies: []*types.Policy{existingPolicy, policy}}
+		} else {
+			change = affectedpeers.Change{Policies: []*types.Policy{policy}}
+		}
 		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
 			return err
 		}

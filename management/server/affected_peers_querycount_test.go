@@ -13,6 +13,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
+	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
@@ -123,9 +124,9 @@ func TestAffectedPeers_QueryCount_NarrowChangeSkipsLoads(t *testing.T) {
 
 	cs := newCountingStore(s.manager.Store)
 
-	// A bare network-id change drives only the router->source bridge: routers and
+	// A bare network change drives only the router->source bridge: routers and
 	// resources are needed, but routes/nameservers/dnssettings/services are not.
-	_, err := affectedpeers.Resolve(ctx, cs, s.accountID, affectedpeers.Change{NetworkIDs: []string{s.networkID}})
+	_, err := affectedpeers.Resolve(ctx, cs, s.accountID, affectedpeers.Change{Networks: []*networkTypes.Network{{ID: s.networkID}}})
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, cs.count("routes"), "routes must not be loaded for a network-only change")

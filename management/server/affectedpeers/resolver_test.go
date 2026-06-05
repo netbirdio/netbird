@@ -5,6 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
+	networkTypes "github.com/netbirdio/netbird/management/server/networks/types"
 	"github.com/netbirdio/netbird/management/server/types"
 )
 
@@ -73,8 +75,8 @@ func TestChangeIsEmpty(t *testing.T) {
 	assert.False(t, Change{ChangedGroupIDs: []string{"g"}}.isEmpty())
 	assert.False(t, Change{ChangedPeerIDs: []string{"p"}}.isEmpty())
 	assert.False(t, Change{Policies: []*types.Policy{{}}}.isEmpty())
-	assert.False(t, Change{ResourceIDs: []string{"r"}}.isEmpty())
-	assert.False(t, Change{NetworkIDs: []string{"n"}}.isEmpty())
+	assert.False(t, Change{Resources: []*resourceTypes.NetworkResource{{ID: "r"}}}.isEmpty())
+	assert.False(t, Change{Networks: []*networkTypes.Network{{ID: "n"}}}.isEmpty())
 	assert.False(t, Change{PostureCheckIDs: []string{"pc"}}.isEmpty())
 }
 

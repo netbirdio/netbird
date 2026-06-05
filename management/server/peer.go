@@ -1453,26 +1453,8 @@ func (am *DefaultAccountManager) expandAndUpdateAffected(ctx context.Context, ac
 	if snap == nil {
 		return
 	}
-	affectedPeerIDs := snap.Expand(ctx, accountID, change)
-	if len(directlyAffected) > 0 {
-		seen := make(map[string]struct{}, len(affectedPeerIDs))
-		for _, id := range affectedPeerIDs {
-			seen[id] = struct{}{}
-		}
-		for _, id := range directlyAffected {
-			if _, ok := seen[id]; !ok {
-				affectedPeerIDs = append(affectedPeerIDs, id)
-				seen[id] = struct{}{}
-			}
-		}
-	}
-
-	if len(affectedPeerIDs) > 0 {
-		log.WithContext(ctx).Debugf("expandAndUpdateAffected: account %s updating %d affected peers: %v", accountID, len(affectedPeerIDs), affectedPeerIDs)
-		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
-	} else {
-		log.WithContext(ctx).Tracef("expandAndUpdateAffected: account %s no affected peers", accountID)
-	}
+	affectedPeerIDs := unionStrings(snap.Expand(ctx, accountID, change), directlyAffected)
+	am.updateAffectedPeerIDs(ctx, accountID, affectedPeerIDs)
 }
 
 // dispatchAffected expands a set of (snapshot, change) pairs collected across
@@ -1480,26 +1462,42 @@ func (am *DefaultAccountManager) expandAndUpdateAffected(ctx context.Context, ac
 // Used by batch operations that commit per-item transactions but want a single
 // affected-peers pass — each snapshot is still loaded inside its own transaction.
 func (am *DefaultAccountManager) dispatchAffected(ctx context.Context, accountID string, snaps []*affectedpeers.Snapshot, changes []affectedpeers.Change) {
-	seen := make(map[string]struct{})
-	var affectedPeerIDs []string
+	var lists [][]string
 	for i, snap := range snaps {
 		if snap == nil {
 			continue
 		}
-		for _, id := range snap.Expand(ctx, accountID, changes[i]) {
-			if _, ok := seen[id]; !ok {
-				seen[id] = struct{}{}
-				affectedPeerIDs = append(affectedPeerIDs, id)
-			}
-		}
+		lists = append(lists, snap.Expand(ctx, accountID, changes[i]))
 	}
+	am.updateAffectedPeerIDs(ctx, accountID, unionStrings(lists...))
+}
 
+// updateAffectedPeerIDs dispatches a network-map refresh for the given peers, or
+// logs that there are none. Shared dispatch tail for the affected-peers helpers.
+func (am *DefaultAccountManager) updateAffectedPeerIDs(ctx context.Context, accountID string, affectedPeerIDs []string) {
 	if len(affectedPeerIDs) > 0 {
-		log.WithContext(ctx).Debugf("dispatchAffected: account %s updating %d affected peers: %v", accountID, len(affectedPeerIDs), affectedPeerIDs)
+		log.WithContext(ctx).Debugf("updating %d affected peers for account %s: %v", len(affectedPeerIDs), accountID, affectedPeerIDs)
 		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
 	} else {
-		log.WithContext(ctx).Tracef("dispatchAffected: account %s no affected peers", accountID)
+		log.WithContext(ctx).Tracef("no affected peers for account %s", accountID)
 	}
+}
+
+// unionStrings concatenates the given string lists into one deduplicated slice,
+// preserving first-occurrence order.
+func unionStrings(lists ...[]string) []string {
+	seen := make(map[string]struct{})
+	var out []string
+	for _, list := range lists {
+		for _, id := range list {
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // resolvePeerIDs resolves group IDs and direct peer IDs into a deduplicated peer ID list.
@@ -1515,17 +1513,7 @@ func (am *DefaultAccountManager) resolvePeerIDs(ctx context.Context, s store.Sto
 		return peerIDs
 	}
 
-	seen := make(map[string]struct{}, len(peerIDs))
-	for _, id := range peerIDs {
-		seen[id] = struct{}{}
-	}
-	for _, id := range directPeerIDs {
-		if _, exists := seen[id]; !exists {
-			peerIDs = append(peerIDs, id)
-			seen[id] = struct{}{}
-		}
-	}
-
+	peerIDs = unionStrings(peerIDs, directPeerIDs)
 	log.WithContext(ctx).Tracef("resolvePeerIDs: groups=%v + directPeers=%v -> %d peers: %v", groupIDs, directPeerIDs, len(peerIDs), peerIDs)
 	return peerIDs
 }

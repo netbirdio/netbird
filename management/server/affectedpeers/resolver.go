@@ -64,7 +64,7 @@ func Load(ctx context.Context, s store.Store, accountID string, c Change) (*Snap
 	// Changed resources contribute their group IDs to the changed-group set during
 	// the walk (see collectFromExplicitResources), so they drive the group walkers.
 	hasGroupOrPeerChange := len(c.ChangedGroupIDs) > 0 || len(c.ChangedPeerIDs) > 0 || len(c.Resources) > 0
-	hasNetworkObject := len(c.ResourceIDs) > 0 || len(c.NetworkIDs) > 0 || len(c.Routers) > 0 || len(c.Resources) > 0 || len(c.Networks) > 0
+	hasNetworkObject := len(c.Routers) > 0 || len(c.Resources) > 0 || len(c.Networks) > 0
 	needsPolicies := hasGroupOrPeerChange || len(c.PostureCheckIDs) > 0 || len(c.Policies) > 0 || hasNetworkObject
 	needsRoutersResources := needsPolicies // the resource<->router bridge can fire whenever policies/resources/networks are in play
 
@@ -138,8 +138,6 @@ type Change struct {
 	Resources       []*resourceTypes.NetworkResource
 	Networks        []*networkTypes.Network
 	PostureCheckIDs []string
-	ResourceIDs     []string
-	NetworkIDs      []string
 
 	// RemovedPeersByGroup carries peers that left a group during this change,
 	// keyed by the group they left. A membership change does not alter which
@@ -161,8 +159,6 @@ func (c Change) isEmpty() bool {
 		len(c.Resources) == 0 &&
 		len(c.Networks) == 0 &&
 		len(c.PostureCheckIDs) == 0 &&
-		len(c.ResourceIDs) == 0 &&
-		len(c.NetworkIDs) == 0 &&
 		len(c.RemovedPeersByGroup) == 0
 }
 
@@ -178,8 +174,8 @@ func (snap *Snapshot) Expand(ctx context.Context, accountID string, c Change) []
 		return nil
 	}
 	r := newResolver(ctx, snap, accountID, c)
-	log.WithContext(ctx).Tracef("affectedpeers expand start: account=%s changedGroups=%v changedPeers=%v policies=%d routes=%d routers=%d resources=%d networks=%d postureChecks=%v resourceIDs=%v networkIDs=%v",
-		accountID, c.ChangedGroupIDs, c.ChangedPeerIDs, len(c.Policies), len(c.Routes), len(c.Routers), len(c.Resources), len(c.Networks), c.PostureCheckIDs, c.ResourceIDs, c.NetworkIDs)
+	log.WithContext(ctx).Tracef("affectedpeers expand start: account=%s changedGroups=%v changedPeers=%v policies=%d routes=%d routers=%d resources=%d networks=%d postureChecks=%v",
+		accountID, c.ChangedGroupIDs, c.ChangedPeerIDs, len(c.Policies), len(c.Routes), len(c.Routers), len(c.Resources), len(c.Networks), c.PostureCheckIDs)
 	r.walk()
 	return r.expand()
 }
@@ -225,8 +221,7 @@ func newResolver(ctx context.Context, snap *Snapshot, accountID string, c Change
 		changedPeerSet:  toSet(c.ChangedPeerIDs),
 		groupSet:        make(map[string]struct{}),
 		peerSet:         make(map[string]struct{}),
-		resourceIDs:     toSet(c.ResourceIDs),
-		networkIDs:      toSet(c.NetworkIDs),
+		networkIDs:      make(map[string]struct{}),
 	}
 	// A changed peer affects every entity referencing a group it belongs to, so
 	// seed the changed-group set with the peer's memberships from the snapshot's
@@ -288,7 +283,6 @@ type resolver struct {
 	peerSet  map[string]struct{}
 
 	matchedPolicies []*types.Policy
-	resourceIDs     map[string]struct{}
 	networkIDs      map[string]struct{}
 }
 
@@ -588,9 +582,6 @@ func (r *resolver) collectResourceRouterBridge() {
 
 func (r *resolver) bridgeSourceToRouters() {
 	resourceIDs := r.policyDestinationResourceIDs(r.matchedPolicies...)
-	for id := range r.resourceIDs {
-		resourceIDs[id] = struct{}{}
-	}
 	if len(resourceIDs) == 0 {
 		return
 	}

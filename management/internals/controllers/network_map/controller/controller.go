@@ -512,10 +512,14 @@ func (c *Controller) BufferUpdateAffectedPeers(ctx context.Context, accountID st
 
 	b.stopTimer()
 
+	// The send and the debounced timer outlive the calling request, so detach from
+	// its context to avoid sending with a cancelled context once the handler returns.
+	bgCtx := context.WithoutCancel(ctx)
+
 	collected := b.drainPeerIDs()
 	go func() {
 		defer b.sendMu.Unlock()
-		_ = c.sendUpdateForAffectedPeers(ctx, accountID, collected)
+		_ = c.sendUpdateForAffectedPeers(bgCtx, accountID, collected)
 
 		// Check if more peer IDs accumulated while we were sending.
 		if !b.hasPending() {
@@ -526,7 +530,7 @@ func (c *Controller) BufferUpdateAffectedPeers(ctx context.Context, accountID st
 		b.setTimer(time.Duration(c.updateAccountPeersBufferInterval.Load()), func() {
 			ids := b.drainPeerIDs()
 			if len(ids) > 0 {
-				_ = c.sendUpdateForAffectedPeers(ctx, accountID, ids)
+				_ = c.sendUpdateForAffectedPeers(bgCtx, accountID, ids)
 			}
 		})
 	}()
@@ -828,7 +832,7 @@ func (c *Controller) OnPeersDeleted(ctx context.Context, accountID string, peerI
 	}
 
 	if len(affectedPeerIDs) == 0 {
-		log.WithContext(ctx).Tracef("no affected peers for peer delete in account %s, skipping network map update", accountID)
+		log.WithContext(ctx).Tracef("no affected peers for peer delete in account %s, skipping", accountID)
 		return nil
 	}
 	return c.BufferUpdateAffectedPeers(ctx, accountID, affectedPeerIDs, types.UpdateReason{Resource: types.UpdateResourcePeer, Operation: types.UpdateOperationDelete})

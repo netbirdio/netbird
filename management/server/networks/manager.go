@@ -131,15 +131,36 @@ func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, netw
 	var snap *affectedpeers.Snapshot
 	change := affectedpeers.Change{Networks: []*types.Network{network}}
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		resources, err := transaction.GetNetworkResourcesByNetID(ctx, store.LockingStrengthUpdate, accountID, networkID)
+		if err != nil {
+			return fmt.Errorf("failed to get resources in network: %w", err)
+		}
+
+		netRouters, err := transaction.GetNetworkRoutersByNetID(ctx, store.LockingStrengthUpdate, accountID, networkID)
+		if err != nil {
+			return fmt.Errorf("failed to get routers in network: %w", err)
+		}
+
+		// Carry the cascade-deleted resources and routers in the Change so the
+		// post-commit Expand walks their groups too: a resource whose group is a
+		// policy source affects that source's peers, which a network-only Change
+		// would miss. Hydrate each resource's GroupIDs (gorm:"-") before Load.
+		for _, resource := range resources {
+			groups, err := transaction.GetResourceGroups(ctx, store.LockingStrengthNone, accountID, resource.ID)
+			if err != nil {
+				return fmt.Errorf("failed to get resource groups: %w", err)
+			}
+			for _, g := range groups {
+				resource.GroupIDs = append(resource.GroupIDs, g.ID)
+			}
+		}
+		change.Resources = resources
+		change.Routers = netRouters
+
 		// Load before the cascade deletes: pre-state still references the network.
 		var lerr error
 		if snap, lerr = affectedpeers.Load(ctx, transaction, accountID, change); lerr != nil {
 			return lerr
-		}
-
-		resources, err := transaction.GetNetworkResourcesByNetID(ctx, store.LockingStrengthUpdate, accountID, networkID)
-		if err != nil {
-			return fmt.Errorf("failed to get resources in network: %w", err)
 		}
 
 		for _, resource := range resources {
@@ -148,11 +169,6 @@ func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, netw
 				return fmt.Errorf("failed to delete resource: %w", err)
 			}
 			eventsToStore = append(eventsToStore, event...)
-		}
-
-		netRouters, err := transaction.GetNetworkRoutersByNetID(ctx, store.LockingStrengthUpdate, accountID, networkID)
-		if err != nil {
-			return fmt.Errorf("failed to get routers in network: %w", err)
 		}
 
 		for _, router := range netRouters {
