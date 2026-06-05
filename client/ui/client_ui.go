@@ -323,12 +323,6 @@ type serviceClient struct {
 	isEnforcedUpdate     bool
 	lastNotifiedVersion  string
 	settingsEnabled      bool
-	// advancedSettingsLocked caches the last applied MDM lock state for
-	// the "Advanced Settings" submenu item. Calling Enable/Disable +
-	// SetTitle on a systray item every 2 s drops the ClickedCh
-	// subscription, so we only touch the item on transition. Zero value
-	// (false) matches the default enabled state at AddSubMenuItem time.
-	advancedSettingsLocked bool
 	profilesEnabled      bool
 	networksEnabled      bool
 	// networksMenuEnabled caches the last applied enabled-state of the
@@ -1071,9 +1065,7 @@ func (s *serviceClient) onTrayReady() {
 	// checkAndUpdateFeatures tick that observes DisableProfiles=true
 	// is a no-op (cache zero-value == desired-false) and the menu
 	// never gets hidden — symptom: MDM enforces the kill switch but
-	// the profile menu stays clickable. Same pattern caveat as
-	// advancedSettingsLocked, with inverted polarity because the
-	// existing field tracks "enabled" not "locked".
+	// the profile menu stays clickable.
 	s.profilesEnabled = true
 
 	systray.AddSeparator()
@@ -1291,27 +1283,6 @@ func (s *serviceClient) checkAndUpdateFeatures() {
 	// CLI is rejected at that layer. The UI deliberately keeps the
 	// Settings menu visible so the user can still inspect current
 	// values — read-only by virtue of the daemon refusing edits.
-	// Hiding the menu here would also hide the Advanced Settings
-	// submenu, which has its own dedicated kill switch
-	// (DisableAdvancedSettings); the two concerns must not be coupled.
-
-	// MDM kill switch on the Advanced Settings submenu item.
-	// Only flip on transition — calling Enable/SetTitle on every 2 s
-	// loop tick drops the systray ClickedCh subscription on some
-	// platforms, breaking the click handler entirely.
-	if s.mAdvancedSettings != nil {
-		desired := features != nil && features.DisableAdvancedSettings
-		if desired != s.advancedSettingsLocked {
-			s.advancedSettingsLocked = desired
-			if desired {
-				s.mAdvancedSettings.SetTitle("Advanced Settings (MDM)")
-				s.mAdvancedSettings.Disable()
-			} else {
-				s.mAdvancedSettings.SetTitle("Advanced Settings")
-				s.mAdvancedSettings.Enable()
-			}
-		}
-	}
 
 	// Update profile menu based on current features
 	if s.mProfile != nil {
