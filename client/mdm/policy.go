@@ -20,7 +20,6 @@ import (
 // configuration field.
 const (
 	KeyManagementURL            = "managementURL"
-	KeyDisableAdvancedSettings  = "disableAdvancedSettings"
 	KeyDisableUpdateSettings    = "disableUpdateSettings"
 	KeyDisableProfiles          = "disableProfiles"
 	KeyDisableNetworks          = "disableNetworks"
@@ -54,7 +53,6 @@ const (
 // configuration are ignored but logged.
 var AllKeys = []string{
 	KeyManagementURL,
-	KeyDisableAdvancedSettings,
 	KeyDisableUpdateSettings,
 	KeyDisableProfiles,
 	KeyDisableNetworks,

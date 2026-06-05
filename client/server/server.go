@@ -1702,16 +1702,6 @@ func (s *Server) GetFeatures(ctx context.Context, msg *proto.GetFeaturesRequest)
 		DisableNetworks:       s.checkNetworksDisabled(),
 	}
 
-	// MDM kill switch: read the value from the active policy on the
-	// in-memory Config snapshot. Returns false on an absent key, so the
-	// feature flag is only "true" when the admin has explicitly pushed
-	// disableAdvancedSettings=true via the platform MDM channel.
-	if s.config != nil {
-		if v, ok := s.config.Policy().GetBool(mdm.KeyDisableAdvancedSettings); ok {
-			features.DisableAdvancedSettings = v
-		}
-	}
-
 	return features, nil
 }
 
