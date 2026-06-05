@@ -237,7 +237,7 @@ message SendStatusUpdateRequest {
   bool certificate_issued = 4;
   optional string error_message = 5;
   // Per-account inbound listener state for the account that owns
-  // service_id. Populated only when --private-inbound is enabled and the
+  // service_id. Populated only when --private is enabled and the
   // embedded client for the account is up. Field numbers >=50 reserved
   // for observability extensions.
   optional ProxyInboundListener inbound_listener = 50;

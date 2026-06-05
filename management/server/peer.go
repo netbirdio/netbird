@@ -30,6 +30,7 @@ import (
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/shared/management/status"
+	"github.com/netbirdio/netbird/version"
 )
 
 const remoteJobsMinVer = "0.64.0"
@@ -42,7 +43,7 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 		return nil, err
 	}
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Read)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -209,7 +210,7 @@ func (am *DefaultAccountManager) updatePeerLocationIfChanged(ctx context.Context
 
 // UpdatePeer updates peer. Only Peer.Name, Peer.SSHEnabled, Peer.LoginExpirationEnabled and Peer.InactivityExpirationEnabled can be updated.
 func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, userID string, update *nbpeer.Peer) (*nbpeer.Peer, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Update)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Update)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -354,7 +355,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 }
 
 func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, peerID, userID string, job *types.Job) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.RemoteJobs, operations.Create)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.RemoteJobs, operations.Create)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -372,7 +373,7 @@ func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, p
 	}
 
 	meetMinVer, err := posture.MeetsMinVersion(remoteJobsMinVer, p.Meta.WtVersion)
-	if !strings.Contains(p.Meta.WtVersion, "dev") && (!meetMinVer || err != nil) {
+	if !version.IsDevelopmentVersion(p.Meta.WtVersion) && (!meetMinVer || err != nil) {
 		return status.Errorf(status.PreconditionFailed, "peer version %s does not meet the minimum required version %s for remote jobs", p.Meta.WtVersion, remoteJobsMinVer)
 	}
 
@@ -430,7 +431,7 @@ func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, p
 
 func (am *DefaultAccountManager) GetAllPeerJobs(ctx context.Context, accountID, userID, peerID string) ([]*types.Job, error) {
 	// todo: Create permissions for job
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.RemoteJobs, operations.Read)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.RemoteJobs, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -456,7 +457,7 @@ func (am *DefaultAccountManager) GetAllPeerJobs(ctx context.Context, accountID, 
 }
 
 func (am *DefaultAccountManager) GetPeerJobByID(ctx context.Context, accountID, userID, peerID, jobID string) (*types.Job, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.RemoteJobs, operations.Read)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.RemoteJobs, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -483,7 +484,7 @@ func (am *DefaultAccountManager) GetPeerJobByID(ctx context.Context, accountID, 
 
 // DeletePeer removes peer from the account by its IP
 func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peerID, userID string) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Delete)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -643,7 +644,7 @@ func (am *DefaultAccountManager) handleUserAddedPeer(ctx context.Context, accoun
 	}
 
 	if temporary {
-		allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Create)
+		allowed, _, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Create)
 		if err != nil {
 			return status.NewPermissionValidationError(err)
 		}
@@ -1151,6 +1152,79 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 	return p, nmap, pc, err
 }
 
+// ExtendPeerSession refreshes the peer's SSO session deadline by updating
+// LastLogin after a successful JWT validation. The tunnel is untouched: no
+// network map sync, no peer reconnect.
+//
+// Preconditions enforced here:
+//   - userID must be present (caller validated the JWT and extracted the user ID).
+//   - The peer must exist and be SSO-registered (AddedWithSSOLogin) with
+//     LoginExpirationEnabled.
+//   - Account-level PeerLoginExpirationEnabled must be true.
+//   - The JWT user must match peer.UserID (mirrors LoginPeer at peer.go ~1028).
+//
+// Returns the new absolute UTC deadline.
+func (am *DefaultAccountManager) ExtendPeerSession(ctx context.Context, peerPubKey, userID string) (time.Time, error) {
+	if userID == "" {
+		return time.Time{}, status.Errorf(status.PermissionDenied, "session extend requires a JWT")
+	}
+
+	accountID, err := am.Store.GetAccountIDByPeerPubKey(ctx, peerPubKey)
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if !settings.PeerLoginExpirationEnabled {
+		return time.Time{}, status.Errorf(status.PreconditionFailed, "peer login expiration is disabled for the account")
+	}
+
+	var refreshed *nbpeer.Peer
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		peer, err := transaction.GetPeerByPeerPubKey(ctx, store.LockingStrengthUpdate, peerPubKey)
+		if err != nil {
+			return err
+		}
+
+		if !peer.AddedWithSSOLogin() || !peer.LoginExpirationEnabled {
+			return status.Errorf(status.PreconditionFailed, "peer is not eligible for session extension")
+		}
+
+		if peer.UserID != userID {
+			log.WithContext(ctx).Warnf("user mismatch when extending session for peer %s: peer user %s, jwt user %s", peer.ID, peer.UserID, userID)
+			return status.NewPeerLoginMismatchError()
+		}
+
+		peer = peer.UpdateLastLogin()
+		if err := transaction.SavePeer(ctx, accountID, peer); err != nil {
+			return err
+		}
+
+		if err := transaction.SaveUserLastLogin(ctx, accountID, userID, peer.GetLastLogin()); err != nil {
+			log.WithContext(ctx).Debugf("failed to update user last login during session extend: %v", err)
+		}
+
+		am.StoreEvent(ctx, userID, peer.ID, accountID, activity.UserExtendedPeerSession, peer.EventMeta(am.networkMapController.GetDNSDomain(settings)))
+		refreshed = peer
+		return nil
+	})
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	// Reschedule the per-account expiration job. schedulePeerLoginExpiration
+	// is a no-op when a job is already running, but the running job will pick
+	// up the new LastLogin on its next tick. Calling it here is harmless and
+	// guarantees a job is in flight even if a prior one ended right before
+	// the extend.
+	am.schedulePeerLoginExpiration(ctx, accountID)
+
+	return refreshed.SessionExpiresAt(settings.PeerLoginExpirationEnabled, settings.PeerLoginExpiration), nil
+}
+
 // getPeerPostureChecks returns the posture checks for the peer.
 func getPeerPostureChecks(ctx context.Context, transaction store.Store, accountID, peerID string) ([]*posture.Checks, error) {
 	policies, err := transaction.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
@@ -1306,7 +1380,7 @@ func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID,
 		return nil, err
 	}
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Read)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
