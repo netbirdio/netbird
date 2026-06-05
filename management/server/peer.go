@@ -538,12 +538,9 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 			return err
 		}
 
-		// Load before delete: pre-state still has the peer's group memberships.
-		groupIDs, err := transaction.GetGroupIDsByPeerIDs(ctx, accountID, []string{peerID})
-		if err != nil {
-			return fmt.Errorf("failed to get group IDs for peer: %w", err)
-		}
-		change = affectedpeers.Change{ChangedGroupIDs: groupIDs}
+		// Load before delete so the snapshot still has the peer's group memberships;
+		// the resolver derives them from the peer ID during the walk.
+		change = affectedpeers.Change{ChangedPeerIDs: []string{peerID}}
 		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
 			return err
 		}
@@ -1577,17 +1574,12 @@ func affectedPeerIDsFromNetworkMap(nmap *types.NetworkMap, selfPeerID string) []
 	return ids
 }
 
-// resolveAffectedPeersForPeerChanges resolves changed peer IDs into the full set of affected peer IDs.
+// resolveAffectedPeersForPeerChanges resolves changed peer IDs into the full set
+// of affected peer IDs. The resolver derives each peer's group memberships during
+// the walk, so the caller passes only the changed peer IDs.
 func (am *DefaultAccountManager) resolveAffectedPeersForPeerChanges(ctx context.Context, s store.Store, accountID string, changedPeerIDs []string) []string {
-	groupIDs, err := s.GetGroupIDsByPeerIDs(ctx, accountID, changedPeerIDs)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get group IDs for changed peers: %v", err)
-		return nil
-	}
-
 	return am.ResolveAffectedPeers(ctx, s, accountID, affectedpeers.Change{
-		ChangedGroupIDs: groupIDs,
-		ChangedPeerIDs:  changedPeerIDs,
+		ChangedPeerIDs: changedPeerIDs,
 	})
 }
 

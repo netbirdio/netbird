@@ -79,7 +79,10 @@ func Load(ctx context.Context, s store.Store, accountID string, c Change) (*Snap
 			return nil, err
 		}
 	}
-	if len(c.ChangedGroupIDs) > 0 {
+	// A changed peer is resolved to its groups during the walk (see
+	// seedChangedGroupsFromPeers), so the nameserver/DNS group walkers can fire for
+	// peer changes too — load those tables whenever groups or peers changed.
+	if len(c.ChangedGroupIDs) > 0 || len(c.ChangedPeerIDs) > 0 {
 		if snap.nsGroups, err = s.GetAccountNameServerGroups(ctx, store.LockingStrengthNone, accountID); err != nil {
 			return nil, err
 		}
@@ -225,8 +228,31 @@ func newResolver(ctx context.Context, snap *Snapshot, accountID string, c Change
 		resourceIDs:     toSet(c.ResourceIDs),
 		networkIDs:      toSet(c.NetworkIDs),
 	}
+	// A changed peer affects every entity referencing a group it belongs to, so
+	// seed the changed-group set with the peer's memberships from the snapshot's
+	// group->peers index. Callers pass only ChangedPeerIDs; the peer->group lookup
+	// is the resolver's job, not theirs.
+	r.seedChangedGroupsFromPeers()
 	r.matchedPolicies = append(r.matchedPolicies, c.Policies...)
 	return r
+}
+
+// seedChangedGroupsFromPeers adds, for each changed peer, the groups it belongs
+// to into changedGroupSet, so the group-driven walkers (policies, routes,
+// nameservers, DNS, routers) fire for memberships — not only for entities that
+// reference the peer directly.
+func (r *resolver) seedChangedGroupsFromPeers() {
+	if len(r.changedPeerSet) == 0 {
+		return
+	}
+	for groupID, members := range r.snap.groupPeers {
+		for pID := range r.changedPeerSet {
+			if _, ok := members[pID]; ok {
+				r.changedGroupSet[groupID] = struct{}{}
+				break
+			}
+		}
+	}
 }
 
 func (r *resolver) walk() {

@@ -1302,12 +1302,9 @@ func (am *DefaultAccountManager) deleteRegularUser(ctx context.Context, accountI
 			for _, peer := range userPeers {
 				peerIDs = append(peerIDs, peer.ID)
 			}
-			// Load before delete: pre-state still has the peers' group memberships.
-			groupIDs, err := transaction.GetGroupIDsByPeerIDs(ctx, accountID, peerIDs)
-			if err != nil {
-				return fmt.Errorf("failed to get group IDs for user peers: %w", err)
-			}
-			change = affectedpeers.Change{ChangedGroupIDs: groupIDs}
+			// Load before delete so the snapshot still has the peers' group
+			// memberships; the resolver derives them from the peer IDs during the walk.
+			change = affectedpeers.Change{ChangedPeerIDs: peerIDs}
 			if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
 				return err
 			}
