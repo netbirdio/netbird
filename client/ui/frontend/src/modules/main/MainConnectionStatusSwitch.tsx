@@ -10,6 +10,7 @@ import { useProfile } from "@/contexts/ProfileContext.tsx";
 import { cn } from "@/lib/cn.ts";
 import { formatErrorMessage } from "@/lib/errors.ts";
 import { CopyToClipboard } from "@/components/CopyToClipboard";
+import { TruncatedText } from "@/components/TruncatedText";
 import netbirdFullLogo from "@/assets/logos/netbird-full.svg";
 
 // EVENT_BROWSER_LOGIN_CANCEL is emitted by the BrowserLogin window's close
@@ -393,7 +394,7 @@ export const MainConnectionStatusSwitch = () => {
     return (
         <div
             className={cn(
-                "flex flex-col h-full w-full items-center justify-center gap-4 relative -top-5",
+                "flex flex-col h-full w-full items-center justify-center gap-4 relative -top-6",
             )}
         >
             <img
@@ -422,14 +423,17 @@ export const MainConnectionStatusSwitch = () => {
                 <CopyToClipboard
                     message={fqdn}
                     className={cn(
-                        "min-h-[1em] transition-opacity duration-300",
+                        "min-h-[1em] transition-opacity duration-300 max-w-full",
                         "relative left-[0.55rem]",
                         showLocal && fqdn ? "opacity-100" : "opacity-0 pointer-events-none",
                     )}
                 >
-                    <span className={"font-mono text-[0.8rem] leading-tight text-nb-gray-300"}>
-                        {fqdn || " "}
-                    </span>
+                    <TruncatedText
+                        text={fqdn || " "}
+                        className={
+                            "block font-mono text-[0.8rem] leading-tight text-nb-gray-300 truncate max-w-[310px]"
+                        }
+                    />
                 </CopyToClipboard>
                 <CopyToClipboard
                     message={ip}
