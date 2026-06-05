@@ -109,7 +109,7 @@ export function SettingsAdvanced() {
                                 }))
                             }
                         />
-                        <HelpText>{t("settings.advanced.port.help")}</HelpText>
+                        <HelpText className={"mt-1.5"}>{t("settings.advanced.port.help")}</HelpText>
                     </div>
                     <Input
                         label={t("settings.advanced.mtu.label")}
