@@ -1131,13 +1131,20 @@ func (s *serviceClient) onTrayReady() {
 	// update exit node menu in case service is already connected
 	go s.updateExitNodes()
 
+	// Features (DisableProfiles, DisableUpdateSettings, DisableNetworks,
+	// ...) only change in two ways: at service install time (CLI flag,
+	// static) and at MDM ticker diff time. The daemon already publishes
+	// a SystemEvent{type=config_changed} on every MDM-driven engine
+	// restart, so the UI no longer needs to poll GetFeatures every 2 s.
+	// A single fetch at startup covers the static CLI-flag case; the
+	// event handler below covers MDM transitions. updateStatus stays in
+	// the 2 s loop because connection / peer state genuinely change
+	// continuously and have no event yet.
+	s.checkAndUpdateFeatures()
 	go func() {
 		s.getSrvConfig()
 		time.Sleep(100 * time.Millisecond) // To prevent race condition caused by systray not being fully initialized and ignoring setIcon
 		for {
-			// Check features before status so menus respect disable flags before being enabled
-			s.checkAndUpdateFeatures()
-
 			err := s.updateStatus()
 			if err != nil {
 				log.Errorf("error while updating status: %v", err)
@@ -1188,8 +1195,14 @@ func (s *serviceClient) onTrayReady() {
 		// the user does not have to restart the tray to see CLI- or
 		// MDM-driven changes.
 		if event.Category == proto.SystemEvent_SYSTEM && event.Metadata["type"] == "config_changed" {
-			log.Infof("config_changed event received (source=%s); refreshing settings", event.Metadata["source"])
+			log.Infof("config_changed event received (source=%s); refreshing settings + features", event.Metadata["source"])
 			s.loadSettings()
+			// MDM-driven feature kill switches (DisableProfiles /
+			// DisableUpdateSettings / DisableNetworks) ride the same
+			// config_changed signal because the daemon re-applies its
+			// MDM policy on every engine spawn. Pull them in here so
+			// the UI is up to date without a periodic GetFeatures poll.
+			s.checkAndUpdateFeatures()
 		}
 	})
 
