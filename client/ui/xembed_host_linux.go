@@ -70,43 +70,7 @@ type xembedHost struct {
 	stopCh chan struct{}
 }
 
-// goMenuItemClicked is the C callback invoked from the GTK main thread
-// when the user activates a popup-menu entry. C callbacks cannot carry
-// Go pointers, so the active xembedHost is looked up through the
-// activeMenuHost global instead. //export makes this symbol visible to
-// the C side; the function must therefore live in package main.
-//
-//export goMenuItemClicked
-func goMenuItemClicked(id C.int) {
-	activeMenuHostMu.Lock()
-	h := activeMenuHost
-	activeMenuHostMu.Unlock()
-
-	if h != nil {
-		go h.sendMenuEvent(int32(id))
-	}
-}
-
 // newXembedHost creates an XEmbed tray icon for the given SNI item.
-// xembedTrayAvailable reports whether an XEmbed system tray manager
-// (_NET_SYSTEM_TRAY_S0) currently owns its selection on the default screen.
-// It is a cheap, side-effect-free probe — it only queries the selection
-// owner, creating no windows. Used to decide whether the in-process
-// StatusNotifierWatcher is needed at all: the watcher exists solely to
-// bridge SNI items into an XEmbed tray on minimal WMs, so when no XEmbed
-// tray is present (e.g. Wayland compositors with a real SNI host like
-// Waybar) we must not claim org.kde.StatusNotifierWatcher and shadow the
-// real one. Returns false when there is no X display (pure Wayland).
-func xembedTrayAvailable() bool {
-	dpy := C.XOpenDisplay(nil)
-	if dpy == nil {
-		return false
-	}
-	defer C.XCloseDisplay(dpy)
-	screen := C.xembed_default_screen(dpy)
-	return C.xembed_find_tray(dpy, screen) != 0
-}
-
 // Returns an error if no XEmbed tray manager is available (graceful fallback).
 func newXembedHost(conn *dbus.Conn, busName string, objPath dbus.ObjectPath) (*xembedHost, error) {
 	dpy := C.XOpenDisplay(nil)
@@ -434,6 +398,42 @@ func buildCItems(items []menuItemInfo, allocs *[]unsafe.Pointer) *C.xembed_menu_
 	}
 
 	return (*C.xembed_menu_item)(arr)
+}
+
+// xembedTrayAvailable reports whether an XEmbed system tray manager
+// (_NET_SYSTEM_TRAY_S0) currently owns its selection on the default screen.
+// It is a cheap, side-effect-free probe — it only queries the selection
+// owner, creating no windows. Used to decide whether the in-process
+// StatusNotifierWatcher is needed at all: the watcher exists solely to
+// bridge SNI items into an XEmbed tray on minimal WMs, so when no XEmbed
+// tray is present (e.g. Wayland compositors with a real SNI host like
+// Waybar) we must not claim org.kde.StatusNotifierWatcher and shadow the
+// real one. Returns false when there is no X display (pure Wayland).
+func xembedTrayAvailable() bool {
+	dpy := C.XOpenDisplay(nil)
+	if dpy == nil {
+		return false
+	}
+	defer C.XCloseDisplay(dpy)
+	screen := C.xembed_default_screen(dpy)
+	return C.xembed_find_tray(dpy, screen) != 0
+}
+
+// goMenuItemClicked is the C callback invoked from the GTK main thread
+// when the user activates a popup-menu entry. C callbacks cannot carry
+// Go pointers, so the active xembedHost is looked up through the
+// activeMenuHost global instead. //export makes this symbol visible to
+// the C side; the function must therefore live in package main.
+//
+//export goMenuItemClicked
+func goMenuItemClicked(id C.int) {
+	activeMenuHostMu.Lock()
+	h := activeMenuHost
+	activeMenuHostMu.Unlock()
+
+	if h != nil {
+		go h.sendMenuEvent(int32(id))
+	}
 }
 
 // boolToInt converts a Go bool to the C int the dbusmenu C API uses

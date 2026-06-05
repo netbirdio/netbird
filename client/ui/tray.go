@@ -309,6 +309,13 @@ func (t *Tray) ShowWindow() {
 	if t.window == nil {
 		return
 	}
+	// Route through WindowManager so the main window is centered on its
+	// first show (see WindowManager.ShowMain) — minimal WMs (fluxbox, the
+	// XEmbed tray path) otherwise drop it in the top-left corner.
+	if t.svc.WindowManager != nil {
+		t.svc.WindowManager.ShowMain()
+		return
+	}
 	t.window.Show()
 	t.window.Focus()
 }
@@ -645,4 +652,3 @@ func (t *Tray) notify(title, body, id string) {
 func (t *Tray) notifyError(message string) {
 	t.notify(t.loc.T("notify.error.title"), message, notifyIDTrayError)
 }
-

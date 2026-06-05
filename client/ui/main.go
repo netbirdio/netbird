@@ -149,6 +149,12 @@ func main() {
 	// so they don't linger as hidden windows that Wails's macOS dock-reopen
 	// handler would pop back up.
 	windowManager := services.NewWindowManager(app, window, bundle, prefStore, iconWindow)
+	// On minimal WMs (the in-process XEmbed-tray path) the WM neither centers
+	// small windows nor restores their position across a hide -> show, so the
+	// main/Settings windows would open in the top-left corner. Gate Go-side
+	// re-centering on that environment; nil (full desktops, macOS, Windows)
+	// leaves placement to the WM. See WindowManager.SetRecenterOnShow.
+	windowManager.SetRecenterOnShow(recenterOnShowPredicate())
 	app.RegisterService(application.NewService(windowManager))
 
 	// Welcome / onboarding window. First launch only — the Continue
@@ -323,10 +329,14 @@ func newMainWindow(app *application.App, prefStore *preferences.Store) *applicat
 		initialWidth = 900
 	}
 	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name:                "main",
-		Title:               "NetBird",
-		Width:               initialWidth,
-		Height:              services.WindowHeight,
+		Name:   "main",
+		Title:  "NetBird",
+		Width:  initialWidth,
+		Height: services.WindowHeight,
+		// Center on first show. Full DEs (GNOME/KDE) place small windows
+		// centered by default, but minimal WMs (fluxbox et al, the XEmbed
+		// tray path) drop new windows in the top-left corner unless asked.
+		InitialPosition:     application.WindowCentered,
 		Hidden:              true,
 		BackgroundColour:    services.WindowBackgroundColour,
 		URL:                 "/",

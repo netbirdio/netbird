@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -161,6 +162,17 @@ type WindowManager struct {
 	// the BrowserLogin window closes (success or cancel).
 	hiddenForLogin []application.Window
 	mu             sync.Mutex
+	// recenterOnShow reports whether Go should re-center the Go-shown
+	// windows (main, Settings) on each show. Only true in the minimal-WM /
+	// in-process XEmbed-tray environment, where the WM neither centers small
+	// windows for us nor restores their position across a hide -> show
+	// round-trip. On full desktops (GNOME/KDE) the WM handles placement, so
+	// re-centering is unnecessary and would fight a window the user moved —
+	// there this stays nil and centerWhenReady is a no-op. Set by the Linux
+	// startup path via SetRecenterOnShow; nil on macOS/Windows and in tests.
+	// A predicate (not a bool) because the XEmbed tray can appear after the
+	// UI starts (panel/app login race), so the answer is evaluated per show.
+	recenterOnShow func() bool
 }
 
 // title resolves a window-title i18n key in the user's current language.
@@ -286,6 +298,10 @@ func (s *WindowManager) OpenSettings(tab string) {
 	s.app.Event.Emit(EventSettingsOpen, target)
 	s.settings.Show()
 	s.settings.Focus()
+	// Re-center on every open (minimal-WM only): like the main window,
+	// Settings is hidden (not destroyed) on close, and a hide -> show
+	// round-trip lands it back in the corner there unless re-centered.
+	s.centerWhenReady(s.settings)
 }
 
 // OpenBrowserLogin shows the SSO popup window, creating it on first use (and
@@ -335,7 +351,9 @@ func (s *WindowManager) OpenBrowserLogin(uri string) {
 		// First open: window is Hidden, the React side auto-sizes via
 		// useAutoSizeWindow and calls Window.Show/Focus once content is
 		// measured. Returning here avoids the snap from placeholder to
-		// measured height.
+		// measured height. centerWhenReady polls for that JS-driven show,
+		// so it centers (minimal-WM only) whoever ends up calling Show.
+		s.centerWhenReady(s.browserLogin)
 		return
 	}
 	if uri != "" {
@@ -343,6 +361,7 @@ func (s *WindowManager) OpenBrowserLogin(uri string) {
 	}
 	s.browserLogin.Show()
 	s.browserLogin.Focus()
+	s.centerWhenReady(s.browserLogin)
 }
 
 // hideOtherWindowsLocked hides every currently visible window except the one
@@ -427,10 +446,12 @@ func (s *WindowManager) OpenSessionExpired() {
 			s.sessionExpired = nil
 			s.mu.Unlock()
 		})
+		s.centerWhenReady(s.sessionExpired)
 		return
 	}
 	s.sessionExpired.Show()
 	s.sessionExpired.Focus()
+	s.centerWhenReady(s.sessionExpired)
 }
 
 // CloseSessionExpired destroys the session-expired window if open.
@@ -462,11 +483,13 @@ func (s *WindowManager) OpenSessionAboutToExpire(seconds int) {
 			s.sessionAboutToExpire = nil
 			s.mu.Unlock()
 		})
+		s.centerWhenReady(s.sessionAboutToExpire)
 		return
 	}
 	s.sessionAboutToExpire.SetURL(startURL)
 	s.sessionAboutToExpire.Show()
 	s.sessionAboutToExpire.Focus()
+	s.centerWhenReady(s.sessionAboutToExpire)
 }
 
 // CloseSessionAboutToExpire destroys the countdown warning window if open.
@@ -509,11 +532,13 @@ func (s *WindowManager) OpenInstallProgress(version string) {
 			s.restoreHiddenWindowsLocked()
 			s.mu.Unlock()
 		})
+		s.centerWhenReady(s.installProgress)
 		return
 	}
 	s.installProgress.SetURL(startURL)
 	s.installProgress.Show()
 	s.installProgress.Focus()
+	s.centerWhenReady(s.installProgress)
 }
 
 // CloseInstallProgress destroys the install-progress window if open.
@@ -553,10 +578,12 @@ func (s *WindowManager) OpenWelcome() {
 			s.welcome = nil
 			s.mu.Unlock()
 		})
+		s.centerWhenReady(s.welcome)
 		return
 	}
 	s.welcome.Show()
 	s.welcome.Focus()
+	s.centerWhenReady(s.welcome)
 }
 
 // CloseWelcome destroys the welcome window if open.
@@ -574,9 +601,67 @@ func (s *WindowManager) CloseWelcome() {
 // button to hand off from onboarding to the regular UI without depending
 // on the tray.
 func (s *WindowManager) OpenMain() {
+	s.ShowMain()
+}
+
+// ShowMain brings the main window forward, centering it on each show (see
+// centerWhenReady). The single entry point every surface — tray, SIGUSR1,
+// welcome handoff — should use so the centering fix applies uniformly.
+func (s *WindowManager) ShowMain() {
 	if s.mainWindow == nil {
 		return
 	}
 	s.mainWindow.Show()
 	s.mainWindow.Focus()
+	// Re-center on every show (minimal-WM only — see centerWhenReady). The
+	// window is hidden (not destroyed) on close, and on a hide -> show
+	// round-trip minimal WMs (the XEmbed tray path) re-place it in the
+	// top-left corner rather than restoring its prior position, so
+	// re-opening from the tray lands it in the corner again otherwise.
+	s.centerWhenReady(s.mainWindow)
+}
+
+// SetRecenterOnShow installs the predicate that gates Go-side re-centering of
+// the main and Settings windows (see the recenterOnShow field). The Linux
+// startup path passes xembedTrayAvailable so re-centering happens only in the
+// minimal-WM / in-process-XEmbed-tray environment; macOS/Windows and tests
+// leave it unset, making centerWhenReady a no-op.
+func (s *WindowManager) SetRecenterOnShow(pred func() bool) {
+	s.recenterOnShow = pred
+}
+
+// centerWhenReady centers w once its native window actually exists — but only
+// in environments where the WM won't do it for us (recenterOnShow). On full
+// desktops the WM centers small windows and restores position across hide ->
+// show, so this returns immediately and never fights a user-moved window.
+//
+// Why it can't be a simple inline Center() after Show(): on Linux/GTK4 (Wails'
+// linux_cgo backend) Center() moves the window via raw X11 (window_move_x11),
+// which silently no-ops while the GdkSurface is still nil — and GTK4 realizes
+// the surface asynchronously on the main loop, *after* Show() returns. So an
+// immediate Center() races realization and lands in the top-left corner; the
+// minimal WMs this targets don't re-center for us, so it sticks.
+//
+// It also can't be deferred via InvokeAsync(w.Center): Center() itself hops to
+// the main thread with InvokeSync, so running it *on* the main thread would
+// deadlock. So we drive it from a background goroutine (Center() and Position()
+// are main-thread-safe off-thread for exactly that reason) and retry until the
+// move actually takes effect, which is the unambiguous signal that the surface
+// now exists: position() goes through X11 (window_get_position_x11) and reports
+// (0,0) while the surface is nil — so a non-zero post-Center position means the
+// centering landed. Bounded so a window that legitimately centers at the origin
+// (e.g. fills the monitor) can't spin forever.
+func (s *WindowManager) centerWhenReady(w *application.WebviewWindow) {
+	if w == nil || s.recenterOnShow == nil || !s.recenterOnShow() {
+		return
+	}
+	go func() {
+		for i := 0; i < 50; i++ { // ~1s budget at 20ms steps
+			w.Center()
+			if x, y := w.Position(); x != 0 || y != 0 {
+				return // move took effect -> surface is realized
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}()
 }
