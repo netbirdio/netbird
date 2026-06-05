@@ -64,6 +64,11 @@ func (c *Conn) RemoteAddr() net.Addr {
 	return c.rAddr
 }
 
+// Protocol returns the transport name for this connection.
+func (c *Conn) Protocol() string {
+	return "ws"
+}
+
 func (c *Conn) Close() error {
 	c.closedMu.Lock()
 	c.closed = true
