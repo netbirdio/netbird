@@ -22,7 +22,16 @@ import i18next from "@/lib/i18n";
 // the observer can settle on a stale size before React's commit and the
 // font's glyph metrics finish updating. An explicit double-rAF after the
 // language flip guarantees the final layout is the one we measure.
-export function useAutoSizeWindow<T extends HTMLElement>(width: number) {
+//
+// `ready` (default true) gates Window.SetSize + Window.Show. Pass false
+// while the caller is still resolving its initial content (e.g. waiting
+// on an async probe) so the window stays Hidden instead of briefly
+// rendering placeholder padding at the wrong size — Linux/GNOME in
+// particular paints whatever the frame ends up at, and a transient
+// half-height frame can leak through. Flip ready=true once the real
+// content is in the DOM; the effect re-runs, measures the final size,
+// and shows the window.
+export function useAutoSizeWindow<T extends HTMLElement>(width: number, ready: boolean = true) {
     const ref = useRef<T | null>(null);
     useLayoutEffect(() => {
         const el = ref.current;
@@ -31,6 +40,7 @@ export function useAutoSizeWindow<T extends HTMLElement>(width: number) {
         let raf1 = 0;
         let raf2 = 0;
         const apply = () => {
+            if (!ready) return;
             const h = Math.ceil(el.getBoundingClientRect().height);
             if (h <= 0) return;
             // Wails Window.SetSize takes the *frame* size on every platform
@@ -79,6 +89,6 @@ export function useAutoSizeWindow<T extends HTMLElement>(width: number) {
             cancelAnimationFrame(raf2);
             i18next.off("languageChanged", scheduleApply);
         };
-    }, [width]);
+    }, [width, ready]);
     return ref;
 }

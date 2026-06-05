@@ -51,10 +51,13 @@ type InitialState = {
 };
 
 export default function WelcomeDialog() {
-    const contentRef = useAutoSizeWindow<HTMLDivElement>(WINDOW_WIDTH);
     const [step, setStep] = useState<WelcomeStep>("tray");
     const [initial, setInitial] = useState<InitialState | null>(null);
     const [closing, setClosing] = useState(false);
+    // ready=false until the daemon probe resolves — keeps the window
+    // Hidden so neither the empty padding-only frame (Linux/GNOME paints
+    // through) nor a placeholder div leaks onto screen.
+    const contentRef = useAutoSizeWindow<HTMLDivElement>(WINDOW_WIDTH, initial !== null);
 
     // Probe daemon state on mount: who's the active profile, do they
     // have an email recorded, and what management URL is configured?
@@ -171,11 +174,7 @@ export default function WelcomeDialog() {
 
     const content = useMemo(() => {
         if (!initial) {
-            // Probe in flight — render an empty container so the dialog
-            // window measures something tiny instead of flashing the
-            // tray step before we know whether step 2 applies. The probe
-            // completes within a single tick on a healthy daemon.
-            return <div className={"h-32"} />;
+            return null;
         }
         switch (step) {
             case "tray":
