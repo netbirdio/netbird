@@ -1731,49 +1731,38 @@ func (s *Server) connect(ctx context.Context, config *profilemanager.Config, sta
 	return nil
 }
 
+// MDM authority: when the platform-native MDM source sets a kill switch
+// key (regardless of true/false value), that value wins. The CLI flag
+// supplied at service install time is the fallback used only when the
+// MDM source is silent on the key. This honors the "MDM decides
+// everything" semantic agreed for NET-1214 — an admin pushing
+// disableX=false via MDM explicitly re-enables the feature even on a
+// box installed with --disable-X.
 func (s *Server) checkProfilesDisabled() bool {
-	// CLI flag set at service install time wins.
-	if s.profilesDisabled {
-		return true
-	}
-	// MDM kill switch: either source can disable the feature; neither
-	// can re-enable a switch the other has set.
 	if s.config != nil {
-		if v, ok := s.config.Policy().GetBool(mdm.KeyDisableProfiles); ok && v {
-			return true
+		if v, ok := s.config.Policy().GetBool(mdm.KeyDisableProfiles); ok {
+			return v
 		}
 	}
-	return false
+	return s.profilesDisabled
 }
 
 func (s *Server) checkNetworksDisabled() bool {
-	// CLI flag set at service install time wins.
-	if s.networksDisabled {
-		return true
-	}
-	// MDM kill switch: either source can disable the feature; neither
-	// can re-enable a switch the other has set.
 	if s.config != nil {
-		if v, ok := s.config.Policy().GetBool(mdm.KeyDisableNetworks); ok && v {
-			return true
+		if v, ok := s.config.Policy().GetBool(mdm.KeyDisableNetworks); ok {
+			return v
 		}
 	}
-	return false
+	return s.networksDisabled
 }
 
 func (s *Server) checkUpdateSettingsDisabled() bool {
-	// CLI flag set at service install time wins.
-	if s.updateSettingsDisabled {
-		return true
-	}
-	// MDM kill switch: either source can disable the feature; neither
-	// can re-enable a switch the other has set.
 	if s.config != nil {
-		if v, ok := s.config.Policy().GetBool(mdm.KeyDisableUpdateSettings); ok && v {
-			return true
+		if v, ok := s.config.Policy().GetBool(mdm.KeyDisableUpdateSettings); ok {
+			return v
 		}
 	}
-	return false
+	return s.updateSettingsDisabled
 }
 
 func (s *Server) startUpdateManagerForGUI() {
