@@ -842,6 +842,10 @@ func (s *ProxyServiceServer) SendServiceUpdateToCluster(ctx context.Context, upd
 		Mapping: []*proto.ProxyMapping{update},
 	}
 
+	log.Infof("xxxx Sending service update to cluster %#v", update)
+	log.Infof("xxxx Sending service %s with auth %#v", update.GetDomain(), update.GetAuth())
+	log.Infof("xxxx Sending service %s with access restrictions %#v", update.GetDomain(), update.GetAccessRestrictions())
+
 	if clusterAddr == "" {
 		s.SendServiceUpdate(updateResponse)
 		return
@@ -978,6 +982,7 @@ func shallowCloneMapping(m *proto.ProxyMapping) *proto.ProxyMapping {
 		Mode:               m.Mode,
 		ListenPort:         m.ListenPort,
 		AccessRestrictions: m.AccessRestrictions,
+		Private:            m.Private,
 	}
 }
 
