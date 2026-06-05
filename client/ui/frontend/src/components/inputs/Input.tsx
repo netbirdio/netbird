@@ -1,6 +1,7 @@
 import { cva, VariantProps } from "class-variance-authority";
 import { Check, ChevronDown, ChevronUp, Copy, Eye, EyeOff } from "lucide-react";
 import { forwardRef, InputHTMLAttributes, ReactNode, useId, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/cn";
 import { Label } from "@/components/typography/Label";
 
@@ -71,6 +72,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
     },
     ref,
 ) {
+    const { t } = useTranslation();
     const [showPassword, setShowPassword] = useState(false);
     const [copied, setCopied] = useState(false);
     const isPasswordType = type === "password";
@@ -112,7 +114,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
                 type="button"
                 onClick={() => setShowPassword((s) => !s)}
                 className="hover:text-white transition-all pointer-events-auto"
-                aria-label="Toggle password visibility"
+                aria-label={t("common.togglePasswordVisibility")}
             >
                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
             </button>
@@ -135,7 +137,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
             type="button"
             onClick={onCopy}
             className="hover:text-white transition-all pointer-events-auto"
-            aria-label="Copy"
+            aria-label={t("common.copy")}
         >
             {copied ? <Check size={16} /> : <Copy size={16} />}
         </button>
@@ -226,7 +228,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
                         <button
                             type="button"
                             tabIndex={-1}
-                            aria-label="Increase"
+                            aria-label={t("common.increase")}
                             onClick={() => stepBy(1)}
                             className="flex-1 flex items-center justify-center w-9 hover:bg-nb-gray-800 transition-colors text-nb-gray-300 cursor-default"
                         >
@@ -235,7 +237,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
                         <button
                             type="button"
                             tabIndex={-1}
-                            aria-label="Decrease"
+                            aria-label={t("common.decrease")}
                             onClick={() => stepBy(-1)}
                             className={cn(
                                 "flex-1 flex items-center justify-center w-9 hover:bg-nb-gray-800 transition-colors text-nb-gray-300 cursor-default",

@@ -46,8 +46,8 @@ export function SettingsNetwork() {
                 <FancyToggleSwitch
                     value={!config.disableIpv6}
                     onChange={(v) => setField("disableIpv6", !v)}
-                    label={"Enable IPv6"}
-                    helpText={"Use IPv6 addressing for the NetBird overlay network."}
+                    label={t("settings.network.ipv6.label")}
+                    helpText={t("settings.network.ipv6.help")}
                 />
             </SectionGroup>
         </>
