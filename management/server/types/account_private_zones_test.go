@@ -362,3 +362,72 @@ func TestSynthesizePrivateServiceZones_TwoServicesSameCluster_OneZone(t *testing
 	names := []string{zones[0].Records[0].Name, zones[0].Records[1].Name}
 	assert.ElementsMatch(t, []string{"myapp.eu.proxy.netbird.io.", "anotherapp.eu.proxy.netbird.io."}, names, "both service domains must surface")
 }
+
+func TestSynthesizePrivateServiceZones_MixedClusterCustomAndPublic(t *testing.T) {
+	account := privateZoneTestAccount(t)
+	account.Domains = []*proxydomain.Domain{
+		{Domain: "example.com", AccountID: "acct-1", TargetCluster: "eu.proxy.netbird.io", Validated: true},
+	}
+
+	privateService := func(id, domain string) *service.Service {
+		return &service.Service{
+			ID:           id,
+			AccountID:    "acct-1",
+			Name:         id,
+			Domain:       domain,
+			ProxyCluster: "eu.proxy.netbird.io",
+			Enabled:      true,
+			Private:      true,
+			Mode:         service.ModeHTTP,
+			AccessGroups: []string{"grp-admins"},
+		}
+	}
+	publicService := func(id, domain string) *service.Service {
+		s := privateService(id, domain)
+		s.Private = false
+		return s
+	}
+
+	account.Services = []*service.Service{
+		// 3 private services under the cluster suffix.
+		privateService("cluster-1", "cluster1.eu.proxy.netbird.io"),
+		privateService("cluster-2", "cluster2.eu.proxy.netbird.io"),
+		privateService("cluster-3", "cluster3.eu.proxy.netbird.io"),
+		// 4 private services under the custom domain suffix.
+		privateService("custom-1", "custom1.example.com"),
+		privateService("custom-2", "custom2.example.com"),
+		privateService("custom-3", "custom3.example.com"),
+		privateService("custom-4", "custom4.example.com"),
+		// 2 public services, one per suffix, must not surface.
+		publicService("public-cluster", "public.eu.proxy.netbird.io"),
+		publicService("public-custom", "public.example.com"),
+	}
+
+	zones := account.SynthesizePrivateServiceZones("user-peer")
+	require.Len(t, zones, 2, "one zone per apex: the cluster apex and the custom domain apex")
+
+	cluster, ok := findCustomZone(zones, "eu.proxy.netbird.io")
+	require.True(t, ok, "cluster-suffix services collapse into the cluster-apex zone")
+	clusterNames := recordNames(cluster)
+	assert.ElementsMatch(t,
+		[]string{"cluster1.eu.proxy.netbird.io.", "cluster2.eu.proxy.netbird.io.", "cluster3.eu.proxy.netbird.io."},
+		clusterNames,
+		"only the 3 private cluster services surface in the cluster zone (public one excluded)")
+
+	custom, ok := findCustomZone(zones, "example.com")
+	require.True(t, ok, "custom-suffix services collapse into the custom-domain-apex zone")
+	customNames := recordNames(custom)
+	assert.ElementsMatch(t,
+		[]string{"custom1.example.com.", "custom2.example.com.", "custom3.example.com.", "custom4.example.com."},
+		customNames,
+		"only the 4 private custom services surface in the custom zone (public one excluded)")
+}
+
+// recordNames returns the record names of a zone for order-independent assertions.
+func recordNames(zone nbdns.CustomZone) []string {
+	names := make([]string, 0, len(zone.Records))
+	for _, r := range zone.Records {
+		names = append(names, r.Name)
+	}
+	return names
+}
