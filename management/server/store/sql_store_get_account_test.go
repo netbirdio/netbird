@@ -46,8 +46,8 @@ func TestPostgresql_GetAccount_LoadsCustomDomains(t *testing.T) {
 
 	t.Setenv("NETBIRD_STORE_ENGINE", string(types.PostgresStoreEngine))
 	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
-	t.Cleanup(cleanup)
 	require.NoError(t, err)
+	t.Cleanup(cleanup)
 
 	assertGetAccountLoadsCustomDomains(t, store)
 }
