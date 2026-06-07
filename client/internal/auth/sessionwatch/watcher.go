@@ -287,12 +287,16 @@ func (w *Watcher) stopTimerLocked() {
 }
 
 func (w *Watcher) armTimerLocked(deadline time.Time) {
-	w.timer = armOneShotLocked(deadline.Add(-w.lead), func() { w.fire(deadline) })
+	fireAt := deadline.Add(-w.lead)
+	log.Debugf("sessionwatch: arming warning timer at %s (in %s)", fireAt.Format(time.RFC3339), time.Until(fireAt).Round(time.Second))
+	w.timer = armOneShotLocked(fireAt, func() { w.fire(deadline) })
 	// finalLead <= 0 disables the final-warning timer entirely. Used by
 	// tests that predate the final-warning fallback so a millisecond-scale
 	// deadline does not flush both timers at once.
 	if w.finalLead > 0 {
-		w.finalTimer = armOneShotLocked(deadline.Add(-w.finalLead), func() { w.fireFinal(deadline) })
+		finalFireAt := deadline.Add(-w.finalLead)
+		log.Debugf("sessionwatch: arming final-warning timer at %s (in %s)", finalFireAt.Format(time.RFC3339), time.Until(finalFireAt).Round(time.Second))
+		w.finalTimer = armOneShotLocked(finalFireAt, func() { w.fireFinal(deadline) })
 	}
 }
 
