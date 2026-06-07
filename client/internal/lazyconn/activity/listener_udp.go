@@ -67,8 +67,10 @@ func (d *UDPListener) ReadPackets() {
 	}
 
 	d.peerCfg.Log.Debugf("removing lazy endpoint: %s", d.endpoint.String())
-	if err := d.wgIface.RemovePeer(d.peerCfg.PublicKey); err != nil {
-		d.peerCfg.Log.Errorf("failed to remove endpoint: %s", err)
+	if !d.wgIface.IsUserspaceBind() {
+		if err := d.wgIface.RemovePeer(d.peerCfg.PublicKey); err != nil {
+			d.peerCfg.Log.Errorf("failed to remove endpoint: %s", err)
+		}
 	}
 
 	// Ignore close error as it may return "use of closed network connection" if already closed.
