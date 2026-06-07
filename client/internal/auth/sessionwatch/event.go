@@ -33,13 +33,6 @@ const (
 	// for the T-10 event, FinalWarningLead for the T-2 event) so the UI
 	// can show "expires in ~N minutes" without hardcoding either constant.
 	MetaSessionLeadMinutes = "lead_minutes"
-	// MetaSessionDeadlineRejected is set to the rejection reason when the
-	// daemon discards a deadline received from the management server (e.g.
-	// pre-epoch, too far in the future, or past the clock-skew tolerance).
-	// The UI uses this key to detect the event and display a localized
-	// message; userMessage is intentionally left empty for the same reason
-	// as the warning events above.
-	MetaSessionDeadlineRejected = "session_deadline_rejected"
 )
 
 // expiresAtLayout is the wire format used for MetaSessionExpiresAt.

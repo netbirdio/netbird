@@ -10,7 +10,6 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	cProto "github.com/netbirdio/netbird/client/proto"
-	"github.com/netbirdio/netbird/client/internal/auth/sessionwatch"
 	"github.com/netbirdio/netbird/client/system"
 )
 
@@ -57,8 +56,8 @@ func (e *Engine) ApplySessionDeadline(ts *timestamppb.Timestamp) {
 			cProto.SystemEvent_ERROR,
 			cProto.SystemEvent_AUTHENTICATION,
 			"session deadline rejected",
-			"",
-			map[string]string{sessionwatch.MetaSessionDeadlineRejected: err.Error()},
+			"The session expiry time from the server could not be applied. Re-login may be required.",
+			map[string]string{"reason": err.Error()},
 		)
 	}
 }
