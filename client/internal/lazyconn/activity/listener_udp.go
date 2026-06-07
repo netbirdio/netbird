@@ -67,6 +67,9 @@ func (d *UDPListener) ReadPackets() {
 	}
 
 	d.peerCfg.Log.Debugf("removing lazy endpoint: %s", d.endpoint.String())
+	// In kernel mode, RemovePeer is required to force a new handshake initiation on the real endpoint.
+	// In userspace mode, the WireGuard-go patch triggers SendStagedPackets via IpcSet/handlePostConfig
+	// when UpdatePeer is called after ICE/relay negotiation, so the removal is not needed.
 	if !d.wgIface.IsUserspaceBind() {
 		if err := d.wgIface.RemovePeer(d.peerCfg.PublicKey); err != nil {
 			d.peerCfg.Log.Errorf("failed to remove endpoint: %s", err)
