@@ -5,11 +5,7 @@ import { EmptyState } from "./EmptyState";
 export const NotConnectedState = () => {
     const { t } = useTranslation();
     return (
-        <div
-            className={
-                "h-full flex-1 flex items-start justify-center pt-36 top-[0.6rem] px-6 relative"
-            }
-        >
+        <div className={"relative w-full top-[3rem]"}>
             <EmptyState
                 icon={GlobeOffIcon}
                 title={t("notConnected.title")}
