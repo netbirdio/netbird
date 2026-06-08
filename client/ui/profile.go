@@ -66,7 +66,7 @@ func (s *serviceClient) showProfilesUI() {
 			} else {
 				indicator.SetText("")
 			}
-			nameLabel.SetText(profile.Name)
+			nameLabel.SetText(formatProfileLabel(profile, profiles))
 
 			// Configure Select/Active button
 			selectBtn.SetText(func() string {
@@ -304,6 +304,22 @@ type Profile struct {
 	IsActive bool
 }
 
+// formatProfileLabel returns the display label for a profile. Profiles can
+// share the same Name, so when more than one profile in profiles carries this
+// Name, a short form of the ID is appended to disambiguate the entries.
+func formatProfileLabel(profile Profile, profiles []Profile) string {
+	count := 0
+	for _, p := range profiles {
+		if p.Name == profile.Name {
+			count++
+		}
+	}
+	if count <= 1 {
+		return profile.Name
+	}
+	return fmt.Sprintf("%s (%s)", profile.Name, profilemanager.ID(profile.ID).ShortID())
+}
+
 func (s *serviceClient) getProfiles() ([]Profile, error) {
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
@@ -517,7 +533,7 @@ func (p *profileMenu) refresh() {
 	}
 
 	for _, profile := range profiles {
-		item := p.profileMenuItem.AddSubMenuItem(profile.Name, "")
+		item := p.profileMenuItem.AddSubMenuItem(formatProfileLabel(profile, profiles), "")
 		if profile.IsActive {
 			item.Check()
 		}
@@ -700,7 +716,10 @@ func (p *profileMenu) updateMenu() {
 			}
 
 			sort.Slice(profiles, func(i, j int) bool {
-				return profiles[i].Name < profiles[j].Name
+				if profiles[i].Name != profiles[j].Name {
+					return profiles[i].Name < profiles[j].Name
+				}
+				return profiles[i].ID < profiles[j].ID
 			})
 
 			p.mu.Lock()
