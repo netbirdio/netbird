@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"runtime"
+	"slices"
 	"sync"
 	"time"
 
@@ -136,6 +137,46 @@ type Conn struct {
 	// Connection stage timestamps for metrics
 	metricsRecorder MetricsRecorder
 	metricsStages   *MetricsStages
+
+	// pendingFirstPacket is the lazyconn-captured handshake init, replayed once the real
+	// transport is up.
+	pendingFirstPacket []byte
+}
+
+// SetPendingFirstPacket stashes a packet to be replayed once the connection is established.
+func (conn *Conn) SetPendingFirstPacket(b []byte) {
+	conn.mu.Lock()
+	conn.pendingFirstPacket = slices.Clone(b)
+	conn.mu.Unlock()
+}
+
+// injectPendingFirstPacket replays the captured handshake through the proxy if present, else
+// directly through the ICE conn. The packet is cleared only after a successful write, so a failed
+// or transport-less attempt leaves it available for a later reinjection. Caller must hold conn.mu.
+func (conn *Conn) injectPendingFirstPacket(proxy wgproxy.Proxy, directConn net.Conn) {
+	pkt := conn.pendingFirstPacket
+	if len(pkt) == 0 {
+		return
+	}
+
+	switch {
+	case proxy != nil:
+		if err := proxy.InjectPacket(pkt); err != nil {
+			conn.Log.Debugf("failed to reinject captured first packet via proxy: %v", err)
+			return
+		}
+	case directConn != nil:
+		if _, err := directConn.Write(pkt); err != nil {
+			conn.Log.Debugf("failed to reinject captured first packet via direct conn: %v", err)
+			return
+		}
+	default:
+		conn.Log.Debugf("no transport available to reinject captured first packet")
+		return
+	}
+
+	conn.pendingFirstPacket = nil
+	conn.Log.Debugf("reinjected captured first packet (%d bytes)", len(pkt))
 }
 
 // NewConn creates a new not opened Conn to the remote peer.
@@ -423,6 +464,8 @@ func (conn *Conn) onICEConnectionIsReady(priority conntype.ConnPriority, iceConn
 		conn.wgProxyRelay.RedirectAs(ep)
 	}
 
+	conn.injectPendingFirstPacket(wgProxy, iceConnInfo.RemoteConn)
+
 	conn.currentConnPriority = priority
 	conn.statusICE.SetConnected()
 	conn.updateIceState(iceConnInfo, updateTime)
@@ -545,6 +588,8 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	}
 
 	wgConfigWorkaround()
+
+	conn.injectPendingFirstPacket(wgProxy, nil)
 
 	conn.rosenpassRemoteKey = rci.rosenpassPubKey
 	conn.currentConnPriority = conntype.Relay

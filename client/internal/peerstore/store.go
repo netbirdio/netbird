@@ -81,6 +81,12 @@ func (s *Store) PeerConn(pubKey string) (*peer.Conn, bool) {
 }
 
 func (s *Store) PeerConnOpen(ctx context.Context, pubKey string) {
+	s.PeerConnOpenWithFirstPacket(ctx, pubKey, nil)
+}
+
+// PeerConnOpenWithFirstPacket opens the peer connection and stashes a first packet to be
+// reinjected once the real transport is established.
+func (s *Store) PeerConnOpenWithFirstPacket(ctx context.Context, pubKey string, firstPacket []byte) {
 	s.peerConnsMu.RLock()
 	defer s.peerConnsMu.RUnlock()
 
@@ -88,11 +94,15 @@ func (s *Store) PeerConnOpen(ctx context.Context, pubKey string) {
 	if !ok {
 		return
 	}
+	if len(firstPacket) > 0 {
+		p.SetPendingFirstPacket(firstPacket)
+	}
 	// this can be blocked because of the connect open limiter semaphore
 	if err := p.Open(ctx); err != nil {
 		p.Log.Errorf("failed to open peer connection: %v", err)
+		// Drop the stashed packet so a later open does not replay a stale handshake.
+		p.SetPendingFirstPacket(nil)
 	}
-
 }
 
 func (s *Store) PeerConnIdle(pubKey string) {

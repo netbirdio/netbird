@@ -224,6 +224,10 @@ func (m *MockWGIface) LastActivities() map[string]monotime.Time {
 	return nil
 }
 
+func (m *MockWGIface) MTU() uint16 {
+	return 1280
+}
+
 func (m *MockWGIface) SetPresharedKey(peerKey string, psk wgtypes.Key, updateOnly bool) error {
 	return nil
 }

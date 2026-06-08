@@ -4,15 +4,22 @@ import (
 	"context"
 	"io"
 	"net"
+	"slices"
+	"sync"
 	"time"
 )
 
 // lazyConn detects activity when WireGuard attempts to send packets.
-// It does not deliver packets, only signals that activity occurred.
+// It does not deliver packets, only signals that activity occurred. The first packet WG-go writes
+// is captured so the lazyconn manager can reinject it through the real bind endpoint, avoiding the
+// handshake-retry wait when the real connection comes up.
 type lazyConn struct {
 	activityCh chan struct{}
 	ctx        context.Context
 	cancel     context.CancelFunc
+
+	mu             sync.Mutex
+	capturedPacket []byte
 }
 
 // newLazyConn creates a new lazyConn for activity detection.
@@ -31,11 +38,18 @@ func (c *lazyConn) Read(_ []byte) (n int, err error) {
 	return 0, io.EOF
 }
 
-// Write signals activity detection when ICEBind routes packets to this endpoint.
+// Write signals activity detection when ICEBind routes packets to this endpoint. The first packet
+// is cloned and stored so it can be replayed on the real endpoint once ICE/relay comes up.
 func (c *lazyConn) Write(b []byte) (n int, err error) {
 	if c.ctx.Err() != nil {
 		return 0, io.EOF
 	}
+
+	c.mu.Lock()
+	if c.capturedPacket == nil && len(b) > 0 {
+		c.capturedPacket = slices.Clone(b)
+	}
+	c.mu.Unlock()
 
 	select {
 	case c.activityCh <- struct{}{}:
@@ -43,6 +57,14 @@ func (c *lazyConn) Write(b []byte) (n int, err error) {
 	}
 
 	return len(b), nil
+}
+
+// CapturedPacket returns the first packet written to this connection, or nil. The slice aliases
+// the internal buffer, which is written once and never mutated, so the caller must not modify it.
+func (c *lazyConn) CapturedPacket() []byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.capturedPacket
 }
 
 // ActivityChan returns the channel that signals when activity is detected.

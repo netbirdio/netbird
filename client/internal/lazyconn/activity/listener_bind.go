@@ -118,10 +118,21 @@ func (d *BindListener) ReadPackets() {
 		d.peerCfg.Log.Infof("exit from activity listener")
 	}
 
-	d.peerCfg.Log.Debugf("removing lazy endpoint for peer %s", d.peerCfg.PublicKey)
+	// Leave the peer in place. ConfigureWGEndpoint will UpdatePeer with the real endpoint;
+	// removing the peer here wipes wireguard-go's staged queue and drops the user packet that
+	// triggered activation.
 	_ = d.lazyConn.Close()
 	d.bind.RemoveEndpoint(d.fakeIP)
 	d.done.Done()
+}
+
+// CapturedPacket returns the first packet that triggered activity, or nil if none was captured.
+// Safe to call after ReadPackets returns.
+func (d *BindListener) CapturedPacket() []byte {
+	if d.lazyConn == nil {
+		return nil
+	}
+	return d.lazyConn.CapturedPacket()
 }
 
 // Close stops the listener and cleans up resources.

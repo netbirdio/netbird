@@ -1,6 +1,7 @@
 package activity
 
 import (
+	"bytes"
 	"net"
 	"net/netip"
 	"testing"
@@ -42,6 +43,10 @@ func (m MocWGIface) Address() wgaddr.Address {
 		IP:      netip.MustParseAddr("100.64.0.1"),
 		Network: netip.MustParsePrefix("100.64.0.0/16"),
 	}
+}
+
+func (m MocWGIface) MTU() uint16 {
+	return 1280
 }
 
 // GetPeerListener is a test helper to access listeners
@@ -86,11 +91,15 @@ func TestManager_MonitorPeerActivity(t *testing.T) {
 	}
 
 	select {
-	case peerConnID := <-mgr.OnActivityChan:
-		if peerConnID != peerCfg1.PeerConnID {
-			t.Fatalf("unexpected peerConnID: %v", peerConnID)
+	case ev := <-mgr.OnActivityChan:
+		if ev.PeerConnID != peerCfg1.PeerConnID {
+			t.Fatalf("unexpected peerConnID: %v", ev.PeerConnID)
+		}
+		if !bytes.Equal(ev.FirstPacket, []byte{0x01, 0x02, 0x03, 0x04, 0x05}) {
+			t.Fatalf("unexpected first packet: %v", ev.FirstPacket)
 		}
 	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for activity")
 	}
 }
 

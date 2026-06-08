@@ -18,4 +18,8 @@ type Proxy interface {
 	RedirectAs(endpoint *net.UDPAddr)
 	CloseConn() error
 	SetDisconnectListener(disconnected func())
+
+	// InjectPacket writes a raw packet directly to the remote peer over the underlying transport,
+	// bypassing WireGuard. Used to replay the captured lazyconn handshake initiation.
+	InjectPacket(b []byte) error
 }
