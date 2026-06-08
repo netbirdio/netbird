@@ -182,6 +182,10 @@ type NetBird struct {
 	// (i.e. when a new client was actually created, not when an existing one
 	// was reused). The duration covers keygen + gRPC CreateProxyPeer + embed.New.
 	OnAddPeer func(d time.Duration, err error)
+
+	// startClient runs the post-create client startup. Nil uses runClientStartup;
+	// tests override it to avoid a real embed client.Start.
+	startClient func(accountID types.AccountID, client *embed.Client)
 }
 
 // ClientDebugInfo contains debug information about a client.
@@ -211,28 +215,15 @@ func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, key Se
 
 	lifecycle := n.accountLifecycle(accountID)
 	lifecycle.Lock()
-
-	entry, err := n.createClientLocked(ctx, accountID, key, authToken, si)
-	if entry == nil || err != nil {
-		lifecycle.Unlock()
-		return err
-	}
-
-	go func() {
-		defer lifecycle.Unlock()
-		n.runClientStartup(accountID, entry.client)
+	transferred := false
+	defer func() {
+		if !transferred {
+			lifecycle.Unlock()
+		}
 	}()
 
-	return nil
-}
-
-// createClientLocked re-checks for a concurrently-created client and creates a
-// new one. The caller must hold the account's lifecycle lock. A nil entry means
-// another caller won the race and the service was registered against the
-// existing client.
-func (n *NetBird) createClientLocked(ctx context.Context, accountID types.AccountID, key ServiceKey, authToken string, si serviceInfo) (*clientEntry, error) {
 	if n.registerExistingClient(accountID, key, si) {
-		return nil, nil
+		return nil
 	}
 
 	createStart := time.Now()
@@ -241,7 +232,7 @@ func (n *NetBird) createClientLocked(ctx context.Context, accountID types.Accoun
 		n.OnAddPeer(time.Since(createStart), err)
 	}
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	n.clientsMux.Lock()
@@ -253,7 +244,21 @@ func (n *NetBird) createClientLocked(ctx context.Context, accountID types.Accoun
 		"service_key": key,
 	}).Info("created new client for account")
 
-	return entry, nil
+	transferred = true
+	go func() {
+		defer lifecycle.Unlock()
+		n.startClientStartup(accountID, entry.client)
+	}()
+
+	return nil
+}
+
+func (n *NetBird) startClientStartup(accountID types.AccountID, client *embed.Client) {
+	if n.startClient != nil {
+		n.startClient(accountID, client)
+		return
+	}
+	n.runClientStartup(accountID, client)
 }
 
 // registerExistingClient registers the service against an already-present

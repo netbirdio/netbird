@@ -65,11 +65,15 @@ func (m *mockStatusNotifier) calls() []statusCall {
 // mockNetBird creates a NetBird instance for testing without actually connecting.
 // It uses an invalid management URL to prevent real connections.
 func mockNetBird() *NetBird {
-	return NewNetBird(context.Background(), "test-proxy", "invalid.test", ClientConfig{
+	nb := NewNetBird(context.Background(), "test-proxy", "invalid.test", ClientConfig{
 		MgmtAddr:     "http://invalid.test:9999",
 		WGPort:       0,
 		PreSharedKey: "",
 	}, nil, nil, &mockMgmtClient{})
+	// Skip the real embed client.Start, which would hang against the unreachable
+	// mgmt URL and (now that the lifecycle lock spans startup) serialise removes.
+	nb.startClient = func(types.AccountID, *embed.Client) {}
+	return nb
 }
 
 func TestNetBird_AddPeer_CreatesClientForNewAccount(t *testing.T) {
@@ -301,6 +305,7 @@ func TestNetBird_AddPeer_ExistingStartedClient_NotifiesStatus(t *testing.T) {
 		WGPort:       0,
 		PreSharedKey: "",
 	}, nil, notifier, &mockMgmtClient{})
+	nb.startClient = func(types.AccountID, *embed.Client) {}
 	accountID := types.AccountID("account-1")
 
 	// Add first service — creates a new client entry.
@@ -445,6 +450,7 @@ func TestNetBird_AddPeer_WaitsForTeardown(t *testing.T) {
 	nb := NewNetBird(context.Background(), "test-proxy", "invalid.test", ClientConfig{
 		MgmtAddr: "http://invalid.test:9999",
 	}, nil, &mockStatusNotifier{}, &mockMgmtClient{})
+	nb.startClient = func(types.AccountID, *embed.Client) {}
 
 	accountID := types.AccountID("acct-serialize")
 	key := DomainServiceKey("svc.example")
