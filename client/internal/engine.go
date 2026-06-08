@@ -914,13 +914,15 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		// todo update signal
 	}
 
-	if err := e.updateChecksIfNew(update.Checks); err != nil {
-		return err
-	}
-
 	nm := update.GetNetworkMap()
 	if nm == nil {
+		// config-only update (e.g. relay token rotation): posture checks and network map are intentionally absent,
+		// preserving the previously applied state
 		return nil
+	}
+
+	if err := e.updateChecksIfNew(update.Checks); err != nil {
+		return err
 	}
 
 	// Persist sync response under the dedicated lock (syncRespMux), not under syncMsgMux.
