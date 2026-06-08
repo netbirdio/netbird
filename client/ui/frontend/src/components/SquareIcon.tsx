@@ -25,7 +25,7 @@ type SquareIconProps = {
 
 export const SquareIcon = ({
     icon: Icon,
-    iconSize = 20,
+    iconSize = 18,
     variant = "default",
     className,
 }: SquareIconProps) => (

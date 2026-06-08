@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { useTranslation } from "react-i18next";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
-import { GlobeIcon, type LucideProps, NetworkIcon, WorkflowIcon } from "lucide-react";
+import { GlobeIcon, Layers3Icon, type LucideProps, NetworkIcon, WorkflowIcon } from "lucide-react";
 import type { Network } from "@bindings/services/models.js";
 import { cn } from "@/lib/cn";
 import { CopyToClipboard } from "@/components/CopyToClipboard";
@@ -143,19 +143,11 @@ export const Networks = () => {
 
     if (isConnected && networkRoutes.length === 0) {
         return (
-            <div
-                className={
-                    "flex-1 flex items-center justify-center px-6 pb-20 w-full h-full min-h-0"
-                }
-            >
-                <EmptyState
-                    icon={NetworkIcon}
-                    title={t("networks.empty.title")}
-                    description={t("networks.empty.description")}
-                    learnMoreUrl={"https://docs.netbird.io/how-to/networks"}
-                    learnMoreTopic={t("nav.resources.title")}
-                />
-            </div>
+            <EmptyState
+                icon={Layers3Icon}
+                title={t("networks.empty.title")}
+                description={t("networks.empty.description")}
+            />
         );
     }
 
