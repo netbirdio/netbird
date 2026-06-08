@@ -346,6 +346,7 @@
     "window.title.sessionExpiring": "Sitzung läuft ab",
     "window.title.updating": "Aktualisierung",
     "window.title.welcome": "Willkommen bei NetBird",
+    "window.title.error": "Fehler",
 
     "welcome.title": "Suchen Sie NetBird in der Taskleiste",
     "welcome.description": "NetBird läuft in Ihrer Taskleiste. Klicken Sie auf das Symbol, um sich zu verbinden, Profile zu wechseln oder die Einstellungen zu öffnen.",
@@ -450,5 +451,5 @@
     "error.invalid_setup_key": "Der Setup-Schlüssel fehlt oder ist ungültig.",
     "error.permission_denied": "Die Anmeldung wurde vom Server abgelehnt.",
     "error.daemon_unreachable": "Der NetBird-Dienst antwortet nicht. Bitte prüfen Sie, ob der Dienst läuft.",
-    "error.unknown": "Vorgang fehlgeschlagen. Technische Details siehe unten."
+    "error.unknown": "Vorgang fehlgeschlagen."
 }

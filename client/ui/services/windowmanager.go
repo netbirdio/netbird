@@ -156,6 +156,7 @@ type WindowManager struct {
 	sessionAboutToExpire *application.WebviewWindow
 	installProgress      *application.WebviewWindow
 	welcome              *application.WebviewWindow
+	errorDialog          *application.WebviewWindow
 	// hiddenForLogin remembers windows that were visible when the
 	// BrowserLogin popup opened. They were Hide()n to keep focus on the
 	// SSO flow without resorting to AlwaysOnTop, and are restored when
@@ -271,6 +272,7 @@ func (s *WindowManager) retitleAll() {
 		{s.sessionAboutToExpire, "window.title.sessionExpiring"},
 		{s.installProgress, "window.title.updating"},
 		{s.welcome, "window.title.welcome"},
+		{s.errorDialog, "window.title.error"},
 	}
 	s.mu.Unlock()
 	for _, p := range wins {
@@ -591,6 +593,72 @@ func (s *WindowManager) CloseWelcome() {
 	s.mu.Lock()
 	w := s.welcome
 	s.welcome = nil
+	s.mu.Unlock()
+	if w != nil {
+		w.Close()
+	}
+}
+
+// OpenError shows a custom error dialog window above all other application
+// windows. The window's chrome title is always the generic localised "Error";
+// `title` is the error's name (e.g. a login failure passes the translated
+// "Login Failed") and is rendered as the dialog heading in the body, while
+// `message` is the body text below it. The caller is responsible for localising
+// both. title + message are carried in the window's start URL so the page reads
+// them via useSearchParams; if the window is already open it is steered to the
+// new content via SetURL so a second error replaces the first instead of
+// stacking another window. Singleton — destroyed on close. Created Hidden so
+// the React side can auto-size to the (variable-length) message before paint.
+//
+// This is the in-window alternative to the native errorDialog wrapper: it
+// keeps the frameless NetBird chrome and survives the Windows-MessageBox
+// parent-disable race that the native path has to detach around.
+func (s *WindowManager) OpenError(title, message string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	startURL := errorDialogURL(title, message)
+	if s.errorDialog == nil {
+		s.errorDialog = s.app.Window.NewWithOptions(
+			DialogWindowOptions("error", s.title("window.title.error"), startURL, s.linuxIcon),
+		)
+		s.errorDialog.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
+			s.mu.Lock()
+			s.errorDialog = nil
+			s.mu.Unlock()
+		})
+		s.centerWhenReady(s.errorDialog)
+		return
+	}
+	s.errorDialog.SetURL(startURL)
+	s.errorDialog.Show()
+	s.errorDialog.Focus()
+	s.centerWhenReady(s.errorDialog)
+}
+
+// errorDialogURL builds the hash-route start URL for the error window with the
+// title (rendered as the body heading) and message carried as query params.
+// Both are query-escaped so newlines, ampersands, and other characters common
+// in formatted daemon errors survive the round-trip into useSearchParams.
+func errorDialogURL(title, message string) string {
+	q := url.Values{}
+	if title != "" {
+		q.Set("title", title)
+	}
+	if message != "" {
+		q.Set("message", message)
+	}
+	startURL := "/#/dialog/error"
+	if enc := q.Encode(); enc != "" {
+		startURL += "?" + enc
+	}
+	return startURL
+}
+
+// CloseError destroys the error dialog window if open.
+func (s *WindowManager) CloseError() {
+	s.mu.Lock()
+	w := s.errorDialog
+	s.errorDialog = nil
 	s.mu.Unlock()
 	if w != nil {
 		w.Close()

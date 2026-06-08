@@ -348,6 +348,7 @@
     "window.title.sessionExpiring": "Session Expiring",
     "window.title.updating": "Updating",
     "window.title.welcome": "Welcome to NetBird",
+    "window.title.error": "Error",
 
     "welcome.title": "Look for NetBird in your tray",
     "welcome.description": "NetBird lives in your tray. Click the icon to connect, switch profiles, or open settings.",
@@ -452,5 +453,5 @@
     "error.invalid_setup_key": "The setup key is missing or invalid.",
     "error.permission_denied": "Sign-in was rejected by the server.",
     "error.daemon_unreachable": "The NetBird daemon is not responding. Please check that the service is running.",
-    "error.unknown": "Operation failed. See details for the technical message."
+    "error.unknown": "Operation failed."
 }

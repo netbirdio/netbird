@@ -2,7 +2,7 @@ import { createContext, ReactNode, useCallback, useContext, useRef, useState } f
 import { ConfirmModal } from "@/components/dialog/ConfirmModal";
 
 // DialogContext exposes an imperative `confirm(...)` that resolves to a
-// boolean — the in-app equivalent of the native warningDialog promise. The
+// boolean — the in-app equivalent of a native confirmation dialog. The
 // single <ConfirmModal/> lives here at the provider level, so call sites
 // just `await confirm({...})` instead of each wiring up their own modal
 // component + open/busy state.

@@ -43,7 +43,7 @@ export const formatErrorMessage = (e: unknown): string => {
         const short = typeof ce.short === "string" ? ce.short : "";
         const long = typeof ce.long === "string" ? ce.long : "";
         if (short && long && long !== short) {
-            return `${short}\n\nDetails: ${long}`;
+            return `${short} Details: ${long}`;
         }
         if (short) return short;
     }

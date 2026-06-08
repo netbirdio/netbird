@@ -6,6 +6,7 @@ import SessionExpiredDialog from "@/modules/session/SessionExpiredDialog.tsx";
 import SessionAboutToExpireDialog from "@/modules/session/SessionAboutToExpireDialog.tsx";
 import UpdateInProgressDialog from "@/modules/auto-update/UpdateInProgressDialog.tsx";
 import WelcomeDialog from "@/modules/welcome/WelcomeDialog.tsx";
+import ErrorDialog from "@/modules/error/ErrorDialog.tsx";
 import { AppLayout } from "@/layouts/AppLayout.tsx";
 import { MainPage } from "@/modules/main/MainPage.tsx";
 import { SettingsPage } from "@/modules/settings/SettingsPage.tsx";
@@ -41,6 +42,7 @@ Promise.all([
                             <Route path="session-expired" element={<SessionExpiredDialog />} />
                             <Route path="session-about-to-expire" element={<SessionAboutToExpireDialog />} />
                             <Route path="welcome" element={<WelcomeDialog />} />
+                            <Route path="error" element={<ErrorDialog />} />
                         </Route>
                         <Route element={<AppLayout />}>
                             <Route index element={<MainPage />} />

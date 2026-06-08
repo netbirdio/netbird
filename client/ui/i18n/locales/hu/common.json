@@ -346,6 +346,7 @@
     "window.title.sessionExpiring": "Munkamenet lejár",
     "window.title.updating": "Frissítés",
     "window.title.welcome": "Üdvözli a NetBird",
+    "window.title.error": "Hiba",
 
     "welcome.title": "Keresse a NetBirdöt a tálcán",
     "welcome.description": "A NetBird a tálcán fut. Kattintson az ikonra a csatlakozáshoz, profilváltáshoz vagy a beállítások megnyitásához.",
@@ -450,5 +451,5 @@
     "error.invalid_setup_key": "A telepítési kulcs hiányzik vagy érvénytelen.",
     "error.permission_denied": "A szerver elutasította a bejelentkezést.",
     "error.daemon_unreachable": "A NetBird szolgáltatás nem válaszol. Kérjük, ellenőrizze, hogy fut-e a szolgáltatás.",
-    "error.unknown": "A művelet meghiúsult. A technikai részleteket a Details mezőben találja."
+    "error.unknown": "A művelet meghiúsult."
 }

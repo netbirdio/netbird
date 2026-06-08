@@ -166,7 +166,11 @@ Typical enforced-update flow on the `/update` route: call `Trigger` once, then p
 WindowManager.OpenSettings(): Promise<void>
 WindowManager.OpenBrowserLogin(uri: string): Promise<void>   // uri appended as ?uri=…
 WindowManager.CloseBrowserLogin(): Promise<void>
+WindowManager.OpenError(title: string, message: string): Promise<void>  // custom branded error window; both query-escaped as ?title=…&message=…
+WindowManager.CloseError(): Promise<void>
 ```
+
+Prefer `errorDialog({Title, Message})` from `lib/dialogs.ts` over calling `OpenError` directly — it's the app's single error surface (the old native MessageBox wrapper now routes here). Both strings must be pre-localised.
 
 Both auxiliary windows are created on first open and destroyed on close (mutex-guarded singleton). The BrowserLogin window's red-X close fires the `browser-login:cancel` event so `startLogin()` can tear down the pending daemon `WaitSSOLogin`.
 

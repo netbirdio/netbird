@@ -8,7 +8,7 @@ import { DialogActions } from "@/components/dialog/DialogActions";
 
 // ConfirmModal is the shared in-app confirmation modal — a left-aligned
 // title + (optionally multi-line) description with Cancel / confirm buttons
-// in the footer. It's the in-window counterpart to the native warningDialog.
+// in the footer. It's the in-window counterpart to a native confirm dialog.
 //
 // Most call sites should not render this directly: use the imperative
 // `useConfirm()` from DialogContext (`await confirm({...})`), which mounts a
