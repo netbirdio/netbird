@@ -204,6 +204,9 @@ func (pm *ProfileManager) RemoveProfile(id string) error {
 // This is needed for Android-specific path handling (netbird.cfg for default profile)
 func (pm *ProfileManager) getProfileConfigPath(id string) (string, error) {
 	if id == "" || id == profilemanager.DefaultProfileName {
+		if !profilemanager.IsValidProfileFilenameStem(profilemanager.ID(id)) {
+			return "", fmt.Errorf("id %q is not valid", id)
+		}
 		// Android uses netbird.cfg for default profile instead of default.json
 		// Default profile is stored in root configDir, not in profiles/
 		return filepath.Join(pm.configDir, defaultConfigFilename), nil
@@ -224,6 +227,10 @@ func (pm *ProfileManager) GetConfigPath(id string) (string, error) {
 func (pm *ProfileManager) GetStateFilePath(id string) (string, error) {
 	if id == "" || id == profilemanager.DefaultProfileName {
 		return filepath.Join(pm.configDir, "state.json"), nil
+	}
+
+	if !profilemanager.IsValidProfileFilenameStem(profilemanager.ID(id)) {
+		return "", fmt.Errorf("id %q is not valid", id)
 	}
 
 	profilesDir := filepath.Join(pm.configDir, profilesSubdir)

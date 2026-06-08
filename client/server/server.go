@@ -1035,7 +1035,12 @@ func (s *Server) logoutFromProfile(ctx context.Context, profile *profilemanager.
 		return s.sendLogoutRequest(ctx)
 	}
 
-	config, err := profilemanager.GetConfig(profile.Path)
+	cfgPath := profile.Path
+	if cfgPath == "" {
+		cfgPath = profilemanager.DefaultConfigPath
+	}
+
+	config, err := profilemanager.GetConfig(cfgPath)
 	if err != nil {
 		return fmt.Errorf("profile '%s' not found", profile.ID)
 	}

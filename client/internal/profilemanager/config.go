@@ -252,6 +252,16 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 }
 
 func (config *Config) apply(input ConfigInput) (updated bool, err error) {
+	if config.Name != "" {
+		sanitized, err := sanitizeDisplayName(config.Name)
+		if err != nil {
+			return false, fmt.Errorf("invalid profile name: %w", err)
+		}
+		if sanitized != config.Name {
+			config.Name = sanitized
+			updated = true
+		}
+	}
 	if config.ManagementURL == nil {
 		log.Infof("using default Management URL %s", DefaultManagementURL)
 		config.ManagementURL, err = parseURL("Management URL", DefaultManagementURL)
