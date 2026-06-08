@@ -174,10 +174,11 @@ func TestMappingStream_StallsWhenApplyBlocks(t *testing.T) {
 	// THE DEADLOCK: while the first batch is parked in CreateProxyPeer, the
 	// single-threaded loop cannot advance. The second batch is never pulled,
 	// even though it is already available on the stream. Give it ample time.
+	// deliveredCount is atomic; syncDone is intentionally not read here because
+	// the loop goroutine owns it (reading it from the test would race).
 	time.Sleep(500 * time.Millisecond)
 	assert.Equal(t, int32(1), stream.deliveredCount(),
 		"loop must NOT consume the second batch while the first is blocked in apply — proxy is stuck")
-	assert.False(t, syncDone, "initial sync cannot complete while the loop is wedged")
 
 	select {
 	case <-loopDone:
@@ -260,10 +261,10 @@ func TestMappingStream_StallsWhenRemoveBlocks(t *testing.T) {
 	}
 
 	// THE DEADLOCK: the loop is parked in the blocked remove and cannot advance.
+	// syncDone is owned by the loop goroutine, so it is not read here.
 	time.Sleep(500 * time.Millisecond)
 	assert.Equal(t, int32(1), stream.deliveredCount(),
 		"loop must NOT consume the second batch while the first remove is blocked — proxy is stuck")
-	assert.False(t, syncDone, "initial sync cannot complete while the loop is wedged on a remove")
 
 	select {
 	case <-loopDone:

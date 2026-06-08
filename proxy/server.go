@@ -1489,10 +1489,13 @@ func (s *Server) mappingBatchWatchdog() time.Duration {
 // if processing exceeds the watchdog so the caller reconnects and resyncs
 // instead of wedging silently.
 func (s *Server) processMappingsGuarded(ctx context.Context, mappings []*proto.ProxyMapping) error {
+	batchCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		s.processMappings(ctx, mappings)
+		s.processMappings(batchCtx, mappings)
 	}()
 
 	watchdog := s.mappingBatchWatchdog()
@@ -1505,7 +1508,7 @@ func (s *Server) processMappingsGuarded(ctx context.Context, mappings []*proto.P
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-timer.C:
-		s.Logger.Errorf("processing mapping batch exceeded %s, reconnecting to resync", watchdog)
+		s.Logger.Errorf("processing mapping batch exceeded %s, cancelling and reconnecting to resync", watchdog)
 		return fmt.Errorf("mapping batch processing stalled after %s", watchdog)
 	}
 }

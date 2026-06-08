@@ -209,33 +209,30 @@ func (n *NetBird) AddPeer(ctx context.Context, accountID types.AccountID, key Se
 		return nil
 	}
 
-	entry, unlock, err := n.createClientLocked(ctx, accountID, key, authToken, si)
+	lifecycle := n.accountLifecycle(accountID)
+	lifecycle.Lock()
+
+	entry, err := n.createClientLocked(ctx, accountID, key, authToken, si)
 	if entry == nil || err != nil {
-		unlock()
+		lifecycle.Unlock()
 		return err
 	}
 
-	// runClientStartup inherits the lifecycle lock so a new client.Start for
-	// this account waits behind any in-flight teardown.
 	go func() {
-		defer unlock()
+		defer lifecycle.Unlock()
 		n.runClientStartup(accountID, entry.client)
 	}()
 
 	return nil
 }
 
-// createClientLocked acquires the account's lifecycle lock, re-checks for a
-// concurrently-created client, and creates a new one. It returns with the lock
-// HELD; the caller must call the returned unlock once startup is done (or
-// immediately on a nil entry / error). A nil entry means another caller won
-// the race and the service was registered against the existing client.
-func (n *NetBird) createClientLocked(ctx context.Context, accountID types.AccountID, key ServiceKey, authToken string, si serviceInfo) (*clientEntry, func(), error) {
-	lifecycle := n.accountLifecycle(accountID)
-	lifecycle.Lock()
-
+// createClientLocked re-checks for a concurrently-created client and creates a
+// new one. The caller must hold the account's lifecycle lock. A nil entry means
+// another caller won the race and the service was registered against the
+// existing client.
+func (n *NetBird) createClientLocked(ctx context.Context, accountID types.AccountID, key ServiceKey, authToken string, si serviceInfo) (*clientEntry, error) {
 	if n.registerExistingClient(accountID, key, si) {
-		return nil, lifecycle.Unlock, nil
+		return nil, nil
 	}
 
 	createStart := time.Now()
@@ -244,7 +241,7 @@ func (n *NetBird) createClientLocked(ctx context.Context, accountID types.Accoun
 		n.OnAddPeer(time.Since(createStart), err)
 	}
 	if err != nil {
-		return nil, lifecycle.Unlock, err
+		return nil, err
 	}
 
 	n.clientsMux.Lock()
@@ -256,7 +253,7 @@ func (n *NetBird) createClientLocked(ctx context.Context, accountID types.Accoun
 		"service_key": key,
 	}).Info("created new client for account")
 
-	return entry, lifecycle.Unlock, nil
+	return entry, nil
 }
 
 // registerExistingClient registers the service against an already-present
@@ -489,6 +486,15 @@ func (n *NetBird) notifyClientReady(accountID types.AccountID, client *embed.Cli
 // RemovePeer unregisters a service from an account. The client is only stopped
 // when no services are using it anymore.
 func (n *NetBird) RemovePeer(ctx context.Context, accountID types.AccountID, key ServiceKey) error {
+	lifecycle := n.accountLifecycle(accountID)
+	lifecycle.Lock()
+	transferred := false
+	defer func() {
+		if !transferred {
+			lifecycle.Unlock()
+		}
+	}()
+
 	n.clientsMux.Lock()
 
 	entry, exists := n.clients[accountID]
@@ -511,17 +517,8 @@ func (n *NetBird) RemovePeer(ctx context.Context, accountID types.AccountID, key
 	delete(entry.services, key)
 
 	stopClient := len(entry.services) == 0
-	var client *embed.Client
-	var transport, insecureTransport *http.Transport
-	var inbound any
-	var stopHandler func(types.AccountID, any)
 	if stopClient {
 		n.logger.WithField("account_id", accountID).Info("stopping client, no more services")
-		client = entry.client
-		transport = entry.transport
-		insecureTransport = entry.insecureTransport
-		inbound = entry.inbound
-		stopHandler = n.stopHandler
 		delete(n.clients, accountID)
 	} else {
 		n.logger.WithFields(log.Fields{
@@ -535,53 +532,36 @@ func (n *NetBird) RemovePeer(ctx context.Context, accountID types.AccountID, key
 	n.notifyDisconnect(ctx, accountID, key, si.serviceID)
 
 	if stopClient {
-		go n.stopClientAsync(accountID, clientTeardown{
-			client:            client,
-			transport:         transport,
-			insecureTransport: insecureTransport,
-			inbound:           inbound,
-			stopHandler:       stopHandler,
-		})
+		transferred = true
+		go n.stopClientLocked(accountID, lifecycle, entry)
 	}
 
 	return nil
 }
 
-// clientTeardown bundles the resources released when an account's last service
-// is removed.
-type clientTeardown struct {
-	client            *embed.Client
-	transport         *http.Transport
-	insecureTransport *http.Transport
-	inbound           any
-	stopHandler       func(types.AccountID, any)
-}
-
-// stopClientAsync releases a client's resources off the caller's goroutine so a
+// stopClientLocked releases a client's resources off the caller's goroutine so a
 // slow client.Stop cannot wedge the mapping receive loop (which calls RemovePeer
-// synchronously). The account's lifecycle mutex is held so a new client.Start
-// for the same account waits for this teardown.
-func (n *NetBird) stopClientAsync(accountID types.AccountID, td clientTeardown) {
-	lifecycle := n.accountLifecycle(accountID)
-	lifecycle.Lock()
+// synchronously). It unlocks lifecycle when done so a new client.Start for the
+// same account waits for this teardown.
+func (n *NetBird) stopClientLocked(accountID types.AccountID, lifecycle *sync.Mutex, entry *clientEntry) {
 	defer lifecycle.Unlock()
 
-	if td.inbound != nil && td.stopHandler != nil {
-		td.stopHandler(accountID, td.inbound)
+	if entry.inbound != nil && n.stopHandler != nil {
+		n.stopHandler(accountID, entry.inbound)
 	}
-	if td.transport != nil {
-		td.transport.CloseIdleConnections()
+	if entry.transport != nil {
+		entry.transport.CloseIdleConnections()
 	}
-	if td.insecureTransport != nil {
-		td.insecureTransport.CloseIdleConnections()
+	if entry.insecureTransport != nil {
+		entry.insecureTransport.CloseIdleConnections()
 	}
-	if td.client == nil {
+	if entry.client == nil {
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), clientStopTimeout)
 	defer cancel()
-	if err := td.client.Stop(ctx); err != nil {
+	if err := entry.client.Stop(ctx); err != nil {
 		n.logger.WithField("account_id", accountID).WithError(err).Warn("failed to stop netbird client")
 	}
 }
