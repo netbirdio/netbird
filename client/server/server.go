@@ -959,6 +959,10 @@ func (s *Server) SwitchProfile(callerCtx context.Context, msg *proto.SwitchProfi
 
 	s.config = config
 
+	if msg != nil && msg.ProfileName != nil {
+		s.publishProfileListChanged(*msg.ProfileName)
+	}
+
 	return &proto.SwitchProfileResponse{}, nil
 }
 
