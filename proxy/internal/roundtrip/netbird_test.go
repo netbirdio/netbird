@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -370,6 +371,101 @@ func TestNetBird_RemovePeer_NotifiesDisconnection(t *testing.T) {
 	require.Len(t, calls, 1)
 	assert.Equal(t, types.ServiceID("svc-1"), calls[0].serviceID)
 	assert.False(t, calls[0].connected)
+}
+
+// TestNetBird_RemovePeer_TeardownIsAsync proves the fix for the receive-loop
+// stall: RemovePeer must return promptly even when the client teardown blocks,
+// because teardown runs off the caller's goroutine. The receive loop calls
+// RemovePeer synchronously, so a blocking teardown inline would wedge it.
+func TestNetBird_RemovePeer_TeardownIsAsync(t *testing.T) {
+	nb := NewNetBird(context.Background(), "test-proxy", "invalid.test", ClientConfig{
+		MgmtAddr: "http://invalid.test:9999",
+	}, nil, &mockStatusNotifier{}, &mockMgmtClient{})
+
+	accountID := types.AccountID("acct-async-teardown")
+	key := DomainServiceKey("svc.example")
+
+	teardownEntered := make(chan struct{})
+	releaseTeardown := make(chan struct{})
+	nb.SetClientLifecycle(nil, func(types.AccountID, any) {
+		close(teardownEntered)
+		<-releaseTeardown
+	})
+
+	nb.clientsMux.Lock()
+	nb.clients[accountID] = &clientEntry{
+		services: map[ServiceKey]serviceInfo{key: {serviceID: types.ServiceID("svc-1")}},
+		started:  true,
+		inbound:  struct{}{},
+	}
+	nb.clientsMux.Unlock()
+
+	done := make(chan error, 1)
+	go func() { done <- nb.RemovePeer(context.Background(), accountID, key) }()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("RemovePeer did not return while teardown was blocked — teardown is not async")
+	}
+
+	select {
+	case <-teardownEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("teardown never ran")
+	}
+
+	close(releaseTeardown)
+}
+
+// TestNetBird_AddPeer_WaitsForTeardown proves the lifecycle lock serialises a
+// new client bringup behind an in-flight teardown for the same account, so a
+// slow client.Stop can never race a new client.Start for that account.
+func TestNetBird_AddPeer_WaitsForTeardown(t *testing.T) {
+	nb := NewNetBird(context.Background(), "test-proxy", "invalid.test", ClientConfig{
+		MgmtAddr: "http://invalid.test:9999",
+	}, nil, &mockStatusNotifier{}, &mockMgmtClient{})
+
+	accountID := types.AccountID("acct-serialize")
+	key := DomainServiceKey("svc.example")
+
+	teardownEntered := make(chan struct{})
+	releaseTeardown := make(chan struct{})
+	nb.SetClientLifecycle(nil, func(types.AccountID, any) {
+		close(teardownEntered)
+		<-releaseTeardown
+	})
+
+	nb.clientsMux.Lock()
+	nb.clients[accountID] = &clientEntry{
+		services: map[ServiceKey]serviceInfo{key: {serviceID: types.ServiceID("svc-1")}},
+		started:  true,
+		inbound:  struct{}{},
+	}
+	nb.clientsMux.Unlock()
+
+	require.NoError(t, nb.RemovePeer(context.Background(), accountID, key))
+	<-teardownEntered
+
+	addReturned := make(chan struct{})
+	go func() {
+		_ = nb.AddPeer(context.Background(), accountID, DomainServiceKey("svc2.example"), "key-2", types.ServiceID("svc-2"))
+		close(addReturned)
+	}()
+
+	select {
+	case <-addReturned:
+		t.Fatal("AddPeer returned while teardown still held the lifecycle lock — not serialised")
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	close(releaseTeardown)
+	select {
+	case <-addReturned:
+	case <-time.After(2 * time.Second):
+		t.Fatal("AddPeer never completed after teardown released the lifecycle lock")
+	}
 }
 
 // TestNotifyClientReady_UsesBackgroundCtx pins the contract that the
