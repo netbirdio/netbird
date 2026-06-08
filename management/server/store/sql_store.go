@@ -1217,6 +1217,7 @@ func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types
 		Preload("NetworkResources").
 		Preload("Onboarding").
 		Preload("Services.Targets").
+		Preload("Domains").
 		Take(&account, idQueryCondition, accountID)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("error when getting account %s from the store: %s", accountID, result.Error)
@@ -1303,7 +1304,7 @@ func (s *SqlStore) getAccountPgx(ctx context.Context, accountID string) (*types.
 	}
 
 	var wg sync.WaitGroup
-	errChan := make(chan error, 12)
+	errChan := make(chan error, 16)
 
 	wg.Add(1)
 	go func() {
@@ -1402,6 +1403,17 @@ func (s *SqlStore) getAccountPgx(ctx context.Context, accountID string) (*types.
 			return
 		}
 		account.Services = services
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		domains, err := s.ListCustomDomains(ctx, accountID)
+		if err != nil {
+			errChan <- err
+			return
+		}
+		account.Domains = domains
 	}()
 
 	wg.Add(1)
