@@ -405,48 +405,48 @@ func (h *Handler) GetAccessiblePeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	allowed, ctx, err := h.permissionsManager.ValidateUserPermissions(r.Context(), accountID, userID, modules.Peers, operations.Read)
+	allowed, err := h.permissionsManager.ValidateUserPermissions(r.Context(), accountID, userID, modules.Peers, operations.Read)
 	if err != nil {
-		util.WriteError(ctx, status.NewPermissionValidationError(err), w)
+		util.WriteError(r.Context(), status.NewPermissionValidationError(err), w)
 		return
 	}
 
-	account, err := h.accountManager.GetAccountByID(ctx, accountID, activity.SystemInitiator)
+	account, err := h.accountManager.GetAccountByID(r.Context(), accountID, activity.SystemInitiator)
 	if err != nil {
-		util.WriteError(ctx, err, w)
+		util.WriteError(r.Context(), err, w)
 		return
 	}
 
 	if !allowed && !userAuth.IsChild {
 		if account.Settings.RegularUsersViewBlocked {
-			util.WriteJSONObject(ctx, w, []api.AccessiblePeer{})
+			util.WriteJSONObject(r.Context(), w, []api.AccessiblePeer{})
 			return
 		}
 
 		peer, ok := account.Peers[peerID]
 		if !ok {
-			util.WriteError(ctx, status.Errorf(status.NotFound, "peer not found"), w)
+			util.WriteError(r.Context(), status.Errorf(status.NotFound, "peer not found"), w)
 			return
 		}
 
 		if peer.UserID != user.Id {
-			util.WriteJSONObject(ctx, w, []api.AccessiblePeer{})
+			util.WriteJSONObject(r.Context(), w, []api.AccessiblePeer{})
 			return
 		}
 	}
 
-	validPeers, _, err := h.accountManager.GetValidatedPeers(ctx, accountID)
+	validPeers, _, err := h.accountManager.GetValidatedPeers(r.Context(), accountID)
 	if err != nil {
-		log.WithContext(ctx).Errorf("failed to list approved peers: %v", err)
-		util.WriteError(ctx, fmt.Errorf("internal error"), w)
+		log.WithContext(r.Context()).Errorf("failed to list approved peers: %v", err)
+		util.WriteError(r.Context(), fmt.Errorf("internal error"), w)
 		return
 	}
 
 	dnsDomain := h.networkMapController.GetDNSDomain(account.Settings)
 
-	netMap := account.GetPeerNetworkMapFromComponents(ctx, peerID, dns.CustomZone{}, nil, validPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil, account.GetActiveGroupUsers())
+	netMap := account.GetPeerNetworkMapFromComponents(r.Context(), peerID, dns.CustomZone{}, nil, validPeers, account.GetResourcePoliciesMap(), account.GetResourceRoutersMap(), nil, account.GetActiveGroupUsers())
 
-	util.WriteJSONObject(ctx, w, toAccessiblePeers(netMap, dnsDomain))
+	util.WriteJSONObject(r.Context(), w, toAccessiblePeers(netMap, dnsDomain))
 }
 
 func (h *Handler) CreateTemporaryAccess(w http.ResponseWriter, r *http.Request) {

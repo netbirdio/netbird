@@ -254,8 +254,6 @@ type BundleGenerator struct {
 	capturePath    string
 	refreshStatus  func() // Optional callback to refresh status before bundle generation
 	clientMetrics  MetricsExporter
-	daemonVersion  string
-	cliVersion     string
 
 	anonymize         bool
 	includeSystemInfo bool
@@ -280,8 +278,6 @@ type GeneratorDependencies struct {
 	CapturePath    string
 	RefreshStatus  func()
 	ClientMetrics  MetricsExporter
-	DaemonVersion  string
-	CliVersion     string
 }
 
 func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGenerator {
@@ -303,8 +299,6 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 		capturePath:    deps.CapturePath,
 		refreshStatus:  deps.RefreshStatus,
 		clientMetrics:  deps.ClientMetrics,
-		daemonVersion:  deps.DaemonVersion,
-		cliVersion:     deps.CliVersion,
 
 		anonymize:         cfg.Anonymize,
 		includeSystemInfo: cfg.IncludeSystemInfo,
@@ -465,11 +459,9 @@ func (g *BundleGenerator) addStatus() error {
 		protoFullStatus := nbstatus.ToProtoFullStatus(fullStatus)
 		protoFullStatus.Events = g.statusRecorder.GetEventHistory()
 		overview := nbstatus.ConvertToStatusOutputOverview(protoFullStatus, nbstatus.ConvertOptions{
-			Anonymize:     g.anonymize,
-			ProfileName:   profName,
-			DaemonVersion: g.daemonVersion,
+			Anonymize:   g.anonymize,
+			ProfileName: profName,
 		})
-		overview.CliVersion = g.cliVersion
 		statusOutput := overview.FullDetailSummary()
 
 		statusReader := strings.NewReader(statusOutput)
@@ -806,8 +798,6 @@ func (g *BundleGenerator) addSyncResponse() error {
 		AllowPartial:    true,
 	}
 
-	g.maskSecrets()
-
 	jsonBytes, err := options.Marshal(g.syncResponse)
 	if err != nil {
 		return fmt.Errorf("generate json: %w", err)
@@ -818,27 +808,6 @@ func (g *BundleGenerator) addSyncResponse() error {
 	}
 
 	return nil
-}
-
-func (g *BundleGenerator) maskSecrets() {
-	if g.syncResponse == nil || g.syncResponse.NetbirdConfig == nil {
-		return
-	}
-
-	if g.syncResponse.NetbirdConfig.Flow != nil {
-		g.syncResponse.NetbirdConfig.Flow.TokenPayload = maskedValue
-
-	}
-
-	if g.syncResponse.NetbirdConfig.Relay != nil {
-		g.syncResponse.NetbirdConfig.Relay.TokenPayload = maskedValue
-	}
-
-	for i := range g.syncResponse.NetbirdConfig.Turns {
-		if g.syncResponse.NetbirdConfig.Turns[i] != nil {
-			g.syncResponse.NetbirdConfig.Turns[i].Password = maskedValue
-		}
-	}
 }
 
 func (g *BundleGenerator) addStateFile() error {
@@ -1070,8 +1039,7 @@ func (g *BundleGenerator) addRotatedLogFiles(logDir string) {
 		return
 	}
 
-	// This regex will match both logs rotated by us and logrotate on linux
-	pattern := filepath.Join(logDir, "client*.log.*")
+	pattern := filepath.Join(logDir, "client-*.log.gz")
 	files, err := filepath.Glob(pattern)
 	if err != nil {
 		log.Warnf("failed to glob rotated logs: %v", err)
@@ -1104,12 +1072,7 @@ func (g *BundleGenerator) addRotatedLogFiles(logDir string) {
 
 	for i := 0; i < maxFiles; i++ {
 		name := filepath.Base(files[i])
-		if strings.HasSuffix(name, ".gz") {
-			err = g.addSingleLogFileGz(files[i], name)
-		} else {
-			err = g.addSingleLogfile(files[i], name)
-		}
-		if err != nil {
+		if err := g.addSingleLogFileGz(files[i], name); err != nil {
 			log.Warnf("failed to add rotated log %s: %v", name, err)
 		}
 	}

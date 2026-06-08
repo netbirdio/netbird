@@ -1176,12 +1176,7 @@ func TestValidate_HTTPClusterTarget_RequiresDirectUpstream(t *testing.T) {
 	assert.ErrorContains(t, rp.Validate(), "direct upstream disabled", "cluster target must reject direct_upstream=false")
 }
 
-// TestValidate_L4ClusterTarget_RequiresPort confirms that an L4 cluster
-// target without an explicit port is rejected. buildPathMappings emits
-// net.JoinHostPort(target.Host, target.Port) for every L4 target — so
-// allowing port=0 would let the proxy ship ":0" upstreams. The port
-// requirement is the same as every other L4 target type.
-func TestValidate_L4ClusterTarget_RequiresPort(t *testing.T) {
+func TestValidate_L4ClusterTarget(t *testing.T) {
 	rp := validProxy()
 	rp.Mode = ModeTCP
 	rp.ListenPort = 9000
@@ -1191,12 +1186,7 @@ func TestValidate_L4ClusterTarget_RequiresPort(t *testing.T) {
 		Protocol:   "tcp",
 		Enabled:    true,
 	}}
-	assert.ErrorContains(t, rp.Validate(), "port is required",
-		"L4 cluster target must require an explicit port like other L4 target types")
-
-	rp.Targets[0].Port = 5432
-	rp.Targets[0].Host = "db.lan"
-	require.NoError(t, rp.Validate(), "L4 cluster target with host:port must validate")
+	require.NoError(t, rp.Validate(), "L4 cluster target must validate without an explicit port")
 }
 
 func TestService_Copy_RoundtripsPrivate(t *testing.T) {

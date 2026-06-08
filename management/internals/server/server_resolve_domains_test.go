@@ -22,7 +22,7 @@ func TestResolveDomains_FreshInstallUsesDefault(t *testing.T) {
 	srv := NewServer(&Config{NbConfig: &nbconfig.Config{}})
 	Inject[store.Store](srv, mockStore)
 
-	srv.ResolveDomains(context.Background())
+	srv.resolveDomains(context.Background())
 
 	require.Equal(t, DefaultSelfHostedDomain, srv.dnsDomain)
 	require.Equal(t, DefaultSelfHostedDomain, srv.mgmtSingleAccModeDomain)
@@ -40,7 +40,7 @@ func TestResolveDomains_ExistingInstallUsesPersistedDomain(t *testing.T) {
 	srv := NewServer(&Config{NbConfig: &nbconfig.Config{}})
 	Inject[store.Store](srv, mockStore)
 
-	srv.ResolveDomains(context.Background())
+	srv.resolveDomains(context.Background())
 
 	require.Equal(t, "vpn.mycompany.com", srv.dnsDomain)
 	require.Equal(t, "vpn.mycompany.com", srv.mgmtSingleAccModeDomain)
@@ -56,7 +56,7 @@ func TestResolveDomains_StoreErrorFallsBackToDefault(t *testing.T) {
 	srv := NewServer(&Config{NbConfig: &nbconfig.Config{}})
 	Inject[store.Store](srv, mockStore)
 
-	srv.ResolveDomains(context.Background())
+	srv.resolveDomains(context.Background())
 
 	require.Equal(t, DefaultSelfHostedDomain, srv.dnsDomain)
 	require.Equal(t, DefaultSelfHostedDomain, srv.mgmtSingleAccModeDomain)

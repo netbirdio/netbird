@@ -19,7 +19,6 @@ import (
 	"github.com/netbirdio/netbird/client/server"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/upload-server/types"
-	"github.com/netbirdio/netbird/version"
 )
 
 const errCloseConnection = "Failed to close connection: %v"
@@ -101,7 +100,6 @@ func debugBundle(cmd *cobra.Command, _ []string) error {
 		Anonymize:    anonymizeFlag,
 		SystemInfo:   systemInfoFlag,
 		LogFileCount: logFileCount,
-		CliVersion:   version.NetbirdVersion(),
 	}
 	if uploadBundleFlag {
 		request.UploadURL = uploadBundleURLFlag
@@ -300,7 +298,6 @@ func runForDuration(cmd *cobra.Command, args []string) error {
 		Anonymize:    anonymizeFlag,
 		SystemInfo:   systemInfoFlag,
 		LogFileCount: logFileCount,
-		CliVersion:   version.NetbirdVersion(),
 	}
 	if uploadBundleFlag {
 		request.UploadURL = uploadBundleURLFlag
@@ -435,7 +432,6 @@ func generateDebugBundle(config *profilemanager.Config, recorder *peer.Status, c
 			SyncResponse:   syncResponse,
 			LogPath:        logFilePath,
 			CPUProfile:     nil,
-			DaemonVersion:  version.NetbirdVersion(), // acting as daemon
 		},
 		debug.BundleConfig{
 			IncludeSystemInfo: true,

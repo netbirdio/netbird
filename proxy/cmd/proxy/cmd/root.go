@@ -214,10 +214,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid --trusted-proxies: %w", err)
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
-	defer stop()
-
-	srv := proxy.New(ctx, proxy.Config{
+	srv := proxy.New(proxy.Config{
 		ListenAddr:               addr,
 		Logger:                   logger,
 		Version:                  Version,
@@ -253,6 +250,9 @@ func runServer(cmd *cobra.Command, args []string) error {
 		CrowdSecAPIURL:           crowdsecAPIURL,
 		CrowdSecAPIKey:           crowdsecAPIKey,
 	})
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
 
 	return srv.ListenAndServe(ctx, addr)
 }

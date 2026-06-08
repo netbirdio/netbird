@@ -34,8 +34,6 @@ const (
 	ManagementLegacyPort = 33073
 	// DefaultSelfHostedDomain is the default domain used for self-hosted fresh installs.
 	DefaultSelfHostedDomain = "netbird.selfhosted"
-
-	ContainerKeyBaseServer = "baseServer"
 )
 
 type Server interface {
@@ -93,7 +91,7 @@ type Config struct {
 
 // NewServer initializes and configures a new Server instance
 func NewServer(cfg *Config) *BaseServer {
-	s := &BaseServer{
+	return &BaseServer{
 		Config:                      cfg.NbConfig,
 		container:                   make(map[string]any),
 		dnsDomain:                   cfg.DNSDomain,
@@ -106,9 +104,6 @@ func NewServer(cfg *Config) *BaseServer {
 		mgmtMetricsPort:             cfg.MgmtMetricsPort,
 		autoResolveDomains:          cfg.AutoResolveDomains,
 	}
-	s.container[ContainerKeyBaseServer] = s
-
-	return s
 }
 
 func (s *BaseServer) AfterInit(fn func(s *BaseServer)) {
@@ -122,7 +117,7 @@ func (s *BaseServer) Start(ctx context.Context) error {
 	s.errCh = make(chan error, 4)
 
 	if s.autoResolveDomains {
-		s.ResolveDomains(srvCtx)
+		s.resolveDomains(srvCtx)
 	}
 
 	s.PeersManager()
@@ -398,10 +393,10 @@ func (s *BaseServer) serveGRPCWithHTTP(ctx context.Context, listener net.Listene
 	}()
 }
 
-// ResolveDomains determines dnsDomain and mgmtSingleAccModeDomain based on store state.
+// resolveDomains determines dnsDomain and mgmtSingleAccModeDomain based on store state.
 // Fresh installs use the default self-hosted domain, while existing installs reuse the
 // persisted account domain to keep addressing stable across config changes.
-func (s *BaseServer) ResolveDomains(ctx context.Context) {
+func (s *BaseServer) resolveDomains(ctx context.Context) {
 	st := s.Store()
 
 	setDefault := func(logMsg string, args ...any) {

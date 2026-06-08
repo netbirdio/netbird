@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -347,11 +346,6 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 			return wrapErr(err)
 		}
 		engineConfig.TempDir = mobileDependency.TempDir
-		// Leave StateDir empty when there is no state path so a disk-backed
-		// syncstore falls back to os.TempDir() instead of filepath.Dir("") == ".".
-		if path != "" {
-			engineConfig.StateDir = filepath.Dir(path)
-		}
 
 		relayManager := relayClient.NewManager(engineCtx, relayURLs, myPrivateKey.PublicKey().String(), engineConfig.MTU)
 		c.statusRecorder.SetRelayMgr(relayManager)

@@ -21,7 +21,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/proto"
 	uptypes "github.com/netbirdio/netbird/upload-server/types"
-	"github.com/netbirdio/netbird/version"
 )
 
 // Initial state for the debug collection
@@ -463,7 +462,6 @@ func (s *serviceClient) createDebugBundleFromCollection(
 	request := &proto.DebugBundleRequest{
 		Anonymize:  params.anonymize,
 		SystemInfo: params.systemInfo,
-		CliVersion: version.NetbirdVersion(),
 	}
 
 	if params.upload {
@@ -595,7 +593,6 @@ func (s *serviceClient) createDebugBundle(anonymize bool, systemInfo bool, uploa
 	request := &proto.DebugBundleRequest{
 		Anonymize:  anonymize,
 		SystemInfo: systemInfo,
-		CliVersion: version.NetbirdVersion(),
 	}
 
 	if uploadURL != "" {

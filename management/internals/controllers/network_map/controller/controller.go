@@ -32,7 +32,6 @@ import (
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/status"
 	"github.com/netbirdio/netbird/util"
-	"github.com/netbirdio/netbird/version"
 )
 
 type Controller struct {
@@ -515,7 +514,7 @@ func computeForwarderPort(peers []*nbpeer.Peer, requiredVersion string) int64 {
 	for _, peer := range peers {
 
 		// Development version is always supported
-		if version.IsDevelopmentVersion(peer.Meta.WtVersion) {
+		if peer.Meta.WtVersion == "development" {
 			continue
 		}
 		peerVersion := semver.Canonical("v" + peer.Meta.WtVersion)

@@ -67,12 +67,11 @@ func (mr *MockManagerMockRecorder) SetAccountManager(accountManager interface{})
 }
 
 // ValidateAccountAccess mocks base method.
-func (m *MockManager) ValidateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) (context.Context, error) {
+func (m *MockManager) ValidateAccountAccess(ctx context.Context, accountID string, user *types.User, allowOwnerAndAdmin bool) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ValidateAccountAccess", ctx, accountID, user, allowOwnerAndAdmin)
-	ret0, _ := ret[0].(context.Context)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // ValidateAccountAccess indicates an expected call of ValidateAccountAccess.
@@ -96,13 +95,12 @@ func (mr *MockManagerMockRecorder) ValidateRoleModuleAccess(ctx, accountID, role
 }
 
 // ValidateUserPermissions mocks base method.
-func (m *MockManager) ValidateUserPermissions(ctx context.Context, accountID, userID string, module modules.Module, operation operations.Operation) (bool, context.Context, error) {
+func (m *MockManager) ValidateUserPermissions(ctx context.Context, accountID, userID string, module modules.Module, operation operations.Operation) (bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ValidateUserPermissions", ctx, accountID, userID, module, operation)
 	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(context.Context)
-	ret2, _ := ret[2].(error)
-	return ret0, ret1, ret2
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // ValidateUserPermissions indicates an expected call of ValidateUserPermissions.

@@ -51,7 +51,7 @@ func initGeolocationTestData(t *testing.T) *geolocationsHandler {
 	permissionsManagerMock.
 		EXPECT().
 		ValidateUserPermissions(gomock.Any(), gomock.Any(), gomock.Any(), modules.Policies, operations.Read).
-		Return(true, context.Background(), nil).
+		Return(true, nil).
 		AnyTimes()
 
 	return &geolocationsHandler{

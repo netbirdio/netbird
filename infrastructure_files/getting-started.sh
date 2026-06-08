@@ -311,12 +311,11 @@ initialize_default_values() {
   NETBIRD_STUN_PORT=3478
 
   # Docker images
-  DASHBOARD_IMAGE=${DASHBOARD_IMAGE:-"netbirdio/dashboard:latest"}
+  DASHBOARD_IMAGE="netbirdio/dashboard:latest"
   # Combined server replaces separate signal, relay, and management containers
-  NETBIRD_SERVER_IMAGE=${NETBIRD_SERVER_IMAGE:-"netbirdio/netbird-server:latest"}
-  NETBIRD_PROXY_IMAGE=${NETBIRD_PROXY_IMAGE:-"netbirdio/reverse-proxy:latest"}
-  TRAEFIK_IMAGE=${TRAEFIK_IMAGE:-"traefik:v3.6"}
-  CROWDSEC_IMAGE=${CROWDSEC_IMAGE:-"crowdsecurity/crowdsec:v1.7.7"}
+  NETBIRD_SERVER_IMAGE="netbirdio/netbird-server:latest"
+  NETBIRD_PROXY_IMAGE="netbirdio/reverse-proxy:latest"
+
   # Reverse proxy configuration
   REVERSE_PROXY_TYPE="0"
   TRAEFIK_EXTERNAL_NETWORK=""
@@ -657,7 +656,7 @@ render_docker_compose_traefik_builtin() {
     if [[ "$ENABLE_CROWDSEC" == "true" ]]; then
       crowdsec_service="
   crowdsec:
-    image: $CROWDSEC_IMAGE
+    image: crowdsecurity/crowdsec:v1.7.7
     container_name: netbird-crowdsec
     restart: unless-stopped
     networks: [netbird]
@@ -688,7 +687,7 @@ render_docker_compose_traefik_builtin() {
 services:
   # Traefik reverse proxy (automatic TLS via Let's Encrypt)
   traefik:
-    image: $TRAEFIK_IMAGE
+    image: traefik:v3.6
     container_name: netbird-traefik
     restart: unless-stopped
     networks:
@@ -772,7 +771,7 @@ $traefik_dynamic_volume
     labels:
       - traefik.enable=true
       # gRPC router (needs h2c backend for HTTP/2 cleartext)
-      - traefik.http.routers.netbird-grpc.rule=Host(\`$NETBIRD_DOMAIN\`) && (PathPrefix(\`/signalexchange.SignalExchange/\`) || PathPrefix(\`/management.ManagementService/\`) || PathPrefix(\`/management.ProxyService/\`))
+      - traefik.http.routers.netbird-grpc.rule=Host(\`$NETBIRD_DOMAIN\`) && (PathPrefix(\`/signalexchange.SignalExchange/\`) || PathPrefix(\`/management.ManagementService/\`))
       - traefik.http.routers.netbird-grpc.entrypoints=websecure
       - traefik.http.routers.netbird-grpc.tls=true
       - traefik.http.routers.netbird-grpc.tls.certresolver=letsencrypt

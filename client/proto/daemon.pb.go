@@ -1614,7 +1614,6 @@ type LocalPeerState struct {
 	RosenpassPermissive bool                   `protobuf:"varint,6,opt,name=rosenpassPermissive,proto3" json:"rosenpassPermissive,omitempty"`
 	Networks            []string               `protobuf:"bytes,7,rep,name=networks,proto3" json:"networks,omitempty"`
 	Ipv6                string                 `protobuf:"bytes,8,opt,name=ipv6,proto3" json:"ipv6,omitempty"`
-	WgPort              int32                  `protobuf:"varint,9,opt,name=wgPort,proto3" json:"wgPort,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -1703,13 +1702,6 @@ func (x *LocalPeerState) GetIpv6() string {
 		return x.Ipv6
 	}
 	return ""
-}
-
-func (x *LocalPeerState) GetWgPort() int32 {
-	if x != nil {
-		return x.WgPort
-	}
-	return 0
 }
 
 // SignalState contains the latest state of a signal connection
@@ -2717,7 +2709,6 @@ type DebugBundleRequest struct {
 	SystemInfo    bool                   `protobuf:"varint,3,opt,name=systemInfo,proto3" json:"systemInfo,omitempty"`
 	UploadURL     string                 `protobuf:"bytes,4,opt,name=uploadURL,proto3" json:"uploadURL,omitempty"`
 	LogFileCount  uint32                 `protobuf:"varint,5,opt,name=logFileCount,proto3" json:"logFileCount,omitempty"`
-	CliVersion    string                 `protobuf:"bytes,6,opt,name=cliVersion,proto3" json:"cliVersion,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2778,13 +2769,6 @@ func (x *DebugBundleRequest) GetLogFileCount() uint32 {
 		return x.LogFileCount
 	}
 	return 0
-}
-
-func (x *DebugBundleRequest) GetCliVersion() string {
-	if x != nil {
-		return x.CliVersion
-	}
-	return ""
 }
 
 type DebugBundleResponse struct {
@@ -6458,7 +6442,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\n" +
 	"sshHostKey\x18\x13 \x01(\fR\n" +
 	"sshHostKey\x12\x12\n" +
-	"\x04ipv6\x18\x14 \x01(\tR\x04ipv6\"\x9c\x02\n" +
+	"\x04ipv6\x18\x14 \x01(\tR\x04ipv6\"\x84\x02\n" +
 	"\x0eLocalPeerState\x12\x0e\n" +
 	"\x02IP\x18\x01 \x01(\tR\x02IP\x12\x16\n" +
 	"\x06pubKey\x18\x02 \x01(\tR\x06pubKey\x12(\n" +
@@ -6467,8 +6451,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\x10rosenpassEnabled\x18\x05 \x01(\bR\x10rosenpassEnabled\x120\n" +
 	"\x13rosenpassPermissive\x18\x06 \x01(\bR\x13rosenpassPermissive\x12\x1a\n" +
 	"\bnetworks\x18\a \x03(\tR\bnetworks\x12\x12\n" +
-	"\x04ipv6\x18\b \x01(\tR\x04ipv6\x12\x16\n" +
-	"\x06wgPort\x18\t \x01(\x05R\x06wgPort\"S\n" +
+	"\x04ipv6\x18\b \x01(\tR\x04ipv6\"S\n" +
 	"\vSignalState\x12\x10\n" +
 	"\x03URL\x18\x01 \x01(\tR\x03URL\x12\x1c\n" +
 	"\tconnected\x18\x02 \x01(\bR\tconnected\x12\x14\n" +
@@ -6545,17 +6528,14 @@ const file_daemon_proto_rawDesc = "" +
 	"\x12translatedHostname\x18\x04 \x01(\tR\x12translatedHostname\x128\n" +
 	"\x0etranslatedPort\x18\x05 \x01(\v2\x10.daemon.PortInfoR\x0etranslatedPort\"G\n" +
 	"\x17ForwardingRulesResponse\x12,\n" +
-	"\x05rules\x18\x01 \x03(\v2\x16.daemon.ForwardingRuleR\x05rules\"\xb4\x01\n" +
+	"\x05rules\x18\x01 \x03(\v2\x16.daemon.ForwardingRuleR\x05rules\"\x94\x01\n" +
 	"\x12DebugBundleRequest\x12\x1c\n" +
 	"\tanonymize\x18\x01 \x01(\bR\tanonymize\x12\x1e\n" +
 	"\n" +
 	"systemInfo\x18\x03 \x01(\bR\n" +
 	"systemInfo\x12\x1c\n" +
 	"\tuploadURL\x18\x04 \x01(\tR\tuploadURL\x12\"\n" +
-	"\flogFileCount\x18\x05 \x01(\rR\flogFileCount\x12\x1e\n" +
-	"\n" +
-	"cliVersion\x18\x06 \x01(\tR\n" +
-	"cliVersion\"}\n" +
+	"\flogFileCount\x18\x05 \x01(\rR\flogFileCount\"}\n" +
 	"\x13DebugBundleResponse\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12 \n" +
 	"\vuploadedKey\x18\x02 \x01(\tR\vuploadedKey\x120\n" +

@@ -120,7 +120,7 @@ func (m *Manager) StartExposeReaper(ctx context.Context) {
 // capability flags reported by its active proxies so the dashboard can
 // render feature support without a second round-trip.
 func (m *Manager) GetClusters(ctx context.Context, accountID, userID string) ([]proxy.Cluster, error) {
-	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
+	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -146,7 +146,7 @@ func (m *Manager) GetClusters(ctx context.Context, accountID, userID string) ([]
 // DeleteAccountCluster removes all proxy registrations for the given cluster address
 // owned by the account.
 func (m *Manager) DeleteAccountCluster(ctx context.Context, accountID, userID, clusterAddress string) error {
-	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Delete)
+	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -158,7 +158,7 @@ func (m *Manager) DeleteAccountCluster(ctx context.Context, accountID, userID, c
 }
 
 func (m *Manager) GetAllServices(ctx context.Context, accountID, userID string) ([]*service.Service, error) {
-	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
+	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -222,7 +222,7 @@ func (m *Manager) replaceHostByLookup(ctx context.Context, accountID string, s *
 }
 
 func (m *Manager) GetService(ctx context.Context, accountID, userID, serviceID string) (*service.Service, error) {
-	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
+	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -243,7 +243,7 @@ func (m *Manager) GetService(ctx context.Context, accountID, userID, serviceID s
 }
 
 func (m *Manager) CreateService(ctx context.Context, accountID, userID string, s *service.Service) (*service.Service, error) {
-	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Create)
+	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Create)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -528,7 +528,7 @@ func (m *Manager) checkDomainAvailable(ctx context.Context, transaction store.St
 }
 
 func (m *Manager) UpdateService(ctx context.Context, accountID, userID string, service *service.Service) (*service.Service, error) {
-	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Update)
+	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Update)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -836,7 +836,7 @@ func validateResourceTargetType(target *service.Target, resource *resourcetypes.
 }
 
 func (m *Manager) DeleteService(ctx context.Context, accountID, userID, serviceID string) error {
-	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Delete)
+	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -876,7 +876,7 @@ func (m *Manager) DeleteService(ctx context.Context, accountID, userID, serviceI
 }
 
 func (m *Manager) DeleteAllServices(ctx context.Context, accountID, userID string) error {
-	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Delete)
+	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}

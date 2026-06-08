@@ -29,7 +29,6 @@ import (
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/status"
-	"github.com/netbirdio/netbird/version"
 )
 
 const (
@@ -273,7 +272,7 @@ func (a *Account) SynthesizePrivateServiceZones(peerID string) []nbdns.CustomZon
 	}
 
 	peerGroups := a.GetPeerGroups(peerID)
-	zonesByApex := map[string]*nbdns.CustomZone{}
+	zonesByCluster := map[string]*nbdns.CustomZone{}
 
 	for _, svc := range a.Services {
 		if svc == nil || !svc.Enabled || !svc.Private {
@@ -290,24 +289,19 @@ func (a *Account) SynthesizePrivateServiceZones(peerID string) []nbdns.CustomZon
 			continue
 		}
 
-		serviceDomainZone := a.privateServiceDomainZone(svc)
-		if serviceDomainZone == "" {
-			continue
-		}
-
-		zone, exists := zonesByApex[serviceDomainZone]
+		zone, exists := zonesByCluster[svc.ProxyCluster]
 		if !exists {
 			// NonAuthoritative makes this a match-only zone: queries for
 			// names without an explicit record fall through to the
 			// upstream resolver instead of returning NXDOMAIN. Without
 			// it, adding a single private service would black-hole every
-			// other name under the zone apex.
+			// other name under the cluster apex.
 			zone = &nbdns.CustomZone{
-				Domain:           dns.Fqdn(serviceDomainZone),
+				Domain:           dns.Fqdn(svc.ProxyCluster),
 				Records:          []nbdns.SimpleRecord{},
 				NonAuthoritative: true,
 			}
-			zonesByApex[serviceDomainZone] = zone
+			zonesByCluster[svc.ProxyCluster] = zone
 		}
 
 		emitted := 0
@@ -345,8 +339,8 @@ func (a *Account) SynthesizePrivateServiceZones(peerID string) []nbdns.CustomZon
 		}
 	}
 
-	out := make([]nbdns.CustomZone, 0, len(zonesByApex))
-	for _, zone := range zonesByApex {
+	out := make([]nbdns.CustomZone, 0, len(zonesByCluster))
+	for _, zone := range zonesByCluster {
 		if len(zone.Records) == 0 {
 			continue
 		}
@@ -360,33 +354,6 @@ func (a *Account) SynthesizePrivateServiceZones(peerID string) []nbdns.CustomZon
 			peerID, a.Id, len(a.Services))
 	}
 	return out
-}
-
-// privateServiceDomainZone returns the DNS zone name for the given private service domain by
-// looking at the proxy cluster domain then the custom domains.
-func (a *Account) privateServiceDomainZone(svc *service.Service) string {
-	if domainFromSuffix(svc.Domain, svc.ProxyCluster) {
-		return svc.ProxyCluster
-	}
-
-	// Longest matching custom domain wins
-	zoneName := ""
-	for _, d := range a.Domains {
-		if d == nil || d.TargetCluster != svc.ProxyCluster {
-			continue
-		}
-		if domainFromSuffix(svc.Domain, d.Domain) && len(d.Domain) > len(zoneName) {
-			zoneName = d.Domain
-		}
-	}
-	return zoneName
-}
-
-func domainFromSuffix(domain, suffix string) bool {
-	if suffix == "" {
-		return false
-	}
-	return domain == suffix || strings.HasSuffix(domain, "."+suffix)
 }
 
 // peerInDistributionGroups reports whether any of the peer's groups
@@ -1837,7 +1804,7 @@ func shouldCheckRulesForNativeSSH(supportsNative bool, rule *PolicyRule, peer *n
 
 // peerSupportedFirewallFeatures checks if the peer version supports port ranges.
 func peerSupportedFirewallFeatures(peerVer string) supportedFeatures {
-	if version.IsDevelopmentVersion(peerVer) {
+	if strings.Contains(peerVer, "dev") {
 		return supportedFeatures{true, true}
 	}
 
