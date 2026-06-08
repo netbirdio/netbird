@@ -24,9 +24,13 @@ jobs:
           ignore_words_list: erro,clienta,hastable,iif,groupd,testin,groupe,cros,ans,deriver,te,userA,ede,additionals
           # Non-English UI translations trip codespell on real foreign words
           # (de: "Sie", "oder", "ist"). Only en/common.json is the source of
-          # truth that should be spell-checked. Add each new locale dir here
-          # when a language is added under client/ui/i18n/locales/.
-          skip: go.mod,go.sum,**/proxy/web/**,**/pnpm-lock.yaml,**/package-lock.json,client/ui/i18n/locales/de/**,client/ui/i18n/locales/hu/**
+          # truth that should be spell-checked. List each translated locale
+          # dir below and add new ones as languages are added under
+          # client/ui/i18n/locales/. Single-star globs are matched per path
+          # segment by codespell and behave the same across versions; the
+          # recursive "**" form did not take effect with the codespell shipped
+          # by this action.
+          skip: go.mod,go.sum,*/proxy/web/*,*pnpm-lock.yaml,*package-lock.json,*/locales/de/*,*/locales/hu/*
   golangci:
     strategy:
       fail-fast: false
