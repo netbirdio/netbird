@@ -55,6 +55,8 @@
     "notify.sessionWarning.failed": "Failed to extend NetBird session",
     "notify.sessionWarning.successTitle": "NetBird session extended",
     "notify.sessionWarning.successBody": "Your session has been refreshed.",
+    "notify.sessionDeadlineRejected.title": "Session deadline rejected",
+    "notify.sessionDeadlineRejected.body": "The server sent an invalid session deadline. Please sign in again.",
 
     "common.cancel": "Cancel",
     "common.save": "Save",
