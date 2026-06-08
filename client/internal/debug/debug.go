@@ -826,16 +826,18 @@ func (g *BundleGenerator) maskSecrets() {
 	}
 
 	if g.syncResponse.NetbirdConfig.Flow != nil {
-		g.syncResponse.NetbirdConfig.Flow.TokenPayload = "xxxx"
+		g.syncResponse.NetbirdConfig.Flow.TokenPayload = maskedValue
 
 	}
 
 	if g.syncResponse.NetbirdConfig.Relay != nil {
-		g.syncResponse.NetbirdConfig.Relay.TokenPayload = "xxxx"
+		g.syncResponse.NetbirdConfig.Relay.TokenPayload = maskedValue
 	}
 
 	for i := range g.syncResponse.NetbirdConfig.Turns {
-		g.syncResponse.NetbirdConfig.Turns[i].Password = "xxxx"
+		if g.syncResponse.NetbirdConfig.Turns[i] != nil {
+			g.syncResponse.NetbirdConfig.Turns[i].Password = maskedValue
+		}
 	}
 }
 
