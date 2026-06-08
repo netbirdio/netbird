@@ -55,6 +55,8 @@
     "notify.sessionWarning.failed": "A NetBird munkamenet meghosszabbítása sikertelen",
     "notify.sessionWarning.successTitle": "NetBird munkamenet meghosszabbítva",
     "notify.sessionWarning.successBody": "A munkamenet frissítve.",
+    "notify.sessionDeadlineRejected.title": "Munkamenet-határidő elutasítva",
+    "notify.sessionDeadlineRejected.body": "A szerver érvénytelen munkamenet-határidőt küldött. Kérjük, jelentkezzen be újra.",
 
     "common.cancel": "Mégse",
     "common.save": "Mentés",

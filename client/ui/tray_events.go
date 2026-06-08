@@ -22,11 +22,12 @@ func (t *Tray) onSystemEvent(ev *application.CustomEvent) {
 	if !ok {
 		return
 	}
-	// Session-warning events carry no UserMessage — the tray builds the
-	// localised notification body locally from metadata. Every other
-	// event needs a non-empty UserMessage to show anything meaningful.
+	// Session-warning and deadline-rejected events carry no UserMessage —
+	// the tray builds the localised notification body locally from metadata.
+	// Every other event needs a non-empty UserMessage to show anything meaningful.
 	isSessionWarning := se.Metadata[authsession.MetaWarning] == "true"
-	if !isSessionWarning && se.UserMessage == "" {
+	isDeadlineRejected := se.Metadata[authsession.MetaDeadlineRejected] != ""
+	if !isSessionWarning && !isDeadlineRejected && se.UserMessage == "" {
 		return
 	}
 	if shouldSkipSystemEvent(se) {
@@ -52,6 +53,15 @@ func (t *Tray) onSystemEvent(ev *application.CustomEvent) {
 	//   - T-FinalWarningLead (MetaSessionFinal=true) → auto-open the
 	//     SessionExpiration dialog. No OS notification here; the
 	//     dialog is the last-chance reminder, doubling up would be noise.
+	if isDeadlineRejected {
+		t.notify(
+			t.loc.T("notify.sessionDeadlineRejected.title"),
+			t.loc.T("notify.sessionDeadlineRejected.body"),
+			notifyIDSessionExpired,
+		)
+		return
+	}
+
 	if se.Metadata != nil && se.Metadata[authsession.MetaWarning] == "true" {
 		if se.Metadata[authsession.MetaFinal] == "true" {
 			t.openSessionExpiration()

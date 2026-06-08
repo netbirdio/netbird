@@ -35,5 +35,10 @@ func (w noopSessionWatcher) Update(deadline time.Time) error {
 	return nil
 }
 
-func (noopSessionWatcher) Dismiss() {}
-func (noopSessionWatcher) Close()   {}
+func (noopSessionWatcher) Dismiss() {
+	// No-op: only suppresses the timer-driven final-warning, which this stub never arms.
+}
+
+func (noopSessionWatcher) Close() {
+	// No-op: no timers to stop and no state to unwind; the recorder is cleared via Update(zero).
+}

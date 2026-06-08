@@ -9,6 +9,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	cProto "github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/client/internal/auth/sessionwatch"
 	"github.com/netbirdio/netbird/client/system"
 )
 
@@ -51,6 +53,13 @@ func (e *Engine) ApplySessionDeadline(ts *timestamppb.Timestamp) {
 	// of sync with the warning timers.
 	if err := e.sessionWatcher.Update(deadline); err != nil {
 		log.Errorf("auth session deadline rejected: %v, clearing", err)
+		e.statusRecorder.PublishEvent(
+			cProto.SystemEvent_ERROR,
+			cProto.SystemEvent_AUTHENTICATION,
+			"session deadline rejected",
+			"",
+			map[string]string{sessionwatch.MetaSessionDeadlineRejected: err.Error()},
+		)
 	}
 }
 

@@ -19,10 +19,11 @@ import (
 // side) so UI-side consumers don't have to import the daemon-internal
 // package directly.
 const (
-	MetaWarning     = sessionwatch.MetaSessionWarning
-	MetaFinal       = sessionwatch.MetaSessionFinal
-	MetaExpiresAt   = sessionwatch.MetaSessionExpiresAt
-	MetaLeadMinutes = sessionwatch.MetaSessionLeadMinutes
+	MetaWarning          = sessionwatch.MetaSessionWarning
+	MetaFinal            = sessionwatch.MetaSessionFinal
+	MetaExpiresAt        = sessionwatch.MetaSessionExpiresAt
+	MetaLeadMinutes      = sessionwatch.MetaSessionLeadMinutes
+	MetaDeadlineRejected = sessionwatch.MetaSessionDeadlineRejected
 )
 
 // Warning is the typed payload emitted on the session-warning Wails

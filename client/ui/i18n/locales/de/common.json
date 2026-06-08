@@ -55,6 +55,8 @@
     "notify.sessionWarning.failed": "NetBird-Sitzung konnte nicht verlängert werden",
     "notify.sessionWarning.successTitle": "NetBird-Sitzung verlängert",
     "notify.sessionWarning.successBody": "Ihre Sitzung wurde erneuert.",
+    "notify.sessionDeadlineRejected.title": "Sitzungsfrist abgelehnt",
+    "notify.sessionDeadlineRejected.body": "Der Server hat eine ungültige Sitzungsfrist übermittelt. Bitte melden Sie sich erneut an.",
 
     "common.cancel": "Abbrechen",
     "common.save": "Speichern",
