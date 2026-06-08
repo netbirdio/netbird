@@ -254,6 +254,18 @@ func buildAuthorizedUsersProto(ctx context.Context, authorizedUsers map[string]m
 
 const deprecatedRemotePeersVersion = "0.29.3"
 
+// precomputedDeprecatedRemotePeersConstraint is the parsed ">= 0.29.3" constraint,
+// built once at init since the bound is a compile-time constant.
+var precomputedDeprecatedRemotePeersConstraint version.Constraints
+
+func init() {
+	constraint, err := version.NewConstraint(">= " + deprecatedRemotePeersVersion)
+	if err != nil {
+		panic("parse deprecated remote peers version constraint: " + err.Error())
+	}
+	precomputedDeprecatedRemotePeersConstraint = constraint
+}
+
 func shouldSkipSendingDeprecatedRemotePeers(peerVersion string) bool {
 	if nbversion.IsDevelopmentVersion(peerVersion) {
 		return true
@@ -264,12 +276,7 @@ func shouldSkipSendingDeprecatedRemotePeers(peerVersion string) bool {
 		return false
 	}
 
-	constraints, err := version.NewConstraint(">= " + deprecatedRemotePeersVersion)
-	if err != nil {
-		return false
-	}
-
-	return constraints.Check(peerNBVersion)
+	return precomputedDeprecatedRemotePeersConstraint.Check(peerNBVersion)
 }
 
 func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer, dnsName string, includeIPv6 bool) []*proto.RemotePeerConfig {
