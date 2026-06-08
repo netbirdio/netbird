@@ -167,7 +167,7 @@ func addProfileFunc(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		id = profilemanager.ID(resp.Id)
+		id := profilemanager.ID(resp.Id)
 		cmd.Printf("Profile added: %s  %s\n", id.ShortID(), profilemanager.StripCtrlChars(profileName))
 		return nil
 	}
