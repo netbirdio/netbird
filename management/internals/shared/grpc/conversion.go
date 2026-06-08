@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hashicorp/go-version"
+	nbversion "github.com/netbirdio/netbird/version"
 	log "github.com/sirupsen/logrus"
 	goproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -155,7 +157,11 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 
 	remotePeers := make([]*proto.RemotePeerConfig, 0, len(networkMap.Peers)+len(networkMap.OfflinePeers))
 	remotePeers = appendRemotePeerConfig(remotePeers, networkMap.Peers, dnsName, includeIPv6)
-	response.RemotePeers = remotePeers
+
+	if !shouldSkipSendingDeprecatedRemotePeers(peer.Meta.WtVersion) {
+		response.RemotePeers = remotePeers
+	}
+
 	response.NetworkMap.RemotePeers = remotePeers
 	response.RemotePeersIsEmpty = len(remotePeers) == 0
 	response.NetworkMap.RemotePeersIsEmpty = response.RemotePeersIsEmpty
@@ -244,6 +250,26 @@ func buildAuthorizedUsersProto(ctx context.Context, authorizedUsers map[string]m
 	}
 
 	return hashedUsers, machineUsers
+}
+
+const deprecatedRemotePeersVersion = "0.29.3"
+
+func shouldSkipSendingDeprecatedRemotePeers(peerVersion string) bool {
+	if nbversion.IsDevelopmentVersion(peerVersion) {
+		return true
+	}
+
+	peerNBVersion, err := version.NewVersion(peerVersion)
+	if err != nil {
+		return false
+	}
+
+	constraints, err := version.NewConstraint(">= " + deprecatedRemotePeersVersion)
+	if err != nil {
+		return false
+	}
+
+	return constraints.Check(peerNBVersion)
 }
 
 func appendRemotePeerConfig(dst []*proto.RemotePeerConfig, peers []*nbpeer.Peer, dnsName string, includeIPv6 bool) []*proto.RemotePeerConfig {
@@ -362,7 +388,6 @@ func toProtocolFirewallRules(rules []*types.FirewallRule, includeIPv6, useSource
 	}
 	return result
 }
-
 
 // populateSourcePrefixes sets SourcePrefixes on fwRule and returns any
 // additional rules needed (e.g. a v6 wildcard clone when the peer IP is unspecified).
