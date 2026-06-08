@@ -105,8 +105,8 @@ func LinuxAppearanceOptions(icon []byte) application.LinuxWindow {
 }
 
 // DialogWindowOptions is the baseline for every auxiliary dialog window
-// (BrowserLogin, SessionExpired, SessionAboutToExpire, InstallProgress).
-// All four share size (360x320), the no-resize / no-min / no-max chrome,
+// (BrowserLogin, SessionExpiration, InstallProgress).
+// All share size (360x320), the no-resize / no-min / no-max chrome,
 // Hidden-on-create (so the React side can auto-size before first paint),
 // AlwaysOnTop (the dialogs interrupt the user, the SSO popup overrides
 // this), and the shared background/Mac/Windows appearance. Callers fill
@@ -152,8 +152,7 @@ type WindowManager struct {
 	linuxIcon            []byte
 	settings             *application.WebviewWindow
 	browserLogin         *application.WebviewWindow
-	sessionExpired       *application.WebviewWindow
-	sessionAboutToExpire *application.WebviewWindow
+	sessionExpiration *application.WebviewWindow
 	installProgress      *application.WebviewWindow
 	welcome              *application.WebviewWindow
 	errorDialog          *application.WebviewWindow
@@ -268,8 +267,7 @@ func (s *WindowManager) retitleAll() {
 	wins := []pair{
 		{s.settings, "window.title.settings"},
 		{s.browserLogin, "window.title.signIn"},
-		{s.sessionExpired, "window.title.sessionExpired"},
-		{s.sessionAboutToExpire, "window.title.sessionExpiring"},
+		{s.sessionExpiration, "window.title.sessionExpiration"},
 		{s.installProgress, "window.title.updating"},
 		{s.welcome, "window.title.welcome"},
 		{s.errorDialog, "window.title.error"},
@@ -428,77 +426,37 @@ func (s *WindowManager) CloseBrowserLogin() {
 	}
 }
 
-// OpenSessionExpired shows the "session expired" prompt window above all
-// other application windows. Singleton — destroyed on close.
-//
-// The window is created Hidden so the React side can measure its content
-// and call Window.SetSize + Window.Show before the user sees the chrome —
-// otherwise the user would briefly see the 360x320 placeholder snapping to
-// the measured height. Re-opens (singleton already alive) Show/Focus
-// directly here.
-func (s *WindowManager) OpenSessionExpired() {
+// OpenSessionExpiration shows the countdown warning above all other
+// windows on the display the cursor is currently on. `seconds` seeds the
+// mm:ss countdown rendered React-side. Singleton, destroyed on close.
+func (s *WindowManager) OpenSessionExpiration(seconds int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.sessionExpired == nil {
-		s.sessionExpired = s.app.Window.NewWithOptions(
-			DialogWindowOptions("session-expired", s.title("window.title.sessionExpired"), "/#/dialog/session-expired", s.linuxIcon),
-		)
-		s.sessionExpired.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
+	startURL := "/#/dialog/session-expiration?seconds=" + strconv.Itoa(seconds)
+	if s.sessionExpiration == nil {
+		opts := DialogWindowOptions("session-expiration", s.title("window.title.sessionExpiration"), startURL, s.linuxIcon)
+		opts.Screen = s.getScreenBasedOnCursorPosition()
+		opts.InitialPosition = application.WindowCentered
+		s.sessionExpiration = s.app.Window.NewWithOptions(opts)
+		s.sessionExpiration.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
 			s.mu.Lock()
-			s.sessionExpired = nil
+			s.sessionExpiration = nil
 			s.mu.Unlock()
 		})
-		s.centerWhenReady(s.sessionExpired)
+		s.centerOnCursorScreen(s.sessionExpiration)
 		return
 	}
-	s.sessionExpired.Show()
-	s.sessionExpired.Focus()
-	s.centerWhenReady(s.sessionExpired)
+	s.sessionExpiration.SetURL(startURL)
+	s.centerOnCursorScreen(s.sessionExpiration)
+	s.sessionExpiration.Show()
+	s.sessionExpiration.Focus()
 }
 
-// CloseSessionExpired destroys the session-expired window if open.
-func (s *WindowManager) CloseSessionExpired() {
+// CloseSessionExpiration destroys the countdown warning window if open.
+func (s *WindowManager) CloseSessionExpiration() {
 	s.mu.Lock()
-	w := s.sessionExpired
-	s.sessionExpired = nil
-	s.mu.Unlock()
-	if w != nil {
-		w.Close()
-	}
-}
-
-// OpenSessionAboutToExpire shows the countdown warning window above all
-// other application windows. `seconds` seeds the initial countdown value
-// rendered as mm:ss in the React layer. Singleton — destroyed on close.
-// Window is created Hidden so the React side can auto-size before paint
-// (see OpenSessionExpired comment).
-func (s *WindowManager) OpenSessionAboutToExpire(seconds int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	startURL := "/#/dialog/session-about-to-expire?seconds=" + strconv.Itoa(seconds)
-	if s.sessionAboutToExpire == nil {
-		s.sessionAboutToExpire = s.app.Window.NewWithOptions(
-			DialogWindowOptions("session-about-to-expire", s.title("window.title.sessionExpiring"), startURL, s.linuxIcon),
-		)
-		s.sessionAboutToExpire.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) {
-			s.mu.Lock()
-			s.sessionAboutToExpire = nil
-			s.mu.Unlock()
-		})
-		s.centerWhenReady(s.sessionAboutToExpire)
-		return
-	}
-	s.sessionAboutToExpire.SetURL(startURL)
-	s.sessionAboutToExpire.Show()
-	s.sessionAboutToExpire.Focus()
-	s.centerWhenReady(s.sessionAboutToExpire)
-}
-
-// CloseSessionAboutToExpire destroys the countdown warning window if open.
-func (s *WindowManager) CloseSessionAboutToExpire() {
-	s.mu.Lock()
-	w := s.sessionAboutToExpire
-	s.sessionAboutToExpire = nil
+	w := s.sessionExpiration
+	s.sessionExpiration = nil
 	s.mu.Unlock()
 	if w != nil {
 		w.Close()
@@ -698,6 +656,27 @@ func (s *WindowManager) SetRecenterOnShow(pred func() bool) {
 	s.recenterOnShow = pred
 }
 
+// getScreenBasedOnCursorPosition returns the display the OS cursor is
+// on, falling back through main-window screen → nil (Wails treats nil
+// as OS-default placement). Linux uses XQueryPointer via XWayland on
+// Wayland sessions, which ships by default on the supported distros.
+func (s *WindowManager) getScreenBasedOnCursorPosition() *application.Screen {
+	if s.app == nil || s.app.Screen == nil {
+		return nil
+	}
+	if p, ok := getCursorPosition(s.app); ok {
+		if sc := s.app.Screen.ScreenNearestDipPoint(p); sc != nil {
+			return sc
+		}
+	}
+	if s.mainWindow != nil {
+		if sc, err := s.mainWindow.GetScreen(); err == nil {
+			return sc
+		}
+	}
+	return nil
+}
+
 // centerWhenReady centers w once its native window actually exists — but only
 // in environments where the WM won't do it for us (recenterOnShow). On full
 // desktops the WM centers small windows and restores position across hide ->
@@ -728,6 +707,47 @@ func (s *WindowManager) centerWhenReady(w *application.WebviewWindow) {
 			w.Center()
 			if x, y := w.Position(); x != 0 || y != 0 {
 				return // move took effect -> surface is realized
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}()
+}
+
+// centerOnCursorScreen centers w in the work area of the display the
+// cursor is on. Each guard is a no-op (nil window, no cursor screen,
+// zero size, zero work area) so a headless / no-monitor session is safe.
+// On minimal WMs (recenterOnShow → Fluxbox/XEmbed) the same retry loop
+// centerWhenReady uses kicks in: Linux SetPosition silently no-ops while
+// the GdkSurface is nil, and a non-zero post-move Position is the
+// signal that it landed.
+func (s *WindowManager) centerOnCursorScreen(w *application.WebviewWindow) {
+	if w == nil {
+		return
+	}
+	place := func() {
+		screen := s.getScreenBasedOnCursorPosition()
+		if screen == nil {
+			return
+		}
+		width, height := w.Size()
+		if width <= 0 || height <= 0 {
+			return
+		}
+		wa := screen.WorkArea
+		if wa.Width <= 0 || wa.Height <= 0 {
+			return
+		}
+		w.SetPosition(wa.X+(wa.Width-width)/2, wa.Y+(wa.Height-height)/2)
+	}
+	place()
+	if s.recenterOnShow == nil || !s.recenterOnShow() {
+		return
+	}
+	go func() {
+		for i := 0; i < 50; i++ {
+			place()
+			if x, y := w.Position(); x != 0 || y != 0 {
+				return
 			}
 			time.Sleep(20 * time.Millisecond)
 		}

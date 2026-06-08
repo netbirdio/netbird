@@ -2,8 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import "./globals.css";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
-import SessionExpiredDialog from "@/modules/session/SessionExpiredDialog.tsx";
-import SessionAboutToExpireDialog from "@/modules/session/SessionAboutToExpireDialog.tsx";
+import SessionExpirationDialog from "@/modules/session/SessionExpirationDialog.tsx";
 import UpdateInProgressDialog from "@/modules/auto-update/UpdateInProgressDialog.tsx";
 import WelcomeDialog from "@/modules/welcome/WelcomeDialog.tsx";
 import ErrorDialog from "@/modules/error/ErrorDialog.tsx";
@@ -39,8 +38,7 @@ Promise.all([
                         <Route path="dialog">
                             <Route path="browser-login" element={<LoginWaitingForBrowserDialog />} />
                             <Route path="install-progress" element={<UpdateInProgressDialog />} />
-                            <Route path="session-expired" element={<SessionExpiredDialog />} />
-                            <Route path="session-about-to-expire" element={<SessionAboutToExpireDialog />} />
+                            <Route path="session-expiration" element={<SessionExpirationDialog />} />
                             <Route path="welcome" element={<WelcomeDialog />} />
                             <Route path="error" element={<ErrorDialog />} />
                         </Route>

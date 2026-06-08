@@ -13,7 +13,7 @@ import i18next from "@/lib/i18n";
 // measurements (content changes after mount) only adjust the size.
 //
 // Re-measures via ResizeObserver so adding/removing content (e.g. the
-// SessionAboutToExpire title swapping at countdown zero) keeps the chrome
+// SessionExpiration title swapping at countdown zero) keeps the chrome
 // tight to the content with no scrollbar.
 //
 // Also re-measures on i18next `languageChanged`. The ResizeObserver in

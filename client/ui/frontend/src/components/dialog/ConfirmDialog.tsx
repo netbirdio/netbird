@@ -3,7 +3,7 @@ import { cn } from "@/lib/cn.ts";
 import { isMacOS } from "@/lib/platform.ts";
 
 // ConfirmDialog is the shared layout wrapper used by dialog-style window
-// surfaces (SessionExpired, SessionAboutToExpire, …). Purely a layout
+// surfaces (SessionExpiration, …). Purely a layout
 // primitive — callers compose the contents (SquareIcon, DialogHeading,
 // DialogDescription, DialogActions) so each dialog can tweak its own
 // internal structure without growing the ConfirmDialog API.

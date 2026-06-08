@@ -28,7 +28,7 @@ const (
 	notifyActionDismiss          = "dismiss"
 
 	// finalWarningCountdownSeconds is the countdown shown in the auto-opened
-	// SessionAboutToExpire dialog. Mirrors sessionwatch.FinalWarningLead
+	// SessionExpiration dialog. Mirrors sessionwatch.FinalWarningLead
 	// (2 minutes); the values stay in sync by hand because the lead is fixed
 	// for the initial rollout.
 	finalWarningCountdownSeconds = 120
@@ -302,18 +302,18 @@ func (t *Tray) dismissSessionWarning() {
 	}
 }
 
-// openSessionAboutToExpire fires the auto-opened fallback dialog at
+// openSessionExpiration fires the auto-opened fallback dialog at
 // T-FinalWarningLead when the user did not dismiss the earlier T-10
 // notification. Idempotent on the WindowManager side (a second call
 // while the window is already open is a no-op).
-func (t *Tray) openSessionAboutToExpire() {
+func (t *Tray) openSessionExpiration() {
 	if t.svc.WindowManager == nil {
 		return
 	}
-	t.svc.WindowManager.OpenSessionAboutToExpire(finalWarningCountdownSeconds)
+	t.svc.WindowManager.OpenSessionExpiration(finalWarningCountdownSeconds)
 }
 
-// openSessionExtendFlow opens the SessionAboutToExpire window seeded with
+// openSessionExtendFlow opens the SessionExpiration window seeded with
 // the actual remaining time on the cached SSO deadline. Triggered by a
 // click on the "Expires in …" tray row so the user can extend the session
 // proactively, instead of waiting for the daemon's T-FinalWarningLead
@@ -333,5 +333,5 @@ func (t *Tray) openSessionExtendFlow() {
 	if seconds <= 0 {
 		return
 	}
-	t.svc.WindowManager.OpenSessionAboutToExpire(seconds)
+	t.svc.WindowManager.OpenSessionExpiration(seconds)
 }

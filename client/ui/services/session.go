@@ -20,7 +20,7 @@ type (
 
 // Session is the Wails-bound wrapper around authsession.Session. It only
 // re-exposes the subset the React frontend actually calls
-// (SessionAboutToExpireDialog.tsx: RequestExtend + WaitExtend). The tray
+// (SessionExpirationDialog.tsx: RequestExtend + WaitExtend). The tray
 // uses authsession.Session directly, so methods that only the tray needs
 // (DismissWarning) are deliberately absent here — keeping the generated
 // TS surface minimal.

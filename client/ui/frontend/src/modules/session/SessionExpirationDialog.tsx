@@ -1,20 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
+import { Events } from "@wailsio/runtime";
 import { errorDialog } from "@/lib/dialogs.ts";
-import { ClockIcon } from "lucide-react";
+import { AlertCircleIcon, ClockIcon } from "lucide-react";
 import { Button } from "@/components/buttons/Button";
 import { ConfirmDialog } from "@/components/dialog/ConfirmDialog";
 import { DialogActions } from "@/components/dialog/DialogActions";
 import { DialogDescription } from "@/components/dialog/DialogDescription";
 import { DialogHeading } from "@/components/dialog/DialogHeading";
 import { SquareIcon } from "@/components/SquareIcon";
-import {
-    Connection,
-    Profiles as ProfilesSvc,
-    Session,
-    WindowManager,
-} from "@bindings/services";
+import { Connection, Profiles as ProfilesSvc, Session, WindowManager } from "@bindings/services";
 import { useAutoSizeWindow } from "@/hooks/useAutoSizeWindow";
 import { formatErrorMessage } from "@/lib/errors.ts";
 
@@ -40,7 +36,7 @@ function formatRemaining(seconds: number): string {
     return `${pad(minutes)}:${pad(secs)}`;
 }
 
-export default function SessionAboutToExpireDialog() {
+export default function SessionExpirationDialog() {
     const { t } = useTranslation();
     const contentRef = useAutoSizeWindow<HTMLDivElement>(WINDOW_WIDTH);
     const [params] = useSearchParams();
@@ -67,6 +63,20 @@ export default function SessionAboutToExpireDialog() {
         }, 1000);
         return () => window.clearInterval(id);
     }, [remaining]);
+
+    // Auto-close when the daemon flips back to Connected — covers extend
+    // flows started from outside this window (tray notification action,
+    // another UI surface) so the user isn't left staring at a stale dialog.
+    useEffect(() => {
+        const off = Events.On("netbird:status", (ev: { data: { status?: string } }) => {
+            if (ev?.data?.status === "Connected") {
+                WindowManager.CloseSessionExpiration().catch(console.error);
+            }
+        });
+        return () => {
+            off();
+        };
+    }, []);
 
     // Mirrors tray.go::runExtendSession: starts the daemon SSO extend flow,
     // opens the browser for the user to sign in, blocks on the daemon until
@@ -100,10 +110,10 @@ export default function SessionAboutToExpireDialog() {
                 // relevant.
                 return;
             }
-            WindowManager.CloseSessionAboutToExpire().catch(console.error);
+            WindowManager.CloseSessionExpiration().catch(console.error);
         } catch (e) {
             await errorDialog({
-                Title: t("sessionAboutToExpire.extendFailedTitle"),
+                Title: t("sessionExpiration.extendFailedTitle"),
                 Message: formatErrorMessage(e),
             });
         } finally {
@@ -121,10 +131,10 @@ export default function SessionAboutToExpireDialog() {
                 profileName: active.profileName || "default",
                 username,
             });
-            WindowManager.CloseSessionAboutToExpire().catch(console.error);
+            WindowManager.CloseSessionExpiration().catch(console.error);
         } catch (e) {
             await errorDialog({
-                Title: t("sessionAboutToExpire.logoutFailedTitle"),
+                Title: t("sessionExpiration.logoutFailedTitle"),
                 Message: formatErrorMessage(e),
             });
         } finally {
@@ -132,33 +142,41 @@ export default function SessionAboutToExpireDialog() {
         }
     }, [busy, t]);
 
+    const close = useCallback(() => {
+        WindowManager.CloseSessionExpiration().catch(console.error);
+    }, []);
+
     return (
         <ConfirmDialog ref={contentRef}>
-            <SquareIcon icon={ClockIcon} />
+            <SquareIcon icon={expired ? AlertCircleIcon : ClockIcon} />
 
             <div className={"flex flex-col items-center gap-1"}>
                 <DialogHeading>
                     {expired
-                        ? t("sessionAboutToExpire.expired")
+                        ? t("sessionExpiration.expired")
                         : soon
-                          ? t("sessionAboutToExpire.title")
-                          : t("sessionAboutToExpire.titleLater")}
+                          ? t("sessionExpiration.title")
+                          : t("sessionExpiration.titleLater")}
                 </DialogHeading>
                 <DialogDescription>
-                    {soon
-                        ? t("sessionAboutToExpire.description")
-                        : t("sessionAboutToExpire.descriptionLater")}
+                    {expired
+                        ? t("sessionExpiration.expiredDescription")
+                        : soon
+                          ? t("sessionExpiration.description")
+                          : t("sessionExpiration.descriptionLater")}
                 </DialogDescription>
             </div>
 
-            <div
-                className={
-                    "font-mono font-semibold text-2xl tabular-nums text-nb-gray-50 tracking-wider"
-                }
-                aria-live={"polite"}
-            >
-                {formatRemaining(remaining)}
-            </div>
+            {!expired && (
+                <div
+                    className={
+                        "font-mono font-semibold text-2xl tabular-nums text-nb-gray-50 tracking-wider"
+                    }
+                    aria-live={"polite"}
+                >
+                    {formatRemaining(remaining)}
+                </div>
+            )}
 
             <DialogActions>
                 <Button
@@ -167,18 +185,20 @@ export default function SessionAboutToExpireDialog() {
                     size={"md"}
                     className={"w-full"}
                     onClick={stay}
-                    disabled={expired || busy}
+                    disabled={busy}
                 >
-                    {t("sessionAboutToExpire.stay")}
+                    {expired
+                        ? t("sessionExpiration.authenticate")
+                        : t("sessionExpiration.stay")}
                 </Button>
                 <Button
                     variant={"secondary"}
                     size={"md"}
                     className={"w-full"}
-                    onClick={logout}
+                    onClick={expired ? close : logout}
                     disabled={busy}
                 >
-                    {t("sessionAboutToExpire.logout")}
+                    {expired ? t("sessionExpiration.close") : t("sessionExpiration.logout")}
                 </Button>
             </DialogActions>
         </ConfirmDialog>

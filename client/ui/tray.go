@@ -478,7 +478,7 @@ func (t *Tray) buildMenu() *application.Menu {
 	// its account email, and the SSO session deadline read as a single block.
 	// Hidden until applyStatus sees a non-zero SessionExpiresAt on the daemon
 	// Status snapshot — peers without SSO tracking or with login expiry
-	// disabled never reveal this row. Click opens the SessionAboutToExpire
+	// disabled never reveal this row. Click opens the SessionExpiration
 	// window so the user can extend the session ahead of the daemon's
 	// T-FinalWarningLead auto-prompt.
 	t.sessionExpiresItem = menu.Add("").OnClick(func(*application.Context) { t.openSessionExtendFlow() })

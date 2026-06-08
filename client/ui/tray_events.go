@@ -50,11 +50,11 @@ func (t *Tray) onSystemEvent(ev *application.CustomEvent) {
 	//     the active UI language regardless of what the daemon (which has
 	//     no locale context) writes into UserMessage.
 	//   - T-FinalWarningLead (MetaSessionFinal=true) → auto-open the
-	//     SessionAboutToExpire dialog. No OS notification here; the
+	//     SessionExpiration dialog. No OS notification here; the
 	//     dialog is the last-chance reminder, doubling up would be noise.
 	if se.Metadata != nil && se.Metadata[authsession.MetaWarning] == "true" {
 		if se.Metadata[authsession.MetaFinal] == "true" {
-			t.openSessionAboutToExpire()
+			t.openSessionExpiration()
 			return
 		}
 		t.notifySessionWarning(
