@@ -394,6 +394,7 @@
     "peers.empty.description": "No peers are connected to your network. Add a peer to get started.",
     "peers.details.domain": "Domain",
     "peers.details.netbirdIp": "NetBird IP",
+    "peers.details.netbirdIpv6": "NetBird IPv6",
     "peers.details.publicKey": "Public key",
     "peers.details.connection": "Connection",
     "peers.details.latency": "Latency",

@@ -392,6 +392,7 @@
     "peers.empty.description": "Egyetlen társ sem csatlakozott a hálózatához. Adjon hozzá egy társat a kezdéshez.",
     "peers.details.domain": "Domain",
     "peers.details.netbirdIp": "NetBird IP",
+    "peers.details.netbirdIpv6": "NetBird IPv6",
     "peers.details.publicKey": "Publikus kulcs",
     "peers.details.connection": "Kapcsolat",
     "peers.details.latency": "Késleltetés",

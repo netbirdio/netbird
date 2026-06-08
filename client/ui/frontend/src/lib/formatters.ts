@@ -33,3 +33,14 @@ export const formatRelative = (
     if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
     return `${Math.floor(diff / 86400)}d ago`;
 };
+
+// shortenDns drops the domain suffix off a DNS name, returning just the
+// leading host label ("misha.netbird.selfhosted" → "misha"). The base domain
+// is operator-configurable so we keep everything before the first dot rather
+// than matching against a known suffix. The full DNS name still lands on
+// the clipboard via the copy helpers' explicit message prop.
+export const shortenDns = (fqdn: string | undefined | null): string => {
+    if (!fqdn) return "";
+    const dot = fqdn.indexOf(".");
+    return dot === -1 ? fqdn : fqdn.slice(0, dot);
+};

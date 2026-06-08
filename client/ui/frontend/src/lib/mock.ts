@@ -23,6 +23,7 @@ export const mockPeers: PeerStatus[] = [
     // eyeballing layout at maximum density.
     new PeerStatus({
         ip: "100.64.0.1",
+        ipv6: "fd00:dead:beef::1",
         pubKey: "MockKeyEverythingMaxedOutForLayoutTestingAA=",
         connStatus: "Connected",
         connStatusUpdateUnix: SECONDS(4),

@@ -8,7 +8,7 @@ import { CopyToClipboard } from "@/components/CopyToClipboard";
 import { SearchInput } from "@/components/inputs/SearchInput";
 import { EmptyState } from "@/components/empty-state/EmptyState";
 import { NoResults } from "@/components/empty-state/NoResults";
-import { latencyColor } from "@/lib/formatters";
+import { latencyColor, shortenDns } from "@/lib/formatters";
 import { useStatus } from "@/contexts/StatusContext";
 import { usePeerDetail } from "@/contexts/PeerDetailContext";
 import { Tooltip } from "@/components/Tooltip";
@@ -217,7 +217,7 @@ const PeersList = ({ data }: { data: PeerStatus[] }) => {
                             <div>
                                 <CopyToClipboard message={peer.fqdn}>
                                     <TruncatedText
-                                        text={peer.fqdn}
+                                        text={shortenDns(peer.fqdn)}
                                         className={
                                             "block text-[0.81rem] font-medium text-nb-gray-100 truncate max-w-[300px]"
                                         }

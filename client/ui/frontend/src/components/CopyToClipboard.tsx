@@ -2,6 +2,15 @@ import { useRef, useState, type ReactNode } from "react";
 import { Check, Copy } from "lucide-react";
 import { cn } from "@/lib/cn";
 
+// Static map — Tailwind JIT only picks up literal class names, so dynamic
+// template strings would be invisible to it.
+const VARIANT_HOVER = {
+    default: "group-hover/copy:[&_*]:text-nb-gray-300",
+    bright: "group-hover/copy:[&_*]:text-nb-gray-200",
+} as const;
+
+type CopyToClipboardVariant = keyof typeof VARIANT_HOVER;
+
 type CopyToClipboardProps = {
     children: ReactNode;
     message?: string;
@@ -10,6 +19,11 @@ type CopyToClipboardProps = {
     className?: string;
     iconClassName?: string;
     alwaysShowIcon?: boolean;
+    // variant picks the text colour the wrapped content fades into on hover.
+    //   - "default" → nb-gray-300 (peer-details, settings, etc.)
+    //   - "bright"  → nb-gray-200 (deeper-surface contexts like the main
+    //                 connection card where text needs more lift)
+    variant?: CopyToClipboardVariant;
 };
 
 export const CopyToClipboard = ({
@@ -20,6 +34,7 @@ export const CopyToClipboard = ({
     className,
     iconClassName,
     alwaysShowIcon = false,
+    variant = "default",
 }: CopyToClipboardProps) => {
     const wrapperRef = useRef<HTMLDivElement>(null);
     const [copied, setCopied] = useState(false);
@@ -43,11 +58,22 @@ export const CopyToClipboard = ({
             ref={wrapperRef}
             onClick={handleClick}
             className={cn(
-                "inline-flex gap-2 items-center group/copy cursor-pointer wails-no-draggable",
+                "inline-flex gap-2 items-center group/copy cursor-default wails-no-draggable",
                 className,
             )}
         >
-            <span className={cn("relative truncate min-w-0")}>
+            <span
+                className={cn(
+                    "relative truncate min-w-0",
+                    // [&_*] is Tailwind's arbitrary descendant variant: & is
+                    // this element, _ is the CSS descendant combinator, * is
+                    // every descendant. The generated selector has higher
+                    // specificity than a child's own text-nb-gray-* class, so
+                    // the hover colour wins the cascade.
+                    "[&_*]:transition-colors",
+                    VARIANT_HOVER[variant],
+                )}
+            >
                 {children}
                 <span
                     className={

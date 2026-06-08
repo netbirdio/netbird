@@ -11,6 +11,9 @@ import { cn } from "@/lib/cn.ts";
 import { formatErrorMessage } from "@/lib/errors.ts";
 import { CopyToClipboard } from "@/components/CopyToClipboard";
 import { TruncatedText } from "@/components/TruncatedText";
+import { shortenDns } from "@/lib/formatters";
+import { Check as CheckIcon, ChevronDownIcon, Copy as CopyIcon } from "lucide-react";
+import * as Popover from "@radix-ui/react-popover";
 import netbirdFullLogo from "@/assets/logos/netbird-full.svg";
 
 // EVENT_BROWSER_LOGIN_CANCEL is emitted by the BrowserLogin window's close
@@ -387,14 +390,20 @@ export const MainConnectionStatusSwitch = () => {
             });
         }
     };
-    const showLocal = connState === ConnectionState.Connected;
+    const show = connState === ConnectionState.Connected;
     const fqdn = status?.local.fqdn || "";
     const ip = status?.local.ip || "";
+    const ipv6 = status?.local.ipv6 || "";
 
     return (
         <div
             className={cn(
-                "flex flex-col h-full w-full items-center justify-center gap-4 relative -top-6",
+                // Anchored from the top so the FQDN/IP lines below the toggle
+                // can grow into a popover-aware layout without shifting the
+                // toggle itself (justify-center would slide everything up
+                // when the IP line is hidden during Disconnected).
+                "flex flex-col h-full w-full items-center gap-4",
+                "relative top-[11.7rem]",
             )}
         >
             <img
@@ -422,32 +431,145 @@ export const MainConnectionStatusSwitch = () => {
                 </h1>
                 <CopyToClipboard
                     message={fqdn}
+                    variant={"bright"}
                     className={cn(
                         "min-h-[1em] transition-opacity duration-300 max-w-full",
                         "relative left-[0.55rem]",
-                        showLocal && fqdn ? "opacity-100" : "opacity-0 pointer-events-none",
+                        show && fqdn ? "opacity-100" : "opacity-0 pointer-events-none",
                     )}
                 >
                     <TruncatedText
-                        text={fqdn || " "}
+                        text={shortenDns(fqdn) || " "}
                         className={
                             "block font-mono text-[0.8rem] leading-tight text-nb-gray-300 truncate max-w-[310px]"
                         }
                     />
                 </CopyToClipboard>
-                <CopyToClipboard
-                    message={ip}
-                    className={cn(
-                        "min-h-[1em] transition-opacity duration-300",
-                        "relative left-[0.55rem]",
-                        showLocal && ip ? "opacity-100" : "opacity-0 pointer-events-none",
-                    )}
-                >
-                    <span className={"font-mono text-[0.8rem] leading-tight text-nb-gray-300"}>
-                        {ip || " "}
-                    </span>
-                </CopyToClipboard>
+                <LocalIpLine ip={ip} ipv6={ipv6} show={show} />
             </div>
         </div>
+    );
+};
+
+// LocalIpLine shows the IPv4 inline (no copy icon). When the peer also has
+// an IPv6, a tiny chevron sits next to the IPv4 and clicking the line opens
+// a popover containing both v4 and v6, each independently click-to-copy.
+const LocalIpLine = ({ ip, ipv6, show }: { ip: string; ipv6: string; show: boolean }) => {
+    const [open, setOpen] = useState(false);
+    const hasV6 = !!ipv6;
+
+    if (!hasV6) {
+        return (
+            <CopyToClipboard
+                message={ip}
+                variant={"bright"}
+                className={cn(
+                    "min-h-[1em] transition-opacity duration-300",
+                    "relative left-[0.55rem]",
+                    show && ip ? "opacity-100" : "opacity-0 pointer-events-none",
+                )}
+            >
+                <span className={"font-mono text-[0.8rem] leading-tight text-nb-gray-300"}>
+                    {ip || " "}
+                </span>
+            </CopyToClipboard>
+        );
+    }
+
+    return (
+        <div
+            className={cn(
+                "min-h-[1em] transition-opacity duration-300 max-w-full",
+                "relative wails-no-draggable",
+                show && ip ? "opacity-100" : "opacity-0 pointer-events-none",
+            )}
+        >
+            <Popover.Root open={open} onOpenChange={setOpen}>
+                <Popover.Trigger asChild>
+                    <button
+                        type={"button"}
+                        className={cn(
+                            // relative so the chevron can be absolutely
+                            // positioned alongside without widening the trigger
+                            // — keeps the IP text centred in its parent and
+                            // lets the popover centre cleanly on it.
+                            "group relative inline-flex items-center outline-none cursor-default",
+                            "transition-colors",
+                        )}
+                    >
+                        <span
+                            className={cn(
+                                "font-mono text-[0.8rem] leading-tight text-nb-gray-300 transition-colors",
+                                "group-hover:text-nb-gray-200",
+                                "group-data-[state=open]:text-nb-gray-200",
+                            )}
+                        >
+                            {ip || " "}
+                        </span>
+                        <ChevronDownIcon
+                            size={14}
+                            className={cn(
+                                "absolute -right-5 top-1/2 -translate-y-1/2",
+                                "shrink-0 text-nb-gray-300 transition-colors",
+                                "group-hover:text-nb-gray-200",
+                                "group-data-[state=open]:text-nb-gray-200",
+                            )}
+                        />
+                    </button>
+                </Popover.Trigger>
+                <Popover.Portal>
+                    <Popover.Content
+                        side={"bottom"}
+                        align={"center"}
+                        sideOffset={6}
+                        onOpenAutoFocus={(e) => e.preventDefault()}
+                        className={cn(
+                            "z-50 min-w-64 max-w-[280px] overflow-hidden",
+                            "rounded-lg border border-nb-gray-900 bg-nb-gray-935",
+                            "p-1 shadow-lg outline-none text-nb-gray-200",
+                            "flex flex-col",
+                        )}
+                    >
+                        <IpRow value={ip} />
+                        <div className={"-mx-1 my-1 h-px bg-nb-gray-910"} />
+                        <IpRow value={ipv6} />
+                    </Popover.Content>
+                </Popover.Portal>
+            </Popover.Root>
+        </div>
+    );
+};
+
+// IpRow is a single click-to-copy item inside the LocalIpLine popover. Mirrors
+// the dropdown-menu item look (rounded, hover bg, transition) and shows a copy
+// icon on the right that flips to a checkmark briefly after a successful copy.
+const IpRow = ({ value }: { value: string }) => {
+    const [copied, setCopied] = useState(false);
+    const handleClick = async () => {
+        if (!value) return;
+        try {
+            await navigator.clipboard.writeText(value);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 500);
+        } catch {
+            // ignore
+        }
+    };
+    return (
+        <button
+            type={"button"}
+            onClick={handleClick}
+            className={cn(
+                "group/iprow relative flex items-center justify-between gap-3",
+                "rounded-md px-2 py-1.5 text-left",
+                "text-nb-gray-200 hover:bg-nb-gray-900 hover:text-nb-gray-50",
+                "transition-colors outline-none cursor-default",
+            )}
+        >
+            <span className={"font-mono text-[0.75rem] truncate min-w-0"}>{value}</span>
+            <span className={"shrink-0 inline-flex items-center text-nb-gray-200"}>
+                {copied ? <CheckIcon size={11} /> : <CopyIcon size={11} />}
+            </span>
+        </button>
     );
 };

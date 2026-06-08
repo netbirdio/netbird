@@ -100,6 +100,7 @@ type SystemEvent struct {
 // troubleshooting expansion (ICE candidate types, endpoints, handshake age).
 type PeerStatus struct {
 	IP                         string   `json:"ip"`
+	IPv6                       string   `json:"ipv6"`
 	PubKey                     string   `json:"pubKey"`
 	ConnStatus                 string   `json:"connStatus"`
 	ConnStatusUpdateUnix       int64    `json:"connStatusUpdateUnix"`
@@ -129,6 +130,7 @@ type PeerLink struct {
 // LocalPeer mirrors LocalPeerState — what this client looks like on the mesh.
 type LocalPeer struct {
 	IP       string   `json:"ip"`
+	IPv6     string   `json:"ipv6"`
 	PubKey   string   `json:"pubKey"`
 	Fqdn     string   `json:"fqdn"`
 	Networks []string `json:"networks"`
@@ -582,6 +584,7 @@ func statusFromProto(resp *proto.StatusResponse) Status {
 		},
 		Local: LocalPeer{
 			IP:       local.GetIP(),
+			IPv6:     local.GetIpv6(),
 			PubKey:   local.GetPubKey(),
 			Fqdn:     local.GetFqdn(),
 			Networks: append([]string{}, local.GetNetworks()...),
@@ -591,6 +594,7 @@ func statusFromProto(resp *proto.StatusResponse) Status {
 	for _, p := range full.GetPeers() {
 		st.Peers = append(st.Peers, PeerStatus{
 			IP:                         p.GetIP(),
+			IPv6:                       p.GetIpv6(),
 			PubKey:                     p.GetPubKey(),
 			ConnStatus:                 p.GetConnStatus(),
 			ConnStatusUpdateUnix:       p.GetConnStatusUpdate().GetSeconds(),

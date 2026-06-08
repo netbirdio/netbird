@@ -27,7 +27,7 @@ import { cn } from "@/lib/cn";
 import { CopyToClipboard } from "@/components/CopyToClipboard";
 import { Tooltip } from "@/components/Tooltip";
 import { TruncatedText } from "@/components/TruncatedText";
-import { formatBytes, formatRelative, latencyColor } from "@/lib/formatters";
+import { formatBytes, formatRelative, latencyColor, shortenDns } from "@/lib/formatters";
 import { useStatus } from "@/contexts/StatusContext";
 import { usePeerDetail } from "@/contexts/PeerDetailContext";
 import { mockOr, mockPeers } from "@/lib/mock";
@@ -156,7 +156,7 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
                             iconClassName={"top-[2px]"}
                         >
                             <span className={"text-sm font-medium text-nb-gray-100 truncate"}>
-                                {selected.fqdn || selected.ip}
+                                {shortenDns(selected.fqdn) || selected.ip}
                             </span>
                         </CopyToClipboard>
                         <Tooltip content={t("peers.details.refresh")}>
@@ -233,6 +233,18 @@ const PeerDetails = ({ peer, now }: { peer: PeerStatus; now: number }) => {
                     DASH
                 )}
             </Row>
+            {peer.ipv6 && (
+                <Row icon={MapPinIcon} label={t("peers.details.netbirdIpv6")}>
+                    <CopyToClipboard
+                        message={peer.ipv6}
+                        alwaysShowIcon
+                        className={"max-w-full min-w-0"}
+                        iconClassName={"top-0"}
+                    >
+                        <TruncatedRowValue value={peer.ipv6} mono />
+                    </CopyToClipboard>
+                </Row>
+            )}
             {isConnected && (
                 <Row icon={ChevronsLeftRightEllipsisIcon} label={t("peers.details.connection")}>
                     <span className={"whitespace-nowrap"}>{connectionLabel}</span>
