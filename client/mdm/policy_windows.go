@@ -11,18 +11,6 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
-// canonicalKey maps the lowercase form of a registry value name to its
-// canonical mdm.Key* name. Admins commonly write PascalCase value names in
-// ADMX / Group Policy ("ManagementURL"), the iOS/AppConfig convention is
-// camelCase ("managementURL"); both must resolve to the same Policy lookup.
-var canonicalKey = func() map[string]string {
-	m := make(map[string]string, len(AllKeys))
-	for _, k := range AllKeys {
-		m[strings.ToLower(k)] = k
-	}
-	return m
-}()
-
 // policyRegistryPath is the well-known MDM policy registry key for NetBird.
 // Admins push values here through Group Policy, Intune ADMX ingestion, an
 // Intune custom Registry CSP profile, or `reg add` during MSI deployment.
