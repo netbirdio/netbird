@@ -147,6 +147,15 @@ func (p *WGUDPProxy) RedirectAs(endpoint *net.UDPAddr) {
 	p.sendPkg = p.srcFakerConn.SendPkg
 }
 
+// InjectPacket writes b to the remote peer over the underlying transport.
+func (p *WGUDPProxy) InjectPacket(b []byte) error {
+	if p.remoteConn == nil {
+		return fmt.Errorf("proxy not started")
+	}
+	_, err := p.remoteConn.Write(b)
+	return err
+}
+
 // CloseConn close the localConn
 func (p *WGUDPProxy) CloseConn() error {
 	if p.cancel == nil {

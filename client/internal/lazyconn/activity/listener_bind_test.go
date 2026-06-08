@@ -68,6 +68,10 @@ func (m *MockWGIfaceBind) GetBind() device.EndpointManager {
 	return m.endpointMgr
 }
 
+func (m *MockWGIfaceBind) MTU() uint16 {
+	return 1280
+}
+
 func TestBindListener_Creation(t *testing.T) {
 	mockEndpointMgr := newMockEndpointManager()
 	mockIface := &MockWGIfaceBind{endpointMgr: mockEndpointMgr}
@@ -207,8 +211,9 @@ func TestManager_BindMode(t *testing.T) {
 	require.NoError(t, err)
 
 	select {
-	case peerConnID := <-mgr.OnActivityChan:
-		assert.Equal(t, cfg.PeerConnID, peerConnID, "Received peer connection ID should match")
+	case ev := <-mgr.OnActivityChan:
+		assert.Equal(t, cfg.PeerConnID, ev.PeerConnID, "Received peer connection ID should match")
+		assert.Equal(t, []byte{0x01, 0x02, 0x03}, ev.FirstPacket, "First packet should be captured for reinjection")
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for activity notification")
 	}
@@ -266,8 +271,8 @@ func TestManager_BindMode_MultiplePeers(t *testing.T) {
 	receivedPeers := make(map[peerid.ConnID]bool)
 	for i := 0; i < 2; i++ {
 		select {
-		case peerConnID := <-mgr.OnActivityChan:
-			receivedPeers[peerConnID] = true
+		case ev := <-mgr.OnActivityChan:
+			receivedPeers[ev.PeerConnID] = true
 		case <-time.After(2 * time.Second):
 			t.Fatal("timeout waiting for activity notifications")
 		}

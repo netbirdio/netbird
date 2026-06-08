@@ -44,4 +44,5 @@ type wgIfaceBase interface {
 	FullStats() (*configurer.Stats, error)
 	LastActivities() map[string]monotime.Time
 	SetPresharedKey(peerKey string, psk wgtypes.Key, updateOnly bool) error
+	MTU() uint16
 }

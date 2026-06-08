@@ -44,6 +44,10 @@ func (m MocWGIface) Address() wgaddr.Address {
 	}
 }
 
+func (m MocWGIface) MTU() uint16 {
+	return 1280
+}
+
 // GetPeerListener is a test helper to access listeners
 func (m *Manager) GetPeerListener(peerConnID peerid.ConnID) (listener, bool) {
 	m.mu.Lock()
@@ -86,9 +90,9 @@ func TestManager_MonitorPeerActivity(t *testing.T) {
 	}
 
 	select {
-	case peerConnID := <-mgr.OnActivityChan:
-		if peerConnID != peerCfg1.PeerConnID {
-			t.Fatalf("unexpected peerConnID: %v", peerConnID)
+	case ev := <-mgr.OnActivityChan:
+		if ev.PeerConnID != peerCfg1.PeerConnID {
+			t.Fatalf("unexpected peerConnID: %v", ev.PeerConnID)
 		}
 	case <-time.After(1 * time.Second):
 	}

@@ -219,6 +219,15 @@ func (p *ProxyWrapper) RedirectAs(endpoint *net.UDPAddr) {
 	p.pausedCond.L.Unlock()
 }
 
+// InjectPacket writes b to the remote peer over the underlying transport.
+func (p *ProxyWrapper) InjectPacket(b []byte) error {
+	if p.remoteConn == nil {
+		return fmt.Errorf("proxy not started")
+	}
+	_, err := p.remoteConn.Write(b)
+	return err
+}
+
 // CloseConn close the remoteConn and automatically remove the conn instance from the map
 func (p *ProxyWrapper) CloseConn() error {
 	if p.cancel == nil {
