@@ -4,16 +4,40 @@ import (
 	"context"
 	"reflect"
 	"sort"
+	"testing"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 )
 
-// DefaultReloadInterval is the cadence at which the desktop daemon re-reads
-// the OS-native MDM policy. Picked to balance responsiveness against
+// defaultReloadInterval is the production cadence at which the desktop daemon
+// re-reads the OS-native MDM policy. Picked to balance responsiveness against
 // registry/plist I/O overhead. Mobile builds use OS-side notifications
-// instead and bypass this ticker entirely.
-const DefaultReloadInterval = 1 * time.Minute
+// instead and bypass this ticker entirely. Unexported on purpose: callers do
+// not pass it — NewTicker owns the default (see reloadInterval).
+const defaultReloadInterval = 1 * time.Minute
+
+// testReloadInterval is the cadence used under `go test` (detected via
+// testing.Testing()) so the reload path is exercised in seconds rather than
+// minutes. It has no effect on production builds, where testing.Testing()
+// always returns false.
+const testReloadInterval = 1 * time.Second
+
+// reloadInterval returns the production cadence, or the accelerated test
+// cadence when running under `go test`. Centralising the choice here keeps
+// the prod/test split in one place and out of the ticker's call sites.
+func reloadInterval() time.Duration {
+	if testing.Testing() {
+		return testReloadInterval
+	}
+	return defaultReloadInterval
+}
+
+// policyLoader is the indirection through which the ticker reads the
+// OS-native policy, both for the initial observation and on every tick.
+// Production points it at LoadPolicy; tests in this package override it to
+// feed a scripted sequence of policies without touching the real OS store.
+var policyLoader = LoadPolicy
 
 // Ticker periodically re-reads the OS-native MDM policy via LoadPolicy and
 // invokes onChange whenever the observed Policy diverges from the last
@@ -25,17 +49,15 @@ type Ticker struct {
 	prev     *Policy
 }
 
-// NewTicker constructs a Ticker that calls LoadPolicy every `interval` and
-// invokes `onChange` on any diff. Pass a zero interval to fall back to
-// DefaultReloadInterval. onChange may be nil for a log-only ticker.
-func NewTicker(interval time.Duration, onChange func(prev, curr *Policy)) *Ticker {
-	if interval <= 0 {
-		interval = DefaultReloadInterval
-	}
+// NewTicker constructs a Ticker that re-reads the OS-native policy every
+// reloadInterval() and invokes onChange on any diff. The cadence is owned by
+// reloadInterval (production default, accelerated under `go test`); callers
+// do not supply it. onChange may be nil for a log-only ticker.
+func NewTicker(onChange func(prev, curr *Policy)) *Ticker {
 	return &Ticker{
-		interval: interval,
+		interval: reloadInterval(),
 		onChange: onChange,
-		prev:     LoadPolicy(),
+		prev:     policyLoader(),
 	}
 }
 
@@ -52,7 +74,7 @@ func (t *Ticker) Run(ctx context.Context) {
 			log.Info("MDM policy reload ticker stopped")
 			return
 		case <-tk.C:
-			curr := LoadPolicy()
+			curr := policyLoader()
 			if PoliciesEqual(t.prev, curr) {
 				continue
 			}
