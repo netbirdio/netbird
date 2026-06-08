@@ -289,22 +289,20 @@ func getPublicKey(token *jwt.Token, jwks *Jwks) (interface{}, error) {
 	return nil, errKeyNotFound
 }
 
-func getPublicKeyFromECDSA(jwk JSONWebKey) (publicKey *ecdsa.PublicKey, err error) {
+func getPublicKeyFromECDSA(jwk JSONWebKey) (*ecdsa.PublicKey, error) {
 	if jwk.X == "" || jwk.Y == "" || jwk.Crv == "" {
 		return nil, fmt.Errorf("ecdsa key incomplete")
 	}
 
-	var xCoordinate []byte
-	if xCoordinate, err = base64.RawURLEncoding.DecodeString(jwk.X); err != nil {
+	xCoordinate, err := base64.RawURLEncoding.DecodeString(jwk.X)
+	if err != nil {
 		return nil, err
 	}
 
-	var yCoordinate []byte
-	if yCoordinate, err = base64.RawURLEncoding.DecodeString(jwk.Y); err != nil {
+	yCoordinate, err := base64.RawURLEncoding.DecodeString(jwk.Y)
+	if err != nil {
 		return nil, err
 	}
-
-	publicKey = &ecdsa.PublicKey{}
 
 	var curve elliptic.Curve
 	switch jwk.Crv {
@@ -316,11 +314,13 @@ func getPublicKeyFromECDSA(jwk JSONWebKey) (publicKey *ecdsa.PublicKey, err erro
 		curve = elliptic.P521()
 	}
 
-	publicKey.Curve = curve
-	publicKey.X = big.NewInt(0).SetBytes(xCoordinate)
-	publicKey.Y = big.NewInt(0).SetBytes(yCoordinate)
+	// SEC1 uncompressed point format: 0x04 || X || Y
+	point := make([]byte, 1+len(xCoordinate)+len(yCoordinate))
+	point[0] = 0x04
+	copy(point[1:], xCoordinate)
+	copy(point[1+len(xCoordinate):], yCoordinate)
 
-	return publicKey, nil
+	return ecdsa.ParseUncompressedPublicKey(curve, point)
 }
 
 func getPublicKeyFromRSA(jwk JSONWebKey) (*rsa.PublicKey, error) {
