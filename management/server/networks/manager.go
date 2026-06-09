@@ -140,36 +140,28 @@ func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, netw
 			return fmt.Errorf("failed to get routers in network: %w", err)
 		}
 
-		for _, resource := range resources {
-			groups, err := transaction.GetResourceGroups(ctx, store.LockingStrengthNone, accountID, resource.ID)
-			if err != nil {
-				return fmt.Errorf("failed to get resource groups: %w", err)
-			}
-			for _, g := range groups {
-				resource.GroupIDs = append(resource.GroupIDs, g.ID)
-			}
-		}
-		change.Resources = resources
-		change.Routers = netRouters
-
 		var lerr error
 		if snap, lerr = affectedpeers.Load(ctx, transaction, accountID, change); lerr != nil {
 			return lerr
 		}
 
+		// The cascade deletes return the resources/routers they loaded (with groups
+		// hydrated); collect them into the Change so Expand walks their groups.
 		for _, resource := range resources {
-			event, err := m.resourcesManager.DeleteResourceInTransaction(ctx, transaction, accountID, userID, networkID, resource.ID)
+			deleted, event, err := m.resourcesManager.DeleteResourceInTransaction(ctx, transaction, accountID, userID, networkID, resource.ID)
 			if err != nil {
 				return fmt.Errorf("failed to delete resource: %w", err)
 			}
+			change.Resources = append(change.Resources, deleted)
 			eventsToStore = append(eventsToStore, event...)
 		}
 
 		for _, router := range netRouters {
-			event, err := m.routersManager.DeleteRouterInTransaction(ctx, transaction, accountID, userID, networkID, router.ID)
+			deleted, event, err := m.routersManager.DeleteRouterInTransaction(ctx, transaction, accountID, userID, networkID, router.ID)
 			if err != nil {
 				return fmt.Errorf("failed to delete router: %w", err)
 			}
+			change.Routers = append(change.Routers, deleted)
 			eventsToStore = append(eventsToStore, event)
 		}
 

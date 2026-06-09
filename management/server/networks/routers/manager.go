@@ -26,7 +26,7 @@ type Manager interface {
 	GetRouter(ctx context.Context, accountID, userID, networkID, routerID string) (*types.NetworkRouter, error)
 	UpdateRouter(ctx context.Context, userID string, router *types.NetworkRouter) (*types.NetworkRouter, error)
 	DeleteRouter(ctx context.Context, accountID, userID, networkID, routerID string) error
-	DeleteRouterInTransaction(ctx context.Context, transaction store.Store, accountID, userID, networkID, routerID string) (func(), error)
+	DeleteRouterInTransaction(ctx context.Context, transaction store.Store, accountID, userID, networkID, routerID string) (*types.NetworkRouter, func(), error)
 }
 
 type managerImpl struct {
@@ -238,7 +238,7 @@ func (m *managerImpl) DeleteRouter(ctx context.Context, accountID, userID, netwo
 			return err
 		}
 
-		event, err = m.DeleteRouterInTransaction(ctx, transaction, accountID, userID, networkID, routerID)
+		_, event, err = m.DeleteRouterInTransaction(ctx, transaction, accountID, userID, networkID, routerID)
 		if err != nil {
 			return fmt.Errorf("failed to delete network router: %w", err)
 		}
@@ -261,31 +261,31 @@ func (m *managerImpl) DeleteRouter(ctx context.Context, accountID, userID, netwo
 	return nil
 }
 
-func (m *managerImpl) DeleteRouterInTransaction(ctx context.Context, transaction store.Store, accountID, userID, networkID, routerID string) (func(), error) {
+func (m *managerImpl) DeleteRouterInTransaction(ctx context.Context, transaction store.Store, accountID, userID, networkID, routerID string) (*types.NetworkRouter, func(), error) {
 	network, err := transaction.GetNetworkByID(ctx, store.LockingStrengthNone, accountID, networkID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get network: %w", err)
+		return nil, nil, fmt.Errorf("failed to get network: %w", err)
 	}
 
 	router, err := transaction.GetNetworkRouterByID(ctx, store.LockingStrengthUpdate, accountID, routerID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get network router: %w", err)
+		return nil, nil, fmt.Errorf("failed to get network router: %w", err)
 	}
 
 	if router.NetworkID != networkID {
-		return nil, status.NewRouterNotPartOfNetworkError(routerID, networkID)
+		return nil, nil, status.NewRouterNotPartOfNetworkError(routerID, networkID)
 	}
 
 	err = transaction.DeleteNetworkRouter(ctx, accountID, routerID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to delete network router: %w", err)
+		return nil, nil, fmt.Errorf("failed to delete network router: %w", err)
 	}
 
 	event := func() {
 		m.accountManager.StoreEvent(ctx, userID, routerID, accountID, activity.NetworkRouterDeleted, router.EventMeta(network))
 	}
 
-	return event, nil
+	return router, event, nil
 }
 
 func NewManagerMock() Manager {
@@ -316,6 +316,6 @@ func (m *mockManager) DeleteRouter(ctx context.Context, accountID, userID, netwo
 	return nil
 }
 
-func (m *mockManager) DeleteRouterInTransaction(ctx context.Context, transaction store.Store, accountID, userID, networkID, routerID string) (func(), error) {
-	return func() {}, nil
+func (m *mockManager) DeleteRouterInTransaction(ctx context.Context, transaction store.Store, accountID, userID, networkID, routerID string) (*types.NetworkRouter, func(), error) {
+	return nil, func() {}, nil
 }

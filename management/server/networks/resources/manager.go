@@ -30,7 +30,7 @@ type Manager interface {
 	GetResource(ctx context.Context, accountID, userID, networkID, resourceID string) (*types.NetworkResource, error)
 	UpdateResource(ctx context.Context, userID string, resource *types.NetworkResource) (*types.NetworkResource, error)
 	DeleteResource(ctx context.Context, accountID, userID, networkID, resourceID string) error
-	DeleteResourceInTransaction(ctx context.Context, transaction store.Store, accountID, userID, networkID, resourceID string) ([]func(), error)
+	DeleteResourceInTransaction(ctx context.Context, transaction store.Store, accountID, userID, networkID, resourceID string) (*types.NetworkResource, []func(), error)
 }
 
 type managerImpl struct {
@@ -377,7 +377,7 @@ func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, net
 			return err
 		}
 
-		events, err = m.DeleteResourceInTransaction(ctx, transaction, accountID, userID, networkID, resourceID)
+		_, events, err = m.DeleteResourceInTransaction(ctx, transaction, accountID, userID, networkID, resourceID)
 		if err != nil {
 			return fmt.Errorf("failed to delete resource: %w", err)
 		}
@@ -402,46 +402,48 @@ func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, net
 	return nil
 }
 
-func (m *managerImpl) DeleteResourceInTransaction(ctx context.Context, transaction store.Store, accountID, userID, networkID, resourceID string) ([]func(), error) {
+func (m *managerImpl) DeleteResourceInTransaction(ctx context.Context, transaction store.Store, accountID, userID, networkID, resourceID string) (*types.NetworkResource, []func(), error) {
 	resource, err := transaction.GetNetworkResourceByID(ctx, store.LockingStrengthUpdate, accountID, resourceID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get network resource: %w", err)
+		return nil, nil, fmt.Errorf("failed to get network resource: %w", err)
 	}
 
 	network, err := transaction.GetNetworkByID(ctx, store.LockingStrengthUpdate, accountID, networkID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get network: %w", err)
+		return nil, nil, fmt.Errorf("failed to get network: %w", err)
 	}
 
 	if resource.NetworkID != networkID {
-		return nil, errors.New("resource not part of network")
+		return nil, nil, errors.New("resource not part of network")
 	}
 
 	groups, err := m.groupsManager.GetResourceGroupsInTransaction(ctx, transaction, store.LockingStrengthUpdate, accountID, resourceID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get resource groups: %w", err)
+		return nil, nil, fmt.Errorf("failed to get resource groups: %w", err)
 	}
 
 	var eventsToStore []func()
 
 	for _, group := range groups {
+		resource.GroupIDs = append(resource.GroupIDs, group.ID)
+
 		event, err := m.groupsManager.RemoveResourceFromGroupInTransaction(ctx, transaction, accountID, userID, group.ID, resourceID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to remove resource from group: %w", err)
+			return nil, nil, fmt.Errorf("failed to remove resource from group: %w", err)
 		}
 		eventsToStore = append(eventsToStore, event)
 	}
 
 	err = transaction.DeleteNetworkResource(ctx, accountID, resourceID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to delete network resource: %w", err)
+		return nil, nil, fmt.Errorf("failed to delete network resource: %w", err)
 	}
 
 	eventsToStore = append(eventsToStore, func() {
 		m.accountManager.StoreEvent(ctx, userID, resourceID, accountID, activity.NetworkResourceDeleted, resource.EventMeta(network))
 	})
 
-	return eventsToStore, nil
+	return resource, eventsToStore, nil
 }
 
 func NewManagerMock() Manager {
@@ -476,6 +478,6 @@ func (m *mockManager) DeleteResource(ctx context.Context, accountID, userID, net
 	return nil
 }
 
-func (m *mockManager) DeleteResourceInTransaction(ctx context.Context, transaction store.Store, accountID, userID, networkID, resourceID string) ([]func(), error) {
-	return []func(){}, nil
+func (m *mockManager) DeleteResourceInTransaction(ctx context.Context, transaction store.Store, accountID, userID, networkID, resourceID string) (*types.NetworkResource, []func(), error) {
+	return nil, []func(){}, nil
 }
