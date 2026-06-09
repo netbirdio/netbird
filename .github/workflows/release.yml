@@ -367,7 +367,10 @@ jobs:
           version: 11
 
       - name: Install dependencies
-        run: sudo apt update && sudo apt install -y -q libgtk-4-dev libwebkitgtk-6.0-dev libsoup-3.0-dev gcc-mingw-w64-x86-64
+        # GTK4/WebKitGTK 6.0 dev libs for the default build + GTK3/WebKit2GTK 4.1
+        # dev libs for the legacy -tags gtk3 build (netbird-ui-gtk3). Both stacks
+        # coexist on the same runner; goreleaser builds both Linux variants here.
+        run: sudo apt update && sudo apt install -y -q libgtk-4-dev libwebkitgtk-6.0-dev libsoup-3.0-dev libgtk-3-dev libwebkit2gtk-4.1-dev gcc-mingw-w64-x86-64
 
       - name: Decode GPG signing key
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository

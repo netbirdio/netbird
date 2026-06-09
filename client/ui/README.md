@@ -13,6 +13,21 @@ WebView.
   Windows `tcp://127.0.0.1:41731`)
 - Linux only: `libwebkitgtk-6.0-dev`, `libgtk-4-dev`, `libsoup-3.0-dev`
 
+### Legacy GTK3 build
+
+Wails v3 builds on GTK4 / WebKitGTK 6.0 by default. Distros that don't ship
+WebKitGTK 6.0 yet (Ubuntu 22.04, Debian 12, RHEL 9, Fedora ≤ 39) need the
+legacy GTK3 / WebKit2GTK 4.1 build, produced with `-tags gtk3` (e.g.
+`task build EXTRA_TAGS=gtk3`). It needs `libgtk-3-dev` + `libwebkit2gtk-4.1-dev`
+instead of the GTK4 libs above. `-tags gtk3` is removed upstream in Wails v3.1.
+
+> **Tray limitation:** the GTK3 build drops the in-process XEmbed
+> `StatusNotifierWatcher` (its menu layer is GTK4-only — see
+> [`LINUX-TRAY.md`](LINUX-TRAY.md) and `xembed_host_gtk3_linux.go`). The tray
+> still works on desktops that ship their own watcher (KDE, GNOME+AppIndicator,
+> Cinnamon/xapp, XFCE, …); only the minimal-WM fallback (Fluxbox/OpenBox/i3/dwm)
+> is unavailable on GTK3 packages.
+
 ## Develop without rebuilding
 
 ```bash

@@ -24,6 +24,25 @@ builds:
       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: "{{ .CommitTimestamp }}"
 
+  # Legacy GTK3 / WebKit2GTK 4.1 build for distros without WebKitGTK 6.0
+  # (Ubuntu 22.04, Debian 12, RHEL 9, Fedora <=39). -tags gtk3 flips Wails to
+  # the GTK3 stack and drops our GTK4-only XEmbed tray host (see
+  # xembed_host_gtk3_linux.go). Removed upstream in Wails v3.1.
+  - id: netbird-ui-gtk3
+    dir: client/ui
+    binary: netbird-ui
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - linux
+    goarch:
+      - amd64
+    flags:
+      - -tags=gtk3
+    ldflags:
+      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
   - id: netbird-ui-windows-amd64
     dir: client/ui
     binary: netbird-ui
@@ -60,6 +79,10 @@ archives:
     name_template: "{{ .ProjectName }}-linux_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     builds:
       - netbird-ui
+  - id: linux-gtk3-arch
+    name_template: "{{ .ProjectName }}-linux-gtk3_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    builds:
+      - netbird-ui-gtk3
   - id: windows-arch
     name_template: "{{ .ProjectName }}-windows_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     builds:
@@ -116,6 +139,59 @@ nfpms:
       signature:
         key_file: '{{ if index .Env "GPG_RPM_KEY_FILE" }}{{ .Env.GPG_RPM_KEY_FILE }}{{ end }}'
 
+  # Legacy GTK3 deb for Ubuntu 22.04 / Debian 12 (no WebKitGTK 6.0). Same
+  # package_name as the GTK4 deb -- the two are mutually-exclusive alternatives
+  # served from the matching distro repo; the package manager resolves by deps.
+  - maintainer: Netbird <dev@netbird.io>
+    description: Netbird client UI.
+    homepage: https://netbird.io/
+    license: BSD-3-Clause
+    vendor: NetBird
+    id: netbird_ui_deb_gtk3
+    package_name: netbird-ui
+    builds:
+      - netbird-ui-gtk3
+    formats:
+      - deb
+    scripts:
+      postinstall: "release_files/ui-post-install.sh"
+    contents:
+      - src: client/ui/build/linux/netbird.desktop
+        dst: /usr/share/applications/org.wails.netbird.desktop
+      - src: client/ui/build/appicon.png
+        dst: /usr/share/pixmaps/netbird.png
+    dependencies:
+      - netbird
+      - libgtk-3-0
+      - libwebkit2gtk-4.1-0
+
+  # Legacy GTK3 rpm for RHEL 9 / Fedora <=39 (no WebKitGTK 6.0).
+  - maintainer: Netbird <dev@netbird.io>
+    description: Netbird client UI.
+    homepage: https://netbird.io/
+    license: BSD-3-Clause
+    vendor: NetBird
+    id: netbird_ui_rpm_gtk3
+    package_name: netbird-ui
+    builds:
+      - netbird-ui-gtk3
+    formats:
+      - rpm
+    scripts:
+      postinstall: "release_files/ui-post-install.sh"
+    contents:
+      - src: client/ui/build/linux/netbird.desktop
+        dst: /usr/share/applications/org.wails.netbird.desktop
+      - src: client/ui/build/appicon.png
+        dst: /usr/share/pixmaps/netbird.png
+    dependencies:
+      - netbird
+      - gtk3
+      - webkit2gtk4.1
+    rpm:
+      signature:
+        key_file: '{{ if index .Env "GPG_RPM_KEY_FILE" }}{{ .Env.GPG_RPM_KEY_FILE }}{{ end }}'
+
 uploads:
   - name: debian
     ids:
@@ -130,5 +206,24 @@ uploads:
       - netbird_ui_rpm
     mode: archive
     target: https://pkgs.wiretrustee.com/yum/{{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}
+    username: dev@wiretrustee.com
+    method: PUT
+
+  # Legacy GTK3 packages share the netbird-ui name, so they must live in a repo
+  # path the old distros point at -- here a dedicated `gtk3` distribution/path.
+  # TODO: confirm the final repo layout with the pkgs.wiretrustee.com owner.
+  - name: debian-gtk3
+    ids:
+      - netbird_ui_deb_gtk3
+    mode: archive
+    target: https://pkgs.wiretrustee.com/debian/pool/{{ .ArtifactName }};deb.distribution=gtk3;deb.component=main;deb.architecture={{ if .Arm }}armhf{{ else }}{{ .Arch }}{{ end }};deb.package=
+    username: dev@wiretrustee.com
+    method: PUT
+
+  - name: yum-gtk3
+    ids:
+      - netbird_ui_rpm_gtk3
+    mode: archive
+    target: https://pkgs.wiretrustee.com/yum-gtk3/{{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}
     username: dev@wiretrustee.com
     method: PUT

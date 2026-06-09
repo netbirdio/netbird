@@ -1,3 +1,5 @@
+//go:build linux && !gtk3 && !(linux && 386)
+
 #include "xembed_tray_linux.h"
 
 #include <X11/Xatom.h>

@@ -123,6 +123,8 @@ Key conventions: `tray.*` / `notify.*` (Go-side), `common.* / connect.* / nav.* 
 
 The in-process `StatusNotifierWatcher` + XEmbed host that lets the tray work on minimal WMs is detailed in `LINUX-TRAY.md` (sibling). Touch that doc when modifying `tray_watcher_linux.go` / `xembed_host_linux.go` / `xembed_tray_linux.{c,h}`.
 
+**Legacy `-tags gtk3` build:** Wails v3 defaults to GTK4/WebKitGTK 6.0; the legacy GTK3/WebKit2GTK 4.1 path (`-tags gtk3`, for Ubuntu 22.04 / Debian 12 / RHEL 9 / Fedora ≤39, removed upstream in Wails v3.1) is shipped as a second `netbird-ui` package built via `EXTRA_TAGS=gtk3` / a separate goreleaser lane. `xembed_host_linux.go` + `xembed_tray_linux.{c,h}` are GTK4-only (`//go:build … && !gtk3`); on gtk3 builds `xembed_host_gtk3_linux.go` stubs them out (`xembedTrayAvailable()` → false), so the minimal-WM XEmbed fallback is **absent on gtk3** (tray still works on SNI-capable desktops). Keep the C files' `//go:build` constraints in sync with the Go file.
+
 ## Wails Dialogs (frontend, `@wailsio/runtime`)
 
 The app no longer uses native `@wailsio/runtime` `Dialogs.*` message boxes — errors go through the custom Error window (see below), confirmations through the in-app `useConfirm()` modal. `WAILS-DIALOGS.md` (sibling) is retained only as reference for the native API surface and the Go-side frameless-window pattern, should a native file picker (`OpenFile`/`SaveFile`) ever be needed.
