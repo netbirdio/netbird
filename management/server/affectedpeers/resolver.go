@@ -1,18 +1,12 @@
-// Package affectedpeers computes the set of peers whose network map may have
-// changed as the result of an account change, so only those peers are refreshed
-// instead of the whole account.
+// Package affectedpeers computes which peers' network maps a change touches, so
+// only those peers are refreshed instead of the whole account.
 //
-// Resolution is split into two phases so the expensive dependency walk never
-// holds a write transaction open:
-//   - Load reads the account collections it needs from the store. Call it INSIDE
-//     the mutating transaction, so the data is consistent and read under the tx.
-//     For deletes/removals, Load (or the captured Change) must run while the old
-//     state still exists, since the post-commit store can no longer reach it.
-//   - Snapshot.Expand walks the loaded data in memory and returns the affected
-//     peer IDs. It performs NO store access, so it is run AFTER the tx commits.
+// Two phases keep the dependency walk off the write transaction:
+//   - Load: reads the needed collections. Call INSIDE the mutating tx (consistent,
+//     and before a delete/removal severs the old state).
+//   - Snapshot.Expand: in-memory walk, no store access. Run AFTER the tx commits.
 //
-// The resolver never consults an object's Enabled flag: toggling Enabled is
-// itself a change the affected peers must observe.
+// Enabled is never consulted: toggling it is itself an observable change.
 package affectedpeers
 
 import (
@@ -30,14 +24,9 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
-// Snapshot is a consistent, in-memory view of the account collections needed to
-// expand a Change into affected peers. It is loaded from the store INSIDE the
-// caller's write transaction (so the data is consistent and read under the tx),
-// and then Expand runs over it as pure in-memory computation AFTER the tx commits
-// — keeping the expensive fan-out walk off the held write lock.
-//
-// Only the collections a given Change can actually touch are loaded; the rest are
-// left nil (see Load).
+// Snapshot is an in-memory view of the collections needed to expand a Change.
+// Loaded in-tx, walked by Expand after commit. Only the collections the Change
+// can touch are loaded; the rest stay nil (see Load).
 type Snapshot struct {
 	policies       []*types.Policy
 	routes         []*route.Route
@@ -47,26 +36,22 @@ type Snapshot struct {
 	resources      []*resourceTypes.NetworkResource
 	services       []*rpservice.Service
 	proxyByCluster map[string][]string
-	groups         map[string]*types.Group        // all groups (for group.Resources lookups)
+	groups         map[string]*types.Group
 	groupPeers     map[string]map[string]struct{} // groupID -> member peer IDs
 }
 
-// Load reads the collections a Change requires from the store, inside the caller's
-// transaction. It mirrors Expand's walker preconditions so it loads only what the
-// change can touch (e.g. nameserver/DNS only for group changes; services only when
-// the account has embedded proxy peers).
+// Load reads the collections a Change requires, inside the caller's tx. It mirrors
+// Expand's walker preconditions, loading only what the change can touch.
 func Load(ctx context.Context, s store.Store, accountID string, c Change) (*Snapshot, error) {
 	snap := &Snapshot{}
 	if c.isEmpty() {
 		return snap, nil
 	}
 
-	// Changed resources contribute their group IDs to the changed-group set during
-	// the walk (see collectFromExplicitResources), so they drive the group walkers.
 	hasGroupOrPeerChange := len(c.ChangedGroupIDs) > 0 || len(c.ChangedPeerIDs) > 0 || len(c.Resources) > 0
 	hasNetworkObject := len(c.Routers) > 0 || len(c.Resources) > 0 || len(c.Networks) > 0
 	needsPolicies := hasGroupOrPeerChange || len(c.PostureCheckIDs) > 0 || len(c.Policies) > 0 || hasNetworkObject
-	needsRoutersResources := needsPolicies // the resource<->router bridge can fire whenever policies/resources/networks are in play
+	needsRoutersResources := needsPolicies // the resource<->router bridge can fire for any of these
 
 	var err error
 	if needsPolicies {
@@ -79,9 +64,6 @@ func Load(ctx context.Context, s store.Store, accountID string, c Change) (*Snap
 			return nil, err
 		}
 	}
-	// A changed peer is resolved to its groups during the walk (see
-	// seedChangedGroupsFromPeers), so the nameserver/DNS group walkers can fire for
-	// peer changes too — load those tables whenever groups or peers changed.
 	if len(c.ChangedGroupIDs) > 0 || len(c.ChangedPeerIDs) > 0 {
 		if snap.nsGroups, err = s.GetAccountNameServerGroups(ctx, store.LockingStrengthNone, accountID); err != nil {
 			return nil, err
@@ -109,26 +91,25 @@ func Load(ctx context.Context, s store.Store, accountID string, c Change) (*Snap
 		}
 	}
 
-	// Groups (for group.Resources) and the group->peers index are always needed:
-	// the bridge resolves group.Resources, and the final expansion maps groups to
-	// member peers.
 	groups, err := s.GetAccountGroups(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, err
 	}
 	snap.groups = make(map[string]*types.Group, len(groups))
+	snap.groupPeers = make(map[string]map[string]struct{}, len(groups))
 	for _, g := range groups {
 		snap.groups[g.ID] = g
-	}
-	if snap.groupPeers, err = s.GetAccountGroupPeers(ctx, store.LockingStrengthNone, accountID); err != nil {
-		return nil, err
+		members := make(map[string]struct{}, len(g.Peers))
+		for _, pID := range g.Peers {
+			members[pID] = struct{}{}
+		}
+		snap.groupPeers[g.ID] = members
 	}
 
 	return snap, nil
 }
 
-// Change describes what changed in an account. The resolver never consults the
-// Enabled flag of any object: toggling Enabled is itself an observable change.
+// Change describes what changed in an account.
 type Change struct {
 	ChangedGroupIDs []string
 	ChangedPeerIDs  []string
@@ -139,14 +120,10 @@ type Change struct {
 	Networks        []*networkTypes.Network
 	PostureCheckIDs []string
 
-	// RemovedPeersByGroup carries peers that left a group during this change,
-	// keyed by the group they left. A membership change does not alter which
-	// entities reference the group, so the dependency walk runs once against the
-	// post-change snapshot; these removed peers are no longer in the group's
-	// member index but still lose the group's reachability. They are folded into
-	// the affected set ONLY when their group is referenced (linked) — an unlinked
-	// group has no network-map impact, matching the included-when-linked semantics
-	// of current members.
+	// RemovedPeersByGroup: peers that left a group, keyed by that group. They are no
+	// longer in the group's member index but still lose its reachability, so they are
+	// folded in — but only when the group is linked (an unlinked group has no map
+	// impact), matching how current members are handled.
 	RemovedPeersByGroup map[string][]string
 }
 
@@ -162,13 +139,9 @@ func (c Change) isEmpty() bool {
 		len(c.RemovedPeersByGroup) == 0
 }
 
-// Expand computes the deduplicated peer IDs whose network map may have changed by
-// the given Change, using only the preloaded Snapshot — no store access. Run it
-// AFTER the transaction that produced the Snapshot has committed.
-//
-// At trace level it logs the full reasoning — which inputs drove which graph
-// walks to which groups/peers, including the resource<->router bridge hops — so a
-// miscalculation can be diagnosed from the logs alone.
+// Expand returns the deduplicated affected peer IDs from the preloaded Snapshot,
+// no store access. Run after the producing tx commits. Logs the full walk at
+// trace level for diagnosing a miscalculation.
 func (snap *Snapshot) Expand(ctx context.Context, accountID string, c Change) []string {
 	if c.isEmpty() {
 		return nil
@@ -180,10 +153,8 @@ func (snap *Snapshot) Expand(ctx context.Context, accountID string, c Change) []
 	return r.expand()
 }
 
-// Resolve loads a Snapshot and expands it in one call. Convenience for callers
-// that are not inside a transaction (and tests). Transaction-bound callers should
-// use Load (inside the tx) + Snapshot.Expand (after commit) so the walk does not
-// hold the write lock.
+// Resolve does Load+Expand in one call, for callers not inside a tx. Tx-bound
+// callers should use Load (in-tx) + Snapshot.Expand (after commit) instead.
 func Resolve(ctx context.Context, s store.Store, accountID string, c Change) ([]string, error) {
 	if c.isEmpty() {
 		return nil, nil
@@ -195,8 +166,8 @@ func Resolve(ctx context.Context, s store.Store, accountID string, c Change) ([]
 	return snap.Expand(ctx, accountID, c), nil
 }
 
-// Collect returns the affected group IDs and direct peer IDs without expanding
-// groups to members. For tests asserting on the intermediate sets; use Resolve otherwise.
+// Collect returns the affected group and direct-peer IDs without expanding groups
+// to members. Test-only introspection; use Resolve otherwise.
 func Collect(ctx context.Context, s store.Store, accountID string, c Change) (groupIDs []string, directPeerIDs []string) {
 	if c.isEmpty() {
 		return nil, nil
@@ -223,19 +194,14 @@ func newResolver(ctx context.Context, snap *Snapshot, accountID string, c Change
 		peerSet:         make(map[string]struct{}),
 		networkIDs:      make(map[string]struct{}),
 	}
-	// A changed peer affects every entity referencing a group it belongs to, so
-	// seed the changed-group set with the peer's memberships from the snapshot's
-	// group->peers index. Callers pass only ChangedPeerIDs; the peer->group lookup
-	// is the resolver's job, not theirs.
+	// Resolve each changed peer to its groups here so callers pass only ChangedPeerIDs.
 	r.seedChangedGroupsFromPeers()
 	r.matchedPolicies = append(r.matchedPolicies, c.Policies...)
 	return r
 }
 
-// seedChangedGroupsFromPeers adds, for each changed peer, the groups it belongs
-// to into changedGroupSet, so the group-driven walkers (policies, routes,
-// nameservers, DNS, routers) fire for memberships — not only for entities that
-// reference the peer directly.
+// seedChangedGroupsFromPeers adds each changed peer's groups to changedGroupSet so
+// the group-driven walkers fire for memberships, not just direct peer references.
 func (r *resolver) seedChangedGroupsFromPeers() {
 	if len(r.changedPeerSet) == 0 {
 		return
@@ -292,8 +258,7 @@ func (r *resolver) networkResources() []*resourceTypes.NetworkResource { return 
 
 func (r *resolver) networkRouters() []*routerTypes.NetworkRouter { return r.snap.routers }
 
-// peerIDsForGroups maps a group set to its member peer IDs using the preloaded
-// group->peers index (no store access).
+// peerIDsForGroups maps a group set to its member peer IDs via the preloaded index.
 func (r *resolver) peerIDsForGroups(groupSet map[string]struct{}) []string {
 	seen := make(map[string]struct{})
 	var ids []string
@@ -326,9 +291,7 @@ func (r *resolver) expand() []string {
 		}
 	}
 
-	// Fold in peers removed from a group, but only when that group was referenced
-	// (folded into groupSet) — i.e. the group is linked. An unlinked group has no
-	// map impact, so its removed members are not affected.
+	// Fold in removed peers only when their group is linked (in groupSet).
 	for groupID, removed := range r.change.RemovedPeersByGroup {
 		if _, linked := r.groupSet[groupID]; !linked {
 			continue
@@ -372,11 +335,9 @@ func (r *resolver) collectFromExplicitRoutes(routes []*route.Route) {
 	}
 }
 
-// collectFromExplicitRouters folds the routing peers carried by changed router
-// objects (old and/or new state) directly, and marks their networks so the
-// router<->source bridge folds the source peers of policies serving them. Carrying
-// the old router object here is how a repointed router's previous routing peers
-// stay affected without a post-commit read.
+// collectFromExplicitRouters folds changed routers' peers and marks their networks
+// for the bridge. Passing the old router keeps a repointed router's previous peers
+// affected without a post-commit read.
 func (r *resolver) collectFromExplicitRouters(routers []*routerTypes.NetworkRouter) {
 	for _, router := range routers {
 		if router == nil {
@@ -394,11 +355,9 @@ func (r *resolver) collectFromExplicitRouters(routers []*routerTypes.NetworkRout
 	}
 }
 
-// collectFromExplicitResources marks the networks of changed resource objects
-// (old and/or new state) so the bridge folds their routers and the source peers
-// of policies targeting them, and treats each resource's group IDs as changed
-// groups so policies targeting the resource through a now-detached (old) group —
-// which the post-update group.Resources no longer links — still refresh.
+// collectFromExplicitResources marks changed resources' networks for the bridge and
+// treats their group IDs as changed, so policies targeting the resource via a
+// now-detached (old) group still refresh.
 func (r *resolver) collectFromExplicitResources(resources []*resourceTypes.NetworkResource) {
 	for _, resource := range resources {
 		if resource == nil {
@@ -413,9 +372,8 @@ func (r *resolver) collectFromExplicitResources(resources []*resourceTypes.Netwo
 	}
 }
 
-// collectFromExplicitNetworks marks changed network objects (old and/or new
-// state) so the bridge folds their routers and the source peers of policies
-// serving their resources. A network has no groups/peers of its own.
+// collectFromExplicitNetworks marks changed networks for the bridge. A network has
+// no groups/peers of its own.
 func (r *resolver) collectFromExplicitNetworks(networks []*networkTypes.Network) {
 	for _, network := range networks {
 		if network == nil {
@@ -570,11 +528,9 @@ func (r *resolver) expandChangedPeersWithGroups() map[string]struct{} {
 	return merged
 }
 
-// collectResourceRouterBridge folds in the routing peers serving the resources
-// targeted by matched/explicit policies (source -> router), and the source peers
-// of policies serving resources on the affected networks (router -> source). The
-// routing peer is reachable only through resource -> network -> router, never
-// through the policy's own groups, so it must be collected here.
+// collectResourceRouterBridge crosses between source peers and routing peers, which
+// are reachable only via resource -> network -> router, not through the policy's own
+// groups: source -> router (targeted resources' networks), then router -> source.
 func (r *resolver) collectResourceRouterBridge() {
 	r.bridgeSourceToRouters()
 	r.bridgeRoutersToSources()
@@ -683,8 +639,8 @@ func (r *resolver) policyDestinationResourceIDs(policies ...*types.Policy) map[s
 	return resourceIDs
 }
 
-// collectPolicyDestinations adds each rule's direct destination resource IDs to
-// resourceIDs and returns the set of destination group IDs referenced.
+// collectPolicyDestinations adds direct destination resource IDs to resourceIDs and
+// returns the referenced destination group IDs.
 func collectPolicyDestinations(resourceIDs map[string]struct{}, policies ...*types.Policy) map[string]struct{} {
 	destGroupSet := make(map[string]struct{})
 	for _, policy := range policies {

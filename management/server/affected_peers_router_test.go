@@ -184,32 +184,23 @@ func peerToResourcePolicyByResource(sourceGroupID, resourceID string) *types.Pol
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Resolution-level tests: collectPolicyAffectedGroupsAndPeers + resolvePeerIDs.
-//
-// These isolate the resolver from the controller and assert directly on the set
-// of peer IDs the policy path would refresh. They make the gap explicit: the
-// routing peer is expected to be in the affected set but is not.
-// ---------------------------------------------------------------------------
-
 // resolvePolicyAffected mirrors SavePolicy's resolution: resolve the affected
 // peers for the given policy.
 func (s *routerScenario) resolvePolicyAffected(ctx context.Context, policy *types.Policy) []string {
 	return s.manager.ResolveAffectedPeers(ctx, s.manager.Store, s.accountID, affectedpeers.Change{Policies: []*types.Policy{policy}})
 }
 
-func TestAffectedPeers_PolicyToResourceByGroup_IncludesSourcePeer_DirectRouter(t *testing.T) {
+func TestAffectedPeers_SourcePeer_DirectRouter(t *testing.T) {
 	s := setupRouterScenario(t, true)
 	ctx := context.Background()
 
 	policy := peerToResourcePolicyByGroup(s.sourceGroupID, s.resourceGroupID)
 	affected := s.resolvePolicyAffected(ctx, policy)
 
-	// The source peer is in the source group and must always be present.
 	assert.Contains(t, affected, s.sourcePeerID, "source peer must be affected")
 }
 
-func TestAffectedPeers_PolicyToResourceByGroup_IncludesRoutingPeer_DirectRouter(t *testing.T) {
+func TestAffectedPeers_RoutingPeer_DirectRouter(t *testing.T) {
 	s := setupRouterScenario(t, true)
 	ctx := context.Background()
 
@@ -225,19 +216,19 @@ func TestAffectedPeers_PolicyToResourceByGroup_IncludesRoutingPeer_DirectRouter(
 		"routing peer (router.Peer) serving the resource must be affected by a policy granting access to it")
 }
 
-func TestAffectedPeers_PolicyToResourceByGroup_IncludesRoutingPeer_RouterPeerGroups(t *testing.T) {
+func TestAffectedPeers_RoutingPeer_RouterPeerGroups(t *testing.T) {
 	s := setupRouterScenario(t, false)
 	ctx := context.Background()
 
 	policy := peerToResourcePolicyByGroup(s.sourceGroupID, s.resourceGroupID)
 	affected := s.resolvePolicyAffected(ctx, policy)
 
-	// Same gap when the router is defined via PeerGroups instead of a direct peer.
+	// Router defined via PeerGroups instead of a direct peer.
 	assert.Contains(t, affected, s.routerGroupPeerID,
 		"routing peer (router.PeerGroups member) serving the resource must be affected")
 }
 
-func TestAffectedPeers_PolicyToResourceByDestinationResource_IncludesRoutingPeer_DirectRouter(t *testing.T) {
+func TestAffectedPeers_DestResource_RoutingPeer_DirectRouter(t *testing.T) {
 	s := setupRouterScenario(t, true)
 	ctx := context.Background()
 
@@ -252,7 +243,7 @@ func TestAffectedPeers_PolicyToResourceByDestinationResource_IncludesRoutingPeer
 		"routing peer must be affected when the resource is referenced via DestinationResource")
 }
 
-func TestAffectedPeers_PolicyToResourceByDestinationResource_IncludesRoutingPeer_RouterPeerGroups(t *testing.T) {
+func TestAffectedPeers_DestResource_RoutingPeer_RouterPeerGroups(t *testing.T) {
 	s := setupRouterScenario(t, false)
 	ctx := context.Background()
 
@@ -263,7 +254,7 @@ func TestAffectedPeers_PolicyToResourceByDestinationResource_IncludesRoutingPeer
 		"routing peer (PeerGroups) must be affected when the resource is referenced via DestinationResource")
 }
 
-func TestAffectedPeers_PolicyToResourceWithSourceResourcePeer_IncludesRoutingPeer(t *testing.T) {
+func TestAffectedPeers_SourceResourcePeer_RoutingPeer(t *testing.T) {
 	s := setupRouterScenario(t, true)
 	ctx := context.Background()
 
@@ -299,12 +290,6 @@ func TestAffectedPeers_PolicyToResource_UnrelatedPeerNotAffected(t *testing.T) {
 	// be pulled in.
 	assert.NotContains(t, affected, s.unrelatedPeerID, "unrelated peer must not be affected")
 }
-
-// ---------------------------------------------------------------------------
-// Control: the resource/router managers DO bridge resource-group -> router.
-// These document the existing (correct) behaviour on the resource side and
-// highlight the asymmetry with the policy side above.
-// ---------------------------------------------------------------------------
 
 func TestAffectedPeers_ResourceSideBridgesToRoutingPeer_DirectRouter(t *testing.T) {
 	s := setupRouterScenario(t, true)
@@ -355,22 +340,12 @@ func TestAffectedPeers_ResourceSideBridgesToRoutingPeer_DirectRouter(t *testing.
 	}
 }
 
-// ---------------------------------------------------------------------------
-// End-to-end: reproduce the reported symptom through SavePolicy with channels.
-//
-// Creating the peer->resource policy must wake the routing peer. These fail on
-// the current code because the policy path never resolves the routing peer.
-//
-// IMPORTANT: setup (CreateNetwork/CreateResource/CreateRouter) fires async
-// `go UpdateAffectedPeers` goroutines. Channels are opened and then drained via
-// settleAffectedUpdates before the action under test, so the assertion only
-// observes updates caused by that action and not stragglers from setup. The
-// resolution-level tests above are the timing-free, authoritative proof; these
-// reproduce the operator-visible symptom.
-// ---------------------------------------------------------------------------
-
 // settleAffectedUpdates waits for in-flight async updates to arrive, then drains
 // every given channel so subsequent assertions start from a clean slate.
+//
+// Setup (CreateNetwork/CreateResource/CreateRouter) fires async UpdateAffectedPeers
+// goroutines; draining first means the assertion only observes updates from the
+// action under test, not setup stragglers.
 func settleAffectedUpdates(chans ...<-chan *network_map.UpdateMessage) {
 	time.Sleep(300 * time.Millisecond)
 	for _, ch := range chans {
@@ -378,7 +353,7 @@ func settleAffectedUpdates(chans ...<-chan *network_map.UpdateMessage) {
 	}
 }
 
-func TestAffectedPeers_E2E_CreatePolicyToResource_RefreshesRoutingPeer_DirectRouter(t *testing.T) {
+func TestAffectedPeers_E2E_CreatePolicy_RoutingPeer_DirectRouter(t *testing.T) {
 	s := setupRouterScenario(t, true)
 	ctx := context.Background()
 
@@ -396,7 +371,7 @@ func TestAffectedPeers_E2E_CreatePolicyToResource_RefreshesRoutingPeer_DirectRou
 	done := make(chan struct{})
 	go func() {
 		peerShouldReceiveUpdate(t, srcCh)
-		peerShouldReceiveUpdate(t, routerCh) // FAILS today: routing peer not resolved
+		peerShouldReceiveUpdate(t, routerCh)
 		peerShouldNotReceiveUpdate(t, unrelatedCh)
 		close(done)
 	}()
@@ -411,7 +386,7 @@ func TestAffectedPeers_E2E_CreatePolicyToResource_RefreshesRoutingPeer_DirectRou
 	}
 }
 
-func TestAffectedPeers_E2E_CreatePolicyToResource_RefreshesRoutingPeer_RouterPeerGroups(t *testing.T) {
+func TestAffectedPeers_E2E_CreatePolicy_RoutingPeer_RouterPeerGroups(t *testing.T) {
 	s := setupRouterScenario(t, false)
 	ctx := context.Background()
 
@@ -427,7 +402,7 @@ func TestAffectedPeers_E2E_CreatePolicyToResource_RefreshesRoutingPeer_RouterPee
 	done := make(chan struct{})
 	go func() {
 		peerShouldReceiveUpdate(t, srcCh)
-		peerShouldReceiveUpdate(t, routerCh) // FAILS today
+		peerShouldReceiveUpdate(t, routerCh)
 		close(done)
 	}()
 
@@ -441,7 +416,7 @@ func TestAffectedPeers_E2E_CreatePolicyToResource_RefreshesRoutingPeer_RouterPee
 	}
 }
 
-func TestAffectedPeers_E2E_CreatePolicyByDestinationResource_RefreshesRoutingPeer(t *testing.T) {
+func TestAffectedPeers_E2E_DestResource_RoutingPeer(t *testing.T) {
 	s := setupRouterScenario(t, true)
 	ctx := context.Background()
 
@@ -457,7 +432,7 @@ func TestAffectedPeers_E2E_CreatePolicyByDestinationResource_RefreshesRoutingPee
 	done := make(chan struct{})
 	go func() {
 		peerShouldReceiveUpdate(t, srcCh)
-		peerShouldReceiveUpdate(t, routerCh) // FAILS today
+		peerShouldReceiveUpdate(t, routerCh)
 		close(done)
 	}()
 
@@ -471,7 +446,7 @@ func TestAffectedPeers_E2E_CreatePolicyByDestinationResource_RefreshesRoutingPee
 	}
 }
 
-func TestAffectedPeers_E2E_DeletePolicyToResource_RefreshesRoutingPeer(t *testing.T) {
+func TestAffectedPeers_E2E_DeletePolicy_RoutingPeer(t *testing.T) {
 	s := setupRouterScenario(t, true)
 	ctx := context.Background()
 
@@ -490,7 +465,7 @@ func TestAffectedPeers_E2E_DeletePolicyToResource_RefreshesRoutingPeer(t *testin
 	done := make(chan struct{})
 	go func() {
 		peerShouldReceiveUpdate(t, srcCh)
-		peerShouldReceiveUpdate(t, routerCh) // FAILS today: deleting the policy must also refresh the router
+		peerShouldReceiveUpdate(t, routerCh)
 		close(done)
 	}()
 
@@ -568,7 +543,7 @@ func (s *routerScenario) addSecondTopology(t *testing.T, suffix string) secondTo
 	}
 }
 
-func TestAffectedPeers_E2E_UpdatePolicyRepointResource_RefreshesBothRoutingPeers(t *testing.T) {
+func TestAffectedPeers_E2E_UpdatePolicy_BothRoutingPeers(t *testing.T) {
 	s := setupRouterScenario(t, true)
 	second := s.addSecondTopology(t, "b")
 	ctx := context.Background()
@@ -606,7 +581,7 @@ func TestAffectedPeers_E2E_UpdatePolicyRepointResource_RefreshesBothRoutingPeers
 	}
 }
 
-func TestAffectedPeers_E2E_UpdatePolicyAddSourceGroup_RefreshesRoutingPeer(t *testing.T) {
+func TestAffectedPeers_E2E_UpdatePolicy_AddSource(t *testing.T) {
 	s := setupRouterScenario(t, true)
 	ctx := context.Background()
 
@@ -648,7 +623,7 @@ func TestAffectedPeers_E2E_UpdatePolicyAddSourceGroup_RefreshesRoutingPeer(t *te
 	}
 }
 
-func TestAffectedPeers_E2E_CreatePolicyByDestinationResource_RefreshesRoutingPeer_RouterPeerGroups(t *testing.T) {
+func TestAffectedPeers_E2E_DestResource_RouterPeerGroups(t *testing.T) {
 	s := setupRouterScenario(t, false)
 	ctx := context.Background()
 
@@ -678,7 +653,7 @@ func TestAffectedPeers_E2E_CreatePolicyByDestinationResource_RefreshesRoutingPee
 	}
 }
 
-func TestAffectedPeers_PolicyToResource_IncludesAllRoutingPeersOnNetwork(t *testing.T) {
+func TestAffectedPeers_AllRoutingPeers_Network(t *testing.T) {
 	s := setupRouterScenario(t, true)
 	ctx := context.Background()
 
@@ -702,7 +677,7 @@ func TestAffectedPeers_PolicyToResource_IncludesAllRoutingPeersOnNetwork(t *test
 	assert.Contains(t, affected, secondRouterPeer.ID, "second routing peer on the same network must also be affected")
 }
 
-func TestAffectedPeers_PolicyToResource_DisabledRouterStillAffected(t *testing.T) {
+func TestAffectedPeers_DisabledRouter(t *testing.T) {
 	s := setupRouterScenario(t, true)
 	ctx := context.Background()
 
@@ -719,7 +694,7 @@ func TestAffectedPeers_PolicyToResource_DisabledRouterStillAffected(t *testing.T
 		"disabled router's peer must still be affected: Enabled must not gate affected-peers")
 }
 
-func TestAffectedPeers_PolicyToResource_DisabledResourceStillAffected(t *testing.T) {
+func TestAffectedPeers_DisabledResource(t *testing.T) {
 	s := setupRouterScenario(t, true)
 	ctx := context.Background()
 
@@ -735,7 +710,7 @@ func TestAffectedPeers_PolicyToResource_DisabledResourceStillAffected(t *testing
 		"disabled resource must still resolve the routing peer: Enabled must not gate affected-peers")
 }
 
-func TestAffectedPeers_PolicyToResource_DisabledRuleStillAffected(t *testing.T) {
+func TestAffectedPeers_DisabledRule(t *testing.T) {
 	s := setupRouterScenario(t, true)
 	ctx := context.Background()
 
@@ -748,7 +723,7 @@ func TestAffectedPeers_PolicyToResource_DisabledRuleStillAffected(t *testing.T) 
 		"disabled rule must still resolve the routing peer: Enabled must not gate affected-peers")
 }
 
-func TestAffectedPeers_MultiRulePolicy_IncludesAllRoutingPeers(t *testing.T) {
+func TestAffectedPeers_MultiRule(t *testing.T) {
 	s := setupRouterScenario(t, true)
 	second := s.addSecondTopology(t, "c")
 	ctx := context.Background()
@@ -778,7 +753,7 @@ func TestAffectedPeers_MultiRulePolicy_IncludesAllRoutingPeers(t *testing.T) {
 	assert.Contains(t, affected, second.routerPeerID, "routing peer for resource B must be affected")
 }
 
-func TestAffectedPeers_PolicyToResource_RouterInOtherNetworkNotAffected(t *testing.T) {
+func TestAffectedPeers_RouterOtherNetwork(t *testing.T) {
 	s := setupRouterScenario(t, true)
 	second := s.addSecondTopology(t, "d")
 	ctx := context.Background()

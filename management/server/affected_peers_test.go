@@ -443,10 +443,6 @@ func TestCollectGroupChange_MultipleNameServerGroups_OnlyLinkedAffected(t *testi
 // Pure policy/route/router extraction unit tests moved to the affectedpeers
 // package (management/server/affectedpeers) along with the logic they cover.
 
-// ---------------------------------------------------------------------------
-// resolvePeerIDs tests
-// ---------------------------------------------------------------------------
-
 func TestResolvePeerIDs_GroupsOnly(t *testing.T) {
 	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
@@ -479,10 +475,6 @@ func TestResolvePeerIDs_EmptyInputs(t *testing.T) {
 	result := manager.resolvePeerIDs(ctx, s, accountID, nil, nil)
 	assert.Empty(t, result)
 }
-
-// ---------------------------------------------------------------------------
-// resolveAffectedPeersForPeerChanges tests
-// ---------------------------------------------------------------------------
 
 func TestResolveAffectedPeers_NoPoliciesOrRoutes(t *testing.T) {
 	manager, s, accountID, peerIDs, _ := setupAffectedPeersTest(t)
@@ -849,10 +841,6 @@ func TestResolveAffectedPeers_NoDuplicates(t *testing.T) {
 	assert.Equal(t, 1, count, "peer0 should appear exactly once")
 }
 
-// ---------------------------------------------------------------------------
-// Posture check affected peers tests
-// ---------------------------------------------------------------------------
-
 func TestCollectPostureCheckAffected_NoMatch(t *testing.T) {
 	_, s, accountID, _, _ := setupAffectedPeersTest(t)
 	ctx := context.Background()
@@ -899,10 +887,6 @@ func TestCollectPostureCheckAffected_LinkedToPolicy(t *testing.T) {
 	assert.Empty(t, groups)
 	assert.Empty(t, directPeers)
 }
-
-// ---------------------------------------------------------------------------
-// Isolation tests: verify peers NOT in any relevant entity are NOT affected
-// ---------------------------------------------------------------------------
 
 func TestAffectedPeers_IsolatedPolicies(t *testing.T) {
 	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
@@ -998,10 +982,6 @@ func TestAffectedPeers_IsolatedRouteAndPolicy(t *testing.T) {
 	assert.NotContains(t, result, peerIDs[1])
 }
 
-// ---------------------------------------------------------------------------
-// Integration tests with update channels (peerShouldReceiveUpdate / peerShouldNotReceiveUpdate)
-// ---------------------------------------------------------------------------
-
 func TestAffectedPeers_GroupUpdateOnlyAffectsLinkedPeers(t *testing.T) {
 	manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 	ctx := context.Background()
@@ -1049,7 +1029,6 @@ func TestAffectedPeers_GroupUpdateOnlyAffectsLinkedPeers(t *testing.T) {
 	result := manager.resolveAffectedPeersForPeerChanges(ctx, manager.Store, accountID, []string{peer1.ID})
 	assert.ElementsMatch(t, []string{peer1.ID, peer2.ID}, result)
 
-	// Adding peer3 to grpA makes it part of the policy, so all 3 peers get updated
 	t.Run("group change updates all peers in policy groups", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
@@ -1072,10 +1051,6 @@ func TestAffectedPeers_GroupUpdateOnlyAffectsLinkedPeers(t *testing.T) {
 			t.Error("timeout")
 		}
 	})
-
-	_ = updMsg1
-	_ = updMsg2
-	_ = updMsg3
 }
 
 func TestAffectedPeers_UnlinkedGroupChange_NoUpdates(t *testing.T) {
@@ -1118,7 +1093,6 @@ func TestAffectedPeers_PolicyChange_UnrelatedPeerNoUpdate(t *testing.T) {
 		updateManager.CloseChannel(ctx, peer3.ID)
 	})
 
-	// Create policy linking only peer1 (grpA) <-> peer2 (grpB). Peer3 should not receive update.
 	t.Run("create policy only affects linked peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
@@ -1182,7 +1156,6 @@ func TestAffectedPeers_RouteChange_UnrelatedPeerNoUpdate(t *testing.T) {
 		updateManager.CloseChannel(ctx, peer3.ID)
 	})
 
-	// Create route with peer groups grpA and distribution group grpB. Peer3 should not get update.
 	t.Run("create route only affects linked peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
@@ -1250,7 +1223,6 @@ func TestAffectedPeers_NameServerChange_UnrelatedPeerNoUpdate(t *testing.T) {
 		updateManager.CloseChannel(ctx, peer3.ID)
 	})
 
-	// Create NS group using only grpA. peer2 and peer3 should not get update.
 	t.Run("create nameserver group only affects linked peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
@@ -1310,7 +1282,6 @@ func TestAffectedPeers_DNSSettingsChange_UnrelatedPeerNoUpdate(t *testing.T) {
 		updateManager.CloseChannel(ctx, peer3.ID)
 	})
 
-	// Save DNS settings that only affects grpA. peer2 and peer3 should not be affected.
 	t.Run("dns settings change only affects linked peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
@@ -1388,13 +1359,11 @@ func TestAffectedPeers_UnlinkedGroupChange_NoUpdateIntegration(t *testing.T) {
 	})
 }
 
-// TestAffectedPeers_NetworkRouter_UnrelatedPeerNoUpdate verifies that when a network
-// router is added with specific peer groups, only peers in those groups (and policy
-// sources for resources) get updates. Unrelated peers should not.
-func TestAffectedPeers_NetworkRouter_UnrelatedPeerNoUpdate(t *testing.T) {
-	// Use custom setup: delete default policy BEFORE adding peers so that
-	// AddPeer's BufferUpdateAffectedPeers finds no affected peers and
-	// doesn't schedule async updates that race with the test.
+// TestAffectedPeers_NetworkRouterUnlinkedPeerNoUpdate: a network router with peer
+// groups updates only those groups' peers (and resource policy sources), not others.
+func TestAffectedPeers_NetworkRouterUnlinkedPeerNoUpdate(t *testing.T) {
+	// Delete the default policy before adding peers so AddPeer schedules no async
+	// update that races with the test.
 	manager, updateManager, err := createManager(t)
 	require.NoError(t, err)
 
@@ -1451,9 +1420,6 @@ func TestAffectedPeers_NetworkRouter_UnrelatedPeerNoUpdate(t *testing.T) {
 		updateManager.CloseChannel(ctx, peer3.ID)
 	})
 
-	// When the group linked to the network router changes, only peers in that
-	// group should be updated. Peer2 is unrelated. Peer3 is added to the
-	// router's group so it should also receive an update.
 	t.Run("network router group change only affects linked peers", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
@@ -1463,7 +1429,6 @@ func TestAffectedPeers_NetworkRouter_UnrelatedPeerNoUpdate(t *testing.T) {
 			close(done)
 		}()
 
-		// Updating the group linked to router should affect peer1 and peer3 (now in nr-grpA).
 		err = manager.UpdateGroup(ctx, accountID, userID, &types.Group{
 			ID:    "nr-grpA",
 			Name:  "NR-A",
@@ -1479,10 +1444,9 @@ func TestAffectedPeers_NetworkRouter_UnrelatedPeerNoUpdate(t *testing.T) {
 	})
 }
 
-// TestAffectedPeers_MultipleIsolatedEntities_OnlyLinkedPeersUpdated creates multiple
-// isolated entities (policy for peer1<->peer2, route for peer3) and verifies that
-// changing one entity's groups only affects its peers.
-func TestAffectedPeers_MultipleIsolatedEntities_OnlyLinkedPeersUpdated(t *testing.T) {
+// TestAffectedPeers_IsolatedEntitiesOnlyAffectTheirPeers: with a policy (peer1<->peer2)
+// and a separate route (peer3), changing one entity's groups affects only its peers.
+func TestAffectedPeers_IsolatedEntitiesOnlyAffectTheirPeers(t *testing.T) {
 	manager, updateManager, account, peer1, peer2, peer3 := setupNetworkMapTest(t)
 	ctx := context.Background()
 	accountID := account.Id
@@ -1503,7 +1467,6 @@ func TestAffectedPeers_MultipleIsolatedEntities_OnlyLinkedPeersUpdated(t *testin
 		require.NoError(t, err)
 	}
 
-	// Policy: peer1 <-> peer2
 	_, err = manager.SavePolicy(ctx, accountID, userID, &types.Policy{
 		Enabled: true,
 		Rules: []*types.PolicyRule{
@@ -1518,7 +1481,6 @@ func TestAffectedPeers_MultipleIsolatedEntities_OnlyLinkedPeersUpdated(t *testin
 	}, true)
 	require.NoError(t, err)
 
-	// Route: only peer3's group as distribution group
 	_, err = manager.CreateRoute(ctx, accountID,
 		netip.MustParsePrefix("10.20.0.0/24"),
 		route.IPv4Network,
@@ -1547,7 +1509,6 @@ func TestAffectedPeers_MultipleIsolatedEntities_OnlyLinkedPeersUpdated(t *testin
 		updateManager.CloseChannel(ctx, peer3.ID)
 	})
 
-	// Updating policy group (iso-grpA) should affect peer1+peer2 but NOT peer3
 	t.Run("policy group change does not affect route-only peer", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
