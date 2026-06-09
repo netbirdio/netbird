@@ -105,7 +105,7 @@ export function LanguagePicker() {
                             className={cn(
                                 "w-[var(--radix-popover-trigger-width)]",
                                 "rounded-lg border border-nb-gray-850 bg-nb-gray-920 shadow-lg p-1 z-50",
-                                "origin-[var(--radix-popover-content-transform-origin)]",
+                                "data-[side=bottom]:origin-top data-[side=top]:origin-bottom",
                                 "data-[state=open]:animate-in data-[state=closed]:animate-out",
                                 "data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
                                 "data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95",
