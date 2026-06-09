@@ -716,6 +716,13 @@ func resolveURLsToIPs(urls []string) []net.IP {
 // RouteSelector stores routes with default-on semantics, so without this every
 // available exit node would report selected at once.
 func (m *DefaultManager) updateRouteSelectorFromManagement(clientRoutes route.HAMap) {
+	// An explicit user "deselect all" must not be overridden by management auto-apply.
+	// Auto-applying an exit node here would call SelectRoutes, which clears the
+	// deselect-all flag and re-enables every route the user turned off.
+	if m.routeSelector.IsDeselectAll() {
+		return
+	}
+
 	info := m.collectExitNodeInfo(clientRoutes)
 	if len(info.allIDs) == 0 {
 		return

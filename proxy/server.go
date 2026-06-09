@@ -118,6 +118,9 @@ type Server struct {
 	// The mapping worker waits on this before processing updates.
 	routerReady chan struct{}
 
+	// removePeer defaults to netbird.RemovePeer; overridable in tests.
+	removePeer func(ctx context.Context, accountID types.AccountID, key roundtrip.ServiceKey) error
+
 	// inbound, when non-nil, manages per-account inbound listeners. Set by
 	// initPrivateInbound only when Private is true so the standalone
 	// proxy keeps its zero-overhead default path.
@@ -227,6 +230,10 @@ type Server struct {
 	// Zero means no cap (the proxy honors whatever management sends).
 	// Set via NB_PROXY_MAX_SESSION_IDLE_TIMEOUT for shared deployments.
 	MaxSessionIdleTimeout time.Duration
+	// MappingBatchWatchdog bounds how long a single mapping batch may spend
+	// in processMappings before the receive loop reconnects to resync.
+	// Zero uses defaultMappingBatchWatchdog.
+	MappingBatchWatchdog time.Duration
 }
 
 // clampIdleTimeout returns d capped to MaxSessionIdleTimeout when configured.
@@ -1172,24 +1179,30 @@ func (s *Server) newManagementMappingWorker(ctx context.Context, client proto.Pr
 			s.healthChecker.SetManagementConnected(false)
 		}
 
+		connected := false
+		onConnected := func() { connected = true }
+
 		var streamErr error
 		if syncSupported {
-			streamErr = s.trySyncMappings(ctx, client, &initialSyncDone)
+			streamErr = s.trySyncMappings(ctx, client, &initialSyncDone, onConnected)
 			if isSyncUnimplemented(streamErr) {
 				syncSupported = false
 				s.Logger.Info("management does not support SyncMappings, falling back to GetMappingUpdate")
-				streamErr = s.tryGetMappingUpdate(ctx, client, &initialSyncDone)
+				streamErr = s.tryGetMappingUpdate(ctx, client, &initialSyncDone, onConnected)
 			}
 		} else {
-			streamErr = s.tryGetMappingUpdate(ctx, client, &initialSyncDone)
+			streamErr = s.tryGetMappingUpdate(ctx, client, &initialSyncDone, onConnected)
 		}
 
 		if s.healthChecker != nil {
 			s.healthChecker.SetManagementConnected(false)
 		}
 
-		// Stream established — reset backoff so the next failure retries quickly.
-		bo.Reset()
+		// Reset backoff only when a stream actually connected, so immediate
+		// connect failures still back off instead of spinning.
+		if connected {
+			bo.Reset()
+		}
 
 		if streamErr == nil {
 			return fmt.Errorf("stream closed by server")
@@ -1221,7 +1234,7 @@ func (s *Server) proxyCapabilities() *proto.ProxyCapabilities {
 	}
 }
 
-func (s *Server) tryGetMappingUpdate(ctx context.Context, client proto.ProxyServiceClient, initialSyncDone *bool) error {
+func (s *Server) tryGetMappingUpdate(ctx context.Context, client proto.ProxyServiceClient, initialSyncDone *bool, onConnected func()) error {
 	connectTime := time.Now()
 	mappingClient, err := client.GetMappingUpdate(ctx, &proto.GetMappingUpdateRequest{
 		ProxyId:      s.ID,
@@ -1234,6 +1247,7 @@ func (s *Server) tryGetMappingUpdate(ctx context.Context, client proto.ProxyServ
 		return fmt.Errorf("create mapping stream: %w", err)
 	}
 
+	onConnected()
 	if s.healthChecker != nil {
 		s.healthChecker.SetManagementConnected(true)
 	}
@@ -1242,7 +1256,7 @@ func (s *Server) tryGetMappingUpdate(ctx context.Context, client proto.ProxyServ
 	return s.handleMappingStream(ctx, mappingClient, initialSyncDone, connectTime)
 }
 
-func (s *Server) trySyncMappings(ctx context.Context, client proto.ProxyServiceClient, initialSyncDone *bool) error {
+func (s *Server) trySyncMappings(ctx context.Context, client proto.ProxyServiceClient, initialSyncDone *bool, onConnected func()) error {
 	connectTime := time.Now()
 	stream, err := client.SyncMappings(ctx)
 	if err != nil {
@@ -1263,6 +1277,7 @@ func (s *Server) trySyncMappings(ctx context.Context, client proto.ProxyServiceC
 		return fmt.Errorf("send sync init: %w", err)
 	}
 
+	onConnected()
 	if s.healthChecker != nil {
 		s.healthChecker.SetManagementConnected(true)
 	}
@@ -1307,7 +1322,9 @@ func (s *Server) handleSyncMappingsStream(ctx context.Context, stream proto.Prox
 
 			batchStart := time.Now()
 			s.Logger.Debug("Received mapping update, starting processing")
-			s.processMappings(ctx, msg.GetMapping())
+			if err := s.processMappingsGuarded(ctx, msg.GetMapping()); err != nil {
+				return err
+			}
 			s.Logger.Debug("Processing mapping update completed")
 			tracker.recordBatch(ctx, s, msg.GetMapping(), msg.GetInitialSyncComplete(), batchStart)
 
@@ -1391,7 +1408,9 @@ func (s *Server) handleMappingStream(ctx context.Context, mappingClient proto.Pr
 
 			batchStart := time.Now()
 			s.Logger.Debug("Received mapping update, starting processing")
-			s.processMappings(ctx, msg.GetMapping())
+			if err := s.processMappingsGuarded(ctx, msg.GetMapping()); err != nil {
+				return err
+			}
 			s.Logger.Debug("Processing mapping update completed")
 			tracker.recordBatch(ctx, s, msg.GetMapping(), msg.GetInitialSyncComplete(), batchStart)
 		}
@@ -1454,6 +1473,44 @@ func redactMappingForLog(m *proto.ProxyMapping) *proto.ProxyMapping {
 		opts.CustomHeaders = redacted
 	}
 	return c
+}
+
+const defaultMappingBatchWatchdog = 2 * time.Minute
+
+// mappingBatchWatchdog returns the configured batch watchdog or the default.
+func (s *Server) mappingBatchWatchdog() time.Duration {
+	if s.MappingBatchWatchdog > 0 {
+		return s.MappingBatchWatchdog
+	}
+	return defaultMappingBatchWatchdog
+}
+
+// processMappingsGuarded applies a batch under a watchdog, returning an error
+// if processing exceeds the watchdog so the caller reconnects and resyncs
+// instead of wedging silently.
+func (s *Server) processMappingsGuarded(ctx context.Context, mappings []*proto.ProxyMapping) error {
+	batchCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.processMappings(batchCtx, mappings)
+	}()
+
+	watchdog := s.mappingBatchWatchdog()
+	timer := time.NewTimer(watchdog)
+	defer timer.Stop()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		s.Logger.Errorf("processing mapping batch exceeded %s, cancelling and reconnecting to resync", watchdog)
+		return fmt.Errorf("mapping batch processing stalled after %s", watchdog)
+	}
 }
 
 func (s *Server) processMappings(ctx context.Context, mappings []*proto.ProxyMapping) {
@@ -1951,7 +2008,11 @@ func (s *Server) updateMapping(ctx context.Context, mapping *proto.ProxyMapping)
 func (s *Server) removeMapping(ctx context.Context, mapping *proto.ProxyMapping) {
 	accountID := types.AccountID(mapping.GetAccountId())
 	svcKey := s.serviceKeyForMapping(mapping)
-	if err := s.netbird.RemovePeer(ctx, accountID, svcKey); err != nil {
+	removePeer := s.removePeer
+	if removePeer == nil {
+		removePeer = s.netbird.RemovePeer
+	}
+	if err := removePeer(ctx, accountID, svcKey); err != nil {
 		s.Logger.WithFields(log.Fields{
 			"account_id": accountID,
 			"service_id": mapping.GetId(),

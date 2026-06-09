@@ -806,6 +806,8 @@ func (g *BundleGenerator) addSyncResponse() error {
 		AllowPartial:    true,
 	}
 
+	g.maskSecrets()
+
 	jsonBytes, err := options.Marshal(g.syncResponse)
 	if err != nil {
 		return fmt.Errorf("generate json: %w", err)
@@ -816,6 +818,27 @@ func (g *BundleGenerator) addSyncResponse() error {
 	}
 
 	return nil
+}
+
+func (g *BundleGenerator) maskSecrets() {
+	if g.syncResponse == nil || g.syncResponse.NetbirdConfig == nil {
+		return
+	}
+
+	if g.syncResponse.NetbirdConfig.Flow != nil {
+		g.syncResponse.NetbirdConfig.Flow.TokenPayload = maskedValue
+
+	}
+
+	if g.syncResponse.NetbirdConfig.Relay != nil {
+		g.syncResponse.NetbirdConfig.Relay.TokenPayload = maskedValue
+	}
+
+	for i := range g.syncResponse.NetbirdConfig.Turns {
+		if g.syncResponse.NetbirdConfig.Turns[i] != nil {
+			g.syncResponse.NetbirdConfig.Turns[i].Password = maskedValue
+		}
+	}
 }
 
 func (g *BundleGenerator) addStateFile() error {
