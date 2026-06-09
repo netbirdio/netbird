@@ -15,6 +15,11 @@ import { welcome } from "@/lib/welcome";
 import LoginWaitingForBrowserDialog from "@/modules/login/LoginWaitingForBrowserDialog.tsx";
 import { initI18n } from "@/lib/i18n";
 import { initPlatform } from "@/lib/platform";
+import { initLogForwarding } from "@/lib/logs";
+
+// Install console.* + uncaught-error forwarding before anything else runs
+// so even init-time logs reach the Go log pipeline.
+initLogForwarding();
 
 welcome();
 
