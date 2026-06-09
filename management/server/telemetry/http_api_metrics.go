@@ -21,6 +21,9 @@ const (
 	httpRequestCounterPrefix  = "management.http.request.counter"
 	httpResponseCounterPrefix = "management.http.response.counter"
 	httpRequestDurationPrefix = "management.http.request.duration.ms"
+
+	// RequestIDHeader is the response header carrying the per-request trace ID.
+	RequestIDHeader = "X-Request-Id"
 )
 
 // WrappedResponseWriter is a wrapper for http.ResponseWriter that allows the
@@ -172,6 +175,11 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 		reqID := xid.New().String()
 		//nolint
 		ctx = context.WithValue(ctx, nbContext.RequestIDKey, reqID)
+		//nolint
+		ctx = context.WithValue(ctx, nbContext.UserAgentKey, r.UserAgent())
+
+		// Set before ServeHTTP so the header is committed before the handler writes the response.
+		rw.Header().Set(RequestIDHeader, reqID)
 
 		log.WithContext(ctx).Tracef("HTTP request %v: %v %v", reqID, r.Method, r.URL)
 
