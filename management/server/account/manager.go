@@ -129,9 +129,7 @@ type Manager interface {
 	GetAccountSettings(ctx context.Context, accountID string, userID string) (*types.Settings, error)
 	DeleteSetupKey(ctx context.Context, accountID, userID, keyID string) error
 	UpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason)
-	UpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string)
-	BufferUpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string, reason types.UpdateReason)
-	ResolveAffectedPeers(ctx context.Context, s store.Store, accountID string, change affectedpeers.Change) []string
+	ExpandAndUpdateAffected(ctx context.Context, accountID string, snap *affectedpeers.Snapshot, change affectedpeers.Change)
 	BufferUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason)
 	BuildUserInfosForAccount(ctx context.Context, accountID, initiatorUserID string, accountUsers []*types.User) (map[string]*types.UserInfo, error)
 	SyncUserJWTGroups(ctx context.Context, userAuth auth.UserAuth) error

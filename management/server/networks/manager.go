@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/rs/xid"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -203,13 +202,7 @@ func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, netw
 		event()
 	}
 
-	affectedPeerIDs := snap.Expand(ctx, accountID, change)
-	if len(affectedPeerIDs) > 0 {
-		log.WithContext(ctx).Debugf("DeleteNetwork %s: updating %d affected peers: %v", networkID, len(affectedPeerIDs), affectedPeerIDs)
-		go m.accountManager.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
-	} else {
-		log.WithContext(ctx).Tracef("DeleteNetwork %s: no affected peers", networkID)
-	}
+	go m.accountManager.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }

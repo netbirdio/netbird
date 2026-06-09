@@ -77,7 +77,7 @@ func (am *DefaultAccountManager) SavePostureChecks(ctx context.Context, accountI
 
 	am.StoreEvent(ctx, userID, postureChecks.ID, accountID, action, postureChecks.EventMeta())
 
-	am.expandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return postureChecks, nil
 }

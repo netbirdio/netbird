@@ -118,7 +118,7 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 		storeEvent()
 	}
 
-	am.expandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }
@@ -187,7 +187,7 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 		storeEvent()
 	}
 
-	am.expandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }
@@ -492,7 +492,7 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 		am.StoreEvent(ctx, userID, group.ID, accountID, activity.GroupDeleted, group.EventMeta())
 	}
 
-	am.expandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return allErrors
 }
@@ -542,7 +542,7 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 		return err
 	}
 
-	am.expandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }
@@ -578,7 +578,7 @@ func (am *DefaultAccountManager) GroupAddResource(ctx context.Context, accountID
 		return err
 	}
 
-	am.expandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }
@@ -613,7 +613,7 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 		return err
 	}
 
-	am.expandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }
@@ -651,7 +651,7 @@ func (am *DefaultAccountManager) GroupDeleteResource(ctx context.Context, accoun
 		return err
 	}
 
-	am.expandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }

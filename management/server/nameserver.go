@@ -9,10 +9,10 @@ import (
 	"unicode/utf8"
 
 	"github.com/rs/xid"
-	log "github.com/sirupsen/logrus"
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -59,7 +59,8 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 		SearchDomainsEnabled: searchDomainEnabled,
 	}
 
-	var affectedPeerIDs []string
+	var snap *affectedpeers.Snapshot
+	change := affectedpeers.Change{DistributionGroupIDs: newNSGroup.Groups}
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err = validateNameServerGroup(ctx, transaction, accountID, newNSGroup); err != nil {
@@ -70,7 +71,9 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 			return err
 		}
 
-		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, newNSGroup.Groups, nil)
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
+			return err
+		}
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
@@ -80,12 +83,7 @@ func (am *DefaultAccountManager) CreateNameServerGroup(ctx context.Context, acco
 
 	am.StoreEvent(ctx, userID, newNSGroup.ID, accountID, activity.NameserverGroupCreated, newNSGroup.EventMeta())
 
-	if len(affectedPeerIDs) > 0 {
-		log.WithContext(ctx).Debugf("CreateNameServerGroup %s: updating %d affected peers: %v", newNSGroup.ID, len(affectedPeerIDs), affectedPeerIDs)
-		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
-	} else {
-		log.WithContext(ctx).Tracef("CreateNameServerGroup %s: no affected peers", newNSGroup.ID)
-	}
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return newNSGroup.Copy(), nil
 }
@@ -104,7 +102,8 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 		return status.NewPermissionDeniedError()
 	}
 
-	var affectedPeerIDs []string
+	var snap *affectedpeers.Snapshot
+	var change affectedpeers.Change
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		oldNSGroup, err := transaction.GetNameServerGroupByID(ctx, store.LockingStrengthNone, accountID, nsGroupToSave.ID)
@@ -121,8 +120,10 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 			return err
 		}
 
-		allGroups := slices.Concat(nsGroupToSave.Groups, oldNSGroup.Groups)
-		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, allGroups, nil)
+		change = affectedpeers.Change{DistributionGroupIDs: slices.Concat(nsGroupToSave.Groups, oldNSGroup.Groups)}
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
+			return err
+		}
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
@@ -132,12 +133,7 @@ func (am *DefaultAccountManager) SaveNameServerGroup(ctx context.Context, accoun
 
 	am.StoreEvent(ctx, userID, nsGroupToSave.ID, accountID, activity.NameserverGroupUpdated, nsGroupToSave.EventMeta())
 
-	if len(affectedPeerIDs) > 0 {
-		log.WithContext(ctx).Debugf("SaveNameServerGroup %s: updating %d affected peers: %v", nsGroupToSave.ID, len(affectedPeerIDs), affectedPeerIDs)
-		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
-	} else {
-		log.WithContext(ctx).Tracef("SaveNameServerGroup %s: no affected peers", nsGroupToSave.ID)
-	}
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }
@@ -153,7 +149,8 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 	}
 
 	var nsGroup *nbdns.NameServerGroup
-	var affectedPeerIDs []string
+	var snap *affectedpeers.Snapshot
+	var change affectedpeers.Change
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		nsGroup, err = transaction.GetNameServerGroupByID(ctx, store.LockingStrengthUpdate, accountID, nsGroupID)
@@ -161,7 +158,11 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 			return err
 		}
 
-		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, nsGroup.Groups, nil)
+		// Load before delete: the post-delete state no longer references the groups.
+		change = affectedpeers.Change{DistributionGroupIDs: nsGroup.Groups}
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
+			return err
+		}
 
 		if err = transaction.DeleteNameServerGroup(ctx, accountID, nsGroupID); err != nil {
 			return err
@@ -175,12 +176,7 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(ctx context.Context, acco
 
 	am.StoreEvent(ctx, userID, nsGroup.ID, accountID, activity.NameserverGroupDeleted, nsGroup.EventMeta())
 
-	if len(affectedPeerIDs) > 0 {
-		log.WithContext(ctx).Debugf("DeleteNameServerGroup %s: updating %d affected peers: %v", nsGroupID, len(affectedPeerIDs), affectedPeerIDs)
-		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
-	} else {
-		log.WithContext(ctx).Tracef("DeleteNameServerGroup %s: no affected peers", nsGroupID)
-	}
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }

@@ -130,13 +130,7 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 		event()
 	}
 
-	affectedPeerIDs := snap.Expand(ctx, resource.AccountID, change)
-	if len(affectedPeerIDs) > 0 {
-		log.WithContext(ctx).Debugf("CreateResource %s: updating %d affected peers: %v", resource.ID, len(affectedPeerIDs), affectedPeerIDs)
-		go m.accountManager.UpdateAffectedPeers(ctx, resource.AccountID, affectedPeerIDs)
-	} else {
-		log.WithContext(ctx).Tracef("CreateResource %s: no affected peers", resource.ID)
-	}
+	go m.accountManager.ExpandAndUpdateAffected(ctx, resource.AccountID, snap, change)
 
 	return resource, nil
 }
@@ -305,13 +299,7 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 		}
 	}()
 
-	affectedPeerIDs := snap.Expand(ctx, resource.AccountID, change)
-	if len(affectedPeerIDs) > 0 {
-		log.WithContext(ctx).Debugf("UpdateResource %s: updating %d affected peers: %v", resource.ID, len(affectedPeerIDs), affectedPeerIDs)
-		go m.accountManager.UpdateAffectedPeers(ctx, resource.AccountID, affectedPeerIDs)
-	} else {
-		log.WithContext(ctx).Tracef("UpdateResource %s: no affected peers", resource.ID)
-	}
+	go m.accountManager.ExpandAndUpdateAffected(ctx, resource.AccountID, snap, change)
 
 	return resource, nil
 }
@@ -413,13 +401,7 @@ func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, net
 		event()
 	}
 
-	affectedPeerIDs := snap.Expand(ctx, accountID, change)
-	if len(affectedPeerIDs) > 0 {
-		log.WithContext(ctx).Debugf("DeleteResource %s: updating %d affected peers: %v", resourceID, len(affectedPeerIDs), affectedPeerIDs)
-		go m.accountManager.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
-	} else {
-		log.WithContext(ctx).Tracef("DeleteResource %s: no affected peers", resourceID)
-	}
+	go m.accountManager.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }

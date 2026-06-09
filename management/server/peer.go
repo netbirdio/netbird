@@ -1436,32 +1436,19 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 	_ = am.networkMapController.UpdateAccountPeers(ctx, accountID, reason)
 }
 
-// UpdateAffectedPeers updates only the specified peers that belong to an account.
-func (am *DefaultAccountManager) UpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string) {
-	ctx = context.WithoutCancel(ctx)
-	log.WithContext(ctx).Tracef("UpdateAffectedPeers: %d peers for account %s", len(peerIDs), accountID)
-	_ = am.networkMapController.UpdateAffectedPeers(ctx, accountID, peerIDs)
+// ExpandAndUpdateAffected expands a Snapshot (loaded INSIDE the now-committed
+// transaction) into the affected peers and dispatches the network-map refresh.
+// Pure in-memory work plus dispatch, so it runs AFTER commit — the fan-out walk
+// never holds the write lock, over the consistent in-tx snapshot. Exported so the
+// networks sub-package managers (which hold only account.Manager) share it.
+func (am *DefaultAccountManager) ExpandAndUpdateAffected(ctx context.Context, accountID string, snap *affectedpeers.Snapshot, change affectedpeers.Change) {
+	am.dispatchAffected(ctx, accountID, []*affectedpeers.Snapshot{snap}, []affectedpeers.Change{change})
 }
 
-// expandAndUpdateAffected expands a Snapshot (loaded INSIDE the now-committed
-// transaction) into the affected peers and dispatches the update. It is pure
-// in-memory work plus the dispatch, so it must run AFTER the transaction commits —
-// the fan-out walk never holds the write lock, and the data is the consistent
-// in-tx snapshot. directlyAffected are peers whose OWN map changed and that the
-// walk cannot rediscover post-mutation (notably peers removed from a group); they
-// are unioned into the result.
-func (am *DefaultAccountManager) expandAndUpdateAffected(ctx context.Context, accountID string, snap *affectedpeers.Snapshot, change affectedpeers.Change, directlyAffected ...string) {
-	if snap == nil {
-		return
-	}
-	affectedPeerIDs := unionStrings(snap.Expand(ctx, accountID, change), directlyAffected)
-	am.updateAffectedPeerIDs(ctx, accountID, affectedPeerIDs)
-}
-
-// dispatchAffected expands a set of (snapshot, change) pairs collected across
-// several transactions, unions their affected peers, and dispatches one update.
-// Used by batch operations that commit per-item transactions but want a single
-// affected-peers pass — each snapshot is still loaded inside its own transaction.
+// dispatchAffected expands one or more (snapshot, change) pairs — collected across
+// one or several transactions — unions their affected peers, and dispatches a
+// single network-map refresh. Each snapshot must already be loaded inside its
+// transaction; this runs AFTER commit (pure in-memory + dispatch).
 func (am *DefaultAccountManager) dispatchAffected(ctx context.Context, accountID string, snaps []*affectedpeers.Snapshot, changes []affectedpeers.Change) {
 	var lists [][]string
 	for i, snap := range snaps {
@@ -1470,18 +1457,15 @@ func (am *DefaultAccountManager) dispatchAffected(ctx context.Context, accountID
 		}
 		lists = append(lists, snap.Expand(ctx, accountID, changes[i]))
 	}
-	am.updateAffectedPeerIDs(ctx, accountID, unionStrings(lists...))
-}
 
-// updateAffectedPeerIDs dispatches a network-map refresh for the given peers, or
-// logs that there are none. Shared dispatch tail for the affected-peers helpers.
-func (am *DefaultAccountManager) updateAffectedPeerIDs(ctx context.Context, accountID string, affectedPeerIDs []string) {
-	if len(affectedPeerIDs) > 0 {
-		log.WithContext(ctx).Debugf("updating %d affected peers for account %s: %v", len(affectedPeerIDs), accountID, affectedPeerIDs)
-		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
-	} else {
+	affectedPeerIDs := unionStrings(lists...)
+	if len(affectedPeerIDs) == 0 {
 		log.WithContext(ctx).Tracef("no affected peers for account %s", accountID)
+		return
 	}
+
+	log.WithContext(ctx).Debugf("updating %d affected peers for account %s: %v", len(affectedPeerIDs), accountID, affectedPeerIDs)
+	_ = am.networkMapController.UpdateAffectedPeers(context.WithoutCancel(ctx), accountID, affectedPeerIDs)
 }
 
 // unionStrings concatenates the given string lists into one deduplicated slice,
@@ -1499,41 +1483,6 @@ func unionStrings(lists ...[]string) []string {
 		}
 	}
 	return out
-}
-
-// resolvePeerIDs resolves group IDs and direct peer IDs into a deduplicated peer ID list.
-func (am *DefaultAccountManager) resolvePeerIDs(ctx context.Context, s store.Store, accountID string, groupIDs []string, directPeerIDs []string) []string {
-	peerIDs, err := s.GetPeerIDsByGroups(ctx, accountID, groupIDs)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to resolve peer IDs by groups: %v", err)
-		return nil
-	}
-
-	if len(directPeerIDs) == 0 {
-		log.WithContext(ctx).Tracef("resolvePeerIDs: groups=%v -> %d peers: %v", groupIDs, len(peerIDs), peerIDs)
-		return peerIDs
-	}
-
-	peerIDs = unionStrings(peerIDs, directPeerIDs)
-	log.WithContext(ctx).Tracef("resolvePeerIDs: groups=%v + directPeers=%v -> %d peers: %v", groupIDs, directPeerIDs, len(peerIDs), peerIDs)
-	return peerIDs
-}
-
-// BufferUpdateAffectedPeers accumulates peer IDs and flushes them after the buffer interval.
-func (am *DefaultAccountManager) BufferUpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string, reason types.UpdateReason) {
-	_ = am.networkMapController.BufferUpdateAffectedPeers(ctx, accountID, peerIDs, reason)
-}
-
-// ResolveAffectedPeers resolves a description of what changed into the peer IDs
-// whose network map may have changed. It is the single entry point shared by the
-// server package and the networks managers (via the account.Manager interface).
-func (am *DefaultAccountManager) ResolveAffectedPeers(ctx context.Context, s store.Store, accountID string, change affectedpeers.Change) []string {
-	peerIDs, err := affectedpeers.Resolve(ctx, s, accountID, change)
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to resolve affected peers: %v", err)
-		return nil
-	}
-	return peerIDs
 }
 
 // affectedPeerIDsFromNetworkMap returns the peer IDs referenced by a peer's
@@ -1563,13 +1512,18 @@ func affectedPeerIDsFromNetworkMap(nmap *types.NetworkMap, selfPeerID string) []
 	return ids
 }
 
-// resolveAffectedPeersForPeerChanges resolves changed peer IDs into the full set
-// of affected peer IDs. The resolver derives each peer's group memberships during
-// the walk, so the caller passes only the changed peer IDs.
+// resolveAffectedPeersForPeerChanges loads a snapshot and expands it for a peer
+// change. The graph is unchanged by these paths, so it runs out of the mutating
+// transaction (after commit); the resolver derives the peers' group memberships
+// during the walk, so the caller passes only the changed peer IDs.
 func (am *DefaultAccountManager) resolveAffectedPeersForPeerChanges(ctx context.Context, s store.Store, accountID string, changedPeerIDs []string) []string {
-	return am.ResolveAffectedPeers(ctx, s, accountID, affectedpeers.Change{
-		ChangedPeerIDs: changedPeerIDs,
-	})
+	change := affectedpeers.Change{ChangedPeerIDs: changedPeerIDs}
+	snap, err := affectedpeers.Load(ctx, s, accountID, change)
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to load snapshot for affected peers: %v", err)
+		return nil
+	}
+	return snap.Expand(ctx, accountID, change)
 }
 
 func (am *DefaultAccountManager) BufferUpdateAccountPeers(ctx context.Context, accountID string, reason types.UpdateReason) {

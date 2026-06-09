@@ -187,7 +187,12 @@ func peerToResourcePolicyByResource(sourceGroupID, resourceID string) *types.Pol
 // resolvePolicyAffected mirrors SavePolicy's resolution: resolve the affected
 // peers for the given policy.
 func (s *routerScenario) resolvePolicyAffected(ctx context.Context, policy *types.Policy) []string {
-	return s.manager.ResolveAffectedPeers(ctx, s.manager.Store, s.accountID, affectedpeers.Change{Policies: []*types.Policy{policy}})
+	change := affectedpeers.Change{Policies: []*types.Policy{policy}}
+	snap, err := affectedpeers.Load(ctx, s.manager.Store, s.accountID, change)
+	if err != nil {
+		return nil
+	}
+	return snap.Expand(ctx, s.accountID, change)
 }
 
 func TestAffectedPeers_SourcePeer_DirectRouter(t *testing.T) {

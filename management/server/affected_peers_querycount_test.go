@@ -103,8 +103,10 @@ func TestAffectedPeers_QueryCount_NoRedundantFullTableLoads(t *testing.T) {
 	cs := newCountingStore(s.manager.Store)
 
 	// A group change that exercises policies, routers, resources and the bridge.
-	affected, err := affectedpeers.Resolve(ctx, cs, s.accountID, affectedpeers.Change{ChangedGroupIDs: []string{s.sourceGroupID}})
+	change := affectedpeers.Change{ChangedGroupIDs: []string{s.sourceGroupID}}
+	snap, err := affectedpeers.Load(ctx, cs, s.accountID, change)
 	require.NoError(t, err)
+	affected := snap.Expand(ctx, s.accountID, change)
 	assert.Contains(t, affected, s.routerPeerID, "bridge must still resolve the routing peer")
 
 	for _, name := range []string{"policies", "routes", "nameservers", "dnssettings", "routers", "resources"} {
@@ -126,7 +128,7 @@ func TestAffectedPeers_QueryCount_NarrowChangeSkipsLoads(t *testing.T) {
 
 	// A bare network change drives only the router->source bridge: routers and
 	// resources are needed, but routes/nameservers/dnssettings/services are not.
-	_, err := affectedpeers.Resolve(ctx, cs, s.accountID, affectedpeers.Change{Networks: []*networkTypes.Network{{ID: s.networkID}}})
+	_, err := affectedpeers.Load(ctx, cs, s.accountID, affectedpeers.Change{Networks: []*networkTypes.Network{{ID: s.networkID}}})
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, cs.count("routes"), "routes must not be loaded for a network-only change")

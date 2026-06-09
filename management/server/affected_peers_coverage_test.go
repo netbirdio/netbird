@@ -104,7 +104,7 @@ func TestAffectedPeers_DependencyCoverageMatrix(t *testing.T) {
 			ctx := context.Background()
 
 			change, mustContain, mustExclude := r.build(t, s, ctx)
-			affected := s.manager.ResolveAffectedPeers(ctx, s.manager.Store, s.accountID, change)
+			affected := resolveAffected(t, s.manager.Store, s.accountID, change)
 
 			for _, id := range mustContain {
 				assert.Contains(t, affected, id, "expected peer to be affected")

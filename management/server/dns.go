@@ -8,6 +8,7 @@ import (
 
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/affectedpeers"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -48,7 +49,8 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 	}
 
 	var eventsToStore []func()
-	var affectedPeerIDs []string
+	var snap *affectedpeers.Snapshot
+	var change affectedpeers.Change
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		if err = validateDNSSettings(ctx, transaction, accountID, dnsSettingsToSave); err != nil {
@@ -70,8 +72,10 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 			return err
 		}
 
-		allGroups := slices.Concat(addedGroups, removedGroups)
-		affectedPeerIDs = am.resolvePeerIDs(ctx, transaction, accountID, allGroups, nil)
+		change = affectedpeers.Change{DistributionGroupIDs: slices.Concat(addedGroups, removedGroups)}
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
+			return err
+		}
 
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
@@ -83,12 +87,7 @@ func (am *DefaultAccountManager) SaveDNSSettings(ctx context.Context, accountID 
 		storeEvent()
 	}
 
-	if len(affectedPeerIDs) > 0 {
-		log.WithContext(ctx).Debugf("SaveDNSSettings: updating %d affected peers: %v", len(affectedPeerIDs), affectedPeerIDs)
-		am.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
-	} else {
-		log.WithContext(ctx).Tracef("SaveDNSSettings: no affected peers")
-	}
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }

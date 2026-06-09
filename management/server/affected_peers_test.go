@@ -23,6 +23,16 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
+// resolveAffected is a test helper for the resolver's Load+Expand, used where a
+// test asserts on the fully expanded affected peer set.
+func resolveAffected(t *testing.T, s store.Store, accountID string, change affectedpeers.Change) []string {
+	t.Helper()
+	ctx := context.Background()
+	snap, err := affectedpeers.Load(ctx, s, accountID, change)
+	require.NoError(t, err)
+	return snap.Expand(ctx, accountID, change)
+}
+
 // Thin test adapters over affectedpeers.Collect, preserving the (groups, peers)
 // shape these tests assert on after the resolver was unified.
 func collectGroupChangeAffectedGroups(ctx context.Context, s store.Store, accountID string, changedGroupIDs []string) ([]string, []string) {

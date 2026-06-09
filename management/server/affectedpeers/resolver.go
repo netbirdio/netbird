@@ -120,6 +120,12 @@ type Change struct {
 	Networks        []*networkTypes.Network
 	PostureCheckIDs []string
 
+	// DistributionGroupIDs are groups whose members are directly affected, with no
+	// dependency walk — the change distributes config to the groups' member peers
+	// only (nameserver groups, DNS DisabledManagementGroups), not through the
+	// policy/route reachability graph. Pass old∪new so both states refresh.
+	DistributionGroupIDs []string
+
 	// RemovedPeersByGroup: peers that left a group, keyed by that group. They are no
 	// longer in the group's member index but still lose its reachability, so they are
 	// folded in — but only when the group is linked (an unlinked group has no map
@@ -136,6 +142,7 @@ func (c Change) isEmpty() bool {
 		len(c.Resources) == 0 &&
 		len(c.Networks) == 0 &&
 		len(c.PostureCheckIDs) == 0 &&
+		len(c.DistributionGroupIDs) == 0 &&
 		len(c.RemovedPeersByGroup) == 0
 }
 
@@ -147,23 +154,10 @@ func (snap *Snapshot) Expand(ctx context.Context, accountID string, c Change) []
 		return nil
 	}
 	r := newResolver(ctx, snap, accountID, c)
-	log.WithContext(ctx).Tracef("affectedpeers expand start: account=%s changedGroups=%v changedPeers=%v policies=%d routes=%d routers=%d resources=%d networks=%d postureChecks=%v",
-		accountID, c.ChangedGroupIDs, c.ChangedPeerIDs, len(c.Policies), len(c.Routes), len(c.Routers), len(c.Resources), len(c.Networks), c.PostureCheckIDs)
+	log.WithContext(ctx).Tracef("affectedpeers expand start: account=%s changedGroups=%v changedPeers=%v policies=%d routes=%d routers=%d resources=%d networks=%d postureChecks=%v distributionGroups=%v",
+		accountID, c.ChangedGroupIDs, c.ChangedPeerIDs, len(c.Policies), len(c.Routes), len(c.Routers), len(c.Resources), len(c.Networks), c.PostureCheckIDs, c.DistributionGroupIDs)
 	r.walk()
 	return r.expand()
-}
-
-// Resolve does Load+Expand in one call, for callers not inside a tx. Tx-bound
-// callers should use Load (in-tx) + Snapshot.Expand (after commit) instead.
-func Resolve(ctx context.Context, s store.Store, accountID string, c Change) ([]string, error) {
-	if c.isEmpty() {
-		return nil, nil
-	}
-	snap, err := Load(ctx, s, accountID, c)
-	if err != nil {
-		return nil, err
-	}
-	return snap.Expand(ctx, accountID, c), nil
 }
 
 // Collect returns the affected group and direct-peer IDs without expanding groups
@@ -223,6 +217,11 @@ func (r *resolver) walk() {
 	r.collectFromExplicitResources(r.change.Resources)
 	r.collectFromExplicitNetworks(r.change.Networks)
 	r.collectFromPostureChecks(r.change.PostureCheckIDs)
+
+	// Distribution groups (nameserver/DNS) affect only their member peers: fold them
+	// straight into groupSet so expand() maps them to members, without the policy/
+	// route walk that changedGroupSet would trigger.
+	addAll(r.groupSet, r.change.DistributionGroupIDs)
 
 	if len(r.changedGroupSet) > 0 || len(r.changedPeerSet) > 0 {
 		r.collectFromPolicies()

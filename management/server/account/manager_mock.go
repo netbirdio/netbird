@@ -123,18 +123,6 @@ func (mr *MockManagerMockRecorder) BufferUpdateAccountPeers(ctx, accountID, reas
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BufferUpdateAccountPeers", reflect.TypeOf((*MockManager)(nil).BufferUpdateAccountPeers), ctx, accountID, reason)
 }
 
-// BufferUpdateAffectedPeers mocks base method.
-func (m *MockManager) BufferUpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string, reason types.UpdateReason) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "BufferUpdateAffectedPeers", ctx, accountID, peerIDs, reason)
-}
-
-// BufferUpdateAffectedPeers indicates an expected call of BufferUpdateAffectedPeers.
-func (mr *MockManagerMockRecorder) BufferUpdateAffectedPeers(ctx, accountID, peerIDs, reason interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BufferUpdateAffectedPeers", reflect.TypeOf((*MockManager)(nil).BufferUpdateAffectedPeers), ctx, accountID, peerIDs, reason)
-}
-
 // BuildUserInfosForAccount mocks base method.
 func (m *MockManager) BuildUserInfosForAccount(ctx context.Context, accountID, initiatorUserID string, accountUsers []*types.User) (map[string]*types.UserInfo, error) {
 	m.ctrl.T.Helper()
@@ -1650,30 +1638,16 @@ func (mr *MockManagerMockRecorder) UpdateAccountPeers(ctx, accountID, reason int
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAccountPeers", reflect.TypeOf((*MockManager)(nil).UpdateAccountPeers), ctx, accountID, reason)
 }
 
-// UpdateAffectedPeers mocks base method.
-func (m *MockManager) UpdateAffectedPeers(ctx context.Context, accountID string, peerIDs []string) {
+// ExpandAndUpdateAffected mocks base method.
+func (m *MockManager) ExpandAndUpdateAffected(ctx context.Context, accountID string, snap *affectedpeers.Snapshot, change affectedpeers.Change) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "UpdateAffectedPeers", ctx, accountID, peerIDs)
+	m.ctrl.Call(m, "ExpandAndUpdateAffected", ctx, accountID, snap, change)
 }
 
-// UpdateAffectedPeers indicates an expected call of UpdateAffectedPeers.
-func (mr *MockManagerMockRecorder) UpdateAffectedPeers(ctx, accountID, peerIDs interface{}) *gomock.Call {
+// ExpandAndUpdateAffected indicates an expected call of ExpandAndUpdateAffected.
+func (mr *MockManagerMockRecorder) ExpandAndUpdateAffected(ctx, accountID, snap, change interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAffectedPeers", reflect.TypeOf((*MockManager)(nil).UpdateAffectedPeers), ctx, accountID, peerIDs)
-}
-
-// ResolveAffectedPeers mocks base method.
-func (m *MockManager) ResolveAffectedPeers(ctx context.Context, s store.Store, accountID string, change affectedpeers.Change) []string {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ResolveAffectedPeers", ctx, s, accountID, change)
-	ret0, _ := ret[0].([]string)
-	return ret0
-}
-
-// ResolveAffectedPeers indicates an expected call of ResolveAffectedPeers.
-func (mr *MockManagerMockRecorder) ResolveAffectedPeers(ctx, s, accountID, change interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolveAffectedPeers", reflect.TypeOf((*MockManager)(nil).ResolveAffectedPeers), ctx, s, accountID, change)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExpandAndUpdateAffected", reflect.TypeOf((*MockManager)(nil).ExpandAndUpdateAffected), ctx, accountID, snap, change)
 }
 
 // UpdateAccountSettings mocks base method.

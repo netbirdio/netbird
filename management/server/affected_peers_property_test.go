@@ -146,7 +146,11 @@ func TestAffectedPeers_Property_ResolverSupersetsRealChanges(t *testing.T) {
 		resolvedSet := make(map[string]struct{})
 		resolve := func() {
 			require.NoError(t, s.manager.Store.ExecuteInTransaction(ctx, func(tx store.Store) error {
-				for _, id := range s.manager.ResolveAffectedPeers(ctx, tx, s.accountID, change) {
+				snap, err := affectedpeers.Load(ctx, tx, s.accountID, change)
+				if err != nil {
+					return err
+				}
+				for _, id := range snap.Expand(ctx, s.accountID, change) {
 					resolvedSet[id] = struct{}{}
 				}
 				return nil

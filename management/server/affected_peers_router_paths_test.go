@@ -16,11 +16,21 @@ import (
 )
 
 func (s *routerScenario) resolveGroupChangeAffected(ctx context.Context, changedGroupIDs []string) []string {
-	return s.manager.ResolveAffectedPeers(ctx, s.manager.Store, s.accountID, affectedpeers.Change{ChangedGroupIDs: changedGroupIDs})
+	change := affectedpeers.Change{ChangedGroupIDs: changedGroupIDs}
+	snap, err := affectedpeers.Load(ctx, s.manager.Store, s.accountID, change)
+	if err != nil {
+		return nil
+	}
+	return snap.Expand(ctx, s.accountID, change)
 }
 
 func (s *routerScenario) resolvePeerChangeAffected(ctx context.Context, changedPeerIDs []string) []string {
-	return s.manager.resolveAffectedPeersForPeerChanges(ctx, s.manager.Store, s.accountID, changedPeerIDs)
+	change := affectedpeers.Change{ChangedPeerIDs: changedPeerIDs}
+	snap, err := affectedpeers.Load(ctx, s.manager.Store, s.accountID, change)
+	if err != nil {
+		return nil
+	}
+	return snap.Expand(ctx, s.accountID, change)
 }
 
 func TestAffectedPeers_GroupChange_SourceGroupMembership_RefreshesRoutingPeer_DirectRouter(t *testing.T) {

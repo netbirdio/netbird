@@ -99,7 +99,7 @@ func (am *DefaultAccountManager) SavePolicy(ctx context.Context, accountID, user
 
 	am.StoreEvent(ctx, userID, policy.ID, accountID, action, policy.EventMeta())
 
-	am.expandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return policy, nil
 }
@@ -142,7 +142,7 @@ func (am *DefaultAccountManager) DeletePolicy(ctx context.Context, accountID, po
 
 	am.StoreEvent(ctx, userID, policyID, accountID, activity.PolicyRemoved, policy.EventMeta())
 
-	am.expandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }

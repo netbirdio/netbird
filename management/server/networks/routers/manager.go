@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/rs/xid"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/account"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -127,13 +126,7 @@ func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *t
 
 	m.accountManager.StoreEvent(ctx, userID, router.ID, router.AccountID, activity.NetworkRouterCreated, router.EventMeta(network))
 
-	affectedPeerIDs := snap.Expand(ctx, router.AccountID, change)
-	if len(affectedPeerIDs) > 0 {
-		log.WithContext(ctx).Debugf("CreateRouter %s: updating %d affected peers: %v", router.ID, len(affectedPeerIDs), affectedPeerIDs)
-		go m.accountManager.UpdateAffectedPeers(ctx, router.AccountID, affectedPeerIDs)
-	} else {
-		log.WithContext(ctx).Tracef("CreateRouter %s: no affected peers", router.ID)
-	}
+	go m.accountManager.ExpandAndUpdateAffected(ctx, router.AccountID, snap, change)
 
 	return router, nil
 }
@@ -182,13 +175,7 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 
 	m.accountManager.StoreEvent(ctx, userID, router.ID, router.AccountID, activity.NetworkRouterUpdated, router.EventMeta(network))
 
-	affectedPeerIDs := snap.Expand(ctx, router.AccountID, change)
-	if len(affectedPeerIDs) > 0 {
-		log.WithContext(ctx).Debugf("UpdateRouter %s: updating %d affected peers: %v", router.ID, len(affectedPeerIDs), affectedPeerIDs)
-		go m.accountManager.UpdateAffectedPeers(ctx, router.AccountID, affectedPeerIDs)
-	} else {
-		log.WithContext(ctx).Tracef("UpdateRouter %s: no affected peers", router.ID)
-	}
+	go m.accountManager.ExpandAndUpdateAffected(ctx, router.AccountID, snap, change)
 
 	return router, nil
 }
@@ -274,13 +261,7 @@ func (m *managerImpl) DeleteRouter(ctx context.Context, accountID, userID, netwo
 
 	event()
 
-	affectedPeerIDs := snap.Expand(ctx, accountID, change)
-	if len(affectedPeerIDs) > 0 {
-		log.WithContext(ctx).Debugf("DeleteRouter %s: updating %d affected peers: %v", routerID, len(affectedPeerIDs), affectedPeerIDs)
-		go m.accountManager.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
-	} else {
-		log.WithContext(ctx).Tracef("DeleteRouter %s: no affected peers", routerID)
-	}
+	go m.accountManager.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }

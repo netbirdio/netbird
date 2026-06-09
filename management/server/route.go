@@ -192,7 +192,7 @@ func (am *DefaultAccountManager) CreateRoute(ctx context.Context, accountID stri
 
 	am.StoreEvent(ctx, userID, string(newRoute.ID), accountID, activity.RouteCreated, newRoute.EventMeta())
 
-	am.expandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return newRoute, nil
 }
@@ -240,7 +240,7 @@ func (am *DefaultAccountManager) SaveRoute(ctx context.Context, accountID, userI
 
 	am.StoreEvent(ctx, userID, string(routeToSave.ID), accountID, activity.RouteUpdated, routeToSave.EventMeta())
 
-	am.expandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }
@@ -283,7 +283,7 @@ func (am *DefaultAccountManager) DeleteRoute(ctx context.Context, accountID stri
 
 	am.StoreEvent(ctx, userID, string(rt.ID), accountID, activity.RouteRemoved, rt.EventMeta())
 
-	am.expandAndUpdateAffected(ctx, accountID, snap, change)
+	am.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }
