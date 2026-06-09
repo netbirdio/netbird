@@ -114,13 +114,15 @@ type FlowManager interface {
 	GetLogger() FlowLogger
 }
 
+type FlowEventAggregator interface {
+	ResetAggregationWindow() FlowEventAggregator
+	GetAggregatedEvents() []*Event
+}
+
 type FlowLogger interface {
+	ResetAggregationWindow() FlowEventAggregator
 	// StoreEvent stores a flow event
 	StoreEvent(flowEvent EventFields)
-	// GetEvents returns all stored events
-	GetEvents() []*Event
-	// DeleteEvents deletes events from the store
-	DeleteEvents([]uuid.UUID)
 	// Close closes the logger
 	Close()
 	// Enable enables the flow logger receiver
@@ -138,6 +140,11 @@ type Store interface {
 	DeleteEvents([]uuid.UUID)
 	// Close closes the store
 	Close()
+}
+
+type AggregatingStore interface {
+	FlowEventAggregator
+	Store
 }
 
 // ConnTracker defines the interface for connection tracking functionality

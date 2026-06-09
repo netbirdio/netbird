@@ -57,11 +57,15 @@ func (m *Memory) DeleteEvents(ids []uuid.UUID) {
 	}
 }
 
-func (am *AggregatingMemory) StartAggregationWindow() *AggregatingMemory {
+func NewAggregatingMemoryStore() *AggregatingMemory {
+	return &AggregatingMemory{Memory{events: make(map[uuid.UUID]*types.Event)}}
+}
+
+func (am *AggregatingMemory) ResetAggregationWindow() types.FlowEventAggregator {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	toret := AggregatingMemory{Memory: Memory{events: am.Memory.events}}
+	toret := AggregatingMemory{Memory: Memory{events: am.events}}
 	am.events = make(map[uuid.UUID]*types.Event)
 
 	return &toret
@@ -82,6 +86,7 @@ func (am *AggregatingMemory) GetAggregatedEvents() []*types.Event {
 		if aggregatedEvent, ok := aggregated[lookupKey]; ok {
 			switch aggregatedEvent.Protocol {
 			case types.ICMP, types.ICMPv6, types.UDP, types.TCP:
+				// track the number of connections, duration?, open and close events?
 				aggregatedEvent.RxBytes += v.RxBytes
 				aggregatedEvent.RxPackets += v.RxPackets
 				aggregatedEvent.TxBytes += v.TxBytes
@@ -98,7 +103,7 @@ func (am *AggregatingMemory) GetAggregatedEvents() []*types.Event {
 			case types.ICMP, types.ICMPv6, types.TCP, types.UDP:
 				aggregated[lookupKey] = v
 			default:
-				lookupKey.ts = time.Now().UnixNano()
+				lookupKey.ts = time.Now().UnixNano() // to make the lookup key unique so we don't aggregate on it
 				aggregated[lookupKey] = v
 			}
 		}

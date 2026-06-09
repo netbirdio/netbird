@@ -9,12 +9,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/netbirdio/netbird/client/internal/netflow/conntrack"
 	"github.com/netbirdio/netbird/client/internal/netflow/logger"
+	"github.com/netbirdio/netbird/client/internal/netflow/store"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/flow/client"
@@ -23,14 +25,15 @@ import (
 
 // Manager handles netflow tracking and logging
 type Manager struct {
-	mux            sync.Mutex
-	shutdownWg     sync.WaitGroup
-	logger         nftypes.FlowLogger
-	flowConfig     *nftypes.FlowConfig
-	conntrack      nftypes.ConnTracker
-	receiverClient *client.GRPCClient
-	publicKey      []byte
-	cancel         context.CancelFunc
+	mux               sync.Mutex
+	shutdownWg        sync.WaitGroup
+	logger            nftypes.FlowLogger
+	flowConfig        *nftypes.FlowConfig
+	conntrack         nftypes.ConnTracker
+	receiverClient    *client.GRPCClient
+	eventsWithoutAcks nftypes.Store
+	publicKey         []byte
+	cancel            context.CancelFunc
 }
 
 // NewManager creates a new netflow manager
@@ -48,9 +51,10 @@ func NewManager(iface nftypes.IFaceMapper, publicKey []byte, statusRecorder *pee
 	}
 
 	return &Manager{
-		logger:    flowLogger,
-		conntrack: ct,
-		publicKey: publicKey,
+		logger:            flowLogger,
+		conntrack:         ct,
+		publicKey:         publicKey,
+		eventsWithoutAcks: store.NewMemoryStore(),
 	}
 }
 
@@ -107,7 +111,7 @@ func (m *Manager) resetClient() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 
-	m.shutdownWg.Add(2)
+	m.shutdownWg.Add(3)
 	go func() {
 		defer m.shutdownWg.Done()
 		m.receiveACKs(ctx, flowClient)
@@ -115,6 +119,10 @@ func (m *Manager) resetClient() error {
 	go func() {
 		defer m.shutdownWg.Done()
 		m.startSender(ctx)
+	}()
+	go func() {
+		defer m.shutdownWg.Done()
+		m.startRetries(ctx)
 	}()
 
 	return nil
@@ -207,13 +215,16 @@ func (m *Manager) startSender(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			events := m.logger.GetEvents()
+			collectedEvents := m.logger.ResetAggregationWindow()
+			events := collectedEvents.GetAggregatedEvents()
 			for _, event := range events {
+				// handle retries, grace period?
 				if err := m.send(event); err != nil {
 					log.Errorf("failed to send flow event to server: %v", err)
-					continue
+				} else {
+					log.Tracef("sent flow event: %s", event.ID)
 				}
-				log.Tracef("sent flow event: %s", event.ID)
+				m.eventsWithoutAcks.StoreEvent(event)
 			}
 		}
 	}
@@ -227,12 +238,42 @@ func (m *Manager) receiveACKs(ctx context.Context, client *client.GRPCClient) {
 			return nil
 		}
 		log.Tracef("received flow event ack: %s", id)
-		m.logger.DeleteEvents([]uuid.UUID{id})
+		m.eventsWithoutAcks.DeleteEvents([]uuid.UUID{id})
 		return nil
 	})
 
 	if err != nil && !errors.Is(err, context.Canceled) {
 		log.Errorf("failed to receive flow event ack: %v", err)
+	}
+}
+
+func (m *Manager) startRetries(ctx context.Context) {
+	ticker := time.NewTimer(time.Second)
+	retryBackoff := backoff.WithContext(&backoff.ExponentialBackOff{
+		InitialInterval:     1 * time.Second,
+		RandomizationFactor: 0.5,
+		Multiplier:          1.7,
+		MaxInterval:         m.flowConfig.Interval / 2,
+		MaxElapsedTime:      3 * 30 * 24 * time.Hour, // 3 months
+		Stop:                backoff.Stop,
+		Clock:               backoff.SystemClock,
+	}, ctx)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			for _, e := range m.eventsWithoutAcks.GetEvents() {
+				if err := m.send(e); err != nil {
+					ticker = time.NewTimer(retryBackoff.NextBackOff())
+					break
+				}
+			}
+			retryBackoff.Reset()
+			ticker = time.NewTimer(time.Second)
+		}
 	}
 }
 
