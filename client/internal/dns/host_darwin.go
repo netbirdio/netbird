@@ -267,18 +267,37 @@ func (s *systemConfigurator) getSystemDNSSettings() (SystemDNSSettings, error) {
 		return SystemDNSSettings{}, fmt.Errorf("sending the command: %w", err)
 	}
 
-	var dnsSettings SystemDNSSettings
-	var serverAddresses []netip.Addr
-	inSearchDomainsArray := false
-	inServerAddressesArray := false
+	dnsSettings, serverAddresses, err := parseSystemDNSSettings(b)
+	if err != nil {
+		return dnsSettings, err
+	}
+
+	// default to 53 port
+	dnsSettings.ServerPort = DefaultPort
+
+	s.mu.Lock()
+	s.origNameservers = serverAddresses
+	s.mu.Unlock()
+
+	return dnsSettings, nil
+}
+
+func parseSystemDNSSettings(b []byte) (SystemDNSSettings, []netip.Addr, error) {
+	var (
+		dnsSettings            SystemDNSSettings
+		serverAddresses        []netip.Addr
+		inSearchDomainsArray   bool
+		inServerAddressesArray bool
+	)
 
 	scanner := bufio.NewScanner(bytes.NewReader(b))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		switch {
 		case strings.HasPrefix(line, "DomainName :"):
-			domainName := strings.TrimSpace(strings.Split(line, ":")[1])
-			dnsSettings.Domains = append(dnsSettings.Domains, domainName)
+			if domainName, ok := parseScutilValue(line); ok && domainName != "" {
+				dnsSettings.Domains = append(dnsSettings.Domains, domainName)
+			}
 		case line == "SearchDomains : <array> {":
 			inSearchDomainsArray = true
 			continue
@@ -291,10 +310,14 @@ func (s *systemConfigurator) getSystemDNSSettings() (SystemDNSSettings, error) {
 		}
 
 		if inSearchDomainsArray {
-			searchDomain := strings.Split(line, " : ")[1]
-			dnsSettings.Domains = append(dnsSettings.Domains, searchDomain)
+			if searchDomain, ok := parseScutilValue(line); ok && searchDomain != "" {
+				dnsSettings.Domains = append(dnsSettings.Domains, searchDomain)
+			}
 		} else if inServerAddressesArray {
-			address := strings.Split(line, " : ")[1]
+			address, ok := parseScutilValue(line)
+			if !ok || address == "" {
+				continue
+			}
 			if ip, err := netip.ParseAddr(address); err == nil && !ip.IsUnspecified() {
 				ip = ip.Unmap()
 				serverAddresses = append(serverAddresses, ip)
@@ -307,17 +330,18 @@ func (s *systemConfigurator) getSystemDNSSettings() (SystemDNSSettings, error) {
 	}
 
 	if err := scanner.Err(); err != nil {
-		return dnsSettings, err
+		return dnsSettings, nil, err
 	}
 
-	// default to 53 port
-	dnsSettings.ServerPort = DefaultPort
+	return dnsSettings, serverAddresses, nil
+}
 
-	s.mu.Lock()
-	s.origNameservers = serverAddresses
-	s.mu.Unlock()
-
-	return dnsSettings, nil
+func parseScutilValue(line string) (string, bool) {
+	_, value, ok := strings.Cut(line, ":")
+	if !ok {
+		return "", false
+	}
+	return strings.TrimSpace(value), true
 }
 
 func (s *systemConfigurator) getOriginalNameservers() []netip.Addr {
