@@ -131,6 +131,7 @@ require (
 	gorm.io/driver/sqlite v1.5.7
 	gorm.io/gorm v1.25.12
 	gvisor.dev/gvisor v0.0.0-20260219192049-0f2374377e89
+	howett.net/plist v1.0.1
 )
 
 require (
@@ -328,7 +329,6 @@ require (
 	gopkg.in/square/go-jose.v2 v2.6.0 // indirect
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
-	howett.net/plist v1.0.1 // indirect
 	rsc.io/qr v0.2.0 // indirect
 )
 

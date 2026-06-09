@@ -681,35 +681,27 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 		}
 	}
 
-	if v, ok := policy.GetBool(mdm.KeyAllowServerSSH); ok {
-		bv := v
-		config.ServerSSHAllowed = &bv
-		logApplied(mdm.KeyAllowServerSSH, bv)
+	// applyBool collapses the per-key "read + set + log" boilerplate
+	// for every plain bool MDM key into a single helper. Keeps the
+	// outer function's cognitive complexity below SonarCube's
+	// threshold; functional behaviour is identical to the inlined
+	// branches it replaces.
+	applyBool := func(key string, setter func(bool)) {
+		v, ok := policy.GetBool(key)
+		if !ok {
+			return
+		}
+		setter(v)
+		logApplied(key, v)
 	}
-	if v, ok := policy.GetBool(mdm.KeyDisableClientRoutes); ok {
-		config.DisableClientRoutes = v
-		logApplied(mdm.KeyDisableClientRoutes, v)
-	}
-	if v, ok := policy.GetBool(mdm.KeyDisableServerRoutes); ok {
-		config.DisableServerRoutes = v
-		logApplied(mdm.KeyDisableServerRoutes, v)
-	}
-	if v, ok := policy.GetBool(mdm.KeyBlockInbound); ok {
-		config.BlockInbound = v
-		logApplied(mdm.KeyBlockInbound, v)
-	}
-	if v, ok := policy.GetBool(mdm.KeyDisableAutoConnect); ok {
-		config.DisableAutoConnect = v
-		logApplied(mdm.KeyDisableAutoConnect, v)
-	}
-	if v, ok := policy.GetBool(mdm.KeyRosenpassEnabled); ok {
-		config.RosenpassEnabled = v
-		logApplied(mdm.KeyRosenpassEnabled, v)
-	}
-	if v, ok := policy.GetBool(mdm.KeyRosenpassPermissive); ok {
-		config.RosenpassPermissive = v
-		logApplied(mdm.KeyRosenpassPermissive, v)
-	}
+
+	applyBool(mdm.KeyAllowServerSSH, func(v bool) { bv := v; config.ServerSSHAllowed = &bv })
+	applyBool(mdm.KeyDisableClientRoutes, func(v bool) { config.DisableClientRoutes = v })
+	applyBool(mdm.KeyDisableServerRoutes, func(v bool) { config.DisableServerRoutes = v })
+	applyBool(mdm.KeyBlockInbound, func(v bool) { config.BlockInbound = v })
+	applyBool(mdm.KeyDisableAutoConnect, func(v bool) { config.DisableAutoConnect = v })
+	applyBool(mdm.KeyRosenpassEnabled, func(v bool) { config.RosenpassEnabled = v })
+	applyBool(mdm.KeyRosenpassPermissive, func(v bool) { config.RosenpassPermissive = v })
 
 	if v, ok := policy.GetInt(mdm.KeyWireguardPort); ok {
 		// REG_DWORD is 32-bit; UDP port range is 1-65535. Clamp at the
@@ -724,7 +716,10 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 	}
 }
 
-// parseURL parses and validates a service URL
+// parseURL parses and validates the URL for the named service.
+// It requires the URL to use the http or https scheme and, if no port is present,
+// appends ":443" for https or ":80" for http. On success it returns the parsed
+// *url.URL; on failure it returns a non-nil error.
 func parseURL(serviceName, serviceURL string) (*url.URL, error) {
 	parsedMgmtURL, err := url.ParseRequestURI(serviceURL)
 	if err != nil {

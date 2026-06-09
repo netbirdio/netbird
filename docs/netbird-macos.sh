@@ -75,15 +75,19 @@ readonly PLIST_DIR='/Library/Managed Preferences'
 readonly PLIST_PATH="$PLIST_DIR/io.netbird.client.plist"
 readonly LOG_TAG='netbird-mdm'
 
+# log sends a message to the system logger with the configured tag and echoes the message to stdout prefixed by an ISO 8601 UTC timestamp and the tag.
 log() {
   /usr/bin/logger -t "$LOG_TAG" "$*"
   printf '%s [%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$LOG_TAG" "$*"
 }
 
+# is_set returns success if the provided value is non-empty and is not equal to the special NULL marker.
 is_set() {
-  [[ -n "$1" && "$1" != "$NULL" ]]
+  local value="$1"
+  [[ -n "$value" && "$value" != "$NULL" ]]
 }
 
+# start_plist creates the temporary plist file at "$PLIST_PATH.tmp" containing the XML plist header and opening `<dict>` for the policy plist.
 start_plist() {
   cat > "$PLIST_PATH.tmp" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -93,6 +97,7 @@ start_plist() {
 EOF
 }
 
+# end_plist appends the closing `</dict>` and `</plist>` tags to the temporary plist file.
 end_plist() {
   cat >> "$PLIST_PATH.tmp" <<'EOF'
 </dict>
@@ -100,6 +105,7 @@ end_plist() {
 EOF
 }
 
+# emit_string appends a plist `<key>/<string>` entry for a given key and value to "$PLIST_PATH.tmp", XML-escaping `&`, `<`, and `>` and logging the assignment; if the key is "preSharedKey" the logged value is masked.
 emit_string() {
   local key="$1" value="$2" log_value="$2"
   # Escape XML entities in the value
@@ -112,6 +118,8 @@ emit_string() {
   log "set $key = $log_value"
 }
 
+# emit_bool writes a boolean plist entry for a given key into the temporary plist file.
+# emit_bool accepts `true/True/TRUE/1/yes` as true and `false/False/FALSE/0/no` as false; on invalid input it logs an error and skips emitting the key.
 emit_bool() {
   local key="$1" value="$2"
   local xml_bool
@@ -124,6 +132,7 @@ emit_bool() {
   log "set $key = $value"
 }
 
+# emit_int validates that VALUE contains only decimal digits and, if valid, appends an `<integer>` plist entry for KEY to the temporary plist (`$PLIST_PATH.tmp`) and logs the assignment; on invalid input it logs a skip and does not emit the key.
 emit_int() {
   local key="$1" value="$2"
   if ! [[ "$value" =~ ^[0-9]+$ ]]; then
@@ -134,6 +143,7 @@ emit_int() {
   log "set $key = $value"
 }
 
+# main builds the NetBird MDM plist from configured policy variables, validates and installs it to /Library/Managed Preferences/io.netbird.client.plist (root:wheel, 644) and optionally triggers the NetBird daemon to reload.
 main() {
   log "applying NetBird MDM policy to $PLIST_PATH"
   /bin/mkdir -p "$PLIST_DIR"

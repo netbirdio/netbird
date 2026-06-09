@@ -96,7 +96,9 @@ type Policy struct {
 }
 
 // NewPolicy constructs a Policy from a key→value map. Pass nil or an empty
-// map to construct an empty (no-enforcement) Policy.
+// NewPolicy constructs a Policy backed by the provided key→value map.
+// If values is nil it is replaced with an empty map so the returned *Policy
+// is always non-nil and represents no active MDM enforcement when empty.
 func NewPolicy(values map[string]any) *Policy {
 	if values == nil {
 		values = map[string]any{}
@@ -111,7 +113,9 @@ func NewPolicy(values map[string]any) *Policy {
 // Diagnostic logging differentiates the three states:
 //   - source absent / unsupported platform: trace log only
 //   - source present, zero keys:             info "MDM enrolled (no managed keys)"
-//   - source present, N keys:                info "MDM enrolled with N managed keys: [...]"
+// LoadPolicy loads MDM-managed configuration from the platform and returns a Policy representing the managed settings.
+// If the platform loader fails or returns nil, LoadPolicy returns a non-nil empty Policy.
+// When the loaded map contains zero keys it logs that MDM is enrolled with no managed keys; when it contains keys it logs the count and a stable, sorted list of key names.
 func LoadPolicy() *Policy {
 	values, err := loadPlatformPolicy()
 	if err != nil {
@@ -169,6 +173,19 @@ func (p *Policy) GetString(key string) (string, bool) {
 	return s, true
 }
 
+// boolStringLiterals enumerates the textual boolean encodings the
+// platform loaders may produce (Windows REG_SZ "true", iOS / Android
+// managed-config booleans-as-strings, etc.). Lookup keeps GetBool flat
+// (no nested switch on the string case).
+var boolStringLiterals = map[string]bool{
+	"true":  true,
+	"1":     true,
+	"yes":   true,
+	"false": false,
+	"0":     false,
+	"no":    false,
+}
+
 // GetBool returns the managed value for key coerced to bool, and whether the
 // key was set. Accepts native bool and string literals "true"/"false"/"1"/"0".
 func (p *Policy) GetBool(key string) (bool, bool) {
@@ -183,12 +200,8 @@ func (p *Policy) GetBool(key string) (bool, bool) {
 	case bool:
 		return t, true
 	case string:
-		switch t {
-		case "true", "1", "yes":
-			return true, true
-		case "false", "0", "no":
-			return false, true
-		}
+		b, known := boolStringLiterals[t]
+		return b, known
 	case int:
 		return t != 0, true
 	case int64:
@@ -257,6 +270,10 @@ func (p *Policy) GetStringSlice(key string) ([]string, bool) {
 	return nil, false
 }
 
+// sortedKeys returns the keys of m as a deterministic, lexicographically
+// sorted slice. Used internally by Policy.ManagedKeys and LoadPolicy's
+// diagnostic log line so callers see a stable key order across runs
+// It produces a deterministic ordering for a map regardless of Go's randomized iteration.
 func sortedKeys(m map[string]any) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {

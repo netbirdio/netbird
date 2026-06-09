@@ -103,6 +103,12 @@ func Execute() error {
 	return rootCmd.Execute()
 }
 
+// init initializes package-level defaults and the CLI command tree.
+// init sets platform-specific default config and log directory paths and a default daemon address,
+// registers persistent flags (daemon address, management/admin URLs, logging, setup key, preshared key,
+// hostname, anonymize, config path), attaches top-level and nested subcommands to the root command,
+// and configures `up` command specific flags (external IP maps, DNS resolver address, Rosenpass options,
+// auto-connect disabling, and lazy connection).
 func init() {
 	defaultConfigPathDir = "/etc/netbird/"
 	defaultLogFileDir = "/var/log/netbird/"

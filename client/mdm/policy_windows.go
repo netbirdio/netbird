@@ -31,7 +31,44 @@ const policyRegistryPath = `Software\Policies\NetBird`
 //   - REG_MULTI_SZ  -> []string
 //
 // Unsupported value types (REG_BINARY, REG_NONE, ...) are skipped with a
-// warning so a malformed deployment does not block startup.
+// loadPlatformPolicy reads managed NetBird policy values from HKLM\Software\Policies\NetBird.
+// If the registry key does not exist it returns (nil, nil).
+// It returns a map whose keys are canonical policy names and whose values are coerced from registry types:
+// REG_SZ/REG_EXPAND_SZ -> string, REG_DWORD/REG_QWORD -> int64, REG_MULTI_SZ -> []string.
+// Unknown value names, unsupported value types, and per-value read errors are skipped and logged; failures opening the key or enumerating values are returned as errors.
+func readRegistryValue(k registry.Key, name, canonical string, out map[string]any) {
+	_, valType, err := k.GetValue(name, nil)
+	if err != nil {
+		log.Warnf("MDM stat %s\\%s: %v", policyRegistryPath, name, err)
+		return
+	}
+	switch valType {
+	case registry.SZ, registry.EXPAND_SZ:
+		if v, _, err := k.GetStringValue(name); err == nil {
+			out[canonical] = v
+		} else {
+			log.Warnf("MDM read string %s\\%s: %v", policyRegistryPath, name, err)
+		}
+	case registry.DWORD, registry.QWORD:
+		if v, _, err := k.GetIntegerValue(name); err == nil {
+			// uint64 from the registry API; Policy.GetBool / GetInt
+			// helpers consume int64, so narrow safely.
+			out[canonical] = int64(v)
+		} else {
+			log.Warnf("MDM read int %s\\%s: %v", policyRegistryPath, name, err)
+		}
+	case registry.MULTI_SZ:
+		if v, _, err := k.GetStringsValue(name); err == nil {
+			out[canonical] = v
+		} else {
+			log.Warnf("MDM read multi-string %s\\%s: %v", policyRegistryPath, name, err)
+		}
+	default:
+		log.Warnf("MDM ignoring unsupported registry value type %d at %s\\%s",
+			valType, policyRegistryPath, name)
+	}
+}
+
 func loadPlatformPolicy() (map[string]any, error) {
 	k, err := registry.OpenKey(registry.LOCAL_MACHINE, policyRegistryPath, registry.QUERY_VALUE)
 	if err != nil {
@@ -63,37 +100,7 @@ func loadPlatformPolicy() (map[string]any, error) {
 			log.Warnf("MDM ignoring unknown registry value %s\\%s", policyRegistryPath, name)
 			continue
 		}
-
-		_, valType, err := k.GetValue(name, nil)
-		if err != nil {
-			log.Warnf("MDM stat %s\\%s: %v", policyRegistryPath, name, err)
-			continue
-		}
-		switch valType {
-		case registry.SZ, registry.EXPAND_SZ:
-			if v, _, err := k.GetStringValue(name); err == nil {
-				out[canonical] = v
-			} else {
-				log.Warnf("MDM read string %s\\%s: %v", policyRegistryPath, name, err)
-			}
-		case registry.DWORD, registry.QWORD:
-			if v, _, err := k.GetIntegerValue(name); err == nil {
-				// uint64 from the registry API; Policy.GetBool / GetInt
-				// helpers consume int64, so narrow safely.
-				out[canonical] = int64(v)
-			} else {
-				log.Warnf("MDM read int %s\\%s: %v", policyRegistryPath, name, err)
-			}
-		case registry.MULTI_SZ:
-			if v, _, err := k.GetStringsValue(name); err == nil {
-				out[canonical] = v
-			} else {
-				log.Warnf("MDM read multi-string %s\\%s: %v", policyRegistryPath, name, err)
-			}
-		default:
-			log.Warnf("MDM ignoring unsupported registry value type %d at %s\\%s",
-				valType, policyRegistryPath, name)
-		}
+		readRegistryValue(k, name, canonical, out)
 	}
 	return out, nil
 }

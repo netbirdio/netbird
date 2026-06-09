@@ -95,6 +95,21 @@ var debugConfigCmd = &cobra.Command{
 	RunE:    debugConfigDump,
 }
 
+// debugConfigDump implements `netbird debug config`. It resolves the
+// active profile, queries the daemon for the effective configuration
+// via GetConfig, and prints the resulting GetConfigResponse as JSON
+// (via protojson with EmitUnpopulated=true so the output is stable
+// across runs and includes zero-valued fields).
+//
+// Useful for verifying MDM enforcement end-to-end: the response's
+// mDMManagedFields array is the single source of truth for "which
+// fields is the daemon currently enforcing from the MDM source", and
+// every config field side-by-side with that list confirms the
+// merge result. Secrets in the response (e.g. PreSharedKey) are
+// debugConfigDump requests the daemon for the resolved effective configuration and prints it as indented JSON.
+// It resolves the active profile and current OS user, calls DaemonService.GetConfig with those values, and
+// marshals the response using protojson with default/zero-valued fields included.
+// Returns an error if profile or user lookup fails, the gRPC call fails, or the response cannot be marshaled.
 func debugConfigDump(cmd *cobra.Command, _ []string) error {
 	pm := profilemanager.NewProfileManager()
 	activeProf, err := pm.GetActiveProfile()
@@ -136,6 +151,11 @@ func debugConfigDump(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
+// debugBundle requests the daemon to create a debug bundle and prints the resulting
+// local file path and, if uploaded, the uploaded file key.
+// It uses the package flags (anonymize, system info, log file count, CLI version and
+// optional upload URL) to configure the bundle request. Returns an error if the RPC
+// fails or if the daemon reports an upload failure reason.
 func debugBundle(cmd *cobra.Command, _ []string) error {
 	conn, err := getClient(cmd)
 	if err != nil {

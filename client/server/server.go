@@ -343,50 +343,62 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 		return nil, err
 	}
 
+	config, err := setConfigInputFromRequest(msg)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := profilemanager.UpdateConfig(config); err != nil {
+		log.Errorf("failed to update profile config: %v", err)
+		return nil, fmt.Errorf("failed to update profile config: %w", err)
+	}
+
+	return &proto.SetConfigResponse{}, nil
+}
+
+// setConfigInputFromRequest translates a SetConfigRequest into the
+// profilemanager.ConfigInput that profilemanager.UpdateConfig consumes.
+// Pure mapping with no business logic beyond presence-aware copying of
+// optional fields and the "empty / clean" semantics for the two slice
+// fields (DNS labels, NAT external IPs). Extracted from SetConfig to
+// keep the handler's cognitive complexity below the SonarCube
+// threshold; the body of this function is intentionally linear and
+// branchy because each proto field is its own optional case.
+func setConfigInputFromRequest(msg *proto.SetConfigRequest) (profilemanager.ConfigInput, error) {
+	var config profilemanager.ConfigInput
+
 	profState := profilemanager.ActiveProfileState{
 		Name:     msg.ProfileName,
 		Username: msg.Username,
 	}
-
 	profPath, err := profState.FilePath()
 	if err != nil {
 		log.Errorf("failed to get active profile file path: %v", err)
-		return nil, fmt.Errorf("failed to get active profile file path: %w", err)
+		return config, fmt.Errorf("failed to get active profile file path: %w", err)
 	}
-
-	var config profilemanager.ConfigInput
-
 	config.ConfigPath = profPath
 
 	if msg.ManagementUrl != "" {
 		config.ManagementURL = msg.ManagementUrl
 	}
-
 	if msg.AdminURL != "" {
 		config.AdminURL = msg.AdminURL
 	}
-
 	if msg.InterfaceName != nil {
 		config.InterfaceName = msg.InterfaceName
 	}
-
 	if msg.WireguardPort != nil {
 		wgPort := int(*msg.WireguardPort)
 		config.WireguardPort = &wgPort
 	}
-
-	if msg.OptionalPreSharedKey != nil {
-		if *msg.OptionalPreSharedKey != "" {
-			config.PreSharedKey = msg.OptionalPreSharedKey
-		}
+	if msg.OptionalPreSharedKey != nil && *msg.OptionalPreSharedKey != "" {
+		config.PreSharedKey = msg.OptionalPreSharedKey
 	}
 
 	if msg.CleanDNSLabels {
 		config.DNSLabels = domain.List{}
-
 	} else if msg.DnsLabels != nil {
-		dnsLabels := domain.FromPunycodeList(msg.DnsLabels)
-		config.DNSLabels = dnsLabels
+		config.DNSLabels = domain.FromPunycodeList(msg.DnsLabels)
 	}
 
 	if msg.CleanNATExternalIPs {
@@ -399,7 +411,6 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 	if string(msg.CustomDNSAddress) == "empty" {
 		config.CustomDNSAddress = []byte{}
 	}
-
 	config.ExtraIFaceBlackList = msg.ExtraIFaceBlacklist
 
 	if msg.DnsRouteInterval != nil {
@@ -432,18 +443,11 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 		ttl := int(*msg.SshJWTCacheTTL)
 		config.SSHJWTCacheTTL = &ttl
 	}
-
 	if msg.Mtu != nil {
 		mtu := uint16(*msg.Mtu)
 		config.MTU = &mtu
 	}
-
-	if _, err := profilemanager.UpdateConfig(config); err != nil {
-		log.Errorf("failed to update profile config: %v", err)
-		return nil, fmt.Errorf("failed to update profile config: %w", err)
-	}
-
-	return &proto.SetConfigResponse{}, nil
+	return config, nil
 }
 
 // Login uses setup key to prepare configuration for the daemon.
@@ -1737,6 +1741,14 @@ func (s *Server) checkProfilesDisabled() bool {
 	return s.profilesDisabled
 }
 
+// checkNetworksDisabled reports whether the networks/exit-node feature
+// is disabled on this daemon instance. Resolved MDM-first: when the
+// active policy declares mdm.KeyDisableNetworks the policy value wins
+// (regardless of true/false), so an admin can re-enable the feature
+// via MDM even on a host that was installed with --disable-networks.
+// Falls back to the s.networksDisabled CLI flag when the policy is
+// silent on the key. Mirrors checkProfilesDisabled and
+// checkUpdateSettingsDisabled.
 func (s *Server) checkNetworksDisabled() bool {
 	if s.config != nil {
 		if v, ok := s.config.Policy().GetBool(mdm.KeyDisableNetworks); ok {
