@@ -11,8 +11,7 @@ WebView.
 - `task`: `go install github.com/go-task/task/v3/cmd/task@latest`
 - A running NetBird daemon (default: `unix:///var/run/netbird.sock`,
   Windows `tcp://127.0.0.1:41731`)
-- Linux only: `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`,
-  `libayatana-appindicator3-dev`
+- Linux only: `libwebkitgtk-6.0-dev`, `libgtk-4-dev`, `libsoup-3.0-dev`
 
 ## Develop without rebuilding
 

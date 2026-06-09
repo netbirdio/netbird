@@ -87,9 +87,8 @@ nfpms:
         dst: /usr/share/pixmaps/netbird.png
     dependencies:
       - netbird
-      - libgtk-3-0
-      - libwebkit2gtk-4.1-0
-      - libayatana-appindicator3-1
+      - libgtk-4-1
+      - libwebkitgtk-6.0-4
 
   - maintainer: Netbird <dev@netbird.io>
     description: Netbird client UI.
@@ -111,9 +110,8 @@ nfpms:
         dst: /usr/share/pixmaps/netbird.png
     dependencies:
       - netbird
-      - gtk3
-      - webkit2gtk4.1
-      - libayatana-appindicator-gtk3
+      - gtk4
+      - webkitgtk6.0
     rpm:
       signature:
         key_file: '{{ if index .Env "GPG_RPM_KEY_FILE" }}{{ .Env.GPG_RPM_KEY_FILE }}{{ end }}'
