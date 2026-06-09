@@ -66,35 +66,55 @@ func (snap *Snapshot) loadCollections(ctx context.Context, s store.Store, accoun
 	// the resource<->router bridge can fire for any of these
 	needsRoutersResources := hasGroupOrPeerChange || len(c.PostureCheckIDs) > 0 || len(c.Policies) > 0 || hasNetworkObject
 
-	var err error
 	if needsRoutersResources {
-		if snap.policies, err = s.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID); err != nil {
-			return err
-		}
-		if snap.routers, err = s.GetNetworkRoutersByAccountID(ctx, store.LockingStrengthNone, accountID); err != nil {
-			return err
-		}
-		if snap.resources, err = s.GetNetworkResourcesByAccountID(ctx, store.LockingStrengthNone, accountID); err != nil {
+		if err := snap.loadPolicyRoutersResources(ctx, s, accountID); err != nil {
 			return err
 		}
 	}
 	if hasGroupOrPeerChange {
-		if snap.routes, err = s.GetAccountRoutes(ctx, store.LockingStrengthNone, accountID); err != nil {
-			return err
-		}
-		if err = snap.loadProxyServices(ctx, s, accountID); err != nil {
+		if err := snap.loadRoutesAndProxy(ctx, s, accountID); err != nil {
 			return err
 		}
 	}
 	if len(c.ChangedGroupIDs) > 0 || len(c.ChangedPeerIDs) > 0 {
-		if snap.nsGroups, err = s.GetAccountNameServerGroups(ctx, store.LockingStrengthNone, accountID); err != nil {
-			return err
-		}
-		if snap.dnsSettings, err = s.GetAccountDNSSettings(ctx, store.LockingStrengthNone, accountID); err != nil {
+		if err := snap.loadDNS(ctx, s, accountID); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// loadPolicyRoutersResources loads the policies plus the routers and resources
+// the resource<->router bridge walks.
+func (snap *Snapshot) loadPolicyRoutersResources(ctx context.Context, s store.Store, accountID string) error {
+	var err error
+	if snap.policies, err = s.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID); err != nil {
+		return err
+	}
+	if snap.routers, err = s.GetNetworkRoutersByAccountID(ctx, store.LockingStrengthNone, accountID); err != nil {
+		return err
+	}
+	snap.resources, err = s.GetNetworkResourcesByAccountID(ctx, store.LockingStrengthNone, accountID)
+	return err
+}
+
+// loadRoutesAndProxy loads the routes and the embedded-proxy services index.
+func (snap *Snapshot) loadRoutesAndProxy(ctx context.Context, s store.Store, accountID string) error {
+	var err error
+	if snap.routes, err = s.GetAccountRoutes(ctx, store.LockingStrengthNone, accountID); err != nil {
+		return err
+	}
+	return snap.loadProxyServices(ctx, s, accountID)
+}
+
+// loadDNS loads the nameserver groups and account DNS settings.
+func (snap *Snapshot) loadDNS(ctx context.Context, s store.Store, accountID string) error {
+	var err error
+	if snap.nsGroups, err = s.GetAccountNameServerGroups(ctx, store.LockingStrengthNone, accountID); err != nil {
+		return err
+	}
+	snap.dnsSettings, err = s.GetAccountDNSSettings(ctx, store.LockingStrengthNone, accountID)
+	return err
 }
 
 // loadProxyServices loads the embedded-proxy cluster index, and the services only
