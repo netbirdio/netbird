@@ -3,7 +3,7 @@
         "message": "NetBird"
     },
     "tray.status.disconnected": {
-        "message": "Getrennt"
+        "message": "Nicht verbunden"
     },
     "tray.status.daemonUnavailable": {
         "message": "Nicht aktiv"
@@ -15,7 +15,7 @@
         "message": "Verbunden"
     },
     "tray.status.connecting": {
-        "message": "Verbinde"
+        "message": "Wird verbunden"
     },
     "tray.status.needsLogin": {
         "message": "Anmeldung erforderlich"
@@ -60,7 +60,7 @@
         "message": "Trennen"
     },
     "tray.menu.exitNode": {
-        "message": "Exit-Node"
+        "message": "Exit Node"
     },
     "tray.menu.networks": {
         "message": "Ressourcen"
@@ -72,7 +72,7 @@
         "message": "Profile verwalten"
     },
     "tray.menu.settings": {
-        "message": "Einstellungen..."
+        "message": "Einstellungen …"
     },
     "tray.menu.debugBundle": {
         "message": "Debug-Paket erstellen"
@@ -96,7 +96,7 @@
         "message": "Version {version} installieren"
     },
     "tray.menu.guiVersion": {
-        "message": "Oberfläche: {version}"
+        "message": "GUI: {version}"
     },
     "tray.menu.daemonVersion": {
         "message": "Daemon: {version}"
@@ -129,7 +129,7 @@
         "message": "Wechsel zu {profile} fehlgeschlagen"
     },
     "notify.error.exitNode": {
-        "message": "Exit-Node {name} konnte nicht aktualisiert werden"
+        "message": "Exit Node {name} konnte nicht aktualisiert werden"
     },
     "notify.sessionExpired.title": {
         "message": "NetBird-Sitzung abgelaufen"
@@ -162,10 +162,10 @@
         "message": "Ihre Sitzung wurde erneuert."
     },
     "notify.sessionDeadlineRejected.title": {
-        "message": "Sitzungsfrist abgelehnt"
+        "message": "Ungültige Sitzungsablaufzeit"
     },
     "notify.sessionDeadlineRejected.body": {
-        "message": "Der Server hat eine ungültige Sitzungsfrist übermittelt. Bitte melden Sie sich erneut an."
+        "message": "Der Server hat eine ungültige Sitzungsablaufzeit übermittelt. Bitte melden Sie sich erneut an."
     },
     "common.cancel": {
         "message": "Abbrechen"
@@ -222,22 +222,22 @@
         "message": "Es konnten keine Ergebnisse gefunden werden. Bitte versuchen Sie es mit einem anderen Suchbegriff oder ändern Sie Ihre Filter."
     },
     "notConnected.title": {
-        "message": "Getrennt"
+        "message": "Nicht verbunden"
     },
     "notConnected.description": {
         "message": "Verbinden Sie sich zuerst mit NetBird, um detaillierte Informationen zu Ihren Peers, Netzwerkressourcen und Exit Nodes einzusehen."
     },
     "connect.status.disconnected": {
-        "message": "Getrennt"
+        "message": "Nicht verbunden"
     },
     "connect.status.connecting": {
-        "message": "Verbindet…"
+        "message": "Wird verbunden…"
     },
     "connect.status.connected": {
         "message": "Verbunden"
     },
     "connect.status.disconnecting": {
-        "message": "Trennt…"
+        "message": "Wird getrennt…"
     },
     "connect.status.daemonUnavailable": {
         "message": "Daemon nicht verfügbar"
@@ -267,7 +267,7 @@
         "message": "{active} von {total} aktiv"
     },
     "nav.exitNode.title": {
-        "message": "Exit-Nodes"
+        "message": "Exit Nodes"
     },
     "nav.exitNode.none": {
         "message": "Nicht aktiv"
@@ -280,18 +280,6 @@
     },
     "header.togglePanel": {
         "message": "Seitenleiste umschalten"
-    },
-    "header.menu.settings": {
-        "message": "Einstellungen …"
-    },
-    "header.menu.defaultView": {
-        "message": "Standardansicht"
-    },
-    "header.menu.advancedView": {
-        "message": "Erweiterte Ansicht"
-    },
-    "header.menu.updateAvailable": {
-        "message": "Update verfügbar"
     },
     "profile.selector.loading": {
         "message": "Lädt…"
@@ -323,24 +311,6 @@
     "profile.selector.switchTo": {
         "message": "Zu diesem Profil wechseln"
     },
-    "profile.dropdown.activeProfile": {
-        "message": "Aktives Profil"
-    },
-    "profile.dropdown.switchProfile": {
-        "message": "Profil wechseln"
-    },
-    "profile.dropdown.noEmail": {
-        "message": "Andere"
-    },
-    "profile.dropdown.addProfile": {
-        "message": "Profil hinzufügen"
-    },
-    "profile.dropdown.manageProfiles": {
-        "message": "Profile verwalten"
-    },
-    "profile.dropdown.settings": {
-        "message": "Einstellungen"
-    },
     "profile.dialog.title": {
         "message": "Neues Profil"
     },
@@ -353,17 +323,29 @@
     "profile.dialog.placeholder": {
         "message": "z. B. Arbeit"
     },
-    "profile.dialog.required": {
-        "message": "Bitte geben Sie einen Profilnamen ein, z. B. Arbeit, Privat"
-    },
     "profile.dialog.submit": {
         "message": "Profil hinzufügen"
+    },
+    "profile.dialog.required": {
+        "message": "Bitte geben Sie einen Profilnamen ein, z. B. Arbeit, Privat"
     },
     "profile.dialog.managementHelp": {
         "message": "NetBird Cloud oder Ihr eigener Server."
     },
     "profile.dialog.urlUnreachable": {
         "message": "Server nicht erreichbar. Überprüfen Sie die URL, oder fügen Sie das Profil trotzdem hinzu, wenn Sie sicher sind, dass sie korrekt ist."
+    },
+    "header.menu.settings": {
+        "message": "Einstellungen …"
+    },
+    "header.menu.defaultView": {
+        "message": "Standardansicht"
+    },
+    "header.menu.advancedView": {
+        "message": "Erweiterte Ansicht"
+    },
+    "header.menu.updateAvailable": {
+        "message": "Update verfügbar"
     },
     "profile.switch.title": {
         "message": "Zu Profil \"{name}\" wechseln?"
@@ -410,6 +392,42 @@
     "profile.error.loadTitle": {
         "message": "Laden der Profile fehlgeschlagen"
     },
+    "profile.dropdown.activeProfile": {
+        "message": "Aktives Profil"
+    },
+    "profile.dropdown.switchProfile": {
+        "message": "Profil wechseln"
+    },
+    "profile.dropdown.noEmail": {
+        "message": "Andere"
+    },
+    "profile.dropdown.addProfile": {
+        "message": "Profil hinzufügen"
+    },
+    "profile.dropdown.manageProfiles": {
+        "message": "Profile verwalten"
+    },
+    "profile.dropdown.settings": {
+        "message": "Einstellungen"
+    },
+    "settings.profiles.section.profiles": {
+        "message": "Profile"
+    },
+    "settings.profiles.intro": {
+        "message": "Verwalten Sie mehrere NetBird-Profile parallel, zum Beispiel berufliche und private Konten oder verschiedene Management-Server. Fügen Sie unten Profile hinzu, melden Sie sie ab oder löschen Sie sie."
+    },
+    "settings.profiles.addProfile": {
+        "message": "Profil hinzufügen"
+    },
+    "settings.profiles.active": {
+        "message": "Aktiv"
+    },
+    "settings.profiles.emptyTitle": {
+        "message": "Keine Profile"
+    },
+    "settings.profiles.emptyDescription": {
+        "message": "Erstellen Sie ein Profil, um sich mit einem NetBird-Management-Server zu verbinden."
+    },
     "settings.error.loadTitle": {
         "message": "Laden der Einstellungen fehlgeschlagen"
     },
@@ -428,11 +446,11 @@
     "settings.tabs.security": {
         "message": "Sicherheit"
     },
-    "settings.tabs.ssh": {
-        "message": "SSH"
-    },
     "settings.tabs.profiles": {
         "message": "Profile"
+    },
+    "settings.tabs.ssh": {
+        "message": "SSH"
     },
     "settings.tabs.advanced": {
         "message": "Erweitert"
@@ -445,24 +463,6 @@
     },
     "settings.tabs.updateAvailable": {
         "message": "Update verfügbar"
-    },
-    "settings.profiles.section.profiles": {
-        "message": "Profile"
-    },
-    "settings.profiles.intro": {
-        "message": "Halten Sie separate NetBird-Identitäten nebeneinander, zum Beispiel berufliche und private Konten oder verschiedene Management-Server. Fügen Sie unten Profile hinzu, melden Sie sie ab oder löschen Sie sie."
-    },
-    "settings.profiles.addProfile": {
-        "message": "Profil hinzufügen"
-    },
-    "settings.profiles.active": {
-        "message": "Aktiv"
-    },
-    "settings.profiles.emptyTitle": {
-        "message": "Keine Profile"
-    },
-    "settings.profiles.emptyDescription": {
-        "message": "Erstellen Sie ein Profil, um sich mit einem NetBird-Management-Server zu verbinden."
     },
     "settings.general.section.general": {
         "message": "Allgemein"
@@ -540,7 +540,7 @@
         "message": "Routing & DNS"
     },
     "settings.network.lazy.label": {
-        "message": "Verzögerte Verbindungen"
+        "message": "Lazy-Verbindungen"
     },
     "settings.network.lazy.help": {
         "message": "Statt durchgehend aktive Verbindungen zu halten, aktiviert NetBird sie bei Bedarf anhand von Aktivität oder Signalisierung."
@@ -597,7 +597,7 @@
         "message": "Quantenresistenz aktivieren"
     },
     "settings.security.rosenpass.help": {
-        "message": "Einen post-quanten Schlüsselaustausch via Rosenpass zusätzlich zu WireGuard® hinzufügen."
+        "message": "Einen Post-Quanten-Schlüsselaustausch über Rosenpass zusätzlich zu WireGuard® hinzufügen."
     },
     "settings.security.rosenpassPermissive.label": {
         "message": "Permissiven Modus aktivieren"
@@ -669,7 +669,7 @@
         "message": "Name"
     },
     "settings.advanced.interfaceName.error": {
-        "message": "Verwende 1–15 Buchstaben, Ziffern, Punkt, Bindestrich oder Unterstrich."
+        "message": "Verwenden Sie 1–15 Buchstaben, Ziffern, Punkte, Bindestriche oder Unterstriche."
     },
     "settings.advanced.interfaceName.errorMac": {
         "message": "Muss mit „utun“ und einer Zahl beginnen (z. B. utun100)."
@@ -678,7 +678,7 @@
         "message": "Port"
     },
     "settings.advanced.port.error": {
-        "message": "Gib einen Port zwischen {min} und {max} ein."
+        "message": "Geben Sie einen Port zwischen {min} und {max} ein."
     },
     "settings.advanced.port.help": {
         "message": "Wenn auf 0 gesetzt, wird ein zufälliger freier Port verwendet."
@@ -687,13 +687,13 @@
         "message": "MTU"
     },
     "settings.advanced.mtu.error": {
-        "message": "Gib eine MTU zwischen {min} und {max} ein."
+        "message": "Geben Sie einen MTU-Wert zwischen {min} und {max} ein."
     },
     "settings.advanced.psk.label": {
         "message": "Pre-shared Key"
     },
     "settings.advanced.psk.help": {
-        "message": "Optionaler WireGuard-PSK für zusätzliche symmetrische Verschlüsselung. Nicht identisch mit einem NetBird Setup Key. Sie kommunizieren nur mit Peers, die denselben Pre-shared Key verwenden."
+        "message": "Optionaler WireGuard-PSK für zusätzliche symmetrische Verschlüsselung. Nicht identisch mit einem NetBird Setup-Key. Sie kommunizieren nur mit Peers, die denselben Pre-shared Key verwenden."
     },
     "settings.troubleshooting.section.title": {
         "message": "Debug-Paket"
@@ -735,7 +735,7 @@
         "message": "Minute(n)"
     },
     "settings.troubleshooting.create": {
-        "message": "Paket erstellen"
+        "message": "Debug-Paket erstellen"
     },
     "settings.troubleshooting.progress.description": {
         "message": "Logs, Systemdetails und Verbindungszustand werden gesammelt. Dies dauert in der Regel einen Moment — lassen Sie dieses Fenster geöffnet, bis es abgeschlossen ist."
@@ -801,10 +801,10 @@
         "message": "[Entwicklung]"
     },
     "settings.about.gui": {
-        "message": "Oberfläche v{version}"
+        "message": "GUI v{version}"
     },
     "settings.about.guiName": {
-        "message": "Oberfläche"
+        "message": "GUI"
     },
     "settings.about.copyright": {
         "message": "© {year} NetBird. Alle Rechte vorbehalten."
@@ -864,10 +864,10 @@
         "message": "NetBird sucht im Hintergrund nach Updates."
     },
     "update.card.changelog": {
-        "message": "Änderungsprotokoll"
+        "message": "Changelog"
     },
     "update.card.onLatestVersion": {
-        "message": "Du verwendest die neueste Version"
+        "message": "Sie verwenden die neueste Version"
     },
     "update.header.tooltip": {
         "message": "Update verfügbar"
@@ -924,7 +924,7 @@
         "message": "Ihre Client-Version ist älter als die im Management eingestellte Auto-Update-Version."
     },
     "update.page.status.running": {
-        "message": "Aktualisiert"
+        "message": "Wird aktualisiert"
     },
     "update.page.status.timeout": {
         "message": "Zeitüberschreitung beim Update. Bitte erneut versuchen."
@@ -948,7 +948,7 @@
         "message": "Bitte schließen Sie dieses Fenster nicht."
     },
     "update.page.updating": {
-        "message": "Aktualisiert…"
+        "message": "Wird aktualisiert…"
     },
     "update.page.complete": {
         "message": "Update abgeschlossen"
@@ -990,7 +990,7 @@
         "message": "NetBird einrichten"
     },
     "welcome.management.description": {
-        "message": "Klicken Sie auf „Weiter“, um loszulegen, oder wählen Sie Self-hosted, wenn Sie einen eigenen NetBird-Server haben."
+        "message": "Klicken Sie auf „Weiter“, um loszulegen, oder wählen Sie „Self-hosted“, wenn Sie einen eigenen NetBird-Server haben."
     },
     "welcome.management.cloud.title": {
         "message": "NetBird Cloud"
@@ -999,7 +999,7 @@
         "message": "Nutzen Sie unseren gehosteten Dienst. Keine Einrichtung nötig."
     },
     "welcome.management.selfHosted.title": {
-        "message": "Selbst gehostet"
+        "message": "Self-hosted"
     },
     "welcome.management.selfHosted.description": {
         "message": "Verbindung zu Ihrem eigenen Management-Server."
@@ -1137,10 +1137,10 @@
         "message": "Verbunden"
     },
     "peers.status.connecting": {
-        "message": "Verbinde"
+        "message": "Wird verbunden"
     },
     "peers.status.disconnected": {
-        "message": "Getrennt"
+        "message": "Nicht verbunden"
     },
     "peers.details.relayAddress": {
         "message": "Relay"
@@ -1248,7 +1248,7 @@
         "message": "Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an."
     },
     "error.invalid_setup_key": {
-        "message": "Der Setup-Schlüssel fehlt oder ist ungültig."
+        "message": "Der Setup-Key fehlt oder ist ungültig."
     },
     "error.permission_denied": {
         "message": "Die Anmeldung wurde vom Server abgelehnt."

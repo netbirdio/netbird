@@ -3,7 +3,7 @@
         "message": "NetBird"
     },
     "tray.status.disconnected": {
-        "message": "Lekapcsolva"
+        "message": "Lecsatlakozva"
     },
     "tray.status.daemonUnavailable": {
         "message": "Nem fut"
@@ -12,10 +12,10 @@
         "message": "Hiba"
     },
     "tray.status.connected": {
-        "message": "Kapcsolódva"
+        "message": "Csatlakozva"
     },
     "tray.status.connecting": {
-        "message": "Kapcsolódás"
+        "message": "Csatlakozás"
     },
     "tray.status.needsLogin": {
         "message": "Bejelentkezés szükséges"
@@ -60,7 +60,7 @@
         "message": "Bontás"
     },
     "tray.menu.exitNode": {
-        "message": "Kilépő csomópont"
+        "message": "Exit Node"
     },
     "tray.menu.networks": {
         "message": "Erőforrások"
@@ -72,7 +72,7 @@
         "message": "Profilok kezelése"
     },
     "tray.menu.settings": {
-        "message": "Beállítások..."
+        "message": "Beállítások…"
     },
     "tray.menu.debugBundle": {
         "message": "Hibakeresési csomag készítése"
@@ -96,7 +96,7 @@
         "message": "{version} verzió telepítése"
     },
     "tray.menu.guiVersion": {
-        "message": "Felület: {version}"
+        "message": "GUI: {version}"
     },
     "tray.menu.daemonVersion": {
         "message": "Daemon: {version}"
@@ -129,7 +129,7 @@
         "message": "Átváltás sikertelen erre: {profile}"
     },
     "notify.error.exitNode": {
-        "message": "A kilépő csomópont frissítése sikertelen: {name}"
+        "message": "Az Exit Node frissítése sikertelen: {name}"
     },
     "notify.sessionExpired.title": {
         "message": "NetBird munkamenet lejárt"
@@ -141,10 +141,10 @@
         "message": "Munkamenet hamarosan lejár"
     },
     "notify.sessionWarning.body": {
-        "message": "A NetBird munkamenet {remaining} múlva lejár. Kattints a Meghosszabbítás gombra a megújításhoz."
+        "message": "A NetBird munkamenet {remaining} múlva lejár. Kattintson a Meghosszabbítás gombra a megújításhoz."
     },
     "notify.sessionWarning.bodyGeneric": {
-        "message": "A NetBird munkamenet hamarosan lejár. Kattints a Meghosszabbítás gombra a megújításhoz."
+        "message": "A NetBird munkamenet hamarosan lejár. Kattintson a Meghosszabbítás gombra a megújításhoz."
     },
     "notify.sessionWarning.extend": {
         "message": "Meghosszabbítás"
@@ -225,19 +225,19 @@
         "message": "Lecsatlakozva"
     },
     "notConnected.description": {
-        "message": "Csatlakozz először a NetBirdhöz, hogy részletes információkat láthass a társakról, hálózati erőforrásokról és kilépő csomópontokról."
+        "message": "Csatlakozzon először a NetBirdhöz, hogy részletes információkat láthasson a Peerekről, a hálózati erőforrásokról és az Exit Node-okról."
     },
     "connect.status.disconnected": {
-        "message": "Lekapcsolva"
+        "message": "Lecsatlakozva"
     },
     "connect.status.connecting": {
         "message": "Csatlakozás…"
     },
     "connect.status.connected": {
-        "message": "Csatlakoztatva"
+        "message": "Csatlakozva"
     },
     "connect.status.disconnecting": {
-        "message": "Bontás…"
+        "message": "Lecsatlakozás…"
     },
     "connect.status.daemonUnavailable": {
         "message": "Daemon nem elérhető"
@@ -255,7 +255,7 @@
         "message": "Bontás sikertelen"
     },
     "nav.peers.title": {
-        "message": "Társak"
+        "message": "Peerek"
     },
     "nav.peers.description": {
         "message": "{connected} / {total} csatlakoztatva"
@@ -267,7 +267,7 @@
         "message": "{active} / {total} aktív"
     },
     "nav.exitNode.title": {
-        "message": "Kilépő csomópontok"
+        "message": "Exit Node-ok"
     },
     "nav.exitNode.none": {
         "message": "Nem aktív"
@@ -280,18 +280,6 @@
     },
     "header.togglePanel": {
         "message": "Oldalsó panel váltása"
-    },
-    "header.menu.settings": {
-        "message": "Beállítások…"
-    },
-    "header.menu.defaultView": {
-        "message": "Alapnézet"
-    },
-    "header.menu.advancedView": {
-        "message": "Speciális nézet"
-    },
-    "header.menu.updateAvailable": {
-        "message": "Frissítés elérhető"
     },
     "profile.selector.loading": {
         "message": "Betöltés…"
@@ -323,24 +311,6 @@
     "profile.selector.switchTo": {
         "message": "Váltás erre a profilra"
     },
-    "profile.dropdown.activeProfile": {
-        "message": "Aktív profil"
-    },
-    "profile.dropdown.switchProfile": {
-        "message": "Profilváltás"
-    },
-    "profile.dropdown.noEmail": {
-        "message": "Egyéb"
-    },
-    "profile.dropdown.addProfile": {
-        "message": "Profil hozzáadása"
-    },
-    "profile.dropdown.manageProfiles": {
-        "message": "Profilok kezelése"
-    },
-    "profile.dropdown.settings": {
-        "message": "Beállítások"
-    },
     "profile.dialog.title": {
         "message": "Új profil"
     },
@@ -353,17 +323,29 @@
     "profile.dialog.placeholder": {
         "message": "pl. Munka"
     },
-    "profile.dialog.required": {
-        "message": "Adjon meg egy profilnevet, pl. Munka, Otthon"
-    },
     "profile.dialog.submit": {
         "message": "Profil hozzáadása"
+    },
+    "profile.dialog.required": {
+        "message": "Adjon meg egy profilnevet, pl. Munka, Otthon"
     },
     "profile.dialog.managementHelp": {
         "message": "NetBird Cloud vagy saját kiszolgáló."
     },
     "profile.dialog.urlUnreachable": {
         "message": "A szerver nem érhető el. Ellenőrizze az URL-t, vagy adja hozzá a profilt, ha biztos benne, hogy helyes."
+    },
+    "header.menu.settings": {
+        "message": "Beállítások…"
+    },
+    "header.menu.defaultView": {
+        "message": "Alapnézet"
+    },
+    "header.menu.advancedView": {
+        "message": "Speciális nézet"
+    },
+    "header.menu.updateAvailable": {
+        "message": "Frissítés elérhető"
     },
     "profile.switch.title": {
         "message": "Váltás a(z) \"{name}\" profilra?"
@@ -410,6 +392,42 @@
     "profile.error.loadTitle": {
         "message": "Profilok betöltése sikertelen"
     },
+    "profile.dropdown.activeProfile": {
+        "message": "Aktív profil"
+    },
+    "profile.dropdown.switchProfile": {
+        "message": "Profilváltás"
+    },
+    "profile.dropdown.noEmail": {
+        "message": "Egyéb"
+    },
+    "profile.dropdown.addProfile": {
+        "message": "Profil hozzáadása"
+    },
+    "profile.dropdown.manageProfiles": {
+        "message": "Profilok kezelése"
+    },
+    "profile.dropdown.settings": {
+        "message": "Beállítások"
+    },
+    "settings.profiles.section.profiles": {
+        "message": "Profilok"
+    },
+    "settings.profiles.intro": {
+        "message": "Kezeljen több NetBird-profilt párhuzamosan, például munkahelyi és személyes fiókokat, vagy különböző felügyeleti szervereket. Lent hozzáadhat, leválaszthat vagy törölhet profilokat."
+    },
+    "settings.profiles.addProfile": {
+        "message": "Profil hozzáadása"
+    },
+    "settings.profiles.active": {
+        "message": "Aktív"
+    },
+    "settings.profiles.emptyTitle": {
+        "message": "Nincsenek profilok"
+    },
+    "settings.profiles.emptyDescription": {
+        "message": "Hozzon létre egy profilt a NetBird felügyeleti szerverhez való csatlakozáshoz."
+    },
     "settings.error.loadTitle": {
         "message": "Beállítások betöltése sikertelen"
     },
@@ -428,11 +446,11 @@
     "settings.tabs.security": {
         "message": "Biztonság"
     },
-    "settings.tabs.ssh": {
-        "message": "SSH"
-    },
     "settings.tabs.profiles": {
         "message": "Profilok"
+    },
+    "settings.tabs.ssh": {
+        "message": "SSH"
     },
     "settings.tabs.advanced": {
         "message": "Speciális"
@@ -445,24 +463,6 @@
     },
     "settings.tabs.updateAvailable": {
         "message": "Frissítés elérhető"
-    },
-    "settings.profiles.section.profiles": {
-        "message": "Profilok"
-    },
-    "settings.profiles.intro": {
-        "message": "Tartson külön NetBird-identitásokat egymás mellett, például munkahelyi és személyes fiókokat, vagy különböző kezelőszervereket. Lent hozzáadhat, leválaszthat vagy törölhet profilokat."
-    },
-    "settings.profiles.addProfile": {
-        "message": "Profil hozzáadása"
-    },
-    "settings.profiles.active": {
-        "message": "Aktív"
-    },
-    "settings.profiles.emptyTitle": {
-        "message": "Nincsenek profilok"
-    },
-    "settings.profiles.emptyDescription": {
-        "message": "Hozzon létre egy profilt a NetBird kezelőszerverhez való csatlakozáshoz."
     },
     "settings.general.section.general": {
         "message": "Általános"
@@ -504,10 +504,10 @@
         "message": "Nincs találat."
     },
     "settings.general.management.label": {
-        "message": "Kezelőszerver"
+        "message": "Felügyeleti szerver"
     },
     "settings.general.management.help": {
-        "message": "Csatlakozás a NetBird Cloudhoz vagy saját self-hosted kezelőszerverhez. A módosítások újracsatlakozást váltanak ki."
+        "message": "Csatlakozás a NetBird Cloudhoz vagy saját üzemeltetésű felügyeleti szerverhez. A módosítások újracsatlakozást váltanak ki."
     },
     "settings.general.management.cloud": {
         "message": "Felhő"
@@ -540,7 +540,7 @@
         "message": "Útválasztás és DNS"
     },
     "settings.network.lazy.label": {
-        "message": "Késleltetett kapcsolatok"
+        "message": "Igény szerinti kapcsolatok"
     },
     "settings.network.lazy.help": {
         "message": "Állandó kapcsolatok fenntartása helyett a NetBird igény szerint, aktivitás vagy jelzés alapján aktiválja azokat."
@@ -561,13 +561,13 @@
         "message": "Kliens útvonalak engedélyezése"
     },
     "settings.network.clientRoutes.help": {
-        "message": "Más társak útvonalainak elfogadása az ő hálózataik eléréséhez."
+        "message": "Más Peerek útvonalainak elfogadása a hálózataik eléréséhez."
     },
     "settings.network.serverRoutes.label": {
         "message": "Szerver útvonalak engedélyezése"
     },
     "settings.network.serverRoutes.help": {
-        "message": "Ennek a gazdának a helyi útvonalainak meghirdetése más társak számára."
+        "message": "Ennek a gazdának a helyi útvonalainak meghirdetése más Peerek számára."
     },
     "settings.network.ipv6.label": {
         "message": "IPv6 engedélyezése"
@@ -585,13 +585,13 @@
         "message": "Bejövő forgalom blokkolása"
     },
     "settings.security.blockInbound.help": {
-        "message": "Visszautasítja a társaktól érkező nem kért kapcsolatokat ezen eszközhöz és az általa irányított hálózatokhoz. A kimenő forgalmat nem érinti."
+        "message": "Visszautasítja a Peerektől érkező nem kért kapcsolatokat ezen eszközhöz és az általa irányított hálózatokhoz. A kimenő forgalmat nem érinti."
     },
     "settings.security.blockLan.label": {
         "message": "LAN-hozzáférés blokkolása"
     },
     "settings.security.blockLan.help": {
-        "message": "Megakadályozza, hogy a társak elérjék a helyi hálózatot vagy annak eszközeit, amikor ez az eszköz irányítja a forgalmukat."
+        "message": "Megakadályozza, hogy a Peerek elérjék a helyi hálózatot vagy annak eszközeit, amikor ez az eszköz irányítja a forgalmukat."
     },
     "settings.security.rosenpass.label": {
         "message": "Kvantumellenálló titkosítás engedélyezése"
@@ -603,7 +603,7 @@
         "message": "Engedékeny mód engedélyezése"
     },
     "settings.security.rosenpassPermissive.help": {
-        "message": "Kapcsolatok engedélyezése kvantumellenálló titkosítás nélküli társakkal."
+        "message": "Kapcsolatok engedélyezése kvantumellenálló titkosítás nélküli Peerekkel."
     },
     "settings.ssh.section.server": {
         "message": "Szerver"
@@ -618,13 +618,13 @@
         "message": "SSH szerver engedélyezése"
     },
     "settings.ssh.server.help": {
-        "message": "Futtassa a NetBird SSH szervert ezen a gazdán, hogy más társak csatlakozhassanak."
+        "message": "Futtassa a NetBird SSH szervert ezen a gazdán, hogy más Peerek csatlakozhassanak."
     },
     "settings.ssh.root.label": {
         "message": "Root bejelentkezés engedélyezése"
     },
     "settings.ssh.root.help": {
-        "message": "Társak bejelentkezhetnek root felhasználóként. Tiltsa le, ha nem privilegizált fiók szükséges."
+        "message": "A Peerek bejelentkezhetnek root felhasználóként. Tiltsa le, ha nem privilegizált fiók szükséges."
     },
     "settings.ssh.sftp.label": {
         "message": "SFTP engedélyezése"
@@ -636,13 +636,13 @@
         "message": "Helyi porttovábbítás"
     },
     "settings.ssh.localForward.help": {
-        "message": "A csatlakozó társak helyi portokat alagútba helyezhetnek erről a gazdáról elérhető szolgáltatásokhoz."
+        "message": "A csatlakozó Peerek helyi portokat alagútba helyezhetnek erről a gazdáról elérhető szolgáltatásokhoz."
     },
     "settings.ssh.remoteForward.label": {
         "message": "Távoli porttovábbítás"
     },
     "settings.ssh.remoteForward.help": {
-        "message": "A csatlakozó társak ezen a gazdán lévő portokat tehetnek elérhetővé a saját gépük számára."
+        "message": "A csatlakozó Peerek ezen a gazdán lévő portokat tehetnek elérhetővé a saját gépük számára."
     },
     "settings.ssh.jwt.label": {
         "message": "JWT-hitelesítés engedélyezése"
@@ -669,7 +669,7 @@
         "message": "Név"
     },
     "settings.advanced.interfaceName.error": {
-        "message": "Használj 1–15 betűt, számot, pontot, kötőjelet vagy aláhúzást."
+        "message": "Használjon 1–15 betűt, számot, pontot, kötőjelet vagy aláhúzást."
     },
     "settings.advanced.interfaceName.errorMac": {
         "message": "„utun” után számmal kezdődjön (pl. utun100)."
@@ -678,22 +678,22 @@
         "message": "Port"
     },
     "settings.advanced.port.error": {
-        "message": "Adj meg egy portot {min} és {max} között."
+        "message": "Adjon meg egy portot {min} és {max} között."
     },
     "settings.advanced.port.help": {
-        "message": "Ha 0-ra állítod, egy véletlenszerű szabad portot használ."
+        "message": "Ha 0-ra állítja, egy véletlenszerű szabad portot használ."
     },
     "settings.advanced.mtu.label": {
         "message": "MTU"
     },
     "settings.advanced.mtu.error": {
-        "message": "Adj meg egy MTU értéket {min} és {max} között."
+        "message": "Adjon meg egy MTU értéket {min} és {max} között."
     },
     "settings.advanced.psk.label": {
         "message": "Pre-shared kulcs"
     },
     "settings.advanced.psk.help": {
-        "message": "Opcionális WireGuard PSK további szimmetrikus titkosításhoz. Nem azonos a NetBird telepítőkulccsal. Csak olyan társakkal kommunikál, akik ugyanazt a pre-shared kulcsot használják."
+        "message": "Opcionális WireGuard PSK további szimmetrikus titkosításhoz. Nem azonos a NetBird telepítőkulccsal. Csak olyan Peerekkel kommunikál, akik ugyanazt a pre-shared kulcsot használják."
     },
     "settings.troubleshooting.section.title": {
         "message": "Hibakeresési csomag"
@@ -735,7 +735,7 @@
         "message": "perc"
     },
     "settings.troubleshooting.create": {
-        "message": "Csomag létrehozása"
+        "message": "Hibakeresési csomag létrehozása"
     },
     "settings.troubleshooting.progress.description": {
         "message": "Naplók, rendszerinformációk és kapcsolati állapot gyűjtése folyamatban. Általában néhány pillanatot vesz igénybe — tartsa nyitva ezt az ablakot a befejezésig."
@@ -801,10 +801,10 @@
         "message": "[Fejlesztés]"
     },
     "settings.about.gui": {
-        "message": "Felület v{version}"
+        "message": "GUI v{version}"
     },
     "settings.about.guiName": {
-        "message": "Felület"
+        "message": "GUI"
     },
     "settings.about.copyright": {
         "message": "© {year} NetBird. Minden jog fenntartva."
@@ -867,7 +867,7 @@
         "message": "Változásnapló"
     },
     "update.card.onLatestVersion": {
-        "message": "A legfrissebb verziót használod"
+        "message": "A legfrissebb verziót használja"
     },
     "update.header.tooltip": {
         "message": "Frissítés elérhető"
@@ -990,7 +990,7 @@
         "message": "NetBird beállítása"
     },
     "welcome.management.description": {
-        "message": "Kattintson a Folytatás gombra a kezdéshez, vagy válassza a Self-hosted lehetőséget, ha saját NetBird-szervere van."
+        "message": "Kattintson a Folytatás gombra a kezdéshez, vagy válassza a „Saját üzemeltetésű” lehetőséget, ha saját NetBird-szervere van."
     },
     "welcome.management.cloud.title": {
         "message": "NetBird Cloud"
@@ -1002,10 +1002,10 @@
         "message": "Saját üzemeltetésű"
     },
     "welcome.management.selfHosted.description": {
-        "message": "Csatlakozás a saját menedzsmentszerveréhez."
+        "message": "Csatlakozás a saját felügyeleti szerveréhez."
     },
     "welcome.management.urlLabel": {
-        "message": "Menedzsmentszerver URL"
+        "message": "Felügyeleti szerver URL"
     },
     "welcome.management.urlPlaceholder": {
         "message": "https://netbird.selfhosted.com:443"
@@ -1080,10 +1080,10 @@
         "message": "Offline"
     },
     "peers.empty.title": {
-        "message": "Nincs elérhető társ"
+        "message": "Nincs elérhető Peer"
     },
     "peers.empty.description": {
-        "message": "Önnek vagy nincsenek elérhető társai vagy nincs hozzáférése egyikhez sem."
+        "message": "Önnek vagy nincsenek elérhető Peerei, vagy nincs hozzáférése egyikhez sem."
     },
     "peers.details.domain": {
         "message": "Domain"
@@ -1095,7 +1095,7 @@
         "message": "NetBird IPv6"
     },
     "peers.details.publicKey": {
-        "message": "Publikus kulcs"
+        "message": "Nyilvános kulcs"
     },
     "peers.details.connection": {
         "message": "Kapcsolat"
@@ -1104,7 +1104,7 @@
         "message": "Késleltetés"
     },
     "peers.details.lastHandshake": {
-        "message": "Utolsó kézfogás"
+        "message": "Utolsó Handshake"
     },
     "peers.details.statusSince": {
         "message": "Utolsó kapcsolati frissítés"
@@ -1194,19 +1194,19 @@
         "message": "Összes letiltása"
     },
     "exitNodes.search.placeholder": {
-        "message": "Keresés a kilépő csomópontok között"
+        "message": "Keresés az Exit Node-ok között"
     },
     "exitNodes.none": {
         "message": "Egyik sem"
     },
     "exitNodes.empty.title": {
-        "message": "Nincs elérhető kilépő csomópont"
+        "message": "Nincs elérhető Exit Node"
     },
     "exitNodes.empty.description": {
-        "message": "Ehhez a társhoz nem osztottak meg kilépő csomópontokat."
+        "message": "Ehhez a Peerhez nem osztottak meg Exit Node-okat."
     },
     "exitNodes.card.title": {
-        "message": "Kilépő csomópont"
+        "message": "Exit Node"
     },
     "exitNodes.card.statusActive": {
         "message": "Aktív"
@@ -1218,7 +1218,7 @@
         "message": "Egyik sem"
     },
     "exitNodes.dropdown.noneDescription": {
-        "message": "Közvetlen kapcsolat kilépő csomópont nélkül"
+        "message": "Közvetlen kapcsolat Exit Node nélkül"
     },
     "quickActions.connect": {
         "message": "Csatlakozás"
@@ -1248,7 +1248,7 @@
         "message": "A munkamenet lejárt. Kérjük, jelentkezzen be újra."
     },
     "error.invalid_setup_key": {
-        "message": "A telepítési kulcs hiányzik vagy érvénytelen."
+        "message": "A telepítőkulcs hiányzik vagy érvénytelen."
     },
     "error.permission_denied": {
         "message": "A szerver elutasította a bejelentkezést."
