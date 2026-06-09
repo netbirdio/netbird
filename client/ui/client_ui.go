@@ -328,7 +328,6 @@ type serviceClient struct {
 	isUpdateIconActive   bool
 	isEnforcedUpdate     bool
 	lastNotifiedVersion  string
-	settingsEnabled      bool
 	profilesEnabled      bool
 	networksEnabled      bool
 	// networksMenuEnabled caches the last applied enabled-state of the
@@ -1272,18 +1271,6 @@ func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonService
 
 	s.conn = proto.NewDaemonServiceClient(conn)
 	return s.conn, nil
-}
-
-// setSettingsEnabled enables or disables the settings menu based on the provided state
-func (s *serviceClient) setSettingsEnabled(enabled bool) {
-	if s.mSettings != nil {
-		if enabled {
-			s.mSettings.Enable()
-		} else {
-			s.mSettings.Hide()
-			s.mSettings.SetTooltip("Settings are disabled by daemon")
-		}
-	}
 }
 
 // checkAndUpdateFeatures checks the current features and updates the UI accordingly

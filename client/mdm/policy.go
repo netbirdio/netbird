@@ -11,7 +11,6 @@ package mdm
 import (
 	"sort"
 	"strconv"
-	"strings"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -76,18 +75,6 @@ var SecretKeys = map[string]struct{}{
 	KeyPreSharedKey: {},
 }
 
-// canonicalKey maps the lowercase form of a managed-config value name to its
-// canonical mdm.Key* form. Admins commonly write PascalCase value names in
-// ADMX / Group Policy ("ManagementURL"), the iOS/AppConfig and macOS plist
-// conventions are camelCase ("managementURL"); both must resolve to the
-// same Policy lookup. Shared across all platform loaders.
-var canonicalKey = func() map[string]string {
-	m := make(map[string]string, len(AllKeys))
-	for _, k := range AllKeys {
-		m[strings.ToLower(k)] = k
-	}
-	return m
-}()
 
 // Policy holds MDM-managed settings read from the platform source. A nil or
 // empty Policy means no enforcement is active.

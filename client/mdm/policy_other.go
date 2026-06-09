@@ -4,8 +4,12 @@ package mdm
 
 // loadPlatformPolicy returns no policy on platforms without an MDM channel
 // (Linux, FreeBSD). MDM enforcement is off and the client behaves as if
-// loadPlatformPolicy reports that no platform MDM policy is available on non-Windows/Darwin/iOS/Android builds.
-// It returns a nil policy map and a nil error to indicate MDM enforcement is not present on this platform.
+// the feature did not exist. Returns (nil, nil) — the platform-absent
+// sentinel the caller (LoadPolicy in policy.go) treats as "no MDM
+// source present"; an error here would just translate to the same
+// outcome with an extra log line.
+//
+//nolint:nilnil // (nil, nil) is the documented platform-absent sentinel; see LoadPolicy.
 func loadPlatformPolicy() (map[string]any, error) {
 	return nil, nil
 }

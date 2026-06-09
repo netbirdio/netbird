@@ -350,7 +350,7 @@ func loginRequestHasConfigOverrides(msg *proto.LoginRequest) bool {
 	}
 	return msg.ManagementUrl != "" ||
 		msg.AdminURL != "" ||
-		msg.PreSharedKey != "" ||
+		msg.PreSharedKey != "" || //nolint:staticcheck // SA1019: legacy proto field still accepted by Login
 		msg.OptionalPreSharedKey != nil ||
 		len(msg.CustomDNSAddress) > 0 ||
 		len(msg.NatExternalIPs) > 0 || msg.CleanNATExternalIPs ||
