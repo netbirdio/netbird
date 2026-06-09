@@ -18,10 +18,6 @@ export const SectionGroup = ({
     </section>
 );
 
-// SettingsBottomBar renders the floating action bar at the bottom of a
-// settings tab (Save Changes / Add Profile / Create Bundle). It pairs the
-// absolutely positioned bar with an in-flow spacer of the same height so
-// scrollable content above doesn't end up hidden behind the bar.
 export const SettingsBottomBar = ({ children }: { children: ReactNode }) => (
     <>
         <div className={"h-[4rem] shrink-0"} aria-hidden />

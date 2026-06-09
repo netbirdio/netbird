@@ -1,6 +1,5 @@
 import { forwardRef, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { errorDialog } from "@/lib/dialogs.ts";
 import * as Popover from "@radix-ui/react-popover";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { Command } from "cmdk";
@@ -10,7 +9,7 @@ import type { Profile } from "@bindings/services/models.js";
 import { Tooltip } from "@/components/Tooltip";
 import { useProfile } from "@/contexts/ProfileContext";
 import { cn } from "@/lib/cn";
-import { formatErrorMessage } from "@/lib/errors";
+import { errorDialog, formatErrorMessage } from "@/lib/errors";
 
 type ProfileDropdownProps = {
     onManageProfiles?: () => void;
@@ -59,79 +58,77 @@ export const ProfileDropdown = ({ onManageProfiles }: ProfileDropdownProps) => {
     const displayName = activeProfile || t("profile.selector.loading");
 
     return (
-        <>
-            <Popover.Root open={open} onOpenChange={setOpen}>
-                <Popover.Trigger asChild className={"wails-no-draggable"}>
-                    <ProfileTriggerButton name={displayName} />
-                </Popover.Trigger>
-                <Popover.Portal>
-                    <Popover.Content
-                        align="center"
-                        sideOffset={8}
-                        collisionPadding={12}
-                        onOpenAutoFocus={(e) => e.preventDefault()}
-                        className={cn(
-                            "z-50 min-w-64 overflow-hidden rounded-lg border border-nb-gray-900 bg-nb-gray-935 p-1 text-nb-gray-200 shadow-lg select-none wails-no-draggable",
-                            "data-[state=open]:animate-in data-[state=closed]:animate-out",
-                            "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
-                            "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
-                            "data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2",
-                            "data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+        <Popover.Root open={open} onOpenChange={setOpen}>
+            <Popover.Trigger asChild className={"wails-no-draggable"}>
+                <ProfileTriggerButton name={displayName} />
+            </Popover.Trigger>
+            <Popover.Portal>
+                <Popover.Content
+                    align="center"
+                    sideOffset={8}
+                    collisionPadding={12}
+                    onOpenAutoFocus={(e) => e.preventDefault()}
+                    className={cn(
+                        "z-50 min-w-64 overflow-hidden rounded-lg border border-nb-gray-900 bg-nb-gray-935 p-1 text-nb-gray-200 shadow-lg select-none wails-no-draggable",
+                        "data-[state=open]:animate-in data-[state=closed]:animate-out",
+                        "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+                        "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+                        "data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2",
+                        "data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+                    )}
+                >
+                    <Command loop shouldFilter={false} onKeyDown={(e) => e.stopPropagation()}>
+                        {sortedProfiles.length > 0 && (
+                            <>
+                                <ScrollArea.Root type="auto" className="overflow-hidden -mx-1">
+                                    <ScrollArea.Viewport className="max-h-60 px-1">
+                                        <Command.List>
+                                            {sortedProfiles.map((profile) => (
+                                                <ProfileRow
+                                                    key={profile.name}
+                                                    profile={profile}
+                                                    isActive={profile.name === activeProfile}
+                                                    onSelect={handleSelect}
+                                                />
+                                            ))}
+                                        </Command.List>
+                                    </ScrollArea.Viewport>
+                                    <ScrollArea.Scrollbar
+                                        orientation="vertical"
+                                        className={cn(
+                                            "flex select-none touch-none transition-colors",
+                                            "w-1.5 bg-transparent",
+                                        )}
+                                    >
+                                        <ScrollArea.Thumb className="flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700 relative" />
+                                    </ScrollArea.Scrollbar>
+                                </ScrollArea.Root>
+                                <div className="-mx-1 h-px bg-nb-gray-910" />
+                            </>
                         )}
-                    >
-                        <Command loop shouldFilter={false} onKeyDown={(e) => e.stopPropagation()}>
-                            {sortedProfiles.length > 0 && (
-                                <>
-                                    <ScrollArea.Root type="auto" className="overflow-hidden -mx-1">
-                                        <ScrollArea.Viewport className="max-h-60 px-1">
-                                            <Command.List>
-                                                {sortedProfiles.map((profile) => (
-                                                    <ProfileRow
-                                                        key={profile.name}
-                                                        profile={profile}
-                                                        isActive={profile.name === activeProfile}
-                                                        onSelect={handleSelect}
-                                                    />
-                                                ))}
-                                            </Command.List>
-                                        </ScrollArea.Viewport>
-                                        <ScrollArea.Scrollbar
-                                            orientation="vertical"
-                                            className={cn(
-                                                "flex select-none touch-none transition-colors",
-                                                "w-1.5 bg-transparent",
-                                            )}
-                                        >
-                                            <ScrollArea.Thumb className="flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700 relative" />
-                                        </ScrollArea.Scrollbar>
-                                    </ScrollArea.Root>
-                                    <div className="-mx-1 h-px bg-nb-gray-910" />
-                                </>
-                            )}
 
-                            <div className={"pt-1"}>
-                                <Command.Item
-                                    value={MANAGE_VALUE}
-                                    onSelect={handleManage}
-                                    disabled={!onManageProfiles}
-                                    className={cn(
-                                        "flex items-center gap-2 px-2 py-1.5",
-                                        "rounded-md outline-none cursor-default text-sm",
-                                        "data-[selected=true]:bg-nb-gray-900",
-                                        "data-[disabled=true]:opacity-50 data-[disabled=true]:pointer-events-none",
-                                    )}
-                                >
-                                    <Settings2 size={14} className="shrink-0" />
-                                    <span className="truncate flex-1">
-                                        {t("profile.dropdown.manageProfiles")}
-                                    </span>
-                                </Command.Item>
-                            </div>
-                        </Command>
-                    </Popover.Content>
-                </Popover.Portal>
-            </Popover.Root>
-        </>
+                        <div className={"pt-1"}>
+                            <Command.Item
+                                value={MANAGE_VALUE}
+                                onSelect={handleManage}
+                                disabled={!onManageProfiles}
+                                className={cn(
+                                    "flex items-center gap-2 px-2 py-1.5",
+                                    "rounded-md outline-none cursor-default text-sm",
+                                    "data-[selected=true]:bg-nb-gray-900",
+                                    "data-[disabled=true]:opacity-50 data-[disabled=true]:pointer-events-none",
+                                )}
+                            >
+                                <Settings2 size={14} className="shrink-0" />
+                                <span className="truncate flex-1">
+                                    {t("profile.dropdown.manageProfiles")}
+                                </span>
+                            </Command.Item>
+                        </div>
+                    </Command>
+                </Popover.Content>
+            </Popover.Portal>
+        </Popover.Root>
     );
 };
 
@@ -186,7 +183,7 @@ const ProfileRow = ({ profile, isActive, onSelect }: ProfileRowProps) => {
         >
             <div className="flex flex-col min-w-0 flex-1 leading-tight">
                 <span className="truncate">{profile.name}</span>
-                {showEmail && <TruncatedEmail email={profile.email!} />}
+                {showEmail && <TruncatedEmail email={profile.email} />}
             </div>
             {isActive && (
                 <Check size={16} className={cn("shrink-0 text-netbird", showEmail && "mt-0.5")} />

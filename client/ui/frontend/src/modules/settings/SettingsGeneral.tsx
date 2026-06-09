@@ -15,25 +15,13 @@ export function SettingsGeneral() {
     const { t } = useTranslation();
     const { config, setField } = useSettings();
     const { autostart, setAutostartEnabled } = useAutostartSetting();
-    const {
-        mode,
-        setMode,
-        setUrl,
-        displayUrl,
-        showError,
-        canSave,
-        save,
-        checking,
-        unreachable,
-    } = useManagementUrl();
+    const { mode, setMode, setUrl, displayUrl, showError, canSave, save, checking, unreachable } =
+        useManagementUrl();
 
     const inputRef = useRef<HTMLInputElement>(null);
     const prevMode = useRef(mode);
     useEffect(() => {
-        if (
-            prevMode.current === ManagementMode.Cloud &&
-            mode === ManagementMode.SelfHosted
-        ) {
+        if (prevMode.current === ManagementMode.Cloud && mode === ManagementMode.SelfHosted) {
             inputRef.current?.focus();
         }
         prevMode.current = mode;
@@ -71,9 +59,7 @@ export function SettingsGeneral() {
                     <div className={"flex items-start gap-3"}>
                         <div className={"flex-1 min-w-0"}>
                             <Label as={"div"}>{t("settings.general.management.label")}</Label>
-                            <HelpText>
-                                {t("settings.general.management.help")}
-                            </HelpText>
+                            <HelpText>{t("settings.general.management.help")}</HelpText>
                         </div>
                         <ManagementServerSwitch value={mode} onChange={setMode} />
                     </div>

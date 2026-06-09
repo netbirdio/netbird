@@ -1,6 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { errorDialog } from "@/lib/dialogs.ts";
 import { CircleMinus, LogIn, PlusCircle, Trash2, UserCircle } from "lucide-react";
 import type { Profile } from "@bindings/services/models.js";
 import { Badge } from "@/components/Badge";
@@ -17,7 +16,8 @@ import { SetConfigParams } from "@bindings/services/models.js";
 import { CLOUD_MANAGEMENT_URL } from "@/hooks/useManagementUrl.ts";
 import { SectionGroup, SettingsBottomBar } from "@/modules/settings/SettingsSection.tsx";
 import { cn } from "@/lib/cn";
-import { formatErrorMessage } from "@/lib/errors";
+import { reconcileOrder } from "@/lib/sorting";
+import { errorDialog, formatErrorMessage } from "@/lib/errors";
 
 const DEFAULT_PROFILE = "default";
 
@@ -38,38 +38,22 @@ export function ProfilesTab() {
     const [newOpen, setNewOpen] = useState(false);
     const [busy, setBusy] = useState(false);
 
-    // The display order is established once — the active profile first, then
-    // the rest alphabetically — and then held stable for the lifetime of the
-    // window. Switching profiles must only flip the "active" badge, never
-    // reorder the rows (otherwise the row the user just clicked jumps to the
-    // top under their cursor). New profiles append at the end; removed ones
-    // drop out. `orderRef` is the source of truth for row order; the active
-    // badge is derived live from `activeProfile`.
+    // Order is held stable so switching only flips the badge, never reorders rows
+    // (else the clicked row jumps to the top under the cursor).
     const orderRef = useRef<string[]>([]);
     const ordered = useMemo(() => {
-        const present = new Set(profiles.map((p) => p.name));
-        if (orderRef.current.length === 0) {
-            // First population: active-first, then alphabetical.
-            orderRef.current = [...profiles]
-                .sort((a, b) => {
-                    if (a.name === activeProfile) return -1;
-                    if (b.name === activeProfile) return 1;
-                    return a.name.localeCompare(b.name);
-                })
-                .map((p) => p.name);
-        } else {
-            // Preserve the established order; drop removed, append added.
-            const kept = orderRef.current.filter((n) => present.has(n));
-            const added = profiles
-                .map((p) => p.name)
-                .filter((n) => !orderRef.current.includes(n))
-                .sort((a, b) => a.localeCompare(b));
-            orderRef.current = [...kept, ...added];
-        }
-        const byName = new Map(profiles.map((p) => [p.name, p]));
-        return orderRef.current
-            .map((n) => byName.get(n))
-            .filter((p): p is Profile => p !== undefined);
+        const { order, items } = reconcileOrder(
+            orderRef.current,
+            profiles,
+            (p) => p.name,
+            (a, b) => {
+                if (a.name === activeProfile) return -1;
+                if (b.name === activeProfile) return 1;
+                return a.name.localeCompare(b.name);
+            },
+        );
+        orderRef.current = order;
+        return items;
     }, [profiles, activeProfile]);
 
     const guarded = async (title: string, fn: () => Promise<void>) => {
@@ -120,27 +104,17 @@ export function ProfilesTab() {
     };
 
     const handleCreate = async (name: string, managementUrl: string) => {
-        try {
+        await guarded(i18next.t("profile.error.createTitle"), async () => {
             await addProfile(name);
-            // Only persist a management URL for self-hosted; a fresh profile
-            // already defaults to NetBird Cloud, so writing the cloud URL
-            // would be a no-op. Do it before switching so any reconnect the
-            // switch triggers already targets the right deployment. SetConfig
-            // is keyed by profile name, so it writes the new profile even
-            // though it isn't active yet (adminUrl left empty — the daemon
-            // keeps its loaded value).
+            // SetConfig is keyed by profile name, so it writes the not-yet-active
+            // profile. Write before switching so any reconnect targets the right deployment.
             if (managementUrl !== CLOUD_MANAGEMENT_URL) {
                 await SettingsSvc.SetConfig(
                     new SetConfigParams({ profileName: name, username, managementUrl }),
                 );
             }
             await switchProfile(name);
-        } catch (e) {
-            await errorDialog({
-                Title: i18next.t("profile.error.createTitle"),
-                Message: formatErrorMessage(e),
-            });
-        }
+        });
     };
 
     return (
@@ -193,7 +167,11 @@ export function ProfilesTab() {
                 </SettingsBottomBar>
             </SectionGroup>
 
-            <ProfileCreationModal open={newOpen} onOpenChange={setNewOpen} onCreate={handleCreate} />
+            <ProfileCreationModal
+                open={newOpen}
+                onOpenChange={setNewOpen}
+                onCreate={handleCreate}
+            />
         </div>
     );
 }
@@ -230,12 +208,16 @@ const ProfileRow = ({ profile, isActive, onSwitch, onDeregister, onDelete }: Pro
                     />
                     <div className={"flex flex-col min-w-0 flex-1 leading-tight"}>
                         <div className={"flex items-center gap-2 min-w-0"}>
-                            <span className={"truncate font-medium text-nb-gray-100 select-text cursor-text"}>
+                            <span
+                                className={
+                                    "truncate font-medium text-nb-gray-100 select-text cursor-text"
+                                }
+                            >
                                 {profile.name}
                             </span>
                             {isActive && <Badge>{t("settings.profiles.active")}</Badge>}
                         </div>
-                        {showEmail && <TruncatedEmail email={profile.email!} />}
+                        {showEmail && <TruncatedEmail email={profile.email} />}
                     </div>
                 </div>
             </td>
@@ -265,7 +247,10 @@ const TruncatedEmail = ({ email }: { email: string }) => {
     }, [email]);
 
     const span = (
-        <span ref={ref} className={"text-xs text-nb-gray-300 truncate mt-0.5 select-text cursor-text"}>
+        <span
+            ref={ref}
+            className={"text-xs text-nb-gray-300 truncate mt-0.5 select-text cursor-text"}
+        >
             {email}
         </span>
     );
@@ -294,11 +279,10 @@ const RowActions = ({
 }: RowActionsProps) => {
     const { t } = useTranslation();
     const deleteDisabled = isDefault || isActive;
-    const deleteLabel = isDefault
-        ? t("profile.delete.disabledDefault")
-        : isActive
-          ? t("profile.delete.disabledActive")
-          : t("profile.selector.delete");
+    const nonDefaultDeleteLabel = isActive
+        ? t("profile.delete.disabledActive")
+        : t("profile.selector.delete");
+    const deleteLabel = isDefault ? t("profile.delete.disabledDefault") : nonDefaultDeleteLabel;
     return (
         <div className={"inline-flex items-center gap-1"}>
             <ActionIconButton
@@ -329,10 +313,8 @@ type ActionIconButtonProps = {
     icon: typeof CircleMinus;
     onClick: () => void;
     variant?: "default" | "danger";
-    /** When true the button still occupies space (preserves row layout)
-     *  but is invisible and non-interactive. */
+    /** Occupies space but invisible and non-interactive (preserves row layout). */
     hidden?: boolean;
-    /** When true the button is visible but non-interactive (greyed out). */
     disabled?: boolean;
 };
 
@@ -359,7 +341,8 @@ const ActionIconButton = ({
                     ? "text-nb-gray-400 hover:text-red-500 hover:bg-red-500/10"
                     : "text-nb-gray-400 hover:text-nb-gray-100 hover:bg-nb-gray-900",
                 hidden && "opacity-0 pointer-events-none",
-                disabled && "opacity-40 cursor-not-allowed hover:!text-nb-gray-400 hover:!bg-transparent",
+                disabled &&
+                    "opacity-40 cursor-not-allowed hover:!text-nb-gray-400 hover:!bg-transparent",
             )}
         >
             <Icon size={16} />
@@ -368,9 +351,7 @@ const ActionIconButton = ({
     if (hidden) return button;
     return (
         <Tooltip
-            content={
-                <span className={"block max-w-[260px] leading-snug"}>{label}</span>
-            }
+            content={<span className={"block max-w-[260px] leading-snug"}>{label}</span>}
             side={"top"}
         >
             {button}

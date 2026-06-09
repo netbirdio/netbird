@@ -9,18 +9,12 @@ import {
     type ReactNode,
 } from "react";
 import { Events } from "@wailsio/runtime";
-import { errorDialog } from "@/lib/dialogs.ts";
-
 
 import { Update as UpdateSvc, WindowManager } from "@bindings/services";
 import type { State as UpdateState } from "@bindings/updater/models.js";
 import i18next from "@/lib/i18n";
-import { formatErrorMessage } from "@/lib/errors";
+import { errorDialog, formatErrorMessage } from "@/lib/errors";
 
-// Daemon-down is already surfaced globally by DaemonUnavailableOverlay and
-// (for Trigger) handled by the install window's polling-grace branch; a
-// second popup on top of those is pure noise. Every Update RPC routes
-// through the shared gRPC conn, so the Unavailable code is the marker.
 const isDaemonUnavailable = (e: unknown): boolean => {
     const msg = e instanceof Error ? e.message : String(e);
     return msg.includes("code = Unavailable");
@@ -81,9 +75,6 @@ export const ClientVersionProvider = ({ children }: { children: ReactNode }) => 
         };
     }, []);
 
-    // Force-install branch: daemon's progress_window:show flipped installing
-    // to true while the UI was idle. Open the install window so the user
-    // sees the progress UI without having to click anything.
     const prevInstallingRef = useRef(false);
     useEffect(() => {
         if (state.installing && !prevInstallingRef.current) {
@@ -92,19 +83,11 @@ export const ClientVersionProvider = ({ children }: { children: ReactNode }) => 
         prevInstallingRef.current = state.installing;
     }, [state.installing, state.version]);
 
-    // Enforced user-driven branch: kick Trigger() in the background, then
-    // hand off to the install window. The window owns the polling loop and
-    // the final Quit() — this provider just fires the trigger.
     const triggerUpdate = useCallback(() => {
         setUpdating(true);
         WindowManager.OpenInstallProgress(state.version || "").catch(console.error);
         UpdateSvc.Trigger()
             .catch(async (e) => {
-                // The daemon may already be down (force-install branch raced
-                // us). The install window's polling loop handles that case.
-                // Anything else is a real failure — close the install window
-                // (otherwise it spins forever on a daemon that won't ever
-                // produce a result) and surface the error.
                 if (isDaemonUnavailable(e)) return;
                 WindowManager.CloseInstallProgress().catch(console.error);
                 await errorDialog({
@@ -127,9 +110,5 @@ export const ClientVersionProvider = ({ children }: { children: ReactNode }) => 
         [state, triggerUpdate, updating],
     );
 
-    return (
-        <ClientVersionContext.Provider value={value}>
-            {children}
-        </ClientVersionContext.Provider>
-    );
+    return <ClientVersionContext.Provider value={value}>{children}</ClientVersionContext.Provider>;
 };

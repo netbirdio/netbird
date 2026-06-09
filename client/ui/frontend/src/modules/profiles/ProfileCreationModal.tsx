@@ -18,19 +18,11 @@ import {
 type Props = {
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    // onCreate receives the sanitized profile name and the management URL the
-    // user picked (the cloud default for Cloud mode, the normalized self-
-    // hosted URL otherwise).
     onCreate: (name: string, managementUrl: string) => void;
 };
 
-// Mirror of the daemon's profilemanager.sanitizeProfileName rule
-// (client/internal/profilemanager/profilemanager.go): only letters, digits,
-// `_` and `-` survive on the Go side. We additionally lowercase and convert
-// spaces to `-` so what the user sees in the input is exactly what the
-// daemon will store — otherwise the daemon silently sanitizes ("my profile"
-// → "myprofile") while the UI keeps the raw name in flight, which spawns a
-// ghost row and breaks subsequent delete.
+// Must match the daemon's silent profilemanager.sanitizeProfileName, else the in-flight
+// raw name diverges from what's stored, spawning a ghost row and breaking delete.
 const sanitizeProfileInput = (value: string): string =>
     value
         .toLowerCase()
@@ -46,9 +38,6 @@ export const ProfileCreationModal = ({ open, onOpenChange, onCreate }: Props) =>
     const [mode, setMode] = useState<ManagementMode>(ManagementMode.Cloud);
     const [url, setUrl] = useState("");
     const [urlError, setUrlError] = useState<string | null>(null);
-    // unreachable: soft warning. A second submit with the same URL proceeds
-    // anyway (matches the onboarding management step's behaviour for self-
-    // hosted servers behind internal DNS / VPN).
     const [unreachable, setUnreachable] = useState(false);
     const [checking, setChecking] = useState(false);
     const urlRef = useRef<HTMLInputElement>(null);
@@ -65,8 +54,6 @@ export const ProfileCreationModal = ({ open, onOpenChange, onCreate }: Props) =>
         }
     }, [open]);
 
-    // Reset the URL warnings whenever the user edits the URL or flips mode —
-    // otherwise a stale warning lingers next to a just-corrected value.
     useEffect(() => {
         setUrlError(null);
         setUnreachable(false);
@@ -100,9 +87,6 @@ export const ProfileCreationModal = ({ open, onOpenChange, onCreate }: Props) =>
         setChecking(true);
         const reachable = await checkManagementUrlReachable(target);
         setChecking(false);
-        // First failed check: soft warning + bail. A second submit with the
-        // same URL skips re-checking (unreachable still true) so the user can
-        // proceed if they're sure.
         if (!reachable && !unreachable) {
             setUnreachable(true);
             return;
@@ -117,16 +101,14 @@ export const ProfileCreationModal = ({ open, onOpenChange, onCreate }: Props) =>
         if (nameError) setNameError(null);
     };
 
-    // Live syntactic feedback: flag a non-empty, malformed URL as the user
-    // types instead of waiting for submit. Empty is not an error yet (handled
-    // on submit); the unreachable soft-warning only applies once syntax is OK.
     const trimmedUrl = url.trim();
     const showUrlSyntaxError =
-        mode === ManagementMode.SelfHosted && trimmedUrl !== "" && !isValidManagementUrl(trimmedUrl);
+        mode === ManagementMode.SelfHosted &&
+        trimmedUrl !== "" &&
+        !isValidManagementUrl(trimmedUrl);
     const urlInputError = showUrlSyntaxError
         ? t("settings.general.management.urlError")
         : (urlError ?? undefined);
-    // Soft, non-blocking caveat (orange) — only when the URL is otherwise OK.
     const urlInputWarning =
         !urlInputError && unreachable ? t("profile.dialog.urlUnreachable") : undefined;
 
@@ -178,7 +160,9 @@ export const ProfileCreationModal = ({ open, onOpenChange, onCreate }: Props) =>
                                     <Input
                                         ref={urlRef}
                                         autoFocus
-                                        placeholder={t("settings.general.management.urlPlaceholder")}
+                                        placeholder={t(
+                                            "settings.general.management.urlPlaceholder",
+                                        )}
                                         value={url}
                                         onChange={(e) => setUrl(e.target.value)}
                                         error={urlInputError}

@@ -1,9 +1,5 @@
 import { UILog } from "@bindings/services";
 
-// Forwards browser console output and uncaught errors into the Go logrus
-// pipeline. Originals still fire, so DevTools is unchanged; the Go
-// --log-level does the gating.
-
 type Level = "trace" | "debug" | "info" | "warn" | "error";
 
 const METHOD_LEVELS: Record<string, Level> = {
@@ -15,10 +11,15 @@ const METHOD_LEVELS: Record<string, Level> = {
     error: "error",
 };
 
-// Sources whose output is noise and shouldn't be forwarded.
 const IGNORED_SOURCES = new Set(["welcome.ts"]);
 
+const RATE_LIMIT = 50;
+const RATE_WINDOW_MS = 1000;
+
 let installed = false;
+let inForward = false;
+let windowStart = 0;
+let windowCount = 0;
 
 function format(args: unknown[]): string {
     return args
@@ -34,27 +35,35 @@ function format(args: unknown[]): string {
         .join(" ");
 }
 
-// First stack frame outside this module as "<file>:<line>" (best-effort;
-// minified prod stacks degrade to chunk names).
 function callerSource(): string {
     const stack = new Error().stack;
     if (!stack) return "";
     for (const line of stack.split("\n").slice(1)) {
         if (line.includes("/logs.ts")) continue;
-        const m = line.match(/([^/\\() ]+\.[a-z]+):(\d+):\d+/i);
+        const m = /([^/\\() ]+\.[a-z]+):(\d+):\d+/i.exec(line);
         if (m) return `${m[1]}:${m[2]}`;
     }
     return "";
 }
 
 function forward(level: Level, args: unknown[]) {
+    if (inForward) return;
+    inForward = true;
     try {
+        const now = Date.now();
+        if (now - windowStart >= RATE_WINDOW_MS) {
+            windowStart = now;
+            windowCount = 0;
+        }
+        if (++windowCount > RATE_LIMIT) return;
+
         const source = callerSource();
         if (IGNORED_SOURCES.has(source.split(":")[0])) return;
-        // Fire-and-forget; don't touch console here (would recurse).
-        void UILog.Log(level, source, format(args));
+        // Don't touch console here — it would recurse back into forward().
+        UILog.Log(level, source, format(args)).catch(() => {});
     } catch {
-        // swallow
+    } finally {
+        inForward = false;
     }
 }
 
@@ -71,10 +80,10 @@ export function initLogForwarding() {
         };
     }
 
-    window.addEventListener("error", (e) => {
+    globalThis.addEventListener("error", (e) => {
         forward("error", [`uncaught error: ${e.message}`, e.error ?? ""]);
     });
-    window.addEventListener("unhandledrejection", (e) => {
+    globalThis.addEventListener("unhandledrejection", (e) => {
         forward("error", ["unhandled promise rejection:", e.reason]);
     });
 }

@@ -1,22 +1,15 @@
 import { useEffect } from "react";
+import { isMacOS } from "@/lib/platform";
 
 export type Shortcut = {
-    key: string; // e.g. "k", "Escape", "/"
-    cmd?: boolean; // requires Cmd (mac) / Ctrl (win/linux)
+    key: string;
+    cmd?: boolean;
     shift?: boolean;
     alt?: boolean;
-    // When true (default), preventDefault is called on a match.
     preventDefault?: boolean;
 };
 
-// Listens for a keyboard shortcut on the window and invokes `callback` on
-// match. Disable conditionally via `enabled` to avoid stealing keys while a
-// dialog/panel is in the foreground.
-export const useKeyboardShortcut = (
-    shortcut: Shortcut,
-    callback: () => void,
-    enabled = true,
-) => {
+export const useKeyboardShortcut = (shortcut: Shortcut, callback: () => void, enabled = true) => {
     useEffect(() => {
         if (!enabled) return;
         const onKey = (e: KeyboardEvent) => {
@@ -28,8 +21,8 @@ export const useKeyboardShortcut = (
             if (shortcut.preventDefault !== false) e.preventDefault();
             callback();
         };
-        window.addEventListener("keydown", onKey);
-        return () => window.removeEventListener("keydown", onKey);
+        globalThis.addEventListener("keydown", onKey);
+        return () => globalThis.removeEventListener("keydown", onKey);
     }, [
         shortcut.key,
         shortcut.cmd,
@@ -41,16 +34,13 @@ export const useKeyboardShortcut = (
     ]);
 };
 
-// True on macOS — use the ⌘ glyph; otherwise show "Ctrl".
-export const isMac =
-    typeof navigator !== "undefined" &&
-    /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
-
 export const formatShortcut = (shortcut: Shortcut): string => {
+    // navigator.platform is empty on some WebView2 builds → misrenders ⌘ as Ctrl on Mac.
+    const mac = isMacOS();
     const parts: string[] = [];
-    if (shortcut.cmd) parts.push(isMac ? "⌘" : "Ctrl");
-    if (shortcut.shift) parts.push(isMac ? "⇧" : "Shift");
-    if (shortcut.alt) parts.push(isMac ? "⌥" : "Alt");
+    if (shortcut.cmd) parts.push(mac ? "⌘" : "Ctrl");
+    if (shortcut.shift) parts.push(mac ? "⇧" : "Shift");
+    if (shortcut.alt) parts.push(mac ? "⌥" : "Alt");
     parts.push(shortcut.key.length === 1 ? shortcut.key.toUpperCase() : shortcut.key);
-    return parts.join(isMac ? "" : "+");
+    return parts.join(mac ? "" : "+");
 };

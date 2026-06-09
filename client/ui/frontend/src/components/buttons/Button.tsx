@@ -1,6 +1,6 @@
 import { cva, VariantProps } from "class-variance-authority";
 import { Check, Copy, Loader2 } from "lucide-react";
-import { ButtonHTMLAttributes, forwardRef, useState } from "react";
+import { ButtonHTMLAttributes, forwardRef, useEffect, useRef, useState } from "react";
 
 import { cn } from "@/lib/cn";
 
@@ -10,9 +10,6 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>, ButtonVar
     disabled?: boolean;
     stopPropagation?: boolean;
     copy?: string;
-    // When true, the content is replaced by a centered spinner while keeping
-    // the button's rendered width/height (the content stays in the layout,
-    // just hidden). Also disables the button.
     loading?: boolean;
 }
 
@@ -134,6 +131,13 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     ref,
 ) {
     const [copied, setCopied] = useState(false);
+    const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    useEffect(
+        () => () => {
+            if (copyTimer.current) clearTimeout(copyTimer.current);
+        },
+        [],
+    );
     const iconSize = size === "xs" ? 12 : 14;
     return (
         <button
@@ -156,7 +160,8 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
                         .writeText(copy)
                         .then(() => {
                             setCopied(true);
-                            setTimeout(() => setCopied(false), 1500);
+                            if (copyTimer.current) clearTimeout(copyTimer.current);
+                            copyTimer.current = setTimeout(() => setCopied(false), 1500);
                         })
                         .catch(() => {});
                 }

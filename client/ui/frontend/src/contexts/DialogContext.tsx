@@ -1,24 +1,19 @@
-import { createContext, ReactNode, useCallback, useContext, useRef, useState } from "react";
+import {
+    createContext,
+    ReactNode,
+    useCallback,
+    useContext,
+    useMemo,
+    useRef,
+    useState,
+} from "react";
 import { ConfirmModal } from "@/components/dialog/ConfirmModal";
 
-// DialogContext exposes an imperative `confirm(...)` that resolves to a
-// boolean — the in-app equivalent of a native confirmation dialog. The
-// single <ConfirmModal/> lives here at the provider level, so call sites
-// just `await confirm({...})` instead of each wiring up their own modal
-// component + open/busy state.
-//
-//   const confirm = useConfirm();
-//   if (await confirm({ title, description, confirmLabel })) { …do it… }
-//
-// Mounted once (outermost in AppLayout) so it's available in every in-window
-// route across both the main and settings windows.
 export type ConfirmOptions = {
     title: ReactNode;
     description: ReactNode;
     confirmLabel: string;
-    /** Defaults to the shared "Cancel" string inside ConfirmModal. */
     cancelLabel?: string;
-    /** Use the destructive (red) confirm button variant. */
     danger?: boolean;
 };
 
@@ -28,7 +23,7 @@ type DialogContextValue = {
 
 const DialogContext = createContext<DialogContextValue | null>(null);
 
-export function DialogProvider({ children }: { children: ReactNode }) {
+export function DialogProvider({ children }: Readonly<{ children: ReactNode }>) {
     const [open, setOpen] = useState(false);
     const [options, setOptions] = useState<ConfirmOptions | null>(null);
     const resolverRef = useRef<((result: boolean) => void) | null>(null);
@@ -41,17 +36,16 @@ export function DialogProvider({ children }: { children: ReactNode }) {
         });
     }, []);
 
-    // Resolve the pending promise and start the close animation. The options
-    // stay in state so ConfirmModal still has content to render while it
-    // animates out.
     const settle = (result: boolean) => {
         resolverRef.current?.(result);
         resolverRef.current = null;
         setOpen(false);
     };
 
+    const value = useMemo<DialogContextValue>(() => ({ confirm }), [confirm]);
+
     return (
-        <DialogContext.Provider value={{ confirm }}>
+        <DialogContext.Provider value={value}>
             {children}
             <ConfirmModal
                 open={open}

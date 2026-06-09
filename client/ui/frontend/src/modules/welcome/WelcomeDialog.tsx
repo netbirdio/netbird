@@ -8,8 +8,7 @@ import {
 import { SetConfigParams } from "@bindings/services/models.js";
 import { ConfirmDialog } from "@/components/dialog/ConfirmDialog";
 import { useAutoSizeWindow } from "@/hooks/useAutoSizeWindow";
-import { errorDialog } from "@/lib/dialogs";
-import { formatErrorMessage } from "@/lib/errors";
+import { errorDialog, formatErrorMessage } from "@/lib/errors";
 import i18next from "@/lib/i18n";
 import { isCloudManagementUrl } from "@/hooks/useManagementUrl";
 import { WelcomeStepTray } from "./WelcomeStepTray";
@@ -17,18 +16,8 @@ import { WelcomeStepManagement } from "./WelcomeStepManagement";
 
 const WINDOW_WIDTH = 360;
 
-// WelcomeStep is the orchestrator's state machine. The transitions:
-//   tray → management (if eligible) → finish
-//   tray → finish (otherwise)
-// Login itself is no longer part of onboarding — once the welcome window
-// closes the user lands in the main window and clicks Connect there.
 type WelcomeStep = "tray" | "management";
 
-// shouldShowManagementStep asks the user about Cloud vs self-hosted only
-// on a pristine setup — default profile, no email recorded (no successful
-// login yet), and the management URL is either unset or already the cloud
-// default. Any other state means the user (or a previous run) already
-// made a deliberate choice and we shouldn't second-guess it.
 function shouldShowManagementStep(
     activeProfile: string,
     email: string,
@@ -39,10 +28,6 @@ function shouldShowManagementStep(
     return isCloudManagementUrl(managementUrl);
 }
 
-// initial flow snapshot resolved at mount. Held in component state so the
-// step-2 management input can hydrate from initialUrl, and so the
-// "should we even show step 2" check is computed once (the user can't
-// change profile / URL from inside the welcome window).
 type InitialState = {
     profileName: string;
     username: string;
@@ -54,24 +39,12 @@ export default function WelcomeDialog() {
     const [step, setStep] = useState<WelcomeStep>("tray");
     const [initial, setInitial] = useState<InitialState | null>(null);
     const [closing, setClosing] = useState(false);
-    // ready=false until the daemon probe resolves — keeps the window
-    // Hidden so neither the empty padding-only frame (Linux/GNOME paints
-    // through) nor a placeholder div leaks onto screen.
     const contentRef = useAutoSizeWindow<HTMLDivElement>(WINDOW_WIDTH, initial !== null);
 
-    // Probe daemon state on mount: who's the active profile, do they
-    // have an email recorded, and what management URL is configured?
-    // Errors fall through to "skip the management step" so a daemon
-    // hiccup never blocks onboarding entirely.
     useEffect(() => {
         let cancelled = false;
         (async () => {
             try {
-                // Resolve username + active profile first so GetConfig + List
-                // can target the actual profile (passing empty strings would
-                // work today since the daemon falls back to the default
-                // profile, but being explicit shields us from future
-                // changes to that fallback).
                 const [username, active] = await Promise.all([
                     ProfilesSvc.Username(),
                     ProfilesSvc.GetActive(),
@@ -97,8 +70,6 @@ export default function WelcomeDialog() {
             } catch (e) {
                 console.error("welcome: initial probe failed", e);
                 if (cancelled) return;
-                // Conservative fallback: skip the management step rather
-                // than block onboarding behind a daemon hiccup.
                 setInitial({
                     profileName: "default",
                     username: "",
@@ -112,10 +83,6 @@ export default function WelcomeDialog() {
         };
     }, []);
 
-    // finish persists the onboarding flag, opens the main window so the
-    // user has somewhere to land, and closes the welcome window. Called
-    // at the end of every successful flow (tray-only and tray→management
-    // alike). The Connect button in the main window picks up from here.
     const finish = useCallback(async () => {
         if (closing) return;
         setClosing(true);
@@ -148,10 +115,7 @@ export default function WelcomeDialog() {
         async (url: string) => {
             if (!initial) return;
             try {
-                // SetConfig is a partial update — pointer fields left
-                // undefined are preserved (services/settings.go). We only
-                // touch managementUrl; adminUrl stays empty here because
-                // the daemon already has its own value loaded.
+                // SetConfig is a partial update — undefined fields are preserved Go-side.
                 await SettingsSvc.SetConfig(
                     new SetConfigParams({
                         profileName: initial.profileName,

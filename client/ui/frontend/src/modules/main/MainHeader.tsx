@@ -36,22 +36,18 @@ export const MainHeader = () => {
 
     const openSettings = useCallback(() => {
         setMenuOpen(false);
-        void WindowManager.OpenSettings("").catch(() => {});
+        WindowManager.OpenSettings("").catch(() => {});
     }, []);
 
-    // Mirror the tray's Settings accelerator so the keystroke works while
-    // the main window has focus too. The tray's SetAccelerator paints the
-    // glyph on macOS/Linux but only fires the menu item — it can't reach the
-    // webview's input loop, hence the parallel React-side listener.
     useKeyboardShortcut(SETTINGS_SHORTCUT, openSettings);
 
     const openAbout = () => {
         setMenuOpen(false);
-        void WindowManager.OpenSettings("about").catch(() => {});
+        WindowManager.OpenSettings("about").catch(() => {});
     };
 
     const openManageProfiles = () => {
-        void WindowManager.OpenSettings("profiles").catch(() => {});
+        WindowManager.OpenSettings("profiles").catch(() => {});
     };
 
     const selectMode = (mode: ViewMode) => {
@@ -130,16 +126,6 @@ export const MainHeader = () => {
         </div>
     );
 
-    // The inner grid is locked to 356px (the default-mode content width:
-    // 380px window − 12px px-3 each side). It stays left-anchored regardless
-    // of window size, so the profile keeps the exact same absolute X
-    // position when the user flips to advanced view. The settings button is
-    // pulled out as an absolute, right-anchored element so it tracks the
-    // window's right edge in both modes.
-    // Header height matches the Settings window's top traffic-light strip
-    // so the right panel ends up the same height in both windows. The h-10
-    // of the inner buttons (profile trigger, more-vertical) defines the
-    // natural height; the strip in SettingsLayout is sized to mirror it.
     return (
         <div
             className={cn(
@@ -147,8 +133,7 @@ export const MainHeader = () => {
                 "flex items-center h-12 top-3",
             )}
         >
-            {/* Windows gets a narrower width to compensate for the OS window frame/border that Wails
-                counts differently than macOS, so the visible content area lines up on both platforms.
+            {/* Windows narrower width compensates for the OS frame Wails counts differently than macOS.
                 See https://github.com/wailsapp/wails/issues/3260 */}
             <div
                 className={cn(

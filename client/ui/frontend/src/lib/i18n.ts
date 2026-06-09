@@ -5,21 +5,7 @@ import { Events } from "@wailsio/runtime";
 import { Preferences, I18n } from "@bindings/services";
 import { LanguageCode } from "@bindings/i18n/models.js";
 
-// Vite glob-imports every shipped bundle at build time. The locales tree
-// lives outside `frontend/` (at `client/ui/i18n/locales`) so the Go tray
-// and the React app share one JSON source. Adding a language only
-// requires dropping the new folder there and the row in `_index.json` —
-// no edit to this file. The `eager: true` import keeps the bundles
-// inlined in the main JS chunk, same shape as a static import. Path is
-// relative on purpose — alias-based globs (`@/…`) silently resolve to an
-// empty match in some Vite dev-mode setups. `server.fs.allow` in
-// `vite.config.ts` whitelists the parent directory so the dev server
-// serves the JSON.
-//
-// Each bundle is Chrome-extension JSON: every key maps to
-// `{ message, description? }`. `description` exists only so Crowdin can
-// show translator context — it's stripped here and i18next sees a flat
-// key->message map exactly as before.
+// Relative path on purpose — alias globs (`@/…`) silently match nothing in some Vite dev setups.
 type BundleEntry = { message: string; description?: string };
 const bundleModules = import.meta.glob<Record<string, BundleEntry>>(
     "../../../i18n/locales/*/common.json",
@@ -28,7 +14,7 @@ const bundleModules = import.meta.glob<Record<string, BundleEntry>>(
 
 const resources: Record<string, { common: Record<string, string> }> = {};
 for (const path in bundleModules) {
-    const match = path.match(/locales\/([^/]+)\/common\.json$/);
+    const match = /locales\/([^/]+)\/common\.json$/.exec(path);
     if (match) {
         const entries = bundleModules[path];
         const messages: Record<string, string> = {};
@@ -39,11 +25,6 @@ for (const path in bundleModules) {
     }
 }
 
-// detectBrowserLanguage walks navigator.language + navigator.languages
-// and returns the first shipped bundle that matches. We try an exact
-// case-insensitive match first (so "en-GB" picks the en-GB bundle when
-// shipped), then fall back to the base code ("de" from "de-DE"). Returns
-// null when nothing matches, so the caller can fall back to English.
 function detectBrowserLanguage(available: string[]): string | null {
     const tags = [navigator.language, ...(navigator.languages ?? [])].filter(
         (tag): tag is string => typeof tag === "string" && tag.length > 0,
@@ -59,13 +40,7 @@ function detectBrowserLanguage(available: string[]): string | null {
     return null;
 }
 
-// initI18n is awaited from app.tsx before the first render. The Go-side
-// preferences.Store returns an empty language code when no preference has
-// ever been persisted — that's the signal for first-run browser-locale
-// detection. We pick a shipped bundle that matches navigator.language /
-// navigator.languages (falling back to "en" when nothing matches) and
-// fire-and-forget the persist via Preferences.SetLanguage so subsequent
-// launches read the value back without re-detecting.
+// An empty persisted language code is the Go-side signal for first run.
 export async function initI18n(): Promise<void> {
     const available = Object.keys(resources);
     let language = "en";
@@ -79,13 +54,10 @@ export async function initI18n(): Promise<void> {
             language = detectBrowserLanguage(available) ?? "en";
         }
     } catch {
-        // Daemon / preferences store unreachable — fall through with "en".
     }
 
     if (firstRun) {
-        // Fire-and-forget: the chosen language already drives this session;
-        // persisting just locks it in so the next launch skips detection.
-        void Preferences.SetLanguage(language as LanguageCode).catch(() => {});
+        Preferences.SetLanguage(language as LanguageCode).catch(() => {});
     }
 
     await i18next.use(initReactI18next).init({
@@ -102,14 +74,12 @@ export async function initI18n(): Promise<void> {
         returnNull: false,
     });
 
-    // The event name + payload type come from Wails' generated module
-    // augmentation (bindings/.../wails/v3/internal/eventdata.d.ts) which
-    // extends @wailsio/runtime's CustomEvents interface, so e.data is
-    // typed as UIPreferences without any hand-written cast.
     Events.On("netbird:preferences:changed", (e) => {
         const next = e.data?.language;
         if (next && next !== i18next.language) {
-            void i18next.changeLanguage(next);
+            i18next.changeLanguage(next).catch((err: unknown) => {
+                console.error("changeLanguage failed", err);
+            });
         }
     });
 }

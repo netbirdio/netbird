@@ -7,7 +7,7 @@ import { useStatus } from "@/contexts/StatusContext.tsx";
 const DOCS_URL = "https://docs.netbird.io/how-to/installation";
 
 function openUrl(url: string) {
-    void Browser.OpenURL(url).catch(() => window.open(url, "_blank"));
+    Browser.OpenURL(url).catch(() => globalThis.open(url, "_blank"));
 }
 
 export const DaemonUnavailableOverlay = () => {
@@ -21,10 +21,6 @@ export const DaemonUnavailableOverlay = () => {
             className={
                 "fixed inset-0 z-[100] flex items-center justify-center bg-nb-gray-950 backdrop-blur-sm cursor-default select-none wails-draggable"
             }
-            onKeyDown={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-            }}
         >
             <div className={"flex flex-col items-center gap-5 px-8 max-w-lg text-center"}>
                 <div

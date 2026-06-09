@@ -19,10 +19,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 
-// Patterns match substrings, case-insensitive — "Proxytest" hits FlaskConical
-// just like "test" does. The list is scanned in order, so more-specific
-// tokens (e.g. "staging" before "stage") should come first when they share
-// roots.
+// Scanned in order — put more-specific tokens first (e.g. "staging" before "stage").
 const ICON_MAP: ReadonlyArray<[RegExp, LucideIcon]> = [
     [/(default|personal)/i, UserCircle],
     [/(work|business|office|company|corp|corporate)/i, Briefcase],

@@ -38,11 +38,7 @@ export function SettingsTroubleshooting() {
 
     if (stage.kind === "done") {
         return (
-            <DoneResult
-                result={stage.result}
-                uploaded={stage.uploadAttempted}
-                onClose={reset}
-            />
+            <DoneResult result={stage.result} uploaded={stage.uploadAttempted} onClose={reset} />
         );
     }
     if (stage.kind !== "idle") {
@@ -115,7 +111,7 @@ export function SettingsTroubleshooting() {
     );
 }
 
-function CenteredPanel({ children }: { children: ReactNode }) {
+function CenteredPanel({ children }: Readonly<{ children: ReactNode }>) {
     return (
         <div
             className={
@@ -127,7 +123,10 @@ function CenteredPanel({ children }: { children: ReactNode }) {
     );
 }
 
-function ProgressSection({ stage, onCancel }: { stage: DebugStage; onCancel: () => void }) {
+function ProgressSection({
+    stage,
+    onCancel,
+}: Readonly<{ stage: DebugStage; onCancel: () => void }>) {
     const { t } = useTranslation();
     const cancelling = stage.kind === "cancelling";
     return (
@@ -135,9 +134,7 @@ function ProgressSection({ stage, onCancel }: { stage: DebugStage; onCancel: () 
             <SquareIcon icon={Loader2} className={"[&_svg]:animate-spin"} />
 
             <div className={"flex flex-col items-center gap-2 max-w-xs"}>
-                <DialogHeading className={"text-balance"}>
-                    {stageLabel(stage, t)}
-                </DialogHeading>
+                <DialogHeading className={"text-balance"}>{stageLabel(stage, t)}</DialogHeading>
                 <DialogDescription>
                     {t("settings.troubleshooting.progress.description")}
                 </DialogDescription>
@@ -163,17 +160,19 @@ function DoneResult({
     result,
     uploaded,
     onClose,
-}: {
+}: Readonly<{
     result: DebugBundleResult;
     uploaded: boolean;
     onClose: () => void;
-}) {
+}>) {
     const { t } = useTranslation();
     const showKey = uploaded && Boolean(result.uploadedKey);
     const uploadFailed = uploaded && !result.uploadedKey;
     const onRevealPath = () => {
         if (!result.path) return;
-        void DebugSvc.RevealFile(result.path).catch(() => {});
+        DebugSvc.RevealFile(result.path).catch((err: unknown) =>
+            console.error("reveal debug bundle file", err),
+        );
     };
     return (
         <CenteredPanel>
@@ -252,12 +251,7 @@ function DoneResult({
                         </Button>
                     )
                 )}
-                <Button
-                    variant={"secondary"}
-                    size={"md"}
-                    className={"w-full"}
-                    onClick={onClose}
-                >
+                <Button variant={"secondary"} size={"md"} className={"w-full"} onClick={onClose}>
                     {t("common.close")}
                 </Button>
             </DialogActions>
@@ -265,7 +259,10 @@ function DoneResult({
     );
 }
 
-const stageLabel = (stage: DebugStage, t: (key: string, options?: Record<string, unknown>) => string): string => {
+const stageLabel = (
+    stage: DebugStage,
+    t: (key: string, options?: Record<string, unknown>) => string,
+): string => {
     switch (stage.kind) {
         case "preparing-trace":
             return t("settings.troubleshooting.stage.preparingTrace");

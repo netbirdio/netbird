@@ -12,11 +12,7 @@ type Props = {
     alignOffset?: number;
     interactive?: boolean;
     keepOpenOnClick?: boolean;
-    // Overrides the default tooltip-content chrome (background, padding,
-    // border, radius). Use when a richer body needs popover-style layout.
     contentClassName?: string;
-    // Ms to wait after pointer-leave before closing. Lets the user cross
-    // a gap between trigger and content without the tooltip snapping shut.
     closeDelay?: number;
 };
 
@@ -60,10 +56,7 @@ export const Tooltip = ({
     };
 
     return (
-        <RTooltip.Provider
-            delayDuration={delayDuration}
-            disableHoverableContent={!interactive}
-        >
+        <RTooltip.Provider delayDuration={delayDuration} disableHoverableContent={!interactive}>
             <RTooltip.Root open={open} onOpenChange={handleOpenChange}>
                 <RTooltip.Trigger
                     asChild
@@ -86,9 +79,7 @@ export const Tooltip = ({
                         alignOffset={alignOffset}
                         onPointerEnter={interactive ? cancelClose : undefined}
                         onPointerLeave={interactive ? scheduleClose : undefined}
-                        onPointerDownOutside={
-                            interactive ? undefined : (e) => e.preventDefault()
-                        }
+                        onPointerDownOutside={interactive ? undefined : (e) => e.preventDefault()}
                         className={cn(
                             "z-50 select-none text-xs text-nb-gray-100 shadow-lg",
                             "data-[state=delayed-open]:animate-in data-[state=closed]:animate-out",

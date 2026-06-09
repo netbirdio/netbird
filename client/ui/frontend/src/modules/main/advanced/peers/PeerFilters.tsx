@@ -19,7 +19,7 @@ type Props = {
 };
 
 export const PeerFilters = ({ value, onChange, counts, disabled }: Props) => {
-    const { t, i18n } = useTranslation();
+    const { t } = useTranslation();
     const [open, setOpen] = useState(false);
     const filters: { value: StatusFilter; label: string }[] = [
         { value: "all", label: t("peers.filter.all") },
@@ -34,7 +34,7 @@ export const PeerFilters = ({ value, onChange, counts, disabled }: Props) => {
     };
 
     return (
-        <DropdownMenu key={i18n.language} open={open} onOpenChange={setOpen}>
+        <DropdownMenu open={open} onOpenChange={setOpen}>
             <DropdownMenuTrigger
                 disabled={disabled}
                 className={cn(

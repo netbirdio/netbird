@@ -9,9 +9,6 @@ type Props = {
     className?: string;
 };
 
-// iOS-style push transition: incoming pane slides in from the right while
-// the outgoing pane shifts slightly left. Same easing on both sides so
-// they feel like one motion.
 const PANEL_TRANSITION = {
     duration: 0.32,
     ease: [0.32, 0.72, 0, 1] as [number, number, number, number],

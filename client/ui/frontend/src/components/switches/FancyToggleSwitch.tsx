@@ -31,39 +31,27 @@ export default function FancyToggleSwitch({
     labelClassName,
     textWrapperClassName = "max-w-lg",
 }: Readonly<Props>) {
+    const childrenRef = React.useRef<HTMLDivElement>(null);
+
     if (loading) {
-        // Match the global SkeletonTheme in app.tsx (#25282d base /
-        // #33373e highlight) so the loading row blends in with
-        // SettingsSkeleton. box-decoration-clone gives every wrapped line
-        // of text its own rounded corners instead of just the first/last.
         const shimmer =
             "text-transparent select-none rounded bg-[#25282d] box-decoration-clone animate-pulse";
         return (
-            <div
-                className={cn("inline-block text-left w-full", className)}
-                aria-busy
-            >
+            <div className={cn("inline-block text-left w-full", className)} aria-busy>
                 <div className={"flex justify-between gap-10"}>
                     <div className={cn(textWrapperClassName)}>
                         <Label className={labelClassName}>
                             <span className={shimmer}>{label}</span>
                         </Label>
                         <HelpText margin={false}>
-                            <span
-                                className={cn(
-                                    shimmer,
-                                    "text-[0.6rem] leading-relaxed",
-                                )}
-                            >
+                            <span className={cn(shimmer, "text-[0.6rem] leading-relaxed")}>
                                 {helpText}
                             </span>
                         </HelpText>
                     </div>
                     <div className={"mt-2 pr-1"}>
                         <div
-                            className={
-                                "h-[24px] w-[44px] rounded-full bg-[#25282d] animate-pulse"
-                            }
+                            className={"h-[24px] w-[44px] rounded-full bg-[#25282d] animate-pulse"}
                         />
                     </div>
                 </div>
@@ -71,16 +59,19 @@ export default function FancyToggleSwitch({
         );
     }
 
-    const handleToggle = () => {
-        if (disabled) return;
+    const fromChildren = (target: EventTarget | null) =>
+        target instanceof Node && childrenRef.current?.contains(target);
+
+    const handleToggle = (event: React.MouseEvent) => {
+        if (disabled || fromChildren(event.target)) return;
         onChange(!value);
     };
 
     const handleKeyDown = (event: React.KeyboardEvent) => {
-        if (disabled) return;
+        if (disabled || fromChildren(event.target)) return;
         if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
-            handleToggle();
+            onChange(!value);
         }
     };
 
@@ -108,7 +99,7 @@ export default function FancyToggleSwitch({
                 </div>
             </div>
             {children && value ? (
-                <div className="mt-4" onClick={(e) => e.stopPropagation()}>
+                <div className="mt-4" ref={childrenRef}>
                     {children}
                 </div>
             ) : null}

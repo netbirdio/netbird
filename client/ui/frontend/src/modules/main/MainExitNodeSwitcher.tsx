@@ -8,15 +8,13 @@ import { cn } from "@/lib/cn";
 import { TruncatedText } from "@/components/TruncatedText";
 import { useNetworks } from "@/contexts/NetworksContext";
 import { useStatus } from "@/contexts/StatusContext";
-import { mockExitNodes, mockOr } from "@/lib/mock";
 
 const NONE_VALUE = "__none__";
 
 export const MainExitNodeSwitcher = () => {
     const { t } = useTranslation();
     const { status } = useStatus();
-    const { exitNodes: realExitNodes, toggleExitNode } = useNetworks();
-    const exitNodes = mockOr(realExitNodes, mockExitNodes);
+    const { exitNodes, toggleExitNode } = useNetworks();
     const active = exitNodes.find((n) => n.selected) ?? null;
     const isConnected = status?.status === "Connected";
     const hasAny = exitNodes.length > 0;
@@ -27,19 +25,23 @@ export const MainExitNodeSwitcher = () => {
     const handleSelect = (next: string) => {
         setOpen(false);
         if (next === NONE_VALUE) {
-            if (active) void toggleExitNode(active.id, true);
+            if (active)
+                toggleExitNode(active.id, true).catch((err: unknown) =>
+                    console.error("toggle exit node failed", err),
+                );
             return;
         }
-        if (active && active.id === next) return;
-        void toggleExitNode(next, false);
+        if (active?.id === next) return;
+        toggleExitNode(next, false).catch((err: unknown) =>
+            console.error("toggle exit node failed", err),
+        );
     };
 
     const title = active ? active.id : t("exitNodes.card.title");
-    const description = !hasAny
-        ? t("exitNodes.empty.title")
-        : active
-          ? t("exitNodes.card.statusActive")
-          : t("exitNodes.card.statusInactive");
+    const activeDescription = active
+        ? t("exitNodes.card.statusActive")
+        : t("exitNodes.card.statusInactive");
+    const description = hasAny ? activeDescription : t("exitNodes.empty.title");
 
     return (
         <Popover.Root open={open} onOpenChange={setOpen}>

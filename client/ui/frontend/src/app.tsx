@@ -17,47 +17,45 @@ import { initI18n } from "@/lib/i18n";
 import { initPlatform } from "@/lib/platform";
 import { initLogForwarding } from "@/lib/logs";
 
-// Install console.* + uncaught-error forwarding before anything else runs
-// so even init-time logs reach the Go log pipeline.
+// Must run first so even init-time logs reach the Go log pipeline.
 initLogForwarding();
 
 welcome();
 
 Promise.all([
     initI18n().catch((e) => {
-        // Surface init failures in the console so a misconfigured glob
-        // doesn't quietly blank the UI; render anyway with i18next in
-        // whatever state it ended up in (t() will fall back to keys).
         console.error("i18n init failed:", e);
     }),
     initPlatform().catch((e) => {
         console.error("platform init failed:", e);
     }),
-])
-    .finally(() => {
-        ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+]).finally(() => {
+    ReactDOM.createRoot(document.getElementById("root")!).render(
         <React.StrictMode>
             <SkeletonTheme baseColor={"#25282d"} highlightColor={"#33373e"}>
                 <HashRouter>
                     <Routes>
                         <Route path="dialog">
-                            <Route path="browser-login" element={<LoginWaitingForBrowserDialog />} />
+                            <Route
+                                path="browser-login"
+                                element={<LoginWaitingForBrowserDialog />}
+                            />
                             <Route path="install-progress" element={<UpdateInProgressDialog />} />
-                            <Route path="session-expiration" element={<SessionExpirationDialog />} />
+                            <Route
+                                path="session-expiration"
+                                element={<SessionExpirationDialog />}
+                            />
                             <Route path="welcome" element={<WelcomeDialog />} />
                             <Route path="error" element={<ErrorDialog />} />
                         </Route>
                         <Route element={<AppLayout />}>
                             <Route index element={<MainPage />} />
                             <Route path="settings" element={<SettingsPage />} />
-                            <Route
-                                path="*"
-                                element={<Navigate to={"/"} replace />}
-                            />
+                            <Route path="*" element={<Navigate to={"/"} replace />} />
                         </Route>
                     </Routes>
                 </HashRouter>
             </SkeletonTheme>
         </React.StrictMode>,
-        );
-    });
+    );
+});

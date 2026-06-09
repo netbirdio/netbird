@@ -19,7 +19,7 @@ type Props = {
 };
 
 export const NetworkFilters = ({ value, onChange, counts, disabled }: Props) => {
-    const { t, i18n } = useTranslation();
+    const { t } = useTranslation();
     const [open, setOpen] = useState(false);
     const filters: { value: NetworkFilter; label: string }[] = [
         { value: "all", label: t("networks.filter.all") },
@@ -34,7 +34,7 @@ export const NetworkFilters = ({ value, onChange, counts, disabled }: Props) => 
     };
 
     return (
-        <DropdownMenu key={i18n.language} open={open} onOpenChange={setOpen}>
+        <DropdownMenu open={open} onOpenChange={setOpen}>
             <DropdownMenuTrigger
                 disabled={disabled}
                 className={cn(
@@ -62,21 +62,10 @@ export const NetworkFilters = ({ value, onChange, counts, disabled }: Props) => 
                         >
                             <span className={"flex-1 truncate"}>
                                 {f.label}{" "}
-                                <span className={"tabular-nums"}>
-                                    ({counts[f.value]})
-                                </span>
+                                <span className={"tabular-nums"}>({counts[f.value]})</span>
                             </span>
-                            <span
-                                className={
-                                    "w-4 shrink-0 flex items-center justify-center"
-                                }
-                            >
-                                {checked && (
-                                    <CheckIcon
-                                        size={14}
-                                        className={"text-netbird"}
-                                    />
-                                )}
+                            <span className={"w-4 shrink-0 flex items-center justify-center"}>
+                                {checked && <CheckIcon size={14} className={"text-netbird"} />}
                             </span>
                         </DropdownMenuItem>
                     );

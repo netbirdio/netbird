@@ -1,15 +1,15 @@
 @font-face {
-  font-family: "Inter Variable";
-  font-style: normal;
-  font-weight: 100 900;
-  src: url("./assets/fonts/inter-variable.ttf") format("truetype");
+    font-family: "Inter Variable";
+    font-style: normal;
+    font-weight: 100 900;
+    src: url("./assets/fonts/inter-variable.ttf") format("truetype");
 }
 
 @font-face {
-  font-family: "JetBrains Mono Variable";
-  font-style: normal;
-  font-weight: 100 800;
-  src: url("./assets/fonts/jetbrains-mono-variable.ttf") format("truetype");
+    font-family: "JetBrains Mono Variable";
+    font-style: normal;
+    font-weight: 100 800;
+    src: url("./assets/fonts/jetbrains-mono-variable.ttf") format("truetype");
 }
 
 @tailwind base;
@@ -19,8 +19,8 @@
 html,
 body,
 #root {
-  height: 100%;
-  overflow: hidden;
+    height: 100%;
+    overflow: hidden;
 }
 
 /*
@@ -32,14 +32,14 @@ body,
  * DEFAULT) here keeps things consistent regardless of the OS backdrop.
  */
 body {
-  @apply bg-nb-gray font-sans text-nb-gray-200 antialiased;
+    @apply bg-nb-gray font-sans text-nb-gray-200 antialiased;
 }
 
 .wails-draggable {
-  --wails-draggable: drag;
-  cursor: default;
+    --wails-draggable: drag;
+    cursor: default;
 }
 
 .wails-no-draggable {
-  --wails-draggable: no-drag;
+    --wails-draggable: no-drag;
 }

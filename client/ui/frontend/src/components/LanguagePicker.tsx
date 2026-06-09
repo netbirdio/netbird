@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import * as Popover from "@radix-ui/react-popover";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { Command } from "cmdk";
-import { errorDialog } from "@/lib/dialogs.ts";
 import { CheckIcon, ChevronDown, LanguagesIcon, Search } from "lucide-react";
 import { Preferences } from "@bindings/services";
 import { LanguageCode, type Language } from "@bindings/i18n/models.js";
@@ -11,14 +10,9 @@ import { HelpText } from "@/components/typography/HelpText";
 import { Label } from "@/components/typography/Label";
 import { loadLanguages } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
-import { formatErrorMessage } from "@/lib/errors";
+import { errorDialog, formatErrorMessage } from "@/lib/errors";
 
-// Intentionally no flag icons here: flags represent countries, not
-// languages (German is spoken across DE/AT/CH; English across US/UK/AU/
-// etc.). Each label shows the endonym followed by the englishName in
-// parentheses when the two differ (e.g. "Deutsch (German)"), in both
-// the trigger and the dropdown rows.
-// See: https://www.flagsarenotlanguages.com/blog/
+// No flag icons: flags represent countries, not languages. https://www.flagsarenotlanguages.com/blog/
 
 const labelFor = (lang: Language): string =>
     lang.englishName && lang.englishName !== lang.displayName

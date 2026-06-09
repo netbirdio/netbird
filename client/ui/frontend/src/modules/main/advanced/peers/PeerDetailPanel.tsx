@@ -30,7 +30,6 @@ import { TruncatedText } from "@/components/TruncatedText";
 import { formatBytes, formatRelative, latencyColor, shortenDns } from "@/lib/formatters";
 import { useStatus } from "@/contexts/StatusContext";
 import { usePeerDetail } from "@/contexts/PeerDetailContext";
-import { mockOr, mockPeers } from "@/lib/mock";
 import { peerStatusLabelKey } from "./Peers";
 
 const DEFAULT_TRANSITION: Transition = {
@@ -60,12 +59,9 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
     const { selected, setSelected } = usePeerDetail();
     const { status, refresh } = useStatus();
 
-    // Keep `selected` in sync with the live peer list so the panel reflects
-    // status / latency / byte updates without re-opening. If the peer
-    // disappears, close the panel.
     useEffect(() => {
         if (!selected) return;
-        const peers = mockOr(status?.peers ?? [], mockPeers);
+        const peers = status?.peers ?? [];
         const fresh = peers.find((p) => p.pubKey === selected.pubKey);
         if (!fresh) {
             setSelected(null);
@@ -74,11 +70,8 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
         if (fresh !== selected) setSelected(fresh);
     }, [status, selected, setSelected]);
 
-    // Re-render every second so the relative timestamps in PeerDetails
-    // ("Xs ago", "Xm ago") tick. The daemon updates latency/bytes/handshake
-    // silently without pushing a fresh status snapshot — see
-    // status.go UpdateLatency / UpdateWireGuardPeerState — so without this
-    // the displayed age would freeze for a stably-Connected peer.
+    // Daemon updates latency/bytes/handshake without pushing a fresh status
+    // snapshot, so tick locally to keep relative timestamps live.
     const [now, setNow] = useState(() => Date.now());
     useEffect(() => {
         if (!selected) return;
@@ -90,9 +83,6 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
     const onRefresh = useCallback(async () => {
         if (refreshing) return;
         setRefreshing(true);
-        // Refresh over the unix socket usually completes in <50ms, faster
-        // than the spin animation can show. Hold the spinning state for at
-        // least one full rotation so the click feels responsive.
         const MIN_SPIN_MS = 600;
         const minDelay = new Promise<void>((r) => setTimeout(r, MIN_SPIN_MS));
         try {
@@ -102,14 +92,13 @@ export const PeerDetailPanel = ({ transition = DEFAULT_TRANSITION }: Props) => {
         }
     }, [refresh, refreshing]);
 
-    // Esc closes the panel.
     useEffect(() => {
         if (!selected) return;
         const onKey = (e: KeyboardEvent) => {
             if (e.key === "Escape") setSelected(null);
         };
-        window.addEventListener("keydown", onKey);
-        return () => window.removeEventListener("keydown", onKey);
+        globalThis.addEventListener("keydown", onKey);
+        return () => globalThis.removeEventListener("keydown", onKey);
     }, [selected, setSelected]);
 
     return (
@@ -371,10 +360,6 @@ const IceRow = ({ icon, baseLabel, type, endpoint }: IceRowProps) => {
     );
 };
 
-// Single "View {n}" badge with a chevron that opens a click popover listing
-// each routed resource on its own line with a click-to-copy entry. Avoids
-// the repetitive "first item + N more" pattern given the row already has a
-// "Resources" label and Layers icon.
 const ResourcesValue = ({ networks }: { networks: string[] }) => (
     <ResourcesPopover networks={networks} />
 );

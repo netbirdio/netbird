@@ -8,12 +8,7 @@ import trayScreenshotDarwin from "@/assets/img/tray-darwin.png";
 import trayScreenshotWindows from "@/assets/img/tray-windows.png";
 import trayScreenshotLinux from "@/assets/img/tray-linux.png";
 
-// trayScreenshotForOS picks the marketing screenshot that shows the
-// NetBird tray icon in its native menu/task bar — so the onboarding pitch
-// matches the chrome the user will actually be hunting for. Evaluated
-// inside the component so initPlatform() has finished by the time
-// isMacOS/isWindows run (the static imports above only load the bytes,
-// no platform check).
+// Call at render time, not module scope: initPlatform() must run before isMacOS/isWindows.
 function trayScreenshotForOS(): string {
     if (isMacOS()) return trayScreenshotDarwin;
     if (isWindows()) return trayScreenshotWindows;
@@ -24,7 +19,7 @@ type WelcomeStepTrayProps = {
     onContinue: () => void;
 };
 
-export function WelcomeStepTray({ onContinue }: WelcomeStepTrayProps) {
+export function WelcomeStepTray({ onContinue }: Readonly<WelcomeStepTrayProps>) {
     const { t } = useTranslation();
     const trayScreenshot = trayScreenshotForOS();
 
