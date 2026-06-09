@@ -9,7 +9,9 @@ package mdm
 // builds and returns (nil, nil) — the platform-absent sentinel that
 // LoadPolicy in policy.go treats as "no MDM source present".
 //
-//nolint:nilnil // (nil, nil) is the documented platform-absent sentinel; see LoadPolicy.
+// loadPlatformPolicy reports the absence of a platform-managed configuration on mobile builds.
+// It returns a nil policy map and a nil error as a sentinel value; the real managed-config
+// dictionary is read by the native iOS/Android layer and injected into the Go process.
 func loadPlatformPolicy() (map[string]any, error) {
 	return nil, nil
 }

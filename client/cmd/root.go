@@ -95,7 +95,9 @@ var (
 	}
 )
 
-// Execute executes the root command.
+// Execute runs the appropriate Cobra command for the CLI.
+// If the process is the update binary it delegates to updateCmd; otherwise it runs the root command.
+// It returns any error produced during command execution.
 func Execute() error {
 	if isUpdateBinary() {
 		return updateCmd.Execute()
@@ -108,7 +110,15 @@ func Execute() error {
 // registers persistent flags (daemon address, management/admin URLs, logging, setup key, preshared key,
 // hostname, anonymize, config path), attaches top-level and nested subcommands to the root command,
 // and configures `up` command specific flags (external IP maps, DNS resolver address, Rosenpass options,
-// auto-connect disabling, and lazy connection).
+// init initializes package-level defaults and configures the root Cobra command.
+// 
+// It sets default configuration and log directory paths (including legacy Wiretrustee
+// locations) based on the runtime OS, builds default config/log file paths, and selects
+// a platform-appropriate default daemon address. It registers persistent CLI flags
+// (including mutually exclusive setup-key and setup-key-file), attaches top-level
+// commands and subcommands to the root command, and registers `up`-specific persistent
+// flags for external IP mapping, custom DNS resolver address, Rosenpass options,
+// auto-connect disabling, and lazy connection.
 func init() {
 	defaultConfigPathDir = "/etc/netbird/"
 	defaultLogFileDir = "/var/log/netbird/"

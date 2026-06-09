@@ -26,7 +26,8 @@ const testReloadInterval = 1 * time.Second
 // reloadInterval returns the production cadence, or the accelerated test
 // cadence when running under `go test`. Centralising the choice here keeps
 // reloadInterval selects the polling interval used to re-read the OS-native MDM policy.
-// It returns testReloadInterval when tests are running (testing.Testing() == true) and defaultReloadInterval otherwise.
+// reloadInterval selects the polling interval used for policy reloads.
+// It returns testReloadInterval when running under `go test` (testing.Testing() == true), and defaultReloadInterval otherwise.
 func reloadInterval() time.Duration {
 	if testing.Testing() {
 		return testReloadInterval
@@ -55,7 +56,11 @@ type Ticker struct {
 // reloadInterval (production default, accelerated under `go test`); callers
 // NewTicker creates a Ticker that polls the OS-native MDM policy at the package reload interval and invokes onChange when a policy change is detected.
 // If onChange is nil the ticker will only log detected changes.
-// The ticker's initial snapshot is populated by loading the current policy.
+// NewTicker creates a Ticker that polls for policy changes and invokes onChange when a difference is detected.
+// 
+// The provided onChange callback, if non-nil, is called with the previous and current Policy snapshots when a
+// change is observed. The returned Ticker's polling interval is set via reloadInterval and its initial snapshot
+// is populated by calling policyLoader.
 func NewTicker(onChange func(prev, curr *Policy)) *Ticker {
 	return &Ticker{
 		interval: reloadInterval(),
@@ -94,7 +99,10 @@ func (t *Ticker) Run(ctx context.Context) {
 }
 
 // PoliciesEqual reports whether two Policy instances carry the same managed
-// value maps for deep equality.
+// PoliciesEqual reports whether two Policy instances represent the same policy.
+// It returns true when both policies are empty, returns false if one pointer is nil
+// while the other is not, and otherwise compares the policies' underlying value
+// maps for deep equality.
 func PoliciesEqual(a, b *Policy) bool {
 	if a.IsEmpty() && b.IsEmpty() {
 		return true
@@ -110,7 +118,7 @@ func PoliciesEqual(a, b *Policy) bool {
 // The returned slices contain keys present only in `curr` (added), only in `prev` (removed),
 // and present in both but whose values differ (changed). Each slice is sorted
 // lexicographically for stable logging output; value differences are determined
-// using deep equality.
+// associated values differ by deep equality.
 func diffPolicies(prev, curr *Policy) (added, removed, changed []string) {
 	prevKeys := mapOf(prev)
 	currKeys := mapOf(curr)
@@ -136,6 +144,8 @@ func diffPolicies(prev, curr *Policy) (added, removed, changed []string) {
 // map of a Policy so callers outside this package can compare across the
 // mapOf returns a non-nil copy of the given Policy's key/value map.
 // If p is nil, mapOf returns an empty map; otherwise it returns a newly
+// mapOf returns a non-nil copy of a Policy's values map.
+// If p is nil it returns an empty map; otherwise it returns a newly
 // allocated map containing the same key/value pairs as p.values.
 func mapOf(p *Policy) map[string]any {
 	if p == nil {
