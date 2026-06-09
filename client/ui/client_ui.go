@@ -1431,7 +1431,15 @@ func (s *serviceClient) getSrvConfig() {
 			s.iMTU.SetPlaceHolder(strconv.Itoa(int(iface.DefaultMTU)))
 		}
 		s.sRosenpassPermissive.SetChecked(cfg.RosenpassPermissive)
-		if !cfg.RosenpassEnabled {
+		// Re-baseline the enabled state on every refresh: when Rosenpass
+		// is on the checkbox is editable, when it's off the field is
+		// inert. Without an explicit Enable() here the control stays
+		// stuck disabled after a previous refresh (or an MDM unlock) had
+		// turned it off — applyMDMLocksToSettingsForm below adds the
+		// MDM lock on top of this baseline.
+		if cfg.RosenpassEnabled {
+			s.sRosenpassPermissive.Enable()
+		} else {
 			s.sRosenpassPermissive.Disable()
 		}
 		s.sNetworkMonitor.SetChecked(*cfg.NetworkMonitor)
@@ -1765,15 +1773,13 @@ func (s *serviceClient) applyMDMLocksToSettingsForm(set map[string]bool) {
 			t.check.Enable()
 		}
 	}
-	if s.sRosenpassPermissive != nil {
-		if set[mdm.KeyRosenpassPermissive] {
-			s.sRosenpassPermissive.Disable()
-		}
-		// Re-enable is NOT issued here: the existing code path in
-		// getSrvConfig disables sRosenpassPermissive whenever
-		// RosenpassEnabled is false (it cannot be permissive without
-		// being enabled). Leave that gating intact and only override
-		// when MDM forces a lock.
+	if s.sRosenpassPermissive != nil && set[mdm.KeyRosenpassPermissive] {
+		// MDM lock layered on top of the Rosenpass-on/off baseline
+		// applied by getSrvConfig. No Enable() branch here: when the
+		// MDM key is removed, the next getSrvConfig refresh re-baselines
+		// the control on cfg.RosenpassEnabled and brings it back if
+		// Rosenpass is on.
+		s.sRosenpassPermissive.Disable()
 	}
 }
 
