@@ -114,6 +114,10 @@ type Config struct {
 	MaxDialTimeout time.Duration
 	// MaxSessionIdleTimeout caps the per-service session idle timeout.
 	MaxSessionIdleTimeout time.Duration
+	// MappingBatchWatchdog bounds how long a single mapping batch may spend
+	// being applied before the receive loop reconnects to resync. Zero falls
+	// back to the internal default.
+	MappingBatchWatchdog time.Duration
 
 	// GeoDataDir is the directory containing GeoLite2 MMDB files.
 	GeoDataDir string
@@ -164,6 +168,7 @@ func New(ctx context.Context, cfg Config) *Server {
 		Private:                  cfg.Private,
 		MaxDialTimeout:           cfg.MaxDialTimeout,
 		MaxSessionIdleTimeout:    cfg.MaxSessionIdleTimeout,
+		MappingBatchWatchdog:     cfg.MappingBatchWatchdog,
 		GeoDataDir:               cfg.GeoDataDir,
 		CrowdSecAPIURL:           cfg.CrowdSecAPIURL,
 		CrowdSecAPIKey:           cfg.CrowdSecAPIKey,
