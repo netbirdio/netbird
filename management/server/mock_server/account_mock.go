@@ -38,7 +38,8 @@ type MockAccountManager struct {
 	GetUserFromUserAuthFunc               func(ctx context.Context, userAuth auth.UserAuth) (*types.User, error)
 	ListUsersFunc                         func(ctx context.Context, accountID string) ([]*types.User, error)
 	GetPeersFunc                          func(ctx context.Context, accountID, userID, nameFilter, ipFilter string) ([]*nbpeer.Peer, error)
-	MarkPeerConnectedFunc                 func(ctx context.Context, peerKey string, connected bool, realIP net.IP, syncTime time.Time) error
+	MarkPeerConnectedFunc                 func(ctx context.Context, peerKey string, realIP net.IP, accountID string, sessionStartedAt int64) error
+	MarkPeerDisconnectedFunc              func(ctx context.Context, peerKey string, accountID string, sessionStartedAt int64) error
 	SyncAndMarkPeerFunc                   func(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP, syncTime time.Time) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error)
 	DeletePeerFunc                        func(ctx context.Context, accountID, peerKey, userID string) error
 	GetNetworkMapFunc                     func(ctx context.Context, peerKey string) (*types.NetworkMap, error)
@@ -97,6 +98,7 @@ type MockAccountManager struct {
 	GetPeerFunc                           func(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error)
 	UpdateAccountSettingsFunc             func(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Settings, error)
 	LoginPeerFunc                         func(ctx context.Context, login types.PeerLogin) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
+	ExtendPeerSessionFunc                 func(ctx context.Context, peerPubKey, userID string) (time.Time, error)
 	SyncPeerFunc                          func(ctx context.Context, sync types.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error)
 	InviteUserFunc                        func(ctx context.Context, accountID string, initiatorUserID string, targetUserEmail string) error
 	ApproveUserFunc                       func(ctx context.Context, accountID, initiatorUserID, targetUserID string) (*types.UserInfo, error)
@@ -227,7 +229,14 @@ func (am *MockAccountManager) SyncAndMarkPeer(ctx context.Context, accountID str
 	return nil, nil, nil, 0, status.Errorf(codes.Unimplemented, "method MarkPeerConnected is not implemented")
 }
 
-func (am *MockAccountManager) OnPeerDisconnected(_ context.Context, accountID string, peerPubKey string, streamStartTime time.Time) error {
+func (am *MockAccountManager) OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string, streamStartTime time.Time) error {
+	// Mirror DefaultAccountManager.OnPeerDisconnected: drive the fencing
+	// hook so tests that inject MarkPeerDisconnectedFunc actually observe
+	// disconnect events. Falls through to nil when no hook is set, which
+	// is the original behaviour.
+	if am.MarkPeerDisconnectedFunc != nil {
+		return am.MarkPeerDisconnectedFunc(ctx, peerPubKey, accountID, streamStartTime.UnixNano())
+	}
 	return nil
 }
 
@@ -328,11 +337,19 @@ func (am *MockAccountManager) GetAccountIDByUserID(ctx context.Context, userAuth
 }
 
 // MarkPeerConnected mock implementation of MarkPeerConnected from server.AccountManager interface
-func (am *MockAccountManager) MarkPeerConnected(ctx context.Context, peerKey string, connected bool, realIP net.IP, accountID string, syncTime time.Time) error {
+func (am *MockAccountManager) MarkPeerConnected(ctx context.Context, peerKey string, realIP net.IP, accountID string, sessionStartedAt int64) error {
 	if am.MarkPeerConnectedFunc != nil {
-		return am.MarkPeerConnectedFunc(ctx, peerKey, connected, realIP, syncTime)
+		return am.MarkPeerConnectedFunc(ctx, peerKey, realIP, accountID, sessionStartedAt)
 	}
 	return status.Errorf(codes.Unimplemented, "method MarkPeerConnected is not implemented")
+}
+
+// MarkPeerDisconnected mock implementation of MarkPeerDisconnected from server.AccountManager interface
+func (am *MockAccountManager) MarkPeerDisconnected(ctx context.Context, peerKey string, accountID string, sessionStartedAt int64) error {
+	if am.MarkPeerDisconnectedFunc != nil {
+		return am.MarkPeerDisconnectedFunc(ctx, peerKey, accountID, sessionStartedAt)
+	}
+	return status.Errorf(codes.Unimplemented, "method MarkPeerDisconnected is not implemented")
 }
 
 // DeleteAccount mock implementation of DeleteAccount from server.AccountManager interface
@@ -842,6 +859,14 @@ func (am *MockAccountManager) LoginPeer(ctx context.Context, login types.PeerLog
 		return am.LoginPeerFunc(ctx, login)
 	}
 	return nil, nil, nil, status.Errorf(codes.Unimplemented, "method LoginPeer is not implemented")
+}
+
+// ExtendPeerSession mocks ExtendPeerSession of the AccountManager interface
+func (am *MockAccountManager) ExtendPeerSession(ctx context.Context, peerPubKey, userID string) (time.Time, error) {
+	if am.ExtendPeerSessionFunc != nil {
+		return am.ExtendPeerSessionFunc(ctx, peerPubKey, userID)
+	}
+	return time.Time{}, status.Errorf(codes.Unimplemented, "method ExtendPeerSession is not implemented")
 }
 
 // SyncPeer mocks SyncPeer of the AccountManager interface

@@ -19,6 +19,7 @@ import (
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/auth"
 	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator"
+	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator/validator"
 	"github.com/netbirdio/netbird/management/server/integrations/port_forwarding"
 	"github.com/netbirdio/netbird/management/server/job"
 	nbjwt "github.com/netbirdio/netbird/shared/auth/jwt"
@@ -38,7 +39,7 @@ func (s *BaseServer) JobManager() *job.Manager {
 
 func (s *BaseServer) IntegratedValidator() integrated_validator.IntegratedValidator {
 	return Create(s, func() integrated_validator.IntegratedValidator {
-		integratedPeerValidator, err := integrations.NewIntegratedValidator(
+		integratedPeerValidator, err := validator.NewIntegratedValidator(
 			context.Background(),
 			s.PeersManager(),
 			s.SettingsManager(),
@@ -112,7 +113,11 @@ func (s *BaseServer) AuthManager() auth.Manager {
 
 func (s *BaseServer) EphemeralManager() ephemeral.Manager {
 	return Create(s, func() ephemeral.Manager {
-		return manager.NewEphemeralManager(s.Store(), s.PeersManager())
+		em := manager.NewEphemeralManager(s.Store(), s.PeersManager())
+		if metrics := s.Metrics(); metrics != nil {
+			em.SetMetrics(metrics.EphemeralPeersMetrics())
+		}
+		return em
 	})
 }
 

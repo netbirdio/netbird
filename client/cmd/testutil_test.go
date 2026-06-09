@@ -11,7 +11,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"google.golang.org/grpc"
 
-	"github.com/netbirdio/management-integrations/integrations"
+	"github.com/netbirdio/netbird/management/server/integrations/integrated_validator/validator"
 
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 
@@ -109,7 +109,7 @@ func startManagement(t *testing.T, config *config.Config, testFile string) (*grp
 		t.Fatal(err)
 	}
 
-	iv, _ := integrations.NewIntegratedValidator(ctx, peersmanager, settingsManagerMock, eventStore, cacheStore)
+	iv, _ := validator.NewIntegratedValidator(ctx, peersmanager, settingsManagerMock, eventStore, cacheStore)
 
 	metrics, err := telemetry.NewDefaultAppMetrics(ctx)
 	require.NoError(t, err)

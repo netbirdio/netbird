@@ -1739,3 +1739,100 @@ func TestCheckRestrictions_IPv4MappedIPv6(t *testing.T) {
 	connOutside := &fakeConn{remote: fakeAddr("[::ffff:192.168.1.1]:5678")}
 	assert.NotEqual(t, restrict.Allow, router.checkRestrictions(connOutside, route), "::ffff:192.168.1.1 not in v4 CIDR")
 }
+
+// TestRouter_PlainHTTP_RoutesToPlainChannel verifies that a plain (non-TLS)
+// connection lands on the plain HTTP channel when the router was built
+// with WithPlainHTTP, leaving the TLS channel untouched.
+func TestRouter_PlainHTTP_RoutesToPlainChannel(t *testing.T) {
+	logger := log.StandardLogger()
+	addr := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 443}
+
+	router := NewRouter(logger, nil, addr, WithPlainHTTP(addr))
+	router.AddRoute("example.com", Route{Type: RouteHTTP})
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err, "test listener bind must succeed")
+	defer ln.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		_ = router.Serve(ctx, ln)
+	}()
+
+	// Plain HTTP request (no TLS handshake byte).
+	go func() {
+		conn, err := net.DialTimeout("tcp", ln.Addr().String(), 2*time.Second)
+		if err != nil {
+			return
+		}
+		_, _ = conn.Write([]byte("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"))
+	}()
+
+	plainListener := router.HTTPListenerPlain()
+	require.NotNil(t, plainListener, "plain listener must be exposed when WithPlainHTTP is set")
+
+	acceptDone := make(chan net.Conn, 1)
+	go func() {
+		conn, err := plainListener.Accept()
+		if err == nil {
+			acceptDone <- conn
+		}
+	}()
+
+	tlsListener, ok := router.HTTPListener().(*chanListener)
+	require.True(t, ok, "router.HTTPListener() must be the test's chanListener; the test relies on observing its channel directly")
+
+	select {
+	case conn := <-acceptDone:
+		require.NotNil(t, conn)
+		_ = conn.Close()
+	case <-tlsListener.ch:
+		t.Fatal("plain HTTP request leaked into TLS channel")
+	case <-time.After(3 * time.Second):
+		t.Fatal("plain HTTP connection never reached plain channel")
+	}
+}
+
+// TestRouter_TLS_StaysOnTLSChannel_WhenPlainEnabled verifies that the
+// presence of a plain channel does not divert TLS traffic — TLS still
+// goes to the TLS channel as before.
+func TestRouter_TLS_StaysOnTLSChannel_WhenPlainEnabled(t *testing.T) {
+	logger := log.StandardLogger()
+	addr := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 443}
+
+	router := NewRouter(logger, nil, addr, WithPlainHTTP(addr))
+	router.AddRoute("example.com", Route{Type: RouteHTTP})
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err, "test listener bind must succeed")
+	defer ln.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = router.Serve(ctx, ln) }()
+
+	// Send a TLS ClientHello.
+	go func() {
+		conn, err := net.DialTimeout("tcp", ln.Addr().String(), 2*time.Second)
+		if err != nil {
+			return
+		}
+		tlsConn := tls.Client(conn, &tls.Config{
+			ServerName:         "example.com",
+			InsecureSkipVerify: true, //nolint:gosec
+		})
+		_ = tlsConn.Handshake()
+		_ = tlsConn.Close()
+	}()
+
+	select {
+	case conn := <-router.httpCh:
+		require.NotNil(t, conn, "TLS conn should land on the TLS channel")
+		_ = conn.Close()
+	case <-time.After(5 * time.Second):
+		t.Fatal("TLS conn never reached the TLS channel")
+	}
+}

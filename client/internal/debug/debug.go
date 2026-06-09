@@ -45,8 +45,11 @@ netbird.out: Most recent, anonymized stdout log file of the NetBird client.
 routes.txt: Detailed system routing table in tabular format including destination, gateway, interface, metrics, and protocol information, if --system-info flag was provided.
 interfaces.txt: Anonymized network interface information, if --system-info flag was provided.
 ip_rules.txt: Detailed IP routing rules in tabular format including priority, source, destination, interfaces, table, and action information (Linux only), if --system-info flag was provided.
-iptables.txt: Anonymized iptables rules with packet counters, if --system-info flag was provided.
-nftables.txt: Anonymized nftables rules with packet counters, if --system-info flag was provided.
+iptables.txt: Anonymized iptables (IPv4) rules with packet counters, if --system-info flag was provided.
+ip6tables.txt: Anonymized ip6tables (IPv6) rules with packet counters, if --system-info flag was provided.
+ipset.txt: Anonymized ipset list output, if --system-info flag was provided.
+nftables.txt: Anonymized nftables rules with packet counters across all families (ip, ip6, inet, etc.), if --system-info flag was provided.
+sysctls.txt: Forwarding, reverse-path filter, source-validation, and conntrack accounting sysctl values that the NetBird client may read or modify, if --system-info flag was provided (Linux only).
 resolv.conf: DNS resolver configuration from /etc/resolv.conf (Unix systems only), if --system-info flag was provided.
 scutil_dns.txt: DNS configuration from scutil --dns (macOS only), if --system-info flag was provided.
 resolved_domains.txt: Anonymized resolved domain IP addresses from the status recorder.
@@ -165,22 +168,33 @@ The config.txt file contains anonymized configuration information of the NetBird
 Other non-sensitive configuration options are included without anonymization.
 
 Firewall Rules (Linux only)
-The bundle includes two separate firewall rule files:
+The bundle includes the following firewall-related files:
 
 iptables.txt:
-- Complete iptables ruleset with packet counters using 'iptables -v -n -L'
+- IPv4 iptables ruleset with packet counters using 'iptables-save' and 'iptables -v -n -L'
 - Includes all tables (filter, nat, mangle, raw, security)
 - Shows packet and byte counters for each rule
 - All IP addresses are anonymized
 - Chain names, table names, and other non-sensitive information remain unchanged
 
+ip6tables.txt:
+- IPv6 ip6tables ruleset with packet counters using 'ip6tables-save' and 'ip6tables -v -n -L'
+- Same table coverage and anonymization as iptables.txt
+- Omitted when ip6tables is not installed or no IPv6 rules are present
+
+ipset.txt:
+- Output of 'ipset list' (family-agnostic)
+- IP addresses are anonymized; set names and types remain unchanged
+
 nftables.txt:
-- Complete nftables ruleset obtained via 'nft -a list ruleset'
+- Complete nftables ruleset across all families (ip, ip6, inet, arp, bridge, netdev) via 'nft -a list ruleset'
 - Includes rule handle numbers and packet counters
-- All tables, chains, and rules are included
-- Shows packet and byte counters for each rule
-- All IP addresses are anonymized
-- Chain names, table names, and other non-sensitive information remain unchanged
+- All IP addresses are anonymized; chain/table names remain unchanged
+
+sysctls.txt:
+- Forwarding (IPv4 + IPv6, global and per-interface), reverse-path filter, source-validation, conntrack accounting, and TCP-related sysctls that netbird may read or modify
+- Per-interface keys are enumerated from /proc/sys/net/ipv{4,6}/conf
+- Interface names anonymized when --anonymize is set
 
 IP Rules (Linux only)
 The ip_rules.txt file contains detailed IP routing rule information:
@@ -240,6 +254,8 @@ type BundleGenerator struct {
 	capturePath    string
 	refreshStatus  func() // Optional callback to refresh status before bundle generation
 	clientMetrics  MetricsExporter
+	daemonVersion  string
+	cliVersion     string
 
 	anonymize         bool
 	includeSystemInfo bool
@@ -264,6 +280,8 @@ type GeneratorDependencies struct {
 	CapturePath    string
 	RefreshStatus  func()
 	ClientMetrics  MetricsExporter
+	DaemonVersion  string
+	CliVersion     string
 }
 
 func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGenerator {
@@ -285,6 +303,8 @@ func NewBundleGenerator(deps GeneratorDependencies, cfg BundleConfig) *BundleGen
 		capturePath:    deps.CapturePath,
 		refreshStatus:  deps.RefreshStatus,
 		clientMetrics:  deps.ClientMetrics,
+		daemonVersion:  deps.DaemonVersion,
+		cliVersion:     deps.CliVersion,
 
 		anonymize:         cfg.Anonymize,
 		includeSystemInfo: cfg.IncludeSystemInfo,
@@ -412,6 +432,10 @@ func (g *BundleGenerator) addSystemInfo() {
 		log.Errorf("failed to add firewall rules to debug bundle: %v", err)
 	}
 
+	if err := g.addSysctls(); err != nil {
+		log.Errorf("failed to add sysctls to debug bundle: %v", err)
+	}
+
 	if err := g.addDNSInfo(); err != nil {
 		log.Errorf("failed to add DNS info to debug bundle: %v", err)
 	}
@@ -441,9 +465,11 @@ func (g *BundleGenerator) addStatus() error {
 		protoFullStatus := nbstatus.ToProtoFullStatus(fullStatus)
 		protoFullStatus.Events = g.statusRecorder.GetEventHistory()
 		overview := nbstatus.ConvertToStatusOutputOverview(protoFullStatus, nbstatus.ConvertOptions{
-			Anonymize:   g.anonymize,
-			ProfileName: profName,
+			Anonymize:     g.anonymize,
+			ProfileName:   profName,
+			DaemonVersion: g.daemonVersion,
 		})
+		overview.CliVersion = g.cliVersion
 		statusOutput := overview.FullDetailSummary()
 
 		statusReader := strings.NewReader(statusOutput)
@@ -780,6 +806,8 @@ func (g *BundleGenerator) addSyncResponse() error {
 		AllowPartial:    true,
 	}
 
+	g.maskSecrets()
+
 	jsonBytes, err := options.Marshal(g.syncResponse)
 	if err != nil {
 		return fmt.Errorf("generate json: %w", err)
@@ -790,6 +818,27 @@ func (g *BundleGenerator) addSyncResponse() error {
 	}
 
 	return nil
+}
+
+func (g *BundleGenerator) maskSecrets() {
+	if g.syncResponse == nil || g.syncResponse.NetbirdConfig == nil {
+		return
+	}
+
+	if g.syncResponse.NetbirdConfig.Flow != nil {
+		g.syncResponse.NetbirdConfig.Flow.TokenPayload = maskedValue
+
+	}
+
+	if g.syncResponse.NetbirdConfig.Relay != nil {
+		g.syncResponse.NetbirdConfig.Relay.TokenPayload = maskedValue
+	}
+
+	for i := range g.syncResponse.NetbirdConfig.Turns {
+		if g.syncResponse.NetbirdConfig.Turns[i] != nil {
+			g.syncResponse.NetbirdConfig.Turns[i].Password = maskedValue
+		}
+	}
 }
 
 func (g *BundleGenerator) addStateFile() error {
@@ -1021,7 +1070,8 @@ func (g *BundleGenerator) addRotatedLogFiles(logDir string) {
 		return
 	}
 
-	pattern := filepath.Join(logDir, "client-*.log.gz")
+	// This regex will match both logs rotated by us and logrotate on linux
+	pattern := filepath.Join(logDir, "client*.log.*")
 	files, err := filepath.Glob(pattern)
 	if err != nil {
 		log.Warnf("failed to glob rotated logs: %v", err)
@@ -1054,7 +1104,12 @@ func (g *BundleGenerator) addRotatedLogFiles(logDir string) {
 
 	for i := 0; i < maxFiles; i++ {
 		name := filepath.Base(files[i])
-		if err := g.addSingleLogFileGz(files[i], name); err != nil {
+		if strings.HasSuffix(name, ".gz") {
+			err = g.addSingleLogFileGz(files[i], name)
+		} else {
+			err = g.addSingleLogfile(files[i], name)
+		}
+		if err != nil {
 			log.Warnf("failed to add rotated log %s: %v", name, err)
 		}
 	}

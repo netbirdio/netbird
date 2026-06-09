@@ -12,6 +12,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/proxy"
 	"github.com/netbirdio/netbird/shared/hash/argon2id"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
 
@@ -350,6 +351,83 @@ func TestToProtoMapping_PortInTargetURL(t *testing.T) {
 			host:       "10.0.0.1",
 			port:       80,
 			wantTarget: "https://10.0.0.1:80/",
+		},
+		{
+			name:       "domain host without port is unchanged",
+			protocol:   "http",
+			host:       "example.com",
+			port:       0,
+			wantTarget: "http://example.com/",
+		},
+		{
+			name:       "domain host with non-default port is unchanged",
+			protocol:   "http",
+			host:       "example.com",
+			port:       8080,
+			wantTarget: "http://example.com:8080/",
+		},
+		{
+			name:       "ipv6 host without port is bracketed",
+			protocol:   "http",
+			host:       "fb00:cafe:1::3",
+			port:       0,
+			wantTarget: "http://[fb00:cafe:1::3]/",
+		},
+		{
+			name:       "ipv6 host with default port omits port and brackets host",
+			protocol:   "http",
+			host:       "fb00:cafe:1::3",
+			port:       80,
+			wantTarget: "http://[fb00:cafe:1::3]/",
+		},
+		{
+			name:       "ipv6 host with non-default port is bracketed",
+			protocol:   "http",
+			host:       "fb00:cafe:1::3",
+			port:       8080,
+			wantTarget: "http://[fb00:cafe:1::3]:8080/",
+		},
+		{
+			name:       "ipv6 loopback without port is bracketed",
+			protocol:   "http",
+			host:       "::1",
+			port:       0,
+			wantTarget: "http://[::1]/",
+		},
+		{
+			name:       "ipv6 host with 5-digit port is bracketed",
+			protocol:   "http",
+			host:       "fb00:cafe::1",
+			port:       18080,
+			wantTarget: "http://[fb00:cafe::1]:18080/",
+		},
+		{
+			name:       "pre-bracketed ipv6 without port stays single-bracketed",
+			protocol:   "http",
+			host:       "[fb00:cafe::1]",
+			port:       0,
+			wantTarget: "http://[fb00:cafe::1]/",
+		},
+		{
+			name:       "pre-bracketed ipv6 with port is not double-bracketed",
+			protocol:   "http",
+			host:       "[fb00:cafe::1]",
+			port:       8080,
+			wantTarget: "http://[fb00:cafe::1]:8080/",
+		},
+		{
+			name:       "v4-mapped ipv6 host without port is bracketed",
+			protocol:   "http",
+			host:       "::ffff:10.0.0.1",
+			port:       0,
+			wantTarget: "http://[::ffff:10.0.0.1]/",
+		},
+		{
+			name:       "full-form 8-group ipv6 without port is bracketed",
+			protocol:   "http",
+			host:       "fb00:cafe:1:0:0:0:0:3",
+			port:       0,
+			wantTarget: "http://[fb00:cafe:1:0:0:0:0:3]/",
 		},
 	}
 	for _, tt := range tests {
@@ -1038,4 +1116,202 @@ func TestValidate_HeaderAuths(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "exceeds maximum length")
 	})
+}
+
+func TestValidate_HTTPClusterTarget(t *testing.T) {
+	rp := validProxy()
+	rp.Targets = []*Target{{
+		TargetId:   "eu.proxy.netbird.io",
+		TargetType: TargetTypeCluster,
+		Protocol:   "http",
+		Host:       "backend.lan",
+		Options:    TargetOptions{DirectUpstream: true},
+		Enabled:    true,
+	}}
+	require.NoError(t, rp.Validate(), "HTTP cluster target with target_id, host, and direct_upstream must validate")
+}
+
+func TestValidate_HTTPClusterTarget_RequiresTargetId(t *testing.T) {
+	rp := validProxy()
+	rp.Targets = []*Target{{
+		TargetType: TargetTypeCluster,
+		Protocol:   "http",
+		Host:       "backend.lan",
+		Options:    TargetOptions{DirectUpstream: true},
+		Enabled:    true,
+	}}
+	assert.ErrorContains(t, rp.Validate(), "empty target_id", "cluster target must reject empty target_id")
+}
+
+// TestValidate_HTTPClusterTarget_RequiresHost pins the new cluster-target
+// rule that operator-supplied Host is mandatory: cluster targets dial the
+// upstream via the host network stack (direct_upstream is implied), so an
+// empty Host leaves the proxy with nothing to dial.
+func TestValidate_HTTPClusterTarget_RequiresHost(t *testing.T) {
+	rp := validProxy()
+	rp.Targets = []*Target{{
+		TargetId:   "eu.proxy.netbird.io",
+		TargetType: TargetTypeCluster,
+		Protocol:   "http",
+		Options:    TargetOptions{DirectUpstream: true},
+		Enabled:    true,
+	}}
+	assert.ErrorContains(t, rp.Validate(), "empty host", "cluster target must reject empty host")
+}
+
+// TestValidate_HTTPClusterTarget_RequiresDirectUpstream pins the second
+// half of the cluster-target rule: DirectUpstream must be true so the
+// stdlib transport branch in MultiTransport is taken. Without it the
+// embedded NetBird client would try to dial the cluster address through
+// the WG tunnel, which is the wrong network for a cluster upstream.
+func TestValidate_HTTPClusterTarget_RequiresDirectUpstream(t *testing.T) {
+	rp := validProxy()
+	rp.Targets = []*Target{{
+		TargetId:   "eu.proxy.netbird.io",
+		TargetType: TargetTypeCluster,
+		Protocol:   "http",
+		Host:       "backend.lan",
+		Enabled:    true,
+	}}
+	assert.ErrorContains(t, rp.Validate(), "direct upstream disabled", "cluster target must reject direct_upstream=false")
+}
+
+// TestValidate_L4ClusterTarget_RequiresPort confirms that an L4 cluster
+// target without an explicit port is rejected. buildPathMappings emits
+// net.JoinHostPort(target.Host, target.Port) for every L4 target — so
+// allowing port=0 would let the proxy ship ":0" upstreams. The port
+// requirement is the same as every other L4 target type.
+func TestValidate_L4ClusterTarget_RequiresPort(t *testing.T) {
+	rp := validProxy()
+	rp.Mode = ModeTCP
+	rp.ListenPort = 9000
+	rp.Targets = []*Target{{
+		TargetId:   "eu.proxy.netbird.io",
+		TargetType: TargetTypeCluster,
+		Protocol:   "tcp",
+		Enabled:    true,
+	}}
+	assert.ErrorContains(t, rp.Validate(), "port is required",
+		"L4 cluster target must require an explicit port like other L4 target types")
+
+	rp.Targets[0].Port = 5432
+	rp.Targets[0].Host = "db.lan"
+	require.NoError(t, rp.Validate(), "L4 cluster target with host:port must validate")
+}
+
+func TestService_Copy_RoundtripsPrivate(t *testing.T) {
+	svc := validProxy()
+	svc.Private = true
+	svc.AccessGroups = []string{"grp-admins", "grp-ops"}
+	cp := svc.Copy()
+	require.NotNil(t, cp)
+	assert.True(t, cp.Private)
+	assert.Equal(t, []string{"grp-admins", "grp-ops"}, cp.AccessGroups)
+
+	cp.Private = false
+	assert.True(t, svc.Private)
+
+	cp.AccessGroups[0] = "grp-other"
+	assert.Equal(t, []string{"grp-admins", "grp-ops"}, svc.AccessGroups)
+}
+
+func TestService_APIRoundtrip_Private(t *testing.T) {
+	enabled := true
+	private := true
+	accessGroups := []string{"grp-admins"}
+	targets := []api.ServiceTarget{{
+		TargetId:   "eu.proxy.netbird.io",
+		TargetType: api.ServiceTargetTargetType("cluster"),
+		Protocol:   "http",
+		Port:       80,
+		Enabled:    true,
+	}}
+	req := &api.ServiceRequest{
+		Name:         "svc-private",
+		Domain:       "myapp.eu.proxy.netbird.io",
+		Enabled:      enabled,
+		Private:      &private,
+		AccessGroups: &accessGroups,
+		Targets:      &targets,
+	}
+
+	svc := &Service{}
+	require.NoError(t, svc.FromAPIRequest(req, "acc-1"))
+	assert.True(t, svc.Private)
+	assert.Equal(t, []string{"grp-admins"}, svc.AccessGroups)
+
+	resp := svc.ToAPIResponse()
+	require.NotNil(t, resp.Private)
+	assert.True(t, *resp.Private)
+	require.NotNil(t, resp.AccessGroups)
+	assert.Equal(t, []string{"grp-admins"}, *resp.AccessGroups)
+}
+
+func TestValidate_Private_RequiresAccessGroups(t *testing.T) {
+	rp := validProxy()
+	rp.Private = true
+	rp.Targets = []*Target{{
+		TargetId:   "eu.proxy.netbird.io",
+		TargetType: TargetTypeCluster,
+		Protocol:   "http",
+		Host:       "backend.lan",
+		Options:    TargetOptions{DirectUpstream: true},
+		Enabled:    true,
+	}}
+	assert.ErrorContains(t, rp.Validate(), "access group")
+}
+
+func TestValidate_Private_RejectsBearerAuth(t *testing.T) {
+	rp := validProxy()
+	rp.Private = true
+	rp.AccessGroups = []string{"grp-admins"}
+	rp.Auth.BearerAuth = &BearerAuthConfig{
+		Enabled:            true,
+		DistributionGroups: []string{"grp-sso"},
+	}
+	rp.Targets = []*Target{{
+		TargetId:   "eu.proxy.netbird.io",
+		TargetType: TargetTypeCluster,
+		Protocol:   "http",
+		Host:       "backend.lan",
+		Options:    TargetOptions{DirectUpstream: true},
+		Enabled:    true,
+	}}
+	assert.ErrorContains(t, rp.Validate(), "mutually exclusive")
+}
+
+func TestValidate_Private_AcceptsNonClusterTargets(t *testing.T) {
+	rp := validProxy()
+	rp.Private = true
+	rp.AccessGroups = []string{"grp-admins"}
+	require.NoError(t, rp.Validate())
+}
+
+func TestValidate_Private_AcceptsClusterTargetWithAccessGroups(t *testing.T) {
+	rp := validProxy()
+	rp.Private = true
+	rp.AccessGroups = []string{"grp-admins"}
+	rp.Targets = []*Target{{
+		TargetId:   "eu.proxy.netbird.io",
+		TargetType: TargetTypeCluster,
+		Protocol:   "http",
+		Host:       "backend.lan",
+		Options:    TargetOptions{DirectUpstream: true},
+		Enabled:    true,
+	}}
+	require.NoError(t, rp.Validate())
+}
+
+func TestValidate_Private_RejectsNonHTTPMode(t *testing.T) {
+	rp := validProxy()
+	rp.Private = true
+	rp.AccessGroups = []string{"grp-admins"}
+	rp.Mode = ModeTCP
+	rp.Targets = []*Target{{
+		TargetId:   "eu.proxy.netbird.io",
+		TargetType: TargetTypeCluster,
+		Protocol:   "tcp",
+		Enabled:    true,
+	}}
+	assert.ErrorContains(t, rp.Validate(), "HTTP")
 }

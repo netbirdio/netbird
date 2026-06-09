@@ -1172,7 +1172,7 @@ func TestDeleteService_DeletesTargets(t *testing.T) {
 
 	mockPerms.EXPECT().
 		ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Delete).
-		Return(true, nil)
+		Return(true, ctx, nil)
 	mockAcct.EXPECT().
 		StoreEvent(ctx, userID, service.ID, accountID, activity.ServiceDeleted, gomock.Any())
 	mockAcct.EXPECT().
@@ -1343,4 +1343,67 @@ func TestValidateSubdomainRequirement(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateTargetReferences_ClusterTargetSkipsLookup(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	accountID := "test-account"
+
+	// No peer or resource lookups must be issued for cluster targets.
+	targets := []*rpservice.Target{
+		{
+			TargetId:   "eu.proxy.netbird.io",
+			TargetType: rpservice.TargetTypeCluster,
+			Options:    rpservice.TargetOptions{DirectUpstream: true},
+		},
+	}
+	require.NoError(t, validateTargetReferences(ctx, mockStore, accountID, targets), "cluster target must validate without store lookups")
+}
+
+// TestValidateTargetReferences_ClusterTargetRequiresDirectUpstream pins the
+// store-side check that cluster targets must opt into the host-stack dial
+// path. Without DirectUpstream the proxy would route this target through
+// the embedded NetBird client and fail on every request.
+func TestValidateTargetReferences_ClusterTargetRequiresDirectUpstream(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	accountID := "test-account"
+
+	targets := []*rpservice.Target{
+		{
+			TargetId:   "eu.proxy.netbird.io",
+			TargetType: rpservice.TargetTypeCluster,
+			Host:       "backend.lan",
+		},
+	}
+	err := validateTargetReferences(ctx, mockStore, accountID, targets)
+	require.Error(t, err, "cluster target without direct_upstream must be rejected")
+	assert.ErrorContains(t, err, "direct upstream disabled")
+}
+
+func TestReplaceHostByLookup_SkipsClusterTarget(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+	accountID := "test-account"
+
+	mgr := &Manager{store: mockStore}
+
+	svc := &rpservice.Service{
+		ID:        "svc-1",
+		AccountID: accountID,
+		Targets: []*rpservice.Target{
+			{
+				TargetId:   "eu.proxy.netbird.io",
+				TargetType: rpservice.TargetTypeCluster,
+				Host:       "127.0.0.1",
+			},
+		},
+	}
+
+	require.NoError(t, mgr.replaceHostByLookup(ctx, accountID, svc), "cluster target must not trigger peer/resource lookup")
+	assert.Equal(t, "127.0.0.1", svc.Targets[0].Host, "operator-supplied host must be preserved for cluster target")
 }

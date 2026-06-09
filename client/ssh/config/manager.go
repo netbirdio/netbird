@@ -252,6 +252,10 @@ func (m *Manager) writeSSHConfig(sshConfig string) error {
 		return fmt.Errorf("write SSH config file %s: %w", tmpPath, err)
 	}
 
+	if err := os.Chmod(tmpPath, 0644); err != nil {
+		return fmt.Errorf("chmod SSH config file %s: %w", tmpPath, err)
+	}
+
 	if err := os.Rename(tmpPath, sshConfigPath); err != nil {
 		return fmt.Errorf("rename SSH config %s -> %s: %w", tmpPath, sshConfigPath, err)
 	}

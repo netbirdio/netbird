@@ -239,6 +239,10 @@ func (m *testProxyManager) ClusterSupportsCrowdSec(_ context.Context, _ string) 
 	return nil
 }
 
+func (m *testProxyManager) ClusterSupportsPrivate(_ context.Context, _ string) *bool {
+	return nil
+}
+
 func (m *testProxyManager) CleanupStale(_ context.Context, _ time.Duration) error {
 	return nil
 }
@@ -366,7 +370,7 @@ func (m *storeBackedServiceManager) GetServiceByDomain(ctx context.Context, doma
 	return m.store.GetServiceByDomain(ctx, domain)
 }
 
-func (m *storeBackedServiceManager) GetActiveClusters(_ context.Context, _, _ string) ([]nbproxy.Cluster, error) {
+func (m *storeBackedServiceManager) GetClusters(_ context.Context, _, _ string) ([]nbproxy.Cluster, error) {
 	return nil, nil
 }
 
@@ -565,6 +569,7 @@ func TestIntegration_ProxyConnection_ReconnectDoesNotDuplicateState(t *testing.T
 					proxytypes.AccountID(mapping.GetAccountId()),
 					proxytypes.ServiceID(mapping.GetId()),
 					nil,
+					mapping.GetPrivate(),
 				)
 				require.NoError(t, err)
 

@@ -3,6 +3,7 @@ package roundtrip
 import (
 	"context"
 	"net/http"
+	"net/netip"
 	"sync"
 	"testing"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
+	"github.com/netbirdio/netbird/client/embed"
 	"github.com/netbirdio/netbird/proxy/internal/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
@@ -29,12 +31,15 @@ type statusCall struct {
 	accountID types.AccountID
 	serviceID types.ServiceID
 	connected bool
+	// ctx is captured so tests can assert the notifier received a
+	// fresh background context rather than an inherited request ctx.
+	ctx context.Context
 }
 
-func (m *mockStatusNotifier) NotifyStatus(_ context.Context, accountID types.AccountID, serviceID types.ServiceID, connected bool) error {
+func (m *mockStatusNotifier) NotifyStatus(ctx context.Context, accountID types.AccountID, serviceID types.ServiceID, connected bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.statuses = append(m.statuses, statusCall{accountID, serviceID, connected})
+	m.statuses = append(m.statuses, statusCall{accountID, serviceID, connected, ctx})
 	return nil
 }
 
@@ -47,7 +52,7 @@ func (m *mockStatusNotifier) calls() []statusCall {
 // mockNetBird creates a NetBird instance for testing without actually connecting.
 // It uses an invalid management URL to prevent real connections.
 func mockNetBird() *NetBird {
-	return NewNetBird("test-proxy", "invalid.test", ClientConfig{
+	return NewNetBird(context.Background(), "test-proxy", "invalid.test", ClientConfig{
 		MgmtAddr:     "http://invalid.test:9999",
 		WGPort:       0,
 		PreSharedKey: "",
@@ -278,7 +283,7 @@ func TestNetBird_RoundTrip_RequiresExistingClient(t *testing.T) {
 
 func TestNetBird_AddPeer_ExistingStartedClient_NotifiesStatus(t *testing.T) {
 	notifier := &mockStatusNotifier{}
-	nb := NewNetBird("test-proxy", "invalid.test", ClientConfig{
+	nb := NewNetBird(context.Background(), "test-proxy", "invalid.test", ClientConfig{
 		MgmtAddr:     "http://invalid.test:9999",
 		WGPort:       0,
 		PreSharedKey: "",
@@ -294,8 +299,12 @@ func TestNetBird_AddPeer_ExistingStartedClient_NotifiesStatus(t *testing.T) {
 	nb.clients[accountID].started = true
 	nb.clientsMux.Unlock()
 
-	// Add second service — should notify immediately since client is already started.
-	err = nb.AddPeer(context.Background(), accountID, "domain2.test", "key-1", types.ServiceID("svc-2"))
+	// Add second service with an already-cancelled caller context —
+	// should notify immediately (client is started) AND the notification
+	// must not inherit the cancelled ctx.
+	cancelledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err = nb.AddPeer(cancelledCtx, accountID, "domain2.test", "key-1", types.ServiceID("svc-2"))
 	require.NoError(t, err)
 
 	calls := notifier.calls()
@@ -303,11 +312,44 @@ func TestNetBird_AddPeer_ExistingStartedClient_NotifiesStatus(t *testing.T) {
 	assert.Equal(t, accountID, calls[0].accountID)
 	assert.Equal(t, types.ServiceID("svc-2"), calls[0].serviceID)
 	assert.True(t, calls[0].connected)
+	require.NotNil(t, calls[0].ctx, "NotifyStatus must receive a context")
+	require.NoError(t, calls[0].ctx.Err(),
+		"already-started NotifyStatus must use a background ctx, not the cancelled caller ctx")
+}
+
+// TestNetBird_IdentityForIP_UnknownAccountReturnsFalse confirms that the
+// public lookup short-circuits when no client has been registered for
+// the queried account. The auth middleware uses ok=false as a fast deny.
+func TestNetBird_IdentityForIP_UnknownAccountReturnsFalse(t *testing.T) {
+	nb := mockNetBird()
+	_, _, ok := nb.IdentityForIP("acct-missing", netip.MustParseAddr("100.64.0.10"))
+	assert.False(t, ok, "unknown account must yield ok=false")
+}
+
+// TestClientEntry_IdentityForIP_NilClientGuard ensures the receiver
+// methods stay safe when called on partially-initialized state, which
+// can happen briefly during AddPeer setup or test fixtures.
+func TestClientEntry_IdentityForIP_NilClientGuard(t *testing.T) {
+	var e *clientEntry
+	_, _, ok := e.IdentityForIP(netip.MustParseAddr("100.64.0.10"))
+	assert.False(t, ok, "nil clientEntry must yield ok=false")
+
+	e = &clientEntry{}
+	_, _, ok = e.IdentityForIP(netip.MustParseAddr("100.64.0.10"))
+	assert.False(t, ok, "clientEntry with nil embed.Client must yield ok=false")
+}
+
+// TestClientEntry_IdentityForIP_InvalidIPReturnsFalse covers the input
+// guard so callers don't have to repeat the check.
+func TestClientEntry_IdentityForIP_InvalidIPReturnsFalse(t *testing.T) {
+	e := &clientEntry{}
+	_, _, ok := e.IdentityForIP(netip.Addr{})
+	assert.False(t, ok, "invalid IP must yield ok=false")
 }
 
 func TestNetBird_RemovePeer_NotifiesDisconnection(t *testing.T) {
 	notifier := &mockStatusNotifier{}
-	nb := NewNetBird("test-proxy", "invalid.test", ClientConfig{
+	nb := NewNetBird(context.Background(), "test-proxy", "invalid.test", ClientConfig{
 		MgmtAddr:     "http://invalid.test:9999",
 		WGPort:       0,
 		PreSharedKey: "",
@@ -328,4 +370,54 @@ func TestNetBird_RemovePeer_NotifiesDisconnection(t *testing.T) {
 	require.Len(t, calls, 1)
 	assert.Equal(t, types.ServiceID("svc-1"), calls[0].serviceID)
 	assert.False(t, calls[0].connected)
+}
+
+// TestNotifyClientReady_UsesBackgroundCtx pins the contract that the
+// post-Start hooks (readyHandler + statusNotifier.NotifyStatus) run on
+// a fresh context.Background() rather than inheriting the AddPeer
+// caller's request- or stream-scoped ctx. Without this, a cancelled
+// caller ctx could abort the inbound listener bring-up or cause the
+// management status notification to fail spuriously and leave the
+// account in a half-connected state.
+func TestNotifyClientReady_UsesBackgroundCtx(t *testing.T) {
+	notifier := &mockStatusNotifier{}
+	nb := NewNetBird(context.Background(), "test-proxy", "invalid.test", ClientConfig{
+		MgmtAddr: "http://invalid.test:9999",
+	}, nil, notifier, &mockMgmtClient{})
+
+	accountID := types.AccountID("acct-async")
+	// Pre-populate a client entry so notifyClientReady has something
+	// to mark started + something to enumerate for NotifyStatus.
+	nb.clientsMux.Lock()
+	nb.clients[accountID] = &clientEntry{
+		services: map[ServiceKey]serviceInfo{
+			DomainServiceKey("svc.example"): {serviceID: types.ServiceID("svc-1")},
+		},
+	}
+	nb.clientsMux.Unlock()
+
+	var capturedReadyCtx context.Context
+	nb.SetClientLifecycle(
+		func(ctx context.Context, _ types.AccountID, _ *embed.Client) any {
+			capturedReadyCtx = ctx
+			return nil
+		},
+		nil,
+	)
+
+	// Drive the post-Start path directly; a real client.Start would
+	// need a working management URL.
+	nb.notifyClientReady(accountID, nil)
+
+	require.NotNil(t, capturedReadyCtx, "readyHandler must have been invoked")
+	require.NoError(t, capturedReadyCtx.Err(),
+		"readyHandler must receive a background context, not an inherited cancelled one")
+	deadline, ok := capturedReadyCtx.Deadline()
+	assert.False(t, ok, "readyHandler ctx must have no deadline (background); got %v", deadline)
+
+	calls := notifier.calls()
+	require.Len(t, calls, 1, "NotifyStatus must be invoked once per registered service")
+	require.NotNil(t, calls[0].ctx, "NotifyStatus must receive a context")
+	require.NoError(t, calls[0].ctx.Err(),
+		"NotifyStatus must receive a background context, not an inherited cancelled one")
 }

@@ -22,7 +22,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-	"google.golang.org/protobuf/proto"
 
 	nberrors "github.com/netbirdio/netbird/client/errors"
 	"github.com/netbirdio/netbird/client/firewall"
@@ -56,6 +55,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/routemanager/systemops"
 	"github.com/netbirdio/netbird/client/internal/statemanager"
+	"github.com/netbirdio/netbird/client/internal/syncstore"
 	"github.com/netbirdio/netbird/client/internal/updater"
 	"github.com/netbirdio/netbird/client/jobexec"
 	cProto "github.com/netbirdio/netbird/client/proto"
@@ -72,6 +72,7 @@ import (
 	sProto "github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/util/capture"
+	"github.com/netbirdio/netbird/version"
 )
 
 // PeerConnectionTimeoutMax is a timeout of an initial connection attempt to a remote peer.
@@ -148,6 +149,10 @@ type EngineConfig struct {
 
 	LogPath string
 	TempDir string
+
+	// StateDir is the directory holding the state file. The sync response
+	// (network map) is serialized here on platforms that persist it to disk.
+	StateDir string
 }
 
 // EngineServices holds the external service dependencies required by the Engine.
@@ -226,10 +231,15 @@ type Engine struct {
 
 	afpacketCapture *capture.AFPacketCapture
 
-	// Sync response persistence (protected by syncRespMux)
-	syncRespMux         sync.RWMutex
-	persistSyncResponse bool
-	latestSyncResponse  *mgmProto.SyncResponse
+	// Sync response persistence (protected by syncRespMux).
+	// syncStore is nil unless persistence has been enabled; its presence is
+	// what marks persistence as active. The backend (disk or memory) is
+	// selected per-platform; see the syncstore package. syncStoreDir is where
+	// a disk-backed store serializes to.
+	syncRespMux  sync.RWMutex
+	syncStore    syncstore.Store
+	syncStoreDir string
+
 	flowManager         nftypes.FlowManager
 
 	// auto-update
@@ -292,6 +302,7 @@ func NewEngine(
 		jobExecutor:        jobexec.NewExecutor(),
 		clientMetrics:      services.ClientMetrics,
 		updateManager:      services.UpdateManager,
+		syncStoreDir:       config.StateDir,
 	}
 
 	log.Infof("I am: %s", config.WgPrivateKey.PublicKey().String())
@@ -512,16 +523,7 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 
 	e.routeManager.SetRouteChangeListener(e.mobileDep.NetworkChangeListener)
 
-	e.dnsServer.SetRouteChecker(func(ip netip.Addr) bool {
-		for _, routes := range e.routeManager.GetSelectedClientRoutes() {
-			for _, r := range routes {
-				if r.Network.Contains(ip) {
-					return true
-				}
-			}
-		}
-		return false
-	})
+	e.dnsServer.SetRouteSources(e.routeManager.GetSelectedClientRoutes, e.routeManager.GetActiveClientRoutes)
 
 	if err = e.wgInterfaceCreate(); err != nil {
 		log.Errorf("failed creating tunnel interface %s: [%s]", e.config.WgIfaceName, err.Error())
@@ -922,19 +924,18 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	}
 
 	// Persist sync response under the dedicated lock (syncRespMux), not under syncMsgMux.
-	// Read the storage-enabled flag under the syncRespMux too.
+	// A non-nil syncStore is what marks persistence as enabled. Hold the lock for
+	// the whole Set so the store cannot be cleared (disabled / engine close)
+	// mid-call and have this write resurrect a file that was just removed.
 	e.syncRespMux.RLock()
-	enabled := e.persistSyncResponse
-	e.syncRespMux.RUnlock()
-
-	// Store sync response if persistence is enabled
-	if enabled {
-		e.syncRespMux.Lock()
-		e.latestSyncResponse = update
-		e.syncRespMux.Unlock()
-
-		log.Debugf("sync response persisted with serial %d", nm.GetSerial())
+	if e.syncStore != nil {
+		if err := e.syncStore.Set(update); err != nil {
+			log.Errorf("failed to persist sync response: %v", err)
+		} else {
+			log.Debugf("sync response persisted with serial %d", nm.GetSerial())
+		}
 	}
+	e.syncRespMux.RUnlock()
 
 	// only apply new changes and ignore old ones
 	if err := e.updateNetworkMap(nm); err != nil {
@@ -1072,6 +1073,7 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	state.PubKey = e.config.WgPrivateKey.PublicKey().String()
 	state.KernelInterface = !e.wgInterface.IsUserspaceBind()
 	state.FQDN = conf.GetFqdn()
+	state.WgPort = e.config.WgPort
 
 	e.statusRecorder.UpdateLocalPeerState(state)
 
@@ -1150,6 +1152,7 @@ func (e *Engine) handleBundle(params *mgmProto.BundleParameters) (*mgmProto.JobR
 		LogPath:        e.config.LogPath,
 		TempDir:        e.config.TempDir,
 		ClientMetrics:  e.clientMetrics,
+		DaemonVersion:  version.NetbirdVersion(),
 		RefreshStatus: func() {
 			e.RunHealthProbes(true)
 		},
@@ -1386,9 +1389,6 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 	e.networkSerial = serial
 
-	// Test received (upstream) servers for availability right away instead of upon usage.
-	// If no server of a server group responds this will disable the respective handler and retry later.
-	go e.dnsServer.ProbeAvailability()
 	return nil
 }
 
@@ -1825,6 +1825,18 @@ func (e *Engine) close() {
 	if err := e.portForwardManager.GracefullyStop(ctx); err != nil {
 		log.Warnf("failed to gracefully stop port forwarding manager: %s", err)
 	}
+
+	// Drop any persisted sync response so its network map does not linger on
+	// disk after the engine stops (and cannot leak into a later run).
+	e.syncRespMux.Lock()
+	store := e.syncStore
+	e.syncStore = nil
+	e.syncRespMux.Unlock()
+	if store != nil {
+		if err := store.Clear(); err != nil {
+			log.Warnf("failed to clear persisted sync response on close: %v", err)
+		}
+	}
 }
 
 func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, bool, error) {
@@ -1932,7 +1944,7 @@ func (e *Engine) newDnsServer(dnsConfig *nbdns.Config) (dns.Server, error) {
 		return dnsServer, nil
 
 	case "ios":
-		dnsServer := dns.NewDefaultServerIos(e.ctx, e.wgInterface, e.mobileDep.DnsManager, e.mobileDep.HostDNSAddresses, e.statusRecorder, e.config.DisableDNS)
+		dnsServer := dns.NewDefaultServerIos(e.ctx, e.wgInterface, e.mobileDep.DnsManager, e.statusRecorder, e.config.DisableDNS)
 		return dnsServer, nil
 
 	default:
@@ -1977,6 +1989,29 @@ func (e *Engine) IsBlockInbound() bool {
 // GetClientMetrics returns the client metrics
 func (e *Engine) GetClientMetrics() *metrics.ClientMetrics {
 	return e.clientMetrics
+}
+
+// Performance bundles runtime-adjustable tunnel pool knobs.
+// See Engine.SetPerformance. Nil fields are ignored.
+type Performance struct {
+	PreallocatedBuffersPerPool *uint32
+}
+
+// SetPerformance applies the given tuning to this engine's live Device.
+func (e *Engine) SetPerformance(t Performance) error {
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
+	if e.wgInterface == nil {
+		return fmt.Errorf("wg interface not initialized")
+	}
+	dev := e.wgInterface.GetWGDevice()
+	if dev == nil {
+		return fmt.Errorf("wg device not initialized")
+	}
+	if t.PreallocatedBuffersPerPool != nil {
+		dev.SetPreallocatedBuffersPerPool(*t.PreallocatedBuffersPerPool)
+	}
+	return nil
 }
 
 func findIPFromInterfaceName(ifaceName string) (net.IP, error) {
@@ -2131,45 +2166,42 @@ func (e *Engine) stopDNSServer() {
 	e.statusRecorder.UpdateDNSStates(nsGroupStates)
 }
 
-// SetSyncResponsePersistence enables or disables sync response persistence
+// SetSyncResponsePersistence enables or disables sync response persistence.
+// The store is only instantiated while persistence is enabled; construction
+// itself drops any stale data left over from an earlier run (see syncstore).
 func (e *Engine) SetSyncResponsePersistence(enabled bool) {
 	e.syncRespMux.Lock()
 	defer e.syncRespMux.Unlock()
 
-	if enabled == e.persistSyncResponse {
+	if enabled == (e.syncStore != nil) {
 		return
 	}
-	e.persistSyncResponse = enabled
 	log.Debugf("Sync response persistence is set to %t", enabled)
 
 	if !enabled {
-		e.latestSyncResponse = nil
+		if err := e.syncStore.Clear(); err != nil {
+			log.Warnf("failed to clear persisted sync response: %v", err)
+		}
+		e.syncStore = nil
+		return
 	}
+
+	e.syncStore = syncstore.New(e.syncStoreDir)
 }
 
 // GetLatestSyncResponse returns the stored sync response if persistence is enabled
 func (e *Engine) GetLatestSyncResponse() (*mgmProto.SyncResponse, error) {
+	// Hold the lock for the whole Get so the store cannot be cleared
+	// (disabled / engine close) mid-call.
 	e.syncRespMux.RLock()
-	enabled := e.persistSyncResponse
-	latest := e.latestSyncResponse
-	e.syncRespMux.RUnlock()
+	defer e.syncRespMux.RUnlock()
 
-	if !enabled {
+	if e.syncStore == nil {
 		return nil, errors.New("sync response persistence is disabled")
 	}
 
-	if latest == nil {
-		//nolint:nilnil
-		return nil, nil
-	}
-
-	log.Debugf("Retrieving latest sync response with size %d bytes", proto.Size(latest))
-	sr, ok := proto.Clone(latest).(*mgmProto.SyncResponse)
-	if !ok {
-		return nil, fmt.Errorf("failed to clone sync response")
-	}
-
-	return sr, nil
+	//nolint:nilnil
+	return e.syncStore.Get()
 }
 
 // GetWgAddr returns the wireguard address
@@ -2205,7 +2237,7 @@ func (e *Engine) updateDNSForwarder(
 	enabled bool,
 	fwdEntries []*dnsfwd.ForwarderEntry,
 ) {
-	if e.config.DisableServerRoutes {
+	if e.config.DisableServerRoutes || e.config.BlockInbound {
 		return
 	}
 

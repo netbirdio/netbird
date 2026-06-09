@@ -102,7 +102,7 @@ func generateSessionKeyPair(t *testing.T) (string, string) {
 
 func createSessionToken(t *testing.T, privKeyB64, userID, domain string) string {
 	t.Helper()
-	token, err := sessionkey.SignToken(privKeyB64, userID, domain, auth.MethodOIDC, time.Hour)
+	token, err := sessionkey.SignToken(privKeyB64, userID, "", domain, auth.MethodOIDC, nil, nil, time.Hour)
 	require.NoError(t, err)
 	return token
 }
@@ -125,6 +125,7 @@ func TestValidateSession_UserAllowed(t *testing.T) {
 	assert.True(t, resp.Valid, "User should be allowed access")
 	assert.Equal(t, "allowedUserId", resp.UserId)
 	assert.Empty(t, resp.DeniedReason)
+	assert.Equal(t, []string{"allowedGroupId"}, resp.GetPeerGroupIds(), "PeerGroupIds must mirror the resolved user's group memberships")
 }
 
 func TestValidateSession_UserNotInAllowedGroup(t *testing.T) {
@@ -145,6 +146,7 @@ func TestValidateSession_UserNotInAllowedGroup(t *testing.T) {
 	assert.False(t, resp.Valid, "User not in group should be denied")
 	assert.Equal(t, "not_in_group", resp.DeniedReason)
 	assert.Equal(t, "nonGroupUserId", resp.UserId)
+	assert.Empty(t, resp.GetPeerGroupIds(), "PeerGroupIds must mirror the resolved user's actual (empty) memberships on denial")
 }
 
 func TestValidateSession_UserInDifferentAccount(t *testing.T) {
@@ -322,21 +324,29 @@ func (m *testValidateSessionServiceManager) GetServiceByDomain(ctx context.Conte
 	return m.store.GetServiceByDomain(ctx, domain)
 }
 
-func (m *testValidateSessionServiceManager) GetActiveClusters(_ context.Context, _, _ string) ([]proxy.Cluster, error) {
+func (m *testValidateSessionServiceManager) GetClusters(_ context.Context, _, _ string) ([]proxy.Cluster, error) {
 	return nil, nil
+}
+
+func (m *testValidateSessionServiceManager) DeleteAccountCluster(_ context.Context, _, _, _ string) error {
+	return nil
 }
 
 type testValidateSessionProxyManager struct{}
 
-func (m *testValidateSessionProxyManager) Connect(_ context.Context, _, _, _ string, _ *string, _ *proxy.Capabilities) error {
+func (m *testValidateSessionProxyManager) Connect(_ context.Context, _, _, _, _ string, _ *string, _ *proxy.Capabilities) (*proxy.Proxy, error) {
+	return nil, nil
+}
+
+func (m *testValidateSessionProxyManager) Disconnect(_ context.Context, _, _ string) error {
 	return nil
 }
 
-func (m *testValidateSessionProxyManager) Disconnect(_ context.Context, _ string) error {
+func (m *testValidateSessionProxyManager) Heartbeat(_ context.Context, _ *proxy.Proxy) error {
 	return nil
 }
 
-func (m *testValidateSessionProxyManager) Heartbeat(_ context.Context, _, _, _ string) error {
+func (m *testValidateSessionProxyManager) DeleteAccountCluster(_ context.Context, _, _ string) error {
 	return nil
 }
 
@@ -384,10 +394,35 @@ func (m *testValidateSessionProxyManager) ClusterSupportsCrowdSec(_ context.Cont
 	return nil
 }
 
+func (m *testValidateSessionProxyManager) ClusterSupportsPrivate(_ context.Context, _ string) *bool {
+	return nil
+}
+
 type testValidateSessionUsersManager struct {
 	store store.Store
 }
 
 func (m *testValidateSessionUsersManager) GetUser(ctx context.Context, userID string) (*types.User, error) {
 	return m.store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
+}
+
+func (m *testValidateSessionUsersManager) GetUserWithGroups(ctx context.Context, userID string) (*types.User, []*types.Group, error) {
+	user, err := m.store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(user.AutoGroups) == 0 {
+		return user, nil, nil
+	}
+	groupsMap, err := m.store.GetGroupsByIDs(ctx, store.LockingStrengthNone, user.AccountID, user.AutoGroups)
+	if err != nil {
+		return nil, nil, err
+	}
+	groups := make([]*types.Group, 0, len(user.AutoGroups))
+	for _, id := range user.AutoGroups {
+		if g, ok := groupsMap[id]; ok && g != nil {
+			groups = append(groups, g)
+		}
+	}
+	return user, groups, nil
 }
