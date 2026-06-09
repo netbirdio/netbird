@@ -1477,14 +1477,18 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 // never holds the write lock, over the consistent in-tx snapshot. Exported so the
 // networks sub-package managers (which hold only account.Manager) share it.
 func (am *DefaultAccountManager) ExpandAndUpdateAffected(ctx context.Context, accountID string, snap *affectedpeers.Snapshot, change affectedpeers.Change) {
-	am.dispatchAffected(ctx, accountID, []*affectedpeers.Snapshot{snap}, []affectedpeers.Change{change})
+	go am.dispatchAffected(ctx, accountID, []*affectedpeers.Snapshot{snap}, []affectedpeers.Change{change})
 }
 
 // dispatchAffected expands one or more (snapshot, change) pairs — collected across
 // one or several transactions — unions their affected peers, and dispatches a
 // single network-map refresh. Each snapshot must already be loaded inside its
-// transaction; this runs AFTER commit (pure in-memory + dispatch).
+// transaction; this runs AFTER commit (pure in-memory + dispatch). It is spawned
+// in a goroutine that outlives the request, so it detaches from the request
+// context's cancellation up front.
 func (am *DefaultAccountManager) dispatchAffected(ctx context.Context, accountID string, snaps []*affectedpeers.Snapshot, changes []affectedpeers.Change) {
+	ctx = context.WithoutCancel(ctx)
+
 	var lists [][]string
 	for i, snap := range snaps {
 		if snap == nil {
@@ -1500,7 +1504,7 @@ func (am *DefaultAccountManager) dispatchAffected(ctx context.Context, accountID
 	}
 
 	log.WithContext(ctx).Debugf("updating %d affected peers for account %s: %v", len(affectedPeerIDs), accountID, affectedPeerIDs)
-	_ = am.networkMapController.UpdateAffectedPeers(context.WithoutCancel(ctx), accountID, affectedPeerIDs)
+	_ = am.networkMapController.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
 }
 
 // unionStrings concatenates the given string lists into one deduplicated slice,

@@ -126,7 +126,7 @@ func (m *managerImpl) CreateRouter(ctx context.Context, userID string, router *t
 
 	m.accountManager.StoreEvent(ctx, userID, router.ID, router.AccountID, activity.NetworkRouterCreated, router.EventMeta(network))
 
-	go m.accountManager.ExpandAndUpdateAffected(ctx, router.AccountID, snap, change)
+	m.accountManager.ExpandAndUpdateAffected(ctx, router.AccountID, snap, change)
 
 	return router, nil
 }
@@ -175,7 +175,7 @@ func (m *managerImpl) UpdateRouter(ctx context.Context, userID string, router *t
 
 	m.accountManager.StoreEvent(ctx, userID, router.ID, router.AccountID, activity.NetworkRouterUpdated, router.EventMeta(network))
 
-	go m.accountManager.ExpandAndUpdateAffected(ctx, router.AccountID, snap, change)
+	m.accountManager.ExpandAndUpdateAffected(ctx, router.AccountID, snap, change)
 
 	return router, nil
 }
@@ -256,7 +256,7 @@ func (m *managerImpl) DeleteRouter(ctx context.Context, accountID, userID, netwo
 
 	event()
 
-	go m.accountManager.ExpandAndUpdateAffected(ctx, accountID, snap, change)
+	m.accountManager.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }

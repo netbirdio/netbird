@@ -1433,6 +1433,10 @@ func TestAffectedPeers_IsolatedEntitiesOnlyAffectTheirPeers(t *testing.T) {
 		updateManager.CloseChannel(ctx, peer3.ID)
 	})
 
+	// The setup policy/route above dispatch affected-peer updates asynchronously;
+	// drain any in-flight ones so the assertions only observe the UpdateGroup below.
+	settleAffectedUpdates(updMsg1, updMsg2, updMsg3)
+
 	t.Run("policy group change does not affect route-only peer", func(t *testing.T) {
 		done := make(chan struct{})
 		go func() {

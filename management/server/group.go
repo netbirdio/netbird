@@ -269,7 +269,7 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 		storeEvent()
 	}
 
-	am.dispatchAffected(ctx, accountID, snaps, changes)
+	go am.dispatchAffected(ctx, accountID, snaps, changes)
 
 	return globalErr
 }
@@ -312,7 +312,7 @@ func (am *DefaultAccountManager) UpdateGroups(ctx context.Context, accountID, us
 		storeEvent()
 	}
 
-	am.dispatchAffected(ctx, accountID, snaps, changes)
+	go am.dispatchAffected(ctx, accountID, snaps, changes)
 
 	return globalErr
 }

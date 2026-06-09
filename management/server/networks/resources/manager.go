@@ -130,7 +130,7 @@ func (m *managerImpl) CreateResource(ctx context.Context, userID string, resourc
 		event()
 	}
 
-	go m.accountManager.ExpandAndUpdateAffected(ctx, resource.AccountID, snap, change)
+	m.accountManager.ExpandAndUpdateAffected(ctx, resource.AccountID, snap, change)
 
 	return resource, nil
 }
@@ -297,7 +297,7 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 		}
 	}()
 
-	go m.accountManager.ExpandAndUpdateAffected(ctx, resource.AccountID, snap, change)
+	m.accountManager.ExpandAndUpdateAffected(ctx, resource.AccountID, snap, change)
 
 	return resource, nil
 }
@@ -397,7 +397,7 @@ func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, net
 		event()
 	}
 
-	go m.accountManager.ExpandAndUpdateAffected(ctx, accountID, snap, change)
+	m.accountManager.ExpandAndUpdateAffected(ctx, accountID, snap, change)
 
 	return nil
 }
