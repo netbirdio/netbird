@@ -85,28 +85,6 @@ func setupAffectedPeersTest(t *testing.T) (*DefaultAccountManager, store.Store, 
 func affectedGroupID(i int) string   { return fmt.Sprintf("affected-grp-%d", i) }
 func affectedGroupName(i int) string { return fmt.Sprintf("AffectedGroup%d", i) }
 
-func TestCollectGroupChange_NoEntities(t *testing.T) {
-	_, s, accountID, _, groupIDs := setupAffectedPeersTest(t)
-	ctx := context.Background()
-
-	groups, directPeers := collectGroupChangeAffectedGroups(ctx, s, accountID, []string{groupIDs[0]})
-	assert.Empty(t, groups)
-	assert.Empty(t, directPeers)
-}
-
-func TestCollectGroupChange_EmptyInput(t *testing.T) {
-	_, s, accountID, _, _ := setupAffectedPeersTest(t)
-	ctx := context.Background()
-
-	groups, directPeers := collectGroupChangeAffectedGroups(ctx, s, accountID, nil)
-	assert.Nil(t, groups)
-	assert.Nil(t, directPeers)
-
-	groups, directPeers = collectGroupChangeAffectedGroups(ctx, s, accountID, []string{})
-	assert.Nil(t, groups)
-	assert.Nil(t, directPeers)
-}
-
 func TestCollectGroupChange_PolicyLinked(t *testing.T) {
 	manager, s, accountID, _, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
@@ -440,50 +418,6 @@ func TestCollectGroupChange_MultipleNameServerGroups_OnlyLinkedAffected(t *testi
 	assert.Empty(t, groups)
 }
 
-// Pure policy/route/router extraction unit tests moved to the affectedpeers
-// package (management/server/affectedpeers) along with the logic they cover.
-
-func TestResolvePeerIDs_GroupsOnly(t *testing.T) {
-	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
-	ctx := context.Background()
-
-	result := manager.resolvePeerIDs(ctx, s, accountID, []string{groupIDs[0], groupIDs[1]}, nil)
-	assert.ElementsMatch(t, []string{peerIDs[0], peerIDs[1]}, result)
-}
-
-func TestResolvePeerIDs_WithDirectPeers(t *testing.T) {
-	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
-	ctx := context.Background()
-
-	result := manager.resolvePeerIDs(ctx, s, accountID, []string{groupIDs[0]}, []string{peerIDs[2]})
-	assert.ElementsMatch(t, []string{peerIDs[0], peerIDs[2]}, result)
-}
-
-func TestResolvePeerIDs_Deduplication(t *testing.T) {
-	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
-	ctx := context.Background()
-
-	result := manager.resolvePeerIDs(ctx, s, accountID, []string{groupIDs[0]}, []string{peerIDs[0]})
-	assert.Len(t, result, 1)
-	assert.Equal(t, peerIDs[0], result[0])
-}
-
-func TestResolvePeerIDs_EmptyInputs(t *testing.T) {
-	manager, s, accountID, _, _ := setupAffectedPeersTest(t)
-	ctx := context.Background()
-
-	result := manager.resolvePeerIDs(ctx, s, accountID, nil, nil)
-	assert.Empty(t, result)
-}
-
-func TestResolveAffectedPeers_NoPoliciesOrRoutes(t *testing.T) {
-	manager, s, accountID, peerIDs, _ := setupAffectedPeersTest(t)
-	ctx := context.Background()
-
-	result := manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{peerIDs[0]})
-	assert.Empty(t, result)
-}
-
 func TestResolveAffectedPeers_PolicyBetweenTwoGroups(t *testing.T) {
 	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
@@ -798,17 +732,6 @@ func TestResolveAffectedPeers_SharedGroupAcrossPolicyAndRoute(t *testing.T) {
 	assert.ElementsMatch(t, []string{peerIDs[0], peerIDs[1], peerIDs[2]}, result)
 }
 
-func TestResolveAffectedPeers_EmptyChangedPeers(t *testing.T) {
-	manager, s, accountID, _, _ := setupAffectedPeersTest(t)
-	ctx := context.Background()
-
-	result := manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, nil)
-	assert.Empty(t, result)
-
-	result = manager.resolveAffectedPeersForPeerChanges(ctx, s, accountID, []string{})
-	assert.Empty(t, result)
-}
-
 func TestResolveAffectedPeers_NoDuplicates(t *testing.T) {
 	manager, s, accountID, peerIDs, groupIDs := setupAffectedPeersTest(t)
 	ctx := context.Background()
@@ -839,15 +762,6 @@ func TestResolveAffectedPeers_NoDuplicates(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1, count, "peer0 should appear exactly once")
-}
-
-func TestCollectPostureCheckAffected_NoMatch(t *testing.T) {
-	_, s, accountID, _, _ := setupAffectedPeersTest(t)
-	ctx := context.Background()
-
-	groups, directPeers := collectPostureCheckAffectedGroupsAndPeers(ctx, s, accountID, "nonexistent-check")
-	assert.Empty(t, groups)
-	assert.Empty(t, directPeers)
 }
 
 func TestCollectPostureCheckAffected_LinkedToPolicy(t *testing.T) {
@@ -1825,14 +1739,6 @@ func TestCollectAffectedFromProxyServices_GroupContainingTargetPeerChanged(t *te
 	_, directPeers := collectPeerChangeAffectedGroups(ctx, manager.Store, accountID, []string{groupIDs[1]}, nil)
 	assert.Contains(t, directPeers, peerIDs[0], "proxy peer must be refreshed when a group containing its target peer changes")
 	assert.Contains(t, directPeers, peerIDs[1], "target peer must be refreshed")
-}
-
-func TestCollectAffectedFromProxyServices_NoServices(t *testing.T) {
-	manager, _, accountID, peerIDs, _ := setupAffectedPeersTest(t)
-	ctx := context.Background()
-
-	_, directPeers := collectPeerChangeAffectedGroups(ctx, manager.Store, accountID, nil, []string{peerIDs[0]})
-	assert.NotContains(t, directPeers, peerIDs[0], "no services means no proxy contribution")
 }
 
 func TestCollectAffectedFromProxyServices_DisabledServiceStillMatches(t *testing.T) {

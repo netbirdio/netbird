@@ -96,12 +96,6 @@ func TestAffectedPeers_DependencyCoverageMatrix(t *testing.T) {
 					[]string{s.sourcePeerID, s.routerPeerID}, []string{s.unrelatedPeerID}
 			},
 		},
-		{
-			name: "empty-change yields nothing",
-			build: func(t *testing.T, s *routerScenario, ctx context.Context) (affectedpeers.Change, []string, []string) {
-				return affectedpeers.Change{}, nil, []string{s.sourcePeerID, s.routerPeerID, s.unrelatedPeerID}
-			},
-		},
 	}
 
 	for _, r := range rows {

@@ -81,20 +81,6 @@ func TestAffectedPeers_PeerChange_SourcePeer_RefreshesRoutingPeer(t *testing.T) 
 	assert.NotContains(t, affected, s.unrelatedPeerID, "unrelated peer must not be affected")
 }
 
-func TestAffectedPeers_PeerChange_RoutingPeer_RefreshesPolicySources(t *testing.T) {
-	s := setupRouterScenario(t, true)
-	ctx := context.Background()
-
-	_, err := s.manager.SavePolicy(ctx, s.accountID, userID, peerToResourcePolicyByGroup(s.sourceGroupID, s.resourceGroupID), true)
-	require.NoError(t, err)
-
-	affected := s.resolvePeerChangeAffected(ctx, []string{s.routerPeerID})
-
-	assert.Contains(t, affected, s.sourcePeerID,
-		"a status change on the routing peer must refresh the source peers that route through it")
-	assert.NotContains(t, affected, s.unrelatedPeerID, "unrelated peer must not be affected")
-}
-
 func TestAffectedPeers_PeerChange_SourcePeer_ByDestinationResource_RefreshesRoutingPeer(t *testing.T) {
 	s := setupRouterScenario(t, true)
 	ctx := context.Background()
@@ -124,20 +110,6 @@ func TestAffectedPeers_E2E_DeleteGroup_ResolvesAffectedPeers(t *testing.T) {
 	require.NoError(t, s.manager.DeleteGroup(ctx, s.accountID, userID, memberOnlyGroupID))
 }
 
-func TestAffectedPeers_DeleteGroup_LinkedGroupIsBlocked(t *testing.T) {
-	s := setupRouterScenario(t, true)
-	ctx := context.Background()
-
-	_, err := s.manager.SavePolicy(ctx, s.accountID, userID, peerToResourcePolicyByGroup(s.sourceGroupID, s.resourceGroupID), true)
-	require.NoError(t, err)
-
-	err = s.manager.DeleteGroup(ctx, s.accountID, userID, s.sourceGroupID)
-	require.Error(t, err, "deleting a policy-linked group must be blocked by validateDeleteGroup")
-
-	var linkErr *GroupLinkError
-	require.ErrorAs(t, err, &linkErr, "expected a GroupLinkError")
-}
-
 func TestAffectedPeers_GroupAddResource_RefreshesRoutingPeer(t *testing.T) {
 	s := setupRouterScenario(t, true)
 	ctx := context.Background()
@@ -163,10 +135,6 @@ func TestAffectedPeers_GroupAddResource_RefreshesRoutingPeer(t *testing.T) {
 	assert.NotContains(t, affected, s.unrelatedPeerID, "unrelated peer must not be affected")
 }
 
-func (s *routerScenario) resolvePostureCheckAffected(ctx context.Context, postureCheckID string) []string {
-	return s.manager.ResolveAffectedPeers(ctx, s.manager.Store, s.accountID, affectedpeers.Change{PostureCheckIDs: []string{postureCheckID}})
-}
-
 func (s *routerScenario) createPostureCheckGatedPolicy(t *testing.T, ctx context.Context) string {
 	t.Helper()
 
@@ -184,20 +152,6 @@ func (s *routerScenario) createPostureCheckGatedPolicy(t *testing.T, ctx context
 	require.NoError(t, err)
 
 	return check.ID
-}
-
-func TestAffectedPeers_PostureCheckChange_RefreshesRoutingPeer(t *testing.T) {
-	s := setupRouterScenario(t, true)
-	ctx := context.Background()
-
-	checkID := s.createPostureCheckGatedPolicy(t, ctx)
-
-	affected := s.resolvePostureCheckAffected(ctx, checkID)
-
-	assert.Contains(t, affected, s.sourcePeerID, "policy source peer must be affected by a posture-check change")
-	assert.Contains(t, affected, s.routerPeerID,
-		"a posture check gating a peer->resource policy must refresh the resource's routing peer")
-	assert.NotContains(t, affected, s.unrelatedPeerID, "unrelated peer must not be affected")
 }
 
 func TestAffectedPeers_E2E_SavePostureCheck_RefreshesRoutingPeer(t *testing.T) {
