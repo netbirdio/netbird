@@ -317,7 +317,8 @@ func (m *mockManager) DeleteRouter(ctx context.Context, accountID, userID, netwo
 }
 
 func (m *mockManager) DeleteRouterInTransaction(ctx context.Context, transaction store.Store, accountID, userID, networkID, routerID string) (*types.NetworkRouter, func(), error) {
-	// no-op mock: returns zero values so tests that don't exercise router deletion
-	// can satisfy the Manager interface without a real store.
-	return nil, func() {}, nil
+	return nil, func() {
+		// no-op mock: returns zero values so tests that don't exercise router deletion
+		// can satisfy the Manager interface without a real store.
+	}, nil
 }
