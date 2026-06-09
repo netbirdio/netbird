@@ -13,9 +13,7 @@ import { useAutoSizeWindow } from "@/hooks/useAutoSizeWindow";
 
 const TIMEOUT_MS = 15 * 60 * 1000;
 const POLL_INTERVAL_MS = 2000;
-// Sustained gRPC failure during install is taken as success — the daemon
-// gets restarted by the installer mid-flight, mirroring the legacy Fyne
-// UI's branch in client/ui/update.go.
+// Sustained gRPC failure during install is taken as success (installer restarts the daemon mid-flight).
 const DAEMON_DOWN_GRACE_MS = 5000;
 const WINDOW_WIDTH = 360;
 
@@ -36,79 +34,87 @@ export default function UpdateInProgressDialog() {
 
     useEffect(() => {
         let cancelled = false;
+        let done = false;
+        let timer: ReturnType<typeof setTimeout> | null = null;
         const start = Date.now();
         let firstUnreachableAt: number | null = null;
 
-        const timer = setInterval(async () => {
-            if (cancelled) return;
+        const poll = async () => {
+            if (cancelled || done) return;
             if (phaseRef.current.kind !== "running") return;
 
             if (Date.now() - start > TIMEOUT_MS) {
-                clearInterval(timer);
+                done = true;
                 setPhase({ kind: "timeout" });
                 return;
             }
 
             try {
                 const r = await UpdateSvc.GetInstallerResult();
+                if (cancelled || done || phaseRef.current.kind !== "running") return;
                 firstUnreachableAt = null;
                 if (r.success) {
-                    clearInterval(timer);
-                    UpdateSvc.Quit();
+                    done = true;
+                    UpdateSvc.Quit().catch(console.error);
                     return;
                 }
                 if (r.errorMsg) {
-                    clearInterval(timer);
+                    done = true;
                     setPhase(mapInstallError(r.errorMsg));
+                    return;
                 }
             } catch {
+                if (cancelled || done || phaseRef.current.kind !== "running") return;
                 const now = Date.now();
                 if (firstUnreachableAt === null) {
                     firstUnreachableAt = now;
                 } else if (now - firstUnreachableAt >= DAEMON_DOWN_GRACE_MS) {
-                    clearInterval(timer);
-                    UpdateSvc.Quit();
+                    done = true;
+                    UpdateSvc.Quit().catch(console.error);
+                    return;
                 }
             }
-        }, POLL_INTERVAL_MS);
+
+            if (!cancelled && !done) {
+                timer = setTimeout(poll, POLL_INTERVAL_MS);
+            }
+        };
+
+        timer = setTimeout(poll, POLL_INTERVAL_MS);
 
         return () => {
             cancelled = true;
-            clearInterval(timer);
+            if (timer) clearTimeout(timer);
         };
     }, []);
 
     const isError = phase.kind !== "running";
     const errorInfo = isError ? classifyPhase(phase, version, t) : null;
+    const updatingHeading = version
+        ? t("update.overlay.updatingVersion", { version })
+        : t("update.overlay.updating");
 
     return (
         <ConfirmDialog ref={contentRef}>
             {isError ? (
-                <SquareIcon
-                    icon={XCircle}
-                    className={"bg-red-500 [&_svg]:text-white"}
-                />
+                <SquareIcon icon={XCircle} className={"bg-red-500 [&_svg]:text-white"} />
             ) : (
                 <SquareIcon icon={Loader2} className={"[&_svg]:animate-spin"} />
             )}
 
             <div className={"flex flex-col items-center gap-2"}>
                 <DialogHeading className={"text-balance"}>
-                    {isError
-                        ? errorInfo!.title
-                        : version
-                            ? t("update.overlay.updatingVersion", { version })
-                            : t("update.overlay.updating")}
+                    {errorInfo ? errorInfo.title : updatingHeading}
                 </DialogHeading>
                 <DialogDescription>
-                    {isError ? (
+                    {errorInfo ? (
                         <>
-                            {errorInfo!.description}
-                            {errorInfo!.message && (
+                            {errorInfo.description}
+                            {errorInfo.message && (
                                 <>
                                     <br />
                                     <span className={"first-letter:uppercase"}>
-                                        {errorInfo!.message}
+                                        {errorInfo.message}
                                     </span>
                                 </>
                             )}
@@ -126,9 +132,7 @@ export default function UpdateInProgressDialog() {
                         variant={"secondary"}
                         size={"md"}
                         className={"w-full"}
-                        onClick={() =>
-                            WindowManager.CloseInstallProgress().catch(console.error)
-                        }
+                        onClick={() => WindowManager.CloseInstallProgress().catch(console.error)}
                     >
                         {t("common.close")}
                     </Button>

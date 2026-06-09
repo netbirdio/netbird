@@ -27,11 +27,7 @@ export const Label = forwardRef<HTMLElement, LabelProps>(function Label(
     }
 
     return (
-        <LabelPrimitive.Root
-            ref={ref as Ref<HTMLLabelElement>}
-            className={classes}
-            {...props}
-        >
+        <LabelPrimitive.Root ref={ref as Ref<HTMLLabelElement>} className={classes} {...props}>
             {children}
         </LabelPrimitive.Root>
     );

@@ -1,40 +1,34 @@
-// Shared error formatter for native dialog bodies.
-//
-// The Go service layer (client/ui/services/connection.go classifyDaemonError)
-// wraps daemon errors in a ClientError struct exposed to the TS side as
-// {code, short, long}. Short is already localised (Go reads the current
-// preferences.Store language and resolves "error.<code>" via i18n.Bundle).
-// Long always carries the unwrapped raw daemon message so the operator can
-// see the JWT / mgm stack when the short text is too generic.
-//
-// Wails wraps Go-returned errors as Error({message, cause, kind}) where
-// .message holds the JSON-stringified payload and the structured object
-// lives on .cause — Object.keys(err) is empty in that case. We therefore
-// probe .cause first, then fall back to parsing .message as JSON, then
-// to plain .message text for callers that still hand us a raw Error.
-const extractClientError = (e: unknown): { short?: string; long?: string } | null => {
+import { WindowManager } from "@bindings/services";
+
+type ClientError = { short?: string; long?: string };
+
+const asClientError = (obj: object): ClientError => {
+    const withCause = obj as { cause?: unknown };
+    if (withCause.cause && typeof withCause.cause === "object") {
+        return withCause.cause;
+    }
+    return obj;
+};
+
+const parseMessageJson = (message: unknown): ClientError | null => {
+    if (typeof message !== "string") return null;
+    const m = message.trim();
+    if (!m.startsWith("{") || !m.endsWith("}")) return null;
+    try {
+        const parsed: unknown = JSON.parse(m);
+        if (parsed && typeof parsed === "object") return asClientError(parsed);
+    } catch {
+    }
+    return null;
+};
+
+const extractClientError = (e: unknown): ClientError | null => {
     if (!e || typeof e !== "object") return null;
     const withCause = e as { cause?: unknown; message?: unknown };
     if (withCause.cause && typeof withCause.cause === "object") {
-        return withCause.cause as { short?: string; long?: string };
+        return withCause.cause;
     }
-    if (typeof withCause.message === "string") {
-        const m = withCause.message.trim();
-        if (m.startsWith("{") && m.endsWith("}")) {
-            try {
-                const parsed = JSON.parse(m);
-                if (parsed && typeof parsed === "object") {
-                    if ("cause" in parsed && parsed.cause && typeof parsed.cause === "object") {
-                        return parsed.cause as { short?: string; long?: string };
-                    }
-                    return parsed as { short?: string; long?: string };
-                }
-            } catch {
-                // not JSON — fall through to plain-message handling
-            }
-        }
-    }
-    return null;
+    return parseMessageJson(withCause.message);
 };
 
 export const formatErrorMessage = (e: unknown): string => {
@@ -50,3 +44,12 @@ export const formatErrorMessage = (e: unknown): string => {
     if (e instanceof Error) return e.message;
     return String(e);
 };
+
+export type ErrorDialogOptions = {
+    Title: string;
+    Message: string;
+};
+
+export function errorDialog(options: ErrorDialogOptions): Promise<void> {
+    return WindowManager.OpenError(options.Title, options.Message);
+}

@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { Events } from "@wailsio/runtime";
-import { errorDialog } from "@/lib/dialogs.ts";
 import { AlertCircleIcon, ClockIcon } from "lucide-react";
 import { Button } from "@/components/buttons/Button";
 import { ConfirmDialog } from "@/components/dialog/ConfirmDialog";
@@ -12,29 +11,12 @@ import { DialogHeading } from "@/components/dialog/DialogHeading";
 import { SquareIcon } from "@/components/SquareIcon";
 import { Connection, Profiles as ProfilesSvc, Session, WindowManager } from "@bindings/services";
 import { useAutoSizeWindow } from "@/hooks/useAutoSizeWindow";
-import { formatErrorMessage } from "@/lib/errors.ts";
+import { errorDialog, formatErrorMessage } from "@/lib/errors.ts";
+import { formatRemaining } from "@/lib/formatters";
 
 const DEFAULT_SECONDS = 360;
 const WINDOW_WIDTH = 360;
-// Below this, the situation is genuinely "soon" and the title/description
-// uses the urgent wording. Above it (e.g. opened with hours remaining), the
-// "later" variant drops the urgency cue so it doesn't read absurdly.
 const SOON_THRESHOLD_SECONDS = 60 * 60;
-
-// Renders the countdown with only the units that matter: mm:ss under an
-// hour, hh:mm:ss under a day, dd:hh:mm:ss otherwise. Two-digit zero pad
-// throughout so columns don't jump as digits roll over.
-function formatRemaining(seconds: number): string {
-    const s = Math.max(0, seconds | 0);
-    const days = Math.floor(s / 86400);
-    const hours = Math.floor((s % 86400) / 3600);
-    const minutes = Math.floor((s % 3600) / 60);
-    const secs = s % 60;
-    const pad = (n: number) => String(n).padStart(2, "0");
-    if (days > 0) return `${pad(days)}:${pad(hours)}:${pad(minutes)}:${pad(secs)}`;
-    if (hours > 0) return `${pad(hours)}:${pad(minutes)}:${pad(secs)}`;
-    return `${pad(minutes)}:${pad(secs)}`;
-}
 
 export default function SessionExpirationDialog() {
     const { t } = useTranslation();
@@ -49,27 +31,31 @@ export default function SessionExpirationDialog() {
 
     const [remaining, setRemaining] = useState(initialSeconds);
     const [busy, setBusy] = useState(false);
+    const busyRef = useRef(busy);
+    busyRef.current = busy;
     const expired = remaining <= 0;
     const soon = remaining <= SOON_THRESHOLD_SECONDS;
+    const activeTitle = soon ? t("sessionExpiration.title") : t("sessionExpiration.titleLater");
+    const activeDescription = soon
+        ? t("sessionExpiration.description")
+        : t("sessionExpiration.descriptionLater");
 
     useEffect(() => {
         setRemaining(initialSeconds);
     }, [initialSeconds]);
 
     useEffect(() => {
-        if (remaining <= 0) return;
-        const id = window.setInterval(() => {
+        const id = globalThis.setInterval(() => {
             setRemaining((s) => (s <= 1 ? 0 : s - 1));
         }, 1000);
-        return () => window.clearInterval(id);
-    }, [remaining]);
+        return () => globalThis.clearInterval(id);
+    }, [initialSeconds]);
 
-    // Auto-close when the daemon flips back to Connected — covers extend
-    // flows started from outside this window (tray notification action,
-    // another UI surface) so the user isn't left staring at a stale dialog.
+    // Suppressed while `busy`: the tunnel stays up so Connected re-fires for
+    // unrelated reasons (peer/route changes), and closing would abort our own WaitExtend.
     useEffect(() => {
         const off = Events.On("netbird:status", (ev: { data: { status?: string } }) => {
-            if (ev?.data?.status === "Connected") {
+            if (!busyRef.current && ev?.data?.status === "Connected") {
                 WindowManager.CloseSessionExpiration().catch(console.error);
             }
         });
@@ -78,11 +64,6 @@ export default function SessionExpirationDialog() {
         };
     }, []);
 
-    // Mirrors tray.go::runExtendSession: starts the daemon SSO extend flow,
-    // opens the browser for the user to sign in, blocks on the daemon until
-    // the new deadline arrives. Tunnel stays up; success simply closes the
-    // dialog, failure surfaces a native error dialog and leaves this one
-    // open so the user can retry or logout.
     const stay = useCallback(async () => {
         if (busy) return;
         setBusy(true);
@@ -101,13 +82,8 @@ export default function SessionExpirationDialog() {
                 userCode: start.userCode,
             });
             if (result.preempted) {
-                // Another UI surface (e.g. the tray "Extend now"
-                // notification action) started a flow for the same
-                // deadline and took over. Keep the dialog open so the
-                // user can re-trigger if the other flow also fails;
-                // a successful extend elsewhere refreshes the deadline
-                // and this window auto-closes when it's no longer
-                // relevant.
+                // Another surface took over this deadline's flow; keep the dialog
+                // open to retry. A successful extend elsewhere auto-closes this window.
                 return;
             }
             WindowManager.CloseSessionExpiration().catch(console.error);
@@ -152,18 +128,10 @@ export default function SessionExpirationDialog() {
 
             <div className={"flex flex-col items-center gap-1"}>
                 <DialogHeading>
-                    {expired
-                        ? t("sessionExpiration.expired")
-                        : soon
-                          ? t("sessionExpiration.title")
-                          : t("sessionExpiration.titleLater")}
+                    {expired ? t("sessionExpiration.expired") : activeTitle}
                 </DialogHeading>
                 <DialogDescription>
-                    {expired
-                        ? t("sessionExpiration.expiredDescription")
-                        : soon
-                          ? t("sessionExpiration.description")
-                          : t("sessionExpiration.descriptionLater")}
+                    {expired ? t("sessionExpiration.expiredDescription") : activeDescription}
                 </DialogDescription>
             </div>
 
@@ -187,9 +155,7 @@ export default function SessionExpirationDialog() {
                     onClick={stay}
                     disabled={busy}
                 >
-                    {expired
-                        ? t("sessionExpiration.authenticate")
-                        : t("sessionExpiration.stay")}
+                    {expired ? t("sessionExpiration.authenticate") : t("sessionExpiration.stay")}
                 </Button>
                 <Button
                     variant={"secondary"}

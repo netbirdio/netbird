@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { Events } from "@wailsio/runtime";
-import { errorDialog } from "@/lib/dialogs.ts";
 import { Loader2 } from "lucide-react";
 import { Connection } from "@bindings/services";
 import { Button } from "@/components/buttons/Button";
@@ -12,7 +11,7 @@ import { DialogDescription } from "@/components/dialog/DialogDescription";
 import { DialogHeading } from "@/components/dialog/DialogHeading";
 import { SquareIcon } from "@/components/SquareIcon";
 import { useAutoSizeWindow } from "@/hooks/useAutoSizeWindow";
-import { formatErrorMessage } from "@/lib/errors";
+import { errorDialog, formatErrorMessage } from "@/lib/errors";
 
 const EVENT_CANCEL = "browser-login:cancel";
 const WINDOW_WIDTH = 360;
@@ -34,12 +33,7 @@ export default function LoginWaitingForBrowserDialog() {
         [t],
     );
 
-    // Open the system browser only after the dialog has mounted (which
-    // means useAutoSizeWindow has called Window.Show). startLogin used to
-    // fire OpenURL itself but the browser typically beat React's mount
-    // and landed on top of the still-hidden NetBird popup. The ref guard
-    // keeps StrictMode's intentional double-invoke in dev (and any future
-    // remount) from launching two browser tabs.
+    // Open the browser only after mount, or it lands on top of the still-hidden popup.
     useEffect(() => {
         if (!uri || openedRef.current) return;
         openedRef.current = true;
@@ -52,20 +46,17 @@ export default function LoginWaitingForBrowserDialog() {
     }, [uri, reportOpenFailure]);
 
     const cancel = useCallback(() => {
-        void Events.Emit(EVENT_CANCEL);
+        Events.Emit(EVENT_CANCEL).catch((err: unknown) =>
+            console.error("emit browser-login cancel", err),
+        );
     }, []);
 
     return (
         <ConfirmDialog ref={contentRef}>
-            <SquareIcon
-                icon={Loader2}
-                className={"[&_svg]:animate-spin"}
-            />
+            <SquareIcon icon={Loader2} className={"[&_svg]:animate-spin"} />
 
             <div className={"flex flex-col items-center gap-2"}>
-                <DialogHeading className={"text-balance"}>
-                    {t("browserLogin.title")}
-                </DialogHeading>
+                <DialogHeading className={"text-balance"}>{t("browserLogin.title")}</DialogHeading>
                 <DialogDescription>
                     {t("browserLogin.notSeeing")}{" "}
                     <button

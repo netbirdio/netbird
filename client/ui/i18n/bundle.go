@@ -33,6 +33,12 @@ const (
 	// commonBundleFile is the per-language translation bundle. Single
 	// namespace for now ("common") — split later if the key set grows
 	// enough to warrant per-screen bundles.
+	//
+	// Shape is Chrome-extension JSON (each key maps to an object with a
+	// "message" and an optional "description") so Crowdin reads the
+	// description as translator context straight from the source file.
+	// Only the source bundle (en) needs descriptions; target bundles carry
+	// just "message". loadBundle flattens both back to key->message.
 	commonBundleFile = "common.json"
 )
 
@@ -195,15 +201,27 @@ func loadLocaleIndex(localesFS fs.FS) (*localeIndex, error) {
 	return &idx, nil
 }
 
+// bundleEntry is the on-disk shape of one translation key: a Chrome-JSON
+// object carrying the translatable "message" plus an optional translator
+// "description" (consumed by Crowdin, ignored at runtime).
+type bundleEntry struct {
+	Message     string `json:"message"`
+	Description string `json:"description,omitempty"`
+}
+
 func loadBundle(localesFS fs.FS, code LanguageCode) (map[string]string, error) {
 	p := path.Join(string(code), commonBundleFile)
 	data, err := fs.ReadFile(localesFS, p)
 	if err != nil {
 		return nil, err
 	}
-	var bundle map[string]string
-	if err := json.Unmarshal(data, &bundle); err != nil {
+	var entries map[string]bundleEntry
+	if err := json.Unmarshal(data, &entries); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", p, err)
+	}
+	bundle := make(map[string]string, len(entries))
+	for k, e := range entries {
+		bundle[k] = e.Message
 	}
 	return bundle, nil
 }

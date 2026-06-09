@@ -3,19 +3,21 @@ import {
     useCallback,
     useContext,
     useEffect,
+    useMemo,
     useRef,
     useState,
     type ReactNode,
 } from "react";
-import { errorDialog } from "@/lib/dialogs.ts";
 import { Autostart, Settings as SettingsSvc, Version } from "@bindings/services";
 import type { Config } from "@bindings/services/models.js";
 import i18next from "@/lib/i18n";
 import { useProfile } from "@/contexts/ProfileContext.tsx";
 import { SettingsSkeleton } from "@/modules/settings/SettingsSkeleton.tsx";
-import { formatErrorMessage as errorMessage } from "@/lib/errors.ts";
+import { errorDialog, formatErrorMessage as errorMessage } from "@/lib/errors.ts";
 
 const SAVE_DEBOUNCE_MS = 400;
+
+const logSaveError = (err: unknown) => console.error("[SettingsContext] save failed", err);
 
 export type AutostartState = { supported: boolean; enabled: boolean };
 
@@ -47,9 +49,7 @@ export const useSettings = () => {
 export const useAutostartSetting = () => {
     const ctx = useContext(AutostartContext);
     if (!ctx) {
-        throw new Error(
-            "useAutostartSetting must be used inside AutostartSettingsProvider",
-        );
+        throw new Error("useAutostartSetting must be used inside AutostartSettingsProvider");
     }
     return ctx;
 };
@@ -97,10 +97,7 @@ const useSettingsState = () => {
 
     const save = useCallback(
         async (next: Config) => {
-            // The daemon masks an existing PSK as "**********" in GetConfig.
-            // Sending the mask back round-trips it into the saved config and
-            // wgtypes.ParseKey fails on the next connect. Drop the mask so
-            // unrelated toggles don't corrupt the stored PSK.
+            // Sending the "**********" PSK mask back corrupts the stored PSK (wgtypes.ParseKey fails next connect).
             const { preSharedKey, ...rest } = next;
             try {
                 await SettingsSvc.SetConfig({
@@ -126,7 +123,7 @@ const useSettingsState = () => {
                 const next = { ...c, [k]: v };
                 if (saveTimer.current) clearTimeout(saveTimer.current);
                 saveTimer.current = setTimeout(() => {
-                    void save(next);
+                    save(next).catch(logSaveError);
                 }, SAVE_DEBOUNCE_MS);
                 return next;
             });
@@ -175,26 +172,19 @@ const useSettingsState = () => {
 };
 
 export const SettingsProvider = ({ children }: { children: ReactNode }) => {
-    const { config, guiVersion, setField, saveField, saveFields, saveNow } =
-        useSettingsState();
+    const { config, guiVersion, setField, saveField, saveFields, saveNow } = useSettingsState();
+
+    const value = useMemo<SettingsContextValue | null>(
+        () => (config ? { config, guiVersion, setField, saveField, saveFields, saveNow } : null),
+        [config, guiVersion, setField, saveField, saveFields, saveNow],
+    );
 
     return (
         <div className={"flex-1 min-h-0 overflow-y-auto"}>
-            {!config ? (
-                <SettingsSkeleton />
+            {value ? (
+                <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>
             ) : (
-                <SettingsContext.Provider
-                    value={{
-                        config,
-                        guiVersion,
-                        setField,
-                        saveField,
-                        saveFields,
-                        saveNow,
-                    }}
-                >
-                    {children}
-                </SettingsContext.Provider>
+                <SettingsSkeleton />
             )}
         </div>
     );
@@ -232,9 +222,10 @@ export const AutostartSettingsProvider = ({ children }: { children: ReactNode })
         }
     }, []);
 
-    return (
-        <AutostartContext.Provider value={{ autostart, setAutostartEnabled }}>
-            {children}
-        </AutostartContext.Provider>
+    const value = useMemo<AutostartContextValue>(
+        () => ({ autostart, setAutostartEnabled }),
+        [autostart, setAutostartEnabled],
     );
+
+    return <AutostartContext.Provider value={value}>{children}</AutostartContext.Provider>;
 };

@@ -3,6 +3,7 @@ import {
     useCallback,
     useContext,
     useEffect,
+    useMemo,
     useRef,
     useState,
     type ReactNode,
@@ -13,13 +14,8 @@ import { ViewMode as ViewModePref } from "@bindings/preferences/models.js";
 
 export type ViewMode = "default" | "advanced";
 
-// Window widths per view. Height stays at whatever the window was first
-// created with — we deliberately don't pass a fixed height to
-// Window.SetSize because Wails' macOS implementation interprets it as the
-// outer frame (windowSetSize → setFrame:), while the initial creation
-// uses initWithContentRect:. The two differ by one title-bar height
-// (~28px), so re-asserting 640 here would chop ~28px off the content
-// area on the first switch and visually shift everything inside.
+// Don't pass a fixed height to Window.SetSize: macOS SetSize is frame (incl. ~28px
+// title bar) while creation is content, so re-asserting a constant chops the content on first switch.
 export const VIEW_WIDTH: Record<ViewMode, number> = {
     default: 380,
     advanced: 900,
@@ -33,18 +29,12 @@ type ViewModeContextValue = {
 const ViewModeContext = createContext<ViewModeContextValue | null>(null);
 
 export const ViewModeProvider = ({ children }: { children: ReactNode }) => {
-    const [viewMode, setMode] = useState<ViewMode>("default");
-    // Mirror of viewMode for dedup inside the async setViewMode without
-    // adding the state to the callback's dep array (which would re-create
-    // the callback on every change).
+    const [mode, setMode] = useState<ViewMode>("default");
     const modeRef = useRef<ViewMode>("default");
 
-    // Hydrate from the persisted preference. The Go side has already sized
-    // the main window to match (see main.go), so this only catches the
-    // React state and dropdown checkmark up — no resize is triggered here.
     useEffect(() => {
         let cancelled = false;
-        void Preferences.Get()
+        Preferences.Get()
             .then((prefs) => {
                 if (cancelled) return;
                 const saved = prefs?.viewMode as ViewMode | undefined;
@@ -59,31 +49,30 @@ export const ViewModeProvider = ({ children }: { children: ReactNode }) => {
         };
     }, []);
 
-    // Resize the window BEFORE flipping React state — otherwise the new
-    // layout (e.g., advanced-mode right panel mounting) paints into a
-    // window that hasn't grown yet, causing a brief flex-overflow that
-    // wobbles the connect toggle's position. Cost: one IPC roundtrip
-    // (~30ms) before the dropdown checkmark updates.
+    // Resize before flipping React state, else the layout paints into a window that hasn't grown yet.
     const setViewMode = useCallback((mode: ViewMode) => {
         if (modeRef.current === mode) return;
         modeRef.current = mode;
-        void (async () => {
-            // Reuse the live frame height instead of asserting a
-            // constant — keeps content area stable across switches
-            // (see VIEW_WIDTH comment above).
+        (async () => {
             const size = await Window.Size().catch(() => null);
             const width = VIEW_WIDTH[mode];
             const height = size?.height ?? 640;
             await Window.SetSize(width, height).catch(() => {});
             setMode(mode);
-            void Preferences.SetViewMode(mode as unknown as ViewModePref).catch(() => {});
-        })();
+            const pref =
+                mode === "advanced" ? ViewModePref.ViewModeAdvanced : ViewModePref.ViewModeDefault;
+            Preferences.SetViewMode(pref).catch((err: unknown) =>
+                console.error("[ViewModeContext] SetViewMode failed", err),
+            );
+        })().catch((err: unknown) => console.error("[ViewModeContext] setViewMode failed", err));
     }, []);
-    return (
-        <ViewModeContext.Provider value={{ viewMode, setViewMode }}>
-            {children}
-        </ViewModeContext.Provider>
+
+    const value = useMemo<ViewModeContextValue>(
+        () => ({ viewMode: mode, setViewMode }),
+        [mode, setViewMode],
     );
+
+    return <ViewModeContext.Provider value={value}>{children}</ViewModeContext.Provider>;
 };
 
 export const useViewMode = () => {

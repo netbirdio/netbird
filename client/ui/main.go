@@ -316,6 +316,7 @@ func registerServices(app *application.App, conn *Conn, s registeredServices) {
 	app.RegisterService(application.NewService(services.NewPreferences(s.prefStore)))
 	app.RegisterService(application.NewService(services.NewAutostart(app.Autostart)))
 	app.RegisterService(application.NewService(services.NewVersion()))
+	app.RegisterService(application.NewService(services.NewUILog()))
 }
 
 // newMainWindow creates the hidden main window, sized to the user's last view

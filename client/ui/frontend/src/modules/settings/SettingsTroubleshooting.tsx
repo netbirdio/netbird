@@ -13,6 +13,7 @@ import { Input } from "@/components/inputs/Input";
 import { Label } from "@/components/typography/Label";
 import { SquareIcon } from "@/components/SquareIcon";
 import { cn } from "@/lib/cn";
+import { formatRemaining } from "@/lib/formatters";
 import type { DebugStage } from "@/contexts/DebugBundleContext";
 import { useDebugBundleContext } from "@/contexts/DebugBundleContext";
 import { SectionGroup, SettingsBottomBar } from "@/modules/settings/SettingsSection.tsx";
@@ -38,11 +39,7 @@ export function SettingsTroubleshooting() {
 
     if (stage.kind === "done") {
         return (
-            <DoneResult
-                result={stage.result}
-                uploaded={stage.uploadAttempted}
-                onClose={reset}
-            />
+            <DoneResult result={stage.result} uploaded={stage.uploadAttempted} onClose={reset} />
         );
     }
     if (stage.kind !== "idle") {
@@ -115,7 +112,7 @@ export function SettingsTroubleshooting() {
     );
 }
 
-function CenteredPanel({ children }: { children: ReactNode }) {
+function CenteredPanel({ children }: Readonly<{ children: ReactNode }>) {
     return (
         <div
             className={
@@ -127,21 +124,33 @@ function CenteredPanel({ children }: { children: ReactNode }) {
     );
 }
 
-function ProgressSection({ stage, onCancel }: { stage: DebugStage; onCancel: () => void }) {
+function ProgressSection({
+    stage,
+    onCancel,
+}: Readonly<{ stage: DebugStage; onCancel: () => void }>) {
     const { t } = useTranslation();
     const cancelling = stage.kind === "cancelling";
     return (
         <CenteredPanel>
             <SquareIcon icon={Loader2} className={"[&_svg]:animate-spin"} />
 
-            <div className={"flex flex-col items-center gap-2 max-w-xs"}>
-                <DialogHeading className={"text-balance"}>
-                    {stageLabel(stage, t)}
-                </DialogHeading>
+            <div className={"flex flex-col items-center gap-2 max-w-sm"}>
+                <DialogHeading className={"text-balance"}>{stageLabel(stage, t)}</DialogHeading>
                 <DialogDescription>
                     {t("settings.troubleshooting.progress.description")}
                 </DialogDescription>
             </div>
+
+            {stage.kind === "capturing" && (
+                <div
+                    className={
+                        "font-mono font-semibold text-2xl tabular-nums text-nb-gray-50 tracking-wider"
+                    }
+                    aria-live={"polite"}
+                >
+                    {formatRemaining(stage.remainingSec)}
+                </div>
+            )}
 
             <DialogActions className={"max-w-[220px]"}>
                 <Button
@@ -163,23 +172,25 @@ function DoneResult({
     result,
     uploaded,
     onClose,
-}: {
+}: Readonly<{
     result: DebugBundleResult;
     uploaded: boolean;
     onClose: () => void;
-}) {
+}>) {
     const { t } = useTranslation();
     const showKey = uploaded && Boolean(result.uploadedKey);
     const uploadFailed = uploaded && !result.uploadedKey;
     const onRevealPath = () => {
         if (!result.path) return;
-        void DebugSvc.RevealFile(result.path).catch(() => {});
+        DebugSvc.RevealFile(result.path).catch((err: unknown) =>
+            console.error("reveal debug bundle file", err),
+        );
     };
     return (
         <CenteredPanel>
             <SquareIcon icon={CircleCheckBig} className={"[&_svg]:text-green-500"} />
 
-            <div className={"flex flex-col items-center gap-2 max-w-xs"}>
+            <div className={"flex flex-col items-center gap-2 max-w-sm"}>
                 <DialogHeading className={"text-balance"}>
                     {showKey
                         ? t("settings.troubleshooting.done.uploadedTitle")
@@ -192,7 +203,7 @@ function DoneResult({
                 </DialogDescription>
             </div>
 
-            <div className={"w-full max-w-xs flex flex-col gap-3"}>
+            <div className={"w-full max-w-sm flex flex-col gap-3"}>
                 {showKey && <Input value={result.uploadedKey} readOnly copy />}
 
                 {result.path && !showKey && (
@@ -252,12 +263,7 @@ function DoneResult({
                         </Button>
                     )
                 )}
-                <Button
-                    variant={"secondary"}
-                    size={"md"}
-                    className={"w-full"}
-                    onClick={onClose}
-                >
+                <Button variant={"secondary"} size={"md"} className={"w-full"} onClick={onClose}>
                     {t("common.close")}
                 </Button>
             </DialogActions>
@@ -265,19 +271,17 @@ function DoneResult({
     );
 }
 
-const stageLabel = (stage: DebugStage, t: (key: string, options?: Record<string, unknown>) => string): string => {
+const stageLabel = (
+    stage: DebugStage,
+    t: (key: string, options?: Record<string, unknown>) => string,
+): string => {
     switch (stage.kind) {
         case "preparing-trace":
             return t("settings.troubleshooting.stage.preparingTrace");
         case "reconnecting":
             return t("settings.troubleshooting.stage.reconnecting");
-        case "capturing": {
-            const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-            return t("settings.troubleshooting.stage.capturing", {
-                elapsed: fmt(stage.totalSec - stage.remainingSec),
-                total: fmt(stage.totalSec),
-            });
-        }
+        case "capturing":
+            return t("settings.troubleshooting.stage.capturing");
         case "restoring-level":
             return t("settings.troubleshooting.stage.restoring");
         case "bundling":

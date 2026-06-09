@@ -1,6 +1,14 @@
 import { cva, VariantProps } from "class-variance-authority";
 import { Check, ChevronDown, ChevronUp, Copy, Eye, EyeOff } from "lucide-react";
-import { forwardRef, InputHTMLAttributes, ReactNode, useId, useRef, useState } from "react";
+import {
+    forwardRef,
+    InputHTMLAttributes,
+    ReactNode,
+    useEffect,
+    useId,
+    useRef,
+    useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/cn";
 import { Label } from "@/components/typography/Label";
@@ -14,9 +22,6 @@ export interface InputProps extends InputHTMLAttributes<HTMLInputElement>, Input
     maxWidthClass?: string;
     icon?: ReactNode;
     error?: string;
-    // A soft, non-blocking caveat rendered in orange (vs. error's red). Used
-    // e.g. for "couldn't reach this server" where the value is syntactically
-    // fine and the user may still proceed. `error` takes precedence.
     warning?: string;
     prefixClassName?: string;
     showPasswordToggle?: boolean;
@@ -52,6 +57,151 @@ const inputVariants = cva("", {
     },
 });
 
+function computeNextStepValue(el: HTMLInputElement, delta: 1 | -1): number {
+    const stepAttr = el.step === "" ? 1 : Number(el.step);
+    const step = Number.isFinite(stepAttr) && stepAttr > 0 ? stepAttr : 1;
+    const min = el.min === "" ? -Infinity : Number(el.min);
+    const max = el.max === "" ? Infinity : Number(el.max);
+    const current = el.value === "" ? 0 : Number(el.value);
+    let next = (Number.isFinite(current) ? current : 0) + delta * step;
+    if (next < min) next = min;
+    if (next > max) next = max;
+    return next;
+}
+
+function buildInputClassName(
+    opts: Readonly<{
+        variant: InputVariants["variant"];
+        hasCustomPrefix: boolean;
+        hasSuffix: boolean;
+        hasIcon: boolean;
+        readOnly?: boolean;
+        showStepper: boolean;
+        className?: string;
+    }>,
+): string {
+    return cn(
+        inputVariants({ variant: opts.variant }),
+        "flex h-[40px] w-full rounded-md bg-white px-3 py-2 text-sm select-text",
+        "file:bg-transparent file:text-sm file:font-medium file:border-0",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
+        "disabled:cursor-not-allowed disabled:opacity-40",
+        opts.hasCustomPrefix && "!border-l-0 !rounded-l-none",
+        opts.hasSuffix && "!pr-9",
+        opts.hasIcon && "!pl-10",
+        "border",
+        opts.readOnly && "!bg-nb-gray-910 text-nb-gray-350 !border-nb-gray-800",
+        opts.showStepper &&
+            "!rounded-r-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]",
+        opts.className,
+    );
+}
+
+function InputAffix({
+    content,
+    error,
+    disabled,
+    className,
+}: Readonly<{ content: ReactNode; error?: string; disabled?: boolean; className?: string }>) {
+    return (
+        <div
+            className={cn(
+                inputVariants({ prefixSuffixVariant: error ? "error" : "default" }),
+                "flex h-[40px] w-auto rounded-l-md bg-white px-3 py-2 text-sm",
+                "border items-center whitespace-nowrap",
+                disabled && "opacity-40",
+                className,
+            )}
+        >
+            {content}
+        </div>
+    );
+}
+
+function InputIconSlot({ icon, disabled }: Readonly<{ icon: ReactNode; disabled?: boolean }>) {
+    return (
+        <div
+            className={cn(
+                "absolute left-0 top-0 h-full flex items-center text-xs dark:text-nb-gray-300 pl-3 leading-[0]",
+                disabled && "opacity-40",
+            )}
+        >
+            {icon}
+        </div>
+    );
+}
+
+function InputSuffixSlot({
+    suffix,
+    disabled,
+}: Readonly<{ suffix: ReactNode; disabled?: boolean }>) {
+    return (
+        <div
+            className={cn(
+                "absolute right-0 top-0 h-full flex items-center text-xs dark:text-nb-gray-300 pr-3 leading-[0] select-none pointer-events-none",
+                disabled && "opacity-30",
+            )}
+        >
+            {suffix}
+        </div>
+    );
+}
+
+function NumberStepper({
+    error,
+    disabled,
+    onStep,
+}: Readonly<{ error?: string; disabled?: boolean; onStep: (delta: 1 | -1) => void }>) {
+    const { t } = useTranslation();
+    return (
+        <div
+            className={cn(
+                "flex flex-col h-[40px] shrink-0 overflow-hidden",
+                "border border-l-0 rounded-r-md",
+                "border-neutral-200 dark:border-nb-gray-700 dark:bg-nb-gray-900",
+                error && "dark:border-red-500",
+                disabled && "opacity-40 pointer-events-none",
+            )}
+        >
+            <button
+                type="button"
+                tabIndex={-1}
+                aria-label={t("common.increase")}
+                onClick={() => onStep(1)}
+                className="flex-1 flex items-center justify-center w-9 hover:bg-nb-gray-800 transition-colors text-nb-gray-300 cursor-default"
+            >
+                <ChevronUp size={12} />
+            </button>
+            <button
+                type="button"
+                tabIndex={-1}
+                aria-label={t("common.decrease")}
+                onClick={() => onStep(-1)}
+                className={cn(
+                    "flex-1 flex items-center justify-center w-9 hover:bg-nb-gray-800 transition-colors text-nb-gray-300 cursor-default",
+                    "border-t border-neutral-200 dark:border-nb-gray-700",
+                )}
+            >
+                <ChevronDown size={12} />
+            </button>
+        </div>
+    );
+}
+
+function FieldMessage({ error, warning }: Readonly<{ error?: string; warning?: string }>) {
+    if (!error && !warning) return null;
+    return (
+        <span
+            className={cn(
+                "text-xs mt-2 inline-flex items-center gap-1",
+                error ? "text-red-500" : "text-orange-400",
+            )}
+        >
+            {error ?? warning}
+        </span>
+    );
+}
+
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
     {
         className,
@@ -82,28 +232,29 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
     const reactId = useId();
     const inputId = id ?? (label ? `input-${reactId}` : undefined);
 
+    const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    useEffect(
+        () => () => {
+            if (copyTimer.current) clearTimeout(copyTimer.current);
+        },
+        [],
+    );
+
     const internalRef = useRef<HTMLInputElement | null>(null);
     const setRefs = (el: HTMLInputElement | null) => {
         internalRef.current = el;
         if (typeof ref === "function") ref(el);
-        else if (ref) (ref as React.MutableRefObject<HTMLInputElement | null>).current = el;
+        else if (ref) ref.current = el;
     };
 
     const stepBy = (delta: 1 | -1) => {
         const el = internalRef.current;
         if (!el || el.disabled || el.readOnly) return;
         const setter = Object.getOwnPropertyDescriptor(
-            window.HTMLInputElement.prototype,
+            globalThis.HTMLInputElement.prototype,
             "value",
         )?.set;
-        const stepAttr = el.step !== "" ? Number(el.step) : 1;
-        const step = Number.isFinite(stepAttr) && stepAttr > 0 ? stepAttr : 1;
-        const min = el.min !== "" ? Number(el.min) : -Infinity;
-        const max = el.max !== "" ? Number(el.max) : Infinity;
-        const current = el.value === "" ? 0 : Number(el.value);
-        let next = (Number.isFinite(current) ? current : 0) + delta * step;
-        if (next < min) next = min;
-        if (next > max) next = max;
+        const next = computeNextStepValue(el, delta);
         setter?.call(el, String(next));
         el.dispatchEvent(new Event("input", { bubbles: true }));
     };
@@ -121,14 +272,14 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         ) : null;
 
     const onCopy = async () => {
-        const text = props.value != null ? String(props.value) : (internalRef.current?.value ?? "");
+        const text = props.value == null ? (internalRef.current?.value ?? "") : String(props.value);
         if (!text) return;
         try {
             await navigator.clipboard.writeText(text);
             setCopied(true);
-            setTimeout(() => setCopied(false), 1500);
+            if (copyTimer.current) clearTimeout(copyTimer.current);
+            copyTimer.current = setTimeout(() => setCopied(false), 1500);
         } catch {
-            // ignore
         }
     };
 
@@ -145,37 +296,33 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
 
     const suffix = passwordToggle || copyToggle || customSuffix;
     const showStepper = isNumber;
+    const warningVariant = warning ? "warning" : variant;
+    const resolvedVariant = error ? "error" : warningVariant;
+
+    const inputClassName = buildInputClassName({
+        variant: resolvedVariant,
+        hasCustomPrefix: !!customPrefix,
+        hasSuffix: !!suffix,
+        hasIcon: !!icon,
+        readOnly: props.readOnly,
+        showStepper,
+        className,
+    });
 
     return (
         <div className="flex flex-col w-full min-w-0">
             {label && <Label htmlFor={inputId}>{label}</Label>}
             <div className={cn("flex relative h-[40px] w-full", maxWidthClass)}>
                 {customPrefix && (
-                    <div
-                        className={cn(
-                            inputVariants({
-                                prefixSuffixVariant: error ? "error" : "default",
-                            }),
-                            "flex h-[40px] w-auto rounded-l-md bg-white px-3 py-2 text-sm",
-                            "border items-center whitespace-nowrap",
-                            props.disabled && "opacity-40",
-                            prefixClassName,
-                        )}
-                    >
-                        {customPrefix}
-                    </div>
+                    <InputAffix
+                        content={customPrefix}
+                        error={error}
+                        disabled={props.disabled}
+                        className={prefixClassName}
+                    />
                 )}
 
-                {icon && (
-                    <div
-                        className={cn(
-                            "absolute left-0 top-0 h-full flex items-center text-xs dark:text-nb-gray-300 pl-3 leading-[0]",
-                            props.disabled && "opacity-40",
-                        )}
-                    >
-                        {icon}
-                    </div>
-                )}
+                {icon && <InputIconSlot icon={icon} disabled={props.disabled} />}
 
                 <div className="relative flex flex-grow min-w-0">
                     <input
@@ -183,82 +330,17 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
                         type={inputType}
                         ref={setRefs}
                         {...props}
-                        className={cn(
-                            inputVariants({
-                                variant: error ? "error" : warning ? "warning" : variant,
-                            }),
-                            "flex h-[40px] w-full rounded-md bg-white px-3 py-2 text-sm select-text",
-                            "file:bg-transparent file:text-sm file:font-medium file:border-0",
-                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
-                            "disabled:cursor-not-allowed disabled:opacity-40",
-                            customPrefix && "!border-l-0 !rounded-l-none",
-                            suffix && "!pr-9",
-                            icon && "!pl-10",
-                            "border",
-                            props.readOnly &&
-                                "!bg-nb-gray-910 text-nb-gray-350 !border-nb-gray-800",
-                            showStepper &&
-                                "!rounded-r-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]",
-                            className,
-                        )}
+                        className={inputClassName}
                     />
 
-                    {suffix && (
-                        <div
-                            className={cn(
-                                "absolute right-0 top-0 h-full flex items-center text-xs dark:text-nb-gray-300 pr-3 leading-[0] select-none pointer-events-none",
-                                props.disabled && "opacity-30",
-                            )}
-                        >
-                            {suffix}
-                        </div>
-                    )}
+                    {suffix && <InputSuffixSlot suffix={suffix} disabled={props.disabled} />}
                 </div>
 
                 {showStepper && (
-                    <div
-                        className={cn(
-                            "flex flex-col h-[40px] shrink-0 overflow-hidden",
-                            "border border-l-0 rounded-r-md",
-                            "border-neutral-200 dark:border-nb-gray-700 dark:bg-nb-gray-900",
-                            error && "dark:border-red-500",
-                            props.disabled && "opacity-40 pointer-events-none",
-                        )}
-                    >
-                        <button
-                            type="button"
-                            tabIndex={-1}
-                            aria-label={t("common.increase")}
-                            onClick={() => stepBy(1)}
-                            className="flex-1 flex items-center justify-center w-9 hover:bg-nb-gray-800 transition-colors text-nb-gray-300 cursor-default"
-                        >
-                            <ChevronUp size={12} />
-                        </button>
-                        <button
-                            type="button"
-                            tabIndex={-1}
-                            aria-label={t("common.decrease")}
-                            onClick={() => stepBy(-1)}
-                            className={cn(
-                                "flex-1 flex items-center justify-center w-9 hover:bg-nb-gray-800 transition-colors text-nb-gray-300 cursor-default",
-                                "border-t border-neutral-200 dark:border-nb-gray-700",
-                            )}
-                        >
-                            <ChevronDown size={12} />
-                        </button>
-                    </div>
+                    <NumberStepper error={error} disabled={props.disabled} onStep={stepBy} />
                 )}
             </div>
-            {(error || warning) && (
-                <span
-                    className={cn(
-                        "text-xs mt-2 inline-flex items-center gap-1",
-                        error ? "text-red-500" : "text-orange-400",
-                    )}
-                >
-                    {error ?? warning}
-                </span>
-            )}
+            <FieldMessage error={error} warning={warning} />
         </div>
     );
 });

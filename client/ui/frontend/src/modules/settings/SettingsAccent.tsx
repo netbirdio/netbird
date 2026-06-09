@@ -35,7 +35,7 @@ function triggerAccent() {
     root.render(<Accent onDone={cleanup} />);
 }
 
-function Accent({ onDone }: { onDone: () => void }) {
+function Accent({ onDone }: Readonly<{ onDone: () => void }>) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [visible, setVisible] = useState(false);
 
@@ -94,14 +94,14 @@ function Accent({ onDone }: { onDone: () => void }) {
         };
         raf = requestAnimationFrame(draw);
 
-        const timeout = window.setTimeout(() => {
+        const timeout = globalThis.setTimeout(() => {
             setVisible(false);
-            window.setTimeout(onDone, 500);
+            globalThis.setTimeout(onDone, 500);
         }, 9000);
 
         return () => {
             cancelAnimationFrame(raf);
-            window.clearTimeout(timeout);
+            globalThis.clearTimeout(timeout);
             window.removeEventListener("resize", resize);
         };
     }, [onDone]);

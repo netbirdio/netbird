@@ -9,7 +9,9 @@ import { cn } from "@/lib/cn";
 const GITHUB_RELEASES = "https://github.com/netbirdio/netbird/releases/latest";
 
 function openUrl(url: string) {
-    void Browser.OpenURL(url).catch(() => window.open(url, "_blank"));
+    Browser.OpenURL(url).catch(() => {
+        window.open(url, "_blank");
+    });
 }
 
 export function UpdateVersionCard() {
@@ -62,7 +64,7 @@ export function UpdateVersionCard() {
     );
 }
 
-function Card({ children, className }: { children: ReactNode; className?: string }) {
+function Card({ children, className }: Readonly<{ children: ReactNode; className?: string }>) {
     return (
         <div
             className={cn(
@@ -75,11 +77,11 @@ function Card({ children, className }: { children: ReactNode; className?: string
     );
 }
 
-function Title({ children }: { children: ReactNode }) {
+function Title({ children }: Readonly<{ children: ReactNode }>) {
     return <p className={"text-sm font-semibold"}>{children}</p>;
 }
 
-function Link({ url, children }: { url: string; children: ReactNode }) {
+function Link({ url, children }: Readonly<{ url: string; children: ReactNode }>) {
     return (
         <button
             type={"button"}

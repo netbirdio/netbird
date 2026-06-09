@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { System } from "@wailsio/runtime";
 import Button from "@/components/buttons/Button";
@@ -8,23 +8,16 @@ import { Label } from "@/components/typography/Label";
 import { SectionGroup, SettingsBottomBar } from "@/modules/settings/SettingsSection.tsx";
 import { useSettings } from "@/contexts/SettingsContext.tsx";
 
-// macOS: the Darwin utun control socket parses the digits after "utun" as the
-// unit number, so the daemon (and the CLI's parseInterfaceName in
-// client/cmd/up.go) only accepts utun<N>.
-// Linux/Windows: no daemon-side validation; the Linux kernel caps names at
-// IFNAMSIZ-1 = 15 chars and the safe charset across both is [A-Za-z0-9._-].
+// macOS daemon/CLI only accept utun<N> (Darwin parses digits as the utun unit); Linux caps at IFNAMSIZ-1 = 15 chars.
 const IS_MAC = System.IsMac();
 const INTERFACE_NAME_RE = IS_MAC ? /^utun\d+$/ : /^[A-Za-z0-9._-]{1,15}$/;
 const INTERFACE_NAME_ERROR_KEY = IS_MAC
     ? "settings.advanced.interfaceName.errorMac"
     : "settings.advanced.interfaceName.error";
-// Port 0 means "let the daemon pick a random free port" (see the hint text).
+// Port 0 lets the daemon pick a random free port.
 const PORT_MIN = 0;
 const PORT_MAX = 65535;
-// Mirrors client/iface/iface.go MinMTU / MaxMTU. 576 is the IPv4 "every host
-// must accept" datagram size from RFC 791 — safe floor when IPv6 is off; for
-// IPv6 the daemon still needs 1280 on the path (RFC 8200), but that is not
-// the validator's job to enforce.
+// Mirrors client/iface/iface.go MinMTU / MaxMTU.
 const MTU_MIN = 576;
 const MTU_MAX = 8192;
 
@@ -39,6 +32,15 @@ export function SettingsAdvanced() {
         preSharedKey: config.preSharedKey,
     });
     const [saving, setSaving] = useState(false);
+
+    useEffect(() => {
+        setValues({
+            interfaceName: config.interfaceName,
+            wireguardPort: config.wireguardPort,
+            mtu: config.mtu,
+            preSharedKey: config.preSharedKey,
+        });
+    }, [config.interfaceName, config.wireguardPort, config.mtu, config.preSharedKey]);
 
     const errors = useMemo(() => {
         const out: { interfaceName?: string; wireguardPort?: string; mtu?: string } = {};
@@ -55,11 +57,7 @@ export function SettingsAdvanced() {
                 max: PORT_MAX,
             });
         }
-        if (
-            !Number.isInteger(values.mtu) ||
-            values.mtu < MTU_MIN ||
-            values.mtu > MTU_MAX
-        ) {
+        if (!Number.isInteger(values.mtu) || values.mtu < MTU_MIN || values.mtu > MTU_MAX) {
             out.mtu = t("settings.advanced.mtu.error", { min: MTU_MIN, max: MTU_MAX });
         }
         return out;
@@ -89,9 +87,7 @@ export function SettingsAdvanced() {
                     label={t("settings.advanced.interfaceName.label")}
                     value={values.interfaceName}
                     error={errors.interfaceName}
-                    onChange={(e) =>
-                        setValues((v) => ({ ...v, interfaceName: e.target.value }))
-                    }
+                    onChange={(e) => setValues((v) => ({ ...v, interfaceName: e.target.value }))}
                 />
                 <div className={"grid grid-cols-2 gap-4"}>
                     <div>
@@ -118,9 +114,7 @@ export function SettingsAdvanced() {
                         max={MTU_MAX}
                         value={values.mtu}
                         error={errors.mtu}
-                        onChange={(e) =>
-                            setValues((v) => ({ ...v, mtu: Number(e.target.value) }))
-                        }
+                        onChange={(e) => setValues((v) => ({ ...v, mtu: Number(e.target.value) }))}
                     />
                 </div>
             </SectionGroup>
@@ -128,17 +122,13 @@ export function SettingsAdvanced() {
             <SectionGroup title={t("settings.advanced.section.security")}>
                 <div>
                     <Label as={"div"}>{t("settings.advanced.psk.label")}</Label>
-                    <HelpText>
-                        {t("settings.advanced.psk.help")}
-                    </HelpText>
+                    <HelpText>{t("settings.advanced.psk.help")}</HelpText>
                     <Input
                         type={"password"}
                         showPasswordToggle
                         placeholder={"kQv0qF3oQpJYdgD5mC9hL7sB2xZ8nT4eU6wY1aR3jK0="}
                         value={values.preSharedKey}
-                        onChange={(e) =>
-                            setValues((v) => ({ ...v, preSharedKey: e.target.value }))
-                        }
+                        onChange={(e) => setValues((v) => ({ ...v, preSharedKey: e.target.value }))}
                     />
                 </div>
             </SectionGroup>

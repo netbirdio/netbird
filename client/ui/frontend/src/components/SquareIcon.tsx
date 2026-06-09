@@ -2,11 +2,6 @@ import { ComponentType } from "react";
 import { LucideProps } from "lucide-react";
 import { cn } from "@/lib/cn";
 
-// SquareIcon is the rounded-square icon tile used by dialog-style surfaces
-// (ConfirmDialog, etc.). Renders a bordered tile with the provided lucide
-// icon centered inside. The `variant` selects the semantic colour scheme — all
-// variants keep the neutral dark tile + border; only the icon colour changes
-// to match the action's severity.
 export type SquareIconVariant = "default" | "info" | "warning" | "danger";
 
 const variantClass: Record<SquareIconVariant, string> = {

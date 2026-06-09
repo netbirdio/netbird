@@ -5,21 +5,18 @@ import { useConfirm } from "@/contexts/DialogContext.tsx";
 
 export const CLOUD_MANAGEMENT_URL = "https://api.netbird.io:443";
 
-// URL_PATTERN matches http(s)://host[:port][/path][?query][#fragment].
-// Host is domain, localhost, or IPv4. Used for syntactic validation only —
-// reachability is checked separately via checkManagementUrlReachable.
+// Matches http(s)://host[:port][/path][?query][#fragment]; host = domain, localhost, or IPv4.
+// Syntactic validation only — reachability is checked via checkManagementUrlReachable.
 export const URL_PATTERN = new RegExp(
-    "^(https?:\\/\\/)?" +
-        "((([a-z\\d]([a-z\\d-]*[a-z\\d])*)\\.)+[a-z]{2,}|localhost|" +
-        "((\\d{1,3}\\.){3}\\d{1,3}))" +
-        "(\\:\\d+)?(\\/[-a-z\\d%_.~+]*)*" +
-        "(\\?[;&a-z\\d%_.~+=-]*)?" +
-        "(\\#[-a-z\\d_]*)?$",
+    String.raw`^(https?:\/\/)?` +
+        String.raw`((([a-z\d]([a-z\d-]*[a-z\d])?)\.)+[a-z]{2,}|localhost|` +
+        String.raw`((\d{1,3}\.){3}\d{1,3}))` +
+        String.raw`(\:\d+)?(\/[-a-z\d%_.~+]*)*` +
+        String.raw`(\?[;&a-z\d%_.~+=-]*)?` +
+        String.raw`(\#[-a-z\d_]*)?$`,
     "i",
 );
 
-// normalizeManagementUrl prefixes an https:// scheme when the user omits
-// it. Empty input stays empty.
 export function normalizeManagementUrl(input: string): string {
     const trimmed = input.trim();
     if (!trimmed) return "";
@@ -27,28 +24,18 @@ export function normalizeManagementUrl(input: string): string {
     return `https://${trimmed}`;
 }
 
-// isValidManagementUrl is a syntactic check via URL_PATTERN. Does not
-// touch the network.
 export function isValidManagementUrl(input: string): boolean {
     const trimmed = input.trim();
     if (!trimmed) return false;
     return URL_PATTERN.test(trimmed);
 }
 
-// isCloudManagementUrl reports whether the stored URL is the NetBird
-// Cloud default (or an empty/unset URL, which the daemon also treats as
-// cloud-defaulting on first boot).
 export function isCloudManagementUrl(url: string): boolean {
     if (!url || url.trim() === "") return true;
     return url === CLOUD_MANAGEMENT_URL;
 }
 
-// checkManagementUrlReachable does a best-effort no-cors GET against the
-// URL with a short timeout. A resolved fetch (even opaque) means DNS +
-// TCP + TLS landed; any rejection (network error, DNS, abort) is treated
-// as unreachable. Self-hosted deployments behind internal-only DNS or
-// with self-signed certs may return false positives — callers should
-// surface this as a soft warning, not a hard block.
+// Can false-negative for self-hosted behind internal DNS / self-signed certs — treat as a soft warning, not a hard block.
 export async function checkManagementUrlReachable(
     url: string,
     timeoutMs: number = 5000,
@@ -80,15 +67,10 @@ export function useManagementUrl() {
     const { t } = useTranslation();
     const confirm = useConfirm();
     const { config, saveField } = useSettings();
-    const [mode, setModeState] = useState<ManagementMode>(
-        modeFromUrl(config.managementUrl),
-    );
+    const [modeState, setModeState] = useState<ManagementMode>(modeFromUrl(config.managementUrl));
     const [url, setUrl] = useState(
         config.managementUrl === CLOUD_MANAGEMENT_URL ? "" : config.managementUrl,
     );
-    // Self-hosted reachability soft-check, mirrored from the onboarding /
-    // profile-creation flows: a failed probe is a non-blocking orange warning,
-    // and a second Save with the same URL goes through regardless.
     const [checking, setChecking] = useState(false);
     const [unreachable, setUnreachable] = useState(false);
 
@@ -99,19 +81,12 @@ export function useManagementUrl() {
         }
     }, [config.managementUrl]);
 
-    // Clear the stale warning whenever the target changes.
     useEffect(() => {
         setUnreachable(false);
-    }, [url, mode]);
+    }, [url, modeState]);
 
     const setMode = async (next: ManagementMode) => {
-        if (
-            next === ManagementMode.Cloud &&
-            config.managementUrl !== CLOUD_MANAGEMENT_URL
-        ) {
-            // Switching from a self-hosted management server to NetBird Cloud
-            // re-points the client at a different deployment and forces a
-            // reconnect/re-login. Confirm via the in-app modal before applying.
+        if (next === ManagementMode.Cloud && config.managementUrl !== CLOUD_MANAGEMENT_URL) {
             const ok = await confirm({
                 title: t("settings.general.management.switchCloudTitle"),
                 description: t("settings.general.management.switchCloudMessage"),
@@ -119,7 +94,9 @@ export function useManagementUrl() {
             });
             if (!ok) return;
             setModeState(ManagementMode.Cloud);
-            void saveField("managementUrl", CLOUD_MANAGEMENT_URL);
+            saveField("managementUrl", CLOUD_MANAGEMENT_URL).catch((err: unknown) =>
+                console.error("save managementUrl failed", err),
+            );
             return;
         }
         setModeState(next);
@@ -127,19 +104,14 @@ export function useManagementUrl() {
 
     const normalizedUrl = normalizeManagementUrl(url);
     const urlValid = isValidManagementUrl(url);
-    const targetUrl =
-        mode === ManagementMode.Cloud ? CLOUD_MANAGEMENT_URL : normalizedUrl;
+    const targetUrl = modeState === ManagementMode.Cloud ? CLOUD_MANAGEMENT_URL : normalizedUrl;
     const dirty = targetUrl !== config.managementUrl;
-    const showError =
-        mode === ManagementMode.SelfHosted && url.trim() !== "" && !urlValid;
-    const canSave = dirty && (mode === ManagementMode.Cloud || urlValid);
-    const displayUrl = mode === ManagementMode.Cloud ? CLOUD_MANAGEMENT_URL : url;
+    const showError = modeState === ManagementMode.SelfHosted && url.trim() !== "" && !urlValid;
+    const canSave = dirty && (modeState === ManagementMode.Cloud || urlValid);
+    const displayUrl = modeState === ManagementMode.Cloud ? CLOUD_MANAGEMENT_URL : url;
 
     const save = async () => {
-        // Self-hosted: probe the server first. A failed probe surfaces a soft
-        // warning and bails; a second Save (unreachable already set) skips the
-        // re-check and saves anyway, so the user can override a false negative.
-        if (mode === ManagementMode.SelfHosted && !unreachable) {
+        if (modeState === ManagementMode.SelfHosted && !unreachable) {
             setChecking(true);
             const reachable = await checkManagementUrlReachable(targetUrl);
             setChecking(false);
@@ -153,7 +125,7 @@ export function useManagementUrl() {
     };
 
     return {
-        mode,
+        mode: modeState,
         setMode,
         url,
         setUrl,

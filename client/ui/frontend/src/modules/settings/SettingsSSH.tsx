@@ -50,7 +50,10 @@ export function SettingsSSH() {
                 />
             </SectionGroup>
 
-            <SectionGroup title={t("settings.ssh.section.capabilities")} disabled={!isSSHServerEnabled}>
+            <SectionGroup
+                title={t("settings.ssh.section.capabilities")}
+                disabled={!isSSHServerEnabled}
+            >
                 <FancyToggleSwitch
                     value={config.enableSshRoot}
                     onChange={(v) => setField("enableSshRoot", v)}
@@ -77,7 +80,10 @@ export function SettingsSSH() {
                 />
             </SectionGroup>
 
-            <SectionGroup title={t("settings.ssh.section.authentication")} disabled={!isSSHServerEnabled}>
+            <SectionGroup
+                title={t("settings.ssh.section.authentication")}
+                disabled={!isSSHServerEnabled}
+            >
                 <FancyToggleSwitch
                     value={!config.disableSshAuth}
                     onChange={(v) => setField("disableSshAuth", !v)}
@@ -92,9 +98,7 @@ export function SettingsSSH() {
                 >
                     <div className={"flex-1 max-w-md"}>
                         <Label as={"div"}>{t("settings.ssh.jwtTtl.label")}</Label>
-                        <HelpText margin={false}>
-                            {t("settings.ssh.jwtTtl.help")}
-                        </HelpText>
+                        <HelpText margin={false}>{t("settings.ssh.jwtTtl.help")}</HelpText>
                     </div>
                     <div className={"w-40 shrink-0"}>
                         <Input

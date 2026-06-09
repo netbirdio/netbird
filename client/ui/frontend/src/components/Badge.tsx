@@ -5,12 +5,8 @@ import { cn } from "@/lib/cn";
 export type BadgeVariant = "info" | "neutral" | "brand" | "success" | "warning" | "danger";
 
 type Props = HTMLAttributes<HTMLSpanElement> & {
-    /** Visual color scheme. Defaults to `info` (sky), used as the
-     *  "Active profile" indicator. */
     variant?: BadgeVariant;
-    /** Optional leading lucide icon. */
     icon?: ComponentType<LucideProps>;
-    /** Override icon size. Defaults to 10px to match the compact pill. */
     iconSize?: number;
 };
 
@@ -23,10 +19,6 @@ const VARIANT_CLASSES: Record<BadgeVariant, string> = {
     danger: "bg-red-900 border border-red-700 text-red-200",
 };
 
-// Pill shape sized for inline use next to text. `top-px` nudges the badge
-// down so its midline aligns with the surrounding text baseline; `leading-none`
-// lets the small text sit flush in the pill without the line-height padding
-// inflating it.
 export const Badge = forwardRef<HTMLSpanElement, Props>(function Badge(
     { variant = "info", icon: Icon, iconSize = 10, className, children, ...rest },
     ref,

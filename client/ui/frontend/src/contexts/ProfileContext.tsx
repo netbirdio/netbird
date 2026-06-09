@@ -3,19 +3,15 @@ import {
     useCallback,
     useContext,
     useEffect,
+    useMemo,
     useState,
     type ReactNode,
 } from "react";
 import { Events } from "@wailsio/runtime";
-import { errorDialog } from "@/lib/dialogs.ts";
-import {
-    Connection,
-    ProfileSwitcher,
-    Profiles as ProfilesSvc,
-} from "@bindings/services";
+import { Connection, ProfileSwitcher, Profiles as ProfilesSvc } from "@bindings/services";
 import type { Profile } from "@bindings/services/models.js";
 import i18next from "@/lib/i18n";
-import { formatErrorMessage } from "@/lib/errors";
+import { errorDialog, formatErrorMessage } from "@/lib/errors";
 
 const EVENT_PROFILE_CHANGED = "netbird:profile:changed";
 
@@ -58,10 +54,7 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
             setActiveProfile(active.profileName || "default");
             setProfiles(list);
         } catch (e) {
-            // Daemon-down is already surfaced globally by
-            // DaemonUnavailableOverlay; a second popup on top of it is
-            // pure noise. Every profile RPC routes through the same gRPC
-            // conn, so the Unavailable code is the reliable marker.
+            // Daemon-down is already surfaced by DaemonUnavailableOverlay; swallow it here.
             const msg = e instanceof Error ? e.message : String(e);
             if (msg.includes("code = Unavailable")) {
                 return;
@@ -76,16 +69,14 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
     }, []);
 
     useEffect(() => {
-        void refresh();
+        refresh().catch((err: unknown) => console.error("[ProfileContext] refresh failed", err));
     }, [refresh]);
 
     useEffect(() => {
-        // The tray and other windows drive switches through the same
-        // ProfileSwitcher.SwitchActive RPC, which emits this event on success.
-        // Without the subscription, a tray-initiated switch leaves this
-        // window painting the old activeProfile until the next mount.
         const off = Events.On(EVENT_PROFILE_CHANGED, () => {
-            void refresh();
+            refresh().catch((err: unknown) =>
+                console.error("[ProfileContext] refresh failed", err),
+            );
         });
         return () => {
             off();
@@ -124,21 +115,30 @@ export const ProfileProvider = ({ children }: { children: ReactNode }) => {
         [username, refresh],
     );
 
-    return (
-        <ProfileContext.Provider
-            value={{
-                username,
-                activeProfile,
-                profiles,
-                loaded,
-                refresh,
-                switchProfile,
-                addProfile,
-                removeProfile,
-                logoutProfile,
-            }}
-        >
-            {children}
-        </ProfileContext.Provider>
+    const value = useMemo<ProfileContextValue>(
+        () => ({
+            username,
+            activeProfile,
+            profiles,
+            loaded,
+            refresh,
+            switchProfile,
+            addProfile,
+            removeProfile,
+            logoutProfile,
+        }),
+        [
+            username,
+            activeProfile,
+            profiles,
+            loaded,
+            refresh,
+            switchProfile,
+            addProfile,
+            removeProfile,
+            logoutProfile,
+        ],
     );
+
+    return <ProfileContext.Provider value={value}>{children}</ProfileContext.Provider>;
 };

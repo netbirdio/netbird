@@ -4,6 +4,7 @@ import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { ChevronRightIcon, MonitorSmartphoneIcon } from "lucide-react";
 import type { PeerStatus } from "@bindings/services/models.js";
 import { cn } from "@/lib/cn";
+import { reconcileOrder } from "@/lib/sorting";
 import { CopyToClipboard } from "@/components/CopyToClipboard";
 import { SearchInput } from "@/components/inputs/SearchInput";
 import { EmptyState } from "@/components/empty-state/EmptyState";
@@ -13,7 +14,6 @@ import { useStatus } from "@/contexts/StatusContext";
 import { usePeerDetail } from "@/contexts/PeerDetailContext";
 import { Tooltip } from "@/components/Tooltip";
 import { TruncatedText } from "@/components/TruncatedText";
-import { mockOr, mockPeers } from "@/lib/mock";
 import { PeerFilters, StatusFilter } from "./PeerFilters";
 
 const isOnline = (connStatus: string) => connStatus === "Connected";
@@ -29,8 +29,6 @@ const dotClass = (connStatus: string): string => {
     }
 };
 
-// The daemon reports "Idle" for not-connected peers; surface it as
-// "Disconnected" in the UI. Connected / Connecting pass through.
 export const peerStatusLabelKey = (connStatus: string): string => {
     switch (connStatus) {
         case "Connected":
@@ -49,15 +47,12 @@ export const Peers = () => {
     const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
     const searchRef = useRef<HTMLInputElement>(null);
 
-    // Peers is only mounted in advanced view (see pages/Main.tsx), so a
-    // mount-time focus is equivalent to "focus when the user toggles into
-    // advanced view".
     useEffect(() => {
         searchRef.current?.focus();
     }, []);
 
     const isConnected = status?.status === "Connected";
-    const peers = mockOr(status?.peers ?? [], mockPeers);
+    const peers = status?.peers ?? [];
 
     const counts = useMemo<Record<StatusFilter, number>>(() => {
         const online = peers.filter((p) => isOnline(p.connStatus)).length;
@@ -68,34 +63,21 @@ export const Peers = () => {
         };
     }, [peers]);
 
-    // Initial order: online-first, then alphabetically by fqdn / ip. Once
-    // peers have settled, positions become sticky — a peer flipping
-    // Connected→Connecting→Idle no longer jumps groups. Newly discovered
-    // peers append at the end (sorted online-first / by-name among
-    // themselves). Mirrors the networks-list and exit-nodes-list orderRef
-    // pattern.
-    //
-    // Stay in live-sort mode until every peer has reached a stable state
-    // (Connected or Idle). The daemon emits all peers as "Connecting" right
-    // after Up, which collapses the online-first sort into pure
-    // alphabetical — committing then would lock that incorrect order and
-    // the list would stay alphabetical even after every peer becomes
-    // Connected. Once nothing is Connecting we commit and go sticky.
+    // Stay in live-sort until every peer is stable. Right after Up the daemon
+    // emits all peers as "Connecting"; committing then would lock that
+    // alphabetical-only order forever.
     const orderRef = useRef<string[]>([]);
     const stickyRef = useRef(false);
     const ordered = useMemo(() => {
-        const sortOnlineFirst = (list: PeerStatus[]) =>
-            [...list].sort((a, b) => {
-                const aOnline = isOnline(a.connStatus);
-                const bOnline = isOnline(b.connStatus);
-                if (aOnline !== bOnline) return aOnline ? -1 : 1;
-                const aName = (a.fqdn || a.ip).toLowerCase();
-                const bName = (b.fqdn || b.ip).toLowerCase();
-                return aName.localeCompare(bName);
-            });
+        const compare = (a: PeerStatus, b: PeerStatus) => {
+            const aOnline = isOnline(a.connStatus);
+            const bOnline = isOnline(b.connStatus);
+            if (aOnline !== bOnline) return aOnline ? -1 : 1;
+            const aName = (a.fqdn || a.ip).toLowerCase();
+            const bName = (b.fqdn || b.ip).toLowerCase();
+            return aName.localeCompare(bName);
+        };
 
-        // Reset on empty (Disconnect → reconnect) so the next session
-        // re-sorts from scratch instead of replaying the stale orderRef.
         if (peers.length === 0) {
             orderRef.current = [];
             stickyRef.current = false;
@@ -103,7 +85,7 @@ export const Peers = () => {
         }
 
         if (!stickyRef.current) {
-            const sorted = sortOnlineFirst(peers);
+            const sorted = [...peers].sort(compare);
             if (peers.every((p) => p.connStatus !== "Connecting")) {
                 orderRef.current = sorted.map((p) => p.pubKey);
                 stickyRef.current = true;
@@ -111,15 +93,9 @@ export const Peers = () => {
             return sorted;
         }
 
-        const byKey = new Map(peers.map((p) => [p.pubKey, p]));
-        const kept = orderRef.current.filter((k) => byKey.has(k));
-        const known = new Set(kept);
-        const fresh = sortOnlineFirst(peers.filter((p) => !known.has(p.pubKey))).map(
-            (p) => p.pubKey,
-        );
-        const next = [...kept, ...fresh];
-        orderRef.current = next;
-        return next.map((k) => byKey.get(k)!);
+        const { order, items } = reconcileOrder(orderRef.current, peers, (p) => p.pubKey, compare);
+        orderRef.current = order;
+        return items;
     }, [peers]);
 
     const filtered = useMemo(() => {
@@ -127,10 +103,7 @@ export const Peers = () => {
         return ordered.filter((p) => {
             if (statusFilter === "online" && !isOnline(p.connStatus)) return false;
             if (statusFilter === "offline" && isOnline(p.connStatus)) return false;
-            if (q && !p.fqdn.toLowerCase().includes(q) && !p.ip.includes(q)) {
-                return false;
-            }
-            return true;
+            return !q || p.fqdn.toLowerCase().includes(q) || p.ip.includes(q);
         });
     }, [ordered, search, statusFilter]);
 
@@ -190,24 +163,36 @@ const PeersList = ({ data }: { data: PeerStatus[] }) => {
                 return (
                     <li
                         key={peer.pubKey}
-                        onClick={() => setSelected(peer)}
                         className={cn(
-                            "group flex items-start gap-2.5 pl-6 pr-4 py-3 min-w-0 first:mt-2",
+                            "group relative flex items-start gap-2.5 pl-6 pr-4 py-3 min-w-0 first:mt-2",
                             "hover:bg-nb-gray-900/40 transition-colors",
-                            "wails-no-draggable cursor-default",
+                            "wails-no-draggable",
                         )}
                     >
+                        <button
+                            type={"button"}
+                            aria-label={shortenDns(peer.fqdn)}
+                            onClick={() => setSelected(peer)}
+                            className={"absolute inset-0 cursor-default"}
+                        />
                         <Tooltip content={t(peerStatusLabelKey(peer.connStatus))} side={"left"}>
                             <span
                                 className={cn(
-                                    "h-2 w-2 rounded-full shrink-0 mt-2",
+                                    "h-2 w-2 rounded-full shrink-0 mt-2 relative",
                                     dotClass(peer.connStatus),
                                 )}
                             />
                         </Tooltip>
-                        <div className={"min-w-0 flex-1 flex flex-col leading-tight"}>
+                        <div
+                            className={
+                                "min-w-0 flex-1 flex flex-col leading-tight relative pointer-events-none"
+                            }
+                        >
                             <div>
-                                <CopyToClipboard message={peer.fqdn}>
+                                <CopyToClipboard
+                                    message={peer.fqdn}
+                                    className={"pointer-events-auto"}
+                                >
                                     <TruncatedText
                                         text={shortenDns(peer.fqdn)}
                                         className={
@@ -217,7 +202,10 @@ const PeersList = ({ data }: { data: PeerStatus[] }) => {
                                 </CopyToClipboard>
                             </div>
                             <div>
-                                <CopyToClipboard message={peer.ip}>
+                                <CopyToClipboard
+                                    message={peer.ip}
+                                    className={"pointer-events-auto"}
+                                >
                                     <span className={"text-xs font-mono text-nb-gray-400 truncate"}>
                                         {peer.ip}
                                     </span>
@@ -227,7 +215,7 @@ const PeersList = ({ data }: { data: PeerStatus[] }) => {
                         {isConnected && peer.latencyMs > 0 && (
                             <span
                                 className={cn(
-                                    "shrink-0 self-center text-xs tabular-nums",
+                                    "shrink-0 self-center text-xs tabular-nums relative pointer-events-none",
                                     latencyColor(peer.latencyMs),
                                 )}
                             >
@@ -237,7 +225,7 @@ const PeersList = ({ data }: { data: PeerStatus[] }) => {
                         <ChevronRightIcon
                             size={16}
                             className={cn(
-                                "shrink-0 self-center text-nb-gray-300",
+                                "shrink-0 self-center text-nb-gray-300 relative pointer-events-none",
                                 "opacity-0 group-hover:opacity-100 transition-opacity",
                             )}
                         />

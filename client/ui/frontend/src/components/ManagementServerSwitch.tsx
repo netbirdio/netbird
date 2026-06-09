@@ -7,10 +7,6 @@ import { ManagementMode } from "@/hooks/useManagementUrl.ts";
 type Props = {
     value: ManagementMode;
     onChange: (mode: ManagementMode) => void;
-    // fullWidth stretches the segmented control to fill its container —
-    // the SettingsGeneral row uses the default (shrink-to-content) layout,
-    // the welcome dialog asks for the wide variant so the picker spans the
-    // narrow dialog width.
     fullWidth?: boolean;
 };
 

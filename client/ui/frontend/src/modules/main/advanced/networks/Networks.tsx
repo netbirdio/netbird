@@ -4,6 +4,7 @@ import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { GlobeIcon, Layers3Icon, type LucideProps, NetworkIcon, WorkflowIcon } from "lucide-react";
 import type { Network } from "@bindings/services/models.js";
 import { cn } from "@/lib/cn";
+import { reconcileOrder } from "@/lib/sorting";
 import { CopyToClipboard } from "@/components/CopyToClipboard";
 import { Tooltip } from "@/components/Tooltip";
 import { TruncatedText } from "@/components/TruncatedText";
@@ -12,37 +13,26 @@ import { EmptyState } from "@/components/empty-state/EmptyState";
 import { NoResults } from "@/components/empty-state/NoResults";
 import { useStatus } from "@/contexts/StatusContext";
 import { useNetworks } from "@/contexts/NetworksContext";
-import { mockNetworkRoutes, mockOr } from "@/lib/mock";
 import { NetworkFilter, NetworkFilters } from "./NetworkFilters";
 
-// The daemon stringifies route.Network via netip.Prefix.String(). For
-// DNS-based routes the prefix is the zero value, which Go renders as
-// "invalid Prefix". Those rows render their domain + resolved IPs instead.
+// Daemon renders DNS-route prefixes (zero netip.Prefix) as "invalid Prefix".
 const INVALID_PREFIX = "invalid Prefix";
 
 const isDnsRoute = (n: Network): boolean =>
     n.domains.length > 0 && (!n.range || n.range === INVALID_PREFIX);
 
-// Mirror management's NetworkResourceType (resource.go GetResourceType):
-// a CIDR is a host when its prefix length equals the address width
-// (32 for IPv4, 128 for IPv6); anything broader is a subnet. Routes with
-// domains attached are domain resources.
 type ResourceType = "host" | "subnet" | "domain";
 
 const isHostCidr = (cidr: string): boolean => {
     const [addr, bitsStr] = cidr.split("/");
     if (!addr || !bitsStr) return false;
     const bits = Number(bitsStr);
-    // IPv6 prefixes always contain ':'; IPv4 prefixes always contain '.'.
     const isV6 = addr.includes(":");
     return isV6 ? bits === 128 : bits === 32;
 };
 
 const resourceTypeOf = (n: Network): ResourceType => {
     if (isDnsRoute(n)) return "domain";
-    // n.range is a single CIDR for resource routes. Exit-node v4+v6 pairs
-    // come comma-joined, but those are filtered out upstream — guard
-    // defensively by inspecting only the first segment.
     const primary = n.range.split(",")[0].trim();
     return isHostCidr(primary) ? "host" : "subnet";
 };
@@ -53,9 +43,6 @@ const resourceIconFor = (type: ResourceType): ComponentType<LucideProps> => {
     return NetworkIcon;
 };
 
-// Map every range string -> ids of CIDR routes that share it. Domain routes
-// are skipped (they overlap on domain, not prefix). Single-entry buckets
-// aren't overlaps.
 const buildOverlapMap = (
     routes: { id: string; range: string; domains: string[] }[],
 ): Map<string, string[]> => {
@@ -77,8 +64,7 @@ export const Networks = () => {
     const { t } = useTranslation();
     const { status } = useStatus();
     const isConnected = status?.status === "Connected";
-    const { networkRoutes: realNetworkRoutes, toggleNetwork, setNetworksSelected } = useNetworks();
-    const networkRoutes = mockOr(realNetworkRoutes, mockNetworkRoutes);
+    const { networkRoutes, toggleNetwork, setNetworksSelected } = useNetworks();
     const [search, setSearch] = useState("");
     const [filter, setFilter] = useState<NetworkFilter>("all");
     const searchRef = useRef<HTMLInputElement>(null);
@@ -106,26 +92,19 @@ export const Networks = () => {
         [networkRoutes, overlapById],
     );
 
-    // Initial order: active-first, then by id. After that, positions are sticky
-    // — toggling a row doesn't move it, and newly discovered routes append at
-    // the end (sorted active-first / by-id among themselves). The ref carries
-    // the previous order across renders so the reconciliation is synchronous
-    // with networkRoutes updates (no useEffect lag → no visual hop).
     const orderRef = useRef<string[]>([]);
     const ordered = useMemo(() => {
-        const byId = new Map(networkRoutes.map((r) => [r.id, r]));
-        const kept = orderRef.current.filter((id) => byId.has(id));
-        const known = new Set(kept);
-        const fresh = networkRoutes
-            .filter((r) => !known.has(r.id))
-            .sort((a, b) => {
+        const { order, items } = reconcileOrder(
+            orderRef.current,
+            networkRoutes,
+            (r) => r.id,
+            (a, b) => {
                 if (a.selected !== b.selected) return a.selected ? -1 : 1;
                 return a.id.localeCompare(b.id);
-            })
-            .map((r) => r.id);
-        const next = [...kept, ...fresh];
-        orderRef.current = next;
-        return next.map((id) => byId.get(id)!);
+            },
+        );
+        orderRef.current = order;
+        return items;
     }, [networkRoutes]);
 
     const filtered = useMemo(() => {
@@ -158,13 +137,15 @@ export const Networks = () => {
     const onBulkClick = () => {
         if (filtered.length === 0) return;
         if (allSelected) {
-            void setNetworksSelected(
+            setNetworksSelected(
                 filtered.map((r) => r.id),
                 false,
-            );
+            ).catch((err: unknown) => console.error("disable all networks failed", err));
         } else {
             const ids = filtered.filter((r) => !r.selected).map((r) => r.id);
-            void setNetworksSelected(ids, true);
+            setNetworksSelected(ids, true).catch((err: unknown) =>
+                console.error("enable all networks failed", err),
+            );
         }
     };
 
@@ -247,17 +228,26 @@ const NetworksList = ({ data, onToggle }: NetworksListProps) => {
             {data.map((n) => (
                 <li
                     key={n.id}
-                    onClick={() => onToggle(n.id, n.selected)}
                     className={cn(
-                        "group flex items-start gap-2.5 pl-6 pr-9 py-3 min-w-0 first:mt-2",
+                        "group relative flex items-start gap-2.5 pl-6 pr-9 py-3 min-w-0 first:mt-2",
                         "hover:bg-nb-gray-900/40 transition-colors",
-                        "wails-no-draggable cursor-pointer",
+                        "wails-no-draggable",
                     )}
                 >
+                    <button
+                        type={"button"}
+                        aria-label={n.id}
+                        onClick={() => onToggle(n.id, n.selected)}
+                        className={"absolute inset-0 cursor-pointer"}
+                    />
                     <ResourceIconBadge type={resourceTypeOf(n)} />
-                    <div className={"min-w-0 flex-1 flex flex-col leading-tight"}>
+                    <div
+                        className={
+                            "min-w-0 flex-1 flex flex-col leading-tight relative pointer-events-none"
+                        }
+                    >
                         <div>
-                            <CopyToClipboard message={n.id}>
+                            <CopyToClipboard message={n.id} className={"pointer-events-auto"}>
                                 <TruncatedText
                                     text={n.id}
                                     className={
@@ -268,7 +258,7 @@ const NetworksList = ({ data, onToggle }: NetworksListProps) => {
                         </div>
                         <Subtitle network={n} />
                     </div>
-                    <div className={"shrink-0 self-center"} onClick={(e) => e.stopPropagation()}>
+                    <div className={"shrink-0 self-center relative"}>
                         <NetworkToggle
                             checked={n.selected}
                             onChange={() => onToggle(n.id, n.selected)}
@@ -388,25 +378,28 @@ type ToggleProps = {
     mixed?: boolean;
 };
 
-const NetworkToggle = ({ checked, onChange, label, mixed }: ToggleProps) => (
-    <button
-        type={"button"}
-        role={"switch"}
-        aria-checked={mixed ? "mixed" : checked}
-        aria-label={label}
-        onClick={onChange}
-        className={cn(
-            "shrink-0 inline-flex h-5 w-9 items-center rounded-full",
-            "transition-colors cursor-pointer wails-no-draggable",
-            checked || mixed ? "bg-netbird" : "bg-nb-gray-700",
-            mixed && "opacity-60",
-        )}
-    >
-        <span
+const NetworkToggle = ({ checked, onChange, label, mixed }: ToggleProps) => {
+    const checkedTranslate = checked ? "translate-x-[1.125rem]" : "translate-x-0.5";
+    return (
+        <button
+            type={"button"}
+            role={"switch"}
+            aria-checked={mixed ? "mixed" : checked}
+            aria-label={label}
+            onClick={onChange}
             className={cn(
-                "inline-block h-4 w-4 rounded-full bg-white transition-transform",
-                mixed ? "translate-x-2.5" : checked ? "translate-x-[1.125rem]" : "translate-x-0.5",
+                "shrink-0 inline-flex h-5 w-9 items-center rounded-full",
+                "transition-colors cursor-pointer wails-no-draggable",
+                checked || mixed ? "bg-netbird" : "bg-nb-gray-700",
+                mixed && "opacity-60",
             )}
-        />
-    </button>
-);
+        >
+            <span
+                className={cn(
+                    "inline-block h-4 w-4 rounded-full bg-white transition-transform",
+                    mixed ? "translate-x-2.5" : checkedTranslate,
+                )}
+            />
+        </button>
+    );
+};

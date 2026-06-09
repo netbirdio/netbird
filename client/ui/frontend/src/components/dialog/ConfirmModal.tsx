@@ -6,25 +6,13 @@ import { DialogHeading } from "@/components/dialog/DialogHeading";
 import { DialogDescription } from "@/components/dialog/DialogDescription";
 import { DialogActions } from "@/components/dialog/DialogActions";
 
-// ConfirmModal is the shared in-app confirmation modal — a left-aligned
-// title + (optionally multi-line) description with Cancel / confirm buttons
-// in the footer. It's the in-window counterpart to a native confirm dialog.
-//
-// Most call sites should not render this directly: use the imperative
-// `useConfirm()` from DialogContext (`await confirm({...})`), which mounts a
-// single instance at the provider level. Render ConfirmModal yourself only
-// when you need bespoke control over its open/busy lifecycle.
 type ConfirmModalProps = {
     open: boolean;
     title: ReactNode;
     description: ReactNode;
-    /** Confirm button label. */
     confirmLabel: string;
-    /** Cancel button label; defaults to the shared "Cancel" string. */
     cancelLabel?: string;
-    /** Use the destructive (red) confirm button variant. */
     danger?: boolean;
-    /** Disable the buttons (and ignore dismiss) while an action runs. */
     busy?: boolean;
     onConfirm: () => void;
     onCancel: () => void;
@@ -43,9 +31,7 @@ export const ConfirmModal = ({
 }: ConfirmModalProps) => {
     const { t } = useTranslation();
 
-    // Retain the last shown content so it stays rendered through Radix's
-    // close animation instead of blanking out the instant the caller clears
-    // its state on close.
+    // Retain last content so it survives Radix's close animation.
     type Snapshot = Pick<ConfirmModalProps, "title" | "description" | "confirmLabel" | "danger"> & {
         cancelLabel: string;
     };
