@@ -103,10 +103,7 @@ export const Peers = () => {
         return ordered.filter((p) => {
             if (statusFilter === "online" && !isOnline(p.connStatus)) return false;
             if (statusFilter === "offline" && isOnline(p.connStatus)) return false;
-            if (q && !p.fqdn.toLowerCase().includes(q) && !p.ip.includes(q)) {
-                return false;
-            }
-            return true;
+            return !q || p.fqdn.toLowerCase().includes(q) || p.ip.includes(q);
         });
     }, [ordered, search, statusFilter]);
 
