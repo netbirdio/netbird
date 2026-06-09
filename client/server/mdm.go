@@ -152,6 +152,89 @@ func (s *Server) restartEngineForMDM() error {
 	return nil
 }
 
+// preSharedKeyRedactedSentinel is the value GetConfig returns in place
+// of an actual PSK, so a UI that round-trips the field back to the
+// daemon (via SetConfig / Login) can be distinguished from a deliberate
+// override. Any incoming PSK that equals this sentinel is treated as
+// a no-op echo, never as a conflict with the policy.
+const preSharedKeyRedactedSentinel = "**********"
+
+// conflictCheck is a value-aware comparison between a single field in
+// the incoming request and the corresponding MDM-enforced value. It
+// runs only when the field was actually set in the request (presence
+// already filtered upstream); ok=true reports the policy value, ok=false
+// means the policy is silent on the key — both are treated as conflicts
+// to be safe (an MDM key declared as managed must hold a value).
+type conflictCheck struct {
+	key   string
+	check func(*mdm.Policy) (match bool)
+}
+
+// conflictBool builds a check for a *bool field on an arbitrary request
+// type. Returns nil if the pointer is unset (no presence → no check).
+func conflictBool(key string, p *bool) conflictCheck {
+	return conflictCheck{
+		key: key,
+		check: func(pol *mdm.Policy) bool {
+			if p == nil {
+				return true // absent → match by definition
+			}
+			want, ok := pol.GetBool(key)
+			return ok && want == *p
+		},
+	}
+}
+
+// conflictString builds a check for a string field. Empty string ("")
+// means "field not set" and is treated as no-conflict.
+func conflictString(key, got string) conflictCheck {
+	return conflictCheck{
+		key: key,
+		check: func(pol *mdm.Policy) bool {
+			if got == "" {
+				return true
+			}
+			want, ok := pol.GetString(key)
+			return ok && want == got
+		},
+	}
+}
+
+// conflictInt64 builds a check for an *int64 field.
+func conflictInt64(key string, p *int64) conflictCheck {
+	return conflictCheck{
+		key: key,
+		check: func(pol *mdm.Policy) bool {
+			if p == nil {
+				return true
+			}
+			want, ok := pol.GetInt(key)
+			return ok && want == *p
+		},
+	}
+}
+
+// resolveConflicts walks a list of per-field checks against the active
+// MDM policy and returns the names of keys whose requested value
+// diverges from the policy-enforced value. Keys not managed by MDM are
+// skipped silently (the gate fires only for keys the admin has actually
+// pushed). Shared across the SetConfig and Login gates.
+func resolveConflicts(policy *mdm.Policy, checks []conflictCheck) []string {
+	if policy.IsEmpty() {
+		return nil
+	}
+	var conflicts []string
+	for _, c := range checks {
+		if !policy.HasKey(c.key) {
+			continue
+		}
+		if !c.check(policy) {
+			conflicts = append(conflicts, c.key)
+		}
+	}
+	return conflicts
+}
+
 // mdmManagedFieldConflicts returns the names of MDM-managed keys whose
 // requested value in the SetConfigRequest differs from the MDM-enforced
 // value. A field set to the same value the policy already enforces is
@@ -159,52 +242,33 @@ func (s *Server) restartEngineForMDM() error {
 // every toggle, so most fields in a typical request match the policy
 // exactly and must NOT be flagged as conflicts).
 //
-// The redacted PreSharedKey sentinel ("**********") that GetConfig
-// returns is recognised and treated as no-op so the UI can safely round-
-// trip it without tripping the gate.
+// The redacted PreSharedKey sentinel that GetConfig returns is
+// recognised and treated as no-op so the UI can safely round-trip it
+// without tripping the gate.
 func mdmManagedFieldConflicts(msg *proto.SetConfigRequest, policy *mdm.Policy) []string {
-	if msg == nil || policy.IsEmpty() {
+	if msg == nil {
 		return nil
 	}
-	var conflicts []string
-	mark := func(key string) { conflicts = append(conflicts, key) }
 
-	if msg.ManagementUrl != "" && policy.HasKey(mdm.KeyManagementURL) {
-		if want, ok := policy.GetString(mdm.KeyManagementURL); !ok || want != msg.ManagementUrl {
-			mark(mdm.KeyManagementURL)
-		}
+	// PSK round-trip echo: collapse the sentinel to empty so the
+	// shared check treats it as "field not set".
+	pskGot := ""
+	if msg.OptionalPreSharedKey != nil && *msg.OptionalPreSharedKey != preSharedKeyRedactedSentinel {
+		pskGot = *msg.OptionalPreSharedKey
 	}
-	if msg.OptionalPreSharedKey != nil && policy.HasKey(mdm.KeyPreSharedKey) {
-		// "**********" is the redacted echo from GetConfig — never a real
-		// override attempt regardless of what the policy holds.
-		if *msg.OptionalPreSharedKey != "**********" {
-			if want, ok := policy.GetString(mdm.KeyPreSharedKey); !ok || want != *msg.OptionalPreSharedKey {
-				mark(mdm.KeyPreSharedKey)
-			}
-		}
-	}
-	checkBool := func(key string, p *bool) {
-		if p == nil || !policy.HasKey(key) {
-			return
-		}
-		if want, ok := policy.GetBool(key); !ok || want != *p {
-			mark(key)
-		}
-	}
-	checkBool(mdm.KeyRosenpassEnabled, msg.RosenpassEnabled)
-	checkBool(mdm.KeyRosenpassPermissive, msg.RosenpassPermissive)
-	checkBool(mdm.KeyDisableAutoConnect, msg.DisableAutoConnect)
-	checkBool(mdm.KeyAllowServerSSH, msg.ServerSSHAllowed)
-	checkBool(mdm.KeyDisableClientRoutes, msg.DisableClientRoutes)
-	checkBool(mdm.KeyDisableServerRoutes, msg.DisableServerRoutes)
-	checkBool(mdm.KeyBlockInbound, msg.BlockInbound)
 
-	if msg.WireguardPort != nil && policy.HasKey(mdm.KeyWireguardPort) {
-		if want, ok := policy.GetInt(mdm.KeyWireguardPort); !ok || want != *msg.WireguardPort {
-			mark(mdm.KeyWireguardPort)
-		}
-	}
-	return conflicts
+	return resolveConflicts(policy, []conflictCheck{
+		conflictString(mdm.KeyManagementURL, msg.ManagementUrl),
+		conflictString(mdm.KeyPreSharedKey, pskGot),
+		conflictBool(mdm.KeyRosenpassEnabled, msg.RosenpassEnabled),
+		conflictBool(mdm.KeyRosenpassPermissive, msg.RosenpassPermissive),
+		conflictBool(mdm.KeyDisableAutoConnect, msg.DisableAutoConnect),
+		conflictBool(mdm.KeyAllowServerSSH, msg.ServerSSHAllowed),
+		conflictBool(mdm.KeyDisableClientRoutes, msg.DisableClientRoutes),
+		conflictBool(mdm.KeyDisableServerRoutes, msg.DisableServerRoutes),
+		conflictBool(mdm.KeyBlockInbound, msg.BlockInbound),
+		conflictInt64(mdm.KeyWireguardPort, msg.WireguardPort),
+	})
 }
 
 // setConfigRequestHasConfigOverrides reports whether the SetConfigRequest
@@ -290,64 +354,41 @@ func loginRequestHasConfigOverrides(msg *proto.LoginRequest) bool {
 // loginRequestMDMConflicts mirrors mdmManagedFieldConflicts but for the
 // LoginRequest surface. Same value-aware semantics: a field set to the
 // MDM-enforced value is a no-op echo, not a conflict; only a divergent
-// value is flagged. PSK has two proto fields (PreSharedKey deprecated
-// and OptionalPreSharedKey current); both routes are checked, and the
-// "**********" redaction sentinel is accepted as a no-op.
+// value is flagged. PSK has two proto fields — PreSharedKey (deprecated)
+// and OptionalPreSharedKey (current); either route trips the gate if it
+// diverges from the MDM-enforced PSK. The redaction sentinel is treated
+// as a no-op echo.
 func loginRequestMDMConflicts(msg *proto.LoginRequest, policy *mdm.Policy) []string {
-	if msg == nil || policy.IsEmpty() {
+	if msg == nil {
 		return nil
 	}
-	var conflicts []string
-	mark := func(key string) { conflicts = append(conflicts, key) }
 
-	if msg.ManagementUrl != "" && policy.HasKey(mdm.KeyManagementURL) {
-		if want, ok := policy.GetString(mdm.KeyManagementURL); !ok || want != msg.ManagementUrl {
-			mark(mdm.KeyManagementURL)
-		}
+	// Collapse the two PSK fields + the redaction sentinel down to a
+	// single "got" string the shared check can compare against the
+	// policy: OptionalPreSharedKey wins if set; PreSharedKey (deprecated)
+	// is the fallback; sentinel echo is treated as "field not set".
+	pskGot := ""
+	if msg.OptionalPreSharedKey != nil {
+		pskGot = *msg.OptionalPreSharedKey
+	} else if msg.PreSharedKey != "" { //nolint:staticcheck // SA1019: legacy proto field still accepted by Login
+		pskGot = msg.PreSharedKey //nolint:staticcheck // SA1019
+	}
+	if pskGot == preSharedKeyRedactedSentinel {
+		pskGot = ""
 	}
 
-	// PSK: PreSharedKey (deprecated) and OptionalPreSharedKey are both
-	// accepted by Login; either trips the gate if it diverges from the
-	// MDM-enforced PSK.
-	if policy.HasKey(mdm.KeyPreSharedKey) {
-		psk := ""
-		set := false
-		if msg.OptionalPreSharedKey != nil {
-			psk = *msg.OptionalPreSharedKey
-			set = true
-		} else if msg.PreSharedKey != "" {
-			psk = msg.PreSharedKey
-			set = true
-		}
-		if set && psk != "**********" {
-			if want, ok := policy.GetString(mdm.KeyPreSharedKey); !ok || want != psk {
-				mark(mdm.KeyPreSharedKey)
-			}
-		}
-	}
-
-	checkBool := func(key string, p *bool) {
-		if p == nil || !policy.HasKey(key) {
-			return
-		}
-		if want, ok := policy.GetBool(key); !ok || want != *p {
-			mark(key)
-		}
-	}
-	checkBool(mdm.KeyRosenpassEnabled, msg.RosenpassEnabled)
-	checkBool(mdm.KeyRosenpassPermissive, msg.RosenpassPermissive)
-	checkBool(mdm.KeyDisableAutoConnect, msg.DisableAutoConnect)
-	checkBool(mdm.KeyAllowServerSSH, msg.ServerSSHAllowed)
-	checkBool(mdm.KeyDisableClientRoutes, msg.DisableClientRoutes)
-	checkBool(mdm.KeyDisableServerRoutes, msg.DisableServerRoutes)
-	checkBool(mdm.KeyBlockInbound, msg.BlockInbound)
-
-	if msg.WireguardPort != nil && policy.HasKey(mdm.KeyWireguardPort) {
-		if want, ok := policy.GetInt(mdm.KeyWireguardPort); !ok || want != *msg.WireguardPort {
-			mark(mdm.KeyWireguardPort)
-		}
-	}
-	return conflicts
+	return resolveConflicts(policy, []conflictCheck{
+		conflictString(mdm.KeyManagementURL, msg.ManagementUrl),
+		conflictString(mdm.KeyPreSharedKey, pskGot),
+		conflictBool(mdm.KeyRosenpassEnabled, msg.RosenpassEnabled),
+		conflictBool(mdm.KeyRosenpassPermissive, msg.RosenpassPermissive),
+		conflictBool(mdm.KeyDisableAutoConnect, msg.DisableAutoConnect),
+		conflictBool(mdm.KeyAllowServerSSH, msg.ServerSSHAllowed),
+		conflictBool(mdm.KeyDisableClientRoutes, msg.DisableClientRoutes),
+		conflictBool(mdm.KeyDisableServerRoutes, msg.DisableServerRoutes),
+		conflictBool(mdm.KeyBlockInbound, msg.BlockInbound),
+		conflictInt64(mdm.KeyWireguardPort, msg.WireguardPort),
+	})
 }
 
 // rejectMDMManagedFieldConflicts returns a FailedPrecondition gRPC error

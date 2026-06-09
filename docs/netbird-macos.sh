@@ -81,7 +81,8 @@ log() {
 }
 
 is_set() {
-  [[ -n "$1" && "$1" != "$NULL" ]]
+  local value="$1"
+  [[ -n "$value" && "$value" != "$NULL" ]]
 }
 
 start_plist() {
