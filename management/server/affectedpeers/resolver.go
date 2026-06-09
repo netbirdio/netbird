@@ -48,52 +48,76 @@ func Load(ctx context.Context, s store.Store, accountID string, c Change) (*Snap
 		return snap, nil
 	}
 
+	if err := snap.loadCollections(ctx, s, accountID, c); err != nil {
+		return nil, err
+	}
+	if err := snap.loadGroupIndex(ctx, s, accountID); err != nil {
+		return nil, err
+	}
+
+	return snap, nil
+}
+
+// loadCollections reads the policy/route/nameserver/dns/router/resource/proxy
+// collections a Change can touch, gated to what the walk needs.
+func (snap *Snapshot) loadCollections(ctx context.Context, s store.Store, accountID string, c Change) error {
 	hasGroupOrPeerChange := len(c.ChangedGroupIDs) > 0 || len(c.ChangedPeerIDs) > 0 || len(c.Resources) > 0
 	hasNetworkObject := len(c.Routers) > 0 || len(c.Resources) > 0 || len(c.Networks) > 0
-	needsPolicies := hasGroupOrPeerChange || len(c.PostureCheckIDs) > 0 || len(c.Policies) > 0 || hasNetworkObject
-	needsRoutersResources := needsPolicies // the resource<->router bridge can fire for any of these
+	// the resource<->router bridge can fire for any of these
+	needsRoutersResources := hasGroupOrPeerChange || len(c.PostureCheckIDs) > 0 || len(c.Policies) > 0 || hasNetworkObject
 
 	var err error
-	if needsPolicies {
+	if needsRoutersResources {
 		if snap.policies, err = s.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID); err != nil {
-			return nil, err
+			return err
+		}
+		if snap.routers, err = s.GetNetworkRoutersByAccountID(ctx, store.LockingStrengthNone, accountID); err != nil {
+			return err
+		}
+		if snap.resources, err = s.GetNetworkResourcesByAccountID(ctx, store.LockingStrengthNone, accountID); err != nil {
+			return err
 		}
 	}
 	if hasGroupOrPeerChange {
 		if snap.routes, err = s.GetAccountRoutes(ctx, store.LockingStrengthNone, accountID); err != nil {
-			return nil, err
+			return err
+		}
+		if err = snap.loadProxyServices(ctx, s, accountID); err != nil {
+			return err
 		}
 	}
 	if len(c.ChangedGroupIDs) > 0 || len(c.ChangedPeerIDs) > 0 {
 		if snap.nsGroups, err = s.GetAccountNameServerGroups(ctx, store.LockingStrengthNone, accountID); err != nil {
-			return nil, err
+			return err
 		}
 		if snap.dnsSettings, err = s.GetAccountDNSSettings(ctx, store.LockingStrengthNone, accountID); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	if needsRoutersResources {
-		if snap.routers, err = s.GetNetworkRoutersByAccountID(ctx, store.LockingStrengthNone, accountID); err != nil {
-			return nil, err
-		}
-		if snap.resources, err = s.GetNetworkResourcesByAccountID(ctx, store.LockingStrengthNone, accountID); err != nil {
-			return nil, err
-		}
-	}
-	if hasGroupOrPeerChange {
-		if snap.proxyByCluster, err = s.GetEmbeddedProxyPeerIDsByCluster(ctx, accountID); err != nil {
-			return nil, err
-		}
-		if len(snap.proxyByCluster) > 0 {
-			if snap.services, err = s.GetAccountServices(ctx, store.LockingStrengthNone, accountID); err != nil {
-				return nil, err
-			}
-		}
-	}
+	return nil
+}
 
+// loadProxyServices loads the embedded-proxy cluster index, and the services only
+// when the account actually has embedded proxy peers.
+func (snap *Snapshot) loadProxyServices(ctx context.Context, s store.Store, accountID string) error {
+	var err error
+	if snap.proxyByCluster, err = s.GetEmbeddedProxyPeerIDsByCluster(ctx, accountID); err != nil {
+		return err
+	}
+	if len(snap.proxyByCluster) == 0 {
+		return nil
+	}
+	snap.services, err = s.GetAccountServices(ctx, store.LockingStrengthNone, accountID)
+	return err
+}
+
+// loadGroupIndex loads all groups (for group.Resources) and builds the
+// group->member-peers index. Always needed: the bridge resolves group.Resources
+// and Expand maps groups to member peers.
+func (snap *Snapshot) loadGroupIndex(ctx context.Context, s store.Store, accountID string) error {
 	groups, err := s.GetAccountGroups(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	snap.groups = make(map[string]*types.Group, len(groups))
 	snap.groupPeers = make(map[string]map[string]struct{}, len(groups))
@@ -105,8 +129,7 @@ func Load(ctx context.Context, s store.Store, accountID string, c Change) (*Snap
 		}
 		snap.groupPeers[g.ID] = members
 	}
-
-	return snap, nil
+	return nil
 }
 
 // Change describes what changed in an account.

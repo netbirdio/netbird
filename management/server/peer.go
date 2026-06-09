@@ -106,43 +106,45 @@ func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubK
 		am.updatePeerLocationIfChanged(ctx, accountID, peer, realIP)
 	}
 
-	expired := peer.Status != nil && peer.Status.LoginExpired
-
-	if peer.AddedWithSSOLogin() {
-		settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
-		if err != nil {
-			return err
-		}
-		if peer.LoginExpirationEnabled && settings.PeerLoginExpirationEnabled {
-			am.schedulePeerLoginExpiration(ctx, accountID)
-		}
-		if peer.InactivityExpirationEnabled && settings.PeerInactivityExpirationEnabled {
-			am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
-		}
+	if err = am.schedulePeerExpirations(ctx, accountID, peer); err != nil {
+		return err
 	}
 
-	if expired {
-		changedPeerIDs := []string{peer.ID}
+	// A login-expired peer reconnecting, or an embedded proxy peer flipping to
+	// connected (which triggers SynthesizePrivateServiceZones), must refresh the
+	// peers reachable from it. The embedded-proxy fan-out tolerates a dispatch error.
+	if peer.Status != nil && peer.Status.LoginExpired {
 		affectedPeerIDs := am.markConnectedAffectedPeers(ctx, accountID, peer.ID, nmap)
-		err = am.networkMapController.OnPeersUpdated(ctx, accountID, changedPeerIDs, affectedPeerIDs)
-		if err != nil {
+		if err = am.networkMapController.OnPeersUpdated(ctx, accountID, []string{peer.ID}, affectedPeerIDs); err != nil {
 			return fmt.Errorf("notify network map controller of peer update: %w", err)
 		}
 	}
-
-	// An embedded proxy peer flipping to connected is the trigger for
-	// SynthesizePrivateServiceZones to emit DNS A records pointing at its
-	// tunnel IP. Fan the change out to every peer that has a synthesized
-	// policy or DNS-record edge from this proxy peer; otherwise their
-	// synth state stays stale until some other change pokes the controller.
 	if peer.ProxyMeta.Embedded {
-		changedPeerIDs := []string{peer.ID}
 		affectedPeerIDs := am.markConnectedAffectedPeers(ctx, accountID, peer.ID, nmap)
-		if err := am.networkMapController.OnPeersUpdated(ctx, accountID, changedPeerIDs, affectedPeerIDs); err != nil {
+		if err := am.networkMapController.OnPeersUpdated(ctx, accountID, []string{peer.ID}, affectedPeerIDs); err != nil {
 			log.WithContext(ctx).Warnf("notify network map controller of embedded proxy %s connect: %v", peer.ID, err)
 		}
 	}
 
+	return nil
+}
+
+// schedulePeerExpirations reschedules the account's login/inactivity expiration
+// timers for an SSO peer that just connected.
+func (am *DefaultAccountManager) schedulePeerExpirations(ctx context.Context, accountID string, peer *nbpeer.Peer) error {
+	if !peer.AddedWithSSOLogin() {
+		return nil
+	}
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return err
+	}
+	if peer.LoginExpirationEnabled && settings.PeerLoginExpirationEnabled {
+		am.schedulePeerLoginExpiration(ctx, accountID)
+	}
+	if peer.InactivityExpirationEnabled && settings.PeerInactivityExpirationEnabled {
+		am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
+	}
 	return nil
 }
 
@@ -510,12 +512,6 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 		return status.NewPeerNotPartOfAccountError()
 	}
 
-	var peer *nbpeer.Peer
-	var settings *types.Settings
-	var eventsToStore []func()
-	var snap *affectedpeers.Snapshot
-	var change affectedpeers.Change
-
 	serviceID, err := am.serviceManager.GetServiceIDByTargetID(ctx, accountID, peerID)
 	if err != nil {
 		return fmt.Errorf("failed to check if resource is used by service: %w", err)
@@ -524,39 +520,8 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 		return status.NewPeerInUseError(peerID, serviceID)
 	}
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		peer, err = transaction.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
-		if err != nil {
-			return err
-		}
-
-		settings, err = transaction.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
-		if err != nil {
-			return err
-		}
-
-		if err = am.validatePeerDelete(ctx, transaction, accountID, peerID); err != nil {
-			return err
-		}
-
-		// Load before delete so the snapshot still has the peer's group memberships;
-		// the resolver derives them from the peer ID during the walk.
-		change = affectedpeers.Change{ChangedPeerIDs: []string{peerID}}
-		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
-			return err
-		}
-
-		eventsToStore, err = deletePeers(ctx, am, transaction, accountID, userID, []*nbpeer.Peer{peer}, settings)
-		if err != nil {
-			return fmt.Errorf("failed to delete peer: %w", err)
-		}
-
-		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
-			return fmt.Errorf("failed to increment network serial: %w", err)
-		}
-
-		return nil
-	})
+	change := affectedpeers.Change{ChangedPeerIDs: []string{peerID}}
+	settings, eventsToStore, snap, err := am.deletePeerInTransaction(ctx, accountID, userID, peerID, change)
 	if err != nil {
 		return err
 	}
@@ -575,6 +540,46 @@ func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peer
 	}
 
 	return nil
+}
+
+// deletePeerInTransaction loads the peer + settings, captures the affected-peers
+// snapshot (before the delete, while the peer's group memberships still exist),
+// then deletes the peer and bumps the network serial — all in one transaction.
+func (am *DefaultAccountManager) deletePeerInTransaction(ctx context.Context, accountID, userID, peerID string, change affectedpeers.Change) (*types.Settings, []func(), *affectedpeers.Snapshot, error) {
+	var settings *types.Settings
+	var eventsToStore []func()
+	var snap *affectedpeers.Snapshot
+
+	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		peer, err := transaction.GetPeerByID(ctx, store.LockingStrengthNone, accountID, peerID)
+		if err != nil {
+			return err
+		}
+
+		settings, err = transaction.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+		if err != nil {
+			return err
+		}
+
+		if err = am.validatePeerDelete(ctx, transaction, accountID, peerID); err != nil {
+			return err
+		}
+
+		if snap, err = affectedpeers.Load(ctx, transaction, accountID, change); err != nil {
+			return err
+		}
+
+		if eventsToStore, err = deletePeers(ctx, am, transaction, accountID, userID, []*nbpeer.Peer{peer}, settings); err != nil {
+			return fmt.Errorf("failed to delete peer: %w", err)
+		}
+
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return fmt.Errorf("failed to increment network serial: %w", err)
+		}
+
+		return nil
+	})
+	return settings, eventsToStore, snap, err
 }
 
 // GetNetworkMap returns Network map for a given peer (omits original peer from the Peers result)
