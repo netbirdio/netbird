@@ -31,7 +31,11 @@ const policyRegistryPath = `Software\Policies\NetBird`
 //   - REG_MULTI_SZ  -> []string
 //
 // Unsupported value types (REG_BINARY, REG_NONE, ...) are skipped with a
-// warning so a malformed deployment does not block startup.
+// loadPlatformPolicy reads managed NetBird policy values from HKLM\Software\Policies\NetBird.
+// If the registry key does not exist it returns (nil, nil).
+// It returns a map whose keys are canonical policy names and whose values are coerced from registry types:
+// REG_SZ/REG_EXPAND_SZ -> string, REG_DWORD/REG_QWORD -> int64, REG_MULTI_SZ -> []string.
+// Unknown value names, unsupported value types, and per-value read errors are skipped and logged; failures opening the key or enumerating values are returned as errors.
 func loadPlatformPolicy() (map[string]any, error) {
 	k, err := registry.OpenKey(registry.LOCAL_MACHINE, policyRegistryPath, registry.QUERY_VALUE)
 	if err != nil {

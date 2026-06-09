@@ -65,6 +65,12 @@ const (
 	mdmFieldSuffix = " (MDM)"
 )
 
+// main is the entry point for the UI tray/client binary.
+// 
+// It parses CLI flags, initializes logging, creates the Fyne application and tray icons,
+// and constructs the service client (which may open a requested UI window). If a window-mode
+// flag is set the Fyne event loop runs and main returns; otherwise it ensures only one
+// instance is running, sets up signal handling and fonts, and starts the system tray loop.
 func main() {
 	flags := parseFlags()
 
@@ -1705,7 +1711,7 @@ func (s *serviceClient) applyMDMLocks(managed []string) {
 // Entry's placeholder slot. The placeholder is the only signal the user
 // gets that a PSK is configured, because the entry's Text is forced to
 // empty to keep the password reveal toggle from leaking the
-// "**********" sentinel.
+// It returns an empty string if no pre-shared key is present; returns "MDM-managed" if the pre-shared key is enforced by MDM; otherwise returns "configured".
 func preSharedKeyPlaceholder(cfg *proto.GetConfigResponse) string {
 	if cfg == nil || cfg.PreSharedKey == "" {
 		return ""
