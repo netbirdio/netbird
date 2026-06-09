@@ -914,10 +914,13 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		// todo update signal
 	}
 
+	// Posture checks are bound to the network map presence:
+	//   NetworkMap != nil, checks present -> apply the received checks
+	//   NetworkMap != nil, checks nil     -> posture checks were removed, clear them
+	//   NetworkMap == nil                 -> config-only update (e.g. relay token rotation),
+	//                                        leave the previously applied checks untouched
 	nm := update.GetNetworkMap()
 	if nm == nil {
-		// config-only update (e.g. relay token rotation): posture checks and network map are intentionally absent,
-		// preserving the previously applied state
 		return nil
 	}
 
