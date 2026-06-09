@@ -145,8 +145,6 @@ func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, netw
 			return lerr
 		}
 
-		// The cascade deletes return the resources/routers they loaded (with groups
-		// hydrated); collect them into the Change so Expand walks their groups.
 		for _, resource := range resources {
 			deleted, event, err := m.resourcesManager.DeleteResourceInTransaction(ctx, transaction, accountID, userID, networkID, resource.ID)
 			if err != nil {
