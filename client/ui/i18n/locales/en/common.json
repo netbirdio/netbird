@@ -984,8 +984,8 @@
         "description": "Button to create the debug bundle. Keep short."
     },
     "settings.troubleshooting.progress.description": {
-        "message": "Collecting logs, system details, and connection state. This usually takes a moment — keep this window open until it completes.",
-        "description": "Status text shown while the bundle is being collected; asks the user to keep the window open."
+        "message": "Collecting logs, system details, and connection state. This usually takes a moment. You can keep using NetBird or close Settings while it finishes.",
+        "description": "Status text shown while the debug bundle is being collected; reassures the user they can keep using NetBird or close Settings meanwhile."
     },
     "settings.troubleshooting.cancelling": {
         "message": "Canceling…",
@@ -1036,7 +1036,7 @@
         "description": "Progress stage: reconnecting NetBird. Ends with an ellipsis."
     },
     "settings.troubleshooting.stage.capturing": {
-        "message": "Capturing logs — {elapsed} / {total}",
+        "message": "Capturing logs",
         "description": "Progress stage: capturing logs. {elapsed} and {total} are time values (e.g. 0:30 / 2:00); keep both."
     },
     "settings.troubleshooting.stage.restoring": {

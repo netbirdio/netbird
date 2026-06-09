@@ -777,7 +777,7 @@
         "message": "NetBird wird neu verbunden…"
     },
     "settings.troubleshooting.stage.capturing": {
-        "message": "Logs werden erfasst — {elapsed} / {total}"
+        "message": "Logs werden erfasst"
     },
     "settings.troubleshooting.stage.restoring": {
         "message": "Vorheriges Log-Level wird wiederhergestellt…"

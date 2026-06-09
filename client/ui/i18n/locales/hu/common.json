@@ -777,7 +777,7 @@
         "message": "NetBird újracsatlakoztatása…"
     },
     "settings.troubleshooting.stage.capturing": {
-        "message": "Naplók rögzítése — {elapsed} / {total}"
+        "message": "Naplók rögzítése"
     },
     "settings.troubleshooting.stage.restoring": {
         "message": "Korábbi napló szint visszaállítása…"

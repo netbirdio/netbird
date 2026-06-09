@@ -777,7 +777,7 @@
         "message": "Переподключение NetBird…"
     },
     "settings.troubleshooting.stage.capturing": {
-        "message": "Сбор журналов — {elapsed} / {total}"
+        "message": "Сбор журналов"
     },
     "settings.troubleshooting.stage.restoring": {
         "message": "Восстановление прежнего уровня журналирования…"

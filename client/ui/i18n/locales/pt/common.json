@@ -777,7 +777,7 @@
         "message": "Reconectando o NetBird…"
     },
     "settings.troubleshooting.stage.capturing": {
-        "message": "Capturando logs — {elapsed} / {total}"
+        "message": "Capturando logs"
     },
     "settings.troubleshooting.stage.restoring": {
         "message": "Restaurando o nível de log anterior…"

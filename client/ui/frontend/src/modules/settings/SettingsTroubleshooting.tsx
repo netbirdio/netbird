@@ -13,6 +13,7 @@ import { Input } from "@/components/inputs/Input";
 import { Label } from "@/components/typography/Label";
 import { SquareIcon } from "@/components/SquareIcon";
 import { cn } from "@/lib/cn";
+import { formatRemaining } from "@/lib/formatters";
 import type { DebugStage } from "@/contexts/DebugBundleContext";
 import { useDebugBundleContext } from "@/contexts/DebugBundleContext";
 import { SectionGroup, SettingsBottomBar } from "@/modules/settings/SettingsSection.tsx";
@@ -133,12 +134,23 @@ function ProgressSection({
         <CenteredPanel>
             <SquareIcon icon={Loader2} className={"[&_svg]:animate-spin"} />
 
-            <div className={"flex flex-col items-center gap-2 max-w-xs"}>
+            <div className={"flex flex-col items-center gap-2 max-w-sm"}>
                 <DialogHeading className={"text-balance"}>{stageLabel(stage, t)}</DialogHeading>
                 <DialogDescription>
                     {t("settings.troubleshooting.progress.description")}
                 </DialogDescription>
             </div>
+
+            {stage.kind === "capturing" && (
+                <div
+                    className={
+                        "font-mono font-semibold text-2xl tabular-nums text-nb-gray-50 tracking-wider"
+                    }
+                    aria-live={"polite"}
+                >
+                    {formatRemaining(stage.remainingSec)}
+                </div>
+            )}
 
             <DialogActions className={"max-w-[220px]"}>
                 <Button
@@ -178,7 +190,7 @@ function DoneResult({
         <CenteredPanel>
             <SquareIcon icon={CircleCheckBig} className={"[&_svg]:text-green-500"} />
 
-            <div className={"flex flex-col items-center gap-2 max-w-xs"}>
+            <div className={"flex flex-col items-center gap-2 max-w-sm"}>
                 <DialogHeading className={"text-balance"}>
                     {showKey
                         ? t("settings.troubleshooting.done.uploadedTitle")
@@ -191,7 +203,7 @@ function DoneResult({
                 </DialogDescription>
             </div>
 
-            <div className={"w-full max-w-xs flex flex-col gap-3"}>
+            <div className={"w-full max-w-sm flex flex-col gap-3"}>
                 {showKey && <Input value={result.uploadedKey} readOnly copy />}
 
                 {result.path && !showKey && (
@@ -268,13 +280,8 @@ const stageLabel = (
             return t("settings.troubleshooting.stage.preparingTrace");
         case "reconnecting":
             return t("settings.troubleshooting.stage.reconnecting");
-        case "capturing": {
-            const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-            return t("settings.troubleshooting.stage.capturing", {
-                elapsed: fmt(stage.totalSec - stage.remainingSec),
-                total: fmt(stage.totalSec),
-            });
-        }
+        case "capturing":
+            return t("settings.troubleshooting.stage.capturing");
         case "restoring-level":
             return t("settings.troubleshooting.stage.restoring");
         case "bundling":

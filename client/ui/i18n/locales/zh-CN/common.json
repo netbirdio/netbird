@@ -777,7 +777,7 @@
         "message": "正在重新连接 NetBird…"
     },
     "settings.troubleshooting.stage.capturing": {
-        "message": "正在捕获日志 — {elapsed} / {total}"
+        "message": "正在捕获日志"
     },
     "settings.troubleshooting.stage.restoring": {
         "message": "正在恢复先前的日志级别…"

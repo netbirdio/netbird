@@ -777,7 +777,7 @@
         "message": "Reconnexion de NetBird…"
     },
     "settings.troubleshooting.stage.capturing": {
-        "message": "Capture des journaux — {elapsed} / {total}"
+        "message": "Capture des journaux"
     },
     "settings.troubleshooting.stage.restoring": {
         "message": "Rétablissement du niveau de journalisation précédent…"

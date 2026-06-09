@@ -777,7 +777,7 @@
         "message": "Riconnessione di NetBird…"
     },
     "settings.troubleshooting.stage.capturing": {
-        "message": "Acquisizione log — {elapsed} / {total}"
+        "message": "Acquisizione log"
     },
     "settings.troubleshooting.stage.restoring": {
         "message": "Ripristino del livello di log precedente…"
