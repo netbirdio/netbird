@@ -85,7 +85,9 @@ type Policy struct {
 // NewPolicy constructs a Policy from a key→value map. Pass nil or an empty
 // NewPolicy constructs a Policy backed by the provided key→value map.
 // If values is nil it is replaced with an empty map so the returned *Policy
-// is always non-nil and represents no active MDM enforcement when empty.
+// NewPolicy constructs a non-nil *Policy that wraps the provided key/value map.
+// If values is nil it is replaced with an empty map so the returned Policy always
+// represents "no MDM enforcement" when its values are empty.
 func NewPolicy(values map[string]any) *Policy {
 	if values == nil {
 		values = map[string]any{}
@@ -102,7 +104,11 @@ func NewPolicy(values map[string]any) *Policy {
 //   - source present, zero keys:             info "MDM enrolled (no managed keys)"
 // LoadPolicy loads MDM-managed configuration from the platform and returns a Policy representing the managed settings.
 // If the platform loader fails or returns nil, LoadPolicy returns a non-nil empty Policy.
-// When the loaded map contains zero keys it logs that MDM is enrolled with no managed keys; when it contains keys it logs the count and a stable, sorted list of key names.
+// LoadPolicy loads platform-managed MDM key/value pairs and returns a non-nil Policy.
+// If the platform loader returns an error or a nil map, an empty Policy is returned.
+// On loader error a trace-level message is emitted. When a map is returned, an
+// informational message is logged either indicating enrollment with no managed keys
+// or the count and a stable, sorted list of managed key names.
 func LoadPolicy() *Policy {
 	values, err := loadPlatformPolicy()
 	if err != nil {
@@ -260,7 +266,8 @@ func (p *Policy) GetStringSlice(key string) ([]string, bool) {
 // sortedKeys returns the keys of m as a deterministic, lexicographically
 // sorted slice. Used internally by Policy.ManagedKeys and LoadPolicy's
 // diagnostic log line so callers see a stable key order across runs
-// It produces a deterministic ordering for a map regardless of Go's randomized iteration.
+// sortedKeys returns the keys of m as a lexicographically sorted slice.
+// The sorted order provides a deterministic key ordering for diagnostics and enumeration.
 func sortedKeys(m map[string]any) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {

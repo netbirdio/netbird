@@ -41,7 +41,13 @@ const policyPlistPath = "/Library/Managed Preferences/io.netbird.client.plist"
 //
 // If the plist file does not exist, it returns (nil, nil). It returns a wrapped error on open/stat/decode failures.
 // The function refuses to read a world-writable plist and returns an error in that case.
-// Top-level plist keys are canonicalized (case-insensitive) to the internal MDM key names; unknown keys are logged and skipped.
+// loadPlatformPolicy reads the device-level managed-preferences plist and returns its recognized keys.
+// 
+// It looks for the plist at policyPlistPath and, if present, decodes it into a map[string]any.
+// Top-level plist keys are canonicalized case-insensitively to the package's internal MDM key names;
+// unknown keys are logged and ignored. If the plist file does not exist, it returns (nil, nil).
+// The function refuses to read the file if it is world-writable and returns a wrapped error for
+// failures to open, stat, or decode the plist.
 func loadPlatformPolicy() (map[string]any, error) {
 	f, err := os.Open(policyPlistPath)
 	if err != nil {

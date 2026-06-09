@@ -75,7 +75,7 @@ readonly PLIST_DIR='/Library/Managed Preferences'
 readonly PLIST_PATH="$PLIST_DIR/io.netbird.client.plist"
 readonly LOG_TAG='netbird-mdm'
 
-# log sends a message to the system logger with the configured tag and echoes the message to stdout prefixed by an ISO 8601 UTC timestamp and the tag.
+# log sends a message to the system logger using the configured tag and echoes the message to stdout prefixed by an ISO 8601 UTC timestamp and the tag.
 log() {
   /usr/bin/logger -t "$LOG_TAG" "$*"
   printf '%s [%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$LOG_TAG" "$*"
@@ -105,7 +105,7 @@ end_plist() {
 EOF
 }
 
-# emit_string appends a plist `<key>/<string>` entry for a given key and value to "$PLIST_PATH.tmp", XML-escaping `&`, `<`, and `>` and logging the assignment; if the key is "preSharedKey" the logged value is masked.
+# emit_string appends a plist `<key>`/`<string>` entry for the given key and value to "$PLIST_PATH.tmp", XML-escaping `&`, `<`, and `>`, and logs the assignment (masking the logged value as `********** (secret)` when the key is `preSharedKey`).
 emit_string() {
   local key="$1" value="$2" log_value="$2"
   # Escape XML entities in the value
@@ -119,7 +119,7 @@ emit_string() {
 }
 
 # emit_bool writes a boolean plist entry for a given key into the temporary plist file.
-# emit_bool accepts `true/True/TRUE/1/yes` as true and `false/False/FALSE/0/no` as false; on invalid input it logs an error and skips emitting the key.
+# emit_bool writes a boolean plist entry for a key when the provided value matches an accepted boolean token; logs an error and skips the key on invalid input.
 emit_bool() {
   local key="$1" value="$2"
   local xml_bool
