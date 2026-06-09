@@ -95,6 +95,18 @@ var debugConfigCmd = &cobra.Command{
 	RunE:    debugConfigDump,
 }
 
+// debugConfigDump implements `netbird debug config`. It resolves the
+// active profile, queries the daemon for the effective configuration
+// via GetConfig, and prints the resulting GetConfigResponse as JSON
+// (via protojson with EmitUnpopulated=true so the output is stable
+// across runs and includes zero-valued fields).
+//
+// Useful for verifying MDM enforcement end-to-end: the response's
+// mDMManagedFields array is the single source of truth for "which
+// fields is the daemon currently enforcing from the MDM source", and
+// every config field side-by-side with that list confirms the
+// merge result. Secrets in the response (e.g. PreSharedKey) are
+// already redacted by the daemon-side handler.
 func debugConfigDump(cmd *cobra.Command, _ []string) error {
 	pm := profilemanager.NewProfileManager()
 	activeProf, err := pm.GetActiveProfile()

@@ -1737,6 +1737,14 @@ func (s *Server) checkProfilesDisabled() bool {
 	return s.profilesDisabled
 }
 
+// checkNetworksDisabled reports whether the networks/exit-node feature
+// is disabled on this daemon instance. Resolved MDM-first: when the
+// active policy declares mdm.KeyDisableNetworks the policy value wins
+// (regardless of true/false), so an admin can re-enable the feature
+// via MDM even on a host that was installed with --disable-networks.
+// Falls back to the s.networksDisabled CLI flag when the policy is
+// silent on the key. Mirrors checkProfilesDisabled and
+// checkUpdateSettingsDisabled.
 func (s *Server) checkNetworksDisabled() bool {
 	if s.config != nil {
 		if v, ok := s.config.Policy().GetBool(mdm.KeyDisableNetworks); ok {

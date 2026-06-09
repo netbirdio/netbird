@@ -257,6 +257,10 @@ func (p *Policy) GetStringSlice(key string) ([]string, bool) {
 	return nil, false
 }
 
+// sortedKeys returns the keys of m as a deterministic, lexicographically
+// sorted slice. Used internally by Policy.ManagedKeys and LoadPolicy's
+// diagnostic log line so callers see a stable key order across runs
+// regardless of Go's randomised map iteration.
 func sortedKeys(m map[string]any) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
