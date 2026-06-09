@@ -15,7 +15,13 @@ import { LanguageCode } from "@bindings/i18n/models.js";
 // empty match in some Vite dev-mode setups. `server.fs.allow` in
 // `vite.config.ts` whitelists the parent directory so the dev server
 // serves the JSON.
-const bundleModules = import.meta.glob<Record<string, string>>(
+//
+// Each bundle is Chrome-extension JSON: every key maps to
+// `{ message, description? }`. `description` exists only so Crowdin can
+// show translator context — it's stripped here and i18next sees a flat
+// key->message map exactly as before.
+type BundleEntry = { message: string; description?: string };
+const bundleModules = import.meta.glob<Record<string, BundleEntry>>(
     "../../../i18n/locales/*/common.json",
     { eager: true, import: "default" },
 );
@@ -24,7 +30,12 @@ const resources: Record<string, { common: Record<string, string> }> = {};
 for (const path in bundleModules) {
     const match = path.match(/locales\/([^/]+)\/common\.json$/);
     if (match) {
-        resources[match[1]] = { common: bundleModules[path] };
+        const entries = bundleModules[path];
+        const messages: Record<string, string> = {};
+        for (const key in entries) {
+            messages[key] = entries[key].message;
+        }
+        resources[match[1]] = { common: messages };
     }
 }
 

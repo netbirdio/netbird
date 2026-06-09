@@ -23,13 +23,13 @@ func fakeLocales() fstest.MapFS {
             ]
         }`)},
 		"en/common.json": {Data: []byte(`{
-            "tray.menu.connect": "Connect",
-            "tray.menu.installVersion": "Install version {version}",
-            "notify.update.body": "NetBird {version} is available."
+            "tray.menu.connect": {"message": "Connect", "description": "Tray menu item"},
+            "tray.menu.installVersion": {"message": "Install version {version}"},
+            "notify.update.body": {"message": "NetBird {version} is available."}
         }`)},
 		"hu/common.json": {Data: []byte(`{
-            "tray.menu.connect": "Csatlakozás",
-            "tray.menu.installVersion": "{version} telepítése"
+            "tray.menu.connect": {"message": "Csatlakozás"},
+            "tray.menu.installVersion": {"message": "{version} telepítése"}
         }`)},
 	}
 }
@@ -118,7 +118,7 @@ func TestBundle_MissingDefaultBundleFails(t *testing.T) {
 	// English locale.
 	fs := fstest.MapFS{
 		"_index.json":    {Data: []byte(`{"languages":[{"code":"hu","displayName":"Magyar","englishName":"Hungarian"}]}`)},
-		"hu/common.json": {Data: []byte(`{"k":"v"}`)},
+		"hu/common.json": {Data: []byte(`{"k":{"message":"v"}}`)},
 	}
 	_, err := NewBundle(fs)
 	require.Error(t, err)
@@ -134,7 +134,7 @@ func TestBundle_MissingBundleSkipsLanguage(t *testing.T) {
             {"code":"en","displayName":"English","englishName":"English"},
             {"code":"de","displayName":"Deutsch","englishName":"German"}
         ]}`)},
-		"en/common.json": {Data: []byte(`{"k":"v"}`)},
+		"en/common.json": {Data: []byte(`{"k":{"message":"v"}}`)},
 	}
 	b, err := NewBundle(fs)
 	require.NoError(t, err)

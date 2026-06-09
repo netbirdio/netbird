@@ -1,454 +1,1262 @@
 {
-    "tray.tooltip": "NetBird",
-    "tray.status.disconnected": "Getrennt",
-    "tray.status.daemonUnavailable": "Nicht aktiv",
-    "tray.status.error": "Fehler",
-    "tray.status.connected": "Verbunden",
-    "tray.status.connecting": "Verbinde",
-    "tray.status.needsLogin": "Anmeldung erforderlich",
-    "tray.status.loginFailed": "Anmeldung fehlgeschlagen",
-    "tray.status.sessionExpired": "Sitzung abgelaufen",
-    "tray.session.expiresIn": "Sitzung läuft ab in {remaining}",
-    "tray.session.unit.lessThanMinute": "weniger als einer Minute",
-    "tray.session.unit.minute": "1 Minute",
-    "tray.session.unit.minutes": "{count} Minuten",
-    "tray.session.unit.hour": "1 Stunde",
-    "tray.session.unit.hours": "{count} Stunden",
-    "tray.session.unit.day": "1 Tag",
-    "tray.session.unit.days": "{count} Tagen",
-
-    "tray.menu.open": "NetBird öffnen",
-    "tray.menu.connect": "Verbinden",
-    "tray.menu.disconnect": "Trennen",
-    "tray.menu.exitNode": "Exit-Node",
-    "tray.menu.networks": "Ressourcen",
-    "tray.menu.profiles": "Profile",
-    "tray.menu.manageProfiles": "Profile verwalten",
-    "tray.menu.settings": "Einstellungen...",
-    "tray.menu.debugBundle": "Debug-Paket erstellen",
-    "tray.menu.about": "Hilfe & Support",
-    "tray.menu.github": "GitHub",
-    "tray.menu.documentation": "Dokumentation",
-    "tray.menu.troubleshoot": "Fehlerbehebung",
-    "tray.menu.downloadLatest": "Neueste Version herunterladen",
-    "tray.menu.installVersion": "Version {version} installieren",
-    "tray.menu.guiVersion": "Oberfläche: {version}",
-    "tray.menu.daemonVersion": "Daemon: {version}",
-    "tray.menu.versionUnknown": "—",
-    "tray.menu.quit": "NetBird beenden",
-
-    "notify.update.title": "NetBird-Update verfügbar",
-    "notify.update.body": "NetBird {version} ist verfügbar.",
-    "notify.update.enforcedSuffix": " Ihr Administrator verlangt dieses Update.",
-    "notify.error.title": "Fehler",
-    "notify.error.connect": "Verbindung fehlgeschlagen",
-    "notify.error.disconnect": "Trennen fehlgeschlagen",
-    "notify.error.switchProfile": "Wechsel zu {profile} fehlgeschlagen",
-    "notify.error.exitNode": "Exit-Node {name} konnte nicht aktualisiert werden",
-    "notify.sessionExpired.title": "NetBird-Sitzung abgelaufen",
-    "notify.sessionExpired.body": "Ihre NetBird-Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.",
-    "notify.sessionWarning.title": "Sitzung läuft bald ab",
-    "notify.sessionWarning.body": "Ihre NetBird-Sitzung läuft in {remaining} ab. Klicken Sie auf Jetzt verlängern, um zu erneuern.",
-    "notify.sessionWarning.bodyGeneric": "Ihre NetBird-Sitzung läuft bald ab. Klicken Sie auf Jetzt verlängern, um zu erneuern.",
-    "notify.sessionWarning.extend": "Jetzt verlängern",
-    "notify.sessionWarning.dismiss": "Verwerfen",
-    "notify.sessionWarning.failed": "NetBird-Sitzung konnte nicht verlängert werden",
-    "notify.sessionWarning.successTitle": "NetBird-Sitzung verlängert",
-    "notify.sessionWarning.successBody": "Ihre Sitzung wurde erneuert.",
-    "notify.sessionDeadlineRejected.title": "Sitzungsfrist abgelehnt",
-    "notify.sessionDeadlineRejected.body": "Der Server hat eine ungültige Sitzungsfrist übermittelt. Bitte melden Sie sich erneut an.",
-
-    "common.cancel": "Abbrechen",
-    "common.save": "Speichern",
-    "common.saveChanges": "Änderungen speichern",
-    "common.saving": "Speichert…",
-    "common.close": "Schließen",
-    "common.copy": "Kopieren",
-    "common.togglePasswordVisibility": "Passwortsichtbarkeit umschalten",
-    "common.increase": "Erhöhen",
-    "common.decrease": "Verringern",
-    "common.delete": "Löschen",
-    "common.create": "Erstellen",
-    "common.add": "Hinzufügen",
-    "common.remove": "Entfernen",
-    "common.refresh": "Aktualisieren",
-    "common.loading": "Lädt…",
-    "common.netbird": "NetBird",
-    "common.noResults.title": "Keine Ergebnisse gefunden",
-    "common.noResults.description": "Es konnten keine Ergebnisse gefunden werden. Bitte versuchen Sie es mit einem anderen Suchbegriff oder ändern Sie Ihre Filter.",
-    "notConnected.title": "Getrennt",
-    "notConnected.description": "Verbinden Sie sich zuerst mit NetBird, um detaillierte Informationen zu Ihren Peers, Netzwerkressourcen und Exit Nodes einzusehen.",
-
-    "connect.status.disconnected": "Getrennt",
-    "connect.status.connecting": "Verbindet…",
-    "connect.status.connected": "Verbunden",
-    "connect.status.disconnecting": "Trennt…",
-    "connect.status.daemonUnavailable": "Daemon nicht verfügbar",
-    "connect.status.loginRequired": "Anmeldung erforderlich",
-
-    "connect.error.loginTitle": "Anmeldung fehlgeschlagen",
-    "connect.error.connectTitle": "Verbindung fehlgeschlagen",
-    "connect.error.disconnectTitle": "Trennen fehlgeschlagen",
-
-    "nav.peers.title": "Peers",
-    "nav.peers.description": "{connected} von {total} verbunden",
-    "nav.resources.title": "Ressourcen",
-    "nav.resources.description": "{active} von {total} aktiv",
-    "nav.exitNode.title": "Exit-Nodes",
-    "nav.exitNode.none": "Nicht aktiv",
-    "nav.exitNode.using": "Über {name}",
-
-    "header.openSettings": "Einstellungen öffnen",
-    "header.togglePanel": "Seitenleiste umschalten",
-    "header.menu.settings": "Einstellungen …",
-    "header.menu.defaultView": "Standardansicht",
-    "header.menu.advancedView": "Erweiterte Ansicht",
-    "header.menu.updateAvailable": "Update verfügbar",
-
-    "profile.selector.loading": "Lädt…",
-    "profile.selector.noProfile": "Kein Profil",
-    "profile.selector.searchPlaceholder": "Profil nach Namen suchen…",
-    "profile.selector.emptyTitle": "Keine Profile gefunden",
-    "profile.selector.emptyDescription": "Versuchen Sie einen anderen Suchbegriff oder erstellen Sie ein neues Profil.",
-    "profile.selector.newProfile": "Neues Profil",
-    "profile.selector.moreOptions": "Weitere Optionen",
-    "profile.selector.deregister": "Abmelden",
-    "profile.selector.delete": "Profil löschen",
-    "profile.selector.switchTo": "Zu diesem Profil wechseln",
-    "profile.dropdown.activeProfile": "Aktives Profil",
-    "profile.dropdown.switchProfile": "Profil wechseln",
-    "profile.dropdown.noEmail": "Andere",
-    "profile.dropdown.addProfile": "Profil hinzufügen",
-    "profile.dropdown.manageProfiles": "Profile verwalten",
-    "profile.dropdown.settings": "Einstellungen",
-
-    "profile.dialog.title": "Neues Profil",
-    "profile.dialog.nameLabel": "Profilname",
-    "profile.dialog.description": "Legen Sie einen leicht erkennbaren Namen für Ihr Profil fest.",
-    "profile.dialog.placeholder": "z. B. Arbeit",
-    "profile.dialog.required": "Bitte geben Sie einen Profilnamen ein, z. B. Arbeit, Privat",
-    "profile.dialog.submit": "Profil hinzufügen",
-    "profile.dialog.managementHelp": "NetBird Cloud oder Ihr eigener Server.",
-    "profile.dialog.urlUnreachable": "Server nicht erreichbar. Überprüfen Sie die URL, oder fügen Sie das Profil trotzdem hinzu, wenn Sie sicher sind, dass sie korrekt ist.",
-
-    "profile.switch.title": "Zu Profil \"{name}\" wechseln?",
-    "profile.switch.message": "Sind Sie sicher, dass Sie das Profil wechseln möchten?\nIhr aktuelles Profil wird getrennt.",
-    "profile.switch.confirm": "Bestätigen",
-    "profile.deregister.title": "Profil \"{name}\" abmelden?",
-    "profile.deregister.message": "Sind Sie sicher, dass Sie dieses Profil abmelden möchten?\nSie müssen sich erneut anmelden, um es zu nutzen.",
-    "profile.deregister.confirm": "Abmelden",
-    "profile.delete.title": "Profil \"{name}\" löschen?",
-    "profile.delete.message": "Sind Sie sicher, dass Sie dieses Profil löschen möchten?\nDiese Aktion kann nicht rückgängig gemacht werden.",
-    "profile.delete.disabledActive": "Aktive Profile können nicht gelöscht werden. Wechseln Sie zu einem anderen Profil, bevor Sie dieses löschen.",
-    "profile.delete.disabledDefault": "Das Standardprofil kann nicht gelöscht werden.",
-    "profile.error.switchTitle": "Profilwechsel fehlgeschlagen",
-    "profile.error.deregisterTitle": "Abmeldung fehlgeschlagen",
-    "profile.error.deleteTitle": "Löschen des Profils fehlgeschlagen",
-    "profile.error.createTitle": "Erstellen des Profils fehlgeschlagen",
-    "profile.error.loadTitle": "Laden der Profile fehlgeschlagen",
-
-    "settings.error.loadTitle": "Laden der Einstellungen fehlgeschlagen",
-    "settings.error.saveTitle": "Speichern der Einstellungen fehlgeschlagen",
-    "settings.error.debugBundleTitle": "Debug-Paket fehlgeschlagen",
-
-    "settings.tabs.general": "Allgemein",
-    "settings.tabs.network": "Netzwerk",
-    "settings.tabs.security": "Sicherheit",
-    "settings.tabs.ssh": "SSH",
-    "settings.tabs.profiles": "Profile",
-    "settings.tabs.advanced": "Erweitert",
-    "settings.tabs.troubleshooting": "Fehlerbehebung",
-    "settings.tabs.about": "Über",
-    "settings.tabs.updateAvailable": "Update verfügbar",
-
-    "settings.profiles.section.profiles": "Profile",
-    "settings.profiles.intro": "Halten Sie separate NetBird-Identitäten nebeneinander, zum Beispiel berufliche und private Konten oder verschiedene Management-Server. Fügen Sie unten Profile hinzu, melden Sie sie ab oder löschen Sie sie.",
-    "settings.profiles.addProfile": "Profil hinzufügen",
-    "settings.profiles.active": "Aktiv",
-    "settings.profiles.emptyTitle": "Keine Profile",
-    "settings.profiles.emptyDescription": "Erstellen Sie ein Profil, um sich mit einem NetBird-Management-Server zu verbinden.",
-
-    "settings.general.section.general": "Allgemein",
-    "settings.general.section.connection": "Verbindung",
-    "settings.general.connectOnStartup.label": "Beim Start verbinden",
-    "settings.general.connectOnStartup.help": "Beim Start des Dienstes automatisch eine Verbindung herstellen.",
-    "settings.general.notifications.label": "Desktop-Benachrichtigungen",
-    "settings.general.notifications.help": "Desktop-Benachrichtigungen für neue Updates und Verbindungsereignisse anzeigen.",
-    "settings.general.autostart.label": "NetBird-UI beim Anmelden starten",
-    "settings.general.autostart.help": "Die NetBird-Oberfläche beim Anmelden automatisch starten. Dies betrifft nur die grafische Oberfläche, nicht den Hintergrunddienst.",
-    "settings.general.autostart.errorTitle": "Ändern des Autostarts fehlgeschlagen",
-    "settings.general.language.label": "Anzeigesprache",
-    "settings.general.language.help": "Wählen Sie die Sprache der NetBird-Oberfläche.",
-    "settings.general.language.search": "Sprache suchen…",
-    "settings.general.language.empty": "Keine Sprachen gefunden.",
-    "settings.general.management.label": "Management-Server",
-    "settings.general.management.help": "Mit NetBird Cloud oder Ihrem eigenen self-hosted Management-Server verbinden. Änderungen lösen eine Neuverbindung des Clients aus.",
-    "settings.general.management.cloud": "Cloud",
-    "settings.general.management.selfHosted": "Self-hosted",
-    "settings.general.management.urlPlaceholder": "https://netbird.selfhosted.com:443",
-    "settings.general.management.urlError": "Bitte geben Sie eine gültige URL ein, z. B. https://netbird.selfhosted.com:443",
-    "settings.general.management.urlUnreachable": "Server nicht erreichbar. Überprüfen Sie die URL, oder speichern Sie trotzdem, wenn Sie sicher sind, dass sie korrekt ist.",
-    "settings.general.management.switchCloudTitle": "Zu NetBird Cloud wechseln?",
-    "settings.general.management.switchCloudMessage": "Dies trennt die Verbindung zu Ihrem self-hosted Server.\nMöglicherweise müssen Sie sich erneut anmelden.",
-    "settings.general.management.switchCloudConfirm": "Zu Cloud wechseln",
-
-    "settings.network.section.connectivity": "Konnektivität",
-    "settings.network.section.routingDns": "Routing & DNS",
-    "settings.network.lazy.label": "Verzögerte Verbindungen",
-    "settings.network.lazy.help": "Statt durchgehend aktive Verbindungen zu halten, aktiviert NetBird sie bei Bedarf anhand von Aktivität oder Signalisierung.",
-    "settings.network.monitor.label": "Bei Netzwerkwechsel neu verbinden",
-    "settings.network.monitor.help": "Das Netzwerk überwachen und bei Änderungen (z. B. WLAN-Wechsel, Ethernet-Änderungen oder Rückkehr aus dem Ruhezustand) automatisch neu verbinden.",
-    "settings.network.dns.label": "DNS aktivieren",
-    "settings.network.dns.help": "NetBird-verwaltete DNS-Einstellungen auf den Host-Resolver anwenden.",
-    "settings.network.clientRoutes.label": "Client-Routen aktivieren",
-    "settings.network.clientRoutes.help": "Routen von anderen Peers übernehmen, um deren Netzwerke zu erreichen.",
-    "settings.network.serverRoutes.label": "Server-Routen aktivieren",
-    "settings.network.serverRoutes.help": "Lokale Routen dieses Hosts an andere Peers ankündigen.",
-    "settings.network.ipv6.label": "IPv6 aktivieren",
-    "settings.network.ipv6.help": "IPv6-Adressierung für das NetBird-Overlay-Netzwerk verwenden.",
-
-    "settings.security.section.firewall": "Firewall",
-    "settings.security.section.encryption": "Verschlüsselung",
-    "settings.security.blockInbound.label": "Eingehenden Verkehr blockieren",
-    "settings.security.blockInbound.help": "Unaufgeforderte Verbindungen von Peers zu diesem Gerät und den von ihm gerouteten Netzwerken ablehnen. Ausgehender Verkehr ist nicht betroffen.",
-    "settings.security.blockLan.label": "LAN-Zugriff blockieren",
-    "settings.security.blockLan.help": "Verhindert, dass Peers Ihr lokales Netzwerk oder dessen Geräte erreichen, wenn dieses Gerät deren Verkehr routet.",
-    "settings.security.rosenpass.label": "Quantenresistenz aktivieren",
-    "settings.security.rosenpass.help": "Einen post-quanten Schlüsselaustausch via Rosenpass zusätzlich zu WireGuard® hinzufügen.",
-    "settings.security.rosenpassPermissive.label": "Permissiven Modus aktivieren",
-    "settings.security.rosenpassPermissive.help": "Verbindungen zu Peers ohne Quantenresistenz-Unterstützung erlauben.",
-
-    "settings.ssh.section.server": "Server",
-    "settings.ssh.section.capabilities": "Funktionen",
-    "settings.ssh.section.authentication": "Authentifizierung",
-    "settings.ssh.server.label": "SSH-Server aktivieren",
-    "settings.ssh.server.help": "Den NetBird SSH-Server auf diesem Host ausführen, damit andere Peers sich verbinden können.",
-    "settings.ssh.root.label": "Root-Login erlauben",
-    "settings.ssh.root.help": "Peers dürfen sich als root anmelden. Deaktivieren, um ein nicht-privilegiertes Konto zu erfordern.",
-    "settings.ssh.sftp.label": "SFTP erlauben",
-    "settings.ssh.sftp.help": "Dateien sicher über native SFTP- oder SCP-Clients übertragen.",
-    "settings.ssh.localForward.label": "Lokale Portweiterleitung",
-    "settings.ssh.localForward.help": "Verbundene Peers können lokale Ports zu von diesem Host erreichbaren Diensten tunneln.",
-    "settings.ssh.remoteForward.label": "Remote-Portweiterleitung",
-    "settings.ssh.remoteForward.help": "Verbundene Peers können Ports dieses Hosts an ihren eigenen Rechner weitergeben.",
-    "settings.ssh.jwt.label": "JWT-Authentifizierung aktivieren",
-    "settings.ssh.jwt.help": "Jede SSH-Sitzung gegen Ihren IdP für Identität und Audit prüfen. Deaktivieren, um sich nur auf Netzwerk-ACL-Richtlinien zu verlassen — sinnvoll, wenn kein IdP verfügbar ist.",
-    "settings.ssh.jwtTtl.label": "JWT-Cache-TTL",
-    "settings.ssh.jwtTtl.help": "Wie lange dieser Client ein JWT zwischenspeichert, bevor bei ausgehenden SSH-Verbindungen erneut nachgefragt wird. Auf 0 setzen, um den Cache zu deaktivieren und bei jeder Verbindung zu authentifizieren.",
-    "settings.ssh.jwtTtl.suffix": "Sekunde(n)",
-
-    "settings.advanced.section.interface": "Schnittstelle",
-    "settings.advanced.section.security": "Sicherheit",
-    "settings.advanced.interfaceName.label": "Name",
-    "settings.advanced.interfaceName.error": "Verwende 1–15 Buchstaben, Ziffern, Punkt, Bindestrich oder Unterstrich.",
-    "settings.advanced.interfaceName.errorMac": "Muss mit „utun“ und einer Zahl beginnen (z. B. utun100).",
-    "settings.advanced.port.label": "Port",
-    "settings.advanced.port.error": "Gib einen Port zwischen {min} und {max} ein.",
-    "settings.advanced.port.help": "Wenn auf 0 gesetzt, wird ein zufälliger freier Port verwendet.",
-    "settings.advanced.mtu.label": "MTU",
-    "settings.advanced.mtu.error": "Gib eine MTU zwischen {min} und {max} ein.",
-    "settings.advanced.psk.label": "Pre-shared Key",
-    "settings.advanced.psk.help": "Optionaler WireGuard-PSK für zusätzliche symmetrische Verschlüsselung. Nicht identisch mit einem NetBird Setup Key. Sie kommunizieren nur mit Peers, die denselben Pre-shared Key verwenden.",
-
-    "settings.troubleshooting.section.title": "Debug-Paket",
-    "settings.troubleshooting.intro": "Ein Debug-Paket hilft dem NetBird-Support bei der Untersuchung von Verbindungsproblemen. <br /> Es ist eine .zip-Datei mit Logs, Systemdetails und Debug-Informationen Ihres Geräts.",
-    "settings.troubleshooting.anonymize.label": "Sensible Informationen anonymisieren",
-    "settings.troubleshooting.anonymize.help": "Versteckt öffentliche IP-Adressen und nicht-NetBird-Domains in Logs.",
-    "settings.troubleshooting.systemInfo.label": "Systeminformationen einschließen",
-    "settings.troubleshooting.systemInfo.help": "OS, Kernel, Netzwerkschnittstellen und Routing-Tabellen einschließen.",
-    "settings.troubleshooting.upload.label": "Paket an NetBird-Server hochladen",
-    "settings.troubleshooting.upload.help": "Lädt das Paket sicher hoch und gibt einen Upload-Schlüssel zurück. Teilen Sie den Schlüssel über GitHub oder Slack mit dem NetBird-Support, anstatt die Datei direkt anzuhängen.",
-    "settings.troubleshooting.trace.label": "Trace-Logs erfassen",
-    "settings.troubleshooting.trace.help": "Erhöht das Logging auf TRACE und schaltet NetBird kurz aus und wieder ein, um Verbindungs-Logs zu erfassen. Das vorherige Level wird nach Erstellung des Pakets wiederhergestellt.",
-    "settings.troubleshooting.duration.label": "Aufzeichnungsdauer",
-    "settings.troubleshooting.duration.help": "Wie lange Trace-Logs vor der Paketerstellung erfasst werden sollen.",
-    "settings.troubleshooting.duration.suffix": "Minute(n)",
-    "settings.troubleshooting.create": "Paket erstellen",
-    "settings.troubleshooting.progress.description": "Logs, Systemdetails und Verbindungszustand werden gesammelt. Dies dauert in der Regel einen Moment — lassen Sie dieses Fenster geöffnet, bis es abgeschlossen ist.",
-    "settings.troubleshooting.cancelling": "Wird abgebrochen…",
-    "settings.troubleshooting.done.uploadedTitle": "Debug-Paket erfolgreich hochgeladen!",
-    "settings.troubleshooting.done.savedTitle": "Paket gespeichert",
-    "settings.troubleshooting.done.uploadedDescription": "Teilen Sie den unten angezeigten Upload-Schlüssel mit dem NetBird-Support. Eine lokale Kopie wurde ebenfalls auf Ihrem Gerät gespeichert.",
-    "settings.troubleshooting.done.savedDescription": "Ihr Debug-Paket wurde lokal gespeichert.",
-    "settings.troubleshooting.done.copyKey": "Schlüssel kopieren",
-    "settings.troubleshooting.done.openFolder": "Ordner öffnen",
-    "settings.troubleshooting.done.openFileLocation": "Speicherort öffnen",
-    "settings.troubleshooting.uploadFailedWithReason": "Upload fehlgeschlagen: {reason} Das Paket wurde trotzdem lokal gespeichert.",
-    "settings.troubleshooting.uploadFailed": "Upload fehlgeschlagen. Das Paket wurde trotzdem lokal gespeichert.",
-    "settings.troubleshooting.stage.preparingTrace": "Wechsel zu Trace-Logging…",
-    "settings.troubleshooting.stage.reconnecting": "NetBird wird neu verbunden…",
-    "settings.troubleshooting.stage.capturing": "Logs werden erfasst — {elapsed} / {total}",
-    "settings.troubleshooting.stage.restoring": "Vorheriges Log-Level wird wiederhergestellt…",
-    "settings.troubleshooting.stage.bundling": "Debug-Paket wird erstellt…",
-    "settings.troubleshooting.stage.uploading": "Wird zu NetBird hochgeladen…",
-    "settings.troubleshooting.stage.cancelling": "Wird abgebrochen…",
-
-    "settings.about.client": "NetBird Client v{version}",
-    "settings.about.clientName": "NetBird Client",
-    "settings.about.development": "[Entwicklung]",
-    "settings.about.gui": "Oberfläche v{version}",
-    "settings.about.guiName": "Oberfläche",
-    "settings.about.copyright": "© {year} NetBird. Alle Rechte vorbehalten.",
-    "settings.about.links.imprint": "Impressum",
-    "settings.about.links.privacy": "Datenschutz",
-    "settings.about.links.cla": "CLA",
-    "settings.about.links.terms": "Nutzungsbedingungen",
-    "settings.about.community.github": "GitHub",
-    "settings.about.community.slack": "Slack",
-    "settings.about.community.forum": "Forum",
-    "settings.about.community.documentation": "Dokumentation",
-    "settings.about.community.feedback": "Feedback",
-
-    "update.banner.message": "NetBird {version} ist installationsbereit.",
-    "update.banner.later": "Später",
-    "update.banner.installNow": "Jetzt installieren",
-    "update.card.versionAvailableDownload": "Version {version} ist zum Herunterladen verfügbar.",
-    "update.card.versionAvailableInstall": "Version {version} ist zur Installation verfügbar.",
-    "update.card.whatsNew": "Was ist neu?",
-    "update.card.installNow": "Jetzt installieren",
-    "update.card.getInstaller": "Herunterladen",
-    "update.card.autoCheckInterval": "NetBird sucht im Hintergrund nach Updates.",
-    "update.card.changelog": "Änderungsprotokoll",
-    "update.card.onLatestVersion": "Du verwendest die neueste Version",
-    "update.header.tooltip": "Update verfügbar",
-    "update.overlay.updatingVersion": "NetBird wird auf v{version} aktualisiert",
-    "update.overlay.updating": "NetBird wird aktualisiert",
-    "update.overlay.description": "Eine neuere Version ist verfügbar und wird installiert. NetBird startet nach Abschluss des Updates automatisch neu.",
-    "update.overlay.error.timeoutTitle": "Update dauert zu lange",
-    "update.overlay.error.timeoutDescription": "Die Installation von {target} hat zu lange gedauert und wurde nicht abgeschlossen.",
-    "update.overlay.error.canceledTitle": "Update wurde abgebrochen",
-    "update.overlay.error.canceledDescription": "Das Update auf {target} wurde vor dem Abschluss abgebrochen.",
-    "update.overlay.error.failTitle": "Update konnte nicht installiert werden",
-    "update.overlay.error.failDescription": "{target} konnte nicht installiert werden.",
-    "update.overlay.error.unknownMessage": "unbekannter Fehler",
-    "update.overlay.error.targetVersion": "v{version}",
-    "update.overlay.error.targetFallback": "die neue Version",
-    "update.error.loadStateTitle": "Laden des Update-Status fehlgeschlagen",
-    "update.error.triggerTitle": "Update-Start fehlgeschlagen",
-
-    "update.page.versionLine": "Client wird aktualisiert auf: {version}.",
-    "update.page.versionLineGeneric": "Client wird aktualisiert.",
-    "update.page.outdated": "Ihre Client-Version ist älter als die im Management eingestellte Auto-Update-Version.",
-    "update.page.status.running": "Aktualisiert",
-    "update.page.status.timeout": "Zeitüberschreitung beim Update. Bitte erneut versuchen.",
-    "update.page.status.canceled": "Update abgebrochen.",
-    "update.page.status.failed": "Update fehlgeschlagen: {message}",
-    "update.page.status.unknownError": "unbekannter Update-Fehler",
-    "update.page.failedTitle": "Update fehlgeschlagen",
-    "update.page.timeoutMessage": "Zeitüberschreitung beim Update.",
-    "update.page.dontClose": "Bitte schließen Sie dieses Fenster nicht.",
-    "update.page.updating": "Aktualisiert…",
-    "update.page.complete": "Update abgeschlossen",
-    "update.page.failed": "Update fehlgeschlagen",
-
-    "window.title.settings": "Einstellungen",
-    "window.title.signIn": "Anmeldung",
-    "window.title.sessionExpiration": "Sitzung läuft ab",
-    "window.title.updating": "Aktualisierung",
-    "window.title.welcome": "Willkommen bei NetBird",
-    "window.title.error": "Fehler",
-
-    "welcome.title": "Suchen Sie NetBird in der Taskleiste",
-    "welcome.description": "NetBird läuft in Ihrer Taskleiste. Klicken Sie auf das Symbol, um sich zu verbinden, Profile zu wechseln oder die Einstellungen zu öffnen.",
-    "welcome.continue": "Weiter",
-    "welcome.back": "Zurück",
-    "welcome.management.title": "NetBird einrichten",
-    "welcome.management.description": "Klicken Sie auf „Weiter“, um loszulegen, oder wählen Sie Self-hosted, wenn Sie einen eigenen NetBird-Server haben.",
-    "welcome.management.cloud.title": "NetBird Cloud",
-    "welcome.management.cloud.description": "Nutzen Sie unseren gehosteten Dienst. Keine Einrichtung nötig.",
-    "welcome.management.selfHosted.title": "Selbst gehostet",
-    "welcome.management.selfHosted.description": "Verbindung zu Ihrem eigenen Management-Server.",
-    "welcome.management.urlLabel": "URL des Management-Servers",
-    "welcome.management.urlPlaceholder": "https://netbird.selfhosted.com:443",
-    "welcome.management.urlInvalid": "Bitte geben Sie eine gültige URL ein, z. B. https://netbird.selfhosted.com:443",
-    "welcome.management.urlUnreachable": "Server nicht erreichbar. Überprüfen Sie die URL oder Ihr Netzwerk und fahren Sie fort, wenn Sie sicher sind, dass sie korrekt ist.",
-    "welcome.management.checking": "Wird geprüft …",
-
-    "browserLogin.title": "Setzen Sie den Anmeldevorgang im Browser fort",
-    "browserLogin.notSeeing": "Sehen Sie den Browser-Tab nicht?",
-    "browserLogin.tryAgain": "Erneut versuchen",
-    "browserLogin.openFailedTitle": "Browser konnte nicht geöffnet werden",
-
-    "sessionExpiration.title": "Sitzung läuft bald ab",
-    "sessionExpiration.titleLater": "Ihre Sitzung läuft ab",
-    "sessionExpiration.description": "Dieses Gerät wird bald getrennt. Browser-Anmeldung zum Erneuern erforderlich.",
-    "sessionExpiration.descriptionLater": "Eine Browser-Anmeldung hält dieses Gerät mit Ihrem Netzwerk verbunden.",
-    "sessionExpiration.stay": "Sitzung erneuern",
-    "sessionExpiration.authenticate": "Anmelden",
-    "sessionExpiration.logout": "Abmelden",
-    "sessionExpiration.expired": "Sitzung abgelaufen",
-    "sessionExpiration.expiredDescription": "Gerät getrennt. Mit Browser-Anmeldung authentifizieren, um erneut zu verbinden.",
-    "sessionExpiration.close": "Schließen",
-    "sessionExpiration.extendFailedTitle": "Sitzungsverlängerung fehlgeschlagen",
-    "sessionExpiration.logoutFailedTitle": "Abmeldung fehlgeschlagen",
-
-    "peers.search.placeholder": "Nach Name oder IP suchen",
-    "peers.filter.all": "Alle",
-    "peers.filter.online": "Online",
-    "peers.filter.offline": "Offline",
-    "peers.empty.title": "Keine Peers verfügbar",
-    "peers.empty.description": "Sie haben entweder keine Peers verfügbar oder keinen Zugriff auf einen davon.",
-    "peers.details.domain": "Domain",
-    "peers.details.netbirdIp": "NetBird-IP",
-    "peers.details.netbirdIpv6": "NetBird-IPv6",
-    "peers.details.publicKey": "Öffentlicher Schlüssel",
-    "peers.details.connection": "Verbindung",
-    "peers.details.latency": "Latenz",
-    "peers.details.lastHandshake": "Letzter Handshake",
-    "peers.details.statusSince": "Letzte Verbindungsaktualisierung",
-    "peers.details.bytes": "Bytes",
-    "peers.details.bytesSent": "Gesendet",
-    "peers.details.bytesReceived": "Empfangen",
-    "peers.details.localIce": "Lokales ICE",
-    "peers.details.remoteIce": "Remote ICE",
-    "peers.details.never": "Nie",
-    "peers.details.justNow": "Gerade eben",
-    "peers.details.refresh": "Aktualisieren",
-    "peers.status.connected": "Verbunden",
-    "peers.status.connecting": "Verbinde",
-    "peers.status.disconnected": "Getrennt",
-    "peers.details.relayAddress": "Relay",
-    "peers.details.networks": "Ressourcen",
-    "peers.details.relayed": "Relayed",
-    "peers.details.p2p": "P2P",
-    "peers.details.rosenpass": "Rosenpass aktiviert",
-
-    "networks.search.placeholder": "Nach Netzwerk oder Domain suchen",
-    "networks.filter.all": "Alle",
-    "networks.filter.active": "Aktiv",
-    "networks.filter.overlapping": "Überlappend",
-    "networks.empty.title": "Keine Ressourcen verfügbar",
-    "networks.empty.description": "Sie haben entweder keine Netzwerkressourcen verfügbar oder keinen Zugriff auf eine davon.",
-    "networks.selected": "Ausgewählt",
-    "networks.unselected": "Nicht ausgewählt",
-    "networks.ips.heading": "Aufgelöste IPs",
-    "networks.bulk.selectionCount": "{selected} von {total} aktiv",
-    "networks.bulk.enableAll": "Alle aktivieren",
-    "networks.bulk.disableAll": "Alle deaktivieren",
-
-    "exitNodes.search.placeholder": "Exit Nodes suchen",
-    "exitNodes.none": "Keiner",
-    "exitNodes.empty.title": "Keine Exit Nodes verfügbar",
-    "exitNodes.empty.description": "Für diesen Peer wurden keine Exit Nodes freigegeben.",
-    "exitNodes.card.title": "Exit Node",
-    "exitNodes.card.statusActive": "Aktiv",
-    "exitNodes.card.statusInactive": "Inaktiv",
-    "exitNodes.dropdown.noneTitle": "Keiner",
-    "exitNodes.dropdown.noneDescription": "Direkte Verbindung ohne Exit Node",
-
-    "quickActions.connect": "Verbinden",
-    "quickActions.disconnect": "Trennen",
-
-    "daemon.unavailable.title": "NetBird-Dienst läuft nicht",
-    "daemon.unavailable.description": "Die App stellt automatisch die Verbindung wieder her, sobald der Dienst läuft.",
-    "daemon.unavailable.docsLink": "Dokumentation",
-
-    "error.jwt_clock_skew": "Anmeldung fehlgeschlagen: Die Uhr dieses Geräts ist nicht mit dem Server synchron. Bitte synchronisieren Sie die Systemuhr und versuchen Sie es erneut.",
-    "error.jwt_expired": "Ihr Anmeldetoken ist abgelaufen. Bitte melden Sie sich erneut an.",
-    "error.jwt_signature_invalid": "Anmeldung fehlgeschlagen: Die Token-Signatur ist ungültig. Bitte wenden Sie sich an Ihren Administrator.",
-    "error.session_expired": "Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.",
-    "error.invalid_setup_key": "Der Setup-Schlüssel fehlt oder ist ungültig.",
-    "error.permission_denied": "Die Anmeldung wurde vom Server abgelehnt.",
-    "error.daemon_unreachable": "Der NetBird-Dienst antwortet nicht. Bitte prüfen Sie, ob der Dienst läuft.",
-    "error.unknown": "Vorgang fehlgeschlagen."
+    "tray.tooltip": {
+        "message": "NetBird"
+    },
+    "tray.status.disconnected": {
+        "message": "Getrennt"
+    },
+    "tray.status.daemonUnavailable": {
+        "message": "Nicht aktiv"
+    },
+    "tray.status.error": {
+        "message": "Fehler"
+    },
+    "tray.status.connected": {
+        "message": "Verbunden"
+    },
+    "tray.status.connecting": {
+        "message": "Verbinde"
+    },
+    "tray.status.needsLogin": {
+        "message": "Anmeldung erforderlich"
+    },
+    "tray.status.loginFailed": {
+        "message": "Anmeldung fehlgeschlagen"
+    },
+    "tray.status.sessionExpired": {
+        "message": "Sitzung abgelaufen"
+    },
+    "tray.session.expiresIn": {
+        "message": "Sitzung läuft ab in {remaining}"
+    },
+    "tray.session.unit.lessThanMinute": {
+        "message": "weniger als einer Minute"
+    },
+    "tray.session.unit.minute": {
+        "message": "1 Minute"
+    },
+    "tray.session.unit.minutes": {
+        "message": "{count} Minuten"
+    },
+    "tray.session.unit.hour": {
+        "message": "1 Stunde"
+    },
+    "tray.session.unit.hours": {
+        "message": "{count} Stunden"
+    },
+    "tray.session.unit.day": {
+        "message": "1 Tag"
+    },
+    "tray.session.unit.days": {
+        "message": "{count} Tagen"
+    },
+    "tray.menu.open": {
+        "message": "NetBird öffnen"
+    },
+    "tray.menu.connect": {
+        "message": "Verbinden"
+    },
+    "tray.menu.disconnect": {
+        "message": "Trennen"
+    },
+    "tray.menu.exitNode": {
+        "message": "Exit-Node"
+    },
+    "tray.menu.networks": {
+        "message": "Ressourcen"
+    },
+    "tray.menu.profiles": {
+        "message": "Profile"
+    },
+    "tray.menu.manageProfiles": {
+        "message": "Profile verwalten"
+    },
+    "tray.menu.settings": {
+        "message": "Einstellungen..."
+    },
+    "tray.menu.debugBundle": {
+        "message": "Debug-Paket erstellen"
+    },
+    "tray.menu.about": {
+        "message": "Hilfe & Support"
+    },
+    "tray.menu.github": {
+        "message": "GitHub"
+    },
+    "tray.menu.documentation": {
+        "message": "Dokumentation"
+    },
+    "tray.menu.troubleshoot": {
+        "message": "Fehlerbehebung"
+    },
+    "tray.menu.downloadLatest": {
+        "message": "Neueste Version herunterladen"
+    },
+    "tray.menu.installVersion": {
+        "message": "Version {version} installieren"
+    },
+    "tray.menu.guiVersion": {
+        "message": "Oberfläche: {version}"
+    },
+    "tray.menu.daemonVersion": {
+        "message": "Daemon: {version}"
+    },
+    "tray.menu.versionUnknown": {
+        "message": "—"
+    },
+    "tray.menu.quit": {
+        "message": "NetBird beenden"
+    },
+    "notify.update.title": {
+        "message": "NetBird-Update verfügbar"
+    },
+    "notify.update.body": {
+        "message": "NetBird {version} ist verfügbar."
+    },
+    "notify.update.enforcedSuffix": {
+        "message": " Ihr Administrator verlangt dieses Update."
+    },
+    "notify.error.title": {
+        "message": "Fehler"
+    },
+    "notify.error.connect": {
+        "message": "Verbindung fehlgeschlagen"
+    },
+    "notify.error.disconnect": {
+        "message": "Trennen fehlgeschlagen"
+    },
+    "notify.error.switchProfile": {
+        "message": "Wechsel zu {profile} fehlgeschlagen"
+    },
+    "notify.error.exitNode": {
+        "message": "Exit-Node {name} konnte nicht aktualisiert werden"
+    },
+    "notify.sessionExpired.title": {
+        "message": "NetBird-Sitzung abgelaufen"
+    },
+    "notify.sessionExpired.body": {
+        "message": "Ihre NetBird-Sitzung ist abgelaufen. Bitte melden Sie sich erneut an."
+    },
+    "notify.sessionWarning.title": {
+        "message": "Sitzung läuft bald ab"
+    },
+    "notify.sessionWarning.body": {
+        "message": "Ihre NetBird-Sitzung läuft in {remaining} ab. Klicken Sie auf Jetzt verlängern, um zu erneuern."
+    },
+    "notify.sessionWarning.bodyGeneric": {
+        "message": "Ihre NetBird-Sitzung läuft bald ab. Klicken Sie auf Jetzt verlängern, um zu erneuern."
+    },
+    "notify.sessionWarning.extend": {
+        "message": "Jetzt verlängern"
+    },
+    "notify.sessionWarning.dismiss": {
+        "message": "Verwerfen"
+    },
+    "notify.sessionWarning.failed": {
+        "message": "NetBird-Sitzung konnte nicht verlängert werden"
+    },
+    "notify.sessionWarning.successTitle": {
+        "message": "NetBird-Sitzung verlängert"
+    },
+    "notify.sessionWarning.successBody": {
+        "message": "Ihre Sitzung wurde erneuert."
+    },
+    "notify.sessionDeadlineRejected.title": {
+        "message": "Sitzungsfrist abgelehnt"
+    },
+    "notify.sessionDeadlineRejected.body": {
+        "message": "Der Server hat eine ungültige Sitzungsfrist übermittelt. Bitte melden Sie sich erneut an."
+    },
+    "common.cancel": {
+        "message": "Abbrechen"
+    },
+    "common.save": {
+        "message": "Speichern"
+    },
+    "common.saveChanges": {
+        "message": "Änderungen speichern"
+    },
+    "common.saving": {
+        "message": "Speichert…"
+    },
+    "common.close": {
+        "message": "Schließen"
+    },
+    "common.copy": {
+        "message": "Kopieren"
+    },
+    "common.togglePasswordVisibility": {
+        "message": "Passwortsichtbarkeit umschalten"
+    },
+    "common.increase": {
+        "message": "Erhöhen"
+    },
+    "common.decrease": {
+        "message": "Verringern"
+    },
+    "common.delete": {
+        "message": "Löschen"
+    },
+    "common.create": {
+        "message": "Erstellen"
+    },
+    "common.add": {
+        "message": "Hinzufügen"
+    },
+    "common.remove": {
+        "message": "Entfernen"
+    },
+    "common.refresh": {
+        "message": "Aktualisieren"
+    },
+    "common.loading": {
+        "message": "Lädt…"
+    },
+    "common.netbird": {
+        "message": "NetBird"
+    },
+    "common.noResults.title": {
+        "message": "Keine Ergebnisse gefunden"
+    },
+    "common.noResults.description": {
+        "message": "Es konnten keine Ergebnisse gefunden werden. Bitte versuchen Sie es mit einem anderen Suchbegriff oder ändern Sie Ihre Filter."
+    },
+    "notConnected.title": {
+        "message": "Getrennt"
+    },
+    "notConnected.description": {
+        "message": "Verbinden Sie sich zuerst mit NetBird, um detaillierte Informationen zu Ihren Peers, Netzwerkressourcen und Exit Nodes einzusehen."
+    },
+    "connect.status.disconnected": {
+        "message": "Getrennt"
+    },
+    "connect.status.connecting": {
+        "message": "Verbindet…"
+    },
+    "connect.status.connected": {
+        "message": "Verbunden"
+    },
+    "connect.status.disconnecting": {
+        "message": "Trennt…"
+    },
+    "connect.status.daemonUnavailable": {
+        "message": "Daemon nicht verfügbar"
+    },
+    "connect.status.loginRequired": {
+        "message": "Anmeldung erforderlich"
+    },
+    "connect.error.loginTitle": {
+        "message": "Anmeldung fehlgeschlagen"
+    },
+    "connect.error.connectTitle": {
+        "message": "Verbindung fehlgeschlagen"
+    },
+    "connect.error.disconnectTitle": {
+        "message": "Trennen fehlgeschlagen"
+    },
+    "nav.peers.title": {
+        "message": "Peers"
+    },
+    "nav.peers.description": {
+        "message": "{connected} von {total} verbunden"
+    },
+    "nav.resources.title": {
+        "message": "Ressourcen"
+    },
+    "nav.resources.description": {
+        "message": "{active} von {total} aktiv"
+    },
+    "nav.exitNode.title": {
+        "message": "Exit-Nodes"
+    },
+    "nav.exitNode.none": {
+        "message": "Nicht aktiv"
+    },
+    "nav.exitNode.using": {
+        "message": "Über {name}"
+    },
+    "header.openSettings": {
+        "message": "Einstellungen öffnen"
+    },
+    "header.togglePanel": {
+        "message": "Seitenleiste umschalten"
+    },
+    "header.menu.settings": {
+        "message": "Einstellungen …"
+    },
+    "header.menu.defaultView": {
+        "message": "Standardansicht"
+    },
+    "header.menu.advancedView": {
+        "message": "Erweiterte Ansicht"
+    },
+    "header.menu.updateAvailable": {
+        "message": "Update verfügbar"
+    },
+    "profile.selector.loading": {
+        "message": "Lädt…"
+    },
+    "profile.selector.noProfile": {
+        "message": "Kein Profil"
+    },
+    "profile.selector.searchPlaceholder": {
+        "message": "Profil nach Namen suchen…"
+    },
+    "profile.selector.emptyTitle": {
+        "message": "Keine Profile gefunden"
+    },
+    "profile.selector.emptyDescription": {
+        "message": "Versuchen Sie einen anderen Suchbegriff oder erstellen Sie ein neues Profil."
+    },
+    "profile.selector.newProfile": {
+        "message": "Neues Profil"
+    },
+    "profile.selector.moreOptions": {
+        "message": "Weitere Optionen"
+    },
+    "profile.selector.deregister": {
+        "message": "Abmelden"
+    },
+    "profile.selector.delete": {
+        "message": "Profil löschen"
+    },
+    "profile.selector.switchTo": {
+        "message": "Zu diesem Profil wechseln"
+    },
+    "profile.dropdown.activeProfile": {
+        "message": "Aktives Profil"
+    },
+    "profile.dropdown.switchProfile": {
+        "message": "Profil wechseln"
+    },
+    "profile.dropdown.noEmail": {
+        "message": "Andere"
+    },
+    "profile.dropdown.addProfile": {
+        "message": "Profil hinzufügen"
+    },
+    "profile.dropdown.manageProfiles": {
+        "message": "Profile verwalten"
+    },
+    "profile.dropdown.settings": {
+        "message": "Einstellungen"
+    },
+    "profile.dialog.title": {
+        "message": "Neues Profil"
+    },
+    "profile.dialog.nameLabel": {
+        "message": "Profilname"
+    },
+    "profile.dialog.description": {
+        "message": "Legen Sie einen leicht erkennbaren Namen für Ihr Profil fest."
+    },
+    "profile.dialog.placeholder": {
+        "message": "z. B. Arbeit"
+    },
+    "profile.dialog.required": {
+        "message": "Bitte geben Sie einen Profilnamen ein, z. B. Arbeit, Privat"
+    },
+    "profile.dialog.submit": {
+        "message": "Profil hinzufügen"
+    },
+    "profile.dialog.managementHelp": {
+        "message": "NetBird Cloud oder Ihr eigener Server."
+    },
+    "profile.dialog.urlUnreachable": {
+        "message": "Server nicht erreichbar. Überprüfen Sie die URL, oder fügen Sie das Profil trotzdem hinzu, wenn Sie sicher sind, dass sie korrekt ist."
+    },
+    "profile.switch.title": {
+        "message": "Zu Profil \"{name}\" wechseln?"
+    },
+    "profile.switch.message": {
+        "message": "Sind Sie sicher, dass Sie das Profil wechseln möchten?\nIhr aktuelles Profil wird getrennt."
+    },
+    "profile.switch.confirm": {
+        "message": "Bestätigen"
+    },
+    "profile.deregister.title": {
+        "message": "Profil \"{name}\" abmelden?"
+    },
+    "profile.deregister.message": {
+        "message": "Sind Sie sicher, dass Sie dieses Profil abmelden möchten?\nSie müssen sich erneut anmelden, um es zu nutzen."
+    },
+    "profile.deregister.confirm": {
+        "message": "Abmelden"
+    },
+    "profile.delete.title": {
+        "message": "Profil \"{name}\" löschen?"
+    },
+    "profile.delete.message": {
+        "message": "Sind Sie sicher, dass Sie dieses Profil löschen möchten?\nDiese Aktion kann nicht rückgängig gemacht werden."
+    },
+    "profile.delete.disabledActive": {
+        "message": "Aktive Profile können nicht gelöscht werden. Wechseln Sie zu einem anderen Profil, bevor Sie dieses löschen."
+    },
+    "profile.delete.disabledDefault": {
+        "message": "Das Standardprofil kann nicht gelöscht werden."
+    },
+    "profile.error.switchTitle": {
+        "message": "Profilwechsel fehlgeschlagen"
+    },
+    "profile.error.deregisterTitle": {
+        "message": "Abmeldung fehlgeschlagen"
+    },
+    "profile.error.deleteTitle": {
+        "message": "Löschen des Profils fehlgeschlagen"
+    },
+    "profile.error.createTitle": {
+        "message": "Erstellen des Profils fehlgeschlagen"
+    },
+    "profile.error.loadTitle": {
+        "message": "Laden der Profile fehlgeschlagen"
+    },
+    "settings.error.loadTitle": {
+        "message": "Laden der Einstellungen fehlgeschlagen"
+    },
+    "settings.error.saveTitle": {
+        "message": "Speichern der Einstellungen fehlgeschlagen"
+    },
+    "settings.error.debugBundleTitle": {
+        "message": "Debug-Paket fehlgeschlagen"
+    },
+    "settings.tabs.general": {
+        "message": "Allgemein"
+    },
+    "settings.tabs.network": {
+        "message": "Netzwerk"
+    },
+    "settings.tabs.security": {
+        "message": "Sicherheit"
+    },
+    "settings.tabs.ssh": {
+        "message": "SSH"
+    },
+    "settings.tabs.profiles": {
+        "message": "Profile"
+    },
+    "settings.tabs.advanced": {
+        "message": "Erweitert"
+    },
+    "settings.tabs.troubleshooting": {
+        "message": "Fehlerbehebung"
+    },
+    "settings.tabs.about": {
+        "message": "Über"
+    },
+    "settings.tabs.updateAvailable": {
+        "message": "Update verfügbar"
+    },
+    "settings.profiles.section.profiles": {
+        "message": "Profile"
+    },
+    "settings.profiles.intro": {
+        "message": "Halten Sie separate NetBird-Identitäten nebeneinander, zum Beispiel berufliche und private Konten oder verschiedene Management-Server. Fügen Sie unten Profile hinzu, melden Sie sie ab oder löschen Sie sie."
+    },
+    "settings.profiles.addProfile": {
+        "message": "Profil hinzufügen"
+    },
+    "settings.profiles.active": {
+        "message": "Aktiv"
+    },
+    "settings.profiles.emptyTitle": {
+        "message": "Keine Profile"
+    },
+    "settings.profiles.emptyDescription": {
+        "message": "Erstellen Sie ein Profil, um sich mit einem NetBird-Management-Server zu verbinden."
+    },
+    "settings.general.section.general": {
+        "message": "Allgemein"
+    },
+    "settings.general.section.connection": {
+        "message": "Verbindung"
+    },
+    "settings.general.connectOnStartup.label": {
+        "message": "Beim Start verbinden"
+    },
+    "settings.general.connectOnStartup.help": {
+        "message": "Beim Start des Dienstes automatisch eine Verbindung herstellen."
+    },
+    "settings.general.notifications.label": {
+        "message": "Desktop-Benachrichtigungen"
+    },
+    "settings.general.notifications.help": {
+        "message": "Desktop-Benachrichtigungen für neue Updates und Verbindungsereignisse anzeigen."
+    },
+    "settings.general.autostart.label": {
+        "message": "NetBird-UI beim Anmelden starten"
+    },
+    "settings.general.autostart.help": {
+        "message": "Die NetBird-Oberfläche beim Anmelden automatisch starten. Dies betrifft nur die grafische Oberfläche, nicht den Hintergrunddienst."
+    },
+    "settings.general.autostart.errorTitle": {
+        "message": "Ändern des Autostarts fehlgeschlagen"
+    },
+    "settings.general.language.label": {
+        "message": "Anzeigesprache"
+    },
+    "settings.general.language.help": {
+        "message": "Wählen Sie die Sprache der NetBird-Oberfläche."
+    },
+    "settings.general.language.search": {
+        "message": "Sprache suchen…"
+    },
+    "settings.general.language.empty": {
+        "message": "Keine Sprachen gefunden."
+    },
+    "settings.general.management.label": {
+        "message": "Management-Server"
+    },
+    "settings.general.management.help": {
+        "message": "Mit NetBird Cloud oder Ihrem eigenen self-hosted Management-Server verbinden. Änderungen lösen eine Neuverbindung des Clients aus."
+    },
+    "settings.general.management.cloud": {
+        "message": "Cloud"
+    },
+    "settings.general.management.selfHosted": {
+        "message": "Self-hosted"
+    },
+    "settings.general.management.urlPlaceholder": {
+        "message": "https://netbird.selfhosted.com:443"
+    },
+    "settings.general.management.urlError": {
+        "message": "Bitte geben Sie eine gültige URL ein, z. B. https://netbird.selfhosted.com:443"
+    },
+    "settings.general.management.urlUnreachable": {
+        "message": "Server nicht erreichbar. Überprüfen Sie die URL, oder speichern Sie trotzdem, wenn Sie sicher sind, dass sie korrekt ist."
+    },
+    "settings.general.management.switchCloudTitle": {
+        "message": "Zu NetBird Cloud wechseln?"
+    },
+    "settings.general.management.switchCloudMessage": {
+        "message": "Dies trennt die Verbindung zu Ihrem self-hosted Server.\nMöglicherweise müssen Sie sich erneut anmelden."
+    },
+    "settings.general.management.switchCloudConfirm": {
+        "message": "Zu Cloud wechseln"
+    },
+    "settings.network.section.connectivity": {
+        "message": "Konnektivität"
+    },
+    "settings.network.section.routingDns": {
+        "message": "Routing & DNS"
+    },
+    "settings.network.lazy.label": {
+        "message": "Verzögerte Verbindungen"
+    },
+    "settings.network.lazy.help": {
+        "message": "Statt durchgehend aktive Verbindungen zu halten, aktiviert NetBird sie bei Bedarf anhand von Aktivität oder Signalisierung."
+    },
+    "settings.network.monitor.label": {
+        "message": "Bei Netzwerkwechsel neu verbinden"
+    },
+    "settings.network.monitor.help": {
+        "message": "Das Netzwerk überwachen und bei Änderungen (z. B. WLAN-Wechsel, Ethernet-Änderungen oder Rückkehr aus dem Ruhezustand) automatisch neu verbinden."
+    },
+    "settings.network.dns.label": {
+        "message": "DNS aktivieren"
+    },
+    "settings.network.dns.help": {
+        "message": "NetBird-verwaltete DNS-Einstellungen auf den Host-Resolver anwenden."
+    },
+    "settings.network.clientRoutes.label": {
+        "message": "Client-Routen aktivieren"
+    },
+    "settings.network.clientRoutes.help": {
+        "message": "Routen von anderen Peers übernehmen, um deren Netzwerke zu erreichen."
+    },
+    "settings.network.serverRoutes.label": {
+        "message": "Server-Routen aktivieren"
+    },
+    "settings.network.serverRoutes.help": {
+        "message": "Lokale Routen dieses Hosts an andere Peers ankündigen."
+    },
+    "settings.network.ipv6.label": {
+        "message": "IPv6 aktivieren"
+    },
+    "settings.network.ipv6.help": {
+        "message": "IPv6-Adressierung für das NetBird-Overlay-Netzwerk verwenden."
+    },
+    "settings.security.section.firewall": {
+        "message": "Firewall"
+    },
+    "settings.security.section.encryption": {
+        "message": "Verschlüsselung"
+    },
+    "settings.security.blockInbound.label": {
+        "message": "Eingehenden Verkehr blockieren"
+    },
+    "settings.security.blockInbound.help": {
+        "message": "Unaufgeforderte Verbindungen von Peers zu diesem Gerät und den von ihm gerouteten Netzwerken ablehnen. Ausgehender Verkehr ist nicht betroffen."
+    },
+    "settings.security.blockLan.label": {
+        "message": "LAN-Zugriff blockieren"
+    },
+    "settings.security.blockLan.help": {
+        "message": "Verhindert, dass Peers Ihr lokales Netzwerk oder dessen Geräte erreichen, wenn dieses Gerät deren Verkehr routet."
+    },
+    "settings.security.rosenpass.label": {
+        "message": "Quantenresistenz aktivieren"
+    },
+    "settings.security.rosenpass.help": {
+        "message": "Einen post-quanten Schlüsselaustausch via Rosenpass zusätzlich zu WireGuard® hinzufügen."
+    },
+    "settings.security.rosenpassPermissive.label": {
+        "message": "Permissiven Modus aktivieren"
+    },
+    "settings.security.rosenpassPermissive.help": {
+        "message": "Verbindungen zu Peers ohne Quantenresistenz-Unterstützung erlauben."
+    },
+    "settings.ssh.section.server": {
+        "message": "Server"
+    },
+    "settings.ssh.section.capabilities": {
+        "message": "Funktionen"
+    },
+    "settings.ssh.section.authentication": {
+        "message": "Authentifizierung"
+    },
+    "settings.ssh.server.label": {
+        "message": "SSH-Server aktivieren"
+    },
+    "settings.ssh.server.help": {
+        "message": "Den NetBird SSH-Server auf diesem Host ausführen, damit andere Peers sich verbinden können."
+    },
+    "settings.ssh.root.label": {
+        "message": "Root-Login erlauben"
+    },
+    "settings.ssh.root.help": {
+        "message": "Peers dürfen sich als root anmelden. Deaktivieren, um ein nicht-privilegiertes Konto zu erfordern."
+    },
+    "settings.ssh.sftp.label": {
+        "message": "SFTP erlauben"
+    },
+    "settings.ssh.sftp.help": {
+        "message": "Dateien sicher über native SFTP- oder SCP-Clients übertragen."
+    },
+    "settings.ssh.localForward.label": {
+        "message": "Lokale Portweiterleitung"
+    },
+    "settings.ssh.localForward.help": {
+        "message": "Verbundene Peers können lokale Ports zu von diesem Host erreichbaren Diensten tunneln."
+    },
+    "settings.ssh.remoteForward.label": {
+        "message": "Remote-Portweiterleitung"
+    },
+    "settings.ssh.remoteForward.help": {
+        "message": "Verbundene Peers können Ports dieses Hosts an ihren eigenen Rechner weitergeben."
+    },
+    "settings.ssh.jwt.label": {
+        "message": "JWT-Authentifizierung aktivieren"
+    },
+    "settings.ssh.jwt.help": {
+        "message": "Jede SSH-Sitzung gegen Ihren IdP für Identität und Audit prüfen. Deaktivieren, um sich nur auf Netzwerk-ACL-Richtlinien zu verlassen — sinnvoll, wenn kein IdP verfügbar ist."
+    },
+    "settings.ssh.jwtTtl.label": {
+        "message": "JWT-Cache-TTL"
+    },
+    "settings.ssh.jwtTtl.help": {
+        "message": "Wie lange dieser Client ein JWT zwischenspeichert, bevor bei ausgehenden SSH-Verbindungen erneut nachgefragt wird. Auf 0 setzen, um den Cache zu deaktivieren und bei jeder Verbindung zu authentifizieren."
+    },
+    "settings.ssh.jwtTtl.suffix": {
+        "message": "Sekunde(n)"
+    },
+    "settings.advanced.section.interface": {
+        "message": "Schnittstelle"
+    },
+    "settings.advanced.section.security": {
+        "message": "Sicherheit"
+    },
+    "settings.advanced.interfaceName.label": {
+        "message": "Name"
+    },
+    "settings.advanced.interfaceName.error": {
+        "message": "Verwende 1–15 Buchstaben, Ziffern, Punkt, Bindestrich oder Unterstrich."
+    },
+    "settings.advanced.interfaceName.errorMac": {
+        "message": "Muss mit „utun“ und einer Zahl beginnen (z. B. utun100)."
+    },
+    "settings.advanced.port.label": {
+        "message": "Port"
+    },
+    "settings.advanced.port.error": {
+        "message": "Gib einen Port zwischen {min} und {max} ein."
+    },
+    "settings.advanced.port.help": {
+        "message": "Wenn auf 0 gesetzt, wird ein zufälliger freier Port verwendet."
+    },
+    "settings.advanced.mtu.label": {
+        "message": "MTU"
+    },
+    "settings.advanced.mtu.error": {
+        "message": "Gib eine MTU zwischen {min} und {max} ein."
+    },
+    "settings.advanced.psk.label": {
+        "message": "Pre-shared Key"
+    },
+    "settings.advanced.psk.help": {
+        "message": "Optionaler WireGuard-PSK für zusätzliche symmetrische Verschlüsselung. Nicht identisch mit einem NetBird Setup Key. Sie kommunizieren nur mit Peers, die denselben Pre-shared Key verwenden."
+    },
+    "settings.troubleshooting.section.title": {
+        "message": "Debug-Paket"
+    },
+    "settings.troubleshooting.intro": {
+        "message": "Ein Debug-Paket hilft dem NetBird-Support bei der Untersuchung von Verbindungsproblemen. <br /> Es ist eine .zip-Datei mit Logs, Systemdetails und Debug-Informationen Ihres Geräts."
+    },
+    "settings.troubleshooting.anonymize.label": {
+        "message": "Sensible Informationen anonymisieren"
+    },
+    "settings.troubleshooting.anonymize.help": {
+        "message": "Versteckt öffentliche IP-Adressen und nicht-NetBird-Domains in Logs."
+    },
+    "settings.troubleshooting.systemInfo.label": {
+        "message": "Systeminformationen einschließen"
+    },
+    "settings.troubleshooting.systemInfo.help": {
+        "message": "OS, Kernel, Netzwerkschnittstellen und Routing-Tabellen einschließen."
+    },
+    "settings.troubleshooting.upload.label": {
+        "message": "Paket an NetBird-Server hochladen"
+    },
+    "settings.troubleshooting.upload.help": {
+        "message": "Lädt das Paket sicher hoch und gibt einen Upload-Schlüssel zurück. Teilen Sie den Schlüssel über GitHub oder Slack mit dem NetBird-Support, anstatt die Datei direkt anzuhängen."
+    },
+    "settings.troubleshooting.trace.label": {
+        "message": "Trace-Logs erfassen"
+    },
+    "settings.troubleshooting.trace.help": {
+        "message": "Erhöht das Logging auf TRACE und schaltet NetBird kurz aus und wieder ein, um Verbindungs-Logs zu erfassen. Das vorherige Level wird nach Erstellung des Pakets wiederhergestellt."
+    },
+    "settings.troubleshooting.duration.label": {
+        "message": "Aufzeichnungsdauer"
+    },
+    "settings.troubleshooting.duration.help": {
+        "message": "Wie lange Trace-Logs vor der Paketerstellung erfasst werden sollen."
+    },
+    "settings.troubleshooting.duration.suffix": {
+        "message": "Minute(n)"
+    },
+    "settings.troubleshooting.create": {
+        "message": "Paket erstellen"
+    },
+    "settings.troubleshooting.progress.description": {
+        "message": "Logs, Systemdetails und Verbindungszustand werden gesammelt. Dies dauert in der Regel einen Moment — lassen Sie dieses Fenster geöffnet, bis es abgeschlossen ist."
+    },
+    "settings.troubleshooting.cancelling": {
+        "message": "Wird abgebrochen…"
+    },
+    "settings.troubleshooting.done.uploadedTitle": {
+        "message": "Debug-Paket erfolgreich hochgeladen!"
+    },
+    "settings.troubleshooting.done.savedTitle": {
+        "message": "Paket gespeichert"
+    },
+    "settings.troubleshooting.done.uploadedDescription": {
+        "message": "Teilen Sie den unten angezeigten Upload-Schlüssel mit dem NetBird-Support. Eine lokale Kopie wurde ebenfalls auf Ihrem Gerät gespeichert."
+    },
+    "settings.troubleshooting.done.savedDescription": {
+        "message": "Ihr Debug-Paket wurde lokal gespeichert."
+    },
+    "settings.troubleshooting.done.copyKey": {
+        "message": "Schlüssel kopieren"
+    },
+    "settings.troubleshooting.done.openFolder": {
+        "message": "Ordner öffnen"
+    },
+    "settings.troubleshooting.done.openFileLocation": {
+        "message": "Speicherort öffnen"
+    },
+    "settings.troubleshooting.uploadFailedWithReason": {
+        "message": "Upload fehlgeschlagen: {reason} Das Paket wurde trotzdem lokal gespeichert."
+    },
+    "settings.troubleshooting.uploadFailed": {
+        "message": "Upload fehlgeschlagen. Das Paket wurde trotzdem lokal gespeichert."
+    },
+    "settings.troubleshooting.stage.preparingTrace": {
+        "message": "Wechsel zu Trace-Logging…"
+    },
+    "settings.troubleshooting.stage.reconnecting": {
+        "message": "NetBird wird neu verbunden…"
+    },
+    "settings.troubleshooting.stage.capturing": {
+        "message": "Logs werden erfasst — {elapsed} / {total}"
+    },
+    "settings.troubleshooting.stage.restoring": {
+        "message": "Vorheriges Log-Level wird wiederhergestellt…"
+    },
+    "settings.troubleshooting.stage.bundling": {
+        "message": "Debug-Paket wird erstellt…"
+    },
+    "settings.troubleshooting.stage.uploading": {
+        "message": "Wird zu NetBird hochgeladen…"
+    },
+    "settings.troubleshooting.stage.cancelling": {
+        "message": "Wird abgebrochen…"
+    },
+    "settings.about.client": {
+        "message": "NetBird Client v{version}"
+    },
+    "settings.about.clientName": {
+        "message": "NetBird Client"
+    },
+    "settings.about.development": {
+        "message": "[Entwicklung]"
+    },
+    "settings.about.gui": {
+        "message": "Oberfläche v{version}"
+    },
+    "settings.about.guiName": {
+        "message": "Oberfläche"
+    },
+    "settings.about.copyright": {
+        "message": "© {year} NetBird. Alle Rechte vorbehalten."
+    },
+    "settings.about.links.imprint": {
+        "message": "Impressum"
+    },
+    "settings.about.links.privacy": {
+        "message": "Datenschutz"
+    },
+    "settings.about.links.cla": {
+        "message": "CLA"
+    },
+    "settings.about.links.terms": {
+        "message": "Nutzungsbedingungen"
+    },
+    "settings.about.community.github": {
+        "message": "GitHub"
+    },
+    "settings.about.community.slack": {
+        "message": "Slack"
+    },
+    "settings.about.community.forum": {
+        "message": "Forum"
+    },
+    "settings.about.community.documentation": {
+        "message": "Dokumentation"
+    },
+    "settings.about.community.feedback": {
+        "message": "Feedback"
+    },
+    "update.banner.message": {
+        "message": "NetBird {version} ist installationsbereit."
+    },
+    "update.banner.later": {
+        "message": "Später"
+    },
+    "update.banner.installNow": {
+        "message": "Jetzt installieren"
+    },
+    "update.card.versionAvailableDownload": {
+        "message": "Version {version} ist zum Herunterladen verfügbar."
+    },
+    "update.card.versionAvailableInstall": {
+        "message": "Version {version} ist zur Installation verfügbar."
+    },
+    "update.card.whatsNew": {
+        "message": "Was ist neu?"
+    },
+    "update.card.installNow": {
+        "message": "Jetzt installieren"
+    },
+    "update.card.getInstaller": {
+        "message": "Herunterladen"
+    },
+    "update.card.autoCheckInterval": {
+        "message": "NetBird sucht im Hintergrund nach Updates."
+    },
+    "update.card.changelog": {
+        "message": "Änderungsprotokoll"
+    },
+    "update.card.onLatestVersion": {
+        "message": "Du verwendest die neueste Version"
+    },
+    "update.header.tooltip": {
+        "message": "Update verfügbar"
+    },
+    "update.overlay.updatingVersion": {
+        "message": "NetBird wird auf v{version} aktualisiert"
+    },
+    "update.overlay.updating": {
+        "message": "NetBird wird aktualisiert"
+    },
+    "update.overlay.description": {
+        "message": "Eine neuere Version ist verfügbar und wird installiert. NetBird startet nach Abschluss des Updates automatisch neu."
+    },
+    "update.overlay.error.timeoutTitle": {
+        "message": "Update dauert zu lange"
+    },
+    "update.overlay.error.timeoutDescription": {
+        "message": "Die Installation von {target} hat zu lange gedauert und wurde nicht abgeschlossen."
+    },
+    "update.overlay.error.canceledTitle": {
+        "message": "Update wurde abgebrochen"
+    },
+    "update.overlay.error.canceledDescription": {
+        "message": "Das Update auf {target} wurde vor dem Abschluss abgebrochen."
+    },
+    "update.overlay.error.failTitle": {
+        "message": "Update konnte nicht installiert werden"
+    },
+    "update.overlay.error.failDescription": {
+        "message": "{target} konnte nicht installiert werden."
+    },
+    "update.overlay.error.unknownMessage": {
+        "message": "unbekannter Fehler"
+    },
+    "update.overlay.error.targetVersion": {
+        "message": "v{version}"
+    },
+    "update.overlay.error.targetFallback": {
+        "message": "die neue Version"
+    },
+    "update.error.loadStateTitle": {
+        "message": "Laden des Update-Status fehlgeschlagen"
+    },
+    "update.error.triggerTitle": {
+        "message": "Update-Start fehlgeschlagen"
+    },
+    "update.page.versionLine": {
+        "message": "Client wird aktualisiert auf: {version}."
+    },
+    "update.page.versionLineGeneric": {
+        "message": "Client wird aktualisiert."
+    },
+    "update.page.outdated": {
+        "message": "Ihre Client-Version ist älter als die im Management eingestellte Auto-Update-Version."
+    },
+    "update.page.status.running": {
+        "message": "Aktualisiert"
+    },
+    "update.page.status.timeout": {
+        "message": "Zeitüberschreitung beim Update. Bitte erneut versuchen."
+    },
+    "update.page.status.canceled": {
+        "message": "Update abgebrochen."
+    },
+    "update.page.status.failed": {
+        "message": "Update fehlgeschlagen: {message}"
+    },
+    "update.page.status.unknownError": {
+        "message": "unbekannter Update-Fehler"
+    },
+    "update.page.failedTitle": {
+        "message": "Update fehlgeschlagen"
+    },
+    "update.page.timeoutMessage": {
+        "message": "Zeitüberschreitung beim Update."
+    },
+    "update.page.dontClose": {
+        "message": "Bitte schließen Sie dieses Fenster nicht."
+    },
+    "update.page.updating": {
+        "message": "Aktualisiert…"
+    },
+    "update.page.complete": {
+        "message": "Update abgeschlossen"
+    },
+    "update.page.failed": {
+        "message": "Update fehlgeschlagen"
+    },
+    "window.title.settings": {
+        "message": "Einstellungen"
+    },
+    "window.title.signIn": {
+        "message": "Anmeldung"
+    },
+    "window.title.sessionExpiration": {
+        "message": "Sitzung läuft ab"
+    },
+    "window.title.updating": {
+        "message": "Aktualisierung"
+    },
+    "window.title.welcome": {
+        "message": "Willkommen bei NetBird"
+    },
+    "window.title.error": {
+        "message": "Fehler"
+    },
+    "welcome.title": {
+        "message": "Suchen Sie NetBird in der Taskleiste"
+    },
+    "welcome.description": {
+        "message": "NetBird läuft in Ihrer Taskleiste. Klicken Sie auf das Symbol, um sich zu verbinden, Profile zu wechseln oder die Einstellungen zu öffnen."
+    },
+    "welcome.continue": {
+        "message": "Weiter"
+    },
+    "welcome.back": {
+        "message": "Zurück"
+    },
+    "welcome.management.title": {
+        "message": "NetBird einrichten"
+    },
+    "welcome.management.description": {
+        "message": "Klicken Sie auf „Weiter“, um loszulegen, oder wählen Sie Self-hosted, wenn Sie einen eigenen NetBird-Server haben."
+    },
+    "welcome.management.cloud.title": {
+        "message": "NetBird Cloud"
+    },
+    "welcome.management.cloud.description": {
+        "message": "Nutzen Sie unseren gehosteten Dienst. Keine Einrichtung nötig."
+    },
+    "welcome.management.selfHosted.title": {
+        "message": "Selbst gehostet"
+    },
+    "welcome.management.selfHosted.description": {
+        "message": "Verbindung zu Ihrem eigenen Management-Server."
+    },
+    "welcome.management.urlLabel": {
+        "message": "URL des Management-Servers"
+    },
+    "welcome.management.urlPlaceholder": {
+        "message": "https://netbird.selfhosted.com:443"
+    },
+    "welcome.management.urlInvalid": {
+        "message": "Bitte geben Sie eine gültige URL ein, z. B. https://netbird.selfhosted.com:443"
+    },
+    "welcome.management.urlUnreachable": {
+        "message": "Server nicht erreichbar. Überprüfen Sie die URL oder Ihr Netzwerk und fahren Sie fort, wenn Sie sicher sind, dass sie korrekt ist."
+    },
+    "welcome.management.checking": {
+        "message": "Wird geprüft …"
+    },
+    "browserLogin.title": {
+        "message": "Setzen Sie den Anmeldevorgang im Browser fort"
+    },
+    "browserLogin.notSeeing": {
+        "message": "Sehen Sie den Browser-Tab nicht?"
+    },
+    "browserLogin.tryAgain": {
+        "message": "Erneut versuchen"
+    },
+    "browserLogin.openFailedTitle": {
+        "message": "Browser konnte nicht geöffnet werden"
+    },
+    "sessionExpiration.title": {
+        "message": "Sitzung läuft bald ab"
+    },
+    "sessionExpiration.titleLater": {
+        "message": "Ihre Sitzung läuft ab"
+    },
+    "sessionExpiration.description": {
+        "message": "Dieses Gerät wird bald getrennt. Browser-Anmeldung zum Erneuern erforderlich."
+    },
+    "sessionExpiration.descriptionLater": {
+        "message": "Eine Browser-Anmeldung hält dieses Gerät mit Ihrem Netzwerk verbunden."
+    },
+    "sessionExpiration.stay": {
+        "message": "Sitzung erneuern"
+    },
+    "sessionExpiration.authenticate": {
+        "message": "Anmelden"
+    },
+    "sessionExpiration.logout": {
+        "message": "Abmelden"
+    },
+    "sessionExpiration.expired": {
+        "message": "Sitzung abgelaufen"
+    },
+    "sessionExpiration.expiredDescription": {
+        "message": "Gerät getrennt. Mit Browser-Anmeldung authentifizieren, um erneut zu verbinden."
+    },
+    "sessionExpiration.close": {
+        "message": "Schließen"
+    },
+    "sessionExpiration.extendFailedTitle": {
+        "message": "Sitzungsverlängerung fehlgeschlagen"
+    },
+    "sessionExpiration.logoutFailedTitle": {
+        "message": "Abmeldung fehlgeschlagen"
+    },
+    "peers.search.placeholder": {
+        "message": "Nach Name oder IP suchen"
+    },
+    "peers.filter.all": {
+        "message": "Alle"
+    },
+    "peers.filter.online": {
+        "message": "Online"
+    },
+    "peers.filter.offline": {
+        "message": "Offline"
+    },
+    "peers.empty.title": {
+        "message": "Keine Peers verfügbar"
+    },
+    "peers.empty.description": {
+        "message": "Sie haben entweder keine Peers verfügbar oder keinen Zugriff auf einen davon."
+    },
+    "peers.details.domain": {
+        "message": "Domain"
+    },
+    "peers.details.netbirdIp": {
+        "message": "NetBird-IP"
+    },
+    "peers.details.netbirdIpv6": {
+        "message": "NetBird-IPv6"
+    },
+    "peers.details.publicKey": {
+        "message": "Öffentlicher Schlüssel"
+    },
+    "peers.details.connection": {
+        "message": "Verbindung"
+    },
+    "peers.details.latency": {
+        "message": "Latenz"
+    },
+    "peers.details.lastHandshake": {
+        "message": "Letzter Handshake"
+    },
+    "peers.details.statusSince": {
+        "message": "Letzte Verbindungsaktualisierung"
+    },
+    "peers.details.bytes": {
+        "message": "Bytes"
+    },
+    "peers.details.bytesSent": {
+        "message": "Gesendet"
+    },
+    "peers.details.bytesReceived": {
+        "message": "Empfangen"
+    },
+    "peers.details.localIce": {
+        "message": "Lokales ICE"
+    },
+    "peers.details.remoteIce": {
+        "message": "Remote ICE"
+    },
+    "peers.details.never": {
+        "message": "Nie"
+    },
+    "peers.details.justNow": {
+        "message": "Gerade eben"
+    },
+    "peers.details.refresh": {
+        "message": "Aktualisieren"
+    },
+    "peers.status.connected": {
+        "message": "Verbunden"
+    },
+    "peers.status.connecting": {
+        "message": "Verbinde"
+    },
+    "peers.status.disconnected": {
+        "message": "Getrennt"
+    },
+    "peers.details.relayAddress": {
+        "message": "Relay"
+    },
+    "peers.details.networks": {
+        "message": "Ressourcen"
+    },
+    "peers.details.relayed": {
+        "message": "Relayed"
+    },
+    "peers.details.p2p": {
+        "message": "P2P"
+    },
+    "peers.details.rosenpass": {
+        "message": "Rosenpass aktiviert"
+    },
+    "networks.search.placeholder": {
+        "message": "Nach Netzwerk oder Domain suchen"
+    },
+    "networks.filter.all": {
+        "message": "Alle"
+    },
+    "networks.filter.active": {
+        "message": "Aktiv"
+    },
+    "networks.filter.overlapping": {
+        "message": "Überlappend"
+    },
+    "networks.empty.title": {
+        "message": "Keine Ressourcen verfügbar"
+    },
+    "networks.empty.description": {
+        "message": "Sie haben entweder keine Netzwerkressourcen verfügbar oder keinen Zugriff auf eine davon."
+    },
+    "networks.selected": {
+        "message": "Ausgewählt"
+    },
+    "networks.unselected": {
+        "message": "Nicht ausgewählt"
+    },
+    "networks.ips.heading": {
+        "message": "Aufgelöste IPs"
+    },
+    "networks.bulk.selectionCount": {
+        "message": "{selected} von {total} aktiv"
+    },
+    "networks.bulk.enableAll": {
+        "message": "Alle aktivieren"
+    },
+    "networks.bulk.disableAll": {
+        "message": "Alle deaktivieren"
+    },
+    "exitNodes.search.placeholder": {
+        "message": "Exit Nodes suchen"
+    },
+    "exitNodes.none": {
+        "message": "Keiner"
+    },
+    "exitNodes.empty.title": {
+        "message": "Keine Exit Nodes verfügbar"
+    },
+    "exitNodes.empty.description": {
+        "message": "Für diesen Peer wurden keine Exit Nodes freigegeben."
+    },
+    "exitNodes.card.title": {
+        "message": "Exit Node"
+    },
+    "exitNodes.card.statusActive": {
+        "message": "Aktiv"
+    },
+    "exitNodes.card.statusInactive": {
+        "message": "Inaktiv"
+    },
+    "exitNodes.dropdown.noneTitle": {
+        "message": "Keiner"
+    },
+    "exitNodes.dropdown.noneDescription": {
+        "message": "Direkte Verbindung ohne Exit Node"
+    },
+    "quickActions.connect": {
+        "message": "Verbinden"
+    },
+    "quickActions.disconnect": {
+        "message": "Trennen"
+    },
+    "daemon.unavailable.title": {
+        "message": "NetBird-Dienst läuft nicht"
+    },
+    "daemon.unavailable.description": {
+        "message": "Die App stellt automatisch die Verbindung wieder her, sobald der Dienst läuft."
+    },
+    "daemon.unavailable.docsLink": {
+        "message": "Dokumentation"
+    },
+    "error.jwt_clock_skew": {
+        "message": "Anmeldung fehlgeschlagen: Die Uhr dieses Geräts ist nicht mit dem Server synchron. Bitte synchronisieren Sie die Systemuhr und versuchen Sie es erneut."
+    },
+    "error.jwt_expired": {
+        "message": "Ihr Anmeldetoken ist abgelaufen. Bitte melden Sie sich erneut an."
+    },
+    "error.jwt_signature_invalid": {
+        "message": "Anmeldung fehlgeschlagen: Die Token-Signatur ist ungültig. Bitte wenden Sie sich an Ihren Administrator."
+    },
+    "error.session_expired": {
+        "message": "Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an."
+    },
+    "error.invalid_setup_key": {
+        "message": "Der Setup-Schlüssel fehlt oder ist ungültig."
+    },
+    "error.permission_denied": {
+        "message": "Die Anmeldung wurde vom Server abgelehnt."
+    },
+    "error.daemon_unreachable": {
+        "message": "Der NetBird-Dienst antwortet nicht. Bitte prüfen Sie, ob der Dienst läuft."
+    },
+    "error.unknown": {
+        "message": "Vorgang fehlgeschlagen."
+    }
 }
