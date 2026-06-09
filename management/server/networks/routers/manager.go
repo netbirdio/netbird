@@ -207,9 +207,6 @@ func (m *managerImpl) updateRouterInTransaction(ctx context.Context, transaction
 		return nil, nil, affectedpeers.Change{}, fmt.Errorf("failed to increment network serial: %w", err)
 	}
 
-	// Carry both the previous and updated router so the bridge folds the old and
-	// new routing peers; a repoint loses the old peers' routing role and the
-	// post-update state can no longer reach them.
 	change := affectedpeers.Change{Routers: []*types.NetworkRouter{existing, router}}
 	snap, err := affectedpeers.Load(ctx, transaction, router.AccountID, change)
 	if err != nil {
@@ -232,8 +229,6 @@ func (m *managerImpl) DeleteRouter(ctx context.Context, accountID, userID, netwo
 	var snap *affectedpeers.Snapshot
 	var change affectedpeers.Change
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		// Capture the router before delete: its peers lose their routing role and
-		// the post-delete state can no longer reach them.
 		existing, err := transaction.GetNetworkRouterByID(ctx, store.LockingStrengthUpdate, accountID, routerID)
 		if err != nil {
 			return fmt.Errorf("failed to get network router: %w", err)

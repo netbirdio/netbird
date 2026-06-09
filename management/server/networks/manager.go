@@ -140,10 +140,6 @@ func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, netw
 			return fmt.Errorf("failed to get routers in network: %w", err)
 		}
 
-		// Carry the cascade-deleted resources and routers in the Change so the
-		// post-commit Expand walks their groups too: a resource whose group is a
-		// policy source affects that source's peers, which a network-only Change
-		// would miss. Hydrate each resource's GroupIDs (gorm:"-") before Load.
 		for _, resource := range resources {
 			groups, err := transaction.GetResourceGroups(ctx, store.LockingStrengthNone, accountID, resource.ID)
 			if err != nil {
@@ -156,7 +152,6 @@ func (m *managerImpl) DeleteNetwork(ctx context.Context, accountID, userID, netw
 		change.Resources = resources
 		change.Routers = netRouters
 
-		// Load before the cascade deletes: pre-state still references the network.
 		var lerr error
 		if snap, lerr = affectedpeers.Load(ctx, transaction, accountID, change); lerr != nil {
 			return lerr

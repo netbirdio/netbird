@@ -269,8 +269,6 @@ func (m *managerImpl) UpdateResource(ctx context.Context, userID string, resourc
 			m.accountManager.StoreEvent(ctx, userID, resource.ID, resource.AccountID, activity.NetworkResourceUpdated, resource.EventMeta(network))
 		})
 
-		// Carry both the old and new resource so policies that targeted the resource
-		// via a now-detached group still refresh their source peers.
 		change = affectedpeers.Change{Resources: []*types.NetworkResource{oldResource, resource}}
 		if snap, err = affectedpeers.Load(ctx, transaction, resource.AccountID, change); err != nil {
 			return err
@@ -363,8 +361,6 @@ func (m *managerImpl) DeleteResource(ctx context.Context, accountID, userID, net
 	var snap *affectedpeers.Snapshot
 	var change affectedpeers.Change
 	err = m.store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		// Capture the resource and its groups before delete: the post-delete state
-		// no longer references it.
 		existing, err := transaction.GetNetworkResourceByID(ctx, store.LockingStrengthUpdate, accountID, resourceID)
 		if err != nil {
 			return fmt.Errorf("failed to get network resource: %w", err)
