@@ -242,6 +242,97 @@ func TestWireguardPortDefaultVsExplicit(t *testing.T) {
 	}
 }
 
+func TestBooleanConfigFieldPersistence(t *testing.T) {
+	tests := []struct {
+		name  string
+		input ConfigInput
+		check func(t *testing.T, cfg *Config)
+	}{
+		{
+			name:  "DisableClientRoutes persists true",
+			input: ConfigInput{DisableClientRoutes: func() *bool { v := true; return &v }()},
+			check: func(t *testing.T, cfg *Config) {
+				assert.True(t, cfg.DisableClientRoutes)
+			},
+		},
+		{
+			name:  "DisableServerRoutes persists true",
+			input: ConfigInput{DisableServerRoutes: func() *bool { v := true; return &v }()},
+			check: func(t *testing.T, cfg *Config) {
+				assert.True(t, cfg.DisableServerRoutes)
+			},
+		},
+		{
+			name:  "DisableDefaultRoute persists true",
+			input: ConfigInput{DisableDefaultRoute: func() *bool { v := true; return &v }()},
+			check: func(t *testing.T, cfg *Config) {
+				assert.True(t, cfg.DisableDefaultRoute)
+			},
+		},
+		{
+			name:  "DisableDNS persists true",
+			input: ConfigInput{DisableDNS: func() *bool { v := true; return &v }()},
+			check: func(t *testing.T, cfg *Config) {
+				assert.True(t, cfg.DisableDNS)
+			},
+		},
+		{
+			name:  "DisableFirewall persists true",
+			input: ConfigInput{DisableFirewall: func() *bool { v := true; return &v }()},
+			check: func(t *testing.T, cfg *Config) {
+				assert.True(t, cfg.DisableFirewall)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			configPath := filepath.Join(t.TempDir(), "config.json")
+			tt.input.ConfigPath = configPath
+
+			cfg, err := UpdateOrCreateConfig(tt.input)
+			require.NoError(t, err)
+			tt.check(t, cfg)
+
+			// verify persistence: read back from disk
+			readCfg, err := GetConfig(configPath)
+			require.NoError(t, err)
+			tt.check(t, readCfg)
+		})
+	}
+}
+
+func TestDisableDefaultRouteRoundTrip(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	tr := true
+	fa := false
+
+	cfg, err := UpdateOrCreateConfig(ConfigInput{ConfigPath: configPath, DisableDefaultRoute: &tr})
+	require.NoError(t, err)
+	require.True(t, cfg.DisableDefaultRoute)
+
+	cfg, err = UpdateOrCreateConfig(ConfigInput{ConfigPath: configPath, DisableDefaultRoute: &fa})
+	require.NoError(t, err)
+	require.False(t, cfg.DisableDefaultRoute)
+
+	onDisk, err := GetConfig(configPath)
+	require.NoError(t, err)
+	require.False(t, onDisk.DisableDefaultRoute, "false must persist to disk")
+}
+
+func TestDisableDefaultRouteNilPreserves(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	tr := true
+
+	cfg, err := UpdateOrCreateConfig(ConfigInput{ConfigPath: configPath, DisableDefaultRoute: &tr})
+	require.NoError(t, err)
+	require.True(t, cfg.DisableDefaultRoute)
+
+	cfg, err = UpdateOrCreateConfig(ConfigInput{ConfigPath: configPath})
+	require.NoError(t, err)
+	require.True(t, cfg.DisableDefaultRoute, "nil must not overwrite existing value")
+}
+
 func TestUpdateOldManagementURL(t *testing.T) {
 	origProber := newMgmProber
 	newMgmProber = func(_ context.Context, _ string, _ wgtypes.Key, _ bool) (mgmProber, error) {

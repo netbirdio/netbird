@@ -65,6 +65,7 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	networkMonitor := true
 	disableClientRoutes := true
 	disableServerRoutes := true
+	disableDefaultRoute := true
 	disableDNS := true
 	disableFirewall := true
 	blockLANAccess := true
@@ -90,6 +91,7 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 		NetworkMonitor:        &networkMonitor,
 		DisableClientRoutes:   &disableClientRoutes,
 		DisableServerRoutes:   &disableServerRoutes,
+		DisableDefaultRoute:   &disableDefaultRoute,
 		DisableDns:            &disableDNS,
 		DisableFirewall:       &disableFirewall,
 		BlockLanAccess:        &blockLANAccess,
@@ -135,6 +137,7 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	require.Equal(t, networkMonitor, *cfg.NetworkMonitor)
 	require.Equal(t, disableClientRoutes, cfg.DisableClientRoutes)
 	require.Equal(t, disableServerRoutes, cfg.DisableServerRoutes)
+	require.Equal(t, disableDefaultRoute, cfg.DisableDefaultRoute)
 	require.Equal(t, disableDNS, cfg.DisableDNS)
 	require.Equal(t, disableFirewall, cfg.DisableFirewall)
 	require.Equal(t, blockLANAccess, cfg.BlockLANAccess)
@@ -155,6 +158,128 @@ func TestSetConfig_AllFieldsSaved(t *testing.T) {
 	require.Equal(t, int(sshJWTCacheTTL), *cfg.SSHJWTCacheTTL)
 
 	verifyAllFieldsCovered(t, req)
+}
+
+// TestGetConfig_DisableDefaultRoute_RoundTrip verifies that DisableDefaultRoute set via SetConfig
+// is correctly returned by GetConfig.
+func TestGetConfig_DisableDefaultRoute_RoundTrip(t *testing.T) {
+	tempDir := t.TempDir()
+	origDefaultProfileDir := profilemanager.DefaultConfigPathDir
+	origDefaultConfigPath := profilemanager.DefaultConfigPath
+	origActiveProfileStatePath := profilemanager.ActiveProfileStatePath
+	profilemanager.ConfigDirOverride = tempDir
+	profilemanager.DefaultConfigPathDir = tempDir
+	profilemanager.ActiveProfileStatePath = tempDir + "/active_profile.json"
+	profilemanager.DefaultConfigPath = filepath.Join(tempDir, "default.json")
+	t.Cleanup(func() {
+		profilemanager.DefaultConfigPathDir = origDefaultProfileDir
+		profilemanager.ActiveProfileStatePath = origActiveProfileStatePath
+		profilemanager.DefaultConfigPath = origDefaultConfigPath
+		profilemanager.ConfigDirOverride = ""
+	})
+
+	currUser, err := user.Current()
+	require.NoError(t, err)
+
+	profName := "test-profile"
+
+	ic := profilemanager.ConfigInput{
+		ConfigPath:    filepath.Join(tempDir, profName+".json"),
+		ManagementURL: "https://api.netbird.io:443",
+	}
+	_, err = profilemanager.UpdateOrCreateConfig(ic)
+	require.NoError(t, err)
+
+	pm := profilemanager.ServiceManager{}
+	err = pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
+		Name:     profName,
+		Username: currUser.Username,
+	})
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	s := New(ctx, "console", "", false, false, false, false)
+
+	disableDefaultRoute := true
+	_, err = s.SetConfig(ctx, &proto.SetConfigRequest{
+		ProfileName:         profName,
+		Username:            currUser.Username,
+		DisableDefaultRoute: &disableDefaultRoute,
+	})
+	require.NoError(t, err)
+
+	resp, err := s.GetConfig(ctx, &proto.GetConfigRequest{
+		ProfileName: profName,
+		Username:    currUser.Username,
+	})
+	require.NoError(t, err)
+	require.True(t, resp.DisableDefaultRoute, "GetConfig should return DisableDefaultRoute=true after SetConfig set it")
+}
+
+// TestSetConfig_DisableDefaultRoute_NilPreservesExistingTrue verifies that calling SetConfig
+// without setting DisableDefaultRoute (nil) does not reset a previously set true value.
+func TestSetConfig_DisableDefaultRoute_NilPreservesExistingTrue(t *testing.T) {
+	tempDir := t.TempDir()
+	origDefaultProfileDir := profilemanager.DefaultConfigPathDir
+	origDefaultConfigPath := profilemanager.DefaultConfigPath
+	origActiveProfileStatePath := profilemanager.ActiveProfileStatePath
+	profilemanager.ConfigDirOverride = tempDir
+	profilemanager.DefaultConfigPathDir = tempDir
+	profilemanager.ActiveProfileStatePath = tempDir + "/active_profile.json"
+	profilemanager.DefaultConfigPath = filepath.Join(tempDir, "default.json")
+	t.Cleanup(func() {
+		profilemanager.DefaultConfigPathDir = origDefaultProfileDir
+		profilemanager.ActiveProfileStatePath = origActiveProfileStatePath
+		profilemanager.DefaultConfigPath = origDefaultConfigPath
+		profilemanager.ConfigDirOverride = ""
+	})
+
+	currUser, err := user.Current()
+	require.NoError(t, err)
+
+	profName := "test-profile"
+
+	ic := profilemanager.ConfigInput{
+		ConfigPath:    filepath.Join(tempDir, profName+".json"),
+		ManagementURL: "https://api.netbird.io:443",
+	}
+	_, err = profilemanager.UpdateOrCreateConfig(ic)
+	require.NoError(t, err)
+
+	pm := profilemanager.ServiceManager{}
+	err = pm.SetActiveProfileState(&profilemanager.ActiveProfileState{
+		Name:     profName,
+		Username: currUser.Username,
+	})
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	s := New(ctx, "console", "", false, false, false, false)
+
+	// Step 1: set DisableDefaultRoute=true.
+	disableDefaultRoute := true
+	_, err = s.SetConfig(ctx, &proto.SetConfigRequest{
+		ProfileName:         profName,
+		Username:            currUser.Username,
+		DisableDefaultRoute: &disableDefaultRoute,
+	})
+	require.NoError(t, err)
+
+	// Step 2: call SetConfig again WITHOUT setting DisableDefaultRoute (nil).
+	_, err = s.SetConfig(ctx, &proto.SetConfigRequest{
+		ProfileName: profName,
+		Username:    currUser.Username,
+		// DisableDefaultRoute intentionally omitted (nil)
+	})
+	require.NoError(t, err)
+
+	// Step 3: GetConfig must still return DisableDefaultRoute=true.
+	resp, err := s.GetConfig(ctx, &proto.GetConfigRequest{
+		ProfileName: profName,
+		Username:    currUser.Username,
+	})
+	require.NoError(t, err)
+	require.True(t, resp.DisableDefaultRoute, "DisableDefaultRoute should remain true after SetConfig with nil field")
 }
 
 // verifyAllFieldsCovered uses reflection to ensure we're testing all fields in SetConfigRequest.
@@ -186,6 +311,7 @@ func verifyAllFieldsCovered(t *testing.T, req *proto.SetConfigRequest) {
 		"NetworkMonitor":                true,
 		"DisableClientRoutes":           true,
 		"DisableServerRoutes":           true,
+		"DisableDefaultRoute":           true,
 		"DisableDns":                    true,
 		"DisableFirewall":               true,
 		"BlockLanAccess":                true,
@@ -247,6 +373,7 @@ func TestCLIFlags_MappedToSetConfig(t *testing.T) {
 		"network-monitor":                   "NetworkMonitor",
 		"disable-client-routes":             "DisableClientRoutes",
 		"disable-server-routes":             "DisableServerRoutes",
+		"disable-default-route":             "DisableDefaultRoute",
 		"disable-dns":                       "DisableDns",
 		"disable-firewall":                  "DisableFirewall",
 		"block-lan-access":                  "BlockLanAccess",

@@ -17,7 +17,7 @@ func withTempConfigDir(t *testing.T, testFunc func(configDir string)) {
 	testFunc(tempDir)
 }
 
-func withPatchedGlobals(t *testing.T, configDir string, testFunc func()) {
+func withPatchedGlobals(_ *testing.T, configDir string, testFunc func()) {
 	origDefaultConfigPathDir := DefaultConfigPathDir
 	origDefaultConfigPath := DefaultConfigPath
 	origActiveProfileStatePath := ActiveProfileStatePath

@@ -314,6 +314,7 @@ message GetConfigResponse {
   int32 sshJWTCacheTTL = 26;
 
   bool disable_ipv6 = 27;
+  bool disable_default_route = 28;
 }
 
 // PeerState contains the latest state of a peer
@@ -680,6 +681,8 @@ message SetConfigRequest {
   optional bool disableSSHAuth = 33;
   optional int32 sshJWTCacheTTL = 34;
   optional bool disable_ipv6 = 35;
+
+  optional bool disable_default_route = 36;
 }
 
 message SetConfigResponse{}

@@ -647,6 +647,7 @@ func (g *BundleGenerator) addCommonConfigFields(configContent *strings.Builder) 
 
 	configContent.WriteString(fmt.Sprintf("DisableClientRoutes: %v\n", g.internalConfig.DisableClientRoutes))
 	configContent.WriteString(fmt.Sprintf("DisableServerRoutes: %v\n", g.internalConfig.DisableServerRoutes))
+	configContent.WriteString(fmt.Sprintf("DisableDefaultRoute: %v\n", g.internalConfig.DisableDefaultRoute))
 	configContent.WriteString(fmt.Sprintf("DisableDNS: %v\n", g.internalConfig.DisableDNS))
 	configContent.WriteString(fmt.Sprintf("DisableFirewall: %v\n", g.internalConfig.DisableFirewall))
 	configContent.WriteString(fmt.Sprintf("BlockLANAccess: %v\n", g.internalConfig.BlockLANAccess))

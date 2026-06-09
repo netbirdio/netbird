@@ -6,14 +6,17 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/netbirdio/netbird/client/internal/stdnet"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-
 	"github.com/stretchr/testify/require"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/iface"
 	"github.com/netbirdio/netbird/client/iface/wgaddr"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/routemanager/client"
+	"github.com/netbirdio/netbird/client/internal/routemanager/refcounter"
+	"github.com/netbirdio/netbird/client/internal/routemanager/vars"
+	"github.com/netbirdio/netbird/client/internal/routeselector"
+	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/route"
 )
 
@@ -33,6 +36,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 		inputRoutes                          []*route.Route
 		inputSerial                          uint64
 		removeSrvRouter                      bool
+		disableDefaultRoute                  bool
 		serverRoutesExpected                 int
 		clientNetworkWatchersExpected        int
 		clientNetworkWatchersExpectedAllowed int
@@ -426,10 +430,11 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			statusRecorder := peer.NewRecorder("https://mgm")
 			ctx := context.TODO()
 			routeManager := NewManager(ManagerConfig{
-				Context:        ctx,
-				PublicKey:      localPeerKey,
-				WGInterface:    wgInterface,
-				StatusRecorder: statusRecorder,
+				Context:             ctx,
+				PublicKey:           localPeerKey,
+				WGInterface:         wgInterface,
+				StatusRecorder:      statusRecorder,
+				DisableDefaultRoute: testCase.disableDefaultRoute,
 			})
 
 			err = routeManager.Init()
@@ -462,4 +467,174 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDisableDefaultRouteSkipsSystemRoute(t *testing.T) {
+	// Track which prefixes had AddVPNRoute called (spy).
+	addedRoutes := make(map[netip.Prefix]bool)
+	// Spy: track whether RemoveVPNRoute was called for any prefix.
+	removeCalled := false
+
+	// Build a refcounter with the same closure pattern as setupRefCounters when
+	// disableDefaultRoute=true, but using the spy instead of real sysOps. This
+	// tests the filtering logic in pure Go without any OS or WireGuard dependencies.
+	counter := refcounter.New(
+		func(prefix netip.Prefix, _ struct{}) (struct{}, error) {
+			if prefix == vars.Defaultv4 || prefix == vars.Defaultv6 {
+				return struct{}{}, refcounter.ErrIgnore
+			}
+			addedRoutes[prefix] = true
+			return struct{}{}, nil
+		},
+		func(prefix netip.Prefix, _ struct{}) error {
+			removeCalled = true
+			delete(addedRoutes, prefix)
+			return nil
+		},
+	)
+
+	// --- IPv4 default route must be ignored ---
+	_, err := counter.Increment(vars.Defaultv4, struct{}{})
+	require.NoError(t, err, "Increment for IPv4 default route should return no error (ErrIgnore is swallowed)")
+	_, ok := counter.Get(vars.Defaultv4)
+	require.False(t, ok, "IPv4 default route should not be stored in refcounter")
+
+	// --- IPv6 default route must be ignored ---
+	_, err = counter.Increment(vars.Defaultv6, struct{}{})
+	require.NoError(t, err, "Increment for IPv6 default route should return no error (ErrIgnore is swallowed)")
+	_, ok = counter.Get(vars.Defaultv6)
+	require.False(t, ok, "IPv6 default route should not be stored in refcounter")
+
+	// --- Normal route must pass through and trigger AddVPNRoute ---
+	normalPrefix := netip.MustParsePrefix("10.10.0.0/16")
+	_, err = counter.Increment(normalPrefix, struct{}{})
+	require.NoError(t, err, "Increment for normal route should succeed")
+	ref, ok := counter.Get(normalPrefix)
+	require.True(t, ok, "normal route should be stored in refcounter")
+	require.Equal(t, 1, ref.Count, "normal route ref count must be 1")
+
+	require.True(t, addedRoutes[normalPrefix], "AddVPNRoute should be called for normal route")
+	require.False(t, addedRoutes[vars.Defaultv4], "AddVPNRoute should NOT be called for IPv4 default route")
+	require.False(t, addedRoutes[vars.Defaultv6], "AddVPNRoute should NOT be called for IPv6 default route")
+
+	// --- Decrement on ErrIgnore-d default routes must be safe (no RemoveVPNRoute call) ---
+	// Reset the spy before the Decrement calls so any prior state doesn't interfere.
+	removeCalled = false
+
+	_, err = counter.Decrement(vars.Defaultv4)
+	require.NoError(t, err, "Decrement for IPv4 default route should return no error")
+
+	_, err = counter.Decrement(vars.Defaultv6)
+	require.NoError(t, err, "Decrement for IPv6 default route should return no error")
+
+	require.False(t, removeCalled, "RemoveVPNRoute must NOT be called when Decrementing an ErrIgnore-d default route")
+}
+
+// TestDisableDefaultRouteWatcherCreation verifies that when DisableDefaultRoute=true,
+// UpdateRoutes still creates watchers in clientNetworks for both the default route and
+// normal routes. The default route watcher must exist (so HA routing selection works)
+// even though the system route is not installed. This test uses noop ref-counters and
+// constructs DefaultManager fields directly, so it runs without a real WireGuard
+// interface and is safe for unprivileged CI environments.
+func TestDisableDefaultRouteWatcherCreation(t *testing.T) {
+	// Build noop routeRefCounter with DisableDefaultRoute=true logic:
+	// default route -> ErrIgnore (no system route), normal route -> accepted.
+	routeRefCounter := refcounter.New(
+		func(prefix netip.Prefix, _ struct{}) (struct{}, error) {
+			if prefix == vars.Defaultv4 || prefix == vars.Defaultv6 {
+				return struct{}{}, refcounter.ErrIgnore
+			}
+			return struct{}{}, nil
+		},
+		func(netip.Prefix, struct{}) error { return nil },
+	)
+
+	// allowedIPsRefCounter is noop: AddAllowedIP is only called when a peer
+	// is actually chosen by the Watcher goroutine, not during route setup.
+	allowedIPsRefCounter := refcounter.New(
+		func(_ netip.Prefix, peerKey string) (string, error) { return peerKey, nil },
+		func(netip.Prefix, string) error { return nil },
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	statusRecorder := peer.NewRecorder("https://mgm")
+
+	mgr := &DefaultManager{
+		ctx:                  ctx,
+		stop:                 cancel,
+		clientNetworks:       make(map[route.HAUniqueID]*client.Watcher),
+		activeRoutes:         make(map[route.HAUniqueID]client.RouteHandler),
+		routeRefCounter:      routeRefCounter,
+		allowedIPsRefCounter: allowedIPsRefCounter,
+		routeSelector:        routeselector.NewRouteSelector(),
+		statusRecorder:       statusRecorder,
+		disableDefaultRoute:  true,
+	}
+
+	inputRoutes := []*route.Route{
+		{
+			ID:            "a",
+			NetID:         "routeA",
+			Peer:          remotePeerKey1,
+			Network:       netip.MustParsePrefix("0.0.0.0/0"),
+			NetworkType:   route.IPv4Network,
+			Metric:        9999,
+			Masquerade:    false,
+			Enabled:       true,
+			SkipAutoApply: false,
+		},
+		{
+			ID:          "b",
+			NetID:       "routeB",
+			Peer:        remotePeerKey1,
+			Network:     netip.MustParsePrefix("10.0.0.0/8"),
+			NetworkType: route.IPv4Network,
+			Metric:      9999,
+			Masquerade:  false,
+			Enabled:     true,
+		},
+	}
+
+	_, clientRoutes := mgr.ClassifyRoutes(inputRoutes)
+
+	// updateSystemRoutes creates activeRoutes handlers (AddRoute calls routeRefCounter).
+	err := mgr.updateSystemRoutes(clientRoutes)
+	require.NoError(t, err, "updateSystemRoutes should succeed with noop ref-counters")
+
+	require.Len(t, mgr.activeRoutes, 2, "both routes must have active handlers")
+
+	// updateClientNetworks creates Watcher entries in clientNetworks from activeRoutes.
+	mgr.updateClientNetworks(1, clientRoutes)
+
+	require.Len(t, mgr.clientNetworks, 2,
+		"DisableDefaultRoute=true must still create watchers for all routes (default + normal)")
+
+	// Verify the default route watcher exists.
+	defaultRouteFound := false
+	for id := range mgr.clientNetworks {
+		for _, r := range clientRoutes[id] {
+			if r.Network == vars.Defaultv4 {
+				defaultRouteFound = true
+			}
+		}
+	}
+	require.True(t, defaultRouteFound, "a watcher for the default route (0.0.0.0/0) must be present")
+
+	// Verify the default route is NOT in the system routing table (routeRefCounter has no entry).
+	_, ok := routeRefCounter.Get(vars.Defaultv4)
+	require.False(t, ok, "default route must NOT be stored in routeRefCounter when DisableDefaultRoute=true")
+
+	// Verify the normal route IS in the system routing table.
+	normalPrefix := netip.MustParsePrefix("10.0.0.0/8")
+	ref, ok := routeRefCounter.Get(normalPrefix)
+	require.True(t, ok, "normal route must be stored in routeRefCounter")
+	require.Equal(t, 1, ref.Count, "normal route ref count must be 1")
+
+	// Stop all watcher goroutines to avoid goroutine leaks.
+	for _, w := range mgr.clientNetworks {
+		w.Stop()
+	}
+	mgr.shutdownWg.Wait()
 }
