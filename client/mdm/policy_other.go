@@ -8,9 +8,7 @@ package mdm
 // sentinel the caller (LoadPolicy in policy.go) treats as "no MDM
 // source present"; an error here would just translate to the same
 // outcome with an extra log line.
-//
-// loadPlatformPolicy indicates that no platform MDM policy is available on this build target.
-// It intentionally returns (nil, nil) as the documented platform-absent sentinel so callers treat MDM as not present.
 func loadPlatformPolicy() (map[string]any, error) {
+	//nolint:nilnil // (nil, nil) is the documented platform-absent sentinel; see LoadPolicy.
 	return nil, nil
 }
