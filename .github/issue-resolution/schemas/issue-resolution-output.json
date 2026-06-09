@@ -1,0 +1,80 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "decision",
+    "reason_code",
+    "confidence",
+    "hard_signals",
+    "contradictions",
+    "summary",
+    "close_comment",
+    "manual_review_note"
+  ],
+  "properties": {
+    "decision": {
+      "type": "string",
+      "enum": ["AUTO_CLOSE", "MANUAL_REVIEW", "KEEP_OPEN"]
+    },
+    "reason_code": {
+      "type": "string",
+      "enum": [
+        "resolved_by_merged_pr",
+        "maintainer_confirmed_resolved",
+        "duplicate_confirmed",
+        "superseded_confirmed",
+        "likely_fixed_but_unconfirmed",
+        "still_open",
+        "unclear"
+      ]
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "hard_signals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "url"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "merged_pr",
+              "maintainer_comment",
+              "duplicate_reference",
+              "superseded_reference"
+            ]
+          },
+          "url": { "type": "string" }
+        }
+      }
+    },
+    "contradictions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "url"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "reporter_still_broken",
+              "later_unresolved_comment",
+              "ambiguous_pr_link",
+              "other"
+            ]
+          },
+          "url": { "type": "string" }
+        }
+      }
+    },
+    "summary": { "type": "string" },
+    "close_comment": { "type": "string" },
+    "manual_review_note": { "type": "string" }
+  }
+}
