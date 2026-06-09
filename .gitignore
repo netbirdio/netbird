@@ -33,4 +33,6 @@ infrastructure_files/setup-*.env
 vendor/
 /netbird
 client/netbird-electron/
+build/
+docs/superpowers/
 management/server/types/testdata/

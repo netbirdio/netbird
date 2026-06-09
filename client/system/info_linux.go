@@ -37,7 +37,7 @@ func GetInfo(ctx context.Context) *Info {
 
 	systemHostname, _ := os.Hostname()
 
-	addrs, err := networkAddresses()
+	addrs, err := networkAddresses(ctx)
 	if err != nil {
 		log.Warnf("failed to discover network addresses: %s", err)
 	}

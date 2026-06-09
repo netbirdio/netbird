@@ -44,6 +44,13 @@ func GetInfo(ctx context.Context) *Info {
 	return gio
 }
 
+// NetworkAddresses returns the current set of non-loopback network addresses.
+// On iOS the system does not expose an external interface discoverer, so the
+// context is unused.
+func NetworkAddresses(_ context.Context) ([]NetworkAddress, error) {
+	return networkAddresses()
+}
+
 // networkAddresses returns the list of network addresses on iOS.
 // On iOS, hardware (MAC) addresses are not available due to Apple's privacy
 // restrictions (iOS returns a fixed 02:00:00:00:00:00 placeholder), so we

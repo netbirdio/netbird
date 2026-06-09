@@ -38,7 +38,7 @@ func GetInfo(ctx context.Context) *Info {
 		swVersion = []byte(release)
 	}
 
-	addrs, err := networkAddresses()
+	addrs, err := networkAddresses(ctx)
 	if err != nil {
 		log.Warnf("failed to discover network addresses: %s", err)
 	}

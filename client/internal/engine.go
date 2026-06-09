@@ -80,9 +80,11 @@ import (
 // if not successful then it will retry the connection attempt.
 // Todo pass timeout at EnginConfig
 const (
-	PeerConnectionTimeoutMax = 45000 // ms
-	PeerConnectionTimeoutMin = 30000 // ms
-	disableAutoUpdate        = "disabled"
+	PeerConnectionTimeoutMax       = 45000 // ms
+	PeerConnectionTimeoutMin       = 30000 // ms
+	disableAutoUpdate              = "disabled"
+	networkAddressWatchInterval    = 10 * time.Second
+	networkAddressResyncDebounce   = 30 * time.Second
 )
 
 var ErrResetConnection = fmt.Errorf("reset connection")
@@ -223,6 +225,13 @@ type Engine struct {
 
 	// checks are the client-applied posture checks that need to be evaluated on the client
 	checks []*mgmProto.Checks
+
+	// lastNetworkAddresses tracks reported addresses for change detection.
+	// Protected by networkAddrMu; always acquire networkAddrMu before
+	// reading or writing these fields.
+	networkAddrMu          sync.Mutex
+	lastNetworkAddresses   []system.NetworkAddress
+	lastNetworkAddressSync time.Time
 
 	relayManager       *relayClient.Manager
 	stateManager       *statemanager.Manager
@@ -587,6 +596,10 @@ func (e *Engine) Start(netbirdConfig *mgmProto.NetbirdConfig, mgmtURL *url.URL) 
 	e.receiveManagementEvents()
 	e.receiveJobEvents()
 
+	// watch for network address changes (WiFi ↔ mobile) for posture checks
+	e.shutdownWg.Add(1)
+	go e.startNetworkAddressWatcher()
+
 	// starting network monitor at the very last to avoid disruptions
 	e.startNetworkMonitor()
 
@@ -918,6 +931,10 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		return err
 	}
 
+	// Fallback: detect network address changes during periodic sync in case
+	// platform-specific callbacks (e.g., Android NetworkCallback) were missed.
+	e.resyncMetaIfNetworkChanged(false)
+
 	nm := update.GetNetworkMap()
 	if nm == nil {
 		return nil
@@ -1011,10 +1028,10 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 	}
 	e.checks = checks
 
-	info, err := system.GetInfoWithChecks(e.ctx, checks)
+	info, err := system.GetInfoWithChecks(e.systemCtx(), checks)
 	if err != nil {
 		log.Warnf("failed to get system info with checks: %v", err)
-		info = system.GetInfo(e.ctx)
+		info = system.GetInfo(e.systemCtx())
 	}
 	info.SetFlags(
 		e.config.RosenpassEnabled,
@@ -1040,6 +1057,150 @@ func (e *Engine) updateChecksIfNew(checks []*mgmProto.Checks) error {
 		return err
 	}
 	return nil
+}
+
+// ResyncNetworkAddresses can be called externally (e.g., from Android
+// network change callbacks) to immediately re-sync NetworkAddresses.
+// It bypasses the debounce window because platform callbacks indicate a
+// real network change that should not be suppressed.
+func (e *Engine) ResyncNetworkAddresses() {
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
+	e.resyncMetaIfNetworkChanged(true)
+}
+
+// startNetworkAddressWatcher polls for network address changes every 10s.
+// This catches cases where platform callbacks are missed or delayed,
+// ensuring posture checks always evaluate the current network state.
+func (e *Engine) startNetworkAddressWatcher() {
+	defer e.shutdownWg.Done()
+	ticker := time.NewTicker(networkAddressWatchInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-e.ctx.Done():
+			return
+		case <-ticker.C:
+			e.syncMsgMux.Lock()
+			e.resyncMetaIfNetworkChanged(false)
+			e.syncMsgMux.Unlock()
+		}
+	}
+}
+
+// systemCtx returns a context for use with system.GetInfo / GetInfoWithChecks.
+// On mobile platforms it injects the host-supplied ExternalIFaceDiscover so
+// that the system package can collect network interfaces via the Android Java
+// bridge instead of relying on net.Interfaces() (which is broken on Android
+// 11+ due to SELinux restrictions on NETLINK_ROUTE sockets). On other
+// platforms the discoverer is nil and the wrapper is a no-op.
+func (e *Engine) systemCtx() context.Context {
+	if e.mobileDep.IFaceDiscover == nil {
+		return e.ctx
+	}
+	discoverer := e.mobileDep.IFaceDiscover
+	return system.WithIFaceDiscover(e.ctx, func() (string, error) {
+		return discoverer.IFaces()
+	})
+}
+
+// resyncMetaIfNetworkChanged detects changes in local network addresses
+// (e.g., WiFi reconnect on mobile) and re-syncs meta with the management
+// server so that posture checks evaluate the current network state.
+// Must be called while holding syncMsgMux.
+//
+// When force is true (explicit platform callbacks such as Android
+// NetworkCallback), the debounce window is bypassed because the OS already
+// told us the network changed. When force is false (periodic polling /
+// handleSync fallback), we debounce to avoid flapping during VPN tunnel
+// setup.
+func (e *Engine) resyncMetaIfNetworkChanged(force bool) {
+	e.networkAddrMu.Lock()
+	defer e.networkAddrMu.Unlock()
+
+	// Debounce: don't re-sync more than once per 30 seconds to avoid
+	// flapping during VPN tunnel setup when interfaces are in flux.
+	// Explicit platform callbacks (force=true) bypass this.
+	if !force && time.Since(e.lastNetworkAddressSync) < networkAddressResyncDebounce {
+		return
+	}
+
+	// Lightweight address-only check first: avoid running posture-check
+	// file/process scans (GetInfoWithChecks) on every 10s watcher tick
+	// when the address set has not changed.
+	current, err := system.NetworkAddresses(e.systemCtx())
+	if err != nil {
+		log.Warnf("failed to collect network addresses during resync check: %v", err)
+		return
+	}
+
+	if networkAddressesEqual(e.lastNetworkAddresses, current) {
+		return
+	}
+
+	log.Infof("network addresses changed (%d -> %d addrs), re-syncing meta with management server",
+		len(e.lastNetworkAddresses), len(current))
+
+	// Addresses actually changed — now gather full system info including
+	// posture-check file/process data so the management server can
+	// evaluate posture checks with up-to-date context.
+	info, err := system.GetInfoWithChecks(e.systemCtx(), e.checks)
+	if err != nil {
+		log.Warnf("failed to collect system info during network change resync: %v", err)
+		return
+	}
+	if info == nil {
+		return
+	}
+
+	info.SetFlags(
+		e.config.RosenpassEnabled,
+		e.config.RosenpassPermissive,
+		&e.config.ServerSSHAllowed,
+		e.config.DisableClientRoutes,
+		e.config.DisableServerRoutes,
+		e.config.DisableDNS,
+		e.config.DisableFirewall,
+		e.config.BlockLANAccess,
+		e.config.BlockInbound,
+		e.config.DisableIPv6,
+		e.config.LazyConnectionEnabled,
+		e.config.EnableSSHRoot,
+		e.config.EnableSSHSFTP,
+		e.config.EnableSSHLocalPortForwarding,
+		e.config.EnableSSHRemotePortForwarding,
+		e.config.DisableSSHAuth,
+	)
+
+	// Only advance lastNetworkAddresses after a successful SyncMeta so a
+	// failed sync during a network handoff is retried on the next poll.
+	if err := e.mgmClient.SyncMeta(info); err != nil {
+		log.Warnf("failed to re-sync meta after network change: %v", err)
+		return
+	}
+	// Defensive clone so we keep our own slice independent of the one
+	// inside info: future changes to networkAddresses() must not be able
+	// to mutate our last-known state through a shared backing array.
+	e.lastNetworkAddresses = slices.Clone(current)
+	e.lastNetworkAddressSync = time.Now()
+}
+
+func networkAddressesEqual(a, b []system.NetworkAddress) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	// Order-independent comparison: check that all IPs from a are present in b
+	bSet := make(map[string]struct{}, len(b))
+	for _, addr := range b {
+		bSet[addr.NetIP.String()] = struct{}{}
+	}
+	for _, addr := range a {
+		if _, ok := bSet[addr.NetIP.String()]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
@@ -1185,10 +1346,10 @@ func (e *Engine) receiveManagementEvents() {
 	e.shutdownWg.Add(1)
 	go func() {
 		defer e.shutdownWg.Done()
-		info, err := system.GetInfoWithChecks(e.ctx, e.checks)
+		info, err := system.GetInfoWithChecks(e.systemCtx(), e.checks)
 		if err != nil {
 			log.Warnf("failed to get system info with checks: %v", err)
-			info = system.GetInfo(e.ctx)
+			info = system.GetInfo(e.systemCtx())
 		}
 		info.SetFlags(
 			e.config.RosenpassEnabled,
@@ -1845,7 +2006,7 @@ func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, bool, err
 		return nil, nil, false, nil
 	}
 
-	info := system.GetInfo(e.ctx)
+	info := system.GetInfo(e.systemCtx())
 	info.SetFlags(
 		e.config.RosenpassEnabled,
 		e.config.RosenpassPermissive,
