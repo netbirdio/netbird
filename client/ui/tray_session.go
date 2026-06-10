@@ -224,16 +224,17 @@ func (t *Tray) notifySessionWarning(title, body string) {
 	if t.svc.Notifier == nil {
 		return
 	}
-	err := t.svc.Notifier.SendNotificationWithActions(notifications.NotificationOptions{
+	err := safeSendNotification(t.svc.Notifier.SendNotificationWithActions, "session-warning with actions", notifications.NotificationOptions{
 		ID:         notifyIDSessionWarning,
 		Title:      title,
 		Body:       body,
 		CategoryID: notifyCategorySessionWarning,
 	})
 	if err != nil {
-		log.Debugf("notify session-warning with actions: %v", err)
 		// Fall back to a plain notification so the user at least gets
-		// the warning text, even without buttons.
+		// the warning text, even without buttons. (A nil err here also
+		// covers the panic-recovered case, where the bus is dead and the
+		// plain fallback would fail too — so we correctly skip it.)
 		t.notify(title, body, notifyIDSessionWarning)
 	}
 }

@@ -202,13 +202,11 @@ func (u *trayUpdater) sendUpdateNotification(st updater.State) {
 	if st.Enforced {
 		body += u.loc.T("notify.update.enforcedSuffix")
 	}
-	if err := u.notifier.SendNotification(notifications.NotificationOptions{
+	_ = safeSendNotification(u.notifier.SendNotification, "update", notifications.NotificationOptions{
 		ID:    notifyIDUpdatePrefix + st.Version,
 		Title: u.loc.T("notify.update.title"),
 		Body:  body,
-	}); err != nil {
-		log.Debugf("send update notification: %v", err)
-	}
+	})
 }
 
 // openProgressWindow points the main window at the /update progress page
