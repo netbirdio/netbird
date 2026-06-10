@@ -67,6 +67,10 @@ func buildServiceArguments() []string {
 		args = append(args, "--disable-networks")
 	}
 
+	if socketOwner != "" {
+		args = append(args, "--socket-owner", socketOwner)
+	}
+
 	return args
 }
 
@@ -126,6 +130,8 @@ var installCmd = &cobra.Command{
 		if err := setupServiceCommand(cmd); err != nil {
 			return err
 		}
+
+		cmd.Printf("SUDO_UID: %s\n", os.Getenv("SUDO_UID"))
 
 		if err := loadAndApplyServiceParams(cmd); err != nil {
 			cmd.PrintErrf("Warning: failed to load saved service params: %v\n", err)

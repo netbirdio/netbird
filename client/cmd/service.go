@@ -57,6 +57,9 @@ func init() {
 	installCmd.Flags().StringSliceVar(&serviceEnvVars, "service-env", nil, serviceEnvDesc)
 	reconfigureCmd.Flags().StringSliceVar(&serviceEnvVars, "service-env", nil, serviceEnvDesc)
 
+	serviceCmd.PersistentFlags().StringVar(&socketOwner, "socket-owner", "", "Socket owner TODO")
+	serviceCmd.PersistentFlags().BoolVar(&strictSocketDisabled, "disable-strict-socket", false, "Restrict socket permissions TODO")
+
 	rootCmd.AddCommand(serviceCmd)
 }
 

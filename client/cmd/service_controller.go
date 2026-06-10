@@ -4,9 +4,13 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
+	"os/user"
+	"strconv"
 	"strings"
 	"time"
 
@@ -55,7 +59,32 @@ func (p *program) Start(svc service.Service) error {
 		defer listen.Close()
 
 		if split[0] == "unix" {
-			if err := os.Chmod(split[1], 0666); err != nil {
+			socketPerm := os.FileMode(0666)
+			if socketOwner != "" && !strictSocketDisabled {
+				socketPerm = 0660
+				gid, err := addGroup("netbird")
+				if err != nil {
+					log.Errorf("failed setting up group (%d): %v", gid, err)
+				}
+				user, err := user.Lookup(socketOwner)
+				if err != nil {
+					log.Errorf("lookup user %q: %v", socketOwner, err)
+					return
+				}
+				uid, err := strconv.ParseInt(user.Uid, 10, 64)
+				if err != nil {
+					log.Errorf("falied to convert uid (%d) to int: %v", uid, err)
+					return
+				}
+				if err = os.Chown(split[1], int(uid), int(gid)); err != nil {
+					log.Errorf("failed setting daemon group (%d) on socket: %v", gid, split[1])
+					return
+				}
+			}
+			if socketOwner == "" && !strictSocketDisabled {
+				// TODO: handle TOFU
+			}
+			if err := os.Chmod(split[1], socketPerm); err != nil {
 				log.Errorf("failed setting daemon permissions: %v", split[1])
 				return
 			}
@@ -77,6 +106,36 @@ func (p *program) Start(svc service.Service) error {
 		}
 	}()
 	return nil
+}
+
+// addGroup creates a system group if it doesn't already exist and returns the gid.
+// Must run as root.
+func addGroup(name string) (int, error) {
+	if group, err := user.LookupGroup(name); err == nil {
+		gid, err := strconv.ParseInt(group.Gid, 10, 64)
+		return int(gid), err
+	} else if _, ok := err.(user.UnknownGroupError); !ok {
+		return -1, fmt.Errorf("lookup group %q: %w", name, err)
+	}
+
+	groupadd, err := exec.LookPath("groupadd")
+	if err != nil {
+		// Fallback for Alpine/BusyBox systems.
+		if groupadd, err = exec.LookPath("addgroup"); err != nil {
+			return -1, errors.New("neither groupadd nor addgroup found")
+		}
+	}
+
+	// Use --system for a service/daemon group (no login, low GID).
+	out, err := exec.Command(groupadd, "--system", name).CombinedOutput()
+	if err != nil {
+		return -1, fmt.Errorf("create group %q: %w: %s", name, err, out)
+	}
+	if group, err := user.LookupGroup(name); err == nil {
+		gid, err := strconv.ParseInt(group.Gid, 10, 64)
+		return int(gid), err
+	}
+	return -1, fmt.Errorf("lookup group %q: %w", name, err)
 }
 
 func (p *program) Stop(srv service.Service) error {
