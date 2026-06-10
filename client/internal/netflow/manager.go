@@ -34,6 +34,7 @@ type Manager struct {
 	eventsWithoutAcks nftypes.Store
 	publicKey         []byte
 	cancel            context.CancelFunc
+	retryInterval     time.Duration
 }
 
 // NewManager creates a new netflow manager
@@ -54,6 +55,7 @@ func NewManager(iface nftypes.IFaceMapper, publicKey []byte, statusRecorder *pee
 		logger:            flowLogger,
 		conntrack:         ct,
 		publicKey:         publicKey,
+		retryInterval:     time.Second,
 		eventsWithoutAcks: store.NewMemoryStore(),
 	}
 }
@@ -247,7 +249,7 @@ func (m *Manager) receiveACKs(ctx context.Context, client *client.GRPCClient) {
 }
 
 func (m *Manager) startRetries(ctx context.Context) {
-	ticker := time.NewTimer(time.Second)
+	ticker := time.NewTimer(m.retryInterval)
 	retryBackoff := backoff.WithContext(&backoff.ExponentialBackOff{
 		InitialInterval:     1 * time.Second,
 		RandomizationFactor: 0.5,
