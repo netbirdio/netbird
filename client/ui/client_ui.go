@@ -101,13 +101,13 @@ func main() {
 		approvalRequest: approvalRequest{
 			requestID:      flags.approvalRequestID,
 			kind:           flags.approvalKind,
-			initiator:      flags.approvalInitiator,
-			peerName:       flags.approvalPeerName,
-			sourceIP:       flags.approvalSourceIP,
-			username:       flags.approvalUsername,
-			subject:        flags.approvalSubject,
+			initiator:      os.Getenv(envApprovalInitiator),
+			peerName:       os.Getenv(envApprovalPeerName),
+			sourceIP:       os.Getenv(envApprovalSourceIP),
+			username:       os.Getenv(envApprovalUsername),
+			subject:        os.Getenv(envApprovalSubject),
 			expiresAt:      flags.approvalExpiresAt,
-			keyFingerprint: flags.approvalKeyFingerprint,
+			keyFingerprint: os.Getenv(envApprovalKeyFingerprint),
 		},
 	})
 
@@ -154,15 +154,9 @@ type cliFlags struct {
 	showUpdateVersion string
 	showApproval      bool
 
-	approvalRequestID      string
-	approvalKind           string
-	approvalInitiator      string
-	approvalPeerName       string
-	approvalSourceIP       string
-	approvalUsername       string
-	approvalSubject        string
-	approvalExpiresAt      string
-	approvalKeyFingerprint string
+	approvalRequestID string
+	approvalKind      string
+	approvalExpiresAt string
 }
 
 // parseFlags reads and returns all needed command-line flags.
@@ -187,13 +181,7 @@ func parseFlags() *cliFlags {
 	flag.BoolVar(&flags.showApproval, "approval", false, "show inbound-connection approval prompt window")
 	flag.StringVar(&flags.approvalRequestID, "approval-request-id", "", "approval prompt: daemon-issued request id")
 	flag.StringVar(&flags.approvalKind, "approval-kind", "", "approval prompt: subsystem kind (vnc, ssh, ...)")
-	flag.StringVar(&flags.approvalInitiator, "approval-initiator", "", "approval prompt: display name of the user who initiated the connection")
-	flag.StringVar(&flags.approvalPeerName, "approval-peer-name", "", "approval prompt: remote peer FQDN")
-	flag.StringVar(&flags.approvalSourceIP, "approval-source-ip", "", "approval prompt: remote source IP")
-	flag.StringVar(&flags.approvalUsername, "approval-username", "", "approval prompt: requested OS username")
-	flag.StringVar(&flags.approvalSubject, "approval-subject", "", "approval prompt: human-readable subject line")
 	flag.StringVar(&flags.approvalExpiresAt, "approval-expires-at", "", "approval prompt: RFC3339 deadline at which the daemon auto-denies")
-	flag.StringVar(&flags.approvalKeyFingerprint, "approval-key-fingerprint", "", "approval prompt: hex-encoded Noise static pubkey of the connecting client")
 	flag.Parse()
 	return &flags
 }

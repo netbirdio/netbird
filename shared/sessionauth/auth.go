@@ -20,11 +20,11 @@ const (
 )
 
 var (
-	ErrEmptyUserID            = errors.New("JWT user ID is empty")
-	ErrUserNotAuthorized      = errors.New("user is not authorized to access this peer")
-	ErrNoMachineUserMapping   = errors.New("no authorization mapping for OS user")
-	ErrUserNotMappedToOSUser  = errors.New("user is not authorized to login as OS user")
-	ErrSessionKeyNotKnown = errors.New("session pubkey not registered")
+	ErrEmptyUserID           = errors.New("JWT user ID is empty")
+	ErrUserNotAuthorized     = errors.New("user is not authorized to access this peer")
+	ErrNoMachineUserMapping  = errors.New("no authorization mapping for OS user")
+	ErrUserNotMappedToOSUser = errors.New("user is not authorized to login as OS user")
+	ErrSessionKeyNotKnown    = errors.New("session pubkey not registered")
 )
 
 // Authorizer handles SSH fine-grained access control authorization
@@ -83,8 +83,8 @@ type SessionPubKey struct {
 // NewAuthorizer creates a new SSH authorizer with empty configuration
 func NewAuthorizer() *Authorizer {
 	a := &Authorizer{
-		userIDClaim:    DefaultUserIDClaim,
-		machineUsers:   make(map[string][]uint32),
+		userIDClaim:         DefaultUserIDClaim,
+		machineUsers:        make(map[string][]uint32),
 		sessionPubKeys:      make(map[[sessionPubKeyLen]byte]sshuserhash.UserIDHash),
 		sessionDisplayNames: make(map[[sessionPubKeyLen]byte]string),
 	}

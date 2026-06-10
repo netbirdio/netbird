@@ -11,9 +11,9 @@ package vnc
 // sockets; kept here so packet captures from older builds still get
 // tagged, and so any future on-wire agent variant has a reserved port.
 const (
-	ExternalPort     uint16 = 5900
-	InternalPort     uint16 = 25900
-	AgentLegacyPort  uint16 = 15900
+	ExternalPort    uint16 = 5900
+	InternalPort    uint16 = 25900
+	AgentLegacyPort uint16 = 15900
 )
 
 // WellKnownPorts is the unordered set of ports a packet capture should

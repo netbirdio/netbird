@@ -466,19 +466,19 @@ func isWellKnownVNCPort(p uint16) bool {
 // message-type recognitions fire only when length matches the fixed
 // size for that type, to avoid mis-tagging Noise handshake bytes.
 func annotateVNCClientToServer(p []byte) string {
-	if len(p) >= 10 && (p[0] == 0 || p[0] == 1) {
-		userLen := int(p[1])
-		// width and height are uint16 fields the dashboard often leaves
-		// zero (default). A header without an OS user has total length
-		// 10; with one, 10+userLen.
-		if 10+userLen <= len(p) {
+	if len(p) >= 11 && (p[0] == 0 || p[0] == 1) {
+		// Connection header layout: mode(1) + u16 BE username length +
+		// username(N), then sessionID(4) + width(2) + height(2). Prefix is
+		// 3+N, full header 11+N.
+		userLen := int(binary.BigEndian.Uint16(p[1:3]))
+		if 11+userLen <= len(p) {
 			mode := "attach"
 			if p[0] == 1 {
 				mode = "session"
 			}
 			tag := fmt.Sprintf("connect mode=%s", mode)
-			if userLen > 0 {
-				tag += fmt.Sprintf(" user(%d)", userLen)
+			if userLen > 0 && 3+userLen <= len(p) {
+				tag += fmt.Sprintf(" user(%s)", p[3:3+userLen])
 			}
 			return tag
 		}
@@ -528,9 +528,11 @@ func annotateVNCServerToClient(p []byte) string {
 
 // matchRFBSecurityFailure recognises the RFB 3.8 security-result body the
 // server sends when authentication or session setup fails. Format:
-//   byte 0  : 0x00 (security types count = 0 = failure)
-//   bytes 1-4: uint32 reason length
-//   bytes 5+: reason text
+//
+//	byte 0  : 0x00 (security types count = 0 = failure)
+//	bytes 1-4: uint32 reason length
+//	bytes 5+: reason text
+//
 // Returns the reason text and ok=true when the length self-checks.
 func matchRFBSecurityFailure(p []byte) (string, bool) {
 	if len(p) < 5 || p[0] != 0 {

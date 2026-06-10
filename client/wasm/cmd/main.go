@@ -409,12 +409,13 @@ func createGenerateVNCSessionKeyMethod() js.Func {
 
 // createVNCProxyMethod creates the VNC proxy method for raw TCP-over-WebSocket bridging.
 // JS signature: createVNCProxy(hostname, port, mode?, username?, keySessionID?, sessionID?, width?, height?, peerPublicKey?)
-//   mode:           "attach" (default) or "session"
-//   username:       required when mode is "session"
-//   keySessionID:   handle for the wasm-resident session keypair minted by netbirdGenerateVNCSessionKey
-//   sessionID:      Windows session ID (0 = console/auto)
-//   width/height:   requested viewport size for session mode (0 = server default)
-//   peerPublicKey:  base64 X25519 static pubkey of the destination peer (required for auth)
+//
+//	mode:           "attach" (default) or "session"
+//	username:       required when mode is "session"
+//	keySessionID:   handle for the wasm-resident session keypair minted by netbirdGenerateVNCSessionKey
+//	sessionID:      Windows session ID (0 = console/auto)
+//	width/height:   requested viewport size for session mode (0 = server default)
+//	peerPublicKey:  base64 X25519 static pubkey of the destination peer (required for auth)
 func createVNCProxyMethod(client *netbird.Client) js.Func {
 	return js.FuncOf(func(_ js.Value, args []js.Value) any {
 		params, err := parseVNCProxyArgs(args)

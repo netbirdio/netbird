@@ -9,13 +9,13 @@ import (
 	"strings"
 	"time"
 
-	auth "github.com/netbirdio/netbird/shared/sessionauth"
 	nbdns "github.com/netbirdio/netbird/dns"
 	resourceTypes "github.com/netbirdio/netbird/management/server/networks/resources/types"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
+	auth "github.com/netbirdio/netbird/shared/sessionauth"
 )
 
 type NetworkMapComponents struct {
@@ -109,7 +109,7 @@ func (c *NetworkMapComponents) Calculate(ctx context.Context) *NetworkMap {
 
 	peerGroups := c.GetPeerGroups(targetPeerID)
 
-	connRes := c.getPeerConnectionResources(targetPeerID)
+	connRes := c.getPeerConnectionResources(ctx, targetPeerID)
 	aclPeers := connRes.peers
 
 	peersToConnect, expiredPeers := c.filterPeersByLoginExpiration(aclPeers)
@@ -182,7 +182,7 @@ type peerConnectionResult struct {
 	sshEnabled         bool
 }
 
-func (c *NetworkMapComponents) getPeerConnectionResources(targetPeerID string) peerConnectionResult {
+func (c *NetworkMapComponents) getPeerConnectionResources(ctx context.Context, targetPeerID string) peerConnectionResult {
 	targetPeer := c.GetPeerInfo(targetPeerID)
 	if targetPeer == nil {
 		return peerConnectionResult{}
@@ -202,7 +202,7 @@ func (c *NetworkMapComponents) getPeerConnectionResources(targetPeerID string) p
 			if !rule.Enabled {
 				continue
 			}
-			c.applyPolicyRule(rule, policy.SourcePostureChecks, targetPeer, targetPeerID, generateResources, state)
+			c.applyPolicyRule(ctx, rule, policy.SourcePostureChecks, targetPeer, targetPeerID, generateResources, state)
 		}
 	}
 
@@ -218,6 +218,7 @@ func (c *NetworkMapComponents) getPeerConnectionResources(targetPeerID string) p
 }
 
 func (c *NetworkMapComponents) applyPolicyRule(
+	ctx context.Context,
 	rule *PolicyRule,
 	sourcePostureChecks []string,
 	targetPeer *nbpeer.Peer,
@@ -229,8 +230,12 @@ func (c *NetworkMapComponents) applyPolicyRule(
 	destinationPeers, peerInDestinations := c.resolveRuleEndpoint(rule.DestinationResource, rule.Destinations, targetPeerID, nil)
 
 	cb := ruleAuthCallbacks{
-		collectSSHUsers:   c.collectAuthorizedUsers,
-		collectVNCUsers:   c.collectAuthorizedUsers,
+		collectSSHUsers: func(r *PolicyRule, t map[string]map[string]struct{}) {
+			c.collectAuthorizedUsers(ctx, r, t)
+		},
+		collectVNCUsers: func(r *PolicyRule, t map[string]map[string]struct{}) {
+			c.collectAuthorizedUsers(ctx, r, t)
+		},
 		getAllowedUserIDs: c.getAllowedUserIDs,
 	}
 	applyResolvedRuleToState(rule, sourcePeers, destinationPeers, peerInSources, peerInDestinations, targetPeer.SSHEnabled, generateResources, cb, state)
@@ -249,10 +254,10 @@ func (c *NetworkMapComponents) resolveRuleEndpoint(
 }
 
 // collectAuthorizedUsers populates the target map with authorized user mappings from the rule.
-func (c *NetworkMapComponents) collectAuthorizedUsers(rule *PolicyRule, target map[string]map[string]struct{}) {
+func (c *NetworkMapComponents) collectAuthorizedUsers(ctx context.Context, rule *PolicyRule, target map[string]map[string]struct{}) {
 	switch {
 	case len(rule.AuthorizedGroups) > 0:
-		mergeAuthorizedGroupUsers(context.Background(), rule.AuthorizedGroups, c.GroupIDToUserIDs, target)
+		mergeAuthorizedGroupUsers(ctx, rule.AuthorizedGroups, c.GroupIDToUserIDs, target)
 	case rule.AuthorizedUser != "":
 		ensureWildcardUser(target, rule.AuthorizedUser)
 	default:

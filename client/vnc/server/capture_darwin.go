@@ -204,10 +204,11 @@ func (c *CGCapturer) Width() int { return c.w }
 // Height returns the screen height.
 func (c *CGCapturer) Height() int { return c.h }
 
-// Capture returns the current screen as an RGBA image.
 // CaptureInto writes a fresh frame directly into dst, skipping the
-// per-frame image.RGBA allocation that Capture() does. Returns
-// errFrameUnchanged when the screen hash matches the prior call.
+// per-frame image.RGBA allocation that Capture() does. It always fills
+// dst: the capturer is shared across all sessions, so dedup here would
+// starve every consumer but the first one to poll after a change.
+// Per-session prevFrame diffing in the session layer handles no-op frames.
 func (c *CGCapturer) CaptureInto(dst *image.RGBA) error {
 	cgImage := cgDisplayCreateImage(c.displayID)
 	if cgImage == 0 {
@@ -233,12 +234,6 @@ func (c *CGCapturer) CaptureInto(dst *image.RGBA) error {
 		return fmt.Errorf("empty image data")
 	}
 	src := unsafe.Slice((*byte)(unsafe.Pointer(dataPtr)), dataLen)
-	hash := maphash.Bytes(c.hashSeed, src)
-	if c.hasHash && hash == c.lastHash {
-		return errFrameUnchanged
-	}
-	c.lastHash = hash
-	c.hasHash = true
 
 	ds := c.downscale
 	if ds < 1 {
@@ -565,14 +560,7 @@ func (p *MacPoller) CaptureInto(dst *image.RGBA) error {
 	if err := p.ensureCapturerLocked(); err != nil {
 		return err
 	}
-	err := p.capturer.CaptureInto(dst)
-	if errors.Is(err, errFrameUnchanged) {
-		// Caller (session) treats this as "no change"; the dst buffer
-		// keeps its prior contents from the previous capture cycle so
-		// the diff stays meaningful.
-		return err
-	}
-	if err != nil {
+	if err := p.capturer.CaptureInto(dst); err != nil {
 		p.capturer = nil
 		return fmt.Errorf("macos capture: %w", err)
 	}

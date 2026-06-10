@@ -83,6 +83,69 @@ func TestCopyRectDetector_DetectsVerticalScroll(t *testing.T) {
 	}
 }
 
+// rectsOverlap reports whether two ts×ts tiles at the given origins overlap.
+func tilesOverlap(ax, ay, bx, by, ts int) bool {
+	return ax < bx+ts && bx < ax+ts && ay < by+ts && by < ay+ts
+}
+
+// TestCopyRectDetector_DownwardScrollNoOverlap exercises a downward scroll,
+// where each move's source is the destination of the move one row above it.
+// Emitting all of them in order would corrupt the client framebuffer because
+// the earlier move overwrites the source pixels the later move reads. The
+// detector must drop any move whose source overlaps a prior move's
+// destination and route that tile to pixel encoding instead.
+func TestCopyRectDetector_DownwardScrollNoOverlap(t *testing.T) {
+	const w, h = 256, 192 // 4×3 tiles at 64px
+	const ts = 64
+
+	prev := image.NewRGBA(image.Rect(0, 0, w, h))
+	cur := image.NewRGBA(image.Rect(0, 0, w, h))
+
+	// prev: 12 tiles each with a unique colour.
+	for ty := 0; ty < 3; ty++ {
+		for tx := 0; tx < 4; tx++ {
+			fillTile(prev, tx*ts, ty*ts, ts, byte(tx*40), byte(ty*60), 0x80)
+		}
+	}
+	// cur: scroll downward by one row. Rows 1 and 2 are copied from prev
+	// rows 0 and 1; the top row is new content.
+	for ty := 1; ty < 3; ty++ {
+		for tx := 0; tx < 4; tx++ {
+			copyTile(cur, prev, tx*ts, (ty-1)*ts, tx*ts, ty*ts, ts)
+		}
+	}
+	for tx := 0; tx < 4; tx++ {
+		fillTile(cur, tx*ts, 0, ts, 0xff, 0xff, 0xff)
+	}
+
+	d := newCopyRectDetector(ts)
+	d.rebuild(prev, w, h)
+
+	tiles := diffTiles(prev, cur, w, h, ts)
+	wantTiles := len(tiles)
+	moves, remaining := d.extractCopyRectTiles(cur, tiles)
+
+	// No move's source may overlap an earlier move's destination.
+	for i, m := range moves {
+		for _, prior := range moves[:i] {
+			if tilesOverlap(m.srcX, m.srcY, prior.dstX, prior.dstY, ts) {
+				t.Fatalf("move %d src (%d,%d) overlaps prior dst (%d,%d)",
+					i, m.srcX, m.srcY, prior.dstX, prior.dstY)
+			}
+		}
+	}
+
+	// The dropped row-2 moves must fall through to pixel encoding rather than
+	// being silently skipped, so the region still updates correctly.
+	if len(moves)+len(remaining) != wantTiles {
+		t.Fatalf("moves(%d)+remaining(%d) != dirty tiles(%d): a tile was lost",
+			len(moves), len(remaining), wantTiles)
+	}
+	if len(moves) != 4 {
+		t.Fatalf("moves: want 4 (top scrolled row only), got %d", len(moves))
+	}
+}
+
 func TestCopyRectDetector_RejectsSelfMatch(t *testing.T) {
 	const w, h = 128, 128
 	const ts = 64

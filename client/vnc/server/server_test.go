@@ -406,7 +406,7 @@ func TestGateApproval_Disabled_NoApproverCall(t *testing.T) {
 	header := &connectionHeader{mode: ModeAttach}
 
 	_, err := srv.gateApproval(conn, header)
-		allowed := err == nil
+	allowed := err == nil
 	assert.True(t, allowed, "gate must pass through when requireApproval is false")
 	assert.Equal(t, int32(0), app.calls.Load(), "approver must not be called when disabled")
 }
@@ -475,7 +475,7 @@ func TestGateApproval_ApproverDenies(t *testing.T) {
 
 			header := &connectionHeader{mode: ModeAttach}
 			_, err := srv.gateApproval(conn, header)
-		allowed := err == nil
+			allowed := err == nil
 			assert.False(t, allowed, "approver error %v must deny", tc.err)
 			assert.Equal(t, int32(1), app.calls.Load())
 		})
@@ -493,7 +493,7 @@ func TestGateApproval_ApproverAccepts(t *testing.T) {
 
 	header := &connectionHeader{mode: ModeAttach, username: "alice"}
 	_, err := srv.gateApproval(conn, header)
-		allowed := err == nil
+	allowed := err == nil
 	assert.True(t, allowed, "approver returning nil must let the gate pass")
 	assert.Equal(t, int32(1), app.calls.Load())
 	assert.Equal(t, "alice", app.lastIn.Username, "header username must reach the approver")
@@ -515,7 +515,7 @@ func TestGateApproval_PassesPubKeyHex(t *testing.T) {
 	}
 	header := &connectionHeader{mode: ModeAttach, clientStatic: pub}
 	_, err := srv.gateApproval(conn, header)
-		allowed := err == nil
+	allowed := err == nil
 	assert.True(t, allowed)
 	assert.Equal(t, hex.EncodeToString(pub), app.lastIn.PeerPubKey)
 }

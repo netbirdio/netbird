@@ -14,7 +14,6 @@ import (
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
-	auth "github.com/netbirdio/netbird/shared/sessionauth"
 	nbdns "github.com/netbirdio/netbird/dns"
 	proxydomain "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/domain"
 	"github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
@@ -29,6 +28,7 @@ import (
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/status"
+	auth "github.com/netbirdio/netbird/shared/sessionauth"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -169,7 +169,6 @@ func (a *Account) GetRoutesByPrefixOrDomains(prefix netip.Prefix, domains domain
 func (a *Account) GetGroup(groupID string) *Group {
 	return a.Groups[groupID]
 }
-
 
 func (a *Account) addNetworksRoutingPeers(
 	networkResourcesRoutes []*route.Route,

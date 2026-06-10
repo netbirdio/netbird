@@ -17,11 +17,10 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/vnc"
 	vncserver "github.com/netbirdio/netbird/client/vnc/server"
-	sshauth "github.com/netbirdio/netbird/shared/sessionauth"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
+	sshauth "github.com/netbirdio/netbird/shared/sessionauth"
 	sshuserhash "github.com/netbirdio/netbird/shared/sshauth"
 )
-
 
 type vncServer interface {
 	Start(ctx context.Context, addr netip.AddrPort, network netip.Prefix) error
@@ -188,13 +187,13 @@ func (e *Engine) updateVNCServerAuth(vncAuth *mgmProto.VNCAuth) {
 	}
 
 	sessionPubKeys := make([]sshauth.SessionPubKey, 0, len(vncAuth.GetSessionPubKeys()))
-	for _, e := range vncAuth.GetSessionPubKeys() {
-		pub := e.GetPubKey()
+	for _, pk := range vncAuth.GetSessionPubKeys() {
+		pub := pk.GetPubKey()
 		if len(pub) != 32 {
 			log.Warnf("VNC session pubkey wrong length %d", len(pub))
 			continue
 		}
-		hash := e.GetUserIdHash()
+		hash := pk.GetUserIdHash()
 		if len(hash) != 16 {
 			log.Warnf("VNC session user id hash wrong length %d", len(hash))
 			continue
@@ -202,7 +201,7 @@ func (e *Engine) updateVNCServerAuth(vncAuth *mgmProto.VNCAuth) {
 		sessionPubKeys = append(sessionPubKeys, sshauth.SessionPubKey{
 			PubKey:      pub,
 			UserIDHash:  sshuserhash.UserIDHash(hash),
-			DisplayName: e.GetDisplayName(),
+			DisplayName: pk.GetDisplayName(),
 		})
 	}
 
@@ -236,7 +235,7 @@ func (e *Engine) stopVNCServer() error {
 		log.Warnf("cleanup VNC port redirection: %v", err)
 	}
 
-	if netstackNet := e.wgInterface.GetNet(); netstackNet != nil {
+	if e.wgInterface != nil && e.wgInterface.GetNet() != nil {
 		if registrar, ok := e.firewall.(interface {
 			UnregisterNetstackService(protocol nftypes.Protocol, port uint16)
 		}); ok {
