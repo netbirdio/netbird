@@ -12,6 +12,7 @@ import (
 	"os/user"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kardianos/service"
@@ -58,35 +59,41 @@ func (p *program) Start(svc service.Service) error {
 	go func() {
 		defer listen.Close()
 
+		srvListener := listen
 		if split[0] == "unix" {
-			socketPerm := os.FileMode(0666)
-			if socketOwner != "" && !strictSocketDisabled {
-				socketPerm = 0660
-				gid, err := addGroup("netbird")
-				if err != nil {
-					log.Errorf("failed setting up group (%d): %v", gid, err)
-				}
-				user, err := user.Lookup(socketOwner)
-				if err != nil {
-					log.Errorf("lookup user %q: %v", socketOwner, err)
+			owner := effectiveSocketOwner()
+			switch {
+			case strictSocketDisabled:
+				// Opt-out (root-only, via service.json): leave it world-writable.
+				if err := os.Chmod(split[1], 0666); err != nil {
+					log.Errorf("failed setting daemon permissions: %v", split[1])
 					return
 				}
-				uid, err := strconv.ParseInt(user.Uid, 10, 64)
+			case owner != "":
+				// Seeded owner (flag, MDM, or persisted TOFU result): restrict
+				// before serving so there is no open window.
+				u, err := user.Lookup(owner)
 				if err != nil {
-					log.Errorf("falied to convert uid (%d) to int: %v", uid, err)
+					log.Errorf("lookup socket owner %q: %v", owner, err)
 					return
 				}
-				if err = os.Chown(split[1], int(uid), int(gid)); err != nil {
-					log.Errorf("failed setting daemon group (%d) on socket: %v", gid, split[1])
+				uid, err := strconv.Atoi(u.Uid)
+				if err != nil {
+					log.Errorf("parse uid %q for %q: %v", u.Uid, owner, err)
 					return
 				}
-			}
-			if socketOwner == "" && !strictSocketDisabled {
-				// TODO: handle TOFU
-			}
-			if err := os.Chmod(split[1], socketPerm); err != nil {
-				log.Errorf("failed setting daemon permissions: %v", split[1])
-				return
+				if err := restrictSocket(split[1], uid); err != nil {
+					log.Errorf("restrict socket to %q: %v", owner, err)
+					return
+				}
+			default:
+				// Trust-on-first-use: open the socket now; tofuListener locks it
+				// to the first caller's uid on the first connection.
+				if err := os.Chmod(split[1], 0666); err != nil {
+					log.Errorf("failed setting daemon permissions: %v", split[1])
+					return
+				}
+				srvListener = &tofuListener{Listener: listen, path: split[1], owner: -1}
 			}
 		}
 
@@ -101,7 +108,7 @@ func (p *program) Start(svc service.Service) error {
 		p.serverInstanceMu.Unlock()
 
 		log.Printf("started daemon server: %v", split[1])
-		if err := p.serv.Serve(listen); err != nil {
+		if err := p.serv.Serve(srvListener); err != nil {
 			log.Errorf("failed to serve daemon requests: %v", err)
 		}
 	}()
@@ -136,6 +143,130 @@ func addGroup(name string) (int, error) {
 		return int(gid), err
 	}
 	return -1, fmt.Errorf("lookup group %q: %w", name, err)
+}
+
+// restrictSocket locks the unix socket down to the owner uid plus the netbird
+// group (0660). If the group cannot be created or applied, it fails closed to
+// owner-only 0600 — it never leaves the socket world-writable.
+func restrictSocket(path string, uid int) error {
+	gid, err := addGroup("netbird")
+	if err != nil {
+		log.Errorf("create netbird group, failing closed to owner-only 0600: %v", err)
+		return chownChmod(path, uid, -1, 0600)
+	}
+	if err := chownChmod(path, uid, gid, 0660); err != nil {
+		log.Errorf("apply netbird group to socket, failing closed to owner-only 0600: %v", err)
+		return chownChmod(path, uid, -1, 0600)
+	}
+	return nil
+}
+
+// chownChmod sets ownership and mode on the socket. A gid of -1 leaves the
+// group unchanged.
+func chownChmod(path string, uid, gid int, mode os.FileMode) error {
+	if err := os.Chown(path, uid, gid); err != nil {
+		return fmt.Errorf("chown socket %s: %w", path, err)
+	}
+	if err := os.Chmod(path, mode); err != nil {
+		return fmt.Errorf("chmod socket %s: %w", path, err)
+	}
+	return nil
+}
+
+// tofuListener implements trust-on-first-use for the daemon control socket.
+// The socket starts world-writable; the first caller's uid (read via the
+// platform peer-credential mechanism) becomes the owner. On that first
+// connection the socket is restricted (see restrictSocket) and the owner is
+// persisted so the open window never reopens on later starts. Connections that
+// raced in during the open window and are neither the owner nor root are
+// dropped. Changing the socket mode does not disturb the already-open
+// connection, so the first caller's request is served normally.
+type tofuListener struct {
+	net.Listener
+	path  string
+	mu    sync.Mutex
+	owner int // -1 until claimed
+}
+
+func (l *tofuListener) Accept() (net.Conn, error) {
+	for {
+		c, err := l.Listener.Accept()
+		if err != nil {
+			return nil, err
+		}
+
+		uid, err := peerUID(c)
+		if err != nil {
+			log.Errorf("read peer credentials, dropping connection: %v", err)
+			_ = c.Close()
+			continue
+		}
+
+		l.mu.Lock()
+		if l.owner == -1 {
+			if err := restrictSocket(l.path, uid); err != nil {
+				l.mu.Unlock()
+				_ = c.Close()
+				// Refuse to serve on a socket we could not lock down.
+				return nil, fmt.Errorf("restrict socket on first connection: %w", err)
+			}
+			l.owner = uid
+			persistSocketOwner(uid)
+			log.Infof("control socket restricted to first caller (uid %d)", uid)
+			l.mu.Unlock()
+			return c, nil
+		}
+		owner := l.owner
+		l.mu.Unlock()
+
+		// New connects are already gated by the 0660 perms set above; this only
+		// drops anything that slipped in during the brief open window.
+		if uid != owner && uid != 0 {
+			log.Warnf("dropping non-owner connection (uid %d) during socket bootstrap", uid)
+			_ = c.Close()
+			continue
+		}
+		return c, nil
+	}
+}
+
+// effectiveSocketOwner returns the configured socket owner: the --socket-owner
+// flag when set, otherwise the owner persisted by a previous TOFU migration.
+func effectiveSocketOwner() string {
+	if socketOwner != "" {
+		return socketOwner
+	}
+	params, err := loadServiceParams()
+	if err != nil {
+		log.Errorf("load service params for socket owner: %v", err)
+		return ""
+	}
+	if params != nil {
+		return params.SocketOwner
+	}
+	return ""
+}
+
+// persistSocketOwner records the TOFU-selected owner (by username) so the next
+// daemon start restricts the socket immediately, with no open window.
+func persistSocketOwner(uid int) {
+	u, err := user.LookupId(strconv.Itoa(uid))
+	if err != nil {
+		log.Errorf("resolve uid %d to username for persistence: %v", uid, err)
+		return
+	}
+	params, err := loadServiceParams()
+	if err != nil {
+		log.Errorf("load service params to persist socket owner: %v", err)
+		return
+	}
+	if params == nil {
+		params = currentServiceParams()
+	}
+	params.SocketOwner = u.Username
+	if err := saveServiceParams(params); err != nil {
+		log.Errorf("persist socket owner: %v", err)
+	}
 }
 
 func (p *program) Stop(srv service.Service) error {

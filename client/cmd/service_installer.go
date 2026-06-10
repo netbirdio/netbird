@@ -71,6 +71,10 @@ func buildServiceArguments() []string {
 		args = append(args, "--socket-owner", socketOwner)
 	}
 
+	if strictSocketDisabled {
+		args = append(args, "--disable-strict-socket")
+	}
+
 	return args
 }
 

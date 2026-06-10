@@ -30,6 +30,8 @@ type serviceParams struct {
 	DisableUpdateSettings bool              `json:"disable_update_settings,omitempty"`
 	EnableCapture         bool              `json:"enable_capture,omitempty"`
 	DisableNetworks       bool              `json:"disable_networks,omitempty"`
+	SocketOwner           string            `json:"socket_owner,omitempty"`
+	DisableStrictSocket   bool              `json:"disable_strict_socket,omitempty"`
 	ServiceEnvVars        map[string]string `json:"service_env_vars,omitempty"`
 }
 
@@ -82,6 +84,8 @@ func currentServiceParams() *serviceParams {
 		DisableUpdateSettings: updateSettingsDisabled,
 		EnableCapture:         captureEnabled,
 		DisableNetworks:       networksDisabled,
+		SocketOwner:           socketOwner,
+		DisableStrictSocket:   strictSocketDisabled,
 	}
 
 	if len(serviceEnvVars) > 0 {
@@ -152,6 +156,14 @@ func applyServiceParams(cmd *cobra.Command, params *serviceParams) {
 
 	if !serviceCmd.PersistentFlags().Changed("disable-networks") {
 		networksDisabled = params.DisableNetworks
+	}
+
+	if !serviceCmd.PersistentFlags().Changed("socket-owner") {
+		socketOwner = params.SocketOwner
+	}
+
+	if !serviceCmd.PersistentFlags().Changed("disable-strict-socket") {
+		strictSocketDisabled = params.DisableStrictSocket
 	}
 
 	applyServiceEnvParams(cmd, params)
