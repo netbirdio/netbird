@@ -10,6 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// testReloadInterval for speeding up the ticker cadence under `go test`
+const testReloadInterval = 1 * time.Second
+
 // withPolicyLoader overrides the package-level policyLoader for the duration
 // of the test so the ticker observes a scripted policy instead of the real
 // OS-native store. The original loader is restored on cleanup.
@@ -18,17 +21,6 @@ func withPolicyLoader(t *testing.T, fn func() *Policy) {
 	prev := policyLoader
 	policyLoader = fn
 	t.Cleanup(func() { policyLoader = prev })
-}
-
-func TestTicker_UsesTestCadenceUnderGoTest(t *testing.T) {
-	withPolicyLoader(t, func() *Policy { return NewPolicy(nil) })
-
-	// Under `go test`, testing.Testing() is true so reloadInterval() returns
-	// the accelerated 1s cadence instead of the minute-long production
-	// default — this is what makes the reload path observable without a real
-	// wall-clock wait.
-	assert.Equal(t, testReloadInterval, reloadInterval())
-	assert.Equal(t, testReloadInterval, NewTicker(nil).interval)
 }
 
 func TestTicker_FiresOnChangeWithDelta(t *testing.T) {
@@ -42,7 +34,7 @@ func TestTicker_FiresOnChangeWithDelta(t *testing.T) {
 
 	type change struct{ prev, curr *Policy }
 	changes := make(chan change, 1)
-	tk := NewTicker(func(prev, curr *Policy) {
+	tk := NewTicker(testReloadInterval, func(prev, curr *Policy) {
 		select {
 		case changes <- change{prev, curr}:
 		default:
@@ -78,7 +70,7 @@ func TestTicker_NoCallbackWhenPolicyUnchanged(t *testing.T) {
 	})
 
 	fired := make(chan struct{}, 1)
-	tk := NewTicker(func(_, _ *Policy) {
+	tk := NewTicker(testReloadInterval, func(_, _ *Policy) {
 		select {
 		case fired <- struct{}{}:
 		default:

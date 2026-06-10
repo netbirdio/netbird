@@ -4,24 +4,16 @@ import (
 	"context"
 	"reflect"
 	"sort"
-	"testing"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 )
 
-// defaultReloadInterval is the production cadence at which the desktop daemon
+// DefaultReloadInterval is the production cadence at which the desktop daemon
 // re-reads the OS-native MDM policy. Picked to balance responsiveness against
 // registry/plist I/O overhead. Mobile builds use OS-side notifications
-// instead and bypass this ticker entirely. Unexported on purpose: callers do
-// not pass it — NewTicker owns the default (see reloadInterval).
-const defaultReloadInterval = 1 * time.Minute
-
-// testReloadInterval is the cadence used under `go test` (detected via
-// testing.Testing()) so the reload path is exercised in seconds rather than
-// minutes. It has no effect on production builds, where testing.Testing()
-// always returns false.
-const testReloadInterval = 1 * time.Second
+// instead, hence anticipating the ticker mechanism entirely.
+const DefaultReloadInterval = 1 * time.Minute
 
 // policyLoader is the indirection through which the ticker reads the
 // OS-native policy, both for the initial observation and on every tick.
@@ -39,29 +31,17 @@ type Ticker struct {
 	prev     *Policy
 }
 
-// reloadInterval returns the production cadence, or the accelerated test
-// cadence when running under `go test` (detected via testing.Testing()).
-// Centralising the choice here keeps the prod/test split in one place
-// and out of the ticker's call sites.
-func reloadInterval() time.Duration {
-	if testing.Testing() {
-		return testReloadInterval
-	}
-	return defaultReloadInterval
-}
-
 // NewTicker constructs a Ticker that re-reads the OS-native policy
-// every reloadInterval() and invokes onChange on any diff. The
-// cadence is owned by reloadInterval (production default, accelerated
-// under `go test`); callers do not supply it. onChange may be nil for
-// a log-only ticker. The initial snapshot is populated by calling
-// policyLoader at construction time so the first tick only fires
+// every reloadInterval and invokes onChange on any diff.
+// onChange may be nil for a log-only ticker.
+// The initial snapshot is populated by calling policyLoader at
+// construction time so the first tick only fires
 // onChange when the policy actually changed since boot — without
 // this baseline the first tick would report every currently-managed
 // key as "added" and trigger a spurious engine restart.
-func NewTicker(onChange func(prev, curr *Policy)) *Ticker {
+func NewTicker(reloadInterval time.Duration, onChange func(prev, curr *Policy)) *Ticker {
 	return &Ticker{
-		interval: reloadInterval(),
+		interval: reloadInterval,
 		onChange: onChange,
 		prev:     policyLoader(),
 	}

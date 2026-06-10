@@ -174,7 +174,7 @@ func (s *Server) Start() error {
 	// applies the freshly-read MDM policy as the last layer) and brings
 	// the engine back with the new values.
 	if s.mdmTicker == nil {
-		s.mdmTicker = mdm.NewTicker(s.onMDMPolicyChange)
+		s.mdmTicker = mdm.NewTicker(mdm.DefaultReloadInterval, s.onMDMPolicyChange)
 		go s.mdmTicker.Run(s.rootCtx)
 	}
 
