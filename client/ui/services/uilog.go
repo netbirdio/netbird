@@ -5,12 +5,12 @@ package services
 import (
 	"context"
 
-	"github.com/sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 )
 
 // UILog lets the frontend forward console output into the Go logrus
-// pipeline. The JS origin rides in the message ("[ui <file:line>] ...")
-// because logrus's ReportCaller always pins the source to this file.
+// pipeline. The JS origin is carried as the "ui" log field so it stays
+// distinct from logrus's own Go-caller source.
 type UILog struct{}
 
 func NewUILog() *UILog { return &UILog{} }
@@ -18,21 +18,21 @@ func NewUILog() *UILog { return &UILog{} }
 // Log forwards one frontend console entry. level is trace/debug/info/warn/
 // error (anything else → info); source is the JS origin (may be empty).
 func (s *UILog) Log(_ context.Context, level, source, msg string) {
+	origin := "unknown"
 	if source != "" {
-		msg = "[ui " + source + "] " + msg
-	} else {
-		msg = "[ui] " + msg
+		origin = source
 	}
+	entry := log.WithField("ui", origin)
 	switch level {
 	case "trace":
-		logrus.Trace(msg)
+		entry.Trace(msg)
 	case "debug":
-		logrus.Debug(msg)
+		entry.Debug(msg)
 	case "warn", "warning":
-		logrus.Warn(msg)
+		entry.Warn(msg)
 	case "error":
-		logrus.Error(msg)
+		entry.Error(msg)
 	default:
-		logrus.Info(msg)
+		entry.Info(msg)
 	}
 }
