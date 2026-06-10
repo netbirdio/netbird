@@ -323,6 +323,9 @@ func TestClient_Sync(t *testing.T) {
 			t.Error("expecting non nil NetbirdConfig got nil")
 		}
 		// we test network map peers from 0.29.3 and dev builds
+		if len(resp.GetRemotePeers()) != 0 {
+			t.Error("expecting top-level RemotePeers to be empty for v0.29.3+ clients")
+		}
 		networkMap := resp.GetNetworkMap()
 		if len(networkMap.GetRemotePeers()) != 1 {
 			t.Errorf("expecting RemotePeers size %d got %d", 1, len(networkMap.GetRemotePeers()))
