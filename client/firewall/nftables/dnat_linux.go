@@ -39,7 +39,11 @@ func (r *family) AddDNATRule(rule firewall.ForwardRule) (firewall.Rule, error) {
 		return nil, err
 	}
 
-	r.addDnatMasq(rule, protoNum, ruleID)
+	if err := r.addDnatMasq(rule, protoNum, ruleID); err != nil {
+		r.releaseForwarding()
+		delete(r.rules, ruleID+dnatSuffix)
+		return nil, err
+	}
 
 	// Unlike iptables, there's no point in adding "out" rules in the forward chain here as our policy is ACCEPT.
 	// To overcome DROP policies in other chains, we'd have to add rules to the chains there.
@@ -75,7 +79,11 @@ func (r *family) addDnatRedirect(rule firewall.ForwardRule, protoNum uint8, rule
 			Len:          2,
 		},
 	}
-	dnatExprs = append(dnatExprs, applyPort(&rule.DestinationPort, false)...)
+	portExprs, err := r.applyPort(&rule.DestinationPort, false)
+	if err != nil {
+		return fmt.Errorf("apply destination port: %w", err)
+	}
+	dnatExprs = append(dnatExprs, portExprs...)
 
 	// shifted translated port is not supported in nftables, so we hand this over to xtables
 	if rule.TranslatedPort.IsRange && len(rule.TranslatedPort.Values) == 2 {
@@ -209,7 +217,12 @@ func (r *family) addXTablesRedirect(dnatExprs []expr.Any, ruleID firewall.RuleID
 	return nil
 }
 
-func (r *family) addDnatMasq(rule firewall.ForwardRule, protoNum uint8, ruleID firewall.RuleID) {
+func (r *family) addDnatMasq(rule firewall.ForwardRule, protoNum uint8, ruleID firewall.RuleID) error {
+	portExprs, err := r.applyPort(&rule.TranslatedPort, false)
+	if err != nil {
+		return fmt.Errorf("apply translated port: %w", err)
+	}
+
 	masqExprs := []expr.Any{
 		&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
 		&expr.Cmp{
@@ -236,7 +249,7 @@ func (r *family) addDnatMasq(rule firewall.ForwardRule, protoNum uint8, ruleID f
 		},
 	}
 
-	masqExprs = append(masqExprs, applyPort(&rule.TranslatedPort, false)...)
+	masqExprs = append(masqExprs, portExprs...)
 	masqExprs = append(masqExprs, &expr.Masq{})
 
 	masqRule := &nftables.Rule{
@@ -247,6 +260,8 @@ func (r *family) addDnatMasq(rule firewall.ForwardRule, protoNum uint8, ruleID f
 	}
 	r.conn.AddRule(masqRule)
 	r.rules[ruleID+snatSuffix] = masqRule
+
+	return nil
 }
 
 func (r *family) DeleteDNATRule(rule firewall.Rule) error {

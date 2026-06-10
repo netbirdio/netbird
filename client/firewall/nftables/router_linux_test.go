@@ -200,8 +200,7 @@ func TestRouter_AddRouteFiltering(t *testing.T) {
 
 	defer deleteWorkTable()
 
-	r, err := newFamily(workTable, ifaceMock, iface.DefaultMTU)
-	require.NoError(t, err, "Failed to create family")
+	r := newFamily(workTable, ifaceMock, iface.DefaultMTU)
 	require.NoError(t, r.init(workTable))
 
 	defer func(r *family) {
@@ -367,8 +366,7 @@ func TestNftablesCreateIpSet(t *testing.T) {
 
 	defer deleteWorkTable()
 
-	r, err := newFamily(workTable, ifaceMock, iface.DefaultMTU)
-	require.NoError(t, err, "Failed to create family")
+	r := newFamily(workTable, ifaceMock, iface.DefaultMTU)
 	require.NoError(t, r.init(workTable))
 
 	defer func() {
@@ -523,8 +521,7 @@ func TestNftablesUpdateSetMergesOverlapping(t *testing.T) {
 	require.NoError(t, err, "create work table")
 	defer deleteWorkTable()
 
-	r, err := newFamily(workTable, ifaceMock, iface.DefaultMTU)
-	require.NoError(t, err, "create family")
+	r := newFamily(workTable, ifaceMock, iface.DefaultMTU)
 	require.NoError(t, r.init(workTable))
 	defer func() {
 		require.NoError(t, r.Reset(), "reset family")
@@ -554,8 +551,7 @@ func TestNftablesCreateIpSet_IPv6(t *testing.T) {
 	require.NoError(t, err, "Failed to create v6 work table")
 	defer deleteWorkTableIPv6()
 
-	r, err := newFamily(workTable, ifaceMock, iface.DefaultMTU)
-	require.NoError(t, err, "Failed to create family")
+	r := newFamily(workTable, ifaceMock, iface.DefaultMTU)
 	require.NoError(t, r.init(workTable))
 	defer func() {
 		require.NoError(t, r.Reset(), "Failed to reset family")
@@ -897,8 +893,7 @@ func TestRouter_RefreshRulesMap_RemovesStaleEntries(t *testing.T) {
 	require.NoError(t, err)
 	defer deleteWorkTable()
 
-	r, err := newFamily(workTable, ifaceMock, iface.DefaultMTU)
-	require.NoError(t, err)
+	r := newFamily(workTable, ifaceMock, iface.DefaultMTU)
 	require.NoError(t, r.init(workTable))
 	defer func() { require.NoError(t, r.Reset()) }()
 
@@ -952,8 +947,7 @@ func TestRouter_DeleteRouteRule_RemovesKernelRule(t *testing.T) {
 	require.NoError(t, err)
 	defer deleteWorkTable()
 
-	r, err := newFamily(workTable, ifaceMock, iface.DefaultMTU)
-	require.NoError(t, err)
+	r := newFamily(workTable, ifaceMock, iface.DefaultMTU)
 	require.NoError(t, r.init(workTable))
 	defer func() { require.NoError(t, r.Reset()) }()
 
@@ -996,8 +990,7 @@ func TestRouter_DeleteRouteRule_StaleHandle(t *testing.T) {
 	require.NoError(t, err)
 	defer deleteWorkTable()
 
-	r, err := newFamily(workTable, ifaceMock, iface.DefaultMTU)
-	require.NoError(t, err)
+	r := newFamily(workTable, ifaceMock, iface.DefaultMTU)
 	require.NoError(t, r.init(workTable))
 	defer func() { require.NoError(t, r.Reset()) }()
 

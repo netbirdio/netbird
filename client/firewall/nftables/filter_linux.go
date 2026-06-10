@@ -70,6 +70,24 @@ func (r *family) AddFilterRule(
 	}
 
 	userData := []byte(ruleID)
+
+	// Build the paired prerouting mangle rule before flushing so both
+	// rules commit in one transaction. An anonymous port set binds to
+	// exactly one rule, so the mangle rule needs its own expression list
+	// with fresh sets, not a clone of the main rule's. Guard on the
+	// prerouting chain first: building the expressions queues the port
+	// set, so skipping the build when there is no chain to bind it to
+	// keeps an unbound set out of the connection batch.
+	var mangleRule *nftables.Rule
+	if !isRoute && r.chainPrerouting != nil {
+		mangleExprs, err := r.buildPeerFilterExprs(srcExprs, proto, sPort, dPort)
+		if err != nil {
+			r.dropNetworkMatch(exprs)
+			return nil, fmt.Errorf("build mangle rule: %w", err)
+		}
+		mangleRule = r.queuePreroutingRule(mangleExprs, userData)
+	}
+
 	nftRule := &nftables.Rule{
 		Table:    r.workTable,
 		Chain:    chain,
@@ -87,12 +105,10 @@ func (r *family) AddFilterRule(
 	}
 
 	rule := &Rule{
-		nftRule: nftRule,
-		sources: sources,
-		id:      ruleID,
-	}
-	if !isRoute {
-		rule.mangleRule = r.createPreroutingRule(exprs, userData)
+		nftRule:    nftRule,
+		mangleRule: mangleRule,
+		sources:    sources,
+		id:         ruleID,
 	}
 	r.filters[ruleID] = rule
 
@@ -128,8 +144,12 @@ func (r *family) buildPeerFilterExprs(
 		)
 	}
 	exprs = append(exprs, srcExprs...)
-	exprs = append(exprs, applyPort(sPort, true)...)
-	exprs = append(exprs, applyPort(dPort, false)...)
+
+	portExprs, err := r.applyPorts(sPort, dPort)
+	if err != nil {
+		return nil, err
+	}
+	exprs = append(exprs, portExprs...)
 	return exprs, nil
 }
 
@@ -159,8 +179,13 @@ func (r *family) buildRouteFilterExprs(
 			&expr.Meta{Key: expr.MetaKeyL4PROTO, Register: 1},
 			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{protoNum}},
 		)
-		exprs = append(exprs, applyPort(sPort, true)...)
-		exprs = append(exprs, applyPort(dPort, false)...)
+
+		portExprs, err := r.applyPorts(sPort, dPort)
+		if err != nil {
+			r.dropNetworkMatch(destExprs)
+			return nil, err
+		}
+		exprs = append(exprs, portExprs...)
 	}
 
 	exprs = append(exprs, &expr.Counter{})
@@ -191,15 +216,21 @@ func (r *family) DeleteFilterRule(rule firewall.Rule) error {
 	// A freshly added rule carries no handle until it is read back from
 	// the kernel, and Flush only refreshes the peer chains. Pull live
 	// handles for this rule's chain before deciding it is stale so route
-	// rules (which Flush never refreshes) can actually be deleted.
+	// rules (which Flush never refreshes) can actually be deleted. A
+	// refresh failure aborts the delete without touching tracking state,
+	// so the caller can retry while the rule may still exist in the kernel.
 	if pr.nftRule.Handle == 0 {
 		if err := r.refreshRuleHandles(pr.nftRule.Chain, false); err != nil {
-			log.Warnf("refresh handles for chain %s: %v", pr.nftRule.Chain.Name, err)
+			return fmt.Errorf("refresh handles for chain %s: %w", pr.nftRule.Chain.Name, err)
 		}
-		if pr.mangleRule != nil {
-			if err := r.refreshRuleHandles(r.chainPrerouting, true); err != nil {
-				log.Warnf("refresh mangle handles: %v", err)
-			}
+	}
+	// Refresh the mangle handle independently: the main rule's handle can
+	// be populated while the prerouting refresh during Flush failed, and
+	// gating the mangle refresh on the main handle would leak the mangle
+	// rule on delete.
+	if pr.mangleRule != nil && pr.mangleRule.Handle == 0 {
+		if err := r.refreshRuleHandles(r.chainPrerouting, true); err != nil {
+			return fmt.Errorf("refresh mangle handles: %w", err)
 		}
 	}
 
@@ -285,6 +316,87 @@ func (r *family) applyNetwork(
 	return nil, nil
 }
 
+// applyPort builds the transport-header port match. A single value
+// compares directly, a range uses a range expression, and multiple
+// values go through an anonymous constant set: consecutive cmp
+// expressions AND together, so chained equality comparisons could
+// never match more than one port. The set is queued on the
+// connection and committed by the caller's flush together with the
+// rule that binds it.
+func (r *family) applyPort(port *firewall.Port, isSource bool) ([]expr.Any, error) {
+	if port == nil || len(port.Values) == 0 {
+		return nil, nil
+	}
+
+	// dst port
+	offset := uint32(2)
+	if isSource {
+		// src port
+		offset = 0
+	}
+
+	exprs := []expr.Any{
+		&expr.Payload{
+			DestRegister: 1,
+			Base:         expr.PayloadBaseTransportHeader,
+			Offset:       offset,
+			Len:          2,
+		},
+	}
+
+	switch {
+	case port.IsRange && len(port.Values) == 2:
+		exprs = append(exprs, &expr.Range{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			FromData: binaryutil.BigEndian.PutUint16(port.Values[0]),
+			ToData:   binaryutil.BigEndian.PutUint16(port.Values[1]),
+		})
+	case len(port.Values) == 1:
+		exprs = append(exprs, &expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     binaryutil.BigEndian.PutUint16(port.Values[0]),
+		})
+	default:
+		set := &nftables.Set{
+			Anonymous: true,
+			Constant:  true,
+			Table:     r.workTable,
+			KeyType:   nftables.TypeInetService,
+		}
+		elements := make([]nftables.SetElement, 0, len(port.Values))
+		for _, p := range port.Values {
+			elements = append(elements, nftables.SetElement{Key: binaryutil.BigEndian.PutUint16(p)})
+		}
+		if err := r.conn.AddSet(set, elements); err != nil {
+			return nil, fmt.Errorf("add anonymous port set: %w", err)
+		}
+		exprs = append(exprs, &expr.Lookup{
+			SourceRegister: 1,
+			SetID:          set.ID,
+			SetName:        set.Name,
+		})
+	}
+
+	return exprs, nil
+}
+
+// applyPorts builds the source then destination port matches.
+func (r *family) applyPorts(sPort, dPort *firewall.Port) ([]expr.Any, error) {
+	sPortExprs, err := r.applyPort(sPort, true)
+	if err != nil {
+		return nil, fmt.Errorf("apply source port: %w", err)
+	}
+
+	dPortExprs, err := r.applyPort(dPort, false)
+	if err != nil {
+		return nil, fmt.Errorf("apply destination port: %w", err)
+	}
+
+	return append(sPortExprs, dPortExprs...), nil
+}
+
 // prefixMatchExprs is the family-aware match sequence for a CIDR
 // prefix. /0 returns nil; a host prefix (full bit length for the
 // family) skips the bitwise step since the mask is all-ones. Shared
@@ -330,58 +442,6 @@ func prefixMatchExprs(af addrFamily, prefix netip.Prefix, isSource bool) []expr.
 		},
 		cmp,
 	}
-}
-
-func applyPort(port *firewall.Port, isSource bool) []expr.Any {
-	if port == nil {
-		return nil
-	}
-
-	var exprs []expr.Any
-
-	// src
-	offset := uint32(2)
-	if isSource {
-		// dst
-		offset = 0
-	}
-
-	exprs = append(exprs, &expr.Payload{
-		DestRegister: 1,
-		Base:         expr.PayloadBaseTransportHeader,
-		Offset:       offset,
-		Len:          2,
-	})
-
-	if port.IsRange && len(port.Values) == 2 {
-		exprs = append(exprs,
-			&expr.Range{
-				Op:       expr.CmpOpEq,
-				Register: 1,
-				FromData: binaryutil.BigEndian.PutUint16(port.Values[0]),
-				ToData:   binaryutil.BigEndian.PutUint16(port.Values[1]),
-			},
-		)
-	} else {
-		for i, p := range port.Values {
-			if i > 0 {
-				exprs = append(exprs, &expr.Bitwise{
-					SourceRegister: 1,
-					DestRegister:   1,
-					Len:            4,
-					Mask:           []byte{0x00, 0x00, 0xff, 0xff},
-					Xor:            []byte{0x00, 0x00, 0x00, 0x00},
-				})
-			}
-			exprs = append(exprs, &expr.Cmp{
-				Op:       expr.CmpOpEq,
-				Register: 1,
-				Data:     binaryutil.BigEndian.PutUint16(p),
-			})
-		}
-	}
-
-	return exprs
 }
 
 func getCtNewExprs() []expr.Any {

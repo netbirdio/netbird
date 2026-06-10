@@ -35,10 +35,7 @@ type InterfaceAllower struct {
 func NewInterfaceAllower(wgIface iFaceMapper, mtu uint16) (*InterfaceAllower, error) {
 	tableName := getTableName()
 
-	family4, err := newFamily(&nftables.Table{Name: tableName, Family: nftables.TableFamilyIPv4}, wgIface, mtu)
-	if err != nil {
-		return nil, fmt.Errorf("create family: %w", err)
-	}
+	family4 := newFamily(&nftables.Table{Name: tableName, Family: nftables.TableFamilyIPv4}, wgIface, mtu)
 
 	// Probe nftables availability before committing to this backend.
 	if _, err := family4.conn.ListChainsOfTableFamily(nftables.TableFamilyINet); err != nil {
@@ -48,11 +45,7 @@ func NewInterfaceAllower(wgIface iFaceMapper, mtu uint16) (*InterfaceAllower, er
 	a := &InterfaceAllower{family4: family4}
 
 	if wgIface.Address().HasIPv6() {
-		family6, err := newFamily(&nftables.Table{Name: tableName, Family: nftables.TableFamilyIPv6}, wgIface, mtu)
-		if err != nil {
-			return nil, fmt.Errorf("create v6 family: %w", err)
-		}
-		a.family6 = family6
+		a.family6 = newFamily(&nftables.Table{Name: tableName, Family: nftables.TableFamilyIPv6}, wgIface, mtu)
 	}
 
 	a.extMonitor = newExternalChainMonitor(a)

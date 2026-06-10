@@ -102,7 +102,7 @@ type family struct {
 	mtu              uint16
 }
 
-func newFamily(workTable *nftables.Table, wgIface iFaceMapper, mtu uint16) (*family, error) {
+func newFamily(workTable *nftables.Table, wgIface iFaceMapper, mtu uint16) *family {
 	r := &family{
 		conn:               &nftables.Conn{},
 		workTable:          workTable,
@@ -127,7 +127,7 @@ func newFamily(workTable *nftables.Table, wgIface iFaceMapper, mtu uint16) (*fam
 		log.Debugf("ip filter table not found: %v", err)
 	}
 
-	return r, nil
+	return r
 }
 
 func (r *family) init(workTable *nftables.Table) error {

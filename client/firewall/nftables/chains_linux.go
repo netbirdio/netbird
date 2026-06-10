@@ -606,7 +606,12 @@ func (r *family) Flush() error {
 	return nil
 }
 
-func (r *family) createPreroutingRule(expressions []expr.Any, userData []byte) *nftables.Rule {
+// queuePreroutingRule builds the prerouting mangle rule that marks
+// redirected traffic and queues it on the connection without flushing,
+// so the caller can commit it in the same transaction as the rule it
+// pairs with. Returns nil when the prerouting chain is absent, in which
+// case nothing is queued.
+func (r *family) queuePreroutingRule(expressions []expr.Any, userData []byte) *nftables.Rule {
 	if r.chainPrerouting == nil {
 		log.Warn("prerouting chain is not created")
 		return nil
@@ -651,19 +656,12 @@ func (r *family) createPreroutingRule(expressions []expr.Any, userData []byte) *
 		},
 	)
 
-	nfRule := r.conn.AddRule(&nftables.Rule{
+	return r.conn.AddRule(&nftables.Rule{
 		Table:    r.workTable,
 		Chain:    r.chainPrerouting,
 		Exprs:    preroutingExprs,
 		UserData: userData,
 	})
-
-	if err := r.conn.Flush(); err != nil {
-		log.Errorf("failed to flush mangle rule %s: %v", string(userData), err)
-		return nil
-	}
-
-	return nfRule
 }
 
 func (r *family) createDefaultChains() (err error) {

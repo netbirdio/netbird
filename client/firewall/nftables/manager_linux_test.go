@@ -601,6 +601,73 @@ func TestNftablesManagerCompatibilityWithIptablesForWildcardSource(t *testing.T)
 	verifyIptablesOutput(t, stdout, stderr)
 }
 
+func TestNftablesManagerMultiPortFilter(t *testing.T) {
+	if check() != NFTABLES {
+		t.Skip("nftables not supported on this system")
+	}
+
+	manager, err := Create(ifaceMock, iface.DefaultMTU)
+	require.NoError(t, err)
+	require.NoError(t, manager.Init(nil))
+
+	t.Cleanup(func() {
+		require.NoError(t, manager.Close(nil), "failed to reset manager state")
+	})
+
+	ip := netip.MustParseAddr("100.96.0.1")
+
+	rule, err := manager.AddFilterRule(nil, pfx(ip.AsSlice()), fw.Network{}, fw.ProtocolTCP, nil, &fw.Port{Values: []uint16{80, 443}}, fw.ActionAccept)
+	require.NoError(t, err, "failed to add multi-port rule")
+
+	testClient := &nftables.Conn{}
+	rules, err := testClient.GetRules(manager.family4.workTable, manager.family4.chainInputRules)
+	require.NoError(t, err, "failed to get rules")
+
+	var lookup *expr.Lookup
+	for _, kernelRule := range rules {
+		if string(kernelRule.UserData) != string(rule.ID()) {
+			continue
+		}
+		for _, e := range kernelRule.Exprs {
+			if l, ok := e.(*expr.Lookup); ok {
+				lookup = l
+			}
+		}
+	}
+	require.NotNil(t, lookup, "multi-port rule must match ports via a set lookup")
+
+	sets, err := testClient.GetSets(manager.family4.workTable)
+	require.NoError(t, err, "failed to get sets")
+
+	var portSet *nftables.Set
+	for _, s := range sets {
+		if s.Name == lookup.SetName {
+			portSet = s
+		}
+	}
+	require.NotNil(t, portSet, "anonymous port set not found in kernel")
+
+	portSet.Table = manager.family4.workTable
+	elements, err := testClient.GetSetElements(portSet)
+	require.NoError(t, err, "failed to get set elements")
+
+	ports := make(map[uint16]bool)
+	for _, e := range elements {
+		require.Len(t, e.Key, 2, "port set element key should be 2 bytes")
+		ports[binary.BigEndian.Uint16(e.Key)] = true
+	}
+	require.True(t, ports[80], "port set should contain port 80")
+	require.True(t, ports[443], "port set should contain port 443")
+
+	require.NoError(t, manager.DeleteFilterRule(rule), "failed to delete rule")
+
+	rules, err = testClient.GetRules(manager.family4.workTable, manager.family4.chainInputRules)
+	require.NoError(t, err, "failed to get rules after delete")
+	for _, kernelRule := range rules {
+		require.NotEqual(t, string(rule.ID()), string(kernelRule.UserData), "rule should be removed from kernel")
+	}
+}
+
 func compareExprsIgnoringCounters(t *testing.T, got, want []expr.Any) {
 	t.Helper()
 	require.Equal(t, len(got), len(want), "expression count mismatch")

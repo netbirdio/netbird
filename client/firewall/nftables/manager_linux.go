@@ -71,16 +71,10 @@ func Create(wgIface iFaceMapper, mtu uint16) (*Manager, error) {
 	tableName := getTableName()
 	workTable := &nftables.Table{Name: tableName, Family: nftables.TableFamilyIPv4}
 
-	var err error
-	m.family4, err = newFamily(workTable, wgIface, mtu)
-	if err != nil {
-		return nil, fmt.Errorf("create family: %w", err)
-	}
+	m.family4 = newFamily(workTable, wgIface, mtu)
 
 	if wgIface.Address().HasIPv6() {
-		if err := m.createIPv6Components(tableName, wgIface, mtu); err != nil {
-			return nil, fmt.Errorf("create IPv6 firewall: %w", err)
-		}
+		m.createIPv6Components(tableName, wgIface, mtu)
 	}
 
 	m.extMonitor = newExternalChainMonitor(m)
@@ -88,20 +82,14 @@ func Create(wgIface iFaceMapper, mtu uint16) (*Manager, error) {
 	return m, nil
 }
 
-func (m *Manager) createIPv6Components(tableName string, wgIface iFaceMapper, mtu uint16) error {
+func (m *Manager) createIPv6Components(tableName string, wgIface iFaceMapper, mtu uint16) {
 	workTable6 := &nftables.Table{Name: tableName, Family: nftables.TableFamilyIPv6}
 
-	var err error
-	m.family6, err = newFamily(workTable6, wgIface, mtu)
-	if err != nil {
-		return fmt.Errorf("create v6 family: %w", err)
-	}
+	m.family6 = newFamily(workTable6, wgIface, mtu)
 
 	// Share the same IP forwarding state with the v4 router, since
 	// EnableIPForwarding controls both v4 and v6 sysctls.
 	m.family6.ipFwdState = m.family4.ipFwdState
-
-	return nil
 }
 
 // hasIPv6 reports whether the manager has IPv6 components initialized.
@@ -265,14 +253,14 @@ func (m *Manager) AddFilterRule(
 }
 
 // DeleteFilterRule removes a filtering rule. The owning family is found
-// by id, refreshing from the kernel if the in-memory caches miss so a
-// stale cache cannot leak the rule. family.DeleteFilterRule is idempotent
-// when the id is absent.
+// by id in the in-memory filter maps, which are the only tracking for
+// filter rules. family.DeleteFilterRule is idempotent when the id is
+// absent.
 func (m *Manager) DeleteFilterRule(rule firewall.Rule) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	fam, err := m.familyForRuleID(rule.ID(), (*family).hasRule)
+	fam, err := m.familyForRuleID(rule.ID(), (*family).hasRule, false)
 	if err != nil {
 		return err
 	}
@@ -280,16 +268,21 @@ func (m *Manager) DeleteFilterRule(rule firewall.Rule) error {
 }
 
 // familyForRuleID picks the family holding the rule with the given id, using
-// the supplied lookup. If the cached maps disagree (or both miss), it refreshes
-// from the kernel once and re-checks before falling back to the v4 family.
-func (m *Manager) familyForRuleID(id firewall.RuleID, has func(*family, firewall.RuleID) bool) (*family, error) {
+// the supplied lookup. With refresh set, a miss in both cached maps reloads
+// the NAT/DNAT rule maps from the kernel once and re-checks before falling
+// back to the v4 family. Filter rules are tracked only in memory and have no
+// kernel-backed reload, so their callers pass refresh as false.
+func (m *Manager) familyForRuleID(id firewall.RuleID, has func(*family, firewall.RuleID) bool, refresh bool) (*family, error) {
 	if has(m.family4, id) {
 		return m.family4, nil
 	}
-	if m.hasIPv6() && has(m.family6, id) {
+	if !m.hasIPv6() {
+		return m.family4, nil
+	}
+	if has(m.family6, id) {
 		return m.family6, nil
 	}
-	if !m.hasIPv6() {
+	if !refresh {
 		return m.family4, nil
 	}
 	if err := m.family4.refreshRulesMap(); err != nil {
@@ -463,7 +456,7 @@ func (m *Manager) Flush() error {
 
 	if m.hasIPv6() {
 		if err := m.family6.Flush(); err != nil {
-			return fmt.Errorf("flush v6 acl: %w", err)
+			return fmt.Errorf("flush v6 family: %w", err)
 		}
 	}
 
@@ -493,7 +486,7 @@ func (m *Manager) DeleteDNATRule(rule firewall.Rule) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	r, err := m.familyForRuleID(rule.ID(), (*family).hasDNATRule)
+	r, err := m.familyForRuleID(rule.ID(), (*family).hasDNATRule, true)
 	if err != nil {
 		return err
 	}

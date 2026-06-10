@@ -79,6 +79,7 @@ func (r *family) addNatRule(pair firewall.RouterPair) error {
 
 	destExp, err := r.applyNetwork(pair.Destination, nil, false)
 	if err != nil {
+		r.dropNetworkMatch(sourceExp)
 		return fmt.Errorf("apply destination: %w", err)
 	}
 
@@ -126,6 +127,8 @@ func (r *family) addNatRule(pair firewall.RouterPair) error {
 
 	if _, exists := r.rules[ruleID]; exists {
 		if err := r.removeNatRule(pair); err != nil {
+			r.dropNetworkMatch(sourceExp)
+			r.dropNetworkMatch(destExp)
 			return fmt.Errorf("remove prerouting rule: %w", err)
 		}
 	}
@@ -302,6 +305,7 @@ func (r *family) addLegacyRouteRule(pair firewall.RouterPair) error {
 
 	destExp, err := r.applyNetwork(pair.Destination, nil, false)
 	if err != nil {
+		r.dropNetworkMatch(sourceExp)
 		return fmt.Errorf("apply destination: %w", err)
 	}
 
@@ -317,6 +321,8 @@ func (r *family) addLegacyRouteRule(pair firewall.RouterPair) error {
 
 	if _, exists := r.rules[ruleID]; exists {
 		if err := r.removeLegacyRouteRule(pair); err != nil {
+			r.dropNetworkMatch(sourceExp)
+			r.dropNetworkMatch(destExp)
 			return fmt.Errorf("remove legacy routing rule: %w", err)
 		}
 	}
