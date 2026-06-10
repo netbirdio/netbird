@@ -1,46 +1,52 @@
 import { WindowManager } from "@bindings/services";
 
-type ClientError = { short?: string; long?: string };
+type ClassifiedError = { short: string; long: string };
 
-const asClientError = (obj: object): ClientError => {
-    const withCause = obj as { cause?: unknown };
-    if (withCause.cause && typeof withCause.cause === "object") {
-        return withCause.cause;
-    }
-    return obj;
-};
+const asObject = (v: unknown): Record<string, unknown> | null =>
+    v && typeof v === "object" ? (v as Record<string, unknown>) : null;
 
-const parseMessageJson = (message: unknown): ClientError | null => {
-    if (typeof message !== "string") return null;
-    const m = message.trim();
-    if (!m.startsWith("{") || !m.endsWith("}")) return null;
+const parseJsonObject = (s: unknown): Record<string, unknown> | null => {
+    if (typeof s !== "string") return null;
+    const t = s.trim();
+    if (!t.startsWith("{") || !t.endsWith("}")) return null;
     try {
-        const parsed: unknown = JSON.parse(m);
-        if (parsed && typeof parsed === "object") return asClientError(parsed);
+        return asObject(JSON.parse(t));
     } catch {
+        return null;
     }
-    return null;
 };
 
-const extractClientError = (e: unknown): ClientError | null => {
-    if (!e || typeof e !== "object") return null;
-    const withCause = e as { cause?: unknown; message?: unknown };
-    if (withCause.cause && typeof withCause.cause === "object") {
-        return withCause.cause;
-    }
-    return parseMessageJson(withCause.message);
+const toWailsEnvelope = (e: unknown): Record<string, unknown> | null => {
+    const obj = asObject(e);
+    if (!obj) return null;
+    return asObject(obj.cause) ?? parseJsonObject(obj.message);
+};
+
+// Read { short, long } from wherever the classified error sits in the envelope
+const toClassifiedError = (v: unknown): ClassifiedError | null => {
+    const o = asObject(v);
+    if (!o) return null;
+    const short = typeof o.short === "string" ? o.short : "";
+    const long = typeof o.long === "string" ? o.long : "";
+    return short || long ? { short, long } : null;
 };
 
 export const formatErrorMessage = (e: unknown): string => {
-    const ce = extractClientError(e);
-    if (ce) {
-        const short = typeof ce.short === "string" ? ce.short : "";
-        const long = typeof ce.long === "string" ? ce.long : "";
-        if (short && long && long !== short) {
-            return `${short} Details: ${long}`;
-        }
+    const envelope = toWailsEnvelope(e);
+
+    // Prefer the structured { short, long } the daemon classifier produced.
+    const classified =
+        toClassifiedError(envelope?.cause) ?? toClassifiedError(envelope);
+    if (classified) {
+        const { short, long } = classified;
+        if (short && long && long !== short) return `${short} Details: ${long}`;
         if (short) return short;
+        if (long) return long;
     }
+
+    // Unclassified (a service returned the raw daemon error)
+    const message = envelope?.message;
+    if (typeof message === "string" && message) return message;
     if (e instanceof Error) return e.message;
     return String(e);
 };
