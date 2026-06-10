@@ -68,6 +68,7 @@ type Client struct {
 	cfgFile               string
 	stateFile             string
 	cacheDir              string
+	logFilePath           string
 	recorder              *peer.Status
 	ctxCancel             context.CancelFunc
 	ctxCancelLock         *sync.Mutex
@@ -87,11 +88,12 @@ type Client struct {
 }
 
 // NewClient instantiate a new Client
-func NewClient(cfgFile, stateFile, cacheDir, deviceName string, osVersion string, osName string, networkChangeListener NetworkChangeListener, dnsManager DnsManager) *Client {
+func NewClient(cfgFile, stateFile, cacheDir, logFilePath, deviceName string, osVersion string, osName string, networkChangeListener NetworkChangeListener, dnsManager DnsManager) *Client {
 	return &Client{
 		cfgFile:               cfgFile,
 		stateFile:             stateFile,
 		cacheDir:              cacheDir,
+		logFilePath:           logFilePath,
 		deviceName:            deviceName,
 		osName:                osName,
 		osVersion:             osVersion,
@@ -219,6 +221,7 @@ func (c *Client) DebugBundle(anonymize bool) (string, error) {
 		StatusRecorder: c.recorder,
 		TempDir:        c.cacheDir,
 		StatePath:      c.stateFile,
+		LogPath:        c.logFilePath,
 	}
 
 	if cc != nil {
