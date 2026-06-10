@@ -48,10 +48,11 @@ func newTestValidator(t *testing.T) (*Validator, *rsa.PrivateKey) {
 // signToken builds and signs a token. iatNbfOffset is applied to the iat/nbf
 // claims (a positive value places them in the future, simulating an IdP whose
 // clock is ahead of the validator); expFromNow sets the exp claim relative to
-// now (a negative value yields an expired token). The token is signed with the
-// provided key, which lets callers sign with a key the validator does not know
-// to exercise signature verification.
-func signToken(t *testing.T, key *rsa.PrivateKey, iatNbfOffset, expFromNow time.Duration) string {
+// now (a negative value yields an expired token). kid is stamped into the token
+// header, and the token is signed with the provided key, so callers can
+// exercise both the unknown-kid path (kid not in the key set) and the
+// wrong-signature path (kid known but signed with a different key).
+func signToken(t *testing.T, key *rsa.PrivateKey, kid string, iatNbfOffset, expFromNow time.Duration) string {
 	t.Helper()
 
 	issued := time.Now().Add(iatNbfOffset)
@@ -65,7 +66,7 @@ func signToken(t *testing.T, key *rsa.PrivateKey, iatNbfOffset, expFromNow time.
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
-	token.Header["kid"] = testKid
+	token.Header["kid"] = kid
 
 	signed, err := token.SignedString(key)
 	require.NoError(t, err)
@@ -75,6 +76,7 @@ func signToken(t *testing.T, key *rsa.PrivateKey, iatNbfOffset, expFromNow time.
 func TestValidateAndParse(t *testing.T) {
 	tests := []struct {
 		name         string
+		kid          string
 		iatNbfOffset time.Duration
 		expFromNow   time.Duration
 		wrongKey     bool
@@ -82,22 +84,32 @@ func TestValidateAndParse(t *testing.T) {
 	}{
 		{
 			name:         "issuer ahead, within leeway",
+			kid:          testKid,
 			iatNbfOffset: defaultClockSkewLeeway / 2,
 			expFromNow:   time.Hour,
 		},
 		{
 			name:         "issuer ahead, beyond leeway",
+			kid:          testKid,
 			iatNbfOffset: defaultClockSkewLeeway * 3 / 2,
 			expFromNow:   time.Hour,
 			wantErr:      true,
 		},
 		{
-			name:       "expired token",
+			name:       "expired beyond leeway",
+			kid:        testKid,
 			expFromNow: -defaultClockSkewLeeway * 2,
 			wantErr:    true,
 		},
 		{
-			name:       "signed with unknown key",
+			name:       "unknown kid",
+			kid:        "unknown-kid",
+			expFromNow: time.Hour,
+			wantErr:    true,
+		},
+		{
+			name:       "known kid, wrong signature",
+			kid:        testKid,
 			expFromNow: time.Hour,
 			wrongKey:   true,
 			wantErr:    true,
@@ -113,7 +125,7 @@ func TestValidateAndParse(t *testing.T) {
 				key = other
 			}
 
-			token := signToken(t, key, tc.iatNbfOffset, tc.expFromNow)
+			token := signToken(t, key, tc.kid, tc.iatNbfOffset, tc.expFromNow)
 
 			parsed, err := v.ValidateAndParse(context.Background(), token)
 			if tc.wantErr {
