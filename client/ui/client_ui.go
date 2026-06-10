@@ -502,7 +502,7 @@ func (s *serviceClient) getConnectionForm() *widget.Form {
 			{Text: "Pre-shared Key", Widget: s.iPreSharedKey},
 			{Text: "Quantum-Resistance", Widget: s.sRosenpassPermissive},
 			{Text: "Interface Name", Widget: s.iInterfaceName},
-			{Text: "Interface Port", Widget: s.iInterfacePort},
+			{Text: "Interface Port", Widget: s.iInterfacePort, HintText: "If set to 0, a random free port will be used"},
 			{Text: "MTU", Widget: s.iMTU},
 			{Text: "Log File", Widget: s.iLogFile},
 		},
@@ -558,8 +558,8 @@ func (s *serviceClient) parseNumericSettings() (int64, int64, error) {
 	if err != nil {
 		return 0, 0, errors.New("invalid interface port")
 	}
-	if port < 1 || port > 65535 {
-		return 0, 0, errors.New("invalid interface port: out of range 1-65535")
+	if port < 0 || port > 65535 {
+		return 0, 0, errors.New("invalid interface port: out of range 0-65535")
 	}
 
 	var mtu int64
@@ -1438,7 +1438,7 @@ func protoConfigToConfig(cfg *proto.GetConfigResponse) *profilemanager.Config {
 	}
 
 	config.WgIface = cfg.InterfaceName
-	if cfg.WireguardPort != 0 {
+	if cfg.WireguardPort >= 0 && cfg.WireguardPort <= 65535 {
 		config.WgPort = int(cfg.WireguardPort)
 	} else {
 		config.WgPort = iface.DefaultWgPort

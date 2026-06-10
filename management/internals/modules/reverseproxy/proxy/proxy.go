@@ -20,6 +20,9 @@ type Capabilities struct {
 	RequireSubdomain *bool
 	// SupportsCrowdsec indicates whether this proxy has CrowdSec configured.
 	SupportsCrowdsec *bool
+	// Private indicates whether this proxy supports inbound access via Wireguard
+	// tunnel and netbird-only authentication policies
+	Private *bool
 }
 
 // Proxy represents a reverse proxy instance
@@ -42,10 +45,34 @@ func (Proxy) TableName() string {
 	return "proxies"
 }
 
+// ClusterType is the source of a proxy cluster.
+type ClusterType string
+
+const (
+	// ClusterTypeAccount is a cluster operated by the account itself (BYOP) —
+	// at least one proxy row in the cluster carries a non-NULL account_id.
+	ClusterTypeAccount ClusterType = "account"
+	// ClusterTypeShared is a cluster operated by NetBird and shared across
+	// accounts — all proxy rows in the cluster have account_id IS NULL.
+	ClusterTypeShared ClusterType = "shared"
+)
+
 // Cluster represents a group of proxy nodes serving the same address.
+//
+// Online and ConnectedProxies derive from the same 2-min active window
+// the rest of the module uses, but Cluster rows are not gated on it —
+// the cluster listing surfaces offline clusters too so operators can
+// see and clean them up. The 1-hour heartbeat reaper still bounds the
+// table eventually.
 type Cluster struct {
 	ID               string
 	Address          string
+	Type             ClusterType
+	Online           bool
 	ConnectedProxies int
-	SelfHosted       bool
+	// *bool: nil = no proxy reported the capability; the dashboard renders that as unknown.
+	SupportsCustomPorts *bool
+	RequireSubdomain    *bool
+	SupportsCrowdSec    *bool
+	Private             *bool
 }

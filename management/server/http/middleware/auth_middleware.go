@@ -11,8 +11,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/metric"
 
-	"github.com/netbirdio/management-integrations/integrations"
-
 	serverauth "github.com/netbirdio/netbird/management/server/auth"
 	nbcontext "github.com/netbirdio/netbird/management/server/context"
 	"github.com/netbirdio/netbird/management/server/http/middleware/bypass"
@@ -27,6 +25,8 @@ type SyncUserJWTGroupsFunc func(ctx context.Context, userAuth auth.UserAuth) err
 
 type GetUserFromUserAuthFunc func(ctx context.Context, userAuth auth.UserAuth) (*types.User, error)
 
+type IsValidChildAccountFunc func(ctx context.Context, userID, accountID, childAccountID string) bool
+
 // AuthMiddleware middleware to verify personal access tokens (PAT) and JWT tokens
 type AuthMiddleware struct {
 	authManager         serverauth.Manager
@@ -35,6 +35,7 @@ type AuthMiddleware struct {
 	syncUserJWTGroups   SyncUserJWTGroupsFunc
 	rateLimiter         *APIRateLimiter
 	patUsageTracker     *PATUsageTracker
+	isValidChildAccount IsValidChildAccountFunc
 }
 
 // NewAuthMiddleware instance constructor
@@ -45,6 +46,7 @@ func NewAuthMiddleware(
 	getUserFromUserAuth GetUserFromUserAuthFunc,
 	rateLimiter *APIRateLimiter,
 	meter metric.Meter,
+	isValidChildAccount IsValidChildAccountFunc,
 ) *AuthMiddleware {
 	var patUsageTracker *PATUsageTracker
 	if meter != nil {
@@ -62,6 +64,7 @@ func NewAuthMiddleware(
 		getUserFromUserAuth: getUserFromUserAuth,
 		rateLimiter:         rateLimiter,
 		patUsageTracker:     patUsageTracker,
+		isValidChildAccount: isValidChildAccount,
 	}
 }
 
@@ -124,7 +127,7 @@ func (m *AuthMiddleware) checkJWTFromRequest(r *http.Request, authHeaderParts []
 	}
 
 	if impersonate, ok := r.URL.Query()["account"]; ok && len(impersonate) == 1 {
-		if integrations.IsValidChildAccount(ctx, userAuth.UserId, userAuth.AccountId, impersonate[0]) {
+		if m.isValidChildAccount(ctx, userAuth.UserId, userAuth.AccountId, impersonate[0]) {
 			userAuth.AccountId = impersonate[0]
 			userAuth.IsChild = true
 		}
@@ -203,7 +206,7 @@ func (m *AuthMiddleware) checkPATFromRequest(r *http.Request, authHeaderParts []
 	}
 
 	if impersonate, ok := r.URL.Query()["account"]; ok && len(impersonate) == 1 {
-		if integrations.IsValidChildAccount(r.Context(), userAuth.UserId, userAuth.AccountId, impersonate[0]) {
+		if m.isValidChildAccount(r.Context(), userAuth.UserId, userAuth.AccountId, impersonate[0]) {
 			userAuth.AccountId = impersonate[0]
 			userAuth.IsChild = true
 		}

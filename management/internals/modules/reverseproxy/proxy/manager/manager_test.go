@@ -15,16 +15,16 @@ import (
 )
 
 type mockStore struct {
-	saveProxyFunc                              func(ctx context.Context, p *proxy.Proxy) error
-	disconnectProxyFunc                        func(ctx context.Context, proxyID, sessionID string) error
-	updateProxyHeartbeatFunc                   func(ctx context.Context, p *proxy.Proxy) error
-	getActiveProxyClusterAddressesFunc         func(ctx context.Context) ([]string, error)
-	getActiveProxyClusterAddressesForAccFunc   func(ctx context.Context, accountID string) ([]string, error)
-	cleanupStaleProxiesFunc                    func(ctx context.Context, d time.Duration) error
-	getProxyByAccountIDFunc                    func(ctx context.Context, accountID string) (*proxy.Proxy, error)
-	countProxiesByAccountIDFunc                func(ctx context.Context, accountID string) (int64, error)
-	isClusterAddressConflictingFunc            func(ctx context.Context, clusterAddress, accountID string) (bool, error)
-	deleteAccountClusterFunc                   func(ctx context.Context, clusterAddress, accountID string) error
+	saveProxyFunc                            func(ctx context.Context, p *proxy.Proxy) error
+	disconnectProxyFunc                      func(ctx context.Context, proxyID, sessionID string) error
+	updateProxyHeartbeatFunc                 func(ctx context.Context, p *proxy.Proxy) error
+	getActiveProxyClusterAddressesFunc       func(ctx context.Context) ([]string, error)
+	getActiveProxyClusterAddressesForAccFunc func(ctx context.Context, accountID string) ([]string, error)
+	cleanupStaleProxiesFunc                  func(ctx context.Context, d time.Duration) error
+	getProxyByAccountIDFunc                  func(ctx context.Context, accountID string) (*proxy.Proxy, error)
+	countProxiesByAccountIDFunc              func(ctx context.Context, accountID string) (int64, error)
+	isClusterAddressConflictingFunc          func(ctx context.Context, clusterAddress, accountID string) (bool, error)
+	deleteAccountClusterFunc                 func(ctx context.Context, clusterAddress, accountID string) error
 }
 
 func (m *mockStore) SaveProxy(ctx context.Context, p *proxy.Proxy) error {
@@ -57,7 +57,7 @@ func (m *mockStore) GetActiveProxyClusterAddressesForAccount(ctx context.Context
 	}
 	return nil, nil
 }
-func (m *mockStore) GetActiveProxyClusters(_ context.Context, _ string) ([]proxy.Cluster, error) {
+func (m *mockStore) GetProxyClusters(_ context.Context, _ string) ([]proxy.Cluster, error) {
 	return nil, nil
 }
 func (m *mockStore) CleanupStaleProxies(ctx context.Context, d time.Duration) error {
@@ -97,6 +97,9 @@ func (m *mockStore) GetClusterRequireSubdomain(_ context.Context, _ string) *boo
 	return nil
 }
 func (m *mockStore) GetClusterSupportsCrowdSec(_ context.Context, _ string) *bool {
+	return nil
+}
+func (m *mockStore) GetClusterSupportsPrivate(_ context.Context, _ string) *bool {
 	return nil
 }
 

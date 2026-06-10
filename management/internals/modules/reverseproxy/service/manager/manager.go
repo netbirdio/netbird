@@ -81,6 +81,8 @@ type ClusterDeriver interface {
 type CapabilityProvider interface {
 	ClusterSupportsCustomPorts(ctx context.Context, clusterAddr string) *bool
 	ClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool
+	ClusterSupportsCrowdSec(ctx context.Context, clusterAddr string) *bool
+	ClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool
 }
 
 type Manager struct {
@@ -112,9 +114,13 @@ func (m *Manager) StartExposeReaper(ctx context.Context) {
 	m.exposeReaper.StartExposeReaper(ctx)
 }
 
-// GetActiveClusters returns all active proxy clusters with their connected proxy count.
-func (m *Manager) GetActiveClusters(ctx context.Context, accountID, userID string) ([]proxy.Cluster, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
+// GetClusters returns every proxy cluster visible to the account
+// (shared + its own BYOP), regardless of whether any proxy in the
+// cluster is currently heartbeating. Each cluster is enriched with the
+// capability flags reported by its active proxies so the dashboard can
+// render feature support without a second round-trip.
+func (m *Manager) GetClusters(ctx context.Context, accountID, userID string) ([]proxy.Cluster, error) {
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -122,13 +128,25 @@ func (m *Manager) GetActiveClusters(ctx context.Context, accountID, userID strin
 		return nil, status.NewPermissionDeniedError()
 	}
 
-	return m.store.GetActiveProxyClusters(ctx, accountID)
+	clusters, err := m.store.GetProxyClusters(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range clusters {
+		clusters[i].SupportsCustomPorts = m.capabilities.ClusterSupportsCustomPorts(ctx, clusters[i].Address)
+		clusters[i].RequireSubdomain = m.capabilities.ClusterRequireSubdomain(ctx, clusters[i].Address)
+		clusters[i].SupportsCrowdSec = m.capabilities.ClusterSupportsCrowdSec(ctx, clusters[i].Address)
+		clusters[i].Private = m.capabilities.ClusterSupportsPrivate(ctx, clusters[i].Address)
+	}
+
+	return clusters, nil
 }
 
 // DeleteAccountCluster removes all proxy registrations for the given cluster address
 // owned by the account.
 func (m *Manager) DeleteAccountCluster(ctx context.Context, accountID, userID, clusterAddress string) error {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Delete)
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -140,7 +158,7 @@ func (m *Manager) DeleteAccountCluster(ctx context.Context, accountID, userID, c
 }
 
 func (m *Manager) GetAllServices(ctx context.Context, accountID, userID string) ([]*service.Service, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -192,6 +210,9 @@ func (m *Manager) replaceHostByLookup(ctx context.Context, accountID string, s *
 			target.Host = resource.Domain
 		case service.TargetTypeSubnet:
 			// For subnets we do not do any lookups on the resource
+		case service.TargetTypeCluster:
+			// Cluster targets carry the upstream address on target_id; the
+			// proxy resolves the destination at request time.
 		default:
 			return fmt.Errorf("unknown target type: %s", target.TargetType)
 		}
@@ -201,7 +222,7 @@ func (m *Manager) replaceHostByLookup(ctx context.Context, accountID string, s *
 }
 
 func (m *Manager) GetService(ctx context.Context, accountID, userID, serviceID string) (*service.Service, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -222,7 +243,7 @@ func (m *Manager) GetService(ctx context.Context, accountID, userID, serviceID s
 }
 
 func (m *Manager) CreateService(ctx context.Context, accountID, userID string, s *service.Service) (*service.Service, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Create)
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Create)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -507,7 +528,7 @@ func (m *Manager) checkDomainAvailable(ctx context.Context, transaction store.St
 }
 
 func (m *Manager) UpdateService(ctx context.Context, accountID, userID string, service *service.Service) (*service.Service, error) {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Update)
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Update)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -763,9 +784,20 @@ func validateTargetReferences(ctx context.Context, transaction store.Store, acco
 			if err := validateResourceTarget(ctx, transaction, accountID, target); err != nil {
 				return err
 			}
+		case service.TargetTypeCluster:
+			if err := validateClusterTarget(target); err != nil {
+				return err
+			}
 		default:
 			return status.Errorf(status.InvalidArgument, "unknown target type %q for target %q", target.TargetType, target.TargetId)
 		}
+	}
+	return nil
+}
+
+func validateClusterTarget(target *service.Target) error {
+	if !target.Options.DirectUpstream {
+		return status.Errorf(status.InvalidArgument, "cluster target %s has direct upstream disabled", target.Host)
 	}
 	return nil
 }
@@ -804,7 +836,7 @@ func validateResourceTargetType(target *service.Target, resource *resourcetypes.
 }
 
 func (m *Manager) DeleteService(ctx context.Context, accountID, userID, serviceID string) error {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Delete)
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -844,7 +876,7 @@ func (m *Manager) DeleteService(ctx context.Context, accountID, userID, serviceI
 }
 
 func (m *Manager) DeleteAllServices(ctx context.Context, accountID, userID string) error {
-	ok, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Delete)
+	ok, ctx, err := m.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Services, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -946,12 +978,14 @@ func (m *Manager) ReloadAllServicesForAccount(ctx context.Context, accountID str
 		return fmt.Errorf("failed to get services: %w", err)
 	}
 
+	oidcCfg := m.proxyController.GetOIDCValidationConfig()
+
 	for _, s := range services {
 		err = m.replaceHostByLookup(ctx, accountID, s)
 		if err != nil {
 			return fmt.Errorf("failed to replace host by lookup for service %s: %w", s.ID, err)
 		}
-		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Update, "", m.proxyController.GetOIDCValidationConfig()), s.ProxyCluster)
+		m.proxyController.SendServiceUpdateToCluster(ctx, accountID, s.ToProtoMapping(service.Update, "", oidcCfg), s.ProxyCluster)
 	}
 
 	return nil

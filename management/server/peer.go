@@ -16,7 +16,6 @@ import (
 	"golang.org/x/exp/maps"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/server/geolocation"
 	"github.com/netbirdio/netbird/management/server/idp"
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
@@ -29,7 +28,9 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/shared/management/status"
+	"github.com/netbirdio/netbird/version"
 )
 
 const remoteJobsMinVer = "0.64.0"
@@ -42,7 +43,7 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 		return nil, err
 	}
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Read)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -63,103 +64,153 @@ func (am *DefaultAccountManager) GetPeers(ctx context.Context, accountID, userID
 	return am.Store.GetUserPeers(ctx, store.LockingStrengthNone, accountID, userID)
 }
 
-// MarkPeerConnected marks peer as connected (true) or disconnected (false)
-// syncTime is used as the LastSeen timestamp and for stale request detection
-func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubKey string, connected bool, realIP net.IP, accountID string, syncTime time.Time) error {
-	var peer *nbpeer.Peer
-	var settings *types.Settings
-	var expired bool
-	var err error
-	var skipped bool
+// MarkPeerConnected marks a peer as connected with optimistic-locked
+// fencing on PeerStatus.SessionStartedAt. The sessionStartedAt argument
+// is the start time of the gRPC sync stream that owns this update,
+// expressed as Unix nanoseconds — only the call whose token is greater
+// than what's stored wins. LastSeen is written by the database itself;
+// we never pass it down.
+//
+// Disconnects use MarkPeerDisconnected and require the session to match
+// exactly; see PeerStatus.SessionStartedAt for the protocol.
+func (am *DefaultAccountManager) MarkPeerConnected(ctx context.Context, peerPubKey string, realIP net.IP, accountID string, sessionStartedAt int64) error {
+	start := time.Now()
+	defer func() {
+		am.metrics.AccountManagerMetrics().RecordPeerStatusUpdateDuration(telemetry.PeerStatusConnect, time.Since(start))
+	}()
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		peer, err = transaction.GetPeerByPeerPubKey(ctx, store.LockingStrengthUpdate, peerPubKey)
-		if err != nil {
-			return err
+	peer, err := am.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, peerPubKey)
+	if err != nil {
+		outcome := telemetry.PeerStatusError
+		if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
+			outcome = telemetry.PeerStatusPeerNotFound
 		}
-
-		if connected && !syncTime.After(peer.Status.LastSeen) {
-			log.WithContext(ctx).Tracef("peer %s has newer activity (lastSeen=%s >= syncTime=%s), skipping connect",
-				peer.ID, peer.Status.LastSeen.Format(time.RFC3339), syncTime.Format(time.RFC3339))
-			skipped = true
-			return nil
-		}
-
-		expired, err = updatePeerStatusAndLocation(ctx, am.geo, transaction, peer, connected, realIP, accountID, syncTime)
+		am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusConnect, outcome)
 		return err
-	})
-	if skipped {
+	}
+
+	updated, err := am.Store.MarkPeerConnectedIfNewerSession(ctx, accountID, peer.ID, sessionStartedAt)
+	if err != nil {
+		am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusConnect, telemetry.PeerStatusError)
+		return err
+	}
+	if !updated {
+		am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusConnect, telemetry.PeerStatusStale)
+		log.WithContext(ctx).Tracef("peer %s already has a newer session in store, skipping connect", peer.ID)
 		return nil
 	}
-	if err != nil {
-		return err
+	am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusConnect, telemetry.PeerStatusApplied)
+
+	if am.geo != nil && realIP != nil {
+		am.updatePeerLocationIfChanged(ctx, accountID, peer, realIP)
 	}
 
+	expired := peer.Status != nil && peer.Status.LoginExpired
+
 	if peer.AddedWithSSOLogin() {
-		settings, err = am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+		settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 		if err != nil {
 			return err
 		}
-
 		if peer.LoginExpirationEnabled && settings.PeerLoginExpirationEnabled {
 			am.schedulePeerLoginExpiration(ctx, accountID)
 		}
-
 		if peer.InactivityExpirationEnabled && settings.PeerInactivityExpirationEnabled {
 			am.checkAndSchedulePeerInactivityExpiration(ctx, accountID)
 		}
 	}
 
 	if expired {
-		err = am.networkMapController.OnPeersUpdated(ctx, accountID, []string{peer.ID})
-		if err != nil {
+		if err = am.networkMapController.OnPeersUpdated(ctx, accountID, []string{peer.ID}); err != nil {
 			return fmt.Errorf("notify network map controller of peer update: %w", err)
+		}
+	}
+
+	// An embedded proxy peer flipping to connected is the trigger for
+	// SynthesizePrivateServiceZones to emit DNS A records pointing at its
+	// tunnel IP. Without an account-wide netmap recompute, user peers keep
+	// the stale synth (or no synth at all on first connect) until some
+	// other change pokes the controller. Fire OnPeersUpdated so the
+	// buffered recompute fans the new state out to every peer.
+	if peer.ProxyMeta.Embedded {
+		if err := am.networkMapController.OnPeersUpdated(ctx, accountID, []string{peer.ID}); err != nil {
+			log.WithContext(ctx).Warnf("notify network map controller of embedded proxy %s connect: %v", peer.ID, err)
 		}
 	}
 
 	return nil
 }
 
-func updatePeerStatusAndLocation(ctx context.Context, geo geolocation.Geolocation, transaction store.Store, peer *nbpeer.Peer, connected bool, realIP net.IP, accountID string, syncTime time.Time) (bool, error) {
-	oldStatus := peer.Status.Copy()
-	newStatus := oldStatus
-	newStatus.LastSeen = syncTime
-	newStatus.Connected = connected
-	// whenever peer got connected that means that it logged in successfully
-	if newStatus.Connected {
-		newStatus.LoginExpired = false
-	}
-	peer.Status = newStatus
+// MarkPeerDisconnected marks a peer as disconnected, but only when the
+// stored session token matches the one passed in. A mismatch means a
+// newer stream has already taken ownership of the peer — disconnects from
+// the older stream are ignored. LastSeen is written by the database.
+func (am *DefaultAccountManager) MarkPeerDisconnected(ctx context.Context, peerPubKey string, accountID string, sessionStartedAt int64) error {
+	start := time.Now()
+	defer func() {
+		am.metrics.AccountManagerMetrics().RecordPeerStatusUpdateDuration(telemetry.PeerStatusDisconnect, time.Since(start))
+	}()
 
-	if geo != nil && realIP != nil {
-		location, err := geo.Lookup(realIP)
-		if err != nil {
-			log.WithContext(ctx).Warnf("failed to get location for peer %s realip: [%s]: %v", peer.ID, realIP.String(), err)
-		} else {
-			peer.Location.ConnectionIP = realIP
-			peer.Location.CountryCode = location.Country.ISOCode
-			peer.Location.CityName = location.City.Names.En
-			peer.Location.GeoNameID = location.City.GeonameID
-			err = transaction.SavePeerLocation(ctx, accountID, peer)
-			if err != nil {
-				log.WithContext(ctx).Warnf("could not store location for peer %s: %s", peer.ID, err)
-			}
+	peer, err := am.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, peerPubKey)
+	if err != nil {
+		outcome := telemetry.PeerStatusError
+		if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
+			outcome = telemetry.PeerStatusPeerNotFound
+		}
+		am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusDisconnect, outcome)
+		return err
+	}
+
+	updated, err := am.Store.MarkPeerDisconnectedIfSameSession(ctx, accountID, peer.ID, sessionStartedAt)
+	if err != nil {
+		am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusDisconnect, telemetry.PeerStatusError)
+		return err
+	}
+	if !updated {
+		am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusDisconnect, telemetry.PeerStatusStale)
+		log.WithContext(ctx).Tracef("peer %s session token mismatch on disconnect (token=%d), skipping",
+			peer.ID, sessionStartedAt)
+		return nil
+	}
+	am.metrics.AccountManagerMetrics().CountPeerStatusUpdate(telemetry.PeerStatusDisconnect, telemetry.PeerStatusApplied)
+
+	// Symmetric with MarkPeerConnected: when an embedded proxy peer goes
+	// offline, drive an account-wide netmap recompute so the synthesized
+	// DNS records that pointed at it are pulled. Without this the records
+	// linger client-side at TTL until something else triggers a refresh.
+	if peer.ProxyMeta.Embedded {
+		if err := am.networkMapController.OnPeersUpdated(ctx, accountID, []string{peer.ID}); err != nil {
+			log.WithContext(ctx).Warnf("notify network map controller of embedded proxy %s disconnect: %v", peer.ID, err)
 		}
 	}
 
-	log.WithContext(ctx).Debugf("saving peer status for peer %s is connected: %t", peer.ID, connected)
+	return nil
+}
 
-	err := transaction.SavePeerStatus(ctx, accountID, peer.ID, *newStatus)
-	if err != nil {
-		return false, err
+// updatePeerLocationIfChanged refreshes the geolocation on a separate
+// row update, only when the connection IP actually changed. Geo lookups
+// are expensive so we skip same-IP reconnects.
+func (am *DefaultAccountManager) updatePeerLocationIfChanged(ctx context.Context, accountID string, peer *nbpeer.Peer, realIP net.IP) {
+	if peer.Location.ConnectionIP != nil && peer.Location.ConnectionIP.Equal(realIP) {
+		return
 	}
-
-	return oldStatus.LoginExpired, nil
+	location, err := am.geo.Lookup(realIP)
+	if err != nil {
+		log.WithContext(ctx).Warnf("failed to get location for peer %s realip: [%s]: %v", peer.ID, realIP.String(), err)
+		return
+	}
+	peer.Location.ConnectionIP = realIP
+	peer.Location.CountryCode = location.Country.ISOCode
+	peer.Location.CityName = location.City.Names.En
+	peer.Location.GeoNameID = location.City.GeonameID
+	if err := am.Store.SavePeerLocation(ctx, accountID, peer); err != nil {
+		log.WithContext(ctx).Warnf("could not store location for peer %s: %s", peer.ID, err)
+	}
 }
 
 // UpdatePeer updates peer. Only Peer.Name, Peer.SSHEnabled, Peer.LoginExpirationEnabled and Peer.InactivityExpirationEnabled can be updated.
 func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, userID string, update *nbpeer.Peer) (*nbpeer.Peer, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Update)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Update)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -304,7 +355,7 @@ func (am *DefaultAccountManager) UpdatePeer(ctx context.Context, accountID, user
 }
 
 func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, peerID, userID string, job *types.Job) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.RemoteJobs, operations.Create)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.RemoteJobs, operations.Create)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -322,7 +373,7 @@ func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, p
 	}
 
 	meetMinVer, err := posture.MeetsMinVersion(remoteJobsMinVer, p.Meta.WtVersion)
-	if !strings.Contains(p.Meta.WtVersion, "dev") && (!meetMinVer || err != nil) {
+	if !version.IsDevelopmentVersion(p.Meta.WtVersion) && (!meetMinVer || err != nil) {
 		return status.Errorf(status.PreconditionFailed, "peer version %s does not meet the minimum required version %s for remote jobs", p.Meta.WtVersion, remoteJobsMinVer)
 	}
 
@@ -380,7 +431,7 @@ func (am *DefaultAccountManager) CreatePeerJob(ctx context.Context, accountID, p
 
 func (am *DefaultAccountManager) GetAllPeerJobs(ctx context.Context, accountID, userID, peerID string) ([]*types.Job, error) {
 	// todo: Create permissions for job
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.RemoteJobs, operations.Read)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.RemoteJobs, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -406,7 +457,7 @@ func (am *DefaultAccountManager) GetAllPeerJobs(ctx context.Context, accountID, 
 }
 
 func (am *DefaultAccountManager) GetPeerJobByID(ctx context.Context, accountID, userID, peerID, jobID string) (*types.Job, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.RemoteJobs, operations.Read)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.RemoteJobs, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -433,7 +484,7 @@ func (am *DefaultAccountManager) GetPeerJobByID(ctx context.Context, accountID, 
 
 // DeletePeer removes peer from the account by its IP
 func (am *DefaultAccountManager) DeletePeer(ctx context.Context, accountID, peerID, userID string) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Delete)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -593,7 +644,7 @@ func (am *DefaultAccountManager) handleUserAddedPeer(ctx context.Context, accoun
 	}
 
 	if temporary {
-		allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Create)
+		allowed, _, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Create)
 		if err != nil {
 			return status.NewPermissionValidationError(err)
 		}
@@ -1101,6 +1152,79 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 	return p, nmap, pc, err
 }
 
+// ExtendPeerSession refreshes the peer's SSO session deadline by updating
+// LastLogin after a successful JWT validation. The tunnel is untouched: no
+// network map sync, no peer reconnect.
+//
+// Preconditions enforced here:
+//   - userID must be present (caller validated the JWT and extracted the user ID).
+//   - The peer must exist and be SSO-registered (AddedWithSSOLogin) with
+//     LoginExpirationEnabled.
+//   - Account-level PeerLoginExpirationEnabled must be true.
+//   - The JWT user must match peer.UserID (mirrors LoginPeer at peer.go ~1028).
+//
+// Returns the new absolute UTC deadline.
+func (am *DefaultAccountManager) ExtendPeerSession(ctx context.Context, peerPubKey, userID string) (time.Time, error) {
+	if userID == "" {
+		return time.Time{}, status.Errorf(status.PermissionDenied, "session extend requires a JWT")
+	}
+
+	accountID, err := am.Store.GetAccountIDByPeerPubKey(ctx, peerPubKey)
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if !settings.PeerLoginExpirationEnabled {
+		return time.Time{}, status.Errorf(status.PreconditionFailed, "peer login expiration is disabled for the account")
+	}
+
+	var refreshed *nbpeer.Peer
+	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
+		peer, err := transaction.GetPeerByPeerPubKey(ctx, store.LockingStrengthUpdate, peerPubKey)
+		if err != nil {
+			return err
+		}
+
+		if !peer.AddedWithSSOLogin() || !peer.LoginExpirationEnabled {
+			return status.Errorf(status.PreconditionFailed, "peer is not eligible for session extension")
+		}
+
+		if peer.UserID != userID {
+			log.WithContext(ctx).Warnf("user mismatch when extending session for peer %s: peer user %s, jwt user %s", peer.ID, peer.UserID, userID)
+			return status.NewPeerLoginMismatchError()
+		}
+
+		peer = peer.UpdateLastLogin()
+		if err := transaction.SavePeer(ctx, accountID, peer); err != nil {
+			return err
+		}
+
+		if err := transaction.SaveUserLastLogin(ctx, accountID, userID, peer.GetLastLogin()); err != nil {
+			log.WithContext(ctx).Debugf("failed to update user last login during session extend: %v", err)
+		}
+
+		am.StoreEvent(ctx, userID, peer.ID, accountID, activity.UserExtendedPeerSession, peer.EventMeta(am.networkMapController.GetDNSDomain(settings)))
+		refreshed = peer
+		return nil
+	})
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	// Reschedule the per-account expiration job. schedulePeerLoginExpiration
+	// is a no-op when a job is already running, but the running job will pick
+	// up the new LastLogin on its next tick. Calling it here is harmless and
+	// guarantees a job is in flight even if a prior one ended right before
+	// the extend.
+	am.schedulePeerLoginExpiration(ctx, accountID)
+
+	return refreshed.SessionExpiresAt(settings.PeerLoginExpirationEnabled, settings.PeerLoginExpiration), nil
+}
+
 // getPeerPostureChecks returns the posture checks for the peer.
 func getPeerPostureChecks(ctx context.Context, transaction store.Store, accountID, peerID string) ([]*posture.Checks, error) {
 	policies, err := transaction.GetAccountPolicies(ctx, store.LockingStrengthNone, accountID)
@@ -1256,7 +1380,7 @@ func (am *DefaultAccountManager) GetPeer(ctx context.Context, accountID, peerID,
 		return nil, err
 	}
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Read)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}

@@ -20,6 +20,7 @@ import (
 
 	"github.com/netbirdio/netbird/proxy/auth"
 	"github.com/netbirdio/netbird/proxy/internal/roundtrip"
+	"github.com/netbirdio/netbird/proxy/internal/types"
 	"github.com/netbirdio/netbird/proxy/web"
 )
 
@@ -1066,4 +1067,343 @@ func TestClassifyProxyError(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, status, "component status")
 		})
 	}
+}
+
+func TestStampNetBirdIdentity_NoCapturedData_StripsOnly(t *testing.T) {
+	target, _ := url.Parse("http://backend.internal:8080")
+	p := &ReverseProxy{forwardedProto: "auto"}
+	rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
+
+	pr := newProxyRequest(t, "http://example.com/", "203.0.113.50:9999")
+	pr.In.Header.Set(headerNetBirdUser, "spoofed@evil.io")
+	pr.In.Header.Set(headerNetBirdGroups, "admin")
+	pr.Out.Header = pr.In.Header.Clone()
+
+	rewrite(pr)
+
+	assert.Empty(t, pr.Out.Header.Get(headerNetBirdUser),
+		"client-supplied X-NetBird-User must be stripped when no captured identity is present")
+	assert.Empty(t, pr.Out.Header.Get(headerNetBirdGroups),
+		"client-supplied X-NetBird-Groups must be stripped when no captured identity is present")
+}
+
+func TestStampNetBirdIdentity_StampsFromCapturedData(t *testing.T) {
+	target, _ := url.Parse("http://backend.internal:8080")
+	p := &ReverseProxy{forwardedProto: "auto"}
+	rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
+
+	pr := newProxyRequest(t, "http://example.com/", "203.0.113.50:9999")
+	pr.In.Header.Set(headerNetBirdUser, "spoofed@evil.io")
+	pr.Out.Header = pr.In.Header.Clone()
+
+	cd := NewCapturedData("req-1")
+	cd.SetUserEmail("alice@netbird.io")
+	cd.SetUserGroups([]string{"grp-eng", "grp-ops"})
+	cd.SetUserGroupNames([]string{"engineering", "operations"})
+
+	pr.In = pr.In.WithContext(WithCapturedData(pr.In.Context(), cd))
+
+	rewrite(pr)
+
+	assert.Equal(t, "alice@netbird.io", pr.Out.Header.Get(headerNetBirdUser),
+		"captured email must overwrite any spoofed value")
+	assert.Equal(t, "engineering,operations", pr.Out.Header.Get(headerNetBirdGroups),
+		"group display names must be CSV-joined in positional order")
+}
+
+// TestStampNetBirdIdentity_GroupsOnlyWhenEmailEmpty covers the
+// tunnel-peer-without-user case (machine agents, unattached proxy peers).
+// The proxy must still stamp the peer's groups so downstream services can
+// authorise, but X-NetBird-User stays unset — only its inbound stripping
+// must happen.
+func TestStampNetBirdIdentity_GroupsOnlyWhenEmailEmpty(t *testing.T) {
+	target, _ := url.Parse("http://backend.internal:8080")
+	p := &ReverseProxy{forwardedProto: "auto"}
+	rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
+
+	pr := newProxyRequest(t, "http://example.com/", "203.0.113.50:9999")
+	pr.In.Header.Set(headerNetBirdUser, "spoofed@evil.io")
+	pr.Out.Header = pr.In.Header.Clone()
+
+	cd := NewCapturedData("req-1")
+	cd.SetUserGroups([]string{"grp-machines"})
+	cd.SetUserGroupNames([]string{"machines"})
+
+	pr.In = pr.In.WithContext(WithCapturedData(pr.In.Context(), cd))
+
+	rewrite(pr)
+
+	assert.Empty(t, pr.Out.Header.Get(headerNetBirdUser),
+		"X-NetBird-User must remain unset when CapturedData carries no email")
+	assert.Equal(t, "machines", pr.Out.Header.Get(headerNetBirdGroups),
+		"groups must still be stamped for peers without a user identity")
+}
+
+// TestStampNetBirdIdentity_EmailOnlyWhenGroupsEmpty covers the symmetric
+// case: identity-resolved user without resolved group memberships.
+func TestStampNetBirdIdentity_EmailOnlyWhenGroupsEmpty(t *testing.T) {
+	target, _ := url.Parse("http://backend.internal:8080")
+	p := &ReverseProxy{forwardedProto: "auto"}
+	rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
+
+	pr := newProxyRequest(t, "http://example.com/", "203.0.113.50:9999")
+	pr.In.Header.Set(headerNetBirdGroups, "spoofed-admin")
+	pr.Out.Header = pr.In.Header.Clone()
+
+	cd := NewCapturedData("req-1")
+	cd.SetUserEmail("carol@netbird.io")
+
+	pr.In = pr.In.WithContext(WithCapturedData(pr.In.Context(), cd))
+
+	rewrite(pr)
+
+	assert.Equal(t, "carol@netbird.io", pr.Out.Header.Get(headerNetBirdUser),
+		"email must be stamped even when no groups are captured")
+	assert.Empty(t, pr.Out.Header.Get(headerNetBirdGroups),
+		"X-NetBird-Groups must remain unset when CapturedData carries no groups")
+}
+
+func TestStampNetBirdIdentity_FallsBackToGroupIDsWhenNameMissing(t *testing.T) {
+	target, _ := url.Parse("http://backend.internal:8080")
+	p := &ReverseProxy{forwardedProto: "auto"}
+	rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
+
+	pr := newProxyRequest(t, "http://example.com/", "203.0.113.50:9999")
+
+	cd := NewCapturedData("req-1")
+	cd.SetUserEmail("bob@netbird.io")
+	cd.SetUserGroups([]string{"grp-a", "grp-b", "grp-c"})
+	// "grp-b" gets an explicit empty-string display name (not just a
+	// shorter slice). Both gap shapes must fall back to the id.
+	cd.SetUserGroupNames([]string{"alpha", "", ""})
+
+	pr.In = pr.In.WithContext(WithCapturedData(pr.In.Context(), cd))
+
+	rewrite(pr)
+
+	assert.Equal(t, "alpha,grp-b,grp-c", pr.Out.Header.Get(headerNetBirdGroups),
+		"empty-string and out-of-range name slots must both fall back to the group id")
+}
+
+// TestStampNetBirdIdentity_DropsLabelsWithComma covers the
+// comma-separator constraint: a group display name that itself contains
+// a comma is dropped from the header (rather than corrupting the list),
+// and the remaining labels are stamped.
+func TestStampNetBirdIdentity_DropsLabelsWithComma(t *testing.T) {
+	target, _ := url.Parse("http://backend.internal:8080")
+	p := &ReverseProxy{forwardedProto: "auto"}
+	rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
+
+	pr := newProxyRequest(t, "http://example.com/", "203.0.113.50:9999")
+
+	cd := NewCapturedData("req-1")
+	cd.SetUserEmail("alice@netbird.io")
+	cd.SetUserGroups([]string{"grp-a", "grp-b", "grp-c"})
+	cd.SetUserGroupNames([]string{"engineering", "EU, EMEA", "operations"})
+
+	pr.In = pr.In.WithContext(WithCapturedData(pr.In.Context(), cd))
+
+	rewrite(pr)
+
+	assert.Equal(t, "engineering,operations", pr.Out.Header.Get(headerNetBirdGroups),
+		"group label with embedded comma must be dropped, remaining labels stamped")
+}
+
+// TestStampNetBirdIdentity_RejectsControlCharsInEmail covers the
+// header-injection defence: an email value containing CR/LF/control
+// chars is omitted entirely (not partially stamped) so the upstream
+// request stays well-formed and no header injection is possible.
+func TestStampNetBirdIdentity_RejectsControlCharsInEmail(t *testing.T) {
+	target, _ := url.Parse("http://backend.internal:8080")
+	p := &ReverseProxy{forwardedProto: "auto"}
+	rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
+
+	pr := newProxyRequest(t, "http://example.com/", "203.0.113.50:9999")
+	pr.In.Header.Set(headerNetBirdUser, "spoofed@evil.io")
+	pr.Out.Header = pr.In.Header.Clone()
+
+	cd := NewCapturedData("req-1")
+	cd.SetUserEmail("alice@netbird.io\r\nX-Admin: yes")
+	cd.SetUserGroups([]string{"grp-a"})
+	cd.SetUserGroupNames([]string{"engineering"})
+
+	pr.In = pr.In.WithContext(WithCapturedData(pr.In.Context(), cd))
+
+	rewrite(pr)
+
+	assert.Empty(t, pr.Out.Header.Get(headerNetBirdUser),
+		"email with CR/LF must be dropped, not partially stamped")
+	assert.Equal(t, "engineering", pr.Out.Header.Get(headerNetBirdGroups),
+		"groups remain stampable even when email is invalid")
+}
+
+// TestStampNetBirdIdentity_RejectsControlCharsInGroup covers the
+// per-label defence: a group name with a control char is silently
+// dropped, the rest are stamped.
+func TestStampNetBirdIdentity_RejectsControlCharsInGroup(t *testing.T) {
+	target, _ := url.Parse("http://backend.internal:8080")
+	p := &ReverseProxy{forwardedProto: "auto"}
+	rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
+
+	pr := newProxyRequest(t, "http://example.com/", "203.0.113.50:9999")
+
+	cd := NewCapturedData("req-1")
+	cd.SetUserEmail("alice@netbird.io")
+	cd.SetUserGroups([]string{"grp-a", "grp-b"})
+	cd.SetUserGroupNames([]string{"engineering\r\nsneaky", "operations"})
+
+	pr.In = pr.In.WithContext(WithCapturedData(pr.In.Context(), cd))
+
+	rewrite(pr)
+
+	assert.Equal(t, "operations", pr.Out.Header.Get(headerNetBirdGroups),
+		"group label with control char must be dropped, valid ones kept")
+}
+
+// TestStampNetBirdIdentity_OmitsGroupsHeaderWhenAllInvalid covers the
+// edge case where every group label is rejected: the header must not be
+// set at all (rather than set to an empty string).
+func TestStampNetBirdIdentity_OmitsGroupsHeaderWhenAllInvalid(t *testing.T) {
+	target, _ := url.Parse("http://backend.internal:8080")
+	p := &ReverseProxy{forwardedProto: "auto"}
+	rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
+
+	pr := newProxyRequest(t, "http://example.com/", "203.0.113.50:9999")
+	pr.In.Header.Set(headerNetBirdGroups, "spoofed-admin")
+	pr.Out.Header = pr.In.Header.Clone()
+
+	cd := NewCapturedData("req-1")
+	cd.SetUserEmail("alice@netbird.io")
+	cd.SetUserGroups([]string{"grp-a", "grp-b"})
+	cd.SetUserGroupNames([]string{"with,comma", "with\nbreak"})
+
+	pr.In = pr.In.WithContext(WithCapturedData(pr.In.Context(), cd))
+
+	rewrite(pr)
+
+	_, present := pr.Out.Header[http.CanonicalHeaderKey(headerNetBirdGroups)]
+	assert.False(t, present,
+		"X-NetBird-Groups must not be set when every group label is rejected")
+}
+
+// nopOKTransport returns 200 for every request without dialing — used
+// by the self-target-loop tests so the non-loop cases don't pay a real
+// TCP-dial timeout.
+type nopOKTransport struct{}
+
+func (nopOKTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Header: http.Header{}}, nil
+}
+
+// TestServeHTTP_SelfTargetLoopReturns421 covers the loop guard for
+// private services: when a peer dials a service whose only target is
+// the peer itself, the proxy must refuse with 421 (Misdirected
+// Request) rather than round-tripping the request back over WG to
+// the same peer.
+func TestServeHTTP_SelfTargetLoopReturns421(t *testing.T) {
+	rp := NewReverseProxy(nopOKTransport{}, "auto", nil, nil)
+	rp.AddMapping(Mapping{
+		ID:        "svc-1",
+		AccountID: "acct-1",
+		Host:      "private.svc",
+		Paths: map[string]*PathTarget{
+			"/": {
+				URL: &url.URL{Scheme: "http", Host: "100.64.0.5:8080"},
+			},
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "http://private.svc/", nil)
+	req.Host = "private.svc"
+	req.RemoteAddr = "100.64.0.5:55555"
+	req = req.WithContext(types.WithOverlayOrigin(req.Context()))
+	rec := httptest.NewRecorder()
+
+	rp.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusMisdirectedRequest, rec.Code,
+		"a peer dialing a service whose target is itself must get 421")
+}
+
+// TestServeHTTP_SelfTargetLoop_NonOverlayRequestPassesThrough verifies
+// the guard is scoped to overlay-origin requests. A public-listener
+// request that happens to share a source IP with the target host must
+// not be misinterpreted as a loop — the gating relies on the inbound
+// marker being attached only by the per-account overlay listener.
+func TestServeHTTP_SelfTargetLoop_NonOverlayRequestPassesThrough(t *testing.T) {
+	rp := NewReverseProxy(nopOKTransport{}, "auto", nil, nil)
+	rp.AddMapping(Mapping{
+		ID:        "svc-1",
+		AccountID: "acct-1",
+		Host:      "public.svc",
+		Paths: map[string]*PathTarget{
+			"/": {
+				URL: &url.URL{Scheme: "http", Host: "100.64.0.5:8080"},
+			},
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "http://public.svc/", nil)
+	req.Host = "public.svc"
+	req.RemoteAddr = "100.64.0.5:55555"
+	// No WithOverlayOrigin → the guard must not fire.
+	rec := httptest.NewRecorder()
+
+	rp.ServeHTTP(rec, req)
+
+	assert.NotEqual(t, http.StatusMisdirectedRequest, rec.Code,
+		"a non-overlay request with a colliding source IP must not be flagged as a loop")
+}
+
+// TestServeHTTP_SelfTargetLoop_OverlayDifferentIPPassesThrough confirms
+// that overlay-origin requests with a source IP that does *not* match
+// the target host are forwarded normally.
+func TestServeHTTP_SelfTargetLoop_OverlayDifferentIPPassesThrough(t *testing.T) {
+	rp := NewReverseProxy(nopOKTransport{}, "auto", nil, nil)
+	rp.AddMapping(Mapping{
+		ID:        "svc-1",
+		AccountID: "acct-1",
+		Host:      "private.svc",
+		Paths: map[string]*PathTarget{
+			"/": {
+				URL: &url.URL{Scheme: "http", Host: "100.64.0.5:8080"},
+			},
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "http://private.svc/", nil)
+	req.Host = "private.svc"
+	req.RemoteAddr = "100.64.0.99:55555" // different from the target
+	req = req.WithContext(types.WithOverlayOrigin(req.Context()))
+	rec := httptest.NewRecorder()
+
+	rp.ServeHTTP(rec, req)
+
+	assert.NotEqual(t, http.StatusMisdirectedRequest, rec.Code,
+		"overlay request with a non-matching source IP must not be flagged as a loop")
+}
+
+// TestStampNetBirdIdentity_CapturedDataPresentButEmpty covers requests
+// that carry CapturedData with no identity fields populated (e.g. the
+// auth middleware ran but the request didn't authenticate). Both
+// headers must be cleared and neither stamped.
+func TestStampNetBirdIdentity_CapturedDataPresentButEmpty(t *testing.T) {
+	target, _ := url.Parse("http://backend.internal:8080")
+	p := &ReverseProxy{forwardedProto: "auto"}
+	rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
+
+	pr := newProxyRequest(t, "http://example.com/", "203.0.113.50:9999")
+	pr.In.Header.Set(headerNetBirdUser, "spoofed@evil.io")
+	pr.In.Header.Set(headerNetBirdGroups, "spoofed-admin")
+	pr.Out.Header = pr.In.Header.Clone()
+
+	cd := NewCapturedData("req-1")
+	pr.In = pr.In.WithContext(WithCapturedData(pr.In.Context(), cd))
+
+	rewrite(pr)
+
+	assert.Empty(t, pr.Out.Header.Get(headerNetBirdUser),
+		"X-NetBird-User must be stripped when CapturedData has no email")
+	assert.Empty(t, pr.Out.Header.Get(headerNetBirdGroups),
+		"X-NetBird-Groups must be stripped when CapturedData has no groups")
 }

@@ -282,7 +282,7 @@ func (am *DefaultAccountManager) GetIdpManager() idp.Manager {
 // User that performs the update has to belong to the account.
 // Returns an updated Settings
 func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Settings, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Settings, operations.Update)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Settings, operations.Update)
 	if err != nil {
 		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
 	}
@@ -291,10 +291,15 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		return nil, status.NewPermissionDeniedError()
 	}
 
+	// Canonicalize the incoming range so a caller-supplied prefix with host bits
+	// (e.g. 100.64.1.1/16) compares equal to the masked form stored on network.Net.
+	newSettings.NetworkRange = newSettings.NetworkRange.Masked()
+
 	var oldSettings *types.Settings
 	var updateAccountPeers bool
 	var groupChangesAffectPeers bool
 	var reloadReverseProxy bool
+	var effectiveOldNetworkRange netip.Prefix
 
 	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
 		var groupsUpdated bool
@@ -307,6 +312,16 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		if err = am.validateSettingsUpdate(ctx, transaction, newSettings, oldSettings, userID, accountID); err != nil {
 			return err
 		}
+
+		// No lock: the transaction already holds Settings(Update), and network.Net is
+		// only mutated by reallocateAccountPeerIPs, which is reachable only through
+		// this same code path. A Share lock here would extend an unnecessary row lock
+		// and complicate ordering against updatePeerIPv6InTransaction.
+		network, err := transaction.GetAccountNetwork(ctx, store.LockingStrengthNone, accountID)
+		if err != nil {
+			return fmt.Errorf("get account network: %w", err)
+		}
+		effectiveOldNetworkRange = prefixFromIPNet(network.Net)
 
 		if oldSettings.Extra != nil && newSettings.Extra != nil &&
 			oldSettings.Extra.PeerApprovalEnabled && !newSettings.Extra.PeerApprovalEnabled {
@@ -321,7 +336,7 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			}
 		}
 
-		if oldSettings.NetworkRange != newSettings.NetworkRange {
+		if newSettings.NetworkRange.IsValid() && newSettings.NetworkRange != effectiveOldNetworkRange {
 			if err = am.reallocateAccountPeerIPs(ctx, transaction, accountID, newSettings.NetworkRange); err != nil {
 				return err
 			}
@@ -340,7 +355,17 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 			oldSettings.LazyConnectionEnabled != newSettings.LazyConnectionEnabled ||
 			oldSettings.DNSDomain != newSettings.DNSDomain ||
 			oldSettings.AutoUpdateVersion != newSettings.AutoUpdateVersion ||
-			oldSettings.AutoUpdateAlways != newSettings.AutoUpdateAlways {
+			oldSettings.AutoUpdateAlways != newSettings.AutoUpdateAlways ||
+			oldSettings.PeerLoginExpirationEnabled != newSettings.PeerLoginExpirationEnabled ||
+			oldSettings.PeerLoginExpiration != newSettings.PeerLoginExpiration {
+			// Session deadline is derived from LastLogin + PeerLoginExpiration
+			// on every Login/Sync response. Without a fan-out push, connected
+			// peers keep the deadline they received at login time and only see
+			// the new value after the next unrelated NetworkMap change. Add
+			// these two fields to the trigger list so admin-side expiry tweaks
+			// (e.g. shortening from 24h to 1h) reach every connected peer
+			// within seconds, which is what the proactive-warning feature
+			// relies on (see client/internal/auth/sessionwatch).
 			updateAccountPeers = true
 		}
 
@@ -396,9 +421,9 @@ func (am *DefaultAccountManager) UpdateAccountSettings(ctx context.Context, acco
 		}
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountDNSDomainUpdated, eventMeta)
 	}
-	if oldSettings.NetworkRange != newSettings.NetworkRange {
+	if newSettings.NetworkRange.IsValid() && newSettings.NetworkRange != effectiveOldNetworkRange {
 		eventMeta := map[string]any{
-			"old_network_range": oldSettings.NetworkRange.String(),
+			"old_network_range": effectiveOldNetworkRange.String(),
 			"new_network_range": newSettings.NetworkRange.String(),
 		}
 		am.StoreEvent(ctx, userID, accountID, accountID, activity.AccountNetworkRangeUpdated, eventMeta)
@@ -441,6 +466,22 @@ func ipv6SettingsChanged(old, updated *types.Settings) bool {
 	slices.Sort(oldGroups)
 	slices.Sort(newGroups)
 	return !slices.Equal(oldGroups, newGroups)
+}
+
+// prefixFromIPNet returns the overlay prefix actually allocated on the account
+// network, or an invalid prefix if none is set. Settings.NetworkRange is a
+// user-facing override that is empty on legacy accounts, so the effective
+// range must be read from network.Net to compare against an incoming update.
+func prefixFromIPNet(ipNet net.IPNet) netip.Prefix {
+	if ipNet.IP == nil {
+		return netip.Prefix{}
+	}
+	addr, ok := netip.AddrFromSlice(ipNet.IP)
+	if !ok {
+		return netip.Prefix{}
+	}
+	ones, _ := ipNet.Mask.Size()
+	return netip.PrefixFrom(addr.Unmap(), ones)
 }
 
 func (am *DefaultAccountManager) validateSettingsUpdate(ctx context.Context, transaction store.Store, newSettings, oldSettings *types.Settings, userID, accountID string) error {
@@ -814,7 +855,7 @@ func (am *DefaultAccountManager) DeleteAccount(ctx context.Context, accountID, u
 		return err
 	}
 
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Accounts, operations.Delete)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Accounts, operations.Delete)
 	if err != nil {
 		return fmt.Errorf("failed to validate user permissions: %w", err)
 	}
@@ -1381,7 +1422,7 @@ func (am *DefaultAccountManager) GetAccount(ctx context.Context, accountID strin
 
 // GetAccountByID returns an account associated with this account ID.
 func (am *DefaultAccountManager) GetAccountByID(ctx context.Context, accountID string, userID string) (*types.Account, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Accounts, operations.Read)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Accounts, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -1394,7 +1435,7 @@ func (am *DefaultAccountManager) GetAccountByID(ctx context.Context, accountID s
 
 // GetAccountMeta returns the account metadata associated with this account ID.
 func (am *DefaultAccountManager) GetAccountMeta(ctx context.Context, accountID string, userID string) (*types.AccountMeta, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Accounts, operations.Read)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Accounts, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -1407,7 +1448,7 @@ func (am *DefaultAccountManager) GetAccountMeta(ctx context.Context, accountID s
 
 // GetAccountOnboarding retrieves the onboarding information for a specific account.
 func (am *DefaultAccountManager) GetAccountOnboarding(ctx context.Context, accountID string, userID string) (*types.AccountOnboarding, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Accounts, operations.Read)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Accounts, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -1432,7 +1473,7 @@ func (am *DefaultAccountManager) GetAccountOnboarding(ctx context.Context, accou
 }
 
 func (am *DefaultAccountManager) UpdateAccountOnboarding(ctx context.Context, accountID, userID string, newOnboarding *types.AccountOnboarding) (*types.AccountOnboarding, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Settings, operations.Update)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Settings, operations.Update)
 	if err != nil {
 		return nil, fmt.Errorf("failed to validate user permissions: %w", err)
 	}
@@ -1499,7 +1540,8 @@ func (am *DefaultAccountManager) GetAccountIDFromUserAuth(ctx context.Context, u
 		return accountID, user.Id, nil
 	}
 
-	if err := am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false); err != nil {
+	ctx, err = am.permissionsManager.ValidateAccountAccess(ctx, accountID, user, false)
+	if err != nil {
 		return "", "", err
 	}
 
@@ -1837,35 +1879,32 @@ func domainIsUpToDate(domain string, domainCategory string, userAuth auth.UserAu
 	return domainCategory == types.PrivateCategory || userAuth.DomainCategory != types.PrivateCategory || domain != userAuth.Domain
 }
 
+// SyncAndMarkPeer is the per-Sync entry point: it refreshes the peer's
+// network map and then marks the peer connected with a session token
+// derived from syncTime (the moment the gRPC stream opened). Any
+// concurrent stream that started earlier loses the optimistic-lock race
+// in MarkPeerConnected and bails without writing.
 func (am *DefaultAccountManager) SyncAndMarkPeer(ctx context.Context, accountID string, peerPubKey string, meta nbpeer.PeerSystemMeta, realIP net.IP, syncTime time.Time) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error) {
 	peer, netMap, postureChecks, dnsfwdPort, err := am.SyncPeer(ctx, types.PeerSync{WireGuardPubKey: peerPubKey, Meta: meta}, accountID)
 	if err != nil {
 		return nil, nil, nil, 0, fmt.Errorf("error syncing peer: %w", err)
 	}
 
-	err = am.MarkPeerConnected(ctx, peerPubKey, true, realIP, accountID, syncTime)
-	if err != nil {
+	if err := am.MarkPeerConnected(ctx, peerPubKey, realIP, accountID, syncTime.UnixNano()); err != nil {
 		log.WithContext(ctx).Warnf("failed marking peer as connected %s %v", peerPubKey, err)
 	}
 
 	return peer, netMap, postureChecks, dnsfwdPort, nil
 }
 
+// OnPeerDisconnected is invoked when a sync stream ends. It marks the
+// peer disconnected only when the stored SessionStartedAt matches the
+// nanosecond token derived from streamStartTime — i.e. only when this
+// is the stream that currently owns the peer's session. A mismatch
+// means a newer stream has already replaced us, so the disconnect is
+// dropped.
 func (am *DefaultAccountManager) OnPeerDisconnected(ctx context.Context, accountID string, peerPubKey string, streamStartTime time.Time) error {
-	peer, err := am.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, peerPubKey)
-	if err != nil {
-		log.WithContext(ctx).Warnf("failed to get peer %s for disconnect check: %v", peerPubKey, err)
-		return nil
-	}
-
-	if peer.Status.LastSeen.After(streamStartTime) {
-		log.WithContext(ctx).Tracef("peer %s has newer activity (lastSeen=%s > streamStart=%s), skipping disconnect",
-			peerPubKey, peer.Status.LastSeen.Format(time.RFC3339), streamStartTime.Format(time.RFC3339))
-		return nil
-	}
-
-	err = am.MarkPeerConnected(ctx, peerPubKey, false, nil, accountID, time.Now().UTC())
-	if err != nil {
+	if err := am.MarkPeerDisconnected(ctx, peerPubKey, accountID, streamStartTime.UnixNano()); err != nil {
 		log.WithContext(ctx).Warnf("failed marking peer as disconnected %s %v", peerPubKey, err)
 	}
 	return nil
@@ -1948,7 +1987,7 @@ func (am *DefaultAccountManager) handleUserPeer(ctx context.Context, transaction
 }
 
 func (am *DefaultAccountManager) GetAccountSettings(ctx context.Context, accountID string, userID string) (*types.Settings, error) {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Settings, operations.Read)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Settings, operations.Read)
 	if err != nil {
 		return nil, status.NewPermissionValidationError(err)
 	}
@@ -2516,7 +2555,7 @@ func (am *DefaultAccountManager) validateIPForUpdate(account *types.Account, pee
 }
 
 func (am *DefaultAccountManager) UpdatePeerIP(ctx context.Context, accountID, userID, peerID string, newIP netip.Addr) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Update)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Update)
 	if err != nil {
 		return fmt.Errorf("validate user permissions: %w", err)
 	}
@@ -2606,7 +2645,7 @@ func (am *DefaultAccountManager) savePeerIPUpdate(ctx context.Context, transacti
 // UpdatePeerIPv6 updates the IPv6 overlay address of a peer, validating it's
 // within the account's v6 network range and not already taken.
 func (am *DefaultAccountManager) UpdatePeerIPv6(ctx context.Context, accountID, userID, peerID string, newIPv6 netip.Addr) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Update)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Peers, operations.Update)
 	if err != nil {
 		return fmt.Errorf("validate user permissions: %w", err)
 	}

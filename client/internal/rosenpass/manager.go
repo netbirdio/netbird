@@ -28,6 +28,15 @@ func hashRosenpassKey(key []byte) string {
 	return hex.EncodeToString(hasher.Sum(nil))
 }
 
+// rpServer is the subset of rp.Server used by Manager. Defined as an interface
+// so tests can substitute a mock without spinning up a real UDP server.
+type rpServer interface {
+	AddPeer(rp.PeerConfig) (rp.PeerID, error)
+	RemovePeer(rp.PeerID) error
+	Run() error
+	Close() error
+}
+
 type Manager struct {
 	ifaceName    string
 	spk          []byte
@@ -36,7 +45,7 @@ type Manager struct {
 	preSharedKey *[32]byte
 	rpPeerIDs    map[string]*rp.PeerID
 	rpWgHandler  *NetbirdHandler
-	server       *rp.Server
+	server       rpServer
 	lock         sync.Mutex
 	port         int
 	wgIface      PresharedKeySetter
@@ -51,7 +60,22 @@ func NewManager(preSharedKey *wgtypes.Key, wgIfaceName string) (*Manager, error)
 
 	rpKeyHash := hashRosenpassKey(public)
 	log.Tracef("generated new rosenpass key pair with public key %s", rpKeyHash)
-	return &Manager{ifaceName: wgIfaceName, rpKeyHash: rpKeyHash, spk: public, ssk: secret, preSharedKey: (*[32]byte)(preSharedKey), rpPeerIDs: make(map[string]*rp.PeerID), lock: sync.Mutex{}}, nil
+	return &Manager{
+		ifaceName:    wgIfaceName,
+		rpKeyHash:    rpKeyHash,
+		spk:          public,
+		ssk:          secret,
+		preSharedKey: (*[32]byte)(preSharedKey),
+		rpPeerIDs:    make(map[string]*rp.PeerID),
+		// rpWgHandler is created here (instead of only in generateConfig) so it
+		// is never nil between NewManager and Run(). Otherwise an early
+		// OnConnected call (race observed on Android, issue #4341) panics on
+		// nil receiver in addPeer -> m.rpWgHandler.AddPeer. generateConfig will
+		// replace it with a fresh handler on each Run() to clear stale peer
+		// state from previous engine sessions.
+		rpWgHandler: NewNetbirdHandler(),
+		lock:        sync.Mutex{},
+	}, nil
 }
 
 func (m *Manager) GetPubKey() []byte {
@@ -65,6 +89,16 @@ func (m *Manager) GetAddress() *net.UDPAddr {
 
 // addPeer adds a new peer to the Rosenpass server
 func (m *Manager) addPeer(rosenpassPubKey []byte, rosenpassAddr string, wireGuardIP string, wireGuardPubKey string) error {
+	// Defense in depth against issue #4341 (Android crash): if Run() has not
+	// completed yet, m.server / m.rpWgHandler may be nil. Return an explicit
+	// error instead of panicking on nil-receiver dereference.
+	if m.server == nil {
+		return fmt.Errorf("rosenpass server not initialized")
+	}
+	if m.rpWgHandler == nil {
+		return fmt.Errorf("rosenpass wg handler not initialized")
+	}
+
 	var err error
 	pcfg := rp.PeerConfig{PublicKey: rosenpassPubKey}
 	if m.preSharedKey != nil {
@@ -78,6 +112,16 @@ func (m *Manager) addPeer(rosenpassPubKey []byte, rosenpassAddr string, wireGuar
 		peerAddr := net.JoinHostPort(wireGuardIP, strPort)
 		if pcfg.Endpoint, err = net.ResolveUDPAddr("udp", peerAddr); err != nil {
 			return fmt.Errorf("failed to resolve peer endpoint address: %w", err)
+		}
+		// Our local Rosenpass UDP server binds on the IPv6 wildcard ([::]) — see
+		// GetAddress(). The remote peer's endpoint (pcfg.Endpoint) is the destination
+		// our server will sendto when initiating handshakes. ResolveUDPAddr returns a
+		// 4-byte IPv4 for IPv4 hosts, which the kernel rejects (EDESTADDRREQ) when
+		// sent from an AF_INET6 socket. Normalize the remote endpoint to IPv4-mapped
+		// IPv6 so its address family matches our listening socket.
+		// TODO: maybe bind the Rosenpass UDP server to the peer wg IP addr
+		if v4 := pcfg.Endpoint.IP.To4(); v4 != nil {
+			pcfg.Endpoint.IP = v4.To16()
 		}
 	}
 	peerID, err := m.server.AddPeer(pcfg)
@@ -182,24 +226,31 @@ func (m *Manager) Run() error {
 		return err
 	}
 
-	m.server, err = rp.NewUDPServer(conf)
+	server, err := rp.NewUDPServer(conf)
 	if err != nil {
 		return err
 	}
 
+	m.lock.Lock()
+	m.server = server
+	m.lock.Unlock()
+
 	log.Infof("starting rosenpass server on port %d", m.port)
 
-	return m.server.Run()
+	return server.Run()
 }
 
 // Close closes the Rosenpass server
 func (m *Manager) Close() error {
-	if m.server != nil {
-		err := m.server.Close()
-		if err != nil {
-			log.Errorf("failed closing local rosenpass server")
-		}
-		m.server = nil
+	m.lock.Lock()
+	server := m.server
+	m.server = nil
+	m.lock.Unlock()
+	if server == nil {
+		return nil
+	}
+	if err := server.Close(); err != nil {
+		log.Errorf("failed closing local rosenpass server: %v", err)
 	}
 	return nil
 }

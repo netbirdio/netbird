@@ -12,6 +12,15 @@ import "google/protobuf/timestamp.proto";
 service ProxyService {
   rpc GetMappingUpdate(GetMappingUpdateRequest) returns (stream GetMappingUpdateResponse);
 
+  // SyncMappings is a bidirectional stream that replaces GetMappingUpdate for
+  // new proxies. The proxy sends an initial SyncMappingsRequest to start the
+  // stream and then sends an ack after each batch is fully processed.
+  // Management waits for the ack before sending the next batch, providing
+  // application-level back-pressure during large initial syncs.
+  // Old proxies continue using GetMappingUpdate; old management servers
+  // return Unimplemented for this RPC and proxies fall back.
+  rpc SyncMappings(stream SyncMappingsRequest) returns (stream SyncMappingsResponse);
+
   rpc SendAccessLog(SendAccessLogRequest) returns (SendAccessLogResponse);
 
   rpc Authenticate(AuthenticateRequest) returns (AuthenticateResponse);
@@ -25,6 +34,15 @@ service ProxyService {
   // ValidateSession validates a session token and checks user access permissions.
   // Called by the proxy after receiving a session token from OIDC callback.
   rpc ValidateSession(ValidateSessionRequest) returns (ValidateSessionResponse);
+
+  // ValidateTunnelPeer resolves an inbound peer by its WireGuard tunnel IP and
+  // checks the resolved user's access against the service's access_groups.
+  // Acts as a fast-path equivalent of OIDC for requests originating on the
+  // netbird mesh: when the source IP maps to a known peer in the calling
+  // account and that peer is in the service's access_groups, the proxy can
+  // issue a session cookie without redirecting through the OIDC flow.
+  // Mirrors ValidateSession's response shape.
+  rpc ValidateTunnelPeer(ValidateTunnelPeerRequest) returns (ValidateTunnelPeerResponse);
 }
 
 // ProxyCapabilities describes what a proxy can handle.
@@ -36,6 +54,13 @@ message ProxyCapabilities {
   optional bool require_subdomain = 2;
   // Whether the proxy has CrowdSec configured and can enforce IP reputation checks.
   optional bool supports_crowdsec = 3;
+  // Whether the proxy is running embedded in the netbird client and serving
+  // exclusively over the WireGuard tunnel (i.e. `netbird proxy` rather than
+  // the standalone netbird-proxy binary). Surfaces upstream so dashboards can
+  // distinguish per-peer / private clusters from centralised ones.
+  optional bool private = 4;
+  // Whether the proxy enforces ProxyMapping.private (fails closed on ValidateTunnelPeer failure). Management MUST NOT stream private mappings to proxies that don't claim this.
+  optional bool supports_private_service = 5;
 }
 
 // GetMappingUpdateRequest is sent to initialise a mapping stream.
@@ -77,6 +102,11 @@ message PathTargetOptions {
   bool proxy_protocol = 5;
   // Idle timeout before a UDP session is reaped.
   google.protobuf.Duration session_idle_timeout = 6;
+  // When true, the proxy dials this target via the host's network stack
+  // instead of through the embedded NetBird client. Useful for upstreams
+  // reachable without WireGuard (public APIs, LAN services, localhost
+  // sidecars). Defaults to false — embedded client is the standard path.
+  bool direct_upstream = 7;
 }
 
 message PathMapping {
@@ -129,6 +159,8 @@ message ProxyMapping {
   // For L4/TLS: the port the proxy listens on.
   int32 listen_port = 11;
   AccessRestrictions access_restrictions = 12;
+  // NetBird-only: the proxy MUST call ValidateTunnelPeer and fail closed; operator auth schemes are bypassed.
+  bool private = 13;
 }
 
 // SendAccessLogRequest consists of one or more AccessLogs from a Proxy.
@@ -204,6 +236,25 @@ message SendStatusUpdateRequest {
   ProxyStatus status = 3;
   bool certificate_issued = 4;
   optional string error_message = 5;
+  // Per-account inbound listener state for the account that owns
+  // service_id. Populated only when --private is enabled and the
+  // embedded client for the account is up. Field numbers >=50 reserved
+  // for observability extensions.
+  optional ProxyInboundListener inbound_listener = 50;
+}
+
+// ProxyInboundListener describes a per-account inbound listener that the
+// proxy has bound on the embedded netstack of the account's WireGuard
+// client. Surfaced so dashboards can render "this account is reachable
+// at <tunnel_ip>:<https_port> on this proxy".
+message ProxyInboundListener {
+  // Tunnel IP the embedded netstack listens on. Same address other peers
+  // in the account see for the proxy peer.
+  string tunnel_ip = 1;
+  // TLS port served on tunnel_ip (auto-detected, default 443).
+  uint32 https_port = 2;
+  // Plain-HTTP port served on tunnel_ip (auto-detected, default 80).
+  uint32 http_port = 3;
 }
 
 // SendStatusUpdateResponse is intentionally empty to allow for future expansion
@@ -245,4 +296,83 @@ message ValidateSessionResponse {
   string user_id = 2;
   string user_email = 3;
   string denied_reason = 4;
+  // peer_group_ids carries the calling user's group memberships so the
+  // proxy can authorise policy-aware middlewares without an additional
+  // management round-trip.
+  repeated string peer_group_ids = 5;
+  // peer_group_names carries the human-readable display names for the
+  // ids in peer_group_ids, ordered identically (positional pairing).
+  // Stamped onto upstream requests as X-NetBird-Groups so downstream
+  // services can read names rather than opaque ids.
+  repeated string peer_group_names = 6;
 }
+
+// ValidateTunnelPeerRequest carries the inbound peer's tunnel IP and the
+// service domain whose group requirements should gate access. The calling
+// account is inferred from the proxy's gRPC metadata (ProxyToken).
+message ValidateTunnelPeerRequest {
+  string tunnel_ip = 1;
+  string domain = 2;
+}
+
+// ValidateTunnelPeerResponse mirrors ValidateSessionResponse plus a freshly
+// minted session_token: when valid is true, the proxy installs the token as
+// a session cookie so subsequent requests skip the management round-trip,
+// matching the OIDC flow's UX. denied_reason values:
+//   "peer_not_found" — no peer with that tunnel IP in the calling account
+//   "no_user"        — peer exists but is not bound to a user
+//   "service_not_found"
+//   "account_mismatch"
+//   "not_in_group"   — peer resolved but not in service.access_groups
+message ValidateTunnelPeerResponse {
+  bool valid = 1;
+  string user_id = 2;
+  string user_email = 3;
+  string denied_reason = 4;
+  // session_token is set only when valid is true. Same shape as the JWT
+  // the OIDC flow produces — proxy installs it via setSessionCookie so the
+  // tunnel fast-path is indistinguishable from OIDC for subsequent requests.
+  string session_token = 5;
+  // peer_group_ids carries the resolved peer's user group memberships so
+  // the proxy can authorise policy-aware middlewares without an additional
+  // management round-trip.
+  repeated string peer_group_ids = 6;
+  // peer_group_names carries the human-readable display names for the
+  // ids in peer_group_ids, ordered identically (positional pairing).
+  // Stamped onto upstream requests as X-NetBird-Groups so downstream
+  // services can read names rather than opaque ids.
+  repeated string peer_group_names = 7;
+}
+
+// SyncMappingsRequest is sent by the proxy on the bidirectional SyncMappings
+// stream. The first message MUST be an init; all subsequent messages MUST be
+// acks.
+message SyncMappingsRequest {
+  oneof msg {
+    SyncMappingsInit init = 1;
+    SyncMappingsAck ack = 2;
+  }
+}
+
+// SyncMappingsInit is the first message on the stream, carrying the same
+// identification fields as GetMappingUpdateRequest.
+message SyncMappingsInit {
+  string proxy_id = 1;
+  string version = 2;
+  google.protobuf.Timestamp started_at = 3;
+  string address = 4;
+  ProxyCapabilities capabilities = 5;
+}
+
+// SyncMappingsAck is sent by the proxy after it has fully processed a batch.
+// Management waits for this before sending the next batch.
+message SyncMappingsAck {}
+
+// SyncMappingsResponse is a batch of mappings sent by management.
+// Identical semantics to GetMappingUpdateResponse.
+message SyncMappingsResponse {
+  repeated ProxyMapping mapping = 1;
+  // initial_sync_complete is set on the last message of the initial snapshot.
+  bool initial_sync_complete = 2;
+}
+

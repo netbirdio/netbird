@@ -74,8 +74,19 @@ type ProxyMeta struct {
 }
 
 type PeerStatus struct { //nolint:revive
-	// LastSeen is the last time peer was connected to the management service
+	// LastSeen is the last time the peer status was updated (i.e. the last
+	// time we observed the peer being alive on a sync stream). Written by
+	// the database (CURRENT_TIMESTAMP) — callers do not supply it.
 	LastSeen time.Time
+	// SessionStartedAt records when the currently-active sync stream began,
+	// stored as Unix nanoseconds. It acts as the optimistic-locking token
+	// for status updates: a stream is only allowed to mutate the peer's
+	// status when its own token strictly exceeds the stored token (when connecting)
+	// or matches it exactly (for disconnects). Zero means "no
+	// active session". Integer nanoseconds are used so equality is
+	// precision-safe across drivers, and so the predicates compose to a
+	// single bigint comparison.
+	SessionStartedAt int64 `gorm:"not null;default:0"`
 	// Connected indicates whether peer is connected to the management service or not
 	Connected bool
 	// LoginExpired
@@ -356,6 +367,22 @@ func (p *Peer) LoginExpired(expiresIn time.Duration) (bool, time.Duration) {
 	return timeLeft <= 0, timeLeft
 }
 
+// SessionExpiresAt returns the absolute UTC instant at which the peer's SSO
+// session expires, derived from LastLogin and the account-level
+// PeerLoginExpiration setting. Returns the zero value when login expiration
+// does not apply (peer not SSO-registered, peer-level toggle off, or account
+// expiry disabled). Callers should treat the zero value as "no deadline".
+func (p *Peer) SessionExpiresAt(accountExpirationEnabled bool, expiresIn time.Duration) time.Time {
+	if !accountExpirationEnabled || !p.AddedWithSSOLogin() || !p.LoginExpirationEnabled {
+		return time.Time{}
+	}
+	last := p.GetLastLogin()
+	if last.IsZero() {
+		return time.Time{}
+	}
+	return last.Add(expiresIn).UTC()
+}
+
 // FQDN returns peers FQDN combined of the peer's DNS label and the system's DNS domain
 func (p *Peer) FQDN(dnsDomain string) string {
 	if dnsDomain == "" {
@@ -375,10 +402,14 @@ func (p *Peer) EventMeta(dnsDomain string) map[string]any {
 	return meta
 }
 
-// Copy PeerStatus
+// Copy PeerStatus. SessionStartedAt must be propagated so clone-based
+// callers (Peer.Copy, MarkLoginExpired, UpdateLastLogin) don't silently
+// reset the fencing token to zero — that would let any subsequent
+// SavePeerStatus write reopen the optimistic-lock window.
 func (p *PeerStatus) Copy() *PeerStatus {
 	return &PeerStatus{
 		LastSeen:         p.LastSeen,
+		SessionStartedAt: p.SessionStartedAt,
 		Connected:        p.Connected,
 		LoginExpired:     p.LoginExpired,
 		RequiresApproval: p.RequiresApproval,
