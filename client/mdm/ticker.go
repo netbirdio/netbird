@@ -115,17 +115,17 @@ func PoliciesEqual(a, b *Policy) bool {
 // lexicographically for stable log output; value differences are
 // determined with reflect.DeepEqual.
 func diffPolicies(prev, curr *Policy) (added, removed, changed []string) {
-	prevKeys := mapOf(prev)
-	currKeys := mapOf(curr)
-	for k := range currKeys {
-		if _, ok := prevKeys[k]; !ok {
+	prevKVs := mapOf(prev)
+	currKVs := mapOf(curr)
+	for k := range currKVs {
+		if _, ok := prevKVs[k]; !ok {
 			added = append(added, k)
-		} else if !reflect.DeepEqual(prevKeys[k], currKeys[k]) {
+		} else if !reflect.DeepEqual(prevKVs[k], currKVs[k]) {
 			changed = append(changed, k)
 		}
 	}
-	for k := range prevKeys {
-		if _, ok := currKeys[k]; !ok {
+	for k := range prevKVs {
+		if _, ok := currKVs[k]; !ok {
 			removed = append(removed, k)
 		}
 	}
