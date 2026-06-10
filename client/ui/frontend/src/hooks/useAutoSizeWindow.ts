@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef } from "react";
 import { Window } from "@wailsio/runtime";
 import i18next from "@/lib/i18n";
+import { isLinux } from "@/lib/platform";
 
 // Sizes the current Wails window to the measured content height (keeping `width`),
 // then shows it. Re-applies on content resize and language change.
@@ -18,18 +19,24 @@ export function useAutoSizeWindow<T extends HTMLElement>(width: number, ready: b
             Window.Show().catch(() => {});
             Window.Focus().catch(() => {});
         };
-        const apply = () => {
+        const apply = async () => {
             if (!ready) return;
             const h = Math.ceil(el.getBoundingClientRect().height);
             if (h <= 0) return;
-            // Window.SetSize takes the frame size, so add the OS title-bar height or content clips.
-            Window.Size()
-                .then((frame) => {
-                    const chrome = Math.max(0, frame.height - window.innerHeight);
-                    return Window.SetSize(width, h + chrome);
-                })
-                .then(showOnce)
-                .catch(() => {});
+            try {
+                // Window.SetSize takes the frame size, so add the OS title-bar height or content clips.
+                const frame = await Window.Size();
+                const targetH = h + Math.max(0, frame.height - window.innerHeight);
+                // Linux: SetSize no-ops on a mapped non-resizable window (X11), so pin via min/max instead.
+                if (isLinux()) {
+                    await Window.SetMinSize(width, targetH);
+                    await Window.SetMaxSize(width, targetH);
+                }
+                await Window.SetSize(width, targetH);
+                showOnce();
+            } catch {
+                // window gone / not ready — ignore
+            }
         };
         const scheduleApply = () => {
             cancelAnimationFrame(raf1);

@@ -36,3 +36,4 @@ function get(): Platform {
 
 export const isWindows = (): boolean => get().isWindows;
 export const isMacOS = (): boolean => get().isMacOS;
+export const isLinux = (): boolean => !get().isWindows && !get().isMacOS;
