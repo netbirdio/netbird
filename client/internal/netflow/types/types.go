@@ -2,6 +2,7 @@ package types
 
 import (
 	"net/netip"
+	"slices"
 	"strconv"
 	"time"
 
@@ -92,6 +93,17 @@ type EventFields struct {
 	TxPackets        uint64
 	RxBytes          uint64
 	TxBytes          uint64
+	NumOfStarts      uint64
+	NumOfEnds        uint64
+	NumOfDrops       uint64
+}
+
+func (e *Event) Clone() *Event {
+	toret := *e
+	toret.RuleID = slices.Clone(e.RuleID)
+	toret.SourceResourceID = slices.Clone(e.SourceResourceID)
+	toret.DestResourceID = slices.Clone(e.DestResourceID)
+	return &toret
 }
 
 type FlowConfig struct {

@@ -91,6 +91,14 @@ func (am *AggregatingMemory) GetAggregatedEvents() []*types.Event {
 				aggregatedEvent.RxPackets += v.RxPackets
 				aggregatedEvent.TxBytes += v.TxBytes
 				aggregatedEvent.TxPackets += v.TxPackets
+				switch v.Type {
+				case types.TypeStart:
+					aggregatedEvent.NumOfStarts += 1
+				case types.TypeDrop:
+					aggregatedEvent.NumOfDrops += 1
+				case types.TypeEnd:
+					aggregatedEvent.NumOfEnds += 1
+				}
 				if aggregatedEvent.Timestamp.Compare(v.Timestamp) > 0 {
 					aggregatedEvent.Timestamp = v.Timestamp
 					aggregatedEvent.ID = v.ID
@@ -103,10 +111,19 @@ func (am *AggregatingMemory) GetAggregatedEvents() []*types.Event {
 		} else {
 			switch v.Protocol {
 			case types.ICMP, types.ICMPv6, types.TCP, types.UDP:
-				aggregated[lookupKey] = v
+				event := v.Clone()
+				aggregated[lookupKey] = event
+				switch event.Type {
+				case types.TypeStart:
+					event.NumOfStarts += 1
+				case types.TypeDrop:
+					event.NumOfDrops += 1
+				case types.TypeEnd:
+					event.NumOfEnds += 1
+				}
 			default:
 				lookupKey.ts = time.Now().UnixNano() // to make the lookup key unique so we don't aggregate on it
-				aggregated[lookupKey] = v
+				aggregated[lookupKey] = v.Clone()
 			}
 		}
 	}
