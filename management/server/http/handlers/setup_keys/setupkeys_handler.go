@@ -71,6 +71,11 @@ func (h *handler) createSetupKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.UsageLimit < 0 {
+		util.WriteError(r.Context(), status.Errorf(status.InvalidArgument, "usage_limit can not be negative"), w)
+		return
+	}
+
 	if req.AutoGroups == nil {
 		req.AutoGroups = []string{}
 	}
