@@ -191,6 +191,16 @@ func (d *copyRectDetector) extractCopyRectTiles(cur *image.RGBA, dirtyTiles [][4
 	for _, r := range dirtyTiles {
 		if r[2] == ts && r[3] == ts {
 			if sx, sy, ok := d.findTileMatch(cur, r[0], r[1]); ok {
+				// The client applies moves sequentially against its live
+				// framebuffer. If this move's source overlaps the
+				// destination of any move already queued, that destination
+				// has overwritten the source pixels client-side, so the
+				// copy would read corrupted data. Drop it and let the tile
+				// fall through to normal pixel encoding instead.
+				if tileOverlapsPriorDst(moves, sx, sy, ts) {
+					remaining = append(remaining, r)
+					continue
+				}
 				moves = append(moves, copyRectMove{
 					srcX: sx, srcY: sy, dstX: r[0], dstY: r[1],
 				})
@@ -200,4 +210,19 @@ func (d *copyRectDetector) extractCopyRectTiles(cur *image.RGBA, dirtyTiles [][4
 		remaining = append(remaining, r)
 	}
 	return moves, remaining
+}
+
+// tileOverlapsPriorDst reports whether the tileSize-square source rectangle
+// at (srcX, srcY) intersects the destination rectangle of any move already
+// emitted. All move rectangles are ts×ts, so the test reduces to a
+// per-axis distance check.
+func tileOverlapsPriorDst(moves []copyRectMove, srcX, srcY, ts int) bool {
+	for _, m := range moves {
+		dx := srcX - m.dstX
+		dy := srcY - m.dstY
+		if dx > -ts && dx < ts && dy > -ts && dy < ts {
+			return true
+		}
+	}
+	return false
 }

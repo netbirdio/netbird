@@ -12,10 +12,10 @@ import (
 	firewallManager "github.com/netbirdio/netbird/client/firewall/manager"
 	"github.com/netbirdio/netbird/client/iface/netstack"
 	nftypes "github.com/netbirdio/netbird/client/internal/netflow/types"
-	sshauth "github.com/netbirdio/netbird/shared/sessionauth"
 	sshconfig "github.com/netbirdio/netbird/client/ssh/config"
 	sshserver "github.com/netbirdio/netbird/client/ssh/server"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
+	sshauth "github.com/netbirdio/netbird/shared/sessionauth"
 	sshuserhash "github.com/netbirdio/netbird/shared/sshauth"
 )
 

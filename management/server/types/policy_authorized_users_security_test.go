@@ -1,6 +1,10 @@
 package types
 
-import "testing"
+import (
+	"testing"
+
+	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+)
 
 // TestHandleVNCRule_BidirectionalDistributesPubkeyToSourcePeer covers the
 // latent bug where a bidirectional VNC rule used to drop the
@@ -81,5 +85,70 @@ func TestHandleVNCRule_DestinationAlwaysGetsPubkey(t *testing.T) {
 
 	if len(state.vncSessionPubKeys) != 1 {
 		t.Fatalf("expected 1 session pubkey for destination peer, got %d", len(state.vncSessionPubKeys))
+	}
+}
+
+// TestApplyResolvedRule_BidirectionalSSHEnablesSourcePeer locks the
+// bidirectional widening for netbird-ssh rules: a peer that appears only
+// in the rule's sources of a bidirectional SSH rule must get SSH enabled
+// and its authorized users collected, because the rule grants access in
+// both directions. A unidirectional rule must not do this for a
+// source-only peer.
+func TestApplyResolvedRule_BidirectionalSSHEnablesSourcePeer(t *testing.T) {
+	collected := false
+	cb := ruleAuthCallbacks{
+		collectSSHUsers: func(_ *PolicyRule, target map[string]map[string]struct{}) {
+			collected = true
+			target["local"] = map[string]struct{}{"user1": {}}
+		},
+	}
+	rule := &PolicyRule{
+		Protocol:      PolicyRuleProtocolNetbirdSSH,
+		Bidirectional: true,
+	}
+	state := &peerConnResolveState{
+		authorizedUsers:    make(map[string]map[string]struct{}),
+		vncAuthorizedUsers: make(map[string]map[string]struct{}),
+	}
+
+	applyResolvedRuleToState(rule, nil, nil, true /*peerInSources*/, false /*peerInDestinations*/, false, func(*PolicyRule, []*nbpeer.Peer, int) {}, cb, state)
+
+	if !state.sshEnabled {
+		t.Fatal("expected SSH enabled on source-side peer of bidirectional SSH rule")
+	}
+	if !collected {
+		t.Fatal("expected authorized users collected on source-side peer of bidirectional SSH rule")
+	}
+	if _, ok := state.authorizedUsers["local"]; !ok {
+		t.Fatal("expected authorized users map populated for source-side peer")
+	}
+}
+
+// TestApplyResolvedRule_UnidirectionalSSHSkipsSourcePeer is the negative
+// counterpart: a unidirectional SSH rule must not enable SSH for a peer
+// that appears only in sources.
+func TestApplyResolvedRule_UnidirectionalSSHSkipsSourcePeer(t *testing.T) {
+	collected := false
+	cb := ruleAuthCallbacks{
+		collectSSHUsers: func(_ *PolicyRule, _ map[string]map[string]struct{}) {
+			collected = true
+		},
+	}
+	rule := &PolicyRule{
+		Protocol:      PolicyRuleProtocolNetbirdSSH,
+		Bidirectional: false,
+	}
+	state := &peerConnResolveState{
+		authorizedUsers:    make(map[string]map[string]struct{}),
+		vncAuthorizedUsers: make(map[string]map[string]struct{}),
+	}
+
+	applyResolvedRuleToState(rule, nil, nil, true /*peerInSources*/, false /*peerInDestinations*/, false, func(*PolicyRule, []*nbpeer.Peer, int) {}, cb, state)
+
+	if state.sshEnabled {
+		t.Fatal("expected SSH NOT enabled on source-only peer of unidirectional SSH rule")
+	}
+	if collected {
+		t.Fatal("expected NO authorized users collected on source-only peer of unidirectional SSH rule")
 	}
 }

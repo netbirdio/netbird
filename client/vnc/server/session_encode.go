@@ -257,8 +257,10 @@ func (s *session) handleResize() error {
 		return nil
 	}
 	s.log.Debugf("framebuffer resized: %dx%d -> %dx%d", s.serverW, s.serverH, w, h)
+	s.encMu.Lock()
 	s.serverW = w
 	s.serverH = h
+	s.encMu.Unlock()
 	// Drop the prev frame so the next encode produces a full update at
 	// the new dimensions rather than diffing against a stale-sized buffer.
 	s.prevFrame = nil
@@ -405,7 +407,7 @@ func promoteToBoundingBox(rects [][4]int) ([][4]int, bool) {
 	if bbox < bboxPromoteMinArea {
 		return nil, false
 	}
-	if dirty*100 < bbox*bboxPromoteDensityPct {
+	if int64(dirty)*100 < int64(bbox)*bboxPromoteDensityPct {
 		return nil, false
 	}
 	return [][4]int{{x0, y0, w, h}}, true
@@ -423,7 +425,7 @@ func (s *session) shouldPromoteToFullFrame(rects [][4]int) bool {
 	for _, r := range rects {
 		dirty += r[2] * r[3]
 	}
-	return dirty*fullFramePromoteDen > s.serverW*s.serverH*fullFramePromoteNum
+	return int64(dirty)*fullFramePromoteDen > int64(s.serverW)*int64(s.serverH)*fullFramePromoteNum
 }
 
 // swapPrevCur makes the just-encoded frame the new prevFrame (for the next

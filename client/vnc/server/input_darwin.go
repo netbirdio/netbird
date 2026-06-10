@@ -281,6 +281,8 @@ func releasePreventIdleSleep() {
 }
 
 func ensureEventSource() uintptr {
+	pmMu.Lock()
+	defer pmMu.Unlock()
 	if darwinEventSource != 0 {
 		return darwinEventSource
 	}

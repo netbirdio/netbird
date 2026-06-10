@@ -6,8 +6,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	auth "github.com/netbirdio/netbird/shared/sessionauth"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
+	auth "github.com/netbirdio/netbird/shared/sessionauth"
 )
 
 // peerConnResolveState carries the in-progress maps mutated by per-rule

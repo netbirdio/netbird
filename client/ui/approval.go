@@ -4,7 +4,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -15,6 +18,18 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/approval"
 	"github.com/netbirdio/netbird/client/proto"
+)
+
+// Approval metadata that is remote-peer or dashboard controlled is passed to
+// the forked netbird-ui via environment variables rather than argv, so it is
+// not exposed to other local users through ps.
+const (
+	envApprovalInitiator      = "NB_APPROVAL_INITIATOR"
+	envApprovalPeerName       = "NB_APPROVAL_PEER_NAME"
+	envApprovalSourceIP       = "NB_APPROVAL_SOURCE_IP"
+	envApprovalUsername       = "NB_APPROVAL_USERNAME"
+	envApprovalKeyFingerprint = "NB_APPROVAL_KEY_FINGERPRINT"
+	envApprovalSubject        = "NB_APPROVAL_SUBJECT"
 )
 
 // handleApprovalEvent forks a netbird-ui child process to render the
@@ -31,18 +46,56 @@ func (s *serviceClient) handleApprovalEvent(ev *proto.SystemEvent) {
 		log.Warnf("approval event missing request_id: %v", ev.Metadata)
 		return
 	}
+
+	// Only the request id, kind, and deadline stay on argv: they are
+	// daemon-issued and non-sensitive. The remote-influenced fields go
+	// through the child's environment.
 	args := []string{
 		"--approval-request-id=" + requestID,
 		"--approval-kind=" + ev.Metadata["kind"],
-		"--approval-initiator=" + ev.Metadata["initiator"],
-		"--approval-peer-name=" + ev.Metadata["peer_name"],
-		"--approval-source-ip=" + ev.Metadata["source_ip"],
-		"--approval-username=" + ev.Metadata["username"],
 		"--approval-expires-at=" + ev.Metadata["expires_at"],
-		"--approval-key-fingerprint=" + ev.Metadata["peer_pubkey"],
-		"--approval-subject=" + ev.UserMessage,
 	}
-	go s.eventHandler.runSelfCommand(s.ctx, "approval", args...)
+	env := append(os.Environ(),
+		envApprovalInitiator+"="+ev.Metadata["initiator"],
+		envApprovalPeerName+"="+ev.Metadata["peer_name"],
+		envApprovalSourceIP+"="+ev.Metadata["source_ip"],
+		envApprovalUsername+"="+ev.Metadata["username"],
+		envApprovalKeyFingerprint+"="+ev.Metadata["peer_pubkey"],
+		envApprovalSubject+"="+ev.UserMessage,
+	)
+	go s.runApprovalCommand(s.ctx, env, args)
+}
+
+// runApprovalCommand forks netbird-ui to render the approval dialog,
+// inheriting the parent environment plus the approval-specific variables. It
+// mirrors runSelfCommand but sets cmd.Env so the sensitive metadata never
+// appears on the child's argv.
+func (s *serviceClient) runApprovalCommand(ctx context.Context, env, args []string) {
+	proc, err := os.Executable()
+	if err != nil {
+		log.Errorf("get executable path: %v", err)
+		return
+	}
+
+	cmdArgs := append([]string{"--approval=true", "--daemon-addr=" + s.addr}, args...)
+	cmd := exec.CommandContext(ctx, proc, cmdArgs...)
+	cmd.Env = env
+
+	if out := s.attachOutput(cmd); out != nil {
+		defer func() {
+			if err := out.Close(); err != nil {
+				log.Errorf("close log file %s: %v", s.logFile, err)
+			}
+		}()
+	}
+
+	log.Printf("running approval command: %s", cmd.String())
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			log.Printf("approval command failed with exit code %d", exitErr.ExitCode())
+		}
+	}
 }
 
 // showApprovalUI runs the dialog on the forked process's fyne main loop

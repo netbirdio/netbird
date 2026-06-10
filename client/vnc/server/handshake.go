@@ -3,7 +3,6 @@
 package server
 
 import (
-	"bufio"
 	"bytes"
 	"crypto/subtle"
 	"encoding/binary"
@@ -119,21 +118,35 @@ func (s *Server) readConnectionHeader(conn net.Conn) (*connectionHeader, error) 
 		username = string(buf)
 	}
 
-	br := bufio.NewReader(conn)
-	clientStatic, identityVerified, err := s.maybeRunNoiseHandshake(conn, br, mode, username)
+	// Read the 4-byte magic candidate directly off the wire instead of
+	// buffering ahead with a bufio.Reader: the session reads the raw conn
+	// after this returns, so any bytes a bufio.Reader buffered past the
+	// header would be silently dropped. When the bytes aren't the v3 magic
+	// they are the start of the session_id field and feed straight into it.
+	var magicBuf [4]byte
+	if _, err := io.ReadFull(conn, magicBuf[:]); err != nil {
+		return &connectionHeader{mode: mode, username: username}, nil
+	}
+
+	clientStatic, identityVerified, magicConsumed, err := s.maybeRunNoiseHandshake(conn, magicBuf, mode, username)
 	if err != nil {
 		return nil, err
 	}
 
 	var sessionID uint32
-	var sidBuf [4]byte
-	if _, err := io.ReadFull(br, sidBuf[:]); err == nil {
-		sessionID = binary.BigEndian.Uint32(sidBuf[:])
+	var width, height uint16
+	if magicConsumed {
+		var sidBuf [4]byte
+		if _, err := io.ReadFull(conn, sidBuf[:]); err == nil {
+			sessionID = binary.BigEndian.Uint32(sidBuf[:])
+		}
+	} else {
+		// No magic: the 4 bytes we already read are the session_id.
+		sessionID = binary.BigEndian.Uint32(magicBuf[:])
 	}
 
-	var width, height uint16
 	var geomBuf [4]byte
-	if _, err := io.ReadFull(br, geomBuf[:]); err == nil {
+	if _, err := io.ReadFull(conn, geomBuf[:]); err == nil {
 		width = binary.BigEndian.Uint16(geomBuf[0:2])
 		height = binary.BigEndian.Uint16(geomBuf[2:4])
 	}
@@ -155,18 +168,14 @@ func (s *Server) readConnectionHeader(conn net.Conn) (*connectionHeader, error) 
 // (fail closed). headerMode and headerUsername are mixed into the Noise
 // prologue so the client cannot lie in the cleartext header prefix
 // without making its own AEAD MAC verify-fail on the responder side.
-func (s *Server) maybeRunNoiseHandshake(conn net.Conn, br *bufio.Reader, headerMode byte, headerUsername string) ([]byte, bool, error) {
-	peek, _ := br.Peek(len(vncIdentityMagic))
-	if !bytes.Equal(peek, vncIdentityMagic) {
-		return nil, false, nil
-	}
-	if _, err := br.Discard(len(vncIdentityMagic)); err != nil {
-		return nil, false, fmt.Errorf("discard identity magic: %w", err)
+func (s *Server) maybeRunNoiseHandshake(conn net.Conn, magic [4]byte, headerMode byte, headerUsername string) (clientStatic []byte, identityVerified, magicConsumed bool, err error) {
+	if !bytes.Equal(magic[:], vncIdentityMagic) {
+		return nil, false, false, nil
 	}
 
 	msg1 := make([]byte, noiseInitiatorMsgLen)
-	if _, err := io.ReadFull(br, msg1); err != nil {
-		return nil, false, fmt.Errorf("read noise msg1: %w", err)
+	if _, err := io.ReadFull(conn, msg1); err != nil {
+		return nil, false, true, fmt.Errorf("read noise msg1: %w", err)
 	}
 
 	// Agents on loopback authenticate via the agent token, not this
@@ -179,11 +188,11 @@ func (s *Server) maybeRunNoiseHandshake(conn net.Conn, br *bufio.Reader, headerM
 	// short-circuit will see the truthful "no Noise identity proved
 	// here" rather than a stale true.
 	if s.disableAuth {
-		return nil, false, nil
+		return nil, false, true, nil
 	}
 
 	if len(s.identityKey) != 32 || len(s.identityPublic) != 32 {
-		return nil, false, errors.New("identity key not configured")
+		return nil, false, true, errors.New("identity key not configured")
 	}
 	state, err := noise.NewHandshakeState(noise.Config{
 		CipherSuite:   vncNoiseSuite,
@@ -193,27 +202,27 @@ func (s *Server) maybeRunNoiseHandshake(conn net.Conn, br *bufio.Reader, headerM
 		StaticKeypair: noise.DHKey{Private: s.identityKey, Public: s.identityPublic},
 	})
 	if err != nil {
-		return nil, false, fmt.Errorf("noise responder init: %w", err)
+		return nil, false, true, fmt.Errorf("noise responder init: %w", err)
 	}
 	if _, _, _, err := state.ReadMessage(nil, msg1); err != nil {
-		return nil, false, fmt.Errorf("noise read msg1: %w", err)
+		return nil, false, true, fmt.Errorf("noise read msg1: %w", err)
 	}
 	msg2, _, _, err := state.WriteMessage(nil, nil)
 	if err != nil {
-		return nil, false, fmt.Errorf("noise write msg2: %w", err)
+		return nil, false, true, fmt.Errorf("noise write msg2: %w", err)
 	}
 	if len(msg2) != noiseResponderMsgLen {
-		return nil, false, fmt.Errorf("noise responder produced %d bytes, expected %d", len(msg2), noiseResponderMsgLen)
+		return nil, false, true, fmt.Errorf("noise responder produced %d bytes, expected %d", len(msg2), noiseResponderMsgLen)
 	}
 	if _, err := conn.Write(msg2); err != nil {
-		return nil, false, fmt.Errorf("write noise msg2: %w", err)
+		return nil, false, true, fmt.Errorf("write noise msg2: %w", err)
 	}
 
-	clientStatic := state.PeerStatic()
-	if len(clientStatic) != 32 {
-		return nil, false, errors.New("noise peer static missing")
+	peerStatic := state.PeerStatic()
+	if len(peerStatic) != 32 {
+		return nil, false, true, errors.New("noise peer static missing")
 	}
-	return clientStatic, true, nil
+	return peerStatic, true, true, nil
 }
 
 // verifyAgentToken validates the agent token prefix when configured and

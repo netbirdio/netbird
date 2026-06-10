@@ -21,6 +21,12 @@ import (
 
 var cryptoRandRead = crand.Read
 
+// proxyIDCounter is process-unique across every createVNCProxy call so each
+// proxy/connection registers a distinct global handler name. A per-proxy
+// counter would restart at 1 for every new VNCProxy, letting a reconnect's
+// cleanup delete the new proxy's handler.
+var proxyIDCounter atomic.Uint64
+
 // vncIdentityMagic mirrors the server side in client/vnc/server/server.go.
 var vncIdentityMagic = []byte("NBV3")
 
@@ -115,7 +121,7 @@ type vncNBClient interface {
 }
 
 type VNCProxy struct {
-	nbClient vncNBClient
+	nbClient          vncNBClient
 	activeConnections map[string]*vncConnection
 	destinations      map[string]vncDestination
 	// pendingHandlers holds the js.Func for handleVNCWebSocket_<id> between
@@ -123,19 +129,18 @@ type VNCProxy struct {
 	// vncConnection for later release.
 	pendingHandlers map[string]js.Func
 	mu              sync.Mutex
-	nextID          atomic.Uint64
 }
 
 type vncDestination struct {
-	address      string
-	mode         byte
-	username     string
-	sessionPriv  []byte
-	sessionPub   []byte
-	sessionID    uint32
-	width        uint16
-	height       uint16
-	peerPubKey []byte
+	address     string
+	mode        byte
+	username    string
+	sessionPriv []byte
+	sessionPub  []byte
+	sessionID   uint32
+	width       uint16
+	height      uint16
+	peerPubKey  []byte
 }
 
 type vncConnection struct {
@@ -152,6 +157,10 @@ type vncConnection struct {
 	wsHandlerFn js.Func
 	onMessageFn js.Func
 	onCloseFn   js.Func
+	// writeQueue carries inbound WS payloads to a single writer goroutine so
+	// vncConn.Write calls stay serialized in arrival order.
+	writeQueue  chan []byte
+	cleanupOnce sync.Once
 }
 
 // NewVNCProxy creates a new VNC proxy.
@@ -253,7 +262,7 @@ func (p *VNCProxy) newProxyPromise(address, mode, username string, dest vncDesti
 		go func() {
 			defer executor.Release()
 
-			proxyID := fmt.Sprintf("vnc_proxy_%d", p.nextID.Add(1))
+			proxyID := fmt.Sprintf("vnc_proxy_%d", proxyIDCounter.Add(1))
 
 			p.mu.Lock()
 			if p.destinations == nil {
@@ -309,6 +318,7 @@ func (p *VNCProxy) handleWebSocketConnection(ws js.Value, proxyID string) {
 		ctx:         ctx,
 		cancel:      cancel,
 		wsHandlerFn: handlerFn,
+		writeQueue:  make(chan []byte, 256),
 	}
 
 	p.mu.Lock()
@@ -326,8 +336,7 @@ func (p *VNCProxy) setupWebSocketHandlers(ws js.Value, conn *vncConnection) {
 		if len(args) < 1 {
 			return nil
 		}
-		data := args[0]
-		go p.handleWebSocketMessage(conn, data)
+		p.enqueueWebSocketMessage(conn, args[0])
 		return nil
 	})
 	ws.Set("onGoMessage", conn.onMessageFn)
@@ -340,7 +349,12 @@ func (p *VNCProxy) setupWebSocketHandlers(ws js.Value, conn *vncConnection) {
 	ws.Set("onGoClose", conn.onCloseFn)
 }
 
-func (p *VNCProxy) handleWebSocketMessage(conn *vncConnection, data js.Value) {
+// enqueueWebSocketMessage copies an inbound WS payload into Go memory and
+// hands it to the writer goroutine in arrival order. JS onmessage events are
+// delivered single-threaded on the event loop, so copying here preserves
+// stream order. When the queue is full the connection is torn down rather
+// than dropping bytes, which would corrupt the RFB stream.
+func (p *VNCProxy) enqueueWebSocketMessage(conn *vncConnection, data js.Value) {
 	if !data.InstanceOf(js.Global().Get("Uint8Array")) {
 		return
 	}
@@ -349,16 +363,30 @@ func (p *VNCProxy) handleWebSocketMessage(conn *vncConnection, data js.Value) {
 	buf := make([]byte, length)
 	js.CopyBytesToGo(buf, data)
 
-	conn.mu.Lock()
-	vncConn := conn.vncConn
-	conn.mu.Unlock()
-
-	if vncConn == nil {
-		return
+	select {
+	case <-conn.ctx.Done():
+	case conn.writeQueue <- buf:
+	default:
+		log.Debugf("VNC write queue full for %s; closing connection", conn.id)
+		conn.cancel()
 	}
+}
 
-	if _, err := vncConn.Write(buf); err != nil {
-		log.Debugf("write to VNC server: %v", err)
+// writeQueueLoop drains the ordered write queue and performs the blocking
+// vncConn.Write sequentially, serializing WS→TCP writes. It exits when the
+// connection context is cancelled.
+func (p *VNCProxy) writeQueueLoop(conn *vncConnection, vncConn net.Conn) {
+	for {
+		select {
+		case <-conn.ctx.Done():
+			return
+		case buf := <-conn.writeQueue:
+			if _, err := vncConn.Write(buf); err != nil {
+				log.Debugf("write to VNC server: %v", err)
+				conn.cancel()
+				return
+			}
+		}
 	}
 }
 
@@ -394,9 +422,10 @@ func (p *VNCProxy) connectToVNC(conn *vncConnection) {
 		return
 	}
 
-	// WS→TCP is handled by the onGoMessage handler set in setupWebSocketHandlers,
-	// which writes directly to the VNC connection as data arrives from JS.
-	// Only the TCP→WS direction needs a read loop here.
+	// WS→TCP payloads are enqueued in arrival order by the onGoMessage handler
+	// and drained sequentially by a single writer goroutine, keeping the RFB
+	// stream ordered. The TCP→WS direction has its own read loop.
+	go p.writeQueueLoop(conn, vncConn)
 	go p.forwardConnToWS(conn)
 
 	<-conn.ctx.Done()
@@ -573,33 +602,47 @@ func (p *VNCProxy) sendToWebSocket(conn *vncConnection, data []byte) {
 }
 
 func (p *VNCProxy) cleanupConnection(conn *vncConnection) {
-	log.Debugf("cleaning up VNC connection %s", conn.id)
-	conn.cancel()
+	conn.cleanupOnce.Do(func() {
+		log.Debugf("cleaning up VNC connection %s", conn.id)
+		conn.cancel()
 
-	conn.mu.Lock()
-	vncConn := conn.vncConn
-	conn.vncConn = nil
-	conn.mu.Unlock()
+		conn.mu.Lock()
+		vncConn := conn.vncConn
+		conn.vncConn = nil
+		conn.mu.Unlock()
 
-	if vncConn != nil {
-		if err := vncConn.Close(); err != nil {
-			log.Debugf("close VNC connection: %v", err)
+		if vncConn != nil {
+			if err := vncConn.Close(); err != nil {
+				log.Debugf("close VNC connection: %v", err)
+			}
 		}
-	}
 
-	// Remove the global JS handler registered in CreateProxy.
-	globalName := fmt.Sprintf("handleVNCWebSocket_%s", conn.id)
-	js.Global().Delete(globalName)
+		// Remove the global JS handler registered in CreateProxy.
+		js.Global().Delete(fmt.Sprintf("handleVNCWebSocket_%s", conn.id))
 
-	// Release all js.Func handles; js.FuncOf pins the Go closure and the
-	// allocations it captures until Release is called.
-	conn.wsHandlerFn.Release()
-	conn.onMessageFn.Release()
-	conn.onCloseFn.Release()
+		// Detach before releasing so a late WS event surfaces as a TypeError
+		// instead of calling a released js.Func and panicking the runtime.
+		if conn.wsHandlers.Truthy() {
+			conn.wsHandlers.Set("onGoMessage", js.Undefined())
+			conn.wsHandlers.Set("onGoClose", js.Undefined())
+		}
 
-	p.mu.Lock()
-	delete(p.activeConnections, conn.id)
-	delete(p.destinations, conn.id)
-	delete(p.pendingHandlers, conn.id)
-	p.mu.Unlock()
+		// wsHandlerFn is the zero js.Func when the pendingHandlers lookup
+		// missed on a second connect.
+		if conn.wsHandlerFn.Truthy() {
+			conn.wsHandlerFn.Release()
+		}
+		if conn.onMessageFn.Truthy() {
+			conn.onMessageFn.Release()
+		}
+		if conn.onCloseFn.Truthy() {
+			conn.onCloseFn.Release()
+		}
+
+		p.mu.Lock()
+		delete(p.activeConnections, conn.id)
+		delete(p.destinations, conn.id)
+		delete(p.pendingHandlers, conn.id)
+		p.mu.Unlock()
+	})
 }

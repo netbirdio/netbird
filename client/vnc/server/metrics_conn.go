@@ -3,6 +3,7 @@
 package server
 
 import (
+	"encoding/binary"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -169,26 +170,20 @@ func (m *metricsConn) BusyFraction() float64 {
 	return m.busyFraction
 }
 
-// isFBUHeader reports whether the given Write payload is the 4-byte
-// FramebufferUpdate header (message type 0, padding 0, rect-count high
-// byte). Rect bodies are written separately by sendDirtyAndMoves, so the
-// FBU/rect boundary lines up with Write boundaries.
-func isFBUHeader(p []byte) bool {
-	return len(p) == 4 && p[0] == serverFramebufferUpdate
+// startsFBU reports whether the Write payload begins a FramebufferUpdate
+// message (message type byte 0). This holds both for the standalone 4-byte
+// header that sendDirtyAndMoves writes before its rect bodies and for the
+// single framed Write that sendFullUpdate / sendEmptyUpdate use to emit a
+// whole FBU (header plus body) at once. Either way the FBU boundary lines
+// up with this Write boundary.
+func startsFBU(p []byte) bool {
+	return len(p) >= 1 && p[0] == serverFramebufferUpdate
 }
 
 func (m *metricsConn) Write(p []byte) (int, error) {
-	if isFBUHeader(p) {
-		if b := m.fbuBytes.Swap(0); b > 0 {
-			if b > m.maxFBUBytes.Load() {
-				m.maxFBUBytes.Store(b)
-			}
-		}
-		if r := m.fbuRects.Swap(0); r > 0 {
-			if r > m.maxFBURects.Load() {
-				m.maxFBURects.Store(r)
-			}
-		}
+	fbuStart := startsFBU(p)
+	if fbuStart {
+		m.flushFBUMax()
 		m.fbus.Add(1)
 	}
 
@@ -197,14 +192,32 @@ func (m *metricsConn) Write(p []byte) (int, error) {
 	m.writeNanos.Add(uint64(time.Since(t0).Nanoseconds()))
 	m.bytesOut.Add(uint64(n))
 	m.writes.Add(1)
-	if !isFBUHeader(p) {
-		m.fbuBytes.Add(uint64(n))
-		m.fbuRects.Add(1)
+
+	m.fbuBytes.Add(uint64(n))
+	if fbuStart {
+		// Rect count is carried in bytes 2:3 of the FBU header. A standalone
+		// header records it here; the rect bodies that follow only add bytes.
+		if len(p) >= 4 {
+			m.fbuRects.Add(uint64(binary.BigEndian.Uint16(p[2:4])))
+		}
 	}
+
 	if uint64(n) > m.largestPkt.Load() {
 		m.largestPkt.Store(uint64(n))
 	}
 	return n, err
+}
+
+// flushFBUMax folds the bytes and rects accumulated for the FBU that just
+// ended into the per-tick high-water marks, then resets the accumulators
+// for the next FBU.
+func (m *metricsConn) flushFBUMax() {
+	if b := m.fbuBytes.Swap(0); b > m.maxFBUBytes.Load() {
+		m.maxFBUBytes.Store(b)
+	}
+	if r := m.fbuRects.Swap(0); r > m.maxFBURects.Load() {
+		m.maxFBURects.Store(r)
+	}
 }
 
 func (m *metricsConn) Close() error {
@@ -213,12 +226,7 @@ func (m *metricsConn) Close() error {
 		if m.recorder == nil {
 			return
 		}
-		if b := m.fbuBytes.Swap(0); b > m.maxFBUBytes.Load() {
-			m.maxFBUBytes.Store(b)
-		}
-		if r := m.fbuRects.Swap(0); r > m.maxFBURects.Load() {
-			m.maxFBURects.Store(r)
-		}
+		m.flushFBUMax()
 		m.flushTick(true)
 	})
 	return m.Conn.Close()

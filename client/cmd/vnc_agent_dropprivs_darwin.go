@@ -5,6 +5,8 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/user"
+	"strconv"
 	"syscall"
 )
 
@@ -31,14 +33,21 @@ func dropAgentPrivileges(targetUID uint32) error {
 	if cur != 0 {
 		return fmt.Errorf("agent uid %d does not match expected %d and we lack root to fix it", cur, targetUID)
 	}
+	// Resolve the target user's real primary group rather than reusing
+	// targetUID as the gid: a user's primary group on macOS is typically
+	// staff(20), not gid==uid. Fail closed if the lookup fails.
+	targetGID, err := primaryGroupID(targetUID)
+	if err != nil {
+		return err
+	}
 	// Drop supplementary groups first: setgid alone doesn't touch the
 	// auxiliary group list, leaving root's groups attached would let the
 	// dropped process write to root-only group-writable files.
 	if err := syscall.Setgroups([]int{}); err != nil {
 		return fmt.Errorf("setgroups([]): %w", err)
 	}
-	if err := syscall.Setgid(int(targetUID)); err != nil {
-		return fmt.Errorf("setgid(%d): %w", targetUID, err)
+	if err := syscall.Setgid(targetGID); err != nil {
+		return fmt.Errorf("setgid(%d): %w", targetGID, err)
 	}
 	if err := syscall.Setuid(int(targetUID)); err != nil {
 		return fmt.Errorf("setuid(%d): %w", targetUID, err)
@@ -47,4 +56,19 @@ func dropAgentPrivileges(targetUID uint32) error {
 		return fmt.Errorf("setuid verification: uid=%d euid=%d, expected %d", os.Getuid(), os.Geteuid(), targetUID)
 	}
 	return nil
+}
+
+// primaryGroupID resolves the real primary group id of the user with the
+// given uid. Fails closed: a lookup or parse error returns an error so the
+// caller never falls back to using uid as the gid.
+func primaryGroupID(targetUID uint32) (int, error) {
+	u, err := user.LookupId(strconv.Itoa(int(targetUID)))
+	if err != nil {
+		return 0, fmt.Errorf("look up uid %d: %w", targetUID, err)
+	}
+	gid, err := strconv.Atoi(u.Gid)
+	if err != nil {
+		return 0, fmt.Errorf("parse gid %q for uid %d: %w", u.Gid, targetUID, err)
+	}
+	return gid, nil
 }

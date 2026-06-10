@@ -138,7 +138,6 @@ type Flags struct {
 	DisableIPv6         bool
 
 	LazyConnectionEnabled bool
-
 }
 
 // PeerSystemMeta is a metadata of a Peer machine system

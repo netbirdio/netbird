@@ -20,6 +20,12 @@ const (
 	maxCutTextBytes = 1 << 20 // 1 MiB
 )
 
+// handshakeDeadline bounds the RFB handshake exchange (version, security,
+// ClientInit). Without it an authenticated peer can park a connection
+// between the connection-header deadlines and messageLoop's own deadline,
+// pinning a connSem slot.
+const handshakeDeadline = 10 * time.Second
+
 const tileSize = 64 // pixels per tile for dirty-rect detection
 
 // fullFramePromoteNum/Den trigger full-frame encoding when the dirty area
@@ -48,9 +54,12 @@ const (
 )
 
 type session struct {
-	conn        net.Conn
-	capturer    ScreenCapturer
-	injector    InputInjector
+	conn     net.Conn
+	capturer ScreenCapturer
+	injector InputInjector
+	// serverW and serverH are the current framebuffer dimensions. The
+	// encoder goroutine updates them on resize while the message loop reads
+	// them for pointer scaling, so both accesses are guarded by encMu.
 	serverW     int
 	serverH     int
 	desktopName string
@@ -200,6 +209,11 @@ func (s *session) serve() {
 }
 
 func (s *session) handshake() error {
+	if err := s.conn.SetDeadline(time.Now().Add(handshakeDeadline)); err != nil {
+		return fmt.Errorf("set handshake deadline: %w", err)
+	}
+	defer s.conn.SetDeadline(time.Time{}) //nolint:errcheck
+
 	// Send protocol version.
 	if _, err := io.WriteString(s.conn, rfbProtocolVersion); err != nil {
 		return fmt.Errorf("send version: %w", err)
@@ -540,38 +554,6 @@ func (s *session) handleFBUpdateRequest() error {
 	return nil
 }
 
-// SendDesktopName pushes a DesktopName pseudo-encoded update to the
-// client if it advertised support. Lets the client keep its window title
-// in sync with the active session (e.g. username changes after login on
-// a virtual session).
-func (s *session) SendDesktopName(name string) error {
-	if s.viewOnly {
-		name = ViewOnlyDesktopNamePrefix + name
-	}
-	s.encMu.RLock()
-	supported := s.clientSupportsDesktopName
-	s.encMu.RUnlock()
-	if !supported {
-		s.desktopName = name
-		return nil
-	}
-	s.desktopName = name
-	header := make([]byte, 4)
-	header[0] = serverFramebufferUpdate
-	binary.BigEndian.PutUint16(header[2:4], 1)
-
-	body := encodeDesktopNameBody(name)
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
-	if _, err := s.conn.Write(header); err != nil {
-		return err
-	}
-	if _, err := s.conn.Write(body); err != nil {
-		return err
-	}
-	return nil
-}
-
 func (s *session) handleKeyEvent() error {
 	var data [7]byte
 	if _, err := io.ReadFull(s.conn, data[:]); err != nil {
@@ -639,7 +621,10 @@ func (s *session) handlePointerEvent() error {
 	s.lastPointerX = x
 	s.lastPointerY = y
 	s.pointerMu.Unlock()
-	s.injector.InjectPointer(mask, x, y, s.serverW, s.serverH)
+	s.encMu.RLock()
+	w, h := s.serverW, s.serverH
+	s.encMu.RUnlock()
+	s.injector.InjectPointer(mask, x, y, w, h)
 	return nil
 }
 
@@ -673,5 +658,8 @@ func (s *session) releaseStickyInput() {
 	s.pointerMu.Lock()
 	x, y := s.lastPointerX, s.lastPointerY
 	s.pointerMu.Unlock()
-	s.injector.InjectPointer(0, x, y, s.serverW, s.serverH)
+	s.encMu.RLock()
+	w, h := s.serverW, s.serverH
+	s.encMu.RUnlock()
+	s.injector.InjectPointer(0, x, y, w, h)
 }

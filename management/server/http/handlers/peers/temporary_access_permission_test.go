@@ -2,6 +2,7 @@ package peers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -34,7 +35,7 @@ func TestCreateTemporaryAccess_RejectsCallerWithoutPeersCreate(t *testing.T) {
 	// nil so the test fails loudly if the handler tries to call it.
 	permMgr.EXPECT().
 		ValidateUserPermissions(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Eq(modules.Peers), gomock.Eq(operations.Create)).
-		Return(false, nil).
+		Return(false, context.Background(), nil).
 		Times(1)
 
 	h := &Handler{
@@ -74,11 +75,11 @@ func TestCreateTemporaryAccess_RejectsCallerWithoutPoliciesCreate(t *testing.T) 
 
 	permMgr.EXPECT().
 		ValidateUserPermissions(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Eq(modules.Peers), gomock.Eq(operations.Create)).
-		Return(true, nil).
+		Return(true, context.Background(), nil).
 		Times(1)
 	permMgr.EXPECT().
 		ValidateUserPermissions(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Eq(modules.Policies), gomock.Eq(operations.Create)).
-		Return(false, nil).
+		Return(false, context.Background(), nil).
 		Times(1)
 
 	h := &Handler{
