@@ -35,6 +35,18 @@ const (
 	deprecatedRemotePeersVersion = "0.29.3"
 )
 
+// precomputedDeprecatedRemotePeersConstraint is the parsed ">= 0.29.3" constraint,
+// built once at init since the bound is a compile-time constant.
+var precomputedDeprecatedRemotePeersConstraint version.Constraints
+
+func init() {
+	constraint, err := version.NewConstraint(">= " + deprecatedRemotePeersVersion)
+	if err != nil {
+		panic("parse deprecated remote peers version constraint: " + err.Error())
+	}
+	precomputedDeprecatedRemotePeersConstraint = constraint
+}
+
 func toNetbirdConfig(config *nbconfig.Config, turnCredentials *Token, relayToken *Token, extraSettings *types.ExtraSettings) *proto.NetbirdConfig {
 	if config == nil {
 		return nil
@@ -255,18 +267,6 @@ func buildAuthorizedUsersProto(ctx context.Context, authorizedUsers map[string]m
 	}
 
 	return hashedUsers, machineUsers
-}
-
-// precomputedDeprecatedRemotePeersConstraint is the parsed ">= 0.29.3" constraint,
-// built once at init since the bound is a compile-time constant.
-var precomputedDeprecatedRemotePeersConstraint version.Constraints
-
-func init() {
-	constraint, err := version.NewConstraint(">= " + deprecatedRemotePeersVersion)
-	if err != nil {
-		panic("parse deprecated remote peers version constraint: " + err.Error())
-	}
-	precomputedDeprecatedRemotePeersConstraint = constraint
 }
 
 func shouldSkipSendingDeprecatedRemotePeers(peerVersion string) bool {
