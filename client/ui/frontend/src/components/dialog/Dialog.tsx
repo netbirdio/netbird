@@ -7,50 +7,61 @@ import { cn } from "@/lib/cn";
 
 export const Root = DialogPrimitive.Root;
 
-const Overlay = forwardRef<
-    ElementRef<typeof DialogPrimitive.Overlay>,
-    ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
->(function DialogOverlay({ className, ...props }, ref) {
-    return (
-        <DialogPrimitive.Overlay
-            ref={ref}
-            className={cn(
-                "fixed inset-0 z-50 grid items-center justify-items-center overflow-y-auto px-10 py-16",
-                "bg-black/60",
-                "data-[state=open]:animate-in data-[state=closed]:animate-out",
-                "data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
-                "duration-150 ease-out",
-                className,
-            )}
-            {...props}
-        />
-    );
-});
+type OverlayProps = ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay> & {
+    exitAnimation?: boolean;
+};
+
+const Overlay = forwardRef<ElementRef<typeof DialogPrimitive.Overlay>, OverlayProps>(
+    function DialogOverlay({ className, exitAnimation = false, ...props }, ref) {
+        return (
+            <DialogPrimitive.Overlay
+                ref={ref}
+                className={cn(
+                    "fixed inset-0 z-50 grid items-center justify-items-center overflow-y-auto px-10 py-16",
+                    "bg-black/60",
+                    "data-[state=open]:animate-in data-[state=open]:fade-in-0",
+                    exitAnimation && "data-[state=closed]:animate-out data-[state=closed]:fade-out-0",
+                    "duration-150 ease-out",
+                    className,
+                )}
+                {...props}
+            />
+        );
+    },
+);
 
 type ContentProps = ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
     showClose?: boolean;
     maxWidthClass?: string;
+    exitAnimation?: boolean;
 };
 
 export const Content = forwardRef<ElementRef<typeof DialogPrimitive.Content>, ContentProps>(
     function DialogContent(
-        { className, children, showClose = true, maxWidthClass = "max-w-md", ...props },
+        {
+            className,
+            children,
+            showClose = true,
+            maxWidthClass = "max-w-md",
+            exitAnimation = false,
+            ...props
+        },
         ref,
     ) {
         const { t } = useTranslation();
         return (
             <DialogPrimitive.Portal>
-                <Overlay>
+                <Overlay exitAnimation={exitAnimation}>
                     <DialogPrimitive.Content
                         ref={ref}
                         className={cn(
                             "mx-auto relative z-[52] w-full outline-none ring-0",
                             "focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0",
                             "border border-nb-gray-900 bg-nb-gray py-7 shadow-2xl rounded-lg",
-                            "data-[state=open]:animate-in data-[state=closed]:animate-out",
-                            "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
-                            "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
-                            "data-[state=closed]:slide-out-to-left-1 data-[state=open]:slide-in-from-left-1",
+                            "data-[state=open]:animate-in data-[state=open]:fade-in-0",
+                            "data-[state=open]:zoom-in-95 data-[state=open]:slide-in-from-left-1",
+                            exitAnimation &&
+                                "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=closed]:slide-out-to-left-1",
                             "duration-150 ease-out",
                             maxWidthClass,
                             className,
