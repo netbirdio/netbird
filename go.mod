@@ -2,6 +2,8 @@ module github.com/netbirdio/netbird
 
 go 1.25.5
 
+toolchain go1.25.11
+
 require (
 	cunicu.li/go-rosenpass v0.5.42
 	github.com/cenkalti/backoff/v4 v4.3.0
