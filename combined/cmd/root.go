@@ -67,6 +67,10 @@ func init() {
 	rootCmd.AddCommand(newTokenCommands())
 }
 
+func RootCmd() *cobra.Command {
+	return rootCmd
+}
+
 func Execute() error {
 	return rootCmd.Execute()
 }
@@ -168,7 +172,7 @@ func initializeConfig() error {
 // serverInstances holds all server instances created during startup.
 type serverInstances struct {
 	relaySrv      *relayServer.Server
-	mgmtSrv       *mgmtServer.BaseServer
+	mgmtSrv       mgmtServer.Server
 	signalSrv     *signalServer.Server
 	healthcheck   *healthcheck.Server
 	stunServer    *stun.Server
@@ -324,19 +328,24 @@ func setupServerHooks(servers *serverInstances, cfg *CombinedConfig) {
 		return
 	}
 
-	servers.mgmtSrv.AfterInit(func(s *mgmtServer.BaseServer) {
-		grpcSrv := s.GRPCServer()
+	if s, ok := servers.mgmtSrv.GetContainer(mgmtServer.ContainerKeyBaseServer); ok {
+		if baseServer, ok := s.(*mgmtServer.BaseServer); ok {
+			baseServer.AfterInit(func(s *mgmtServer.BaseServer) {
+				grpcSrv := s.GRPCServer()
 
-		if servers.signalSrv != nil {
-			proto.RegisterSignalExchangeServer(grpcSrv, servers.signalSrv)
-			log.Infof("Signal server registered on port %s", cfg.Server.ListenAddress)
-		}
+				if servers.signalSrv != nil {
+					proto.RegisterSignalExchangeServer(grpcSrv, servers.signalSrv)
+					log.Infof("Signal server registered on port %s", cfg.Server.ListenAddress)
+				}
 
-		s.SetHandlerFunc(createCombinedHandler(grpcSrv, s.APIHandler(), servers.relaySrv, servers.metricsServer.Meter, cfg))
-		if servers.relaySrv != nil {
-			log.Infof("Relay WebSocket handler added (path: /relay)")
+				s.SetHandlerFunc(createCombinedHandler(grpcSrv, s.APIHandler(), s.IDPHandler(), servers.relaySrv, servers.metricsServer.Meter, cfg))
+				if servers.relaySrv != nil {
+					log.Infof("Relay WebSocket handler added (path: /relay)")
+				}
+			})
 		}
-	})
+	}
+
 }
 
 func startServers(wg *sync.WaitGroup, srv *relayServer.Server, httpHealthcheck *healthcheck.Server, stunServer *stun.Server, metricsServer *sharedMetrics.Metrics) {
@@ -346,38 +355,32 @@ func startServers(wg *sync.WaitGroup, srv *relayServer.Server, httpHealthcheck *
 		log.Infof("Relay WebSocket multiplexed on management port (no separate relay listener)")
 	}
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		log.Infof("running metrics server: %s%s", metricsServer.Addr, metricsServer.Endpoint)
 		if err := metricsServer.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("failed to start metrics server: %v", err)
 		}
-	}()
+	})
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		if err := httpHealthcheck.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("failed to start healthcheck server: %v", err)
 		}
-	}()
+	})
 
 	if stunServer != nil {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if err := stunServer.Listen(); err != nil {
 				if errors.Is(err, stun.ErrServerClosed) {
 					return
 				}
 				log.Errorf("STUN server error: %v", err)
 			}
-		}()
+		})
 	}
 }
 
-func shutdownServers(ctx context.Context, srv *relayServer.Server, httpHealthcheck *healthcheck.Server, stunServer *stun.Server, mgmtSrv *mgmtServer.BaseServer, metricsServer *sharedMetrics.Metrics) error {
+func shutdownServers(ctx context.Context, srv *relayServer.Server, httpHealthcheck *healthcheck.Server, stunServer *stun.Server, mgmtSrv mgmtServer.Server, metricsServer *sharedMetrics.Metrics) error {
 	var errs error
 
 	if err := httpHealthcheck.Shutdown(ctx); err != nil {
@@ -491,7 +494,7 @@ func handleTLSConfig(cfg *CombinedConfig) (*tls.Config, bool, error) {
 	return nil, false, nil
 }
 
-func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config) (*mgmtServer.BaseServer, error) {
+func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config) (mgmtServer.Server, error) {
 	mgmt := cfg.Management
 
 	// Extract port from listen address
@@ -502,7 +505,7 @@ func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config) (*
 	}
 	mgmtPort, _ := strconv.Atoi(portStr)
 
-	mgmtSrv := mgmtServer.NewServer(
+	mgmtSrv := newServer(
 		&mgmtServer.Config{
 			NbConfig:                mgmtConfig,
 			DNSDomain:               "",
@@ -521,7 +524,7 @@ func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config) (*
 }
 
 // createCombinedHandler creates an HTTP handler that multiplexes Management, Signal (via wsproxy), and Relay WebSocket traffic
-func createCombinedHandler(grpcServer *grpc.Server, httpHandler http.Handler, relaySrv *relayServer.Server, meter metric.Meter, cfg *CombinedConfig) http.Handler {
+func createCombinedHandler(grpcServer *grpc.Server, httpHandler http.Handler, idpHandler http.Handler, relaySrv *relayServer.Server, meter metric.Meter, cfg *CombinedConfig) http.Handler {
 	wsProxy := wsproxyserver.New(grpcServer, wsproxyserver.WithOTelMeter(meter))
 
 	var relayAcceptFn func(conn listener.Conn)
@@ -555,6 +558,10 @@ func createCombinedHandler(grpcServer *grpc.Server, httpHandler http.Handler, re
 			} else {
 				http.Error(w, "Relay service not enabled", http.StatusNotFound)
 			}
+
+		// Embedded IdP (Dex)
+		case idpHandler != nil && strings.HasPrefix(r.URL.Path, "/oauth2"):
+			idpHandler.ServeHTTP(w, r)
 
 		// Management HTTP API (default)
 		default:

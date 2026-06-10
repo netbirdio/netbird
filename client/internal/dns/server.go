@@ -301,6 +301,11 @@ func newDefaultServer(
 		warningDelayBase:  defaultWarningDelayBase,
 		healthRefresh:     make(chan struct{}, 1),
 	}
+	// Wire the local resolver against the peer status recorder so it can
+	// suppress A/AAAA answers that point at disconnected peers (typical
+	// case: synthesised private-service records pointing at an embedded
+	// proxy peer that just went offline).
+	defaultServer.localResolver.SetPeerConnectivity(localPeerConnectivity{statusRecorder})
 
 	// register with root zone, handler chain takes care of the routing
 	dnsService.RegisterMux(".", handlerChain)
@@ -772,13 +777,24 @@ func (s *DefaultServer) applyHostConfig() {
 // context is released rather than leaked until GC.
 func (s *DefaultServer) registerFallback() {
 	originalNameservers := s.hostManager.getOriginalNameservers()
-	if len(originalNameservers) == 0 {
+
+	serverIP := s.service.RuntimeIP()
+	var servers []netip.AddrPort
+	for _, ns := range originalNameservers {
+		if ns == serverIP {
+			log.Debugf("skipping original nameserver %s as it is the same as the server IP %s", ns, serverIP)
+			continue
+		}
+		servers = append(servers, netip.AddrPortFrom(ns, DefaultPort))
+	}
+
+	if len(servers) == 0 {
 		log.Debugf("no fallback upstreams to register; clearing PriorityFallback handler")
 		s.clearFallback()
 		return
 	}
 
-	log.Infof("registering original nameservers %v as upstream handlers with priority %d", originalNameservers, PriorityFallback)
+	log.Infof("registering original nameservers %v as upstream handlers with priority %d", servers, PriorityFallback)
 
 	handler, err := newUpstreamResolver(
 		s.ctx,
@@ -792,11 +808,6 @@ func (s *DefaultServer) registerFallback() {
 		return
 	}
 	handler.selectedRoutes = s.selectedRoutes
-
-	var servers []netip.AddrPort
-	for _, ns := range originalNameservers {
-		servers = append(servers, netip.AddrPortFrom(ns, DefaultPort))
-	}
 	handler.addRace(servers)
 
 	prev := s.fallbackHandler
@@ -1385,4 +1396,26 @@ func (s *DefaultServer) PopulateManagementDomain(mgmtURL *url.URL) error {
 		return s.mgmtCacheResolver.PopulateFromConfig(s.ctx, mgmtURL)
 	}
 	return nil
+}
+
+// localPeerConnectivity adapts *peer.Status to local.PeerConnectivity so
+// the local resolver can ask "is this IP a known peer and is it
+// connected?" without taking on the peer package as a dependency.
+// A nil status recorder always reports known=false so the resolver
+// short-circuits to the legacy "return everything" path.
+type localPeerConnectivity struct {
+	status *peer.Status
+}
+
+// IsConnectedByIP looks the IP up in the peerstore and surfaces both
+// the known and connected bits. Used by Resolver.filterDisconnectedPeerAnswers.
+func (l localPeerConnectivity) IsConnectedByIP(ip string) (known, connected bool) {
+	if l.status == nil {
+		return false, false
+	}
+	state, ok := l.status.PeerStateByIP(ip)
+	if !ok {
+		return false, false
+	}
+	return true, state.ConnStatus == peer.StatusConnected
 }

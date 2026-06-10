@@ -28,6 +28,7 @@ const (
 	ManagementService_SyncMeta_FullMethodName                   = "/management.ManagementService/SyncMeta"
 	ManagementService_Logout_FullMethodName                     = "/management.ManagementService/Logout"
 	ManagementService_Job_FullMethodName                        = "/management.ManagementService/Job"
+	ManagementService_ExtendAuthSession_FullMethodName          = "/management.ManagementService/ExtendAuthSession"
 	ManagementService_CreateExpose_FullMethodName               = "/management.ManagementService/CreateExpose"
 	ManagementService_RenewExpose_FullMethodName                = "/management.ManagementService/RenewExpose"
 	ManagementService_StopExpose_FullMethodName                 = "/management.ManagementService/StopExpose"
@@ -71,6 +72,13 @@ type ManagementServiceClient interface {
 	Logout(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*Empty, error)
 	// Executes a job on a target peer (e.g., debug bundle)
 	Job(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[EncryptedMessage, EncryptedMessage], error)
+	// ExtendAuthSession refreshes the peer's session expiry deadline using a fresh JWT.
+	// Same JWT validation pipeline as Login (including jwt.UserID == peer.UserID check),
+	// but does not redo the network-map sync. Only valid for SSO-registered peers where
+	// login expiration is enabled. The tunnel remains up.
+	// EncryptedMessage of the request has a body of ExtendAuthSessionRequest.
+	// EncryptedMessage of the response has a body of ExtendAuthSessionResponse.
+	ExtendAuthSession(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*EncryptedMessage, error)
 	// CreateExpose creates a temporary reverse proxy service for a peer
 	CreateExpose(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*EncryptedMessage, error)
 	// RenewExpose extends the TTL of an active expose session
@@ -189,6 +197,16 @@ func (c *managementServiceClient) Job(ctx context.Context, opts ...grpc.CallOpti
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ManagementService_JobClient = grpc.BidiStreamingClient[EncryptedMessage, EncryptedMessage]
 
+func (c *managementServiceClient) ExtendAuthSession(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*EncryptedMessage, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EncryptedMessage)
+	err := c.cc.Invoke(ctx, ManagementService_ExtendAuthSession_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *managementServiceClient) CreateExpose(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*EncryptedMessage, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(EncryptedMessage)
@@ -257,6 +275,13 @@ type ManagementServiceServer interface {
 	Logout(context.Context, *EncryptedMessage) (*Empty, error)
 	// Executes a job on a target peer (e.g., debug bundle)
 	Job(grpc.BidiStreamingServer[EncryptedMessage, EncryptedMessage]) error
+	// ExtendAuthSession refreshes the peer's session expiry deadline using a fresh JWT.
+	// Same JWT validation pipeline as Login (including jwt.UserID == peer.UserID check),
+	// but does not redo the network-map sync. Only valid for SSO-registered peers where
+	// login expiration is enabled. The tunnel remains up.
+	// EncryptedMessage of the request has a body of ExtendAuthSessionRequest.
+	// EncryptedMessage of the response has a body of ExtendAuthSessionResponse.
+	ExtendAuthSession(context.Context, *EncryptedMessage) (*EncryptedMessage, error)
 	// CreateExpose creates a temporary reverse proxy service for a peer
 	CreateExpose(context.Context, *EncryptedMessage) (*EncryptedMessage, error)
 	// RenewExpose extends the TTL of an active expose session
@@ -299,6 +324,9 @@ func (UnimplementedManagementServiceServer) Logout(context.Context, *EncryptedMe
 }
 func (UnimplementedManagementServiceServer) Job(grpc.BidiStreamingServer[EncryptedMessage, EncryptedMessage]) error {
 	return status.Error(codes.Unimplemented, "method Job not implemented")
+}
+func (UnimplementedManagementServiceServer) ExtendAuthSession(context.Context, *EncryptedMessage) (*EncryptedMessage, error) {
+	return nil, status.Error(codes.Unimplemented, "method ExtendAuthSession not implemented")
 }
 func (UnimplementedManagementServiceServer) CreateExpose(context.Context, *EncryptedMessage) (*EncryptedMessage, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateExpose not implemented")
@@ -474,6 +502,24 @@ func _ManagementService_Job_Handler(srv interface{}, stream grpc.ServerStream) e
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ManagementService_JobServer = grpc.BidiStreamingServer[EncryptedMessage, EncryptedMessage]
 
+func _ManagementService_ExtendAuthSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EncryptedMessage)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ManagementServiceServer).ExtendAuthSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ManagementService_ExtendAuthSession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ManagementServiceServer).ExtendAuthSession(ctx, req.(*EncryptedMessage))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ManagementService_CreateExpose_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(EncryptedMessage)
 	if err := dec(in); err != nil {
@@ -562,6 +608,10 @@ var ManagementService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Logout",
 			Handler:    _ManagementService_Logout_Handler,
+		},
+		{
+			MethodName: "ExtendAuthSession",
+			Handler:    _ManagementService_ExtendAuthSession_Handler,
 		},
 		{
 			MethodName: "CreateExpose",

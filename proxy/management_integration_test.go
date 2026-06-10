@@ -239,6 +239,10 @@ func (m *testProxyManager) ClusterSupportsCrowdSec(_ context.Context, _ string) 
 	return nil
 }
 
+func (m *testProxyManager) ClusterSupportsPrivate(_ context.Context, _ string) *bool {
+	return nil
+}
+
 func (m *testProxyManager) CleanupStale(_ context.Context, _ time.Duration) error {
 	return nil
 }
@@ -565,6 +569,7 @@ func TestIntegration_ProxyConnection_ReconnectDoesNotDuplicateState(t *testing.T
 					proxytypes.AccountID(mapping.GetAccountId()),
 					proxytypes.ServiceID(mapping.GetId()),
 					nil,
+					mapping.GetPrivate(),
 				)
 				require.NoError(t, err)
 

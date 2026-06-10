@@ -20,6 +20,9 @@ type Capabilities struct {
 	RequireSubdomain *bool
 	// SupportsCrowdsec indicates whether this proxy has CrowdSec configured.
 	SupportsCrowdsec *bool
+	// Private indicates whether this proxy supports inbound access via Wireguard
+	// tunnel and netbird-only authentication policies
+	Private *bool
 }
 
 // Proxy represents a reverse proxy instance
@@ -67,10 +70,9 @@ type Cluster struct {
 	Type             ClusterType
 	Online           bool
 	ConnectedProxies int
-	// Capability flags. *bool because nil means "no proxy reported a
-	// capability for this cluster" — the dashboard renders these as
-	// unknown rather than false.
+	// *bool: nil = no proxy reported the capability; the dashboard renders that as unknown.
 	SupportsCustomPorts *bool
 	RequireSubdomain    *bool
 	SupportsCrowdSec    *bool
+	Private             *bool
 }

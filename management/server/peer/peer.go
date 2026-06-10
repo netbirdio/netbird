@@ -369,6 +369,22 @@ func (p *Peer) LoginExpired(expiresIn time.Duration) (bool, time.Duration) {
 	return timeLeft <= 0, timeLeft
 }
 
+// SessionExpiresAt returns the absolute UTC instant at which the peer's SSO
+// session expires, derived from LastLogin and the account-level
+// PeerLoginExpiration setting. Returns the zero value when login expiration
+// does not apply (peer not SSO-registered, peer-level toggle off, or account
+// expiry disabled). Callers should treat the zero value as "no deadline".
+func (p *Peer) SessionExpiresAt(accountExpirationEnabled bool, expiresIn time.Duration) time.Time {
+	if !accountExpirationEnabled || !p.AddedWithSSOLogin() || !p.LoginExpirationEnabled {
+		return time.Time{}
+	}
+	last := p.GetLastLogin()
+	if last.IsZero() {
+		return time.Time{}
+	}
+	return last.Add(expiresIn).UTC()
+}
+
 // FQDN returns peers FQDN combined of the peer's DNS label and the system's DNS domain
 func (p *Peer) FQDN(dnsDomain string) string {
 	if dnsDomain == "" {
