@@ -96,9 +96,14 @@ func (r *family) DeleteFilterRule(rule firewall.Rule) error {
 		return nberrors.FormatErrorOrNil(merr)
 	}
 
-	r.dropSourceMatch(pr.specs)
+	// The rule is gone from iptables, so untrack it regardless of how the
+	// refcount decrement goes, but surface decrement failures so callers
+	// see the ipset desync.
 	delete(r.filters, ruleID)
 	r.updateState()
+	if err := r.decrementSetCounter(pr.specs); err != nil {
+		return fmt.Errorf("drop source set references: %w", err)
+	}
 	return nil
 }
 
@@ -152,10 +157,10 @@ func (r *family) applySourceMatch(network firewall.Network, prefixes []netip.Pre
 	}
 }
 
-// dropSourceMatch undoes whatever applySourceMatch reserved. Safe to
-// call when the spec is empty or holds only inline matchers. Decrement
-// errors are logged but not returned: the filter rule has already been
-// deleted at that point and we don't want to leak the deletion.
+// dropSourceMatch undoes whatever applySourceMatch reserved when
+// installing a rule fails. Safe to call when the spec is empty or holds
+// only inline matchers. Decrement errors are logged but not returned:
+// the install error is what the caller needs to see.
 func (r *family) dropSourceMatch(srcMatch []string) {
 	if r.ipsetCounter == nil {
 		return

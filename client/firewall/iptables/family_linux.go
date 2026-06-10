@@ -22,7 +22,6 @@ import (
 // constants needed to manage and create iptable rules
 const (
 	tableFilter = "filter"
-	tableName   = tableFilter
 	tableNat    = "nat"
 	tableMangle = "mangle"
 

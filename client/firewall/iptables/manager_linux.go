@@ -266,6 +266,9 @@ func (m *Manager) RemoveNatRule(pair firewall.RouterPair) error {
 }
 
 func (m *Manager) SetLegacyManagement(isLegacy bool) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
 	if err := firewall.SetLegacyManagement(m.family4, isLegacy); err != nil {
 		return err
 	}

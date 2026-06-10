@@ -225,7 +225,7 @@ func (r *family) ensureNATOutputChain() error {
 		}
 	}
 
-	jumpRule := []string{"-j", chainNATOutput}
+	jumpRule := jumpRuleSpec(chainNATOutput)
 	if err := r.iptablesClient.Insert(tableNat, chainOutput, 1, jumpRule...); err != nil {
 		if !chainExists {
 			if delErr := r.iptablesClient.ClearAndDeleteChain(tableNat, chainNATOutput); delErr != nil {

@@ -157,9 +157,7 @@ func (r *family) addMSSClampingRules() error {
 	mss := r.mtu - overhead
 
 	// Add jump rule from FORWARD chain in mangle table to our custom chain
-	jumpRule := []string{
-		"-j", chainRTMSSClamp,
-	}
+	jumpRule := jumpRuleSpec(chainRTMSSClamp)
 	if err := r.iptablesClient.Insert(tableMangle, chainForward, 1, jumpRule...); err != nil {
 		return fmt.Errorf("add jump to MSS clamp chain: %w", err)
 	}

@@ -61,21 +61,21 @@ func (r *family) createContainers() error {
 
 func (r *family) addJumpRules() error {
 	// Jump to nat chain
-	natRule := []string{"-j", chainRTNAT}
+	natRule := jumpRuleSpec(chainRTNAT)
 	if err := r.iptablesClient.Insert(tableNat, chainPostrouting, 1, natRule...); err != nil {
 		return fmt.Errorf("add nat postrouting jump rule: %w", err)
 	}
 	r.rules[jumpNATPost] = natRule
 
 	// Jump to mangle prerouting chain
-	preRule := []string{"-j", chainRTPre}
+	preRule := jumpRuleSpec(chainRTPre)
 	if err := r.iptablesClient.Insert(tableMangle, chainPrerouting, 1, preRule...); err != nil {
 		return fmt.Errorf("add mangle prerouting jump rule: %w", err)
 	}
 	r.rules[jumpManglePre] = preRule
 
 	// Jump to nat prerouting chain
-	rdrRule := []string{"-j", chainRTRdr}
+	rdrRule := jumpRuleSpec(chainRTRdr)
 	if err := r.iptablesClient.Insert(tableNat, chainPrerouting, 1, rdrRule...); err != nil {
 		return fmt.Errorf("add nat prerouting jump rule: %w", err)
 	}
@@ -162,7 +162,7 @@ func (r *family) appendToEntries(chain chainKey, spec ruleSpec) {
 }
 
 func (r *family) createDefaultChains() error {
-	if err := r.iptablesClient.NewChain(tableName, chainACLInput); err != nil {
+	if err := r.iptablesClient.NewChain(tableFilter, chainACLInput); err != nil {
 		return fmt.Errorf("create %s chain: %w", chainACLInput, err)
 	}
 
@@ -172,7 +172,7 @@ func (r *family) createDefaultChains() error {
 			continue
 		}
 		for _, rule := range rules {
-			if err := r.iptablesClient.InsertUnique(tableName, string(chain), 1, rule...); err != nil {
+			if err := r.iptablesClient.InsertUnique(tableFilter, string(chain), 1, rule...); err != nil {
 				return fmt.Errorf("insert jump rule into %s: %w", chain, err)
 			}
 		}
@@ -180,7 +180,7 @@ func (r *family) createDefaultChains() error {
 
 	for chain, entries := range r.optionalEntries {
 		for _, entry := range entries {
-			if err := r.iptablesClient.InsertUnique(tableName, string(chain), entry.position, entry.spec...); err != nil {
+			if err := r.iptablesClient.InsertUnique(tableFilter, string(chain), entry.position, entry.spec...); err != nil {
 				log.Errorf("failed to insert optional entry %v: %v", entry.spec, err)
 				continue
 			}
@@ -237,21 +237,32 @@ func (r *family) cleanUpDefaultForwardRules() error {
 }
 
 func (r *family) cleanJumpRules() error {
-	// locations maps each tracked jump rule to the built-in table and
-	// chain it was inserted into.
-	locations := map[firewall.RuleID]struct{ table, chain string }{
-		jumpNATPost:   {tableNat, chainPostrouting},
-		jumpManglePre: {tableMangle, chainPrerouting},
-		jumpNATPre:    {tableNat, chainPrerouting},
-		jumpMSSClamp:  {tableMangle, chainForward},
-		jumpNATOutput: {tableNat, chainOutput},
+	// locations maps each jump rule to the built-in table and chain it
+	// was inserted into, plus the netbird chain it targets.
+	locations := map[firewall.RuleID]struct{ table, chain, target string }{
+		jumpNATPost:   {tableNat, chainPostrouting, chainRTNAT},
+		jumpManglePre: {tableMangle, chainPrerouting, chainRTPre},
+		jumpNATPre:    {tableNat, chainPrerouting, chainRTRdr},
+		jumpMSSClamp:  {tableMangle, chainForward, chainRTMSSClamp},
+		jumpNATOutput: {tableNat, chainOutput, chainNATOutput},
 	}
 
 	var merr *multierror.Error
 	for ruleID, loc := range locations {
 		rule, exists := r.rules[ruleID]
 		if !exists {
-			continue
+			// Untracked (e.g. fresh start after an unclean shutdown with no
+			// restored state): if the target chain survived, remove the stale
+			// jump to it so the chain can be deleted.
+			ok, err := r.iptablesClient.ChainExists(loc.table, loc.target)
+			if err != nil {
+				merr = multierror.Append(merr, fmt.Errorf("check chain %s in table %s: %w", loc.target, loc.table, err))
+				continue
+			}
+			if !ok {
+				continue
+			}
+			rule = jumpRuleSpec(loc.target)
 		}
 		if err := r.iptablesClient.DeleteIfExists(loc.table, loc.chain, rule...); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("delete rule from chain %s in table %s: %w", loc.chain, loc.table, err))
@@ -262,14 +273,16 @@ func (r *family) cleanJumpRules() error {
 	return nberrors.FormatErrorOrNil(merr)
 }
 
+// jumpRuleSpec builds the iptables rule spec that jumps to target. Create
+// and cleanup sites share it so the installed and deleted specs cannot drift.
+func jumpRuleSpec(target string) []string {
+	return []string{"-j", target}
+}
+
 func (r *family) cleanAclChains() error {
 	var merr *multierror.Error
 
 	if err := r.cleanInputAclChain(); err != nil {
-		merr = multierror.Append(merr, err)
-	}
-
-	if err := r.cleanPreroutingEntries(); err != nil {
 		merr = multierror.Append(merr, err)
 	}
 
@@ -283,7 +296,7 @@ func (r *family) cleanAclChains() error {
 }
 
 func (r *family) cleanInputAclChain() error {
-	ok, err := r.iptablesClient.ChainExists(tableName, chainACLInput)
+	ok, err := r.iptablesClient.ChainExists(tableFilter, chainACLInput)
 	if err != nil {
 		return fmt.Errorf("check chain %s: %w", chainACLInput, err)
 	}
@@ -293,38 +306,19 @@ func (r *family) cleanInputAclChain() error {
 
 	var merr *multierror.Error
 	for _, rule := range r.entries[chainInput] {
-		if err := r.iptablesClient.DeleteIfExists(tableName, chainInput, rule...); err != nil {
+		if err := r.iptablesClient.DeleteIfExists(tableFilter, chainInput, rule...); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("delete %s rule %v: %w", chainInput, rule, err))
 		}
 	}
 
 	for _, rule := range r.entries[chainForward] {
-		if err := r.iptablesClient.DeleteIfExists(tableName, chainForward, rule...); err != nil {
+		if err := r.iptablesClient.DeleteIfExists(tableFilter, chainForward, rule...); err != nil {
 			merr = multierror.Append(merr, fmt.Errorf("delete %s rule %v: %w", chainForward, rule, err))
 		}
 	}
 
-	if err := r.iptablesClient.ClearAndDeleteChain(tableName, chainACLInput); err != nil {
+	if err := r.iptablesClient.ClearAndDeleteChain(tableFilter, chainACLInput); err != nil {
 		merr = multierror.Append(merr, fmt.Errorf("clear and delete %s chain: %w", chainACLInput, err))
-	}
-
-	return nberrors.FormatErrorOrNil(merr)
-}
-
-func (r *family) cleanPreroutingEntries() error {
-	ok, err := r.iptablesClient.ChainExists(tableMangle, chainPrerouting)
-	if err != nil {
-		return fmt.Errorf("check chain %s in %s: %w", chainPrerouting, tableMangle, err)
-	}
-	if !ok {
-		return nil
-	}
-
-	var merr *multierror.Error
-	for _, rule := range r.entries[chainPrerouting] {
-		if err := r.iptablesClient.DeleteIfExists(tableMangle, chainPrerouting, rule...); err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("delete %s rule %v: %w", chainPrerouting, rule, err))
-		}
 	}
 
 	return nberrors.FormatErrorOrNil(merr)
