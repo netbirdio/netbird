@@ -225,12 +225,21 @@ func (d *DefaultManager) installPeerGroups(groups []*peerRuleGroup, newRulePairs
 func (d *DefaultManager) rollbackInstalled(pairIDs []id.RuleID) {
 	var merr *multierror.Error
 	for _, pairID := range pairIDs {
+		// Keep any rule the backend refuses to delete tracked so it is
+		// retried on the next ApplyFiltering instead of leaking in the
+		// firewall with no tracking left to remove it.
+		var remaining []firewall.Rule
 		for _, rule := range d.peerRulesPairs[pairID] {
 			if err := d.firewall.DeleteFilterRule(rule); err != nil {
 				merr = multierror.Append(merr, fmt.Errorf("rule %s: %w", pairID, err))
+				remaining = append(remaining, rule)
 			}
 		}
-		delete(d.peerRulesPairs, pairID)
+		if len(remaining) > 0 {
+			d.peerRulesPairs[pairID] = remaining
+		} else {
+			delete(d.peerRulesPairs, pairID)
+		}
 	}
 	if err := nberrors.FormatErrorOrNil(merr); err != nil {
 		log.Errorf("rollback peer rules: %v", err)
@@ -264,7 +273,7 @@ func (d *DefaultManager) applyPeerGroup(g *peerRuleGroup) (id.RuleID, []firewall
 		}
 		fwRule, err = d.firewall.AddFilterRule(g.policyID, g.sources, firewall.Network{}, protocol, port, nil, action)
 	default:
-		return "", nil, fmt.Errorf("invalid direction, skipping firewall rule")
+		return "", nil, errors.New("invalid direction")
 	}
 
 	if err != nil {
@@ -483,9 +492,15 @@ func extractRuleSources(r *mgmProto.FirewallRule) ([]netip.Prefix, error) {
 	//nolint:staticcheck // PeerIP used for backward compatibility with old management
 	addr, err := netip.ParseAddr(r.PeerIP)
 	if err != nil {
-		return nil, fmt.Errorf("invalid IP address, skipping firewall rule")
+		return nil, fmt.Errorf("parse peer IP %q: %w", r.PeerIP, err)
 	}
 	addr = addr.Unmap()
+	// An unspecified PeerIP means "any peer" (legacy management
+	// allow-all fallback); only a /0 prefix matches any source in the
+	// backends, a full-length prefix would match nothing.
+	if addr.IsUnspecified() {
+		return []netip.Prefix{netip.PrefixFrom(addr, 0)}, nil
+	}
 	return []netip.Prefix{netip.PrefixFrom(addr, addr.BitLen())}, nil
 }
 

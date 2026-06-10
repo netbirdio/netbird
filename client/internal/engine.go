@@ -240,7 +240,7 @@ type Engine struct {
 	syncStore    syncstore.Store
 	syncStoreDir string
 
-	flowManager         nftypes.FlowManager
+	flowManager nftypes.FlowManager
 
 	// auto-update
 	updateManager *updater.Manager
@@ -639,6 +639,11 @@ func (e *Engine) initFirewall() error {
 		return fmt.Errorf("set firewall: %w", err)
 	}
 
+	// TODO: the firewall backends dedup filter rules by content, so a
+	// management route ACL with identical content would collapse onto the
+	// untracked drop rules installed here, and a later management delete
+	// could remove them. Needs backend refcounting or per-consumer key
+	// namespacing.
 	if e.config.BlockLANAccess {
 		e.blockLanAccess()
 	}
