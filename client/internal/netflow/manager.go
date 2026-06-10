@@ -218,7 +218,6 @@ func (m *Manager) startSender(ctx context.Context) {
 			collectedEvents := m.logger.ResetAggregationWindow()
 			events := collectedEvents.GetAggregatedEvents()
 			for _, event := range events {
-				// handle retries, grace period?
 				if err := m.send(event); err != nil {
 					log.Errorf("failed to send flow event to server: %v", err)
 				} else {
@@ -265,6 +264,7 @@ func (m *Manager) startRetries(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			// TODO: grace period on retries to avoid early retries?
 			for _, e := range m.eventsWithoutAcks.GetEvents() {
 				if err := m.send(e); err != nil {
 					ticker = time.NewTimer(retryBackoff.NextBackOff())

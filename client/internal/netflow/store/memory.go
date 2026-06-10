@@ -91,8 +91,10 @@ func (am *AggregatingMemory) GetAggregatedEvents() []*types.Event {
 				aggregatedEvent.RxPackets += v.RxPackets
 				aggregatedEvent.TxBytes += v.TxBytes
 				aggregatedEvent.TxPackets += v.TxPackets
-				if aggregatedEvent.Timestamp.Compare(v.Timestamp) < 0 {
+				if aggregatedEvent.Timestamp.Compare(v.Timestamp) > 0 {
 					aggregatedEvent.Timestamp = v.Timestamp
+					aggregatedEvent.ID = v.ID
+					aggregatedEvent.Type = v.Type
 				}
 				// do we aggregate icmp by code?
 			default:
