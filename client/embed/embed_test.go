@@ -125,8 +125,8 @@ func startManagement(t *testing.T, signalAddr string) string {
 	cacheStore, err := nbcache.NewStore(context.Background(), 100*time.Millisecond, 300*time.Millisecond, 100)
 	require.NoError(t, err)
 
-	iv, _ := validator.NewIntegratedValidator(context.Background(), peersManager, nil, eventStore, cacheStore)
-
+	iv, err := validator.NewIntegratedValidator(context.Background(), peersManager, nil, eventStore, cacheStore)
+	require.NoError(t, err)
 	metrics, err := telemetry.NewDefaultAppMetrics(context.Background())
 	require.NoError(t, err)
 
