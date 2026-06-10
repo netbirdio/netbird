@@ -75,29 +75,30 @@ type portRouter struct {
 }
 
 type Server struct {
-	ctx           context.Context
-	mgmtClient    proto.ProxyServiceClient
-	proxy         *proxy.ReverseProxy
-	netbird       *roundtrip.NetBird
-	acme          *acme.Manager
-	auth          *auth.Middleware
-	http          *http.Server
-	https         *http.Server
-	debug         *http.Server
-	healthServer  *health.Server
-	healthChecker *health.Checker
-	meter         *proxymetrics.Metrics
-	accessLog     *accesslog.Logger
-	mainRouter    *nbtcp.Router
-	mainPort      uint16
-	udpMu         sync.Mutex
-	udpRelays     map[types.ServiceID]*udprelay.Relay
-	udpRelayWg    sync.WaitGroup
-	portMu        sync.RWMutex
-	portRouters   map[uint16]*portRouter
-	svcPorts      map[types.ServiceID][]uint16
-	lastMappings  map[types.ServiceID]*proto.ProxyMapping
-	portRouterWg  sync.WaitGroup
+	ctx               context.Context
+	mgmtClient        proto.ProxyServiceClient
+	proxy             *proxy.ReverseProxy
+	netbird           *roundtrip.NetBird
+	acme              *acme.Manager
+	staticCertWatcher *certwatch.Watcher
+	auth              *auth.Middleware
+	http              *http.Server
+	https             *http.Server
+	debug             *http.Server
+	healthServer      *health.Server
+	healthChecker     *health.Checker
+	meter             *proxymetrics.Metrics
+	accessLog         *accesslog.Logger
+	mainRouter        *nbtcp.Router
+	mainPort          uint16
+	udpMu             sync.Mutex
+	udpRelays         map[types.ServiceID]*udprelay.Relay
+	udpRelayWg        sync.WaitGroup
+	portMu            sync.RWMutex
+	portRouters       map[uint16]*portRouter
+	svcPorts          map[types.ServiceID][]uint16
+	lastMappings      map[types.ServiceID]*proto.ProxyMapping
+	portRouterWg      sync.WaitGroup
 
 	// hijackTracker tracks hijacked connections (e.g. WebSocket upgrades)
 	// so they can be closed during graceful shutdown, since http.Server.Shutdown
@@ -792,6 +793,7 @@ func (s *Server) configureTLS(ctx context.Context) (*tls.Config, error) {
 			return nil, fmt.Errorf("initialize certificate watcher: %w", err)
 		}
 		go certWatcher.Watch(ctx)
+		s.staticCertWatcher = certWatcher
 		tlsConfig.GetCertificate = certWatcher.GetCertificate
 		return tlsConfig, nil
 	}
@@ -1623,6 +1625,8 @@ func (s *Server) setupHTTPMapping(ctx context.Context, mapping *proto.ProxyMappi
 	var wildcardHit bool
 	if s.acme != nil {
 		wildcardHit = s.acme.AddDomain(d, accountID, svcID)
+	} else {
+		wildcardHit = s.staticCertCovers(d)
 	}
 	httpRoute := nbtcp.Route{
 		Type:      nbtcp.RouteHTTP,
@@ -1645,6 +1649,26 @@ func (s *Server) setupHTTPMapping(ctx context.Context, mapping *proto.ProxyMappi
 	}
 
 	return nil
+}
+
+// staticCertCovers reports whether the static certificate loaded when ACME is
+// disabled covers the given domain, making it certificate-ready immediately —
+// the equivalent of a wildcard hit in the ACME path. Domains the certificate
+// does not cover are logged: clients connecting to them will get TLS errors.
+func (s *Server) staticCertCovers(d domain.Domain) bool {
+	if s.staticCertWatcher == nil {
+		return false
+	}
+	leaf := s.staticCertWatcher.Leaf()
+	if leaf == nil {
+		return false
+	}
+	name := d.PunycodeString()
+	if err := leaf.VerifyHostname(name); err != nil {
+		s.Logger.Warnf("static certificate (SANs %v) does not cover domain %q: %v", leaf.DNSNames, name, err)
+		return false
+	}
+	return true
 }
 
 // setupTCPMapping sets up a TCP port-forwarding fallback route on the listen port.
