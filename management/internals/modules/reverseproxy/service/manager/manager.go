@@ -677,13 +677,13 @@ func (m *Manager) executeServiceUpdate(ctx context.Context, transaction store.St
 // validateL4PortDiffOnClusterDiff checks if custom L4 ports are configured and validates port changes across clusters.
 // It ensures no port changes if custom ports are unsupported for a given cluster and protocol mode.
 // Returns an error if validation fails, otherwise returns nil.
-func validateL4PortDiffOnClusterDiff(customPorts *bool, new, old *service.Service) error {
-	if !service.IsPortBasedProtocol(new.Mode) || (customPorts != nil && *customPorts) {
+func validateL4PortDiffOnClusterDiff(customPorts *bool, newSVC, oldSVC *service.Service) error {
+	if !service.IsPortBasedProtocol(newSVC.Mode) || (customPorts != nil && *customPorts) {
 		return nil
 	}
 
-	if new.ListenPort != 0 && new.ListenPort != old.ListenPort {
-		return status.Errorf(status.InvalidArgument, "custom ports not supported on target cluster %s", new.ProxyCluster)
+	if newSVC.ListenPort != 0 && newSVC.ListenPort != oldSVC.ListenPort {
+		return status.Errorf(status.InvalidArgument, "custom ports not supported on target cluster %s", newSVC.ProxyCluster)
 	}
 
 	return nil
