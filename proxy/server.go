@@ -607,7 +607,7 @@ func (s *Server) initDefaults() {
 
 	// If no ID is set then one can be generated.
 	if s.ID == "" {
-		s.ID = "netbird-proxy-" + s.startTime.Format("20060102150405")
+		s.ID = fmt.Sprintf("netbird-proxy-%d", s.startTime.Nanosecond())
 	}
 	// Fallback version option in case it is not set.
 	if s.Version == "" {
