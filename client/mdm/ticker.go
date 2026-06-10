@@ -23,17 +23,6 @@ const defaultReloadInterval = 1 * time.Minute
 // always returns false.
 const testReloadInterval = 1 * time.Second
 
-// reloadInterval returns the production cadence, or the accelerated test
-// cadence when running under `go test` (detected via testing.Testing()).
-// Centralising the choice here keeps the prod/test split in one place
-// and out of the ticker's call sites.
-func reloadInterval() time.Duration {
-	if testing.Testing() {
-		return testReloadInterval
-	}
-	return defaultReloadInterval
-}
-
 // policyLoader is the indirection through which the ticker reads the
 // OS-native policy, both for the initial observation and on every tick.
 // Production points it at LoadPolicy; tests in this package override it to
@@ -48,6 +37,17 @@ type Ticker struct {
 	interval time.Duration
 	onChange func(prev, curr *Policy)
 	prev     *Policy
+}
+
+// reloadInterval returns the production cadence, or the accelerated test
+// cadence when running under `go test` (detected via testing.Testing()).
+// Centralising the choice here keeps the prod/test split in one place
+// and out of the ticker's call sites.
+func reloadInterval() time.Duration {
+	if testing.Testing() {
+		return testReloadInterval
+	}
+	return defaultReloadInterval
 }
 
 // NewTicker constructs a Ticker that re-reads the OS-native policy
