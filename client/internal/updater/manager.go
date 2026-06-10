@@ -19,8 +19,6 @@ import (
 
 const (
 	latestVersion = "latest"
-	// this version will be ignored
-	developmentVersion = "development"
 )
 
 var errNoUpdateState = errors.New("no update state found")
@@ -483,7 +481,7 @@ func (m *Manager) loadAndDeleteUpdateState(ctx context.Context) (*UpdateState, e
 }
 
 func (m *Manager) shouldUpdate(updateVersion *v.Version, forceUpdate bool) bool {
-	if m.currentVersion == developmentVersion {
+	if version.IsDevelopmentVersion(m.currentVersion) {
 		log.Debugf("skipping auto-update, running development version")
 		return false
 	}

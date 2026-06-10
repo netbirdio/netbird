@@ -64,13 +64,6 @@
 					<RegistryValue Name="InstalledByMSI" Type="integer" Value="1" KeyPath="yes" />
 				</RegistryKey>
 			</Component>
-			<!-- Drop the HKCU Run\Netbird value written by legacy NSIS installers. -->
-			<Component Id="NetbirdLegacyHKCUCleanup" Guid="*">
-				<RegistryValue Root="HKCU" Key="Software\NetBird GmbH\Installer"
-					Name="LegacyHKCUCleanup" Type="integer" Value="1" KeyPath="yes" />
-				<RemoveRegistryValue Root="HKCU"
-					Key="Software\Microsoft\Windows\CurrentVersion\Run" Name="Netbird" />
-			</Component>
 		</StandardDirectory>
 
 		<StandardDirectory Id="CommonAppDataFolder">
@@ -83,28 +76,10 @@
 			</Directory>
 		</StandardDirectory>
 
-		<!-- Drop Run, App Paths and Uninstall entries written by legacy NSIS
-		     installers into the 32-bit registry view (HKLM\Software\Wow6432Node). -->
-		<Component Id="NetbirdLegacyWow6432Cleanup" Directory="NetbirdInstallDir"
-			Guid="bda5d628-16bd-4086-b2c1-5099d8d51763" Bitness="always32">
-			<RegistryValue Root="HKLM" Key="Software\NetBird GmbH\Installer"
-				Name="LegacyWow6432Cleanup" Type="integer" Value="1" KeyPath="yes" />
-			<RemoveRegistryValue Root="HKLM"
-				Key="Software\Microsoft\Windows\CurrentVersion\Run" Name="Netbird" />
-			<RemoveRegistryKey Action="removeOnInstall" Root="HKLM"
-				Key="Software\Microsoft\Windows\CurrentVersion\App Paths\Netbird" />
-			<RemoveRegistryKey Action="removeOnInstall" Root="HKLM"
-				Key="Software\Microsoft\Windows\CurrentVersion\App Paths\Netbird-ui" />
-			<RemoveRegistryKey Action="removeOnInstall" Root="HKLM"
-				Key="Software\Microsoft\Windows\CurrentVersion\Uninstall\Netbird" />
-		</Component>
-
 		<ComponentGroup Id="NetbirdFilesComponent">
 			<ComponentRef Id="NetbirdFiles" />
 			<ComponentRef Id="NetbirdAumidRegistry" />
 			<ComponentRef Id="NetbirdAutoStart" />
-			<ComponentRef Id="NetbirdLegacyHKCUCleanup" />
-			<ComponentRef Id="NetbirdLegacyWow6432Cleanup" />
 		</ComponentGroup>
 
 		<util:CloseApplication Id="CloseNetBird" CloseMessage="no" Target="netbird.exe" RebootPrompt="no" />

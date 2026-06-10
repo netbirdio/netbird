@@ -52,9 +52,10 @@ func (m *externalChainMonitor) start() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
-	m.done = make(chan struct{})
+	done := make(chan struct{})
+	m.done = done
 
-	go m.run(ctx)
+	go m.run(ctx, done)
 }
 
 func (m *externalChainMonitor) stop() {
@@ -72,8 +73,8 @@ func (m *externalChainMonitor) stop() {
 	<-done
 }
 
-func (m *externalChainMonitor) run(ctx context.Context) {
-	defer close(m.done)
+func (m *externalChainMonitor) run(ctx context.Context, done chan struct{}) {
+	defer close(done)
 
 	bo := &backoff.ExponentialBackOff{
 		InitialInterval:     externalMonitorInitInterval,

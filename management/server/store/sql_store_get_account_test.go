@@ -4,6 +4,8 @@ import (
 	"context"
 	"net"
 	"net/netip"
+	"os"
+	"runtime"
 	"testing"
 	"time"
 
@@ -20,6 +22,63 @@ import (
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
 )
+
+// TestGetAccount_LoadsCustomDomains verifies GetAccount populates account.Domains.
+// SynthesizePrivateServiceZones depends on this relation to anchor a custom-domain
+// private service's DNS zone; without the preload the relation is empty and the
+// service is silently skipped, so a custom domain never resolves on clients.
+func TestGetAccount_LoadsCustomDomains(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	require.NoError(t, err)
+	defer cleanup()
+
+	assertGetAccountLoadsCustomDomains(t, store)
+}
+
+func TestPostgresql_GetAccount_LoadsCustomDomains(t *testing.T) {
+	if (os.Getenv("CI") == "true" && runtime.GOOS == "darwin") || runtime.GOOS == "windows" {
+		t.Skip("skip CI tests on darwin and windows")
+	}
+
+	t.Setenv("NETBIRD_STORE_ENGINE", string(types.PostgresStoreEngine))
+	store, cleanup, err := NewTestStoreFromSQL(context.Background(), "", t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+
+	assertGetAccountLoadsCustomDomains(t, store)
+}
+
+// assertGetAccountLoadsCustomDomains exercises both the gorm and pgx GetAccount
+// paths: it persists two custom domains and asserts the relation comes back
+// populated, which SynthesizePrivateServiceZones relies on.
+func assertGetAccountLoadsCustomDomains(t *testing.T, store Store) {
+	t.Helper()
+	ctx := context.Background()
+
+	accountID := "acct-custom-domains"
+	require.NoError(t, store.SaveAccount(ctx, newAccountWithId(ctx, accountID, "user-1", "")))
+
+	_, err := store.CreateCustomDomain(ctx, accountID, "example.com", "eu.proxy.netbird.io", true)
+	require.NoError(t, err, "creating the first custom domain must succeed")
+	_, err = store.CreateCustomDomain(ctx, accountID, "apps.acme.io", "us.proxy.netbird.io", false)
+	require.NoError(t, err, "creating the second custom domain must succeed")
+
+	account, err := store.GetAccount(ctx, accountID)
+	require.NoError(t, err)
+	require.Len(t, account.Domains, 2, "GetAccount must preload the account's custom domains")
+
+	byDomain := map[string]string{}
+	for _, d := range account.Domains {
+		require.NotNil(t, d)
+		byDomain[d.Domain] = d.TargetCluster
+	}
+	assert.Equal(t, "eu.proxy.netbird.io", byDomain["example.com"], "custom domain must carry its target cluster")
+	assert.Equal(t, "us.proxy.netbird.io", byDomain["apps.acme.io"], "custom domain must carry its target cluster")
+}
 
 // TestGetAccount_ComprehensiveFieldValidation validates that GetAccount properly loads
 // all fields and nested objects from the database, including deeply nested structures.

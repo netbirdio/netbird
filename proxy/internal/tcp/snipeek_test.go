@@ -29,10 +29,11 @@ func TestPeekClientHello_ValidSNI(t *testing.T) {
 		_ = tlsConn.Handshake()
 	}()
 
-	sni, wrapped, err := PeekClientHello(serverConn)
+	sni, wrapped, isTLS, err := PeekClientHello(serverConn)
 	require.NoError(t, err)
 	assert.Equal(t, expectedSNI, sni, "should extract SNI from ClientHello")
 	assert.NotNil(t, wrapped, "wrapped connection should not be nil")
+	assert.True(t, isTLS, "TLS ClientHello should be flagged as TLS")
 
 	// Verify the wrapped connection replays the peeked bytes.
 	// Read the first 5 bytes (TLS record header) to confirm replay.
@@ -83,10 +84,11 @@ func TestPeekClientHello_MultipleSNIs(t *testing.T) {
 				_ = tlsConn.Handshake()
 			}()
 
-			sni, wrapped, err := PeekClientHello(serverConn)
+			sni, wrapped, isTLS, err := PeekClientHello(serverConn)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedSNI, sni)
 			assert.NotNil(t, wrapped)
+			assert.True(t, isTLS, "TLS handshake should be flagged as TLS")
 		})
 	}
 }
@@ -102,10 +104,11 @@ func TestPeekClientHello_NonTLSData(t *testing.T) {
 		_, _ = clientConn.Write(httpData)
 	}()
 
-	sni, wrapped, err := PeekClientHello(serverConn)
+	sni, wrapped, isTLS, err := PeekClientHello(serverConn)
 	require.NoError(t, err)
 	assert.Empty(t, sni, "should return empty SNI for non-TLS data")
 	assert.NotNil(t, wrapped)
+	assert.False(t, isTLS, "plain HTTP data should not be flagged as TLS")
 
 	// Verify the wrapped connection still provides the original data.
 	buf := make([]byte, len(httpData))
@@ -124,7 +127,7 @@ func TestPeekClientHello_TruncatedHeader(t *testing.T) {
 		clientConn.Close()
 	}()
 
-	_, _, err := PeekClientHello(serverConn)
+	_, _, _, err := PeekClientHello(serverConn)
 	assert.Error(t, err, "should error on truncated header")
 }
 
@@ -140,7 +143,7 @@ func TestPeekClientHello_TruncatedPayload(t *testing.T) {
 		clientConn.Close()
 	}()
 
-	_, _, err := PeekClientHello(serverConn)
+	_, _, _, err := PeekClientHello(serverConn)
 	assert.Error(t, err, "should error on truncated payload")
 }
 
@@ -154,10 +157,11 @@ func TestPeekClientHello_ZeroLengthRecord(t *testing.T) {
 		_, _ = clientConn.Write([]byte{0x16, 0x03, 0x01, 0x00, 0x00})
 	}()
 
-	sni, wrapped, err := PeekClientHello(serverConn)
+	sni, wrapped, isTLS, err := PeekClientHello(serverConn)
 	require.NoError(t, err)
 	assert.Empty(t, sni)
 	assert.NotNil(t, wrapped)
+	assert.True(t, isTLS, "zero-length record should still be a TLS handshake byte")
 }
 
 func TestExtractSNI_InvalidPayload(t *testing.T) {

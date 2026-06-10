@@ -47,7 +47,7 @@ func TestCreateToken_AccountScoped(t *testing.T) {
 	)
 
 	permsMgr := permissions.NewMockManager(ctrl)
-	permsMgr.EXPECT().ValidateUserPermissions(gomock.Any(), accountID, "user-1", modules.Services, operations.Create).Return(true, nil)
+	permsMgr.EXPECT().ValidateUserPermissions(gomock.Any(), accountID, "user-1", modules.Services, operations.Create).Return(true, context.Background(), nil)
 
 	h := &handler{
 		store:              mockStore,
@@ -90,7 +90,7 @@ func TestCreateToken_WithExpiration(t *testing.T) {
 	)
 
 	permsMgr := permissions.NewMockManager(ctrl)
-	permsMgr.EXPECT().ValidateUserPermissions(gomock.Any(), "acc-123", "user-1", modules.Services, operations.Create).Return(true, nil)
+	permsMgr.EXPECT().ValidateUserPermissions(gomock.Any(), "acc-123", "user-1", modules.Services, operations.Create).Return(true, context.Background(), nil)
 
 	h := &handler{
 		store:              mockStore,
@@ -115,7 +115,7 @@ func TestCreateToken_EmptyName(t *testing.T) {
 	defer ctrl.Finish()
 
 	permsMgr := permissions.NewMockManager(ctrl)
-	permsMgr.EXPECT().ValidateUserPermissions(gomock.Any(), "acc-123", "user-1", modules.Services, operations.Create).Return(true, nil)
+	permsMgr.EXPECT().ValidateUserPermissions(gomock.Any(), "acc-123", "user-1", modules.Services, operations.Create).Return(true, context.Background(), nil)
 
 	h := &handler{
 		permissionsManager: permsMgr,
@@ -135,7 +135,7 @@ func TestCreateToken_PermissionDenied(t *testing.T) {
 	defer ctrl.Finish()
 
 	permsMgr := permissions.NewMockManager(ctrl)
-	permsMgr.EXPECT().ValidateUserPermissions(gomock.Any(), "acc-123", "user-1", modules.Services, operations.Create).Return(false, nil)
+	permsMgr.EXPECT().ValidateUserPermissions(gomock.Any(), "acc-123", "user-1", modules.Services, operations.Create).Return(false, context.Background(), nil)
 
 	h := &handler{
 		permissionsManager: permsMgr,
@@ -164,7 +164,7 @@ func TestListTokens(t *testing.T) {
 	}, nil)
 
 	permsMgr := permissions.NewMockManager(ctrl)
-	permsMgr.EXPECT().ValidateUserPermissions(gomock.Any(), accountID, "user-1", modules.Services, operations.Read).Return(true, nil)
+	permsMgr.EXPECT().ValidateUserPermissions(gomock.Any(), accountID, "user-1", modules.Services, operations.Read).Return(true, context.Background(), nil)
 
 	h := &handler{
 		store:              mockStore,
@@ -202,7 +202,7 @@ func TestRevokeToken_Success(t *testing.T) {
 	mockStore.EXPECT().RevokeProxyAccessToken(gomock.Any(), "tok-1").Return(nil)
 
 	permsMgr := permissions.NewMockManager(ctrl)
-	permsMgr.EXPECT().ValidateUserPermissions(gomock.Any(), accountID, "user-1", modules.Services, operations.Delete).Return(true, nil)
+	permsMgr.EXPECT().ValidateUserPermissions(gomock.Any(), accountID, "user-1", modules.Services, operations.Delete).Return(true, context.Background(), nil)
 
 	h := &handler{
 		store:              mockStore,
@@ -231,7 +231,7 @@ func TestRevokeToken_WrongAccount(t *testing.T) {
 	}, nil)
 
 	permsMgr := permissions.NewMockManager(ctrl)
-	permsMgr.EXPECT().ValidateUserPermissions(gomock.Any(), "acc-123", "user-1", modules.Services, operations.Delete).Return(true, nil)
+	permsMgr.EXPECT().ValidateUserPermissions(gomock.Any(), "acc-123", "user-1", modules.Services, operations.Delete).Return(true, context.Background(), nil)
 
 	h := &handler{
 		store:              mockStore,
@@ -258,7 +258,7 @@ func TestRevokeToken_ManagementWideToken(t *testing.T) {
 	}, nil)
 
 	permsMgr := permissions.NewMockManager(ctrl)
-	permsMgr.EXPECT().ValidateUserPermissions(gomock.Any(), "acc-123", "user-1", modules.Services, operations.Delete).Return(true, nil)
+	permsMgr.EXPECT().ValidateUserPermissions(gomock.Any(), "acc-123", "user-1", modules.Services, operations.Delete).Return(true, context.Background(), nil)
 
 	h := &handler{
 		store:              mockStore,

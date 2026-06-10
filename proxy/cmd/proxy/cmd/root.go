@@ -15,9 +15,20 @@ import (
 
 	"github.com/netbirdio/netbird/shared/management/domain"
 
+	"github.com/netbirdio/netbird/client/embed"
 	"github.com/netbirdio/netbird/proxy"
 	nbacme "github.com/netbirdio/netbird/proxy/internal/acme"
 	"github.com/netbirdio/netbird/util"
+)
+
+const (
+	// envPreallocatedBuffers caps the per-tunnel buffer pool. Zero (unset)
+	// keeps the upstream uncapped default.
+	envPreallocatedBuffers = "NB_PROXY_PREALLOCATED_BUFFERS"
+	// envMaxBatchSize overrides the per-tunnel batch size, which controls
+	// how many buffers each receive/TUN worker eagerly allocates. Zero
+	// (unset) keeps the platform default.
+	envMaxBatchSize = "NB_PROXY_MAX_BATCH_SIZE"
 )
 
 const DefaultManagementURL = "https://api.netbird.io:443"
@@ -63,6 +74,7 @@ var (
 	preSharedKey          string
 	supportsCustomPorts   bool
 	requireSubdomain      bool
+	private               bool
 	geoDataDir            string
 	crowdsecAPIURL        string
 	crowdsecAPIKey        string
@@ -105,6 +117,8 @@ func init() {
 	rootCmd.Flags().StringVar(&preSharedKey, "preshared-key", envStringOrDefault("NB_PROXY_PRESHARED_KEY", ""), "Define a pre-shared key for the tunnel between proxy and peers")
 	rootCmd.Flags().BoolVar(&supportsCustomPorts, "supports-custom-ports", envBoolOrDefault("NB_PROXY_SUPPORTS_CUSTOM_PORTS", true), "Whether the proxy can bind arbitrary ports for UDP/TCP passthrough")
 	rootCmd.Flags().BoolVar(&requireSubdomain, "require-subdomain", envBoolOrDefault("NB_PROXY_REQUIRE_SUBDOMAIN", false), "Require a subdomain label in front of the cluster domain")
+	rootCmd.Flags().BoolVar(&private, "private", envBoolOrDefault("NB_PROXY_PRIVATE", false), "Enable private services accessible with NetBird-Only authentication mode.")
+	_ = rootCmd.Flags().MarkHidden("private")
 	rootCmd.Flags().DurationVar(&maxDialTimeout, "max-dial-timeout", envDurationOrDefault("NB_PROXY_MAX_DIAL_TIMEOUT", 0), "Cap per-service backend dial timeout (0 = no cap)")
 	rootCmd.Flags().DurationVar(&maxSessionIdleTimeout, "max-session-idle-timeout", envDurationOrDefault("NB_PROXY_MAX_SESSION_IDLE_TIMEOUT", 0), "Cap per-service session idle timeout (0 = no cap)")
 	rootCmd.Flags().StringVar(&geoDataDir, "geo-data-dir", envStringOrDefault("NB_PROXY_GEO_DATA_DIR", "/var/lib/netbird/geolocation"), "Directory for the GeoLite2 MMDB file (auto-downloaded if missing)")
@@ -145,6 +159,45 @@ func runServer(cmd *cobra.Command, args []string) error {
 
 	logger.Infof("configured log level: %s", level)
 
+	var wgPool, wgBatch uint64
+	var perf embed.Performance
+	if raw := os.Getenv(envPreallocatedBuffers); raw != "" {
+		n, err := strconv.ParseUint(raw, 10, 32)
+		if err != nil {
+			return fmt.Errorf("invalid %s %q: %w", envPreallocatedBuffers, raw, err)
+		}
+		wgPool = n
+		v := uint32(n)
+		perf.PreallocatedBuffersPerPool = &v
+		logger.Infof("tunnel preallocated buffers per pool: %d", n)
+	}
+	if raw := os.Getenv(envMaxBatchSize); raw != "" {
+		n, err := strconv.ParseUint(raw, 10, 32)
+		if err != nil {
+			return fmt.Errorf("invalid %s %q: %w", envMaxBatchSize, raw, err)
+		}
+		wgBatch = n
+		v := uint32(n)
+		perf.MaxBatchSize = &v
+		logger.Infof("tunnel max batch size override: %d", n)
+	}
+	if wgPool > 0 {
+		// Each bind recv goroutine (IPv4 + IPv6 + ICE relay) plus
+		// RoutineReadFromTUN eagerly reserves `batch` message buffers for
+		// the lifetime of the Device. A pool cap below that floor blocks
+		// the receive pipeline at startup.
+		batch := wgBatch
+		if batch == 0 {
+			batch = 128
+		}
+		const recvGoroutines = 4
+		floor := batch * recvGoroutines
+		if wgPool < floor {
+			logger.Warnf("%s=%d is below the eager-allocation floor (~%d for batch=%d); startup may deadlock",
+				envPreallocatedBuffers, wgPool, floor, batch)
+		}
+	}
+
 	switch forwardedProto {
 	case "auto", "http", "https":
 	default:
@@ -161,7 +214,11 @@ func runServer(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid --trusted-proxies: %w", err)
 	}
 
-	srv := proxy.Server{
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+
+	srv := proxy.New(ctx, proxy.Config{
+		ListenAddr:               addr,
 		Logger:                   logger,
 		Version:                  Version,
 		ManagementAddress:        mgmtAddr,
@@ -178,25 +235,25 @@ func runServer(cmd *cobra.Command, args []string) error {
 		ACMEChallengeType:        acmeChallengeType,
 		DebugEndpointEnabled:     debugEndpoint,
 		DebugEndpointAddress:     debugEndpointAddr,
-		HealthAddress:            healthAddr,
+		HealthAddr:               healthAddr,
 		ForwardedProto:           forwardedProto,
 		TrustedProxies:           parsedTrustedProxies,
 		CertLockMethod:           nbacme.CertLockMethod(certLockMethod),
 		WildcardCertDir:          wildcardCertDir,
 		WireguardPort:            wgPort,
+		Performance:              perf,
 		ProxyProtocol:            proxyProtocol,
 		PreSharedKey:             preSharedKey,
 		SupportsCustomPorts:      supportsCustomPorts,
 		RequireSubdomain:         requireSubdomain,
+		Private:                  private,
 		MaxDialTimeout:           maxDialTimeout,
 		MaxSessionIdleTimeout:    maxSessionIdleTimeout,
+		MappingBatchWatchdog:     envDurationOrDefault("NB_PROXY_MAPPING_BATCH_WATCHDOG", 0),
 		GeoDataDir:               geoDataDir,
 		CrowdSecAPIURL:           crowdsecAPIURL,
 		CrowdSecAPIKey:           crowdsecAPIKey,
-	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
-	defer stop()
+	})
 
 	return srv.ListenAndServe(ctx, addr)
 }

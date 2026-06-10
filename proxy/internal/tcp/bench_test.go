@@ -36,7 +36,7 @@ func BenchmarkPeekClientHello_TLS(b *testing.B) {
 	for b.Loop() {
 		r := bytes.NewReader(hello)
 		conn := &readerConn{Reader: r}
-		sni, wrapped, err := PeekClientHello(conn)
+		sni, wrapped, _, err := PeekClientHello(conn)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -59,7 +59,7 @@ func BenchmarkPeekClientHello_NonTLS(b *testing.B) {
 	for b.Loop() {
 		r := bytes.NewReader(httpReq)
 		conn := &readerConn{Reader: r}
-		_, wrapped, err := PeekClientHello(conn)
+		_, wrapped, _, err := PeekClientHello(conn)
 		if err != nil {
 			b.Fatal(err)
 		}

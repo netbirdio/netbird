@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/hashicorp/go-version"
-	log "github.com/sirupsen/logrus"
 
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 )
@@ -32,9 +31,6 @@ func (n *NBVersionCheck) Check(ctx context.Context, peer nbpeer.Peer) (bool, err
 	if meetsMin {
 		return true, nil
 	}
-
-	log.WithContext(ctx).Debugf("peer %s NB version %s is older than minimum allowed version %s",
-		peer.ID, peer.Meta.WtVersion, n.MinVersion)
 
 	return false, nil
 }

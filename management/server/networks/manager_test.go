@@ -34,8 +34,11 @@ func Test_GetAllNetworksReturnsNetworks(t *testing.T) {
 
 	networks, err := manager.GetAllNetworks(ctx, accountID, userID)
 	require.NoError(t, err)
-	require.Len(t, networks, 1)
-	require.Equal(t, "testNetworkId", networks[0].ID)
+	ids := make([]string, 0, len(networks))
+	for _, n := range networks {
+		ids = append(ids, n.ID)
+	}
+	require.ElementsMatch(t, []string{"testNetworkId", "secondNetworkId"}, ids)
 }
 
 func Test_GetAllNetworksReturnsPermissionDenied(t *testing.T) {

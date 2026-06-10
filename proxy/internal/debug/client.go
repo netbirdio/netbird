@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"strings"
 	"time"
-
 )
 
 // StatusFilters contains filter options for status queries.
@@ -160,6 +159,49 @@ func (c *Client) printClients(data map[string]any) {
 	for _, item := range clients {
 		c.printClientRow(item)
 	}
+
+	c.printInboundListeners(clients)
+}
+
+func (c *Client) printInboundListeners(clients []any) {
+	type row struct {
+		accountID string
+		tunnelIP  string
+		httpsPort int
+		httpPort  int
+	}
+	var rows []row
+	for _, item := range clients {
+		client, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		inbound, ok := client["inbound_listener"].(map[string]any)
+		if !ok {
+			continue
+		}
+		tunnelIP, _ := inbound["tunnel_ip"].(string)
+		httpsPort, _ := inbound["https_port"].(float64)
+		httpPort, _ := inbound["http_port"].(float64)
+		accountID, _ := client["account_id"].(string)
+		rows = append(rows, row{
+			accountID: accountID,
+			tunnelIP:  tunnelIP,
+			httpsPort: int(httpsPort),
+			httpPort:  int(httpPort),
+		})
+	}
+	if len(rows) == 0 {
+		return
+	}
+
+	_, _ = fmt.Fprintln(c.out)
+	_, _ = fmt.Fprintln(c.out, "Inbound listeners (per-account):")
+	_, _ = fmt.Fprintf(c.out, "  %-38s %-20s %-7s %s\n", "ACCOUNT ID", "TUNNEL IP", "HTTPS", "HTTP")
+	_, _ = fmt.Fprintln(c.out, "  "+strings.Repeat("-", 78))
+	for _, r := range rows {
+		_, _ = fmt.Fprintf(c.out, "  %-38s %-20s %-7d %d\n", r.accountID, r.tunnelIP, r.httpsPort, r.httpPort)
+	}
 }
 
 func (c *Client) printClientRow(item any) {
@@ -219,7 +261,14 @@ func (c *Client) ClientStatus(ctx context.Context, accountID string, filters Sta
 }
 
 func (c *Client) printClientStatus(data map[string]any) {
-	_, _ = fmt.Fprintf(c.out, "Account: %v\n\n", data["account_id"])
+	_, _ = fmt.Fprintf(c.out, "Account: %v\n", data["account_id"])
+	if inbound, ok := data["inbound_listener"].(map[string]any); ok {
+		tunnelIP, _ := inbound["tunnel_ip"].(string)
+		httpsPort, _ := inbound["https_port"].(float64)
+		httpPort, _ := inbound["http_port"].(float64)
+		_, _ = fmt.Fprintf(c.out, "Inbound listener: %s (https=%d, http=%d)\n", tunnelIP, int(httpsPort), int(httpPort))
+	}
+	_, _ = fmt.Fprintln(c.out)
 	if status, ok := data["status"].(string); ok {
 		_, _ = fmt.Fprint(c.out, status)
 	}
@@ -282,6 +331,63 @@ func (c *Client) printLogLevelResult(data map[string]any) {
 		_, _ = fmt.Fprintln(c.out, "Failed to set log level")
 		c.printError(data)
 	}
+}
+
+// PerfSet live-retunes the tunnel buffer pool cap on all running embedded
+// clients. Batch size is not live-tunable; configure it at proxy startup.
+func (c *Client) PerfSet(ctx context.Context, value uint32) error {
+	path := fmt.Sprintf("/debug/perf?value=%d", value)
+	return c.fetchAndPrint(ctx, path, c.printPerfSet)
+}
+
+func (c *Client) printPerfSet(data map[string]any) {
+	if errMsg, ok := data["error"].(string); ok && errMsg != "" {
+		c.printError(data)
+		return
+	}
+	val, _ := data["value"].(float64)
+	applied, _ := data["applied"].(float64)
+	_, _ = fmt.Fprintf(c.out, "Pool cap set to: %d\n", uint32(val))
+	_, _ = fmt.Fprintf(c.out, "Applied to %d live clients\n", int(applied))
+	if failed, ok := data["failed"].(map[string]any); ok && len(failed) > 0 {
+		_, _ = fmt.Fprintln(c.out, "Failed:")
+		for k, v := range failed {
+			_, _ = fmt.Fprintf(c.out, "  %s: %v\n", k, v)
+		}
+	}
+}
+
+// Runtime fetches runtime stats (heap, goroutines, RSS).
+func (c *Client) Runtime(ctx context.Context) error {
+	return c.fetchAndPrint(ctx, "/debug/runtime", c.printRuntime)
+}
+
+func (c *Client) printRuntime(data map[string]any) {
+	i := func(k string) uint64 {
+		v, _ := data[k].(float64)
+		return uint64(v)
+	}
+	mb := func(n uint64) string { return fmt.Sprintf("%.1f MB", float64(n)/(1<<20)) }
+
+	_, _ = fmt.Fprintf(c.out, "Uptime:       %v\n", data["uptime"])
+	_, _ = fmt.Fprintf(c.out, "Go:           %v on %d CPU (GOMAXPROCS=%d)\n", data["go_version"], uint32(i("num_cpu")), uint32(i("gomaxprocs")))
+	_, _ = fmt.Fprintf(c.out, "Goroutines:   %d\n", i("goroutines"))
+	_, _ = fmt.Fprintf(c.out, "Live objects: %d\n", i("live_objects"))
+	_, _ = fmt.Fprintf(c.out, "GC:           %d cycles, %v pause total\n", i("num_gc"), time.Duration(i("pause_total_ns")))
+	_, _ = fmt.Fprintln(c.out, "Heap:")
+	_, _ = fmt.Fprintf(c.out, "  alloc:      %s\n", mb(i("heap_alloc")))
+	_, _ = fmt.Fprintf(c.out, "  in-use:     %s\n", mb(i("heap_inuse")))
+	_, _ = fmt.Fprintf(c.out, "  idle:       %s\n", mb(i("heap_idle")))
+	_, _ = fmt.Fprintf(c.out, "  released:   %s\n", mb(i("heap_released")))
+	_, _ = fmt.Fprintf(c.out, "  sys:        %s\n", mb(i("heap_sys")))
+	_, _ = fmt.Fprintf(c.out, "Total sys:    %s\n", mb(i("sys")))
+	if _, ok := data["vm_rss"]; ok {
+		_, _ = fmt.Fprintln(c.out, "Process:")
+		_, _ = fmt.Fprintf(c.out, "  VmRSS:      %s\n", mb(i("vm_rss")))
+		_, _ = fmt.Fprintf(c.out, "  VmSize:     %s\n", mb(i("vm_size")))
+		_, _ = fmt.Fprintf(c.out, "  VmData:     %s\n", mb(i("vm_data")))
+	}
+	_, _ = fmt.Fprintf(c.out, "Clients:      %d (%d started)\n", i("clients"), i("started"))
 }
 
 // StartClient starts a specific client.

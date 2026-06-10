@@ -25,6 +25,11 @@ type Metrics struct {
 	backendDuration          metric.Int64Histogram
 	certificateIssueDuration metric.Int64Histogram
 
+	// Management sync metrics.
+	snapshotSyncDuration  metric.Int64Histogram
+	snapshotBatchDuration metric.Int64Histogram
+	addPeerDuration       metric.Int64Histogram
+
 	// L4 service-level metrics.
 	l4Services metric.Int64UpDownCounter
 
@@ -52,6 +57,9 @@ func New(ctx context.Context, meter metric.Meter) (*Metrics, error) {
 	}
 
 	if err := m.initHTTPMetrics(meter); err != nil {
+		return nil, err
+	}
+	if err := m.initSyncMetrics(meter); err != nil {
 		return nil, err
 	}
 	if err := m.initL4Metrics(meter); err != nil {
@@ -124,6 +132,59 @@ func (m *Metrics) initHTTPMetrics(meter metric.Meter) error {
 		metric.WithDescription("Duration of ACME certificate issuance"),
 	)
 	return err
+}
+
+func (m *Metrics) initSyncMetrics(meter metric.Meter) error {
+	var err error
+
+	m.snapshotSyncDuration, err = meter.Int64Histogram(
+		"proxy.sync.snapshot.duration.ms",
+		metric.WithUnit("milliseconds"),
+		metric.WithDescription("Duration from management connect until the initial snapshot sync is complete"),
+		metric.WithExplicitBucketBoundaries(100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000, 120000, 300000),
+	)
+	if err != nil {
+		return err
+	}
+
+	m.snapshotBatchDuration, err = meter.Int64Histogram(
+		"proxy.sync.batch.duration.ms",
+		metric.WithUnit("milliseconds"),
+		metric.WithDescription("Duration to process a single mapping batch during initial snapshot sync"),
+		metric.WithExplicitBucketBoundaries(100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000, 120000, 300000),
+	)
+	if err != nil {
+		return err
+	}
+
+	m.addPeerDuration, err = meter.Int64Histogram(
+		"proxy.peer.add.duration.ms",
+		metric.WithUnit("milliseconds"),
+		metric.WithDescription("Duration to add a peer for an account (keygen + gRPC CreateProxyPeer + embed.New)"),
+		metric.WithExplicitBucketBoundaries(10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000),
+	)
+	return err
+}
+
+// RecordSnapshotSyncDuration records the total time from connect to sync-complete.
+func (m *Metrics) RecordSnapshotSyncDuration(d time.Duration) {
+	m.snapshotSyncDuration.Record(m.ctx, d.Milliseconds())
+}
+
+// RecordSnapshotBatchDuration records the time to process one mapping batch during initial sync.
+func (m *Metrics) RecordSnapshotBatchDuration(d time.Duration) {
+	m.snapshotBatchDuration.Record(m.ctx, d.Milliseconds())
+}
+
+// RecordAddPeerDuration records the time to create a new peer for an account.
+func (m *Metrics) RecordAddPeerDuration(d time.Duration, err error) {
+	result := "success"
+	if err != nil {
+		result = "error"
+	}
+	m.addPeerDuration.Record(m.ctx, d.Milliseconds(), metric.WithAttributes(
+		attribute.String("result", result),
+	))
 }
 
 func (m *Metrics) initL4Metrics(meter metric.Meter) error {

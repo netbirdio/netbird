@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check for proto tool version changes
-        uses: actions/github-script@v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const files = await github.paginate(github.rest.pulls.listFiles, {
@@ -20,34 +20,83 @@ jobs:
               per_page: 100,
             });
 
-            const pbFiles = files.filter(f => f.filename.endsWith('.pb.go'));
-            const missingPatch = pbFiles.filter(f => !f.patch).map(f => f.filename);
-            if (missingPatch.length > 0) {
-              core.setFailed(
-                `Cannot inspect patch data for:\n` +
-                missingPatch.map(f => `- ${f}`).join('\n') +
-                `\nThis can happen with very large PRs. Verify proto versions manually.`
-              );
+            // Cover renamed .pb.go files in addition to plain edits.
+            // Renamed entries land under the new path with previous_filename
+            // pointing at the base-side name, so we read the base content
+            // from the old path when present.
+            const changedPbFiles = files
+              .filter(f => (f.status === 'modified' || f.status === 'renamed')
+                && f.filename.endsWith('.pb.go'))
+              .map(f => ({
+                headPath: f.filename,
+                basePath: f.previous_filename || f.filename,
+              }));
+            if (changedPbFiles.length === 0) {
+              console.log('No modified or renamed .pb.go files to check');
               return;
             }
-            const versionPattern = /^[+-]\s*\/\/\s+protoc(?:-gen-go)?\s+v[\d.]+/;
-            const violations = [];
 
-            for (const file of pbFiles) {
-              const changed = file.patch
-                .split('\n')
-                .filter(line => versionPattern.test(line));
-              if (changed.length > 0) {
+            // Matches the generator version headers protoc writes at the top
+            // of generated files:
+            //   //   protoc           v3.21.12
+            //   //   protoc-gen-go    v1.26.0
+            //   // - protoc-gen-go-grpc v1.6.1   (grpc files prefix with "- ")
+            // The optional "- " prefix and the optional -gen-go / -gen-go-grpc
+            // suffixes keep the *_grpc.pb.go headers in scope.
+            const versionPattern = /^\s*\/\/\s+(?:-\s+)?protoc(?:-gen-go(?:-grpc)?)?\s+v[\d.]+/;
+            const baseSha = context.payload.pull_request.base.sha;
+            const headSha = context.payload.pull_request.head.sha;
+
+            async function getVersionHeader(path, ref) {
+              try {
+                const res = await github.rest.repos.getContent({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  path,
+                  ref,
+                });
+                if (!res.data.content) {
+                  return { ok: false, reason: 'no inline content (file too large)' };
+                }
+                const content = Buffer.from(res.data.content, 'base64').toString('utf8');
+                const lines = content
+                  .split('\n')
+                  .slice(0, 20)
+                  .filter(line => versionPattern.test(line));
+                return { ok: true, lines };
+              } catch (e) {
+                return { ok: false, reason: e.message };
+              }
+            }
+
+            const violations = [];
+            for (const file of changedPbFiles) {
+              const [base, head] = await Promise.all([
+                getVersionHeader(file.basePath, baseSha),
+                getVersionHeader(file.headPath, headSha),
+              ]);
+              if (!base.ok || !head.ok) {
+                core.warning(
+                  `Skipping ${file.headPath}: base=${base.ok ? 'ok' : base.reason}, head=${head.ok ? 'ok' : head.reason}`
+                );
+                continue;
+              }
+              if (base.lines.join('\n') !== head.lines.join('\n')) {
                 violations.push({
-                  file: file.filename,
-                  lines: changed,
+                  file: file.basePath === file.headPath
+                    ? file.headPath
+                    : `${file.basePath} → ${file.headPath}`,
+                  base: base.lines,
+                  head: head.lines,
                 });
               }
             }
 
             if (violations.length > 0) {
               const details = violations.map(v =>
-                `${v.file}:\n${v.lines.map(l => '  ' + l).join('\n')}`
+                `${v.file}:\n` +
+                `  base:\n${v.base.map(l => '    ' + l).join('\n') || '    (none)'}\n` +
+                `  head:\n${v.head.map(l => '    ' + l).join('\n') || '    (none)'}`
               ).join('\n\n');
 
               core.setFailed(

@@ -1090,6 +1090,38 @@ func (s *SqlStore) GetCustomDomainsCounts(ctx context.Context) (int64, int64, er
 	return total, validated, nil
 }
 
+// GetProxyMetrics aggregates per-cluster + per-proxy counts for the
+// self-hosted telemetry payload. Single round-trip via conditional
+// aggregations so a large proxies table doesn't fan out into multiple
+// queries.
+func (s *SqlStore) GetProxyMetrics(ctx context.Context) (ProxyMetrics, error) {
+	var m ProxyMetrics
+	activeCutoff := time.Now().Add(-proxyActiveThreshold)
+
+	// COUNT(DISTINCT ... CASE WHEN ...) is portable across sqlite/postgres
+	// (MySQL too) and keeps the round-trip to one. proxy.StatusConnected
+	// is the same string the cluster-capability queries use; the active
+	// window matches the cluster-capability semantics (only proxies
+	// heartbeating within ~2 * heartbeat interval count as connected).
+	row := s.db.WithContext(ctx).
+		Model(&proxy.Proxy{}).
+		Select(
+			"COUNT(DISTINCT cluster_address) AS clusters, "+
+				"COUNT(DISTINCT CASE WHEN account_id IS NOT NULL THEN cluster_address END) AS clusters_byop, "+
+				"COUNT(DISTINCT CASE WHEN private = ? THEN cluster_address END) AS clusters_private, "+
+				"COUNT(*) AS proxies, "+
+				"COUNT(CASE WHEN status = ? AND last_seen > ? THEN 1 END) AS proxies_connected",
+			true,
+			proxy.StatusConnected,
+			activeCutoff,
+		).
+		Row()
+	if err := row.Scan(&m.Clusters, &m.ClustersBYOP, &m.ClustersPrivate, &m.Proxies, &m.ProxiesConnected); err != nil {
+		return ProxyMetrics{}, fmt.Errorf("scan proxy metrics: %w", err)
+	}
+	return m, nil
+}
+
 func (s *SqlStore) GetAllAccounts(ctx context.Context) (all []*types.Account) {
 	var accounts []types.Account
 	result := s.db.Find(&accounts)
@@ -1184,6 +1216,7 @@ func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types
 		Preload("NetworkResources").
 		Preload("Onboarding").
 		Preload("Services.Targets").
+		Preload("Domains").
 		Take(&account, idQueryCondition, accountID)
 	if result.Error != nil {
 		log.WithContext(ctx).Errorf("error when getting account %s from the store: %s", accountID, result.Error)
@@ -1270,7 +1303,7 @@ func (s *SqlStore) getAccountPgx(ctx context.Context, accountID string) (*types.
 	}
 
 	var wg sync.WaitGroup
-	errChan := make(chan error, 12)
+	errChan := make(chan error, 16)
 
 	wg.Add(1)
 	go func() {
@@ -1369,6 +1402,17 @@ func (s *SqlStore) getAccountPgx(ctx context.Context, accountID string) (*types.
 			return
 		}
 		account.Services = services
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		domains, err := s.ListCustomDomains(ctx, accountID)
+		if err != nil {
+			errChan <- err
+			return
+		}
+		account.Domains = domains
 	}()
 
 	wg.Add(1)
@@ -2178,7 +2222,8 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 	const serviceQuery = `SELECT id, account_id, name, domain, enabled, auth,
 		meta_created_at, meta_certificate_issued_at, meta_status, proxy_cluster,
 		pass_host_header, rewrite_redirects, session_private_key, session_public_key,
-		mode, listen_port, port_auto_assigned, source, source_peer, terminated
+		mode, listen_port, port_auto_assigned, source, source_peer, terminated,
+		private, access_groups
 		FROM services WHERE account_id = $1`
 
 	const targetsQuery = `SELECT id, account_id, service_id, path, host, port, protocol,
@@ -2193,10 +2238,11 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 	services, err := pgx.CollectRows(serviceRows, func(row pgx.CollectableRow) (*rpservice.Service, error) {
 		var s rpservice.Service
 		var auth []byte
+		var accessGroups []byte
 		var createdAt, certIssuedAt sql.NullTime
 		var status, proxyCluster, sessionPrivateKey, sessionPublicKey sql.NullString
 		var mode, source, sourcePeer sql.NullString
-		var terminated, portAutoAssigned sql.NullBool
+		var terminated, portAutoAssigned, private sql.NullBool
 		var listenPort sql.NullInt64
 		err := row.Scan(
 			&s.ID,
@@ -2219,6 +2265,8 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 			&source,
 			&sourcePeer,
 			&terminated,
+			&private,
+			&accessGroups,
 		)
 		if err != nil {
 			return nil, err
@@ -2228,6 +2276,16 @@ func (s *SqlStore) getServices(ctx context.Context, accountID string) ([]*rpserv
 			if err := json.Unmarshal(auth, &s.Auth); err != nil {
 				return nil, err
 			}
+		}
+
+		if len(accessGroups) > 0 {
+			if err := json.Unmarshal(accessGroups, &s.AccessGroups); err != nil {
+				return nil, fmt.Errorf("unmarshal access_groups: %w", err)
+			}
+		}
+
+		if private.Valid {
+			s.Private = private.Bool
 		}
 
 		s.Meta = rpservice.Meta{}
@@ -4315,11 +4373,27 @@ func (s *SqlStore) GetNetworkRouterByID(ctx context.Context, lockStrength Lockin
 	return netRouter, nil
 }
 
-func (s *SqlStore) SaveNetworkRouter(ctx context.Context, router *routerTypes.NetworkRouter) error {
-	result := s.db.Save(router)
+func (s *SqlStore) CreateNetworkRouter(ctx context.Context, router *routerTypes.NetworkRouter) error {
+	if err := s.db.Create(router).Error; err != nil {
+		log.WithContext(ctx).Errorf("failed to create network router in store: %v", err)
+		return status.Errorf(status.Internal, "failed to create network router in store")
+	}
+
+	return nil
+}
+
+func (s *SqlStore) UpdateNetworkRouter(ctx context.Context, router *routerTypes.NetworkRouter) error {
+	result := s.db.
+		Select("*").
+		Where(accountAndIDQueryCondition, router.AccountID, router.ID).
+		Updates(router)
 	if result.Error != nil {
-		log.WithContext(ctx).Errorf("failed to save network router to store: %v", result.Error)
-		return status.Errorf(status.Internal, "failed to save network router to store")
+		log.WithContext(ctx).Errorf("failed to update network router in store: %v", result.Error)
+		return status.Errorf(status.Internal, "failed to update network router in store")
+	}
+
+	if result.RowsAffected == 0 {
+		return status.NewNetworkRouterNotFoundError(router.ID)
 	}
 
 	return nil
@@ -4672,7 +4746,13 @@ func (s *SqlStore) GetPeerByIP(ctx context.Context, lockStrength LockingStrength
 	result := tx.
 		Take(&peer, fmt.Sprintf("account_id = ? AND %s = ?", column), accountID, jsonValue)
 	if result.Error != nil {
-		// no logging here
+		// A tunnel-IP miss is an expected outcome (e.g. the proxy's
+		// ValidateTunnelPeer probing an address that isn't in the
+		// account roster); surface it as NotFound so callers can tell
+		// it apart from a real store failure.
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(status.NotFound, "peer with ip %s not found", ip.String())
+		}
 		return nil, status.Errorf(status.Internal, "failed to get peer from store")
 	}
 
@@ -5810,6 +5890,7 @@ var validCapabilityColumns = map[string]struct{}{
 	"supports_custom_ports": {},
 	"require_subdomain":     {},
 	"supports_crowdsec":     {},
+	"private":               {},
 }
 
 // GetClusterSupportsCustomPorts returns whether any active proxy in the cluster
@@ -5822,6 +5903,12 @@ func (s *SqlStore) GetClusterSupportsCustomPorts(ctx context.Context, clusterAdd
 // requires a subdomain. Returns nil when no proxy reported the capability.
 func (s *SqlStore) GetClusterRequireSubdomain(ctx context.Context, clusterAddr string) *bool {
 	return s.getClusterCapability(ctx, clusterAddr, "require_subdomain")
+}
+
+// GetClusterSupportsPrivate reports whether any active proxy in the cluster
+// has the private capability (nil = unreported).
+func (s *SqlStore) GetClusterSupportsPrivate(ctx context.Context, clusterAddr string) *bool {
+	return s.getClusterCapability(ctx, clusterAddr, "private")
 }
 
 // GetClusterSupportsCrowdSec returns whether all active proxies in the cluster
@@ -5893,6 +5980,7 @@ func (s *SqlStore) getClusterCapability(ctx context.Context, clusterAddr, column
 	}
 
 	err := s.db.
+		WithContext(ctx).
 		Model(&proxy.Proxy{}).
 		Select("COUNT(CASE WHEN "+column+" IS NOT NULL THEN 1 END) > 0 AS has_capability, "+
 			"COALESCE(MAX(CASE WHEN "+column+" = true THEN 1 ELSE 0 END), 0) = 1 AS any_true").

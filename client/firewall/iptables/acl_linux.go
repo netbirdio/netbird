@@ -3,6 +3,7 @@ package iptables
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"slices"
 
@@ -421,12 +422,17 @@ func (m *aclManager) updateState() {
 	currentState.Lock()
 	defer currentState.Unlock()
 
+	// Clone the maps so the persisted state holds a private snapshot. The
+	// live maps keep being mutated by subsequent rule operations while the
+	// state manager marshals the state from its periodic-save goroutine.
+	// Sharing them by reference races the two and aborts the process with a
+	// concurrent map iteration and write.
 	if m.v6 {
-		currentState.ACLEntries6 = m.entries
-		currentState.ACLIPsetStore6 = m.ipsetStore
+		currentState.ACLEntries6 = maps.Clone(m.entries)
+		currentState.ACLIPsetStore6 = m.ipsetStore.clone()
 	} else {
-		currentState.ACLEntries = m.entries
-		currentState.ACLIPsetStore = m.ipsetStore
+		currentState.ACLEntries = maps.Clone(m.entries)
+		currentState.ACLIPsetStore = m.ipsetStore.clone()
 	}
 
 	if err := m.stateManager.UpdateState(currentState); err != nil {

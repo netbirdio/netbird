@@ -32,7 +32,7 @@ func (e *GroupLinkError) Error() string {
 
 // CheckGroupPermissions validates if a user has the necessary permissions to view groups
 func (am *DefaultAccountManager) CheckGroupPermissions(ctx context.Context, accountID, userID string) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Read)
+	allowed, _, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Read)
 	if err != nil {
 		return err
 	}
@@ -70,7 +70,7 @@ func (am *DefaultAccountManager) GetGroupByName(ctx context.Context, groupName, 
 
 // CreateGroup object of the peers
 func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, userID string, newGroup *types.Group) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Create)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Create)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -125,7 +125,7 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 
 // UpdateGroup object of the peers
 func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, userID string, newGroup *types.Group) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Update)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Update)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -200,7 +200,7 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 // It is the caller's responsibility to ensure proper locking is in place before invoking this method.
 // This method will not create group peer membership relations. Use AddPeerToGroup or RemovePeerFromGroup methods for that.
 func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, userID string, groups []*types.Group) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Create)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Create)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -268,7 +268,7 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 // It is the caller's responsibility to ensure proper locking is in place before invoking this method.
 // This method will not create group peer membership relations. Use AddPeerToGroup or RemovePeerFromGroup methods for that.
 func (am *DefaultAccountManager) UpdateGroups(ctx context.Context, accountID, userID string, groups []*types.Group) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Update)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Update)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}
@@ -427,7 +427,7 @@ func (am *DefaultAccountManager) DeleteGroup(ctx context.Context, accountID, use
 // If an error occurs while deleting a group, the function skips it and continues deleting other groups.
 // Errors are collected and returned at the end.
 func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, userID string, groupIDs []string) error {
-	allowed, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Delete)
+	allowed, ctx, err := am.permissionsManager.ValidateUserPermissions(ctx, accountID, userID, modules.Groups, operations.Delete)
 	if err != nil {
 		return status.NewPermissionValidationError(err)
 	}

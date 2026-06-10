@@ -164,6 +164,54 @@ func TestHandlerChain_ServeDNS_DomainMatching(t *testing.T) {
 			matchSubdomains: true,
 			shouldMatch:     true,
 		},
+		{
+			name:            "wildcard label-boundary mismatch (suffix overlap)",
+			handlerDomain:   "*.b.test.",
+			queryDomain:     "x.ab.test.",
+			isWildcard:      true,
+			matchSubdomains: false,
+			shouldMatch:     false,
+		},
+		{
+			name:            "wildcard label-boundary match",
+			handlerDomain:   "*.b.test.",
+			queryDomain:     "x.b.test.",
+			isWildcard:      true,
+			matchSubdomains: false,
+			shouldMatch:     true,
+		},
+		{
+			name:            "wildcard multi-label match",
+			handlerDomain:   "*.b.test.",
+			queryDomain:     "x.y.b.test.",
+			isWildcard:      true,
+			matchSubdomains: false,
+			shouldMatch:     true,
+		},
+		{
+			name:            "wildcard no match on multi-label apex",
+			handlerDomain:   "*.b.test.",
+			queryDomain:     "b.test.",
+			isWildcard:      true,
+			matchSubdomains: false,
+			shouldMatch:     false,
+		},
+		{
+			name:            "wildcard no match on unrelated suffix containment",
+			handlerDomain:   "*.example.com.",
+			queryDomain:     "notexample.com.",
+			isWildcard:      true,
+			matchSubdomains: false,
+			shouldMatch:     false,
+		},
+		{
+			name:            "wildcard accepts pattern registered without trailing dot",
+			handlerDomain:   "*.b.test",
+			queryDomain:     "x.b.test.",
+			isWildcard:      true,
+			matchSubdomains: false,
+			shouldMatch:     true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -272,6 +320,19 @@ func TestHandlerChain_ServeDNS_OverlappingDomains(t *testing.T) {
 			queryDomain:     "sub.test.example.com.",
 			expectedCalls:   1,
 			expectedHandler: 2, // highest priority matching handler should be called
+		},
+		{
+			name: "overlapping wildcard suffixes route to correct handler",
+			handlers: []struct {
+				pattern  string
+				priority int
+			}{
+				{pattern: "*.b.test.", priority: nbdns.PriorityDNSRoute},
+				{pattern: "*.ab.test.", priority: nbdns.PriorityDNSRoute},
+			},
+			queryDomain:     "app.ab.test.",
+			expectedCalls:   1,
+			expectedHandler: 1,
 		},
 		{
 			name: "root zone with specific domain",

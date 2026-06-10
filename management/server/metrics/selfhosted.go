@@ -17,6 +17,7 @@ import (
 	rpservice "github.com/netbirdio/netbird/management/internals/modules/reverseproxy/service"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	nbversion "github.com/netbirdio/netbird/version"
 )
@@ -53,6 +54,7 @@ type DataSource interface {
 	GetAllAccounts(ctx context.Context) []*types.Account
 	GetStoreEngine() types.Engine
 	GetCustomDomainsCounts(ctx context.Context) (total int64, validated int64, err error)
+	GetProxyMetrics(ctx context.Context) (store.ProxyMetrics, error)
 }
 
 // ConnManager peer connection manager that holds state for current active connections
@@ -223,6 +225,12 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 		servicesAuthPassword      int
 		servicesAuthPin           int
 		servicesAuthOIDC          int
+		// Private-service signals — track adoption of NetBird-only mode
+		// (services backed by an embedded proxy peer + access groups).
+		servicesPrivate                int
+		servicesPrivateWithGroups      int
+		servicesPrivateAccessGroupsSum int
+		servicesWithDirectUpstream     int
 	)
 	start := time.Now()
 	metricsProperties := make(properties)
@@ -380,7 +388,29 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 			if service.Auth.BearerAuth != nil && service.Auth.BearerAuth.Enabled {
 				servicesAuthOIDC++
 			}
+
+			if service.Private {
+				servicesPrivate++
+				if len(service.AccessGroups) > 0 {
+					servicesPrivateWithGroups++
+				}
+				servicesPrivateAccessGroupsSum += len(service.AccessGroups)
+			}
+
+			for _, target := range service.Targets {
+				if target.Options.DirectUpstream {
+					servicesWithDirectUpstream++
+					break
+				}
+			}
 		}
+	}
+
+	// Proxy / BYOP cluster signals come from the proxies table aggregated
+	// across all accounts in a single store query; nil on FileStore.
+	proxyMetrics, err := w.dataSource.GetProxyMetrics(ctx)
+	if err != nil {
+		log.WithContext(ctx).Debugf("collect proxy metrics: %v", err)
 	}
 
 	minActivePeerVersion, maxActivePeerVersion := getMinMaxVersion(peerActiveVersions)
@@ -430,6 +460,15 @@ func (w *Worker) generateProperties(ctx context.Context) properties {
 	metricsProperties["services_auth_password"] = servicesAuthPassword
 	metricsProperties["services_auth_pin"] = servicesAuthPin
 	metricsProperties["services_auth_oidc"] = servicesAuthOIDC
+	metricsProperties["services_private"] = servicesPrivate
+	metricsProperties["services_private_with_access_groups"] = servicesPrivateWithGroups
+	metricsProperties["services_private_access_groups_sum"] = servicesPrivateAccessGroupsSum
+	metricsProperties["services_with_direct_upstream"] = servicesWithDirectUpstream
+	metricsProperties["proxy_clusters"] = proxyMetrics.Clusters
+	metricsProperties["proxy_clusters_byop"] = proxyMetrics.ClustersBYOP
+	metricsProperties["proxy_clusters_private"] = proxyMetrics.ClustersPrivate
+	metricsProperties["proxies"] = proxyMetrics.Proxies
+	metricsProperties["proxies_connected"] = proxyMetrics.ProxiesConnected
 	metricsProperties["custom_domains"] = customDomains
 	metricsProperties["custom_domains_validated"] = customDomainsValidated
 

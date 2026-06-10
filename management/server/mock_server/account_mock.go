@@ -98,6 +98,7 @@ type MockAccountManager struct {
 	GetPeerFunc                           func(ctx context.Context, accountID, peerID, userID string) (*nbpeer.Peer, error)
 	UpdateAccountSettingsFunc             func(ctx context.Context, accountID, userID string, newSettings *types.Settings) (*types.Settings, error)
 	LoginPeerFunc                         func(ctx context.Context, login types.PeerLogin) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, error)
+	ExtendPeerSessionFunc                 func(ctx context.Context, peerPubKey, userID string) (time.Time, error)
 	SyncPeerFunc                          func(ctx context.Context, sync types.PeerSync, accountID string) (*nbpeer.Peer, *types.NetworkMap, []*posture.Checks, int64, error)
 	InviteUserFunc                        func(ctx context.Context, accountID string, initiatorUserID string, targetUserEmail string) error
 	ApproveUserFunc                       func(ctx context.Context, accountID, initiatorUserID, targetUserID string) (*types.UserInfo, error)
@@ -858,6 +859,14 @@ func (am *MockAccountManager) LoginPeer(ctx context.Context, login types.PeerLog
 		return am.LoginPeerFunc(ctx, login)
 	}
 	return nil, nil, nil, status.Errorf(codes.Unimplemented, "method LoginPeer is not implemented")
+}
+
+// ExtendPeerSession mocks ExtendPeerSession of the AccountManager interface
+func (am *MockAccountManager) ExtendPeerSession(ctx context.Context, peerPubKey, userID string) (time.Time, error) {
+	if am.ExtendPeerSessionFunc != nil {
+		return am.ExtendPeerSessionFunc(ctx, peerPubKey, userID)
+	}
+	return time.Time{}, status.Errorf(codes.Unimplemented, "method ExtendPeerSession is not implemented")
 }
 
 // SyncPeer mocks SyncPeer of the AccountManager interface

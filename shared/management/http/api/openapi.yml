@@ -3080,6 +3080,17 @@ components:
           $ref: '#/components/schemas/AccessRestrictions'
         meta:
           $ref: '#/components/schemas/ServiceMeta'
+        private:
+          type: boolean
+          description: When true, the service is NetBird-only — its target points at a proxy cluster, inbound peers authenticate via their WireGuard tunnel identity (no OIDC), and an ACL policy is auto-generated from access_groups to the cluster's proxy-peer group. Requires mode=http.
+          default: false
+          example: false
+        access_groups:
+          type: array
+          items:
+            type: string
+          description: NetBird group IDs whose peers may reach this private service over the tunnel. Required when private=true; ignored otherwise. Mutually exclusive with bearer auth (SSO).
+          example: ["group-engineering"]
       required:
         - id
         - name
@@ -3088,6 +3099,24 @@ components:
         - enabled
         - auth
         - meta
+      allOf:
+        # When private=true, access_groups must be present and non-empty,
+        # and the service mode must be "http". The bearer-auth mutex is
+        # enforced at the service-validation layer
+        # (validatePrivateRequirements) because it sits in a nested
+        # ServiceAuthConfig and isn't cleanly expressible here.
+        - if:
+            required: [private]
+            properties:
+              private:
+                const: true
+          then:
+            required: [access_groups]
+            properties:
+              access_groups:
+                minItems: 1
+              mode:
+                const: http
     ServiceMeta:
       type: object
       properties:
@@ -3160,10 +3189,38 @@ components:
           $ref: '#/components/schemas/ServiceAuthConfig'
         access_restrictions:
           $ref: '#/components/schemas/AccessRestrictions'
+        private:
+          type: boolean
+          description: When true, the service is NetBird-only — its target points at a proxy cluster, inbound peers authenticate via their WireGuard tunnel identity (no OIDC), and an ACL policy is auto-generated from access_groups to the cluster's proxy-peer group. Requires mode=http.
+          default: false
+          example: false
+        access_groups:
+          type: array
+          items:
+            type: string
+          description: NetBird group IDs whose peers may reach this private service over the tunnel. Required when private=true; ignored otherwise. Mutually exclusive with bearer auth (SSO).
+          example: ["group-engineering"]
       required:
         - name
         - domain
         - enabled
+      allOf:
+        # Mirror of the Service conditional: when private=true the
+        # request must carry a non-empty access_groups list and the
+        # mode must be "http". The bearer-auth mutex is enforced at the
+        # service-validation layer (validatePrivateRequirements).
+        - if:
+            required: [private]
+            properties:
+              private:
+                const: true
+          then:
+            required: [access_groups]
+            properties:
+              access_groups:
+                minItems: 1
+              mode:
+                const: http
     ServiceTargetOptions:
       type: object
       properties:
@@ -3198,6 +3255,15 @@ components:
           type: string
           description: Idle timeout before a UDP session is reaped, as a Go duration string (e.g. "30s", "2m").
           example: "2m"
+        direct_upstream:
+          type: boolean
+          description: |
+            When true, the proxy dials this target via the host's network stack
+            instead of through its embedded NetBird client. Use for upstreams
+            reachable without WireGuard (public APIs, LAN services, localhost
+            sidecars).
+          default: false
+          example: false
     ServiceTarget:
       type: object
       properties:
@@ -3208,7 +3274,7 @@ components:
         target_type:
           type: string
           description: Target type
-          enum: [peer, host, domain, subnet]
+          enum: [peer, host, domain, subnet, cluster]
           example: "subnet"
         path:
           type: string
@@ -3452,6 +3518,10 @@ components:
           type: boolean
           description: Whether all active proxies in the cluster have CrowdSec configured
           example: false
+        private:
+          type: boolean
+          description: True when at least one connected proxy in this cluster is running embedded in a netbird client (`netbird proxy`) and serving over a WireGuard tunnel. Lets the dashboard distinguish per-peer / private clusters from centralised ones.
+          example: false
       required:
         - id
         - address
@@ -3506,6 +3576,10 @@ components:
         supports_crowdsec:
           type: boolean
           description: Whether the proxy cluster has CrowdSec configured
+          example: false
+        supports_private:
+          type: boolean
+          description: Whether the proxy cluster supports private (NetBird-only) services. True when at least one connected proxy in the cluster runs embedded in a netbird client.
           example: false
       required:
         - id
@@ -5046,31 +5120,63 @@ components:
   responses:
     not_found:
       description: Resource not found
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
       content: { }
     validation_failed_simple:
       description: Validation failed
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
       content: { }
     bad_request:
       description: Bad Request
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
       content: { }
     internal_error:
       description: Internal Server Error
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
       content: { }
     validation_failed:
       description: Validation failed
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
       content: { }
     forbidden:
       description: Forbidden
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
       content: { }
     requires_authentication:
       description: Requires authentication
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
       content: { }
     conflict:
       description: Conflict
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
+  headers:
+    X-Request-Id:
+      description: |
+        Unique identifier assigned to the request by the server and set on every
+        response. Useful for correlating client requests with server-side logs.
+      schema:
+        type: string
+        example: cot7r4n3l3vh3qj4qveg
   securitySchemes:
     BearerAuth:
       type: http

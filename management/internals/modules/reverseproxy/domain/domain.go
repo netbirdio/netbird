@@ -23,6 +23,8 @@ type Domain struct {
 	// SupportsCrowdSec is populated at query time from proxy cluster capabilities.
 	// Not persisted.
 	SupportsCrowdSec *bool `gorm:"-"`
+	// SupportsPrivate is populated at query time from proxy cluster capabilities. Not persisted.
+	SupportsPrivate *bool `gorm:"-"`
 }
 
 // EventMeta returns activity event metadata for a domain

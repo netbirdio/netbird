@@ -29,6 +29,7 @@ type ServerPicker struct {
 	PeerID            string
 	MTU               uint16
 	ConnectionTimeout time.Duration
+	TransportFallback *transportFallback
 }
 
 func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
@@ -70,6 +71,7 @@ func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
 func (sp *ServerPicker) startConnection(ctx context.Context, resultChan chan connResult, url string) {
 	log.Infof("try to connecting to relay server: %s", url)
 	relayClient := NewClient(url, sp.TokenStore, sp.PeerID, sp.MTU)
+	relayClient.SetTransportFallback(sp.TransportFallback)
 	err := relayClient.Connect(ctx)
 	resultChan <- connResult{
 		RelayClient: relayClient,

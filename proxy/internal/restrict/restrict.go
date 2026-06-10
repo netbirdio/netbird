@@ -191,6 +191,18 @@ func (f *Filter) IsObserveOnly(v Verdict) bool {
 	return v.IsCrowdSec() && f.CrowdSecMode == CrowdSecObserve
 }
 
+// CheckCIDR runs only the CIDR allow/block evaluation. Use this when
+// country and CrowdSec checks don't apply — e.g. requests arriving
+// from the WireGuard overlay, whose source addresses live in the
+// CGNAT range and have no meaningful geolocation or IP-reputation
+// data.
+func (f *Filter) CheckCIDR(addr netip.Addr) Verdict {
+	if f == nil {
+		return Allow
+	}
+	return f.checkCIDR(addr.Unmap())
+}
+
 // Check evaluates whether addr is permitted. CIDR rules are evaluated
 // first because they are O(n) prefix comparisons. Country rules run
 // only when CIDR checks pass and require a geo lookup. CrowdSec checks

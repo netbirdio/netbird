@@ -14,6 +14,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/debug"
 	"github.com/netbirdio/netbird/client/proto"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
+	"github.com/netbirdio/netbird/version"
 )
 
 // DebugBundle creates a debug bundle and returns the location.
@@ -67,6 +68,8 @@ func (s *Server) DebugBundle(_ context.Context, req *proto.DebugBundleRequest) (
 			CapturePath:    capturePath,
 			RefreshStatus:  refreshStatus,
 			ClientMetrics:  clientMetrics,
+			DaemonVersion:  version.NetbirdVersion(),
+			CliVersion:     req.CliVersion,
 		},
 		debug.BundleConfig{
 			Anonymize:         req.GetAnonymize(),

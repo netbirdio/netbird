@@ -14,6 +14,7 @@ type MockClient struct {
 	SyncFunc                       func(ctx context.Context, sysInfo *system.Info, msgHandler func(msg *proto.SyncResponse) error) error
 	RegisterFunc                   func(setupKey string, jwtToken string, info *system.Info, sshKey []byte, dnsLabels domain.List) (*proto.LoginResponse, error)
 	LoginFunc                      func(info *system.Info, sshKey []byte, dnsLabels domain.List) (*proto.LoginResponse, error)
+	ExtendAuthSessionFunc          func(info *system.Info, jwtToken string) (*proto.ExtendAuthSessionResponse, error)
 	GetDeviceAuthorizationFlowFunc func() (*proto.DeviceAuthorizationFlow, error)
 	GetPKCEAuthorizationFlowFunc   func() (*proto.PKCEAuthorizationFlow, error)
 	GetServerURLFunc               func() string
@@ -63,6 +64,13 @@ func (m *MockClient) Login(info *system.Info, sshKey []byte, dnsLabels domain.Li
 		return nil, nil
 	}
 	return m.LoginFunc(info, sshKey, dnsLabels)
+}
+
+func (m *MockClient) ExtendAuthSession(info *system.Info, jwtToken string) (*proto.ExtendAuthSessionResponse, error) {
+	if m.ExtendAuthSessionFunc == nil {
+		return nil, nil
+	}
+	return m.ExtendAuthSessionFunc(info, jwtToken)
 }
 
 func (m *MockClient) GetDeviceAuthorizationFlow() (*proto.DeviceAuthorizationFlow, error) {

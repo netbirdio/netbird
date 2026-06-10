@@ -29,10 +29,13 @@ import (
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/status"
+	"github.com/netbirdio/netbird/version"
 )
 
 const (
-	defaultTTL                      = 300
+	defaultTTL = 300
+	// privateServiceDNSRecordTTL is short so proxy-peer changes propagate quickly to clients.
+	privateServiceDNSRecordTTL      = 5
 	DefaultPeerLoginExpiration      = 24 * time.Hour
 	DefaultPeerInactivityExpiration = 10 * time.Minute
 
@@ -256,6 +259,149 @@ func getUniqueHostLabel(name string, peerLabels LookupMap) string {
 		}
 	}
 	return ""
+}
+
+// SynthesizePrivateServiceZones returns in-memory CustomZones with A records pointing each enabled private service the peer can reach at the cluster's proxy-peer IPs. One zone per cluster (multiple services share); records gated by AccessGroups.
+func (a *Account) SynthesizePrivateServiceZones(peerID string) []nbdns.CustomZone {
+	peer, ok := a.Peers[peerID]
+	if !ok || peer == nil {
+		return nil
+	}
+	if len(a.Services) == 0 {
+		return nil
+	}
+
+	proxyPeersByCluster := a.GetProxyPeers()
+	if len(proxyPeersByCluster) == 0 {
+		return nil
+	}
+
+	peerGroups := a.GetPeerGroups(peerID)
+	zonesByApex := map[string]*nbdns.CustomZone{}
+
+	for _, svc := range a.Services {
+		if svc == nil || !svc.Enabled || !svc.Private {
+			continue
+		}
+		if len(svc.AccessGroups) == 0 {
+			continue
+		}
+		if !peerInDistributionGroups(peerGroups, svc.AccessGroups) {
+			continue
+		}
+		proxyPeers := proxyPeersByCluster[svc.ProxyCluster]
+		if len(proxyPeers) == 0 {
+			continue
+		}
+
+		serviceDomainZone := a.privateServiceDomainZone(svc)
+		if serviceDomainZone == "" {
+			continue
+		}
+
+		zone, exists := zonesByApex[serviceDomainZone]
+		if !exists {
+			// NonAuthoritative makes this a match-only zone: queries for
+			// names without an explicit record fall through to the
+			// upstream resolver instead of returning NXDOMAIN. Without
+			// it, adding a single private service would black-hole every
+			// other name under the zone apex.
+			zone = &nbdns.CustomZone{
+				Domain:           dns.Fqdn(serviceDomainZone),
+				Records:          []nbdns.SimpleRecord{},
+				NonAuthoritative: true,
+			}
+			zonesByApex[serviceDomainZone] = zone
+		}
+
+		emitted := 0
+		skippedDisconnected := 0
+		for _, p := range proxyPeers {
+			if p == nil || !p.IP.IsValid() {
+				continue
+			}
+			// Only emit a record when the proxy peer is actually
+			// connected. A disconnected proxy peer's tunnel IP won't
+			// answer; pointing DNS at it would produce a black hole
+			// for as long as the record is cached client-side.
+			if p.Status == nil || !p.Status.Connected {
+				skippedDisconnected++
+				continue
+			}
+			zone.Records = append(zone.Records, nbdns.SimpleRecord{
+				Name:  dns.Fqdn(svc.Domain),
+				Type:  int(dns.TypeA),
+				Class: nbdns.DefaultClass,
+				TTL:   privateServiceDNSRecordTTL,
+				RData: p.IP.String(),
+			})
+			emitted++
+		}
+		// Disagreement with the firewall path is the typical
+		// "domain doesn't reach client but firewall rules do"
+		// symptom: the synth service is otherwise fine, only the
+		// proxy peer's persisted Connected flag is wrong (most
+		// likely the connection reaper marked it disconnected even
+		// though the gRPC stream is alive).
+		if emitted == 0 && skippedDisconnected > 0 {
+			log.Debugf("private-zone synth: svc %s domain=%s cluster=%s emitted_zero proxy_peers=%d all_disconnected=%d (firewall would still fire)",
+				svc.ID, svc.Domain, svc.ProxyCluster, len(proxyPeers), skippedDisconnected)
+		}
+	}
+
+	out := make([]nbdns.CustomZone, 0, len(zonesByApex))
+	for _, zone := range zonesByApex {
+		if len(zone.Records) == 0 {
+			continue
+		}
+		out = append(out, *zone)
+	}
+	if len(out) == 0 && len(a.Services) > 0 {
+		// Targeted diagnostic for the "firewall yes, DNS no" divergence —
+		// fires only when services exist but synth returns zero zones,
+		// so accounts without private services produce no noise.
+		log.Debugf("private-zone synth: peer %s account %s returned 0 zones from %d candidate service(s)",
+			peerID, a.Id, len(a.Services))
+	}
+	return out
+}
+
+// privateServiceDomainZone returns the DNS zone name for the given private service domain by
+// looking at the proxy cluster domain then the custom domains.
+func (a *Account) privateServiceDomainZone(svc *service.Service) string {
+	if domainFromSuffix(svc.Domain, svc.ProxyCluster) {
+		return svc.ProxyCluster
+	}
+
+	// Longest matching custom domain wins
+	zoneName := ""
+	for _, d := range a.Domains {
+		if d == nil || d.TargetCluster != svc.ProxyCluster {
+			continue
+		}
+		if domainFromSuffix(svc.Domain, d.Domain) && len(d.Domain) > len(zoneName) {
+			zoneName = d.Domain
+		}
+	}
+	return zoneName
+}
+
+func domainFromSuffix(domain, suffix string) bool {
+	if suffix == "" {
+		return false
+	}
+	return domain == suffix || strings.HasSuffix(domain, "."+suffix)
+}
+
+// peerInDistributionGroups reports whether any of the peer's groups
+// matches the service's bearer-auth distribution_groups.
+func peerInDistributionGroups(peerGroups LookupMap, distributionGroups []string) bool {
+	for _, gid := range distributionGroups {
+		if _, ok := peerGroups[gid]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *Account) GetPeersCustomZone(ctx context.Context, dnsDomain string) nbdns.CustomZone {
@@ -1483,6 +1629,53 @@ func (a *Account) injectServiceProxyPolicies(ctx context.Context, service *servi
 		a.injectTargetProxyPolicies(ctx, service, target, proxyPeers)
 	}
 
+	a.injectPrivateServicePolicies(service, proxyPeers)
+}
+
+// injectPrivateServicePolicies synthesises an in-memory ACL: AccessGroups → cluster proxy peers on TCP 80/443.
+func (a *Account) injectPrivateServicePolicies(svc *service.Service, proxyPeers []*nbpeer.Peer) {
+	if !svc.Private {
+		return
+	}
+	if len(svc.AccessGroups) == 0 {
+		return
+	}
+	if len(proxyPeers) == 0 {
+		return
+	}
+	for _, proxyPeer := range proxyPeers {
+		a.Policies = append(a.Policies, a.createPrivateServicePolicy(svc, proxyPeer))
+	}
+}
+
+func (a *Account) createPrivateServicePolicy(svc *service.Service, proxyPeer *nbpeer.Peer) *Policy {
+	policyID := fmt.Sprintf("private-access-%s-%s", svc.ID, proxyPeer.ID)
+	sources := append([]string(nil), svc.AccessGroups...)
+	return &Policy{
+		ID:      policyID,
+		Name:    fmt.Sprintf("Private Access to %s", svc.Name),
+		Enabled: true,
+		Rules: []*PolicyRule{
+			{
+				ID:       policyID,
+				PolicyID: policyID,
+				Name:     fmt.Sprintf("Allow access groups to reach %s", svc.Name),
+				Enabled:  true,
+				Sources:  sources,
+				DestinationResource: Resource{
+					ID:   proxyPeer.ID,
+					Type: ResourceTypePeer,
+				},
+				Bidirectional: false,
+				Protocol:      PolicyRuleProtocolTCP,
+				Action:        PolicyTrafficActionAccept,
+				PortRanges: []RulePortRange{
+					{Start: 80, End: 80},
+					{Start: 443, End: 443},
+				},
+			},
+		},
+	}
 }
 
 func (a *Account) injectTargetProxyPolicies(ctx context.Context, service *service.Service, target *service.Target, proxyPeers []*nbpeer.Peer) {
@@ -1629,7 +1822,7 @@ func shouldCheckRulesForNativeSSH(supportsNative bool, rule *PolicyRule, peer *n
 
 // peerSupportedFirewallFeatures checks if the peer version supports port ranges.
 func peerSupportedFirewallFeatures(peerVer string) supportedFeatures {
-	if strings.Contains(peerVer, "dev") {
+	if version.IsDevelopmentVersion(peerVer) {
 		return supportedFeatures{true, true}
 	}
 

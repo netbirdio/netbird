@@ -66,6 +66,22 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Loop guard for private services: a peer that hosts the target
+	// dialing its own service URL would round-trip its own traffic
+	// through the proxy and back over WG to itself. Refuse the request
+	// with 421 (Misdirected Request) so the caller sees an explicit
+	// error instead of silently doubling tunnel traffic.
+	if p.isSelfTargetLoop(r, result.target.URL) {
+		if cd := CapturedDataFromContext(r.Context()); cd != nil {
+			cd.SetOrigin(OriginNoRoute)
+		}
+		requestID := getRequestID(r)
+		web.ServeErrorPage(w, r, http.StatusMisdirectedRequest, "Loop Detected",
+			"This peer is the target of the requested service. Reach the backend directly instead of dialing the public service URL from the same machine.",
+			requestID, web.ErrorStatus{Proxy: true, Destination: false})
+		return
+	}
+
 	ctx := r.Context()
 	// Set the account ID in the context for the roundtripper to use.
 	ctx = roundtrip.WithAccountID(ctx, result.accountID)
@@ -86,6 +102,9 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if pt.RequestTimeout > 0 {
 		ctx = types.WithDialTimeout(ctx, pt.RequestTimeout)
 	}
+	if pt.DirectUpstream {
+		ctx = roundtrip.WithDirectUpstream(ctx)
+	}
 
 	rewriteMatchedPath := result.matchedPath
 	if pt.PathRewrite == PathRewritePreserve {
@@ -102,6 +121,32 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		rp.ModifyResponse = p.rewriteLocationFunc(pt.URL, rewriteMatchedPath, r) //nolint:bodyclose
 	}
 	rp.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// isSelfTargetLoop reports whether an overlay-origin request is about to
+// be forwarded back to the very peer that initiated it. The detection
+// is intentionally narrow: it only fires when the request arrived on
+// the per-account inbound (overlay) listener (so we're confident the
+// source address is the caller's tunnel IP), and only when the resolved
+// target host matches that tunnel IP. Catching this here returns 421 to
+// the caller instead of letting the proxy round-trip its own traffic
+// over WG twice.
+func (p *ReverseProxy) isSelfTargetLoop(r *http.Request, target *url.URL) bool {
+	if target == nil {
+		return false
+	}
+	if !types.IsOverlayOrigin(r.Context()) {
+		return false
+	}
+	srcIP := extractHostIP(r.RemoteAddr)
+	if !srcIP.IsValid() {
+		return false
+	}
+	targetIP, err := netip.ParseAddr(target.Hostname())
+	if err != nil {
+		return false
+	}
+	return srcIP.Unmap() == targetIP.Unmap()
 }
 
 // rewriteFunc returns a Rewrite function for httputil.ReverseProxy that rewrites
@@ -141,6 +186,8 @@ func (p *ReverseProxy) rewriteFunc(target *url.URL, matchedPath string, passHost
 		for k, v := range customHeaders {
 			r.Out.Header.Set(k, v)
 		}
+
+		stampNetBirdIdentity(r)
 
 		clientIP := extractHostIP(r.In.RemoteAddr)
 
@@ -425,4 +472,71 @@ func opErrorContains(err error, substr string) bool {
 		return strings.Contains(opErr.Err.Error(), substr)
 	}
 	return false
+}
+
+const (
+	// headerNetBirdUser carries the authenticated user's display identity
+	// (email when the peer is attached to a user, else peer name) onto
+	// upstream requests. Stripped from inbound requests before stamping
+	// so a client can't spoof identity by setting the header themselves.
+	headerNetBirdUser = "X-NetBird-User"
+	// headerNetBirdGroups carries the user's group display names as a
+	// comma-separated list. Falls back to group IDs at positions where a
+	// name wasn't available at session-mint time. Labels containing a
+	// comma or any non-printable byte are dropped at stamp time so the
+	// list is unambiguously splittable by consumers.
+	headerNetBirdGroups = "X-NetBird-Groups"
+)
+
+// isHeaderValueSafe reports whether v is a valid RFC 7230 field-value:
+// VCHAR (0x21-0x7E), SP (0x20), or HTAB (0x09). Empty values are
+// rejected; the caller decides whether to omit the header entirely.
+func isHeaderValueSafe(v string) bool {
+	if v == "" {
+		return false
+	}
+	for i := 0; i < len(v); i++ {
+		c := v[i]
+		if c == '\t' || (c >= 0x20 && c <= 0x7E) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// stampNetBirdIdentity injects authenticated identity onto outbound
+// requests as X-NetBird-User and X-NetBird-Groups. Always strips any
+// client-sent values first (anti-spoof). Skips when the request didn't
+// carry CapturedData (early-path errors, internal endpoints).
+func stampNetBirdIdentity(r *httputil.ProxyRequest) {
+	r.Out.Header.Del(headerNetBirdUser)
+	r.Out.Header.Del(headerNetBirdGroups)
+
+	cd := CapturedDataFromContext(r.In.Context())
+	if cd == nil {
+		return
+	}
+	if email := cd.GetUserEmail(); isHeaderValueSafe(email) {
+		r.Out.Header.Set(headerNetBirdUser, email)
+	}
+	groupIDs := cd.GetUserGroups()
+	if len(groupIDs) == 0 {
+		return
+	}
+	groupNames := cd.GetUserGroupNames()
+	labels := make([]string, 0, len(groupIDs))
+	for i, id := range groupIDs {
+		label := id
+		if i < len(groupNames) && groupNames[i] != "" {
+			label = groupNames[i]
+		}
+		if !isHeaderValueSafe(label) || strings.ContainsRune(label, ',') {
+			continue
+		}
+		labels = append(labels, label)
+	}
+	if len(labels) > 0 {
+		r.Out.Header.Set(headerNetBirdGroups, strings.Join(labels, ","))
+	}
 }

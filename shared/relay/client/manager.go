@@ -79,23 +79,30 @@ type Manager struct {
 
 	cleanupInterval      time.Duration
 	keepUnusedServerTime time.Duration
+
+	// transportFallback is shared across home and foreign relay clients so a
+	// datagram-too-large failure makes that server avoid datagram-sized transports across reconnects.
+	transportFallback *transportFallback
 }
 
 // NewManager creates a new manager instance.
 // The serverURL address can be empty. In this case, the manager will not serve.
 func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uint16, opts ...ManagerOption) *Manager {
 	tokenStore := &relayAuth.TokenStore{}
+	tf := newTransportFallback()
 
 	m := &Manager{
-		ctx:        ctx,
-		peerID:     peerID,
-		tokenStore: tokenStore,
-		mtu:        mtu,
+		ctx:               ctx,
+		peerID:            peerID,
+		tokenStore:        tokenStore,
+		mtu:               mtu,
+		transportFallback: tf,
 		serverPicker: &ServerPicker{
 			TokenStore:        tokenStore,
 			PeerID:            peerID,
 			MTU:               mtu,
 			ConnectionTimeout: defaultConnectionTimeout,
+			TransportFallback: tf,
 		},
 		relayClients:            make(map[string]*RelayTrack),
 		onDisconnectedListeners: make(map[string]*list.List),
@@ -287,6 +294,7 @@ func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string
 	m.relayClientsMutex.Unlock()
 
 	relayClient := NewClientWithServerIP(serverAddress, serverIP, m.tokenStore, m.peerID, m.mtu)
+	relayClient.SetTransportFallback(m.transportFallback)
 	err := relayClient.Connect(m.ctx)
 	if err != nil {
 		rt.err = err
