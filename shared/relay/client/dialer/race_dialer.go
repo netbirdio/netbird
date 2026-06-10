@@ -32,6 +32,7 @@ type RaceDial struct {
 	serverName        string
 	dialerFns         []DialeFn
 	connectionTimeout time.Duration
+	sequential        bool
 }
 
 func NewRaceDial(log *log.Entry, connectionTimeout time.Duration, serverURL string, dialerFns ...DialeFn) *RaceDial {
@@ -53,7 +54,21 @@ func (r *RaceDial) WithServerName(serverName string) *RaceDial {
 	return r
 }
 
+// WithSequential makes Dial try the dialers in order, falling back to the next
+// only when one fails to connect, instead of racing them concurrently.
+//
+// Mutates the receiver and is not safe for concurrent reconfiguration; a
+// RaceDial is intended to be constructed per dial and discarded.
+func (r *RaceDial) WithSequential() *RaceDial {
+	r.sequential = true
+	return r
+}
+
 func (r *RaceDial) Dial(ctx context.Context) (net.Conn, error) {
+	if r.sequential {
+		return r.dialSequential(ctx)
+	}
+
 	connChan := make(chan dialResult, len(r.dialerFns))
 	winnerConn := make(chan net.Conn, 1)
 	abortCtx, abort := context.WithCancel(ctx)
@@ -70,6 +85,30 @@ func (r *RaceDial) Dial(ctx context.Context) (net.Conn, error) {
 		return nil, errors.New("failed to dial to Relay server on any protocol")
 	}
 	return conn, nil
+}
+
+// dialSequential tries each dialer in order, returning the first connection and
+// falling back to the next on failure.
+func (r *RaceDial) dialSequential(ctx context.Context) (net.Conn, error) {
+	for _, dfn := range r.dialerFns {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		attemptCtx, cancel := context.WithTimeout(ctx, r.connectionTimeout)
+		r.log.Infof("dialing Relay server via %s", dfn.Protocol())
+		conn, err := dfn.Dial(attemptCtx, r.serverURL, r.serverName)
+		cancel()
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				return nil, err
+			}
+			r.log.Errorf("failed to dial via %s: %s", dfn.Protocol(), err)
+			continue
+		}
+		r.log.Infof("successfully dialed via: %s", dfn.Protocol())
+		return conn, nil
+	}
+	return nil, errors.New("failed to dial to Relay server on any protocol")
 }
 
 func (r *RaceDial) dial(dfn DialeFn, abortCtx context.Context, connChan chan dialResult) {
