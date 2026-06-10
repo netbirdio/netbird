@@ -243,30 +243,26 @@ func (s *Server) Start() error {
 
 // connectWithRetryRuns runs the client connection with a backoff strategy where we retry the operation as additional
 // mechanism to keep the client connected even when the connection is lost.
-// we cancel retry if the client receive a stop or down command, or if disable auto connect is configured.
+// we cancel retry if the client receive a stop or down command.
+//
+// DisableAutoConnect governs ONLY the service-Start auto-connect decision
+// (handled in Start). Once this goroutine is spawned — by Start, Up or an
+// MDM restart — the flag is never consulted again: the retry loop keeps
+// trying until ctx is cancelled by Down / Stop / Logout.
 //
 // The goroutine's exit is signalled to the daemon via close(giveUpChan)
 // — placed in the function-scope defer so every return path (panic,
-// DisableAutoConnect early-exit, backoff exhausted, ctx cancel) closes
-// it. Callers that need to observe "is the goroutine still alive?" use
-// Server.connectionGoroutineRunning() which non-blockingly checks the close state
-// of clientGiveUpChan. The defer does NOT touch s.mutex; the daemon's
-// "intent" (clientRunning) is maintained by the RPC handlers, not by this
-// goroutine.
+// backoff exhausted, ctx cancel) closes it. Callers that need to observe
+// "is the goroutine still alive?" use Server.connectionGoroutineRunning()
+// which non-blockingly checks the close state of clientGiveUpChan. The defer
+// does NOT touch s.mutex; the daemon's "intent" (clientRunning) is maintained
+// by the RPC handlers, not by this goroutine.
 func (s *Server) connectWithRetryRuns(ctx context.Context, client *internal.ConnectClient, profileConfig *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}, giveUpChan chan struct{}) {
 	defer func() {
 		if giveUpChan != nil {
 			close(giveUpChan)
 		}
 	}()
-
-	if s.config.DisableAutoConnect {
-		if err := s.connect(client, s.config, runningChan); err != nil {
-			log.Debugf("run client connection exited with error: %v", err)
-		}
-		log.Tracef("client connection exited")
-		return
-	}
 
 	backOff := getConnectWithBackoff(ctx)
 	go func() {
@@ -290,9 +286,9 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, client *internal.Conn
 	}()
 
 	runOperation := func() error {
-		err := s.connect(client, profileConfig, runningChan)
+		err := s.connectOnce(client, profileConfig, runningChan)
 		if err != nil {
-			log.Debugf("run client connection exited with error: %v. Will retry in the background", err)
+			log.Debugf("will retry the connection in the background")
 			return err
 		}
 
@@ -1738,9 +1734,13 @@ func (s *Server) GetFeatures(ctx context.Context, msg *proto.GetFeaturesRequest)
 	return features, nil
 }
 
-func (s *Server) connect(client *internal.ConnectClient, config *profilemanager.Config, runningChan chan struct{}) error {
+// connectOnce performs a single client run (Run blocks, retrying its own
+// internal backoff, until the run ends). The outer connectWithRetryRuns
+// backoff re-invokes it only when a run returns an error.
+func (s *Server) connectOnce(client *internal.ConnectClient, config *profilemanager.Config, runningChan chan struct{}) error {
 	log.Tracef("running client connection")
 	if err := client.Run(config, runningChan, s.logFile); err != nil {
+		log.Debugf("run client connection exited with error: %v", err)
 		return err
 	}
 	return nil
