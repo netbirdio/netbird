@@ -47,12 +47,12 @@ func TestAddPeerFiltering_DeduplicatesIdenticalRules(t *testing.T) {
 }
 
 // TestDeletePeerFiltering_NoRefcountSingleDeleteRemoves locks the
-// backend's no-refcount contract: a content key installed twice is
-// still one rule, and the first DeleteFilterRule removes it. The
-// backend does not refcount, so balance is the caller's job (it keys
-// its tracking by the returned id and deletes once per key). If this
-// ever silently grew a refcount, the acl manager's delete accounting
-// would diverge from the kernel.
+// backend's owner accounting for the same-owner case: a content key
+// installed twice by the same owner registers one owner claim, so the
+// first DeleteFilterRule removes the rule. Owner counting only kicks
+// in for distinct management rule IDs (see the peer owner tests); the
+// acl manager keys its tracking per (policy, content) and deletes once
+// per key, so adds and deletes stay balanced.
 func TestDeletePeerFiltering_NoRefcountSingleDeleteRemoves(t *testing.T) {
 	m := newTestManager(t)
 

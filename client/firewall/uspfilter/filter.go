@@ -82,8 +82,9 @@ const (
 var errNotSupported = errors.New("not supported with userspace firewall")
 
 // peerRules is the canonical list-based storage for peer ACL rules.
-// Match order is significant: drop rules come before accept rules so
-// callers should consult the slice in order.
+// Drop and accept rules live in separate slices; drop-before-accept
+// ordering comes from consulting the deny slice (and its index) before
+// the accept one.
 type peerRules []*PeerRule
 
 type routeRules []*RouteRule
@@ -105,14 +106,13 @@ func (r routeRules) Sort() {
 // threaded together through the build path so the builders take a single
 // argument instead of a long parameter list.
 type peerRuleSpec struct {
-	mgmtID   []byte
-	sources  []netip.Prefix
-	ipLayer  gopacket.LayerType
-	matchAny bool
-	proto    firewall.Protocol
-	sPort    *firewall.Port
-	dPort    *firewall.Port
-	action   firewall.Action
+	mgmtID  []byte
+	sources []netip.Prefix
+	ipLayer gopacket.LayerType
+	proto   firewall.Protocol
+	sPort   *firewall.Port
+	dPort   *firewall.Port
+	action  firewall.Action
 }
 
 // Iface is the network interface the userspace firewall attaches to: the
@@ -577,9 +577,9 @@ func (m *Manager) RemoveNatRule(firewall.RouterPair) error {
 
 // addPeerRule installs an input-chain rule that matches packets
 // by source only. Called from AddFilterRule when the caller doesn't
-// specify a destination. Mixed-family inputs are split: each family
-// gets its own rule with a family-correct ipLayer so packet decoding
-// matches what the matcher expects.
+// specify a destination. Sources are expected to share one address
+// family; the family selects the ipLayer so the ICMP variant matches
+// what the decoder produces.
 func (m *Manager) addPeerRule(
 	id []byte,
 	sources []netip.Prefix,
@@ -591,22 +591,9 @@ func (m *Manager) addPeerRule(
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	if sourcesMatchAny(sources) {
-		spec := peerRuleSpec{
-			mgmtID:   id,
-			sources:  sources,
-			ipLayer:  layerTypeAll,
-			matchAny: true,
-			proto:    proto,
-			sPort:    sPort,
-			dPort:    dPort,
-			action:   action,
-		}
-		return m.addOnePeerRule(spec), nil
-	}
-
 	// Sources are a single family; normalize v4-mapped prefixes to plain
-	// v4 and pick the matching IP layer.
+	// v4 and pick the matching IP layer. A /0 source matches any address
+	// of its own family only, mirroring the kernel backends.
 	normalized := make([]netip.Prefix, len(sources))
 	ipLayer := layers.LayerTypeIPv4
 	for i, p := range sources {
@@ -616,14 +603,13 @@ func (m *Manager) addPeerRule(
 		}
 	}
 	spec := peerRuleSpec{
-		mgmtID:   id,
-		sources:  normalized,
-		ipLayer:  ipLayer,
-		matchAny: false,
-		proto:    proto,
-		sPort:    sPort,
-		dPort:    dPort,
-		action:   action,
+		mgmtID:  id,
+		sources: normalized,
+		ipLayer: ipLayer,
+		proto:   proto,
+		sPort:   sPort,
+		dPort:   dPort,
+		action:  action,
 	}
 	return m.addOnePeerRule(spec), nil
 }
@@ -631,15 +617,16 @@ func (m *Manager) addPeerRule(
 // addOnePeerRule builds and registers a single-family peer rule, or
 // returns the existing rule when one with the same content key is
 // already installed. The caller must hold m.mutex. The content key is
-// the shared GenerateRuleID with an empty destination, so peer
-// rules dedup the same way route rules and the kernel backends do.
+// the shared GenerateRuleID with an empty destination, so peer rules
+// dedup the same way route rules and the kernel backends do; it is
+// order-independent, so callers passing the same sources in any order
+// dedup to one rule.
 //
 // There is no refcount: a content key is installed once and deleted on
 // the first DeleteFilterRule for that key. The caller must therefore
 // key its own tracking by the returned rule id so add and delete stay
 // balanced per content key; the acl manager does this via
-// peerRulesPairs. The content key is order-independent, so callers
-// passing the same sources in any order dedup to one rule.
+// peerRulesPairs.
 func (m *Manager) addOnePeerRule(spec peerRuleSpec) *PeerRule {
 	ruleID := nbid.GenerateRuleID(spec.sources, firewall.Network{}, spec.proto, spec.sPort, spec.dPort, spec.action)
 	if existing, ok := m.peerRulesMap[ruleID]; ok {
@@ -653,20 +640,17 @@ func (m *Manager) addOnePeerRule(spec peerRuleSpec) *PeerRule {
 
 func (m *Manager) buildPeerRule(ruleID nbid.RuleID, spec peerRuleSpec) *PeerRule {
 	r := &PeerRule{
-		id:       ruleID,
-		mgmtId:   spec.mgmtID,
-		sources:  spec.sources,
-		matchAny: spec.matchAny,
-		action:   spec.action,
-		srcPort:  spec.sPort,
-		dstPort:  spec.dPort,
+		id:      ruleID,
+		mgmtId:  spec.mgmtID,
+		sources: spec.sources,
+		action:  spec.action,
+		srcPort: spec.sPort,
+		dstPort: spec.dPort,
 	}
-	if !spec.matchAny {
-		r.sourceAddrs = make(map[netip.Addr]struct{}, len(spec.sources))
-		for _, p := range spec.sources {
-			if p.Bits() == p.Addr().BitLen() {
-				r.sourceAddrs[p.Addr()] = struct{}{}
-			}
+	r.sourceAddrs = make(map[netip.Addr]struct{}, len(spec.sources))
+	for _, p := range spec.sources {
+		if p.Bits() == p.Addr().BitLen() {
+			r.sourceAddrs[p.Addr()] = struct{}{}
 		}
 	}
 	r.protoLayer = protoToLayer(spec.proto, spec.ipLayer)
@@ -684,19 +668,6 @@ func (m *Manager) registerPeerRule(r *PeerRule) {
 		m.incomingAcceptIndex.add(r)
 	}
 	m.peerRulesMap[r.id] = r
-}
-
-// sourcesMatchAny reports whether the source list matches every source,
-// i.e. contains an explicit /0 prefix. An empty list does not qualify:
-// AddFilterRule rejects it with ErrNoSources, so "match any" is always
-// the deliberate /0 case.
-func sourcesMatchAny(sources []netip.Prefix) bool {
-	for _, p := range sources {
-		if p.Bits() == 0 {
-			return true
-		}
-	}
-	return false
 }
 
 // AddFilterRule is the unified entry point for both peer (input chain)
@@ -836,6 +807,7 @@ func (m *Manager) resetState() {
 	clear(m.peerRulesMap)
 	clear(m.routeRulesMap)
 	m.routeRules = m.routeRules[:0]
+	m.blockRules = nil
 	m.udpHookOut.Store(nil)
 	m.tcpHookOut.Store(nil)
 

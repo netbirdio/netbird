@@ -19,22 +19,16 @@ type PeerRule struct {
 	// sources (/32 v4, /128 v6). Populated alongside sources;
 	// consulted before falling back to prefix scan.
 	sourceAddrs map[netip.Addr]struct{}
-	// matchAny is true when sources covers everything (0.0.0.0/0,
-	// ::/0). In that case neither sourceAddrs nor sources need to be
-	// consulted.
-	matchAny   bool
-	protoLayer gopacket.LayerType
-	srcPort    *firewall.Port
-	dstPort    *firewall.Port
-	action     firewall.Action
+	protoLayer  gopacket.LayerType
+	srcPort     *firewall.Port
+	dstPort     *firewall.Port
+	action      firewall.Action
 }
 
 // matchesSource reports whether the given source address is covered
-// by this rule's source list.
+// by this rule's source list. Prefix containment is family-scoped, so
+// a /0 source matches every address of its own family only.
 func (r *PeerRule) matchesSource(src netip.Addr) bool {
-	if r.matchAny {
-		return true
-	}
 	if _, ok := r.sourceAddrs[src]; ok {
 		return true
 	}

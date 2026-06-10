@@ -65,10 +65,11 @@ func (i *peerRuleIndex) reset() {
 }
 
 // match returns the first rule matching src and the decoded packet.
-// Host rules are found by direct map lookup; nonHost rules need a
-// per-rule source Contains() check, except match-any (/0) rules which
-// apply to every source regardless of family (a v4 /0 also matches v6).
-// Within either bucket the matcher runs the proto/port filter.
+// Host rules are found by direct map lookup; nonHost rules run a
+// per-rule source Contains() check. Containment is family-scoped, so
+// a /0 source matches every address of its own family only (0.0.0.0/0
+// never matches v6 sources and ::/0 never matches v4). Within either
+// bucket the matcher runs the proto/port filter.
 func (i *peerRuleIndex) match(src netip.Addr, d *decoder) ([]byte, bool, bool) {
 	payloadLayer := d.decoded[1]
 
@@ -78,7 +79,7 @@ func (i *peerRuleIndex) match(src netip.Addr, d *decoder) ([]byte, bool, bool) {
 		}
 	}
 	for _, rule := range i.nonHost {
-		if !rule.matchAny && !prefixesContain(rule.sources, src) {
+		if !prefixesContain(rule.sources, src) {
 			continue
 		}
 		if id, drop, ok := matchProto(rule, d, payloadLayer); ok {

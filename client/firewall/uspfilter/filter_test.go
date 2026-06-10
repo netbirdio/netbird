@@ -152,7 +152,7 @@ func TestManagerDeleteRule(t *testing.T) {
 	}
 
 	peerRule, ok := rule2.(*PeerRule)
-	require.True(t, ok, "rule should be a PeerRule")
+	require.True(t, ok, "rule should be a peer rule")
 
 	inMap := func() bool {
 		if peerRule.action == fw.ActionDrop {

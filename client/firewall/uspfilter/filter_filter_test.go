@@ -644,14 +644,24 @@ func TestPeerACLFilteringIPv6(t *testing.T) {
 			shouldBeBlocked: false,
 		},
 		{
-			name:            "IPv6: v4 wildcard ICMP rule matches ICMPv6 via protoLayerMatches",
+			name:            "IPv6: v4 wildcard ICMP rule does not match ICMPv6",
 			srcIP:           "fd00::1",
 			dstIP:           "fd00::100",
 			proto:           fw.ProtocolICMP,
 			ruleIP:          "0.0.0.0",
 			ruleProto:       fw.ProtocolICMP,
 			ruleAction:      fw.ActionAccept,
-			shouldBeBlocked: false,
+			shouldBeBlocked: true,
+		},
+		{
+			name:            "IPv4: v6 wildcard ICMP rule does not match ICMPv4",
+			srcIP:           "100.10.0.1",
+			dstIP:           "100.10.0.100",
+			proto:           fw.ProtocolICMP,
+			ruleIP:          "::",
+			ruleProto:       fw.ProtocolICMP,
+			ruleAction:      fw.ActionAccept,
+			shouldBeBlocked: true,
 		},
 	}
 
