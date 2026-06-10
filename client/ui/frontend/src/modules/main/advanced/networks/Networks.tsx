@@ -247,7 +247,7 @@ const NetworksList = ({ data, onToggle }: NetworksListProps) => {
                         }
                     >
                         <div>
-                            <CopyToClipboard message={n.id} className={"pointer-events-auto"}>
+                            <CopyToClipboard message={n.id}>
                                 <TruncatedText
                                     text={n.id}
                                     className={

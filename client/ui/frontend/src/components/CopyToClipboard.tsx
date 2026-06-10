@@ -60,7 +60,7 @@ export const CopyToClipboard = ({
             ref={wrapperRef}
             onClick={handleClick}
             className={cn(
-                "inline-flex gap-2 items-center group/copy cursor-default wails-no-draggable text-left",
+                "inline-flex gap-2 items-center group/copy cursor-default wails-no-draggable text-left pointer-events-auto",
                 className,
             )}
         >
