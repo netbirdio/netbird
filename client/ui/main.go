@@ -190,7 +190,20 @@ func main() {
 	})
 	listenForShowSignal(context.Background(), tray)
 
-	daemonFeed.Watch(context.Background())
+	// Start the daemon event feed only after Wails has run every service's
+	// ServiceStartup. The very first daemon SubscribeEvents message replays
+	// the cached state (status + available update) synchronously, which fans
+	// out through app.Event into the tray's update-state listener and fires an
+	// OS notification. If Watch ran before app.Run, that send could beat the
+	// notifications service's ServiceStartup — on Linux the Wails notifier
+	// connects to the session bus there, so its *dbus.Conn would still be nil
+	// and SendNotification would nil-deref (fatal panic on the event-dispatch
+	// goroutine; observed on Linux Mint). ApplicationStarted fires inside
+	// app.Run after the synchronous service-startup loop, so the bus is up by
+	// the time the first event lands.
+	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		daemonFeed.Watch(context.Background())
+	})
 
 	if err := app.Run(); err != nil {
 		log.Fatal(err)

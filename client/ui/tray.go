@@ -637,13 +637,11 @@ func (t *Tray) notify(title, body, id string) {
 	if t.svc.Notifier == nil {
 		return
 	}
-	if err := t.svc.Notifier.SendNotification(notifications.NotificationOptions{
+	_ = safeSendNotification(t.svc.Notifier.SendNotification, title, notifications.NotificationOptions{
 		ID:    id,
 		Title: title,
 		Body:  body,
-	}); err != nil {
-		log.Debugf("notify %q: %v", title, err)
-	}
+	})
 }
 
 // notifyError fires a generic "Error" notification for tray-driven action
