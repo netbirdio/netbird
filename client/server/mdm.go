@@ -170,13 +170,10 @@ type conflictCheck struct {
 	check func(*mdm.Policy) (match bool)
 }
 
-// conflictBool builds a check for a *bool field on an arbitrary request
-// conflictBool builds a conflictCheck for a boolean MDM key.
-// If p is nil the returned check treats the field as matching; otherwise the
-// check returns true only when the policy contains the key and its boolean
-// conflictBool constructs a conflictCheck that verifies a boolean MDM policy key matches a desired value.
-// If p is nil the produced check treats the field as matching by definition. Otherwise the check returns
-// true only if the policy has the key and its boolean value equals *p.
+// conflictBool builds a conflictCheck for a boolean MDM key. If p is nil
+// the field is treated as matching (no override requested); otherwise the
+// check returns true only when the policy contains the key and its
+// boolean value equals *p.
 func conflictBool(key string, p *bool) conflictCheck {
 	return conflictCheck{
 		key: key,
@@ -190,12 +187,10 @@ func conflictBool(key string, p *bool) conflictCheck {
 	}
 }
 
-// conflictString builds a check for a string field. Empty string ("")
-// conflictString returns a conflictCheck for the MDM string key identified by `key`.
-// If `got` is empty the field is treated as unset and will not be considered a conflict.
-// conflictString constructs a conflictCheck for a string policy key.
-// The check treats an empty requested value as matching. Otherwise it
-// succeeds only when the policy contains the key and its value equals got.
+// conflictString builds a conflictCheck for a string MDM key. An empty
+// `got` is treated as "field not set" (no override requested); otherwise
+// the check returns true only when the policy contains the key and its
+// value equals got.
 func conflictString(key, got string) conflictCheck {
 	return conflictCheck{
 		key: key,
@@ -209,9 +204,9 @@ func conflictString(key, got string) conflictCheck {
 	}
 }
 
-// conflictInt64 builds a conflictCheck that verifies an *int64 field against the MDM policy key.
-// conflictInt64 builds a conflictCheck that validates an int64 MDM policy key.
-// If p is nil, the check always matches; otherwise the policy must contain the key and its integer value must equal *p.
+// conflictInt64 builds a conflictCheck for an integer MDM key. If p is
+// nil the field is treated as matching; otherwise the check returns
+// true only when the policy contains the key and its int value equals *p.
 func conflictInt64(key string, p *int64) conflictCheck {
 	return conflictCheck{
 		key: key,
@@ -225,15 +220,11 @@ func conflictInt64(key string, p *int64) conflictCheck {
 	}
 }
 
-// resolveConflicts walks a list of per-field checks against the active
-// MDM policy and returns the names of keys whose requested value
-// diverges from the policy-enforced value. Keys not managed by MDM are
-// skipped silently (the gate fires only for keys the admin has actually
-// resolveConflicts identifies MDM-managed policy keys whose values differ from the provided checks.
-// If the policy is empty, it returns nil. Only keys present in the policy are considered; for each
-// resolveConflicts evaluates each conflictCheck against the provided MDM policy and returns
-// a slice of policy keys whose checks report a mismatch. If the policy is empty, it returns nil.
-// Checks whose key is not present in the policy are skipped.
+// resolveConflicts walks the per-field checks against the active MDM
+// policy and returns the names of keys whose requested value diverges
+// from the policy-enforced value. Keys not present in the policy are
+// skipped silently (the gate fires only for keys the admin has
+// actually pushed). Returns nil for an empty policy.
 func resolveConflicts(policy *mdm.Policy, checks []conflictCheck) []string {
 	if policy.IsEmpty() {
 		return nil
@@ -255,21 +246,9 @@ func resolveConflicts(policy *mdm.Policy, checks []conflictCheck) []string {
 // value. A field set to the same value the policy already enforces is
 // treated as a no-op echo (the GUI tray sends a full Config snapshot on
 // every toggle, so most fields in a typical request match the policy
-// exactly and must NOT be flagged as conflicts).
-//
-// The redacted PreSharedKey sentinel that GetConfig returns is
-// recognised and treated as no-op so the UI can safely round-trip it
-// mdmManagedFieldConflicts reports which MDM-managed policy keys would be violated by
-// the provided SetConfigRequest.
-//
-// If msg is nil, it returns nil. The function treats the PSK redaction sentinel
-// ("**********") as an intentional no-op (equivalent to field not set). Only keys
-// present in the supplied policy are considered; returned slice contains the policy
-// mdmManagedFieldConflicts reports MDM-managed policy keys that would conflict with a SetConfigRequest.
-//
-// If msg is nil, it returns nil. The pre-shared key redaction sentinel ("**********") is treated as unset
-// so it does not produce a false conflict. The returned slice contains policy key names whose values in
-// the request differ from the active policy; an empty or nil slice indicates no conflicts.
+// exactly and must NOT be flagged as conflicts). The redacted PSK
+// sentinel ("**********") returned by GetConfig is recognised and
+// treated as no-op so the UI can safely round-trip it.
 func mdmManagedFieldConflicts(msg *proto.SetConfigRequest, policy *mdm.Policy) []string {
 	if msg == nil {
 		return nil
@@ -297,21 +276,14 @@ func mdmManagedFieldConflicts(msg *proto.SetConfigRequest, policy *mdm.Policy) [
 }
 
 // setConfigRequestHasConfigOverrides reports whether the SetConfigRequest
-// carries ANY field that would actually mutate the persisted config. The
-// CLI builds the request unconditionally on every `netbird up` (see
-// setupSetConfigReq in cmd/up.go), so a plain `netbird up` results in a
-// SetConfig call with every field at its zero value; the gate must skip
-// such no-op invocations or it would always fire even when the user did
-// setConfigRequestHasConfigOverrides reports whether msg contains any fields that would mutate
-// persisted daemon configuration rather than being purely authentication-only.
-// It returns false if msg is nil; otherwise it returns true when any configuration-related
-// field is present (for example: management/admin URLs, pre-shared key, DNS/NAT lists and
-// cleaning flags, interface/port/MTU settings, auto-connect and routing toggles, DNS/firewall/IPv6
-// controls, SSH-related flags, notification/lazy-connection options, or other persistent config
-// setConfigRequestHasConfigOverrides reports whether msg contains any fields that would modify persisted daemon configuration.
-// It returns false for a nil message. The check includes management/admin URLs, pre-shared key, DNS/NAT lists and cleanup flags,
-// interface and WireGuard settings, MTU, auto-connect, routing, DNS/firewall/IPv6 controls, SSH-related flags, notification and
-// lazy-connection options, and other persistent network/security fields.
+// carries ANY field that would actually mutate the persisted config.
+// The CLI builds a SetConfigRequest unconditionally on every
+// `netbird up` (see setupSetConfigReq in cmd/up.go) — a plain
+// `netbird up` produces a request with every field at its zero value;
+// the gate must skip such no-op invocations or it would always fire
+// even when the user did not pass any --flag. Returns false on a nil
+// msg; true when any management/admin URL, PSK, DNS/NAT list+clean
+// flag, interface/port/MTU, or any optional bool/duration field is set.
 func setConfigRequestHasConfigOverrides(msg *proto.SetConfigRequest) bool {
 	if msg == nil {
 		return false
@@ -354,11 +326,7 @@ func setConfigRequestHasConfigOverrides(msg *proto.SetConfigRequest) bool {
 // (as opposed to pure-auth fields like setupKey, hostname, hint,
 // profileName, username). Used by the Login handler to decide whether
 // the `--disable-update-settings` / MDM gates must run: a re-auth that
-// loginRequestHasConfigOverrides reports whether a LoginRequest includes any fields that would change persisted daemon configuration.
-// It returns true when the request carries any configuration-related values (for example: management/admin URLs, pre-shared key,
-// DNS or NAT lists/cleanup flags, interface or WireGuard port, connection and policy toggles, route/DNS/firewall/notification flags,
-// loginRequestHasConfigOverrides reports whether the given LoginRequest contains any fields that would modify the daemon's persisted configuration.
-// It returns true when the request sets any configuration-related fields (management/admin URLs, pre-shared key, DNS/NAT settings, Rosenpass options, interface/WireGuard settings, auto-connect, routing/SSH/firewall/DNS controls, notifications, lazy-connection, block-inbound, or similar persistent toggles); it returns false if msg is nil or contains only authentication/identity fields.
+// changes nothing about the configuration is always allowed.
 func loginRequestHasConfigOverrides(msg *proto.LoginRequest) bool {
 	if msg == nil {
 		return false
@@ -394,19 +362,9 @@ func loginRequestHasConfigOverrides(msg *proto.LoginRequest) bool {
 // MDM-enforced value is a no-op echo, not a conflict; only a divergent
 // value is flagged. PSK has two proto fields — PreSharedKey (deprecated)
 // and OptionalPreSharedKey (current); either route trips the gate if it
-// diverges from the MDM-enforced PSK. The redaction sentinel is treated
-// loginRequestMDMConflicts reports MDM-managed keys that conflict between a LoginRequest and an active MDM policy.
-// 
-// It returns a slice of policy keys that are managed by the given policy and whose values in the request
-// differ from the policy. If msg is nil or the policy has no managed keys, it returns nil. The function
-// prefers OptionalPreSharedKey over the legacy PreSharedKey when both are present and treats the redaction
-// loginRequestMDMConflicts reports MDM-managed configuration keys that would
-// conflict between a LoginRequest and the active MDM policy.
-// 
-// It returns a slice of policy key names whose requested values differ from the
-// policy. If msg is nil it returns nil. For pre-shared keys, OptionalPreSharedKey
-// takes precedence over the deprecated PreSharedKey; a value equal to
-// preSharedKeyRedactedSentinel ("**********") is treated as unset.
+// diverges from the MDM-enforced PSK. OptionalPreSharedKey wins when
+// both are set; the redaction sentinel ("**********") is accepted as
+// a no-op echo.
 func loginRequestMDMConflicts(msg *proto.LoginRequest, policy *mdm.Policy) []string {
 	if msg == nil {
 		return nil
@@ -445,22 +403,8 @@ func loginRequestMDMConflicts(msg *proto.LoginRequest, policy *mdm.Policy) []str
 // fields tries to change an MDM-enforced value to something else, and
 // nil otherwise. The whole request is rejected on any conflict; non-
 // conflicting fields in the same request are not applied either (no
-// rejectMDMManagedFieldConflicts returns a gRPC FailedPrecondition error when any MDM-managed fields conflict.
-// If `conflicts` is empty this function returns nil. When conflicts exist it produces a FailedPrecondition status
-// whose message lists the conflicting fields and attempts to attach a `proto.MDMManagedFieldsViolation` detail;
-// rejectMDMManagedFieldConflicts rejects requests that attempt to modify fields managed by MDM.
-// If `conflicts` is empty, it does nothing. Otherwise it logs a warning and returns a gRPC
-// FailedPrecondition error whose message lists the conflicting keys and which carries a
-// `proto.MDMManagedFieldsViolation` detail with the `Fields` set to `conflicts`. If attaching
-// the detail fails, the base FailedPrecondition status is returned.
-//
-// Parameters:
-//  - policy: the active MDM policy (unused here, present for call-site symmetry).
-//  - conflicts: list of MDM-managed keys that the request attempted to modify.
-//
-// Returns:
-//  - a gRPC error indicating the request was rejected due to MDM-managed fields, or nil when
-//    there are no conflicts.
+// partial apply). The `policy` parameter is accepted for call-site
+// symmetry with the *Conflicts helpers and is currently unused.
 func rejectMDMManagedFieldConflicts(policy *mdm.Policy, conflicts []string) error {
 	if len(conflicts) == 0 {
 		return nil

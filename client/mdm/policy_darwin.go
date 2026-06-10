@@ -26,28 +26,19 @@ import (
 const policyPlistPath = "/Library/Managed Preferences/io.netbird.client.plist"
 
 // loadPlatformPolicy reads the MDM-managed configuration from the macOS
-// managed-preferences plist. Returns:
+// managed-preferences plist at policyPlistPath. Returns:
 //   - (nil, nil)  when the plist is absent (device not MDM-enrolled for
 //     NetBird, or admin has not yet pushed a payload)
 //   - (map, nil)  with N entries when N managed values are present
 //     (N may be 0 — empty plist still signals enrollment to the caller)
-//   - (nil, err)  on permission / parse / safety errors
+//   - (nil, err)  on permission / parse / safety errors (including
+//     refusal to read a world-writable plist)
 //
-// Value-type coercion mirrors the Windows loader: native plist types
-// map naturally onto the Policy accessor expectations (GetString /
-// GetBool / GetInt / GetStringSlice). Unknown top-level keys are
-// logged and skipped so a stray entry in the payload does not block
-// loadPlatformPolicy reads the managed-preferences plist at policyPlistPath and returns recognised MDM key/value pairs.
-//
-// If the plist file does not exist, it returns (nil, nil). It returns a wrapped error on open/stat/decode failures.
-// The function refuses to read a world-writable plist and returns an error in that case.
-// loadPlatformPolicy reads the device-level managed-preferences plist and returns its recognized keys.
-// 
-// It looks for the plist at policyPlistPath and, if present, decodes it into a map[string]any.
-// Top-level plist keys are canonicalized case-insensitively to the package's internal MDM key names;
-// unknown keys are logged and ignored. If the plist file does not exist, it returns (nil, nil).
-// The function refuses to read the file if it is world-writable and returns a wrapped error for
-// failures to open, stat, or decode the plist.
+// Top-level plist keys are canonicalised case-insensitively to the
+// package's internal mdm.Key* names; unknown keys are logged and
+// skipped so a stray entry in the payload does not block startup.
+// Native plist value types map naturally onto the Policy accessor
+// expectations (GetString / GetBool / GetInt / GetStringSlice).
 func loadPlatformPolicy() (map[string]any, error) {
 	f, err := os.Open(policyPlistPath)
 	if err != nil {

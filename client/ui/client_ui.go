@@ -65,14 +65,14 @@ const (
 	mdmFieldSuffix = " (MDM)"
 )
 
-// main is the entry point for the UI tray/client binary.
-// 
-// It parses CLI flags, initializes logging, creates the Fyne application and tray icons,
-// and constructs the service client (which may open a requested UI window). If a window-mode
-// flag is set the Fyne event loop runs and main returns; otherwise it ensures only one
-// main is the program entry point that initializes logging and the Fyne UI, enforces single-instance behavior, creates the service client, and starts the system tray.
-//
-// It parses CLI flags, configures logging, constructs the Fyne application and service client (optionally showing a requested UI window), monitors theme/settings changes, ensures only a single instance runs (signaling an existing instance to show its window when present), sets up signal handling and default fonts, and finally runs the system tray loop.
+// main is the entry point for the UI tray/client binary. Parses CLI
+// flags, initialises logging, builds the Fyne application and tray
+// icons, and constructs the service client (which may open a
+// requested UI window). When a window-mode flag is set the Fyne event
+// loop runs and main returns; otherwise main enforces single-instance
+// behaviour (signalling an existing instance to show its window when
+// present), sets up signal handling + default fonts, and runs the
+// system tray loop.
 func main() {
 	flags := parseFlags()
 
@@ -1705,11 +1705,12 @@ func (s *serviceClient) applyMDMLocks(managed []string) {
 }
 
 // preSharedKeyPlaceholder returns the hint string shown in the PSK
-// Entry's placeholder slot. The placeholder is the only signal the user
-// gets that a PSK is configured, because the entry's Text is forced to
-// empty to keep the password reveal toggle from leaking the
-// preSharedKeyPlaceholder returns the placeholder text for the pre-shared key entry based on the daemon config.
-// It returns an empty string if no pre-shared key is present, `MDM-managed` if the key is enforced by MDM, and `configured` otherwise.
+// Entry's placeholder slot. The placeholder is the only signal the
+// user gets that a PSK is configured, because the entry's Text is
+// forced to empty to keep the password reveal toggle from leaking
+// the daemon-returned "**********" redaction sentinel. Returns "" if
+// no PSK is present, "MDM-managed" if the key is enforced by MDM,
+// and "configured" otherwise.
 func preSharedKeyPlaceholder(cfg *proto.GetConfigResponse) string {
 	if cfg == nil || cfg.PreSharedKey == "" {
 		return ""

@@ -17,27 +17,17 @@ import (
 // Listed in the project's docs/mdm/netbird.admx schema.
 const policyRegistryPath = `Software\Policies\NetBird`
 
-// loadPlatformPolicy reads the MDM-managed configuration from the Windows
-// registry under HKLM\Software\Policies\NetBird. Returns:
-//   - (nil, nil)  when the key is absent (device not MDM-enrolled for NetBird)
-//   - (map, nil)  with N entries when N managed values are set (N may be 0)
-//   - (nil, err)  on any other registry error
+// readRegistryValue reads a single value under policyRegistryPath and,
+// on success, stores the type-coerced result in out[canonical]. Type
+// coercion mirrors loadPlatformPolicy's documented mapping:
+//   - REG_SZ / REG_EXPAND_SZ -> string (REG_EXPAND_SZ is expanded by the API)
+//   - REG_DWORD / REG_QWORD  -> int64
+//   - REG_MULTI_SZ           -> []string
 //
-// Type coercion of registry value types into the Policy map:
-//   - REG_SZ        -> string
-//   - REG_EXPAND_SZ -> string (expanded by the registry API)
-//   - REG_DWORD     -> int64 (caller's GetBool handles 0/!=0 coercion)
-//   - REG_QWORD     -> int64
-//   - REG_MULTI_SZ  -> []string
-//
-// Unsupported value types (REG_BINARY, REG_NONE, ...) are skipped with a
-// loadPlatformPolicy reads managed NetBird policy values from HKLM\Software\Policies\NetBird.
-// If the registry key does not exist it returns (nil, nil).
-// It returns a map whose keys are canonical policy names and whose values are coerced from registry types:
-// REG_SZ/REG_EXPAND_SZ -> string, REG_DWORD/REG_QWORD -> int64, REG_MULTI_SZ -> []string.
-// readRegistryValue reads the registry value named by name from key k and, when the value is successfully read and its type is supported, stores the coerced Go value in out[canonical].
-//
-// REG_SZ and REG_EXPAND_SZ are stored as string, REG_DWORD and REG_QWORD are stored as int64, and REG_MULTI_SZ is stored as []string; unknown value names, unsupported value types, and per-value read errors are logged and skipped.
+// Unsupported value types and per-value read failures are logged at
+// warn level and skipped — one malformed value must not block the
+// surrounding loop. Extracted from loadPlatformPolicy to keep that
+// function's cognitive complexity in check.
 func readRegistryValue(k registry.Key, name, canonical string, out map[string]any) {
 	_, valType, err := k.GetValue(name, nil)
 	if err != nil {
@@ -71,16 +61,15 @@ func readRegistryValue(k registry.Key, name, canonical string, out map[string]an
 	}
 }
 
-// loadPlatformPolicy loads MDM-managed NetBird policy values from the Windows
-// registry at HKLM\Software\Policies\NetBird.
-// 
-// It returns a map that maps canonical policy names to coerced Go values:
-// string for REG_SZ/REG_EXPAND_SZ, int64 for REG_DWORD/REG_QWORD, and []string
-// for REG_MULTI_SZ. If the policy registry key does not exist, it returns
-// (nil, nil). It returns an error when opening or enumerating the registry
-// key fails. Individual values that are unknown, of unsupported types, or that
-// fail to read are skipped and produce logged warnings; registry close failures
-// are also logged.
+// loadPlatformPolicy reads the MDM-managed configuration from the
+// Windows registry under HKLM\Software\Policies\NetBird. Returns:
+//   - (nil, nil)  when the key is absent (device not MDM-enrolled for NetBird)
+//   - (map, nil)  with N entries when N managed values are set (N may be 0)
+//   - (nil, err)  on open / enumerate registry errors
+//
+// Per-value type coercion + skip-on-error is delegated to
+// readRegistryValue. Unknown value names are logged and skipped so a
+// malformed deployment does not block startup.
 func loadPlatformPolicy() (map[string]any, error) {
 	k, err := registry.OpenKey(registry.LOCAL_MACHINE, policyRegistryPath, registry.QUERY_VALUE)
 	if err != nil {

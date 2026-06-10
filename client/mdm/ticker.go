@@ -24,10 +24,9 @@ const defaultReloadInterval = 1 * time.Minute
 const testReloadInterval = 1 * time.Second
 
 // reloadInterval returns the production cadence, or the accelerated test
-// cadence when running under `go test`. Centralising the choice here keeps
-// reloadInterval selects the polling interval used to re-read the OS-native MDM policy.
-// reloadInterval selects the polling interval used for policy reloads.
-// It returns testReloadInterval when running under `go test` (testing.Testing() == true), and defaultReloadInterval otherwise.
+// cadence when running under `go test` (detected via testing.Testing()).
+// Centralising the choice here keeps the prod/test split in one place
+// and out of the ticker's call sites.
 func reloadInterval() time.Duration {
 	if testing.Testing() {
 		return testReloadInterval
@@ -51,16 +50,15 @@ type Ticker struct {
 	prev     *Policy
 }
 
-// NewTicker constructs a Ticker that re-reads the OS-native policy every
-// reloadInterval() and invokes onChange on any diff. The cadence is owned by
-// reloadInterval (production default, accelerated under `go test`); callers
-// NewTicker creates a Ticker that polls the OS-native MDM policy at the package reload interval and invokes onChange when a policy change is detected.
-// If onChange is nil the ticker will only log detected changes.
-// NewTicker creates a Ticker that polls for policy changes and invokes onChange when a difference is detected.
-// 
-// The provided onChange callback, if non-nil, is called with the previous and current Policy snapshots when a
-// change is observed. The returned Ticker's polling interval is set via reloadInterval and its initial snapshot
-// is populated by calling policyLoader.
+// NewTicker constructs a Ticker that re-reads the OS-native policy
+// every reloadInterval() and invokes onChange on any diff. The
+// cadence is owned by reloadInterval (production default, accelerated
+// under `go test`); callers do not supply it. onChange may be nil for
+// a log-only ticker. The initial snapshot is populated by calling
+// policyLoader at construction time so the first tick only fires
+// onChange when the policy actually changed since boot — without
+// this baseline the first tick would report every currently-managed
+// key as "added" and trigger a spurious engine restart.
 func NewTicker(onChange func(prev, curr *Policy)) *Ticker {
 	return &Ticker{
 		interval: reloadInterval(),
@@ -98,11 +96,10 @@ func (t *Ticker) Run(ctx context.Context) {
 	}
 }
 
-// PoliciesEqual reports whether two Policy instances carry the same managed
-// PoliciesEqual reports whether two Policy instances represent the same policy.
-// It returns true when both policies are empty, returns false if one pointer is nil
-// while the other is not, and otherwise compares the policies' underlying value
-// maps for deep equality.
+// PoliciesEqual reports whether two Policy instances carry the same
+// managed key set with identical values. Nil and empty policies
+// compare equal; one-nil/one-non-empty compare not equal; otherwise
+// the underlying values maps are compared with reflect.DeepEqual.
 func PoliciesEqual(a, b *Policy) bool {
 	if a.IsEmpty() && b.IsEmpty() {
 		return true
@@ -113,12 +110,10 @@ func PoliciesEqual(a, b *Policy) bool {
 	return reflect.DeepEqual(a.values, b.values)
 }
 
-// diffPolicies returns the keys added in curr, removed from prev, and whose
-// diffPolicies reports keys that were added, removed, or changed between two policies.
-// The returned slices contain keys present only in `curr` (added), only in `prev` (removed),
-// and present in both but whose values differ (changed). Each slice is sorted
-// lexicographically for stable logging output; value differences are determined
-// associated values differ by deep equality.
+// diffPolicies returns the keys added in curr, removed from prev, and
+// whose values changed between prev and curr. Each slice is sorted
+// lexicographically for stable log output; value differences are
+// determined with reflect.DeepEqual.
 func diffPolicies(prev, curr *Policy) (added, removed, changed []string) {
 	prevKeys := mapOf(prev)
 	currKeys := mapOf(curr)
@@ -140,13 +135,9 @@ func diffPolicies(prev, curr *Policy) (added, removed, changed []string) {
 	return added, removed, changed
 }
 
-// mapOf returns a (possibly empty, never nil) copy of the underlying values
-// map of a Policy so callers outside this package can compare across the
-// mapOf returns a non-nil copy of the given Policy's key/value map.
-// If p is nil, mapOf returns an empty map; otherwise it returns a newly
-// mapOf returns a non-nil copy of a Policy's values map.
-// If p is nil it returns an empty map; otherwise it returns a newly
-// allocated map containing the same key/value pairs as p.values.
+// mapOf returns a (possibly empty, never nil) copy of the underlying
+// values map of a Policy so callers outside this package can compare
+// keys/values across the type boundary. Returns an empty map on nil p.
 func mapOf(p *Policy) map[string]any {
 	if p == nil {
 		return map[string]any{}

@@ -716,10 +716,11 @@ func (config *Config) applyMDMPolicy(policy *mdm.Policy) {
 	}
 }
 
-// parseURL parses and validates the URL for the named service.
-// It requires the URL to use the http or https scheme and, if no port is present,
-// appends ":443" for https or ":80" for http. On success it returns the parsed
-// ":80" is appended. The `serviceName` is used to contextualize error messages.
+// parseURL parses and validates the URL for the named service. The URL
+// must use the http or https scheme; if no port is present, ":443" is
+// appended for https or ":80" for http. The serviceName parameter is
+// used to contextualise error messages. On success returns the parsed
+// *url.URL; on failure returns a non-nil error.
 func parseURL(serviceName, serviceURL string) (*url.URL, error) {
 	parsedMgmtURL, err := url.ParseRequestURI(serviceURL)
 	if err != nil {

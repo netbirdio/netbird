@@ -82,12 +82,9 @@ type Policy struct {
 	values map[string]any
 }
 
-// NewPolicy constructs a Policy from a key→value map. Pass nil or an empty
-// NewPolicy constructs a Policy backed by the provided key→value map.
-// If values is nil it is replaced with an empty map so the returned *Policy
-// NewPolicy constructs a non-nil *Policy that wraps the provided key/value map.
-// If values is nil it is replaced with an empty map so the returned Policy always
-// represents "no MDM enforcement" when its values are empty.
+// NewPolicy constructs a Policy from a key→value map. Pass nil or an
+// empty map to construct an empty (no-enforcement) Policy. The returned
+// *Policy is always non-nil.
 func NewPolicy(values map[string]any) *Policy {
 	if values == nil {
 		values = map[string]any{}
@@ -95,20 +92,14 @@ func NewPolicy(values map[string]any) *Policy {
 	return &Policy{values: values}
 }
 
-// LoadPolicy reads the platform-native MDM configuration. Returns an empty
-// (but non-nil) Policy when no source is present, the source is empty, or
-// the platform is unsupported.
+// LoadPolicy reads the platform-native MDM configuration. Returns an
+// empty (but non-nil) Policy when no source is present, the source is
+// empty, or the platform is unsupported.
 //
 // Diagnostic logging differentiates the three states:
 //   - source absent / unsupported platform: trace log only
 //   - source present, zero keys:             info "MDM enrolled (no managed keys)"
-// LoadPolicy loads MDM-managed configuration from the platform and returns a Policy representing the managed settings.
-// If the platform loader fails or returns nil, LoadPolicy returns a non-nil empty Policy.
-// LoadPolicy loads platform-managed MDM key/value pairs and returns a non-nil Policy.
-// If the platform loader returns an error or a nil map, an empty Policy is returned.
-// On loader error a trace-level message is emitted. When a map is returned, an
-// informational message is logged either indicating enrollment with no managed keys
-// or the count and a stable, sorted list of managed key names.
+//   - source present, N keys:                info "MDM enrolled with N managed keys: [...]"
 func LoadPolicy() *Policy {
 	values, err := loadPlatformPolicy()
 	if err != nil {
@@ -266,8 +257,7 @@ func (p *Policy) GetStringSlice(key string) ([]string, bool) {
 // sortedKeys returns the keys of m as a deterministic, lexicographically
 // sorted slice. Used internally by Policy.ManagedKeys and LoadPolicy's
 // diagnostic log line so callers see a stable key order across runs
-// sortedKeys returns the keys of m as a lexicographically sorted slice.
-// The sorted order provides a deterministic key ordering for diagnostics and enumeration.
+// regardless of Go's randomised map iteration.
 func sortedKeys(m map[string]any) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {

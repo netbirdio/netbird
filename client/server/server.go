@@ -362,17 +362,10 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 // optional fields and the "empty / clean" semantics for the two slice
 // fields (DNS labels, NAT external IPs). Extracted from SetConfig to
 // keep the handler's cognitive complexity below the SonarCube
-// threshold; the body of this function is intentionally linear and
-// setConfigInputFromRequest builds a profilemanager.ConfigInput from a SetConfigRequest proto.
-// 
-// It translates each provided proto field into the corresponding ConfigInput field,
-// preserving the request's semantics for "clean" vs explicit-empty slices/bytes and
-// converting optional numeric fields into typed pointers where applicable.
-// 
-// msg: the incoming SetConfigRequest whose fields are mapped into the returned ConfigInput.
-// 
-// Returns the constructed ConfigInput and a non-nil error if the active profile file path
-// cannot be determined.
+// threshold; the body is intentionally linear because each proto
+// field is its own optional case. Returns the resolved ConfigInput
+// and a non-nil error only when the active profile file path cannot
+// be determined.
 func setConfigInputFromRequest(msg *proto.SetConfigRequest) (profilemanager.ConfigInput, error) {
 	var config profilemanager.ConfigInput
 

@@ -105,20 +105,16 @@ func Execute() error {
 	return rootCmd.Execute()
 }
 
-// init initializes package-level defaults and the CLI command tree.
-// init sets platform-specific default config and log directory paths and a default daemon address,
-// registers persistent flags (daemon address, management/admin URLs, logging, setup key, preshared key,
-// hostname, anonymize, config path), attaches top-level and nested subcommands to the root command,
-// and configures `up` command specific flags (external IP maps, DNS resolver address, Rosenpass options,
-// init initializes package-level defaults and configures the root Cobra command.
-// 
-// It sets default configuration and log directory paths (including legacy Wiretrustee
-// locations) based on the runtime OS, builds default config/log file paths, and selects
-// a platform-appropriate default daemon address. It registers persistent CLI flags
-// (including mutually exclusive setup-key and setup-key-file), attaches top-level
-// commands and subcommands to the root command, and registers `up`-specific persistent
-// flags for external IP mapping, custom DNS resolver address, Rosenpass options,
-// auto-connect disabling, and lazy connection.
+// init initialises package-level defaults and configures the root
+// Cobra command tree. Sets platform-specific config / log directory
+// paths (including legacy Wiretrustee fallbacks) and a default daemon
+// address; registers persistent CLI flags (daemon address,
+// management / admin URLs, logging, setup key (file and inline,
+// mutually exclusive), preshared key, hostname, anonymise, config
+// path); attaches top-level and nested subcommands to the root
+// command; and registers `up`-specific persistent flags (external IP
+// maps, custom DNS resolver address, Rosenpass options, auto-connect
+// disabling, lazy connection).
 func init() {
 	defaultConfigPathDir = "/etc/netbird/"
 	defaultLogFileDir = "/var/log/netbird/"
