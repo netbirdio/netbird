@@ -1117,7 +1117,11 @@ func (s *DefaultServer) projectNSGroupHealth(snap nsHealthSnapshot) {
 // Enabled flag to record in NSGroupState.
 func (s *DefaultServer) projectHealthy(p *nsGroupProj, servers []netip.AddrPort) bool {
 	p.everHealthy = true
+	wasUnhealthy := !p.unhealthySince.IsZero() || p.warningActive
 	p.unhealthySince = time.Time{}
+	if wasUnhealthy {
+		s.flushHostDNSCache()
+	}
 	if !p.warningActive {
 		return true
 	}
@@ -1131,6 +1135,25 @@ func (s *DefaultServer) projectHealthy(p *nsGroupProj, servers []netip.AddrPort)
 	)
 	p.warningActive = false
 	return true
+}
+
+// flushHostDNSCache asks the host manager to drop the OS-level DNS cache,
+// when the platform supports it (currently macOS). While the overlay
+// upstreams for a match domain are unreachable (e.g. right after wake from
+// sleep, before tunnels re-establish), queries can be answered by the
+// public resolvers and the OS caches those answers for their full TTL.
+// Flushing on the unhealthy->healthy transition makes clients pick up the
+// overlay answers again immediately instead of serving stale public ones.
+func (s *DefaultServer) flushHostDNSCache() {
+	flusher, ok := s.hostManager.(interface{ flushDNSCache() error })
+	if !ok {
+		return
+	}
+	go func() {
+		if err := flusher.flushDNSCache(); err != nil {
+			log.Warnf("failed to flush host DNS cache after upstream recovery: %v", err)
+		}
+	}()
 }
 
 // projectUnhealthy records an unhealthy tick on p, publishes the
