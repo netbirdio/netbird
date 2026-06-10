@@ -20,6 +20,8 @@ const PORT_MAX = 65535;
 // Mirrors client/iface/iface.go MinMTU / MaxMTU.
 const MTU_MIN = 576;
 const MTU_MAX = 8192;
+// GetConfig returns existing PSKs as this mask; revealing it would only show the asterisks.
+const PSK_MASK = "**********";
 
 export function SettingsAdvanced() {
     const { t } = useTranslation();
@@ -125,7 +127,7 @@ export function SettingsAdvanced() {
                     <HelpText>{t("settings.advanced.psk.help")}</HelpText>
                     <Input
                         type={"password"}
-                        showPasswordToggle
+                        showPasswordToggle={values.preSharedKey !== PSK_MASK}
                         placeholder={"kQv0qF3oQpJYdgD5mC9hL7sB2xZ8nT4eU6wY1aR3jK0="}
                         value={values.preSharedKey}
                         onChange={(e) => setValues((v) => ({ ...v, preSharedKey: e.target.value }))}
