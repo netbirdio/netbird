@@ -359,27 +359,38 @@ func (r *family) applyPort(port *firewall.Port, isSource bool) ([]expr.Any, erro
 			Data:     binaryutil.BigEndian.PutUint16(port.Values[0]),
 		})
 	default:
-		set := &nftables.Set{
-			Anonymous: true,
-			Constant:  true,
-			Table:     r.workTable,
-			KeyType:   nftables.TypeInetService,
+		lookup, err := r.anonymousPortSet(port.Values)
+		if err != nil {
+			return nil, err
 		}
-		elements := make([]nftables.SetElement, 0, len(port.Values))
-		for _, p := range port.Values {
-			elements = append(elements, nftables.SetElement{Key: binaryutil.BigEndian.PutUint16(p)})
-		}
-		if err := r.conn.AddSet(set, elements); err != nil {
-			return nil, fmt.Errorf("add anonymous port set: %w", err)
-		}
-		exprs = append(exprs, &expr.Lookup{
-			SourceRegister: 1,
-			SetID:          set.ID,
-			SetName:        set.Name,
-		})
+		exprs = append(exprs, lookup)
 	}
 
 	return exprs, nil
+}
+
+// anonymousPortSet queues an anonymous constant set holding the given
+// ports on the connection and returns a lookup against it. The set is
+// committed by the caller's flush together with the rule that binds it.
+func (r *family) anonymousPortSet(values []uint16) (*expr.Lookup, error) {
+	set := &nftables.Set{
+		Anonymous: true,
+		Constant:  true,
+		Table:     r.workTable,
+		KeyType:   nftables.TypeInetService,
+	}
+	elements := make([]nftables.SetElement, 0, len(values))
+	for _, p := range values {
+		elements = append(elements, nftables.SetElement{Key: binaryutil.BigEndian.PutUint16(p)})
+	}
+	if err := r.conn.AddSet(set, elements); err != nil {
+		return nil, fmt.Errorf("add anonymous port set: %w", err)
+	}
+	return &expr.Lookup{
+		SourceRegister: 1,
+		SetID:          set.ID,
+		SetName:        set.Name,
+	}, nil
 }
 
 // applyPorts builds the source then destination port matches.

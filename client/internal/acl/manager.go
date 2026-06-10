@@ -489,10 +489,10 @@ func extractRuleSources(r *mgmProto.FirewallRule) ([]netip.Prefix, error) {
 		return out, nil
 	}
 
-	//nolint:staticcheck // PeerIP used for backward compatibility with old management
-	addr, err := netip.ParseAddr(r.PeerIP)
+	peerIP := r.PeerIP //nolint:staticcheck // PeerIP is the legacy source field for old management servers
+	addr, err := netip.ParseAddr(peerIP)
 	if err != nil {
-		return nil, fmt.Errorf("parse peer IP %q: %w", r.PeerIP, err)
+		return nil, fmt.Errorf("parse peer IP %q: %w", peerIP, err)
 	}
 	addr = addr.Unmap()
 	// An unspecified PeerIP means "any peer" (legacy management

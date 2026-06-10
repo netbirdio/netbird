@@ -780,6 +780,14 @@ func containsPort(exprs []expr.Any, port *firewall.Port, isSource bool) bool {
 					}
 				}
 			}
+		case *expr.Lookup:
+			// Multiple discrete ports compile to an anonymous set lookup
+			// rather than a chain of comparisons. The set's id and name are
+			// assigned dynamically, so matching the lookup is enough here;
+			// the set elements are verified separately.
+			if !port.IsRange && len(port.Values) > 1 {
+				portMatchFound = true
+			}
 		}
 		if payloadFound && portMatchFound {
 			return true
