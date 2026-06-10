@@ -36,18 +36,29 @@ var loadMDMPolicy = mdm.LoadPolicy
 func (s *Server) onMDMPolicyChange(_, curr *mdm.Policy) {
 	log.Warn("MDM policy changed; restarting engine to apply new configuration")
 
+	// Hold s.mutex for the entire restart sequence (cancel + quiescence
+	// wait + re-spawn). Any concurrent Up/Down/Status arriving while
+	// MDM is restarting blocks on the Lock until we are done — they
+	// then observe the post-restart state coherently. This is safe
+	// because the connectWithRetryRuns goroutine no longer acquires
+	// s.mutex in its defer (intent vs. goroutine-alive concerns are
+	// fully separated; see the connectionGoroutineRunning helper).
 	s.mutex.Lock()
-	cancel := s.actCancel
-	giveUpChan := s.clientGiveUpChan
-	s.mutex.Unlock()
+	defer s.mutex.Unlock()
 
-	if cancel != nil {
-		cancel()
+	if s.actCancel != nil {
+		s.actCancel()
 	}
 
 	// Wait for previous connectWithRetryRuns to exit so we don't end up
 	// with two goroutines fighting over the same status recorder + engine.
-	if giveUpChan != nil {
+	// The teardown engages a fan-out of engine goroutines (peer workers,
+	// signal handler, route manager, ...). close(clientGiveUpChan)
+	// happens in the function-scope defer of connectWithRetryRuns, on
+	// every exit path (ctx cancel, DisableAutoConnect single-shot,
+	// backoff exhausted, panic) — see the defer in server.go.
+	if s.clientGiveUpChan != nil {
+		giveUpChan := s.clientGiveUpChan
 		select {
 		case <-giveUpChan:
 		case <-time.After(5 * time.Second):
@@ -55,15 +66,15 @@ func (s *Server) onMDMPolicyChange(_, curr *mdm.Policy) {
 		}
 	}
 
-	if err := s.restartEngineForMDM(); err != nil {
+	if err := s.restartEngineForMDMLocked(); err != nil {
 		log.Errorf("MDM restart failed: %v", err)
 		return
 	}
 
 	// publishConfigChangedEvent has already fired inside
-	// restartEngineForMDM with source="mdm". Here we additionally emit an
-	// MDM-specific user-visible toast so the operator knows their IT
-	// policy was applied (UserMessage != "" triggers the GUI notifier).
+	// restartEngineForMDMLocked with source="mdm". Emit an MDM-specific
+	// user-visible toast so the operator knows their IT policy was
+	// applied (UserMessage != "" triggers the GUI notifier).
 	_ = curr
 	s.statusRecorder.PublishEvent(
 		proto.SystemEvent_INFO,
@@ -105,11 +116,16 @@ func (s *Server) publishConfigChangedEvent(source string) {
 	)
 }
 
-// restartEngineForMDM re-resolves the active profile config (re-running
-// applyMDMPolicy via Config.apply) and re-spawns connectWithRetryRuns.
-// Mirrors the tail of Server.Start so a runtime MDM change behaves
-// identically to a fresh boot under the new policy.
-func (s *Server) restartEngineForMDM() error {
+// restartEngineForMDMLocked re-resolves the active profile config
+// (re-running applyMDMPolicy via Config.apply) and re-spawns
+// connectWithRetryRuns. Mirrors the tail of Server.Start so a runtime
+// MDM change behaves identically to a fresh boot under the new policy.
+//
+// MUST be called with s.mutex held — onMDMPolicyChange holds the lock
+// for the entire restart sequence (cancel + quiescence wait + re-spawn)
+// so concurrent Up/Down/Status RPCs observe a coherent post-restart
+// state.
+func (s *Server) restartEngineForMDMLocked() error {
 	activeProf, err := s.profileManager.GetActiveProfileState()
 	if err != nil {
 		return fmt.Errorf("get active profile state: %w", err)
@@ -118,9 +134,6 @@ func (s *Server) restartEngineForMDM() error {
 	if err != nil {
 		return fmt.Errorf("get active profile config: %w", err)
 	}
-
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
 
 	s.config = config
 	s.statusRecorder.UpdateManagementAddress(config.ManagementURL.String())

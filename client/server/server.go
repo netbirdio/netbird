@@ -72,7 +72,13 @@ type Server struct {
 	mutex  sync.Mutex
 	config *profilemanager.Config
 	proto.UnimplementedDaemonServiceServer
-	clientRunning     bool // protected by mutex
+	// clientRunning tracks "the daemon wants to be connected" — set true by
+	// Start / Up, cleared by Down / Logout. Persists across retry
+	// loops, signal disconnects, and ErrResetConnection cycles. NOT
+	// changed by connectWithRetryRuns goroutine exit — for that
+	// (goroutine-still-alive) check, see connectionGoroutineRunning() which
+	// derives from clientGiveUpChan close state. Protected by s.mutex.
+	clientRunning          bool
 	clientRunningChan chan struct{}
 	clientGiveUpChan  chan struct{} // closed when connectWithRetryRuns goroutine exits
 
@@ -237,11 +243,20 @@ func (s *Server) Start() error {
 // connectWithRetryRuns runs the client connection with a backoff strategy where we retry the operation as additional
 // mechanism to keep the client connected even when the connection is lost.
 // we cancel retry if the client receive a stop or down command, or if disable auto connect is configured.
+//
+// The goroutine's exit is signalled to the daemon via close(giveUpChan)
+// — placed in the function-scope defer so every return path (panic,
+// DisableAutoConnect early-exit, backoff exhausted, ctx cancel) closes
+// it. Callers that need to observe "is the goroutine still alive?" use
+// Server.connectionGoroutineRunning() which non-blockingly checks the close state
+// of clientGiveUpChan. The defer does NOT touch s.mutex; the daemon's
+// "intent" (clientRunning) is maintained by the RPC handlers, not by this
+// goroutine.
 func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profilemanager.Config, statusRecorder *peer.Status, runningChan chan struct{}, giveUpChan chan struct{}) {
 	defer func() {
-		s.mutex.Lock()
-		s.clientRunning = false
-		s.mutex.Unlock()
+		if giveUpChan != nil {
+			close(giveUpChan)
+		}
 	}()
 
 	if s.config.DisableAutoConnect {
@@ -287,9 +302,26 @@ func (s *Server) connectWithRetryRuns(ctx context.Context, profileConfig *profil
 	if err := backoff.Retry(runOperation, backOff); err != nil {
 		log.Errorf("operation failed: %v", err)
 	}
+	// giveUpChan is closed by the function-scope defer.
+}
 
-	if giveUpChan != nil {
-		close(giveUpChan)
+// connectionGoroutineRunning reports whether the connectWithRetryRuns goroutine is
+// still running. Returns false when no goroutine has ever been started
+// AND when the most recent one has already closed clientGiveUpChan on
+// exit (whether due to ctx cancel, DisableAutoConnect single-shot
+// completion, or backoff retry exhaustion).
+//
+// MUST be called with s.mutex held — accesses s.clientGiveUpChan which
+// is written by Start/Up under the same lock.
+func (s *Server) connectionGoroutineRunning() bool {
+	if s.clientGiveUpChan == nil {
+		return false
+	}
+	select {
+	case <-s.clientGiveUpChan:
+		return false
+	default:
+		return true
 	}
 }
 
@@ -709,7 +741,13 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 // Up starts engine work in the daemon.
 func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpResponse, error) {
 	s.mutex.Lock()
-	if s.clientRunning {
+	// clientRunning is the daemon-intent flag (set by previous Up/Start, cleared
+	// by Down). connectionGoroutineRunning() reports whether the previous retry-loop
+	// goroutine is still trying. When intent is up AND goroutine is alive,
+	// the existing engine is on the job — just wait for it. When intent
+	// is up but the goroutine has given up (backoff exhausted) OR when
+	// intent is down, fall through to spawn a fresh retry loop.
+	if s.clientRunning && s.connectionGoroutineRunning() {
 		state := internal.CtxGetState(s.rootCtx)
 		status, err := state.Status()
 		if err != nil {
@@ -929,6 +967,12 @@ func (s *Server) cleanupConnection() error {
 		return ErrServiceNotUp
 	}
 
+	// Daemon intent flips to "down" — all callers (Down RPC,
+	// Logout RPC handlers) tear down the connection because the user
+	// explicitly asked for it. MDM restart does NOT go through this
+	// path, so its clientRunning stays true.
+	s.clientRunning = false
+
 	// Capture the engine reference before cancelling the context.
 	// After actCancel(), the connectWithRetryRuns goroutine wakes up
 	// and sets connectClient.engine = nil, causing connectClient.Stop()
@@ -1132,10 +1176,14 @@ func (s *Server) Status(
 	msg *proto.StatusRequest,
 ) (*proto.StatusResponse, error) {
 	s.mutex.Lock()
-	clientRunning := s.clientRunning
+	// Only wait if the retry-loop goroutine is alive and making
+	// progress. clientRunning=true with connectionGoroutineRunning=false means the
+	// backoff has given up — there is nothing to wait for; let the
+	// caller observe the failed status directly.
+	alive := s.connectionGoroutineRunning()
 	s.mutex.Unlock()
 
-	if msg.WaitForReady != nil && *msg.WaitForReady && clientRunning {
+	if msg.WaitForReady != nil && *msg.WaitForReady && alive {
 		state := internal.CtxGetState(s.rootCtx)
 		status, err := state.Status()
 		if err != nil {
