@@ -777,13 +777,24 @@ func (s *DefaultServer) applyHostConfig() {
 // context is released rather than leaked until GC.
 func (s *DefaultServer) registerFallback() {
 	originalNameservers := s.hostManager.getOriginalNameservers()
-	if len(originalNameservers) == 0 {
+
+	serverIP := s.service.RuntimeIP()
+	var servers []netip.AddrPort
+	for _, ns := range originalNameservers {
+		if ns == serverIP {
+			log.Debugf("skipping original nameserver %s as it is the same as the server IP %s", ns, serverIP)
+			continue
+		}
+		servers = append(servers, netip.AddrPortFrom(ns, DefaultPort))
+	}
+
+	if len(servers) == 0 {
 		log.Debugf("no fallback upstreams to register; clearing PriorityFallback handler")
 		s.clearFallback()
 		return
 	}
 
-	log.Infof("registering original nameservers %v as upstream handlers with priority %d", originalNameservers, PriorityFallback)
+	log.Infof("registering original nameservers %v as upstream handlers with priority %d", servers, PriorityFallback)
 
 	handler, err := newUpstreamResolver(
 		s.ctx,
@@ -797,11 +808,6 @@ func (s *DefaultServer) registerFallback() {
 		return
 	}
 	handler.selectedRoutes = s.selectedRoutes
-
-	var servers []netip.AddrPort
-	for _, ns := range originalNameservers {
-		servers = append(servers, netip.AddrPortFrom(ns, DefaultPort))
-	}
 	handler.addRace(servers)
 
 	prev := s.fallbackHandler
