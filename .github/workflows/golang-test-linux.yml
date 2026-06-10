@@ -158,7 +158,7 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Test
-        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} CI=true go test -coverprofile=coverage.txt -tags devcert -exec 'sudo' -timeout 10m -p 1 $(go list ./... | grep -v -e /management -e /signal -e /relay -e /proxy -e /combined)
+        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} CI=true go test -race -coverprofile=coverage.txt -tags devcert -exec 'sudo' -timeout 10m -p 1 $(go list ./... | grep -v -e /management -e /signal -e /relay -e /proxy -e /combined)
 
       - name: Upload coverage reports to Codecov
         if: matrix.arch == 'amd64'
@@ -478,7 +478,7 @@ jobs:
           CGO_ENABLED=1 GOARCH=${{ matrix.arch }} \
           NETBIRD_STORE_ENGINE=${{ matrix.store }} \
             CI=true \
-          go test -tags=devcert -coverprofile=coverage.txt \
+          go test -race -tags=devcert -coverprofile=coverage.txt \
             -exec "sudo --preserve-env=CI,NETBIRD_STORE_ENGINE" \
             -timeout 20m ./management/... ./shared/management/...
 
