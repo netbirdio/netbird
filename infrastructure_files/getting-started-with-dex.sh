@@ -5,6 +5,15 @@ set -e
 # NetBird Getting Started with Dex IDP
 # This script sets up NetBird with Dex as the identity provider
 
+echo "**********************************************************************************"
+echo "* DEPRECATION NOTICE                                                             *"
+echo "*                                                                                *"
+echo "* getting-started-with-dex.sh is deprecated and will be removed in a future      *"
+echo "* release. The built-in identity provider IS Dex, embedded in the NetBird        *"
+echo "* server - no separate container needed. Use getting-started.sh instead.         *"
+echo "**********************************************************************************"
+echo ""
+
 # Sed pattern to strip base64 padding characters
 SED_STRIP_PADDING='s/=//g'
 
