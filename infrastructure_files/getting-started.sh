@@ -19,6 +19,46 @@ readonly MSG_SEPARATOR="=========================================="
 # Utility Functions
 ############################################
 
+check_docker_sock_perms() {
+  local sock="${DOCKER_HOST:-unix:///var/run/docker.sock}"
+  sock="${sock#unix://}"
+
+  if [[ ! -S "$sock" ]]; then
+    return 0
+  fi
+
+  if [[ ! -r "$sock" ]] || [[ ! -w "$sock" ]]; then
+    local group
+    if [[ "${OSTYPE}" == "darwin"* ]]; then
+      group="$(stat -f '%Sg' "$sock")"
+    else
+      group="$(stat -c '%G' "$sock")"
+    fi
+
+    echo "Cannot access Docker socket: $sock" > /dev/stderr
+    echo "" > /dev/stderr
+    echo "Socket permissions:" > /dev/stderr
+    ls -l "$sock" > /dev/stderr
+    echo "" > /dev/stderr
+
+    if [[ "$group" == "docker" ]]; then
+      echo "Your user may need to be added to the '$group' group:" > /dev/stderr
+      echo "  sudo usermod -aG $group \"$USER\"" > /dev/stderr
+      echo "Then log out and back in, or run this for the current shell:" > /dev/stderr
+      echo "  newgrp $group" > /dev/stderr
+      echo "Note: newgrp is temporary; usermod is the permanent group change." > /dev/stderr
+    else
+      echo "The Docker socket is owned by the '$group' group, which is not the standard 'docker' group." > /dev/stderr
+      echo "For safety, this script will not suggest adding your user to '$group'." > /dev/stderr
+      echo "Instead, either run this script with appropriate privileges (for example, via sudo) or follow Docker's post-install steps to configure access via the 'docker' group:" > /dev/stderr
+      echo "  https://docs.docker.com/engine/install/linux-postinstall/" > /dev/stderr
+    fi
+
+    exit 1
+  fi
+  return 0
+}
+
 check_docker_compose() {
   if command -v docker-compose &> /dev/null
   then
@@ -581,12 +621,15 @@ start_services_and_show_instructions() {
 }
 
 init_environment() {
+  # Check if docker compose is installed using check_docker_compose function
+  DOCKER_COMPOSE_COMMAND=$(check_docker_compose)
+  check_docker_sock_perms
+
   initialize_default_values
   configure_domain
   configure_reverse_proxy
 
   check_jq
-  DOCKER_COMPOSE_COMMAND=$(check_docker_compose)
 
   check_existing_installation
   generate_configuration_files

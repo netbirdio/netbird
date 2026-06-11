@@ -249,6 +249,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 		Private:                  private,
 		MaxDialTimeout:           maxDialTimeout,
 		MaxSessionIdleTimeout:    maxSessionIdleTimeout,
+		MappingBatchWatchdog:     envDurationOrDefault("NB_PROXY_MAPPING_BATCH_WATCHDOG", 0),
 		GeoDataDir:               geoDataDir,
 		CrowdSecAPIURL:           crowdsecAPIURL,
 		CrowdSecAPIKey:           crowdsecAPIKey,
