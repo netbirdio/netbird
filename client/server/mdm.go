@@ -134,7 +134,7 @@ func (s *Server) restartEngineForMDMLocked() error {
 	if err != nil {
 		return fmt.Errorf("get active profile state: %w", err)
 	}
-	config, existingConfig, err := s.getConfig(activeProf)
+	config, _, err := s.getConfig(activeProf)
 	if err != nil {
 		return fmt.Errorf("get active profile config: %w", err)
 	}
@@ -148,12 +148,6 @@ func (s *Server) restartEngineForMDMLocked() error {
 	if config.DisableAutoConnect {
 		log.Info("MDM restart: DisableAutoConnect=true; staying idle")
 		state.Set(internal.StatusIdle)
-		s.actCancel = nil
-		return nil
-	}
-	if !existingConfig {
-		log.Warn("MDM restart: config absent; not reconnecting")
-		state.Set(internal.StatusNeedsLogin)
 		s.actCancel = nil
 		return nil
 	}
