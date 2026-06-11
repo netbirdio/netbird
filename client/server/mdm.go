@@ -58,8 +58,8 @@ func (s *Server) onMDMPolicyChange(_, _ *mdm.Policy) error {
 	// The teardown engages a fan-out of engine goroutines (peer workers,
 	// signal handler, route manager, ...). close(clientGiveUpChan)
 	// happens in the function-scope defer of connectWithRetryRuns, on
-	// every exit path (ctx cancel, DisableAutoConnect single-shot,
-	// backoff exhausted, panic) — see the defer in server.go.
+	// every exit path (ctx cancel, backoff exhausted, panic) — see the
+	// defer in server.go.
 	if s.clientGiveUpChan != nil {
 		select {
 		case <-s.clientGiveUpChan:
