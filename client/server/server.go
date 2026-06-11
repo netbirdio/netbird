@@ -1569,9 +1569,6 @@ func (s *Server) AddProfile(ctx context.Context, msg *proto.AddProfileRequest) (
 
 	created, err := s.profileManager.AddProfile(msg.ProfileName, msg.Username)
 	if err != nil {
-		if errors.Is(err, profilemanager.ErrProfileAlreadyExists) {
-			return nil, gstatus.Errorf(codes.AlreadyExists, "profile %q already exists", msg.ProfileName)
-		}
 		log.Errorf("failed to create profile: %v", err)
 		return nil, fmt.Errorf("failed to create profile: %w", err)
 	}
@@ -1579,10 +1576,40 @@ func (s *Server) AddProfile(ctx context.Context, msg *proto.AddProfileRequest) (
 	return &proto.AddProfileResponse{Id: created.ID.String()}, nil
 }
 
+func (s *Server) RenameProfile(ctx context.Context, msg *proto.RenameProfileRequest) (*proto.RenameProfileResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.checkProfilesDisabled() {
+		return nil, gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
+	}
+
+	if msg.Handle == "" || msg.Username == "" || msg.NewProfileName == "" {
+		return nil, gstatus.Errorf(codes.InvalidArgument, "profile name, username and new profile name must be provided")
+	}
+
+	resolved, err := s.resolveProfileHandle(msg.Handle, msg.Username)
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.profileManager.RenameProfile(resolved.ID, msg.Username, msg.NewProfileName)
+	if err != nil {
+		log.Errorf("failed to rename profile: %v", err)
+		return nil, fmt.Errorf("failed to rename profile: %w", err)
+	}
+
+	return &proto.RenameProfileResponse{OldProfileName: resolved.Name}, nil
+}
+
 // RemoveProfile removes a profile from the daemon.
 func (s *Server) RemoveProfile(ctx context.Context, msg *proto.RemoveProfileRequest) (*proto.RemoveProfileResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+
+	if s.checkProfilesDisabled() {
+		return nil, gstatus.Errorf(codes.Unavailable, errProfilesDisabled)
+	}
 
 	if msg.ProfileName == "" {
 		return nil, gstatus.Errorf(codes.InvalidArgument, "profile name must be provided")
@@ -1590,10 +1617,6 @@ func (s *Server) RemoveProfile(ctx context.Context, msg *proto.RemoveProfileRequ
 
 	resolved, err := s.resolveProfileHandle(msg.ProfileName, msg.Username)
 	if err != nil {
-		return nil, err
-	}
-
-	if err := s.validateProfileOperation(resolved.ID, false); err != nil {
 		return nil, err
 	}
 

@@ -43,6 +43,14 @@ var profileAddCmd = &cobra.Command{
 	RunE:  addProfileFunc,
 }
 
+var profileRenameCmd = &cobra.Command{
+	Use:   "rename <profile> <new_profile_name>",
+	Short: "Renames an existing profile",
+	Long:  `Renames an existing profile (by a name, ID, or unique ID prefix). Profile name is free-form.`,
+	Args:  cobra.ExactArgs(2),
+	RunE:  renameProfileFunc,
+}
+
 var profileRemoveCmd = &cobra.Command{
 	Use:     "remove <profile>",
 	Short:   "Remove a profile",
@@ -148,31 +156,60 @@ func addProfileFunc(cmd *cobra.Command, args []string) error {
 		ProfileName: profileName,
 		Username:    currUser.Username,
 	})
-	if err == nil {
-		id := profilemanager.ID(resp.Id)
-		cmd.Printf("Profile added: %s  %s\n", id.ShortID(), profilemanager.StripCtrlChars(profileName))
-		return nil
+	if err != nil {
+		return fmt.Errorf("add profile request: %w", err)
 	}
 
-	if st, ok := gstatus.FromError(err); ok && st.Code() == codes.AlreadyExists {
-		dupCount, _ := countProfilesWithName(cmd.Context(), daemonClient, currUser.Username, profileName)
-		if dupCount > 0 {
-			cmd.Printf("Warning: %d other profile(s) already use the name %q.\n", dupCount, profileName)
-			cmd.Println("Use `netbird profile list --show-id` to disambiguate later.")
-		}
-		resp, err = daemonClient.AddProfile(cmd.Context(), &proto.AddProfileRequest{
-			ProfileName: profileName,
-			Username:    currUser.Username,
-		})
-		if err != nil {
-			return err
-		}
-		id := profilemanager.ID(resp.Id)
-		cmd.Printf("Profile added: %s  %s\n", id.ShortID(), profilemanager.StripCtrlChars(profileName))
-		return nil
+	dupCount, _ := countProfilesWithName(cmd.Context(), daemonClient, currUser.Username, profileName)
+	if dupCount > 1 {
+		cmd.Printf("Warning: %d other profile(s) already use the name %q.\n", dupCount-1, profileName)
+		cmd.Println("Use `netbird profile list --show-id` to disambiguate later.")
 	}
 
-	return err
+	id := profilemanager.ID(resp.Id)
+	cmd.Printf("Profile added: %s  %s\n", id.ShortID(), profilemanager.StripCtrlChars(profileName))
+	return nil
+
+}
+
+func renameProfileFunc(cmd *cobra.Command, args []string) error {
+	if err := setupCmd(cmd); err != nil {
+		return err
+	}
+
+	conn, err := DialClientGRPCServer(cmd.Context(), daemonAddr)
+	if err != nil {
+		return fmt.Errorf("connect to service CLI interface: %w", err)
+	}
+	defer conn.Close()
+
+	currUser, err := user.Current()
+	if err != nil {
+		return fmt.Errorf("get current user: %w", err)
+	}
+
+	daemonClient := proto.NewDaemonServiceClient(conn)
+	handle := args[0]
+	newProfilename := args[1]
+
+	resp, err := daemonClient.RenameProfile(cmd.Context(), &proto.RenameProfileRequest{
+		Handle:         handle,
+		Username:       currUser.Username,
+		NewProfileName: newProfilename,
+	})
+	if err != nil {
+		return wrapAmbiguityError(err, handle)
+	}
+
+	dupCount, _ := countProfilesWithName(cmd.Context(), daemonClient, currUser.Username, newProfilename)
+	if dupCount > 1 {
+		cmd.Printf("Warning: %d other profile(s) already use the name %q.\n", dupCount-1, newProfilename)
+		cmd.Println("Use `netbird profile list --show-id` to disambiguate later.")
+	}
+
+	cmd.Printf("Profile renamed from %s to %s\n", profilemanager.StripCtrlChars(resp.OldProfileName), profilemanager.StripCtrlChars(newProfilename))
+
+	return nil
 }
 
 func countProfilesWithName(ctx context.Context, c proto.DaemonServiceClient, username, name string) (int, error) {

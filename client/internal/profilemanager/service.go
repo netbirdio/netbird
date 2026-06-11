@@ -306,10 +306,6 @@ func (s *ServiceManager) AddProfile(displayName, username string) (*Profile, err
 		return nil, fmt.Errorf("invalid profile name: %w", err)
 	}
 
-	if displayName == defaultProfileName {
-		return nil, fmt.Errorf("cannot create profile with reserved name: %s", defaultProfileName)
-	}
-
 	id, err := generateProfileID()
 	if err != nil {
 		return nil, fmt.Errorf("generate profile id: %w", err)
@@ -333,12 +329,58 @@ func (s *ServiceManager) AddProfile(displayName, username string) (*Profile, err
 	}, nil
 }
 
+func (s *ServiceManager) RenameProfile(id ID, username string, newName string) error {
+	displayName, err := sanitizeDisplayName(newName)
+	if err != nil {
+		return fmt.Errorf("invalid profile name: %w", err)
+	}
+
+	if !IsValidProfileFilenameStem(id) {
+		return fmt.Errorf("invalid profile ID: %q", id)
+	}
+
+	profiles, err := s.loadAllProfiles(username)
+	if err != nil {
+		return fmt.Errorf("load profiles: %w", err)
+	}
+
+	var target *Profile
+	for i := range profiles {
+		if profiles[i].ID == id {
+			target = &profiles[i]
+			break
+		}
+	}
+	if target == nil {
+		return ErrProfileNotFound
+	}
+
+	data, err := os.ReadFile(target.Path)
+	if err != nil {
+		return err
+	}
+	var cfg Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return err
+	}
+	cfg.Name = displayName
+
+	if err := util.WriteJson(context.Background(), target.Path, cfg); err != nil {
+		return fmt.Errorf("failed to write profile name: %w", err)
+	}
+	return nil
+}
+
 // RemoveProfile deletes the profile identified by id. Callers must have
 // already resolved any user-supplied handle to a concrete ID via
 // ResolveProfile.
 func (s *ServiceManager) RemoveProfile(id ID, username string) error {
 	if id == defaultProfileName {
-		return fmt.Errorf("cannot remove profile with reserved name: %s", defaultProfileName)
+		defaultName := readProfileName(DefaultConfigPath)
+		if defaultName == "" {
+			defaultName = defaultProfileName
+		}
+		return fmt.Errorf("cannot remove default profile with name: %s", defaultName)
 	}
 	if !IsValidProfileFilenameStem(id) {
 		return fmt.Errorf("invalid profile ID: %q", id)
@@ -437,10 +479,14 @@ func (s *ServiceManager) getConfigDir(username string) (string, error) {
 // and Path is built from a basename read off disk.
 func (s *ServiceManager) loadAllProfiles(username string) ([]Profile, error) {
 	activeID, activeIsDefault := s.activeProfileID()
+	defaultName := readProfileName(DefaultConfigPath)
+	if defaultName == "" {
+		defaultName = defaultProfileName
+	}
 
 	profiles := []Profile{{
 		ID:       defaultProfileName,
-		Name:     defaultProfileName,
+		Name:     defaultName,
 		Path:     DefaultConfigPath,
 		IsActive: activeIsDefault,
 	}}
