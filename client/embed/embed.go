@@ -279,6 +279,10 @@ func (c *Client) Start(startCtx context.Context) error {
 
 	select {
 	case <-startCtx.Done():
+		// Cancel the client context before stopping: Engine.Start blocks on the
+		// signal stream while holding the engine mutex and only unblocks on
+		// cancellation. Stopping first would deadlock on that mutex.
+		cancel()
 		if stopErr := client.Stop(); stopErr != nil {
 			return fmt.Errorf("stop error after context done. Stop error: %w. Context done: %w", stopErr, startCtx.Err())
 		}

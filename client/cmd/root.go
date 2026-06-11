@@ -169,6 +169,11 @@ func init() {
 	debugCmd.AddCommand(forCmd)
 	debugCmd.AddCommand(persistenceCmd)
 
+	// kubernetes commands
+	rootCmd.AddCommand(kubernetesCmd)
+	kubernetesCmd.AddCommand(kubernetesListCmd)
+	kubernetesCmd.AddCommand(kubernetesWriteKubeconfigCmd)
+
 	// profile commands
 	profileCmd.AddCommand(profileListCmd)
 	profileCmd.AddCommand(profileAddCmd)
