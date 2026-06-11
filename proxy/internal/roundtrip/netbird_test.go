@@ -6,11 +6,13 @@ import (
 	"net/netip"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
+	"github.com/netbirdio/netbird/client/embed"
 	"github.com/netbirdio/netbird/proxy/internal/types"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
@@ -18,6 +20,18 @@ import (
 type mockMgmtClient struct{}
 
 func (m *mockMgmtClient) CreateProxyPeer(_ context.Context, _ *proto.CreateProxyPeerRequest, _ ...grpc.CallOption) (*proto.CreateProxyPeerResponse, error) {
+	return &proto.CreateProxyPeerResponse{Success: true}, nil
+}
+
+// signalMgmtClient closes entered the first time CreateProxyPeer is called, so
+// tests can detect AddPeer reaching client creation.
+type signalMgmtClient struct {
+	entered chan struct{}
+	once    sync.Once
+}
+
+func (m *signalMgmtClient) CreateProxyPeer(_ context.Context, _ *proto.CreateProxyPeerRequest, _ ...grpc.CallOption) (*proto.CreateProxyPeerResponse, error) {
+	m.once.Do(func() { close(m.entered) })
 	return &proto.CreateProxyPeerResponse{Success: true}, nil
 }
 
@@ -30,12 +44,15 @@ type statusCall struct {
 	accountID types.AccountID
 	serviceID types.ServiceID
 	connected bool
+	// ctx is captured so tests can assert the notifier received a
+	// fresh background context rather than an inherited request ctx.
+	ctx context.Context
 }
 
-func (m *mockStatusNotifier) NotifyStatus(_ context.Context, accountID types.AccountID, serviceID types.ServiceID, connected bool) error {
+func (m *mockStatusNotifier) NotifyStatus(ctx context.Context, accountID types.AccountID, serviceID types.ServiceID, connected bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.statuses = append(m.statuses, statusCall{accountID, serviceID, connected})
+	m.statuses = append(m.statuses, statusCall{accountID, serviceID, connected, ctx})
 	return nil
 }
 
@@ -48,11 +65,15 @@ func (m *mockStatusNotifier) calls() []statusCall {
 // mockNetBird creates a NetBird instance for testing without actually connecting.
 // It uses an invalid management URL to prevent real connections.
 func mockNetBird() *NetBird {
-	return NewNetBird("test-proxy", "invalid.test", ClientConfig{
+	nb := NewNetBird(context.Background(), "test-proxy", "invalid.test", ClientConfig{
 		MgmtAddr:     "http://invalid.test:9999",
 		WGPort:       0,
 		PreSharedKey: "",
 	}, nil, nil, &mockMgmtClient{})
+	// Skip the real embed client.Start, which would hang against the unreachable
+	// mgmt URL and (now that the lifecycle lock spans startup) serialise removes.
+	nb.startClient = func(types.AccountID, *embed.Client) {}
+	return nb
 }
 
 func TestNetBird_AddPeer_CreatesClientForNewAccount(t *testing.T) {
@@ -279,11 +300,12 @@ func TestNetBird_RoundTrip_RequiresExistingClient(t *testing.T) {
 
 func TestNetBird_AddPeer_ExistingStartedClient_NotifiesStatus(t *testing.T) {
 	notifier := &mockStatusNotifier{}
-	nb := NewNetBird("test-proxy", "invalid.test", ClientConfig{
+	nb := NewNetBird(context.Background(), "test-proxy", "invalid.test", ClientConfig{
 		MgmtAddr:     "http://invalid.test:9999",
 		WGPort:       0,
 		PreSharedKey: "",
 	}, nil, notifier, &mockMgmtClient{})
+	nb.startClient = func(types.AccountID, *embed.Client) {}
 	accountID := types.AccountID("account-1")
 
 	// Add first service — creates a new client entry.
@@ -295,8 +317,12 @@ func TestNetBird_AddPeer_ExistingStartedClient_NotifiesStatus(t *testing.T) {
 	nb.clients[accountID].started = true
 	nb.clientsMux.Unlock()
 
-	// Add second service — should notify immediately since client is already started.
-	err = nb.AddPeer(context.Background(), accountID, "domain2.test", "key-1", types.ServiceID("svc-2"))
+	// Add second service with an already-cancelled caller context —
+	// should notify immediately (client is started) AND the notification
+	// must not inherit the cancelled ctx.
+	cancelledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err = nb.AddPeer(cancelledCtx, accountID, "domain2.test", "key-1", types.ServiceID("svc-2"))
 	require.NoError(t, err)
 
 	calls := notifier.calls()
@@ -304,6 +330,9 @@ func TestNetBird_AddPeer_ExistingStartedClient_NotifiesStatus(t *testing.T) {
 	assert.Equal(t, accountID, calls[0].accountID)
 	assert.Equal(t, types.ServiceID("svc-2"), calls[0].serviceID)
 	assert.True(t, calls[0].connected)
+	require.NotNil(t, calls[0].ctx, "NotifyStatus must receive a context")
+	require.NoError(t, calls[0].ctx.Err(),
+		"already-started NotifyStatus must use a background ctx, not the cancelled caller ctx")
 }
 
 // TestNetBird_IdentityForIP_UnknownAccountReturnsFalse confirms that the
@@ -338,7 +367,7 @@ func TestClientEntry_IdentityForIP_InvalidIPReturnsFalse(t *testing.T) {
 
 func TestNetBird_RemovePeer_NotifiesDisconnection(t *testing.T) {
 	notifier := &mockStatusNotifier{}
-	nb := NewNetBird("test-proxy", "invalid.test", ClientConfig{
+	nb := NewNetBird(context.Background(), "test-proxy", "invalid.test", ClientConfig{
 		MgmtAddr:     "http://invalid.test:9999",
 		WGPort:       0,
 		PreSharedKey: "",
@@ -359,4 +388,165 @@ func TestNetBird_RemovePeer_NotifiesDisconnection(t *testing.T) {
 	require.Len(t, calls, 1)
 	assert.Equal(t, types.ServiceID("svc-1"), calls[0].serviceID)
 	assert.False(t, calls[0].connected)
+}
+
+// TestNetBird_RemovePeer_TeardownIsAsync proves the fix for the receive-loop
+// stall: RemovePeer must return promptly even when the client teardown blocks,
+// because teardown runs off the caller's goroutine. The receive loop calls
+// RemovePeer synchronously, so a blocking teardown inline would wedge it.
+func TestNetBird_RemovePeer_TeardownIsAsync(t *testing.T) {
+	nb := NewNetBird(context.Background(), "test-proxy", "invalid.test", ClientConfig{
+		MgmtAddr: "http://invalid.test:9999",
+	}, nil, &mockStatusNotifier{}, &mockMgmtClient{})
+
+	accountID := types.AccountID("acct-async-teardown")
+	key := DomainServiceKey("svc.example")
+
+	teardownEntered := make(chan struct{})
+	releaseTeardown := make(chan struct{})
+	nb.SetClientLifecycle(nil, func(types.AccountID, any) {
+		close(teardownEntered)
+		<-releaseTeardown
+	})
+
+	nb.clientsMux.Lock()
+	nb.clients[accountID] = &clientEntry{
+		services: map[ServiceKey]serviceInfo{key: {serviceID: types.ServiceID("svc-1")}},
+		started:  true,
+		inbound:  struct{}{},
+	}
+	nb.clientsMux.Unlock()
+
+	done := make(chan error, 1)
+	go func() { done <- nb.RemovePeer(context.Background(), accountID, key) }()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("RemovePeer did not return while teardown was blocked — teardown is not async")
+	}
+
+	select {
+	case <-teardownEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("teardown never ran")
+	}
+
+	close(releaseTeardown)
+}
+
+// TestNetBird_AddPeer_WaitsForTeardown proves the lifecycle lock serialises a
+// new client bringup behind an in-flight teardown for the same account, so a
+// slow client.Stop can never race a new client.Start for that account.
+//
+// It targets the handoff race specifically: AddPeer is launched immediately
+// after RemovePeer returns, WITHOUT waiting for the teardown goroutine to start.
+// This only passes if RemovePeer acquires the lifecycle lock synchronously
+// (before returning) and hands it to the teardown goroutine — if the goroutine
+// acquired the lock itself, AddPeer could win the lock in this window and start
+// a replacement client while the old teardown is still pending.
+func TestNetBird_AddPeer_WaitsForTeardown(t *testing.T) {
+	nb := NewNetBird(context.Background(), "test-proxy", "invalid.test", ClientConfig{
+		MgmtAddr: "http://invalid.test:9999",
+	}, nil, &mockStatusNotifier{}, &mockMgmtClient{})
+	nb.startClient = func(types.AccountID, *embed.Client) {}
+
+	accountID := types.AccountID("acct-serialize")
+	key := DomainServiceKey("svc.example")
+
+	addEntered := make(chan struct{})
+	releaseTeardown := make(chan struct{})
+	nb.SetClientLifecycle(nil, func(types.AccountID, any) {
+		// Block teardown until released. If AddPeer ever reaches createClientEntry
+		// (signalled via the mgmt client below) while we hold the lock, the lock
+		// failed to serialise and the test fails before we release.
+		<-releaseTeardown
+	})
+
+	nb.clientsMux.Lock()
+	nb.clients[accountID] = &clientEntry{
+		services: map[ServiceKey]serviceInfo{key: {serviceID: types.ServiceID("svc-1")}},
+		started:  true,
+		inbound:  struct{}{},
+	}
+	nb.clientsMux.Unlock()
+
+	// createClientEntry calls CreateProxyPeer; closing addEntered there tells us
+	// AddPeer got past the lifecycle lock and into client creation.
+	nb.mgmtClient = &signalMgmtClient{entered: addEntered}
+
+	require.NoError(t, nb.RemovePeer(context.Background(), accountID, key))
+
+	// Launch AddPeer with NO synchronisation against the teardown goroutine.
+	addReturned := make(chan struct{})
+	go func() {
+		_ = nb.AddPeer(context.Background(), accountID, DomainServiceKey("svc2.example"), "key-2", types.ServiceID("svc-2"))
+		close(addReturned)
+	}()
+
+	select {
+	case <-addEntered:
+		t.Fatal("AddPeer entered client creation while teardown held the lifecycle lock — handoff race not closed")
+	case <-addReturned:
+		t.Fatal("AddPeer completed while teardown held the lifecycle lock — not serialised")
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	close(releaseTeardown)
+	select {
+	case <-addReturned:
+	case <-time.After(2 * time.Second):
+		t.Fatal("AddPeer never completed after teardown released the lifecycle lock")
+	}
+}
+
+// TestNotifyClientReady_UsesBackgroundCtx pins the contract that the
+// post-Start hooks (readyHandler + statusNotifier.NotifyStatus) run on
+// a fresh context.Background() rather than inheriting the AddPeer
+// caller's request- or stream-scoped ctx. Without this, a cancelled
+// caller ctx could abort the inbound listener bring-up or cause the
+// management status notification to fail spuriously and leave the
+// account in a half-connected state.
+func TestNotifyClientReady_UsesBackgroundCtx(t *testing.T) {
+	notifier := &mockStatusNotifier{}
+	nb := NewNetBird(context.Background(), "test-proxy", "invalid.test", ClientConfig{
+		MgmtAddr: "http://invalid.test:9999",
+	}, nil, notifier, &mockMgmtClient{})
+
+	accountID := types.AccountID("acct-async")
+	// Pre-populate a client entry so notifyClientReady has something
+	// to mark started + something to enumerate for NotifyStatus.
+	nb.clientsMux.Lock()
+	nb.clients[accountID] = &clientEntry{
+		services: map[ServiceKey]serviceInfo{
+			DomainServiceKey("svc.example"): {serviceID: types.ServiceID("svc-1")},
+		},
+	}
+	nb.clientsMux.Unlock()
+
+	var capturedReadyCtx context.Context
+	nb.SetClientLifecycle(
+		func(ctx context.Context, _ types.AccountID, _ *embed.Client) any {
+			capturedReadyCtx = ctx
+			return nil
+		},
+		nil,
+	)
+
+	// Drive the post-Start path directly; a real client.Start would
+	// need a working management URL.
+	nb.notifyClientReady(accountID, nil)
+
+	require.NotNil(t, capturedReadyCtx, "readyHandler must have been invoked")
+	require.NoError(t, capturedReadyCtx.Err(),
+		"readyHandler must receive a background context, not an inherited cancelled one")
+	deadline, ok := capturedReadyCtx.Deadline()
+	assert.False(t, ok, "readyHandler ctx must have no deadline (background); got %v", deadline)
+
+	calls := notifier.calls()
+	require.Len(t, calls, 1, "NotifyStatus must be invoked once per registered service")
+	require.NotNil(t, calls[0].ctx, "NotifyStatus must receive a context")
+	require.NoError(t, calls[0].ctx.Err(),
+		"NotifyStatus must receive a background context, not an inherited cancelled one")
 }

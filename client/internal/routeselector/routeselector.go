@@ -115,6 +115,14 @@ func (rs *RouteSelector) DeselectAllRoutes() {
 	clear(rs.selectedRoutes)
 }
 
+// IsDeselectAll reports whether the user has explicitly deselected all routes.
+func (rs *RouteSelector) IsDeselectAll() bool {
+	rs.mu.RLock()
+	defer rs.mu.RUnlock()
+
+	return rs.deselectAll
+}
+
 // IsSelected checks if a specific route is selected.
 func (rs *RouteSelector) IsSelected(routeID route.NetID) bool {
 	rs.mu.RLock()

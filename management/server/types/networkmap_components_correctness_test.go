@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"slices"
 	"testing"
 	"time"
 
@@ -1027,6 +1028,48 @@ func TestComponents_RouteDefaultPermit(t *testing.T) {
 		}
 	}
 	assert.True(t, hasDefaultPermit, "route without ACG should have default permit rule with 0.0.0.0/0 source")
+}
+
+// TestComponents_ExitNodeDefaultPermitIPv6 verifies that a default exit node route
+// (0.0.0.0/0) without AccessControlGroups also emits an IPv6 default permit rule
+// (::/0 source and destination) for peers that support IPv6, mirroring the route
+// the client installs. Without it, IPv6 traffic is routed to the exit node but
+// dropped at the forward chain.
+func TestComponents_ExitNodeDefaultPermitIPv6(t *testing.T) {
+	account, validatedPeers := scalableTestAccount(20, 2)
+
+	routingPeerID := "peer-5"
+	routingPeer := account.Peers[routingPeerID]
+	routingPeer.IPv6 = netip.MustParseAddr("fd00::5")
+	routingPeer.Meta.Capabilities = append(routingPeer.Meta.Capabilities, nbpeer.PeerCapabilityIPv6Overlay)
+
+	account.Routes["route-exit"] = &route.Route{
+		ID: "route-exit", Network: netip.MustParsePrefix("0.0.0.0/0"),
+		PeerID: routingPeerID, Peer: routingPeer.Key,
+		Enabled: true, Groups: []string{"group-all"}, PeerGroups: []string{"group-0"},
+		AccessControlGroups: []string{},
+		AccountID:           "test-account",
+	}
+
+	nm := componentsNetworkMap(account, routingPeerID, validatedPeers)
+	require.NotNil(t, nm)
+
+	hasV4 := false
+	hasV6 := false
+	for _, rfr := range nm.RoutesFirewallRules {
+		switch rfr.Destination {
+		case "0.0.0.0/0":
+			if slices.Contains(rfr.SourceRanges, "0.0.0.0/0") {
+				hasV4 = true
+			}
+		case "::/0":
+			if slices.Contains(rfr.SourceRanges, "::/0") {
+				hasV6 = true
+			}
+		}
+	}
+	assert.True(t, hasV4, "exit node route should have an IPv4 default permit rule (0.0.0.0/0)")
+	assert.True(t, hasV6, "exit node route should have an IPv6 default permit rule (::/0)")
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

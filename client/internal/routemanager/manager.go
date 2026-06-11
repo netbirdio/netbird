@@ -703,6 +703,13 @@ func resolveURLsToIPs(urls []string) []net.IP {
 func (m *DefaultManager) updateRouteSelectorFromManagement(clientRoutes route.HAMap) {
 	m.mirrorV6ExitPairSelections(clientRoutes)
 
+	// An explicit user "deselect all" must not be overridden by management auto-apply.
+	// Auto-applying an exit node here would call SelectRoutes, which clears the
+	// deselect-all flag and re-enables every route the user turned off.
+	if m.routeSelector.IsDeselectAll() {
+		return
+	}
+
 	exitNodeInfo := m.collectExitNodeInfo(clientRoutes)
 	if len(exitNodeInfo.allIDs) == 0 {
 		return

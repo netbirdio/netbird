@@ -491,6 +491,27 @@ func Test_GetAccount(t *testing.T) {
 	})
 }
 
+// TestSqlStore_GetPeerByIP_NotFound pins the not-found semantics the
+// proxy's ValidateTunnelPeer relies on: a tunnel-IP that isn't in the
+// account roster must surface as a NotFound error (not a generic
+// Internal) so callers can distinguish an expected miss from a real
+// store failure. A known IP still resolves.
+func TestSqlStore_GetPeerByIP_NotFound(t *testing.T) {
+	runTestForAllEngines(t, "../testdata/store.sql", func(t *testing.T, store Store) {
+		const accountID = "bf1c8084-ba50-4ce7-9439-34653001fc3b"
+
+		peer, err := store.GetPeerByIP(context.Background(), LockingStrengthNone, accountID, net.ParseIP("192.168.0.0"))
+		require.NoError(t, err, "known tunnel IP must resolve")
+		require.NotNil(t, peer)
+
+		_, err = store.GetPeerByIP(context.Background(), LockingStrengthNone, accountID, net.ParseIP("100.65.0.99"))
+		require.Error(t, err, "unknown tunnel IP must error")
+		parsedErr, ok := status.FromError(err)
+		require.True(t, ok, "error must be a status error")
+		require.Equal(t, status.NotFound, parsedErr.Type(), "tunnel-IP miss must be NotFound, not Internal")
+	})
+}
+
 func TestSqlStore_SavePeer(t *testing.T) {
 	store, cleanUp, err := NewTestStoreFromSQL(context.Background(), "../testdata/store.sql", t.TempDir())
 	t.Cleanup(cleanUp)
