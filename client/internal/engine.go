@@ -240,7 +240,7 @@ type Engine struct {
 	syncStore    syncstore.Store
 	syncStoreDir string
 
-	flowManager         nftypes.FlowManager
+	flowManager nftypes.FlowManager
 
 	// auto-update
 	updateManager *updater.Manager
@@ -929,17 +929,12 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		return err
 	}
 
-	nm := update.GetNetworkMap()
-	if nm == nil {
-		return nil
-	}
+	e.persistSyncResponse(update)
 
 	// only apply new changes and ignore old ones
 	if err := e.updateNetworkMap(nm); err != nil {
 		return err
 	}
-
-	e.persistSyncResponse(update)
 
 	e.statusRecorder.PublishEvent(cProto.SystemEvent_INFO, cProto.SystemEvent_SYSTEM, "Network map updated", "", nil)
 
