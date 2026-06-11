@@ -68,6 +68,10 @@ type DaemonServiceClient interface {
 	StopBundleCapture(ctx context.Context, in *StopBundleCaptureRequest, opts ...grpc.CallOption) (*StopBundleCaptureResponse, error)
 	SubscribeEvents(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (DaemonService_SubscribeEventsClient, error)
 	GetEvents(ctx context.Context, in *GetEventsRequest, opts ...grpc.CallOption) (*GetEventsResponse, error)
+	// RegisterUILog records the desktop UI's absolute log path so the daemon's
+	// debug bundle can collect it (the daemon runs as root and can't resolve the
+	// user's config dir).
+	RegisterUILog(ctx context.Context, in *RegisterUILogRequest, opts ...grpc.CallOption) (*RegisterUILogResponse, error)
 	SwitchProfile(ctx context.Context, in *SwitchProfileRequest, opts ...grpc.CallOption) (*SwitchProfileResponse, error)
 	SetConfig(ctx context.Context, in *SetConfigRequest, opts ...grpc.CallOption) (*SetConfigResponse, error)
 	AddProfile(ctx context.Context, in *AddProfileRequest, opts ...grpc.CallOption) (*AddProfileResponse, error)
@@ -404,6 +408,15 @@ func (c *daemonServiceClient) GetEvents(ctx context.Context, in *GetEventsReques
 	return out, nil
 }
 
+func (c *daemonServiceClient) RegisterUILog(ctx context.Context, in *RegisterUILogRequest, opts ...grpc.CallOption) (*RegisterUILogResponse, error) {
+	out := new(RegisterUILogResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/RegisterUILog", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *daemonServiceClient) SwitchProfile(ctx context.Context, in *SwitchProfileRequest, opts ...grpc.CallOption) (*SwitchProfileResponse, error) {
 	out := new(SwitchProfileResponse)
 	err := c.cc.Invoke(ctx, "/daemon.DaemonService/SwitchProfile", in, out, opts...)
@@ -652,6 +665,10 @@ type DaemonServiceServer interface {
 	StopBundleCapture(context.Context, *StopBundleCaptureRequest) (*StopBundleCaptureResponse, error)
 	SubscribeEvents(*SubscribeRequest, DaemonService_SubscribeEventsServer) error
 	GetEvents(context.Context, *GetEventsRequest) (*GetEventsResponse, error)
+	// RegisterUILog records the desktop UI's absolute log path so the daemon's
+	// debug bundle can collect it (the daemon runs as root and can't resolve the
+	// user's config dir).
+	RegisterUILog(context.Context, *RegisterUILogRequest) (*RegisterUILogResponse, error)
 	SwitchProfile(context.Context, *SwitchProfileRequest) (*SwitchProfileResponse, error)
 	SetConfig(context.Context, *SetConfigRequest) (*SetConfigResponse, error)
 	AddProfile(context.Context, *AddProfileRequest) (*AddProfileResponse, error)
@@ -771,6 +788,9 @@ func (UnimplementedDaemonServiceServer) SubscribeEvents(*SubscribeRequest, Daemo
 }
 func (UnimplementedDaemonServiceServer) GetEvents(context.Context, *GetEventsRequest) (*GetEventsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetEvents not implemented")
+}
+func (UnimplementedDaemonServiceServer) RegisterUILog(context.Context, *RegisterUILogRequest) (*RegisterUILogResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RegisterUILog not implemented")
 }
 func (UnimplementedDaemonServiceServer) SwitchProfile(context.Context, *SwitchProfileRequest) (*SwitchProfileResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SwitchProfile not implemented")
@@ -1283,6 +1303,24 @@ func _DaemonService_GetEvents_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DaemonService_RegisterUILog_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RegisterUILogRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).RegisterUILog(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/RegisterUILog",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).RegisterUILog(ctx, req.(*RegisterUILogRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _DaemonService_SwitchProfile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SwitchProfileRequest)
 	if err := dec(in); err != nil {
@@ -1718,6 +1756,10 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetEvents",
 			Handler:    _DaemonService_GetEvents_Handler,
+		},
+		{
+			MethodName: "RegisterUILog",
+			Handler:    _DaemonService_RegisterUILog_Handler,
 		},
 		{
 			MethodName: "SwitchProfile",

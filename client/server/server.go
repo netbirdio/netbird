@@ -67,6 +67,12 @@ type Server struct {
 
 	logFile string
 
+	// uiLogPath is the desktop UI's absolute log path, reported via
+	// RegisterUILog. Guarded by mutex. Consumed by DebugBundle so the bundle
+	// can collect the GUI log even though the daemon runs as root and can't
+	// resolve the user's config dir. Last-writer-wins (one UI per socket).
+	uiLogPath string
+
 	oauthAuthFlow oauthAuthFlow
 	// extendAuthSessionFlow holds the pending PKCE flow created by
 	// RequestExtendAuthSession until WaitExtendAuthSession resolves it.
@@ -1916,8 +1922,8 @@ func (s *Server) RemoveProfile(ctx context.Context, msg *proto.RemoveProfileRequ
 // a marked INFO/SYSTEM event over SubscribeEvents: the UI's dispatchSystemEvent
 // recognises the metadata "kind" marker and translates it into its internal
 // profile-changed signal that both the tray menu and the React profile views
-// already subscribe to (see client/ui/services/daemon_feed.go,
-// MetadataKindProfileListChanged). userMessage is intentionally empty so this
+// already subscribe to (see proto.MetadataKindProfileListChanged, recognised in
+// client/ui/services/daemon_feed.go). userMessage is intentionally empty so this
 // stays a silent refresh signal rather than a user-facing notification.
 func (s *Server) publishProfileListChanged(profileName string) {
 	s.statusRecorder.PublishEvent(
@@ -1925,7 +1931,26 @@ func (s *Server) publishProfileListChanged(profileName string) {
 		proto.SystemEvent_SYSTEM,
 		"Profile list changed",
 		"",
-		map[string]string{"kind": "profile-list-changed", "profile": profileName},
+		map[string]string{proto.MetadataKindKey: proto.MetadataKindProfileListChanged, proto.MetadataProfileKey: profileName},
+	)
+}
+
+// publishLogLevelChanged signals the desktop UI that the daemon log level
+// changed, so it can attach/detach its rotated gui-client.log. Like
+// publishProfileListChanged, this rides the SubscribeEvents stream as a marked
+// INFO/SYSTEM event (kind "log-level-changed", level the lowercase logrus
+// name); the UI's dispatchSystemEvent recognises the marker and routes it to
+// the logging toggle instead of an OS toast (userMessage is empty so it stays
+// a silent control signal). The "level" value matches log.Level.String()
+// (e.g. "debug", "info") so the UI can parse it directly. See
+// proto.MetadataKindLogLevelChanged, recognised in client/ui/services/daemon_feed.go.
+func (s *Server) publishLogLevelChanged(level string) {
+	s.statusRecorder.PublishEvent(
+		proto.SystemEvent_INFO,
+		proto.SystemEvent_SYSTEM,
+		"Log level changed",
+		"",
+		map[string]string{proto.MetadataKindKey: proto.MetadataKindLogLevelChanged, proto.MetadataLevelKey: level},
 	)
 }
 

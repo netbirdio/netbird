@@ -85,6 +85,11 @@ service DaemonService {
 
   rpc GetEvents(GetEventsRequest) returns (GetEventsResponse) {}
 
+  // RegisterUILog records the desktop UI's absolute log path so the daemon's
+  // debug bundle can collect it (the daemon runs as root and can't resolve the
+  // user's config dir).
+  rpc RegisterUILog(RegisterUILogRequest) returns (RegisterUILogResponse) {}
+
   rpc SwitchProfile(SwitchProfileRequest) returns (SwitchProfileResponse) {}
 
   rpc SetConfig(SetConfigRequest) returns (SetConfigResponse) {}
@@ -545,6 +550,13 @@ message SetLogLevelRequest {
 }
 
 message SetLogLevelResponse {
+}
+
+message RegisterUILogRequest {
+  string path = 1;
+}
+
+message RegisterUILogResponse {
 }
 
 // State represents a daemon state entry

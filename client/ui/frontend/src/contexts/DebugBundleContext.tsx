@@ -8,6 +8,11 @@ import { useProfile } from "@/contexts/ProfileContext.tsx";
 const NETBIRD_UPLOAD_URL = "https://upload.debug.netbird.io/upload-url";
 const TRACE_LOG_FILE_COUNT = 5;
 const PLAIN_LOG_FILE_COUNT = 1;
+// Lowercase logrus level name sent to Debug.SetLogLevel (the Go binding
+// upper-cases before the proto enum lookup). Raising to trace is what drives
+// the daemon's verbose logging and the GUI's gui-client.log during a bundle.
+const TRACE_LOG_LEVEL = "trace";
+const DEFAULT_LOG_LEVEL = "info";
 
 export type DebugStage =
     | { kind: "idle" }
@@ -68,7 +73,7 @@ const runTracePhase = async (
         // empty
     }
     throwIfAborted(signal);
-    await DebugSvc.SetLogLevel({ level: "trace" });
+    await DebugSvc.SetLogLevel({ level: TRACE_LOG_LEVEL });
     level.raised = true;
 
     throwIfAborted(signal);
@@ -123,7 +128,7 @@ const useDebugBundle = () => {
         const signal = ctrl.signal;
 
         const uploadUrl = upload ? NETBIRD_UPLOAD_URL : "";
-        const level: LevelState = { original: "info", raised: false };
+        const level: LevelState = { original: DEFAULT_LOG_LEVEL, raised: false };
 
         try {
             if (trace) {

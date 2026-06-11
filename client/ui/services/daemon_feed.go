@@ -46,20 +46,11 @@ const (
 	// tray (Go side) so the frontend stays passive on this flow.
 	EventSessionWarning = "netbird:session:warning"
 
-	// MetadataKindProfileListChanged is the SystemEvent.metadata["kind"]
-	// marker the daemon stamps on the INFO/SYSTEM event it publishes after a
-	// CLI-driven AddProfile / RemoveProfile (the daemon emits no dedicated
-	// profile RPC event). dispatchSystemEvent recognises it and re-emits the
-	// existing EventProfileChanged so the tray and React profile views refresh
-	// — closing the gap the SubscribeStatus path can't, since a profile
-	// add/remove doesn't change the daemon's status string (the tray's
-	// iconChanged guard would swallow it). The daemon side hard-codes the same
-	// string literal in client/server/server.go (client/server cannot import
-	// this UI package).
-	MetadataKindProfileListChanged = "profile-list-changed"
-	// metadataKindKey is the SystemEvent.metadata key the "kind" marker lives
-	// under. Kept in sync with the daemon-side literal in client/server.
-	metadataKindKey = "kind"
+	// The SystemEvent.metadata markers the daemon stamps on its internal
+	// control events live in the shared proto package
+	// (proto.MetadataKind*/MetadataKindKey/MetadataLevelKey) so producer
+	// (client/server) and consumer (here) reference the same constants. See
+	// dispatchSystemEvent for how they're recognised.
 
 	// StatusDaemonUnavailable is the synthetic Status the UI emits when the
 	// daemon's gRPC socket is unreachable (daemon not running, socket
@@ -198,6 +189,13 @@ type DaemonFeed struct {
 	conn    DaemonConn
 	emitter Emitter
 	updater *updater.Holder
+	// logCtl reacts to the daemon's log level (delivered as a marked
+	// SystemEvent over the same SubscribeEvents stream) by attaching/detaching
+	// the GUI file log. nil when the GUI doesn't manage its log (server build /
+	// not wired), in which case the marker is ignored. Held as a narrow
+	// interface so this package doesn't depend on client/ui/guilog (the concrete
+	// type lives there; main passes it into NewDaemonFeed).
+	logCtl LogController
 
 	mu       sync.Mutex
 	cancel   context.CancelFunc
@@ -217,8 +215,24 @@ type DaemonFeed struct {
 	switchLoginWatchUntil time.Time
 }
 
-func NewDaemonFeed(conn DaemonConn, emitter Emitter, updaterHolder *updater.Holder) *DaemonFeed {
-	return &DaemonFeed{conn: conn, emitter: emitter, updater: updaterHolder}
+// LogController is the subset of client/ui/guilog.DebugLog that DaemonFeed
+// drives: Apply turns the GUI file log on/off for a daemon level, Path is the
+// gui-client.log path to register with the daemon (empty when the GUI doesn't
+// own its log). Kept as an interface so services doesn't import guilog. The
+// daemon delivers log-level changes as marked SystemEvents on the same
+// SubscribeEvents stream this feed consumes, so it rides along here rather than
+// opening a second daemon subscription.
+type LogController interface {
+	Apply(level string)
+	Path() string
+}
+
+// NewDaemonFeed builds the feed. logCtl may be nil (server build / GUI log not
+// managed), in which case log-level markers on the event stream are ignored.
+// Injected at construction rather than via a setter so DaemonFeed (a Wails
+// service) exposes no extra method to the binding generator.
+func NewDaemonFeed(conn DaemonConn, emitter Emitter, updaterHolder *updater.Holder, logCtl LogController) *DaemonFeed {
+	return &DaemonFeed{conn: conn, emitter: emitter, updater: updaterHolder, logCtl: logCtl}
 }
 
 // BeginProfileSwitch is called by ProfileSwitcher at the start of a switch
@@ -525,6 +539,17 @@ func (s *DaemonFeed) subscribeAndStreamEvents(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("subscribe: %w", err)
 	}
+
+	// Re-register the GUI log path on every (re)connect so a daemon restart
+	// re-learns it and a later debug bundle still finds the file. Best-effort —
+	// a failure here must not abort the event stream. Done even when file
+	// logging is off (enabled but not in debug), so the path is known ahead of
+	// any debug toggle.
+	if s.logCtl != nil && s.logCtl.Path() != "" {
+		if _, err := cli.RegisterUILog(ctx, &proto.RegisterUILogRequest{Path: s.logCtl.Path()}); err != nil {
+			log.Warnf("register UI log path: %v", err)
+		}
+	}
 	for {
 		ev, err := stream.Recv()
 		if err != nil {
@@ -549,8 +574,17 @@ func (s *DaemonFeed) dispatchSystemEvent(ev *proto.SystemEvent) {
 	// ProfileContext.refresh already subscribe to) and stop — it's an internal
 	// refresh signal, not a user-facing notification, so it must not reach the
 	// Recent Events list or fire an OS toast.
-	if se.Metadata[metadataKindKey] == MetadataKindProfileListChanged {
+	if se.Metadata[proto.MetadataKindKey] == proto.MetadataKindProfileListChanged {
 		s.emitter.Emit(EventProfileChanged, ProfileRef{})
+		return
+	}
+	// A marked log-level-changed event drives the GUI file log on/off. It's an
+	// internal control signal, not a user-facing notification — handle and stop
+	// so it never reaches the Recent Events list or fires an OS toast.
+	if se.Metadata[proto.MetadataKindKey] == proto.MetadataKindLogLevelChanged {
+		if s.logCtl != nil {
+			s.logCtl.Apply(se.Metadata[proto.MetadataLevelKey])
+		}
 		return
 	}
 	s.emitter.Emit(EventDaemonNotification, se)

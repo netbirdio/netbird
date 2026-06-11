@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/version"
@@ -99,12 +100,29 @@ func (s *Debug) RevealFile(_ context.Context, path string) error {
 	return cmd.Start()
 }
 
+// RegisterUILog tells the daemon the absolute path of the GUI's log file so
+// the daemon's debug bundle can collect it (the daemon runs as root and can't
+// resolve the user's config dir). Called by LogLevelWatcher on each daemon
+// (re)connect.
+func (s *Debug) RegisterUILog(ctx context.Context, path string) error {
+	cli, err := s.conn.Client()
+	if err != nil {
+		return err
+	}
+	_, err = cli.RegisterUILog(ctx, &proto.RegisterUILogRequest{Path: path})
+	return err
+}
+
 func (s *Debug) SetLogLevel(ctx context.Context, lvl LogLevel) error {
 	cli, err := s.conn.Client()
 	if err != nil {
 		return err
 	}
-	level, ok := proto.LogLevel_value[lvl.Level]
+	// proto.LogLevel_value keys are the enum names (TRACE/DEBUG/INFO/...), but
+	// callers (the React side, GetLogLevel) use the lowercase logrus names
+	// ("trace"/"debug"/...). Upper-case before the lookup so a lowercase level
+	// doesn't silently fall back to INFO.
+	level, ok := proto.LogLevel_value[strings.ToUpper(lvl.Level)]
 	if !ok {
 		level = int32(proto.LogLevel_INFO)
 	}

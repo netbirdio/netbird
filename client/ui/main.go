@@ -84,8 +84,15 @@ func init() {
 }
 
 func main() {
-	daemonAddr := parseFlagsAndInitLog()
+	daemonAddr, userSetLogFile := parseFlagsAndInitLog()
 	conn := NewConn(daemonAddr)
+
+	// GUI file logging: when the user didn't pass --log-file, the GUI manages a
+	// gui-client.log that follows the daemon's debug level (attached when the
+	// daemon is in debug/trace, detached otherwise, rotated by timberjack) and is
+	// included in the debug bundle. It rides DaemonFeed's SubscribeEvents stream
+	// (passed into NewDaemonFeed below; see guilog.DebugLog).
+	debugLog := newDebugLog(userSetLogFile)
 
 	// tray is captured in the SingleInstance callback below; the var is
 	// declared before app.New so the closure has a stable reference.
@@ -103,7 +110,7 @@ func main() {
 	// Wails-bound facade over the holder plus the install RPCs.
 	updaterHolder := updater.NewHolder(app.Event)
 	update := services.NewUpdate(conn, updaterHolder)
-	daemonFeed := services.NewDaemonFeed(conn, app.Event, updaterHolder)
+	daemonFeed := services.NewDaemonFeed(conn, app.Event, updaterHolder, debugLog)
 	notifier := notifications.New()
 	// macOS won't surface any toast until the app has requested permission;
 	// the request runs after ApplicationStarted so the notifier's Startup has
@@ -230,18 +237,30 @@ func requestNotificationAuthorization(notifier *notifications.NotificationServic
 }
 
 // parseFlagsAndInitLog parses the CLI flags, initialises the logger, and
-// returns the resolved daemon gRPC address.
-func parseFlagsAndInitLog() string {
+// returns the resolved daemon gRPC address plus userSetLogFile — true when the
+// user passed --log-file explicitly. userSetLogFile is the manual-override
+// signal: when true the GUI leaves logging alone (the daemon's debug level
+// won't attach gui-client.log); when false the GUI manages a per-session
+// gui-client.log driven by the daemon level. The default seed is empty (not
+// "console") so "no flag" and an explicit "--log-file console" are
+// distinguishable; an empty result falls back to console for InitLog.
+func parseFlagsAndInitLog() (string, bool) {
 	daemonAddr := flag.String("daemon-addr", DaemonAddr(), "Daemon gRPC address: unix:///path or tcp://host:port")
-	logFiles := &stringList{values: []string{"console"}}
-	flag.Var(logFiles, "log-file", "Log destination. Repeat to log to multiple targets at once, e.g. `--log-file console --log-file Y:/netbird-ui.log`. Each value is one of: console, syslog, or a file path. File destinations are rotated by lumberjack (same as the daemon). Defaults to console.")
+	logFiles := &stringList{}
+	flag.Var(logFiles, "log-file", "Log destination. Repeat to log to multiple targets at once, e.g. `--log-file console --log-file Y:/netbird-ui.log`. Each value is one of: console, syslog, or a file path. File destinations are rotated by lumberjack (same as the daemon). Defaults to console. Passing any value disables the daemon-debug-driven gui-client.log.")
 	logLevel := flag.String("log-level", "info", "Log level: trace|debug|info|warn|error.")
 	flag.Parse()
 
-	if err := util.InitLog(*logLevel, logFiles.values...); err != nil {
+	userSetLogFile := len(logFiles.values) > 0
+	targets := logFiles.values
+	if !userSetLogFile {
+		targets = []string{"console"}
+	}
+
+	if err := util.InitLog(*logLevel, targets...); err != nil {
 		log.Fatalf("init log: %v", err)
 	}
-	return *daemonAddr
+	return *daemonAddr, userSetLogFile
 }
 
 // newApplication constructs the Wails application. onSecondInstance is invoked
