@@ -28,6 +28,7 @@ contents:
 depends:
   - libgtk-4-1
   - libwebkitgtk-6.0-4
+  - xdg-utils
 
 # Distribution-specific overrides for different package formats
 overrides:
@@ -36,12 +37,14 @@ overrides:
     depends:
       - gtk4
       - webkitgtk6.0
+      - xdg-utils
 
   # Arch Linux packages
   archlinux:
     depends:
       - gtk4
       - webkitgtk-6.0
+      - xdg-utils
 
 # scripts section to ensure desktop database is updated after install
 scripts:
