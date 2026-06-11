@@ -163,12 +163,10 @@ type WindowManager struct {
 	hiddenForLogin []application.Window
 	mu             sync.Mutex
 	// recenterOnShow reports whether Go should re-center the Go-shown
-	// windows (main, Settings) on each show. Only true on bare WMs (the
-	// in-process XEmbed-tray environment minus the full desktops — Cinnamon,
-	// MATE, XFCE … — that also expose an XEmbed systray), where the WM neither
-	// centers small windows for us nor restores their position across a
-	// hide -> show round-trip. On full desktops (GNOME/KDE/Cinnamon) the WM
-	// handles placement, so
+	// windows (main, Settings) on each show. Only true in the minimal-WM /
+	// in-process XEmbed-tray environment, where the WM neither centers small
+	// windows for us nor restores their position across a hide -> show
+	// round-trip. On full desktops (GNOME/KDE) the WM handles placement, so
 	// re-centering is unnecessary and would fight a window the user moved —
 	// there this stays nil and centerWhenReady is a no-op. Set by the Linux
 	// startup path via SetRecenterOnShow; nil on macOS/Windows and in tests.
@@ -651,10 +649,9 @@ func (s *WindowManager) ShowMain() {
 
 // SetRecenterOnShow installs the predicate that gates Go-side re-centering of
 // the main and Settings windows (see the recenterOnShow field). The Linux
-// startup path passes a predicate that is true only on bare WMs (XEmbed tray
-// present and no full desktop advertised), so re-centering happens only where
-// the WM won't place windows for us; macOS/Windows and tests leave it unset,
-// making centerWhenReady a no-op.
+// startup path passes xembedTrayAvailable so re-centering happens only in the
+// minimal-WM / in-process-XEmbed-tray environment; macOS/Windows and tests
+// leave it unset, making centerWhenReady a no-op.
 func (s *WindowManager) SetRecenterOnShow(pred func() bool) {
 	s.recenterOnShow = pred
 }

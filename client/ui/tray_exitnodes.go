@@ -97,17 +97,19 @@ func (t *Tray) refreshExitNodes() {
 }
 
 // toggleExitNode activates or deactivates one exit node by NetID. Exit nodes
-// are mutually exclusive, so Select uses append=false to clear any other
-// active node before turning this one on; deselecting an active node turns
-// routing off entirely. Mirrors the frontend's toggleExitNode semantics. Runs
-// the RPC off the menu-click goroutine and re-fetches so the ✓ moves to the
-// new selection.
+// are mutually exclusive, but enforcement of that lives daemon-side: the
+// SelectNetworks handler deselects every other exit node when this Select
+// activates one. So Select uses append=true — append=false would tell the
+// RouteSelector to drop the whole current selection (default-on semantics),
+// which also turns off every non-exit routed network the user had enabled.
+// Mirrors the frontend's toggleExitNode semantics. Runs the RPC off the
+// menu-click goroutine and re-fetches so the ✓ moves to the new selection.
 func (t *Tray) toggleExitNode(id string, selected bool) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		params := services.SelectNetworksParams{NetworkIDs: []string{id}, Append: false, All: false}
+		params := services.SelectNetworksParams{NetworkIDs: []string{id}, Append: true, All: false}
 		var err error
 		if selected {
 			err = t.svc.Networks.Deselect(ctx, params)
