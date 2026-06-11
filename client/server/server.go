@@ -371,7 +371,7 @@ func (s *Server) SetConfig(callerCtx context.Context, msg *proto.SetConfigReques
 	// Violation detail listing the offending key names. Non-conflicting
 	// fields in the same request are not applied either.
 	policy := loadMDMPolicy()
-	if err := rejectMDMManagedFieldConflicts(policy, mdmManagedFieldConflicts(msg, policy)); err != nil {
+	if err := rejectMDMManagedFieldConflicts(mdmManagedFieldConflicts(msg, policy)); err != nil {
 		return nil, err
 	}
 
@@ -497,7 +497,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 			return nil, gstatus.Errorf(codes.Unavailable, errUpdateSettingsDisabled)
 		}
 		policy := loadMDMPolicy()
-		if err := rejectMDMManagedFieldConflicts(policy, loginRequestMDMConflicts(msg, policy)); err != nil {
+		if err := rejectMDMManagedFieldConflicts(loginRequestMDMConflicts(msg, policy)); err != nil {
 			return nil, err
 		}
 	}

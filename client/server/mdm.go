@@ -32,7 +32,7 @@ var loadMDMPolicy = mdm.LoadPolicy
 //
 // The callback runs in the ticker's own goroutine. Ticker has already
 // logged the per-key diff before invoking this hook.
-func (s *Server) onMDMPolicyChange(_, curr *mdm.Policy) error {
+func (s *Server) onMDMPolicyChange(_, _ *mdm.Policy) error {
 	log.Warn("MDM policy changed; restarting engine to apply new configuration")
 
 	// Hold s.mutex for the entire restart sequence (cancel + quiescence
@@ -77,7 +77,6 @@ func (s *Server) onMDMPolicyChange(_, curr *mdm.Policy) error {
 	// restartEngineForMDMLocked with source="mdm". Emit an MDM-specific
 	// user-visible toast so the operator knows their IT policy was
 	// applied (UserMessage != "" triggers the GUI notifier).
-	_ = curr
 	s.statusRecorder.PublishEvent(
 		proto.SystemEvent_INFO,
 		proto.SystemEvent_SYSTEM,
@@ -405,13 +404,11 @@ func loginRequestMDMConflicts(msg *proto.LoginRequest, policy *mdm.Policy) []str
 // fields tries to change an MDM-enforced value to something else, and
 // nil otherwise. The whole request is rejected on any conflict; non-
 // conflicting fields in the same request are not applied either (no
-// partial apply). The `policy` parameter is accepted for call-site
-// symmetry with the *Conflicts helpers and is currently unused.
-func rejectMDMManagedFieldConflicts(policy *mdm.Policy, conflicts []string) error {
+// partial apply).
+func rejectMDMManagedFieldConflicts(conflicts []string) error {
 	if len(conflicts) == 0 {
 		return nil
 	}
-	_ = policy
 	log.Warnf("MDM rejected request: tried to modify %d managed key(s): %v",
 		len(conflicts), conflicts)
 	st := gstatus.New(
