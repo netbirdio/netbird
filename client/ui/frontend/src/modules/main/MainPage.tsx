@@ -5,7 +5,7 @@ import { AppRightPanel } from "@/layouts/AppRightPanel.tsx";
 import { Navigation } from "@/modules/main/advanced/Navigation.tsx";
 import { cn } from "@/lib/cn";
 import { NavSectionProvider, useNavSection } from "@/contexts/NavSectionContext";
-import { ViewModeProvider } from "@/contexts/ViewModeContext";
+import { ViewModeProvider, useViewMode } from "@/contexts/ViewModeContext";
 import { NotConnectedState } from "@/components/empty-state/NotConnectedState";
 import { useStatus } from "@/contexts/StatusContext";
 import { Peers } from "@/modules/main/advanced/peers/Peers";
@@ -29,6 +29,9 @@ export const MainPage = () => {
 };
 
 const MainBody = () => {
+    const { viewMode } = useViewMode();
+    const isAdvanced = viewMode === "advanced";
+
     return (
         <div className={"wails-draggable flex flex-1 min-h-0"}>
             {/* Windows narrower width compensates for the OS frame Wails counts differently than macOS.
@@ -44,9 +47,11 @@ const MainBody = () => {
                     <MainExitNodeSwitcher />
                 </div>
             </div>
-            <NavSectionProvider>
-                <AdvancedAppRightPanel />
-            </NavSectionProvider>
+            {isAdvanced && (
+                <NavSectionProvider>
+                    <AdvancedAppRightPanel />
+                </NavSectionProvider>
+            )}
         </div>
     );
 };
