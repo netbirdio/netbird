@@ -22,35 +22,33 @@ const DefaultReloadInterval = 1 * time.Minute
 var policyLoader = LoadPolicy
 
 // Ticker periodically re-reads the OS-native MDM policy via LoadPolicy and
-// invokes onChange whenever the observed Policy diverges from the last
-// observation (added / removed / changed keys). Launch with Run from a
-// goroutine; cancel the supplied context to stop.
+// invokes the onChange callback (supplied to Run) whenever the observed
+// Policy diverges from the last observation (added / removed / changed
+// keys). Launch with Run from a goroutine; cancel the supplied context
+// to stop.
 type Ticker struct {
 	interval time.Duration
-	onChange func(prev, curr *Policy) error
 	prev     *Policy
 }
 
-// NewTicker constructs a Ticker that re-reads the OS-native policy
-// every reloadInterval and invokes onChange on any diff.
-// onChange may be nil for a log-only ticker.
+// NewTicker constructs a Ticker that will re-read the OS-native policy
+// every reloadInterval once Run is called.
 // The initial snapshot is populated by calling policyLoader at
 // construction time so the first tick only fires
 // onChange when the policy actually changed since boot — without
 // this baseline the first tick would report every currently-managed
 // key as "added" and trigger a spurious engine restart.
-func NewTicker(reloadInterval time.Duration, onChange func(prev, curr *Policy) error) *Ticker {
+func NewTicker(reloadInterval time.Duration) *Ticker {
 	return &Ticker{
 		interval: reloadInterval,
-		onChange: onChange,
 		prev:     policyLoader(),
 	}
 }
 
 // Run blocks until ctx is cancelled, polling the OS-native policy store at
 // the configured cadence and emitting log lines + onChange callback on
-// every observed diff.
-func (t *Ticker) Run(ctx context.Context) {
+// every observed diff. onChange must be non-nil.
+func (t *Ticker) Run(ctx context.Context, onChange func(prev, curr *Policy) error) {
 	tk := time.NewTicker(t.interval)
 	defer tk.Stop()
 	log.Infof("MDM policy reload ticker started (interval=%s)", t.interval)
@@ -68,14 +66,11 @@ func (t *Ticker) Run(ctx context.Context) {
 			log.Infof("MDM policy changed: added=%v removed=%v changed=%v",
 				added, removed, changed)
 			prev := t.prev
-
-			if t.onChange != nil {
-				if err := t.onChange(prev, curr); err != nil {
-					log.Errorf("MDM policy change handler failed (retrying in 1 minute): %v", err)
-					continue
-				}
-				t.prev = curr
+			if err := onChange(prev, curr); err != nil {
+				log.Errorf("MDM policy change handler failed (retrying in 1 minute): %v", err)
+				continue
 			}
+			t.prev = curr
 		}
 	}
 }

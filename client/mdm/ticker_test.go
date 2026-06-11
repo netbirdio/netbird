@@ -34,18 +34,21 @@ func TestTicker_FiresOnChangeWithDelta(t *testing.T) {
 
 	type change struct{ prev, curr *Policy }
 	changes := make(chan change, 1)
-	tk := NewTicker(testReloadInterval, func(prev, curr *Policy) error {
-		select {
-		case changes <- change{prev, curr}:
-		default:
-		}
-		return nil
-	})
+	tk := NewTicker(testReloadInterval)
 	require.Equal(t, testReloadInterval, tk.interval)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() { tk.Run(ctx); close(done) }()
+	go func() {
+		tk.Run(ctx, func(prev, curr *Policy) error {
+			select {
+			case changes <- change{prev, curr}:
+			default:
+			}
+			return nil
+		})
+		close(done)
+	}()
 	// Stop Run and wait for it to exit before returning, so the policyLoader
 	// restore in t.Cleanup can't race the ticker goroutine still reading it.
 	defer func() { cancel(); <-done }()
@@ -71,17 +74,20 @@ func TestTicker_NoCallbackWhenPolicyUnchanged(t *testing.T) {
 	})
 
 	fired := make(chan struct{}, 1)
-	tk := NewTicker(testReloadInterval, func(_, _ *Policy) error {
-		select {
-		case fired <- struct{}{}:
-		default:
-		}
-		return nil
-	})
+	tk := NewTicker(testReloadInterval)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() { tk.Run(ctx); close(done) }()
+	go func() {
+		tk.Run(ctx, func(_, _ *Policy) error {
+			select {
+			case fired <- struct{}{}:
+			default:
+			}
+			return nil
+		})
+		close(done)
+	}()
 	defer func() { cancel(); <-done }()
 
 	// Over ~2 ticks at the 1s test cadence the policy never changes, so the
