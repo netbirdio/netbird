@@ -750,7 +750,7 @@
         "message": "Paket gespeichert"
     },
     "settings.troubleshooting.done.uploadedDescription": {
-        "message": "Teilen Sie den unten angezeigten Upload-Schlüssel mit dem NetBird-Support. Eine lokale Kopie wurde ebenfalls auf Ihrem Gerät gespeichert."
+        "message": "Teilen Sie den unten angezeigten Upload-Schlüssel mit dem <docs>NetBird-Support</docs>. Eine lokale Kopie wurde ebenfalls auf Ihrem Gerät gespeichert."
     },
     "settings.troubleshooting.done.savedDescription": {
         "message": "Ihr Debug-Paket wurde lokal gespeichert."

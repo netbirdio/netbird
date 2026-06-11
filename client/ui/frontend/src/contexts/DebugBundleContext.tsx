@@ -101,7 +101,7 @@ const useDebugBundle = () => {
     const [anonymize, setAnonymize] = useState(false);
     const [systemInfo, setSystemInfo] = useState(true);
     const [upload, setUpload] = useState(true);
-    const [trace, setTrace] = useState(true);
+    const [trace, setTrace] = useState(false);
     const [traceMinutes, setTraceMinutes] = useState(1);
     const [stage, setStage] = useState<DebugStage>({ kind: "idle" });
     const [lastBundlePath, setLastBundlePath] = useState<string>("");

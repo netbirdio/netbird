@@ -750,7 +750,7 @@
         "message": "Pacote salvo"
     },
     "settings.troubleshooting.done.uploadedDescription": {
-        "message": "Compartilhe a chave de upload abaixo com o suporte do NetBird. Uma cópia local também foi salva no seu dispositivo."
+        "message": "Compartilhe a chave de upload abaixo com o <docs>suporte do NetBird</docs>. Uma cópia local também foi salva no seu dispositivo."
     },
     "settings.troubleshooting.done.savedDescription": {
         "message": "O seu pacote de depuração foi salvo localmente."

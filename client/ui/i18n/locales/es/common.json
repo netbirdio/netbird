@@ -750,7 +750,7 @@
         "message": "Paquete guardado"
     },
     "settings.troubleshooting.done.uploadedDescription": {
-        "message": "Comparta la clave de subida de abajo con el soporte de NetBird. También se guardó una copia local en su dispositivo."
+        "message": "Comparta la clave de subida de abajo con el <docs>soporte de NetBird</docs>. También se guardó una copia local en su dispositivo."
     },
     "settings.troubleshooting.done.savedDescription": {
         "message": "Su paquete de diagnóstico se ha guardado localmente."

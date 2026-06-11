@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { CircleCheckBig, FolderOpen, Loader2 } from "lucide-react";
+import { Browser } from "@wailsio/runtime";
 import { Debug as DebugSvc } from "@bindings/services";
 import type { DebugBundleResult } from "@bindings/services/models.js";
 import { Button } from "@/components/buttons/Button";
@@ -17,6 +18,8 @@ import { formatRemaining } from "@/lib/formatters";
 import type { DebugStage } from "@/contexts/DebugBundleContext";
 import { useDebugBundleContext } from "@/contexts/DebugBundleContext";
 import { SectionGroup, SettingsBottomBar } from "@/modules/settings/SettingsSection.tsx";
+
+const SUPPORT_DOCS_URL = "https://docs.netbird.io/help/report-bug-issues";
 
 export function SettingsTroubleshooting() {
     const { t } = useTranslation();
@@ -197,9 +200,27 @@ function DoneResult({
                         : t("settings.troubleshooting.done.savedTitle")}
                 </DialogHeading>
                 <DialogDescription>
-                    {showKey
-                        ? t("settings.troubleshooting.done.uploadedDescription")
-                        : t("settings.troubleshooting.done.savedDescription")}
+                    {showKey ? (
+                        <Trans
+                            i18nKey={"settings.troubleshooting.done.uploadedDescription"}
+                            components={{
+                                docs: (
+                                    <a
+                                        href={SUPPORT_DOCS_URL}
+                                        onClick={(e) => {
+                                            e.preventDefault();
+                                            Browser.OpenURL(SUPPORT_DOCS_URL).catch(() =>
+                                                globalThis.open(SUPPORT_DOCS_URL, "_blank"),
+                                            );
+                                        }}
+                                        className={"text-netbird hover:underline"}
+                                    />
+                                ),
+                            }}
+                        />
+                    ) : (
+                        t("settings.troubleshooting.done.savedDescription")
+                    )}
                 </DialogDescription>
             </div>
 

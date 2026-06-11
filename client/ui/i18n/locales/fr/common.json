@@ -750,7 +750,7 @@
         "message": "Lot enregistré"
     },
     "settings.troubleshooting.done.uploadedDescription": {
-        "message": "Partagez la clé d’envoi ci-dessous avec l’assistance NetBird. Une copie locale a également été enregistrée sur votre appareil."
+        "message": "Partagez la clé d’envoi ci-dessous avec l’<docs>assistance NetBird</docs>. Une copie locale a également été enregistrée sur votre appareil."
     },
     "settings.troubleshooting.done.savedDescription": {
         "message": "Votre lot de diagnostic a été enregistré localement."

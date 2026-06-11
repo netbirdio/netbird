@@ -1000,8 +1000,8 @@
         "description": "Title shown when the bundle was saved locally (not uploaded)."
     },
     "settings.troubleshooting.done.uploadedDescription": {
-        "message": "Share the upload key below with NetBird support. A local copy was also saved on your device.",
-        "description": "Body after upload, telling the user to share the upload key with support."
+        "message": "Share the upload key below with <docs>NetBird support</docs>. A local copy was also saved on your device.",
+        "description": "Body after upload, telling the user to share the upload key with support. '<docs>…</docs>' wraps the inline link to the NetBird support docs — keep the tags exactly and wrap the phrase that means 'NetBird support'."
     },
     "settings.troubleshooting.done.savedDescription": {
         "message": "Your debug bundle has been saved locally.",

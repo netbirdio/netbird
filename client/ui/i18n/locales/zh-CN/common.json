@@ -750,7 +750,7 @@
         "message": "调试包已保存"
     },
     "settings.troubleshooting.done.uploadedDescription": {
-        "message": "请将下方的上传密钥分享给 NetBird 支持团队。本地也已保存了一份副本。"
+        "message": "请将下方的上传密钥分享给 <docs>NetBird 支持团队</docs>。本地也已保存了一份副本。"
     },
     "settings.troubleshooting.done.savedDescription": {
         "message": "您的调试包已保存在本地。"

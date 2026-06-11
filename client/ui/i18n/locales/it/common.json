@@ -750,7 +750,7 @@
         "message": "Pacchetto salvato"
     },
     "settings.troubleshooting.done.uploadedDescription": {
-        "message": "Condivida la chiave di caricamento qui sotto con il supporto NetBird. Una copia locale è stata salvata anche sul suo dispositivo."
+        "message": "Condivida la chiave di caricamento qui sotto con il <docs>supporto NetBird</docs>. Una copia locale è stata salvata anche sul suo dispositivo."
     },
     "settings.troubleshooting.done.savedDescription": {
         "message": "Il pacchetto di debug è stato salvato localmente."

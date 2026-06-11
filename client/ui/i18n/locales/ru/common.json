@@ -750,7 +750,7 @@
         "message": "Пакет сохранён"
     },
     "settings.troubleshooting.done.uploadedDescription": {
-        "message": "Поделитесь ключом загрузки ниже с поддержкой NetBird. Локальная копия также сохранена на вашем устройстве."
+        "message": "Поделитесь ключом загрузки ниже с <docs>поддержкой NetBird</docs>. Локальная копия также сохранена на вашем устройстве."
     },
     "settings.troubleshooting.done.savedDescription": {
         "message": "Отладочный пакет сохранён локально."

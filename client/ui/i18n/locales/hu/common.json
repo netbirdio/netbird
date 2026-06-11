@@ -750,7 +750,7 @@
         "message": "Csomag elmentve"
     },
     "settings.troubleshooting.done.uploadedDescription": {
-        "message": "Ossza meg az alábbi feltöltési kulcsot a NetBird támogatással. A helyi másolat is elmentve van az eszközén."
+        "message": "Ossza meg az alábbi feltöltési kulcsot a <docs>NetBird támogatással</docs>. A helyi másolat is elmentve van az eszközén."
     },
     "settings.troubleshooting.done.savedDescription": {
         "message": "A hibakeresési csomag helyileg elmentve."
