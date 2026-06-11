@@ -10,7 +10,7 @@ import { ConfirmDialog } from "@/components/dialog/ConfirmDialog";
 import { useAutoSizeWindow } from "@/hooks/useAutoSizeWindow";
 import { errorDialog, formatErrorMessage } from "@/lib/errors";
 import i18next from "@/lib/i18n";
-import { isCloudManagementUrl } from "@/hooks/useManagementUrl";
+import { isNetbirdCloud } from "@/hooks/useManagementUrl";
 import { WelcomeStepTray } from "./WelcomeStepTray";
 import { WelcomeStepManagement } from "./WelcomeStepManagement";
 
@@ -25,7 +25,7 @@ function shouldShowManagementStep(
 ): boolean {
     if (activeProfile !== "default") return false;
     if (email.trim() !== "") return false;
-    return isCloudManagementUrl(managementUrl);
+    return isNetbirdCloud(managementUrl);
 }
 
 type InitialState = {

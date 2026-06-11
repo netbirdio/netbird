@@ -79,7 +79,7 @@ Page-specific chrome and providers live in the page, not the layout:
   - `typography/` — `Label`, `HelpText`.
   - `empty-state/` — `EmptyState`, `NoResults`, `NotConnectedState`, `DaemonUnavailableOverlay`.
   - Flat at root: `Badge`, `CopyToClipboard`, `DropdownMenu`, `SquareIcon`, `Tooltip`, `TruncatedText`, `VerticalTabs`, `LanguagePicker`, `ManagementServerSwitch`.
-- `hooks/` — `useAutoSizeWindow.ts` (auto-size + `Window.Show` for auxiliary dialogs), `useKeyboardShortcut.ts`, `useManagementUrl.ts` (management-URL helpers: `CLOUD_MANAGEMENT_URL`, `isValidManagementUrl`, `normalizeManagementUrl`, `isCloudManagementUrl`, `checkManagementUrlReachable`).
+- `hooks/` — `useAutoSizeWindow.ts` (auto-size + `Window.Show` for auxiliary dialogs), `useKeyboardShortcut.ts`, `useManagementUrl.ts` (management-URL helpers: `CLOUD_MANAGEMENT_URL`, `isValidManagementUrl`, `normalizeManagementUrl`, `isNetbirdCloud`, `checkManagementUrlReachable`).
 - `lib/` — pure utilities (no JSX, no React state): `cn.ts`, `errors.ts` (`formatErrorMessage` + the `errorDialog({Title, Message})` window wrapper), `formatters.ts` (byte/latency/relative-time + `shortenDns`), `sorting.ts` (`reconcileOrder` — order-preserving list reconciliation shared by the peers/networks/profiles lists), `i18n.ts`, `logs.ts` (forwards console + uncaught errors to the Go log pipeline), `platform.ts` (`isMacOS`/`isWindows`), `welcome.ts`.
 - `assets/` — fonts, logos, flags.
 
