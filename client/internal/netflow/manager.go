@@ -273,7 +273,7 @@ func (m *Manager) startRetries(ctx context.Context) {
 					continue
 				}
 				if err := m.send(e); err != nil {
-					ticker = time.NewTimer(retryBackoff.NextBackOff()) //nolint:staticcheck
+					ticker = time.NewTimer(retryBackoff.NextBackOff()) //nolint:staticcheck,wastedassign
 					break
 				}
 			}
