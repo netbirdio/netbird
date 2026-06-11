@@ -10,7 +10,6 @@ import (
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
-	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/mdm"
 	"github.com/netbirdio/netbird/client/proto"
 )
@@ -143,14 +142,6 @@ func (s *Server) restartEngineForMDMLocked() error {
 	s.statusRecorder.UpdateManagementAddress(config.ManagementURL.String())
 	s.statusRecorder.UpdateRosenpass(config.RosenpassEnabled, config.RosenpassPermissive)
 	s.statusRecorder.UpdateLazyConnection(config.LazyConnectionEnabled)
-
-	state := internal.CtxGetState(s.rootCtx)
-	if config.DisableAutoConnect {
-		log.Info("MDM restart: DisableAutoConnect=true; staying idle")
-		state.Set(internal.StatusIdle)
-		s.actCancel = nil
-		return nil
-	}
 
 	ctx, cancel := context.WithCancel(s.rootCtx)
 	s.actCancel = cancel
