@@ -27,7 +27,7 @@ var policyLoader = LoadPolicy
 // goroutine; cancel the supplied context to stop.
 type Ticker struct {
 	interval time.Duration
-	onChange func(prev, curr *Policy)
+	onChange func(prev, curr *Policy) error
 	prev     *Policy
 }
 
@@ -39,7 +39,7 @@ type Ticker struct {
 // onChange when the policy actually changed since boot — without
 // this baseline the first tick would report every currently-managed
 // key as "added" and trigger a spurious engine restart.
-func NewTicker(reloadInterval time.Duration, onChange func(prev, curr *Policy)) *Ticker {
+func NewTicker(reloadInterval time.Duration, onChange func(prev, curr *Policy) error) *Ticker {
 	return &Ticker{
 		interval: reloadInterval,
 		onChange: onChange,
@@ -68,9 +68,13 @@ func (t *Ticker) Run(ctx context.Context) {
 			log.Infof("MDM policy changed: added=%v removed=%v changed=%v",
 				added, removed, changed)
 			prev := t.prev
-			t.prev = curr
+
 			if t.onChange != nil {
-				t.onChange(prev, curr)
+				if err := t.onChange(prev, curr); err != nil {
+					log.Errorf("MDM policy change handler failed (retrying in 1 minute): %v", err)
+					continue
+				}
+				t.prev = curr
 			}
 		}
 	}

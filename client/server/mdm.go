@@ -33,7 +33,7 @@ var loadMDMPolicy = mdm.LoadPolicy
 //
 // The callback runs in the ticker's own goroutine. Ticker has already
 // logged the per-key diff before invoking this hook.
-func (s *Server) onMDMPolicyChange(_, curr *mdm.Policy) {
+func (s *Server) onMDMPolicyChange(_, curr *mdm.Policy) error {
 	log.Warn("MDM policy changed; restarting engine to apply new configuration")
 
 	// Hold s.mutex for the entire restart sequence (cancel + quiescence
@@ -46,6 +46,10 @@ func (s *Server) onMDMPolicyChange(_, curr *mdm.Policy) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
+	if !s.clientRunning {
+		// The client is not running, so there's no engine to restart.
+		return nil
+	}
 	if s.actCancel != nil {
 		s.actCancel()
 	}
@@ -60,14 +64,14 @@ func (s *Server) onMDMPolicyChange(_, curr *mdm.Policy) {
 	if s.clientGiveUpChan != nil {
 		select {
 		case <-s.clientGiveUpChan:
-		case <-time.After(5 * time.Second):
-			log.Warn("MDM restart: timeout waiting for previous engine goroutine; proceeding anyway")
+		case <-time.After(10 * time.Second):
+			return fmt.Errorf("failed to restart the engine due to timeout")
 		}
 	}
 
 	if err := s.restartEngineForMDMLocked(); err != nil {
 		log.Errorf("MDM restart failed: %v", err)
-		return
+		return err
 	}
 
 	// publishConfigChangedEvent has already fired inside
@@ -82,6 +86,7 @@ func (s *Server) onMDMPolicyChange(_, curr *mdm.Policy) {
 		"NetBird configuration was updated by your IT policy.",
 		map[string]string{"source": "mdm", "type": "policy_applied"},
 	)
+	return nil
 }
 
 // publishConfigChangedEvent broadcasts a SystemEvent informing any active

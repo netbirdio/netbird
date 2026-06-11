@@ -34,11 +34,12 @@ func TestTicker_FiresOnChangeWithDelta(t *testing.T) {
 
 	type change struct{ prev, curr *Policy }
 	changes := make(chan change, 1)
-	tk := NewTicker(testReloadInterval, func(prev, curr *Policy) {
+	tk := NewTicker(testReloadInterval, func(prev, curr *Policy) error {
 		select {
 		case changes <- change{prev, curr}:
 		default:
 		}
+		return nil
 	})
 	require.Equal(t, testReloadInterval, tk.interval)
 
@@ -70,11 +71,12 @@ func TestTicker_NoCallbackWhenPolicyUnchanged(t *testing.T) {
 	})
 
 	fired := make(chan struct{}, 1)
-	tk := NewTicker(testReloadInterval, func(_, _ *Policy) {
+	tk := NewTicker(testReloadInterval, func(_, _ *Policy) error {
 		select {
 		case fired <- struct{}{}:
 		default:
 		}
+		return nil
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
