@@ -266,10 +266,14 @@ func (m *Manager) startRetries(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			// TODO: grace period on retries to avoid early retries?
 			for _, e := range m.eventsWithoutAcks.GetEvents() {
+				if e.Timestamp.Add(time.Second).After(time.Now()) {
+					// grace period on retries to avoid early retries
+					// do not retry if the event is less than 1 sec old
+					continue
+				}
 				if err := m.send(e); err != nil {
-					ticker = time.NewTimer(retryBackoff.NextBackOff())
+					ticker = time.NewTimer(retryBackoff.NextBackOff()) //nolint:staticcheck
 					break
 				}
 			}
