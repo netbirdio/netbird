@@ -18,7 +18,8 @@ var pregeneratedUUIDs = func() []uuid.UUID {
 	return toret
 }()
 
-func TestTcpAggregation(t *testing.T) {
+func TestFlowAggregation(t *testing.T) {
+	var protocols = []types.Protocol{types.ICMP, types.ICMPv6, types.TCP, types.UDP}
 	var tests = []struct {
 		description string
 		events      []*types.Event
@@ -35,7 +36,6 @@ func TestTcpAggregation(t *testing.T) {
 						Type:             types.TypeStart,
 						RuleID:           []byte("rule-id-1"),
 						Direction:        types.Egress,
-						Protocol:         types.TCP,
 						SourceIP:         ipAddr("1.1.1.1"),
 						SourcePort:       1234,
 						DestIP:           ipAddr("2.2.2.2"),
@@ -55,7 +55,6 @@ func TestTcpAggregation(t *testing.T) {
 						Type:             types.TypeEnd,
 						RuleID:           []byte("rule-id-1"),
 						Direction:        types.Egress,
-						Protocol:         types.TCP,
 						SourceIP:         ipAddr("1.1.1.1"),
 						SourcePort:       1234,
 						DestIP:           ipAddr("2.2.2.2"),
@@ -77,7 +76,6 @@ func TestTcpAggregation(t *testing.T) {
 						Type:             types.TypeStart,
 						RuleID:           []byte("rule-id-1"),
 						Direction:        types.Egress,
-						Protocol:         types.TCP,
 						SourceIP:         ipAddr("1.1.1.1"),
 						SourcePort:       1234,
 						DestIP:           ipAddr("2.2.2.2"),
@@ -105,7 +103,6 @@ func TestTcpAggregation(t *testing.T) {
 						Type:             types.TypeStart,
 						RuleID:           []byte("rule-id-1"),
 						Direction:        types.Egress,
-						Protocol:         types.TCP,
 						SourceIP:         ipAddr("1.1.1.1"),
 						SourcePort:       1234,
 						DestIP:           ipAddr("2.2.2.2"),
@@ -125,7 +122,6 @@ func TestTcpAggregation(t *testing.T) {
 						Type:             types.TypeDrop,
 						RuleID:           []byte("rule-id-1"),
 						Direction:        types.Egress,
-						Protocol:         types.TCP,
 						SourceIP:         ipAddr("1.1.1.1"),
 						SourcePort:       1234,
 						DestIP:           ipAddr("2.2.2.2"),
@@ -147,7 +143,6 @@ func TestTcpAggregation(t *testing.T) {
 						Type:             types.TypeStart,
 						RuleID:           []byte("rule-id-1"),
 						Direction:        types.Egress,
-						Protocol:         types.TCP,
 						SourceIP:         ipAddr("1.1.1.1"),
 						SourcePort:       1234,
 						DestIP:           ipAddr("2.2.2.2"),
@@ -175,7 +170,6 @@ func TestTcpAggregation(t *testing.T) {
 						Type:             types.TypeStart,
 						RuleID:           []byte("rule-id-1"),
 						Direction:        types.Egress,
-						Protocol:         types.TCP,
 						SourceIP:         ipAddr("1.1.1.1"),
 						SourcePort:       1234,
 						DestIP:           ipAddr("2.2.2.2"),
@@ -197,7 +191,6 @@ func TestTcpAggregation(t *testing.T) {
 						Type:             types.TypeStart,
 						RuleID:           []byte("rule-id-1"),
 						Direction:        types.Egress,
-						Protocol:         types.TCP,
 						SourceIP:         ipAddr("1.1.1.1"),
 						SourcePort:       1234,
 						DestIP:           ipAddr("2.2.2.2"),
@@ -225,7 +218,6 @@ func TestTcpAggregation(t *testing.T) {
 						Type:             types.TypeDrop,
 						RuleID:           []byte("rule-id-1"),
 						Direction:        types.Egress,
-						Protocol:         types.TCP,
 						SourceIP:         ipAddr("1.1.1.1"),
 						SourcePort:       1234,
 						DestIP:           ipAddr("2.2.2.2"),
@@ -247,7 +239,6 @@ func TestTcpAggregation(t *testing.T) {
 						Type:             types.TypeDrop,
 						RuleID:           []byte("rule-id-1"),
 						Direction:        types.Egress,
-						Protocol:         types.TCP,
 						SourceIP:         ipAddr("1.1.1.1"),
 						SourcePort:       1234,
 						DestIP:           ipAddr("2.2.2.2"),
@@ -265,16 +256,22 @@ func TestTcpAggregation(t *testing.T) {
 			},
 		}}
 
-	for _, tt := range tests {
-		t.Run(tt.description, func(t *testing.T) {
-			store := NewAggregatingMemoryStore()
-			for _, e := range tt.events {
-				store.StoreEvent(e)
-			}
-			events := store.GetAggregatedEvents()
-			assert.Len(t, events, len(tt.expected))
-			assert.ElementsMatch(t, events, tt.expected)
-		})
+	for _, protocol := range protocols {
+		for _, tt := range tests {
+			t.Run(tt.description+" "+protocol.String(), func(t *testing.T) {
+				store := NewAggregatingMemoryStore()
+				for _, e := range tt.events {
+					e.Protocol = protocol
+					store.StoreEvent(e)
+				}
+				for _, e := range tt.expected {
+					e.Protocol = protocol
+				}
+				events := store.GetAggregatedEvents()
+				assert.Len(t, events, len(tt.expected))
+				assert.ElementsMatch(t, events, tt.expected)
+			})
+		}
 	}
 }
 
