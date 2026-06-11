@@ -3,11 +3,15 @@ package server
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/user"
 	"runtime"
+	"strconv"
 	"strings"
 
+	"github.com/gliderlabs/ssh"
+	"github.com/netbirdio/netbird/client/internal/shell"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -23,8 +27,8 @@ func isPlatformUnix() bool {
 
 // Dependency injection variables for testing - allows mocking dynamic runtime checks
 var (
-	getCurrentUser         = currentUserWithGetent
-	lookupUser             = lookupWithGetent
+	getCurrentUser         = shell.CurrentUserWithGetent
+	lookupUser             = shell.LookupWithGetent
 	getCurrentOS           = func() string { return runtime.GOOS }
 	getIsProcessPrivileged = isCurrentProcessPrivileged
 
@@ -408,4 +412,30 @@ func isWindowsElevated() bool {
 
 	log.Debugf("Windows user switching not supported: not running as privileged user (current: %s)", currentUser.Uid)
 	return false
+}
+
+// prepareSSHEnv prepares SSH protocol-specific environment variables
+// These variables provide information about the SSH connection itself
+func prepareSSHEnv(session ssh.Session) []string {
+	remoteAddr := session.RemoteAddr()
+	localAddr := session.LocalAddr()
+
+	remoteHost, remotePort, err := net.SplitHostPort(remoteAddr.String())
+	if err != nil {
+		remoteHost = remoteAddr.String()
+		remotePort = "0"
+	}
+
+	localHost, localPort, err := net.SplitHostPort(localAddr.String())
+	if err != nil {
+		localHost = localAddr.String()
+		localPort = strconv.Itoa(InternalSSHPort)
+	}
+
+	return []string{
+		// SSH_CLIENT format: "client_ip client_port server_port"
+		fmt.Sprintf("SSH_CLIENT=%s %s %s", remoteHost, remotePort, localPort),
+		// SSH_CONNECTION format: "client_ip client_port server_ip server_port"
+		fmt.Sprintf("SSH_CONNECTION=%s %s %s %s", remoteHost, remotePort, localHost, localPort),
+	}
 }

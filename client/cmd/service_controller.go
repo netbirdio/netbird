@@ -21,6 +21,7 @@ import (
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 
+	"github.com/netbirdio/netbird/client/internal/shell"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/server"
 	"github.com/netbirdio/netbird/client/system"
@@ -72,14 +73,9 @@ func (p *program) Start(svc service.Service) error {
 			case owner != "":
 				// Seeded owner (flag, MDM, or persisted TOFU result): restrict
 				// before serving so there is no open window.
-				u, err := user.Lookup(owner)
+				uid, err := lookupUser(owner)
 				if err != nil {
 					log.Errorf("lookup socket owner %q: %v", owner, err)
-					return
-				}
-				uid, err := strconv.Atoi(u.Uid)
-				if err != nil {
-					log.Errorf("parse uid %q for %q: %v", u.Uid, owner, err)
 					return
 				}
 				if err := restrictSocket(split[1], uid); err != nil {
@@ -115,16 +111,28 @@ func (p *program) Start(svc service.Service) error {
 	return nil
 }
 
+func lookupUser(username string) (int, error) {
+	u, err := shell.LookupWithGetent(username)
+	if err != nil {
+		return -1, fmt.Errorf("lookup user %s: %w", username, err)
+	}
+	uid, err := strconv.Atoi(u.Uid)
+	if err != nil {
+		return -1, fmt.Errorf("parse uid %s: %w", u.Uid, err)
+	}
+	return uid, nil
+}
+
 // addGroup creates a system group if it doesn't already exist and returns the gid.
 // Must run as root.
 func addGroup(name string) (int, error) {
-	if group, err := user.LookupGroup(name); err == nil {
+	group, err := shell.LookupGroupWithGetent(name)
+	if err == nil {
 		gid, err := strconv.ParseInt(group.Gid, 10, 64)
 		return int(gid), err
-	} else if _, ok := err.(user.UnknownGroupError); !ok {
-		return -1, fmt.Errorf("lookup group %q: %w", name, err)
 	}
 
+	// looup failed, create the group
 	groupadd, err := exec.LookPath("groupadd")
 	if err != nil {
 		// Fallback for Alpine/BusyBox systems.
@@ -138,7 +146,7 @@ func addGroup(name string) (int, error) {
 	if err != nil {
 		return -1, fmt.Errorf("create group %q: %w: %s", name, err, out)
 	}
-	if group, err := user.LookupGroup(name); err == nil {
+	if group, err := shell.LookupWithGetent(name); err == nil {
 		gid, err := strconv.ParseInt(group.Gid, 10, 64)
 		return int(gid), err
 	}
@@ -149,6 +157,7 @@ func addGroup(name string) (int, error) {
 // group (0660). If the group cannot be created or applied, it fails closed to
 // owner-only 0600 — it never leaves the socket world-writable.
 func restrictSocket(path string, uid int) error {
+	// TODO: introduce flag to configure this (LDAP/AD usecase)
 	gid, err := addGroup("netbird")
 	if err != nil {
 		log.Errorf("create netbird group, failing closed to owner-only 0600: %v", err)

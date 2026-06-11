@@ -15,6 +15,7 @@ import (
 	"strconv"
 
 	"github.com/gliderlabs/ssh"
+	"github.com/netbirdio/netbird/client/internal/shell"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -160,7 +161,7 @@ func (s *Server) parseUserCredentials(localUser *user.User) (uint32, uint32, []u
 // getSupplementaryGroups retrieves supplementary group IDs for a user.
 // Uses id/getent fallback for NSS users in CGO_ENABLED=0 builds.
 func (s *Server) getSupplementaryGroups(u *user.User) ([]uint32, error) {
-	groupIDStrings, err := groupIdsWithFallback(u)
+	groupIDStrings, err := shell.GroupIdsWithFallback(u)
 	if err != nil {
 		return nil, fmt.Errorf("get group IDs for user %s: %w", u.Username, err)
 	}
@@ -196,7 +197,7 @@ func (s *Server) createExecutorCommand(logger *log.Entry, session ssh.Session, l
 		GID:        gid,
 		Groups:     groups,
 		WorkingDir: localUser.HomeDir,
-		Shell:      getUserShell(localUser.Uid),
+		Shell:      shell.GetUserShell(localUser.Uid),
 		Command:    session.RawCommand(),
 		PTY:        hasPty,
 	}
@@ -228,7 +229,7 @@ func (s *Server) createPtyCommand(privilegeResult PrivilegeCheckResult, ptyReq s
 func (s *Server) createDirectPtyCommand(session ssh.Session, localUser *user.User, ptyReq ssh.Pty) *exec.Cmd {
 	log.Debugf("creating direct Pty command for user %s (no user switching needed)", localUser.Username)
 
-	shell := getUserShell(localUser.Uid)
+	shell := shell.GetUserShell(localUser.Uid)
 	args := s.getShellCommandArgs(shell, session.RawCommand())
 
 	cmd := s.createShellCommand(session.Context(), shell, args)
@@ -245,12 +246,12 @@ func (s *Server) preparePtyEnv(localUser *user.User, ptyReq ssh.Pty, session ssh
 		termType = "xterm-256color"
 	}
 
-	env := prepareUserEnv(localUser, getUserShell(localUser.Uid))
+	env := shell.PrepareUserEnv(localUser, shell.GetUserShell(localUser.Uid))
 	env = append(env, prepareSSHEnv(session)...)
 	env = append(env, fmt.Sprintf("TERM=%s", termType))
 
 	for _, v := range session.Environ() {
-		if acceptEnv(v) {
+		if shell.AcceptEnv(v) {
 			env = append(env, v)
 		}
 	}

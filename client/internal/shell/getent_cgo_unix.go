@@ -1,6 +1,6 @@
 //go:build cgo && !osusergo && !windows
 
-package server
+package shell
 
 import "os/user"
 
@@ -8,17 +8,22 @@ import "os/user"
 // When CGO is enabled, os/user uses libc (getpwnam_r) which goes through
 // the NSS stack natively. If it fails, the user truly doesn't exist and
 // getent would also fail.
-func lookupWithGetent(username string) (*user.User, error) {
+func LookupWithGetent(username string) (*user.User, error) {
 	return user.Lookup(username)
 }
 
 // currentUserWithGetent with CGO delegates directly to os/user.Current.
-func currentUserWithGetent() (*user.User, error) {
+func CurrentUserWithGetent() (*user.User, error) {
 	return user.Current()
+}
+
+// LookupGroupWithGetent returns the resolved group from either a gid or groupname
+func LookupGroupWithGetent(name string) (*user.Group, error) {
+	return user.LookupGroup(name)
 }
 
 // groupIdsWithFallback with CGO delegates directly to user.GroupIds.
 // libc's getgrouplist handles NSS groups natively.
-func groupIdsWithFallback(u *user.User) ([]string, error) {
+func GroupIdsWithFallback(u *user.User) ([]string, error) {
 	return u.GroupIds()
 }

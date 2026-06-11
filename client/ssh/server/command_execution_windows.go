@@ -247,10 +247,10 @@ func (s *Server) prepareCommandEnv(logger *log.Entry, localUser *user.User, sess
 	userEnv, err := s.getUserEnvironment(logger, username, domain)
 	if err != nil {
 		log.Debugf("failed to get user environment for %s\\%s, using fallback: %v", domain, username, err)
-		env := prepareUserEnv(localUser, getUserShell(localUser.Uid))
+		env := shell.PrepareUserEnv(localUser, shell.GetUserShell(localUser.Uid))
 		env = append(env, prepareSSHEnv(session)...)
 		for _, v := range session.Environ() {
-			if acceptEnv(v) {
+			if shell.AcceptEnv(v) {
 				env = append(env, v)
 			}
 		}
@@ -260,7 +260,7 @@ func (s *Server) prepareCommandEnv(logger *log.Entry, localUser *user.User, sess
 	env := userEnv
 	env = append(env, prepareSSHEnv(session)...)
 	for _, v := range session.Environ() {
-		if acceptEnv(v) {
+		if shell.AcceptEnv(v) {
 			env = append(env, v)
 		}
 	}
@@ -273,7 +273,7 @@ func (s *Server) handlePtyLogin(logger *log.Entry, session ssh.Session, privileg
 		return false
 	}
 
-	shell := getUserShell(privilegeResult.User.Uid)
+	shell := shell.GetUserShell(privilegeResult.User.Uid)
 	logger.Infof("starting interactive shell: %s", shell)
 
 	s.executeCommandWithPty(logger, session, nil, privilegeResult, ptyReq, nil)
@@ -384,7 +384,7 @@ func (s *Server) executeCommandWithPty(logger *log.Entry, session ssh.Session, _
 	}
 
 	username, domain := s.parseUsername(localUser.Username)
-	shell := getUserShell(localUser.Uid)
+	shell := shell.GetUserShell(localUser.Uid)
 
 	req := PtyExecutionRequest{
 		Shell:    shell,

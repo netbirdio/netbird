@@ -19,6 +19,7 @@ import (
 
 	"github.com/creack/pty"
 	"github.com/gliderlabs/ssh"
+	"github.com/netbirdio/netbird/client/internal/shell"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -146,10 +147,10 @@ func (s *Server) createShellCommand(ctx context.Context, shell string, args []st
 
 // prepareCommandEnv prepares environment variables for command execution on Unix
 func (s *Server) prepareCommandEnv(_ *log.Entry, localUser *user.User, session ssh.Session) []string {
-	env := prepareUserEnv(localUser, getUserShell(localUser.Uid))
+	env := shell.PrepareUserEnv(localUser, shell.GetUserShell(localUser.Uid))
 	env = append(env, prepareSSHEnv(session)...)
 	for _, v := range session.Environ() {
-		if acceptEnv(v) {
+		if shell.AcceptEnv(v) {
 			env = append(env, v)
 		}
 	}

@@ -1,6 +1,6 @@
 //go:build (!cgo || osusergo) && !windows
 
-package server
+package shell
 
 import (
 	"os"
@@ -13,7 +13,7 @@ import (
 // lookupWithGetent looks up a user by name, falling back to getent if os/user fails.
 // Without CGO, os/user only reads /etc/passwd and misses NSS-provided users.
 // getent goes through the host's NSS stack.
-func lookupWithGetent(username string) (*user.User, error) {
+func LookupWithGetent(username string) (*user.User, error) {
 	u, err := user.Lookup(username)
 	if err == nil {
 		return u, nil
@@ -22,7 +22,7 @@ func lookupWithGetent(username string) (*user.User, error) {
 	stdErr := err
 	log.Debugf("os/user.Lookup(%q) failed, trying getent: %v", username, err)
 
-	u, _, getentErr := runGetent(username)
+	u, _, getentErr := runGetentPasswd(username)
 	if getentErr != nil {
 		log.Debugf("getent fallback for %q also failed: %v", username, getentErr)
 		return nil, stdErr
@@ -31,8 +31,25 @@ func lookupWithGetent(username string) (*user.User, error) {
 	return u, nil
 }
 
+// LookupGroupWithGetent returns the resolved group from either a gid or groupname
+func LookupGroupWithGetent(name string) (*user.Group, error) {
+	g, err := user.LookupGroup(name)
+	if err == nil {
+		return g, nil
+	}
+
+	stdErr := err
+	log.Debugf("os/user.LookupGroup(%q) failed, trying getent: %v", name, err)
+	g, getentErr := runGetentGroup(name)
+	if getentErr != nil {
+		log.Debugf("getent fallback for %q also failed: %v", name, getentErr)
+		return nil, stdErr
+	}
+	return g, nil
+}
+
 // currentUserWithGetent gets the current user, falling back to getent if os/user fails.
-func currentUserWithGetent() (*user.User, error) {
+func CurrentUserWithGetent() (*user.User, error) {
 	u, err := user.Current()
 	if err == nil {
 		return u, nil
@@ -42,7 +59,7 @@ func currentUserWithGetent() (*user.User, error) {
 	uid := strconv.Itoa(os.Getuid())
 	log.Debugf("os/user.Current() failed, trying getent with UID %s: %v", uid, err)
 
-	u, _, getentErr := runGetent(uid)
+	u, _, getentErr := runGetentPasswd(uid)
 	if getentErr != nil {
 		return nil, stdErr
 	}
@@ -57,7 +74,7 @@ func currentUserWithGetent() (*user.User, error) {
 // only reads /etc/group and silently returns incomplete results for NSS users
 // (no error, just missing groups). The id command goes through NSS and returns
 // the full set.
-func groupIdsWithFallback(u *user.User) ([]string, error) {
+func GroupIdsWithFallback(u *user.User) ([]string, error) {
 	ids, err := runIdGroups(u.Username)
 	if err == nil {
 		return ids, nil
