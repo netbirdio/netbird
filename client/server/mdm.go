@@ -23,13 +23,13 @@ var loadMDMPolicy = mdm.LoadPolicy
 // OS-native managed-config store reports a diff vs the last observation.
 //
 // Restart sequence:
-//   1. Cancel the active engine context (terminates connectWithRetryRuns).
-//   2. Wait briefly for that goroutine to exit (giveUpChan is closed on exit).
-//   3. Re-resolve Config from disk + MDM policy (Config.apply re-runs
-//      applyMDMPolicy with the freshly loaded Policy).
-//   4. Spawn a fresh connectWithRetryRuns with the new context and config.
-//   5. Broadcast a SystemEvent so any GUI / CLI subscriber (SubscribeEvents
-//      RPC) can refresh its cached config view without polling.
+//  1. Cancel the active engine context (terminates connectWithRetryRuns).
+//  2. Wait briefly for that goroutine to exit (giveUpChan is closed on exit).
+//  3. Re-resolve Config from disk + MDM policy (Config.apply re-runs
+//     applyMDMPolicy with the freshly loaded Policy).
+//  4. Spawn a fresh connectWithRetryRuns with the new context and config.
+//  5. Broadcast a SystemEvent so any GUI / CLI subscriber (SubscribeEvents
+//     RPC) can refresh its cached config view without polling.
 //
 // The callback runs in the ticker's own goroutine. Ticker has already
 // logged the per-key diff before invoking this hook.
@@ -58,9 +58,8 @@ func (s *Server) onMDMPolicyChange(_, curr *mdm.Policy) {
 	// every exit path (ctx cancel, DisableAutoConnect single-shot,
 	// backoff exhausted, panic) — see the defer in server.go.
 	if s.clientGiveUpChan != nil {
-		giveUpChan := s.clientGiveUpChan
 		select {
-		case <-giveUpChan:
+		case <-s.clientGiveUpChan:
 		case <-time.After(5 * time.Second):
 			log.Warn("MDM restart: timeout waiting for previous engine goroutine; proceeding anyway")
 		}
