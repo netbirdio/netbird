@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-
 	"github.com/netbirdio/netbird/client/internal/netflow/types"
 )
 
@@ -76,56 +75,57 @@ type aggregationKey struct {
 	destPort uint16
 	protocol uint8
 	icmpType uint8
-	ts       int64 // used to prevent aggregation on non icmp/udp/tcp events
+	unique   int64 // used to prevent aggregation on non icmp/udp/tcp events
 }
 
 func (am *AggregatingMemory) GetAggregatedEvents() []*types.Event {
 	aggregated := make(map[aggregationKey]*types.Event)
 	for _, v := range am.events {
 		lookupKey := aggregationKey{destAddr: v.DestIP, destPort: v.DestPort, protocol: uint8(v.Protocol), icmpType: v.ICMPCode}
-		if aggregatedEvent, ok := aggregated[lookupKey]; ok {
-			switch aggregatedEvent.Protocol {
-			case types.ICMP, types.ICMPv6, types.UDP, types.TCP:
-				// track the number of connections, duration?, open and close events?
-				aggregatedEvent.RxBytes += v.RxBytes
-				aggregatedEvent.RxPackets += v.RxPackets
-				aggregatedEvent.TxBytes += v.TxBytes
-				aggregatedEvent.TxPackets += v.TxPackets
-				switch v.Type {
-				case types.TypeStart:
-					aggregatedEvent.NumOfStarts += 1
-				case types.TypeDrop:
-					aggregatedEvent.NumOfDrops += 1
-				case types.TypeEnd:
-					aggregatedEvent.NumOfEnds += 1
-				}
-				if aggregatedEvent.Timestamp.Compare(v.Timestamp) > 0 {
-					aggregatedEvent.Timestamp = v.Timestamp
-					aggregatedEvent.ID = v.ID
-					aggregatedEvent.Type = v.Type
-				}
-				// do we aggregate icmp by code?
-			default:
-				// shouldn't get here
+		if _, ok := aggregated[lookupKey]; !ok {
+			aggregated[lookupKey] = v.Clone()
+			event := aggregated[lookupKey]
+
+			if event.Protocol != types.ICMP && event.Protocol != types.ICMPv6 && event.Protocol != types.UDP && event.Protocol != types.TCP {
+				lookupKey.unique = time.Now().UnixNano() // to make the lookup key unique so we don't aggregate on it
+				continue
 			}
-		} else {
-			switch v.Protocol {
-			case types.ICMP, types.ICMPv6, types.TCP, types.UDP:
-				event := v.Clone()
-				aggregated[lookupKey] = event
-				switch event.Type {
-				case types.TypeStart:
-					event.NumOfStarts += 1
-				case types.TypeDrop:
-					event.NumOfDrops += 1
-				case types.TypeEnd:
-					event.NumOfEnds += 1
-				}
-			default:
-				lookupKey.ts = time.Now().UnixNano() // to make the lookup key unique so we don't aggregate on it
-				aggregated[lookupKey] = v.Clone()
+
+			switch event.Type {
+			case types.TypeStart:
+				event.NumOfStarts += 1
+			case types.TypeDrop:
+				event.NumOfDrops += 1
+			case types.TypeEnd:
+				event.NumOfEnds += 1
 			}
+			continue
 		}
+
+		aggregatedEvent := aggregated[lookupKey]
+		if aggregatedEvent.Protocol != types.ICMP && aggregatedEvent.Protocol != types.ICMPv6 && aggregatedEvent.Protocol != types.UDP && aggregatedEvent.Protocol != types.TCP {
+			continue // we don't aggregate this type of events; shouldn't ever get here
+		}
+
+		// track the number of connections, duration?, open and close events?
+		aggregatedEvent.RxBytes += v.RxBytes
+		aggregatedEvent.RxPackets += v.RxPackets
+		aggregatedEvent.TxBytes += v.TxBytes
+		aggregatedEvent.TxPackets += v.TxPackets
+		switch v.Type {
+		case types.TypeStart:
+			aggregatedEvent.NumOfStarts += 1
+		case types.TypeDrop:
+			aggregatedEvent.NumOfDrops += 1
+		case types.TypeEnd:
+			aggregatedEvent.NumOfEnds += 1
+		}
+		if aggregatedEvent.Timestamp.Compare(v.Timestamp) > 0 {
+			aggregatedEvent.Timestamp = v.Timestamp
+			aggregatedEvent.ID = v.ID
+			aggregatedEvent.Type = v.Type
+		}
+		// do we aggregate icmp by code?
 	}
 
 	return slices.Collect(maps.Values(aggregated)) // could return an iterator instead here
