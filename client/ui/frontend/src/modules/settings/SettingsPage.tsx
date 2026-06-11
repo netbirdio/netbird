@@ -45,14 +45,14 @@ export const SettingsPage = () => {
                 <SettingsNavigation />
                 <AppRightPanel>
                     <AutostartSettingsProvider>
-                        <ScrollArea.Root
-                            key={active}
-                            type={"auto"}
-                            className={"flex-1 min-h-0 overflow-hidden"}
-                        >
-                            <ScrollArea.Viewport className={"h-full w-full"}>
-                                <div className={"py-8 px-7"}>
-                                    <SettingsProvider>
+                        <SettingsProvider>
+                            <ScrollArea.Root
+                                key={active}
+                                type={"auto"}
+                                className={"flex-1 min-h-0 overflow-hidden"}
+                            >
+                                <ScrollArea.Viewport className={"h-full w-full"}>
+                                    <div className={"py-8 px-7"}>
                                         <VerticalTabs.Content value={"general"}>
                                             <SettingsGeneral />
                                         </VerticalTabs.Content>
@@ -77,23 +77,23 @@ export const SettingsPage = () => {
                                         <VerticalTabs.Content value={"about"}>
                                             <SettingsAbout />
                                         </VerticalTabs.Content>
-                                    </SettingsProvider>
-                                </div>
-                            </ScrollArea.Viewport>
-                            <ScrollArea.Scrollbar
-                                orientation={"vertical"}
-                                className={cn(
-                                    "flex select-none touch-none transition-colors",
-                                    "w-1.5 bg-transparent py-1",
-                                )}
-                            >
-                                <ScrollArea.Thumb
-                                    className={
-                                        "flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700 relative"
-                                    }
-                                />
-                            </ScrollArea.Scrollbar>
-                        </ScrollArea.Root>
+                                    </div>
+                                </ScrollArea.Viewport>
+                                <ScrollArea.Scrollbar
+                                    orientation={"vertical"}
+                                    className={cn(
+                                        "flex select-none touch-none transition-colors",
+                                        "w-1.5 bg-transparent py-1",
+                                    )}
+                                >
+                                    <ScrollArea.Thumb
+                                        className={
+                                            "flex-1 rounded-full bg-nb-gray-800 hover:bg-nb-gray-700 relative"
+                                        }
+                                    />
+                                </ScrollArea.Scrollbar>
+                            </ScrollArea.Root>
+                        </SettingsProvider>
                     </AutostartSettingsProvider>
                 </AppRightPanel>
             </VerticalTabs>

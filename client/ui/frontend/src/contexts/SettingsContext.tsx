@@ -179,15 +179,15 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
         [config, guiVersion, setField, saveField, saveFields, saveNow],
     );
 
-    return (
-        <div className={"flex-1 min-h-0 overflow-y-auto"}>
-            {value ? (
-                <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>
-            ) : (
+    if (!value) {
+        return (
+            <div className={"flex-1 min-h-0 overflow-y-auto py-8 px-7"}>
                 <SettingsSkeleton />
-            )}
-        </div>
-    );
+            </div>
+        );
+    }
+
+    return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;
 };
 
 export const AutostartSettingsProvider = ({ children }: { children: ReactNode }) => {
