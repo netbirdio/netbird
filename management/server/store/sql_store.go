@@ -265,7 +265,8 @@ func (s *SqlStore) AcquireGlobalLock(ctx context.Context) (unlock func()) {
 	return unlock
 }
 
-// Deprecated: Full account operations are no longer supported
+// Deprecated: Full
+// account operations are no longer supported
 func (s *SqlStore) SaveAccount(ctx context.Context, account *types.Account) error {
 	start := time.Now()
 	defer func() {
@@ -4910,6 +4911,64 @@ func (s *SqlStore) GetPeersByGroupIDs(ctx context.Context, accountID string, gro
 	}
 
 	return peers, nil
+}
+
+func (s *SqlStore) GetPeerIDsByGroups(ctx context.Context, accountID string, groupIDs []string) ([]string, error) {
+	if len(groupIDs) == 0 {
+		return nil, nil
+	}
+
+	var peerIDs []string
+	result := s.db.Model(&types.GroupPeer{}).
+		Select("DISTINCT peer_id").
+		Where("account_id = ? AND group_id IN ?", accountID, groupIDs).
+		Pluck("peer_id", &peerIDs)
+	if result.Error != nil {
+		return nil, status.Errorf(status.Internal, "failed to get peer IDs by groups: %s", result.Error)
+	}
+
+	return peerIDs, nil
+}
+
+func (s *SqlStore) GetGroupIDsByPeerIDs(ctx context.Context, accountID string, peerIDs []string) ([]string, error) {
+	if len(peerIDs) == 0 {
+		return nil, nil
+	}
+
+	var groupIDs []string
+	result := s.db.Model(&types.GroupPeer{}).
+		Select("DISTINCT group_id").
+		Where("account_id = ? AND peer_id IN ?", accountID, peerIDs).
+		Pluck("group_id", &groupIDs)
+	if result.Error != nil {
+		return nil, status.Errorf(status.Internal, "failed to get group IDs by peers: %s", result.Error)
+	}
+
+	return groupIDs, nil
+}
+
+// GetEmbeddedProxyPeerIDsByCluster returns peer IDs of all embedded proxy peers
+// in the account, grouped by their ProxyCluster. The map is nil when no embedded
+// proxy peers exist.
+func (s *SqlStore) GetEmbeddedProxyPeerIDsByCluster(ctx context.Context, accountID string) (map[string][]string, error) {
+	type row struct {
+		ID      string
+		Cluster string
+	}
+	var rows []row
+	result := s.db.Model(&nbpeer.Peer{}).
+		Select("id, proxy_meta_cluster AS cluster").
+		Where("account_id = ? AND proxy_meta_embedded = ?", accountID, true).
+		Scan(&rows)
+	if result.Error != nil {
+		return nil, status.Errorf(status.Internal, "failed to get embedded proxy peers: %s", result.Error)
+	}
+
+	out := make(map[string][]string, len(rows))
+	for _, r := range rows {
+		out[r.Cluster] = append(out[r.Cluster], r.ID)
+	}
+	return out, nil
 }
 
 func (s *SqlStore) GetUserIDByPeerKey(ctx context.Context, lockStrength LockingStrength, peerKey string) (string, error) {

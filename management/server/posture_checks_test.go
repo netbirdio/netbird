@@ -503,21 +503,20 @@ func TestArePostureCheckChangesAffectPeers(t *testing.T) {
 	require.NoError(t, err, "failed to save policy")
 
 	t.Run("posture check exists and is linked to policy with peers", func(t *testing.T) {
-		result, err := arePostureCheckChangesAffectPeers(context.Background(), manager.Store, account.Id, postureCheckA.ID)
-		require.NoError(t, err)
-		assert.True(t, result)
+		groupIDs, _ := collectPostureCheckAffectedGroupsAndPeers(context.Background(), manager.Store, account.Id, postureCheckA.ID)
+		assert.NotEmpty(t, groupIDs)
 	})
 
 	t.Run("posture check exists but is not linked to any policy", func(t *testing.T) {
-		result, err := arePostureCheckChangesAffectPeers(context.Background(), manager.Store, account.Id, postureCheckB.ID)
-		require.NoError(t, err)
-		assert.False(t, result)
+		groupIDs, directPeerIDs := collectPostureCheckAffectedGroupsAndPeers(context.Background(), manager.Store, account.Id, postureCheckB.ID)
+		assert.Empty(t, groupIDs)
+		assert.Empty(t, directPeerIDs)
 	})
 
 	t.Run("posture check does not exist", func(t *testing.T) {
-		result, err := arePostureCheckChangesAffectPeers(context.Background(), manager.Store, account.Id, "unknown")
-		require.NoError(t, err)
-		assert.False(t, result)
+		groupIDs, directPeerIDs := collectPostureCheckAffectedGroupsAndPeers(context.Background(), manager.Store, account.Id, "unknown")
+		assert.Empty(t, groupIDs)
+		assert.Empty(t, directPeerIDs)
 	})
 
 	t.Run("posture check is linked to policy with no peers in source groups", func(t *testing.T) {
@@ -526,9 +525,8 @@ func TestArePostureCheckChangesAffectPeers(t *testing.T) {
 		_, err = manager.SavePolicy(context.Background(), account.Id, adminUserID, policy, true)
 		require.NoError(t, err, "failed to update policy")
 
-		result, err := arePostureCheckChangesAffectPeers(context.Background(), manager.Store, account.Id, postureCheckA.ID)
-		require.NoError(t, err)
-		assert.True(t, result)
+		groupIDs, _ := collectPostureCheckAffectedGroupsAndPeers(context.Background(), manager.Store, account.Id, postureCheckA.ID)
+		assert.NotEmpty(t, groupIDs)
 	})
 
 	t.Run("posture check is linked to policy with no peers in destination groups", func(t *testing.T) {
@@ -537,9 +535,8 @@ func TestArePostureCheckChangesAffectPeers(t *testing.T) {
 		_, err = manager.SavePolicy(context.Background(), account.Id, adminUserID, policy, true)
 		require.NoError(t, err, "failed to update policy")
 
-		result, err := arePostureCheckChangesAffectPeers(context.Background(), manager.Store, account.Id, postureCheckA.ID)
-		require.NoError(t, err)
-		assert.True(t, result)
+		groupIDs, _ := collectPostureCheckAffectedGroupsAndPeers(context.Background(), manager.Store, account.Id, postureCheckA.ID)
+		assert.NotEmpty(t, groupIDs)
 	})
 
 	t.Run("posture check is linked to policy but no peers in groups", func(t *testing.T) {
@@ -547,9 +544,9 @@ func TestArePostureCheckChangesAffectPeers(t *testing.T) {
 		err = manager.UpdateGroup(context.Background(), account.Id, adminUserID, groupA)
 		require.NoError(t, err, "failed to save groups")
 
-		result, err := arePostureCheckChangesAffectPeers(context.Background(), manager.Store, account.Id, postureCheckA.ID)
-		require.NoError(t, err)
-		assert.False(t, result)
+		// The collector returns groups even if they have no peers — the groups are still referenced
+		groupIDs, _ := collectPostureCheckAffectedGroupsAndPeers(context.Background(), manager.Store, account.Id, postureCheckA.ID)
+		assert.NotEmpty(t, groupIDs)
 	})
 
 	t.Run("posture check is linked to policy with non-existent group", func(t *testing.T) {
@@ -558,8 +555,10 @@ func TestArePostureCheckChangesAffectPeers(t *testing.T) {
 		_, err = manager.SavePolicy(context.Background(), account.Id, adminUserID, policy, true)
 		require.NoError(t, err, "failed to update policy")
 
-		result, err := arePostureCheckChangesAffectPeers(context.Background(), manager.Store, account.Id, postureCheckA.ID)
-		require.NoError(t, err)
-		assert.False(t, result)
+		// Non-existent groups are filtered out during SavePolicy validation,
+		// so the saved policy has empty Sources/Destinations
+		groupIDs, directPeerIDs := collectPostureCheckAffectedGroupsAndPeers(context.Background(), manager.Store, account.Id, postureCheckA.ID)
+		assert.Empty(t, groupIDs)
+		assert.Empty(t, directPeerIDs)
 	})
 }
