@@ -666,16 +666,48 @@ func (p *profileMenu) clear(profiles []Profile) {
 	}
 }
 
-// setEnabled enables or disables the profile menu based on the provided state
+// setEnabled greys out (Disable) the profile menu and every existing
+// sub-item when the daemon reports the kill switch active, so the user
+// sees the menu but cannot enter "Manage Profiles" or switch profile.
+// Previously this used Hide() on the parent, but Fyne's systray on
+// Windows does not propagate Hide() to a parent that already has
+// children — the submenu kept popping up and accepting clicks. Disable
+// is the reliable visual lock.
 func (p *profileMenu) setEnabled(enabled bool) {
-	if p.profileMenuItem != nil {
-		if enabled {
-			p.profileMenuItem.Enable()
-			p.profileMenuItem.SetTooltip("")
-		} else {
-			p.profileMenuItem.Hide()
-			p.profileMenuItem.SetTooltip("Profiles are disabled by daemon")
+	if p.profileMenuItem == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if enabled {
+		p.profileMenuItem.Enable()
+		p.profileMenuItem.SetTooltip("")
+	} else {
+		p.profileMenuItem.Disable()
+		p.profileMenuItem.SetTooltip("Profiles are disabled by daemon")
+	}
+
+	apply := func(item *systray.MenuItem) {
+		if item == nil {
+			return
 		}
+		if enabled {
+			item.Enable()
+		} else {
+			item.Disable()
+		}
+	}
+	for _, sub := range p.profileSubItems {
+		if sub != nil {
+			apply(sub.MenuItem)
+		}
+	}
+	if p.manageProfilesSubItem != nil {
+		apply(p.manageProfilesSubItem.MenuItem)
+	}
+	if p.logoutSubItem != nil {
+		apply(p.logoutSubItem.MenuItem)
 	}
 }
 
