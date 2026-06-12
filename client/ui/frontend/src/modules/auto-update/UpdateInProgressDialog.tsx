@@ -144,7 +144,7 @@ export default function UpdateInProgressDialog() {
 
 function mapInstallError(msg: string): Phase {
     const m = msg.trim().toLowerCase();
-    if (m === "") return { kind: "failed", message: "unknown update error" };
+    if (m === "") return { kind: "failed", message: "" };
     if (m.includes("deadline exceeded") || m.includes("timeout") || m.includes("timed out")) {
         return { kind: "timeout" };
     }

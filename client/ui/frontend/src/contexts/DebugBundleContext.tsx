@@ -1,4 +1,4 @@
-import { createContext, useContext, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Connection as ConnectionSvc, Debug as DebugSvc } from "@bindings/services";
 import type { DebugBundleResult } from "@bindings/services/models.js";
 import i18next from "@/lib/i18n";
@@ -128,6 +128,12 @@ const useDebugBundle = () => {
     const [stage, setStage] = useState<DebugStage>({ kind: "idle" });
     const [lastBundlePath, setLastBundlePath] = useState<string>("");
     const abortRef = useRef<AbortController | null>(null);
+
+    useEffect(() => {
+        return () => {
+            abortRef.current?.abort();
+        };
+    }, []);
 
     const isRunning = stage.kind !== "idle" && stage.kind !== "done";
 
