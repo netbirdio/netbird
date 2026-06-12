@@ -54,28 +54,36 @@ export const useAutostartSetting = () => {
     return ctx;
 };
 
+type LoadedConfig = { profileName: string; data: Config };
+
 const useSettingsState = () => {
     const { username, activeProfile, loaded: profileLoaded } = useProfile();
-    const [config, setConfig] = useState<Config | null>(null);
+    const [loaded, setLoaded] = useState<LoadedConfig | null>(null);
     const [guiVersion, setGuiVersion] = useState<string>("—");
     const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
         if (!profileLoaded || !activeProfile) return;
+        let cancelled = false;
         (async () => {
             try {
-                const c = await SettingsSvc.GetConfig({
+                const data = await SettingsSvc.GetConfig({
                     profileName: activeProfile,
                     username,
                 });
-                setConfig(c);
+                if (cancelled) return;
+                setLoaded({ profileName: activeProfile, data });
             } catch (e) {
+                if (cancelled) return;
                 await errorDialog({
                     Title: i18next.t("settings.error.loadTitle"),
                     Message: errorMessage(e),
                 });
             }
         })();
+        return () => {
+            cancelled = true;
+        };
     }, [profileLoaded, activeProfile, username]);
 
     useEffect(() => {
@@ -96,14 +104,14 @@ const useSettingsState = () => {
     );
 
     const save = useCallback(
-        async (next: Config) => {
+        async (profileName: string, next: Config) => {
             // Sending the "**********" PSK mask back corrupts the stored PSK (wgtypes.ParseKey fails next connect).
             const { preSharedKey, ...rest } = next;
             try {
                 await SettingsSvc.SetConfig({
                     ...rest,
                     ...(preSharedKey === "**********" ? {} : { preSharedKey }),
-                    profileName: activeProfile,
+                    profileName,
                     username,
                 });
             } catch (e) {
@@ -113,62 +121,62 @@ const useSettingsState = () => {
                 });
             }
         },
-        [activeProfile, username],
+        [username],
     );
 
     const setField = useCallback(
         <K extends keyof Config>(k: K, v: Config[K]) => {
-            setConfig((c) => {
-                if (!c) return c;
-                const next = { ...c, [k]: v };
+            setLoaded((cur) => {
+                if (!cur) return cur;
+                const next = { ...cur.data, [k]: v };
                 if (saveTimer.current) clearTimeout(saveTimer.current);
                 saveTimer.current = setTimeout(() => {
-                    save(next).catch(logSaveError);
+                    save(cur.profileName, next).catch(logSaveError);
                 }, SAVE_DEBOUNCE_MS);
-                return next;
+                return { profileName: cur.profileName, data: next };
             });
         },
         [save],
     );
 
     const saveNow = useCallback(async () => {
-        if (!config) return;
+        if (!loaded) return;
         if (saveTimer.current) {
             clearTimeout(saveTimer.current);
             saveTimer.current = null;
         }
-        await save(config);
-    }, [config, save]);
+        await save(loaded.profileName, loaded.data);
+    }, [loaded, save]);
 
     const saveField = useCallback(
         async <K extends keyof Config>(k: K, v: Config[K]) => {
-            if (!config) return;
+            if (!loaded) return;
             if (saveTimer.current) {
                 clearTimeout(saveTimer.current);
                 saveTimer.current = null;
             }
-            const next = { ...config, [k]: v };
-            setConfig(next);
-            await save(next);
+            const next = { ...loaded.data, [k]: v };
+            setLoaded({ profileName: loaded.profileName, data: next });
+            await save(loaded.profileName, next);
         },
-        [config, save],
+        [loaded, save],
     );
 
     const saveFields = useCallback(
         async (partial: Partial<Config>) => {
-            if (!config) return;
+            if (!loaded) return;
             if (saveTimer.current) {
                 clearTimeout(saveTimer.current);
                 saveTimer.current = null;
             }
-            const next = { ...config, ...partial };
-            setConfig(next);
-            await save(next);
+            const next = { ...loaded.data, ...partial };
+            setLoaded({ profileName: loaded.profileName, data: next });
+            await save(loaded.profileName, next);
         },
-        [config, save],
+        [loaded, save],
     );
 
-    return { config, guiVersion, setField, saveField, saveFields, saveNow };
+    return { config: loaded?.data ?? null, guiVersion, setField, saveField, saveFields, saveNow };
 };
 
 export const SettingsProvider = ({ children }: { children: ReactNode }) => {
