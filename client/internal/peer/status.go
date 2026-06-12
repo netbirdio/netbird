@@ -350,8 +350,12 @@ func (d *Status) RemovePeer(peerPubKey string) error {
 	}
 
 	delete(d.peers, peerPubKey)
-	delete(d.ipToKey, p.IP)
-	delete(d.ipToKey, p.IPv6)
+	if mappedKey, exists := d.ipToKey[p.IP]; exists && mappedKey == peerPubKey {
+		delete(d.ipToKey, p.IP)
+	}
+	if mappedKey, exists := d.ipToKey[p.IPv6]; exists && mappedKey == peerPubKey {
+		delete(d.ipToKey, p.IPv6)
+	}
 	d.peerListChangedForNotification = true
 	return nil
 }
