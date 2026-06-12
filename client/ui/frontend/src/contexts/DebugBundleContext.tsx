@@ -3,7 +3,7 @@ import { Connection as ConnectionSvc, Debug as DebugSvc } from "@bindings/servic
 import type { DebugBundleResult } from "@bindings/services/models.js";
 import i18next from "@/lib/i18n";
 import { errorDialog, formatErrorMessage } from "@/lib/errors.ts";
-import { useProfile } from "@/contexts/ProfileContext.tsx";
+import { startConnection } from "@/lib/connection.ts";
 
 const NETBIRD_UPLOAD_URL = "https://upload.debug.netbird.io/upload-url";
 const TRACE_LOG_FILE_COUNT = 5;
@@ -56,14 +56,21 @@ const setLogLevelBestEffort = async (level: string) => {
     }
 };
 
-type LevelState = { original: string; raised: boolean };
+const stopCaptureBestEffort = async () => {
+    try {
+        await DebugSvc.StopBundleCapture();
+    } catch {
+        // empty
+    }
+};
 
-const runTracePhase = async (
+type LevelState = { original: string; raised: boolean };
+type CaptureState = { started: boolean };
+
+const raiseToTrace = async (
     signal: AbortSignal,
     level: LevelState,
     setStage: (s: DebugStage) => void,
-    target: { profileName: string; username: string },
-    traceMinutes: number,
 ) => {
     setStage({ kind: "preparing-trace" });
     try {
@@ -75,7 +82,9 @@ const runTracePhase = async (
     throwIfAborted(signal);
     await DebugSvc.SetLogLevel({ level: TRACE_LOG_LEVEL });
     level.raised = true;
+};
 
+const cycleConnection = async (signal: AbortSignal, setStage: (s: DebugStage) => void) => {
     throwIfAborted(signal);
     setStage({ kind: "reconnecting" });
     try {
@@ -84,14 +93,10 @@ const runTracePhase = async (
         // empty
     }
     throwIfAborted(signal);
-    await ConnectionSvc.Up(target);
+    await startConnection(undefined, signal);
+};
 
-    const totalSec = Math.max(1, Math.min(30, traceMinutes)) * 60;
-    for (let remaining = totalSec; remaining > 0; remaining--) {
-        setStage({ kind: "capturing", remainingSec: remaining, totalSec });
-        await sleep(1000, signal);
-    }
-
+const restoreLogLevel = async (level: LevelState, setStage: (s: DebugStage) => void) => {
     setStage({ kind: "restoring-level" });
     try {
         await DebugSvc.SetLogLevel({ level: level.original });
@@ -101,13 +106,25 @@ const runTracePhase = async (
     }
 };
 
+const waitCaptureWindow = async (
+    signal: AbortSignal,
+    setStage: (s: DebugStage) => void,
+    totalSec: number,
+) => {
+    for (let remaining = totalSec; remaining > 0; remaining--) {
+        setStage({ kind: "capturing", remainingSec: remaining, totalSec });
+        await sleep(1000, signal);
+    }
+};
+
 const useDebugBundle = () => {
-    const { activeProfile, username } = useProfile();
     const [anonymize, setAnonymize] = useState(false);
     const [systemInfo, setSystemInfo] = useState(true);
     const [upload, setUpload] = useState(true);
-    const [trace, setTrace] = useState(false);
+    const [trace, setTrace] = useState(true);
+    const [capture, setCapture] = useState(false);
     const [traceMinutes, setTraceMinutes] = useState(1);
+    const [capturePackets, setCapturePackets] = useState(true);
     const [stage, setStage] = useState<DebugStage>({ kind: "idle" });
     const [lastBundlePath, setLastBundlePath] = useState<string>("");
     const abortRef = useRef<AbortController | null>(null);
@@ -129,16 +146,43 @@ const useDebugBundle = () => {
 
         const uploadUrl = upload ? NETBIRD_UPLOAD_URL : "";
         const level: LevelState = { original: DEFAULT_LOG_LEVEL, raised: false };
+        const pcap: CaptureState = { started: false };
+        const totalSec = Math.max(1, Math.min(30, traceMinutes)) * 60;
+        const hasWindow = capture && totalSec > 0;
 
         try {
             if (trace) {
-                await runTracePhase(
-                    signal,
-                    level,
-                    setStage,
-                    { profileName: activeProfile, username },
-                    traceMinutes,
-                );
+                await raiseToTrace(signal, level, setStage);
+            }
+            throwIfAborted(signal);
+
+            if (capture) {
+                await cycleConnection(signal, setStage);
+            }
+            throwIfAborted(signal);
+
+            if (hasWindow && capturePackets) {
+                try {
+                    // Mirror the CLI's safety margin: window + 30s, server caps at 10m.
+                    await DebugSvc.StartBundleCapture(totalSec + 30);
+                    pcap.started = true;
+                } catch {
+                    // empty
+                }
+            }
+            throwIfAborted(signal);
+
+            if (hasWindow) {
+                await waitCaptureWindow(signal, setStage, totalSec);
+            }
+
+            if (pcap.started) {
+                await stopCaptureBestEffort();
+                pcap.started = false;
+            }
+
+            if (level.raised) {
+                await restoreLogLevel(level, setStage);
             }
 
             throwIfAborted(signal);
@@ -161,10 +205,13 @@ const useDebugBundle = () => {
             });
         } catch (e) {
             if (isAbort(e)) {
+                setStage({ kind: "cancelling" });
+                if (pcap.started) await stopCaptureBestEffort();
                 if (level.raised) await setLogLevelBestEffort(level.original);
                 setStage({ kind: "idle" });
                 return;
             }
+            if (pcap.started) await stopCaptureBestEffort();
             setStage({ kind: "idle" });
             await errorDialog({
                 Title: i18next.t("settings.error.debugBundleTitle"),
@@ -191,8 +238,12 @@ const useDebugBundle = () => {
         setUpload,
         trace,
         setTrace,
+        capture,
+        setCapture,
         traceMinutes,
         setTraceMinutes,
+        capturePackets,
+        setCapturePackets,
         stage,
         isRunning,
         lastBundlePath,

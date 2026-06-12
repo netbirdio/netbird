@@ -13,7 +13,6 @@ import HelpText from "@/components/typography/HelpText.tsx";
 import { Input } from "@/components/inputs/Input";
 import { Label } from "@/components/typography/Label";
 import { SquareIcon } from "@/components/SquareIcon";
-import { cn } from "@/lib/cn";
 import { formatRemaining } from "@/lib/formatters";
 import type { DebugStage } from "@/contexts/DebugBundleContext";
 import { useDebugBundleContext } from "@/contexts/DebugBundleContext";
@@ -32,8 +31,12 @@ export function SettingsTroubleshooting() {
         setUpload,
         trace,
         setTrace,
+        capture,
+        setCapture,
         traceMinutes,
         setTraceMinutes,
+        capturePackets,
+        setCapturePackets,
         run,
         stage,
         cancel,
@@ -51,10 +54,6 @@ export function SettingsTroubleshooting() {
 
     return (
         <SectionGroup title={t("settings.troubleshooting.section.title")}>
-            <HelpText className={"-mt-2 mb-2"}>
-                <Trans i18nKey={"settings.troubleshooting.intro"} components={{ br: <br /> }} />
-            </HelpText>
-
             <FancyToggleSwitch
                 value={anonymize}
                 onChange={setAnonymize}
@@ -79,30 +78,44 @@ export function SettingsTroubleshooting() {
                 label={t("settings.troubleshooting.trace.label")}
                 helpText={t("settings.troubleshooting.trace.help")}
             />
-            <div
-                className={cn(
-                    "flex items-center gap-6 justify-between",
-                    !trace && "opacity-50 pointer-events-none",
-                )}
-            >
-                <div className={"flex-1 max-w-md"}>
-                    <Label as={"div"}>{t("settings.troubleshooting.duration.label")}</Label>
-                    <HelpText margin={false}>
-                        {t("settings.troubleshooting.duration.help")}
-                    </HelpText>
-                </div>
-                <div className={"w-40 shrink-0"}>
-                    <Input
-                        type={"number"}
-                        min={1}
-                        max={30}
-                        value={traceMinutes}
-                        onChange={(e) =>
-                            setTraceMinutes(Math.max(1, Math.min(30, Number(e.target.value) || 1)))
-                        }
-                        customSuffix={t("settings.troubleshooting.duration.suffix")}
-                        disabled={!trace}
-                    />
+            <FancyToggleSwitch
+                value={capture}
+                onChange={setCapture}
+                label={t("settings.troubleshooting.capture.label")}
+                helpText={t("settings.troubleshooting.capture.help")}
+            />
+            <div className={"flex flex-col gap-4"}>
+                <FancyToggleSwitch
+                    value={capturePackets}
+                    onChange={setCapturePackets}
+                    label={t("settings.troubleshooting.packets.label")}
+                    helpText={t("settings.troubleshooting.packets.help")}
+                    disabled={!capture}
+                />
+                <div className={"flex items-center gap-6 justify-between"}>
+                    <div className={"flex-1 max-w-md"}>
+                        <Label as={"div"} disabled={!capture}>
+                            {t("settings.troubleshooting.duration.label")}
+                        </Label>
+                        <HelpText margin={false} disabled={!capture}>
+                            {t("settings.troubleshooting.duration.help")}
+                        </HelpText>
+                    </div>
+                    <div className={"w-40 shrink-0"}>
+                        <Input
+                            type={"number"}
+                            min={1}
+                            max={30}
+                            value={traceMinutes}
+                            onChange={(e) =>
+                                setTraceMinutes(
+                                    Math.max(1, Math.min(30, Number(e.target.value) || 1)),
+                                )
+                            }
+                            customSuffix={t("settings.troubleshooting.duration.suffix")}
+                            disabled={!capture}
+                        />
+                    </div>
                 </div>
             </div>
 
@@ -297,14 +310,10 @@ const stageLabel = (
     t: (key: string, options?: Record<string, unknown>) => string,
 ): string => {
     switch (stage.kind) {
-        case "preparing-trace":
-            return t("settings.troubleshooting.stage.preparingTrace");
         case "reconnecting":
             return t("settings.troubleshooting.stage.reconnecting");
         case "capturing":
             return t("settings.troubleshooting.stage.capturing");
-        case "restoring-level":
-            return t("settings.troubleshooting.stage.restoring");
         case "bundling":
             return t("settings.troubleshooting.stage.bundling");
         case "uploading":

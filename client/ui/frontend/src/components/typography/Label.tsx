@@ -10,13 +10,19 @@ const labelVariants = cva(
 type LabelProps = ComponentPropsWithoutRef<typeof LabelPrimitive.Root> &
     VariantProps<typeof labelVariants> & {
         as?: "label" | "div";
+        disabled?: boolean;
     };
 
 export const Label = forwardRef<HTMLElement, LabelProps>(function Label(
-    { className, as = "label", children, ...props },
+    { className, as = "label", disabled = false, children, ...props },
     ref,
 ) {
-    const classes = cn(labelVariants(), className, "select-none");
+    const classes = cn(
+        labelVariants(),
+        className,
+        "select-none transition-all duration-300",
+        disabled && "opacity-30 pointer-events-none",
+    );
 
     if (as === "div") {
         return (

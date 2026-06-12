@@ -698,9 +698,6 @@
     "settings.troubleshooting.section.title": {
         "message": "Pacote de depuração"
     },
-    "settings.troubleshooting.intro": {
-        "message": "Um pacote de depuração ajuda o suporte do NetBird a investigar problemas de conexão. <br /> É um arquivo .zip com logs, detalhes do sistema e informações de depuração do seu dispositivo."
-    },
     "settings.troubleshooting.anonymize.label": {
         "message": "Anonimizar informações sensíveis"
     },
@@ -717,19 +714,31 @@
         "message": "Enviar pacote aos servidores do NetBird"
     },
     "settings.troubleshooting.upload.help": {
-        "message": "Envia o pacote com segurança e retorna uma chave de upload. Compartilhe a chave com o suporte do NetBird via GitHub ou Slack em vez de anexar o arquivo diretamente."
+        "message": "Retorna uma chave de upload para compartilhar com o suporte do NetBird."
     },
     "settings.troubleshooting.trace.label": {
-        "message": "Capturar logs de trace"
+        "message": "Habilitar logs de trace"
     },
     "settings.troubleshooting.trace.help": {
-        "message": "Eleva o nível de log para TRACE e reinicia o NetBird para capturar os logs de conexão. O nível anterior é restaurado após a criação do pacote."
+        "message": "Eleva o nível de log para TRACE e o restaura em seguida."
+    },
+    "settings.troubleshooting.capture.label": {
+        "message": "Sessão de captura"
+    },
+    "settings.troubleshooting.capture.help": {
+        "message": "Reconecta e aguarda para que você possa reproduzir o problema."
+    },
+    "settings.troubleshooting.packets.label": {
+        "message": "Capturar pacotes de rede"
+    },
+    "settings.troubleshooting.packets.help": {
+        "message": "Salva um .pcap do tráfego de rede durante a sessão de captura."
     },
     "settings.troubleshooting.duration.label": {
         "message": "Duração da captura"
     },
     "settings.troubleshooting.duration.help": {
-        "message": "Por quanto tempo capturar os logs de trace antes de gerar o pacote."
+        "message": "Por quanto tempo a sessão de captura é executada."
     },
     "settings.troubleshooting.duration.suffix": {
         "message": "min"
@@ -770,17 +779,11 @@
     "settings.troubleshooting.uploadFailed": {
         "message": "Falha no upload. O pacote continua salvo localmente."
     },
-    "settings.troubleshooting.stage.preparingTrace": {
-        "message": "Alternando para logs de trace…"
-    },
     "settings.troubleshooting.stage.reconnecting": {
         "message": "Reconectando o NetBird…"
     },
     "settings.troubleshooting.stage.capturing": {
-        "message": "Capturando logs"
-    },
-    "settings.troubleshooting.stage.restoring": {
-        "message": "Restaurando o nível de log anterior…"
+        "message": "Capturando logs de depuração"
     },
     "settings.troubleshooting.stage.bundling": {
         "message": "Gerando o pacote de depuração…"

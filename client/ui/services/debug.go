@@ -9,6 +9,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
+
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/version"
@@ -110,6 +113,28 @@ func (s *Debug) RegisterUILog(ctx context.Context, path string) error {
 		return err
 	}
 	_, err = cli.RegisterUILog(ctx, &proto.RegisterUILogRequest{Path: path})
+	return err
+}
+
+func (s *Debug) StartBundleCapture(ctx context.Context, timeoutSeconds int32) error {
+	cli, err := s.conn.Client()
+	if err != nil {
+		return err
+	}
+	req := &proto.StartBundleCaptureRequest{}
+	if timeoutSeconds > 0 {
+		req.Timeout = durationpb.New(time.Duration(timeoutSeconds) * time.Second)
+	}
+	_, err = cli.StartBundleCapture(ctx, req)
+	return err
+}
+
+func (s *Debug) StopBundleCapture(ctx context.Context) error {
+	cli, err := s.conn.Client()
+	if err != nil {
+		return err
+	}
+	_, err = cli.StopBundleCapture(ctx, &proto.StopBundleCaptureRequest{})
 	return err
 }
 

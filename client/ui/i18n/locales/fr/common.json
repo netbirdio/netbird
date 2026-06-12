@@ -698,9 +698,6 @@
     "settings.troubleshooting.section.title": {
         "message": "Lot de diagnostic"
     },
-    "settings.troubleshooting.intro": {
-        "message": "Un lot de diagnostic aide l’assistance NetBird à étudier les problèmes de connexion. <br /> C’est un fichier .zip contenant des journaux, des détails système et des informations de diagnostic provenant de votre appareil."
-    },
     "settings.troubleshooting.anonymize.label": {
         "message": "Anonymiser les informations sensibles"
     },
@@ -717,19 +714,31 @@
         "message": "Envoyer le lot aux serveurs NetBird"
     },
     "settings.troubleshooting.upload.help": {
-        "message": "Envoie le lot de manière sécurisée et renvoie une clé d’envoi. Partagez la clé avec l’assistance NetBird via GitHub ou Slack plutôt que de joindre directement le fichier."
+        "message": "Renvoie une clé d’envoi à partager avec l’assistance NetBird."
     },
     "settings.troubleshooting.trace.label": {
-        "message": "Capturer les journaux trace"
+        "message": "Activer les journaux trace"
     },
     "settings.troubleshooting.trace.help": {
-        "message": "Augmente la journalisation au niveau TRACE et redémarre NetBird pour capturer les journaux de connexion. Le niveau précédent est rétabli une fois le lot généré."
+        "message": "Élève le niveau de journalisation à TRACE, puis le rétablit ensuite."
+    },
+    "settings.troubleshooting.capture.label": {
+        "message": "Session de capture"
+    },
+    "settings.troubleshooting.capture.help": {
+        "message": "Se reconnecte et attend pour que vous puissiez reproduire le problème."
+    },
+    "settings.troubleshooting.packets.label": {
+        "message": "Capturer les paquets réseau"
+    },
+    "settings.troubleshooting.packets.help": {
+        "message": "Enregistre un .pcap du trafic réseau pendant la session de capture."
     },
     "settings.troubleshooting.duration.label": {
         "message": "Durée de capture"
     },
     "settings.troubleshooting.duration.help": {
-        "message": "Durée de capture des journaux trace avant de générer le lot."
+        "message": "Durée d’exécution de la session de capture."
     },
     "settings.troubleshooting.duration.suffix": {
         "message": "min"
@@ -770,17 +779,11 @@
     "settings.troubleshooting.uploadFailed": {
         "message": "Échec de l’envoi. Le lot reste enregistré localement."
     },
-    "settings.troubleshooting.stage.preparingTrace": {
-        "message": "Passage à la journalisation trace…"
-    },
     "settings.troubleshooting.stage.reconnecting": {
         "message": "Reconnexion de NetBird…"
     },
     "settings.troubleshooting.stage.capturing": {
-        "message": "Capture des journaux"
-    },
-    "settings.troubleshooting.stage.restoring": {
-        "message": "Rétablissement du niveau de journalisation précédent…"
+        "message": "Capture des journaux de débogage"
     },
     "settings.troubleshooting.stage.bundling": {
         "message": "Génération du lot de diagnostic…"

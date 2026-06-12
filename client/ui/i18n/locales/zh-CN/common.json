@@ -698,9 +698,6 @@
     "settings.troubleshooting.section.title": {
         "message": "调试包"
     },
-    "settings.troubleshooting.intro": {
-        "message": "调试包可帮助 NetBird 支持团队排查连接问题。<br /> 它是一个 .zip 文件，包含来自您设备的日志、系统详情和调试信息。"
-    },
     "settings.troubleshooting.anonymize.label": {
         "message": "匿名化敏感信息"
     },
@@ -717,19 +714,31 @@
         "message": "将调试包上传到 NetBird 服务器"
     },
     "settings.troubleshooting.upload.help": {
-        "message": "安全地上传调试包并返回一个上传密钥。请通过 GitHub 或 Slack 将该密钥分享给 NetBird 支持团队，而不要直接附上文件。"
+        "message": "返回一个上传密钥，供您分享给 NetBird 支持团队。"
     },
     "settings.troubleshooting.trace.label": {
-        "message": "捕获跟踪日志"
+        "message": "启用跟踪日志"
     },
     "settings.troubleshooting.trace.help": {
-        "message": "将日志级别提升到 TRACE，并使 NetBird 上下线一次以捕获连接日志。调试包生成后将恢复先前的级别。"
+        "message": "将日志级别提升到 TRACE，之后再恢复原级别。"
+    },
+    "settings.troubleshooting.capture.label": {
+        "message": "捕获会话"
+    },
+    "settings.troubleshooting.capture.help": {
+        "message": "重新连接并等待，以便您复现问题。"
+    },
+    "settings.troubleshooting.packets.label": {
+        "message": "捕获网络数据包"
+    },
+    "settings.troubleshooting.packets.help": {
+        "message": "在捕获期间将网络流量保存为 .pcap 文件。"
     },
     "settings.troubleshooting.duration.label": {
         "message": "捕获时长"
     },
     "settings.troubleshooting.duration.help": {
-        "message": "在生成调试包之前捕获跟踪日志的时长。"
+        "message": "捕获会话运行的时长。"
     },
     "settings.troubleshooting.duration.suffix": {
         "message": "分钟"
@@ -770,17 +779,11 @@
     "settings.troubleshooting.uploadFailed": {
         "message": "上传失败。调试包仍已保存在本地。"
     },
-    "settings.troubleshooting.stage.preparingTrace": {
-        "message": "正在切换到跟踪日志记录…"
-    },
     "settings.troubleshooting.stage.reconnecting": {
         "message": "正在重新连接 NetBird…"
     },
     "settings.troubleshooting.stage.capturing": {
-        "message": "正在捕获日志"
-    },
-    "settings.troubleshooting.stage.restoring": {
-        "message": "正在恢复先前的日志级别…"
+        "message": "正在捕获调试日志"
     },
     "settings.troubleshooting.stage.bundling": {
         "message": "正在生成调试包…"

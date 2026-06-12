@@ -52,7 +52,7 @@ export const SettingsPage = () => {
                                 className={"flex-1 min-h-0 overflow-hidden"}
                             >
                                 <ScrollArea.Viewport className={"h-full w-full"}>
-                                    <div className={"py-8 px-7"}>
+                                    <div className={"py-6 px-7"}>
                                         <VerticalTabs.Content value={"general"}>
                                             <SettingsGeneral />
                                         </VerticalTabs.Content>
